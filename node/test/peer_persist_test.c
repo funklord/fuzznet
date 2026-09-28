@@ -130,6 +130,24 @@ int main(void)
 		   "packed, reading a hop past the end of its own array");
 	}
 
+	/* THE BYTES, AT THE OFFSETS persist.situ STATES (sec 387), written as
+	 * literals so the schema and peer_persist.c's OFF_ macros are two
+	 * witnesses rather than one: sender at 2, the keys at 34 and 66, the
+	 * count at 98, hops from 99 at 179 each, and the longest blob the
+	 * schema allows, 2 + 1529, is the longest the code will write. */
+	fill(&p, 2);
+	ok(fzn_node_peer_pack(&p, blob, sizeof(blob), &len) == FZN_PERSIST_OK && len == 457u,
+	   "a two-hop node peer blob is not 2 + 97 + 2 * 179 bytes");
+	ok(blob[0] == 1u && blob[1] == 5u, "the node peer blob's head is not version 1, tag 5");
+	ok(memcmp(blob + 2, p.sender, 32) == 0 && memcmp(blob + 34, p.recv_key, 32) == 0
+	           && memcmp(blob + 66, p.recv_ckey, 32) == 0,
+	   "the node peer's sender and keys are not at 2, 34 and 66");
+	ok(blob[98] == 2u && memcmp(blob + 99, p.hop_bytes[0], 179) == 0
+	           && memcmp(blob + 278, p.hop_bytes[1], 179) == 0,
+	   "the node peer's hop count is not at 98, or its hops do not follow it at 179 each");
+	ok(FZN_NODE_PEER_BLOB_MAX == 1531u,
+	   "the longest node peer blob is not the longest persist.situ allows");
+
 	/* And at OPEN, where the count arrives from a file rather than from a
 	 * caller -- the case that matters, since a file is somebody else's. */
 	fill(&p, 2);

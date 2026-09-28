@@ -47250,9 +47250,10 @@ Pairing. The daemon holds a key now, so `fzn_node_provision_peer` and
 which capability, for how long -- is the part the header still keeps out of
 the daemon, and it is where the next piece starts.
 
-`persist/persist.situ` describes tags 1-4 and 6. Tag 5, the node peer, is
+~~`persist/persist.situ` describes tags 1-4 and 6. Tag 5, the node peer, is
 variable-length and packed in `node/peer_persist.c`, and the schema does not
-describe it.
+describe it.~~ It does since sec 387, along with 7 and 8, which were added
+later.
 
 ## 376. fuzznetd required a capability nobody could hold, and now pairs, 2026-09-26
 
@@ -47402,12 +47403,9 @@ refused and stored nothing.
 
 ### What sec 377 leaves
 
-- **Asking from the command line.** Everything a device needs to ask a node
-  is stored, and `fuzznetd` has no mode that asks; a consumer uses
-  `node/caller.h`. Whether the daemon grows a client mode is the
-  vocabulary's question, since what one would send is a verb.
-- **Pairing into a live daemon** still needs a restart for the node to load
-  the new peer (sec 376).
+- ~~**Asking from the command line.**~~ `fuzznetd --ask`, sec 381.
+- ~~**Pairing into a live daemon**~~ `add peer` pairs into the running
+  node, sec 378.
 
 ## 378. A node answers fuzznet's verbs about itself, and pairs while running, 2026-09-26
 
@@ -47623,13 +47621,9 @@ the store, the record being saved, and `ALREADY`.
 
 ### What sec 380 leaves
 
-- **Carrying revocations to other nodes.** A revocation is signed so it can
-  travel "on contact" (`chain/revocation.h`), and nothing here sends one
-  anywhere. A node's revocations reach other nodes of its estate through
-  manifests (sec 13d), which the node does not yet publish.
-- **Withdrawing.** `fzn_node_revoke` re-revokes correctly after a
-  withdrawal, and no verb issues a withdrawal. Un-revoking was not asked
-  for.
+- ~~**Carrying revocations to other nodes.**~~ A member pulls its root's
+  revocations, sec 384. Manifests are still not published by the node.
+- ~~**Withdrawing.**~~ `remove revocation KEY`, sec 386.
 
 ## 381. The remote hop answers, and a device can ask from the command line, 2026-09-26
 
@@ -48071,3 +48065,40 @@ and is recorded here so the next reader of that log knows.
 
 Three sabotage entries cover the target hash over the whole record, the
 refusal to undo a withdrawal, and the verb's dispatch.
+
+## 387. The node peer blob, described, 2026-09-28
+
+`persist/persist.situ` described every persist blob but one: tag 5, the
+peer as the node keeps it. sec 375 recorded this, and it was the one layout
+in `persist.h`'s inventory existing only as offsets in
+`node/peer_persist.c`. Everything in secs 380-386 stores its authority in
+that blob, so it was also the one carrying the estate's chains.
+
+Its body is sender, receive key and commitment key (32 each), a hop count
+refused past `FZN_CHAIN_MAX_HOPS`, and that many signed hops, 97 to 1529
+bytes. The hops stay opaque, as the pairing body's hop does, inside a
+one-field `fzn_persist_hop` so the array has something to count.
+
+situc reports adding the arm as two breaking changes: a new enum value,
+and the union widening from 307 to 1529. That is true of the contract, and
+no byte anybody holds moves. The C code has written tag 5 since sec 366;
+what changed is that the schema now says so.
+
+`peer_persist_test` holds the two descriptions to each other. It reads a
+packed two-hop blob at the offsets the schema states, written as literals
+rather than through `peer_persist.c`'s `OFF_` macros:
+
+- the head, version 1 and tag 5;
+- sender at 2, the keys at 34 and 66;
+- the count at 98, the hops from 99 at 179 each;
+- the total, 457;
+- `FZN_NODE_PEER_BLOB_MAX` equal to the schema's longest, 2 + 1529.
+
+The first version of the length check expected 459, an arithmetic
+slip in the test. It failed, and splitting the one combined check into four
+showed that the bytes were right and only the expectation was wrong.
+`make schema` passes against situ ccbe1e7.
+
+Also struck here: four "what sec N leaves" items that later sections closed
+(asking from the command line, pairing live, carrying revocations,
+withdrawing). Each had gone on reading as open after its closing commit.

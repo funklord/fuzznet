@@ -5,8 +5,8 @@
 // an at-rest record wants, where `target buffer` is for bytes already in hand.
 //
 // Every blob is `version | tag | body` (persist.c: OFF_VERSION=0, OFF_TAG=1,
-// OFF_BODY=2), a two-byte head followed by ONE OF seven fixed bodies chosen by
-// the tag. It is a TAGGED UNION, modelled with situ's variant/switch: the tag
+// OFF_BODY=2), a two-byte head followed by ONE OF eight bodies chosen by the
+// tag, seven fixed and one, the node peer, sized by its own hop count. It is a TAGGED UNION, modelled with situ's variant/switch: the tag
 // is the discriminant and each arm is one body struct.
 //
 // The tag byte is checked exactly by persist.c's head_check, and an unknown
@@ -28,6 +28,9 @@
 //                                  send_ckey, hop; node/pair.c, sec 377)
 //   REVOCATION_BODY = 202          (a signed revocation record,
 //                                  chain/revocation.situ; node/revoke.c, sec 380)
+//   NODE_PEER_BODY = 32+32+32+1 + 179 * hop_count = 97..1529
+//                                  (sender, recv_key, recv_ckey, hop_count,
+//                                  hops; node/peer_persist.c, sec 366)
 
 target file;
 endian big;
@@ -37,12 +40,13 @@ endian big;
 // FZN_PERSIST_BLOB_REVOCATION=8, which node/revoke.c packs.
 // A byte that is not one of these is refused, matching head_check's tag
 // mismatch. 5 is FZN_PERSIST_BLOB_NODE_PEER, which node/peer_persist.c packs
-// with a variable-length body and this schema does not yet describe.
+// with a body sized by its hop count; described since sec 387.
 enum fzn_persist_tag : u8 {
 	trust  = 1,
 	secret = 2,
 	peer   = 3,
 	chain  = 4,
+	node_peer = 5,
 	identity = 6,
 	pairing = 7,
 	revocation = 8,
@@ -106,6 +110,25 @@ struct fzn_persist_revocation_body {
 	u8  record[202];
 }
 
+// One signed hop, opaque here as the pairing's is (179 bytes,
+// chain/hop.situ). A struct so the node peer's hops can be counted.
+struct fzn_persist_hop {
+	u8  bytes[179];
+}
+
+// A peer as the NODE keeps it: who it is, the session keys its frames open
+// under, and its grant as the whole chain from the root -- one hop when the
+// node minted it, more when the node grants through an estate's chain (sec
+// 383). hop_count is refused past FZN_CHAIN_MAX_HOPS by peer_persist.c's
+// open, and at zero there is nothing to authorise with.
+struct fzn_persist_node_peer_body {
+	u8  sender[32];
+	u8  recv_key[32];                // FZN_AEAD_KEY_LEN
+	u8  recv_ckey[32];               // FZN_COMMITMENT_KEY_LEN
+	u8  hop_count [max = 8];         // FZN_CHAIN_MAX_HOPS
+	fzn_persist_hop hops[hop_count];
+}
+
 // version | tag | body. The body is the arm the tag selects.
 struct fzn_persist_blob {
 	u8               version;
@@ -116,6 +139,7 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.secret: fzn_persist_secret_body  secret;
 		case fzn_persist_tag.peer:   fzn_persist_peer_body    peer;
 		case fzn_persist_tag.chain:  fzn_persist_chain_body   chain;
+		case fzn_persist_tag.node_peer: fzn_persist_node_peer_body node_peer;
 		case fzn_persist_tag.identity: fzn_persist_identity_body identity;
 		case fzn_persist_tag.pairing:  fzn_persist_pairing_body  pairing;
 		case fzn_persist_tag.revocation: fzn_persist_revocation_body revocation;
