@@ -41,14 +41,21 @@
  * CAP_PEER_MANAGE -- naming it as the last grantee. The receiver checks it,
  * as revoking checks standing (`chain/revocation.h`).
  *
- * AND THE CHECK FOLLOWS WHICH WAY A RECORD CAN MOVE ACCESS. A removal can
- * only take access away, so it is admitted CLOCK- AND REVOCATION-BLIND, the
- * way a revocation is: a removal must never be lost because its writer's
- * grant later lapsed or was revoked, since losing one resurrects a contact.
- * An add can grant access, so it is checked against the clock and the
- * revocations this host holds at admission -- a stolen phone, once revoked,
- * adds nobody. The cost is the one every chain grant has: an add admitted
- * before its writer's revocation arrived stays admitted.
+ * A REVOKED WRITER WRITES NOTHING, removals included. Both an add and a
+ * removal are checked against the revocations this host holds. A removal was
+ * first admitted revocation-blind, so none could be lost; fuzzypickles showed
+ * the cost -- a stolen phone, queued offline, could remove every contact in
+ * the estate for good, since a tombstone is permanent -- and the holder
+ * decided 2026-09-28 to refuse it (sec 388). What that gives up: a genuine
+ * removal made on a device just before it was revoked, and not yet carried,
+ * is lost and must be made again from another host. Carriage runs through
+ * the root, which decides for every host, so the refusal is the same
+ * everywhere rather than depending on arrival order.
+ *
+ * THE CLOCK IS A DIFFERENT QUESTION. A removal carries no time of its own,
+ * so it is checked at the moment its writer's newest hop was issued: one made
+ * while the grant held is not lost to the grant expiring before it arrived.
+ * An add can grant access and is checked against the clock as well.
  *
  * ONLY THE USER'S OWN HOSTS. The subject is never told it was removed. That
  * is fuzzypickles' rule for un-pairing, and this does not change it: the

@@ -166,11 +166,11 @@ static fzn_roster_entry_t *find(const fzn_roster_t *roster, const uint8_t *subje
 /* STANDING: the root, or a chain from it for the roster's capability naming
  * the writer as its last grantee.
  *
- * `blind` is a removal's admission, and it asks whether the writer HELD the
- * grant rather than whether it holds it now: no revocations, and the chain
- * checked at the moment its newest hop was issued, when every hop existed and
- * nothing that lapsed later can refuse it. A removal must not be lost to its
- * writer's grant expiring or being revoked afterwards (roster.h). */
+ * `blind` is a removal's admission, and it is blind to the CLOCK only: the
+ * chain is checked at the moment its newest hop was issued, so a removal is
+ * not lost to its writer's grant simply running out before it arrived. It is
+ * NOT blind to revocations -- a revoked writer removes nothing (roster.h,
+ * sec 388, the holder's decision of 2026-09-28). */
 static int has_standing(const uint8_t *writer, const fzn_chain_hop_t *hops, size_t hop_count,
                         const fzn_roster_authority_t *authority, int blind)
 {
@@ -187,7 +187,7 @@ static int has_standing(const uint8_t *writer, const fzn_chain_hop_t *hops, size
 			latest = fzn_hop_issued_at(hops[i]);
 	if (fzn_chain_verify(hops, hop_count, authority->root, authority->capability,
 	                     blind ? latest : authority->now, authority->sign,
-	                     blind ? NULL : authority->revocations, NULL, &verdict)
+	                     authority->revocations, NULL, &verdict)
 	    != FZN_CHAIN_OK)
 		return 0;
 	return memcmp(verdict.grantee, writer, FZN_PUBKEY_LEN) == 0;

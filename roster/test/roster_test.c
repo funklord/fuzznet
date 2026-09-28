@@ -401,9 +401,13 @@ static void test_standing(void)
 		              && fzn_roster_admit(&r2, view(&y_add), ok, 1, &a)
 		                         == FZN_ROSTER_ERR_STANDING,
 		      "a revoked writer's add was admitted");
-		CHECK(fzn_roster_admit(&r2, view(&y_rm), ok, 1, &a) == FZN_ROSTER_OK,
-		      "a revoked writer's removal was refused, which leaves a contact in place");
+		/* THE HOLDER'S DECISION, 2026-09-28: a revoked writer removes
+		 * nothing either, or a stolen phone is a tool for wiping the
+		 * roster, permanently. */
+		CHECK(fzn_roster_admit(&r2, view(&y_rm), ok, 1, &a) == FZN_ROSTER_ERR_STANDING,
+		      "a revoked writer's removal was admitted: a stolen device can wipe the roster");
 	}
+	a = authority_now(1000, NULL);
 	CHECK(fzn_roster_admit(&r, view(&m_rm), ok, 1, &a) == FZN_ROSTER_OK
 	              && active_seed(&r, &alice) == 0u,
 	      "the member's removal did not remove");

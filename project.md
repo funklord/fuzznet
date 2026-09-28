@@ -48161,7 +48161,7 @@ the other party is never told. For the user's own hosts, this tombstone
 replaces it, following the 2026-09-28 decision that removal is the user's.
 The two do not conflict.
 
-### Who may write, and how the check follows the direction
+### Who may write, and a revoked writer
 
 A record is signed by the host that wrote it and verified under its own
 `writer` field. Its writer is either the estate root, or shows a chain from
@@ -48169,15 +48169,32 @@ the root for a capability the consumer configures (fuzzypickles'
 CAP_PEER_MANAGE) naming the writer as the last grantee. That is the rule
 revoking uses: a key may write what its chain entitles it to.
 
-**The check follows which way a record can move access.** A removal can
-only take access away, so it is admitted without consulting revocations,
-with the chain checked at the moment its newest hop was issued. A removal
-must never be lost to its writer's grant expiring or being revoked later,
-since losing one resurrects a contact. That is revocation admission's
-argument (`chain/revocation.h`). An add can grant access, so it is checked
-against the clock and the revocations this host holds: a stolen phone,
-once revoked, adds nobody. The cost is the one every chain grant has. An
-add admitted before its writer's revocation arrived stays admitted.
+**A revoked writer writes nothing, removals included.** The first version
+admitted a removal without consulting revocations, on revocation
+admission's argument that a removal must never be lost. fuzzypickles showed
+what that costs for contacts. A stolen phone, used before it is revoked or
+kept offline with removals queued, could remove every contact in the
+estate after the revocation, and since a tombstone is permanent, recovery
+would mean re-pairing every contact by hand. They relayed the trade-off
+without deciding it. **The holder decided 2026-09-28 to refuse it.**
+
+What that gives up: a genuine removal made on a device just before it was
+revoked, and not yet carried, is lost, and the user makes it again from
+another host. The options not taken were keeping the blind admission and
+adding a "restore" record to undo a revoked writer's removals, and
+fuzzypickles' cutoff at a seq named by the revocation. The cutoff was
+rejected because a revocation carries no roster seq, and the thief controls
+the phone's counter.
+
+**Carriage makes the refusal consistent.** Records reach the user's hosts
+through the root, and the root decides admission for all of them. So
+whether a removal counts does not depend on whether a host learned the
+revocation first.
+
+**The clock is a separate question.** A removal carries no time of its
+own, so it is checked at the moment its writer's newest hop was issued: one
+made while the grant held is not lost to the grant expiring before it
+arrived. An add can grant access and is checked against the clock as well.
 
 ### What is built, and what is not yet
 
@@ -48221,15 +48238,15 @@ add admitted before its writer's revocation arrived stays admitted.
 - standing is refused for a stranger, for a chain carrying another
   capability, for a chain naming somebody else, and for a signature made by
   another key;
-- under an expired grant, and under a revoked one, an add is refused and a
-  removal taken;
+- under an expired grant an add is refused and a removal taken; under a
+  revoked one, both are refused;
 - every one of the 5040 orders of seven records gives the same roster, and
   it is the right one.
 
 Nine sabotage entries cover:
 
-- the removed check, and the blind removal;
-- the revocation check on an add;
+- the removed check, and the removal's clock-blind check;
+- the revocation check, on adds and removals alike;
 - the second-add conflict;
 - verifying under the writer, and standing naming the writer;
 - the empty body on an add;

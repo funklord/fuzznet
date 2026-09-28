@@ -3676,11 +3676,11 @@ SABOTAGES = [
 		"a removal checked against today's clock is lost when its writer's grant has since expired, and the contact it removed stays -- sec 388",
 	),
 	(
-		"roster-add-checks-revocations",
+		"roster-checks-revocations",
 		"roster/roster.c",
-		"\t                     blind ? NULL : authority->revocations, NULL, &verdict)\n",
+		"\t                     authority->revocations, NULL, &verdict)\n",
 		"\t                     NULL, NULL, &verdict)\n",
-		"an add not checked against the revocations this host holds lets a revoked, stolen device add a contact to the user's roster -- sec 388",
+		"a record not checked against the revocations this host holds lets a revoked, stolen device add a contact, or remove every contact for good -- sec 388",
 	),
 	(
 		"roster-second-add-conflicts",
