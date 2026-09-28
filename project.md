@@ -48564,3 +48564,35 @@ alone was refused.
 
 Two sabotage entries cover the route's direction and the unnamed-slot
 default.
+
+## 393. The manifest names what the bindings need from Monocypher, 2026-09-28
+
+fuzzypickles found the gap while moving its pin to 46b3032, in its own
+words: its core Makefile builds fuzznet's sources from `make manifest` and
+compiled `binding` lines against `-I<monocypher>/src` alone, and after the
+move `chain/sign_monocypher.c:6` failed with "fatal error:
+monocypher-ed25519.h: No such file or directory". Sec 390 made the signer
+need Monocypher's optional Ed25519 unit, and only this Makefile knew it.
+
+**Nothing could have caught it here, and that was the second fault.**
+`installcheck`'s manifest arm compiles a consumer from the manifest's
+`source` lines and deliberately leaves the bindings out, so nothing had
+ever built a `binding` line from what the manifest says.
+
+- The manifest now states what the bindings take from the consumer's
+  Monocypher, relative to that checkout's root:
+  `monocypher-source src/monocypher.c` and
+  `src/optional/monocypher-ed25519.c`, and `monocypher-include src` and
+  `src/optional`. They come from `MONO_NEEDS_SRC` and `MONO_NEEDS_INC`,
+  the variables the new arm reads.
+- `installcheck` gains a binding arm, run when Monocypher is here to build
+  against. It compiles the consumer with its bindings from the manifest
+  and a Monocypher checkout alone, and refuses a manifest naming no
+  Monocypher sources.
+
+Shown able to fail: the same run with the Ed25519 unit and its directory
+withheld from the manifest stopped with the header error fuzzypickles
+reported. With them, "the bindings build from the manifest alone".
+fuzzypickles also reports that its own core test now checks RFC 8032
+section 7.1 against fuzznet's verifier from its side, so a sabotaged
+vector fails in both trees.

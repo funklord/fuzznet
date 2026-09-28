@@ -1302,6 +1302,10 @@ VENDOR_PRUNE := $(foreach d,$(VENDOR_DIRS),-not -path './$(d)/*') \
 # empty in a build that skipped the binding, and the check would report two
 # real sources as unlisted -- a false finding, which is worse in a gate than
 # no finding at all.
+# What the bindings take from a Monocypher checkout, relative to its root:
+# `make manifest` states them and installcheck's binding arm builds from them.
+MONO_NEEDS_SRC := src/monocypher.c src/optional/monocypher-ed25519.c
+MONO_NEEDS_INC := src src/optional
 MONO_SRCS  := chain/sign_monocypher.c session/hash_monocypher.c \
               session/aead_monocypher.c session/agree_monocypher.c
 MONO_HDRS  := chain/sign_monocypher.h session/hash_monocypher.h \
@@ -5586,6 +5590,28 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 	cd $(BUILD_DIR)/installcheck && $(CC) $(CFLAGS) $$incs \
 	       -o consumer_manifest $(CURDIR)/tool/consumer_check.c $$srcs
 	@$(BUILD_DIR)/installcheck/consumer_manifest
+	@# THE BINDINGS, FROM THE MANIFEST AND A MONOCYPHER CHECKOUT ALONE. The
+	@# arm above leaves them out on purpose, which meant nothing checked that
+	@# a `binding` line could be built from what the manifest says -- and it
+	@# could not, since sec 390, until fuzzypickles met the missing optional
+	@# unit. Only where a Monocypher is here to build against. sec 393.
+	@if [ -n "$(MONO_ON)" ]; then \
+		srcs=; incs=; \
+		while read -r key val; do \
+			case "$$key" in \
+			source|generated|binding) srcs="$$srcs $(CURDIR)/$$val" ;; \
+			include) incs="$$incs -I$(CURDIR)/$$val" ;; \
+			monocypher-source) srcs="$$srcs $(MONO_ABS)/$$val" ;; \
+			monocypher-include) incs="$$incs -I$(MONO_ABS)/$$val" ;; \
+			esac; \
+		done < $(BUILD_DIR)/installcheck/manifest.txt; \
+		grep -q '^monocypher-source ' $(BUILD_DIR)/installcheck/manifest.txt || { \
+			echo "installcheck: the manifest names no Monocypher sources"; exit 1; }; \
+		( cd $(BUILD_DIR)/installcheck && $(CC) $(CFLAGS) -DFZN_CONSUMER_MONOCYPHER $$incs \
+		       -o consumer_bindings $(CURDIR)/tool/consumer_check.c $$srcs ) || exit 1; \
+		$(BUILD_DIR)/installcheck/consumer_bindings || exit 1; \
+		echo "installcheck: the bindings build from the manifest alone"; \
+	fi
 	@# THE HEADERS MUST PARSE AS C++, AND THE LIST IS DERIVED FROM HDRS
 	@# rather than written out, so it cannot fall behind the way a second
 	@# hand-maintained list would. Three headers used `_Static_assert`,
@@ -5621,7 +5647,7 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 		echo "installcheck: no C++ compiler, so the C++ header arm was skipped"; \
 	fi
 	@rm -rf $(BUILD_DIR)/installcheck
-	@echo "installcheck: all four arrangements build and run"
+	@echo "installcheck: every arrangement builds and runs"
 
 # WHAT A FOREIGN BUILD SYSTEM NEEDS, emitted rather than transcribed.
 #
@@ -5689,6 +5715,14 @@ manifest:
 	@# Neither is something a consumer should acquire by following a list,
 	@# so each is named with what it costs and taken deliberately.
 	@for c in $(MONO_SRCS); do echo "binding $$c"; done
+	@# WHAT A BINDING NEEDS FROM THE CONSUMER'S MONOCYPHER, relative to that
+	@# checkout's root. The signer needs Monocypher's optional Ed25519 unit
+	@# since sec 390, and until these lines only this Makefile knew it:
+	@# fuzzypickles, building from the manifest, met it as a missing header
+	@# while moving its pin (2026-09-28). The binding arm of installcheck
+	@# builds from these lines alone, so a line missing here fails there.
+	@for c in $(MONO_NEEDS_SRC); do echo "monocypher-source $$c"; done
+	@for c in $(MONO_NEEDS_INC); do echo "monocypher-include $$c"; done
 	@$(if $(PERSIST_FILE_ON),echo "backend persist/persist_file.c FZN_PERSIST_FILE_ON";)
 	@$(if $(CLAIM_FILE_ON),echo "backend claim/claim_file.c FZN_CLAIM_FILE_ON";)
 	@$(if $(RECORD_STORE_FILE_ON),echo "backend record/store_file.c FZN_RECORD_STORE_FILE_ON";)

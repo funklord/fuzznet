@@ -98,8 +98,9 @@ instead.
 `source` and `generated` are what to compile and `include` where to look;
 `header` is what it installs; and `binding`, `backend` and `subsystem` are
 the things a consumer takes deliberately rather than by following a list. A
-binding needs the consumer's own Monocypher; a backend and a subsystem each
-carry the define that switches them on.
+binding needs the consumer's own Monocypher, and `monocypher-source` and
+`monocypher-include` say what of it, relative to that checkout's root; a
+backend and a subsystem each carry the define that switches them on.
 
 Nothing is checked in, because a generated list that gets committed is
 the stale copy it exists to prevent, and `make installcheck` compiles a
