@@ -98,6 +98,7 @@
 #include <fuzznet/ratchet/ratchet.h>
 #include <fuzznet/prekey/prekey.h>
 #include <fuzznet/provision/provision.h>
+#include <fuzznet/roster/roster.h>
 #include <fuzznet/disclose/disclose.h>
 #include <fuzznet/session/agree.h>
 #include <fuzznet/session/session.h>
@@ -220,6 +221,7 @@
 #include "ratchet/ratchet.h"
 #include "prekey/prekey.h"
 #include "provision/provision.h"
+#include "roster/roster.h"
 #include "disclose/disclose.h"
 #include "session/agree.h"
 #include "session/session.h"
@@ -2970,6 +2972,49 @@ int main(void)
 			FAIL(316);
 		if (fzn_provision_err_str(FZN_PROVISION_ERR_EXPIRED) == NULL)
 			FAIL(317);
+	}
+
+	/* The roster: the root adds a subject and removes it, and a consumer
+	 * reads the answer. sec 388. */
+	{
+		static fzn_roster_entry_t entries[4];
+		uint8_t writer[FZN_PUBKEY_LEN], subject[FZN_PUBKEY_LEN];
+		uint8_t inc[FZN_ROSTER_INCARNATION_LEN], got[FZN_ROSTER_INCARNATION_LEN];
+		uint8_t rec[FZN_ROSTER_MAX_LEN];
+		size_t rec_len = 0;
+		fzn_roster_t roster;
+		fzn_roster_record_t view;
+		fzn_roster_authority_t authority;
+		fzn_cap_id_t roster_cap;
+
+		memset(writer, 0x4a, sizeof(writer));
+		memset(subject, 0x5a, sizeof(subject));
+		memset(inc, 0x5b, sizeof(inc));
+		memset(&roster_cap, 0x5c, sizeof(roster_cap));
+		authority.root = writer;
+		authority.capability = &roster_cap;
+		authority.sign = &sign;
+		authority.now = 1000u;
+		authority.revocations = NULL;
+
+		if (fzn_roster_init(&roster, entries, 4) != FZN_ROSTER_OK)
+			FAIL(441);
+		if (fzn_roster_issue_add(writer, subject, inc, 1u, &sign, rec, sizeof(rec), &rec_len)
+		            != FZN_ROSTER_OK
+		    || fzn_roster_open(rec, rec_len, &view) != FZN_ROSTER_OK
+		    || fzn_roster_admit(&roster, view, NULL, 0u, &authority) != FZN_ROSTER_OK)
+			FAIL(442);
+		if (!fzn_roster_active(&roster, subject, got) || memcmp(got, inc, sizeof(inc)) != 0)
+			FAIL(443);
+		if (fzn_roster_issue_remove(writer, subject, inc, 2u, &sign, rec, sizeof(rec),
+		                            &rec_len) != FZN_ROSTER_OK
+		    || fzn_roster_open(rec, rec_len, &view) != FZN_ROSTER_OK
+		    || fzn_roster_admit(&roster, view, NULL, 0u, &authority) != FZN_ROSTER_OK)
+			FAIL(444);
+		if (fzn_roster_active(&roster, subject, got) || !fzn_roster_removed(&roster, subject, inc))
+			FAIL(445);
+		if (fzn_roster_err_str(FZN_ROSTER_ERR_UNSUPPORTED) == NULL)
+			FAIL(446);
 	}
 
 	/* The ratchet, walked rather than compiled: one step, a fast-forward

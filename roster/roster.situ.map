@@ -1,0 +1,25 @@
+# situ capability map v1
+# schema: roster.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct fzn_roster size=157..349 mutate=Immutable address=Unstable repr=ValueConverted atomic=NonAtomic auth=Covered(signature)
+  fzn_roster.body                        offset=AbsoluteStatic(0x00) size=Bounded(93, 285) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting auth=Covered(signature)
+  fzn_roster.version                     offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_roster.object                      offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_roster.writer                      offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_roster.subject                     offset=AbsoluteStatic(0x22) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_roster.incarnation                 offset=AbsoluteStatic(0x42) size=Fixed(16) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_roster.seq                         offset=AbsoluteStatic(0x52) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic auth=Covered(signature)
+  fzn_roster.setting                     offset=AbsoluteStatic(0x5A) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord auth=Covered(signature)
+  fzn_roster.body_len                    offset=AbsoluteStatic(0x5C) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_roster.value                       offset=AbsoluteStatic(0x5D) size=Bounded(0, 192) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting auth=Covered(signature)
+  fzn_roster.signature                   offset=Dynamic size=Fixed(64) align=Unaligned repr=MemoryIdentical atomic=NonAtomic mutate=Immutable address=Unstable

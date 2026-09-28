@@ -46150,11 +46150,10 @@ which of its kinds are commands. But the kinds are fuzznet's own
 expiry rule per kind is a real question and the holder's.
 
 Being preemptive, the candidates most likely to be duplicated next, none of
-them built: a reply vocabulary to match the request one (every consumer will
-invent `ok`/`error` and a status code space); the argument grammar above the
-first space, if two consumers turn out to want the same shape; and a client
-side for the local socket, since all three will write one to talk to their
-own daemon.
+them built at the time: ~~a reply vocabulary to match the request one~~
+(683f1f3, 2026-09-22); the argument grammar above the first space, if two
+consumers turn out to want the same shape; and ~~a client side for the
+local socket~~ (78fa82d, 2026-09-22).
 
 ## 362. A reply larger than a frame, reported by raidcfgd, 2026-09-22
 
@@ -46771,8 +46770,11 @@ fixture; the question worth asking first is why the thing is hard to drive.
 this path and reassembles nothing, so an over-large request is dropped at the
 far end and arrives back as a TIMEOUT -- an error about the network for a
 fault in the request. Refused where the caller still knows what it meant.
-**The mirror piece is the node's and is not built**: chunked REQUESTS would
-need the remote path to reassemble, which only `fzn_admit` does today.
+~~**The mirror piece is the node's and is not built**: chunked REQUESTS would
+need the remote path to reassemble, which only `fzn_admit` does today.~~
+Built in sec 370, for a node given a reassembly table. `fuzznetd` gives it
+none, deliberately: its handler speaks fuzznet's grammar, whose lines stop
+at `FZN_REQUEST_MAX` (512), and every one of them fits in a single frame.
 
 **A frame that will not open, or carries another `msg`, is skipped rather
 than fatal.** This socket can receive a late reply to an earlier question, a
@@ -47929,11 +47931,16 @@ fuzzypickles asked for the following, and it is their requirement in their
 words, not built here. A per-contact location share is a yes/no flag and a
 precision: exact, about 1 km, or about 10 km. It belongs to the USER, not
 to one device, and must propagate between the user's hosts. Changing it
-needs `CAP_PEER_MANAGE`, checked by the receiver. Their conflict rule is
-last-writer-wins on `(seq, writer)`, and they suggest a withdrawal beats a
-grant. They record it as the holder's decision of 2026-09-26. Their interim
-is peer-sync v2 (their `25bb37b`), which gives way once fuzznet carries
-it. The holder's boundary is that nearly all wire work is fuzznet's:
+needs `CAP_PEER_MANAGE`, checked by the receiver. Their interim, peer-sync
+v2 (their `25bb37b`), resolves by plain last-writer-wins on `(seq, writer)`
+and gives way once fuzznet carries this.
+
+**Corrected 2026-09-28, at fuzzypickles' request.** This entry first read
+as though the conflict rule, and "a withdrawal beats a grant", were the
+holder's decision of 2026-09-26. The holder decided only that a location
+share is the user's rather than one device's. Last-writer-wins is
+fuzzypickles' interim rule. Withdrawal-beats-grant was sent to fuzznet as a
+question, and it is open. The holder's boundary is that nearly all wire work is fuzznet's:
 fuzzypickles drives the requirement and does not implement the wire.
 
 The pull built above is the nearest thing here: a per-grantee record,
@@ -48102,3 +48109,129 @@ showed that the bytes were right and only the expectation was wrong.
 Also struck here: four "what sec N leaves" items that later sections closed
 (asking from the command line, pairing live, carrying revocations,
 withdrawing). Each had gone on reading as open after its closing commit.
+
+## 388. A user's roster: removal that stays removed, 2026-09-28
+
+fuzzypickles reported a privacy defect and reproduced it with three
+daemons (a vault, a phone holding their CAP_PEER_MANAGE, and alice):
+
+- the vault removed alice;
+- the phone later changed alice's location share;
+- the vault received the newer record, found alice absent, and recreated
+  her, already allowed to ask where the user is.
+
+The holder decided on 2026-09-28 that removing a contact is the user's act
+and that carrying it is fuzznet's. That is in fuzzypickles' words; they
+relayed the decision. Their requirement, confirmed against the design
+below before it was built:
+
+- a contact removed on any of a user's hosts is removed on all of them
+  and stays removed;
+- an older or concurrent update must not bring it back;
+- a deliberate re-add or re-pair is a fresh contact and must work;
+- removing needs the same authority as adding, checked by the receiver;
+- only the user's own hosts converge, and the contact is never told.
+
+### The incarnation
+
+Adding a subject mints an incarnation, 16 random bytes fixed at the add.
+Every later record about the subject names the incarnation it concerns,
+and a removal is a tombstone for one incarnation, kept for good. A record
+naming a removed incarnation changes nothing however high its `seq`. In
+the reproduction, the phone's share change names the incarnation the vault
+removed, so the vault keeps alice removed.
+
+Nothing orders by clock or sequence to decide this. That is why it holds
+under any concurrency, and why it was preferred to fuzzypickles' interim
+last-writer-wins on `(seq, writer)`, which is exactly what the reproduction
+defeats. A re-add mints a new incarnation, so it is a fresh subject even
+for the same key.
+
+**Two live incarnations of one subject** arise when it is added
+independently on two hosts. The active one is the add with the greatest
+`(seq, writer)`. Settings belong to an incarnation, so the loser's are
+lost with it. fuzzypickles asked for that consequence to be stated, and it
+is accepted rather than merged.
+
+**Tombstones are kept forever.** Pruning needs "every host has it", and a
+host that is away for a month would resurrect the contact through the gap.
+fuzzypickles' own peer-remove was built on the holder's instruction that no
+tombstone record is kept. That instruction concerned the CONTACT's side:
+the other party is never told. For the user's own hosts, this tombstone
+replaces it, following the 2026-09-28 decision that removal is the user's.
+The two do not conflict.
+
+### Who may write, and how the check follows the direction
+
+A record is signed by the host that wrote it and verified under its own
+`writer` field. Its writer is either the estate root, or shows a chain from
+the root for a capability the consumer configures (fuzzypickles'
+CAP_PEER_MANAGE) naming the writer as the last grantee. That is the rule
+revoking uses: a key may write what its chain entitles it to.
+
+**The check follows which way a record can move access.** A removal can
+only take access away, so it is admitted without consulting revocations,
+with the chain checked at the moment its newest hop was issued. A removal
+must never be lost to its writer's grant expiring or being revoked later,
+since losing one resurrects a contact. That is revocation admission's
+argument (`chain/revocation.h`). An add can grant access, so it is checked
+against the clock and the revocations this host holds: a stolen phone,
+once revoked, adds nobody. The cost is the one every chain grant has. An
+add admitted before its writer's revocation arrived stays admitted.
+
+### What is built, and what is not yet
+
+- `roster/roster.h` and `roster.c`, with three signed-object tags in
+  `wire/bytes.h`: `FZN_OBJECT_ROSTER_ADD` 135, `_REMOVE` 136 and `_SET`
+  137. They are three tags rather than a kind byte, on WITHDRAWAL's
+  argument: an add and a remove of one incarnation have the same length and
+  signer with opposite meanings.
+- `roster/roster.situ`, in `make schema`'s list. Its offsets are pinned as
+  literals in `roster_test`, beside the header's own, so the two are
+  independent witnesses.
+- **The setting record is laid out and refused.** Its body is opaque and
+  up to 192 bytes, sized for fuzzypickles' synced config values
+  (FZP_CONFIG_VALUE_MAX), not only the two-byte location share. How two
+  settings resolve is still open. fuzzypickles' configuration.md resolves
+  a conflict between two synced values toward the more restrictive one for
+  settings declaring a safe direction, and whether fuzznet adopts that is
+  the next decision. Until it is made, `fzn_roster_admit` answers
+  UNSUPPORTED rather than resolving one way now and another later.
+- **Not built yet:** storing roster records on a node, verbs a consumer's
+  daemon uses to add, remove and read, and carriage between the user's
+  hosts. Carriage will be the sec 384 shape: members write to the root and
+  pull from it.
+- **A full roster refuses**, like the revocation store. A refused removal
+  is a contact left in place, so its capacity is a fail-open bound, the
+  same as `fzn_revocation_store_t`'s (sec 14).
+
+### Measured for sec 388
+
+`roster_test`, 42 checks:
+
+- the record round-trips, sits at the schema's offsets, and refuses a
+  zero incarnation, an oversized body, a body or setting on an add, a
+  foreign tag, and a short length;
+- a removed incarnation stays removed against a newer contradicting add
+  (CONFLICT) and against a setting naming it;
+- a removal that overtakes its add is stored, and the add lands removed;
+- a re-add under a new incarnation is active;
+- of two live incarnations, the greater `seq` wins, and at equal `seq`
+  the greater writer;
+- standing is refused for a stranger, for a chain carrying another
+  capability, for a chain naming somebody else, and for a signature made by
+  another key;
+- under an expired grant, and under a revoked one, an add is refused and a
+  removal taken;
+- every one of the 5040 orders of seven records gives the same roster, and
+  it is the right one.
+
+Nine sabotage entries cover:
+
+- the removed check, and the blind removal;
+- the revocation check on an add;
+- the second-add conflict;
+- verifying under the writer, and standing naming the writer;
+- the empty body on an add;
+- the tie-break;
+- the writer accessor.

@@ -170,6 +170,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              frame/freshness.c \
              blob/blob.c ratchet/ratchet.c prekey/prekey.c \
              provision/provision.c \
+             roster/roster.c \
              disclose/disclose.c \
              facet/facet.c facet/codec.c \
              admit/admit.c chain/memo.c \
@@ -253,6 +254,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              frame/freshness.h \
              blob/blob.h ratchet/ratchet.h prekey/prekey.h \
              provision/provision.h \
+             roster/roster.h \
              disclose/disclose.h \
              facet/facet.h facet/codec.h \
              admit/admit.h chain/memo.h \
@@ -313,6 +315,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              provision/test/provision_fuzz.c \
              record/test/sync_fuzz.c \
              provision/test/provision_test.c \
+             roster/test/roster_test.c \
              disclose/test/disclose_test.c \
              disclose/test/disclose_fuzz.c \
              facet/test/facet_test.c \
@@ -419,6 +422,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/session/test/session_fuzz \
              $(BUILD_DIR)/prekey/test/prekey_test \
              $(BUILD_DIR)/provision/test/provision_test \
+             $(BUILD_DIR)/roster/test/roster_test \
              $(BUILD_DIR)/disclose/test/disclose_test \
              $(BUILD_DIR)/facet/test/facet_test \
              $(BUILD_DIR)/facet/test/codec_test \
@@ -2290,6 +2294,17 @@ $(BUILD_DIR)/provision/test/provision_test: \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# roster/ links chain/ for standing, and revocation/manifest because
+# fzn_chain_verify calls both; the signer is the test's own stub. sec 388.
+$(BUILD_DIR)/roster/test/roster_test: $(BUILD_DIR)/roster/test/roster_test.o \
+                                      $(BUILD_DIR)/roster/roster.o \
+                                      $(BUILD_DIR)/chain/chain.o \
+                                      $(BUILD_DIR)/chain/revocation.o \
+                                      $(BUILD_DIR)/chain/manifest.o \
+                                      $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # ratchet/ links only constant_time as well, for the same reason: it is a KDF
 # step and a bounded loop over it, with the hash arriving through a vtable.
 $(BUILD_DIR)/ratchet/test/ratchet_test: $(BUILD_DIR)/ratchet/test/ratchet_test.o \
@@ -3344,6 +3359,7 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/local/client.o \
+                                      $(BUILD_DIR)/roster/roster.o \
                                       $(BUILD_DIR)/node/identity.o \
                                       $(BUILD_DIR)/node/pair.o \
                                       $(BUILD_DIR)/node/revoke.o \
@@ -4896,7 +4912,8 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               prekey/prekey.situ persist/persist.situ spool/message.situ \
               spool/sidecar.situ record/record.situ tree/tree.situ \
               chain/chain.situ provision/provision.situ \
-              record/store_file.situ catalog/attribute.situ
+              record/store_file.situ catalog/attribute.situ \
+              roster/roster.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #

@@ -89,6 +89,7 @@
 /session/test/session_fuzz
 /prekey/test/prekey_test
 /provision/test/provision_test
+/roster/test/roster_test
 /provision/test/provision_fuzz
 /disclose/test/disclose_test
 /disclose/test/disclose_fuzz

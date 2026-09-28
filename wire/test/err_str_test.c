@@ -86,6 +86,7 @@
 #include "../../persist/persist.h"
 #include "../../tree/tree.h"
 #include "../../admit/admit.h"
+#include "../../roster/roster.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -126,6 +127,10 @@ static const char *r_revoke(int v)
 static const char *r_pull(int v)
 {
 	return fzn_node_pull_err_str((fzn_node_pull_err_t)v);
+}
+static const char *r_roster(int v)
+{
+	return fzn_roster_err_str((fzn_roster_err_t)v);
 }
 static const char *r_identity(int v)
 {
@@ -206,6 +211,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_node_pair_err_str", r_pair, 8 },
 	{ "fzn_node_revoke_err_str", r_revoke, 7 },
 	{ "fzn_node_pull_err_str", r_pull, 6 },
+	{ "fzn_roster_err_str", r_roster, 8 },
 	{ "fzn_record_err_str", r_record, 6 },
 	{ "fzn_journal_err_str", r_journal, 7 },
 	{ "fzn_ledger_err_str", r_ledger, 4 },

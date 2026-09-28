@@ -1,0 +1,39 @@
+// The roster record as a situ schema: an add, a remove or a setting, signed
+// by the host that wrote it. roster/roster.h carries the design and project.md
+// sec 388 the reason. Written against the FZN_ROSTER_OFF_* constants, which
+// roster_test pins to the same offsets.
+//
+// The object byte is one of THREE values, each its own tag in wire/bytes.h
+// (FZN_OBJECT_ROSTER_ADD, _REMOVE, _SET) on WITHDRAWAL's argument: an add and
+// a remove of one incarnation are the same length and signer with opposite
+// meanings, so the tag inside the signed range is what keeps them apart.
+//
+// An add or a remove carries setting 0 and no body; roster.c's open refuses
+// anything else. The body is opaque to fuzznet, up to 192 bytes, sized for
+// fuzzypickles' synced config values (FZP_CONFIG_VALUE_MAX).
+
+target buffer;
+endian big;
+
+enum fzn_roster_object : u8 {
+	add    = 135,           // FZN_OBJECT_ROSTER_ADD
+	remove = 136,           // FZN_OBJECT_ROSTER_REMOVE
+	set    = 137,           // FZN_OBJECT_ROSTER_SET
+}
+
+struct fzn_roster {
+	authenticated body {
+		u8  version [must_eq = 1];       // FZN_ROSTER_OFF_VERSION     0
+		fzn_roster_object object;        // FZN_ROSTER_OFF_OBJECT      1
+		u8  writer[32];                  // FZN_ROSTER_OFF_WRITER      2
+		u8  subject[32];                 // FZN_ROSTER_OFF_SUBJECT     34
+		u8  incarnation[16];             // FZN_ROSTER_OFF_INCARNATION 66
+		u64 seq;                         // FZN_ROSTER_OFF_SEQ         82
+		u16 setting;                     // FZN_ROSTER_OFF_SETTING     90
+		u8  body_len [max = 192];        // FZN_ROSTER_OFF_BODY_LEN    92
+		u8  value[body_len];             // FZN_ROSTER_HEADER_LEN      93
+	}
+	// covers(body) = bytes 0..92+body_len. The signer is extern, as for
+	// every signed object here: the caller signs and verifies.
+	checksum u8 signature[64] covers(body);
+}
