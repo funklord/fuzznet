@@ -222,10 +222,12 @@ typedef enum fzn_reply {
  * 1024, AND THE RULE THAT SETS IT: FUZZNET'S OWN VERBS MUST BE ANSWERABLE
  * WITHIN FUZZNET'S OWN BOUND. It was 512, and the first of fuzznet's verbs to
  * answer with an object -- `add peer`, whose answer is the pairing card --
- * needs `ok ` and 682 characters of `FZN1:` text. A verb whose answer cannot
- * fit is the promise-rather-than-capability the verb list above warns about.
- * `node/admin.c` asserts the card fits at compile time, so the next object a
- * verb answers with meets this at build rather than at a daemon. sec 378. */
+ * needs `ok ` and the card's text -- 684 characters for a one-hop card, 970
+ * for the two-hop card a member makes since sec 391. A verb whose answer
+ * cannot fit is the promise-rather-than-capability the verb list above warns
+ * about. `node/admin.c` asserts the two-hop card fits at compile time, so the
+ * next object a verb answers with meets this at build rather than at a
+ * daemon. sec 378. */
 #define FZN_REPLY_MAX 1024u
 
 /* The canonical spelling, NUL-terminated; NULL for FZN_REPLY_NONE and for a

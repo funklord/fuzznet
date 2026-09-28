@@ -64,20 +64,23 @@ fzn_node_provision_err_t fzn_node_make_card(const fzn_node_identity_t *id,
 	if (fzn_chain_mint(id->pubkey, device, cap, issued_at, expires_at, 0,
 	                   id->sign, hop_bytes) != FZN_CHAIN_OK)
 		return FZN_NODE_PROVISION_MINT;
-	return fzn_node_card_pack(id, hop_bytes, card_expires_at, out, cap_bytes, out_len);
+	return fzn_node_card_pack(id, id->pubkey, (const uint8_t (*)[FZN_HOP_LEN])hop_bytes, 1u,
+	                          card_expires_at, out, cap_bytes, out_len);
 }
 
 fzn_node_provision_err_t fzn_node_card_pack(const fzn_node_identity_t *id,
-                                            const uint8_t hop_bytes[FZN_HOP_LEN],
-                                            uint64_t card_expires_at, uint8_t *out,
-                                            size_t cap_bytes, size_t *out_len)
+                                            const uint8_t root[FZN_PUBKEY_LEN],
+                                            const uint8_t (*chain)[FZN_HOP_LEN],
+                                            size_t hop_count, uint64_t card_expires_at,
+                                            uint8_t *out, size_t cap_bytes, size_t *out_len)
 {
-	if (!id || !hop_bytes || !out || !out_len)
+	if (!id || !root || !chain || !out || !out_len)
 		return FZN_NODE_PROVISION_MALFORMED;
-	/* The card carries the node's key, the device's capability hop, and
-	 * the node's prekey so the device can agree a session with it. */
-	if (fzn_provision_pack(id->pubkey, hop_bytes, id->prekey_record,
-	                       card_expires_at, id->sign, out, cap_bytes, out_len)
+	/* The card carries the estate's root, the chain to the device, and this
+	 * node's prekey so the device can agree a session with it -- sealed by
+	 * this node, its sponsor. */
+	if (fzn_provision_pack(root, chain, hop_count, id->prekey_record, card_expires_at,
+	                       id->sign, out, cap_bytes, out_len)
 	    != FZN_PROVISION_OK)
 		return FZN_NODE_PROVISION_CARD;
 	return FZN_NODE_PROVISION_OK;
@@ -88,21 +91,23 @@ fzn_node_provision_err_t fzn_node_accept_card(const fzn_node_identity_t *device,
                                               size_t card_len, uint64_t now,
                                               uint8_t send_key[FZN_AEAD_KEY_LEN],
                                               uint8_t send_ckey[FZN_COMMITMENT_KEY_LEN],
-                                              uint8_t root_out[FZN_PUBKEY_LEN],
+                                              uint8_t node_out[FZN_PUBKEY_LEN],
                                               fzn_chain_hop_t *hop_out)
 {
 	fzn_provision_card_t card;
 	fzn_prekey_record_t node_prekey;
 	fzn_prekey_peer_t pinned;
-	fzn_chain_hop_t hop;
+	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS];
 	fzn_cap_id_t granted;
 	fzn_chain_t chain;
+	size_t i;
 
 	if (!device || !device->agree_secret || !card_bytes || !send_key ||
-	    !send_ckey || !root_out)
+	    !send_ckey || !node_out)
 		return FZN_NODE_PROVISION_MALFORMED;
 
-	/* Open the card and verify its envelope under the root it names. */
+	/* Open the card and verify it binds one sponsor to a chain from the
+	 * root it names (`fzn_provision_verify`). */
 	if (fzn_provision_open(card_bytes, card_len, &card) != FZN_PROVISION_OK)
 		return FZN_NODE_PROVISION_CARD;
 	if (fzn_provision_verify(card, device->sign, now) != FZN_PROVISION_OK)
@@ -113,15 +118,17 @@ fzn_node_provision_err_t fzn_node_accept_card(const fzn_node_identity_t *device,
 	 * any card proves that about itself -- and says nothing about whom it
 	 * was made for. A device handed another device's card accepted it,
 	 * derived a session the node has no peer for, and failed on its first
-	 * request in a way that looks like the network. So the hop is verified
-	 * under the card's root, for the capability it carries, and its grantee
-	 * must be this device. Checked before anything is pinned or derived.
-	 * sec 377. */
-	if (fzn_hop_open(card.hop, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK)
-		return FZN_NODE_PROVISION_CARD;
+	 * request in a way that looks like the network. So the WHOLE chain is
+	 * verified under the card's root, for the capability it carries, and
+	 * its last grantee must be this device. Checked before anything is
+	 * pinned or derived. sec 377, and the whole chain since sec 391. */
+	for (i = 0; i < card.hop_count; i++)
+		if (fzn_hop_open(card.chain + i * FZN_HOP_LEN, FZN_HOP_LEN, &hops[i])
+		    != FZN_CHAIN_OK)
+			return FZN_NODE_PROVISION_CARD;
 	memcpy(granted.b, card.hop + FZN_HOP_OFF_CAPABILITY, FZN_CAP_ID_LEN);
-	if (fzn_chain_verify(&hop, 1, card.root, &granted, now, device->sign, NULL, NULL,
-	                     &chain) != FZN_CHAIN_OK
+	if (fzn_chain_verify(hops, card.hop_count, card.root, &granted, now, device->sign, NULL,
+	                     NULL, &chain) != FZN_CHAIN_OK
 	    || memcmp(chain.grantee, device->pubkey, FZN_PUBKEY_LEN) != 0)
 		return FZN_NODE_PROVISION_NOT_MINE;
 
@@ -134,14 +141,16 @@ fzn_node_provision_err_t fzn_node_accept_card(const fzn_node_identity_t *device,
 	                   now) != FZN_PREKEY_OK)
 		return FZN_NODE_PROVISION_UNTRUSTED;
 
-	/* The session this device seals to the node with -- the same key the
-	 * node derived on its side, by X25519 symmetry. */
+	/* The session this device seals to the SPONSOR with -- the node that
+	 * granted the last hop and whose prekey this is, not the estate's root,
+	 * which may be offline. The same key the node derived on its side, by
+	 * X25519 symmetry. */
 	if (fzn_session_establish(device->agree_secret, device->agree, device->hash,
-	                          device->pubkey, card.root, pinned.prekey, send_key,
+	                          device->pubkey, node_prekey.host, pinned.prekey, send_key,
 	                          send_ckey) != FZN_SESSION_OK)
 		return FZN_NODE_PROVISION_SESSION;
 
-	memcpy(root_out, card.root, FZN_PUBKEY_LEN);
+	memcpy(node_out, node_prekey.host, FZN_PUBKEY_LEN);
 	if (hop_out &&
 	    fzn_hop_open(card.hop, FZN_HOP_LEN, hop_out) != FZN_CHAIN_OK)
 		return FZN_NODE_PROVISION_MINT;

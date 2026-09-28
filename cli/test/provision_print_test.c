@@ -96,7 +96,7 @@ struct fixture {
 	uint8_t hop[FZN_HOP_LEN];
 	uint8_t prekey_pub[FZN_PREKEY_LEN];
 	uint8_t prekey[FZN_PREKEY_LEN_TOTAL];
-	uint8_t card[FZN_PROVISION_LEN_TOTAL];
+	uint8_t card[FZN_PROVISION_MAX_LEN];
 	size_t card_len;
 };
 
@@ -122,7 +122,7 @@ static int build_as(struct fixture *f, uint8_t prekey_owner, uint8_t card_signer
 		return 0;
 
 	signing_as = card_signer;
-	return fzn_provision_pack(f->root, f->hop, f->prekey, expires_at, &OPS, f->card,
+	return fzn_provision_pack(f->root, (const uint8_t (*)[FZN_HOP_LEN])f->hop, 1u, f->prekey, expires_at, &OPS, f->card,
 	                          sizeof(f->card), &f->card_len) == FZN_PROVISION_OK;
 }
 
@@ -228,7 +228,7 @@ int main(void)
 
 	/* BYTES THAT ARE NOT A CARD ARE REFUSED. */
 	{
-		uint8_t rubbish[FZN_PROVISION_LEN_TOTAL];
+		uint8_t rubbish[FZN_PROVISION_MAX_LEN];
 
 		memset(rubbish, 0x5c, sizeof(rubbish));
 		CHECK(fzn_provision_print(rubbish, sizeof(rubbish), &OPS, 50u, line,

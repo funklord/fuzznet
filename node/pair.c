@@ -43,6 +43,7 @@ fzn_node_pair_err_t fzn_node_pair(const fzn_node_identity_t *id,
 {
 	fzn_node_peer_t peer;
 	uint8_t hop[FZN_HOP_LEN];
+	uint8_t chain[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
 	uint64_t expires_at = FZN_NO_EXPIRY;
 	size_t own = authority ? authority->hop_count : 0u;
 	size_t i;
@@ -94,9 +95,12 @@ fzn_node_pair_err_t fzn_node_pair(const fzn_node_identity_t *id,
 	/* THE WHOLE CHAIN ON THE NODE'S SIDE: root to this node, then this node
 	 * to the device -- what the node's own decision, against the root it
 	 * pinned, has to verify. */
-	for (i = 0; i < own; i++)
+	for (i = 0; i < own; i++) {
 		memcpy(peer.hop_bytes[i], authority->hops[i], FZN_HOP_LEN);
+		memcpy(chain[i], authority->hops[i], FZN_HOP_LEN);
+	}
 	memcpy(peer.hop_bytes[own], hop, FZN_HOP_LEN);
+	memcpy(chain[own], hop, FZN_HOP_LEN);
 	peer.hop_count = own + 1u;
 
 	/* SAVED BEFORE THE CARD IS MADE, so no card ever exists for a device
@@ -110,7 +114,10 @@ fzn_node_pair_err_t fzn_node_pair(const fzn_node_identity_t *id,
 	}
 	fzn_wipe(&peer, sizeof(peer));
 
-	if (fzn_node_card_pack(id, hop, card_expires_at, card, card_cap, card_len)
+	/* THE CARD CARRIES THE SAME CHAIN, so the device -- or a node joining
+	 * through this one -- can check it back to the root it pins (sec 391). */
+	if (fzn_node_card_pack(id, root, (const uint8_t (*)[FZN_HOP_LEN])chain, own + 1u,
+	                       card_expires_at, card, card_cap, card_len)
 	    != FZN_NODE_PROVISION_OK) {
 		*card_len = 0;
 		return FZN_NODE_PAIR_CARD;
@@ -127,7 +134,7 @@ fzn_node_pair_err_t fzn_node_pairing_accept(const fzn_node_identity_t *device,
 {
 	fzn_node_pairing_t p;
 	fzn_provision_card_t opened;
-	uint8_t blob[FZN_NODE_PAIRING_BLOB_LEN];
+	uint8_t blob[FZN_NODE_PAIRING_BLOB_MAX];
 	size_t len = 0;
 	int saved;
 
@@ -137,22 +144,23 @@ fzn_node_pair_err_t fzn_node_pairing_accept(const fzn_node_identity_t *device,
 
 	/* `fzn_node_accept_card` verifies the envelope, that the grant inside
 	 * is THIS device's (sec 377), pins the node's prekey and derives the
-	 * session. The hop and capability are then read from the same bytes
+	 * session. The chain and capability are then read from the same bytes
 	 * it verified, not decoded a second time from a copy. */
-	if (fzn_node_accept_card(device, card, card_len, now, p.send_key, p.send_ckey, p.root,
+	if (fzn_node_accept_card(device, card, card_len, now, p.send_key, p.send_ckey, p.node,
 	                         NULL) != FZN_NODE_PROVISION_OK
 	    || fzn_provision_open(card, card_len, &opened) != FZN_PROVISION_OK) {
 		fzn_wipe(&p, sizeof(p));
 		return FZN_NODE_PAIR_REFUSED;
 	}
-	memcpy(p.hop, opened.hop, FZN_HOP_LEN);
+	memcpy(p.chain, opened.chain, opened.hop_count * FZN_HOP_LEN);
+	p.hop_count = opened.hop_count;
 	memcpy(p.capability.b, opened.hop + FZN_HOP_OFF_CAPABILITY, FZN_CAP_ID_LEN);
 
 	if (fzn_node_pairing_pack(&p, blob, sizeof(blob), &len) != FZN_PERSIST_OK) {
 		fzn_wipe(&p, sizeof(p));
 		return FZN_NODE_PAIR_MALFORMED;
 	}
-	saved = store->save(store->ctx, FZN_PERSIST_PAIRED_NODE, p.root, blob, len);
+	saved = store->save(store->ctx, FZN_PERSIST_PAIRED_NODE, p.node, blob, len);
 	fzn_wipe(blob, sizeof(blob));
 	if (!saved) {
 		fzn_wipe(&p, sizeof(p));
@@ -163,16 +171,17 @@ fzn_node_pair_err_t fzn_node_pairing_accept(const fzn_node_identity_t *device,
 	return FZN_NODE_PAIR_OK;
 }
 
-/* root | capability | send_key | send_ckey | hop, fixed, after the shared
- * head. The session keys are in the clear for the reason `persist.h` gives
- * for every secret it stores: what protects them is the backend. */
-#define OFF_ROOT ((size_t)FZN_PERSIST_HEAD_LEN)
-#define OFF_CAP (OFF_ROOT + FZN_PUBKEY_LEN)
+/* node | capability | send_key | send_ckey | hop_count | chain, after the
+ * shared head. The session keys are in the clear for the reason `persist.h`
+ * gives for every secret it stores: what protects them is the backend. */
+#define OFF_NODE ((size_t)FZN_PERSIST_HEAD_LEN)
+#define OFF_CAP (OFF_NODE + FZN_PUBKEY_LEN)
 #define OFF_KEY (OFF_CAP + FZN_CAP_ID_LEN)
 #define OFF_CKEY (OFF_KEY + FZN_AEAD_KEY_LEN)
-#define OFF_HOP (OFF_CKEY + FZN_COMMITMENT_KEY_LEN)
+#define OFF_HOP_COUNT (OFF_CKEY + FZN_COMMITMENT_KEY_LEN)
+#define OFF_CHAIN (OFF_HOP_COUNT + 1u)
 
-_Static_assert(OFF_HOP + FZN_HOP_LEN == FZN_NODE_PAIRING_BLOB_LEN,
+_Static_assert(OFF_CHAIN + FZN_CHAIN_MAX_HOPS * FZN_HOP_LEN == FZN_NODE_PAIRING_BLOB_MAX,
                "the pairing blob's offsets do not add up to its length");
 
 fzn_node_pair_err_t fzn_node_join(const fzn_node_identity_t *id, const uint8_t *card,
@@ -220,19 +229,24 @@ fzn_persist_err_t fzn_node_pairing_pack(const fzn_node_pairing_t *pairing, uint8
                                         size_t cap, size_t *len)
 {
 	fzn_persist_err_t err;
+	size_t n;
 
 	if (!pairing || !out || !len)
 		return FZN_PERSIST_ERR_MALFORMED;
-	err = fzn_persist_head_write(out, cap, FZN_NODE_PAIRING_BODY_LEN,
+	n = pairing->hop_count;
+	if (n == 0u || n > FZN_CHAIN_MAX_HOPS)
+		return FZN_PERSIST_ERR_SHAPE;
+	err = fzn_persist_head_write(out, cap, FZN_NODE_PAIRING_BODY_LEN(n),
 	                             FZN_PERSIST_BLOB_PAIRING);
 	if (err != FZN_PERSIST_OK)
 		return err;
-	memcpy(out + OFF_ROOT, pairing->root, FZN_PUBKEY_LEN);
+	memcpy(out + OFF_NODE, pairing->node, FZN_PUBKEY_LEN);
 	memcpy(out + OFF_CAP, pairing->capability.b, FZN_CAP_ID_LEN);
 	memcpy(out + OFF_KEY, pairing->send_key, FZN_AEAD_KEY_LEN);
 	memcpy(out + OFF_CKEY, pairing->send_ckey, FZN_COMMITMENT_KEY_LEN);
-	memcpy(out + OFF_HOP, pairing->hop, FZN_HOP_LEN);
-	*len = FZN_NODE_PAIRING_BLOB_LEN;
+	out[OFF_HOP_COUNT] = (uint8_t)n;
+	memcpy(out + OFF_CHAIN, pairing->chain, n * FZN_HOP_LEN);
+	*len = (size_t)FZN_PERSIST_HEAD_LEN + FZN_NODE_PAIRING_BODY_LEN(n);
 	return FZN_PERSIST_OK;
 }
 
@@ -241,41 +255,52 @@ fzn_persist_err_t fzn_node_pairing_open(const uint8_t *bytes, size_t len,
 {
 	fzn_persist_err_t err;
 	fzn_chain_hop_t hop;
+	size_t n, i;
 
 	if (!bytes || !out)
 		return FZN_PERSIST_ERR_MALFORMED;
-	err = fzn_persist_head_check(bytes, len, FZN_NODE_PAIRING_BODY_LEN,
+	if (len <= OFF_HOP_COUNT)
+		return FZN_PERSIST_ERR_SHAPE;
+	n = bytes[OFF_HOP_COUNT];
+	if (n == 0u || n > FZN_CHAIN_MAX_HOPS)
+		return FZN_PERSIST_ERR_SHAPE;
+	err = fzn_persist_head_check(bytes, len, FZN_NODE_PAIRING_BODY_LEN(n),
 	                             FZN_PERSIST_BLOB_PAIRING);
 	if (err != FZN_PERSIST_OK)
 		return err;
-	/* THE HOP MUST BE A HOP, AND ITS CAPABILITY THE ONE STORED BESIDE IT.
-	 * Two copies of one fact in one blob is a second encoding unless they
-	 * are required to agree -- `persist.c`'s head check refuses a trailing
-	 * byte for the same reason. */
-	if (fzn_hop_open(bytes + OFF_HOP, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK
-	    || memcmp(bytes + OFF_HOP + FZN_HOP_OFF_CAPABILITY, bytes + OFF_CAP, FZN_CAP_ID_LEN)
-	               != 0)
+	/* EVERY HOP MUST BE A HOP, AND THE LAST ONE'S CAPABILITY THE ONE STORED
+	 * BESIDE IT. Two copies of one fact in one blob is a second encoding
+	 * unless they are required to agree -- `persist.c`'s head check refuses
+	 * a trailing byte for the same reason. */
+	for (i = 0; i < n; i++)
+		if (fzn_hop_open(bytes + OFF_CHAIN + i * FZN_HOP_LEN, FZN_HOP_LEN, &hop)
+		    != FZN_CHAIN_OK)
+			return FZN_PERSIST_ERR_SHAPE;
+	if (memcmp(bytes + OFF_CHAIN + (n - 1u) * FZN_HOP_LEN + FZN_HOP_OFF_CAPABILITY,
+	           bytes + OFF_CAP, FZN_CAP_ID_LEN) != 0)
 		return FZN_PERSIST_ERR_SHAPE;
-	memcpy(out->root, bytes + OFF_ROOT, FZN_PUBKEY_LEN);
+	memset(out, 0, sizeof(*out));
+	memcpy(out->node, bytes + OFF_NODE, FZN_PUBKEY_LEN);
 	memcpy(out->capability.b, bytes + OFF_CAP, FZN_CAP_ID_LEN);
 	memcpy(out->send_key, bytes + OFF_KEY, FZN_AEAD_KEY_LEN);
 	memcpy(out->send_ckey, bytes + OFF_CKEY, FZN_COMMITMENT_KEY_LEN);
-	memcpy(out->hop, bytes + OFF_HOP, FZN_HOP_LEN);
+	out->hop_count = n;
+	memcpy(out->chain, bytes + OFF_CHAIN, n * FZN_HOP_LEN);
 	return FZN_PERSIST_OK;
 }
 
 fzn_persist_err_t fzn_node_pairing_load(const fzn_persist_ops_t *store,
-                                        const uint8_t root[FZN_PUBKEY_LEN],
+                                        const uint8_t node[FZN_PUBKEY_LEN],
                                         fzn_node_pairing_t *out)
 {
-	uint8_t blob[FZN_NODE_PAIRING_BLOB_LEN];
+	uint8_t blob[FZN_NODE_PAIRING_BLOB_MAX];
 	fzn_node_pairing_t p;
 	fzn_persist_err_t err;
 	size_t len = 0;
 
-	if (!store || !store->load || !root || !out)
+	if (!store || !store->load || !node || !out)
 		return FZN_PERSIST_ERR_MALFORMED;
-	if (!store->load(store->ctx, FZN_PERSIST_PAIRED_NODE, root, blob, sizeof(blob), &len))
+	if (!store->load(store->ctx, FZN_PERSIST_PAIRED_NODE, node, blob, sizeof(blob), &len))
 		return FZN_PERSIST_ERR_BACKEND;
 	err = fzn_node_pairing_open(blob, len, &p);
 	fzn_wipe(blob, sizeof(blob));
@@ -285,13 +310,45 @@ fzn_persist_err_t fzn_node_pairing_load(const fzn_persist_ops_t *store,
 	 * placed file, and sealing to it would send this device's requests
 	 * under keys meant for somebody else -- the check `fzn_node_peers_load`
 	 * makes for the node's view, made here for the device's. */
-	if (memcmp(p.root, root, FZN_PUBKEY_LEN) != 0) {
+	if (memcmp(p.node, node, FZN_PUBKEY_LEN) != 0) {
 		fzn_wipe(&p, sizeof(p));
 		return FZN_PERSIST_ERR_SHAPE;
 	}
 	*out = p;
 	fzn_wipe(&p, sizeof(p));
 	return FZN_PERSIST_OK;
+}
+
+fzn_persist_err_t fzn_node_pairing_estate(const fzn_persist_ops_t *store,
+                                          const uint8_t root[FZN_PUBKEY_LEN],
+                                          const uint8_t self[FZN_PUBKEY_LEN],
+                                          fzn_node_pairing_t *out)
+{
+	uint8_t subjects[16u * FZN_PUBKEY_LEN];
+	size_t found = 0, i;
+
+	if (!store || !store->list || !store->load || !root || !self || !out)
+		return FZN_PERSIST_ERR_MALFORMED;
+	if (!store->list(store->ctx, FZN_PERSIST_PAIRED_NODE, subjects, 16u, &found))
+		return FZN_PERSIST_ERR_BACKEND;
+	for (i = 0; i < found && i < 16u; i++) {
+		fzn_node_pairing_t p;
+		fzn_chain_hop_t first, last;
+
+		if (fzn_node_pairing_load(store, subjects + i * FZN_PUBKEY_LEN, &p) != FZN_PERSIST_OK)
+			continue;
+		if (fzn_hop_open(p.chain[0], FZN_HOP_LEN, &first) == FZN_CHAIN_OK
+		    && fzn_hop_open(p.chain[p.hop_count - 1u], FZN_HOP_LEN, &last) == FZN_CHAIN_OK
+		    && memcmp(fzn_hop_grantor(first), root, FZN_PUBKEY_LEN) == 0
+		    && memcmp(fzn_hop_grantee(last), self, FZN_PUBKEY_LEN) == 0
+		    && fzn_hop_delegable(last)) {
+			*out = p;
+			fzn_wipe(&p, sizeof(p));
+			return FZN_PERSIST_OK;
+		}
+		fzn_wipe(&p, sizeof(p));
+	}
+	return FZN_PERSIST_ERR_ABSENT;
 }
 
 void fzn_node_pairing_caller(const fzn_node_pairing_t *pairing,

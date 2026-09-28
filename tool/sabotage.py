@@ -3475,14 +3475,14 @@ SABOTAGES = [
 	(
 		"pairing-open-capability-agrees-with-hop",
 		"node/pair.c",
-		"\t    || memcmp(bytes + OFF_HOP + FZN_HOP_OFF_CAPABILITY, bytes + OFF_CAP, FZN_CAP_ID_LEN)\n\t               != 0)\n",
-		"\t    )\n",
+		"\tif (memcmp(bytes + OFF_CHAIN + (n - 1u) * FZN_HOP_LEN + FZN_HOP_OFF_CAPABILITY,\n\t           bytes + OFF_CAP, FZN_CAP_ID_LEN) != 0)\n\t\treturn FZN_PERSIST_ERR_SHAPE;\n",
+		"",
 		"two copies of the capability in one blob that need not agree are two encodings of it, and the device would present one grant while holding another -- sec 377",
 	),
 	(
-		"pairing-load-root-matches-its-name",
+		"pairing-load-node-matches-its-name",
 		"node/pair.c",
-		"\tif (memcmp(p.root, root, FZN_PUBKEY_LEN) != 0) {\n\t\tfzn_wipe(&p, sizeof(p));\n\t\treturn FZN_PERSIST_ERR_SHAPE;\n\t}\n",
+		"\tif (memcmp(p.node, node, FZN_PUBKEY_LEN) != 0) {\n\t\tfzn_wipe(&p, sizeof(p));\n\t\treturn FZN_PERSIST_ERR_SHAPE;\n\t}\n",
 		"",
 		"a pairing filed under one node and naming another sends this device's requests under keys meant for somebody else -- sec 377",
 	),
@@ -4077,8 +4077,9 @@ SABOTAGES = [
 	(
 		"provision-envelope-verified",
 		"provision/provision.c",
-		"\tif (!verifier->verify(verifier->ctx, card.root, card.base, FZN_PROVISION_BODY_LEN,\n"
-		"\t                      card.base + FZN_PROVISION_OFF_SIGNATURE))\n"
+		"\tif (!verifier->verify(verifier->ctx, sponsor, card.base,\n"
+		"\t                      FZN_PROVISION_BODY_LEN(card.hop_count),\n"
+		"\t                      card.base + FZN_PROVISION_OFF_SIGNATURE(card.hop_count)))\n"
 		"\t\treturn FZN_PROVISION_ERR_SIGNATURE;\n",
 		"\t(void)verifier;\n",
 		"the three objects in a card are each public, so without the envelope anybody assembles a genuine hop with their own prekey record and the device sessions with them",
@@ -4086,10 +4087,31 @@ SABOTAGES = [
 	(
 		"provision-tag-is-not-a-hop",
 		"provision/provision.c",
-		"\tif (bytes[FZN_PROVISION_OFF_OBJECT] != (uint8_t)FZN_OBJECT_PROVISION)\n"
+		"\tif (bytes[FZN_PROVISION_OFF_OBJECT] != (uint8_t)FZN_OBJECT_CARD)\n"
 		"\t\treturn FZN_PROVISION_ERR_SHAPE;\n",
 		"",
-		"a card's body opens with a hop's leading fields, so without the tag one signature could be read as either object",
+		"a card's body opens with fields shared by other objects, so without the tag one signature could be read as more than one of them",
+	),
+	(
+		"provision-chain-starts-at-root",
+		"provision/provision.c",
+		"\t    || memcmp(fzn_hop_grantor(hop), card.root, FZN_PUBKEY_LEN) != 0)\n",
+		"\t    )\n",
+		"a card naming a root its chain does not start at makes the device pin a root nobody granted it under -- sec 391",
+	),
+	(
+		"provision-chain-is-unbroken",
+		"provision/provision.c",
+		"\t\t    || memcmp(fzn_hop_grantee(hop), fzn_hop_grantor(next), FZN_PUBKEY_LEN) != 0)\n",
+		"\t\t    )\n",
+		"a chain whose hops do not link lets anybody holding one genuine hop append their own grant and seal the card as its sponsor -- sec 391",
+	),
+	(
+		"provision-sponsor-holds-the-prekey",
+		"provision/provision.c",
+		"\t    || memcmp(prekey.host, sponsor, FZN_PUBKEY_LEN) != 0)\n",
+		"\t    )\n",
+		"a sponsor-sealed card carrying another host's prekey sends the device's session to that host -- sec 391",
 	),
 	(
 		"provision-text-is-canonical",

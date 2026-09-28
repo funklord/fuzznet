@@ -225,7 +225,7 @@ typedef enum fzn_signed_object {
 	 * bytes whose leading fields are a HOP's -- and a signature is only as
 	 * unambiguous as the transcript it commits to. With the tag, a card can
 	 * never be read as any of the three things inside it. */
-	FZN_OBJECT_PROVISION = 134u,
+	FZN_OBJECT_PROVISION = 134u,	/* RETIRED 2026-09-28, sec 391: never reuse */
 
 	/* THE ROSTER'S THREE RECORDS: a subject added to a user's roster under
 	 * a fresh incarnation, that incarnation removed for good, and a setting
@@ -238,6 +238,14 @@ typedef enum fzn_signed_object {
 	FZN_OBJECT_ROSTER_ADD = 135u,
 	FZN_OBJECT_ROSTER_REMOVE = 136u,
 	FZN_OBJECT_ROSTER_SET = 137u,
+
+	/* THE PROVISIONING CARD SINCE sec 391: the estate's root, the chain from
+	 * it to the device, and the sponsor's prekey, sealed by the sponsor.
+	 * PROVISION above was the one-hop card sealed by the root; this is a
+	 * different layout, so it is a different tag rather than the old one
+	 * reinterpreted. A card of either kind can then never be read as the
+	 * other, whatever its bytes happen to be. */
+	FZN_OBJECT_CARD = 138u,
 
 	/* NOT A TAG. The next number available, computed by the compiler rather
 	 * than written down, which is what makes the assertions below able to
@@ -327,7 +335,8 @@ FZN_STATIC_ASSERT(FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_HOP)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_PROVISION)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_ROSTER_ADD)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_ROSTER_REMOVE)
-               && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_ROSTER_SET),
+               && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_ROSTER_SET)
+               && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_CARD),
                "a signed-object tag has been allocated into the consumer half");
 FZN_STATIC_ASSERT(FZN_OBJECT_HOP < FZN_OBJECT_REVOCATION
                && FZN_OBJECT_REVOCATION < FZN_OBJECT_RECORD
@@ -337,7 +346,8 @@ FZN_STATIC_ASSERT(FZN_OBJECT_HOP < FZN_OBJECT_REVOCATION
                && FZN_OBJECT_WITHDRAWAL < FZN_OBJECT_PROVISION
                && FZN_OBJECT_PROVISION < FZN_OBJECT_ROSTER_ADD
                && FZN_OBJECT_ROSTER_ADD < FZN_OBJECT_ROSTER_REMOVE
-               && FZN_OBJECT_ROSTER_REMOVE < FZN_OBJECT_ROSTER_SET,
+               && FZN_OBJECT_ROSTER_REMOVE < FZN_OBJECT_ROSTER_SET
+               && FZN_OBJECT_ROSTER_SET < FZN_OBJECT_CARD,
                "signed-object tags must be strictly increasing in the order "
                "they are declared: equal means two objects share a signature, "
                "and out of order means somebody reused a number");
@@ -352,7 +362,7 @@ FZN_STATIC_ASSERT(FZN_OBJECT_NEXT_FREE <= 256u,
  * does not name. This is what makes the chain's coverage total rather than
  * merely correct -- an enumerator appended anywhere moves the marker, and the
  * only way to satisfy this line again is to extend the chain to reach it. */
-FZN_STATIC_ASSERT(FZN_OBJECT_NEXT_FREE == FZN_OBJECT_ROSTER_SET + 1u,
+FZN_STATIC_ASSERT(FZN_OBJECT_NEXT_FREE == FZN_OBJECT_CARD + 1u,
                "a signed-object tag was added without extending the chain above it");
 
 #endif /* FZN_BYTES_H */

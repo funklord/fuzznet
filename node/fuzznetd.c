@@ -185,8 +185,8 @@ static int pair_device(const fzn_node_identity_t *id, const fzn_node_config_t *c
                        const fzn_persist_ops_t *store, const char *prekey_hex, uint64_t now)
 {
 	uint8_t record_bytes[FZN_PREKEY_LEN_TOTAL];
-	uint8_t card[FZN_PROVISION_LEN_TOTAL];
-	char text[FZN_PROVISION_TEXT_LEN];
+	uint8_t card[FZN_PROVISION_MAX_LEN];
+	char text[FZN_PROVISION_TEXT_MAX_LEN];
 	fzn_prekey_record_t record;
 	fzn_node_pair_err_t perr;
 	size_t card_len = 0;
@@ -457,10 +457,12 @@ int main(int argc, char **argv)
 			fprintf(stderr, "fuzznetd: member of the estate rooted at ");
 			print_hex(stderr, state.config.root, FZN_PUBKEY_LEN);
 			fprintf(stderr, "\n");
-			if (fzn_node_pairing_load(store_ops, state.config.root, &estate)
-			    == FZN_PERSIST_OK) {
-				authority.hops = (const uint8_t (*)[FZN_HOP_LEN])estate.hop;
-				authority.hop_count = 1u;
+			/* Found by shape: joined through a member, the pairing
+			 * is filed under that member, not the root. sec 391. */
+			if (fzn_node_pairing_estate(store_ops, state.config.root, identity.pubkey,
+			                            &estate) == FZN_PERSIST_OK) {
+				authority.hops = (const uint8_t (*)[FZN_HOP_LEN])estate.chain;
+				authority.hop_count = estate.hop_count;
 				my_authority = &authority;
 			}
 		}
@@ -500,7 +502,7 @@ int main(int argc, char **argv)
 	 * pairing. It prints the node's root, which is the name the pairing is
 	 * filed under and what the device asks the node by. sec 377. */
 	if (accept_text) {
-		uint8_t card[FZN_PROVISION_LEN_TOTAL];
+		uint8_t card[FZN_PROVISION_MAX_LEN];
 		size_t card_len = 0;
 		fzn_node_pairing_t paired;
 		fzn_node_pair_err_t perr;
@@ -522,10 +524,16 @@ int main(int argc, char **argv)
 			fprintf(stderr, "fuzznetd: not accepted: %s\n", fzn_node_pair_err_str(perr));
 			return 1;
 		}
-		fprintf(stderr, "fuzznetd: %s ", join ? "joined the estate rooted at" : "paired to");
-		print_hex(stderr, paired.root, FZN_PUBKEY_LEN);
+		if (join) {
+			fprintf(stderr, "fuzznetd: joined the estate rooted at ");
+			print_hex(stderr, fzn_trust_root(&trust), FZN_PUBKEY_LEN);
+			fprintf(stderr, " through ");
+		} else {
+			fprintf(stderr, "fuzznetd: paired to ");
+		}
+		print_hex(stderr, paired.node, FZN_PUBKEY_LEN);
 		fprintf(stderr, "\n");
-		print_hex(stdout, paired.root, FZN_PUBKEY_LEN);
+		print_hex(stdout, paired.node, FZN_PUBKEY_LEN);
 		printf("\n");
 		fzn_wipe(&paired, sizeof(paired));
 		return 0;
@@ -734,6 +742,17 @@ int main(int argc, char **argv)
 		uint64_t next_pull = 0;
 		int fd = -1;
 
+		/* THE PULL ASKS THE ROOT, so it needs a pairing TO the root. A node
+		 * that joined through a member holds one to that member instead;
+		 * pulling from peers is the rework sec 389 calls for, not this. */
+		if (my_authority && memcmp(estate.node, state.config.root, FZN_PUBKEY_LEN) != 0) {
+			fprintf(stderr, "fuzznetd: --root-at pulls from the root, and this node "
+			                "joined through a member, not the root\n");
+			fzn_socket_close(lfd, sock_path);
+			if (ufd >= 0)
+				fzn_udp_close(ufd);
+			return 2;
+		}
 		if (!my_authority || !running || root_at_port < 0
 		    || root_at_port > 65535) {
 			fprintf(stderr, "fuzznetd: --root-at needs --store and a node that has "

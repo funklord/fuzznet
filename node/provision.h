@@ -77,27 +77,30 @@ fzn_node_provision_err_t fzn_node_make_card(const fzn_node_identity_t *id,
                                             uint64_t card_expires_at, uint8_t *out,
                                             size_t cap_bytes, size_t *out_len);
 
-/* Pack and sign a card around a hop the caller has already minted -- the
- * half of `fzn_node_make_card` after the mint. A node that grants through a
- * delegated chain mints the device's hop itself (with the delegable bit and
- * the expiry its own chain allows) and still hands over the same card: the
- * card names the node the device talks to, and the node keeps the chain from
- * the estate root on its side. sec 383. */
+/* Pack and sign a card around a chain the caller has already minted -- the
+ * half of `fzn_node_make_card` after the mint. `root` is the estate's root,
+ * and `chain` runs from it to the device, `hop_count` hops: one when this node
+ * is the root, the node's own chain and then the device's hop when it grants
+ * through a delegated one (sec 383). The node signs the card as its sponsor
+ * (sec 391). */
 fzn_node_provision_err_t fzn_node_card_pack(const fzn_node_identity_t *id,
-                                            const uint8_t hop_bytes[FZN_HOP_LEN],
-                                            uint64_t card_expires_at, uint8_t *out,
-                                            size_t cap_bytes, size_t *out_len);
+                                            const uint8_t root[FZN_PUBKEY_LEN],
+                                            const uint8_t (*chain)[FZN_HOP_LEN],
+                                            size_t hop_count, uint64_t card_expires_at,
+                                            uint8_t *out, size_t cap_bytes, size_t *out_len);
 
-/* The device side: open and verify a card, pin the node's prekey, and
- * establish the session this device seals to the node with. Fills the send
- * key and commitment key, the root the card names, and (if non-NULL) the
- * device's own capability hop from the card. */
+/* The device side: open and verify a card, check its whole chain from the
+ * estate root to this device, pin the sponsor's prekey, and establish the
+ * session this device seals to the sponsor with. Fills the send key and
+ * commitment key, the SPONSOR -- the node this device talks to -- and (if
+ * non-NULL) the device's own capability hop from the card. The estate's root
+ * is the card's to read (`fzn_provision_open`). */
 fzn_node_provision_err_t fzn_node_accept_card(const fzn_node_identity_t *device,
                                               const uint8_t *card_bytes,
                                               size_t card_len, uint64_t now,
                                               uint8_t send_key[FZN_AEAD_KEY_LEN],
                                               uint8_t send_ckey[FZN_COMMITMENT_KEY_LEN],
-                                              uint8_t root_out[FZN_PUBKEY_LEN],
+                                              uint8_t node_out[FZN_PUBKEY_LEN],
                                               fzn_chain_hop_t *hop_out);
 
 #endif

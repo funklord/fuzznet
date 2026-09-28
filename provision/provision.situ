@@ -1,7 +1,7 @@
 // The provisioning card as a situ schema -- the nested case that reaches
 // across modules: it imports the hop (chain) and the prekey record (prekey)
 // and references them, so a card carries exactly one encoding of each.
-// Measured against the FZN_PROVISION_OFF_* constants in provision/provision.h.
+// Measured against the FZN_PROVISION_OFF_* macros in provision/provision.h.
 //
 // A sponsor's signed statement handing a device a root to pin, a capability
 // (the hop), and the sponsor's prekey to agree a session with. The signature
@@ -17,15 +17,23 @@ import "../prekey/prekey.situ";
 target buffer;
 endian big;
 
+// SINCE sec 391 the card names the ESTATE's root and carries the chain from it
+// to the device, and the SPONSOR -- the last hop's grantor, the prekey's host
+// -- signs it, so any member entitled to admit can while the root stays
+// offline. It is a new object tag, 138 (FZN_OBJECT_CARD); 134 was the one-hop
+// card the root signed, retired rather than reinterpreted.
 struct fzn_provision_card {
 	authenticated body {
-		u8  version [must_eq = 1];    // FZN_PROVISION_OFF_VERSION 0 (FZN_SIGNED_VERSION)
-		u8  object  [must_eq = 134];  // FZN_PROVISION_OFF_OBJECT  1 (FZN_OBJECT_PROVISION)
-		u8  root[32];                // FZN_PROVISION_OFF_ROOT       2
-		fzn_chain_hop     hop;       // FZN_PROVISION_OFF_HOP        34
-		fzn_prekey_record prekey;    // FZN_PROVISION_OFF_PREKEY     213
-		u64 expires_at;              // FZN_PROVISION_OFF_EXPIRES_AT 351
+		u8  version [must_eq = 1];    // FZN_PROVISION_OFF_VERSION   0 (FZN_SIGNED_VERSION)
+		u8  object  [must_eq = 138];  // FZN_PROVISION_OFF_OBJECT    1 (FZN_OBJECT_CARD)
+		u8  root[32];                // FZN_PROVISION_OFF_ROOT      2
+		u8  hop_count [min = 1, max = 8]; // FZN_PROVISION_OFF_HOP_COUNT 34
+		fzn_chain_hop     chain[hop_count]; // FZN_PROVISION_OFF_CHAIN 35
+		fzn_prekey_record prekey;    // FZN_PROVISION_OFF_PREKEY(n)
+		u64 expires_at;              // FZN_PROVISION_OFF_EXPIRES_AT(n)
 	}
-	// No codec: Ed25519 is extern, so the caller signs and verifies.
-	checksum u8 signature[64] covers(body); // FZN_PROVISION_OFF_SIGNATURE 359
+	// No codec: Ed25519 is extern, so the caller signs and verifies. The
+	// signer is the sponsor, which the schema cannot name: it is the last
+	// hop's grantor, checked by fzn_provision_verify.
+	checksum u8 signature[64] covers(body); // FZN_PROVISION_OFF_SIGNATURE(n)
 }

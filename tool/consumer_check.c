@@ -2928,9 +2928,9 @@ int main(void)
 		uint8_t pk[FZN_PREKEY_LEN];
 		uint8_t card_hop[FZN_HOP_LEN];
 		uint8_t rec[FZN_PREKEY_LEN_TOTAL];
-		uint8_t card[FZN_PROVISION_LEN_TOTAL];
-		uint8_t back[FZN_PROVISION_LEN_TOTAL];
-		char text[FZN_PROVISION_TEXT_LEN];
+		uint8_t card[FZN_PROVISION_MAX_LEN];
+		uint8_t back[FZN_PROVISION_MAX_LEN];
+		char text[FZN_PROVISION_TEXT_MAX_LEN];
 		fzn_provision_card_t opened;
 		fzn_cap_id_t card_cap;
 		size_t card_len = 0;
@@ -2946,10 +2946,11 @@ int main(void)
 			FAIL(305);
 		if (fzn_prekey_issue(card_root, pk, 100u, &sign, rec) != FZN_PREKEY_OK)
 			FAIL(306);
-		if (fzn_provision_pack(card_root, card_hop, rec, 900u, &sign, card, sizeof(card),
-		                       &card_len) != FZN_PROVISION_OK)
+		if (fzn_provision_pack(card_root, (const uint8_t (*)[FZN_HOP_LEN])card_hop, 1u, rec,
+		                       900u, &sign, card, sizeof(card), &card_len)
+		    != FZN_PROVISION_OK)
 			FAIL(307);
-		if (card_len != FZN_PROVISION_LEN_TOTAL)
+		if (card_len != FZN_PROVISION_LEN(1))
 			FAIL(308);
 		if (fzn_provision_open(card, card_len, &opened) != FZN_PROVISION_OK)
 			FAIL(309);

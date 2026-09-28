@@ -70,7 +70,7 @@ typedef enum fzn_provision_line {
 } fzn_provision_line_t;
 
 /* Room for a verdict, a fingerprint and the card's whole text form. */
-#define FZN_PROVISION_PRINT_MAX (FZN_PROVISION_TEXT_LEN + 160u)
+#define FZN_PROVISION_PRINT_MAX (FZN_PROVISION_TEXT_MAX_LEN + 160u)
 
 /*
  * Render one card as at `now`.

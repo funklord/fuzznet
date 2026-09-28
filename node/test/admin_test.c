@@ -229,7 +229,7 @@ int main(void)
 	fzn_node_admin_t admin;
 	fzn_peer_t owner, member;
 	fzn_node_pairing_t pairing;
-	uint8_t card[FZN_PROVISION_LEN_TOTAL];
+	uint8_t card[FZN_PROVISION_MAX_LEN];
 	char prekey_hex[(FZN_PREKEY_LEN_TOTAL * 2u) + 1u];
 	const uint8_t *detail = NULL;
 	size_t reply_len = 0, detail_len = 0, card_len = 0;
@@ -304,9 +304,11 @@ int main(void)
 
 	/* ---- AND THE CARD IN THE REPLY IS ONE THE DEVICE ACCEPTS. */
 	{
-		char text[FZN_PROVISION_TEXT_LEN];
+		char text[FZN_PROVISION_TEXT_MAX_LEN];
 
-		CHECK(detail_len == FZN_PROVISION_TEXT_LEN - 1u, "the reply's detail is not a card");
+		CHECK(detail_len == FZN_PROVISION_TEXT_PREFIX_LEN
+		                            + FZN_PROVISION_TEXT_BODY_LEN(FZN_PROVISION_LEN(1)),
+		      "the reply's detail is not a one-hop card");
 		memcpy(text, detail, detail_len);
 		text[detail_len] = '\0';
 		CHECK(fzn_provision_from_text(text, card, sizeof(card), &card_len)

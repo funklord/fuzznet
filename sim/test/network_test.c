@@ -4857,11 +4857,12 @@ static void scenario_gui_to_peer(void)
 static void scenario_provision_card(void)
 {
 	static struct sim_net net;
-	static uint8_t card_bytes[FZN_PROVISION_LEN_TOTAL];
-	static uint8_t forged[FZN_PROVISION_LEN_TOTAL];
-	static char text[FZN_PROVISION_TEXT_LEN];
-	static uint8_t back[FZN_PROVISION_LEN_TOTAL];
+	static uint8_t card_bytes[FZN_PROVISION_MAX_LEN];
+	static uint8_t forged[FZN_PROVISION_MAX_LEN];
+	static char text[FZN_PROVISION_TEXT_MAX_LEN];
+	static uint8_t back[FZN_PROVISION_MAX_LEN];
 	static uint8_t prekey_bytes[2][FZN_PREKEY_LEN_TOTAL];
+	static uint8_t chain_bytes[2][FZN_HOP_LEN];
 	fzn_agree_secret_t sk[2];
 	uint8_t card_secret[2][FZN_AGREE_SECRET_LEN];
 	fzn_agree_ops_t agree_ops = { sim_agree_public, sim_agree_shared, NULL };
@@ -4893,17 +4894,27 @@ static void scenario_provision_card(void)
 		      "a simulated host could not publish a prekey for the card");
 	}
 
-	/* ---- 1. THE SPONSOR PACKS A CARD. */
-	/* SIGNED BY THE ROOT, NOT BY THE SPONSOR that hands it over, and the
-	   first draft got this wrong and was caught by the before-case below.
-	   `provision.h` is explicit -- the envelope "is signed by the root,
-	   which is the one key the scan authenticates" -- so a card is a ROOT
-	   statement carried by a sponsor, not a sponsor's own claim. */
-	check(fzn_provision_pack(net.root, sponsor->hop_bytes[0], prekey_bytes[0], 0u,
-	                         sim_signer(&who, &net.sign, net.root), card_bytes,
-	                         sizeof(card_bytes), &card_len) == FZN_PROVISION_OK,
+	/* ---- 1. THE SPONSOR PACKS A CARD for host 1, the device.
+	   SIGNED BY THE SPONSOR since sec 391, which reversed the first
+	   version of this scenario: the envelope was the root's own statement
+	   then, and a root that stays offline cannot sign one. The card names
+	   the root to pin, carries the chain root -> sponsor -> device, and is
+	   sealed by the sponsor, whose prekey it carries. */
+	{
+		uint8_t device_hop[FZN_HOP_LEN];
+
+		check(fzn_chain_mint(sponsor->pubkey, net.hosts[1].pubkey, &net.capability, net.now,
+		                     FZN_NO_EXPIRY, 0, sim_signer(&who, &net.sign, sponsor->pubkey),
+		                     device_hop) == FZN_CHAIN_OK,
+		      "the sponsor could not grant the device");
+		memcpy(chain_bytes[0], sponsor->hop_bytes[0], FZN_HOP_LEN);
+		memcpy(chain_bytes[1], device_hop, FZN_HOP_LEN);
+	}
+	check(fzn_provision_pack(net.root, (const uint8_t (*)[FZN_HOP_LEN])chain_bytes, 2u,
+	                         prekey_bytes[0], 0u, sim_signer(&who, &net.sign, sponsor->pubkey),
+	                         card_bytes, sizeof(card_bytes), &card_len) == FZN_PROVISION_OK,
 	      "the sponsor could not pack a provisioning card");
-	check(card_len == sizeof(card_bytes), "a packed card is not the length the header says");
+	check(card_len == FZN_PROVISION_LEN(2), "a packed card is not the length the header says");
 
 	/* ---- 2. OUT OF BAND, AS THE STRING A CODE CARRIES. There is no camera
 	   here; what is checked is that the bytes survive the round trip a
@@ -4925,22 +4936,26 @@ static void scenario_provision_card(void)
 	      "a genuine card did not verify, so the refusal below would prove nothing");
 
 	/* ---- 4. WHAT THE CARD BUYS: the device pins the root it was SHIPPED
-	   and the hop then verifies against it. The header says why the anchor
-	   travels rather than being read out of the hop -- taking it from the
-	   object it is about to authenticate is trust on first use with extra
-	   steps. */
+	   and the chain then verifies against it, ending at the device. The
+	   header says why the anchor travels rather than being read out of the
+	   chain -- taking it from the object it is about to authenticate is
+	   trust on first use with extra steps. */
 	check(memcmp(card.root, net.root, FZN_PUBKEY_LEN) == 0,
 	      "the card's anchor is not the sponsor's root");
 	{
-		fzn_chain_hop_t hops[1];
+		fzn_chain_hop_t hops[2];
 		fzn_chain_t proven;
 
-		check(fzn_hop_open(card.hop, FZN_HOP_LEN, &hops[0]) == FZN_CHAIN_OK,
-		      "the hop on the card would not open");
-		check(fzn_chain_verify(hops, 1u, card.root, &net.capability, net.now, &net.sign,
-		                       NULL, NULL, &proven) == FZN_CHAIN_OK,
-		      "the hop on the card does not verify against the anchor on the card, so "
-		      "a device that pinned it could not act");
+		check(card.hop_count == 2u
+		              && fzn_hop_open(card.chain, FZN_HOP_LEN, &hops[0]) == FZN_CHAIN_OK
+		              && fzn_hop_open(card.chain + FZN_HOP_LEN, FZN_HOP_LEN, &hops[1])
+		                         == FZN_CHAIN_OK,
+		      "the chain on the card would not open");
+		check(fzn_chain_verify(hops, 2u, card.root, &net.capability, net.now, &net.sign,
+		                       NULL, NULL, &proven) == FZN_CHAIN_OK
+		              && memcmp(proven.grantee, net.hosts[1].pubkey, FZN_PUBKEY_LEN) == 0,
+		      "the chain on the card does not reach the device from the anchor on the "
+		      "card, so a device that pinned it could not act");
 	}
 
 	/* ---- 5. THE ENVELOPE'S WHOLE JOB. A genuine hop paired with somebody

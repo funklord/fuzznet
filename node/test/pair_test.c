@@ -677,7 +677,7 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 	fzn_prekey_record_t n_rec, d_rec;
 	fzn_node_pairing_t joined, d_pairing;
 	fzn_node_authority_t authority;
-	uint8_t card[FZN_PROVISION_LEN_TOTAL];
+	uint8_t card[FZN_PROVISION_MAX_LEN];
 	size_t card_len = 0, loaded = 0;
 	static fzn_node_peer_t n_peers[4];
 
@@ -750,8 +750,8 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 	}
 
 	/* ---- N PAIRS D BY EXTENDING ITS GRANT, and D pairs with N. */
-	authority.hops = (const uint8_t (*)[FZN_HOP_LEN])joined.hop;
-	authority.hop_count = 1u;
+	authority.hops = (const uint8_t (*)[FZN_HOP_LEN])joined.chain;
+	authority.hop_count = joined.hop_count;
 	/* The root a joined node passes is the one it verifies against, R; with
 	 * no chain of its own to extend it has nothing to grant with. */
 	CHECK(fzn_node_pair(&n.id, r.id.pubkey, cap, NULL, 0, &n.ops, d_rec, 1200u, 0u, card,
@@ -762,7 +762,7 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 	      "N would not pair D through the grant R gave it");
 	CHECK(fzn_node_pairing_accept(&d.id, card, card_len, 1300u, &d.ops, &d_pairing)
 	              == FZN_NODE_PAIR_OK
-	              && memcmp(d_pairing.root, n.id.pubkey, FZN_PUBKEY_LEN) == 0,
+	              && memcmp(d_pairing.node, n.id.pubkey, FZN_PUBKEY_LEN) == 0,
 	      "D would not accept N's card, or the card does not name N");
 	CHECK(fzn_node_peers_load(&n.ops, n_peers, 4, &loaded) == FZN_PERSIST_OK && loaded == 1u
 	              && n_peers[0].hop_count == 2u,
@@ -893,8 +893,8 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 
 		/* NO STANDING, NO RECORD: a member revoking as though it were
 		 * root, or through a chain it may not pass on. */
-		leaf.hops = (const uint8_t (*)[FZN_HOP_LEN])e_pairing.hop;
-		leaf.hop_count = 1u;
+		leaf.hops = (const uint8_t (*)[FZN_HOP_LEN])e_pairing.chain;
+		leaf.hop_count = e_pairing.hop_count;
 		CHECK(fzn_node_revoke(&n.id, r.id.pubkey, NULL, cap, e.id.pubkey, 1800u, &mine,
 		                      &n.ops) == FZN_NODE_REVOKE_NOT_ROOT,
 		      "a member revoked as though it were the estate's root");
@@ -999,7 +999,7 @@ int main(void)
 	static struct node node, device, stranger;
 	fzn_prekey_record_t device_record;
 	fzn_cap_id_t cap, other;
-	uint8_t card[FZN_PROVISION_LEN_TOTAL];
+	uint8_t card[FZN_PROVISION_MAX_LEN];
 	size_t card_len = 0;
 	uint8_t send_key[FZN_AEAD_KEY_LEN], send_ckey[FZN_COMMITMENT_KEY_LEN];
 	uint8_t root[FZN_PUBKEY_LEN];
@@ -1025,7 +1025,7 @@ int main(void)
 	CHECK(fzn_node_pair(&node.id, node.id.pubkey, &cap, NULL, 0, &node.ops, device_record, 2000u,
 	                    2000u + 86400u, card, sizeof(card), &card_len) == FZN_NODE_PAIR_OK,
 	      "a node would not pair a device");
-	CHECK(card_len == FZN_PROVISION_LEN_TOTAL, "the card is not a whole card");
+	CHECK(card_len == FZN_PROVISION_LEN(1), "the card is not a whole one-hop card");
 
 	/* ---- THE DEVICE'S SIDE: it accepts, and the root it learns is the node. */
 	CHECK(fzn_node_accept_card(&device.id, card, card_len, 2100u, send_key, send_ckey, root,
@@ -1053,7 +1053,7 @@ int main(void)
 	/* ---- THE DEVICE KEEPS ITS HALF, and a stranger cannot take it. */
 	{
 		fzn_node_pairing_t kept, back;
-		uint8_t blob[FZN_NODE_PAIRING_BLOB_LEN];
+		uint8_t blob[FZN_NODE_PAIRING_BLOB_MAX];
 		size_t blob_len = 0;
 
 		stranger.store.saves = 0;
@@ -1067,7 +1067,7 @@ int main(void)
 		              == FZN_NODE_PAIR_OK,
 		      "the device would not accept the node's card");
 		CHECK(device.store.saves == 1u, "accepting did not store exactly one pairing");
-		CHECK(memcmp(kept.root, node.id.pubkey, FZN_PUBKEY_LEN) == 0
+		CHECK(memcmp(kept.node, node.id.pubkey, FZN_PUBKEY_LEN) == 0
 		              && memcmp(kept.capability.b, cap.b, FZN_CAP_ID_LEN) == 0
 		              && memcmp(kept.send_key, send_key, FZN_AEAD_KEY_LEN) == 0,
 		      "the stored pairing is not the node, the grant and the session accepted");
@@ -1075,15 +1075,17 @@ int main(void)
 		              && memcmp(&back, &kept, sizeof(back)) == 0,
 		      "the pairing did not come back as it was stored");
 
-		/* THE BYTES, AT THE OFFSETS persist.situ STATES: root at 2,
-		 * capability at 34, keys at 66 and 98, hop at 130. */
+		/* THE BYTES, AT THE OFFSETS persist.situ STATES: node at 2,
+		 * capability at 34, keys at 66 and 98, the hop count at 130 and
+		 * the chain from 131. */
 		CHECK(fzn_node_pairing_pack(&kept, blob, sizeof(blob), &blob_len) == FZN_PERSIST_OK
-		              && blob_len == 309u && blob[0] == 1u && blob[1] == 7u
-		              && memcmp(blob + 2, kept.root, 32) == 0
+		              && blob_len == 310u && blob[0] == 1u && blob[1] == 7u
+		              && memcmp(blob + 2, kept.node, 32) == 0
 		              && memcmp(blob + 34, kept.capability.b, 32) == 0
 		              && memcmp(blob + 66, kept.send_key, 32) == 0
 		              && memcmp(blob + 98, kept.send_ckey, 32) == 0
-		              && memcmp(blob + 130, kept.hop, FZN_HOP_LEN) == 0,
+		              && blob[130] == 1u
+		              && memcmp(blob + 131, kept.chain[0], FZN_HOP_LEN) == 0,
 		      "the pairing blob is not laid out as persist.situ describes it");
 
 		/* TWO COPIES OF THE CAPABILITY MUST AGREE, or the blob has two

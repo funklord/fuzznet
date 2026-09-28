@@ -48408,6 +48408,106 @@ foreign to it. fuzzypickles reports the holder's answer for its side, in
 its words: existing identities need not survive, and the holder's devices
 (desktop, Fold, Note 9) will be re-created by running identity-generate
 again, re-joining devices and re-pairing contacts, with no migration path
-wanted. fuzzypickles' core calls Monocypher's EdDSA directly at 31 sites,
-and they will switch those when they move their pin, in their tree. Their
-vendored Monocypher already carries the optional file.
+wanted. fuzzypickles will switch its own direct calls to Monocypher's EdDSA
+when it moves its pin, in its tree. It first counted 31 call sites in its
+core; a later count of every `crypto_eddsa_` reference outside its vendored
+trees, tests included, gave 194. It called the 31 narrower and will recount
+before relying on either. Its vendored Monocypher already carries the
+optional file, and its pin was 477 commits behind this tree's master when
+counted (2026-09-28).
+
+## 391. One pairing card, carrying the chain from the root, 2026-09-28
+
+Sec 389, decision 5. The card named its signer as the root and carried one
+hop, so only an estate's root could admit a node, and the root had to be
+online and signing to do it. Under decision 1 the root may be offline, so
+any member entitled to admit has to be able to.
+
+**The card now names the estate's root and carries the chain from it to the
+device**, 1 to 8 hops, with the SPONSOR's prekey. The sponsor is the last
+hop's grantor, and it seals the card, where the root used to. It is a new
+signed object, not the old one reinterpreted:
+
+- tag 138, `FZN_OBJECT_CARD`, with 134 retired and marked never to be
+  reused;
+- text prefix `FZN2:`, so a `FZN1:` string is refused as a foreign object
+  rather than misread as this one;
+- 424 bytes for one hop, 603 for two, up to 1677.
+
+`provision.situ` states the layout, 424..1677, and `provision.c` pins the
+same range.
+
+**What `fzn_provision_verify` checks moved with the signer.** The root
+sealed the card before; now one key has to be named three times:
+
+- every hop opens;
+- the first hop was granted by the root the card names;
+- each hop's grantee is the next hop's grantor;
+- the prekey's host is the last hop's grantor;
+- the envelope verifies under that sponsor.
+
+Each hop's own signature and capability stay the pairing's to check with
+`fzn_chain_verify`, which needs a capability and a clock this call does
+not have. `fzn_node_accept_card` verifies the whole chain to the device,
+and establishes the session with the sponsor rather than the root.
+
+**The device's stored pairing changed with it.** Its `root` field always
+meant the node the device talks to; it is `node` now, and the single hop
+is the whole chain, so a node that joins holds its authority from the root
+exactly as the card carried it. The blob is 310 bytes for one hop, up to
+1563, and `persist.situ` states it. A joined node finds that pairing by its
+shape, not its key: the chain starts at the root, ends in a delegable hop
+to itself (`fzn_node_pairing_estate`). The pairing is filed under whichever
+member admitted it.
+
+**Two limits, recorded rather than hidden.**
+
+- `add peer` answers on one reply line of 1024 bytes. A card of two hops
+  fits (970 characters) and three do not (1257). `node/admin.c` asserts
+  two hops fit and refuses a deeper node's `add peer` BEFORE pairing,
+  since pairing first would save a device whose card it then could not
+  hand over. `fuzznetd --pair` prints any length.
+- `--root-at` pulls revocations from the root, so a node that joined
+  through a member refuses it with a message. Pulling from peers is
+  decision 1's rework.
+
+### Measured for sec 391
+
+`provision_test`, 144 checks. The layout is pinned at the schema's
+offsets. A genuine two-hop card sealed by a member verifies, and survives
+its 965-character text. These are refused:
+
+- the attacker's own prekey sealed by the attacker;
+- the attacker's root over a genuine chain;
+- the sponsor's parts sealed by the attacker;
+- a member's card sealed by the root;
+- a chain with a broken link;
+- hop counts 0 and 9;
+- the retired tag 134;
+- the old `FZN1:` prefix;
+- a string one character too long.
+
+Two cases isolate a single check each, since the cases above are refused
+by more than one at once:
+
+- a sponsor-sealed card carrying another host's prekey;
+- a sponsor-sealed card naming a root its genuine chain does not start at.
+
+`provision_fuzz`, 20000 cases, is canonical throughout. The simulation's
+card scenario is rebuilt as root -> sponsor -> device and sealed by the
+sponsor. `pair_test`, `admin_test` and `node_provision_test` pass on the
+new pairing layout.
+
+Live, four stores:
+
+- R's card admitted M (684 characters);
+- M's card admitted N with R never running (970 characters, two hops);
+- N's card paired D (1257 characters, three hops);
+- D asked N and was served, "granted by capability chain".
+
+Seven sabotage entries hold the card and the pairing:
+
+- four re-anchored: the envelope under the sponsor, the object tag, the
+  pairing's capability agreement, and the pairing filed under its node;
+- three new: the chain starts at the root, the chain is unbroken, and the
+  sponsor holds the prekey.

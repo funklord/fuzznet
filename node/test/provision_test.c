@@ -192,8 +192,8 @@ int main(void)
 	fzn_prekey_record_t record[2];
 	fzn_node_identity_t node_id, dev_id;
 	fzn_cap_id_t cap;
-	uint8_t card[FZN_PROVISION_LEN_TOTAL], card2[FZN_PROVISION_LEN_TOTAL];
-	char text[FZN_PROVISION_TEXT_LEN];
+	uint8_t card[FZN_PROVISION_MAX_LEN], card2[FZN_PROVISION_MAX_LEN];
+	char text[FZN_PROVISION_TEXT_MAX_LEN];
 	size_t card_len = 0, card2_len = 0;
 	uint8_t send_key[FZN_AEAD_KEY_LEN], send_ckey[FZN_COMMITMENT_KEY_LEN];
 	uint8_t root[FZN_PUBKEY_LEN];

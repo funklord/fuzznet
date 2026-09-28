@@ -43,7 +43,7 @@ void fzn_provision_view::show_card(const uint8_t *bytes, size_t len,
                                    const fzn_sign_ops_t *verifier, uint64_t now)
 {
 	static char line[FZN_PROVISION_PRINT_MAX];
-	char text[FZN_PROVISION_TEXT_LEN];
+	char text[FZN_PROVISION_TEXT_MAX_LEN];
 	fzn_provision_line_t said = FZN_PROVISION_LINE_NOTHING;
 	size_t out_len = 0;
 

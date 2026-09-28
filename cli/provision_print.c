@@ -85,7 +85,7 @@ fzn_provision_err_t fzn_provision_print(const uint8_t *bytes, size_t len,
                                         char *out, size_t cap, size_t *len_out,
                                         fzn_provision_line_t *state_out)
 {
-	char text[FZN_PROVISION_TEXT_LEN];
+	char text[FZN_PROVISION_TEXT_MAX_LEN];
 	fzn_provision_card_t card;
 	struct sink measure;
 	struct sink write;

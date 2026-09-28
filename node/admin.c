@@ -9,9 +9,16 @@
 #include <string.h>
 
 /* `ok ` and the whole card text must fit one reply line, or `add peer` is a
- * verb this node cannot answer. FZN_PROVISION_TEXT_LEN counts the NUL. */
-_Static_assert(3u + (FZN_PROVISION_TEXT_LEN - 1u) <= FZN_REPLY_MAX,
-               "a pairing card does not fit one reply line");
+ * verb this node cannot answer. Pinned at TWO hops -- a card from the root,
+ * and one from a member the root granted -- which is every card this node
+ * makes unless it joined through a member of a member. A deeper card is
+ * refused at the verb with an error saying so; `fuzznetd --pair` prints any
+ * length. sec 391. */
+#define ADMIN_CARD_HOPS 2u
+_Static_assert(3u + FZN_PROVISION_TEXT_PREFIX_LEN
+                       + FZN_PROVISION_TEXT_BODY_LEN(FZN_PROVISION_LEN(ADMIN_CARD_HOPS))
+                   <= FZN_REPLY_MAX,
+               "a two-hop pairing card does not fit one reply line");
 _Static_assert(FZN_NODE_LOCAL_REPLY_MAX >= FZN_REPLY_MAX + 1u,
                "the node's local reply buffer cannot hold a whole reply line");
 
@@ -67,8 +74,8 @@ static size_t add_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t hex_l
                        char *reply, size_t cap)
 {
 	uint8_t record_bytes[FZN_PREKEY_LEN_TOTAL];
-	uint8_t card[FZN_PROVISION_LEN_TOTAL];
-	char text[FZN_PROVISION_TEXT_LEN];
+	uint8_t card[FZN_PROVISION_MAX_LEN];
+	char text[FZN_PROVISION_TEXT_MAX_LEN];
 	fzn_prekey_record_t record;
 	fzn_node_pair_err_t perr;
 	size_t card_len = 0, loaded = 0;
@@ -78,6 +85,12 @@ static size_t add_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t hex_l
 	    || fzn_prekey_open(record_bytes, sizeof(record_bytes), &record) != FZN_PREKEY_OK)
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a prekey record");
 
+	/* A CARD THAT WILL NOT FIT THE REPLY IS REFUSED BEFORE ANYTHING IS
+	 * PAIRED: afterwards the device would be saved and its card lost. */
+	if (admin->authority && admin->authority->hop_count + 1u > ADMIN_CARD_HOPS)
+		return answer_text(reply, cap, FZN_REPLY_ERROR,
+		                   "this node's chain is too deep for a card on one reply line; "
+		                   "pair with fuzznetd --pair");
 	now = admin->state->clock ? admin->state->clock() : 0u;
 	perr = fzn_node_pair(admin->id, admin->state->config.root,
 	                     &admin->state->config.remote_capability, admin->authority, 0,

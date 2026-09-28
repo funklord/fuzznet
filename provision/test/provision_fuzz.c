@@ -24,7 +24,7 @@
  * things, which a signature over the bytes cannot repair.
  *
  * THE GENERATOR MUTATES REAL CARDS, not only random bytes. A uniformly random
- * 423-byte buffer is refused at the version byte and reaches nothing; a
+ * 424-byte buffer is refused at the version byte and reaches nothing; a
  * uniformly random string is refused at the prefix. Both are generated anyway
  * -- a decoder must survive them -- but the cases that matter are a genuine
  * card with one byte bent, and a genuine string with one character changed,
@@ -54,6 +54,11 @@
  * rather than reporting a success that means nothing. Same number and same
  * reasoning as the other harnesses here. */
 #define FUZZ_MIN_CASES 1000u
+
+/* THE CARD THIS HARNESS BUILDS: one hop, a root sponsoring its own device.
+ * Since sec 391 a card's length follows its hop count, so the harness names
+ * the length it means rather than taking a buffer's size for it. */
+#define CARD_LEN FZN_PROVISION_LEN(1)
 
 #define SPONSOR 0x11
 #define DEVICE  0x22
@@ -132,7 +137,7 @@ static void expand(uint8_t out[FZN_PUBKEY_LEN], uint8_t seed)
 }
 
 /* A genuine card, or 0 if the fixture would not build. */
-static int build(uint8_t card[FZN_PROVISION_LEN_TOTAL], uint64_t expires_at, uint8_t signer)
+static int build(uint8_t card[FZN_PROVISION_MAX_LEN], uint64_t expires_at, uint8_t signer)
 {
 	uint8_t root[FZN_PUBKEY_LEN], device[FZN_PUBKEY_LEN];
 	uint8_t prekey_pub[FZN_PREKEY_LEN];
@@ -152,9 +157,9 @@ static int build(uint8_t card[FZN_PROVISION_LEN_TOTAL], uint64_t expires_at, uin
 		return 0;
 
 	signing_as = signer;
-	return fzn_provision_pack(root, hop, rec, expires_at, &OPS, card,
-	                          FZN_PROVISION_LEN_TOTAL, &len) == FZN_PROVISION_OK
-	       && len == FZN_PROVISION_LEN_TOTAL;
+	return fzn_provision_pack(root, (const uint8_t (*)[FZN_HOP_LEN])hop, 1u, rec, expires_at,
+	                          &OPS, card, FZN_PROVISION_MAX_LEN, &len) == FZN_PROVISION_OK
+	       && len == CARD_LEN;
 }
 
 /* Every refusal path shares this: whatever came back, nothing may claim a
@@ -166,20 +171,21 @@ static int bytes_invariants(fzn_provision_err_t err, const uint8_t *bytes, size_
 {
 	if (err != FZN_PROVISION_OK)
 		return 0;
-	if (len != FZN_PROVISION_LEN_TOTAL)
+	if (len != CARD_LEN)
 		return 1;
 	if (card.base != bytes)
 		return 1;
 	if (bytes[FZN_PROVISION_OFF_VERSION] != 1u)
 		return 1;
-	if (bytes[FZN_PROVISION_OFF_OBJECT] != (uint8_t)FZN_OBJECT_PROVISION)
+	if (bytes[FZN_PROVISION_OFF_OBJECT] != (uint8_t)FZN_OBJECT_CARD)
 		return 1;
 	/* The views must land inside the buffer the caller owns. */
 	if (card.root != bytes + FZN_PROVISION_OFF_ROOT)
 		return 1;
-	if (card.hop != bytes + FZN_PROVISION_OFF_HOP)
+	if (card.hop_count != 1u || card.chain != bytes + FZN_PROVISION_OFF_CHAIN
+	    || card.hop != bytes + FZN_PROVISION_OFF_CHAIN)
 		return 1;
-	if (card.prekey != bytes + FZN_PROVISION_OFF_PREKEY)
+	if (card.prekey != bytes + FZN_PROVISION_OFF_PREKEY(1))
 		return 1;
 	return 0;
 }
@@ -187,10 +193,10 @@ static int bytes_invariants(fzn_provision_err_t err, const uint8_t *bytes, size_
 static int fuzz_one(uint32_t seed, struct coverage *cov)
 {
 	uint32_t state = seed ? seed : 1u;
-	uint8_t card[FZN_PROVISION_LEN_TOTAL];
-	uint8_t back[FZN_PROVISION_LEN_TOTAL];
-	char text[FZN_PROVISION_TEXT_LEN];
-	char again[FZN_PROVISION_TEXT_LEN];
+	uint8_t card[FZN_PROVISION_MAX_LEN];
+	uint8_t back[FZN_PROVISION_MAX_LEN];
+	char text[FZN_PROVISION_TEXT_MAX_LEN];
+	char again[FZN_PROVISION_TEXT_MAX_LEN];
 	fzn_provision_card_t opened;
 	fzn_provision_err_t err;
 	size_t back_len = 0;
@@ -207,14 +213,14 @@ static int fuzz_one(uint32_t seed, struct coverage *cov)
 		 * and a decoder must survive it anyway. */
 		size_t i;
 
-		for (i = 0; i < sizeof(card); i++)
+		for (i = 0; i < CARD_LEN; i++)
 			card[i] = (uint8_t)next(&state);
 	} else if (shape == 1u) {
-		card[next(&state) % FZN_PROVISION_LEN_TOTAL] ^= (uint8_t)(1u << (next(&state) % 8u));
+		card[next(&state) % CARD_LEN] ^= (uint8_t)(1u << (next(&state) % 8u));
 	}
 
-	err = fzn_provision_open(card, sizeof(card), &opened);
-	if (bytes_invariants(err, card, sizeof(card), opened))
+	err = fzn_provision_open(card, CARD_LEN, &opened);
+	if (bytes_invariants(err, card, CARD_LEN, opened))
 		return 1;
 	if (err == FZN_PROVISION_OK) {
 		fzn_provision_err_t v;
@@ -242,20 +248,20 @@ static int fuzz_one(uint32_t seed, struct coverage *cov)
 	}
 
 	/* A short or long buffer is never a card, whatever it contains. */
-	if (fzn_provision_open(card, FZN_PROVISION_LEN_TOTAL - 1u, &opened) == FZN_PROVISION_OK)
+	if (fzn_provision_open(card, CARD_LEN - 1u, &opened) == FZN_PROVISION_OK)
 		return 1;
-	if (fzn_provision_open(card, FZN_PROVISION_LEN_TOTAL + 1u, &opened) == FZN_PROVISION_OK)
+	if (fzn_provision_open(card, CARD_LEN + 1u, &opened) == FZN_PROVISION_OK)
 		return 1;
 
 	/* ---- the text decoder, and the round trip ---------------------- */
 	if (!build(card, expires_at, signer))
 		return 1;
-	if (fzn_provision_text(card, sizeof(card), text, sizeof(text)) != FZN_PROVISION_OK)
+	if (fzn_provision_text(card, CARD_LEN, text, sizeof(text)) != FZN_PROVISION_OK)
 		return 1;
 
 	if (shape == 2u) {
 		size_t at = FZN_PROVISION_TEXT_PREFIX_LEN
-		            + (next(&state) % FZN_PROVISION_TEXT_BODY_LEN);
+		            + (next(&state) % FZN_PROVISION_TEXT_BODY_LEN(CARD_LEN));
 
 		if (text[at] >= 'A' && text[at] <= 'Z') {
 			text[at] = (char)(text[at] - 'A' + 'a');
@@ -275,7 +281,7 @@ static int fuzz_one(uint32_t seed, struct coverage *cov)
 		cov->truncated++;
 	} else if (shape == 5u) {
 		text[FZN_PROVISION_TEXT_PREFIX_LEN
-		     + (next(&state) % FZN_PROVISION_TEXT_BODY_LEN)] = (char)(next(&state) % 128u);
+		     + (next(&state) % FZN_PROVISION_TEXT_BODY_LEN(CARD_LEN))] = (char)(next(&state) % 128u);
 	} else if (shape == 6u) {
 		size_t i;
 
@@ -287,7 +293,10 @@ static int fuzz_one(uint32_t seed, struct coverage *cov)
 	err = fzn_provision_from_text(text, back, sizeof(back), &back_len);
 	if (err == FZN_PROVISION_OK) {
 		cov->text_ok++;
-		if (back_len != FZN_PROVISION_LEN_TOTAL)
+		/* SOME card's length, since a string may decode to a card of
+		 * any hop count; the canonicality below is what matters. */
+		if (back_len < FZN_PROVISION_MIN_LEN || back_len > FZN_PROVISION_MAX_LEN
+		    || (back_len - FZN_PROVISION_LEN(1)) % FZN_HOP_LEN != 0u)
 			return 1;
 		/* CANONICALITY, which is what this harness is for. Re-encoding
 		 * an accepted string must reproduce it exactly; if it does not,

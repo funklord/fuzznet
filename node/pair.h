@@ -101,21 +101,29 @@ fzn_node_pair_err_t fzn_node_pair(const fzn_node_identity_t *id,
  * it. A pairing is the credential, and a stored address beside it would be
  * the first thing to go stale while looking authoritative.
  *
- * The hop is kept so the device can say what it holds; the node does not need
- * it presented, having stored it when it paired the device.
+ * THE WHOLE CHAIN IS KEPT, from the estate's root to this device, as the card
+ * carried it. A device does not present it -- the node stored its side when it
+ * paired the device -- but a NODE that joined an estate grants through it:
+ * it is that node's authority (`fzn_node_authority_t`). `node` is the node
+ * this pairing is to, the card's sponsor; the estate's root is the first
+ * hop's grantor, and a joined node pins it separately (sec 391).
  */
 typedef struct fzn_node_pairing {
-	uint8_t root[FZN_PUBKEY_LEN];
+	uint8_t node[FZN_PUBKEY_LEN];
 	fzn_cap_id_t capability;
 	uint8_t send_key[FZN_AEAD_KEY_LEN];
 	uint8_t send_ckey[FZN_COMMITMENT_KEY_LEN];
-	uint8_t hop[FZN_HOP_LEN];
+	size_t hop_count;
+	uint8_t chain[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
 } fzn_node_pairing_t;
 
-#define FZN_NODE_PAIRING_BODY_LEN \
+/* The stored form: node | capability | send_key | send_ckey | hop_count |
+ * chain, after the shared head. `persist/persist.situ` states it. */
+#define FZN_NODE_PAIRING_BODY_LEN(n) \
 	((size_t)FZN_PUBKEY_LEN + (size_t)FZN_CAP_ID_LEN + (size_t)FZN_AEAD_KEY_LEN + \
-	 (size_t)FZN_COMMITMENT_KEY_LEN + (size_t)FZN_HOP_LEN)
-#define FZN_NODE_PAIRING_BLOB_LEN ((size_t)FZN_PERSIST_HEAD_LEN + FZN_NODE_PAIRING_BODY_LEN)
+	 (size_t)FZN_COMMITMENT_KEY_LEN + 1u + (size_t)(n) * (size_t)FZN_HOP_LEN)
+#define FZN_NODE_PAIRING_BLOB_MAX \
+	((size_t)FZN_PERSIST_HEAD_LEN + FZN_NODE_PAIRING_BODY_LEN(FZN_CHAIN_MAX_HOPS))
 
 /* Accept a node's card on this device and save the pairing under the node's
  * root, replacing any earlier pairing to that node. `out` receives it. The
@@ -131,20 +139,31 @@ fzn_persist_err_t fzn_node_pairing_pack(const fzn_node_pairing_t *pairing, uint8
 fzn_persist_err_t fzn_node_pairing_open(const uint8_t *bytes, size_t len,
                                         fzn_node_pairing_t *out);
 
-/* The pairing to the node whose root is `root`. The stored root must equal
- * the one it is filed under, or it is refused as SHAPE. */
+/* The pairing to the node whose key is `node`. The stored node must equal the
+ * one it is filed under, or it is refused as SHAPE. */
 fzn_persist_err_t fzn_node_pairing_load(const fzn_persist_ops_t *store,
-                                        const uint8_t root[FZN_PUBKEY_LEN],
+                                        const uint8_t node[FZN_PUBKEY_LEN],
                                         fzn_node_pairing_t *out);
 
+/* THE PAIRING A JOINED NODE GRANTS THROUGH: the one whose chain starts at the
+ * estate's `root`, ends in a hop to `self`, and may be passed on. Found by that
+ * shape rather than by key, because since sec 391 a node joins through
+ * whichever member admitted it and the pairing is filed under that member.
+ * FZN_PERSIST_ERR_ABSENT when this node holds none -- it has not joined, or
+ * joined and lost the pairing. */
+fzn_persist_err_t fzn_node_pairing_estate(const fzn_persist_ops_t *store,
+                                          const uint8_t root[FZN_PUBKEY_LEN],
+                                          const uint8_t self[FZN_PUBKEY_LEN],
+                                          fzn_node_pairing_t *out);
+
 /*
- * JOIN THE ESTATE WHOSE ROOT MADE THIS CARD. sec 383.
+ * JOIN THE ESTATE THIS CARD NAMES. sec 383, and through any member since 391.
  *
  * The node's side of being paired INTO an estate: accept the card as any
  * device does, then pin the card's root as this node's anchor in `trust`
  * and save it. From then on the node verifies against that root, and its
- * right to grant is the delegable hop the card carried -- `pairing->hop`,
- * as a one-hop `fzn_node_authority_t`.
+ * right to grant is the chain the card carried, ending in a delegable hop to
+ * this node -- `pairing->chain`, as a `fzn_node_authority_t`.
  *
  * A JOIN IS A PIN REPLACING A SELF-ROOT, which is the transition sec 136
  * built `FZN_TRUST_SELF` for; any other anchor refuses it, since no host is
@@ -157,10 +176,12 @@ fzn_persist_err_t fzn_node_pairing_load(const fzn_persist_ops_t *store,
  * estate's; they are paired again through the estate. That is the invariant
  * working, not a migration to perform.
  *
- * ONLY THROUGH THE ROOT. A card carries one hop and names its signer as
- * root, so a card from a delegate would make the node pin the delegate.
- * Joining through a delegate needs the card to carry the chain above it,
- * which is a change to the card's layout and is not made here.
+ * THROUGH ANY MEMBER ENTITLED TO ADMIT. The card names the estate's root and
+ * carries the whole chain, sealed by the member that granted the last hop
+ * (sec 391), so the joining node pins the root and holds the member's chain
+ * plus its own hop as its authority. The root need not be online. Until sec
+ * 391 a card carried one hop and named its signer as root, so joining
+ * through a member would have pinned the member.
  */
 fzn_node_pair_err_t fzn_node_join(const fzn_node_identity_t *id, const uint8_t *card,
                                   size_t card_len, uint64_t now,

@@ -108,7 +108,7 @@ struct fixture {
 	uint8_t hop[FZN_HOP_LEN];
 	uint8_t prekey_pub[FZN_PREKEY_LEN];
 	uint8_t prekey[FZN_PREKEY_LEN_TOTAL];
-	uint8_t card[FZN_PROVISION_LEN_TOTAL];
+	uint8_t card[FZN_PROVISION_MAX_LEN];
 	size_t card_len;
 };
 
@@ -134,7 +134,7 @@ static int build_as(struct fixture *f, uint8_t prekey_owner, uint8_t card_signer
 		return 0;
 
 	signing_as = card_signer;
-	return fzn_provision_pack(f->root, f->hop, f->prekey, expires_at, &OPS, f->card,
+	return fzn_provision_pack(f->root, (const uint8_t (*)[FZN_HOP_LEN])f->hop, 1u, f->prekey, expires_at, &OPS, f->card,
 	                          sizeof(f->card), &f->card_len) == FZN_PROVISION_OK;
 }
 
@@ -240,7 +240,7 @@ int main(int argc, char **argv)
 
 	/* BYTES THAT ARE NOT A CARD ARE REFUSED, and said to be. */
 	{
-		uint8_t rubbish[FZN_PROVISION_LEN_TOTAL];
+		uint8_t rubbish[FZN_PROVISION_MAX_LEN];
 
 		memset(rubbish, 0x5c, sizeof(rubbish));
 		view.show_card(rubbish, sizeof(rubbish), &OPS, 50u);
@@ -254,7 +254,7 @@ int main(int argc, char **argv)
 	 * and no version at M, Q or H -- so this is not a preference and a
 	 * later card layout that grows past a code must fail here. */
 	{
-		static char text[FZN_PROVISION_TEXT_LEN];
+		static char text[FZN_PROVISION_TEXT_MAX_LEN];
 		size_t n;
 
 		CHECK(fzn_provision_text(genuine.card, genuine.card_len, text,
@@ -277,7 +277,7 @@ int main(int argc, char **argv)
 		 * alphanumeric mode, and provision.h chose base32 for exactly
 		 * that reason. */
 		{
-			static char lowered[FZN_PROVISION_TEXT_LEN];
+			static char lowered[FZN_PROVISION_TEXT_MAX_LEN];
 			size_t i;
 
 			memcpy(lowered, text, sizeof(lowered));
@@ -295,7 +295,7 @@ int main(int argc, char **argv)
 	 * composed. */
 	view.show_card(genuine.card, genuine.card_len, &OPS, 50u);
 	{
-		static char text[FZN_PROVISION_TEXT_LEN];
+		static char text[FZN_PROVISION_TEXT_MAX_LEN];
 
 		CHECK(fzn_provision_text(genuine.card, genuine.card_len, text,
 		                         sizeof(text)) == FZN_PROVISION_OK,

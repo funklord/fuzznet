@@ -24,8 +24,9 @@
 //   PEER_BODY   = 41 + 32 + 8 = 81   (trust, prekey, created_at)
 //   CHAIN_BODY  = 32 + 8      = 40   (key, seq)
 //   IDENTITY_BODY = 32             (seed; FZN_SIGN_SEED_LEN, sec 375)
-//   PAIRING_BODY  = 32+32+32+32+179 = 307  (root, capability, send_key,
-//                                  send_ckey, hop; node/pair.c, sec 377)
+//   PAIRING_BODY  = 32+32+32+32+1 + 179 * hop_count = 308..1561
+//                                  (node, capability, send_key, send_ckey,
+//                                  hop_count, chain; node/pair.c, secs 377, 391)
 //   REVOCATION_BODY = 202          (a signed revocation record,
 //                                  chain/revocation.situ; node/revoke.c, sec 380)
 //   NODE_PEER_BODY = 32+32+32+1 + 179 * hop_count = 97..1529
@@ -91,16 +92,17 @@ struct fzn_persist_identity_body {
 	u8  seed[32];
 }
 
-// A device's pairing to one node: the node's root, the capability it was
-// granted, the session keys it seals with, and its grant as the signed hop
-// (179 bytes, chain/hop.situ -- kept opaque here, as persist blobs are).
-// PAIRING_BODY = 307.
+// A device's pairing to one node: the node, the capability it was granted,
+// the session keys it seals with, and its grant as the whole chain from the
+// estate's root, as the card carried it (sec 391). The hops are opaque here,
+// as the node peer's are. PAIRING_BODY = 308..1561.
 struct fzn_persist_pairing_body {
-	u8  root[32];
+	u8  node[32];
 	u8  capability[32];
 	u8  send_key[32];
 	u8  send_ckey[32];
-	u8  hop[179];
+	u8  hop_count [min = 1, max = 8];
+	fzn_persist_hop chain[hop_count];
 }
 
 // A revocation this node issued, as the signed record it minted (202 bytes,
