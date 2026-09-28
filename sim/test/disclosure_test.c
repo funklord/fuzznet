@@ -70,6 +70,7 @@
 #include "../../version/version.h"
 
 #include <monocypher.h>
+#include <monocypher-ed25519.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -187,7 +188,7 @@ static void identities(void)
 
 	memset(&signer, 0, sizeof(signer));
 	seed_bytes(seed, 0x71u);
-	crypto_eddsa_key_pair(signer.secret_key, issuer_pub, seed);
+	crypto_ed25519_key_pair(signer.secret_key, issuer_pub, seed);
 	signer.can_sign = 1;
 	fzn_sign_monocypher_init(&issuer_sign, &signer);
 

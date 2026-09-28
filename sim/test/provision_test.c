@@ -112,6 +112,7 @@
 #include "../../version/version.h"
 
 #include <monocypher.h>
+#include <monocypher-ed25519.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -232,13 +233,13 @@ int main(void)
 
 	memset(&sponsor_signer, 0, sizeof(sponsor_signer));
 	seed_bytes(seed, 0x51u);
-	crypto_eddsa_key_pair(sponsor_signer.secret_key, root_pub, seed);
+	crypto_ed25519_key_pair(sponsor_signer.secret_key, root_pub, seed);
 	sponsor_signer.can_sign = 1;
 	fzn_sign_monocypher_init(&sponsor_sign, &sponsor_signer);
 
 	memset(&device_signer, 0, sizeof(device_signer));
 	seed_bytes(seed, 0x52u);
-	crypto_eddsa_key_pair(device_signer.secret_key, device_pub, seed);
+	crypto_ed25519_key_pair(device_signer.secret_key, device_pub, seed);
 	device_signer.can_sign = 1;
 	fzn_sign_monocypher_init(&device_sign, &device_signer);
 
@@ -405,7 +406,7 @@ int main(void)
 
 		memset(&forger_signer, 0, sizeof(forger_signer));
 		seed_bytes(forged_seed, 0x53u);
-		crypto_eddsa_key_pair(forger_signer.secret_key, forger_pub, forged_seed);
+		crypto_ed25519_key_pair(forger_signer.secret_key, forger_pub, forged_seed);
 		forger_signer.can_sign = 1;
 		fzn_sign_monocypher_init(&forger_sign, &forger_signer);
 

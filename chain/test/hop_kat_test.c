@@ -48,6 +48,7 @@
 #include "../sign_monocypher.h"
 
 #include "monocypher.h"
+#include "monocypher-ed25519.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -131,7 +132,7 @@ static void expected_hop(const uint8_t secret_key[64], const uint8_t grantor[FZN
 	/* Over bytes 0 through 114 inclusive -- the whole body, version and
 	 * object byte included, which chain.h says neither could be added
 	 * later without breaking every signature already issued. */
-	crypto_eddsa_sign(out + 115, secret_key, out, 115);
+	crypto_ed25519_sign(out + 115, secret_key, out, 115);
 }
 
 int main(void)
@@ -144,7 +145,7 @@ int main(void)
 	uint8_t got[FZN_HOP_LEN];
 
 	memset(seed, SEED_BYTE, sizeof(seed));
-	crypto_eddsa_key_pair(signer.secret_key, grantor, seed);
+	crypto_ed25519_key_pair(signer.secret_key, grantor, seed);
 	signer.can_sign = 1;
 	fzn_sign_monocypher_init(&ops, &signer);
 

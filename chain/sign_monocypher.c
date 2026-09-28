@@ -3,6 +3,7 @@
 #include "sign_monocypher.h"
 
 #include <monocypher.h>
+#include <monocypher-ed25519.h>
 
 #include <string.h>
 
@@ -16,7 +17,7 @@ static int mono_verify(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const ui
 {
 	(void)ctx; /* verification needs no key material of our own */
 
-	return crypto_eddsa_check(sig, pubkey, msg, msg_len) == 0;
+	return crypto_ed25519_check(sig, pubkey, msg, msg_len) == 0;
 }
 
 static int mono_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, size_t msg_len)
@@ -32,12 +33,12 @@ static int mono_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, si
 	if (!state || !state->can_sign)
 		return 0;
 
-	crypto_eddsa_sign(sig, state->secret_key, msg, msg_len);
+	crypto_ed25519_sign(sig, state->secret_key, msg, msg_len);
 	return 1;
 }
 
 /* THE SEED IS COPIED BEFORE MONOCYPHER SEES IT, because
- * `crypto_eddsa_key_pair` wipes the seed buffer it is given -- a courtesy for
+ * `crypto_ed25519_key_pair` wipes the seed buffer it is given -- a courtesy for
  * a caller who wants it gone, and a destroyed identity for one who passed the
  * only copy of a stored key. The seat's contract is that the caller's bytes
  * are the caller's, so the wipe lands on a local and the caller wipes its own
@@ -51,7 +52,7 @@ static int mono_install(void *ctx, const uint8_t seed[FZN_SIGN_SEED_LEN],
 	if (!state || !seed || !pubkey_out)
 		return 0;
 	memcpy(scratch, seed, sizeof(scratch));
-	crypto_eddsa_key_pair(state->secret_key, pubkey_out, scratch);
+	crypto_ed25519_key_pair(state->secret_key, pubkey_out, scratch);
 	crypto_wipe(scratch, sizeof(scratch));
 	state->can_sign = 1;
 	return 1;

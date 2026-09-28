@@ -24,9 +24,14 @@
 
 #include "chain.h"
 
-/* Ed25519, which is what fuzzypickles already uses (crypto_eddsa_sign and
- * crypto_eddsa_check in its identity.c), so the two agree without having to
- * be reconciled -- the same argument sec 4.5 makes for Monocypher itself. */
+/* Ed25519 as RFC 8032 defines it -- EdDSA over edwards25519 with SHA-512 --
+ * through Monocypher's optional `monocypher-ed25519`. Until sec 390 this was
+ * `crypto_eddsa_*`, EdDSA with BLAKE2b, and called Ed25519 while not being
+ * it: its signatures did not verify under a standard library. The holder
+ * chose the standard one for what standard buys -- other libraries, other
+ * languages, hardware keys for an offline root (sec 389, decision 7a).
+ * `chain/test/sign_monocypher_test.c` checks it against RFC 8032's own
+ * vectors. */
 #define FZN_SECRET_KEY_LEN 64
 
 typedef struct fzn_sign_monocypher {

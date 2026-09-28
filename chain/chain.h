@@ -517,12 +517,11 @@ typedef struct fzn_sign_ops {
  * the public key side by side, so the seed is the one encoding and the rest is
  * recomputed.
  *
- * THE DERIVATION IS THE BINDING'S, AND IT IS NOT RFC 8032. Monocypher's
- * `crypto_eddsa_*`, which `chain/sign_monocypher.c` binds, is EdDSA over
- * Curve25519 with BLAKE2b ("EdDSA with curve25519 + BLAKE2b", its header);
- * RFC 8032 Ed25519 hashes with SHA-512. So a seed names a key only between
- * bindings that agree on the hash, and a signature made here does not verify
- * under a standard Ed25519 library. project.md sec 375. */
+ * THE DERIVATION IS THE BINDING'S: `chain/sign_monocypher.c` derives as RFC
+ * 8032 Ed25519 does, hashing the seed with SHA-512, so a seed here names the
+ * key any standard Ed25519 library derives from it. It was EdDSA with
+ * BLAKE2b until sec 390, when a seed named a different key under every
+ * standard library; seeds stored before then name a different key now. */
 #define FZN_SIGN_SEED_LEN 32
 
 /* Seating a key in a signer, the one operation `fzn_sign_ops_t` could not

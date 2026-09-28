@@ -8,7 +8,7 @@
  * positive control for it.
  *
  * Concretely, it is what catches an argument order swapped between
- * Monocypher's convention and ours -- crypto_eddsa_check returns 0 for
+ * Monocypher's convention and ours -- crypto_ed25519_check returns 0 for
  * good, the seam wants nonzero for good -- which no amount of stub testing
  * can see, and which would make every signature verify or none.
  *
@@ -24,6 +24,7 @@
 #include "../sign_monocypher.h"
 
 #include <monocypher.h>
+#include <monocypher-ed25519.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -54,11 +55,11 @@ static void seed_bytes(uint8_t out[32], uint8_t v)
  * and BOTH TRACK IT, so changing it moves the declaration and its only users
  * together and every test still passes. Found by mutation: 64 to 65 and 64 to
  * 63 both leave the whole suite green, with the Monocypher bindings built.
- * Undersized, `crypto_eddsa_key_pair` writes past the field into whatever
+ * Undersized, `crypto_ed25519_key_pair` writes past the field into whatever
  * follows it in the struct.
  *
  * Monocypher cannot be asserted against at compile time. It declares
- * `crypto_eddsa_key_pair(uint8_t secret_key[64], ...)` and defines no size
+ * `crypto_ed25519_key_pair(uint8_t secret_key[64], ...)` and defines no size
  * macros, and an array parameter decays to a pointer, so the 64 is not a
  * symbol anything can compare with. That leaves measuring what it writes.
  *
@@ -78,14 +79,86 @@ static void check_secret_key_len(void)
 	memset(buf, 0, sizeof(buf));
 	memset(buf + FZN_SECRET_KEY_LEN, 0xA5, 16);
 
-	crypto_eddsa_key_pair(buf, pubkey, seed);
+	crypto_ed25519_key_pair(buf, pubkey, seed);
 
 	for (size_t i = FZN_SECRET_KEY_LEN; i < sizeof(buf); i++)
 		if (buf[i] != 0xA5u) {
 			intact = 0;
 			break;
 		}
-	check(intact, "crypto_eddsa_key_pair wrote past FZN_SECRET_KEY_LEN bytes");
+	check(intact, "crypto_ed25519_key_pair wrote past FZN_SECRET_KEY_LEN bytes");
+}
+
+/* RFC 8032's OWN VECTORS, section 7.1 TEST 1 and TEST 2, taken from the text
+ * at https://www.rfc-editor.org/rfc/rfc8032.txt on 2026-09-28 rather than
+ * recalled. Both directions, through the binding the library uses: the seed
+ * must seat to the RFC's public key and sign to the RFC's signature, and the
+ * RFC's signature must verify here. Then one byte of it perturbed must not --
+ * which is what shows the vector is compared, not merely present. sec 390. */
+struct rfc8032_vector {
+	const char *seed, *pubkey, *msg, *sig;
+};
+
+static const struct rfc8032_vector RFC8032[] = {
+	{ "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+	  "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a", "",
+	  "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e06522490155"
+	  "5fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b" },
+	{ "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
+	  "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c", "72",
+	  "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da"
+	  "085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00" },
+};
+
+static size_t unhex(const char *hex, uint8_t *out, size_t cap)
+{
+	size_t n = 0;
+
+	while (hex[0] && hex[1] && n < cap) {
+		unsigned v = 0;
+		int i;
+
+		for (i = 0; i < 2; i++) {
+			char c = hex[i];
+
+			v = (v << 4) | (unsigned)((c <= '9') ? (c - '0') : (c - 'a' + 10));
+		}
+		out[n++] = (uint8_t)v;
+		hex += 2;
+	}
+	return n;
+}
+
+static void check_rfc8032(void)
+{
+	size_t i;
+
+	for (i = 0; i < sizeof(RFC8032) / sizeof(RFC8032[0]); i++) {
+		uint8_t seed[32], want_pub[32], msg[8], want_sig[64], pub[32], sig[64];
+		size_t msg_len;
+		fzn_sign_monocypher_t state;
+		fzn_sign_seat_t seat;
+		fzn_sign_ops_t ops;
+
+		memset(&state, 0, sizeof(state));
+		unhex(RFC8032[i].seed, seed, sizeof(seed));
+		unhex(RFC8032[i].pubkey, want_pub, sizeof(want_pub));
+		msg_len = unhex(RFC8032[i].msg, msg, sizeof(msg));
+		unhex(RFC8032[i].sig, want_sig, sizeof(want_sig));
+		fzn_sign_monocypher_init(&ops, &state);
+		fzn_sign_monocypher_seat_init(&seat, &state);
+
+		check(seat.install(seat.ctx, seed, pub) && memcmp(pub, want_pub, 32) == 0,
+		      "an RFC 8032 seed did not derive the RFC's public key");
+		check(ops.sign(ops.ctx, sig, msg, msg_len) && memcmp(sig, want_sig, 64) == 0,
+		      "signing an RFC 8032 message did not give the RFC's signature");
+		check(ops.verify(ops.ctx, want_pub, msg, msg_len, want_sig),
+		      "the RFC's own signature did not verify");
+		want_sig[63] ^= 0x01u;
+		check(!ops.verify(ops.ctx, want_pub, msg, msg_len, want_sig),
+		      "an RFC 8032 signature with one byte changed verified");
+		fzn_sign_monocypher_wipe(&state);
+	}
 }
 
 int main(void)
@@ -104,7 +177,7 @@ int main(void)
 	seed_bytes(seed, 0x11);
 	check_secret_key_len();
 
-	crypto_eddsa_key_pair(signer.secret_key, pubkey, seed);
+	crypto_ed25519_key_pair(signer.secret_key, pubkey, seed);
 	signer.can_sign = 1;
 	fzn_sign_monocypher_init(&ops, &signer);
 
@@ -123,7 +196,7 @@ int main(void)
 	memcpy(genuine, bytes, FZN_HOP_LEN);
 
 	/* The negative half, and it is the one that matters. If mono_verify
-	 * had the sense of crypto_eddsa_check backwards, the case above would
+	 * had the sense of crypto_ed25519_check backwards, the case above would
 	 * still pass and this would not -- so a suite with only the case above
 	 * would report a working binding either way. */
 	bytes[FZN_HOP_OFF_SIGNATURE] ^= 0x01;
@@ -220,7 +293,7 @@ int main(void)
 	seed_bytes(other_seed, 0x22);
 	{
 		uint8_t other_sk[FZN_SECRET_KEY_LEN];
-		crypto_eddsa_key_pair(other_sk, other_pub, other_seed);
+		crypto_ed25519_key_pair(other_sk, other_pub, other_seed);
 		crypto_wipe(other_sk, sizeof(other_sk));
 	}
 	check(fzn_chain_verify(&hop, 1, other_pub, &cap, 1500, &ops, NULL, NULL, &out) ==
@@ -301,11 +374,11 @@ int main(void)
 
 		check(seat.install(seat.ctx, stored, seated_pub) != 0, "a seed would not seat");
 		check(memcmp(stored, copy, sizeof(stored)) == 0,
-		      "seating wiped the caller's seed -- crypto_eddsa_key_pair wipes the "
+		      "seating wiped the caller's seed -- crypto_ed25519_key_pair wipes the "
 		      "buffer it is given, and a store's only copy of an identity is "
 		      "exactly the buffer a caller passes");
 
-		crypto_eddsa_key_pair(expect_sk, expect_pub, copy);
+		crypto_ed25519_key_pair(expect_sk, expect_pub, copy);
 		crypto_wipe(expect_sk, sizeof(expect_sk));
 		check(memcmp(seated_pub, expect_pub, FZN_PUBKEY_LEN) == 0,
 		      "the seated public key is not the one the seed derives");
@@ -334,6 +407,8 @@ int main(void)
 		crypto_wipe(stored, sizeof(stored));
 		crypto_wipe(copy, sizeof(copy));
 	}
+
+	check_rfc8032();
 
 	printf("sign_monocypher_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

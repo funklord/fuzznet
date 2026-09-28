@@ -3391,16 +3391,23 @@ SABOTAGES = [
 	(
 		"sign-verify-checks-the-signature",
 		"chain/sign_monocypher.c",
-		"\treturn crypto_eddsa_check(sig, pubkey, msg, msg_len) == 0;\n",
+		"\treturn crypto_ed25519_check(sig, pubkey, msg, msg_len) == 0;\n",
 		"\treturn 1;\n",
 		"the whole of this binding is the polarity inversion in its comment, and a verifier that accepts everything is the one defect in this tree that nothing above it can catch",
 	),
 	(
 		"sign-seat-copies-the-seed",
 		"chain/sign_monocypher.c",
-		"\tcrypto_eddsa_key_pair(state->secret_key, pubkey_out, scratch);\n",
-		"\tcrypto_eddsa_key_pair(state->secret_key, pubkey_out, (uint8_t *)seed);\n",
-		"crypto_eddsa_key_pair wipes the seed it is given, and the seed a caller seats is the store's only copy of a node's identity -- handed over directly, restoring an identity destroys it -- sec 375",
+		"\tcrypto_ed25519_key_pair(state->secret_key, pubkey_out, scratch);\n",
+		"\tcrypto_ed25519_key_pair(state->secret_key, pubkey_out, (uint8_t *)seed);\n",
+		"crypto_ed25519_key_pair wipes the seed it is given, and the seed a caller seats is the store's only copy of a node's identity -- handed over directly, restoring an identity destroys it -- sec 375",
+	),
+	(
+		"sign-is-rfc8032-ed25519",
+		"chain/sign_monocypher.c",
+		"\tcrypto_ed25519_sign(sig, state->secret_key, msg, msg_len);\n",
+		"\tcrypto_eddsa_sign(sig, state->secret_key, msg, msg_len);\n",
+		"signing with EdDSA-BLAKE2b is what this binding did until sec 390: every signature is well-formed, verifies nowhere standard, and only RFC 8032's own vector can tell -- sec 390",
 	),
 	(
 		"sign-seat-arms-the-signer",

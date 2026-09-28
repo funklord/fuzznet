@@ -1346,7 +1346,7 @@ MONO_TSRC  := chain/test/sign_monocypher_test.c \
               node/test/admin_test.c
 
 ifdef MONO_ON
-MONO_OBJS  := $(BUILD_DIR)/chain/sign_monocypher.o \
+MONO_OBJS  := $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher-ed25519.o \
               $(BUILD_DIR)/session/hash_monocypher.o \
               $(BUILD_DIR)/session/aead_monocypher.o \
               $(BUILD_DIR)/monocypher.o
@@ -1375,8 +1375,8 @@ SRCS       += $(MONO_SRCS)
 # $(CURDIR) as well. A relative path here builds in one arrangement and not the
 # other, which is the difference the whole target exists to find.
 MONO_ABS      := $(abspath $(MONOCYPHER_DIR))
-MONO_CONSUMER := -DFZN_CONSUMER_MONOCYPHER -I$(MONO_ABS)/src \
-                 $(MONO_ABS)/src/monocypher.c
+MONO_CONSUMER := -DFZN_CONSUMER_MONOCYPHER -I$(MONO_ABS)/src -I$(MONO_ABS)/src/optional \
+                 $(MONO_ABS)/src/monocypher.c $(MONO_ABS)/src/optional/monocypher-ed25519.c
 MONO_BIN   := $(BUILD_DIR)/chain/test/sign_monocypher_test
 MONO_HASH  := $(BUILD_DIR)/session/test/hash_monocypher_test
 MONO_AEAD  := $(BUILD_DIR)/session/test/aead_monocypher_test
@@ -1407,7 +1407,7 @@ TEST_OBJS  += $(MONO_TOBJ)
 TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD) $(MONO_AGREE) $(MONO_GOLD) \
               $(MONO_KAT) $(MONO_RKAT) $(MONO_BKAT) $(MONO_HKAT) \
               $(MONO_NREM) $(MONO_NPROV) $(MONO_NPAIR) $(MONO_NADM)
-CPPFLAGS   += -I$(MONOCYPHER_DIR)/src
+CPPFLAGS   += -I$(MONOCYPHER_DIR)/src -I$(MONOCYPHER_DIR)/src/optional
 
 # Vendored, so it is compiled with its own terms rather than ours.
 # code-style.md exempts vendored sources from our rules, and -Wconversion
@@ -1432,11 +1432,18 @@ $(BUILD_DIR)/monocypher.o: $(MONOCYPHER_DIR)/src/monocypher.c
 	fi
 	$(CC) $(GEN_CFLAGS) -c $< -o $@
 
+# Ed25519 as RFC 8032 has it, from Monocypher's optional file: SHA-512 and the
+# signature over it. Built under the same vendored terms as monocypher.o, and
+# linked wherever the signer binding is, since it is the only caller. sec 390.
+$(BUILD_DIR)/monocypher-ed25519.o: $(MONOCYPHER_DIR)/src/optional/monocypher-ed25519.c
+	@mkdir -p $(dir $@)
+	$(CC) $(GEN_CFLAGS) -I$(MONOCYPHER_DIR)/src -c $< -o $@
+
 # Each names its own objects rather than linking $(MONO_OBJS) wholesale.
 # Linking both bindings into both binaries would work and would hide which
 # one each test actually exercises, which is the thing these tests are for.
 $(MONO_BIN): $(BUILD_DIR)/chain/test/sign_monocypher_test.o \
-             $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher.o \
+             $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher-ed25519.o $(BUILD_DIR)/monocypher.o \
              $(BUILD_DIR)/chain/chain.o \
              $(BUILD_DIR)/chain/revocation.o \
              $(BUILD_DIR)/chain/manifest.o \
@@ -1548,7 +1555,7 @@ $(MONO_BKAT): $(BUILD_DIR)/blob/test/blob_kat_test.o \
 $(MONO_HKAT): $(BUILD_DIR)/chain/test/hop_kat_test.o \
               $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
               $(BUILD_DIR)/chain/manifest.o \
-              $(BUILD_DIR)/chain/sign_monocypher.o \
+              $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher-ed25519.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(BUILD_DIR)/monocypher.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -1558,7 +1565,7 @@ $(MONO_HKAT): $(BUILD_DIR)/chain/test/hop_kat_test.o \
 # so that a green result says which primitive was exercised. This one is the
 # opposite claim and needs the opposite link line: a host has all four.
 $(MONO_REAL): $(BUILD_DIR)/sim/test/real_crypto_test.o \
-              $(BUILD_DIR)/chain/sign_monocypher.o \
+              $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher-ed25519.o \
               $(BUILD_DIR)/session/hash_monocypher.o \
               $(BUILD_DIR)/session/aead_monocypher.o \
               $(BUILD_DIR)/session/agree_monocypher.o $(BUILD_DIR)/monocypher.o \
@@ -1578,7 +1585,7 @@ $(MONO_REAL): $(BUILD_DIR)/sim/test/real_crypto_test.o \
 # content-key hand-off, record/journal/state/log for what travels as records,
 # link and sched for the send-path decision, relay for the hop budget.
 $(MONO_PROV): $(BUILD_DIR)/sim/test/provision_test.o \
-              $(BUILD_DIR)/chain/sign_monocypher.o \
+              $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher-ed25519.o \
               $(BUILD_DIR)/session/hash_monocypher.o \
               $(BUILD_DIR)/session/aead_monocypher.o \
               $(BUILD_DIR)/session/agree_monocypher.o $(BUILD_DIR)/monocypher.o \
@@ -1616,7 +1623,7 @@ $(MONO_DISC): $(BUILD_DIR)/sim/test/disclosure_test.o \
               $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
               $(BUILD_DIR)/chain/manifest.o \
               $(BUILD_DIR)/session/hash_monocypher.o \
-              $(BUILD_DIR)/chain/sign_monocypher.o \
+              $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher-ed25519.o \
               $(BUILD_DIR)/version/version.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(BUILD_DIR)/monocypher.o
 	@mkdir -p $(dir $@)
@@ -3130,7 +3137,7 @@ $(BUILD_DIR)/node/test/remote_test: $(BUILD_DIR)/node/test/remote_test.o \
               $(BUILD_DIR)/chunk/split.o $(BUILD_DIR)/chunk/reassembly.o \
               $(BUILD_DIR)/local/peer.o $(BUILD_DIR)/chain/authz.o \
               $(BUILD_DIR)/frame/freshness.o \
-              $(BUILD_DIR)/chain/sign_monocypher.o \
+              $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher-ed25519.o \
               $(BUILD_DIR)/session/hash_monocypher.o \
               $(BUILD_DIR)/session/aead_monocypher.o \
               $(BUILD_DIR)/session/agree_monocypher.o $(BUILD_DIR)/monocypher.o \
@@ -3178,7 +3185,7 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/chain/service.o \
               $(BUILD_DIR)/chain/authz.o $(BUILD_DIR)/frame/freshness.o \
               $(BUILD_DIR)/chunk/split.o $(BUILD_DIR)/chunk/reassembly.o \
-              $(BUILD_DIR)/chain/sign_monocypher.o \
+              $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher-ed25519.o \
               $(BUILD_DIR)/session/hash_monocypher.o \
               $(BUILD_DIR)/session/aead_monocypher.o \
               $(BUILD_DIR)/session/agree_monocypher.o $(BUILD_DIR)/monocypher.o \
@@ -3214,7 +3221,7 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/chain/service.o \
               $(BUILD_DIR)/chain/authz.o $(BUILD_DIR)/frame/freshness.o \
               $(BUILD_DIR)/chunk/split.o $(BUILD_DIR)/chunk/reassembly.o \
-              $(BUILD_DIR)/chain/sign_monocypher.o \
+              $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher-ed25519.o \
               $(BUILD_DIR)/session/hash_monocypher.o \
               $(BUILD_DIR)/session/aead_monocypher.o \
               $(BUILD_DIR)/session/agree_monocypher.o $(BUILD_DIR)/monocypher.o \
@@ -3260,7 +3267,7 @@ $(BUILD_DIR)/node/test/provision_test: $(BUILD_DIR)/node/test/provision_test.o \
               $(BUILD_DIR)/net/udp.o \
               $(BUILD_DIR)/version/version.o $(BUILD_DIR)/provision/provision.o \
               $(BUILD_DIR)/frame/freshness.o \
-              $(BUILD_DIR)/chain/sign_monocypher.o \
+              $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher-ed25519.o \
               $(BUILD_DIR)/session/hash_monocypher.o \
               $(BUILD_DIR)/session/aead_monocypher.o \
               $(BUILD_DIR)/session/agree_monocypher.o $(BUILD_DIR)/monocypher.o \

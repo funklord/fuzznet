@@ -48252,3 +48252,162 @@ Nine sabotage entries cover:
 - the empty body on an add;
 - the tie-break;
 - the writer accessor.
+
+## 389. What fuzznet serves: decisions from the planning session, 2026-09-28
+
+The node layer of secs 375-388 was built around an estate root that stays
+reachable, pairs members and decides for them. fuzzypickles, its only
+active consumer, deliberately has no such host (its §3, "Multi-host:
+capability delegation, not a fixed root device"). Its daemon calls
+fuzznet's primitives and none of the node layer, and no other tree
+(raidcfgd, netcfgd, hydra, beerssh) calls it either. The mismatch surfaced
+when a rule for the roster (d83ac2c) turned out to rest on "the root decides
+for every host", which is false there. The holder held a planning session
+on it. These are the holder's decisions; the working brief was
+https://claude.ai/code/artifact/208950b6-5579-410d-9b4c-ecf0613424eb.
+
+### 1. Peer to peer is the base; a root is a performance role
+
+fuzznet must fundamentally support splits and recovery, so correctness
+never depends on one host. A reachable root may still be wanted, because it
+can give substantially better performance in the normal case, but as a role
+a well-connected host plays and not as a requirement. The ultimate root,
+the trust anchor, can be offline, possibly a printed piece of paper.
+
+Consequences for what is built:
+
+- sec 383 joins only through the root;
+- sec 384 pulls revocations only from the root;
+- sec 386's undo reaches members only through that pull;
+- d83ac2c's rule assumes a deciding root.
+
+Each is reworked for peers.
+
+### 2. fuzzypickles moves onto fuzznet's node, eventually
+
+fuzznet builds a peer-to-peer node that meets fuzzypickles' §3, and
+fuzzypickles retires its sibling channel once that node exists. Until then
+fuzznet supplies carriable pieces, such as the roster bundle, for their
+channel to move. That is sec 2's direction ("network code and dependencies
+leave the consuming project"), and decision 1 removes what stood in its way.
+
+### 3. Commands are not equal; removal gets every check
+
+Commands differ in effect and fallout. Removal is the least repairable, the
+most damaging, and the most likely to be run by an attacker, so it goes
+through every check available and is never optimised for simplicity or
+speed. A node that cannot know whether the writer has been revoked cannot
+yet accept a removal from it. Removal likely needs consensus.
+
+d83ac2c's refuse-on-arrival does not meet this, since under per-host
+admission it depends on arrival order. It stays until the mechanism exists,
+because it is the stricter of the two behaviours available. Open, for a
+design brought to the holder before it is built:
+
+- what "can know" means, for which revocation currency through manifests
+  (secs 13d and 58) is the candidate;
+- who takes part in the consensus, and how many;
+- a removal that cannot be accepted yet is held pending, not dropped;
+- whether the host where the user removes stops serving the subject
+  locally at once.
+
+### 4. Settings: the restrictive value wins between concurrent writes
+
+Each setting declares its safe direction, and fuzznet reads only that bit,
+never the body. A setting write names the value it replaces and supersedes
+it, so a deliberate change works in either direction. Two writes that
+replace the same value without seeing each other are concurrent, and the
+more restrictive one wins. This settles fuzzypickles' "a withdrawal beats a
+grant" question for concurrent writes (sec 384's correction).
+
+### 5. One pairing card, carrying the admitting member's chain
+
+The card names the estate root and carries the granting member's chain, so
+any member entitled to admit can admit (decision 1). The current one-hop
+format is replaced, not kept beside it. Cards issued so far stop working,
+which today means only fuzznetd's own test pairings.
+
+### 6. When revocations cannot be confirmed current, tier by severity
+
+Ordinary use continues on the last revocations a host knows, so a split
+bricks nothing. Damaging or irreversible commands wait until the host can
+confirm it is current: removal, re-keying and granting admin, with the full
+list still to draw up. This replaces sec 384's behaviour, which serves
+everything on stale revocations.
+
+### 7. Standard Ed25519, and what goes in the core directory
+
+**7a. Signatures become RFC 8032 Ed25519**, through Monocypher's optional
+`monocypher-ed25519`, and are named that. They were `crypto_eddsa`,
+EdDSA with BLAKE2b, and called Ed25519 (sec 375). Security does not
+separate the two. Interoperability does: standard libraries, other
+languages, and hardware keys for an offline or recovery root. SHA-512 costs
+a few kilobytes. Every existing key and signature changes, fuzzypickles'
+included, so the switch is coordinated with them.
+
+**7b. Anything needed to avoid putting us in an attacker's hands goes in
+the core directory**, `--fuzznet-dir`, whatever its size:
+
+- the identity seed and secrets, the prekey and the trust anchor;
+- revocations, both issued and learned;
+- roster tombstones;
+- any counter whose rollback enables replay or key reuse.
+
+What only costs availability when lost goes in `--fuzznet-store`: records,
+spool, blobs, logs, peers and pairings. fuzznetd's own `--store` goes
+(sec 376 left this open). The core directory is small by nature but only
+grows, because revocations and tombstones accumulate.
+
+### Order of work, as agreed
+
+1. This record, and the decisions affecting fuzzypickles sent to them.
+2. The Ed25519 switch, first because it breaks every key and is cheapest
+   now.
+3. The card replacement and the directory split.
+4. A design for decision 3's open questions, brought to the holder before
+   the peer-to-peer carriage, removal consensus and severity tiers are
+   built.
+
+## 390. Signatures are RFC 8032 Ed25519, 2026-09-28
+
+Sec 389, decision 7a. `chain/sign_monocypher.c` bound Monocypher's
+`crypto_eddsa_*`, EdDSA over edwards25519 with BLAKE2b, and everything here
+called it Ed25519. Its signatures did not verify under any standard Ed25519
+library, and a seed named a different public key than it does everywhere
+else (sec 375 recorded the mismatch).
+
+It binds `crypto_ed25519_*` from Monocypher's optional
+`monocypher-ed25519.c` now. That file was already vendored, and is built as
+`monocypher-ed25519.o` under the same vendored terms as `monocypher.o`. The
+Makefile links it wherever the binding is linked, ten sites, and
+`installcheck` compiles it for the consumer check. Seven tests that derive
+keys with Monocypher directly now call the Ed25519 functions.
+
+**Checked against the RFC, not against itself.** `sign_monocypher_test`
+carries section 7.1's TEST 1 and TEST 2, taken from
+https://www.rfc-editor.org/rfc/rfc8032.txt on 2026-09-28 (sha256 of the
+text `ed63657f...fc93c4c3`). Both directions run through the binding:
+
+- the seed seats to the RFC's public key;
+- signing gives the RFC's signature;
+- the RFC's signature verifies here;
+- the same signature with one byte changed does not.
+
+A sabotage entry puts `crypto_eddsa_sign` back in the binding, and the
+round-trip tests catch it, since verification is still standard. A full
+revert of all three calls was probed by hand. The round trips fail as well,
+because the tests now derive keys with `crypto_ed25519_*` themselves, and
+the four RFC checks fail for both vectors. Those round-trip tests call the
+same library the binding does, so the RFC vector is the one witness
+independent of Monocypher, which is why it is there.
+
+**Every key and signature made before this changes.** The same seed
+derives a different public key under SHA-512, so every stored identity,
+hop, revocation, record and prekey signature from before this commit is
+foreign to it. fuzzypickles reports the holder's answer for its side, in
+its words: existing identities need not survive, and the holder's devices
+(desktop, Fold, Note 9) will be re-created by running identity-generate
+again, re-joining devices and re-pairing contacts, with no migration path
+wanted. fuzzypickles' core calls Monocypher's EdDSA directly at 31 sites,
+and they will switch those when they move their pin, in their tree. Their
+vendored Monocypher already carries the optional file.

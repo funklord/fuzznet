@@ -23,6 +23,7 @@
 
 #include <arpa/inet.h>
 #include <monocypher.h>
+#include <monocypher-ed25519.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <string.h>
@@ -224,7 +225,7 @@ int main(void)
 	for (h = 0; h < 2u; h++) {
 		memset(&signer[h], 0, sizeof(signer[h]));
 		seed_bytes(seed, (uint8_t)(0x71u + h));
-		crypto_eddsa_key_pair(signer[h].secret_key, pubkey[h], seed);
+		crypto_ed25519_key_pair(signer[h].secret_key, pubkey[h], seed);
 		signer[h].can_sign = 1;
 		fzn_sign_monocypher_init(&sign_ops[h], &signer[h]);
 		memset(&sk[h], 0, sizeof(sk[h]));
