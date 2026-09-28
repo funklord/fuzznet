@@ -425,3 +425,65 @@ const char *fzn_persist_err_str(fzn_persist_err_t err)
 
 	return "unknown";
 }
+
+int fzn_persist_slot_is_core(fzn_persist_slot_t slot)
+{
+	switch (slot) {
+	case FZN_PERSIST_NODE_PEER:
+	case FZN_PERSIST_PAIRED_NODE:
+		return 0;
+	default:
+		return 1;	/* named or not: see persist.h */
+	}
+}
+
+static const fzn_persist_ops_t *route_for(void *ctx, fzn_persist_slot_t slot)
+{
+	const fzn_persist_route_t *route = (const fzn_persist_route_t *)ctx;
+
+	if (!route)
+		return NULL;
+	return fzn_persist_slot_is_core(slot) ? route->core : route->store;
+}
+
+static int route_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, uint8_t *out,
+                      size_t cap, size_t *len)
+{
+	const fzn_persist_ops_t *to = route_for(ctx, slot);
+
+	return to && to->load ? to->load(to->ctx, slot, subject, out, cap, len) : 0;
+}
+
+static int route_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
+                      const uint8_t *bytes, size_t len)
+{
+	const fzn_persist_ops_t *to = route_for(ctx, slot);
+
+	return to && to->save ? to->save(to->ctx, slot, subject, bytes, len) : 0;
+}
+
+static int route_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max,
+                      size_t *count)
+{
+	const fzn_persist_ops_t *to = route_for(ctx, slot);
+
+	return to && to->list ? to->list(to->ctx, slot, out, max, count) : 0;
+}
+
+static int route_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject)
+{
+	const fzn_persist_ops_t *to = route_for(ctx, slot);
+
+	return to && to->remove ? to->remove(to->ctx, slot, subject) : 0;
+}
+
+void fzn_persist_route_ops(fzn_persist_route_t *route, fzn_persist_ops_t *ops)
+{
+	if (!ops)
+		return;
+	ops->load = route_load;
+	ops->save = route_save;
+	ops->list = route_list;
+	ops->remove = route_remove;
+	ops->ctx = route;
+}

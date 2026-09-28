@@ -4114,6 +4114,20 @@ SABOTAGES = [
 		"a sponsor-sealed card carrying another host's prekey sends the device's session to that host -- sec 391",
 	),
 	(
+		"persist-route-core-is-core",
+		"persist/persist.c",
+		"\treturn fzn_persist_slot_is_core(slot) ? route->core : route->store;\n",
+		"\treturn fzn_persist_slot_is_core(slot) ? route->store : route->core;\n",
+		"a route with its directions swapped puts the identity and the revocations in the directory meant for what can be lost -- sec 392",
+	),
+	(
+		"persist-unnamed-slot-is-core",
+		"persist/persist.c",
+		"\t\treturn 1;\t/* named or not: see persist.h */\n",
+		"\t\treturn 0;\n",
+		"a slot added without a decision about it would land where losing it costs availability, when it might be what keeps an attacker out -- sec 392",
+	),
+	(
 		"provision-text-is-canonical",
 		"provision/provision.c",
 		"\tif (bits > 0 && (acc & ((1u << bits) - 1u)) != 0u)\n\t\treturn FZN_PROVISION_ERR_SHAPE;\n",

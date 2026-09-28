@@ -11,14 +11,21 @@
  * IT STILL DOES NOT MINT A PEER: deciding what a peer is granted and which
  * prekeys are pinned is not something a daemon should do on its own say-so.
  * WHERE ITS OWN KEY LIVES is settled, by sec 136's "generate it when absent":
- * with `--store` and no `--identity` the daemon loads its identity from the
- * store, or creates a self-rooted one when the store holds none, through
+ * with `--fuzznet-dir` and no `--identity` the daemon loads its identity from
+ * there, or creates a self-rooted one when it holds none, through
  * `node/identity.h`. sec 375. What it also does is LOAD a set a consumer has
  * already provisioned, from the same store. Reading what somebody else decided is not
  * deciding it, and without this the daemon could bind the remote hop and
  * serve nobody for ever -- raidcfgd reported exactly that on 2026-09-22.
  *
- * `--store DIR` is opt-in. Without it the daemon behaves as before and a
+ * TWO DIRECTORIES SINCE sec 392, by the holder's rule that anything needed to
+ * keep an attacker out lives in the core one whatever its size: identity,
+ * anchor, pinned prekeys, ratchet positions and revocations under
+ * `--fuzznet-dir`; the peers a node serves and the pairings a device holds
+ * under `--fuzznet-store`, which defaults to the core directory when omitted
+ * (`fzn_persist_slot_is_core`). They replace the one `--store DIR`.
+ *
+ * `--fuzznet-dir` is opt-in. Without it the daemon behaves as before and a
  * consumer that fills the state itself and calls `fzn_node_run` is
  * unaffected. With it, a store that cannot be read is FATAL rather than
  * empty: a daemon that starts having silently served nobody is the failure
@@ -154,12 +161,12 @@ static void usage(const char *prog)
 {
 	fprintf(stderr,
 	        "usage: %s --socket PATH [--group GID] [--udp-port PORT]"
-	        " [--udp6] [--store DIR] [--identity HEX] [--root HEX]"
+	        " [--udp6] [--identity HEX] [--root HEX]"
 	        " [fuzznet options]\n"
-	        "       %s --store DIR --pair PREKEY_HEX [--delegable] [fuzznet options]\n"
-	        "       %s --store DIR --prekey\n"
-	        "       %s --store DIR --accept CARD [--join]\n"
-	        "       %s --store DIR --ask LINE --node ROOT_HEX --to HOST PORT [--udp6]\n"
+	        "       %s --fuzznet-dir=DIR --pair PREKEY_HEX [--delegable] [fuzznet options]\n"
+	        "       %s --fuzznet-dir=DIR --prekey\n"
+	        "       %s --fuzznet-dir=DIR --accept CARD [--join]\n"
+	        "       %s --fuzznet-dir=DIR --ask LINE --node ROOT_HEX --to HOST PORT [--udp6]\n"
 	        "a member of an estate may add --root-at HOST PORT when serving:\n"
 	        "it pulls the root's revocations at start and every %u seconds\n"
 	        "%s",
@@ -226,7 +233,9 @@ int main(int argc, char **argv)
 	fzn_sign_seat_t seat;
 	fzn_agree_ops_t agree_ops;
 	fzn_sign_monocypher_t signer;
-	static fzn_persist_file_t store;
+	static fzn_persist_file_t core_file, bulk_file;
+	static fzn_persist_route_t route;
+	static fzn_persist_ops_t routed;
 	const fzn_persist_ops_t *store_ops = NULL;
 	static fzn_agree_secret_t agree_secret;
 	static fzn_trust_t trust;
@@ -234,7 +243,8 @@ int main(int argc, char **argv)
 	int booted = 0;
 	fzn_replay_window_t replay;
 	static fzn_replay_entry_t replay_entries[FZND_REPLAY_ENTRIES];
-	const char *store_dir = NULL;
+	const char *store_dir = NULL;	/* the core directory, for messages */
+	const char *bulk_dir = NULL;
 	const char *identity_hex = NULL;
 	const char *root_hex = NULL;
 	long group = -1;
@@ -268,8 +278,6 @@ int main(int argc, char **argv)
 			group = strtol(argv[++i], NULL, 10);
 		} else if (!strcmp(argv[i], "--udp-port") && i + 1 < argc) {
 			udp_port = strtol(argv[++i], NULL, 10);
-		} else if (!strcmp(argv[i], "--store") && i + 1 < argc) {
-			store_dir = argv[++i];
 		} else if (!strcmp(argv[i], "--identity") && i + 1 < argc) {
 			identity_hex = argv[++i];
 		} else if (!strcmp(argv[i], "--root") && i + 1 < argc) {
@@ -396,12 +404,23 @@ int main(int argc, char **argv)
 	/* THE STORE, OPENED BEFORE THE IDENTITY because the identity may live
 	 * in it. A store that cannot be opened is fatal, for the reason the
 	 * peer load below gives. */
+	store_dir = cli.dir;
+	bulk_dir = cli.store ? cli.store : cli.dir;
 	if (store_dir) {
-		store_ops = fzn_persist_file_init(&store, store_dir);
-		if (!store_ops) {
-			fprintf(stderr, "fuzznetd: could not open store %s\n", store_dir);
+		route.core = fzn_persist_file_init(&core_file, store_dir);
+		route.store = (bulk_dir == store_dir) ? route.core
+		                                      : fzn_persist_file_init(&bulk_file, bulk_dir);
+		if (!route.core || !route.store) {
+			fprintf(stderr, "fuzznetd: could not open %s\n",
+			        route.core ? bulk_dir : store_dir);
 			return 1;
 		}
+		fzn_persist_route_ops(&route, &routed);
+		store_ops = &routed;
+	} else if (cli.store) {
+		fprintf(stderr, "fuzznetd: --fuzznet-store needs --fuzznet-dir: the identity "
+		                "and what keeps attackers out live in the core directory\n");
+		return 2;
 	}
 
 	/* THIS NODE'S OWN IDENTITY, from the store, when none was named.
@@ -427,9 +446,9 @@ int main(int argc, char **argv)
 		env.hash = &hash_ops;
 		env.agree = &agree_ops;
 		env.log = NULL; /* this main reports on stderr below */
-		found.seed = fzn_persist_file_holds(&store, FZN_PERSIST_OWN_IDENTITY, NULL);
-		found.prekey = fzn_persist_file_holds(&store, FZN_PERSIST_OWN_PREKEY, NULL);
-		found.trust = fzn_persist_file_holds(&store, FZN_PERSIST_TRUST, NULL);
+		found.seed = fzn_persist_file_holds(&core_file, FZN_PERSIST_OWN_IDENTITY, NULL);
+		found.prekey = fzn_persist_file_holds(&core_file, FZN_PERSIST_OWN_PREKEY, NULL);
+		found.trust = fzn_persist_file_holds(&core_file, FZN_PERSIST_TRUST, NULL);
 		ierr = fzn_node_identity_boot(&env, &found, wall_clock(), &agree_secret, &trust,
 		                              &identity, &created);
 		if (ierr != FZN_NODE_IDENTITY_OK) {
@@ -490,7 +509,7 @@ int main(int argc, char **argv)
 	 * carrying it to the pairing node is what vouches for it. */
 	if (show_prekey) {
 		if (!booted) {
-			fprintf(stderr, "fuzznetd: --prekey needs --store, and no --identity\n");
+			fprintf(stderr, "fuzznetd: --prekey needs --fuzznet-dir, and no --identity\n");
 			return 2;
 		}
 		print_hex(stdout, identity.prekey_record, FZN_PREKEY_LEN_TOTAL);
@@ -508,7 +527,7 @@ int main(int argc, char **argv)
 		fzn_node_pair_err_t perr;
 
 		if (!booted) {
-			fprintf(stderr, "fuzznetd: --accept needs --store, and no --identity\n");
+			fprintf(stderr, "fuzznetd: --accept needs --fuzznet-dir, and no --identity\n");
 			return 2;
 		}
 		if (fzn_provision_from_text(accept_text, card, sizeof(card), &card_len)
@@ -559,7 +578,7 @@ int main(int argc, char **argv)
 		int fd = -1, rc;
 
 		if (!booted || !node_hex || !to_host || to_port < 0 || to_port > 65535) {
-			fprintf(stderr, "fuzznetd: --ask needs --store, --node and --to\n");
+			fprintf(stderr, "fuzznetd: --ask needs --fuzznet-dir, --node and --to\n");
 			return 2;
 		}
 		if (!hex_pubkey(node_hex, node_root)
@@ -611,7 +630,7 @@ int main(int argc, char **argv)
 
 	if (pair_hex) {
 		if (!booted) {
-			fprintf(stderr, "fuzznetd: --pair needs --store, and no --identity: "
+			fprintf(stderr, "fuzznetd: --pair needs --fuzznet-dir, and no --identity: "
 			                "pairing mints, so the node must hold its key\n");
 			return 2;
 		}
@@ -625,7 +644,7 @@ int main(int argc, char **argv)
 	 * closes, and starting anyway would reintroduce it with more moving
 	 * parts. */
 	if (udp_port >= 0 && !identity_hex && !booted) {
-		fprintf(stderr, "fuzznetd: --udp-port needs --identity or --store\n");
+		fprintf(stderr, "fuzznetd: --udp-port needs --identity or --fuzznet-dir\n");
 		return 2;
 	}
 
@@ -697,7 +716,7 @@ int main(int argc, char **argv)
 		err = fzn_node_peers_load(store_ops, peers, FZN_NODE_PEERS_MAX, &loaded);
 		if (err != FZN_PERSIST_OK) {
 			fprintf(stderr, "fuzznetd: could not load peers from %s (%d)\n",
-			        store_dir, (int)err);
+			        bulk_dir, (int)err);
 			fzn_socket_close(lfd, sock_path);
 			if (ufd >= 0)
 				fzn_udp_close(ufd);
@@ -705,7 +724,7 @@ int main(int argc, char **argv)
 		}
 		state.peers = peers;
 		state.peer_count = loaded;
-		fprintf(stderr, "fuzznetd: %zu peer(s) from %s\n", loaded, store_dir);
+		fprintf(stderr, "fuzznetd: %zu peer(s) from %s\n", loaded, bulk_dir);
 
 		/* FUZZNET'S OWN VERBS, answered by the node about itself, when it
 		 * holds what they need: its key, a store, and the capability it
@@ -755,7 +774,7 @@ int main(int argc, char **argv)
 		}
 		if (!my_authority || !running || root_at_port < 0
 		    || root_at_port > 65535) {
-			fprintf(stderr, "fuzznetd: --root-at needs --store and a node that has "
+			fprintf(stderr, "fuzznetd: --root-at needs --fuzznet-dir and a node that has "
 			                "joined an estate\n");
 			fzn_socket_close(lfd, sock_path);
 			if (ufd >= 0)

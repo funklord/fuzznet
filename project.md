@@ -47337,10 +47337,10 @@ directory (sec 375).
   (sec 366) and not the caller's view of a node. The caller half of the
   pairing is the next piece, and it is the same inventory hole a third
   time.
-- **`--fuzznet-dir` names the identity directory**, per `cli/cli.h`
+- ~~**`--fuzznet-dir` names the identity directory**, per `cli/cli.h`
   ("identity and claim directory"), and `fuzznetd` keeps its identity
-  under `--store` beside its peers. Aligning them changes a flag raidcfgd
-  may already use, so it wants deciding rather than doing in passing.
+  under `--store` beside its peers.~~ Decided by the holder (sec 389, 7b)
+  and done in sec 392: `--store` is gone.
 
 ## 377. The device's half of a pairing, and a card any device would accept, 2026-09-26
 
@@ -48511,3 +48511,56 @@ Seven sabotage entries hold the card and the pairing:
   pairing's capability agreement, and the pairing filed under its node;
 - three new: the chain starts at the root, the chain is unbroken, and the
   sponsor holds the prekey.
+
+## 392. Two directories: what keeps an attacker out, and the rest, 2026-09-28
+
+Sec 389, decision 7b, in the holder's words: "anything that is needed to
+avoid putting us in the arms of an attacker needs to be in the core dir",
+whatever its size, with everything else free to live somewhere bigger and
+less guarded. `fuzznetd` kept everything under one `--store DIR`, beside a
+`--fuzznet-dir` that the shared option vocabulary already called the
+identity directory (sec 376 left the two unaligned).
+
+**`fzn_persist_slot_is_core`** is the rule as code, slot by slot, with
+what losing or rolling back each would buy an attacker written beside it in
+`persist.h`:
+
+- **Core:** the anchor, the prekey secret, pinned peer prekeys, the ratchet
+  chains, the signing seed, and revocations issued and learned.
+- **The rest:** the peers a node serves and the pairings a device holds.
+  Losing them means re-pairing, and admits nothing that was not admitted.
+- **A slot the rule does not name is core**, so a slot added later without
+  a decision lands in the guarded place.
+
+**One judgement in the list is mine and the holder's to overrule:**
+pinned peer prekeys (slot 3) are core. Losing a pin lets the next contact
+pin whatever key it is shown, which is how an attacker gets in; the
+opposite reading, that a pin is re-established by the next scan, is
+reasonable and is not taken.
+
+**`fzn_persist_route_t`** makes two backends one `fzn_persist_ops_t`,
+dispatching each call by the rule. An optional operation the routed-to
+backend lacks answers 0, as that backend would alone, rather than falling
+through to the other one.
+
+`fuzznetd` takes `--fuzznet-dir` for the core directory and
+`--fuzznet-store` for the rest, which defaults to the core directory when
+omitted. `--store` is removed, and `--fuzznet-store` without
+`--fuzznet-dir` is refused by name. The identity-presence checks read the
+core directory directly, which is where the rule puts the identity.
+
+### Measured for sec 392
+
+`persist_test` checks every named slot against the rule, as a list written
+out in the test rather than read from the code: core slots are saved to the
+core backend and nowhere else, store slots are loaded from the store
+backend, an unnamed slot is core, and a missing optional operation does not
+fall through. 405 checks.
+
+Live: a node was paired with `--fuzznet-dir=core --fuzznet-store=bulk`.
+The anchor, prekey and identity (`1-`, `2-`, `7-`) landed in `core`; the
+node-peer record (`6-`) landed in `bulk` and nowhere else. `--fuzznet-store`
+alone was refused.
+
+Two sabotage entries cover the route's direction and the unnamed-slot
+default.

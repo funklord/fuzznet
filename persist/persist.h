@@ -281,6 +281,47 @@ typedef struct fzn_persist_ops {
 	void *ctx;
 } fzn_persist_ops_t;
 
+/* ---- which slots are core, and a store that routes by it ------------- */
+
+/*
+ * WHETHER A SLOT HOLDS WHAT KEEPS AN ATTACKER OUT. project.md sec 389,
+ * decision 7b, in the holder's words: "anything that is needed to avoid
+ * putting us in the arms of an attacker needs to be in the core dir",
+ * whatever its size. Everything else -- what costs availability when lost,
+ * not safety -- may live elsewhere, somewhere bigger and less guarded.
+ *
+ * CORE, and what losing or rolling back each would buy an attacker:
+ *
+ *   TRUST                the anchor: lost, the next root offered is pinned
+ *   OWN_PREKEY           this host's key-agreement secret
+ *   PEER                 prekeys this host pinned: lost, the next contact
+ *                        re-pins whatever key it is shown (sec 392 records
+ *                        this one as a judgement, the holder's to overrule)
+ *   SEND_/RECV_CHAIN     ratchet positions: rolled back, keys are reused
+ *   OWN_IDENTITY         the signing seed
+ *   ISSUED_/LEARNED_REVOCATION  lost, a revoked device is admitted again
+ *
+ * NOT CORE: NODE_PEER and PAIRED_NODE, the sessions a node serves and a
+ * device holds. Lost, a device re-pairs; nothing is admitted that was not.
+ *
+ * A SLOT THIS DOES NOT NAME IS CORE. A slot added later without a decision
+ * about it lands where losing it costs the least, which is the guarded
+ * place. 1 for core, 0 otherwise. */
+int fzn_persist_slot_is_core(fzn_persist_slot_t slot);
+
+/* TWO BACKENDS AS ONE: every call for a core slot goes to `core`, every
+ * other to `store`. `fzn_persist_route_ops` fills `ops` with dispatchers over
+ * the route, which must outlive them. `list` and `remove` answer 0 when the
+ * backend a slot routes to lacks them, as a single backend lacking them would.
+ * `store` may be the same ops as `core`, which is one directory holding both,
+ * as before sec 392. */
+typedef struct fzn_persist_route {
+	const fzn_persist_ops_t *core;
+	const fzn_persist_ops_t *store;
+} fzn_persist_route_t;
+
+void fzn_persist_route_ops(fzn_persist_route_t *route, fzn_persist_ops_t *ops);
+
 /* ---- the format ------------------------------------------------------- */
 
 /*

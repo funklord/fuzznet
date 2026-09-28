@@ -803,6 +803,89 @@ static void test_an_identity_seed_round_trips_and_zero_is_refused(void)
 	      "an identity guard let a null or an undersized buffer through");
 }
 
+/* ---- the route, sec 392 ------------------------------------------------ */
+
+/* A backend that only counts which slots reached it. */
+struct counting {
+	unsigned calls[16];
+	int has_optional;
+};
+
+static int count_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, uint8_t *out,
+                      size_t cap, size_t *len)
+{
+	(void)subject; (void)out; (void)cap; (void)len;
+	((struct counting *)ctx)->calls[slot & 15u]++;
+	return 1;
+}
+
+static int count_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
+                      const uint8_t *bytes, size_t len)
+{
+	(void)subject; (void)bytes; (void)len;
+	((struct counting *)ctx)->calls[slot & 15u]++;
+	return 1;
+}
+
+static int count_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max,
+                      size_t *count)
+{
+	(void)out; (void)max;
+	((struct counting *)ctx)->calls[slot & 15u]++;
+	*count = 0;
+	return 1;
+}
+
+/* WHAT KEEPS AN ATTACKER OUT GOES TO THE CORE BACKEND, EVERYTHING ELSE TO
+ * THE STORE. The holder's rule (sec 389, 7b), checked slot by slot with the
+ * list written out here rather than read from the code under test: two
+ * witnesses, not one. */
+static void test_the_route_sends_each_slot_where_the_rule_says(void)
+{
+	static const fzn_persist_slot_t CORE[] = {
+		FZN_PERSIST_TRUST, FZN_PERSIST_OWN_PREKEY, FZN_PERSIST_PEER,
+		FZN_PERSIST_SEND_CHAIN, FZN_PERSIST_RECV_CHAIN, FZN_PERSIST_OWN_IDENTITY,
+		FZN_PERSIST_ISSUED_REVOCATION, FZN_PERSIST_LEARNED_REVOCATION,
+	};
+	static const fzn_persist_slot_t BULK[] = { FZN_PERSIST_NODE_PEER,
+		                                   FZN_PERSIST_PAIRED_NODE };
+	struct counting core, bulk;
+	fzn_persist_ops_t core_ops = { count_load, count_save, count_list, NULL, &core };
+	fzn_persist_ops_t bulk_ops = { count_load, count_save, NULL, NULL, &bulk };
+	fzn_persist_route_t route = { &core_ops, &bulk_ops };
+	fzn_persist_ops_t ops;
+	uint8_t subject[FZN_PUBKEY_LEN] = { 0 }, buf[4];
+	size_t i, len = 0, n = 0;
+
+	memset(&core, 0, sizeof(core));
+	memset(&bulk, 0, sizeof(bulk));
+	fzn_persist_route_ops(&route, &ops);
+	for (i = 0; i < sizeof(CORE) / sizeof(CORE[0]); i++) {
+		CHECK(fzn_persist_slot_is_core(CORE[i]), "slot %u is not core", (unsigned)CORE[i]);
+		CHECK(ops.save(ops.ctx, CORE[i], subject, buf, 1) && core.calls[CORE[i]] == 1u
+		              && bulk.calls[CORE[i]] == 0u,
+		      "slot %u was not saved to the core backend", (unsigned)CORE[i]);
+	}
+	for (i = 0; i < sizeof(BULK) / sizeof(BULK[0]); i++) {
+		CHECK(!fzn_persist_slot_is_core(BULK[i]), "slot %u is core", (unsigned)BULK[i]);
+		CHECK(ops.load(ops.ctx, BULK[i], subject, buf, sizeof(buf), &len)
+		              && bulk.calls[BULK[i]] == 1u && core.calls[BULK[i]] == 0u,
+		      "slot %u was not loaded from the store backend", (unsigned)BULK[i]);
+	}
+	/* A SLOT NOBODY DECIDED ABOUT IS CORE: the guarded place. */
+	CHECK(fzn_persist_slot_is_core((fzn_persist_slot_t)15u),
+	      "a slot the rule does not name was sent somewhere less guarded");
+	/* AN OPTIONAL OPERATION THE ROUTED-TO BACKEND LACKS ANSWERS 0, as that
+	 * backend would alone -- it does not fall through to the other one. */
+	CHECK(ops.list(ops.ctx, FZN_PERSIST_TRUST, buf, 0, &n) == 1,
+	      "list did not reach the core backend that has it");
+	CHECK(ops.list(ops.ctx, FZN_PERSIST_NODE_PEER, buf, 0, &n) == 0
+	              && core.calls[FZN_PERSIST_NODE_PEER] == 0u,
+	      "list for a store slot fell through to the core backend");
+	CHECK(ops.remove(ops.ctx, FZN_PERSIST_TRUST, subject) == 0,
+	      "remove answered for a backend that cannot remove");
+}
+
 int main(void)
 {
 	test_an_anchor_comes_back_with_its_provenance();
@@ -815,6 +898,7 @@ int main(void)
 	test_an_identity_seed_round_trips_and_zero_is_refused();
 	test_a_blob_with_the_right_shape_and_wrong_bytes_is_refused();
 	test_every_guard_refuses_its_own_argument();
+	test_the_route_sends_each_slot_where_the_rule_says();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("persist_test: %d checks, %d failure(s)\n", checks, failures);
