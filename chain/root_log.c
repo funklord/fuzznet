@@ -215,3 +215,247 @@ int fzn_root_log_forked(const fzn_root_log_t *log, const uint8_t root[FZN_PUBKEY
 	}
 	return 0;
 }
+
+/* ---- the root set, sec 405 ------------------------------------------- */
+
+_Static_assert(FZN_ROOT_ADD_LEN == 130u, "root-add layout: a record is not 130 bytes");
+_Static_assert(FZN_ROOT_REMOVE_LEN == 162u, "root-remove layout: a record is not 162 bytes");
+
+/* Lay out and sign a root-set record: `body` bytes then the signature. */
+static fzn_root_log_err_t sign_change(uint8_t object, const uint8_t signer[FZN_PUBKEY_LEN],
+                                      const uint8_t subject[FZN_PUBKEY_LEN],
+                                      const uint8_t *cut, size_t body,
+                                      const fzn_sign_ops_t *sign, uint8_t *out)
+{
+	if (!signer || !subject || !sign || !sign->sign || !out)
+		return FZN_ROOT_LOG_ERR_MALFORMED;
+	out[0] = (uint8_t)FZN_SIGNED_VERSION;
+	out[1] = object;
+	memcpy(out + FZN_ROOT_SET_OFF_SIGNER, signer, FZN_PUBKEY_LEN);
+	memcpy(out + FZN_ROOT_SET_OFF_SUBJECT, subject, FZN_PUBKEY_LEN);
+	if (object == (uint8_t)FZN_OBJECT_ROOT_REMOVE) {
+		if (cut)
+			memcpy(out + FZN_ROOT_SET_OFF_CUT, cut, FZN_ROOT_ACT_ID_LEN);
+		else
+			memset(out + FZN_ROOT_SET_OFF_CUT, 0, FZN_ROOT_ACT_ID_LEN);
+	}
+	if (!sign->sign(sign->ctx, out + body, out, body)) {
+		memset(out, 0, body + (size_t)FZN_SIG_LEN);
+		return FZN_ROOT_LOG_ERR_CRYPTO;
+	}
+	return FZN_ROOT_LOG_OK;
+}
+
+fzn_root_log_err_t fzn_root_add_issue(const uint8_t adder[FZN_PUBKEY_LEN],
+                                      const uint8_t added[FZN_PUBKEY_LEN],
+                                      const fzn_sign_ops_t *sign, uint8_t *out)
+{
+	return sign_change((uint8_t)FZN_OBJECT_ROOT_ADD, adder, added, NULL, FZN_ROOT_ADD_BODY_LEN,
+	                   sign, out);
+}
+
+fzn_root_log_err_t fzn_root_remove_issue(const uint8_t remover[FZN_PUBKEY_LEN],
+                                         const uint8_t removed[FZN_PUBKEY_LEN],
+                                         const uint8_t cut[FZN_ROOT_ACT_ID_LEN],
+                                         const fzn_sign_ops_t *sign, uint8_t *out)
+{
+	return sign_change((uint8_t)FZN_OBJECT_ROOT_REMOVE, remover, removed, cut,
+	                   FZN_ROOT_REMOVE_BODY_LEN, sign, out);
+}
+
+static int set_sound(const fzn_root_set_t *set)
+{
+	return set && set->changes && set->capacity <= FZN_ROOT_SET_MAX
+	       && set->used <= set->capacity;
+}
+
+fzn_root_log_err_t fzn_root_set_init(fzn_root_set_t *set, const uint8_t genesis[FZN_PUBKEY_LEN],
+                                     fzn_root_change_t *changes, size_t capacity)
+{
+	if (!set || !genesis || !changes || capacity == 0u || capacity > FZN_ROOT_SET_MAX)
+		return FZN_ROOT_LOG_ERR_MALFORMED;
+	memcpy(set->genesis, genesis, FZN_PUBKEY_LEN);
+	set->changes = changes;
+	set->capacity = capacity;
+	set->used = 0;
+	return FZN_ROOT_LOG_OK;
+}
+
+fzn_root_log_err_t fzn_root_set_admit(fzn_root_set_t *set, const uint8_t *bytes, size_t len,
+                                      const fzn_sign_ops_t *sign, const fzn_hash_ops_t *hash)
+{
+	fzn_root_change_t c;
+	size_t body, i;
+
+	if (!set_sound(set) || !bytes || !sign || !sign->verify || !hash || !hash->hash)
+		return FZN_ROOT_LOG_ERR_MALFORMED;
+	if (len < 2u || bytes[0] != (uint8_t)FZN_SIGNED_VERSION)
+		return FZN_ROOT_LOG_ERR_SHAPE;
+	if (bytes[1] == (uint8_t)FZN_OBJECT_ROOT_ADD)
+		body = FZN_ROOT_ADD_BODY_LEN;
+	else if (bytes[1] == (uint8_t)FZN_OBJECT_ROOT_REMOVE)
+		body = FZN_ROOT_REMOVE_BODY_LEN;
+	else
+		return FZN_ROOT_LOG_ERR_SHAPE;
+	if (len != body + (size_t)FZN_SIG_LEN)
+		return FZN_ROOT_LOG_ERR_SHAPE;
+	if (!sign->verify(sign->ctx, bytes + FZN_ROOT_SET_OFF_SIGNER, bytes, body, bytes + body))
+		return FZN_ROOT_LOG_ERR_SIGNATURE;
+	memset(&c, 0, sizeof(c));
+	c.object = bytes[1];
+	memcpy(c.signer, bytes + FZN_ROOT_SET_OFF_SIGNER, FZN_PUBKEY_LEN);
+	memcpy(c.subject, bytes + FZN_ROOT_SET_OFF_SUBJECT, FZN_PUBKEY_LEN);
+	if (c.object == (uint8_t)FZN_OBJECT_ROOT_REMOVE)
+		memcpy(c.cut, bytes + FZN_ROOT_SET_OFF_CUT, FZN_ROOT_ACT_ID_LEN);
+	if (!hash->hash(hash->ctx, c.id, sizeof(c.id), bytes, len))
+		return FZN_ROOT_LOG_ERR_CRYPTO;
+	for (i = 0; i < set->used; i++)
+		if (fzn_ct_memeq(set->changes[i].id, c.id, FZN_ROOT_ACT_ID_LEN))
+			return FZN_ROOT_LOG_OK;
+	if (set->used >= set->capacity)
+		return FZN_ROOT_LOG_ERR_FULL;
+	set->changes[set->used++] = c;
+	return FZN_ROOT_LOG_OK;
+}
+
+/* What a reading of the set settles: which adds and which removals count. */
+struct settled {
+	uint8_t add_ok[FZN_ROOT_SET_MAX];
+	uint8_t rem_ok[FZN_ROOT_SET_MAX];
+};
+
+static int is_add(const fzn_root_change_t *c)
+{
+	return c->object == (uint8_t)FZN_OBJECT_ROOT_ADD;
+}
+
+static int member_in(const fzn_root_set_t *set, const struct settled *st, const uint8_t *key)
+{
+	size_t i;
+
+	if (fzn_ct_memeq(set->genesis, key, FZN_PUBKEY_LEN))
+		return 1;
+	for (i = 0; i < set->used; i++)
+		if (is_add(&set->changes[i]) && st->add_ok[i]
+		    && fzn_ct_memeq(set->changes[i].subject, key, FZN_PUBKEY_LEN))
+			return 1;
+	return 0;
+}
+
+static int removed_in(const fzn_root_set_t *set, const struct settled *st, const uint8_t *key)
+{
+	size_t i;
+
+	for (i = 0; i < set->used; i++)
+		if (!is_add(&set->changes[i]) && st->rem_ok[i]
+		    && fzn_ct_memeq(set->changes[i].subject, key, FZN_PUBKEY_LEN))
+			return 1;
+	return 0;
+}
+
+/* THE ACT RULE, under the removals `st` holds: a member not removed, or an
+ * act that stands under the cut of every counting removal of its root. A
+ * removal naming no cut leaves nothing standing, and without a log nothing a
+ * removed root did can be shown to stand. */
+static int counts_in(const fzn_root_set_t *set, const fzn_root_log_t *log,
+                     const struct settled *st, const uint8_t *root, const uint8_t *act)
+{
+	size_t i;
+
+	if (!member_in(set, st, root))
+		return 0;
+	for (i = 0; i < set->used; i++) {
+		const fzn_root_change_t *c = &set->changes[i];
+
+		if (is_add(c) || !st->rem_ok[i] || !fzn_ct_memeq(c->subject, root, FZN_PUBKEY_LEN))
+			continue;
+		if (!log || all_zero(c->cut, FZN_ROOT_ACT_ID_LEN)
+		    || !fzn_root_log_stands(log, root, c->cut, act))
+			return 0;
+	}
+	return 1;
+}
+
+/* Membership as the least fixed point from the genesis root, with the
+ * removals in `st` held fixed. Monotone, so it ends within `used` passes. */
+static void grow_members(const fzn_root_set_t *set, const fzn_root_log_t *log, struct settled *st)
+{
+	size_t i;
+	int changed = 1;
+
+	memset(st->add_ok, 0, sizeof(st->add_ok));
+	while (changed) {
+		changed = 0;
+		for (i = 0; i < set->used; i++) {
+			const fzn_root_change_t *c = &set->changes[i];
+
+			if (!is_add(c) || st->add_ok[i])
+				continue;
+			if (counts_in(set, log, st, c->signer, c->id)) {
+				st->add_ok[i] = 1;
+				changed = 1;
+			}
+		}
+	}
+}
+
+/* THE ROUNDS: fix the removals, grow membership, recompute the removals
+ * from it, until they stop changing. Bounded by the records: a set that has
+ * not settled in `used + 1` rounds takes every removal any round saw. */
+static void settle(const fzn_root_set_t *set, const fzn_root_log_t *log, struct settled *st)
+{
+	uint8_t seen[FZN_ROOT_SET_MAX], next[FZN_ROOT_SET_MAX];
+	size_t round, i;
+
+	memset(st, 0, sizeof(*st));
+	memset(seen, 0, sizeof(seen));
+	for (round = 0; round <= set->used; round++) {
+		grow_members(set, log, st);
+		memset(next, 0, sizeof(next));
+		for (i = 0; i < set->used; i++)
+			if (!is_add(&set->changes[i])
+			    && member_in(set, st, set->changes[i].signer))
+				next[i] = 1;
+		for (i = 0; i < set->used; i++)
+			seen[i] = (uint8_t)(seen[i] | next[i]);
+		if (memcmp(next, st->rem_ok, sizeof(next)) == 0)
+			return;
+		memcpy(st->rem_ok, next, sizeof(next));
+	}
+	memcpy(st->rem_ok, seen, sizeof(seen));
+	grow_members(set, log, st);
+}
+
+int fzn_root_set_counts(const fzn_root_set_t *set, const fzn_root_log_t *log,
+                        const uint8_t root[FZN_PUBKEY_LEN],
+                        const uint8_t act[FZN_ROOT_ACT_ID_LEN])
+{
+	struct settled st;
+
+	if (!set_sound(set) || !root || !act)
+		return 0;
+	settle(set, log, &st);
+	return counts_in(set, log, &st, root, act);
+}
+
+int fzn_root_set_stands(const fzn_root_set_t *set, const fzn_root_log_t *log,
+                        const uint8_t key[FZN_PUBKEY_LEN])
+{
+	struct settled st;
+
+	if (!set_sound(set) || !key)
+		return 0;
+	settle(set, log, &st);
+	return member_in(set, &st, key) && !removed_in(set, &st, key);
+}
+
+int fzn_root_set_member(const fzn_root_set_t *set, const fzn_root_log_t *log,
+                        const uint8_t key[FZN_PUBKEY_LEN])
+{
+	struct settled st;
+
+	if (!set_sound(set) || !key)
+		return 0;
+	settle(set, log, &st);
+	return member_in(set, &st, key);
+}

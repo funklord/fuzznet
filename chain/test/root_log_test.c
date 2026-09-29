@@ -306,12 +306,218 @@ static void test_a_broken_chain(void)
 	      "a chain was followed into another root's entries");
 }
 
+/* ---- the root set, sec 405 ------------------------------------------- */
+
+/* A signed root-set record into `out`, its id into `id`. */
+static size_t change(uint8_t *out, uint8_t id[FZN_ROOT_ACT_ID_LEN], int remove, uint8_t signer,
+                     uint8_t subject, const uint8_t *cut)
+{
+	uint8_t a[FZN_PUBKEY_LEN], b[FZN_PUBKEY_LEN];
+	size_t len = remove ? FZN_ROOT_REMOVE_LEN : FZN_ROOT_ADD_LEN;
+
+	key(a, signer);
+	key(b, subject);
+	signing_as = signer;
+	CHECK((remove ? fzn_root_remove_issue(a, b, cut, &SIGN, out)
+	              : fzn_root_add_issue(a, b, &SIGN, out)) == FZN_ROOT_LOG_OK,
+	      "fixture: a root-set record would not sign");
+	stub_hash(NULL, id, FZN_ROOT_ACT_ID_LEN, out, len);
+	return len;
+}
+
+/* A log entry by `root` at `seq` after `prev`, naming the act `act`, admitted
+ * into `log`; its id into `id`. */
+static void logged(fzn_root_log_t *log, uint8_t id[FZN_ROOT_ACT_ID_LEN], uint8_t root,
+                   uint64_t seq, const uint8_t *prev, const uint8_t act[FZN_ROOT_ACT_ID_LEN])
+{
+	uint8_t r[FZN_PUBKEY_LEN], e[FZN_ROOT_ACT_LEN];
+
+	key(r, root);
+	signing_as = root;
+	CHECK(fzn_root_act_issue(r, seq, prev, (uint8_t)FZN_ROOT_ACT_GRANT, act, &SIGN, e)
+	              == FZN_ROOT_LOG_OK
+	              && fzn_root_log_admit(log, e, sizeof(e), &SIGN, &HASH) == FZN_ROOT_LOG_OK,
+	      "fixture: a log entry");
+	stub_hash(NULL, id, FZN_ROOT_ACT_ID_LEN, e, sizeof(e));
+}
+
+static int stands_key(const fzn_root_set_t *set, const fzn_root_log_t *log, uint8_t id)
+{
+	uint8_t k[FZN_PUBKEY_LEN];
+
+	key(k, id);
+	return fzn_root_set_stands(set, log, k);
+}
+
+static int counts_act(const fzn_root_set_t *set, const fzn_root_log_t *log, uint8_t root,
+                      const uint8_t act[FZN_ROOT_ACT_ID_LEN])
+{
+	uint8_t k[FZN_PUBKEY_LEN];
+
+	key(k, root);
+	return fzn_root_set_counts(set, log, k, act);
+}
+
+/* THE THEFT, told in the order it happens and judged from the records.
+ *
+ * Genesis root 1 adds root 2 and grants act 10. A thief holding root 1's key
+ * then adds root 3 and grants act 11, both logged after. Root 2 removes root
+ * 1 at the cut after act 10. So: root 1's acts up to the cut still count --
+ * root 2 stays a root, act 10 stays granted -- and nothing after does: root 3
+ * was never a root, act 11 was never granted, and root 3's removal of root 2
+ * counts for nothing. Every order of the four records gives that. */
+static void test_the_theft(void)
+{
+	static fzn_root_log_entry_t entries[8];
+	static fzn_root_change_t changes[4];
+	uint8_t recs[4][FZN_ROOT_REMOVE_LEN], rids[4][FZN_ROOT_ACT_ID_LEN];
+	size_t lens[4];
+	uint8_t e0[FZN_ROOT_ACT_ID_LEN], e1[FZN_ROOT_ACT_ID_LEN], e2[FZN_ROOT_ACT_ID_LEN];
+	uint8_t e3[FZN_ROOT_ACT_ID_LEN], t0[FZN_ROOT_ACT_ID_LEN], h0[FZN_ROOT_ACT_ID_LEN];
+	uint8_t a10[FZN_ROOT_ACT_ID_LEN], a11[FZN_ROOT_ACT_ID_LEN], genesis[FZN_PUBKEY_LEN];
+	static const uint8_t orders[4][4] = {
+		{ 0, 1, 2, 3 }, { 3, 2, 1, 0 }, { 2, 0, 3, 1 }, { 1, 3, 0, 2 }
+	};
+	fzn_root_log_t log;
+	fzn_root_set_t set;
+	size_t o, i;
+
+	act_of(a10, 10);
+	act_of(a11, 11);
+	key(genesis, 1);
+	CHECK(fzn_root_log_init(&log, entries, 8) == FZN_ROOT_LOG_OK, "fixture: log");
+	lens[0] = change(recs[0], rids[0], 0, 1, 2, NULL);	/* 1 adds 2 */
+	lens[1] = change(recs[1], rids[1], 0, 1, 3, NULL);	/* the thief: 1 adds 3 */
+	logged(&log, e0, 1, 0, NULL, rids[0]);
+	logged(&log, e1, 1, 1, e0, a10);
+	logged(&log, e2, 1, 2, e1, rids[1]);
+	logged(&log, e3, 1, 3, e2, a11);
+	lens[2] = change(recs[2], rids[2], 1, 2, 1, e1);	/* 2 removes 1 at e1 */
+	logged(&log, h0, 2, 0, NULL, rids[2]);
+	lens[3] = change(recs[3], rids[3], 1, 3, 2, NULL);	/* 3 removes 2 */
+	logged(&log, t0, 3, 0, NULL, rids[3]);
+
+	for (o = 0; o < 4u; o++) {
+		CHECK(fzn_root_set_init(&set, genesis, changes, 4) == FZN_ROOT_LOG_OK, "fixture: set");
+		for (i = 0; i < 4u; i++)
+			CHECK(fzn_root_set_admit(&set, recs[orders[o][i]], lens[orders[o][i]], &SIGN,
+			                         &HASH) == FZN_ROOT_LOG_OK,
+			      "order %zu: a record was refused", o);
+		CHECK(!stands_key(&set, &log, 1) && fzn_root_set_member(&set, &log, genesis),
+		      "order %zu: the removed genesis root still stands, or stopped being a member",
+		      o);
+		CHECK(stands_key(&set, &log, 2),
+		      "order %zu: the root added before the cut does not stand", o);
+		CHECK(counts_act(&set, &log, 1, a10),
+		      "order %zu: the genesis root's act before the cut does not count", o);
+		CHECK(!counts_act(&set, &log, 1, a11),
+		      "order %zu: the genesis root's act after the cut still counts", o);
+		CHECK(!stands_key(&set, &log, 3),
+		      "order %zu: the root the thief added after the cut stands", o);
+	}
+}
+
+/* REMOVALS WIN: two roots removing each other both fall, and nothing either
+ * did afterwards counts. With no cut nothing of the removed root stands; the
+ * control is that before the removals both stood. */
+static void test_mutual_removal(void)
+{
+	static fzn_root_log_entry_t entries[4];
+	static fzn_root_change_t changes[4];
+	uint8_t add[FZN_ROOT_ADD_LEN], r12[FZN_ROOT_REMOVE_LEN], r21[FZN_ROOT_REMOVE_LEN];
+	uint8_t id_add[FZN_ROOT_ACT_ID_LEN], id12[FZN_ROOT_ACT_ID_LEN], id21[FZN_ROOT_ACT_ID_LEN];
+	uint8_t e0[FZN_ROOT_ACT_ID_LEN], genesis[FZN_PUBKEY_LEN];
+	fzn_root_log_t log;
+	fzn_root_set_t set;
+
+	key(genesis, 1);
+	CHECK(fzn_root_log_init(&log, entries, 4) == FZN_ROOT_LOG_OK
+	              && fzn_root_set_init(&set, genesis, changes, 4) == FZN_ROOT_LOG_OK,
+	      "fixture");
+	change(add, id_add, 0, 1, 2, NULL);
+	logged(&log, e0, 1, 0, NULL, id_add);
+	CHECK(fzn_root_set_admit(&set, add, sizeof(add), &SIGN, &HASH) == FZN_ROOT_LOG_OK
+	              && stands_key(&set, &log, 1) && stands_key(&set, &log, 2),
+	      "the control: before any removal both roots did not stand");
+	change(r12, id12, 1, 1, 2, NULL);
+	change(r21, id21, 1, 2, 1, e0);
+	CHECK(fzn_root_set_admit(&set, r12, sizeof(r12), &SIGN, &HASH) == FZN_ROOT_LOG_OK
+	              && fzn_root_set_admit(&set, r21, sizeof(r21), &SIGN, &HASH) == FZN_ROOT_LOG_OK,
+	      "fixture: the removals");
+	CHECK(!stands_key(&set, &log, 1) && !stands_key(&set, &log, 2),
+	      "two roots removing each other did not both fall");
+
+	/* WITH NO CUTS THE ROUNDS NEVER SETTLE: 1's removal of 2 takes away
+	 * nothing 1 did, 2's removal of 1 takes away 1's add of 2, which takes
+	 * away 2's removal of 1, and round it goes. The set takes every removal
+	 * any round saw, and both still fall. */
+	CHECK(fzn_root_set_init(&set, genesis, changes, 4) == FZN_ROOT_LOG_OK
+	              && fzn_root_set_admit(&set, add, sizeof(add), &SIGN, &HASH) == FZN_ROOT_LOG_OK
+	              && fzn_root_set_admit(&set, r12, sizeof(r12), &SIGN, &HASH) == FZN_ROOT_LOG_OK,
+	      "fixture: a set with no cuts");
+	change(r21, id21, 1, 2, 1, NULL);
+	CHECK(fzn_root_set_admit(&set, r21, sizeof(r21), &SIGN, &HASH) == FZN_ROOT_LOG_OK
+	              && !stands_key(&set, &log, 1) && !stands_key(&set, &log, 2),
+	      "a set that never settles did not fall toward removal");
+}
+
+/* A REMOVED ROOT WITH NO LOG, OR NO CUT, KEEPS NOTHING, and the set refuses
+ * what it should: a bad signature, a stranger's object, a capacity past its
+ * bound; and one record admitted twice is kept once. */
+static void test_the_set_refuses(void)
+{
+	static fzn_root_change_t changes[FZN_ROOT_SET_MAX + 1u];
+	static fzn_root_log_entry_t entries[4];
+	uint8_t add[FZN_ROOT_ADD_LEN], rem[FZN_ROOT_REMOVE_LEN], id[FZN_ROOT_ACT_ID_LEN];
+	uint8_t e0[FZN_ROOT_ACT_ID_LEN], a10[FZN_ROOT_ACT_ID_LEN], genesis[FZN_PUBKEY_LEN];
+	fzn_root_log_t log;
+	fzn_root_set_t set;
+
+	key(genesis, 1);
+	act_of(a10, 10);
+	CHECK(fzn_root_set_init(&set, genesis, changes, FZN_ROOT_SET_MAX + 1u)
+	              == FZN_ROOT_LOG_ERR_MALFORMED,
+	      "a set past its bound was accepted");
+	CHECK(fzn_root_set_init(&set, genesis, changes, 4) == FZN_ROOT_LOG_OK
+	              && fzn_root_log_init(&log, entries, 4) == FZN_ROOT_LOG_OK,
+	      "fixture");
+	CHECK(stands_key(&set, &log, 1) && !stands_key(&set, &log, 9),
+	      "the genesis root does not stand alone, or a stranger does");
+	change(add, id, 0, 1, 2, NULL);
+	CHECK(fzn_root_set_admit(&set, add, sizeof(add), &SIGN, &HASH) == FZN_ROOT_LOG_OK
+	              && fzn_root_set_admit(&set, add, sizeof(add), &SIGN, &HASH) == FZN_ROOT_LOG_OK
+	              && set.used == 1u,
+	      "one record admitted twice was not kept once");
+	add[FZN_ROOT_ADD_BODY_LEN] ^= 1u;
+	CHECK(fzn_root_set_admit(&set, add, sizeof(add), &SIGN, &HASH)
+	              == FZN_ROOT_LOG_ERR_SIGNATURE,
+	      "a root-add with a broken signature was kept");
+	add[1] = (uint8_t)FZN_OBJECT_ROOT_ACT;
+	CHECK(fzn_root_set_admit(&set, add, sizeof(add), &SIGN, &HASH) == FZN_ROOT_LOG_ERR_SHAPE,
+	      "another object was read as a root-set record");
+	/* THE GENESIS ROOT REMOVED AT A CUT, judged with and without the log:
+	 * with it the act before the cut counts; without it nothing can be
+	 * shown to stand. And a removal naming no cut keeps nothing. */
+	logged(&log, e0, 1, 0, NULL, a10);
+	change(rem, id, 1, 2, 1, e0);
+	CHECK(fzn_root_set_admit(&set, rem, sizeof(rem), &SIGN, &HASH) == FZN_ROOT_LOG_OK
+	              && counts_act(&set, &log, 1, a10) && !counts_act(&set, NULL, 1, a10),
+	      "an act before the cut did not count with the log, or counted without it");
+	change(rem, id, 1, 2, 1, NULL);
+	CHECK(fzn_root_set_admit(&set, rem, sizeof(rem), &SIGN, &HASH) == FZN_ROOT_LOG_OK
+	              && !counts_act(&set, &log, 1, a10),
+	      "under a second removal naming no cut, an act of the removed root counted");
+}
+
 int main(void)
 {
 	test_the_layout();
 	test_admission();
 	test_the_cut();
 	test_a_broken_chain();
+	test_the_theft();
+	test_mutual_removal();
+	test_the_set_refuses();
 	printf("root_log_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }

@@ -170,4 +170,103 @@ int fzn_root_log_stands(const fzn_root_log_t *log, const uint8_t root[FZN_PUBKEY
  * key used in two places, which is what a stolen root looks like. */
 int fzn_root_log_forked(const fzn_root_log_t *log, const uint8_t root[FZN_PUBKEY_LEN]);
 
+/*
+ * THE ROOT SET. project.md sec 405.
+ *
+ * An estate starts from one GENESIS root and changes its set of roots by two
+ * records, each signed by a root and logged by it as an act:
+ *
+ *     root-add     version | object | adder[32] | added[32] | signature
+ *     root-remove  version | object | remover[32] | removed[32] | cut[32]
+ *                  | signature
+ *
+ * A removal's CUT is the id of the removed root's last log entry the remover
+ * trusts; all-zero means none of its acts stands.
+ *
+ * THE RULE, judged from the records held and the log, never from arrival
+ * order:
+ *
+ *   - A key is a MEMBER when it is the genesis root, or the subject of an add
+ *     whose act counts.
+ *   - A removal COUNTS when its remover is a member -- even one removed
+ *     itself: removals win, so two roots removing each other both fall.
+ *   - An act by a root COUNTS when the root is a member and is not removed,
+ *     or when the act stands, in the log, under the cut of every counting
+ *     removal of it.
+ *
+ * Membership and removal refer to each other, so they are settled in rounds:
+ * with the removals fixed, membership is the least fixed point from the
+ * genesis root; the removals are then recomputed from it; until they stop
+ * changing. A set of records that never settles -- only a contrived cycle of
+ * roots removing the roots that added them does that -- takes every removal
+ * any round saw, which errs toward removal.
+ */
+#define FZN_ROOT_ADD_BODY_LEN 66u
+#define FZN_ROOT_ADD_LEN (FZN_ROOT_ADD_BODY_LEN + (size_t)FZN_SIG_LEN)
+#define FZN_ROOT_REMOVE_BODY_LEN 98u
+#define FZN_ROOT_REMOVE_LEN (FZN_ROOT_REMOVE_BODY_LEN + (size_t)FZN_SIG_LEN)
+
+#define FZN_ROOT_SET_OFF_SIGNER 2u
+#define FZN_ROOT_SET_OFF_SUBJECT 34u
+#define FZN_ROOT_SET_OFF_CUT 66u
+
+/* Sign a root-add: `adder` adds `added`. `out` receives FZN_ROOT_ADD_LEN. */
+fzn_root_log_err_t fzn_root_add_issue(const uint8_t adder[FZN_PUBKEY_LEN],
+                                      const uint8_t added[FZN_PUBKEY_LEN],
+                                      const fzn_sign_ops_t *sign, uint8_t *out);
+
+/* Sign a root-remove: `remover` removes `removed` at `cut`, or NULL for no
+ * act of it standing. `out` receives FZN_ROOT_REMOVE_LEN. */
+fzn_root_log_err_t fzn_root_remove_issue(const uint8_t remover[FZN_PUBKEY_LEN],
+                                         const uint8_t removed[FZN_PUBKEY_LEN],
+                                         const uint8_t cut[FZN_ROOT_ACT_ID_LEN],
+                                         const fzn_sign_ops_t *sign, uint8_t *out);
+
+/* A root-set record as a set keeps it. `id` is the hash of its whole bytes,
+ * which is what its signer's log entry names. */
+typedef struct fzn_root_change {
+	uint8_t object;
+	uint8_t signer[FZN_PUBKEY_LEN];
+	uint8_t subject[FZN_PUBKEY_LEN];
+	uint8_t cut[FZN_ROOT_ACT_ID_LEN];
+	uint8_t id[FZN_ROOT_ACT_ID_LEN];
+} fzn_root_change_t;
+
+/* The most changes a set judges: its flags live on the stack, since this
+ * library allocates nothing, and an estate changes its roots rarely. */
+#define FZN_ROOT_SET_MAX 64u
+
+typedef struct fzn_root_set {
+	uint8_t genesis[FZN_PUBKEY_LEN];
+	fzn_root_change_t *changes;
+	size_t capacity;
+	size_t used;
+} fzn_root_set_t;
+
+/* MALFORMED for a capacity of 0 or past FZN_ROOT_SET_MAX. */
+fzn_root_log_err_t fzn_root_set_init(fzn_root_set_t *set, const uint8_t genesis[FZN_PUBKEY_LEN],
+                                     fzn_root_change_t *changes, size_t capacity);
+
+/* Verify a root-add or root-remove, by its object byte, and keep it.
+ * Idempotent. Nothing is judged here: whether its signer may make it is
+ * asked when the set is read. */
+fzn_root_log_err_t fzn_root_set_admit(fzn_root_set_t *set, const uint8_t *bytes, size_t len,
+                                      const fzn_sign_ops_t *sign, const fzn_hash_ops_t *hash);
+
+/* Whether `act` (the hash of a record) by `root` counts, under the rule
+ * above, with `log` the entries this host holds (NULL for none, in which case
+ * nothing a removed root did stands). */
+int fzn_root_set_counts(const fzn_root_set_t *set, const fzn_root_log_t *log,
+                        const uint8_t root[FZN_PUBKEY_LEN],
+                        const uint8_t act[FZN_ROOT_ACT_ID_LEN]);
+
+/* Whether `key` is a root that stands: a member not removed. */
+int fzn_root_set_stands(const fzn_root_set_t *set, const fzn_root_log_t *log,
+                        const uint8_t key[FZN_PUBKEY_LEN]);
+
+/* Whether `key` is a member at all, removed or not: a root whose acts
+ * before its cut may still count. */
+int fzn_root_set_member(const fzn_root_set_t *set, const fzn_root_log_t *log,
+                        const uint8_t key[FZN_PUBKEY_LEN]);
+
 #endif /* FZN_ROOT_LOG_H */

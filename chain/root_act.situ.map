@@ -21,3 +21,20 @@ struct fzn_root_act size=171 mutate=Immutable repr=ValueConverted atomic=NonAtom
   fzn_root_act.kind                      offset=AbsoluteStatic(0x4A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
   fzn_root_act.act                       offset=AbsoluteStatic(0x4B) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
   fzn_root_act.signature                 offset=AbsoluteStatic(0x6B) size=Fixed(64) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Immutable
+
+struct fzn_root_add size=130 mutate=Immutable atomic=NonAtomic auth=Covered(signature)
+  fzn_root_add.body                      offset=AbsoluteStatic(0x00) size=Fixed(66) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_root_add.version                   offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_root_add.object                    offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_root_add.adder                     offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_root_add.added                     offset=AbsoluteStatic(0x22) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_root_add.signature                 offset=AbsoluteStatic(0x42) size=Fixed(64) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Immutable
+
+struct fzn_root_remove size=162 mutate=Immutable atomic=NonAtomic auth=Covered(signature)
+  fzn_root_remove.body                   offset=AbsoluteStatic(0x00) size=Fixed(98) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_root_remove.version                offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_root_remove.object                 offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_root_remove.remover                offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_root_remove.removed                offset=AbsoluteStatic(0x22) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_root_remove.cut                    offset=AbsoluteStatic(0x42) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_root_remove.signature              offset=AbsoluteStatic(0x62) size=Fixed(64) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Immutable

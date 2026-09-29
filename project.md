@@ -49562,7 +49562,7 @@ only stand behind what it holds.
 
 ### Still to build, in order
 
-1. **The root set.**
+1. **~~The root set.~~ Built in sec 405.**
    - Root-add and root-remove records, logged like any other act. A
      removal carries its cut.
    - Standing is computed from the set of those records. The genesis
@@ -49604,3 +49604,94 @@ Sabotage: seven new entries, each caught by the case written for it.
 They cover the `prev` accessor, the link descending by one, the chain
 staying with its root, the first entry naming nothing, the signature,
 one copy per entry, and a fork being two entries at one seq.
+
+## 405. The root set: adds, removals and what still counts, 2026-09-29
+
+The second piece of sec 403: the set of roots, changed by roots, judged
+from the records held. It lives in `chain/root_log.h` beside the log,
+since the two are one mechanism. Nothing outside the tests calls it yet.
+
+### The records
+
+- **`FZN_OBJECT_ROOT_ADD` (140)**: an adder names a new root. 130
+  bytes.
+- **`FZN_OBJECT_ROOT_REMOVE` (141)**: a remover names a root and a cut
+  in that root's log. 162 bytes. An all-zero cut leaves nothing of the
+  removed root standing.
+
+Each record is logged by its signer as an act, like anything else a
+root signs. `chain/root_act.situ` states both layouts, and situ
+`2744f65` agrees with the C: signature at 66 for an add; cut at 66 and
+signature at 98 for a removal.
+
+### The rule for the root set
+
+- **A member** is the genesis root, or the subject of an add whose act
+  counts.
+- **A removal counts** when its remover is a member, even a remover that
+  was removed itself. Removals win: two roots removing each other both
+  fall.
+- **An act by a root counts** when the root is a member and not removed.
+  An act by a removed root counts only if it stands, in the log, under
+  the cut of every counting removal of that root. Without the log, or
+  with a zero cut, nothing a removed root did counts.
+
+Membership and removals refer to each other, so they are settled in
+rounds. With the removals held fixed, membership is the least fixed
+point from the genesis root. The removals are then recomputed from it,
+until they stop changing. A set that never settles takes every removal
+any round saw, which errs toward removal. Two roots removing each other
+with no cuts is such a set, and both fall.
+
+**The theft this is for, as a test:**
+
+1. Genesis root 1 adds root 2 and grants act 10.
+2. A thief holding root 1's key adds root 3 and grants act 11, both
+   logged after that.
+3. Root 2 removes root 1 at the cut after act 10.
+4. From the records: root 2 stands, act 10 counts, act 11 does not,
+   root 3 was never a member, and root 3's removal of root 2 counts for
+   nothing.
+5. Four orders of the four records all give that.
+
+**A set judges at most 64 changes** (`FZN_ROOT_SET_MAX`). Its flags live
+on the stack, since this library allocates nothing. An estate changes
+its roots rarely, and `fzn_root_set_init` refuses a larger capacity
+rather than truncating.
+
+### Still to build
+
+1. **Verification against the set.**
+   - A hop, revocation or roster record from a standing root is taken as
+     today.
+   - One from a removed root counts only through `fzn_root_set_counts`.
+   - The trust anchor becomes the genesis root plus the set.
+2. **The node.**
+   - Root keys separate from identity keys.
+   - Every act logged.
+   - The log and the set travel with the votes.
+
+### Measured for sec 405
+
+`root_log_test`, 118 checks. The sec 404 cases, plus:
+
+- the theft across four orders;
+- mutual removal, with the control that both roots stood before, and
+  the unsettled case with no cuts;
+- the refusals: a capacity past the bound, a broken signature, another
+  object read as a root-set record, a record admitted twice kept once;
+- a removed root's act before the cut counting with the log and not
+  without it, and nothing counting under a second removal with no cut.
+
+Sabotage: five new entries, all caught:
+
+- a removed root's acts needing the cut;
+- an add counting as an act rather than by who signed it;
+- a removal needing a member;
+- the genesis root being a member;
+- an unsettled set taking every removal.
+
+Three of them are first reported by the same check, root 2 no longer
+standing in the theft's first order. Each lets the thief's root 3 count,
+so root 3's removal of root 2 counts too, and that is the first
+assertion to fire. The later checks in the case would fail as well.

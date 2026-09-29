@@ -33,3 +33,29 @@ struct fzn_root_act {
 	// covers(body) = bytes 0..106, FZN_ROOT_ACT_BODY_LEN.
 	checksum u8 signature[64] covers(body); // FZN_ROOT_ACT_OFF_SIGNATURE 107
 }
+
+// A root adding another, sec 405. Logged by the adder as an act.
+struct fzn_root_add {
+	authenticated body {
+		u8  version [must_eq = 1];       // 0
+		u8  object [must_eq = 140];      // 1  (FZN_OBJECT_ROOT_ADD)
+		u8  adder[32];                   // 2  FZN_ROOT_SET_OFF_SIGNER
+		u8  added[32];                   // 34 FZN_ROOT_SET_OFF_SUBJECT
+	}
+	// covers(body) = bytes 0..65, FZN_ROOT_ADD_BODY_LEN.
+	checksum u8 signature[64] covers(body); // 66
+}
+
+// A root removing another at a cut in the removed root's log, sec 405. An
+// all-zero cut leaves nothing of the removed root standing.
+struct fzn_root_remove {
+	authenticated body {
+		u8  version [must_eq = 1];       // 0
+		u8  object [must_eq = 141];      // 1  (FZN_OBJECT_ROOT_REMOVE)
+		u8  remover[32];                 // 2  FZN_ROOT_SET_OFF_SIGNER
+		u8  removed[32];                 // 34 FZN_ROOT_SET_OFF_SUBJECT
+		u8  cut[32];                     // 66 FZN_ROOT_SET_OFF_CUT
+	}
+	// covers(body) = bytes 0..97, FZN_ROOT_REMOVE_BODY_LEN.
+	checksum u8 signature[64] covers(body); // 98
+}
