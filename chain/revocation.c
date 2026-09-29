@@ -300,7 +300,24 @@ fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_rev
 	store->admins = NULL;
 	store->admin_capacity = 0;
 	store->admins_used = 0;
+	/* One root, the one each call names: sec 406's set is opt-in. */
+	store->roots = NULL;
+	store->root_hash = NULL;
 
+	return FZN_CHAIN_OK;
+}
+
+fzn_chain_err_t fzn_revocation_store_set_roots(fzn_revocation_store_t *store,
+                                               const fzn_root_ops_t *roots,
+                                               const fzn_hash_ops_t *hash)
+{
+	if (!store)
+		return FZN_CHAIN_ERR_MALFORMED;
+	if (roots && (!roots->member || !roots->counts || !hash || !hash->hash))
+		return FZN_CHAIN_ERR_MALFORMED;
+	store->roots = roots;
+	store->root_hash = roots ? hash : NULL;
+	store->generation++;
 	return FZN_CHAIN_OK;
 }
 
@@ -542,6 +559,19 @@ struct hop_question {
 	uint64_t floor;
 };
 
+/* WHETHER AN ENTRY IS A ROOT'S THAT COUNTS. With a root set, sec 406: a
+ * member root whose record the set says still counts -- the record held now,
+ * so a removed root's withdrawal after its cut counts no more than its
+ * revocation would. Without one: the root this question names. */
+static int root_entry(const fzn_revocation_store_t *store, const fzn_revocation_t *entry,
+                      const uint8_t *root_key)
+{
+	if (store->roots)
+		return store->roots->member(store->roots->ctx, entry->issuer)
+		       && store->roots->counts(store->roots->ctx, entry->issuer, entry->held);
+	return root_key && fzn_ct_memeq(entry->issuer, root_key, FZN_PUBKEY_LEN);
+}
+
 static int counts(const fzn_revocation_store_t *store, const fzn_revocation_t *entry,
                   const struct hop_question *h)
 {
@@ -554,6 +584,10 @@ static int counts(const fzn_revocation_store_t *store, const fzn_revocation_t *e
 		return 0;
 	if (h->any_issuer)
 		return 1;
+	/* A ROOT IS ENTITLED OVER EVERY HOP, sec 406: the set decides whether
+	 * its record counts, ancestor or not. */
+	if (store->roots && store->roots->member(store->roots->ctx, entry->issuer))
+		return root_entry(store, entry, NULL);
 	for (j = 0; j <= h->i; j++)
 		if (fzn_ct_memeq(h->grantors[j], entry->issuer, FZN_PUBKEY_LEN))
 			return 1;
@@ -637,13 +671,12 @@ static int root_pass(const fzn_revocation_store_t *store, struct hop_question *h
 
 	h->has_floor = 0;
 	h->floor = 0;
-	if (!root_key)
+	if (!root_key && !store->roots)
 		return 0;
 	for (e = 0; e < store->used; e++) {
 		const fzn_revocation_t *entry = &store->entries[e];
 
-		if (!counts(store, entry, h)
-		    || !fzn_ct_memeq(entry->issuer, root_key, FZN_PUBKEY_LEN))
+		if (!counts(store, entry, h) || !root_entry(store, entry, root_key))
 			continue;
 		if (!entry->withdrawn)
 			return 1;
@@ -999,8 +1032,13 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 	 * decided. This is every admission this library performed before
 	 * 2026-08-28, unchanged, and `hop_count == 0` is how a caller asks for
 	 * it. */
+	/* WITH A ROOT SET, ANY MEMBER ROOT, sec 406: whether its record still
+	 * counts -- a removed root's after the cut does not -- is asked when
+	 * the store is read, so arrival order decides nothing. */
 	if (offer.hop_count == 0 &&
-	    !fzn_ct_memeq(fzn_revocation_issuer(record), root, FZN_PUBKEY_LEN))
+	    !fzn_ct_memeq(fzn_revocation_issuer(record), root, FZN_PUBKEY_LEN)
+	    && !(store->roots
+	         && store->roots->member(store->roots->ctx, fzn_revocation_issuer(record))))
 		return FZN_CHAIN_ERR_WRONG_ROOT;
 
 	fzn_revocation_signed_bytes(record, &msg, &msg_len);
@@ -1141,6 +1179,7 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 			       fzn_revocation_supersedes(record), FZN_REVOCATION_ID_LEN);
 			store->entries[store->used].withdrawn = 1;
 			store->entries[store->used].epoch = fzn_revocation_epoch(record);
+			memcpy(store->entries[store->used].held, id, FZN_REVOCATION_ID_LEN);
 			store->used++;
 			store->generation++;
 			return FZN_CHAIN_OK;
@@ -1163,6 +1202,7 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 		 * writes the same 1 over the same 1, and bumping there throws
 		 * a cache away for a record carrying no news -- which is the
 		 * traffic the generation is meant to let a cache survive. */
+		memcpy(store->entries[at].held, id, FZN_REVOCATION_ID_LEN);
 		if (!store->entries[at].withdrawn) {
 			store->entries[at].withdrawn = 1;
 			store->generation++;
@@ -1282,6 +1322,7 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 			entry->epoch = fzn_revocation_epoch(record);
 			store->generation++;
 			memcpy(entry->id, id, FZN_REVOCATION_ID_LEN);
+			memcpy(entry->held, id, FZN_REVOCATION_ID_LEN);
 			fzn_manifest_satisfy(manifest, fzn_revocation_issuer(record),
 			                     fzn_revocation_capability(record),
 			                     fzn_revocation_grantee(record));
@@ -1309,6 +1350,7 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 		    fzn_ct_memeq(fzn_revocation_supersedes(record), entry->id,
 		                 FZN_REVOCATION_ID_LEN)) {
 			memcpy(entry->id, id, FZN_REVOCATION_ID_LEN);
+			memcpy(entry->held, id, FZN_REVOCATION_ID_LEN);
 			entry->epoch = fzn_revocation_epoch(record);
 		}
 
@@ -1379,6 +1421,7 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 	memcpy(store->entries[store->used].id, id, FZN_REVOCATION_ID_LEN);
 	store->entries[store->used].withdrawn = 0;
 	store->entries[store->used].epoch = fzn_revocation_epoch(record);
+	memcpy(store->entries[store->used].held, id, FZN_REVOCATION_ID_LEN);
 	store->used++;
 	/* An answer this store gives may now differ; sec 354. */
 	store->generation++;

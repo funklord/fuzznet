@@ -253,6 +253,32 @@ fzn_root_log_err_t fzn_root_set_init(fzn_root_set_t *set, const uint8_t genesis[
 fzn_root_log_err_t fzn_root_set_admit(fzn_root_set_t *set, const uint8_t *bytes, size_t len,
                                       const fzn_sign_ops_t *sign, const fzn_hash_ops_t *hash);
 
+/* A READING OF THE SET, settled once and asked many times: what a revocation
+ * store judging a chain asks per entry, where settling per question would
+ * repeat the rounds for every one. Take a new view when the set or the log
+ * changes. */
+typedef struct fzn_root_view {
+	const fzn_root_set_t *set;
+	const fzn_root_log_t *log;
+	uint8_t add_ok[FZN_ROOT_SET_MAX];
+	uint8_t rem_ok[FZN_ROOT_SET_MAX];
+} fzn_root_view_t;
+
+/* Settle `set` against `log` (NULL for none) into `view`, which borrows
+ * both. MALFORMED for an unsound set. */
+fzn_root_log_err_t fzn_root_view_init(fzn_root_view_t *view, const fzn_root_set_t *set,
+                                      const fzn_root_log_t *log);
+
+int fzn_root_view_counts(const fzn_root_view_t *view, const uint8_t root[FZN_PUBKEY_LEN],
+                         const uint8_t act[FZN_ROOT_ACT_ID_LEN]);
+int fzn_root_view_stands(const fzn_root_view_t *view, const uint8_t key[FZN_PUBKEY_LEN]);
+int fzn_root_view_member(const fzn_root_view_t *view, const uint8_t key[FZN_PUBKEY_LEN]);
+
+/* Fill `ops` so that a revocation store asks `view`, which must outlive
+ * them. See `fzn_revocation_store_set_roots`. */
+struct fzn_root_ops;
+void fzn_root_view_ops(const fzn_root_view_t *view, struct fzn_root_ops *ops);
+
 /* Whether `act` (the hash of a record) by `root` counts, under the rule
  * above, with `log` the entries this host holds (NULL for none, in which case
  * nothing a removed root did stands). */

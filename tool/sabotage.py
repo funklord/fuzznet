@@ -558,8 +558,8 @@ SABOTAGES = [
 	(
 		"revocation-generation-moves-on-a-write",
 		"chain/revocation.c",
-		"\tstore->entries[store->used].withdrawn = 0;\n\tstore->entries[store->used].epoch = fzn_revocation_epoch(record);\n\tstore->used++;\n\t/* An answer this store gives may now differ; sec 354. */\n\tstore->generation++;",
-		"\tstore->entries[store->used].withdrawn = 0;\n\tstore->entries[store->used].epoch = fzn_revocation_epoch(record);\n\tstore->used++;",
+		"\tstore->entries[store->used].withdrawn = 0;\n\tstore->entries[store->used].epoch = fzn_revocation_epoch(record);\n\tmemcpy(store->entries[store->used].held, id, FZN_REVOCATION_ID_LEN);\n\tstore->used++;\n\t/* An answer this store gives may now differ; sec 354. */\n\tstore->generation++;",
+		"\tstore->entries[store->used].withdrawn = 0;\n\tstore->entries[store->used].epoch = fzn_revocation_epoch(record);\n\tmemcpy(store->entries[store->used].held, id, FZN_REVOCATION_ID_LEN);\n\tstore->used++;",
 		"the store counts its own writes so a cache can tell an answer might "
 		"have changed. A write that does not bump leaves every memo entry "
 		"looking current, so a peer revoked a moment ago keeps its cached "
@@ -2370,8 +2370,8 @@ SABOTAGES = [
 	(
 		"chain-root-is-the-pin",
 		"chain/chain.c",
-		"\tif (!fzn_ct_memeq(fzn_hop_grantor(hops[0]), root, FZN_PUBKEY_LEN))\n",
-		"\tif (0)\n",
+		"\t} else if (!fzn_ct_memeq(fzn_hop_grantor(hops[0]), root, FZN_PUBKEY_LEN)) {\n",
+		"\t} else if (0) {\n",
 		"a grant minted under a root this host never scanned must be refused, or anybody with a printer can provision a device",
 	),
 	(
@@ -3853,8 +3853,8 @@ SABOTAGES = [
 	(
 		"revocation-epoch-recorded-on-append",
 		"chain/revocation.c",
-		"\tstore->entries[store->used].epoch = fzn_revocation_epoch(record);\n\tstore->used++;\n\t/* An answer",
-		"\tstore->used++;\n\t/* An answer",
+		"\tstore->entries[store->used].epoch = fzn_revocation_epoch(record);\n\tmemcpy(store->entries[store->used].held, id, FZN_REVOCATION_ID_LEN);\n\tstore->used++;\n\t/* An answer",
+		"\tmemcpy(store->entries[store->used].held, id, FZN_REVOCATION_ID_LEN);\n\tstore->used++;\n\t/* An answer",
 		"an entry that does not keep its record's epoch is judged in whatever epoch its slot held -- sec 400",
 	),
 	(
@@ -3933,6 +3933,48 @@ SABOTAGES = [
 		"\tmemcpy(st->rem_ok, seen, sizeof(seen));\n\tgrow_members(set, log, st);\n",
 		"",
 		"a set that never settles, answered from whichever round came last, answers by the parity of its record count rather than toward removal -- sec 405",
+	),
+	(
+		"chain-a-removed-roots-grant-must-count",
+		"chain/chain.c",
+		"\t\t                                     hops[0].base, FZN_HOP_LEN)\n\t\t    || !set->counts(set->ctx, fzn_hop_grantor(hops[0]), act))\n",
+		"\t\t                                     hops[0].base, FZN_HOP_LEN))\n",
+		"a chain from a removed root verifying whatever its cut says is a stolen root's grants still honoured -- sec 406",
+	),
+	(
+		"revocation-admits-a-member-root",
+		"chain/revocation.c",
+		"\t    && !(store->roots\n\t         && store->roots->member(store->roots->ctx, fzn_revocation_issuer(record))))\n",
+		"\t    && 1)\n",
+		"a second root whose revocations are refused as another estate's cannot act alone for the estate -- sec 406",
+	),
+	(
+		"revocation-a-root-entry-must-count",
+		"chain/revocation.c",
+		"\t\treturn store->roots->member(store->roots->ctx, entry->issuer)\n\t\t       && store->roots->counts(store->roots->ctx, entry->issuer, entry->held);\n",
+		"\t\treturn store->roots->member(store->roots->ctx, entry->issuer);\n",
+		"a removed root whose revocations after its cut still count is a thief whose removals still stand -- sec 406",
+	),
+	(
+		"revocation-a-root-is-entitled-everywhere",
+		"chain/revocation.c",
+		"\tif (store->roots && store->roots->member(store->roots->ctx, entry->issuer))\n\t\treturn root_entry(store, entry, NULL);\n",
+		"",
+		"a root that may revoke only the chains it began is not the estate's full authority -- sec 406",
+	),
+	(
+		"revocation-an-entry-holds-its-record",
+		"chain/revocation.c",
+		"\tmemcpy(store->entries[store->used].held, id, FZN_REVOCATION_ID_LEN);\n\tstore->used++;\n",
+		"\tstore->used++;\n",
+		"an entry that does not know which record it holds cannot be asked about a removed root's log, and its revocation before the cut stops counting -- sec 406",
+	),
+	(
+		"root-view-counts-is-counts",
+		"chain/root_log.c",
+		"\treturn fzn_root_view_counts((const fzn_root_view_t *)ctx, root, act);\n",
+		"\t(void)act;\n\treturn fzn_root_view_member((const fzn_root_view_t *)ctx, root);\n",
+		"a view whose counts answers membership honours everything a removed root ever did -- sec 406",
 	),
 	(
 		"root-log-prev-is-read-back",
@@ -4430,10 +4472,12 @@ SABOTAGES = [
 		"rev-drain-chained-reissue",
 		"chain/revocation.c",
 		"\t\t\tmemcpy(entry->id, id, FZN_REVOCATION_ID_LEN);\n"
+		"\t\t\tmemcpy(entry->held, id, FZN_REVOCATION_ID_LEN);\n"
 		"\t\t\tfzn_manifest_satisfy(manifest, fzn_revocation_issuer(record),\n"
 		"\t\t\t                     fzn_revocation_capability(record),\n"
 		"\t\t\t                     fzn_revocation_grantee(record));\n",
-		"\t\t\tmemcpy(entry->id, id, FZN_REVOCATION_ID_LEN);\n",
+		"\t\t\tmemcpy(entry->id, id, FZN_REVOCATION_ID_LEN);\n"
+		"\t\t\tmemcpy(entry->held, id, FZN_REVOCATION_ID_LEN);\n",
 		"a reissue that lifts a withdrawal stores what the deficit named, so the "
 		"deficit must drain with it",
 	),
@@ -4466,6 +4510,7 @@ SABOTAGES = [
 		"\t\t    fzn_ct_memeq(fzn_revocation_supersedes(record), entry->id,\n"
 		"\t\t                 FZN_REVOCATION_ID_LEN)) {\n"
 		"\t\t\tmemcpy(entry->id, id, FZN_REVOCATION_ID_LEN);\n"
+		"\t\t\tmemcpy(entry->held, id, FZN_REVOCATION_ID_LEN);\n"
 		"\t\t\tentry->epoch = fzn_revocation_epoch(record);\n"
 		"\t\t}\n",
 		"",
@@ -4477,6 +4522,7 @@ SABOTAGES = [
 		"chain/revocation.c",
 		"\t\t\tstore->entries[store->used].withdrawn = 1;\n"
 		"\t\t\tstore->entries[store->used].epoch = fzn_revocation_epoch(record);\n"
+		"\t\t\tmemcpy(store->entries[store->used].held, id, FZN_REVOCATION_ID_LEN);\n"
 		"\t\t\tstore->used++;\n"
 		"\t\t\tstore->generation++;\n\t\t\treturn FZN_CHAIN_OK;\n",
 		"\t\t\treturn FZN_CHAIN_ERR_UNKNOWN_TARGET;\n",

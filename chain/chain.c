@@ -181,8 +181,23 @@ fzn_chain_err_t fzn_chain_verify(const fzn_chain_hop_t *hops, size_t hop_count,
 	 * chain that verifies perfectly under somebody else's root gets its
 	 * own error, because on a shared network that is an ordinary event
 	 * rather than an attack. */
-	if (!fzn_ct_memeq(fzn_hop_grantor(hops[0]), root, FZN_PUBKEY_LEN))
+	if (revocations && revocations->roots) {
+		/* SEVERAL ROOTS, sec 406: any root the set names, as long as this
+		 * first hop still counts -- always from a standing root, and from
+		 * a removed one only when its log shows the hop before the cut.
+		 * `root` is then the anchor the set grew from and not a filter:
+		 * the genesis root, removed, is judged like any other. */
+		uint8_t act[FZN_REVOCATION_ID_LEN];
+		const fzn_root_ops_t *set = revocations->roots;
+
+		if (!set->member(set->ctx, fzn_hop_grantor(hops[0]))
+		    || !revocations->root_hash->hash(revocations->root_hash->ctx, act, sizeof(act),
+		                                     hops[0].base, FZN_HOP_LEN)
+		    || !set->counts(set->ctx, fzn_hop_grantor(hops[0]), act))
+			return FZN_CHAIN_ERR_WRONG_ROOT;
+	} else if (!fzn_ct_memeq(fzn_hop_grantor(hops[0]), root, FZN_PUBKEY_LEN)) {
 		return FZN_CHAIN_ERR_WRONG_ROOT;
+	}
 
 	/* WHICH HOPS ARE REVOKED, DECIDED ONCE FOR THE WHOLE CHAIN, before a
 	 * hop is looked at. The answer is read inside pass one at the place

@@ -1810,7 +1810,7 @@ static void test_delegate(void)
 	f.stub.identity = 2;
 	{
 		fzn_revocation_t rev;
-		fzn_revocation_store_t revs = { &rev, 1, 1, NULL, 0, 1, 0, { { 0 } }, NULL, 0, 0 };
+		fzn_revocation_store_t revs = { &rev, 1, 1, NULL, 0, 1, 0, { { 0 } }, NULL, 0, 0, NULL, NULL };
 
 		memset(&rev, 0, sizeof(rev));
 		cap_id(&rev.capability, 0xc0);

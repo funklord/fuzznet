@@ -15,6 +15,7 @@
 
 #include "../revocation.h"
 #include "../manifest.h"
+#include "../root_log.h"
 
 #ifdef FZN_FLOG_ON
 #include "flog.h"
@@ -3728,6 +3729,136 @@ static void test_a_roots_undo_overrides_a_member_at_k_1(void)
 	CHECK(revoked[1] == 0u, "the root's undo did not override a member's vote in its epoch");
 }
 
+/* ---- several roots (sec 406) ---------------------------------------- */
+
+/* Log one act of root `root` at `seq` after `prev`, naming `record`'s hash;
+ * the entry's id into `id`. */
+static void log_act(struct fixture *f, fzn_root_log_t *log, uint8_t root, uint64_t seq,
+                    const uint8_t *prev, const uint8_t *record, size_t len,
+                    uint8_t id[FZN_ROOT_ACT_ID_LEN])
+{
+	uint8_t k[FZN_PUBKEY_LEN], act[FZN_ROOT_ACT_ID_LEN], e[FZN_ROOT_ACT_LEN];
+
+	key(k, root);
+	stub_hash(NULL, act, sizeof(act), record, len);
+	f->stub.identity = root;
+	CHECK(fzn_root_act_issue(k, seq, prev, (uint8_t)FZN_ROOT_ACT_GRANT, act, &f->sign, e)
+	              == FZN_ROOT_LOG_OK
+	              && fzn_root_log_admit(log, e, sizeof(e), &f->sign, &HASH_OPS)
+	                         == FZN_ROOT_LOG_OK,
+	      "fixture: a root log entry");
+	stub_hash(NULL, id, FZN_ROOT_ACT_ID_LEN, e, sizeof(e));
+	stub_reset(&f->stub);
+}
+
+/* A ROOT THAT IS NOBODY'S ANCESTOR, sec 406. Genesis root 0 adds root 9,
+ * which grants key 5 directly and revokes key 2 on the chain 0 -> 1 -> 2.
+ * With the set on the store: root 9's grant verifies against a store pinned
+ * to root 0, and its revocation revokes alone, where without the set it is
+ * refused as the wrong root. Then root 0 removes root 9 at the cut between
+ * the grant and the revocation: the grant still verifies and the revocation
+ * no longer counts. Removed with no cut, the grant stops verifying too. */
+static void test_several_roots(void)
+{
+	static fzn_root_log_entry_t log_entries[8];
+	static fzn_root_change_t changes[4];
+	struct fixture f;
+	fzn_root_log_t log;
+	fzn_root_set_t set;
+	fzn_root_view_t view;
+	fzn_root_ops_t ops;
+	uint8_t add[FZN_ROOT_ADD_LEN], rem[FZN_ROOT_REMOVE_LEN];
+	uint8_t hop_bytes[FZN_HOP_LEN], rev[FZN_REVOCATION_LEN];
+	uint8_t e_add[FZN_ROOT_ACT_ID_LEN], e_hop[FZN_ROOT_ACT_ID_LEN];
+	uint8_t e_rev[FZN_ROOT_ACT_ID_LEN], nine[FZN_PUBKEY_LEN], two[FZN_PUBKEY_LEN];
+	uint8_t revoked[FZN_CHAIN_MAX_HOPS];
+	fzn_chain_hop_t hop;
+	fzn_revocation_record_t r;
+	fzn_chain_t verdict;
+	fzn_cap_id_t cap;
+
+	fixture_init(&f);
+	capability_id(&cap, 0xc0);
+	key(nine, 9);
+	key(two, 2);
+	CHECK(fzn_root_log_init(&log, log_entries, 8) == FZN_ROOT_LOG_OK
+	              && fzn_root_set_init(&set, f.root, changes, 4) == FZN_ROOT_LOG_OK,
+	      "fixture: the set and the log");
+	f.stub.identity = 0;
+	CHECK(fzn_root_add_issue(f.root, nine, &f.sign, add) == FZN_ROOT_LOG_OK
+	              && fzn_root_set_admit(&set, add, sizeof(add), &f.sign, &HASH_OPS)
+	                         == FZN_ROOT_LOG_OK,
+	      "fixture: root 0 adds root 9");
+	stub_reset(&f.stub);
+	log_act(&f, &log, 0, 0, NULL, add, sizeof(add), e_add);
+	mint_hop(&f, hop_bytes, &hop, 9, 5, &cap, 1000, FZN_NO_EXPIRY, 0);
+	log_act(&f, &log, 9, 0, NULL, hop_bytes, sizeof(hop_bytes), e_hop);
+	issue_keys(&f, rev, &r, nine, &cap, two);
+	log_act(&f, &log, 9, 1, e_hop, rev, sizeof(rev), e_rev);
+
+	/* THE CONTROLS, with no set: root 9 is somebody else's root. */
+	CHECK(fzn_chain_verify(&hop, 1, f.root, &cap, 2000, &f.sign, &f.store, NULL, &verdict)
+	              == FZN_CHAIN_ERR_WRONG_ROOT,
+	      "the control: without the set a chain from root 9 verified");
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r), f.root, &f.sign,
+	                           &HASH_OPS, NULL) == FZN_CHAIN_ERR_WRONG_ROOT,
+	      "the control: without the set root 9's revocation was admitted");
+
+	CHECK(fzn_root_view_init(&view, &set, &log) == FZN_ROOT_LOG_OK, "fixture: the view");
+	fzn_root_view_ops(&view, &ops);
+	CHECK(fzn_revocation_store_set_roots(&f.store, &ops, &HASH_OPS) == FZN_CHAIN_OK,
+	      "set_roots refused a sound set");
+	CHECK(fzn_chain_verify(&hop, 1, f.root, &cap, 2000, &f.sign, &f.store, NULL, &verdict)
+	              == FZN_CHAIN_OK,
+	      "a chain from an added root did not verify against the set");
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r), f.root, &f.sign,
+	                           &HASH_OPS, NULL) == FZN_CHAIN_OK,
+	      "an added root's revocation was not admitted");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 1u, "an added root that is nobody's ancestor did not revoke alone");
+
+	/* REMOVED AT A CUT AFTER BOTH: its revocation still counts, judged by
+	 * the record the store holds. */
+	f.stub.identity = 0;
+	CHECK(fzn_root_remove_issue(f.root, nine, e_rev, &f.sign, rem) == FZN_ROOT_LOG_OK
+	              && fzn_root_set_admit(&set, rem, sizeof(rem), &f.sign, &HASH_OPS)
+	                         == FZN_ROOT_LOG_OK
+	              && fzn_root_view_init(&view, &set, &log) == FZN_ROOT_LOG_OK,
+	      "fixture: root 0 removes root 9 after its revocation");
+	stub_reset(&f.stub);
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 1u, "a removed root's revocation before its cut stopped counting");
+
+	/* REMOVED AGAIN, AT THE CUT BETWEEN ITS GRANT AND ITS REVOCATION: the
+	 * tighter cut of the two is the one that holds. */
+	f.stub.identity = 0;
+	CHECK(fzn_root_remove_issue(f.root, nine, e_hop, &f.sign, rem) == FZN_ROOT_LOG_OK
+	              && fzn_root_set_admit(&set, rem, sizeof(rem), &f.sign, &HASH_OPS)
+	                         == FZN_ROOT_LOG_OK
+	              && fzn_root_view_init(&view, &set, &log) == FZN_ROOT_LOG_OK,
+	      "fixture: root 0 removes root 9 at the cut");
+	stub_reset(&f.stub);
+	CHECK(fzn_chain_verify(&hop, 1, f.root, &cap, 2000, &f.sign, &f.store, NULL, &verdict)
+	              == FZN_CHAIN_OK,
+	      "a removed root's grant before its cut stopped verifying");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 0u, "a removed root's revocation after its cut still revoked");
+
+	/* REMOVED WITH NO CUT: nothing of it stands. */
+	f.stub.identity = 0;
+	CHECK(fzn_root_remove_issue(f.root, nine, NULL, &f.sign, rem) == FZN_ROOT_LOG_OK
+	              && fzn_root_set_admit(&set, rem, sizeof(rem), &f.sign, &HASH_OPS)
+	                         == FZN_ROOT_LOG_OK
+	              && fzn_root_view_init(&view, &set, &log) == FZN_ROOT_LOG_OK,
+	      "fixture: root 0 removes root 9 with no cut");
+	stub_reset(&f.stub);
+	CHECK(fzn_chain_verify(&hop, 1, f.root, &cap, 2000, &f.sign, &f.store, NULL, &verdict)
+	              == FZN_CHAIN_ERR_WRONG_ROOT,
+	      "under a removal with no cut a removed root's grant still verified");
+	CHECK(fzn_revocation_store_set_roots(&f.store, &ops, NULL) == FZN_CHAIN_ERR_MALFORMED,
+	      "a root set with no hash was accepted");
+}
+
 /* A quorum of zero is refused rather than read as one: the struct reads 0 as
  * 1 so that a zeroed store behaves, but a caller ASKING for zero has made a
  * mistake. An admin table past the stack-flag bound is refused likewise. */
@@ -4067,6 +4198,7 @@ int main(void)
 	test_an_epoch_far_ahead_counts_once();
 	test_a_vote_retracted_before_quorum_still_counts();
 	test_a_root_acts_alone();
+	test_several_roots();
 	test_a_roots_undo_overrides_a_member_at_k_1();
 	test_a_quorum_is_one_or_more();
 	test_k_of_n_revokes_and_latches();

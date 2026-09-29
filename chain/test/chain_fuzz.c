@@ -351,7 +351,7 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	 * the generation. A positional initialiser names every field or the
 	 * compiler says so. */
 	fzn_revocation_store_t rev_store = { revs, MAX_REVS, 0, NULL, 0,
-	                                     1, 0, { { 0 } }, NULL, 0, 0 };
+	                                     1, 0, { { 0 } }, NULL, 0, 0, NULL, NULL };
 	uint8_t root[FZN_PUBKEY_LEN];
 	fzn_cap_id_t cap;
 	struct stub stub = { 0, 0 };

@@ -49661,7 +49661,8 @@ rather than truncating.
 
 ### Still to build
 
-1. **Verification against the set.**
+1. **~~Verification against the set.~~ Built in sec 406**, except the
+   trust anchor and the roster.
    - A hop, revocation or roster record from a standing root is taken as
      today.
    - One from a removed root counts only through `fzn_root_set_counts`.
@@ -49695,3 +49696,84 @@ Three of them are first reported by the same check, root 2 no longer
 standing in the theft's first order. Each lets the thief's root 3 count,
 so root 3's removal of root 2 counts too, and that is the first
 assertion to fire. The later checks in the case would fail as well.
+
+## 406. Verification against the root set, 2026-09-29
+
+The third piece of sec 403. A revocation store can now carry the
+estate's root set, and `fzn_chain_verify` and the store's judgement read
+it. No call site changed.
+
+### How the set reaches verification
+
+- **A vtable on the store, `fzn_root_ops_t`,** set with
+  `fzn_revocation_store_set_roots(store, roots, hash)`. It answers two
+  questions: is this key a member root, and does the record whose hash
+  is this, signed by that root, still count.
+- **`chain/root_log.h` fills it from a `fzn_root_view_t`**, a set settled
+  once against the log and then asked many times. Settling per question
+  would repeat the rounds for every entry. A caller takes a new view
+  when the set or the log changes.
+- **A vtable rather than the module**, so that nothing that links the
+  store has to link `root_log.o`. Only a test that uses a view does.
+- **NULL roots is the single-root store** every call site had before.
+
+`fzn_chain_verify` already takes the store, which is why no call site
+had to change.
+
+### What changes with a set
+
+- **A chain may start at any member root.** Its first hop must count:
+  always from a standing root, and from a removed one only when the hop
+  is logged before the removal's cut. `root` then names the anchor the
+  set grew from, not a filter; the genesis root, once removed, is judged
+  like any other.
+- **Admission takes a root-issued revocation from any member root.**
+  Whether it counts is asked when the store is read, so arrival order
+  decides nothing.
+- **A root is entitled over every hop, ancestor or not**, and acts alone
+  under sec 403's pass. This covers every root whose record counts, not
+  only the chain's own first grantor.
+- **Each entry now keeps `held`, the hash of the record it holds now.**
+  `id` still names the revocation a withdrawal undid. Without `held`, a
+  removed root's withdrawal after its cut would have been judged by the
+  revocation before it, and counted.
+
+### Still to build after sec 406
+
+- **The trust anchor as the genesis root plus the set**, carried and
+  persisted by a node.
+- **The roster's writers**, which verify their standing through
+  `fzn_chain_verify` with a store that may have no set.
+- **The node**: root keys separate from identity keys, every act logged,
+  and the log and the set carried with the votes.
+
+### Measured for sec 406
+
+`revocation_test`, 652 checks, with the new `test_several_roots`:
+
+- Genesis root 0 adds root 9, which is no ancestor of the chain
+  0 -> 1 -> 2.
+- Without the set, root 9's grant is refused as the wrong root, and so
+  is its revocation. These are the controls.
+- With the set, the grant verifies against a store pinned to root 0, and
+  the revocation is admitted and revokes alone.
+- Root 0 removes root 9 at a cut after both: the revocation still
+  counts, judged through `held`.
+- Removed again at the cut between them: the grant still verifies and
+  the revocation stops counting. The tighter of the two cuts holds.
+- Removed with no cut: the grant stops verifying.
+- A set with no hash is refused.
+
+`make test`, `make style` and `make sancheck` pass.
+
+Sabotage: six new entries and six re-aimed, all caught, each by the case
+written for it.
+
+- **New:** a removed root's grant must count; admission takes a member
+  root; a root's entry must count; a root is entitled everywhere; an
+  entry holds its record; the view's `counts` is counts.
+- **Re-aimed:** six older entries whose anchors the `held` lines split.
+- **A first version of the view entry did not build.** It swapped in a
+  function of the wrong type, so the harness reported NOT-BUILT rather
+  than a verdict. It now changes the function's body instead, and is
+  caught.

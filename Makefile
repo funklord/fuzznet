@@ -1961,6 +1961,7 @@ $(BUILD_DIR)/chunk/test/split_test: $(BUILD_DIR)/chunk/test/split_test.o \
 
 $(BUILD_DIR)/chain/test/revocation_test: $(BUILD_DIR)/chain/test/revocation_test.o \
                                           $(BUILD_DIR)/chain/revocation.o \
+                                          $(BUILD_DIR)/chain/root_log.o \
                                           $(BUILD_DIR)/chain/manifest.o \
                                           $(BUILD_DIR)/chain/chain.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o

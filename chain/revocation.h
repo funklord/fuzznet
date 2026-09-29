@@ -407,6 +407,20 @@ typedef struct fzn_revocation_admin {
 	uint8_t grantee[FZN_CHAIN_MAX_HOPS][FZN_PUBKEY_LEN];
 } fzn_revocation_admin_t;
 
+/* THE ROOT SET, AS A STORE ASKS IT. sec 406. `member` is 1 for a key that is
+ * a root, removed or not; `counts` is 1 when the record whose hash is `act`,
+ * signed by root `root`, still counts -- always for a standing root, and for
+ * a removed one only when its log shows the record before the removal's cut.
+ * `chain/root_log.h` fills these from a settled view; a consumer may bring
+ * its own. A vtable rather than the module, so that nothing linking the
+ * store has to link the set. */
+typedef struct fzn_root_ops {
+	int (*member)(void *ctx, const uint8_t key[FZN_PUBKEY_LEN]);
+	int (*counts)(void *ctx, const uint8_t root[FZN_PUBKEY_LEN],
+	              const uint8_t act[FZN_REVOCATION_ID_LEN]);
+	void *ctx;
+} fzn_root_ops_t;
+
 struct fzn_revocation_store {
 	fzn_revocation_t *entries;
 	size_t capacity;
@@ -439,6 +453,12 @@ struct fzn_revocation_store {
 	fzn_revocation_admin_t *admins;
 	size_t admin_capacity;
 	size_t admins_used;
+	/* THE ROOT SET, when the estate has more than one root: NULL for the
+	 * single pinned root every call names. `root_hash` hashes a hop so
+	 * `fzn_chain_verify` can ask whether a removed root's grant counts.
+	 * Set with `fzn_revocation_store_set_roots`; sec 406. */
+	const fzn_root_ops_t *roots;
+	const fzn_hash_ops_t *root_hash;
 };
 
 fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_revocation_t *entries,
@@ -479,6 +499,25 @@ fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_rev
  * quorum of 1 and no admin capability every answer is what it was before
  * sec 397.
  */
+/*
+ * SEVERAL ROOTS. sec 406. With `roots` set, a store and `fzn_chain_verify`
+ * over it take the estate's root set rather than the one root each call
+ * names:
+ *
+ *   - a chain verifies from any root the set names, as long as its first
+ *     hop counts -- always for a standing root, and for a removed one only
+ *     when that hop is logged before the removal's cut;
+ *   - a revocation signed by a root is admitted from any member root, and
+ *     counts when read only while the set says its record does;
+ *   - every root that counts acts alone, as sec 403 gives the one root.
+ *
+ * NULL `roots` is the single-root store every call site had before. `hash`
+ * must be given with `roots`. MALFORMED otherwise.
+ */
+fzn_chain_err_t fzn_revocation_store_set_roots(fzn_revocation_store_t *store,
+                                               const fzn_root_ops_t *roots,
+                                               const fzn_hash_ops_t *hash);
+
 fzn_chain_err_t fzn_revocation_store_set_quorum(fzn_revocation_store_t *store, size_t quorum,
                                                 const fzn_cap_id_t *admin_capability,
                                                 fzn_revocation_admin_t *admins,

@@ -1,6 +1,7 @@
 /* See root_log.h. */
 
 #include "root_log.h"
+#include "revocation.h"
 
 #include "../constant_time/constant_time.h"
 #include "../wire/bytes.h"
@@ -318,11 +319,9 @@ fzn_root_log_err_t fzn_root_set_admit(fzn_root_set_t *set, const uint8_t *bytes,
 	return FZN_ROOT_LOG_OK;
 }
 
-/* What a reading of the set settles: which adds and which removals count. */
-struct settled {
-	uint8_t add_ok[FZN_ROOT_SET_MAX];
-	uint8_t rem_ok[FZN_ROOT_SET_MAX];
-};
+/* What a reading of the set settles, which adds and which removals count,
+ * is kept in a `fzn_root_view_t`. */
+#define settled fzn_root_view
 
 static int is_add(const fzn_root_change_t *c)
 {
@@ -408,6 +407,8 @@ static void settle(const fzn_root_set_t *set, const fzn_root_log_t *log, struct 
 	size_t round, i;
 
 	memset(st, 0, sizeof(*st));
+	st->set = set;
+	st->log = log;
 	memset(seen, 0, sizeof(seen));
 	for (round = 0; round <= set->used; round++) {
 		grow_members(set, log, st);
@@ -458,4 +459,55 @@ int fzn_root_set_member(const fzn_root_set_t *set, const fzn_root_log_t *log,
 		return 0;
 	settle(set, log, &st);
 	return member_in(set, &st, key);
+}
+
+fzn_root_log_err_t fzn_root_view_init(fzn_root_view_t *view, const fzn_root_set_t *set,
+                                      const fzn_root_log_t *log)
+{
+	if (!view || !set_sound(set))
+		return FZN_ROOT_LOG_ERR_MALFORMED;
+	settle(set, log, view);
+	return FZN_ROOT_LOG_OK;
+}
+
+int fzn_root_view_counts(const fzn_root_view_t *view, const uint8_t root[FZN_PUBKEY_LEN],
+                         const uint8_t act[FZN_ROOT_ACT_ID_LEN])
+{
+	if (!view || !set_sound(view->set) || !root || !act)
+		return 0;
+	return counts_in(view->set, view->log, view, root, act);
+}
+
+int fzn_root_view_stands(const fzn_root_view_t *view, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	if (!view || !set_sound(view->set) || !key)
+		return 0;
+	return member_in(view->set, view, key) && !removed_in(view->set, view, key);
+}
+
+int fzn_root_view_member(const fzn_root_view_t *view, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	if (!view || !set_sound(view->set) || !key)
+		return 0;
+	return member_in(view->set, view, key);
+}
+
+static int ops_member(void *ctx, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	return fzn_root_view_member((const fzn_root_view_t *)ctx, key);
+}
+
+static int ops_counts(void *ctx, const uint8_t root[FZN_PUBKEY_LEN],
+                      const uint8_t act[FZN_ROOT_ACT_ID_LEN])
+{
+	return fzn_root_view_counts((const fzn_root_view_t *)ctx, root, act);
+}
+
+void fzn_root_view_ops(const fzn_root_view_t *view, struct fzn_root_ops *ops)
+{
+	if (!ops)
+		return;
+	ops->member = ops_member;
+	ops->counts = ops_counts;
+	ops->ctx = (void *)(uintptr_t)view;
 }
