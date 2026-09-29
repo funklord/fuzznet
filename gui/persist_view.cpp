@@ -44,6 +44,10 @@ static QString slot_label(fzn_persist_slot_t slot)
 		return QStringLiteral("learned revocation");
 	case FZN_PERSIST_VOTE:
 		return QStringLiteral("learned vote");
+	case FZN_PERSIST_ROOT_ENTRY:
+		return QStringLiteral("root log entry");
+	case FZN_PERSIST_ROOT_CHANGE:
+		return QStringLiteral("root change");
 	}
 	/* NO `default:` ABOVE, so a slot added to persist.h draws a -Wswitch
 	 * warning here rather than being drawn as this. */

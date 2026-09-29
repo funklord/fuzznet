@@ -16,6 +16,7 @@
 
 #include "../pair.h"
 #include "../revoke.h"
+#include "../roots.h"
 #include "../admin.h"
 #include "../../provision/provision.h"
 #include "../identity.h"
@@ -1353,6 +1354,143 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 	fzn_wipe(&d_pairing, sizeof(d_pairing));
 }
 
+/* ---- SEVERAL ROOTS AT A NODE, sec 407 --------------------------------- */
+
+/* `signer` logs `record` as its act at `seq` after `prev`, into `entry`; the
+ * entry's id into `id`. */
+static int root_logs(struct node *signer, uint64_t seq, const uint8_t *prev,
+                     const uint8_t *record, size_t len, uint8_t entry[FZN_ROOT_ACT_LEN],
+                     uint8_t id[FZN_ROOT_ACT_ID_LEN])
+{
+	uint8_t act[FZN_ROOT_ACT_ID_LEN];
+
+	return hash_ops.hash(hash_ops.ctx, act, sizeof(act), record, len)
+	       && fzn_root_act_issue(signer->id.pubkey, seq, prev, (uint8_t)FZN_ROOT_ACT_GRANT, act,
+	                             &signer->sign, entry) == FZN_ROOT_LOG_OK
+	       && hash_ops.hash(hash_ops.ctx, id, FZN_ROOT_ACT_ID_LEN, entry, FZN_ROOT_ACT_LEN);
+}
+
+/* ROOT R ADDS ROOT B, which revokes device D; node N learns it all.
+ *
+ * B is nobody's ancestor on D's chain R -> N -> D. At k = 2, N's store with
+ * the set attached takes B's revocation and D is revoked by B alone; a
+ * restart from N's store alone says the same. R then removes B with no cut,
+ * and B's revocation stops counting. A record claiming R's key and signed by
+ * somebody else is refused and not saved. */
+static void test_several_roots_at_a_node(const fzn_cap_id_t *cap)
+{
+	static struct node r, b, n, d, stranger;
+	static fzn_node_roots_t roots, again;
+	static fzn_revocation_t e1[8], e2[8];
+	fzn_revocation_store_t revs, reloaded;
+	uint8_t add[FZN_ROOT_ADD_LEN], rem[FZN_ROOT_REMOVE_LEN], rev[FZN_REVOCATION_LEN];
+	uint8_t r_add[FZN_ROOT_ACT_LEN], r_rem[FZN_ROOT_ACT_LEN], b_rev[FZN_ROOT_ACT_LEN];
+	uint8_t id_add[FZN_ROOT_ACT_ID_LEN], id_rem[FZN_ROOT_ACT_ID_LEN];
+	uint8_t id_rev[FZN_ROOT_ACT_ID_LEN];
+	fzn_revocation_record_t rec;
+	size_t count = 0;
+
+	CHECK(node_up(&r) && node_up(&b) && node_up(&n) && node_up(&d) && node_up(&stranger),
+	      "fixture: the nodes");
+	CHECK(fzn_revocation_store_init(&revs, e1, 8) == FZN_CHAIN_OK
+	              && fzn_revocation_store_set_quorum(&revs, 2u, NULL, NULL, 0u) == FZN_CHAIN_OK
+	              && fzn_node_roots_init(&roots, r.id.pubkey, &n.sign, &hash_ops)
+	                         == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_attach(&roots, &revs) == FZN_NODE_ROOTS_OK,
+	      "fixture: N's store with R's set attached");
+
+	/* R ADDS B, and logs it; B revokes D, and logs it. */
+	CHECK(fzn_root_add_issue(r.id.pubkey, b.id.pubkey, &r.sign, add) == FZN_ROOT_LOG_OK
+	              && root_logs(&r, 0, NULL, add, sizeof(add), r_add, id_add)
+	              && fzn_revocation_issue(b.id.pubkey, cap, d.id.pubkey, 1500u, 0u, &b.sign, rev)
+	                         == FZN_CHAIN_OK
+	              && fzn_revocation_open(rev, sizeof(rev), &rec) == FZN_CHAIN_OK
+	              && root_logs(&b, 0, NULL, rev, sizeof(rev), b_rev, id_rev),
+	      "fixture: the add, the revocation and their log entries");
+
+	/* BEFORE N KNOWS OF B, B's revocation is another estate's. */
+	CHECK(fzn_revocation_admit(&revs, fzn_revocation_offer_root(rec), r.id.pubkey, &n.sign,
+	                           &hash_ops, NULL) == FZN_CHAIN_ERR_WRONG_ROOT,
+	      "the control: B's revocation admitted before N knew B was a root");
+
+	CHECK(fzn_node_roots_learn(&roots, &n.ops, add, sizeof(add)) == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_learn(&roots, &n.ops, r_add, sizeof(r_add))
+	                         == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_learn(&roots, &n.ops, b_rev, sizeof(b_rev))
+	                         == FZN_NODE_ROOTS_OK,
+	      "N would not learn R's add of B or the log entries");
+	CHECK(fzn_revocation_admit(&revs, fzn_revocation_offer_root(rec), r.id.pubkey, &n.sign,
+	                           &hash_ops, NULL) == FZN_CHAIN_OK
+	              && d_revoked(&revs, &r, &n, &d, cap),
+	      "at k = 2 a second root's revocation did not revoke D alone");
+
+	/* A RESTART from N's store alone. */
+	CHECK(fzn_revocation_store_init(&reloaded, e2, 8) == FZN_CHAIN_OK
+	              && fzn_revocation_store_set_quorum(&reloaded, 2u, NULL, NULL, 0u)
+	                         == FZN_CHAIN_OK
+	              && fzn_node_roots_init(&again, r.id.pubkey, &n.sign, &hash_ops)
+	                         == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_load(&again, &n.ops, &count) == FZN_NODE_ROOTS_OK
+	              && count == 3u
+	              && fzn_node_roots_attach(&again, &reloaded) == FZN_NODE_ROOTS_OK
+	              && fzn_revocation_admit(&reloaded, fzn_revocation_offer_root(rec),
+	                                      r.id.pubkey, &n.sign, &hash_ops, NULL)
+	                         == FZN_CHAIN_OK
+	              && d_revoked(&reloaded, &r, &n, &d, cap),
+	      "after a restart N no longer knew B, or D was not revoked");
+
+	/* A STORE CHANGED UNDERNEATH: an entry filed as a change, and an entry
+	 * whose signature no longer verifies. Each fails the load. */
+	{
+		static struct node x;
+		static fzn_node_roots_t bad;
+		uint8_t blob[FZN_PERSIST_HEAD_LEN + FZN_ROOT_ACT_LEN];
+		uint8_t subject[FZN_PUBKEY_LEN];
+
+		memset(subject, 0x33, sizeof(subject));
+		CHECK(node_up(&x)
+		              && fzn_persist_head_write(blob, sizeof(blob), FZN_ROOT_ACT_LEN,
+		                                        FZN_PERSIST_BLOB_ROOT_ENTRY) == FZN_PERSIST_OK
+		              && (memcpy(blob + FZN_PERSIST_HEAD_LEN, r_add, FZN_ROOT_ACT_LEN), 1)
+		              && x.ops.save(x.ops.ctx, FZN_PERSIST_ROOT_CHANGE, subject, blob,
+		                            sizeof(blob))
+		              && fzn_node_roots_init(&bad, r.id.pubkey, &x.sign, &hash_ops)
+		                         == FZN_NODE_ROOTS_OK
+		              && fzn_node_roots_load(&bad, &x.ops, &count) == FZN_NODE_ROOTS_STORE,
+		      "a root log entry filed as a root change was loaded");
+		CHECK(node_up(&x)
+		              && (blob[sizeof(blob) - 1u] ^= 1u, 1)
+		              && x.ops.save(x.ops.ctx, FZN_PERSIST_ROOT_ENTRY, subject, blob,
+		                            sizeof(blob))
+		              && fzn_node_roots_init(&bad, r.id.pubkey, &x.sign, &hash_ops)
+		                         == FZN_NODE_ROOTS_OK
+		              && fzn_node_roots_load(&bad, &x.ops, &count) == FZN_NODE_ROOTS_STORE,
+		      "a stored root log entry whose signature fails was loaded");
+	}
+
+	/* A FORGED CHANGE: R's key as signer, somebody else's signature. */
+	{
+		uint8_t forged[FZN_ROOT_ADD_LEN];
+
+		CHECK(fzn_root_add_issue(r.id.pubkey, stranger.id.pubkey, &stranger.sign, forged)
+		              == FZN_ROOT_LOG_OK
+		              && fzn_node_roots_learn(&roots, &n.ops, forged, sizeof(forged))
+		                         == FZN_NODE_ROOTS_REFUSED,
+		      "a root-add signed by another key than the root it names was learned");
+	}
+
+	/* R REMOVES B WITH NO CUT: nothing B did counts. */
+	CHECK(fzn_root_remove_issue(r.id.pubkey, b.id.pubkey, NULL, &r.sign, rem)
+	              == FZN_ROOT_LOG_OK
+	              && root_logs(&r, 1, id_add, rem, sizeof(rem), r_rem, id_rem)
+	              && fzn_node_roots_learn(&roots, &n.ops, rem, sizeof(rem)) == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_learn(&roots, &n.ops, r_rem, sizeof(r_rem))
+	                         == FZN_NODE_ROOTS_OK,
+	      "N would not learn R's removal of B");
+	CHECK(!d_revoked(&revs, &r, &n, &d, cap),
+	      "a removed root's revocation still revoked D");
+}
+
 int main(void)
 {
 	static struct node node, device, stranger;
@@ -1467,6 +1605,7 @@ int main(void)
 	test_paired_stores_talk(&node, &device, &cap);
 	test_an_estate(&cap);
 	test_votes_travel(&cap);
+	test_several_roots_at_a_node(&cap);
 
 	/* ---- A NODE THAT IS NOT ITS OWN ROOT PAIRS NOTHING, and writes nothing. */
 	stranger.store.saves = 0;

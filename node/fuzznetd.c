@@ -39,6 +39,7 @@
 #include "identity.h"
 #include "pair.h"
 #include "revoke.h"
+#include "roots.h"
 #include "peer_persist.h"
 #include "../local/socket.h"
 #include "../net/udp.h"
@@ -741,16 +742,25 @@ int main(int argc, char **argv)
 		static fzn_node_admin_t admin;
 		static fzn_revocation_t revoked_entries[FZN_NODE_REVOCATIONS_MAX];
 		static fzn_revocation_store_t revoked;
-		size_t loaded = 0, nrevoked = 0;
+		static fzn_node_roots_t estate_roots;
+		size_t loaded = 0, nrevoked = 0, nroots = 0;
 
 		/* THE REVOCATIONS THIS NODE ISSUED, admitted again before any
 		 * peer is served -- a node that served first and remembered
 		 * second would answer a revoked device in the gap. A record that
 		 * will not admit is fatal for the same reason. sec 380. */
+		/* THE ESTATE'S ROOTS FIRST, sec 407: the set grown from the pinned
+		 * root, attached before any revocation is re-admitted, so one by
+		 * a member root admits and a removed root's after its cut does
+		 * not count. With nothing stored, the pinned root alone. */
 		if (fzn_revocation_store_init(&revoked, revoked_entries,
 		                              FZN_NODE_REVOCATIONS_MAX) != FZN_CHAIN_OK
 		    || fzn_revocation_store_set_quorum(&revoked, (size_t)quorum, NULL, NULL, 0u)
 		               != FZN_CHAIN_OK
+		    || fzn_node_roots_init(&estate_roots, state.config.root, &sign_ops, &hash_ops)
+		               != FZN_NODE_ROOTS_OK
+		    || fzn_node_roots_load(&estate_roots, store_ops, &nroots) != FZN_NODE_ROOTS_OK
+		    || fzn_node_roots_attach(&estate_roots, &revoked) != FZN_NODE_ROOTS_OK
 		    || fzn_node_revocations_load(store_ops, &revoked, state.config.root,
 		                                 my_authority, &sign_ops, &hash_ops, &nrevoked)
 		               != FZN_PERSIST_OK) {
@@ -765,6 +775,9 @@ int main(int argc, char **argv)
 		running = &revoked;
 		if (nrevoked)
 			fprintf(stderr, "fuzznetd: %zu revocation(s) from %s\n", nrevoked,
+			        store_dir);
+		if (nroots)
+			fprintf(stderr, "fuzznetd: %zu root record(s) from %s\n", nroots,
 			        store_dir);
 		fzn_persist_err_t err;
 

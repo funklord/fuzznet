@@ -163,7 +163,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              net/udp.c \
              node/node.c node/local.c node/remote.c node/serve.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
-             node/revoke.c \
+             node/revoke.c node/roots.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
              chain/root_log.c \
              chain/chain_store.c chain/service.c claim/claim.c \
@@ -248,7 +248,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              net/udp.h \
              node/node.h node/local.h node/remote.h node/serve.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
-             node/revoke.h \
+             node/revoke.h node/roots.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
              chain/root_log.h \
              chain/chain_store.h chain/service.h claim/claim.h \
@@ -3190,6 +3190,7 @@ $(BUILD_DIR)/node/test/pair_test.o: node/test/pair_test.c
 
 $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
+              $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o \
               $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
               $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o \
@@ -3257,6 +3258,7 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
 # "serve.h" without -Inode.
 $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(BUILD_DIR)/node/identity.o $(BUILD_DIR)/node/pair.o \
+              $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/node/revoke.o \
               $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/provision/provision.o \
               $(BUILD_DIR)/session/session.o $(BUILD_DIR)/chain/service.o \
@@ -3383,6 +3385,7 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/local/client.o \
+                                      $(BUILD_DIR)/node/roots.o \
                                       $(BUILD_DIR)/roster/roster.o \
                                       $(BUILD_DIR)/chain/root_log.o \
                                       $(BUILD_DIR)/node/identity.o \

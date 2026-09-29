@@ -5,9 +5,9 @@
 // an at-rest record wants, where `target buffer` is for bytes already in hand.
 //
 // Every blob is `version | tag | body` (persist.c: OFF_VERSION=0, OFF_TAG=1,
-// OFF_BODY=2), a two-byte head followed by ONE OF nine bodies chosen by the
-// tag, six fixed and three -- the pairing, the node peer and the vote -- sized
-// by their own hop counts. It is a TAGGED UNION, modelled with situ's variant/switch: the tag
+// OFF_BODY=2), a two-byte head followed by ONE OF twelve bodies chosen by
+// the tag, nine fixed and three -- the pairing, the node peer and the vote --
+// sized by their own hop counts. It is a TAGGED UNION, modelled with situ's variant/switch: the tag
 // is the discriminant and each arm is one body struct.
 //
 // The tag byte is checked exactly by persist.c's head_check, and an unknown
@@ -58,6 +58,9 @@ enum fzn_persist_tag : u8 {
 	pairing = 7,
 	revocation = 8,
 	vote = 9,
+	root_entry = 10,
+	root_add = 11,
+	root_remove = 12,
 	default = error,
 }
 
@@ -134,6 +137,21 @@ struct fzn_persist_vote_body {
 	fzn_persist_hop hops[hop_count];
 }
 
+// A root log entry, a root-add and a root-remove, as node/roots.c keeps
+// them (sec 407): each the signed record whole, opaque here, laid out in
+// chain/root_act.situ.
+struct fzn_persist_root_entry_body {
+	u8  record[171];
+}
+
+struct fzn_persist_root_add_body {
+	u8  record[130];
+}
+
+struct fzn_persist_root_remove_body {
+	u8  record[162];
+}
+
 // A peer as the NODE keeps it: who it is, the session keys its frames open
 // under, and its grant as the whole chain from the root -- one hop when the
 // node minted it, more when the node grants through an estate's chain (sec
@@ -162,6 +180,9 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.pairing:  fzn_persist_pairing_body  pairing;
 		case fzn_persist_tag.revocation: fzn_persist_revocation_body revocation;
 		case fzn_persist_tag.vote: fzn_persist_vote_body vote;
+		case fzn_persist_tag.root_entry: fzn_persist_root_entry_body root_entry;
+		case fzn_persist_tag.root_add: fzn_persist_root_add_body root_add;
+		case fzn_persist_tag.root_remove: fzn_persist_root_remove_body root_remove;
 		default: error;
 	}
 }

@@ -49777,3 +49777,70 @@ written for it.
   function of the wrong type, so the harness reported NOT-BUILT rather
   than a verdict. It now changes the function's body instead, and is
   caught.
+
+## 407. A node keeps its estate's roots, 2026-09-29
+
+The first node piece of sec 403. `node/roots.h` keeps a node's root log
+and root set, persisted, and attaches them to its revocation store.
+`fuzznetd` does this at start.
+
+### What a node keeps
+
+- **Two core slots.** Slot 12 holds root log entries, keyed by entry id.
+  Slot 13 holds root changes, keyed by record id.
+- **Three blob tags**: 10 for a log entry, 11 for a root-add and 12 for
+  a root-remove. An add and a removal differ in length, and the blob
+  head checks an exact length per tag, so they take a tag each.
+- **Core, not store**, by persist.h's rule. A lost entry leaves a
+  removal's cut impossible to follow; a lost removal lets a removed root
+  count again.
+- `persist/persist.situ` states the three bodies, and situ `2744f65`
+  gives 171, 130 and 162 bytes.
+
+### What it does
+
+- **`fzn_node_roots_learn`** takes any root record, told apart by its
+  object byte. It admits the record, settles the view again (so an
+  attached store answers under it at once) and saves it. A record that
+  will not admit is refused and not saved.
+- **`fzn_node_roots_load`** re-admits everything at start. A record that
+  will not read or admit fails the load, as a revocation does (sec 380).
+  So does one filed in the other slot, which is a store written by
+  something else.
+- **`fuzznetd` builds the roots from the pinned root, loads them and
+  attaches them before re-admitting revocations**, so a revocation by a
+  member root re-admits. With nothing stored, the set is the pinned root
+  alone, and every answer is the single-root answer.
+
+### Not yet
+
+- **A node cannot yet sign as a root other than its identity key, or log
+  its own root acts.** The genesis root's pairings and revocations are
+  signed by the root node's identity key, as before.
+- **Root records do not travel between nodes yet.** A node learns only
+  what is handed to `fzn_node_roots_learn`.
+- **There are no verbs yet** for adding or removing a root.
+
+### Measured for sec 407
+
+`pair_test`, 148 checks, with the new `test_several_roots_at_a_node`,
+over real Ed25519 keys:
+
+- **The setup.** R adds B, and B, which is no ancestor of D's chain
+  R -> N -> D, revokes D.
+- **Before N learns of B**, B's revocation is refused as the wrong root.
+  This is the control.
+- **Once N has learned** the add and both log entries, B's revocation
+  revokes D alone at k = 2.
+- **A restart from N's store alone** loads three records and says the
+  same.
+- **The store's guards:** an entry filed as a change fails the load, and
+  so does a stored entry whose signature fails.
+- **A forgery:** an add naming R and signed by another key is refused.
+- **R removes B with no cut**, and B's revocation stops revoking.
+
+`fuzznetd` builds and starts on an empty store.
+
+Sabotage: four new entries, each caught by its own case. They cover
+learning refusing what will not admit, learning settling the view, the
+slot and the tag agreeing, and the load admitting or failing.
