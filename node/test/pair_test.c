@@ -1623,6 +1623,151 @@ static void test_several_roots_at_a_node(const fzn_cap_id_t *cap)
 	}
 }
 
+/* Every root record `from` holds, paged into `into` as a pull would. The
+ * pull err, and the items learned into `*learned`. */
+static int roots_sync(struct node *from, fzn_node_roots_t *into, struct node *into_node,
+                      size_t *learned)
+{
+	static char body[FZN_REPLY_MAX];
+	static char page[FZN_REPLY_MAX + 64u];
+	size_t at = 0, pages = 0, refused = 0;
+	int err = FZN_NODE_PULL_OK;
+
+	*learned = 0;
+	while (pages++ < 64u) {
+		size_t len = 0, total = 0, next = 0;
+		int w;
+
+		if (!fzn_node_roots_page(&from->ops, at, body, 800u, &len, &total))
+			return -99;
+		w = snprintf(page, sizeof(page), "ok %zu %zu", total, at);
+		memcpy(page + w, body, len);
+		page[(size_t)w + len] = '\n';
+		err = fzn_node_roots_absorb(into, &into_node->ops, (const uint8_t *)page,
+		                            (size_t)w + len + 1u, at, &next, &total, learned,
+		                            &refused);
+		if (err != FZN_NODE_PULL_OK || next >= total)
+			return err;
+		at = next;
+	}
+	return -99;
+}
+
+/* A NODE ACTS AS A ROOT, sec 409. R, the genesis root, acts with its
+ * identity. M makes a root key of its own, which is no root until R adds it;
+ * once M has R's records, M acts as that key, and what M does is logged under
+ * it. R then removes M's key at the cut after M's act, which keeps it, and
+ * with no cut, which drops it. M's key reloads as the same key, a second key
+ * is refused, and a root whose log has forked will not extend it. */
+static void test_a_node_acts_as_a_root(void)
+{
+	static struct node r, m, x;
+	static fzn_node_roots_t r_roots, m_roots, again;
+	static fzn_sign_monocypher_t m_root_signer, again_signer;
+	fzn_sign_ops_t m_root_sign, again_sign;
+	fzn_sign_seat_t m_root_seat, again_seat;
+	const uint8_t *as = NULL;
+	const fzn_sign_ops_t *as_sign = NULL;
+	size_t learned = 0;
+
+	CHECK(node_up(&r) && node_up(&m) && node_up(&x), "fixture: the nodes");
+	fzn_sign_monocypher_init(&m_root_sign, &m_root_signer);
+	fzn_sign_monocypher_seat_init(&m_root_seat, &m_root_signer);
+	CHECK(fzn_node_roots_init(&r_roots, r.id.pubkey, &r.sign, &hash_ops) == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_init(&m_roots, r.id.pubkey, &m.sign, &hash_ops)
+	                         == FZN_NODE_ROOTS_OK,
+	      "fixture: the roots");
+	CHECK(fzn_node_roots_acting(&r_roots, r.id.pubkey, &r.sign, &as, &as_sign)
+	              && memcmp(as, r.id.pubkey, FZN_PUBKEY_LEN) == 0,
+	      "the genesis node did not act as a root with its identity");
+
+	/* M'S OWN ROOT KEY: made, not yet a root. */
+	CHECK(fzn_node_roots_key_create(&m_roots, &m.ops, &rng_ops, &m_root_seat, &m_root_sign)
+	              == FZN_NODE_ROOTS_OK
+	              && memcmp(m_roots.key, m.id.pubkey, FZN_PUBKEY_LEN) != 0,
+	      "M could not make a root key, or it is M's identity");
+	CHECK(fzn_node_roots_key_create(&m_roots, &m.ops, &rng_ops, &m_root_seat, &m_root_sign)
+	              == FZN_NODE_ROOTS_HELD,
+	      "a second root key was made on one node");
+	CHECK(!fzn_node_roots_acting(&m_roots, m.id.pubkey, &m.sign, &as, &as_sign),
+	      "M acted as a root before any root added its key");
+	CHECK(fzn_node_roots_change(&m_roots, &m.ops, m.id.pubkey, &m.sign, 0, x.id.pubkey, NULL)
+	              == FZN_NODE_ROOTS_NOT_ROOT,
+	      "a node that stands as no root changed the root set");
+
+	/* R ADDS M's KEY; M pulls R's records and acts as that key. */
+	CHECK(fzn_node_roots_change(&r_roots, &r.ops, r.id.pubkey, &r.sign, 0, m_roots.key, NULL)
+	              == FZN_NODE_ROOTS_OK
+	              && r_roots.log.used == 1u,
+	      "R could not add M's key, or did not log the add");
+	CHECK(roots_sync(&r, &m_roots, &m, &learned) == FZN_NODE_PULL_OK
+	              && learned == 2u
+	              && fzn_node_roots_acting(&m_roots, m.id.pubkey, &m.sign, &as, &as_sign)
+	              && memcmp(as, m_roots.key, FZN_PUBKEY_LEN) == 0,
+	      "M did not act as its own root key once R had added it");
+
+	/* M ADDS X, logged under M's key at seq 0. */
+	CHECK(fzn_node_roots_change(&m_roots, &m.ops, m.id.pubkey, &m.sign, 0, x.id.pubkey, NULL)
+	              == FZN_NODE_ROOTS_OK
+	              && fzn_root_view_stands(&m_roots.view, x.id.pubkey),
+	      "M, acting as a root, could not add X");
+	{
+		const fzn_root_log_entry_t *mine = NULL;
+		uint8_t cut[FZN_ROOT_ACT_ID_LEN];
+		size_t i;
+
+		for (i = 0; i < m_roots.log.used; i++)
+			if (memcmp(m_roots.log.entries[i].root, m_roots.key, FZN_PUBKEY_LEN) == 0)
+				mine = &m_roots.log.entries[i];
+		CHECK(mine && mine->seq == 0u, "M's act was not logged under its key at seq 0");
+		if (!mine)
+			return;
+		memcpy(cut, mine->id, sizeof(cut));
+
+		/* R REMOVES M's KEY AFTER THAT ACT, as seen from M: X stays. */
+		CHECK(fzn_node_roots_change(&r_roots, &r.ops, r.id.pubkey, &r.sign, 1, m_roots.key,
+		                            cut) == FZN_NODE_ROOTS_OK,
+		      "R could not remove M's key at a cut");
+		CHECK(roots_sync(&r, &m_roots, &m, &learned) == FZN_NODE_PULL_OK
+		              && !fzn_node_roots_acting(&m_roots, m.id.pubkey, &m.sign, &as, &as_sign)
+		              && fzn_root_view_stands(&m_roots.view, x.id.pubkey),
+		      "after its removal at a cut M still acted as a root, or X fell");
+
+		/* AND WITH NO CUT: nothing M's key did stands, so X is no root. */
+		CHECK(fzn_node_roots_change(&r_roots, &r.ops, r.id.pubkey, &r.sign, 1, m_roots.key,
+		                            NULL) == FZN_NODE_ROOTS_OK
+		              && roots_sync(&r, &m_roots, &m, &learned) == FZN_NODE_PULL_OK
+		              && !fzn_root_view_member(&m_roots.view, x.id.pubkey),
+		      "under a removal with no cut, the root M's key added still stood");
+	}
+
+	/* M's KEY RELOADS AS THE SAME KEY. */
+	fzn_sign_monocypher_init(&again_sign, &again_signer);
+	fzn_sign_monocypher_seat_init(&again_seat, &again_signer);
+	CHECK(fzn_node_roots_init(&again, r.id.pubkey, &m.sign, &hash_ops) == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_key_load(&again, &m.ops, &again_seat, &again_sign)
+	                         == FZN_NODE_ROOTS_OK
+	              && again.key_held && memcmp(again.key, m_roots.key, FZN_PUBKEY_LEN) == 0,
+	      "M's root key did not reload as the same key");
+
+	/* A FORKED LOG IS NOT EXTENDED: a second entry at R's seq 0, signed by
+	 * hand, and R's next act is refused. */
+	{
+		uint8_t fork[FZN_ROOT_ACT_LEN], act[FZN_ROOT_ACT_ID_LEN];
+
+		memset(act, 0x77, sizeof(act));
+		CHECK(fzn_root_act_issue(r.id.pubkey, 0, NULL, (uint8_t)FZN_ROOT_ACT_GRANT, act,
+		                         &r.sign, fork) == FZN_ROOT_LOG_OK
+		              && fzn_node_roots_learn(&r_roots, &r.ops, fork, sizeof(fork))
+		                         == FZN_NODE_ROOTS_OK
+		              && fzn_node_roots_change(&r_roots, &r.ops, r.id.pubkey, &r.sign, 0,
+		                                       x.id.pubkey, NULL) == FZN_NODE_ROOTS_FORKED,
+		      "a root whose log had forked extended it");
+	}
+	fzn_sign_monocypher_wipe(&m_root_signer);
+	fzn_sign_monocypher_wipe(&again_signer);
+}
+
 int main(void)
 {
 	static struct node node, device, stranger;
@@ -1738,6 +1883,7 @@ int main(void)
 	test_an_estate(&cap);
 	test_votes_travel(&cap);
 	test_several_roots_at_a_node(&cap);
+	test_a_node_acts_as_a_root();
 
 	/* ---- A NODE THAT IS NOT ITS OWN ROOT PAIRS NOTHING, and writes nothing. */
 	stranger.store.saves = 0;

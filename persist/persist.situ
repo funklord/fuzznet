@@ -5,8 +5,8 @@
 // an at-rest record wants, where `target buffer` is for bytes already in hand.
 //
 // Every blob is `version | tag | body` (persist.c: OFF_VERSION=0, OFF_TAG=1,
-// OFF_BODY=2), a two-byte head followed by ONE OF twelve bodies chosen by
-// the tag, nine fixed and three -- the pairing, the node peer and the vote --
+// OFF_BODY=2), a two-byte head followed by ONE OF thirteen bodies chosen by
+// the tag, ten fixed and three -- the pairing, the node peer and the vote --
 // sized by their own hop counts. It is a TAGGED UNION, modelled with situ's variant/switch: the tag
 // is the discriminant and each arm is one body struct.
 //
@@ -61,6 +61,7 @@ enum fzn_persist_tag : u8 {
 	root_entry = 10,
 	root_add = 11,
 	root_remove = 12,
+	own_root = 13,
 	default = error,
 }
 
@@ -152,6 +153,12 @@ struct fzn_persist_root_remove_body {
 	u8  record[162];
 }
 
+// The seed of the root key a node holds beside its identity (sec 409),
+// never all zero, as the identity seed is.
+struct fzn_persist_own_root_body {
+	u8  seed[32];
+}
+
 // A peer as the NODE keeps it: who it is, the session keys its frames open
 // under, and its grant as the whole chain from the root -- one hop when the
 // node minted it, more when the node grants through an estate's chain (sec
@@ -183,6 +190,7 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.root_entry: fzn_persist_root_entry_body root_entry;
 		case fzn_persist_tag.root_add: fzn_persist_root_add_body root_add;
 		case fzn_persist_tag.root_remove: fzn_persist_root_remove_body root_remove;
+		case fzn_persist_tag.own_root: fzn_persist_own_root_body own_root;
 		default: error;
 	}
 }

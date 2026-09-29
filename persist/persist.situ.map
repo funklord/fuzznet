@@ -65,6 +65,8 @@ struct fzn_persist_blob size=34..1563 mutate=Shifting repr=ValueConverted atomic
   fzn_persist_blob.body.root_add.record  offset=AbsoluteStatic(0x02) size=Fixed(130) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_blob.body.root_remove      offset=AbsoluteStatic(0x02) size=Fixed(162) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_blob.body.root_remove.record offset=AbsoluteStatic(0x02) size=Fixed(162) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.own_root         offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.own_root.seed    offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
 
 struct fzn_persist_chain_body size=40 repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_chain_body.key             offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
@@ -84,6 +86,9 @@ struct fzn_persist_node_peer_body size=97..1529 mutate=Shifting atomic=NonAtomic
   fzn_persist_node_peer_body.hops        offset=AbsoluteStatic(0x61) size=Bounded(0, 1432) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting effect=EffectOnWrite
   fzn_persist_node_peer_body.hops[]      offset=FrameStatic(0x00) size=Fixed(179) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_node_peer_body.hops[].bytes offset=FrameStatic(0x00) size=Fixed(179) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+
+struct fzn_persist_own_root_body size=32 atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_own_root_body.seed         offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
 
 struct fzn_persist_pairing_body size=308..1561 mutate=Shifting atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_pairing_body.node          offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite

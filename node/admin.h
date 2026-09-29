@@ -34,6 +34,12 @@
  *                       with its issuer's chain, as the item stream
  *                       `node/revoke.h` describes; also served remotely,
  *                       and what a node pulls from any peer (sec 399)
+ *     add root KEY      make KEY a root, as this node's acting root: the
+ *                       change is minted, logged and learned. `ok KEY`, or
+ *                       an error when this node stands as no root (sec 409)
+ *     remove root KEY [CUT]
+ *                       remove root KEY at CUT, the id of the last entry of
+ *                       its log to keep, or none of it standing without one
  *     get root [FROM]   `ok TOTAL FROM ITEM ...`, every root log entry and
  *                       root change this node holds; also served remotely,
  *                       and pulled before votes (sec 408)
@@ -86,6 +92,10 @@ typedef struct fzn_node_admin {
 	/* This node's right to grant: NULL when it is the estate root, its
 	 * chain from the root once it has joined one (`node/pair.h`). */
 	const fzn_node_authority_t *authority;
+	/* The estate's roots this node holds (`node/roots.h`), or NULL: then
+	 * `add root` and `remove root` are unsupported and nothing is logged.
+	 * sec 409. */
+	struct fzn_node_roots *roots;
 } fzn_node_admin_t;
 
 /* A `fzn_node_local_handler_t`; `ctx` is a `fzn_node_admin_t`. */

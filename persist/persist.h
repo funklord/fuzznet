@@ -191,6 +191,9 @@ typedef enum fzn_persist_slot {
 	/* Per record id: a root-add or root-remove this node holds.
 	 * `node/roots.h` keeps it. sec 407. */
 	FZN_PERSIST_ROOT_CHANGE = 13u,
+	/* Whole-host, no subject: the seed of the root key this node holds
+	 * beside its identity, if any. `node/roots.h` keeps it. sec 409. */
+	FZN_PERSIST_OWN_ROOT = 14u,
 } fzn_persist_slot_t;
 
 typedef enum fzn_persist_err {
@@ -226,6 +229,7 @@ typedef enum fzn_persist_err {
 #define FZN_PERSIST_BLOB_ROOT_ENTRY 10u
 #define FZN_PERSIST_BLOB_ROOT_ADD 11u
 #define FZN_PERSIST_BLOB_ROOT_REMOVE 12u
+#define FZN_PERSIST_BLOB_OWN_ROOT 13u
 
 /* Write a blob head, or refuse when `cap` cannot hold head and body. */
 fzn_persist_err_t fzn_persist_head_write(uint8_t *out, size_t cap, size_t body,
@@ -317,6 +321,7 @@ typedef struct fzn_persist_ops {
  *   VOTE                 lost, a revocation short of its quorum again
  *   ROOT_ENTRY/_CHANGE   lost, a removed root's cut can no longer be
  *                        followed, or a removed root counts again
+ *   OWN_ROOT             the seed of a root key: the estate's authority
  *
  * NOT CORE: NODE_PEER and PAIRED_NODE, the sessions a node serves and a
  * device holds. Lost, a device re-pairs; nothing is admitted that was not.

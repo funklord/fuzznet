@@ -186,6 +186,7 @@ static void usage(const char *prog)
 	        " [fuzznet options]\n"
 	        "       %s --fuzznet-dir=DIR --pair PREKEY_HEX [--delegable] [fuzznet options]\n"
 	        "       %s --fuzznet-dir=DIR --prekey\n"
+	        "       %s --fuzznet-dir=DIR --new-root\n"
 	        "       %s --fuzznet-dir=DIR --accept CARD [--join]\n"
 	        "       %s --fuzznet-dir=DIR --ask LINE --node ROOT_HEX --to HOST PORT [--udp6]\n"
 	        "a member of an estate may add --root-at HOST PORT when serving, and any\n"
@@ -194,7 +195,7 @@ static void usage(const char *prog)
 	        "--quorum K: a revocation needs K distinct entitled issuers, a root alone\n"
 	        "counting as K (default 2)\n"
 	        "%s",
-	        prog, prog, prog, prog, prog, FZND_PULL_EVERY, fzn_cli_usage());
+	        prog, prog, prog, prog, prog, prog, FZND_PULL_EVERY, fzn_cli_usage());
 }
 
 /* PAIR ONE DEVICE AND EXIT.
@@ -255,6 +256,12 @@ int main(int argc, char **argv)
 	fzn_random_ops_t rng_ops;
 	fzn_sign_ops_t sign_ops;
 	fzn_sign_seat_t seat;
+	/* A SECOND SIGNER for the root key this node may hold beside its
+	 * identity, sec 409: two keys, two seats, never one signer re-armed. */
+	static fzn_sign_monocypher_t root_signer;
+	fzn_sign_ops_t root_sign_ops;
+	fzn_sign_seat_t root_seat;
+	int new_root = 0;
 	fzn_agree_ops_t agree_ops;
 	fzn_sign_monocypher_t signer;
 	static fzn_persist_file_t core_file, bulk_file;
@@ -312,6 +319,8 @@ int main(int argc, char **argv)
 			family = AF_INET6;
 		} else if (!strcmp(argv[i], "--pair") && i + 1 < argc) {
 			pair_hex = argv[++i];
+		} else if (!strcmp(argv[i], "--new-root")) {
+			new_root = 1;
 		} else if (!strcmp(argv[i], "--prekey")) {
 			show_prekey = 1;
 		} else if (!strcmp(argv[i], "--accept") && i + 1 < argc) {
@@ -379,7 +388,7 @@ int main(int argc, char **argv)
 	}
 	/* A NODE THAT SERVES ONLY THE REMOTE HOP needs no local socket, and the
 	 * loop has always taken a listen fd of -1 (sec 381). */
-	if (!sock_path && !pair_hex && !show_prekey && !accept_text && !ask_line
+	if (!sock_path && !pair_hex && !show_prekey && !new_root && !accept_text && !ask_line
 	    && udp_port < 0) {
 		usage(argv[0]);
 		return 2;
@@ -418,6 +427,8 @@ int main(int argc, char **argv)
 	memset(&signer, 0, sizeof(signer));
 	fzn_sign_monocypher_init(&sign_ops, &signer);
 	fzn_sign_monocypher_seat_init(&seat, &signer);
+	fzn_sign_monocypher_init(&root_sign_ops, &root_signer);
+	fzn_sign_monocypher_seat_init(&root_seat, &root_signer);
 	fzn_agree_monocypher_init(&agree_ops);
 	if (fzn_replay_init(&replay, replay_entries, FZND_REPLAY_ENTRIES,
 	                    FZND_MAX_AHEAD) != FZN_FRESH_OK) {
@@ -568,6 +579,37 @@ int main(int argc, char **argv)
 			return 2;
 		}
 		print_hex(stdout, identity.prekey_record, FZN_PREKEY_LEN_TOTAL);
+		printf("\n");
+		return 0;
+	}
+
+	/* A ROOT KEY OF THIS NODE'S OWN, sec 409: generated, saved in the core
+	 * directory, and its public key printed. It is a root only once a
+	 * standing root adds it -- `add root KEY` on that root's node. */
+	if (new_root) {
+		static fzn_node_roots_t mine;
+
+		if (!booted || !store_ops) {
+			fprintf(stderr, "fuzznetd: --new-root needs --fuzznet-dir\n");
+			return 2;
+		}
+		if (fzn_node_roots_init(&mine, identity.pubkey, &sign_ops, &hash_ops)
+		            != FZN_NODE_ROOTS_OK) {
+			fprintf(stderr, "fuzznetd: --new-root could not start\n");
+			return 1;
+		}
+		{
+			fzn_node_roots_err_t rerr = fzn_node_roots_key_create(&mine, store_ops, &rng_ops,
+			                                                      &root_seat,
+			                                                      &root_sign_ops);
+
+			if (rerr != FZN_NODE_ROOTS_OK) {
+				fprintf(stderr, "fuzznetd: --new-root: %s\n",
+				        fzn_node_roots_err_str(rerr));
+				return 1;
+			}
+		}
+		print_hex(stdout, mine.key, FZN_PUBKEY_LEN);
 		printf("\n");
 		return 0;
 	}
@@ -761,6 +803,8 @@ int main(int argc, char **argv)
 		    || fzn_node_roots_init(&estate_roots, state.config.root, &sign_ops, &hash_ops)
 		               != FZN_NODE_ROOTS_OK
 		    || fzn_node_roots_load(&estate_roots, store_ops, &nroots) != FZN_NODE_ROOTS_OK
+		    || fzn_node_roots_key_load(&estate_roots, store_ops, &root_seat, &root_sign_ops)
+		               != FZN_NODE_ROOTS_OK
 		    || fzn_node_roots_attach(&estate_roots, &revoked) != FZN_NODE_ROOTS_OK
 		    || fzn_node_revocations_load(store_ops, &revoked, state.config.root,
 		                                 my_authority, &sign_ops, &hash_ops, &nrevoked)
@@ -809,6 +853,7 @@ int main(int argc, char **argv)
 			admin.card_lifetime = FZND_CARD_LIFETIME;
 			admin.revocations = &revoked;
 			admin.authority = my_authority;
+			admin.roots = &estate_roots;
 			state.on_local = fzn_node_admin_handle;
 			state.on_local_ctx = &admin;
 			state.on_remote = fzn_node_admin_remote;

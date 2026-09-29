@@ -21,8 +21,18 @@
  * crosses a page. A record that will not admit is counted and skipped, for the
  * reason a vote is: a peer may hold what this node never will.
  *
- * WHAT IT DOES NOT DO YET: sign as a root other than the node's identity, or
- * log this node's own root acts.
+ * A NODE'S OWN ROOT KEY (sec 409), separate from its identity as sec 403
+ * decided: at most one, its seed in the core slot 14, seated as the identity's
+ * is. The node ACTS as a root with that key while the set says it stands, and
+ * otherwise with its identity key while THAT stands -- which is how a node
+ * that is its estate's genesis root, every root node before sec 409, goes on
+ * working unchanged. Every act signed as a root is appended to the root's log
+ * at the next seq after its head, and a root whose log has forked -- a key
+ * used in two places -- is refused rather than extended.
+ *
+ * WHAT IT DOES NOT DO YET: pair devices through a separate root key. A node's
+ * pairings are still minted by its identity, as a root or through the chain
+ * it joined with.
  */
 
 #ifndef FZN_NODE_ROOTS_H
@@ -36,6 +46,7 @@
 #include "../chain/revocation.h"
 #include "../chain/root_log.h"
 #include "../persist/persist.h"
+#include "../session/random.h"
 
 /* The most log entries a node keeps. A log never evicts, and an estate's
  * roots act rarely: a pairing, a revocation, a change to the set. */
@@ -51,7 +62,15 @@ typedef enum fzn_node_roots_err {
 	FZN_NODE_ROOTS_NOT_SAVED = -3,
 	/* A stored record would not read or admit again: the store changed
 	 * underneath this node. */
-	FZN_NODE_ROOTS_STORE = -4
+	FZN_NODE_ROOTS_STORE = -4,
+	/* This node holds no key that stands as a root. */
+	FZN_NODE_ROOTS_NOT_ROOT = -5,
+	/* The acting root's log has two entries at one seq: its key is in use
+	 * somewhere else, and extending either branch would be choosing one. */
+	FZN_NODE_ROOTS_FORKED = -6,
+	/* A root key is already held; a second would be a second authority on
+	 * one host. */
+	FZN_NODE_ROOTS_HELD = -7
 } fzn_node_roots_err_t;
 
 const char *fzn_node_roots_err_str(fzn_node_roots_err_t err);
@@ -65,6 +84,11 @@ typedef struct fzn_node_roots {
 	fzn_root_ops_t ops;
 	const fzn_sign_ops_t *sign;
 	const fzn_hash_ops_t *hash;
+	/* The root key this node holds, if any: `sign` is the signer a seat
+	 * armed with its seed. */
+	int key_held;
+	uint8_t key[FZN_PUBKEY_LEN];
+	const fzn_sign_ops_t *key_sign;
 } fzn_node_roots_t;
 
 /* An estate grown from `genesis`, holding nothing yet. `sign` and `hash`
@@ -91,6 +115,47 @@ fzn_node_roots_err_t fzn_node_roots_learn(fzn_node_roots_t *roots,
  * roots must outlive the store's use of them. */
 fzn_node_roots_err_t fzn_node_roots_attach(fzn_node_roots_t *roots,
                                            fzn_revocation_store_t *revocations);
+
+/* This node's root key from slot 14, seated into `seat`, whose signer is
+ * `sign`. OK with none stored, `key_held` then 0. */
+fzn_node_roots_err_t fzn_node_roots_key_load(fzn_node_roots_t *roots,
+                                             const fzn_persist_ops_t *store,
+                                             const fzn_sign_seat_t *seat,
+                                             const fzn_sign_ops_t *sign);
+
+/* Generate a root key, save it, and seat it. HELD when one is stored
+ * already. Its public key is `roots->key`; it becomes a root only when a
+ * standing root adds it. */
+fzn_node_roots_err_t fzn_node_roots_key_create(fzn_node_roots_t *roots,
+                                               const fzn_persist_ops_t *store,
+                                               const fzn_random_ops_t *rng,
+                                               const fzn_sign_seat_t *seat,
+                                               const fzn_sign_ops_t *sign);
+
+/* The key this node acts as a root with, and its signer: its own root key if
+ * it stands, else `identity` if that stands. 1 when there is one. */
+int fzn_node_roots_acting(const fzn_node_roots_t *roots, const uint8_t identity[FZN_PUBKEY_LEN],
+                          const fzn_sign_ops_t *identity_sign, const uint8_t **pubkey,
+                          const fzn_sign_ops_t **sign);
+
+/* Log `record` as an act of root `pubkey`, signed by `sign`, at the next seq
+ * after the root's head in this log, and learn the entry. FORKED when the
+ * root's log has forked. */
+fzn_node_roots_err_t fzn_node_roots_log_act(fzn_node_roots_t *roots,
+                                            const fzn_persist_ops_t *store,
+                                            const uint8_t pubkey[FZN_PUBKEY_LEN],
+                                            const fzn_sign_ops_t *sign, uint8_t kind,
+                                            const uint8_t *record, size_t len);
+
+/* Add `subject` as a root, or with `remove` remove it at `cut` (NULL for
+ * none of its acts standing), as this node's acting root: mint the change,
+ * learn it, and log it. NOT_ROOT when this node stands as no root. */
+fzn_node_roots_err_t fzn_node_roots_change(fzn_node_roots_t *roots,
+                                           const fzn_persist_ops_t *store,
+                                           const uint8_t identity[FZN_PUBKEY_LEN],
+                                           const fzn_sign_ops_t *identity_sign, int remove,
+                                           const uint8_t subject[FZN_PUBKEY_LEN],
+                                           const uint8_t cut[FZN_ROOT_ACT_ID_LEN]);
 
 /* Every root record the store holds, as items from `from`, written as
  * ` ITEM` into `out` while they fit in `cap`; `*len` written, `*total` items.

@@ -5,6 +5,8 @@
 #include "../wire/bytes.h"
 #include "../local/vocabulary.h"
 
+#include "../constant_time/constant_time.h"
+
 #include <stdio.h>
 
 #include <string.h>
@@ -25,6 +27,12 @@ const char *fzn_node_roots_err_str(fzn_node_roots_err_t err)
 		return "known until a restart: the root record was not saved";
 	case FZN_NODE_ROOTS_STORE:
 		return "a stored root record would not read or admit again";
+	case FZN_NODE_ROOTS_NOT_ROOT:
+		return "this node holds no key that stands as a root";
+	case FZN_NODE_ROOTS_FORKED:
+		return "this root's log has forked, and extending it would pick a branch";
+	case FZN_NODE_ROOTS_HELD:
+		return "this node already holds a root key";
 	}
 	return "unknown";
 }
@@ -379,4 +387,162 @@ fzn_node_pull_err_t fzn_node_roots_pull(fzn_node_roots_t *roots, const fzn_persi
 		from = next;
 	}
 	return FZN_NODE_PULL_SHAPE;
+}
+
+/* ---- a node's own root key and its acts, sec 409 --------------------- */
+
+#define OWN_ROOT_BLOB ((size_t)FZN_PERSIST_HEAD_LEN + FZN_SIGN_SEED_LEN)
+
+fzn_node_roots_err_t fzn_node_roots_key_load(fzn_node_roots_t *roots,
+                                             const fzn_persist_ops_t *store,
+                                             const fzn_sign_seat_t *seat,
+                                             const fzn_sign_ops_t *sign)
+{
+	uint8_t blob[OWN_ROOT_BLOB];
+	size_t len = 0;
+	fzn_node_roots_err_t err = FZN_NODE_ROOTS_OK;
+
+	if (!roots || !store || !store->load || !seat || !seat->install || !sign)
+		return FZN_NODE_ROOTS_MALFORMED;
+	roots->key_held = 0;
+	if (!store->load(store->ctx, FZN_PERSIST_OWN_ROOT, NULL, blob, sizeof(blob), &len))
+		return FZN_NODE_ROOTS_OK;
+	/* NEVER ALL ZERO, as the identity seed never is: a zeroed file is a
+	 * store that lost its bytes, not a key. */
+	{
+		uint8_t acc = 0;
+		size_t i;
+
+		for (i = FZN_PERSIST_HEAD_LEN; i < len; i++)
+			acc = (uint8_t)(acc | blob[i]);
+		if (fzn_persist_head_check(blob, len, FZN_SIGN_SEED_LEN, FZN_PERSIST_BLOB_OWN_ROOT)
+		            != FZN_PERSIST_OK
+		    || acc == 0u)
+			err = FZN_NODE_ROOTS_STORE;
+	}
+	if (err == FZN_NODE_ROOTS_OK
+	    && !seat->install(seat->ctx, blob + FZN_PERSIST_HEAD_LEN, roots->key))
+		err = FZN_NODE_ROOTS_STORE;
+	fzn_wipe(blob, sizeof(blob));
+	if (err != FZN_NODE_ROOTS_OK)
+		return err;
+	roots->key_held = 1;
+	roots->key_sign = sign;
+	return FZN_NODE_ROOTS_OK;
+}
+
+fzn_node_roots_err_t fzn_node_roots_key_create(fzn_node_roots_t *roots,
+                                               const fzn_persist_ops_t *store,
+                                               const fzn_random_ops_t *rng,
+                                               const fzn_sign_seat_t *seat,
+                                               const fzn_sign_ops_t *sign)
+{
+	uint8_t blob[OWN_ROOT_BLOB], probe[OWN_ROOT_BLOB];
+	size_t len = 0;
+	int saved;
+
+	if (!roots || !store || !store->load || !store->save || !rng || !rng->fill || !seat
+	    || !seat->install || !sign)
+		return FZN_NODE_ROOTS_MALFORMED;
+	if (roots->key_held
+	    || store->load(store->ctx, FZN_PERSIST_OWN_ROOT, NULL, probe, sizeof(probe), &len)) {
+		fzn_wipe(probe, sizeof(probe));
+		return FZN_NODE_ROOTS_HELD;
+	}
+	if (fzn_persist_head_write(blob, sizeof(blob), FZN_SIGN_SEED_LEN, FZN_PERSIST_BLOB_OWN_ROOT)
+	            != FZN_PERSIST_OK
+	    || !rng->fill(rng->ctx, blob + FZN_PERSIST_HEAD_LEN, FZN_SIGN_SEED_LEN)) {
+		fzn_wipe(blob, sizeof(blob));
+		return FZN_NODE_ROOTS_STORE;
+	}
+	/* SAVED BEFORE SEATED: a key that signs and is not stored is a root
+	 * the next restart has lost. */
+	saved = store->save(store->ctx, FZN_PERSIST_OWN_ROOT, NULL, blob, sizeof(blob));
+	if (!saved || !seat->install(seat->ctx, blob + FZN_PERSIST_HEAD_LEN, roots->key)) {
+		fzn_wipe(blob, sizeof(blob));
+		return saved ? FZN_NODE_ROOTS_STORE : FZN_NODE_ROOTS_NOT_SAVED;
+	}
+	fzn_wipe(blob, sizeof(blob));
+	roots->key_held = 1;
+	roots->key_sign = sign;
+	return FZN_NODE_ROOTS_OK;
+}
+
+int fzn_node_roots_acting(const fzn_node_roots_t *roots, const uint8_t identity[FZN_PUBKEY_LEN],
+                          const fzn_sign_ops_t *identity_sign, const uint8_t **pubkey,
+                          const fzn_sign_ops_t **sign)
+{
+	if (!roots || !pubkey || !sign)
+		return 0;
+	if (roots->key_held && fzn_root_view_stands(&roots->view, roots->key)) {
+		*pubkey = roots->key;
+		*sign = roots->key_sign;
+		return 1;
+	}
+	if (identity && identity_sign && fzn_root_view_stands(&roots->view, identity)) {
+		*pubkey = identity;
+		*sign = identity_sign;
+		return 1;
+	}
+	return 0;
+}
+
+fzn_node_roots_err_t fzn_node_roots_log_act(fzn_node_roots_t *roots,
+                                            const fzn_persist_ops_t *store,
+                                            const uint8_t pubkey[FZN_PUBKEY_LEN],
+                                            const fzn_sign_ops_t *sign, uint8_t kind,
+                                            const uint8_t *record, size_t len)
+{
+	const fzn_root_log_entry_t *head = NULL;
+	uint8_t act[FZN_ROOT_ACT_ID_LEN], entry[FZN_ROOT_ACT_LEN];
+	size_t i;
+
+	if (!roots || !store || !pubkey || !sign || !record)
+		return FZN_NODE_ROOTS_MALFORMED;
+	if (fzn_root_log_forked(&roots->log, pubkey))
+		return FZN_NODE_ROOTS_FORKED;
+	/* THE HEAD: this root's entry at the greatest seq. With no fork there
+	 * is exactly one there. */
+	for (i = 0; i < roots->log.used; i++) {
+		const fzn_root_log_entry_t *e = &roots->log.entries[i];
+
+		if (fzn_ct_memeq(e->root, pubkey, FZN_PUBKEY_LEN) && (!head || e->seq > head->seq))
+			head = e;
+	}
+	if (!roots->hash->hash(roots->hash->ctx, act, sizeof(act), record, len)
+	    || fzn_root_act_issue(pubkey, head ? head->seq + 1u : 0u, head ? head->id : NULL, kind,
+	                          act, sign, entry) != FZN_ROOT_LOG_OK)
+		return FZN_NODE_ROOTS_REFUSED;
+	return fzn_node_roots_learn(roots, store, entry, sizeof(entry));
+}
+
+fzn_node_roots_err_t fzn_node_roots_change(fzn_node_roots_t *roots,
+                                           const fzn_persist_ops_t *store,
+                                           const uint8_t identity[FZN_PUBKEY_LEN],
+                                           const fzn_sign_ops_t *identity_sign, int remove,
+                                           const uint8_t subject[FZN_PUBKEY_LEN],
+                                           const uint8_t cut[FZN_ROOT_ACT_ID_LEN])
+{
+	uint8_t record[FZN_ROOT_REMOVE_LEN];
+	const uint8_t *as = NULL;
+	const fzn_sign_ops_t *sign = NULL;
+	size_t len = remove ? FZN_ROOT_REMOVE_LEN : FZN_ROOT_ADD_LEN;
+	fzn_node_roots_err_t err;
+
+	if (!roots || !store || !subject)
+		return FZN_NODE_ROOTS_MALFORMED;
+	if (!fzn_node_roots_acting(roots, identity, identity_sign, &as, &sign))
+		return FZN_NODE_ROOTS_NOT_ROOT;
+	if ((remove ? fzn_root_remove_issue(as, subject, cut, sign, record)
+	            : fzn_root_add_issue(as, subject, sign, record)) != FZN_ROOT_LOG_OK)
+		return FZN_NODE_ROOTS_REFUSED;
+	/* LOGGED FIRST, then learned: an act that is in the set and not in its
+	 * root's log would fall at the root's own removal, whatever its cut. */
+	err = fzn_node_roots_log_act(roots, store, as, sign,
+	                             (uint8_t)(remove ? FZN_ROOT_ACT_ROOT_REMOVE
+	                                              : FZN_ROOT_ACT_ROOT_ADD),
+	                             record, len);
+	if (err != FZN_NODE_ROOTS_OK)
+		return err;
+	return fzn_node_roots_learn(roots, store, record, len);
 }

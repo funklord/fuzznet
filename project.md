@@ -49866,8 +49866,9 @@ travel as votes do (sec 399).
 - **`fuzznetd` pulls roots from each peer before votes**, so a vote cast
   by a root this node has not yet heard of admits in the same round.
 
-**Not yet:** a node signing as a root other than its identity, logging
-its own root acts, and the verbs to add or remove a root. Until the
+**~~Not yet:~~ Built in sec 409:** a node signing as a root other than
+its identity, logging its own root acts, and the verbs to add or remove
+a root. Until the
 verbs exist a live estate has no root records to carry, so this was
 measured in the suites rather than between daemons.
 
@@ -49889,3 +49890,93 @@ empty stream, not an error.
 Sabotage: five new entries, each caught by its own case. They cover an
 item's letter matching its record, a refusal not stopping the pull,
 the page's offset, and `get root` served remotely and locally.
+
+## 409. A node acts as a root, with a key of its own, 2026-09-29
+
+Sec 403's decision 3 (a root is a key of its own) and decision 4 (every
+act logged), at the node.
+
+### The key and the acting root
+
+- **A root key beside the identity.** A node holds at most one, its seed
+  in the new core slot 14 (blob tag 13), seated into a second signer as
+  the identity's seed is.
+- **`fuzznetd --new-root`** makes the key, saves it before seating it,
+  and prints its public key. The key is no root until a standing root
+  adds it; a second key is refused.
+- **The acting root.** A node acts with its root key while the set says
+  that key stands, and otherwise with its identity key while that
+  stands. The second case is how a node that is its estate's genesis
+  root keeps working unchanged; every root node before sec 409 is one.
+
+### Every act logged
+
+- **`fzn_node_roots_log_act` appends an entry** at the next seq after
+  the root's head in this node's log.
+- **A root whose log has forked is refused rather than extended.**
+  Extending either branch would pick one, and a thief can pick as
+  readily as the owner.
+- **A root change is logged before it is learned.** An act that is in
+  the set but not in its root's log falls at that root's removal,
+  whatever the cut.
+- **The node's own revocations and withdrawals are logged**, when it
+  signs them as a root with its identity. A failure to log is reported
+  as an error rather than passed off as done.
+
+### The verbs
+
+- **`add root KEY`** and **`remove root KEY [CUT]`**, local and for the
+  node's own user only, act as the node's acting root.
+- **The CUT is the id of the last log entry to keep.** Without one,
+  nothing the removed root did stands.
+
+### Not yet after sec 409
+
+**Pairing a device through a separate root key.** A node's pairings are
+still minted by its identity, as the genesis root or through the chain
+it joined with. A root key that is not the identity can change the root
+set and revoke, but cannot yet grant.
+
+### Measured for sec 409
+
+`pair_test`, 173 checks, with the new `test_a_node_acts_as_a_root`:
+
+- The genesis node acts with its identity.
+- M's own key is made, is not M's identity, and a second key is
+  refused. Before any root adds it, M acts as no root and cannot change
+  the set.
+- R adds M's key, logged. After a sync M acts as that key, and M's own
+  addition of X is logged under it at seq 0.
+- R removes M's key at the cut after that act: M no longer acts as a
+  root, and X stands. With no cut, X is no member.
+- M's key reloads as the same key.
+- A second entry at R's seq 0 forks R's log, and R's next change is
+  refused.
+
+A first version of the case read only R's first page. It passed where R
+held two records and failed where R held four, which is past one reply
+line. The case now pages through a sync helper.
+
+`admin_test`, 43 checks:
+
+- `revoke peer` and `remove revocation` each log one entry.
+- `add root` is denied to a group member and done for the owner.
+- A malformed cut is refused.
+- `remove root` removes.
+- `get root` serves the seven records that leaves: five entries and
+  two changes.
+
+**Live, two daemons over loopback:**
+
+1. M joins R and runs `--new-root`.
+2. R's owner runs `add root` with M's key.
+3. M pulls two root records from R.
+4. M's owner then runs `add root`, which succeeds, acting as M's key.
+
+M then held four root records. No daemon was left running, and the
+socket directory was removed.
+
+Sabotage: six new entries, each caught by its own case. They cover the
+own key acting only while it stands, a forked log not being extended, a
+change being logged, one key per node, a root revocation being logged,
+and the local verbs changing roots.

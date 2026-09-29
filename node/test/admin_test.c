@@ -11,6 +11,7 @@
  */
 
 #include "../admin.h"
+#include "../roots.h"
 #include "../identity.h"
 #include "../peer_persist.h"
 #include "../../chain/service.h"
@@ -268,6 +269,15 @@ int main(void)
 		admin.revocations = &revoked;
 		state.config.revocations = &revoked;
 	}
+	/* THE ESTATE'S ROOTS, this node the genesis root: its root acts are
+	 * logged. sec 409. */
+	static fzn_node_roots_t roots;
+
+	CHECK(fzn_node_roots_init(&roots, node.id.pubkey, &node.sign, &hash_ops)
+	              == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_attach(&roots, admin.revocations) == FZN_NODE_ROOTS_OK,
+	      "fixture: the roots");
+	admin.roots = &roots;
 
 	memset(&owner, 0, sizeof(owner));
 	owner.pid = 1;
@@ -484,6 +494,7 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && detail_len == 64u && memcmp(detail, key, 64u) == 0,
 		      "the node's own user could not revoke a grant, or the answer did not name it");
+		CHECK(roots.log.used == 1u, "the root's revocation was not logged");
 		snprintf(want, sizeof(want), "%s already", key);
 		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
@@ -501,6 +512,7 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && detail_len == 64u && memcmp(detail, key, 64u) == 0,
 		      "the node's own user could not undo a revocation, or the answer did not name it");
+		CHECK(roots.log.used == 2u, "the root's withdrawal was not logged");
 		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
 		                         == FZN_REPLY_ERROR,
@@ -524,12 +536,35 @@ int main(void)
 		                         == FZN_REPLY_MALFORMED,
 		      "an offset past the last vote was answered as an empty page");
 
-		/* AND ROOT RECORDS: none held, so an empty stream, not an error.
-		 * sec 408. */
+		/* ADD AND REMOVE A ROOT: the owner may, a group member may not, and
+		 * a cut that is not an id is refused. sec 409. */
+		snprintf(line, sizeof(line), "add root %s", key);
+		CHECK(ask(&admin, &member, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_DENIED,
+		      "a service-group member added a root");
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && fzn_root_view_stands(&roots.view, device.id.pubkey),
+		      "the node's own user could not add a root");
+		snprintf(line, sizeof(line), "remove root %s zz", key);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_MALFORMED,
+		      "a removal naming a cut that is not an id was taken");
+		snprintf(line, sizeof(line), "remove root %s", key);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && !fzn_root_view_stands(&roots.view, device.id.pubkey),
+		      "the node's own user could not remove a root");
+
+		/* AND ROOT RECORDS, served whole: five log entries -- the
+		 * revocation, its withdrawal, the re-revocation, and the two root
+		 * changes -- and the two changes themselves. sec 408. */
 		CHECK(ask(&admin, &member, "get root", reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
-		              && detail_len == 3u && memcmp(detail, "0 0", 3u) == 0,
-		      "get root on a node holding no root records was not an empty stream");
+		              && detail_len > 3u && memcmp(detail, "7 0 ", 4u) == 0,
+		      "get root did not serve the seven root records this node holds");
 	}
 
 	/* ---- WHAT IT DOES NOT SERVE, IT SAYS SO. */

@@ -352,6 +352,8 @@ static size_t remove_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t he
 }
 
 /* `revoke peer KEY`. */
+static int log_revocation(fzn_node_admin_t *admin, const uint8_t grantee[FZN_PUBKEY_LEN]);
+
 static size_t revoke_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t hex_len,
                           char *reply, size_t cap)
 {
@@ -369,12 +371,64 @@ static size_t revoke_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t he
 	                       admin->revocations, admin->store);
 	if (rerr != FZN_NODE_REVOKE_OK && rerr != FZN_NODE_REVOKE_ALREADY)
 		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_revoke_err_str(rerr));
+	if (rerr == FZN_NODE_REVOKE_OK && !log_revocation(admin, grantee))
+		return answer_text(reply, cap, FZN_REPLY_ERROR,
+		                   "revoked, and not in this root's log: it would fall at this "
+		                   "root's removal");
 	memcpy(detail, hex, hex_len);
 	if (rerr == FZN_NODE_REVOKE_ALREADY) {
 		memcpy(detail + hex_len, already, sizeof(already) - 1u);
 		return answer(reply, cap, FZN_REPLY_OK, detail, hex_len + sizeof(already) - 1u);
 	}
 	return answer(reply, cap, FZN_REPLY_OK, detail, hex_len);
+}
+
+/* LOG A REVOCATION OR WITHDRAWAL THIS NODE SIGNED AS A ROOT, sec 409: the
+ * record now in slot 9 for `grantee`, when the node signs with its identity
+ * and that identity stands as a root. A root's act that is not in its log
+ * falls at the root's removal whatever the cut, so an unlogged one is
+ * reported rather than passed off as done. 1 when logged or not a root act. */
+static int log_revocation(fzn_node_admin_t *admin, const uint8_t grantee[FZN_PUBKEY_LEN])
+{
+	const uint8_t *as = NULL;
+	const fzn_sign_ops_t *sign = NULL;
+	uint8_t record[FZN_REVOCATION_LEN];
+
+	if (!admin->roots || admin->authority
+	    || !fzn_node_roots_acting(admin->roots, admin->id->pubkey, admin->id->sign, &as, &sign)
+	    || memcmp(as, admin->id->pubkey, FZN_PUBKEY_LEN) != 0)
+		return 1;
+	if (!fzn_node_issued_revocation(admin->store, grantee, record))
+		return 0;
+	return fzn_node_roots_log_act(admin->roots, admin->store, as, sign,
+	                              (uint8_t)FZN_ROOT_ACT_REVOCATION, record, sizeof(record))
+	       == FZN_NODE_ROOTS_OK;
+}
+
+/* `add root KEY` and `remove root KEY [CUT]`: change the estate's roots as
+ * this node's acting root. sec 409. */
+static size_t change_root(fzn_node_admin_t *admin, int remove, const uint8_t *text,
+                          size_t text_len, char *reply, size_t cap)
+{
+	uint8_t subject[FZN_PUBKEY_LEN], cut[FZN_ROOT_ACT_ID_LEN];
+	const uint8_t *cut_at = NULL;
+	fzn_node_roots_err_t err;
+	size_t key_len = text_len;
+
+	if (remove && text_len > FZN_PUBKEY_LEN * 2u) {
+		key_len = FZN_PUBKEY_LEN * 2u;
+		if (text[key_len] != ' '
+		    || !unhex(text + key_len + 1u, text_len - key_len - 1u, cut, sizeof(cut)))
+			return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a cut");
+		cut_at = cut;
+	}
+	if (!unhex(text, key_len, subject, sizeof(subject)))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a root key");
+	err = fzn_node_roots_change(admin->roots, admin->store, admin->id->pubkey, admin->id->sign,
+	                            remove, subject, cut_at);
+	if (err != FZN_NODE_ROOTS_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_roots_err_str(err));
+	return answer(reply, cap, FZN_REPLY_OK, (const char *)text, key_len);
 }
 
 /* `remove revocation KEY`: undo this node's revocation of KEY (sec 386). The
@@ -394,6 +448,10 @@ static size_t unrevoke_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t 
 	                         now, admin->revocations, admin->store);
 	if (rerr != FZN_NODE_REVOKE_OK)
 		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_revoke_err_str(rerr));
+	if (!log_revocation(admin, grantee))
+		return answer_text(reply, cap, FZN_REPLY_ERROR,
+		                   "withdrawn, and not in this root's log: it would fall at this "
+		                   "root's removal");
 	return answer(reply, cap, FZN_REPLY_OK, (const char *)hex, hex_len);
 }
 
@@ -434,6 +492,10 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 		return get_votes(admin, rest, rest_len, reply, reply_cap);
 	if (request->parsed == FZN_VERB_GET && subject_word(request, "root", &rest, &rest_len))
 		return get_roots(admin, rest, rest_len, reply, reply_cap);
+	if ((request->parsed == FZN_VERB_ADD || request->parsed == FZN_VERB_REMOVE)
+	    && subject_word(request, "root", &rest, &rest_len) && rest && admin->roots)
+		return change_root(admin, request->parsed == FZN_VERB_REMOVE, rest, rest_len, reply,
+		                   reply_cap);
 	if (request->parsed == FZN_VERB_REMOVE && subject_revocation(request, &rest, &rest_len)
 	    && rest && admin->revocations)
 		return unrevoke_peer(admin, rest, rest_len, reply, reply_cap);
