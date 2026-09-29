@@ -560,7 +560,7 @@ out:
  * the fixture failed. */
 static int pulled_from_as(struct node *root, struct node *member, const fzn_cap_id_t *cap,
                           fzn_revocation_store_t *member_revs, size_t *learned,
-                          fzn_node_vote_pull_t *votes)
+                          fzn_node_vote_pull_t *votes, fzn_node_roots_t *roots)
 {
 	static fzn_node_peer_t peers[4];
 	static fzn_replay_entry_t entries[16];
@@ -626,7 +626,8 @@ static int pulled_from_as(struct node *root, struct node *member, const fzn_cap_
 		char ask[32];
 		size_t reply_len = 0, next = 0, total = 0;
 		uint32_t msg = 0;
-		int n = snprintf(ask, sizeof(ask), votes ? "get vote %zu" : "get revocation %zu",
+		int n = snprintf(ask, sizeof(ask),
+		                 roots ? "get root %zu" : votes ? "get vote %zu" : "get revocation %zu",
 		                 from);
 
 		if (fzn_caller_send(&caller, (const uint8_t *)ask, (size_t)n, 3500u, &msg)
@@ -635,7 +636,12 @@ static int pulled_from_as(struct node *root, struct node *member, const fzn_cap_
 		    || fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len, 1000u)
 		               != FZN_CALLER_OK)
 			break;
-		if (votes) {
+		if (roots) {
+			size_t refused = 0;
+
+			result = fzn_node_roots_absorb(roots, &member->ops, reply, reply_len, from,
+			                               &next, &total, learned, &refused);
+		} else if (votes) {
 			result = fzn_node_votes_absorb(votes, reply, reply_len, from,
 			                               root->id.pubkey, &member->sign, &hash_ops,
 			                               member_revs, &member->ops, &next, &total);
@@ -662,7 +668,7 @@ out:
 static int pulled_from(struct node *root, struct node *member, const fzn_cap_id_t *cap,
                        fzn_revocation_store_t *member_revs, size_t *learned)
 {
-	return pulled_from_as(root, member, cap, member_revs, learned, NULL);
+	return pulled_from_as(root, member, cap, member_revs, learned, NULL, NULL);
 }
 
 /* A reply line `ok TOTAL FROM HEX`, for the pages a real root would not send. */
@@ -1156,9 +1162,31 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 		fzn_node_vote_pull_t over;
 
 		memset(&over, 0, sizeof(over));
-		CHECK(pulled_from_as(&r, &m, cap, &m_revs, &learned, &over) == FZN_NODE_PULL_OK
+		CHECK(pulled_from_as(&r, &m, cap, &m_revs, &learned, &over, NULL) == FZN_NODE_PULL_OK
 		              && learned == 1u && over.refused == 0u,
 		      "M did not pull R's vote with `get vote` over the remote hop");
+	}
+
+	/* AND ROOT RECORDS, the same way: R holds one root-add, and M pulls it
+	 * with `get root` over the remote hop. sec 408. */
+	{
+		static fzn_node_roots_t r_roots, m_roots;
+		uint8_t add[FZN_ROOT_ADD_LEN];
+
+		CHECK(fzn_node_roots_init(&r_roots, r.id.pubkey, &r.sign, &hash_ops)
+		              == FZN_NODE_ROOTS_OK
+		              && fzn_node_roots_init(&m_roots, r.id.pubkey, &m.sign, &hash_ops)
+		                         == FZN_NODE_ROOTS_OK
+		              && fzn_root_add_issue(r.id.pubkey, stranger.id.pubkey, &r.sign, add)
+		                         == FZN_ROOT_LOG_OK
+		              && fzn_node_roots_learn(&r_roots, &r.ops, add, sizeof(add))
+		                         == FZN_NODE_ROOTS_OK,
+		      "fixture: R holds a root-add");
+		learned = 0;
+		CHECK(pulled_from_as(&r, &m, cap, &m_revs, &learned, NULL, &m_roots)
+		                      == FZN_NODE_PULL_OK
+		              && learned == 1u && fzn_root_view_member(&m_roots.view, stranger.id.pubkey),
+		      "M did not pull R's root-add with `get root` over the remote hop");
 	}
 
 	/* ---- A STRANGER'S VOTE, written into R's learned votes by hand, is
@@ -1489,6 +1517,110 @@ static void test_several_roots_at_a_node(const fzn_cap_id_t *cap)
 	      "N would not learn R's removal of B");
 	CHECK(!d_revoked(&revs, &r, &n, &d, cap),
 	      "a removed root's revocation still revoked D");
+
+	/* CARRIED, sec 408: node M, knowing nothing, pulls N's root records a
+	 * page per item and judges as N does -- B admitted as a root, and B's
+	 * revocation not counting once R's removal of B arrives with it. */
+	{
+		static struct node m;
+		static fzn_node_roots_t m_roots;
+		static fzn_revocation_t e3[8];
+		static char body[FZN_REPLY_MAX];
+		static char page[FZN_REPLY_MAX + 64u];
+		fzn_revocation_store_t m_revs;
+		size_t at = 0, pages = 0, learned = 0, refused = 0, total = 0, next = 0, len = 0;
+		int err = FZN_NODE_PULL_OK;
+
+		CHECK(node_up(&m)
+		              && fzn_revocation_store_init(&m_revs, e3, 8) == FZN_CHAIN_OK
+		              && fzn_revocation_store_set_quorum(&m_revs, 2u, NULL, NULL, 0u)
+		                         == FZN_CHAIN_OK
+		              && fzn_node_roots_init(&m_roots, r.id.pubkey, &m.sign, &hash_ops)
+		                         == FZN_NODE_ROOTS_OK
+		              && fzn_node_roots_attach(&m_roots, &m_revs) == FZN_NODE_ROOTS_OK,
+		      "fixture: M");
+		while (pages++ < 16u && err == FZN_NODE_PULL_OK) {
+			int w;
+
+			if (!fzn_node_roots_page(&n.ops, at, body, 400u, &len, &total))
+				break;
+			w = snprintf(page, sizeof(page), "ok %zu %zu", total, at);
+			memcpy(page + w, body, len);
+			page[(size_t)w + len] = '\n';
+			err = fzn_node_roots_absorb(&m_roots, &m.ops, (const uint8_t *)page,
+			                            (size_t)w + len + 1u, at, &next, &total, &learned,
+			                            &refused);
+			if (next >= total)
+				break;
+			at = next;
+		}
+		CHECK(err == FZN_NODE_PULL_OK && learned == 5u && refused == 0u && pages > 2u,
+		      "M did not learn N's five root records a page an item");
+		CHECK(fzn_revocation_admit(&m_revs, fzn_revocation_offer_root(rec), r.id.pubkey,
+		                           &m.sign, &hash_ops, NULL) == FZN_CHAIN_OK
+		              && !d_revoked(&m_revs, &r, &n, &d, cap),
+		      "M did not judge B's revocation as N does after the pull");
+
+		/* PAGES THAT DO NOT PARSE: an answer to an offset nobody asked
+		 * for, and an item whose letter names another kind than its
+		 * record -- R's log entry sent as an `a`, a root-add. */
+		{
+			static const char digits[] = "0123456789abcdef";
+			size_t h, w;
+
+			w = (size_t)snprintf(page, sizeof(page), "ok 2 1 e");
+			for (h = 0; h < FZN_ROOT_ACT_LEN; h++) {
+				page[w++] = digits[r_add[h] >> 4];
+				page[w++] = digits[r_add[h] & 15u];
+			}
+			page[w++] = '\n';
+			CHECK(fzn_node_roots_absorb(&m_roots, &m.ops, (const uint8_t *)page, w, 0u,
+			                            &next, &total, &learned, &refused)
+			              == FZN_NODE_PULL_SHAPE,
+			      "a root page answering offset 1 was taken as the answer to 0");
+			w = (size_t)snprintf(page, sizeof(page), "ok 1 0 a");
+			for (h = 0; h < FZN_ROOT_ADD_LEN; h++) {
+				page[w++] = digits[r_add[h] >> 4];
+				page[w++] = digits[r_add[h] & 15u];
+			}
+			page[w++] = '\n';
+			CHECK(fzn_node_roots_absorb(&m_roots, &m.ops, (const uint8_t *)page, w, 0u,
+			                            &next, &total, &learned, &refused)
+			              == FZN_NODE_PULL_SHAPE,
+			      "an item whose letter names another kind than its record was taken");
+		}
+
+		/* A REFUSED ITEM IS COUNTED AND THE PULL GOES ON: a peer holding a
+		 * log entry whose signature fails. */
+		{
+			static struct node y;
+			uint8_t blob[FZN_PERSIST_HEAD_LEN + FZN_ROOT_ACT_LEN];
+			uint8_t subject[FZN_PUBKEY_LEN];
+			int w;
+
+			memset(subject, 0x44, sizeof(subject));
+			CHECK(node_up(&y)
+			              && fzn_persist_head_write(blob, sizeof(blob), FZN_ROOT_ACT_LEN,
+			                                        FZN_PERSIST_BLOB_ROOT_ENTRY)
+			                         == FZN_PERSIST_OK
+			              && (memcpy(blob + FZN_PERSIST_HEAD_LEN, r_add, FZN_ROOT_ACT_LEN),
+			                  blob[sizeof(blob) - 1u] ^= 1u, 1)
+			              && y.ops.save(y.ops.ctx, FZN_PERSIST_ROOT_ENTRY, subject, blob,
+			                            sizeof(blob))
+			              && fzn_node_roots_page(&y.ops, 0, body, sizeof(body), &len, &total),
+			      "fixture: a peer holding a forged entry");
+			w = snprintf(page, sizeof(page), "ok %zu 0", total);
+			memcpy(page + w, body, len);
+			page[(size_t)w + len] = '\n';
+			learned = refused = 0;
+			CHECK(fzn_node_roots_absorb(&m_roots, &m.ops, (const uint8_t *)page,
+			                            (size_t)w + len + 1u, 0u, &next, &total, &learned,
+			                            &refused) == FZN_NODE_PULL_OK
+			              && refused == 1u,
+			      "a refused root record stopped the pull, or was not counted");
+		}
+
+	}
 }
 
 int main(void)

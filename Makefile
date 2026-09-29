@@ -3227,6 +3227,7 @@ $(BUILD_DIR)/node/test/admin_test.o: node/test/admin_test.c
 
 $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/local/client.o \
+              $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/caller.o \
               $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/net/udp.o \
               $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/peer_linux.o \

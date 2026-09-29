@@ -523,6 +523,13 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
 		                         == FZN_REPLY_MALFORMED,
 		      "an offset past the last vote was answered as an empty page");
+
+		/* AND ROOT RECORDS: none held, so an empty stream, not an error.
+		 * sec 408. */
+		CHECK(ask(&admin, &member, "get root", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && detail_len == 3u && memcmp(detail, "0 0", 3u) == 0,
+		      "get root on a node holding no root records was not an empty stream");
 	}
 
 	/* ---- WHAT IT DOES NOT SERVE, IT SAYS SO. */

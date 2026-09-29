@@ -34,6 +34,9 @@
  *                       with its issuer's chain, as the item stream
  *                       `node/revoke.h` describes; also served remotely,
  *                       and what a node pulls from any peer (sec 399)
+ *     get root [FROM]   `ok TOTAL FROM ITEM ...`, every root log entry and
+ *                       root change this node holds; also served remotely,
+ *                       and pulled before votes (sec 408)
  *
  * Every other verb of fuzznet's, and any verb that is not, is answered
  * `unsupported` -- a node saying it does not serve a verb is a different fact

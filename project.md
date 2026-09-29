@@ -49817,8 +49817,8 @@ and root set, persisted, and attaches them to its revocation store.
 - **A node cannot yet sign as a root other than its identity key, or log
   its own root acts.** The genesis root's pairings and revocations are
   signed by the root node's identity key, as before.
-- **Root records do not travel between nodes yet.** A node learns only
-  what is handed to `fzn_node_roots_learn`.
+- **~~Root records do not travel between nodes yet.~~ They do since
+  sec 408.**
 - **There are no verbs yet** for adding or removing a root.
 
 ### Measured for sec 407
@@ -49844,3 +49844,48 @@ over real Ed25519 keys:
 Sabotage: four new entries, each caught by its own case. They cover
 learning refusing what will not admit, learning settling the view, the
 slot and the tag agreeing, and the load admitting or failing.
+
+## 408. Root records travel, before votes, 2026-09-29
+
+A node learned roots only when something handed them to it. Now they
+travel as votes do (sec 399).
+
+- **`get root [FROM]`** serves every root record a node holds, from the
+  local socket and over the remote hop. Each item is `e` and a log
+  entry, `a` and a root-add, or `x` and a root-remove, whole. Paging is
+  by item index, as `get vote` pages.
+- **Every item stands alone**, unlike a vote and its chain, so nothing
+  is held across pages.
+- **The puller learns each item** through `fzn_node_roots_learn`, which
+  admits, settles and saves it.
+  - An item that will not admit is counted and skipped, because a peer
+    may hold what this node never will.
+  - An item whose letter names another kind than its record is a
+    stream that does not parse, and so is a page answering an offset
+    nobody asked for.
+- **`fuzznetd` pulls roots from each peer before votes**, so a vote cast
+  by a root this node has not yet heard of admits in the same round.
+
+**Not yet:** a node signing as a root other than its identity, logging
+its own root acts, and the verbs to add or remove a root. Until the
+verbs exist a live estate has no root records to carry, so this was
+measured in the suites rather than between daemons.
+
+### Measured for sec 408
+
+`pair_test`, 157 checks:
+
+- **Page by page.** A node M pulls N's five root records, one per page,
+  and judges B's revocation as N does.
+- **Two malformed pages.** A page answering the wrong offset, and an
+  item whose letter names another kind, are each a SHAPE failure.
+- **A refused item.** One from a peer holding a forged entry is counted,
+  and the pull goes on.
+- **Over the remote hop.** M pulls R's root-add through `get root`.
+
+`admin_test`, 36 checks: `get root` on a node holding nothing is an
+empty stream, not an error.
+
+Sabotage: five new entries, each caught by its own case. They cover an
+item's letter matching its record, a refusal not stopping the pull,
+the page's offset, and `get root` served remotely and locally.

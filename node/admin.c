@@ -3,6 +3,7 @@
 #include "admin.h"
 
 #include "peer_persist.h"
+#include "roots.h"
 #include "../provision/provision.h"
 
 #include <stdio.h>
@@ -265,6 +266,36 @@ static size_t get_votes(fzn_node_admin_t *admin, const uint8_t *from_text, size_
 	return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)n + len);
 }
 
+/* `get root [FROM]`: every root record this node holds, as the item stream
+ * `node/roots.h` describes -- `ok TOTAL FROM ITEM ...`. What a node pulls
+ * from any peer before its votes (sec 408). Non-mutating, so a remote caller
+ * holding the node's grant may ask. */
+static size_t get_roots(fzn_node_admin_t *admin, const uint8_t *from_text, size_t from_len,
+                        char *reply, size_t cap)
+{
+	static char detail[FZN_REPLY_MAX];
+	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	size_t from = 0, total = 0, len = 0, i;
+	int n;
+
+	for (i = 0; i < from_len; i++) {
+		if (from_text[i] < '0' || from_text[i] > '9' || from > FZN_NODE_ROOT_LOG_MAX * 32u)
+			return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a root record index");
+		from = (from * 10u) + (size_t)(from_text[i] - '0');
+	}
+	if (limit < 3u + 24u
+	    || !fzn_node_roots_page(admin->store, from, detail + 24u, limit - 3u - 24u, &len,
+	                            &total))
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "the root records did not read");
+	if (from > total)
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "past the last root record");
+	n = snprintf(detail, 24u, "%zu %zu", total, from);
+	if (n < 0 || (size_t)n >= 24u)
+		return 0;
+	memmove(detail + n, detail + 24u, len);
+	return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)n + len);
+}
+
 /* Is `arg` the word `WORD`, alone or followed by a space and more? */
 static int subject_word(const fzn_request_t *request, const char *word, const uint8_t **rest,
                         size_t *rest_len)
@@ -401,6 +432,8 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 		return get_revocations(admin, rest, rest_len, reply, reply_cap);
 	if (request->parsed == FZN_VERB_GET && subject_word(request, "vote", &rest, &rest_len))
 		return get_votes(admin, rest, rest_len, reply, reply_cap);
+	if (request->parsed == FZN_VERB_GET && subject_word(request, "root", &rest, &rest_len))
+		return get_roots(admin, rest, rest_len, reply, reply_cap);
 	if (request->parsed == FZN_VERB_REMOVE && subject_revocation(request, &rest, &rest_len)
 	    && rest && admin->revocations)
 		return unrevoke_peer(admin, rest, rest_len, reply, reply_cap);
@@ -441,5 +474,7 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 		return get_revocations(admin, rest, rest_len, out, reply_cap);
 	if (request.parsed == FZN_VERB_GET && subject_word(&request, "vote", &rest, &rest_len))
 		return get_votes(admin, rest, rest_len, out, reply_cap);
+	if (request.parsed == FZN_VERB_GET && subject_word(&request, "root", &rest, &rest_len))
+		return get_roots(admin, rest, rest_len, out, reply_cap);
 	return answer_text(out, reply_cap, FZN_REPLY_UNSUPPORTED, NULL);
 }

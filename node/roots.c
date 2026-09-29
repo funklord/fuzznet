@@ -3,6 +3,9 @@
 #include "roots.h"
 
 #include "../wire/bytes.h"
+#include "../local/vocabulary.h"
+
+#include <stdio.h>
 
 #include <string.h>
 
@@ -163,4 +166,217 @@ fzn_node_roots_err_t fzn_node_roots_attach(fzn_node_roots_t *roots,
 	               == FZN_CHAIN_OK
 	               ? FZN_NODE_ROOTS_OK
 	               : FZN_NODE_ROOTS_MALFORMED;
+}
+
+/* ---- carriage, sec 408 ----------------------------------------------- */
+
+/* THE MOST ITEMS A STREAM CAN CARRY: both slots full. */
+#define ITEMS_MAX (2u * FZN_NODE_ROOT_LOG_MAX)
+
+/* The letter an item takes, by blob tag. */
+static char letter_of(uint8_t tag)
+{
+	switch (tag) {
+	case FZN_PERSIST_BLOB_ROOT_ENTRY:
+		return 'e';
+	case FZN_PERSIST_BLOB_ROOT_ADD:
+		return 'a';
+	case FZN_PERSIST_BLOB_ROOT_REMOVE:
+		return 'x';
+	}
+	return 0;
+}
+
+/* The record length an item letter carries. */
+static size_t length_of(uint8_t letter)
+{
+	switch (letter) {
+	case 'e':
+		return FZN_ROOT_ACT_LEN;
+	case 'a':
+		return FZN_ROOT_ADD_LEN;
+	case 'x':
+		return FZN_ROOT_REMOVE_LEN;
+	}
+	return 0;
+}
+
+static void put_hex(char *out, const uint8_t *bytes, size_t len)
+{
+	static const char DIGITS[] = "0123456789abcdef";
+	size_t i;
+
+	for (i = 0; i < len; i++) {
+		out[2u * i] = DIGITS[bytes[i] >> 4];
+		out[(2u * i) + 1u] = DIGITS[bytes[i] & 15u];
+	}
+}
+
+static int unhex(const uint8_t *text, uint8_t *out, size_t len)
+{
+	size_t i;
+
+	for (i = 0; i < len * 2u; i++) {
+		uint8_t c = text[i];
+		unsigned v;
+
+		if (c >= '0' && c <= '9')
+			v = (unsigned)(c - '0');
+		else if (c >= 'a' && c <= 'f')
+			v = 10u + (unsigned)(c - 'a');
+		else
+			return 0;
+		if (i % 2u == 0u)
+			out[i / 2u] = (uint8_t)(v << 4);
+		else
+			out[i / 2u] = (uint8_t)(out[i / 2u] | v);
+	}
+	return 1;
+}
+
+static int take_count(const uint8_t *text, size_t len, size_t *at, size_t *value)
+{
+	size_t v = 0, start = *at;
+
+	while (*at < len && text[*at] >= '0' && text[*at] <= '9') {
+		if (v > ITEMS_MAX * 16u)
+			return 0;
+		v = (v * 10u) + (size_t)(text[*at] - '0');
+		(*at)++;
+	}
+	*value = v;
+	return *at > start;
+}
+
+int fzn_node_roots_page(const fzn_persist_ops_t *store, size_t from, char *out, size_t cap,
+                        size_t *len, size_t *total)
+{
+	static uint8_t subjects[2][FZN_NODE_ROOT_LOG_MAX * FZN_PUBKEY_LEN];
+	static const fzn_persist_slot_t SLOTS[2] = { FZN_PERSIST_ROOT_ENTRY,
+		                                     FZN_PERSIST_ROOT_CHANGE };
+	size_t count[2], s, i, item = 0, at = 0;
+	int full = 0;
+
+	if (!store || !store->load || !store->list || !out || !len || !total)
+		return 0;
+	for (s = 0; s < 2u; s++)
+		if (!store->list(store->ctx, SLOTS[s], subjects[s], FZN_NODE_ROOT_LOG_MAX, &count[s]))
+			return 0;
+	for (s = 0; s < 2u; s++) {
+		for (i = 0; i < count[s]; i++, item++) {
+			uint8_t blob[CHANGE_BLOB_MAX > ENTRY_BLOB ? CHANGE_BLOB_MAX : ENTRY_BLOB];
+			size_t blen = 0, body, need;
+			char letter;
+
+			if (item < from || full)
+				continue;
+			if (!store->load(store->ctx, SLOTS[s], subjects[s] + (i * (size_t)FZN_PUBKEY_LEN),
+			                 blob, sizeof(blob), &blen)
+			    || blen <= FZN_PERSIST_HEAD_LEN)
+				return 0;
+			body = blen - FZN_PERSIST_HEAD_LEN;
+			letter = letter_of(tag_of(blob + FZN_PERSIST_HEAD_LEN, body));
+			if (!letter || length_of((uint8_t)letter) != body)
+				return 0;
+			need = 2u + (body * 2u);
+			if (at + need > cap) {
+				full = 1;
+				continue;
+			}
+			out[at++] = ' ';
+			out[at++] = letter;
+			put_hex(out + at, blob + FZN_PERSIST_HEAD_LEN, body);
+			at += body * 2u;
+		}
+	}
+	*len = at;
+	*total = item;
+	return 1;
+}
+
+fzn_node_pull_err_t fzn_node_roots_absorb(fzn_node_roots_t *roots,
+                                          const fzn_persist_ops_t *store,
+                                          const uint8_t *reply, size_t reply_len, size_t from,
+                                          size_t *next, size_t *total, size_t *learned,
+                                          size_t *refused)
+{
+	const uint8_t *detail = NULL;
+	size_t detail_len = 0, at = 0, off = 0, on_page = 0;
+
+	if (!roots || !store || !reply || !next || !total || !learned || !refused)
+		return FZN_NODE_PULL_MALFORMED;
+	if (fzn_reply_of(reply, reply_len, &detail, &detail_len) != FZN_REPLY_OK)
+		return FZN_NODE_PULL_NO_ANSWER;
+	if (detail_len && detail[detail_len - 1u] == '\n')
+		detail_len--;
+	if (!take_count(detail, detail_len, &at, total) || at >= detail_len
+	    || detail[at++] != ' ' || !take_count(detail, detail_len, &at, &off) || off != from
+	    || *total > ITEMS_MAX)
+		return FZN_NODE_PULL_SHAPE;
+	while (at < detail_len) {
+		uint8_t record[FZN_ROOT_ACT_LEN > FZN_ROOT_REMOVE_LEN ? FZN_ROOT_ACT_LEN
+		                                                    : FZN_ROOT_REMOVE_LEN];
+		size_t body;
+		fzn_node_roots_err_t err;
+
+		if (detail[at] != ' ' || detail_len - at < 2u)
+			return FZN_NODE_PULL_SHAPE;
+		body = length_of(detail[at + 1u]);
+		if (!body || detail_len - at < 2u + (body * 2u)
+		    || !unhex(detail + at + 2u, record, body)
+		    || tag_of(record, body) == 0
+		    || letter_of(tag_of(record, body)) != (char)detail[at + 1u])
+			return FZN_NODE_PULL_SHAPE;
+		at += 2u + (body * 2u);
+		on_page++;
+		err = fzn_node_roots_learn(roots, store, record, body);
+		if (err == FZN_NODE_ROOTS_OK)
+			(*learned)++;
+		else if (err == FZN_NODE_ROOTS_REFUSED)
+			(*refused)++;
+		else
+			return FZN_NODE_PULL_NOT_SAVED;
+	}
+	*next = from + on_page;
+	if (on_page == 0u && *next < *total)
+		return FZN_NODE_PULL_SHAPE;
+	return FZN_NODE_PULL_OK;
+}
+
+fzn_node_pull_err_t fzn_node_roots_pull(fzn_node_roots_t *roots, const fzn_persist_ops_t *store,
+                                        fzn_caller_t *caller, uint64_t now, size_t *learned,
+                                        size_t *refused)
+{
+	static uint8_t reply[FZN_REPLY_MAX + 1u];
+	size_t from = 0, pages = 0;
+
+	if (!roots || !caller || !learned || !refused)
+		return FZN_NODE_PULL_MALFORMED;
+	*learned = 0;
+	*refused = 0;
+	/* BOUNDED BY THE ITEMS A FULL STORE COULD HOLD, at one a page. */
+	while (pages++ <= ITEMS_MAX) {
+		char ask[32];
+		size_t reply_len = 0, next = 0, total = 0;
+		uint32_t msg = 0;
+		fzn_node_pull_err_t err;
+		int n;
+
+		n = snprintf(ask, sizeof(ask), "get root %zu", from);
+		if (n < 0 || (size_t)n >= sizeof(ask))
+			return FZN_NODE_PULL_MALFORMED;
+		if (fzn_caller_send(caller, (const uint8_t *)ask, (size_t)n, now + 300u, &msg)
+		            != FZN_CALLER_OK
+		    || fzn_caller_recv(caller, msg, reply, sizeof(reply), &reply_len, 3000u)
+		               != FZN_CALLER_OK)
+			return FZN_NODE_PULL_NO_ANSWER;
+		err = fzn_node_roots_absorb(roots, store, reply, reply_len, from, &next, &total,
+		                            learned, refused);
+		if (err != FZN_NODE_PULL_OK)
+			return err;
+		if (next >= total)
+			return FZN_NODE_PULL_OK;
+		from = next;
+	}
+	return FZN_NODE_PULL_SHAPE;
 }

@@ -15,8 +15,14 @@
  * the estate's pinned root, which is every node before sec 407 -- the answers
  * are the single-root answers exactly.
  *
- * WHAT IT DOES NOT DO YET: sign as a root, log this node's own root acts, or
- * carry the log and the set between nodes. Those come next (sec 407).
+ * CARRIED AS VOTES ARE (sec 408): `get root [FROM]` pages every root record a
+ * node holds, `e` and a log entry, `a` and a root-add, `x` and a root-remove,
+ * each whole, and a puller learns each. Every item stands alone, so no state
+ * crosses a page. A record that will not admit is counted and skipped, for the
+ * reason a vote is: a peer may hold what this node never will.
+ *
+ * WHAT IT DOES NOT DO YET: sign as a root other than the node's identity, or
+ * log this node's own root acts.
  */
 
 #ifndef FZN_NODE_ROOTS_H
@@ -25,6 +31,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "caller.h"
+#include "revoke.h"
 #include "../chain/revocation.h"
 #include "../chain/root_log.h"
 #include "../persist/persist.h"
@@ -83,5 +91,24 @@ fzn_node_roots_err_t fzn_node_roots_learn(fzn_node_roots_t *roots,
  * roots must outlive the store's use of them. */
 fzn_node_roots_err_t fzn_node_roots_attach(fzn_node_roots_t *roots,
                                            fzn_revocation_store_t *revocations);
+
+/* Every root record the store holds, as items from `from`, written as
+ * ` ITEM` into `out` while they fit in `cap`; `*len` written, `*total` items.
+ * 0 when the store cannot list or a stored record will not read. */
+int fzn_node_roots_page(const fzn_persist_ops_t *store, size_t from, char *out, size_t cap,
+                        size_t *len, size_t *total);
+
+/* One page, `reply` answering `get root FROM`: learn every item, and set
+ * `*next` and `*total`. `*learned` and `*refused` count on. */
+fzn_node_pull_err_t fzn_node_roots_absorb(fzn_node_roots_t *roots,
+                                          const fzn_persist_ops_t *store,
+                                          const uint8_t *reply, size_t reply_len, size_t from,
+                                          size_t *next, size_t *total, size_t *learned,
+                                          size_t *refused);
+
+/* The whole stream from the peer `caller` reaches. */
+fzn_node_pull_err_t fzn_node_roots_pull(fzn_node_roots_t *roots, const fzn_persist_ops_t *store,
+                                        fzn_caller_t *caller, uint64_t now, size_t *learned,
+                                        size_t *refused);
 
 #endif /* FZN_NODE_ROOTS_H */

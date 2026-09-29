@@ -290,6 +290,7 @@ int main(int argc, char **argv)
 	static struct pull_target pulls[FZND_PULL_TARGETS_MAX];
 	size_t npulls = 0;
 	fzn_revocation_store_t *running = NULL;
+	fzn_node_roots_t *running_roots = NULL;
 	long quorum = 2;
 	int has_capability = 0;
 	int lfd = -1, ufd = -1, i;
@@ -773,6 +774,7 @@ int main(int argc, char **argv)
 		}
 		state.config.revocations = &revoked;
 		running = &revoked;
+		running_roots = &estate_roots;
 		if (nrevoked)
 			fprintf(stderr, "fuzznetd: %zu revocation(s) from %s\n", nrevoked,
 			        store_dir);
@@ -903,6 +905,21 @@ int main(int argc, char **argv)
 					size_t learned = 0, refused = 0;
 					fzn_node_pull_err_t perr;
 
+					/* ROOTS BEFORE VOTES, sec 408: a vote cast by a root
+					 * this node has not yet heard of admits only once it
+					 * has. */
+					perr = fzn_node_roots_pull(running_roots, store_ops,
+					                           &pulls[t].caller, now, &learned,
+					                           &refused);
+					if (perr != FZN_NODE_PULL_OK)
+						fprintf(stderr, "fuzznetd: roots from %s: %s\n",
+						        pulls[t].host, fzn_node_pull_err_str(perr));
+					else if (learned || refused)
+						fprintf(stderr,
+						        "fuzznetd: %zu root record(s) from %s, %zu refused\n",
+						        learned, pulls[t].host, refused);
+					learned = 0;
+					refused = 0;
 					perr = fzn_node_votes_pull(&pulls[t].caller, state.config.root,
 					                           &sign_ops, &hash_ops, now, running,
 					                           store_ops, &learned, &refused);
