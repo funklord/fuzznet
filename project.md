@@ -48724,3 +48724,100 @@ Sabotage entries cover:
 - **Deleting a retired contact's data after a hold period**, a local act
   that is the consumer's to schedule; the roster says when a contact is
   RETIRED.
+
+## 396. netcfgd asks for the assignment problem this tree declines twice, 2026-09-29
+
+**Reported from netcfgd 2026-09-29, and the report is a requirement rather
+than a design.** Its holder's instruction is that netcfgd steers fuzznet into
+a remote command platform and a shared database, and that the features are not
+to be implemented haphazardly but through generic primitives here. So this
+names what netcfgd needs and does not choose an algorithm for it.
+
+### What netcfgd needs
+
+Its shared configuration is site-scoped -- networks, WLANs, devices -- with
+each node marshalling its own configuration and participating in replication
+and control. **Deliberately no controller**: no single point of failure, so
+there is nobody to assign work. Nodes must therefore agree, with no round
+trip, on which of them does a job, and the intended mechanism is shared data
+plus a pseudorandom function rather than a protocol.
+
+Stated as the primitive: **given a set of members and a key, every member
+independently computes the same ordered list of who is responsible.**
+
+### This tree already declines that problem, in its own words
+
+`spool/plan.h`, on what its iterator cannot express:
+
+>  rarest-first. That needs what the OTHER peers hold, which is not in this
+>  store and is **the multi-peer assignment problem this file does not solve**.
+
+`spool/transfer.h` then names its job in the negative against that sentence --
+it solves "the part of that problem that does not need to know what other peers
+hold", which is one host arbitrating its own outgoing ranges.
+
+So the half that exists is the single-host half, and the distributed half is
+named and unowned. netcfgd's need and that sentence are the same function with
+different nouns: members and a key in, an ordering of responsibility out.
+
+### A third caller, from this tree's own requirements
+
+netcfgd's holder also states that fuzznet must run **two fully equivalent
+daemons on one host** without thrashing data, duplicating work, or confusing
+other hosts.
+
+`claim/` answers two of those three completely, and netcfgd is not asking for
+them to change. Thrashing is what it exists for; confusing other hosts falls
+out of the same ownership without a second mechanism, since "one writer per
+(issuer, stream) is a consequence of there being one owner". Its release rule
+-- the holder's observed death rather than a heartbeat, detecting death and not
+hang, with no way to steal from a live holder -- is a discipline netcfgd would
+not want relaxed.
+
+**Duplicating work is the one left over.** `claim/` answers it by there being
+one worker and one standby; two *fully equivalent* daemons both working must
+divide the work instead, which is members-and-a-key again inside a single host.
+
+That makes three callers for one function: two daemons on a host, peers
+choosing which range to fetch, and nodes choosing which runs a job.
+
+### Why `claim/` should not be stretched to cover it
+
+Its own header gives the reason, and it is the load-bearing distinction:
+
+>  WHY A CLAIM RATHER THAN AN ELECTION. The processes are interchangeable: the
+>  same software with the same job, so it does not matter which one wins.
+
+Peers holding different ranges are not interchangeable, and neither are nodes
+in different parts of a site. `claim/` replaces arbitration with
+*interchangeability*; what netcfgd needs replaces it with *determinism*. Both
+substitute a property for a protocol, which is why netcfgd reads them as
+siblings rather than as one module that could be widened.
+
+### The second ask, which is the first one's failure path
+
+**A signed order that can be relayed, for when the queuing does not settle.**
+Every part appears to exist already -- records are signed and sequenced,
+`frame/freshness.c` expires, `chain/` authorises, and `wire/relay.h` carries a
+frame through hosts with `hops_left` -- and netcfgd could find nothing that
+composes them into an *order*: a statement that may be carried by hosts which
+will not execute it, must not execute twice, and stops being valid.
+
+It is asked beside the queue rather than after it because a relay is only a
+fallback if something defines when the queue has failed.
+
+### What netcfgd is not asking for, and one question it cannot answer
+
+**Not an algorithm.** Whether the ordering is rendezvous hashing, a keyed
+permutation or something this tree prefers is fuzznet's; netcfgd's part is the
+requirement and the callers.
+
+**The question netcfgd cannot settle**: whether "two fully equivalent daemons"
+means active/standby, which `claim/` already delivers, or active/active, which
+needs the assignment primitive inside a host as well as across one. That is
+fuzznet's own requirement rather than netcfgd's, and netcfgd read it from one
+sentence.
+
+**Everything above about this tree is quoted rather than summarised**, and
+everything about netcfgd is netcfgd's to be wrong about. The measurements were
+taken against `97719d9`, which is the commit netcfgd pins as a submodule.
