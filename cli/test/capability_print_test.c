@@ -65,7 +65,7 @@ int main(void)
 	char line[FZN_CAPABILITY_PRINT_MAX];
 	char usable_line[FZN_CAPABILITY_PRINT_MAX];
 	fzn_chain_t chain;
-	fzn_revocation_store_t store;
+	fzn_revocation_store_t store = { 0 };
 	fzn_capability_state_t s;
 	size_t len = 0;
 

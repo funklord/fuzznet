@@ -48715,11 +48715,10 @@ Sabotage entries cover:
 
 ### What sec 394 still needs
 
-- **The revocation half:** every revocation, a grant of admin, a re-key and
-  an undo needing k-of-n. It is blocked on who may confirm, which is the
-  holder's question. Today only a device's ancestors in its chain may
-  revoke it, so a device the root granted directly has one entitled
-  revoker, the root, and "2 of n" cannot be met there.
+- **~~The revocation half.~~ Revocation and its undo are sec 397.** A
+  grant of admin and a re-key by k-of-n are still open: both are grants
+  rather than revocations, so they want co-signed hops, and that design
+  goes to the holder before it is built.
 - **k as an estate setting that travels.** Today a consumer passes it.
 - **Deleting a retired contact's data after a hold period**, a local act
   that is the consumer's to schedule; the roster says when a contact is
@@ -48821,3 +48820,135 @@ sentence.
 **Everything above about this tree is quoted rather than summarised**, and
 everything about netcfgd is netcfgd's to be wrong about. The measurements were
 taken against `97719d9`, which is the commit netcfgd pins as a submodule.
+
+## 397. Every revocation needs k of n, in the library core, 2026-09-29
+
+The revocation half of sec 394. The holder's answers, asked this
+session:
+
+- **Who may confirm: any admin host.** An admin is a key holding the
+  estate's admin capability through a chain from the root.
+- **Where the count lives: the library core**, in `chain/revocation`, so
+  that `fzn_chain_verify`, the roster and every consumer get one rule.
+- **Undo is a latch.** Once k have revoked, it stays revoked until k have
+  withdrawn.
+- **An admin's vote is judged at read time**, like the roster's writers
+  (sec 395), and not refused on arrival.
+- **Admin against admin: two strata.**
+
+### The rule
+
+A store now carries a **quorum** and, optionally, an **admin capability**
+with a table of admins. `fzn_revocation_store_set_quorum` sets both. A
+zeroed store and one from `fzn_revocation_store_init` have quorum 1 and no
+admins, which is the old rule exactly. Asking for a quorum of 0 is refused
+rather than read as 1, because a caller asking for it has made a mistake.
+
+For each hop of a chain, count the entries naming that hop's capability and
+grantee whose issuer is entitled: an ancestor (the grantor of this hop or
+an earlier one, the rule sec 13c settled) or an admin the second stratum
+lets stand. One entry per issuer and triple, so each counted entry is a
+distinct issuer. With `live` the entries not withdrawn and `total` all of
+them, the hop is revoked when
+
+    live >= k,  or  total >= k and total - live < k.
+
+The first half is k of n. The second is the latch: once k have revoked,
+fewer than k withdrawals leave it revoked. A lone revoker that withdraws
+never reached k, so nothing latched. At k = 1 both halves reduce to "a live
+entitled entry revokes", which is the old answer, so nothing that has not
+called `set_quorum` changes.
+
+**An admin shows its chain with its vote.** A revocation offered on a
+chain for the admin capability is admitted when that chain verifies from
+the root and names the issuer as its last grantee. The chain is checked
+with no clock and no revocations, blind for the same reasons
+`entitled_by_chain` is. The admin is kept in the store's table as the
+chain's grantors and grantees, so that its own revocation can be judged
+later. A key already in the table on a different path is refused as a
+conflict rather than replaced, because which road an admin stands on
+decides whether its vote survives, and letting the later arrival win would
+make that depend on order. A full table refuses with `STORE_FULL`. The
+table is bounded at 32 because the second stratum needs a flag per admin
+and this library allocates nothing.
+
+### Two strata
+
+Admins can revoke each other's admin capability, and a one-pass rule has no
+stable answer when two do: whether either stands depends on which is asked
+first. So `fzn_revocation_covers_links` judges twice:
+
+1. **Every admin's own chain is judged counting every admin's vote.**
+2. **The chain asked about is judged counting only the admins left
+   standing** after the first pass.
+
+Two admins that revoke each other both fall, so this fails toward
+revocation, which is the direction sec 394 asks removal to err in.
+
+### What changed around it
+
+- **`fzn_revocation_covers_links`** is new. It is the rule over a chain's
+  shape (grantor and grantee per hop) rather than its bytes.
+  `fzn_revocation_covers_chain` copies the hops' keys and calls it, and the
+  roster's `counts()` calls it directly with the writer table's keys, so
+  the roster's writers are judged by the same k and the same admins as
+  everything else.
+- **`fzn_revocation_covers` still answers for one issuer's entry**, not
+  for the verdict. It is the lookup a CLI printer and `consumer_check` use,
+  and at k = 1 it agrees with the verdict for an entitled issuer.
+- **The new store fields sit at the end of the struct**, so the
+  positional initialisers in the suites keep working. A store declared on
+  the stack and filled field by field held garbage in them, and
+  `chain_test` crashed on the first such store. The 29 local declarations
+  that did that are zero-initialised now, found by a regex that also
+  caught six struct members; those were put back, since each belongs to a
+  fixture that is zeroed or initialised as a whole.
+- **`covers_chain` answers the store's guards before it reads a hop.**
+  The first version copied the hops first and dereferenced a zeroed hop
+  view in `test_the_chain_walk_answers_its_own_guards`, which passes a
+  null store with hops that are views over nothing.
+
+### Not done
+
+- **The node is still at k = 1 with no admin capability.** Wiring k and
+  the admin capability into `fuzznetd`, and what `fzn_node_revoke` means
+  once one host's revocation is a vote rather than a verdict, is next.
+- **k as an estate setting that travels**, as in sec 395.
+- **Whether the root counts as one vote, and whether the default is 2**,
+  are still to be confirmed by the holder (sec 394). The code counts the
+  root as one entitled issuer like any ancestor.
+- **A grant of admin and a re-key by k-of-n**, which need co-signed
+  grants; see the open list under sec 395.
+
+### Measured for sec 397
+
+`revocation_test`, 585 checks, 0 failures. The new cases:
+
+- a quorum of 0 is refused, and so are an admin capability with no table
+  and a table of 33;
+- at k = 2 one revocation does nothing and the root plus an admin revoke;
+  one withdrawal of two leaves it revoked and the second restores it;
+- a lone revoke-and-withdraw at k = 2 latches nothing, and at k = 1 a
+  withdrawal restores as it always did;
+- a store with no admin capability refuses an admin's vote; a vote on
+  somebody else's admin chain is refused; the same admin on a second
+  path is a conflict; a full table is refused;
+- two admins revoking each other: the vote of either counts for nothing;
+- four records (the root and admin 6 revoking a device; the root and
+  admin 7 revoking admin 6) admitted in all 24 orders give the same
+  answer, with a control showing admin 6's vote counts when admin 7's is
+  absent;
+- the links form refuses a count past the ceiling, with a control at the
+  ceiling.
+
+`make test` passes. Sabotage, run one entry at a time with each caught by
+the case written for it rather than by a neighbour:
+
+- six new entries: the quorum read, the latch, the second stratum, an
+  admin chain naming its issuer, a second admin chain conflicting, and a
+  quorum of 0 refused;
+- four re-aimed at the rewritten walk: the hop ceiling, now in the links
+  form and caught by the new ceiling case; entitlement only from
+  ancestors (was `rev-first-break`, whose `break` no longer exists),
+  caught by `chain_test`; the walk reading the action; and the roster's
+  revoked writer.

@@ -2607,7 +2607,7 @@ static void test_the_operands_the_first_one_hides(void)
 	struct fixture f;
 	fzn_manifest_state_t blank;
 	fzn_manifest_state_t corrupt;
-	fzn_revocation_store_t bad_store;
+	fzn_revocation_store_t bad_store = { 0 };
 	fzn_revocation_t entries[2];
 	fzn_manifest_pair_t pairs[2];
 	fzn_manifest_pair_t out[2];

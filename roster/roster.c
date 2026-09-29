@@ -364,15 +364,19 @@ fzn_roster_err_t fzn_roster_bundle_open(const uint8_t *bytes, size_t len,
  * chain, is never revoked. */
 static int counts(const fzn_roster_writer_t *w, const fzn_revocation_store_t *revocations)
 {
-	size_t i, j;
+	uint8_t revoked[FZN_CHAIN_MAX_HOPS];
+	size_t i;
 
-	if (!revocations)
+	/* THE STORE'S OWN RULE, k-of-n and admins included (sec 397), through
+	 * the form that takes a chain's shape rather than its bytes. */
+	if (!revocations || w->hop_count == 0u)
 		return 1;
+	fzn_revocation_covers_links(revocations, (const uint8_t (*)[FZN_PUBKEY_LEN])w->grantor,
+	                            (const uint8_t (*)[FZN_PUBKEY_LEN])w->grantee, w->hop_count,
+	                            &w->capability, revoked);
 	for (i = 0; i < w->hop_count; i++)
-		for (j = 0; j <= i; j++)
-			if (fzn_revocation_covers(revocations, w->grantor[j], &w->capability,
-			                          w->grantee[i]))
-				return 0;
+		if (revoked[i])
+			return 0;
 	return 1;
 }
 

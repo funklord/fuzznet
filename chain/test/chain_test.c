@@ -344,7 +344,7 @@ static void fixture_init(struct fixture *f)
 static fzn_chain_err_t run(struct fixture *f, uint64_t now, const fzn_revocation_t *revs,
                            size_t nrevs)
 {
-	fzn_revocation_store_t store;
+	fzn_revocation_store_t store = { 0 };
 
 	store.entries = (fzn_revocation_t *)revs;
 	store.capacity = nrevs;
@@ -769,7 +769,7 @@ static void test_revocation_reaches_a_full_chain(void)
 	static uint8_t full_bytes[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
 	fzn_chain_hop_t full[FZN_CHAIN_MAX_HOPS];
 	fzn_revocation_t rev;
-	fzn_revocation_store_t store;
+	fzn_revocation_store_t store = { 0 };
 	size_t i;
 
 	fixture_init(&f);
@@ -902,7 +902,7 @@ static void entry(fzn_revocation_t *rev, uint8_t issuer_seed, uint8_t cap_seed,
 static fzn_chain_err_t run_chain(struct fixture *f, const fzn_chain_hop_t *hops, size_t n,
                                  const fzn_revocation_t *revs, size_t nrevs)
 {
-	fzn_revocation_store_t store;
+	fzn_revocation_store_t store = { 0 };
 
 	store.entries = (fzn_revocation_t *)revs;
 	store.capacity = nrevs;
@@ -1042,7 +1042,7 @@ static void test_a_corrupt_store_refuses_the_whole_chain(void)
 {
 	struct fixture f;
 	fzn_revocation_t revs[1];
-	fzn_revocation_store_t store;
+	fzn_revocation_store_t store = { 0 };
 
 	fixture_init(&f);
 	entry(&revs[0], 7, 0xff, 9);

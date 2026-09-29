@@ -302,7 +302,7 @@ static const char *fuzz_one(const uint8_t *data, size_t len, struct coverage *co
 {
 	struct arena arena;
 	fzn_manifest_state_t state;
-	fzn_revocation_store_t store;
+	fzn_revocation_store_t store = { 0 };
 	fzn_revocation_t entries[8];
 	struct model m;
 	struct held held;

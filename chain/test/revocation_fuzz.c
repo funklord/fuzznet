@@ -343,7 +343,7 @@ static int shape_is_ours(const uint8_t *bytes, size_t len)
 static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 {
 	struct arena arena;
-	fzn_revocation_store_t store;
+	fzn_revocation_store_t store = { 0 };
 	struct model model;
 	fzn_sign_ops_t sign;
 	uint8_t roots[2][FZN_PUBKEY_LEN];

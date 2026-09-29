@@ -372,6 +372,16 @@ static inline void fzn_revocation_signed_bytes(fzn_revocation_record_t rec, cons
  * self-contained rather than relying on what its neighbours pulled in. */
 struct flog_t;
 
+/* AN ADMIN AS THE STORE REMEMBERS IT: a key that showed a chain for the
+ * store's admin capability, kept as each hop's grantor and grantee so the
+ * store can ask later whether that chain has itself been revoked. sec 397. */
+typedef struct fzn_revocation_admin {
+	uint8_t key[FZN_PUBKEY_LEN];
+	size_t hop_count;
+	uint8_t grantor[FZN_CHAIN_MAX_HOPS][FZN_PUBKEY_LEN];
+	uint8_t grantee[FZN_CHAIN_MAX_HOPS][FZN_PUBKEY_LEN];
+} fzn_revocation_admin_t;
+
 struct fzn_revocation_store {
 	fzn_revocation_t *entries;
 	size_t capacity;
@@ -382,10 +392,76 @@ struct fzn_revocation_store {
 	 * on them can tell. Read it with `fzn_revocation_generation` rather
 	 * than reaching in. sec 354. */
 	uint64_t generation;
+	/* HOW MANY DISTINCT ENTITLED ISSUERS A REVOCATION NEEDS, and how many
+	 * withdrawals undo one: sec 394's k-of-n, in the core since sec 397.
+	 * `fzn_revocation_store_set_quorum` raises it and names the admin
+	 * capability whose holders may vote besides a hop's ancestors.
+	 *
+	 * LAST IN THE STRUCT, AND 0 READS AS 1, so a store a consumer
+	 * initialised positionally before these fields existed -- `{ entries,
+	 * capacity, used, NULL, 0 }`, which three suites here still use --
+	 * keeps every answer it gave before.
+	 *
+	 * A STORE MUST START ZEROED OR FROM `fzn_revocation_store_init`. One
+	 * declared on the stack and filled field by field holds whatever the
+	 * stack held in these fields, and `admins_used` read as garbage is a
+	 * read past an array. 29 declarations in this tree's suites did that
+	 * and were harmless until sec 397 gave the store fields they never set;
+	 * `chain_test` crashed on the first. */
+	size_t quorum;
+	int has_admin;
+	fzn_cap_id_t admin_capability;
+	fzn_revocation_admin_t *admins;
+	size_t admin_capacity;
+	size_t admins_used;
 };
 
 fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_revocation_t *entries,
                                      size_t capacity);
+
+/*
+ * k-OF-n REVOCATION. project.md secs 394 and 397, the holder's decisions of
+ * 2026-09-29: every revocation needs `quorum` distinct entitled issuers, and
+ * undoing one needs as many.
+ *
+ * WHO IS ENTITLED: the root and a hop's ancestors in the chain, as always,
+ * and -- when `admin_capability` is given -- any key that shows a chain for
+ * that capability, whoever granted the device. Admins' records are admitted
+ * with their admin chain in the offer; `admins` is where the store keeps
+ * them, `admin_capacity` of them.
+ *
+ * THE RULE, per hop, over the distinct entitled issuers holding an entry for
+ * it: revoked while `quorum` of them are live, and -- the latch -- once
+ * `quorum` have revoked, until `quorum` have withdrawn. So one issuer can
+ * neither revoke alone nor, having revoked with others, undo alone.
+ *
+ * ADMINS IN TWO STRATA, because admins revoking each other has no stable
+ * answer under one rule. First the store decides which admins' own chains are
+ * revoked, counting every admin's vote; then it drops the votes of those and
+ * decides everything else. Mutual revocation cancels both admins, failing
+ * toward revocation; the root restores whoever was right.
+ *
+ * Judged when asked, from the set held, so the answer does not depend on the
+ * order anything arrived in. `fzn_revocation_store_set_quorum` refuses a
+ * `quorum` of 0; a store that holds 0 in the field reads it as 1. With a
+ * quorum of 1 and no admin capability every answer is what it was before
+ * sec 397.
+ */
+fzn_chain_err_t fzn_revocation_store_set_quorum(fzn_revocation_store_t *store, size_t quorum,
+                                                const fzn_cap_id_t *admin_capability,
+                                                fzn_revocation_admin_t *admins,
+                                                size_t admin_capacity);
+
+/* WHICH LINKS OF A CHAIN ARE REVOKED, given as each hop's grantor and grantee
+ * rather than as opened hops -- for a caller that kept a chain's shape and
+ * not its bytes, as the roster does. The same rule as
+ * `fzn_revocation_covers_chain`, which is this applied to a chain's hops:
+ * one implementation, so the two cannot disagree. */
+void fzn_revocation_covers_links(const fzn_revocation_store_t *store,
+                                 const uint8_t (*grantors)[FZN_PUBKEY_LEN],
+                                 const uint8_t (*grantees)[FZN_PUBKEY_LEN], size_t hop_count,
+                                 const fzn_cap_id_t *capability,
+                                 uint8_t revoked[FZN_CHAIN_MAX_HOPS]);
 
 /*
  * Give this store somewhere to say what happened, or NULL to silence it.

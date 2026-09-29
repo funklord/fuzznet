@@ -106,6 +106,12 @@ int fzn_revocation_store_sound(const fzn_revocation_store_t *store)
 		return 0;
 	if (store->used > 0 && !store->entries)
 		return 0;
+	/* The k-of-n half (sec 397): an admin count past its array is a store
+	 * whose answers cannot be computed. A quorum of 0 is not corrupt; it
+	 * is a store initialised before the field existed, and reads as 1. */
+	if (store->admins_used > store->admin_capacity
+	    || (store->admins_used > 0u && !store->admins))
+		return 0;
 	return 1;
 }
 
@@ -281,7 +287,40 @@ fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_rev
 	store->generation = 1;
 	/* Quiet unless somebody asks. */
 	store->log = NULL;
+	/* ONE ISSUER REVOKES, and no admins: every answer as before sec 397. */
+	store->quorum = 1u;
+	store->has_admin = 0;
+	memset(&store->admin_capability, 0, sizeof(store->admin_capability));
+	store->admins = NULL;
+	store->admin_capacity = 0;
+	store->admins_used = 0;
 
+	return FZN_CHAIN_OK;
+}
+
+/* The most admins a store judges: the second stratum needs a flag per admin
+ * and this library allocates nothing, so the flags live on the stack. A
+ * user's estate has a handful. */
+#define REVOCATION_ADMINS_MAX 32u
+
+fzn_chain_err_t fzn_revocation_store_set_quorum(fzn_revocation_store_t *store, size_t quorum,
+                                                const fzn_cap_id_t *admin_capability,
+                                                fzn_revocation_admin_t *admins,
+                                                size_t admin_capacity)
+{
+	if (!store || quorum == 0u)
+		return FZN_CHAIN_ERR_MALFORMED;
+	if (admin_capability && (!admins || admin_capacity == 0u
+	                         || admin_capacity > REVOCATION_ADMINS_MAX))
+		return FZN_CHAIN_ERR_MALFORMED;
+	store->quorum = quorum;
+	store->has_admin = admin_capability != NULL;
+	if (admin_capability)
+		store->admin_capability = *admin_capability;
+	store->admins = admin_capability ? admins : NULL;
+	store->admin_capacity = admin_capability ? admin_capacity : 0u;
+	store->admins_used = 0;
+	store->generation++;
 	return FZN_CHAIN_OK;
 }
 
@@ -465,113 +504,152 @@ int fzn_revocation_known(const fzn_revocation_store_t *store,
 	return find_entry(store, issuer, capability, grantee) < store->used;
 }
 
-void fzn_revocation_covers_chain(const fzn_revocation_store_t *store,
-                                  const fzn_chain_hop_t *hops, size_t hop_count,
-                                  const fzn_cap_id_t *capability,
-                                  uint8_t revoked[FZN_CHAIN_MAX_HOPS])
+/* The admin-table slot for `key`, or `admins_used` for none. */
+static size_t find_admin(const fzn_revocation_store_t *store, const uint8_t *key)
 {
+	size_t a;
+
+	for (a = 0; a < store->admins_used; a++)
+		if (fzn_ct_memeq(store->admins[a].key, key, FZN_PUBKEY_LEN))
+			break;
+	return a;
+}
+
+/* THE RULE, one hop at a time. For hop `i`, the entries that count are those
+ * naming this capability and hop `i`'s grantee, from an issuer entitled to
+ * revoke it: the root or an ancestor -- the grantor of hop `j` for some
+ * `j <= i`, the smallest-j rule sec 13c settled -- or an admin `admin_ok`
+ * lets count (NULL: every admin). One entry per issuer and triple, so each
+ * counted entry is a distinct issuer.
+ *
+ * REVOKED while `quorum` are live; LATCHED, once `quorum` have revoked, until
+ * `quorum` have withdrawn. At quorum 1 that is exactly the old answer: any
+ * live entitled entry revokes, and a withdrawn one does not. */
+static void judge_links(const fzn_revocation_store_t *store,
+                        const uint8_t (*grantors)[FZN_PUBKEY_LEN],
+                        const uint8_t (*grantees)[FZN_PUBKEY_LEN], size_t hop_count,
+                        const fzn_cap_id_t *capability, const uint8_t *admin_ok,
+                        uint8_t revoked[FZN_CHAIN_MAX_HOPS])
+{
+	size_t i, j, e, q = store->quorum ? store->quorum : 1u;
+
+	for (i = 0; i < hop_count; i++) {
+		size_t live = 0, total = 0;
+
+		for (e = 0; e < store->used; e++) {
+			const fzn_revocation_t *entry = &store->entries[e];
+			int entitled = 0;
+
+			if (!fzn_ct_memeq(entry->capability.b, capability->b, FZN_CAP_ID_LEN)
+			    || !fzn_ct_memeq(entry->grantee, grantees[i], FZN_PUBKEY_LEN))
+				continue;
+			for (j = 0; j <= i && !entitled; j++)
+				if (fzn_ct_memeq(grantors[j], entry->issuer, FZN_PUBKEY_LEN))
+					entitled = 1;
+			if (!entitled && store->has_admin) {
+				size_t a = find_admin(store, entry->issuer);
+
+				entitled = a < store->admins_used && (!admin_ok || admin_ok[a]);
+			}
+			if (!entitled)
+				continue;
+			total++;
+			if (!entry->withdrawn)
+				live++;
+		}
+		if (live >= q || (total >= q && total - live < q))
+			revoked[i] = 1;
+	}
+}
+
+void fzn_revocation_covers_links(const fzn_revocation_store_t *store,
+                                 const uint8_t (*grantors)[FZN_PUBKEY_LEN],
+                                 const uint8_t (*grantees)[FZN_PUBKEY_LEN], size_t hop_count,
+                                 const fzn_cap_id_t *capability,
+                                 uint8_t revoked[FZN_CHAIN_MAX_HOPS])
+{
+	uint8_t admin_ok[REVOCATION_ADMINS_MAX];
+	size_t a;
+
 	/* Nowhere to put an answer. Checked first because everything below
 	 * writes. */
 	if (!revoked)
 		return;
-
 	/* Cleared before any decision, so that a caller reading a position it
 	 * did not ask about reads 0 rather than whatever its stack held. */
 	for (size_t i = 0; i < (size_t)FZN_CHAIN_MAX_HOPS; i++)
 		revoked[i] = 0;
-
-	/* An absent store is an answer and not a missing one -- the same
-	 * contract `fzn_revocation_covers` states, and the one
-	 * `fzn_chain_verify` rests on when a consumer holding no revocations
-	 * passes NULL. */
+	/* An absent store is an answer and not a missing one: it knows of no
+	 * revocations, which is the contract `fzn_chain_verify` rests on. */
 	if (!store)
 		return;
-
 	/* THE STORE'S INTEGRITY IS JUDGED BEFORE THE QUESTION IS, and denying
 	 * means denying EVERY hop: entries that cannot be scanned may hold the
-	 * answer for any of them. Asked before the operands, so that nothing
-	 * gets a "no" out of a store nobody can read. */
+	 * answer for any of them. */
 	if (corrupt(store)) {
 		for (size_t i = 0; i < (size_t)FZN_CHAIN_MAX_HOPS; i++)
 			revoked[i] = 1;
 		return;
 	}
-
-	/* A question with no subject, permitted for the reason the sibling
-	 * function argues at length: there is no chain and no capability to
-	 * match, so no entry in this store or any other names one, and 0 is
-	 * the literal truth rather than a permission being granted. A caller
-	 * bug should look like a caller bug -- and `fzn_chain_verify` refuses
-	 * each of these itself, with its own error, before ever asking. */
-	if (!store->entries || !hops || !capability)
+	/* A question with no subject: nothing names it, and 0 is the literal
+	 * truth rather than a permission. `fzn_revocation_covers` argues it. */
+	if (!store->entries || !grantors || !grantees || !capability)
 		return;
 	if (hop_count == 0 || hop_count > (size_t)FZN_CHAIN_MAX_HOPS)
 		return;
 
-	/* HOISTED, AND THE NAIVE FORM IS THE OBVIOUS ONE. Asking per hop about
-	 * every ancestor of that hop is O(hops^2) queries over a store of R
-	 * entries -- O(hops^2 * R) -- because each query scans the whole
-	 * store. Turned inside out, each entry names ONE issuer, so the entry
-	 * is placed once: find the smallest `j` whose grantor is that issuer,
-	 * and the entry then applies to every hop from `j` onward. One pass
-	 * over the store, two bounded walks of the chain inside it, which is
-	 * O(R * hops) -- the cost the single-issuer loop this replaced already
-	 * paid. */
-	for (size_t e = 0; e < store->used; e++) {
-		const fzn_revocation_t *entry = &store->entries[e];
-		size_t first = hop_count;
+	/* THE FIRST STRATUM: which admins' own chains are revoked, counting
+	 * every admin's vote. The second, below, counts only the admins left
+	 * standing. Mutual revocation takes out both, which fails toward
+	 * revocation; sec 397 records why one rule has no stable answer. */
+	for (a = 0; a < store->admins_used; a++) {
+		const fzn_revocation_admin_t *ad = &store->admins[a];
+		uint8_t own[FZN_CHAIN_MAX_HOPS];
+		size_t h;
 
-		/* A WITHDRAWN ENTRY REVOKES NOTHING, the same rule
-		 * `fzn_revocation_covers` applies one question over. Both
-		 * functions read this store to answer an authorization
-		 * question and both must read the action rather than the
-		 * presence; a walk that skipped this would keep a restored
-		 * host locked out of every chain it appears in while the
-		 * single-triple query said it was fine. */
-		if (entry->withdrawn)
-			continue;
-
-		/* THE SMALLEST j, NOT ANY j, and the difference is the whole
-		 * of the entitlement rule. An issuer that grants at hop `j` is
-		 * an ancestor of every hop after it and of NOTHING BEFORE IT:
-		 * a key deep in one branch must not be able to withdraw the
-		 * root's own grant at hop 0. Smallest, because a key may
-		 * legitimately appear more than once and its earliest
-		 * appearance is where its authority starts. */
-		for (size_t j = 0; j < hop_count; j++) {
-			if (fzn_ct_memeq(fzn_hop_grantor(hops[j]), entry->issuer,
-			                 FZN_PUBKEY_LEN)) {
-				first = j;
-				break;
-			}
-		}
-		if (first == hop_count)
-			continue;
-
-		/* Asked once per entry rather than once per hop, which is what
-		 * the hoisting buys. Every hop of a chain that reaches here
-		 * names `capability` -- `fzn_chain_verify` refuses one that
-		 * does not, hop by hop, before it reads this array -- so the
-		 * caller's capability and each hop's own are the same value.
-		 *
-		 * Asked on the TRIPLE rather than on the key alone. The two
-		 * consumers' capabilities are independent rather than a ladder
-		 * (project.md sec 4.2): withdrawing netcfgd's `wifi` from a
-		 * host must not withdraw its `observe`. */
-		if (!fzn_ct_memeq(entry->capability.b, capability->b, FZN_CAP_ID_LEN))
-			continue;
-
-		/* Every hop from `first` on, not only the last. Revoking a
-		 * host in the middle has to kill what it went on to grant, or
-		 * revocation would be defeated by the victim having delegated
-		 * onward first -- which is precisely what a stolen device
-		 * would do. */
-		for (size_t i = first; i < hop_count; i++) {
-			if (fzn_ct_memeq(entry->grantee, fzn_hop_grantee(hops[i]),
-			                 FZN_PUBKEY_LEN))
-				revoked[i] = 1;
-		}
+		admin_ok[a] = 1;
+		for (h = 0; h < FZN_CHAIN_MAX_HOPS; h++)
+			own[h] = 0;
+		judge_links(store, (const uint8_t (*)[FZN_PUBKEY_LEN])ad->grantor,
+		            (const uint8_t (*)[FZN_PUBKEY_LEN])ad->grantee, ad->hop_count,
+		            &store->admin_capability, NULL, own);
+		for (h = 0; h < ad->hop_count; h++)
+			if (own[h])
+				admin_ok[a] = 0;
 	}
+	judge_links(store, grantors, grantees, hop_count, capability, admin_ok, revoked);
+}
+
+void fzn_revocation_covers_chain(const fzn_revocation_store_t *store,
+                                  const fzn_chain_hop_t *hops, size_t hop_count,
+                                  const fzn_cap_id_t *capability,
+                                  uint8_t revoked[FZN_CHAIN_MAX_HOPS])
+{
+	uint8_t grantors[FZN_CHAIN_MAX_HOPS][FZN_PUBKEY_LEN];
+	uint8_t grantees[FZN_CHAIN_MAX_HOPS][FZN_PUBKEY_LEN];
+	size_t i;
+
+	if (!revoked)
+		return;
+	/* NO HOPS IS A QUESTION WITH NO SUBJECT, answered as the links form
+	 * answers it; checked here only because the copy below reads them.
+	 * The STORE's guards are answered first as well: a null, corrupt or
+	 * empty store needs no hop read, and the hops a consumer doing its own
+	 * walk passes may be views over nothing -- revocation_test drives that. */
+	if (!store || corrupt(store) || !store->entries || !capability ||
+	    !hops || hop_count == 0 || hop_count > (size_t)FZN_CHAIN_MAX_HOPS) {
+		fzn_revocation_covers_links(store, NULL, NULL, 0, capability, revoked);
+		return;
+	}
+	/* THE CHAIN'S SHAPE, AND NOTHING ELSE, is what the rule reads: each
+	 * hop's grantor and grantee. One implementation for both forms. */
+	for (i = 0; i < hop_count; i++) {
+		memcpy(grantors[i], fzn_hop_grantor(hops[i]), FZN_PUBKEY_LEN);
+		memcpy(grantees[i], fzn_hop_grantee(hops[i]), FZN_PUBKEY_LEN);
+	}
+	fzn_revocation_covers_links(store, (const uint8_t (*)[FZN_PUBKEY_LEN])grantors,
+	                            (const uint8_t (*)[FZN_PUBKEY_LEN])grantees, hop_count,
+	                            capability, revoked);
 }
 
 /* THE ADMISSION BOUND FOR A KEY THAT IS NOT THE ROOT. See revocation.h for
@@ -653,6 +731,53 @@ static fzn_chain_err_t entitled_by_chain(fzn_revocation_offer_t offer,
 	return FZN_CHAIN_OK;
 }
 
+/* AN ADMIN'S STANDING (sec 397): a chain from the root for the store's admin
+ * capability, naming the issuer as its last grantee, checked with the same
+ * two blindnesses as `entitled_by_chain` and for its reasons. It need not be
+ * delegable -- an admin votes on revocations, it does not grant through this
+ * chain. The admin is then kept in the store's table, its chain as each hop's
+ * grantor and grantee, so its own revocation can be judged later. */
+static fzn_chain_err_t entitled_as_admin(fzn_revocation_store_t *store,
+                                         fzn_revocation_offer_t offer,
+                                         const uint8_t root[FZN_PUBKEY_LEN],
+                                         const fzn_sign_ops_t *sign)
+{
+	fzn_revocation_admin_t ad;
+	fzn_chain_t verdict;
+	fzn_chain_err_t err;
+	size_t i, a;
+
+	if (offer.hop_count >= (size_t)FZN_CHAIN_MAX_HOPS)
+		return FZN_CHAIN_ERR_MALFORMED;
+	err = fzn_chain_verify(offer.hops, offer.hop_count, root, &store->admin_capability, 0,
+	                       sign, NULL, NULL, &verdict);
+	if (err != FZN_CHAIN_OK)
+		return err;
+	if (!fzn_ct_memeq(verdict.grantee, fzn_revocation_issuer(offer.record), FZN_PUBKEY_LEN))
+		return FZN_CHAIN_ERR_CHAIN_INVALID;
+
+	memset(&ad, 0, sizeof(ad));
+	memcpy(ad.key, verdict.grantee, FZN_PUBKEY_LEN);
+	ad.hop_count = offer.hop_count;
+	for (i = 0; i < offer.hop_count; i++) {
+		memcpy(ad.grantor[i], fzn_hop_grantor(offer.hops[i]), FZN_PUBKEY_LEN);
+		memcpy(ad.grantee[i], fzn_hop_grantee(offer.hops[i]), FZN_PUBKEY_LEN);
+	}
+	/* ONE ROW PER ADMIN KEY. A second chain for a key already held is
+	 * refused as a conflict rather than silently replacing the first: which
+	 * chain an admin stands on decides whether its votes count, and letting
+	 * the later arrival win would make that depend on arrival order. */
+	a = find_admin(store, ad.key);
+	if (a < store->admins_used)
+		return memcmp(&store->admins[a], &ad, sizeof(ad)) == 0 ? FZN_CHAIN_OK
+		                                                        : FZN_CHAIN_ERR_CHAIN_INVALID;
+	if (store->admins_used >= store->admin_capacity)
+		return FZN_CHAIN_ERR_STORE_FULL;
+	store->admins[store->admins_used++] = ad;
+	store->generation++;
+	return FZN_CHAIN_OK;
+}
+
 fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
                                 fzn_revocation_offer_t offer,
                                 const uint8_t root[FZN_PUBKEY_LEN],
@@ -708,8 +833,17 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 	 * The root path above pays nothing for this ordering: its check is a
 	 * comparison and still happens first. */
 	if (offer.hop_count > 0) {
-		fzn_chain_err_t err = entitled_by_chain(offer, root, sign);
+		fzn_chain_err_t err;
 
+		/* AN ADMIN'S VOTE carries its admin chain; anybody else's carries
+		 * a chain for the capability it withdraws. Told apart by what the
+		 * offered chain grants. */
+		if (store->has_admin
+		    && fzn_ct_memeq(fzn_hop_capability(offer.hops[0])->b,
+		                    store->admin_capability.b, FZN_CAP_ID_LEN))
+			err = entitled_as_admin(store, offer, root, sign);
+		else
+			err = entitled_by_chain(offer, root, sign);
 		if (err != FZN_CHAIN_OK)
 			return err;
 	}

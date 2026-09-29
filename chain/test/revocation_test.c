@@ -1149,7 +1149,7 @@ static void test_a_missed_round_heals_on_the_next_revocation(void)
 	 * what records the deficit. */
 	{
 		fzn_revocation_t peer_entries[8];
-		fzn_revocation_store_t peer;
+		fzn_revocation_store_t peer = { 0 };
 		uint8_t mbuf[FZN_MANIFEST_MAX_LEN];
 		size_t mlen = 0;
 		fzn_manifest_record_t mrec;
@@ -1901,7 +1901,7 @@ static void test_bad_arguments(void)
 	struct fixture f;
 	uint8_t bytes[FZN_REVOCATION_LEN];
 	fzn_revocation_record_t r;
-	fzn_revocation_store_t s;
+	fzn_revocation_store_t s = { 0 };
 
 	fixture_init(&f);
 	issue(&f, bytes, &r, 0, 0xc0, 5);
@@ -2132,7 +2132,7 @@ static void test_every_guard_refuses_its_own_argument(void)
 	uint8_t bytes[FZN_REVOCATION_LEN];
 	fzn_revocation_record_t r;
 	fzn_sign_ops_t no_verify;
-	fzn_revocation_store_t no_entries;
+	fzn_revocation_store_t no_entries = { 0 };
 
 	fixture_init(&f);
 	issue(&f, bytes, &r, 0, 0xc0, 1);
@@ -2783,7 +2783,7 @@ static void test_the_suite_can_tell_pass_from_fail(void)
  * authorising every hop in a chain. */
 static void test_the_chain_walk_answers_its_own_guards(void)
 {
-	fzn_revocation_store_t store;
+	fzn_revocation_store_t store = { 0 };
 	fzn_revocation_t storage[2];
 	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS];
 	fzn_cap_id_t cap;
@@ -3025,7 +3025,7 @@ static void test_a_repeated_grantor_is_entitled_from_its_first_hop(void)
 static void test_soundness_is_public_and_agrees_with_the_guards(void)
 {
 	fzn_revocation_t entries[2];
-	fzn_revocation_store_t store;
+	fzn_revocation_store_t store = { 0 };
 	uint8_t issuer[FZN_PUBKEY_LEN];
 	uint8_t grantee[FZN_PUBKEY_LEN];
 	fzn_cap_id_t cap;
@@ -3062,7 +3062,7 @@ static void test_soundness_is_public_and_agrees_with_the_guards(void)
 static void test_the_operands_the_first_one_hides(void)
 {
 	struct fixture f;
-	fzn_revocation_store_t store;
+	fzn_revocation_store_t store = { 0 };
 	fzn_revocation_t entries[2];
 	fzn_cap_id_t cap;
 	uint8_t grantee[FZN_PUBKEY_LEN], out[FZN_REVOCATION_LEN];
@@ -3322,6 +3322,346 @@ static void test_a_full_store_refuses_a_withdrawal_for_a_new_pair(void)
 	      "tombstone was written past the end of the array");
 }
 
+/* ---- k of n (sec 397) ------------------------------------------------- */
+
+/* The chain these cases judge: root (0) grants key 1, key 1 grants key 2,
+ * for the capability `cap`. Only the keys matter to the rule, so it is asked
+ * in the links form and no hop needs minting. */
+static void judge(const struct fixture *f, const fzn_cap_id_t *cap,
+                  uint8_t revoked[FZN_CHAIN_MAX_HOPS])
+{
+	uint8_t grantors[2][FZN_PUBKEY_LEN], grantees[2][FZN_PUBKEY_LEN];
+
+	key(grantors[0], 0);
+	key(grantees[0], 1);
+	key(grantors[1], 1);
+	key(grantees[1], 2);
+	fzn_revocation_covers_links(&f->store, (const uint8_t (*)[FZN_PUBKEY_LEN])grantors,
+	                            (const uint8_t (*)[FZN_PUBKEY_LEN])grantees, 2u, cap,
+	                            revoked);
+}
+
+/* One vote: `issuer` revokes `cap` from `grantee`, offered as the root's when
+ * `admin_hop` is NULL and on that admin chain otherwise. The record's bytes
+ * land in `bytes` and its identity in `id` when asked for. */
+static fzn_chain_err_t vote(struct fixture *f, uint8_t *bytes, uint8_t issuer,
+                            const fzn_cap_id_t *cap, uint8_t grantee,
+                            const fzn_chain_hop_t *admin_hop, uint8_t *id)
+{
+	uint8_t issuer_key[FZN_PUBKEY_LEN], grantee_key[FZN_PUBKEY_LEN];
+	fzn_revocation_record_t r;
+
+	key(issuer_key, issuer);
+	key(grantee_key, grantee);
+	issue_keys(f, bytes, &r, issuer_key, cap, grantee_key);
+	if (id)
+		stub_hash(NULL, id, FZN_REVOCATION_ID_LEN, bytes, FZN_REVOCATION_LEN);
+	return fzn_revocation_admit(&f->store,
+	                            admin_hop ? fzn_revocation_offer_chain(r, admin_hop, 1)
+	                                      : fzn_revocation_offer_root(r),
+	                            f->root, &f->sign, &HASH_OPS, NULL);
+}
+
+/* `issuer` withdraws the revocation whose identity is `target`. */
+static fzn_chain_err_t unvote(struct fixture *f, uint8_t issuer, const fzn_cap_id_t *cap,
+                              uint8_t grantee, const uint8_t *target,
+                              const fzn_chain_hop_t *admin_hop)
+{
+	uint8_t bytes[FZN_REVOCATION_LEN];
+	uint8_t issuer_key[FZN_PUBKEY_LEN], grantee_key[FZN_PUBKEY_LEN];
+	fzn_revocation_record_t r;
+
+	key(issuer_key, issuer);
+	key(grantee_key, grantee);
+	f->stub.identity = issuer;
+	if (fzn_revocation_issue_withdrawal(issuer_key, cap, grantee_key, 2000, target, &f->sign,
+	                                    bytes) != FZN_CHAIN_OK ||
+	    fzn_revocation_open(bytes, FZN_REVOCATION_LEN, &r) != FZN_CHAIN_OK)
+		return FZN_CHAIN_ERR_MALFORMED;
+	stub_reset(&f->stub);
+	return fzn_revocation_admit(&f->store,
+	                            admin_hop ? fzn_revocation_offer_chain(r, admin_hop, 1)
+	                                      : fzn_revocation_offer_root(r),
+	                            f->root, &f->sign, &HASH_OPS, NULL);
+}
+
+/* A quorum of zero is refused rather than read as one: the struct reads 0 as
+ * 1 so that a zeroed store behaves, but a caller ASKING for zero has made a
+ * mistake. An admin table past the stack-flag bound is refused likewise. */
+static void test_a_quorum_is_one_or_more(void)
+{
+	struct fixture f;
+	fzn_revocation_admin_t admins[33];
+	fzn_cap_id_t adm;
+
+	fixture_init(&f);
+	capability_id(&adm, 0xad);
+	CHECK(f.store.quorum == 1u, "a fresh store's quorum is %zu, wanted 1", f.store.quorum);
+	CHECK(fzn_revocation_store_set_quorum(&f.store, 0u, NULL, NULL, 0u) ==
+	      FZN_CHAIN_ERR_MALFORMED, "a quorum of zero was accepted");
+	CHECK(fzn_revocation_store_set_quorum(&f.store, 2u, &adm, NULL, 4u) ==
+	      FZN_CHAIN_ERR_MALFORMED, "an admin capability with no table was accepted");
+	CHECK(fzn_revocation_store_set_quorum(&f.store, 2u, &adm, admins, 33u) ==
+	      FZN_CHAIN_ERR_MALFORMED, "33 admins were accepted past a bound of 32");
+	CHECK(fzn_revocation_store_set_quorum(&f.store, 2u, &adm, admins, 32u) == FZN_CHAIN_OK,
+	      "32 admins were refused at a bound of 32");
+	CHECK(fzn_revocation_store_sound(&f.store), "a store with a quorum is not sound");
+}
+
+/* K OF N, AND THE LATCH. At quorum 2 one entitled revocation does nothing,
+ * two revoke -- the root and an admin, which is sec 394's "the root counts
+ * as one" -- and once two have revoked, ONE withdrawal does not undo it: the
+ * latch holds until two have withdrawn. A single entitled revoker that then
+ * withdraws never reached the quorum, so its withdrawal restores nothing
+ * that was taken. */
+static void test_k_of_n_revokes_and_latches(void)
+{
+	struct fixture f;
+	fzn_revocation_admin_t admins[4];
+	uint8_t admin_bytes[FZN_HOP_LEN], rev[2][FZN_REVOCATION_LEN];
+	uint8_t id_root[FZN_REVOCATION_ID_LEN], id_admin[FZN_REVOCATION_ID_LEN];
+	uint8_t revoked[FZN_CHAIN_MAX_HOPS];
+	fzn_chain_hop_t admin_hop;
+	fzn_cap_id_t cap, adm;
+
+	fixture_init(&f);
+	capability_id(&cap, 0xc0);
+	capability_id(&adm, 0xad);
+	CHECK(fzn_revocation_store_set_quorum(&f.store, 2u, &adm, admins, 4u) == FZN_CHAIN_OK,
+	      "set_quorum refused a sound request");
+	mint_hop(&f, admin_bytes, &admin_hop, 0, 5, &adm, 1000, FZN_NO_EXPIRY, 0);
+
+	CHECK(vote(&f, rev[0], 0, &cap, 2, NULL, id_root) == FZN_CHAIN_OK,
+	      "the root's revocation was refused");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[0] == 0u && revoked[1] == 0u,
+	      "one revocation of two revoked: hops %u %u", revoked[0], revoked[1]);
+
+	CHECK(vote(&f, rev[1], 5, &cap, 2, &admin_hop, id_admin) == FZN_CHAIN_OK,
+	      "an admin's revocation on its admin chain was refused");
+	CHECK(f.store.admins_used == 1u, "the admin was not remembered: %zu",
+	      f.store.admins_used);
+	judge(&f, &cap, revoked);
+	CHECK(revoked[0] == 0u && revoked[1] == 1u,
+	      "two of two left hop 1 standing, or took hop 0: %u %u", revoked[0], revoked[1]);
+
+	CHECK(unvote(&f, 0, &cap, 2, id_root, NULL) == FZN_CHAIN_OK,
+	      "the root's withdrawal was refused");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 1u, "one withdrawal of two undid a revocation, so there is no latch");
+
+	CHECK(unvote(&f, 5, &cap, 2, id_admin, &admin_hop) == FZN_CHAIN_OK,
+	      "the admin's withdrawal was refused");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 0u, "two withdrawals of two left the latch shut");
+
+	/* One revoker alone, then its withdrawal: never revoked, and nothing
+	 * latched. */
+	fixture_init(&f);
+	CHECK(fzn_revocation_store_set_quorum(&f.store, 2u, &adm, admins, 4u) == FZN_CHAIN_OK,
+	      "set_quorum refused a sound request");
+	CHECK(vote(&f, rev[0], 0, &cap, 2, NULL, id_root) == FZN_CHAIN_OK, "revocation refused");
+	CHECK(unvote(&f, 0, &cap, 2, id_root, NULL) == FZN_CHAIN_OK, "withdrawal refused");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 0u, "a lone revoke-and-withdraw latched below the quorum");
+
+	/* QUORUM 1 IS THE OLD RULE: one live entitled entry revokes and its
+	 * withdrawal restores. */
+	fixture_init(&f);
+	CHECK(vote(&f, rev[0], 0, &cap, 2, NULL, id_root) == FZN_CHAIN_OK, "revocation refused");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 1u, "quorum 1 did not revoke on one entry");
+	CHECK(unvote(&f, 0, &cap, 2, id_root, NULL) == FZN_CHAIN_OK, "withdrawal refused");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 0u, "quorum 1 latched, which the old rule never did");
+}
+
+/* WHO IS AN ADMIN. A store with no admin capability admits no admin vote --
+ * the offered chain is not an ancestor's, so it is refused as it always was.
+ * A chain naming somebody other than the issuer is refused. The same key on
+ * a second, different chain is a conflict rather than a replacement. A full
+ * table says so. */
+static void test_an_admin_is_named_by_its_chain(void)
+{
+	struct fixture f;
+	fzn_revocation_admin_t admins[1];
+	uint8_t hop_a[FZN_HOP_LEN], hop_b[FZN_HOP_LEN], via[2][FZN_HOP_LEN];
+	uint8_t rev[FZN_REVOCATION_LEN];
+	uint8_t revoked[FZN_CHAIN_MAX_HOPS];
+	fzn_chain_hop_t admin5, admin6, admin5_via6[2];
+	fzn_revocation_record_t r;
+	fzn_cap_id_t cap, adm;
+
+	fixture_init(&f);
+	capability_id(&cap, 0xc0);
+	capability_id(&adm, 0xad);
+	mint_hop(&f, hop_a, &admin5, 0, 5, &adm, 1000, FZN_NO_EXPIRY, 0);
+	mint_hop(&f, hop_b, &admin6, 0, 6, &adm, 1000, FZN_NO_EXPIRY, 0);
+	/* THE SAME ADMIN BY ANOTHER ROAD: root to 6, delegably, then 6 to 5.
+	 * A row is the path's keys, so only a different path is a different
+	 * chain -- a re-minted hop over the same two keys is the same one. */
+	mint_hop(&f, via[0], &admin5_via6[0], 0, 6, &adm, 1000, FZN_NO_EXPIRY, 1);
+	mint_hop(&f, via[1], &admin5_via6[1], 6, 5, &adm, 1000, FZN_NO_EXPIRY, 0);
+
+	CHECK(vote(&f, rev, 5, &cap, 2, &admin5, NULL) != FZN_CHAIN_OK,
+	      "an admin vote was admitted by a store that names no admin capability");
+	CHECK(f.store.used == 0u, "it was recorded anyway");
+
+	CHECK(fzn_revocation_store_set_quorum(&f.store, 1u, &adm, admins, 1u) == FZN_CHAIN_OK,
+	      "set_quorum refused a sound request");
+	CHECK(vote(&f, rev, 6, &cap, 2, &admin5, NULL) == FZN_CHAIN_ERR_CHAIN_INVALID,
+	      "a vote on somebody else's admin chain was not refused as invalid");
+	CHECK(f.store.used == 0u && f.store.admins_used == 0u, "it was recorded anyway");
+
+	CHECK(vote(&f, rev, 5, &cap, 2, &admin5, NULL) == FZN_CHAIN_OK,
+	      "an admin's vote was refused");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 1u, "an admin's vote at quorum 1 did not revoke");
+	{
+		uint8_t five[FZN_PUBKEY_LEN], one[FZN_PUBKEY_LEN];
+
+		key(five, 5);
+		key(one, 1);
+		issue_keys(&f, rev, &r, five, &cap, one);
+		CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_chain(r, admin5_via6, 2),
+		                           f.root, &f.sign, &HASH_OPS, NULL) ==
+		      FZN_CHAIN_ERR_CHAIN_INVALID,
+		      "a second chain for one admin was not refused as a conflict");
+	}
+	CHECK(vote(&f, rev, 6, &cap, 2, &admin6, NULL) == FZN_CHAIN_ERR_STORE_FULL,
+	      "a second admin in a table of one was not refused as full");
+	CHECK(f.store.used == 1u, "used %zu, wanted 1", f.store.used);
+}
+
+/* THE TWO STRATA. Admins 5 and 6 each revoke the other's admin capability at
+ * quorum 1. Judged in one pass, whether either stands depends on which is
+ * asked first; judged in strata, both admin chains are revoked counting
+ * every admin, and a vote from either then counts for nothing -- so 5's
+ * revocation of key 2 revokes nothing. Without the mutual revocation it
+ * would. */
+static void test_admins_that_revoke_each_other_both_fall(void)
+{
+	struct fixture f;
+	fzn_revocation_admin_t admins[4];
+	uint8_t hop_a[FZN_HOP_LEN], hop_b[FZN_HOP_LEN];
+	uint8_t rev[3][FZN_REVOCATION_LEN];
+	uint8_t revoked[FZN_CHAIN_MAX_HOPS];
+	fzn_chain_hop_t admin5, admin6;
+	fzn_cap_id_t cap, adm;
+
+	fixture_init(&f);
+	capability_id(&cap, 0xc0);
+	capability_id(&adm, 0xad);
+	CHECK(fzn_revocation_store_set_quorum(&f.store, 1u, &adm, admins, 4u) == FZN_CHAIN_OK,
+	      "set_quorum refused a sound request");
+	mint_hop(&f, hop_a, &admin5, 0, 5, &adm, 1000, FZN_NO_EXPIRY, 0);
+	mint_hop(&f, hop_b, &admin6, 0, 6, &adm, 1000, FZN_NO_EXPIRY, 0);
+
+	CHECK(vote(&f, rev[0], 5, &cap, 2, &admin5, NULL) == FZN_CHAIN_OK, "5's vote refused");
+	CHECK(vote(&f, rev[1], 6, &adm, 5, &admin6, NULL) == FZN_CHAIN_OK,
+	      "6's vote against 5 refused");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 0u, "a revoked admin's vote still counted");
+
+	CHECK(vote(&f, rev[2], 5, &adm, 6, &admin5, NULL) == FZN_CHAIN_OK,
+	      "5's vote against 6 refused");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 0u,
+	      "with each admin revoking the other, 5's vote counted: the strata are one pass");
+}
+
+/* THE LINKS FORM HOLDS ITS OWN CEILING. The chain form refuses an oversized
+ * count before it copies, so a suite reaching the links form only through it
+ * never sees the bound -- and roster.c calls the links form directly. A count
+ * one past the ceiling is a question with no answer, answered as none, even
+ * where the store revokes hop 0. */
+static void test_the_links_form_holds_the_ceiling(void)
+{
+	struct fixture f;
+	uint8_t grantors[FZN_CHAIN_MAX_HOPS + 1][FZN_PUBKEY_LEN];
+	uint8_t grantees[FZN_CHAIN_MAX_HOPS + 1][FZN_PUBKEY_LEN];
+	uint8_t revoked[FZN_CHAIN_MAX_HOPS + 1];
+	uint8_t rev[FZN_REVOCATION_LEN];
+	fzn_cap_id_t cap;
+	size_t i;
+
+	fixture_init(&f);
+	capability_id(&cap, 0xc0);
+	for (i = 0; i <= (size_t)FZN_CHAIN_MAX_HOPS; i++) {
+		key(grantors[i], (uint8_t)i);
+		key(grantees[i], (uint8_t)(i + 1u));
+	}
+	CHECK(vote(&f, rev, 0, &cap, 1, NULL, NULL) == FZN_CHAIN_OK, "root vote refused");
+	fzn_revocation_covers_links(&f.store, (const uint8_t (*)[FZN_PUBKEY_LEN])grantors,
+	                            (const uint8_t (*)[FZN_PUBKEY_LEN])grantees,
+	                            (size_t)FZN_CHAIN_MAX_HOPS, &cap, revoked);
+	CHECK(revoked[0] == 1u, "the control: hop 0 is not revoked at the ceiling");
+	memset(revoked, 0xee, sizeof(revoked));
+	fzn_revocation_covers_links(&f.store, (const uint8_t (*)[FZN_PUBKEY_LEN])grantors,
+	                            (const uint8_t (*)[FZN_PUBKEY_LEN])grantees,
+	                            (size_t)FZN_CHAIN_MAX_HOPS + 1u, &cap, revoked);
+	CHECK(revoked[0] == 0u, "a count past the ceiling was judged");
+}
+
+/* ORDER DOES NOT DECIDE. Quorum 2: the root and admin 6 revoke key 2; the
+ * root and admin 7 revoke admin 6. Admin 6 falls in the first stratum, so
+ * only the root's vote on key 2 counts in the second and key 2 stands. The
+ * four records are admitted in all 24 orders and every one must agree --
+ * the admin table fills in arrival order, and nothing may read that order. */
+static void test_k_of_n_is_order_free(void)
+{
+	static const uint8_t perms[24][4] = {
+		{0,1,2,3},{0,1,3,2},{0,2,1,3},{0,2,3,1},{0,3,1,2},{0,3,2,1},
+		{1,0,2,3},{1,0,3,2},{1,2,0,3},{1,2,3,0},{1,3,0,2},{1,3,2,0},
+		{2,0,1,3},{2,0,3,1},{2,1,0,3},{2,1,3,0},{2,3,0,1},{2,3,1,0},
+		{3,0,1,2},{3,0,2,1},{3,1,0,2},{3,1,2,0},{3,2,0,1},{3,2,1,0},
+	};
+	struct fixture f;
+	fzn_revocation_admin_t admins[4];
+	uint8_t hop_a[FZN_HOP_LEN], hop_b[FZN_HOP_LEN];
+	uint8_t rev[FZN_REVOCATION_LEN];
+	uint8_t revoked[FZN_CHAIN_MAX_HOPS];
+	fzn_chain_hop_t admin6, admin7;
+	fzn_cap_id_t cap, adm;
+	size_t p, k, disagreed = 0;
+
+	for (p = 0; p < 24u; p++) {
+		fixture_init(&f);
+		capability_id(&cap, 0xc0);
+		capability_id(&adm, 0xad);
+		fzn_revocation_store_set_quorum(&f.store, 2u, &adm, admins, 4u);
+		mint_hop(&f, hop_a, &admin6, 0, 6, &adm, 1000, FZN_NO_EXPIRY, 0);
+		mint_hop(&f, hop_b, &admin7, 0, 7, &adm, 1000, FZN_NO_EXPIRY, 0);
+		for (k = 0; k < 4u; k++) {
+			fzn_chain_err_t err = FZN_CHAIN_OK;
+
+			switch (perms[p][k]) {
+			case 0: err = vote(&f, rev, 0, &cap, 2, NULL, NULL); break;
+			case 1: err = vote(&f, rev, 6, &cap, 2, &admin6, NULL); break;
+			case 2: err = vote(&f, rev, 0, &adm, 6, NULL, NULL); break;
+			case 3: err = vote(&f, rev, 7, &adm, 6, &admin7, NULL); break;
+			}
+			CHECK(err == FZN_CHAIN_OK, "order %zu step %zu refused: %d", p, k, (int)err);
+		}
+		judge(&f, &cap, revoked);
+		if (revoked[0] != 0u || revoked[1] != 0u)
+			disagreed++;
+	}
+	CHECK(disagreed == 0u,
+	      "%zu of 24 arrival orders revoked key 2 on a fallen admin's vote", disagreed);
+
+	/* THE CONTROL: without admin 7's vote, admin 6 stands and key 2 falls.
+	 * Otherwise the case above could pass by admin votes never counting. */
+	fixture_init(&f);
+	fzn_revocation_store_set_quorum(&f.store, 2u, &adm, admins, 4u);
+	mint_hop(&f, hop_a, &admin6, 0, 6, &adm, 1000, FZN_NO_EXPIRY, 0);
+	CHECK(vote(&f, rev, 0, &cap, 2, NULL, NULL) == FZN_CHAIN_OK, "root vote refused");
+	CHECK(vote(&f, rev, 6, &cap, 2, &admin6, NULL) == FZN_CHAIN_OK, "admin vote refused");
+	CHECK(vote(&f, rev, 0, &adm, 6, NULL, NULL) == FZN_CHAIN_OK, "root vote refused");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 1u, "a standing admin's vote did not make the quorum");
+}
+
 int main(void)
 {
 	test_layout_and_round_trip();
@@ -3371,6 +3711,12 @@ int main(void)
 	test_the_chain_walk_answers_its_own_guards();
 	test_the_hop_ceiling_gates_a_walk_that_would_answer();
 	test_a_repeated_grantor_is_entitled_from_its_first_hop();
+	test_a_quorum_is_one_or_more();
+	test_k_of_n_revokes_and_latches();
+	test_an_admin_is_named_by_its_chain();
+	test_admins_that_revoke_each_other_both_fall();
+	test_the_links_form_holds_the_ceiling();
+	test_k_of_n_is_order_free();
 	test_the_suite_can_tell_pass_from_fail();
 
 	test_the_operands_the_first_one_hides();

@@ -435,7 +435,7 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		 * node it reached. */
 		{
 			static fzn_revocation_t again_entries[4];
-			fzn_revocation_store_t again;
+			fzn_revocation_store_t again = { 0 };
 			size_t restored = 0;
 
 			CHECK(fzn_revocation_store_init(&again, again_entries, 4) == FZN_CHAIN_OK
@@ -461,7 +461,7 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 	/* ---- A NODE THAT IS NOT ITS OWN ROOT DOES NOT REVOKE AS ONE. */
 	{
 		static fzn_revocation_t rs_entries[2];
-		fzn_revocation_store_t rs;
+		fzn_revocation_store_t rs = { 0 };
 
 		CHECK(fzn_revocation_store_init(&rs, rs_entries, 2) == FZN_CHAIN_OK
 		              && fzn_node_revoke(&device->id, node->id.pubkey, NULL, cap, node->id.pubkey,
@@ -774,7 +774,7 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 	      "N, verifying against R, did not grant the device it paired through R's grant");
 	{
 		static fzn_revocation_t entries[4];
-		fzn_revocation_store_t revoked;
+		fzn_revocation_store_t revoked = { 0 };
 		uint8_t record[FZN_REVOCATION_LEN];
 		fzn_revocation_record_t rec;
 

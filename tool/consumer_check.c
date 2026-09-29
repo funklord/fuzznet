@@ -491,7 +491,7 @@ int main(void)
 	fzn_sign_ops_t sign = { always_good, always_sign, NULL };
 	fzn_replay_entry_t window_storage[4];
 	fzn_replay_window_t window;
-	fzn_revocation_store_t store;
+	fzn_revocation_store_t store = { 0 };
 	fzn_revocation_t store_storage[4];
 	fzn_chain_hop_t hop;
 	fzn_chain_t chain;
@@ -897,7 +897,7 @@ int main(void)
 		uint8_t mid[FZN_PUBKEY_LEN], leaf[FZN_PUBKEY_LEN];
 		fzn_chain_hop_t pair[2];
 		fzn_revocation_record_t rec;
-		fzn_revocation_store_t estate;
+		fzn_revocation_store_t estate = { 0 };
 		fzn_revocation_t estate_storage[4];
 		fzn_chain_err_t merged = FZN_CHAIN_OK;
 		fzn_revocation_offer_t offer;
@@ -987,7 +987,7 @@ int main(void)
 		uint8_t id[FZN_REVOCATION_ID_LEN];
 		uint8_t grantee[FZN_PUBKEY_LEN];
 		fzn_revocation_record_t rec;
-		fzn_revocation_store_t wd_store;
+		fzn_revocation_store_t wd_store = { 0 };
 		fzn_revocation_t storage[4];
 
 		memset(grantee, 0x31, sizeof(grantee));
@@ -1086,7 +1086,7 @@ int main(void)
 		uint8_t id[FZN_REVOCATION_ID_LEN];
 		uint8_t grantee[FZN_PUBKEY_LEN];
 		fzn_revocation_record_t rec;
-		fzn_revocation_store_t dup_store;
+		fzn_revocation_store_t dup_store = { 0 };
 		fzn_revocation_t storage[4];
 
 		memset(grantee, 0x32, sizeof(grantee));
@@ -1136,7 +1136,7 @@ int main(void)
 		fzn_manifest_deficit_t missing[4];
 		fzn_manifest_pair_t want[4];
 		fzn_manifest_record_t man;
-		fzn_revocation_store_t fresh;
+		fzn_revocation_store_t fresh = { 0 };
 		fzn_revocation_t fresh_storage[4];
 		fzn_revocation_record_t rec;
 		uint8_t rev_bytes[FZN_REVOCATION_LEN];
@@ -2511,7 +2511,7 @@ int main(void)
 	 * FORGETTING: a zeroed policy must deny. */
 	{
 		fzn_authz_policy_t zeroed;
-		fzn_revocation_store_t empty;
+		fzn_revocation_store_t empty = { 0 };
 		fzn_revocation_t empty_slots[1];
 		fzn_cap_id_t any_cap;
 

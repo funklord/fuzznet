@@ -55,7 +55,7 @@ int main(void)
 {
 	char line[FZN_REVOCATION_PRINT_MAX];
 	char none_line[FZN_REVOCATION_PRINT_MAX];
-	fzn_revocation_store_t store;
+	fzn_revocation_store_t store = { 0 };
 	fzn_revocations_state_t s;
 	size_t len = 0;
 

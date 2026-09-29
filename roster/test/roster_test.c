@@ -423,7 +423,7 @@ static void test_a_revoked_writer_counts_for_nothing(void)
 {
 	static held_t h;
 	static fzn_revocation_t rev_entries[4];
-	fzn_revocation_store_t revoked;
+	fzn_revocation_store_t revoked = { 0 };
 	fzn_roster_authority_t a = authority();
 	rec_t m_add, m_rm, r_add, r_rm;
 	uint8_t hop_bytes[FZN_HOP_LEN], exp_bytes[FZN_HOP_LEN];
@@ -551,7 +551,7 @@ static void test_order_independence(void)
 	static rec_t set[7];
 	static held_t h;
 	static fzn_revocation_t rev_entries[4];
-	fzn_revocation_store_t revoked;
+	fzn_revocation_store_t revoked = { 0 };
 	fzn_roster_authority_t a = authority();
 	uint8_t hop_bytes[FZN_HOP_LEN];
 	fzn_chain_hop_t hop[1];
@@ -629,7 +629,7 @@ static void test_bundle_and_restore(void)
 	static fzn_revocation_t rev_entries[4];
 	static uint8_t packed[FZN_ROSTER_BUNDLE_MAX_LEN + 1u];
 	uint8_t hop[1][FZN_HOP_LEN];
-	fzn_revocation_store_t revoked;
+	fzn_revocation_store_t revoked = { 0 };
 	fzn_roster_bundle_t b;
 	fzn_roster_authority_t a = authority();
 	rec_t m_add, m_rm;

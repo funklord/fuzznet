@@ -1625,7 +1625,7 @@ static void scenario_incomplete(void)
 	{
 		static uint8_t man[FZN_MANIFEST_LEN(4)];
 		uint8_t region[FZN_REVOCATION_LEN];
-		fzn_revocation_store_t their_store;
+		fzn_revocation_store_t their_store = { 0 };
 		fzn_revocation_t their_entries[2];
 		fzn_revocation_record_t rec;
 		fzn_manifest_record_t man_rec;
@@ -1679,7 +1679,7 @@ static void scenario_incomplete(void)
 	 * it has not heard everything the root has said. */
 	{
 		static uint8_t man[FZN_MANIFEST_LEN(4)];
-		fzn_revocation_store_t issuer_store;
+		fzn_revocation_store_t issuer_store = { 0 };
 		fzn_revocation_t issuer_entries[2];
 		fzn_manifest_record_t man_rec;
 		struct sim_signer signer;
