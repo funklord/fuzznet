@@ -49079,8 +49079,9 @@ prefer 2 now.
 
 ### The limit this leaves
 
-**The daemon pulls from one peer**, the one `--root-at` names, through
-the pairing it joined with. Nothing in the store stops more: slot 8 files
+**~~The daemon pulls from one peer.~~ It pulls from up to eight since
+sec 401.** It pulled from the one `--root-at` names, through the pairing
+it joined with. Nothing in the store stops more: slot 8 files
 a pairing under the node that sealed the card (`fzn_node_pairing_accept`
 saves under `p.node`), so a node can hold pairings to several nodes of
 one estate. What is missing is the daemon asking more than one of them.
@@ -49279,3 +49280,50 @@ fails when one leaver can close an epoch. The epoch recorded on append
 is caught by a fixture check: admin 7's withdrawal at `UINT64_MAX` is
 refused as naming another epoch. Both still fail through epoch
 behaviour, which is what they guard.
+
+## 401. A node pulls votes from every peer it names, 2026-09-29
+
+The gap sec 399 left. `fuzznetd` takes `--pull-from NODE_HEX HOST PORT`,
+repeatable, alongside `--root-at HOST PORT`, up to eight peers in all.
+
+- **`--pull-from` names any node this one holds a pairing to**, loaded
+  with `fzn_node_pairing_load`. Slot 8 files a pairing under the node
+  that sealed its card, so a member can hold one to its sponsor and
+  another to a sibling that paired it.
+- **`--root-at` is the same pull through the pairing the node joined
+  with**, and still refuses a node that joined through a member, now
+  naming `--pull-from` as the way to reach that member.
+- **Every peer is asked each round, one after another.** A peer that
+  does not answer is reported and the next is asked, since what one
+  cannot say another may.
+- **Each peer has its own socket and reassembly table**, so a late
+  answer from one is never read as another's.
+- **Eight** because an estate's nodes are a household's and each costs a
+  pull a minute.
+
+### Measured for sec 401, live
+
+Five `fuzznetd` processes over loopback UDP, with service 7 and product
+1, from a scratch script:
+
+1. R pairs N and M delegably, and both join.
+2. N pairs M non-delegably, so M holds pairings under both R and N.
+3. R and N serve, and each is asked `revoke peer X` over its local
+   socket; each answers `ok X`.
+4. M serves at `--quorum 2` with `--root-at` R and `--pull-from` N.
+
+M logged `1 vote(s) from 127.0.0.1, 0 refused` twice, once per peer.
+M's store then held two slot-11 votes, and M's restart logged
+`2 revocation(s)`. M still named R as its estate root: the pairing to N
+is not delegable, so `fzn_node_pairing_estate` does not take it for the
+joined one.
+
+Afterwards no `fuzznetd` was left running and the socket directory was
+gone.
+
+AF_UNIX addresses are bounded at 108 bytes, and `fzn_socket_listen`
+wants an absolute path, so the sockets lived in a `mktemp -d` under
+`/tmp/claude-1000`, removed by name at exit.
+
+Not in `make test`: no target in this tree runs the daemon, and adding
+one is its own decision.

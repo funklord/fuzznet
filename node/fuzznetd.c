@@ -157,6 +157,26 @@ static uint64_t wall_clock(void)
  * price of asking from the loop's own thread. sec 384. */
 #define FZND_PULL_EVERY 60u
 
+/* THE PEERS A NODE PULLS VOTES FROM: `--root-at` for the pairing it joined
+ * with, and `--pull-from` for any other node it holds a pairing to. Each has
+ * its own socket and reassembly table, so a late answer from one is never
+ * read as another's. Eight, because an estate's nodes are a household's and
+ * every one costs a pull a minute. sec 401. */
+#define FZND_PULL_TARGETS_MAX 8u
+
+struct pull_target {
+	const char *host;
+	long port;
+	int is_root_at;
+	uint8_t node[FZN_PUBKEY_LEN];
+	fzn_node_pairing_t pairing;
+	fzn_caller_t caller;
+	fzn_reasm_t table;
+	fzn_partial_t slot;
+	uint8_t slot_buf[FZN_NODE_REPLY_MAX * 4u];
+	int fd;
+};
+
 static void usage(const char *prog)
 {
 	fprintf(stderr,
@@ -167,8 +187,9 @@ static void usage(const char *prog)
 	        "       %s --fuzznet-dir=DIR --prekey\n"
 	        "       %s --fuzznet-dir=DIR --accept CARD [--join]\n"
 	        "       %s --fuzznet-dir=DIR --ask LINE --node ROOT_HEX --to HOST PORT [--udp6]\n"
-	        "a member of an estate may add --root-at HOST PORT when serving:\n"
-	        "it pulls that peer's revocation votes at start and every %u seconds\n"
+	        "a member of an estate may add --root-at HOST PORT when serving, and any\n"
+	        "node --pull-from NODE_HEX HOST PORT (up to 8) for a node it holds a\n"
+	        "pairing to: it pulls their revocation votes at start and every %u seconds\n"
 	        "--quorum K: a revocation needs K distinct entitled issuers (default 1)\n"
 	        "%s",
 	        prog, prog, prog, prog, prog, FZND_PULL_EVERY, fzn_cli_usage());
@@ -264,9 +285,9 @@ int main(int argc, char **argv)
 	const char *node_hex = NULL;
 	const char *to_host = NULL;
 	long to_port = -1;
-	const char *root_at_host = NULL;
+	static struct pull_target pulls[FZND_PULL_TARGETS_MAX];
+	size_t npulls = 0;
 	fzn_revocation_store_t *running = NULL;
-	long root_at_port = -1;
 	long quorum = 1;
 	int has_capability = 0;
 	int lfd = -1, ufd = -1, i;
@@ -309,8 +330,29 @@ int main(int argc, char **argv)
 				return 2;
 			}
 		} else if (!strcmp(argv[i], "--root-at") && i + 2 < argc) {
-			root_at_host = argv[++i];
-			root_at_port = strtol(argv[++i], NULL, 10);
+			if (npulls >= FZND_PULL_TARGETS_MAX) {
+				fprintf(stderr, "fuzznetd: at most %u peers to pull from\n",
+				        FZND_PULL_TARGETS_MAX);
+				return 2;
+			}
+			pulls[npulls].host = argv[++i];
+			pulls[npulls].port = strtol(argv[++i], NULL, 10);
+			pulls[npulls].is_root_at = 1;
+			npulls++;
+		} else if (!strcmp(argv[i], "--pull-from") && i + 3 < argc) {
+			if (npulls >= FZND_PULL_TARGETS_MAX) {
+				fprintf(stderr, "fuzznetd: at most %u peers to pull from\n",
+				        FZND_PULL_TARGETS_MAX);
+				return 2;
+			}
+			if (!hex_pubkey(argv[++i], pulls[npulls].node)) {
+				fprintf(stderr, "fuzznetd: --pull-from: a node key is 64 hex digits\n");
+				return 2;
+			}
+			pulls[npulls].host = argv[++i];
+			pulls[npulls].port = strtol(argv[++i], NULL, 10);
+			pulls[npulls].is_root_at = 0;
+			npulls++;
 		} else if (!strcmp(argv[i], "--to") && i + 2 < argc) {
 			to_host = argv[++i];
 			to_port = strtol(argv[++i], NULL, 10);
@@ -765,80 +807,99 @@ int main(int argc, char **argv)
 	 * fatal, since what was pulled before is already loaded from slot 10
 	 * and refusing to serve would cut off every device the root did not
 	 * revoke. sec 384. */
-	if (root_at_host) {
-		static fzn_partial_t slots[1];
-		static uint8_t slot_buf[1][FZN_NODE_REPLY_MAX * 4u];
-		static fzn_reasm_t table;
-		static fzn_caller_t caller;
+	if (npulls) {
 		uint64_t next_pull = 0;
-		int fd = -1;
+		size_t t;
 
-		/* THE PULL ASKS THE ROOT, so it needs a pairing TO the root. A node
-		 * that joined through a member holds one to that member instead;
-		 * pulling from peers is the rework sec 389 calls for, not this. */
-		if (my_authority && memcmp(estate.node, state.config.root, FZN_PUBKEY_LEN) != 0) {
-			fprintf(stderr, "fuzznetd: --root-at pulls from the root, and this node "
-			                "joined through a member, not the root\n");
+		/* A PULL NEEDS A STORE TO KEEP WHAT IT LEARNS, and `--root-at`
+		 * needs a node that joined through the root: a node that joined
+		 * through a member holds its pairing to that member, and names
+		 * it with `--pull-from` instead. */
+		if (!running || !store_ops) {
+			fprintf(stderr, "fuzznetd: pulling votes needs --fuzznet-dir\n");
 			fzn_socket_close(lfd, sock_path);
 			if (ufd >= 0)
 				fzn_udp_close(ufd);
 			return 2;
 		}
-		if (!my_authority || !running || root_at_port < 0
-		    || root_at_port > 65535) {
-			fprintf(stderr, "fuzznetd: --root-at needs --fuzznet-dir and a node that has "
-			                "joined an estate\n");
-			fzn_socket_close(lfd, sock_path);
-			if (ufd >= 0)
-				fzn_udp_close(ufd);
-			return 2;
-		}
-		if (fzn_udp_bind(family, NULL, 0, &fd) != FZN_UDP_OK
-		    || fzn_udp_resolve(family, root_at_host, (uint16_t)root_at_port, &caller.node)
-		               != FZN_UDP_OK
-		    || fzn_reasm_slot_init(&slots[0], slot_buf[0], sizeof(slot_buf[0]))
-		               != FZN_REASM_OK
-		    || fzn_reasm_init(&table, slots, 1, 1u, 60u) != FZN_REASM_OK) {
-			fprintf(stderr, "fuzznetd: could not reach for the root at %s\n",
-			        root_at_host);
-			fzn_socket_close(lfd, sock_path);
-			if (fd >= 0)
-				fzn_udp_close(fd);
-			if (ufd >= 0)
-				fzn_udp_close(ufd);
-			return 1;
-		}
-		fzn_node_pairing_caller(&estate, identity.pubkey, &caller);
-		caller.fd = fd;
-		caller.hash = &hash_ops;
-		caller.aead = &aead_ops;
-		caller.rng = &rng_ops;
-		caller.reasm = &table;
-		caller.hops = 1u;
+		for (t = 0; t < npulls; t++) {
+			struct pull_target *pt = &pulls[t];
+			int fd = -1;
 
-		fprintf(stderr, "fuzznetd: serving%s%s%s, pulling from %s every %us\n",
+			pt->fd = -1;
+			if (pt->is_root_at) {
+				if (!my_authority
+				    || memcmp(estate.node, state.config.root, FZN_PUBKEY_LEN) != 0) {
+					fprintf(stderr, "fuzznetd: --root-at needs a node that joined an "
+					                "estate through its root; name a member with "
+					                "--pull-from\n");
+					fzn_socket_close(lfd, sock_path);
+					if (ufd >= 0)
+						fzn_udp_close(ufd);
+					return 2;
+				}
+				pt->pairing = estate;
+			} else if (fzn_node_pairing_load(store_ops, pt->node, &pt->pairing)
+			           != FZN_PERSIST_OK) {
+				fprintf(stderr, "fuzznetd: --pull-from %s: this node holds no pairing to "
+				                "that node\n", pt->host);
+				fzn_socket_close(lfd, sock_path);
+				if (ufd >= 0)
+					fzn_udp_close(ufd);
+				return 2;
+			}
+			if (pt->port < 0 || pt->port > 65535
+			    || fzn_udp_bind(family, NULL, 0, &fd) != FZN_UDP_OK
+			    || fzn_udp_resolve(family, pt->host, (uint16_t)pt->port, &pt->caller.node)
+			               != FZN_UDP_OK
+			    || fzn_reasm_slot_init(&pt->slot, pt->slot_buf, sizeof(pt->slot_buf))
+			               != FZN_REASM_OK
+			    || fzn_reasm_init(&pt->table, &pt->slot, 1, 1u, 60u) != FZN_REASM_OK) {
+				fprintf(stderr, "fuzznetd: could not reach for the peer at %s\n",
+				        pt->host);
+				fzn_socket_close(lfd, sock_path);
+				if (fd >= 0)
+					fzn_udp_close(fd);
+				if (ufd >= 0)
+					fzn_udp_close(ufd);
+				return 1;
+			}
+			pt->fd = fd;
+			fzn_node_pairing_caller(&pt->pairing, identity.pubkey, &pt->caller);
+			pt->caller.fd = fd;
+			pt->caller.hash = &hash_ops;
+			pt->caller.aead = &aead_ops;
+			pt->caller.rng = &rng_ops;
+			pt->caller.reasm = &pt->table;
+			pt->caller.hops = 1u;
+		}
+
+		fprintf(stderr, "fuzznetd: serving%s%s%s, pulling from %zu peer(s) every %us\n",
 		        sock_path ? " on " : "", sock_path ? sock_path : "",
-		        (udp_port >= 0) ? " udp" : "", root_at_host, FZND_PULL_EVERY);
+		        (udp_port >= 0) ? " udp" : "", npulls, FZND_PULL_EVERY);
 		for (;;) {
 			uint64_t now = wall_clock();
 
+			/* EVERY PEER EACH ROUND, one after another. A peer that does
+			 * not answer is reported and the next is asked: what one
+			 * peer cannot say another may, which is the point of asking
+			 * more than one. sec 401. */
 			if (now >= next_pull) {
-				size_t learned = 0, refused = 0;
-				fzn_node_pull_err_t perr;
+				for (t = 0; t < npulls; t++) {
+					size_t learned = 0, refused = 0;
+					fzn_node_pull_err_t perr;
 
-				/* VOTES, NOT ONLY THE ROOT'S: the peer serves every
-				 * vote it holds, so what any node learned reaches this
-				 * one through whichever peer it pulls. sec 399. */
-				perr = fzn_node_votes_pull(&caller, state.config.root, &sign_ops,
-				                           &hash_ops, now, running, store_ops,
-				                           &learned, &refused);
-				if (perr != FZN_NODE_PULL_OK)
-					fprintf(stderr, "fuzznetd: votes from %s: %s\n", root_at_host,
-					        fzn_node_pull_err_str(perr));
-				else if (learned || refused)
-					fprintf(stderr,
-					        "fuzznetd: %zu vote(s) from %s, %zu refused\n",
-					        learned, root_at_host, refused);
+					perr = fzn_node_votes_pull(&pulls[t].caller, state.config.root,
+					                           &sign_ops, &hash_ops, now, running,
+					                           store_ops, &learned, &refused);
+					if (perr != FZN_NODE_PULL_OK)
+						fprintf(stderr, "fuzznetd: votes from %s: %s\n",
+						        pulls[t].host, fzn_node_pull_err_str(perr));
+					else if (learned || refused)
+						fprintf(stderr,
+						        "fuzznetd: %zu vote(s) from %s, %zu refused\n",
+						        learned, pulls[t].host, refused);
+				}
 				next_pull = wall_clock() + FZND_PULL_EVERY;
 			}
 			(void)fzn_node_run_once(&state, 1000);
