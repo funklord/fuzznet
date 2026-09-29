@@ -192,7 +192,7 @@ static size_t list_peers(fzn_node_admin_t *admin, const uint8_t *from_text, size
 
 /* `get revocation [FROM]`: the revocations this node ISSUED, as the signed
  * records, paged as `list peer` is -- `ok TOTAL FROM RECORD ...`, each record
- * 404 hex characters. What a member node pulls from its root (sec 384).
+ * 420 hex characters. What a member node pulls from its root (sec 384).
  * Non-mutating, so a remote caller holding the node's grant may ask. */
 static size_t get_revocations(fzn_node_admin_t *admin, const uint8_t *from_text,
                               size_t from_len, char *reply, size_t cap)

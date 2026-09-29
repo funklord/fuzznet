@@ -5,8 +5,9 @@
 // an at-rest record wants, where `target buffer` is for bytes already in hand.
 //
 // Every blob is `version | tag | body` (persist.c: OFF_VERSION=0, OFF_TAG=1,
-// OFF_BODY=2), a two-byte head followed by ONE OF eight bodies chosen by the
-// tag, seven fixed and one, the node peer, sized by its own hop count. It is a TAGGED UNION, modelled with situ's variant/switch: the tag
+// OFF_BODY=2), a two-byte head followed by ONE OF nine bodies chosen by the
+// tag, six fixed and three -- the pairing, the node peer and the vote -- sized
+// by their own hop counts. It is a TAGGED UNION, modelled with situ's variant/switch: the tag
 // is the discriminant and each arm is one body struct.
 //
 // The tag byte is checked exactly by persist.c's head_check, and an unknown
@@ -27,8 +28,12 @@
 //   PAIRING_BODY  = 32+32+32+32+1 + 179 * hop_count = 308..1561
 //                                  (node, capability, send_key, send_ckey,
 //                                  hop_count, chain; node/pair.c, secs 377, 391)
-//   REVOCATION_BODY = 202          (a signed revocation record,
-//                                  chain/revocation.situ; node/revoke.c, sec 380)
+//   REVOCATION_BODY = 210          (a signed revocation record,
+//                                  chain/revocation.situ; node/revoke.c, sec 380;
+//                                  202 until the epoch, sec 400)
+//   VOTE_BODY = 210 + 1 + 179 * hop_count = 211..1464
+//                                  (record, hop_count, chain; node/revoke.c,
+//                                  sec 399)
 //   NODE_PEER_BODY = 32+32+32+1 + 179 * hop_count = 97..1529
 //                                  (sender, recv_key, recv_ckey, hop_count,
 //                                  hops; node/peer_persist.c, sec 366)
@@ -38,7 +43,8 @@ endian big;
 
 // persist.c: BLOB_TRUST=1, BLOB_SECRET=2, BLOB_PEER=3, BLOB_CHAIN=4,
 // BLOB_IDENTITY=6, FZN_PERSIST_BLOB_PAIRING=7, which node/pair.c packs, and
-// FZN_PERSIST_BLOB_REVOCATION=8, which node/revoke.c packs.
+// FZN_PERSIST_BLOB_REVOCATION=8 and FZN_PERSIST_BLOB_VOTE=9, which
+// node/revoke.c packs.
 // A byte that is not one of these is refused, matching head_check's tag
 // mismatch. 5 is FZN_PERSIST_BLOB_NODE_PEER, which node/peer_persist.c packs
 // with a body sized by its hop count; described since sec 387.
@@ -51,6 +57,7 @@ enum fzn_persist_tag : u8 {
 	identity = 6,
 	pairing = 7,
 	revocation = 8,
+	vote = 9,
 	default = error,
 }
 
@@ -105,17 +112,26 @@ struct fzn_persist_pairing_body {
 	fzn_persist_hop chain[hop_count];
 }
 
-// A revocation this node issued, as the signed record it minted (202 bytes,
+// A revocation this node issued, as the signed record it minted (210 bytes,
 // chain/revocation.situ -- kept opaque here, as the pairing's hop is).
-// REVOCATION_BODY = 202.
+// REVOCATION_BODY = 210.
 struct fzn_persist_revocation_body {
-	u8  record[202];
+	u8  record[210];
 }
 
 // One signed hop, opaque here as the pairing's is (179 bytes,
 // chain/hop.situ). A struct so the node peer's hops can be counted.
 struct fzn_persist_hop {
 	u8  bytes[179];
+}
+
+// A vote this node learned from a peer, with the chain that entitles its
+// issuer (sec 399): none for the root's, and at most seven, since an offered
+// chain may carry FZN_CHAIN_MAX_HOPS - 1 hops and node/revoke.c refuses more.
+struct fzn_persist_vote_body {
+	u8  record[210];
+	u8  hop_count [max = 7];
+	fzn_persist_hop hops[hop_count];
 }
 
 // A peer as the NODE keeps it: who it is, the session keys its frames open
@@ -145,6 +161,7 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.identity: fzn_persist_identity_body identity;
 		case fzn_persist_tag.pairing:  fzn_persist_pairing_body  pairing;
 		case fzn_persist_tag.revocation: fzn_persist_revocation_body revocation;
+		case fzn_persist_tag.vote: fzn_persist_vote_body vote;
 		default: error;
 	}
 }

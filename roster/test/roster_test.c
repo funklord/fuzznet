@@ -207,7 +207,7 @@ static int revoke_member(fzn_revocation_store_t *store, fzn_revocation_t *entrie
 	hash.hash = stub_hash;
 	hash.ctx = NULL;
 	return fzn_revocation_store_init(store, entries, n) == FZN_CHAIN_OK
-	       && fzn_revocation_issue(root.key, &manage, member.key, 600, &root.sign, bytes)
+	       && fzn_revocation_issue(root.key, &manage, member.key, 600, 0u, &root.sign, bytes)
 	                  == FZN_CHAIN_OK
 	       && fzn_revocation_open(bytes, sizeof(bytes), &rec) == FZN_CHAIN_OK
 	       && fzn_revocation_admit(store, fzn_revocation_offer_root(rec), root.key, &root.sign,

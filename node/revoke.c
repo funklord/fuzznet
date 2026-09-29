@@ -121,7 +121,8 @@ static fzn_node_revoke_err_t issue(const fzn_node_identity_t *id,
 			return FZN_NODE_REVOKE_STORE_REFUSED;
 		cerr = fzn_revocation_issue_withdrawal(id->pubkey,
 		                                       fzn_revocation_capability(prev_rec),
-		                                       grantee, now, target, id->sign, record);
+		                                       grantee, now, fzn_revocation_epoch(prev_rec),
+		                                       target, id->sign, record);
 	} else if (held) {
 		/* A FIRST REVOCATION, OR ONE NAMING WHAT IT FOLLOWS. The store
 		 * refuses a zero `supersedes` over a withdrawn pair
@@ -131,10 +132,15 @@ static fzn_node_revoke_err_t issue(const fzn_node_identity_t *id,
 		if (!fzn_revocation_is_withdrawal(prev_rec))
 			return FZN_NODE_REVOKE_ALREADY;
 		cerr = fzn_revocation_reissue(id->pubkey, capability, grantee, now,
+		                              fzn_revocation_current_epoch(revocations, capability,
+		                                                           grantee),
 		                              fzn_revocation_supersedes(prev_rec), id->sign,
 		                              record);
 	} else {
-		cerr = fzn_revocation_issue(id->pubkey, capability, grantee, now, id->sign, record);
+		cerr = fzn_revocation_issue(id->pubkey, capability, grantee, now,
+		                            fzn_revocation_current_epoch(revocations, capability,
+		                                                         grantee),
+		                            id->sign, record);
 	}
 	if (cerr != FZN_CHAIN_OK
 	    || fzn_revocation_open(record, sizeof(record), &rec) != FZN_CHAIN_OK
@@ -385,7 +391,7 @@ fzn_node_pull_err_t fzn_node_revocations_absorb(const uint8_t *reply, size_t rep
 	if (detail_len && detail[detail_len - 1u] == '\n')
 		detail_len--;
 
-	/* `TOTAL FROM` and then records, each a space and 404 hex. */
+	/* `TOTAL FROM` and then records, each a space and 420 hex. */
 	if (!take_count(detail, detail_len, &at, total) || at >= detail_len
 	    || detail[at++] != ' ' || !take_count(detail, detail_len, &at, &off) || off != from
 	    || *total > FZN_NODE_REVOCATIONS_MAX)

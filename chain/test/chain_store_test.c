@@ -476,7 +476,7 @@ static void test_a_revoked_chain_is_still_held_and_no_longer_verifies(void)
 
 	/* The root withdraws the capability from the grantee. */
 	signing_as = 0x11;
-	REQUIRE(fzn_revocation_issue(f.root, &f.cap, f.grantee, 300, &OPS, rev) == FZN_CHAIN_OK,
+	REQUIRE(fzn_revocation_issue(f.root, &f.cap, f.grantee, 300, 0u, &OPS, rev) == FZN_CHAIN_OK,
 	        "issuing the revocation failed");
 	REQUIRE(fzn_revocation_open(rev, sizeof(rev), &record) == FZN_CHAIN_OK,
 	        "the revocation does not open");
@@ -843,7 +843,7 @@ static void test_admit_passes_the_revocation_state_through(void)
 	REQUIRE(build(&f), "the fixture does not build");
 
 	signing_as = 0x11;
-	REQUIRE(fzn_revocation_issue(f.root, &f.cap, f.grantee, 300, &OPS, rev) == FZN_CHAIN_OK,
+	REQUIRE(fzn_revocation_issue(f.root, &f.cap, f.grantee, 300, 0u, &OPS, rev) == FZN_CHAIN_OK,
 	        "issuing the revocation failed");
 	REQUIRE(fzn_revocation_open(rev, sizeof(rev), &record) == FZN_CHAIN_OK,
 	        "the revocation does not open");

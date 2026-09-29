@@ -65,13 +65,15 @@
  *         66    32  issuer
  *         98     8  issued_at
  *        106    32  supersedes (the id of a revocation this replaces)
- *        138    64  signature
+ *        138     8  epoch      (the k-of-n cycle this vote belongs to)
+ *        146    64  signature
  *
- * The signature covers bytes 0 through 137. The object byte is what stops a
+ * The signature covers bytes 0 through 145. The epoch arrived in sec 400;
+ * a record of the old 202-byte layout does not open, by its length. The object byte is what stops a
  * signature made over a hop being presented as a revocation, and vice versa;
  * wire/bytes.h records what it cost fuzzypickles to learn that two record
  * types of the same length can have ONE SIGNATURE THAT VERIFIES AS BOTH. */
-#define FZN_REVOCATION_BODY_LEN 138u
+#define FZN_REVOCATION_BODY_LEN 146u
 #define FZN_REVOCATION_LEN (FZN_REVOCATION_BODY_LEN + (size_t)FZN_SIG_LEN)
 
 #define FZN_REV_OFF_VERSION 0u
@@ -111,6 +113,23 @@
  * counter that cannot be bounded are the same hazard. A hash is compared for
  * equality and never for magnitude, which is what makes it safe. */
 #define FZN_REV_OFF_SUPERSEDES 106u
+/* WHICH K-OF-N CYCLE A VOTE BELONGS TO. sec 400.
+ *
+ * A withdrawal carries the epoch of the revocation it undoes. A revocation
+ * carries the lowest epoch its issuer's store holds open for the pair
+ * (`fzn_revocation_current_epoch`), so once k have withdrawn an epoch, a
+ * revocation cast afterwards opens the next one and counts from one again.
+ * Without it the latch could not tell a withdrawal that completed an undo
+ * from one cast before any quorum existed, and one vote re-revoked a device
+ * k had restored (sec 399).
+ *
+ * A NUMBER COMPARED FOR MAGNITUDE, which `supersedes` below and `issued_at`
+ * refuse to be, and the reason it is safe is where it is read. An epoch
+ * moves nothing by itself: a live revocation counts whatever its epoch, so
+ * an epoch can only decide whether WITHDRAWN votes still hold a latch shut,
+ * and closing an epoch takes k distinct entitled issuers. One issuer
+ * signing epoch UINT64_MAX is one of the k and nothing more. */
+#define FZN_REV_OFF_EPOCH 138u
 #define FZN_REV_OFF_SIGNATURE FZN_REVOCATION_BODY_LEN
 
 /* A revocation as it travels: what is withdrawn, who says so, and the proof.
@@ -153,7 +172,7 @@ fzn_chain_err_t fzn_revocation_encode(uint8_t *out, uint8_t object,
                                       const uint8_t issuer[FZN_PUBKEY_LEN],
                                       const fzn_cap_id_t *capability,
                                       const uint8_t grantee[FZN_PUBKEY_LEN],
-                                      uint64_t issued_at,
+                                      uint64_t issued_at, uint64_t epoch,
                                       const uint8_t supersedes[FZN_REVOCATION_ID_LEN]);
 
 /* Encode and sign a revocation: `issuer` withdraws `capability` from
@@ -170,7 +189,7 @@ fzn_chain_err_t fzn_revocation_encode(uint8_t *out, uint8_t object,
 fzn_chain_err_t fzn_revocation_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
                                      const fzn_cap_id_t *capability,
                                      const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t issued_at,
-                                     const fzn_sign_ops_t *sign, uint8_t *out);
+                                     uint64_t epoch, const fzn_sign_ops_t *sign, uint8_t *out);
 
 /* THE THREE MINTING CALLS, and the split is the whole of how the chaining
  * rule is enforced rather than documented.
@@ -207,14 +226,14 @@ fzn_chain_err_t fzn_revocation_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
 fzn_chain_err_t fzn_revocation_reissue(const uint8_t issuer[FZN_PUBKEY_LEN],
                                        const fzn_cap_id_t *capability,
                                        const uint8_t grantee[FZN_PUBKEY_LEN],
-                                       uint64_t issued_at,
+                                       uint64_t issued_at, uint64_t epoch,
                                        const uint8_t supersedes[FZN_REVOCATION_ID_LEN],
                                        const fzn_sign_ops_t *sign, uint8_t *out);
 
 fzn_chain_err_t fzn_revocation_issue_withdrawal(const uint8_t issuer[FZN_PUBKEY_LEN],
                                                 const fzn_cap_id_t *capability,
                                                 const uint8_t grantee[FZN_PUBKEY_LEN],
-                                                uint64_t issued_at,
+                                                uint64_t issued_at, uint64_t epoch,
                                                 const uint8_t target[FZN_REVOCATION_ID_LEN],
                                                 const fzn_sign_ops_t *sign, uint8_t *out);
 
@@ -334,6 +353,12 @@ static inline const uint8_t *fzn_revocation_issuer(fzn_revocation_record_t rec)
 static inline uint64_t fzn_revocation_issued_at(fzn_revocation_record_t rec)
 {
 	return fzn_get_be64(rec.base + FZN_REV_OFF_ISSUED_AT);
+}
+
+/* The epoch this vote belongs to. See FZN_REV_OFF_EPOCH. */
+static inline uint64_t fzn_revocation_epoch(fzn_revocation_record_t rec)
+{
+	return fzn_get_be64(rec.base + FZN_REV_OFF_EPOCH);
 }
 
 static inline const uint8_t *fzn_revocation_signature(fzn_revocation_record_t rec)
@@ -462,6 +487,14 @@ void fzn_revocation_covers_links(const fzn_revocation_store_t *store,
                                  const uint8_t (*grantees)[FZN_PUBKEY_LEN], size_t hop_count,
                                  const fzn_cap_id_t *capability,
                                  uint8_t revoked[FZN_CHAIN_MAX_HOPS]);
+
+/* THE EPOCH A NEW VOTE ON (capability, grantee) BELONGS IN: the lowest this
+ * store holds open, counting every issuer it has admitted for the pair and
+ * its own quorum. 0 for a pair it holds nothing on. A withdrawal does not
+ * ask this -- it carries the epoch of the revocation it undoes. sec 400. */
+uint64_t fzn_revocation_current_epoch(const fzn_revocation_store_t *store,
+                                      const fzn_cap_id_t *capability,
+                                      const uint8_t grantee[FZN_PUBKEY_LEN]);
 
 /*
  * Give this store somewhere to say what happened, or NULL to silence it.

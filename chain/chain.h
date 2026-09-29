@@ -660,6 +660,11 @@ typedef struct fzn_revocation {
 	 * fuzzypickles ran into exactly this and their store holds the CLEAR
 	 * under the same key for the same reason. */
 	int withdrawn;
+
+	/* THE EPOCH THE HELD RECORD WAS CAST IN, sec 400: what lets the k-of-n
+	 * latch tell a withdrawal that completed an undo from one that did
+	 * not. Last, so positional initialisers keep their meaning. */
+	uint64_t epoch;
 } fzn_revocation_t;
 
 /* The store, DECLARED here and DEFINED in revocation.h.

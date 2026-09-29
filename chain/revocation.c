@@ -43,19 +43,24 @@ _Static_assert(FZN_REV_OFF_GRANTEE == 34u, "revocation layout: grantee moved");
 _Static_assert(FZN_REV_OFF_ISSUER == 66u, "revocation layout: issuer moved");
 _Static_assert(FZN_REV_OFF_ISSUED_AT == 98u, "revocation layout: issued_at moved");
 _Static_assert(FZN_REV_OFF_SUPERSEDES == 106u, "revocation layout: supersedes moved");
-_Static_assert(FZN_REV_OFF_SIGNATURE == 138u, "revocation layout: the signature moved");
-_Static_assert(FZN_REVOCATION_BODY_LEN == 138u,
-               "revocation layout: the signed body is not 138 bytes");
-_Static_assert(FZN_REVOCATION_LEN == 202u,
-               "revocation layout: a revocation is not 202 bytes");
+_Static_assert(FZN_REV_OFF_EPOCH == 138u, "revocation layout: epoch moved");
+_Static_assert(FZN_REV_OFF_SIGNATURE == 146u, "revocation layout: the signature moved");
+_Static_assert(FZN_REVOCATION_BODY_LEN == 146u,
+               "revocation layout: the signed body is not 146 bytes");
+_Static_assert(FZN_REVOCATION_LEN == 210u,
+               "revocation layout: a revocation is not 210 bytes");
 /* THE FIELD IS INSIDE THE SIGNED RANGE, which is the whole of what makes it
  * worth anything. A supersedes a peer could rewrite in flight would let one
  * relay turn a chained re-revocation into an un-chained one, or point a
  * withdrawal at a different revocation than the issuer named. The body ends
  * at the signature, so asserting the field is below FZN_REV_OFF_SIGNATURE
  * says it is covered. */
-_Static_assert(FZN_REV_OFF_SUPERSEDES + FZN_REVOCATION_ID_LEN == FZN_REV_OFF_SIGNATURE,
-               "revocation layout: supersedes is not the last signed field");
+_Static_assert(FZN_REV_OFF_SUPERSEDES + FZN_REVOCATION_ID_LEN == FZN_REV_OFF_EPOCH,
+               "revocation layout: supersedes is not followed by the epoch");
+/* THE EPOCH IS SIGNED TOO, sec 400: one a relay could rewrite would let it
+ * move a withdrawal into an epoch its revocation was never in. */
+_Static_assert(FZN_REV_OFF_EPOCH + 8u == FZN_REV_OFF_SIGNATURE,
+               "revocation layout: the epoch is not the last signed field");
 
 
 /* All-zero, which is how "names nothing" is spelled in a hash field.
@@ -160,7 +165,7 @@ fzn_chain_err_t fzn_revocation_encode(uint8_t *out, uint8_t object,
                                       const uint8_t issuer[FZN_PUBKEY_LEN],
                                       const fzn_cap_id_t *capability,
                                       const uint8_t grantee[FZN_PUBKEY_LEN],
-                                      uint64_t issued_at,
+                                      uint64_t issued_at, uint64_t epoch,
                                       const uint8_t supersedes[FZN_REVOCATION_ID_LEN])
 {
 	if (!out || !issuer || !capability || !grantee)
@@ -185,6 +190,7 @@ fzn_chain_err_t fzn_revocation_encode(uint8_t *out, uint8_t object,
 		memcpy(out + FZN_REV_OFF_SUPERSEDES, supersedes, FZN_REVOCATION_ID_LEN);
 	else
 		memset(out + FZN_REV_OFF_SUPERSEDES, 0, FZN_REVOCATION_ID_LEN);
+	fzn_put_be64(out + FZN_REV_OFF_EPOCH, epoch);
 	memset(out + FZN_REV_OFF_SIGNATURE, 0, FZN_SIG_LEN);
 
 	return FZN_CHAIN_OK;
@@ -197,7 +203,7 @@ fzn_chain_err_t fzn_revocation_encode(uint8_t *out, uint8_t object,
 static fzn_chain_err_t mint(uint8_t object, const uint8_t issuer[FZN_PUBKEY_LEN],
                             const fzn_cap_id_t *capability,
                             const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t issued_at,
-                            const uint8_t supersedes[FZN_REVOCATION_ID_LEN],
+                            uint64_t epoch, const uint8_t supersedes[FZN_REVOCATION_ID_LEN],
                             const fzn_sign_ops_t *sign, uint8_t *out)
 {
 	fzn_chain_err_t err;
@@ -208,7 +214,7 @@ static fzn_chain_err_t mint(uint8_t object, const uint8_t issuer[FZN_PUBKEY_LEN]
 	if (!issuer || !capability || !grantee || !sign || !sign->sign || !out)
 		return FZN_CHAIN_ERR_MALFORMED;
 
-	err = fzn_revocation_encode(out, object, issuer, capability, grantee, issued_at,
+	err = fzn_revocation_encode(out, object, issuer, capability, grantee, issued_at, epoch,
 	                            supersedes);
 	if (err != FZN_CHAIN_OK)
 		return err;
@@ -233,16 +239,16 @@ static fzn_chain_err_t mint(uint8_t object, const uint8_t issuer[FZN_PUBKEY_LEN]
 fzn_chain_err_t fzn_revocation_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
                                      const fzn_cap_id_t *capability,
                                      const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t issued_at,
-                                     const fzn_sign_ops_t *sign, uint8_t *out)
+                                     uint64_t epoch, const fzn_sign_ops_t *sign, uint8_t *out)
 {
-	return mint((uint8_t)FZN_OBJECT_REVOCATION, issuer, capability, grantee, issued_at,
+	return mint((uint8_t)FZN_OBJECT_REVOCATION, issuer, capability, grantee, issued_at, epoch,
 	            NULL, sign, out);
 }
 
 fzn_chain_err_t fzn_revocation_reissue(const uint8_t issuer[FZN_PUBKEY_LEN],
                                        const fzn_cap_id_t *capability,
                                        const uint8_t grantee[FZN_PUBKEY_LEN],
-                                       uint64_t issued_at,
+                                       uint64_t issued_at, uint64_t epoch,
                                        const uint8_t supersedes[FZN_REVOCATION_ID_LEN],
                                        const fzn_sign_ops_t *sign, uint8_t *out)
 {
@@ -250,18 +256,18 @@ fzn_chain_err_t fzn_revocation_reissue(const uint8_t issuer[FZN_PUBKEY_LEN],
 	 * way, and a caller reaching for this one believes it is chaining. */
 	if (!supersedes || all_zero(supersedes, FZN_REVOCATION_ID_LEN))
 		return FZN_CHAIN_ERR_MALFORMED;
-	return mint((uint8_t)FZN_OBJECT_REVOCATION, issuer, capability, grantee, issued_at,
+	return mint((uint8_t)FZN_OBJECT_REVOCATION, issuer, capability, grantee, issued_at, epoch,
 	            supersedes, sign, out);
 }
 
 fzn_chain_err_t fzn_revocation_issue_withdrawal(const uint8_t issuer[FZN_PUBKEY_LEN],
                                                 const fzn_cap_id_t *capability,
                                                 const uint8_t grantee[FZN_PUBKEY_LEN],
-                                                uint64_t issued_at,
+                                                uint64_t issued_at, uint64_t epoch,
                                                 const uint8_t target[FZN_REVOCATION_ID_LEN],
                                                 const fzn_sign_ops_t *sign, uint8_t *out)
 {
-	return mint((uint8_t)FZN_OBJECT_WITHDRAWAL, issuer, capability, grantee, issued_at,
+	return mint((uint8_t)FZN_OBJECT_WITHDRAWAL, issuer, capability, grantee, issued_at, epoch,
 	            target, sign, out);
 }
 
@@ -515,51 +521,169 @@ static size_t find_admin(const fzn_revocation_store_t *store, const uint8_t *key
 	return a;
 }
 
-/* THE RULE, one hop at a time. For hop `i`, the entries that count are those
- * naming this capability and hop `i`'s grantee, from an issuer entitled to
- * revoke it: the root or an ancestor -- the grantor of hop `j` for some
- * `j <= i`, the smallest-j rule sec 13c settled -- or an admin `admin_ok`
- * lets count (NULL: every admin). One entry per issuer and triple, so each
- * counted entry is a distinct issuer.
+/* WHICH ENTRIES A HOP COUNTS: those naming its capability and grantee, from
+ * an issuer entitled to revoke it -- the root or an ancestor, the grantor of
+ * hop `j` for some `j <= i`, the smallest-j rule sec 13c settled -- or an
+ * admin `admin_ok` lets count (NULL: every admin). With `any_issuer` every
+ * issuer counts, which is the question a host asks before casting its own
+ * vote rather than when judging a chain. */
+struct hop_question {
+	const uint8_t (*grantors)[FZN_PUBKEY_LEN];
+	const uint8_t (*grantees)[FZN_PUBKEY_LEN];
+	size_t i, hop_count;
+	const fzn_cap_id_t *capability;
+	const uint8_t *admin_ok;
+	int any_issuer;
+};
+
+static int counts(const fzn_revocation_store_t *store, const fzn_revocation_t *entry,
+                  const struct hop_question *h)
+{
+	size_t j;
+
+	if (!fzn_ct_memeq(entry->capability.b, h->capability->b, FZN_CAP_ID_LEN)
+	    || !fzn_ct_memeq(entry->grantee, h->grantees[h->i], FZN_PUBKEY_LEN))
+		return 0;
+	if (h->any_issuer)
+		return 1;
+	for (j = 0; j <= h->i; j++)
+		if (fzn_ct_memeq(h->grantors[j], entry->issuer, FZN_PUBKEY_LEN))
+			return 1;
+	if (store->has_admin) {
+		size_t a = find_admin(store, entry->issuer);
+
+		return a < store->admins_used && (!h->admin_ok || h->admin_ok[a]);
+	}
+	return 0;
+}
+
+/* AN EPOCH IS CLOSED when `q` counted issuers have left it: withdrawn in it,
+ * or cast a vote in a later one. One issuer counts once, whatever epoch it
+ * names, which is why an issuer signing UINT64_MAX closes nothing alone. */
+static int epoch_closed(const fzn_revocation_store_t *store, const struct hop_question *h,
+                        uint64_t epoch, size_t q)
+{
+	size_t e, left = 0;
+
+	for (e = 0; e < store->used; e++) {
+		const fzn_revocation_t *entry = &store->entries[e];
+
+		if (counts(store, entry, h)
+		    && (entry->epoch > epoch || (entry->epoch == epoch && entry->withdrawn)))
+			left++;
+	}
+	return left >= q;
+}
+
+/* THE LOWEST EPOCH NOT CLOSED. Closure depends only on how many counted
+ * issuers sit at or past an epoch, which is constant between the epochs
+ * entries name, so the answer is 0, an epoch some entry names, or one past
+ * it; those are the only candidates asked. */
+static uint64_t open_epoch(const fzn_revocation_store_t *store, const struct hop_question *h,
+                           size_t q)
+{
+	uint64_t best = 0;
+	int have = !epoch_closed(store, h, 0u, q);
+	size_t e, k;
+
+	for (e = 0; e < store->used; e++) {
+		const fzn_revocation_t *entry = &store->entries[e];
+
+		if (!counts(store, entry, h))
+			continue;
+		for (k = 0; k < 2u; k++) {
+			uint64_t c = entry->epoch + (uint64_t)k;
+
+			if (k == 1u && entry->epoch == UINT64_MAX)
+				continue;
+			if ((!have || c < best) && !epoch_closed(store, h, c, q)) {
+				best = c;
+				have = 1;
+			}
+		}
+	}
+	return have ? best : UINT64_MAX;
+}
+
+/* THE RULE, one hop at a time, sec 397 and as corrected in sec 400.
  *
- * REVOKED while `quorum` are live; LATCHED, once `quorum` have revoked, until
- * `quorum` have withdrawn. At quorum 1 that is exactly the old answer: any
- * live entitled entry revokes, and a withdrawn one does not. */
+ * REVOKED while `quorum` counted issuers are live, whatever epochs they
+ * name: a live vote always counts, which is what keeps an epoch from ever
+ * making a device LESS revoked than its live votes say.
+ *
+ * LATCHED otherwise when, in the lowest epoch not closed, `quorum` issuers
+ * cast votes and fewer than `quorum` of them have withdrawn. So once k have
+ * withdrawn an epoch it is closed, and a vote cast afterwards opens the next
+ * one and counts from one again -- the case sec 399 found one vote
+ * re-revoking. At quorum 1 this is the old answer exactly: any live entry
+ * revokes, and a latch at 1 is a live entry. */
 static void judge_links(const fzn_revocation_store_t *store,
                         const uint8_t (*grantors)[FZN_PUBKEY_LEN],
                         const uint8_t (*grantees)[FZN_PUBKEY_LEN], size_t hop_count,
                         const fzn_cap_id_t *capability, const uint8_t *admin_ok,
                         uint8_t revoked[FZN_CHAIN_MAX_HOPS])
 {
-	size_t i, j, e, q = store->quorum ? store->quorum : 1u;
+	size_t i, e, q = store->quorum ? store->quorum : 1u;
+	struct hop_question h;
 
+	h.grantors = grantors;
+	h.grantees = grantees;
+	h.hop_count = hop_count;
+	h.capability = capability;
+	h.admin_ok = admin_ok;
+	h.any_issuer = 0;
 	for (i = 0; i < hop_count; i++) {
-		size_t live = 0, total = 0;
+		size_t live = 0, total = 0, cast = 0, left = 0;
+		uint64_t current;
 
+		h.i = i;
 		for (e = 0; e < store->used; e++) {
-			const fzn_revocation_t *entry = &store->entries[e];
-			int entitled = 0;
-
-			if (!fzn_ct_memeq(entry->capability.b, capability->b, FZN_CAP_ID_LEN)
-			    || !fzn_ct_memeq(entry->grantee, grantees[i], FZN_PUBKEY_LEN))
-				continue;
-			for (j = 0; j <= i && !entitled; j++)
-				if (fzn_ct_memeq(grantors[j], entry->issuer, FZN_PUBKEY_LEN))
-					entitled = 1;
-			if (!entitled && store->has_admin) {
-				size_t a = find_admin(store, entry->issuer);
-
-				entitled = a < store->admins_used && (!admin_ok || admin_ok[a]);
-			}
-			if (!entitled)
+			if (!counts(store, &store->entries[e], &h))
 				continue;
 			total++;
-			if (!entry->withdrawn)
+			if (!store->entries[e].withdrawn)
 				live++;
 		}
-		if (live >= q || (total >= q && total - live < q))
+		if (live >= q) {
+			revoked[i] = 1;
+			continue;
+		}
+		/* No epoch can hold `q` votes when the whole store holds
+		 * fewer, so the search below is only ever paid in a latch. */
+		if (total < q)
+			continue;
+		current = open_epoch(store, &h, q);
+		for (e = 0; e < store->used; e++) {
+			const fzn_revocation_t *entry = &store->entries[e];
+
+			if (!counts(store, entry, &h) || entry->epoch != current)
+				continue;
+			cast++;
+			if (entry->withdrawn)
+				left++;
+		}
+		if (cast >= q && left < q)
 			revoked[i] = 1;
 	}
+}
+
+uint64_t fzn_revocation_current_epoch(const fzn_revocation_store_t *store,
+                                      const fzn_cap_id_t *capability,
+                                      const uint8_t grantee[FZN_PUBKEY_LEN])
+{
+	const uint8_t (*grantees)[FZN_PUBKEY_LEN] = (const uint8_t (*)[FZN_PUBKEY_LEN])grantee;
+	struct hop_question h;
+
+	if (!store || !capability || !grantee || corrupt(store) || !store->entries)
+		return 0;
+	h.grantors = NULL;
+	h.grantees = grantees;
+	h.i = 0;
+	h.hop_count = 1u;
+	h.capability = capability;
+	h.admin_ok = NULL;
+	h.any_issuer = 1;
+	return open_epoch(store, &h, store->quorum ? store->quorum : 1u);
 }
 
 void fzn_revocation_covers_links(const fzn_revocation_store_t *store,
@@ -955,12 +1079,19 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 			memcpy(store->entries[store->used].id,
 			       fzn_revocation_supersedes(record), FZN_REVOCATION_ID_LEN);
 			store->entries[store->used].withdrawn = 1;
+			store->entries[store->used].epoch = fzn_revocation_epoch(record);
 			store->used++;
 			store->generation++;
 			return FZN_CHAIN_OK;
 		}
 		if (!fzn_ct_memeq(store->entries[at].id, fzn_revocation_supersedes(record),
 		                  FZN_REVOCATION_ID_LEN))
+			return FZN_CHAIN_ERR_UNKNOWN_TARGET;
+		/* A WITHDRAWAL CARRIES ITS TARGET'S EPOCH, sec 400. One naming the
+		 * right record in another epoch is refused as a mismatch rather
+		 * than moving the entry: accepting it would let a withdrawal
+		 * count toward closing an epoch its revocation was never in. */
+		if (store->entries[at].epoch != fzn_revocation_epoch(record))
 			return FZN_CHAIN_ERR_UNKNOWN_TARGET;
 		/* Idempotent: a second copy of the same withdrawal is what
 		 * "carried on contact" looks like when it works, exactly as
@@ -1087,6 +1218,7 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 			 * verdict for this pair would go on authorising a peer
 			 * revoked a moment ago. */
 			entry->withdrawn = 0;
+			entry->epoch = fzn_revocation_epoch(record);
 			store->generation++;
 			memcpy(entry->id, id, FZN_REVOCATION_ID_LEN);
 			fzn_manifest_satisfy(manifest, fzn_revocation_issuer(record),
@@ -1114,8 +1246,10 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 		 * way, so the store is left alone. */
 		if (!fzn_ct_memeq(id, entry->id, FZN_REVOCATION_ID_LEN) &&
 		    fzn_ct_memeq(fzn_revocation_supersedes(record), entry->id,
-		                 FZN_REVOCATION_ID_LEN))
+		                 FZN_REVOCATION_ID_LEN)) {
 			memcpy(entry->id, id, FZN_REVOCATION_ID_LEN);
+			entry->epoch = fzn_revocation_epoch(record);
+		}
 
 		/* SETTLED HERE TOO, AND NOT ONLY WHERE SOMETHING IS STORED.
 		 * A deficit entry can coexist with a stored revocation
@@ -1183,6 +1317,7 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 	 * that answers "not revoked" from the moment it is stored. */
 	memcpy(store->entries[store->used].id, id, FZN_REVOCATION_ID_LEN);
 	store->entries[store->used].withdrawn = 0;
+	store->entries[store->used].epoch = fzn_revocation_epoch(record);
 	store->used++;
 	/* An answer this store gives may now differ; sec 354. */
 	store->generation++;

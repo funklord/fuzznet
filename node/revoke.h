@@ -204,7 +204,7 @@ fzn_node_pull_err_t fzn_node_revocations_pull(fzn_caller_t *caller,
  * The root is one peer among them.
  *
  * A VOTE IS A RECORD AND A CHAIN, and the pair does not fit one reply line:
- * a record is 404 hex characters and a hop 358, so a record with a two-hop
+ * a record is 420 hex characters and a hop 358, so a record with a two-hop
  * chain is past FZN_REPLY_MAX. So `get vote FROM` serves a STREAM OF ITEMS,
  * `r` and a record or `h` and a hop, each hop belonging to the record before
  * it, paged by item index as `get revocation` pages by record:

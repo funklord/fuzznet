@@ -558,8 +558,8 @@ SABOTAGES = [
 	(
 		"revocation-generation-moves-on-a-write",
 		"chain/revocation.c",
-		"\tstore->entries[store->used].withdrawn = 0;\n\tstore->used++;\n\t/* An answer this store gives may now differ; sec 354. */\n\tstore->generation++;",
-		"\tstore->entries[store->used].withdrawn = 0;\n\tstore->used++;",
+		"\tstore->entries[store->used].withdrawn = 0;\n\tstore->entries[store->used].epoch = fzn_revocation_epoch(record);\n\tstore->used++;\n\t/* An answer this store gives may now differ; sec 354. */\n\tstore->generation++;",
+		"\tstore->entries[store->used].withdrawn = 0;\n\tstore->entries[store->used].epoch = fzn_revocation_epoch(record);\n\tstore->used++;",
 		"the store counts its own writes so a cache can tell an answer might "
 		"have changed. A write that does not bump leaves every memo entry "
 		"looking current, so a peer revoked a moment ago keeps its cached "
@@ -570,8 +570,8 @@ SABOTAGES = [
 	(
 		"revocation-generation-moves-on-an-un-withdrawal",
 		"chain/revocation.c",
-		"\t\t\tentry->withdrawn = 0;\n\t\t\tstore->generation++;",
-		"\t\t\tentry->withdrawn = 0;",
+		"\t\t\tentry->withdrawn = 0;\n\t\t\tentry->epoch = fzn_revocation_epoch(record);\n\t\t\tstore->generation++;",
+		"\t\t\tentry->withdrawn = 0;\n\t\t\tentry->epoch = fzn_revocation_epoch(record);",
 		"a re-revocation over a withdrawal turns NOT REVOKED back into "
 		"REVOKED, which is the largest answer this store can change -- and "
 		"`fzn_revocation_lookup` answers on exactly this field. Without the "
@@ -2009,8 +2009,8 @@ SABOTAGES = [
 	(
 		"rev-entitled-only-from-ancestors",
 		"chain/revocation.c",
-		"\t\t\tfor (j = 0; j <= i && !entitled; j++)\n",
-		"\t\t\tfor (j = 0; j < hop_count && !entitled; j++)\n",
+		"\tfor (j = 0; j <= h->i; j++)\n",
+		"\tfor (j = 0; j < h->hop_count; j++)\n",
 		"entitlement starts at a key's FIRST grant, so a descendant may not revoke its ancestor; was rev-first-break until sec 397 rewrote the walk as a per-hop count",
 	),
 	(
@@ -2262,7 +2262,7 @@ SABOTAGES = [
 	(
 		"rev-walk-reads-action",
 		"chain/revocation.c",
-		"\t\t\tif (!entry->withdrawn)\n\t\t\t\tlive++;\n",
+		"\t\t\tif (!store->entries[e].withdrawn)\n\t\t\t\tlive++;\n",
 		"\t\t\tlive++;\n",
 		"the chain walk is a second reader and must read the action too",
 	),
@@ -3790,15 +3790,15 @@ SABOTAGES = [
 	(
 		"revocation-quorum-counts",
 		"chain/revocation.c",
-		"\tsize_t i, j, e, q = store->quorum ? store->quorum : 1u;\n",
-		"\tsize_t i, j, e, q = 1u;\n",
+		"\tsize_t i, e, q = store->quorum ? store->quorum : 1u;\n",
+		"\tsize_t i, e, q = 1u;\n",
 		"a quorum nobody reads makes one entitled issuer enough, which is the single stolen admin sec 394's k-of-n exists to stop -- sec 397",
 	),
 	(
 		"revocation-latch-holds",
 		"chain/revocation.c",
-		"\t\tif (live >= q || (total >= q && total - live < q))\n",
-		"\t\tif (live >= q)\n",
+		"\t\tif (cast >= q && left < q)\n\t\t\trevoked[i] = 1;\n",
+		"",
 		"with no latch one withdrawal undoes a k-of-n revocation, so a single admin can reinstate what k agreed to remove -- sec 397",
 	),
 	(
@@ -3828,6 +3828,48 @@ SABOTAGES = [
 		"\tif (!store || quorum == 0u)\n",
 		"\tif (!store)\n",
 		"a caller asking for quorum 0 has made a mistake, and reading it as 1 would hide it -- sec 397",
+	),
+	(
+		"revocation-epoch-closes-at-k",
+		"chain/revocation.c",
+		"\t\t    && (entry->epoch > epoch || (entry->epoch == epoch && entry->withdrawn)))\n\t\t\tleft++;\n\t}\n\treturn left >= q;\n",
+		"\t\t    && (entry->epoch > epoch || (entry->epoch == epoch && entry->withdrawn)))\n\t\t\tleft++;\n\t}\n\treturn left >= 1u;\n",
+		"an epoch one issuer can close is a latch one issuer can open, which is the single stolen admin the latch exists to stop -- sec 400",
+	),
+	(
+		"revocation-epoch-past-counts-as-leaving",
+		"chain/revocation.c",
+		"\t\t    && (entry->epoch > epoch || (entry->epoch == epoch && entry->withdrawn)))\n",
+		"\t\t    && (entry->epoch == epoch && entry->withdrawn))\n",
+		"an issuer that has moved to a later epoch has left this one, and not counting it leaves an undone epoch shut for ever once its voters re-vote -- sec 400",
+	),
+	(
+		"revocation-withdrawal-names-its-epoch",
+		"chain/revocation.c",
+		"\t\tif (store->entries[at].epoch != fzn_revocation_epoch(record))\n\t\t\treturn FZN_CHAIN_ERR_UNKNOWN_TARGET;\n",
+		"",
+		"a withdrawal that may name another epoch than its revocation's counts toward closing an epoch its vote was never in -- sec 400",
+	),
+	(
+		"revocation-epoch-recorded-on-append",
+		"chain/revocation.c",
+		"\tstore->entries[store->used].epoch = fzn_revocation_epoch(record);\n\tstore->used++;\n\t/* An answer",
+		"\tstore->used++;\n\t/* An answer",
+		"an entry that does not keep its record's epoch is judged in whatever epoch its slot held -- sec 400",
+	),
+	(
+		"revocation-epoch-recorded-on-re-revocation",
+		"chain/revocation.c",
+		"\t\t\tentry->withdrawn = 0;\n\t\t\tentry->epoch = fzn_revocation_epoch(record);\n",
+		"\t\t\tentry->withdrawn = 0;\n",
+		"a re-revocation left in its withdrawn vote's epoch re-shuts the latch an undo opened, which is the defect sec 399 found -- sec 400",
+	),
+	(
+		"node-votes-in-the-open-epoch",
+		"node/revoke.c",
+		"\t\tcerr = fzn_revocation_reissue(id->pubkey, capability, grantee, now,\n\t\t                              fzn_revocation_current_epoch(revocations, capability,\n\t\t                                                           grantee),\n",
+		"\t\tcerr = fzn_revocation_reissue(id->pubkey, capability, grantee, now, 0u,\n",
+		"a node re-voting in the epoch an undo closed re-shuts the latch on its own vote -- sec 400",
 	),
 	(
 		"roster-tie-goes-to-greater-writer",
@@ -4310,8 +4352,10 @@ SABOTAGES = [
 		"chain/revocation.c",
 		"\t\tif (!fzn_ct_memeq(id, entry->id, FZN_REVOCATION_ID_LEN) &&\n"
 		"\t\t    fzn_ct_memeq(fzn_revocation_supersedes(record), entry->id,\n"
-		"\t\t                 FZN_REVOCATION_ID_LEN))\n"
-		"\t\t\tmemcpy(entry->id, id, FZN_REVOCATION_ID_LEN);\n",
+		"\t\t                 FZN_REVOCATION_ID_LEN)) {\n"
+		"\t\t\tmemcpy(entry->id, id, FZN_REVOCATION_ID_LEN);\n"
+		"\t\t\tentry->epoch = fzn_revocation_epoch(record);\n"
+		"\t\t}\n",
 		"",
 		"a store that does not advance to the current revocation applies a "
 		"withdrawal of the superseded one, which un-revokes a revoked pair",
@@ -4319,7 +4363,9 @@ SABOTAGES = [
 	(
 		"rev-withdrawal-tombstone",
 		"chain/revocation.c",
-		"\t\t\tstore->entries[store->used].withdrawn = 1;\n\t\t\tstore->used++;\n"
+		"\t\t\tstore->entries[store->used].withdrawn = 1;\n"
+		"\t\t\tstore->entries[store->used].epoch = fzn_revocation_epoch(record);\n"
+		"\t\t\tstore->used++;\n"
 		"\t\t\tstore->generation++;\n\t\t\treturn FZN_CHAIN_OK;\n",
 		"\t\t\treturn FZN_CHAIN_ERR_UNKNOWN_TARGET;\n",
 		"a withdrawal that overtakes its revocation is kept, not dropped",

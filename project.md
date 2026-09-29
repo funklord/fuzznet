@@ -48853,8 +48853,8 @@ them, the hop is revoked when
 
     live >= k,  or  total >= k and total - live < k.
 
-**Wrong after an undo, found in sec 399**: one vote can re-revoke,
-and a withdrawn vote that never met a quorum still counts toward one.
+**Wrong after an undo, found in sec 399 and fixed by epochs in sec
+400**: one vote could re-revoke after a full undo.
 
 The first half is k of n. The second is the latch: once k have revoked,
 fewer than k withdrawals leave it revoked. A lone revoker that withdraws
@@ -49160,7 +49160,122 @@ record for a triple, so `total - live` counts withdrawals without knowing
 whether they undid a quorum or preceded one. No rule over those two
 counts can tell the cases apart, so the fix needs a record to carry more
 than it does (an epoch, say) or a different undo. That is the holder's
-decision.
+decision. **The holder chose epochs, and sec 400 builds them.**
 
 A node at the default k = 1 is not affected: there the rule reduces to
 the old one exactly.
+
+## 400. Epochs: an undo closes its cycle, 2026-09-29
+
+sec 399 found that at k = 2 one vote re-revoked a device k had restored.
+The holder chose epochs over dropping the latch and over staying at
+k = 1.
+
+### The record
+
+Revocations and withdrawals carry a signed 8-byte `epoch` at offset
+138. The signature moves to 146, the body is 146 bytes and a record is
+210. A record of the old 202-byte layout does not open, by its length:
+this is a breaking wire change. `situc wire --check` classified it
+"2 breaking, 1 compatible", and `chain/revocation.situ` and its `.wire`
+and `.map` were regenerated against situ `e2e8c5a`.
+
+situ's map puts the epoch at 0x8A and the signature at 0x92. The same
+offsets are pinned as literals in `revocation.c`'s static asserts and
+in `revocation_test`, so the two agree without either being derived
+from the other.
+
+`persist/persist.situ` also said a stored revocation was 202 bytes, and
+`make schema` passed over it. That gate compares the schema with what
+situ generates from the schema, never with the C. It is corrected to
+210, and gains the vote blob (tag 9) that sec 399 added to the C and not
+to the schema. situ gives that blob as 211..1464 bytes, which is
+`FZN_REVOCATION_LEN + 1 + 7 * FZN_HOP_LEN`.
+
+`fzn_revocation_encode` and the three minting calls take the epoch as
+an argument, not a defaulted field. A default would mint a re-vote into
+a closed epoch without complaint, which is the header's own argument
+against defaults. The 110 existing call sites were rewritten by a
+script, passing 0. It counted each call site's arguments before
+editing, and it refused to write unless deleting every inserted token
+reproduced the original file.
+
+### The rule, with epochs
+
+Each issuer keeps its latest record for a triple, now with an epoch.
+
+- **An epoch is closed** when k counted issuers have left it: they
+  withdrew in it, or cast a vote in a later one.
+- **The open epoch** is the lowest one not closed. Closure is constant
+  between the epochs that entries name, so only 0, a named epoch and the
+  one after each are asked.
+- **Revoked** when k counted issuers are live, whatever their epochs.
+- **Latched** otherwise, when in the open epoch k issuers cast votes and
+  fewer than k of them withdrew.
+
+A new vote goes in `fzn_revocation_current_epoch`, the open epoch over
+every issuer the store holds for the pair. A withdrawal carries its
+revocation's epoch, and admission refuses one naming another epoch as
+`UNKNOWN_TARGET`.
+
+`chain/revocation.h` refuses to let `supersedes` or `issued_at` be read
+as an order, because a number nobody bounds can freeze a revocation out.
+The epoch is a number read for its size, and three things keep it safe:
+
+- **A live vote counts whatever its epoch.** So an epoch can only decide
+  whether withdrawn votes still hold the latch shut; it can never make a
+  device less revoked than its live votes say.
+- **Closing an epoch takes k distinct issuers.** An issuer at
+  `UINT64_MAX` is one of them.
+- **An issuer can already cast an undo vote at any epoch**, by revoking
+  and withdrawing. Being past an epoch gives it no power it lacked.
+
+At k = 1 the rule is the old one exactly: a latch at 1 is a live entry.
+
+**The accepted quirk, pinned by a test:** a vote withdrawn before any
+quorum still counts toward one in its epoch. At k = 2, if the root votes
+and withdraws and then an admin votes, the device is revoked. Nothing
+records the order.
+
+### The node
+
+`fzn_node_revoke` casts its vote in its store's open epoch, and a
+withdrawal carries the epoch of the record it undoes.
+
+### Measured for sec 400
+
+`revocation_test`, 611 checks. New cases:
+
+- the epoch encodes big-endian at 138 and reads back;
+- at k = 2, after two votes and two withdrawals in epoch 0:
+  - the device is restored and the current epoch is 1;
+  - the root's new vote in epoch 1 does not revoke;
+  - the control casts the same vote into the closed epoch 0 and does
+    revoke, so it is the epoch, and nothing else, that separates the two;
+  - two votes in epoch 1 revoke;
+- a withdrawal naming another epoch is refused;
+- at k = 3, with three votes and one withdrawal, admin 7 voting and
+  withdrawing at `UINT64_MAX` leaves the latch shut; a third leaver opens
+  it;
+- the accepted quirk.
+
+`pair_test`, 135 checks: after R and N have both withdrawn, N's new vote
+is one of two at N, cast in epoch 1. The vote-page test's one-item page
+grew from 420 to 430 bytes, because a record item is now 422.
+
+`make test`, `make style`, `make sancheck` and
+`make schema SITU_DIR=../situ` pass.
+
+Sabotage, each entry run alone:
+
+- six new entries, all caught: closure at k, a later epoch counting as
+  leaving, a withdrawal naming its epoch, the epoch recorded on append
+  and on re-revocation, and the node voting in the open epoch;
+- eight existing entries re-aimed at the rewritten rule, all caught.
+
+Two of the new ones are caught by something other than the assertion
+written for them. Closure at k is caught by the control case, which
+fails when one leaver can close an epoch. The epoch recorded on append
+is caught by a fixture check: admin 7's withdrawal at `UINT64_MAX` is
+refused as naming another epoch. Both still fail through epoch
+behaviour, which is what they guard.
