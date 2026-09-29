@@ -49327,3 +49327,66 @@ wants an absolute path, so the sockets lived in a `mktemp -d` under
 
 Not in `make test`: no target in this tree runs the daemon, and adding
 one is its own decision.
+
+## 402. netcfgd asks for the scope vocabulary as a general feature, 2026-09-29
+
+**Reported from netcfgd 2026-09-29.** Its holder has set the scopes as a
+general feature of **this** library rather than netcfgd's, and this states the
+requirement and the reasoning. netcfgd holds a placeholder enum today,
+explicitly to be deleted when this tree carries the type.
+
+### What netcfgd needs to say about a configuration value
+
+How far it travels. Four answers, and the holder's words were "probably more
+than these":
+
+    host-private   never replicated, and there is no cell at all
+    host           about one host, replicated so the estate can see it
+    group          less than the estate -- a zone, a building, a VLAN domain
+    estate         all of it
+
+**The middle two are what a local/remote boolean cannot express.** netcfgd's
+case: an interface's `prefix` is a fact about a VLAN that every machine in it
+shares, while its `address` is a fact about one machine that the estate should
+nonetheless see. A boolean has nowhere to put the second, and collapsing them
+gives either every node the same address or the estate no way to state the
+subnet.
+
+### Why netcfgd reads this as already being this library's shape
+
+`state/` is `(issuer, subject, kind) -> value`, so **a scope is a subject
+kind**: estate-wide is a cell whose subject is the estate, group-wide one whose
+subject is that group, host-scoped one whose subject is the host. Adding a
+scope is adding a kind of subject rather than a mechanism, which is what makes
+an open set affordable -- and is why netcfgd believes the vocabulary belongs
+here rather than in each consumer.
+
+**host-private is the scope with no cell**, and it is load-bearing rather than
+a degenerate case. netcfgd's constraint 2 says its filesystem reflects use and
+not capability, so a machine that never joins an estate must have no subject,
+no cells and no estate machinery at all -- just the file on its disk. A
+vocabulary without that value cannot express "this never leaves", and a
+consumer would have to express it by absence, which is not checkable.
+
+### The one property netcfgd would ask to be designed in
+
+**The narrowest scope at zero.** Widening a scope publishes configuration its
+author never offered anybody; narrowing one only fails to share. So a value
+nobody classified, or a field left zeroed by a caller that predates a new
+scope, should be the one that travels least.
+
+netcfgd has the same shape twice now and the asymmetry bit once: its
+`NCFG_TIER_OBSERVE` is 0, so a request kind missing from its tier table
+silently becomes the weakest tier and only a test stands between that and a new
+verb arriving unguarded. Its newer enums put the refusing value at zero
+instead, so an omission and the test that catches omissions point the same way.
+
+### What stays netcfgd's
+
+**The table.** Which scope `prefix` belongs to, against `address`, against a
+`mac`, is a fact about netcfgd's configuration language that no other consumer
+can know or should carry. netcfgd has written it as eight block defaults and
+twenty-eight key exceptions and will retype it onto whatever this tree calls
+the scope.
+
+So the ask is the vocabulary and its semantics, not the classification.
