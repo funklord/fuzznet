@@ -49513,3 +49513,94 @@ Sabotage, each entry run alone:
   ignored, which is worse. The old check, that D stays unrevoked, passed
   either way. The case now reads the epoch off N's record and catches
   it.
+
+## 404. A root's log: what a removal's cut can reach, 2026-09-29
+
+The first piece of sec 403's decision 4. A removal of a root must undo
+only what that root did after it was stolen. A thief can sign any
+`issued_at`, so time cannot draw that line; ancestry can.
+
+`chain/root_log.h` holds the machinery. It has no caller yet.
+
+### The entry
+
+- **A new signed object, `FZN_OBJECT_ROOT_ACT` (139).** The number was
+  freed when the charter was dropped. One entry logs one act a root
+  signed: a grant, a revocation, a roster record, or a change to the
+  root set.
+- **It names the act by the hash of the act's whole record**, and its
+  predecessor by the predecessor entry's id, which is the hash of the
+  entry's whole 171 bytes.
+- **Seq 0 names no predecessor, and every later seq names one.** An
+  entry that breaks this does not open.
+- **The acts themselves are unchanged.** Nothing in a hop or a
+  revocation says it was logged, and a standing root needs no log to be
+  believed. Only a removed root's acts are asked about the log.
+
+The layout is `chain/root_act.situ`, in `make schema`'s list. situ `2744f65`
+places seq at 0x22, prev at 0x2A, kind at 0x4A, act at 0x4B and the
+signature at 0x6B, 171 bytes in all. `root_log.c` pins the same offsets
+as literals in static asserts.
+
+### The two questions
+
+- **`fzn_root_log_stands(log, root, cut, act)`** is 1 when the act's
+  entry is the cut, or is reached from it by following `prev`. Each step
+  must be the same root's entry at exactly one seq lower. An act fails
+  to stand when it is after the cut, on a fork, behind a link this log
+  does not hold, or reached by a link that skips a seq or crosses into
+  another root's entries.
+- **`fzn_root_log_forked(log, root)`** is 1 when the root has signed two
+  entries at one seq. That is the mark of a key used in two places.
+  Admission keeps the second entry rather than refusing it: refusing
+  would make what a host sees depend on which copy arrived first, and
+  the second entry is the evidence.
+
+**An act whose entry this host never received falls under a removal.**
+The cut is the remover's statement of what it trusts, and a host can
+only stand behind what it holds.
+
+### Still to build, in order
+
+1. **The root set.**
+   - Root-add and root-remove records, logged like any other act. A
+     removal carries its cut.
+   - Standing is computed from the set of those records. The genesis
+     root stands unless removed. An added root stands if the root that
+     added it stood when it did, that is, if the add lies before any cut
+     on the adder.
+   - Removals win.
+   - The trust anchor becomes a pinned set.
+2. **Verification against the set.**
+   - A hop, revocation or roster record from a standing root is taken as
+     today.
+   - One from a removed root counts only if `fzn_root_log_stands` says
+     so under its removal's cut.
+3. **The node.** Root keys become separate from identity keys
+   (decision 3). Every act is logged, and the log travels with the
+   votes.
+
+### Measured for sec 404
+
+`root_log_test`, 44 checks:
+
+- the layout and its refusals, including the seq and prev rule;
+- admission: idempotent, refuses a broken signature or a signature by
+  another key, and refuses when full;
+- a chain of three admitted last-first:
+  - under a cut at the second entry, the first two acts stand and the
+    third does not;
+  - an act never logged does not stand;
+  - another root's cut does not reach these acts;
+- a fork at seq 1 is seen; its act does not stand under the honest cut,
+  and the shared history before it stands under both;
+- a missing link, a skipped seq and a link into another root's entries
+  all fail to stand, with the control that the chain stands once the
+  missing link is held.
+
+`err_str_test` walks the new renderer (50 renderers).
+
+Sabotage: seven new entries, each caught by the case written for it.
+They cover the `prev` accessor, the link descending by one, the chain
+staying with its root, the first entry naming nothing, the signature,
+one copy per entry, and a fork being two entries at one seq.

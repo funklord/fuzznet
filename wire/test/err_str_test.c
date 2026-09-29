@@ -87,6 +87,7 @@
 #include "../../tree/tree.h"
 #include "../../admit/admit.h"
 #include "../../roster/roster.h"
+#include "../../chain/root_log.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -127,6 +128,10 @@ static const char *r_revoke(int v)
 static const char *r_pull(int v)
 {
 	return fzn_node_pull_err_str((fzn_node_pull_err_t)v);
+}
+static const char *r_root_log(int v)
+{
+	return fzn_root_log_err_str((fzn_root_log_err_t)v);
 }
 static const char *r_roster(int v)
 {
@@ -212,6 +217,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_node_revoke_err_str", r_revoke, 7 },
 	{ "fzn_node_pull_err_str", r_pull, 6 },
 	{ "fzn_roster_err_str", r_roster, 8 },
+	{ "fzn_root_log_err_str", r_root_log, 6 },
 	{ "fzn_record_err_str", r_record, 6 },
 	{ "fzn_journal_err_str", r_journal, 7 },
 	{ "fzn_ledger_err_str", r_ledger, 4 },

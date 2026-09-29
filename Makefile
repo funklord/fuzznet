@@ -165,6 +165,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
+             chain/root_log.c \
              chain/chain_store.c chain/service.c claim/claim.c \
              record/store.c qr/qr.c \
              frame/freshness.c \
@@ -249,6 +250,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
+             chain/root_log.h \
              chain/chain_store.h chain/service.h claim/claim.h \
              record/store.h qr/qr.h \
              frame/freshness.h \
@@ -304,6 +306,7 @@ CRYPTO_SYMS := crypto_|blake2|chacha|poly1305|argon2|x25519|ed25519
 CORE_HDRS := $(HDRS)
 
 TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
+             chain/test/root_log_test.c \
              chain/test/manifest_test.c chain/test/authz_test.c \
              chain/test/chain_store_test.c chain/test/service_test.c \
              claim/test/claim_test.c claim/test/claim_walk_test.c \
@@ -408,6 +411,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
 TEST_OBJS  = $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/chain/test/revocation_test \
+             $(BUILD_DIR)/chain/test/root_log_test \
              $(BUILD_DIR)/chain/test/manifest_test \
              $(BUILD_DIR)/chain/test/authz_test \
              $(BUILD_DIR)/chain/test/chain_store_test \
@@ -1963,6 +1967,14 @@ $(BUILD_DIR)/chain/test/revocation_test: $(BUILD_DIR)/chain/test/revocation_test
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# chain/root_log links nothing but constant_time: the signer and the hash
+# arrive through vtables and the test brings its own. sec 404.
+$(BUILD_DIR)/chain/test/root_log_test: $(BUILD_DIR)/chain/test/root_log_test.o \
+                                       $(BUILD_DIR)/chain/root_log.o \
+                                       $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # revocation.o is here for the same reason chain.o is in revocation_test's
 # rule: the suite drives the manifest through the calls a consumer makes, and
 # one of them is `fzn_revocation_admit` settling a deficit. chain.o comes with
@@ -3371,6 +3383,7 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/local/client.o \
                                       $(BUILD_DIR)/roster/roster.o \
+                                      $(BUILD_DIR)/chain/root_log.o \
                                       $(BUILD_DIR)/node/identity.o \
                                       $(BUILD_DIR)/node/pair.o \
                                       $(BUILD_DIR)/node/revoke.o \
@@ -4924,7 +4937,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               spool/sidecar.situ record/record.situ tree/tree.situ \
               chain/chain.situ provision/provision.situ \
               record/store_file.situ catalog/attribute.situ \
-              roster/roster.situ
+              roster/roster.situ chain/root_act.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #
