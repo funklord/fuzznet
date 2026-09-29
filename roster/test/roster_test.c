@@ -1,4 +1,4 @@
-/* roster_test -- a user's roster across the user's hosts. sec 388.
+/* roster_test -- a user's roster across the user's hosts. secs 388 and 394.
  *
  * Signing is a stub keyed by the first byte of the public key, as in
  * revocation_test: what is under test is which key a record is verified
@@ -140,26 +140,37 @@ static void removal(rec_t *r, const who_t *writer, const who_t *subject, uint8_t
 		r->len = 0;
 }
 
-static fzn_roster_authority_t authority_now(uint64_t now,
-                                            const fzn_revocation_store_t *revocations)
+static fzn_roster_authority_t authority(void)
 {
 	fzn_roster_authority_t a;
 
 	a.root = root.key;
 	a.capability = &manage;
 	a.sign = &root.sign;
-	a.now = now;
-	a.revocations = revocations;
 	return a;
 }
 
-/* Which incarnation seed is active for `subject`, or 0 for none. */
-static uint8_t active_seed(const fzn_roster_t *r, const who_t *subject)
+/* A roster over caller-owned tables of its own. */
+typedef struct held {
+	fzn_roster_entry_t entries[8];
+	fzn_roster_writer_t writers[4];
+	fzn_roster_t r;
+} held_t;
+
+static int held_init(held_t *h)
+{
+	return fzn_roster_init(&h->r, h->entries, 8, h->writers, 4) == FZN_ROSTER_OK;
+}
+
+/* Which incarnation seed is active for `subject`, or 0 for none, judged
+ * against `rev` with k = 2. */
+static uint8_t active_seed(const fzn_roster_t *r, const who_t *subject,
+                           const fzn_revocation_store_t *rev)
 {
 	uint8_t got[FZN_ROSTER_INCARNATION_LEN], want[FZN_ROSTER_INCARNATION_LEN];
 	unsigned seed;
 
-	if (!fzn_roster_active(r, subject->key, got))
+	if (!fzn_roster_active(r, subject->key, rev, 2, got))
 		return 0;
 	for (seed = 1; seed < 256u; seed++) {
 		incarnation_of(want, (uint8_t)seed);
@@ -167,6 +178,40 @@ static uint8_t active_seed(const fzn_roster_t *r, const who_t *subject)
 			return (uint8_t)seed;
 	}
 	return 255u;
+}
+
+static fzn_roster_state_t state_of(const fzn_roster_t *r, const who_t *subject, uint8_t inc,
+                                   const fzn_revocation_store_t *rev, size_t k)
+{
+	uint8_t incarnation[FZN_ROSTER_INCARNATION_LEN];
+
+	incarnation_of(incarnation, inc);
+	return fzn_roster_state(r, subject->key, incarnation, rev, k);
+}
+
+/* The member's one-hop chain from the root, delegable or not. */
+static int member_chain(uint8_t bytes[FZN_HOP_LEN], fzn_chain_hop_t *hop, uint64_t expires)
+{
+	return fzn_chain_mint(root.key, member.key, &manage, 100, expires, 0, &root.sign, bytes)
+	               == FZN_CHAIN_OK
+	       && fzn_hop_open(bytes, FZN_HOP_LEN, hop) == FZN_CHAIN_OK;
+}
+
+/* The root revokes the member's grant into `store`. */
+static int revoke_member(fzn_revocation_store_t *store, fzn_revocation_t *entries, size_t n)
+{
+	uint8_t bytes[FZN_REVOCATION_LEN];
+	fzn_revocation_record_t rec;
+	fzn_hash_ops_t hash;
+
+	hash.hash = stub_hash;
+	hash.ctx = NULL;
+	return fzn_revocation_store_init(store, entries, n) == FZN_CHAIN_OK
+	       && fzn_revocation_issue(root.key, &manage, member.key, 600, &root.sign, bytes)
+	                  == FZN_CHAIN_OK
+	       && fzn_revocation_open(bytes, sizeof(bytes), &rec) == FZN_CHAIN_OK
+	       && fzn_revocation_admit(store, fzn_revocation_offer_root(rec), root.key, &root.sign,
+	                               &hash, NULL) == FZN_CHAIN_OK;
 }
 
 static void test_the_record(void)
@@ -226,257 +271,328 @@ static void test_the_record(void)
 	      "a record one byte short opened");
 }
 
-static void test_removal_is_for_good(void)
+/* ONE REMOVAL SUSPENDS; AN INCARNATION NEVER COMES BACK. sec 394. */
+static void test_a_removal_suspends_for_good(void)
 {
-	static fzn_roster_entry_t entries[8];
-	fzn_roster_t r;
-	fzn_roster_authority_t a = authority_now(1000, NULL);
+	static held_t h;
+	fzn_roster_authority_t a = authority();
 	rec_t add1, rm1, add1_other, add2, set1;
 	uint8_t inc1[FZN_ROSTER_INCARNATION_LEN];
 	uint8_t body[2] = { 1, 0 };
 
 	incarnation_of(inc1, 1);
-	CHECK(fzn_roster_init(&r, entries, 8) == FZN_ROSTER_OK, "fixture: init");
+	CHECK(held_init(&h), "fixture: init");
 	add(&add1, &root, &alice, 1, 10);
 	removal(&rm1, &root, &alice, 1, 11);
 	add(&add1_other, &root, &alice, 1, 50);
 	add(&add2, &root, &alice, 2, 12);
 
-	CHECK(fzn_roster_admit(&r, view(&add1), NULL, 0, &a) == FZN_ROSTER_OK
-	              && active_seed(&r, &alice) == 1u,
+	CHECK(fzn_roster_admit(&h.r, view(&add1), NULL, 0, &a) == FZN_ROSTER_OK
+	              && active_seed(&h.r, &alice, NULL) == 1u
+	              && state_of(&h.r, &alice, 1, NULL, 2) == FZN_ROSTER_ACTIVE,
 	      "the root's add did not make the incarnation active");
-	CHECK(fzn_roster_admit(&r, view(&add1), NULL, 0, &a) == FZN_ROSTER_OK && r.used == 1u,
+	CHECK(fzn_roster_admit(&h.r, view(&add1), NULL, 0, &a) == FZN_ROSTER_OK && h.r.used == 1u,
 	      "the same add admitted twice was not idempotent");
-	CHECK(fzn_roster_admit(&r, view(&rm1), NULL, 0, &a) == FZN_ROSTER_OK
-	              && active_seed(&r, &alice) == 0u
-	              && fzn_roster_removed(&r, alice.key, inc1),
-	      "removal left the subject active");
+	CHECK(fzn_roster_admit(&h.r, view(&rm1), NULL, 0, &a) == FZN_ROSTER_OK
+	              && active_seed(&h.r, &alice, NULL) == 0u
+	              && state_of(&h.r, &alice, 1, NULL, 2) == FZN_ROSTER_SUSPENDED,
+	      "one removal did not suspend the subject");
 
 	/* THE REPRODUCTION'S SHAPE: something newer about the removed
-	 * incarnation arrives. A second add of it, at a far higher seq, is a
-	 * contradiction and changes nothing; a setting on it is refused. */
-	CHECK(fzn_roster_admit(&r, view(&add1_other), NULL, 0, &a) == FZN_ROSTER_ERR_CONFLICT
-	              && active_seed(&r, &alice) == 0u,
+	 * incarnation arrives, and changes nothing. */
+	CHECK(fzn_roster_admit(&h.r, view(&add1_other), NULL, 0, &a) == FZN_ROSTER_ERR_CONFLICT
+	              && active_seed(&h.r, &alice, NULL) == 0u,
 	      "a newer add of a removed incarnation brought the subject back");
 	CHECK(fzn_roster_issue_set(root.key, alice.key, inc1, 60, 1, body, sizeof(body),
 	                           &root.sign, set1.bytes, sizeof(set1.bytes), &set1.len)
 	                      == FZN_ROSTER_OK
-	              && fzn_roster_admit(&r, view(&set1), NULL, 0, &a)
+	              && fzn_roster_admit(&h.r, view(&set1), NULL, 0, &a)
 	                         == FZN_ROSTER_ERR_UNSUPPORTED
-	              && active_seed(&r, &alice) == 0u,
-	      "a setting on a removed incarnation was taken, or brought the subject back");
+	              && active_seed(&h.r, &alice, NULL) == 0u,
+	      "a setting on a suspended incarnation was taken, or brought the subject back");
 
 	/* A DELIBERATE RE-ADD is a new incarnation and a fresh subject. */
-	CHECK(fzn_roster_admit(&r, view(&add2), NULL, 0, &a) == FZN_ROSTER_OK
-	              && active_seed(&r, &alice) == 2u,
+	CHECK(fzn_roster_admit(&h.r, view(&add2), NULL, 0, &a) == FZN_ROSTER_OK
+	              && active_seed(&h.r, &alice, NULL) == 2u,
 	      "re-adding the subject under a new incarnation did not make it active");
-	CHECK(r.seq_seen == 12u, "the roster did not track the greatest seq it admitted");
+	CHECK(h.r.seq_seen == 12u, "the roster did not track the greatest seq it admitted -- a refused record must not move it");
 }
 
 static void test_removal_overtakes_add(void)
 {
-	static fzn_roster_entry_t entries[4];
-	fzn_roster_t r;
-	fzn_roster_authority_t a = authority_now(1000, NULL);
+	static held_t h;
+	fzn_roster_authority_t a = authority();
 	rec_t add1, rm1;
 
-	CHECK(fzn_roster_init(&r, entries, 4) == FZN_ROSTER_OK, "fixture: init");
+	CHECK(held_init(&h), "fixture: init");
 	add(&add1, &root, &bob, 3, 20);
 	removal(&rm1, &root, &bob, 3, 21);
-	CHECK(fzn_roster_admit(&r, view(&rm1), NULL, 0, &a) == FZN_ROSTER_OK
-	              && active_seed(&r, &bob) == 0u,
+	CHECK(fzn_roster_admit(&h.r, view(&rm1), NULL, 0, &a) == FZN_ROSTER_OK
+	              && state_of(&h.r, &bob, 3, NULL, 2) == FZN_ROSTER_SUSPENDED,
 	      "a removal arriving before its add was not stored");
-	CHECK(fzn_roster_admit(&r, view(&add1), NULL, 0, &a) == FZN_ROSTER_OK
-	              && active_seed(&r, &bob) == 0u,
+	CHECK(fzn_roster_admit(&h.r, view(&add1), NULL, 0, &a) == FZN_ROSTER_OK
+	              && active_seed(&h.r, &bob, NULL) == 0u,
 	      "an add arriving after its removal made the subject active");
 }
 
 static void test_two_live_incarnations(void)
 {
-	static fzn_roster_entry_t entries[4];
-	fzn_roster_t r;
-	fzn_roster_authority_t a = authority_now(1000, NULL);
-	rec_t lo, hi, tie_root;
-	uint8_t hops_bytes[1][FZN_HOP_LEN];
-	fzn_chain_hop_t hops[1];
+	static held_t h;
+	fzn_roster_authority_t a = authority();
+	rec_t lo, hi, tie;
+	uint8_t hop_bytes[FZN_HOP_LEN];
+	fzn_chain_hop_t hop[1];
 
-	CHECK(fzn_roster_init(&r, entries, 4) == FZN_ROSTER_OK, "fixture: init");
+	CHECK(held_init(&h) && member_chain(hop_bytes, &hop[0], FZN_NO_EXPIRY), "fixture");
 	add(&lo, &root, &alice, 4, 30);
 	add(&hi, &root, &alice, 5, 31);
-	CHECK(fzn_roster_admit(&r, view(&hi), NULL, 0, &a) == FZN_ROSTER_OK
-	              && fzn_roster_admit(&r, view(&lo), NULL, 0, &a) == FZN_ROSTER_OK
-	              && active_seed(&r, &alice) == 5u,
+	CHECK(fzn_roster_admit(&h.r, view(&hi), NULL, 0, &a) == FZN_ROSTER_OK
+	              && fzn_roster_admit(&h.r, view(&lo), NULL, 0, &a) == FZN_ROSTER_OK
+	              && active_seed(&h.r, &alice, NULL) == 5u,
 	      "of two live incarnations the greater seq was not active");
-
-	/* AT EQUAL SEQ the writer's bytes decide. The member's key starts with
-	 * a greater byte than the root's, so the member's add wins. */
-	CHECK(fzn_chain_mint(root.key, member.key, &manage, 100, FZN_NO_EXPIRY, 0, &root.sign,
-	                     hops_bytes[0]) == FZN_CHAIN_OK
-	              && fzn_hop_open(hops_bytes[0], FZN_HOP_LEN, &hops[0]) == FZN_CHAIN_OK,
-	      "fixture: the member's chain");
-	add(&tie_root, &member, &alice, 6, 31);
+	/* AT EQUAL SEQ the writer's bytes decide; the member's key sorts after
+	 * the root's. */
+	add(&tie, &member, &alice, 6, 31);
 	CHECK(member.key[0] > root.key[0]
-	              && fzn_roster_admit(&r, view(&tie_root), hops, 1, &a) == FZN_ROSTER_OK
-	              && active_seed(&r, &alice) == 6u,
+	              && fzn_roster_admit(&h.r, view(&tie), hop, 1, &a) == FZN_ROSTER_OK
+	              && active_seed(&h.r, &alice, NULL) == 6u,
 	      "at equal seq the greater writer did not win");
+}
+
+/* k DISTINCT WRITERS RETIRE; ONE WRITER TWICE IS ONE. sec 394. */
+static void test_k_distinct_removers_retire(void)
+{
+	static held_t h;
+	fzn_roster_authority_t a = authority();
+	rec_t add1, rm_root, rm_root_again, rm_member;
+	uint8_t hop_bytes[FZN_HOP_LEN];
+	fzn_chain_hop_t hop[1];
+
+	CHECK(held_init(&h) && member_chain(hop_bytes, &hop[0], FZN_NO_EXPIRY), "fixture");
+	add(&add1, &root, &alice, 7, 40);
+	removal(&rm_root, &root, &alice, 7, 41);
+	removal(&rm_root_again, &root, &alice, 7, 42);
+	removal(&rm_member, &member, &alice, 7, 43);
+
+	CHECK(fzn_roster_admit(&h.r, view(&add1), NULL, 0, &a) == FZN_ROSTER_OK
+	              && fzn_roster_admit(&h.r, view(&rm_root), NULL, 0, &a) == FZN_ROSTER_OK
+	              && fzn_roster_admit(&h.r, view(&rm_root_again), NULL, 0, &a)
+	                         == FZN_ROSTER_OK
+	              && state_of(&h.r, &alice, 7, NULL, 2) == FZN_ROSTER_SUSPENDED,
+	      "one writer removing twice counted as two");
+	CHECK(state_of(&h.r, &alice, 7, NULL, 1) == FZN_ROSTER_RETIRED,
+	      "with k = 1 one removal did not retire");
+	CHECK(fzn_roster_admit(&h.r, view(&rm_member), hop, 1, &a) == FZN_ROSTER_OK
+	              && state_of(&h.r, &alice, 7, NULL, 2) == FZN_ROSTER_RETIRED
+	              && state_of(&h.r, &alice, 7, NULL, 0) == FZN_ROSTER_RETIRED,
+	      "two distinct writers did not retire at k = 2, or 0 is not the default of 2");
+	CHECK(state_of(&h.r, &alice, 7, NULL, 3) == FZN_ROSTER_SUSPENDED,
+	      "two writers retired where the estate asks for three");
+	/* ONE HOST UNDER TWO CHAINS IS ONE HOST: the member re-granted, and
+	 * removing under each grant, is still one remover. */
+	{
+		static held_t h2;
+		uint8_t second_bytes[2][FZN_HOP_LEN];
+		fzn_chain_hop_t second[2];
+		rec_t rm_again;
+
+		/* A GRANT BY ANOTHER ROUTE, root -> stranger -> member, so the
+		 * second chain is a different writer slot for the same key. */
+		CHECK(held_init(&h2)
+		              && fzn_chain_mint(root.key, stranger.key, &manage, 200, FZN_NO_EXPIRY, 1,
+		                                &root.sign, second_bytes[0]) == FZN_CHAIN_OK
+		              && fzn_chain_mint(stranger.key, member.key, &manage, 210, FZN_NO_EXPIRY,
+		                                0, &stranger.sign, second_bytes[1]) == FZN_CHAIN_OK
+		              && fzn_hop_open(second_bytes[0], FZN_HOP_LEN, &second[0]) == FZN_CHAIN_OK
+		              && fzn_hop_open(second_bytes[1], FZN_HOP_LEN, &second[1]) == FZN_CHAIN_OK,
+		      "fixture: the member's second grant, by another route");
+		removal(&rm_again, &member, &alice, 7, 44);
+		CHECK(fzn_roster_admit(&h2.r, view(&add1), NULL, 0, &a) == FZN_ROSTER_OK
+		              && fzn_roster_admit(&h2.r, view(&rm_member), hop, 1, &a) == FZN_ROSTER_OK
+		              && fzn_roster_admit(&h2.r, view(&rm_again), second, 2, &a)
+		                         == FZN_ROSTER_OK
+		              && h2.r.writers_used == 3u
+		              && state_of(&h2.r, &alice, 7, NULL, 2) == FZN_ROSTER_SUSPENDED,
+		      "one host removing under two grants counted as two writers");
+	}
+}
+
+/* A REVOKED WRITER COUNTS FOR NOTHING, judged when the roster is read:
+ * its add, its suspension and its share of a retirement. sec 394. */
+static void test_a_revoked_writer_counts_for_nothing(void)
+{
+	static held_t h;
+	static fzn_revocation_t rev_entries[4];
+	fzn_revocation_store_t revoked;
+	fzn_roster_authority_t a = authority();
+	rec_t m_add, m_rm, r_add, r_rm;
+	uint8_t hop_bytes[FZN_HOP_LEN], exp_bytes[FZN_HOP_LEN];
+	fzn_chain_hop_t hop[1], expiring[1];
+
+	CHECK(held_init(&h) && member_chain(hop_bytes, &hop[0], FZN_NO_EXPIRY)
+	              && revoke_member(&revoked, rev_entries, 4),
+	      "fixture");
+	add(&m_add, &member, &bob, 9, 50);
+	removal(&m_rm, &member, &alice, 8, 51);
+	add(&r_add, &root, &alice, 8, 52);
+	removal(&r_rm, &root, &alice, 8, 53);
+
+	/* ADMITTED WITHOUT ASKING: arrival judges only signature and chain. */
+	CHECK(fzn_roster_admit(&h.r, view(&m_add), hop, 1, &a) == FZN_ROSTER_OK
+	              && fzn_roster_admit(&h.r, view(&r_add), NULL, 0, &a) == FZN_ROSTER_OK
+	              && fzn_roster_admit(&h.r, view(&m_rm), hop, 1, &a) == FZN_ROSTER_OK,
+	      "a record was judged against revocations on arrival");
+
+	/* BEFORE THE HOST KNOWS: the member's add stands, its removal suspends. */
+	CHECK(active_seed(&h.r, &bob, NULL) == 9u
+	              && state_of(&h.r, &alice, 8, NULL, 2) == FZN_ROSTER_SUSPENDED,
+	      "without revocations the member's records did not count");
+
+	/* ONCE IT KNOWS, whatever order that came in: the add is gone and the
+	 * suspension void, so alice is active again and bob absent. */
+	CHECK(active_seed(&h.r, &bob, &revoked) == 0u
+	              && state_of(&h.r, &bob, 9, &revoked, 2) == FZN_ROSTER_ABSENT,
+	      "a revoked writer's add still made a subject active");
+	CHECK(state_of(&h.r, &alice, 8, &revoked, 2) == FZN_ROSTER_ACTIVE
+	              && active_seed(&h.r, &alice, &revoked) == 8u,
+	      "a revoked writer's removal still suspended the subject");
+
+	/* AND ITS SHARE OF A RETIREMENT: root and member retire at k = 2, and
+	 * with the member revoked it falls back to the root's suspension. */
+	CHECK(fzn_roster_admit(&h.r, view(&r_rm), NULL, 0, &a) == FZN_ROSTER_OK
+	              && state_of(&h.r, &alice, 8, NULL, 2) == FZN_ROSTER_RETIRED
+	              && state_of(&h.r, &alice, 8, &revoked, 2) == FZN_ROSTER_SUSPENDED,
+	      "a retirement kept counting a revoked writer");
+
+	/* EXPIRY DOES NOT WITHDRAW: a writer whose grant lapsed after writing
+	 * still counts; only revocation takes a writer out. */
+	{
+		static held_t h2;
+		rec_t e_add;
+
+		CHECK(held_init(&h2) && member_chain(exp_bytes, &expiring[0], 500), "fixture: expiring");
+		add(&e_add, &member, &bob, 10, 54);
+		CHECK(fzn_roster_admit(&h2.r, view(&e_add), expiring, 1, &a) == FZN_ROSTER_OK
+		              && active_seed(&h2.r, &bob, NULL) == 10u,
+		      "a writer whose grant has since expired was refused or did not count");
+	}
 }
 
 static void test_standing(void)
 {
-	static fzn_roster_entry_t entries[8];
-	static fzn_revocation_t rev_entries[4];
-	fzn_roster_t r;
-	fzn_revocation_store_t revoked;
-	fzn_revocation_record_t revrec;
-	fzn_hash_ops_t hash;
-	uint8_t hop_ok[FZN_HOP_LEN], hop_cap[FZN_HOP_LEN], hop_else[FZN_HOP_LEN],
-	        hop_exp[FZN_HOP_LEN], revbytes[FZN_REVOCATION_LEN];
-	fzn_chain_hop_t ok[1], cap[1], elsewhere[1], expiring[1];
-	fzn_roster_authority_t a = authority_now(1000, NULL);
-	rec_t m_add, m_rm, s_add, x_add, x_rm, forged;
+	static held_t h;
+	fzn_roster_authority_t a = authority();
+	uint8_t hop_ok[FZN_HOP_LEN], hop_cap[FZN_HOP_LEN], hop_else[FZN_HOP_LEN];
+	fzn_chain_hop_t ok[1], cap[1], elsewhere[1];
+	rec_t m_add, s_add, forged;
 
-	hash.hash = stub_hash;
-	hash.ctx = NULL;
-	CHECK(fzn_roster_init(&r, entries, 8) == FZN_ROSTER_OK
+	CHECK(held_init(&h)
 	              && fzn_chain_mint(root.key, member.key, &manage, 100, FZN_NO_EXPIRY, 0,
 	                                &root.sign, hop_ok) == FZN_CHAIN_OK
 	              && fzn_chain_mint(root.key, member.key, &other_cap, 100, FZN_NO_EXPIRY, 0,
 	                                &root.sign, hop_cap) == FZN_CHAIN_OK
 	              && fzn_chain_mint(root.key, stranger.key, &manage, 100, FZN_NO_EXPIRY, 0,
 	                                &root.sign, hop_else) == FZN_CHAIN_OK
-	              && fzn_chain_mint(root.key, member.key, &manage, 100, 500, 0, &root.sign,
-	                                hop_exp) == FZN_CHAIN_OK
 	              && fzn_hop_open(hop_ok, FZN_HOP_LEN, &ok[0]) == FZN_CHAIN_OK
 	              && fzn_hop_open(hop_cap, FZN_HOP_LEN, &cap[0]) == FZN_CHAIN_OK
-	              && fzn_hop_open(hop_else, FZN_HOP_LEN, &elsewhere[0]) == FZN_CHAIN_OK
-	              && fzn_hop_open(hop_exp, FZN_HOP_LEN, &expiring[0]) == FZN_CHAIN_OK,
+	              && fzn_hop_open(hop_else, FZN_HOP_LEN, &elsewhere[0]) == FZN_CHAIN_OK,
 	      "fixture: chains");
-
-	add(&m_add, &member, &alice, 7, 40);
-	removal(&m_rm, &member, &alice, 7, 41);
-	add(&s_add, &stranger, &bob, 8, 42);
-	CHECK(fzn_roster_admit(&r, view(&m_add), ok, 1, &a) == FZN_ROSTER_OK
-	              && active_seed(&r, &alice) == 7u,
+	add(&m_add, &member, &alice, 11, 60);
+	add(&s_add, &stranger, &bob, 12, 61);
+	CHECK(fzn_roster_admit(&h.r, view(&m_add), ok, 1, &a) == FZN_ROSTER_OK,
 	      "a member with the roster's capability could not add");
-	CHECK(fzn_roster_admit(&r, view(&s_add), NULL, 0, &a) == FZN_ROSTER_ERR_STANDING,
+	CHECK(fzn_roster_admit(&h.r, view(&s_add), NULL, 0, &a) == FZN_ROSTER_ERR_STANDING,
 	      "a writer that is not the root and shows no chain was admitted");
-	CHECK(fzn_roster_admit(&r, view(&m_add), cap, 1, &a) == FZN_ROSTER_ERR_STANDING,
+	CHECK(fzn_roster_admit(&h.r, view(&m_add), cap, 1, &a) == FZN_ROSTER_ERR_STANDING,
 	      "a chain for another capability gave standing");
-	CHECK(fzn_roster_admit(&r, view(&m_add), elsewhere, 1, &a) == FZN_ROSTER_ERR_STANDING,
+	CHECK(fzn_roster_admit(&h.r, view(&m_add), elsewhere, 1, &a) == FZN_ROSTER_ERR_STANDING,
 	      "a chain naming somebody else gave the writer standing");
-
-	/* A FORGERY: the member's add re-signed by the stranger's key. */
 	forged = m_add;
 	mac(forged.bytes + forged.len - FZN_SIG_LEN, stranger.id, forged.bytes,
 	    forged.len - FZN_SIG_LEN);
-	CHECK(fzn_roster_admit(&r, view(&forged), ok, 1, &a) == FZN_ROSTER_ERR_SIGNATURE,
+	CHECK(fzn_roster_admit(&h.r, view(&forged), ok, 1, &a) == FZN_ROSTER_ERR_SIGNATURE,
 	      "a record not signed by its own writer was admitted");
-
-	/* A LAPSED OR REVOKED GRANT: adds refused, removals still taken. */
-	add(&x_add, &member, &bob, 9, 43);
-	removal(&x_rm, &member, &bob, 9, 44);
-	CHECK(fzn_roster_admit(&r, view(&x_add), expiring, 1, &a) == FZN_ROSTER_ERR_STANDING,
-	      "an add under an expired grant was admitted");
-	CHECK(fzn_roster_admit(&r, view(&x_rm), expiring, 1, &a) == FZN_ROSTER_OK
-	              && fzn_roster_admit(&r, view(&x_add), ok, 1, &a) == FZN_ROSTER_OK
-	              && active_seed(&r, &bob) == 0u,
-	      "a removal under a since-expired grant was lost, and the subject came back");
-
-	CHECK(fzn_revocation_store_init(&revoked, rev_entries, 4) == FZN_CHAIN_OK
-	              && fzn_revocation_issue(root.key, &manage, member.key, 600, &root.sign,
-	                                      revbytes) == FZN_CHAIN_OK
-	              && fzn_revocation_open(revbytes, sizeof(revbytes), &revrec) == FZN_CHAIN_OK
-	              && fzn_revocation_admit(&revoked, fzn_revocation_offer_root(revrec), root.key,
-	                                      &root.sign, &hash, NULL) == FZN_CHAIN_OK,
-	      "fixture: the root revokes the member's grant");
-	a = authority_now(1000, &revoked);
-	{
-		static fzn_roster_entry_t e2[4];
-		fzn_roster_t r2;
-		rec_t y_add, y_rm;
-
-		add(&y_add, &member, &alice, 10, 45);
-		removal(&y_rm, &member, &alice, 10, 46);
-		CHECK(fzn_roster_init(&r2, e2, 4) == FZN_ROSTER_OK
-		              && fzn_roster_admit(&r2, view(&y_add), ok, 1, &a)
-		                         == FZN_ROSTER_ERR_STANDING,
-		      "a revoked writer's add was admitted");
-		/* THE HOLDER'S DECISION, 2026-09-28: a revoked writer removes
-		 * nothing either, or a stolen phone is a tool for wiping the
-		 * roster, permanently. */
-		CHECK(fzn_roster_admit(&r2, view(&y_rm), ok, 1, &a) == FZN_ROSTER_ERR_STANDING,
-		      "a revoked writer's removal was admitted: a stolen device can wipe the roster");
-	}
-	a = authority_now(1000, NULL);
-	CHECK(fzn_roster_admit(&r, view(&m_rm), ok, 1, &a) == FZN_ROSTER_OK
-	              && active_seed(&r, &alice) == 0u,
-	      "the member's removal did not remove");
 }
 
 static void test_full(void)
 {
 	static fzn_roster_entry_t entries[1];
+	static fzn_roster_writer_t writers[1];
 	fzn_roster_t r;
-	fzn_roster_authority_t a = authority_now(1000, NULL);
-	rec_t one, two;
+	fzn_roster_authority_t a = authority();
+	rec_t one, two, m_add;
+	uint8_t hop_bytes[FZN_HOP_LEN];
+	fzn_chain_hop_t hop[1];
 
-	add(&one, &root, &alice, 11, 1);
-	add(&two, &root, &bob, 12, 2);
-	CHECK(fzn_roster_init(&r, entries, 1) == FZN_ROSTER_OK
+	add(&one, &root, &alice, 13, 1);
+	add(&two, &root, &bob, 14, 2);
+	add(&m_add, &member, &alice, 13, 3);
+	CHECK(member_chain(hop_bytes, &hop[0], FZN_NO_EXPIRY)
+	              && fzn_roster_init(&r, entries, 1, writers, 1) == FZN_ROSTER_OK
 	              && fzn_roster_admit(&r, view(&one), NULL, 0, &a) == FZN_ROSTER_OK
 	              && fzn_roster_admit(&r, view(&two), NULL, 0, &a) == FZN_ROSTER_ERR_FULL
 	              && fzn_roster_admit(&r, view(&one), NULL, 0, &a) == FZN_ROSTER_OK,
 	      "a full roster did not refuse a new incarnation while still taking a held one");
-	CHECK(fzn_roster_init(&r, entries, 0) == FZN_ROSTER_ERR_MALFORMED,
+	removal(&two, &member, &alice, 13, 4);
+	CHECK(fzn_roster_admit(&r, view(&two), hop, 1, &a) == FZN_ROSTER_ERR_FULL,
+	      "a full writer table took a writer it had no room for");
+	CHECK(fzn_roster_init(&r, entries, 0, writers, 1) == FZN_ROSTER_ERR_MALFORMED
+	              && fzn_roster_init(&r, entries, 1, writers, 0) == FZN_ROSTER_ERR_MALFORMED,
 	      "a roster of no capacity was accepted");
 }
 
-/* THE PROPERTY THE DESIGN RESTS ON: what a host ends up with is a function of
- * the SET of records it admitted, never of their order. Every order of seven
- * records -- adds and removes over two subjects, three incarnations each side,
- * a removal ahead of its add among them -- must give the same active
- * incarnations and the same removals. 5040 orders. */
+/* THE PROPERTY THE DESIGN RESTS ON: what a host sees is a function of the
+ * SETS it holds, records and revocations, never of arrival order. Every order
+ * of seven records from two writers -- adds, a suspension, a retirement by
+ * both, a removal ahead of its add -- judged with and without the member
+ * revoked, gives one answer each time. 5040 orders. */
 static void test_order_independence(void)
 {
 	static rec_t set[7];
-	static fzn_roster_entry_t entries[8];
-	fzn_roster_authority_t a = authority_now(1000, NULL);
+	static held_t h;
+	static fzn_revocation_t rev_entries[4];
+	fzn_revocation_store_t revoked;
+	fzn_roster_authority_t a = authority();
+	uint8_t hop_bytes[FZN_HOP_LEN];
+	fzn_chain_hop_t hop[1];
+	const fzn_chain_hop_t *chain_of[7];
 	size_t perm[7] = { 0, 1, 2, 3, 4, 5, 6 };
-	uint8_t want_alice = 0, want_bob = 0;
-	int want_removed = -1, same = 1;
+	int want[4] = { -1, -1, -1, -1 }, same = 1;
 	unsigned long orders = 0;
-	uint8_t inc2[FZN_ROSTER_INCARNATION_LEN];
 
-	incarnation_of(inc2, 22);
+	CHECK(member_chain(hop_bytes, &hop[0], FZN_NO_EXPIRY)
+	              && revoke_member(&revoked, rev_entries, 4), "fixture");
 	add(&set[0], &root, &alice, 21, 5);
-	add(&set[1], &root, &alice, 22, 9);
+	add(&set[1], &member, &alice, 22, 9);
 	removal(&set[2], &root, &alice, 22, 10);
-	add(&set[3], &root, &alice, 23, 7);
+	removal(&set[3], &member, &alice, 22, 11);
 	add(&set[4], &root, &bob, 31, 3);
-	removal(&set[5], &root, &bob, 31, 4);
-	add(&set[6], &root, &bob, 32, 2);
+	removal(&set[5], &member, &bob, 31, 4);
+	add(&set[6], &member, &bob, 32, 2);
+	chain_of[0] = NULL; chain_of[1] = hop; chain_of[2] = NULL; chain_of[3] = hop;
+	chain_of[4] = NULL; chain_of[5] = hop; chain_of[6] = hop;
 
 	for (;;) {
-		fzn_roster_t r;
 		size_t i, j, k;
-		int removed;
+		int got[4];
 
-		(void)fzn_roster_init(&r, entries, 8);
+		(void)held_init(&h);
 		for (i = 0; i < 7; i++)
-			if (fzn_roster_admit(&r, view(&set[perm[i]]), NULL, 0, &a) != FZN_ROSTER_OK)
+			if (fzn_roster_admit(&h.r, view(&set[perm[i]]), chain_of[perm[i]],
+			                     chain_of[perm[i]] ? 1u : 0u, &a) != FZN_ROSTER_OK)
 				same = 0;
-		removed = fzn_roster_removed(&r, alice.key, inc2);
-		if (orders == 0) {
-			want_alice = active_seed(&r, &alice);
-			want_bob = active_seed(&r, &bob);
-			want_removed = removed;
-		} else if (active_seed(&r, &alice) != want_alice || active_seed(&r, &bob) != want_bob
-		           || removed != want_removed) {
-			same = 0;
+		got[0] = (int)state_of(&h.r, &alice, 22, NULL, 2);
+		got[1] = (int)state_of(&h.r, &alice, 22, &revoked, 2);
+		got[2] = (int)active_seed(&h.r, &bob, NULL);
+		got[3] = (int)active_seed(&h.r, &bob, &revoked);
+		for (i = 0; i < 4; i++) {
+			if (orders == 0)
+				want[i] = got[i];
+			else if (got[i] != want[i])
+				same = 0;
 		}
 		orders++;
 
-		/* next permutation, lexicographic */
 		i = 6;
 		while (i > 0 && perm[i - 1] >= perm[i])
 			i--;
@@ -495,8 +611,13 @@ static void test_order_independence(void)
 		}
 	}
 	CHECK(orders == 5040u, "the sweep did not walk every order of seven records");
-	CHECK(same, "two orders of one record set gave different rosters");
-	CHECK(want_alice == 23u && want_bob == 32u && want_removed == 1,
+	CHECK(same, "two orders of one set of records and revocations gave different rosters");
+	/* THE RIGHT ANSWERS: alice's 22 retired by both, suspended by the root
+	 * alone once the member is revoked; bob's 31 suspended by the member,
+	 * so 32 (the member's) is active -- and with the member revoked, 31 is
+	 * active again and 32 does not count. */
+	CHECK(want[0] == (int)FZN_ROSTER_RETIRED && want[1] == (int)FZN_ROSTER_SUSPENDED
+	              && want[2] == 32 && want[3] == 31,
 	      "the order-independent answer is not the right one");
 }
 
@@ -504,21 +625,16 @@ static void test_order_independence(void)
  * restore path a host reads its own admitted records back through. */
 static void test_bundle_and_restore(void)
 {
-	static fzn_roster_entry_t e1[4], e2[4];
+	static held_t first, restart;
 	static fzn_revocation_t rev_entries[4];
 	static uint8_t packed[FZN_ROSTER_BUNDLE_MAX_LEN + 1u];
-	uint8_t hop[1][FZN_HOP_LEN], revbytes[FZN_REVOCATION_LEN];
+	uint8_t hop[1][FZN_HOP_LEN];
 	fzn_revocation_store_t revoked;
-	fzn_revocation_record_t revrec;
-	fzn_hash_ops_t hash;
 	fzn_roster_bundle_t b;
-	fzn_roster_t first, restart;
-	fzn_roster_authority_t a = authority_now(1000, NULL);
+	fzn_roster_authority_t a = authority();
 	rec_t m_add, m_rm;
 	size_t len = 0;
 
-	hash.hash = stub_hash;
-	hash.ctx = NULL;
 	add(&m_add, &member, &bob, 40, 70);
 	removal(&m_rm, &member, &bob, 40, 71);
 	CHECK(fzn_chain_mint(root.key, member.key, &manage, 100, FZN_NO_EXPIRY, 0, &root.sign,
@@ -536,11 +652,10 @@ static void test_bundle_and_restore(void)
 	CHECK(FZN_ROSTER_BUNDLE_MAX_LEN == 1784u,
 	      "the longest bundle is not the longest roster.situ allows");
 	CHECK(fzn_roster_bundle_open(packed, len, &b) == FZN_ROSTER_OK && b.hop_count == 1u
-	              && b.record.len == m_add.len
-	              && fzn_roster_init(&first, e1, 4) == FZN_ROSTER_OK
-	              && fzn_roster_admit(&first, b.record, b.hops, b.hop_count, &a)
+	              && b.record.len == m_add.len && held_init(&first)
+	              && fzn_roster_admit(&first.r, b.record, b.hops, b.hop_count, &a)
 	                         == FZN_ROSTER_OK
-	              && active_seed(&first, &bob) == 40u,
+	              && active_seed(&first.r, &bob, NULL) == 40u,
 	      "a bundle would not open, or its record would not admit on its own chain");
 	CHECK(fzn_roster_bundle_open(packed, len + 1u, &b) == FZN_ROSTER_ERR_SHAPE
 	              && fzn_roster_bundle_open(packed, len - 1u, &b) == FZN_ROSTER_ERR_SHAPE,
@@ -548,37 +663,26 @@ static void test_bundle_and_restore(void)
 	packed[0] = (uint8_t)(FZN_CHAIN_MAX_HOPS + 1u);
 	CHECK(fzn_roster_bundle_open(packed, len, &b) == FZN_ROSTER_ERR_SHAPE,
 	      "a bundle claiming more hops than a chain may have opened");
+	packed[0] = 1u;
+	CHECK(fzn_roster_bundle_open(packed, len, &b) == FZN_ROSTER_OK, "fixture: reopen");
 
-	/* A RESTART REPRODUCES THE DECISION. The member's removal is admitted,
-	 * then the root revokes the member. Admitted afresh the removal would
-	 * now be refused -- and the contact would come back because a process
-	 * restarted. Restored, it stands. */
-	CHECK(fzn_roster_admit(&first, view(&m_rm), b.hops, 1, &a) == FZN_ROSTER_OK
-	              && active_seed(&first, &bob) == 0u,
-	      "fixture: the member's removal");
-	CHECK(fzn_revocation_store_init(&revoked, rev_entries, 4) == FZN_CHAIN_OK
-	              && fzn_revocation_issue(root.key, &manage, member.key, 600, &root.sign,
-	                                      revbytes) == FZN_CHAIN_OK
-	              && fzn_revocation_open(revbytes, sizeof(revbytes), &revrec) == FZN_CHAIN_OK
-	              && fzn_revocation_admit(&revoked, fzn_revocation_offer_root(revrec), root.key,
-	                                      &root.sign, &hash, NULL) == FZN_CHAIN_OK,
-	      "fixture: the root revokes the member afterwards");
-	a = authority_now(5000, &revoked);
-	CHECK(fzn_roster_init(&restart, e2, 4) == FZN_ROSTER_OK
-	              && fzn_roster_admit(&restart, view(&m_rm), b.hops, 1, &a)
-	                         == FZN_ROSTER_ERR_STANDING,
-	      "fixture: admitted afresh, the revoked member's removal is refused");
-	CHECK(fzn_roster_init(&restart, e2, 4) == FZN_ROSTER_OK
-	              && fzn_roster_restore(&restart, view(&m_add), b.hops, 1, &a) == FZN_ROSTER_OK
-	              && fzn_roster_restore(&restart, view(&m_rm), b.hops, 1, &a) == FZN_ROSTER_OK
-	              && active_seed(&restart, &bob) == 0u,
-	      "restoring what this host admitted did not reproduce the removal");
+	/* A RESTART REPRODUCES WHAT WAS HELD, AND THE READER DECIDES WHAT
+	 * COUNTS. The member's removal is restored after the root revoked the
+	 * member; it is held either way, and it suspends only while the
+	 * member is not known to be revoked. */
+	CHECK(revoke_member(&revoked, rev_entries, 4) && held_init(&restart)
+	              && fzn_roster_restore(&restart.r, view(&m_add), b.hops, 1, &a) == FZN_ROSTER_OK
+	              && fzn_roster_restore(&restart.r, view(&m_rm), b.hops, 1, &a) == FZN_ROSTER_OK
+	              && state_of(&restart.r, &bob, 40, NULL, 2) == FZN_ROSTER_SUSPENDED
+	              && state_of(&restart.r, &bob, 40, &revoked, 2) == FZN_ROSTER_ABSENT,
+	      "restoring did not reproduce what was held, or the reader's revocations did not "
+	      "decide what counts");
 
-	/* AND RESTORE STILL VERIFIES: it trusts this host's decision, not the
-	 * bytes. A record whose signature does not hold is refused. */
+	/* AND RESTORE STILL VERIFIES: a record whose signature does not hold
+	 * is refused. */
 	m_rm.bytes[FZN_ROSTER_OFF_SEQ] ^= 1u;
-	CHECK(fzn_roster_init(&restart, e2, 4) == FZN_ROSTER_OK
-	              && fzn_roster_restore(&restart, view(&m_rm), b.hops, 1, &a)
+	CHECK(held_init(&restart)
+	              && fzn_roster_restore(&restart.r, view(&m_rm), b.hops, 1, &a)
 	                         == FZN_ROSTER_ERR_SIGNATURE,
 	      "restore admitted a record whose signature does not verify");
 }
@@ -594,9 +698,11 @@ int main(void)
 	memset(&other_cap, 0x62, sizeof(other_cap));
 
 	test_the_record();
-	test_removal_is_for_good();
+	test_a_removal_suspends_for_good();
 	test_removal_overtakes_add();
 	test_two_live_incarnations();
+	test_k_distinct_removers_retire();
+	test_a_revoked_writer_counts_for_nothing();
 	test_standing();
 	test_full();
 	test_order_independence();

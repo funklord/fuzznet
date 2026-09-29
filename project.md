@@ -48652,3 +48652,75 @@ Not built yet. What it needs:
 - k as an estate setting;
 - replacing d83ac2c's refuse-on-arrival;
 - revocation itself becoming a k-of-n act.
+
+## 395. The roster judges at read time: suspend, retire at k, 2026-09-29
+
+The roster half of sec 394. What changed in `roster/`:
+
+- **A removal suspends, and removals from k distinct writers retire.** A
+  second device confirming is that device removing the same incarnation,
+  so there is no separate confirm record.
+- **`fzn_roster_state`** answers ABSENT, ACTIVE, SUSPENDED or RETIRED for
+  an incarnation, judged against the revocations the reader passes and the
+  estate's `k` (0 means `FZN_ROSTER_K_DEFAULT`, 2).
+- **`fzn_roster_active`** takes the same two arguments and returns only an
+  ACTIVE incarnation.
+- **Arrival judges nothing but the signature and the chain's structure**,
+  with no revocations and no clock: the chain is checked as of its newest
+  hop's issue. `fzn_roster_restore` is therefore the same call as
+  `fzn_roster_admit`, kept for the callers that read their own store back.
+- **Writers live in a small table.** Each keeps its key and, per hop, the
+  grantor, the grantee and the capability, which is enough to ask
+  `fzn_revocation_covers` later whether any hop has been revoked by an
+  entitled issuer. Entries point into it. A writer whose chain has a
+  revoked hop counts for nothing: its add, its suspension and its share of
+  a retirement. The root, with no chain, always counts.
+- **Retirement counts distinct KEYS**, so one host removing under two
+  grants is one remover.
+
+**d83ac2c is superseded.** It refused a revoked writer's removal on
+arrival, which under peer-to-peer carriage depended on whether a host
+heard the removal or the revocation first. Now the removal is held, and
+counts or does not according to what the reading host knows.
+
+**The clock is not consulted anywhere.** A writer whose grant has expired
+since it wrote still counts. Expiry ends a grant's power to authorise new
+actions (sec 345), and a record carries no time anybody can trust to say
+whether it came before the expiry or after. Only revocation withdraws.
+
+### Measured for sec 395
+
+`roster_test`, 61 checks:
+
+- one removal suspends;
+- one writer removing twice is one;
+- k = 1 retires at one, k = 2 at two distinct writers, k = 3 does not;
+- one host under two different chains counts once;
+- before the host knows of the member's revocation, the member's add and
+  removal count; once it knows, the add is gone, the suspension void, and
+  a retirement the member shared falls back to the root's suspension;
+- a writer whose grant has since expired still counts;
+- every one of the 5040 orders of seven records from two writers gives the
+  same four answers, judged with and without the member revoked, and they
+  are the right ones;
+- the bundle restores what was held, and the reader's revocations decide
+  what counts.
+
+Sabotage entries cover:
+
+- five re-aimed at the new code: a suspension is not active, expiry does
+  not withdraw, a revoked writer counts for nothing, the tie-break, and
+  distinct hosts;
+- one new: retirement at exactly k.
+
+### What sec 394 still needs
+
+- **The revocation half:** every revocation, a grant of admin, a re-key and
+  an undo needing k-of-n. It is blocked on who may confirm, which is the
+  holder's question. Today only a device's ancestors in its chain may
+  revoke it, so a device the root granted directly has one entitled
+  revoker, the root, and "2 of n" cannot be met there.
+- **k as an estate setting that travels.** Today a consumer passes it.
+- **Deleting a retired contact's data after a hold period**, a local act
+  that is the consumer's to schedule; the roster says when a contact is
+  RETIRED.

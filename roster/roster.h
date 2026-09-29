@@ -11,12 +11,22 @@
  *
  * THE INCARNATION IS THE WHOLE DESIGN. Adding a subject mints an
  * incarnation, 16 random bytes fixed at the add. Every later record about the
- * subject names the incarnation it concerns, and removal is a tombstone for
- * one incarnation, kept for good. A record naming a removed incarnation
- * changes nothing, however high its `seq` -- so a stale update cannot bring a
- * subject back under ANY concurrency, because nothing here orders by clock or
- * sequence to decide it. A deliberate re-add mints a new incarnation and is a
- * fresh subject, even for the same key.
+ * subject names the incarnation it concerns, and a removal is about one
+ * incarnation. A record naming a removed incarnation changes nothing, however
+ * high its `seq` -- so a stale update cannot bring a subject back under ANY
+ * concurrency, because nothing here orders by clock or sequence to decide
+ * it. A deliberate re-add mints a new incarnation and is a fresh subject,
+ * even for the same key.
+ *
+ * A REMOVAL SUSPENDS, AND k OF THEM RETIRE. sec 394, the holder's decisions
+ * of 2026-09-29. A removal from one writer SUSPENDS the incarnation at once:
+ * nothing is shared with it and nothing deleted, and it is reversible in the
+ * one way that matters -- if its writer turns out revoked, the suspension is
+ * void. Removals of the same incarnation from `k` DISTINCT writers RETIRE it:
+ * that is the agreement an irreversible act waits for, and a second device
+ * confirming is simply that device removing the same incarnation, so there is
+ * no separate confirm record. `k` is the estate's (default
+ * FZN_ROSTER_K_DEFAULT); the root counts as one writer like any other.
  *
  * TWO LIVE INCARNATIONS OF ONE SUBJECT happen when it is added independently
  * on two hosts. The active one is the add with the greatest `(seq, writer)`:
@@ -41,21 +51,21 @@
  * CAP_PEER_MANAGE -- naming it as the last grantee. The receiver checks it,
  * as revoking checks standing (`chain/revocation.h`).
  *
- * A REVOKED WRITER WRITES NOTHING, removals included. Both an add and a
- * removal are checked against the revocations this host holds. A removal was
- * first admitted revocation-blind, so none could be lost; fuzzypickles showed
- * the cost -- a stolen phone, queued offline, could remove every contact in
- * the estate for good, since a tombstone is permanent -- and the holder
- * decided 2026-09-28 to refuse it (sec 388). What that gives up: a genuine
- * removal made on a device just before it was revoked, and not yet carried,
- * is lost and must be made again from another host. Carriage runs through
- * the root, which decides for every host, so the refusal is the same
- * everywhere rather than depending on arrival order.
+ * EVERYTHING IS JUDGED WHEN THE ROSTER IS READ, AND NOTHING WHEN IT ARRIVES,
+ * beyond a record's own signature and its writer's chain's structure. Which
+ * writers count is decided by the revocations the READER passes in: a
+ * writer any of whose hops is revoked counts for nothing, its adds, its
+ * suspensions and its share of a retirement alike. So two hosts holding the
+ * same records and the same revocations give the same answer whatever order
+ * any of it arrived in, and a revocation learned late corrects the answer on
+ * the next read. The first version refused a revoked writer's removal on
+ * arrival (d83ac2c); under peer-to-peer carriage that depended on which a
+ * host heard first, the removal or the revocation, and did not converge.
  *
- * THE CLOCK IS A DIFFERENT QUESTION. A removal carries no time of its own,
- * so it is checked at the moment its writer's newest hop was issued: one made
- * while the grant held is not lost to the grant expiring before it arrived.
- * An add can grant access and is checked against the clock as well.
+ * THE CLOCK IS NOT CONSULTED. A record carries no time anybody can trust, so
+ * a writer's chain is checked as of its newest hop's issue: a grant expiring
+ * later does not undo what was written while it held. Only a revocation
+ * withdraws, which is the library's rule since sec 345.
  *
  * ONLY THE USER'S OWN HOSTS. The subject is never told it was removed. That
  * is fuzzypickles' rule for un-pairing, and this does not change it: the
@@ -120,8 +130,9 @@ typedef enum fzn_roster_err {
 	 * incarnation is minted once, so two adds of one are one writer's
 	 * statement contradicting another's, and neither is taken. */
 	FZN_ROSTER_ERR_CONFLICT = -5,
-	/* No room. A refused removal is a contact left in place, so this is
-	 * the fail-open the store's size decides; see project.md sec 388. */
+	/* No room for the entry or its writer. A refused removal is a contact
+	 * left in place, so this is the fail-open the tables' sizes decide; see
+	 * project.md sec 388. */
 	FZN_ROSTER_ERR_FULL = -6,
 	/* A setting record: laid out, not yet resolved. See the header. */
 	FZN_ROSTER_ERR_UNSUPPORTED = -7
@@ -192,36 +203,62 @@ fzn_roster_err_t fzn_roster_issue_set(const uint8_t writer[FZN_PUBKEY_LEN],
  * tombstone: a removal that overtook its add is stored, so the add arriving
  * later lands on it removed. The same arrival-order argument
  * `chain/revocation.h` makes for a withdrawal's tombstone. */
+/* The default number of distinct writers whose removals retire an
+ * incarnation. The estate's to set; 2 so that one stolen device cannot. */
+#define FZN_ROSTER_K_DEFAULT 2u
+/* The most distinct removers an entry keeps: enough for any k an estate
+ * sets, since a retirement needs only k of them. */
+#define FZN_ROSTER_REMOVERS_MAX 4u
+
+/* A WRITER AS THE ROSTER REMEMBERS IT: its key, and just enough of its chain
+ * to ask later whether any hop has been revoked -- each hop's grantor and
+ * grantee, and the capability they carry. Held once in a small table and
+ * pointed at by entries, since a user's writers are few and their records
+ * many. `hop_count` 0 is the root, which no revocation reaches. */
+typedef struct fzn_roster_writer {
+	uint8_t key[FZN_PUBKEY_LEN];
+	fzn_cap_id_t capability;
+	size_t hop_count;
+	uint8_t grantor[FZN_CHAIN_MAX_HOPS][FZN_PUBKEY_LEN];
+	uint8_t grantee[FZN_CHAIN_MAX_HOPS][FZN_PUBKEY_LEN];
+} fzn_roster_writer_t;
+
+/* One incarnation, as this host holds it. Writers are indices into the
+ * roster's writer table. An entry can exist with only removals: a removal
+ * that overtook its add is stored, so the add arriving later lands on it. */
 typedef struct fzn_roster_entry {
 	uint8_t subject[FZN_PUBKEY_LEN];
 	uint8_t incarnation[FZN_ROSTER_INCARNATION_LEN];
 	int added;
 	uint64_t add_seq;
-	uint8_t add_writer[FZN_PUBKEY_LEN];
-	int removed;
+	size_t add_writer;
+	size_t remover_count;
+	size_t remover[FZN_ROSTER_REMOVERS_MAX];
 } fzn_roster_entry_t;
 
 typedef struct fzn_roster {
 	fzn_roster_entry_t *entries;
 	size_t capacity;
 	size_t used;
+	fzn_roster_writer_t *writers;
+	size_t writer_capacity;
+	size_t writers_used;
 	/* The greatest `seq` any admitted record carried, so a writer here can
 	 * number its next record past everything it has seen. */
 	uint64_t seq_seen;
 } fzn_roster_t;
 
 fzn_roster_err_t fzn_roster_init(fzn_roster_t *roster, fzn_roster_entry_t *entries,
-                                 size_t capacity);
+                                 size_t capacity, fzn_roster_writer_t *writers,
+                                 size_t writer_capacity);
 
-/* What admission is checked against: the pinned root, the capability a
- * writer's chain must carry, and -- for an add -- the clock and the
- * revocations this host holds. */
+/* What a record is checked against as it arrives: the pinned root, the
+ * capability a writer's chain must carry, and the verifier. No clock and no
+ * revocations -- those are the reader's (see the header). */
 typedef struct fzn_roster_authority {
 	const uint8_t *root;
 	const fzn_cap_id_t *capability;
 	const fzn_sign_ops_t *sign;
-	uint64_t now;
-	const fzn_revocation_store_t *revocations;
 } fzn_roster_authority_t;
 
 /* Verify a record and apply it. `hops` is the writer's chain from the root,
@@ -233,17 +270,11 @@ fzn_roster_err_t fzn_roster_admit(fzn_roster_t *roster, fzn_roster_record_t reco
 
 /* RE-ADMIT A RECORD THIS HOST ADMITTED BEFORE, from its own store, at start.
  *
- * The signature and the chain are verified as `fzn_roster_admit` verifies
- * them, and the clock and the revocations are NOT consulted: this host
- * already decided this record, and a restart must reproduce that decision
- * rather than take a new one. Without that, a removal admitted a minute
- * before its writer was revoked would be refused at the next start and the
- * contact it removed would come back -- the roster changing because a process
- * restarted. `authority->now` and `->revocations` are ignored.
- *
- * NEVER FOR BYTES FROM ANOTHER HOST. Everything that arrives is admitted with
- * `fzn_roster_admit`; this is only the host's own record of what it admitted
- * already, read back. */
+ * The same as `fzn_roster_admit` since sec 394, when admission stopped
+ * consulting the clock and the revocations and both became the reader's: a
+ * restart reproduces exactly what was admitted, because nothing admission
+ * decides could have changed. Kept so callers that read their store back say
+ * so. */
 fzn_roster_err_t fzn_roster_restore(fzn_roster_t *roster, fzn_roster_record_t record,
                                     const fzn_chain_hop_t *hops, size_t hop_count,
                                     const fzn_roster_authority_t *authority);
@@ -286,14 +317,32 @@ fzn_roster_err_t fzn_roster_bundle_pack(const uint8_t *record, size_t record_len
 fzn_roster_err_t fzn_roster_bundle_open(const uint8_t *bytes, size_t len,
                                         fzn_roster_bundle_t *out);
 
-/* The subject's active incarnation into `incarnation`: the live one -- added
- * and not removed -- whose add has the greatest `(seq, writer)`. 1 when there
- * is one, 0 when the subject is absent or every incarnation of it is removed. */
-int fzn_roster_active(const fzn_roster_t *roster, const uint8_t subject[FZN_PUBKEY_LEN],
-                      uint8_t incarnation[FZN_ROSTER_INCARNATION_LEN]);
+/* WHAT A HOST SEES FOR ONE INCARNATION, judged against `revocations` -- the
+ * ones this host holds, or NULL for none -- with `k` the estate's number of
+ * distinct writers a retirement needs (0 means FZN_ROSTER_K_DEFAULT). */
+typedef enum fzn_roster_state {
+	/* Nothing held, or only records whose writers are revoked. */
+	FZN_ROSTER_ABSENT = 0,
+	/* Added by an unrevoked writer, and nobody unrevoked has removed it. */
+	FZN_ROSTER_ACTIVE = 1,
+	/* At least one unrevoked writer removed it: share nothing with it. */
+	FZN_ROSTER_SUSPENDED = 2,
+	/* `k` distinct unrevoked writers removed it: permanent, and what
+	 * deleting the subject's data waits for. */
+	FZN_ROSTER_RETIRED = 3
+} fzn_roster_state_t;
 
-/* Whether this incarnation of the subject has been removed. */
-int fzn_roster_removed(const fzn_roster_t *roster, const uint8_t subject[FZN_PUBKEY_LEN],
-                       const uint8_t incarnation[FZN_ROSTER_INCARNATION_LEN]);
+fzn_roster_state_t fzn_roster_state(const fzn_roster_t *roster,
+                                    const uint8_t subject[FZN_PUBKEY_LEN],
+                                    const uint8_t incarnation[FZN_ROSTER_INCARNATION_LEN],
+                                    const fzn_revocation_store_t *revocations, size_t k);
+
+/* The subject's active incarnation into `incarnation`: of those ACTIVE under
+ * `revocations` and `k`, the one whose add has the greatest `(seq, writer)`.
+ * 1 when there is one, 0 when the subject is absent, suspended or retired in
+ * every incarnation. */
+int fzn_roster_active(const fzn_roster_t *roster, const uint8_t subject[FZN_PUBKEY_LEN],
+                      const fzn_revocation_store_t *revocations, size_t k,
+                      uint8_t incarnation[FZN_ROSTER_INCARNATION_LEN]);
 
 #endif /* FZN_ROSTER_H */

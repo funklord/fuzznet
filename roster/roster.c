@@ -2,6 +2,8 @@
 
 #include "roster.h"
 
+#include "../chain/revocation.h"
+
 #include <string.h>
 
 const char *fzn_roster_err_str(fzn_roster_err_t err)
@@ -138,14 +140,19 @@ fzn_roster_err_t fzn_roster_issue_set(const uint8_t writer[FZN_PUBKEY_LEN],
 }
 
 fzn_roster_err_t fzn_roster_init(fzn_roster_t *roster, fzn_roster_entry_t *entries,
-                                 size_t capacity)
+                                 size_t capacity, fzn_roster_writer_t *writers,
+                                 size_t writer_capacity)
 {
-	if (!roster || !entries || capacity == 0u)
+	if (!roster || !entries || capacity == 0u || !writers || writer_capacity == 0u)
 		return FZN_ROSTER_ERR_MALFORMED;
 	memset(entries, 0, capacity * sizeof(*entries));
+	memset(writers, 0, writer_capacity * sizeof(*writers));
 	roster->entries = entries;
 	roster->capacity = capacity;
 	roster->used = 0;
+	roster->writers = writers;
+	roster->writer_capacity = writer_capacity;
+	roster->writers_used = 0;
 	roster->seq_seen = 0;
 	return FZN_ROSTER_OK;
 }
@@ -163,20 +170,12 @@ static fzn_roster_entry_t *find(const fzn_roster_t *roster, const uint8_t *subje
 	return NULL;
 }
 
-/* STANDING: the root, or a chain from it for the roster's capability naming
- * the writer as its last grantee.
- *
- * `blind` is a removal's admission, and it is blind to the CLOCK only: the
- * chain is checked at the moment its newest hop was issued, so a removal is
- * not lost to its writer's grant simply running out before it arrived. It is
- * NOT blind to revocations -- a revoked writer removes nothing (roster.h,
- * sec 388, the holder's decision of 2026-09-28).
- *
- * `restoring` is `fzn_roster_restore`: this host decided the record already,
- * so neither the clock nor the revocations may undo that decision at a
- * restart. Only the signature and the chain's own validity are asked again. */
+/* STANDING AS A RECORD ARRIVES: the root, or a chain from it for the roster's
+ * capability naming the writer as its last grantee -- checked as of the
+ * newest hop's issue, with no revocations, since both are the reader's
+ * (roster.h). What this can refuse is a chain that was never valid. */
 static int has_standing(const uint8_t *writer, const fzn_chain_hop_t *hops, size_t hop_count,
-                        const fzn_roster_authority_t *authority, int blind, int restoring)
+                        const fzn_roster_authority_t *authority)
 {
 	fzn_chain_t verdict;
 	size_t i;
@@ -189,24 +188,51 @@ static int has_standing(const uint8_t *writer, const fzn_chain_hop_t *hops, size
 	for (i = 0; i < hop_count; i++)
 		if (fzn_hop_issued_at(hops[i]) > latest)
 			latest = fzn_hop_issued_at(hops[i]);
-	if (fzn_chain_verify(hops, hop_count, authority->root, authority->capability,
-	                     blind ? latest : authority->now, authority->sign,
-	                     restoring ? NULL : authority->revocations, NULL, &verdict)
+	if (fzn_chain_verify(hops, hop_count, authority->root, authority->capability, latest,
+	                     authority->sign, NULL, NULL, &verdict)
 	    != FZN_CHAIN_OK)
 		return 0;
 	return memcmp(verdict.grantee, writer, FZN_PUBKEY_LEN) == 0;
 }
 
+/* The writer-table slot for this writer and chain, adding one if new. A key
+ * seen before with a different chain is a different slot: it stood on
+ * different grants, and either can be revoked without the other. SIZE_MAX
+ * when the table is full. */
+static size_t intern_writer(fzn_roster_t *roster, const uint8_t *key,
+                            const fzn_chain_hop_t *hops, size_t hop_count,
+                            const fzn_cap_id_t *capability)
+{
+	fzn_roster_writer_t w;
+	size_t i;
+
+	memset(&w, 0, sizeof(w));
+	memcpy(w.key, key, FZN_PUBKEY_LEN);
+	w.capability = *capability;
+	w.hop_count = hop_count;
+	for (i = 0; i < hop_count; i++) {
+		memcpy(w.grantor[i], fzn_hop_grantor(hops[i]), FZN_PUBKEY_LEN);
+		memcpy(w.grantee[i], fzn_hop_grantee(hops[i]), FZN_PUBKEY_LEN);
+	}
+	for (i = 0; i < roster->writers_used; i++)
+		if (memcmp(&roster->writers[i], &w, sizeof(w)) == 0)
+			return i;
+	if (roster->writers_used >= roster->writer_capacity)
+		return (size_t)-1;
+	roster->writers[roster->writers_used] = w;
+	return roster->writers_used++;
+}
+
 static fzn_roster_err_t apply(fzn_roster_t *roster, fzn_roster_record_t record,
                               const fzn_chain_hop_t *hops, size_t hop_count,
-                              const fzn_roster_authority_t *authority, int restoring)
+                              const fzn_roster_authority_t *authority)
 {
 	fzn_roster_record_t rec;
 	fzn_roster_entry_t *entry;
-	size_t signed_len;
+	size_t signed_len, w, i;
 	uint8_t object;
 
-	if (!roster || !roster->entries || !authority || !authority->root
+	if (!roster || !roster->entries || !roster->writers || !authority || !authority->root
 	    || !authority->capability || !authority->sign || !authority->sign->verify)
 		return FZN_ROSTER_ERR_MALFORMED;
 	/* Opened again rather than trusted: a view is only a pointer and a
@@ -220,17 +246,22 @@ static fzn_roster_err_t apply(fzn_roster_t *roster, fzn_roster_record_t record,
 		return FZN_ROSTER_ERR_SIGNATURE;
 	if (object == (uint8_t)FZN_OBJECT_ROSTER_SET)
 		return FZN_ROSTER_ERR_UNSUPPORTED;
-	if (!has_standing(fzn_roster_writer(rec), hops, hop_count, authority,
-	                  restoring || object == (uint8_t)FZN_OBJECT_ROSTER_REMOVE, restoring))
+	if (!has_standing(fzn_roster_writer(rec), hops, hop_count, authority))
 		return FZN_ROSTER_ERR_STANDING;
 
 	entry = find(roster, fzn_roster_subject(rec), fzn_roster_incarnation(rec));
 	if (object == (uint8_t)FZN_OBJECT_ROSTER_ADD && entry && entry->added) {
+		const fzn_roster_writer_t *held = &roster->writers[entry->add_writer];
+
 		if (entry->add_seq == fzn_roster_seq(rec)
-		    && memcmp(entry->add_writer, fzn_roster_writer(rec), FZN_PUBKEY_LEN) == 0)
+		    && memcmp(held->key, fzn_roster_writer(rec), FZN_PUBKEY_LEN) == 0)
 			return FZN_ROSTER_OK;	/* the same add, again */
 		return FZN_ROSTER_ERR_CONFLICT;
 	}
+	w = intern_writer(roster, fzn_roster_writer(rec), hops, hop_count,
+	                  authority->capability);
+	if (w == (size_t)-1)
+		return FZN_ROSTER_ERR_FULL;
 	if (!entry) {
 		if (roster->used >= roster->capacity)
 			return FZN_ROSTER_ERR_FULL;
@@ -242,9 +273,19 @@ static fzn_roster_err_t apply(fzn_roster_t *roster, fzn_roster_record_t record,
 	if (object == (uint8_t)FZN_OBJECT_ROSTER_ADD) {
 		entry->added = 1;
 		entry->add_seq = fzn_roster_seq(rec);
-		memcpy(entry->add_writer, fzn_roster_writer(rec), FZN_PUBKEY_LEN);
+		entry->add_writer = w;
 	} else {
-		entry->removed = 1;
+		/* ONE PLACE PER WRITER SLOT. The same writer removing twice is one
+		 * removal; a retirement counts distinct KEYS at read time, so two
+		 * slots of one key never make two. */
+		for (i = 0; i < entry->remover_count; i++)
+			if (entry->remover[i] == w)
+				break;
+		if (i == entry->remover_count) {
+			if (entry->remover_count >= FZN_ROSTER_REMOVERS_MAX)
+				return FZN_ROSTER_ERR_FULL;
+			entry->remover[entry->remover_count++] = w;
+		}
 	}
 	if (fzn_roster_seq(rec) > roster->seq_seen)
 		roster->seq_seen = fzn_roster_seq(rec);
@@ -255,14 +296,14 @@ fzn_roster_err_t fzn_roster_admit(fzn_roster_t *roster, fzn_roster_record_t reco
                                   const fzn_chain_hop_t *hops, size_t hop_count,
                                   const fzn_roster_authority_t *authority)
 {
-	return apply(roster, record, hops, hop_count, authority, 0);
+	return apply(roster, record, hops, hop_count, authority);
 }
 
 fzn_roster_err_t fzn_roster_restore(fzn_roster_t *roster, fzn_roster_record_t record,
                                     const fzn_chain_hop_t *hops, size_t hop_count,
                                     const fzn_roster_authority_t *authority)
 {
-	return apply(roster, record, hops, hop_count, authority, 1);
+	return apply(roster, record, hops, hop_count, authority);
 }
 
 fzn_roster_err_t fzn_roster_bundle_pack(const uint8_t *record, size_t record_len,
@@ -317,28 +358,93 @@ fzn_roster_err_t fzn_roster_bundle_open(const uint8_t *bytes, size_t len,
 	return FZN_ROSTER_OK;
 }
 
+/* WHETHER A WRITER COUNTS: no hop of the chain it wrote under is revoked, by
+ * an issuer entitled to revoke that hop -- the root or an ancestor in the
+ * chain, as `fzn_revocation_covers_chain` derives it. The root, with no
+ * chain, is never revoked. */
+static int counts(const fzn_roster_writer_t *w, const fzn_revocation_store_t *revocations)
+{
+	size_t i, j;
+
+	if (!revocations)
+		return 1;
+	for (i = 0; i < w->hop_count; i++)
+		for (j = 0; j <= i; j++)
+			if (fzn_revocation_covers(revocations, w->grantor[j], &w->capability,
+			                          w->grantee[i]))
+				return 0;
+	return 1;
+}
+
+static fzn_roster_state_t judge(const fzn_roster_t *roster, const fzn_roster_entry_t *e,
+                                const fzn_revocation_store_t *revocations, size_t k)
+{
+	const uint8_t *keys[FZN_ROSTER_REMOVERS_MAX];
+	size_t distinct = 0, i, j;
+
+	if (k == 0u)
+		k = FZN_ROSTER_K_DEFAULT;
+	/* DISTINCT UNREVOKED REMOVERS, by key: one host under two chains is
+	 * still one host, and agreement is between hosts. */
+	for (i = 0; i < e->remover_count; i++) {
+		const fzn_roster_writer_t *w = &roster->writers[e->remover[i]];
+
+		if (!counts(w, revocations))
+			continue;
+		for (j = 0; j < distinct; j++)
+			if (memcmp(keys[j], w->key, FZN_PUBKEY_LEN) == 0)
+				break;
+		if (j == distinct)
+			keys[distinct++] = w->key;
+	}
+	if (distinct >= k)
+		return FZN_ROSTER_RETIRED;
+	if (distinct > 0u)
+		return FZN_ROSTER_SUSPENDED;
+	if (e->added && counts(&roster->writers[e->add_writer], revocations))
+		return FZN_ROSTER_ACTIVE;
+	return FZN_ROSTER_ABSENT;
+}
+
+fzn_roster_state_t fzn_roster_state(const fzn_roster_t *roster,
+                                    const uint8_t subject[FZN_PUBKEY_LEN],
+                                    const uint8_t incarnation[FZN_ROSTER_INCARNATION_LEN],
+                                    const fzn_revocation_store_t *revocations, size_t k)
+{
+	const fzn_roster_entry_t *e;
+
+	if (!roster || !roster->entries || !roster->writers || !subject || !incarnation)
+		return FZN_ROSTER_ABSENT;
+	e = find(roster, subject, incarnation);
+	return e ? judge(roster, e, revocations, k) : FZN_ROSTER_ABSENT;
+}
+
 /* Whether add `a` beats add `b`: greater seq, then greater writer bytes. */
-static int beats(const fzn_roster_entry_t *a, const fzn_roster_entry_t *b)
+static int beats(const fzn_roster_t *roster, const fzn_roster_entry_t *a,
+                 const fzn_roster_entry_t *b)
 {
 	if (a->add_seq != b->add_seq)
 		return a->add_seq > b->add_seq;
-	return memcmp(a->add_writer, b->add_writer, FZN_PUBKEY_LEN) > 0;
+	return memcmp(roster->writers[a->add_writer].key, roster->writers[b->add_writer].key,
+	              FZN_PUBKEY_LEN) > 0;
 }
 
 int fzn_roster_active(const fzn_roster_t *roster, const uint8_t subject[FZN_PUBKEY_LEN],
+                      const fzn_revocation_store_t *revocations, size_t k,
                       uint8_t incarnation[FZN_ROSTER_INCARNATION_LEN])
 {
 	const fzn_roster_entry_t *best = NULL;
 	size_t i;
 
-	if (!roster || !roster->entries || !subject)
+	if (!roster || !roster->entries || !roster->writers || !subject)
 		return 0;
 	for (i = 0; i < roster->used; i++) {
 		const fzn_roster_entry_t *e = &roster->entries[i];
 
-		if (!e->added || e->removed || memcmp(e->subject, subject, FZN_PUBKEY_LEN) != 0)
+		if (memcmp(e->subject, subject, FZN_PUBKEY_LEN) != 0
+		    || judge(roster, e, revocations, k) != FZN_ROSTER_ACTIVE)
 			continue;
-		if (!best || beats(e, best))
+		if (!best || beats(roster, e, best))
 			best = e;
 	}
 	if (!best)
@@ -346,15 +452,4 @@ int fzn_roster_active(const fzn_roster_t *roster, const uint8_t subject[FZN_PUBK
 	if (incarnation)
 		memcpy(incarnation, best->incarnation, FZN_ROSTER_INCARNATION_LEN);
 	return 1;
-}
-
-int fzn_roster_removed(const fzn_roster_t *roster, const uint8_t subject[FZN_PUBKEY_LEN],
-                       const uint8_t incarnation[FZN_ROSTER_INCARNATION_LEN])
-{
-	const fzn_roster_entry_t *e;
-
-	if (!roster || !roster->entries || !subject || !incarnation)
-		return 0;
-	e = find(roster, subject, incarnation);
-	return e && e->removed;
 }

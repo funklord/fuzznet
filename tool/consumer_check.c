@@ -2979,6 +2979,7 @@ int main(void)
 	 * reads the answer. sec 388. */
 	{
 		static fzn_roster_entry_t entries[4];
+		static fzn_roster_writer_t writers[2];
 		uint8_t writer[FZN_PUBKEY_LEN], subject[FZN_PUBKEY_LEN];
 		uint8_t inc[FZN_ROSTER_INCARNATION_LEN], got[FZN_ROSTER_INCARNATION_LEN];
 		uint8_t rec[FZN_ROSTER_MAX_LEN];
@@ -2995,24 +2996,24 @@ int main(void)
 		authority.root = writer;
 		authority.capability = &roster_cap;
 		authority.sign = &sign;
-		authority.now = 1000u;
-		authority.revocations = NULL;
 
-		if (fzn_roster_init(&roster, entries, 4) != FZN_ROSTER_OK)
+		if (fzn_roster_init(&roster, entries, 4, writers, 2) != FZN_ROSTER_OK)
 			FAIL(441);
 		if (fzn_roster_issue_add(writer, subject, inc, 1u, &sign, rec, sizeof(rec), &rec_len)
 		            != FZN_ROSTER_OK
 		    || fzn_roster_open(rec, rec_len, &view) != FZN_ROSTER_OK
 		    || fzn_roster_admit(&roster, view, NULL, 0u, &authority) != FZN_ROSTER_OK)
 			FAIL(442);
-		if (!fzn_roster_active(&roster, subject, got) || memcmp(got, inc, sizeof(inc)) != 0)
+		if (!fzn_roster_active(&roster, subject, NULL, 1u, got)
+		    || memcmp(got, inc, sizeof(inc)) != 0)
 			FAIL(443);
 		if (fzn_roster_issue_remove(writer, subject, inc, 2u, &sign, rec, sizeof(rec),
 		                            &rec_len) != FZN_ROSTER_OK
 		    || fzn_roster_open(rec, rec_len, &view) != FZN_ROSTER_OK
 		    || fzn_roster_admit(&roster, view, NULL, 0u, &authority) != FZN_ROSTER_OK)
 			FAIL(444);
-		if (fzn_roster_active(&roster, subject, got) || !fzn_roster_removed(&roster, subject, inc))
+		if (fzn_roster_active(&roster, subject, NULL, 1u, got)
+		    || fzn_roster_state(&roster, subject, inc, NULL, 1u) != FZN_ROSTER_RETIRED)
 			FAIL(445);
 		if (fzn_roster_err_str(FZN_ROSTER_ERR_UNSUPPORTED) == NULL)
 			FAIL(446);
