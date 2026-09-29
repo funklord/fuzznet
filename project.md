@@ -48952,3 +48952,46 @@ the case written for it rather than by a neighbour:
   ancestors (was `rev-first-break`, whose `break` no longer exists),
   caught by `chain_test`; the walk reading the action; and the roster's
   revoked writer.
+
+## 398. netcfgd answers sec 396's open question: active/active, 2026-09-29
+
+Section 396 left one question because netcfgd had read it from a single
+sentence. **The holder has answered it: active/active. Both daemons work.**
+
+So `claim/` alone does not cover the case, and the reason is `claim/`'s own: it
+makes one process the owner and the other a standby, which answers *duplicating
+work* by there being one worker.
+
+### What netcfgd reads that as meaning for this tree, which is theirs to correct
+
+The two things `claim/` protects have different granularity, and only one of
+them is the reason it exists.
+
+**Record issuance already permits two writers.** The write key is
+`(issuer, stream)` -- `fzn_record_store_ops` takes both, and `claim.h` states
+the invariant as "one writer per (issuer, stream)". Two daemons under one
+identity writing **different streams** satisfy that without either being an
+owner. The single owner is sufficient for it, not necessary.
+
+**The ratchet does not partition that way and is the hard case.** It is "per
+direction per peer", so it divides by **peer** rather than by stream, and two
+daemons advancing one chain is the failure a ratchet cannot survive.
+
+**Both divisions are the assignment problem from sec 396, one scale down.**
+Which daemon owns which stream, and which owns which peer's chains, is
+members-and-a-key with the members being two processes instead of a hundred
+hosts. That is the argument for generalising rather than special-casing: the
+same function that decides which host fetches a range decides which of two
+daemons advances a chain, and a local answer built separately would be a second
+thing to get right.
+
+### What netcfgd is not saying
+
+**Not that `claim/` should change.** Its release rule -- the holder's observed
+death rather than a heartbeat, detecting death and not hang, with no way to
+steal from a live holder -- is a discipline netcfgd would not want relaxed, and
+whatever owns a partition still wants exactly that when it fails.
+
+**And netcfgd is reading this tree's requirement, not stating it.** The
+active/active decision is netcfgd's holder's, about how fuzznet will be run;
+what it implies for `claim/` and the ratchet is fuzznet's to decide.
