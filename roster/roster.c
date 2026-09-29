@@ -395,6 +395,10 @@ static fzn_roster_state_t judge(const fzn_roster_t *roster, const fzn_roster_ent
 
 		if (!counts(w, revocations))
 			continue;
+		/* THE ROOT RETIRES ALONE, sec 403: it writes with no chain, and a
+		 * root acts for the estate by itself. */
+		if (w->hop_count == 0u)
+			return FZN_ROSTER_RETIRED;
 		for (j = 0; j < distinct; j++)
 			if (memcmp(keys[j], w->key, FZN_PUBKEY_LEN) == 0)
 				break;

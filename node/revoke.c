@@ -132,13 +132,13 @@ static fzn_node_revoke_err_t issue(const fzn_node_identity_t *id,
 		if (!fzn_revocation_is_withdrawal(prev_rec))
 			return FZN_NODE_REVOKE_ALREADY;
 		cerr = fzn_revocation_reissue(id->pubkey, capability, grantee, now,
-		                              fzn_revocation_current_epoch(revocations, capability,
+		                              fzn_revocation_current_epoch(revocations, root, capability,
 		                                                           grantee),
 		                              fzn_revocation_supersedes(prev_rec), id->sign,
 		                              record);
 	} else {
 		cerr = fzn_revocation_issue(id->pubkey, capability, grantee, now,
-		                            fzn_revocation_current_epoch(revocations, capability,
+		                            fzn_revocation_current_epoch(revocations, root, capability,
 		                                                         grantee),
 		                            id->sign, record);
 	}

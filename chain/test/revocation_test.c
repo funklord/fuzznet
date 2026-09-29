@@ -3466,8 +3466,8 @@ static void test_the_epoch_is_signed_where_the_table_says(void)
 }
 
 /* AN UNDO CLOSES ITS EPOCH, and a vote after it counts from one. The case
- * sec 399 found: at k = 2 the root and an admin revoke, both withdraw, and
- * the root alone then revoked the device again. With the epoch, the root's
+ * sec 399 found: at k = 2 two admins revoke, both withdraw, and one of
+ * them alone then revoked the device again. With the epoch, admin 8's
  * new vote is cast in epoch 1 and is one of two; the admin's makes two. The
  * control casts the same vote in the closed epoch 0 and shows the latch
  * shutting on one vote -- so it is the epoch, and nothing else, that
@@ -3477,11 +3477,13 @@ static void test_an_undo_closes_its_epoch(void)
 	struct fixture f;
 	fzn_revocation_admin_t admins[4];
 	uint8_t admin_bytes[FZN_HOP_LEN];
-	uint8_t id_root[FZN_REVOCATION_ID_LEN], id_admin[FZN_REVOCATION_ID_LEN];
+	uint8_t id_eight[FZN_REVOCATION_ID_LEN], id_admin[FZN_REVOCATION_ID_LEN];
 	uint8_t id_again[FZN_REVOCATION_ID_LEN];
 	uint8_t revoked[FZN_CHAIN_MAX_HOPS];
 	uint8_t grantee_key[FZN_PUBKEY_LEN];
 	fzn_chain_hop_t admin_hop;
+	uint8_t hop8_b[FZN_HOP_LEN];
+	fzn_chain_hop_t hop8;
 	fzn_cap_id_t cap, adm;
 	int control;
 
@@ -3491,22 +3493,23 @@ static void test_an_undo_closes_its_epoch(void)
 	for (control = 0; control < 2; control++) {
 		fixture_init(&f);
 		fzn_revocation_store_set_quorum(&f.store, 2u, &adm, admins, 4u);
+		mint_hop(&f, hop8_b, &hop8, 0, 8, &adm, 1000, FZN_NO_EXPIRY, 0);
 		mint_hop(&f, admin_bytes, &admin_hop, 0, 5, &adm, 1000, FZN_NO_EXPIRY, 0);
-		CHECK(fzn_revocation_current_epoch(&f.store, &cap, grantee_key) == 0u,
+		CHECK(fzn_revocation_current_epoch(&f.store, f.root, &cap, grantee_key) == 0u,
 		      "a pair nothing names is not in epoch 0");
-		CHECK(cast(&f, 0, &cap, 2, NULL, 0u, NULL, id_root) == FZN_CHAIN_OK
+		CHECK(cast(&f, 8, &cap, 2, &hop8, 0u, NULL, id_eight) == FZN_CHAIN_OK
 		              && cast(&f, 5, &cap, 2, &admin_hop, 0u, NULL, id_admin) == FZN_CHAIN_OK
-		              && uncast(&f, 0, &cap, 2, id_root, NULL, 0u) == FZN_CHAIN_OK
+		              && uncast(&f, 8, &cap, 2, id_eight, &hop8, 0u) == FZN_CHAIN_OK
 		              && uncast(&f, 5, &cap, 2, id_admin, &admin_hop, 0u) == FZN_CHAIN_OK,
 		      "two votes and two withdrawals in epoch 0 were not all admitted");
 		judge(&f, &cap, revoked);
 		CHECK(revoked[1] == 0u, "two withdrawals of two left the device revoked");
-		CHECK(fzn_revocation_current_epoch(&f.store, &cap, grantee_key) == 1u,
+		CHECK(fzn_revocation_current_epoch(&f.store, f.root, &cap, grantee_key) == 1u,
 		      "k withdrawals did not close epoch 0");
 
-		CHECK(cast(&f, 0, &cap, 2, NULL, control ? 0u : 1u, id_root, id_again)
+		CHECK(cast(&f, 8, &cap, 2, &hop8, control ? 0u : 1u, id_eight, id_again)
 		              == FZN_CHAIN_OK,
-		      "the root's vote after the undo was refused");
+		      "admin 8's vote after the undo was refused");
 		judge(&f, &cap, revoked);
 		if (control)
 			CHECK(revoked[1] == 1u,
@@ -3519,11 +3522,12 @@ static void test_an_undo_closes_its_epoch(void)
 	}
 	fixture_init(&f);
 	fzn_revocation_store_set_quorum(&f.store, 2u, &adm, admins, 4u);
-	CHECK(cast(&f, 0, &cap, 2, NULL, 0u, NULL, id_root) == FZN_CHAIN_OK
+	mint_hop(&f, hop8_b, &hop8, 0, 8, &adm, 1000, FZN_NO_EXPIRY, 0);
+	CHECK(cast(&f, 8, &cap, 2, &hop8, 0u, NULL, id_eight) == FZN_CHAIN_OK
 	              && cast(&f, 5, &cap, 2, &admin_hop, 0u, NULL, id_admin) == FZN_CHAIN_OK
-	              && uncast(&f, 0, &cap, 2, id_root, NULL, 0u) == FZN_CHAIN_OK
+	              && uncast(&f, 8, &cap, 2, id_eight, &hop8, 0u) == FZN_CHAIN_OK
 	              && uncast(&f, 5, &cap, 2, id_admin, &admin_hop, 0u) == FZN_CHAIN_OK
-	              && cast(&f, 0, &cap, 2, NULL, 1u, id_root, NULL) == FZN_CHAIN_OK
+	              && cast(&f, 8, &cap, 2, &hop8, 1u, id_eight, NULL) == FZN_CHAIN_OK
 	              && cast(&f, 5, &cap, 2, &admin_hop, 1u, id_admin, NULL) == FZN_CHAIN_OK,
 	      "fixture: an undo and two votes in epoch 1");
 	judge(&f, &cap, revoked);
@@ -3533,13 +3537,14 @@ static void test_an_undo_closes_its_epoch(void)
 	 * the latch stays as it was. */
 	fixture_init(&f);
 	fzn_revocation_store_set_quorum(&f.store, 2u, &adm, admins, 4u);
-	CHECK(cast(&f, 0, &cap, 2, NULL, 0u, NULL, id_root) == FZN_CHAIN_OK
-	              && uncast(&f, 0, &cap, 2, id_root, NULL, 7u) == FZN_CHAIN_ERR_UNKNOWN_TARGET,
+	mint_hop(&f, hop8_b, &hop8, 0, 8, &adm, 1000, FZN_NO_EXPIRY, 0);
+	CHECK(cast(&f, 8, &cap, 2, &hop8, 0u, NULL, id_eight) == FZN_CHAIN_OK
+	              && uncast(&f, 8, &cap, 2, id_eight, &hop8, 7u) == FZN_CHAIN_ERR_UNKNOWN_TARGET,
 	      "a withdrawal naming its revocation from another epoch was not refused");
 }
 
-/* ONE ISSUER AT UINT64_MAX IS ONE ISSUER. At k = 3 the root and admins 5 and
- * 6 revoke in epoch 0, and the root withdraws: latched, one of three gone.
+/* ONE ISSUER AT UINT64_MAX IS ONE ISSUER. At k = 3 admins 8, 5 and 6
+ * revoke in epoch 0, and admin 8 withdraws: latched, one of three gone.
  * Admin 7 then votes and withdraws at UINT64_MAX, which leaves epoch 0 by
  * being past it -- two of three, and the latch holds. A third leaving closes
  * it. */
@@ -3552,19 +3557,22 @@ static void test_an_epoch_far_ahead_counts_once(void)
 	uint8_t id6[FZN_REVOCATION_ID_LEN], id7[FZN_REVOCATION_ID_LEN];
 	uint8_t revoked[FZN_CHAIN_MAX_HOPS];
 	fzn_chain_hop_t hop5, hop6, hop7;
+	uint8_t hop8_b[FZN_HOP_LEN];
+	fzn_chain_hop_t hop8;
 	fzn_cap_id_t cap, adm;
 
 	fixture_init(&f);
 	capability_id(&cap, 0xc0);
 	capability_id(&adm, 0xad);
 	fzn_revocation_store_set_quorum(&f.store, 3u, &adm, admins, 4u);
+	mint_hop(&f, hop8_b, &hop8, 0, 8, &adm, 1000, FZN_NO_EXPIRY, 0);
 	mint_hop(&f, hop5_b, &hop5, 0, 5, &adm, 1000, FZN_NO_EXPIRY, 0);
 	mint_hop(&f, hop6_b, &hop6, 0, 6, &adm, 1000, FZN_NO_EXPIRY, 0);
 	mint_hop(&f, hop7_b, &hop7, 0, 7, &adm, 1000, FZN_NO_EXPIRY, 0);
-	CHECK(cast(&f, 0, &cap, 2, NULL, 0u, NULL, id0) == FZN_CHAIN_OK
+	CHECK(cast(&f, 8, &cap, 2, &hop8, 0u, NULL, id0) == FZN_CHAIN_OK
 	              && cast(&f, 5, &cap, 2, &hop5, 0u, NULL, id5) == FZN_CHAIN_OK
 	              && cast(&f, 6, &cap, 2, &hop6, 0u, NULL, id6) == FZN_CHAIN_OK
-	              && uncast(&f, 0, &cap, 2, id0, NULL, 0u) == FZN_CHAIN_OK,
+	              && uncast(&f, 8, &cap, 2, id0, &hop8, 0u) == FZN_CHAIN_OK,
 	      "fixture: three votes and one withdrawal");
 	judge(&f, &cap, revoked);
 	CHECK(revoked[1] == 1u, "one withdrawal of three undid the revocation");
@@ -3581,28 +3589,143 @@ static void test_an_epoch_far_ahead_counts_once(void)
 
 /* THE QUIRK THE HOLDER ACCEPTED, pinned so it is a decision and not a
  * surprise: a vote withdrawn before any quorum still counts toward one in
- * its epoch, because nothing records the order. At k = 2 the root votes and
+ * its epoch, because nothing records the order. At k = 2 admin 8 votes and
  * withdraws, the admin votes, and the device is revoked. sec 400. */
 static void test_a_vote_retracted_before_quorum_still_counts(void)
 {
 	struct fixture f;
 	fzn_revocation_admin_t admins[4];
-	uint8_t admin_bytes[FZN_HOP_LEN], id_root[FZN_REVOCATION_ID_LEN];
+	uint8_t admin_bytes[FZN_HOP_LEN], id_eight[FZN_REVOCATION_ID_LEN];
 	uint8_t revoked[FZN_CHAIN_MAX_HOPS];
 	fzn_chain_hop_t admin_hop;
+	uint8_t hop8_b[FZN_HOP_LEN];
+	fzn_chain_hop_t hop8;
 	fzn_cap_id_t cap, adm;
 
 	fixture_init(&f);
 	capability_id(&cap, 0xc0);
 	capability_id(&adm, 0xad);
 	fzn_revocation_store_set_quorum(&f.store, 2u, &adm, admins, 4u);
+	mint_hop(&f, hop8_b, &hop8, 0, 8, &adm, 1000, FZN_NO_EXPIRY, 0);
 	mint_hop(&f, admin_bytes, &admin_hop, 0, 5, &adm, 1000, FZN_NO_EXPIRY, 0);
-	CHECK(cast(&f, 0, &cap, 2, NULL, 0u, NULL, id_root) == FZN_CHAIN_OK
-	              && uncast(&f, 0, &cap, 2, id_root, NULL, 0u) == FZN_CHAIN_OK
+	CHECK(cast(&f, 8, &cap, 2, &hop8, 0u, NULL, id_eight) == FZN_CHAIN_OK
+	              && uncast(&f, 8, &cap, 2, id_eight, &hop8, 0u) == FZN_CHAIN_OK
 	              && cast(&f, 5, &cap, 2, &admin_hop, 0u, NULL, NULL) == FZN_CHAIN_OK,
 	      "fixture: a retracted vote and a later one");
 	judge(&f, &cap, revoked);
 	CHECK(revoked[1] == 1u, "the accepted quirk changed: a retracted vote no longer counts");
+}
+
+/* ---- a root at full weight (sec 403) --------------------------------- */
+
+/* A ROOT ACTS ALONE, at k = 2 with admins 5 and 6 standing by. Its live
+ * revocation revokes by itself, where one admin's does not; it holds whatever
+ * the admins have withdrawn; its revoke-and-withdraw undoes a latch two
+ * admins shut, moving the next vote to epoch 1, where one admin is again one
+ * of two; and revoking an admin's admin capability takes that admin's vote
+ * away, alone. */
+static void test_a_root_acts_alone(void)
+{
+	struct fixture f;
+	fzn_revocation_admin_t admins[4];
+	uint8_t hop5_b[FZN_HOP_LEN], hop6_b[FZN_HOP_LEN];
+	uint8_t id0[FZN_REVOCATION_ID_LEN], id5[FZN_REVOCATION_ID_LEN];
+	uint8_t id6[FZN_REVOCATION_ID_LEN];
+	uint8_t revoked[FZN_CHAIN_MAX_HOPS];
+	uint8_t grantee_key[FZN_PUBKEY_LEN];
+	fzn_chain_hop_t hop5, hop6;
+	fzn_cap_id_t cap, adm;
+
+	capability_id(&cap, 0xc0);
+	capability_id(&adm, 0xad);
+	key(grantee_key, 2);
+
+	/* ALONE, and the control that one admin is not. */
+	fixture_init(&f);
+	fzn_revocation_store_set_quorum(&f.store, 2u, &adm, admins, 4u);
+	mint_hop(&f, hop5_b, &hop5, 0, 5, &adm, 1000, FZN_NO_EXPIRY, 0);
+	CHECK(cast(&f, 5, &cap, 2, &hop5, 0u, NULL, id5) == FZN_CHAIN_OK, "fixture: admin 5");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 0u, "the control: one admin of two revoked");
+	CHECK(cast(&f, 0, &cap, 2, NULL, 0u, NULL, id0) == FZN_CHAIN_OK, "fixture: the root");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 1u, "the root's own revocation did not revoke at k = 2");
+
+	/* ITS LIVE REVOCATION HOLDS whatever the admins withdraw. */
+	CHECK(uncast(&f, 5, &cap, 2, id5, &hop5, 0u) == FZN_CHAIN_OK, "fixture: admin 5 withdraws");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 1u, "an admin's withdrawal undid the root's revocation");
+
+	/* ITS UNDO OPENS A LATCH two admins shut, and the next votes count
+	 * from one in epoch 1. */
+	fixture_init(&f);
+	fzn_revocation_store_set_quorum(&f.store, 2u, &adm, admins, 4u);
+	mint_hop(&f, hop5_b, &hop5, 0, 5, &adm, 1000, FZN_NO_EXPIRY, 0);
+	mint_hop(&f, hop6_b, &hop6, 0, 6, &adm, 1000, FZN_NO_EXPIRY, 0);
+	CHECK(cast(&f, 5, &cap, 2, &hop5, 0u, NULL, id5) == FZN_CHAIN_OK
+	              && cast(&f, 6, &cap, 2, &hop6, 0u, NULL, id6) == FZN_CHAIN_OK,
+	      "fixture: two admins revoke");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 1u, "fixture: two admins of two did not revoke");
+	CHECK(cast(&f, 0, &cap, 2, NULL, 0u, NULL, id0) == FZN_CHAIN_OK
+	              && uncast(&f, 0, &cap, 2, id0, NULL, 0u) == FZN_CHAIN_OK,
+	      "fixture: the root revokes and withdraws");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 0u, "the root's undo did not open a latch two admins shut");
+	CHECK(fzn_revocation_current_epoch(&f.store, f.root, &cap, grantee_key) == 1u,
+	      "the next vote after the root's undo is not in epoch 1");
+	CHECK(cast(&f, 5, &cap, 2, &hop5, 1u, id5, NULL) == FZN_CHAIN_OK, "admin 5 in epoch 1");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 0u, "one admin after the root's undo revoked alone");
+	CHECK(cast(&f, 6, &cap, 2, &hop6, 1u, id6, NULL) == FZN_CHAIN_OK, "admin 6 in epoch 1");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 1u, "two admins in the epoch after the root's undo did not revoke");
+
+	/* IT REMOVES AN ADMIN ALONE: revoking admin 5's admin capability leaves
+	 * only admin 6's vote, one of two. */
+	fixture_init(&f);
+	fzn_revocation_store_set_quorum(&f.store, 2u, &adm, admins, 4u);
+	mint_hop(&f, hop5_b, &hop5, 0, 5, &adm, 1000, FZN_NO_EXPIRY, 0);
+	mint_hop(&f, hop6_b, &hop6, 0, 6, &adm, 1000, FZN_NO_EXPIRY, 0);
+	CHECK(cast(&f, 5, &cap, 2, &hop5, 0u, NULL, NULL) == FZN_CHAIN_OK
+	              && cast(&f, 6, &cap, 2, &hop6, 0u, NULL, NULL) == FZN_CHAIN_OK
+	              && cast(&f, 0, &adm, 5, NULL, 0u, NULL, NULL) == FZN_CHAIN_OK,
+	      "fixture: two admins revoke, and the root revokes admin 5");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 0u, "an admin the root revoked alone still voted");
+}
+
+/* AT k = 1 THE ROOT'S UNDO OVERRIDES A MEMBER. Key 1, which the root granted
+ * delegably, revokes key 2; the root revokes and withdraws in the same epoch;
+ * key 2 is restored. Before sec 403 key 1's live vote would have held it: the
+ * root is now the estate's full authority, and key 1 votes again in epoch 1
+ * if it still means it. */
+static void test_a_roots_undo_overrides_a_member_at_k_1(void)
+{
+	struct fixture f;
+	uint8_t hop_bytes[FZN_HOP_LEN], bytes[FZN_REVOCATION_LEN];
+	uint8_t one[FZN_PUBKEY_LEN], two[FZN_PUBKEY_LEN], id0[FZN_REVOCATION_ID_LEN];
+	uint8_t revoked[FZN_CHAIN_MAX_HOPS];
+	fzn_chain_hop_t hop;
+	fzn_revocation_record_t r;
+	fzn_cap_id_t cap;
+
+	fixture_init(&f);
+	capability_id(&cap, 0xc0);
+	key(one, 1);
+	key(two, 2);
+	mint_hop(&f, hop_bytes, &hop, 0, 1, &cap, 1000, FZN_NO_EXPIRY, 1);
+	issue_keys(&f, bytes, &r, one, &cap, two);
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_chain(r, &hop, 1), f.root,
+	                           &f.sign, &HASH_OPS, NULL) == FZN_CHAIN_OK,
+	      "fixture: key 1 revokes key 2 through its chain");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 1u, "fixture: key 1's vote did not revoke at k = 1");
+	CHECK(cast(&f, 0, &cap, 2, NULL, 0u, NULL, id0) == FZN_CHAIN_OK
+	              && uncast(&f, 0, &cap, 2, id0, NULL, 0u) == FZN_CHAIN_OK,
+	      "fixture: the root revokes and withdraws");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 0u, "the root's undo did not override a member's vote in its epoch");
 }
 
 /* A quorum of zero is refused rather than read as one: the struct reads 0 as
@@ -3629,8 +3752,8 @@ static void test_a_quorum_is_one_or_more(void)
 }
 
 /* K OF N, AND THE LATCH. At quorum 2 one entitled revocation does nothing,
- * two revoke -- the root and an admin, which is sec 394's "the root counts
- * as one" -- and once two have revoked, ONE withdrawal does not undo it: the
+ * two revoke -- two admins; a root is no longer one vote of k but acts
+ * alone, sec 403 -- and once two have revoked, ONE withdrawal does not undo it: the
  * latch holds until two have withdrawn. A single entitled revoker that then
  * withdraws never reached the quorum, so its withdrawal restores nothing
  * that was taken. */
@@ -3639,9 +3762,11 @@ static void test_k_of_n_revokes_and_latches(void)
 	struct fixture f;
 	fzn_revocation_admin_t admins[4];
 	uint8_t admin_bytes[FZN_HOP_LEN], rev[2][FZN_REVOCATION_LEN];
-	uint8_t id_root[FZN_REVOCATION_ID_LEN], id_admin[FZN_REVOCATION_ID_LEN];
+	uint8_t id_eight[FZN_REVOCATION_ID_LEN], id_admin[FZN_REVOCATION_ID_LEN];
 	uint8_t revoked[FZN_CHAIN_MAX_HOPS];
 	fzn_chain_hop_t admin_hop;
+	uint8_t hop8_b[FZN_HOP_LEN];
+	fzn_chain_hop_t hop8;
 	fzn_cap_id_t cap, adm;
 
 	fixture_init(&f);
@@ -3649,24 +3774,25 @@ static void test_k_of_n_revokes_and_latches(void)
 	capability_id(&adm, 0xad);
 	CHECK(fzn_revocation_store_set_quorum(&f.store, 2u, &adm, admins, 4u) == FZN_CHAIN_OK,
 	      "set_quorum refused a sound request");
+	mint_hop(&f, hop8_b, &hop8, 0, 8, &adm, 1000, FZN_NO_EXPIRY, 0);
 	mint_hop(&f, admin_bytes, &admin_hop, 0, 5, &adm, 1000, FZN_NO_EXPIRY, 0);
 
-	CHECK(vote(&f, rev[0], 0, &cap, 2, NULL, id_root) == FZN_CHAIN_OK,
-	      "the root's revocation was refused");
+	CHECK(vote(&f, rev[0], 8, &cap, 2, &hop8, id_eight) == FZN_CHAIN_OK,
+	      "admin 8's revocation was refused");
 	judge(&f, &cap, revoked);
 	CHECK(revoked[0] == 0u && revoked[1] == 0u,
 	      "one revocation of two revoked: hops %u %u", revoked[0], revoked[1]);
 
 	CHECK(vote(&f, rev[1], 5, &cap, 2, &admin_hop, id_admin) == FZN_CHAIN_OK,
 	      "an admin's revocation on its admin chain was refused");
-	CHECK(f.store.admins_used == 1u, "the admin was not remembered: %zu",
+	CHECK(f.store.admins_used == 2u, "the two admins were not remembered: %zu",
 	      f.store.admins_used);
 	judge(&f, &cap, revoked);
 	CHECK(revoked[0] == 0u && revoked[1] == 1u,
 	      "two of two left hop 1 standing, or took hop 0: %u %u", revoked[0], revoked[1]);
 
-	CHECK(unvote(&f, 0, &cap, 2, id_root, NULL) == FZN_CHAIN_OK,
-	      "the root's withdrawal was refused");
+	CHECK(unvote(&f, 8, &cap, 2, id_eight, &hop8) == FZN_CHAIN_OK,
+	      "admin 8's withdrawal was refused");
 	judge(&f, &cap, revoked);
 	CHECK(revoked[1] == 1u, "one withdrawal of two undid a revocation, so there is no latch");
 
@@ -3680,18 +3806,19 @@ static void test_k_of_n_revokes_and_latches(void)
 	fixture_init(&f);
 	CHECK(fzn_revocation_store_set_quorum(&f.store, 2u, &adm, admins, 4u) == FZN_CHAIN_OK,
 	      "set_quorum refused a sound request");
-	CHECK(vote(&f, rev[0], 0, &cap, 2, NULL, id_root) == FZN_CHAIN_OK, "revocation refused");
-	CHECK(unvote(&f, 0, &cap, 2, id_root, NULL) == FZN_CHAIN_OK, "withdrawal refused");
+	mint_hop(&f, hop8_b, &hop8, 0, 8, &adm, 1000, FZN_NO_EXPIRY, 0);
+	CHECK(vote(&f, rev[0], 8, &cap, 2, &hop8, id_eight) == FZN_CHAIN_OK, "revocation refused");
+	CHECK(unvote(&f, 8, &cap, 2, id_eight, &hop8) == FZN_CHAIN_OK, "withdrawal refused");
 	judge(&f, &cap, revoked);
 	CHECK(revoked[1] == 0u, "a lone revoke-and-withdraw latched below the quorum");
 
 	/* QUORUM 1 IS THE OLD RULE: one live entitled entry revokes and its
 	 * withdrawal restores. */
 	fixture_init(&f);
-	CHECK(vote(&f, rev[0], 0, &cap, 2, NULL, id_root) == FZN_CHAIN_OK, "revocation refused");
+	CHECK(vote(&f, rev[0], 0, &cap, 2, NULL, id_eight) == FZN_CHAIN_OK, "revocation refused");
 	judge(&f, &cap, revoked);
 	CHECK(revoked[1] == 1u, "quorum 1 did not revoke on one entry");
-	CHECK(unvote(&f, 0, &cap, 2, id_root, NULL) == FZN_CHAIN_OK, "withdrawal refused");
+	CHECK(unvote(&f, 0, &cap, 2, id_eight, NULL) == FZN_CHAIN_OK, "withdrawal refused");
 	judge(&f, &cap, revoked);
 	CHECK(revoked[1] == 0u, "quorum 1 latched, which the old rule never did");
 }
@@ -3811,7 +3938,7 @@ static void test_the_links_form_holds_the_ceiling(void)
 		key(grantors[i], (uint8_t)i);
 		key(grantees[i], (uint8_t)(i + 1u));
 	}
-	CHECK(vote(&f, rev, 0, &cap, 1, NULL, NULL) == FZN_CHAIN_OK, "root vote refused");
+	CHECK(vote(&f, rev, 0, &cap, 1, NULL, NULL) == FZN_CHAIN_OK, "admin 8's vote refused");
 	fzn_revocation_covers_links(&f.store, (const uint8_t (*)[FZN_PUBKEY_LEN])grantors,
 	                            (const uint8_t (*)[FZN_PUBKEY_LEN])grantees,
 	                            (size_t)FZN_CHAIN_MAX_HOPS, &cap, revoked);
@@ -3823,9 +3950,9 @@ static void test_the_links_form_holds_the_ceiling(void)
 	CHECK(revoked[0] == 0u, "a count past the ceiling was judged");
 }
 
-/* ORDER DOES NOT DECIDE. Quorum 2: the root and admin 6 revoke key 2; the
- * root and admin 7 revoke admin 6. Admin 6 falls in the first stratum, so
- * only the root's vote on key 2 counts in the second and key 2 stands. The
+/* ORDER DOES NOT DECIDE. Quorum 2: admins 8 and 6 revoke key 2; admins 8
+ * and 7 revoke admin 6. Admin 6 falls in the first stratum, so only admin
+ * 8's vote on key 2 counts in the second and key 2 stands. The
  * four records are admitted in all 24 orders and every one must agree --
  * the admin table fills in arrival order, and nothing may read that order. */
 static void test_k_of_n_is_order_free(void)
@@ -3842,6 +3969,8 @@ static void test_k_of_n_is_order_free(void)
 	uint8_t rev[FZN_REVOCATION_LEN];
 	uint8_t revoked[FZN_CHAIN_MAX_HOPS];
 	fzn_chain_hop_t admin6, admin7;
+	uint8_t hop8_b[FZN_HOP_LEN];
+	fzn_chain_hop_t hop8;
 	fzn_cap_id_t cap, adm;
 	size_t p, k, disagreed = 0;
 
@@ -3850,15 +3979,16 @@ static void test_k_of_n_is_order_free(void)
 		capability_id(&cap, 0xc0);
 		capability_id(&adm, 0xad);
 		fzn_revocation_store_set_quorum(&f.store, 2u, &adm, admins, 4u);
+		mint_hop(&f, hop8_b, &hop8, 0, 8, &adm, 1000, FZN_NO_EXPIRY, 0);
 		mint_hop(&f, hop_a, &admin6, 0, 6, &adm, 1000, FZN_NO_EXPIRY, 0);
 		mint_hop(&f, hop_b, &admin7, 0, 7, &adm, 1000, FZN_NO_EXPIRY, 0);
 		for (k = 0; k < 4u; k++) {
 			fzn_chain_err_t err = FZN_CHAIN_OK;
 
 			switch (perms[p][k]) {
-			case 0: err = vote(&f, rev, 0, &cap, 2, NULL, NULL); break;
+			case 0: err = vote(&f, rev, 8, &cap, 2, &hop8, NULL); break;
 			case 1: err = vote(&f, rev, 6, &cap, 2, &admin6, NULL); break;
-			case 2: err = vote(&f, rev, 0, &adm, 6, NULL, NULL); break;
+			case 2: err = vote(&f, rev, 8, &adm, 6, &hop8, NULL); break;
 			case 3: err = vote(&f, rev, 7, &adm, 6, &admin7, NULL); break;
 			}
 			CHECK(err == FZN_CHAIN_OK, "order %zu step %zu refused: %d", p, k, (int)err);
@@ -3874,10 +4004,11 @@ static void test_k_of_n_is_order_free(void)
 	 * Otherwise the case above could pass by admin votes never counting. */
 	fixture_init(&f);
 	fzn_revocation_store_set_quorum(&f.store, 2u, &adm, admins, 4u);
+	mint_hop(&f, hop8_b, &hop8, 0, 8, &adm, 1000, FZN_NO_EXPIRY, 0);
 	mint_hop(&f, hop_a, &admin6, 0, 6, &adm, 1000, FZN_NO_EXPIRY, 0);
-	CHECK(vote(&f, rev, 0, &cap, 2, NULL, NULL) == FZN_CHAIN_OK, "root vote refused");
+	CHECK(vote(&f, rev, 8, &cap, 2, &hop8, NULL) == FZN_CHAIN_OK, "admin 8's vote refused");
 	CHECK(vote(&f, rev, 6, &cap, 2, &admin6, NULL) == FZN_CHAIN_OK, "admin vote refused");
-	CHECK(vote(&f, rev, 0, &adm, 6, NULL, NULL) == FZN_CHAIN_OK, "root vote refused");
+	CHECK(vote(&f, rev, 8, &adm, 6, &hop8, NULL) == FZN_CHAIN_OK, "admin 8's vote refused");
 	judge(&f, &cap, revoked);
 	CHECK(revoked[1] == 1u, "a standing admin's vote did not make the quorum");
 }
@@ -3935,6 +4066,8 @@ int main(void)
 	test_an_undo_closes_its_epoch();
 	test_an_epoch_far_ahead_counts_once();
 	test_a_vote_retracted_before_quorum_still_counts();
+	test_a_root_acts_alone();
+	test_a_roots_undo_overrides_a_member_at_k_1();
 	test_a_quorum_is_one_or_more();
 	test_k_of_n_revokes_and_latches();
 	test_an_admin_is_named_by_its_chain();

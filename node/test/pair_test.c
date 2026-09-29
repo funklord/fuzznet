@@ -1282,8 +1282,21 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 			              && fzn_node_revoke(&n.id, r.id.pubkey, &authority, cap, d.id.pubkey,
 			                                 1800u, &n_revs, &n.ops) == FZN_NODE_REVOKE_OK,
 			      "fixture: N's withdrawal back from M, then N revoking again");
-			/* AND THAT VOTE IS ONE OF TWO: both withdrew epoch 0, so N's
-			 * store put its new vote in epoch 1. sec 400. */
+			/* AND THAT VOTE IS IN EPOCH 1, read off the record N signed:
+			 * both withdrew epoch 0 -- R's withdrawal is the root's undo of
+			 * it since sec 403 -- so a vote cast in 0 would sit under the
+			 * root's floor and count for nothing. sec 400. */
+			{
+				uint8_t again[FZN_REVOCATION_LEN];
+				fzn_revocation_record_t again_rec;
+
+				CHECK(fzn_node_issued_revocation(&n.ops, d.id.pubkey, again)
+				              && fzn_revocation_open(again, sizeof(again), &again_rec)
+				                         == FZN_CHAIN_OK
+				              && fzn_revocation_epoch(again_rec) == 1u,
+				      "N's vote after the root's undo was not cast in epoch 1, so it "
+				      "counts for nothing");
+			}
 			CHECK(!d_revoked(&n_revs, &r, &n, &d, cap),
 			      "one vote after a full undo revoked D at N: the node did not "
 			      "cast it in the open epoch");

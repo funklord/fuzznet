@@ -190,7 +190,8 @@ static void usage(const char *prog)
 	        "a member of an estate may add --root-at HOST PORT when serving, and any\n"
 	        "node --pull-from NODE_HEX HOST PORT (up to 8) for a node it holds a\n"
 	        "pairing to: it pulls their revocation votes at start and every %u seconds\n"
-	        "--quorum K: a revocation needs K distinct entitled issuers (default 1)\n"
+	        "--quorum K: a revocation needs K distinct entitled issuers, a root alone\n"
+	        "counting as K (default 2)\n"
 	        "%s",
 	        prog, prog, prog, prog, prog, FZND_PULL_EVERY, fzn_cli_usage());
 }
@@ -288,7 +289,7 @@ int main(int argc, char **argv)
 	static struct pull_target pulls[FZND_PULL_TARGETS_MAX];
 	size_t npulls = 0;
 	fzn_revocation_store_t *running = NULL;
-	long quorum = 1;
+	long quorum = 2;
 	int has_capability = 0;
 	int lfd = -1, ufd = -1, i;
 

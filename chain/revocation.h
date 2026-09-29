@@ -460,6 +460,13 @@ fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_rev
  * `quorum` have revoked, until `quorum` have withdrawn. So one issuer can
  * neither revoke alone nor, having revoked with others, undo alone.
  *
+ * EXCEPT THE ROOT, sec 403: a root acts for the estate alone. Its live
+ * revocation revokes by itself and holds whatever others withdraw; its
+ * withdrawal in epoch E undoes the decision in E, so no other vote cast in E
+ * or earlier counts and the next opens E + 1. The root of a hop is the
+ * judged chain's first grantor. At a quorum of 1 this overrides one thing
+ * the old rule did not: a member's live vote in an epoch the root undid.
+ *
  * ADMINS IN TWO STRATA, because admins revoking each other has no stable
  * answer under one rule. First the store decides which admins' own chains are
  * revoked, counting every admin's vote; then it drops the votes of those and
@@ -490,9 +497,11 @@ void fzn_revocation_covers_links(const fzn_revocation_store_t *store,
 
 /* THE EPOCH A NEW VOTE ON (capability, grantee) BELONGS IN: the lowest this
  * store holds open, counting every issuer it has admitted for the pair and
- * its own quorum. 0 for a pair it holds nothing on. A withdrawal does not
- * ask this -- it carries the epoch of the revocation it undoes. sec 400. */
+ * its own quorum, and past any epoch `root` has undone (sec 403; NULL for no
+ * root). 0 for a pair it holds nothing on. A withdrawal does not ask this --
+ * it carries the epoch of the revocation it undoes. sec 400. */
 uint64_t fzn_revocation_current_epoch(const fzn_revocation_store_t *store,
+                                      const uint8_t root[FZN_PUBKEY_LEN],
                                       const fzn_cap_id_t *capability,
                                       const uint8_t grantee[FZN_PUBKEY_LEN]);
 

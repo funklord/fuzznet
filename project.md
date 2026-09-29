@@ -49390,3 +49390,126 @@ twenty-eight key exceptions and will retype it onto whatever this tree calls
 the scope.
 
 So the ask is the vocabulary and its semantics, not the classification.
+
+## 403. Roots at full power, several and revocable, 2026-09-29
+
+The holder asked for recovery when one host remains holding all the
+data, with or without a root, and whether roots could have full power
+and be several and revocable. The proposal is the doc "Recovery from one
+host, and multiple roots":
+
+https://claude.ai/code/artifact/f672b44a-03c7-42ec-8603-598774725ff5
+
+**Its core argument: no rule gives a lone honest host a power a lone
+thief lacks.** What separates them is which key they hold (a root is
+rarer and better guarded than a device key) and who re-joins (an honest
+device can accept a card in person).
+
+### Decided
+
+1. **Roots act alone for everything**: revoke, undo, grant admin,
+   retire, re-key. This reverses sec 397's "the root is one vote".
+   Admins and members keep k of n.
+2. **The root set changes by any root alone, and removals win.** Two
+   roots removing each other both fall. A survivor sheds the lost roots
+   itself; a thief can wreck the estate but never keep it.
+3. **A root is a key of its own**, separate from any device's identity
+   key. A device may hold one beside its own.
+4. **Root acts form a hash chain, and a removal names a cut.** Each act
+   names its predecessor by hash. A removal names the last act that
+   stands; acts after it, or off the chain, fall. The survivor
+   re-issues what it trusts among those.
+
+   This replaces the proposal's "everything a removed root did falls".
+   The holder asked for exactly what happened since the theft. A thief
+   can sign any `issued_at`, so time cannot say that; ancestry by hash
+   can, and it is order-free.
+5. to 7. **Re-founding is deferred**: it is for exceptional cases,
+   development and testing, and is not designed now. That covers what
+   data carries over and how contacts follow.
+8. **fuzznetd's default quorum becomes 2.** A root still acts alone, so
+   a directly granted device is no longer stranded.
+
+### What this retires
+
+**The charter**, started on the way here, is retired. Its bootstrap
+problem came from the root being one vote. A stolen root could replay a
+bootstrap indistinguishably, so it needed a charter remembered locally.
+With roots at full weight, roots grant admin alone and there is no
+bootstrap to end. The admin **confirmation** stays, for an admin
+granting another admin. Neither tag was committed.
+
+### Built: decisions 1 and 8
+
+**In `chain/revocation.c`**, each hop now gets a root's pass before the
+k-of-n count. The root of a hop is the judged chain's first grantor.
+
+- **A live root revocation revokes by itself**, and holds whatever
+  others withdraw.
+- **A root's withdrawal in epoch E undoes that epoch**: no other vote
+  cast in E or earlier counts. `fzn_revocation_current_epoch` now takes
+  the root, so the next vote opens E + 1.
+- **Everything else is secs 397 and 400 unchanged.** Because stratum 1
+  judges admin chains with the same pass, a root revoking an admin's
+  admin capability removes that admin's vote alone.
+
+At k = 1 one answer changes. A member's live vote in an epoch the root
+undid used to hold; now it does not. This is what full power means, and
+it is pinned by `test_a_roots_undo_overrides_a_member_at_k_1`.
+
+**In `roster/roster.c`**, a removal by the root (a writer with no chain)
+retires the contact alone.
+
+**In `fuzznetd`**, `--quorum` now defaults to 2.
+
+**Not built yet:**
+
+- a node verb for a root undoing a revocation it did not cast itself;
+  the root casts and withdraws its own for now;
+- the root set;
+- chained root acts and the removal cut.
+
+**A guard that could not be caught was not kept.** A first version also
+excluded the root's own entry from the count. With one root per triple,
+the root's withdrawn entry always sits at the floor epoch, which the
+floor already excludes, so no test could see the difference. It is gone,
+and the multi-root step decides it again.
+
+### Measured for sec 403's first step
+
+- **The suite could not tell the two rules apart.** Five
+  `revocation_test` functions and five `roster_test` functions used the
+  root as one ordinary voter or remover. They were rewritten with an
+  admin (8) or a second member in the root's place. The revocation ones
+  were run on the old rule first and passed. They pass on the new rule
+  too, which is exactly why the root needed tests of its own. The roster
+  ones were reworked after the rule changed; the sabotage below restores
+  the old roster rule, which only the new case fails.
+- **`revocation_test`, 632 checks.** New cases:
+  - the root alone revokes at k = 2, with the control that one admin
+    does not;
+  - the root's revocation holds through an admin's withdrawal;
+  - the root's revoke-and-withdraw opens a latch two admins shut, and
+    the next vote is in epoch 1, where one admin is one of two and two
+    revoke;
+  - revoking admin 5's admin capability takes admin 5's vote away;
+  - the k = 1 override.
+- **`roster_test`, 64 checks**: the root's removal retires at k = 2 and
+  3.
+- **`gui/persist_view.cpp`** had drawn a `-Wswitch` warning since sec
+  399 for the vote slot. That warning is the file's own guard, and sec
+  399 missed it by reading only errors. It now names the slot.
+- **`pair_test`, 136 checks**: N's vote after the root's undo is read
+  off the record N signed and is in epoch 1.
+
+Sabotage, each entry run alone:
+
+- **Four new entries, all caught:** the root revoking alone, its undo
+  setting the floor, the next vote moving past it, and the root retiring
+  alone.
+- **One entry survived first:** `node-votes-in-the-open-epoch`. Under a
+  root at full weight, a node's re-vote in the epoch the root undid no
+  longer re-shuts a latch; it falls under the floor and is silently
+  ignored, which is worse. The old check, that D stays unrevoked, passed
+  either way. The case now reads the epoch off N's record and catches
+  it.

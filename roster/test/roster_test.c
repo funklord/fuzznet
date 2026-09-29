@@ -99,7 +99,7 @@ static void incarnation_of(uint8_t out[FZN_ROSTER_INCARNATION_LEN], uint8_t seed
 		out[i] = (uint8_t)(seed * 13u + i + 1u);
 }
 
-static who_t root, member, stranger, alice, bob;
+static who_t root, member, member2, stranger, alice, bob;
 static fzn_cap_id_t manage, other_cap;
 
 /* A record in a buffer of its own, so a test can hold several. */
@@ -197,6 +197,16 @@ static int member_chain(uint8_t bytes[FZN_HOP_LEN], fzn_chain_hop_t *hop, uint64
 	       && fzn_hop_open(bytes, FZN_HOP_LEN, hop) == FZN_CHAIN_OK;
 }
 
+/* A second member's one-hop chain from the root. Since sec 403 the root
+ * retires alone, so the cases that need two ordinary removers use two
+ * members rather than the root and one. */
+static int member2_chain(uint8_t bytes[FZN_HOP_LEN], fzn_chain_hop_t *hop)
+{
+	return fzn_chain_mint(root.key, member2.key, &manage, 100, FZN_NO_EXPIRY, 0, &root.sign,
+	                      bytes) == FZN_CHAIN_OK
+	       && fzn_hop_open(bytes, FZN_HOP_LEN, hop) == FZN_CHAIN_OK;
+}
+
 /* The root revokes the member's grant into `store`. */
 static int revoke_member(fzn_revocation_store_t *store, fzn_revocation_t *entries, size_t n)
 {
@@ -279,11 +289,13 @@ static void test_a_removal_suspends_for_good(void)
 	rec_t add1, rm1, add1_other, add2, set1;
 	uint8_t inc1[FZN_ROSTER_INCARNATION_LEN];
 	uint8_t body[2] = { 1, 0 };
+	uint8_t m2_bytes[FZN_HOP_LEN];
+	fzn_chain_hop_t m2[1];
 
 	incarnation_of(inc1, 1);
-	CHECK(held_init(&h), "fixture: init");
+	CHECK(held_init(&h) && member2_chain(m2_bytes, &m2[0]), "fixture: init");
 	add(&add1, &root, &alice, 1, 10);
-	removal(&rm1, &root, &alice, 1, 11);
+	removal(&rm1, &member2, &alice, 1, 11);
 	add(&add1_other, &root, &alice, 1, 50);
 	add(&add2, &root, &alice, 2, 12);
 
@@ -293,7 +305,7 @@ static void test_a_removal_suspends_for_good(void)
 	      "the root's add did not make the incarnation active");
 	CHECK(fzn_roster_admit(&h.r, view(&add1), NULL, 0, &a) == FZN_ROSTER_OK && h.r.used == 1u,
 	      "the same add admitted twice was not idempotent");
-	CHECK(fzn_roster_admit(&h.r, view(&rm1), NULL, 0, &a) == FZN_ROSTER_OK
+	CHECK(fzn_roster_admit(&h.r, view(&rm1), m2, 1, &a) == FZN_ROSTER_OK
 	              && active_seed(&h.r, &alice, NULL) == 0u
 	              && state_of(&h.r, &alice, 1, NULL, 2) == FZN_ROSTER_SUSPENDED,
 	      "one removal did not suspend the subject");
@@ -323,11 +335,13 @@ static void test_removal_overtakes_add(void)
 	static held_t h;
 	fzn_roster_authority_t a = authority();
 	rec_t add1, rm1;
+	uint8_t m2_bytes[FZN_HOP_LEN];
+	fzn_chain_hop_t m2[1];
 
-	CHECK(held_init(&h), "fixture: init");
+	CHECK(held_init(&h) && member2_chain(m2_bytes, &m2[0]), "fixture: init");
 	add(&add1, &root, &bob, 3, 20);
-	removal(&rm1, &root, &bob, 3, 21);
-	CHECK(fzn_roster_admit(&h.r, view(&rm1), NULL, 0, &a) == FZN_ROSTER_OK
+	removal(&rm1, &member2, &bob, 3, 21);
+	CHECK(fzn_roster_admit(&h.r, view(&rm1), m2, 1, &a) == FZN_ROSTER_OK
 	              && state_of(&h.r, &bob, 3, NULL, 2) == FZN_ROSTER_SUSPENDED,
 	      "a removal arriving before its add was not stored");
 	CHECK(fzn_roster_admit(&h.r, view(&add1), NULL, 0, &a) == FZN_ROSTER_OK
@@ -364,19 +378,22 @@ static void test_k_distinct_removers_retire(void)
 {
 	static held_t h;
 	fzn_roster_authority_t a = authority();
-	rec_t add1, rm_root, rm_root_again, rm_member;
+	rec_t add1, rm_m2, rm_m2_again, rm_member;
 	uint8_t hop_bytes[FZN_HOP_LEN];
 	fzn_chain_hop_t hop[1];
+	uint8_t m2_bytes[FZN_HOP_LEN];
+	fzn_chain_hop_t m2[1];
 
-	CHECK(held_init(&h) && member_chain(hop_bytes, &hop[0], FZN_NO_EXPIRY), "fixture");
+	CHECK(held_init(&h) && member_chain(hop_bytes, &hop[0], FZN_NO_EXPIRY)
+	              && member2_chain(m2_bytes, &m2[0]), "fixture");
 	add(&add1, &root, &alice, 7, 40);
-	removal(&rm_root, &root, &alice, 7, 41);
-	removal(&rm_root_again, &root, &alice, 7, 42);
+	removal(&rm_m2, &member2, &alice, 7, 41);
+	removal(&rm_m2_again, &member2, &alice, 7, 42);
 	removal(&rm_member, &member, &alice, 7, 43);
 
 	CHECK(fzn_roster_admit(&h.r, view(&add1), NULL, 0, &a) == FZN_ROSTER_OK
-	              && fzn_roster_admit(&h.r, view(&rm_root), NULL, 0, &a) == FZN_ROSTER_OK
-	              && fzn_roster_admit(&h.r, view(&rm_root_again), NULL, 0, &a)
+	              && fzn_roster_admit(&h.r, view(&rm_m2), m2, 1, &a) == FZN_ROSTER_OK
+	              && fzn_roster_admit(&h.r, view(&rm_m2_again), m2, 1, &a)
 	                         == FZN_ROSTER_OK
 	              && state_of(&h.r, &alice, 7, NULL, 2) == FZN_ROSTER_SUSPENDED,
 	      "one writer removing twice counted as two");
@@ -428,14 +445,17 @@ static void test_a_revoked_writer_counts_for_nothing(void)
 	rec_t m_add, m_rm, r_add, r_rm;
 	uint8_t hop_bytes[FZN_HOP_LEN], exp_bytes[FZN_HOP_LEN];
 	fzn_chain_hop_t hop[1], expiring[1];
+	uint8_t m2_bytes[FZN_HOP_LEN];
+	fzn_chain_hop_t m2[1];
 
 	CHECK(held_init(&h) && member_chain(hop_bytes, &hop[0], FZN_NO_EXPIRY)
-	              && revoke_member(&revoked, rev_entries, 4),
+	              && revoke_member(&revoked, rev_entries, 4)
+	              && member2_chain(m2_bytes, &m2[0]),
 	      "fixture");
 	add(&m_add, &member, &bob, 9, 50);
 	removal(&m_rm, &member, &alice, 8, 51);
 	add(&r_add, &root, &alice, 8, 52);
-	removal(&r_rm, &root, &alice, 8, 53);
+	removal(&r_rm, &member2, &alice, 8, 53);
 
 	/* ADMITTED WITHOUT ASKING: arrival judges only signature and chain. */
 	CHECK(fzn_roster_admit(&h.r, view(&m_add), hop, 1, &a) == FZN_ROSTER_OK
@@ -457,9 +477,9 @@ static void test_a_revoked_writer_counts_for_nothing(void)
 	              && active_seed(&h.r, &alice, &revoked) == 8u,
 	      "a revoked writer's removal still suspended the subject");
 
-	/* AND ITS SHARE OF A RETIREMENT: root and member retire at k = 2, and
-	 * with the member revoked it falls back to the root's suspension. */
-	CHECK(fzn_roster_admit(&h.r, view(&r_rm), NULL, 0, &a) == FZN_ROSTER_OK
+	/* AND ITS SHARE OF A RETIREMENT: the two members retire at k = 2, and
+	 * with the first revoked it falls back to the second's suspension. */
+	CHECK(fzn_roster_admit(&h.r, view(&r_rm), m2, 1, &a) == FZN_ROSTER_OK
 	              && state_of(&h.r, &alice, 8, NULL, 2) == FZN_ROSTER_RETIRED
 	              && state_of(&h.r, &alice, 8, &revoked, 2) == FZN_ROSTER_SUSPENDED,
 	      "a retirement kept counting a revoked writer");
@@ -476,6 +496,25 @@ static void test_a_revoked_writer_counts_for_nothing(void)
 		              && active_seed(&h2.r, &bob, NULL) == 10u,
 		      "a writer whose grant has since expired was refused or did not count");
 	}
+}
+
+/* THE ROOT RETIRES ALONE, sec 403: a root acts for the estate by itself, so
+ * one removal by the root retires whatever k asks of everybody else. */
+static void test_the_root_retires_alone(void)
+{
+	static held_t h;
+	fzn_roster_authority_t a = authority();
+	rec_t add1, rm1;
+
+	CHECK(held_init(&h), "fixture: init");
+	add(&add1, &root, &alice, 15, 80);
+	removal(&rm1, &root, &alice, 15, 81);
+	CHECK(fzn_roster_admit(&h.r, view(&add1), NULL, 0, &a) == FZN_ROSTER_OK
+	              && fzn_roster_admit(&h.r, view(&rm1), NULL, 0, &a) == FZN_ROSTER_OK,
+	      "fixture: the root adds and removes");
+	CHECK(state_of(&h.r, &alice, 15, NULL, 2) == FZN_ROSTER_RETIRED
+	              && state_of(&h.r, &alice, 15, NULL, 3) == FZN_ROSTER_RETIRED,
+	      "the root's own removal did not retire at k = 2 and 3");
 }
 
 static void test_standing(void)
@@ -543,7 +582,7 @@ static void test_full(void)
 
 /* THE PROPERTY THE DESIGN RESTS ON: what a host sees is a function of the
  * SETS it holds, records and revocations, never of arrival order. Every order
- * of seven records from two writers -- adds, a suspension, a retirement by
+ * of seven records from three writers -- adds, a suspension, a retirement by
  * both, a removal ahead of its add -- judged with and without the member
  * revoked, gives one answer each time. 5040 orders. */
 static void test_order_independence(void)
@@ -555,21 +594,24 @@ static void test_order_independence(void)
 	fzn_roster_authority_t a = authority();
 	uint8_t hop_bytes[FZN_HOP_LEN];
 	fzn_chain_hop_t hop[1];
+	uint8_t m2_bytes[FZN_HOP_LEN];
+	fzn_chain_hop_t m2[1];
 	const fzn_chain_hop_t *chain_of[7];
 	size_t perm[7] = { 0, 1, 2, 3, 4, 5, 6 };
 	int want[4] = { -1, -1, -1, -1 }, same = 1;
 	unsigned long orders = 0;
 
 	CHECK(member_chain(hop_bytes, &hop[0], FZN_NO_EXPIRY)
-	              && revoke_member(&revoked, rev_entries, 4), "fixture");
+	              && revoke_member(&revoked, rev_entries, 4)
+	              && member2_chain(m2_bytes, &m2[0]), "fixture");
 	add(&set[0], &root, &alice, 21, 5);
 	add(&set[1], &member, &alice, 22, 9);
-	removal(&set[2], &root, &alice, 22, 10);
+	removal(&set[2], &member2, &alice, 22, 10);
 	removal(&set[3], &member, &alice, 22, 11);
 	add(&set[4], &root, &bob, 31, 3);
 	removal(&set[5], &member, &bob, 31, 4);
 	add(&set[6], &member, &bob, 32, 2);
-	chain_of[0] = NULL; chain_of[1] = hop; chain_of[2] = NULL; chain_of[3] = hop;
+	chain_of[0] = NULL; chain_of[1] = hop; chain_of[2] = m2; chain_of[3] = hop;
 	chain_of[4] = NULL; chain_of[5] = hop; chain_of[6] = hop;
 
 	for (;;) {
@@ -612,8 +654,8 @@ static void test_order_independence(void)
 	}
 	CHECK(orders == 5040u, "the sweep did not walk every order of seven records");
 	CHECK(same, "two orders of one set of records and revocations gave different rosters");
-	/* THE RIGHT ANSWERS: alice's 22 retired by both, suspended by the root
-	 * alone once the member is revoked; bob's 31 suspended by the member,
+	/* THE RIGHT ANSWERS: alice's 22 retired by both members, suspended by
+	 * the second alone once the first is revoked; bob's 31 suspended by the member,
 	 * so 32 (the member's) is active -- and with the member revoked, 31 is
 	 * active again and 32 does not count. */
 	CHECK(want[0] == (int)FZN_ROSTER_RETIRED && want[1] == (int)FZN_ROSTER_SUSPENDED
@@ -691,6 +733,7 @@ int main(void)
 {
 	who_init(&root, 0x10u);
 	who_init(&member, 0x20u);
+	who_init(&member2, 0x28u);
 	who_init(&stranger, 0x30u);
 	who_init(&alice, 0x40u);
 	who_init(&bob, 0x50u);
@@ -703,6 +746,7 @@ int main(void)
 	test_two_live_incarnations();
 	test_k_distinct_removers_retire();
 	test_a_revoked_writer_counts_for_nothing();
+	test_the_root_retires_alone();
 	test_standing();
 	test_full();
 	test_order_independence();

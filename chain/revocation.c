@@ -534,6 +534,12 @@ struct hop_question {
 	const fzn_cap_id_t *capability;
 	const uint8_t *admin_ok;
 	int any_issuer;
+	/* THE ROOT'S PASS, sec 403: once the root's own entry has been read,
+	 * the rest of the rule counts no vote cast in an epoch the root has
+	 * undone (`floor`). The root's own withdrawn entry sits at the floor,
+	 * so it is excluded with them. */
+	int has_floor;
+	uint64_t floor;
 };
 
 static int counts(const fzn_revocation_store_t *store, const fzn_revocation_t *entry,
@@ -543,6 +549,8 @@ static int counts(const fzn_revocation_store_t *store, const fzn_revocation_t *e
 
 	if (!fzn_ct_memeq(entry->capability.b, h->capability->b, FZN_CAP_ID_LEN)
 	    || !fzn_ct_memeq(entry->grantee, h->grantees[h->i], FZN_PUBKEY_LEN))
+		return 0;
+	if (h->has_floor && entry->epoch <= h->floor)
 		return 0;
 	if (h->any_issuer)
 		return 1;
@@ -582,9 +590,19 @@ static int epoch_closed(const fzn_revocation_store_t *store, const struct hop_qu
 static uint64_t open_epoch(const fzn_revocation_store_t *store, const struct hop_question *h,
                            size_t q)
 {
-	uint64_t best = 0;
-	int have = !epoch_closed(store, h, 0u, q);
+	uint64_t first = 0, best;
+	int have;
 	size_t e, k;
+
+	/* Past the root's undo, if there is one: the epochs up to it are
+	 * settled by the root and ask nothing of anybody. */
+	if (h->has_floor) {
+		if (h->floor == UINT64_MAX)
+			return UINT64_MAX;
+		first = h->floor + 1u;
+	}
+	best = first;
+	have = !epoch_closed(store, h, first, q);
 
 	for (e = 0; e < store->used; e++) {
 		const fzn_revocation_t *entry = &store->entries[e];
@@ -596,6 +614,8 @@ static uint64_t open_epoch(const fzn_revocation_store_t *store, const struct hop
 
 			if (k == 1u && entry->epoch == UINT64_MAX)
 				continue;
+			if (c < first)
+				continue;
 			if ((!have || c < best) && !epoch_closed(store, h, c, q)) {
 				best = c;
 				have = 1;
@@ -603,6 +623,35 @@ static uint64_t open_epoch(const fzn_revocation_store_t *store, const struct hop
 		}
 	}
 	return have ? best : UINT64_MAX;
+}
+
+/* THE ROOT'S PASS, sec 403. A root acts alone: its live revocation revokes
+ * whatever anybody else holds, and its withdrawal in epoch E undoes the
+ * decision in E -- every other vote cast in E or earlier stops counting, and
+ * the next opens E + 1. 1 when the root's live revocation settles it; else
+ * `h` is left excluding the root and anything its undo covers. */
+static int root_pass(const fzn_revocation_store_t *store, struct hop_question *h,
+                     const uint8_t *root_key)
+{
+	size_t e;
+
+	h->has_floor = 0;
+	h->floor = 0;
+	if (!root_key)
+		return 0;
+	for (e = 0; e < store->used; e++) {
+		const fzn_revocation_t *entry = &store->entries[e];
+
+		if (!counts(store, entry, h)
+		    || !fzn_ct_memeq(entry->issuer, root_key, FZN_PUBKEY_LEN))
+			continue;
+		if (!entry->withdrawn)
+			return 1;
+		if (!h->has_floor || entry->epoch > h->floor)
+			h->floor = entry->epoch;
+		h->has_floor = 1;
+	}
+	return 0;
 }
 
 /* THE RULE, one hop at a time, sec 397 and as corrected in sec 400.
@@ -632,11 +681,19 @@ static void judge_links(const fzn_revocation_store_t *store,
 	h.capability = capability;
 	h.admin_ok = admin_ok;
 	h.any_issuer = 0;
+	h.has_floor = 0;
+	h.floor = 0;
 	for (i = 0; i < hop_count; i++) {
 		size_t live = 0, total = 0, cast = 0, left = 0;
 		uint64_t current;
 
 		h.i = i;
+		/* THE ROOT FIRST, sec 403: the chain's first grantor is the
+		 * root it was verified from, and a root acts alone. */
+		if (root_pass(store, &h, grantors[0])) {
+			revoked[i] = 1;
+			continue;
+		}
 		for (e = 0; e < store->used; e++) {
 			if (!counts(store, &store->entries[e], &h))
 				continue;
@@ -668,6 +725,7 @@ static void judge_links(const fzn_revocation_store_t *store,
 }
 
 uint64_t fzn_revocation_current_epoch(const fzn_revocation_store_t *store,
+                                      const uint8_t root[FZN_PUBKEY_LEN],
                                       const fzn_cap_id_t *capability,
                                       const uint8_t grantee[FZN_PUBKEY_LEN])
 {
@@ -683,6 +741,9 @@ uint64_t fzn_revocation_current_epoch(const fzn_revocation_store_t *store,
 	h.capability = capability;
 	h.admin_ok = NULL;
 	h.any_issuer = 1;
+	/* A root's live revocation settles nothing about epochs; its undo
+	 * moves the next vote past it. */
+	(void)root_pass(store, &h, root);
 	return open_epoch(store, &h, store->quorum ? store->quorum : 1u);
 }
 

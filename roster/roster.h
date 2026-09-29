@@ -319,7 +319,9 @@ fzn_roster_err_t fzn_roster_bundle_open(const uint8_t *bytes, size_t len,
 
 /* WHAT A HOST SEES FOR ONE INCARNATION, judged against `revocations` -- the
  * ones this host holds, or NULL for none -- with `k` the estate's number of
- * distinct writers a retirement needs (0 means FZN_ROSTER_K_DEFAULT). */
+ * distinct writers a retirement needs (0 means FZN_ROSTER_K_DEFAULT). The
+ * root, which writes with no chain, retires alone: sec 403 gives a root the
+ * whole estate's authority. */
 typedef enum fzn_roster_state {
 	/* Nothing held, or only records whose writers are revoked. */
 	FZN_ROSTER_ABSENT = 0,
