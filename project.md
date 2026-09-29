@@ -48596,3 +48596,59 @@ reported. With them, "the bindings build from the manifest alone".
 fuzzypickles also reports that its own core test now checks RFC 8032
 section 7.1 against fuzznet's verifier from its side, so a sabotaged
 vector fails in both trees.
+
+## 394. Removal and severity: the holder's decisions, 2026-09-29
+
+Sec 389's decision 3 asked for a design before anything was built. The
+proposal was
+https://claude.ai/artifact/9RTSP8vcfZ5Kb1GDs2Q71v. Its premise is that with
+no hub and no trusted clock, no host can prove it holds every revocation:
+it can only show it has no known gap (sec 58's gate). So the rest has to
+come from agreement between devices.
+
+Commands are classed by how repairable they are: ordinary, restrictive and
+reversible, expansive, and irreversible. Removing a contact becomes two
+records: **suspend**, which stops all sharing and deletes nothing, and
+**retire**, the permanent tombstone of sec 388. Everything is judged when
+the roster is read, over the records, confirmations and revocations a host
+holds, so any two hosts holding the same sets agree whatever the arrival
+order. The holder's decisions on the proposal's five questions:
+
+1. **Suspension is immediate**, outside decision 3's checks. It applies at
+   once on every host and is cancelled automatically if its writer turns
+   out to be revoked. That closes fuzzypickles' location leak without
+   waiting for agreement.
+2. **Retirement needs k of n, set per estate.** Recorded with a default of
+   k = 2 and with the trust root counting as one of the k; both are for
+   the holder to confirm.
+3. **Every revocation needs k-of-n agreement**, rather than being
+   immediate. A stolen device cannot revoke anything alone.
+   - The consequence is recorded rather than hidden: with k = 2, a user
+     left with one device after a theft cannot revoke the stolen one
+     without the trust root.
+   - Until the revocation is agreed, the stolen device keeps its standing
+     for ordinary and expansive commands; only irreversible ones wait.
+   - This changes what sec 380's `fzn_node_revoke` does today, which is
+     take effect at once.
+4. **Irreversible, needing k of n:** retiring a contact, granting admin,
+   re-keying an identity, and undoing a revocation.
+5. **A retired contact's data is deleted after a hold period**, once the
+   retirement is agreed and the host is current. Deletion is local, so
+   the host's own clock is sound for it. The proposal rejected a hold
+   period for agreement itself because hosts' clocks would disagree about
+   an irreversible shared outcome; a local act has no such problem.
+
+**The trust root's form is not decided.** Sec 389 recorded the holder
+wondering whether the ultimate root should be a printed piece of paper;
+the holder has since said that paper is an option, not a decision.
+Wherever these records say "paper root", read the trust root, however it
+is kept offline.
+
+Not built yet. What it needs:
+
+- suspend and confirm as records, beside add, remove and set;
+- each roster entry keeping its writers' chains, so revocation can be
+  judged at read time;
+- k as an estate setting;
+- replacing d83ac2c's refuse-on-arrival;
+- revocation itself becoming a k-of-n act.
