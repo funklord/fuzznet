@@ -58,6 +58,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "a revocation this host issued";
 	case FZN_PERSIST_LEARNED_REVOCATION:
 		return "a revocation this host learned from its estate";
+	case FZN_PERSIST_VOTE:
+		return "a revocation vote this host learned from a peer";
 	}
 	*known = 0;
 	return "an unknown slot";

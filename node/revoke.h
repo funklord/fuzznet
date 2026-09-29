@@ -99,8 +99,9 @@ fzn_node_revoke_err_t fzn_node_unrevoke(const fzn_node_identity_t *id,
                                         fzn_revocation_store_t *revocations,
                                         const fzn_persist_ops_t *store);
 
-/* At start: admit every revocation this node ISSUED (slot 9) and every one it
- * LEARNED from its estate root (slot 10), from `store` into `revocations`,
+/* At start: admit every revocation this node ISSUED (slot 9), every one it
+ * LEARNED from its estate root (slot 10) and every vote it learned from a
+ * peer with its chain (slot 11, sec 399), from `store` into `revocations`,
  * verified against `root`. OK with nothing stored.
  *
  * A record that will not admit FAILS THE LOAD rather than being skipped: a
@@ -191,5 +192,83 @@ fzn_node_pull_err_t fzn_node_revocations_pull(fzn_caller_t *caller,
 
 /* The most revocations `fzn_node_revocations_load` enumerates in one call. */
 #define FZN_NODE_REVOCATIONS_MAX 256u
+
+/*
+ * VOTES, AND PULLING THEM FROM ANY PEER. sec 399.
+ *
+ * Under a quorum above one (sec 397) a revocation is a vote, and a host needs
+ * k of them from distinct entitled issuers -- so what a node learned from one
+ * peer has to reach the next. The holder's decision: every node serves every
+ * vote it holds, its own and learned ones alike, each with the chain that
+ * entitles its issuer, and a node pulls from any estate peer it can reach.
+ * The root is one peer among them.
+ *
+ * A VOTE IS A RECORD AND A CHAIN, and the pair does not fit one reply line:
+ * a record is 404 hex characters and a hop 358, so a record with a two-hop
+ * chain is past FZN_REPLY_MAX. So `get vote FROM` serves a STREAM OF ITEMS,
+ * `r` and a record or `h` and a hop, each hop belonging to the record before
+ * it, paged by item index as `get revocation` pages by record:
+ * `ok TOTAL FROM ITEM ...`. The puller holds the vote it is assembling across
+ * pages and admits it when the next record, or the stream's end, arrives.
+ *
+ * The stream is this node's slot 9 (its own votes, with its authority chain
+ * when it issued them as a member), then slot 10 (the root's, no chain),
+ * then slot 11 (votes learned from peers, with the chains they came with).
+ *
+ * WHAT ARRIVES IS VERIFIED, NOT TRUSTED, as for the root's pull: each vote
+ * is admitted with its chain, `fzn_revocation_offer_chain`, or as the root's
+ * when it carries none. A vote admission refuses -- a stranger's, a stale
+ * copy, a second chain for one admin -- is COUNTED AND SKIPPED rather than
+ * stopping the pull, because a pull from any peer is a pull from a peer that
+ * may hold what this node never will; one peer's junk must not stop this node
+ * learning the rest. A full store stops it, since everything after would be
+ * refused the same way.
+ *
+ * What admits, and is what the store now holds for its triple, is saved as
+ * slot 11 under a hash of the triple, so a restart re-admits it. A stale copy
+ * that admission accepts without taking -- a revocation already withdrawn --
+ * is not saved over the newer record.
+ */
+
+/* Votes a stream can carry: three slots of up to FZN_NODE_REVOCATIONS_MAX. */
+#define FZN_NODE_VOTES_MAX (3u * FZN_NODE_REVOCATIONS_MAX)
+
+/* One page of the stream from item `from`, written as ` ITEM` per item into
+ * `out`, stopping before `cap` bytes; `*len` is what was written and `*total`
+ * the stream's length in items. 0 when the store cannot list or a stored
+ * record will not read. */
+int fzn_node_votes_page(const fzn_persist_ops_t *store, const fzn_node_authority_t *authority,
+                        size_t from, char *out, size_t cap, size_t *len, size_t *total);
+
+/* What a pull carries between pages: the vote being assembled, and the
+ * counts so far. Zero it before the first page. */
+typedef struct fzn_node_vote_pull {
+	int pending;
+	uint8_t record[FZN_REVOCATION_LEN];
+	uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	size_t hop_count;
+	size_t learned;
+	size_t refused;
+} fzn_node_vote_pull_t;
+
+/* ONE PAGE: `reply` answers `get vote FROM`. Admits and saves every vote the
+ * page completes, and sets `*next` and `*total`. The vote the stream ends on
+ * is admitted when `*next` reaches `*total`. */
+fzn_node_pull_err_t fzn_node_votes_absorb(fzn_node_vote_pull_t *pull, const uint8_t *reply,
+                                          size_t reply_len, size_t from,
+                                          const uint8_t root[FZN_PUBKEY_LEN],
+                                          const fzn_sign_ops_t *sign,
+                                          const fzn_hash_ops_t *hash,
+                                          fzn_revocation_store_t *revocations,
+                                          const fzn_persist_ops_t *store, size_t *next,
+                                          size_t *total);
+
+/* The whole stream from the peer `caller` reaches. `learned` and `refused`
+ * are what `fzn_node_vote_pull_t` counted. */
+fzn_node_pull_err_t fzn_node_votes_pull(fzn_caller_t *caller, const uint8_t root[FZN_PUBKEY_LEN],
+                                        const fzn_sign_ops_t *sign, const fzn_hash_ops_t *hash,
+                                        uint64_t now, fzn_revocation_store_t *revocations,
+                                        const fzn_persist_ops_t *store, size_t *learned,
+                                        size_t *refused);
 
 #endif /* FZN_NODE_REVOKE_H */

@@ -233,12 +233,44 @@ static size_t get_revocations(fzn_node_admin_t *admin, const uint8_t *from_text,
 	return answer(reply, cap, FZN_REPLY_OK, detail, at);
 }
 
-/* Is `arg` the word `revocation`, alone or followed by a space and more? */
-static int subject_revocation(const fzn_request_t *request, const uint8_t **rest,
-                              size_t *rest_len)
+/* `get vote [FROM]`: every vote this node holds, its own and learned, each
+ * with its issuer's chain, as the item stream `node/revoke.h` describes --
+ * `ok TOTAL FROM ITEM ...`. What a node pulls from any estate peer (sec 399).
+ * Non-mutating, so a remote caller holding the node's grant may ask. */
+static size_t get_votes(fzn_node_admin_t *admin, const uint8_t *from_text, size_t from_len,
+                        char *reply, size_t cap)
 {
-	static const uint8_t WORD[] = "revocation";
-	const size_t w = sizeof(WORD) - 1u;
+	static char detail[FZN_REPLY_MAX];
+	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	size_t from = 0, total = 0, len = 0, i;
+	int n;
+
+	for (i = 0; i < from_len; i++) {
+		if (from_text[i] < '0' || from_text[i] > '9' || from > FZN_NODE_VOTES_MAX * 16u)
+			return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a vote index");
+		from = (from * 10u) + (size_t)(from_text[i] - '0');
+	}
+	/* The head is written after the walk, which is what knows the total;
+	 * its room is reserved here at the widest a total and an index print. */
+	if (limit < 3u + 24u
+	    || !fzn_node_votes_page(admin->store, admin->authority, from, detail + 24u,
+	                            limit - 3u - 24u, &len, &total))
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "the votes did not read");
+	if (from > total)
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "past the last vote");
+	n = snprintf(detail, 24u, "%zu %zu", total, from);
+	if (n < 0 || (size_t)n >= 24u)
+		return 0;
+	memmove(detail + n, detail + 24u, len);
+	return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)n + len);
+}
+
+/* Is `arg` the word `WORD`, alone or followed by a space and more? */
+static int subject_word(const fzn_request_t *request, const char *word, const uint8_t **rest,
+                        size_t *rest_len)
+{
+	const uint8_t *WORD = (const uint8_t *)word;
+	const size_t w = strlen(word);
 
 	*rest = NULL;
 	*rest_len = 0;
@@ -251,6 +283,12 @@ static int subject_revocation(const fzn_request_t *request, const uint8_t **rest
 	*rest = request->arg + w + 1u;
 	*rest_len = request->arg_len - w - 1u;
 	return 1;
+}
+
+static int subject_revocation(const fzn_request_t *request, const uint8_t **rest,
+                              size_t *rest_len)
+{
+	return subject_word(request, "revocation", rest, rest_len);
 }
 
 /* `remove peer KEY`: un-pair a device from the RUNNING node. The store forgets
@@ -361,6 +399,8 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 	}
 	if (request->parsed == FZN_VERB_GET && subject_revocation(request, &rest, &rest_len))
 		return get_revocations(admin, rest, rest_len, reply, reply_cap);
+	if (request->parsed == FZN_VERB_GET && subject_word(request, "vote", &rest, &rest_len))
+		return get_votes(admin, rest, rest_len, reply, reply_cap);
 	if (request->parsed == FZN_VERB_REMOVE && subject_revocation(request, &rest, &rest_len)
 	    && rest && admin->revocations)
 		return unrevoke_peer(admin, rest, rest_len, reply, reply_cap);
@@ -399,5 +439,7 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 		return list_peers(admin, rest, rest_len, out, reply_cap);
 	if (request.parsed == FZN_VERB_GET && subject_revocation(&request, &rest, &rest_len))
 		return get_revocations(admin, rest, rest_len, out, reply_cap);
+	if (request.parsed == FZN_VERB_GET && subject_word(&request, "vote", &rest, &rest_len))
+		return get_votes(admin, rest, rest_len, out, reply_cap);
 	return answer_text(out, reply_cap, FZN_REPLY_UNSUPPORTED, NULL);
 }

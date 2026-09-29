@@ -181,6 +181,10 @@ typedef enum fzn_persist_slot {
 	/* Per grantee, the latest revocation this node LEARNED from its estate
 	 * root. `node/revoke.h` keeps it. sec 384. */
 	FZN_PERSIST_LEARNED_REVOCATION = 10u,
+	/* Per (issuer, capability, grantee), keyed by a hash of the three: a
+	 * vote this node LEARNED from any peer, with the chain that entitles
+	 * its issuer. `node/revoke.h` keeps it. sec 399. */
+	FZN_PERSIST_VOTE = 11u,
 } fzn_persist_slot_t;
 
 typedef enum fzn_persist_err {
@@ -212,6 +216,7 @@ typedef enum fzn_persist_err {
 #define FZN_PERSIST_BLOB_NODE_PEER 5u
 #define FZN_PERSIST_BLOB_PAIRING 7u
 #define FZN_PERSIST_BLOB_REVOCATION 8u
+#define FZN_PERSIST_BLOB_VOTE 9u
 
 /* Write a blob head, or refuse when `cap` cannot hold head and body. */
 fzn_persist_err_t fzn_persist_head_write(uint8_t *out, size_t cap, size_t body,
@@ -300,6 +305,7 @@ typedef struct fzn_persist_ops {
  *   SEND_/RECV_CHAIN     ratchet positions: rolled back, keys are reused
  *   OWN_IDENTITY         the signing seed
  *   ISSUED_/LEARNED_REVOCATION  lost, a revoked device is admitted again
+ *   VOTE                 lost, a revocation short of its quorum again
  *
  * NOT CORE: NODE_PEER and PAIRED_NODE, the sessions a node serves and a
  * device holds. Lost, a device re-pairs; nothing is admitted that was not.

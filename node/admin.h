@@ -30,6 +30,10 @@
  *     get revocation [FROM]
  *                       `ok TOTAL FROM HEX ...`, the records this node issued,
  *                       paged; also served to a remote caller (sec 384)
+ *     get vote [FROM]   `ok TOTAL FROM ITEM ...`, every vote this node holds
+ *                       with its issuer's chain, as the item stream
+ *                       `node/revoke.h` describes; also served remotely,
+ *                       and what a node pulls from any peer (sec 399)
  *
  * Every other verb of fuzznet's, and any verb that is not, is answered
  * `unsupported` -- a node saying it does not serve a verb is a different fact

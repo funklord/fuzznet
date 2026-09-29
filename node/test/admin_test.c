@@ -510,6 +510,19 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && detail_len == 64u,
 		      "a grantee whose revocation was undone could not be revoked again");
+
+		/* ---- AND SERVED AS A VOTE: `get vote` is not mutating, so a
+		 * group member may read it, and it answers the one record this
+		 * root holds as one item with no chain. sec 399. */
+		CHECK(ask(&admin, &member, "get vote", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && detail_len == 5u + (FZN_REVOCATION_LEN * 2u)
+		              && memcmp(detail, "1 0 r", 5u) == 0,
+		      "get vote did not serve the node's one vote as one record item");
+		CHECK(ask(&admin, &member, "get vote 2", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_MALFORMED,
+		      "an offset past the last vote was answered as an empty page");
 	}
 
 	/* ---- WHAT IT DOES NOT SERVE, IT SAYS SO. */

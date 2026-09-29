@@ -168,7 +168,8 @@ static void usage(const char *prog)
 	        "       %s --fuzznet-dir=DIR --accept CARD [--join]\n"
 	        "       %s --fuzznet-dir=DIR --ask LINE --node ROOT_HEX --to HOST PORT [--udp6]\n"
 	        "a member of an estate may add --root-at HOST PORT when serving:\n"
-	        "it pulls the root's revocations at start and every %u seconds\n"
+	        "it pulls that peer's revocation votes at start and every %u seconds\n"
+	        "--quorum K: a revocation needs K distinct entitled issuers (default 1)\n"
 	        "%s",
 	        prog, prog, prog, prog, prog, FZND_PULL_EVERY, fzn_cli_usage());
 }
@@ -266,6 +267,7 @@ int main(int argc, char **argv)
 	const char *root_at_host = NULL;
 	fzn_revocation_store_t *running = NULL;
 	long root_at_port = -1;
+	long quorum = 1;
 	int has_capability = 0;
 	int lfd = -1, ufd = -1, i;
 
@@ -298,6 +300,14 @@ int main(int argc, char **argv)
 			ask_line = argv[++i];
 		} else if (!strcmp(argv[i], "--node") && i + 1 < argc) {
 			node_hex = argv[++i];
+		} else if (!strcmp(argv[i], "--quorum") && i + 1 < argc) {
+			char *end = NULL;
+
+			quorum = strtol(argv[++i], &end, 10);
+			if (!end || *end || quorum < 1 || quorum > 64) {
+				fprintf(stderr, "fuzznetd: --quorum: a count from 1 to 64\n");
+				return 2;
+			}
 		} else if (!strcmp(argv[i], "--root-at") && i + 2 < argc) {
 			root_at_host = argv[++i];
 			root_at_port = strtol(argv[++i], NULL, 10);
@@ -696,6 +706,8 @@ int main(int argc, char **argv)
 		 * will not admit is fatal for the same reason. sec 380. */
 		if (fzn_revocation_store_init(&revoked, revoked_entries,
 		                              FZN_NODE_REVOCATIONS_MAX) != FZN_CHAIN_OK
+		    || fzn_revocation_store_set_quorum(&revoked, (size_t)quorum, NULL, NULL, 0u)
+		               != FZN_CHAIN_OK
 		    || fzn_node_revocations_load(store_ops, &revoked, state.config.root,
 		                                 my_authority, &sign_ops, &hash_ops, &nrevoked)
 		               != FZN_PERSIST_OK) {
@@ -811,19 +823,22 @@ int main(int argc, char **argv)
 			uint64_t now = wall_clock();
 
 			if (now >= next_pull) {
-				size_t learned = 0;
+				size_t learned = 0, refused = 0;
 				fzn_node_pull_err_t perr;
 
-				perr = fzn_node_revocations_pull(&caller, state.config.root,
-				                                 &sign_ops, &hash_ops, now,
-				                                 running,
-				                                 store_ops, &learned);
+				/* VOTES, NOT ONLY THE ROOT'S: the peer serves every
+				 * vote it holds, so what any node learned reaches this
+				 * one through whichever peer it pulls. sec 399. */
+				perr = fzn_node_votes_pull(&caller, state.config.root, &sign_ops,
+				                           &hash_ops, now, running, store_ops,
+				                           &learned, &refused);
 				if (perr != FZN_NODE_PULL_OK)
-					fprintf(stderr, "fuzznetd: revocations from the root: %s\n",
+					fprintf(stderr, "fuzznetd: votes from %s: %s\n", root_at_host,
 					        fzn_node_pull_err_str(perr));
-				else if (learned)
-					fprintf(stderr, "fuzznetd: %zu revocation(s) from the root\n",
-					        learned);
+				else if (learned || refused)
+					fprintf(stderr,
+					        "fuzznetd: %zu vote(s) from %s, %zu refused\n",
+					        learned, root_at_host, refused);
 				next_pull = wall_clock() + FZND_PULL_EVERY;
 			}
 			(void)fzn_node_run_once(&state, 1000);

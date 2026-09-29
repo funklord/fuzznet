@@ -186,6 +186,10 @@ int fzn_node_issued_revocation(const fzn_persist_ops_t *store,
 	return load_slot(store, FZN_PERSIST_ISSUED_REVOCATION, grantee, record);
 }
 
+static int load_vote(const fzn_persist_ops_t *store, const uint8_t subject[FZN_PUBKEY_LEN],
+                     uint8_t record[FZN_REVOCATION_LEN],
+                     uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t *hop_count);
+
 static int save_slot(const fzn_persist_ops_t *store, fzn_persist_slot_t slot,
                      const uint8_t grantee[FZN_PUBKEY_LEN],
                      const uint8_t record[FZN_REVOCATION_LEN])
@@ -257,6 +261,50 @@ fzn_persist_err_t fzn_node_revocations_load(const fzn_persist_ops_t *store,
 			total++;
 		}
 	}
+
+	/* THE VOTES LEARNED FROM PEERS, each with the chain it came with, and
+	 * each refused as fatally as the two slots above: it was admitted once
+	 * and saved only because it was, so one that will not admit again is a
+	 * store that changed underneath this node. sec 399. */
+	{
+		static uint8_t votes[FZN_NODE_REVOCATIONS_MAX * FZN_PUBKEY_LEN];
+		static uint8_t vote_hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+		size_t found = 0, n = 0, h;
+
+		if (!store->list(store->ctx, FZN_PERSIST_VOTE, votes, FZN_NODE_REVOCATIONS_MAX,
+		                 &found))
+			return FZN_PERSIST_ERR_BACKEND;
+		for (i = 0; i < found; i++) {
+			uint8_t record[FZN_REVOCATION_LEN];
+			fzn_chain_hop_t opened[FZN_CHAIN_MAX_HOPS];
+			fzn_revocation_record_t rec;
+
+			if (!load_vote(store, votes + (i * (size_t)FZN_PUBKEY_LEN), record, vote_hops,
+			               &n)
+			    || fzn_revocation_open(record, sizeof(record), &rec) != FZN_CHAIN_OK)
+				return FZN_PERSIST_ERR_SHAPE;
+			for (h = 0; h < n; h++)
+				if (fzn_hop_open(vote_hops[h], FZN_HOP_LEN, &opened[h]) != FZN_CHAIN_OK)
+					return FZN_PERSIST_ERR_SHAPE;
+			/* A COPY SUPERSEDED IN ANOTHER SLOT is not a changed store:
+			 * this node's own vote comes back from a peer and is kept
+			 * here, and a later withdrawal of it lands in slot 9, which
+			 * was admitted above. Refused with the triple already held,
+			 * it is skipped; refused with nothing held, it is fatal. */
+			if (fzn_revocation_admit(revocations,
+			                         n ? fzn_revocation_offer_chain(rec, opened, n)
+			                           : fzn_revocation_offer_root(rec),
+			                         root, sign, hash, NULL)
+			    != FZN_CHAIN_OK) {
+				if (fzn_revocation_known(revocations, fzn_revocation_issuer(rec),
+				                         fzn_revocation_capability(rec),
+				                         fzn_revocation_grantee(rec)))
+					continue;
+				return FZN_PERSIST_ERR_SHAPE;
+			}
+			total++;
+		}
+	}
 	*count = total;
 	return FZN_PERSIST_OK;
 }
@@ -269,11 +317,11 @@ const char *fzn_node_pull_err_str(fzn_node_pull_err_t err)
 	case FZN_NODE_PULL_MALFORMED:
 		return "malformed";
 	case FZN_NODE_PULL_NO_ANSWER:
-		return "the root did not answer, or did not answer ok";
+		return "the peer did not answer, or did not answer ok";
 	case FZN_NODE_PULL_SHAPE:
-		return "the root's answer did not parse as a page of revocations";
+		return "the peer's answer did not parse as a page of revocations or votes";
 	case FZN_NODE_PULL_REFUSED:
-		return "a revocation would not admit as the root's, or the store is full";
+		return "a revocation would not admit, or the store is full";
 	case FZN_NODE_PULL_NOT_SAVED:
 		return "learned until a restart: a revocation was not saved";
 	}
@@ -404,6 +452,378 @@ fzn_node_pull_err_t fzn_node_revocations_pull(fzn_caller_t *caller,
 			return FZN_NODE_PULL_NO_ANSWER;
 		err = fzn_node_revocations_absorb(reply, reply_len, from, root, sign, hash,
 		                                  revocations, store, learned, &next, &total);
+		if (err != FZN_NODE_PULL_OK)
+			return err;
+		if (next >= total)
+			return FZN_NODE_PULL_OK;
+		from = next;
+	}
+	return FZN_NODE_PULL_SHAPE;
+}
+
+/* ---- votes, sec 399 --------------------------------------------------- */
+
+#define VOTE_BODY_MAX (FZN_REVOCATION_LEN + 1u + (FZN_CHAIN_MAX_HOPS * (size_t)FZN_HOP_LEN))
+#define VOTE_BLOB_MAX ((size_t)FZN_PERSIST_HEAD_LEN + VOTE_BODY_MAX)
+
+/* The slot-11 subject for a record: a hash of the triple it names, so that one
+ * triple has one row however many records it has seen. */
+static int vote_subject(const fzn_hash_ops_t *hash, fzn_revocation_record_t rec,
+                        uint8_t subject[FZN_PUBKEY_LEN])
+{
+	uint8_t triple[(2u * FZN_PUBKEY_LEN) + FZN_CAP_ID_LEN];
+
+	memcpy(triple, fzn_revocation_issuer(rec), FZN_PUBKEY_LEN);
+	memcpy(triple + FZN_PUBKEY_LEN, fzn_revocation_capability(rec)->b, FZN_CAP_ID_LEN);
+	memcpy(triple + FZN_PUBKEY_LEN + FZN_CAP_ID_LEN, fzn_revocation_grantee(rec),
+	       FZN_PUBKEY_LEN);
+	return hash->hash(hash->ctx, subject, FZN_PUBKEY_LEN, triple, sizeof(triple));
+}
+
+/* A slot-11 row under `subject`: its record and chain. 1 when it loaded and
+ * every part opens. */
+static int load_vote(const fzn_persist_ops_t *store, const uint8_t subject[FZN_PUBKEY_LEN],
+                     uint8_t record[FZN_REVOCATION_LEN],
+                     uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t *hop_count)
+{
+	uint8_t blob[VOTE_BLOB_MAX];
+	const uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
+	fzn_revocation_record_t rec;
+	fzn_chain_hop_t hop;
+	size_t len = 0, n, i;
+
+	if (!store->load(store->ctx, FZN_PERSIST_VOTE, subject, blob, sizeof(blob), &len)
+	    || len < FZN_PERSIST_HEAD_LEN + FZN_REVOCATION_LEN + 1u)
+		return 0;
+	n = body[FZN_REVOCATION_LEN];
+	if (n >= FZN_CHAIN_MAX_HOPS
+	    || fzn_persist_head_check(blob, len, FZN_REVOCATION_LEN + 1u + (n * FZN_HOP_LEN),
+	                              FZN_PERSIST_BLOB_VOTE)
+	               != FZN_PERSIST_OK
+	    || fzn_revocation_open(body, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
+		return 0;
+	for (i = 0; i < n; i++) {
+		const uint8_t *h = body + FZN_REVOCATION_LEN + 1u + (i * FZN_HOP_LEN);
+
+		if (fzn_hop_open(h, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK)
+			return 0;
+		memcpy(hops[i], h, FZN_HOP_LEN);
+	}
+	memcpy(record, body, FZN_REVOCATION_LEN);
+	*hop_count = n;
+	return 1;
+}
+
+static int save_vote(const fzn_persist_ops_t *store, const uint8_t subject[FZN_PUBKEY_LEN],
+                     const uint8_t record[FZN_REVOCATION_LEN],
+                     const uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t hop_count)
+{
+	uint8_t blob[VOTE_BLOB_MAX];
+	size_t body = FZN_REVOCATION_LEN + 1u + (hop_count * FZN_HOP_LEN), i;
+
+	if (hop_count >= FZN_CHAIN_MAX_HOPS
+	    || fzn_persist_head_write(blob, sizeof(blob), body, FZN_PERSIST_BLOB_VOTE)
+	               != FZN_PERSIST_OK)
+		return 0;
+	memcpy(blob + FZN_PERSIST_HEAD_LEN, record, FZN_REVOCATION_LEN);
+	blob[FZN_PERSIST_HEAD_LEN + FZN_REVOCATION_LEN] = (uint8_t)hop_count;
+	for (i = 0; i < hop_count; i++)
+		memcpy(blob + FZN_PERSIST_HEAD_LEN + FZN_REVOCATION_LEN + 1u + (i * FZN_HOP_LEN),
+		       hops[i], FZN_HOP_LEN);
+	return store->save(store->ctx, FZN_PERSIST_VOTE, subject, blob,
+	                   (size_t)FZN_PERSIST_HEAD_LEN + body);
+}
+
+/* Is what `revocations` holds for `rec`'s triple exactly `rec`? A revocation
+ * holds its own hash, not withdrawn; a withdrawal holds the hash it names,
+ * withdrawn. This is what keeps a stale copy that admission accepted without
+ * taking from being saved over the record that superseded it. */
+static int holds_exactly(const fzn_revocation_store_t *revocations, const fzn_hash_ops_t *hash,
+                         const uint8_t record[FZN_REVOCATION_LEN], fzn_revocation_record_t rec)
+{
+	uint8_t id[FZN_REVOCATION_ID_LEN], mine[FZN_REVOCATION_ID_LEN];
+	int withdrawn = 0;
+
+	if (!fzn_revocation_lookup(revocations, fzn_revocation_issuer(rec),
+	                           fzn_revocation_capability(rec), fzn_revocation_grantee(rec), id,
+	                           &withdrawn))
+		return 0;
+	if (fzn_revocation_is_withdrawal(rec))
+		return withdrawn && memcmp(id, fzn_revocation_supersedes(rec), sizeof(id)) == 0;
+	if (!hash->hash(hash->ctx, mine, sizeof(mine), record, FZN_REVOCATION_LEN))
+		return 0;
+	return !withdrawn && memcmp(id, mine, sizeof(id)) == 0;
+}
+
+/* The lists a page walks, filled once per page. */
+struct vote_lists {
+	uint8_t subjects[3][FZN_NODE_REVOCATIONS_MAX * FZN_PUBKEY_LEN];
+	size_t count[3];
+};
+
+static const fzn_persist_slot_t VOTE_SLOTS[3] = { FZN_PERSIST_ISSUED_REVOCATION,
+	                                          FZN_PERSIST_LEARNED_REVOCATION,
+	                                          FZN_PERSIST_VOTE };
+
+/* Vote `i` of list `s`: its record and chain. A record this node issued
+ * carries the node's authority chain when it was issued under that authority
+ * -- by the chain's grantee, for the capability it grants -- and none
+ * otherwise, the rule `fzn_node_revocations_load` applies. */
+static int vote_at(const fzn_persist_ops_t *store, const fzn_node_authority_t *authority,
+                   const struct vote_lists *lists, size_t s, size_t i,
+                   uint8_t record[FZN_REVOCATION_LEN],
+                   uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t *hop_count)
+{
+	const uint8_t *subject = lists->subjects[s] + (i * (size_t)FZN_PUBKEY_LEN);
+	fzn_chain_hop_t opened[FZN_CHAIN_MAX_HOPS];
+	fzn_revocation_record_t rec;
+	size_t h;
+
+	*hop_count = 0;
+	if (s == 2u)
+		return load_vote(store, subject, record, hops, hop_count);
+	if (!load_slot(store, VOTE_SLOTS[s], subject, record)
+	    || fzn_revocation_open(record, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
+		return 0;
+	if (s == 0u && authority && authority->hop_count < FZN_CHAIN_MAX_HOPS
+	    && open_authority(authority, opened)
+	    && memcmp(fzn_revocation_issuer(rec),
+	              fzn_hop_grantee(opened[authority->hop_count - 1u]), FZN_PUBKEY_LEN) == 0
+	    && memcmp(fzn_revocation_capability(rec),
+	              fzn_hop_capability(opened[authority->hop_count - 1u]),
+	              sizeof(fzn_cap_id_t)) == 0) {
+		for (h = 0; h < authority->hop_count; h++)
+			memcpy(hops[h], authority->hops[h], FZN_HOP_LEN);
+		*hop_count = authority->hop_count;
+	}
+	return 1;
+}
+
+static void put_hex_bytes(char *out, const uint8_t *bytes, size_t len)
+{
+	static const char DIGITS[] = "0123456789abcdef";
+	size_t i;
+
+	for (i = 0; i < len; i++) {
+		out[2u * i] = DIGITS[bytes[i] >> 4];
+		out[(2u * i) + 1u] = DIGITS[bytes[i] & 15u];
+	}
+}
+
+int fzn_node_votes_page(const fzn_persist_ops_t *store, const fzn_node_authority_t *authority,
+                        size_t from, char *out, size_t cap, size_t *len, size_t *total)
+{
+	static struct vote_lists lists;
+	static uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	size_t s, i, h, item = 0, at = 0, hop_count;
+	int full = 0;
+
+	if (!store || !store->load || !store->list || !out || !len || !total)
+		return 0;
+	for (s = 0; s < 3u; s++)
+		if (!store->list(store->ctx, VOTE_SLOTS[s], lists.subjects[s],
+		                 FZN_NODE_REVOCATIONS_MAX, &lists.count[s]))
+			return 0;
+
+	/* ONE WALK FOR THE TOTAL AND THE PAGE: every vote is read to count its
+	 * hops, and the ones at or past `from` are written while they fit. */
+	for (s = 0; s < 3u; s++) {
+		for (i = 0; i < lists.count[s]; i++) {
+			uint8_t record[FZN_REVOCATION_LEN];
+
+			if (!vote_at(store, authority, &lists, s, i, record, hops, &hop_count))
+				return 0;
+			for (h = 0; h <= hop_count; h++, item++) {
+				size_t need = 2u + (h ? FZN_HOP_LEN : FZN_REVOCATION_LEN) * 2u;
+
+				if (item < from || full)
+					continue;
+				if (at + need > cap) {
+					full = 1;
+					continue;
+				}
+				out[at++] = ' ';
+				out[at++] = h ? 'h' : 'r';
+				if (h)
+					put_hex_bytes(out + at, hops[h - 1u], FZN_HOP_LEN);
+				else
+					put_hex_bytes(out + at, record, FZN_REVOCATION_LEN);
+				at += need - 2u;
+			}
+		}
+	}
+	*len = at;
+	*total = item;
+	return 1;
+}
+
+static int unhex_bytes(const uint8_t *text, uint8_t *out, size_t len)
+{
+	size_t i;
+
+	for (i = 0; i < len * 2u; i++) {
+		uint8_t c = text[i];
+		unsigned v;
+
+		if (c >= '0' && c <= '9')
+			v = (unsigned)(c - '0');
+		else if (c >= 'a' && c <= 'f')
+			v = 10u + (unsigned)(c - 'a');
+		else
+			return 0;
+		if (i % 2u == 0u)
+			out[i / 2u] = (uint8_t)(v << 4);
+		else
+			out[i / 2u] = (uint8_t)(out[i / 2u] | v);
+	}
+	return 1;
+}
+
+/* Admit the vote `pull` has assembled, and save it when the store now holds
+ * exactly it. OK for a vote refused and counted; REFUSED for a full store;
+ * NOT_SAVED when it admitted and would not save. */
+static fzn_node_pull_err_t finish_vote(fzn_node_vote_pull_t *pull,
+                                       const uint8_t root[FZN_PUBKEY_LEN],
+                                       const fzn_sign_ops_t *sign, const fzn_hash_ops_t *hash,
+                                       fzn_revocation_store_t *revocations,
+                                       const fzn_persist_ops_t *store)
+{
+	fzn_chain_hop_t opened[FZN_CHAIN_MAX_HOPS];
+	fzn_revocation_record_t rec;
+	uint8_t subject[FZN_PUBKEY_LEN];
+	fzn_chain_err_t err;
+	size_t i;
+
+	if (!pull->pending)
+		return FZN_NODE_PULL_OK;
+	pull->pending = 0;
+	if (fzn_revocation_open(pull->record, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
+		return FZN_NODE_PULL_SHAPE;
+	for (i = 0; i < pull->hop_count; i++)
+		if (fzn_hop_open(pull->hops[i], FZN_HOP_LEN, &opened[i]) != FZN_CHAIN_OK)
+			return FZN_NODE_PULL_SHAPE;
+	err = fzn_revocation_admit(revocations,
+	                           pull->hop_count
+	                                   ? fzn_revocation_offer_chain(rec, opened, pull->hop_count)
+	                                   : fzn_revocation_offer_root(rec),
+	                           root, sign, hash, NULL);
+	if (err == FZN_CHAIN_ERR_STORE_FULL)
+		return FZN_NODE_PULL_REFUSED;
+	if (err != FZN_CHAIN_OK || !holds_exactly(revocations, hash, pull->record, rec)) {
+		pull->refused++;
+		return FZN_NODE_PULL_OK;
+	}
+	if (!vote_subject(hash, rec, subject)
+	    || !save_vote(store, subject, pull->record,
+	                  (const uint8_t (*)[FZN_HOP_LEN])pull->hops, pull->hop_count))
+		return FZN_NODE_PULL_NOT_SAVED;
+	pull->learned++;
+	return FZN_NODE_PULL_OK;
+}
+
+fzn_node_pull_err_t fzn_node_votes_absorb(fzn_node_vote_pull_t *pull, const uint8_t *reply,
+                                          size_t reply_len, size_t from,
+                                          const uint8_t root[FZN_PUBKEY_LEN],
+                                          const fzn_sign_ops_t *sign,
+                                          const fzn_hash_ops_t *hash,
+                                          fzn_revocation_store_t *revocations,
+                                          const fzn_persist_ops_t *store, size_t *next,
+                                          size_t *total)
+{
+	const uint8_t *detail = NULL;
+	size_t detail_len = 0, at = 0, off = 0, on_page = 0;
+	fzn_node_pull_err_t err;
+
+	if (!pull || !reply || !root || !sign || !hash || !hash->hash || !revocations || !store
+	    || !store->save || !next || !total)
+		return FZN_NODE_PULL_MALFORMED;
+	if (fzn_reply_of(reply, reply_len, &detail, &detail_len) != FZN_REPLY_OK)
+		return FZN_NODE_PULL_NO_ANSWER;
+	if (detail_len && detail[detail_len - 1u] == '\n')
+		detail_len--;
+
+	/* `TOTAL FROM` and then items. The total is bounded by what the stream
+	 * could hold, so a peer cannot name a stream this node would page
+	 * through for ever. */
+	if (!take_count(detail, detail_len, &at, total) || at >= detail_len
+	    || detail[at++] != ' ' || !take_count(detail, detail_len, &at, &off) || off != from
+	    || *total > FZN_NODE_VOTES_MAX * FZN_CHAIN_MAX_HOPS)
+		return FZN_NODE_PULL_SHAPE;
+	while (at < detail_len) {
+		size_t body;
+
+		if (detail[at] != ' ' || detail_len - at < 2u)
+			return FZN_NODE_PULL_SHAPE;
+		if (detail[at + 1u] == 'r') {
+			err = finish_vote(pull, root, sign, hash, revocations, store);
+			if (err != FZN_NODE_PULL_OK)
+				return err;
+			body = FZN_REVOCATION_LEN;
+			if (detail_len - at < 2u + (body * 2u)
+			    || !unhex_bytes(detail + at + 2u, pull->record, body))
+				return FZN_NODE_PULL_SHAPE;
+			pull->pending = 1;
+			pull->hop_count = 0;
+		} else if (detail[at + 1u] == 'h') {
+			/* A HOP WITH NO RECORD BEFORE IT, or one past the most an
+			 * offered chain may carry, is a stream that does not parse. */
+			body = FZN_HOP_LEN;
+			if (!pull->pending || pull->hop_count >= FZN_CHAIN_MAX_HOPS - 1u
+			    || detail_len - at < 2u + (body * 2u)
+			    || !unhex_bytes(detail + at + 2u, pull->hops[pull->hop_count], body))
+				return FZN_NODE_PULL_SHAPE;
+			pull->hop_count++;
+		} else {
+			return FZN_NODE_PULL_SHAPE;
+		}
+		at += 2u + (body * 2u);
+		on_page++;
+	}
+	*next = from + on_page;
+	if (on_page == 0u && *next < *total)
+		return FZN_NODE_PULL_SHAPE;
+	if (*next >= *total)
+		return finish_vote(pull, root, sign, hash, revocations, store);
+	return FZN_NODE_PULL_OK;
+}
+
+fzn_node_pull_err_t fzn_node_votes_pull(fzn_caller_t *caller, const uint8_t root[FZN_PUBKEY_LEN],
+                                        const fzn_sign_ops_t *sign, const fzn_hash_ops_t *hash,
+                                        uint64_t now, fzn_revocation_store_t *revocations,
+                                        const fzn_persist_ops_t *store, size_t *learned,
+                                        size_t *refused)
+{
+	static uint8_t reply[FZN_REPLY_MAX + 1u];
+	static fzn_node_vote_pull_t pull;
+	size_t from = 0, pages = 0;
+
+	if (!caller || !learned || !refused)
+		return FZN_NODE_PULL_MALFORMED;
+	memset(&pull, 0, sizeof(pull));
+	*learned = 0;
+	*refused = 0;
+
+	/* BOUNDED BY THE PAGES THE LONGEST STREAM COULD NEED, at one item a
+	 * page, not by the peer's word. */
+	while (pages++ <= FZN_NODE_VOTES_MAX * FZN_CHAIN_MAX_HOPS) {
+		char ask[32];
+		size_t reply_len = 0, next = 0, total = 0;
+		uint32_t msg = 0;
+		fzn_node_pull_err_t err;
+		int n;
+
+		n = snprintf(ask, sizeof(ask), "get vote %zu", from);
+		if (n < 0 || (size_t)n >= sizeof(ask))
+			return FZN_NODE_PULL_MALFORMED;
+		if (fzn_caller_send(caller, (const uint8_t *)ask, (size_t)n, now + 300u, &msg)
+		            != FZN_CALLER_OK
+		    || fzn_caller_recv(caller, msg, reply, sizeof(reply), &reply_len, 3000u)
+		               != FZN_CALLER_OK)
+			return FZN_NODE_PULL_NO_ANSWER;
+		err = fzn_node_votes_absorb(&pull, reply, reply_len, from, root, sign, hash,
+		                            revocations, store, &next, &total);
+		*learned = pull.learned;
+		*refused = pull.refused;
 		if (err != FZN_NODE_PULL_OK)
 			return err;
 		if (next >= total)

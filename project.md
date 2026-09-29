@@ -48853,6 +48853,9 @@ them, the hop is revoked when
 
     live >= k,  or  total >= k and total - live < k.
 
+**Wrong after an undo, found in sec 399**: one vote can re-revoke,
+and a withdrawn vote that never met a quorum still counts toward one.
+
 The first half is k of n. The second is the latch: once k have revoked,
 fewer than k withdrawals leave it revoked. A lone revoker that withdraws
 never reached k, so nothing latched. At k = 1 both halves reduce to "a live
@@ -48908,17 +48911,32 @@ revocation, which is the direction sec 394 asks removal to err in.
   view in `test_the_chain_walk_answers_its_own_guards`, which passes a
   null store with hops that are views over nothing.
 
+### Decided after, by the holder, 2026-09-29
+
+- **Votes travel by pull from any peer.** Every node serves every vote it
+  holds, its own and those it learned, each with its issuer's chain, and
+  pulls from any estate peer it can reach. The root is one peer among
+  them, since sec 389 lets it be offline. Rejected: push on mint (the hop
+  runs one way and a pairing carries no address), push with pull as
+  repair (both mechanisms for speed nobody has asked for), and leaving
+  carriage to consumers.
+- **A grant of admin and a re-key take a grant plus confirmations.** One
+  admin mints the grant as today; it counts once k - 1 other admins have
+  signed confirmation records naming it, judged at read time like the
+  votes and carried the same way. Rejected: a co-signed hop (changes the
+  chain format, and the signers must meet), a threshold signature (a
+  setup round, and hard to do partitioned), and a vetoable delay (silence
+  consents).
+- **The root is one vote**, as the code already counts it: a stolen root
+  key alone removes nobody.
+- **The default k is 2.**
+
 ### Not done
 
-- **The node is still at k = 1 with no admin capability.** Wiring k and
-  the admin capability into `fuzznetd`, and what `fzn_node_revoke` means
-  once one host's revocation is a vote rather than a verdict, is next.
+- **~~The node is still at k = 1.~~ Votes travel and the daemon takes a
+  quorum: sec 399.** The admin capability is still not in the node.
 - **k as an estate setting that travels**, as in sec 395.
-- **Whether the root counts as one vote, and whether the default is 2**,
-  are still to be confirmed by the holder (sec 394). The code counts the
-  root as one entitled issuer like any ancestor.
-- **A grant of admin and a re-key by k-of-n**, which need co-signed
-  grants; see the open list under sec 395.
+- **Grant confirmations**, as decided above.
 
 ### Measured for sec 397
 
@@ -48995,3 +49013,154 @@ whatever owns a partition still wants exactly that when it fails.
 **And netcfgd is reading this tree's requirement, not stating it.** The
 active/active decision is netcfgd's holder's, about how fuzznet will be run;
 what it implies for `claim/` and the ratchet is fuzznet's to decide.
+
+## 399. Votes travel: every node serves what it holds, 2026-09-29
+
+The first of sec 397's decisions, built. Under a quorum above one a
+revocation is a vote, and a host needs k of them from distinct entitled
+issuers, so what one node learned has to reach the next.
+
+### What a node serves and keeps
+
+- **`get vote [FROM]`** serves every vote the node holds, local and
+  remote, since it changes nothing. It serves three slots:
+  - slot 9, the node's own votes, each with the node's authority chain
+    when it issued the vote as a member;
+  - slot 10, the root's revocations learned by the old pull, with no
+    chain;
+  - slot 11, new: votes learned from any peer, each with the chain it
+    arrived with.
+- **Slot 11 (`FZN_PERSIST_VOTE`)** is keyed by a hash of the triple, so
+  one triple has one row. Its blob tag is 9: the record, a hop count and
+  the hops. It is core, because losing it puts a revocation back under
+  its quorum.
+- **A vote and its chain do not fit one reply line.** A record is 404 hex
+  characters and a hop 358, so a record with two hops is past
+  `FZN_REPLY_MAX`. The page is therefore a stream of items, `r` and a
+  record or `h` and a hop, each hop belonging to the record before it,
+  paged by item index. The puller holds the vote it is assembling across
+  pages and admits it when the next record, or the end of the stream,
+  arrives.
+
+### What a puller does with it
+
+- **Each vote is admitted with its chain**, or as the root's when it
+  carries none.
+- **A refused vote is counted and skipped**, and does not stop the pull.
+  A stranger's vote, a stale copy and a second chain for one admin are
+  all refused this way. A pull from any peer may meet things this node
+  will never admit, and one peer's junk must not stop it learning the
+  rest. A full store does stop the pull.
+- **A vote is saved only when the store now holds exactly it**:
+  - a revocation holds its own hash and is not withdrawn;
+  - a withdrawal holds the hash it names and is withdrawn.
+
+  So a stale copy, which admission accepts without taking, is never
+  saved over the withdrawal that superseded it.
+- **At start, slot 11 is admitted after slots 9 and 10**, and a refusal
+  is fatal, as it is for those two slots. The exception is a refused vote
+  whose triple another slot already holds, which is skipped. That case is
+  a node's own vote that came back from a peer and was later withdrawn in
+  slot 9.
+
+### The daemon
+
+- **`fuzznetd` pulls `get vote`** from the peer named by `--root-at`,
+  rather than `get revocation` from the root.
+- **`--quorum K`** sets the store's quorum.
+
+**The daemon's default quorum stays 1, although the holder set 2.** At 2,
+the only entitled revokers of a device the root granted directly are the
+root, which is one vote, and admins. The node has no admins yet (the
+admin capability and its grant plus confirmations are not built), so at
+2 such a device could not be revoked at all. The default becomes 2 when
+admins can exist. That is my call and not the holder's; the holder may
+prefer 2 now.
+
+### The limit this leaves
+
+**The daemon pulls from one peer**, the one `--root-at` names, through
+the pairing it joined with. Nothing in the store stops more: slot 8 files
+a pairing under the node that sealed the card (`fzn_node_pairing_accept`
+saves under `p.node`), so a node can hold pairings to several nodes of
+one estate. What is missing is the daemon asking more than one of them.
+Until it does, votes flow along the pairing a member joined through: a
+sibling hears another's vote only through a node both pull from, and a
+root pulls from nobody. That is next.
+
+`get revocation` and `fzn_node_revocations_pull` stay, unchanged, for a
+consumer that asks the old way.
+
+### Measured for sec 399
+
+`pair_test`, 131 checks, with the new case `test_votes_travel` at k = 2:
+
+- the setup: R grants N and M, N grants D, and R and N each vote against
+  D;
+- neither vote alone revokes;
+- N pulls R's vote, and at N the two revoke;
+- M pulls from N alone, one item per 420-byte page, so N's vote and its
+  chain arrive on different pages. M receives both N's vote and R's,
+  which N relayed, and revokes;
+- M pulls `get vote` from R over the real remote hop, and a vote it
+  already holds is learned again rather than refused;
+- a stranger's vote in R's store is refused at M and counted, the pull
+  goes on, and R's own restart refuses the store;
+- M's restart reloads both votes;
+- the latch holds across the network:
+  - N's withdrawal reaches M and D stays revoked;
+  - R's withdrawal travels R → N → M and D is restored;
+- N's own vote comes back from M, and after N's withdrawal N's restart
+  skips that copy rather than failing;
+- a stale copy of N's vote offered to M after the withdrawal is not
+  saved, and M's restart keeps D restored;
+- a hop with no record before it is refused as SHAPE.
+
+`admin_test`, 35 checks: `get vote` over the local socket, for a group
+member, serves the node's one vote as one record item, and an offset
+past the stream is malformed.
+
+`make test` and `make style` pass.
+
+Sabotage, each entry run alone and caught by the case written for it:
+
+- ten new entries: the vote page's offset and empty-page checks; serving
+  `get vote` remotely; a hop needing a record; a stale copy not saved; a
+  refusal not stopping the pull; the node's own vote carrying its chain;
+  the load reading slot 11; the load's skip being only for a superseded
+  copy; and that skip not being fatal;
+- three existing entries re-aimed, because the vote code duplicated
+  their anchors.
+
+Four of the ten first survived, and each was a test that could not fail
+the way its guard does:
+
+- two had no case at all;
+- the hop-with-no-record case sent a hop too short to reach the check;
+- the superseded-copy case never produced a refusal, because admission
+  accepts a stale revocation without taking it.
+
+The case that does reach the skip is a node's own WITHDRAWAL coming back
+after it has revoked again: the target that withdrawal names is gone, so
+admission refuses it as `UNKNOWN_TARGET`.
+
+### Found while testing: sec 397's latch is wrong after an undo
+
+Measured with a scratch probe against `chain/revocation.c`, at k = 2:
+
+- **After a full undo.** The root and an admin revoke, then both
+  withdraw, and the device is restored. The root then revokes again,
+  alone, and the device is revoked.
+- **With no undo at all.** The root revokes and withdraws alone, never
+  reaching the quorum. The admin then revokes alone, and the device is
+  revoked.
+
+The cause is the rule's shape. The store keeps only each issuer's latest
+record for a triple, so `total - live` counts withdrawals without knowing
+whether they undid a quorum or preceded one. No rule over those two
+counts can tell the cases apart, so the fix needs a record to carry more
+than it does (an epoch, say) or a different undo. That is the holder's
+decision.
+
+A node at the default k = 1 is not affected: there the rule reduces to
+the old one exactly.
