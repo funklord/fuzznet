@@ -50818,3 +50818,89 @@ It is recorded, not decided.
 3. Stopped, M's `fuzznetd --pair` prints 893 characters, and D2 accepts.
 
 No daemon was left running.
+
+## 420. The scope vocabulary, 2026-10-01
+
+This answers sec 402, netcfgd's request. Its holder set the scopes as a
+general feature of this library, and netcfgd holds a placeholder enum to
+be deleted when this tree carries the type. The ask was the vocabulary
+and its semantics, not the classification: which of netcfgd's keys has
+which scope stays netcfgd's table.
+
+### The vocabulary
+
+`state/scope.h`, with `fzn_scope_t` and four values:
+
+    FZN_SCOPE_HOST_PRIVATE = 0   never replicated; no cell at all
+    FZN_SCOPE_HOST         = 1   about one host, seen by the estate
+    FZN_SCOPE_GROUP        = 2   seen by the group's members only
+    FZN_SCOPE_ESTATE       = 3   seen by every host
+
+**The narrowest scope is at zero, the one property netcfgd asked be
+designed in.** Widening a scope publishes what its author never offered
+anybody, while narrowing one only fails to share. So a zeroed field is
+host-private, and so is a byte this build does not know:
+`fzn_scope_read` maps anything past `FZN_SCOPE_COUNT` there. An
+omission, or a value from a later build's larger set, travels least.
+
+The set is open, "probably more than these", and a new scope is a new
+value and a row in each function below.
+
+### The semantics
+
+- **Reach** (`fzn_scope_reaches`, `fzn_scope_replicates`):
+  - host-private reaches nobody else;
+  - host and estate reach every host;
+  - group reaches its members.
+- **Reach is not the order of the numbers.** A host value is about one
+  host and seen everywhere. A group value is about many hosts and seen by
+  few.
+- **Widening** (`fzn_scope_widens`) is judged by reach: a change is
+  widening when some host the new scope reaches was not reached before.
+  - Group to host widens, and so do host-private to group and group to
+    estate.
+  - Host to estate does not, since both reach every host. Nor does any
+    narrowing, or a move to an unknown scope.
+  - It is the question a consumer asks before re-scoping a value it has
+    already published.
+- **The subject** (`fzn_scope_subject`). A scope is a kind of subject, as
+  netcfgd read `state/`: `(issuer, subject, kind) -> value`.
+  - A value of a scope about an id has a subject, a hash of a 16-byte
+    label, the scope byte and the id. The id is the host's key, the
+    group's id or the estate root.
+  - One id under two scopes is two subjects. A group whose id happened to
+    equal a host's key would otherwise overwrite that host's cells.
+  - Host-private is refused with its own code, `FZN_SCOPE_ERR_PRIVATE`,
+    rather than given a subject. "This never leaves" is then a checkable
+    answer, not an absence.
+- **Names** (`fzn_scope_name`, `fzn_scope_parse`) are `host-private`,
+  `host`, `group` and `estate`, exact and case-sensitive, as verbs are.
+
+### Not yet after sec 420
+
+- **Nothing here uses a scope yet.** `state/` stores whatever subject it
+  is given, and carriage does not yet filter by reach. netcfgd will
+  retype its table onto `fzn_scope_t` and derive its subjects here.
+- **What a group is** is the consumer's: this derives a group's subject
+  from the id it is handed and does not say how an id is made or who is a
+  member.
+
+### Measured for sec 420
+
+`scope_test`, 27 checks:
+
+- **The narrowest at zero:** a zeroed byte, `FZN_SCOPE_COUNT` and 255 all
+  read as host-private and do not replicate.
+- **Reach:** a group reaches a member and not a non-member.
+- **Widening:** the widening moves above are called widening, and the
+  rest are not.
+- **Names:** every name round-trips. A misspelling or a wrong case does
+  not parse and leaves the output alone.
+- **Subjects:**
+  - one id under three scopes gives three subjects, two hosts give two,
+    and a host's subject is not its bare key;
+  - host-private is PRIVATE, and an unknown scope, a refusing hash or a
+    missing argument is MALFORMED, each without writing.
+
+`fzn_scope_err_str` is walked by `err_str_test`, and `consumer_check`
+includes and calls the header.

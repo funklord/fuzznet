@@ -165,6 +165,7 @@
 #include <fuzznet/sched/sched.h>
 #include <fuzznet/record/sync.h>
 #include <fuzznet/state/state.h>
+#include <fuzznet/state/scope.h>
 #include <fuzznet/trust/trust.h>
 #include <fuzznet/session/random_system.h>
 #include <fuzznet/version/version.h>
@@ -277,6 +278,7 @@
 #include "sched/sched.h"
 #include "record/sync.h"
 #include "state/state.h"
+#include "state/scope.h"
 #include "trust/trust.h"
 #include "session/random_system.h"
 #include "version/version.h"
@@ -881,6 +883,25 @@ int main(void)
 		if (fzn_chain_verify(&hop, 1, root, &cap, 2000, &sign, NULL, NULL, &chain) !=
 		    FZN_CHAIN_OK)
 			FAIL(107);
+	}
+
+	/* SCOPES, sec 420: the zero byte is host-private and has no subject; a
+	 * host-scoped value derives one. The consumer's calls, arity and all. */
+	{
+		uint8_t id[FZN_SUBJECT_LEN], subject[FZN_SUBJECT_LEN];
+		fzn_scope_t parsed = FZN_SCOPE_HOST_PRIVATE;
+
+		memset(id, 0x0c, sizeof(id));
+		if (fzn_scope_read(0u) != FZN_SCOPE_HOST_PRIVATE)
+			FAIL(452);
+		if (fzn_scope_subject(FZN_SCOPE_HOST_PRIVATE, id, &CONSUMER_HASH, subject)
+		    != FZN_SCOPE_ERR_PRIVATE)
+			FAIL(453);
+		if (fzn_scope_subject(FZN_SCOPE_HOST, id, &CONSUMER_HASH, subject) != FZN_SCOPE_OK)
+			FAIL(454);
+		if (!fzn_scope_parse((const uint8_t *)"group", 5u, &parsed)
+		    || parsed != FZN_SCOPE_GROUP || !fzn_scope_widens(FZN_SCOPE_GROUP, FZN_SCOPE_HOST))
+			FAIL(455);
 	}
 
 	/* THE ROOT SET, as a node holds it (secs 405 to 407): a second root

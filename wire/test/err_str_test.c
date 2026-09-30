@@ -54,6 +54,7 @@
 #include "../../record/ledger.h"
 #include "../../record/sync.h"
 #include "../../state/state.h"
+#include "../../state/scope.h"
 #include "../../log/log.h"
 #include "../../link/link.h"
 #include "../../sched/sched.h"
@@ -138,6 +139,11 @@ static const char *r_node_roots(int v)
 {
 	return fzn_node_roots_err_str((fzn_node_roots_err_t)v);
 }
+static const char *r_scope(int v)
+{
+	return fzn_scope_err_str((fzn_scope_err_t)v);
+}
+
 static const char *r_roster(int v)
 {
 	return fzn_roster_err_str((fzn_roster_err_t)v);
@@ -222,6 +228,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_node_revoke_err_str", r_revoke, 8 },
 	{ "fzn_node_pull_err_str", r_pull, 6 },
 	{ "fzn_roster_err_str", r_roster, 8 },
+	{ "fzn_scope_err_str", r_scope, 3 },
 	{ "fzn_root_log_err_str", r_root_log, 6 },
 	{ "fzn_node_roots_err_str", r_node_roots, 9 },
 	{ "fzn_record_err_str", r_record, 6 },
