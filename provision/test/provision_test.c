@@ -27,6 +27,7 @@
  * corrupts the log. project.md sec 351. */
 
 #include "../provision.h"
+#include "../../chain/root_log.h"
 
 #include "../../chain/chain.h"
 #include "../../prekey/prekey.h"
@@ -175,8 +176,9 @@ static int build_as(fixture_t *f, uint8_t prekey_owner, uint8_t card_signer,
 		return 0;
 
 	signing_as = card_signer;
-	return fzn_provision_pack(f->root, (const uint8_t (*)[FZN_HOP_LEN])f->hop, 1u, f->prekey, expires_at, &OPS, f->card,
-	                          sizeof(f->card), &f->card_len) == FZN_PROVISION_OK;
+	return fzn_provision_pack(f->root, (const uint8_t (*)[FZN_HOP_LEN])f->hop, 1u, NULL, 0,
+	                          f->prekey, expires_at, &OPS, f->card, sizeof(f->card),
+	                          &f->card_len) == FZN_PROVISION_OK;
 }
 
 static int build(fixture_t *f)
@@ -193,23 +195,26 @@ static void test_the_layout_is_what_the_header_says(void)
 	CHECK(FZN_PROVISION_OFF_ROOT == 2u, "root is not where the table says");
 	CHECK(FZN_PROVISION_OFF_HOP_COUNT == 34u, "hop_count is not where the table says");
 	CHECK(FZN_PROVISION_OFF_CHAIN == 35u, "the chain is not where the table says");
-	CHECK(FZN_PROVISION_OFF_PREKEY(1) == 214u, "prekey is not where the table says");
-	CHECK(FZN_PROVISION_OFF_EXPIRES_AT(1) == 352u, "expires_at is not where the table says");
-	CHECK(FZN_PROVISION_OFF_SIGNATURE(1) == 360u, "signature is not where the table says");
-	CHECK(FZN_PROVISION_BODY_LEN(1) == 360u, "the signed body changed size");
-	CHECK(FZN_PROVISION_MIN_LEN == 424u && FZN_PROVISION_MAX_LEN == 1677u,
-	      "the card's size range is not provision.situ's 424..1677");
+	CHECK(FZN_PROVISION_OFF_PROOF_COUNT(1) == 214u, "proof_count is not where the table says");
+	CHECK(FZN_PROVISION_OFF_PREKEY(1, 0) == 215u, "prekey is not where the table says");
+	CHECK(FZN_PROVISION_OFF_PREKEY(1, 1) == 345u, "a proof item is not 130 bytes");
+	CHECK(FZN_PROVISION_OFF_EXPIRES_AT(1, 0) == 353u, "expires_at is not where the table says");
+	CHECK(FZN_PROVISION_OFF_SIGNATURE(1, 0) == 361u, "signature is not where the table says");
+	CHECK(FZN_PROVISION_BODY_LEN(1, 0) == 361u, "the signed body changed size");
+	CHECK(FZN_PROVISION_MIN_LEN == 425u && FZN_PROVISION_MAX_LEN == 2068u,
+	      "the card's size range is not provision.situ's 425..2068");
 
 	REQUIRE(build(&f), "the fixture did not build");
-	CHECK(f.card_len == 424u, "pack reported %zu bytes", f.card_len);
+	CHECK(f.card_len == 425u, "pack reported %zu bytes", f.card_len);
 	CHECK(f.card[FZN_PROVISION_OFF_VERSION] == 1u, "the version byte is not 1");
-	CHECK(f.card[FZN_PROVISION_OFF_OBJECT] == 138u, "the object tag is not the card's");
+	CHECK(f.card[FZN_PROVISION_OFF_OBJECT] == 142u, "the object tag is not the card's");
 	CHECK(f.card[34] == 1u, "the hop count is not 1");
 	CHECK(memcmp(f.card + FZN_PROVISION_OFF_ROOT, f.root, FZN_PUBKEY_LEN) == 0,
 	      "the root did not land at its offset");
 	CHECK(memcmp(f.card + 35, f.hop, FZN_HOP_LEN) == 0,
 	      "the hop did not land at its offset");
-	CHECK(memcmp(f.card + 214, f.prekey, FZN_PREKEY_LEN_TOTAL) == 0,
+	CHECK(f.card[214] == 0u, "a card with no proof does not say so at 214");
+	CHECK(memcmp(f.card + 215, f.prekey, FZN_PREKEY_LEN_TOTAL) == 0,
 	      "the prekey record did not land at its offset");
 }
 
@@ -289,7 +294,7 @@ static void test_the_envelope_binds_the_parts(void)
 	expand(attacker_root, ATTACK);
 	signing_as = ATTACK;
 	REQUIRE(fzn_provision_pack(attacker_root, (const uint8_t (*)[FZN_HOP_LEN])genuine.hop,
-	                           1u, forged.prekey, 0, &OPS, forged.card, sizeof(forged.card),
+	                           1u, NULL, 0, forged.prekey, 0, &OPS, forged.card, sizeof(forged.card),
 	                           &forged.card_len) == FZN_PROVISION_OK,
 	        "the second forged card did not pack");
 	REQUIRE(fzn_provision_open(forged.card, forged.card_len, &card) == FZN_PROVISION_OK,
@@ -321,7 +326,7 @@ static void test_the_envelope_binds_the_parts(void)
 
 	REQUIRE(build(&forged), "the foreign-root fixture did not build");
 	signing_as = SPONSOR;
-	REQUIRE(fzn_provision_pack(attacker_root, (const uint8_t (*)[FZN_HOP_LEN])forged.hop, 1u,
+	REQUIRE(fzn_provision_pack(attacker_root, (const uint8_t (*)[FZN_HOP_LEN])forged.hop, 1u, NULL, 0,
 	                           forged.prekey, 0, &OPS, forged.card, sizeof(forged.card),
 	                           &forged.card_len) == FZN_PROVISION_OK
 	                && fzn_provision_open(forged.card, forged.card_len, &card)
@@ -361,11 +366,11 @@ static void test_a_member_can_sponsor_a_card(void)
 	                && fzn_prekey_issue(member, pk, 100, &OPS, member_prekey) == FZN_PREKEY_OK,
 	        "fixture: the member's hop to the device, and its prekey");
 
-	REQUIRE(fzn_provision_pack(root, (const uint8_t (*)[FZN_HOP_LEN])chain, 2u, member_prekey,
+	REQUIRE(fzn_provision_pack(root, (const uint8_t (*)[FZN_HOP_LEN])chain, 2u, NULL, 0, member_prekey,
 	                           0, &OPS, card_bytes, sizeof(card_bytes), &len)
 	                == FZN_PROVISION_OK,
 	        "a member's two-hop card did not pack");
-	CHECK(len == 603u && len == FZN_PROVISION_LEN(2), "a two-hop card is %zu bytes", len);
+	CHECK(len == 604u && len == FZN_PROVISION_LEN(2, 0), "a two-hop card is %zu bytes", len);
 	REQUIRE(fzn_provision_open(card_bytes, len, &card) == FZN_PROVISION_OK,
 	        "a member's card did not open");
 	CHECK(card.hop_count == 2u && memcmp(card.hop, chain[1], FZN_HOP_LEN) == 0,
@@ -375,7 +380,7 @@ static void test_a_member_can_sponsor_a_card(void)
 
 	/* ITS TEXT ROUND-TRIPS AT ITS OWN LENGTH. */
 	CHECK(fzn_provision_text(card_bytes, len, text, sizeof(text)) == FZN_PROVISION_OK
-	              && strlen(text) == FZN_PROVISION_TEXT_PREFIX_LEN + 965u
+	              && strlen(text) == FZN_PROVISION_TEXT_PREFIX_LEN + 967u
 	              && fzn_provision_from_text(text, back, sizeof(back), &back_len)
 	                         == FZN_PROVISION_OK
 	              && back_len == len && memcmp(back, card_bytes, len) == 0,
@@ -384,7 +389,7 @@ static void test_a_member_can_sponsor_a_card(void)
 	/* SEALED BY THE ROOT INSTEAD: the root is not the last hop's grantor,
 	 * so it is not this card's sponsor, whatever else it is. */
 	signing_as = SPONSOR;
-	REQUIRE(fzn_provision_pack(root, (const uint8_t (*)[FZN_HOP_LEN])chain, 2u, member_prekey,
+	REQUIRE(fzn_provision_pack(root, (const uint8_t (*)[FZN_HOP_LEN])chain, 2u, NULL, 0, member_prekey,
 	                           0, &OPS, card_bytes, sizeof(card_bytes), &len)
 	                == FZN_PROVISION_OK
 	                && fzn_provision_open(card_bytes, len, &card) == FZN_PROVISION_OK,
@@ -404,7 +409,7 @@ static void test_a_member_can_sponsor_a_card(void)
 		                        == FZN_CHAIN_OK
 		                && fzn_prekey_issue(attacker, pk, 100, &OPS, attacker_prekey)
 		                           == FZN_PREKEY_OK
-		                && fzn_provision_pack(root, (const uint8_t (*)[FZN_HOP_LEN])wrong, 2u,
+		                && fzn_provision_pack(root, (const uint8_t (*)[FZN_HOP_LEN])wrong, 2u, NULL, 0,
 		                                      attacker_prekey, 0, &OPS, card_bytes,
 		                                      sizeof(card_bytes), &len) == FZN_PROVISION_OK
 		                && fzn_provision_open(card_bytes, len, &card) == FZN_PROVISION_OK,
@@ -422,7 +427,7 @@ static void test_every_signed_byte_is_signed(void)
 
 	REQUIRE(build(&f), "the fixture did not build");
 
-	for (i = 0; i < FZN_PROVISION_BODY_LEN(1); i++) {
+	for (i = 0; i < FZN_PROVISION_BODY_LEN(1, 0); i++) {
 		fzn_provision_card_t card;
 		uint8_t bent[FZN_PROVISION_MAX_LEN];
 		fzn_provision_err_t err;
@@ -432,11 +437,12 @@ static void test_every_signed_byte_is_signed(void)
 
 		err = fzn_provision_open(bent, f.card_len, &card);
 		if (err != FZN_PROVISION_OK) {
-			/* Bytes 0 and 1 are the version and the tag, and 34 the
-			 * hop count that fixes the length, so a bent one is
-			 * refused at the shape gate before any key is touched.
-			 * Refused is refused. */
-			CHECK(i < FZN_PROVISION_OFF_ROOT || i == FZN_PROVISION_OFF_HOP_COUNT,
+			/* Bytes 0 and 1 are the version and the tag, 34 the hop
+			 * count and 214 the proof count, which fix the length,
+			 * so a bent one is refused at the shape gate before any
+			 * key is touched. Refused is refused. */
+			CHECK(i < FZN_PROVISION_OFF_ROOT || i == FZN_PROVISION_OFF_HOP_COUNT
+			              || i == FZN_PROVISION_OFF_PROOF_COUNT(1),
 			      "byte %zu was refused for its shape and should not be", i);
 			continue;
 		}
@@ -540,8 +546,8 @@ static void test_the_signature_is_checked_before_the_expiry(void)
 
 	memcpy(bent, f.card, sizeof(bent));
 	/* An expiry of 1: long past, and not what the sponsor signed. */
-	memset(bent + FZN_PROVISION_OFF_EXPIRES_AT(1), 0, 8);
-	bent[FZN_PROVISION_OFF_EXPIRES_AT(1) + 7u] = 1u;
+	memset(bent + FZN_PROVISION_OFF_EXPIRES_AT(1, 0), 0, 8);
+	bent[FZN_PROVISION_OFF_EXPIRES_AT(1, 0) + 7u] = 1u;
 
 	REQUIRE(fzn_provision_open(bent, f.card_len, &card) == FZN_PROVISION_OK,
 	        "the bent card did not open");
@@ -563,11 +569,11 @@ static void test_the_text_round_trips(void)
 	REQUIRE(fzn_provision_text(f.card, f.card_len, text, sizeof(text)) == FZN_PROVISION_OK,
 	        "the card did not encode");
 
-	CHECK(strlen(text) == FZN_PROVISION_TEXT_PREFIX_LEN + 679u,
+	CHECK(strlen(text) == FZN_PROVISION_TEXT_PREFIX_LEN + 680u,
 	      "the text is %zu characters, wanted %u", strlen(text),
-	      (unsigned)(FZN_PROVISION_TEXT_PREFIX_LEN + 679u));
-	CHECK(FZN_PROVISION_TEXT_BODY_LEN(424u) == 679u,
-	      "679 characters is what 424 bytes of unpadded base32 comes to");
+	      (unsigned)(FZN_PROVISION_TEXT_PREFIX_LEN + 680u));
+	CHECK(FZN_PROVISION_TEXT_BODY_LEN(425u) == 680u,
+	      "680 characters is what 425 bytes of unpadded base32 comes to");
 	CHECK(strncmp(text, FZN_PROVISION_TEXT_PREFIX, FZN_PROVISION_TEXT_PREFIX_LEN) == 0,
 	      "the version prefix is missing");
 
@@ -639,22 +645,36 @@ static void test_the_text_is_canonical(void)
 	CHECK(fzn_provision_from_text(bent, back, sizeof(back), &back_len)
 	      == FZN_PROVISION_ERR_SHAPE, "a character outside the alphabet was decoded");
 
-	/* THE SPARE BITS OF THE LAST CHARACTER MUST BE ZERO. 424 bytes is 3392
-	 * bits and 679 characters carry 3395, so three bits are padding.
-	 * Left unchecked, two strings decode to one card -- and then "the code
-	 * I scanned" names two things, which is not a property a signature over
-	 * the bytes can repair. The encoder always emits an even final value,
-	 * so raising it by one sets that bit. */
-	memcpy(bent, text, sizeof(bent));
-	last = strlen(bent) - 1u;
-	REQUIRE(bent[last] != '7', "the final character is the top of the alphabet");
-	if (bent[last] == 'Z')
-		bent[last] = '2';
-	else
-		bent[last] = (char)(bent[last] + 1);
-	CHECK(fzn_provision_from_text(bent, back, sizeof(back), &back_len)
-	      == FZN_PROVISION_ERR_SHAPE,
-	      "a string whose padding bit was set decoded to the same card");
+	/* THE SPARE BITS OF THE LAST CHARACTER MUST BE ZERO. Left unchecked,
+	 * two strings decode to one card -- and then "the code I scanned" names
+	 * two things, which is not a property a signature over the bytes can
+	 * repair.
+	 *
+	 * SINCE sec 410 THE ONE-HOP CARD HAS NONE: 425 bytes is 3400 bits and
+	 * 680 characters carry exactly that. So this is asked of a two-hop
+	 * card's length, 604 bytes in 967 characters, which carries three spare
+	 * bits. The decoder reads no card here -- only the prefix, a card's
+	 * length, the alphabet and the spare bits -- so a string of 'A's at that
+	 * length is the control, and its last character raised by one sets the
+	 * lowest spare bit. */
+	{
+		static char padded[FZN_PROVISION_TEXT_MAX_LEN];
+		size_t chars = FZN_PROVISION_TEXT_BODY_LEN(FZN_PROVISION_LEN(2, 0));
+
+		REQUIRE(chars == 967u && (FZN_PROVISION_LEN(2, 0) * 8u) % 5u != 0u,
+		        "a two-hop card no longer leaves spare bits");
+		memcpy(padded, FZN_PROVISION_TEXT_PREFIX, FZN_PROVISION_TEXT_PREFIX_LEN);
+		memset(padded + FZN_PROVISION_TEXT_PREFIX_LEN, 'A', chars);
+		padded[FZN_PROVISION_TEXT_PREFIX_LEN + chars] = '\0';
+		CHECK(fzn_provision_from_text(padded, back, sizeof(back), &back_len)
+		              == FZN_PROVISION_OK,
+		      "the control: a two-hop length of zero characters did not decode");
+		last = FZN_PROVISION_TEXT_PREFIX_LEN + chars - 1u;
+		padded[last] = 'B';
+		CHECK(fzn_provision_from_text(padded, back, sizeof(back), &back_len)
+		              == FZN_PROVISION_ERR_SHAPE,
+		      "a string whose padding bit was set decoded to the same card");
+	}
 
 	/* THE RETIRED PREFIX, AND A CHARACTER TOO MANY. `FZN1:` named the
 	 * one-hop card the root sealed; a string one character longer than a
@@ -663,6 +683,9 @@ static void test_the_text_is_canonical(void)
 	bent[3] = '1';
 	CHECK(fzn_provision_from_text(bent, back, sizeof(back), &back_len)
 	      == FZN_PROVISION_ERR_SHAPE, "a FZN1: string was decoded as this card");
+	bent[3] = '2';
+	CHECK(fzn_provision_from_text(bent, back, sizeof(back), &back_len)
+	      == FZN_PROVISION_ERR_SHAPE, "a FZN2: string was decoded as this card");
 	memcpy(bent, text, sizeof(bent));
 	last = strlen(bent);
 	bent[last] = 'A';
@@ -681,23 +704,23 @@ static void test_every_guard_refuses_its_own_argument(void)
 
 	REQUIRE(build(&f), "the fixture did not build");
 
-	CHECK(fzn_provision_pack(NULL, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, f.prekey, 0, &OPS, out, sizeof(out), &len)
+	CHECK(fzn_provision_pack(NULL, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, NULL, 0, f.prekey, 0, &OPS, out, sizeof(out), &len)
 	      == FZN_PROVISION_ERR_MALFORMED, "pack accepted a null root");
-	CHECK(fzn_provision_pack(f.root, (const uint8_t (*)[FZN_HOP_LEN])NULL, 1u, f.prekey, 0, &OPS, out, sizeof(out), &len)
+	CHECK(fzn_provision_pack(f.root, (const uint8_t (*)[FZN_HOP_LEN])NULL, 1u, NULL, 0, f.prekey, 0, &OPS, out, sizeof(out), &len)
 	      == FZN_PROVISION_ERR_MALFORMED, "pack accepted a null hop");
-	CHECK(fzn_provision_pack(f.root, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, NULL, 0, &OPS, out, sizeof(out), &len)
+	CHECK(fzn_provision_pack(f.root, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, NULL, 0, NULL, 0, &OPS, out, sizeof(out), &len)
 	      == FZN_PROVISION_ERR_MALFORMED, "pack accepted a null prekey");
-	CHECK(fzn_provision_pack(f.root, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, f.prekey, 0, &OPS, NULL, sizeof(out), &len)
+	CHECK(fzn_provision_pack(f.root, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, NULL, 0, f.prekey, 0, &OPS, NULL, sizeof(out), &len)
 	      == FZN_PROVISION_ERR_MALFORMED, "pack accepted a null out");
-	CHECK(fzn_provision_pack(f.root, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, f.prekey, 0, &OPS, out, sizeof(out), NULL)
+	CHECK(fzn_provision_pack(f.root, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, NULL, 0, f.prekey, 0, &OPS, out, sizeof(out), NULL)
 	      == FZN_PROVISION_ERR_MALFORMED, "pack accepted a null out_len");
-	CHECK(fzn_provision_pack(f.root, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, f.prekey, 0, &OPS, out,
-	                         FZN_PROVISION_LEN(1) - 1u, &len)
+	CHECK(fzn_provision_pack(f.root, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, NULL, 0, f.prekey, 0, &OPS, out,
+	                         FZN_PROVISION_LEN(1, 0) - 1u, &len)
 	      == FZN_PROVISION_ERR_MALFORMED, "pack accepted a buffer one byte short");
-	CHECK(fzn_provision_pack(f.root, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, f.prekey, 0, NULL, out, sizeof(out), &len)
+	CHECK(fzn_provision_pack(f.root, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, NULL, 0, f.prekey, 0, NULL, out, sizeof(out), &len)
 	      == FZN_PROVISION_ERR_SIGNER, "pack accepted a null signer");
 
-	CHECK(fzn_provision_open(NULL, FZN_PROVISION_LEN(1), &card)
+	CHECK(fzn_provision_open(NULL, FZN_PROVISION_LEN(1, 0), &card)
 	      == FZN_PROVISION_ERR_MALFORMED, "open accepted null bytes");
 	CHECK(fzn_provision_open(f.card, f.card_len, NULL) == FZN_PROVISION_ERR_MALFORMED,
 	      "open accepted a null out");
@@ -745,7 +768,7 @@ static void test_every_guard_refuses_its_own_argument(void)
 		fzn_provision_card_t partial;
 		size_t card_len = 0;
 
-		CHECK(fzn_provision_pack(f.root, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, f.prekey, 0, &half_signer, out,
+		CHECK(fzn_provision_pack(f.root, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, NULL, 0, f.prekey, 0, &half_signer, out,
 		                         sizeof(out), &card_len) == FZN_PROVISION_ERR_SIGNER,
 		      "pack accepted a signer struct whose sign is null -- which is what a "
 		      "consumer that filled the vtable in two steps and got interrupted has");
@@ -779,15 +802,15 @@ static void test_every_guard_refuses_its_own_argument(void)
 
 	CHECK(fzn_provision_from_text(NULL, out, sizeof(out), &len)
 	      == FZN_PROVISION_ERR_MALFORMED, "from_text accepted a null string");
-	CHECK(fzn_provision_from_text("FZN2:", NULL, sizeof(out), &len)
+	CHECK(fzn_provision_from_text(FZN_PROVISION_TEXT_PREFIX, NULL, sizeof(out), &len)
 	      == FZN_PROVISION_ERR_MALFORMED, "from_text accepted a null out");
-	CHECK(fzn_provision_from_text("FZN2:", out, sizeof(out), NULL)
+	CHECK(fzn_provision_from_text(FZN_PROVISION_TEXT_PREFIX, out, sizeof(out), NULL)
 	      == FZN_PROVISION_ERR_MALFORMED, "from_text accepted a null out_len");
 	REQUIRE(fzn_provision_text(f.card, f.card_len, text, sizeof(text)) == FZN_PROVISION_OK,
 	        "the card did not encode");
 	CHECK(fzn_provision_from_text(text, out, f.card_len - 1u, &len)
 	      == FZN_PROVISION_ERR_MALFORMED, "from_text accepted a buffer one byte short");
-	CHECK(fzn_provision_from_text("FZN2:", out, sizeof(out), &len)
+	CHECK(fzn_provision_from_text(FZN_PROVISION_TEXT_PREFIX, out, sizeof(out), &len)
 	      == FZN_PROVISION_ERR_SHAPE, "from_text accepted a prefix with no card after it");
 }
 
@@ -798,7 +821,7 @@ static void test_a_refusing_signer_is_reported(void)
 	size_t len = 0;
 
 	REQUIRE(build(&f), "the fixture did not build");
-	CHECK(fzn_provision_pack(f.root, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, f.prekey, 0, &REFUSER, out, sizeof(out), &len)
+	CHECK(fzn_provision_pack(f.root, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, NULL, 0, f.prekey, 0, &REFUSER, out, sizeof(out), &len)
 	      == FZN_PROVISION_ERR_SIGNER, "a signer that refused was reported as something else");
 	CHECK(len == 0u, "a refused pack reported a length");
 }
@@ -818,6 +841,98 @@ static void test_err_str_names_every_arm(void)
 	      "EXPIRED falls through to unknown");
 	CHECK(strcmp(fzn_provision_err_str((fzn_provision_err_t)99), "unknown") == 0,
 	      "a value outside the enum is not called unknown");
+}
+
+/* ---- the root proof, sec 410 ------------------------------------------ */
+
+/* A root-add, `adder` adding `added`, signed as `signer` -- by hand, so this
+ * suite does not link the root set to test the card. */
+static void make_add(uint8_t out[FZN_PROVISION_PROOF_ITEM_LEN], uint8_t adder, uint8_t signer,
+                     uint8_t added)
+{
+	memset(out, 0, FZN_PROVISION_PROOF_ITEM_LEN);
+	out[0] = 1u;
+	out[1] = (uint8_t)FZN_OBJECT_ROOT_ADD;
+	expand(out + FZN_ROOT_SET_OFF_SIGNER, adder);
+	expand(out + FZN_ROOT_SET_OFF_SUBJECT, added);
+	mac(out + FZN_ROOT_ADD_BODY_LEN, signer, out, FZN_ROOT_ADD_BODY_LEN);
+}
+
+/* A card whose chain starts at root 0x41 and whose envelope says the
+ * estate's root is 0x31, carrying `proof`. The sponsor is 0x41, which granted
+ * the device and hosts the prekey. */
+static fzn_provision_err_t proof_card(const uint8_t (*proof)[FZN_PROVISION_PROOF_ITEM_LEN],
+                                      size_t proof_count)
+{
+	static uint8_t card[FZN_PROVISION_MAX_LEN];
+	uint8_t genesis[FZN_PUBKEY_LEN], k[FZN_PUBKEY_LEN], device[FZN_PUBKEY_LEN];
+	uint8_t hop[FZN_HOP_LEN], pub[FZN_PREKEY_LEN], prekey[FZN_PREKEY_LEN_TOTAL];
+	fzn_provision_card_t opened;
+	fzn_cap_id_t cap;
+	size_t len = 0;
+
+	memset(&cap, 0x5a, sizeof(cap));
+	memset(pub, 0x77, sizeof(pub));
+	expand(genesis, 0x31);
+	expand(k, 0x41);
+	expand(device, DEVICE);
+	signing_as = 0x41;
+	if (fzn_chain_mint(k, device, &cap, 100, 0, 1, &OPS, hop) != FZN_CHAIN_OK
+	    || fzn_prekey_issue(k, pub, 100, &OPS, prekey) != FZN_PREKEY_OK
+	    || fzn_provision_pack(genesis, (const uint8_t (*)[FZN_HOP_LEN])hop, 1u, proof,
+	                          proof_count, prekey, 0, &OPS, card, sizeof(card), &len)
+	               != FZN_PROVISION_OK
+	    || len != FZN_PROVISION_LEN(1, proof_count)
+	    || fzn_provision_open(card, len, &opened) != FZN_PROVISION_OK
+	    || opened.proof_count != proof_count)
+		return FZN_PROVISION_ERR_MALFORMED;
+	return fzn_provision_verify(opened, &OPS, 0);
+}
+
+/* THE DEVICE PINS THE GENESIS ROOT, AND THE PROOF IS WHAT LETS A CHAIN START
+ * AT ANOTHER. With 0x31 adding 0x41 the card verifies; the controls fail one
+ * link each: no proof, a proof by a root other than the genesis, a proof
+ * ending at another key, and a proof whose add was signed by somebody other
+ * than its adder -- built into a whole, sealed card rather than bent after
+ * sealing, since a bent card fails on its envelope whatever the proof says. */
+static void test_a_proof_reaches_another_root(void)
+{
+	uint8_t proof[2][FZN_PROVISION_PROOF_ITEM_LEN];
+
+	make_add(proof[0], 0x31, 0x31, 0x41);
+	CHECK(proof_card((const uint8_t (*)[FZN_PROVISION_PROOF_ITEM_LEN])proof, 1)
+	              == FZN_PROVISION_OK,
+	      "a chain from an added root, with the add that made it one, did not verify");
+	CHECK(proof_card(NULL, 0) == FZN_PROVISION_ERR_SIGNATURE,
+	      "the control: a chain from another root verified with no proof");
+	make_add(proof[0], 0x51, 0x51, 0x41);
+	CHECK(proof_card((const uint8_t (*)[FZN_PROVISION_PROOF_ITEM_LEN])proof, 1)
+	              == FZN_PROVISION_ERR_SIGNATURE,
+	      "a proof whose first add is not by the estate's root was taken");
+	make_add(proof[0], 0x31, 0x31, 0x61);
+	CHECK(proof_card((const uint8_t (*)[FZN_PROVISION_PROOF_ITEM_LEN])proof, 1)
+	              == FZN_PROVISION_ERR_SIGNATURE,
+	      "a proof ending at another key than the chain's first root was taken");
+	make_add(proof[0], 0x31, 0x31, 0x41);
+	proof[0][1] = (uint8_t)FZN_OBJECT_ROOT_REMOVE;
+	mac(proof[0] + FZN_ROOT_ADD_BODY_LEN, 0x31, proof[0], FZN_ROOT_ADD_BODY_LEN);
+	CHECK(proof_card((const uint8_t (*)[FZN_PROVISION_PROOF_ITEM_LEN])proof, 1)
+	              == FZN_PROVISION_ERR_SIGNATURE,
+	      "a proof item signed by the root but not a root-add was taken as one");
+	make_add(proof[0], 0x31, 0x99, 0x41);
+	CHECK(proof_card((const uint8_t (*)[FZN_PROVISION_PROOF_ITEM_LEN])proof, 1)
+	              == FZN_PROVISION_ERR_SIGNATURE,
+	      "a proof whose add was not signed by its adder was taken");
+	/* TWO STEPS: 0x31 adds 0x51, 0x51 adds 0x41. */
+	make_add(proof[0], 0x31, 0x31, 0x51);
+	make_add(proof[1], 0x51, 0x51, 0x41);
+	CHECK(proof_card((const uint8_t (*)[FZN_PROVISION_PROOF_ITEM_LEN])proof, 2)
+	              == FZN_PROVISION_OK,
+	      "a two-step proof did not verify");
+	make_add(proof[1], 0x31, 0x31, 0x41);
+	CHECK(proof_card((const uint8_t (*)[FZN_PROVISION_PROOF_ITEM_LEN])proof, 2)
+	              == FZN_PROVISION_ERR_SIGNATURE,
+	      "a proof whose second add is not by the root the first added was taken");
 }
 
 static void test_the_suite_can_tell_pass_from_fail(void)
@@ -845,6 +960,7 @@ int main(void)
 	test_every_guard_refuses_its_own_argument();
 	test_a_refusing_signer_is_reported();
 	test_err_str_names_every_arm();
+	test_a_proof_reaches_another_root();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("provision_test: %d checks, %d failure(s)\n", checks, failures);

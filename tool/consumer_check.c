@@ -151,6 +151,8 @@
 #include <fuzznet/node/pair.h>
 #include <fuzznet/node/admin.h>
 #include <fuzznet/node/revoke.h>
+#include <fuzznet/node/roots.h>
+#include <fuzznet/chain/root_log.h>
 #include <fuzznet/session/aead.h>
 #include <fuzznet/session/commitment.h>
 #include <fuzznet/session/random.h>
@@ -261,6 +263,8 @@
 #include "node/remote.h"
 #include "node/serve.h"
 #include "node/provision.h"
+#include "node/roots.h"
+#include "chain/root_log.h"
 #include "session/aead.h"
 #include "session/commitment.h"
 #include "session/random.h"
@@ -877,6 +881,29 @@ int main(void)
 		if (fzn_chain_verify(&hop, 1, root, &cap, 2000, &sign, NULL, NULL, &chain) !=
 		    FZN_CHAIN_OK)
 			FAIL(107);
+	}
+
+	/* THE ROOT SET, as a node holds it (secs 405 to 407): a second root
+	 * added by the first, admitted, and a member of the settled view. The
+	 * sequence is the consumer's, so each call's arity is this gate's. */
+	{
+		static fzn_node_roots_t roots;
+		uint8_t add[FZN_ROOT_ADD_LEN];
+		uint8_t second[FZN_PUBKEY_LEN];
+
+		memset(second, 0x0b, sizeof(second));
+		if (fzn_node_roots_init(&roots, root, &sign, &CONSUMER_HASH) != FZN_NODE_ROOTS_OK)
+			FAIL(447);
+		if (roots.ops.member(roots.ops.ctx, second))
+			FAIL(448);
+		if (fzn_root_add_issue(root, second, &sign, add) != FZN_ROOT_LOG_OK)
+			FAIL(449);
+		if (fzn_root_set_admit(&roots.set, add, sizeof(add), &sign, &CONSUMER_HASH)
+		    != FZN_ROOT_LOG_OK)
+			FAIL(450);
+		(void)fzn_root_view_init(&roots.view, &roots.set, &roots.log);
+		if (!roots.ops.member(roots.ops.ctx, second))
+			FAIL(451);
 	}
 
 	/* GRANTOR-REVOKES-DESCENDANT, END TO END, for the reason the block
@@ -2946,11 +2973,11 @@ int main(void)
 			FAIL(305);
 		if (fzn_prekey_issue(card_root, pk, 100u, &sign, rec) != FZN_PREKEY_OK)
 			FAIL(306);
-		if (fzn_provision_pack(card_root, (const uint8_t (*)[FZN_HOP_LEN])card_hop, 1u, rec,
+		if (fzn_provision_pack(card_root, (const uint8_t (*)[FZN_HOP_LEN])card_hop, 1u, NULL, 0, rec,
 		                       900u, &sign, card, sizeof(card), &card_len)
 		    != FZN_PROVISION_OK)
 			FAIL(307);
-		if (card_len != FZN_PROVISION_LEN(1))
+		if (card_len != FZN_PROVISION_LEN(1, 0))
 			FAIL(308);
 		if (fzn_provision_open(card, card_len, &opened) != FZN_PROVISION_OK)
 			FAIL(309);

@@ -122,7 +122,7 @@ static int build_as(struct fixture *f, uint8_t prekey_owner, uint8_t card_signer
 		return 0;
 
 	signing_as = card_signer;
-	return fzn_provision_pack(f->root, (const uint8_t (*)[FZN_HOP_LEN])f->hop, 1u, f->prekey, expires_at, &OPS, f->card,
+	return fzn_provision_pack(f->root, (const uint8_t (*)[FZN_HOP_LEN])f->hop, 1u, NULL, 0, f->prekey, expires_at, &OPS, f->card,
 	                          sizeof(f->card), &f->card_len) == FZN_PROVISION_OK;
 }
 

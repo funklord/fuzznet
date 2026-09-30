@@ -4498,8 +4498,9 @@ SABOTAGES = [
 		"provision-envelope-verified",
 		"provision/provision.c",
 		"\tif (!verifier->verify(verifier->ctx, sponsor, card.base,\n"
-		"\t                      FZN_PROVISION_BODY_LEN(card.hop_count),\n"
-		"\t                      card.base + FZN_PROVISION_OFF_SIGNATURE(card.hop_count)))\n"
+		"\t                      FZN_PROVISION_BODY_LEN(card.hop_count, card.proof_count),\n"
+		"\t                      card.base + FZN_PROVISION_OFF_SIGNATURE(card.hop_count,\n"
+		"\t                                                              card.proof_count)))\n"
 		"\t\treturn FZN_PROVISION_ERR_SIGNATURE;\n",
 		"\t(void)verifier;\n",
 		"the three objects in a card are each public, so without the envelope anybody assembles a genuine hop with their own prekey record and the device sessions with them",
@@ -4515,9 +4516,53 @@ SABOTAGES = [
 	(
 		"provision-chain-starts-at-root",
 		"provision/provision.c",
-		"\t    || memcmp(fzn_hop_grantor(hop), card.root, FZN_PUBKEY_LEN) != 0)\n",
-		"\t    )\n",
-		"a card naming a root its chain does not start at makes the device pin a root nobody granted it under -- sec 391",
+		"\t\t    || memcmp(fzn_hop_grantor(hop), from, FZN_PUBKEY_LEN) != 0)\n",
+		"\t\t    )\n",
+		"a card naming a root its chain does not start at makes the device pin a root nobody granted it under -- sec 391, and since sec 410 the root its proof reaches",
+	),
+	(
+		"provision-proof-starts-at-the-root",
+		"provision/provision.c",
+		"\t\t\t    || memcmp(add + FZN_ROOT_SET_OFF_SIGNER, from, FZN_PUBKEY_LEN) != 0\n",
+		"",
+		"a proof whose first add is by anybody makes anybody's key a root of the estate the device pins -- sec 410",
+	),
+	(
+		"provision-proof-add-is-signed",
+		"provision/provision.c",
+		"\t\t\t    || !verifier->verify(verifier->ctx, add + FZN_ROOT_SET_OFF_SIGNER, add,\n"
+		"\t\t\t                         FZN_ROOT_ADD_BODY_LEN, add + FZN_ROOT_ADD_BODY_LEN))\n",
+		"\t\t\t    )\n",
+		"an unsigned add names the root as adder and proves nothing about it -- sec 410",
+	),
+	(
+		"provision-proof-is-a-root-add",
+		"provision/provision.c",
+		"\t\t\t    || add[1] != (uint8_t)FZN_OBJECT_ROOT_ADD\n",
+		"",
+		"a root-remove carries its signer and subject where an add does, so without the tag a removal proves the removed key a root -- sec 410",
+	),
+	(
+		"provision-proof-advances",
+		"provision/provision.c",
+		"\t\t\tfrom = add + FZN_ROOT_SET_OFF_SUBJECT;\n",
+		"",
+		"a walk that does not move to the added root checks every add against the genesis and the chain against it too, so no proof ever reaches another root -- sec 410",
+	),
+	(
+		"node-accept-chain-from-proof-end",
+		"node/provision.c",
+		"\t\tchain_root = card.proof + (card.proof_count - 1u) * FZN_PROVISION_PROOF_ITEM_LEN\n"
+		"\t\t             + FZN_ROOT_SET_OFF_SUBJECT;\n",
+		"\t\t;\n",
+		"a device that verifies the chain under the genesis refuses every card a proven root makes -- sec 410",
+	),
+	(
+		"node-pairing-saves-the-proof",
+		"node/pair.c",
+		"\t\tif (fzn_node_roots_save(store, device->hash,\n",
+		"\t\tif (0 && fzn_node_roots_save(store, device->hash,\n",
+		"a pairing kept without the adds its chain starts from is refused by the node's own roots when they load -- sec 410",
 	),
 	(
 		"provision-chain-is-unbroken",

@@ -30,6 +30,11 @@
  * at the next seq after its head, and a root whose log has forked -- a key
  * used in two places -- is refused rather than extended.
  *
+ * A PAIRING CARD'S PROOF (sec 410): a card whose chain starts at a root
+ * other than the genesis carries the root-adds that made it one, and the
+ * device saves them with `fzn_node_roots_save`, so a node joining that way
+ * knows the root its chain starts at when it next loads.
+ *
  * WHAT IT DOES NOT DO YET: pair devices through a separate root key. A node's
  * pairings are still minted by its identity, as a root or through the chain
  * it joined with.
@@ -110,6 +115,14 @@ fzn_node_roots_err_t fzn_node_roots_load(fzn_node_roots_t *roots,
 fzn_node_roots_err_t fzn_node_roots_learn(fzn_node_roots_t *roots,
                                           const fzn_persist_ops_t *store,
                                           const uint8_t *bytes, size_t len);
+
+/* Save one root record as `fzn_node_roots_learn` would, without admitting
+ * it here: for a caller that has verified it some other way -- the proof on a
+ * pairing card, sec 410 -- and holds no set to admit it to. The next load
+ * admits it, and fails if it will not. */
+fzn_node_roots_err_t fzn_node_roots_save(const fzn_persist_ops_t *store,
+                                         const fzn_hash_ops_t *hash, const uint8_t *bytes,
+                                         size_t len);
 
 /* Point `revocations`, and every chain verified over it, at this set. The
  * roots must outlive the store's use of them. */

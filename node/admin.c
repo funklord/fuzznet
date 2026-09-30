@@ -17,7 +17,7 @@
  * length. sec 391. */
 #define ADMIN_CARD_HOPS 2u
 _Static_assert(3u + FZN_PROVISION_TEXT_PREFIX_LEN
-                       + FZN_PROVISION_TEXT_BODY_LEN(FZN_PROVISION_LEN(ADMIN_CARD_HOPS))
+                       + FZN_PROVISION_TEXT_BODY_LEN(FZN_PROVISION_LEN(ADMIN_CARD_HOPS, 0))
                    <= FZN_REPLY_MAX,
                "a two-hop pairing card does not fit one reply line");
 _Static_assert(FZN_NODE_LOCAL_REPLY_MAX >= FZN_REPLY_MAX + 1u,

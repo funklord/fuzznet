@@ -4910,11 +4910,11 @@ static void scenario_provision_card(void)
 		memcpy(chain_bytes[0], sponsor->hop_bytes[0], FZN_HOP_LEN);
 		memcpy(chain_bytes[1], device_hop, FZN_HOP_LEN);
 	}
-	check(fzn_provision_pack(net.root, (const uint8_t (*)[FZN_HOP_LEN])chain_bytes, 2u,
+	check(fzn_provision_pack(net.root, (const uint8_t (*)[FZN_HOP_LEN])chain_bytes, 2u, NULL, 0,
 	                         prekey_bytes[0], 0u, sim_signer(&who, &net.sign, sponsor->pubkey),
 	                         card_bytes, sizeof(card_bytes), &card_len) == FZN_PROVISION_OK,
 	      "the sponsor could not pack a provisioning card");
-	check(card_len == FZN_PROVISION_LEN(2), "a packed card is not the length the header says");
+	check(card_len == FZN_PROVISION_LEN(2, 0), "a packed card is not the length the header says");
 
 	/* ---- 2. OUT OF BAND, AS THE STRING A CODE CARRIES. There is no camera
 	   here; what is checked is that the bytes survive the round trip a

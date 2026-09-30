@@ -49980,3 +49980,102 @@ Sabotage: six new entries, each caught by its own case. They cover the
 own key acting only while it stands, a forked log not being extended, a
 change being logged, one key per node, a root revocation being logged,
 and the local verbs changing roots.
+
+## 410. A card proves the root its chain starts at, 2026-09-30
+
+The holder's decision for pairing through a root that is not the genesis:
+**genesis, with proof.** A device always pins the estate's genesis root.
+A card whose chain starts at another root K also carries the root-adds
+that make K a root. Before sec 410 a chain had to start at the root the
+card names, so a root key that is not the identity (sec 409) could not
+grant anything a device would accept.
+
+### The card, version 3
+
+It is a new signed object, not the sec 391 card reinterpreted:
+
+- tag 142, `FZN_OBJECT_CARD`. The sec 391 tag 138 is renamed
+  `FZN_OBJECT_CARD_V2` and retired, never to be reused;
+- text prefix `FZN3:`, so `FZN1:` and `FZN2:` strings are refused as
+  foreign objects;
+- after the chain, a proof count (0 to 3) and that many root-adds, 130
+  bytes each and byte for byte the records of sec 405;
+- 425 bytes for one hop and no proof, up to 2068. `provision.situ` now
+  imports `chain/root_act.situ` and states the range as 425..2068. That
+  agrees with `FZN_PROVISION_MIN_LEN` and `FZN_PROVISION_MAX_LEN`, which
+  are derived from the offset macros and not from the schema.
+
+A card with no proof is the sec 391 card plus one zero byte, and it
+verifies as before.
+
+### What `fzn_provision_verify` checks
+
+The proof is walked from the card's root. Each add must:
+
+- be version 1 and object `ROOT_ADD`, so a root-remove, which carries its
+  signer and subject in the same places, cannot stand in for one;
+- name as its adder the root the walk has reached;
+- verify under that adder's key.
+
+The walk then moves to the added key. The first hop's grantor must be
+where the walk ends, which is the card's root when there is no proof. A
+proof that wanders is refused whole.
+
+**Only adds, and at most three.** A card cannot prove that a root has not
+since been removed. The device learns removals the way every node does,
+by pulling root records (sec 408). The card only has to get the first
+chain accepted. Three steps is more than any estate here needs today.
+
+### The device's side
+
+- **`fzn_node_accept_card` verifies the chain under the root the proof
+  ends at.** `fzn_provision_verify` has already matched that root to the
+  first hop's grantor, so nothing new is trusted. No root set is built
+  for the check: with adds only and no removals, the set would admit
+  exactly the walk.
+- **`fzn_node_pairing_accept` saves each proof add before the pairing**,
+  through the new `fzn_node_roots_save`, which saves a record the way
+  `fzn_node_roots_learn` does but without admitting it. The next
+  `fzn_node_roots_load` admits it, and fails if it will not. The order
+  matters: a pairing saved without the adds would leave a node that
+  refuses its own grant once its roots load.
+
+### Not yet after sec 410
+
+**The node side of pairing through K.** Still to build:
+
+- the self-grant hop from K to the node's identity;
+- building the proof from genesis to K out of the node's root set;
+- using both in `add peer` and `fuzznetd --pair` when the acting root is
+  K.
+
+The admin reply bound also needs checking then, because a card with a
+proof can pass 1024 characters of text.
+
+### Measured for sec 410
+
+`provision_test`, 158 checks. The new cases build each card whole and
+seal it, so a refusal comes from the proof and not from a broken
+envelope:
+
+- A chain from K with R's add of K verifies.
+- A two-step proof, R adds S and S adds K, verifies.
+- Each of these is refused:
+  - the same card with no proof (the control);
+  - a first add by another key;
+  - a proof ending at a key other than the chain's first grantor;
+  - an add not signed by its adder;
+  - a second add not by the root the first one added;
+  - a signed root-remove in an add's place;
+  - `FZN2:` text.
+
+`pair_test`, 181 checks, with `test_a_card_proves_its_root`:
+
+- D pairs through K's card and saves exactly one root change.
+- D's roots, loaded again from its store, make K a member of R's estate.
+- The control, the same card with no proof, is refused and leaves no row
+  of any kind.
+
+`make schema SITU_DIR=../situ`, against situ 2744f65: `situc wire
+--check` classified the change as breaking (the new tag, and fields that
+shift), which is intended. The regenerated contract and map are current.

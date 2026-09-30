@@ -1768,6 +1768,64 @@ static void test_a_node_acts_as_a_root(void)
 	fzn_sign_monocypher_wipe(&again_signer);
 }
 
+/* ---- a card that proves its root, sec 410 ----------------------------- */
+
+static size_t rows_in(struct node *n, fzn_persist_slot_t slot)
+{
+	uint8_t subjects[8 * FZN_PUBKEY_LEN];
+	size_t count = 0;
+
+	return mem_list(&n->store, slot, subjects, 8, &count) ? count : (size_t)-1;
+}
+
+/* K is a root because the genesis R added it; K pairs D. The card names R --
+ * the root D pins -- and carries R's add of K, and D accepts the chain from K
+ * on that proof alone, saving the add BEFORE the pairing so its roots load
+ * with K a member. The control is the same card with no proof: a chain from
+ * a key R never added, refused, and nothing saved. */
+static void test_a_card_proves_its_root(const fzn_cap_id_t *cap)
+{
+	static struct node r, k, d, e;
+	static fzn_node_roots_t roots;
+	uint8_t add[FZN_ROOT_ADD_LEN], hop[FZN_HOP_LEN], card[FZN_PROVISION_MAX_LEN];
+	size_t card_len = 0, count = 0;
+	fzn_node_pairing_t pairing;
+
+	CHECK(node_up(&r) && node_up(&k) && node_up(&d) && node_up(&e), "fixture: the nodes");
+	CHECK(fzn_root_add_issue(r.id.pubkey, k.id.pubkey, &r.sign, add) == FZN_ROOT_LOG_OK
+	              && fzn_chain_mint(k.id.pubkey, d.id.pubkey, cap, 1000u, 0u, 0, &k.sign, hop)
+	                         == FZN_CHAIN_OK,
+	      "fixture: R's add of K, and K's hop to D");
+
+	/* THE CONTROL FIRST: no proof, so the chain starts at a stranger to R. */
+	CHECK(fzn_provision_pack(r.id.pubkey, (const uint8_t (*)[FZN_HOP_LEN])hop, 1u, NULL, 0,
+	                         k.id.prekey_record, 0u, &k.sign, card, sizeof(card), &card_len)
+	              == FZN_PROVISION_OK,
+	      "fixture: the card without a proof");
+	CHECK(fzn_node_pairing_accept(&e.id, card, card_len, 1300u, &e.ops, &pairing)
+	              == FZN_NODE_PAIR_REFUSED
+	              && rows_in(&e, FZN_PERSIST_ROOT_CHANGE) == 0u
+	              && rows_in(&e, FZN_PERSIST_PAIRED_NODE) == 0u,
+	      "the control: a chain from a key R never added was paired, or left a row");
+
+	CHECK(fzn_provision_pack(r.id.pubkey, (const uint8_t (*)[FZN_HOP_LEN])hop, 1u,
+	                         (const uint8_t (*)[FZN_PROVISION_PROOF_ITEM_LEN])add, 1u,
+	                         k.id.prekey_record, 0u, &k.sign, card, sizeof(card), &card_len)
+	              == FZN_PROVISION_OK
+	              && card_len == FZN_PROVISION_LEN(1, 1),
+	      "fixture: the card with R's add of K");
+	CHECK(fzn_node_pairing_accept(&d.id, card, card_len, 1300u, &d.ops, &pairing)
+	              == FZN_NODE_PAIR_OK
+	              && memcmp(pairing.node, k.id.pubkey, FZN_PUBKEY_LEN) == 0,
+	      "D refused a chain from K with the proof that K is R's root");
+	CHECK(rows_in(&d, FZN_PERSIST_ROOT_CHANGE) == 1u,
+	      "D did not save the root-add the card proved its root with");
+	CHECK(fzn_node_roots_init(&roots, r.id.pubkey, &d.sign, &hash_ops) == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_load(&roots, &d.ops, &count) == FZN_NODE_ROOTS_OK
+	              && count == 1u && roots.ops.member(roots.ops.ctx, k.id.pubkey),
+	      "D's roots, loaded again, do not make K a root of R's estate");
+}
+
 int main(void)
 {
 	static struct node node, device, stranger;
@@ -1799,7 +1857,7 @@ int main(void)
 	CHECK(fzn_node_pair(&node.id, node.id.pubkey, &cap, NULL, 0, &node.ops, device_record, 2000u,
 	                    2000u + 86400u, card, sizeof(card), &card_len) == FZN_NODE_PAIR_OK,
 	      "a node would not pair a device");
-	CHECK(card_len == FZN_PROVISION_LEN(1), "the card is not a whole one-hop card");
+	CHECK(card_len == FZN_PROVISION_LEN(1, 0), "the card is not a whole one-hop card");
 
 	/* ---- THE DEVICE'S SIDE: it accepts, and the root it learns is the node. */
 	CHECK(fzn_node_accept_card(&device.id, card, card_len, 2100u, send_key, send_ckey, root,
@@ -1884,6 +1942,7 @@ int main(void)
 	test_votes_travel(&cap);
 	test_several_roots_at_a_node(&cap);
 	test_a_node_acts_as_a_root();
+	test_a_card_proves_its_root(&cap);
 
 	/* ---- A NODE THAT IS NOT ITS OWN ROOT PAIRS NOTHING, and writes nothing. */
 	stranger.store.saves = 0;

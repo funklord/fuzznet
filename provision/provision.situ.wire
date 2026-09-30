@@ -18,6 +18,9 @@
 endian big
 target buffer
 
+enum fzn_root_act_kind : u8 unknown=error
+  grant=1 revocation=2 roster=3 root_add=4 root_remove=5
+
 struct fzn_chain_hop size=179
   @0x0000   1         u8         version  must_eq=1
   @0x0001   1         u8         object  must_eq=128
@@ -39,15 +42,46 @@ struct fzn_prekey_record size=138
   @0x004a   64        u8         signature
   signature covers: body created_at host object prekey version
 
-struct fzn_provision_card size=424..1677
+struct fzn_provision_card size=425..2068
   @0x0000   1         u8         version  must_eq=1
-  @0x0001   1         u8         object  must_eq=138
+  @0x0001   1         u8         object  must_eq=142
   @0x0002   32        u8         root  big
   @0x0022   1         u8         hop_count  min=1 max=8
   @0x0023   179..1432 fzn_chain_hop chain  big sized-by=hop_count
+  ~         1         u8         proof_count  max=3
+  ~         0..390    fzn_root_add proof  sized-by=proof_count
   ~         138       fzn_prekey_record prekey  big
   ~         8         u64        expires_at  big
   ~         64        u8         signature
   chain[].signature covers: chain[].body chain[].capability chain[].delegable chain[].expires_at chain[].grantee chain[].grantor chain[].issued_at chain[].object chain[].version
+  proof[].signature covers: proof[].added proof[].adder proof[].body proof[].object proof[].version
   prekey.signature covers: prekey.body prekey.created_at prekey.host prekey.object prekey.prekey prekey.version
-  signature covers: body chain chain[] chain[].body chain[].capability chain[].delegable chain[].expires_at chain[].grantee chain[].grantor chain[].issued_at chain[].object chain[].signature chain[].version expires_at hop_count object prekey prekey.body prekey.created_at prekey.host prekey.object prekey.prekey prekey.signature prekey.version root version
+  signature covers: body chain chain[] chain[].body chain[].capability chain[].delegable chain[].expires_at chain[].grantee chain[].grantor chain[].issued_at chain[].object chain[].signature chain[].version expires_at hop_count object prekey prekey.body prekey.created_at prekey.host prekey.object prekey.prekey prekey.signature prekey.version proof proof[] proof[].added proof[].adder proof[].body proof[].object proof[].signature proof[].version proof_count root version
+
+struct fzn_root_act size=171
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   1         u8         object  must_eq=139
+  @0x0002   32        u8         root  big
+  @0x0022   8         u64        seq  big
+  @0x002a   32        u8         prev  big
+  @0x004a   1         fzn_root_act_kind kind
+  @0x004b   32        u8         act  big
+  @0x006b   64        u8         signature
+  signature covers: act body kind object prev root seq version
+
+struct fzn_root_add size=130
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   1         u8         object  must_eq=140
+  @0x0002   32        u8         adder  big
+  @0x0022   32        u8         added  big
+  @0x0042   64        u8         signature
+  signature covers: added adder body object version
+
+struct fzn_root_remove size=162
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   1         u8         object  must_eq=141
+  @0x0002   32        u8         remover  big
+  @0x0022   32        u8         removed  big
+  @0x0042   32        u8         cut  big
+  @0x0062   64        u8         signature
+  signature covers: body cut object removed remover version

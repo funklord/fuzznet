@@ -3,6 +3,7 @@
 #include "pair.h"
 
 #include "peer_persist.h"
+#include "roots.h"
 #include "../constant_time/constant_time.h"
 
 #include "../provision/provision.h"
@@ -135,7 +136,7 @@ fzn_node_pair_err_t fzn_node_pairing_accept(const fzn_node_identity_t *device,
 	fzn_node_pairing_t p;
 	fzn_provision_card_t opened;
 	uint8_t blob[FZN_NODE_PAIRING_BLOB_MAX];
-	size_t len = 0;
+	size_t len = 0, i;
 	int saved;
 
 	if (!device || !card || !store || !store->save || !out)
@@ -152,6 +153,16 @@ fzn_node_pair_err_t fzn_node_pairing_accept(const fzn_node_identity_t *device,
 		fzn_wipe(&p, sizeof(p));
 		return FZN_NODE_PAIR_REFUSED;
 	}
+	/* THE PROOF IS SAVED BEFORE THE PAIRING, so a pairing never outlives
+	 * the root-adds its chain depends on: a node that loads the pairing and
+	 * not the root its chain starts at would refuse its own grant. */
+	for (i = 0; i < opened.proof_count; i++)
+		if (fzn_node_roots_save(store, device->hash,
+		                        opened.proof + i * FZN_PROVISION_PROOF_ITEM_LEN,
+		                        FZN_PROVISION_PROOF_ITEM_LEN) != FZN_NODE_ROOTS_OK) {
+			fzn_wipe(&p, sizeof(p));
+			return FZN_NODE_PAIR_STORE;
+		}
 	memcpy(p.chain, opened.chain, opened.hop_count * FZN_HOP_LEN);
 	p.hop_count = opened.hop_count;
 	memcpy(p.capability.b, opened.hop + FZN_HOP_OFF_CAPABILITY, FZN_CAP_ID_LEN);

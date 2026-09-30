@@ -317,7 +317,7 @@ int main(void)
 		char text[FZN_PROVISION_TEXT_MAX_LEN];
 
 		CHECK(detail_len == FZN_PROVISION_TEXT_PREFIX_LEN
-		                            + FZN_PROVISION_TEXT_BODY_LEN(FZN_PROVISION_LEN(1)),
+		                            + FZN_PROVISION_TEXT_BODY_LEN(FZN_PROVISION_LEN(1, 0)),
 		      "the reply's detail is not a one-hop card");
 		memcpy(text, detail, detail_len);
 		text[detail_len] = '\0';

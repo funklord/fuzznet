@@ -92,24 +92,39 @@ fzn_node_roots_err_t fzn_node_roots_learn(fzn_node_roots_t *roots,
                                           const fzn_persist_ops_t *store,
                                           const uint8_t *bytes, size_t len)
 {
+	size_t room = (CHANGE_BLOB_MAX > ENTRY_BLOB ? CHANGE_BLOB_MAX : ENTRY_BLOB);
+	uint8_t tag;
+
+	if (!roots || !store || !store->save || !bytes)
+		return FZN_NODE_ROOTS_MALFORMED;
+	tag = tag_of(bytes, len);
+	if (!tag || len > room - FZN_PERSIST_HEAD_LEN)
+		return FZN_NODE_ROOTS_REFUSED;
+	if (admit(roots, bytes, len) != FZN_ROOT_LOG_OK)
+		return FZN_NODE_ROOTS_REFUSED;
+	settle(roots);
+	return fzn_node_roots_save(store, roots->hash, bytes, len);
+}
+
+fzn_node_roots_err_t fzn_node_roots_save(const fzn_persist_ops_t *store,
+                                         const fzn_hash_ops_t *hash, const uint8_t *bytes,
+                                         size_t len)
+{
 	uint8_t blob[CHANGE_BLOB_MAX > ENTRY_BLOB ? CHANGE_BLOB_MAX : ENTRY_BLOB];
 	uint8_t id[FZN_ROOT_ACT_ID_LEN];
 	uint8_t tag;
 	fzn_persist_slot_t slot;
 
-	if (!roots || !store || !store->save || !bytes)
+	if (!store || !store->save || !hash || !hash->hash || !bytes)
 		return FZN_NODE_ROOTS_MALFORMED;
 	tag = tag_of(bytes, len);
 	if (!tag || len > sizeof(blob) - FZN_PERSIST_HEAD_LEN)
 		return FZN_NODE_ROOTS_REFUSED;
-	if (admit(roots, bytes, len) != FZN_ROOT_LOG_OK)
-		return FZN_NODE_ROOTS_REFUSED;
-	settle(roots);
 	/* SAVED UNDER THE RECORD'S OWN ID, the hash every reference to it
 	 * names, so one record has one row however often it is learned. */
 	slot = (tag == (uint8_t)FZN_PERSIST_BLOB_ROOT_ENTRY) ? FZN_PERSIST_ROOT_ENTRY
 	                                                    : FZN_PERSIST_ROOT_CHANGE;
-	if (!roots->hash->hash(roots->hash->ctx, id, sizeof(id), bytes, len)
+	if (!hash->hash(hash->ctx, id, sizeof(id), bytes, len)
 	    || fzn_persist_head_write(blob, sizeof(blob), len, tag) != FZN_PERSIST_OK)
 		return FZN_NODE_ROOTS_NOT_SAVED;
 	memcpy(blob + FZN_PERSIST_HEAD_LEN, bytes, len);

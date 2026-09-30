@@ -84,33 +84,54 @@
  * cannot produce different bytes for the same card, which is what a signature
  * over them requires. `provision/provision.situ` states it too.
  *
- *     offset       size   field
- *          0          1   version    (= FZN_SIGNED_VERSION)
- *          1          1   object     (= FZN_OBJECT_CARD)
- *          2         32   root       the estate's
- *         34          1   hop_count  1 .. FZN_CHAIN_MAX_HOPS
- *         35    179 * n   chain      root -> ... -> sponsor -> device
- *     35+179n       138   prekey     the sponsor's record
- *    173+179n         8   expires_at
- *    181+179n        64   signature  by the sponsor, over everything before
+ *     offset             size   field
+ *          0                1   version     (= FZN_SIGNED_VERSION)
+ *          1                1   object      (= FZN_OBJECT_CARD)
+ *          2               32   root        the estate's genesis root
+ *         34                1   hop_count   1 .. FZN_CHAIN_MAX_HOPS
+ *         35          179 * n   chain       first root -> ... -> sponsor -> device
+ *     35+179n               1   proof_count 0 .. FZN_PROVISION_PROOF_MAX
+ *     36+179n         130 * p   proof       root-adds from `root` to the chain's
+ *                                           first grantor
+ *   36+179n+130p          138   prekey      the sponsor's record
+ *  174+179n+130p            8   expires_at
+ *  182+179n+130p           64   signature   by the sponsor, over everything before
  *
- * The length is exact for its hop count, so a card is self-delimiting: a
- * reader slices and hands each slice to the call that owns it, and
- * `fzn_hop_open` and `fzn_prekey_open` both refuse a wrong length outright. */
+ * THE PROOF, sec 410. The device pins the estate's GENESIS root, `root`,
+ * whatever root the chain starts from -- the holder's decision, so that every
+ * device of an estate sees one estate. When the chain starts at another root
+ * K, the card carries the root-adds that make K a root: the first by `root`,
+ * each later one by the root the one before added, the last adding K. With no
+ * proof the chain starts at `root`, which is every card before sec 410.
+ *
+ * The length is exact for its hop and proof counts, so a card is
+ * self-delimiting: a reader slices and hands each slice to the call that owns
+ * it, and `fzn_hop_open` and `fzn_prekey_open` both refuse a wrong length
+ * outright. */
 #define FZN_PROVISION_OFF_VERSION    0u
 #define FZN_PROVISION_OFF_OBJECT     (FZN_PROVISION_OFF_VERSION + 1u)
 #define FZN_PROVISION_OFF_ROOT       (FZN_PROVISION_OFF_OBJECT + 1u)
 #define FZN_PROVISION_OFF_HOP_COUNT  (FZN_PROVISION_OFF_ROOT + FZN_PUBKEY_LEN)
 #define FZN_PROVISION_OFF_CHAIN      (FZN_PROVISION_OFF_HOP_COUNT + 1u)
-#define FZN_PROVISION_OFF_PREKEY(n)  (FZN_PROVISION_OFF_CHAIN + (size_t)(n) * FZN_HOP_LEN)
-#define FZN_PROVISION_OFF_EXPIRES_AT(n) (FZN_PROVISION_OFF_PREKEY(n) + FZN_PREKEY_LEN_TOTAL)
-#define FZN_PROVISION_OFF_SIGNATURE(n) (FZN_PROVISION_OFF_EXPIRES_AT(n) + 8u)
+/* The most root-adds a card carries: a root added by a root added by a root
+ * added by the genesis root. Past that an estate has a longer road than a
+ * card should carry, and the device learns it by pulling instead. */
+#define FZN_PROVISION_PROOF_MAX 3u
+/* One root-add in the proof, the record whole (`chain/root_log.h`). */
+#define FZN_PROVISION_PROOF_ITEM_LEN 130u
+#define FZN_PROVISION_OFF_PROOF_COUNT(n) (FZN_PROVISION_OFF_CHAIN + (size_t)(n) * FZN_HOP_LEN)
+#define FZN_PROVISION_OFF_PROOF(n)   (FZN_PROVISION_OFF_PROOF_COUNT(n) + 1u)
+#define FZN_PROVISION_OFF_PREKEY(n, p) \
+	(FZN_PROVISION_OFF_PROOF(n) + (size_t)(p) * FZN_PROVISION_PROOF_ITEM_LEN)
+#define FZN_PROVISION_OFF_EXPIRES_AT(n, p) (FZN_PROVISION_OFF_PREKEY(n, p) + FZN_PREKEY_LEN_TOTAL)
+#define FZN_PROVISION_OFF_SIGNATURE(n, p) (FZN_PROVISION_OFF_EXPIRES_AT(n, p) + 8u)
 
-/* The bytes the signature covers, and the whole card, for `n` hops. */
-#define FZN_PROVISION_BODY_LEN(n) FZN_PROVISION_OFF_SIGNATURE(n)
-#define FZN_PROVISION_LEN(n) (FZN_PROVISION_BODY_LEN(n) + FZN_SIG_LEN)
-#define FZN_PROVISION_MIN_LEN FZN_PROVISION_LEN(1)
-#define FZN_PROVISION_MAX_LEN FZN_PROVISION_LEN(FZN_CHAIN_MAX_HOPS)
+/* The bytes the signature covers, and the whole card, for `n` hops and `p`
+ * root-adds. */
+#define FZN_PROVISION_BODY_LEN(n, p) FZN_PROVISION_OFF_SIGNATURE(n, p)
+#define FZN_PROVISION_LEN(n, p) (FZN_PROVISION_BODY_LEN(n, p) + FZN_SIG_LEN)
+#define FZN_PROVISION_MIN_LEN FZN_PROVISION_LEN(1, 0)
+#define FZN_PROVISION_MAX_LEN FZN_PROVISION_LEN(FZN_CHAIN_MAX_HOPS, FZN_PROVISION_PROOF_MAX)
 
 /* A card as text, which is what a code actually carries.
  *
@@ -124,9 +145,10 @@
  * The prefix is a version rather than decoration: a scanner meeting a string
  * it does not understand should say so rather than base32-decoding whatever
  * it was handed into a card-shaped buffer. `FZN1:` named the one-hop card
- * signed by the root, retired in sec 391; a `FZN1:` string is refused as not
- * this card rather than read as one. */
-#define FZN_PROVISION_TEXT_PREFIX "FZN2:"
+ * signed by the root, retired in sec 391, and `FZN2:` the card with no root
+ * proof, retired in sec 410; either is refused as not this card rather than
+ * read as one. */
+#define FZN_PROVISION_TEXT_PREFIX "FZN3:"
 #define FZN_PROVISION_TEXT_PREFIX_LEN 5u
 /* The UNPADDED length of `bytes` of card: five bits per character, rounded
  * up. `((LEN + 4) / 5) * 8` would be base32's padded length and three too
@@ -146,8 +168,9 @@ typedef enum fzn_provision_err {
 	 * outside the alphabet. */
 	FZN_PROVISION_ERR_SHAPE = 2,
 	/* The parts do not name one sponsor, the chain does not start at
-	 * the root, or the envelope does not verify under the sponsor. The
-	 * parts may each be genuine and not belong together. */
+	 * the root or at a root the proof reaches from it, or the envelope does
+	 * not verify under the sponsor. The parts may each be genuine and not
+	 * belong together. */
 	FZN_PROVISION_ERR_SIGNATURE = 3,
 	/* The signer refused, or was absent. */
 	FZN_PROVISION_ERR_SIGNER = 4,
@@ -166,17 +189,20 @@ typedef enum fzn_provision_err {
 typedef struct fzn_provision_card {
 	const uint8_t *base;
 	size_t len;
-	const uint8_t *root;   /* FZN_PUBKEY_LEN: the estate's root */
+	const uint8_t *root;   /* FZN_PUBKEY_LEN: the estate's genesis root */
 	size_t hop_count;      /* 1 .. FZN_CHAIN_MAX_HOPS */
 	const uint8_t *chain;  /* hop_count * FZN_HOP_LEN, root first, still to be opened */
+	size_t proof_count;    /* 0 .. FZN_PROVISION_PROOF_MAX */
+	const uint8_t *proof;  /* proof_count root-adds, root's first */
 	const uint8_t *hop;    /* the LAST hop, this device's own grant */
 	const uint8_t *prekey; /* FZN_PREKEY_LEN_TOTAL, the sponsor's, still to be opened */
 	uint64_t expires_at;
 } fzn_provision_card_t;
 
 /* Lay out and sign a card. `chain` is `hop_count` encoded hops, root first,
- * the last naming the device. `out` receives FZN_PROVISION_LEN(hop_count)
- * bytes.
+ * the last naming the device; `proof` is `proof_count` root-adds from `root`
+ * to the chain's first grantor, or NULL and 0 when the chain starts at `root`.
+ * `out` receives FZN_PROVISION_LEN(hop_count, proof_count) bytes.
  *
  * `sign` must sign as the SPONSOR -- the grantor of the last hop and the host
  * of `prekey`. This cannot be checked here, the signer taking no key by
@@ -184,6 +210,8 @@ typedef struct fzn_provision_card {
  * than one that lies: `fzn_chain_mint`'s bargain, for its reason. */
 fzn_provision_err_t fzn_provision_pack(const uint8_t root[FZN_PUBKEY_LEN],
                                        const uint8_t (*chain)[FZN_HOP_LEN], size_t hop_count,
+                                       const uint8_t (*proof)[FZN_PROVISION_PROOF_ITEM_LEN],
+                                       size_t proof_count,
                                        const uint8_t prekey[FZN_PREKEY_LEN_TOTAL],
                                        uint64_t expires_at, const fzn_sign_ops_t *sign,
                                        uint8_t *out, size_t out_cap, size_t *out_len);
@@ -199,8 +227,11 @@ fzn_provision_err_t fzn_provision_open(const uint8_t *bytes, size_t len,
 /* Check that the card's parts name one sponsor and belong together, then the
  * expiry against `now`:
  *
- *   - every hop opens, the first was granted by `root`, and each grantee is
- *     the next hop's grantor -- the chain is unbroken from the root;
+ *   - every hop opens, the first was granted by `root` or by the root the
+ *     proof ends at, and each grantee is the next hop's grantor -- the
+ *     chain is unbroken from a root;
+ *   - each root-add in the proof is signed by its adder, the first adder is
+ *     `root`, and each later adder is the root the one before added;
  *   - the prekey record opens, and its host is the last hop's grantor;
  *   - the envelope verifies under that sponsor.
  *

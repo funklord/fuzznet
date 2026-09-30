@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "../chain/chain.h"
+#include "../chain/root_log.h"
 #include "../provision/provision.h"
 
 fzn_node_provision_err_t fzn_node_provision_peer(const fzn_node_identity_t *id,
@@ -79,7 +80,7 @@ fzn_node_provision_err_t fzn_node_card_pack(const fzn_node_identity_t *id,
 	/* The card carries the estate's root, the chain to the device, and this
 	 * node's prekey so the device can agree a session with it -- sealed by
 	 * this node, its sponsor. */
-	if (fzn_provision_pack(root, chain, hop_count, id->prekey_record, card_expires_at,
+	if (fzn_provision_pack(root, chain, hop_count, NULL, 0, id->prekey_record, card_expires_at,
 	                       id->sign, out, cap_bytes, out_len)
 	    != FZN_PROVISION_OK)
 		return FZN_NODE_PROVISION_CARD;
@@ -100,6 +101,7 @@ fzn_node_provision_err_t fzn_node_accept_card(const fzn_node_identity_t *device,
 	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS];
 	fzn_cap_id_t granted;
 	fzn_chain_t chain;
+	const uint8_t *chain_root;
 	size_t i;
 
 	if (!device || !device->agree_secret || !card_bytes || !send_key ||
@@ -127,7 +129,15 @@ fzn_node_provision_err_t fzn_node_accept_card(const fzn_node_identity_t *device,
 		    != FZN_CHAIN_OK)
 			return FZN_NODE_PROVISION_CARD;
 	memcpy(granted.b, card.hop + FZN_HOP_OFF_CAPABILITY, FZN_CAP_ID_LEN);
-	if (fzn_chain_verify(hops, card.hop_count, card.root, &granted, now, device->sign, NULL,
+	/* A CHAIN FROM ANOTHER ROOT starts where the card's proof ends: the
+	 * subject of its last root-add, which `fzn_provision_verify` has walked
+	 * from the estate's root and matched to the first hop's grantor (sec
+	 * 410). The chain is verified under that root, and nothing else is. */
+	chain_root = card.root;
+	if (card.proof_count)
+		chain_root = card.proof + (card.proof_count - 1u) * FZN_PROVISION_PROOF_ITEM_LEN
+		             + FZN_ROOT_SET_OFF_SUBJECT;
+	if (fzn_chain_verify(hops, card.hop_count, chain_root, &granted, now, device->sign, NULL,
 	                     NULL, &chain) != FZN_CHAIN_OK
 	    || memcmp(chain.grantee, device->pubkey, FZN_PUBKEY_LEN) != 0)
 		return FZN_NODE_PROVISION_NOT_MINE;

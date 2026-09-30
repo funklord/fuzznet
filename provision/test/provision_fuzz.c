@@ -58,7 +58,7 @@
 /* THE CARD THIS HARNESS BUILDS: one hop, a root sponsoring its own device.
  * Since sec 391 a card's length follows its hop count, so the harness names
  * the length it means rather than taking a buffer's size for it. */
-#define CARD_LEN FZN_PROVISION_LEN(1)
+#define CARD_LEN FZN_PROVISION_LEN(1, 0)
 
 #define SPONSOR 0x11
 #define DEVICE  0x22
@@ -157,7 +157,7 @@ static int build(uint8_t card[FZN_PROVISION_MAX_LEN], uint64_t expires_at, uint8
 		return 0;
 
 	signing_as = signer;
-	return fzn_provision_pack(root, (const uint8_t (*)[FZN_HOP_LEN])hop, 1u, rec, expires_at,
+	return fzn_provision_pack(root, (const uint8_t (*)[FZN_HOP_LEN])hop, 1u, NULL, 0, rec, expires_at,
 	                          &OPS, card, FZN_PROVISION_MAX_LEN, &len) == FZN_PROVISION_OK
 	       && len == CARD_LEN;
 }
@@ -185,7 +185,7 @@ static int bytes_invariants(fzn_provision_err_t err, const uint8_t *bytes, size_
 	if (card.hop_count != 1u || card.chain != bytes + FZN_PROVISION_OFF_CHAIN
 	    || card.hop != bytes + FZN_PROVISION_OFF_CHAIN)
 		return 1;
-	if (card.prekey != bytes + FZN_PROVISION_OFF_PREKEY(1))
+	if (card.prekey != bytes + FZN_PROVISION_OFF_PREKEY(1, 0))
 		return 1;
 	return 0;
 }
@@ -296,7 +296,7 @@ static int fuzz_one(uint32_t seed, struct coverage *cov)
 		/* SOME card's length, since a string may decode to a card of
 		 * any hop count; the canonicality below is what matters. */
 		if (back_len < FZN_PROVISION_MIN_LEN || back_len > FZN_PROVISION_MAX_LEN
-		    || (back_len - FZN_PROVISION_LEN(1)) % FZN_HOP_LEN != 0u)
+		    || (back_len - FZN_PROVISION_LEN(1, 0)) % FZN_HOP_LEN != 0u)
 			return 1;
 		/* CANONICALITY, which is what this harness is for. Re-encoding
 		 * an accepted string must reproduce it exactly; if it does not,
