@@ -540,6 +540,10 @@ fzn_chain_err_t fzn_revocation_store_set_roots(fzn_revocation_store_t *store,
                                                const fzn_root_ops_t *roots,
                                                const fzn_hash_ops_t *hash);
 
+/* Change the quorum alone, keeping the admins and confirmations held: what a
+ * node calls when the estate's k changes under it (sec 418). MALFORMED for 0. */
+fzn_chain_err_t fzn_revocation_store_set_k(fzn_revocation_store_t *store, size_t quorum);
+
 fzn_chain_err_t fzn_revocation_store_set_quorum(fzn_revocation_store_t *store, size_t quorum,
                                                 const fzn_cap_id_t *admin_capability,
                                                 fzn_revocation_admin_t *admins,

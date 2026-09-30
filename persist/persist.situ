@@ -64,6 +64,7 @@ enum fzn_persist_tag : u8 {
 	own_root = 13,
 	admin_confirm = 14,
 	own_admin = 15,
+	quorum_set = 16,
 	default = error,
 }
 
@@ -155,6 +156,11 @@ struct fzn_persist_root_remove_body {
 	u8  record[162];
 }
 
+// A root's setting of the estate's k (sec 418), laid out in chain/root_log.h.
+struct fzn_persist_quorum_set_body {
+	u8  record[131];
+}
+
 // The seed of the root key a node holds beside its identity (sec 409),
 // never all zero, as the identity seed is.
 struct fzn_persist_own_root_body {
@@ -211,6 +217,7 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.own_root: fzn_persist_own_root_body own_root;
 		case fzn_persist_tag.admin_confirm: fzn_persist_admin_confirm_body admin_confirm;
 		case fzn_persist_tag.own_admin: fzn_persist_own_admin_body own_admin;
+		case fzn_persist_tag.quorum_set: fzn_persist_quorum_set_body quorum_set;
 		default: error;
 	}
 }

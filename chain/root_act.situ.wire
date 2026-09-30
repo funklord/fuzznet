@@ -19,7 +19,16 @@ endian big
 target buffer
 
 enum fzn_root_act_kind : u8 unknown=error
-  grant=1 revocation=2 roster=3 root_add=4 root_remove=5
+  grant=1 revocation=2 roster=3 root_add=4 root_remove=5 setting=6
+
+struct fzn_quorum_set size=131
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   1         u8         object  must_eq=144
+  @0x0002   32        u8         setter  big
+  @0x0022   32        u8         replaces  big
+  @0x0042   1         u8         k  min=1
+  @0x0043   64        u8         signature
+  signature covers: body k object replaces setter version
 
 struct fzn_root_act size=171
   @0x0000   1         u8         version  must_eq=1

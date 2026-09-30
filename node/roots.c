@@ -72,12 +72,30 @@ static uint8_t tag_of(const uint8_t *bytes, size_t len)
 		return (uint8_t)FZN_PERSIST_BLOB_ROOT_ADD;
 	case FZN_OBJECT_ROOT_REMOVE:
 		return (uint8_t)FZN_PERSIST_BLOB_ROOT_REMOVE;
+	case FZN_OBJECT_QUORUM_SET:
+		return (uint8_t)FZN_PERSIST_BLOB_QUORUM_SET;
 	}
 	return 0;
 }
 
 static fzn_root_log_err_t admit(fzn_node_roots_t *roots, const uint8_t *bytes, size_t len)
 {
+	/* A SETTING OF k, sec 418: checked and kept once. Whether it counts is
+	 * the resolution's question, asked of the set when k is read. */
+	if (tag_of(bytes, len) == (uint8_t)FZN_PERSIST_BLOB_QUORUM_SET) {
+		fzn_root_log_err_t err = fzn_quorum_set_check(bytes, len, roots->sign);
+		size_t i;
+
+		if (err != FZN_ROOT_LOG_OK)
+			return err;
+		for (i = 0; i < roots->settings_used; i++)
+			if (memcmp(roots->settings[i], bytes, FZN_QUORUM_SET_LEN) == 0)
+				return FZN_ROOT_LOG_OK;
+		if (roots->settings_used >= FZN_NODE_ROOT_SETTINGS_MAX)
+			return FZN_ROOT_LOG_ERR_FULL;
+		memcpy(roots->settings[roots->settings_used++], bytes, FZN_QUORUM_SET_LEN);
+		return FZN_ROOT_LOG_OK;
+	}
 	if (tag_of(bytes, len) == (uint8_t)FZN_PERSIST_BLOB_ROOT_ENTRY)
 		return fzn_root_log_admit(&roots->log, bytes, len, roots->sign, roots->hash);
 	return fzn_root_set_admit(&roots->set, bytes, len, roots->sign, roots->hash);
@@ -208,6 +226,8 @@ static char letter_of(uint8_t tag)
 		return 'a';
 	case FZN_PERSIST_BLOB_ROOT_REMOVE:
 		return 'x';
+	case FZN_PERSIST_BLOB_QUORUM_SET:
+		return 'q';
 	}
 	return 0;
 }
@@ -222,6 +242,8 @@ static size_t length_of(uint8_t letter)
 		return FZN_ROOT_ADD_LEN;
 	case 'x':
 		return FZN_ROOT_REMOVE_LEN;
+	case 'q':
+		return FZN_QUORUM_SET_LEN;
 	}
 	return 0;
 }
@@ -651,4 +673,45 @@ fzn_node_roots_err_t fzn_node_roots_self_grant(fzn_node_roots_t *roots,
 	authority->proof = (const uint8_t (*)[FZN_PROVISION_PROOF_ITEM_LEN])proof;
 	authority->proof_count = count;
 	return FZN_NODE_ROOTS_OK;
+}
+
+/* ---- the estate's k, sec 418 ----------------------------------------- */
+
+uint8_t fzn_node_roots_quorum(const fzn_node_roots_t *roots, uint8_t fallback)
+{
+	if (!roots || roots->settings_used == 0u)
+		return fallback;
+	return fzn_quorum_resolve((const uint8_t *)roots->settings, roots->settings_used,
+	                          &roots->ops, roots->hash, fallback);
+}
+
+fzn_node_roots_err_t fzn_node_roots_set_quorum(fzn_node_roots_t *roots,
+                                               const fzn_persist_ops_t *store,
+                                               const uint8_t identity[FZN_PUBKEY_LEN],
+                                               const fzn_sign_ops_t *identity_sign, uint8_t k)
+{
+	uint8_t record[FZN_QUORUM_SET_LEN], replaces[FZN_ROOT_ACT_ID_LEN];
+	const uint8_t *as = NULL, *follows = NULL;
+	const fzn_sign_ops_t *sign = NULL;
+	uint8_t current = 0;
+	fzn_node_roots_err_t err;
+
+	if (!roots || !store || k == 0u)
+		return FZN_NODE_ROOTS_MALFORMED;
+	if (!fzn_node_roots_acting(roots, identity, identity_sign, &as, &sign))
+		return FZN_NODE_ROOTS_NOT_ROOT;
+	/* WHAT IT REPLACES: the setting that wins now, so the change supersedes
+	 * what this root saw -- lowering k included. */
+	if (roots->settings_used
+	    && fzn_quorum_winner((const uint8_t *)roots->settings, roots->settings_used,
+	                         &roots->ops, roots->hash, &current, replaces))
+		follows = replaces;
+	if (fzn_quorum_set_issue(as, k, follows, sign, record) != FZN_ROOT_LOG_OK)
+		return FZN_NODE_ROOTS_REFUSED;
+	/* LOGGED FIRST, then learned, as a root change is. */
+	err = fzn_node_roots_log_act(roots, store, as, sign, (uint8_t)FZN_ROOT_ACT_SETTING, record,
+	                             sizeof(record));
+	if (err != FZN_NODE_ROOTS_OK)
+		return err;
+	return fzn_node_roots_learn(roots, store, record, sizeof(record));
 }

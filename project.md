@@ -50637,3 +50637,112 @@ by hash.
   9 is removed with nothing kept.
 - 6 revokes again when the cut keeps 9's grant of 6. Only the hop's hash
   can say that, so the case fails if the hash is not taken.
+
+## 418. The estate's k, set by a root, 2026-09-30
+
+k is the number of distinct entitled issuers a revocation needs. It was
+a consumer's parameter, fuzznetd's `--quorum`, and the last "not yet"
+from sec 395 on this thread was "k as an estate setting that travels".
+Sec 389's decision 4 said concurrent setting writes resolve to "the more
+restrictive" value. For k that cuts both ways: a higher k protects
+against a thief revoking alone, and a lower k lets a real revocation
+through with fewer devices.
+
+### The holder's decisions, asked this session
+
+- **Any root sets k alone**, consistent with sec 403. Rejected: roots
+  or k admins agreeing, and only by k-of-n agreement.
+- **Between concurrent settings the higher k wins**, so a stolen key
+  racing a change can never lower the bar. Rejected: the lower wins. Its
+  cost is recorded: a legitimate lowering that races is re-issued once
+  the race is seen.
+
+### The setting record
+
+A new signed object, tag 144, `FZN_OBJECT_QUORUM_SET`, 131 bytes:
+
+- the setter;
+- `replaces`: the hash of the setting it follows, all-zero for none;
+- k, from 1 to 255;
+- the signature.
+
+`chain/root_act.situ` states it. A root logs each setting as an act of
+the new kind `FZN_ROOT_ACT_SETTING` (6).
+
+### Which setting decides k
+
+**A setting counts** when its setter's act counts under the root set:
+always while the root stands, and after its removal only when its log
+shows the setting before the cut.
+
+**The current settings** are the counting ones that no counting setting
+replaces. The higher k among them wins. Between equal k, the lower hash
+wins, so the answer never depends on the order settings are held in.
+
+**A setting names what it replaces**, so a deliberate change works in
+either direction: `fzn_node_roots_set_quorum` replaces the setting that
+wins now. With no setting, the caller's fallback, which is `--quorum`.
+
+This lives in `chain/root_log`: `fzn_quorum_set_issue`,
+`fzn_quorum_set_check`, `fzn_quorum_resolve` and `fzn_quorum_winner`.
+The resolver is a pure function over a list, judged through the set's
+`counts`. The set's membership rounds are untouched, since a setting is
+not a change to who the roots are.
+
+### At the node
+
+- `node/roots` keeps up to 64 settings beside its root records.
+  - Each is saved in slot 13 under the new blob tag 16.
+  - Each is carried by `get root` as item `q`, so it travels with the
+    root records and ahead of the votes.
+- **`set quorum K`**, a verb for the node's own user, sets k as the
+  node's acting root. The setting is logged, learned, and in force in the
+  running store at once.
+- **fuzznetd resolves k** when it starts and after every roots pull, and
+  applies it with the new `fzn_revocation_store_set_k`. That call
+  changes the quorum alone, where `set_quorum` would clear the admins
+  held. At start it says when a root's k differs from `--quorum`.
+
+### Measured for sec 418
+
+**`root_log_test`, 140 checks, with `test_the_estates_k`:**
+
+- **Precedence:**
+  - no setting reads the fallback;
+  - concurrent settings of 3 and 2 give 3, held in either order, and the
+    winner is identified by its hash;
+  - C replacing A with 1 leaves B's 2;
+  - D replacing B with 1 gives 1.
+- **A removed root:** its setting of 7 counts without a set and not with
+  one where it is removed.
+- **Refused records:** a setting of 0 (issued or bent), a foreign object,
+  and a k changed after signing.
+- **An old case:** a case that named 6 as "an unknown kind" now names
+  the first value past the enum, and a setting-kind entry opens.
+
+**`pair_test`, 226 checks, with `test_the_estates_k_travels`:**
+
+- R sets 3, logged as a setting, then lowers it to 1 by replacing it.
+- M, no root, is refused.
+- M pulls R's records and reads 1, and R's store reloads 1.
+
+**`admin_test`, 56 checks:** `set quorum 3` answers 3 and the running
+store takes it. A group member is denied, and 0 is malformed.
+
+**`revocation_test`, 683 checks:** `set_k` refuses 0 and keeps the admins
+and confirmations held. The first version of that case wrote the counts
+as literals, miscounted the confirmations, and failed on correct code.
+It now compares before and after.
+
+**`make schema`** against situ cabe16e: the new log kind is breaking, as
+a new enum value always is, and it reaches `provision.situ` through its
+import, whose contract was regenerated too.
+
+**Live, two daemons over loopback:**
+
+1. R's `set quorum 3` answers `ok 3`.
+2. M joins, pulls R's two root records (the setting and R's log entry
+   for it), and is stopped.
+3. Restarted, M says "the estate's k is 3, set by a root".
+
+No daemon was left running.

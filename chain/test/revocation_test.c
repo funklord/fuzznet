@@ -4271,6 +4271,22 @@ static void test_an_admin_grant_takes_confirmations(void)
 	judge(&f, &cap, revoked);
 	CHECK(revoked[1] == 0u, "a revoked admin's confirmation still held a grant up");
 
+	/* k CHANGED IN PLACE, sec 418, keeps what the store holds -- set_quorum
+	 * would clear the admins -- and 0 is refused. */
+	CHECK(fzn_revocation_store_set_k(&f.store, 0u) == FZN_CHAIN_ERR_MALFORMED
+	              && f.store.quorum == 2u,
+	      "a k of 0 was taken");
+	{
+		size_t admins_before = f.store.admins_used, confirms_before = f.store.confirms_used;
+
+		CHECK(fzn_revocation_store_set_k(&f.store, 3u) == FZN_CHAIN_OK && f.store.quorum == 3u
+		              && admins_before > 0u && confirms_before > 0u
+		              && f.store.admins_used == admins_before
+		              && f.store.confirms_used == confirms_before,
+		      "changing k lost the admins or confirmations held");
+		(void)fzn_revocation_store_set_k(&f.store, 2u);
+	}
+
 	/* THE ROOT'S WORD ALONE stands 7, and 5 and 7 revoke. */
 	CHECK(confirm(&f, 0, b57, NULL, 0) == FZN_CHAIN_OK, "the root's confirmation was refused");
 	judge(&f, &cap, revoked);

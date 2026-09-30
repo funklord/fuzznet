@@ -194,6 +194,7 @@ static void usage(const char *prog)
 	        "node --pull-from NODE_HEX HOST PORT (up to 8) for a node it holds a\n"
 	        "pairing to: it pulls their revocation votes at start and every %u seconds\n"
 	        "--quorum K: a revocation needs K distinct entitled issuers, a root alone\n"
+	        "counting as K, until a root sets the estate's k (set quorum K)\n"
 	        "counting as K (default 2)\n"
 	        "%s",
 	        prog, prog, prog, prog, prog, prog, prog, FZND_PULL_EVERY, fzn_cli_usage());
@@ -936,6 +937,13 @@ int main(int argc, char **argv)
 				fzn_udp_close(ufd);
 			return 1;
 		}
+		/* THE ESTATE'S k, when a root has set one; `--quorum` until then.
+		 * sec 418. */
+		(void)fzn_revocation_store_set_k(&revoked,
+		                                 fzn_node_roots_quorum(&estate_roots, (uint8_t)quorum));
+		if (revoked.quorum != (size_t)quorum)
+			fprintf(stderr, "fuzznetd: the estate's k is %zu, set by a root\n",
+			        revoked.quorum);
 		state.config.revocations = &revoked;
 		running = &revoked;
 		running_roots = &estate_roots;
@@ -1084,6 +1092,11 @@ int main(int argc, char **argv)
 						fprintf(stderr,
 						        "fuzznetd: %zu root record(s) from %s, %zu refused\n",
 						        learned, pulls[t].host, refused);
+					/* THE ESTATE'S k MAY HAVE ARRIVED WITH THEM. sec 418. */
+					if (running)
+						(void)fzn_revocation_store_set_k(
+						        running,
+						        fzn_node_roots_quorum(running_roots, (uint8_t)quorum));
 					learned = 0;
 					refused = 0;
 					perr = fzn_node_votes_pull(&pulls[t].caller, state.config.root,

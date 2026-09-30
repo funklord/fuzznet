@@ -17,6 +17,7 @@
  *
  * CARRIED AS VOTES ARE (sec 408): `get root [FROM]` pages every root record a
  * node holds, `e` and a log entry, `a` and a root-add, `x` and a root-remove,
+ * `q` and a setting of k (sec 418),
  * each whole, and a puller learns each. Every item stands alone, so no state
  * crosses a page. A record that will not admit is counted and skipped, for the
  * reason a vote is: a peer may hold what this node never will.
@@ -59,6 +60,9 @@
  * roots act rarely: a pairing, a revocation, a change to the set. */
 #define FZN_NODE_ROOT_LOG_MAX 256u
 
+/* The most settings of k a node keeps: each is a root's deliberate act. */
+#define FZN_NODE_ROOT_SETTINGS_MAX 64u
+
 typedef enum fzn_node_roots_err {
 	FZN_NODE_ROOTS_OK = 0,
 	FZN_NODE_ROOTS_MALFORMED = -1,
@@ -94,6 +98,9 @@ typedef struct fzn_node_roots {
 	fzn_root_ops_t ops;
 	const fzn_sign_ops_t *sign;
 	const fzn_hash_ops_t *hash;
+	/* The roots' settings of the estate's k, sec 418, each checked. */
+	uint8_t settings[FZN_NODE_ROOT_SETTINGS_MAX][FZN_QUORUM_SET_LEN];
+	size_t settings_used;
 	/* The root key this node holds, if any: `sign` is the signer a seat
 	 * armed with its seed. */
 	int key_held;
@@ -195,6 +202,18 @@ fzn_node_roots_err_t fzn_node_roots_self_grant(fzn_node_roots_t *roots,
                                                uint8_t proof[FZN_PROVISION_PROOF_MAX]
                                                            [FZN_PROVISION_PROOF_ITEM_LEN],
                                                fzn_node_authority_t *authority);
+
+/* THE ESTATE'S k, sec 418: resolved from the settings held under the set, or
+ * `fallback` when none counts. */
+uint8_t fzn_node_roots_quorum(const fzn_node_roots_t *roots, uint8_t fallback);
+
+/* Set the estate's k as this node's acting root, replacing the setting that
+ * is current now: minted, logged as a setting, learned and saved. NOT_ROOT
+ * when this node stands as no root. */
+fzn_node_roots_err_t fzn_node_roots_set_quorum(fzn_node_roots_t *roots,
+                                               const fzn_persist_ops_t *store,
+                                               const uint8_t identity[FZN_PUBKEY_LEN],
+                                               const fzn_sign_ops_t *identity_sign, uint8_t k);
 
 /* Every root record the store holds, as items from `from`, written as
  * ` ITEM` into `out` while they fit in `cap`; `*len` written, `*total` items.

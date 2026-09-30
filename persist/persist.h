@@ -188,8 +188,8 @@ typedef enum fzn_persist_slot {
 	/* Per entry id: a root log entry this node holds, its own root's or
 	 * learned. `node/roots.h` keeps it. sec 407. */
 	FZN_PERSIST_ROOT_ENTRY = 12u,
-	/* Per record id: a root-add or root-remove this node holds.
-	 * `node/roots.h` keeps it. sec 407. */
+	/* Per record id: a root-add, a root-remove or a root's setting of k
+	 * (sec 418) this node holds. `node/roots.h` keeps it. sec 407. */
 	FZN_PERSIST_ROOT_CHANGE = 13u,
 	/* Whole-host, no subject: the seed of the root key this node holds
 	 * beside its identity, if any. `node/roots.h` keeps it. sec 409. */
@@ -239,6 +239,7 @@ typedef enum fzn_persist_err {
 #define FZN_PERSIST_BLOB_OWN_ROOT 13u
 #define FZN_PERSIST_BLOB_ADMIN_CONFIRM 14u
 #define FZN_PERSIST_BLOB_OWN_ADMIN 15u
+#define FZN_PERSIST_BLOB_QUORUM_SET 16u
 
 /* Write a blob head, or refuse when `cap` cannot hold head and body. */
 fzn_persist_err_t fzn_persist_head_write(uint8_t *out, size_t cap, size_t body,

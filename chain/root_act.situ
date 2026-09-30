@@ -17,6 +17,7 @@ enum fzn_root_act_kind : u8 {
 	roster = 3,
 	root_add = 4,
 	root_remove = 5,
+	setting = 6,
 	default = error,
 }
 
@@ -58,4 +59,18 @@ struct fzn_root_remove {
 	}
 	// covers(body) = bytes 0..97, FZN_ROOT_REMOVE_BODY_LEN.
 	checksum u8 signature[64] covers(body); // 98
+}
+
+// A root setting the estate's k, sec 418, after the setting whose hash is
+// `replaces` (all-zero for none). Logged by the setter as a setting.
+struct fzn_quorum_set {
+	authenticated body {
+		u8  version [must_eq = 1];       // 0
+		u8  object [must_eq = 144];      // 1  (FZN_OBJECT_QUORUM_SET)
+		u8  setter[32];                  // 2  FZN_QUORUM_SET_OFF_SETTER
+		u8  replaces[32];                // 34 FZN_QUORUM_SET_OFF_REPLACES
+		u8  k [min = 1];                 // 66 FZN_QUORUM_SET_OFF_K
+	}
+	// covers(body) = bytes 0..66, FZN_QUORUM_SET_BODY_LEN.
+	checksum u8 signature[64] covers(body); // 67
 }

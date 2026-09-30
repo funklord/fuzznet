@@ -529,6 +529,41 @@ static size_t grant_admin(fzn_node_admin_t *admin, const uint8_t *hex, size_t he
 	return answer(reply, cap, FZN_REPLY_OK, detail, at);
 }
 
+/* `set quorum K`: the estate's k, as this node's acting root. sec 418. */
+static size_t set_quorum(fzn_node_admin_t *admin, const uint8_t *text, size_t text_len,
+                         char *reply, size_t cap)
+{
+	char detail[8];
+	unsigned long k = 0;
+	size_t i;
+	fzn_node_roots_err_t err;
+	int n;
+
+	if (text_len == 0u || text_len > 3u)
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "k is 1 to 255");
+	for (i = 0; i < text_len; i++) {
+		if (text[i] < '0' || text[i] > '9')
+			return answer_text(reply, cap, FZN_REPLY_MALFORMED, "k is 1 to 255");
+		k = (k * 10u) + (unsigned long)(text[i] - '0');
+	}
+	if (k < 1u || k > 255u)
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "k is 1 to 255");
+	err = fzn_node_roots_set_quorum(admin->roots, admin->store, admin->id->pubkey,
+	                                admin->id->sign, (uint8_t)k);
+	if (err != FZN_NODE_ROOTS_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_roots_err_str(err));
+	/* IN FORCE AT ONCE, as resolved: a concurrent higher k still wins. */
+	if (admin->revocations) {
+		uint8_t now = (uint8_t)admin->revocations->quorum;
+
+		(void)fzn_revocation_store_set_k(admin->revocations,
+		                                 fzn_node_roots_quorum(admin->roots, now));
+	}
+	n = snprintf(detail, sizeof(detail), "%zu",
+	             admin->revocations ? admin->revocations->quorum : (size_t)k);
+	return answer(reply, cap, FZN_REPLY_OK, detail, n > 0 ? (size_t)n : 0u);
+}
+
 /* `add confirm HOP`: confirm the admin grant HOP. sec 416. */
 static size_t confirm_admin(fzn_node_admin_t *admin, const uint8_t *hex, size_t hex_len,
                             char *reply, size_t cap)
@@ -594,6 +629,9 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 	if (request->parsed == FZN_VERB_REMOVE && subject_revocation(request, &rest, &rest_len)
 	    && rest && admin->revocations)
 		return unrevoke_peer(admin, rest, rest_len, reply, reply_cap);
+	if (request->parsed == FZN_VERB_SET && subject_word(request, "quorum", &rest, &rest_len)
+	    && rest && admin->roots)
+		return set_quorum(admin, rest, rest_len, reply, reply_cap);
 	/* ADMINS, sec 416: only on a node whose config names the capability. */
 	if (admin->state->config.has_admin && request->parsed == FZN_VERB_GRANT
 	    && subject_word(request, "admin", &rest, &rest_len) && rest)

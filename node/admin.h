@@ -48,6 +48,9 @@
  *                       `ok h<HOP> ...`, KEY's whole chain, which KEY installs
  *                       with `fuzznetd --set-admin`. A chain past two hops
  *                       will not fit a reply and is refused (sec 416)
+ *     set quorum K      set the estate's k, 1 to 255, as this node's acting
+ *                       root: minted, logged, learned, and the running store
+ *                       takes the resolved k at once (sec 418)
  *     add confirm HOP   confirm the admin grant HOP, as this node's acting
  *                       root or as an admin: minted, admitted, saved and
  *                       served with the votes. `ok` (sec 416)

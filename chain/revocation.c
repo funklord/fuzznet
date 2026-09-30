@@ -368,6 +368,17 @@ fzn_chain_err_t fzn_revocation_store_set_roots(fzn_revocation_store_t *store,
  * user's estate has a handful. */
 #define REVOCATION_ADMINS_MAX 32u
 
+fzn_chain_err_t fzn_revocation_store_set_k(fzn_revocation_store_t *store, size_t quorum)
+{
+	if (!store || quorum == 0u)
+		return FZN_CHAIN_ERR_MALFORMED;
+	if (store->quorum != quorum) {
+		store->quorum = quorum;
+		store->generation++;
+	}
+	return FZN_CHAIN_OK;
+}
+
 fzn_chain_err_t fzn_revocation_store_set_quorum(fzn_revocation_store_t *store, size_t quorum,
                                                 const fzn_cap_id_t *admin_capability,
                                                 fzn_revocation_admin_t *admins,

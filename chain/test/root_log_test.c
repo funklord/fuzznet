@@ -3,6 +3,7 @@
  * has the root signed two entries at one seq. project.md sec 404. */
 
 #include "../root_log.h"
+#include "../revocation.h"
 #include "../../wire/bytes.h"
 
 #include <stdarg.h>
@@ -166,9 +167,14 @@ static void test_the_layout(void)
 	bad[FZN_ROOT_ACT_OFF_KIND] = 0u;
 	CHECK(fzn_root_act_open(bad, sizeof(bad), &v) == FZN_ROOT_LOG_ERR_SHAPE,
 	      "an entry of kind 0 opened");
-	bad[FZN_ROOT_ACT_OFF_KIND] = 6u;
+	/* THE FIRST VALUE PAST THE LAST KIND, named from the enum so a kind
+	 * added later moves it: it was 6 until sec 418 made 6 a setting. */
+	bad[FZN_ROOT_ACT_OFF_KIND] = (uint8_t)(FZN_ROOT_ACT_SETTING + 1u);
 	CHECK(fzn_root_act_open(bad, sizeof(bad), &v) == FZN_ROOT_LOG_ERR_SHAPE,
 	      "an entry of an unknown kind opened");
+	bad[FZN_ROOT_ACT_OFF_KIND] = (uint8_t)FZN_ROOT_ACT_SETTING;
+	CHECK(fzn_root_act_open(bad, sizeof(bad), &v) == FZN_ROOT_LOG_OK,
+	      "an entry of the setting kind was refused for its kind");
 	CHECK(fzn_root_act_open(e, sizeof(e) - 1u, &v) == FZN_ROOT_LOG_ERR_SHAPE,
 	      "a short entry opened");
 	signing_as = 7;
@@ -509,6 +515,96 @@ static void test_the_set_refuses(void)
 	      "under a second removal naming no cut, an act of the removed root counted");
 }
 
+/* ---- the estate's k, sec 418 ------------------------------------------ */
+
+/* Setting `k` by root `setter` after the setting whose record is `after`
+ * (NULL for none), into `out`. */
+static void setting(uint8_t out[FZN_QUORUM_SET_LEN], uint8_t setter, uint8_t k,
+                    const uint8_t *after)
+{
+	uint8_t who[FZN_PUBKEY_LEN], replaces[FZN_ROOT_ACT_ID_LEN];
+
+	key(who, setter);
+	if (after)
+		stub_hash(NULL, replaces, sizeof(replaces), after, FZN_QUORUM_SET_LEN);
+	signing_as = setter;
+	CHECK(fzn_quorum_set_issue(who, k, after ? replaces : NULL, &SIGN, out) == FZN_ROOT_LOG_OK,
+	      "a setting of k would not issue");
+}
+
+/* Setter seed 9 is removed with nothing kept; every other key's acts count. */
+static int counts_but_nine(void *ctx, const uint8_t root[FZN_PUBKEY_LEN],
+                           const uint8_t act[FZN_ROOT_ACT_ID_LEN])
+{
+	(void)ctx;
+	(void)act;
+	return root[0] != 9u;
+}
+
+static int member_any(void *ctx, const uint8_t key_bytes[FZN_PUBKEY_LEN])
+{
+	(void)ctx;
+	(void)key_bytes;
+	return 1;
+}
+
+/* THE RULE. No setting: the fallback. A and B set 3 and 2 without seeing
+ * each other: 3, whichever order they are held in. C replaces A with 1:
+ * B's 2 is now the higher current one. D replaces B with 1: 1. A setting
+ * by a root whose acts no longer count changes nothing. A setting of 0, a
+ * foreign object and a forged signature are refused. */
+static void test_the_estates_k(void)
+{
+	static uint8_t held[5][FZN_QUORUM_SET_LEN], swapped[2][FZN_QUORUM_SET_LEN];
+	static const fzn_root_ops_t SET = { member_any, counts_but_nine, NULL };
+	uint8_t bad[FZN_QUORUM_SET_LEN], who[FZN_PUBKEY_LEN], winner[FZN_ROOT_ACT_ID_LEN];
+	uint8_t a_id[FZN_ROOT_ACT_ID_LEN], k = 0;
+
+	CHECK(fzn_quorum_resolve((const uint8_t *)held, 0, NULL, &HASH, 2u) == 2u,
+	      "no setting did not answer the fallback");
+	setting(held[0], 1, 3, NULL);
+	setting(held[1], 2, 2, NULL);
+	CHECK(fzn_quorum_resolve((const uint8_t *)held, 2, NULL, &HASH, 1u) == 3u,
+	      "between concurrent settings of 3 and 2, the higher did not win");
+	memcpy(swapped[0], held[1], FZN_QUORUM_SET_LEN);
+	memcpy(swapped[1], held[0], FZN_QUORUM_SET_LEN);
+	CHECK(fzn_quorum_resolve((const uint8_t *)swapped, 2, NULL, &HASH, 1u) == 3u,
+	      "the order the settings are held in changed k");
+	CHECK(fzn_quorum_winner((const uint8_t *)held, 2, NULL, &HASH, &k, winner) && k == 3u
+	              && stub_hash(NULL, a_id, sizeof(a_id), held[0], FZN_QUORUM_SET_LEN)
+	              && memcmp(winner, a_id, sizeof(a_id)) == 0,
+	      "the winner is not A's setting, by its hash");
+	setting(held[2], 1, 1, held[0]);
+	CHECK(fzn_quorum_resolve((const uint8_t *)held, 3, NULL, &HASH, 5u) == 2u,
+	      "C replacing A did not leave B's 2 as the higher current setting");
+	setting(held[3], 2, 1, held[1]);
+	CHECK(fzn_quorum_resolve((const uint8_t *)held, 4, NULL, &HASH, 5u) == 1u,
+	      "with A and B both replaced by settings of 1, k is not 1");
+	setting(held[4], 9, 7, NULL);
+	CHECK(fzn_quorum_resolve((const uint8_t *)held, 5, NULL, &HASH, 5u) == 7u
+	              && fzn_quorum_resolve((const uint8_t *)held, 5, &SET, &HASH, 5u) == 1u,
+	      "a removed root's setting of 7 counted, or the control did not count it");
+
+	setting(bad, 1, 3, NULL);
+	CHECK(fzn_quorum_set_check(bad, sizeof(bad), &SIGN) == FZN_ROOT_LOG_OK,
+	      "a sound setting did not check");
+	key(who, 1);
+	CHECK(fzn_quorum_set_issue(who, 0, NULL, &SIGN, bad) == FZN_ROOT_LOG_ERR_MALFORMED,
+	      "a setting of 0 was issued");
+	setting(bad, 1, 3, NULL);
+	bad[FZN_QUORUM_SET_OFF_K] = 0u;
+	CHECK(fzn_quorum_set_check(bad, sizeof(bad), &SIGN) == FZN_ROOT_LOG_ERR_SHAPE,
+	      "a setting of 0 was taken");
+	setting(bad, 1, 3, NULL);
+	bad[1] = (uint8_t)FZN_OBJECT_ROOT_ADD;
+	CHECK(fzn_quorum_set_check(bad, sizeof(bad), &SIGN) == FZN_ROOT_LOG_ERR_SHAPE,
+	      "another object was taken as a setting");
+	setting(bad, 1, 3, NULL);
+	bad[FZN_QUORUM_SET_OFF_K] = 4u;
+	CHECK(fzn_quorum_set_check(bad, sizeof(bad), &SIGN) == FZN_ROOT_LOG_ERR_SIGNATURE,
+	      "a setting whose k was changed after signing was taken");
+}
+
 int main(void)
 {
 	test_the_layout();
@@ -518,6 +614,7 @@ int main(void)
 	test_the_theft();
 	test_mutual_removal();
 	test_the_set_refuses();
+	test_the_estates_k();
 	printf("root_log_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }

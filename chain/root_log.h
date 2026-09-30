@@ -66,7 +66,9 @@ typedef enum fzn_root_act_kind {
 	FZN_ROOT_ACT_REVOCATION = 2u,
 	FZN_ROOT_ACT_ROSTER = 3u,
 	FZN_ROOT_ACT_ROOT_ADD = 4u,
-	FZN_ROOT_ACT_ROOT_REMOVE = 5u
+	FZN_ROOT_ACT_ROOT_REMOVE = 5u,
+	/* A setting of the estate's, sec 418: its k. */
+	FZN_ROOT_ACT_SETTING = 6u
 } fzn_root_act_kind_t;
 
 typedef enum fzn_root_log_err {
@@ -294,5 +296,53 @@ int fzn_root_set_stands(const fzn_root_set_t *set, const fzn_root_log_t *log,
  * before its cut may still count. */
 int fzn_root_set_member(const fzn_root_set_t *set, const fzn_root_log_t *log,
                         const uint8_t key[FZN_PUBKEY_LEN]);
+
+/*
+ * THE ESTATE'S k, SET BY A ROOT. sec 418, the holder's decisions of
+ * 2026-09-30: any root sets it alone, and between concurrent settings the
+ * higher k wins.
+ *
+ *     quorum-set  version | object | setter[32] | replaces[32] | k | signature
+ *
+ * `replaces` is the hash of the setting this one follows, all-zero for none,
+ * so a deliberate change -- lowering included -- supersedes what it saw. A
+ * setting COUNTS when its setter's act does under the root set: always while
+ * the root stands, and after its removal only when its log shows the setting
+ * before the cut. The CURRENT settings are the counting ones no counting
+ * setting replaces; with two, set without seeing each other, the higher k
+ * wins. A root logs each setting as an act of kind FZN_ROOT_ACT_SETTING.
+ *
+ * k is 1 to 255: a setting of 0 is refused, as `fzn_revocation_store_set_quorum`
+ * refuses a quorum of 0.
+ */
+#define FZN_QUORUM_SET_OFF_SETTER 2u
+#define FZN_QUORUM_SET_OFF_REPLACES 34u
+#define FZN_QUORUM_SET_OFF_K 66u
+#define FZN_QUORUM_SET_BODY_LEN 67u
+#define FZN_QUORUM_SET_LEN (FZN_QUORUM_SET_BODY_LEN + (size_t)FZN_SIG_LEN)
+
+/* Sign a setting: `setter` sets k, after the setting whose hash is
+ * `replaces` (NULL for none). `out` receives FZN_QUORUM_SET_LEN bytes. */
+fzn_root_log_err_t fzn_quorum_set_issue(const uint8_t setter[FZN_PUBKEY_LEN], uint8_t k,
+                                        const uint8_t replaces[FZN_ROOT_ACT_ID_LEN],
+                                        const fzn_sign_ops_t *sign, uint8_t *out);
+
+/* Its shape and its setter's signature. OK, SHAPE or SIGNATURE. */
+fzn_root_log_err_t fzn_quorum_set_check(const uint8_t *bytes, size_t len,
+                                        const fzn_sign_ops_t *sign);
+
+/* THE ESTATE'S k from `count` settings laid end to end in `records`, each
+ * already checked, judged by `roots` (NULL: every setting counts, the single
+ * pinned root's case) and named by `hash`. `fallback` when none counts. */
+uint8_t fzn_quorum_resolve(const uint8_t *records, size_t count,
+                           const struct fzn_root_ops *roots, const fzn_hash_ops_t *hash,
+                           uint8_t fallback);
+
+/* The same, and the hash of the winning setting into `winner` -- what a new
+ * setting names as the one it replaces. 1 when a setting won, 0 when
+ * `fallback` was answered and `winner` is untouched. */
+int fzn_quorum_winner(const uint8_t *records, size_t count, const struct fzn_root_ops *roots,
+                      const fzn_hash_ops_t *hash, uint8_t *k,
+                      uint8_t winner[FZN_ROOT_ACT_ID_LEN]);
 
 #endif /* FZN_ROOT_LOG_H */

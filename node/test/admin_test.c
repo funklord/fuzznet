@@ -692,6 +692,21 @@ int main(void)
 		}
 	}
 
+	/* ---- THE ESTATE'S k, sec 418: the owner sets it as this root and the
+	 * running store takes it; a group member may not; 0 is refused. */
+	CHECK(ask(&admin, &member, "set quorum 3", reply, sizeof(reply), &reply_len)
+	              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_DENIED,
+	      "a service-group member set k");
+	CHECK(ask(&admin, &owner, "set quorum 3", reply, sizeof(reply), &reply_len)
+	              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+	              && detail_len == 1u && detail[0] == '3' && admin.revocations->quorum == 3u,
+	      "the owner's k of 3 was not answered, or the running store did not take it");
+	CHECK(ask(&admin, &owner, "set quorum 0", reply, sizeof(reply), &reply_len)
+	              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+	                         == FZN_REPLY_MALFORMED
+	              && admin.revocations->quorum == 3u,
+	      "a k of 0 was taken");
+
 	/* ---- WHAT IT DOES NOT SERVE, IT SAYS SO. */
 	CHECK(ask(&admin, &owner, "get peer", reply, sizeof(reply), &reply_len)
 	              && fzn_reply_of(reply, reply_len, &detail, &detail_len)

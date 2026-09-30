@@ -2193,6 +2193,45 @@ static void test_admins_at_the_node(const fzn_cap_id_t *cap)
 	      "B's vote was not admitted again on its admin chain at start");
 }
 
+/* ---- the estate's k, sec 418 ------------------------------------------ */
+
+/* R, the genesis, sets k to 3 and then to 1, each logged as a setting and the
+ * second replacing the first; M, no root, cannot set it; M pulls R's records
+ * and reads 1; a restart of R reads 1 from its store. */
+static void test_the_estates_k_travels(void)
+{
+	static struct node r, m;
+	static fzn_node_roots_t r_roots, m_roots, again;
+	size_t learned = 0, count = 0;
+
+	CHECK(node_up(&r) && node_up(&m)
+	              && fzn_node_roots_init(&r_roots, r.id.pubkey, &r.sign, &hash_ops)
+	                         == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_init(&m_roots, r.id.pubkey, &m.sign, &hash_ops)
+	                         == FZN_NODE_ROOTS_OK,
+	      "fixture: the nodes and their roots");
+	CHECK(fzn_node_roots_quorum(&r_roots, 2u) == 2u, "no setting did not read the fallback");
+	CHECK(fzn_node_roots_set_quorum(&r_roots, &r.ops, r.id.pubkey, &r.sign, 3u)
+	              == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_quorum(&r_roots, 2u) == 3u && r_roots.log.used == 1u
+	              && r_roots.log.entries[0].kind == (uint8_t)FZN_ROOT_ACT_SETTING,
+	      "R's setting of 3 did not take, or was not logged as a setting");
+	CHECK(fzn_node_roots_set_quorum(&r_roots, &r.ops, r.id.pubkey, &r.sign, 1u)
+	              == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_quorum(&r_roots, 2u) == 1u,
+	      "R's lowering to 1 did not replace its 3");
+	CHECK(fzn_node_roots_set_quorum(&m_roots, &m.ops, m.id.pubkey, &m.sign, 4u)
+	              == FZN_NODE_ROOTS_NOT_ROOT,
+	      "a node that stands as no root set k");
+	CHECK(roots_sync(&r, &m_roots, &m, &learned) == FZN_NODE_PULL_OK
+	              && fzn_node_roots_quorum(&m_roots, 2u) == 1u,
+	      "M, having pulled R's records, does not read k = 1");
+	CHECK(fzn_node_roots_init(&again, r.id.pubkey, &r.sign, &hash_ops) == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_load(&again, &r.ops, &count) == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_quorum(&again, 2u) == 1u,
+	      "R's k did not come back from its store");
+}
+
 int main(void)
 {
 	static struct node node, device, stranger;
@@ -2313,6 +2352,7 @@ int main(void)
 	test_a_node_pairs_through_its_root_key(&cap);
 	test_confirmations_travel();
 	test_admins_at_the_node(&cap);
+	test_the_estates_k_travels();
 
 	/* ---- A NODE THAT IS NOT ITS OWN ROOT PAIRS NOTHING, and writes nothing. */
 	stranger.store.saves = 0;

@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum fzn_root_act_kind : u8 unknown=error
-  grant=1 revocation=2 roster=3 root_add=4 root_remove=5
+  grant=1 revocation=2 roster=3 root_add=4 root_remove=5 setting=6
 
 struct fzn_chain_hop size=179
   @0x0000   1         u8         version  must_eq=1
@@ -57,6 +57,15 @@ struct fzn_provision_card size=425..2068
   proof[].signature covers: proof[].added proof[].adder proof[].body proof[].object proof[].version
   prekey.signature covers: prekey.body prekey.created_at prekey.host prekey.object prekey.prekey prekey.version
   signature covers: body chain chain[] chain[].body chain[].capability chain[].delegable chain[].expires_at chain[].grantee chain[].grantor chain[].issued_at chain[].object chain[].signature chain[].version expires_at hop_count object prekey prekey.body prekey.created_at prekey.host prekey.object prekey.prekey prekey.signature prekey.version proof proof[] proof[].added proof[].adder proof[].body proof[].object proof[].signature proof[].version proof_count root version
+
+struct fzn_quorum_set size=131
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   1         u8         object  must_eq=144
+  @0x0002   32        u8         setter  big
+  @0x0022   32        u8         replaces  big
+  @0x0042   1         u8         k  min=1
+  @0x0043   64        u8         signature
+  signature covers: body k object replaces setter version
 
 struct fzn_root_act size=171
   @0x0000   1         u8         version  must_eq=1

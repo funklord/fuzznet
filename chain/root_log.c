@@ -51,7 +51,7 @@ static int all_zero(const uint8_t *p, size_t n)
 
 static int kind_known(uint8_t kind)
 {
-	return kind >= (uint8_t)FZN_ROOT_ACT_GRANT && kind <= (uint8_t)FZN_ROOT_ACT_ROOT_REMOVE;
+	return kind >= (uint8_t)FZN_ROOT_ACT_GRANT && kind <= (uint8_t)FZN_ROOT_ACT_SETTING;
 }
 
 fzn_root_log_err_t fzn_root_act_open(const uint8_t *bytes, size_t len, fzn_root_act_t *out)
@@ -510,4 +510,105 @@ void fzn_root_view_ops(const fzn_root_view_t *view, struct fzn_root_ops *ops)
 	ops->member = ops_member;
 	ops->counts = ops_counts;
 	ops->ctx = (void *)(uintptr_t)view;
+}
+
+/* ---- the estate's k, sec 418 ----------------------------------------- */
+
+fzn_root_log_err_t fzn_quorum_set_issue(const uint8_t setter[FZN_PUBKEY_LEN], uint8_t k,
+                                        const uint8_t replaces[FZN_ROOT_ACT_ID_LEN],
+                                        const fzn_sign_ops_t *sign, uint8_t *out)
+{
+	if (!setter || k == 0u || !sign || !sign->sign || !out)
+		return FZN_ROOT_LOG_ERR_MALFORMED;
+	out[0] = (uint8_t)FZN_SIGNED_VERSION;
+	out[1] = (uint8_t)FZN_OBJECT_QUORUM_SET;
+	memcpy(out + FZN_QUORUM_SET_OFF_SETTER, setter, FZN_PUBKEY_LEN);
+	if (replaces)
+		memcpy(out + FZN_QUORUM_SET_OFF_REPLACES, replaces, FZN_ROOT_ACT_ID_LEN);
+	else
+		memset(out + FZN_QUORUM_SET_OFF_REPLACES, 0, FZN_ROOT_ACT_ID_LEN);
+	out[FZN_QUORUM_SET_OFF_K] = k;
+	if (!sign->sign(sign->ctx, out + FZN_QUORUM_SET_BODY_LEN, out, FZN_QUORUM_SET_BODY_LEN))
+		return FZN_ROOT_LOG_ERR_SIGNATURE;
+	return FZN_ROOT_LOG_OK;
+}
+
+fzn_root_log_err_t fzn_quorum_set_check(const uint8_t *bytes, size_t len,
+                                        const fzn_sign_ops_t *sign)
+{
+	if (!bytes || !sign || !sign->verify)
+		return FZN_ROOT_LOG_ERR_MALFORMED;
+	if (len != FZN_QUORUM_SET_LEN || bytes[0] != (uint8_t)FZN_SIGNED_VERSION
+	    || bytes[1] != (uint8_t)FZN_OBJECT_QUORUM_SET || bytes[FZN_QUORUM_SET_OFF_K] == 0u)
+		return FZN_ROOT_LOG_ERR_SHAPE;
+	if (!sign->verify(sign->ctx, bytes + FZN_QUORUM_SET_OFF_SETTER, bytes,
+	                  FZN_QUORUM_SET_BODY_LEN, bytes + FZN_QUORUM_SET_BODY_LEN))
+		return FZN_ROOT_LOG_ERR_SIGNATURE;
+	return FZN_ROOT_LOG_OK;
+}
+
+/* The most settings one resolution judges: a flag each on the stack. */
+#define QUORUM_SETTINGS_MAX 64u
+
+int fzn_quorum_winner(const uint8_t *records, size_t count, const struct fzn_root_ops *roots,
+                      const fzn_hash_ops_t *hash, uint8_t *k,
+                      uint8_t winner[FZN_ROOT_ACT_ID_LEN])
+{
+	uint8_t ids[QUORUM_SETTINGS_MAX][FZN_ROOT_ACT_ID_LEN];
+	uint8_t counts[QUORUM_SETTINGS_MAX];
+	size_t i, j, best = count;
+
+	if (!records || count == 0u || count > QUORUM_SETTINGS_MAX || !hash || !hash->hash || !k)
+		return 0;
+	/* WHICH COUNT: the setter's act, under the set. */
+	for (i = 0; i < count; i++) {
+		const uint8_t *r = records + (i * FZN_QUORUM_SET_LEN);
+
+		if (!hash->hash(hash->ctx, ids[i], FZN_ROOT_ACT_ID_LEN, r, FZN_QUORUM_SET_LEN))
+			return 0;
+		counts[i] = !roots
+		            || roots->counts(roots->ctx, r + FZN_QUORUM_SET_OFF_SETTER, ids[i]);
+	}
+	/* THE CURRENT ONES: counting, and replaced by no counting setting. The
+	 * higher k among them wins; between equal k, the lower id, so the
+	 * answer does not depend on the order the settings are held in. */
+	for (i = 0; i < count; i++) {
+		int replaced = 0;
+		uint8_t ki = records[(i * FZN_QUORUM_SET_LEN) + FZN_QUORUM_SET_OFF_K];
+
+		if (!counts[i])
+			continue;
+		for (j = 0; j < count && !replaced; j++)
+			replaced = j != i && counts[j]
+			           && fzn_ct_memeq(records + (j * FZN_QUORUM_SET_LEN)
+			                                   + FZN_QUORUM_SET_OFF_REPLACES,
+			                           ids[i], FZN_ROOT_ACT_ID_LEN);
+		if (replaced)
+			continue;
+		if (best == count) {
+			best = i;
+			continue;
+		}
+		{
+			uint8_t kb = records[(best * FZN_QUORUM_SET_LEN) + FZN_QUORUM_SET_OFF_K];
+
+			if (ki > kb || (ki == kb && memcmp(ids[i], ids[best], FZN_ROOT_ACT_ID_LEN) < 0))
+				best = i;
+		}
+	}
+	if (best == count)
+		return 0;
+	*k = records[(best * FZN_QUORUM_SET_LEN) + FZN_QUORUM_SET_OFF_K];
+	if (winner)
+		memcpy(winner, ids[best], FZN_ROOT_ACT_ID_LEN);
+	return 1;
+}
+
+uint8_t fzn_quorum_resolve(const uint8_t *records, size_t count,
+                           const struct fzn_root_ops *roots, const fzn_hash_ops_t *hash,
+                           uint8_t fallback)
+{
+	uint8_t k = 0;
+
+	return fzn_quorum_winner(records, count, roots, hash, &k, NULL) ? k : fallback;
 }
