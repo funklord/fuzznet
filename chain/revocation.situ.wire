@@ -21,6 +21,14 @@ target buffer
 enum fzn_revocation_object : u8 unknown=error
   revocation=129 withdrawal=133
 
+struct fzn_admin_confirm size=130
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   1         u8         object  must_eq=143
+  @0x0002   32        u8         confirmer  big
+  @0x0022   32        u8         grant  big
+  @0x0042   64        u8         signature
+  signature covers: body confirmer grant object version
+
 struct fzn_revocation size=210
   @0x0000   1         u8         version  must_eq=1
   @0x0001   1         fzn_revocation_object object

@@ -405,7 +405,19 @@ typedef struct fzn_revocation_admin {
 	size_t hop_count;
 	uint8_t grantor[FZN_CHAIN_MAX_HOPS][FZN_PUBKEY_LEN];
 	uint8_t grantee[FZN_CHAIN_MAX_HOPS][FZN_PUBKEY_LEN];
+	/* Each hop's hash, what a confirmation names: zero when the store
+	 * keeps no confirmations. sec 414. */
+	uint8_t hop_id[FZN_CHAIN_MAX_HOPS][FZN_REVOCATION_ID_LEN];
 } fzn_revocation_admin_t;
+
+/* A CONFIRMATION AS THE STORE KEEPS IT: who confirmed which admin grant, and
+ * the record's own hash -- the act a root that confirms logs, which a root
+ * set asks about once that root is removed. sec 414. */
+typedef struct fzn_revocation_confirm {
+	uint8_t confirmer[FZN_PUBKEY_LEN];
+	uint8_t grant[FZN_REVOCATION_ID_LEN];
+	uint8_t act[FZN_REVOCATION_ID_LEN];
+} fzn_revocation_confirm_t;
 
 /* THE ROOT SET, AS A STORE ASKS IT. sec 406. `member` is 1 for a key that is
  * a root, removed or not; `counts` is 1 when the record whose hash is `act`,
@@ -459,6 +471,13 @@ struct fzn_revocation_store {
 	 * Set with `fzn_revocation_store_set_roots`; sec 406. */
 	const fzn_root_ops_t *roots;
 	const fzn_hash_ops_t *root_hash;
+	/* ADMIN GRANT CONFIRMATIONS, sec 414: NULL for none kept, in which case
+	 * every admin grant counts as it did before. Set with
+	 * `fzn_revocation_store_set_confirmations`. */
+	fzn_revocation_confirm_t *confirms;
+	size_t confirm_capacity;
+	size_t confirms_used;
+	const fzn_hash_ops_t *confirm_hash;
 };
 
 fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_revocation_t *entries,
@@ -522,6 +541,69 @@ fzn_chain_err_t fzn_revocation_store_set_quorum(fzn_revocation_store_t *store, s
                                                 const fzn_cap_id_t *admin_capability,
                                                 fzn_revocation_admin_t *admins,
                                                 size_t admin_capacity);
+
+/*
+ * A GRANT OF ADMIN TAKES A GRANT PLUS CONFIRMATIONS. sec 414, the holder's
+ * decision of 2026-09-29 (sec 397). One admin mints the grant as ever; it
+ * counts once k - 1 OTHER admins have signed a confirmation naming it -- the
+ * hop, by its hash. `k` is the store's quorum, so at k = 1 nothing needs one.
+ *
+ * A ROOT'S WORD SETTLES IT, as sec 403 gives a root the estate's authority: a
+ * hop a root granted needs no confirmation, and one confirmation from a root
+ * that counts is enough for any hop. A root is the chain's first grantor, or
+ * with a root set any member whose confirmation the set says counts.
+ *
+ * WHO CONFIRMS: an admin the store holds whose own chain is confirmed, and
+ * who is not the hop's grantor -- a grantor confirming itself is the one vote
+ * the rule exists to stop being enough. The hop's grantee cannot help itself
+ * either, with no rule needed: it must stand to confirm, and it stands only
+ * once this hop has. Which admins
+ * are confirmed is settled as the least set closed under that rule, so the
+ * answer does not depend on arrival order, and no two admins can confirm
+ * each other into existence. It is settled again after the revocation strata,
+ * counting only confirmers left standing, which fails toward revocation.
+ *
+ * An unconfirmed admin's votes count for nothing, in either stratum.
+ *
+ * SET THE TABLE BEFORE ADMITTING ANY ADMIN, since an admin's hop ids are
+ * taken on admission: MALFORMED once one is held, and for a table of 0 or a
+ * missing hash.
+ *
+ * THE RECORD, big-endian, signed over the first 66 bytes:
+ *
+ *     off  len  field
+ *       0    1  version     FZN_SIGNED_VERSION, 1
+ *       1    1  object      FZN_OBJECT_ADMIN_CONFIRM
+ *       2   32  confirmer
+ *      34   32  grant       the hash of the hop confirmed
+ *      66   64  signature   by the confirmer
+ */
+#define FZN_ADMIN_CONFIRM_OFF_CONFIRMER 2u
+#define FZN_ADMIN_CONFIRM_OFF_GRANT 34u
+#define FZN_ADMIN_CONFIRM_BODY_LEN 66u
+#define FZN_ADMIN_CONFIRM_LEN (FZN_ADMIN_CONFIRM_BODY_LEN + (size_t)FZN_SIG_LEN)
+
+fzn_chain_err_t fzn_revocation_store_set_confirmations(fzn_revocation_store_t *store,
+                                                       fzn_revocation_confirm_t *table,
+                                                       size_t capacity,
+                                                       const fzn_hash_ops_t *hash);
+
+/* Sign a confirmation of the hop whose hash is `grant`. `out` receives
+ * FZN_ADMIN_CONFIRM_LEN bytes. */
+fzn_chain_err_t fzn_admin_confirm_issue(const uint8_t confirmer[FZN_PUBKEY_LEN],
+                                        const uint8_t grant[FZN_REVOCATION_ID_LEN],
+                                        const fzn_sign_ops_t *sign, uint8_t *out);
+
+/* Admit a confirmation: its shape and signature, and its confirmer's standing
+ * -- a root with `hop_count` 0 (`root`, or a member of the store's set), or an
+ * admin showing its admin chain in `hops`, kept in the admin table as a vote
+ * would keep it. Whether it counts is judged when the store is read. OK when
+ * already held. */
+fzn_chain_err_t fzn_revocation_confirm_admit(fzn_revocation_store_t *store,
+                                             const uint8_t *bytes, size_t len,
+                                             const fzn_chain_hop_t *hops, size_t hop_count,
+                                             const uint8_t root[FZN_PUBKEY_LEN],
+                                             const fzn_sign_ops_t *sign);
 
 /* WHICH LINKS OF A CHAIN ARE REVOKED, given as each hop's grantor and grantee
  * rather than as opened hops -- for a caller that kept a chain's shape and

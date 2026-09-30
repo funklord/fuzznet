@@ -36,3 +36,16 @@ struct fzn_revocation {
 	// extern, so no codec: the caller signs and verifies.
 	checksum u8 signature[64] covers(body); // FZN_REV_OFF_SIGNATURE 146
 }
+
+// An admin's confirmation of another's admin grant, sec 414: the hop that
+// granted it, by its hash. Admitted by fzn_revocation_confirm_admit.
+struct fzn_admin_confirm {
+	authenticated body {
+		u8  version [must_eq = 1];       // 0 (FZN_SIGNED_VERSION)
+		u8  object [must_eq = 143];      // 1 (FZN_OBJECT_ADMIN_CONFIRM)
+		u8  confirmer[32];               // 2  FZN_ADMIN_CONFIRM_OFF_CONFIRMER
+		u8  grant[32];                   // 34 FZN_ADMIN_CONFIRM_OFF_GRANT
+	}
+	// covers(body) = bytes 0..65, FZN_ADMIN_CONFIRM_BODY_LEN.
+	checksum u8 signature[64] covers(body); // 66
+}

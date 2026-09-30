@@ -117,6 +117,10 @@ int fzn_revocation_store_sound(const fzn_revocation_store_t *store)
 	if (store->admins_used > store->admin_capacity
 	    || (store->admins_used > 0u && !store->admins))
 		return 0;
+	/* The same for confirmations, sec 414. */
+	if (store->confirms_used > store->confirm_capacity
+	    || (store->confirms_used > 0u && !store->confirms))
+		return 0;
 	return 1;
 }
 
@@ -303,7 +307,45 @@ fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_rev
 	/* One root, the one each call names: sec 406's set is opt-in. */
 	store->roots = NULL;
 	store->root_hash = NULL;
+	/* No confirmations kept: every admin grant counts, sec 414. */
+	store->confirms = NULL;
+	store->confirm_capacity = 0;
+	store->confirms_used = 0;
+	store->confirm_hash = NULL;
 
+	return FZN_CHAIN_OK;
+}
+
+fzn_chain_err_t fzn_revocation_store_set_confirmations(fzn_revocation_store_t *store,
+                                                       fzn_revocation_confirm_t *table,
+                                                       size_t capacity,
+                                                       const fzn_hash_ops_t *hash)
+{
+	/* BEFORE ANY ADMIN: an admin's hop ids are taken as it is admitted,
+	 * and one admitted without them could never be confirmed. */
+	if (!store || !table || capacity == 0u || !hash || !hash->hash || store->admins_used)
+		return FZN_CHAIN_ERR_MALFORMED;
+	store->confirms = table;
+	store->confirm_capacity = capacity;
+	store->confirms_used = 0;
+	store->confirm_hash = hash;
+	store->generation++;
+	return FZN_CHAIN_OK;
+}
+
+fzn_chain_err_t fzn_admin_confirm_issue(const uint8_t confirmer[FZN_PUBKEY_LEN],
+                                        const uint8_t grant[FZN_REVOCATION_ID_LEN],
+                                        const fzn_sign_ops_t *sign, uint8_t *out)
+{
+	if (!confirmer || !grant || !sign || !sign->sign || !out)
+		return FZN_CHAIN_ERR_MALFORMED;
+	out[0] = (uint8_t)FZN_SIGNED_VERSION;
+	out[1] = (uint8_t)FZN_OBJECT_ADMIN_CONFIRM;
+	memcpy(out + FZN_ADMIN_CONFIRM_OFF_CONFIRMER, confirmer, FZN_PUBKEY_LEN);
+	memcpy(out + FZN_ADMIN_CONFIRM_OFF_GRANT, grant, FZN_REVOCATION_ID_LEN);
+	if (!sign->sign(sign->ctx, out + FZN_ADMIN_CONFIRM_BODY_LEN, out,
+	                FZN_ADMIN_CONFIRM_BODY_LEN))
+		return FZN_CHAIN_ERR_CHAIN_INVALID;
 	return FZN_CHAIN_OK;
 }
 
@@ -780,13 +822,100 @@ uint64_t fzn_revocation_current_epoch(const fzn_revocation_store_t *store,
 	return open_epoch(store, &h, store->quorum ? store->quorum : 1u);
 }
 
+/* WHETHER `key` CONFIRMS AS A ROOT for an admin whose chain starts at
+ * `first`: the chain's own root, or with a root set a member whose
+ * confirmation `act` the set says counts. sec 414. */
+static int root_confirms(const fzn_revocation_store_t *store, const uint8_t *key,
+                         const uint8_t *first, const uint8_t *act)
+{
+	if (store->roots)
+		return store->roots->member(store->roots->ctx, key)
+		       && store->roots->counts(store->roots->ctx, key, act);
+	return fzn_ct_memeq(key, first, FZN_PUBKEY_LEN);
+}
+
+/* WHICH ADMINS' GRANTS ARE CONFIRMED, sec 414: the least set closed under
+ * "every hop of my chain a non-root granted has k - 1 confirmations from
+ * other confirmed admins, or one from a root". Admins `eligible` does not
+ * name (NULL: all) confirm nothing. Settled in rounds from nothing, so two
+ * admins cannot confirm each other in, and arrival order decides nothing.
+ * With no confirmations kept, or k = 1, every admin is confirmed. */
+static void confirm_admins(const fzn_revocation_store_t *store, const uint8_t *eligible,
+                           uint8_t confirmed[REVOCATION_ADMINS_MAX])
+{
+	size_t need = (store->quorum ? store->quorum : 1u) - 1u;
+	size_t a, h, c, j, round;
+	int changed;
+
+	for (a = 0; a < store->admins_used; a++)
+		confirmed[a] = (!store->confirm_hash || need == 0u) ? 1u : 0u;
+	if (!store->confirm_hash || need == 0u)
+		return;
+	for (round = 0, changed = 1; changed && round <= store->admins_used; round++) {
+		changed = 0;
+		for (a = 0; a < store->admins_used; a++) {
+			const fzn_revocation_admin_t *ad = &store->admins[a];
+			int all = 1;
+
+			if (confirmed[a])
+				continue;
+			/* HOP 0 IS THE ROOT'S, and a hop its own root granted again
+			 * is the same authority. */
+			for (h = 1; h < ad->hop_count && all; h++) {
+				const uint8_t *seen[REVOCATION_ADMINS_MAX];
+				size_t count = 0;
+				int by_root = 0;
+
+				if (fzn_ct_memeq(ad->grantor[h], ad->grantor[0], FZN_PUBKEY_LEN)
+				    || (store->roots
+				        && store->roots->member(store->roots->ctx, ad->grantor[h])))
+					continue;
+				for (c = 0; c < store->confirms_used && !by_root && count < need; c++) {
+					const fzn_revocation_confirm_t *cf = &store->confirms[c];
+					size_t b;
+
+					/* NOT ITS GRANTOR. Its grantee needs no clause:
+					 * one row per key, and a confirmer must stand, so
+					 * a grantee counts here only once this hop stood
+					 * without it -- measured, the clause's sabotage
+					 * survived. */
+					if (!fzn_ct_memeq(cf->grant, ad->hop_id[h], FZN_REVOCATION_ID_LEN)
+					    || fzn_ct_memeq(cf->confirmer, ad->grantor[h], FZN_PUBKEY_LEN))
+						continue;
+					if (root_confirms(store, cf->confirmer, ad->grantor[0], cf->act)) {
+						by_root = 1;
+						continue;
+					}
+					b = find_admin(store, cf->confirmer);
+					if (b >= store->admins_used || !confirmed[b]
+					    || (eligible && !eligible[b]))
+						continue;
+					/* ONE PER KEY: a confirmer is kept once per grant,
+					 * and this guards a table filled by hand. */
+					for (j = 0; j < count; j++)
+						if (fzn_ct_memeq(seen[j], cf->confirmer, FZN_PUBKEY_LEN))
+							break;
+					if (j == count)
+						seen[count++] = cf->confirmer;
+				}
+				if (!by_root && count < need)
+					all = 0;
+			}
+			if (all) {
+				confirmed[a] = 1;
+				changed = 1;
+			}
+		}
+	}
+}
+
 void fzn_revocation_covers_links(const fzn_revocation_store_t *store,
                                  const uint8_t (*grantors)[FZN_PUBKEY_LEN],
                                  const uint8_t (*grantees)[FZN_PUBKEY_LEN], size_t hop_count,
                                  const fzn_cap_id_t *capability,
                                  uint8_t revoked[FZN_CHAIN_MAX_HOPS])
 {
-	uint8_t admin_ok[REVOCATION_ADMINS_MAX];
+	uint8_t admin_ok[REVOCATION_ADMINS_MAX], confirmed[REVOCATION_ADMINS_MAX];
 	size_t a;
 
 	/* Nowhere to put an answer. Checked first because everything below
@@ -816,25 +945,34 @@ void fzn_revocation_covers_links(const fzn_revocation_store_t *store,
 	if (hop_count == 0 || hop_count > (size_t)FZN_CHAIN_MAX_HOPS)
 		return;
 
+	/* WHOSE GRANT IS CONFIRMED, sec 414: an unconfirmed admin's votes
+	 * count in neither stratum. */
+	confirm_admins(store, NULL, confirmed);
+
 	/* THE FIRST STRATUM: which admins' own chains are revoked, counting
-	 * every admin's vote. The second, below, counts only the admins left
-	 * standing. Mutual revocation takes out both, which fails toward
-	 * revocation; sec 397 records why one rule has no stable answer. */
+	 * every confirmed admin's vote. The second, below, counts only the
+	 * admins left standing. Mutual revocation takes out both, which fails
+	 * toward revocation; sec 397 records why one rule has no stable answer. */
 	for (a = 0; a < store->admins_used; a++) {
 		const fzn_revocation_admin_t *ad = &store->admins[a];
 		uint8_t own[FZN_CHAIN_MAX_HOPS];
 		size_t h;
 
-		admin_ok[a] = 1;
+		admin_ok[a] = confirmed[a];
 		for (h = 0; h < FZN_CHAIN_MAX_HOPS; h++)
 			own[h] = 0;
 		judge_links(store, (const uint8_t (*)[FZN_PUBKEY_LEN])ad->grantor,
 		            (const uint8_t (*)[FZN_PUBKEY_LEN])ad->grantee, ad->hop_count,
-		            &store->admin_capability, NULL, own);
+		            &store->admin_capability, confirmed, own);
 		for (h = 0; h < ad->hop_count; h++)
 			if (own[h])
 				admin_ok[a] = 0;
 	}
+	/* AND CONFIRMED AGAIN BY THOSE STILL STANDING: a revoked admin's
+	 * confirmations stop holding up anybody else. Only ever removes. */
+	confirm_admins(store, admin_ok, confirmed);
+	for (a = 0; a < store->admins_used; a++)
+		admin_ok[a] = admin_ok[a] && confirmed[a];
 	judge_links(store, grantors, grantees, hop_count, capability, admin_ok, revoked);
 }
 
@@ -956,7 +1094,8 @@ static fzn_chain_err_t entitled_by_chain(fzn_revocation_offer_t offer,
  * chain. The admin is then kept in the store's table, its chain as each hop's
  * grantor and grantee, so its own revocation can be judged later. */
 static fzn_chain_err_t entitled_as_admin(fzn_revocation_store_t *store,
-                                         fzn_revocation_offer_t offer,
+                                         const uint8_t issuer[FZN_PUBKEY_LEN],
+                                         const fzn_chain_hop_t *hops, size_t hop_count,
                                          const uint8_t root[FZN_PUBKEY_LEN],
                                          const fzn_sign_ops_t *sign)
 {
@@ -965,21 +1104,26 @@ static fzn_chain_err_t entitled_as_admin(fzn_revocation_store_t *store,
 	fzn_chain_err_t err;
 	size_t i, a;
 
-	if (offer.hop_count >= (size_t)FZN_CHAIN_MAX_HOPS)
+	if (hop_count >= (size_t)FZN_CHAIN_MAX_HOPS)
 		return FZN_CHAIN_ERR_MALFORMED;
-	err = fzn_chain_verify(offer.hops, offer.hop_count, root, &store->admin_capability, 0,
+	err = fzn_chain_verify(hops, hop_count, root, &store->admin_capability, 0,
 	                       sign, NULL, NULL, &verdict);
 	if (err != FZN_CHAIN_OK)
 		return err;
-	if (!fzn_ct_memeq(verdict.grantee, fzn_revocation_issuer(offer.record), FZN_PUBKEY_LEN))
+	if (!fzn_ct_memeq(verdict.grantee, issuer, FZN_PUBKEY_LEN))
 		return FZN_CHAIN_ERR_CHAIN_INVALID;
 
 	memset(&ad, 0, sizeof(ad));
 	memcpy(ad.key, verdict.grantee, FZN_PUBKEY_LEN);
-	ad.hop_count = offer.hop_count;
-	for (i = 0; i < offer.hop_count; i++) {
-		memcpy(ad.grantor[i], fzn_hop_grantor(offer.hops[i]), FZN_PUBKEY_LEN);
-		memcpy(ad.grantee[i], fzn_hop_grantee(offer.hops[i]), FZN_PUBKEY_LEN);
+	ad.hop_count = hop_count;
+	for (i = 0; i < hop_count; i++) {
+		memcpy(ad.grantor[i], fzn_hop_grantor(hops[i]), FZN_PUBKEY_LEN);
+		memcpy(ad.grantee[i], fzn_hop_grantee(hops[i]), FZN_PUBKEY_LEN);
+		/* WHAT A CONFIRMATION NAMES, when the store keeps them. */
+		if (store->confirm_hash
+		    && !store->confirm_hash->hash(store->confirm_hash->ctx, ad.hop_id[i],
+		                                  FZN_REVOCATION_ID_LEN, hops[i].base, FZN_HOP_LEN))
+			return FZN_CHAIN_ERR_MALFORMED;
 	}
 	/* ONE ROW PER ADMIN KEY. A second chain for a key already held is
 	 * refused as a conflict rather than silently replacing the first: which
@@ -1064,7 +1208,8 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 		if (store->has_admin
 		    && fzn_ct_memeq(fzn_hop_capability(offer.hops[0])->b,
 		                    store->admin_capability.b, FZN_CAP_ID_LEN))
-			err = entitled_as_admin(store, offer, root, sign);
+			err = entitled_as_admin(store, fzn_revocation_issuer(record), offer.hops,
+			                        offer.hop_count, root, sign);
 		else
 			err = entitled_by_chain(offer, root, sign);
 		if (err != FZN_CHAIN_OK)
@@ -1477,4 +1622,59 @@ size_t fzn_revocation_merge(fzn_revocation_store_t *store,
 uint64_t fzn_revocation_generation(const fzn_revocation_store_t *store)
 {
 	return store ? store->generation : 0;
+}
+
+fzn_chain_err_t fzn_revocation_confirm_admit(fzn_revocation_store_t *store,
+                                             const uint8_t *bytes, size_t len,
+                                             const fzn_chain_hop_t *hops, size_t hop_count,
+                                             const uint8_t root[FZN_PUBKEY_LEN],
+                                             const fzn_sign_ops_t *sign)
+{
+	const uint8_t *confirmer, *grant;
+	uint8_t act[FZN_REVOCATION_ID_LEN];
+	fzn_revocation_confirm_t *c;
+	size_t i;
+
+	if (!store || !store->confirms || !store->confirm_hash || !bytes || !root || !sign
+	    || !sign->verify || (hop_count > 0u && !hops))
+		return FZN_CHAIN_ERR_MALFORMED;
+	if (corrupt(store))
+		return FZN_CHAIN_ERR_MALFORMED;
+	if (len != FZN_ADMIN_CONFIRM_LEN || bytes[0] != (uint8_t)FZN_SIGNED_VERSION
+	    || bytes[1] != (uint8_t)FZN_OBJECT_ADMIN_CONFIRM)
+		return FZN_CHAIN_ERR_SHAPE;
+	confirmer = bytes + FZN_ADMIN_CONFIRM_OFF_CONFIRMER;
+	grant = bytes + FZN_ADMIN_CONFIRM_OFF_GRANT;
+	/* A ROOT NEEDS NO CHAIN, as for a vote: the pinned root, or any member
+	 * of the set, whose confirmation counts as the set says when read. */
+	if (hop_count == 0u && !fzn_ct_memeq(confirmer, root, FZN_PUBKEY_LEN)
+	    && !(store->roots && store->roots->member(store->roots->ctx, confirmer)))
+		return FZN_CHAIN_ERR_WRONG_ROOT;
+	if (!sign->verify(sign->ctx, confirmer, bytes, FZN_ADMIN_CONFIRM_BODY_LEN,
+	                  bytes + FZN_ADMIN_CONFIRM_BODY_LEN))
+		return FZN_CHAIN_ERR_CHAIN_INVALID;
+	/* AN ADMIN SHOWS ITS ADMIN CHAIN, and is kept as a vote would keep it. */
+	if (hop_count > 0u) {
+		fzn_chain_err_t err;
+
+		if (!store->has_admin)
+			return FZN_CHAIN_ERR_CHAIN_INVALID;
+		err = entitled_as_admin(store, confirmer, hops, hop_count, root, sign);
+		if (err != FZN_CHAIN_OK)
+			return err;
+	}
+	for (i = 0; i < store->confirms_used; i++)
+		if (fzn_ct_memeq(store->confirms[i].confirmer, confirmer, FZN_PUBKEY_LEN)
+		    && fzn_ct_memeq(store->confirms[i].grant, grant, FZN_REVOCATION_ID_LEN))
+			return FZN_CHAIN_OK;
+	if (store->confirms_used >= store->confirm_capacity)
+		return FZN_CHAIN_ERR_STORE_FULL;
+	if (!store->confirm_hash->hash(store->confirm_hash->ctx, act, sizeof(act), bytes, len))
+		return FZN_CHAIN_ERR_MALFORMED;
+	c = &store->confirms[store->confirms_used++];
+	memcpy(c->confirmer, confirmer, FZN_PUBKEY_LEN);
+	memcpy(c->grant, grant, FZN_REVOCATION_ID_LEN);
+	memcpy(c->act, act, sizeof(act));
+	store->generation++;
+	return FZN_CHAIN_OK;
 }

@@ -4144,6 +4144,150 @@ static void test_k_of_n_is_order_free(void)
 	CHECK(revoked[1] == 1u, "a standing admin's vote did not make the quorum");
 }
 
+/* ---- admin grant confirmations, sec 414 -------------------------------- */
+
+/* `issuer` revokes `cap` from `grantee` on the admin chain `hops`. */
+static fzn_chain_err_t vote_on(struct fixture *f, uint8_t issuer, const fzn_cap_id_t *cap,
+                               uint8_t grantee, const fzn_chain_hop_t *hops, size_t n)
+{
+	uint8_t bytes[FZN_REVOCATION_LEN];
+	uint8_t issuer_key[FZN_PUBKEY_LEN], grantee_key[FZN_PUBKEY_LEN];
+	fzn_revocation_record_t r;
+
+	key(issuer_key, issuer);
+	key(grantee_key, grantee);
+	issue_keys(f, bytes, &r, issuer_key, cap, grantee_key);
+	return fzn_revocation_admit(&f->store,
+	                            n ? fzn_revocation_offer_chain(r, hops, n)
+	                              : fzn_revocation_offer_root(r),
+	                            f->root, &f->sign, &HASH_OPS, NULL);
+}
+
+/* `confirmer` confirms the hop `granted`, showing its own admin chain `hops`
+ * (none for a root). */
+static fzn_chain_err_t confirm(struct fixture *f, uint8_t confirmer, const uint8_t *granted,
+                               const fzn_chain_hop_t *hops, size_t n)
+{
+	uint8_t bytes[FZN_ADMIN_CONFIRM_LEN], who[FZN_PUBKEY_LEN], grant[FZN_REVOCATION_ID_LEN];
+	fzn_chain_err_t err;
+
+	key(who, confirmer);
+	stub_hash(NULL, grant, sizeof(grant), granted, FZN_HOP_LEN);
+	f->stub.identity = confirmer;
+	err = fzn_admin_confirm_issue(who, grant, &f->sign, bytes);
+	stub_reset(&f->stub);
+	if (err != FZN_CHAIN_OK)
+		return err;
+	return fzn_revocation_confirm_admit(&f->store, bytes, sizeof(bytes), hops, n, f->root,
+	                                    &f->sign);
+}
+
+/* THE GRANT PLUS k - 1. At k = 2 admins 5 and 6 hold grants from the root,
+ * and 7 and 8 grants from 5. With confirmations kept, 7's vote counts for
+ * nothing until an admin other than its grantor and itself confirms the hop
+ * 5 -> 7; 6's does, and 6 and 7 then revoke key 2. 5 confirming its own grant
+ * and 7 confirming itself do not; 7 and 8 confirming each other do not either,
+ * since neither stands until the other does. A root's confirmation suffices
+ * alone. When the root revokes 6's admin grant, 6's confirmation stops
+ * holding 7 up, which 5's vote beside 7's makes visible. Without the table, 7's vote counts as it did before (the
+ * control). */
+static void test_an_admin_grant_takes_confirmations(void)
+{
+	static fzn_revocation_admin_t admins[8];
+	static fzn_revocation_confirm_t confirms[8];
+	static struct fixture f;
+	uint8_t b5[FZN_HOP_LEN], b6[FZN_HOP_LEN], b57[FZN_HOP_LEN], b58[FZN_HOP_LEN];
+	uint8_t revoked[FZN_CHAIN_MAX_HOPS], bytes[FZN_ADMIN_CONFIRM_LEN];
+	fzn_chain_hop_t h5, h6, via7[2], via8[2];
+	fzn_cap_id_t cap, adm;
+
+	capability_id(&cap, 0xc0);
+	capability_id(&adm, 0xad);
+
+	/* THE CONTROL: no table, and 5 -> 7 counts as granted. */
+	fixture_init(&f);
+	CHECK(fzn_revocation_store_set_quorum(&f.store, 2u, &adm, admins, 8u) == FZN_CHAIN_OK,
+	      "set_quorum refused a sound request");
+	mint_hop(&f, b5, &h5, 0, 5, &adm, 1000, FZN_NO_EXPIRY, 1);
+	mint_hop(&f, b6, &h6, 0, 6, &adm, 1000, FZN_NO_EXPIRY, 0);
+	mint_hop(&f, b57, &via7[1], 5, 7, &adm, 1000, FZN_NO_EXPIRY, 0);
+	mint_hop(&f, b58, &via8[1], 5, 8, &adm, 1000, FZN_NO_EXPIRY, 0);
+	via7[0] = h5;
+	via8[0] = h5;
+	CHECK(vote_on(&f, 6, &cap, 2, &h6, 1) == FZN_CHAIN_OK
+	              && vote_on(&f, 7, &cap, 2, via7, 2) == FZN_CHAIN_OK,
+	      "fixture: 6's and 7's votes");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 1u, "the control: with no confirmations kept, 7's vote did not count");
+
+	/* WITH THE TABLE. */
+	fixture_init(&f);
+	CHECK(fzn_revocation_store_set_quorum(&f.store, 2u, &adm, admins, 8u) == FZN_CHAIN_OK
+	              && fzn_revocation_store_set_confirmations(&f.store, NULL, 8u, &HASH_OPS)
+	                         == FZN_CHAIN_ERR_MALFORMED
+	              && fzn_revocation_store_set_confirmations(&f.store, confirms, 8u, NULL)
+	                         == FZN_CHAIN_ERR_MALFORMED
+	              && fzn_revocation_store_set_confirmations(&f.store, confirms, 8u, &HASH_OPS)
+	                         == FZN_CHAIN_OK,
+	      "set_confirmations took a missing table or hash, or refused a sound one");
+	CHECK(vote_on(&f, 6, &cap, 2, &h6, 1) == FZN_CHAIN_OK
+	              && vote_on(&f, 7, &cap, 2, via7, 2) == FZN_CHAIN_OK,
+	      "6's or 7's vote was refused");
+	CHECK(fzn_revocation_store_set_confirmations(&f.store, confirms, 8u, &HASH_OPS)
+	              == FZN_CHAIN_ERR_MALFORMED,
+	      "confirmations were switched on over admins taken without their hop ids");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 0u, "an unconfirmed admin grant's vote counted");
+
+	CHECK(confirm(&f, 5, b57, &h5, 1) == FZN_CHAIN_OK
+	              && confirm(&f, 7, b57, via7, 2) == FZN_CHAIN_OK
+	              && confirm(&f, 8, b57, via8, 2) == FZN_CHAIN_OK
+	              && confirm(&f, 7, b58, via7, 2) == FZN_CHAIN_OK,
+	      "fixture: 5's, 7's and 8's confirmations");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 0u,
+	      "a grantor, the grantee, or two unconfirmed admins confirmed a grant into standing");
+
+	CHECK(confirm(&f, 6, b57, &h6, 1) == FZN_CHAIN_OK, "6's confirmation was refused");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 1u, "7's grant, confirmed by 6, did not let its vote count");
+
+	/* THE ROOT REVOKES 6's ADMIN GRANT, and 6's confirmation falls with it:
+	 * 7 stands on nothing again. */
+	{
+		uint8_t six[FZN_PUBKEY_LEN];
+		uint8_t rev[FZN_REVOCATION_LEN];
+		fzn_revocation_record_t r;
+
+		key(six, 6);
+		issue_keys(&f, rev, &r, f.root, &adm, six);
+		CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r), f.root, &f.sign,
+		                           &HASH_OPS, NULL) == FZN_CHAIN_OK,
+		      "fixture: the root's revocation of 6");
+	}
+	/* 5, root-granted, votes: with 6 out, 5 and 7 are the two -- so the
+	 * answer turns on whether 7 still stands. */
+	CHECK(vote_on(&f, 5, &cap, 2, &h5, 1) == FZN_CHAIN_OK, "fixture: 5's vote");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 0u, "a revoked admin's confirmation still held a grant up");
+
+	/* THE ROOT'S WORD ALONE stands 7, and 5 and 7 revoke. */
+	CHECK(confirm(&f, 0, b57, NULL, 0) == FZN_CHAIN_OK, "the root's confirmation was refused");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 1u, "a root's confirmation alone did not stand 7");
+
+	/* WHO MAY NOT CONFIRM, AND WHAT IS NOT A CONFIRMATION. */
+	CHECK(confirm(&f, 9, b57, NULL, 0) == FZN_CHAIN_ERR_WRONG_ROOT,
+	      "a key with no chain and no root confirmed");
+	memset(bytes, 0, sizeof(bytes));
+	CHECK(fzn_revocation_confirm_admit(&f.store, bytes, sizeof(bytes), NULL, 0, f.root,
+	                                   &f.sign) == FZN_CHAIN_ERR_SHAPE,
+	      "bytes that are not a confirmation were taken as one");
+	CHECK(fzn_revocation_confirm_admit(&f.store, bytes, sizeof(bytes) - 1u, NULL, 0, f.root,
+	                                   &f.sign) == FZN_CHAIN_ERR_SHAPE,
+	      "a confirmation one byte short was taken");
+}
+
 int main(void)
 {
 	test_layout_and_round_trip();
@@ -4204,6 +4348,7 @@ int main(void)
 	test_k_of_n_revokes_and_latches();
 	test_an_admin_is_named_by_its_chain();
 	test_admins_that_revoke_each_other_both_fall();
+	test_an_admin_grant_takes_confirmations();
 	test_the_links_form_holds_the_ceiling();
 	test_k_of_n_is_order_free();
 	test_the_suite_can_tell_pass_from_fail();

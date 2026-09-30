@@ -50247,3 +50247,112 @@ genesis, adds S:
   Alice is active again: the logged add counts and the unlogged removal
   does not. Bob is absent, because the hop from S was never logged.
 - In a set where S is removed with no cut, alice is absent.
+
+## 414. An admin grant takes a grant plus k - 1 confirmations, 2026-09-30
+
+The holder decided this in sec 397: "One admin mints the grant as today;
+it counts once k - 1 other admins have signed confirmation records naming
+it." Until now any admin could make another, alone, so one stolen admin
+key could mint as many voters as a quorum needs. This builds the rule in
+the library core, in `chain/revocation`, where the votes it guards are
+counted.
+
+### The confirmation record
+
+A new signed object, tag 143, `FZN_OBJECT_ADMIN_CONFIRM`. It is 130
+bytes: version, object, the confirmer, and the hash of the hop it
+confirms, signed by the confirmer. `chain/revocation.situ` states it.
+`fzn_admin_confirm_issue` signs one.
+
+`fzn_revocation_confirm_admit` takes it with the confirmer's standing,
+as a vote is taken:
+
+- a root with no chain: the pinned root, or any member of the store's
+  root set;
+- an admin showing its admin chain, kept in the admin table as its vote
+  would keep it.
+
+Whether a confirmation counts is decided when the store is read, never
+on arrival.
+
+### The table
+
+`fzn_revocation_store_set_confirmations` gives the store a caller-owned
+table and a hash. An admin's row now carries each hop's hash, which is
+what a confirmation names.
+
+The table must be set **before any admin is admitted**. An admin
+admitted earlier has no hop hashes and could never be confirmed, so the
+call is refused once an admin is held.
+
+With no table, every admin grant counts as before. The same holds at
+k = 1, where k - 1 is 0.
+
+### When an admin grant counts
+
+A hop in an admin's chain counts:
+
+- when a root granted it, meaning the chain's first grantor or a member
+  of the set;
+- or when k - 1 **other** confirmed admins have confirmed it, "other"
+  meaning not its grantor;
+- or when one root that counts has confirmed it. Sec 403 gives a root
+  the estate's authority alone.
+
+**The confirmed admins are the least set closed under that rule**,
+settled in rounds from nothing:
+
+- two unconfirmed admins cannot confirm each other in;
+- arrival order decides nothing;
+- an unconfirmed admin's votes count in neither revocation stratum.
+
+**It is settled twice.** The first pass comes before the strata, and
+those strata count only confirmed admins' votes. The second pass comes
+after, and counts only confirmers left standing, so a revoked admin's
+confirmations stop holding anybody up. The second pass can only remove
+admins, which fails toward revocation, as sec 394 asks removal to err.
+
+### Not yet after sec 414
+
+- **The node carries neither the admin capability nor confirmations.**
+  Sec 397's "not done" already says the node does not know the admin
+  capability. Confirmations should travel as votes do (sec 399),
+  persisted in the core directory and served with a `get` verb, once it
+  does.
+- **Re-keys**, the other half of the decision, have nothing to confirm
+  yet, because nothing here re-keys.
+- **`fzn_revocation_current_epoch` still counts every admin's issuer**
+  when it opens an epoch. That affects numbering only, not verdicts.
+
+### Measured for sec 414
+
+`revocation_test`, 671 checks, with
+`test_an_admin_grant_takes_confirmations`. It runs at k = 2. Admins 5
+and 6 hold root grants; 7 and 8 hold grants from 5.
+
+- **The control:** with no table, 6's and 7's votes revoke key 2.
+- **Refused set-ups:** `set_confirmations` refuses a missing table, a
+  missing hash, and a store already holding admins.
+- **Unconfirmed:** with the table, 6's and 7's votes do not revoke.
+- **Confirmations that do not count:** 5 confirming its own grant of 7,
+  7 confirming itself, and 7 and 8 confirming each other leave nothing
+  revoked.
+- **A valid confirmation:** 6 confirms 5→7, and the votes revoke.
+- **A revoked confirmer:** the root revokes 6's admin grant, and 5 votes
+  beside 7. Nothing is revoked, because 7 no longer stands on 6's
+  confirmation. Without 5's vote this case could not tell the second
+  pass from its absence.
+- **The root alone:** the root confirms 5→7, and 5 and 7 revoke.
+- **Refused records:** a keyless confirmer is `WRONG_ROOT`, and a zeroed
+  record and a short record are `SHAPE`.
+
+`make schema` against situ 70f1b4f classifies the change as one
+compatible addition.
+
+**The first version also excluded the hop's grantee, and its sabotage
+survived.** The clause cannot matter. A confirmer counts only if it
+stands, and an admin has one row, so the grantee stands only once this
+hop already has enough confirmations without it. The one case it
+reaches is a root that is also the grantee, and a root's confirmation
+settles the hop anyway. The clause is gone and a comment says why. The
+other eight entries were each caught by the case written for them.
