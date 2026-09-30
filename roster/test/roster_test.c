@@ -7,6 +7,7 @@
 
 #include "../roster.h"
 #include "../../chain/revocation.h"
+#include "../../chain/root_log.h"
 #include "../../session/commitment.h"
 
 #include <stdio.h>
@@ -144,6 +145,7 @@ static fzn_roster_authority_t authority(void)
 {
 	fzn_roster_authority_t a;
 
+	memset(&a, 0, sizeof(a));
 	a.root = root.key;
 	a.capability = &manage;
 	a.sign = &root.sign;
@@ -729,6 +731,118 @@ static void test_bundle_and_restore(void)
 	      "restore admitted a record whose signature does not verify");
 }
 
+/* ---- several roots, sec 413 ------------------------------------------- */
+
+static const fzn_hash_ops_t HASH = { stub_hash, NULL };
+
+/* R, the genesis, adds S. With the set in the authority S writes as a root:
+ * its add stands and its removal retires alone, and a chain S minted for M
+ * is standing too. Without the set S is a stranger (the control). R then
+ * removes S at the cut after S's logged add of alice: that add still counts,
+ * S's removal of alice and the chain from S -- neither logged -- do not. With
+ * no cut, nothing S did counts. */
+static void test_several_roots_write(void)
+{
+	static fzn_root_change_t changes[8];
+	static fzn_root_log_entry_t logged[8];
+	static fzn_revocation_t rev_entries[4];
+	static held_t h;
+	fzn_root_set_t set;
+	fzn_root_log_t log;
+	fzn_root_view_t v;
+	fzn_root_ops_t ops;
+	fzn_revocation_store_t rev;
+	fzn_roster_authority_t a = authority(), pinned = authority();
+	who_t second;
+	rec_t s_add, s_rem, m_add;
+	uint8_t change[FZN_ROOT_REMOVE_LEN], entry[FZN_ROOT_ACT_LEN];
+	uint8_t act[FZN_REVOCATION_ID_LEN], cut[FZN_ROOT_ACT_ID_LEN];
+	uint8_t hop_bytes[FZN_HOP_LEN];
+	fzn_chain_hop_t hop;
+
+	who_init(&second, 0x70u);
+	CHECK(fzn_root_set_init(&set, root.key, changes, 8) == FZN_ROOT_LOG_OK
+	              && fzn_root_log_init(&log, logged, 8) == FZN_ROOT_LOG_OK
+	              && fzn_root_add_issue(root.key, second.key, &root.sign, change)
+	                         == FZN_ROOT_LOG_OK
+	              && fzn_root_set_admit(&set, change, FZN_ROOT_ADD_LEN, &root.sign, &HASH)
+	                         == FZN_ROOT_LOG_OK
+	              && fzn_root_view_init(&v, &set, &log) == FZN_ROOT_LOG_OK
+	              && fzn_revocation_store_init(&rev, rev_entries, 4) == FZN_CHAIN_OK,
+	      "fixture: R's set with S in it");
+	fzn_root_view_ops(&v, &ops);
+	CHECK(fzn_revocation_store_set_roots(&rev, &ops, &HASH) == FZN_CHAIN_OK,
+	      "fixture: the set attached to the reader's store");
+	a.roots = &ops;
+	a.hash = &HASH;
+
+	add(&s_add, &second, &alice, 1, 1);
+	removal(&s_rem, &second, &alice, 1, 2);
+	add(&m_add, &member, &bob, 2, 3);
+	CHECK(fzn_chain_mint(second.key, member.key, &manage, 100, 0, 0, &second.sign, hop_bytes)
+	              == FZN_CHAIN_OK
+	              && fzn_hop_open(hop_bytes, FZN_HOP_LEN, &hop) == FZN_CHAIN_OK,
+	      "fixture: S's grant to M");
+
+	CHECK(held_init(&h), "fixture: the roster");
+	CHECK(fzn_roster_admit(&h.r, view(&s_add), NULL, 0, &pinned) == FZN_ROSTER_ERR_STANDING,
+	      "the control: a root the pinned authority does not know wrote alone");
+	CHECK(fzn_roster_admit(&h.r, view(&m_add), &hop, 1, &pinned) == FZN_ROSTER_ERR_STANDING,
+	      "the control: a chain from a root the pinned authority does not know stood");
+	a.hash = NULL;
+	CHECK(fzn_roster_admit(&h.r, view(&s_add), NULL, 0, &a) == FZN_ROSTER_ERR_MALFORMED,
+	      "a root set with no hash to name its acts was taken");
+	a.hash = &HASH;
+
+	CHECK(fzn_roster_admit(&h.r, view(&s_add), NULL, 0, &a) == FZN_ROSTER_OK
+	              && fzn_roster_admit(&h.r, view(&m_add), &hop, 1, &a) == FZN_ROSTER_OK,
+	      "a member root's add, or a chain from it, was refused");
+	CHECK(state_of(&h.r, &alice, 1, &rev, 2) == FZN_ROSTER_ACTIVE
+	              && state_of(&h.r, &bob, 2, &rev, 2) == FZN_ROSTER_ACTIVE,
+	      "what a member root wrote, directly or by a chain, is not active");
+	CHECK(fzn_roster_admit(&h.r, view(&s_rem), NULL, 0, &a) == FZN_ROSTER_OK
+	              && state_of(&h.r, &alice, 1, &rev, 2) == FZN_ROSTER_RETIRED,
+	      "a member root's removal did not retire alone");
+
+	/* S LOGS ITS ADD OF ALICE, and R removes S at the cut after it. */
+	CHECK(stub_hash(NULL, act, sizeof(act), s_add.bytes, s_add.len)
+	              && fzn_root_act_issue(second.key, 0, NULL, (uint8_t)FZN_ROOT_ACT_ROSTER, act,
+	                                    &second.sign, entry) == FZN_ROOT_LOG_OK
+	              && fzn_root_log_admit(&log, entry, sizeof(entry), &second.sign, &HASH)
+	                         == FZN_ROOT_LOG_OK
+	              && stub_hash(NULL, cut, sizeof(cut), entry, sizeof(entry))
+	              && fzn_root_remove_issue(root.key, second.key, cut, &root.sign, change)
+	                         == FZN_ROOT_LOG_OK
+	              && fzn_root_set_admit(&set, change, FZN_ROOT_REMOVE_LEN, &root.sign, &HASH)
+	                         == FZN_ROOT_LOG_OK
+	              && fzn_root_view_init(&v, &set, &log) == FZN_ROOT_LOG_OK,
+	      "fixture: S's log entry and R's removal of S at it");
+	CHECK(state_of(&h.r, &alice, 1, &rev, 2) == FZN_ROSTER_ACTIVE,
+	      "after S's removal, its logged add or its unlogged removal was judged wrongly");
+	CHECK(state_of(&h.r, &bob, 2, &rev, 2) == FZN_ROSTER_ABSENT,
+	      "a chain from a removed root, its first hop never logged, still counted");
+
+	/* WITH NO CUT, nothing S did counts. */
+	{
+		static fzn_root_change_t c2[8];
+		fzn_root_set_t set2;
+
+		CHECK(fzn_root_set_init(&set2, root.key, c2, 8) == FZN_ROOT_LOG_OK
+		              && fzn_root_add_issue(root.key, second.key, &root.sign, change)
+		                         == FZN_ROOT_LOG_OK
+		              && fzn_root_set_admit(&set2, change, FZN_ROOT_ADD_LEN, &root.sign, &HASH)
+		                         == FZN_ROOT_LOG_OK
+		              && fzn_root_remove_issue(root.key, second.key, NULL, &root.sign, change)
+		                         == FZN_ROOT_LOG_OK
+		              && fzn_root_set_admit(&set2, change, FZN_ROOT_REMOVE_LEN, &root.sign,
+		                                    &HASH) == FZN_ROOT_LOG_OK
+		              && fzn_root_view_init(&v, &set2, &log) == FZN_ROOT_LOG_OK,
+		      "fixture: S removed with nothing kept");
+		CHECK(state_of(&h.r, &alice, 1, &rev, 2) == FZN_ROSTER_ABSENT,
+		      "a root removed with no cut still had its add counted");
+	}
+}
+
 int main(void)
 {
 	who_init(&root, 0x10u);
@@ -751,6 +865,7 @@ int main(void)
 	test_full();
 	test_order_independence();
 	test_bundle_and_restore();
+	test_several_roots_write();
 
 	printf("roster_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;

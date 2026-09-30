@@ -2322,6 +2322,7 @@ $(BUILD_DIR)/provision/test/provision_test: \
 # fzn_chain_verify calls both; the signer is the test's own stub. sec 388.
 $(BUILD_DIR)/roster/test/roster_test: $(BUILD_DIR)/roster/test/roster_test.o \
                                       $(BUILD_DIR)/roster/roster.o \
+                                      $(BUILD_DIR)/chain/root_log.o \
                                       $(BUILD_DIR)/chain/chain.o \
                                       $(BUILD_DIR)/chain/revocation.o \
                                       $(BUILD_DIR)/chain/manifest.o \

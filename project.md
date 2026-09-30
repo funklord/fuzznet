@@ -50181,3 +50181,69 @@ It now searches the detail's length only.
    length.
 
 No daemon was left running, and the socket directory was removed.
+
+## 413. Roster writers against the root set, 2026-09-30
+
+Sec 403 made every root a full-power writer on its own. The roster (secs
+388 and 394) still knew only the pinned root. A root the estate added
+could not write alone, and a chain from it was refused. A removed root's
+records went on counting, including the ones written after it was
+stolen.
+
+### Arrival
+
+`fzn_roster_authority_t` gains `roots` and `hash`, both or neither.
+
+- **With a set**, a writer with no chain may be any member of the set,
+  and a chain may start at any member. It is verified under that member.
+- **Membership only.** A removed root is still a member, because what it
+  wrote before its cut may count. Whether a record counts is the
+  reader's question, which is the roster's rule since sec 394.
+- **With neither**, the pinned root alone, exactly as before. The
+  existing 64 checks run unchanged against that.
+
+The struct is now zeroed before it is filled, in `roster_test` and in
+the consumer check, so a field a caller does not know about is NULL.
+
+### Reading
+
+The reader's revocation store already carries the root set (sec 406).
+The roster now asks it:
+
+- **A root's own record counts** as the set says of its hash: always
+  while the root stands, and after its removal only if the root's log
+  shows the record before the cut. The record's hash is the act the
+  root logs.
+- **A chain counts only while its first hop does**, by the same rule. A
+  chain from a removed root, granted after its cut, stops counting.
+
+For this the roster keeps two hashes, each computed once on arrival:
+
+- a writer's first hop, `first_act`;
+- each record: `add_act`, and `remover_act` in the removers' order.
+
+A root that counts still retires alone.
+
+### Not yet after sec 413
+
+**Nothing logs roster records as root acts yet**, because no node writes
+a roster. Until one does, a removed root's roster records count only if
+its removal keeps nothing, which is to say they do not count at all. A
+node that writes a roster as a root must log each record with
+`fzn_node_roots_log_act`, kind `FZN_ROOT_ACT_ROSTER`, as it already
+logs its revocations.
+
+### Measured for sec 413
+
+`roster_test`, 79 checks, with `test_several_roots_write`. R, the
+genesis, adds S:
+
+- Without the set in the authority, S's own record and a chain from S
+  are refused for standing (the controls).
+- A set with no hash is refused as malformed.
+- With the set, S's add of alice and M's add of bob, on a chain from S,
+  are both active. S's removal of alice retires her alone.
+- S logs its add of alice, and R removes S at the cut after that entry.
+  Alice is active again: the logged add counts and the unlogged removal
+  does not. Bob is absent, because the hop from S was never logged.
+- In a set where S is removed with no cut, alice is absent.

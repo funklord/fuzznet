@@ -3020,6 +3020,7 @@ int main(void)
 		memset(subject, 0x5a, sizeof(subject));
 		memset(inc, 0x5b, sizeof(inc));
 		memset(&roster_cap, 0x5c, sizeof(roster_cap));
+		memset(&authority, 0, sizeof(authority));
 		authority.root = writer;
 		authority.capability = &roster_cap;
 		authority.sign = &sign;

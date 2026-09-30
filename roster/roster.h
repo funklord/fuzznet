@@ -51,6 +51,15 @@
  * CAP_PEER_MANAGE -- naming it as the last grantee. The receiver checks it,
  * as revoking checks standing (`chain/revocation.h`).
  *
+ * SEVERAL ROOTS, sec 413. With a root set in the authority, any member of the
+ * set writes alone, and a chain may start at any member. Arrival checks only
+ * membership, a removed root included, since its records before its cut may
+ * still count; the READ decides, through the revocation store's root set: a
+ * root's record counts while the root stands, and after its removal only if
+ * its log shows the record before the cut -- the record's hash is the act it
+ * logs. A chain counts only while its first hop does, by the same rule. With
+ * no set, the pinned root alone, exactly as before.
+ *
  * EVERYTHING IS JUDGED WHEN THE ROSTER IS READ, AND NOTHING WHEN IT ARRIVES,
  * beyond a record's own signature and its writer's chain's structure. Which
  * writers count is decided by the revocations the READER passes in: a
@@ -96,6 +105,7 @@
 #include <stdint.h>
 
 #include "../chain/chain.h"
+#include "../chain/revocation.h"
 #include "../wire/bytes.h"
 
 #define FZN_ROSTER_INCARNATION_LEN 16u
@@ -221,6 +231,10 @@ typedef struct fzn_roster_writer {
 	size_t hop_count;
 	uint8_t grantor[FZN_CHAIN_MAX_HOPS][FZN_PUBKEY_LEN];
 	uint8_t grantee[FZN_CHAIN_MAX_HOPS][FZN_PUBKEY_LEN];
+	/* The hash of the chain's first hop, the act its root logged: what a
+	 * root set asks about once that root is removed. Zero when the roster
+	 * was given no hash, or for a root writing alone. sec 413. */
+	uint8_t first_act[FZN_REVOCATION_ID_LEN];
 } fzn_roster_writer_t;
 
 /* One incarnation, as this host holds it. Writers are indices into the
@@ -234,6 +248,11 @@ typedef struct fzn_roster_entry {
 	size_t add_writer;
 	size_t remover_count;
 	size_t remover[FZN_ROSTER_REMOVERS_MAX];
+	/* The hash of each record -- the act a root writing alone logs -- for
+	 * the add and each removal, in `remover`'s order. Zero with no hash.
+	 * sec 413. */
+	uint8_t add_act[FZN_REVOCATION_ID_LEN];
+	uint8_t remover_act[FZN_ROSTER_REMOVERS_MAX][FZN_REVOCATION_ID_LEN];
 } fzn_roster_entry_t;
 
 typedef struct fzn_roster {
@@ -254,11 +273,18 @@ fzn_roster_err_t fzn_roster_init(fzn_roster_t *roster, fzn_roster_entry_t *entri
 
 /* What a record is checked against as it arrives: the pinned root, the
  * capability a writer's chain must carry, and the verifier. No clock and no
- * revocations -- those are the reader's (see the header). */
+ * revocations -- those are the reader's (see the header).
+ *
+ * `roots` and `hash`, sec 413, both or neither: the estate's root set, whose
+ * members write as the root does, and the hash that names a record and a
+ * hop as the acts a root logs. NULL for the pinned root alone. Zero the
+ * struct before filling it, so fields a caller does not know are NULL. */
 typedef struct fzn_roster_authority {
 	const uint8_t *root;
 	const fzn_cap_id_t *capability;
 	const fzn_sign_ops_t *sign;
+	const fzn_root_ops_t *roots;
+	const fzn_hash_ops_t *hash;
 } fzn_roster_authority_t;
 
 /* Verify a record and apply it. `hops` is the writer's chain from the root,
@@ -321,7 +347,8 @@ fzn_roster_err_t fzn_roster_bundle_open(const uint8_t *bytes, size_t len,
  * ones this host holds, or NULL for none -- with `k` the estate's number of
  * distinct writers a retirement needs (0 means FZN_ROSTER_K_DEFAULT). The
  * root, which writes with no chain, retires alone: sec 403 gives a root the
- * whole estate's authority. */
+ * whole estate's authority. With a root set attached to `revocations` (sec
+ * 412), a root's record and a chain's first hop count as that set says. */
 typedef enum fzn_roster_state {
 	/* Nothing held, or only records whose writers are revoked. */
 	FZN_ROSTER_ABSENT = 0,

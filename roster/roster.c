@@ -181,15 +181,25 @@ static int has_standing(const uint8_t *writer, const fzn_chain_hop_t *hops, size
 	size_t i;
 	uint64_t latest = 0;
 
+	/* ANY MEMBER OF THE SET, removed or not, sec 413: whether what it
+	 * wrote counts is the reader's question. */
 	if (hop_count == 0u)
-		return memcmp(writer, authority->root, FZN_PUBKEY_LEN) == 0;
+		return memcmp(writer, authority->root, FZN_PUBKEY_LEN) == 0
+		       || (authority->roots && authority->roots->member(authority->roots->ctx, writer));
 	if (!hops || hop_count > FZN_CHAIN_MAX_HOPS)
 		return 0;
 	for (i = 0; i < hop_count; i++)
 		if (fzn_hop_issued_at(hops[i]) > latest)
 			latest = fzn_hop_issued_at(hops[i]);
-	if (fzn_chain_verify(hops, hop_count, authority->root, authority->capability, latest,
-	                     authority->sign, NULL, NULL, &verdict)
+	/* A CHAIN FROM A MEMBER is verified under that member: the pin is the
+	 * one thing a root set changes about a chain's shape. */
+	if (fzn_chain_verify(hops, hop_count,
+	                     (authority->roots
+	                      && authority->roots->member(authority->roots->ctx,
+	                                                  fzn_hop_grantor(hops[0])))
+	                             ? fzn_hop_grantor(hops[0])
+	                             : authority->root,
+	                     authority->capability, latest, authority->sign, NULL, NULL, &verdict)
 	    != FZN_CHAIN_OK)
 		return 0;
 	return memcmp(verdict.grantee, writer, FZN_PUBKEY_LEN) == 0;
@@ -201,7 +211,7 @@ static int has_standing(const uint8_t *writer, const fzn_chain_hop_t *hops, size
  * when the table is full. */
 static size_t intern_writer(fzn_roster_t *roster, const uint8_t *key,
                             const fzn_chain_hop_t *hops, size_t hop_count,
-                            const fzn_cap_id_t *capability)
+                            const fzn_cap_id_t *capability, const fzn_hash_ops_t *hash)
 {
 	fzn_roster_writer_t w;
 	size_t i;
@@ -214,6 +224,9 @@ static size_t intern_writer(fzn_roster_t *roster, const uint8_t *key,
 		memcpy(w.grantor[i], fzn_hop_grantor(hops[i]), FZN_PUBKEY_LEN);
 		memcpy(w.grantee[i], fzn_hop_grantee(hops[i]), FZN_PUBKEY_LEN);
 	}
+	if (hash && hop_count
+	    && !hash->hash(hash->ctx, w.first_act, sizeof(w.first_act), hops[0].base, FZN_HOP_LEN))
+		return (size_t)-1;
 	for (i = 0; i < roster->writers_used; i++)
 		if (memcmp(&roster->writers[i], &w, sizeof(w)) == 0)
 			return i;
@@ -231,9 +244,13 @@ static fzn_roster_err_t apply(fzn_roster_t *roster, fzn_roster_record_t record,
 	fzn_roster_entry_t *entry;
 	size_t signed_len, w, i;
 	uint8_t object;
+	uint8_t act[FZN_REVOCATION_ID_LEN];
 
 	if (!roster || !roster->entries || !roster->writers || !authority || !authority->root
-	    || !authority->capability || !authority->sign || !authority->sign->verify)
+	    || !authority->capability || !authority->sign || !authority->sign->verify
+	    || (!authority->roots != !authority->hash)
+	    || (authority->roots && (!authority->roots->member || !authority->roots->counts))
+	    || (authority->hash && !authority->hash->hash))
 		return FZN_ROSTER_ERR_MALFORMED;
 	/* Opened again rather than trusted: a view is only a pointer and a
 	 * length, and one assembled by hand is not a record that was checked. */
@@ -258,8 +275,13 @@ static fzn_roster_err_t apply(fzn_roster_t *roster, fzn_roster_record_t record,
 			return FZN_ROSTER_OK;	/* the same add, again */
 		return FZN_ROSTER_ERR_CONFLICT;
 	}
+	/* THE RECORD AS AN ACT: what its writer, as a root, logs. */
+	memset(act, 0, sizeof(act));
+	if (authority->hash
+	    && !authority->hash->hash(authority->hash->ctx, act, sizeof(act), rec.base, rec.len))
+		return FZN_ROSTER_ERR_MALFORMED;
 	w = intern_writer(roster, fzn_roster_writer(rec), hops, hop_count,
-	                  authority->capability);
+	                  authority->capability, authority->hash);
 	if (w == (size_t)-1)
 		return FZN_ROSTER_ERR_FULL;
 	if (!entry) {
@@ -274,6 +296,7 @@ static fzn_roster_err_t apply(fzn_roster_t *roster, fzn_roster_record_t record,
 		entry->added = 1;
 		entry->add_seq = fzn_roster_seq(rec);
 		entry->add_writer = w;
+		memcpy(entry->add_act, act, sizeof(act));
 	} else {
 		/* ONE PLACE PER WRITER SLOT. The same writer removing twice is one
 		 * removal; a retirement counts distinct KEYS at read time, so two
@@ -284,6 +307,7 @@ static fzn_roster_err_t apply(fzn_roster_t *roster, fzn_roster_record_t record,
 		if (i == entry->remover_count) {
 			if (entry->remover_count >= FZN_ROSTER_REMOVERS_MAX)
 				return FZN_ROSTER_ERR_FULL;
+			memcpy(entry->remover_act[entry->remover_count], act, sizeof(act));
 			entry->remover[entry->remover_count++] = w;
 		}
 	}
@@ -358,15 +382,29 @@ fzn_roster_err_t fzn_roster_bundle_open(const uint8_t *bytes, size_t len,
 	return FZN_ROSTER_OK;
 }
 
-/* WHETHER A WRITER COUNTS: no hop of the chain it wrote under is revoked, by
- * an issuer entitled to revoke that hop -- the root or an ancestor in the
- * chain, as `fzn_revocation_covers_chain` derives it. The root, with no
- * chain, is never revoked. */
-static int counts(const fzn_roster_writer_t *w, const fzn_revocation_store_t *revocations)
+/* WHETHER A WRITER'S RECORD COUNTS: no hop of the chain it wrote under is
+ * revoked, by an issuer entitled to revoke that hop -- the root or an
+ * ancestor in the chain, as `fzn_revocation_covers_chain` derives it. The
+ * root, with no chain, is never revoked.
+ *
+ * UNDER A ROOT SET, sec 413: a root writing alone counts as the set says of
+ * `act`, the record's hash -- always while it stands, and after its removal
+ * only for what its log shows before the cut. A chain counts only while its
+ * first hop does, as `fzn_chain_verify` asks of a chain it verifies. */
+static int counts(const fzn_roster_writer_t *w, const uint8_t act[FZN_REVOCATION_ID_LEN],
+                  const fzn_revocation_store_t *revocations)
 {
 	uint8_t revoked[FZN_CHAIN_MAX_HOPS];
 	size_t i;
 
+	if (revocations && revocations->roots) {
+		const fzn_root_ops_t *set = revocations->roots;
+
+		if (w->hop_count == 0u)
+			return set->counts(set->ctx, w->key, act);
+		if (!set->counts(set->ctx, w->grantor[0], w->first_act))
+			return 0;
+	}
 	/* THE STORE'S OWN RULE, k-of-n and admins included (sec 397), through
 	 * the form that takes a chain's shape rather than its bytes. */
 	if (!revocations || w->hop_count == 0u)
@@ -393,7 +431,7 @@ static fzn_roster_state_t judge(const fzn_roster_t *roster, const fzn_roster_ent
 	for (i = 0; i < e->remover_count; i++) {
 		const fzn_roster_writer_t *w = &roster->writers[e->remover[i]];
 
-		if (!counts(w, revocations))
+		if (!counts(w, e->remover_act[i], revocations))
 			continue;
 		/* THE ROOT RETIRES ALONE, sec 403: it writes with no chain, and a
 		 * root acts for the estate by itself. */
@@ -409,7 +447,7 @@ static fzn_roster_state_t judge(const fzn_roster_t *roster, const fzn_roster_ent
 		return FZN_ROSTER_RETIRED;
 	if (distinct > 0u)
 		return FZN_ROSTER_SUSPENDED;
-	if (e->added && counts(&roster->writers[e->add_writer], revocations))
+	if (e->added && counts(&roster->writers[e->add_writer], e->add_act, revocations))
 		return FZN_ROSTER_ACTIVE;
 	return FZN_ROSTER_ABSENT;
 }
