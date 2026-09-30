@@ -65,10 +65,19 @@ const char *fzn_node_pair_err_str(fzn_node_pair_err_t err);
  * may pass on appends a hop signed with its own key. The chain must verify
  * under the root for the capability being granted, name this node as its
  * last grantee, and end in a delegable hop, or the pairing is refused.
+ *
+ * A CHAIN FROM ANOTHER ROOT, sec 411: `proof` holds the root-adds from the
+ * estate's root to the root `hops` starts at, and the card a pairing makes
+ * carries them, so a device pinning the estate's root accepts the chain
+ * (sec 410). NULL and 0 when `hops` starts at the estate's root, which is
+ * every authority before sec 411 -- so an authority is zeroed before it is
+ * filled, and a field left unset is no proof rather than garbage.
  */
 typedef struct fzn_node_authority {
 	const uint8_t (*hops)[FZN_HOP_LEN];
 	size_t hop_count;
+	const uint8_t (*proof)[FZN_PROVISION_PROOF_ITEM_LEN];
+	size_t proof_count;
 } fzn_node_authority_t;
 
 /* Pair `device` to this node. `root` is the root this node verifies against:

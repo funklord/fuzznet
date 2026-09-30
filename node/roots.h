@@ -35,9 +35,10 @@
  * device saves them with `fzn_node_roots_save`, so a node joining that way
  * knows the root its chain starts at when it next loads.
  *
- * WHAT IT DOES NOT DO YET: pair devices through a separate root key. A node's
- * pairings are still minted by its identity, as a root or through the chain
- * it joined with.
+ * PAIRING THROUGH THE ROOT KEY (sec 411): `fzn_node_roots_self_grant`
+ * mints the key's grant to the node's identity and the proof that the key is
+ * a root, as an authority `fzn_node_pair` extends. The card it makes is too
+ * long for one reply line, so it is `fuzznetd --pair` that uses it.
  */
 
 #ifndef FZN_NODE_ROOTS_H
@@ -47,6 +48,7 @@
 #include <stdint.h>
 
 #include "caller.h"
+#include "pair.h"
 #include "revoke.h"
 #include "../chain/revocation.h"
 #include "../chain/root_log.h"
@@ -75,7 +77,10 @@ typedef enum fzn_node_roots_err {
 	FZN_NODE_ROOTS_FORKED = -6,
 	/* A root key is already held; a second would be a second authority on
 	 * one host. */
-	FZN_NODE_ROOTS_HELD = -7
+	FZN_NODE_ROOTS_HELD = -7,
+	/* No chain of at most FZN_PROVISION_PROOF_MAX root-adds this node holds
+	 * reaches from the estate's root to its root key. */
+	FZN_NODE_ROOTS_NO_PROOF = -8
 } fzn_node_roots_err_t;
 
 const char *fzn_node_roots_err_str(fzn_node_roots_err_t err);
@@ -169,6 +174,27 @@ fzn_node_roots_err_t fzn_node_roots_change(fzn_node_roots_t *roots,
                                            const fzn_sign_ops_t *identity_sign, int remove,
                                            const uint8_t subject[FZN_PUBKEY_LEN],
                                            const uint8_t cut[FZN_ROOT_ACT_ID_LEN]);
+
+/* PAIRING THROUGH THIS NODE'S ROOT KEY, sec 411. `hop` receives the root
+ * key's grant of `cap` to `identity`, delegable and never expiring, and
+ * `authority` is filled to pair with it: the hop, and the root-adds from the
+ * estate's root to the key, read from `store`, into `proof`. NOT_ROOT when
+ * the key is not held or does not stand, NO_PROOF when no path of adds this
+ * node holds reaches it.
+ *
+ * THE SAME HOP EVERY TIME. It is minted at issued_at 0, and Ed25519 is
+ * deterministic, so one capability is one act and is logged once, however
+ * many devices are paired under it -- the log never evicts. A revocation of
+ * the identity under the key covers it for good, which is what revoking a
+ * node's own identity means; a withdrawal restores it. */
+fzn_node_roots_err_t fzn_node_roots_self_grant(fzn_node_roots_t *roots,
+                                               const fzn_persist_ops_t *store,
+                                               const uint8_t identity[FZN_PUBKEY_LEN],
+                                               const fzn_cap_id_t *cap,
+                                               uint8_t hop[FZN_HOP_LEN],
+                                               uint8_t proof[FZN_PROVISION_PROOF_MAX]
+                                                           [FZN_PROVISION_PROOF_ITEM_LEN],
+                                               fzn_node_authority_t *authority);
 
 /* Every root record the store holds, as items from `from`, written as
  * ` ITEM` into `out` while they fit in `cap`; `*len` written, `*total` items.

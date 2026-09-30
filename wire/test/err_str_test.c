@@ -223,7 +223,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_node_pull_err_str", r_pull, 6 },
 	{ "fzn_roster_err_str", r_roster, 8 },
 	{ "fzn_root_log_err_str", r_root_log, 6 },
-	{ "fzn_node_roots_err_str", r_node_roots, 8 },
+	{ "fzn_node_roots_err_str", r_node_roots, 9 },
 	{ "fzn_record_err_str", r_record, 6 },
 	{ "fzn_journal_err_str", r_journal, 7 },
 	{ "fzn_ledger_err_str", r_ledger, 4 },

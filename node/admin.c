@@ -88,6 +88,16 @@ static size_t add_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t hex_l
 
 	/* A CARD THAT WILL NOT FIT THE REPLY IS REFUSED BEFORE ANYTHING IS
 	 * PAIRED: afterwards the device would be saved and its card lost. */
+	/* THROUGH A ROOT KEY, sec 411, the card is two hops and a proof: past
+	 * one reply line by construction, so said here rather than found by a
+	 * pairing that cannot answer. */
+	if (!admin->authority
+	    && memcmp(admin->state->config.root, admin->id->pubkey, FZN_PUBKEY_LEN) != 0
+	    && admin->roots && admin->roots->key_held
+	    && fzn_root_view_stands(&admin->roots->view, admin->roots->key))
+		return answer_text(reply, cap, FZN_REPLY_ERROR,
+		                   "this node pairs through its root key, and that card is too "
+		                   "long for one reply line; pair with fuzznetd --pair");
 	if (admin->authority && admin->authority->hop_count + 1u > ADMIN_CARD_HOPS)
 		return answer_text(reply, cap, FZN_REPLY_ERROR,
 		                   "this node's chain is too deep for a card on one reply line; "

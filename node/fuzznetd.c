@@ -731,6 +731,38 @@ int main(int argc, char **argv)
 			                "pairing mints, so the node must hold its key\n");
 			return 2;
 		}
+		/* THROUGH THIS NODE'S ROOT KEY, sec 411, when it holds one that
+		 * stands and is not its estate's root by identity: the key's grant
+		 * to the identity, and the adds that make the key a root, travel on
+		 * the card. Otherwise the chain it joined with, as before. */
+		if (memcmp(state.config.root, identity.pubkey, FZN_PUBKEY_LEN) != 0) {
+			static fzn_node_roots_t pair_roots;
+			static uint8_t grant[FZN_HOP_LEN];
+			static uint8_t proof[FZN_PROVISION_PROOF_MAX][FZN_PROVISION_PROOF_ITEM_LEN];
+			static fzn_node_authority_t through_key;
+			size_t nroots = 0;
+			fzn_node_roots_err_t rerr;
+
+			if (fzn_node_roots_init(&pair_roots, state.config.root, &sign_ops, &hash_ops)
+			            != FZN_NODE_ROOTS_OK
+			    || fzn_node_roots_load(&pair_roots, store_ops, &nroots) != FZN_NODE_ROOTS_OK
+			    || fzn_node_roots_key_load(&pair_roots, store_ops, &root_seat,
+			                               &root_sign_ops) != FZN_NODE_ROOTS_OK) {
+				fprintf(stderr, "fuzznetd: --pair could not restore the roots in %s\n",
+				        store_dir);
+				return 1;
+			}
+			rerr = fzn_node_roots_self_grant(&pair_roots, store_ops, identity.pubkey,
+			                                 &state.config.remote_capability, grant, proof,
+			                                 &through_key);
+			if (rerr == FZN_NODE_ROOTS_OK) {
+				my_authority = &through_key;
+			} else if (rerr != FZN_NODE_ROOTS_NOT_ROOT) {
+				fprintf(stderr, "fuzznetd: not paired through the root key: %s\n",
+				        fzn_node_roots_err_str(rerr));
+				return 1;
+			}
+		}
 		return pair_device(&identity, &state.config, my_authority, delegable, store_ops,
 		                   pair_hex, wall_clock());
 	}

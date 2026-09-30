@@ -24,6 +24,7 @@
 #include "../session/agree.h"
 #include "../session/session.h"
 #include "../prekey/prekey.h"
+#include "../provision/provision.h"
 
 /* A node's own material. The device that provisions itself from a card is a
  * fzn_node_identity_t too, from its own point of view. */
@@ -82,11 +83,14 @@ fzn_node_provision_err_t fzn_node_make_card(const fzn_node_identity_t *id,
  * and `chain` runs from it to the device, `hop_count` hops: one when this node
  * is the root, the node's own chain and then the device's hop when it grants
  * through a delegated one (sec 383). The node signs the card as its sponsor
- * (sec 391). */
+ * (sec 391). `proof` is the root-adds from `root` to the root the chain
+ * starts at, NULL and 0 when it starts at `root` (sec 410). */
 fzn_node_provision_err_t fzn_node_card_pack(const fzn_node_identity_t *id,
                                             const uint8_t root[FZN_PUBKEY_LEN],
                                             const uint8_t (*chain)[FZN_HOP_LEN],
-                                            size_t hop_count, uint64_t card_expires_at,
+                                            size_t hop_count,
+                                            const uint8_t (*proof)[FZN_PROVISION_PROOF_ITEM_LEN],
+                                            size_t proof_count, uint64_t card_expires_at,
                                             uint8_t *out, size_t cap_bytes, size_t *out_len);
 
 /* The device side: open and verify a card, check its whole chain from the

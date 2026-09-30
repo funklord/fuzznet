@@ -698,7 +698,7 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 	static struct node r, n, d, other;
 	fzn_prekey_record_t n_rec, d_rec;
 	fzn_node_pairing_t joined, d_pairing;
-	fzn_node_authority_t authority;
+	fzn_node_authority_t authority = { 0 };
 	uint8_t card[FZN_PROVISION_MAX_LEN];
 	size_t card_len = 0, loaded = 0;
 	static fzn_node_peer_t n_peers[4];
@@ -753,7 +753,7 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 	 * verifies and is delegable and names another node. */
 	{
 		uint8_t hop[FZN_HOP_LEN];
-		fzn_node_authority_t bad;
+		fzn_node_authority_t bad = { 0 };
 
 		bad.hops = (const uint8_t (*)[FZN_HOP_LEN])hop;
 		bad.hop_count = 1u;
@@ -896,7 +896,7 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 		fzn_revocation_store_t mine, reloaded;
 		fzn_prekey_record_t e_rec;
 		fzn_node_pairing_t e_pairing;
-		fzn_node_authority_t leaf;
+		fzn_node_authority_t leaf = { 0 };
 		size_t count = 0, learned = 0;
 
 		CHECK(node_up(&e)
@@ -1085,7 +1085,7 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 	fzn_revocation_store_t r_revs, n_revs, m_revs, reloaded;
 	fzn_prekey_record_t n_rec, d_rec, m_rec;
 	fzn_node_pairing_t n_joined, m_joined, d_pairing;
-	fzn_node_authority_t authority;
+	fzn_node_authority_t authority = { 0 };
 	fzn_node_vote_pull_t pull;
 	uint8_t card[FZN_PROVISION_MAX_LEN];
 	size_t card_len = 0, count = 0, learned = 0;
@@ -1826,6 +1826,149 @@ static void test_a_card_proves_its_root(const fzn_cap_id_t *cap)
 	      "D's roots, loaded again, do not make K a root of R's estate");
 }
 
+/* ---- pairing through a root key, sec 411 ------------------------------- */
+
+/* `by` adds `key` as a root, learned into `into` and saved in `store`. */
+static int add_as(struct node *by, const uint8_t key[FZN_PUBKEY_LEN], fzn_node_roots_t *into,
+                  struct node *store)
+{
+	uint8_t add[FZN_ROOT_ADD_LEN];
+
+	return fzn_root_add_issue(by->id.pubkey, key, &by->sign, add) == FZN_ROOT_LOG_OK
+	       && fzn_node_roots_learn(into, &store->ops, add, sizeof(add)) == FZN_NODE_ROOTS_OK;
+}
+
+static size_t grants_by(const fzn_node_roots_t *roots, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	size_t i, n = 0;
+
+	for (i = 0; i < roots->log.used; i++)
+		if (memcmp(roots->log.entries[i].root, key, FZN_PUBKEY_LEN) == 0
+		    && roots->log.entries[i].kind == (uint8_t)FZN_ROOT_ACT_GRANT)
+			n++;
+	return n;
+}
+
+/* M holds a root key K and has joined nothing. R, the genesis, adds Y and X;
+ * X adds K. M pairs D through K: the card carries K's grant to M, M's to D,
+ * and the adds R-X and X-K -- found past the dead end at Y, and not through
+ * Q, whose add of K fell when R removed it -- and D, pinning
+ * R, accepts it. K's grant is one act however often it is made, and a
+ * revocation store with M's roots attached verifies D's chain where the
+ * genesis pin alone refuses it. Before K stands there is no grant, and a key
+ * four adds from the genesis has no proof a card can carry. */
+static void test_a_node_pairs_through_its_root_key(const fzn_cap_id_t *cap)
+{
+	static struct node r, m, d, x, y, q, a, b, c;
+	static fzn_node_roots_t r_roots, m_roots, deep;
+	static fzn_sign_monocypher_t k_signer;
+	static fzn_revocation_t entries[4];
+	static fzn_node_peer_t peers[2];
+	fzn_sign_ops_t k_sign;
+	fzn_sign_seat_t k_seat;
+	fzn_revocation_store_t revs;
+	fzn_prekey_record_t d_rec;
+	fzn_node_pairing_t d_pairing;
+	fzn_node_authority_t through = { 0 };
+	fzn_chain_hop_t views[2];
+	fzn_chain_t verdict;
+	uint8_t hop[FZN_HOP_LEN], again[FZN_HOP_LEN];
+	uint8_t proof[FZN_PROVISION_PROOF_MAX][FZN_PROVISION_PROOF_ITEM_LEN];
+	uint8_t card[FZN_PROVISION_MAX_LEN];
+	size_t card_len = 0, learned = 0, loaded = 0, used;
+
+	CHECK(node_up(&r) && node_up(&m) && node_up(&d) && node_up(&x) && node_up(&y)
+	              && node_up(&q) && node_up(&a) && node_up(&b) && node_up(&c)
+	              && fzn_prekey_open(d.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &d_rec)
+	                         == FZN_PREKEY_OK,
+	      "fixture: the nodes");
+	fzn_sign_monocypher_init(&k_sign, &k_signer);
+	fzn_sign_monocypher_seat_init(&k_seat, &k_signer);
+	CHECK(fzn_node_roots_init(&r_roots, r.id.pubkey, &r.sign, &hash_ops) == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_init(&m_roots, r.id.pubkey, &m.sign, &hash_ops)
+	                         == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_key_create(&m_roots, &m.ops, &rng_ops, &k_seat, &k_sign)
+	                         == FZN_NODE_ROOTS_OK,
+	      "fixture: R's and M's roots, and M's key K");
+
+	/* BEFORE K STANDS: no grant, and nothing logged. */
+	CHECK(fzn_node_roots_self_grant(&m_roots, &m.ops, m.id.pubkey, cap, hop, proof, &through)
+	              == FZN_NODE_ROOTS_NOT_ROOT
+	              && m_roots.log.used == 0u,
+	      "M granted as a root key no root had added");
+
+	/* R ADDS Y, A DEAD END, AND Q, AND REMOVES Q WITH NOTHING KEPT; Q'S ADD OF
+	 * K THEREFORE DOES NOT COUNT, and a proof through it would rest on a
+	 * removed root. R ADDS X; X ADDS K. */
+	CHECK(fzn_node_roots_change(&r_roots, &r.ops, r.id.pubkey, &r.sign, 0, y.id.pubkey, NULL)
+	              == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_change(&r_roots, &r.ops, r.id.pubkey, &r.sign, 0,
+	                                       q.id.pubkey, NULL) == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_change(&r_roots, &r.ops, r.id.pubkey, &r.sign, 1,
+	                                       q.id.pubkey, NULL) == FZN_NODE_ROOTS_OK
+	              && roots_sync(&r, &m_roots, &m, &learned) == FZN_NODE_PULL_OK
+	              && add_as(&q, m_roots.key, &m_roots, &m)
+	              && !fzn_root_view_stands(&m_roots.view, m_roots.key),
+	      "fixture: K added only by a removed root, and not standing");
+	CHECK(fzn_node_roots_change(&r_roots, &r.ops, r.id.pubkey, &r.sign, 0, x.id.pubkey, NULL)
+	              == FZN_NODE_ROOTS_OK
+	              && roots_sync(&r, &m_roots, &m, &learned) == FZN_NODE_PULL_OK
+	              && add_as(&x, m_roots.key, &m_roots, &m)
+	              && fzn_root_view_stands(&m_roots.view, m_roots.key),
+	      "fixture: K standing through R's add of X and X's add of K");
+
+	CHECK(fzn_node_roots_self_grant(&m_roots, &m.ops, m.id.pubkey, cap, hop, proof, &through)
+	              == FZN_NODE_ROOTS_OK
+	              && through.hop_count == 1u && through.proof_count == 2u
+	              && memcmp(proof[0] + FZN_ROOT_SET_OFF_SUBJECT, x.id.pubkey, FZN_PUBKEY_LEN) == 0
+	              && memcmp(proof[1] + FZN_ROOT_SET_OFF_SUBJECT, m_roots.key, FZN_PUBKEY_LEN)
+	                         == 0,
+	      "M's grant through K did not carry the proof R-X, X-K");
+	CHECK(grants_by(&m_roots, m_roots.key) == 1u, "K's grant to M was not logged once");
+	used = m_roots.log.used;
+	CHECK(fzn_node_roots_self_grant(&m_roots, &m.ops, m.id.pubkey, cap, again, proof, &through)
+	              == FZN_NODE_ROOTS_OK
+	              && memcmp(hop, again, FZN_HOP_LEN) == 0 && m_roots.log.used == used,
+	      "a second grant under one capability was another hop, or logged again");
+
+	/* M PAIRS D THROUGH K, and D, pinning R, accepts. */
+	CHECK(fzn_node_pair(&m.id, r.id.pubkey, cap, &through, 0, &m.ops, d_rec, 1200u,
+	                    1200u + 86400u, card, sizeof(card), &card_len) == FZN_NODE_PAIR_OK
+	              && card_len == FZN_PROVISION_LEN(2, 2),
+	      "M could not pair D through its root key");
+	CHECK(fzn_node_pairing_accept(&d.id, card, card_len, 1300u, &d.ops, &d_pairing)
+	              == FZN_NODE_PAIR_OK
+	              && memcmp(d_pairing.node, m.id.pubkey, FZN_PUBKEY_LEN) == 0,
+	      "D, pinning R, refused the card M made through K");
+
+	/* M VERIFIES D'S CHAIN with its roots, and not without them. */
+	CHECK(fzn_node_peers_load(&m.ops, peers, 2, &loaded) == FZN_PERSIST_OK && loaded == 1u
+	              && peers[0].hop_count == 2u
+	              && fzn_hop_open(peers[0].hop_bytes[0], FZN_HOP_LEN, &views[0]) == FZN_CHAIN_OK
+	              && fzn_hop_open(peers[0].hop_bytes[1], FZN_HOP_LEN, &views[1]) == FZN_CHAIN_OK
+	              && fzn_revocation_store_init(&revs, entries, 4) == FZN_CHAIN_OK
+	              && fzn_node_roots_attach(&m_roots, &revs) == FZN_NODE_ROOTS_OK,
+	      "fixture: M's peer and a store with M's roots");
+	CHECK(fzn_chain_verify(views, 2, r.id.pubkey, cap, 1400u, &m.sign, &revs, NULL, &verdict)
+	              == FZN_CHAIN_OK
+	              && memcmp(verdict.grantee, d.id.pubkey, FZN_PUBKEY_LEN) == 0,
+	      "M's own roots do not verify the chain it paired D with");
+	CHECK(fzn_chain_verify(views, 2, r.id.pubkey, cap, 1400u, &m.sign, NULL, NULL, &verdict)
+	              == FZN_CHAIN_ERR_WRONG_ROOT,
+	      "the control: the genesis pin alone took a chain from K");
+
+	/* TOO DEEP FOR A CARD: R-A, A-B, B-C, C-K is four adds. */
+	CHECK(fzn_node_roots_init(&deep, r.id.pubkey, &m.sign, &hash_ops) == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_key_load(&deep, &m.ops, &k_seat, &k_sign) == FZN_NODE_ROOTS_OK
+	              && add_as(&r, a.id.pubkey, &deep, &a) && add_as(&a, b.id.pubkey, &deep, &a)
+	              && add_as(&b, c.id.pubkey, &deep, &a) && add_as(&c, deep.key, &deep, &a)
+	              && fzn_root_view_stands(&deep.view, deep.key),
+	      "fixture: K four adds from R");
+	CHECK(fzn_node_roots_self_grant(&deep, &a.ops, m.id.pubkey, cap, hop, proof, &through)
+	              == FZN_NODE_ROOTS_NO_PROOF,
+	      "a root key four adds from the genesis was given a proof");
+}
+
 int main(void)
 {
 	static struct node node, device, stranger;
@@ -1943,6 +2086,7 @@ int main(void)
 	test_several_roots_at_a_node(&cap);
 	test_a_node_acts_as_a_root();
 	test_a_card_proves_its_root(&cap);
+	test_a_node_pairs_through_its_root_key(&cap);
 
 	/* ---- A NODE THAT IS NOT ITS OWN ROOT PAIRS NOTHING, and writes nothing. */
 	stranger.store.saves = 0;

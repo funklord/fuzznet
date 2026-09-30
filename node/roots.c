@@ -33,6 +33,8 @@ const char *fzn_node_roots_err_str(fzn_node_roots_err_t err)
 		return "this root's log has forked, and extending it would pick a branch";
 	case FZN_NODE_ROOTS_HELD:
 		return "this node already holds a root key";
+	case FZN_NODE_ROOTS_NO_PROOF:
+		return "no root-adds this node holds reach from the estate's root to its root key";
 	}
 	return "unknown";
 }
@@ -560,4 +562,93 @@ fzn_node_roots_err_t fzn_node_roots_change(fzn_node_roots_t *roots,
 	if (err != FZN_NODE_ROOTS_OK)
 		return err;
 	return fzn_node_roots_learn(roots, store, record, len);
+}
+
+/* A path of accepted adds from `from` to `to`, at most `left` long, as change
+ * indices into `path` from position `depth`; its length, or 0 with none. An
+ * add is followed only where the settled view accepted it, so a proof never
+ * rests on an add this node judged its signer could not make. */
+static size_t find_path(const fzn_node_roots_t *roots, const uint8_t *from, const uint8_t *to,
+                        size_t depth, size_t left, size_t path[FZN_PROVISION_PROOF_MAX])
+{
+	size_t i, n;
+
+	for (i = 0; left && i < roots->set.used; i++) {
+		const fzn_root_change_t *c = &roots->set.changes[i];
+
+		if (c->object != (uint8_t)FZN_OBJECT_ROOT_ADD || !roots->view.add_ok[i]
+		    || !fzn_ct_memeq(c->signer, from, FZN_PUBKEY_LEN))
+			continue;
+		path[depth] = i;
+		if (fzn_ct_memeq(c->subject, to, FZN_PUBKEY_LEN))
+			return depth + 1u;
+		n = find_path(roots, c->subject, to, depth + 1u, left - 1u, path);
+		if (n)
+			return n;
+	}
+	return 0;
+}
+
+fzn_node_roots_err_t fzn_node_roots_self_grant(fzn_node_roots_t *roots,
+                                               const fzn_persist_ops_t *store,
+                                               const uint8_t identity[FZN_PUBKEY_LEN],
+                                               const fzn_cap_id_t *cap,
+                                               uint8_t hop[FZN_HOP_LEN],
+                                               uint8_t proof[FZN_PROVISION_PROOF_MAX]
+                                                           [FZN_PROVISION_PROOF_ITEM_LEN],
+                                               fzn_node_authority_t *authority)
+{
+	size_t path[FZN_PROVISION_PROOF_MAX];
+	uint8_t act[FZN_ROOT_ACT_ID_LEN];
+	size_t count = 0, i;
+	int logged = 0;
+	fzn_node_roots_err_t err;
+
+	if (!roots || !store || !store->load || !identity || !cap || !hop || !proof || !authority)
+		return FZN_NODE_ROOTS_MALFORMED;
+	if (!roots->key_held || !fzn_root_view_stands(&roots->view, roots->key))
+		return FZN_NODE_ROOTS_NOT_ROOT;
+
+	/* THE PROOF, from the store's copies of the adds the set holds: the set
+	 * keeps their fields and not their signatures. */
+	if (!fzn_ct_memeq(roots->set.genesis, roots->key, FZN_PUBKEY_LEN)) {
+		count = find_path(roots, roots->set.genesis, roots->key, 0, FZN_PROVISION_PROOF_MAX,
+		                  path);
+		if (!count)
+			return FZN_NODE_ROOTS_NO_PROOF;
+	}
+	for (i = 0; i < count; i++) {
+		uint8_t blob[CHANGE_BLOB_MAX];
+		size_t len = 0;
+
+		if (!store->load(store->ctx, FZN_PERSIST_ROOT_CHANGE, roots->set.changes[path[i]].id,
+		                 blob, sizeof(blob), &len)
+		    || len != (size_t)FZN_PERSIST_HEAD_LEN + FZN_ROOT_ADD_LEN
+		    || fzn_persist_head_check(blob, len, FZN_ROOT_ADD_LEN,
+		                              (uint8_t)FZN_PERSIST_BLOB_ROOT_ADD) != FZN_PERSIST_OK)
+			return FZN_NODE_ROOTS_STORE;
+		memcpy(proof[i], blob + FZN_PERSIST_HEAD_LEN, FZN_ROOT_ADD_LEN);
+	}
+
+	/* THE GRANT, logged once. */
+	if (fzn_chain_mint(roots->key, identity, cap, 0u, FZN_NO_EXPIRY, 1, roots->key_sign, hop)
+	            != FZN_CHAIN_OK
+	    || !roots->hash->hash(roots->hash->ctx, act, sizeof(act), hop, FZN_HOP_LEN))
+		return FZN_NODE_ROOTS_REFUSED;
+	for (i = 0; i < roots->log.used && !logged; i++)
+		logged = fzn_ct_memeq(roots->log.entries[i].root, roots->key, FZN_PUBKEY_LEN)
+		         && fzn_ct_memeq(roots->log.entries[i].act, act, sizeof(act));
+	if (!logged) {
+		err = fzn_node_roots_log_act(roots, store, roots->key, roots->key_sign,
+		                             (uint8_t)FZN_ROOT_ACT_GRANT, hop, FZN_HOP_LEN);
+		if (err != FZN_NODE_ROOTS_OK)
+			return err;
+	}
+
+	memset(authority, 0, sizeof(*authority));
+	authority->hops = (const uint8_t (*)[FZN_HOP_LEN])hop;
+	authority->hop_count = 1u;
+	authority->proof = (const uint8_t (*)[FZN_PROVISION_PROOF_ITEM_LEN])proof;
+	authority->proof_count = count;
+	return FZN_NODE_ROOTS_OK;
 }

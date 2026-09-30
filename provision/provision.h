@@ -248,6 +248,17 @@ fzn_provision_err_t fzn_provision_open(const uint8_t *bytes, size_t len,
 fzn_provision_err_t fzn_provision_verify(fzn_provision_card_t card,
                                          const fzn_sign_ops_t *verifier, uint64_t now);
 
+/* WHERE A PROOF REACHES: walk `proof_count` root-adds, laid end to end, from
+ * `root`, each an add by the root the walk has reached and signed by it, and
+ * set `*end` to the last one's added key -- `root` itself for no proof.
+ * SIGNATURE when the walk breaks anywhere, MALFORMED for more than
+ * FZN_PROVISION_PROOF_MAX. What `fzn_provision_verify` asks of a card's
+ * proof, and what a node asks of the proof it is about to put on one. */
+fzn_provision_err_t fzn_provision_proof_end(const uint8_t root[FZN_PUBKEY_LEN],
+                                            const uint8_t *proof, size_t proof_count,
+                                            const fzn_sign_ops_t *verifier,
+                                            const uint8_t **end);
+
 /* The card as the string a code carries. `out` receives at most
  * FZN_PROVISION_TEXT_MAX_LEN bytes including the NUL. */
 fzn_provision_err_t fzn_provision_text(const uint8_t *bytes, size_t len, char *out,

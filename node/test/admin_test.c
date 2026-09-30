@@ -201,6 +201,17 @@ static void hex(const uint8_t *in, size_t len, char *out)
 
 /* One request over a socketpair, served by the admin handler, the reply read
  * by the client library as a caller would. */
+/* Whether a reply's detail, `len` bytes and not terminated, holds `what`. */
+static int says(const uint8_t *detail, size_t len, const char *what)
+{
+	size_t n = strlen(what), i;
+
+	for (i = 0; i + n <= len; i++)
+		if (memcmp(detail + i, what, n) == 0)
+			return 1;
+	return 0;
+}
+
 static int ask(fzn_node_admin_t *admin, const fzn_peer_t *who, const char *line,
                uint8_t *reply, size_t cap, size_t *reply_len)
 {
@@ -565,6 +576,33 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && detail_len > 3u && memcmp(detail, "7 0 ", 4u) == 0,
 		      "get root did not serve the seven root records this node holds");
+	}
+
+	/* ---- THROUGH A ROOT KEY THE CARD WILL NOT FIT A REPLY, and add peer
+	 * says so before pairing anything. sec 411. Staged by hand: the node is
+	 * made a member of another estate that holds a standing root key --
+	 * its own identity, the one key this set already stands. */
+	{
+		uint8_t pinned[FZN_PUBKEY_LEN];
+		unsigned saves;
+
+		memcpy(pinned, state.config.root, FZN_PUBKEY_LEN);
+		memcpy(state.config.root, device.id.pubkey, FZN_PUBKEY_LEN);
+		memcpy(roots.key, node.id.pubkey, FZN_PUBKEY_LEN);
+		roots.key_held = 1;
+		saves = node.store.saves;
+		snprintf(line, sizeof(line), "add peer %s", prekey_hex);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR
+		              && says(detail, detail_len, "fuzznetd --pair")
+		              && node.store.saves == saves,
+		      "add peer through a root key was not refused before pairing");
+		roots.key_held = 0;
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR
+		              && !says(detail, detail_len, "fuzznetd --pair"),
+		      "the control: a node holding no root key was sent to fuzznetd --pair");
+		memcpy(state.config.root, pinned, FZN_PUBKEY_LEN);
 	}
 
 	/* ---- WHAT IT DOES NOT SERVE, IT SAYS SO. */

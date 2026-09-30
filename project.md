@@ -50042,15 +50042,10 @@ chain accepted. Three steps is more than any estate here needs today.
 
 ### Not yet after sec 410
 
-**The node side of pairing through K.** Still to build:
-
-- the self-grant hop from K to the node's identity;
-- building the proof from genesis to K out of the node's root set;
-- using both in `add peer` and `fuzznetd --pair` when the acting root is
-  K.
-
-The admin reply bound also needs checking then, because a card with a
-proof can pass 1024 characters of text.
+**The node side of pairing through K**, which sec 411 built: the
+self-grant from K to the node's identity, the proof from the node's
+root set, and `fuzznetd --pair`. The reply bound was checked there, and
+`add peer` refuses such a card because it does not fit one line.
 
 ### Measured for sec 410
 
@@ -50079,3 +50074,110 @@ envelope:
 `make schema SITU_DIR=../situ`, against situ 2744f65: `situc wire
 --check` classified the change as breaking (the new tag, and fields that
 shift), which is intended. The regenerated contract and map are current.
+
+## 411. A node pairs through its root key, 2026-09-30
+
+Sec 410 let a card prove the root its chain starts at. This is the other
+half: a node whose root key K stands can make such a card. Before this,
+K could change the root set and revoke, but a node paired only through
+its identity, as the genesis root or through the chain it joined with.
+
+### The grant and the proof
+
+**`fzn_node_roots_self_grant`** fills an authority for `fzn_node_pair`
+to extend:
+
+- **K's grant of the capability to the node's identity**, delegable and
+  never expiring;
+- **the root-adds from the genesis to K**, read from the store, since
+  the set keeps an add's fields but not its signature.
+
+**The same hop every time.** The grant is minted at `issued_at` 0, and
+Ed25519 is deterministic, so one capability is one act. It is logged
+once, however many devices are paired under it, because the log never
+evicts. Revoking the identity under K covers the grant for good, which
+is what revoking a node's own identity means; a withdrawal restores it.
+
+**The proof follows accepted adds only.** The search runs depth-first
+from the genesis to K, at most three adds, and takes an add only where
+the settled view accepted it. A removed root's add of K is therefore
+never the proof, even though a device that does not yet know of the
+removal would take it. With no path of three or fewer, `NO_PROOF`.
+
+### The authority carries the proof
+
+`fzn_node_authority_t` gains `proof` and `proof_count`. An authority was
+already "a chain from a root". The proof says that root is the estate's,
+so the change is in the one place pairing reads. `fzn_node_pair` walks
+the proof with the new `fzn_provision_proof_end` (the walk
+`fzn_provision_verify` now shares), and verifies the authority under the
+root it ends at. No card is made that the device would refuse.
+
+An authority is zeroed before it is filled. The four in `pair_test` that
+were filled field by field now start from `{ 0 }`, so an unset proof is
+no proof rather than stack garbage.
+
+### Where it is used
+
+**`fuzznetd --pair` pairs through K** when the node is not its estate's
+root by identity and holds a key that stands. It loads the roots and
+the key for the purpose. Otherwise it uses the chain it joined with, as
+before.
+
+**`add peer` cannot carry such a card.** Two hops and a proof are 734
+bytes, 1180 characters of text, past the 1024 of one reply line. A node
+with no joined chain whose key stands is told to use `fuzznetd --pair`,
+before anything is paired. A node that joined and also holds a key
+still pairs through its chain at the verb, since that card fits.
+
+### Not yet after sec 411
+
+- **An identity that is a root but not the genesis.** A node whose
+  identity was added as a root, with no key of its own, still pairs
+  only through a joined chain. Its chain would start at the identity,
+  with no self-grant, and a proof to the identity.
+- **Roster writers against the root set**, admins by a grant plus
+  confirmations, and k as an estate setting that travels, from the sec
+  403 list.
+
+### Measured for sec 411
+
+`pair_test`, 196 checks, with `test_a_node_pairs_through_its_root_key`.
+R is the genesis:
+
+- Before K stands there is no grant and nothing is logged.
+- R adds Y, a dead end, and Q, then removes Q with nothing kept, and Q
+  adds K. K does not stand.
+- R adds X, and X adds K. The grant carries the proof R-X, X-K: past Y,
+  and not through Q.
+- The grant is logged once, and a second grant is the same bytes with
+  the log unchanged.
+- M pairs D through the grant. The card is `FZN_PROVISION_LEN(2, 2)`,
+  and D, pinning R, accepts it.
+- M's peer chain verifies against a revocation store with M's roots
+  attached, and the genesis pin alone refuses it (the control).
+- A key four adds from R gets `NO_PROOF`.
+
+`admin_test`, 45 checks:
+
+- `add peer` on a node holding a standing key and no joined chain is
+  refused, naming `fuzznetd --pair`, and nothing is saved.
+- The same request with no key held is refused as "not its own root",
+  and does not name `--pair` (the control).
+
+The first version of that control read the reply with `strstr`. The
+reply buffer is not terminated after a shorter reply, so the search found
+the previous reply's words, and the control failed on a correct program.
+It now searches the detail's length only.
+
+**Live, three stores over loopback:**
+
+1. M joins R and makes K, and R's daemon adds K.
+2. M's daemon pulls R's two root records and is stopped.
+3. `fuzznetd --pair` with D's prekey prints a 1180-character `FZN3:`
+   card. That is two hops and one proof; M's joined chain would have
+   made 972 characters.
+4. D's `--accept` pairs it to M. A second `--pair` gives the same
+   length.
+
+No daemon was left running, and the socket directory was removed.

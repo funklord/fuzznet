@@ -111,6 +111,35 @@ fzn_provision_err_t fzn_provision_open(const uint8_t *bytes, size_t len,
 	return FZN_PROVISION_OK;
 }
 
+fzn_provision_err_t fzn_provision_proof_end(const uint8_t root[FZN_PUBKEY_LEN],
+                                            const uint8_t *proof, size_t proof_count,
+                                            const fzn_sign_ops_t *verifier,
+                                            const uint8_t **end)
+{
+	const uint8_t *from = root;
+	size_t i;
+
+	if (!root || !end || (proof_count && !proof) || proof_count > FZN_PROVISION_PROOF_MAX)
+		return FZN_PROVISION_ERR_MALFORMED;
+	if (!verifier || !verifier->verify)
+		return FZN_PROVISION_ERR_SIGNER;
+	/* Each add signed by the root the one before added. A proof that
+	 * wanders proves nothing, so it is refused whole. */
+	for (i = 0; i < proof_count; i++) {
+		const uint8_t *add = proof + i * FZN_PROVISION_PROOF_ITEM_LEN;
+
+		if (add[0] != (uint8_t)FZN_SIGNED_VERSION
+		    || add[1] != (uint8_t)FZN_OBJECT_ROOT_ADD
+		    || memcmp(add + FZN_ROOT_SET_OFF_SIGNER, from, FZN_PUBKEY_LEN) != 0
+		    || !verifier->verify(verifier->ctx, add + FZN_ROOT_SET_OFF_SIGNER, add,
+		                         FZN_ROOT_ADD_BODY_LEN, add + FZN_ROOT_ADD_BODY_LEN))
+			return FZN_PROVISION_ERR_SIGNATURE;
+		from = add + FZN_ROOT_SET_OFF_SUBJECT;
+	}
+	*end = from;
+	return FZN_PROVISION_OK;
+}
+
 fzn_provision_err_t fzn_provision_verify(fzn_provision_card_t card,
                                          const fzn_sign_ops_t *verifier, uint64_t now)
 {
@@ -133,23 +162,13 @@ fzn_provision_err_t fzn_provision_verify(fzn_provision_card_t card,
 	if (card.proof_count > FZN_PROVISION_PROOF_MAX || (card.proof_count && !card.proof))
 		return FZN_PROVISION_ERR_MALFORMED;
 	/* THE ROOT THE CHAIN STARTS FROM: the genesis root, or the root the
-	 * proof reaches from it, each add signed by the root the one before
-	 * added. A proof that wanders proves nothing, so it is refused whole. */
+	 * proof reaches from it. */
 	{
-		const uint8_t *from = card.root;
+		const uint8_t *from = NULL;
 
-		for (i = 0; i < card.proof_count; i++) {
-			const uint8_t *add = card.proof + i * FZN_PROVISION_PROOF_ITEM_LEN;
-
-			if (add[0] != (uint8_t)FZN_SIGNED_VERSION
-			    || add[1] != (uint8_t)FZN_OBJECT_ROOT_ADD
-			    || memcmp(add + FZN_ROOT_SET_OFF_SIGNER, from, FZN_PUBKEY_LEN) != 0
-			    || !verifier->verify(verifier->ctx, add + FZN_ROOT_SET_OFF_SIGNER, add,
-			                         FZN_ROOT_ADD_BODY_LEN, add + FZN_ROOT_ADD_BODY_LEN))
-				return FZN_PROVISION_ERR_SIGNATURE;
-			from = add + FZN_ROOT_SET_OFF_SUBJECT;
-		}
-		if (fzn_hop_open(card.chain, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK
+		if (fzn_provision_proof_end(card.root, card.proof, card.proof_count, verifier, &from)
+		            != FZN_PROVISION_OK
+		    || fzn_hop_open(card.chain, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK
 		    || memcmp(fzn_hop_grantor(hop), from, FZN_PUBKEY_LEN) != 0)
 			return FZN_PROVISION_ERR_SIGNATURE;
 	}

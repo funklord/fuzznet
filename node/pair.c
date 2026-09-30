@@ -52,6 +52,8 @@ fzn_node_pair_err_t fzn_node_pair(const fzn_node_identity_t *id,
 	if (!id || !root || !cap || !store || !store->save || !device.bytes || !card
 	    || !card_len || (authority && (!authority->hops || authority->hop_count == 0u)))
 		return FZN_NODE_PAIR_MALFORMED;
+	if (authority && authority->proof_count && !authority->proof)
+		return FZN_NODE_PAIR_MALFORMED;
 	*card_len = 0;
 
 	/* CHECKED BEFORE ANYTHING IS DERIVED. A node that is not the root
@@ -64,13 +66,21 @@ fzn_node_pair_err_t fzn_node_pair(const fzn_node_identity_t *id,
 	} else {
 		fzn_chain_hop_t views[FZN_CHAIN_MAX_HOPS];
 		fzn_chain_t verdict;
+		const uint8_t *from = NULL;
 
 		if (own + 1u > FZN_CHAIN_MAX_HOPS)
+			return FZN_NODE_PAIR_NOT_ROOT;
+		/* THE ROOT THE CHAIN STARTS AT: the estate's, or the one the proof
+		 * reaches from it -- walked as the device will walk it, so no
+		 * card is made that the device would refuse. */
+		if (fzn_provision_proof_end(root, (const uint8_t *)authority->proof,
+		                            authority->proof_count, id->sign, &from)
+		    != FZN_PROVISION_OK)
 			return FZN_NODE_PAIR_NOT_ROOT;
 		for (i = 0; i < own; i++)
 			if (fzn_hop_open(authority->hops[i], FZN_HOP_LEN, &views[i]) != FZN_CHAIN_OK)
 				return FZN_NODE_PAIR_NOT_ROOT;
-		if (fzn_chain_verify(views, own, root, cap, now, id->sign, NULL, NULL, &verdict)
+		if (fzn_chain_verify(views, own, from, cap, now, id->sign, NULL, NULL, &verdict)
 		            != FZN_CHAIN_OK
 		    || memcmp(verdict.grantee, id->pubkey, FZN_PUBKEY_LEN) != 0
 		    || !fzn_hop_delegable(views[own - 1u]))
@@ -118,7 +128,9 @@ fzn_node_pair_err_t fzn_node_pair(const fzn_node_identity_t *id,
 	/* THE CARD CARRIES THE SAME CHAIN, so the device -- or a node joining
 	 * through this one -- can check it back to the root it pins (sec 391). */
 	if (fzn_node_card_pack(id, root, (const uint8_t (*)[FZN_HOP_LEN])chain, own + 1u,
-	                       card_expires_at, card, card_cap, card_len)
+	                       authority ? authority->proof : NULL,
+	                       authority ? authority->proof_count : 0u, card_expires_at, card,
+	                       card_cap, card_len)
 	    != FZN_NODE_PROVISION_OK) {
 		*card_len = 0;
 		return FZN_NODE_PAIR_CARD;
