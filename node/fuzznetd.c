@@ -824,9 +824,14 @@ int main(int argc, char **argv)
 				        store_dir);
 				return 1;
 			}
-			rerr = fzn_node_roots_self_grant(&pair_roots, store_ops, identity.pubkey,
-			                                 &state.config.remote_capability, grant, proof,
-			                                 &through_key);
+			/* AS A ROOT BY IDENTITY FIRST, sec 419: one hop and the proof,
+			 * a shorter card than a root key's two hops. */
+			rerr = fzn_node_roots_identity_root(&pair_roots, store_ops, identity.pubkey,
+			                                    proof, &through_key);
+			if (rerr == FZN_NODE_ROOTS_NOT_ROOT)
+				rerr = fzn_node_roots_self_grant(&pair_roots, store_ops, identity.pubkey,
+				                                 &state.config.remote_capability, grant,
+				                                 proof, &through_key);
 			if (rerr == FZN_NODE_ROOTS_OK) {
 				my_authority = &through_key;
 			} else if (rerr != FZN_NODE_ROOTS_NOT_ROOT) {

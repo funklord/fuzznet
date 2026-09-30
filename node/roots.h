@@ -215,6 +215,19 @@ fzn_node_roots_err_t fzn_node_roots_set_quorum(fzn_node_roots_t *roots,
                                                const uint8_t identity[FZN_PUBKEY_LEN],
                                                const fzn_sign_ops_t *identity_sign, uint8_t k);
 
+/* PAIRING AS A ROOT BY IDENTITY, sec 419: when this node's identity stands as
+ * a root other than the genesis, fill `authority` with no hops and the adds
+ * from the genesis to the identity, read from `store` into `proof`, so
+ * `fzn_node_pair` mints the device's hop as the chain's first and the card
+ * carries the proof. NOT_ROOT when the identity is the genesis or does not
+ * stand; NO_PROOF when no path of adds reaches it. */
+fzn_node_roots_err_t fzn_node_roots_identity_root(fzn_node_roots_t *roots,
+                                                  const fzn_persist_ops_t *store,
+                                                  const uint8_t identity[FZN_PUBKEY_LEN],
+                                                  uint8_t proof[FZN_PROVISION_PROOF_MAX]
+                                                              [FZN_PROVISION_PROOF_ITEM_LEN],
+                                                  fzn_node_authority_t *authority);
+
 /* Every root record the store holds, as items from `from`, written as
  * ` ITEM` into `out` while they fit in `cap`; `*len` written, `*total` items.
  * 0 when the store cannot list or a stored record will not read. */

@@ -16,6 +16,17 @@
  * refused at the verb with an error saying so; `fuzznetd --pair` prints any
  * length. sec 391. */
 #define ADMIN_CARD_HOPS 2u
+/* A root by identity pairs with one hop and a proof: one add fits a reply
+ * line and two do not. sec 419. */
+#define ADMIN_CARD_PROOF 1u
+_Static_assert(3u + FZN_PROVISION_TEXT_PREFIX_LEN
+                       + FZN_PROVISION_TEXT_BODY_LEN(FZN_PROVISION_LEN(1, ADMIN_CARD_PROOF))
+                   <= FZN_REPLY_MAX,
+               "a one-hop card with ADMIN_CARD_PROOF adds does not fit one reply line");
+_Static_assert(3u + FZN_PROVISION_TEXT_PREFIX_LEN
+                       + FZN_PROVISION_TEXT_BODY_LEN(FZN_PROVISION_LEN(1, ADMIN_CARD_PROOF + 1u))
+                   > FZN_REPLY_MAX,
+               "ADMIN_CARD_PROOF is smaller than a reply line allows");
 /* `grant admin` answers the grantee's whole chain as `h` items: two fit one
  * reply line and three do not. sec 416. */
 #define ADMIN_CHAIN_HOPS 2u
@@ -86,30 +97,43 @@ static size_t add_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t hex_l
 	fzn_node_pair_err_t perr;
 	size_t card_len = 0, loaded = 0;
 	uint64_t now;
+	static uint8_t proof[FZN_PROVISION_PROOF_MAX][FZN_PROVISION_PROOF_ITEM_LEN];
+	static fzn_node_authority_t by_identity;
+	const fzn_node_authority_t *authority = admin->authority;
 
 	if (!unhex(hex, hex_len, record_bytes, sizeof(record_bytes))
 	    || fzn_prekey_open(record_bytes, sizeof(record_bytes), &record) != FZN_PREKEY_OK)
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a prekey record");
+
+	/* AS A ROOT BY IDENTITY, sec 419, when this node's identity stands as a
+	 * root other than the genesis and the card -- one hop and the proof --
+	 * fits one reply line: a shorter card than a joined chain gives. */
+	if (admin->roots
+	    && memcmp(admin->state->config.root, admin->id->pubkey, FZN_PUBKEY_LEN) != 0
+	    && fzn_node_roots_identity_root(admin->roots, admin->store, admin->id->pubkey, proof,
+	                                    &by_identity) == FZN_NODE_ROOTS_OK
+	    && by_identity.proof_count <= ADMIN_CARD_PROOF)
+		authority = &by_identity;
 
 	/* A CARD THAT WILL NOT FIT THE REPLY IS REFUSED BEFORE ANYTHING IS
 	 * PAIRED: afterwards the device would be saved and its card lost. */
 	/* THROUGH A ROOT KEY, sec 411, the card is two hops and a proof: past
 	 * one reply line by construction, so said here rather than found by a
 	 * pairing that cannot answer. */
-	if (!admin->authority
+	if (!authority
 	    && memcmp(admin->state->config.root, admin->id->pubkey, FZN_PUBKEY_LEN) != 0
 	    && admin->roots && admin->roots->key_held
 	    && fzn_root_view_stands(&admin->roots->view, admin->roots->key))
 		return answer_text(reply, cap, FZN_REPLY_ERROR,
 		                   "this node pairs through its root key, and that card is too "
 		                   "long for one reply line; pair with fuzznetd --pair");
-	if (admin->authority && admin->authority->hop_count + 1u > ADMIN_CARD_HOPS)
+	if (authority && authority->hop_count + 1u > ADMIN_CARD_HOPS)
 		return answer_text(reply, cap, FZN_REPLY_ERROR,
 		                   "this node's chain is too deep for a card on one reply line; "
 		                   "pair with fuzznetd --pair");
 	now = admin->state->clock ? admin->state->clock() : 0u;
 	perr = fzn_node_pair(admin->id, admin->state->config.root,
-	                     &admin->state->config.remote_capability, admin->authority, 0,
+	                     &admin->state->config.remote_capability, authority, 0,
 	                     admin->store, record, now,
 	                     now + admin->card_lifetime, card, sizeof(card), &card_len);
 	if (perr != FZN_NODE_PAIR_OK)

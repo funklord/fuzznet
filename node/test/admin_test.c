@@ -692,6 +692,61 @@ int main(void)
 		}
 	}
 
+	/* ---- AS A ROOT BY IDENTITY, sec 419: the node is made a member of an
+	 * estate whose genesis is the device's key and which has added the
+	 * node's identity as a root; `add peer` then pairs with one hop and
+	 * that add, a card that fits the reply. */
+	{
+		static fzn_node_roots_t other;
+		uint8_t pinned[FZN_PUBKEY_LEN], add[FZN_ROOT_ADD_LEN];
+		struct fzn_node_roots *was = admin.roots;
+
+		memcpy(pinned, state.config.root, FZN_PUBKEY_LEN);
+		CHECK(fzn_node_roots_init(&other, device.id.pubkey, &node.sign, &hash_ops)
+		              == FZN_NODE_ROOTS_OK
+		              && fzn_root_add_issue(device.id.pubkey, node.id.pubkey, &device.sign, add)
+		                         == FZN_ROOT_LOG_OK
+		              && fzn_node_roots_learn(&other, &node.ops, add, sizeof(add))
+		                         == FZN_NODE_ROOTS_OK,
+		      "fixture: an estate rooted at the device that added this node");
+		memcpy(state.config.root, device.id.pubkey, FZN_PUBKEY_LEN);
+		admin.roots = &other;
+		snprintf(line, sizeof(line), "add peer %s", prekey_hex);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && detail_len == FZN_PROVISION_TEXT_PREFIX_LEN
+		                                       + FZN_PROVISION_TEXT_BODY_LEN(
+		                                               FZN_PROVISION_LEN(1, 1)),
+		      "a root by identity did not pair with one hop and its add");
+
+		/* TWO ADDS AWAY, the card would not fit: refused, not cut short. */
+		{
+			static fzn_node_roots_t deep;
+			static struct node middle;
+			uint8_t first[FZN_ROOT_ADD_LEN], second[FZN_ROOT_ADD_LEN];
+
+			CHECK(node_up(&middle)
+			              && fzn_node_roots_init(&deep, device.id.pubkey, &node.sign,
+			                                     &hash_ops) == FZN_NODE_ROOTS_OK
+			              && fzn_root_add_issue(device.id.pubkey, middle.id.pubkey,
+			                                    &device.sign, first) == FZN_ROOT_LOG_OK
+			              && fzn_root_add_issue(middle.id.pubkey, node.id.pubkey,
+			                                    &middle.sign, second) == FZN_ROOT_LOG_OK
+			              && fzn_node_roots_learn(&deep, &node.ops, first, sizeof(first))
+			                         == FZN_NODE_ROOTS_OK
+			              && fzn_node_roots_learn(&deep, &node.ops, second, sizeof(second))
+			                         == FZN_NODE_ROOTS_OK,
+			      "fixture: an estate that reaches this node in two adds");
+			admin.roots = &deep;
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_ERROR,
+			      "a root two adds away paired at the verb with a card past a reply");
+		}
+		admin.roots = was;
+		memcpy(state.config.root, pinned, FZN_PUBKEY_LEN);
+	}
+
 	/* ---- THE ESTATE'S k, sec 418: the owner sets it as this root and the
 	 * running store takes it; a group member may not; 0 is refused. */
 	CHECK(ask(&admin, &member, "set quorum 3", reply, sizeof(reply), &reply_len)

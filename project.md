@@ -50132,10 +50132,7 @@ still pairs through its chain at the verb, since that card fits.
 
 ### Not yet after sec 411
 
-- **An identity that is a root but not the genesis.** A node whose
-  identity was added as a root, with no key of its own, still pairs
-  only through a joined chain. Its chain would start at the identity,
-  with no self-grant, and a proof to the identity.
+- ~~An identity that is a root but not the genesis~~: closed in sec 419.
 - **Roster writers against the root set**, admins by a grant plus
   confirmations, and k as an estate setting that travels, from the sec
   403 list.
@@ -50744,5 +50741,80 @@ import, whose contract was regenerated too.
 2. M joins, pulls R's two root records (the setting and R's log entry
    for it), and is stopped.
 3. Restarted, M says "the estate's k is 3, set by a root".
+
+No daemon was left running.
+
+## 419. A node pairs as a root by its identity, 2026-10-01
+
+Sec 411's first "not yet". A node whose identity a root had added,
+rather than a separate key it holds, still paired only through the
+chain it joined with. Its natural card is shorter than either of the
+other two:
+
+- **by identity:** one hop from the identity to the device, and the adds
+  from the genesis to the identity;
+- **by a root key (sec 411):** two hops, the key's grant to the identity
+  and the identity's to the device, and the proof;
+- **by the joined chain:** that chain and a hop.
+
+### A root by proof
+
+**An authority with no hops and a proof** now means "this node is a root
+by proof". `fzn_node_pair` walks the proof from the estate's root and
+requires it to end at the node's own identity. It then mints the
+device's hop as the chain's first, and the card carries the proof.
+Before, an authority with no hops was malformed.
+
+**`fzn_node_roots_identity_root` builds that authority** when the
+identity stands as a root other than the genesis. The genesis pairs with
+no chain, as it always has. The adds are read from the store by the
+proof search sec 411 wrote, now factored into `build_proof`, which
+`fzn_node_roots_self_grant` shares.
+
+### Where a root by identity pairs
+
+- **`fuzznetd --pair` tries it first**, then a root key, then the joined
+  chain.
+- **`add peer` uses it when the card fits a reply line.** One hop and one
+  add is 555 bytes, 893 characters, and fits. Two adds do not, and
+  `ADMIN_CARD_PROOF` pins that boundary on both sides with static
+  asserts. A node two adds away falls back to its joined chain, and with
+  none it is refused with an error, not a reply cut short.
+
+### Not yet after sec 419
+
+**A root by identity does not log its pairings.** Each device hop is an
+act of that root, so a removal of the identity with a cut drops every
+device it paired after the cut, and, unlogged, before it too. That is
+the genesis's position since sec 403: its pairings are not logged
+either. Logging every pairing would spend the 256-entry log on devices.
+It is recorded, not decided.
+
+### Measured for sec 419
+
+**`pair_test`, 235 checks, with
+`test_a_node_pairs_as_a_root_by_identity`:**
+
+- **Not yet a root:** M before R adds it, and R the genesis, are
+  NOT_ROOT.
+- **Added:** once R adds M, M is a root by proof with one add.
+- **A wrong proof:** one ending at X is refused, and no peer is saved.
+- **The pairing:** M pairs D with a card of `FZN_PROVISION_LEN(1, 1)`,
+  and D, pinning R, accepts it.
+- **Verification:** M's roots verify D's one-hop chain, and the genesis
+  pin alone refuses it.
+
+**`admin_test`, 60 checks:**
+
+- the node, made a root by identity of an estate rooted at the device's
+  key, answers `add peer` with a card of exactly one hop and one add;
+- two adds away, it answers an error.
+
+**Live, three stores over loopback:**
+
+1. M joins R, and R's daemon adds M's identity as a root.
+2. M's daemon pulls it and answers `add peer` with 896 characters
+   (`ok ` and 893). D accepts, paired to M.
+3. Stopped, M's `fuzznetd --pair` prints 893 characters, and D2 accepts.
 
 No daemon was left running.

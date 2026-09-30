@@ -49,8 +49,12 @@ fzn_node_pair_err_t fzn_node_pair(const fzn_node_identity_t *id,
 	size_t own = authority ? authority->hop_count : 0u;
 	size_t i;
 
+	/* AN AUTHORITY WITH NO HOPS is a root by proof alone, sec 419: it
+	 * needs the proof, and a count past its hops needs the hops. */
 	if (!id || !root || !cap || !store || !store->save || !device.bytes || !card
-	    || !card_len || (authority && (!authority->hops || authority->hop_count == 0u)))
+	    || !card_len
+	    || (authority && authority->hop_count && !authority->hops)
+	    || (authority && authority->hop_count == 0u && authority->proof_count == 0u))
 		return FZN_NODE_PAIR_MALFORMED;
 	if (authority && authority->proof_count && !authority->proof)
 		return FZN_NODE_PAIR_MALFORMED;
@@ -62,6 +66,17 @@ fzn_node_pair_err_t fzn_node_pair(const fzn_node_identity_t *id,
 	 * request, which is the failure that looks like the network. */
 	if (!authority) {
 		if (memcmp(root, id->pubkey, FZN_PUBKEY_LEN) != 0)
+			return FZN_NODE_PAIR_NOT_ROOT;
+	} else if (own == 0u) {
+		/* A ROOT BY PROOF, sec 419: this node's identity is a root the
+		 * genesis reaches by adds, so its hop is the chain's first and
+		 * the proof must end at it. */
+		const uint8_t *from = NULL;
+
+		if (fzn_provision_proof_end(root, (const uint8_t *)authority->proof,
+		                            authority->proof_count, id->sign, &from)
+		            != FZN_PROVISION_OK
+		    || memcmp(from, id->pubkey, FZN_PUBKEY_LEN) != 0)
 			return FZN_NODE_PAIR_NOT_ROOT;
 	} else {
 		fzn_chain_hop_t views[FZN_CHAIN_MAX_HOPS];

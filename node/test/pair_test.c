@@ -2232,6 +2232,81 @@ static void test_the_estates_k_travels(void)
 	      "R's k did not come back from its store");
 }
 
+/* ---- pairing as a root by identity, sec 419 --------------------------- */
+
+/* M's identity is no root until R, the genesis, adds it; R itself pairs as it
+ * always has. Once added, M pairs D with one hop and R's add of M: D, pinning
+ * R, accepts it, and M's roots verify D's chain where the genesis pin alone
+ * refuses it. A proof ending at another key is refused before anything is
+ * minted. */
+static void test_a_node_pairs_as_a_root_by_identity(const fzn_cap_id_t *cap)
+{
+	static struct node r, m, d, x;
+	static fzn_node_roots_t r_roots, m_roots;
+	static fzn_revocation_t entries[4];
+	static fzn_node_peer_t peers[2];
+	uint8_t proof[FZN_PROVISION_PROOF_MAX][FZN_PROVISION_PROOF_ITEM_LEN];
+	uint8_t card[FZN_PROVISION_MAX_LEN], wrong[FZN_ROOT_ADD_LEN];
+	fzn_node_authority_t auth = { 0 }, bad = { 0 };
+	fzn_revocation_store_t revs;
+	fzn_prekey_record_t d_rec;
+	fzn_node_pairing_t d_pairing;
+	fzn_chain_hop_t view;
+	fzn_chain_t verdict;
+	size_t learned = 0, card_len = 0, loaded = 0;
+
+	CHECK(node_up(&r) && node_up(&m) && node_up(&d) && node_up(&x)
+	              && fzn_prekey_open(d.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &d_rec)
+	                         == FZN_PREKEY_OK
+	              && fzn_node_roots_init(&r_roots, r.id.pubkey, &r.sign, &hash_ops)
+	                         == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_init(&m_roots, r.id.pubkey, &m.sign, &hash_ops)
+	                         == FZN_NODE_ROOTS_OK,
+	      "fixture: the nodes and their roots");
+	CHECK(fzn_node_roots_identity_root(&m_roots, &m.ops, m.id.pubkey, proof, &auth)
+	              == FZN_NODE_ROOTS_NOT_ROOT
+	              && fzn_node_roots_identity_root(&r_roots, &r.ops, r.id.pubkey, proof, &auth)
+	                         == FZN_NODE_ROOTS_NOT_ROOT,
+	      "M before any add, or R the genesis, was taken as a root by proof");
+	CHECK(fzn_node_roots_change(&r_roots, &r.ops, r.id.pubkey, &r.sign, 0, m.id.pubkey, NULL)
+	              == FZN_NODE_ROOTS_OK
+	              && roots_sync(&r, &m_roots, &m, &learned) == FZN_NODE_PULL_OK
+	              && fzn_node_roots_identity_root(&m_roots, &m.ops, m.id.pubkey, proof, &auth)
+	                         == FZN_NODE_ROOTS_OK
+	              && auth.hop_count == 0u && auth.proof_count == 1u,
+	      "M, added by R, did not become a root by proof with R's add");
+
+	/* A PROOF ENDING AT ANOTHER KEY is refused, and nothing is saved. */
+	CHECK(fzn_root_add_issue(r.id.pubkey, x.id.pubkey, &r.sign, wrong) == FZN_ROOT_LOG_OK,
+	      "fixture: R's add of X");
+	bad.proof = (const uint8_t (*)[FZN_PROVISION_PROOF_ITEM_LEN])wrong;
+	bad.proof_count = 1u;
+	CHECK(fzn_node_pair(&m.id, r.id.pubkey, cap, &bad, 0, &m.ops, d_rec, 1200u, 1200u + 86400u,
+	                    card, sizeof(card), &card_len) == FZN_NODE_PAIR_NOT_ROOT
+	              && rows_in(&m, FZN_PERSIST_NODE_PEER) == 0u,
+	      "a proof ending at X let M pair as a root");
+
+	CHECK(fzn_node_pair(&m.id, r.id.pubkey, cap, &auth, 0, &m.ops, d_rec, 1200u, 1200u + 86400u,
+	                    card, sizeof(card), &card_len) == FZN_NODE_PAIR_OK
+	              && card_len == FZN_PROVISION_LEN(1, 1),
+	      "M could not pair D as a root by proof, or the card is not one hop and one add");
+	CHECK(fzn_node_pairing_accept(&d.id, card, card_len, 1300u, &d.ops, &d_pairing)
+	              == FZN_NODE_PAIR_OK
+	              && memcmp(d_pairing.node, m.id.pubkey, FZN_PUBKEY_LEN) == 0,
+	      "D, pinning R, refused M's card");
+	CHECK(fzn_node_peers_load(&m.ops, peers, 2, &loaded) == FZN_PERSIST_OK && loaded == 1u
+	              && peers[0].hop_count == 1u
+	              && fzn_hop_open(peers[0].hop_bytes[0], FZN_HOP_LEN, &view) == FZN_CHAIN_OK
+	              && fzn_revocation_store_init(&revs, entries, 4) == FZN_CHAIN_OK
+	              && fzn_node_roots_attach(&m_roots, &revs) == FZN_NODE_ROOTS_OK,
+	      "fixture: M's peer and a store with M's roots");
+	CHECK(fzn_chain_verify(&view, 1, r.id.pubkey, cap, 1400u, &m.sign, &revs, NULL, &verdict)
+	              == FZN_CHAIN_OK
+	              && fzn_chain_verify(&view, 1, r.id.pubkey, cap, 1400u, &m.sign, NULL, NULL,
+	                                  &verdict) == FZN_CHAIN_ERR_WRONG_ROOT,
+	      "M's roots do not verify D's chain, or the genesis pin alone took it");
+}
+
 int main(void)
 {
 	static struct node node, device, stranger;
@@ -2353,6 +2428,7 @@ int main(void)
 	test_confirmations_travel();
 	test_admins_at_the_node(&cap);
 	test_the_estates_k_travels();
+	test_a_node_pairs_as_a_root_by_identity(&cap);
 
 	/* ---- A NODE THAT IS NOT ITS OWN ROOT PAIRS NOTHING, and writes nothing. */
 	stranger.store.saves = 0;

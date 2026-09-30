@@ -611,35 +611,27 @@ static size_t find_path(const fzn_node_roots_t *roots, const uint8_t *from, cons
 	return 0;
 }
 
-fzn_node_roots_err_t fzn_node_roots_self_grant(fzn_node_roots_t *roots,
-                                               const fzn_persist_ops_t *store,
-                                               const uint8_t identity[FZN_PUBKEY_LEN],
-                                               const fzn_cap_id_t *cap,
-                                               uint8_t hop[FZN_HOP_LEN],
-                                               uint8_t proof[FZN_PROVISION_PROOF_MAX]
-                                                           [FZN_PROVISION_PROOF_ITEM_LEN],
-                                               fzn_node_authority_t *authority)
+/* THE PROOF THAT `target` IS A ROOT: the adds from the genesis to it, from the
+ * store's copies -- the set keeps their fields and not their signatures.
+ * None for the genesis itself. */
+static fzn_node_roots_err_t build_proof(const fzn_node_roots_t *roots,
+                                        const fzn_persist_ops_t *store,
+                                        const uint8_t target[FZN_PUBKEY_LEN],
+                                        uint8_t proof[FZN_PROVISION_PROOF_MAX]
+                                                    [FZN_PROVISION_PROOF_ITEM_LEN],
+                                        size_t *count)
 {
 	size_t path[FZN_PROVISION_PROOF_MAX];
-	uint8_t act[FZN_ROOT_ACT_ID_LEN];
-	size_t count = 0, i;
-	int logged = 0;
-	fzn_node_roots_err_t err;
+	size_t i;
 
-	if (!roots || !store || !store->load || !identity || !cap || !hop || !proof || !authority)
-		return FZN_NODE_ROOTS_MALFORMED;
-	if (!roots->key_held || !fzn_root_view_stands(&roots->view, roots->key))
-		return FZN_NODE_ROOTS_NOT_ROOT;
-
-	/* THE PROOF, from the store's copies of the adds the set holds: the set
-	 * keeps their fields and not their signatures. */
-	if (!fzn_ct_memeq(roots->set.genesis, roots->key, FZN_PUBKEY_LEN)) {
-		count = find_path(roots, roots->set.genesis, roots->key, 0, FZN_PROVISION_PROOF_MAX,
-		                  path);
-		if (!count)
+	*count = 0;
+	if (!fzn_ct_memeq(roots->set.genesis, target, FZN_PUBKEY_LEN)) {
+		*count = find_path(roots, roots->set.genesis, target, 0, FZN_PROVISION_PROOF_MAX,
+		                   path);
+		if (!*count)
 			return FZN_NODE_ROOTS_NO_PROOF;
 	}
-	for (i = 0; i < count; i++) {
+	for (i = 0; i < *count; i++) {
 		uint8_t blob[CHANGE_BLOB_MAX];
 		size_t len = 0;
 
@@ -651,6 +643,56 @@ fzn_node_roots_err_t fzn_node_roots_self_grant(fzn_node_roots_t *roots,
 			return FZN_NODE_ROOTS_STORE;
 		memcpy(proof[i], blob + FZN_PERSIST_HEAD_LEN, FZN_ROOT_ADD_LEN);
 	}
+	return FZN_NODE_ROOTS_OK;
+}
+
+fzn_node_roots_err_t fzn_node_roots_identity_root(fzn_node_roots_t *roots,
+                                                  const fzn_persist_ops_t *store,
+                                                  const uint8_t identity[FZN_PUBKEY_LEN],
+                                                  uint8_t proof[FZN_PROVISION_PROOF_MAX]
+                                                              [FZN_PROVISION_PROOF_ITEM_LEN],
+                                                  fzn_node_authority_t *authority)
+{
+	size_t count = 0;
+	fzn_node_roots_err_t err;
+
+	if (!roots || !store || !store->load || !identity || !proof || !authority)
+		return FZN_NODE_ROOTS_MALFORMED;
+	/* THE GENESIS NEEDS NO PROOF and pairs as it always has. */
+	if (fzn_ct_memeq(roots->set.genesis, identity, FZN_PUBKEY_LEN)
+	    || !fzn_root_view_stands(&roots->view, identity))
+		return FZN_NODE_ROOTS_NOT_ROOT;
+	err = build_proof(roots, store, identity, proof, &count);
+	if (err != FZN_NODE_ROOTS_OK)
+		return err;
+	memset(authority, 0, sizeof(*authority));
+	authority->proof = (const uint8_t (*)[FZN_PROVISION_PROOF_ITEM_LEN])proof;
+	authority->proof_count = count;
+	return FZN_NODE_ROOTS_OK;
+}
+
+fzn_node_roots_err_t fzn_node_roots_self_grant(fzn_node_roots_t *roots,
+                                               const fzn_persist_ops_t *store,
+                                               const uint8_t identity[FZN_PUBKEY_LEN],
+                                               const fzn_cap_id_t *cap,
+                                               uint8_t hop[FZN_HOP_LEN],
+                                               uint8_t proof[FZN_PROVISION_PROOF_MAX]
+                                                           [FZN_PROVISION_PROOF_ITEM_LEN],
+                                               fzn_node_authority_t *authority)
+{
+	uint8_t act[FZN_ROOT_ACT_ID_LEN];
+	size_t count = 0, i;
+	int logged = 0;
+	fzn_node_roots_err_t err;
+
+	if (!roots || !store || !store->load || !identity || !cap || !hop || !proof || !authority)
+		return FZN_NODE_ROOTS_MALFORMED;
+	if (!roots->key_held || !fzn_root_view_stands(&roots->view, roots->key))
+		return FZN_NODE_ROOTS_NOT_ROOT;
+
+	err = build_proof(roots, store, roots->key, proof, &count);
+	if (err != FZN_NODE_ROOTS_OK)
+		return err;
 
 	/* THE GRANT, logged once. */
 	if (fzn_chain_mint(roots->key, identity, cap, 0u, FZN_NO_EXPIRY, 1, roots->key_sign, hop)
