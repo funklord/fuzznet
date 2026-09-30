@@ -1,6 +1,7 @@
 /* See revoke.h. */
 
 #include "revoke.h"
+#include "roots.h"
 
 #include "../local/vocabulary.h"
 
@@ -26,6 +27,8 @@ const char *fzn_node_revoke_err_str(fzn_node_revoke_err_t err)
 		return "in force until a restart: the record was not saved";
 	case FZN_NODE_REVOKE_NOT_REVOKED:
 		return "this node holds no revocation of that grantee to undo";
+	case FZN_NODE_REVOKE_NOT_ADMIN:
+		return "the admin chain does not verify from a root to this node, delegable";
 	}
 	return "unknown";
 }
@@ -217,14 +220,15 @@ fzn_persist_err_t fzn_node_revocations_load(const fzn_persist_ops_t *store,
                                             fzn_revocation_store_t *revocations,
                                             const uint8_t root[FZN_PUBKEY_LEN],
                                             const fzn_node_authority_t *authority,
+                                            const fzn_node_authority_t *admin,
                                             const fzn_sign_ops_t *sign,
                                             const fzn_hash_ops_t *hash, size_t *count)
 {
 	static const fzn_persist_slot_t SLOTS[2] = { FZN_PERSIST_ISSUED_REVOCATION,
 		                                     FZN_PERSIST_LEARNED_REVOCATION };
 	uint8_t subjects[FZN_NODE_REVOCATIONS_MAX * FZN_PUBKEY_LEN];
-	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS];
-	const uint8_t *self = NULL;
+	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS], admin_hops[FZN_CHAIN_MAX_HOPS];
+	const uint8_t *self = NULL, *admin_self = NULL;
 	const fzn_cap_id_t *granted = NULL;
 	size_t total = 0, s, i;
 
@@ -235,6 +239,16 @@ fzn_persist_err_t fzn_node_revocations_load(const fzn_persist_ops_t *store,
 			return FZN_PERSIST_ERR_MALFORMED;
 		self = fzn_hop_grantee(hops[authority->hop_count - 1u]);
 		granted = fzn_hop_capability(hops[authority->hop_count - 1u]);
+	}
+	/* THIS NODE'S ADMIN CHAIN, sec 416, used only by a store that knows the
+	 * admin capability it carries. */
+	if (admin) {
+		if (!open_authority(admin, admin_hops))
+			return FZN_PERSIST_ERR_MALFORMED;
+		if (revocations->has_admin
+		    && memcmp(fzn_hop_capability(admin_hops[admin->hop_count - 1u]),
+		              &revocations->admin_capability, sizeof(fzn_cap_id_t)) == 0)
+			admin_self = fzn_hop_grantee(admin_hops[admin->hop_count - 1u]);
 	}
 	*count = 0;
 	if (!store->list)
@@ -256,8 +270,13 @@ fzn_persist_err_t fzn_node_revocations_load(const fzn_persist_ops_t *store,
 				return FZN_PERSIST_ERR_SHAPE;
 			fzn_revocation_offer_t offer;
 
+			/* AN ADMIN CHAIN FIRST, sec 416: an admin's vote counts for
+			 * any grantee, and it is the chain the node votes on. */
 			if (memcmp(fzn_revocation_issuer(rec), root, FZN_PUBKEY_LEN) == 0)
 				offer = fzn_revocation_offer_root(rec);
+			else if (admin_self
+			         && memcmp(fzn_revocation_issuer(rec), admin_self, FZN_PUBKEY_LEN) == 0)
+				offer = fzn_revocation_offer_chain(rec, admin_hops, admin->hop_count);
 			else if (self && memcmp(fzn_revocation_issuer(rec), self, FZN_PUBKEY_LEN) == 0
 			         && memcmp(fzn_revocation_capability(rec), granted,
 			                   sizeof(*granted)) == 0)
@@ -687,7 +706,8 @@ static const fzn_persist_slot_t VOTE_SLOTS[4] = { FZN_PERSIST_ISSUED_REVOCATION,
  * -- by the chain's grantee, for the capability it grants -- and none
  * otherwise, the rule `fzn_node_revocations_load` applies. */
 static int vote_at(const fzn_persist_ops_t *store, const fzn_node_authority_t *authority,
-                   const struct vote_lists *lists, size_t s, size_t i,
+                   const fzn_node_authority_t *admin, const struct vote_lists *lists, size_t s,
+                   size_t i,
                    uint8_t record[FZN_REVOCATION_LEN],
                    uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t *hop_count)
 {
@@ -702,6 +722,18 @@ static int vote_at(const fzn_persist_ops_t *store, const fzn_node_authority_t *a
 	if (!load_slot(store, VOTE_SLOTS[s], subject, record)
 	    || fzn_revocation_open(record, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
 		return 0;
+	/* A RECORD THIS NODE ISSUED, AS AN ADMIN VOTE FIRST, sec 416: its
+	 * admin chain, when it holds one naming the record's issuer -- the
+	 * chain it votes on, and the one that counts for any grantee. */
+	if (s == 0u && admin && admin->hop_count < FZN_CHAIN_MAX_HOPS
+	    && open_authority(admin, opened)
+	    && memcmp(fzn_revocation_issuer(rec), fzn_hop_grantee(opened[admin->hop_count - 1u]),
+	              FZN_PUBKEY_LEN) == 0) {
+		for (h = 0; h < admin->hop_count; h++)
+			memcpy(hops[h], admin->hops[h], FZN_HOP_LEN);
+		*hop_count = admin->hop_count;
+		return 1;
+	}
 	if (s == 0u && authority && authority->hop_count < FZN_CHAIN_MAX_HOPS
 	    && open_authority(authority, opened)
 	    && memcmp(fzn_revocation_issuer(rec),
@@ -728,7 +760,8 @@ static void put_hex_bytes(char *out, const uint8_t *bytes, size_t len)
 }
 
 int fzn_node_votes_page(const fzn_persist_ops_t *store, const fzn_node_authority_t *authority,
-                        size_t from, char *out, size_t cap, size_t *len, size_t *total)
+                        const fzn_node_authority_t *admin, size_t from, char *out, size_t cap,
+                        size_t *len, size_t *total)
 {
 	static struct vote_lists lists;
 	static uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
@@ -752,7 +785,8 @@ int fzn_node_votes_page(const fzn_persist_ops_t *store, const fzn_node_authority
 
 			if (s == 3u ? !load_confirm(store, lists.subjects[s] + (i * (size_t)FZN_PUBKEY_LEN),
 			                            record, hops, &hop_count)
-			            : !vote_at(store, authority, &lists, s, i, record, hops, &hop_count))
+			            : !vote_at(store, authority, admin, &lists, s, i, record, hops,
+			                       &hop_count))
 				return 0;
 			for (h = 0; h <= hop_count; h++, item++) {
 				size_t need = 2u + (h ? FZN_HOP_LEN : record_len) * 2u;
@@ -983,4 +1017,187 @@ fzn_node_pull_err_t fzn_node_votes_pull(fzn_caller_t *caller, const uint8_t root
 		from = next;
 	}
 	return FZN_NODE_PULL_SHAPE;
+}
+
+/* ---- admins at the node, sec 416 ------------------------------------- */
+
+#define OWN_ADMIN_BODY_MAX (1u + (FZN_CHAIN_MAX_HOPS * (size_t)FZN_HOP_LEN))
+#define OWN_ADMIN_BLOB_MAX ((size_t)FZN_PERSIST_HEAD_LEN + OWN_ADMIN_BODY_MAX)
+
+const fzn_node_authority_t *fzn_node_admin_chain_view(fzn_node_admin_chain_t *chain)
+{
+	if (!chain || chain->hop_count == 0u)
+		return NULL;
+	chain->authority.hops = (const uint8_t (*)[FZN_HOP_LEN])chain->hops;
+	chain->authority.hop_count = chain->hop_count;
+	chain->authority.proof = NULL;
+	chain->authority.proof_count = 0;
+	return &chain->authority;
+}
+
+int fzn_node_admin_chain_load(const fzn_persist_ops_t *store, fzn_node_admin_chain_t *out)
+{
+	uint8_t blob[OWN_ADMIN_BLOB_MAX];
+	fzn_chain_hop_t hop;
+	size_t len = 0, n, i;
+
+	if (!store || !store->load || !out)
+		return -1;
+	memset(out, 0, sizeof(*out));
+	if (!store->load(store->ctx, FZN_PERSIST_OWN_ADMIN, NULL, blob, sizeof(blob), &len))
+		return 0;
+	if (len < FZN_PERSIST_HEAD_LEN + 1u)
+		return -1;
+	n = blob[FZN_PERSIST_HEAD_LEN];
+	if (n == 0u || n >= FZN_CHAIN_MAX_HOPS
+	    || fzn_persist_head_check(blob, len, 1u + (n * FZN_HOP_LEN), FZN_PERSIST_BLOB_OWN_ADMIN)
+	               != FZN_PERSIST_OK)
+		return -1;
+	for (i = 0; i < n; i++) {
+		const uint8_t *h = blob + FZN_PERSIST_HEAD_LEN + 1u + (i * FZN_HOP_LEN);
+
+		if (fzn_hop_open(h, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK)
+			return -1;
+		memcpy(out->hops[i], h, FZN_HOP_LEN);
+	}
+	out->hop_count = n;
+	(void)fzn_node_admin_chain_view(out);
+	return 1;
+}
+
+fzn_node_revoke_err_t fzn_node_admin_chain_set(const fzn_persist_ops_t *store,
+                                               const fzn_revocation_store_t *revocations,
+                                               const fzn_node_identity_t *id,
+                                               const uint8_t root[FZN_PUBKEY_LEN],
+                                               const fzn_cap_id_t *admin_capability,
+                                               const uint8_t (*hops)[FZN_HOP_LEN],
+                                               size_t hop_count, uint64_t now,
+                                               fzn_node_admin_chain_t *out)
+{
+	fzn_chain_hop_t views[FZN_CHAIN_MAX_HOPS];
+	uint8_t blob[OWN_ADMIN_BLOB_MAX];
+	fzn_chain_t verdict;
+	size_t i, body = 1u + (hop_count * FZN_HOP_LEN);
+
+	if (!store || !store->save || !id || !id->sign || !root || !admin_capability || !hops
+	    || !out || hop_count == 0u || hop_count >= FZN_CHAIN_MAX_HOPS)
+		return FZN_NODE_REVOKE_MALFORMED;
+	for (i = 0; i < hop_count; i++)
+		if (fzn_hop_open(hops[i], FZN_HOP_LEN, &views[i]) != FZN_CHAIN_OK)
+			return FZN_NODE_REVOKE_NOT_ADMIN;
+	/* VERIFIED AS A VOTE ON IT WOULD BE: from a root of the estate, with
+	 * the revocations this node holds, so a revoked grant is not taken. */
+	if (fzn_chain_verify(views, hop_count, root, admin_capability, now, id->sign, revocations,
+	                     NULL, &verdict)
+	            != FZN_CHAIN_OK
+	    || memcmp(verdict.grantee, id->pubkey, FZN_PUBKEY_LEN) != 0
+	    || !fzn_hop_delegable(views[hop_count - 1u]))
+		return FZN_NODE_REVOKE_NOT_ADMIN;
+	if (fzn_persist_head_write(blob, sizeof(blob), body, FZN_PERSIST_BLOB_OWN_ADMIN)
+	    != FZN_PERSIST_OK)
+		return FZN_NODE_REVOKE_MALFORMED;
+	blob[FZN_PERSIST_HEAD_LEN] = (uint8_t)hop_count;
+	for (i = 0; i < hop_count; i++)
+		memcpy(blob + FZN_PERSIST_HEAD_LEN + 1u + (i * FZN_HOP_LEN), hops[i], FZN_HOP_LEN);
+	if (!store->save(store->ctx, FZN_PERSIST_OWN_ADMIN, NULL, blob,
+	                 (size_t)FZN_PERSIST_HEAD_LEN + body))
+		return FZN_NODE_REVOKE_NOT_SAVED;
+	memset(out, 0, sizeof(*out));
+	for (i = 0; i < hop_count; i++)
+		memcpy(out->hops[i], hops[i], FZN_HOP_LEN);
+	out->hop_count = hop_count;
+	(void)fzn_node_admin_chain_view(out);
+	return FZN_NODE_REVOKE_OK;
+}
+
+fzn_node_revoke_err_t fzn_node_admin_grant(struct fzn_node_roots *roots,
+                                           const fzn_persist_ops_t *store,
+                                           const fzn_node_identity_t *id,
+                                           const fzn_node_admin_chain_t *mine,
+                                           const fzn_cap_id_t *admin_capability,
+                                           const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t now,
+                                           uint8_t out[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN],
+                                           size_t *out_count)
+{
+	const uint8_t *as = NULL;
+	const fzn_sign_ops_t *sign = NULL;
+	size_t i;
+
+	if (!store || !id || !id->sign || !admin_capability || !grantee || !out || !out_count)
+		return FZN_NODE_REVOKE_MALFORMED;
+	*out_count = 0;
+	/* AS A ROOT, one hop, and logged: a root's grant that is not in its
+	 * log falls at the root's removal whatever the cut. */
+	if (roots && fzn_node_roots_acting(roots, id->pubkey, id->sign, &as, &sign)) {
+		if (fzn_chain_mint(as, grantee, admin_capability, now, FZN_NO_EXPIRY, 1, sign, out[0])
+		            != FZN_CHAIN_OK)
+			return FZN_NODE_REVOKE_STORE_REFUSED;
+		if (fzn_node_roots_log_act(roots, store, as, sign, (uint8_t)FZN_ROOT_ACT_GRANT, out[0],
+		                           FZN_HOP_LEN)
+		    != FZN_NODE_ROOTS_OK)
+			return FZN_NODE_REVOKE_NOT_SAVED;
+		*out_count = 1u;
+		return FZN_NODE_REVOKE_OK;
+	}
+	/* AS AN ADMIN, its own chain and a hop more. */
+	if (!mine || mine->hop_count == 0u)
+		return FZN_NODE_REVOKE_NOT_ROOT;
+	if (mine->hop_count + 1u >= FZN_CHAIN_MAX_HOPS)
+		return FZN_NODE_REVOKE_MALFORMED;
+	for (i = 0; i < mine->hop_count; i++)
+		memcpy(out[i], mine->hops[i], FZN_HOP_LEN);
+	if (fzn_chain_mint(id->pubkey, grantee, admin_capability, now, FZN_NO_EXPIRY, 1, id->sign,
+	                   out[mine->hop_count])
+	    != FZN_CHAIN_OK)
+		return FZN_NODE_REVOKE_STORE_REFUSED;
+	*out_count = mine->hop_count + 1u;
+	return FZN_NODE_REVOKE_OK;
+}
+
+fzn_node_revoke_err_t fzn_node_admin_confirm(struct fzn_node_roots *roots,
+                                             const fzn_persist_ops_t *store,
+                                             const fzn_node_identity_t *id,
+                                             const fzn_node_admin_chain_t *mine,
+                                             const uint8_t root[FZN_PUBKEY_LEN],
+                                             const uint8_t hop[FZN_HOP_LEN],
+                                             fzn_revocation_store_t *revocations)
+{
+	fzn_chain_hop_t views[FZN_CHAIN_MAX_HOPS];
+	uint8_t grant[FZN_REVOCATION_ID_LEN], record[FZN_ADMIN_CONFIRM_LEN];
+	const uint8_t *as = NULL;
+	const fzn_sign_ops_t *sign = NULL;
+	fzn_node_admin_chain_t shown;
+	const fzn_node_authority_t *chain = NULL;
+	size_t i, n = 0;
+
+	if (!store || !id || !id->sign || !id->hash || !id->hash->hash || !root || !hop
+	    || !revocations)
+		return FZN_NODE_REVOKE_MALFORMED;
+	if (!id->hash->hash(id->hash->ctx, grant, sizeof(grant), hop, FZN_HOP_LEN))
+		return FZN_NODE_REVOKE_MALFORMED;
+	if (roots && fzn_node_roots_acting(roots, id->pubkey, id->sign, &as, &sign)) {
+		/* AS A ROOT: no chain, and logged. */
+		if (fzn_admin_confirm_issue(as, grant, sign, record) != FZN_CHAIN_OK)
+			return FZN_NODE_REVOKE_STORE_REFUSED;
+		if (fzn_node_roots_log_act(roots, store, as, sign, (uint8_t)FZN_ROOT_ACT_GRANT, record,
+		                           sizeof(record))
+		    != FZN_NODE_ROOTS_OK)
+			return FZN_NODE_REVOKE_NOT_SAVED;
+	} else if (mine && mine->hop_count) {
+		shown = *mine;
+		chain = fzn_node_admin_chain_view(&shown);
+		n = mine->hop_count;
+		for (i = 0; i < n; i++)
+			if (fzn_hop_open(mine->hops[i], FZN_HOP_LEN, &views[i]) != FZN_CHAIN_OK)
+				return FZN_NODE_REVOKE_MALFORMED;
+		if (fzn_admin_confirm_issue(id->pubkey, grant, id->sign, record) != FZN_CHAIN_OK)
+			return FZN_NODE_REVOKE_STORE_REFUSED;
+	} else {
+		return FZN_NODE_REVOKE_NOT_ROOT;
+	}
+	if (fzn_revocation_confirm_admit(revocations, record, sizeof(record), n ? views : NULL, n,
+	                                 root, id->sign)
+	    != FZN_CHAIN_OK)
+		return FZN_NODE_REVOKE_STORE_REFUSED;
+	return fzn_node_confirm_save(store, id->hash, record, chain);
 }

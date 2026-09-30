@@ -60,7 +60,10 @@ typedef enum fzn_node_revoke_err {
 	 * until a restart, and forgotten by one. */
 	FZN_NODE_REVOKE_NOT_SAVED = -5,
 	/* Un-revoking a grantee this node holds no revocation of in force. */
-	FZN_NODE_REVOKE_NOT_REVOKED = -6
+	FZN_NODE_REVOKE_NOT_REVOKED = -6,
+	/* An admin chain that does not verify for the admin capability from a
+	 * root, name this node, or end delegable. sec 416. */
+	FZN_NODE_REVOKE_NOT_ADMIN = -7
 } fzn_node_revoke_err_t;
 
 const char *fzn_node_revoke_err_str(fzn_node_revoke_err_t err);
@@ -125,11 +128,16 @@ fzn_node_revoke_err_t fzn_node_confirm_save(const fzn_persist_ops_t *store,
  * toward denial, the one direction a revocation may err in. Any other record
  * is skipped and not counted -- one for a capability the chain does not carry
  * could never admit, and a node holding no chain (`authority` NULL, as for a
- * root) has nothing to verify its own pre-join records against (sec 383). */
+ * root) has nothing to verify its own pre-join records against (sec 383).
+ *
+ * `admin` is this node's admin chain, or NULL (sec 416): a record it issued
+ * for a capability `authority` does not carry is admitted on that chain, as
+ * the admin vote it was, when the store knows the admin capability. */
 fzn_persist_err_t fzn_node_revocations_load(const fzn_persist_ops_t *store,
                                             fzn_revocation_store_t *revocations,
                                             const uint8_t root[FZN_PUBKEY_LEN],
                                             const fzn_node_authority_t *authority,
+                                            const fzn_node_authority_t *admin,
                                             const fzn_sign_ops_t *sign,
                                             const fzn_hash_ops_t *hash, size_t *count);
 
@@ -252,9 +260,12 @@ fzn_node_pull_err_t fzn_node_revocations_pull(fzn_caller_t *caller,
 /* One page of the stream from item `from`, written as ` ITEM` per item into
  * `out`, stopping before `cap` bytes; `*len` is what was written and `*total`
  * the stream's length in items. 0 when the store cannot list or a stored
- * record will not read. */
+ * record will not read. A record this node issued carries `authority` when
+ * it withdraws the capability that chain carries, and otherwise `admin`, this
+ * node's admin chain, when it holds one (sec 416). */
 int fzn_node_votes_page(const fzn_persist_ops_t *store, const fzn_node_authority_t *authority,
-                        size_t from, char *out, size_t cap, size_t *len, size_t *total);
+                        const fzn_node_authority_t *admin, size_t from, char *out, size_t cap,
+                        size_t *len, size_t *total);
 
 /* What a pull carries between pages: the vote being assembled, and the
  * counts so far. Zero it before the first page. */
@@ -289,5 +300,81 @@ fzn_node_pull_err_t fzn_node_votes_pull(fzn_caller_t *caller, const uint8_t root
                                         uint64_t now, fzn_revocation_store_t *revocations,
                                         const fzn_persist_ops_t *store, size_t *learned,
                                         size_t *refused);
+
+/*
+ * ADMINS AT THE NODE: HOLDING, GRANTING, CONFIRMING. sec 416.
+ *
+ * AN ADMIN CHAIN is a chain from a root to this node's identity for the
+ * estate's admin capability, its last hop delegable, so the node may both vote
+ * as an admin and grant admin onward. A node holds at most one, in the core
+ * slot 16, and votes on it: `fzn_node_revoke` takes it as its authority, and
+ * the load and the vote stream carry it with the records it issued.
+ *
+ * A GRANT is minted by this node's acting root when it has one -- one hop from
+ * that root, logged in its log as a grant -- and otherwise by this node as an
+ * admin, extending its own admin chain by a hop. What it hands the grantee is
+ * the whole chain; the grantee installs it with `fzn_node_admin_chain_set`,
+ * which verifies it before keeping it. A grant by a non-root counts only once
+ * k - 1 other admins confirm it (sec 414).
+ *
+ * A CONFIRMATION names a hop by its hash. This node signs it as its acting
+ * root when it has one -- logged as a grant, since confirming an admin is part
+ * of making one -- and otherwise as an admin, showing its admin chain. It is
+ * admitted into the running store and saved, so the vote stream serves it.
+ */
+struct fzn_node_roots;
+
+/* An admin chain held: its hops, and an authority over them to pass where a
+ * `fzn_node_authority_t` is taken. `authority.hops` points into `hops`, so
+ * set it again after copying one of these -- `fzn_node_admin_chain_view`. */
+typedef struct fzn_node_admin_chain {
+	uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	size_t hop_count;
+	fzn_node_authority_t authority;
+} fzn_node_admin_chain_t;
+
+/* The authority over `chain`, or NULL when it holds no hops. */
+const fzn_node_authority_t *fzn_node_admin_chain_view(fzn_node_admin_chain_t *chain);
+
+/* This node's admin chain from slot 16. 1 loaded, 0 none stored, -1 a row that
+ * will not read. */
+int fzn_node_admin_chain_load(const fzn_persist_ops_t *store, fzn_node_admin_chain_t *out);
+
+/* Install `hops` as this node's admin chain: verified from `root` (or any root
+ * `revocations`' set names) for `admin_capability` as of `now`, naming `id` as
+ * its last grantee and ending delegable, then saved. NOT_ADMIN when it does
+ * not verify. */
+fzn_node_revoke_err_t fzn_node_admin_chain_set(const fzn_persist_ops_t *store,
+                                               const fzn_revocation_store_t *revocations,
+                                               const fzn_node_identity_t *id,
+                                               const uint8_t root[FZN_PUBKEY_LEN],
+                                               const fzn_cap_id_t *admin_capability,
+                                               const uint8_t (*hops)[FZN_HOP_LEN],
+                                               size_t hop_count, uint64_t now,
+                                               fzn_node_admin_chain_t *out);
+
+/* Grant admin to `grantee`: as this node's acting root (`roots`, may be NULL),
+ * or else through `mine`, this node's admin chain (NULL for none). `out`
+ * receives the grantee's whole chain, `*out_count` hops. NOT_ROOT when this
+ * node is neither; MALFORMED when the chain would be too long. */
+fzn_node_revoke_err_t fzn_node_admin_grant(struct fzn_node_roots *roots,
+                                           const fzn_persist_ops_t *store,
+                                           const fzn_node_identity_t *id,
+                                           const fzn_node_admin_chain_t *mine,
+                                           const fzn_cap_id_t *admin_capability,
+                                           const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t now,
+                                           uint8_t out[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN],
+                                           size_t *out_count);
+
+/* Confirm the admin grant `hop`, as this node's acting root or through `mine`,
+ * admit it into `revocations` and save it. NOT_ROOT when this node is neither;
+ * STORE_REFUSED when the store will not take it. */
+fzn_node_revoke_err_t fzn_node_admin_confirm(struct fzn_node_roots *roots,
+                                             const fzn_persist_ops_t *store,
+                                             const fzn_node_identity_t *id,
+                                             const fzn_node_admin_chain_t *mine,
+                                             const uint8_t root[FZN_PUBKEY_LEN],
+                                             const uint8_t hop[FZN_HOP_LEN],
+                                             fzn_revocation_store_t *revocations);
 
 #endif /* FZN_NODE_REVOKE_H */

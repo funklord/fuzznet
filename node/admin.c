@@ -16,6 +16,11 @@
  * refused at the verb with an error saying so; `fuzznetd --pair` prints any
  * length. sec 391. */
 #define ADMIN_CARD_HOPS 2u
+/* `grant admin` answers the grantee's whole chain as `h` items: two fit one
+ * reply line and three do not. sec 416. */
+#define ADMIN_CHAIN_HOPS 2u
+_Static_assert(3u + (ADMIN_CHAIN_HOPS * (2u + (FZN_HOP_LEN * 2u))) <= FZN_REPLY_MAX,
+               "an admin chain of ADMIN_CHAIN_HOPS does not fit one reply line");
 _Static_assert(3u + FZN_PROVISION_TEXT_PREFIX_LEN
                        + FZN_PROVISION_TEXT_BODY_LEN(FZN_PROVISION_LEN(ADMIN_CARD_HOPS, 0))
                    <= FZN_REPLY_MAX,
@@ -264,7 +269,8 @@ static size_t get_votes(fzn_node_admin_t *admin, const uint8_t *from_text, size_
 	/* The head is written after the walk, which is what knows the total;
 	 * its room is reserved here at the widest a total and an index print. */
 	if (limit < 3u + 24u
-	    || !fzn_node_votes_page(admin->store, admin->authority, from, detail + 24u,
+	    || !fzn_node_votes_page(admin->store, admin->authority,
+	                            fzn_node_admin_chain_view(admin->admin_chain), from, detail + 24u,
 	                            limit - 3u - 24u, &len, &total))
 		return answer_text(reply, cap, FZN_REPLY_ERROR, "the votes did not read");
 	if (from > total)
@@ -361,6 +367,31 @@ static size_t remove_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t he
 	return answer(reply, cap, FZN_REPLY_OK, (const char *)hex, hex_len);
 }
 
+/* THE CHAIN THIS NODE VOTES ON, sec 416: none when it is the estate's root,
+ * whose vote needs no chain and counts alone; else its admin chain when it
+ * holds one, since an admin's vote counts for any grantee; else the chain it
+ * joined with. */
+static const fzn_node_authority_t *voting_authority(fzn_node_admin_t *admin)
+{
+	const fzn_node_authority_t *chain;
+
+	if (memcmp(admin->state->config.root, admin->id->pubkey, FZN_PUBKEY_LEN) == 0)
+		return admin->authority;
+	chain = fzn_node_admin_chain_view(admin->admin_chain);
+	return chain ? chain : admin->authority;
+}
+
+/* Whether this node acts as a root now, by its own key or its identity. */
+static int acts_as_root(fzn_node_admin_t *admin)
+{
+	const uint8_t *as = NULL;
+	const fzn_sign_ops_t *sign = NULL;
+
+	return admin->roots
+	       && fzn_node_roots_acting(admin->roots, admin->id->pubkey, admin->id->sign, &as,
+	                                &sign);
+}
+
 /* `revoke peer KEY`. */
 static int log_revocation(fzn_node_admin_t *admin, const uint8_t grantee[FZN_PUBKEY_LEN]);
 
@@ -376,7 +407,7 @@ static size_t revoke_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t he
 	if (!unhex(hex, hex_len, grantee, sizeof(grantee)))
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a peer key");
 	now = admin->state->clock ? admin->state->clock() : 0u;
-	rerr = fzn_node_revoke(admin->id, admin->state->config.root, admin->authority,
+	rerr = fzn_node_revoke(admin->id, admin->state->config.root, voting_authority(admin),
 	                       &admin->state->config.remote_capability, grantee, now,
 	                       admin->revocations, admin->store);
 	if (rerr != FZN_NODE_REVOKE_OK && rerr != FZN_NODE_REVOKE_ALREADY)
@@ -454,8 +485,8 @@ static size_t unrevoke_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t 
 	if (!unhex(hex, hex_len, grantee, sizeof(grantee)))
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a peer key");
 	now = admin->state->clock ? admin->state->clock() : 0u;
-	rerr = fzn_node_unrevoke(admin->id, admin->state->config.root, admin->authority, grantee,
-	                         now, admin->revocations, admin->store);
+	rerr = fzn_node_unrevoke(admin->id, admin->state->config.root, voting_authority(admin),
+	                         grantee, now, admin->revocations, admin->store);
 	if (rerr != FZN_NODE_REVOKE_OK)
 		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_revoke_err_str(rerr));
 	if (!log_revocation(admin, grantee))
@@ -463,6 +494,60 @@ static size_t unrevoke_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t 
 		                   "withdrawn, and not in this root's log: it would fall at this "
 		                   "root's removal");
 	return answer(reply, cap, FZN_REPLY_OK, (const char *)hex, hex_len);
+}
+
+/* `grant admin KEY`: KEY's whole admin chain, as `h` items. sec 416. */
+static size_t grant_admin(fzn_node_admin_t *admin, const uint8_t *hex, size_t hex_len,
+                          char *reply, size_t cap)
+{
+	static uint8_t chain[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	static char detail[FZN_REPLY_MAX];
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	fzn_node_revoke_err_t err;
+	size_t n = 0, i, at = 0;
+
+	if (!unhex(hex, hex_len, grantee, sizeof(grantee)))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a key");
+	/* REFUSED BEFORE ANYTHING IS MINTED when the chain could not fit: a
+	 * root's grant is one hop, an admin's its own chain and one more. */
+	if (admin->admin_chain && admin->admin_chain->hop_count + 1u > ADMIN_CHAIN_HOPS
+	    && !acts_as_root(admin))
+		return answer_text(reply, cap, FZN_REPLY_ERROR,
+		                   "this node's admin chain is too deep for one reply line");
+	err = fzn_node_admin_grant(admin->roots, admin->store, admin->id, admin->admin_chain,
+	                           &admin->state->config.admin_capability, grantee,
+	                           admin->state->clock ? admin->state->clock() : 0u, chain, &n);
+	if (err != FZN_NODE_REVOKE_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_revoke_err_str(err));
+	for (i = 0; i < n; i++) {
+		detail[at++] = i ? ' ' : 'h';
+		if (i)
+			detail[at++] = 'h';
+		put_hex(detail + at, chain[i], FZN_HOP_LEN);
+		at += FZN_HOP_LEN * 2u;
+	}
+	return answer(reply, cap, FZN_REPLY_OK, detail, at);
+}
+
+/* `add confirm HOP`: confirm the admin grant HOP. sec 416. */
+static size_t confirm_admin(fzn_node_admin_t *admin, const uint8_t *hex, size_t hex_len,
+                            char *reply, size_t cap)
+{
+	uint8_t hop[FZN_HOP_LEN];
+	fzn_chain_hop_t view;
+	fzn_node_revoke_err_t err;
+
+	if (!unhex(hex, hex_len, hop, sizeof(hop)) || fzn_hop_open(hop, sizeof(hop), &view)
+	                                                       != FZN_CHAIN_OK)
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a hop");
+	if (memcmp(fzn_hop_capability(view), &admin->state->config.admin_capability,
+	           sizeof(fzn_cap_id_t)) != 0)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "not a grant of admin");
+	err = fzn_node_admin_confirm(admin->roots, admin->store, admin->id, admin->admin_chain,
+	                             admin->state->config.root, hop, admin->revocations);
+	if (err != FZN_NODE_REVOKE_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_revoke_err_str(err));
+	return answer_text(reply, cap, FZN_REPLY_OK, NULL);
 }
 
 size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
@@ -509,6 +594,13 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 	if (request->parsed == FZN_VERB_REMOVE && subject_revocation(request, &rest, &rest_len)
 	    && rest && admin->revocations)
 		return unrevoke_peer(admin, rest, rest_len, reply, reply_cap);
+	/* ADMINS, sec 416: only on a node whose config names the capability. */
+	if (admin->state->config.has_admin && request->parsed == FZN_VERB_GRANT
+	    && subject_word(request, "admin", &rest, &rest_len) && rest)
+		return grant_admin(admin, rest, rest_len, reply, reply_cap);
+	if (admin->state->config.has_admin && request->parsed == FZN_VERB_ADD
+	    && subject_word(request, "confirm", &rest, &rest_len) && rest && admin->revocations)
+		return confirm_admin(admin, rest, rest_len, reply, reply_cap);
 
 	return answer_text(reply, reply_cap, FZN_REPLY_UNSUPPORTED, NULL);
 }

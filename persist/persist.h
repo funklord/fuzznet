@@ -197,6 +197,10 @@ typedef enum fzn_persist_slot {
 	/* Per record id: an admin's confirmation of another's admin grant,
 	 * with the confirmer's admin chain. `node/revoke.h` keeps it. sec 415. */
 	FZN_PERSIST_ADMIN_CONFIRM = 15u,
+	/* Whole-host, no subject: this node's own admin chain, from a root to
+	 * its identity for the admin capability. `node/revoke.h` keeps it.
+	 * sec 416. */
+	FZN_PERSIST_OWN_ADMIN = 16u,
 } fzn_persist_slot_t;
 
 typedef enum fzn_persist_err {
@@ -234,6 +238,7 @@ typedef enum fzn_persist_err {
 #define FZN_PERSIST_BLOB_ROOT_REMOVE 12u
 #define FZN_PERSIST_BLOB_OWN_ROOT 13u
 #define FZN_PERSIST_BLOB_ADMIN_CONFIRM 14u
+#define FZN_PERSIST_BLOB_OWN_ADMIN 15u
 
 /* Write a blob head, or refuse when `cap` cannot hold head and body. */
 fzn_persist_err_t fzn_persist_head_write(uint8_t *out, size_t cap, size_t body,
@@ -327,6 +332,7 @@ typedef struct fzn_persist_ops {
  *                        followed, or a removed root counts again
  *   OWN_ROOT             the seed of a root key: the estate's authority
  *   ADMIN_CONFIRM        lost, an admin grant falls short of its k - 1
+ *   OWN_ADMIN            lost, this node votes and confirms as nobody
  *
  * NOT CORE: NODE_PEER and PAIRED_NODE, the sessions a node serves and a
  * device holds. Lost, a device re-pairs; nothing is admitted that was not.

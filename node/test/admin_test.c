@@ -54,7 +54,7 @@ struct mem_entry {
 };
 
 struct mem_store {
-	struct mem_entry e[32];
+	struct mem_entry e[64];
 	unsigned saves;
 };
 
@@ -275,8 +275,22 @@ int main(void)
 		static fzn_revocation_t revoked_entries[8];
 		static fzn_revocation_store_t revoked;
 
-		CHECK(fzn_revocation_store_init(&revoked, revoked_entries, 8) == FZN_CHAIN_OK,
+		static fzn_revocation_admin_t admins[8];
+		static fzn_revocation_confirm_t confirms[8];
+
+		/* THE ADMIN CAPABILITY AND ITS TABLES, sec 416, at quorum 1 so
+		 * nothing else here changes. */
+		CHECK(fzn_revocation_store_init(&revoked, revoked_entries, 8) == FZN_CHAIN_OK
+		              && fzn_service_capability(7u, 3u, (const uint8_t *)FZN_NODE_ADMIN_NAME,
+		                                        sizeof(FZN_NODE_ADMIN_NAME) - 1u, &hash_ops,
+		                                        &state.config.admin_capability) == FZN_CHAIN_OK
+		              && fzn_revocation_store_set_quorum(&revoked, 1u,
+		                                                 &state.config.admin_capability,
+		                                                 admins, 8u) == FZN_CHAIN_OK
+		              && fzn_revocation_store_set_confirmations(&revoked, confirms, 8u,
+		                                                        &hash_ops) == FZN_CHAIN_OK,
 		      "fixture: revocation store");
+		state.config.has_admin = 1;
 		admin.revocations = &revoked;
 		state.config.revocations = &revoked;
 	}
@@ -603,6 +617,79 @@ int main(void)
 		              && !says(detail, detail_len, "fuzznetd --pair"),
 		      "the control: a node holding no root key was sent to fuzznetd --pair");
 		memcpy(state.config.root, pinned, FZN_PUBKEY_LEN);
+	}
+
+	/* ---- ADMINS, sec 416: a group member may not grant; the owner grants
+	 * the device admin as this root, one hop, and confirms it, both logged;
+	 * a hop of another capability is not a grant of admin. */
+	{
+		uint8_t hop[FZN_HOP_LEN];
+		char key[(FZN_PUBKEY_LEN * 2u) + 1u], hop_hex[(FZN_HOP_LEN * 2u) + 1u];
+		size_t logged = roots.log.used, k;
+
+		for (k = 0; k < FZN_PUBKEY_LEN; k++)
+			snprintf(key + (2u * k), 3u, "%02x", device.id.pubkey[k]);
+		snprintf(line, sizeof(line), "grant admin %s", key);
+		CHECK(ask(&admin, &member, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_DENIED,
+		      "a service-group member granted admin");
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && detail_len == 1u + (FZN_HOP_LEN * 2u) && detail[0] == 'h'
+		              && roots.log.used == logged + 1u,
+		      "the owner's grant of admin was not one hop, or not logged");
+		memcpy(hop_hex, detail + 1u, FZN_HOP_LEN * 2u);
+		hop_hex[FZN_HOP_LEN * 2u] = '\0';
+		snprintf(line, sizeof(line), "add confirm %s", hop_hex);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && admin.revocations->confirms_used == 1u
+		              && roots.log.used == logged + 2u,
+		      "the root's confirmation was not admitted, or not logged");
+		CHECK(fzn_chain_mint(node.id.pubkey, device.id.pubkey,
+		                     &state.config.remote_capability, 1000u, FZN_NO_EXPIRY, 0,
+		                     &node.sign, hop) == FZN_CHAIN_OK,
+		      "fixture: a hop of the remote capability");
+		for (k = 0; k < FZN_HOP_LEN; k++)
+			snprintf(hop_hex + (2u * k), 3u, "%02x", hop[k]);
+		snprintf(line, sizeof(line), "add confirm %s", hop_hex);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_ERROR
+		              && admin.revocations->confirms_used == 1u,
+		      "a hop of another capability was confirmed as a grant of admin");
+		CHECK(ask(&admin, &owner, "add confirm zz", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_MALFORMED,
+		      "a confirmation of no hop was not answered malformed");
+		/* THE ROOT VOTES AS THE ROOT even holding an admin chain: its
+		 * revocation carries no chain, so no admin row is made. */
+		{
+			static fzn_node_admin_chain_t own;
+			uint8_t chain[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+			size_t n = 0;
+
+			CHECK(fzn_node_admin_grant(&roots, &node.ops, &node.id, NULL,
+			                           &state.config.admin_capability, node.id.pubkey,
+			                           1000u, chain, &n) == FZN_NODE_REVOKE_OK
+			              && fzn_node_admin_chain_set(&node.ops, admin.revocations, &node.id,
+			                                          node.id.pubkey,
+			                                          &state.config.admin_capability,
+			                                          (const uint8_t (*)[FZN_HOP_LEN])chain,
+			                                          n, 1000u, &own) == FZN_NODE_REVOKE_OK,
+			      "fixture: the root holding an admin chain of its own");
+			admin.admin_chain = &own;
+			for (k = 0; k < FZN_PUBKEY_LEN; k++)
+				snprintf(key + (2u * k), 3u, "%02x", (unsigned)(0x60u + k));
+			snprintf(line, sizeof(line), "revoke peer %s", key);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK
+			              && admin.revocations->admins_used == 0u,
+			      "the root voted on its admin chain rather than as the root");
+			admin.admin_chain = NULL;
+		}
 	}
 
 	/* ---- WHAT IT DOES NOT SERVE, IT SAYS SO. */

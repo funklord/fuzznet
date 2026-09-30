@@ -43,6 +43,14 @@
  *     get root [FROM]   `ok TOTAL FROM ITEM ...`, every root log entry and
  *                       root change this node holds; also served remotely,
  *                       and pulled before votes (sec 408)
+ *     grant admin KEY   grant KEY the estate's admin capability, as this
+ *                       node's acting root or through its own admin chain:
+ *                       `ok h<HOP> ...`, KEY's whole chain, which KEY installs
+ *                       with `fuzznetd --set-admin`. A chain past two hops
+ *                       will not fit a reply and is refused (sec 416)
+ *     add confirm HOP   confirm the admin grant HOP, as this node's acting
+ *                       root or as an admin: minted, admitted, saved and
+ *                       served with the votes. `ok` (sec 416)
  *
  * Every other verb of fuzznet's, and any verb that is not, is answered
  * `unsupported` -- a node saying it does not serve a verb is a different fact
@@ -96,6 +104,9 @@ typedef struct fzn_node_admin {
 	 * `add root` and `remove root` are unsupported and nothing is logged.
 	 * sec 409. */
 	struct fzn_node_roots *roots;
+	/* This node's admin chain (`node/revoke.h`), or NULL: then it grants
+	 * and confirms only as a root, and votes on `authority`. sec 416. */
+	fzn_node_admin_chain_t *admin_chain;
 } fzn_node_admin_t;
 
 /* A `fzn_node_local_handler_t`; `ctx` is a `fzn_node_admin_t`. */

@@ -63,6 +63,7 @@ enum fzn_persist_tag : u8 {
 	root_remove = 12,
 	own_root = 13,
 	admin_confirm = 14,
+	own_admin = 15,
 	default = error,
 }
 
@@ -169,6 +170,13 @@ struct fzn_persist_admin_confirm_body {
 	fzn_persist_hop hops[hop_count];
 }
 
+// This node's own admin chain (sec 416): from a root to its identity for
+// the admin capability, at most seven hops, as for a vote's chain.
+struct fzn_persist_own_admin_body {
+	u8  hop_count [min = 1, max = 7];
+	fzn_persist_hop hops[hop_count];
+}
+
 // A peer as the NODE keeps it: who it is, the session keys its frames open
 // under, and its grant as the whole chain from the root -- one hop when the
 // node minted it, more when the node grants through an estate's chain (sec
@@ -202,6 +210,7 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.root_remove: fzn_persist_root_remove_body root_remove;
 		case fzn_persist_tag.own_root: fzn_persist_own_root_body own_root;
 		case fzn_persist_tag.admin_confirm: fzn_persist_admin_confirm_body admin_confirm;
+		case fzn_persist_tag.own_admin: fzn_persist_own_admin_body own_admin;
 		default: error;
 	}
 }

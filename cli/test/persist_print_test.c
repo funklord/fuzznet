@@ -111,7 +111,7 @@ int main(void)
 	/* ---- EVERY SLOT NAMES ITSELF, so a person is told WHICH state is
 	 * missing: an anchor and one peer's chain are not the same loss. */
 	{
-		fzn_persist_slot_t slots[15] = { FZN_PERSIST_TRUST, FZN_PERSIST_OWN_PREKEY,
+		fzn_persist_slot_t slots[16] = { FZN_PERSIST_TRUST, FZN_PERSIST_OWN_PREKEY,
 			                        FZN_PERSIST_PEER, FZN_PERSIST_SEND_CHAIN,
 			                        FZN_PERSIST_RECV_CHAIN,
 			                        FZN_PERSIST_NODE_PEER,
@@ -123,16 +123,17 @@ int main(void)
 			                        FZN_PERSIST_ROOT_ENTRY,
 			                        FZN_PERSIST_ROOT_CHANGE,
 			                        FZN_PERSIST_OWN_ROOT,
-			                        FZN_PERSIST_ADMIN_CONFIRM };
-		char seen[15][FZN_PERSIST_PRINT_MAX];
+			                        FZN_PERSIST_ADMIN_CONFIRM,
+			                        FZN_PERSIST_OWN_ADMIN };
+		char seen[16][FZN_PERSIST_PRINT_MAX];
 		unsigned i, j;
 
-		for (i = 0; i < 15u; i++) {
+		for (i = 0; i < 16u; i++) {
 			(void)line_of(slots[i], FZN_PERSIST_ERR_ABSENT, 1, seen[i], &said);
 			CHECK(said == FZN_PERSIST_LINE_LOST, "a slot did not report the loss");
 		}
-		for (i = 0; i < 15u; i++) {
-			for (j = i + 1u; j < 15u; j++)
+		for (i = 0; i < 16u; i++) {
+			for (j = i + 1u; j < 16u; j++)
 				CHECK(strcmp(seen[i], seen[j]) != 0,
 				      "two slots produced the same sentence, so a person is "
 				      "not told which of their state is gone");

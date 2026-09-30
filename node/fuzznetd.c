@@ -187,6 +187,7 @@ static void usage(const char *prog)
 	        "       %s --fuzznet-dir=DIR --pair PREKEY_HEX [--delegable] [fuzznet options]\n"
 	        "       %s --fuzznet-dir=DIR --prekey\n"
 	        "       %s --fuzznet-dir=DIR --new-root\n"
+	        "       %s --fuzznet-dir=DIR --set-admin CHAIN [fuzznet options]\n"
 	        "       %s --fuzznet-dir=DIR --accept CARD [--join]\n"
 	        "       %s --fuzznet-dir=DIR --ask LINE --node ROOT_HEX --to HOST PORT [--udp6]\n"
 	        "a member of an estate may add --root-at HOST PORT when serving, and any\n"
@@ -195,7 +196,7 @@ static void usage(const char *prog)
 	        "--quorum K: a revocation needs K distinct entitled issuers, a root alone\n"
 	        "counting as K (default 2)\n"
 	        "%s",
-	        prog, prog, prog, prog, prog, prog, FZND_PULL_EVERY, fzn_cli_usage());
+	        prog, prog, prog, prog, prog, prog, prog, FZND_PULL_EVERY, fzn_cli_usage());
 }
 
 /* PAIR ONE DEVICE AND EXIT.
@@ -286,6 +287,8 @@ int main(int argc, char **argv)
 	const char *pair_hex = NULL;
 	int show_prekey = 0;
 	const char *accept_text = NULL;
+	const char *set_admin = NULL;
+	static fzn_node_admin_chain_t own_admin;
 	int delegable = 0, join = 0;
 	static fzn_node_pairing_t estate;
 	static fzn_node_authority_t authority;
@@ -321,6 +324,8 @@ int main(int argc, char **argv)
 			pair_hex = argv[++i];
 		} else if (!strcmp(argv[i], "--new-root")) {
 			new_root = 1;
+		} else if (!strcmp(argv[i], "--set-admin") && i + 1 < argc) {
+			set_admin = argv[++i];
 		} else if (!strcmp(argv[i], "--prekey")) {
 			show_prekey = 1;
 		} else if (!strcmp(argv[i], "--accept") && i + 1 < argc) {
@@ -389,7 +394,7 @@ int main(int argc, char **argv)
 	/* A NODE THAT SERVES ONLY THE REMOTE HOP needs no local socket, and the
 	 * loop has always taken a listen fd of -1 (sec 381). */
 	if (!sock_path && !pair_hex && !show_prekey && !new_root && !accept_text && !ask_line
-	    && udp_port < 0) {
+	    && !set_admin && udp_port < 0) {
 		usage(argv[0]);
 		return 2;
 	}
@@ -585,6 +590,67 @@ int main(int argc, char **argv)
 		}
 		print_hex(stdout, identity.prekey_record, FZN_PREKEY_LEN_TOTAL);
 		printf("\n");
+		return 0;
+	}
+
+	/* THIS NODE'S ADMIN CHAIN, sec 416: the `h` items `grant admin` answered,
+	 * verified from a root of the estate -- the set this node holds -- for
+	 * the admin capability, naming this node, and kept in the core
+	 * directory. Offline, as `--pair` is; the daemon votes on it from its
+	 * next start. */
+	if (set_admin) {
+		static fzn_node_roots_t held;
+		static fzn_revocation_t none[1];
+		static uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+		fzn_revocation_store_t judged;
+		fzn_node_revoke_err_t rerr;
+		const char *at = set_admin;
+		size_t n = 0, nroots = 0;
+
+		if (!booted || !store_ops || !has_capability) {
+			fprintf(stderr, "fuzznetd: --set-admin needs --fuzznet-dir and the service "
+			                "options its capability is derived from\n");
+			return 2;
+		}
+		while (*at) {
+			char item[(FZN_HOP_LEN * 2u) + 1u];
+
+			while (*at == ' ')
+				at++;
+			if (!*at)
+				break;
+			if (*at == 'h')
+				at++;
+			if (n >= FZN_CHAIN_MAX_HOPS - 1u || strlen(at) < FZN_HOP_LEN * 2u) {
+				fprintf(stderr, "fuzznetd: --set-admin is not a chain of hops\n");
+				return 2;
+			}
+			memcpy(item, at, FZN_HOP_LEN * 2u);
+			item[FZN_HOP_LEN * 2u] = '\0';
+			if (!hex_bytes(item, hops[n], FZN_HOP_LEN)) {
+				fprintf(stderr, "fuzznetd: --set-admin is not a chain of hops\n");
+				return 2;
+			}
+			n++;
+			at += FZN_HOP_LEN * 2u;
+		}
+		if (fzn_revocation_store_init(&judged, none, 1u) != FZN_CHAIN_OK
+		    || fzn_node_roots_init(&held, state.config.root, &sign_ops, &hash_ops)
+		               != FZN_NODE_ROOTS_OK
+		    || fzn_node_roots_load(&held, store_ops, &nroots) != FZN_NODE_ROOTS_OK
+		    || fzn_node_roots_attach(&held, &judged) != FZN_NODE_ROOTS_OK) {
+			fprintf(stderr, "fuzznetd: --set-admin could not restore the roots\n");
+			return 1;
+		}
+		rerr = fzn_node_admin_chain_set(store_ops, &judged, &identity, state.config.root,
+		                                &state.config.admin_capability,
+		                                (const uint8_t (*)[FZN_HOP_LEN])hops, n, wall_clock(),
+		                                &own_admin);
+		if (rerr != FZN_NODE_REVOKE_OK) {
+			fprintf(stderr, "fuzznetd: --set-admin: %s\n", fzn_node_revoke_err_str(rerr));
+			return 1;
+		}
+		fprintf(stderr, "fuzznetd: admin chain of %zu hop(s) kept\n", n);
 		return 0;
 	}
 
@@ -858,8 +924,10 @@ int main(int argc, char **argv)
 		    || fzn_node_roots_key_load(&estate_roots, store_ops, &root_seat, &root_sign_ops)
 		               != FZN_NODE_ROOTS_OK
 		    || fzn_node_roots_attach(&estate_roots, &revoked) != FZN_NODE_ROOTS_OK
+		    || fzn_node_admin_chain_load(store_ops, &own_admin) < 0
 		    || fzn_node_revocations_load(store_ops, &revoked, state.config.root,
-		                                 my_authority, &sign_ops, &hash_ops, &nrevoked)
+		                                 my_authority, fzn_node_admin_chain_view(&own_admin),
+		                                 &sign_ops, &hash_ops, &nrevoked)
 		               != FZN_PERSIST_OK) {
 			fprintf(stderr, "fuzznetd: could not restore the revocations in %s\n",
 			        store_dir);
@@ -906,6 +974,7 @@ int main(int argc, char **argv)
 			admin.revocations = &revoked;
 			admin.authority = my_authority;
 			admin.roots = &estate_roots;
+			admin.admin_chain = &own_admin;
 			state.on_local = fzn_node_admin_handle;
 			state.on_local_ctx = &admin;
 			state.on_remote = fzn_node_admin_remote;

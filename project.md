@@ -50454,3 +50454,141 @@ a refusal. The branch is gone and a comment says why.
 
 The sec 411 live script ran again, with the tables in place: daemons
 start, pull roots and pair as before, with no orphans.
+
+## 416. A node grants, holds and confirms admin, 2026-09-30
+
+Sec 415 left the minting half: nothing in a node could make an admin,
+hold an admin chain or confirm a grant.
+
+### The admin chain
+
+**A node holds at most one**, in the new core slot 16 (blob tag 15). It
+is a chain from a root to the node's identity for the admin capability,
+ending delegable, so the node can both vote and grant onward.
+
+**`fzn_node_admin_chain_set` verifies before keeping.** The chain must:
+
+- verify for the admin capability from a root of the estate;
+- be judged with the revocations the node holds, so a revoked grant is
+  not taken;
+- name this node as the last grantee;
+- end delegable.
+
+**`fuzznetd --set-admin CHAIN` installs one offline**, as `--pair`
+works, and the daemon votes on it from its next start. It is not a verb:
+a request line is at most 512 bytes (`FZN_REQUEST_MAX`), and a two-hop
+chain is over 700.
+
+### Granting and confirming
+
+**`fzn_node_admin_grant`, and the verb `grant admin KEY`**, grant in one
+of two ways:
+
+- **As the node's acting root:** one hop from that root, logged in its
+  log as a grant. A root's grant not in its log would fall at the
+  root's removal, whatever the cut.
+- **Otherwise as an admin:** the node's own chain and one hop more. That
+  grant counts only once k - 1 other admins confirm it (sec 414).
+
+The verb answers the grantee's whole chain as `h` items. Two hops fit a
+reply line and three do not, so a deeper chain is refused before
+anything is minted.
+
+**`fzn_node_admin_confirm`, and the verb `add confirm HOP`**, confirm in
+one of two ways:
+
+- **As the acting root:** no chain, logged, since confirming an admin is
+  part of making one. It is logged as a grant because the root log has
+  no confirmation kind, and adding one is a wire change for no reader.
+- **Otherwise as an admin:** its chain is shown.
+
+Either way the confirmation is admitted into the running store and saved
+in slot 15, so the vote stream serves it. The verb refuses a hop that
+does not grant the admin capability.
+
+Both verbs are served only where the config names the admin capability,
+and they change the node, so a service-group member is denied.
+
+### Voting as an admin
+
+**A node that holds an admin chain votes on it**, because an admin's
+vote counts for any grantee. The exception is the estate's genesis root,
+which votes as the root with no chain.
+
+**`fzn_node_revocations_load` and `fzn_node_votes_page` take the admin
+chain beside the joined one.** A record the node issued goes out, and is
+re-admitted, on the admin chain first:
+
+- the load uses it only when the store knows the admin capability;
+- the stream attaches it whenever the node holds one, which is what
+  teaches a puller the node is an admin.
+
+**An admin chain may start at any member root.** `entitled_as_admin`
+verified it under the call's root, so an admin granted by a root other
+than the genesis could never vote. It now verifies under the chain's
+first grantor when the store's set names it, the fix sec 413 made for
+the roster.
+
+### Not yet after sec 416
+
+- **An admin chain from a removed root is still judged by its hops
+  alone.** The strata do not ask whether the first hop counts under the
+  root's cut, as `fzn_chain_verify` and the roster now do.
+- **`entitled_by_chain` still pins the call's root** for an ordinary,
+  ancestor voter's chain from a member root.
+- **Re-keys** still have nothing to confirm.
+
+### Measured for sec 416
+
+**`pair_test`, 219 checks, with `test_admins_at_the_node`:**
+
+- **Granting:** R grants A as a root, and one hop is logged. B cannot
+  install that chain (the control), a chain ending undelegable cannot be
+  installed, and A's chain loads back.
+- **Granting as an admin:** A grants B, and the result is A's chain plus
+  one hop. A node neither root nor admin can neither grant nor confirm.
+- **Confirming:** C, another root-granted admin, confirms A's grant of
+  B, and it is saved. R confirms as a root, and it is logged.
+- **Voting:** B's vote on its admin chain makes B an admin in its own
+  store, travels with that chain (the puller learns B as an admin), and
+  is re-admitted on it at start.
+
+**`admin_test`, 53 checks:**
+
+- a group member cannot grant;
+- the owner's grant is one logged hop, and its confirmation is admitted
+  and logged;
+- a hop of the remote capability is refused as "not a grant of admin";
+- a garbled hop is malformed;
+- the root holding an admin chain of its own still votes as the root:
+  no admin row is made.
+
+The fixture's in-memory store grew from 32 rows to 64 to hold the case.
+It had filled up, which first showed as the save being refused.
+
+**`persist_test`'s routing fixture could not count slot 16.** It kept
+16 counters and indexed them by `slot & 15`, so slot 16 was counted in
+slot 0's cell while the check read the cell past the end. It failed as
+"slot 16 was not saved to the core backend". It keeps 64 cells now. Its
+"a slot nobody named is core" case used 15, which sec 415 had named, and
+it now uses an unnamed number.
+
+**`revocation_test`, 674 checks, with
+`test_an_admin_chain_from_a_member_root`:** a 9→5 admin chain is refused
+without a set naming 9 (the control), and taken with one.
+
+**Live, two daemons over loopback:**
+
+1. A joins R. R's daemon answers `grant admin` with a 362-character,
+   one-hop chain, and `add confirm` of it with `ok`.
+2. `fuzznetd --set-admin` on A keeps the chain.
+3. A's daemon revokes a key. Its `get vote` serves the record with one
+   hop, byte for byte the admin grant rather than A's joined hop.
+4. R's `get vote` serves one confirmation.
+
+No daemon was left running, and the socket directory was removed.
+
+**The review before sabotage found one bug of mine.** The first version
+had the genesis root vote on an admin chain it held. That counts as one
+admin rather than the root that acts alone. It is fixed, and it is the
+admin_test case above.

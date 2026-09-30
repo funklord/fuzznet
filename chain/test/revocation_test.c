@@ -4288,6 +4288,49 @@ static void test_an_admin_grant_takes_confirmations(void)
 	      "a confirmation one byte short was taken");
 }
 
+/* A ROOT SET OF ONE MEMBER BESIDE THE PIN: seed 9, whose every act counts. */
+static int member_nine(void *ctx, const uint8_t key_bytes[FZN_PUBKEY_LEN])
+{
+	uint8_t nine[FZN_PUBKEY_LEN];
+
+	(void)ctx;
+	key(nine, 9);
+	return memcmp(key_bytes, nine, FZN_PUBKEY_LEN) == 0;
+}
+
+static int counts_nine(void *ctx, const uint8_t root[FZN_PUBKEY_LEN],
+                       const uint8_t act[FZN_REVOCATION_ID_LEN])
+{
+	(void)act;
+	return member_nine(ctx, root);
+}
+
+/* AN ADMIN CHAIN FROM A MEMBER ROOT, sec 416: 9 -> 5 for the admin
+ * capability. Without the set, 5's vote on it is refused, since the chain
+ * does not start at the pin (the control); with it, 5 is taken as an admin. */
+static void test_an_admin_chain_from_a_member_root(void)
+{
+	static fzn_revocation_admin_t admins[4];
+	static struct fixture f;
+	static const fzn_root_ops_t SET = { member_nine, counts_nine, NULL };
+	uint8_t hop_bytes[FZN_HOP_LEN];
+	fzn_chain_hop_t hop;
+	fzn_cap_id_t cap, adm;
+
+	capability_id(&cap, 0xc0);
+	capability_id(&adm, 0xad);
+	fixture_init(&f);
+	CHECK(fzn_revocation_store_set_quorum(&f.store, 2u, &adm, admins, 4u) == FZN_CHAIN_OK,
+	      "set_quorum refused a sound request");
+	mint_hop(&f, hop_bytes, &hop, 9, 5, &adm, 1000, FZN_NO_EXPIRY, 1);
+	CHECK(vote_on(&f, 5, &cap, 2, &hop, 1) != FZN_CHAIN_OK && f.store.admins_used == 0u,
+	      "the control: an admin chain from a key the pin does not name was taken");
+	CHECK(fzn_revocation_store_set_roots(&f.store, &SET, &HASH_OPS) == FZN_CHAIN_OK
+	              && vote_on(&f, 5, &cap, 2, &hop, 1) == FZN_CHAIN_OK
+	              && f.store.admins_used == 1u,
+	      "an admin chain from a member root was refused");
+}
+
 int main(void)
 {
 	test_layout_and_round_trip();
@@ -4349,6 +4392,7 @@ int main(void)
 	test_an_admin_is_named_by_its_chain();
 	test_admins_that_revoke_each_other_both_fall();
 	test_an_admin_grant_takes_confirmations();
+	test_an_admin_chain_from_a_member_root();
 	test_the_links_form_holds_the_ceiling();
 	test_k_of_n_is_order_free();
 	test_the_suite_can_tell_pass_from_fail();

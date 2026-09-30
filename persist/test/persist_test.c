@@ -806,8 +806,12 @@ static void test_an_identity_seed_round_trips_and_zero_is_refused(void)
 /* ---- the route, sec 392 ------------------------------------------------ */
 
 /* A backend that only counts which slots reached it. */
+/* Past every slot persist.h names, so a counted slot never shares a cell with
+ * another: at 16 cells and `slot & 15`, slot 16 counted into slot 0's. */
+#define COUNTED_SLOTS 64u
+
 struct counting {
-	unsigned calls[16];
+	unsigned calls[COUNTED_SLOTS];
 	int has_optional;
 };
 
@@ -815,7 +819,7 @@ static int count_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject
                       size_t cap, size_t *len)
 {
 	(void)subject; (void)out; (void)cap; (void)len;
-	((struct counting *)ctx)->calls[slot & 15u]++;
+	((struct counting *)ctx)->calls[slot < COUNTED_SLOTS ? slot : COUNTED_SLOTS - 1u]++;
 	return 1;
 }
 
@@ -823,7 +827,7 @@ static int count_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject
                       const uint8_t *bytes, size_t len)
 {
 	(void)subject; (void)bytes; (void)len;
-	((struct counting *)ctx)->calls[slot & 15u]++;
+	((struct counting *)ctx)->calls[slot < COUNTED_SLOTS ? slot : COUNTED_SLOTS - 1u]++;
 	return 1;
 }
 
@@ -831,7 +835,7 @@ static int count_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t m
                       size_t *count)
 {
 	(void)out; (void)max;
-	((struct counting *)ctx)->calls[slot & 15u]++;
+	((struct counting *)ctx)->calls[slot < COUNTED_SLOTS ? slot : COUNTED_SLOTS - 1u]++;
 	*count = 0;
 	return 1;
 }
@@ -847,7 +851,7 @@ static void test_the_route_sends_each_slot_where_the_rule_says(void)
 		FZN_PERSIST_SEND_CHAIN, FZN_PERSIST_RECV_CHAIN, FZN_PERSIST_OWN_IDENTITY,
 		FZN_PERSIST_ISSUED_REVOCATION, FZN_PERSIST_LEARNED_REVOCATION,
 		FZN_PERSIST_VOTE, FZN_PERSIST_ROOT_ENTRY, FZN_PERSIST_ROOT_CHANGE,
-		FZN_PERSIST_OWN_ROOT, FZN_PERSIST_ADMIN_CONFIRM,
+		FZN_PERSIST_OWN_ROOT, FZN_PERSIST_ADMIN_CONFIRM, FZN_PERSIST_OWN_ADMIN,
 	};
 	static const fzn_persist_slot_t BULK[] = { FZN_PERSIST_NODE_PEER,
 		                                   FZN_PERSIST_PAIRED_NODE };
@@ -875,7 +879,7 @@ static void test_the_route_sends_each_slot_where_the_rule_says(void)
 		      "slot %u was not loaded from the store backend", (unsigned)BULK[i]);
 	}
 	/* A SLOT NOBODY DECIDED ABOUT IS CORE: the guarded place. */
-	CHECK(fzn_persist_slot_is_core((fzn_persist_slot_t)15u),
+	CHECK(fzn_persist_slot_is_core((fzn_persist_slot_t)(COUNTED_SLOTS - 2u)),
 	      "a slot the rule does not name was sent somewhere less guarded");
 	/* AN OPTIONAL OPERATION THE ROUTED-TO BACKEND LACKS ANSWERS 0, as that
 	 * backend would alone -- it does not fall through to the other one. */

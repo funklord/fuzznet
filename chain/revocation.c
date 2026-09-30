@@ -1104,8 +1104,15 @@ static fzn_chain_err_t entitled_as_admin(fzn_revocation_store_t *store,
 	fzn_chain_err_t err;
 	size_t i, a;
 
-	if (hop_count >= (size_t)FZN_CHAIN_MAX_HOPS)
+	if (hop_count >= (size_t)FZN_CHAIN_MAX_HOPS || (hop_count && !hops[0].base))
 		return FZN_CHAIN_ERR_MALFORMED;
+	/* FROM ANY MEMBER ROOT, sec 416: the chain is verified under its own
+	 * first grantor when the store's set names it, as a chain from a member
+	 * root verifies anywhere else. Whether that root's grant still counts is
+	 * asked when the store is read. */
+	if (hop_count && store->roots
+	    && store->roots->member(store->roots->ctx, fzn_hop_grantor(hops[0])))
+		root = fzn_hop_grantor(hops[0]);
 	err = fzn_chain_verify(hops, hop_count, root, &store->admin_capability, 0,
 	                       sign, NULL, NULL, &verdict);
 	if (err != FZN_CHAIN_OK)

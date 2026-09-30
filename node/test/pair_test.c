@@ -360,7 +360,7 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 
 		/* ---- AND IT SURVIVES A RESTART: a fresh store, filled only from
 		 * what the node saved. */
-		CHECK(fzn_node_revocations_load(&node->ops, &fresh, node->id.pubkey, NULL, &node->sign,
+		CHECK(fzn_node_revocations_load(&node->ops, &fresh, node->id.pubkey, NULL, NULL, &node->sign,
 		                                &hash_ops, &restored) == FZN_PERSIST_OK
 		              && restored == 1u,
 		      "the node's revocation did not come back from its store");
@@ -440,7 +440,7 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 			size_t restored = 0;
 
 			CHECK(fzn_revocation_store_init(&again, again_entries, 4) == FZN_CHAIN_OK
-			              && fzn_node_revocations_load(&node->ops, &again, node->id.pubkey, NULL,
+			              && fzn_node_revocations_load(&node->ops, &again, node->id.pubkey, NULL, NULL,
 			                                           &node->sign, &hash_ops, &restored)
 			                         == FZN_PERSIST_OK
 			              && restored == 1u,
@@ -849,7 +849,7 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 		      "pulling a revocation N already holds failed -- every periodic pull would");
 
 		/* A RESTART with R unreachable: what N saved is what it denies by. */
-		CHECK(fzn_node_revocations_load(&n.ops, &reloaded, r.id.pubkey, NULL, &n.sign, &hash_ops,
+		CHECK(fzn_node_revocations_load(&n.ops, &reloaded, r.id.pubkey, NULL, NULL, &n.sign, &hash_ops,
 		                                &count) == FZN_PERSIST_OK
 		              && count == 1u,
 		      "N's restart did not reload exactly the one revocation it learned");
@@ -954,7 +954,7 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 		/* THE RESTART: R's record it learned, its own of E, and the one it
 		 * issued as its own root before joining -- its signed word still,
 		 * admitted through the chain -- and not the one above. */
-		CHECK(fzn_node_revocations_load(&n.ops, &reloaded, r.id.pubkey, &authority, &n.sign,
+		CHECK(fzn_node_revocations_load(&n.ops, &reloaded, r.id.pubkey, &authority, NULL, &n.sign,
 		                                &hash_ops, &count) == FZN_PERSIST_OK
 		              && count == 3u,
 		      "N's restart with its chain did not reload R's, its own, and its pre-join records");
@@ -985,7 +985,7 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 			CHECK(fzn_node_unrevoke(&n.id, r.id.pubkey, &authority, e.id.pubkey, 1901u, &mine,
 			                        &n.ops) == FZN_NODE_REVOKE_NOT_REVOKED,
 			      "undoing twice was not reported as nothing to undo");
-			CHECK(fzn_node_revocations_load(&n.ops, &after, r.id.pubkey, &authority, &n.sign,
+			CHECK(fzn_node_revocations_load(&n.ops, &after, r.id.pubkey, &authority, NULL, &n.sign,
 			                                &hash_ops, &count) == FZN_PERSIST_OK
 			              && granted_by(&n, r.id.pubkey, &e, cap, &after) == 1,
 			      "after a restart N denied E again, or would not load the withdrawal");
@@ -993,7 +993,7 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 			                      &after, &n.ops) == FZN_NODE_REVOKE_OK
 			              && granted_by(&n, r.id.pubkey, &e, cap, &after) == 0,
 			      "revoking E again after the undo did not deny it");
-			CHECK(fzn_node_revocations_load(&n.ops, &again, r.id.pubkey, &authority, &n.sign,
+			CHECK(fzn_node_revocations_load(&n.ops, &again, r.id.pubkey, &authority, NULL, &n.sign,
 			                                &hash_ops, &count) == FZN_PERSIST_OK
 			              && granted_by(&n, r.id.pubkey, &e, cap, &again) == 0,
 			      "after a restart N granted E, revoked again after an undo");
@@ -1035,7 +1035,39 @@ static int stream_pull(struct node *from, const fzn_node_authority_t *authority,
 		size_t len = 0, total = 0, next = 0;
 		int n, err;
 
-		if (!fzn_node_votes_page(&from->ops, authority, at, body, cap, &len, &total))
+		if (!fzn_node_votes_page(&from->ops, authority, NULL, at, body, cap, &len, &total))
+			return -99;
+		n = snprintf(page, sizeof(page), "ok %zu %zu", total, at);
+		if (n < 0 || (size_t)n + len + 2u > sizeof(page))
+			return -99;
+		memcpy(page + n, body, len);
+		page[(size_t)n + len] = '\n';
+		err = fzn_node_votes_absorb(pull, (const uint8_t *)page, (size_t)n + len + 1u, at,
+		                            root, &into->sign, &hash_ops, revs, &into->ops, &next,
+		                            &total);
+		if (err != FZN_NODE_PULL_OK || next >= total)
+			return err;
+		at = next;
+	}
+	return -99;
+}
+
+/* `stream_pull` with this node's admin chain as well. sec 416. */
+static int stream_pull_as(struct node *from, const fzn_node_authority_t *authority,
+                          const fzn_node_authority_t *admin, struct node *into,
+                          const uint8_t root[FZN_PUBKEY_LEN], fzn_revocation_store_t *revs,
+                          fzn_node_vote_pull_t *pull)
+{
+	static char body[FZN_REPLY_MAX];
+	static char page[FZN_REPLY_MAX + 64u];
+	size_t at = 0, pages = 0;
+
+	memset(pull, 0, sizeof(*pull));
+	while (pages++ < 64u) {
+		size_t len = 0, total = 0, next = 0;
+		int n, err;
+
+		if (!fzn_node_votes_page(&from->ops, authority, admin, at, body, 800u, &len, &total))
 			return -99;
 		n = snprintf(page, sizeof(page), "ok %zu %zu", total, at);
 		if (n < 0 || (size_t)n + len + 2u > sizeof(page))
@@ -1214,12 +1246,12 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 			fzn_revocation_store_t scratch;
 
 			CHECK(fzn_revocation_store_init(&scratch, s_e, 8) == FZN_CHAIN_OK
-			              && fzn_node_revocations_load(&r.ops, &scratch, r.id.pubkey, NULL,
+			              && fzn_node_revocations_load(&r.ops, &scratch, r.id.pubkey, NULL, NULL,
 			                                           &r.sign, &hash_ops, &count)
 			                         == FZN_PERSIST_ERR_SHAPE,
 			      "a restart admitted past a learned vote that will not admit");
 		}
-		CHECK(fzn_node_revocations_load(&m.ops, &reloaded, r.id.pubkey, NULL, &m.sign,
+		CHECK(fzn_node_revocations_load(&m.ops, &reloaded, r.id.pubkey, NULL, NULL, &m.sign,
 		                                &hash_ops, &count) == FZN_PERSIST_OK
 		              && count == 2u,
 		      "M's restart did not reload exactly the two votes it learned");
@@ -1290,7 +1322,7 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 			CHECK(fzn_revocation_store_init(&after, a_e, 8) == FZN_CHAIN_OK
 			              && fzn_revocation_store_set_quorum(&after, 2u, NULL, NULL, 0u)
 			                         == FZN_CHAIN_OK
-			              && fzn_node_revocations_load(&m.ops, &after, r.id.pubkey, NULL,
+			              && fzn_node_revocations_load(&m.ops, &after, r.id.pubkey, NULL, NULL,
 			                                           &m.sign, &hash_ops, &count)
 			                         == FZN_PERSIST_OK
 			              && !d_revoked(&after, &r, &n, &d, cap),
@@ -1331,7 +1363,7 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 			      "cast it in the open epoch");
 			CHECK(fzn_revocation_store_init(&scratch, s_e, 8) == FZN_CHAIN_OK
 			              && fzn_node_revocations_load(&n.ops, &scratch, r.id.pubkey,
-			                                           &authority, &n.sign, &hash_ops, &count)
+			                                           &authority, NULL, &n.sign, &hash_ops, &count)
 			                         == FZN_PERSIST_OK,
 			      "N's restart failed on its own withdrawal superseded by a re-revocation");
 		}
@@ -2026,7 +2058,7 @@ static void test_confirmations_travel(void)
 	              && fzn_revocation_store_set_quorum(&fresh, 2u, &adm, ad2, 4u) == FZN_CHAIN_OK
 	              && fzn_revocation_store_set_confirmations(&fresh, c2, 4u, &hash_ops)
 	                         == FZN_CHAIN_OK
-	              && fzn_node_revocations_load(&t.ops, &fresh, r.id.pubkey, NULL, &t.sign,
+	              && fzn_node_revocations_load(&t.ops, &fresh, r.id.pubkey, NULL, NULL, &t.sign,
 	                                           &hash_ops, &count) == FZN_PERSIST_OK
 	              && count == 2u && fresh.confirms_used == 2u,
 	      "T's confirmations were not admitted again at start");
@@ -2038,6 +2070,127 @@ static void test_confirmations_travel(void)
 	              && pull.learned == 0u && pull.refused == 2u
 	              && rows_in(&u, FZN_PERSIST_ADMIN_CONFIRM) == 0u,
 	      "a store keeping no confirmation table took or saved a confirmation");
+}
+
+/* ---- admins at the node, sec 416 ------------------------------------- */
+
+/* A store at k = 2 with the admin capability, both tables and `roots`. */
+static int admin_store(fzn_revocation_store_t *revs, fzn_revocation_t *entries,
+                       fzn_revocation_admin_t *admins, fzn_revocation_confirm_t *confirms,
+                       const fzn_cap_id_t *adm, fzn_node_roots_t *roots)
+{
+	return fzn_revocation_store_init(revs, entries, 8) == FZN_CHAIN_OK
+	       && fzn_revocation_store_set_quorum(revs, 2u, adm, admins, 8u) == FZN_CHAIN_OK
+	       && fzn_revocation_store_set_confirmations(revs, confirms, 8u, &hash_ops)
+	                  == FZN_CHAIN_OK
+	       && (!roots || fzn_node_roots_attach(roots, revs) == FZN_NODE_ROOTS_OK);
+}
+
+/* R, the genesis, grants admin to A and to C, logging both; each installs its
+ * chain, and B cannot install A's. A grants B through its own chain: two hops.
+ * C confirms A's grant of B, and R confirms it as a root, logged; a node that
+ * is neither is refused. B votes on its admin chain: the vote stream carries
+ * that chain, a puller learns B as an admin from it, and a restart re-admits
+ * B's vote on it. */
+static void test_admins_at_the_node(const fzn_cap_id_t *cap)
+{
+	static struct node r, a, b, c, d, t;
+	static fzn_node_roots_t r_roots;
+	static fzn_revocation_t e[6][8];
+	static fzn_revocation_admin_t ad[6][8];
+	static fzn_revocation_confirm_t cf[6][8];
+	static fzn_node_admin_chain_t a_chain, b_chain, c_chain, back;
+	static uint8_t chain[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], b_hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	fzn_revocation_store_t r_revs, a_revs, b_revs, c_revs, t_revs, fresh;
+	fzn_node_vote_pull_t pull;
+	fzn_cap_id_t adm;
+	size_t n = 0, logged, count = 0;
+
+	memset(&adm, 0xad, sizeof(adm));
+	CHECK(node_up(&r) && node_up(&a) && node_up(&b) && node_up(&c) && node_up(&d) && node_up(&t)
+	              && fzn_node_roots_init(&r_roots, r.id.pubkey, &r.sign, &hash_ops)
+	                         == FZN_NODE_ROOTS_OK
+	              && admin_store(&r_revs, e[0], ad[0], cf[0], &adm, &r_roots)
+	              && admin_store(&a_revs, e[1], ad[1], cf[1], &adm, NULL)
+	              && admin_store(&b_revs, e[2], ad[2], cf[2], &adm, NULL)
+	              && admin_store(&c_revs, e[3], ad[3], cf[3], &adm, NULL)
+	              && admin_store(&t_revs, e[4], ad[4], cf[4], &adm, NULL),
+	      "fixture: the nodes and their stores");
+
+	/* R GRANTS A, as a root, logged. */
+	CHECK(fzn_node_admin_grant(&r_roots, &r.ops, &r.id, NULL, &adm, a.id.pubkey, 1000u, chain,
+	                           &n) == FZN_NODE_REVOKE_OK
+	              && n == 1u && r_roots.log.used == 1u
+	              && r_roots.log.entries[0].kind == (uint8_t)FZN_ROOT_ACT_GRANT,
+	      "R did not grant A admin as one logged hop");
+	CHECK(fzn_node_admin_chain_set(&b.ops, &b_revs, &b.id, r.id.pubkey, &adm,
+	                               (const uint8_t (*)[FZN_HOP_LEN])chain, n, 1100u, &back)
+	              == FZN_NODE_REVOKE_NOT_ADMIN,
+	      "the control: B installed a chain that names A");
+	CHECK(fzn_node_admin_chain_set(&a.ops, &a_revs, &a.id, r.id.pubkey, &adm,
+	                               (const uint8_t (*)[FZN_HOP_LEN])chain, n, 1100u, &a_chain)
+	              == FZN_NODE_REVOKE_OK
+	              && fzn_node_admin_chain_load(&a.ops, &back) == 1 && back.hop_count == 1u
+	              && memcmp(back.hops[0], chain[0], FZN_HOP_LEN) == 0,
+	      "A could not install R's grant, or it did not load back");
+	CHECK(fzn_node_admin_chain_load(&c.ops, &back) == 0 && !fzn_node_admin_chain_view(&back),
+	      "a node with no admin chain loaded one");
+	/* A CHAIN THAT ENDS UNDELEGABLE cannot be held: it could neither grant
+	 * onward nor, by `fzn_node_revoke`'s rule, vote. */
+	CHECK(fzn_chain_mint(r.id.pubkey, c.id.pubkey, &adm, 1000u, FZN_NO_EXPIRY, 0, &r.sign,
+	                     chain[0]) == FZN_CHAIN_OK
+	              && fzn_node_admin_chain_set(&c.ops, &c_revs, &c.id, r.id.pubkey, &adm,
+	                                          (const uint8_t (*)[FZN_HOP_LEN])chain, 1u, 1100u,
+	                                          &back) == FZN_NODE_REVOKE_NOT_ADMIN,
+	      "an admin chain ending undelegable was installed");
+
+	/* R GRANTS C; C installs. A GRANTS B: A's chain and a hop more. */
+	CHECK(fzn_node_admin_grant(&r_roots, &r.ops, &r.id, NULL, &adm, c.id.pubkey, 1000u, chain,
+	                           &n) == FZN_NODE_REVOKE_OK
+	              && fzn_node_admin_chain_set(&c.ops, &c_revs, &c.id, r.id.pubkey, &adm,
+	                                          (const uint8_t (*)[FZN_HOP_LEN])chain, n, 1100u,
+	                                          &c_chain) == FZN_NODE_REVOKE_OK,
+	      "fixture: C, R's admin");
+	CHECK(fzn_node_admin_grant(NULL, &a.ops, &a.id, &a_chain, &adm, b.id.pubkey, 1200u, b_hops,
+	                           &n) == FZN_NODE_REVOKE_OK
+	              && n == 2u && memcmp(b_hops[0], a_chain.hops[0], FZN_HOP_LEN) == 0
+	              && fzn_node_admin_chain_set(&b.ops, &b_revs, &b.id, r.id.pubkey, &adm,
+	                                          (const uint8_t (*)[FZN_HOP_LEN])b_hops, n, 1300u,
+	                                          &b_chain) == FZN_NODE_REVOKE_OK,
+	      "A's grant to B was not A's chain and a hop, or B could not install it");
+	CHECK(fzn_node_admin_grant(NULL, &d.ops, &d.id, NULL, &adm, b.id.pubkey, 1200u, chain, &n)
+	              == FZN_NODE_REVOKE_NOT_ROOT,
+	      "a node neither root nor admin granted admin");
+
+	/* CONFIRMATIONS: C as an admin, R as a root and logged, D not at all. */
+	CHECK(fzn_node_admin_confirm(NULL, &c.ops, &c.id, &c_chain, r.id.pubkey, b_hops[1], &c_revs)
+	              == FZN_NODE_REVOKE_OK
+	              && c_revs.confirms_used == 1u && rows_in(&c, FZN_PERSIST_ADMIN_CONFIRM) == 1u,
+	      "C's confirmation of A's grant was not admitted and saved");
+	logged = r_roots.log.used;
+	CHECK(fzn_node_admin_confirm(&r_roots, &r.ops, &r.id, NULL, r.id.pubkey, b_hops[1], &r_revs)
+	              == FZN_NODE_REVOKE_OK
+	              && r_revs.confirms_used == 1u && r_roots.log.used == logged + 1u,
+	      "R's confirmation was not admitted, or not logged as its act");
+	CHECK(fzn_node_admin_confirm(NULL, &d.ops, &d.id, NULL, r.id.pubkey, b_hops[1], &c_revs)
+	              == FZN_NODE_REVOKE_NOT_ROOT,
+	      "a node neither root nor admin confirmed");
+
+	/* B VOTES ON ITS ADMIN CHAIN, and the chain travels and reloads with it. */
+	CHECK(fzn_node_revoke(&b.id, r.id.pubkey, fzn_node_admin_chain_view(&b_chain), cap,
+	                      d.id.pubkey, 1400u, &b_revs, &b.ops) == FZN_NODE_REVOKE_OK
+	              && b_revs.admins_used == 1u,
+	      "B could not vote on its admin chain, or was not taken as an admin");
+	CHECK(stream_pull_as(&b, NULL, fzn_node_admin_chain_view(&b_chain), &t, r.id.pubkey,
+	                     &t_revs, &pull) == FZN_NODE_PULL_OK
+	              && pull.learned == 1u && t_revs.admins_used == 1u,
+	      "B's vote did not travel on its admin chain");
+	CHECK(admin_store(&fresh, e[5], ad[5], cf[5], &adm, NULL)
+	              && fzn_node_revocations_load(&b.ops, &fresh, r.id.pubkey, NULL,
+	                                           fzn_node_admin_chain_view(&b_chain), &b.sign,
+	                                           &hash_ops, &count) == FZN_PERSIST_OK
+	              && count == 1u && fresh.admins_used == 1u,
+	      "B's vote was not admitted again on its admin chain at start");
 }
 
 int main(void)
@@ -2159,6 +2312,7 @@ int main(void)
 	test_a_card_proves_its_root(&cap);
 	test_a_node_pairs_through_its_root_key(&cap);
 	test_confirmations_travel();
+	test_admins_at_the_node(&cap);
 
 	/* ---- A NODE THAT IS NOT ITS OWN ROOT PAIRS NOTHING, and writes nothing. */
 	stranger.store.saves = 0;

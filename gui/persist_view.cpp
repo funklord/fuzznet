@@ -52,6 +52,8 @@ static QString slot_label(fzn_persist_slot_t slot)
 		return QStringLiteral("own root key");
 	case FZN_PERSIST_ADMIN_CONFIRM:
 		return QStringLiteral("admin confirmation");
+	case FZN_PERSIST_OWN_ADMIN:
+		return QStringLiteral("own admin chain");
 	}
 	/* NO `default:` ABOVE, so a slot added to persist.h draws a -Wswitch
 	 * warning here rather than being drawn as this. */
