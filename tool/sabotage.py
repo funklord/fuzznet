@@ -4521,6 +4521,27 @@ SABOTAGES = [
 		"a card naming a root its chain does not start at makes the device pin a root nobody granted it under -- sec 391, and since sec 410 the root its proof reaches",
 	),
 	(
+		"rev-ancestor-chain-from-member-root",
+		"chain/revocation.c",
+		"\tif (offer.hop_count && offer.hops[0].base && store->roots\n",
+		"\tif (0 && offer.hop_count && offer.hops[0].base && store->roots\n",
+		"a voter granted by a root other than the genesis is refused at admission everywhere -- sec 417",
+	),
+	(
+		"rev-admin-rooted-under-cut",
+		"chain/revocation.c",
+		"\treturn store->roots->counts(store->roots->ctx, ad->grantor[0], ad->first_act);\n",
+		"\treturn 1;\n",
+		"an admin a stolen root made after its theft goes on voting after the root's removal -- sec 417",
+	),
+	(
+		"rev-admin-first-act-hashed",
+		"chain/revocation.c",
+		"\t    && !hash->hash(hash->ctx, ad.first_act, sizeof(ad.first_act), hops[0].base, FZN_HOP_LEN))\n",
+		"\t    && 0)\n",
+		"with no hash of its first hop, an admin a removed root made before its cut falls with the rest -- sec 417",
+	),
+	(
 		"node-admin-chain-names-this-node",
 		"node/revoke.c",
 		"\t    || memcmp(verdict.grantee, id->pubkey, FZN_PUBKEY_LEN) != 0\n\t    || !fzn_hop_delegable(views[hop_count - 1u]))\n\t\treturn FZN_NODE_REVOKE_NOT_ADMIN;\n",
@@ -4635,7 +4656,7 @@ SABOTAGES = [
 	(
 		"rev-confirm-starts-from-nothing",
 		"chain/revocation.c",
-		"\t\tconfirmed[a] = (!store->confirm_hash || need == 0u) ? 1u : 0u;\n",
+		"\t\tconfirmed[a] = ((!store->confirm_hash || need == 0u)\n\t\t                && admin_rooted(store, &store->admins[a])) ? 1u : 0u;\n",
 		"\t\tconfirmed[a] = 1u;\n",
 		"with every admin confirmed from the start, no grant ever waits for anybody -- sec 414",
 	),

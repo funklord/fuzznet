@@ -50531,11 +50531,8 @@ the roster.
 
 ### Not yet after sec 416
 
-- **An admin chain from a removed root is still judged by its hops
-  alone.** The strata do not ask whether the first hop counts under the
-  root's cut, as `fzn_chain_verify` and the roster now do.
-- **`entitled_by_chain` still pins the call's root** for an ordinary,
-  ancestor voter's chain from a member root.
+- ~~An admin chain from a removed root judged by its hops alone~~, and
+  ~~`entitled_by_chain` pinning the call's root~~: both closed in sec 417.
 - **Re-keys** still have nothing to confirm.
 
 ### Measured for sec 416
@@ -50592,3 +50589,51 @@ No daemon was left running, and the socket directory was removed.
 had the genesis root vote on an admin chain it held. That counts as one
 admin rather than the root that acts alone. It is fixed, and it is the
 admin_test case above.
+
+## 417. Chains from member roots, judged by the set, 2026-09-30
+
+These are sec 416's first two "not yet"s, both in `chain/revocation`.
+
+### An ancestor's chain from a member root
+
+`entitled_by_chain` verified a voter's chain pinned to the call's root.
+So a key granted by a root other than the genesis could not revoke what
+it had granted: its vote was refused at admission.
+
+It now verifies under the chain's first grantor when the store's set
+names that grantor, the same shape as `entitled_as_admin` since sec 416
+and the roster since sec 413. Admission asks membership only. A removed
+root's chain is admitted, and whether its grant counts is decided when
+the judged chain is verified, as `fzn_chain_verify` has done since sec
+406.
+
+### An admin's chain from a removed root
+
+**The admin strata judged an admin chain by its hops alone.** An admin
+that a stolen root made after its theft went on voting after the root
+was removed.
+
+**Every admin row now keeps `first_act`**, the hash of its first hop,
+which is the act its root logged. It is taken on admission with the
+admission's hash, or the confirmation table's for an admin that arrives
+with a confirmation.
+
+**With a root set, an admin counts only while its first hop counts under
+its root's cut.** Otherwise it is **unconfirmed**, before the fixed point
+starts, so it neither votes in either stratum nor confirms anybody. That
+holds at k = 1 and with no confirmation table, too.
+
+### Measured for sec 417
+
+`revocation_test`, 681 checks, with
+`test_member_root_chains_are_judged_by_the_set`. Seed 9 is a member root
+of a stub set, whose `counts` has three states: standing, removed with
+nothing kept, and removed at a cut that keeps exactly one act, matched
+by hash.
+
+- 5's vote on a delegable 9→5 chain is refused without the set (the
+  control) and taken with it.
+- Admin 6, on 9→6 at k = 1, revokes key 2 while 9 stands, and not after
+  9 is removed with nothing kept.
+- 6 revokes again when the cut keeps 9's grant of 6. Only the hop's hash
+  can say that, so the case fails if the hash is not taken.

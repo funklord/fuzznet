@@ -834,6 +834,17 @@ static int root_confirms(const fzn_revocation_store_t *store, const uint8_t *key
 	return fzn_ct_memeq(key, first, FZN_PUBKEY_LEN);
 }
 
+/* WHETHER AN ADMIN'S CHAIN STILL STARTS AT A ROOT THAT COUNTS, sec 417: with
+ * a root set, its first hop must count under its root's cut, as a chain's
+ * does for `fzn_chain_verify` and a roster writer's for the roster. Without
+ * a set, the pin it was verified under, which no removal reaches. */
+static int admin_rooted(const fzn_revocation_store_t *store, const fzn_revocation_admin_t *ad)
+{
+	if (!store->roots || ad->hop_count == 0u)
+		return 1;
+	return store->roots->counts(store->roots->ctx, ad->grantor[0], ad->first_act);
+}
+
 /* WHICH ADMINS' GRANTS ARE CONFIRMED, sec 414: the least set closed under
  * "every hop of my chain a non-root granted has k - 1 confirmations from
  * other confirmed admins, or one from a root". Admins `eligible` does not
@@ -847,8 +858,11 @@ static void confirm_admins(const fzn_revocation_store_t *store, const uint8_t *e
 	size_t a, h, c, j, round;
 	int changed;
 
+	/* AN ADMIN WHOSE ROOT'S GRANT NO LONGER COUNTS is confirmed by nothing,
+	 * and so confirms nothing either. sec 417. */
 	for (a = 0; a < store->admins_used; a++)
-		confirmed[a] = (!store->confirm_hash || need == 0u) ? 1u : 0u;
+		confirmed[a] = ((!store->confirm_hash || need == 0u)
+		                && admin_rooted(store, &store->admins[a])) ? 1u : 0u;
 	if (!store->confirm_hash || need == 0u)
 		return;
 	for (round = 0, changed = 1; changed && round <= store->admins_used; round++) {
@@ -857,7 +871,7 @@ static void confirm_admins(const fzn_revocation_store_t *store, const uint8_t *e
 			const fzn_revocation_admin_t *ad = &store->admins[a];
 			int all = 1;
 
-			if (confirmed[a])
+			if (confirmed[a] || !admin_rooted(store, ad))
 				continue;
 			/* HOP 0 IS THE ROOT'S, and a hop its own root granted again
 			 * is the same authority. */
@@ -1016,7 +1030,8 @@ void fzn_revocation_covers_chain(const fzn_revocation_store_t *store,
  * two arguments buried in a longer function. Both are invisible when broken:
  * the suite still passes, and what changes is whether a store's contents
  * depend on the order things arrived in. */
-static fzn_chain_err_t entitled_by_chain(fzn_revocation_offer_t offer,
+static fzn_chain_err_t entitled_by_chain(const fzn_revocation_store_t *store,
+                                         fzn_revocation_offer_t offer,
                                          const uint8_t root[FZN_PUBKEY_LEN],
                                          const fzn_sign_ops_t *sign)
 {
@@ -1063,6 +1078,12 @@ static fzn_chain_err_t entitled_by_chain(fzn_revocation_offer_t offer,
 	 * is how a host stops missing them. Gating it would make catching up
 	 * require being caught up: the deficit would refuse the very records
 	 * that drain it, and a host that fell behind could never return. */
+	/* FROM ANY MEMBER ROOT, sec 417, as an admin's chain may since sec 416:
+	 * verified under its own first grantor when the store's set names it.
+	 * Whether that root's grant still counts is the read's question. */
+	if (offer.hop_count && offer.hops[0].base && store->roots
+	    && store->roots->member(store->roots->ctx, fzn_hop_grantor(offer.hops[0])))
+		root = fzn_hop_grantor(offer.hops[0]);
 	err = fzn_chain_verify(offer.hops, offer.hop_count, root,
 	                       fzn_revocation_capability(offer.record), 0, sign, NULL,
 	                       NULL, &issuers);
@@ -1097,7 +1118,8 @@ static fzn_chain_err_t entitled_as_admin(fzn_revocation_store_t *store,
                                          const uint8_t issuer[FZN_PUBKEY_LEN],
                                          const fzn_chain_hop_t *hops, size_t hop_count,
                                          const uint8_t root[FZN_PUBKEY_LEN],
-                                         const fzn_sign_ops_t *sign)
+                                         const fzn_sign_ops_t *sign,
+                                         const fzn_hash_ops_t *hash)
 {
 	fzn_revocation_admin_t ad;
 	fzn_chain_t verdict;
@@ -1123,6 +1145,10 @@ static fzn_chain_err_t entitled_as_admin(fzn_revocation_store_t *store,
 	memset(&ad, 0, sizeof(ad));
 	memcpy(ad.key, verdict.grantee, FZN_PUBKEY_LEN);
 	ad.hop_count = hop_count;
+	/* THE FIRST HOP AS ITS ROOT'S ACT, sec 417. */
+	if (hop_count && hash && hash->hash
+	    && !hash->hash(hash->ctx, ad.first_act, sizeof(ad.first_act), hops[0].base, FZN_HOP_LEN))
+		return FZN_CHAIN_ERR_MALFORMED;
 	for (i = 0; i < hop_count; i++) {
 		memcpy(ad.grantor[i], fzn_hop_grantor(hops[i]), FZN_PUBKEY_LEN);
 		memcpy(ad.grantee[i], fzn_hop_grantee(hops[i]), FZN_PUBKEY_LEN);
@@ -1216,9 +1242,9 @@ fzn_chain_err_t fzn_revocation_admit(fzn_revocation_store_t *store,
 		    && fzn_ct_memeq(fzn_hop_capability(offer.hops[0])->b,
 		                    store->admin_capability.b, FZN_CAP_ID_LEN))
 			err = entitled_as_admin(store, fzn_revocation_issuer(record), offer.hops,
-			                        offer.hop_count, root, sign);
+			                        offer.hop_count, root, sign, hash);
 		else
-			err = entitled_by_chain(offer, root, sign);
+			err = entitled_by_chain(store, offer, root, sign);
 		if (err != FZN_CHAIN_OK)
 			return err;
 	}
@@ -1666,7 +1692,8 @@ fzn_chain_err_t fzn_revocation_confirm_admit(fzn_revocation_store_t *store,
 
 		if (!store->has_admin)
 			return FZN_CHAIN_ERR_CHAIN_INVALID;
-		err = entitled_as_admin(store, confirmer, hops, hop_count, root, sign);
+		err = entitled_as_admin(store, confirmer, hops, hop_count, root, sign,
+		                        store->confirm_hash);
 		if (err != FZN_CHAIN_OK)
 			return err;
 	}

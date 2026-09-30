@@ -408,6 +408,9 @@ typedef struct fzn_revocation_admin {
 	/* Each hop's hash, what a confirmation names: zero when the store
 	 * keeps no confirmations. sec 414. */
 	uint8_t hop_id[FZN_CHAIN_MAX_HOPS][FZN_REVOCATION_ID_LEN];
+	/* The first hop's hash, the act its root logged: what a root set asks
+	 * about once that root is removed. sec 417. */
+	uint8_t first_act[FZN_REVOCATION_ID_LEN];
 } fzn_revocation_admin_t;
 
 /* A CONFIRMATION AS THE STORE KEEPS IT: who confirmed which admin grant, and

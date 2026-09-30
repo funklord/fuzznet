@@ -4331,6 +4331,74 @@ static void test_an_admin_chain_from_a_member_root(void)
 	      "an admin chain from a member root was refused");
 }
 
+/* SEED 9 AS A MEMBER ROOT WHOSE ACTS COUNT WHILE `*ctx` IS 1: a removal whose
+ * cut keeps none of them is the switch set to 0. sec 417. */
+static int member_nine_while(void *ctx, const uint8_t key_bytes[FZN_PUBKEY_LEN])
+{
+	return member_nine(ctx, key_bytes);
+}
+
+/* With `*ctx` 2, removed at a cut that keeps exactly the act in `kept_act`. */
+static uint8_t kept_act[FZN_REVOCATION_ID_LEN];
+
+static int counts_nine_while(void *ctx, const uint8_t root[FZN_PUBKEY_LEN],
+                             const uint8_t act[FZN_REVOCATION_ID_LEN])
+{
+	int mode = *(const int *)ctx;
+
+	if (!member_nine(ctx, root))
+		return 0;
+	if (mode == 2)
+		return memcmp(act, kept_act, sizeof(kept_act)) == 0;
+	return mode;
+}
+
+/* AN ANCESTOR'S CHAIN FROM A MEMBER ROOT, and AN ADMIN'S FROM A REMOVED ONE.
+ * 5 holds 9 -> 5, delegable, for the capability: refused without the set
+ * (the control), admitted with it. Admin 6 holds 9 -> 6 for the admin
+ * capability and revokes key 2 at k = 1: revoked while 9's grant counts, and
+ * not once 9 is removed with nothing kept. */
+static void test_member_root_chains_are_judged_by_the_set(void)
+{
+	static fzn_revocation_admin_t admins[4];
+	static struct fixture f;
+	static int nine_counts = 1;
+	static const fzn_root_ops_t SET = { member_nine_while, counts_nine_while, &nine_counts };
+	uint8_t b5[FZN_HOP_LEN], b6[FZN_HOP_LEN], revoked[FZN_CHAIN_MAX_HOPS];
+	fzn_chain_hop_t h5, h6;
+	fzn_cap_id_t cap, adm;
+
+	capability_id(&cap, 0xc0);
+	capability_id(&adm, 0xad);
+	fixture_init(&f);
+	mint_hop(&f, b5, &h5, 9, 5, &cap, 1000, FZN_NO_EXPIRY, 1);
+	CHECK(vote_on(&f, 5, &cap, 2, &h5, 1) != FZN_CHAIN_OK && f.store.used == 0u,
+	      "the control: an ancestor's chain from a key the pin does not name was taken");
+	CHECK(fzn_revocation_store_set_roots(&f.store, &SET, &HASH_OPS) == FZN_CHAIN_OK
+	              && vote_on(&f, 5, &cap, 2, &h5, 1) == FZN_CHAIN_OK,
+	      "an ancestor's chain from a member root was refused");
+
+	fixture_init(&f);
+	nine_counts = 1;
+	CHECK(fzn_revocation_store_set_quorum(&f.store, 1u, &adm, admins, 4u) == FZN_CHAIN_OK
+	              && fzn_revocation_store_set_roots(&f.store, &SET, &HASH_OPS) == FZN_CHAIN_OK,
+	      "fixture: the store with the set");
+	mint_hop(&f, b6, &h6, 9, 6, &adm, 1000, FZN_NO_EXPIRY, 1);
+	CHECK(vote_on(&f, 6, &cap, 2, &h6, 1) == FZN_CHAIN_OK, "admin 6's vote was refused");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 1u, "an admin of a standing member root did not revoke");
+	nine_counts = 0;
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 0u, "an admin granted by a removed root, its grant cut, still revoked");
+	/* REMOVED AT A CUT THAT KEEPS 9's GRANT OF 6: 6 still stands, which
+	 * only the hash of that hop can say. */
+	nine_counts = 2;
+	stub_hash(NULL, kept_act, sizeof(kept_act), b6, FZN_HOP_LEN);
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 1u, "an admin whose grant its removed root's cut kept did not revoke");
+	nine_counts = 1;
+}
+
 int main(void)
 {
 	test_layout_and_round_trip();
@@ -4393,6 +4461,7 @@ int main(void)
 	test_admins_that_revoke_each_other_both_fall();
 	test_an_admin_grant_takes_confirmations();
 	test_an_admin_chain_from_a_member_root();
+	test_member_root_chains_are_judged_by_the_set();
 	test_the_links_form_holds_the_ceiling();
 	test_k_of_n_is_order_free();
 	test_the_suite_can_tell_pass_from_fail();
