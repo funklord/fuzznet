@@ -66,6 +66,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "a change to the estate's roots";
 	case FZN_PERSIST_OWN_ROOT:
 		return "this host's own root key";
+	case FZN_PERSIST_ADMIN_CONFIRM:
+		return "a confirmation of an admin's grant";
 	}
 	*known = 0;
 	return "an unknown slot";

@@ -195,6 +195,9 @@ int fzn_node_issued_revocation(const fzn_persist_ops_t *store,
 static int load_vote(const fzn_persist_ops_t *store, const uint8_t subject[FZN_PUBKEY_LEN],
                      uint8_t record[FZN_REVOCATION_LEN],
                      uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t *hop_count);
+static int load_confirm(const fzn_persist_ops_t *store, const uint8_t subject[FZN_PUBKEY_LEN],
+                        uint8_t record[FZN_ADMIN_CONFIRM_LEN],
+                        uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t *hop_count);
 
 static int save_slot(const fzn_persist_ops_t *store, fzn_persist_slot_t slot,
                      const uint8_t grantee[FZN_PUBKEY_LEN],
@@ -308,6 +311,36 @@ fzn_persist_err_t fzn_node_revocations_load(const fzn_persist_ops_t *store,
 					continue;
 				return FZN_PERSIST_ERR_SHAPE;
 			}
+			total++;
+		}
+	}
+
+	/* THE CONFIRMATIONS, sec 415, as fatally as the votes -- each admitted
+	 * once and saved because it was -- and only into a store that keeps a
+	 * table for them. One that does not skips them; they stay stored, and
+	 * this node still serves them onward. */
+	if (revocations->confirms) {
+		static uint8_t rows[FZN_NODE_REVOCATIONS_MAX * FZN_PUBKEY_LEN];
+		static uint8_t confirm_hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+		size_t found = 0, n = 0, h;
+
+		if (!store->list(store->ctx, FZN_PERSIST_ADMIN_CONFIRM, rows,
+		                 FZN_NODE_REVOCATIONS_MAX, &found))
+			return FZN_PERSIST_ERR_BACKEND;
+		for (i = 0; i < found; i++) {
+			uint8_t record[FZN_ADMIN_CONFIRM_LEN];
+			fzn_chain_hop_t opened[FZN_CHAIN_MAX_HOPS];
+
+			if (!load_confirm(store, rows + (i * (size_t)FZN_PUBKEY_LEN), record,
+			                  confirm_hops, &n))
+				return FZN_PERSIST_ERR_SHAPE;
+			for (h = 0; h < n; h++)
+				if (fzn_hop_open(confirm_hops[h], FZN_HOP_LEN, &opened[h]) != FZN_CHAIN_OK)
+					return FZN_PERSIST_ERR_SHAPE;
+			if (fzn_revocation_confirm_admit(revocations, record, sizeof(record), opened, n,
+			                                 root, sign)
+			    != FZN_CHAIN_OK)
+				return FZN_PERSIST_ERR_SHAPE;
 			total++;
 		}
 	}
@@ -561,15 +594,93 @@ static int holds_exactly(const fzn_revocation_store_t *revocations, const fzn_ha
 	return !withdrawn && memcmp(id, mine, sizeof(id)) == 0;
 }
 
+/* ---- admin confirmations, sec 415 ------------------------------------ */
+
+#define CONFIRM_BODY_MAX (FZN_ADMIN_CONFIRM_LEN + 1u + (FZN_CHAIN_MAX_HOPS * (size_t)FZN_HOP_LEN))
+#define CONFIRM_BLOB_MAX ((size_t)FZN_PERSIST_HEAD_LEN + CONFIRM_BODY_MAX)
+
+/* A slot-15 row: the confirmation and the confirmer's admin chain. 1 when it
+ * loaded and every part opens; the record's own shape is admission's. */
+static int load_confirm(const fzn_persist_ops_t *store, const uint8_t subject[FZN_PUBKEY_LEN],
+                        uint8_t record[FZN_ADMIN_CONFIRM_LEN],
+                        uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t *hop_count)
+{
+	uint8_t blob[CONFIRM_BLOB_MAX];
+	const uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
+	fzn_chain_hop_t hop;
+	size_t len = 0, n, i;
+
+	if (!store->load(store->ctx, FZN_PERSIST_ADMIN_CONFIRM, subject, blob, sizeof(blob), &len)
+	    || len < FZN_PERSIST_HEAD_LEN + FZN_ADMIN_CONFIRM_LEN + 1u)
+		return 0;
+	n = body[FZN_ADMIN_CONFIRM_LEN];
+	if (n >= FZN_CHAIN_MAX_HOPS
+	    || fzn_persist_head_check(blob, len, FZN_ADMIN_CONFIRM_LEN + 1u + (n * FZN_HOP_LEN),
+	                              FZN_PERSIST_BLOB_ADMIN_CONFIRM)
+	               != FZN_PERSIST_OK)
+		return 0;
+	for (i = 0; i < n; i++) {
+		const uint8_t *h = body + FZN_ADMIN_CONFIRM_LEN + 1u + (i * FZN_HOP_LEN);
+
+		if (fzn_hop_open(h, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK)
+			return 0;
+		memcpy(hops[i], h, FZN_HOP_LEN);
+	}
+	memcpy(record, body, FZN_ADMIN_CONFIRM_LEN);
+	*hop_count = n;
+	return 1;
+}
+
+/* Saved under the record's hash, so one confirmation has one row. */
+static int save_confirm(const fzn_persist_ops_t *store, const fzn_hash_ops_t *hash,
+                        const uint8_t record[FZN_ADMIN_CONFIRM_LEN],
+                        const uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t hop_count)
+{
+	uint8_t blob[CONFIRM_BLOB_MAX], subject[FZN_PUBKEY_LEN];
+	size_t body = FZN_ADMIN_CONFIRM_LEN + 1u + (hop_count * FZN_HOP_LEN), i;
+
+	if (hop_count >= FZN_CHAIN_MAX_HOPS
+	    || !hash->hash(hash->ctx, subject, sizeof(subject), record, FZN_ADMIN_CONFIRM_LEN)
+	    || fzn_persist_head_write(blob, sizeof(blob), body, FZN_PERSIST_BLOB_ADMIN_CONFIRM)
+	               != FZN_PERSIST_OK)
+		return 0;
+	memcpy(blob + FZN_PERSIST_HEAD_LEN, record, FZN_ADMIN_CONFIRM_LEN);
+	blob[FZN_PERSIST_HEAD_LEN + FZN_ADMIN_CONFIRM_LEN] = (uint8_t)hop_count;
+	for (i = 0; i < hop_count; i++)
+		memcpy(blob + FZN_PERSIST_HEAD_LEN + FZN_ADMIN_CONFIRM_LEN + 1u + (i * FZN_HOP_LEN),
+		       hops[i], FZN_HOP_LEN);
+	return store->save(store->ctx, FZN_PERSIST_ADMIN_CONFIRM, subject, blob,
+	                   (size_t)FZN_PERSIST_HEAD_LEN + body);
+}
+
+fzn_node_revoke_err_t fzn_node_confirm_save(const fzn_persist_ops_t *store,
+                                            const fzn_hash_ops_t *hash,
+                                            const uint8_t record[FZN_ADMIN_CONFIRM_LEN],
+                                            const fzn_node_authority_t *authority)
+{
+	uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	size_t n = authority ? authority->hop_count : 0u, i;
+
+	if (!store || !store->save || !hash || !hash->hash || !record || n >= FZN_CHAIN_MAX_HOPS
+	    || (n && !authority->hops))
+		return FZN_NODE_REVOKE_MALFORMED;
+	for (i = 0; i < n; i++)
+		memcpy(hops[i], authority->hops[i], FZN_HOP_LEN);
+	return save_confirm(store, hash, record, (const uint8_t (*)[FZN_HOP_LEN])hops, n)
+	               ? FZN_NODE_REVOKE_OK
+	               : FZN_NODE_REVOKE_NOT_SAVED;
+}
+
 /* The lists a page walks, filled once per page. */
 struct vote_lists {
-	uint8_t subjects[3][FZN_NODE_REVOCATIONS_MAX * FZN_PUBKEY_LEN];
-	size_t count[3];
+	uint8_t subjects[4][FZN_NODE_REVOCATIONS_MAX * FZN_PUBKEY_LEN];
+	size_t count[4];
 };
 
-static const fzn_persist_slot_t VOTE_SLOTS[3] = { FZN_PERSIST_ISSUED_REVOCATION,
+static const fzn_persist_slot_t VOTE_SLOTS[4] = { FZN_PERSIST_ISSUED_REVOCATION,
 	                                          FZN_PERSIST_LEARNED_REVOCATION,
-	                                          FZN_PERSIST_VOTE };
+	                                          FZN_PERSIST_VOTE,
+	                                          FZN_PERSIST_ADMIN_CONFIRM };
 
 /* Vote `i` of list `s`: its record and chain. A record this node issued
  * carries the node's authority chain when it was issued under that authority
@@ -626,21 +737,25 @@ int fzn_node_votes_page(const fzn_persist_ops_t *store, const fzn_node_authority
 
 	if (!store || !store->load || !store->list || !out || !len || !total)
 		return 0;
-	for (s = 0; s < 3u; s++)
+	for (s = 0; s < 4u; s++)
 		if (!store->list(store->ctx, VOTE_SLOTS[s], lists.subjects[s],
 		                 FZN_NODE_REVOCATIONS_MAX, &lists.count[s]))
 			return 0;
 
 	/* ONE WALK FOR THE TOTAL AND THE PAGE: every vote is read to count its
 	 * hops, and the ones at or past `from` are written while they fit. */
-	for (s = 0; s < 3u; s++) {
+	for (s = 0; s < 4u; s++) {
 		for (i = 0; i < lists.count[s]; i++) {
-			uint8_t record[FZN_REVOCATION_LEN];
+			uint8_t record[FZN_REVOCATION_LEN > FZN_ADMIN_CONFIRM_LEN ? FZN_REVOCATION_LEN
+			                                                          : FZN_ADMIN_CONFIRM_LEN];
+			size_t record_len = (s == 3u) ? FZN_ADMIN_CONFIRM_LEN : FZN_REVOCATION_LEN;
 
-			if (!vote_at(store, authority, &lists, s, i, record, hops, &hop_count))
+			if (s == 3u ? !load_confirm(store, lists.subjects[s] + (i * (size_t)FZN_PUBKEY_LEN),
+			                            record, hops, &hop_count)
+			            : !vote_at(store, authority, &lists, s, i, record, hops, &hop_count))
 				return 0;
 			for (h = 0; h <= hop_count; h++, item++) {
-				size_t need = 2u + (h ? FZN_HOP_LEN : FZN_REVOCATION_LEN) * 2u;
+				size_t need = 2u + (h ? FZN_HOP_LEN : record_len) * 2u;
 
 				if (item < from || full)
 					continue;
@@ -649,11 +764,11 @@ int fzn_node_votes_page(const fzn_persist_ops_t *store, const fzn_node_authority
 					continue;
 				}
 				out[at++] = ' ';
-				out[at++] = h ? 'h' : 'r';
+				out[at++] = h ? 'h' : (s == 3u ? 'c' : 'r');
 				if (h)
 					put_hex_bytes(out + at, hops[h - 1u], FZN_HOP_LEN);
 				else
-					put_hex_bytes(out + at, record, FZN_REVOCATION_LEN);
+					put_hex_bytes(out + at, record, record_len);
 				at += need - 2u;
 			}
 		}
@@ -703,11 +818,30 @@ static fzn_node_pull_err_t finish_vote(fzn_node_vote_pull_t *pull,
 	if (!pull->pending)
 		return FZN_NODE_PULL_OK;
 	pull->pending = 0;
-	if (fzn_revocation_open(pull->record, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
-		return FZN_NODE_PULL_SHAPE;
 	for (i = 0; i < pull->hop_count; i++)
 		if (fzn_hop_open(pull->hops[i], FZN_HOP_LEN, &opened[i]) != FZN_CHAIN_OK)
 			return FZN_NODE_PULL_SHAPE;
+	/* A CONFIRMATION, sec 415: admitted with its confirmer's chain. A
+	 * store that keeps no table for it answers MALFORMED, which is counted
+	 * as refused below like any other refusal. */
+	if (pull->confirming) {
+		pull->confirming = 0;
+		err = fzn_revocation_confirm_admit(revocations, pull->confirm, FZN_ADMIN_CONFIRM_LEN,
+		                                   opened, pull->hop_count, root, sign);
+		if (err == FZN_CHAIN_ERR_STORE_FULL)
+			return FZN_NODE_PULL_REFUSED;
+		if (err != FZN_CHAIN_OK) {
+			pull->refused++;
+			return FZN_NODE_PULL_OK;
+		}
+		if (!save_confirm(store, hash, pull->confirm,
+		                  (const uint8_t (*)[FZN_HOP_LEN])pull->hops, pull->hop_count))
+			return FZN_NODE_PULL_NOT_SAVED;
+		pull->learned++;
+		return FZN_NODE_PULL_OK;
+	}
+	if (fzn_revocation_open(pull->record, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
+		return FZN_NODE_PULL_SHAPE;
 	err = fzn_revocation_admit(revocations,
 	                           pull->hop_count
 	                                   ? fzn_revocation_offer_chain(rec, opened, pull->hop_count)
@@ -769,6 +903,18 @@ fzn_node_pull_err_t fzn_node_votes_absorb(fzn_node_vote_pull_t *pull, const uint
 			    || !unhex_bytes(detail + at + 2u, pull->record, body))
 				return FZN_NODE_PULL_SHAPE;
 			pull->pending = 1;
+			pull->confirming = 0;
+			pull->hop_count = 0;
+		} else if (detail[at + 1u] == 'c') {
+			err = finish_vote(pull, root, sign, hash, revocations, store);
+			if (err != FZN_NODE_PULL_OK)
+				return err;
+			body = FZN_ADMIN_CONFIRM_LEN;
+			if (detail_len - at < 2u + (body * 2u)
+			    || !unhex_bytes(detail + at + 2u, pull->confirm, body))
+				return FZN_NODE_PULL_SHAPE;
+			pull->pending = 1;
+			pull->confirming = 1;
 			pull->hop_count = 0;
 		} else if (detail[at + 1u] == 'h') {
 			/* A HOP WITH NO RECORD BEFORE IT, or one past the most an

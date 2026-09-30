@@ -1969,6 +1969,77 @@ static void test_a_node_pairs_through_its_root_key(const fzn_cap_id_t *cap)
 	      "a root key four adds from the genesis was given a proof");
 }
 
+/* ---- confirmations travel with the votes, sec 415 --------------------- */
+
+/* S holds two confirmations: R's, as a root, and A's, shown with A's admin
+ * chain R -> A. T pulls S's vote stream into a store with an admin
+ * capability and a confirmation table: both admit and are saved in slot 15,
+ * and a fresh store re-admits both from T's rows. U, whose store keeps no
+ * table, counts both as refused and saves nothing. */
+static void test_confirmations_travel(void)
+{
+	static struct node r, a, b, s, t, u;
+	static fzn_revocation_t e1[4], e2[4], e3[4];
+	static fzn_revocation_admin_t ad1[4], ad2[4];
+	static fzn_revocation_confirm_t c1[4], c2[4];
+	fzn_revocation_store_t into, fresh, plain;
+	fzn_node_vote_pull_t pull;
+	fzn_node_authority_t a_chain = { 0 };
+	fzn_cap_id_t adm;
+	uint8_t hop_a[FZN_HOP_LEN], hop_b[FZN_HOP_LEN], grant[FZN_REVOCATION_ID_LEN];
+	uint8_t by_root[FZN_ADMIN_CONFIRM_LEN], by_a[FZN_ADMIN_CONFIRM_LEN];
+	size_t count = 0;
+
+	memset(&adm, 0xad, sizeof(adm));
+	CHECK(node_up(&r) && node_up(&a) && node_up(&b) && node_up(&s) && node_up(&t)
+	              && node_up(&u),
+	      "fixture: the nodes");
+	CHECK(fzn_chain_mint(r.id.pubkey, a.id.pubkey, &adm, 1000u, FZN_NO_EXPIRY, 0, &r.sign,
+	                     hop_a) == FZN_CHAIN_OK
+	              && fzn_chain_mint(r.id.pubkey, b.id.pubkey, &adm, 1000u, FZN_NO_EXPIRY, 1,
+	                                &r.sign, hop_b) == FZN_CHAIN_OK
+	              && hash_ops.hash(hash_ops.ctx, grant, sizeof(grant), hop_b, FZN_HOP_LEN)
+	              && fzn_admin_confirm_issue(r.id.pubkey, grant, &r.sign, by_root)
+	                         == FZN_CHAIN_OK
+	              && fzn_admin_confirm_issue(a.id.pubkey, grant, &a.sign, by_a) == FZN_CHAIN_OK,
+	      "fixture: the admin hops and the two confirmations");
+	a_chain.hops = (const uint8_t (*)[FZN_HOP_LEN])hop_a;
+	a_chain.hop_count = 1u;
+	CHECK(fzn_node_confirm_save(&s.ops, &hash_ops, by_root, NULL) == FZN_NODE_REVOKE_OK
+	              && fzn_node_confirm_save(&s.ops, &hash_ops, by_a, &a_chain)
+	                         == FZN_NODE_REVOKE_OK
+	              && rows_in(&s, FZN_PERSIST_ADMIN_CONFIRM) == 2u,
+	      "S did not keep its two confirmations in slot 15");
+
+	CHECK(fzn_revocation_store_init(&into, e1, 4) == FZN_CHAIN_OK
+	              && fzn_revocation_store_set_quorum(&into, 2u, &adm, ad1, 4u) == FZN_CHAIN_OK
+	              && fzn_revocation_store_set_confirmations(&into, c1, 4u, &hash_ops)
+	                         == FZN_CHAIN_OK,
+	      "fixture: T's store with both tables");
+	CHECK(stream_pull(&s, NULL, &t, r.id.pubkey, &into, 800u, &pull) == FZN_NODE_PULL_OK
+	              && pull.learned == 2u && pull.refused == 0u && into.confirms_used == 2u
+	              && into.admins_used == 1u,
+	      "T did not learn both confirmations, or did not take A as an admin from its chain");
+	CHECK(rows_in(&t, FZN_PERSIST_ADMIN_CONFIRM) == 2u,
+	      "T did not save the confirmations it learned");
+	CHECK(fzn_revocation_store_init(&fresh, e2, 4) == FZN_CHAIN_OK
+	              && fzn_revocation_store_set_quorum(&fresh, 2u, &adm, ad2, 4u) == FZN_CHAIN_OK
+	              && fzn_revocation_store_set_confirmations(&fresh, c2, 4u, &hash_ops)
+	                         == FZN_CHAIN_OK
+	              && fzn_node_revocations_load(&t.ops, &fresh, r.id.pubkey, NULL, &t.sign,
+	                                           &hash_ops, &count) == FZN_PERSIST_OK
+	              && count == 2u && fresh.confirms_used == 2u,
+	      "T's confirmations were not admitted again at start");
+
+	/* A STORE WITH NO TABLE: counted and skipped, nothing saved. */
+	CHECK(fzn_revocation_store_init(&plain, e3, 4) == FZN_CHAIN_OK
+	              && stream_pull(&s, NULL, &u, r.id.pubkey, &plain, 800u, &pull)
+	                         == FZN_NODE_PULL_OK
+	              && pull.learned == 0u && pull.refused == 2u
+	              && rows_in(&u, FZN_PERSIST_ADMIN_CONFIRM) == 0u,
+	      "a store keeping no confirmation table took or saved a confirmation");
+}
+
 int main(void)
 {
 	static struct node node, device, stranger;
@@ -2087,6 +2158,7 @@ int main(void)
 	test_a_node_acts_as_a_root();
 	test_a_card_proves_its_root(&cap);
 	test_a_node_pairs_through_its_root_key(&cap);
+	test_confirmations_travel();
 
 	/* ---- A NODE THAT IS NOT ITS OWN ROOT PAIRS NOTHING, and writes nothing. */
 	stranger.store.saves = 0;

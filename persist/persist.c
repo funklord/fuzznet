@@ -45,7 +45,8 @@
  * FZN_PERSIST_BLOB_REVOCATION and FZN_PERSIST_BLOB_VOTE, packed in
  * node/revoke.c, and 10 to 12 are FZN_PERSIST_BLOB_ROOT_ENTRY,
  * FZN_PERSIST_BLOB_ROOT_ADD and FZN_PERSIST_BLOB_ROOT_REMOVE, and 13 is
- * FZN_PERSIST_BLOB_OWN_ROOT, all packed in node/roots.c. */
+ * FZN_PERSIST_BLOB_OWN_ROOT, all packed in node/roots.c, and 14 is
+ * FZN_PERSIST_BLOB_ADMIN_CONFIRM, packed in node/revoke.c. */
 #define BLOB_IDENTITY 6u
 
 #define TRUST_BODY (FZN_PUBKEY_LEN + 1u + 8u)                 /* root, source, adopted_at */

@@ -50356,3 +50356,101 @@ hop already has enough confirmations without it. The one case it
 reaches is a root that is also the grantee, and a root's confirmation
 settles the hop anyway. The clause is gone and a comment says why. The
 other eight entries were each caught by the case written for them.
+
+## 415. A node keeps and carries admin confirmations, 2026-09-30
+
+Sec 414 put confirmations in the library core, and its first "not yet"
+was the node, which knew neither the admin capability nor confirmations.
+This is the carriage half. What a node **mints** is the next half.
+
+### The admin capability
+
+**`fzn_node_config_t` gains `has_admin` and `admin_capability`.**
+fuzznetd derives the capability beside the remote capability, from the
+same `--fuzznet-service` and `--fuzznet-product`, under the name
+`FZN_NODE_ADMIN_NAME`, `"fuzznet.admin"`. The dot keeps it apart from
+any consumer's plain word for a capability of its own.
+
+**Its revocation store now takes the capability with a table of 32
+admins**, the store's ceiling, and a confirmation table of
+`FZN_NODE_REVOCATIONS_MAX`. Both are set before anything is loaded,
+since an admin admitted before the table exists could never be
+confirmed. A node without a service and product has neither, as
+before.
+
+### Carried with the votes
+
+Confirmations decide which admins' votes count, so they travel in the
+same stream (sec 399). `get vote` now serves four lists:
+
+1. slot 9;
+2. slot 10;
+3. slot 11;
+4. **slot 15, the confirmations.**
+
+Each confirmation is an item `c` with the record, followed by `h` items
+for the confirmer's admin chain, none for a root's. `FZN_NODE_VOTES_MAX`
+becomes four slots' worth.
+
+**Pulling:**
+
+- A confirmation is admitted with `fzn_revocation_confirm_admit` and its
+  chain. Admitted, it is saved in the new **core** slot 15 under the
+  record's hash.
+- A refusal is counted and skipped, as a vote's is. A store with no
+  table refuses as malformed, so it counts every confirmation as refused
+  and saves none.
+- A full table stops the pull.
+
+**At start**, `fzn_node_revocations_load` re-admits every stored
+confirmation, and a refusal is fatal, as it is for the votes. A store
+with no table skips them: they stay stored and are still served onward.
+
+`fzn_node_confirm_save` stores a confirmation the node signed, with its
+admin chain or none as a root, for the minting half to call.
+
+### Persistence
+
+- Slot 15, `FZN_PERSIST_ADMIN_CONFIRM`, is core: lost, an admin grant
+  falls short of its k - 1.
+- Blob tag 14, `FZN_PERSIST_BLOB_ADMIN_CONFIRM`: the record, a hop count
+  of at most 7, and the hops.
+- `persist.situ` gains the arm. `situc wire --check` calls the new enum
+  value breaking, as it did for `own_root` in sec 409: an older binary
+  refuses a tag it never writes.
+- The CLI printer, the GUI view and both slot-list tests name the new
+  slot.
+
+### Not yet after sec 415
+
+**The minting half:**
+
+- a node holding an admin chain of its own;
+- a verb to grant admin;
+- a verb to confirm a grant.
+
+Until it lands, confirmations reach a node only by a pull from a store
+that already holds some. So this section's measurement is the suite's,
+not live.
+
+### Measured for sec 415
+
+`pair_test`, 204 checks, with `test_confirmations_travel`:
+
+- **The source:** S keeps R's confirmation (a root's, no chain) and A's
+  (with its admin chain R→A) in slot 15.
+- **A store with both tables:** T pulls S's vote stream into it.
+  - Both confirmations are learned and none refused.
+  - A becomes an admin from its chain.
+  - Both are saved.
+- **Restart:** a fresh store with both tables re-admits both from T's
+  rows.
+- **A store with no table:** U counts both as refused and saves nothing.
+
+The first version had its own "no table, count as refused" branch. Its
+sabotage would have survived, because `fzn_revocation_confirm_admit`
+already answers malformed for that store and the caller counts that as
+a refusal. The branch is gone and a comment says why.
+
+The sec 411 live script ran again, with the tables in place: daemons
+start, pull roots and pair as before, with no orphans.

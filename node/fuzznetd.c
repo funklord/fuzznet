@@ -452,12 +452,17 @@ int main(int argc, char **argv)
 	 * opened, so a refused command line creates nothing. sec 376. */
 	if (cli.service != FZN_SERVICE_NONE || cli.product != FZN_PRODUCT_NONE) {
 		if (fzn_service_capability(cli.service, cli.product, NULL, 0, &hash_ops,
-		                           &state.config.remote_capability) != FZN_CHAIN_OK) {
+		                           &state.config.remote_capability) != FZN_CHAIN_OK
+		    || fzn_service_capability(cli.service, cli.product,
+		                              (const uint8_t *)FZN_NODE_ADMIN_NAME,
+		                              sizeof(FZN_NODE_ADMIN_NAME) - 1u, &hash_ops,
+		                              &state.config.admin_capability) != FZN_CHAIN_OK) {
 			fprintf(stderr, "fuzznetd: the remote capability needs both "
 			                "--fuzznet-service and --fuzznet-product\n");
 			return 2;
 		}
 		has_capability = 1;
+		state.config.has_admin = 1;
 	}
 	if ((udp_port >= 0 || pair_hex) && !has_capability) {
 		fprintf(stderr, "fuzznetd: %s needs --fuzznet-service and --fuzznet-product: "
@@ -818,6 +823,12 @@ int main(int argc, char **argv)
 		static fzn_revocation_t revoked_entries[FZN_NODE_REVOCATIONS_MAX];
 		static fzn_revocation_store_t revoked;
 		static fzn_node_roots_t estate_roots;
+		/* ADMINS AND THEIR CONFIRMATIONS, sec 415: the admin table at the
+		 * store's ceiling, and a confirmation table set before anything
+		 * is loaded, since an admin admitted before it could never be
+		 * confirmed. */
+		static fzn_revocation_admin_t admins[32];
+		static fzn_revocation_confirm_t confirms[FZN_NODE_REVOCATIONS_MAX];
 		size_t loaded = 0, nrevoked = 0, nroots = 0;
 
 		/* THE REVOCATIONS THIS NODE ISSUED, admitted again before any
@@ -830,8 +841,17 @@ int main(int argc, char **argv)
 		 * not count. With nothing stored, the pinned root alone. */
 		if (fzn_revocation_store_init(&revoked, revoked_entries,
 		                              FZN_NODE_REVOCATIONS_MAX) != FZN_CHAIN_OK
-		    || fzn_revocation_store_set_quorum(&revoked, (size_t)quorum, NULL, NULL, 0u)
+		    || fzn_revocation_store_set_quorum(&revoked, (size_t)quorum,
+		                                       state.config.has_admin
+		                                               ? &state.config.admin_capability
+		                                               : NULL,
+		                                       state.config.has_admin ? admins : NULL,
+		                                       state.config.has_admin ? 32u : 0u)
 		               != FZN_CHAIN_OK
+		    || (state.config.has_admin
+		        && fzn_revocation_store_set_confirmations(&revoked, confirms,
+		                                                  FZN_NODE_REVOCATIONS_MAX, &hash_ops)
+		                   != FZN_CHAIN_OK)
 		    || fzn_node_roots_init(&estate_roots, state.config.root, &sign_ops, &hash_ops)
 		               != FZN_NODE_ROOTS_OK
 		    || fzn_node_roots_load(&estate_roots, store_ops, &nroots) != FZN_NODE_ROOTS_OK

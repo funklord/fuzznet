@@ -99,10 +99,19 @@ fzn_node_revoke_err_t fzn_node_unrevoke(const fzn_node_identity_t *id,
                                         fzn_revocation_store_t *revocations,
                                         const fzn_persist_ops_t *store);
 
+/* Save a confirmation this node signed, with `authority` -- its admin chain,
+ * or NULL as a root -- so the vote stream serves it and a restart re-admits
+ * it. sec 415. */
+fzn_node_revoke_err_t fzn_node_confirm_save(const fzn_persist_ops_t *store,
+                                            const fzn_hash_ops_t *hash,
+                                            const uint8_t record[FZN_ADMIN_CONFIRM_LEN],
+                                            const fzn_node_authority_t *authority);
+
 /* At start: admit every revocation this node ISSUED (slot 9), every one it
  * LEARNED from its estate root (slot 10) and every vote it learned from a
  * peer with its chain (slot 11, sec 399), from `store` into `revocations`,
- * verified against `root`. OK with nothing stored.
+ * verified against `root`, and -- when the store keeps a confirmation table --
+ * every admin confirmation (slot 15, sec 415). OK with nothing stored.
  *
  * A record that will not admit FAILS THE LOAD rather than being skipped: a
  * node that quietly re-admitted a device it had revoked is the failure this
@@ -213,7 +222,14 @@ fzn_node_pull_err_t fzn_node_revocations_pull(fzn_caller_t *caller,
  *
  * The stream is this node's slot 9 (its own votes, with its authority chain
  * when it issued them as a member), then slot 10 (the root's, no chain),
- * then slot 11 (votes learned from peers, with the chains they came with).
+ * then slot 11 (votes learned from peers, with the chains they came with),
+ * then slot 15 (admin confirmations, sec 415).
+ *
+ * CONFIRMATIONS TRAVEL WITH THE VOTES, sec 415, because they decide which
+ * admins' votes count: item `c` and a confirmation, followed by `h` items for
+ * the confirmer's admin chain, none for a root's. A node whose store keeps no
+ * confirmation table counts one as refused and goes on; one that admits it
+ * saves it in slot 15 under the record's hash, and re-admits it at start.
  *
  * WHAT ARRIVES IS VERIFIED, NOT TRUSTED, as for the root's pull: each vote
  * is admitted with its chain, `fzn_revocation_offer_chain`, or as the root's
@@ -230,8 +246,8 @@ fzn_node_pull_err_t fzn_node_revocations_pull(fzn_caller_t *caller,
  * is not saved over the newer record.
  */
 
-/* Votes a stream can carry: three slots of up to FZN_NODE_REVOCATIONS_MAX. */
-#define FZN_NODE_VOTES_MAX (3u * FZN_NODE_REVOCATIONS_MAX)
+/* Votes a stream can carry: four slots of up to FZN_NODE_REVOCATIONS_MAX. */
+#define FZN_NODE_VOTES_MAX (4u * FZN_NODE_REVOCATIONS_MAX)
 
 /* One page of the stream from item `from`, written as ` ITEM` per item into
  * `out`, stopping before `cap` bytes; `*len` is what was written and `*total`
@@ -244,6 +260,9 @@ int fzn_node_votes_page(const fzn_persist_ops_t *store, const fzn_node_authority
  * counts so far. Zero it before the first page. */
 typedef struct fzn_node_vote_pull {
 	int pending;
+	/* The pending item is a confirmation, in `confirm`, not a vote. */
+	int confirming;
+	uint8_t confirm[FZN_ADMIN_CONFIRM_LEN];
 	uint8_t record[FZN_REVOCATION_LEN];
 	uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
 	size_t hop_count;

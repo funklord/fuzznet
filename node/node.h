@@ -59,7 +59,18 @@ typedef struct fzn_node_config {
 	 * remote path passed NULL, so a revoked grant was honoured for as long
 	 * as its peer record stood. Borrowed; it must outlive the config. */
 	const fzn_revocation_store_t *revocations;
+	/* THE ESTATE'S ADMIN CAPABILITY, sec 415: derived beside
+	 * `remote_capability` from the same service and product under
+	 * FZN_NODE_ADMIN_NAME, and meaningful when `has_admin` is set. A key
+	 * holding it through a chain from a root votes on revocations; a grant
+	 * of it by a non-root counts once k - 1 other admins confirm it. */
+	int has_admin;
+	fzn_cap_id_t admin_capability;
 } fzn_node_config_t;
+
+/* The name the admin capability is derived under, sec 415: fuzznet's own,
+ * dotted so no consumer's plain word for its own capability can be it. */
+#define FZN_NODE_ADMIN_NAME "fuzznet.admin"
 
 /* How serving one caller ended. OK and DENIED both mean a response was
  * written: the node authenticated and authorised the caller and answered,
