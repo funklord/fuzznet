@@ -51712,6 +51712,15 @@ serves notes, in phase 4.
 
 - **Purge and import**, the rest of phase 3.
 - **The node's verbs** for these, with the admitted set, are phase 4.
+- **When sharing moves, SHARE must refuse a subtree that is not a note
+  held here.** Reported by fuzzypickles 2026-10-01, fixed in their copy as
+  their sec 145: sharing the root id, or an id that is no note on the
+  host, answered "shared" and could never send anything, since recipients
+  are found by walking up from a held node and the walk stops below the
+  root. Their check is on SHARE only: the subtree must be a node in the
+  host's own view, else no such note. UNSHARE stays as it is, removing a
+  row whose note has since gone, and unsharing what is not shared stays a
+  no-op. Their test is `test/e2e/cli-says-what-was-not-found.sh`.
 
 ### Measured for sec 426
 
@@ -51742,7 +51751,13 @@ serves notes, in phase 4.
 - **A newer host's unreadable note:** an edit is refused as SHAPE and
   nothing is written for it.
 
-**Sabotage: ten entries.**
+**Sabotage: ten entries, nine caught at first.** `notes-edit-flag-mask`
+survived: the case that tested it, setting the blob flag on an 11-byte
+text, is also refused by the shape check, which reads a flagged text as a
+reference and finds the wrong width. The mask's own case is a plain text
+of exactly 72 bytes, where the flag alone passes every shape check and
+turns prose into a reference. That case was added, and the entry is
+caught by it.
 
 **One process note.** A sabotage run for sec 425 was building through the
 tree while these files were edited, so its later verdicts would have

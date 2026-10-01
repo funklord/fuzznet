@@ -713,6 +713,22 @@ static void test_authoring(void)
 	CHECK(fzn_notes_edit(&a, one, 0u, NULL, FZN_NOTE_FLAG_TEXT_IS_BLOB, 0u, 1u)
 	              == FZN_NOTES_ERR_MALFORMED,
 	      "the blob flag does not move without the text");
+	/* A PLAIN TEXT OF EXACTLY A REFERENCE'S WIDTH is where the flag alone
+	 * would pass every shape check and turn prose into a "reference". */
+	{
+		static const char seventy_two[] = "123456789012345678901234567890123456789012345678901234567890123456789012";
+
+		with = titled("", seventy_two);
+		CHECK(sizeof(seventy_two) - 1u == FZN_NOTE_BLOB_REF_LEN
+		              && fzn_notes_edit(&a, one, FZN_NOTES_EDIT_TEXT, &with, 0u, 0u, 6006u)
+		                         == FZN_NOTES_OK,
+		      "fixture: a plain text of 72 bytes");
+		CHECK(fzn_notes_edit(&a, one, 0u, NULL, FZN_NOTE_FLAG_TEXT_IS_BLOB, 0u, 6007u)
+		              == FZN_NOTES_ERR_MALFORMED
+		              && own(KEY_A, one, &rec, &node, &note)
+		              && !(note.flags & FZN_NOTE_FLAG_TEXT_IS_BLOB),
+		      "the blob flag alone does not make a 72-byte text a reference");
+	}
 	CHECK(fzn_notes_edit(&a, one, 0u, NULL, 0u, 0u, 1u) == FZN_NOTES_ERR_MALFORMED,
 	      "an edit that changes nothing is refused");
 	CHECK(fzn_notes_edit(&a, root, 0u, NULL, FZN_NOTE_FLAG_PINNED, 0u, 1u)
