@@ -80,6 +80,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "a node that pulls notes from this one";
 	case FZN_PERSIST_CONTACT:
 		return "a contact this host knows by name";
+	case FZN_PERSIST_NOTE_SHARE:
+		return "a subtree of notes shared with a contact";
 	}
 	*known = 0;
 	return "an unknown slot";

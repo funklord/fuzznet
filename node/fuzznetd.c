@@ -42,6 +42,7 @@
 #include "roots.h"
 #include "peer_persist.h"
 #include "notes.h"
+#include "../notes/share.h"
 #ifdef FZN_SPOOL_FILE_ON
 #include "shelf.h"
 #endif
@@ -1180,8 +1181,12 @@ int main(int argc, char **argv)
 					       FZN_PUBKEY_LEN);
 					memcpy(writers[nw++], pull_keys[w], FZN_PUBKEY_LEN);
 				}
+				/* A CONTACT IS NO WRITER, sec 436: it is paired to fetch
+				 * what is shared with it, and its notes are not this
+				 * estate's. */
 				for (w = 0; w < loaded && nw < FZN_NODE_NOTES_WRITERS; w++)
-					memcpy(writers[nw++], peers[w].sender, FZN_PUBKEY_LEN);
+					if (!fzn_node_peer_contact(&state.config, &peers[w]))
+						memcpy(writers[nw++], peers[w].sender, FZN_PUBKEY_LEN);
 				if (fzn_node_notes_init(&node_notes, store_ops, &hash_ops, &sign_ops,
 				                        &rng_ops, identity.pubkey,
 				                        (const uint8_t (*)[FZN_PUBKEY_LEN])writers, nw,
@@ -1199,6 +1204,15 @@ int main(int argc, char **argv)
 					admin.notes_remote = fzn_node_notes_remote;
 					admin.notes_ctx = &node_notes;
 					notes_on = 1;
+					/* SHARING, sec 436: a contact's chain for the share
+					 * capability verifies against this node's own key. */
+					if (has_capability
+					    && fzn_notes_share_capability(cli.service, cli.product, &hash_ops,
+					                                  &state.config.share_capability)
+					               == FZN_NOTES_OK) {
+						memcpy(state.config.share_root, identity.pubkey, FZN_PUBKEY_LEN);
+						state.config.has_share = 1;
+					}
 				} else {
 					fprintf(stderr, "fuzznetd: no notes: the store cannot list\n");
 				}

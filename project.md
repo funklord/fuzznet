@@ -52766,3 +52766,170 @@ the node's own user, reads included.
 name rule through the installed header.
 
 **Sabotage: seven entries.**
+
+## 436. Sharing, piece 2: a node issues shares and serves them, 2026-10-02
+
+Piece 2 of sec 435's plan. A node keeps a table of which subtrees it shares
+with which contacts, grants a contact's node one capability to fetch them,
+and answers that capability's requests with the shared subtrees and nothing
+else. Piece 3, a recipient pulling a share into a tree of its own, is next.
+
+### One capability, not one per subtree
+
+The first design derived a capability per shared subtree --
+`"fuzznet.notes.share"` followed by the subtree's id -- so a chain would say
+by itself what it reached. **The transport refuses it**: a node holds one
+chain per peer (`node/remote.h`'s `fzn_node_peer_t`), keyed by the peer's
+key, so a second subtree shared with the same contact would have replaced
+the first one's grant, and the contact would have lost a share nobody
+unshared. So the capability is one, `fzn_notes_share_capability`, and says
+"may fetch what is shared with you"; the table says which subtrees. Unsharing
+one subtree is removing its row, and takes effect on the next request.
+
+### Granted by the node's own key
+
+A share is this node's grant of its own notes, not the estate's: a chain
+for the share capability starts at this node's key, whatever the estate's
+root is. That is also the only way a node that is not the root could grant
+one at all -- a chain carries one capability end to end (`chain/chain.h`),
+and a member's own chain from the root is for the remote capability, which
+it cannot extend into another.
+
+So `fzn_node_config_t` gains `has_share`, `share_capability` and
+`share_root`, and fuzznetd sets them -- `share_root` its own key -- when it
+keeps notes and has a service and product.
+
+### How a request is decided
+
+**The frame names the capability; the chain decides whether it holds.**
+`fzn_node_serve_datagram` asks `fzn_node_request_shared`: a request naming
+the share capability, on a node that shares, is decided by
+`fzn_node_decide_share` against `share_root`; every other request is decided
+against `remote_capability` as before. Before this the named capability was
+ignored, and on a node that does not share it still is -- a member's request
+naming anything is decided as any other.
+
+`fzn_node_admin_remote` asks the same predicate, so a request is answered as
+what it was granted as. A contact's request reaches only the notes hook,
+told it is a contact; no verb, no shelf, no status, and a request the notes
+do not take is denied, "a contact may only fetch what is shared with it".
+
+### What a contact is served
+
+`fzn_node_notes_remote` with `shared` set looks up the subtrees shared with
+the sender, loads the view, and computes what they reach **now** --
+`fzn_notes_share_reach`, a fixed point over parent claims from every shared
+subtree at once. So a note moved out of a shared folder stops being served
+and one moved in starts; containment decides, at request time.
+
+`fzn_notes_sync_answer_scoped` answers INDEX_QUERY and RECORDS_QUERY within
+that set, a records query naming keys outside it included, and nothing else:
+no purge message is answered and no partner recorded, since a contact is not
+a member and holds no copy a purge is this node's to ask about.
+
+### A contact is a peer and no member
+
+A contact's node is paired like any peer -- it needs the session -- so
+peers and contacts share one table. `fzn_node_peer_contact` says which: a
+peer whose chain carries the share capability. Everything that counts the
+estate's members asks it first:
+
+- **the notes store's writers** in fuzznetd: a contact's notes are not this
+  estate's, and its chain is not to write here;
+- **`add contact`'s boundary**: a contact holding a grant is still a
+  contact, and can be renamed.
+
+### `notes/share` and slot 22
+
+A row is a subtree, a contact's key and when it was shared, filed under
+the hash of `"fuzznet-share-v1"`, the subtree and the contact, and **refused
+when it is not filed under its own key**, since a row copied under another
+is a share nobody made. 64 shares. Sharing again keeps the row and its time.
+
+**Persist slot 22, `FZN_PERSIST_NOTE_SHARE`, is core.** The table is what a
+request is checked against, so a share rolled back would be a contact
+reading a subtree after it was unshared.
+
+### The share verbs
+
+    grant share NAME PREKEY        pair the contact NAME's node for the share
+                                   capability; answers the card it accepts
+    add share SUBTREE NAME         share the note SUBTREE and all below it
+    remove share SUBTREE NAME      stop
+    list share [FROM]              `ok TOTAL FROM SUBTREE,NAME ...`
+
+**The grant is admin's and the table the notes'**, because pairing needs
+the identity and the peer table, and the subtree needs the view. They are
+independent: one grant serves every subtree shared with the contact, and a
+share added before the grant is served once it is made.
+
+- `grant share` refuses on a node that does not share, a name that is no
+  contact, a prekey not signed by the contact's own key -- else the grant
+  goes to whoever handed one over -- and a member.
+- `add share` refuses the top -- every note the node will ever hold is not
+  a subtree anybody chose -- a note this node does not hold, and a name
+  that is no contact.
+- A share whose contact was since forgotten lists the contact's key.
+- All four need the node's own user.
+
+### Not yet after sec 436
+
+- **Receiving**, piece 3.
+- **Removing a contact does not unpair it.** Its peer stays until `remove
+  peer`, though with no share rows its requests reach nothing. Whether
+  `remove contact` should also unpair is a small change left until piece 3
+  shows how a recipient lives with it.
+- **`list peer` lists contacts among the members**, unmarked.
+- **Group shares**, as before.
+
+### Measured for sec 436
+
+**`notes_sync_test`, 70 checks** (two new cases):
+
+- **The capability:** one whatever is shared, distinct from the remote
+  capability and from another service's.
+- **The table:** sharing two subtrees with one contact and one with
+  another; sharing again keeping one row and its time; `share_with`
+  answering per contact; unsharing one subtree leaving the other, and
+  again being ABSENT; a row copied under another key not listed.
+- **Reach:** a share of F reaching F, G and H and not the sibling O; two
+  shares one inside the other reaching each note once; a share of G not
+  reaching its parent; the bound honoured.
+- **Scoped serving:** a contact pulling G's share getting G and H only; a
+  records query naming every key answered with the two shared; an empty
+  scope answering none; a PURGE not answered; no partner recorded.
+
+**`remote_test`, 48 checks**, with a node whose estate root is a key
+nobody holds:
+
+- the share capability asks as a contact, and no other does;
+- a share-granted peer is a contact and a member is not;
+- a contact naming the share capability granted against the node's key;
+- the same contact naming the remote capability denied;
+- a member naming the share capability denied;
+- on a node that does not share, the contact denied, no peer a contact,
+  and a member's request naming that capability granted as any other.
+
+**`admin_test`, 86 checks**, with a node outside the estate as the
+contact:
+
+- `grant share` refused on a node that does not share, to a group member,
+  through another contact's prekey, with no prekey, and to a name that is
+  no contact;
+- the owner's grant pairing the contact as a contact, and the card
+  accepted, carrying the share capability;
+- the contact re-added under a new name, not refused as a member;
+- a contact's verb denied, its request reaching the notes hook as shared,
+  and a member's as not.
+
+**`notes_test` (node), 128 checks:** the four verbs' refusals; `list
+share`; a contact offered the shared folder and its note while a member is
+offered all three and another contact nothing; a note moved out stopping
+and one moved in starting; a forgotten contact listed by key; unsharing.
+
+`persist_test` lists slot 22 as core and `persist_print_test` walks it;
+`consumer_check` includes `notes/share.h` through the installed header.
+
+**Sabotage: nineteen entries.** Not covered: the fuzznetd writers filter,
+which no unit test reaches, and `grant share`'s member refusal, since a
+contact becomes a member only by a later `add peer`.

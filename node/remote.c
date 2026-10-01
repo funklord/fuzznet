@@ -58,11 +58,31 @@ fzn_node_remote_result_t fzn_node_serve_datagram(const fzn_node_config_t *config
 			return FZN_NODE_REMOTE_DENIED;
 
 	/* Authorise: the capability chain this peer holds must grant what the
-	 * node requires, from the REMOTE origin. */
-	verdict = fzn_node_decide(config, FZN_ORIGIN_REMOTE, hops,
-	                          peer->hop_count, now, sign, config->revocations, NULL);
+	 * node requires, from the REMOTE origin -- or, for a request naming the
+	 * share capability, that one from this node's own key (sec 436). The
+	 * frame names which; the chain decides whether it holds. */
+	if (fzn_node_request_shared(config, opened->capability))
+		verdict = fzn_node_decide_share(config, hops, peer->hop_count, now, sign,
+		                                config->revocations);
+	else
+		verdict = fzn_node_decide(config, FZN_ORIGIN_REMOTE, hops, peer->hop_count, now,
+		                          sign, config->revocations, NULL);
 	return (verdict == FZN_AUTHZ_DENIED) ? FZN_NODE_REMOTE_DENIED
 	                                     : FZN_NODE_REMOTE_GRANTED;
+}
+
+int fzn_node_peer_contact(const fzn_node_config_t *config, const fzn_node_peer_t *peer)
+{
+	fzn_chain_hop_t hop;
+
+	if (!config || !peer || !config->has_share || peer->hop_count == 0u
+	    || peer->hop_count > FZN_CHAIN_MAX_HOPS)
+		return 0;
+	/* ONE HOP SAYS IT: a chain carries one capability end to end
+	 * (`chain/chain.h`), so the last hop's is the chain's. */
+	if (fzn_hop_open(peer->hop_bytes[peer->hop_count - 1u], FZN_HOP_LEN, &hop) != FZN_CHAIN_OK)
+		return 0;
+	return memcmp(fzn_hop_capability(hop)->b, config->share_capability.b, FZN_CAP_ID_LEN) == 0;
 }
 
 int fzn_node_seal_reply_chunk(const fzn_node_peer_t *peer,

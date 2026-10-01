@@ -19,7 +19,7 @@ endian big
 target file
 
 enum fzn_persist_tag : u8 unknown=error
-  trust=1 secret=2 peer=3 chain=4 node_peer=5 identity=6 pairing=7 revocation=8 vote=9 root_entry=10 root_add=11 root_remove=12 own_root=13 admin_confirm=14 own_admin=15 quorum_set=16 note=17 note_seq=18 note_purge=19 note_partner=20 contact=21
+  trust=1 secret=2 peer=3 chain=4 node_peer=5 identity=6 pairing=7 revocation=8 vote=9 root_entry=10 root_add=11 root_remove=12 own_root=13 admin_confirm=14 own_admin=15 quorum_set=16 note=17 note_seq=18 note_purge=19 note_partner=20 contact=21 note_share=22
 
 struct fzn_persist_admin_confirm_body size=131..1384
   @0x0000   130       u8         record  big
@@ -52,6 +52,7 @@ struct fzn_persist_blob size=2..
   body case 19: note_purge fzn_persist_note_purge_body
   body case 20: note_partner fzn_persist_note_partner_body
   body case 21: contact fzn_persist_contact_body
+  body case 22: note_share fzn_persist_note_share_body
   body case default: error
 
 struct fzn_persist_chain_body size=40
@@ -90,6 +91,11 @@ struct fzn_persist_note_purge_body size=17..1073
 
 struct fzn_persist_note_seq_body size=8
   @0x0000   8         u64        seq  big
+
+struct fzn_persist_note_share_body size=72
+  @0x0000   32        u8         subtree  big
+  @0x0020   32        u8         contact  big
+  @0x0040   8         u64        shared_at  big
 
 struct fzn_persist_own_admin_body size=180..1254
   @0x0000   1         u8         hop_count  min=1 max=7

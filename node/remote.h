@@ -48,6 +48,14 @@ typedef struct fzn_node_peer {
 	size_t hop_count;
 } fzn_node_peer_t;
 
+/* Whether `peer` is a CONTACT rather than a member, sec 436: a peer whose
+ * chain grants the node's share capability, paired so a contact can fetch
+ * what is shared with it. Peers and contacts share one table because the
+ * transport is one; what a peer may do is its chain, and anything that counts
+ * the estate's members -- a notes store's writers, the boundary a contact is
+ * checked against -- asks this first. */
+int fzn_node_peer_contact(const fzn_node_config_t *config, const fzn_node_peer_t *peer);
+
 /* How serving one datagram ended. GRANTED and DENIED both authenticated the
  * sender -- the frame opened -- and differ only in the authorisation.
  * DROPPED means the frame did not authenticate: a sender that is not this

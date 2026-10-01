@@ -380,6 +380,67 @@ int main(void)
 	                           frame_len, NULL) == FZN_NODE_REMOTE_DROPPED,
 	   "the same frame replayed is dropped");
 
+	/* A SHARE, sec 436: the node grants the share capability from its own
+	 * key, on a node whose estate root is somebody else. A request naming
+	 * it is decided against that grant; anything else against the remote
+	 * capability, as before. */
+	{
+		fzn_node_config_t shares = config;
+		fzn_node_peer_t contact = peer;
+		fzn_cap_id_t share;
+		uint8_t share_hop[FZN_HOP_LEN];
+
+		memset(share.b, 0x5d, sizeof(share.b));
+		memset(shares.root, 0x77, FZN_PUBKEY_LEN);
+		shares.has_share = 1;
+		shares.share_capability = share;
+		memcpy(shares.share_root, pubkey[0], FZN_PUBKEY_LEN);
+		ok(fzn_chain_mint(pubkey[0], pubkey[1], &share, 500u, 0u, 0, &sign_ops[0],
+		                  share_hop) == FZN_CHAIN_OK,
+		   "the node mints a share grant from its own key");
+		memcpy(contact.hop_bytes[0], share_hop, FZN_HOP_LEN);
+
+		ok(fzn_node_request_shared(&shares, share.b) && !fzn_node_request_shared(&shares, cap.b),
+		   "a request naming the share capability asks as a contact, and no other");
+		ok(fzn_node_peer_contact(&shares, &contact) && !fzn_node_peer_contact(&shares, &peer),
+		   "a peer holding the share grant is a contact, and a member is not");
+
+		frame_len = seal_request(frame, sizeof(frame), pubkey[1], share.b, key[1], ckey[1],
+		                         &hash_ops, &rng_ops, &aead_ops, 2000u);
+		ok(fzn_node_serve_datagram(&shares, &contact, &hash_ops, &aead_ops, &sign_ops[0],
+		                           &replay, 1000u, frame, frame_len, NULL)
+		           == FZN_NODE_REMOTE_GRANTED,
+		   "a contact naming the share capability is granted, against this node's key");
+		frame_len = seal_request(frame, sizeof(frame), pubkey[1], cap.b, key[1], ckey[1],
+		                         &hash_ops, &rng_ops, &aead_ops, 2000u);
+		ok(fzn_node_serve_datagram(&shares, &contact, &hash_ops, &aead_ops, &sign_ops[0],
+		                           &replay, 1000u, frame, frame_len, NULL)
+		           == FZN_NODE_REMOTE_DENIED,
+		   "and naming the remote capability is denied: a share is no membership");
+		memcpy(shares.root, pubkey[0], FZN_PUBKEY_LEN);
+		frame_len = seal_request(frame, sizeof(frame), pubkey[1], share.b, key[1], ckey[1],
+		                         &hash_ops, &rng_ops, &aead_ops, 2000u);
+		ok(fzn_node_serve_datagram(&shares, &peer, &hash_ops, &aead_ops, &sign_ops[0],
+		                           &replay, 1000u, frame, frame_len, NULL)
+		           == FZN_NODE_REMOTE_DENIED,
+		   "a member naming the share capability is denied: its chain grants another");
+		shares.has_share = 0;
+		frame_len = seal_request(frame, sizeof(frame), pubkey[1], share.b, key[1], ckey[1],
+		                         &hash_ops, &rng_ops, &aead_ops, 2000u);
+		ok(fzn_node_serve_datagram(&shares, &contact, &hash_ops, &aead_ops, &sign_ops[0],
+		                           &replay, 1000u, frame, frame_len, NULL)
+		           == FZN_NODE_REMOTE_DENIED,
+		   "a node that does not share denies the contact");
+		ok(!fzn_node_peer_contact(&shares, &contact),
+		   "and holds no contacts among its peers");
+		frame_len = seal_request(frame, sizeof(frame), pubkey[1], share.b, key[1], ckey[1],
+		                         &hash_ops, &rng_ops, &aead_ops, 2000u);
+		ok(fzn_node_serve_datagram(&shares, &peer, &hash_ops, &aead_ops, &sign_ops[0],
+		                           &replay, 1000u, frame, frame_len, NULL)
+		           == FZN_NODE_REMOTE_GRANTED,
+		   "and decides a member's request naming that capability as any other");
+	}
+
 	for (h = 0; h < 2u; h++)
 		fzn_agree_secret_wipe(&sk[h]);
 

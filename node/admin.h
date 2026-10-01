@@ -126,8 +126,11 @@ typedef struct fzn_node_admin {
 	size_t (*notes_local)(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
 	                      char *reply, size_t reply_cap);
 	/* A notes sync message from a peer (`notes/sync.h`), served before
-	 * the verbs as a text's blob message is. 0 for what is not one. */
-	size_t (*notes_remote)(void *ctx, const uint8_t *sender, const uint8_t *request,
+	 * the verbs as a text's blob message is. 0 for what is not one.
+	 * `shared` is set for a contact's request under the share capability
+	 * (sec 436), which reaches only this hook and only what is shared
+	 * with `sender`. */
+	size_t (*notes_remote)(void *ctx, const uint8_t *sender, int shared, const uint8_t *request,
 	                       size_t request_len, uint8_t *reply, size_t reply_cap);
 	void *notes_ctx;
 } fzn_node_admin_t;

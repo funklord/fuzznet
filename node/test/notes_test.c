@@ -10,6 +10,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "../notes.h"
+#include "../../contact/contact.h"
 #include "../../notes/text.h"
 
 #include <stdio.h>
@@ -469,7 +470,7 @@ static void test_trash(void)
 			                                          FZN_NOTES_SYNC_INDEX_QUERY, 0, 0 };
 		uint8_t out[FZN_NOTES_SYNC_REPLY_MAX];
 
-		CHECK(fzn_node_notes_remote(&notes, PEER, query, sizeof(query), out, sizeof(out))
+		CHECK(fzn_node_notes_remote(&notes, PEER, 0, query, sizeof(query), out, sizeof(out))
 		              > 0u,
 		      "fixture: the paired node pulls this one's index");
 	}
@@ -503,6 +504,79 @@ static void test_admission(void)
 	      "a node outside its own admitted set cannot write a note");
 }
 
+/* How many claims a remote index answer names, or -1 for none. */
+static int indexed(const uint8_t *sender, int shared)
+{
+	uint8_t query[FZN_NOTES_SYNC_INDEX_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
+		                                          FZN_NOTES_SYNC_INDEX_QUERY, 0, 0 };
+	static uint8_t out[FZN_NOTES_SYNC_REPLY_MAX];
+	size_t n = fzn_node_notes_remote(&notes, sender, shared, query, sizeof(query), out,
+	                                 sizeof(out));
+
+	if (n < FZN_NOTES_SYNC_INDEX_HEAD_LEN)
+		return -1;
+	return (int)((n - FZN_NOTES_SYNC_INDEX_HEAD_LEN) / FZN_NOTES_SYNC_CLAIM_LEN);
+}
+
+/* SHARES, sec 436: the table's verbs, and a contact's request answered with
+ * only what is shared with it. */
+static void test_share(void)
+{
+	uint8_t carol[FZN_PUBKEY_LEN];
+	char f[65], g[65], o[65], line[200], want[200];
+
+	setup(1);
+	memset(carol, 0xc4, sizeof(carol));
+	CHECK(fzn_contact_add(&OPS, carol, "carol", 5u, 1u) == FZN_CONTACT_OK,
+	      "fixture: the contact carol");
+	CHECK(ask("add folder top shared") == FZN_REPLY_OK, "fixture: a folder");
+	take_id(f);
+	snprintf(line, sizeof(line), "add note %s inside", f);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: a note in it");
+	take_id(g);
+	CHECK(ask("add note top private") == FZN_REPLY_OK, "fixture: a note outside it");
+	take_id(o);
+
+	snprintf(line, sizeof(line), "add share %s carol", f);
+	CHECK(ask_as(FZN_ORIGIN_LOCAL, line) == FZN_REPLY_DENIED,
+	      "a service-group member may not share the user's notes");
+	CHECK(ask("add share top carol") == FZN_REPLY_MALFORMED, "the top is no subtree");
+	snprintf(line, sizeof(line), "add share %s nobody", f);
+	CHECK(ask(line) == FZN_REPLY_ERROR, "a name that is no contact is refused");
+	snprintf(line, sizeof(line), "add share %s carol",
+	         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+	CHECK(ask(line) == FZN_REPLY_ERROR, "a note this node does not hold is refused");
+	CHECK(ask("list share") == FZN_REPLY_OK && !strcmp(detail_of(), "0 0"),
+	      "and none of those shared anything");
+
+	CHECK(indexed(carol, 1) == 0, "before sharing, carol is offered nothing");
+	snprintf(line, sizeof(line), "add share %s carol", f);
+	CHECK(ask(line) == FZN_REPLY_OK, "the folder is shared with carol");
+	snprintf(want, sizeof(want), "1 0 %s,carol", f);
+	CHECK(ask("list share") == FZN_REPLY_OK && !strcmp(detail_of(), want),
+	      "list share names the subtree and the contact");
+	CHECK(indexed(carol, 1) == 2, "carol is offered the folder and the note in it");
+	CHECK(indexed(PEER, 1) == 0, "a contact shared nothing is offered nothing");
+	CHECK(indexed(PEER, 0) == 3, "while a member is offered all three");
+
+	snprintf(line, sizeof(line), "set note %s parent top", g);
+	CHECK(ask(line) == FZN_REPLY_OK && indexed(carol, 1) == 1,
+	      "a note moved out of the shared folder stops being offered");
+	snprintf(line, sizeof(line), "set note %s parent %s", o, f);
+	CHECK(ask(line) == FZN_REPLY_OK && indexed(carol, 1) == 2,
+	      "and one moved in starts");
+
+	CHECK(fzn_contact_remove(&OPS, carol) == FZN_CONTACT_OK, "fixture: carol forgotten");
+	CHECK(ask("list share") == FZN_REPLY_OK && has(",c4c4c4c4"),
+	      "a share whose contact was forgotten names the key");
+	CHECK(fzn_contact_add(&OPS, carol, "carol", 5u, 1u) == FZN_CONTACT_OK,
+	      "fixture: carol again");
+	snprintf(line, sizeof(line), "remove share %s carol", f);
+	CHECK(ask(line) == FZN_REPLY_OK && indexed(carol, 1) == 0,
+	      "unshared, carol is offered nothing");
+	CHECK(ask(line) == FZN_REPLY_ERROR, "and unsharing again is refused");
+}
+
 int main(void)
 {
 	memset(SELF, 0x51, sizeof(SELF));
@@ -513,6 +587,7 @@ int main(void)
 	test_paging();
 	test_trash();
 	test_admission();
+	test_share();
 
 	if (failures) {
 		fprintf(stderr, "notes_test: %d of %d checks failed\n", failures, checks);

@@ -9,6 +9,7 @@
 
 #include "../author.h"
 #include "../purge.h"
+#include "../share.h"
 #include "../sync.h"
 
 #include <stdio.h>
@@ -559,6 +560,200 @@ static void test_purge_conversation(void)
 	}
 }
 
+/* ---- shares, sec 436 ------------------------------------------------------ */
+
+static int write_under(fzn_notes_author_t *a, const uint8_t parent[FZN_TREE_ID_LEN],
+                       const char *title, uint8_t id[FZN_TREE_ID_LEN])
+{
+	fzn_note_t note;
+
+	memset(&note, 0, sizeof(note));
+	note.title = (const uint8_t *)title;
+	note.title_len = strlen(title);
+	return fzn_notes_create(a, parent, FZN_NOTE_TYPE_NOTE, &note, 1u, id) == FZN_NOTES_OK;
+}
+
+static int has_id(const uint8_t (*ids)[FZN_TREE_ID_LEN], size_t n, const uint8_t *id)
+{
+	size_t i;
+
+	for (i = 0; i < n; i++)
+		if (memcmp(ids[i], id, FZN_TREE_ID_LEN) == 0)
+			return 1;
+	return 0;
+}
+
+/* A contact's pull: answered by the scoped server over `scope`. */
+typedef struct scoped_peer {
+	const fzn_notes_store_t *store;
+	const fzn_notes_sync_scope_t *scope;
+} scoped_peer_t;
+
+static int ask_scoped(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                      size_t reply_cap, size_t *reply_len)
+{
+	scoped_peer_t *p = (scoped_peer_t *)ctx;
+
+	*reply_len = fzn_notes_sync_answer_scoped(p->store, p->scope, request, request_len, reply,
+	                                          reply_cap);
+	return *reply_len > 0u;
+}
+
+static void test_share_table(void)
+{
+	uint8_t key_c[FZN_PUBKEY_LEN], f[FZN_TREE_ID_LEN], g[FZN_TREE_ID_LEN];
+	uint8_t with[4][FZN_TREE_ID_LEN];
+	fzn_notes_share_t all[4];
+	fzn_cap_id_t one, two, plain;
+	size_t n = 0, i;
+
+	reset();
+	memset(key_c, 0xc3, sizeof(key_c));
+	memset(f, 0x11, sizeof(f));
+	memset(g, 0x22, sizeof(g));
+	CHECK(fzn_notes_share_capability(7u, 9u, &HASH, &one) == FZN_NOTES_OK
+	              && fzn_notes_share_capability(7u, 9u, &HASH, &two) == FZN_NOTES_OK
+	              && memcmp(one.b, two.b, FZN_CAP_ID_LEN) == 0,
+	      "the share capability is one capability, whatever is shared");
+	CHECK(fzn_service_capability(7u, 9u, NULL, 0, &HASH, &plain) == FZN_CHAIN_OK
+	              && memcmp(one.b, plain.b, FZN_CAP_ID_LEN) != 0,
+	      "and it is not the node's remote capability");
+	CHECK(fzn_notes_share_capability(8u, 9u, &HASH, &two) == FZN_NOTES_OK
+	              && memcmp(one.b, two.b, FZN_CAP_ID_LEN) != 0,
+	      "nor another service's");
+
+	CHECK(fzn_notes_share_add(&store_a, f, key_c, 5u) == FZN_NOTES_OK
+	              && fzn_notes_share_add(&store_a, g, key_c, 6u) == FZN_NOTES_OK
+	              && fzn_notes_share_add(&store_a, f, KEY_B, 7u) == FZN_NOTES_OK,
+	      "two subtrees shared with C, one with B");
+	CHECK(fzn_notes_share_add(&store_a, f, key_c, 99u) == FZN_NOTES_OK
+	              && fzn_notes_share_list(&store_a, all, 4u, &n) == FZN_NOTES_OK && n == 3u,
+	      "sharing again keeps one row");
+	for (i = 0; i < n; i++)
+		if (memcmp(all[i].subtree, f, FZN_TREE_ID_LEN) == 0
+		    && memcmp(all[i].contact, key_c, FZN_PUBKEY_LEN) == 0)
+			CHECK(all[i].shared_at_ms == 5u, "and keeps when it was shared");
+	CHECK(fzn_notes_share_with(&store_a, key_c, with, 4u, &n) == FZN_NOTES_OK && n == 2u
+	              && has_id((const uint8_t (*)[FZN_TREE_ID_LEN])with, n, f)
+	              && has_id((const uint8_t (*)[FZN_TREE_ID_LEN])with, n, g),
+	      "C is shared both");
+	CHECK(fzn_notes_share_with(&store_a, KEY_A, with, 4u, &n) == FZN_NOTES_OK && n == 0u,
+	      "and a key shared nothing has nothing");
+	CHECK(fzn_notes_share_remove(&store_a, g, key_c) == FZN_NOTES_OK
+	              && fzn_notes_share_with(&store_a, key_c, with, 4u, &n) == FZN_NOTES_OK
+	              && n == 1u && memcmp(with[0], f, FZN_TREE_ID_LEN) == 0,
+	      "unsharing one subtree leaves the other");
+	CHECK(fzn_notes_share_remove(&store_a, g, key_c) == FZN_NOTES_ERR_ABSENT,
+	      "unsharing it again is ABSENT");
+
+	/* A ROW FILED UNDER ANOTHER PAIR'S KEY is a share nobody made: copy B's
+	 * row under a key of its own and it must not be listed. */
+	{
+		struct row *r = NULL;
+		uint8_t subject[FZN_PUBKEY_LEN];
+
+		for (i = 0; i < MEM_ROWS; i++)
+			if (table_a.rows[i].used && table_a.rows[i].slot == FZN_PERSIST_NOTE_SHARE
+			    && table_a.rows[i].len > FZN_PERSIST_HEAD_LEN + FZN_TREE_ID_LEN
+			    && memcmp(table_a.rows[i].bytes + FZN_PERSIST_HEAD_LEN + FZN_TREE_ID_LEN,
+			              KEY_B, FZN_PUBKEY_LEN) == 0)
+				r = &table_a.rows[i];
+		memset(subject, 0x5a, sizeof(subject));
+		CHECK(r && mem_save(&table_a, FZN_PERSIST_NOTE_SHARE, subject, r->bytes, r->len),
+		      "fixture: B's row copied under another key");
+		CHECK(fzn_notes_share_list(&store_a, all, 4u, &n) == FZN_NOTES_OK && n == 2u,
+		      "and the copy is not a share");
+	}
+}
+
+static void test_share_scope(void)
+{
+	fzn_notes_author_t a = author_on(&store_a, KEY_A, &sign_a);
+	uint8_t f[FZN_TREE_ID_LEN], g[FZN_TREE_ID_LEN], h[FZN_TREE_ID_LEN], o[FZN_TREE_ID_LEN];
+	static uint8_t reach[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
+	uint8_t seeds[2][FZN_TREE_ID_LEN];
+	uint8_t keys[FZN_NOTES_MAX][FZN_PUBKEY_LEN];
+	uint8_t request[FZN_NOTES_SYNC_LIST_HEAD_LEN + (4u * FZN_PUBKEY_LEN)];
+	static uint8_t reply[FZN_NOTES_SYNC_REPLY_MAX];
+	uint8_t purge[FZN_NOTES_SYNC_PURGE_LEN];
+	uint8_t partners[4][FZN_PUBKEY_LEN];
+	fzn_notes_sync_scope_t scope;
+	scoped_peer_t from_a = { &store_a, &scope };
+	fzn_notes_sync_tally_t t;
+	size_t n = 0, i;
+
+	reset();
+	CHECK(write(&a, "folder", f) && write_under(&a, f, "child", g)
+	              && write_under(&a, g, "grandchild", h) && write(&a, "other", o),
+	      "fixture: F above G above H, and O beside F");
+	CHECK(fzn_notes_view_load(&store_a, &view) == FZN_NOTES_OK, "fixture: A's view");
+	memcpy(seeds[0], f, FZN_TREE_ID_LEN);
+	n = fzn_notes_share_reach(&view, (const uint8_t (*)[FZN_TREE_ID_LEN])seeds, 1u, reach,
+	                          FZN_NOTES_MAX);
+	CHECK(n == 3u && has_id((const uint8_t (*)[FZN_TREE_ID_LEN])reach, n, f)
+	              && has_id((const uint8_t (*)[FZN_TREE_ID_LEN])reach, n, g)
+	              && has_id((const uint8_t (*)[FZN_TREE_ID_LEN])reach, n, h),
+	      "a share of F reaches F, G and H");
+	CHECK(!has_id((const uint8_t (*)[FZN_TREE_ID_LEN])reach, n, o), "and not O");
+	memcpy(seeds[0], g, FZN_TREE_ID_LEN);
+	memcpy(seeds[1], f, FZN_TREE_ID_LEN);
+	CHECK(fzn_notes_share_reach(&view, (const uint8_t (*)[FZN_TREE_ID_LEN])seeds, 2u, reach,
+	                            FZN_NOTES_MAX)
+	              == 3u,
+	      "two shares, one inside the other, reach each note once");
+	n = fzn_notes_share_reach(&view, (const uint8_t (*)[FZN_TREE_ID_LEN])seeds, 1u, reach,
+	                          FZN_NOTES_MAX);
+	CHECK(n == 2u && !has_id((const uint8_t (*)[FZN_TREE_ID_LEN])reach, n, f),
+	      "a share of G reaches G and H, not its parent");
+	CHECK(fzn_notes_share_reach(&view, (const uint8_t (*)[FZN_TREE_ID_LEN])seeds, 1u, reach, 1u)
+	              == 1u,
+	      "and no more than the room given");
+
+	/* THE CONTACT PULLS the scope of G and nothing else. */
+	scope.ids = (const uint8_t (*)[FZN_TREE_ID_LEN])reach;
+	scope.count = n;
+	CHECK(fzn_notes_sync_pull(&store_b, both(), &sign_b, ask_scoped, &from_a, &t)
+	                      == FZN_NOTES_SYNC_OK
+	              && t.offered == 2u && t.learned == 2u && held(&store_b) == 2u
+	              && title_is(&store_b, g, KEY_A, "child")
+	              && title_is(&store_b, h, KEY_A, "grandchild"),
+	      "a contact pulling a share of G gets G and H");
+	CHECK(!title_is(&store_b, f, KEY_A, "folder") && !title_is(&store_b, o, KEY_A, "other"),
+	      "and neither F nor O");
+
+	/* ASKED BY KEY for every claim A holds, it still answers the scope's. */
+	CHECK(fzn_notes_claims(&store_a, keys, FZN_NOTES_MAX, &n) == FZN_NOTES_OK && n == 4u,
+	      "fixture: A's four claim keys");
+	request[0] = FZN_NOTES_SYNC_VERSION;
+	request[1] = FZN_NOTES_SYNC_RECORDS_QUERY;
+	request[2] = 4u;
+	for (i = 0; i < 4u; i++)
+		memcpy(request + FZN_NOTES_SYNC_LIST_HEAD_LEN + (i * FZN_PUBKEY_LEN), keys[i],
+		       FZN_PUBKEY_LEN);
+	CHECK(fzn_notes_sync_answer_scoped(&store_a, &scope, request, sizeof(request), reply,
+	                                   sizeof(reply))
+	                      > 0u
+	              && reply[2] == 2u,
+	      "a records query naming every key is answered with the two shared");
+	scope.count = 0;
+	CHECK(fzn_notes_sync_answer_scoped(&store_a, &scope, request, sizeof(request), reply,
+	                                   sizeof(reply))
+	                      > 0u
+	              && reply[2] == 0u,
+	      "and an empty scope answers none");
+
+	purge[0] = FZN_NOTES_SYNC_VERSION;
+	purge[1] = FZN_NOTES_SYNC_PURGE;
+	memcpy(purge + 2, g, FZN_TREE_ID_LEN);
+	scope.count = 2u;
+	CHECK(fzn_notes_sync_answer_scoped(&store_a, &scope, purge, sizeof(purge), reply,
+	                                   sizeof(reply))
+	              == 0u,
+	      "a contact's PURGE is not answered");
+	CHECK(fzn_notes_partners(&store_a, partners, 4u, &n) == FZN_NOTES_OK && n == 0u,
+	      "and a contact's pull made it no partner");
+}
+
 int main(void)
 {
 	memset(KEY_A, 0xa1, sizeof(KEY_A));
@@ -572,6 +767,8 @@ int main(void)
 	test_peers_that_misbehave();
 	test_paging();
 	test_purge_conversation();
+	test_share_table();
+	test_share_scope();
 
 	if (failures) {
 		fprintf(stderr, "notes_sync_test: %d of %d checks failed\n", failures, checks);

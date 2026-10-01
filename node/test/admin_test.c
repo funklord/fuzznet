@@ -227,6 +227,26 @@ static size_t text_local_stub(void *ctx, fzn_origin_t origin, const fzn_request_
 	return len;
 }
 
+/* A notes hook that records whether it was asked as a contact, and answers
+ * a reply so the admin takes it. sec 436. */
+static int notes_shared_seen = -1;
+
+static size_t notes_remote_stub(void *ctx, const uint8_t *sender, int shared,
+                                const uint8_t *request, size_t request_len, uint8_t *reply,
+                                size_t reply_cap)
+{
+	(void)ctx;
+	(void)sender;
+	(void)request;
+	(void)request_len;
+	notes_shared_seen = shared;
+	if (reply_cap < 2u)
+		return 0;
+	reply[0] = 2u;
+	reply[1] = 9u;
+	return 2u;
+}
+
 static int ask(fzn_node_admin_t *admin, const fzn_peer_t *who, const char *line,
                uint8_t *reply, size_t cap, size_t *reply_len)
 {
@@ -743,6 +763,121 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && says(detail, detail_len, "0 0"),
 		      "a removed contact was still listed");
+	}
+
+	/* ---- SHARES, sec 436: `grant share` pairs a contact's node for the
+	 * share capability, from this node's own key; the contact is then a
+	 * peer and still no member, and its requests reach only the notes. */
+	{
+		static struct node outside;
+		char key_hex[(FZN_PUBKEY_LEN * 2u) + 1u], dev_hex[(FZN_PUBKEY_LEN * 2u) + 1u];
+		char out_prekey[(FZN_PREKEY_LEN_TOTAL * 2u) + 1u];
+		const fzn_node_peer_t *granted = NULL;
+		size_t before = state.peer_count, i;
+		char text[FZN_PROVISION_TEXT_MAX_LEN];
+		fzn_opened_t req;
+		uint8_t out[256];
+		size_t n;
+		size_t k;
+
+		for (k = 0; k < FZN_PUBKEY_LEN; k++)
+			snprintf(key_hex + (2u * k), 3u, "%02x", (unsigned)(0x40u + k));
+		CHECK(node_up(&outside), "fixture: a node outside the estate");
+		hex(outside.id.pubkey, FZN_PUBKEY_LEN, dev_hex);
+		hex(outside.id.prekey_record, FZN_PREKEY_LEN_TOTAL, out_prekey);
+		snprintf(line, sizeof(line), "add contact bob %s", dev_hex);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK,
+		      "fixture: the outside node as the contact bob");
+		snprintf(line, sizeof(line), "add contact carol %s", key_hex);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK,
+		      "fixture: another contact, carol");
+
+		snprintf(line, sizeof(line), "grant share bob %s", out_prekey);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR
+		              && state.peer_count == before,
+		      "a node that does not share granted a share");
+		CHECK(fzn_service_capability(7u, 3u, (const uint8_t *)"fuzznet.notes.share", 19u,
+		                             &hash_ops, &state.config.share_capability)
+		              == FZN_CHAIN_OK,
+		      "fixture: the share capability");
+		memcpy(state.config.share_root, node.id.pubkey, FZN_PUBKEY_LEN);
+		state.config.has_share = 1;
+
+		CHECK(ask(&admin, &member, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_DENIED
+		              && state.peer_count == before,
+		      "a service-group member granted a share");
+		snprintf(line, sizeof(line), "grant share carol %s", out_prekey);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR
+		              && state.peer_count == before,
+		      "a share was granted to carol through bob's node's prekey");
+		CHECK(ask(&admin, &owner, "grant share dave 00", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_MALFORMED,
+		      "a grant with no prekey record was not malformed");
+		snprintf(line, sizeof(line), "grant share dave %s", out_prekey);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR,
+		      "a share was granted to a name that is no contact");
+
+		snprintf(line, sizeof(line), "grant share bob %s", out_prekey);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && state.peer_count == before + 1u,
+		      "the owner's grant did not pair bob's node as a contact");
+		for (i = 0; i < state.peer_count; i++)
+			if (memcmp(state.peers[i].sender, outside.id.pubkey, FZN_PUBKEY_LEN) == 0)
+				granted = &state.peers[i];
+		CHECK(granted && fzn_node_peer_contact(&state.config, granted),
+		      "the granted peer is not a contact");
+		memcpy(text, detail, detail_len);
+		text[detail_len] = '\0';
+		CHECK(fzn_provision_from_text(text, card, sizeof(card), &card_len) == FZN_PROVISION_OK
+		              && fzn_node_pairing_accept(&outside.id, card, card_len, 2100u, &outside.ops,
+		                                         &pairing)
+		                         == FZN_NODE_PAIR_OK
+		              && memcmp(pairing.capability.b, state.config.share_capability.b,
+		                        FZN_CAP_ID_LEN)
+		                         == 0,
+		      "bob's node would not accept the card, or it carries another capability");
+		fzn_wipe(&pairing, sizeof(pairing));
+		snprintf(line, sizeof(line), "add contact bobby %s", dev_hex);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK,
+		      "a contact holding a share grant was counted a member of the estate");
+
+		/* ITS REQUESTS: the notes hook only, and told it is a contact. */
+		memset(&req, 0, sizeof(req));
+		req.capability = state.config.share_capability.b;
+		req.sender = outside.id.pubkey;
+		req.payload = (const uint8_t *)"list peer";
+		req.payload_len = 9u;
+		n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
+		CHECK(n && fzn_reply_of(out, n, &detail, &detail_len) == FZN_REPLY_DENIED,
+		      "a contact's verb was answered as a member's");
+		admin.notes_remote = notes_remote_stub;
+		notes_shared_seen = -1;
+		n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
+		CHECK(n && notes_shared_seen == 1,
+		      "a contact's request did not reach the notes hook as shared");
+		req.capability = state.config.remote_capability.b;
+		notes_shared_seen = -1;
+		n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
+		CHECK(n && notes_shared_seen == 0,
+		      "a member's request reached the notes hook as a contact's");
+		admin.notes_remote = NULL;
+
+		snprintf(line, sizeof(line), "remove peer %s", dev_hex);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && state.peer_count == before,
+		      "fixture: bob's node un-paired");
+		state.config.has_share = 0;
+		fzn_sign_monocypher_wipe(&outside.signer);
 	}
 
 	/* ---- TEXTS GO TO THE SHELF'S HOOK, sec 424, and what it does not take

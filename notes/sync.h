@@ -94,6 +94,20 @@ size_t fzn_notes_sync_answer(const fzn_notes_store_t *store, fzn_notes_policy_t 
                              const uint8_t *sender, uint64_t now_ms, const uint8_t *request,
                              size_t request_len, uint8_t *reply, size_t reply_cap);
 
+/* What a SHARE reaches (sec 436): the note ids a contact's request may see. */
+typedef struct fzn_notes_sync_scope {
+	const uint8_t (*ids)[FZN_TREE_ID_LEN];
+	size_t count;
+} fzn_notes_sync_scope_t;
+
+/* THE SERVER FOR A SHARE: the index and the records of only the notes in
+ * `scope`, and nothing else -- no purge message is answered and no partner
+ * recorded, since a contact is not a member and holds no copy a purge is
+ * this node's to ask about. 0 for anything else. */
+size_t fzn_notes_sync_answer_scoped(const fzn_notes_store_t *store,
+                                    const fzn_notes_sync_scope_t *scope, const uint8_t *request,
+                                    size_t request_len, uint8_t *reply, size_t reply_cap);
+
 /* The nodes that pull notes from this one, `cap` of them. */
 fzn_notes_err_t fzn_notes_partners(const fzn_notes_store_t *store,
                                    uint8_t (*keys)[FZN_PUBKEY_LEN], size_t cap, size_t *count);

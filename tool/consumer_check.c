@@ -175,6 +175,7 @@
 #include <fuzznet/notes/purge.h>
 #include <fuzznet/notes/import.h>
 #include <fuzznet/notes/sync.h>
+#include <fuzznet/notes/share.h>
 #include <fuzznet/contact/contact.h>
 #include <fuzznet/node/notes.h>
 #include <fuzznet/trust/trust.h>
@@ -299,6 +300,7 @@
 #include "notes/purge.h"
 #include "notes/import.h"
 #include "notes/sync.h"
+#include "notes/share.h"
 #include "contact/contact.h"
 #include "node/notes.h"
 #include "trust/trust.h"

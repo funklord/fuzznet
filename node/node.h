@@ -66,7 +66,29 @@ typedef struct fzn_node_config {
 	 * of it by a non-root counts once k - 1 other admins confirm it. */
 	int has_admin;
 	fzn_cap_id_t admin_capability;
+	/* THE CAPABILITY A CONTACT FETCHES SHARED NOTES WITH, sec 436, when
+	 * `has_share` is set: `notes/share.h`'s, granted by this node's own
+	 * key, so a chain for it verifies against `share_root` -- this node's
+	 * public key -- rather than `root`. A request naming it is answered
+	 * only with what is shared with its sender; one naming anything else
+	 * is decided against `remote_capability` as before. */
+	int has_share;
+	fzn_cap_id_t share_capability;
+	uint8_t share_root[FZN_PUBKEY_LEN];
 } fzn_node_config_t;
+
+/* Whether a remote request naming `capability` (FZN_CAP_ID_LEN bytes, as a
+ * frame carries it) asks as a contact for shared notes: the node shares, and
+ * the capability is its share capability. */
+int fzn_node_request_shared(const fzn_node_config_t *config, const uint8_t *capability);
+
+/* A remote caller asking for shared notes, sec 436: its chain must grant
+ * `share_capability` from `share_root`. Denied on a node that does not
+ * share. */
+fzn_authz_verdict_t fzn_node_decide_share(const fzn_node_config_t *config,
+                                          const fzn_chain_hop_t *hops, size_t hop_count,
+                                          uint64_t now, const fzn_sign_ops_t *sign,
+                                          const fzn_revocation_store_t *revocations);
 
 /* The name the admin capability is derived under, sec 415: fuzznet's own,
  * dotted so no consumer's plain word for its own capability can be it. */

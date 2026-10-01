@@ -2,6 +2,8 @@
 
 #include "node.h"
 
+#include <string.h>
+
 fzn_origin_t fzn_node_local_origin(const fzn_node_config_t *config,
                                    const fzn_peer_t *peer)
 {
@@ -51,4 +53,24 @@ fzn_authz_verdict_t fzn_node_decide(const fzn_node_config_t *config,
 	policy = fzn_authz_unguarded(0);
 	return fzn_authz_decide(policy, origin, NULL, 0, config->root,
 	                        now, sign, revocations, manifest);
+}
+
+int fzn_node_request_shared(const fzn_node_config_t *config, const uint8_t *capability)
+{
+	return config && capability && config->has_share
+	       && memcmp(capability, config->share_capability.b, FZN_CAP_ID_LEN) == 0;
+}
+
+fzn_authz_verdict_t fzn_node_decide_share(const fzn_node_config_t *config,
+                                          const fzn_chain_hop_t *hops, size_t hop_count,
+                                          uint64_t now, const fzn_sign_ops_t *sign,
+                                          const fzn_revocation_store_t *revocations)
+{
+	fzn_authz_policy_t policy;
+
+	if (!config || !config->has_share || !config->serves_remote)
+		return FZN_AUTHZ_DENIED;
+	policy = fzn_authz_requires(&config->share_capability, FZN_ORIGIN_BIT(FZN_ORIGIN_REMOTE));
+	return fzn_authz_decide(policy, FZN_ORIGIN_REMOTE, hops, hop_count, config->share_root,
+	                        now, sign, revocations, NULL);
 }

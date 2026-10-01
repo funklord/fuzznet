@@ -71,6 +71,7 @@ enum fzn_persist_tag : u8 {
 	note_purge = 19,
 	note_partner = 20,
 	contact = 21,
+	note_share = 22,
 	default = error,
 }
 
@@ -246,6 +247,14 @@ struct fzn_persist_contact_body {
 	u64 added_at;
 }
 
+// A subtree of notes shared with a contact: the subtree's root note, the
+// contact's key, and when it was shared. notes/share.c, sec 436.
+struct fzn_persist_note_share_body {
+	u8  subtree[32];
+	u8  contact[32];
+	u64 shared_at;
+}
+
 // version | tag | body. The body is the arm the tag selects.
 struct fzn_persist_blob {
 	u8               version;
@@ -273,6 +282,7 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.note_purge: fzn_persist_note_purge_body note_purge;
 		case fzn_persist_tag.note_partner: fzn_persist_note_partner_body note_partner;
 		case fzn_persist_tag.contact: fzn_persist_contact_body contact;
+		case fzn_persist_tag.note_share: fzn_persist_note_share_body note_share;
 		default: error;
 	}
 }

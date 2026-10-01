@@ -622,7 +622,8 @@ static int is_member(const fzn_node_admin_t *admin, const uint8_t key[FZN_PUBKEY
 	    || memcmp(key, admin->state->config.root, FZN_PUBKEY_LEN) == 0)
 		return 1;
 	for (i = 0; i < admin->state->peer_count; i++)
-		if (memcmp(key, admin->state->peers[i].sender, FZN_PUBKEY_LEN) == 0)
+		if (memcmp(key, admin->state->peers[i].sender, FZN_PUBKEY_LEN) == 0
+		    && !fzn_node_peer_contact(&admin->state->config, &admin->state->peers[i]))
 			return 1;
 	return 0;
 }
@@ -738,6 +739,66 @@ static size_t list_contacts(fzn_node_admin_t *admin, const uint8_t *rest, size_t
 	return answer(reply, cap, FZN_REPLY_OK, detail, used);
 }
 
+/* `grant share NAME PREKEY`: pair the contact NAME's node, whose prekey
+ * record this is, for the share capability, and answer the card it accepts.
+ * sec 436. Granted by this node's own key whatever the estate's root is: a
+ * share is this node's grant of its own notes. What it reaches is the share
+ * table's (`add share`), so one grant serves every subtree shared with the
+ * contact, and granting again replaces the pairing. */
+static size_t grant_share(fzn_node_admin_t *admin, const uint8_t *rest, size_t rest_len,
+                          char *reply, size_t cap)
+{
+	uint8_t record_bytes[FZN_PREKEY_LEN_TOTAL];
+	uint8_t card[FZN_PROVISION_MAX_LEN];
+	char text[FZN_PROVISION_TEXT_MAX_LEN];
+	fzn_prekey_record_t record;
+	fzn_contact_t contact;
+	fzn_contact_err_t cerr;
+	fzn_node_pair_err_t perr;
+	const uint8_t *name, *hex;
+	size_t name_len, hex_len, card_len = 0, loaded = 0;
+	uint64_t now;
+
+	if (!admin->state->config.has_share)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "this node does not share notes");
+	if (!next_word(&rest, &rest_len, &name, &name_len)
+	    || !next_word(&rest, &rest_len, &hex, &hex_len))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "grant share NAME PREKEY");
+	if (!unhex(hex, hex_len, record_bytes, sizeof(record_bytes))
+	    || fzn_prekey_open(record_bytes, sizeof(record_bytes), &record) != FZN_PREKEY_OK)
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a prekey record");
+	cerr = fzn_contact_find(admin->store, (const char *)name, name_len, &contact);
+	if (cerr != FZN_CONTACT_OK)
+		return answer_text(reply, cap,
+		                   cerr == FZN_CONTACT_ERR_NAME ? FZN_REPLY_MALFORMED : FZN_REPLY_ERROR,
+		                   fzn_contact_err_str(cerr));
+	/* THE CONTACT'S OWN NODE: the record must be signed by the key the
+	 * contact was added under, or the grant goes to whoever handed over a
+	 * prekey. */
+	if (memcmp(record.host, contact.key, FZN_PUBKEY_LEN) != 0)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "that prekey is not the contact's");
+	/* A member is paired as one; a share chain would replace its grant. */
+	if (is_member(admin, contact.key))
+		return answer_text(reply, cap, FZN_REPLY_ERROR,
+		                   "a member of this estate, not a contact");
+	now = admin->state->clock ? admin->state->clock() : 0u;
+	perr = fzn_node_pair(admin->id, admin->id->pubkey, &admin->state->config.share_capability,
+	                     NULL, 0, admin->store, record, now, now + admin->card_lifetime, card,
+	                     sizeof(card), &card_len);
+	if (perr != FZN_NODE_PAIR_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_pair_err_str(perr));
+	if (fzn_node_peers_load(admin->store, admin->peers, admin->peers_cap, &loaded)
+	    != FZN_PERSIST_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR,
+		                   "granted and saved, and the running peer set did not reload");
+	admin->state->peers = admin->peers;
+	admin->state->peer_count = loaded;
+	if (fzn_provision_text(card, card_len, text, sizeof(text)) != FZN_PROVISION_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR,
+		                   "granted and saved, and the card would not encode");
+	return answer(reply, cap, FZN_REPLY_OK, text, strlen(text));
+}
+
 size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
                              const fzn_peer_t *peer, const fzn_request_t *request,
                              char *reply, size_t reply_cap)
@@ -792,6 +853,11 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 	if (admin->state->config.has_admin && request->parsed == FZN_VERB_ADD
 	    && subject_word(request, "confirm", &rest, &rest_len) && rest && admin->revocations)
 		return confirm_admin(admin, rest, rest_len, reply, reply_cap);
+	/* SHARES, sec 436: the grant is the pairing, so it is admin's; which
+	 * subtrees it reaches is the notes' `add share`. */
+	if (request->parsed == FZN_VERB_GRANT && subject_word(request, "share", &rest, &rest_len)
+	    && rest)
+		return grant_share(admin, rest, rest_len, reply, reply_cap);
 	/* CONTACTS, sec 435: the node's own user only, reads included. */
 	if (subject_word(request, "contact", &rest, &rest_len)
 	    && (request->parsed == FZN_VERB_ADD || request->parsed == FZN_VERB_REMOVE
@@ -835,6 +901,21 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 	if (!admin || !admin->state || !req || !reply || result != FZN_NODE_REMOTE_GRANTED)
 		return 0;
 
+	/* A CONTACT, granted the share capability and nothing else, sec 436:
+	 * the notes sync messages over what is shared with it, and no verb,
+	 * no shelf, no status. Asked of the same predicate the authorisation
+	 * asked, so a request is answered as what it was granted as. */
+	if (fzn_node_request_shared(&admin->state->config, req->capability)) {
+		size_t n = 0;
+
+		if (admin->notes_remote && req->payload)
+			n = admin->notes_remote(admin->notes_ctx, req->sender, 1, req->payload,
+			                        req->payload_len, reply, reply_cap);
+		return n ? n
+		         : answer_text(out, reply_cap, FZN_REPLY_DENIED,
+		                       "a contact may only fetch what is shared with it");
+	}
+
 	/* A BLOB MESSAGE, before the line is split: its first byte is the
 	 * message version, below any verb's first letter, so the shelf
 	 * recognises it or returns 0 and the verbs follow. sec 424. */
@@ -848,7 +929,7 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 
 	/* A NOTES SYNC MESSAGE, version byte 2, the same way. sec 432. */
 	if (admin->notes_remote && req->payload) {
-		size_t n = admin->notes_remote(admin->notes_ctx, req->sender, req->payload,
+		size_t n = admin->notes_remote(admin->notes_ctx, req->sender, 0, req->payload,
 		                               req->payload_len, reply, reply_cap);
 
 		if (n)

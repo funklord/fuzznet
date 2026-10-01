@@ -43,10 +43,22 @@ static int key_order(const void *a, const void *b)
 
 /* ---- the server ---------------------------------------------------------- */
 
+static int in_scope(const fzn_notes_sync_scope_t *scope, const uint8_t *id)
+{
+	size_t i;
+
+	if (!scope)
+		return 1;
+	for (i = 0; i < scope->count; i++)
+		if (memcmp(scope->ids[i], id, FZN_TREE_ID_LEN) == 0)
+			return 1;
+	return 0;
+}
+
 /* What this store offers: its claims, IN KEY ORDER so a page means the same
- * thing on every call, without a note pending purge. */
-static size_t offered(const fzn_notes_store_t *store, uint8_t (*keys)[FZN_PUBKEY_LEN],
-                      uint64_t *seqs)
+ * thing on every call, without a note pending purge, and within `scope`. */
+static size_t offered(const fzn_notes_store_t *store, const fzn_notes_sync_scope_t *scope,
+                      uint8_t (*keys)[FZN_PUBKEY_LEN], uint64_t *seqs)
 {
 	static uint8_t record[FZN_RECORD_MAX_LEN];
 	size_t count = 0, i, n = 0;
@@ -60,7 +72,8 @@ static size_t offered(const fzn_notes_store_t *store, uint8_t (*keys)[FZN_PUBKEY
 
 		if (fzn_notes_get_key(store, keys[i], record, sizeof(record), &len) != FZN_NOTES_OK
 		    || fzn_record_open(record, len, &rec) != FZN_RECORD_OK
-		    || fzn_notes_purge_pending(store, fzn_record_subject(rec)))
+		    || fzn_notes_purge_pending(store, fzn_record_subject(rec))
+		    || !in_scope(scope, fzn_record_subject(rec)))
 			continue;
 		if (n != i)
 			memcpy(keys[n], keys[i], FZN_PUBKEY_LEN);
@@ -69,8 +82,9 @@ static size_t offered(const fzn_notes_store_t *store, uint8_t (*keys)[FZN_PUBKEY
 	return n;
 }
 
-static size_t answer_index(const fzn_notes_store_t *store, const uint8_t *request,
-                           size_t request_len, uint8_t *reply, size_t cap)
+static size_t answer_index(const fzn_notes_store_t *store, const fzn_notes_sync_scope_t *scope,
+                           const uint8_t *request, size_t request_len, uint8_t *reply,
+                           size_t cap)
 {
 	static uint8_t keys[FZN_NOTES_MAX][FZN_PUBKEY_LEN];
 	static uint64_t seqs[FZN_NOTES_MAX];
@@ -79,7 +93,7 @@ static size_t answer_index(const fzn_notes_store_t *store, const uint8_t *reques
 	if (request_len != FZN_NOTES_SYNC_INDEX_QUERY_LEN || cap < FZN_NOTES_SYNC_INDEX_HEAD_LEN)
 		return 0;
 	from = fzn_get_be16(request + 2);
-	total = offered(store, keys, seqs);
+	total = offered(store, scope, keys, seqs);
 	if (from > total)
 		from = total;
 	for (i = from; i < total; i++) {
@@ -98,7 +112,8 @@ static size_t answer_index(const fzn_notes_store_t *store, const uint8_t *reques
 	return FZN_NOTES_SYNC_INDEX_HEAD_LEN + (n * FZN_NOTES_SYNC_CLAIM_LEN);
 }
 
-static size_t answer_records(const fzn_notes_store_t *store, const uint8_t *request,
+static size_t answer_records(const fzn_notes_store_t *store,
+                             const fzn_notes_sync_scope_t *scope, const uint8_t *request,
                              size_t request_len, uint8_t *reply, size_t cap)
 {
 	static uint8_t record[FZN_RECORD_MAX_LEN];
@@ -119,7 +134,8 @@ static size_t answer_records(const fzn_notes_store_t *store, const uint8_t *requ
 		 * asking for them gets the rest. */
 		if (fzn_notes_get_key(store, key, record, sizeof(record), &len) != FZN_NOTES_OK
 		    || fzn_record_open(record, len, &rec) != FZN_RECORD_OK
-		    || fzn_notes_purge_pending(store, fzn_record_subject(rec)))
+		    || fzn_notes_purge_pending(store, fzn_record_subject(rec))
+		    || !in_scope(scope, fzn_record_subject(rec)))
 			continue;
 		if (cap - used < 2u + len)
 			break;
@@ -286,10 +302,23 @@ size_t fzn_notes_sync_answer(const fzn_notes_store_t *store, fzn_notes_policy_t 
 		/* A NODE THIS ONE ADMITS, PULLING, HOLDS COPIES: a partner. */
 		if (admits(policy, sender))
 			partner_seen(store, sender, now_ms);
-		return answer_index(store, request, request_len, reply, reply_cap);
+		return answer_index(store, NULL, request, request_len, reply, reply_cap);
 	}
 	if (is_type(request, request_len, FZN_NOTES_SYNC_RECORDS_QUERY))
-		return answer_records(store, request, request_len, reply, reply_cap);
+		return answer_records(store, NULL, request, request_len, reply, reply_cap);
+	return 0;
+}
+
+size_t fzn_notes_sync_answer_scoped(const fzn_notes_store_t *store,
+                                    const fzn_notes_sync_scope_t *scope, const uint8_t *request,
+                                    size_t request_len, uint8_t *reply, size_t reply_cap)
+{
+	if (!store || !scope || !request || !reply)
+		return 0;
+	if (is_type(request, request_len, FZN_NOTES_SYNC_INDEX_QUERY))
+		return answer_index(store, scope, request, request_len, reply, reply_cap);
+	if (is_type(request, request_len, FZN_NOTES_SYNC_RECORDS_QUERY))
+		return answer_records(store, scope, request, request_len, reply, reply_cap);
 	return 0;
 }
 

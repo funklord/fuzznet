@@ -111,9 +111,12 @@ fzn_notes_err_t fzn_node_notes_init(fzn_node_notes_t *notes, const fzn_persist_o
                                     uint64_t (*now_ms)(void));
 
 /* A peer's notes sync message (`notes/sync.h`), for `node/admin.h`'s remote
- * hook: answered from this node's store. 0 for what is not one. sec 432. */
-size_t fzn_node_notes_remote(void *ctx, const uint8_t *sender, const uint8_t *request,
-                             size_t request_len, uint8_t *reply, size_t reply_cap);
+ * hook: answered from this node's store. 0 for what is not one. sec 432.
+ * `shared` is a contact's request (sec 436), answered with only the notes
+ * the subtrees shared with `sender` reach. */
+size_t fzn_node_notes_remote(void *ctx, const uint8_t *sender, int shared,
+                             const uint8_t *request, size_t request_len, uint8_t *reply,
+                             size_t reply_cap);
 
 /* The verbs above, for `node/admin.h`'s hook. 0 when `request` is not one. */
 size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,

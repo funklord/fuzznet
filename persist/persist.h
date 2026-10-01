@@ -218,6 +218,10 @@ typedef enum fzn_persist_slot {
 	/* Per key: a contact, a key outside the estate this node knows by a
 	 * name. `contact/contact.h` keeps it. sec 435. */
 	FZN_PERSIST_CONTACT = 21u,
+	/* Per share key: a subtree of notes shared with a contact -- what the
+	 * node checks a contact's capability against. `notes/share.h` keeps
+	 * it. sec 436. */
+	FZN_PERSIST_NOTE_SHARE = 22u,
 } fzn_persist_slot_t;
 
 typedef enum fzn_persist_err {
@@ -262,6 +266,7 @@ typedef enum fzn_persist_err {
 #define FZN_PERSIST_BLOB_NOTE_PURGE 19u
 #define FZN_PERSIST_BLOB_NOTE_PARTNER 20u
 #define FZN_PERSIST_BLOB_CONTACT 21u
+#define FZN_PERSIST_BLOB_NOTE_SHARE 22u
 
 /* Write a blob head, or refuse when `cap` cannot hold head and body. */
 fzn_persist_err_t fzn_persist_head_write(uint8_t *out, size_t cap, size_t body,
@@ -374,6 +379,11 @@ typedef struct fzn_persist_ops {
  * grants nothing; what a contact may do is the chains issued to it, revoked
  * as any chain is. Lost, a name is forgotten; rolled back, a removed name
  * returns, still granting nothing.
+ *
+ * CORE: NOTE_SHARE (sec 436), named rather than left to the default. A
+ * share row is what a contact's capability is checked against, so a row
+ * rolled back is a contact reading a subtree after it was unshared -- a
+ * door, which is the holder's test for core.
  *
  * A SLOT THIS DOES NOT NAME IS CORE. A slot added later without a decision
  * about it lands where losing it costs the least, which is the guarded

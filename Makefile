@@ -195,7 +195,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              record/record.c record/journal.c record/sync.c record/ledger.c \
              state/state.c state/scope.c notes/note.c notes/text.c \
              notes/store.c notes/view.c notes/author.c notes/purge.c notes/import.c \
-             notes/sync.c \
+             notes/sync.c notes/share.c \
              trust/trust.c \
              log/log.c \
              sched/sched.c \
@@ -284,7 +284,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              record/record.h record/journal.h record/sync.h record/ledger.h \
              state/state.h state/scope.h notes/note.h notes/text.h \
              notes/store.h notes/view.h notes/author.h notes/purge.h notes/import.h \
-             notes/sync.h \
+             notes/sync.h notes/share.h \
              trust/trust.h \
              log/log.h \
              sched/sched.h \
@@ -1860,6 +1860,8 @@ $(BUILD_DIR)/contact/test/contact_test: $(BUILD_DIR)/contact/test/contact_test.o
 # notes/sync: two nodes' notes converging. sec 432.
 $(BUILD_DIR)/notes/test/notes_sync_test: $(BUILD_DIR)/notes/test/notes_sync_test.o \
                                          $(BUILD_DIR)/notes/sync.o \
+                                         $(BUILD_DIR)/notes/share.o \
+                                         $(BUILD_DIR)/chain/service.o \
                                          $(BUILD_DIR)/notes/store.o \
                                          $(BUILD_DIR)/notes/view.o \
                                          $(BUILD_DIR)/notes/author.o \
@@ -1884,6 +1886,9 @@ $(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
                                    $(BUILD_DIR)/notes/author.o \
                                    $(BUILD_DIR)/notes/purge.o \
                                    $(BUILD_DIR)/notes/sync.o \
+                                   $(BUILD_DIR)/notes/share.o \
+                                   $(BUILD_DIR)/contact/contact.o \
+                                   $(BUILD_DIR)/chain/service.o \
                                    $(BUILD_DIR)/notes/note.o \
                                    $(BUILD_DIR)/tree/tree.o \
                                    $(BUILD_DIR)/record/record.o \
@@ -3401,6 +3406,7 @@ FUZZNETD_NOTES_OBJS := $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/notes/store.o \
                        $(BUILD_DIR)/notes/view.o $(BUILD_DIR)/notes/author.o \
                        $(BUILD_DIR)/notes/purge.o $(BUILD_DIR)/notes/import.o \
                        $(BUILD_DIR)/notes/sync.o \
+                       $(BUILD_DIR)/notes/share.o \
                        $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/tree/tree.o \
                        $(BUILD_DIR)/record/record.o
 

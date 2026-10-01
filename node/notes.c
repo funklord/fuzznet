@@ -4,6 +4,8 @@
 
 #include "notes.h"
 
+#include "../contact/contact.h"
+#include "../notes/share.h"
 #include "../notes/text.h"
 
 #include <fcntl.h>
@@ -551,6 +553,103 @@ static size_t empty_trash(fzn_node_notes_t *n, char *reply, size_t cap)
 	return answer(reply, cap, FZN_REPLY_OK, detail, k > 0 ? (size_t)k : 0u);
 }
 
+/* `add share SUBTREE NAME` and `remove share SUBTREE NAME`: share the note
+ * SUBTREE and everything below it with the contact NAME, or stop. sec 436.
+ * The contact fetches through a grant, `grant share`, which is admin's. */
+static size_t change_share(fzn_node_notes_t *n, int add, const uint8_t *at, size_t left,
+                           char *reply, size_t cap)
+{
+	uint8_t subtree[FZN_TREE_ID_LEN];
+	const uint8_t *w, *name;
+	size_t w_len, name_len, i;
+	fzn_contact_t contact;
+	fzn_contact_err_t cerr;
+	fzn_notes_err_t err;
+	int found = 0;
+
+	if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, subtree)
+	    || !word(&at, &left, &name, &name_len))
+		return say(reply, cap, FZN_REPLY_MALFORMED,
+		           add ? "add share SUBTREE NAME" : "remove share SUBTREE NAME");
+	/* NOT THE TOP: sharing the root would be sharing every note this node
+	 * will ever hold, which is not a subtree anybody chose. */
+	if (fzn_tree_is_root(subtree))
+		return say(reply, cap, FZN_REPLY_MALFORMED, "share a note, not the top");
+	cerr = fzn_contact_find(n->store.ops, (const char *)name, name_len, &contact);
+	if (cerr != FZN_CONTACT_OK)
+		return say(reply, cap,
+		           cerr == FZN_CONTACT_ERR_NAME ? FZN_REPLY_MALFORMED : FZN_REPLY_ERROR,
+		           fzn_contact_err_str(cerr));
+	if (!add) {
+		err = fzn_notes_share_remove(&n->store, subtree, contact.key);
+		return err == FZN_NOTES_OK ? say(reply, cap, FZN_REPLY_OK, NULL) : refuse(reply, cap, err);
+	}
+	/* A NOTE THIS NODE HOLDS, so a typo is refused rather than shared and
+	 * served empty. */
+	err = fzn_notes_view_load(&n->store, &view);
+	if (err != FZN_NOTES_OK)
+		return refuse(reply, cap, err);
+	for (i = 0; i < view.count && !found; i++)
+		found = memcmp(view.nodes[i].id, subtree, FZN_TREE_ID_LEN) == 0;
+	if (!found)
+		return refuse(reply, cap, FZN_NOTES_ERR_ABSENT);
+	err = fzn_notes_share_add(&n->store, subtree, contact.key, now(n));
+	return err == FZN_NOTES_OK ? say(reply, cap, FZN_REPLY_OK, NULL) : refuse(reply, cap, err);
+}
+
+/* `list share [FROM]`: `ok TOTAL FROM SUBTREE,NAME ...`, a page at a time; a
+ * share whose contact was since forgotten names the contact's key. */
+static size_t list_shares(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *reply,
+                          size_t cap)
+{
+	static fzn_notes_share_t all[FZN_NOTES_SHARES_MAX];
+	static char detail[FZN_REPLY_MAX];
+	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	size_t count = 0, from = 0, used, i;
+	const uint8_t *w;
+	size_t w_len;
+	fzn_notes_err_t err;
+	int m;
+
+	if (word(&at, &left, &w, &w_len))
+		for (i = 0; i < w_len; i++) {
+			if (w[i] < '0' || w[i] > '9' || from > FZN_NOTES_SHARES_MAX)
+				return say(reply, cap, FZN_REPLY_MALFORMED, "not an index");
+			from = (from * 10u) + (size_t)(w[i] - '0');
+		}
+	err = fzn_notes_share_list(&n->store, all, FZN_NOTES_SHARES_MAX, &count);
+	if (err != FZN_NOTES_OK)
+		return refuse(reply, cap, err);
+	if (from > count)
+		return say(reply, cap, FZN_REPLY_MALFORMED, "past the last share");
+	m = snprintf(detail, sizeof(detail), "%zu %zu", count, from);
+	if (m < 0 || (size_t)m >= limit)
+		return 0;
+	used = (size_t)m;
+	for (i = from; i < count; i++) {
+		fzn_contact_t contact;
+		char who[FZN_PUBKEY_LEN * 2u];
+		size_t who_len;
+
+		if (fzn_contact_get(n->store.ops, all[i].contact, &contact) == FZN_CONTACT_OK) {
+			memcpy(who, contact.name, contact.name_len);
+			who_len = contact.name_len;
+		} else {
+			hex_of(all[i].contact, FZN_PUBKEY_LEN, who);
+			who_len = sizeof(who);
+		}
+		if (limit - used < 1u + ID_HEX + 1u + who_len)
+			break;
+		detail[used++] = ' ';
+		hex_of(all[i].subtree, FZN_TREE_ID_LEN, detail + used);
+		used += ID_HEX;
+		detail[used++] = ',';
+		memcpy(detail + used, who, who_len);
+		used += who_len;
+	}
+	return answer(reply, cap, FZN_REPLY_OK, detail, used);
+}
+
 size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                             char *reply, size_t reply_cap)
 {
@@ -564,6 +663,17 @@ size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t 
 	left = request->arg_len;
 	if (!word(&at, &left, &subject, &subject_len))
 		return 0;
+	if (is_word(subject, subject_len, "share")) {
+		if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_REMOVE
+		    && request->parsed != FZN_VERB_LIST)
+			return 0;
+		if (origin != FZN_ORIGIN_SAME_USER)
+			return say(reply, reply_cap, FZN_REPLY_DENIED,
+			           "shares need this node's own user");
+		if (request->parsed == FZN_VERB_LIST)
+			return list_shares(n, at, left, reply, reply_cap);
+		return change_share(n, request->parsed == FZN_VERB_ADD, at, left, reply, reply_cap);
+	}
 	if (!is_word(subject, subject_len, "note") && !is_word(subject, subject_len, "folder"))
 		return 0;
 	if (is_word(subject, subject_len, "folder") && request->parsed != FZN_VERB_ADD)
@@ -595,12 +705,41 @@ size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t 
 	}
 }
 
-size_t fzn_node_notes_remote(void *ctx, const uint8_t *sender, const uint8_t *request,
-                             size_t request_len, uint8_t *reply, size_t reply_cap)
+/* A contact's request, sec 436: answered over the subtrees shared with it
+ * and what they reach in this node's view now -- so a note moved out of a
+ * shared subtree stops being served, and one moved in starts. */
+static size_t answer_shared(fzn_node_notes_t *n, const uint8_t *sender, const uint8_t *request,
+                            size_t request_len, uint8_t *reply, size_t reply_cap)
+{
+	static uint8_t seeds[FZN_NOTES_SHARES_MAX][FZN_TREE_ID_LEN];
+	static uint8_t reach[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
+	fzn_notes_sync_scope_t scope;
+	size_t seed_count = 0;
+
+	scope.ids = (const uint8_t (*)[FZN_TREE_ID_LEN])reach;
+	scope.count = 0;
+	/* A STORE THAT WILL NOT READ SERVES NOTHING rather than refusing: the
+	 * scope is then empty, and the contact sees an empty index. */
+	if (sender
+	    && fzn_notes_share_with(&n->store, sender, seeds, FZN_NOTES_SHARES_MAX, &seed_count)
+	               == FZN_NOTES_OK
+	    && seed_count && fzn_notes_view_load(&n->store, &view) == FZN_NOTES_OK)
+		scope.count = fzn_notes_share_reach(&view, (const uint8_t (*)[FZN_TREE_ID_LEN])seeds,
+		                                    seed_count, reach, FZN_NOTES_MAX);
+	return fzn_notes_sync_answer_scoped(&n->store, &scope, request, request_len, reply,
+	                                    reply_cap);
+}
+
+size_t fzn_node_notes_remote(void *ctx, const uint8_t *sender, int shared,
+                             const uint8_t *request, size_t request_len, uint8_t *reply,
+                             size_t reply_cap)
 {
 	fzn_node_notes_t *n = (fzn_node_notes_t *)ctx;
 
-	return n ? fzn_notes_sync_answer(&n->store, n->author.policy, sender, now(n), request,
-	                                 request_len, reply, reply_cap)
-	         : 0u;
+	if (!n)
+		return 0;
+	if (shared)
+		return answer_shared(n, sender, request, request_len, reply, reply_cap);
+	return fzn_notes_sync_answer(&n->store, n->author.policy, sender, now(n), request,
+	                             request_len, reply, reply_cap);
 }
