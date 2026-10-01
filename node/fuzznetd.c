@@ -188,14 +188,6 @@ static uint64_t wall_ms(void)
  * sec 424. */
 static fzn_node_shelf_t shelf;
 static int shelf_on;
-static uint8_t shelf_reply[FZN_NODE_SHELF_REPLY_MAX];
-#define FZND_PULL_REPLY_MAX FZN_NODE_SHELF_REPLY_MAX
-
-/* The shelf asks a pull peer through its caller, as a votes pull does. */
-struct shelf_asking {
-	fzn_caller_t *caller;
-	uint64_t now;
-};
 
 /* The node's notes seal a long text onto the shelf and open it back. */
 static int shelf_seal(void *ctx, const uint8_t *text, size_t len, fzn_note_blob_ref_t *ref)
@@ -212,10 +204,35 @@ static int shelf_open(void *ctx, const fzn_note_blob_ref_t *ref, uint8_t *out, s
 	       == FZN_NODE_SHELF_OK;
 }
 
-static int shelf_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
-                     size_t reply_cap, size_t *reply_len)
+#define FZND_REPLY_MAX                                                                        \
+	(FZN_NODE_SHELF_REPLY_MAX > FZN_NOTES_SYNC_REPLY_MAX ? FZN_NODE_SHELF_REPLY_MAX          \
+	                                                     : FZN_NOTES_SYNC_REPLY_MAX)
+#else
+#define FZND_REPLY_MAX FZN_NOTES_SYNC_REPLY_MAX
+#endif
+
+/* THE NODE'S REPLY BUFFER, and each pull's reassembly, sized to the largest
+ * answer a peer sends -- a shelf's DATA, a notes sync's RECORDS -- since the
+ * default reply is 512 bytes. secs 424 and 432. */
+static uint8_t node_reply[FZND_REPLY_MAX];
+#define FZND_PULL_REPLY_MAX FZND_REPLY_MAX
+
+/* The node's notes, when it keeps them: answered on the socket, served to
+ * peers and pulled from them each round. sec 431, 432. */
+static fzn_node_notes_t node_notes;
+static int notes_on;
+
+/* What the shelf and the notes ask a pull peer through: its caller, as a
+ * votes pull does. */
+struct peer_asking {
+	fzn_caller_t *caller;
+	uint64_t now;
+};
+
+static int peer_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                    size_t reply_cap, size_t *reply_len)
 {
-	struct shelf_asking *asking = (struct shelf_asking *)ctx;
+	struct peer_asking *asking = (struct peer_asking *)ctx;
 	uint32_t msg = 0;
 
 	return fzn_caller_send(asking->caller, request, request_len, asking->now + 300u, &msg)
@@ -223,9 +240,6 @@ static int shelf_ask(void *ctx, const uint8_t *request, size_t request_len, uint
 	       && fzn_caller_recv(asking->caller, msg, reply, reply_cap, reply_len, 3000u)
 	                  == FZN_CALLER_OK;
 }
-#else
-#define FZND_PULL_REPLY_MAX (FZN_NODE_REPLY_MAX * 4u)
-#endif
 
 struct pull_target {
 	const char *host;
@@ -240,6 +254,52 @@ struct pull_target {
 	int fd;
 };
 
+/* Every note each pull peer holds that this node lacks or holds older,
+ * admitted as any record is. sec 432. */
+static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	size_t t;
+
+	if (!notes_on)
+		return;
+	for (t = 0; t < npulls; t++) {
+		struct peer_asking asking = { &pulls[t].caller, now };
+		fzn_notes_sync_tally_t tally;
+		fzn_notes_sync_err_t err = fzn_notes_sync_pull(&node_notes.store,
+		                                               node_notes.author.policy,
+		                                               node_notes.author.sign, peer_ask,
+		                                               &asking, &tally);
+
+		if (err != FZN_NOTES_SYNC_OK)
+			fprintf(stderr, "fuzznetd: notes from %s: %s\n", pulls[t].host,
+			        fzn_notes_sync_err_str(err));
+		else if (tally.learned || tally.refused)
+			fprintf(stderr, "fuzznetd: %zu note record(s) from %s, %zu refused\n",
+			        tally.learned, pulls[t].host, tally.refused);
+	}
+#ifdef FZN_SPOOL_FILE_ON
+	/* A NOTE WHOSE TEXT IS A BLOB NAMES WHAT TO FETCH: every one held is
+	 * wanted on the shelf, which answers at once for a text already here,
+	 * so the texts follow their notes in the same round. sec 432. */
+	if (shelf_on
+	    && fzn_notes_view_load(&node_notes.store, node_notes.author.view) == FZN_NOTES_OK) {
+		const fzn_notes_view_t *v = node_notes.author.view;
+		size_t i;
+
+		for (i = 0; i < v->count; i++) {
+			fzn_note_t note;
+			fzn_note_blob_ref_t ref;
+
+			if (fzn_note_open(v->nodes[i].content_type, v->nodes[i].content,
+			                  v->nodes[i].content_len, &note)
+			            == FZN_NOTE_OK
+			    && fzn_note_blob_ref(&note, &ref) == FZN_NOTE_OK)
+				(void)fzn_node_shelf_want(&shelf, ref.root, ref.length);
+		}
+	}
+#endif
+}
+
 #ifdef FZN_SPOOL_FILE_ON
 /* Every remembered text, from each pull peer in turn until it is here. */
 static void fetch_texts(struct pull_target *pulls, size_t npulls, uint64_t now)
@@ -250,8 +310,8 @@ static void fetch_texts(struct pull_target *pulls, size_t npulls, uint64_t now)
 		return;
 	shelf.fresh = 0;
 	for (t = 0; t < npulls; t++) {
-		struct shelf_asking asking = { &pulls[t].caller, now };
-		size_t got = fzn_node_shelf_fetch_wants(&shelf, shelf_ask, &asking);
+		struct peer_asking asking = { &pulls[t].caller, now };
+		size_t got = fzn_node_shelf_fetch_wants(&shelf, peer_ask, &asking);
 
 		if (got)
 			fprintf(stderr, "fuzznetd: %zu text(s) from %s\n", got, pulls[t].host);
@@ -1079,8 +1139,6 @@ int main(int argc, char **argv)
 					admin.text_local = fzn_node_shelf_local;
 					admin.text_remote = fzn_node_shelf_remote;
 					admin.text_ctx = &shelf;
-					state.reply = shelf_reply;
-					state.reply_cap = sizeof(shelf_reply);
 				} else {
 					fprintf(stderr, "fuzznetd: no shelf for texts under %s\n",
 					        bulk_dir);
@@ -1089,8 +1147,9 @@ int main(int argc, char **argv)
 #endif
 			/* NOTES, sec 431: admitted from this node and the nodes it
 			 * pulls from, which are the nodes they will sync with. */
+			state.reply = node_reply;
+			state.reply_cap = sizeof(node_reply);
 			{
-				static fzn_node_notes_t node_notes;
 				uint8_t writers[FZND_PULL_TARGETS_MAX][FZN_PUBKEY_LEN];
 				size_t w;
 
@@ -1111,7 +1170,9 @@ int main(int argc, char **argv)
 					}
 #endif
 					admin.notes_local = fzn_node_notes_local;
+					admin.notes_remote = fzn_node_notes_remote;
 					admin.notes_ctx = &node_notes;
+					notes_on = 1;
 				} else {
 					fprintf(stderr, "fuzznetd: no notes: the store cannot list\n");
 				}
@@ -1239,9 +1300,10 @@ int main(int argc, char **argv)
 						        "fuzznetd: %zu vote(s) from %s, %zu refused\n",
 						        learned, pulls[t].host, refused);
 				}
+				/* NOTES, then TEXTS, secs 432 and 424: a note's text is
+				 * fetched once the note naming it has arrived. */
+				pull_notes(pulls, npulls, now);
 #ifdef FZN_SPOOL_FILE_ON
-				/* TEXTS LAST, sec 424: the slowest, and nothing above
-				 * waits on them. */
 				fetch_texts(pulls, npulls, now);
 #endif
 				next_pull = wall_clock() + FZND_PULL_EVERY;

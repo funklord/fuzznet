@@ -174,6 +174,7 @@
 #include <fuzznet/notes/author.h>
 #include <fuzznet/notes/purge.h>
 #include <fuzznet/notes/import.h>
+#include <fuzznet/notes/sync.h>
 #include <fuzznet/node/notes.h>
 #include <fuzznet/trust/trust.h>
 #include <fuzznet/session/random_system.h>
@@ -296,6 +297,7 @@
 #include "notes/author.h"
 #include "notes/purge.h"
 #include "notes/import.h"
+#include "notes/sync.h"
 #include "node/notes.h"
 #include "trust/trust.h"
 #include "session/random_system.h"
@@ -982,6 +984,15 @@ int main(void)
 		if (fzn_node_notes_init(NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0u, NULL)
 		    != FZN_NOTES_ERR_MALFORMED)
 			FAIL(465);
+		/* A sync answer is 0 for what is no sync message (sec 432). */
+		{
+			uint8_t out[8];
+
+			if (fzn_notes_sync_answer(&notes, (const uint8_t *)"get", 3u, out,
+			                          sizeof(out))
+			    != 0u)
+				FAIL(466);
+		}
 	}
 
 	/* THE ROOT SET, as a node holds it (secs 405 to 407): a second root

@@ -56,6 +56,7 @@
 #include "../local/vocabulary.h"
 #include "../notes/import.h"
 #include "../notes/purge.h"
+#include "../notes/sync.h"
 
 /* The nodes a notes store admits besides this one: its paired nodes. */
 #define FZN_NODE_NOTES_WRITERS 16u
@@ -90,6 +91,11 @@ fzn_notes_err_t fzn_node_notes_init(fzn_node_notes_t *notes, const fzn_persist_o
                                     const uint8_t self[FZN_PUBKEY_LEN],
                                     const uint8_t (*peers)[FZN_PUBKEY_LEN], size_t peer_count,
                                     uint64_t (*now_ms)(void));
+
+/* A peer's notes sync message (`notes/sync.h`), for `node/admin.h`'s remote
+ * hook: answered from this node's store. 0 for what is not one. sec 432. */
+size_t fzn_node_notes_remote(void *ctx, const uint8_t *request, size_t request_len,
+                             uint8_t *reply, size_t reply_cap);
 
 /* The verbs above, for `node/admin.h`'s hook. 0 when `request` is not one. */
 size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,

@@ -52373,8 +52373,7 @@ long texts to its shelf when it has one.
 
 ### Not yet after sec 431
 
-- **Sync between nodes**, so a note written on one node reaches its
-  paired nodes. Next.
+- **~~Sync between nodes~~: built in sec 432.**
 - **The purge conversation**, which pending purges wait for, with
   carriage skipping a note pending purge (sec 427).
 - **Checklist items** have no verbs yet; a list can be read and moved,
@@ -52424,3 +52423,100 @@ blob store:
 - no daemon left running and the socket directory removed.
 
 **Sabotage: six entries.**
+
+## 432. Notes, phase 4b: syncing notes between nodes, 2026-10-01
+
+A node now pulls from each peer it pulls from the notes that peer holds,
+each round, after roots and votes. `notes/sync` is the library and
+`notes/sync.situ` its contract.
+
+### An index, then only what is missing
+
+Fetching every record every round would be up to 256 records of up to
+668 bytes per peer per minute. So a pull asks for the peer's **index** --
+each claim's key and the sequence of the record held for it, 40 bytes a
+claim -- and then for the **records** of only the claims this node lacks
+or holds older, sixteen at a time. A second pull with nothing changed
+moves an index and no records.
+
+Four messages, version byte 2, riding the remote hop beside the spool's
+four, whose version is 1. A node offers each payload to the shelf, then
+to notes, then to the verbs, and a verb line's first byte is a letter, so
+the families cannot be confused.
+
+### What arrives is admitted as anything is
+
+Every record is handed to `fzn_notes_put`: the same admission,
+supersession and equivocation check a locally written note goes through.
+A peer can offer anything; this node keeps only what its policy admits,
+and nothing older than it holds.
+
+- **Only what was asked for.** A record the puller did not ask for is
+  refused, so a peer cannot use a pull to push.
+- **The index is in key order**, so a page means the same thing on every
+  call while a peer pages through it.
+
+### The purge rule of sec 427, both ways
+
+- **A server leaves a note pending purge out of its index.** A sibling
+  that has just consented to erasing a note, and erased it, is not handed
+  it again in the same round. That is fuzzypickles' resurrection defect,
+  closed where they closed it: at the sender.
+- **A puller refuses a note it is itself purging**, since it has asked
+  for it to go.
+
+### Texts follow their notes
+
+After pulling notes, fuzznetd wants on its shelf the blob of every note
+whose text is one. The shelf answers at once for a text already there,
+and the text fetch that follows in the same round brings the rest, so a
+long note arrives with its text.
+
+### Two buffers made unconditional
+
+The node's reply buffer and each pull's reassembly were sized for the
+shelf, inside its build switch, with the default reply of 512 bytes
+otherwise. A notes RECORDS reply is up to 10,723 bytes, so both are now
+set in every build, to the larger of the two families' largest answers.
+
+### Not yet after sec 432
+
+- **The admitted set is the nodes a node pulls from**, which is what a
+  pull can reach. A note written by an estate member this node is not
+  paired with, relayed by one it is, is refused. Admitting the estate's
+  members by their chains is the general answer, and belongs with
+  contacts and grants (sec 430).
+- **Pull only.** A note written here reaches a peer when the peer next
+  pulls, up to a minute later. Nothing pushes.
+- **The purge conversation** still waits: a purge here stays pending
+  because nothing asks the paired nodes yet.
+- **Sharing with contacts**, the rest of phase 4.
+
+### Measured for sec 432
+
+**`notes_sync_test`, 29 checks.** Two stores in one process, the peer a
+function handing a request to the other store's `fzn_notes_sync_answer`:
+
+- **Convergence:**
+  - B pulls A's three notes as A wrote them;
+  - a second pull fetches nothing;
+  - after A renames one, only that claim travels;
+  - A pulling from B finds nothing newer;
+  - a node B does not admit has its notes fetched and refused.
+- **The purge rules:** A purging a note B has erased does not hand it
+  back; B refuses a note it is purging when A's newer edit arrives.
+- **Misbehaving peers:** nonsense is SHAPE with nothing taken, silence is
+  no answer, and a record pushed in place of the one asked for is
+  refused.
+- **Paging:** an index two claims a page is asked for page by page; a
+  reply holding one record at a time converges over rounds.
+
+`err_str_test` walks `fzn_notes_sync_err_str`, and `consumer_check`
+reaches the sync answer through the installed header.
+
+**Live**, two daemons: R wrote a note with a 30,000-byte text from a file
+and a folder; M, joined to R and pulling from it, logged "2 note
+record(s) from 127.0.0.1, 0 refused" and "1 text(s)", listed both, and
+wrote the long text out byte for byte. No daemon was left running.
+
+**Sabotage: four entries.**

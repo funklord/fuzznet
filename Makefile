@@ -195,6 +195,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              record/record.c record/journal.c record/sync.c record/ledger.c \
              state/state.c state/scope.c notes/note.c notes/text.c \
              notes/store.c notes/view.c notes/author.c notes/purge.c notes/import.c \
+             notes/sync.c \
              trust/trust.c \
              log/log.c \
              sched/sched.c \
@@ -283,6 +284,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              record/record.h record/journal.h record/sync.h record/ledger.h \
              state/state.h state/scope.h notes/note.h notes/text.h \
              notes/store.h notes/view.h notes/author.h notes/purge.h notes/import.h \
+             notes/sync.h \
              trust/trust.h \
              log/log.h \
              sched/sched.h \
@@ -402,6 +404,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              state/test/state_test.c state/test/scope_test.c notes/test/note_test.c \
              notes/test/text_test.c \
              notes/test/notes_store_test.c node/test/notes_test.c \
+             notes/test/notes_sync_test.c \
              trust/test/trust_test.c \
              trust/test/trust_walk_test.c \
              log/test/log_test.c \
@@ -524,6 +527,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/notes/test/text_test \
              $(BUILD_DIR)/notes/test/notes_store_test \
              $(BUILD_DIR)/node/test/notes_test \
+             $(BUILD_DIR)/notes/test/notes_sync_test \
              $(BUILD_DIR)/trust/test/trust_test \
              $(BUILD_DIR)/trust/test/trust_walk_test \
              $(BUILD_DIR)/log/test/log_test \
@@ -1840,6 +1844,25 @@ $(BUILD_DIR)/notes/test/notes_store_test: $(BUILD_DIR)/notes/test/notes_store_te
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# notes/sync: two nodes' notes converging. sec 432.
+$(BUILD_DIR)/notes/test/notes_sync_test: $(BUILD_DIR)/notes/test/notes_sync_test.o \
+                                         $(BUILD_DIR)/notes/sync.o \
+                                         $(BUILD_DIR)/notes/store.o \
+                                         $(BUILD_DIR)/notes/view.o \
+                                         $(BUILD_DIR)/notes/author.o \
+                                         $(BUILD_DIR)/notes/purge.o \
+                                         $(BUILD_DIR)/notes/note.o \
+                                         $(BUILD_DIR)/tree/tree.o \
+                                         $(BUILD_DIR)/record/record.o \
+                                         $(BUILD_DIR)/persist/persist.o \
+                                         $(BUILD_DIR)/trust/trust.o \
+                                         $(BUILD_DIR)/session/agree.o \
+                                         $(BUILD_DIR)/prekey/prekey.o \
+                                         $(BUILD_DIR)/ratchet/ratchet.o \
+                                         $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # node/notes: the note verbs a node answers on its local socket. sec 431.
 $(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
                                    $(BUILD_DIR)/node/notes.o \
@@ -1847,6 +1870,7 @@ $(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
                                    $(BUILD_DIR)/notes/view.o \
                                    $(BUILD_DIR)/notes/author.o \
                                    $(BUILD_DIR)/notes/purge.o \
+                                   $(BUILD_DIR)/notes/sync.o \
                                    $(BUILD_DIR)/notes/note.o \
                                    $(BUILD_DIR)/tree/tree.o \
                                    $(BUILD_DIR)/record/record.o \
@@ -3361,6 +3385,7 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
 FUZZNETD_NOTES_OBJS := $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/notes/store.o \
                        $(BUILD_DIR)/notes/view.o $(BUILD_DIR)/notes/author.o \
                        $(BUILD_DIR)/notes/purge.o $(BUILD_DIR)/notes/import.o \
+                       $(BUILD_DIR)/notes/sync.o \
                        $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/tree/tree.o \
                        $(BUILD_DIR)/record/record.o
 
@@ -3503,6 +3528,10 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/notes/store.o \
+                                      $(BUILD_DIR)/notes/sync.o \
+                                      $(BUILD_DIR)/notes/purge.o \
+                                      $(BUILD_DIR)/notes/view.o \
+                                      $(BUILD_DIR)/tree/tree.o \
                                       $(if $(SPOOL_FILE_ON),$(BUILD_DIR)/node/shelf.o \
                                         $(BUILD_DIR)/notes/text.o \
                                         $(BUILD_DIR)/spool/spool_file.o) \
@@ -5065,7 +5094,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               spool/sidecar.situ record/record.situ tree/tree.situ \
               chain/chain.situ provision/provision.situ \
               record/store_file.situ catalog/attribute.situ \
-              roster/roster.situ chain/root_act.situ
+              roster/roster.situ chain/root_act.situ notes/sync.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #

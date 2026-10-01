@@ -95,6 +95,7 @@
 #include "../../chain/root_log.h"
 #include "../../node/roots.h"
 #include "../../notes/store.h"
+#include "../../notes/sync.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -149,6 +150,10 @@ static const char *r_note(int v)
 	return fzn_note_err_str((fzn_note_err_t)v);
 }
 static const char *r_notes(int v) { return fzn_notes_err_str((fzn_notes_err_t)v); }
+static const char *r_notes_sync(int v)
+{
+	return fzn_notes_sync_err_str((fzn_notes_sync_err_t)v);
+}
 static const char *r_notes_denial(int v)
 {
 	return fzn_notes_denial_str((fzn_notes_denial_t)v);
@@ -249,6 +254,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_scope_err_str", r_scope, 3 },
 	{ "fzn_note_err_str", r_note, 13 },
 	{ "fzn_notes_err_str", r_notes, 9 },
+	{ "fzn_notes_sync_err_str", r_notes_sync, 5 },
 	{ "fzn_notes_denial_str", r_notes_denial, 6 },
 	{ "fzn_root_log_err_str", r_root_log, 6 },
 	{ "fzn_node_roots_err_str", r_node_roots, 9 },

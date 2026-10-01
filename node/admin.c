@@ -704,6 +704,15 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 			return n;
 	}
 
+	/* A NOTES SYNC MESSAGE, version byte 2, the same way. sec 432. */
+	if (admin->notes_remote && req->payload) {
+		size_t n = admin->notes_remote(admin->notes_ctx, req->payload, req->payload_len,
+		                               reply, reply_cap);
+
+		if (n)
+			return n;
+	}
+
 	/* ONE LINE: the payload, with the terminator a local caller's framer
 	 * would have stripped removed here if it was sent. */
 	line = req->payload;

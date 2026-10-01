@@ -562,3 +562,11 @@ size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t 
 		return 0;
 	}
 }
+
+size_t fzn_node_notes_remote(void *ctx, const uint8_t *request, size_t request_len,
+                             uint8_t *reply, size_t reply_cap)
+{
+	fzn_node_notes_t *n = (fzn_node_notes_t *)ctx;
+
+	return n ? fzn_notes_sync_answer(&n->store, request, request_len, reply, reply_cap) : 0u;
+}

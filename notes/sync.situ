@@ -1,0 +1,71 @@
+// The notes sync vocabulary: what one node asks another for so their notes
+// converge. notes/sync.c encodes and decodes it by hand, as spool/message.c
+// does its own; this is the contract it is measured against. sec 432.
+//
+// FOUR MESSAGES, AN INDEX THEN THE RECORDS. A node asks a peer for the index
+// of what it holds -- each claim's key and sequence, 40 bytes -- and then
+// for only the records it lacks or holds older. Fetching every record every
+// round would be up to 256 records of up to 668 bytes per peer per round.
+//
+// THE VERSION IS 2, AND THAT IS THE DISPATCH. These ride the remote hop
+// beside spool/message's four, whose version byte is 1; a node offers a
+// payload to each family in turn, and a verb line's first byte is a letter.
+//
+// Big-endian, like everything this tree puts on the wire.
+
+target buffer;
+endian big;
+
+enum fzn_notes_sync_type : u8 {
+	index_query   = 1,   // "What do you hold, from claim FROM on?"
+	index         = 2,   // "These claims, at these sequences."
+	records_query = 3,   // "Send me these claims' records."
+	records       = 4,   // "Those records, signed as they were made."
+}
+
+struct fzn_notes_sync_index_query {
+	u8                   version [must_eq = 2];
+	fzn_notes_sync_type  type    [must_eq = index_query];
+	u16                  from;
+}
+
+// A claim as an index names it: the key notes/store.c files it under, a
+// hash of (note id, writer), and the sequence of the record held for it.
+struct fzn_notes_sync_claim {
+	u8   key[32];
+	u64  seq;
+}
+
+struct fzn_notes_sync_index {
+	u8                    version [must_eq = 2];
+	fzn_notes_sync_type   type    [must_eq = index];
+	u16                   total;                     // claims the server offers
+	u16                   from;                      // the first in this page
+	u16                   count   [max = 256];       // FZN_NOTES_MAX
+	fzn_notes_sync_claim  claims[count];
+}
+
+struct fzn_notes_sync_key {
+	u8   key[32];
+}
+
+struct fzn_notes_sync_records_query {
+	u8                   version [must_eq = 2];
+	fzn_notes_sync_type  type    [must_eq = records_query];
+	u8                   count   [min = 1, max = 16];   // FZN_NOTES_SYNC_KEYS_MAX
+	fzn_notes_sync_key   keys[count];
+}
+
+// A record whole, as record/record.situ lays it out: at most
+// FZN_RECORD_MAX_LEN = 92 + 512 + 64 = 668 bytes.
+struct fzn_notes_sync_record {
+	u16  len [min = 1, max = 668];
+	u8   record[len];
+}
+
+struct fzn_notes_sync_records {
+	u8                     version [must_eq = 2];
+	fzn_notes_sync_type    type    [must_eq = records];
+	u8                     count   [max = 16];
+	fzn_notes_sync_record  records[count];
+}
