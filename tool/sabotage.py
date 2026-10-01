@@ -4983,6 +4983,27 @@ SABOTAGES = [
 		"a property written in lower case, which RFC 5545 allows, is not read -- sec 429",
 	),
 	(
+		"import-refuses-escaped-nul",
+		"notes/import.c",
+		"\t\t\tif (cp == 0u || (cp >= 0xdc00u && cp <= 0xdfffu))\n",
+		"\t\t\tif (cp >= 0xdc00u && cp <= 0xdfffu)\n",
+		"a \\u0000 writes a NUL into a title, which notes/note.h says holds none -- sec 429",
+	),
+	(
+		"import-refuses-raw-nul",
+		"notes/import.c",
+		"\t\tif (c == 0u)\n\t\t\treturn STR_BAD;\n",
+		"",
+		"a raw NUL inside a Keep string reaches a title -- sec 429",
+	),
+	(
+		"import-knotes-refuses-nul",
+		"notes/import.c",
+		"\t\tif (c == 0u)\n\t\t\treturn -1;\n",
+		"",
+		"a NUL in a KNotes value reaches a title -- sec 429",
+	),
+	(
 		"import-run-dedups",
 		"notes/import.c",
 		"\tif (e->created_at_ms && imported_before(run, e)) {\n",

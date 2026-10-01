@@ -1141,6 +1141,31 @@ static void test_import_parsing(void)
 	              && refusal_count == 1u && refusals[0] == FZN_NOTES_IMPORT_UNPARSED,
 	      "a lone surrogate refuses the note, which is named");
 	reset_collect();
+	CHECK(keep("{\"title\":\"a \\u0000 in it\"}") == FZN_NOTES_OK && got_count == 0u
+	              && refusal_count == 1u && refusals[0] == FZN_NOTES_IMPORT_UNPARSED,
+	      "a \\u0000 refuses its note: a title holds no NUL");
+	{
+		static const char raw[] = "{\"title\":\"a\0b\"}";
+
+		reset_collect();
+		CHECK(fzn_notes_import_keep((const uint8_t *)raw, sizeof(raw) - 1u, collect, NULL,
+		                            note_refusal, NULL)
+		                      == FZN_NOTES_OK
+		              && got_count == 0u && refusal_count == 1u,
+		      "as does a raw NUL byte inside a Keep string");
+	}
+	{
+		static const char nul_ics[] = "BEGIN:VJOURNAL\r\nSUMMARY:a\0b\r\nEND:VJOURNAL\r\n";
+
+		reset_collect();
+		CHECK(fzn_notes_import_knotes((const uint8_t *)nul_ics, sizeof(nul_ics) - 1u,
+		                              collect, NULL, note_refusal, NULL)
+		                      == FZN_NOTES_OK
+		              && got_count == 0u && refusal_count == 1u
+		              && refusals[0] == FZN_NOTES_IMPORT_UNPARSED,
+		      "and so does a NUL in a KNotes value");
+	}
+	reset_collect();
 	CHECK(keep("{\"title\":\"shop\",\"textContent\":\"\",\"listContent\":["
 	           "{\"text\":\"eggs\",\"isChecked\":true},"
 	           "{\"text\":\"bread\",\"isChecked\":false}]}")

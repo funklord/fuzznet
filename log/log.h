@@ -12,9 +12,8 @@
  * 5). What came across is the part their own measurement identified as
  * general -- **sequencing, retention and serving a range** -- and what did
  * not is the part it identified as specific: `append_log.c`'s line format,
- * `"<seq> <escaped text>"`, which is an encoding choice and the one netcfgd
- * would reject, its stated product property being greppable JSON. A body
- * here is opaque bytes, as everywhere else in `record/`.
+ * `"<seq> <escaped text>"`, which is an encoding choice and so the
+ * consumer's. A body here is opaque bytes, as everywhere else in `record/`.
  *
  * A STREAM IS (ISSUER, STREAM) HERE TOO, so one issuer's telemetry and its
  * configuration history age out independently rather than competing for the
@@ -285,10 +284,9 @@ uint64_t fzn_log_dropped(const fzn_log_t *log);
  *
  * A BODY IS OPAQUE BYTES, which this header says at the top and which is what
  * makes rendering one a decision rather than a cast. A consumer knows its own
- * encoding -- netcfgd's is greppable JSON, fuzzypickles' is an escaped line
- * format -- and this is the fallback for everything that does not, so that a
- * log view is possible before a consumer has told anybody what its bodies
- * mean.
+ * encoding -- fuzzypickles' is an escaped line format -- and this is the
+ * fallback for everything that does not, so that a log view is possible
+ * before a consumer has told anybody what its bodies mean.
  *
  * NEWLINES ARE ESCAPED, AND THAT IS THE POINT RATHER THAN TIDINESS. A viewer
  * showing one entry per line, handed a body containing a newline and a

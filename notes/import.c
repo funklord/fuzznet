@@ -120,6 +120,8 @@ static str_result_t json_string(const uint8_t *s, size_t len, size_t *at, uint8_
 				*out_len = n;
 			return out && over ? STR_LONG : STR_OK;
 		}
+		if (c == 0u)
+			return STR_BAD;
 		if (c != '\\') {
 			put(out, cap, &n, &c, 1u, &over);
 			continue;
@@ -142,7 +144,10 @@ static str_result_t json_string(const uint8_t *s, size_t len, size_t *at, uint8_
 			if (!hex4(s, len, i + 1u, &cp))
 				return STR_BAD;
 			i += 4u;
-			if (cp >= 0xdc00u && cp <= 0xdfffu)
+			/* A NUL IS NO PART OF A NOTE: `notes/note.h` gives a title
+			 * no NUL, and labels are separated by one. fuzzypickles'
+			 * copy refuses it too. */
+			if (cp == 0u || (cp >= 0xdc00u && cp <= 0xdfffu))
 				return STR_BAD;
 			if (cp >= 0xd800u && cp <= 0xdbffu) {
 				if (len < i + 7u || s[i + 1u] != '\\' || s[i + 2u] != 'u'
@@ -424,7 +429,7 @@ static const uint8_t *ics_value(size_t line_len, const char *name, size_t *v_len
 }
 
 /* TEXT unescaping (RFC 5545 section 3.3.11): \n, \N, and an escaped
- * character as itself. 0 when it ran past `cap`. */
+ * character as itself. 0 when it ran past `cap`, -1 for a NUL. */
 static int ics_unescape(const uint8_t *v, size_t v_len, uint8_t *out, size_t cap,
                         size_t *out_len)
 {
@@ -438,6 +443,8 @@ static int ics_unescape(const uint8_t *v, size_t v_len, uint8_t *out, size_t cap
 			if (c == 'n' || c == 'N')
 				c = '\n';
 		}
+		if (c == 0u)
+			return -1;
 		if (n == cap)
 			return 0;
 		out[n++] = c;
@@ -487,7 +494,7 @@ fzn_notes_err_t fzn_notes_import_knotes(const uint8_t *ics, size_t len, fzn_note
 {
 	fzn_notes_import_entry_t e;
 	size_t at = 0, line_len = 0;
-	int in = 0, too_long = 0;
+	int in = 0, too_long = 0, bad = 0;
 
 	if (!ics || !fn)
 		return FZN_NOTES_ERR_MALFORMED;
@@ -507,13 +514,16 @@ fzn_notes_err_t fzn_notes_import_knotes(const uint8_t *ics, size_t len, fzn_note
 			e.labels = labels;
 			in = 1;
 			too_long = 0;
+			bad = 0;
 			continue;
 		}
 		if (!in)
 			continue;
 		if (line_len >= 12u && memcmp(line, "END:VJOURNAL", 12u) == 0) {
 			in = 0;
-			if (too_long)
+			if (bad)
+				refuse(refused, refused_ctx, FZN_NOTES_IMPORT_UNPARSED, title, e.title_len);
+			else if (too_long)
 				refuse(refused, refused_ctx, FZN_NOTES_IMPORT_TOO_LONG, title, e.title_len);
 			else if (e.title_len == 0u && e.text_len == 0u)
 				refuse(refused, refused_ctx, FZN_NOTES_IMPORT_UNPARSED, title, 0u);
@@ -526,10 +536,17 @@ fzn_notes_err_t fzn_notes_import_knotes(const uint8_t *ics, size_t len, fzn_note
 			too_long = 1;
 			continue;
 		}
-		if ((v = ics_value(line_len, "SUMMARY", &v_len)) != NULL)
-			too_long |= !ics_unescape(v, v_len, title, sizeof(title), &e.title_len);
-		else if ((v = ics_value(line_len, "DESCRIPTION", &v_len)) != NULL)
-			too_long |= !ics_unescape(v, v_len, text, sizeof(text), &e.text_len);
+		if ((v = ics_value(line_len, "SUMMARY", &v_len)) != NULL) {
+			int r = ics_unescape(v, v_len, title, sizeof(title), &e.title_len);
+
+			too_long |= r == 0;
+			bad |= r < 0;
+		} else if ((v = ics_value(line_len, "DESCRIPTION", &v_len)) != NULL) {
+			int r = ics_unescape(v, v_len, text, sizeof(text), &e.text_len);
+
+			too_long |= r == 0;
+			bad |= r < 0;
+		}
 		else if ((v = ics_value(line_len, "CREATED", &v_len)) != NULL)
 			e.created_at_ms = ics_datetime_ms(v, v_len);
 		/* DTSTAMP IS NOT TAKEN. fuzzypickles used it when CREATED was

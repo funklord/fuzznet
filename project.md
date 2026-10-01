@@ -51890,11 +51890,26 @@ fuzznet, and the format is the part that is expensive to change later.
   library with levels, a sublog tree and a file output, knowing nothing
   of hosts. A fuzznet logging module may use it underneath or take over
   its role; that is decided when it is built.
-- **Text logs must be greppable.** In the holder's words, "it is REALLY
-  nice if text logs are greppable".
+- **Three formats: classic, performant and packed.** In the holder's
+  words, "classic (easily greppable) formats + performant formats + packed
+  formats". **No JSON logs.**
+- **Classic text is positional**, not `key=value`: shorter, and easier to
+  grep for. The cost accepted is that a field added later moves the ones
+  after it, so the field order is a format to version, not to extend in
+  passing.
 - **Efficiency matters.** Logging will be noisy.
 - **"User" is the Unix account.** A root daemon such as netcfgd or
   raidcfgd logs separately from the GUI user or users.
+- **Every entry has a name built from concrete properties of the entry,
+  and no generated ids.** In the holder's words, "a namespace-system that
+  fully uniquely identifies each log entry, built on concrete properties
+  of the entry". This replaces the random operation id this proposal
+  first had.
+- **Retention is fully configurable** on every relevant parameter --
+  time, size, count, filters -- per estate, per host, per user and per
+  replicated copy.
+- **The flight recorder is 256 KiB per process**, written out on an
+  error, on a crash, or when a troubleshooter asks.
 - **Tamper evidence is independent of the format**, and can be added
   whatever the format is.
 - **External software is part of it.** Tools that netcfgd, raidcfgd and
@@ -51902,44 +51917,99 @@ fuzznet, and the format is the part that is expensive to change later.
   it into its own log.
 - **It is a compromise**, and some things will be sub-optimal.
 
-### Every line stands alone, and compression removes the redundancy
+**A correction this section owes.** This tree said in several places
+(secs 5, 5e and 72, and `log/log.h` until this change) that netcfgd
+would want its log lines to be greppable JSON. That was this tree's
+inference, written as netcfgd's fact. netcfgd's constraint 7 is about its
+**runtime state** under `/run` and its local socket protocol
+(`doc/situ-brief.md`), not about logs, and the holder has now said no JSON
+logs. `log/log.h` is corrected; the dated sections are history and keep
+what they said.
 
-Greppability and efficiency conflict only if they must be the same bytes.
-Grep needs each line complete; efficiency needs redundancy removed, and a
-general compressor removes the redundancy *between* lines -- log text
-compresses roughly tenfold or more. So:
+### One record, three formats
 
-- **On disk, every line is complete:** time, host, user, program and
-  instance, subsystem path, level, operation id, text. Nothing is elided.
-- **Closed segments are compressed**, so `zstdgrep` still searches them.
-- **A viewer shortens for display only:** it hides fields equal to the
-  previous line's or fixed by the current filter. The tree the holder
-  sketched -- estate / host / user / program[instance] / subsystem / ... --
-  is what it shortens along, and the file keeps all of it.
+Every entry is one record -- its name, time, level, subsystem path, causes,
+and text or template and arguments -- and the three formats are three
+encodings of it, converted between without loss:
 
-A proposed line, positional:
+- **Classic:** one positional text line per entry, complete on its own,
+  for grep and for people. Nothing is elided on disk.
+- **Performant:** a fixed binary record, cheap to write and fast to scan:
+  a template id and raw arguments rather than formatted text. The ring
+  holds this, and a host may write it where formatting every line costs
+  too much.
+- **Packed:** compressed, for keeping and for carrying. Closed segments
+  are packed, so `zstdgrep` still searches classic text, and what travels
+  between hosts is packed.
 
-    2026-10-01T12:34:56.789123Z nabbe root fuzznetd[4121] record/store W op=3f9a1c02 misplaced record issuer=... seq=12
+Which format is written where is configuration, with the retention policy
+below. The binary layouts are situ's to describe, as every layout in this
+tree is.
+
+**A viewer shortens for display only:** it hides fields equal to the
+previous line's or fixed by the current filter, along the tree the holder
+sketched -- estate / host / user / program[instance] / subsystem / ... --
+and the file keeps all of it.
+
+### Every entry's name, from what the entry is
+
+An entry is named by where and when it was made, all of it concrete:
+
+    estate / host / user / program / instance / position
+
+- **The instance** is the process: its pid and its start time together,
+  since a pid alone is reused.
+- **The position** is the entry's place in that instance's sequence of
+  entries: the first it made, the second, and so on. It is what the entry
+  is, not a number drawn for it.
+
+Within one instance no two entries share a position, and two instances
+of one program differ in pid or start time, so the name is unique without
+anything being generated.
+
+A proposed classic line, positional, the entry's name in its fields:
+
+    2026-10-01T12:34:56.789123Z nabbe root fuzznetd 4121@1727778896 #1834 record/store W misplaced record issuer=... seq=12
 
 - **Time in UTC with microseconds**, so a plain sort across hosts is
-  roughly right, and only roughly: see operation ids.
+  roughly right, and only roughly: see causes.
 - **The estate is not on every line.** It is constant per host, and is
-  in the directory and the file's first line. Merging several estates'
-  logs is the rare case.
+  in the directory and the file's first line.
+
+### Causes: following one piece of work across hosts
+
+Work that crosses hosts is followed by **naming the entry it came from**,
+not by a generated id. A request carries the name of the entry that logged
+sending it, and every entry made on the request's behalf records that name
+as its cause.
+
+Worked through on sec 424's fetch: host M logs "fetching" as entry
+`nabbe/root/fuzznetd/4121@1727778896/#1834`, and its request to R carries
+that name. R logs its answer with `<nabbe/root/fuzznetd/4121@1727778896/#1834`
+as the cause, as does anything R runs for it. `grep` for M's entry name
+over both hosts' logs then reads the fetch from both ends.
+
+- **An entry carries the origin as well as the immediate cause**: the
+  name of the entry where the work began. One `grep` then finds every
+  entry of the work however many hops it took, and the immediate cause
+  lets a viewer draw the tree.
+- **Why it is needed:** across an estate the wall clocks disagree, so
+  ordering by time alone lies about which line answered which.
+- **What it costs fuzznet:** every request that does work on another host
+  carries the names -- the remote hop's payloads and the spool messages
+  included -- and that is a wire change to schedule, not to slip in.
 
 ### Cheap when nobody wants it
 
-- **The level is checked before anything is formatted**, so a disabled
-  debug line costs one comparison. flog's accepted-type mask already
+- **The level is checked before anything is encoded**, so a disabled
+  debug entry costs one comparison. flog's accepted-type mask already
   works this way.
-- **A flight recorder per process:** a fixed-size ring in memory holds
-  every record, debug included, as a template id, raw arguments and a
-  time, and is never formatted. It is where the noise goes cheaply. It is
-  written out as text only when that is worth it: on an error, on a crash,
-  or when a troubleshooter asks, possibly from another host.
-- **Only records at or above the configured level are formatted and
-  written.** Formatting text is the cost this compromise accepts, and it
-  is paid only for what someone chose to keep.
+- **The flight recorder:** a 256 KiB ring per process holds every entry,
+  debug included, in the performant format, never formatted as text. It
+  is where the noise goes cheaply, and it is written out on an error, on a
+  crash, or when a troubleshooter asks, possibly from another host.
+- **Only what someone chose to keep is formatted as text.** Formatting is
+  the cost this compromise accepts.
 
 ### Files, per Unix user
 
@@ -51951,33 +52021,23 @@ A proposed line, positional:
   practice on local Linux filesystems and is not a POSIX promise for
   regular files; on a network filesystem it would need a file per
   process.
-- **Segments rotate by size**, closed ones are compressed, and retention
-  drops whole segments.
-- **Each segment ends with a hash-chain trailer** over its lines and the
+- **Segments rotate**, closed ones are packed, and retention drops whole
+  segments.
+- **Each segment ends with a hash-chain trailer** over its entries and the
   previous segment's hash, signable later with the host's key.
 
-### Operation ids: following one piece of work across hosts
+### Retention: a policy, configured per scope
 
-An operation id is a number stamped on every line belonging to one piece
-of work, carried in the requests that work sends, so that one `grep`
-across hosts returns exactly that work's story from every end.
+Retention is rules, not a setting. A rule says **which entries** -- by
+estate, host, user, program, subsystem, level or text -- **are kept how
+long**, by age, by size, by count or by any of these together, and **for
+which copy**: the host that made them, or a host holding a replicated copy.
+Rules are set per estate, per host and per user.
 
-Worked through on sec 424's fetch: host M wants a note's text and asks host
-R for it. M picks a random id, say `3f9a1c02`, for this fetch, and every
-line M logs while fetching carries `op=3f9a1c02`. The id travels in M's
-request to R, and R logs its answer under the same id, as does anything R
-runs on the request's behalf. Afterwards `grep op=3f9a1c02` over both
-hosts' logs reads: M asked, R held it, R sent three spans, M placed them.
-
-**Why it is needed, not merely nice:** across an estate the wall clocks
-disagree, so ordering by time alone lies about which line answered which.
-An operation id groups the lines, and each host's own order inside its
-file orders them within a host. It is HTTP's request id and distributed
-tracing's trace id under a plainer name.
-
-**What it costs fuzznet:** every request that does work on another host
-carries the id -- the remote hop's payloads and the spool messages
-included -- and that is a wire change to schedule rather than to slip in.
+The rules are state, so they replicate and are scoped as everything else
+is: `state/` holds them, and the scope vocabulary (sec 420) says which
+hosts a rule reaches. How two rules that both match one entry combine is
+open below.
 
 ### External programs' output, relayed
 
@@ -51985,24 +52045,24 @@ A daemon that runs `ip`, `mdadm` or `ossacli` captures what it prints and
 writes it into its own log. That output is not ours, and the relay is one
 shared function rather than something each daemon hand-rolls:
 
-- **A relayed line says it is relayed, and by whom.** The tool is a child
+- **A relayed entry says it is relayed, and by whom.** The tool is a child
   in the path, with its pid and the stream it spoke on:
 
-      2026-10-01T12:34:56.789123Z nabbe root netcfgd[812] apply/exec W op=3f9a1c02 ip[9132] err: RTNETLINK answers: File exists
-      2026-10-01T12:34:56.803410Z nabbe root netcfgd[812] apply/exec E op=3f9a1c02 ip[9132] exit 2 after 14 ms, 1 line
+      2026-10-01T12:34:56.789123Z nabbe root netcfgd 812@1727778001 #77 apply/exec W ip[9132] err: RTNETLINK answers: File exists
+      2026-10-01T12:34:56.803410Z nabbe root netcfgd 812@1727778001 #78 apply/exec E ip[9132] exit 2 after 14 ms, 1 line
 
-- **It inherits the operation id** of the work that ran it, which is most
+- **It inherits the causes** of the work that ran the tool, which is most
   of its troubleshooting value.
 - **The text is untrusted and escaped:** one captured line is exactly one
-  log line. `\n`, `\r`, control bytes, terminal escapes, NUL and invalid
+  entry. `\n`, `\r`, control bytes, terminal escapes, NUL and invalid
   UTF-8 become `\xNN`, so a tool's output cannot forge a line in our format
   (sec 233 met the same forgery in record viewers). Lines have a length
   cap, and an invocation a volume cap past which the rest goes only to the
-  ring, with one line saying how much.
+  ring, with one entry saying how much.
 - **No guessed severity.** A tool has no levels, and parsing its text for
-  "error" is a heuristic that will be wrong: the line records the stream,
+  "error" is a heuristic that will be wrong: the entry records the stream,
   mapped by a per-caller rule (stdout info and stderr warning by default),
-  and the closing line carries the exit status, as an error when nonzero.
+  and the closing entry carries the exit status, as an error when nonzero.
 - **The invocation is logged with redaction declared by the caller**, per
   argument, since argv can carry a passphrase or a controller password and
   only the caller knows which argument is the secret.
@@ -52013,23 +52073,24 @@ shared function rather than something each daemon hand-rolls:
 ### Gathering across an estate
 
 - **A pull over fuzznet's own carriage:** a troubleshooter asks hosts for
-  a time window, an operation id, or a ring dump, and hosts answer with
-  compressed text segments -- already about as compact as a binary form
-  would be. Sec 424's spool and blob carriage is most of the machinery.
+  a time window, an entry's name and everything it caused, or a ring dump,
+  and hosts answer in the packed format. Sec 424's spool and blob carriage
+  is most of the machinery.
 - **What may leave a host follows the scope vocabulary (sec 420):** a log
   is host-private unless configured otherwise, since logs leak a great
-  deal.
+  deal. A replicated copy is kept under the retention rules for copies.
 
 ### Open, and the holder's to settle
 
-- **~~Positional fields or `key=value` throughout.~~ Positional,** the
-  holder decided 2026-10-01: shorter, and easier to grep for. The cost
-  accepted with it is that a field added later moves the ones after it,
-  so the order is a format to version rather than to extend in passing.
-- **The ring:** its default size, and what besides an error, a crash and a
-  request writes it out.
-- **Retention:** defaults per user and per daemon.
-- **The operation id's width**, and which requests carry it first.
+- **Which concrete property names a host:** its identity key, which never
+  changes and is long, or its host name, which is short and can change.
+  The line could show the name and the namespace use the key.
+- **The process start time's resolution**, seconds or finer: two instances
+  of one program can share a pid only across a restart, so seconds are
+  enough unless a pid is reused within one second.
+- **How two retention rules matching one entry combine**: the most
+  specific wins, or every limit applies and the strictest decides.
+- **The performant format's layout**, to be a situ schema.
 
 ### How it would be adopted
 
@@ -52108,7 +52169,7 @@ the source's creation time, which is also what a re-import recognises.
 
 ### Measured for sec 429
 
-`notes_store_test` grew to 153 checks. The 26 new ones:
+`notes_store_test` grew to 156 checks. The 29 new ones:
 
 - **Keep:**
   - a note with title, text, pin, creation time and two labels;
@@ -52116,6 +52177,8 @@ the source's creation time, which is also what a re-import recognises.
   - `\u` escapes and a surrogate pair decode, and a lone surrogate
     refuses its note, which is named;
   - a checklist is a LIST with two items and their ticks;
+  - a `\u0000`, and a raw NUL byte in a string, refuse the note, since
+    a title holds no NUL;
   - an empty object is refused;
   - a text past the bound is refused as too long.
 - **KNotes:**
@@ -52123,6 +52186,7 @@ the source's creation time, which is also what a re-import recognises.
   - a lower-case property name read;
   - DTSTAMP not taken;
   - an unterminated journal refused;
+  - a NUL in a value refused;
   - a 20,000-byte folded description arriving whole.
 - **The run:**
   - two notes imported into the folder, one undated, the dated one
@@ -52132,4 +52196,6 @@ the source's creation time, which is also what a re-import recognises.
   - a long text refused without a seal hook and with a failing one, and
     imported with a working one, carrying the reference.
 
-**Sabotage: fifteen entries.**
+**Sabotage: eighteen entries.** The three for NUL came after
+fuzzypickles, fixing the defects reported to them, listed U+0000 among
+what their decoder refuses; this port had let it through.
