@@ -51287,11 +51287,11 @@ There are four new error codes: CRYPTO, STORE, ABSENT and MISMATCH.
 
 ### Not yet after sec 423
 
-- **2b: carriage.** A host holding a note and not its text asks a sibling
-  for the leaves. `spool/`'s plan, transfer and messages exist and no node
-  runs them yet. That is the next piece.
-- **Where a host keeps a text's spool** between restarts, and its
-  bitmap, which `spool.h` leaves to `persist/`.
+- **~~2b: carriage.~~ Built in sec 424:** a node fetches a text's
+  leaves from its pull peers, in `spool/message.h`'s four messages.
+- **~~Where a host keeps a text's spool.~~ Built in sec 424:** on the
+  node's shelf, a spool file and its sidecar per root, beside the store.
+  Not through `persist/`, whose records are too small for a bitmap.
 - Phases 3 to 5, as sec 422 lists them.
 
 ### Measured for sec 423
@@ -51327,3 +51327,196 @@ the same defect.
 **A check that could not fail was removed:** the opened length against
 the reference's. Every leaf opens at the length its geometry gives, so
 the sum is the reference's length by construction.
+
+## 424. Notes, phase 2b: a node's shelf of texts, and fetching them, 2026-10-01
+
+Sec 423 sealed a text into a spool and opened it back. This is where those
+spools live on a running node, and how a host holding a note but not its
+text gets the leaves from a host that has them. `node/shelf` is built only
+where `spool/spool_file` is, since that is what it keeps texts in.
+
+### On disk
+
+One directory, `text/` under the node's store, and three files a root:
+
+    <root hex>        the sealed leaves      (spool/spool_file.h)
+    <root hex>.bits   which are present      (its sidecar)
+    <root hex>.len    the text's length, be64
+
+**The length file is what a server cannot do without.** A spool reads a
+leaf back as a whole slot, zero-filled past a short last leaf (sec 423).
+A server answering a WANT hashes every leaf to build the span's proof, and
+a padded slot hashes to something else. So it needs the text's length,
+which the note carries and a peer asking by root does not. The host writes
+it down when the text arrives: sealed here, or fetched against a note that
+named it. A server trusts it only where its leaf count agrees with the
+sidecar's.
+
+**A put seals under a working name and renames.** The root is not known
+until every leaf is sealed. The length goes in first, then the leaves, and
+the sidecar last, since a blob is held from the moment its sidecar appears
+under its root. A crash leaves the working name, which the next put
+replaces.
+
+### The conversation
+
+`spool/message.h`'s four messages, carried as the payload of the remote
+hop the node already serves. There is no new transport and no new frame
+kind. The remote handler offers a payload to the shelf before splitting
+it as a line: a message's first byte is its version, 1, below any verb's
+first letter.
+
+**The server, `fzn_node_shelf_answer`:**
+
+- **A HAVE_QUERY gets a HAVE** of one range, the whole blob, or `absent`.
+- **A WANT gets a DATA**: the largest canonical span at the asked-for
+  first leaf that the ask, the shelf's span of 16 and the reply all allow.
+  The span is halved until the DATA fits, rather than answering nothing.
+- **Only a complete blob is served.** A proof is sibling hashes, and a
+  host cannot hash leaves it does not hold. A host part way through a
+  fetch answers as if it held nothing.
+- **Nothing is created for a root a peer names.** The server reads the
+  sidecar with the new `fzn_spool_file_leaves` before opening anything,
+  because `fzn_spool_file_open` creates what it opens.
+- **The cookie carries nothing, and says so.** The remote hop has already
+  authenticated the asker under its session, so a spoofer cannot ask. The
+  anti-reflection the cookie exists for is the session's here.
+
+**Who may ask: any peer the hop admits, for any root.** What is served is
+ciphertext. The content key is in the note and never on the shelf (sec
+422), so a peer naming a root it learned without the note learns a length.
+
+**The fetcher, `fzn_node_shelf_fetch`:**
+
+- **It asks HAVE_QUERY once**, so a peer holding nothing costs one round
+  trip and not one WANT per span.
+- **It asks for one span a round**, planned by `fzn_spool_plan_want`, and
+  places each through `fzn_spool_place_span`. That verifies against the
+  root before a byte is written, so a peer can cost bandwidth and never a
+  wrong leaf.
+- **Every leaf must arrive at the length the note's length gives it.** The
+  proof binds the lengths the peer sent, so a span proving at these
+  lengths proves the length this host wrote down, which is the length it
+  will hash at when it serves the text on. A note naming the wrong length
+  is refused as UNVERIFIED, not completed under the wrong length.
+- **A last leaf already here keeps its length.** It was proved at the
+  length written down when it was placed, so another note naming another
+  length for the same root is refused rather than written over it.
+- **It resumes.** The sidecar is checkpointed after every span, so a
+  fetch cut off by a peer that went quiet, or by a span that did not
+  prove, asks next time only for what is missing.
+
+### The node's verbs and fuzznetd
+
+`fzn_node_admin_t` gains two hooks, `text_local` and `text_remote`, rather
+than the shelf itself, because `node/admin` is built always and the shelf
+is not. Each returns 0 for what is not its own, and the verbs follow. Three
+verbs, each needing the node's own user:
+
+    put text PATH     seal the file at PATH; answers the reference, in hex
+    fetch text REF    remember to fetch it from the pull peers
+    get text REF      "here N" when it opens, "pending" when it does not
+
+REF is the 72-byte reference sec 422 lays out. A put reads a file as the
+node, and a fetch spends its disk, so neither is offered to another user.
+
+**fuzznetd:**
+
+- **It keeps its shelf** under its bulk store directory.
+- **It sizes two buffers to the shelf's largest DATA**, 18,263 bytes
+  (`FZN_NODE_SHELF_REPLY_MAX`, printed rather than summed):
+  - the node's reply buffer, since the default is 512 bytes and one
+    sealed leaf is 1,056;
+  - each pull peer's reassembly slot.
+- **It fetches remembered texts** from each pull peer after roots and
+  votes in every round.
+- **A text just asked for is fetched on the loop's next turn**, not at the
+  next round, which is up to a minute away. `fetch text` sets the shelf's
+  `fresh` flag and the loop clears it.
+
+### Not yet after sec 424
+
+- **Wants are not persisted.** Sixteen are remembered in memory, so a
+  restart forgets what was asked for. The model of phase 3 is what knows
+  which notes name texts not here, and can ask again.
+- **Only the pull peers are asked**, one after another. Nothing finds out
+  which host holds a text, and `spool/transfer.h`'s multi-peer assignment
+  is not used: a note's text is at most 256 leaves.
+- **A fetch blocks the loop**, at most 3 s a request, as a votes pull does.
+- **Nothing removes a text.** An edit is a new blob under a new key, and
+  the old one stays on the shelf. Collection waits for phase 3, which
+  knows which notes still name what.
+- **Nothing re-verifies the shelf at rest.** `spool.h` describes the
+  scrub, which needs the lengths the `.len` files now hold.
+- **Scope reach in carriage** is still open: any admitted peer may fetch
+  any root (sec 420).
+- Phases 3 to 5, as sec 422 lists them.
+
+### Measured for sec 424
+
+**`shelf_test`, 75 checks.** Two shelves in one process; the "peer" is a
+function handing a request to the other shelf's `fzn_node_shelf_answer`,
+which lets a case lie, go quiet or shrink the reply:
+
+- **A put** is held at its length, opens to its text, and leaves nothing
+  under the working name.
+- **A fetch** of three leaves is one WANT, opens to the text, and leaves
+  sealed bytes identical to the server's. A second fetch asks nothing.
+- **Forty leaves** travel in three spans. **Through a reply with room for
+  two leaves**, the server halves its spans and the fetch still completes,
+  in twenty WANTs or more.
+- **A root the peer does not hold** is ABSENT, and the peer has created no
+  file for it.
+- **A leaf flipped in transit** is UNVERIFIED, nothing is held, and an
+  honest peer then completes it asking only for the two spans not kept.
+- **A peer going quiet** after one span is NO_ANSWER, and the next fetch
+  asks for the two spans missing.
+- **A length one past the text's**, with the same leaf count, does not
+  prove. The right length then fetches it. A whole text refuses another
+  length; so does a text whose last leaf is here and whose first leaf was
+  forgotten from its sidecar for the case.
+- **A partial holder** answers as if it held nothing, and is never asked
+  for a span.
+- **The answer falls through** for a verb and for a HAVE.
+- **Wants** are remembered once, marked fresh, completed once, and not
+  kept for a text already here or a length of zero.
+- **The verbs:** put answers a reference, get opens it, another shelf is
+  pending until fetch and a round, another user is denied, a short
+  reference is malformed, a missing file is an error, and other subjects
+  fall through.
+- **Its scratch directories are removed by name**, and their removal is
+  asserted.
+
+**Elsewhere:**
+
+- `spool_file_test` checks that `fzn_spool_file_leaves` reads its own
+  sidecar and refuses a root differing in a byte.
+- `admin_test` (3 checks) shows `get text` reaching the local hook, and
+  the verbs' own refusal for what the hook does not take or when there is
+  no hook.
+- `pair_test` (2 checks) shows a blob message over the real remote hop
+  reaching the remote hook, with a verb still answered past it.
+- `err_str_test` walks `fzn_node_shelf_err_str`.
+
+**Live, two daemons:**
+
+- R seals a 40,000-byte text with `put text` and opens it with `get
+  text`.
+- M, joined to R and pulling from it, says `pending`, takes `fetch text`,
+  and four seconds later says `here 40000`.
+- M's log reports one text from R, and M's sealed leaves are R's, byte
+  for byte: 42,240 bytes, three files at mode 0600.
+- No daemon was left running and the socket directory was removed.
+
+**Sabotage: seven entries, each caught**:
+
+- the leaf-length check;
+- serving only whole blobs;
+- a held last leaf keeping its length;
+- the fresh flag;
+- both admin hooks;
+- the sidecar's root in `fzn_spool_file_leaves`.
+
+The root check there was split from the version and count checks, since
+the line it was first written as matched an existing entry's anchor in
+the resume path.

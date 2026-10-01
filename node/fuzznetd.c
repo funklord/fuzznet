@@ -41,6 +41,9 @@
 #include "revoke.h"
 #include "roots.h"
 #include "peer_persist.h"
+#ifdef FZN_SPOOL_FILE_ON
+#include "shelf.h"
+#endif
 #include "../local/socket.h"
 #include "../net/udp.h"
 #include "../persist/persist_file.h"
@@ -165,6 +168,38 @@ static uint64_t wall_clock(void)
  * every one costs a pull a minute. sec 401. */
 #define FZND_PULL_TARGETS_MAX 8u
 
+#ifdef FZN_SPOOL_FILE_ON
+/* LONG NOTES' TEXTS, on the shelf under the store directory, served to any
+ * peer the remote hop admits and fetched from the pull peers each round. The
+ * node's reply buffer and a pull's reassembly are both sized to the shelf's
+ * largest DATA, since the default reply is 512 bytes and one leaf is more.
+ * sec 424. */
+static fzn_node_shelf_t shelf;
+static int shelf_on;
+static uint8_t shelf_reply[FZN_NODE_SHELF_REPLY_MAX];
+#define FZND_PULL_REPLY_MAX FZN_NODE_SHELF_REPLY_MAX
+
+/* The shelf asks a pull peer through its caller, as a votes pull does. */
+struct shelf_asking {
+	fzn_caller_t *caller;
+	uint64_t now;
+};
+
+static int shelf_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                     size_t reply_cap, size_t *reply_len)
+{
+	struct shelf_asking *asking = (struct shelf_asking *)ctx;
+	uint32_t msg = 0;
+
+	return fzn_caller_send(asking->caller, request, request_len, asking->now + 300u, &msg)
+	               == FZN_CALLER_OK
+	       && fzn_caller_recv(asking->caller, msg, reply, reply_cap, reply_len, 3000u)
+	                  == FZN_CALLER_OK;
+}
+#else
+#define FZND_PULL_REPLY_MAX (FZN_NODE_REPLY_MAX * 4u)
+#endif
+
 struct pull_target {
 	const char *host;
 	long port;
@@ -174,9 +209,28 @@ struct pull_target {
 	fzn_caller_t caller;
 	fzn_reasm_t table;
 	fzn_partial_t slot;
-	uint8_t slot_buf[FZN_NODE_REPLY_MAX * 4u];
+	uint8_t slot_buf[FZND_PULL_REPLY_MAX];
 	int fd;
 };
+
+#ifdef FZN_SPOOL_FILE_ON
+/* Every remembered text, from each pull peer in turn until it is here. */
+static void fetch_texts(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	size_t t;
+
+	if (!shelf_on)
+		return;
+	shelf.fresh = 0;
+	for (t = 0; t < npulls; t++) {
+		struct shelf_asking asking = { &pulls[t].caller, now };
+		size_t got = fzn_node_shelf_fetch_wants(&shelf, shelf_ask, &asking);
+
+		if (got)
+			fprintf(stderr, "fuzznetd: %zu text(s) from %s\n", got, pulls[t].host);
+	}
+}
+#endif
 
 static void usage(const char *prog)
 {
@@ -985,6 +1039,27 @@ int main(int argc, char **argv)
 			state.on_local_ctx = &admin;
 			state.on_remote = fzn_node_admin_remote;
 			state.on_remote_ctx = &admin;
+#ifdef FZN_SPOOL_FILE_ON
+			{
+				char shelf_dir[FZN_NODE_SHELF_DIR_MAX];
+				int n = snprintf(shelf_dir, sizeof(shelf_dir), "%s/text", bulk_dir);
+
+				if (n > 0 && (size_t)n < sizeof(shelf_dir)
+				    && fzn_node_shelf_init(&shelf, shelf_dir, &hash_ops, &aead_ops,
+				                           &rng_ops)
+				               == FZN_NODE_SHELF_OK) {
+					shelf_on = 1;
+					admin.text_local = fzn_node_shelf_local;
+					admin.text_remote = fzn_node_shelf_remote;
+					admin.text_ctx = &shelf;
+					state.reply = shelf_reply;
+					state.reply_cap = sizeof(shelf_reply);
+				} else {
+					fprintf(stderr, "fuzznetd: no shelf for texts under %s\n",
+					        bulk_dir);
+				}
+			}
+#endif
 		}
 	}
 
@@ -1108,8 +1183,19 @@ int main(int argc, char **argv)
 						        "fuzznetd: %zu vote(s) from %s, %zu refused\n",
 						        learned, pulls[t].host, refused);
 				}
+#ifdef FZN_SPOOL_FILE_ON
+				/* TEXTS LAST, sec 424: the slowest, and nothing above
+				 * waits on them. */
+				fetch_texts(pulls, npulls, now);
+#endif
 				next_pull = wall_clock() + FZND_PULL_EVERY;
 			}
+#ifdef FZN_SPOOL_FILE_ON
+			/* A TEXT JUST ASKED FOR is fetched now, not at the next
+			 * round. sec 424. */
+			if (shelf.fresh)
+				fetch_texts(pulls, npulls, now);
+#endif
 			(void)fzn_node_run_once(&state, 1000);
 		}
 	}

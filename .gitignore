@@ -222,6 +222,7 @@ __pycache__/
 /node/test/remote_test
 /node/test/serve_test
 /node/test/provision_test
+/node/test/shelf_test
 /fuzznetd
 /.situ-head/
 /.gen.new/

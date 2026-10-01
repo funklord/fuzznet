@@ -279,3 +279,34 @@ void fzn_spool_file_close(fzn_spool_file_t *file)
 	(void)close(file->fd);
 	file->fd = -1;
 }
+
+fzn_spool_err_t fzn_spool_file_leaves(const char *path, const uint8_t root[FZN_BLOB_HASH_LEN],
+                                      uint64_t *leaves)
+{
+	char bits[FZN_SPOOL_FILE_PATH_MAX];
+	uint8_t head[BITS_HEAD_LEN];
+	uint64_t count;
+	FILE *f;
+
+	if (!path || !root || !leaves)
+		return FZN_SPOOL_ERR_MALFORMED;
+	if ((size_t)snprintf(bits, sizeof(bits), "%s.bits", path) >= sizeof(bits))
+		return FZN_SPOOL_ERR_MALFORMED;
+	f = fopen(bits, "rb");
+	if (!f)
+		return FZN_SPOOL_ERR_ABSENT;
+	if (fread(head, 1u, sizeof(head), f) != sizeof(head)) {
+		(void)fclose(f);
+		return FZN_SPOOL_ERR_ABSENT;
+	}
+	(void)fclose(f);
+	count = fzn_get_be64(head + BITS_OFF_LEAVES);
+	/* ANOTHER BLOB'S SIDECAR AT THIS PATH is not this blob held, which is
+	 * the question a server asks here before it serves anything. */
+	if (memcmp(head + BITS_OFF_ROOT, root, FZN_BLOB_HASH_LEN) != 0)
+		return FZN_SPOOL_ERR_ABSENT;
+	if (head[0] != BITS_VERSION || count == 0u || count > (uint64_t)FZN_SPOOL_MAX_LEAVES)
+		return FZN_SPOOL_ERR_ABSENT;
+	*leaves = count;
+	return FZN_SPOOL_OK;
+}

@@ -99,6 +99,18 @@ fzn_spool_err_t fzn_spool_file_resume(const fzn_spool_file_t *file,
                                       uint8_t *present, size_t present_len);
 
 /*
+ * The leaf count the sidecar beside `path` records for `root`, WITHOUT
+ * opening or creating the spool. sec 424. A host serving blobs to peers is
+ * asked by root alone, and `fzn_spool_file_open` creates what it opens -- so
+ * a server must learn whether it holds a blob, and how many leaves it is,
+ * before it opens anything, or a peer naming roots makes it create files.
+ * ABSENT when there is no sidecar, or it is another blob's, another version's,
+ * or past FZN_SPOOL_MAX_LEAVES.
+ */
+fzn_spool_err_t fzn_spool_file_leaves(const char *path, const uint8_t root[FZN_BLOB_HASH_LEN],
+                                      uint64_t *leaves);
+
+/*
  * Writes the sidecar for `spool`, atomically.
  *
  * SYNCS THE DATA FIRST, and that ordering is the whole safety property

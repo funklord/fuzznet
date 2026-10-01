@@ -55,6 +55,17 @@ static void check_at(int ok, int line, const char *what)
 
 #define CHECK(cond, what) check_at((cond) ? 1 : 0, __LINE__, (what))
 
+/* A shelf's remote hook that knows one message: version byte 1. sec 424. */
+static size_t text_remote_stub(void *ctx, const uint8_t *request, size_t request_len,
+                               uint8_t *reply, size_t reply_cap)
+{
+	(void)ctx;
+	if (request_len < 1u || request[0] != 1u || reply_cap < 4u)
+		return 0;
+	memcpy(reply, "blob", 4u);
+	return 4u;
+}
+
 /* ---- an in-memory store that can list, since loading peers needs it -- */
 
 #define SLOTS 8
@@ -431,6 +442,29 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		                         == FZN_REPLY_DENIED
 		              && state.peer_count == 1u,
 		      "a remote caller was allowed to change the node");
+		/* A BLOB MESSAGE REACHES THE SHELF'S HOOK, and a verb still
+		 * reaches the verbs past it. sec 424. */
+		{
+			static const uint8_t blob_message[2] = { 1u, 1u };
+
+			admin.text_remote = text_remote_stub;
+			CHECK(fzn_caller_send(&caller, blob_message, sizeof(blob_message), 3500u, &msg)
+			              == FZN_CALLER_OK
+			              && fzn_node_run_once(&state, 1000) == 1
+			              && fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len,
+			                                 2000u) == FZN_CALLER_OK
+			              && reply_len == 4u && memcmp(reply, "blob", 4u) == 0,
+			      "a blob message over the remote hop did not reach the shelf's hook");
+			CHECK(fzn_caller_send(&caller, (const uint8_t *)"status", 6u, 3500u, &msg)
+			              == FZN_CALLER_OK
+			              && fzn_node_run_once(&state, 1000) == 1
+			              && fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len,
+			                                 2000u) == FZN_CALLER_OK
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK,
+			      "with the shelf's hook set, a verb over the remote hop was not answered");
+			admin.text_remote = NULL;
+		}
 		/* ---- A REVOKED DEVICE HEARS NOTHING: the node calls the handler
 		 * for DENIED too, and answering would tell a refused caller which
 		 * node it reached. */

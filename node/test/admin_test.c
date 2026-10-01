@@ -212,6 +212,21 @@ static int says(const uint8_t *detail, size_t len, const char *what)
 	return 0;
 }
 
+/* A shelf's local hook that answers any `text` subject. sec 424. */
+static size_t text_local_stub(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
+                              char *reply, size_t reply_cap)
+{
+	size_t len = 0;
+
+	(void)ctx;
+	(void)origin;
+	if (!request->arg || request->arg_len < 4u || memcmp(request->arg, "text", 4u) != 0
+	    || fzn_reply_compose((uint8_t *)reply, reply_cap, &len, FZN_REPLY_OK,
+	                         (const uint8_t *)"stub", 4u) != FZN_COMPOSE_OK)
+		return 0;
+	return len;
+}
+
 static int ask(fzn_node_admin_t *admin, const fzn_peer_t *who, const char *line,
                uint8_t *reply, size_t cap, size_t *reply_len)
 {
@@ -691,6 +706,23 @@ int main(void)
 			admin.admin_chain = NULL;
 		}
 	}
+
+	/* ---- TEXTS GO TO THE SHELF'S HOOK, sec 424, and what it does not take
+	 * falls through to the verbs' own refusal. */
+	admin.text_local = text_local_stub;
+	CHECK(ask(&admin, &owner, "get text x", reply, sizeof(reply), &reply_len)
+	              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+	              && says(detail, detail_len, "stub"),
+	      "get text did not reach the shelf's hook");
+	CHECK(ask(&admin, &owner, "get nothing", reply, sizeof(reply), &reply_len)
+	              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+	                         == FZN_REPLY_UNSUPPORTED,
+	      "what the shelf's hook does not take was not unsupported");
+	admin.text_local = NULL;
+	CHECK(ask(&admin, &owner, "get text x", reply, sizeof(reply), &reply_len)
+	              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+	                         == FZN_REPLY_UNSUPPORTED,
+	      "with no shelf, get text was not unsupported");
 
 	/* ---- AS A ROOT BY IDENTITY, sec 419: the node is made a member of an
 	 * estate whose genesis is the device's key and which has added the

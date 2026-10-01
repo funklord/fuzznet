@@ -663,6 +663,13 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 	if (admin->state->config.has_admin && request->parsed == FZN_VERB_ADD
 	    && subject_word(request, "confirm", &rest, &rest_len) && rest && admin->revocations)
 		return confirm_admin(admin, rest, rest_len, reply, reply_cap);
+	/* TEXTS, sec 424: the shelf's, when this node has one. */
+	if (admin->text_local) {
+		size_t n = admin->text_local(admin->text_ctx, origin, request, reply, reply_cap);
+
+		if (n)
+			return n;
+	}
 
 	return answer_text(reply, reply_cap, FZN_REPLY_UNSUPPORTED, NULL);
 }
@@ -678,6 +685,17 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 
 	if (!admin || !admin->state || !req || !reply || result != FZN_NODE_REMOTE_GRANTED)
 		return 0;
+
+	/* A BLOB MESSAGE, before the line is split: its first byte is the
+	 * message version, below any verb's first letter, so the shelf
+	 * recognises it or returns 0 and the verbs follow. sec 424. */
+	if (admin->text_remote && req->payload) {
+		size_t n = admin->text_remote(admin->text_ctx, req->payload, req->payload_len, reply,
+		                              reply_cap);
+
+		if (n)
+			return n;
+	}
 
 	/* ONE LINE: the payload, with the terminator a local caller's framer
 	 * would have stripped removed here if it was sent. */

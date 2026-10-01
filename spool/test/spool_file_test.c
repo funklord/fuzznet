@@ -323,6 +323,20 @@ static void test_a_bitmap_from_another_blob_is_refused(void)
 	      "the matching sidecar was refused too, so the checks reject everything");
 	CHECK(map[0] == 0x01u, "the restored bitmap does not hold leaf 0 alone: %02x", map[0]);
 
+	/* THE LEAF COUNT WITHOUT OPENING, sec 424: the same sidecar answers for
+	 * its own root and not for one differing in a byte. */
+	{
+		uint64_t leaves = 0;
+
+		CHECK(fzn_spool_file_leaves(path, root, &leaves) == FZN_SPOOL_OK
+		              && leaves == TEST_LEAVES,
+		      "the sidecar's own root did not read back its leaf count");
+		leaves = 0;
+		CHECK(fzn_spool_file_leaves(path, other_root, &leaves) == FZN_SPOOL_ERR_ABSENT
+		              && leaves == 0u,
+		      "another blob's sidecar was read as holding this one");
+	}
+
 	fzn_spool_file_close(&backend);
 }
 

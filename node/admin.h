@@ -110,6 +110,16 @@ typedef struct fzn_node_admin {
 	/* This node's admin chain (`node/revoke.h`), or NULL: then it grants
 	 * and confirms only as a root, and votes on `authority`. sec 416. */
 	fzn_node_admin_chain_t *admin_chain;
+	/* Long notes' texts (`node/shelf.h`), or NULL: then `put`, `fetch` and
+	 * `get text` are unsupported and the remote hop answers no blob
+	 * message. Hooks rather than the shelf itself, because the shelf is
+	 * built only where spool files are and this module is built always.
+	 * Each returns 0 for what is not its own. sec 424. */
+	size_t (*text_local)(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
+	                     char *reply, size_t reply_cap);
+	size_t (*text_remote)(void *ctx, const uint8_t *request, size_t request_len,
+	                      uint8_t *reply, size_t reply_cap);
+	void *text_ctx;
 } fzn_node_admin_t;
 
 /* A `fzn_node_local_handler_t`; `ctx` is a `fzn_node_admin_t`. */

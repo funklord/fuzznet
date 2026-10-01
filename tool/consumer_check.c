@@ -119,6 +119,7 @@
 #endif
 #ifdef FZN_SPOOL_FILE_ON
 #include <fuzznet/spool/spool_file.h>
+#include <fuzznet/node/shelf.h>
 #endif
 #ifdef FZN_CLAIM_FILE_ON
 #include <fuzznet/claim/claim_file.h>
@@ -241,6 +242,7 @@
 #endif
 #ifdef FZN_SPOOL_FILE_ON
 #include "spool/spool_file.h"
+#include "node/shelf.h"
 #endif
 #ifdef FZN_CLAIM_FILE_ON
 #include "claim/claim_file.h"
@@ -2532,6 +2534,18 @@ int main(void)
 			    && fzn_spool_file_resume(&backend, fake_root, 2u, map, sizeof(map))
 			       != FZN_SPOOL_ERR_ABSENT)
 				FAIL(244);
+		}
+		/* The node's shelf of note texts, built with the backend it
+		 * keeps them in (sec 424): a directory it cannot hold is
+		 * refused before anything is made, and its errors render. */
+		{
+			static fzn_node_shelf_t shelf;
+
+			if (fzn_node_shelf_init(&shelf, "", NULL, NULL, NULL)
+			    != FZN_NODE_SHELF_ERR_MALFORMED)
+				FAIL(458);
+			if (strcmp(fzn_node_shelf_err_str(FZN_NODE_SHELF_ERR_ABSENT), "unknown") == 0)
+				FAIL(459);
 		}
 #endif
 	}

@@ -1104,16 +1104,18 @@ TEST_BINS += $(BUILD_DIR)/claim/test/claim_file_test
 endif
 
 # Outside the conditional, for the reason PERSIST_FILE_SRCS is.
-SPOOL_FILE_SRCS := spool/spool_file.c
-SPOOL_FILE_HDRS := spool/spool_file.h
-SPOOL_FILE_TSRC := spool/test/spool_file_test.c
+# node/shelf keeps a node's note texts in spool files, so it is built only
+# with them. sec 424.
+SPOOL_FILE_SRCS := spool/spool_file.c node/shelf.c
+SPOOL_FILE_HDRS := spool/spool_file.h node/shelf.h
+SPOOL_FILE_TSRC := spool/test/spool_file_test.c node/test/shelf_test.c
 
 ifdef SPOOL_FILE_ON
 CPPFLAGS  += -DFZN_SPOOL_FILE_ON
 SRCS      += $(SPOOL_FILE_SRCS)
 HDRS      += $(SPOOL_FILE_HDRS)
 TEST_SRCS += $(SPOOL_FILE_TSRC)
-TEST_BINS += $(BUILD_DIR)/spool/test/spool_file_test
+TEST_BINS += $(BUILD_DIR)/spool/test/spool_file_test $(BUILD_DIR)/node/test/shelf_test
 endif
 
 # The Monocypher binding, built against the VENDORED submodule by default.
@@ -1791,6 +1793,23 @@ $(BUILD_DIR)/trust/test/trust_walk_test: $(BUILD_DIR)/trust/test/trust_walk_test
 # nothing: blob/ and tree/ give it constants only. sec 422.
 $(BUILD_DIR)/notes/test/note_test: $(BUILD_DIR)/notes/test/note_test.o \
                                    $(BUILD_DIR)/notes/note.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# node/shelf holds note texts in spool files and carries them between
+# shelves in spool/message's four messages. sec 424.
+$(BUILD_DIR)/node/test/shelf_test: $(BUILD_DIR)/node/test/shelf_test.o \
+                                   $(BUILD_DIR)/node/shelf.o \
+                                   $(BUILD_DIR)/notes/text.o \
+                                   $(BUILD_DIR)/notes/note.o \
+                                   $(BUILD_DIR)/spool/spool_file.o \
+                                   $(BUILD_DIR)/spool/spool.o \
+                                   $(BUILD_DIR)/spool/message.o \
+                                   $(BUILD_DIR)/spool/plan.o \
+                                   $(BUILD_DIR)/local/vocabulary.o \
+                                   $(BUILD_DIR)/local/peer.o \
+                                   $(BUILD_DIR)/blob/blob.o \
+                                   $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -3290,6 +3309,12 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# The note-text shelf fuzznetd carries where spool files are built. sec 424.
+FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/notes/text.o \
+                       $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/spool/spool_file.o \
+                       $(BUILD_DIR)/spool/spool.o $(BUILD_DIR)/spool/message.o \
+                       $(BUILD_DIR)/spool/plan.o $(BUILD_DIR)/blob/blob.o
+
 # The fuzznetd daemon. Its main() is in node/, so the pattern rule resolves
 # "serve.h" without -Inode.
 $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
@@ -3300,6 +3325,7 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(BUILD_DIR)/session/session.o $(BUILD_DIR)/chain/service.o \
               $(BUILD_DIR)/cli/cli.o \
               $(BUILD_DIR)/session/agree_monocypher.o \
+              $(if $(SPOOL_FILE_ON),$(FUZZNETD_SHELF_OBJS)) \
               $(MONO_OBJS) $(FLOG_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -3420,6 +3446,9 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
 
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
+                                      $(if $(SPOOL_FILE_ON),$(BUILD_DIR)/node/shelf.o \
+                                        $(BUILD_DIR)/notes/text.o \
+                                        $(BUILD_DIR)/spool/spool_file.o) \
                                       $(BUILD_DIR)/state/scope.o \
                                       $(BUILD_DIR)/notes/note.o \
                                       $(BUILD_DIR)/local/client.o \
