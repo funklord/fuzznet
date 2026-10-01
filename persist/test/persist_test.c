@@ -854,7 +854,8 @@ static void test_the_route_sends_each_slot_where_the_rule_says(void)
 		FZN_PERSIST_OWN_ROOT, FZN_PERSIST_ADMIN_CONFIRM, FZN_PERSIST_OWN_ADMIN,
 	};
 	static const fzn_persist_slot_t BULK[] = { FZN_PERSIST_NODE_PEER,
-		                                   FZN_PERSIST_PAIRED_NODE };
+		                                   FZN_PERSIST_PAIRED_NODE, FZN_PERSIST_NOTE,
+		                                   FZN_PERSIST_NOTE_SEQ };
 	struct counting core, bulk;
 	fzn_persist_ops_t core_ops = { count_load, count_save, count_list, NULL, &core };
 	fzn_persist_ops_t bulk_ops = { count_load, count_save, NULL, NULL, &bulk };

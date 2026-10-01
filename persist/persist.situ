@@ -5,10 +5,11 @@
 // an at-rest record wants, where `target buffer` is for bytes already in hand.
 //
 // Every blob is `version | tag | body` (persist.c: OFF_VERSION=0, OFF_TAG=1,
-// OFF_BODY=2), a two-byte head followed by ONE OF thirteen bodies chosen by
-// the tag, ten fixed and three -- the pairing, the node peer and the vote --
-// sized by their own hop counts. It is a TAGGED UNION, modelled with situ's variant/switch: the tag
-// is the discriminant and each arm is one body struct.
+// OFF_BODY=2), a two-byte head followed by ONE OF the bodies below, chosen by
+// the tag: most fixed, those carrying a chain sized by their hop counts, and
+// a note's sized by the record it holds. It is a TAGGED UNION, modelled with
+// situ's variant/switch: the tag is the discriminant and each arm is one body
+// struct.
 //
 // The tag byte is checked exactly by persist.c's head_check, and an unknown
 // tag is refused (FZN_PERSIST_ERR_SHAPE) rather than reinterpreted -- so the
@@ -65,6 +66,8 @@ enum fzn_persist_tag : u8 {
 	admin_confirm = 14,
 	own_admin = 15,
 	quorum_set = 16,
+	note = 17,
+	note_seq = 18,
 	default = error,
 }
 
@@ -196,6 +199,19 @@ struct fzn_persist_node_peer_body {
 	fzn_persist_hop hops[hop_count];
 }
 
+// One writer's latest signed record about one note: a record as
+// record/record.situ lays it out, whole, to the end of the blob. Its own
+// body_len says where its signature starts; notes/store.c opens it with
+// fzn_record_open and refuses a trailing byte. sec 425.
+struct fzn_persist_note_body {
+	u8  record[remaining];
+}
+
+// The last sequence this host signed a note record at. sec 425.
+struct fzn_persist_note_seq_body {
+	u64 seq;
+}
+
 // version | tag | body. The body is the arm the tag selects.
 struct fzn_persist_blob {
 	u8               version;
@@ -218,6 +234,8 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.admin_confirm: fzn_persist_admin_confirm_body admin_confirm;
 		case fzn_persist_tag.own_admin: fzn_persist_own_admin_body own_admin;
 		case fzn_persist_tag.quorum_set: fzn_persist_quorum_set_body quorum_set;
+		case fzn_persist_tag.note: fzn_persist_note_body note;
+		case fzn_persist_tag.note_seq: fzn_persist_note_seq_body note_seq;
 		default: error;
 	}
 }

@@ -19,17 +19,17 @@ endian big
 target file
 
 enum fzn_persist_tag : u8 unknown=error
-  trust=1 secret=2 peer=3 chain=4 node_peer=5 identity=6 pairing=7 revocation=8 vote=9 root_entry=10 root_add=11 root_remove=12 own_root=13 admin_confirm=14 own_admin=15 quorum_set=16
+  trust=1 secret=2 peer=3 chain=4 node_peer=5 identity=6 pairing=7 revocation=8 vote=9 root_entry=10 root_add=11 root_remove=12 own_root=13 admin_confirm=14 own_admin=15 quorum_set=16 note=17 note_seq=18
 
 struct fzn_persist_admin_confirm_body size=131..1384
   @0x0000   130       u8         record  big
   @0x0082   1         u8         hop_count  max=7
   @0x0083   0..1253   fzn_persist_hop hops  sized-by=hop_count
 
-struct fzn_persist_blob size=34..1563
+struct fzn_persist_blob size=2..
   @0x0000   1         u8         version
   @0x0001   1         fzn_persist_tag tag
-  @0x0002   32..1561  variant    body
+  @0x0002   0..       variant    body
   body switch: tag
   body case 1: trust fzn_persist_trust_body
   body case 2: secret fzn_persist_secret_body
@@ -47,6 +47,8 @@ struct fzn_persist_blob size=34..1563
   body case 14: admin_confirm fzn_persist_admin_confirm_body
   body case 15: own_admin fzn_persist_own_admin_body
   body case 16: quorum_set fzn_persist_quorum_set_body
+  body case 17: note fzn_persist_note_body
+  body case 18: note_seq fzn_persist_note_seq_body
   body case default: error
 
 struct fzn_persist_chain_body size=40
@@ -65,6 +67,12 @@ struct fzn_persist_node_peer_body size=97..1529
   @0x0040   32        u8         recv_ckey  big
   @0x0060   1         u8         hop_count  max=8
   @0x0061   0..1432   fzn_persist_hop hops  sized-by=hop_count
+
+struct fzn_persist_note_body size=0..
+  @0x0000   0..       u8         record  sized-by=remaining
+
+struct fzn_persist_note_seq_body size=8
+  @0x0000   8         u64        seq  big
 
 struct fzn_persist_own_admin_body size=180..1254
   @0x0000   1         u8         hop_count  min=1 max=7

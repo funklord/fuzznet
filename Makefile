@@ -193,7 +193,8 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              session/session.c \
              version/version.c \
              record/record.c record/journal.c record/sync.c record/ledger.c \
-             state/state.c state/scope.c notes/note.c notes/text.c trust/trust.c \
+             state/state.c state/scope.c notes/note.c notes/text.c \
+             notes/store.c notes/view.c trust/trust.c \
              log/log.c \
              sched/sched.c \
              link/link.c
@@ -279,7 +280,8 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              session/session.h \
              version/version.h \
              record/record.h record/journal.h record/sync.h record/ledger.h \
-             state/state.h state/scope.h notes/note.h notes/text.h trust/trust.h \
+             state/state.h state/scope.h notes/note.h notes/text.h \
+             notes/store.h notes/view.h trust/trust.h \
              log/log.h \
              sched/sched.h \
              link/link.h
@@ -397,6 +399,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              record/test/sync_test.c record/test/ledger_test.c \
              state/test/state_test.c state/test/scope_test.c notes/test/note_test.c \
              notes/test/text_test.c \
+             notes/test/notes_store_test.c \
              trust/test/trust_test.c \
              trust/test/trust_walk_test.c \
              log/test/log_test.c \
@@ -517,6 +520,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/state/test/scope_test \
              $(BUILD_DIR)/notes/test/note_test \
              $(BUILD_DIR)/notes/test/text_test \
+             $(BUILD_DIR)/notes/test/notes_store_test \
              $(BUILD_DIR)/trust/test/trust_test \
              $(BUILD_DIR)/trust/test/trust_walk_test \
              $(BUILD_DIR)/log/test/log_test \
@@ -1810,6 +1814,22 @@ $(BUILD_DIR)/node/test/shelf_test: $(BUILD_DIR)/node/test/shelf_test.o \
                                    $(BUILD_DIR)/local/peer.o \
                                    $(BUILD_DIR)/blob/blob.o \
                                    $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# notes/store keeps note claims in persist/ and notes/view reads them as a
+# tree. sec 425.
+$(BUILD_DIR)/notes/test/notes_store_test: $(BUILD_DIR)/notes/test/notes_store_test.o \
+                                          $(BUILD_DIR)/notes/store.o \
+                                          $(BUILD_DIR)/notes/view.o \
+                                          $(BUILD_DIR)/tree/tree.o \
+                                          $(BUILD_DIR)/record/record.o \
+                                          $(BUILD_DIR)/persist/persist.o \
+                                          $(BUILD_DIR)/trust/trust.o \
+                                          $(BUILD_DIR)/session/agree.o \
+                                          $(BUILD_DIR)/prekey/prekey.o \
+                                          $(BUILD_DIR)/ratchet/ratchet.o \
+                                          $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -3446,6 +3466,7 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
 
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
+                                      $(BUILD_DIR)/notes/store.o \
                                       $(if $(SPOOL_FILE_ON),$(BUILD_DIR)/node/shelf.o \
                                         $(BUILD_DIR)/notes/text.o \
                                         $(BUILD_DIR)/spool/spool_file.o) \

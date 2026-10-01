@@ -94,6 +94,7 @@
 #include "../../roster/roster.h"
 #include "../../chain/root_log.h"
 #include "../../node/roots.h"
+#include "../../notes/store.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -146,6 +147,11 @@ static const char *r_node_roots(int v)
 static const char *r_note(int v)
 {
 	return fzn_note_err_str((fzn_note_err_t)v);
+}
+static const char *r_notes(int v) { return fzn_notes_err_str((fzn_notes_err_t)v); }
+static const char *r_notes_denial(int v)
+{
+	return fzn_notes_denial_str((fzn_notes_denial_t)v);
 }
 
 static const char *r_scope(int v)
@@ -242,6 +248,8 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_roster_err_str", r_roster, 8 },
 	{ "fzn_scope_err_str", r_scope, 3 },
 	{ "fzn_note_err_str", r_note, 13 },
+	{ "fzn_notes_err_str", r_notes, 9 },
+	{ "fzn_notes_denial_str", r_notes_denial, 6 },
 	{ "fzn_root_log_err_str", r_root_log, 6 },
 	{ "fzn_node_roots_err_str", r_node_roots, 9 },
 	{ "fzn_record_err_str", r_record, 6 },

@@ -169,6 +169,8 @@
 #include <fuzznet/state/scope.h>
 #include <fuzznet/notes/note.h>
 #include <fuzznet/notes/text.h>
+#include <fuzznet/notes/store.h>
+#include <fuzznet/notes/view.h>
 #include <fuzznet/trust/trust.h>
 #include <fuzznet/session/random_system.h>
 #include <fuzznet/version/version.h>
@@ -285,6 +287,8 @@
 #include "state/scope.h"
 #include "notes/note.h"
 #include "notes/text.h"
+#include "notes/store.h"
+#include "notes/view.h"
 #include "trust/trust.h"
 #include "session/random_system.h"
 #include "version/version.h"
@@ -931,6 +935,21 @@ int main(void)
 		/* NOT HERE YET on a host holding no spool for it, sec 423. */
 		if (fzn_note_text_state(&opened, NULL) != FZN_NOTE_TEXT_PENDING)
 			FAIL(457);
+	}
+
+	/* THE NOTES MODEL, sec 425: a policy nobody spelled admits nothing,
+	 * before the record is read, and a store needs a backend that lists. */
+	{
+		fzn_notes_policy_t unspelled;
+		fzn_notes_denial_t why = FZN_NOTES_DENIAL_NONE;
+		fzn_notes_store_t notes;
+
+		memset(&unspelled, 0, sizeof(unspelled));
+		if (fzn_notes_admit(unspelled, NULL, 0u, NULL, &why) != FZN_NOTES_DENIED
+		    || why != FZN_NOTES_DENIAL_POLICY_UNSPELLED)
+			FAIL(460);
+		if (fzn_notes_store_init(&notes, NULL, NULL) != FZN_NOTES_ERR_MALFORMED)
+			FAIL(461);
 	}
 
 	/* THE ROOT SET, as a node holds it (secs 405 to 407): a second root

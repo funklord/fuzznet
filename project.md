@@ -51520,3 +51520,146 @@ which lets a case lie, go quiet or shrink the reply:
 The root check there was split from the version and count checks, since
 the line it was first written as matched an existing entry's anchor in
 the resume path.
+
+## 425. Notes, phase 3a: the store and the view, 2026-10-01
+
+Phase 3 is the notes model: store, admit, view, purge and import, over
+`tree/` and `record/`. This is the first half: where a host keeps its
+notes, who may write them, and the tree it reads back. Ported from
+fuzzypickles' `notes_store`, `notes_admit` and `notes_view` at b419405,
+which have not changed since (`git log b419405..HEAD -- core/src/notes*`
+there is empty).
+
+### What changed in the port
+
+**The backend.** fuzzypickles' store sits on a key-value store with load,
+store and exists, so it hand-maintains an index: an 8 KB blob read and
+rewritten whole on every put, and a second thing a crash can leave
+disagreeing with the records. `persist/` can list and remove, so the index
+is gone. Two slots are new:
+
+- **`FZN_PERSIST_NOTE` (17)**, per claim key: one writer's latest signed
+  record about one note, whole, under blob tag 17.
+- **`FZN_PERSIST_NOTE_SEQ` (18)**, whole-host: the last sequence this
+  host signed a note at, under blob tag 18.
+
+Both are **not core**, the holder's rule of sec 389 applied: a note is the
+user's data, signed, and a sibling holds the same records. Lost, it is
+fetched again; rolled back, the signature still says who wrote what.
+`persist.situ` describes both, its contract was regenerated with situ at
+33a8ac5, and the CLI printer and the GUI name them.
+
+**The key is a hash of the claim.** `persist/` keys by 32 bytes and a
+claim is (note id, writer), so the pair is hashed under its own label.
+`fzn_notes_get` then checks that what came back hashes to the key it was
+found under, since a backend can hand back another claim's record,
+perfectly well signed.
+
+**The address is read out of the record.** fuzzypickles' put took an id
+and an issuer beside the bytes and needed two denials for a caller whose
+pair disagreed with the record. Here there is no such argument, which is
+`record/store.h`'s rule.
+
+**Admission reads the kind and the stream.** fuzzypickles' admission
+never read `kind`, so any record a sibling signed under the same key, with
+a body that parsed as a node, was a note. A note is now kind
+`FZN_NOTE_KIND` on stream `FZN_NOTE_STREAM`. Both values are fuzzypickles'
+own, 0x36 and 0: their hosts' notes are records already signed with them,
+and `record.h` leaves `kind` to whoever owns the records, which is now
+fuzznet.
+
+**The sequence is floored by what is held.** `persist/` answers "absent"
+and "could not read" alike, so a counter lost, rolled back or restored from
+an old copy would restart below numbers this host has already signed, and
+its siblings would refuse its next edits for ever. `fzn_notes_next_seq`
+answers past both the counter and the highest sequence of any held note
+record by this host. A counter that is there and will not read is refused
+rather than restarted.
+
+### What is kept
+
+- **The claim key, (note id, writer).** `tree/tree.h` says why: keyed by
+  note alone, the second writer overwrites the first, which resolves a
+  reparenting conflict by arrival order. fuzzypickles shipped that, found
+  it and fixed it.
+- **The spelled policy.** A zeroed policy denies before the record is
+  read, and an empty admitted set denies by the loop rather than by a
+  special case.
+- **Authenticity before admission**, and admission inside put rather than
+  beside it.
+- **Supersession by sequence within a claim.** Newer replaces. Older, or
+  the same record again, is OK and writes nothing, so a retry terminates.
+  One writer, one sequence and two records is `EQUIVOCATION`.
+- **A held record that will not open is replaced** rather than freezing
+  its note.
+- **The bound, `FZN_NOTES_MAX` 256 claims**, checked before anything is
+  written.
+- **The view:** every claim a node, reachability from `tree/`, the root's
+  children then everything it cannot reach at top level, contested ids,
+  and a count of claims that would not read instead of a smaller store.
+
+### Not yet after sec 425
+
+- **Nothing signs a note.** Creating, editing, moving and trashing a note,
+  signed with the node's key at `fzn_notes_next_seq`, is the rest of
+  phase 3 together with purge and import.
+- **Who is admitted.** fuzzypickles loads this host and its siblings. A
+  fuzznet node's equivalent is its own identity and the nodes it is paired
+  with, and choosing that is carriage's, phase 4.
+- **Sharer trees.** fuzzypickles keeps a sharer's notes under a key prefix
+  so two trees cannot collide. Here a store is one slot; a sharer's tree
+  needs its own, or the sharer in the claim key, and that is decided with
+  sharing in phase 4.
+- **A note edited on two hosts is two claims**, so it appears twice under
+  the same parent. That is fuzzypickles' behaviour, carried unchanged, and
+  `tree/`'s refusal to pick a winner across writers. Whether a view should
+  fold claims that agree on a note's place is a question for whoever owns
+  the notes UI, and nothing here decides it.
+
+### Measured for sec 425
+
+**`notes_store_test`, 60 checks**, with a toy signer whose signature is a hash
+of its key and the message, and `persist/`'s seam over memory:
+
+- **Admission:**
+  - a sibling's note is admitted;
+  - a zeroed policy denies as unspelled;
+  - an empty set denies;
+  - ten bytes are malformed;
+  - another kind, and another stream, are refused as not notes;
+  - a moved signature byte is refused;
+  - a stranger with a good signature is refused, by admit and by put.
+- **Supersession:** a new claim writes and reads back byte for byte;
+  older and identical records write nothing; two records at one sequence
+  are equivocation; newer replaces.
+- **Damage and misplacement:** another claim's record under a key is
+  SHAPE, a damaged record reads as SHAPE, and an older good record then
+  replaces it.
+- **Capacity and erase:**
+  - 256 claims fill the store and the 257th is FULL, writing nothing;
+  - an edit at the bound is not a new claim;
+  - erase frees room;
+  - a backend with no remove says UNSUPPORTED, and one with no list is
+    refused at init.
+- **The sequence:**
+  - 1, then 2;
+  - a lost counter resumes past this host's own record at 9, not a
+    sibling's at 50;
+  - a counter that will not read is refused.
+- **The view:**
+  - six nodes, three reachable;
+  - children in sibling order;
+  - top level the folder, the orphan and both halves of a cycle;
+  - a top level that does not fit says so.
+- **Two writers:** agreeing on a note's place is not a contest and shows
+  the note twice; moving it makes it contested once and shows it at the
+  root as well. A damaged claim is counted as unreadable. An empty store
+  is an empty view.
+
+`err_str_test` walks both new renderers; `consumer_check` admits nothing
+under an unspelled policy through the installed headers. The denial
+renderer first fell back to "denied", fuzzypickles' word, and the walk read
+that as a code; it says "unknown" now, as every renderer here does.
+
+**Sabotage: seventeen entries**, one for the inline constructor in
+`store.h`.

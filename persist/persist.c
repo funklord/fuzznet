@@ -47,7 +47,9 @@
  * FZN_PERSIST_BLOB_ROOT_ADD and FZN_PERSIST_BLOB_ROOT_REMOVE, and 13 is
  * FZN_PERSIST_BLOB_OWN_ROOT, all packed in node/roots.c, and 14 and 15 are
  * FZN_PERSIST_BLOB_ADMIN_CONFIRM and FZN_PERSIST_BLOB_OWN_ADMIN, packed in
- * node/revoke.c, and 16 is FZN_PERSIST_BLOB_QUORUM_SET, in node/roots.c. */
+ * node/revoke.c, and 16 is FZN_PERSIST_BLOB_QUORUM_SET, in node/roots.c, and
+ * 17 and 18 are FZN_PERSIST_BLOB_NOTE and FZN_PERSIST_BLOB_NOTE_SEQ, packed in
+ * notes/store.c. */
 #define BLOB_IDENTITY 6u
 
 #define TRUST_BODY (FZN_PUBKEY_LEN + 1u + 8u)                 /* root, source, adopted_at */
@@ -436,6 +438,8 @@ int fzn_persist_slot_is_core(fzn_persist_slot_t slot)
 	switch (slot) {
 	case FZN_PERSIST_NODE_PEER:
 	case FZN_PERSIST_PAIRED_NODE:
+	case FZN_PERSIST_NOTE:
+	case FZN_PERSIST_NOTE_SEQ:
 		return 0;
 	default:
 		return 1;	/* named or not: see persist.h */
