@@ -138,6 +138,19 @@ fzn_node_shelf_err_t fzn_node_shelf_open(const fzn_node_shelf_t *shelf,
 size_t fzn_node_shelf_answer(const fzn_node_shelf_t *shelf, const uint8_t *request,
                              size_t request_len, uint8_t *reply, size_t reply_cap);
 
+/* Whether a text may be served to the caller at hand: `ctx` says who. */
+typedef int (*fzn_node_shelf_permit_t)(void *ctx, const uint8_t root[FZN_BLOB_HASH_LEN]);
+
+/* THE SERVER FOR A CONTACT, sec 438: `fzn_node_shelf_answer` for a request
+ * whose root `permit` allows, and 0 for any other -- a contact may fetch the
+ * texts of the notes shared with it and no other blob this node holds. The
+ * root is read from the request itself, a HAVE_QUERY's or a WANT's, so the
+ * question asked and the question permitted are one. */
+size_t fzn_node_shelf_answer_permitted(const fzn_node_shelf_t *shelf,
+                                       fzn_node_shelf_permit_t permit, void *permit_ctx,
+                                       const uint8_t *request, size_t request_len,
+                                       uint8_t *reply, size_t reply_cap);
+
 /* How a fetch asks a peer: send `request`, fill `reply`. Nonzero on an
  * answer. The node's is the remote hop's caller; a test's is another shelf's
  * `fzn_node_shelf_answer`, which is what keeps the conversation testable

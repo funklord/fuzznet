@@ -520,6 +520,49 @@ static void test_the_answer_falls_through_for_what_is_not_a_question(void)
 	      "a HAVE is an answer, not a question");
 }
 
+/* A CONTACT'S REQUESTS, sec 438: served only for the roots a permit allows. */
+static const uint8_t *permitted_root;
+static unsigned permit_asked;
+
+static int permit_one(void *ctx, const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	(void)ctx;
+	permit_asked++;
+	return memcmp(root, permitted_root, FZN_BLOB_HASH_LEN) == 0;
+}
+
+static void test_a_contact_is_served_only_what_is_permitted(void)
+{
+	static uint8_t reply[FZN_NODE_SHELF_REPLY_MAX];
+	uint8_t request[FZN_MSG_WANT_LEN], cookie[FZN_MSG_COOKIE_LEN];
+	size_t len = 0;
+
+	permitted_root = small.root;
+	permit_asked = 0;
+	CHECK(fzn_msg_have_query_encode(small.root, request, sizeof(request), &len) == FZN_MSG_OK
+	              && fzn_node_shelf_answer_permitted(&A, permit_one, NULL, request, len,
+	                                                 reply, sizeof(reply))
+	                         > 0u
+	              && permit_asked == 1u,
+	      "a permitted text's HAVE_QUERY is answered, asking the permit");
+	CHECK(fzn_msg_have_query_encode(big.root, request, sizeof(request), &len) == FZN_MSG_OK
+	              && fzn_node_shelf_answer_permitted(&A, permit_one, NULL, request, len,
+	                                                 reply, sizeof(reply))
+	                         == 0u,
+	      "another text A holds is not");
+	memset(cookie, 0, sizeof(cookie));
+	CHECK(fzn_msg_want_encode(1u, cookie, big.root, 0u, 1u, request, sizeof(request), &len)
+	                      == FZN_MSG_OK
+	              && fzn_node_shelf_answer_permitted(&A, permit_one, NULL, request, len,
+	                                                 reply, sizeof(reply))
+	                         == 0u,
+	      "nor a WANT for it, whose root is read from the WANT itself");
+	CHECK(fzn_node_shelf_answer_permitted(&A, permit_one, NULL, (const uint8_t *)"get", 3u,
+	                                      reply, sizeof(reply))
+	              == 0u,
+	      "and what is not a text request falls through");
+}
+
 static void test_wants_are_remembered_until_fetched(void)
 {
 	peer_t p = { &A, 0, 0, 0, 0, 0 };
@@ -688,6 +731,7 @@ int main(void)
 	test_a_wrong_length_does_not_prove();
 	test_a_partial_holder_serves_nothing();
 	test_the_answer_falls_through_for_what_is_not_a_question();
+	test_a_contact_is_served_only_what_is_permitted();
 	test_wants_are_remembered_until_fetched();
 	test_the_verbs();
 

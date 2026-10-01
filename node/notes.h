@@ -127,6 +127,13 @@ size_t fzn_node_notes_remote(void *ctx, const uint8_t *sender, int shared,
                              const uint8_t *request, size_t request_len, uint8_t *reply,
                              size_t reply_cap);
 
+/* Whether a note the subtrees shared with `sender` reach has its text in the
+ * blob `root`: the texts a contact may fetch from this node's shelf, sec 438.
+ * Asked per request, so unsharing or moving a note out stops its text being
+ * served at once. */
+int fzn_node_notes_shares_blob(fzn_node_notes_t *n, const uint8_t *sender,
+                               const uint8_t root[FZN_BLOB_HASH_LEN]);
+
 /* The verbs above, for `node/admin.h`'s hook. 0 when `request` is not one. */
 size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                             char *reply, size_t reply_cap);

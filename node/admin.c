@@ -222,13 +222,21 @@ static size_t list_peers(fzn_node_admin_t *admin, const uint8_t *from_text, size
 		return 0;
 	at = (size_t)n;
 	/* One space and 64 hex characters per key, under the reply's bound
-	 * less the `ok ` in front of the detail. */
+	 * less the `ok ` in front of the detail; a contact's key is followed by
+	 * `,contact`, since a peer paired for a share is no member (sec 436). */
 	for (i = from; i < total; i++) {
-		if (at + 1u + (FZN_PUBKEY_LEN * 2u) + 3u > limit)
+		int contact = fzn_node_peer_contact(&admin->state->config, &admin->state->peers[i]);
+		size_t need = 1u + (FZN_PUBKEY_LEN * 2u) + (contact ? 8u : 0u);
+
+		if (at + need + 3u > limit)
 			break;
 		detail[at++] = ' ';
 		put_hex(detail + at, admin->state->peers[i].sender, FZN_PUBKEY_LEN);
 		at += FZN_PUBKEY_LEN * 2u;
+		if (contact) {
+			memcpy(detail + at, ",contact", 8u);
+			at += 8u;
+		}
 	}
 	return answer(reply, cap, FZN_REPLY_OK, detail, at);
 }
@@ -622,6 +630,10 @@ static int is_member(const fzn_node_admin_t *admin, const uint8_t key[FZN_PUBKEY
 
 	if (memcmp(key, admin->id->pubkey, FZN_PUBKEY_LEN) == 0
 	    || memcmp(key, admin->state->config.root, FZN_PUBKEY_LEN) == 0)
+		return 1;
+	/* EVERY ROOT THAT STANDS, not only the one this node joined through:
+	 * an estate added by its roots is the estate's (sec 407). */
+	if (admin->roots && fzn_root_view_stands(&admin->roots->view, key))
 		return 1;
 	for (i = 0; i < admin->state->peer_count; i++)
 		if (memcmp(key, admin->state->peers[i].sender, FZN_PUBKEY_LEN) == 0
@@ -1096,6 +1108,10 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 		if (admin->notes_remote && req->payload)
 			n = admin->notes_remote(admin->notes_ctx, req->sender, 1, req->payload,
 			                        req->payload_len, reply, reply_cap);
+		/* ITS NOTES' TEXTS, sec 438, and no other blob. */
+		if (!n && admin->text_shared && req->payload)
+			n = admin->text_shared(admin->text_shared_ctx, req->sender, req->payload,
+			                       req->payload_len, reply, reply_cap);
 		return n ? n
 		         : answer_text(out, reply_cap, FZN_REPLY_DENIED,
 		                       "a contact may only fetch what is shared with it");

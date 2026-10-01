@@ -421,8 +421,49 @@ static void pull_received(uint64_t now)
 		else if (tally.learned || tally.refused)
 			fprintf(stderr, "fuzznetd: %zu shared note record(s) from %s, %zu refused\n",
 			        tally.learned, shares_in[i].host, tally.refused);
+#ifdef FZN_SPOOL_FILE_ON
+		/* THE SHARED NOTES' TEXTS, sec 438: each blob one of them names is
+		 * wanted on the shelf and asked of the sharer, which serves a
+		 * contact the texts of what it shares and nothing else. */
+		if (shelf_on && fzn_notes_view_load(&tree, node_notes.author.view) == FZN_NOTES_OK) {
+			const fzn_notes_view_t *v = node_notes.author.view;
+			size_t k, got;
+
+			for (k = 0; k < v->count; k++) {
+				fzn_note_t note;
+				fzn_note_blob_ref_t ref;
+
+				if (fzn_note_open(v->nodes[k].content_type, v->nodes[k].content,
+				                  v->nodes[k].content_len, &note)
+				            == FZN_NOTE_OK
+				    && fzn_note_blob_ref(&note, &ref) == FZN_NOTE_OK)
+					(void)fzn_node_shelf_want(&shelf, ref.root, ref.length);
+			}
+			got = fzn_node_shelf_fetch_wants(&shelf, peer_ask, &asking);
+			if (got)
+				fprintf(stderr, "fuzznetd: %zu shared text(s) from %s\n", got,
+				        shares_in[i].host);
+		}
+#endif
 	}
 }
+
+#ifdef FZN_SPOOL_FILE_ON
+/* A contact may fetch the texts of the notes shared with it, sec 438: the
+ * shelf answers a root the notes say a note in that contact's share has. */
+static int shared_text_permit(void *ctx, const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	return fzn_node_notes_shares_blob(&node_notes, (const uint8_t *)ctx, root);
+}
+
+static size_t shared_text(void *ctx, const uint8_t *sender, const uint8_t *request,
+                          size_t request_len, uint8_t *reply, size_t reply_cap)
+{
+	return fzn_node_shelf_answer_permitted((const fzn_node_shelf_t *)ctx, shared_text_permit,
+	                                       (void *)(uintptr_t)sender, request, request_len,
+	                                       reply, reply_cap);
+}
+#endif
 
 #ifdef FZN_SPOOL_FILE_ON
 /* Every remembered text, from each pull peer in turn until it is here. */
@@ -1306,6 +1347,8 @@ int main(int argc, char **argv)
 						node_notes.seal = shelf_seal;
 						node_notes.open = shelf_open;
 						node_notes.text_ctx = &shelf;
+						admin.text_shared = shared_text;
+						admin.text_shared_ctx = &shelf;
 					}
 #endif
 					admin.notes_local = fzn_node_notes_local;

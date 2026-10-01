@@ -753,26 +753,64 @@ size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t 
 /* A contact's request, sec 436: answered over the subtrees shared with it
  * and what they reach in this node's view now -- so a note moved out of a
  * shared subtree stops being served, and one moved in starts. */
-static size_t answer_shared(fzn_node_notes_t *n, const uint8_t *sender, const uint8_t *request,
-                            size_t request_len, uint8_t *reply, size_t reply_cap)
+static uint8_t reach[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
+
+/* What the subtrees shared with `sender` reach in the view now, into
+ * `reach`, with `view` loaded. A STORE THAT WILL NOT READ REACHES NOTHING
+ * rather than refusing: the contact then sees an empty share. */
+static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender,
+                         fzn_notes_sync_scope_t *scope)
 {
 	static uint8_t seeds[FZN_NOTES_SHARES_MAX][FZN_TREE_ID_LEN];
-	static uint8_t reach[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
-	fzn_notes_sync_scope_t scope;
 	size_t seed_count = 0;
 
-	scope.ids = (const uint8_t (*)[FZN_TREE_ID_LEN])reach;
-	scope.count = 0;
-	/* A STORE THAT WILL NOT READ SERVES NOTHING rather than refusing: the
-	 * scope is then empty, and the contact sees an empty index. */
+	scope->ids = (const uint8_t (*)[FZN_TREE_ID_LEN])reach;
+	scope->count = 0;
 	if (sender
 	    && fzn_notes_share_with(&n->store, sender, seeds, FZN_NOTES_SHARES_MAX, &seed_count)
 	               == FZN_NOTES_OK
 	    && seed_count && fzn_notes_view_load(&n->store, &view) == FZN_NOTES_OK)
-		scope.count = fzn_notes_share_reach(&view, (const uint8_t (*)[FZN_TREE_ID_LEN])seeds,
-		                                    seed_count, reach, FZN_NOTES_MAX);
+		scope->count = fzn_notes_share_reach(&view, (const uint8_t (*)[FZN_TREE_ID_LEN])seeds,
+		                                     seed_count, reach, FZN_NOTES_MAX);
+}
+
+static size_t answer_shared(fzn_node_notes_t *n, const uint8_t *sender, const uint8_t *request,
+                            size_t request_len, uint8_t *reply, size_t reply_cap)
+{
+	fzn_notes_sync_scope_t scope;
+
+	shared_scope(n, sender, &scope);
 	return fzn_notes_sync_answer_scoped(&n->store, &scope, request, request_len, reply,
 	                                    reply_cap);
+}
+
+int fzn_node_notes_shares_blob(fzn_node_notes_t *n, const uint8_t *sender,
+                               const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	fzn_notes_sync_scope_t scope;
+	size_t i, j;
+
+	if (!n || !sender || !root)
+		return 0;
+	shared_scope(n, sender, &scope);
+	/* EVERY CLAIM ON A NOTE IN SCOPE, whoever wrote it: what is served of a
+	 * note is every writer's record of it, so its texts are too. */
+	for (i = 0; i < view.count; i++) {
+		fzn_note_t note;
+		fzn_note_blob_ref_t ref;
+		int in = 0;
+
+		for (j = 0; j < scope.count && !in; j++)
+			in = memcmp(scope.ids[j], view.nodes[i].id, FZN_TREE_ID_LEN) == 0;
+		if (in
+		    && fzn_note_open(view.nodes[i].content_type, view.nodes[i].content,
+		                     view.nodes[i].content_len, &note)
+		               == FZN_NOTE_OK
+		    && fzn_note_blob_ref(&note, &ref) == FZN_NOTE_OK
+		    && memcmp(ref.root, root, FZN_BLOB_HASH_LEN) == 0)
+			return 1;
+	}
+	return 0;
 }
 
 size_t fzn_node_notes_remote(void *ctx, const uint8_t *sender, int shared,

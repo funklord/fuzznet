@@ -567,6 +567,39 @@ static void test_share(void)
 	CHECK(ask(line) == FZN_REPLY_OK && indexed(carol, 1) == 2,
 	      "and one moved in starts");
 
+	/* ITS TEXTS, sec 438: a blob is carol's to fetch only while a note in
+	 * her share has it. g is outside the folder now. */
+	{
+		static uint8_t big[5000];
+		uint8_t root[FZN_BLOB_HASH_LEN];
+		char path[64];
+		FILE *fp;
+
+		memset(big, 'q', sizeof(big));
+		memset(root, 0x5e, sizeof(root));
+		snprintf(path, sizeof(path), "/tmp/fzn-notes-share-%ld.in", (long)getpid());
+		fp = fopen(path, "wb");
+		CHECK(fp && fwrite(big, 1u, sizeof(big), fp) == sizeof(big), "fixture: a long file");
+		if (fp)
+			(void)fclose(fp);
+		notes.seal = toy_seal;
+		notes.open = toy_open;
+		snprintf(line, sizeof(line), "set note %s file %s", g, path);
+		CHECK(ask(line) == FZN_REPLY_OK, "fixture: g's text a blob");
+		CHECK(!fzn_node_notes_shares_blob(&notes, carol, root),
+		      "a blob of a note outside the share is not carol's");
+		snprintf(line, sizeof(line), "set note %s parent %s", g, f);
+		CHECK(ask(line) == FZN_REPLY_OK && fzn_node_notes_shares_blob(&notes, carol, root),
+		      "moved into the shared folder, its blob is");
+		CHECK(!fzn_node_notes_shares_blob(&notes, PEER, root),
+		      "and not another contact's");
+		root[0] ^= 1u;
+		CHECK(!fzn_node_notes_shares_blob(&notes, carol, root), "nor another root");
+		(void)unlink(path);
+		notes.seal = NULL;
+		notes.open = NULL;
+	}
+
 	CHECK(fzn_contact_remove(&OPS, carol) == FZN_CONTACT_OK, "fixture: carol forgotten");
 	CHECK(ask("list share") == FZN_REPLY_OK && has(",c4c4c4c4"),
 	      "a share whose contact was forgotten names the key");

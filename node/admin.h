@@ -133,6 +133,12 @@ typedef struct fzn_node_admin {
 	size_t (*notes_remote)(void *ctx, const uint8_t *sender, int shared, const uint8_t *request,
 	                       size_t request_len, uint8_t *reply, size_t reply_cap);
 	void *notes_ctx;
+	/* A contact's text request (`spool/message.h`), sec 438: answered only
+	 * for the texts of notes shared with `sender`, or 0. NULL serves a
+	 * contact no texts. */
+	size_t (*text_shared)(void *ctx, const uint8_t *sender, const uint8_t *request,
+	                      size_t request_len, uint8_t *reply, size_t reply_cap);
+	void *text_shared_ctx;
 	/* Set when `add received` or `remove received` changed which shares
 	 * this node pulls, for a daemon to reload them; the daemon clears it.
 	 * sec 437. */

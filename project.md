@@ -52731,10 +52731,8 @@ the node's own user, reads included.
 
 - **Issuing and receiving shares**, pieces 2 and 3.
 - **Group shares**, and the group transport they need.
-- **The estate's other roots are not checked** by `add contact`; a root
-  other than the one this node joined through could be filed as a
-  contact. The root set is held by `node/roots`, and asking it is the
-  natural next check.
+- ~~**The estate's other roots are not checked** by `add contact`.~~
+  Every standing root is refused since sec 438.
 
 ### Measured for sec 435
 
@@ -52879,7 +52877,8 @@ share added before the grant is served once it is made.
   peer`, though with no share rows its requests reach nothing. Whether
   `remove contact` should also unpair is a small change left until piece 3
   shows how a recipient lives with it.
-- **`list peer` lists contacts among the members**, unmarked.
+- ~~**`list peer` lists contacts among the members**, unmarked.~~ Marked
+  `,contact` since sec 438.
 - **Group shares**, as before.
 
 ### Measured for sec 436
@@ -53040,8 +53039,7 @@ are `list` and `get` over the sharer's store, made store-generic for it.
   `remove received`.
 - **`remove received` leaves the pairing**, which grants this node nothing
   and is replaced by the next accept.
-- **A share's blob texts are not fetched**: a long note arrives as its
-  reference, and `get shared NAME ID file` says the text is not here.
+- ~~**A share's blob texts are not fetched.**~~ They are since sec 438.
 - **Group shares**, as before.
 
 ### Measured for sec 437
@@ -53092,3 +53090,65 @@ re-aimed at the store-generic listing. Not covered: the seam's slot and
 prefix refusals in load and save, which the row key already enforces for
 every caller in the tree, and fuzznetd's pull of a share, which the live run
 shows and no unit test reaches.
+
+## 438. Shared notes' texts travel; a contact is marked and bounded, 2026-10-02
+
+Three gaps secs 435 to 437 recorded.
+
+### A shared note's text, when it is a blob
+
+A long note's text is a blob on the shelf (sec 424), and a contact pulled
+the note and not its text: the shelf serves only through the text hook,
+which a contact's request never reached.
+
+- **The sharer's shelf answers a contact only for a permitted root.**
+  `fzn_node_shelf_answer_permitted` reads the root from the request
+  itself -- a HAVE_QUERY's or a WANT's -- so the question asked and the
+  question permitted are one, and serves it only when the permit allows.
+- **What is permitted is the notes' to say.** `fzn_node_notes_shares_blob`
+  holds when a note the subtrees shared with the asker reach, by any
+  writer's claim, names that blob. It is asked per request, so unsharing or
+  moving a note out stops its text being served at once.
+- **The admin offers a contact's request to the text hook** after the
+  notes hook, with the sender (`text_shared`). fuzznetd wires the two
+  together where it has a shelf.
+- **The recipient fetches on its round**: after pulling a share, every blob
+  a note in that sharer's tree names is wanted on the shelf and asked of the
+  sharer. `get shared NAME ID file PATH` then opens it as `get note` does.
+  The shelf is one store of texts for the node, content-addressed, so a
+  shared text is not namespaced the way its note is; nothing reads a text
+  except through a note naming it.
+
+**Rejected: a second shelf per sharer**, mirroring the notes' seam. A text
+is addressed by the hash of what it is, so two sharers cannot collide in
+it, and a second shelf would duplicate a text both this node and a sharer
+hold.
+
+### `add contact` asks every root, and `list peer` marks contacts
+
+- **Every standing root of the estate is a member**, as sec 407 has it, not
+  only the root this node joined through; `add contact` refuses one.
+- **`list peer` follows a contact's key with `,contact`**, since a peer
+  paired for a share is no member. No code parses the listing.
+
+### Measured for sec 438
+
+**`shelf_test`, 79 checks:** a permitted text's HAVE_QUERY answered and the
+permit asked; another text the node holds refused, and a WANT for it, its
+root read from the WANT; what is not a text request falling through.
+
+**`notes_test` (node), 151 checks:** a blob of a note outside the share is
+not the contact's; moved into the shared folder, it is; not another
+contact's, nor another root.
+
+**`admin_test`, 122 checks:** a contact's request reaching the text hook
+with its sender; a second root of the estate refused as a contact; `list
+peer` marking the contact.
+
+**Live, two daemons over loopback:** A set a 30,000-byte text on the note
+in the shared folder; B's log said "1 shared text(s)" after "2 shared note
+record(s)", and `get shared alice NOTE file` wrote a file identical to A's.
+No daemon was left running.
+
+**Sabotage: seven entries.** Not covered: fuzznetd's two glue functions,
+which the live run shows.

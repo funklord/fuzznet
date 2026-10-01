@@ -229,6 +229,24 @@ static size_t text_local_stub(void *ctx, fzn_origin_t origin, const fzn_request_
 	return len;
 }
 
+/* A contact's text hook that records who asked and answers two bytes.
+ * sec 438. */
+static const uint8_t *text_shared_sender;
+
+static size_t text_shared_stub(void *ctx, const uint8_t *sender, const uint8_t *request,
+                               size_t request_len, uint8_t *reply, size_t reply_cap)
+{
+	(void)ctx;
+	(void)request;
+	(void)request_len;
+	text_shared_sender = sender;
+	if (reply_cap < 2u)
+		return 0;
+	reply[0] = 1u;
+	reply[1] = 2u;
+	return 2u;
+}
+
 /* A notes hook that records whether it was asked as a contact, and answers
  * a reply so the admin takes it. sec 436. */
 static int notes_shared_seen = -1;
@@ -751,6 +769,31 @@ int main(void)
 		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR,
 		      "this node's own key was taken as a contact: a member is never one");
+		/* ANOTHER ROOT OF THE ESTATE is a member too, not only the one this
+		 * node joined through. */
+		{
+			static fzn_node_roots_t with_second;
+			uint8_t add[FZN_ROOT_ADD_LEN], second[FZN_PUBKEY_LEN];
+			char second_hex[(FZN_PUBKEY_LEN * 2u) + 1u];
+			struct fzn_node_roots *was = admin.roots;
+
+			memset(second, 0x5e, sizeof(second));
+			hex(second, FZN_PUBKEY_LEN, second_hex);
+			CHECK(fzn_node_roots_init(&with_second, node.id.pubkey, &node.sign, &hash_ops)
+			                      == FZN_NODE_ROOTS_OK
+			              && fzn_root_add_issue(node.id.pubkey, second, &node.sign, add)
+			                         == FZN_ROOT_LOG_OK
+			              && fzn_node_roots_learn(&with_second, &node.ops, add, sizeof(add))
+			                         == FZN_NODE_ROOTS_OK,
+			      "fixture: an estate with a second root");
+			admin.roots = &with_second;
+			snprintf(line, sizeof(line), "add contact second %s", second_hex);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_ERROR,
+			      "a second root of the estate was taken as a contact");
+			admin.roots = was;
+		}
 		snprintf(line, sizeof(line), "add contact al-ice %s", key_hex);
 		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
@@ -836,6 +879,7 @@ int main(void)
 				granted = &state.peers[i];
 		CHECK(granted && fzn_node_peer_contact(&state.config, granted),
 		      "the granted peer is not a contact");
+
 		memcpy(text, detail, detail_len);
 		text[detail_len] = '\0';
 		CHECK(fzn_provision_from_text(text, card, sizeof(card), &card_len) == FZN_PROVISION_OK
@@ -847,6 +891,16 @@ int main(void)
 		                         == 0,
 		      "bob's node would not accept the card, or it carries another capability");
 		fzn_wipe(&pairing, sizeof(pairing));
+		{
+			char marked[(FZN_PUBKEY_LEN * 2u) + 16u], page[32];
+
+			snprintf(marked, sizeof(marked), "%s,contact", dev_hex);
+			snprintf(page, sizeof(page), "list peer %zu",
+			         granted ? (size_t)(granted - state.peers) : 0u);
+			CHECK(ask(&admin, &owner, page, reply, sizeof(reply), &reply_len)
+			              && says(reply, reply_len, marked),
+			      "list peer did not mark the contact among the members");
+		}
 		snprintf(line, sizeof(line), "add contact bobby %s", dev_hex);
 		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK,
@@ -861,6 +915,13 @@ int main(void)
 		n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
 		CHECK(n && fzn_reply_of(out, n, &detail, &detail_len) == FZN_REPLY_DENIED,
 		      "a contact's verb was answered as a member's");
+		/* A TEXT REQUEST reaches the scoped text hook, told who asks. */
+		admin.text_shared = text_shared_stub;
+		text_shared_sender = NULL;
+		n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
+		CHECK(n == 2u && text_shared_sender == outside.id.pubkey,
+		      "a contact's request did not reach the text hook with its sender");
+		admin.text_shared = NULL;
 		admin.notes_remote = notes_remote_stub;
 		notes_shared_seen = -1;
 		n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));

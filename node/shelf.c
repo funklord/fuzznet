@@ -418,6 +418,34 @@ size_t fzn_node_shelf_answer(const fzn_node_shelf_t *shelf, const uint8_t *reque
 	return 0;
 }
 
+size_t fzn_node_shelf_answer_permitted(const fzn_node_shelf_t *shelf,
+                                       fzn_node_shelf_permit_t permit, void *permit_ctx,
+                                       const uint8_t *request, size_t request_len,
+                                       uint8_t *reply, size_t reply_cap)
+{
+	fzn_msg_type_t type;
+	uint8_t root[FZN_BLOB_HASH_LEN], cookie[FZN_MSG_COOKIE_LEN];
+	uint64_t first = 0, count = 0;
+	uint32_t transfer = 0;
+
+	if (!shelf || !permit || !request || !reply
+	    || fzn_msg_peek(request, request_len, &type) != FZN_MSG_OK)
+		return 0;
+	if (type == FZN_MSG_HAVE_QUERY) {
+		if (fzn_msg_have_query_parse(request, request_len, root) != FZN_MSG_OK)
+			return 0;
+	} else if (type == FZN_MSG_WANT) {
+		if (fzn_msg_want_parse(request, request_len, &transfer, cookie, root, &first, &count)
+		    != FZN_MSG_OK)
+			return 0;
+	} else {
+		return 0;
+	}
+	if (!permit(permit_ctx, root))
+		return 0;
+	return fzn_node_shelf_answer(shelf, request, request_len, reply, reply_cap);
+}
+
 size_t fzn_node_shelf_remote(void *ctx, const uint8_t *request, size_t request_len,
                              uint8_t *reply, size_t reply_cap)
 {
