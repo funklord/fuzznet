@@ -276,6 +276,22 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now)
 		else if (tally.learned || tally.refused)
 			fprintf(stderr, "fuzznetd: %zu note record(s) from %s, %zu refused\n",
 			        tally.learned, pulls[t].host, tally.refused);
+		/* THE PURGE CONVERSATION, driven from this side. sec 433. */
+		{
+			fzn_notes_purge_tally_t pt;
+
+			err = fzn_notes_sync_purges(&node_notes.store, node_notes.author.policy,
+			                            node_notes.pulls[t].key, peer_ask, &asking, &pt);
+			if (err != FZN_NOTES_SYNC_OK)
+				fprintf(stderr, "fuzznetd: purges with %s: %s\n", pulls[t].host,
+				        fzn_notes_sync_err_str(err));
+			else if (pt.erased || pt.finished || pt.taken || pt.refused || pt.declined)
+				fprintf(stderr,
+				        "fuzznetd: purges with %s: %zu erased there, %zu finished, "
+				        "%zu taken, %zu refused, %zu declined\n",
+				        pulls[t].host, pt.erased, pt.finished, pt.taken, pt.refused,
+				        pt.declined);
+		}
 	}
 #ifdef FZN_SPOOL_FILE_ON
 	/* A NOTE WHOSE TEXT IS A BLOB NAMES WHAT TO FETCH: every one held is
@@ -1150,16 +1166,26 @@ int main(int argc, char **argv)
 			state.reply = node_reply;
 			state.reply_cap = sizeof(node_reply);
 			{
-				uint8_t writers[FZND_PULL_TARGETS_MAX][FZN_PUBKEY_LEN];
-				size_t w;
+				/* ADMITTED: the nodes it pulls from and the nodes paired to
+				 * it, which are the estate's nodes it can exchange notes
+				 * with. sec 433. */
+				static uint8_t writers[FZND_PULL_TARGETS_MAX + FZN_NODE_PEERS_MAX]
+				                      [FZN_PUBKEY_LEN];
+				uint8_t pull_keys[FZND_PULL_TARGETS_MAX][FZN_PUBKEY_LEN];
+				size_t w, nw = 0;
 
-				for (w = 0; w < npulls; w++)
-					memcpy(writers[w],
+				for (w = 0; w < npulls; w++) {
+					memcpy(pull_keys[w],
 					       pulls[w].is_root_at ? state.config.root : pulls[w].node,
 					       FZN_PUBKEY_LEN);
+					memcpy(writers[nw++], pull_keys[w], FZN_PUBKEY_LEN);
+				}
+				for (w = 0; w < loaded && nw < FZN_NODE_NOTES_WRITERS; w++)
+					memcpy(writers[nw++], peers[w].sender, FZN_PUBKEY_LEN);
 				if (fzn_node_notes_init(&node_notes, store_ops, &hash_ops, &sign_ops,
 				                        &rng_ops, identity.pubkey,
-				                        (const uint8_t (*)[FZN_PUBKEY_LEN])writers, npulls,
+				                        (const uint8_t (*)[FZN_PUBKEY_LEN])writers, nw,
+				                        (const uint8_t (*)[FZN_PUBKEY_LEN])pull_keys, npulls,
 				                        wall_ms)
 				    == FZN_NOTES_OK) {
 #ifdef FZN_SPOOL_FILE_ON
@@ -1314,6 +1340,12 @@ int main(int argc, char **argv)
 			if (shelf.fresh)
 				fetch_texts(pulls, npulls, now);
 #endif
+			/* A TRASH JUST EMPTIED is carried to the pull peers now, not
+			 * at the next round. sec 433. */
+			if (notes_on && node_notes.fresh) {
+				node_notes.fresh = 0;
+				pull_notes(pulls, npulls, now);
+			}
 			(void)fzn_node_run_once(&state, 1000);
 		}
 	}

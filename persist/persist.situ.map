@@ -99,6 +99,8 @@ struct fzn_persist_blob size=2.. mutate=Shifting repr=ValueConverted atomic=NonA
   fzn_persist_blob.body.note_purge.asked[] offset=FrameStatic(0x02) size=Fixed(33) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_blob.body.note_purge.asked[].host offset=FrameStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_blob.body.note_purge.asked[].answered offset=FrameStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
+  fzn_persist_blob.body.note_partner     offset=AbsoluteStatic(0x02) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.note_partner.last_pull offset=AbsoluteStatic(0x02) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
 
 struct fzn_persist_chain_body size=40 repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_chain_body.key             offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
@@ -121,6 +123,9 @@ struct fzn_persist_node_peer_body size=97..1529 mutate=Shifting atomic=NonAtomic
 
 struct fzn_persist_note_body size=0.. mutate=Shifting effect=EffectOnWrite
   fzn_persist_note_body.record           offset=AbsoluteStatic(0x00) size=Unbounded align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting effect=EffectOnWrite
+
+struct fzn_persist_note_partner_body size=8 repr=ValueConverted effect=EffectOnWrite
+  fzn_persist_note_partner_body.last_pull offset=AbsoluteStatic(0x00) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord effect=EffectOnWrite
 
 struct fzn_persist_note_purge_body size=17..1073 mutate=Shifting repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_note_purge_body.queued_at  offset=AbsoluteStatic(0x00) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord effect=EffectOnWrite

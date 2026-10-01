@@ -69,6 +69,7 @@ enum fzn_persist_tag : u8 {
 	note = 17,
 	note_seq = 18,
 	note_purge = 19,
+	note_partner = 20,
 	default = error,
 }
 
@@ -229,6 +230,12 @@ struct fzn_persist_note_purge_body {
 	fzn_persist_purge_host asked[asked_count];
 }
 
+// A node that pulls notes from this one: when it last did. notes/sync.c,
+// sec 433.
+struct fzn_persist_note_partner_body {
+	u64 last_pull;
+}
+
 // version | tag | body. The body is the arm the tag selects.
 struct fzn_persist_blob {
 	u8               version;
@@ -254,6 +261,7 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.note: fzn_persist_note_body note;
 		case fzn_persist_tag.note_seq: fzn_persist_note_seq_body note_seq;
 		case fzn_persist_tag.note_purge: fzn_persist_note_purge_body note_purge;
+		case fzn_persist_tag.note_partner: fzn_persist_note_partner_body note_partner;
 		default: error;
 	}
 }

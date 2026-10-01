@@ -138,13 +138,14 @@ fzn_notes_err_t fzn_node_notes_init(fzn_node_notes_t *notes, const fzn_persist_o
                                     const fzn_random_ops_t *rng,
                                     const uint8_t self[FZN_PUBKEY_LEN],
                                     const uint8_t (*peers)[FZN_PUBKEY_LEN], size_t peer_count,
+                                    const uint8_t (*pulls)[FZN_PUBKEY_LEN], size_t pull_count,
                                     uint64_t (*now_ms)(void))
 {
 	size_t i;
 	fzn_notes_err_t err;
 
-	if (!notes || !sign || !rng || !self || (peer_count && !peers)
-	    || peer_count > FZN_NODE_NOTES_WRITERS)
+	if (!notes || !sign || !rng || !self || (peer_count && !peers) || (pull_count && !pulls)
+	    || peer_count > FZN_NODE_NOTES_WRITERS || pull_count > FZN_NODE_NOTES_WRITERS)
 		return FZN_NOTES_ERR_MALFORMED;
 	memset(notes, 0, sizeof(*notes));
 	err = fzn_notes_store_init(&notes->store, store, hash);
@@ -154,6 +155,9 @@ fzn_notes_err_t fzn_node_notes_init(fzn_node_notes_t *notes, const fzn_persist_o
 	for (i = 0; i < peer_count; i++)
 		memcpy(notes->admitted[i + 1u].key, peers[i], FZN_PUBKEY_LEN);
 	notes->admitted_count = peer_count + 1u;
+	for (i = 0; i < pull_count; i++)
+		memcpy(notes->pulls[i].key, pulls[i], FZN_PUBKEY_LEN);
+	notes->pull_count = pull_count;
 	notes->author.store = &notes->store;
 	notes->author.view = &view;
 	notes->author.issuer = notes->admitted[0].key;
@@ -498,15 +502,25 @@ static size_t get(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *rep
 
 static size_t empty_trash(fzn_node_notes_t *n, char *reply, size_t cap)
 {
-	size_t queued = 0, pending = 0, i;
+	static uint8_t partners[FZN_NODE_NOTES_WRITERS][FZN_PUBKEY_LEN];
+	static fzn_notes_writer_t asked[2u * FZN_NODE_NOTES_WRITERS];
+	size_t queued = 0, pending = 0, i, n_partners = 0, n_asked = 0;
 	char detail[48];
 	fzn_notes_err_t err;
 	int k;
 
-	/* THE PAIRED NODES ARE ASKED: the admitted set past this node itself. */
+	/* EVERY NODE HOLDING COPIES IS ASKED: those this one pulls from, and
+	 * its partners, which pulled from it. A store that cannot list its
+	 * partners refuses, rather than purging past nodes it forgot. */
+	if (fzn_notes_partners(&n->store, partners, FZN_NODE_NOTES_WRITERS, &n_partners)
+	    != FZN_NOTES_OK)
+		return say(reply, cap, FZN_REPLY_ERROR, "the partners would not list");
+	for (i = 0; i < n->pull_count; i++)
+		asked[n_asked++] = n->pulls[i];
+	for (i = 0; i < n_partners; i++)
+		memcpy(asked[n_asked++].key, partners[i], FZN_PUBKEY_LEN);
 	err = fzn_notes_purge_trash(&n->store, &view, n->author.issuer,
-	                            fzn_notes_asking(n->admitted + 1, n->admitted_count - 1u),
-	                            now(n), &queued);
+	                            fzn_notes_asking(asked, n_asked), now(n), &queued);
 	if (err != FZN_NOTES_OK)
 		return refuse(reply, cap, err);
 	/* What is still waiting for consent, so the reply says which: the
@@ -515,6 +529,8 @@ static size_t empty_trash(fzn_node_notes_t *n, char *reply, size_t cap)
 		if (memcmp(view.writers[i], n->author.issuer, FZN_PUBKEY_LEN) == 0
 		    && fzn_notes_purge_pending(&n->store, view.nodes[i].id))
 			pending++;
+	if (pending)
+		n->fresh = 1;
 	k = snprintf(detail, sizeof(detail), "%zu %zu", queued, pending);
 	return answer(reply, cap, FZN_REPLY_OK, detail, k > 0 ? (size_t)k : 0u);
 }
@@ -563,10 +579,12 @@ size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t 
 	}
 }
 
-size_t fzn_node_notes_remote(void *ctx, const uint8_t *request, size_t request_len,
-                             uint8_t *reply, size_t reply_cap)
+size_t fzn_node_notes_remote(void *ctx, const uint8_t *sender, const uint8_t *request,
+                             size_t request_len, uint8_t *reply, size_t reply_cap)
 {
 	fzn_node_notes_t *n = (fzn_node_notes_t *)ctx;
 
-	return n ? fzn_notes_sync_answer(&n->store, request, request_len, reply, reply_cap) : 0u;
+	return n ? fzn_notes_sync_answer(&n->store, n->author.policy, sender, now(n), request,
+	                                 request_len, reply, reply_cap)
+	         : 0u;
 }

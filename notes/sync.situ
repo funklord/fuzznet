@@ -2,7 +2,7 @@
 // converge. notes/sync.c encodes and decodes it by hand, as spool/message.c
 // does its own; this is the contract it is measured against. sec 432.
 //
-// FOUR MESSAGES, AN INDEX THEN THE RECORDS. A node asks a peer for the index
+// AN INDEX THEN THE RECORDS, sec 432. A node asks a peer for the index
 // of what it holds -- each claim's key and sequence, 40 bytes -- and then
 // for only the records it lacks or holds older. Fetching every record every
 // round would be up to 256 records of up to 668 bytes per peer per round.
@@ -21,6 +21,10 @@ enum fzn_notes_sync_type : u8 {
 	index         = 2,   // "These claims, at these sequences."
 	records_query = 3,   // "Send me these claims' records."
 	records       = 4,   // "Those records, signed as they were made."
+	purge         = 5,   // "Erase this note." sec 433
+	purge_ack     = 6,   // "I erased it" -- or did not
+	purges_query  = 7,   // "Which of your purges pin me?"
+	purges        = 8,   // "These."
 }
 
 struct fzn_notes_sync_index_query {
@@ -68,4 +72,37 @@ struct fzn_notes_sync_records {
 	fzn_notes_sync_type    type    [must_eq = records];
 	u8                     count   [max = 16];
 	fzn_notes_sync_record  records[count];
+}
+
+// THE PURGE CONVERSATION, sec 433, driven by the puller both ways: PURGE
+// carries its own purges to the node it pulls from, PURGES_QUERY fetches
+// that node's purges pinning it, and PURGE_ACK answers either. notes/sync.h
+// says why only the puller can drive it.
+struct fzn_notes_sync_purge {
+	u8                   version [must_eq = 2];
+	fzn_notes_sync_type  type    [must_eq = purge];
+	u8                   id[32];                     // the note to erase
+}
+
+struct fzn_notes_sync_purge_ack {
+	u8                   version [must_eq = 2];
+	fzn_notes_sync_type  type    [must_eq = purge_ack];
+	u8                   id[32];
+	u8                   erased  [max = 1];          // 1 erased, 0 not
+}
+
+struct fzn_notes_sync_purges_query {
+	u8                   version [must_eq = 2];
+	fzn_notes_sync_type  type    [must_eq = purges_query];
+}
+
+struct fzn_notes_sync_note_id {
+	u8   id[32];
+}
+
+struct fzn_notes_sync_purges {
+	u8                      version [must_eq = 2];
+	fzn_notes_sync_type     type    [must_eq = purges];
+	u8                      count   [max = 16];      // FZN_NOTES_SYNC_PURGES_MAX
+	fzn_notes_sync_note_id  ids[count];
 }

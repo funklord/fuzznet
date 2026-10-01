@@ -34,6 +34,32 @@ struct fzn_notes_sync_index_query size=4 repr=ValueConverted
 struct fzn_notes_sync_key size=32 atomic=NonAtomic
   fzn_notes_sync_key.key                 offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
 
+struct fzn_notes_sync_note_id size=32 atomic=NonAtomic
+  fzn_notes_sync_note_id.id              offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+
+struct fzn_notes_sync_purge size=34 atomic=NonAtomic
+  fzn_notes_sync_purge.version           offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_notes_sync_purge.type              offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_notes_sync_purge.id                offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+
+struct fzn_notes_sync_purge_ack size=35 atomic=NonAtomic
+  fzn_notes_sync_purge_ack.version       offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_notes_sync_purge_ack.type          offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_notes_sync_purge_ack.id            offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_notes_sync_purge_ack.erased        offset=AbsoluteStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+
+struct fzn_notes_sync_purges size=3..515 mutate=Shifting atomic=NonAtomic
+  fzn_notes_sync_purges.version          offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_notes_sync_purges.type             offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_notes_sync_purges.count            offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_notes_sync_purges.ids              offset=AbsoluteStatic(0x03) size=Bounded(0, 512) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  fzn_notes_sync_purges.ids[]            offset=FrameStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_notes_sync_purges.ids[].id         offset=FrameStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+
+struct fzn_notes_sync_purges_query size=2
+  fzn_notes_sync_purges_query.version    offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_notes_sync_purges_query.type       offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+
 struct fzn_notes_sync_record size=3..670 mutate=Shifting repr=ValueConverted
   fzn_notes_sync_record.len              offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
   fzn_notes_sync_record.record           offset=AbsoluteStatic(0x02) size=Bounded(1, 668) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting

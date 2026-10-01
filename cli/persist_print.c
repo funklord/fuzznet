@@ -76,6 +76,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "the last sequence this host signed a note at";
 	case FZN_PERSIST_NOTE_PURGE:
 		return "a note's purge awaiting its hosts' consent";
+	case FZN_PERSIST_NOTE_PARTNER:
+		return "a node that pulls notes from this one";
 	}
 	*known = 0;
 	return "an unknown slot";

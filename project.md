@@ -51837,9 +51837,8 @@ three defects, all since fixed in their tree:
 ### Not yet after sec 427
 
 - **~~Import~~, the last of phase 3: built in sec 429.**
-- **The purge conversation**: asking each pinned host, a host erasing
-  and answering, and the asker finishing. That is phase 4's carriage,
-  with the pending-note rule above.
+- **~~The purge conversation~~: built in sec 433**, with the pending-note
+  rule carried in sec 432.
 - **Views do not hide a note pending purge yet.** fuzzypickles keeps such
   a note out of listings, so a note a user emptied does not come back into
   view because one of their devices is switched off. The listing that
@@ -52374,8 +52373,7 @@ long texts to its shelf when it has one.
 ### Not yet after sec 431
 
 - **~~Sync between nodes~~: built in sec 432.**
-- **The purge conversation**, which pending purges wait for, with
-  carriage skipping a note pending purge (sec 427).
+- **~~The purge conversation~~: built in sec 433.**
 - **Checklist items** have no verbs yet; a list can be read and moved,
   not edited.
 - **Import** has no verb yet: `notes/import` is a library a client would
@@ -52488,8 +52486,7 @@ set in every build, to the larger of the two families' largest answers.
   contacts and grants (sec 430).
 - **Pull only.** A note written here reaches a peer when the peer next
   pulls, up to a minute later. Nothing pushes.
-- **The purge conversation** still waits: a purge here stays pending
-  because nothing asks the paired nodes yet.
+- **~~The purge conversation~~: built in sec 433.**
 - **Sharing with contacts**, the rest of phase 4.
 
 ### Measured for sec 432
@@ -52520,3 +52517,108 @@ record(s) from 127.0.0.1, 0 refused" and "1 text(s)", listed both, and
 wrote the long text out byte for byte. No daemon was left running.
 
 **Sabotage: four entries.**
+
+## 433. Notes, phase 4c: the purge conversation, driven by the puller, 2026-10-01
+
+Emptying the trash now completes between nodes: a purge asks every node
+holding copies, each erases and answers, and the purge finishes once all
+have.
+
+### Only the puller can reach the other
+
+A node pulls from the nodes it was told to (`--root-at`, `--pull-from`);
+nothing lets a node open a conversation with a node that pulls from it.
+So with M pulling from R, sec 432 alone left one direction broken:
+
+- **M empties its trash:** M pins R, its pull target, and asks R in its
+  own round. That works.
+- **R empties its trash:** R pulls from nobody, so it pinned nobody,
+  erased at once, and M kept its copy for ever -- what purging by consent
+  exists to prevent.
+
+So **the conversation is driven by the puller, both ways**:
+
+- **The puller's own purges:** it sends PURGE, "erase this note", for each
+  purge pinning the node it pulls from, which answers PURGE_ACK.
+- **The served node's purges:** the puller asks PURGES_QUERY, "which of
+  yours pin me?", erases each, and acknowledges with PURGE_ACK, which the
+  served node records -- finishing its purge once every pinned host has
+  answered -- and echoes.
+
+### Partners: who holds copies
+
+A served node must know who pulls from it, since they hold copies a purge
+must ask about. An INDEX_QUERY from a node the served node admits records
+it as a **partner**, in a new persist slot, `FZN_PERSIST_NOTE_PARTNER`
+(20), not core: lost, a partner is asked about by no purge, which costs
+convergence and admits nobody.
+
+Emptying the trash on a node now pins **the nodes it pulls from and its
+partners**. A store that cannot list its partners refuses to empty,
+rather than purging past nodes it forgot.
+
+### Who may erase what
+
+Erasing changes the erasing node, so each side erases only for a node its
+own policy admits as a writer -- the hosts that could have written a note
+are the hosts that may ask for it to go. A refusal, or a store that cannot
+remove, is answered "not erased", never silence, so the asker learns why
+it still waits rather than timing out. A host the puller does not admit
+has its purges declined and left waiting.
+
+**The admitted set at a node grew to make this work**: the nodes it pulls
+from and now also the nodes paired to it, which are the estate's nodes it
+can exchange notes with. Before, R admitted only itself and would have
+refused M's request. A paired device that never writes notes is admitted
+too, which costs nothing it could not already do with its chain.
+
+### And sooner than a minute
+
+Emptying the trash with purges waiting marks the node's notes fresh, and
+the loop converses on its next turn rather than at the next pull round,
+as `fetch text` already does for texts.
+
+### Not yet after sec 433
+
+- **A served node's purge waits for its partners' next pull**, up to a
+  minute, since only they can reach it.
+- **A partner is never forgotten.** A node that once pulled and is gone is
+  pinned by every later purge, which then waits for ever. Retiring a
+  partner -- by age, or with an un-pairing -- is the next thing this
+  needs.
+- **Views still show a note pending purge** (sec 427).
+- **Sharing with contacts**, the rest of phase 4.
+
+### Measured for sec 433
+
+`notes_sync_test` grew to 44 checks. The 15 new ones:
+
+- **Partners:** a node that pulled is recorded.
+- **The puller's own purge:** answered not erased by a node that does not
+  admit the asker, which leaves it waiting; erased by one that does,
+  finishing the puller's purge and erasing its own copy.
+- **The served node's purge:** declined by a puller that does not admit
+  the served node; taken by one that does, finishing the served node's
+  purge; and a round with nothing pending asks nothing.
+- **Refusals:** a store that cannot forget answers not erased, and
+  nonsense in answer is SHAPE.
+
+`notes_test` grew to 100 checks: a node pulling from nobody, with a paired
+node that pulled its index, pins that partner when it empties its trash,
+waits, and is marked to converse now.
+
+**Live**, R and M with M pulling from R:
+
+- M emptied a note R had written: "1 erased there, 1 finished", and the
+  note gone from both within seconds.
+- R emptied a note M had pulled: pending on R until M's next round, which
+  logged "1 taken", and the note gone from both.
+- No daemon was left running.
+
+`notes/sync.situ` describes the four new messages, and its contract was
+regenerated. They were first written without it; the schema gate could
+not notice, since a schema and its contract that both omit a message
+agree, and it was caught reading the change over before committing.
+
+**Sabotage: five new entries**, and `node-notes-empty-asks-peers`
+re-aimed at the pull-targets loop that replaced the line it named.

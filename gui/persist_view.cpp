@@ -60,6 +60,8 @@ static QString slot_label(fzn_persist_slot_t slot)
 		return QStringLiteral("note sequence");
 	case FZN_PERSIST_NOTE_PURGE:
 		return QStringLiteral("note purge");
+	case FZN_PERSIST_NOTE_PARTNER:
+		return QStringLiteral("notes partner");
 	}
 	/* NO `default:` ABOVE, so a slot added to persist.h draws a -Wswitch
 	 * warning here rather than being drawn as this. */

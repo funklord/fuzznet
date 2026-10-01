@@ -259,6 +259,7 @@ typedef struct peer {
 	int push;          /* answer a records query with a record of `push_id` */
 	uint8_t push_id[FZN_TREE_ID_LEN];
 	unsigned asked;
+	const uint8_t *sender; /* who the asker is, to the answering store */
 } peer_t;
 
 static int ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
@@ -275,7 +276,8 @@ static int ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *r
 		*reply_len = 9u;
 		return 1;
 	}
-	*reply_len = fzn_notes_sync_answer(p->store, request, request_len, reply, cap);
+	*reply_len = fzn_notes_sync_answer(p->store, both(), p->sender, 1u, request, request_len,
+	                                   reply, cap);
 	if (p->push && request_len >= 3u && request[1] == FZN_NOTES_SYNC_RECORDS_QUERY) {
 		/* A RECORD NOBODY ASKED FOR, in place of what was. */
 		uint8_t record[FZN_RECORD_MAX_LEN];
@@ -304,8 +306,8 @@ static void reset(void)
 static void test_converge(void)
 {
 	fzn_notes_author_t a = author_on(&store_a, KEY_A, &sign_a);
-	peer_t from_a = { &store_a, 0, 0, 0, 0, { 0 }, 0 };
-	peer_t from_b = { &store_b, 0, 0, 0, 0, { 0 }, 0 };
+	peer_t from_a = { &store_a, 0, 0, 0, 0, { 0 }, 0, NULL };
+	peer_t from_b = { &store_b, 0, 0, 0, 0, { 0 }, 0, NULL };
 	fzn_notes_sync_tally_t t;
 	uint8_t one[FZN_TREE_ID_LEN], two[FZN_TREE_ID_LEN], three[FZN_TREE_ID_LEN];
 	fzn_note_t with;
@@ -352,7 +354,7 @@ static void test_converge(void)
 static void test_purge_rules(void)
 {
 	fzn_notes_author_t a = author_on(&store_a, KEY_A, &sign_a);
-	peer_t from_a = { &store_a, 0, 0, 0, 0, { 0 }, 0 };
+	peer_t from_a = { &store_a, 0, 0, 0, 0, { 0 }, 0, NULL };
 	fzn_notes_sync_tally_t t;
 	fzn_notes_writer_t ask_b;
 	uint8_t x[FZN_TREE_ID_LEN], y[FZN_TREE_ID_LEN];
@@ -397,12 +399,12 @@ static void test_purge_rules(void)
 static void test_peers_that_misbehave(void)
 {
 	fzn_notes_author_t a = author_on(&store_a, KEY_A, &sign_a);
-	peer_t junk = { &store_a, 0, 1, 0, 0, { 0 }, 0 };
-	peer_t quiet = { &store_a, 0, 0, 1, 0, { 0 }, 0 };
-	peer_t pusher = { &store_a, 0, 0, 0, 1, { 0 }, 0 };
+	peer_t junk = { &store_a, 0, 1, 0, 0, { 0 }, 0, NULL };
+	peer_t quiet = { &store_a, 0, 0, 1, 0, { 0 }, 0, NULL };
+	peer_t pusher = { &store_a, 0, 0, 0, 1, { 0 }, 0, NULL };
 	fzn_notes_sync_tally_t t;
 	uint8_t one[FZN_TREE_ID_LEN], two[FZN_TREE_ID_LEN];
-	peer_t from_a = { &store_a, 0, 0, 0, 0, { 0 }, 0 };
+	peer_t from_a = { &store_a, 0, 0, 0, 0, { 0 }, 0, NULL };
 
 	reset();
 	CHECK(write(&a, "one", one) && write(&a, "two", two), "fixture: two notes on A");
@@ -432,8 +434,8 @@ static void test_paging(void)
 {
 	fzn_notes_author_t a = author_on(&store_a, KEY_A, &sign_a);
 	peer_t small = { &store_a, FZN_NOTES_SYNC_INDEX_HEAD_LEN + (2u * FZN_NOTES_SYNC_CLAIM_LEN),
-		         0, 0, 0, { 0 }, 0 };
-	peer_t one_record = { &store_a, FZN_NOTES_SYNC_LIST_HEAD_LEN + 2u + 400u, 0, 0, 0, { 0 }, 0 };
+		         0, 0, 0, { 0 }, 0, NULL };
+	peer_t one_record = { &store_a, FZN_NOTES_SYNC_LIST_HEAD_LEN + 2u + 400u, 0, 0, 0, { 0 }, 0, NULL };
 	fzn_notes_sync_tally_t t;
 	uint8_t id[FZN_TREE_ID_LEN];
 	char title[16];
@@ -467,6 +469,96 @@ static void test_paging(void)
 	      "a reply holding one record at a time converges over rounds");
 }
 
+static void test_purge_conversation(void)
+{
+	fzn_notes_author_t a = author_on(&store_a, KEY_A, &sign_a);
+	fzn_notes_author_t b = author_on(&store_b, KEY_B, &sign_b);
+	/* A pulls from B: every request reaches B's store as from A. */
+	peer_t b_for_a = { &store_b, 0, 0, 0, 0, { 0 }, 0, KEY_A };
+	peer_t a_for_b = { &store_a, 0, 0, 0, 0, { 0 }, 0, KEY_B };
+	peer_t stranger = { &store_b, 0, 0, 0, 0, { 0 }, 0, NULL };
+	peer_t junk = { &store_b, 0, 1, 0, 0, { 0 }, 0, KEY_A };
+	fzn_notes_sync_tally_t t;
+	fzn_notes_purge_tally_t pt;
+	fzn_notes_writer_t pin;
+	uint8_t x[FZN_TREE_ID_LEN], y[FZN_TREE_ID_LEN], partners[4][FZN_PUBKEY_LEN];
+	uint8_t stranger_key[FZN_PUBKEY_LEN];
+	size_t n = 0;
+	int complete = 0;
+
+	reset();
+	memset(stranger_key, 0x77, sizeof(stranger_key));
+	stranger.sender = stranger_key;
+	CHECK(write(&a, "x", x) && write(&b, "y", y), "fixture: x on A, y on B");
+	CHECK(fzn_notes_sync_pull(&store_a, both(), &sign_a, ask, &b_for_a, &t) == FZN_NOTES_SYNC_OK
+	              && fzn_notes_sync_pull(&store_b, both(), &sign_b, ask, &a_for_b, &t)
+	                         == FZN_NOTES_SYNC_OK
+	              && held(&store_a) == 2u && held(&store_b) == 2u,
+	      "fixture: both hold both");
+	CHECK(fzn_notes_partners(&store_b, partners, 4u, &n) == FZN_NOTES_OK && n == 1u
+	              && memcmp(partners[0], KEY_A, FZN_PUBKEY_LEN) == 0,
+	      "B recorded A, which pulled from it, as a partner");
+
+	/* ---- A's purge, carried to B by A */
+	memcpy(pin.key, KEY_B, FZN_PUBKEY_LEN);
+	CHECK(fzn_notes_purge_add(&store_a, x, fzn_notes_asking(&pin, 1u), 9u, &complete)
+	                      == FZN_NOTES_OK
+	              && !complete,
+	      "fixture: A purges x, pinning B");
+	CHECK(fzn_notes_sync_purges(&store_a, both(), KEY_B, ask, &stranger, &pt) == FZN_NOTES_SYNC_OK
+	              && pt.asked == 1u && pt.refused == 1u && pt.finished == 0u
+	              && held(&store_b) == 2u && fzn_notes_purge_pending(&store_a, x),
+	      "a node B does not admit is answered not erased, and the purge waits");
+	CHECK(fzn_notes_sync_purges(&store_a, both(), KEY_B, ask, &b_for_a, &pt) == FZN_NOTES_SYNC_OK
+	              && pt.asked == 1u && pt.erased == 1u && pt.finished == 1u
+	              && held(&store_b) == 1u && held(&store_a) == 1u
+	              && !fzn_notes_purge_pending(&store_a, x),
+	      "B erases x for A, and A's purge completes and erases its own copy");
+
+	/* ---- B's purge, pinning its partner A, taken by A's pull */
+	memcpy(pin.key, KEY_A, FZN_PUBKEY_LEN);
+	CHECK(fzn_notes_purge_add(&store_b, y, fzn_notes_asking(&pin, 1u), 9u, &complete)
+	                      == FZN_NOTES_OK,
+	      "fixture: B purges y, pinning A");
+	CHECK(fzn_notes_sync_purges(&store_a, fzn_notes_policy_writers(writers, 1u), KEY_B, ask,
+	                            &b_for_a, &pt)
+	                      == FZN_NOTES_SYNC_OK
+	              && pt.taken == 0u && pt.declined == 1u && held(&store_a) == 1u,
+	      "a host A does not admit has its purge declined, and A keeps y");
+	CHECK(fzn_notes_sync_purges(&store_a, both(), KEY_B, ask, &b_for_a, &pt) == FZN_NOTES_SYNC_OK
+	              && pt.taken == 1u && held(&store_a) == 0u && held(&store_b) == 0u
+	              && !fzn_notes_purge_pending(&store_b, y),
+	      "A takes B's purge through its own pull, and B's purge completes");
+	CHECK(fzn_notes_sync_purges(&store_a, both(), KEY_B, ask, &b_for_a, &pt) == FZN_NOTES_SYNC_OK
+	              && pt.asked == 0u && pt.taken == 0u,
+	      "and a round with nothing pending asks nothing");
+
+	/* ---- a store that cannot forget, and nonsense */
+	{
+		fzn_persist_ops_t no_remove = ops_b;
+		fzn_notes_store_t fixed;
+		peer_t fixed_for_a = { &fixed, 0, 0, 0, 0, { 0 }, 0, KEY_A };
+
+		CHECK(write(&a, "z", x), "fixture: z on A");
+		CHECK(fzn_notes_sync_pull(&store_b, both(), &sign_b, ask, &a_for_b, &t)
+		              == FZN_NOTES_SYNC_OK,
+		      "fixture: B holds z");
+		memcpy(pin.key, KEY_B, FZN_PUBKEY_LEN);
+		CHECK(fzn_notes_purge_add(&store_a, x, fzn_notes_asking(&pin, 1u), 9u, &complete)
+		              == FZN_NOTES_OK,
+		      "fixture: A purges z");
+		no_remove.remove = NULL;
+		CHECK(fzn_notes_store_init(&fixed, &no_remove, &HASH) == FZN_NOTES_OK
+		              && fzn_notes_sync_purges(&store_a, both(), KEY_B, ask, &fixed_for_a, &pt)
+		                         == FZN_NOTES_SYNC_OK
+		              && pt.refused == 1u && fzn_notes_purge_pending(&store_a, x),
+		      "a store that cannot forget answers not erased");
+		CHECK(fzn_notes_sync_purges(&store_a, both(), KEY_B, ask, &junk, &pt)
+		              == FZN_NOTES_SYNC_SHAPE,
+		      "nonsense in answer is SHAPE");
+	}
+}
+
 int main(void)
 {
 	memset(KEY_A, 0xa1, sizeof(KEY_A));
@@ -479,6 +571,7 @@ int main(void)
 	test_purge_rules();
 	test_peers_that_misbehave();
 	test_paging();
+	test_purge_conversation();
 
 	if (failures) {
 		fprintf(stderr, "notes_sync_test: %d of %d checks failed\n", failures, checks);

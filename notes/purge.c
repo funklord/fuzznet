@@ -209,6 +209,18 @@ fzn_notes_err_t fzn_notes_purge_finish(const fzn_notes_store_t *store,
 	return FZN_NOTES_OK;
 }
 
+fzn_notes_err_t fzn_notes_purge_list(const fzn_notes_store_t *store,
+                                     uint8_t (*ids)[FZN_TREE_ID_LEN], size_t cap, size_t *count)
+{
+	if (!store || !store->ops || !ids || !count)
+		return FZN_NOTES_ERR_MALFORMED;
+	*count = 0;
+	if (!store->ops->list
+	    || !store->ops->list(store->ops->ctx, FZN_PERSIST_NOTE_PURGE, (uint8_t *)ids, cap, count))
+		return FZN_NOTES_ERR_BACKEND;
+	return FZN_NOTES_OK;
+}
+
 fzn_notes_err_t fzn_notes_purge_due(const fzn_notes_store_t *store, uint64_t now_ms,
                                     uint8_t (*ids)[FZN_TREE_ID_LEN], size_t cap, size_t *count)
 {

@@ -706,8 +706,8 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 
 	/* A NOTES SYNC MESSAGE, version byte 2, the same way. sec 432. */
 	if (admin->notes_remote && req->payload) {
-		size_t n = admin->notes_remote(admin->notes_ctx, req->payload, req->payload_len,
-		                               reply, reply_cap);
+		size_t n = admin->notes_remote(admin->notes_ctx, req->sender, req->payload,
+		                               req->payload_len, reply, reply_cap);
 
 		if (n)
 			return n;

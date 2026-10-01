@@ -122,6 +122,11 @@ fzn_notes_err_t fzn_notes_erase_note(const fzn_notes_store_t *store,
 fzn_notes_err_t fzn_notes_purge_finish(const fzn_notes_store_t *store,
                                        const uint8_t id[FZN_TREE_ID_LEN]);
 
+/* Every queued purge's note id, `cap` of them; BACKEND when the store cannot
+ * list. For a caller asking each pinned host in turn. */
+fzn_notes_err_t fzn_notes_purge_list(const fzn_notes_store_t *store,
+                                     uint8_t (*ids)[FZN_TREE_ID_LEN], size_t cap, size_t *count);
+
 /* The queued purges due to be asked again -- never asked, or last asked
  * FZN_NOTES_PURGE_RETRY_MS or more before `now_ms` -- into `ids`, `cap` of
  * them, each marked asked at `now_ms`. The caller asks each one's hosts that

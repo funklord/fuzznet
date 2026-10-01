@@ -35,15 +35,16 @@
  * field: a byte below 0x21, `%`, `,` and 0x7f become `%XX`. Other bytes pass,
  * UTF-8 included, so a title stays readable and greppable.
  *
- * WHO MAY WRITE. The admitted set is this node and the nodes it is paired to
- * -- the peers it pulls from, which are the peers notes will sync with. A
- * record from anyone else is refused at the store, a locally written one
- * included, so a node outside its own set cannot write a note either.
+ * WHO MAY WRITE. The admitted set is this node and the nodes paired to it:
+ * those it pulls from and those it serves. A record from anyone else is
+ * refused at the store, a locally written one included, so a node outside
+ * its own set cannot write a note either.
  *
- * EMPTYING THE TRASH asks the same paired nodes to consent (`notes/purge.h`).
- * The purge conversation between nodes is not built yet, so on a node with
- * paired nodes an emptied note waits, pending; on one with none it goes at
- * once. The reply says which.
+ * EMPTYING THE TRASH asks for consent from every node that holds copies: the
+ * nodes this one pulls from, and its partners, the nodes that have pulled
+ * from it (`notes/sync.h`). The conversation is driven by whichever side
+ * pulls, so a purge completes as each of them next pulls or is pulled from.
+ * On a node with none it goes at once. The reply says how many wait.
  */
 
 #ifndef FZN_NODE_NOTES_H
@@ -58,8 +59,10 @@
 #include "../notes/purge.h"
 #include "../notes/sync.h"
 
-/* The nodes a notes store admits besides this one: its paired nodes. */
-#define FZN_NODE_NOTES_WRITERS 16u
+/* The nodes a notes store admits besides this one: the nodes paired to it
+ * and the nodes it pulls from -- `node/peer_persist.h`'s 64 and room for the
+ * pulls besides. */
+#define FZN_NODE_NOTES_WRITERS 80u
 
 /* Open a sealed text back -- the node's shelf, in practice. Nonzero on
  * success, with `*out_len` the text's length. */
@@ -71,18 +74,25 @@ typedef struct fzn_node_notes {
 	fzn_notes_author_t author;
 	fzn_notes_writer_t admitted[FZN_NODE_NOTES_WRITERS + 1u];
 	size_t admitted_count;
+	/* The nodes this one pulls from, which a purge always asks. */
+	fzn_notes_writer_t pulls[FZN_NODE_NOTES_WRITERS];
+	size_t pull_count;
 	/* Long texts: both NULL and a text too long for inline is refused. */
 	fzn_notes_seal_fn seal;
 	fzn_node_notes_open_fn open;
 	void *text_ctx;
 	/* The wall clock, in milliseconds. */
 	uint64_t (*now_ms)(void);
+	/* Set when emptying the trash leaves purges waiting, for a caller that
+	 * converses on a timer to do so now instead; the caller clears it. */
+	int fresh;
 } fzn_node_notes_t;
 
 /*
  * Set up over the node's store, signing as `self` with `sign`, ids from
- * `rng`, and admitting `self` and the `peer_count` keys in `peers`.
- * MALFORMED past FZN_NODE_NOTES_WRITERS peers: a short set would refuse a
+ * `rng`, admitting `self` and the `peer_count` keys in `peers`, and pulling
+ * from the `pull_count` keys in `pulls`, which should be among `peers`.
+ * MALFORMED past FZN_NODE_NOTES_WRITERS of either: a short set would refuse a
  * paired node's notes with nothing saying why.
  */
 fzn_notes_err_t fzn_node_notes_init(fzn_node_notes_t *notes, const fzn_persist_ops_t *store,
@@ -90,12 +100,13 @@ fzn_notes_err_t fzn_node_notes_init(fzn_node_notes_t *notes, const fzn_persist_o
                                     const fzn_random_ops_t *rng,
                                     const uint8_t self[FZN_PUBKEY_LEN],
                                     const uint8_t (*peers)[FZN_PUBKEY_LEN], size_t peer_count,
+                                    const uint8_t (*pulls)[FZN_PUBKEY_LEN], size_t pull_count,
                                     uint64_t (*now_ms)(void));
 
 /* A peer's notes sync message (`notes/sync.h`), for `node/admin.h`'s remote
  * hook: answered from this node's store. 0 for what is not one. sec 432. */
-size_t fzn_node_notes_remote(void *ctx, const uint8_t *request, size_t request_len,
-                             uint8_t *reply, size_t reply_cap);
+size_t fzn_node_notes_remote(void *ctx, const uint8_t *sender, const uint8_t *request,
+                             size_t request_len, uint8_t *reply, size_t reply_cap);
 
 /* The verbs above, for `node/admin.h`'s hook. 0 when `request` is not one. */
 size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,

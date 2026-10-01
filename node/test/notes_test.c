@@ -274,6 +274,7 @@ static void setup(size_t peers)
 {
 	memset(rows, 0, sizeof(rows));
 	CHECK(fzn_node_notes_init(&notes, &OPS, &HASH, &SIGN, &RNG, SELF,
+	                          (const uint8_t (*)[FZN_PUBKEY_LEN])PEER, peers,
 	                          (const uint8_t (*)[FZN_PUBKEY_LEN])PEER, peers, now_ms)
 	              == FZN_NOTES_OK,
 	      "the node's notes open");
@@ -452,6 +453,30 @@ static void test_trash(void)
 	CHECK(ask("remove note trash") == FZN_REPLY_OK && !strcmp(detail_of(), "1 1"),
 	      "with a paired node to ask, the purge waits");
 	CHECK(ask("list note top") == FZN_REPLY_OK && has(b), "and the note is still held");
+
+	/* A PARTNER IS ASKED TOO: a node paired to this one that has pulled
+	 * from it holds copies, though this node does not pull from it. */
+	memset(rows, 0, sizeof(rows));
+	CHECK(fzn_node_notes_init(&notes, &OPS, &HASH, &SIGN, &RNG, SELF,
+	                          (const uint8_t (*)[FZN_PUBKEY_LEN])PEER, 1u, NULL, 0u, now_ms)
+	              == FZN_NOTES_OK,
+	      "fixture: a node pulling from nobody, with one paired node");
+	{
+		uint8_t query[FZN_NOTES_SYNC_INDEX_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
+			                                          FZN_NOTES_SYNC_INDEX_QUERY, 0, 0 };
+		uint8_t out[FZN_NOTES_SYNC_REPLY_MAX];
+
+		CHECK(fzn_node_notes_remote(&notes, PEER, query, sizeof(query), out, sizeof(out))
+		              > 0u,
+		      "fixture: the paired node pulls this one's index");
+	}
+	CHECK(ask("add note top bin") == FZN_REPLY_OK, "fixture: a note to bin");
+	take_id(b);
+	snprintf(line, sizeof(line), "set note %s trash", b);
+	CHECK(ask(line) == FZN_REPLY_OK, "it is trashed");
+	CHECK(ask("remove note trash") == FZN_REPLY_OK && !strcmp(detail_of(), "1 1")
+	              && notes.fresh,
+	      "the partner is pinned, the purge waits, and the node is told to converse now");
 	CHECK(ask("remove note bin") == FZN_REPLY_MALFORMED, "only the trash is emptied");
 }
 

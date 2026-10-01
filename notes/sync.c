@@ -2,6 +2,7 @@
 
 #include "sync.h"
 
+#include "../constant_time/constant_time.h"
 #include "../wire/bytes.h"
 
 #include <stdlib.h>
@@ -132,13 +133,143 @@ static size_t answer_records(const fzn_notes_store_t *store, const uint8_t *requ
 	return used;
 }
 
-size_t fzn_notes_sync_answer(const fzn_notes_store_t *store, const uint8_t *request,
+static int admits(fzn_notes_policy_t policy, const uint8_t *key)
+{
+	size_t i;
+	int found = 0;
+
+	if (!policy.spelled || !key)
+		return 0;
+	for (i = 0; i < policy.admitted_count; i++)
+		found |= fzn_ct_memeq(policy.admitted[i].key, key, FZN_PUBKEY_LEN);
+	return found;
+}
+
+static size_t answer_purge(const fzn_notes_store_t *store, fzn_notes_policy_t policy,
+                           const uint8_t *sender, const uint8_t *request, size_t request_len,
+                           uint8_t *reply, size_t cap)
+{
+	uint8_t answer = FZN_NOTES_SYNC_NOT_ERASED;
+
+	if (request_len != FZN_NOTES_SYNC_PURGE_LEN || cap < FZN_NOTES_SYNC_PURGE_ACK_LEN)
+		return 0;
+	/* ERASED ONLY FOR A WRITER THIS NODE ADMITS, and only when it really
+	 * is gone: a store that cannot remove must not say erased. */
+	if (admits(policy, sender)
+	    && fzn_notes_erase_note(store, request + 2, NULL) == FZN_NOTES_OK)
+		answer = FZN_NOTES_SYNC_ERASED;
+	head(reply, FZN_NOTES_SYNC_PURGE_ACK);
+	memcpy(reply + 2, request + 2, FZN_TREE_ID_LEN);
+	reply[2 + FZN_TREE_ID_LEN] = answer;
+	return FZN_NOTES_SYNC_PURGE_ACK_LEN;
+}
+
+/* ---- partners ------------------------------------------------------------- */
+
+#define PARTNER_BODY 8u
+#define PARTNER_BLOB ((size_t)FZN_PERSIST_HEAD_LEN + PARTNER_BODY)
+
+/* A node pulled notes from this one at `now_ms`. Best effort: a partner not
+ * recorded is asked about by no purge, which costs convergence, not safety. */
+static void partner_seen(const fzn_notes_store_t *store, const uint8_t *key, uint64_t now_ms)
+{
+	uint8_t blob[PARTNER_BLOB];
+
+	if (fzn_persist_head_write(blob, sizeof(blob), PARTNER_BODY, FZN_PERSIST_BLOB_NOTE_PARTNER)
+	    != FZN_PERSIST_OK)
+		return;
+	fzn_put_be64(blob + FZN_PERSIST_HEAD_LEN, now_ms);
+	(void)store->ops->save(store->ops->ctx, FZN_PERSIST_NOTE_PARTNER, key, blob, sizeof(blob));
+}
+
+fzn_notes_err_t fzn_notes_partners(const fzn_notes_store_t *store,
+                                   uint8_t (*keys)[FZN_PUBKEY_LEN], size_t cap, size_t *count)
+{
+	if (!store || !store->ops || !keys || !count)
+		return FZN_NOTES_ERR_MALFORMED;
+	*count = 0;
+	if (!store->ops->list
+	    || !store->ops->list(store->ops->ctx, FZN_PERSIST_NOTE_PARTNER, (uint8_t *)keys, cap,
+	                         count))
+		return FZN_NOTES_ERR_BACKEND;
+	return FZN_NOTES_OK;
+}
+
+/* PURGES_QUERY: this store's purges that pin `sender` and it has not
+ * answered. */
+static size_t answer_purges(const fzn_notes_store_t *store, const uint8_t *sender,
+                            uint8_t *reply, size_t cap)
+{
+	static uint8_t ids[FZN_NOTES_PURGE_MAX][FZN_TREE_ID_LEN];
+	static fzn_notes_purge_t p;
+	size_t count = 0, i, j, n = 0;
+
+	if (cap < FZN_NOTES_SYNC_LIST_HEAD_LEN)
+		return 0;
+	if (sender && fzn_notes_purge_list(store, ids, FZN_NOTES_PURGE_MAX, &count) == FZN_NOTES_OK)
+		for (i = 0; i < count && n < FZN_NOTES_SYNC_PURGES_MAX; i++) {
+			int pinned = 0;
+
+			if (fzn_notes_purge_get(store, ids[i], &p) != FZN_NOTES_OK)
+				continue;
+			for (j = 0; j < p.asked_count && !pinned; j++)
+				pinned = !p.answered[j]
+				         && fzn_ct_memeq(p.asked[j], sender, FZN_PUBKEY_LEN);
+			if (!pinned || cap - FZN_NOTES_SYNC_LIST_HEAD_LEN < (n + 1u) * FZN_TREE_ID_LEN)
+				continue;
+			memcpy(reply + FZN_NOTES_SYNC_LIST_HEAD_LEN + (n * FZN_TREE_ID_LEN), p.id,
+			       FZN_TREE_ID_LEN);
+			n++;
+		}
+	head(reply, FZN_NOTES_SYNC_PURGES);
+	reply[2] = (uint8_t)n;
+	return FZN_NOTES_SYNC_LIST_HEAD_LEN + (n * FZN_TREE_ID_LEN);
+}
+
+/* PURGE_ACK as a request: `sender` erased a note this store is purging.
+ * Recorded only when the purge pins `sender`; the purge finishes here once
+ * every pinned host has answered. Echoed, with ERASED when recorded. */
+static size_t answer_ack(const fzn_notes_store_t *store, const uint8_t *sender,
+                         const uint8_t *request, size_t request_len, uint8_t *reply, size_t cap)
+{
+	uint8_t recorded = FZN_NOTES_SYNC_NOT_ERASED;
+	int complete = 0;
+
+	if (request_len != FZN_NOTES_SYNC_PURGE_ACK_LEN || cap < FZN_NOTES_SYNC_PURGE_ACK_LEN)
+		return 0;
+	if (sender && request[2 + FZN_TREE_ID_LEN] == FZN_NOTES_SYNC_ERASED
+	    && fzn_notes_purge_answer(store, request + 2, sender, &complete) == FZN_NOTES_OK) {
+		recorded = FZN_NOTES_SYNC_ERASED;
+		if (complete)
+			(void)fzn_notes_purge_finish(store, request + 2);
+	}
+	head(reply, FZN_NOTES_SYNC_PURGE_ACK);
+	memcpy(reply + 2, request + 2, FZN_TREE_ID_LEN);
+	reply[2 + FZN_TREE_ID_LEN] = recorded;
+	return FZN_NOTES_SYNC_PURGE_ACK_LEN;
+}
+
+size_t fzn_notes_sync_answer(const fzn_notes_store_t *store, fzn_notes_policy_t policy,
+                             const uint8_t *sender, uint64_t now_ms, const uint8_t *request,
                              size_t request_len, uint8_t *reply, size_t reply_cap)
 {
 	if (!store || !request || !reply)
 		return 0;
-	if (is_type(request, request_len, FZN_NOTES_SYNC_INDEX_QUERY))
+	if (is_type(request, request_len, FZN_NOTES_SYNC_PURGE))
+		return answer_purge(store, policy, sender, request, request_len, reply, reply_cap);
+	if (is_type(request, request_len, FZN_NOTES_SYNC_PURGE_ACK))
+		return answer_ack(store, admits(policy, sender) ? sender : NULL, request,
+		                  request_len, reply, reply_cap);
+	if (is_type(request, request_len, FZN_NOTES_SYNC_PURGES_QUERY)
+	    && request_len == FZN_NOTES_SYNC_PURGES_QUERY_LEN)
+		return answer_purges(store, admits(policy, sender) ? sender : NULL, reply,
+		                     reply_cap);
+	if (is_type(request, request_len, FZN_NOTES_SYNC_INDEX_QUERY)) {
+		/* A NODE THIS ONE ADMITS, PULLING, HOLDS COPIES: a partner. */
+		if (admits(policy, sender))
+			partner_seen(store, sender, now_ms);
 		return answer_index(store, request, request_len, reply, reply_cap);
+	}
 	if (is_type(request, request_len, FZN_NOTES_SYNC_RECORDS_QUERY))
 		return answer_records(store, request, request_len, reply, reply_cap);
 	return 0;
@@ -273,6 +404,101 @@ fzn_notes_sync_err_t fzn_notes_sync_pull(const fzn_notes_store_t *store,
 		err = fetch(store, policy, sign, ask, ask_ctx, want + i, batch, tally);
 		if (err != FZN_NOTES_SYNC_OK)
 			return err;
+	}
+	return FZN_NOTES_SYNC_OK;
+}
+
+/* ---- asking for purges --------------------------------------------------- */
+
+fzn_notes_sync_err_t fzn_notes_sync_purges(const fzn_notes_store_t *store,
+                                           fzn_notes_policy_t policy,
+                                           const uint8_t host[FZN_PUBKEY_LEN],
+                                           fzn_notes_sync_ask_t ask, void *ask_ctx,
+                                           fzn_notes_purge_tally_t *tally)
+{
+	static uint8_t ids[FZN_NOTES_PURGE_MAX][FZN_TREE_ID_LEN];
+	static fzn_notes_purge_t p;
+	uint8_t request[FZN_NOTES_SYNC_PURGE_LEN], reply[FZN_NOTES_SYNC_PURGE_ACK_LEN + 1u];
+	size_t count = 0, i, j;
+
+	if (!store || !host || !ask || !tally)
+		return FZN_NOTES_SYNC_MALFORMED;
+	memset(tally, 0, sizeof(*tally));
+	if (fzn_notes_purge_list(store, ids, FZN_NOTES_PURGE_MAX, &count) != FZN_NOTES_OK)
+		return FZN_NOTES_SYNC_STORE;
+	for (i = 0; i < count; i++) {
+		size_t reply_len = 0;
+		int pinned = 0, complete = 0;
+
+		if (fzn_notes_purge_get(store, ids[i], &p) != FZN_NOTES_OK)
+			continue;
+		/* ONLY A HOST THE PURGE PINNED, AND ONLY UNTIL IT ANSWERS. */
+		for (j = 0; j < p.asked_count && !pinned; j++)
+			pinned = !p.answered[j] && fzn_ct_memeq(p.asked[j], host, FZN_PUBKEY_LEN);
+		if (!pinned)
+			continue;
+		head(request, FZN_NOTES_SYNC_PURGE);
+		memcpy(request + 2, p.id, FZN_TREE_ID_LEN);
+		tally->asked++;
+		if (!ask(ask_ctx, request, sizeof(request), reply, sizeof(reply), &reply_len))
+			return FZN_NOTES_SYNC_NO_ANSWER;
+		if (!is_type(reply, reply_len, FZN_NOTES_SYNC_PURGE_ACK)
+		    || reply_len != FZN_NOTES_SYNC_PURGE_ACK_LEN
+		    || memcmp(reply + 2, p.id, FZN_TREE_ID_LEN) != 0
+		    || reply[2 + FZN_TREE_ID_LEN] > FZN_NOTES_SYNC_ERASED)
+			return FZN_NOTES_SYNC_SHAPE;
+		if (reply[2 + FZN_TREE_ID_LEN] != FZN_NOTES_SYNC_ERASED) {
+			tally->refused++;
+			continue;
+		}
+		tally->erased++;
+		if (fzn_notes_purge_answer(store, p.id, host, &complete) != FZN_NOTES_OK)
+			return FZN_NOTES_SYNC_STORE;
+		/* CONSENT COMPLETE: erase here too, then drop the entry. */
+		if (complete) {
+			if (fzn_notes_purge_finish(store, p.id) != FZN_NOTES_OK)
+				return FZN_NOTES_SYNC_STORE;
+			tally->finished++;
+		}
+	}
+
+	/* THE HOST'S PURGES THAT PIN THIS NODE: erase, then say so. */
+	{
+		uint8_t list[FZN_NOTES_SYNC_LIST_HEAD_LEN
+		             + (FZN_NOTES_SYNC_PURGES_MAX * FZN_TREE_ID_LEN)];
+		uint8_t ack[FZN_NOTES_SYNC_PURGE_ACK_LEN];
+		size_t list_len = 0, n;
+
+		head(request, FZN_NOTES_SYNC_PURGES_QUERY);
+		if (!ask(ask_ctx, request, FZN_NOTES_SYNC_PURGES_QUERY_LEN, list, sizeof(list),
+		         &list_len))
+			return FZN_NOTES_SYNC_NO_ANSWER;
+		if (!is_type(list, list_len, FZN_NOTES_SYNC_PURGES)
+		    || list_len < FZN_NOTES_SYNC_LIST_HEAD_LEN || list[2] > FZN_NOTES_SYNC_PURGES_MAX
+		    || list_len != FZN_NOTES_SYNC_LIST_HEAD_LEN + ((size_t)list[2] * FZN_TREE_ID_LEN))
+			return FZN_NOTES_SYNC_SHAPE;
+		n = list[2];
+		for (i = 0; i < n; i++) {
+			const uint8_t *id = list + FZN_NOTES_SYNC_LIST_HEAD_LEN + (i * FZN_TREE_ID_LEN);
+			size_t reply_len = 0;
+
+			/* ERASED ONLY FOR A HOST THIS NODE ADMITS. A host it does not
+			 * is not answered at all: its purge waits, as it should. */
+			if (!admits(policy, host) || fzn_notes_erase_note(store, id, NULL) != FZN_NOTES_OK) {
+				tally->declined++;
+				continue;
+			}
+			head(ack, FZN_NOTES_SYNC_PURGE_ACK);
+			memcpy(ack + 2, id, FZN_TREE_ID_LEN);
+			ack[2 + FZN_TREE_ID_LEN] = FZN_NOTES_SYNC_ERASED;
+			if (!ask(ask_ctx, ack, sizeof(ack), reply, sizeof(reply), &reply_len))
+				return FZN_NOTES_SYNC_NO_ANSWER;
+			if (!is_type(reply, reply_len, FZN_NOTES_SYNC_PURGE_ACK)
+			    || reply_len != FZN_NOTES_SYNC_PURGE_ACK_LEN
+			    || memcmp(reply + 2, id, FZN_TREE_ID_LEN) != 0)
+				return FZN_NOTES_SYNC_SHAPE;
+			tally->taken++;
+		}
 	}
 	return FZN_NOTES_SYNC_OK;
 }

@@ -981,15 +981,15 @@ int main(void)
 		    != FZN_NOTES_ERR_MALFORMED)
 			FAIL(464);
 		/* And a node's notes need a store to keep them in (sec 431). */
-		if (fzn_node_notes_init(NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0u, NULL)
+		if (fzn_node_notes_init(NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0u, NULL, 0u, NULL)
 		    != FZN_NOTES_ERR_MALFORMED)
 			FAIL(465);
 		/* A sync answer is 0 for what is no sync message (sec 432). */
 		{
 			uint8_t out[8];
 
-			if (fzn_notes_sync_answer(&notes, (const uint8_t *)"get", 3u, out,
-			                          sizeof(out))
+			if (fzn_notes_sync_answer(&notes, fzn_notes_policy_writers(NULL, 0u), NULL, 0u,
+			                          (const uint8_t *)"get", 3u, out, sizeof(out))
 			    != 0u)
 				FAIL(466);
 		}

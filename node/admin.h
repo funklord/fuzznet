@@ -127,8 +127,8 @@ typedef struct fzn_node_admin {
 	                      char *reply, size_t reply_cap);
 	/* A notes sync message from a peer (`notes/sync.h`), served before
 	 * the verbs as a text's blob message is. 0 for what is not one. */
-	size_t (*notes_remote)(void *ctx, const uint8_t *request, size_t request_len,
-	                       uint8_t *reply, size_t reply_cap);
+	size_t (*notes_remote)(void *ctx, const uint8_t *sender, const uint8_t *request,
+	                       size_t request_len, uint8_t *reply, size_t reply_cap);
 	void *notes_ctx;
 } fzn_node_admin_t;
 
