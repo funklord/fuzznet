@@ -166,6 +166,7 @@
 #include <fuzznet/record/sync.h>
 #include <fuzznet/state/state.h>
 #include <fuzznet/state/scope.h>
+#include <fuzznet/notes/note.h>
 #include <fuzznet/trust/trust.h>
 #include <fuzznet/session/random_system.h>
 #include <fuzznet/version/version.h>
@@ -279,6 +280,7 @@
 #include "record/sync.h"
 #include "state/state.h"
 #include "state/scope.h"
+#include "notes/note.h"
 #include "trust/trust.h"
 #include "session/random_system.h"
 #include "version/version.h"
@@ -902,6 +904,26 @@ int main(void)
 		if (!fzn_scope_parse((const uint8_t *)"group", 5u, &parsed)
 		    || parsed != FZN_SCOPE_GROUP || !fzn_scope_widens(FZN_SCOPE_GROUP, FZN_SCOPE_HOST))
 			FAIL(455);
+	}
+
+	/* A NOTE, sec 422: a long one as a blob reference, built and read back. */
+	{
+		uint8_t field[FZN_NOTE_BLOB_REF_LEN], content[FZN_TREE_CONTENT_MAX];
+		fzn_note_blob_ref_t ref, back;
+		fzn_note_t note, opened;
+		size_t content_len = 0;
+
+		memset(&ref, 0x0d, sizeof(ref));
+		ref.length = 5000u;
+		memset(&note, 0, sizeof(note));
+		note.flags = FZN_NOTE_FLAG_TEXT_IS_BLOB;
+		note.text = field;
+		note.text_len = sizeof(field);
+		if (fzn_note_blob_ref_write(&ref, field) != FZN_NOTE_OK
+		    || fzn_note_content(&note, content, sizeof(content), &content_len) != FZN_NOTE_OK
+		    || fzn_note_open(FZN_NOTE_TYPE_NOTE, content, content_len, &opened) != FZN_NOTE_OK
+		    || fzn_note_blob_ref(&opened, &back) != FZN_NOTE_OK || back.length != 5000u)
+			FAIL(456);
 	}
 
 	/* THE ROOT SET, as a node holds it (secs 405 to 407): a second root

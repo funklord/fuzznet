@@ -193,7 +193,8 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              session/session.c \
              version/version.c \
              record/record.c record/journal.c record/sync.c record/ledger.c \
-             state/state.c state/scope.c trust/trust.c log/log.c sched/sched.c \
+             state/state.c state/scope.c notes/note.c trust/trust.c log/log.c \
+             sched/sched.c \
              link/link.c
 # RECURSIVE, NOT SNAPSHOT, and that is a fix rather than a style choice.
 # This was `:=`, evaluated here -- ABOVE the conditional blocks that append
@@ -277,7 +278,8 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              session/session.h \
              version/version.h \
              record/record.h record/journal.h record/sync.h record/ledger.h \
-             state/state.h state/scope.h trust/trust.h log/log.h sched/sched.h \
+             state/state.h state/scope.h notes/note.h trust/trust.h log/log.h \
+             sched/sched.h \
              link/link.h
 
 # THE LIBRARY WITHOUT ITS OPTIONAL BINDINGS, frozen here because the
@@ -391,7 +393,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              record/test/record_test.c \
              tree/test/tree_test.c \
              record/test/sync_test.c record/test/ledger_test.c \
-             state/test/state_test.c state/test/scope_test.c \
+             state/test/state_test.c state/test/scope_test.c notes/test/note_test.c \
              trust/test/trust_test.c \
              trust/test/trust_walk_test.c \
              log/test/log_test.c \
@@ -510,6 +512,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/record/test/ledger_test \
              $(BUILD_DIR)/state/test/state_test \
              $(BUILD_DIR)/state/test/scope_test \
+             $(BUILD_DIR)/notes/test/note_test \
              $(BUILD_DIR)/trust/test/trust_test \
              $(BUILD_DIR)/trust/test/trust_walk_test \
              $(BUILD_DIR)/log/test/log_test \
@@ -1777,6 +1780,13 @@ $(BUILD_DIR)/trust/test/trust_test: $(BUILD_DIR)/trust/test/trust_test.o \
 $(BUILD_DIR)/trust/test/trust_walk_test: $(BUILD_DIR)/trust/test/trust_walk_test.o \
                                     $(BUILD_DIR)/trust/trust.o \
                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# notes/ parses and builds a note body and its blob reference, and calls
+# nothing: blob/ and tree/ give it constants only. sec 422.
+$(BUILD_DIR)/notes/test/note_test: $(BUILD_DIR)/notes/test/note_test.o \
+                                   $(BUILD_DIR)/notes/note.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -3397,6 +3407,7 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/state/scope.o \
+                                      $(BUILD_DIR)/notes/note.o \
                                       $(BUILD_DIR)/local/client.o \
                                       $(BUILD_DIR)/node/roots.o \
                                       $(BUILD_DIR)/roster/roster.o \

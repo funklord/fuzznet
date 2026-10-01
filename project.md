@@ -51083,3 +51083,148 @@ forms:
    creates no socket.
 
 No daemon was left running.
+
+## 422. Notes move to fuzznet; first, the body and a long note's text, 2026-10-01
+
+### The decisions
+
+- **2026-09-29:** "everything to do with notes is fuzznet's, even the
+  GUI widget for now". This came by way of fuzzypickles' session.
+- **2026-10-01, asked this session:** the notes code **moves to fuzznet**,
+  and fuzzypickles consumes it as a vendored component. The rejected
+  alternative was keeping the code there while fuzznet supplied the
+  missing primitive. fuzzypickles' session asked the holder the same
+  question and got the same answer.
+- **2026-10-01, asked this session:** a long note's text is a blob in
+  **fuzznet's `blob/` and `spool/`**. Rejected: fuzzypickles' own blob
+  layer, under which the design would have been mostly theirs.
+
+### The requirement, from fuzzypickles
+
+It was sent 2026-09-29 as a message only, so it was never in this tree.
+fuzzypickles has since written it into its own project.md. Its words:
+
+- "Notes whose text can be as long as a person writes, replicated between
+  a user's hosts and carried by shares exactly as short notes are."
+- "Un-sharing leaves a recipient with what they have already seen. For
+  text held in a blob, that means a permanent capability to fetch the
+  blob from anyone serving it. The UI has to say this before a person
+  shares a long note or an attachment, not after."
+- Attachments are named as the second requirement, not yet asked for.
+
+**The arithmetic, checked against this tree's headers as they asked:**
+`FZN_RECORD_BODY_MAX` 512, less `tree/`'s 42-byte header, is 470 of
+content. The note header takes 28, so 442 bytes are left for title, text
+and labels together. A paragraph does not fit.
+
+### What moves, measured in fuzzypickles at b419405
+
+- **The core:** 2,977 lines of C across nine files, and 1,738 in their
+  internal headers (`notes`, `_admit`, `_import`, `_purge`, `_service`,
+  `_share`, `_store`, `_sync`, `_view`), counted with `wc -l`.
+- **The widget:** 1,204 lines (`gui/src/notes_widget.*`).
+- **The rest of fuzzypickles' inventory:** the control verbs in
+  `control.h`, the daemon's handlers, nine core tests, the GUI cases
+  reached through `notes_of()`, and e2e scenarios.
+
+**Only the body format is pure.** The rest leans on fuzzypickles' daemon:
+`control.h`, `cmd.h`, `core.h` (its storage ops and runtime), its
+siblings, its prekey channel and its error codes. The widget speaks
+fuzzypickles' own `fzp_conn`. So the move is a port in layers, not a
+copy. Each layer goes once fuzznet has what it leans on, and fuzzypickles
+keeps fixing defects in its own copy until told a layer has moved.
+
+### The phases
+
+1. **The body format, and the long-note reference. This section.**
+2. **A long note's text as a blob:**
+   - sealing the text into a `blob/` blob under a fresh key, held in
+     `spool/`;
+   - a sibling or a share recipient fetching it with `spool/`'s transfer;
+   - and the state the requirement asks for: a note that is verified and
+     placed but whose text is not here yet.
+3. **The notes model:** store, admit, view, purge and import, over
+   `tree/` and `record/`. fuzzypickles' storage ops and error codes are
+   replaced with fuzznet's.
+4. **Carriage:**
+   - sync between a user's hosts;
+   - the share transport;
+   - the verbs a client uses, on a node's handler as `node/admin` does.
+
+   The group transport fuzzypickles' shares ride on is the edge to
+   decide here.
+5. **The widget:** into fuzznet's `gui/`, speaking fuzznet's local
+   grammar through `local/client`, hosted by fuzzypickles. It carries:
+   - the un-share warning;
+   - the empty-notebook-says-nothing defect fuzzypickles' §112 raised;
+   - the polling scroll fix fuzzypickles reported.
+
+### Phase 1: `notes/note`
+
+**Ported from fuzzypickles' `notes.c` and `notes_internal.h` with the
+rules intact:**
+
+- the 28-byte header;
+- the partition check, under which three variable fields are safe only
+  because their lengths must tile the body exactly;
+- the flat type registry, with 0 reserved;
+- unknown types read and never dropped;
+- writable narrower than known;
+- the per-type shape check on creation;
+- labels separated, not terminated;
+- checklist items;
+- the 16-bit field guard that stops a wrapped sum.
+
+**What differs:**
+
+- **`FZN_NOTE_FLAG_TEXT_IS_BLOB` names a fuzznet blob.** The text field
+  then holds a 72-byte reference: the blob's root (32), its content key
+  (32) and the text's length (8). fuzzypickles reserved the flag with a
+  32-byte id that nothing ever wrote, and a 32-byte id cannot name a
+  private blob, which needs its key. A 32-byte field is now refused as no
+  reference.
+- **`fzn_note_blob_ref` and `fzn_note_blob_ref_write`** read and write
+  the reference. A length of 0 is refused both ways, since an empty text
+  is inline.
+- **The key travels in the note, which is the confidentiality decision.**
+  A long note's text is exactly as private as a short note's: whoever
+  holds the signed record can read either, and a host serving the blob
+  without it holds ciphertext. It follows that sharing a long note shares
+  a permanent capability to fetch its text, which is what the
+  requirement says the UI must warn of. Every edit is a new blob under a
+  new key, as `blob/` requires.
+- **Error codes are negative**, as this library's are, and the names are
+  `fzn_note_*`.
+
+### Not yet after sec 422
+
+- **Phases 2 to 5.**
+- **fuzzypickles still runs its own copy.** It takes this module when the
+  phase that needs it lands, through its pin.
+- **Mixed hosts:** an older fuzzypickles host meeting a blob note
+  written here would refuse its 72-byte text as no 32-byte id. No host
+  has written one yet, so this matters only once phase 2 lets one be
+  written. By then fuzzypickles should have taken this module.
+
+### Measured for sec 422
+
+**`note_test`, 128 checks:**
+
+- **The port:** fuzzypickles' fifteen cases, with only the blob case's
+  width changed. The old 32-byte id is now refused too.
+- **`test_a_blob_reference_round_trips`:**
+  - 5,000 bytes of text are refused inline;
+  - the same note written as a reference, with a title and labels,
+    builds, opens and reads back root, key and length exactly;
+  - a note holding no reference has none to read;
+  - a reference with length 0 is refused both to write and to read.
+
+`fzn_note_err_str` is walked by `err_str_test`, and `consumer_check`
+builds and reads a long note's reference through the installed header.
+
+**Sabotage: eight entries, each caught.** One of them,
+`note-field-fits-before-sum`, is caught by a crash rather than by an
+assertion. Probed by hand in a scratch directory, the test without that
+guard dies of a segmentation fault (rc 139): the wrapped sum reaches
+`memcpy` with nothing bounding it, which is the hazard the guard exists
+for.

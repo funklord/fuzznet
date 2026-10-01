@@ -163,6 +163,7 @@
 /record/test/sync_fuzz
 /state/test/state_test
 /state/test/scope_test
+/notes/test/note_test
 /tree/test/tree_test
 /tree/test/tree_kat_test
 /tree/test/tree_fuzz
