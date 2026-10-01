@@ -452,7 +452,10 @@ static void test_trash(void)
 	CHECK(ask(line) == FZN_REPLY_OK, "it is trashed");
 	CHECK(ask("remove note trash") == FZN_REPLY_OK && !strcmp(detail_of(), "1 1"),
 	      "with a paired node to ask, the purge waits");
-	CHECK(ask("list note top") == FZN_REPLY_OK && has(b), "and the note is still held");
+	CHECK(ask("list note top") == FZN_REPLY_OK && !has(b),
+	      "the note pending purge is left out of the listing");
+	snprintf(line, sizeof(line), "get note %s", b);
+	CHECK(ask(line) == FZN_REPLY_OK, "though it is still held");
 
 	/* A PARTNER IS ASKED TOO: a node paired to this one that has pulled
 	 * from it holds copies, though this node does not pull from it. */
@@ -477,6 +480,18 @@ static void test_trash(void)
 	CHECK(ask("remove note trash") == FZN_REPLY_OK && !strcmp(detail_of(), "1 1")
 	              && notes.fresh,
 	      "the partner is pinned, the purge waits, and the node is told to converse now");
+
+	/* A PARTNER GONE A MONTH IS NOT PINNED. */
+	clock_ms += FZN_NODE_NOTES_PARTNER_AGE_MS + 1000u;
+	CHECK(ask("add note top bin later") == FZN_REPLY_OK, "fixture: another note to bin");
+	take_id(b);
+	snprintf(line, sizeof(line), "set note %s trash", b);
+	CHECK(ask(line) == FZN_REPLY_OK, "it is trashed");
+	CHECK(ask("remove note trash") == FZN_REPLY_OK && !strcmp(detail_of(), "2 1"),
+	      "the earlier purge still waits, under the set it pinned when queued");
+	snprintf(line, sizeof(line), "get note %s", b);
+	CHECK(ask(line) == FZN_REPLY_ERROR,
+	      "and a month after the partner last pulled, the new one pins nobody and is gone");
 	CHECK(ask("remove note bin") == FZN_REPLY_MALFORMED, "only the trash is emptied");
 }
 

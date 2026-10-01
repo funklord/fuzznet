@@ -5132,9 +5132,23 @@ SABOTAGES = [
 	(
 		"node-notes-empty-asks-partners",
 		"node/notes.c",
-		"\tfor (i = 0; i < n_partners; i++)\n\t\tmemcpy(asked[n_asked++].key, partners[i], FZN_PUBKEY_LEN);\n",
-		"",
+		"\t\tmemcpy(asked[n_asked++].key, partners[i], FZN_PUBKEY_LEN);\n\t}\n",
+		"\t}\n",
 		"a node that serves notes erases at once while the nodes that pulled from it keep copies -- sec 433",
+	),
+	(
+		"node-notes-list-hides-pending",
+		"node/notes.c",
+		"\t\tif (!fzn_notes_purge_pending(&n->store, out[i]->id))\n\t\t\tout[j++] = out[i];\n",
+		"\t\tif (1)\n\t\t\tout[j++] = out[i];\n",
+		"a note the user emptied comes back into view while a node that holds it has not answered -- sec 434",
+	),
+	(
+		"node-notes-partner-ages",
+		"node/notes.c",
+		"\t\t    && now(n) > seen && now(n) - seen > FZN_NODE_NOTES_PARTNER_AGE_MS)\n",
+		"\t\t    && 0)\n",
+		"a partner gone for good is pinned by every later purge, which waits for ever -- sec 434",
 	),
 	(
 		"shelf-fetch-checks-leaf-lengths",

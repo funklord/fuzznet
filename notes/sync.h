@@ -98,6 +98,11 @@ size_t fzn_notes_sync_answer(const fzn_notes_store_t *store, fzn_notes_policy_t 
 fzn_notes_err_t fzn_notes_partners(const fzn_notes_store_t *store,
                                    uint8_t (*keys)[FZN_PUBKEY_LEN], size_t cap, size_t *count);
 
+/* When the partner `key` last pulled, by the clock of the node it pulled
+ * from. ABSENT when it is no partner, SHAPE when its record will not read. */
+fzn_notes_err_t fzn_notes_partner_seen_at(const fzn_notes_store_t *store,
+                                          const uint8_t key[FZN_PUBKEY_LEN], uint64_t *ms);
+
 /* How a puller asks a peer: send `request`, fill `reply`. Nonzero on an
  * answer. A test's is another store's `fzn_notes_sync_answer`. */
 typedef int (*fzn_notes_sync_ask_t)(void *ctx, const uint8_t *request, size_t request_len,

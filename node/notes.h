@@ -16,7 +16,8 @@
  *     set note ID parent PARENT    move
  *     set note ID FLAG             pin, unpin, trash, untrash, archive,
  *                                  unarchive
- *     list note PARENT [FROM]      children, a page at a time
+ *     list note PARENT [FROM]      children, a page at a time; a note
+ *                                  pending purge is left out
  *     get note ID                  one note's fields
  *     get note ID text [FROM]      its inline text, a page at a time
  *     get note ID file PATH        its whole text into a file, opened from its
@@ -42,7 +43,7 @@
  *
  * EMPTYING THE TRASH asks for consent from every node that holds copies: the
  * nodes this one pulls from, and its partners, the nodes that have pulled
- * from it (`notes/sync.h`). The conversation is driven by whichever side
+ * from it (`notes/sync.h`) within FZN_NODE_NOTES_PARTNER_AGE_MS. The conversation is driven by whichever side
  * pulls, so a purge completes as each of them next pulls or is pulled from.
  * On a node with none it goes at once. The reply says how many wait.
  */
@@ -58,6 +59,12 @@
 #include "../notes/import.h"
 #include "../notes/purge.h"
 #include "../notes/sync.h"
+
+/* A partner that has not pulled for this long is not pinned by a new purge:
+ * thirty days. It has not been holding the user's latest notes, and a purge
+ * pinning a node that is gone would wait for ever. Whether it still holds
+ * an old copy of what is emptied is the cost accepted. sec 434. */
+#define FZN_NODE_NOTES_PARTNER_AGE_MS (30ull * 24u * 3600u * 1000u)
 
 /* The nodes a notes store admits besides this one: the nodes paired to it
  * and the nodes it pulls from -- `node/peer_persist.h`'s 64 and room for the

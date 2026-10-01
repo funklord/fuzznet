@@ -352,6 +352,13 @@ static size_t list(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *re
 	              : fzn_notes_children(&view, parent, out, FZN_NOTES_MAX, &count, &cut);
 	if (err != FZN_NOTES_OK)
 		return refuse(reply, cap, err);
+	/* A NOTE PENDING PURGE IS LEFT OUT: one a user emptied must not come
+	 * back into view because a node that holds it has not answered yet.
+	 * sec 434. */
+	for (i = 0, j = 0; i < count; i++)
+		if (!fzn_notes_purge_pending(&n->store, out[i]->id))
+			out[j++] = out[i];
+	count = j;
 	if (from > count)
 		return say(reply, cap, FZN_REPLY_MALFORMED, "past the last note");
 	n_contested = fzn_notes_contested(&view, contested, FZN_NOTES_MAX);
@@ -517,8 +524,17 @@ static size_t empty_trash(fzn_node_notes_t *n, char *reply, size_t cap)
 		return say(reply, cap, FZN_REPLY_ERROR, "the partners would not list");
 	for (i = 0; i < n->pull_count; i++)
 		asked[n_asked++] = n->pulls[i];
-	for (i = 0; i < n_partners; i++)
+	for (i = 0; i < n_partners; i++) {
+		uint64_t seen = 0;
+
+		/* A PARTNER GONE A MONTH IS NOT PINNED: a purge waiting on a node
+		 * that will never pull again would wait for ever. One whose time
+		 * will not read is pinned, the side that keeps data. */
+		if (fzn_notes_partner_seen_at(&n->store, partners[i], &seen) == FZN_NOTES_OK
+		    && now(n) > seen && now(n) - seen > FZN_NODE_NOTES_PARTNER_AGE_MS)
+			continue;
 		memcpy(asked[n_asked++].key, partners[i], FZN_PUBKEY_LEN);
+	}
 	err = fzn_notes_purge_trash(&n->store, &view, n->author.issuer,
 	                            fzn_notes_asking(asked, n_asked), now(n), &queued);
 	if (err != FZN_NOTES_OK)

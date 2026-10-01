@@ -52582,11 +52582,8 @@ as `fetch text` already does for texts.
 
 - **A served node's purge waits for its partners' next pull**, up to a
   minute, since only they can reach it.
-- **A partner is never forgotten.** A node that once pulled and is gone is
-  pinned by every later purge, which then waits for ever. Retiring a
-  partner -- by age, or with an un-pairing -- is the next thing this
-  needs.
-- **Views still show a note pending purge** (sec 427).
+- **~~A partner is never forgotten~~; ~~views still show a note pending
+  purge~~: both settled in sec 434.**
 - **Sharing with contacts**, the rest of phase 4.
 
 ### Measured for sec 433
@@ -52622,3 +52619,50 @@ agree, and it was caught reading the change over before committing.
 
 **Sabotage: five new entries**, and `node-notes-empty-asks-peers`
 re-aimed at the pull-targets loop that replaced the line it named.
+
+## 434. Notes: a note pending purge is hidden, and a gone partner retires, 2026-10-01
+
+The two gaps sec 433 recorded.
+
+### A note pending purge is left out of a listing
+
+`list note` leaves out a note with a purge queued for it, as fuzzypickles
+does: a note a user emptied must not come back into view because a node
+that holds it has not answered yet. `get note` still answers for it, since
+it is still held; the listing is what a user browses.
+
+### A partner gone a month is not pinned
+
+A partner that has not pulled for thirty days
+(`FZN_NODE_NOTES_PARTNER_AGE_MS`) is not pinned by a new purge. It has not
+been holding the user's latest notes, and a purge pinning a node that is
+gone would wait for ever. **The cost accepted** is that such a node may
+still hold an old copy of what is emptied, and would keep it. A partner
+whose time will not read is pinned, the side that keeps data.
+
+**Only at pin time.** A purge already queued keeps the set it pinned --
+the holder's rule that consent is over a set defined beforehand -- so one
+pinned before a partner went quiet still waits for it. Thirty days is a
+default chosen here, not a decision of the holder's, and is the kind of
+number sec 428's retention rules would make configurable.
+
+### Not yet after sec 434
+
+- **A purge already waiting on a gone partner still waits.** Releasing
+  one needs deciding who may declare a pinned host gone, which is the
+  holder's call.
+- **Un-pairing a node does not drop it as a partner**; the age does it
+  eventually.
+- **Sharing with contacts**, the rest of phase 4.
+
+### Measured for sec 434
+
+`notes_test` grew to 105 checks:
+
+- the note pending purge is left out of the listing, though `get note`
+  still answers;
+- a month after the partner last pulled, a newly emptied note pins
+  nobody and is gone at once, while the earlier purge still waits under
+  the set it pinned.
+
+**Sabotage: two entries.**

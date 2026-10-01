@@ -195,6 +195,24 @@ fzn_notes_err_t fzn_notes_partners(const fzn_notes_store_t *store,
 	return FZN_NOTES_OK;
 }
 
+fzn_notes_err_t fzn_notes_partner_seen_at(const fzn_notes_store_t *store,
+                                          const uint8_t key[FZN_PUBKEY_LEN], uint64_t *ms)
+{
+	uint8_t blob[PARTNER_BLOB];
+	size_t len = 0;
+
+	if (!store || !store->ops || !key || !ms)
+		return FZN_NOTES_ERR_MALFORMED;
+	if (!store->ops->load(store->ops->ctx, FZN_PERSIST_NOTE_PARTNER, key, blob, sizeof(blob),
+	                      &len))
+		return FZN_NOTES_ERR_ABSENT;
+	if (fzn_persist_head_check(blob, len, PARTNER_BODY, FZN_PERSIST_BLOB_NOTE_PARTNER)
+	    != FZN_PERSIST_OK)
+		return FZN_NOTES_ERR_SHAPE;
+	*ms = fzn_get_be64(blob + FZN_PERSIST_HEAD_LEN);
+	return FZN_NOTES_OK;
+}
+
 /* PURGES_QUERY: this store's purges that pin `sender` and it has not
  * answered. */
 static size_t answer_purges(const fzn_notes_store_t *store, const uint8_t *sender,
