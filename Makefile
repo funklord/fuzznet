@@ -163,7 +163,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              net/udp.c \
              node/node.c node/local.c node/remote.c node/serve.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
-             node/revoke.c node/roots.c \
+             node/revoke.c node/roots.c node/notes.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
              chain/root_log.c \
              chain/chain_store.c chain/service.c claim/claim.c \
@@ -253,7 +253,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              net/udp.h \
              node/node.h node/local.h node/remote.h node/serve.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
-             node/revoke.h node/roots.h \
+             node/revoke.h node/roots.h node/notes.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
              chain/root_log.h \
              chain/chain_store.h chain/service.h claim/claim.h \
@@ -401,7 +401,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              record/test/sync_test.c record/test/ledger_test.c \
              state/test/state_test.c state/test/scope_test.c notes/test/note_test.c \
              notes/test/text_test.c \
-             notes/test/notes_store_test.c \
+             notes/test/notes_store_test.c node/test/notes_test.c \
              trust/test/trust_test.c \
              trust/test/trust_walk_test.c \
              log/test/log_test.c \
@@ -523,6 +523,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/notes/test/note_test \
              $(BUILD_DIR)/notes/test/text_test \
              $(BUILD_DIR)/notes/test/notes_store_test \
+             $(BUILD_DIR)/node/test/notes_test \
              $(BUILD_DIR)/trust/test/trust_test \
              $(BUILD_DIR)/trust/test/trust_walk_test \
              $(BUILD_DIR)/log/test/log_test \
@@ -1836,6 +1837,27 @@ $(BUILD_DIR)/notes/test/notes_store_test: $(BUILD_DIR)/notes/test/notes_store_te
                                           $(BUILD_DIR)/prekey/prekey.o \
                                           $(BUILD_DIR)/ratchet/ratchet.o \
                                           $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# node/notes: the note verbs a node answers on its local socket. sec 431.
+$(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
+                                   $(BUILD_DIR)/node/notes.o \
+                                   $(BUILD_DIR)/notes/store.o \
+                                   $(BUILD_DIR)/notes/view.o \
+                                   $(BUILD_DIR)/notes/author.o \
+                                   $(BUILD_DIR)/notes/purge.o \
+                                   $(BUILD_DIR)/notes/note.o \
+                                   $(BUILD_DIR)/tree/tree.o \
+                                   $(BUILD_DIR)/record/record.o \
+                                   $(BUILD_DIR)/local/vocabulary.o \
+                                   $(BUILD_DIR)/local/peer.o \
+                                   $(BUILD_DIR)/persist/persist.o \
+                                   $(BUILD_DIR)/trust/trust.o \
+                                   $(BUILD_DIR)/session/agree.o \
+                                   $(BUILD_DIR)/prekey/prekey.o \
+                                   $(BUILD_DIR)/ratchet/ratchet.o \
+                                   $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -3335,6 +3357,13 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# The node's notes, the model and the verbs over it. sec 431.
+FUZZNETD_NOTES_OBJS := $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/notes/store.o \
+                       $(BUILD_DIR)/notes/view.o $(BUILD_DIR)/notes/author.o \
+                       $(BUILD_DIR)/notes/purge.o $(BUILD_DIR)/notes/import.o \
+                       $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/tree/tree.o \
+                       $(BUILD_DIR)/record/record.o
+
 # The note-text shelf fuzznetd carries where spool files are built. sec 424.
 FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/notes/text.o \
                        $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/spool/spool_file.o \
@@ -3351,6 +3380,7 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(BUILD_DIR)/session/session.o $(BUILD_DIR)/chain/service.o \
               $(BUILD_DIR)/cli/cli.o \
               $(BUILD_DIR)/session/agree_monocypher.o \
+              $(FUZZNETD_NOTES_OBJS) \
               $(if $(SPOOL_FILE_ON),$(FUZZNETD_SHELF_OBJS)) \
               $(MONO_OBJS) $(FLOG_OBJS)
 	@mkdir -p $(dir $@)

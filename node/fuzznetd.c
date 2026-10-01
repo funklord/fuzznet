@@ -41,6 +41,7 @@
 #include "revoke.h"
 #include "roots.h"
 #include "peer_persist.h"
+#include "notes.h"
 #ifdef FZN_SPOOL_FILE_ON
 #include "shelf.h"
 #endif
@@ -136,6 +137,17 @@ static uint64_t wall_clock(void)
 	return (t < 0) ? 0u : (uint64_t)t;
 }
 
+/* The wall clock in milliseconds, which a note's times are in. */
+static uint64_t wall_ms(void)
+{
+	struct timespec ts;
+
+	/* C11's, so nothing here needs a POSIX feature macro for it. */
+	if (timespec_get(&ts, TIME_UTC) != TIME_UTC || ts.tv_sec < 0)
+		return 0u;
+	return ((uint64_t)ts.tv_sec * 1000u) + ((uint64_t)ts.tv_nsec / 1000000u);
+}
+
 /* A LIFETIME PLUS A SKEW, which is what freshness.h asks for and the term it
  * says a consumer gets wrong in the direction that looks safe. Ten minutes:
  * a command lifetime of five and five minutes of tolerated clock skew. A
@@ -184,6 +196,21 @@ struct shelf_asking {
 	fzn_caller_t *caller;
 	uint64_t now;
 };
+
+/* The node's notes seal a long text onto the shelf and open it back. */
+static int shelf_seal(void *ctx, const uint8_t *text, size_t len, fzn_note_blob_ref_t *ref)
+{
+	return fzn_node_shelf_put((fzn_node_shelf_t *)ctx, text, len, ref) == FZN_NODE_SHELF_OK;
+}
+
+static int shelf_open(void *ctx, const fzn_note_blob_ref_t *ref, uint8_t *out, size_t cap,
+                      size_t *out_len)
+{
+	fzn_note_err_t text_err = FZN_NOTE_OK;
+
+	return fzn_node_shelf_open((fzn_node_shelf_t *)ctx, ref, out, cap, out_len, &text_err)
+	       == FZN_NODE_SHELF_OK;
+}
 
 static int shelf_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
                      size_t reply_cap, size_t *reply_len)
@@ -1060,6 +1087,35 @@ int main(int argc, char **argv)
 				}
 			}
 #endif
+			/* NOTES, sec 431: admitted from this node and the nodes it
+			 * pulls from, which are the nodes they will sync with. */
+			{
+				static fzn_node_notes_t node_notes;
+				uint8_t writers[FZND_PULL_TARGETS_MAX][FZN_PUBKEY_LEN];
+				size_t w;
+
+				for (w = 0; w < npulls; w++)
+					memcpy(writers[w],
+					       pulls[w].is_root_at ? state.config.root : pulls[w].node,
+					       FZN_PUBKEY_LEN);
+				if (fzn_node_notes_init(&node_notes, store_ops, &hash_ops, &sign_ops,
+				                        &rng_ops, identity.pubkey,
+				                        (const uint8_t (*)[FZN_PUBKEY_LEN])writers, npulls,
+				                        wall_ms)
+				    == FZN_NOTES_OK) {
+#ifdef FZN_SPOOL_FILE_ON
+					if (shelf_on) {
+						node_notes.seal = shelf_seal;
+						node_notes.open = shelf_open;
+						node_notes.text_ctx = &shelf;
+					}
+#endif
+					admin.notes_local = fzn_node_notes_local;
+					admin.notes_ctx = &node_notes;
+				} else {
+					fprintf(stderr, "fuzznetd: no notes: the store cannot list\n");
+				}
+			}
 		}
 	}
 

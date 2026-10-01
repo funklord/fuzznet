@@ -120,6 +120,12 @@ typedef struct fzn_node_admin {
 	size_t (*text_remote)(void *ctx, const uint8_t *request, size_t request_len,
 	                      uint8_t *reply, size_t reply_cap);
 	void *text_ctx;
+	/* The node's notes (`node/notes.h`), or NULL: then the note verbs are
+	 * unsupported. A hook, as the texts are, so admin keeps no notes
+	 * state of its own. Returns 0 for what is not its own. sec 431. */
+	size_t (*notes_local)(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
+	                      char *reply, size_t reply_cap);
+	void *notes_ctx;
 } fzn_node_admin_t;
 
 /* A `fzn_node_local_handler_t`; `ctx` is a `fzn_node_admin_t`. */

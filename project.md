@@ -52249,43 +52249,178 @@ So by default a user of another estate on that machine, or anywhere,
 **has no access**: their credentials verify against the wrong root and
 are refused. That is today's behaviour, now stated as intended.
 
-### 3. Friends: a special case, as grants rather than membership
+### 3. Contacts: everything across estates is a capability granted to an outside key
 
-The holder wants a **high-level feature for local and remote friends
-configuring another estate's netcfgd and the like**, special-cased as sec
-25 pre-authorised for whatever case makes the invariant intolerable.
+**Every relation that crosses an estate is one thing: a capability its
+owner grants to a key outside the estate.** The holder's question settled
+it -- "every non-estate contact service can be separated by a
+permission/cap graph, so why should this be different?" -- and it is not:
 
-**The two mechanisms considered:**
+    across estates                  owner              capability granted
+    a contact sends me a message    me                 append to my inbox
+    a contact sends me a file       me                 place a blob in my spool
+    I share a notes subtree         me                 read, perhaps write, it
+    a group chat                    the group's owner  post to and read it
+    a contact configures netcfgd    the machine's      configure these
+                                    estate             interfaces
 
-- **Grants to a friend's key.** The machine's estate issues a narrow
-  capability -- configure netcfgd on this machine, perhaps only some
-  interfaces -- to the friend's own node key. The grant is signed from the
-  machine's root, expiring, revocable through that estate's ordinary
-  revocation, and logged in its root log. The friend's node stays a
-  member of its own estate only: holding another estate's grant is not
-  membership, so the invariant holds as written. **Local friends** at the
-  machine go through Unix group membership instead, which netcfgd's local
-  authorisation already checks: the holder's "group membership overriding
-  and allowing config anyway".
-- **Slave estates**: an estate with estates under it. **Rejected.** It
-  removes the direct conflict, but it brings back what sec 25 retired: a
-  node trusting more than one root, with the multi-root set, its index and
-  its per-root provenance. Every trust decision, revocation and scope
-  question would gain a "whose estate, and does the parent override"
-  branch, in every module rather than in netcfgd. The holder named the
-  cost: it "complicates everything substantially".
+They differ in risk, so in policy -- what is granted by default, how
+narrowly, for how long -- and not in mechanism. Adding a contact hands
+out the low-risk grants that talking needs; configuring a machine is a
+high-risk grant issued deliberately. There is no special case.
 
-**Recommended: grants.** The capability model already separates being a
-member from holding a capability, so a friend needs no new concept, only
-a grant whose root is not their own. This is recorded as the
-recommendation; the holder has not yet chosen between the two.
+**One list of contacts, and "friend" is not a term.** The holder
+confirmed: a single contact list, each contact differentiated only by
+what it has been granted, and no friend list beside it -- he had been
+using the two words interchangeably. So there are exactly two lists,
+split by the one boundary the invariant draws:
+
+- **members**, inside the estate: its roster and root set;
+- **contacts**, outside it: keys this node knows, each holding whatever
+  capabilities it was granted, none included.
+
+A member is never also a contact.
+
+**What follows:**
+
+- **Slave estates are rejected**: nothing across estates needs a second
+  root, only grants from the owner's. They would have brought back what
+  sec 25 retired, a node trusting more than one root.
+- **The invariant holds**: holding another estate's grant is not
+  membership.
+- **Revocation and expiry are the same everywhere**: dropping a contact
+  is revoking its grants, by the machinery that revokes a device.
+- **The mechanism is built with phase 4's note sharing**, which needs
+  grants to keys outside the estate anyway. What waits, as the holder
+  decided, is only the high-risk use: a contact configuring another
+  estate's machine.
+
+**fuzzypickles is not there yet.** Its contacts, chat and transfers run
+on its own capability machinery (`core/src/capability_internal.h`), which
+its sec 16 keeps separate until its phase 3. This is fuzznet's design for
+when those move or adopt fuzznet, and moving them is a cross-project
+decision, not a description of what fuzzypickles does today.
 
 ### Not yet after sec 430
 
-- **The friends feature itself**: issuing a grant to a key outside the
-  estate, and a node accepting a chain whose root is the machine's estate
-  from a peer that is not its member. Pairing already grants chains to
-  device keys, so much of it exists; what is new is that the grantee
-  belongs to another estate and must not be treated as a member.
+- **A contact configuring another estate's machine is deferred** by the
+  holder (2026-10-01): "we do it after most other features are
+  implemented and the case for them is stronger". Only that high-risk use
+  waits; the grant mechanism it would use is built with phase 4's sharing.
+  What it adds then: a node accepting a chain rooted in the machine's
+  estate from a contact, for the machine's resources.
 - **Telling netcfgd and raidcfgd**, whose resources section 2 assigns,
   and fuzzypickles, the case behind section 1.
+
+## 431. Notes, phase 4a: a node's notes, as verbs on its socket, 2026-10-01
+
+Phase 4 is carriage. This is its first piece: a running node holding notes,
+and the verbs a client uses on its local socket. Sec 422 has fuzznet's
+widget speak fuzznet's local grammar, as fuzzypickles' widget spoke its own
+control protocol to its daemon, so these are that grammar's notes words.
+
+### The notes verbs
+
+    add note PARENT TITLE        a note; answers its id
+    add folder PARENT TITLE      a folder
+    set note ID title TEXT       rename
+    set note ID text TEXT        replace the text, inline
+    set note ID file PATH        replace the text from a file
+    set note ID parent PARENT    move
+    set note ID FLAG             pin, unpin, trash, untrash, archive,
+                                 unarchive
+    list note PARENT [FROM]      children, a page at a time
+    get note ID                  one note's fields
+    get note ID text [FROM]      its inline text, a page at a time
+    get note ID file PATH        its whole text into a file
+    remove note trash            empty the trash
+
+`PARENT` is a note's id in hex, or `top`. `list note top` is the top
+level as `notes/view.h` defines it: the root's children, then every note
+the root cannot reach.
+
+### What decided their shape
+
+- **Long text goes through a file.** A local request line is at most
+  512 bytes (`FZN_REQUEST_MAX`), and a note's text may be 256 KiB. So
+  `set note ID file PATH` reads the text from a file, and `get note ID
+  file PATH` writes it to one, mode 0600. A text too long for inline is
+  sealed onto the node's shelf (sec 424) and the note carries the
+  reference; with no shelf, it is refused with a reply saying why.
+- **Text in a reply is escaped.** A byte below 0x21, `%`, `,` and 0x7f
+  become `%XX`, so a reply stays one line and a list item one field;
+  other bytes pass, UTF-8 included, so a title stays readable and
+  greppable.
+- **A listing pages** as the node's other streams do: `ok TOTAL FROM`,
+  then whole items until the next would not fit. Each item is the id,
+  type, flags, whether the root reaches it, whether it is contested, and
+  the title.
+- **All of them need the node's own user**, reads included: notes are
+  private, and a path names a file the node opens as itself.
+- **Who may write is this node and the nodes it pulls from**
+  (`--root-at`, `--pull-from`), which are the nodes notes will sync with.
+  A record from anyone else is refused at the store, a locally written one
+  included.
+- **Emptying the trash asks those same nodes to consent.** The purge
+  conversation between nodes is not built yet, so on a node with paired
+  nodes an emptied note waits, pending, and the reply says how many are
+  pending; on a node with none it goes at once.
+
+`node/admin` gains a `notes_local` hook beside its text hook, so admin
+keeps no notes state of its own. fuzznetd keeps its notes in its routed
+store -- the bulk directory, since note slots are not core -- and hands
+long texts to its shelf when it has one.
+
+### Not yet after sec 431
+
+- **Sync between nodes**, so a note written on one node reaches its
+  paired nodes. Next.
+- **The purge conversation**, which pending purges wait for, with
+  carriage skipping a note pending purge (sec 427).
+- **Checklist items** have no verbs yet; a list can be read and moved,
+  not edited.
+- **Import** has no verb yet: `notes/import` is a library a client would
+  drive, and the node needs a way to be handed an export.
+
+### Measured for sec 431
+
+**`notes_test`, 95 checks**, driving `fzn_node_notes_local` with lines as
+a client sends them, over `persist/` in memory, a toy signer and a toy
+blob store:
+
+- **Adding and reading:**
+  - a note, a folder, and a note in the folder, each answering its id;
+  - the top level lists the note and the folder in order, and not the
+    folder's child;
+  - an item's fields;
+  - a title escaped;
+  - get's fields;
+  - rename, text, text paged from an offset, a pin read back as a flag,
+    and a move.
+- **Refusals:** an id that is not one, a note nobody holds, a field with
+  no verb, another user (reads included), and other subjects falling
+  through.
+- **A long text:**
+  - refused with no seal;
+  - sealed whole with one, the note saying "blob 5000";
+  - not paged as inline text;
+  - written to a file byte for byte, at mode 0600;
+  - replaced by an inline text.
+- **Paging:** forty notes page in more than one reply, each within a
+  line, the next starting where the last ended, and a page past the end
+  refused.
+- **The trash:** emptied at once on a node with no paired nodes, and
+  pending, with the note held, on one with a paired node.
+- **Admission:** a node outside its own admitted set cannot write.
+
+**Live**, against fuzznetd:
+
+- a note and a folder added over the socket;
+- a text set;
+- a 30,000-byte file set, sealed onto the shelf;
+- the note moved into the folder;
+- after a restart, the top level and the folder listed as left, and the
+  long text written back out byte for byte at mode 0600;
+- no daemon left running and the socket directory removed.
+
+**Sabotage: six entries.**

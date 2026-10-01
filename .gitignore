@@ -224,6 +224,7 @@ __pycache__/
 /node/test/serve_test
 /node/test/provision_test
 /node/test/shelf_test
+/node/test/notes_test
 /fuzznetd
 /.situ-head/
 /.gen.new/
