@@ -4745,6 +4745,13 @@ SABOTAGES = [
 		"an edit starts from whichever writer's claim the view meets first, and undoes this host's own last edit -- sec 426",
 	),
 	(
+		"notes-edit-keeps-labels",
+		"notes/author.c",
+		"\th->note.labels = h->labels;\n",
+		"\th->note.labels = h->labels;\n\th->note.labels_len = 0;\n",
+		"every edit drops a note's labels, which fuzzypickles' copy did until their sec 146 -- sec 426",
+	),
+	(
 		"notes-edit-keeps-unnamed-text",
 		"notes/author.c",
 		"\tif (which & FZN_NOTES_EDIT_TEXT) {\n",

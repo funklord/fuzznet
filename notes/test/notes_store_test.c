@@ -739,6 +739,41 @@ static void test_authoring(void)
 	              == FZN_NOTES_ERR_ABSENT,
 	      "a note nobody holds is absent");
 
+	/* ---- labels survive an edit that does not name them, as fuzzypickles
+	 * found theirs did not (their sec 146) */
+	{
+		static const uint8_t labels[] = { 'h', 'o', 'm', 'e', 0, 'd', 'a', 'i', 'r', 'y' };
+		uint8_t tagged[FZN_TREE_ID_LEN];
+		const uint8_t *label = NULL;
+		size_t label_len = 0;
+
+		note = titled("cheese", "cheddar");
+		note.labels = labels;
+		note.labels_len = sizeof(labels);
+		CHECK(fzn_notes_create(&a, root, FZN_NOTE_TYPE_NOTE, &note, 6500u, tagged)
+		              == FZN_NOTES_OK,
+		      "fixture: a note with two labels");
+		with = titled("brie", "");
+		CHECK(fzn_notes_edit(&a, tagged, FZN_NOTES_EDIT_TITLE, &with, 0u, 0u, 6600u)
+		              == FZN_NOTES_OK
+		              && own(KEY_A, tagged, &rec, &node, &note)
+		              && note.labels_len == sizeof(labels)
+		              && memcmp(note.labels, labels, sizeof(labels)) == 0
+		              && fzn_note_label_count(&note) == 2u,
+		      "a rename keeps the note's labels");
+		memset(&with, 0, sizeof(with));
+		with.labels = labels + 5;
+		with.labels_len = 5u;
+		CHECK(fzn_notes_edit(&a, tagged, FZN_NOTES_EDIT_LABELS, &with, 0u, 0u, 6700u)
+		              == FZN_NOTES_OK
+		              && own(KEY_A, tagged, &rec, &node, &note)
+		              && fzn_note_label_count(&note) == 1u
+		              && fzn_note_label(&note, 0u, &label, &label_len) == FZN_NOTE_OK
+		              && label_len == 5u && memcmp(label, "dairy", 5u) == 0
+		              && says(&note, "brie", "cheddar"),
+		      "and an edit naming them replaces them, keeping the rest");
+	}
+
 	/* ---- another writer's note */
 	note = titled("B's note", "from the phone");
 	CHECK(fzn_notes_create(&b, folder, FZN_NOTE_TYPE_NOTE, &note, 7000u, theirs)

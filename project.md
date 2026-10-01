@@ -51750,6 +51750,10 @@ serves notes, in phase 4.
   folder, and a note is not its own parent or moved when nobody holds it.
 - **A newer host's unreadable note:** an edit is refused as SHAPE and
   nothing is written for it.
+- **Labels** survive a rename, and an edit naming them replaces them and
+  keeps the rest. fuzzypickles found their edit dropped every label, built
+  from a zeroed note (their sec 146); this port builds from the held note,
+  and now a test and the sabotage entry `notes-edit-keeps-labels` say so.
 
 **Sabotage: ten entries, nine caught at first.** `notes-edit-flag-mask`
 survived: the case that tested it, setting the blob flag on an 11-byte
