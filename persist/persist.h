@@ -215,6 +215,9 @@ typedef enum fzn_persist_slot {
 	/* Per node key: a node that pulls notes from this one, and so holds
 	 * copies a purge must ask about. `notes/sync.h` keeps it. sec 433. */
 	FZN_PERSIST_NOTE_PARTNER = 20u,
+	/* Per key: a contact, a key outside the estate this node knows by a
+	 * name. `contact/contact.h` keeps it. sec 435. */
+	FZN_PERSIST_CONTACT = 21u,
 } fzn_persist_slot_t;
 
 typedef enum fzn_persist_err {
@@ -258,6 +261,7 @@ typedef enum fzn_persist_err {
 #define FZN_PERSIST_BLOB_NOTE_SEQ 18u
 #define FZN_PERSIST_BLOB_NOTE_PURGE 19u
 #define FZN_PERSIST_BLOB_NOTE_PARTNER 20u
+#define FZN_PERSIST_BLOB_CONTACT 21u
 
 /* Write a blob head, or refuse when `cap` cannot hold head and body. */
 fzn_persist_err_t fzn_persist_head_write(uint8_t *out, size_t cap, size_t body,
@@ -357,14 +361,19 @@ typedef struct fzn_persist_ops {
  * device holds. Lost, a device re-pairs; nothing is admitted that was not.
  *
  * NOT CORE EITHER: NOTE, NOTE_SEQ, NOTE_PURGE and NOTE_PARTNER (secs 425,
- * 427, 433). A note is the user's data,
- * signed, and a sibling holds the same records: lost, it is fetched again,
- * and rolled back, the signature still says who wrote what. A lost or
- * rolled-back sequence is floored by the records this host holds
- * (`fzn_notes_next_seq`), and past those costs edits that read as stale to
- * a sibling ahead of it -- availability, not a door. A lost purge leaves
- * a trashed note held until it is emptied again, and a lost partner one
- * held by a node a purge forgot to ask: space and convergence, not a door.
+ * 427, 433). A note is the user's data, signed, and a sibling holds the
+ * same records: lost, it is fetched again, and rolled back, the signature
+ * still says who wrote what. A lost or rolled-back sequence is floored by
+ * the records this host holds (`fzn_notes_next_seq`), and past those costs
+ * edits that read as stale to a sibling ahead of it -- availability, not a
+ * door. A lost purge leaves a trashed note held until it is emptied again,
+ * and a lost partner one held by a node a purge forgot to ask: space and
+ * convergence, not a door.
+ *
+ * NOT CORE: CONTACT (sec 435). A contact entry is a name for a key and
+ * grants nothing; what a contact may do is the chains issued to it, revoked
+ * as any chain is. Lost, a name is forgotten; rolled back, a removed name
+ * returns, still granting nothing.
  *
  * A SLOT THIS DOES NOT NAME IS CORE. A slot added later without a decision
  * about it lands where losing it costs the least, which is the guarded

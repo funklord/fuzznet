@@ -5,6 +5,7 @@
 #include "peer_persist.h"
 #include "roots.h"
 #include "../provision/provision.h"
+#include "../contact/contact.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -609,6 +610,134 @@ static size_t confirm_admin(fzn_node_admin_t *admin, const uint8_t *hex, size_t 
 	return answer_text(reply, cap, FZN_REPLY_OK, NULL);
 }
 
+/* ---- contacts, sec 435 -------------------------------------------------- */
+
+/* Whether `key` is inside this node's estate as the node sees it: itself,
+ * the estate's root, or a node paired to it. A member is never a contact. */
+static int is_member(const fzn_node_admin_t *admin, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	if (memcmp(key, admin->id->pubkey, FZN_PUBKEY_LEN) == 0
+	    || memcmp(key, admin->state->config.root, FZN_PUBKEY_LEN) == 0)
+		return 1;
+	for (i = 0; i < admin->state->peer_count; i++)
+		if (memcmp(key, admin->state->peers[i].sender, FZN_PUBKEY_LEN) == 0)
+			return 1;
+	return 0;
+}
+
+/* The next space-separated word of `rest`, moving it on. */
+static int next_word(const uint8_t **rest, size_t *rest_len, const uint8_t **w, size_t *w_len)
+{
+	size_t i = 0;
+
+	while (*rest_len && **rest == ' ') {
+		(*rest)++;
+		(*rest_len)--;
+	}
+	if (!*rest_len)
+		return 0;
+	while (i < *rest_len && (*rest)[i] != ' ')
+		i++;
+	*w = *rest;
+	*w_len = i;
+	*rest += i;
+	*rest_len -= i;
+	return 1;
+}
+
+static uint64_t admin_now_ms(const fzn_node_admin_t *admin)
+{
+	return admin->state->clock ? admin->state->clock() * 1000u : 0u;
+}
+
+/* `add contact NAME KEY`: a key outside the estate, by a name. */
+static size_t add_contact(fzn_node_admin_t *admin, const uint8_t *rest, size_t rest_len,
+                          char *reply, size_t cap)
+{
+	uint8_t key[FZN_PUBKEY_LEN];
+	const uint8_t *name, *hex;
+	size_t name_len, hex_len;
+	fzn_contact_err_t err;
+
+	if (!next_word(&rest, &rest_len, &name, &name_len)
+	    || !next_word(&rest, &rest_len, &hex, &hex_len) || !unhex(hex, hex_len, key, sizeof(key)))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "add contact NAME KEY");
+	if (is_member(admin, key))
+		return answer_text(reply, cap, FZN_REPLY_ERROR,
+		                   "a member of this estate, not a contact");
+	err = fzn_contact_add(admin->store, key, (const char *)name, name_len, admin_now_ms(admin));
+	if (err != FZN_CONTACT_OK)
+		return answer_text(reply, cap,
+		                   err == FZN_CONTACT_ERR_NAME ? FZN_REPLY_MALFORMED : FZN_REPLY_ERROR,
+		                   fzn_contact_err_str(err));
+	return answer_text(reply, cap, FZN_REPLY_OK, NULL);
+}
+
+/* `remove contact NAME`. What was granted to it is revoked as chains are,
+ * not here. */
+static size_t remove_contact(fzn_node_admin_t *admin, const uint8_t *rest, size_t rest_len,
+                             char *reply, size_t cap)
+{
+	const uint8_t *name;
+	size_t name_len;
+	fzn_contact_t c;
+	fzn_contact_err_t err;
+
+	if (!next_word(&rest, &rest_len, &name, &name_len))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "remove contact NAME");
+	err = fzn_contact_find(admin->store, (const char *)name, name_len, &c);
+	if (err == FZN_CONTACT_OK)
+		err = fzn_contact_remove(admin->store, c.key);
+	if (err != FZN_CONTACT_OK)
+		return answer_text(reply, cap,
+		                   err == FZN_CONTACT_ERR_NAME ? FZN_REPLY_MALFORMED : FZN_REPLY_ERROR,
+		                   fzn_contact_err_str(err));
+	return answer_text(reply, cap, FZN_REPLY_OK, NULL);
+}
+
+/* `list contact [FROM]`: `ok TOTAL FROM NAME,KEY ...`, a page at a time. */
+static size_t list_contacts(fzn_node_admin_t *admin, const uint8_t *rest, size_t rest_len,
+                            char *reply, size_t cap)
+{
+	static fzn_contact_t all[FZN_CONTACTS_MAX];
+	static char detail[FZN_REPLY_MAX];
+	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	size_t count = 0, from = 0, used, i, k;
+	const uint8_t *w;
+	size_t w_len;
+	int n;
+
+	if (next_word(&rest, &rest_len, &w, &w_len))
+		for (i = 0; i < w_len; i++) {
+			if (w[i] < '0' || w[i] > '9' || from > FZN_CONTACTS_MAX)
+				return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not an index");
+			from = (from * 10u) + (size_t)(w[i] - '0');
+		}
+	if (fzn_contact_list(admin->store, all, FZN_CONTACTS_MAX, &count) != FZN_CONTACT_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "the contacts did not read");
+	if (from > count)
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "past the last contact");
+	n = snprintf(detail, sizeof(detail), "%zu %zu", count, from);
+	if (n < 0 || (size_t)n >= limit)
+		return 0;
+	used = (size_t)n;
+	for (i = from; i < count; i++) {
+		size_t need = 1u + all[i].name_len + 1u + (FZN_PUBKEY_LEN * 2u);
+
+		if (limit - used < need)
+			break;
+		detail[used++] = ' ';
+		memcpy(detail + used, all[i].name, all[i].name_len);
+		used += all[i].name_len;
+		detail[used++] = ',';
+		for (k = 0; k < FZN_PUBKEY_LEN; k++)
+			used += (size_t)snprintf(detail + used, 3u, "%02x", all[i].key[k]);
+	}
+	return answer(reply, cap, FZN_REPLY_OK, detail, used);
+}
+
 size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
                              const fzn_peer_t *peer, const fzn_request_t *request,
                              char *reply, size_t reply_cap)
@@ -663,6 +792,19 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 	if (admin->state->config.has_admin && request->parsed == FZN_VERB_ADD
 	    && subject_word(request, "confirm", &rest, &rest_len) && rest && admin->revocations)
 		return confirm_admin(admin, rest, rest_len, reply, reply_cap);
+	/* CONTACTS, sec 435: the node's own user only, reads included. */
+	if (subject_word(request, "contact", &rest, &rest_len)
+	    && (request->parsed == FZN_VERB_ADD || request->parsed == FZN_VERB_REMOVE
+	        || request->parsed == FZN_VERB_LIST)) {
+		if (origin != FZN_ORIGIN_SAME_USER)
+			return answer_text(reply, reply_cap, FZN_REPLY_DENIED,
+			                   "contacts need this node's own user");
+		if (request->parsed == FZN_VERB_ADD)
+			return add_contact(admin, rest, rest_len, reply, reply_cap);
+		if (request->parsed == FZN_VERB_REMOVE)
+			return remove_contact(admin, rest, rest_len, reply, reply_cap);
+		return list_contacts(admin, rest, rest_len, reply, reply_cap);
+	}
 	/* NOTES, sec 431, when this node keeps them. */
 	if (admin->notes_local) {
 		size_t n = admin->notes_local(admin->notes_ctx, origin, request, reply, reply_cap);

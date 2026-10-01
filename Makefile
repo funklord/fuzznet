@@ -163,7 +163,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              net/udp.c \
              node/node.c node/local.c node/remote.c node/serve.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
-             node/revoke.c node/roots.c node/notes.c \
+             node/revoke.c node/roots.c node/notes.c contact/contact.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
              chain/root_log.c \
              chain/chain_store.c chain/service.c claim/claim.c \
@@ -254,7 +254,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              net/udp.h \
              node/node.h node/local.h node/remote.h node/serve.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
-             node/revoke.h node/roots.h node/notes.h \
+             node/revoke.h node/roots.h node/notes.h contact/contact.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
              chain/root_log.h \
              chain/chain_store.h chain/service.h claim/claim.h \
@@ -404,7 +404,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              state/test/state_test.c state/test/scope_test.c notes/test/note_test.c \
              notes/test/text_test.c \
              notes/test/notes_store_test.c node/test/notes_test.c \
-             notes/test/notes_sync_test.c \
+             notes/test/notes_sync_test.c contact/test/contact_test.c \
              trust/test/trust_test.c \
              trust/test/trust_walk_test.c \
              log/test/log_test.c \
@@ -528,6 +528,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/notes/test/notes_store_test \
              $(BUILD_DIR)/node/test/notes_test \
              $(BUILD_DIR)/notes/test/notes_sync_test \
+             $(BUILD_DIR)/contact/test/contact_test \
              $(BUILD_DIR)/trust/test/trust_test \
              $(BUILD_DIR)/trust/test/trust_walk_test \
              $(BUILD_DIR)/log/test/log_test \
@@ -1841,6 +1842,18 @@ $(BUILD_DIR)/notes/test/notes_store_test: $(BUILD_DIR)/notes/test/notes_store_te
                                           $(BUILD_DIR)/prekey/prekey.o \
                                           $(BUILD_DIR)/ratchet/ratchet.o \
                                           $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# contact/: the contact list. sec 435.
+$(BUILD_DIR)/contact/test/contact_test: $(BUILD_DIR)/contact/test/contact_test.o \
+                                        $(BUILD_DIR)/contact/contact.o \
+                                        $(BUILD_DIR)/persist/persist.o \
+                                        $(BUILD_DIR)/trust/trust.o \
+                                        $(BUILD_DIR)/session/agree.o \
+                                        $(BUILD_DIR)/prekey/prekey.o \
+                                        $(BUILD_DIR)/ratchet/ratchet.o \
+                                        $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -3318,6 +3331,7 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o \
+              $(BUILD_DIR)/contact/contact.o \
               $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
               $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o \
               $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/peer.o \
@@ -3353,6 +3367,7 @@ $(BUILD_DIR)/node/test/admin_test.o: node/test/admin_test.c
 
 $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/local/client.o \
+              $(BUILD_DIR)/contact/contact.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/caller.o \
               $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/net/udp.o \
@@ -3401,6 +3416,7 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(BUILD_DIR)/node/identity.o $(BUILD_DIR)/node/pair.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/node/revoke.o \
+              $(BUILD_DIR)/contact/contact.o \
               $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/provision/provision.o \
               $(BUILD_DIR)/session/session.o $(BUILD_DIR)/chain/service.o \
               $(BUILD_DIR)/cli/cli.o \
@@ -3527,6 +3543,7 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
 
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
+                                      $(BUILD_DIR)/contact/contact.o \
                                       $(BUILD_DIR)/notes/store.o \
                                       $(BUILD_DIR)/notes/sync.o \
                                       $(BUILD_DIR)/notes/purge.o \

@@ -70,6 +70,7 @@ enum fzn_persist_tag : u8 {
 	note_seq = 18,
 	note_purge = 19,
 	note_partner = 20,
+	contact = 21,
 	default = error,
 }
 
@@ -236,6 +237,15 @@ struct fzn_persist_note_partner_body {
 	u64 last_pull;
 }
 
+// A contact: a key outside the estate, by a name of 1 to 32 characters of
+// [A-Za-z0-9_], fuzzypickles' rule for a peer name. The key is the persist
+// subject. contact/contact.c, sec 435.
+struct fzn_persist_contact_body {
+	u8  name_len [min = 1, max = 32];
+	u8  name[name_len];
+	u64 added_at;
+}
+
 // version | tag | body. The body is the arm the tag selects.
 struct fzn_persist_blob {
 	u8               version;
@@ -262,6 +272,7 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.note_seq: fzn_persist_note_seq_body note_seq;
 		case fzn_persist_tag.note_purge: fzn_persist_note_purge_body note_purge;
 		case fzn_persist_tag.note_partner: fzn_persist_note_partner_body note_partner;
+		case fzn_persist_tag.contact: fzn_persist_contact_body contact;
 		default: error;
 	}
 }

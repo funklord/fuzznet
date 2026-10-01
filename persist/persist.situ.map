@@ -18,7 +18,7 @@ struct fzn_persist_admin_confirm_body size=131..1384 mutate=Shifting atomic=NonA
   fzn_persist_admin_confirm_body.hops[]  offset=FrameStatic(0x00) size=Fixed(179) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_admin_confirm_body.hops[].bytes offset=FrameStatic(0x00) size=Fixed(179) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
 
-struct fzn_persist_blob size=2.. mutate=Shifting repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+struct fzn_persist_blob size=2.. mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_blob.version               offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
   fzn_persist_blob.tag                   offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
   fzn_persist_blob.body                  offset=AbsoluteStatic(0x02) size=Unbounded align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting effect=EffectOnWrite
@@ -101,10 +101,19 @@ struct fzn_persist_blob size=2.. mutate=Shifting repr=ValueConverted atomic=NonA
   fzn_persist_blob.body.note_purge.asked[].answered offset=FrameStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
   fzn_persist_blob.body.note_partner     offset=AbsoluteStatic(0x02) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_blob.body.note_partner.last_pull offset=AbsoluteStatic(0x02) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.contact          offset=AbsoluteStatic(0x02) size=Bounded(10, 41) align=Aligned(2) repr=ValueConverted atomic=NonAtomic mutate=Shifting address=Unstable effect=EffectOnWrite
+  fzn_persist_blob.body.contact.name_len offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
+  fzn_persist_blob.body.contact.name     offset=AbsoluteStatic(0x03) size=Bounded(1, 32) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting effect=EffectOnWrite
+  fzn_persist_blob.body.contact.added_at offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable effect=EffectOnWrite
 
 struct fzn_persist_chain_body size=40 repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_chain_body.key             offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_chain_body.seq             offset=AbsoluteStatic(0x20) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord effect=EffectOnWrite
+
+struct fzn_persist_contact_body size=10..41 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_contact_body.name_len      offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
+  fzn_persist_contact_body.name          offset=AbsoluteStatic(0x01) size=Bounded(1, 32) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting effect=EffectOnWrite
+  fzn_persist_contact_body.added_at      offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable effect=EffectOnWrite
 
 struct fzn_persist_hop size=179 atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_hop.bytes                  offset=AbsoluteStatic(0x00) size=Fixed(179) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite

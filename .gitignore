@@ -167,6 +167,7 @@
 /notes/test/text_test
 /notes/test/notes_store_test
 /notes/test/notes_sync_test
+/contact/test/contact_test
 /tree/test/tree_test
 /tree/test/tree_kat_test
 /tree/test/tree_fuzz

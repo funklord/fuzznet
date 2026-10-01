@@ -707,6 +707,44 @@ int main(void)
 		}
 	}
 
+	/* ---- CONTACTS, sec 435: a key outside the estate, by a name. */
+	{
+		char key_hex[(FZN_PUBKEY_LEN * 2u) + 1u], own_hex[(FZN_PUBKEY_LEN * 2u) + 1u];
+		size_t k;
+
+		for (k = 0; k < FZN_PUBKEY_LEN; k++) {
+			snprintf(key_hex + (2u * k), 3u, "%02x", (unsigned)(0x40u + k));
+			snprintf(own_hex + (2u * k), 3u, "%02x", node.id.pubkey[k]);
+		}
+		snprintf(line, sizeof(line), "add contact alice %s", key_hex);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK,
+		      "a contact was not added");
+		CHECK(ask(&admin, &owner, "list contact", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && says(detail, detail_len, "1 0 alice,")
+		              && says(detail, detail_len, key_hex),
+		      "the contact was not listed by name and key");
+		snprintf(line, sizeof(line), "add contact me %s", own_hex);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR,
+		      "this node's own key was taken as a contact: a member is never one");
+		snprintf(line, sizeof(line), "add contact al-ice %s", key_hex);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_MALFORMED,
+		      "a name outside [A-Za-z0-9_] was not malformed");
+		CHECK(ask(&admin, &member, "list contact", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_DENIED,
+		      "another user read the contacts");
+		CHECK(ask(&admin, &owner, "remove contact alice", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && ask(&admin, &owner, "list contact", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && says(detail, detail_len, "0 0"),
+		      "a removed contact was still listed");
+	}
+
 	/* ---- TEXTS GO TO THE SHELF'S HOOK, sec 424, and what it does not take
 	 * falls through to the verbs' own refusal. */
 	admin.text_local = text_local_stub;

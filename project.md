@@ -52666,3 +52666,103 @@ number sec 428's retention rules would make configurable.
   the set it pinned.
 
 **Sabotage: two entries.**
+
+## 435. Sharing, decided; and the first piece, a node's contacts, 2026-10-01
+
+Phase 4's last piece is sharing notes with contacts. fuzzypickles' sharing
+rides on machinery fuzznet does not have -- their contacts, their
+per-contact prekey channels, their group ratchets -- and sec 422 named the
+group transport as "the edge to decide here". So the shape was put to the
+copyright holder before anything was built.
+
+### The holder's decisions on sharing, 2026-10-01
+
+- **A share is a grant, pulled.** Sharing a subtree with a contact issues
+  a capability -- read notes under that subtree -- to the contact's node
+  key, and the contact's node pulls it through the remote hop by sec 432's
+  index-then-records sync, scoped to the subtree. Revoking the grant is
+  unsharing. It is sec 430's model applied: everything across estates is
+  a capability granted to an outside key.
+- **Contacts only, groups later.** A group share is a grant per member
+  until fuzznet has a group transport, which is recorded as open.
+- **The contact list is a new fuzznet module**, kept by the node, which
+  fuzzypickles adopts later in a cross-project pass.
+
+### The plan, in three pieces
+
+1. **Contacts** -- this section.
+2. **Issuing a share**: a grant scoped to a subtree, and a node serving a
+   request that carries one, with sync answering only within the subtree.
+3. **Receiving**: a recipient's node holding a sharer's card, pulling into
+   a tree of that sharer's own, admitting the sharer's writers there.
+
+What a recipient has already fetched stays fetched after unsharing:
+fuzzypickles' requirement is that the UI says so before a person shares,
+and the widget of phase 5 carries it.
+
+### `contact/`
+
+A contact is a key and a name, and nothing else: what it may do is the
+chains issued to it, which live and are revoked where every chain is. A
+contact entry by itself grants nothing.
+
+- **Names are fuzzypickles' peer names**, 1 to 32 characters of
+  `[A-Za-z0-9_]`, so a contact moves between the two trees unchanged and a
+  name is one word on a command line.
+- **One name, one key.** A second key under a held name is refused; a key
+  already held is renamed, keeping when it was added.
+- **64 contacts**, listed in name order. A store that cannot list refuses
+  to add, rather than handing out a name it cannot see is taken.
+- **Persist slot 21, `FZN_PERSIST_CONTACT`**, per key, not core: lost, a
+  name is forgotten; rolled back, a removed name returns, granting nothing.
+
+### The contact verbs
+
+    add contact NAME KEY     a key outside the estate, by a name
+    remove contact NAME      forget it; its grants are revoked as chains are
+    list contact [FROM]      `ok TOTAL FROM NAME,KEY ...`, a page at a time
+
+**A member is never a contact.** `add contact` refuses this node's own
+key, the estate's root and every node paired to it -- the two lists are
+split by the estate's boundary, as sec 430 has it. All three verbs need
+the node's own user, reads included.
+
+### Not yet after sec 435
+
+- **Issuing and receiving shares**, pieces 2 and 3.
+- **Group shares**, and the group transport they need.
+- **The estate's other roots are not checked** by `add contact`; a root
+  other than the one this node joined through could be filed as a
+  contact. The root set is held by `node/roots`, and asking it is the
+  natural next check.
+
+### Measured for sec 435
+
+**`contact_test`, 17 checks:**
+
+- **Names:** the charset and length rule, and a name with a space
+  refused.
+- **The list:**
+  - add, get with the time it was added, and find by name;
+  - a second key under a name refused;
+  - a rename keeping the time and freeing the old name;
+  - name order;
+  - remove, and removing again saying there is none.
+- **Bounds and refusals:**
+  - the bound reached and a contact past it refused, a rename still
+    working at it;
+  - an entry whose name length lies refused;
+  - a store that cannot list refusing both adding and listing.
+
+**`admin_test`** grew to 69 checks:
+
+- a contact added and listed by name and key;
+- this node's own key refused as a member;
+- a malformed name refused;
+- another user denied;
+- a removed contact gone from the list.
+
+`err_str_test` walks `fzn_contact_err_str`; `consumer_check` reaches the
+name rule through the installed header.
+
+**Sabotage: seven entries.**

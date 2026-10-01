@@ -175,6 +175,7 @@
 #include <fuzznet/notes/purge.h>
 #include <fuzznet/notes/import.h>
 #include <fuzznet/notes/sync.h>
+#include <fuzznet/contact/contact.h>
 #include <fuzznet/node/notes.h>
 #include <fuzznet/trust/trust.h>
 #include <fuzznet/session/random_system.h>
@@ -298,6 +299,7 @@
 #include "notes/purge.h"
 #include "notes/import.h"
 #include "notes/sync.h"
+#include "contact/contact.h"
 #include "node/notes.h"
 #include "trust/trust.h"
 #include "session/random_system.h"
@@ -993,6 +995,9 @@ int main(void)
 			    != 0u)
 				FAIL(466);
 		}
+		/* A contact's name is a peer name (sec 435). */
+		if (!fzn_contact_name_ok("alice", 5u) || fzn_contact_name_ok("a b", 3u))
+			FAIL(467);
 	}
 
 	/* THE ROOT SET, as a node holds it (secs 405 to 407): a second root
