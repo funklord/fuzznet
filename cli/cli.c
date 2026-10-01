@@ -1,5 +1,7 @@
 #include "cli.h"
 
+#include "../prekey/prekey.h"
+
 #include <string.h>
 
 /* Decimal only, and parsed here rather than with `strtoul`.
@@ -48,6 +50,37 @@ static int option(const char *arg, const char *name, const char **value)
 	return 1;
 }
 
+/* `len` bytes from `2 * len` lowercase or uppercase hex digits, and nothing
+ * after them. Nonzero on success; `out` is untouched otherwise. */
+static int parse_hex(const char *text, uint8_t *out, size_t len)
+{
+	uint8_t bytes[FZN_PREKEY_LEN_TOTAL > FZN_PUBKEY_LEN ? FZN_PREKEY_LEN_TOTAL : FZN_PUBKEY_LEN];
+	size_t i;
+
+	if (!text || len > sizeof(bytes) || strlen(text) != len * 2u)
+		return 0;
+	for (i = 0; i < len * 2u; i++) {
+		char c = text[i];
+		unsigned v;
+
+		if (c >= '0' && c <= '9')
+			v = (unsigned)(c - '0');
+		else if (c >= 'a' && c <= 'f')
+			v = 10u + (unsigned)(c - 'a');
+		else if (c >= 'A' && c <= 'F')
+			v = 10u + (unsigned)(c - 'A');
+		else
+			return 0;
+		if (i % 2u == 0u)
+			bytes[i / 2u] = (uint8_t)(v << 4);
+		else
+			bytes[i / 2u] = (uint8_t)(bytes[i / 2u] | v);
+	}
+	if (out)
+		memcpy(out, bytes, len);
+	return 1;
+}
+
 void fzn_cli_init(fzn_cli_t *cli)
 {
 	if (!cli)
@@ -58,6 +91,15 @@ void fzn_cli_init(fzn_cli_t *cli)
 	cli->service = FZN_SERVICE_NONE;
 	cli->product = FZN_PRODUCT_NONE;
 	cli->owner = FZN_CLI_OWNER_AUTO;
+	cli->socket = NULL;
+	cli->has_udp_port = 0;
+	cli->udp_port = 0;
+	cli->udp6 = 0;
+	cli->has_node = 0;
+	memset(cli->node, 0, sizeof(cli->node));
+	cli->prekey = 0;
+	cli->pair = NULL;
+	cli->accept = NULL;
 }
 
 fzn_cli_err_t fzn_cli_arg(fzn_cli_t *cli, const char *arg, int *claimed)
@@ -139,6 +181,72 @@ fzn_cli_err_t fzn_cli_arg(fzn_cli_t *cli, const char *arg, int *claimed)
 		return FZN_CLI_OK;
 	}
 
+	/* THE NODE'S, sec 421. */
+	if (option(arg, "--socket", &value)) {
+		*claimed = 1;
+		if (!*value)
+			return FZN_CLI_ERR_VALUE;
+		if (cli->socket)
+			return FZN_CLI_ERR_DUPLICATE;
+		cli->socket = value;
+		return FZN_CLI_OK;
+	}
+	if (option(arg, "--udp-port", &value)) {
+		*claimed = 1;
+		if (!parse_u32(value, &number) || number > 65535u)
+			return FZN_CLI_ERR_VALUE;
+		if (cli->has_udp_port)
+			return FZN_CLI_ERR_DUPLICATE;
+		cli->udp_port = (uint16_t)number;
+		cli->has_udp_port = 1;
+		return FZN_CLI_OK;
+	}
+	if (strcmp(arg, "--udp6") == 0) {
+		*claimed = 1;
+		if (cli->udp6)
+			return FZN_CLI_ERR_DUPLICATE;
+		cli->udp6 = 1;
+		return FZN_CLI_OK;
+	}
+	if (option(arg, "--node", &value)) {
+		*claimed = 1;
+		if (!parse_hex(value, NULL, FZN_PUBKEY_LEN))
+			return FZN_CLI_ERR_VALUE;
+		if (cli->has_node)
+			return FZN_CLI_ERR_DUPLICATE;
+		(void)parse_hex(value, cli->node, FZN_PUBKEY_LEN);
+		cli->has_node = 1;
+		return FZN_CLI_OK;
+	}
+	if (strcmp(arg, "--prekey") == 0) {
+		*claimed = 1;
+		if (cli->prekey)
+			return FZN_CLI_ERR_DUPLICATE;
+		cli->prekey = 1;
+		return FZN_CLI_OK;
+	}
+	if (option(arg, "--pair", &value)) {
+		*claimed = 1;
+		/* A PREKEY RECORD'S LENGTH IN HEX, checked here so a truncated
+		 * paste is refused as the option it is rather than later as a
+		 * record that does not open. */
+		if (!parse_hex(value, NULL, FZN_PREKEY_LEN_TOTAL))
+			return FZN_CLI_ERR_VALUE;
+		if (cli->pair)
+			return FZN_CLI_ERR_DUPLICATE;
+		cli->pair = value;
+		return FZN_CLI_OK;
+	}
+	if (option(arg, "--accept", &value)) {
+		*claimed = 1;
+		if (!*value)
+			return FZN_CLI_ERR_VALUE;
+		if (cli->accept)
+			return FZN_CLI_ERR_DUPLICATE;
+		cli->accept = value;
+		return FZN_CLI_OK;
+	}
+
 	return FZN_CLI_OK;
 }
 
@@ -150,6 +258,14 @@ const char *fzn_cli_usage(void)
 	       "  --fuzznet-service=N      service number, 1 or above\n"
 	       "  --fuzznet-product=N      product number, 1 to 65534\n"
 	       "  --fuzznet-owner=WHICH    auto (default), yes, or no\n"
+	       "node options:\n"
+	       "  --socket=PATH            this node's own local socket\n"
+	       "  --udp-port=PORT          serve the remote hop on PORT, 0 to 65535\n"
+	       "  --udp6                   the remote hop over IPv6\n"
+	       "  --node=KEY               a node's key, 64 hex digits\n"
+	       "  --prekey                 print this node's prekey record\n"
+	       "  --pair=PREKEY            pair the device whose prekey record this is\n"
+	       "  --accept=CARD            accept a pairing card\n"
 	       "Values are given with '=', not as a following argument.\n";
 }
 

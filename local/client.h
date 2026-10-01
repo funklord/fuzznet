@@ -5,11 +5,13 @@
  * accept and close and had no connect at all, so every consumer that wants to
  * ask its own daemon a question writes the same forty lines: open an
  * AF_UNIX stream, connect, compose `verb SP argument LF`, write it all,
- * read until a newline under a timeout, and bound what arrives. raidcfgd has
- * one already (`src/daemon_source.cpp`); fuzzypickles and netcfgd will each
- * write one. The copyright holder settled 2026-09-22 that network code two
- * consumers would duplicate belongs in fuzznet, and this is that shape
- * exactly.
+ * read until a newline under a timeout, and bound what arrives. The
+ * copyright holder settled 2026-09-22 that network code two consumers would
+ * duplicate belongs in fuzznet, and this is that shape exactly. Its first
+ * adopter is raidcfgd's bridge, whose `--admin` asks its own node through
+ * `fzn_client_connect`, `_send` and `_recv` and nothing else (sec 412a).
+ * raidcfgd's daemon socket, once cited here as the copy to replace, speaks
+ * length-framed binary envelopes now and is not this grammar.
  *
  * THE COMPOSING IS THE POINT, more than the socket. `fzn_client_compose`
  * writes the grammar `fzn_vocabulary_split` parses -- one verb, one space,

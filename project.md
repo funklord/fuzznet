@@ -50179,6 +50179,91 @@ It now searches the detail's length only.
 
 No daemon was left running, and the socket directory was removed.
 
+## 412. `cli/cli.h` covers five options; the rest are diverging, 2026-09-30
+
+**Signalled by raidcfgd, from its bridge.** `cli/cli.h` says it exists because
+"four projects inventing four spellings of `--fuzznet-store` is the divergence
+sec 2 exists to prevent, in a cheaper place than the protocol". That worked:
+adopting `fzn_cli` cost that project two invented names (`--service`,
+`--product`) and it now spells those five the library's way.
+
+**The options outside `fzn_cli` are doing exactly what it was written to stop**,
+and two of them collided in one change:
+
+- **`--socket`.** `fuzznetd` means the node's own local access socket, the thing
+  an operator administers. raidcfgd's bridge meant raidcfgd's socket, the thing
+  it reads and forwards to. Discovered by adopting `node/admin.h`, at which
+  point the bridge needed a name for the hop fuzznetd already had one for. The
+  bridge yielded: its `--socket` is now the node's own, and raidcfgd's is
+  `--daemon-socket`.
+- **`--ask`.** `fuzznetd` takes the request LINE (`--ask "status"`, with `--to
+  HOST PORT` for the destination). raidcfgd's bridge takes the DESTINATION
+  (`--ask host:9870`, with `--verb` for what to send). Both programs have an
+  `--ask` and they take different kinds of thing. Not resolved here, because
+  choosing between them is not a consumer's call to make in passing.
+
+Also consumer-invented and so far agreeing by luck rather than by construction:
+`--prekey`, `--pair`, `--accept`, `--node`, `--udp-port`, `--udp6`. The bridge
+spelled `--udp6` deliberately to match, which is what makes the `--socket`
+collision worth reporting -- the intent to agree was there and there was
+nothing to agree with.
+
+**Whose decision it is: fuzznet's.** The option, as raidcfgd sees it, is
+whether `fzn_cli` should grow the node-shaped ones -- a local socket, a
+destination, a peer key -- the way it already owns the store-shaped ones. The
+cost is that every consumer's command line changes once; the cost of not doing
+it is what `cli.h` already describes, arriving one option at a time. raidcfgd
+is not asking for the change and has taken neither name as settled beyond its
+own tree.
+
+**The measurement behind it**, in case it is useful: raidcfgd's bridge now
+composes `fzn_node_admin_handle` on its own socket and `fzn_node_admin_remote`
+beside its forwarding handler, so the remote hop carries fuzznet's grammar and
+that project's envelope at once. They are told apart by the envelope's
+`must_eq` version byte being below the first letter any `fzn_verb_name` can
+start with -- a `static_assert` on the first and a test walking
+`FZN_VERB_COUNT` for the second. Nothing in fuzznet had to change for that, and
+`admin_remote` refused all three mutating verbs to a remote caller with the
+node's state unchanged afterwards.
+
+### 412a. `local/client.h`'s named consumer has moved, and it found another
+
+**Correction to a fact in that header, from the tree it names.** It says:
+"every consumer that wants to ask its own daemon a question writes the same
+forty lines ... raidcfgd has one already (`src/daemon_source.cpp`)."
+
+That was true when written and no longer describes raidcfgd's local socket. It
+carries **binary envelopes** now, framed by a length field -- `wire/message.situ`
+-- not `verb SP argument LF`, so `fzn_client_compose` cannot write its requests
+and `src/daemon_client.cpp` is not a copy of this module. Raised because the
+module's own justification cites it, and a justification resting on a stale fact
+is worth correcting whichever way it falls.
+
+**It falls the useful way: the module gained a real adopter in the same tree,
+on a different socket.** raidcfgd's bridge grew a node of its own with
+`fzn_node_admin_handle` on it, and that socket speaks fuzznet's grammar
+exactly. `raidtray-bridge --admin 'revoke peer KEY'` is `fzn_client_connect`,
+`fzn_client_send`, `fzn_client_recv` and nothing else; before it, that tree's
+README told operators to use `nc -U`, which is the case the module describes
+arriving one layer out from where it was expected.
+
+Two things measured that may be worth knowing:
+
+- **The verb/argument split is the inverse of `fzn_client_compose`, and it is
+  testable against `fzn_vocabulary_split` with no daemon.** raidcfgd asserts
+  agreement on six lines over both halves and over whether an argument is
+  present at all. The last is the one that needed the care: a container that
+  cannot distinguish an absent argument from an empty one turns `status` into
+  `status `, and a bytes comparison passes it. Sabotaging exactly that was
+  caught only because the NULL-ness was asserted separately.
+- **`fzn_client_err_t`'s separations earned themselves immediately.** An absent
+  socket reported `connect`, an over-long verb `request too long`, and the two
+  wanted different messages to the operator -- which is the reasoning the enum's
+  own comments give for keeping CONNECT and TIMEOUT out of IO.
+
+No change is asked for. The header's example is the only stale part, and
+whether to update it is fuzznet's.
+
 ## 413. Roster writers against the root set, 2026-09-30
 
 Sec 403 made every root a full-power writer on its own. The roster (secs
@@ -50904,3 +50989,97 @@ value and a row in each function below.
 
 `fzn_scope_err_str` is walked by `err_str_test`, and `consumer_check`
 includes and calls the header.
+
+## 421. `fzn_cli` owns the node's options, 2026-10-01
+
+This answers sec 412, raidcfgd's signal that the options outside
+`fzn_cli` were diverging. `--socket` meant two different sockets in two
+programs, and six more agreed only by luck. raidcfgd named the decision
+fuzznet's, and it was put to the holder because it changes other trees'
+command lines.
+
+### The holder's decisions
+
+- **`fzn_cli` owns the node-shaped options, under their plain names.**
+  Rejected:
+  - a `--fuzznet-` prefix, which would keep a consumer free to use the
+    words for itself, at the cost of longer names;
+  - leaving them per program.
+
+  The price of the plain names is that a consumer gives up `--socket`
+  and the rest for anything of its own. That is one meaning everywhere,
+  which is what the collision cost raidcfgd.
+- **`--ask` stays each program's.** fuzznetd's `--ask LINE --to HOST
+  PORT` and raidcfgd's bridge's `--ask HOST:PORT --verb LINE` take
+  different kinds of thing. Neither is picked until there is a reason.
+
+### The options
+
+    --socket=PATH      this node's own local socket
+    --udp-port=PORT    the remote hop, 0 to 65535 (0: any free port)
+    --udp6             the remote hop over IPv6
+    --node=KEY         a node's key, 64 hex digits, either case
+    --prekey           print this node's prekey record
+    --pair=PREKEY      a device's prekey record, checked for its length
+    --accept=CARD      a pairing card's text
+
+- **The module's rule holds: a value is given with `=`.** That is what
+  lets a caller offer one argument at a time. The two flags are the one
+  form without it, and they match only as the whole argument, so
+  `--udp6=yes` and `--prekeys` are somebody else's.
+- **Refused as ours, as the five store options are:**
+  - a port past 65535;
+  - a key that is not 64 hex digits;
+  - a prekey of the wrong length, so a truncated paste is refused as
+    the option rather than later as a record that does not open;
+  - an empty socket or card.
+- **A repeat is refused** rather than the last one winning.
+- **`fzn_cli_usage`** prints them under "node options", so every
+  consumer's help text says the same.
+
+### fuzznetd moves onto them
+
+**fuzznetd's own branches for the seven are gone.** It reads the parsed
+fields back into the names its main always used. Its command line
+changes:
+
+- `--socket PATH` becomes `--socket=PATH`, and the old form is refused
+  with the usage text;
+- likewise `--udp-port`, `--node`, `--pair` and `--accept`.
+
+The usage text says so. It also lost a line sec 418 had duplicated,
+"counting as K" printed twice.
+
+raidcfgd's bridge and fuzzypickles take the change when they next touch
+their command lines. fuzzypickles carries a pinned copy of `cli/`, so
+nothing changes there until it updates.
+
+### 412a's correction, taken
+
+`local/client.h` cited raidcfgd's `src/daemon_source.cpp` as the copy it
+replaces. That socket speaks length-framed binary envelopes now. The
+header names its real first adopter instead: raidcfgd's bridge, whose
+`--admin` is `fzn_client_connect`, `_send` and `_recv` and nothing else.
+
+### Measured for sec 421
+
+**`cli_test`, 89 checks, with two new cases:**
+
+- each of the seven is read; `--udp-port=0` is a port; `--node` reads 32
+  bytes in either case; a second `--udp-port`, `--udp6` or `--socket` is
+  a duplicate and leaves the first;
+- the refusals above, each still claimed; and a flag with a value, a
+  longer name, and a valued option without `=` are not claimed.
+
+The usage case names all seven.
+
+**Live, three stores**, with the sec 419 script converted to the new
+forms:
+
+1. R adds M's identity, and M's `add peer` answers 896 characters, which
+   D accepts.
+2. M's `--pair=` prints 893, which D2 accepts.
+3. `fuzznetd --socket PATH`, the old form, exits 2 with the usage and
+   creates no socket.
+
+No daemon was left running.

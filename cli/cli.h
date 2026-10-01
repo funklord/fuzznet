@@ -30,6 +30,18 @@
  * function that is free; for anything building an argument list of its own it
  * is a thing to know.
  *
+ * THE NODE'S OPTIONS TOO, sec 421, and under their plain names, the holder's
+ * decision: raidcfgd found `--socket` meaning two different sockets in two
+ * programs, and six more agreeing only by luck. So `--socket`, `--udp-port`,
+ * `--udp6`, `--node`, `--prekey`, `--pair` and `--accept` are fuzznet's, and
+ * a consumer no longer spells them for itself. A plain name costs a consumer
+ * the word for anything else; that is the price of one meaning everywhere.
+ * `--ask`, the one-shot request, stays each program's until there is a reason
+ * to pick between fuzznetd's form and raidcfgd's.
+ *
+ * FLAGS ARE THE ONE FORM WITHOUT '=': `--udp6` and `--prekey` take no value,
+ * and are matched as the whole argument, so `--udp6=x` is not one of ours.
+ *
  * BOUNDS COME FROM THE MODULES THAT OWN THEM. A product is checked against
  * `chain/service.h`'s constants rather than against numbers written here,
  * because a second set of bounds is a second thing to be wrong -- and would
@@ -87,6 +99,17 @@ typedef struct fzn_cli {
 	uint32_t service;
 	uint32_t product;
 	fzn_cli_owner_t owner;
+	/* THE NODE'S, sec 421. `socket`, `pair` and `accept` NULL when unset;
+	 * the rest with a flag, since 0 is a port and a key is any bytes. */
+	const char *socket;     /* --socket=PATH: the node's own local socket */
+	int has_udp_port;       /* --udp-port=PORT, 0 to 65535 (0: any free) */
+	uint16_t udp_port;
+	int udp6;               /* --udp6: the remote hop over IPv6 */
+	int has_node;           /* --node=KEY: a node's key, 64 hex digits */
+	uint8_t node[FZN_PUBKEY_LEN];
+	int prekey;             /* --prekey: print this node's prekey record */
+	const char *pair;       /* --pair=PREKEY: a device's prekey record, hex */
+	const char *accept;     /* --accept=CARD: a pairing card's text */
 } fzn_cli_t;
 
 /* Set every field to its unset value. */

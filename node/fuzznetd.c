@@ -181,21 +181,20 @@ struct pull_target {
 static void usage(const char *prog)
 {
 	fprintf(stderr,
-	        "usage: %s --socket PATH [--group GID] [--udp-port PORT]"
+	        "usage: %s --socket=PATH [--group GID] [--udp-port=PORT]"
 	        " [--udp6] [--identity HEX] [--root HEX]"
 	        " [fuzznet options]\n"
-	        "       %s --fuzznet-dir=DIR --pair PREKEY_HEX [--delegable] [fuzznet options]\n"
+	        "       %s --fuzznet-dir=DIR --pair=PREKEY_HEX [--delegable] [fuzznet options]\n"
 	        "       %s --fuzznet-dir=DIR --prekey\n"
 	        "       %s --fuzznet-dir=DIR --new-root\n"
 	        "       %s --fuzznet-dir=DIR --set-admin CHAIN [fuzznet options]\n"
-	        "       %s --fuzznet-dir=DIR --accept CARD [--join]\n"
-	        "       %s --fuzznet-dir=DIR --ask LINE --node ROOT_HEX --to HOST PORT [--udp6]\n"
+	        "       %s --fuzznet-dir=DIR --accept=CARD [--join]\n"
+	        "       %s --fuzznet-dir=DIR --ask LINE --node=ROOT_HEX --to HOST PORT [--udp6]\n"
 	        "a member of an estate may add --root-at HOST PORT when serving, and any\n"
 	        "node --pull-from NODE_HEX HOST PORT (up to 8) for a node it holds a\n"
 	        "pairing to: it pulls their revocation votes at start and every %u seconds\n"
 	        "--quorum K: a revocation needs K distinct entitled issuers, a root alone\n"
-	        "counting as K, until a root sets the estate's k (set quorum K)\n"
-	        "counting as K (default 2)\n"
+	        "counting as K (default 2), until a root sets the estate's k (set quorum K)\n"
 	        "%s",
 	        prog, prog, prog, prog, prog, prog, prog, FZND_PULL_EVERY, fzn_cli_usage());
 }
@@ -295,7 +294,6 @@ int main(int argc, char **argv)
 	static fzn_node_authority_t authority;
 	const fzn_node_authority_t *my_authority = NULL;
 	const char *ask_line = NULL;
-	const char *node_hex = NULL;
 	const char *to_host = NULL;
 	long to_port = -1;
 	static struct pull_target pulls[FZND_PULL_TARGETS_MAX];
@@ -309,36 +307,22 @@ int main(int argc, char **argv)
 	fzn_cli_init(&cli);
 
 	for (i = 1; i < argc; i++) {
-		if (!strcmp(argv[i], "--socket") && i + 1 < argc) {
-			sock_path = argv[++i];
-		} else if (!strcmp(argv[i], "--group") && i + 1 < argc) {
+		if (!strcmp(argv[i], "--group") && i + 1 < argc) {
 			group = strtol(argv[++i], NULL, 10);
-		} else if (!strcmp(argv[i], "--udp-port") && i + 1 < argc) {
-			udp_port = strtol(argv[++i], NULL, 10);
 		} else if (!strcmp(argv[i], "--identity") && i + 1 < argc) {
 			identity_hex = argv[++i];
 		} else if (!strcmp(argv[i], "--root") && i + 1 < argc) {
 			root_hex = argv[++i];
-		} else if (!strcmp(argv[i], "--udp6")) {
-			family = AF_INET6;
-		} else if (!strcmp(argv[i], "--pair") && i + 1 < argc) {
-			pair_hex = argv[++i];
 		} else if (!strcmp(argv[i], "--new-root")) {
 			new_root = 1;
 		} else if (!strcmp(argv[i], "--set-admin") && i + 1 < argc) {
 			set_admin = argv[++i];
-		} else if (!strcmp(argv[i], "--prekey")) {
-			show_prekey = 1;
-		} else if (!strcmp(argv[i], "--accept") && i + 1 < argc) {
-			accept_text = argv[++i];
 		} else if (!strcmp(argv[i], "--delegable")) {
 			delegable = 1;
 		} else if (!strcmp(argv[i], "--join")) {
 			join = 1;
 		} else if (!strcmp(argv[i], "--ask") && i + 1 < argc) {
 			ask_line = argv[++i];
-		} else if (!strcmp(argv[i], "--node") && i + 1 < argc) {
-			node_hex = argv[++i];
 		} else if (!strcmp(argv[i], "--quorum") && i + 1 < argc) {
 			char *end = NULL;
 
@@ -392,6 +376,15 @@ int main(int argc, char **argv)
 			}
 		}
 	}
+	/* THE NODE'S OPTIONS ARE FUZZNET'S PARSER'S since sec 421, read back
+	 * here into the names this main has always used. */
+	sock_path = cli.socket;
+	udp_port = cli.has_udp_port ? (long)cli.udp_port : -1;
+	if (cli.udp6)
+		family = AF_INET6;
+	pair_hex = cli.pair;
+	show_prekey = cli.prekey;
+	accept_text = cli.accept;
 	/* A NODE THAT SERVES ONLY THE REMOTE HOP needs no local socket, and the
 	 * loop has always taken a listen fd of -1 (sec 381). */
 	if (!sock_path && !pair_hex && !show_prekey && !new_root && !accept_text && !ask_line
@@ -746,12 +739,12 @@ int main(int argc, char **argv)
 		uint32_t msg = 0;
 		int fd = -1, rc;
 
-		if (!booted || !node_hex || !to_host || to_port < 0 || to_port > 65535) {
+		if (!booted || !cli.has_node || !to_host || to_port < 0 || to_port > 65535) {
 			fprintf(stderr, "fuzznetd: --ask needs --fuzznet-dir, --node and --to\n");
 			return 2;
 		}
-		if (!hex_pubkey(node_hex, node_root)
-		    || fzn_node_pairing_load(store_ops, node_root, &pairing) != FZN_PERSIST_OK) {
+		memcpy(node_root, cli.node, FZN_PUBKEY_LEN);
+		if (fzn_node_pairing_load(store_ops, node_root, &pairing) != FZN_PERSIST_OK) {
 			fprintf(stderr, "fuzznetd: not paired to that node\n");
 			return 1;
 		}

@@ -13,6 +13,7 @@
  */
 
 #include "../cli.h"
+#include "../../prekey/prekey.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -260,6 +261,10 @@ static void test_the_usage_names_every_option(void)
 	CHECK(strstr(usage, "--fuzznet-service") != NULL, "the usage does not name the service");
 	CHECK(strstr(usage, "--fuzznet-product") != NULL, "the usage does not name the product");
 	CHECK(strstr(usage, "--fuzznet-owner") != NULL, "the usage does not name the owner");
+	CHECK(strstr(usage, "--socket=") && strstr(usage, "--udp-port=") && strstr(usage, "--udp6")
+	              && strstr(usage, "--node=") && strstr(usage, "--prekey")
+	              && strstr(usage, "--pair=") && strstr(usage, "--accept="),
+	      "the usage does not name every node option");
 	/* The one thing a person will get wrong, so it must be said. */
 	CHECK(strstr(usage, "'='") != NULL,
 	      "the usage does not say values are given with '=' rather than as a next argument");
@@ -300,6 +305,82 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	checks -= 1;
 }
 
+/* THE NODE'S OPTIONS, sec 421: each read, under its plain name. */
+static void test_the_node_options_are_read(void)
+{
+	static char pair[(FZN_PREKEY_LEN_TOTAL * 2u) + sizeof("--pair=")];
+	static const char node[] = "--node=0123456789abcdef0123456789ABCDEF"
+	                           "0123456789abcdef0123456789abcdef";
+	fzn_cli_t cli;
+	int claimed = 0;
+	size_t i;
+
+	memcpy(pair, "--pair=", 7u);
+	for (i = 0; i < FZN_PREKEY_LEN_TOTAL * 2u; i++)
+		pair[7u + i] = 'a';
+	pair[7u + (FZN_PREKEY_LEN_TOTAL * 2u)] = '\0';
+
+	fzn_cli_init(&cli);
+	CHECK(!cli.socket && !cli.has_udp_port && !cli.udp6 && !cli.has_node && !cli.prekey
+	              && !cli.pair && !cli.accept,
+	      "a node option was set by init");
+	CHECK(offer(&cli, "--socket=/run/n.sock", &claimed) == FZN_CLI_OK && claimed == 1
+	              && cli.socket && strcmp(cli.socket, "/run/n.sock") == 0,
+	      "--socket was not read");
+	CHECK(offer(&cli, "--udp-port=0", &claimed) == FZN_CLI_OK && cli.has_udp_port
+	              && cli.udp_port == 0u,
+	      "--udp-port=0, any free port, was not read");
+	CHECK(offer(&cli, "--udp6", &claimed) == FZN_CLI_OK && claimed == 1 && cli.udp6,
+	      "--udp6 was not read");
+	CHECK(offer(&cli, node, &claimed) == FZN_CLI_OK && cli.has_node && cli.node[0] == 0x01u
+	              && cli.node[8] == 0x01u && cli.node[15] == 0xefu,
+	      "--node was not read as 32 bytes, either case");
+	CHECK(offer(&cli, "--prekey", &claimed) == FZN_CLI_OK && cli.prekey,
+	      "--prekey was not read");
+	CHECK(offer(&cli, pair, &claimed) == FZN_CLI_OK && cli.pair
+	              && strlen(cli.pair) == FZN_PREKEY_LEN_TOTAL * 2u,
+	      "--pair was not read");
+	CHECK(offer(&cli, "--accept=FZN3:AAAA", &claimed) == FZN_CLI_OK && cli.accept
+	              && strcmp(cli.accept, "FZN3:AAAA") == 0,
+	      "--accept was not read");
+	CHECK(offer(&cli, "--udp-port=1", &claimed) == FZN_CLI_ERR_DUPLICATE && claimed == 1
+	              && offer(&cli, "--udp6", &claimed) == FZN_CLI_ERR_DUPLICATE
+	              && offer(&cli, "--socket=/x", &claimed) == FZN_CLI_ERR_DUPLICATE
+	              && strcmp(cli.socket, "/run/n.sock") == 0,
+	      "a node option given twice was not refused, or replaced the first");
+}
+
+/* REFUSED AS OURS, and the flags only as whole words. */
+static void test_the_node_options_refuse(void)
+{
+	fzn_cli_t cli;
+	int claimed = 0;
+
+	fzn_cli_init(&cli);
+	CHECK(offer(&cli, "--udp-port=65536", &claimed) == FZN_CLI_ERR_VALUE && claimed == 1
+	              && offer(&cli, "--udp-port=-1", &claimed) == FZN_CLI_ERR_VALUE
+	              && offer(&cli, "--udp-port=", &claimed) == FZN_CLI_ERR_VALUE
+	              && !cli.has_udp_port,
+	      "a port outside 0 to 65535 was taken");
+	CHECK(offer(&cli, "--node=0123", &claimed) == FZN_CLI_ERR_VALUE && claimed == 1
+	              && offer(&cli,
+	                       "--node=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg",
+	                       &claimed) == FZN_CLI_ERR_VALUE
+	              && !cli.has_node,
+	      "a short key or a non-hex digit was taken as a node");
+	CHECK(offer(&cli, "--pair=abcd", &claimed) == FZN_CLI_ERR_VALUE && claimed == 1
+	              && !cli.pair,
+	      "a prekey record of the wrong length was taken");
+	CHECK(offer(&cli, "--socket=", &claimed) == FZN_CLI_ERR_VALUE
+	              && offer(&cli, "--accept=", &claimed) == FZN_CLI_ERR_VALUE,
+	      "an empty socket or card was taken");
+	CHECK(offer(&cli, "--udp6=yes", &claimed) == FZN_CLI_OK && claimed == 0
+	              && offer(&cli, "--prekeys", &claimed) == FZN_CLI_OK && claimed == 0
+	              && offer(&cli, "--socket", &claimed) == FZN_CLI_OK && claimed == 0
+	              && !cli.udp6 && !cli.prekey,
+	      "a flag with a value, a longer name, or a valued option without '=' was claimed");
+}
+
 int main(void)
 {
 	test_every_option_is_read();
@@ -310,6 +391,8 @@ int main(void)
 	test_the_product_bound_is_service_hs();
 	test_a_repeated_option_is_refused();
 	test_the_owner_option_may_repeat();
+	test_the_node_options_are_read();
+	test_the_node_options_refuse();
 	test_the_usage_names_every_option();
 	test_the_caller_bugs_are_refused();
 	test_the_errors_render();
