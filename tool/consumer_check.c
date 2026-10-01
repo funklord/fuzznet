@@ -176,6 +176,8 @@
 #include <fuzznet/notes/import.h>
 #include <fuzznet/notes/sync.h>
 #include <fuzznet/notes/share.h>
+#include <fuzznet/notes/received.h>
+#include <fuzznet/node/received.h>
 #include <fuzznet/contact/contact.h>
 #include <fuzznet/node/notes.h>
 #include <fuzznet/trust/trust.h>
@@ -301,6 +303,8 @@
 #include "notes/import.h"
 #include "notes/sync.h"
 #include "notes/share.h"
+#include "notes/received.h"
+#include "node/received.h"
 #include "contact/contact.h"
 #include "node/notes.h"
 #include "trust/trust.h"
@@ -1000,6 +1004,10 @@ int main(void)
 		/* A contact's name is a peer name (sec 435). */
 		if (!fzn_contact_name_ok("alice", 5u) || fzn_contact_name_ok("a b", 3u))
 			FAIL(467);
+		/* A received share's host is one word (sec 437). */
+		if (!fzn_node_received_host_ok("example.org", 11u)
+		    || fzn_node_received_host_ok("a b", 3u))
+			FAIL(468);
 	}
 
 	/* THE ROOT SET, as a node holds it (secs 405 to 407): a second root

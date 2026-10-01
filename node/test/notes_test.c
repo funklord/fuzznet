@@ -11,6 +11,7 @@
 
 #include "../notes.h"
 #include "../../contact/contact.h"
+#include "../../notes/received.h"
 #include "../../notes/text.h"
 
 #include <stdio.h>
@@ -577,6 +578,73 @@ static void test_share(void)
 	CHECK(ask(line) == FZN_REPLY_ERROR, "and unsharing again is refused");
 }
 
+/* READING A SHARER'S TREE, sec 437: `list shared` and `get shared` over
+ * the notes carol shared, which pulling filed in her tree. */
+static void test_shared_reads(void)
+{
+	uint8_t carol[FZN_PUBKEY_LEN], hid[FZN_TREE_ID_LEN], gid[FZN_TREE_ID_LEN];
+	uint8_t record[FZN_RECORD_MAX_LEN];
+	char f[65], g[65], h[65], line[200], want[200];
+	fzn_notes_received_t seam;
+	fzn_persist_ops_t ops;
+	fzn_notes_store_t tree;
+	size_t len = 0, i;
+	int wrote = 0;
+
+	setup(0);
+	memset(carol, 0xc4, sizeof(carol));
+	CHECK(fzn_contact_add(&OPS, carol, "carol", 5u, 1u) == FZN_CONTACT_OK,
+	      "fixture: the contact carol");
+	/* WRITTEN HERE, COPIED INTO CAROL'S TREE: G and H, not their parent F,
+	 * as a share of G arrives. */
+	CHECK(ask("add folder top folder") == FZN_REPLY_OK, "fixture: F");
+	take_id(f);
+	snprintf(line, sizeof(line), "add note %s child", f);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: G under F");
+	take_id(g);
+	snprintf(line, sizeof(line), "add note %s grandchild", g);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: H under G");
+	take_id(h);
+	CHECK(fzn_notes_received_ops(&seam, &OPS, &HASH, carol, &ops) == FZN_NOTES_OK
+	              && fzn_notes_store_init(&tree, &ops, &HASH) == FZN_NOTES_OK,
+	      "fixture: carol's tree");
+	for (i = 0; i < FZN_TREE_ID_LEN; i++) {
+		unsigned v;
+
+		(void)sscanf(g + (2u * i), "%2x", &v);
+		gid[i] = (uint8_t)v;
+		(void)sscanf(h + (2u * i), "%2x", &v);
+		hid[i] = (uint8_t)v;
+	}
+	CHECK(fzn_notes_get(&notes.store, gid, SELF, record, sizeof(record), &len) == FZN_NOTES_OK
+	              && fzn_notes_put(&tree, record, len, notes.author.policy, &SIGN, &wrote, NULL)
+	                         == FZN_NOTES_OK
+	              && fzn_notes_get(&notes.store, hid, SELF, record, sizeof(record), &len)
+	                         == FZN_NOTES_OK
+	              && fzn_notes_put(&tree, record, len, notes.author.policy, &SIGN, &wrote, NULL)
+	                         == FZN_NOTES_OK,
+	      "fixture: G and H in carol's tree");
+
+	snprintf(want, sizeof(want), "1 0 %s,", g);
+	CHECK(ask("list shared carol top") == FZN_REPLY_OK && !strncmp(detail_of(), want, strlen(want))
+	              && has(",child"),
+	      "the top of carol's tree is G alone, the root of what she shared");
+	CHECK(!has(f), "and not this node's own F");
+	snprintf(line, sizeof(line), "list shared carol %s", g);
+	CHECK(ask(line) == FZN_REPLY_OK && has(h) && has(",grandchild"), "G's child is listed");
+	snprintf(line, sizeof(line), "get shared carol %s", h);
+	CHECK(ask(line) == FZN_REPLY_OK && has(" grandchild"), "and read");
+	snprintf(line, sizeof(line), "get shared carol %s", f);
+	CHECK(ask(line) == FZN_REPLY_ERROR, "a note carol did not share is not in her tree");
+	CHECK(ask("list note top") == FZN_REPLY_OK && !strncmp(detail_of(), "1 0", 3u),
+	      "this node's own top still holds only its F");
+	CHECK(ask("list shared nobody top") == FZN_REPLY_ERROR, "a name that is no contact is refused");
+	CHECK(ask("list shared") == FZN_REPLY_MALFORMED, "a listing with no name is malformed");
+	CHECK(ask_as(FZN_ORIGIN_LOCAL, "list shared carol top") == FZN_REPLY_DENIED,
+	      "another user reads carol's tree");
+	CHECK(ask("set shared carol top") == FZN_REPLY_NONE, "and nothing writes it");
+}
+
 int main(void)
 {
 	memset(SELF, 0x51, sizeof(SELF));
@@ -588,6 +656,7 @@ int main(void)
 	test_trash();
 	test_admission();
 	test_share();
+	test_shared_reads();
 
 	if (failures) {
 		fprintf(stderr, "notes_test: %d of %d checks failed\n", failures, checks);

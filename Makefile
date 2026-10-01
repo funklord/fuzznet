@@ -164,6 +164,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/node.c node/local.c node/remote.c node/serve.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/notes.c contact/contact.c \
+             node/received.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
              chain/root_log.c \
              chain/chain_store.c chain/service.c claim/claim.c \
@@ -195,7 +196,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              record/record.c record/journal.c record/sync.c record/ledger.c \
              state/state.c state/scope.c notes/note.c notes/text.c \
              notes/store.c notes/view.c notes/author.c notes/purge.c notes/import.c \
-             notes/sync.c notes/share.c \
+             notes/sync.c notes/share.c notes/received.c \
              trust/trust.c \
              log/log.c \
              sched/sched.c \
@@ -255,6 +256,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/node.h node/local.h node/remote.h node/serve.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/notes.h contact/contact.h \
+             node/received.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
              chain/root_log.h \
              chain/chain_store.h chain/service.h claim/claim.h \
@@ -284,7 +286,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              record/record.h record/journal.h record/sync.h record/ledger.h \
              state/state.h state/scope.h notes/note.h notes/text.h \
              notes/store.h notes/view.h notes/author.h notes/purge.h notes/import.h \
-             notes/sync.h notes/share.h \
+             notes/sync.h notes/share.h notes/received.h \
              trust/trust.h \
              log/log.h \
              sched/sched.h \
@@ -1861,6 +1863,7 @@ $(BUILD_DIR)/contact/test/contact_test: $(BUILD_DIR)/contact/test/contact_test.o
 $(BUILD_DIR)/notes/test/notes_sync_test: $(BUILD_DIR)/notes/test/notes_sync_test.o \
                                          $(BUILD_DIR)/notes/sync.o \
                                          $(BUILD_DIR)/notes/share.o \
+                                         $(BUILD_DIR)/notes/received.o \
                                          $(BUILD_DIR)/chain/service.o \
                                          $(BUILD_DIR)/notes/store.o \
                                          $(BUILD_DIR)/notes/view.o \
@@ -1887,6 +1890,7 @@ $(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
                                    $(BUILD_DIR)/notes/purge.o \
                                    $(BUILD_DIR)/notes/sync.o \
                                    $(BUILD_DIR)/notes/share.o \
+                                   $(BUILD_DIR)/notes/received.o \
                                    $(BUILD_DIR)/contact/contact.o \
                                    $(BUILD_DIR)/chain/service.o \
                                    $(BUILD_DIR)/notes/note.o \
@@ -3337,6 +3341,7 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o \
               $(BUILD_DIR)/contact/contact.o \
+              $(BUILD_DIR)/node/received.o $(BUILD_DIR)/notes/received.o \
               $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
               $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o \
               $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/peer.o \
@@ -3373,6 +3378,7 @@ $(BUILD_DIR)/node/test/admin_test.o: node/test/admin_test.c
 $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/local/client.o \
               $(BUILD_DIR)/contact/contact.o \
+              $(BUILD_DIR)/node/received.o $(BUILD_DIR)/notes/received.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/caller.o \
               $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/net/udp.o \
@@ -3406,7 +3412,7 @@ FUZZNETD_NOTES_OBJS := $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/notes/store.o \
                        $(BUILD_DIR)/notes/view.o $(BUILD_DIR)/notes/author.o \
                        $(BUILD_DIR)/notes/purge.o $(BUILD_DIR)/notes/import.o \
                        $(BUILD_DIR)/notes/sync.o \
-                       $(BUILD_DIR)/notes/share.o \
+                       $(BUILD_DIR)/notes/share.o $(BUILD_DIR)/notes/received.o \
                        $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/tree/tree.o \
                        $(BUILD_DIR)/record/record.o
 
@@ -3423,6 +3429,7 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/node/revoke.o \
               $(BUILD_DIR)/contact/contact.o \
+              $(BUILD_DIR)/node/received.o \
               $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/provision/provision.o \
               $(BUILD_DIR)/session/session.o $(BUILD_DIR)/chain/service.o \
               $(BUILD_DIR)/cli/cli.o \
@@ -3550,6 +3557,7 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/contact/contact.o \
+                                      $(BUILD_DIR)/node/received.o \
                                       $(BUILD_DIR)/notes/store.o \
                                       $(BUILD_DIR)/notes/sync.o \
                                       $(BUILD_DIR)/notes/purge.o \

@@ -222,6 +222,12 @@ typedef enum fzn_persist_slot {
 	 * node checks a contact's capability against. `notes/share.h` keeps
 	 * it. sec 436. */
 	FZN_PERSIST_NOTE_SHARE = 22u,
+	/* Per row: a note a contact shared with this node, filed in that
+	 * sharer's tree. `notes/received.h` keeps it. sec 437. */
+	FZN_PERSIST_SHARED_NOTE = 23u,
+	/* Per sharer: a share this node accepted, and the address its
+	 * sharer's node is pulled from. `node/received.h` keeps it. sec 437. */
+	FZN_PERSIST_RECEIVED_SHARE = 24u,
 } fzn_persist_slot_t;
 
 typedef enum fzn_persist_err {
@@ -267,6 +273,8 @@ typedef enum fzn_persist_err {
 #define FZN_PERSIST_BLOB_NOTE_PARTNER 20u
 #define FZN_PERSIST_BLOB_CONTACT 21u
 #define FZN_PERSIST_BLOB_NOTE_SHARE 22u
+#define FZN_PERSIST_BLOB_SHARED_NOTE 23u
+#define FZN_PERSIST_BLOB_RECEIVED_SHARE 24u
 
 /* Write a blob head, or refuse when `cap` cannot hold head and body. */
 fzn_persist_err_t fzn_persist_head_write(uint8_t *out, size_t cap, size_t body,
@@ -384,6 +392,14 @@ typedef struct fzn_persist_ops {
  * share row is what a contact's capability is checked against, so a row
  * rolled back is a contact reading a subtree after it was unshared -- a
  * door, which is the holder's test for core.
+ *
+ * NOT CORE: SHARED_NOTE (sec 437). A copy of a note somebody else wrote
+ * and signed, pulled from their node: lost, it is pulled again; rolled back,
+ * an older copy is superseded on the next pull. Neither is a door.
+ *
+ * NOT CORE: RECEIVED_SHARE (sec 437). Lost, a share stops being pulled until
+ * it is accepted again; rolled back, a share this node dropped is pulled
+ * again, into the sharer's own tree.
  *
  * A SLOT THIS DOES NOT NAME IS CORE. A slot added later without a decision
  * about it lands where losing it costs the least, which is the guarded

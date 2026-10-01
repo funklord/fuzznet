@@ -59,8 +59,18 @@ enum fzn_notes_sync_type {
 	FZN_NOTES_SYNC_PURGE = 5,
 	FZN_NOTES_SYNC_PURGE_ACK = 6,
 	FZN_NOTES_SYNC_PURGES_QUERY = 7,
-	FZN_NOTES_SYNC_PURGES = 8
+	FZN_NOTES_SYNC_PURGES = 8,
+	FZN_NOTES_SYNC_WRITERS_QUERY = 9,
+	FZN_NOTES_SYNC_WRITERS = 10
 };
+
+/* WHO WROTE WHAT IS SHARED, sec 437: the distinct writers of the notes a
+ * share reaches, which a recipient admits in that sharer's tree and nowhere
+ * else. At most FZN_NOTES_SYNC_WRITERS_MAX; a share written by more is not
+ * answered, since a short list would refuse some writers' notes with nothing
+ * saying why. */
+#define FZN_NOTES_SYNC_WRITERS_QUERY_LEN 2u
+#define FZN_NOTES_SYNC_WRITERS_MAX 64u
 
 #define FZN_NOTES_SYNC_PURGE_LEN (2u + FZN_TREE_ID_LEN)
 #define FZN_NOTES_SYNC_PURGE_ACK_LEN (2u + FZN_TREE_ID_LEN + 1u)
@@ -100,10 +110,10 @@ typedef struct fzn_notes_sync_scope {
 	size_t count;
 } fzn_notes_sync_scope_t;
 
-/* THE SERVER FOR A SHARE: the index and the records of only the notes in
- * `scope`, and nothing else -- no purge message is answered and no partner
- * recorded, since a contact is not a member and holds no copy a purge is
- * this node's to ask about. 0 for anything else. */
+/* THE SERVER FOR A SHARE: the index, the records and the writers of only
+ * the notes in `scope`, and nothing else -- no purge message is answered and
+ * no partner recorded, since a contact is not a member and holds no copy a
+ * purge is this node's to ask about. 0 for anything else. */
 size_t fzn_notes_sync_answer_scoped(const fzn_notes_store_t *store,
                                     const fzn_notes_sync_scope_t *scope, const uint8_t *request,
                                     size_t request_len, uint8_t *reply, size_t reply_cap);
@@ -147,6 +157,18 @@ fzn_notes_sync_err_t fzn_notes_sync_pull(const fzn_notes_store_t *store,
                                          fzn_notes_policy_t policy, const fzn_sign_ops_t *sign,
                                          fzn_notes_sync_ask_t ask, void *ask_ctx,
                                          fzn_notes_sync_tally_t *tally);
+
+/* THE RECIPIENT OF A SHARE, sec 437: ask the sharer who wrote what it
+ * shares, then pull as `fzn_notes_sync_pull` does with exactly those writers
+ * admitted. `store` is the sharer's tree (`notes/received.h`), so the writers
+ * a sharer names are admitted there and nowhere else: the tree is the
+ * boundary, and the sharer's node, which the share's grant names, is the
+ * authority on who writes in it. SHAPE for a writers answer that will not
+ * read. */
+fzn_notes_sync_err_t fzn_notes_sync_pull_shared(const fzn_notes_store_t *store,
+                                                const fzn_sign_ops_t *sign,
+                                                fzn_notes_sync_ask_t ask, void *ask_ctx,
+                                                fzn_notes_sync_tally_t *tally);
 
 /* What one round of the purge conversation did. */
 typedef struct fzn_notes_purge_tally {

@@ -6,6 +6,8 @@
 #include "roots.h"
 #include "../provision/provision.h"
 #include "../contact/contact.h"
+#include "../notes/received.h"
+#include "received.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -799,6 +801,170 @@ static size_t grant_share(fzn_node_admin_t *admin, const uint8_t *rest, size_t r
 	return answer(reply, cap, FZN_REPLY_OK, text, strlen(text));
 }
 
+/* `add received NAME HOST PORT PATH`: take the card the contact NAME's node
+ * answered `grant share` with, as the pairing this node asks it under, and
+ * pull from HOST PORT. sec 437. PATH is a file holding the card's text, read
+ * by the node as itself: a one-hop card is some 650 characters, past what
+ * one request line carries (FZN_REQUEST_MAX), where a reply has room. THE CARD IS CHECKED BEFORE IT IS TAKEN: it
+ * must be one hop, granted by the contact's own key, for this node's share
+ * capability -- a member's card handed over as a share would otherwise be
+ * filed as one, and a share card from somebody else under this contact's
+ * name. */
+static size_t accept_share(fzn_node_admin_t *admin, const uint8_t *rest, size_t rest_len,
+                           char *reply, size_t cap)
+{
+	static uint8_t card[FZN_PROVISION_MAX_LEN];
+	static char text[FZN_PROVISION_TEXT_MAX_LEN + 2u];
+	const uint8_t *name, *host, *port_w, *path;
+	size_t name_len, host_len, port_len, path_len, text_len = 0, card_len = 0, i;
+	char file[512];
+	FILE *f;
+	unsigned long port = 0;
+	fzn_provision_card_t opened;
+	fzn_chain_hop_t hop;
+	fzn_node_pairing_t pairing;
+	fzn_contact_t contact;
+	fzn_contact_err_t cerr;
+	fzn_node_pair_err_t perr;
+	fzn_node_received_err_t rerr;
+
+	if (!admin->state->config.has_share)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "this node keeps no notes to share");
+	if (!next_word(&rest, &rest_len, &name, &name_len)
+	    || !next_word(&rest, &rest_len, &host, &host_len)
+	    || !next_word(&rest, &rest_len, &port_w, &port_len)
+	    || !next_word(&rest, &rest_len, &path, &path_len) || port_len > 5u
+	    || path_len >= sizeof(file) || memchr(path, '\0', path_len)
+	    || !fzn_node_received_host_ok((const char *)host, host_len))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "add received NAME HOST PORT PATH");
+	for (i = 0; i < port_len; i++) {
+		if (port_w[i] < '0' || port_w[i] > '9')
+			return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a port");
+		port = (port * 10u) + (unsigned long)(port_w[i] - '0');
+	}
+	if (port == 0u || port > 65535u)
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a port");
+	cerr = fzn_contact_find(admin->store, (const char *)name, name_len, &contact);
+	if (cerr != FZN_CONTACT_OK)
+		return answer_text(reply, cap,
+		                   cerr == FZN_CONTACT_ERR_NAME ? FZN_REPLY_MALFORMED : FZN_REPLY_ERROR,
+		                   fzn_contact_err_str(cerr));
+	memcpy(file, path, path_len);
+	file[path_len] = '\0';
+	f = fopen(file, "rb");
+	if (!f)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "cannot read that file");
+	text_len = fread(text, 1u, sizeof(text) - 1u, f);
+	(void)fclose(f);
+	/* THE TEXT AS `grant share` ANSWERED IT, with whatever line ending the
+	 * file was saved with taken off. */
+	while (text_len && (text[text_len - 1u] == '\n' || text[text_len - 1u] == '\r'
+	                    || text[text_len - 1u] == ' '))
+		text_len--;
+	text[text_len] = '\0';
+	if (fzn_provision_from_text(text, card, sizeof(card), &card_len) != FZN_PROVISION_OK
+	    || fzn_provision_open(card, card_len, &opened) != FZN_PROVISION_OK
+	    || fzn_hop_open(opened.hop, FZN_HOP_LEN, &hop) != FZN_CHAIN_OK)
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a card");
+	if (opened.hop_count != 1u || memcmp(opened.root, contact.key, FZN_PUBKEY_LEN) != 0
+	    || memcmp(fzn_hop_grantor(hop), contact.key, FZN_PUBKEY_LEN) != 0)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "that card is not the contact's grant");
+	if (memcmp(fzn_hop_capability(hop)->b, admin->state->config.share_capability.b,
+	           FZN_CAP_ID_LEN)
+	    != 0)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "that card grants no share");
+	perr = fzn_node_pairing_accept(admin->id, card, card_len,
+	                               admin->state->clock ? admin->state->clock() : 0u, admin->store,
+	                               &pairing);
+	fzn_wipe(&pairing, sizeof(pairing));
+	if (perr != FZN_NODE_PAIR_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_pair_err_str(perr));
+	rerr = fzn_node_received_add(admin->store, contact.key, (const char *)host, host_len,
+	                             (uint16_t)port, admin_now_ms(admin));
+	if (rerr != FZN_NODE_RECEIVED_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_received_err_str(rerr));
+	admin->received_fresh = 1;
+	return answer_text(reply, cap, FZN_REPLY_OK, NULL);
+}
+
+/* `list received`: `ok COUNT NAME,HOST,PORT ...`, a share accepted from a
+ * contact since forgotten naming its key. */
+static size_t list_received(fzn_node_admin_t *admin, char *reply, size_t cap)
+{
+	fzn_node_received_t all[FZN_NODE_RECEIVED_MAX];
+	static char detail[FZN_REPLY_MAX];
+	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	size_t count = 0, used, i, k;
+	int n;
+
+	if (fzn_node_received_list(admin->store, all, FZN_NODE_RECEIVED_MAX, &count)
+	    != FZN_NODE_RECEIVED_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "the accepted shares did not read");
+	n = snprintf(detail, sizeof(detail), "%zu", count);
+	if (n < 0 || (size_t)n >= limit)
+		return 0;
+	used = (size_t)n;
+	for (i = 0; i < count; i++) {
+		fzn_contact_t contact;
+		char who[(FZN_PUBKEY_LEN * 2u) + 1u];
+		char port[8];
+		size_t who_len, port_len;
+
+		if (fzn_contact_get(admin->store, all[i].sharer, &contact) == FZN_CONTACT_OK) {
+			memcpy(who, contact.name, contact.name_len);
+			who_len = contact.name_len;
+		} else {
+			for (k = 0; k < FZN_PUBKEY_LEN; k++)
+				(void)snprintf(who + (2u * k), 3u, "%02x", all[i].sharer[k]);
+			who_len = FZN_PUBKEY_LEN * 2u;
+		}
+		n = snprintf(port, sizeof(port), "%u", (unsigned)all[i].port);
+		port_len = n > 0 ? (size_t)n : 0u;
+		if (limit - used < 1u + who_len + 1u + all[i].host_len + 1u + port_len)
+			break;
+		detail[used++] = ' ';
+		memcpy(detail + used, who, who_len);
+		used += who_len;
+		detail[used++] = ',';
+		memcpy(detail + used, all[i].host, all[i].host_len);
+		used += all[i].host_len;
+		detail[used++] = ',';
+		memcpy(detail + used, port, port_len);
+		used += port_len;
+	}
+	return answer(reply, cap, FZN_REPLY_OK, detail, used);
+}
+
+/* `remove received NAME`: stop pulling what the contact NAME shares, and
+ * forget what was pulled. sec 437. */
+static size_t remove_received(fzn_node_admin_t *admin, const uint8_t *rest, size_t rest_len,
+                              char *reply, size_t cap)
+{
+	const uint8_t *name;
+	size_t name_len, gone = 0;
+	fzn_contact_t contact;
+	fzn_contact_err_t cerr;
+	fzn_node_received_err_t rerr;
+
+	if (!next_word(&rest, &rest_len, &name, &name_len))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "remove received NAME");
+	cerr = fzn_contact_find(admin->store, (const char *)name, name_len, &contact);
+	if (cerr != FZN_CONTACT_OK)
+		return answer_text(reply, cap,
+		                   cerr == FZN_CONTACT_ERR_NAME ? FZN_REPLY_MALFORMED : FZN_REPLY_ERROR,
+		                   fzn_contact_err_str(cerr));
+	rerr = fzn_node_received_remove(admin->store, contact.key);
+	if (rerr != FZN_NODE_RECEIVED_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_received_err_str(rerr));
+	admin->received_fresh = 1;
+	/* WHAT WAS PULLED GOES TOO: a share this node stopped taking is not
+	 * one it keeps reading from a copy nobody refreshes. */
+	if (fzn_notes_received_forget(admin->store, contact.key, &gone) != FZN_NOTES_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR,
+		                   "stopped, and the pulled notes would not all go");
+	return answer_text(reply, cap, FZN_REPLY_OK, NULL);
+}
+
 size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
                              const fzn_peer_t *peer, const fzn_request_t *request,
                              char *reply, size_t reply_cap)
@@ -858,6 +1024,25 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 	if (request->parsed == FZN_VERB_GRANT && subject_word(request, "share", &rest, &rest_len)
 	    && rest)
 		return grant_share(admin, rest, rest_len, reply, reply_cap);
+	/* RECEIVED SHARES, sec 437: the node's own user only, reads included,
+	 * as for contacts. */
+	if ((request->parsed == FZN_VERB_ADD || request->parsed == FZN_VERB_LIST
+	     || request->parsed == FZN_VERB_REMOVE)
+	    && subject_word(request, "received", &rest, &rest_len)) {
+		if (origin != FZN_ORIGIN_SAME_USER)
+			return answer_text(reply, reply_cap, FZN_REPLY_DENIED,
+			                   "shares need this node's own user");
+		if (request->parsed == FZN_VERB_LIST)
+			return list_received(admin, reply, reply_cap);
+		if (!rest)
+			return answer_text(reply, reply_cap, FZN_REPLY_MALFORMED,
+			                   request->parsed == FZN_VERB_ADD
+			                           ? "add received NAME HOST PORT PATH"
+			                           : "remove received NAME");
+		if (request->parsed == FZN_VERB_ADD)
+			return accept_share(admin, rest, rest_len, reply, reply_cap);
+		return remove_received(admin, rest, rest_len, reply, reply_cap);
+	}
 	/* CONTACTS, sec 435: the node's own user only, reads included. */
 	if (subject_word(request, "contact", &rest, &rest_len)
 	    && (request->parsed == FZN_VERB_ADD || request->parsed == FZN_VERB_REMOVE

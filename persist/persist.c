@@ -52,7 +52,9 @@
  * notes/store.c, 19 is FZN_PERSIST_BLOB_NOTE_PURGE, in notes/purge.c, and 20
  * is FZN_PERSIST_BLOB_NOTE_PARTNER, in notes/sync.c, and 21 is
  * FZN_PERSIST_BLOB_CONTACT, in contact/contact.c, and 22 is
- * FZN_PERSIST_BLOB_NOTE_SHARE, in notes/share.c. */
+ * FZN_PERSIST_BLOB_NOTE_SHARE, in notes/share.c, and 23 is
+ * FZN_PERSIST_BLOB_SHARED_NOTE, in notes/received.c, and 24 is
+ * FZN_PERSIST_BLOB_RECEIVED_SHARE, in node/received.c. */
 #define BLOB_IDENTITY 6u
 
 #define TRUST_BODY (FZN_PUBKEY_LEN + 1u + 8u)                 /* root, source, adopted_at */
@@ -446,6 +448,8 @@ int fzn_persist_slot_is_core(fzn_persist_slot_t slot)
 	case FZN_PERSIST_NOTE_PURGE:
 	case FZN_PERSIST_NOTE_PARTNER:
 	case FZN_PERSIST_CONTACT:
+	case FZN_PERSIST_SHARED_NOTE:
+	case FZN_PERSIST_RECEIVED_SHARE:
 		return 0;
 	default:
 		return 1;	/* named or not: see persist.h */

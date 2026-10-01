@@ -52933,3 +52933,162 @@ and one moved in starting; a forgotten contact listed by key; unsharing.
 **Sabotage: nineteen entries.** Not covered: the fuzznetd writers filter,
 which no unit test reaches, and `grant share`'s member refusal, since a
 contact becomes a member only by a later `add peer`.
+
+## 437. Sharing, piece 3: a node receives a share, into a tree per sharer, 2026-10-02
+
+The last piece of sec 435's plan. A contact's node grants this one a share
+(sec 436); this node takes the card, records where the sharer is reached,
+pulls the shared subtrees into a tree of the sharer's own, and reads them.
+
+### A separate tree per sharer, as a `persist/` seam
+
+fuzzypickles settled this in its sec 22 and the mechanism forces it: a
+shared subtree's top note names a parent the recipient does not hold, so in
+one store every note anybody shared would surface in the recipient's own top
+level, mixed with theirs.
+
+**`notes/received.h` is a seam, not a second store.**
+`fzn_notes_received_ops` hands back a `fzn_persist_ops_t` that files the
+NOTE slot's rows in slot 23, `SHARED_NOTE`, under a hash of the sharer and
+the claim key, each row carrying both. The store, view and sync code run over
+it unchanged. Two sharers' trees cannot collide, and neither can be walked
+into from the other or from the user's own notes; the namespace is the
+address rather than a check somebody has to remember.
+
+- **Read-only, as far as a seam can make it.** Only the NOTE slot is held;
+  a sequence, a purge or a partner reads absent and refuses a write, so a
+  store over the seam cannot take a counter to sign with.
+- **A row is refused unless it is the sharer's and the claim's**, and is
+  not listed unless it is filed under its own key.
+- **The roots of a sharer's tree** are `fzn_notes_received_roots`: the notes
+  whose parent this node does not hold. The view's top level is the wrong
+  question there, since every shared note is unreachable from a root nobody
+  shared and it would list them all, flat.
+- **2048 rows**, eight sharers' worth of FZN_NOTES_MAX. Slot 23 is not
+  core: a lost copy is pulled again.
+
+### Who may write in a sharer's tree: who the sharer names
+
+A shared subtree holds notes written by the sharer's other nodes as well as
+the one that serves it, and this node has no way to prove those keys belong
+to the sharer: it pins only the sharer's node key, from the card. So the
+sharer's node is asked.
+
+**WRITERS_QUERY and WRITERS** (sync messages 9 and 10, in
+`notes/sync.situ`) are answered only under the share capability, with the
+distinct writers of the notes the share reaches, sorted, at most 64; past 64
+the query is not answered, since a short list would refuse some writers'
+notes with nothing saying why. `fzn_notes_sync_pull_shared` asks first and
+pulls with exactly those admitted.
+
+**The tree is the boundary and the sharer's node is the authority**, and
+that is the reasoning rather than a gap. The keys a sharer names are
+admitted in that sharer's tree and nowhere else, so naming any key -- this
+node's own included -- reaches nothing of this node's. A record from a key
+the sharer did not name is refused, which is the line that is tested.
+
+**Rejected: proving each writer.** fuzzypickles verifies host proofs pinned
+to a root it holds for the peer. fuzznet holds no root for a contact, only
+its node key; proving writers would need the sharer's estate root carried in
+the card, and would add nothing the namespace does not already give while
+the sharer's node can serve its tree as it likes.
+
+### Accepting
+
+    add received NAME HOST PORT PATH   take the card the contact NAME's node
+                                       answered `grant share` with, from the
+                                       file PATH, and pull from HOST PORT
+    list received                      `ok COUNT NAME,HOST,PORT ...`
+    remove received NAME               stop, and forget what was pulled
+
+**PATH, not the card**: a one-hop card's text is some 650 characters, past
+the 512 a request line carries, where a reply has room. The node reads the
+file as itself, as `set note ID file PATH` does.
+
+**The card is checked before it is taken**: one hop, granted by the
+contact's own key, for this node's share capability. A member's card
+handed over as a share, or another contact's card under this one's name, is
+refused and leaves no pairing behind.
+
+The table is slot 24, `RECEIVED_SHARE`, keyed by the sharer -- one contact,
+one row, one pairing -- with the host (1 to 253 bytes, one word) and port,
+eight of them, not core. A share's pairing is told apart from the estate's
+by `fzn_node_pairing_estate`, which wants a delegable hop from the estate's
+root.
+
+### Pulling and reading
+
+**fuzznetd pulls each accepted share on its round**, after the estate's
+notes, and at once when `add received` or `remove received` changes the
+table (`fzn_node_admin_t.received_fresh`). A node keeping notes now runs
+the pull loop even with no estate peer to pull, so a share can be its only
+peer.
+
+    list shared NAME PARENT [FROM]     the tree NAME shared; `top` is its roots
+    get shared NAME ID ...             as `get note`, in that tree
+
+Both need the node's own user, and nothing writes there but pulling. They
+are `list` and `get` over the sharer's store, made store-generic for it.
+
+### Not yet after sec 437
+
+- **A sharer's purge does not reach a recipient.** A note erased by its
+  writers stays in the copies a contact pulled -- the same "un-sharing does
+  not recall" fuzzypickles' sec 22 settled, applied to purges. A pull keeps
+  what is no longer offered.
+- **Unsharing is not seen by the recipient** either: its copies stay until
+  `remove received`.
+- **`remove received` leaves the pairing**, which grants this node nothing
+  and is replaced by the next accept.
+- **A share's blob texts are not fetched**: a long note arrives as its
+  reference, and `get shared NAME ID file` says the text is not here.
+- **Group shares**, as before.
+
+### Measured for sec 437
+
+**`notes_sync_test`, 97 checks** (`test_received`): B pulls a share of G
+into A's tree -- both writers' notes, B's own tree and another sharer's
+empty; the shared root is the one root of the tree while the view's top
+level lists all three; a second pull fetches nothing; a writers answer names
+two writers, each once, and a member's sync does not answer one; forgetting
+A's tree takes three notes and leaves another sharer's; a sharer naming only
+A has B's note refused; no sequence can be taken in a sharer's tree; a row
+copied under another key is not listed; writers answers with no count, or a
+length that disagrees with it, are SHAPE, and so is one whose count is within the bound and names two
+keys where one arrived -- the case only the length check can refuse, added
+when the sabotage sweep found the first two never reached it; an empty
+share pulls nothing.
+
+**`admin_test`, 118 checks:** `add received` refused on a node keeping no
+notes, to a group member, under another contact's name, for a card of
+another capability, with port 0, for a file that is no card and one that
+cannot be read, each leaving no pairing; the owner's accept keeping the
+pairing for the share capability, recording the address and telling the
+daemon; `list received` by name, host and port, and denied to another user;
+`remove received` forgetting the pulled notes and telling the daemon, and
+refusing a second time; the table's host rule, bound, and an address change
+at the bound.
+
+**`notes_test` (node), 145 checks:** carol's tree's top is G alone and not
+this node's F; G's child listed and read; a note carol did not share absent;
+this node's own top unchanged; a name that is no contact, no name, and
+another user refused; nothing writes the tree.
+
+`persist_test` lists slots 23 and 24 as bulk and `persist_print_test`
+walks both; `err_str_test` walks `fzn_node_received_err_str`;
+`consumer_check` reaches the host rule through the installed header.
+
+**Live, two daemons over loopback, neither joined to the other:** A added a
+folder with a note in it and a private note, filed B's node as the contact
+bob, granted the share and shared the folder; B filed A as alice and took
+the card from a file. Four seconds later B's log said "2 shared note
+record(s) from 127.0.0.1"; `list shared alice top` was the folder,
+`list shared alice FOLDER` the note, and B's own top was empty. A note A
+added under the folder arrived on B's next round. `remove received alice`
+emptied A's tree on B. No daemon was left running.
+
+**Sabotage: thirteen entries**, and `node-notes-list-hides-pending`
+re-aimed at the store-generic listing. Not covered: the seam's slot and
+prefix refusals in load and save, which the row key already enforces for
+every caller in the tree, and fuzznetd's pull of a share, which the live run
+shows and no unit test reaches.

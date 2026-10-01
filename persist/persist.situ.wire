@@ -19,7 +19,7 @@ endian big
 target file
 
 enum fzn_persist_tag : u8 unknown=error
-  trust=1 secret=2 peer=3 chain=4 node_peer=5 identity=6 pairing=7 revocation=8 vote=9 root_entry=10 root_add=11 root_remove=12 own_root=13 admin_confirm=14 own_admin=15 quorum_set=16 note=17 note_seq=18 note_purge=19 note_partner=20 contact=21 note_share=22
+  trust=1 secret=2 peer=3 chain=4 node_peer=5 identity=6 pairing=7 revocation=8 vote=9 root_entry=10 root_add=11 root_remove=12 own_root=13 admin_confirm=14 own_admin=15 quorum_set=16 note=17 note_seq=18 note_purge=19 note_partner=20 contact=21 note_share=22 shared_note=23 received_share=24
 
 struct fzn_persist_admin_confirm_body size=131..1384
   @0x0000   130       u8         record  big
@@ -53,6 +53,8 @@ struct fzn_persist_blob size=2..
   body case 20: note_partner fzn_persist_note_partner_body
   body case 21: contact fzn_persist_contact_body
   body case 22: note_share fzn_persist_note_share_body
+  body case 23: shared_note fzn_persist_shared_note_body
+  body case 24: received_share fzn_persist_received_share_body
   body case default: error
 
 struct fzn_persist_chain_body size=40
@@ -124,6 +126,12 @@ struct fzn_persist_purge_host size=33
 struct fzn_persist_quorum_set_body size=131
   @0x0000   131       u8         record  big
 
+struct fzn_persist_received_share_body size=12..264
+  @0x0000   1         u8         host_len  min=1 max=253
+  @0x0001   1..253    u8         host  sized-by=host_len
+  ~         2         u16        port  big min=1
+  ~         8         u64        accepted_at  big
+
 struct fzn_persist_revocation_body size=210
   @0x0000   210       u8         record  big
 
@@ -139,6 +147,11 @@ struct fzn_persist_root_remove_body size=162
 struct fzn_persist_secret_body size=40
   @0x0000   32        u8         secret  big
   @0x0020   8         u64        generation  big
+
+struct fzn_persist_shared_note_body size=64..
+  @0x0000   32        u8         sharer  big
+  @0x0020   32        u8         claim  big
+  @0x0040   0..       u8         record  sized-by=remaining
 
 struct fzn_persist_trust_body size=41
   @0x0000   32        u8         root  big

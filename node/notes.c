@@ -5,6 +5,7 @@
 #include "notes.h"
 
 #include "../contact/contact.h"
+#include "../notes/received.h"
 #include "../notes/share.h"
 #include "../notes/text.h"
 
@@ -326,7 +327,10 @@ static size_t set(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *rep
 
 /* ---- list ---------------------------------------------------------------- */
 
-static size_t list(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *reply, size_t cap)
+/* `store` is this node's notes, or a sharer's tree when `shared` is set
+ * (sec 437): then the top is the shared subtrees' roots. */
+static size_t list(const fzn_notes_store_t *store, int shared, const uint8_t *at, size_t left,
+                   char *reply, size_t cap)
 {
 	static const fzn_tree_node_t *out[FZN_NOTES_MAX];
 	static uint8_t contested[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
@@ -346,19 +350,22 @@ static size_t list(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *re
 				return say(reply, cap, FZN_REPLY_MALFORMED, "not an index");
 			from = (from * 10u) + (size_t)(w[i] - '0');
 		}
-	err = fzn_notes_view_load(&n->store, &view);
+	err = fzn_notes_view_load(store, &view);
 	if (err != FZN_NOTES_OK)
 		return refuse(reply, cap, err);
-	err = fzn_tree_is_root(parent)
-	              ? fzn_notes_top_level(&view, out, FZN_NOTES_MAX, &count, &cut)
-	              : fzn_notes_children(&view, parent, out, FZN_NOTES_MAX, &count, &cut);
+	if (fzn_tree_is_root(parent) && shared)
+		count = fzn_notes_received_roots(&view, out, FZN_NOTES_MAX);
+	else
+		err = fzn_tree_is_root(parent)
+		              ? fzn_notes_top_level(&view, out, FZN_NOTES_MAX, &count, &cut)
+		              : fzn_notes_children(&view, parent, out, FZN_NOTES_MAX, &count, &cut);
 	if (err != FZN_NOTES_OK)
 		return refuse(reply, cap, err);
 	/* A NOTE PENDING PURGE IS LEFT OUT: one a user emptied must not come
 	 * back into view because a node that holds it has not answered yet.
 	 * sec 434. */
 	for (i = 0, j = 0; i < count; i++)
-		if (!fzn_notes_purge_pending(&n->store, out[i]->id))
+		if (!fzn_notes_purge_pending(store, out[i]->id))
 			out[j++] = out[i];
 	count = j;
 	if (from > count)
@@ -410,7 +417,8 @@ static size_t list(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *re
 
 /* ---- get ----------------------------------------------------------------- */
 
-static size_t get(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *reply, size_t cap)
+static size_t get(fzn_node_notes_t *n, const fzn_notes_store_t *store, const uint8_t *at,
+                  size_t left, char *reply, size_t cap)
 {
 	static uint8_t text[FZN_NOTE_TEXT_MAX];
 	static char detail[FZN_REPLY_MAX];
@@ -425,7 +433,7 @@ static size_t get(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *rep
 
 	if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, id) || fzn_tree_is_root(id))
 		return say(reply, cap, FZN_REPLY_MALFORMED, "get note ID [text [FROM] | file PATH]");
-	err = fzn_notes_view_load(&n->store, &view);
+	err = fzn_notes_view_load(store, &view);
 	if (err != FZN_NOTES_OK)
 		return refuse(reply, cap, err);
 	node = find(n, id, &idx);
@@ -650,6 +658,35 @@ static size_t list_shares(fzn_node_notes_t *n, const uint8_t *at, size_t left, c
 	return answer(reply, cap, FZN_REPLY_OK, detail, used);
 }
 
+/* `list shared NAME PARENT [FROM]` and `get shared NAME ID ...`: the note
+ * verbs' reads, over the tree the contact NAME shared with this node. sec
+ * 437. Nothing writes there but pulling. */
+static size_t read_shared(fzn_node_notes_t *n, int listing, const uint8_t *at, size_t left,
+                          char *reply, size_t cap)
+{
+	static fzn_notes_received_t seam;
+	static fzn_persist_ops_t ops;
+	fzn_notes_store_t store;
+	fzn_contact_t contact;
+	fzn_contact_err_t cerr;
+	const uint8_t *name;
+	size_t name_len;
+
+	if (!word(&at, &left, &name, &name_len))
+		return say(reply, cap, FZN_REPLY_MALFORMED,
+		           listing ? "list shared NAME PARENT [FROM]" : "get shared NAME ID ...");
+	cerr = fzn_contact_find(n->store.ops, (const char *)name, name_len, &contact);
+	if (cerr != FZN_CONTACT_OK)
+		return say(reply, cap,
+		           cerr == FZN_CONTACT_ERR_NAME ? FZN_REPLY_MALFORMED : FZN_REPLY_ERROR,
+		           fzn_contact_err_str(cerr));
+	if (fzn_notes_received_ops(&seam, n->store.ops, n->store.hash, contact.key, &ops)
+	            != FZN_NOTES_OK
+	    || fzn_notes_store_init(&store, &ops, n->store.hash) != FZN_NOTES_OK)
+		return say(reply, cap, FZN_REPLY_ERROR, "the shared notes would not open");
+	return listing ? list(&store, 1, at, left, reply, cap) : get(n, &store, at, left, reply, cap);
+}
+
 size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                             char *reply, size_t reply_cap)
 {
@@ -663,6 +700,14 @@ size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t 
 	left = request->arg_len;
 	if (!word(&at, &left, &subject, &subject_len))
 		return 0;
+	if (is_word(subject, subject_len, "shared")) {
+		if (request->parsed != FZN_VERB_LIST && request->parsed != FZN_VERB_GET)
+			return 0;
+		if (origin != FZN_ORIGIN_SAME_USER)
+			return say(reply, reply_cap, FZN_REPLY_DENIED,
+			           "notes need this node's own user");
+		return read_shared(n, request->parsed == FZN_VERB_LIST, at, left, reply, reply_cap);
+	}
 	if (is_word(subject, subject_len, "share")) {
 		if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_REMOVE
 		    && request->parsed != FZN_VERB_LIST)
@@ -693,9 +738,9 @@ size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t 
 	case FZN_VERB_SET:
 		return set(n, at, left, reply, reply_cap);
 	case FZN_VERB_LIST:
-		return list(n, at, left, reply, reply_cap);
+		return list(&n->store, 0, at, left, reply, reply_cap);
 	case FZN_VERB_GET:
-		return get(n, at, left, reply, reply_cap);
+		return get(n, &n->store, at, left, reply, reply_cap);
 	case FZN_VERB_REMOVE:
 		if (is_word(at, left, "trash"))
 			return empty_trash(n, reply, reply_cap);

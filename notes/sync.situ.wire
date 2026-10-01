@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum fzn_notes_sync_type : u8 unknown=error
-  index_query=1 index=2 records_query=3 records=4 purge=5 purge_ack=6 purges_query=7 purges=8
+  index_query=1 index=2 records_query=3 records=4 purge=5 purge_ack=6 purges_query=7 purges=8 writers_query=9 writers=10
 
 struct fzn_notes_sync_claim size=40
   @0x0000   32        u8         key  big
@@ -80,3 +80,16 @@ struct fzn_notes_sync_records_query size=35..515
   @0x0001   1         fzn_notes_sync_type type  must_eq=records_query
   @0x0002   1         u8         count  min=1 max=16
   @0x0003   32..512   fzn_notes_sync_key keys  big sized-by=count
+
+struct fzn_notes_sync_writer size=32
+  @0x0000   32        u8         key  big
+
+struct fzn_notes_sync_writers size=3..2051
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         fzn_notes_sync_type type  must_eq=writers
+  @0x0002   1         u8         count  max=64
+  @0x0003   0..2048   fzn_notes_sync_writer writers  sized-by=count
+
+struct fzn_notes_sync_writers_query size=2
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         fzn_notes_sync_type type  must_eq=writers_query

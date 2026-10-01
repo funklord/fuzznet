@@ -23,6 +23,15 @@
  *     get note ID file PATH        its whole text into a file, opened from its
  *                                  blob when it is one
  *     remove note trash            empty the trash
+ *     add share SUBTREE NAME       share SUBTREE with the contact NAME (sec 436)
+ *     remove share SUBTREE NAME    stop
+ *     list share [FROM]            what is shared, with whom
+ *     list shared NAME PARENT [FROM]
+ *                                  the tree the contact NAME shared with this
+ *                                  node (sec 437); `top` is the roots of what
+ *                                  was shared, the notes whose parent this
+ *                                  node does not hold
+ *     get shared NAME ID ...       as `get note`, in that tree
  *
  * PARENT is a note's id in hex, or `top` for the top level. A listing of
  * `top` is the top level as `notes/view.h` defines it: the root's children,

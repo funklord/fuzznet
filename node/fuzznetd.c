@@ -42,7 +42,9 @@
 #include "roots.h"
 #include "peer_persist.h"
 #include "notes.h"
+#include "../notes/received.h"
 #include "../notes/share.h"
+#include "received.h"
 #ifdef FZN_SPOOL_FILE_ON
 #include "shelf.h"
 #endif
@@ -315,6 +317,111 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now)
 		}
 	}
 #endif
+}
+
+/* SHARES THIS NODE ACCEPTED, as pull targets, sec 437: each sharer's node at
+ * the address `add received` recorded, asked under the pairing its card
+ * made. Reloaded when the verbs change the table. */
+struct share_target {
+	struct pull_target pt;
+	char host[FZN_NODE_RECEIVED_HOST_MAX + 1u];
+	uint8_t sharer[FZN_PUBKEY_LEN];
+};
+
+static struct share_target shares_in[FZN_NODE_RECEIVED_MAX];
+static size_t nshares_in;
+/* The running admin, whose `received_fresh` the loop reads. */
+static fzn_node_admin_t *running_admin;
+
+static void load_received(int family, const uint8_t self[FZN_PUBKEY_LEN],
+                          const fzn_hash_ops_t *hash, const fzn_aead_ops_t *aead,
+                          const fzn_random_ops_t *rng)
+{
+	static fzn_node_received_t rows[FZN_NODE_RECEIVED_MAX];
+	size_t count = 0, i;
+
+	for (i = 0; i < nshares_in; i++) {
+		if (shares_in[i].pt.fd >= 0)
+			fzn_udp_close(shares_in[i].pt.fd);
+		fzn_wipe(&shares_in[i].pt.pairing, sizeof(shares_in[i].pt.pairing));
+	}
+	nshares_in = 0;
+	if (!notes_on
+	    || fzn_node_received_list(node_notes.store.ops, rows, FZN_NODE_RECEIVED_MAX, &count)
+	               != FZN_NODE_RECEIVED_OK)
+		return;
+	for (i = 0; i < count; i++) {
+		struct share_target *sh = &shares_in[nshares_in];
+		struct pull_target *pt = &sh->pt;
+		int fd = -1;
+
+		memset(sh, 0, sizeof(*sh));
+		pt->fd = -1;
+		memcpy(sh->host, rows[i].host, rows[i].host_len);
+		sh->host[rows[i].host_len] = '\0';
+		memcpy(sh->sharer, rows[i].sharer, FZN_PUBKEY_LEN);
+		pt->host = sh->host;
+		pt->port = rows[i].port;
+		/* A ROW WITH NO PAIRING is reported and skipped: the others are
+		 * still pulled. */
+		if (fzn_node_pairing_load(node_notes.store.ops, rows[i].sharer, &pt->pairing)
+		    != FZN_PERSIST_OK) {
+			fprintf(stderr, "fuzznetd: a share from %s holds no pairing\n", sh->host);
+			continue;
+		}
+		if (fzn_udp_bind(family, NULL, 0, &fd) != FZN_UDP_OK
+		    || fzn_udp_resolve(family, sh->host, rows[i].port, &pt->caller.node)
+		               != FZN_UDP_OK
+		    || fzn_reasm_slot_init(&pt->slot, pt->slot_buf, sizeof(pt->slot_buf))
+		               != FZN_REASM_OK
+		    || fzn_reasm_init(&pt->table, &pt->slot, 1, 1u, 60u) != FZN_REASM_OK) {
+			fprintf(stderr, "fuzznetd: could not reach for a share at %s\n", sh->host);
+			if (fd >= 0)
+				fzn_udp_close(fd);
+			fzn_wipe(&pt->pairing, sizeof(pt->pairing));
+			continue;
+		}
+		pt->fd = fd;
+		fzn_node_pairing_caller(&pt->pairing, self, &pt->caller);
+		pt->caller.fd = fd;
+		pt->caller.hash = hash;
+		pt->caller.aead = aead;
+		pt->caller.rng = rng;
+		pt->caller.reasm = &pt->table;
+		pt->caller.hops = 1u;
+		nshares_in++;
+	}
+}
+
+/* Each accepted share into its sharer's tree. sec 437. */
+static void pull_received(uint64_t now)
+{
+	size_t i;
+
+	if (!notes_on)
+		return;
+	for (i = 0; i < nshares_in; i++) {
+		static fzn_notes_received_t seam;
+		static fzn_persist_ops_t ops;
+		fzn_notes_store_t tree;
+		struct peer_asking asking = { &shares_in[i].pt.caller, now };
+		fzn_notes_sync_tally_t tally;
+		fzn_notes_sync_err_t err;
+
+		if (fzn_notes_received_ops(&seam, node_notes.store.ops, node_notes.store.hash,
+		                           shares_in[i].sharer, &ops)
+		            != FZN_NOTES_OK
+		    || fzn_notes_store_init(&tree, &ops, node_notes.store.hash) != FZN_NOTES_OK)
+			continue;
+		err = fzn_notes_sync_pull_shared(&tree, node_notes.author.sign, peer_ask, &asking,
+		                                 &tally);
+		if (err != FZN_NOTES_SYNC_OK)
+			fprintf(stderr, "fuzznetd: shared notes from %s: %s\n", shares_in[i].host,
+			        fzn_notes_sync_err_str(err));
+		else if (tally.learned || tally.refused)
+			fprintf(stderr, "fuzznetd: %zu shared note record(s) from %s, %zu refused\n",
+			        tally.learned, shares_in[i].host, tally.refused);
+	}
 }
 
 #ifdef FZN_SPOOL_FILE_ON
@@ -1135,6 +1242,7 @@ int main(int argc, char **argv)
 			admin.id = &identity;
 			admin.store = store_ops;
 			admin.card_lifetime = FZND_CARD_LIFETIME;
+			running_admin = &admin;
 			admin.revocations = &revoked;
 			admin.authority = my_authority;
 			admin.roots = &estate_roots;
@@ -1227,7 +1335,9 @@ int main(int argc, char **argv)
 	 * fatal, since what was pulled before is already loaded from slot 10
 	 * and refusing to serve would cut off every device the root did not
 	 * revoke. sec 384. */
-	if (npulls) {
+	/* A NODE KEEPING NOTES LOOPS TOO, with no estate peer to pull: a
+	 * share it accepts is pulled on the same round. sec 437. */
+	if (npulls || notes_on) {
 		uint64_t next_pull = 0;
 		size_t t;
 
@@ -1235,7 +1345,7 @@ int main(int argc, char **argv)
 		 * needs a node that joined through the root: a node that joined
 		 * through a member holds its pairing to that member, and names
 		 * it with `--pull-from` instead. */
-		if (!running || !store_ops) {
+		if (npulls && (!running || !store_ops)) {
 			fprintf(stderr, "fuzznetd: pulling votes needs --fuzznet-dir\n");
 			fzn_socket_close(lfd, sock_path);
 			if (ufd >= 0)
@@ -1294,6 +1404,7 @@ int main(int argc, char **argv)
 			pt->caller.hops = 1u;
 		}
 
+		load_received(family, identity.pubkey, &hash_ops, &aead_ops, &rng_ops);
 		fprintf(stderr, "fuzznetd: serving%s%s%s, pulling from %zu peer(s) every %us\n",
 		        sock_path ? " on " : "", sock_path ? sock_path : "",
 		        (udp_port >= 0) ? " udp" : "", npulls, FZND_PULL_EVERY);
@@ -1343,6 +1454,7 @@ int main(int argc, char **argv)
 				/* NOTES, then TEXTS, secs 432 and 424: a note's text is
 				 * fetched once the note naming it has arrived. */
 				pull_notes(pulls, npulls, now);
+				pull_received(now);
 #ifdef FZN_SPOOL_FILE_ON
 				fetch_texts(pulls, npulls, now);
 #endif
@@ -1356,6 +1468,12 @@ int main(int argc, char **argv)
 #endif
 			/* A TRASH JUST EMPTIED is carried to the pull peers now, not
 			 * at the next round. sec 433. */
+			/* A SHARE JUST ACCEPTED is pulled now. sec 437. */
+			if (running_admin && running_admin->received_fresh) {
+				running_admin->received_fresh = 0;
+				load_received(family, identity.pubkey, &hash_ops, &aead_ops, &rng_ops);
+				pull_received(now);
+			}
 			if (notes_on && node_notes.fresh) {
 				node_notes.fresh = 0;
 				pull_notes(pulls, npulls, now);

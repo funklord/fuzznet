@@ -14,6 +14,8 @@
 #include "../roots.h"
 #include "../identity.h"
 #include "../peer_persist.h"
+#include "../received.h"
+#include "../../notes/received.h"
 #include "../../chain/service.h"
 #include "../../chain/sign_monocypher.h"
 #include "../../constant_time/constant_time.h"
@@ -876,6 +878,186 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && state.peer_count == before,
 		      "fixture: bob's node un-paired");
+
+		/* ---- RECEIVED, sec 437: the other way round. bob's node shares
+		 * with this one; this node takes the card and records where to
+		 * pull from. */
+		{
+			static char card_text[FZN_PROVISION_TEXT_MAX_LEN];
+			uint8_t member_card[FZN_PROVISION_MAX_LEN];
+			static char member_text[FZN_PROVISION_TEXT_MAX_LEN];
+			size_t member_len = 0;
+			fzn_prekey_record_t mine;
+			fzn_node_pairing_t held;
+			fzn_node_received_t row;
+			fzn_persist_ops_t tree;
+			fzn_notes_received_t seam;
+			uint8_t blob[FZN_PERSIST_HEAD_LEN + 1u], claim[FZN_PUBKEY_LEN];
+			size_t gone_len = 0;
+			char card_path[64], member_path[64], junk_path[64];
+			FILE *f;
+
+			CHECK(fzn_prekey_open(node.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &mine)
+			                      == FZN_PREKEY_OK
+			              && fzn_node_pair(&outside.id, outside.id.pubkey,
+			                               &state.config.share_capability, NULL, 0,
+			                               &outside.ops, mine, 2000u, 2000u + 86400u, card,
+			                               sizeof(card), &card_len)
+			                         == FZN_NODE_PAIR_OK
+			              && fzn_provision_text(card, card_len, card_text, sizeof(card_text))
+			                         == FZN_PROVISION_OK,
+			      "fixture: bob's node grants this one a share");
+			CHECK(fzn_node_pair(&outside.id, outside.id.pubkey,
+			                    &state.config.remote_capability, NULL, 0, &outside.ops, mine,
+			                    2000u, 2000u + 86400u, member_card, sizeof(member_card),
+			                    &member_len)
+			                      == FZN_NODE_PAIR_OK
+			              && fzn_provision_text(member_card, member_len, member_text,
+			                                    sizeof(member_text))
+			                         == FZN_PROVISION_OK,
+			      "fixture: and a card for another capability");
+			/* THE CARDS AS FILES: a card's text is past one request line. */
+			snprintf(card_path, sizeof(card_path), "/tmp/fzn-admin-card-%d", (int)getpid());
+			snprintf(member_path, sizeof(member_path), "/tmp/fzn-admin-member-%d",
+			         (int)getpid());
+			snprintf(junk_path, sizeof(junk_path), "/tmp/fzn-admin-junk-%d", (int)getpid());
+			CHECK((f = fopen(card_path, "w")) && fprintf(f, "%s\n", card_text) > 0
+			              && fclose(f) == 0
+			              && (f = fopen(member_path, "w")) && fputs(member_text, f) >= 0
+			              && fclose(f) == 0
+			              && (f = fopen(junk_path, "w")) && fputs("notacard", f) >= 0
+			              && fclose(f) == 0,
+			      "fixture: the cards written to files");
+
+			state.config.has_share = 0;
+			snprintf(line, sizeof(line), "add received bobby 127.0.0.1 7000 %s", card_path);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_ERROR,
+			      "a node keeping no notes took a share");
+			state.config.has_share = 1;
+			CHECK(ask(&admin, &member, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_DENIED,
+			      "a service-group member took a share");
+			snprintf(line, sizeof(line), "add received carol 127.0.0.1 7000 %s", card_path);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_ERROR,
+			      "bob's card was taken as carol's share");
+			snprintf(line, sizeof(line), "add received bobby 127.0.0.1 7000 %s", member_path);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_ERROR,
+			      "a card for another capability was taken as a share");
+			snprintf(line, sizeof(line), "add received bobby 127.0.0.1 0 %s", card_path);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_MALFORMED,
+			      "port 0 was taken");
+			snprintf(line, sizeof(line), "add received bobby 127.0.0.1 7000 %s", junk_path);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_MALFORMED,
+			      "a word that is no card was taken");
+			CHECK(fzn_node_pairing_load(&node.ops, outside.id.pubkey, &held) != FZN_PERSIST_OK,
+			      "a refused card left a pairing behind");
+			CHECK(ask(&admin, &owner, "add received bobby 127.0.0.1 7000 /nonexistent/card",
+			          reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_ERROR,
+			      "a card file that cannot be read was not refused");
+
+			admin.received_fresh = 0;
+			snprintf(line, sizeof(line), "add received bobby 127.0.0.1 7000 %s", card_path);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK
+			              && admin.received_fresh,
+			      "the owner could not take bob's share, or the daemon was not told");
+			CHECK(fzn_node_pairing_load(&node.ops, outside.id.pubkey, &held) == FZN_PERSIST_OK
+			              && memcmp(held.capability.b, state.config.share_capability.b,
+			                        FZN_CAP_ID_LEN)
+			                         == 0,
+			      "the share's pairing was not kept, or is for another capability");
+			fzn_wipe(&held, sizeof(held));
+			CHECK(fzn_node_received_get(&node.ops, outside.id.pubkey, &row)
+			                      == FZN_NODE_RECEIVED_OK
+			              && row.port == 7000u && row.host_len == 9u
+			              && memcmp(row.host, "127.0.0.1", 9u) == 0,
+			      "the share's address was not recorded");
+			CHECK(ask(&admin, &member, "list received", reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_DENIED,
+			      "another user read the received shares");
+			CHECK(ask(&admin, &owner, "list received", reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK
+			              && says(detail, detail_len, "1 bobby,127.0.0.1,7000"),
+			      "list received did not name the share by contact, host and port");
+
+			/* A ROW OF bob's TREE, so forgetting can be seen to take it. */
+			memset(claim, 0x3c, sizeof(claim));
+			CHECK(fzn_notes_received_ops(&seam, &node.ops, &hash_ops, outside.id.pubkey, &tree)
+			                      == FZN_NOTES_OK
+			              && fzn_persist_head_write(blob, sizeof(blob), 1u,
+			                                        FZN_PERSIST_BLOB_NOTE)
+			                         == FZN_PERSIST_OK
+			              && tree.save(tree.ctx, FZN_PERSIST_NOTE, claim, blob, sizeof(blob)),
+			      "fixture: a note in bob's tree");
+			admin.received_fresh = 0;
+			CHECK(ask(&admin, &owner, "remove received bobby", reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK
+			              && admin.received_fresh,
+			      "the owner could not stop bob's share, or the daemon was not told");
+			CHECK(!tree.load(tree.ctx, FZN_PERSIST_NOTE, claim, blob, sizeof(blob), &gone_len),
+			      "what was pulled from bob stayed after the share was removed");
+			CHECK(ask(&admin, &owner, "list received", reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK
+			              && detail_len == 1u && detail[0] == '0',
+			      "a removed share was still listed");
+			CHECK(ask(&admin, &owner, "remove received bobby", reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_ERROR,
+			      "removing it again was answered as if it were there");
+
+			(void)unlink(card_path);
+			(void)unlink(member_path);
+			(void)unlink(junk_path);
+
+			/* THE TABLE'S OWN RULES. */
+			CHECK(!fzn_node_received_host_ok("a b", 3u) && !fzn_node_received_host_ok("", 0u)
+			              && fzn_node_received_host_ok("example.org", 11u),
+			      "a host with a space, or none, was taken; or a plain one refused");
+			{
+				uint8_t rk[FZN_PUBKEY_LEN];
+				unsigned ri;
+
+				for (ri = 0; ri < FZN_NODE_RECEIVED_MAX; ri++) {
+					memset(rk, (int)(0x70u + ri), sizeof(rk));
+					CHECK(fzn_node_received_add(&node.ops, rk, "h", 1u, 1u, 0u)
+					              == FZN_NODE_RECEIVED_OK,
+					      "fixture: a share up to the bound");
+				}
+				memset(rk, 0x7f, sizeof(rk));
+				CHECK(fzn_node_received_add(&node.ops, rk, "h", 1u, 1u, 0u)
+				              == FZN_NODE_RECEIVED_ERR_FULL,
+				      "a share past the bound was taken");
+				memset(rk, 0x70, sizeof(rk));
+				CHECK(fzn_node_received_add(&node.ops, rk, "other", 5u, 2u, 0u)
+				                      == FZN_NODE_RECEIVED_OK
+				              && fzn_node_received_get(&node.ops, rk, &row)
+				                         == FZN_NODE_RECEIVED_OK
+				              && row.port == 2u,
+				      "at the bound, a held share's address could not change");
+				for (ri = 0; ri < FZN_NODE_RECEIVED_MAX; ri++) {
+					memset(rk, (int)(0x70u + ri), sizeof(rk));
+					(void)fzn_node_received_remove(&node.ops, rk);
+				}
+			}
+		}
 		state.config.has_share = 0;
 		fzn_sign_monocypher_wipe(&outside.signer);
 	}

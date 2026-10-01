@@ -9,6 +9,7 @@
 
 #include "../author.h"
 #include "../purge.h"
+#include "../received.h"
 #include "../share.h"
 #include "../sync.h"
 
@@ -103,7 +104,9 @@ struct row {
 	fzn_persist_slot_t slot;
 	int has_subject;
 	uint8_t subject[FZN_PUBKEY_LEN];
-	uint8_t bytes[FZN_PERSIST_HEAD_LEN + FZN_RECORD_MAX_LEN];
+	/* Room for a shared note's row: a sharer and a claim key before the
+	 * record. sec 437. */
+	uint8_t bytes[FZN_PERSIST_HEAD_LEN + (2u * FZN_PUBKEY_LEN) + FZN_RECORD_MAX_LEN];
 	size_t len;
 };
 
@@ -754,6 +757,205 @@ static void test_share_scope(void)
 	      "and a contact's pull made it no partner");
 }
 
+/* ---- a share received, sec 437 ------------------------------------------ */
+
+/* A sharer that names only A as a writer, whatever else it serves. */
+static int ask_liar(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                    size_t reply_cap, size_t *reply_len)
+{
+	if (request_len == FZN_NOTES_SYNC_WRITERS_QUERY_LEN
+	    && request[1] == FZN_NOTES_SYNC_WRITERS_QUERY && reply_cap >= 3u + FZN_PUBKEY_LEN) {
+		reply[0] = FZN_NOTES_SYNC_VERSION;
+		reply[1] = FZN_NOTES_SYNC_WRITERS;
+		reply[2] = 1u;
+		memcpy(reply + 3, KEY_A, FZN_PUBKEY_LEN);
+		*reply_len = 3u + FZN_PUBKEY_LEN;
+		return 1;
+	}
+	return ask_scoped(ctx, request, request_len, reply, reply_cap, reply_len);
+}
+
+/* A sharer whose writers answer is `junk_len` bytes of nonsense, its count
+ * byte `junk_count` when that is set. */
+static size_t junk_len;
+static int junk_count = -1;
+
+static int ask_junk(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                    size_t reply_cap, size_t *reply_len)
+{
+	/* ONLY THE WRITERS ANSWER IS JUNK: the rest is the honest sharer's,
+	 * so a refusal is the writers check's and nothing after it. */
+	if (ctx && !(request_len == FZN_NOTES_SYNC_WRITERS_QUERY_LEN
+	             && request[1] == FZN_NOTES_SYNC_WRITERS_QUERY))
+		return ask_scoped(ctx, request, request_len, reply, reply_cap, reply_len);
+	if (reply_cap < junk_len)
+		return 0;
+	reply[0] = FZN_NOTES_SYNC_VERSION;
+	reply[1] = FZN_NOTES_SYNC_WRITERS;
+	memset(reply + 2, 0x41, junk_len - 2u);
+	if (junk_count >= 0 && junk_len > 2u)
+		reply[2] = (uint8_t)junk_count;
+	*reply_len = junk_len;
+	return 1;
+}
+
+static void test_received(void)
+{
+	fzn_notes_author_t a = author_on(&store_a, KEY_A, &sign_a);
+	fzn_notes_author_t b_on_a = author_on(&store_a, KEY_B, &sign_b);
+	uint8_t f[FZN_TREE_ID_LEN], g[FZN_TREE_ID_LEN], h[FZN_TREE_ID_LEN], o[FZN_TREE_ID_LEN];
+	uint8_t by_b[FZN_TREE_ID_LEN];
+	static uint8_t reach[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
+	uint8_t seed[1][FZN_TREE_ID_LEN];
+	fzn_notes_sync_scope_t scope;
+	scoped_peer_t from_a = { &store_a, &scope };
+	fzn_notes_received_t seam, other_seam;
+	fzn_persist_ops_t seam_ops, other_ops;
+	fzn_notes_store_t from_alice, from_bob;
+	fzn_notes_sync_tally_t t;
+	const fzn_tree_node_t *top[8];
+	size_t n = 0, i, removed = 0;
+	uint64_t seq = 0;
+	int cut = 0;
+
+	reset();
+	CHECK(write(&a, "folder", f) && write_under(&a, f, "child", g)
+	              && write_under(&a, g, "grandchild", h) && write(&a, "other", o)
+	              && write_under(&b_on_a, g, "by b", by_b),
+	      "fixture: on A, F above G above H, O beside F, and B's note under G");
+	CHECK(fzn_notes_view_load(&store_a, &view) == FZN_NOTES_OK, "fixture: A's view");
+	memcpy(seed[0], g, FZN_TREE_ID_LEN);
+	scope.ids = (const uint8_t (*)[FZN_TREE_ID_LEN])reach;
+	scope.count = fzn_notes_share_reach(&view, (const uint8_t (*)[FZN_TREE_ID_LEN])seed, 1u,
+	                                    reach, FZN_NOTES_MAX);
+	CHECK(scope.count == 3u, "fixture: a share of G reaches G, H and B's note");
+
+	CHECK(fzn_notes_received_ops(&seam, &ops_b, &HASH, KEY_A, &seam_ops) == FZN_NOTES_OK
+	              && fzn_notes_store_init(&from_alice, &seam_ops, &HASH) == FZN_NOTES_OK
+	              && fzn_notes_received_ops(&other_seam, &ops_b, &HASH, KEY_B, &other_ops)
+	                         == FZN_NOTES_OK
+	              && fzn_notes_store_init(&from_bob, &other_ops, &HASH) == FZN_NOTES_OK,
+	      "B opens A's tree and another sharer's over its own store");
+	CHECK(fzn_notes_received_ops(&seam, NULL, &HASH, KEY_A, &seam_ops)
+	              == FZN_NOTES_ERR_MALFORMED,
+	      "and a seam over nothing is refused");
+	CHECK(fzn_notes_received_ops(&seam, &ops_b, &HASH, KEY_A, &seam_ops) == FZN_NOTES_OK,
+	      "fixture: the seam again");
+
+	CHECK(fzn_notes_sync_pull_shared(&from_alice, &sign_b, ask_scoped, &from_a, &t)
+	                      == FZN_NOTES_SYNC_OK
+	              && t.learned == 3u && t.refused == 0u && held(&from_alice) == 3u,
+	      "B pulls what A shared, both writers' notes, into A's tree");
+	CHECK(title_is(&from_alice, h, KEY_A, "grandchild")
+	              && title_is(&from_alice, by_b, KEY_B, "by b"),
+	      "and holds them as they were written");
+	CHECK(held(&store_b) == 0u, "while B's own tree holds none of them");
+	CHECK(held(&from_bob) == 0u, "nor does another sharer's");
+
+	/* THE SHARED TOP SURFACES IN A'S TREE, not in B's own. */
+	CHECK(fzn_notes_view_load(&from_alice, &view) == FZN_NOTES_OK
+	              && fzn_notes_top_level(&view, top, 8u, &n, &cut) == FZN_NOTES_OK && n == 3u,
+	      "the view's top level is the wrong question: every shared note is unreachable");
+	n = fzn_notes_received_roots(&view, top, 8u);
+	CHECK(n == 1u && memcmp(top[0]->id, g, FZN_TREE_ID_LEN) == 0,
+	      "the shared subtree's root is the one root of A's tree on B");
+	CHECK(fzn_notes_received_roots(&view, top, 0u) == 0u, "and no more than the room given");
+
+	/* A SECOND PULL is current. */
+	CHECK(fzn_notes_sync_pull_shared(&from_alice, &sign_b, ask_scoped, &from_a, &t)
+	                      == FZN_NOTES_SYNC_OK
+	              && t.fetched == 0u,
+	      "a second pull fetches nothing");
+
+	/* EACH WRITER ONCE: A wrote two of the three, B one. */
+	{
+		uint8_t q[FZN_NOTES_SYNC_WRITERS_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
+			                                       FZN_NOTES_SYNC_WRITERS_QUERY };
+		static uint8_t out[FZN_NOTES_SYNC_REPLY_MAX];
+
+		CHECK(fzn_notes_sync_answer_scoped(&store_a, &scope, q, sizeof(q), out, sizeof(out))
+		                      == 3u + (2u * FZN_PUBKEY_LEN)
+		              && out[2] == 2u,
+		      "the sharer names its two writers, each once");
+		CHECK(fzn_notes_sync_answer(&store_a, both(), KEY_B, 1u, q, sizeof(q), out,
+		                            sizeof(out))
+		              == 0u,
+		      "and a member's sync does not answer a writers query");
+	}
+
+	/* ANOTHER SHARER'S TREE survives forgetting A's. */
+	{
+		uint8_t blob[FZN_PERSIST_HEAD_LEN + 1u], claim[FZN_PUBKEY_LEN];
+
+		memset(claim, 0x2d, sizeof(claim));
+		CHECK(fzn_persist_head_write(blob, sizeof(blob), 1u, FZN_PERSIST_BLOB_NOTE)
+		                      == FZN_PERSIST_OK
+		              && other_ops.save(other_ops.ctx, FZN_PERSIST_NOTE, claim, blob,
+		                                sizeof(blob)),
+		      "fixture: a row in another sharer's tree");
+	}
+
+	/* ONLY THE WRITERS THE SHARER NAMES. */
+	CHECK(fzn_notes_received_forget(&ops_b, KEY_A, &removed) == FZN_NOTES_OK && removed == 3u
+	              && held(&from_alice) == 0u,
+	      "forgetting A's share removes its three notes");
+	{
+		uint8_t keys[2][FZN_PUBKEY_LEN];
+		size_t left = 0;
+
+		CHECK(other_ops.list(other_ops.ctx, FZN_PERSIST_NOTE, (uint8_t *)keys, 2u, &left)
+		              && left == 1u,
+		      "and leaves the other sharer's");
+	}
+	CHECK(fzn_notes_sync_pull_shared(&from_alice, &sign_b, ask_liar, &from_a, &t)
+	                      == FZN_NOTES_SYNC_OK
+	              && t.learned == 2u && t.refused == 1u
+	              && !title_is(&from_alice, by_b, KEY_B, "by b"),
+	      "a writer the sharer does not name has its note refused");
+
+	/* READ-ONLY: nothing but notes is held in a sharer's tree. */
+	CHECK(fzn_notes_next_seq(&from_alice, KEY_B, &seq) != FZN_NOTES_OK,
+	      "B cannot take a sequence to sign in A's tree");
+
+	/* A ROW COPIED UNDER ANOTHER KEY is not listed twice. */
+	{
+		struct row *r = NULL;
+		uint8_t subject[FZN_PUBKEY_LEN];
+
+		for (i = 0; i < MEM_ROWS && !r; i++)
+			if (table_b.rows[i].used && table_b.rows[i].slot == FZN_PERSIST_SHARED_NOTE)
+				r = &table_b.rows[i];
+		memset(subject, 0x6b, sizeof(subject));
+		CHECK(r && mem_save(&table_b, FZN_PERSIST_SHARED_NOTE, subject, r->bytes, r->len),
+		      "fixture: a row copied under another key");
+		CHECK(held(&from_alice) == 2u, "and A's tree still holds two");
+	}
+
+	/* WHAT THE WRITERS ANSWER MAY NOT BE. */
+	junk_len = 2u;
+	CHECK(fzn_notes_sync_pull_shared(&from_alice, &sign_b, ask_junk, NULL, &t)
+	              == FZN_NOTES_SYNC_SHAPE,
+	      "a writers answer with no count is SHAPE");
+	junk_len = 3u + FZN_PUBKEY_LEN + 1u;
+	CHECK(fzn_notes_sync_pull_shared(&from_alice, &sign_b, ask_junk, NULL, &t)
+	              == FZN_NOTES_SYNC_SHAPE,
+	      "a writers answer whose count is past the bound is SHAPE");
+	/* ONLY THE LENGTH CHECK can refuse this one: a count within the bound,
+	 * naming two keys where one arrived. */
+	junk_count = 2;
+	junk_len = 3u + FZN_PUBKEY_LEN;
+	CHECK(fzn_notes_sync_pull_shared(&from_alice, &sign_b, ask_junk, &from_a, &t)
+	              == FZN_NOTES_SYNC_SHAPE,
+	      "a writers answer naming two keys with one present is SHAPE");
+	junk_count = -1;
+	scope.count = 0;
+	CHECK(fzn_notes_sync_pull_shared(&from_alice, &sign_b, ask_scoped, &from_a, &t)
+	                      == FZN_NOTES_SYNC_OK
+	              && t.offered == 0u,
+	      "an empty share names no writers and pulls nothing");
+	(void)o;
+}
+
 int main(void)
 {
 	memset(KEY_A, 0xa1, sizeof(KEY_A));
@@ -769,6 +971,7 @@ int main(void)
 	test_purge_conversation();
 	test_share_table();
 	test_share_scope();
+	test_received();
 
 	if (failures) {
 		fprintf(stderr, "notes_sync_test: %d of %d checks failed\n", failures, checks);

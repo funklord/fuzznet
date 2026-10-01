@@ -72,6 +72,8 @@ enum fzn_persist_tag : u8 {
 	note_partner = 20,
 	contact = 21,
 	note_share = 22,
+	shared_note = 23,
+	received_share = 24,
 	default = error,
 }
 
@@ -255,6 +257,26 @@ struct fzn_persist_note_share_body {
 	u64 shared_at;
 }
 
+// A note a contact shared with this node, in that sharer's tree: the
+// sharer, the claim key notes/store.c would file it under, and the record
+// whole, as fzn_persist_note_body holds it. Filed under a hash of the two
+// keys. notes/received.c, sec 437.
+struct fzn_persist_shared_note_body {
+	u8  sharer[32];
+	u8  claim[32];
+	u8  record[remaining];
+}
+
+// A share this node accepted: where the sharer's node is pulled from, a
+// host of 1 to 253 bytes from 0x21 to 0x7e and a port that is not 0. The
+// sharer's node key is the persist subject. node/received.c, sec 437.
+struct fzn_persist_received_share_body {
+	u8  host_len [min = 1, max = 253];
+	u8  host[host_len];
+	u16 port [min = 1];
+	u64 accepted_at;
+}
+
 // version | tag | body. The body is the arm the tag selects.
 struct fzn_persist_blob {
 	u8               version;
@@ -283,6 +305,8 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.note_partner: fzn_persist_note_partner_body note_partner;
 		case fzn_persist_tag.contact: fzn_persist_contact_body contact;
 		case fzn_persist_tag.note_share: fzn_persist_note_share_body note_share;
+		case fzn_persist_tag.shared_note: fzn_persist_shared_note_body shared_note;
+		case fzn_persist_tag.received_share: fzn_persist_received_share_body received_share;
 		default: error;
 	}
 }

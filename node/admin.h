@@ -133,6 +133,10 @@ typedef struct fzn_node_admin {
 	size_t (*notes_remote)(void *ctx, const uint8_t *sender, int shared, const uint8_t *request,
 	                       size_t request_len, uint8_t *reply, size_t reply_cap);
 	void *notes_ctx;
+	/* Set when `add received` or `remove received` changed which shares
+	 * this node pulls, for a daemon to reload them; the daemon clears it.
+	 * sec 437. */
+	int received_fresh;
 } fzn_node_admin_t;
 
 /* A `fzn_node_local_handler_t`; `ctx` is a `fzn_node_admin_t`. */

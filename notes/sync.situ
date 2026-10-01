@@ -25,6 +25,8 @@ enum fzn_notes_sync_type : u8 {
 	purge_ack     = 6,   // "I erased it" -- or did not
 	purges_query  = 7,   // "Which of your purges pin me?"
 	purges        = 8,   // "These."
+	writers_query = 9,   // "Who wrote what you share with me?" sec 437
+	writers       = 10,  // "These keys."
 }
 
 struct fzn_notes_sync_index_query {
@@ -105,4 +107,23 @@ struct fzn_notes_sync_purges {
 	fzn_notes_sync_type     type    [must_eq = purges];
 	u8                      count   [max = 16];      // FZN_NOTES_SYNC_PURGES_MAX
 	fzn_notes_sync_note_id  ids[count];
+}
+
+// WHO WROTE WHAT IS SHARED, sec 437: asked by a contact under the share
+// capability and answered with the distinct writers of the notes the share
+// reaches, sorted. The recipient admits exactly these in the sharer's tree.
+struct fzn_notes_sync_writers_query {
+	u8                   version [must_eq = 2];
+	fzn_notes_sync_type  type    [must_eq = writers_query];
+}
+
+struct fzn_notes_sync_writer {
+	u8   key[32];
+}
+
+struct fzn_notes_sync_writers {
+	u8                     version [must_eq = 2];
+	fzn_notes_sync_type    type    [must_eq = writers];
+	u8                     count   [max = 64];       // FZN_NOTES_SYNC_WRITERS_MAX
+	fzn_notes_sync_writer  writers[count];
 }
