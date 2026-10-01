@@ -51710,7 +51710,7 @@ serves notes, in phase 4.
 
 ### Not yet after sec 426
 
-- **~~Purge and import~~:** purge built in sec 427; import remains.
+- **~~Purge and import~~:** built in secs 427 and 429.
 - **The node's verbs** for these, with the admitted set, are phase 4.
 - **When sharing moves, SHARE must refuse a subtree that is not a note
   held here.** Reported by fuzzypickles 2026-10-01, fixed in their copy as
@@ -51836,7 +51836,7 @@ three defects, all since fixed in their tree:
 
 ### Not yet after sec 427
 
-- **Import**, the last of phase 3.
+- **~~Import~~, the last of phase 3: built in sec 429.**
 - **The purge conversation**: asking each pinned host, a host erasing
   and answering, and the asker finishing. That is phase 4's carriage,
   with the pending-note rule above.
@@ -52022,8 +52022,10 @@ shared function rather than something each daemon hand-rolls:
 
 ### Open, and the holder's to settle
 
-- **Positional fields or `key=value` throughout.** Positional is shorter
-  and easier to grep for; `key=value` survives a field being added.
+- **~~Positional fields or `key=value` throughout.~~ Positional,** the
+  holder decided 2026-10-01: shorter, and easier to grep for. The cost
+  accepted with it is that a field added later moves the ones after it,
+  so the order is a format to version rather than to extend in passing.
 - **The ring:** its default size, and what besides an error, a crash and a
   request writes it out.
 - **Retention:** defaults per user and per daemon.
@@ -52036,3 +52038,98 @@ adopting this is a deliberate cross-project pass rather than one tree's
 change. netcfgd and raidcfgd are the natural first adopters: both are root
 daemons that run external tools, so both meet the per-user files and the
 relay at once.
+
+## 429. Notes, phase 3d: importing Keep and KNotes exports, 2026-10-01
+
+`notes/import` reads Google Keep Takeout notes and KNotes calendars and
+creates notes from them. It is ported from fuzzypickles' `notes_import`
+at 1e002a9, and it completes phase 3.
+
+### Kept
+
+- **Parsing is here, and reading files is the caller's.** The library
+  has no I/O, so the parsers are testable. A Takeout is a directory of
+  one-note files, and walking it is the caller's too.
+- **Neither source has a hierarchy.** fuzzypickles measured this: Keep's
+  labels are flat and a note may carry several, and KNotes is flat
+  VJOURNAL. Imported notes land flat under one folder the caller names,
+  and the user arranges them afterwards.
+- **Nothing is truncated.** A note that cannot come across whole is
+  refused, counted and named, while the user still has the export.
+- **A second import recognises the first's notes** by the source's
+  creation time. Keep carries no id at all, and fuzzypickles' holder
+  settled on the creation time, which survives a user's edit. A note with
+  no creation time is imported every time and counted as undated.
+
+### What differs, and why
+
+- **Long notes come across.** fuzzypickles refuses a note longer than
+  fits inline, because their blob path was never built. Here a text too
+  long for inline is sealed through the caller's seal hook (the node's
+  shelf, sec 424) and the note carries the reference. With no hook, it is
+  refused and named.
+- **KNotes no longer cuts silently.** fuzzypickles' parser read a folded
+  line, and unescaped a value, into 8 KiB buffers and dropped the rest
+  with no count and no report -- the loss their own file exists to refuse.
+  Here the buffers hold a text at `FZN_NOTE_TEXT_MAX`, and past that the
+  note is refused as too long. A test imports a 20,000-byte folded
+  description whole.
+- **`\uXXXX` escapes decode** to UTF-8, a surrogate pair as one
+  character. fuzzypickles refused any note containing one. A lone
+  surrogate is no character and still refuses its note.
+- **Checklists and labels.** fuzzypickles refused a Keep checklist and
+  dropped labels. A checklist imports as a LIST with its items and their
+  ticks, and Keep's labels come across, separated as a note's are.
+- **The title is part of the re-import key.** Keep records microseconds
+  and notes keep milliseconds, so two notes made in one millisecond share
+  a creation time. With the title beside it, the second is no longer taken
+  for the first.
+- **KNotes' DTSTAMP is not taken as a creation time.** fuzzypickles used
+  it when CREATED was absent. It is when the export was written, the same
+  for every note in a file, so it would have been stored as each note's
+  creation date, a date the note does not have. Such a note is undated.
+- **Property names are case-insensitive**, as RFC 5545 section 3.1 says.
+- **Notes are handed over one at a time** through a callback, rather than
+  collected in a 256-entry array. A text may be 256 KiB now, so an array
+  of them would be 64 MiB.
+
+`fzn_notes_create_dated` is new in `notes/author`: a create that keeps
+the source's creation time, which is also what a re-import recognises.
+
+### Not yet after sec 429
+
+- **The fuzzypickles defects found here are theirs to fix**, and are
+  being reported to them: KNotes' silent cut at 8 KiB, the refusal of
+  `\uXXXX`, and DTSTAMP stored as a creation time.
+- **Phase 4**, carriage: the node's verbs, the admitted set, sync,
+  sharing and the purge conversation, with the rules recorded in secs 426
+  and 427.
+- **Phase 5**, the widget.
+
+### Measured for sec 429
+
+`notes_store_test` grew to 153 checks. The 26 new ones:
+
+- **Keep:**
+  - a note with title, text, pin, creation time and two labels;
+  - a key inside an attachment is not the note's;
+  - `\u` escapes and a surrogate pair decode, and a lone surrogate
+    refuses its note, which is named;
+  - a checklist is a LIST with two items and their ticks;
+  - an empty object is refused;
+  - a text past the bound is refused as too long.
+- **KNotes:**
+  - two journals, one folded and escaped, with a parameter on SUMMARY;
+  - a lower-case property name read;
+  - DTSTAMP not taken;
+  - an unterminated journal refused;
+  - a 20,000-byte folded description arriving whole.
+- **The run:**
+  - two notes imported into the folder, one undated, the dated one
+    keeping its source's creation time;
+  - a second import recognising the dated note and not the undated one;
+  - a same-millisecond note under another title imported;
+  - a long text refused without a seal hook and with a failing one, and
+    imported with a working one, carrying the reference.
+
+**Sabotage: fifteen entries.**

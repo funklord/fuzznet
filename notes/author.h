@@ -85,6 +85,15 @@ fzn_notes_err_t fzn_notes_create(const fzn_notes_author_t *author,
                                  const fzn_note_t *fields, uint64_t now_ms,
                                  uint8_t id_out[FZN_TREE_ID_LEN]);
 
+/* The same, with the note's creation time given rather than now: an import
+ * keeps the time its source says the note was made, which is also what a
+ * second import recognises it by (`notes/import.h`). 0 means now. */
+fzn_notes_err_t fzn_notes_create_dated(const fzn_notes_author_t *author,
+                                       const uint8_t parent[FZN_TREE_ID_LEN],
+                                       uint16_t content_type, const fzn_note_t *fields,
+                                       uint64_t created_at_ms, uint64_t now_ms,
+                                       uint8_t id_out[FZN_TREE_ID_LEN]);
+
 /*
  * Rewrite the fields `which` names from `with`, set the flags in `set` and
  * clear those in `clear` (both within FZN_NOTES_EDIT_FLAGS, and not the same

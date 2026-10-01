@@ -173,6 +173,7 @@
 #include <fuzznet/notes/view.h>
 #include <fuzznet/notes/author.h>
 #include <fuzznet/notes/purge.h>
+#include <fuzznet/notes/import.h>
 #include <fuzznet/trust/trust.h>
 #include <fuzznet/session/random_system.h>
 #include <fuzznet/version/version.h>
@@ -293,6 +294,7 @@
 #include "notes/view.h"
 #include "notes/author.h"
 #include "notes/purge.h"
+#include "notes/import.h"
 #include "trust/trust.h"
 #include "session/random_system.h"
 #include "version/version.h"
@@ -970,6 +972,10 @@ int main(void)
 			    != FZN_NOTES_ERR_MALFORMED)
 				FAIL(463);
 		}
+		/* An import needs a hook to hand each note to (sec 429). */
+		if (fzn_notes_import_keep((const uint8_t *)"{}", 2u, NULL, NULL, NULL, NULL)
+		    != FZN_NOTES_ERR_MALFORMED)
+			FAIL(464);
 	}
 
 	/* THE ROOT SET, as a node holds it (secs 405 to 407): a second root

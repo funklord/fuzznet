@@ -10,6 +10,8 @@
 #include "../store.h"
 #include "../author.h"
 #include "../purge.h"
+#include "../import.h"
+#include "../text.h"
 #include "../view.h"
 
 #include <stdio.h>
@@ -1026,6 +1028,337 @@ static void test_purge(void)
 	}
 }
 
+/* ---- import, sec 429 ---------------------------------------------------- */
+
+/* What a parser handed over, copied out of its scratch. */
+static struct got {
+	uint16_t type;
+	uint8_t title[64], text[64], labels[64];
+	size_t title_len, text_len, labels_len;
+	uint8_t flags;
+	uint64_t created;
+} got[8];
+static size_t got_count;
+static size_t got_long_len;
+static int refusals[8];
+static size_t refusal_count;
+
+static int collect(void *ctx, const fzn_notes_import_entry_t *e)
+{
+	struct got *g = &got[got_count % 8u];
+
+	(void)ctx;
+	got_count++;
+	got_long_len = e->text_len;
+	g->type = e->content_type;
+	g->title_len = e->title_len < 64u ? e->title_len : 64u;
+	g->text_len = e->text_len < 64u ? e->text_len : 64u;
+	g->labels_len = e->labels_len < 64u ? e->labels_len : 64u;
+	memcpy(g->title, e->title, g->title_len);
+	memcpy(g->text, e->text, g->text_len);
+	memcpy(g->labels, e->labels, g->labels_len);
+	g->flags = e->flags;
+	g->created = e->created_at_ms;
+	return 0;
+}
+
+static void note_refusal(void *ctx, fzn_notes_import_refusal_t why, const uint8_t *t, size_t n)
+{
+	(void)ctx;
+	(void)t;
+	(void)n;
+	refusals[refusal_count % 8u] = (int)why;
+	refusal_count++;
+}
+
+static void reset_collect(void)
+{
+	got_count = 0;
+	refusal_count = 0;
+	memset(got, 0, sizeof(got));
+}
+
+static fzn_notes_err_t keep(const char *json)
+{
+	return fzn_notes_import_keep((const uint8_t *)json, strlen(json), collect, NULL,
+	                             note_refusal, NULL);
+}
+
+static int is(const uint8_t *b, size_t n, const char *want)
+{
+	return n == strlen(want) && memcmp(b, want, n) == 0;
+}
+
+/* A seal hook: records what it sealed, and can refuse. */
+static size_t sealed_len;
+static int seal_refuses;
+
+static int toy_seal(void *ctx, const uint8_t *t, size_t n, fzn_note_blob_ref_t *ref)
+{
+	(void)ctx;
+	(void)t;
+	if (seal_refuses)
+		return 0;
+	sealed_len = n;
+	memset(ref, 0x3c, sizeof(*ref));
+	ref->length = n;
+	return 1;
+}
+
+static uint8_t big[(2u * FZN_NOTE_TEXT_MAX) + 4096u];
+
+static void test_import_parsing(void)
+{
+	size_t i, n;
+
+	/* ---- Keep */
+	reset_collect();
+	CHECK(keep("{\"color\":\"DEFAULT\",\"isTrashed\":false,\"isPinned\":true,"
+	           "\"isArchived\":false,\"textContent\":\"two pints\",\"title\":\"milk\","
+	           "\"createdTimestampUsec\":1700000000123456,"
+	           "\"labels\":[{\"name\":\"home\"},{\"name\":\"dairy\"}]}")
+	              == FZN_NOTES_OK
+	              && got_count == 1u && refusal_count == 0u,
+	      "a Keep note is parsed");
+	CHECK(got[0].type == FZN_NOTE_TYPE_NOTE && is(got[0].title, got[0].title_len, "milk")
+	              && is(got[0].text, got[0].text_len, "two pints")
+	              && got[0].flags == FZN_NOTE_FLAG_PINNED && got[0].created == 1700000000123u,
+	      "with its title, text, pin and creation time");
+	CHECK(got[0].labels_len == 10u && memcmp(got[0].labels, "home\0dairy", 10u) == 0,
+	      "and both its labels, separated as a note's are");
+	reset_collect();
+	CHECK(keep("{\"attachments\":[{\"title\":\"not this\"}],\"title\":\"real\"}")
+	              == FZN_NOTES_OK
+	              && got_count == 1u && is(got[0].title, got[0].title_len, "real"),
+	      "a key inside an attachment is not the note's");
+	reset_collect();
+	CHECK(keep("{\"title\":\"caf\\u00e9 \\ud83d\\ude00\"}") == FZN_NOTES_OK
+	              && got_count == 1u
+	              && is(got[0].title, got[0].title_len, "caf\xc3\xa9 \xf0\x9f\x98\x80"),
+	      "\\u escapes decode to UTF-8, a surrogate pair as one character");
+	reset_collect();
+	CHECK(keep("{\"title\":\"half \\ud83d a pair\"}") == FZN_NOTES_OK && got_count == 0u
+	              && refusal_count == 1u && refusals[0] == FZN_NOTES_IMPORT_UNPARSED,
+	      "a lone surrogate refuses the note, which is named");
+	reset_collect();
+	CHECK(keep("{\"title\":\"shop\",\"textContent\":\"\",\"listContent\":["
+	           "{\"text\":\"eggs\",\"isChecked\":true},"
+	           "{\"text\":\"bread\",\"isChecked\":false}]}")
+	              == FZN_NOTES_OK
+	              && got_count == 1u && got[0].type == FZN_NOTE_TYPE_LIST,
+	      "a Keep checklist is a list");
+	{
+		fzn_note_t list;
+		fzn_note_item_t item;
+		size_t cursor = 0;
+
+		memset(&list, 0, sizeof(list));
+		list.text = got[0].text;
+		list.text_len = got[0].text_len;
+		CHECK(fzn_note_item_next(&list, &cursor, &item) == FZN_NOTE_OK
+		              && is(item.text, item.text_len, "eggs")
+		              && item.flags == FZN_NOTE_ITEM_FLAG_CHECKED
+		              && fzn_note_item_next(&list, &cursor, &item) == FZN_NOTE_OK
+		              && is(item.text, item.text_len, "bread") && item.flags == 0u
+		              && fzn_note_item_next(&list, &cursor, &item) == FZN_NOTE_ERR_SHORT,
+		      "with its two items and their ticks");
+	}
+	reset_collect();
+	CHECK(keep("{\"color\":\"RED\"}") == FZN_NOTES_OK && got_count == 0u
+	              && refusal_count == 1u,
+	      "an empty note is refused, not imported");
+	/* A TEXT PAST THE BOUND is refused whole, never cut. */
+	{
+		static const char head[] = "{\"title\":\"huge\",\"textContent\":\"";
+
+		n = sizeof(head) - 1u;
+		memcpy(big, head, n);
+	}
+	for (i = 0; i < FZN_NOTE_TEXT_MAX + 10u; i++)
+		big[n++] = 'x';
+	memcpy(big + n, "\"}", 2u);
+	n += 2u;
+	reset_collect();
+	CHECK(fzn_notes_import_keep(big, n, collect, NULL, note_refusal, NULL) == FZN_NOTES_OK
+	              && got_count == 0u && refusal_count == 1u
+	              && refusals[0] == FZN_NOTES_IMPORT_TOO_LONG,
+	      "a text past the bound is refused as too long");
+
+	/* ---- KNotes */
+	{
+		static const char ics[] =
+		        "BEGIN:VCALENDAR\r\n"
+		        "BEGIN:VJOURNAL\r\n"
+		        "SUMMARY;LANGUAGE=en:first\\, really\r\n"
+		        "DESCRIPTION:line one\\nline \r\n"
+		        " two\r\n"
+		        "CREATED:20231114T221320Z\r\n"
+		        "END:VJOURNAL\r\n"
+		        "BEGIN:VJOURNAL\r\n"
+		        "summary:second\r\n"
+		        "DTSTAMP:20240101T000000Z\r\n"
+		        "END:VJOURNAL\r\n"
+		        "BEGIN:VJOURNAL\r\n"
+		        "SUMMARY:never ended\r\n";
+
+		reset_collect();
+		CHECK(fzn_notes_import_knotes((const uint8_t *)ics, sizeof(ics) - 1u, collect, NULL,
+		                              note_refusal, NULL)
+		                      == FZN_NOTES_OK
+		              && got_count == 2u,
+		      "two KNotes journals are parsed");
+		CHECK(is(got[0].title, got[0].title_len, "first, really")
+		              && is(got[0].text, got[0].text_len, "line one\nline two")
+		              && got[0].created == 1700000000000u,
+		      "unfolded and unescaped, with the creation time");
+		CHECK(is(got[1].title, got[1].title_len, "second") && got[1].created == 0u,
+		      "a lower-case property name is read, and DTSTAMP is not a creation time");
+		CHECK(refusal_count == 1u && refusals[0] == FZN_NOTES_IMPORT_UNPARSED,
+		      "a journal never ended is refused, not taken half");
+	}
+	/* A LONG DESCRIPTION, FOLDED, TAKEN WHOLE: fuzzypickles' copy cut it at
+	 * 8 KiB without a word. */
+	{
+		static const char head[] = "BEGIN:VJOURNAL\r\nSUMMARY:long\r\nDESCRIPTION:";
+
+		n = sizeof(head) - 1u;
+		memcpy(big, head, n);
+	}
+	for (i = 0; i < 20000u; i++) {
+		big[n++] = (uint8_t)('a' + (i % 26u));
+		if (i % 70u == 69u) {
+			memcpy(big + n, "\r\n ", 3u);
+			n += 3u;
+		}
+	}
+	{
+		static const char tail[] = "\r\nEND:VJOURNAL\r\n";
+
+		memcpy(big + n, tail, sizeof(tail) - 1u);
+		n += sizeof(tail) - 1u;
+	}
+	reset_collect();
+	CHECK(fzn_notes_import_knotes(big, n, collect, NULL, note_refusal, NULL) == FZN_NOTES_OK
+	              && got_count == 1u && got_long_len == 20000u,
+	      "a 20,000-byte folded description arrives whole");
+}
+
+static void test_import_run(void)
+{
+	fzn_sign_ops_t ops_a;
+	fzn_notes_author_t a = author_as(KEY_A, &ops_a);
+	fzn_notes_import_run_t run;
+	uint8_t root[FZN_TREE_ID_LEN];
+	fzn_note_t note;
+	fzn_record_t rec;
+	fzn_tree_node_t node;
+	size_t i, found = 0;
+	static const char dated[] = "{\"title\":\"dated\",\"textContent\":\"x\","
+	                            "\"createdTimestampUsec\":1600000000000000}";
+	static const char undated[] = "{\"title\":\"undated\",\"textContent\":\"y\"}";
+
+	wipe();
+	memset(root, 0, sizeof(root));
+	memset(&run, 0, sizeof(run));
+	run.author = &a;
+	note = titled("Imported", "");
+	memset(&note, 0, sizeof(note));
+	CHECK(fzn_notes_create(&a, root, FZN_NOTE_TYPE_FOLDER, &note, 1u, run.folder)
+	              == FZN_NOTES_OK,
+	      "fixture: a folder for the import");
+	run.now_ms = 9000u;
+
+	CHECK(fzn_notes_import_keep((const uint8_t *)dated, sizeof(dated) - 1u,
+	                            fzn_notes_import_take, &run, fzn_notes_import_refuse, &run)
+	                      == FZN_NOTES_OK
+	              && fzn_notes_import_keep((const uint8_t *)undated, sizeof(undated) - 1u,
+	                                       fzn_notes_import_take, &run, fzn_notes_import_refuse,
+	                                       &run)
+	                         == FZN_NOTES_OK
+	              && run.imported == 2u && run.undated == 1u && run.refused == 0u,
+	      "two notes are imported, one undated");
+	CHECK(fzn_notes_view_load(&store, &author_view) == FZN_NOTES_OK, "fixture: the view");
+	for (i = 0; i < author_view.count; i++)
+		if (fzn_note_open(author_view.nodes[i].content_type, author_view.nodes[i].content,
+		                  author_view.nodes[i].content_len, &note)
+		            == FZN_NOTE_OK
+		    && is(note.title, note.title_len, "dated")
+		    && note.created_at_ms == 1600000000000u && note.edited_at_ms == 9000u
+		    && memcmp(author_view.nodes[i].parent, run.folder, FZN_TREE_ID_LEN) == 0)
+			found++;
+	CHECK(found == 1u, "the dated note keeps its source's creation time, in the folder");
+
+	CHECK(fzn_notes_import_keep((const uint8_t *)dated, sizeof(dated) - 1u,
+	                            fzn_notes_import_take, &run, fzn_notes_import_refuse, &run)
+	                      == FZN_NOTES_OK
+	              && fzn_notes_import_keep((const uint8_t *)undated, sizeof(undated) - 1u,
+	                                       fzn_notes_import_take, &run, fzn_notes_import_refuse,
+	                                       &run)
+	                         == FZN_NOTES_OK
+	              && run.imported == 3u && run.already == 1u && run.undated == 2u,
+	      "a second import recognises the dated note and cannot recognise the undated one");
+	{
+		static const char twin[] = "{\"title\":\"dated twin\",\"textContent\":\"z\","
+		                           "\"createdTimestampUsec\":1600000000000000}";
+
+		CHECK(fzn_notes_import_keep((const uint8_t *)twin, sizeof(twin) - 1u,
+		                            fzn_notes_import_take, &run, fzn_notes_import_refuse, &run)
+		                      == FZN_NOTES_OK
+		              && run.imported == 4u && run.already == 1u,
+		      "a note made in the same millisecond under another title is imported");
+	}
+
+	/* ---- a long text is sealed, and without a seal hook refused */
+	{
+		static const char head[] = "{\"title\":\"long\",\"createdTimestampUsec\":5,"
+		                           "\"textContent\":\"";
+		uint8_t id[FZN_SUBJECT_LEN];
+		size_t n = sizeof(head) - 1u;
+		fzn_note_blob_ref_t ref;
+
+		memcpy(big, head, n);
+		for (i = 0; i < 5000u; i++)
+			big[n++] = 'z';
+		memcpy(big + n, "\"}", 2u);
+		n += 2u;
+		run.imported = run.refused = 0;
+		CHECK(fzn_notes_import_keep(big, n, fzn_notes_import_take, &run,
+		                            fzn_notes_import_refuse, &run)
+		                      == FZN_NOTES_OK
+		              && run.refused == 1u && run.imported == 0u,
+		      "a text too long for inline, with no seal hook, is refused");
+		run.seal = toy_seal;
+		seal_refuses = 1;
+		CHECK(fzn_notes_import_keep(big, n, fzn_notes_import_take, &run,
+		                            fzn_notes_import_refuse, &run)
+		                      == FZN_NOTES_OK
+		              && run.refused == 2u && run.imported == 0u,
+		      "and with a seal hook that fails, refused too");
+		seal_refuses = 0;
+		CHECK(fzn_notes_import_keep(big, n, fzn_notes_import_take, &run,
+		                            fzn_notes_import_refuse, &run)
+		                      == FZN_NOTES_OK
+		              && run.imported == 1u && sealed_len == 5000u,
+		      "with one that seals, it is imported");
+		CHECK(fzn_notes_view_load(&store, &author_view) == FZN_NOTES_OK, "fixture: view");
+		found = 0;
+		for (i = 0; i < author_view.count; i++)
+			if (fzn_note_open(author_view.nodes[i].content_type,
+			                  author_view.nodes[i].content,
+			                  author_view.nodes[i].content_len, &note)
+			            == FZN_NOTE_OK
+			    && is(note.title, note.title_len, "long")
+			    && (note.flags & FZN_NOTE_FLAG_TEXT_IS_BLOB)
+			    && fzn_note_blob_ref(&note, &ref) == FZN_NOTE_OK && ref.length == 5000u) {
+				memcpy(id, author_view.nodes[i].id, sizeof(id));
+				found++;
+			}
+		CHECK(found == 1u, "carrying the sealed text's reference");
+		(void)rec;
+		(void)node;
+	}
+}
+
 int main(void)
 {
 	memset(KEY_A, 0xa1, sizeof(KEY_A));
@@ -1041,6 +1374,8 @@ int main(void)
 	test_the_view();
 	test_authoring();
 	test_purge();
+	test_import_parsing();
+	test_import_run();
 
 	if (failures) {
 		fprintf(stderr, "notes_store_test: %d of %d checks failed\n", failures, checks);

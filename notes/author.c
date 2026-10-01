@@ -146,6 +146,15 @@ fzn_notes_err_t fzn_notes_create(const fzn_notes_author_t *author,
                                  const fzn_note_t *fields, uint64_t now_ms,
                                  uint8_t id_out[FZN_TREE_ID_LEN])
 {
+	return fzn_notes_create_dated(author, parent, content_type, fields, now_ms, now_ms, id_out);
+}
+
+fzn_notes_err_t fzn_notes_create_dated(const fzn_notes_author_t *author,
+                                       const uint8_t parent[FZN_TREE_ID_LEN],
+                                       uint16_t content_type, const fzn_note_t *fields,
+                                       uint64_t created_at_ms, uint64_t now_ms,
+                                       uint8_t id_out[FZN_TREE_ID_LEN])
+{
 	fzn_note_t note;
 	uint64_t order = 0;
 	fzn_notes_err_t err;
@@ -157,7 +166,7 @@ fzn_notes_err_t fzn_notes_create(const fzn_notes_author_t *author,
 		return FZN_NOTES_ERR_MALFORMED;
 	note = *fields;
 	note.version = FZN_NOTE_VERSION;
-	note.created_at_ms = now_ms;
+	note.created_at_ms = created_at_ms ? created_at_ms : now_ms;
 	note.edited_at_ms = now_ms;
 	if (fzn_note_shape_ok(content_type, &note) != FZN_NOTE_OK)
 		return FZN_NOTES_ERR_MALFORMED;
