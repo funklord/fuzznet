@@ -51873,3 +51873,166 @@ three defects, all since fixed in their tree:
 
 **Sabotage: fourteen entries**, one for the inline constructor in
 `purge.h`.
+
+## 428. Logging across an estate: a design proposal, 2026-10-01
+
+**Status: proposal.** Nothing is built. Its shape was discussed with the
+copyright holder, whose decisions are below; the open questions are listed
+at the end. It is written down ahead of the code because the decisions are
+the work: logging is to be harmonized across every project that links
+fuzznet, and the format is the part that is expensive to change later.
+
+### What the holder decided, 2026-10-01
+
+- **It lives in fuzznet.** fuzznet is fundamentally a distributed system,
+  not a single host, and its logging is designed from the ground up for
+  fully distributed troubleshooting. flog stays as it is: a small local
+  library with levels, a sublog tree and a file output, knowing nothing
+  of hosts. A fuzznet logging module may use it underneath or take over
+  its role; that is decided when it is built.
+- **Text logs must be greppable.** In the holder's words, "it is REALLY
+  nice if text logs are greppable".
+- **Efficiency matters.** Logging will be noisy.
+- **"User" is the Unix account.** A root daemon such as netcfgd or
+  raidcfgd logs separately from the GUI user or users.
+- **Tamper evidence is independent of the format**, and can be added
+  whatever the format is.
+- **External software is part of it.** Tools that netcfgd, raidcfgd and
+  their like call produce output, and the fuzznet-linked program inserts
+  it into its own log.
+- **It is a compromise**, and some things will be sub-optimal.
+
+### Every line stands alone, and compression removes the redundancy
+
+Greppability and efficiency conflict only if they must be the same bytes.
+Grep needs each line complete; efficiency needs redundancy removed, and a
+general compressor removes the redundancy *between* lines -- log text
+compresses roughly tenfold or more. So:
+
+- **On disk, every line is complete:** time, host, user, program and
+  instance, subsystem path, level, operation id, text. Nothing is elided.
+- **Closed segments are compressed**, so `zstdgrep` still searches them.
+- **A viewer shortens for display only:** it hides fields equal to the
+  previous line's or fixed by the current filter. The tree the holder
+  sketched -- estate / host / user / program[instance] / subsystem / ... --
+  is what it shortens along, and the file keeps all of it.
+
+A proposed line, positional:
+
+    2026-10-01T12:34:56.789123Z nabbe root fuzznetd[4121] record/store W op=3f9a1c02 misplaced record issuer=... seq=12
+
+- **Time in UTC with microseconds**, so a plain sort across hosts is
+  roughly right, and only roughly: see operation ids.
+- **The estate is not on every line.** It is constant per host, and is
+  in the directory and the file's first line. Merging several estates'
+  logs is the rare case.
+
+### Cheap when nobody wants it
+
+- **The level is checked before anything is formatted**, so a disabled
+  debug line costs one comparison. flog's accepted-type mask already
+  works this way.
+- **A flight recorder per process:** a fixed-size ring in memory holds
+  every record, debug included, as a template id, raw arguments and a
+  time, and is never formatted. It is where the noise goes cheaply. It is
+  written out as text only when that is worth it: on an error, on a crash,
+  or when a troubleshooter asks, possibly from another host.
+- **Only records at or above the configured level are formatted and
+  written.** Formatting text is the cost this compromise accepts, and it
+  is paid only for what someone chose to keep.
+
+### Files, per Unix user
+
+- **Root daemons** write under `/var/log/fuzznet/`, and **users** under
+  `$XDG_STATE_HOME/fuzznet/log/`, so the separation the holder asked for
+  comes from where each writes, and permissions from the filesystem.
+- **One file per program**, each line one `write()` with `O_APPEND`, so
+  several instances of a program append whole lines. That holds in
+  practice on local Linux filesystems and is not a POSIX promise for
+  regular files; on a network filesystem it would need a file per
+  process.
+- **Segments rotate by size**, closed ones are compressed, and retention
+  drops whole segments.
+- **Each segment ends with a hash-chain trailer** over its lines and the
+  previous segment's hash, signable later with the host's key.
+
+### Operation ids: following one piece of work across hosts
+
+An operation id is a number stamped on every line belonging to one piece
+of work, carried in the requests that work sends, so that one `grep`
+across hosts returns exactly that work's story from every end.
+
+Worked through on sec 424's fetch: host M wants a note's text and asks host
+R for it. M picks a random id, say `3f9a1c02`, for this fetch, and every
+line M logs while fetching carries `op=3f9a1c02`. The id travels in M's
+request to R, and R logs its answer under the same id, as does anything R
+runs on the request's behalf. Afterwards `grep op=3f9a1c02` over both
+hosts' logs reads: M asked, R held it, R sent three spans, M placed them.
+
+**Why it is needed, not merely nice:** across an estate the wall clocks
+disagree, so ordering by time alone lies about which line answered which.
+An operation id groups the lines, and each host's own order inside its
+file orders them within a host. It is HTTP's request id and distributed
+tracing's trace id under a plainer name.
+
+**What it costs fuzznet:** every request that does work on another host
+carries the id -- the remote hop's payloads and the spool messages
+included -- and that is a wire change to schedule rather than to slip in.
+
+### External programs' output, relayed
+
+A daemon that runs `ip`, `mdadm` or `ossacli` captures what it prints and
+writes it into its own log. That output is not ours, and the relay is one
+shared function rather than something each daemon hand-rolls:
+
+- **A relayed line says it is relayed, and by whom.** The tool is a child
+  in the path, with its pid and the stream it spoke on:
+
+      2026-10-01T12:34:56.789123Z nabbe root netcfgd[812] apply/exec W op=3f9a1c02 ip[9132] err: RTNETLINK answers: File exists
+      2026-10-01T12:34:56.803410Z nabbe root netcfgd[812] apply/exec E op=3f9a1c02 ip[9132] exit 2 after 14 ms, 1 line
+
+- **It inherits the operation id** of the work that ran it, which is most
+  of its troubleshooting value.
+- **The text is untrusted and escaped:** one captured line is exactly one
+  log line. `\n`, `\r`, control bytes, terminal escapes, NUL and invalid
+  UTF-8 become `\xNN`, so a tool's output cannot forge a line in our format
+  (sec 233 met the same forgery in record viewers). Lines have a length
+  cap, and an invocation a volume cap past which the rest goes only to the
+  ring, with one line saying how much.
+- **No guessed severity.** A tool has no levels, and parsing its text for
+  "error" is a heuristic that will be wrong: the line records the stream,
+  mapped by a per-caller rule (stdout info and stderr warning by default),
+  and the closing line carries the exit status, as an error when nonzero.
+- **The invocation is logged with redaction declared by the caller**, per
+  argument, since argv can carry a passphrase or a controller password and
+  only the caller knows which argument is the secret.
+- **Two limits, stated:** stdout and stderr on two pipes lose their
+  relative order, and a tool that writes to syslog or the journal itself
+  is not captured at all.
+
+### Gathering across an estate
+
+- **A pull over fuzznet's own carriage:** a troubleshooter asks hosts for
+  a time window, an operation id, or a ring dump, and hosts answer with
+  compressed text segments -- already about as compact as a binary form
+  would be. Sec 424's spool and blob carriage is most of the machinery.
+- **What may leave a host follows the scope vocabulary (sec 420):** a log
+  is host-private unless configured otherwise, since logs leak a great
+  deal.
+
+### Open, and the holder's to settle
+
+- **Positional fields or `key=value` throughout.** Positional is shorter
+  and easier to grep for; `key=value` survives a field being added.
+- **The ring:** its default size, and what besides an error, a crash and a
+  request writes it out.
+- **Retention:** defaults per user and per daemon.
+- **The operation id's width**, and which requests carry it first.
+
+### How it would be adopted
+
+Logging is to be harmonized across the projects that link fuzznet, so
+adopting this is a deliberate cross-project pass rather than one tree's
+change. netcfgd and raidcfgd are the natural first adopters: both are root
+daemons that run external tools, so both meet the per-user files and the
+relay at once.
