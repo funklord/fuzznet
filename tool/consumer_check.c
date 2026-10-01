@@ -167,6 +167,7 @@
 #include <fuzznet/state/state.h>
 #include <fuzznet/state/scope.h>
 #include <fuzznet/notes/note.h>
+#include <fuzznet/notes/text.h>
 #include <fuzznet/trust/trust.h>
 #include <fuzznet/session/random_system.h>
 #include <fuzznet/version/version.h>
@@ -281,6 +282,7 @@
 #include "state/state.h"
 #include "state/scope.h"
 #include "notes/note.h"
+#include "notes/text.h"
 #include "trust/trust.h"
 #include "session/random_system.h"
 #include "version/version.h"
@@ -924,6 +926,9 @@ int main(void)
 		    || fzn_note_open(FZN_NOTE_TYPE_NOTE, content, content_len, &opened) != FZN_NOTE_OK
 		    || fzn_note_blob_ref(&opened, &back) != FZN_NOTE_OK || back.length != 5000u)
 			FAIL(456);
+		/* NOT HERE YET on a host holding no spool for it, sec 423. */
+		if (fzn_note_text_state(&opened, NULL) != FZN_NOTE_TEXT_PENDING)
+			FAIL(457);
 	}
 
 	/* THE ROOT SET, as a node holds it (secs 405 to 407): a second root

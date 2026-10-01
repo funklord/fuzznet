@@ -140,7 +140,12 @@ typedef enum fzn_note_err {
 	FZN_NOTE_ERR_CAPACITY = -5,  /* the output buffer is too small */
 	FZN_NOTE_ERR_LEN = -6,       /* the fields do not fit a node's content */
 	FZN_NOTE_ERR_BLOB_LEN = -7,  /* TEXT_IS_BLOB set, and the text is no reference */
-	FZN_NOTE_ERR_TYPE = -8       /* the reserved type, or a shape its type forbids */
+	FZN_NOTE_ERR_TYPE = -8,      /* the reserved type, or a shape its type forbids */
+	/* For a long note's text, `notes/text.h` (sec 423): */
+	FZN_NOTE_ERR_CRYPTO = -9,    /* the random source, the seal or the hash refused */
+	FZN_NOTE_ERR_STORE = -10,    /* the spool refused a leaf, or could not be read */
+	FZN_NOTE_ERR_ABSENT = -11,   /* the text is not all here yet */
+	FZN_NOTE_ERR_MISMATCH = -12  /* the spool holds another blob, or the text is not its length */
 } fzn_note_err_t;
 
 /* A note as a VIEW: every pointer aims into the content it was parsed from,

@@ -277,6 +277,14 @@ const char *fzn_note_err_str(fzn_note_err_t err)
 		return "the text is not a blob reference";
 	case FZN_NOTE_ERR_TYPE:
 		return "reserved content type, or a shape its type forbids";
+	case FZN_NOTE_ERR_CRYPTO:
+		return "the random source, the seal or the hash refused";
+	case FZN_NOTE_ERR_STORE:
+		return "the spool refused or could not be read";
+	case FZN_NOTE_ERR_ABSENT:
+		return "the text is not here yet";
+	case FZN_NOTE_ERR_MISMATCH:
+		return "the spool's blob is not the one the note names";
 	}
 	return "unknown";
 }

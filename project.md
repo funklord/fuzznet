@@ -51228,3 +51228,102 @@ assertion. Probed by hand in a scratch directory, the test without that
 guard dies of a segmentation fault (rc 139): the wrapped sum reaches
 `memcpy` with nothing bounding it, which is the hazard the guard exists
 for.
+
+## 423. Notes, phase 2a: a long note's text, sealed and opened, 2026-10-01
+
+Sec 422's phase 2 splits in two, at the network:
+
+- **2a**, this: sealing a text into a spool, opening it back, and naming
+  the state a note's text is in on a host;
+- **2b**, next: the leaves travelling between hosts.
+
+`notes/text` is the other end of the 72-byte reference sec 422 put in a
+note.
+
+### `notes/text`
+
+**`fzn_note_text_seal`** seals a text into a spool under a fresh key and
+fills the reference:
+
+- **The key** is drawn from the caller's random source each time.
+  `blob/` seals deterministically from the key and the leaf index, so one
+  key over two texts would repeat nonces. An edit is therefore a new blob
+  under a new key, never a rewrite.
+- **The root** comes from every leaf's hash, kept because each leaf's
+  proof needs them again.
+- **Each leaf is placed through `fzn_spool_place`**, so it is verified
+  against the root before it is written, as a stranger's leaf would be. A
+  sealing defect cannot write a leaf that would not prove.
+
+**`fzn_note_text_open`** reads the text back:
+
+- **It must be the named blob.** The spool must hold the root the note
+  names, and the leaf count its length implies. Otherwise the answer is
+  MISMATCH.
+- **It must be complete.** Otherwise the answer is ABSENT.
+- **The last leaf's sealed length comes from the geometry.** A spool
+  reads back a whole slot, zero-filled past a short last leaf, and
+  `spool.h` leaves the length to the caller.
+- **A wrong length with the same leaf count is CRYPTO, not MISMATCH.**
+  The root binds the count and not the byte length, and the last leaf
+  opens only at the length it was sealed at.
+
+**`fzn_note_text_state`** names what fuzzypickles' requirement made
+visible, a note verified and placed with no readable text yet:
+
+- `INLINE`;
+- `HERE`;
+- `PENDING`: a blob not all here, or a spool for some other blob;
+- `BROKEN`: a reference that names nothing a fetch could complete, so a
+  UI does not wait for ever.
+
+**The bound, `FZN_NOTE_TEXT_MAX`, is policy: 256 KiB.** A seal builds
+every leaf's proof, which needs every leaf hash at once, and the library
+allocates nothing. 256 leaves is 8 KiB of hashes on the stack. That is
+about forty thousand words, far past a note, and raising it is a
+deliberate change.
+
+There are four new error codes: CRYPTO, STORE, ABSENT and MISMATCH.
+
+### Not yet after sec 423
+
+- **2b: carriage.** A host holding a note and not its text asks a sibling
+  for the leaves. `spool/`'s plan, transfer and messages exist and no node
+  runs them yet. That is the next piece.
+- **Where a host keeps a text's spool** between restarts, and its
+  bitmap, which `spool.h` leaves to `persist/`.
+- Phases 3 to 5, as sec 422 lists them.
+
+### Measured for sec 423
+
+`text_test`, 35 checks:
+
+- **Round trips** at the leaf boundaries: 1 byte, a whole leaf, a leaf
+  and a byte, 5,000 bytes, and the bound.
+- **A fresh key:** the same text sealed twice is two keys and two roots.
+- **Refusals by `seal`:** an empty text, one past the bound, a random
+  source that refuses, and a bitmap too small.
+- **Refusals by `open`:**
+  - another blob of the same length, which only the root tells apart;
+  - another leaf count;
+  - another length with the same count;
+  - another key;
+  - too little room;
+  - an empty spool for the right blob.
+- **The requirement end to end.** A 5,000-byte note is sealed on one
+  host. A second host's spool is filled leaf by leaf, each proved as a
+  fetch would prove it. The note is `PENDING` before every leaf and
+  `HERE` after the last, and it opens to the text that was written.
+- **States:** a short note is `INLINE`, a spool for another blob leaves
+  a note `PENDING`, and a reference past the bound is `BROKEN`.
+
+**The first run failed seven checks**, and printing what `open` returned
+found the cause: every text with a short last leaf failed and every text
+of whole leaves passed. `open` had passed a whole slot's length to the
+leaf opener, which is what `spool.h` says a caller must not do. The
+test's simulated sibling hashed whole slots the same way, so the test had
+the same defect.
+
+**A check that could not fail was removed:** the opened length against
+the reference's. Every leaf opens at the length its geometry gives, so
+the sum is the reference's length by construction.
