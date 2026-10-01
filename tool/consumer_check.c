@@ -172,6 +172,7 @@
 #include <fuzznet/notes/store.h>
 #include <fuzznet/notes/view.h>
 #include <fuzznet/notes/author.h>
+#include <fuzznet/notes/purge.h>
 #include <fuzznet/trust/trust.h>
 #include <fuzznet/session/random_system.h>
 #include <fuzznet/version/version.h>
@@ -291,6 +292,7 @@
 #include "notes/store.h"
 #include "notes/view.h"
 #include "notes/author.h"
+#include "notes/purge.h"
 #include "trust/trust.h"
 #include "session/random_system.h"
 #include "version/version.h"
@@ -955,6 +957,19 @@ int main(void)
 		/* And writing one needs an author to write as (sec 426). */
 		if (fzn_notes_move(NULL, NULL, NULL, 0u) != FZN_NOTES_ERR_MALFORMED)
 			FAIL(462);
+		/* A purge needs a spelled set of hosts to ask (sec 427). */
+		{
+			fzn_notes_asking_t none;
+			uint8_t id[FZN_TREE_ID_LEN] = { 1 };
+			int complete = 0;
+
+			memset(&none, 0, sizeof(none));
+			memset(&notes, 0, sizeof(notes));
+			if (!fzn_notes_asking(NULL, 0u).spelled
+			    || fzn_notes_purge_add(&notes, id, none, 0u, &complete)
+			    != FZN_NOTES_ERR_MALFORMED)
+				FAIL(463);
+		}
 	}
 
 	/* THE ROOT SET, as a node holds it (secs 405 to 407): a second root

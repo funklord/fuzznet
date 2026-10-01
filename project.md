@@ -51710,7 +51710,7 @@ serves notes, in phase 4.
 
 ### Not yet after sec 426
 
-- **Purge and import**, the rest of phase 3.
+- **~~Purge and import~~:** purge built in sec 427; import remains.
 - **The node's verbs** for these, with the admitted set, are phase 4.
 - **When sharing moves, SHARE must refuse a subtree that is not a note
   held here.** Reported by fuzzypickles 2026-10-01, fixed in their copy as
@@ -51770,3 +51770,106 @@ answers by restoring the mutated file. The first signal went to the
 wrapping shell rather than to the run, because `pgrep -f` matched the
 shell's own command line. The second went to the run's pid, with its
 cmdline and working directory read first. The run was then repeated whole.
+
+## 427. Notes, phase 3c: emptying the trash by consensus, 2026-10-01
+
+`notes/purge` queues a note's deletion until every host pinned to consent
+has answered. It is ported from fuzzypickles' `notes_purge` and the purge
+half of their `core.c` at 1e002a9.
+
+### The model, kept
+
+The copyright holder settled it in fuzzypickles on 2026-09-05. A trashed
+note is a flag, so trashing on one host is never undone by an older one,
+and emptying the trash has to free the space. A local delete is undone by
+the next sibling to sync. A tombstone kept for ever is a smaller permanent
+thing, not a saving. So a deletion is a **queued command, eliminated once
+consensus is attained, over a set defined beforehand**: the hosts are
+pinned when the purge is queued and never recomputed, since a set that
+grew while consent was gathered would never close.
+
+**An answer is "erased" or "I do not retain notes", and both count.**
+Silence is the one thing that keeps a purge waiting, because silence is
+what a switched-off host looks like.
+
+**The last step is ordered.** Every writer's claim on the note is erased,
+and only then is the queue entry dropped: the entry is what remembers the
+note is still to go.
+
+### The three defects fuzzypickles' survey found, and where each is closed
+
+fuzzypickles surveyed this lifecycle on 2026-09-17 (their sec 20) and found
+three defects, all since fixed in their tree:
+
+- **A host named twice stalled the purge for ever**, since it could be
+  answered only once. `fzn_notes_purge_add` deduplicates the pinned set.
+- **A sibling list that could not be read became an empty set**, and an
+  empty set is immediate consent, so every trashed note was erased with
+  nobody asked. They fixed it at the caller by bailing out on a failed
+  read. Here the set is **spelled**, as a notes policy is: a zeroed
+  `fzn_notes_asking_t` is refused rather than read as "nobody to ask", so
+  a caller that failed to read its hosts cannot reach the empty-set path
+  by forgetting to check. A spelled empty set is still immediate consent,
+  which is the single-host case.
+- **A sibling briefly behind could re-admit the note** right after
+  signing off its erase, because the record was pushed to it again in the
+  same tick. That is carriage's to close, and they closed it there: the
+  pusher skips a note pending purge. **Phase 4 must keep that rule.**
+  `fzn_notes_purge_pending` is what it asks, and it answers yes for a
+  purge row that will not read, the side that cannot bring a note back.
+
+### What else is here
+
+- **Emptying the trash** queues a purge of every note whose claim by this
+  host is trashed, and finishes at once those nobody need consent to. A
+  sibling's trash is the sibling's to empty, as in fuzzypickles.
+- **Erasing a note erases every writer's claim on it.** A note carries
+  one claim per writer, and erasing one would leave it readable. A store
+  that cannot remove refuses rather than answering "erased".
+- **Retries:** a purge never asked, or last asked a minute or more ago,
+  is due, and is marked asked when it is handed out.
+- **Persist slot 19, `FZN_PERSIST_NOTE_PURGE`**, per note id, not core:
+  lost, a trashed note is held until it is emptied again, which costs
+  space and admits nobody. Blob tag 19, described in `persist.situ`, whose
+  contract was regenerated at situ 4b41b4a.
+- **Bounds:** 32 purges awaiting consent, 32 hosts to a purge.
+
+### Not yet after sec 427
+
+- **Import**, the last of phase 3.
+- **The purge conversation**: asking each pinned host, a host erasing
+  and answering, and the asker finishing. That is phase 4's carriage,
+  with the pending-note rule above.
+- **Views do not hide a note pending purge yet.** fuzzypickles keeps such
+  a note out of listings, so a note a user emptied does not come back into
+  view because one of their devices is switched off. The listing that
+  should do so is phase 4's verb.
+
+### Measured for sec 427
+
+`notes_store_test` grew to 127 checks. The 28 new ones:
+
+- **The unspelled set** is refused and queues nothing.
+- **Queuing:**
+  - a set naming a host twice pins two hosts;
+  - queuing again keeps the first set and time.
+- **Answers:**
+  - a stranger's answer does not advance a purge, and one of two is not
+    consent;
+  - the last answer is consent, and answering again changes nothing.
+- **Finishing:**
+  - a store that cannot forget does not finish and keeps the purge;
+  - finishing erases both writers' claims and then the purge, and leaves
+    a bystander note alone.
+- **Retry:** due when never asked, not before the interval, and due at it.
+- **The bound:** 32 queued, and the 33rd refused with nothing queued.
+- **A host on its own:** consent at once, nothing queued.
+- **Emptying the trash:**
+  - this host's trashed note is queued, and its untrashed note and a
+    sibling's trashed note are not;
+  - an unspelled set is refused;
+  - a host on its own empties its trash at once.
+- **A purge row that will not read** still counts as pending.
+
+**Sabotage: fourteen entries**, one for the inline constructor in
+`purge.h`.

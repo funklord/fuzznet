@@ -9,6 +9,7 @@
 
 #include "../store.h"
 #include "../author.h"
+#include "../purge.h"
 #include "../view.h"
 
 #include <stdio.h>
@@ -27,6 +28,10 @@ static void check_at(int ok, int line, const char *what)
 }
 
 #define CHECK(cond, what) check_at((cond) ? 1 : 0, __LINE__, what)
+
+/* Where a purge row's host count sits, past its two times: purge.c's
+ * OFF_COUNT, restated so a case can damage it. */
+#define OFF_COUNT_FOR_TEST 16u
 
 /* ---- a hash, and a signer built on it ----------------------------------- */
 
@@ -849,6 +854,178 @@ static void test_authoring(void)
 	}
 }
 
+/* ---- purge, sec 427 ---------------------------------------------------- */
+
+static int held_claims(const uint8_t id[FZN_TREE_ID_LEN])
+{
+	uint8_t out[FZN_RECORD_MAX_LEN];
+	size_t len = 0;
+
+	return (fzn_notes_get(&store, id, KEY_A, out, sizeof(out), &len) == FZN_NOTES_OK)
+	       + (fzn_notes_get(&store, id, KEY_B, out, sizeof(out), &len) == FZN_NOTES_OK);
+}
+
+static void test_purge(void)
+{
+	fzn_sign_ops_t ops_a, ops_b;
+	fzn_notes_author_t a = author_as(KEY_A, &ops_a), b = author_as(KEY_B, &ops_b);
+	fzn_notes_writer_t hosts[3];
+	fzn_notes_asking_t zeroed;
+	fzn_notes_purge_t p;
+	uint8_t root[FZN_TREE_ID_LEN], one[FZN_TREE_ID_LEN], two[FZN_TREE_ID_LEN];
+	uint8_t three[FZN_TREE_ID_LEN], due[4][FZN_TREE_ID_LEN];
+	fzn_note_t note;
+	size_t n = 0, erased = 0;
+	int complete = -1;
+
+	wipe();
+	memset(root, 0, sizeof(root));
+	memset(&zeroed, 0, sizeof(zeroed));
+	memcpy(hosts[0].key, KEY_B, FZN_PUBKEY_LEN);
+	memcpy(hosts[1].key, KEY_C, FZN_PUBKEY_LEN);
+	memcpy(hosts[2].key, KEY_B, FZN_PUBKEY_LEN);
+	note = titled("to go", "");
+	CHECK(fzn_notes_create(&a, root, FZN_NOTE_TYPE_NOTE, &note, 1u, one) == FZN_NOTES_OK,
+	      "fixture: a note");
+	/* B edits it too, so it carries two claims. */
+	CHECK(fzn_notes_edit(&b, one, 0u, NULL, FZN_NOTE_FLAG_PINNED, 0u, 2u) == FZN_NOTES_OK
+	              && held_claims(one) == 2,
+	      "fixture: two writers' claims on it");
+
+	CHECK(fzn_notes_purge_add(&store, one, zeroed, 10u, &complete) == FZN_NOTES_ERR_MALFORMED
+	              && complete == 0 && !fzn_notes_purge_pending(&store, one),
+	      "an unspelled set is refused, not read as nobody to ask");
+	CHECK(fzn_notes_purge_add(&store, one, fzn_notes_asking(hosts, 3u), 10u, &complete)
+	              == FZN_NOTES_OK
+	              && complete == 0 && fzn_notes_purge_pending(&store, one),
+	      "a purge is queued");
+	CHECK(fzn_notes_purge_get(&store, one, &p) == FZN_NOTES_OK && p.asked_count == 2u
+	              && p.queued_at_ms == 10u,
+	      "with a host named twice asked once");
+	CHECK(fzn_notes_purge_add(&store, one, fzn_notes_asking(hosts, 1u), 11u, &complete)
+	              == FZN_NOTES_OK
+	              && fzn_notes_purge_get(&store, one, &p) == FZN_NOTES_OK && p.asked_count == 2u
+	              && p.queued_at_ms == 10u,
+	      "queuing it again keeps the set pinned the first time");
+
+	CHECK(fzn_notes_purge_answer(&store, one, KEY_A, &complete) == FZN_NOTES_OK && !complete,
+	      "a host outside the pinned set does not advance it");
+	CHECK(fzn_notes_purge_answer(&store, one, KEY_B, &complete) == FZN_NOTES_OK && !complete,
+	      "one answer of two is not consent");
+	CHECK(fzn_notes_purge_answer(&store, one, KEY_C, &complete) == FZN_NOTES_OK && complete,
+	      "the last answer is");
+	CHECK(fzn_notes_purge_answer(&store, one, KEY_C, &complete) == FZN_NOTES_OK && complete,
+	      "and answering again changes nothing");
+	{
+		fzn_persist_ops_t no_remove = OPS;
+		fzn_notes_store_t fixed;
+
+		no_remove.remove = NULL;
+		CHECK(fzn_notes_store_init(&fixed, &no_remove, &HASH) == FZN_NOTES_OK
+		              && fzn_notes_purge_finish(&fixed, one) == FZN_NOTES_ERR_UNSUPPORTED
+		              && fzn_notes_erase_note(&fixed, one, &erased) == FZN_NOTES_ERR_UNSUPPORTED
+		              && fzn_notes_purge_pending(&store, one) && held_claims(one) == 2,
+		      "a store that cannot forget does not finish, and keeps the purge");
+	}
+	note = titled("bystander", "");
+	CHECK(fzn_notes_create(&a, root, FZN_NOTE_TYPE_NOTE, &note, 4u, three) == FZN_NOTES_OK,
+	      "fixture: a note nobody is purging");
+	CHECK(fzn_notes_purge_finish(&store, one) == FZN_NOTES_OK && held_claims(one) == 0
+	              && !fzn_notes_purge_pending(&store, one),
+	      "finishing erases every writer's claim, then the purge");
+	CHECK(held_claims(three) == 1, "and leaves every other note alone");
+
+	/* ---- retry */
+	note = titled("second", "");
+	CHECK(fzn_notes_create(&a, root, FZN_NOTE_TYPE_NOTE, &note, 3u, two) == FZN_NOTES_OK
+	              && fzn_notes_purge_add(&store, two, fzn_notes_asking(hosts, 2u), 100u,
+	                                     &complete)
+	                         == FZN_NOTES_OK,
+	      "fixture: a second purge");
+	CHECK(fzn_notes_purge_due(&store, 1000u, due, 4u, &n) == FZN_NOTES_OK && n == 1u
+	              && memcmp(due[0], two, sizeof(two)) == 0,
+	      "a purge never asked is due");
+	CHECK(fzn_notes_purge_due(&store, 1000u + FZN_NOTES_PURGE_RETRY_MS - 1u, due, 4u, &n)
+	                      == FZN_NOTES_OK
+	              && n == 0u,
+	      "and not again before the retry interval");
+	CHECK(fzn_notes_purge_due(&store, 1000u + FZN_NOTES_PURGE_RETRY_MS, due, 4u, &n)
+	                      == FZN_NOTES_OK
+	              && n == 1u,
+	      "but at it");
+
+	/* ---- the bound */
+	{
+		uint8_t id[FZN_TREE_ID_LEN];
+		size_t i;
+		int ok = 1;
+
+		memset(id, 0x40, sizeof(id));
+		for (i = 1; i < FZN_NOTES_PURGE_MAX && ok; i++) {
+			id[0] = (uint8_t)i;
+			ok = fzn_notes_purge_add(&store, id, fzn_notes_asking(hosts, 1u), 7u, &complete)
+			     == FZN_NOTES_OK;
+		}
+		CHECK(ok, "fixture: the queue fills to its bound");
+		id[0] = 0xffu;
+		CHECK(fzn_notes_purge_add(&store, id, fzn_notes_asking(hosts, 1u), 7u, &complete)
+		              == FZN_NOTES_ERR_FULL
+		              && !fzn_notes_purge_pending(&store, id),
+		      "one purge past the bound is refused, and nothing queued");
+	}
+
+	/* ---- a host on its own */
+	CHECK(fzn_notes_purge_add(&store, root, fzn_notes_asking(NULL, 0u), 5u, &complete)
+	                      == FZN_NOTES_OK
+	              && complete && !fzn_notes_purge_pending(&store, root),
+	      "nobody to ask is consent at once, with nothing queued");
+
+	/* ---- emptying the trash */
+	wipe();
+	note = titled("trashed", "");
+	CHECK(fzn_notes_create(&a, root, FZN_NOTE_TYPE_NOTE, &note, 1u, one) == FZN_NOTES_OK
+	              && fzn_notes_edit(&a, one, 0u, NULL, FZN_NOTE_FLAG_TRASHED, 0u, 2u)
+	                         == FZN_NOTES_OK,
+	      "fixture: a trashed note of A's");
+	note = titled("kept", "");
+	CHECK(fzn_notes_create(&a, root, FZN_NOTE_TYPE_NOTE, &note, 3u, two) == FZN_NOTES_OK,
+	      "fixture: a note of A's not trashed");
+	note = titled("B's trash", "");
+	CHECK(fzn_notes_create(&b, root, FZN_NOTE_TYPE_NOTE, &note, 4u, three) == FZN_NOTES_OK
+	              && fzn_notes_edit(&b, three, 0u, NULL, FZN_NOTE_FLAG_TRASHED, 0u, 5u)
+	                         == FZN_NOTES_OK,
+	      "fixture: a trashed note of B's");
+	CHECK(fzn_notes_purge_trash(&store, &author_view, KEY_A, fzn_notes_asking(hosts, 1u), 9u,
+	                            &n)
+	                      == FZN_NOTES_OK
+	              && n == 1u && fzn_notes_purge_pending(&store, one)
+	              && !fzn_notes_purge_pending(&store, two)
+	              && !fzn_notes_purge_pending(&store, three),
+	      "emptying A's trash queues A's trashed note and nothing else");
+	CHECK(fzn_notes_purge_trash(&store, &author_view, KEY_A, zeroed, 9u, &n)
+	              == FZN_NOTES_ERR_MALFORMED,
+	      "and refuses an unspelled set");
+	CHECK(fzn_notes_purge_trash(&store, &author_view, KEY_B, fzn_notes_asking(NULL, 0u), 9u,
+	                            &n)
+	                      == FZN_NOTES_OK
+	              && n == 1u && fzn_notes_get(&store, three, KEY_B, buf[0], FZN_RECORD_MAX_LEN,
+	                                          &erased)
+	                                     == FZN_NOTES_ERR_ABSENT
+	              && !fzn_notes_purge_pending(&store, three),
+	      "a host on its own empties its trash at once");
+
+	/* ---- a purge row that will not read still holds the note back */
+	{
+		struct row *r = find(FZN_PERSIST_NOTE_PURGE, one);
+
+		if (r)
+			r->bytes[FZN_PERSIST_HEAD_LEN + OFF_COUNT_FOR_TEST] = 0u;
+		CHECK(r && fzn_notes_purge_get(&store, one, &p) == FZN_NOTES_ERR_SHAPE
+		              && fzn_notes_purge_pending(&store, one),
+		      "a damaged purge still counts as pending");
+	}
+}
+
 int main(void)
 {
 	memset(KEY_A, 0xa1, sizeof(KEY_A));
@@ -863,6 +1040,7 @@ int main(void)
 	test_the_sequence();
 	test_the_view();
 	test_authoring();
+	test_purge();
 
 	if (failures) {
 		fprintf(stderr, "notes_store_test: %d of %d checks failed\n", failures, checks);

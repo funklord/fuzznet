@@ -68,6 +68,7 @@ enum fzn_persist_tag : u8 {
 	quorum_set = 16,
 	note = 17,
 	note_seq = 18,
+	note_purge = 19,
 	default = error,
 }
 
@@ -212,6 +213,22 @@ struct fzn_persist_note_seq_body {
 	u64 seq;
 }
 
+// One host pinned to sign off a purge, and whether it has. sec 427.
+struct fzn_persist_purge_host {
+	u8  host[32];
+	u8  answered [max = 1];
+}
+
+// A purge awaiting consensus: when it was queued, when its hosts were last
+// asked, and the set pinned at queue time, deduplicated, at most
+// FZN_NOTES_PURGE_ASK_MAX = 32. notes/purge.c, sec 427.
+struct fzn_persist_note_purge_body {
+	u64 queued_at;
+	u64 last_push;
+	u8  asked_count [max = 32];
+	fzn_persist_purge_host asked[asked_count];
+}
+
 // version | tag | body. The body is the arm the tag selects.
 struct fzn_persist_blob {
 	u8               version;
@@ -236,6 +253,7 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.quorum_set: fzn_persist_quorum_set_body quorum_set;
 		case fzn_persist_tag.note: fzn_persist_note_body note;
 		case fzn_persist_tag.note_seq: fzn_persist_note_seq_body note_seq;
+		case fzn_persist_tag.note_purge: fzn_persist_note_purge_body note_purge;
 		default: error;
 	}
 }

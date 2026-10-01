@@ -209,6 +209,9 @@ typedef enum fzn_persist_slot {
 	 * record at, so a restart never re-issues one. `notes/store.h`.
 	 * sec 425. */
 	FZN_PERSIST_NOTE_SEQ = 18u,
+	/* Per note id: a purge awaiting consensus -- the hosts pinned to sign
+	 * it off and which have. `notes/purge.h` keeps it. sec 427. */
+	FZN_PERSIST_NOTE_PURGE = 19u,
 } fzn_persist_slot_t;
 
 typedef enum fzn_persist_err {
@@ -250,6 +253,7 @@ typedef enum fzn_persist_err {
 #define FZN_PERSIST_BLOB_QUORUM_SET 16u
 #define FZN_PERSIST_BLOB_NOTE 17u
 #define FZN_PERSIST_BLOB_NOTE_SEQ 18u
+#define FZN_PERSIST_BLOB_NOTE_PURGE 19u
 
 /* Write a blob head, or refuse when `cap` cannot hold head and body. */
 fzn_persist_err_t fzn_persist_head_write(uint8_t *out, size_t cap, size_t body,
@@ -348,12 +352,13 @@ typedef struct fzn_persist_ops {
  * NOT CORE: NODE_PEER and PAIRED_NODE, the sessions a node serves and a
  * device holds. Lost, a device re-pairs; nothing is admitted that was not.
  *
- * NOT CORE EITHER: NOTE and NOTE_SEQ (sec 425). A note is the user's data,
+ * NOT CORE EITHER: NOTE, NOTE_SEQ and NOTE_PURGE (secs 425, 427). A note is the user's data,
  * signed, and a sibling holds the same records: lost, it is fetched again,
  * and rolled back, the signature still says who wrote what. A lost or
  * rolled-back sequence is floored by the records this host holds
  * (`fzn_notes_next_seq`), and past those costs edits that read as stale to
- * a sibling ahead of it -- availability, not a door.
+ * a sibling ahead of it -- availability, not a door. A lost purge leaves
+ * a trashed note held until it is emptied again: space, not a door.
  *
  * A SLOT THIS DOES NOT NAME IS CORE. A slot added later without a decision
  * about it lands where losing it costs the least, which is the guarded
