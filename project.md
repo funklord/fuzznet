@@ -51948,14 +51948,18 @@ tree is.
 
 **A viewer shortens for display only:** it hides fields equal to the
 previous line's or fixed by the current filter, along the tree the holder
-sketched -- estate / host / user / program[instance] / subsystem / ... --
+sketched, estate / machine / user / program[instance] / subsystem / ...,
 and the file keeps all of it.
 
 ### Every entry's name, from what the entry is
 
 An entry is named by where and when it was made, all of it concrete:
 
-    estate / host / user / program / instance / position
+    estate / machine / user / program / instance / position
+
+**Machine, not host**, since sec 430: a fuzznet host is one account's
+node on a machine, so the machine and the user together name the node,
+and the estate is that node's.
 
 - **The instance** is the process: its pid and its start time together,
   since a pid alone is reused.
@@ -51973,7 +51977,7 @@ A proposed classic line, positional, the entry's name in its fields:
 
 - **Time in UTC with microseconds**, so a plain sort across hosts is
   roughly right, and only roughly: see causes.
-- **The estate is not on every line.** It is constant per host, and is
+- **The estate is not on every line.** It is constant per node, and is
   in the directory and the file's first line.
 
 ### Causes: following one piece of work across hosts
@@ -52029,10 +52033,10 @@ over both hosts' logs then reads the fetch from both ends.
 ### Retention: a policy, configured per scope
 
 Retention is rules, not a setting. A rule says **which entries** -- by
-estate, host, user, program, subsystem, level or text -- **are kept how
+estate, machine, user, program, subsystem, level or text -- **are kept how
 long**, by age, by size, by count or by any of these together, and **for
 which copy**: the host that made them, or a host holding a replicated copy.
-Rules are set per estate, per host and per user.
+Rules are set per estate, per machine and per user.
 
 The rules are state, so they replicate and are scoped as everything else
 is: `state/` holds them, and the scope vocabulary (sec 420) says which
@@ -52082,9 +52086,10 @@ shared function rather than something each daemon hand-rolls:
 
 ### Open, and the holder's to settle
 
-- **Which concrete property names a host:** its identity key, which never
-  changes and is long, or its host name, which is short and can change.
-  The line could show the name and the namespace use the key.
+- **Which concrete property names a machine.** A node has an identity
+  key, but a machine has none in fuzznet: its host name is short and can
+  change, and `/etc/machine-id` is stable and long. The line could show
+  the name and the namespace use the stable one.
 - **The process start time's resolution**, seconds or finer: two instances
   of one program can share a pid only across a restart, so seconds are
   enough unless a pid is reused within one second.
@@ -52199,3 +52204,88 @@ the source's creation time, which is also what a re-import recognises.
 **Sabotage: eighteen entries.** The three for NUL came after
 fuzzypickles, fixing the defects reported to them, listed U+0000 among
 what their decoder refuses; this port had let it through.
+
+## 430. A host is one account's node; a machine's resources have one estate, 2026-10-01
+
+Two decisions by the copyright holder, asked this session, and a third
+that follows from them.
+
+### 1. The invariant is about nodes
+
+Sec 25's invariant, *"No host and no user exists on two estates
+simultaneously"*, is restated: **no node exists on two estates
+simultaneously**, where a node is one account's identity on a machine.
+The rule is unchanged; the wording now says what fuzznet already did.
+
+**Why it needed saying.** Two users on one machine may use different
+estates -- fuzzypickles is the case, where an estate is one user -- and
+read literally the machine was then in two estates. Each user's daemon
+has its own store and its own identity, so it was always two nodes, each
+in one estate. Sec 131 had already corrected "one node per host" to "one
+node per identity"; this carries the same correction into the invariant.
+
+So the vocabulary is:
+
+- **machine:** the physical or OS instance. fuzznet has no identity for
+  it; it is a place.
+- **host, or node:** one account's participant on a machine, with one
+  identity, in one estate. The invariant is about these.
+
+Sec 428's entry names use **machine** for the second element: machine
+and user together name the node.
+
+### 2. A machine's resources belong to exactly one estate
+
+Network configuration, RAID and anything else a machine has one of belong
+to **the estate of the root node that manages them** -- netcfgd's, or
+raidcfgd's. No other estate has authority over them.
+
+**Why.** A machine has one network configuration. If two estates could
+both configure netcfgd, it would be a node in two estates, and `state/`
+would see two writers no chain relates claiming the same settings: the
+conflict the invariant exists to prevent.
+
+So by default a user of another estate on that machine, or anywhere,
+**has no access**: their credentials verify against the wrong root and
+are refused. That is today's behaviour, now stated as intended.
+
+### 3. Friends: a special case, as grants rather than membership
+
+The holder wants a **high-level feature for local and remote friends
+configuring another estate's netcfgd and the like**, special-cased as sec
+25 pre-authorised for whatever case makes the invariant intolerable.
+
+**The two mechanisms considered:**
+
+- **Grants to a friend's key.** The machine's estate issues a narrow
+  capability -- configure netcfgd on this machine, perhaps only some
+  interfaces -- to the friend's own node key. The grant is signed from the
+  machine's root, expiring, revocable through that estate's ordinary
+  revocation, and logged in its root log. The friend's node stays a
+  member of its own estate only: holding another estate's grant is not
+  membership, so the invariant holds as written. **Local friends** at the
+  machine go through Unix group membership instead, which netcfgd's local
+  authorisation already checks: the holder's "group membership overriding
+  and allowing config anyway".
+- **Slave estates**: an estate with estates under it. **Rejected.** It
+  removes the direct conflict, but it brings back what sec 25 retired: a
+  node trusting more than one root, with the multi-root set, its index and
+  its per-root provenance. Every trust decision, revocation and scope
+  question would gain a "whose estate, and does the parent override"
+  branch, in every module rather than in netcfgd. The holder named the
+  cost: it "complicates everything substantially".
+
+**Recommended: grants.** The capability model already separates being a
+member from holding a capability, so a friend needs no new concept, only
+a grant whose root is not their own. This is recorded as the
+recommendation; the holder has not yet chosen between the two.
+
+### Not yet after sec 430
+
+- **The friends feature itself**: issuing a grant to a key outside the
+  estate, and a node accepting a chain whose root is the machine's estate
+  from a peer that is not its member. Pairing already grants chains to
+  device keys, so much of it exists; what is new is that the grantee
+  belongs to another estate and must not be treated as a member.
+- **Telling netcfgd and raidcfgd**, whose resources section 2 assigns,
+  and fuzzypickles, the case behind section 1.
