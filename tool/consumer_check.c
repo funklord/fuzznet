@@ -171,6 +171,7 @@
 #include <fuzznet/notes/text.h>
 #include <fuzznet/notes/store.h>
 #include <fuzznet/notes/view.h>
+#include <fuzznet/notes/author.h>
 #include <fuzznet/trust/trust.h>
 #include <fuzznet/session/random_system.h>
 #include <fuzznet/version/version.h>
@@ -289,6 +290,7 @@
 #include "notes/text.h"
 #include "notes/store.h"
 #include "notes/view.h"
+#include "notes/author.h"
 #include "trust/trust.h"
 #include "session/random_system.h"
 #include "version/version.h"
@@ -950,6 +952,9 @@ int main(void)
 			FAIL(460);
 		if (fzn_notes_store_init(&notes, NULL, NULL) != FZN_NOTES_ERR_MALFORMED)
 			FAIL(461);
+		/* And writing one needs an author to write as (sec 426). */
+		if (fzn_notes_move(NULL, NULL, NULL, 0u) != FZN_NOTES_ERR_MALFORMED)
+			FAIL(462);
 	}
 
 	/* THE ROOT SET, as a node holds it (secs 405 to 407): a second root

@@ -194,7 +194,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              version/version.c \
              record/record.c record/journal.c record/sync.c record/ledger.c \
              state/state.c state/scope.c notes/note.c notes/text.c \
-             notes/store.c notes/view.c trust/trust.c \
+             notes/store.c notes/view.c notes/author.c trust/trust.c \
              log/log.c \
              sched/sched.c \
              link/link.c
@@ -281,7 +281,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              version/version.h \
              record/record.h record/journal.h record/sync.h record/ledger.h \
              state/state.h state/scope.h notes/note.h notes/text.h \
-             notes/store.h notes/view.h trust/trust.h \
+             notes/store.h notes/view.h notes/author.h trust/trust.h \
              log/log.h \
              sched/sched.h \
              link/link.h
@@ -1822,6 +1822,8 @@ $(BUILD_DIR)/node/test/shelf_test: $(BUILD_DIR)/node/test/shelf_test.o \
 $(BUILD_DIR)/notes/test/notes_store_test: $(BUILD_DIR)/notes/test/notes_store_test.o \
                                           $(BUILD_DIR)/notes/store.o \
                                           $(BUILD_DIR)/notes/view.o \
+                                          $(BUILD_DIR)/notes/author.o \
+                                          $(BUILD_DIR)/notes/note.o \
                                           $(BUILD_DIR)/tree/tree.o \
                                           $(BUILD_DIR)/record/record.o \
                                           $(BUILD_DIR)/persist/persist.o \

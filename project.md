@@ -51600,9 +51600,8 @@ rather than restarted.
 
 ### Not yet after sec 425
 
-- **Nothing signs a note.** Creating, editing, moving and trashing a note,
-  signed with the node's key at `fzn_notes_next_seq`, is the rest of
-  phase 3 together with purge and import.
+- **~~Nothing signs a note.~~ Built in sec 426:** create, edit, move
+  and trash, signed at `fzn_notes_next_seq`. Purge and import remain.
 - **Who is admitted.** fuzzypickles loads this host and its siblings. A
   fuzznet node's equivalent is its own identity and the nodes it is paired
   with, and choosing that is carriage's, phase 4.
@@ -51663,3 +51662,92 @@ that as a code; it says "unknown" now, as every renderer here does.
 
 **Sabotage: seventeen entries**, one for the inline constructor in
 `store.h`.
+
+## 426. Notes, phase 3b: writing a note, 2026-10-01
+
+`notes/author` creates, edits, moves and trashes a note, ported from
+fuzzypickles' `notes_service` create and edit at b419405, with a move
+added. Each operation builds the note body (`notes/note`), places it
+(`tree/`), signs it as this host at `fzn_notes_next_seq`, and hands it to
+`fzn_notes_put`. That is the admission an arriving record goes through,
+so a host outside its own admitted set cannot write a note either.
+
+An author is borrowed parts: the store, a view for scratch, this host's
+key with a signer for it, a random source for ids, and the admitted set
+this host's own records go through. The node supplies them when it
+serves notes, in phase 4.
+
+### The rules, kept
+
+- **A note id is random**, so two notes with the same text are two notes,
+  and an all-zero draw is not taken, since that is the root.
+- **A new note goes at the end of its parent's children.**
+- **An edit is supersession**: a new record for the same note at a higher
+  sequence. It keeps the note's parent, its place, its content type and
+  its creation time, and every field and flag it does not name. Renaming a
+  note does not discard its text, unpin it or bring it back from the trash.
+- **It writes this host's own claim.** Where this host holds no record of
+  the note and a sibling does, the fields and the place are taken from the
+  sibling's claim, and this host's claim joins it rather than replacing it.
+  A second edit starts from this host's own claim.
+
+### What differs
+
+- **Trash, pin and archive are flags an edit sets or clears**, rather than
+  fuzzypickles' two trash bits. Setting and clearing one flag at once is
+  refused rather than resolved, and an edit naming nothing is refused.
+- **`TEXT_IS_BLOB` moves only with the text.** A long text arrives sealed,
+  as the 72-byte reference with the flag set (`node/shelf.h` seals it),
+  and an inline text clears it. Setting the flag alone is refused, since
+  it would make the text read as a reference it is not.
+- **A note this build cannot read is not edited.** fuzzypickles' edit took
+  the placement of a note whose content would not open and wrote its
+  fields back empty, which deletes what a newer host wrote in a type this
+  build does not know. This refuses with SHAPE and writes nothing.
+- **Move** puts a note at the end of another parent's children. It can
+  make a cycle, which `tree/` reports rather than forbids; only a note
+  made its own parent is refused.
+
+### Not yet after sec 426
+
+- **Purge and import**, the rest of phase 3.
+- **The node's verbs** for these, with the admitted set, are phase 4.
+
+### Measured for sec 426
+
+`notes_store_test` grew to 94 checks. The 34 new ones:
+
+- **Create:**
+  - a note holds its fields, its times and its place;
+  - the same text again is a second note after the first;
+  - a folder is created, and a folder holding text is refused;
+  - a type this build may not write is refused;
+  - a host outside its own admitted set is DENIED;
+  - an all-zero random draw does not become the root.
+- **Edit:**
+  - a rename keeps the text, the creation time and the place, at a
+    higher sequence;
+  - trash and pin;
+  - a text edit keeps both;
+  - un-trash keeps the pin;
+  - a reference goes in with its flag, and an inline text clears it;
+  - set-and-clear, the blob flag alone, an empty edit, the root and an
+    unknown note are refused.
+- **A sibling's note:**
+  - this host's edit keeps its text, creation and place;
+  - it leaves the sibling's claim as it was;
+  - a second edit starts from this host's own claim.
+- **Move:** the parent changes and the note is kept, it goes last in the
+  folder, and a note is not its own parent or moved when nobody holds it.
+- **A newer host's unreadable note:** an edit is refused as SHAPE and
+  nothing is written for it.
+
+**Sabotage: ten entries.**
+
+**One process note.** A sabotage run for sec 425 was building through the
+tree while these files were edited, so its later verdicts would have
+measured a different tree. It was stopped with SIGTERM, which its handler
+answers by restoring the mutated file. The first signal went to the
+wrapping shell rather than to the run, because `pgrep -f` matched the
+shell's own command line. The second went to the run's pid, with its
+cmdline and working directory read first. The run was then repeated whole.
