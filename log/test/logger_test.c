@@ -148,6 +148,24 @@ int main(void)
 	      "the machine, the program, the pid, a start in milliseconds, a host and an account");
 	CHECK(fzn_logger_identify(&self, host, "a/b", id_path) == FZN_LOGGER_ERR_MALFORMED,
 	      "a program with a slash is refused");
+	/* THE DEFAULT PATHS, on whichever this machine has: /etc/machine-id,
+	 * else D-Bus's. This tree's own machine had only the second. */
+	{
+		static const char *const PATHS[] = { "/etc/machine-id", "/var/lib/dbus/machine-id" };
+		fzn_entry_name_t dflt, want;
+		char h2[FZN_ENTRY_WORD_MAX + 1u];
+		size_t k;
+
+		for (k = 0; k < 2u; k++)
+			if (access(PATHS[k], R_OK) == 0)
+				break;
+		if (k < 2u)
+			CHECK(fzn_logger_identify(&dflt, h2, "fuzznetd", NULL) == FZN_LOGGER_OK
+			              && fzn_logger_identify(&want, h2, "fuzznetd", PATHS[k])
+			                         == FZN_LOGGER_OK
+			              && memcmp(dflt.machine, want.machine, sizeof(want.machine)) == 0,
+			      "with no path named, the machine is the first of the two this machine has");
+	}
 
 	/* ---- where its files go */
 	if (geteuid() != 0) {

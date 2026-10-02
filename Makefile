@@ -3683,9 +3683,13 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(BUILD_DIR)/session/agree_monocypher.o \
               $(FUZZNETD_NOTES_OBJS) \
               $(if $(SPOOL_FILE_ON),$(FUZZNETD_SHELF_OBJS)) \
+              $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
+              $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o $(BUILD_DIR)/log/ring.o \
+                $(BUILD_DIR)/log/retain.o) \
+              $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o) \
               $(MONO_OBJS) $(FLOG_OBJS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
 
 # Provisioning the remote hop end to end under real Monocypher primitives:
 # the same crypto set remote_test links, plus provision/provision.o for the

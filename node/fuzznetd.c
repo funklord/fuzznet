@@ -33,6 +33,9 @@
  * down.
  */
 
+/* POSIX, as the other backends ask: the log's clock and its O_CLOEXEC. */
+#define _POSIX_C_SOURCE 200809L
+
 #include "serve.h"
 #include "admin.h"
 #include "caller.h"
@@ -62,12 +65,170 @@
 #include "../session/hash_monocypher.h"
 #include "../session/random_system.h"
 
+#include "../log/entry.h"
+#ifdef FZN_LOG_FILE_ON
+#include "../log/logger.h"
+#endif
+#ifdef FZN_LOG_PACK_ON
+#include "../log/pack.h"
+#endif
+
+#include <fcntl.h>
+#include <signal.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
+
+/* THE DAEMON'S LOG, sec 461: the first consumer of sec 456's logging.
+ *
+ * EVERY MESSAGE THE SERVING DAEMON SAYS goes through `say`, which writes the
+ * line it always wrote to stderr -- so a journal, a terminal and a script
+ * reading the old lines see no change -- and, built with FZN_LOG_FILE, logs
+ * it as an entry: into the flight recorder whatever its level, and into
+ * `fuzznetd.log` when the level is kept. The command line's own errors, and
+ * the one-shot modes that print a card or a prekey, stay on stderr alone.
+ *
+ * THE FLIGHT RECORDER IS WRITTEN OUT on a crash, by a handler that only
+ * opens, writes and closes, and on an error entry, at most once a minute:
+ * `DIR/fuzznetd.PID.ring`, a dump `fzn_ring_load` reads back.
+ *
+ * EACH ROUND, settled segments are packed (with FZN_LOG_PACK) and the
+ * `--log-rule=` lines applied. Rules are lines on the command line for now,
+ * as the holder allowed; sec 428 has them become replicated state. */
+#define FZND_LOG_RULES_MAX 16u
+#define FZND_SAY_MAX 1024u
+
+static struct {
+#ifdef FZN_LOG_FILE_ON
+	int on;
+	fzn_logger_t logger;
+	fzn_ring_t ring;
+	fzn_retain_rule_t rules[FZND_LOG_RULES_MAX];
+	size_t n_rules;
+	const fzn_hash_ops_t *hash;
+	char ring_path[FZN_LOGGER_PATH_MAX + 32u];
+	uint64_t last_dump_us;
+	/* Set by the rotation hook, cleared by the loop: the hook runs inside
+	 * `fzn_logger_log`, whose line is not written yet, so it must not log. */
+	int rotated;
+#endif
+	int unused;
+} dlog;
+
+static uint64_t log_now_us(void)
+{
+	struct timespec t;
+
+	if (clock_gettime(CLOCK_REALTIME, &t) != 0 || t.tv_sec < 0)
+		return 0;
+	return ((uint64_t)t.tv_sec * 1000000u) + ((uint64_t)t.tv_nsec / 1000u);
+}
+
+#ifdef FZN_LOG_FILE_ON
+/* The ring's bytes into its dump file: open, two writes, close -- nothing
+ * a signal handler may not call. */
+static void write_ring(void)
+{
+	const uint8_t *a, *b;
+	size_t al = 0, bl = 0;
+	int fd;
+
+	if (!dlog.ring_path[0])
+		return;
+	fd = open(dlog.ring_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+	if (fd < 0)
+		return;
+	fzn_ring_spans(&dlog.ring, &a, &al, &b, &bl);
+	if (al)
+		(void)!write(fd, a, al);
+	if (bl)
+		(void)!write(fd, b, bl);
+	(void)close(fd);
+}
+
+static void on_crash(int sig)
+{
+	write_ring();
+	(void)signal(sig, SIG_DFL);
+	(void)raise(sig);
+}
+#endif
+
+/* One message of the serving daemon: its old stderr line, and an entry. */
+#if defined(__GNUC__)
+#define FZND_SAY_PRINTF __attribute__((format(printf, 3, 4)))
+#else
+#define FZND_SAY_PRINTF
+#endif
+static void say(fzn_entry_level_t level, const char *subsystem, const char *fmt, ...) FZND_SAY_PRINTF;
+
+static void say(fzn_entry_level_t level, const char *subsystem, const char *fmt, ...)
+{
+	char text[FZND_SAY_MAX];
+	va_list ap;
+	int k;
+
+	va_start(ap, fmt);
+	k = vsnprintf(text, sizeof(text), fmt, ap);
+	va_end(ap);
+	if (k < 0)
+		return;
+	fprintf(stderr, "fuzznetd: %s\n", text);
+#ifdef FZN_LOG_FILE_ON
+	if (dlog.on) {
+		size_t len = (size_t)k < sizeof(text) ? (size_t)k : sizeof(text) - 1u;
+
+		(void)fzn_logger_log(&dlog.logger, level, subsystem, NULL, NULL,
+		                     (const uint8_t *)text, len, NULL);
+		/* ON AN ERROR, the minutes before it, at most once a minute. */
+		if (level <= FZN_ENTRY_ERROR && log_now_us() - dlog.last_dump_us > 60u * 1000000u) {
+			dlog.last_dump_us = log_now_us();
+			write_ring();
+		}
+	}
+#else
+	(void)level;
+	(void)subsystem;
+#endif
+}
+
+/* PACKED AND PRUNED, once a round and after a rotation. */
+static void log_round(void)
+{
+#ifdef FZN_LOG_FILE_ON
+	size_t n = 0;
+
+	if (!dlog.on)
+		return;
+#ifdef FZN_LOG_PACK_ON
+	if (dlog.hash && fzn_log_pack_dir(dlog.logger.dir, "fuzznetd", dlog.hash, log_now_us(),
+	                                  FZN_LOG_PACK_SETTLE_DEFAULT, &n)
+	                         != FZN_LOG_PACK_OK)
+		say(FZN_ENTRY_WARNING, "log", "closed log segments would not all pack");
+	else if (n)
+		say(FZN_ENTRY_INFO, "log", "%zu log segment(s) packed", n);
+#endif
+	if (dlog.n_rules && fzn_logger_retain(dlog.logger.dir, "fuzznetd", dlog.rules, dlog.n_rules,
+	                                      log_now_us(), &n)
+	                            != FZN_LOGGER_OK)
+		say(FZN_ENTRY_WARNING, "log", "the log rules could not all be applied");
+	else if (dlog.n_rules && n)
+		say(FZN_ENTRY_INFO, "log", "%zu log segment(s) removed by the rules", n);
+#endif
+}
+
+#ifdef FZN_LOG_FILE_ON
+/* NOTHING LOGGED FROM HERE: the logger is mid-entry. The loop sees the flag. */
+static void on_rotated(void *ctx)
+{
+	(void)ctx;
+	dlog.rotated = 1;
+}
+#endif
 
 /* Hex to bytes, for an identity, a root or a device's prekey record on the
  * command line.
@@ -267,7 +428,7 @@ static int peer_ask(void *ctx, const uint8_t *request, size_t request_len, uint8
 		len--;
 	if (len && reply[0] >= 'a' && reply[0] <= 'z'
 	    && fzn_reply_of(reply, len, &detail, &detail_len) != FZN_REPLY_OK)
-		fprintf(stderr, "fuzznetd: %s refused: %.*s\n", asking->host ? asking->host : "a peer",
+		say(FZN_ENTRY_WARNING, "node/peer", "%s refused: %.*s", asking->host ? asking->host : "a peer",
 		        (int)(len > 200u ? 200u : len), (const char *)reply);
 	return 1;
 }
@@ -337,10 +498,10 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 		        FZN_NODE_NOTES_WRITERS - n_members, &got, &refused);
 
 		if (merr != FZN_NODE_MEMBERS_OK)
-			fprintf(stderr, "fuzznetd: members from %s: %s\n", pulls[t].host,
+			say(FZN_ENTRY_WARNING, "members", "members from %s: %s", pulls[t].host,
 			        fzn_node_members_err_str(merr));
 		else if (refused)
-			fprintf(stderr, "fuzznetd: %zu member(s) from %s did not prove\n", refused,
+			say(FZN_ENTRY_WARNING, "members", "%zu member(s) from %s did not prove", refused,
 			        pulls[t].host);
 		n_members += got;
 	}
@@ -355,10 +516,10 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 		                                               &asking, &tally);
 
 		if (err != FZN_NOTES_SYNC_OK)
-			fprintf(stderr, "fuzznetd: notes from %s: %s\n", pulls[t].host,
+			say(FZN_ENTRY_WARNING, "notes/sync", "notes from %s: %s", pulls[t].host,
 			        fzn_notes_sync_err_str(err));
 		else if (tally.learned || tally.refused)
-			fprintf(stderr, "fuzznetd: %zu note record(s) from %s, %zu refused\n",
+			say(FZN_ENTRY_INFO, "notes/sync", "%zu note record(s) from %s, %zu refused",
 			        tally.learned, pulls[t].host, tally.refused);
 		/* AND PUSHED BACK, sec 446: what this node holds that the peer
 		 * lacks, so a note written here reaches a node that does not pull
@@ -369,10 +530,10 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 			        fzn_notes_sync_push(&node_notes.store, peer_ask, &asking, &pt);
 
 			if (perr != FZN_NOTES_SYNC_OK)
-				fprintf(stderr, "fuzznetd: notes to %s: %s\n", pulls[t].host,
+				say(FZN_ENTRY_WARNING, "notes/push", "notes to %s: %s", pulls[t].host,
 				        fzn_notes_sync_err_str(perr));
 			else if (pt.taken || pt.refused)
-				fprintf(stderr, "fuzznetd: %zu note record(s) to %s, %zu refused\n",
+				say(FZN_ENTRY_INFO, "notes/push", "%zu note record(s) to %s, %zu refused",
 				        pt.taken, pulls[t].host, pt.refused);
 		}
 		/* AND THEIR TEXTS, sec 448: a pushed note whose text stayed here
@@ -381,9 +542,9 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 			fzn_node_notes_text_tally_t tt;
 
 			if (!fzn_node_notes_push_texts(&node_notes, peer_ask, &asking, &tt))
-				fprintf(stderr, "fuzznetd: texts to %s: no answer\n", pulls[t].host);
+				say(FZN_ENTRY_WARNING, "notes/text", "texts to %s: no answer", pulls[t].host);
 			else if (tt.pushed || tt.refused)
-				fprintf(stderr, "fuzznetd: %zu text(s) to %s in %zu span(s), %zu refused\n",
+				say(FZN_ENTRY_INFO, "notes/text", "%zu text(s) to %s in %zu span(s), %zu refused",
 				        tt.pushed, pulls[t].host, tt.spans, tt.refused);
 		}
 		/* THE PURGE CONVERSATION, driven from this side. sec 433. */
@@ -393,12 +554,12 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 			err = fzn_notes_sync_purges(&node_notes.store, node_notes.author.policy,
 			                            node_notes.pulls[t].key, peer_ask, &asking, &pt);
 			if (err != FZN_NOTES_SYNC_OK)
-				fprintf(stderr, "fuzznetd: purges with %s: %s\n", pulls[t].host,
+				say(FZN_ENTRY_WARNING, "notes/purge", "purges with %s: %s", pulls[t].host,
 				        fzn_notes_sync_err_str(err));
 			else if (pt.erased || pt.finished || pt.taken || pt.refused || pt.declined)
-				fprintf(stderr,
-				        "fuzznetd: purges with %s: %zu erased there, %zu finished, "
-				        "%zu taken, %zu refused, %zu declined\n",
+				say(FZN_ENTRY_INFO, "notes/purge",
+				        "purges with %s: %zu erased there, %zu finished, "
+				        "%zu taken, %zu refused, %zu declined",
 				        pulls[t].host, pt.erased, pt.finished, pt.taken, pt.refused,
 				        pt.declined);
 		}
@@ -473,7 +634,7 @@ static void load_received(int family, const uint8_t self[FZN_PUBKEY_LEN],
 		 * still pulled. */
 		if (fzn_node_pairing_load(node_notes.store.ops, rows[i].sharer, &pt->pairing)
 		    != FZN_PERSIST_OK) {
-			fprintf(stderr, "fuzznetd: a share from %s holds no pairing\n", sh->host);
+			say(FZN_ENTRY_WARNING, "notes/received", "a share from %s holds no pairing", sh->host);
 			continue;
 		}
 		if (fzn_udp_bind(family, NULL, 0, &fd) != FZN_UDP_OK
@@ -482,7 +643,7 @@ static void load_received(int family, const uint8_t self[FZN_PUBKEY_LEN],
 		    || fzn_reasm_slot_init(&pt->slot, pt->slot_buf, sizeof(pt->slot_buf))
 		               != FZN_REASM_OK
 		    || fzn_reasm_init(&pt->table, &pt->slot, 1, 1u, 60u) != FZN_REASM_OK) {
-			fprintf(stderr, "fuzznetd: could not reach for a share at %s\n", sh->host);
+			say(FZN_ENTRY_WARNING, "notes/received", "could not reach for a share at %s", sh->host);
 			if (fd >= 0)
 				fzn_udp_close(fd);
 			fzn_wipe(&pt->pairing, sizeof(pt->pairing));
@@ -523,10 +684,10 @@ static void pull_received(uint64_t now)
 		err = fzn_notes_sync_pull_shared(&tree, node_notes.author.sign, peer_ask, &asking,
 		                                 &tally);
 		if (err != FZN_NOTES_SYNC_OK)
-			fprintf(stderr, "fuzznetd: shared notes from %s: %s\n", shares_in[i].host,
+			say(FZN_ENTRY_WARNING, "notes/received", "shared notes from %s: %s", shares_in[i].host,
 			        fzn_notes_sync_err_str(err));
 		else if (tally.learned || tally.refused)
-			fprintf(stderr, "fuzznetd: %zu shared note record(s) from %s, %zu refused\n",
+			say(FZN_ENTRY_INFO, "notes/received", "%zu shared note record(s) from %s, %zu refused",
 			        tally.learned, shares_in[i].host, tally.refused);
 #ifdef FZN_SPOOL_FILE_ON
 		/* THE SHARED NOTES' TEXTS, sec 438: each blob one of them names is
@@ -548,7 +709,7 @@ static void pull_received(uint64_t now)
 			}
 			got = fzn_node_shelf_fetch_wants(&shelf, peer_ask, &asking);
 			if (got)
-				fprintf(stderr, "fuzznetd: %zu shared text(s) from %s\n", got,
+				say(FZN_ENTRY_INFO, "notes/received", "%zu shared text(s) from %s", got,
 				        shares_in[i].host);
 		}
 #endif
@@ -603,9 +764,9 @@ static void collect_texts(void)
 		return;
 	if (fzn_node_shelf_collect(&shelf, keep_blob, &node_notes, &kept, &removed)
 	    != FZN_NODE_SHELF_OK)
-		fprintf(stderr, "fuzznetd: the shelf would not all be collected\n");
+		say(FZN_ENTRY_ERROR, "shelf/collect", "the shelf would not all be collected");
 	else if (removed)
-		fprintf(stderr, "fuzznetd: %zu text(s) no note names removed, %zu kept\n", removed,
+		say(FZN_ENTRY_INFO, "shelf/collect", "%zu text(s) no note names removed, %zu kept", removed,
 		        kept);
 }
 
@@ -630,7 +791,7 @@ static void scrub_shelf(uint64_t now)
 		fzn_node_shelf_err_t err = fzn_node_shelf_scrub_step(&shelf, &checked, &dropped);
 
 		if (err != FZN_NODE_SHELF_OK) {
-			fprintf(stderr, "fuzznetd: the shelf's check at rest: %s\n",
+			say(FZN_ENTRY_ERROR, "shelf/scrub", "the shelf's check at rest: %s",
 			        fzn_node_shelf_err_str(err));
 			return;
 		}
@@ -640,8 +801,8 @@ static void scrub_shelf(uint64_t now)
 
 			for (k = 0; k < FZN_BLOB_HASH_LEN; k++)
 				(void)snprintf(hex + (k * 2u), 3u, "%02x", shelf.scrub_after[k]);
-			fprintf(stderr, "fuzznetd: text %s failed its check at rest; it is fetched "
-			                "again\n",
+			say(FZN_ENTRY_WARNING, "shelf/scrub", "text %s failed its check at rest; it is fetched "
+			                "again",
 			        hex);
 		}
 		/* A SHELF SMALLER THAN A BATCH: the batch stops once the walk is
@@ -683,7 +844,7 @@ static void fetch_texts(struct pull_target *pulls, size_t npulls, uint64_t now)
 		size_t got = fzn_node_shelf_fetch_wants(&shelf, peer_ask, &asking);
 
 		if (got)
-			fprintf(stderr, "fuzznetd: %zu text(s) from %s\n", got, pulls[t].host);
+			say(FZN_ENTRY_INFO, "shelf/fetch", "%zu text(s) from %s", got, pulls[t].host);
 	}
 }
 #endif
@@ -705,6 +866,10 @@ static void usage(const char *prog)
 	        "pairing to: it pulls their revocation votes at start and every %u seconds\n"
 	        "--quorum K: a revocation needs K distinct entitled issuers, a root alone\n"
 	        "counting as K (default 2), until a root sets the estate's k (set quorum K)\n"
+	        "serving logs to --log-dir=DIR (default /var/log/fuzznet for root, else\n"
+	        "$XDG_STATE_HOME/fuzznet/log) at --log-level=LEVEL (info), rotating at\n"
+	        "--log-segment=BYTES, pruned by --log-rule=\"prune|keep PROG|* age|size|count N\";\n"
+	        "--no-log-file keeps stderr only\n"
 	        "%s",
 	        prog, prog, prog, prog, prog, prog, prog, FZND_PULL_EVERY, fzn_cli_usage());
 }
@@ -811,6 +976,11 @@ int main(int argc, char **argv)
 	fzn_revocation_store_t *running = NULL;
 	fzn_node_roots_t *running_roots = NULL;
 	long quorum = 2;
+	/* THE DAEMON'S LOG, sec 461. */
+	const char *log_dir = NULL;
+	fzn_entry_level_t log_keep = FZN_ENTRY_INFO;
+	uint64_t log_segment = 0;
+	int log_file = 1;
 	int has_capability = 0;
 	int lfd = -1, ufd = -1, i;
 
@@ -865,6 +1035,54 @@ int main(int argc, char **argv)
 			pulls[npulls].port = strtol(argv[++i], NULL, 10);
 			pulls[npulls].is_root_at = 0;
 			npulls++;
+		} else if (!strncmp(argv[i], "--log-dir=", 10u)) {
+			log_dir = argv[i] + 10;
+		} else if (!strcmp(argv[i], "--no-log-file")) {
+			log_file = 0;
+		} else if (!strncmp(argv[i], "--log-level=", 12u)) {
+			static const char *const NAMES[] = { "critical", "error", "warning", "note",
+				                             "info", "verbose", "debug", "trace" };
+			const char *v = argv[i] + 12;
+			int found = 0, l;
+
+			for (l = 1; l <= 8; l++)
+				if (!strcmp(v, NAMES[l - 1])
+				    || (v[0] && !v[1]
+				        && v[0] == fzn_entry_level_letter((fzn_entry_level_t)l))) {
+					log_keep = (fzn_entry_level_t)l;
+					found = 1;
+				}
+			if (!found) {
+				fprintf(stderr, "fuzznetd: --log-level: one of critical, error, warning, "
+				                "note, info, verbose, debug, trace, or its letter\n");
+				return 2;
+			}
+		} else if (!strncmp(argv[i], "--log-segment=", 14u)) {
+			char *end = NULL;
+			unsigned long long v = strtoull(argv[i] + 14, &end, 10);
+
+			if (!end || *end || v < 4096u) {
+				fprintf(stderr, "fuzznetd: --log-segment: bytes, at least 4096\n");
+				return 2;
+			}
+			log_segment = (uint64_t)v;
+		} else if (!strncmp(argv[i], "--log-rule=", 11u)) {
+#ifdef FZN_LOG_FILE_ON
+			const char *v = argv[i] + 11;
+
+			if (dlog.n_rules >= FZND_LOG_RULES_MAX
+			    || fzn_retain_parse(v, strlen(v), &dlog.rules[dlog.n_rules])
+			               != FZN_RETAIN_OK) {
+				fprintf(stderr, "fuzznetd: --log-rule: at most %u rules, each "
+				                "\"prune|keep PROGRAM|* age|size|count N[unit]\"\n",
+				        FZND_LOG_RULES_MAX);
+				return 2;
+			}
+			dlog.n_rules++;
+#else
+			fprintf(stderr, "fuzznetd: --log-rule: built without log files\n");
+			return 2;
+#endif
 		} else if (!strcmp(argv[i], "--to") && i + 2 < argc) {
 			to_host = argv[++i];
 			to_port = strtol(argv[++i], NULL, 10);
@@ -1357,12 +1575,55 @@ int main(int argc, char **argv)
 		return 2;
 	}
 
+	/* THE LOG OPENS BEFORE ANYTHING IS SAID, sec 461. A machine with no
+	 * machine-id, or a directory that will not open, is said and served
+	 * through: the daemon's work does not wait on its log. */
+#ifdef FZN_LOG_FILE_ON
+	if (log_file) {
+		fzn_entry_name_t self;
+		char host[FZN_ENTRY_WORD_MAX + 1u], dir[FZN_LOGGER_PATH_MAX];
+		fzn_logger_err_t lerr = FZN_LOGGER_OK;
+
+		if (!log_dir) {
+			lerr = fzn_logger_default_dir(dir, sizeof(dir));
+			log_dir = dir;
+		}
+		if (lerr == FZN_LOGGER_OK)
+			lerr = fzn_logger_identify(&self, host, "fuzznetd", NULL);
+		fzn_ring_init(&dlog.ring);
+		if (lerr == FZN_LOGGER_OK)
+			lerr = fzn_logger_open(&dlog.logger, &self, host, log_dir, log_keep, &dlog.ring,
+			                       log_segment);
+		if (lerr != FZN_LOGGER_OK) {
+			fprintf(stderr, "fuzznetd: no log file: %s\n", fzn_logger_err_str(lerr));
+		} else {
+			int sigs[] = { SIGSEGV, SIGBUS, SIGABRT, SIGFPE, SIGILL };
+			size_t k;
+
+			dlog.on = 1;
+			dlog.hash = &hash_ops;
+			dlog.logger.rotated = on_rotated;
+			(void)snprintf(dlog.ring_path, sizeof(dlog.ring_path), "%s/fuzznetd.%lu.ring",
+			               dlog.logger.dir, (unsigned long)self.pid);
+			for (k = 0; k < sizeof(sigs) / sizeof(sigs[0]); k++)
+				(void)signal(sigs[k], on_crash);
+			say(FZN_ENTRY_NOTE, "log", "logging to %s at level %c", dlog.logger.dir,
+			    fzn_entry_level_letter(log_keep));
+		}
+	}
+#else
+	(void)log_dir;
+	(void)log_keep;
+	(void)log_segment;
+	(void)log_file;
+#endif
+
 	/* The socket mode lets a client connect; the authoritative gate is the
 	 * in-process peer-credential check, which the kernel fills and no
 	 * client can forge. A deployment may tighten ownership and mode on
 	 * top of that. */
 	if (sock_path && fzn_socket_listen(sock_path, 0777u, 16, &lfd) != FZN_SOCKET_OK) {
-		fprintf(stderr, "fuzznetd: could not listen on %s\n", sock_path);
+		say(FZN_ENTRY_ERROR, "node", "could not listen on %s", sock_path);
 		return 1;
 	}
 	state.listen_fd = lfd;
@@ -1370,7 +1631,7 @@ int main(int argc, char **argv)
 	if (udp_port >= 0) {
 		if (fzn_udp_bind(family, NULL, (uint16_t)udp_port, &ufd) !=
 		    FZN_UDP_OK) {
-			fprintf(stderr, "fuzznetd: could not bind udp port %ld\n",
+			say(FZN_ENTRY_ERROR, "node", "could not bind udp port %ld",
 			        udp_port);
 			fzn_socket_close(lfd, sock_path);
 			return 1;
@@ -1438,7 +1699,7 @@ int main(int argc, char **argv)
 		                                 my_authority, fzn_node_admin_chain_view(&own_admin),
 		                                 &sign_ops, &hash_ops, &nrevoked)
 		               != FZN_PERSIST_OK) {
-			fprintf(stderr, "fuzznetd: could not restore the revocations in %s\n",
+			say(FZN_ENTRY_ERROR, "revoke", "could not restore the revocations in %s",
 			        store_dir);
 			fzn_socket_close(lfd, sock_path);
 			if (ufd >= 0)
@@ -1450,22 +1711,22 @@ int main(int argc, char **argv)
 		(void)fzn_revocation_store_set_k(&revoked,
 		                                 fzn_node_roots_quorum(&estate_roots, (uint8_t)quorum));
 		if (revoked.quorum != (size_t)quorum)
-			fprintf(stderr, "fuzznetd: the estate's k is %zu, set by a root\n",
+			say(FZN_ENTRY_NOTE, "revoke", "the estate's k is %zu, set by a root",
 			        revoked.quorum);
 		state.config.revocations = &revoked;
 		running = &revoked;
 		running_roots = &estate_roots;
 		if (nrevoked)
-			fprintf(stderr, "fuzznetd: %zu revocation(s) from %s\n", nrevoked,
+			say(FZN_ENTRY_INFO, "revoke", "%zu revocation(s) from %s", nrevoked,
 			        store_dir);
 		if (nroots)
-			fprintf(stderr, "fuzznetd: %zu root record(s) from %s\n", nroots,
+			say(FZN_ENTRY_INFO, "roots", "%zu root record(s) from %s", nroots,
 			        store_dir);
 		fzn_persist_err_t err;
 
 		err = fzn_node_peers_load(store_ops, peers, FZN_NODE_PEERS_MAX, &loaded);
 		if (err != FZN_PERSIST_OK) {
-			fprintf(stderr, "fuzznetd: could not load peers from %s (%d)\n",
+			say(FZN_ENTRY_ERROR, "node/peers", "could not load peers from %s (%d)",
 			        bulk_dir, (int)err);
 			fzn_socket_close(lfd, sock_path);
 			if (ufd >= 0)
@@ -1474,7 +1735,7 @@ int main(int argc, char **argv)
 		}
 		state.peers = peers;
 		state.peer_count = loaded;
-		fprintf(stderr, "fuzznetd: %zu peer(s) from %s\n", loaded, bulk_dir);
+		say(FZN_ENTRY_INFO, "node/peers", "%zu peer(s) from %s", loaded, bulk_dir);
 
 		/* FUZZNET'S OWN VERBS, answered by the node about itself, when it
 		 * holds what they need: its key, a store, and the capability it
@@ -1510,7 +1771,7 @@ int main(int argc, char **argv)
 					admin.text_remote = fzn_node_shelf_remote;
 					admin.text_ctx = &shelf;
 				} else {
-					fprintf(stderr, "fuzznetd: no shelf for texts under %s\n",
+					say(FZN_ENTRY_WARNING, "shelf", "no shelf for texts under %s",
 					        bulk_dir);
 				}
 			}
@@ -1570,7 +1831,7 @@ int main(int argc, char **argv)
 						state.config.has_share = 1;
 					}
 				} else {
-					fprintf(stderr, "fuzznetd: no notes: the store cannot list\n");
+					say(FZN_ENTRY_WARNING, "notes", "no notes: the store cannot list");
 				}
 			}
 		}
@@ -1600,8 +1861,8 @@ int main(int argc, char **argv)
 		               == FZN_REASM_OK)
 			state.reassembly = &requests;
 		else
-			fprintf(stderr, "fuzznetd: no request reassembly; requests past one frame "
-			                "are dropped\n");
+			say(FZN_ENTRY_WARNING, "node", "no request reassembly; requests past one frame "
+			                "are dropped");
 	}
 
 	/* A NODE KEEPING NOTES LOOPS TOO, with no estate peer to pull: a
@@ -1617,7 +1878,7 @@ int main(int argc, char **argv)
 		 * through a member holds its pairing to that member, and names
 		 * it with `--pull-from` instead. */
 		if (npulls && (!running || !store_ops)) {
-			fprintf(stderr, "fuzznetd: pulling votes needs --fuzznet-dir\n");
+			say(FZN_ENTRY_ERROR, "node", "pulling votes needs --fuzznet-dir");
 			fzn_socket_close(lfd, sock_path);
 			if (ufd >= 0)
 				fzn_udp_close(ufd);
@@ -1631,9 +1892,9 @@ int main(int argc, char **argv)
 			if (pt->is_root_at) {
 				if (!my_authority
 				    || memcmp(estate.node, state.config.root, FZN_PUBKEY_LEN) != 0) {
-					fprintf(stderr, "fuzznetd: --root-at needs a node that joined an "
+					say(FZN_ENTRY_ERROR, "node", "--root-at needs a node that joined an "
 					                "estate through its root; name a member with "
-					                "--pull-from\n");
+					                "--pull-from");
 					fzn_socket_close(lfd, sock_path);
 					if (ufd >= 0)
 						fzn_udp_close(ufd);
@@ -1642,8 +1903,8 @@ int main(int argc, char **argv)
 				pt->pairing = estate;
 			} else if (fzn_node_pairing_load(store_ops, pt->node, &pt->pairing)
 			           != FZN_PERSIST_OK) {
-				fprintf(stderr, "fuzznetd: --pull-from %s: this node holds no pairing to "
-				                "that node\n", pt->host);
+				say(FZN_ENTRY_ERROR, "node", "--pull-from %s: this node holds no pairing to "
+				                "that node", pt->host);
 				fzn_socket_close(lfd, sock_path);
 				if (ufd >= 0)
 					fzn_udp_close(ufd);
@@ -1656,7 +1917,7 @@ int main(int argc, char **argv)
 			    || fzn_reasm_slot_init(&pt->slot, pt->slot_buf, sizeof(pt->slot_buf))
 			               != FZN_REASM_OK
 			    || fzn_reasm_init(&pt->table, &pt->slot, 1, 1u, 60u) != FZN_REASM_OK) {
-				fprintf(stderr, "fuzznetd: could not reach for the peer at %s\n",
+				say(FZN_ENTRY_ERROR, "node", "could not reach for the peer at %s",
 				        pt->host);
 				fzn_socket_close(lfd, sock_path);
 				if (fd >= 0)
@@ -1676,13 +1937,20 @@ int main(int argc, char **argv)
 		}
 
 		load_received(family, identity.pubkey, &hash_ops, &aead_ops, &rng_ops);
-		fprintf(stderr, "fuzznetd: serving%s%s%s, pulling from %zu peer(s) every %us\n",
+		say(FZN_ENTRY_NOTE, "node", "serving%s%s%s, pulling from %zu peer(s) every %us",
 		        sock_path ? " on " : "", sock_path ? sock_path : "",
 		        (udp_port >= 0) ? " udp" : "", npulls, FZND_PULL_EVERY);
 		for (;;) {
 			uint64_t now = wall_clock();
 
 			admit_writers(&state, running_roots);
+#ifdef FZN_LOG_FILE_ON
+			/* A ROTATION THE LOGGER MADE packs and prunes now, outside it. */
+			if (dlog.rotated) {
+				dlog.rotated = 0;
+				log_round();
+			}
+#endif
 #ifdef FZN_SPOOL_FILE_ON
 			scrub_shelf(now);
 #endif
@@ -1692,6 +1960,7 @@ int main(int argc, char **argv)
 			 * peer cannot say another may, which is the point of asking
 			 * more than one. sec 401. */
 			if (now >= next_pull) {
+				log_round();
 				for (t = 0; t < npulls; t++) {
 					size_t learned = 0, refused = 0;
 					fzn_node_pull_err_t perr;
@@ -1703,11 +1972,11 @@ int main(int argc, char **argv)
 					                           &pulls[t].caller, now, &learned,
 					                           &refused);
 					if (perr != FZN_NODE_PULL_OK)
-						fprintf(stderr, "fuzznetd: roots from %s: %s\n",
+						say(FZN_ENTRY_WARNING, "roots", "roots from %s: %s",
 						        pulls[t].host, fzn_node_pull_err_str(perr));
 					else if (learned || refused)
-						fprintf(stderr,
-						        "fuzznetd: %zu root record(s) from %s, %zu refused\n",
+						say(FZN_ENTRY_INFO, "roots",
+						        "%zu root record(s) from %s, %zu refused",
 						        learned, pulls[t].host, refused);
 					/* THE ESTATE'S k MAY HAVE ARRIVED WITH THEM. sec 418. */
 					if (running)
@@ -1720,11 +1989,11 @@ int main(int argc, char **argv)
 					                           &sign_ops, &hash_ops, now, running,
 					                           store_ops, &learned, &refused);
 					if (perr != FZN_NODE_PULL_OK)
-						fprintf(stderr, "fuzznetd: votes from %s: %s\n",
+						say(FZN_ENTRY_WARNING, "votes", "votes from %s: %s",
 						        pulls[t].host, fzn_node_pull_err_str(perr));
 					else if (learned || refused)
-						fprintf(stderr,
-						        "fuzznetd: %zu vote(s) from %s, %zu refused\n",
+						say(FZN_ENTRY_INFO, "votes",
+						        "%zu vote(s) from %s, %zu refused",
 						        learned, pulls[t].host, refused);
 				}
 				/* NOTES, then TEXTS, secs 432 and 424: a note's text is
@@ -1766,7 +2035,7 @@ int main(int argc, char **argv)
 		}
 	}
 
-	fprintf(stderr, "fuzznetd: serving%s%s%s\n", sock_path ? " on " : "",
+	say(FZN_ENTRY_NOTE, "node", "serving%s%s%s", sock_path ? " on " : "",
 	        sock_path ? sock_path : "", (udp_port >= 0) ? " udp" : "");
 	fzn_node_run(&state);	/* until the process is signalled */
 

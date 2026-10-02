@@ -78,7 +78,11 @@ fzn_logger_err_t fzn_logger_identify(fzn_entry_name_t *self, char host[FZN_ENTRY
 		return FZN_LOGGER_ERR_MALFORMED;
 	memset(self, 0, sizeof(*self));
 	host[0] = '\0';
+	/* /etc/machine-id, else D-Bus's, which it was adopted from and which a
+	 * machine without systemd still has -- this tree's own did. sec 461. */
 	f = fopen(machine_id_path ? machine_id_path : "/etc/machine-id", "r");
+	if (!f && !machine_id_path)
+		f = fopen("/var/lib/dbus/machine-id", "r");
 	if (!f)
 		return FZN_LOGGER_ERR_IDENTITY;
 	got = fread(text, 1u, sizeof(text), f);

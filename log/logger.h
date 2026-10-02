@@ -4,7 +4,8 @@
  * with FZN_LOG_FILE.
  *
  * WHO IT IS, READ ONCE (`fzn_logger_identify`): the machine from
- * `/etc/machine-id`, the host name, the Unix account it runs as, the program,
+ * `/etc/machine-id` -- or D-Bus's `/var/lib/dbus/machine-id`, which it was
+ * adopted from and which a machine without systemd still has -- the host name, the Unix account it runs as, the program,
  * the pid, and the time the logger was identified, in milliseconds, as the
  * instance's start. That time is not the kernel's record of the process's
  * start; it is what makes `pid@start` name one instance, which is all the

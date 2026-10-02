@@ -54295,3 +54295,55 @@ file that is no segment, prune past the newest one removes the two oldest
 and leaves the rest.
 
 **Sabotage: five entries.**
+
+## 461. fuzznetd logs: the first consumer, 2026-10-02
+
+fuzznetd is the first program to use sec 456's logging.
+
+- **Every message the serving daemon says goes through `say`**: the line it
+  always wrote to stderr, unchanged, so a terminal, a journal and the live
+  scripts that read those lines see no difference; and an entry, with a
+  level and a subsystem chosen per message -- a peer failing is a warning,
+  a store failing an error, a tally information, starting and serving a
+  note. 42 sites. The command line's own errors, and the one-shot modes
+  that print a card or a prekey, stay on stderr alone.
+- **Options**, in the `=` form: `--log-dir=` (by default the account's,
+  sec 458), `--log-level=` by name or letter (info by default),
+  `--log-segment=`, `--log-rule=` lines -- for now, as the holder allowed,
+  until rules are replicated state -- and `--no-log-file`.
+- **The log opens before anything is said** in serving, and a log that
+  will not open is said and served through.
+- **The flight recorder is written out** to `DIR/fuzznetd.PID.ring` on a
+  crash, by a handler that only opens, writes and closes, and on an error
+  entry, at most once a minute.
+- **Each round packs and prunes** (`fzn_log_pack_dir`, `fzn_logger_retain`),
+  and so does the loop after a rotation the logger made. The rotation hook
+  only sets a flag: it runs inside `fzn_logger_log`, whose line is not
+  written yet, so logging from it would overwrite that line.
+
+**The machine named by D-Bus's machine-id when `/etc/machine-id` is
+absent.** The first live run had no log file: this tree's own machine runs
+no systemd and has no `/etc/machine-id`, only `/var/lib/dbus/machine-id`,
+the file systemd's was adopted from, in the same format. The logger now
+reads the second when the first is absent. A machine with neither still
+has no log file, and says so; generating an id is what the holder ruled
+out.
+
+### Measured for sec 461
+
+**`logger_test`, 38 checks:** with no path named, the machine is the first
+of the two files this machine has -- here the D-Bus one.
+
+**Live, R and M, logging into their test directories:** each file opened
+with its header and held classic lines matching the stderr lines from the
+moment the log opened (two identity lines precede it); M at debug, R with a
+rule. M was sent SIGSEGV, with core dumps off: it died, and left
+`fuzznetd.PID.ring`, 646 bytes of four whole records, which a reader walked
+to its end. No daemon was left running, and nothing was written under the
+account's own `~/.local/state`.
+
+**Not measured live: packing and pruning**, which need a rotation and a
+round ten seconds after it; `pack_test` and `logger_test` cover them.
+
+**Sabotage: one entry**, caught only on a machine without
+`/etc/machine-id`, like this one.

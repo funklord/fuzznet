@@ -5844,6 +5844,13 @@ SABOTAGES = [
 		"a text somebody just asked for waits out a whole pull period before anything asks a peer for it -- sec 424",
 	),
 	(
+		"logger-falls-back-to-dbus-machine-id",
+		"log/logger.c",
+		"\tif (!f && !machine_id_path)\n\t\tf = fopen(\"/var/lib/dbus/machine-id\", \"r\");\n",
+		"",
+		"a machine without systemd has no log file at all, its daemon saying only that the machine would not read -- this tree's own did; caught only on such a machine -- sec 461",
+	),
+	(
 		"retain-keep-expands",
 		"log/retain.c",
 		"\t\t\tremove[order[i]] = (uint8_t)(pruned && !kept);\n",
