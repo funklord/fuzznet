@@ -188,6 +188,19 @@ size_t fzn_node_shelf_fetch_wants(fzn_node_shelf_t *shelf, fzn_node_shelf_ask_t 
 size_t fzn_node_shelf_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                             char *reply, size_t reply_cap);
 
+/* Whether a text is still named by something the caller keeps. */
+typedef int (*fzn_node_shelf_keep_t)(void *ctx, const uint8_t root[FZN_BLOB_HASH_LEN]);
+
+/* REMOVE EVERY TEXT NOTHING NAMES, sec 443: each blob on the shelf that is
+ * neither wanted nor kept by `keep` loses its three files, the sidecar first
+ * so it stops being held before its leaves go. `*kept` and `*removed` count
+ * blobs. Only names of the shelf's own shape are touched -- a 64-hex root
+ * and `.bits` -- and each is removed by name, never by pattern. STORE when
+ * the directory will not read or a file will not go; what went before that
+ * stays gone and is counted. */
+fzn_node_shelf_err_t fzn_node_shelf_collect(fzn_node_shelf_t *shelf, fzn_node_shelf_keep_t keep,
+                                            void *keep_ctx, size_t *kept, size_t *removed);
+
 /* The remote hop's hook: `fzn_node_shelf_answer` with `ctx` as the shelf. */
 size_t fzn_node_shelf_remote(void *ctx, const uint8_t *request, size_t request_len,
                              uint8_t *reply, size_t reply_cap);

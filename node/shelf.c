@@ -6,6 +6,7 @@
 
 #include "../wire/bytes.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -444,6 +445,65 @@ size_t fzn_node_shelf_answer_permitted(const fzn_node_shelf_t *shelf,
 	if (!permit(permit_ctx, root))
 		return 0;
 	return fzn_node_shelf_answer(shelf, request, request_len, reply, reply_cap);
+}
+
+static int wanted(const fzn_node_shelf_t *shelf, const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	size_t i;
+
+	for (i = 0; i < FZN_NODE_SHELF_WANTS; i++)
+		if (shelf->wants[i].live
+		    && memcmp(shelf->wants[i].root, root, FZN_BLOB_HASH_LEN) == 0)
+			return 1;
+	return 0;
+}
+
+/* Remove `path`, and say whether it is gone: absent already counts. */
+static int gone(const char *path)
+{
+	return remove(path) == 0 || errno == ENOENT;
+}
+
+fzn_node_shelf_err_t fzn_node_shelf_collect(fzn_node_shelf_t *shelf, fzn_node_shelf_keep_t keep,
+                                            void *keep_ctx, size_t *kept, size_t *removed)
+{
+	DIR *dir;
+	struct dirent *e;
+	fzn_node_shelf_err_t err = FZN_NODE_SHELF_OK;
+
+	if (!shelf || !keep || !kept || !removed)
+		return FZN_NODE_SHELF_ERR_MALFORMED;
+	*kept = 0;
+	*removed = 0;
+	dir = opendir(shelf->dir);
+	if (!dir)
+		return FZN_NODE_SHELF_ERR_STORE;
+	while ((e = readdir(dir)) != NULL) {
+		char bits[FZN_SPOOL_FILE_PATH_MAX], leaves[FZN_SPOOL_FILE_PATH_MAX];
+		char len[FZN_SPOOL_FILE_PATH_MAX];
+		uint8_t root[FZN_BLOB_HASH_LEN];
+
+		/* ONE NAME A BLOB: its sidecar, `<root hex>.bits`. Anything else
+		 * in the directory is not this function's. */
+		if (strlen(e->d_name) != ROOT_HEX + 5u || strcmp(e->d_name + ROOT_HEX, ".bits") != 0
+		    || !from_hex((const uint8_t *)e->d_name, ROOT_HEX, root, sizeof(root)))
+			continue;
+		/* A TEXT ASKED FOR is kept though no note names it yet: the note
+		 * naming it is what made the want. */
+		if (wanted(shelf, root) || keep(keep_ctx, root)) {
+			(*kept)++;
+			continue;
+		}
+		if (!path_of(shelf, root, ".bits", bits) || !path_of(shelf, root, "", leaves)
+		    || !path_of(shelf, root, ".len", len) || !gone(bits) || !gone(leaves)
+		    || !gone(len)) {
+			err = FZN_NODE_SHELF_ERR_STORE;
+			break;
+		}
+		(*removed)++;
+	}
+	(void)closedir(dir);
+	return err;
 }
 
 size_t fzn_node_shelf_remote(void *ctx, const uint8_t *request, size_t request_len,

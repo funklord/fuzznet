@@ -59,6 +59,12 @@ fzn_notes_err_t fzn_notes_received_ops(fzn_notes_received_t *seam, const fzn_per
 fzn_notes_err_t fzn_notes_received_forget(const fzn_persist_ops_t *base,
                                           const uint8_t sharer[FZN_PUBKEY_LEN], size_t *removed);
 
+/* The sharers whose trees this node holds rows of, each once, `cap` of
+ * them. BACKEND when the base will not list. sec 443. */
+fzn_notes_err_t fzn_notes_received_sharers(const fzn_persist_ops_t *base,
+                                           uint8_t (*out)[FZN_PUBKEY_LEN], size_t cap,
+                                           size_t *count);
+
 /* THE ROOTS OF A SHARER'S TREE as this node holds it: the notes whose parent
  * it does not hold, `cap` of them, in the view's order. `notes/view.h`'s top
  * level is the wrong question here -- every note of a shared subtree is

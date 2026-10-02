@@ -449,6 +449,35 @@ static void pull_received(uint64_t now)
 }
 
 #ifdef FZN_SPOOL_FILE_ON
+/* COLLECTING THE SHELF, sec 443: a text no note names, this node's or a
+ * sharer's, goes. Run after each round's fetches, so a text just wanted is
+ * kept by its want. */
+static int keep_blob(void *ctx, const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	return fzn_node_notes_names_blob((fzn_node_notes_t *)ctx, root);
+}
+
+static int shelf_collect(void *ctx, int (*keep)(void *keep_ctx, const uint8_t *root),
+                         void *keep_ctx, size_t *kept, size_t *removed)
+{
+	return fzn_node_shelf_collect((fzn_node_shelf_t *)ctx, keep, keep_ctx, kept, removed)
+	       == FZN_NODE_SHELF_OK;
+}
+
+static void collect_texts(void)
+{
+	size_t kept = 0, removed = 0;
+
+	if (!shelf_on || !notes_on)
+		return;
+	if (fzn_node_shelf_collect(&shelf, keep_blob, &node_notes, &kept, &removed)
+	    != FZN_NODE_SHELF_OK)
+		fprintf(stderr, "fuzznetd: the shelf would not all be collected\n");
+	else if (removed)
+		fprintf(stderr, "fuzznetd: %zu text(s) no note names removed, %zu kept\n", removed,
+		        kept);
+}
+
 /* A contact may fetch the texts of the notes shared with it, sec 438: the
  * shelf answers a root the notes say a note in that contact's share has. */
 static int shared_text_permit(void *ctx, const uint8_t root[FZN_BLOB_HASH_LEN])
@@ -1347,6 +1376,7 @@ int main(int argc, char **argv)
 						node_notes.seal = shelf_seal;
 						node_notes.open = shelf_open;
 						node_notes.text_ctx = &shelf;
+						node_notes.collect = shelf_collect;
 						admin.text_shared = shared_text;
 						admin.text_shared_ctx = &shelf;
 					}
@@ -1500,6 +1530,7 @@ int main(int argc, char **argv)
 				pull_received(now);
 #ifdef FZN_SPOOL_FILE_ON
 				fetch_texts(pulls, npulls, now);
+				collect_texts();
 #endif
 				next_pull = wall_clock() + FZND_PULL_EVERY;
 			}

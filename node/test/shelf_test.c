@@ -563,6 +563,60 @@ static void test_a_contact_is_served_only_what_is_permitted(void)
 	      "and what is not a text request falls through");
 }
 
+/* COLLECTING, sec 443: what nothing keeps goes, by name; what is kept or
+ * wanted stays; and nothing else in the directory is touched. */
+static const uint8_t *dropped_root;
+
+/* Everything but one text, so the case does not depend on what else the
+ * cases before it left on the shelf. */
+static int keep_one(void *ctx, const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	(void)ctx;
+	return memcmp(root, dropped_root, FZN_BLOB_HASH_LEN) != 0;
+}
+
+static void test_collecting_removes_only_what_nothing_keeps(void)
+{
+	char pb[600], pl[600], pbits[600], other[600];
+	size_t kept = 9, removed = 9, len = 0;
+	fzn_note_err_t terr;
+	FILE *f;
+
+	snprintf(other, sizeof(other), "%s/notes.txt", dir_a);
+	f = fopen(other, "w");
+	CHECK(f && fputs("not a blob", f) >= 0 && fclose(f) == 0,
+	      "fixture: a file of another shape in the shelf's directory");
+	dropped_root = big.root;
+	/* A WANT IS RECORDED ONLY FOR A TEXT NOT YET HERE, so a held one is
+	 * marked wanted by hand: a fetch part way, whose sidecar exists. */
+	memset(A.wants, 0, sizeof(A.wants));
+	memcpy(A.wants[0].root, big.root, FZN_BLOB_HASH_LEN);
+	A.wants[0].length = big.length;
+	A.wants[0].live = 1;
+	CHECK(fzn_node_shelf_collect(&A, keep_one, NULL, &kept, &removed) == FZN_NODE_SHELF_OK
+	              && removed == 0u && kept >= 2u,
+	      "a kept text and a wanted one both stay");
+	memset(A.wants, 0, sizeof(A.wants));
+	CHECK(fzn_node_shelf_collect(&A, keep_one, NULL, &kept, &removed) == FZN_NODE_SHELF_OK
+	              && removed == 1u,
+	      "unwanted and unkept, the long text goes");
+	file_of(dir_a, big.root, "", pb, sizeof(pb));
+	file_of(dir_a, big.root, ".len", pl, sizeof(pl));
+	file_of(dir_a, big.root, ".bits", pbits, sizeof(pbits));
+	CHECK(!exists(pb) && !exists(pl) && !exists(pbits), "all three of its files");
+	CHECK(fzn_node_shelf_open(&A, &small, out, sizeof(out), &len, &terr) == FZN_NODE_SHELF_OK
+	              && len == 3000u,
+	      "the kept text still opens");
+	CHECK(exists(other), "and a file that is no blob is left alone");
+	CHECK(fzn_node_shelf_collect(&A, keep_one, NULL, &kept, &removed) == FZN_NODE_SHELF_OK
+	              && removed == 0u,
+	      "a second collection finds nothing more");
+	(void)remove(other);
+	CHECK(fzn_node_shelf_collect(&A, NULL, NULL, &kept, &removed)
+	              == FZN_NODE_SHELF_ERR_MALFORMED,
+	      "a collection with nothing to say what is kept is refused");
+}
+
 static void test_wants_are_remembered_until_fetched(void)
 {
 	peer_t p = { &A, 0, 0, 0, 0, 0 };
@@ -734,6 +788,7 @@ int main(void)
 	test_a_contact_is_served_only_what_is_permitted();
 	test_wants_are_remembered_until_fetched();
 	test_the_verbs();
+	test_collecting_removes_only_what_nothing_keeps();
 
 	/* REMOVED BY NAME, AND WHAT IS LEFT IS AN ASSERTION. */
 	clean(dir_a);

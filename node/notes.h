@@ -33,6 +33,9 @@
  *                                  node does not hold
  *     get shared NAME ID ...       as `get note`, in that tree
  *
+ *     remove text unused           remove every long text no note names,
+ *                                  this node's own or a sharer's (sec 443);
+ *                                  answers REMOVED KEPT
  *     add list PARENT TITLE        a checklist (sec 442)
  *     get note ID items [FROM]     its items, `FLAGS,TEXT`, a page at a time
  *     add item ID TEXT             an item at the end
@@ -96,6 +99,13 @@
 #define FZN_NODE_NOTES_IMPORT_FILE_MAX (1024u * 1024u)
 #define FZN_NODE_NOTES_IMPORT_ICS_MAX (16u * 1024u * 1024u)
 
+/* Remove the texts `keep` does not keep -- the node's shelf, in practice
+ * (`fzn_node_shelf_collect`); `keep` is handed `keep_ctx`. Nonzero on
+ * success, with the counts. sec 443. */
+typedef int (*fzn_node_notes_collect_fn)(void *ctx,
+                                         int (*keep)(void *keep_ctx, const uint8_t *root),
+                                         void *keep_ctx, size_t *kept, size_t *removed);
+
 /* Open a sealed text back -- the node's shelf, in practice. Nonzero on
  * success, with `*out_len` the text's length. */
 typedef int (*fzn_node_notes_open_fn)(void *ctx, const fzn_note_blob_ref_t *ref, uint8_t *out,
@@ -112,6 +122,9 @@ typedef struct fzn_node_notes {
 	/* Long texts: both NULL and a text too long for inline is refused. */
 	fzn_notes_seal_fn seal;
 	fzn_node_notes_open_fn open;
+	/* Collecting texts no note names, or NULL: then `remove text unused`
+	 * says this node keeps none. sec 443. */
+	fzn_node_notes_collect_fn collect;
 	void *text_ctx;
 	/* The wall clock, in milliseconds. */
 	uint64_t (*now_ms)(void);
@@ -149,6 +162,10 @@ size_t fzn_node_notes_remote(void *ctx, const uint8_t *sender, int shared,
  * served at once. */
 int fzn_node_notes_shares_blob(fzn_node_notes_t *n, const uint8_t *sender,
                                const uint8_t root[FZN_BLOB_HASH_LEN]);
+
+/* Whether a note this node holds -- in its own tree or any sharer's -- has
+ * its text in the blob `root`: what collecting the shelf keeps. sec 443. */
+int fzn_node_notes_names_blob(fzn_node_notes_t *n, const uint8_t root[FZN_BLOB_HASH_LEN]);
 
 /* The verbs above, for `node/admin.h`'s hook. 0 when `request` is not one. */
 size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,

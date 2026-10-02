@@ -5440,8 +5440,8 @@ SABOTAGES = [
 	(
 		"notes-shares-blob-names-the-root",
 		"node/notes.c",
-		"\t\t    && memcmp(ref.root, root, FZN_BLOB_HASH_LEN) == 0)\n\t\t\treturn 1;\n",
-		"\t\t    )\n\t\t\treturn 1;\n",
+		"\t\t               == FZN_NOTE_OK\n\t\t    && fzn_note_blob_ref(&note, &ref) == FZN_NOTE_OK\n\t\t    && memcmp(ref.root, root, FZN_BLOB_HASH_LEN) == 0)\n\t\t\treturn 1;\n",
+		"\t\t               == FZN_NOTE_OK\n\t\t    && fzn_note_blob_ref(&note, &ref) == FZN_NOTE_OK)\n\t\t\treturn 1;\n",
 		"one shared long note opens every text this node holds to the contact -- sec 438",
 	),
 	(
@@ -5688,6 +5688,41 @@ SABOTAGES = [
 		"&& (node = find(n, id, &idx)) != NULL && node->content_type == FZN_NOTE_TYPE_LIST)",
 		"&& (node = find(n, id, &idx)) != NULL && 0)",
 		"a checklist's items are overwritten by text no item verb can read -- sec 442",
+	),
+	(
+		"shelf-collect-asks-what-is-kept",
+		"node/shelf.c",
+		"\t\tif (wanted(shelf, root) || keep(keep_ctx, root)) {",
+		"\t\tif (wanted(shelf, root)) {",
+		"collecting removes the text of a note this node still holds -- sec 443",
+	),
+	(
+		"shelf-collect-keeps-what-is-wanted",
+		"node/shelf.c",
+		"\t\tif (wanted(shelf, root) || keep(keep_ctx, root)) {",
+		"\t\tif (keep(keep_ctx, root)) {",
+		"a text part way through its fetch is removed under it -- sec 443",
+	),
+	(
+		"notes-collect-keeps-own-tree",
+		"node/notes.c",
+		"\tif (fzn_notes_view_load(&n->store, &view) != FZN_NOTES_OK || view_names(&view, root))\n\t\treturn 1;\n",
+		"\tif (fzn_notes_view_load(&n->store, &view) != FZN_NOTES_OK)\n\t\treturn 1;\n",
+		"the text of this node's own long note is collected -- sec 443",
+	),
+	(
+		"notes-collect-keeps-sharer-trees",
+		"node/notes.c",
+		"\t\t    || fzn_notes_view_load(&tree, &view) != FZN_NOTES_OK || view_names(&view, root))\n\t\t\treturn 1;\n",
+		"\t\t    || fzn_notes_view_load(&tree, &view) != FZN_NOTES_OK)\n\t\t\treturn 1;\n",
+		"a shared note's text is collected while the share stands -- sec 443",
+	),
+	(
+		"notes-collect-own-user",
+		"node/notes.c",
+		"\tif (is_word(subject, subject_len, \"text\") && request->parsed == FZN_VERB_REMOVE) {\n\t\tif (origin != FZN_ORIGIN_SAME_USER)\n\t\t\treturn say(reply, reply_cap, FZN_REPLY_DENIED, \"notes need this node's own user\");\n",
+		"\tif (is_word(subject, subject_len, \"text\") && request->parsed == FZN_VERB_REMOVE) {\n",
+		"another user on the machine removes this user's texts -- sec 443",
 	),
 	(
 		"shelf-fetch-checks-leaf-lengths",

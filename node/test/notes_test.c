@@ -854,6 +854,120 @@ static void test_checklist(void)
 	notes.open = NULL;
 }
 
+/* COLLECTING TEXTS, sec 443: a blob is kept while a note names it, in this
+ * node's tree or a sharer's, and the verb drives the node's collect hook. */
+static uint8_t offered[3][FZN_BLOB_HASH_LEN];
+static int decisions[3];
+
+static int fake_collect(void *ctx, int (*keep)(void *keep_ctx, const uint8_t *root),
+                        void *keep_ctx, size_t *kept, size_t *removed)
+{
+	size_t i;
+
+	(void)ctx;
+	*kept = 0;
+	*removed = 0;
+	for (i = 0; i < 3u; i++) {
+		decisions[i] = keep(keep_ctx, offered[i]);
+		if (decisions[i])
+			(*kept)++;
+		else
+			(*removed)++;
+	}
+	return 1;
+}
+
+static void test_collecting_texts(void)
+{
+	static char long_text[5001];
+	uint8_t carol[FZN_PUBKEY_LEN], blob_root[FZN_BLOB_HASH_LEN], gid[FZN_TREE_ID_LEN];
+	uint8_t record[FZN_RECORD_MAX_LEN];
+	char note[65], line[800];
+	fzn_notes_received_t seam;
+	fzn_persist_ops_t ops;
+	fzn_notes_store_t tree;
+	size_t len = 0, i;
+	int wrote = 0;
+
+	setup(0);
+	notes.seal = toy_seal;
+	notes.open = toy_open;
+	memset(blob_root, 0x5e, sizeof(blob_root));
+	CHECK(!fzn_node_notes_names_blob(&notes, blob_root), "no note names a text yet");
+	CHECK(ask("remove text unused") == FZN_REPLY_ERROR,
+	      "with no collect hook, the node says it keeps none");
+	CHECK(ask("add note top long") == FZN_REPLY_OK, "fixture: a note");
+	take_id(note);
+	memset(long_text, 'w', sizeof(long_text) - 1u);
+	{
+		char path[64];
+		FILE *f;
+
+		snprintf(path, sizeof(path), "/tmp/fzn-notes-collect-%ld.in", (long)getpid());
+		f = fopen(path, "wb");
+		CHECK(f && fwrite(long_text, 1u, sizeof(long_text) - 1u, f) > 0u, "fixture: a file");
+		if (f)
+			(void)fclose(f);
+		snprintf(line, sizeof(line), "set note %s file %s", note, path);
+		CHECK(ask(line) == FZN_REPLY_OK, "fixture: the note's text sealed into a blob");
+		(void)unlink(path);
+	}
+	CHECK(fzn_node_notes_names_blob(&notes, blob_root), "this node's note names its blob");
+
+	/* THE SAME ROOT NAMED ONLY IN A SHARER'S TREE is still kept. */
+	for (i = 0; i < FZN_TREE_ID_LEN; i++) {
+		unsigned v;
+
+		(void)sscanf(note + (2u * i), "%2x", &v);
+		gid[i] = (uint8_t)v;
+	}
+	memset(carol, 0xc4, sizeof(carol));
+	CHECK(fzn_notes_received_ops(&seam, &OPS, &HASH, carol, &ops) == FZN_NOTES_OK
+	              && fzn_notes_store_init(&tree, &ops, &HASH) == FZN_NOTES_OK
+	              && fzn_notes_get(&notes.store, gid, SELF, record, sizeof(record), &len)
+	                         == FZN_NOTES_OK
+	              && fzn_notes_put(&tree, record, len, notes.author.policy, &SIGN, &wrote, NULL)
+	                         == FZN_NOTES_OK,
+	      "fixture: the note also in carol's tree");
+	CHECK(fzn_notes_erase(&notes.store, gid, SELF) == FZN_NOTES_OK,
+	      "fixture: and gone from this node's own");
+	CHECK(fzn_node_notes_names_blob(&notes, blob_root),
+	      "a blob named only in a sharer's tree is kept");
+	CHECK(fzn_notes_received_forget(&OPS, carol, &len) == FZN_NOTES_OK
+	              && !fzn_node_notes_names_blob(&notes, blob_root),
+	      "and once the share is forgotten, nothing names it");
+
+	/* THE VERB: the hook is asked about each root, and the counts answer. */
+	memset(offered[0], 0x5e, FZN_BLOB_HASH_LEN);
+	memset(offered[1], 0x11, FZN_BLOB_HASH_LEN);
+	memset(offered[2], 0x22, FZN_BLOB_HASH_LEN);
+	notes.collect = fake_collect;
+	CHECK(ask("add note top again") == FZN_REPLY_OK, "fixture: another note");
+	take_id(note);
+	{
+		char path[64];
+		FILE *f;
+
+		snprintf(path, sizeof(path), "/tmp/fzn-notes-collect-%ld.in", (long)getpid());
+		f = fopen(path, "wb");
+		CHECK(f && fwrite(long_text, 1u, sizeof(long_text) - 1u, f) > 0u, "fixture: a file");
+		if (f)
+			(void)fclose(f);
+		snprintf(line, sizeof(line), "set note %s file %s", note, path);
+		CHECK(ask(line) == FZN_REPLY_OK, "fixture: its text a blob");
+		(void)unlink(path);
+	}
+	CHECK(ask_as(FZN_ORIGIN_LOCAL, "remove text unused") == FZN_REPLY_DENIED,
+	      "another user may not collect");
+	CHECK(ask("remove text") == FZN_REPLY_MALFORMED, "a collection of nothing named is malformed");
+	CHECK(ask("remove text unused") == FZN_REPLY_OK && !strcmp(detail_of(), "2 1")
+	              && decisions[0] && !decisions[1] && !decisions[2],
+	      "the named blob is kept and the two nothing names removed");
+	notes.collect = NULL;
+	notes.seal = NULL;
+	notes.open = NULL;
+}
+
 int main(void)
 {
 	memset(SELF, 0x51, sizeof(SELF));
@@ -868,6 +982,7 @@ int main(void)
 	test_shared_reads();
 	test_import();
 	test_checklist();
+	test_collecting_texts();
 
 	if (failures) {
 		fprintf(stderr, "notes_test: %d of %d checks failed\n", failures, checks);

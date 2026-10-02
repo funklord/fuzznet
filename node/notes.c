@@ -542,6 +542,78 @@ static size_t get(fzn_node_notes_t *n, const fzn_notes_store_t *store, const uin
 	return say(reply, cap, FZN_REPLY_MALFORMED, "no such field");
 }
 
+/* ---- collecting texts, sec 443 ------------------------------------------ */
+
+/* Whether any claim in `view` names the blob `root`. */
+static int view_names(const fzn_notes_view_t *v, const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	size_t i;
+
+	for (i = 0; i < v->count; i++) {
+		fzn_note_t note;
+		fzn_note_blob_ref_t ref;
+
+		if (fzn_note_open(v->nodes[i].content_type, v->nodes[i].content,
+		                  v->nodes[i].content_len, &note)
+		            == FZN_NOTE_OK
+		    && fzn_note_blob_ref(&note, &ref) == FZN_NOTE_OK
+		    && memcmp(ref.root, root, FZN_BLOB_HASH_LEN) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+int fzn_node_notes_names_blob(fzn_node_notes_t *n, const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	static uint8_t sharers[FZN_NOTES_RECEIVED_ROWS][FZN_PUBKEY_LEN];
+	size_t count = 0, i;
+
+	if (!n || !root)
+		return 1;
+	/* A TREE THAT WILL NOT READ KEEPS EVERYTHING: a text removed because
+	 * its note could not be looked at is a text lost. */
+	if (fzn_notes_view_load(&n->store, &view) != FZN_NOTES_OK || view_names(&view, root))
+		return 1;
+	if (fzn_notes_received_sharers(n->store.ops, sharers, FZN_NOTES_RECEIVED_ROWS, &count)
+	    != FZN_NOTES_OK)
+		return 1;
+	for (i = 0; i < count; i++) {
+		fzn_notes_received_t seam;
+		fzn_persist_ops_t ops;
+		fzn_notes_store_t tree;
+
+		if (fzn_notes_received_ops(&seam, n->store.ops, n->store.hash, sharers[i], &ops)
+		            != FZN_NOTES_OK
+		    || fzn_notes_store_init(&tree, &ops, n->store.hash) != FZN_NOTES_OK
+		    || fzn_notes_view_load(&tree, &view) != FZN_NOTES_OK || view_names(&view, root))
+			return 1;
+	}
+	return 0;
+}
+
+static int keep_named(void *ctx, const uint8_t *root)
+{
+	return fzn_node_notes_names_blob((fzn_node_notes_t *)ctx, root);
+}
+
+/* `remove text unused`: `ok REMOVED KEPT`. */
+static size_t collect_texts(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *reply,
+                            size_t cap)
+{
+	char detail[48];
+	size_t kept = 0, removed = 0;
+	int k;
+
+	if (!is_word(at, left, "unused"))
+		return say(reply, cap, FZN_REPLY_MALFORMED, "remove text unused");
+	if (!n->collect)
+		return say(reply, cap, FZN_REPLY_ERROR, "this node keeps no long texts");
+	if (!n->collect(n->text_ctx, keep_named, n, &kept, &removed))
+		return say(reply, cap, FZN_REPLY_ERROR, "the texts would not all be looked at");
+	k = snprintf(detail, sizeof(detail), "%zu %zu", removed, kept);
+	return answer(reply, cap, FZN_REPLY_OK, detail, k > 0 ? (size_t)k : 0u);
+}
+
 /* ---- checklists, sec 442 ------------------------------------------------- */
 
 static uint8_t items_buf[FZN_NOTE_TEXT_MAX];
@@ -1159,6 +1231,12 @@ size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t 
 		if (request->parsed == FZN_VERB_LIST)
 			return list_shares(n, at, left, reply, reply_cap);
 		return change_share(n, request->parsed == FZN_VERB_ADD, at, left, reply, reply_cap);
+	}
+	/* `remove text unused`; the shelf's own text verbs fall through. */
+	if (is_word(subject, subject_len, "text") && request->parsed == FZN_VERB_REMOVE) {
+		if (origin != FZN_ORIGIN_SAME_USER)
+			return say(reply, reply_cap, FZN_REPLY_DENIED, "notes need this node's own user");
+		return collect_texts(n, at, left, reply, reply_cap);
 	}
 	if (is_word(subject, subject_len, "item")) {
 		if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_REMOVE)

@@ -51443,9 +51443,7 @@ node, and a fetch spends its disk, so neither is offered to another user.
   which host holds a text, and `spool/transfer.h`'s multi-peer assignment
   is not used: a note's text is at most 256 leaves.
 - **A fetch blocks the loop**, at most 3 s a request, as a votes pull does.
-- **Nothing removes a text.** An edit is a new blob under a new key, and
-  the old one stays on the shelf. Collection waits for phase 3, which
-  knows which notes still name what.
+- ~~**Nothing removes a text.**~~ Collected since sec 443.
 - **Nothing re-verifies the shelf at rest.** `spool.h` describes the
   scrub, which needs the lengths the `.len` files now hold.
 - **Scope reach in carriage** is still open: any admitted peer may fetch
@@ -53441,3 +53439,47 @@ or file edit on a checklist**, whose items change only through the item
 verbs. Its test runs with a seal hook, the case where it matters: the first
 version of the test had none, and the guard survived its own sabotage until
 it did. The view's test reopens the note before comparing.
+
+## 443. Collecting the shelf: a text no note names is removed, 2026-10-02
+
+Sec 424 recorded that nothing removes a text: an edit of a long note is a new
+blob under a new key, and the old one stays on the shelf for ever. Collection
+waited for the model to know which notes name what, which it now does.
+
+- **`fzn_node_shelf_collect`** walks the shelf's directory and, for each blob
+  that is neither wanted nor kept by the caller, removes its three files --
+  the sidecar first, so it stops being held before its leaves go. It touches
+  only names of the shelf's own shape, a 64-hex root and `.bits`, and removes
+  each file by name. **A text being fetched is kept by its want**, though no
+  note names it yet.
+- **`fzn_node_notes_names_blob`** is what is kept: a blob a note names in
+  this node's own tree or in any sharer's (`fzn_notes_received_sharers`
+  lists them). **A tree that will not read keeps everything**: a text removed
+  because its note could not be looked at is a text lost.
+- **`remove text unused`** collects now and answers `REMOVED KEPT`; it needs
+  the node's own user, and a node with no shelf says it keeps no long texts.
+- **fuzznetd collects after each round's fetches**, so a text just wanted
+  is kept by its want, and logs what it removed.
+
+### Measured for sec 443
+
+**`shelf_test`, 87 checks:** a kept text and a wanted one both staying; the
+long text going when neither, all three of its files; the kept text still
+opening; a file of another shape in the directory left alone; a second
+collection finding nothing; a collection with no keep refused. The want is
+set by hand, since a want is recorded only for a text not yet here -- the
+fixture's first version asked for one and recorded nothing.
+
+**`notes_test` (node), 214 checks:** no blob named before a long note; its
+blob named once there is; the same blob named only in a sharer's tree still
+kept, and not once the share is forgotten; the verb refused with no hook,
+denied to another user, malformed with no word, and through a fake hook
+keeping the named blob and removing the two nothing names.
+
+**Live:** a long note saved twice left two blobs; `remove text unused`
+answered `1 1` and left one; the note read back as its second text, whole;
+collecting again answered `0 1`. No daemon was left running.
+
+**Sabotage: five entries**, and `notes-shares-blob-names-the-root` re-spelled
+with enough context to name one site, since the comparison it breaks now
+appears twice.

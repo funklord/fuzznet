@@ -217,3 +217,36 @@ size_t fzn_notes_received_roots(const fzn_notes_view_t *view, const fzn_tree_nod
 	}
 	return n;
 }
+
+fzn_notes_err_t fzn_notes_received_sharers(const fzn_persist_ops_t *base,
+                                           uint8_t (*out)[FZN_PUBKEY_LEN], size_t cap,
+                                           size_t *count)
+{
+	static uint8_t keys[FZN_NOTES_RECEIVED_ROWS][FZN_PUBKEY_LEN];
+	static uint8_t row[ROW_MAX];
+	size_t held = 0, i, j, n = 0, len;
+
+	if (!base || !base->list || !base->load || !out || !count)
+		return FZN_NOTES_ERR_MALFORMED;
+	*count = 0;
+	if (!base->list(base->ctx, FZN_PERSIST_SHARED_NOTE, (uint8_t *)keys, FZN_NOTES_RECEIVED_ROWS,
+	                &held))
+		return FZN_NOTES_ERR_BACKEND;
+	for (i = 0; i < held; i++) {
+		int seen = 0;
+
+		if (!row_read(base, keys[i], row, &len))
+			continue;
+		for (j = 0; j < n && !seen; j++)
+			seen = memcmp(out[j], row + FZN_PERSIST_HEAD_LEN, FZN_PUBKEY_LEN) == 0;
+		if (seen)
+			continue;
+		/* MORE SHARERS THAN ROOM is a failure, not a short answer: a
+		 * caller keeping what they name would drop the rest's texts. */
+		if (n >= cap)
+			return FZN_NOTES_ERR_FULL;
+		memcpy(out[n++], row + FZN_PERSIST_HEAD_LEN, FZN_PUBKEY_LEN);
+	}
+	*count = n;
+	return FZN_NOTES_OK;
+}
