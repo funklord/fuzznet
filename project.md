@@ -53932,8 +53932,8 @@ smaller module and had not followed. Now:
   node does not yet carry.
 
 The recipient sees the refusal as "the peer's answer does not parse": a
-sync request gets a text reply. True, and vague; a recipient-side message
-naming suspension would need a reply the sync family can carry.
+sync request gets a text reply. Since sec 455 it also logs the sharer's
+own words, "denied no longer a contact".
 
 ### Measured for sec 454
 
@@ -53948,3 +53948,23 @@ note. **The control**, the same run without the check: B got the note
 written after its removal. No daemon was left running.
 
 **Sabotage: one entry.**
+
+## 455. A peer's refusal is logged in its own words, 2026-10-02
+
+**When a peer answers a binary request with a reply line, fuzznetd logs
+the line.** Every message the daemon asks a peer -- notes sync, members,
+pushes, texts -- opens with a small version byte; a refusal comes back as
+the peer's ordinary reply line, `denied ...` or `error ...`, which the
+caller can only report as an answer that does not parse. `peer_ask` now
+says, beside that, "HOST refused: " and the line, cut at 200 bytes. A
+reply opening with a letter that is an `ok` is not logged.
+
+### Measured for sec 455
+
+**Live:** sec 454's run, B pulling A's share after A removed B as a
+contact, logged "127.0.0.1 refused: denied no longer a contact" above the
+parse error, where it had logged the parse error alone. sec 450's three
+nodes and sec 452's shelf run, all healthy, logged no refusal.
+
+**No unit test or sabotage entry:** the change is in fuzznetd, which has
+none; the before and after of one live run are the evidence.

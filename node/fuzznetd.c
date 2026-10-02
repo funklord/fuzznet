@@ -241,6 +241,7 @@ static int notes_on;
 struct peer_asking {
 	fzn_caller_t *caller;
 	uint64_t now;
+	const char *host;
 };
 
 static int peer_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
@@ -248,11 +249,27 @@ static int peer_ask(void *ctx, const uint8_t *request, size_t request_len, uint8
 {
 	struct peer_asking *asking = (struct peer_asking *)ctx;
 	uint32_t msg = 0;
+	const uint8_t *detail = NULL;
+	size_t detail_len = 0, len;
 
-	return fzn_caller_send(asking->caller, request, request_len, asking->now + 300u, &msg)
-	               == FZN_CALLER_OK
-	       && fzn_caller_recv(asking->caller, msg, reply, reply_cap, reply_len, 3000u)
-	                  == FZN_CALLER_OK;
+	if (fzn_caller_send(asking->caller, request, request_len, asking->now + 300u, &msg)
+	            != FZN_CALLER_OK
+	    || fzn_caller_recv(asking->caller, msg, reply, reply_cap, reply_len, 3000u)
+	               != FZN_CALLER_OK)
+		return 0;
+	/* A REFUSAL IN WORDS, sec 455: every binary message here opens with a
+	 * small version byte, so a reply opening with a letter is the peer's
+	 * own reply line -- a contact suspended, a capability it was not
+	 * granted. Said as the peer said it, since the caller will only see
+	 * an answer that does not parse. */
+	len = *reply_len;
+	while (len && (reply[len - 1u] == '\n' || reply[len - 1u] == '\r'))
+		len--;
+	if (len && reply[0] >= 'a' && reply[0] <= 'z'
+	    && fzn_reply_of(reply, len, &detail, &detail_len) != FZN_REPLY_OK)
+		fprintf(stderr, "fuzznetd: %s refused: %.*s\n", asking->host ? asking->host : "a peer",
+		        (int)(len > 200u ? 200u : len), (const char *)reply);
+	return 1;
 }
 
 struct pull_target {
@@ -312,7 +329,7 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 	 * member wrote and a peer relays is taken. Rebuilt every round, so a
 	 * member revoked since drops out. */
 	for (t = 0; t < npulls; t++) {
-		struct peer_asking asking = { &pulls[t].caller, now };
+		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
 		size_t got = 0, refused = 0;
 		fzn_node_members_err_t merr = fzn_node_members_pull(
 		        peer_ask, &asking, config->root, &config->remote_capability, now,
@@ -330,7 +347,7 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 	n_pulled_members = n_members;
 	admit_writers(state, roots);
 	for (t = 0; t < npulls; t++) {
-		struct peer_asking asking = { &pulls[t].caller, now };
+		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
 		fzn_notes_sync_tally_t tally;
 		fzn_notes_sync_err_t err = fzn_notes_sync_pull(&node_notes.store,
 		                                               node_notes.author.policy,
@@ -494,7 +511,7 @@ static void pull_received(uint64_t now)
 		static fzn_notes_received_t seam;
 		static fzn_persist_ops_t ops;
 		fzn_notes_store_t tree;
-		struct peer_asking asking = { &shares_in[i].pt.caller, now };
+		struct peer_asking asking = { &shares_in[i].pt.caller, now, shares_in[i].host };
 		fzn_notes_sync_tally_t tally;
 		fzn_notes_sync_err_t err;
 
@@ -662,7 +679,7 @@ static void fetch_texts(struct pull_target *pulls, size_t npulls, uint64_t now)
 		return;
 	shelf.fresh = 0;
 	for (t = 0; t < npulls; t++) {
-		struct peer_asking asking = { &pulls[t].caller, now };
+		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
 		size_t got = fzn_node_shelf_fetch_wants(&shelf, peer_ask, &asking);
 
 		if (got)
