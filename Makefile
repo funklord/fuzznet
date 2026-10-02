@@ -1893,6 +1893,7 @@ $(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
                                    $(BUILD_DIR)/notes/sync.o \
                                    $(BUILD_DIR)/notes/share.o \
                                    $(BUILD_DIR)/notes/received.o \
+                                   $(BUILD_DIR)/notes/import.o \
                                    $(BUILD_DIR)/contact/contact.o \
                                    $(BUILD_DIR)/chain/service.o \
                                    $(BUILD_DIR)/notes/note.o \
@@ -2843,6 +2844,7 @@ $(BUILD_DIR)/gui/test/notebook_view_test: $(BUILD_DIR)/gui/test/notebook_view_te
                                      $(BUILD_DIR)/notes/sync.o \
                                      $(BUILD_DIR)/notes/share.o \
                                      $(BUILD_DIR)/notes/received.o \
+                                     $(BUILD_DIR)/notes/import.o \
                                      $(BUILD_DIR)/contact/contact.o \
                                      $(BUILD_DIR)/chain/service.o \
                                      $(BUILD_DIR)/notes/note.o \

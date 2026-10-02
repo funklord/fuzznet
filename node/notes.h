@@ -33,6 +33,11 @@
  *                                  node does not hold
  *     get shared NAME ID ...       as `get note`, in that tree
  *
+ *     add import PARENT PATH       a KNotes .ics, a Keep .json or a Takeout
+ *                                  directory into PARENT (sec 440); answers
+ *                                  IMPORTED ALREADY UNDATED REFUSED and the
+ *                                  refused notes' titles
+ *
  * PARENT is a note's id in hex, or `top` for the top level. A listing of
  * `top` is the top level as `notes/view.h` defines it: the root's children,
  * then every note the root cannot reach.
@@ -79,6 +84,11 @@
  * and the nodes it pulls from -- `node/peer_persist.h`'s 64 and room for the
  * pulls besides. */
 #define FZN_NODE_NOTES_WRITERS 80u
+
+/* What `add import` reads at once: a Keep note's file, 1 MiB, and a KNotes
+ * calendar, 16 MiB. A file past either is refused and named, not cut. */
+#define FZN_NODE_NOTES_IMPORT_FILE_MAX (1024u * 1024u)
+#define FZN_NODE_NOTES_IMPORT_ICS_MAX (16u * 1024u * 1024u)
 
 /* Open a sealed text back -- the node's shelf, in practice. Nonzero on
  * success, with `*out_len` the text's length. */

@@ -678,6 +678,94 @@ static void test_shared_reads(void)
 	CHECK(ask("set shared carol top") == FZN_REPLY_NONE, "and nothing writes it");
 }
 
+/* `add import`, sec 440: a Takeout directory, a KNotes calendar, and what
+ * either refuses, named. Scratch is named and removed by name. */
+static int put_file(const char *path, const char *text, size_t len)
+{
+	FILE *f = fopen(path, "wb");
+	int ok = f && fwrite(text, 1u, len, f) == len;
+
+	if (f)
+		ok = (fclose(f) == 0) && ok;
+	return ok;
+}
+
+static void test_import(void)
+{
+	static const char milk[] = "{\"title\":\"milk\",\"textContent\":\"two pints\","
+	                           "\"createdTimestampUsec\":1700000000123456}";
+	static const char eggs[] = "{\"title\":\"eggs\",\"textContent\":\"a dozen\","
+	                           "\"createdTimestampUsec\":1700000000999000}";
+	static const char ics[] = "BEGIN:VCALENDAR\r\n"
+	                          "BEGIN:VJOURNAL\r\nSUMMARY:first\r\nDESCRIPTION:one\r\n"
+	                          "CREATED:20231114T221320Z\r\nEND:VJOURNAL\r\n"
+	                          "BEGIN:VJOURNAL\r\nSUMMARY:second\r\nEND:VJOURNAL\r\n"
+	                          "END:VCALENDAR\r\n";
+	char dir[64], f_milk[96], f_eggs[96], f_junk[96], f_photo[96], f_big[96], f_ics[96];
+	char f_txt[96], folder[65], line[400];
+	static char big[FZN_NODE_NOTES_IMPORT_FILE_MAX + 2u];
+
+	setup(0);
+	snprintf(dir, sizeof(dir), "/tmp/fzn-notes-import-%ld", (long)getpid());
+	snprintf(f_milk, sizeof(f_milk), "%s/milk.json", dir);
+	snprintf(f_eggs, sizeof(f_eggs), "%s/eggs.json", dir);
+	snprintf(f_junk, sizeof(f_junk), "%s/junk.json", dir);
+	snprintf(f_photo, sizeof(f_photo), "%s/photo.jpg", dir);
+	snprintf(f_big, sizeof(f_big), "%s.big.json", dir);
+	snprintf(f_ics, sizeof(f_ics), "%s.ics", dir);
+	snprintf(f_txt, sizeof(f_txt), "%s.txt", dir);
+	CHECK(mkdir(dir, 0700) == 0 && put_file(f_milk, milk, sizeof(milk) - 1u)
+	              && put_file(f_eggs, eggs, sizeof(eggs) - 1u) && put_file(f_junk, "nope", 4u)
+	              && put_file(f_photo, "\xff\xd8", 2u) && put_file(f_ics, ics, sizeof(ics) - 1u)
+	              && put_file(f_txt, "x", 1u),
+	      "fixture: a Takeout directory, a calendar and a text file");
+	CHECK(ask("add folder top Imported") == FZN_REPLY_OK, "fixture: a folder to import into");
+	take_id(folder);
+
+	snprintf(line, sizeof(line), "add import %s %s", folder, dir);
+	CHECK(ask_as(FZN_ORIGIN_LOCAL, line) == FZN_REPLY_DENIED,
+	      "another user may not make the node read a path");
+	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "2 0 0 1 ", 8u),
+	      "a Takeout imports its two notes and refuses the one that will not parse");
+	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "0 2 0 1", 7u),
+	      "a second import recognises both and writes nothing");
+	snprintf(line, sizeof(line), "add import %s %s", folder, f_ics);
+	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "2 0 1 0"),
+	      "a KNotes calendar imports both journals, one of them undated");
+	snprintf(line, sizeof(line), "list note %s", folder);
+	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "4 0", 3u) && has(",milk")
+	              && has(",eggs") && has(",first") && has(",second"),
+	      "all four are in the folder");
+
+	/* PAST THE BOUND, REFUSED AND NAMED BY ITS FILE, never cut. */
+	memset(big, ' ', sizeof(big));
+	CHECK(put_file(f_big, big, FZN_NODE_NOTES_IMPORT_FILE_MAX + 1u),
+	      "fixture: a Keep file one byte past the bound");
+	snprintf(line, sizeof(line), "add import %s %s", folder, f_big);
+	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "0 0 0 1 ", 8u)
+	              && has("big.json"),
+	      "a file past the bound is refused and named");
+
+	snprintf(line, sizeof(line), "add import %s %s", folder, f_txt);
+	CHECK(ask(line) == FZN_REPLY_MALFORMED, "a file that is no export is malformed");
+	snprintf(line, sizeof(line), "add import %s %s.none", folder, dir);
+	CHECK(ask(line) == FZN_REPLY_ERROR, "a path that is not there is refused");
+	snprintf(line, sizeof(line), "add import %s %s", "11111111111111111111111111111111"
+	                                                   "11111111111111111111111111111111",
+	         f_ics);
+	CHECK(ask(line) == FZN_REPLY_ERROR, "a folder this node does not hold is refused");
+	CHECK(ask("add import top") == FZN_REPLY_MALFORMED, "no path is malformed");
+
+	(void)unlink(f_milk);
+	(void)unlink(f_eggs);
+	(void)unlink(f_junk);
+	(void)unlink(f_photo);
+	(void)unlink(f_big);
+	(void)unlink(f_ics);
+	(void)unlink(f_txt);
+	CHECK(rmdir(dir) == 0, "the scratch directory is left empty and removed");
+}
+
 int main(void)
 {
 	memset(SELF, 0x51, sizeof(SELF));
@@ -690,6 +778,7 @@ int main(void)
 	test_admission();
 	test_share();
 	test_shared_reads();
+	test_import();
 
 	if (failures) {
 		fprintf(stderr, "notes_test: %d of %d checks failed\n", failures, checks);

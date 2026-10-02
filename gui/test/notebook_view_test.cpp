@@ -29,6 +29,7 @@ extern "C" {
 
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 static int failures;
 static int checks;
@@ -462,6 +463,38 @@ static void test_a_shared_tree_reads_and_cannot_be_written(void)
 	      "back in this user's own tree, F is at the top again");
 }
 
+static void test_an_export_is_imported_into_the_open_folder(void)
+{
+	static const char ics[] = "BEGIN:VCALENDAR\r\nBEGIN:VJOURNAL\r\nSUMMARY:knote\r\n"
+	                          "CREATED:20231114T221320Z\r\nEND:VJOURNAL\r\nEND:VCALENDAR\r\n";
+	char path[64];
+	QStringList log;
+	FILE *f;
+
+	setup();
+	fzn_notebook_view w(node_ask, nullptr);
+
+	w.set_log([&log](const QString &l) { log << l; });
+	snprintf(path, sizeof(path), "/tmp/fzn-view-import-%ld.ics", (long)getpid());
+	f = fopen(path, "wb");
+	CHECK(f && fwrite(ics, 1u, sizeof(ics) - 1u, f) == sizeof(ics) - 1u, "fixture: a calendar");
+	if (f)
+		(void)fclose(f);
+	CHECK(w.new_folder(QStringLiteral("old")), "fixture: a folder");
+	CHECK(w.descend(w.listed_ids().value(0), QStringLiteral("old")), "fixture: opened");
+	CHECK(w.import_file(QString::fromLatin1(path)) && w.list()->count() == 1
+	              && w.list()->item(0)->text() == QStringLiteral("knote"),
+	      "the calendar's note lands in the open folder");
+	CHECK(log.last() == QStringLiteral("Imported 1 note(s); 0 were here already."),
+	      "and the log says how many");
+	CHECK(w.import_file(QString::fromLatin1(path))
+	              && log.last() == QStringLiteral("Imported 0 note(s); 1 were here already."),
+	      "a second import is recognised");
+	CHECK(!w.import_file(QStringLiteral("/nonexistent.ics")) && log.last().startsWith("Nothing"),
+	      "a path that is not there is said");
+	(void)unlink(path);
+}
+
 static void test_a_refresh_keeps_the_readers_place(void)
 {
 	int i, kept;
@@ -494,6 +527,7 @@ int main(int argc, char **argv)
 	test_the_trash_is_its_own_view();
 	test_sharing_is_warned_before_and_said_after();
 	test_a_shared_tree_reads_and_cannot_be_written();
+	test_an_export_is_imported_into_the_open_folder();
 	test_a_refresh_keeps_the_readers_place();
 	if (failures) {
 		fprintf(stderr, "notebook_view_test: %d of %d checks failed\n", failures, checks);

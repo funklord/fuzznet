@@ -53210,8 +53210,8 @@ out -- and **a log callback**:
 
 - **fuzzypickles hosting it.** Their widget stays theirs until they switch;
   the edge is ready and they are to be told.
-- **Import**, which their widget had behind a file dialog; fuzznet's import
-  (sec 429) has no verb yet.
+- ~~**Import**, which their widget had behind a file dialog.~~ Built in
+  sec 440.
 - **Pinned and archived** are kept by the node and not yet shown.
 
 ### Measured for sec 439
@@ -53239,3 +53239,50 @@ here yet" to reach the terminal grid.
 
 **Sabotage: six entries.** Not covered: `fzn_notebook_view_socket_ask`, the
 host's transport, which no test hosts.
+
+## 440. Importing notes from the node and the view, 2026-10-02
+
+Sec 429 ported the Keep and KNotes parsers and left the file read to the
+caller, and no caller existed: sec 439's view had no Import, where
+fuzzypickles' widget had one.
+
+    add import PARENT PATH     a KNotes .ics, a Keep .json, or a Takeout
+                               directory, into the folder PARENT
+
+**The node reads PATH as itself**, as `set note ID file PATH` does, which is
+why it needs the node's own user. A Takeout is a directory of one note per
+`.json`, beside each note's HTML twin and its attachments, so only the
+`.json` files are read and the rest is left alone.
+
+**The answer is `IMPORTED ALREADY UNDATED REFUSED`, then the refused notes'
+titles**, escaped, as far as the reply has room; the count is all of them.
+Sec 429's rule is that what does not come across is named while the user
+still has the export, and a count alone is not a name. A file that cannot be
+read, or is past the bound, is refused and named by its file, since its title
+is inside what was not read.
+
+**Bounds, refused rather than cut:** a Keep note's file at 1 MiB and a KNotes
+calendar at 16 MiB, read whole into memory once. One byte past is read so
+the two are told apart.
+
+**Into a folder this node holds, or the top**: notes under an id nobody holds
+would land where no listing reaches them.
+
+**The view's Import button** asks for an `.ics` or `.json` file and imports
+into the folder open; `import_file` takes a Takeout directory as well, which a
+host can offer by its own dialog. The log says how many came across, how many
+were there already, and names what was refused.
+
+### Measured for sec 440
+
+**`notes_test` (node), 166 checks:** another user refused; a Takeout with two
+notes, one file that will not parse and a photo imports two and refuses one;
+a second import recognises both; a calendar imports two journals, one
+undated; all four listed in the folder; a Keep file one byte past the bound
+refused and named by its file; a file that is no export malformed; a missing
+path, a folder not held, and no path refused; the scratch removed.
+
+**`notebook_view_test`, 99 checks:** a calendar imported into the open folder
+and the log saying how many; a second import recognised; a missing path said.
+
+**Sabotage: six entries.**

@@ -11,6 +11,7 @@ extern "C" {
 #include <QCheckBox>
 #include <QComboBox>
 #include <QFile>
+#include <QFileDialog>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -102,6 +103,7 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_trash_button = new QPushButton(QStringLiteral("Trash"), this);
 	m_restore = new QPushButton(QStringLiteral("Restore"), this);
 	m_empty = new QPushButton(QStringLiteral("Empty trash"), this);
+	m_import = new QPushButton(QStringLiteral("Import"), this);
 	m_share_to = new QComboBox(this);
 	m_share = new QPushButton(QStringLiteral("Share"), this);
 	m_unshare = new QPushButton(QStringLiteral("Unshare"), this);
@@ -120,6 +122,7 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	edit_row->addWidget(m_new_note);
 	edit_row->addWidget(m_new_folder);
 	edit_row->addWidget(m_save);
+	edit_row->addWidget(m_import);
 	trash_row->addWidget(m_show_trash);
 	trash_row->addWidget(m_trash_button);
 	trash_row->addWidget(m_restore);
@@ -161,6 +164,14 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	connect(m_trash_button, &QPushButton::clicked, this, [this]() { trash(); });
 	connect(m_restore, &QPushButton::clicked, this, [this]() { restore(); });
 	connect(m_empty, &QPushButton::clicked, this, [this]() { empty_trash(); });
+	connect(m_import, &QPushButton::clicked, this, [this]() {
+		QString path = QFileDialog::getOpenFileName(
+		        this, QStringLiteral("Import notes"), QString(),
+		        QStringLiteral("Keep or KNotes exports (*.json *.ics)"));
+
+		if (!path.isEmpty())
+			import_file(path);
+	});
 	connect(m_share, &QPushButton::clicked, this,
 	        [this]() { share_with(m_share_to->currentText()); });
 	connect(m_unshare, &QPushButton::clicked, this,
@@ -368,6 +379,7 @@ void fzn_notebook_view::refresh_note()
 	m_trash_button->setEnabled(editing && have && !m_trash);
 	m_restore->setEnabled(editing && have && m_trash);
 	m_empty->setEnabled(editing);
+	m_import->setEnabled(editing);
 	m_share->setEnabled(editing && have);
 	m_unshare->setEnabled(editing && have);
 	m_share_to->setEnabled(editing);
@@ -577,6 +589,35 @@ bool fzn_notebook_view::empty_trash()
 	m_open.clear();
 	refresh_list();
 	refresh_note();
+	return true;
+}
+
+bool fzn_notebook_view::import_file(const QString &path)
+{
+	QString detail;
+	QStringList f;
+
+	if (shared() || path.isEmpty())
+		return false;
+	if (ask(QStringLiteral("add import %1 %2").arg(parent_id(), path), &detail) != 1) {
+		say(QStringLiteral("Nothing was imported: %1").arg(detail));
+		return false;
+	}
+	/* `IMPORTED ALREADY UNDATED REFUSED NAME ...`: what did not come across
+	 * is named while the user still has the export. */
+	f = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+	say(QStringLiteral("Imported %1 note(s); %2 were here already.")
+	            .arg(f.value(0), f.value(1)));
+	if (f.value(3).toInt() > 0) {
+		QStringList refused;
+		int i;
+
+		for (i = 4; i < f.size(); i++)
+			refused << unescape(f[i]);
+		say(QStringLiteral("%1 could not be imported: %2")
+		            .arg(f.value(3), refused.join(QStringLiteral(", "))));
+	}
+	refresh_list();
 	return true;
 }
 

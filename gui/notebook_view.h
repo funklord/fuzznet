@@ -96,6 +96,9 @@ public:
 	bool share_with(const QString &contact);
 	bool unshare_with(const QString &contact);
 	void show_trash(bool on);
+	/* A KNotes .ics, a Keep .json or a Takeout directory into the folder
+	 * open, sec 440; the Import button reaches it behind a file dialog. */
+	bool import_file(const QString &path);
 
 	/* WHAT IS ON SCREEN, for a host and a test. */
 	QListWidget *list() const { return m_list; }
@@ -155,6 +158,7 @@ private:
 	QPushButton *m_trash_button;
 	QPushButton *m_restore;
 	QPushButton *m_empty;
+	QPushButton *m_import;
 	QComboBox *m_share_to;
 	QPushButton *m_share;
 	QPushButton *m_unshare;

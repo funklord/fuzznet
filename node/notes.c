@@ -9,9 +9,12 @@
 #include "../notes/share.h"
 #include "../notes/text.h"
 
+#include <dirent.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #define ID_HEX (FZN_TREE_ID_LEN * 2u)
@@ -658,6 +661,181 @@ static size_t list_shares(fzn_node_notes_t *n, const uint8_t *at, size_t left, c
 	return answer(reply, cap, FZN_REPLY_OK, detail, used);
 }
 
+/* ---- add import --------------------------------------------------------- */
+
+/* The titles of what an import refused, escaped and space-separated, as far
+ * as the reply has room: what a user searches their export for. */
+struct refused_names {
+	char text[FZN_REPLY_MAX];
+	size_t used;
+	int cut;
+};
+
+static void name_refused(void *ctx, fzn_notes_import_refusal_t why, const uint8_t *title,
+                         size_t title_len)
+{
+	struct refused_names *names = (struct refused_names *)ctx;
+	size_t wrote = 0;
+
+	(void)why;
+	if (names->cut || sizeof(names->text) - names->used < 2u) {
+		names->cut = 1;
+		return;
+	}
+	names->text[names->used] = ' ';
+	if (escape(title_len ? title : (const uint8_t *)"(untitled)",
+	           title_len ? title_len : 10u, names->text + names->used + 1u,
+	           sizeof(names->text) - names->used - 1u, &wrote)
+	    < (title_len ? title_len : 10u)) {
+		names->cut = 1;
+		return;
+	}
+	names->used += 1u + wrote;
+}
+
+/* A whole file into memory, refused past `max` -- one byte more is read so a
+ * file at the bound and one past it are told apart. The caller frees. */
+static uint8_t *slurp(const char *path, size_t max, size_t *len, int *too_big)
+{
+	FILE *f = fopen(path, "rb");
+	uint8_t *buf;
+
+	*len = 0;
+	*too_big = 0;
+	if (!f)
+		return NULL;
+	buf = (uint8_t *)malloc(max + 1u);
+	if (buf)
+		*len = fread(buf, 1u, max + 1u, f);
+	(void)fclose(f);
+	if (buf && *len > max) {
+		free(buf);
+		*too_big = 1;
+		return NULL;
+	}
+	return buf;
+}
+
+static int ends_with(const char *name, const char *suffix)
+{
+	size_t n = strlen(name), k = strlen(suffix);
+
+	return n > k && strcmp(name + n - k, suffix) == 0;
+}
+
+/* One Keep note file; a file that will not read, or is past the bound, is a
+ * refusal named by the file, since its title is inside what was not read. */
+static void import_keep_file(fzn_notes_import_run_t *run, const char *path, const char *name)
+{
+	size_t len = 0;
+	int too_big = 0;
+	uint8_t *json = slurp(path, FZN_NODE_NOTES_IMPORT_FILE_MAX, &len, &too_big);
+
+	if (!json) {
+		fzn_notes_import_refuse(run, too_big ? FZN_NOTES_IMPORT_TOO_LONG
+		                                     : FZN_NOTES_IMPORT_UNPARSED,
+		                        (const uint8_t *)name, strlen(name));
+		return;
+	}
+	(void)fzn_notes_import_keep(json, len, fzn_notes_import_take, run, fzn_notes_import_refuse,
+	                            run);
+	free(json);
+}
+
+/* `add import PARENT PATH`: a KNotes `.ics`, a Keep note's `.json`, or a
+ * Takeout directory of them, into the folder PARENT. sec 440. The node reads
+ * PATH as itself, which is why the verb needs its own user. Answers
+ * `IMPORTED ALREADY UNDATED REFUSED` and the refused notes' titles. */
+static size_t import(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *reply,
+                     size_t cap)
+{
+	static struct refused_names names;
+	static char detail[FZN_REPLY_MAX];
+	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	fzn_notes_import_run_t run;
+	char path[512];
+	const uint8_t *w;
+	size_t w_len, idx = 0;
+	struct stat st;
+	int k;
+
+	memset(&run, 0, sizeof(run));
+	if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, run.folder) || left == 0u
+	    || left >= sizeof(path) || memchr(at, '\0', left))
+		return say(reply, cap, FZN_REPLY_MALFORMED, "add import PARENT PATH");
+	memcpy(path, at, left);
+	path[left] = '\0';
+	/* INTO A FOLDER THIS NODE HOLDS, or the top: notes under an id nobody
+	 * holds would land where no listing reaches them. */
+	if (!fzn_tree_is_root(run.folder)) {
+		if (fzn_notes_view_load(&n->store, &view) != FZN_NOTES_OK
+		    || !find(n, run.folder, &idx))
+			return refuse(reply, cap, FZN_NOTES_ERR_ABSENT);
+	}
+	if (stat(path, &st) != 0)
+		return say(reply, cap, FZN_REPLY_ERROR, "cannot read that path");
+	run.author = &n->author;
+	run.seal = n->seal;
+	run.seal_ctx = n->text_ctx;
+	run.now_ms = now(n);
+	memset(&names, 0, sizeof(names));
+	run.on_refused = name_refused;
+	run.refused_ctx = &names;
+
+	if (S_ISDIR(st.st_mode)) {
+		/* A TAKEOUT: every `.json` in the directory is one note; anything
+		 * else in it -- attachments, the HTML twin of each note -- is not
+		 * a note and is left alone. */
+		DIR *dir = opendir(path);
+		struct dirent *e;
+
+		if (!dir)
+			return say(reply, cap, FZN_REPLY_ERROR, "cannot read that directory");
+		while ((e = readdir(dir)) != NULL) {
+			char file[1024];
+
+			if (!ends_with(e->d_name, ".json"))
+				continue;
+			k = snprintf(file, sizeof(file), "%s/%s", path, e->d_name);
+			if (k < 0 || (size_t)k >= sizeof(file)) {
+				fzn_notes_import_refuse(&run, FZN_NOTES_IMPORT_UNPARSED,
+				                        (const uint8_t *)e->d_name, strlen(e->d_name));
+				continue;
+			}
+			import_keep_file(&run, file, e->d_name);
+		}
+		(void)closedir(dir);
+	} else if (ends_with(path, ".ics")) {
+		size_t len = 0;
+		int too_big = 0;
+		uint8_t *ics = slurp(path, FZN_NODE_NOTES_IMPORT_ICS_MAX, &len, &too_big);
+
+		if (!ics)
+			return say(reply, cap, FZN_REPLY_ERROR,
+			           too_big ? "past what one import reads" : "cannot read that file");
+		(void)fzn_notes_import_knotes(ics, len, fzn_notes_import_take, &run,
+		                              fzn_notes_import_refuse, &run);
+		free(ics);
+	} else if (ends_with(path, ".json")) {
+		const char *base = strrchr(path, '/');
+
+		import_keep_file(&run, path, base ? base + 1 : path);
+	} else {
+		return say(reply, cap, FZN_REPLY_MALFORMED,
+		           "a KNotes .ics, a Keep .json, or a Takeout directory");
+	}
+	k = snprintf(detail, sizeof(detail), "%zu %zu %zu %zu", run.imported, run.already,
+	             run.undated, run.refused);
+	if (k < 0 || (size_t)k >= limit)
+		return 0;
+	/* THE NAMES AS FAR AS THERE IS ROOM; the count above is all of them. */
+	if (names.used && limit - (size_t)k > names.used) {
+		memcpy(detail + k, names.text, names.used);
+		k += (int)names.used;
+	}
+	return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)k);
+}
+
 /* `list shared NAME PARENT [FROM]` and `get shared NAME ID ...`: the note
  * verbs' reads, over the tree the contact NAME shared with this node. sec
  * 437. Nothing writes there but pulling. */
@@ -700,6 +878,14 @@ size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t 
 	left = request->arg_len;
 	if (!word(&at, &left, &subject, &subject_len))
 		return 0;
+	if (is_word(subject, subject_len, "import")) {
+		if (request->parsed != FZN_VERB_ADD)
+			return 0;
+		if (origin != FZN_ORIGIN_SAME_USER)
+			return say(reply, reply_cap, FZN_REPLY_DENIED,
+			           "notes need this node's own user");
+		return import(n, at, left, reply, reply_cap);
+	}
 	if (is_word(subject, subject_len, "shared")) {
 		if (request->parsed != FZN_VERB_LIST && request->parsed != FZN_VERB_GET)
 			return 0;
