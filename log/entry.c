@@ -591,3 +591,10 @@ fzn_entry_err_t fzn_entry_name_unpack(const uint8_t *in, size_t len, fzn_entry_n
 	*used = (size_t)(at - in);
 	return FZN_ENTRY_OK;
 }
+
+fzn_entry_err_t fzn_entry_line_time(const char *line, size_t len, uint64_t *time_us)
+{
+	if (!line || !time_us || len < TIME_LEN || !time_parse(line, TIME_LEN, time_us))
+		return FZN_ENTRY_ERR_MALFORMED;
+	return FZN_ENTRY_OK;
+}

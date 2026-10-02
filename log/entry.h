@@ -148,6 +148,11 @@ fzn_entry_err_t fzn_entry_classic_parse(const char *line, size_t len,
 #define FZN_ENTRY_RECORD_MIN 55u
 #define FZN_ENTRY_RECORD_MAX 4672u
 
+/* A classic line's TIME field, the first 27 characters of `line`, as
+ * microseconds since the epoch; MALFORMED when they are not one. For a
+ * reader filtering lines by time without parsing the rest (sec 463). */
+fzn_entry_err_t fzn_entry_line_time(const char *line, size_t len, uint64_t *time_us);
+
 /* A NAME IN THE RECORD'S FORM, `log/entry.situ`'s `fzn_entry_name_record`,
  * for another message to carry one (`log/cause.h`, sec 462): 40 to 166
  * bytes. Unpacking reads one name from the front of `in`, `*used` bytes. */

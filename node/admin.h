@@ -152,6 +152,13 @@ typedef struct fzn_node_admin {
 	void (*caused)(void *ctx, const uint8_t *sender, const fzn_entry_name_t *cause,
 	               const fzn_entry_name_t *origin);
 	void *caused_ctx;
+	/* A MEMBER'S QUERY FOR THIS HOST'S LOG (`log/gather.h`), sec 463:
+	 * answered, or refused, as the host's log scope says -- which is the
+	 * hook's to know. 0 for what is not one. A contact's request never
+	 * reaches it. */
+	size_t (*logs_remote)(void *ctx, const uint8_t *sender, const uint8_t *request,
+	                      size_t request_len, uint8_t *reply, size_t reply_cap);
+	void *logs_ctx;
 } fzn_node_admin_t;
 
 /* A `fzn_node_local_handler_t`; `ctx` is a `fzn_node_admin_t`. */

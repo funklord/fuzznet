@@ -308,6 +308,22 @@ static size_t text_shared_stub(void *ctx, const uint8_t *sender, const uint8_t *
  * a reply so the admin takes it. sec 436. */
 static int notes_shared_seen = -1;
 
+/* The logs hook, sec 463: called, and with a query. */
+static int logs_calls;
+
+static size_t logs_stub(void *ctx, const uint8_t *sender, const uint8_t *request,
+                        size_t request_len, uint8_t *reply, size_t reply_cap)
+{
+	(void)ctx;
+	(void)sender;
+	if (request_len < 2u || request[0] != 4u || reply_cap < 2u)
+		return 0;
+	logs_calls++;
+	reply[0] = 4u;
+	reply[1] = 2u;
+	return 2u;
+}
+
 static uint8_t notes_seen[64];
 static size_t notes_seen_len;
 
@@ -1062,6 +1078,27 @@ int main(void)
 			              && caused_calls == 1,
 			      "an envelope that does not read was handled rather than refused");
 			admin.caused = NULL;
+			req.payload = (const uint8_t *)"list peer";
+			req.payload_len = 9u;
+		}
+		/* A LOG GATHERED, sec 463: a member's query reaches the logs hook;
+		 * a contact's never does. */
+		{
+			static const uint8_t query[] = { 4u, 1u, 0u };
+
+			admin.logs_remote = logs_stub;
+			logs_calls = 0;
+			req.payload = query;
+			req.payload_len = sizeof(query);
+			n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
+			CHECK(n == 2u && out[0] == 4u && logs_calls == 1,
+			      "a member's gather query did not reach the logs hook");
+			req.capability = state.config.share_capability.b;
+			n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
+			CHECK(logs_calls == 1,
+			      "a contact's gather query reached the logs hook");
+			req.capability = state.config.remote_capability.b;
+			admin.logs_remote = NULL;
 			req.payload = (const uint8_t *)"list peer";
 			req.payload_len = 9u;
 		}

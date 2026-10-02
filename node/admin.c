@@ -1154,6 +1154,17 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 		                       "a contact may only fetch what is shared with it");
 	}
 
+	/* A LOG GATHERED, sec 463: a member's query for this host's log,
+	 * answered or refused by the hook as the host's scope says; 0 for what
+	 * is not one. Contacts never reach here. */
+	if (admin->logs_remote && req->payload) {
+		size_t n = admin->logs_remote(admin->logs_ctx, req->sender, req->payload,
+		                              req->payload_len, reply, reply_cap);
+
+		if (n)
+			return n;
+	}
+
 	/* A BLOB MESSAGE, before the line is split: its first byte is the
 	 * message version, below any verb's first letter, so the shelf
 	 * recognises it or returns 0 and the verbs follow. sec 424. */

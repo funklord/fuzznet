@@ -68,6 +68,7 @@
 #include "../log/entry.h"
 #include "../log/cause.h"
 #ifdef FZN_LOG_FILE_ON
+#include "../log/gather.h"
 #include "../log/logger.h"
 #endif
 #ifdef FZN_LOG_PACK_ON
@@ -116,6 +117,9 @@ static struct {
 	/* Set by the rotation hook, cleared by the loop: the hook runs inside
 	 * `fzn_logger_log`, whose line is not written yet, so it must not log. */
 	int rotated;
+	/* Whether members may gather this host's log, sec 463: host-private
+	 * unless `--log-scope=estate`, as sec 428 has the holder decide. */
+	int estate_scope;
 #endif
 	int unused;
 } dlog;
@@ -285,6 +289,35 @@ static void log_round(void)
 }
 
 #ifdef FZN_LOG_FILE_ON
+/* A MEMBER GATHERING THIS HOST'S LOG, sec 463: answered at estate scope,
+ * refused in words at host-private, which is the default. */
+static size_t logs_remote(void *ctx, const uint8_t *sender, const uint8_t *request,
+                          size_t request_len, uint8_t *reply, size_t reply_cap)
+{
+	static const char REFUSAL[] = "denied this host's log is host-private\n";
+
+	(void)ctx;
+	if (!request || request_len < 2u || request[0] != FZN_GATHER_VERSION
+	    || request[1] != FZN_GATHER_QUERY)
+		return 0;
+	if (!dlog.on || !dlog.estate_scope) {
+		if (reply_cap < sizeof(REFUSAL) - 1u)
+			return 0;
+		memcpy(reply, REFUSAL, sizeof(REFUSAL) - 1u);
+		return sizeof(REFUSAL) - 1u;
+	}
+	(void)say_caused(FZN_ENTRY_INFO, "log/gather", NULL, NULL, NULL,
+	                 "the log gathered by %02x%02x%02x%02x", sender ? sender[0] : 0u,
+	                 sender ? sender[1] : 0u, sender ? sender[2] : 0u, sender ? sender[3] : 0u);
+	return fzn_gather_answer(dlog.logger.dir, request, request_len, reply, reply_cap);
+}
+
+static void print_line(void *ctx, const char *line, size_t len)
+{
+	(void)ctx;
+	printf("%.*s\n", (int)len, line);
+}
+
 /* NOTHING LOGGED FROM HERE: the logger is mid-entry. The loop sees the flag. */
 static void on_rotated(void *ctx)
 {
@@ -945,9 +978,12 @@ static void usage(const char *prog)
 	        "serving logs to --log-dir=DIR (default /var/log/fuzznet for root, else\n"
 	        "$XDG_STATE_HOME/fuzznet/log) at --log-level=LEVEL (info), rotating at\n"
 	        "--log-segment=BYTES, pruned by --log-rule=\"prune|keep PROG|* age|size|count N\";\n"
-	        "--no-log-file keeps stderr only\n"
+	        "--no-log-file keeps stderr only; --log-scope=estate lets members gather it\n"
+	        "(host-private by default)\n"
+	        "       %s --fuzznet-dir=DIR --gather=PROGRAM [--since=SECONDS] [--match=TEXT]\n"
+	        "              --node=ROOT_HEX --to HOST PORT  print a host's log lines\n"
 	        "%s",
-	        prog, prog, prog, prog, prog, prog, prog, FZND_PULL_EVERY, fzn_cli_usage());
+	        prog, prog, prog, prog, prog, prog, prog, FZND_PULL_EVERY, prog, fzn_cli_usage());
 }
 
 /* PAIR ONE DEVICE AND EXIT.
@@ -1057,6 +1093,10 @@ int main(int argc, char **argv)
 	fzn_entry_level_t log_keep = FZN_ENTRY_INFO;
 	uint64_t log_segment = 0;
 	int log_file = 1;
+	int log_estate = 0;
+	/* GATHERING, sec 463: the troubleshooter's end. */
+	const char *gather_program = NULL, *gather_match = "";
+	uint64_t gather_since_s = 0;
 	int has_capability = 0;
 	int lfd = -1, ufd = -1, i;
 
@@ -1115,6 +1155,28 @@ int main(int argc, char **argv)
 			log_dir = argv[i] + 10;
 		} else if (!strcmp(argv[i], "--no-log-file")) {
 			log_file = 0;
+		} else if (!strncmp(argv[i], "--log-scope=", 12u)) {
+			if (!strcmp(argv[i] + 12, "estate")) {
+				log_estate = 1;
+			} else if (!strcmp(argv[i] + 12, "host-private")) {
+				log_estate = 0;
+			} else {
+				fprintf(stderr, "fuzznetd: --log-scope: host-private or estate\n");
+				return 2;
+			}
+		} else if (!strncmp(argv[i], "--gather=", 9u)) {
+			gather_program = argv[i] + 9;
+		} else if (!strncmp(argv[i], "--match=", 8u)) {
+			gather_match = argv[i] + 8;
+		} else if (!strncmp(argv[i], "--since=", 8u)) {
+			char *end = NULL;
+			unsigned long long v = strtoull(argv[i] + 8, &end, 10);
+
+			if (!end || *end) {
+				fprintf(stderr, "fuzznetd: --since: seconds before now\n");
+				return 2;
+			}
+			gather_since_s = (uint64_t)v;
 		} else if (!strncmp(argv[i], "--log-level=", 12u)) {
 			static const char *const NAMES[] = { "critical", "error", "warning", "note",
 				                             "info", "verbose", "debug", "trace" };
@@ -1192,6 +1254,7 @@ int main(int argc, char **argv)
 	/* A NODE THAT SERVES ONLY THE REMOTE HOP needs no local socket, and the
 	 * loop has always taken a listen fd of -1 (sec 381). */
 	if (!sock_path && !pair_hex && !show_prekey && !new_root && !accept_text && !ask_line
+	    && !gather_program
 	    && !set_admin && udp_port < 0) {
 		usage(argv[0]);
 		return 2;
@@ -1530,10 +1593,11 @@ int main(int argc, char **argv)
 	 * stored pairing, looked up by the node's root; the address is given,
 	 * since a pairing carries none. Prints the reply line and exits 0 when
 	 * it is `ok`. */
-	if (ask_line) {
+	if (ask_line || gather_program) {
 		static fzn_partial_t slots[1];
-		static uint8_t slot_buf[1][FZN_NODE_REPLY_MAX * 4u];
-		static uint8_t answer[FZN_NODE_REPLY_MAX * 4u];
+		/* A GATHERED PAGE is as large as the host's reply buffer. */
+		static uint8_t slot_buf[1][1u << 17];
+		static uint8_t answer[1u << 17];
 		uint8_t node_root[FZN_PUBKEY_LEN];
 		fzn_node_pairing_t pairing;
 		fzn_reasm_t table;
@@ -1544,7 +1608,8 @@ int main(int argc, char **argv)
 		int fd = -1, rc;
 
 		if (!booted || !cli.has_node || !to_host || to_port < 0 || to_port > 65535) {
-			fprintf(stderr, "fuzznetd: --ask needs --fuzznet-dir, --node and --to\n");
+			fprintf(stderr, "fuzznetd: --ask and --gather need --fuzznet-dir, --node and "
+			                "--to\n");
 			return 2;
 		}
 		memcpy(node_root, cli.node, FZN_PUBKEY_LEN);
@@ -1573,6 +1638,33 @@ int main(int argc, char **argv)
 		caller.rng = &rng_ops;
 		caller.reasm = &table;
 		caller.hops = 1u;
+#ifdef FZN_LOG_FILE_ON
+		/* THE LOG, page by page, printed as the host wrote it. sec 463. */
+		if (gather_program) {
+			struct peer_asking asking = { &caller, wall_clock(), to_host, NULL };
+			fzn_gather_query_t q;
+			fzn_gather_err_t gerr;
+			size_t got = 0;
+			uint64_t now_us = wall_clock() * 1000000u;
+
+			memset(&q, 0, sizeof(q));
+			q.since_us = gather_since_s && gather_since_s * 1000000u < now_us
+			                     ? now_us - (gather_since_s * 1000000u)
+			                     : 0u;
+			q.until_us = UINT64_MAX;
+			(void)snprintf(q.program, sizeof(q.program), "%s", gather_program);
+			(void)snprintf(q.match, sizeof(q.match), "%s", gather_match);
+			gerr = fzn_gather_fetch(peer_ask, &asking, &q, 4096u, print_line, NULL, &got);
+			fzn_wipe(&caller, sizeof(caller));
+			fzn_udp_close(fd);
+			if (gerr != FZN_GATHER_OK) {
+				fprintf(stderr, "fuzznetd: --gather: %s\n", fzn_gather_err_str(gerr));
+				return 1;
+			}
+			fprintf(stderr, "fuzznetd: %zu line(s) from %s\n", got, to_host);
+			return 0;
+		}
+#endif
 		/* The expiry sits inside the node's horizon: FZND_MAX_AHEAD is the
 		 * lifetime plus the skew this daemon tolerates, and a request
 		 * expiring later than that is refused as from the future. */
@@ -1677,6 +1769,7 @@ int main(int argc, char **argv)
 			size_t k;
 
 			dlog.on = 1;
+			dlog.estate_scope = log_estate;
 			dlog.hash = &hash_ops;
 			dlog.logger.rotated = on_rotated;
 			(void)snprintf(dlog.ring_path, sizeof(dlog.ring_path), "%s/fuzznetd.%lu.ring",
@@ -1692,6 +1785,7 @@ int main(int argc, char **argv)
 	(void)log_keep;
 	(void)log_segment;
 	(void)log_file;
+	(void)log_estate;
 #endif
 
 	/* The socket mode lets a client connect; the authoritative gate is the
@@ -1834,6 +1928,9 @@ int main(int argc, char **argv)
 			state.on_remote = fzn_node_admin_remote;
 			state.on_remote_ctx = &admin;
 			admin.caused = on_caused;
+#ifdef FZN_LOG_FILE_ON
+			admin.logs_remote = logs_remote;
+#endif
 #ifdef FZN_SPOOL_FILE_ON
 			{
 				char shelf_dir[FZN_NODE_SHELF_DIR_MAX];

@@ -90,6 +90,7 @@
 #endif
 #ifdef FZN_LOG_FILE_ON
 #include "../../log/logger.h"
+#include "../../log/gather.h"
 #endif
 #ifdef FZN_LOG_PACK_ON
 #include "../../log/pack.h"
@@ -229,6 +230,7 @@ static const char *r_shelf(int v) { return fzn_node_shelf_err_str((fzn_node_shel
 #endif
 #ifdef FZN_LOG_FILE_ON
 static const char *r_logger(int v) { return fzn_logger_err_str((fzn_logger_err_t)v); }
+static const char *r_gather(int v) { return fzn_gather_err_str((fzn_gather_err_t)v); }
 #endif
 #ifdef FZN_LOG_PACK_ON
 static const char *r_pack(int v) { return fzn_log_pack_err_str((fzn_log_pack_err_t)v); }
@@ -329,6 +331,7 @@ static const struct subject SUBJECTS[] = {
 #endif
 #ifdef FZN_LOG_FILE_ON
 	{ "fzn_logger_err_str", r_logger, 4 },
+	{ "fzn_gather_err_str", r_gather, 5 },
 #endif
 #ifdef FZN_LOG_PACK_ON
 	{ "fzn_log_pack_err_str", r_pack, 5 },

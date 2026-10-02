@@ -1,0 +1,47 @@
+# situ wire signature v2
+# schema: gather.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+endian big
+target buffer
+
+enum fzn_gather_type : u8 unknown=error
+  query=1 lines=2
+
+struct fzn_gather_line size=3..65537
+  @0x0000   2         u16        len  big min=1
+  @0x0002   1..65535  u8         line  sized-by=len
+
+struct fzn_gather_lines size=21..4294967316
+  @0x0000   1         u8         version  must_eq=4
+  @0x0001   1         fzn_gather_type type  must_eq=lines
+  @0x0002   1         u8         done  max=1
+  @0x0003   8         u64        cursor_key  big
+  @0x000b   8         u64        cursor_off  big
+  @0x0013   2         u16        count  big
+  @0x0015   0..4294967295 fzn_gather_line lines  sized-by=count
+
+struct fzn_gather_query size=37..164
+  @0x0000   1         u8         version  must_eq=4
+  @0x0001   1         fzn_gather_type type  must_eq=query
+  @0x0002   8         u64        since_us  big
+  @0x000a   8         u64        until_us  big
+  @0x0012   8         u64        cursor_key  big
+  @0x001a   8         u64        cursor_off  big
+  @0x0022   1         u8         program_len  min=1 max=64
+  @0x0023   1..64     u8         program  sized-by=program_len
+  ~         1         u8         match_len  max=64
+  ~         0..64     u8         match  sized-by=match_len

@@ -54398,3 +54398,63 @@ both hosts' files, found the round on M and five entries on R logged as
 caused by it. No debug line reached stderr; no daemon was left running.
 
 **Sabotage: five entries.**
+
+## 463. Gathering a host's log, 2026-10-02
+
+The last step of sec 456's order: a troubleshooter asks a host for a
+program's lines and reads them as the host wrote them.
+
+**Who may ask was already decided**, by sec 428: what may leave a host
+follows the scope vocabulary, and a log is host-private unless configured
+otherwise. So nothing leaves by default, and `--log-scope=estate` lets the
+estate's members gather it. `host` and `group` are not offered: a caller
+over the remote hop cannot be shown to be on this machine or in a group,
+so both would refuse every remote request, as host-private does.
+
+- **`log/gather`**, built with `FZN_LOG_FILE`, `log/gather.situ`'s
+  version 4 family: a query names the program, a time window, an optional
+  substring and a cursor; a page answers whole classic lines and the cursor
+  to go on from. The cursor is a segment's key -- its closing time, the
+  current file the largest -- and an offset into its lines, so paging
+  survives segments closing and packing beneath it.
+- **What is read**: the program's current file and closed segments,
+  packed ones too when built with `FZN_LOG_PACK`, oldest first, header and
+  trailer lines left out; a segment closed before the window is skipped
+  unread; one present both plain and packed, mid-pack, is read plain.
+- **An entry and everything it caused is a substring**: a name ends in its
+  instance field, so `--match=` on one returns the entry and every line on
+  that host whose cause or origin names it. Asking each host in turn reads
+  a piece of work from every end -- what sec 462 put causes on the wire for.
+- **The node**: admin gains a `logs_remote` hook, reached by members only
+  -- a contact's request never gets past the contact branch. fuzznetd's
+  hook answers at estate scope, refuses in words at host-private, and logs
+  that its log was gathered and by whom.
+- **The troubleshooter**: `fuzznetd --gather=PROGRAM [--since=SECONDS]
+  [--match=TEXT] --node=KEY --to HOST PORT` prints the lines.
+
+**Not yet**: the ring on request, which sec 428 also names -- a dump is
+written on a crash and an error and can be read from the file;
+gathering from several hosts in one command; a reply in the packed format,
+since a page of escaped classic lines is already compact enough to carry.
+
+### Measured for sec 463
+
+**`gather_test`, 11 checks**, segments written from real classic lines --
+the oldest packed when built -- and a host answering through a 600-byte
+reply so every answer pages: every line of the program oldest first across
+three segments and pages; a window ends included across two segments; a
+match on an instance field finding that entry; a verb line no query; a
+query a byte short or long unanswered; a program with a slash refused; a
+reply that is not a page refused; a page too small for any line ending
+rather than looping.
+
+**`admin_test`, 149 checks:** a member's gather query reaching the logs
+hook, a contact's not.
+
+**Live, R and M with M paired to R:** at host-private, M's gather was
+refused. R restarted at estate scope: M printed 7 lines identical to R's
+file less its header -- R's entry that its log was gathered among them --
+and `--match=` on one instance field returned that entry alone. No daemon
+was left running.
+
+**Sabotage: four entries.**

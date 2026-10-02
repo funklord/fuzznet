@@ -1,0 +1,53 @@
+// Gathering a host's log: a troubleshooter asks for a program's lines in
+// a time window, or those matching a name, a page at a time. sec 463, the
+// last step of sec 456's order; log/gather.c encodes and decodes it by
+// hand and this is the contract.
+//
+// THE VERSION IS 4, AND THAT IS THE DISPATCH, beside the spool's 1, notes
+// sync's 2 and the causes envelope's 3.
+//
+// WHAT TRAVELS IS CLASSIC LINES, whole: every one is complete on its own
+// and escaped (log/entry.h), so a page is lines a reader can grep, and a
+// line never splits across pages.
+//
+// THE CURSOR is a segment's key -- its closing time, the current file
+// being the largest -- and an offset into its lines, so a page resumes
+// where the last stopped even as segments are closed and packed.
+//
+// Big-endian, like everything this tree writes.
+
+target buffer;
+endian big;
+
+enum fzn_gather_type : u8 {
+	query = 1,   // "These lines, from this cursor."
+	lines = 2,   // "These, and where to go on from."
+}
+
+struct fzn_gather_query {
+	u8               version     [must_eq = 4];
+	fzn_gather_type  type        [must_eq = query];
+	u64              since_us;   // lines at or after this time
+	u64              until_us;   // and at or before this one
+	u64              cursor_key; // 0 to begin
+	u64              cursor_off;
+	u8               program_len [min = 1, max = 64];
+	u8               program[program_len];
+	u8               match_len   [max = 64];    // 0 for every line
+	u8               match[match_len];          // a substring a line must hold
+}
+
+struct fzn_gather_line {
+	u16  len [min = 1];
+	u8   line[len];
+}
+
+struct fzn_gather_lines {
+	u8               version   [must_eq = 4];
+	fzn_gather_type  type      [must_eq = lines];
+	u8               done      [max = 1];   // 1: nothing after this page
+	u64              cursor_key;
+	u64              cursor_off;
+	u16              count;
+	fzn_gather_line  lines[count];
+}

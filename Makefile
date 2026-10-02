@@ -1241,9 +1241,9 @@ TEST_SRCS += $(CAPTURE_RUN_TSRC)
 TEST_BINS += $(BUILD_DIR)/log/test/capture_run_test
 endif
 
-LOG_FILE_SRCS := log/logger.c
-LOG_FILE_HDRS := log/logger.h
-LOG_FILE_TSRC := log/test/logger_test.c
+LOG_FILE_SRCS := log/logger.c log/gather.c
+LOG_FILE_HDRS := log/logger.h log/gather.h
+LOG_FILE_TSRC := log/test/logger_test.c log/test/gather_test.c
 
 ifdef LOG_FILE_ON
 CPPFLAGS  += -DFZN_LOG_FILE_ON
@@ -1251,6 +1251,7 @@ SRCS      += $(LOG_FILE_SRCS)
 HDRS      += $(LOG_FILE_HDRS)
 TEST_SRCS += $(LOG_FILE_TSRC)
 TEST_BINS += $(BUILD_DIR)/log/test/logger_test
+TEST_BINS += $(BUILD_DIR)/log/test/gather_test
 endif
 
 LOG_PACK_SRCS := log/pack.c
@@ -1985,6 +1986,16 @@ $(BUILD_DIR)/log/test/cause_test: $(BUILD_DIR)/log/test/cause_test.o \
                                   $(BUILD_DIR)/log/capture.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
+
+# A host's log asked a page at a time, packed segments included when built.
+# sec 463.
+$(BUILD_DIR)/log/test/gather_test: $(BUILD_DIR)/log/test/gather_test.o \
+                                   $(BUILD_DIR)/log/gather.o \
+                                   $(BUILD_DIR)/log/entry.o \
+                                   $(BUILD_DIR)/log/capture.o \
+                                   $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
 
 # The prune and keep rules: pure. sec 460.
 $(BUILD_DIR)/log/test/retain_test: $(BUILD_DIR)/log/test/retain_test.o \
@@ -3696,7 +3707,7 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(if $(SPOOL_FILE_ON),$(FUZZNETD_SHELF_OBJS)) \
               $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o $(BUILD_DIR)/log/cause.o \
               $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o $(BUILD_DIR)/log/ring.o \
-                $(BUILD_DIR)/log/retain.o) \
+                $(BUILD_DIR)/log/retain.o $(BUILD_DIR)/log/gather.o) \
               $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o) \
               $(MONO_OBJS) $(FLOG_OBJS)
 	@mkdir -p $(dir $@)
@@ -3836,7 +3847,8 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(if $(SPOOL_FILE_ON),$(BUILD_DIR)/node/shelf.o \
                                         $(BUILD_DIR)/notes/text.o \
                                         $(BUILD_DIR)/spool/spool_file.o) \
-                                      $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o) \
+                                      $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o \
+                                        $(BUILD_DIR)/log/gather.o) \
                                       $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o) \
                                       $(BUILD_DIR)/state/scope.o \
                                       $(BUILD_DIR)/notes/note.o \
@@ -5410,7 +5422,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               chain/chain.situ provision/provision.situ \
               record/store_file.situ catalog/attribute.situ \
               roster/roster.situ chain/root_act.situ notes/sync.situ \
-              log/entry.situ log/cause.situ
+              log/entry.situ log/cause.situ log/gather.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #
@@ -6220,10 +6232,12 @@ manifest:
 	@$(if $(CLAIM_FILE_ON),echo "backend claim/claim_file.c FZN_CLAIM_FILE_ON";)
 	@$(if $(CAPTURE_RUN_ON),echo "backend log/capture_run.c FZN_CAPTURE_RUN_ON";)
 	@$(if $(LOG_FILE_ON),echo "backend log/logger.c FZN_LOG_FILE_ON";)
+	@$(if $(LOG_FILE_ON),echo "backend log/gather.c FZN_LOG_FILE_ON";)
 	@$(if $(LOG_PACK_ON),echo "backend log/pack.c FZN_LOG_PACK_ON";)
 	@# A LIBRARY A BACKEND LINKS, sec 459: the backend's source, then what
 	@# to put on the consumer's link line for it.
 	@$(if $(LOG_PACK_ON),echo "link log/pack.c $(ZSTD_LIBS)";)
+	@$(if $(and $(LOG_FILE_ON),$(LOG_PACK_ON)),echo "link log/gather.c $(ZSTD_LIBS)";)
 	@$(if $(RECORD_STORE_FILE_ON),echo "backend record/store_file.c FZN_RECORD_STORE_FILE_ON";)
 	@# ONE LINE PER SOURCE, as `binding` and `backend` already are. These two
 	@# were a hand-written literal naming `cli/cli.c` and a bare directory

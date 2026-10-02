@@ -129,6 +129,7 @@
 #endif
 #ifdef FZN_LOG_FILE_ON
 #include <fuzznet/log/logger.h>
+#include <fuzznet/log/gather.h>
 #endif
 #ifdef FZN_LOG_PACK_ON
 #include <fuzznet/log/pack.h>
@@ -278,6 +279,7 @@
 #endif
 #ifdef FZN_LOG_FILE_ON
 #include "log/logger.h"
+#include "log/gather.h"
 #endif
 #ifdef FZN_LOG_PACK_ON
 #include "log/pack.h"
@@ -1072,6 +1074,15 @@ int main(void)
 		if (FZN_LOGGER_SEGMENT_DEFAULT != 8u * 1024u * 1024u
 		    || fzn_logger_identify(NULL, NULL, "x", NULL) != FZN_LOGGER_ERR_MALFORMED)
 			FAIL(472);
+		/* A verb line is no gather query (sec 463). */
+		{
+			uint8_t reply[64];
+
+			if (fzn_gather_answer("/nonexistent", (const uint8_t *)"get peer", 8u, reply,
+			                      sizeof(reply))
+			    != 0u)
+				FAIL(476);
+		}
 #endif
 #ifdef FZN_LOG_PACK_ON
 		/* A packer asked for nothing refuses (sec 459). */
