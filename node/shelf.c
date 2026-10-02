@@ -458,6 +458,97 @@ static int wanted(const fzn_node_shelf_t *shelf, const uint8_t root[FZN_BLOB_HAS
 	return 0;
 }
 
+fzn_node_shelf_err_t fzn_node_shelf_verify(fzn_node_shelf_t *shelf,
+                                           const uint8_t root[FZN_BLOB_HASH_LEN], int *intact)
+{
+	static held_t h;
+	uint8_t slot[FZN_BLOB_SEALED_MAX], leaf[FZN_BLOB_HASH_LEN], got[FZN_BLOB_HASH_LEN];
+	fzn_blob_tree_t tree;
+	fzn_node_shelf_err_t err;
+	uint64_t i;
+	size_t len = 0;
+	int folds = 1;
+
+	if (!shelf || !root || !intact)
+		return FZN_NODE_SHELF_ERR_MALFORMED;
+	*intact = 0;
+	err = open_whole(shelf, root, &h);
+	if (err != FZN_NODE_SHELF_OK)
+		return err;
+	fzn_blob_tree_init(&tree);
+	for (i = 0; i < h.leaves && folds; i++)
+		folds = fzn_spool_read(&h.spool, i, slot, sizeof(slot), &len) == FZN_SPOOL_OK
+		        && len >= sealed_len_of(&h, i)
+		        && fzn_blob_leaf_hash(shelf->hash, slot, sealed_len_of(&h, i), leaf)
+		                   == FZN_BLOB_OK
+		        && fzn_blob_tree_push(shelf->hash, &tree, leaf) == FZN_BLOB_OK;
+	folds = folds && fzn_blob_tree_root(shelf->hash, &tree, got) == FZN_BLOB_OK
+	        && memcmp(got, root, FZN_BLOB_HASH_LEN) == 0;
+	if (folds) {
+		*intact = 1;
+		fzn_spool_file_close(&h.file);
+		return FZN_NODE_SHELF_OK;
+	}
+	/* EVERY LEAF BACK TO THE WANT-LIST, and the sidecar says so, so the
+	 * blob is no longer held from this moment and across a restart. */
+	(void)fzn_spool_forget(&h.spool, 0u, h.leaves);
+	err = fzn_spool_file_checkpoint(&h.file, &h.spool) == FZN_SPOOL_OK
+	              ? FZN_NODE_SHELF_OK
+	              : FZN_NODE_SHELF_ERR_STORE;
+	fzn_spool_file_close(&h.file);
+	return err;
+}
+
+fzn_node_shelf_err_t fzn_node_shelf_scrub_step(fzn_node_shelf_t *shelf, int *checked,
+                                               int *dropped)
+{
+	uint8_t next[FZN_BLOB_HASH_LEN], first[FZN_BLOB_HASH_LEN];
+	int have_next = 0, have_first = 0, intact = 0;
+	fzn_node_shelf_err_t err;
+	DIR *dir;
+	struct dirent *e;
+
+	if (!shelf || !checked || !dropped)
+		return FZN_NODE_SHELF_ERR_MALFORMED;
+	*checked = 0;
+	*dropped = 0;
+	dir = opendir(shelf->dir);
+	if (!dir)
+		return FZN_NODE_SHELF_ERR_STORE;
+	/* THE SMALLEST WHOLE BLOB PAST THE CURSOR, else the smallest of all:
+	 * a directory's order is the filesystem's, so the walk is by root. */
+	while ((e = readdir(dir)) != NULL) {
+		uint8_t root[FZN_BLOB_HASH_LEN];
+		uint64_t length = 0;
+
+		if (strlen(e->d_name) != ROOT_HEX + 5u || strcmp(e->d_name + ROOT_HEX, ".bits") != 0
+		    || !from_hex((const uint8_t *)e->d_name, ROOT_HEX, root, sizeof(root))
+		    || fzn_node_shelf_held(shelf, root, &length) != FZN_NODE_SHELF_OK)
+			continue;
+		if (!have_first || memcmp(root, first, FZN_BLOB_HASH_LEN) < 0) {
+			memcpy(first, root, FZN_BLOB_HASH_LEN);
+			have_first = 1;
+		}
+		if (memcmp(root, shelf->scrub_after, FZN_BLOB_HASH_LEN) > 0
+		    && (!have_next || memcmp(root, next, FZN_BLOB_HASH_LEN) < 0)) {
+			memcpy(next, root, FZN_BLOB_HASH_LEN);
+			have_next = 1;
+		}
+	}
+	(void)closedir(dir);
+	if (!have_first)
+		return FZN_NODE_SHELF_OK;
+	if (!have_next)
+		memcpy(next, first, FZN_BLOB_HASH_LEN);
+	memcpy(shelf->scrub_after, next, FZN_BLOB_HASH_LEN);
+	err = fzn_node_shelf_verify(shelf, next, &intact);
+	if (err != FZN_NODE_SHELF_OK)
+		return err;
+	*checked = 1;
+	*dropped = !intact;
+	return FZN_NODE_SHELF_OK;
+}
+
 /* Remove `path`, and say whether it is gone: absent already counts. */
 static int gone(const char *path)
 {

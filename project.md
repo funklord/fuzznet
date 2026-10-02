@@ -51444,8 +51444,9 @@ node, and a fetch spends its disk, so neither is offered to another user.
   is not used: a note's text is at most 256 leaves.
 - **A fetch blocks the loop**, at most 3 s a request, as a votes pull does.
 - ~~**Nothing removes a text.**~~ Collected since sec 443.
-- **Nothing re-verifies the shelf at rest.** `spool.h` describes the
-  scrub, which needs the lengths the `.len` files now hold.
+- ~~**Nothing re-verifies the shelf at rest.** `spool.h` describes the
+  scrub, which needs the lengths the `.len` files now hold.~~ Checked since
+  sec 452.
 - **Scope reach in carriage** is still open: any admitted peer may fetch
   any root (sec 420).
 - Phases 3 to 5, as sec 422 lists them.
@@ -53808,3 +53809,51 @@ left running.
 
 **Sabotage: one entry**, for the purge. The wiring in fuzznetd has no unit
 test; the live controls are its evidence.
+
+## 452. The shelf is re-verified at rest, 2026-10-02
+
+**A text on the shelf is checked against its root again, on a timer**, not
+only when it arrives. A leaf placed was proved then and never again
+(`spool/spool.h`, "integrity at rest"), so a bad sector, a short write
+reported as success, or a file edited underneath went on being served and
+opened as good. Sec 424 left it open.
+
+- **`fzn_node_shelf_verify` is the whole-tree check `spool.h` spells out**:
+  every leaf read back, hashed at the sealed length the `.len` file gives,
+  folded, and the root compared. A text is at most 256 leaves, so this is a
+  quarter of a megabyte of reads at most.
+- **Not `spool/scrub.h`.** Its per-cell references would have to be kept
+  per blob beside the sidecar, sealed promptly, and loaded at start; a
+  text small enough to re-hash whole needs none of that. Its one gain,
+  repairing 64 leaves instead of all of them, is worth nothing at 256.
+- **A text that fails stops being held.** Every leaf is forgotten and the
+  sidecar written, so it is neither served nor opened, and the round --
+  which wants every text a note names -- fetches it whole. The bytes stay
+  until they are overwritten; nothing is deleted, so a check that is
+  itself wrong costs a re-fetch and not a text.
+- **A step checks the next whole text after the last, by root, wrapping**:
+  the cursor is in the shelf, so steps on a timer cover the shelf in turn.
+  fuzznetd takes up to four every 30 seconds -- fuzzypickles' cadence --
+  and stops a batch early on a shelf smaller than four.
+- **A text part way through a fetch is not checked**: its missing leaves
+  are not rot.
+
+### Measured for sec 452
+
+**`shelf_test`, 116 checks**, on a shelf of its own holding two texts
+fetched from another: an empty shelf checking nothing; a text as it arrived
+folding; a step checking one text, the next the other, the third wrapping
+to the first; a byte flipped on disk -- the text not folding, then neither
+held nor opened, a second check refused as not whole, and a fetch bringing
+it back to open as the text; a byte flipped in the long text and two steps
+dropping it and only it, which then fetched folds again.
+
+**Live, R and M with M pulling from R:** M wrote a note with a
+30,000-byte text, pushed to R, and the two shelves' blob files were
+identical. M was stopped, one byte of its blob file flipped, and M
+restarted: it logged the text as failing its check at rest and "1 text(s)
+from 127.0.0.1", and the two files were identical again. **The control**,
+the same run without the scrub: M logged nothing and its file stayed
+different from R's. No daemon was left running.
+
+**Sabotage: five entries.**

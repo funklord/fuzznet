@@ -592,6 +592,50 @@ static void collect_texts(void)
 		        kept);
 }
 
+/* THE SHELF RE-VERIFIED AT REST, sec 452: a few texts every half minute,
+ * in turn, so a bad sector or a file edited underneath is found by the node
+ * rather than by the next reader. A text that fails stops being held and is
+ * fetched again by the round, which wants every text a note names. */
+#define FZND_SCRUB_EVERY 30u
+#define FZND_SCRUB_STEPS 4u
+
+static void scrub_shelf(uint64_t now)
+{
+	static uint64_t next_scrub;
+	uint8_t began[FZN_BLOB_HASH_LEN];
+	size_t i;
+
+	if (!shelf_on || now < next_scrub)
+		return;
+	next_scrub = now + FZND_SCRUB_EVERY;
+	for (i = 0; i < FZND_SCRUB_STEPS; i++) {
+		int checked = 0, dropped = 0;
+		fzn_node_shelf_err_t err = fzn_node_shelf_scrub_step(&shelf, &checked, &dropped);
+
+		if (err != FZN_NODE_SHELF_OK) {
+			fprintf(stderr, "fuzznetd: the shelf's check at rest: %s\n",
+			        fzn_node_shelf_err_str(err));
+			return;
+		}
+		if (dropped) {
+			char hex[(FZN_BLOB_HASH_LEN * 2u) + 1u];
+			size_t k;
+
+			for (k = 0; k < FZN_BLOB_HASH_LEN; k++)
+				(void)snprintf(hex + (k * 2u), 3u, "%02x", shelf.scrub_after[k]);
+			fprintf(stderr, "fuzznetd: text %s failed its check at rest; it is fetched "
+			                "again\n",
+			        hex);
+		}
+		/* A SHELF SMALLER THAN A BATCH: the batch stops once the walk is
+		 * back at the text it began with, not round and round. */
+		if (!checked || (i > 0u && memcmp(shelf.scrub_after, began, sizeof(began)) == 0))
+			return;
+		if (i == 0u)
+			memcpy(began, shelf.scrub_after, sizeof(began));
+	}
+}
+
 /* A contact may fetch the texts of the notes shared with it, sec 438: the
  * shelf answers a root the notes say a note in that contact's share has. */
 static int shared_text_permit(void *ctx, const uint8_t root[FZN_BLOB_HASH_LEN])
@@ -1622,6 +1666,9 @@ int main(int argc, char **argv)
 			uint64_t now = wall_clock();
 
 			admit_writers(&state, running_roots);
+#ifdef FZN_SPOOL_FILE_ON
+			scrub_shelf(now);
+#endif
 
 			/* EVERY PEER EACH ROUND, one after another. A peer that does
 			 * not answer is reported and the next is asked: what one

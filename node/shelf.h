@@ -105,6 +105,8 @@ typedef struct fzn_node_shelf {
 	 * fetch now instead; the caller clears it. A text somebody just asked
 	 * for should not wait out a pull period. */
 	int fresh;
+	/* Where the scrub left off, sec 452: the root it checked last. */
+	uint8_t scrub_after[FZN_BLOB_HASH_LEN];
 } fzn_node_shelf_t;
 
 /* Over `dir`, which is created mode 0700 if it is not there. */
@@ -205,6 +207,32 @@ size_t fzn_node_shelf_fetch_wants(fzn_node_shelf_t *shelf, fzn_node_shelf_ask_t 
  * spends its disk. */
 size_t fzn_node_shelf_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                             char *reply, size_t reply_cap);
+
+/* RE-VERIFY A TEXT AT REST, sec 452: every leaf of the whole blob `root`
+ * read back, hashed at the length its `.len` gives, and folded to a root,
+ * which must be `root`. A leaf placed was proved when it arrived and never
+ * again, so this is the only thing that sees a bad sector or a file edited
+ * underneath (`spool/spool.h`, "integrity at rest").
+ *
+ * A BLOB THAT NO LONGER FOLDS TO ITS ROOT stops being held: every leaf is
+ * forgotten and the sidecar written, so it is not served and does not open,
+ * and the next want fetches it whole. The bytes stay until they are
+ * overwritten; nothing is deleted. A whole-tree check cannot say which leaf
+ * went bad, so all of them go back -- a text is at most 256 leaves.
+ *
+ * `*intact` is 1 when it folds, 0 when it was dropped. ABSENT when the
+ * blob is not here whole, which is not checked and not touched. */
+fzn_node_shelf_err_t fzn_node_shelf_verify(fzn_node_shelf_t *shelf,
+                                           const uint8_t root[FZN_BLOB_HASH_LEN], int *intact);
+
+/* ONE STEP OF THE SCRUB: verify the next whole blob on the shelf after the
+ * one checked last, in order of root and wrapping, so steps taken on a
+ * timer cover the shelf in turn. `*checked` and `*dropped` are 0 or 1. A
+ * shelf holding nothing whole checks nothing. A scrub nothing calls is not
+ * detection (`spool/scrub.h`), so the node's daemon takes a step on a
+ * timer. */
+fzn_node_shelf_err_t fzn_node_shelf_scrub_step(fzn_node_shelf_t *shelf, int *checked,
+                                               int *dropped);
 
 /* Whether a text is still named by something the caller keeps. */
 typedef int (*fzn_node_shelf_keep_t)(void *ctx, const uint8_t root[FZN_BLOB_HASH_LEN]);

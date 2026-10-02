@@ -190,7 +190,7 @@ static int ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *r
 
 /* ---- scratch, named and removed by name ------------------------------- */
 
-static char top[64], dir_a[96], dir_b[96], dir_c[96];
+static char top[64], dir_a[96], dir_b[96], dir_c[96], dir_r[96];
 
 /* Every root a case puts or fetches, so cleanup removes files it can name. */
 static uint8_t roots[16][FZN_BLOB_HASH_LEN];
@@ -232,7 +232,7 @@ static void fill(uint8_t *text, size_t len, unsigned salt)
 		text[i] = (uint8_t)('a' + ((i * 7u + salt) % 26u));
 }
 
-static fzn_node_shelf_t A, B, C;
+static fzn_node_shelf_t A, B, C, R;
 
 static int same_bytes(const char *x, const char *y)
 {
@@ -640,6 +640,88 @@ static int keep_one(void *ctx, const uint8_t root[FZN_BLOB_HASH_LEN])
 	return memcmp(root, dropped_root, FZN_BLOB_HASH_LEN) != 0;
 }
 
+/* Flip one byte of the file `path` at `at`, as a bad sector would. */
+static int rot(const char *path, long at)
+{
+	FILE *f = fopen(path, "r+b");
+	int c, ok;
+
+	if (!f)
+		return 0;
+	ok = fseek(f, at, SEEK_SET) == 0 && (c = fgetc(f)) != EOF && fseek(f, at, SEEK_SET) == 0
+	     && fputc(c ^ 0x5a, f) != EOF;
+	return (fclose(f) == 0) && ok;
+}
+
+/* THE SHELF CHECKED AT REST, sec 452, on a shelf of its own so the walk's
+ * contents are known: two texts fetched from A. */
+static void test_the_shelf_is_checked_at_rest(void)
+{
+	peer_t p = { &A, 0, 0, 0, 0, 0 };
+	uint8_t one[FZN_BLOB_HASH_LEN], two[FZN_BLOB_HASH_LEN];
+	int intact = 9, checked = 9, dropped = 9, either = 0;
+	uint64_t length = 0;
+	size_t len = 0;
+	fzn_note_err_t terr;
+	char path[600];
+
+	CHECK(fzn_node_shelf_scrub_step(&R, &checked, &dropped) == FZN_NODE_SHELF_OK
+	              && checked == 0 && dropped == 0,
+	      "an empty shelf checks nothing");
+	CHECK(fzn_node_shelf_fetch(&R, small.root, small.length, ask, &p) == FZN_NODE_SHELF_OK
+	              && fzn_node_shelf_fetch(&R, big.root, big.length, ask, &p)
+	                         == FZN_NODE_SHELF_OK,
+	      "fixture: R holds two texts");
+	CHECK(fzn_node_shelf_verify(&R, small.root, &intact) == FZN_NODE_SHELF_OK && intact == 1,
+	      "a text as it arrived folds to its root");
+	CHECK(fzn_node_shelf_scrub_step(&R, &checked, &dropped) == FZN_NODE_SHELF_OK
+	              && checked == 1 && dropped == 0,
+	      "a step checks one text");
+	memcpy(one, R.scrub_after, sizeof(one));
+	CHECK(fzn_node_shelf_scrub_step(&R, &checked, &dropped) == FZN_NODE_SHELF_OK
+	              && checked == 1 && dropped == 0
+	              && memcmp(R.scrub_after, one, sizeof(one)) != 0,
+	      "the next step checks the other");
+	memcpy(two, R.scrub_after, sizeof(two));
+	CHECK(fzn_node_shelf_scrub_step(&R, &checked, &dropped) == FZN_NODE_SHELF_OK
+	              && checked == 1 && memcmp(R.scrub_after, one, sizeof(one)) == 0,
+	      "and the walk wraps to the first");
+
+	/* A BYTE ROTTED ON DISK: the text stops being held, and comes back. */
+	file_of(dir_r, small.root, "", path, sizeof(path));
+	CHECK(rot(path, 5L), "fixture: a byte of the short text's leaves flipped");
+	CHECK(fzn_node_shelf_verify(&R, small.root, &intact) == FZN_NODE_SHELF_OK && intact == 0,
+	      "the rotted text does not fold to its root");
+	CHECK(fzn_node_shelf_held(&R, small.root, &length) == FZN_NODE_SHELF_ERR_ABSENT
+	              && fzn_node_shelf_open(&R, &small, out, sizeof(out), &len, &terr)
+	                         == FZN_NODE_SHELF_ERR_ABSENT,
+	      "and is no longer held, so it is neither served nor opened");
+	CHECK(fzn_node_shelf_verify(&R, small.root, &intact) == FZN_NODE_SHELF_ERR_ABSENT,
+	      "a text not held whole is not checked");
+	CHECK(fzn_node_shelf_fetch(&R, small.root, small.length, ask, &p) == FZN_NODE_SHELF_OK
+	              && fzn_node_shelf_open(&R, &small, out, sizeof(out), &len, &terr)
+	                         == FZN_NODE_SHELF_OK
+	              && len == 3000u && memcmp(out, text_a, 3000u) == 0,
+	      "fetched again, it opens to the text");
+
+	/* AND THE WALK FINDS ONE: the long text rotted, two steps cover both. */
+	file_of(dir_r, big.root, "", path, sizeof(path));
+	CHECK(rot(path, 20000L), "fixture: a byte of the long text's leaves flipped");
+	for (len = 0; len < 2u; len++) {
+		CHECK(fzn_node_shelf_scrub_step(&R, &checked, &dropped) == FZN_NODE_SHELF_OK
+		              && checked == 1,
+		      "a step checks a text");
+		either += dropped;
+	}
+	CHECK(either == 1 && fzn_node_shelf_held(&R, big.root, &length) == FZN_NODE_SHELF_ERR_ABSENT
+	              && fzn_node_shelf_held(&R, small.root, &length) == FZN_NODE_SHELF_OK,
+	      "the walk drops the rotted text and only it");
+	CHECK(fzn_node_shelf_fetch(&R, big.root, big.length, ask, &p) == FZN_NODE_SHELF_OK
+	              && fzn_node_shelf_verify(&R, big.root, &intact) == FZN_NODE_SHELF_OK
+	              && intact == 1,
+	      "and fetched again it folds");
+}
+
 static void test_collecting_removes_only_what_nothing_keeps(void)
 {
 	char pb[600], pl[600], pbits[600], other[600];
@@ -832,10 +914,12 @@ int main(void)
 	(void)snprintf(dir_a, sizeof(dir_a), "%s/a", top);
 	(void)snprintf(dir_b, sizeof(dir_b), "%s/b", top);
 	(void)snprintf(dir_c, sizeof(dir_c), "%s/c", top);
+	(void)snprintf(dir_r, sizeof(dir_r), "%s/r", top);
 	CHECK(fzn_node_shelf_init(&A, dir_a, &HASH, &AEAD, &RNG) == FZN_NODE_SHELF_OK
 	              && fzn_node_shelf_init(&B, dir_b, &HASH, &AEAD, &RNG) == FZN_NODE_SHELF_OK
-	              && fzn_node_shelf_init(&C, dir_c, &HASH, &AEAD, &RNG) == FZN_NODE_SHELF_OK,
-	      "three shelves open");
+	              && fzn_node_shelf_init(&C, dir_c, &HASH, &AEAD, &RNG) == FZN_NODE_SHELF_OK
+	              && fzn_node_shelf_init(&R, dir_r, &HASH, &AEAD, &RNG) == FZN_NODE_SHELF_OK,
+	      "four shelves open");
 	CHECK(fzn_node_shelf_init(&A, "", &HASH, &AEAD, &RNG) == FZN_NODE_SHELF_ERR_MALFORMED,
 	      "an empty directory name is refused");
 	(void)fzn_node_shelf_init(&A, dir_a, &HASH, &AEAD, &RNG);
@@ -854,13 +938,16 @@ int main(void)
 	test_a_contact_is_served_only_what_is_permitted();
 	test_wants_are_remembered_until_fetched();
 	test_the_verbs();
+	test_the_shelf_is_checked_at_rest();
 	test_collecting_removes_only_what_nothing_keeps();
 
 	/* REMOVED BY NAME, AND WHAT IS LEFT IS AN ASSERTION. */
 	clean(dir_a);
 	clean(dir_b);
 	clean(dir_c);
-	CHECK(rmdir(dir_a) == 0 && rmdir(dir_b) == 0 && rmdir(dir_c) == 0 && rmdir(top) == 0,
+	clean(dir_r);
+	CHECK(rmdir(dir_a) == 0 && rmdir(dir_b) == 0 && rmdir(dir_c) == 0 && rmdir(dir_r) == 0
+	              && rmdir(top) == 0,
 	      "the scratch directories empty, and go");
 
 	if (failures) {
