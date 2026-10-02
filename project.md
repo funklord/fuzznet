@@ -54586,3 +54586,37 @@ under one date line, each instance shown once and its later lines as
 `#POS LEVEL` and what changed.
 
 **Sabotage: three entries.**
+
+## 468. A host's log on a widget, 2026-10-02
+
+Sec 428's viewer, on a widget: `gui/entries_view`, class
+`fzn_entries_view` -- `fzn_entry_view` being the C function it shows lines
+through. Built with the GUI and `FZN_LOG_FILE`, which gathering needs.
+
+- **Where the lines come from is the gather family's `ask`**, as the notes
+  widget's is a callback: `fzn_entries_view_dir_ask` answers from a log
+  directory on this machine through `fzn_gather_answer`, with no network,
+  and a host application hands in a remote one to read another host's.
+- **What it shows**: a program's lines over a span back from now --
+  everything, an hour, a day, a week -- those holding a substring when one
+  is given, in full or shortened as `log/view.h` does. Shortening is display
+  only; the lines are kept whole.
+- **A host that does not answer says so**: "No lines." and "The host did
+  not answer." are different words, the lesson the notes widget carried
+  from fuzzypickles.
+- **No Q_OBJECT and no moc**, as every widget here.
+
+### Measured for sec 468
+
+**`entries_view_test`, 10 checks, against a log directory of its own that
+it leaves empty:** seven lines read from it, shown whole as the file holds
+them; shortened under a date, a repeat showing position and level, a new
+instance shown from the instance down, the lines kept whole; a match on an
+instance field giving that entry; the last ten seconds holding none and
+saying so; a program with no log having no lines; an empty program
+refused; a host that does not answer saying so.
+
+**`make qtty`, 124 checks:** the widget rendered on a character grid with
+a silent host, its "The host did not answer" whole at 24 columns.
+
+**Sabotage: two entries.**

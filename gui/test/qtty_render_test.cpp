@@ -47,6 +47,9 @@
 #include "../sched_view.h"
 #include "../persist_view.h"
 #include "../notebook_view.h"
+#ifdef FZN_LOG_FILE_ON
+#include "../entries_view.h"
+#endif
 
 extern "C" {
 #include "../../log/log.h"
@@ -306,6 +309,21 @@ static size_t empty_node(void *ctx, const char *line, char *reply, size_t cap)
 	return (size_t)snprintf(reply, cap, "error no such note\n");
 }
 
+#ifdef FZN_LOG_FILE_ON
+/* A host that never answers, for the log widget. sec 468. */
+static int silent_host(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                       size_t reply_cap, size_t *reply_len)
+{
+	(void)ctx;
+	(void)request;
+	(void)request_len;
+	(void)reply;
+	(void)reply_cap;
+	(void)reply_len;
+	return 0;
+}
+#endif
+
 static void test_every_widget_survives_a_terminal(void)
 {
 	fzn_authz_view authz;
@@ -325,6 +343,9 @@ static void test_every_widget_survives_a_terminal(void)
 	fzn_ledger_view ledger_v;
 	fzn_sched_view sched_v;
 	fzn_notebook_view notes_v(empty_node, nullptr);
+#ifdef FZN_LOG_FILE_ON
+	fzn_entries_view entries_v(silent_host, nullptr);
+#endif
 	fzn_persist_view persist_v;
 	fzn_persist_view_row persist_rows[5];
 	fzn_sched_candidate_t sched_links[3];
@@ -554,6 +575,9 @@ static void test_every_widget_survives_a_terminal(void)
 		config.show_config(&cli);
 	}
 
+#ifdef FZN_LOG_FILE_ON
+	(void)entries_v.refresh();
+#endif
 	{
 		const struct terminal_case cases[] = {
 			{ "authz_view", &authz, "UNGUARDED" },
@@ -603,6 +627,11 @@ static void test_every_widget_survives_a_terminal(void)
 			 * tells an empty notebook from a silent node, which a
 			 * terminal is the likeliest place to lose. */
 			{ "notebook_view", &notes_v, "Nothing here yet" },
+#ifdef FZN_LOG_FILE_ON
+			/* A SILENT HOST SAYS SO, sec 468, as the notebook does: no
+			 * lines and no answer are different words. */
+			{ "entries_view", &entries_v, "The host did not answer" },
+#endif
 		};
 
 		for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {

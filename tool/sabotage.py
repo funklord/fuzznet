@@ -5844,6 +5844,20 @@ SABOTAGES = [
 		"a text somebody just asked for waits out a whole pull period before anything asks a peer for it -- sec 424",
 	),
 	(
+		"entries-view-says-a-silent-host",
+		"gui/entries_view.cpp",
+		"\tif (err == FZN_GATHER_ERR_NO_ANSWER)\n\t\tm_status->setText(QStringLiteral(\"The host did not answer.\"));\n\telse if",
+		"\tif",
+		"a host that does not answer reads as a host whose answer was not a log -- sec 468",
+	),
+	(
+		"entries-view-shortens-when-asked",
+		"gui/entries_view.cpp",
+		"\t\tif (m_short->isChecked()\n",
+		"\t\tif (false && m_short->isChecked()\n",
+		"Short shows every line whole, hiding nothing -- sec 468",
+	),
+	(
 		"view-hides-what-repeats",
 		"log/view.c",
 		"\t\twhile (from < 5u && strcmp(tree_cur[from], tree_prev[from]) == 0)\n\t\t\tfrom++;\n",
