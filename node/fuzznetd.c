@@ -338,20 +338,77 @@ static size_t logs_remote(void *ctx, const uint8_t *sender, const uint8_t *reque
 	return fzn_gather_answer(dlog.logger.dir, request, request_len, reply, reply_cap);
 }
 
-static void print_line(void *ctx, const char *line, size_t len)
+/* MANY HOSTS' LINES, MERGED BY TIME, sec 466: each host's collected here,
+ * then sorted and printed. The TIME field leads every line and sorts as text
+ * in time order; ties keep the order they arrived in. Bounded, so a
+ * troubleshooter asking an estate for everything gets told when it stops. */
+#define FZND_GATHER_BYTES_MAX (64u * 1024u * 1024u)
+
+struct gline {
+	char *text;
+	size_t seq; /* arrival, for ties */
+};
+
+struct gathered {
+	struct gline *lines;
+	size_t n, cap, bytes;
+	int full;
+	const char *host; /* for a ring entry's line */
+};
+
+static void keep_line(void *ctx, const char *line, size_t len)
 {
-	(void)ctx;
-	printf("%.*s\n", (int)len, line);
+	struct gathered *g = ctx;
+	char *copy;
+
+	if (g->full)
+		return;
+	if (g->bytes + len + 1u > FZND_GATHER_BYTES_MAX) {
+		g->full = 1;
+		return;
+	}
+	if (g->n == g->cap) {
+		size_t cap = g->cap ? g->cap * 2u : 1024u;
+		struct gline *more = realloc(g->lines, cap * sizeof(*more));
+
+		if (!more) {
+			g->full = 1;
+			return;
+		}
+		g->lines = more;
+		g->cap = cap;
+	}
+	copy = malloc(len + 1u);
+	if (!copy) {
+		g->full = 1;
+		return;
+	}
+	memcpy(copy, line, len);
+	copy[len] = '\0';
+	g->lines[g->n].text = copy;
+	g->lines[g->n].seq = g->n;
+	g->n++;
+	g->bytes += len + 1u;
 }
 
 /* A ring entry as a classic line, shown with the host asked. */
-static void print_entry(void *ctx, const fzn_entry_t *e)
+static void keep_entry(void *ctx, const fzn_entry_t *e)
 {
 	static char line[FZN_ENTRY_LINE_MAX];
+	struct gathered *g = ctx;
 	size_t len = 0;
 
-	if (fzn_entry_classic(e, (const char *)ctx, line, sizeof(line), &len) == FZN_ENTRY_OK)
-		fwrite(line, 1u, len, stdout);
+	if (fzn_entry_classic(e, g->host, line, sizeof(line), &len) == FZN_ENTRY_OK)
+		keep_line(ctx, line, len ? len - 1u : 0u);
+}
+
+/* Time order by the leading TIME field, then arrival. */
+static int by_time(const void *a, const void *b)
+{
+	const struct gline *x = a, *y = b;
+	int c = strncmp(x->text, y->text, 27u);
+
+	return c ? c : (x->seq < y->seq ? -1 : (x->seq > y->seq ? 1 : 0));
 }
 
 /* NOTHING LOGGED FROM HERE: the logger is mid-entry. The loop sees the flag. */
@@ -1006,8 +1063,9 @@ static void usage(const char *prog)
 	        "--no-log-file keeps stderr only; --log-scope=estate lets members gather it\n"
 	        "(host-private by default)\n"
 	        "       %s --fuzznet-dir=DIR --gather=PROGRAM [--since=SECONDS] [--match=TEXT]\n"
-	        "              --node=ROOT_HEX --to HOST PORT  print a host's log lines\n"
-	        "       ... --gather-ring instead prints its flight recorder's entries\n"
+	        "              [--node=ROOT_HEX --to HOST PORT] [--root-at HOST PORT]\n"
+	        "              [--pull-from NODE_HEX HOST PORT]...  print hosts' log lines,\n"
+	        "              merged by time; --gather-ring prints their flight recorders\n"
 	        "%s",
 	        prog, prog, prog, prog, prog, prog, prog, FZND_PULL_EVERY, prog, fzn_cli_usage());
 }
@@ -1622,7 +1680,127 @@ int main(int argc, char **argv)
 	 * stored pairing, looked up by the node's root; the address is given,
 	 * since a pairing carries none. Prints the reply line and exits 0 when
 	 * it is `ok`. */
-	if (ask_line || gather_program || gather_ring) {
+#ifdef FZN_LOG_FILE_ON
+	/* GATHERING, secs 463, 464 and 466: from the host --node and --to name,
+	 * and from every host --root-at and --pull-from name, one after
+	 * another; their lines merged by time and printed. A host that does
+	 * not answer is said and the rest are still asked. */
+	if (gather_program || gather_ring) {
+		static fzn_partial_t slots[1];
+		static uint8_t slot_buf[1][1u << 17];
+		static struct gathered g;
+		size_t ntargets = npulls + (to_host ? 1u : 0u), t, k;
+		int failed = 0;
+
+		if (!booted || ntargets == 0u || (to_host && (!cli.has_node || to_port < 0
+		                                               || to_port > 65535))) {
+			fprintf(stderr, "fuzznetd: --gather needs --fuzznet-dir, and --node with "
+			                "--to, or --root-at or --pull-from\n");
+			return 2;
+		}
+		for (t = 0; t < ntargets; t++) {
+			fzn_node_pairing_t pairing;
+			fzn_reasm_t table;
+			fzn_caller_t caller;
+			const char *host;
+			long port;
+			int fd = -1, ok;
+			size_t got = 0;
+			fzn_gather_err_t gerr;
+
+			if (to_host && t == 0u) {
+				host = to_host;
+				port = to_port;
+				ok = fzn_node_pairing_load(store_ops, cli.node, &pairing) == FZN_PERSIST_OK;
+			} else {
+				struct pull_target *pt = &pulls[t - (to_host ? 1u : 0u)];
+
+				host = pt->host;
+				port = pt->port;
+				if (pt->is_root_at) {
+					ok = my_authority != NULL;
+					pairing = estate;
+				} else {
+					ok = fzn_node_pairing_load(store_ops, pt->node, &pairing)
+					     == FZN_PERSIST_OK;
+				}
+			}
+			if (!ok) {
+				fprintf(stderr, "fuzznetd: %s: this node holds no pairing to it\n", host);
+				failed = 1;
+				continue;
+			}
+			memset(&caller, 0, sizeof(caller));
+			if (port < 0 || port > 65535 || fzn_udp_bind(family, NULL, 0, &fd) != FZN_UDP_OK
+			    || fzn_udp_resolve(family, host, (uint16_t)port, &caller.node) != FZN_UDP_OK
+			    || fzn_reasm_slot_init(&slots[0], slot_buf[0], sizeof(slot_buf[0]))
+			               != FZN_REASM_OK
+			    || fzn_reasm_init(&table, slots, 1, 1u, 60u) != FZN_REASM_OK) {
+				fprintf(stderr, "fuzznetd: %s: could not reach for it\n", host);
+				fzn_wipe(&pairing, sizeof(pairing));
+				if (fd >= 0)
+					fzn_udp_close(fd);
+				failed = 1;
+				continue;
+			}
+			fzn_node_pairing_caller(&pairing, identity.pubkey, &caller);
+			fzn_wipe(&pairing, sizeof(pairing));
+			caller.fd = fd;
+			caller.hash = &hash_ops;
+			caller.aead = &aead_ops;
+			caller.rng = &rng_ops;
+			caller.reasm = &table;
+			caller.hops = 1u;
+			{
+				struct peer_asking asking = { &caller, wall_clock(), host };
+
+				g.host = host;
+				if (gather_ring) {
+					gerr = fzn_gather_ring_fetch(peer_ask, &asking, 256u, keep_entry, &g,
+					                             &got);
+				} else {
+					fzn_gather_query_t q;
+					uint64_t now_us = wall_clock() * 1000000u;
+
+					memset(&q, 0, sizeof(q));
+					q.since_us = gather_since_s && gather_since_s * 1000000u < now_us
+					                     ? now_us - (gather_since_s * 1000000u)
+					                     : 0u;
+					q.until_us = UINT64_MAX;
+					(void)snprintf(q.program, sizeof(q.program), "%s", gather_program);
+					(void)snprintf(q.match, sizeof(q.match), "%s", gather_match);
+					gerr = fzn_gather_fetch(peer_ask, &asking, &q, 4096u, keep_line, &g,
+					                        &got);
+				}
+			}
+			fzn_wipe(&caller, sizeof(caller));
+			fzn_udp_close(fd);
+			if (gerr != FZN_GATHER_OK) {
+				fprintf(stderr, "fuzznetd: %s: %s\n", host, fzn_gather_err_str(gerr));
+				failed = 1;
+			} else {
+				fprintf(stderr, "fuzznetd: %zu %s from %s\n", got,
+				        gather_ring ? "ring entr(ies)" : "line(s)", host);
+			}
+		}
+		qsort(g.lines, g.n, sizeof(*g.lines), by_time);
+		for (k = 0; k < g.n; k++) {
+			printf("%s\n", g.lines[k].text);
+			free(g.lines[k].text);
+		}
+		free(g.lines);
+		if (g.full)
+			fprintf(stderr, "fuzznetd: stopped at %u MiB; ask with --since or --match\n",
+			        FZND_GATHER_BYTES_MAX / (1024u * 1024u));
+		return failed ? 1 : 0;
+	}
+#else
+	if (gather_program || gather_ring) {
+		fprintf(stderr, "fuzznetd: --gather: built without log files (FZN_LOG_FILE)\n");
+		return 2;
+	}
+#endif
+	if (ask_line) {
 		static fzn_partial_t slots[1];
 		/* A GATHERED PAGE is as large as the host's reply buffer. */
 		static uint8_t slot_buf[1][1u << 17];
@@ -1637,8 +1815,7 @@ int main(int argc, char **argv)
 		int fd = -1, rc;
 
 		if (!booted || !cli.has_node || !to_host || to_port < 0 || to_port > 65535) {
-			fprintf(stderr, "fuzznetd: --ask and --gather need --fuzznet-dir, --node and "
-			                "--to\n");
+			fprintf(stderr, "fuzznetd: --ask needs --fuzznet-dir, --node and --to\n");
 			return 2;
 		}
 		memcpy(node_root, cli.node, FZN_PUBKEY_LEN);
@@ -1667,51 +1844,6 @@ int main(int argc, char **argv)
 		caller.rng = &rng_ops;
 		caller.reasm = &table;
 		caller.hops = 1u;
-#ifdef FZN_LOG_FILE_ON
-		/* THE HOST'S FLIGHT RECORDER, its entries as lines. sec 464. */
-		if (gather_ring) {
-			struct peer_asking asking = { &caller, wall_clock(), to_host };
-			fzn_gather_err_t gerr;
-			size_t got = 0;
-
-			gerr = fzn_gather_ring_fetch(peer_ask, &asking, 256u, print_entry,
-			                             (void *)(uintptr_t)to_host, &got);
-			fzn_wipe(&caller, sizeof(caller));
-			fzn_udp_close(fd);
-			if (gerr != FZN_GATHER_OK) {
-				fprintf(stderr, "fuzznetd: --gather-ring: %s\n", fzn_gather_err_str(gerr));
-				return 1;
-			}
-			fprintf(stderr, "fuzznetd: %zu ring entr%s from %s\n", got, got == 1u ? "y" : "ies",
-			        to_host);
-			return 0;
-		}
-		/* THE LOG, page by page, printed as the host wrote it. sec 463. */
-		if (gather_program) {
-			struct peer_asking asking = { &caller, wall_clock(), to_host };
-			fzn_gather_query_t q;
-			fzn_gather_err_t gerr;
-			size_t got = 0;
-			uint64_t now_us = wall_clock() * 1000000u;
-
-			memset(&q, 0, sizeof(q));
-			q.since_us = gather_since_s && gather_since_s * 1000000u < now_us
-			                     ? now_us - (gather_since_s * 1000000u)
-			                     : 0u;
-			q.until_us = UINT64_MAX;
-			(void)snprintf(q.program, sizeof(q.program), "%s", gather_program);
-			(void)snprintf(q.match, sizeof(q.match), "%s", gather_match);
-			gerr = fzn_gather_fetch(peer_ask, &asking, &q, 4096u, print_line, NULL, &got);
-			fzn_wipe(&caller, sizeof(caller));
-			fzn_udp_close(fd);
-			if (gerr != FZN_GATHER_OK) {
-				fprintf(stderr, "fuzznetd: --gather: %s\n", fzn_gather_err_str(gerr));
-				return 1;
-			}
-			fprintf(stderr, "fuzznetd: %zu line(s) from %s\n", got, to_host);
-			return 0;
-		}
-#endif
 		/* The expiry sits inside the node's horizon: FZND_MAX_AHEAD is the
 		 * lifetime plus the skew this daemon tolerates, and a request
 		 * expiring later than that is refused as from the future. */

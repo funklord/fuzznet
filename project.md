@@ -54432,7 +54432,7 @@ so both would refuse every remote request, as host-private does.
 - **The troubleshooter**: `fuzznetd --gather=PROGRAM [--since=SECONDS]
   [--match=TEXT] --node=KEY --to HOST PORT` prints the lines.
 
-**Not yet**: ~~the ring on request~~ (sec 464); gathering from several hosts in one command; a reply in the packed format,
+**Not yet**: ~~the ring on request~~ (sec 464); ~~gathering from several hosts in one command~~ (sec 466); a reply in the packed format,
 since a page of escaped classic lines is already compact enough to carry.
 
 ### Measured for sec 463
@@ -54514,3 +54514,37 @@ where it had logged five -- the roots and votes requests now among them --
 and both pulls completed. No daemon was left running.
 
 **Sabotage: one entry.**
+
+## 466. Gathering from several hosts at once, 2026-10-02
+
+A troubleshooter reading a piece of work across an estate asked each host
+in turn and merged by hand. `fuzznetd --gather` now asks every host it is
+told of in one command and prints their lines merged by time.
+
+- **The hosts are the ones this node can reach**: `--node` with `--to`, as
+  before, and every `--root-at` and `--pull-from` -- the options a serving
+  node already names its peers with, and each needs a pairing this node
+  holds, as pulling does.
+- **One after another**, each through its own caller from its own
+  pairing; a host that does not answer, or that this node holds no pairing
+  to, is said on stderr and the others are still asked, and the exit status
+  says whether any failed.
+- **Merged by time**: the TIME field leads every line and sorts as text in
+  time order, and lines with the same time keep the order they arrived in;
+  each line's host field says whose it is. `--gather-ring` does the same
+  for the hosts' flight recorders.
+- **Bounded at 64 MiB** of lines, past which it stops and says to narrow
+  the ask with `--since` or `--match`.
+
+### Measured for sec 466
+
+**Live, R the root, M joined, D joined to R and paired to M as well:** D
+gathered from R, M and a port nobody listens on in one command. It printed
+R's four lines and M's four interleaved in time order -- eight, the two
+files' entries together -- said the third did not answer, and exited 1.
+The first run had D's join refused for a card that was not delegable,
+which the command reported as no pairing to R while still printing M's
+lines. No daemon was left running.
+
+**No unit test**: the merge lives in fuzznetd, which has none; the live
+run is its evidence.
