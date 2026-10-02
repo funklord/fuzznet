@@ -5683,6 +5683,13 @@ SABOTAGES = [
 		"saving a checklist writes its displayed lines over its items -- sec 442",
 	),
 	(
+		"notes-checklist-text-only-through-items",
+		"node/notes.c",
+		"&& (node = find(n, id, &idx)) != NULL && node->content_type == FZN_NOTE_TYPE_LIST)",
+		"&& (node = find(n, id, &idx)) != NULL && 0)",
+		"a checklist's items are overwritten by text no item verb can read -- sec 442",
+	),
+	(
 		"shelf-fetch-checks-leaf-lengths",
 		"node/shelf.c",
 		"\t\tfor (i = 0; i < count; i++)\n\t\t\tif (sealed_len[i] != sealed_len_of(h, first + i))\n\t\t\t\treturn FZN_NODE_SHELF_ERR_UNVERIFIED;\n",

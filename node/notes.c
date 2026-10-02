@@ -314,6 +314,19 @@ static size_t set(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *rep
 		return err == FZN_NOTES_OK ? say(reply, cap, FZN_REPLY_OK, NULL)
 		                           : refuse(reply, cap, err);
 	}
+	/* A CHECKLIST'S TEXT IS ITS ITEMS, so its items change through the
+	 * item verbs only. The edit checks a list's shape, and refuses bytes
+	 * that are no items as malformed -- which `set_text` reads as too long
+	 * for inline and seals into a blob, whose items nothing checks. sec 442. */
+	if (is_word(field, field_len, "text") || is_word(field, field_len, "file")) {
+		size_t idx = 0;
+		const fzn_tree_node_t *node;
+
+		if (fzn_notes_view_load(&n->store, &view) == FZN_NOTES_OK
+		    && (node = find(n, id, &idx)) != NULL && node->content_type == FZN_NOTE_TYPE_LIST)
+			return say(reply, cap, FZN_REPLY_ERROR,
+			           "a checklist's items change through the item verbs");
+	}
 	if (is_word(field, field_len, "text"))
 		return set_text(n, id, at, left, reply, cap);
 	if (is_word(field, field_len, "item"))

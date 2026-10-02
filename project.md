@@ -53397,6 +53397,8 @@ frozen.
   never anywhere a note's text would not be.
 - **One past the last item is an append; anything further is no item.**
   Rewording item 7 of a two-item list is refused rather than appended.
+- **A checklist's text is not set directly**: `set note ID text` and `file`
+  are refused on one.
 - **Each item's text is escaped** in a listing, so a comma or a space stays
   inside one field.
 - **`fzn_note_item_put`** is the library's encoder, the inverse of
@@ -53425,5 +53427,17 @@ list long enough to be sealed into a blob, edited and read back through it.
 lines with a comma and spaces intact, ticked and unticked, an item not there
 not toggled, saved with its items kept, and a plain note taking no items.
 
-**Sabotage: seven entries**, and `notebook-view-saves-text-through-a-file`
+**Sabotage: eight entries**, and `notebook-view-saves-text-through-a-file`
 re-aimed at the condition that now leaves a list's text alone.
+
+**The first sweep found a survivor, and a defect behind it.** With the
+view's guard removed, Save wrote a list's displayed lines back as its text
+and the test passed anyway: it compared the body on screen, which Save had
+not re-read. And the node took those lines. An edit does check a list's
+shape and refuses bytes that are no items as malformed -- but `set_text`
+reads malformed as too long for inline and, with a seal hook, seals the
+bytes into a blob, whose items nothing checks. **The node now refuses a text
+or file edit on a checklist**, whose items change only through the item
+verbs. Its test runs with a seal hook, the case where it matters: the first
+version of the test had none, and the guard survived its own sabotage until
+it did. The view's test reopens the note before comparing.

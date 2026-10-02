@@ -511,8 +511,10 @@ static void test_a_checklist_is_lines_ticked_one_at_a_time(void)
 	CHECK(w.toggle_item(1) && w.body_text().endsWith(QStringLiteral("[ ] eggs")),
 	      "and unticked");
 	CHECK(!w.toggle_item(2) && !w.toggle_item(-1), "an item that is not there is not toggled");
-	CHECK(w.save() && w.body_text() == QStringLiteral("[ ] milk, two pints\n[ ] eggs"),
-	      "saving a list keeps its items, rather than writing the lines back as text");
+	CHECK(w.save() && w.open_note(w.open_id())
+	              && w.body_text() == QStringLiteral("[ ] milk, two pints\n[ ] eggs"),
+	      "saving a list keeps its items, rather than writing the lines back as text -- "
+	      "read back from the node, not from the screen");
 	CHECK(w.new_note(QStringLiteral("plain")) && !w.add_item(QStringLiteral("x")),
 	      "a note that is no list takes no items");
 }

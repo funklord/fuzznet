@@ -814,6 +814,18 @@ static void test_checklist(void)
 	CHECK(ask(line) == FZN_REPLY_MALFORMED, "an item with no text is malformed");
 	snprintf(line, sizeof(line), "add item %s x", list);
 	CHECK(ask_as(FZN_ORIGIN_LOCAL, line) == FZN_REPLY_DENIED, "another user may not add one");
+	/* WITH A SEAL TO HAND, which is the case that matters: text an edit
+	 * refuses as malformed is taken for too long and sealed into a blob,
+	 * whose items nothing checks. */
+	notes.seal = toy_seal;
+	notes.open = toy_open;
+	snprintf(line, sizeof(line), "set note %s text [ ] eggs", list);
+	CHECK(ask(line) == FZN_REPLY_ERROR, "a checklist's text is not set over its items");
+	notes.seal = NULL;
+	notes.open = NULL;
+	snprintf(line, sizeof(line), "get note %s items", list);
+	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "1 0 0,eggs"),
+	      "and its items are as they were");
 
 	CHECK(ask("add note top plain") == FZN_REPLY_OK, "fixture: a note that is no list");
 	take_id(note);
