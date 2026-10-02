@@ -93,6 +93,9 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_status->setWordWrap(true);
 	m_list = new QListWidget(this);
 	m_show_trash = new QCheckBox(QStringLiteral("Show trash"), this);
+	m_show_archived = new QCheckBox(QStringLiteral("Show archived"), this);
+	m_pin = new QPushButton(QStringLiteral("Pin"), this);
+	m_archive = new QPushButton(QStringLiteral("Archive"), this);
 	m_title = new QLineEdit(this);
 	/* PLAIN TEXT BY CONSTRUCTION: a note's own text never renders as rich
 	 * text (fuzzypickles' sec 28). */
@@ -137,6 +140,9 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	trash_row->addWidget(m_trash_button);
 	trash_row->addWidget(m_restore);
 	trash_row->addWidget(m_empty);
+	trash_row->addWidget(m_show_archived);
+	trash_row->addWidget(m_pin);
+	trash_row->addWidget(m_archive);
 	share_row->addWidget(m_share_to, 1);
 	share_row->addWidget(m_share);
 	share_row->addWidget(m_unshare);
@@ -167,6 +173,12 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 			        open_note(item->data(ROLE_ID).toString());
 	        });
 	connect(m_show_trash, &QCheckBox::toggled, this, [this](bool on) { show_trash(on); });
+	connect(m_show_archived, &QCheckBox::toggled, this,
+	        [this](bool on) { show_archived(on); });
+	connect(m_pin, &QPushButton::clicked, this,
+	        [this]() { pin(!(m_flags & FZN_NOTE_FLAG_PINNED)); });
+	connect(m_archive, &QPushButton::clicked, this,
+	        [this]() { archive(!(m_flags & FZN_NOTE_FLAG_ARCHIVED)); });
 	connect(m_save, &QPushButton::clicked, this, [this]() { save(); });
 	connect(m_new_note, &QPushButton::clicked, this,
 	        [this]() { new_note(QStringLiteral("Untitled")); });
@@ -286,7 +298,7 @@ void fzn_notebook_view::refresh_list()
 	QString base = shared() ? QStringLiteral("list shared %1 %2").arg(m_tree, parent_id())
 	                        : QStringLiteral("list note %1").arg(parent_id());
 	size_t from = 0, total = 0, guard;
-	int got;
+	int got, pinned_at = 0;
 
 	m_updating = true;
 	m_list->clear();
@@ -308,7 +320,7 @@ void fzn_notebook_view::refresh_list()
 			QStringList f = words[i].split(QLatin1Char(','));
 			unsigned flags;
 			int type;
-			bool trashed;
+			bool trashed, archived, pinned;
 
 			from++;
 			if (f.size() < 6)
@@ -316,17 +328,25 @@ void fzn_notebook_view::refresh_list()
 			type = f[1].toInt();
 			flags = f[2].toUInt();
 			trashed = (flags & FZN_NOTE_FLAG_TRASHED) != 0u;
-			/* THE TRASH, or everything but: one list, two views. */
-			if (trashed != m_trash)
+			archived = (flags & FZN_NOTE_FLAG_ARCHIVED) != 0u;
+			pinned = (flags & FZN_NOTE_FLAG_PINNED) != 0u;
+			/* THE TRASH, THE ARCHIVE, or everything but: one list, three
+			 * views. A trashed note is in the trash whether or not it was
+			 * archived first. */
+			if (trashed != m_trash || (!m_trash && archived != m_archived))
 				continue;
 			QString title = unescape(f[5]);
-			auto *item = new QListWidgetItem(
-			        type == FZN_NOTE_TYPE_FOLDER ? title + QStringLiteral("/") : title);
+			QString shown = type == FZN_NOTE_TYPE_FOLDER ? title + QStringLiteral("/") : title;
+			auto *item = new QListWidgetItem(pinned ? QStringLiteral("* ") + shown : shown);
 
 			item->setData(ROLE_ID, f[0]);
 			item->setData(ROLE_TYPE, type);
 			item->setData(ROLE_TITLE, title);
-			m_list->addItem(item);
+			/* PINNED FIRST, in the order they came; the rest after. */
+			if (pinned)
+				m_list->insertItem(pinned_at++, item);
+			else
+				m_list->addItem(item);
 			if (item->data(ROLE_ID).toString() == m_open)
 				m_list->setCurrentItem(item);
 		}
@@ -342,8 +362,9 @@ void fzn_notebook_view::refresh_list()
 		set_status(QStringLiteral("The node did not answer; what is shown may be out of "
 		                          "date."));
 	else if (m_list->count() == 0)
-		set_status(m_trash ? QStringLiteral("The trash is empty.")
-		                   : QStringLiteral("Nothing here yet."));
+		set_status(m_trash      ? QStringLiteral("The trash is empty.")
+		           : m_archived ? QStringLiteral("Nothing is archived here.")
+		                        : QStringLiteral("Nothing here yet."));
 	else
 		set_status(QString());
 	m_location->setText(m_path_titles.isEmpty() ? QStringLiteral("/")
@@ -361,6 +382,7 @@ void fzn_notebook_view::refresh_note()
 	m_body->clear();
 	m_is_list = false;
 	m_ticks.clear();
+	m_flags = 0;
 	if (have) {
 		QString get = shared() ? QStringLiteral("get shared %1 %2").arg(m_tree, m_open)
 		                       : QStringLiteral("get note %1").arg(m_open);
@@ -368,6 +390,8 @@ void fzn_notebook_view::refresh_note()
 		if (ask(get, &detail) == 1) {
 			QStringList f = detail.split(QLatin1Char(' '));
 			int type = f.value(0).toInt();
+
+			m_flags = f.value(1).toUInt();
 
 			m_title->setText(unescape(f.mid(7).join(QLatin1Char(' '))));
 			m_is_list = type == FZN_NOTE_TYPE_LIST;
@@ -432,6 +456,12 @@ void fzn_notebook_view::refresh_note()
 	m_save->setEnabled(editing && have);
 	m_trash_button->setEnabled(editing && have && !m_trash);
 	m_restore->setEnabled(editing && have && m_trash);
+	m_pin->setEnabled(editing && have && !m_trash);
+	m_pin->setText((m_flags & FZN_NOTE_FLAG_PINNED) ? QStringLiteral("Unpin")
+	                                                : QStringLiteral("Pin"));
+	m_archive->setEnabled(editing && have && !m_trash);
+	m_archive->setText((m_flags & FZN_NOTE_FLAG_ARCHIVED) ? QStringLiteral("Unarchive")
+	                                                      : QStringLiteral("Archive"));
 	m_empty->setEnabled(editing);
 	m_import->setEnabled(editing);
 	m_share->setEnabled(editing && have);
@@ -758,6 +788,55 @@ bool fzn_notebook_view::unshare_with(const QString &contact)
 	say(QStringLiteral("No longer shared with %1; what they already fetched stays with them.")
 	            .arg(contact));
 	return true;
+}
+
+bool fzn_notebook_view::pin(bool on)
+{
+	QString why;
+
+	if (shared() || m_open.isEmpty())
+		return false;
+	if (ask(QStringLiteral("set note %1 %2").arg(m_open, on ? QStringLiteral("pin")
+	                                                         : QStringLiteral("unpin")),
+	        &why)
+	    != 1) {
+		say(QStringLiteral("Not changed: %1").arg(why));
+		return false;
+	}
+	refresh_list();
+	refresh_note();
+	return true;
+}
+
+bool fzn_notebook_view::archive(bool on)
+{
+	QString why;
+
+	if (shared() || m_open.isEmpty())
+		return false;
+	if (ask(QStringLiteral("set note %1 %2").arg(m_open, on ? QStringLiteral("archive")
+	                                                         : QStringLiteral("unarchive")),
+	        &why)
+	    != 1) {
+		say(QStringLiteral("Not changed: %1").arg(why));
+		return false;
+	}
+	/* IT LEAVES THIS VIEW for the other, so nothing stays open here. */
+	m_open.clear();
+	refresh_list();
+	refresh_note();
+	say(on ? QStringLiteral("Archived.") : QStringLiteral("Back from the archive."));
+	return true;
+}
+
+void fzn_notebook_view::show_archived(bool on)
+{
+	m_archived = on;
+	if (m_show_archived->isChecked() != on)
+		m_show_archived->setChecked(on);
+	m_open.clear();
+	refresh_list();
+	refresh_note();
 }
 
 void fzn_notebook_view::show_trash(bool on)

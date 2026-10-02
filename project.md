@@ -53210,7 +53210,7 @@ out -- and **a log callback**:
   the edge is ready and they are to be told.
 - ~~**Import**, which their widget had behind a file dialog.~~ Built in
   sec 440.
-- **Pinned and archived** are kept by the node and not yet shown.
+- ~~**Pinned and archived** are not yet shown.~~ Shown since sec 444.
 
 ### Measured for sec 439
 
@@ -53483,3 +53483,30 @@ collecting again answered `0 1`. No daemon was left running.
 **Sabotage: five entries**, and `notes-shares-blob-names-the-root` re-spelled
 with enough context to name one site, since the comparison it breaks now
 appears twice.
+
+## 444. Pinned and archived notes in the view, 2026-10-02
+
+Sec 439 left pinned and archived out of the view, though the node keeps both
+flags and has had the verbs since sec 431.
+
+- **A pinned note is marked `* ` and listed first**, the pinned in the order
+  the node gave them and the rest after in theirs. Pin and Unpin act on the
+  open note, the button saying which it will do.
+- **Archived notes are a view of their own**, as the trash is: Show archived
+  lists them and nothing else, and the notebook leaves them out. Archive and
+  Unarchive move the open note between the two and close it, since it has
+  left the view it was opened in. An empty archive says "Nothing is archived
+  here".
+- **A trashed note is in the trash**, archived or not, and in neither of the
+  other views.
+
+### Measured for sec 444
+
+**`notebook_view_test`, 119 checks:** a note pinned listed first and marked,
+the others in their order; unpinned, back in its place; an archived note
+leaving the notebook and being the archive's; brought back, the archive
+saying it is empty and the note in the notebook again; a trashed note not in
+the archive.
+
+**Sabotage: two entries**, and `notebook-view-trash-is-its-own-view` re-aimed
+at the trash half of the condition that now holds both.

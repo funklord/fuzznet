@@ -5489,8 +5489,8 @@ SABOTAGES = [
 	(
 		"notebook-view-trash-is-its-own-view",
 		"gui/notebook_view.cpp",
-		"\t\t\tif (trashed != m_trash)\n\t\t\t\tcontinue;\n",
-		"",
+		"\t\t\tif (trashed != m_trash || (!m_trash",
+		"\t\t\tif (0 || (!m_trash",
 		"trashed notes sit among the live ones and the trash shows everything -- sec 439",
 	),
 	(
@@ -5723,6 +5723,20 @@ SABOTAGES = [
 		"\tif (is_word(subject, subject_len, \"text\") && request->parsed == FZN_VERB_REMOVE) {\n\t\tif (origin != FZN_ORIGIN_SAME_USER)\n\t\t\treturn say(reply, reply_cap, FZN_REPLY_DENIED, \"notes need this node's own user\");\n",
 		"\tif (is_word(subject, subject_len, \"text\") && request->parsed == FZN_VERB_REMOVE) {\n",
 		"another user on the machine removes this user's texts -- sec 443",
+	),
+	(
+		"notebook-view-pinned-first",
+		"gui/notebook_view.cpp",
+		"\t\t\tif (pinned)\n\t\t\t\tm_list->insertItem(pinned_at++, item);",
+		"\t\t\tif (0)\n\t\t\t\tm_list->insertItem(pinned_at++, item);",
+		"a pinned note is listed where it falls, among the rest -- sec 444",
+	),
+	(
+		"notebook-view-archive-is-its-own-view",
+		"gui/notebook_view.cpp",
+		"\t\t\tif (trashed != m_trash || (!m_trash && archived != m_archived))",
+		"\t\t\tif (trashed != m_trash)",
+		"archived notes sit among the live ones, and the archive shows everything -- sec 444",
 	),
 	(
 		"shelf-fetch-checks-leaf-lengths",

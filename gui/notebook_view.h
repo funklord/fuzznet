@@ -102,6 +102,11 @@ public:
 	bool share_with(const QString &contact);
 	bool unshare_with(const QString &contact);
 	void show_trash(bool on);
+	/* PINNED AND ARCHIVED, sec 444: a pinned note is marked and listed
+	 * first; archived notes are a view of their own, as the trash is. */
+	void show_archived(bool on);
+	bool pin(bool on);
+	bool archive(bool on);
 	/* A KNotes .ics, a Keep .json or a Takeout directory into the folder
 	 * open, sec 440; the Import button reaches it behind a file dialog. */
 	bool import_file(const QString &path);
@@ -146,6 +151,9 @@ private:
 	bool m_trash = false;
 	/* Whether the open note is a checklist, and its items' ticks. */
 	bool m_is_list = false;
+	bool m_archived = false;
+	/* The open note's flags, as `get note` gave them. */
+	unsigned m_flags = 0;
 	QList<bool> m_ticks;
 	/* Set while a refresh rewrites the tree chooser, so its change is not
 	 * taken for somebody picking a tree. */
@@ -159,6 +167,9 @@ private:
 	QPushButton *m_up;
 	QListWidget *m_list;
 	QCheckBox *m_show_trash;
+	QCheckBox *m_show_archived;
+	QPushButton *m_pin;
+	QPushButton *m_archive;
 	QLineEdit *m_title;
 	QPlainTextEdit *m_body;
 	QPushButton *m_new_note;

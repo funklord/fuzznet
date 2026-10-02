@@ -519,6 +519,39 @@ static void test_a_checklist_is_lines_ticked_one_at_a_time(void)
 	      "a note that is no list takes no items");
 }
 
+static void test_pinned_first_and_the_archive_apart(void)
+{
+	QString a, b, c;
+
+	setup();
+	fzn_notebook_view w(node_ask, nullptr);
+
+	CHECK(w.new_note(QStringLiteral("first")) && w.new_note(QStringLiteral("second"))
+	              && w.new_note(QStringLiteral("third")),
+	      "fixture: three notes");
+	a = w.listed_ids().value(0);
+	b = w.listed_ids().value(1);
+	c = w.listed_ids().value(2);
+	CHECK(w.open_note(c) && w.pin(true), "the third is pinned");
+	CHECK(w.listed_ids() == (QStringList{ c, a, b })
+	              && w.list()->item(0)->text().startsWith(QStringLiteral("* ")),
+	      "and is listed first, marked, the others in their order");
+	CHECK(w.open_note(c) && w.pin(false) && w.listed_ids() == (QStringList{ a, b, c }),
+	      "unpinned, it goes back to its place");
+	CHECK(w.open_note(a) && w.archive(true) && w.open_id().isEmpty()
+	              && w.listed_ids() == (QStringList{ b, c }),
+	      "an archived note leaves the notebook's list");
+	w.show_archived(true);
+	CHECK(w.listed_ids() == QStringList{ a }, "and is the archive's");
+	CHECK(w.open_note(a) && w.archive(false) && w.status().contains(QStringLiteral("archived")),
+	      "brought back, the archive is empty and says so");
+	w.show_archived(false);
+	CHECK(w.listed_ids().contains(a), "and the note is in the notebook again");
+	CHECK(w.open_note(b) && w.trash(), "fixture: a note trashed");
+	w.show_archived(true);
+	CHECK(!w.listed_ids().contains(b), "a trashed note is not in the archive");
+}
+
 static void test_a_refresh_keeps_the_readers_place(void)
 {
 	int i, kept;
@@ -553,6 +586,7 @@ int main(int argc, char **argv)
 	test_a_shared_tree_reads_and_cannot_be_written();
 	test_an_export_is_imported_into_the_open_folder();
 	test_a_checklist_is_lines_ticked_one_at_a_time();
+	test_pinned_first_and_the_archive_apart();
 	test_a_refresh_keeps_the_readers_place();
 	if (failures) {
 		fprintf(stderr, "notebook_view_test: %d of %d checks failed\n", failures, checks);
