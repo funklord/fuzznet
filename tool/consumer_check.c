@@ -189,6 +189,7 @@
 #include <fuzznet/log/capture.h>
 #include <fuzznet/log/entry.h>
 #include <fuzznet/log/ring.h>
+#include <fuzznet/log/retain.h>
 #include <fuzznet/node/received.h>
 #include <fuzznet/node/members.h>
 #include <fuzznet/contact/contact.h>
@@ -329,6 +330,7 @@
 #include "log/capture.h"
 #include "log/entry.h"
 #include "log/ring.h"
+#include "log/retain.h"
 #include "node/received.h"
 #include "node/members.h"
 #include "contact/contact.h"
@@ -1045,6 +1047,14 @@ int main(void)
 		/* The flight recorder's size is the holder's, 256 KiB (sec 457). */
 		if (FZN_RING_BYTES != 262144u || FZN_ENTRY_RECORD_MAX > 65535u)
 			FAIL(471);
+		/* A retention rule from its line (sec 460). */
+		{
+			fzn_retain_rule_t r;
+
+			if (fzn_retain_parse("keep * age 7d", 13u, &r) != FZN_RETAIN_OK
+			    || r.kind != FZN_RETAIN_KEEP)
+				FAIL(474);
+		}
 #ifdef FZN_LOG_FILE_ON
 		/* A logger's segment, unless the caller names one (sec 458). */
 		if (FZN_LOGGER_SEGMENT_DEFAULT != 8u * 1024u * 1024u

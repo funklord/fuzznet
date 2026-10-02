@@ -54245,3 +54245,53 @@ pack tests did not run.
 **Sabotage: six entries.** Not covered: the lock between two instances,
 since POSIX record locks do not contend within one process, and zstd's
 checksum, which the chain's own hash catches first.
+
+## 460. The prune and keep rules, 2026-10-02
+
+The last of step 3 in sec 456's order: retention as the holder put it.
+
+- **Two kinds.** A prune rule limits -- "prune older than 7 days" -- and a
+  keep rule expands -- "keep 7 days". Every matching prune rule applies,
+  the strictest deciding, and a matching keep rule protects what it covers
+  from all of them: **a segment goes when some prune rule marks it and no
+  keep rule protects it.** Sec 456 recorded this as this tree's reading of
+  the holder's answer, and it stands until the holder says otherwise.
+- **One limit a rule**, over a program's closed segments newest first: an
+  age, a size -- the newest N bytes, a segment straddling the limit being
+  inside it -- or a count.
+- **As a line**, for configuration: `prune|keep PROGRAM|* age|size|count
+  N[unit]`, ages in s, m, h, d and sizes in K, M, G.
+- **`log/retain` plans** and is pure: no clock, no files, so it sits in
+  the core. `fzn_logger_retain`, in the logger's backend, lists a program's
+  closed segments -- packed or not -- plans, and removes each it marks by
+  name. The current file is never one, and a removed oldest segment leaves
+  the chain verifiable from the oldest kept, whose trailer names its prev.
+
+**Whole segments, by program only, in this version.** Sec 428 has rules
+select entries by estate, machine, user, subsystem, level or text. A
+machine and a user are the directory's already; the rest select entries
+inside a segment, and removing some of a segment's entries means rewriting
+it, its packed form and its place in the chain. That is a later version.
+
+**Where rules come from** is still open: sec 428 has them be state,
+replicated and scoped like any other (`state/`, sec 420). Today a caller
+passes them; the first consumer will read lines.
+
+### Measured for sec 460
+
+**`retain_test`, 16 checks:** lines for every program, for one program and
+with units, a bare age as seconds; an unknown kind or limit, a missing or
+extra word, a unit the limit does not take, a slash in the program, an
+overflow and an empty line refused. Plans: no rules removing nothing; prune
+older than 7 days taking the ten-day-old segment; **keep 30 days beside it
+keeping it -- the holder's example**; count and size, the straddling segment
+kept; two prune rules both applying; a keep rule protecting from both; a
+rule for another program not applying; shuffled segments planned the same;
+a rule that is not one refused.
+
+**`logger_test`, 37 checks**, four new: in a directory of three closed
+segments (one packed), the current file, another program's segment and a
+file that is no segment, prune past the newest one removes the two oldest
+and leaves the rest.
+
+**Sabotage: five entries.**

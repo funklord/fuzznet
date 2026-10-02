@@ -266,6 +266,38 @@ int main(void)
 	fzn_logger_close(&a);
 	fzn_logger_close(&b);
 
+	/* ---- the rules applied to a directory, sec 460 */
+	{
+		static const char *const FILES[] = { "ret.1000.1.log", "ret.2000.2.log.zst",
+			                             "ret.3000.3.log", "ret.log", "other.1.1.log",
+			                             "ret.notes.txt" };
+		fzn_retain_rule_t rules[1];
+		size_t k, removed = 9;
+		int made = 1;
+
+		for (k = 0; k < sizeof(FILES) / sizeof(FILES[0]); k++) {
+			(void)snprintf(path, sizeof(path), "%s/%s", dir, FILES[k]);
+			made = made && write_file(path, "x\n");
+		}
+		CHECK(made && fzn_retain_parse("prune ret count 1", 17u, &rules[0]) == FZN_RETAIN_OK,
+		      "fixture: three closed segments, one packed, the current file, another "
+		      "program's and a stranger");
+		CHECK(fzn_logger_retain(dir, "ret", rules, 1u, 5000u, &removed) == FZN_LOGGER_OK
+		              && removed == 2u,
+		      "prune past the newest one removes two segments");
+		for (k = 0; k < sizeof(FILES) / sizeof(FILES[0]); k++) {
+			(void)snprintf(path, sizeof(path), "%s/%s", dir, FILES[k]);
+			if ((access(path, F_OK) == 0) != (k >= 2u))
+				made = 0;
+		}
+		CHECK(made, "the oldest, packed or not, go; the newest, the current file, another "
+		            "program's and a file that is no segment stay");
+		for (k = 2; k < sizeof(FILES) / sizeof(FILES[0]); k++) {
+			(void)snprintf(path, sizeof(path), "%s/%s", dir, FILES[k]);
+			(void)remove(path);
+		}
+	}
+
 	/* REMOVED BY NAME, AND WHAT IS LEFT IS AN ASSERTION. */
 	nseg = segments("fuzznetd", names, 64u);
 	for (i = 0; i < nseg; i++) {

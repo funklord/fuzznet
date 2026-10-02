@@ -4,6 +4,7 @@
 
 #include "logger.h"
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <pwd.h>
@@ -296,4 +297,86 @@ void fzn_logger_close(fzn_logger_t *logger)
 		(void)close(logger->fd);
 		logger->fd = -1;
 	}
+}
+
+/* ---- retention ----------------------------------------------------------- */
+
+/* Segments one pass plans over; past it the oldest wait for the next. */
+#define RETAIN_MAX 1024u
+
+/* `PROGRAM.TIME.PID.log`, packed or not: its closing time, or 0. */
+static uint64_t segment_closed(const char *name, const char *program)
+{
+	size_t plen = strlen(program), i;
+	const char *t, *dot;
+	uint64_t v = 0;
+
+	if (strncmp(name, program, plen) != 0 || name[plen] != '.')
+		return 0;
+	t = name + plen + 1u;
+	dot = strchr(t, '.');
+	if (!dot || dot == t)
+		return 0;
+	for (i = 0; t + i < dot; i++) {
+		if (t[i] < '0' || t[i] > '9' || v > (UINT64_MAX - 9u) / 10u)
+			return 0;
+		v = (v * 10u) + (uint64_t)(t[i] - '0');
+	}
+	t = dot + 1;
+	dot = strchr(t, '.');
+	if (!dot || dot == t || (strcmp(dot, ".log") != 0 && strcmp(dot, ".log.zst") != 0))
+		return 0;
+	for (; t < dot; t++)
+		if (*t < '0' || *t > '9')
+			return 0;
+	return v;
+}
+
+fzn_logger_err_t fzn_logger_retain(const char *dir, const char *program,
+                                   const fzn_retain_rule_t *rules, size_t n_rules,
+                                   uint64_t now_us, size_t *removed)
+{
+	static char names[RETAIN_MAX][256];
+	static fzn_retain_segment_t segs[RETAIN_MAX];
+	static uint8_t gone[RETAIN_MAX];
+	char path[FZN_LOGGER_PATH_MAX];
+	struct dirent *e;
+	size_t n = 0, i;
+	DIR *d;
+
+	if (!dir || !removed || !word_ok(program) || (!rules && n_rules))
+		return FZN_LOGGER_ERR_MALFORMED;
+	*removed = 0;
+	d = opendir(dir);
+	if (!d)
+		return FZN_LOGGER_ERR_FILE;
+	while ((e = readdir(d)) != NULL && n < RETAIN_MAX) {
+		uint64_t at = segment_closed(e->d_name, program);
+		struct stat st;
+		int k;
+
+		if (at == 0u || strlen(e->d_name) >= sizeof(names[0]))
+			continue;
+		k = snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
+		if (k <= 0 || (size_t)k >= sizeof(path) || stat(path, &st) != 0)
+			continue;
+		strcpy(names[n], e->d_name);
+		segs[n].closed_us = at;
+		segs[n].bytes = st.st_size > 0 ? (uint64_t)st.st_size : 0u;
+		n++;
+	}
+	(void)closedir(d);
+	if (fzn_retain_plan(program, segs, n, rules, n_rules, now_us, gone) != FZN_RETAIN_OK)
+		return FZN_LOGGER_ERR_MALFORMED;
+	for (i = 0; i < n; i++) {
+		if (!gone[i])
+			continue;
+		if (snprintf(path, sizeof(path), "%s/%.255s", dir, names[i]) >= (int)sizeof(path))
+			return FZN_LOGGER_ERR_MALFORMED;
+		/* GONE ALREADY is another instance's pass, and fine. */
+		if (remove(path) != 0 && errno != ENOENT)
+			return FZN_LOGGER_ERR_FILE;
+		(*removed)++;
+	}
+	return FZN_LOGGER_OK;
 }

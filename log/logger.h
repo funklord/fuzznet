@@ -36,7 +36,7 @@
  *
  * PACKING closed segments, and their hash-chain trailers, is
  * `log/pack.h`'s (sec 459); `rotated` is where a caller runs it. The prune
- * and keep rules are not here yet.
+ * and keep rules are `log/retain.h`'s, applied by `fzn_logger_retain`.
  */
 
 #ifndef FZN_LOG_LOGGER_H
@@ -46,6 +46,7 @@
 #include <stdint.h>
 
 #include "entry.h"
+#include "retain.h"
 #include "ring.h"
 
 #define FZN_LOGGER_PATH_MAX 512u
@@ -105,5 +106,13 @@ fzn_logger_err_t fzn_logger_log(fzn_logger_t *logger, fzn_entry_level_t level,
                                 size_t text_len, fzn_entry_name_t *named);
 
 void fzn_logger_close(fzn_logger_t *logger);
+
+/* THE PRUNE AND KEEP RULES APPLIED, sec 460: `program`'s closed segments in
+ * `dir` -- `PROGRAM.TIME.PID.log` and its packed `.zst` -- planned over by
+ * `fzn_retain_plan` at `now_us` and the ones it marks removed, each by its
+ * name. The current file is never one. `*removed` counts them. */
+fzn_logger_err_t fzn_logger_retain(const char *dir, const char *program,
+                                   const fzn_retain_rule_t *rules, size_t n_rules,
+                                   uint64_t now_us, size_t *removed);
 
 #endif /* FZN_LOG_LOGGER_H */
