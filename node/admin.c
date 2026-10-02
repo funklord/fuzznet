@@ -7,6 +7,7 @@
 #include "../provision/provision.h"
 #include "../contact/contact.h"
 #include "../notes/received.h"
+#include "members.h"
 #include "received.h"
 
 #include <stdio.h>
@@ -1132,6 +1133,16 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 	if (admin->notes_remote && req->payload) {
 		size_t n = admin->notes_remote(admin->notes_ctx, req->sender, 0, req->payload,
 		                               req->payload_len, reply, reply_cap);
+
+		if (n)
+			return n;
+	}
+	/* THE ESTATE'S MEMBERS, with the chains this node holds for them, for
+	 * a member admitting their notes. sec 445. */
+	if (req->payload) {
+		size_t n = fzn_node_members_answer(&admin->state->config, admin->state->peers,
+		                                   admin->state->peer_count, req->payload,
+		                                   req->payload_len, reply, reply_cap);
 
 		if (n)
 			return n;

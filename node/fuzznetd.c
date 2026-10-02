@@ -44,6 +44,7 @@
 #include "notes.h"
 #include "../notes/received.h"
 #include "../notes/share.h"
+#include "members.h"
 #include "received.h"
 #ifdef FZN_SPOOL_FILE_ON
 #include "shelf.h"
@@ -259,12 +260,37 @@ struct pull_target {
 
 /* Every note each pull peer holds that this node lacks or holds older,
  * admitted as any record is. sec 432. */
-static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now)
+static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
+                       const fzn_node_config_t *config,
+                       const fzn_revocation_store_t *revocations)
 {
-	size_t t;
+	static uint8_t members[FZN_NODE_NOTES_WRITERS][FZN_PUBKEY_LEN];
+	size_t t, n_members = 0;
 
 	if (!notes_on)
 		return;
+	/* THE ESTATE'S MEMBERS FIRST, sec 445: each pull peer's, admitted on
+	 * the proof of their chains against this node's own root, so a note a
+	 * member wrote and a peer relays is taken. Rebuilt every round, so a
+	 * member revoked since drops out. */
+	for (t = 0; t < npulls; t++) {
+		struct peer_asking asking = { &pulls[t].caller, now };
+		size_t got = 0, refused = 0;
+		fzn_node_members_err_t merr = fzn_node_members_pull(
+		        peer_ask, &asking, config->root, &config->remote_capability, now,
+		        node_notes.author.sign, revocations, members + n_members,
+		        FZN_NODE_NOTES_WRITERS - n_members, &got, &refused);
+
+		if (merr != FZN_NODE_MEMBERS_OK)
+			fprintf(stderr, "fuzznetd: members from %s: %s\n", pulls[t].host,
+			        fzn_node_members_err_str(merr));
+		else if (refused)
+			fprintf(stderr, "fuzznetd: %zu member(s) from %s did not prove\n", refused,
+			        pulls[t].host);
+		n_members += got;
+	}
+	(void)fzn_node_notes_admit_members(&node_notes,
+	                                   (const uint8_t (*)[FZN_PUBKEY_LEN])members, n_members);
 	for (t = 0; t < npulls; t++) {
 		struct peer_asking asking = { &pulls[t].caller, now };
 		fzn_notes_sync_tally_t tally;
@@ -1526,7 +1552,7 @@ int main(int argc, char **argv)
 				}
 				/* NOTES, then TEXTS, secs 432 and 424: a note's text is
 				 * fetched once the note naming it has arrived. */
-				pull_notes(pulls, npulls, now);
+				pull_notes(pulls, npulls, now, &state.config, running);
 				pull_received(now);
 #ifdef FZN_SPOOL_FILE_ON
 				fetch_texts(pulls, npulls, now);
@@ -1550,7 +1576,7 @@ int main(int argc, char **argv)
 			}
 			if (notes_on && node_notes.fresh) {
 				node_notes.fresh = 0;
-				pull_notes(pulls, npulls, now);
+				pull_notes(pulls, npulls, now, &state.config, running);
 			}
 			(void)fzn_node_run_once(&state, 1000);
 		}

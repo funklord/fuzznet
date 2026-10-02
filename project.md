@@ -52477,11 +52477,9 @@ set in every build, to the larger of the two families' largest answers.
 
 ### Not yet after sec 432
 
-- **The admitted set is the nodes a node pulls from**, which is what a
-  pull can reach. A note written by an estate member this node is not
-  paired with, relayed by one it is, is refused. Admitting the estate's
-  members by their chains is the general answer, and belongs with
-  contacts and grants (sec 430).
+- ~~**The admitted set is the nodes a node pulls from.**~~ Since sec 445,
+  the estate's members are admitted on the proof of their chains, asked of
+  each pull peer every round.
 - **Pull only.** A note written here reaches a peer when the peer next
   pulls, up to a minute later. Nothing pushes.
 - **~~The purge conversation~~: built in sec 433.**
@@ -53510,3 +53508,65 @@ the archive.
 
 **Sabotage: two entries**, and `notebook-view-trash-is-its-own-view` re-aimed
 at the trash half of the condition that now holds both.
+
+## 445. The estate's members, admitted on the proof of their chains, 2026-10-02
+
+Sec 432 recorded the gap: a node admits notes from itself and the nodes it is
+paired with, so a note written by a member it is not paired with, relayed by
+one it is, is refused. With R pulling from M1 and M2 pulling from R, M1's
+note reached R and stopped there. Sec 432 named the answer: admit the
+estate's members by their chains.
+
+### Proof-carrying, so the relaying node vouches for nothing
+
+- **MEMBERS_QUERY and MEMBERS** (types 11 and 12 of the notes sync family,
+  in `notes/sync.situ`): a node lists the peers it holds that are not
+  contacts, each with the capability chain it holds for it, a page at a
+  time.
+- **The asker admits a key only on proof**: its chain verifies against the
+  asker's OWN estate root, for the remote capability, at its own clock,
+  under its own revocations, and names that key. A node that lies about its
+  members can name only keys the estate's root granted; a key listed beside
+  another member's chain is not admitted, since the chain says whom it
+  authorises.
+- **Asked only by members.** It rides the remote hop under the remote
+  capability. A contact's requests reach only the shared notes and never
+  this answer, and a contact is never listed: a share is no membership to
+  reveal.
+- **Rebuilt every round.** fuzznetd asks each pull peer before pulling its
+  notes, and `fzn_node_notes_admit_members` sets the admitted set to the one
+  the node opened with and the proved members, so a member revoked or gone
+  drops out at the next round, and the node's own set is never displaced.
+
+### Not yet after sec 445
+
+- **A chain through another root is not admitted**: one starting at a root
+  the genesis added (sec 411) needs that root's proof, which a peer record
+  does not keep. Such a member's notes are refused as before, and counted.
+- **The root itself is admitted only where it is pulled from.** A node
+  joined through a member, pulling from that member, does not admit the
+  estate's root as a writer unless the root is among the member's peers.
+- **Notes still travel only by pulling**, so a member's note reaches the
+  others only through a node that pulls from it.
+
+### Measured for sec 445
+
+**`admin_test`, 138 checks, with real chains:** two members paired by the
+estate's root admitted over pages of at most two; a contact paired for a
+share not admitted, and its key not even in the listing; a peer whose chain
+starts at another root refused and counted; a member whose grant is then
+revoked no longer admitted; a key listed with another member's chain not
+admitted; an entry whose hop was altered not proving.
+
+**`notes_test` (node), 219 checks:** members added once beside a key
+already admitted; the next round replacing them; none leaving the node's own
+set; past the room, the rest refused and the node's own set kept.
+
+`err_str_test` walks `fzn_node_members_err_str`; `consumer_check` includes
+the header.
+
+**Not measured live.** A three-node run needs the hub to pull from a member,
+which needs a pairing to it, and that topology was not set up here; the
+daemon's wiring is read and not run.
+
+**Sabotage: four entries.**

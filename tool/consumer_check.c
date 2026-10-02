@@ -182,6 +182,7 @@
 #include <fuzznet/notes/received.h>
 #include <fuzznet/log/capture.h>
 #include <fuzznet/node/received.h>
+#include <fuzznet/node/members.h>
 #include <fuzznet/contact/contact.h>
 #include <fuzznet/node/notes.h>
 #include <fuzznet/trust/trust.h>
@@ -313,6 +314,7 @@
 #include "notes/received.h"
 #include "log/capture.h"
 #include "node/received.h"
+#include "node/members.h"
 #include "contact/contact.h"
 #include "node/notes.h"
 #include "trust/trust.h"

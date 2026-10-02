@@ -968,6 +968,46 @@ static void test_collecting_texts(void)
 	notes.open = NULL;
 }
 
+/* MEMBERS PROVED BY CHAINS JOIN THE ADMITTED SET, sec 445: added once,
+ * replaced each round, and never at the cost of the set the node opened with. */
+static int admits(const uint8_t *key)
+{
+	size_t i;
+
+	for (i = 0; i < notes.author.policy.admitted_count; i++)
+		if (!memcmp(notes.author.policy.admitted[i].key, key, FZN_PUBKEY_LEN))
+			return 1;
+	return 0;
+}
+
+static void test_members_join_the_admitted_set(void)
+{
+	static uint8_t keys[FZN_NODE_NOTES_WRITERS + 2u][FZN_PUBKEY_LEN];
+	size_t i;
+
+	setup(1);
+	memset(keys[0], 0x71, FZN_PUBKEY_LEN);
+	memset(keys[1], 0x72, FZN_PUBKEY_LEN);
+	memcpy(keys[2], PEER, FZN_PUBKEY_LEN);
+	CHECK(fzn_node_notes_admit_members(&notes, (const uint8_t (*)[FZN_PUBKEY_LEN])keys, 3u) == 2u
+	              && admits(keys[0]) && admits(keys[1]) && admits(PEER) && admits(SELF),
+	      "two members are added, a key already admitted is not added twice");
+	CHECK(fzn_node_notes_admit_members(&notes, (const uint8_t (*)[FZN_PUBKEY_LEN])keys + 1, 1u)
+	                      == 1u
+	              && !admits(keys[0]) && admits(keys[1]),
+	      "the next round replaces the members, so one no longer listed drops out");
+	CHECK(fzn_node_notes_admit_members(&notes, NULL, 0u) == 0u && admits(SELF) && admits(PEER)
+	              && !admits(keys[1]),
+	      "and with none, the node's own set remains");
+	for (i = 0; i < FZN_NODE_NOTES_WRITERS + 2u; i++)
+		memset(keys[i], (int)(0x80u + i), FZN_PUBKEY_LEN);
+	CHECK(fzn_node_notes_admit_members(&notes, (const uint8_t (*)[FZN_PUBKEY_LEN])keys,
+	                                   FZN_NODE_NOTES_WRITERS + 2u)
+	                      == FZN_NODE_NOTES_WRITERS - 1u
+	              && admits(SELF) && admits(PEER),
+	      "past the room, the rest are not admitted and the node's own set is kept");
+}
+
 int main(void)
 {
 	memset(SELF, 0x51, sizeof(SELF));
@@ -983,6 +1023,7 @@ int main(void)
 	test_import();
 	test_checklist();
 	test_collecting_texts();
+	test_members_join_the_admitted_set();
 
 	if (failures) {
 		fprintf(stderr, "notes_test: %d of %d checks failed\n", failures, checks);

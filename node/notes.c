@@ -161,6 +161,7 @@ fzn_notes_err_t fzn_node_notes_init(fzn_node_notes_t *notes, const fzn_persist_o
 	for (i = 0; i < peer_count; i++)
 		memcpy(notes->admitted[i + 1u].key, peers[i], FZN_PUBKEY_LEN);
 	notes->admitted_count = peer_count + 1u;
+	notes->base_count = notes->admitted_count;
 	for (i = 0; i < pull_count; i++)
 		memcpy(notes->pulls[i].key, pulls[i], FZN_PUBKEY_LEN);
 	notes->pull_count = pull_count;
@@ -172,6 +173,30 @@ fzn_notes_err_t fzn_node_notes_init(fzn_node_notes_t *notes, const fzn_persist_o
 	notes->author.policy = fzn_notes_policy_writers(notes->admitted, notes->admitted_count);
 	notes->now_ms = now_ms;
 	return FZN_NOTES_OK;
+}
+
+size_t fzn_node_notes_admit_members(fzn_node_notes_t *notes, const uint8_t (*keys)[FZN_PUBKEY_LEN],
+                                    size_t count)
+{
+	size_t i, j, added = 0;
+
+	if (!notes || (!keys && count))
+		return 0;
+	notes->admitted_count = notes->base_count;
+	for (i = 0; i < count; i++) {
+		int have = 0;
+
+		for (j = 0; j < notes->admitted_count && !have; j++)
+			have = memcmp(notes->admitted[j].key, keys[i], FZN_PUBKEY_LEN) == 0;
+		if (have)
+			continue;
+		if (notes->admitted_count >= sizeof(notes->admitted) / sizeof(notes->admitted[0]))
+			break;
+		memcpy(notes->admitted[notes->admitted_count++].key, keys[i], FZN_PUBKEY_LEN);
+		added++;
+	}
+	notes->author.policy = fzn_notes_policy_writers(notes->admitted, notes->admitted_count);
+	return added;
 }
 
 /* The claim on `id` to show: this node's own, else the first held. */

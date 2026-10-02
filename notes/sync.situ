@@ -27,6 +27,8 @@ enum fzn_notes_sync_type : u8 {
 	purges        = 8,   // "These."
 	writers_query = 9,   // "Who wrote what you share with me?" sec 437
 	writers       = 10,  // "These keys."
+	members_query = 11,  // "Who are your members, from FROM on?" sec 445
+	members       = 12,  // "These, with the chains I hold for them."
 }
 
 struct fzn_notes_sync_index_query {
@@ -126,4 +128,33 @@ struct fzn_notes_sync_writers {
 	fzn_notes_sync_type    type    [must_eq = writers];
 	u8                     count   [max = 64];       // FZN_NOTES_SYNC_WRITERS_MAX
 	fzn_notes_sync_writer  writers[count];
+}
+
+// THE ESTATE'S MEMBERS, sec 445: asked by a member under the remote
+// capability and answered by node/members.c with the peers the node holds
+// that are not contacts, each with the chain the node holds for it. The
+// asker admits a key only when its chain verifies against its own root.
+struct fzn_notes_sync_members_query {
+	u8                   version [must_eq = 2];
+	fzn_notes_sync_type  type    [must_eq = members_query];
+	u16                  from;
+}
+
+struct fzn_notes_sync_hop {
+	u8   bytes[179];                                  // FZN_HOP_LEN
+}
+
+struct fzn_notes_sync_member {
+	u8                  key[32];
+	u8                  hop_count [min = 1, max = 8]; // FZN_CHAIN_MAX_HOPS
+	fzn_notes_sync_hop  hops[hop_count];
+}
+
+struct fzn_notes_sync_members {
+	u8                     version [must_eq = 2];
+	fzn_notes_sync_type    type    [must_eq = members];
+	u16                    total;                     // members the server holds
+	u16                    from;                      // the first in this page
+	u8                     count;
+	fzn_notes_sync_member  members[count];
 }

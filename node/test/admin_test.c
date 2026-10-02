@@ -15,6 +15,7 @@
 #include "../identity.h"
 #include "../peer_persist.h"
 #include "../received.h"
+#include "../members.h"
 #include "../../notes/received.h"
 #include "../../chain/service.h"
 #include "../../chain/sign_monocypher.h"
@@ -227,6 +228,61 @@ static size_t text_local_stub(void *ctx, fzn_origin_t origin, const fzn_request_
 	                         (const uint8_t *)"stub", 4u) != FZN_COMPOSE_OK)
 		return 0;
 	return len;
+}
+
+/* A server of members over a peer table, answering in pages of `cap` bytes;
+ * `forge` names a key whose hop has a byte flipped on the way. sec 445. */
+struct members_peer {
+	const fzn_node_config_t *config;
+	const fzn_node_peer_t *peers;
+	size_t count;
+	size_t cap;
+	const uint8_t *forge; /* the key whose hop is altered, or NULL */
+	const uint8_t *rename_from, *rename_to; /* a key relabelled, its chain kept */
+	unsigned asked;
+};
+
+static int members_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                       size_t reply_cap, size_t *reply_len)
+{
+	struct members_peer *mp = (struct members_peer *)ctx;
+
+	mp->asked++;
+	*reply_len = fzn_node_members_answer(mp->config, mp->peers, mp->count, request, request_len,
+	                                     reply, mp->cap < reply_cap ? mp->cap : reply_cap);
+	if (mp->forge) {
+		size_t at = FZN_NODE_MEMBERS_HEAD_LEN;
+
+		while (at + FZN_PUBKEY_LEN + 1u <= *reply_len) {
+			size_t hops = reply[at + FZN_PUBKEY_LEN];
+
+			if (memcmp(reply + at, mp->forge, FZN_PUBKEY_LEN) == 0)
+				reply[at + FZN_PUBKEY_LEN + 1u + 90u] ^= 0x01u;
+			at += FZN_PUBKEY_LEN + 1u + (hops * FZN_HOP_LEN);
+		}
+	}
+	if (mp->rename_from) {
+		size_t at = FZN_NODE_MEMBERS_HEAD_LEN;
+
+		while (at + FZN_PUBKEY_LEN + 1u <= *reply_len) {
+			size_t hops = reply[at + FZN_PUBKEY_LEN];
+
+			if (memcmp(reply + at, mp->rename_from, FZN_PUBKEY_LEN) == 0)
+				memcpy(reply + at, mp->rename_to, FZN_PUBKEY_LEN);
+			at += FZN_PUBKEY_LEN + 1u + (hops * FZN_HOP_LEN);
+		}
+	}
+	return *reply_len > 0u;
+}
+
+static int listed(uint8_t (*keys)[FZN_PUBKEY_LEN], size_t n, const uint8_t *key)
+{
+	size_t i;
+
+	for (i = 0; i < n; i++)
+		if (memcmp(keys[i], key, FZN_PUBKEY_LEN) == 0)
+			return 1;
+	return 0;
 }
 
 /* A contact's text hook that records who asked and answers two bytes.
@@ -1222,6 +1278,124 @@ int main(void)
 	CHECK(ask(&admin, &member, "status", reply, sizeof(reply), &reply_len)
 	              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK,
 	      "status was not answered with the node's own status line");
+
+	/* ---- THE ESTATE'S MEMBERS, sec 445: listed with their chains, admitted
+	 * by a puller only on proof against its own root. */
+	{
+		static struct node m1, m2, m3, m4;
+		static fzn_node_peer_t all[64];
+		static uint8_t got[64][FZN_PUBKEY_LEN];
+		fzn_prekey_record_t r;
+		size_t loaded = 0, n = 0, refused = 0, i;
+		uint8_t mcard[FZN_PROVISION_MAX_LEN];
+		size_t mcard_len = 0;
+		char m2_hex[(FZN_PUBKEY_LEN * 2u) + 1u];
+		struct members_peer mp;
+
+		CHECK(node_up(&m1) && node_up(&m2) && node_up(&m3) && node_up(&m4),
+		      "fixture: four more nodes");
+		CHECK(fzn_service_capability(7u, 3u, (const uint8_t *)"fuzznet.notes.share", 19u,
+		                             &hash_ops, &state.config.share_capability)
+		              == FZN_CHAIN_OK,
+		      "fixture: the share capability");
+		memcpy(state.config.share_root, node.id.pubkey, FZN_PUBKEY_LEN);
+		state.config.has_share = 1;
+		CHECK(fzn_prekey_open(m1.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &r) == FZN_PREKEY_OK
+		              && fzn_node_pair(&node.id, node.id.pubkey, &state.config.remote_capability,
+		                               NULL, 0, &node.ops, r, 2000u, 2000u + 86400u, mcard,
+		                               sizeof(mcard), &mcard_len)
+		                         == FZN_NODE_PAIR_OK
+		              && fzn_prekey_open(m2.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &r)
+		                         == FZN_PREKEY_OK
+		              && fzn_node_pair(&node.id, node.id.pubkey, &state.config.remote_capability,
+		                               NULL, 0, &node.ops, r, 2000u, 2000u + 86400u, mcard,
+		                               sizeof(mcard), &mcard_len)
+		                         == FZN_NODE_PAIR_OK,
+		      "fixture: two members paired by the estate's root");
+		CHECK(fzn_prekey_open(m3.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &r) == FZN_PREKEY_OK
+		              && fzn_node_pair(&node.id, node.id.pubkey, &state.config.share_capability,
+		                               NULL, 0, &node.ops, r, 2000u, 2000u + 86400u, mcard,
+		                               sizeof(mcard), &mcard_len)
+		                         == FZN_NODE_PAIR_OK,
+		      "fixture: a contact paired for a share");
+		CHECK(fzn_prekey_open(m4.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &r) == FZN_PREKEY_OK
+		              && fzn_node_pair(&m1.id, m1.id.pubkey, &state.config.remote_capability,
+		                               NULL, 0, &node.ops, r, 2000u, 2000u + 86400u, mcard,
+		                               sizeof(mcard), &mcard_len)
+		                         == FZN_NODE_PAIR_OK,
+		      "fixture: a peer whose chain starts at another root");
+		CHECK(fzn_node_peers_load(&node.ops, all, 64u, &loaded) == FZN_PERSIST_OK,
+		      "fixture: the peers loaded");
+
+		mp.config = &state.config;
+		mp.peers = all;
+		mp.count = loaded;
+		mp.cap = 500u;
+		mp.forge = NULL;
+		mp.rename_from = NULL;
+		mp.rename_to = NULL;
+		mp.asked = 0;
+		CHECK(fzn_node_members_pull(members_ask, &mp, node.id.pubkey,
+		                            &state.config.remote_capability, 2100u, &node.sign,
+		                            admin.revocations, got, 64u, &n, &refused)
+		              == FZN_NODE_MEMBERS_OK,
+		      "the members are pulled");
+		CHECK(mp.asked > 1u, "a page of two members at most, so more than one was asked");
+		CHECK(listed(got, n, m1.id.pubkey) && listed(got, n, m2.id.pubkey),
+		      "both members the root paired are admitted");
+		CHECK(!listed(got, n, m3.id.pubkey), "a contact paired for a share is not");
+		{
+			static uint8_t page[16384];
+			uint8_t q[FZN_NODE_MEMBERS_QUERY_LEN] = { 2u, FZN_NODE_MEMBERS_QUERY, 0u, 0u };
+			size_t len = fzn_node_members_answer(&state.config, all, loaded, q, sizeof(q), page,
+			                                     sizeof(page)), at;
+			int seen_contact = 0;
+
+			for (at = 0; len && at + FZN_PUBKEY_LEN <= len; at++)
+				seen_contact |= memcmp(page + at, m3.id.pubkey, FZN_PUBKEY_LEN) == 0;
+			CHECK(len > FZN_NODE_MEMBERS_HEAD_LEN && !seen_contact,
+			      "and its key is not even listed: a share is no membership to reveal");
+		}
+		CHECK(!listed(got, n, m4.id.pubkey) && refused >= 1u,
+		      "a peer whose chain starts at another root is refused and counted");
+
+		hex(m2.id.pubkey, FZN_PUBKEY_LEN, m2_hex);
+		snprintf(line, sizeof(line), "revoke peer %s", m2_hex);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK,
+		      "fixture: the second member's grant revoked");
+		CHECK(fzn_node_members_pull(members_ask, &mp, node.id.pubkey,
+		                            &state.config.remote_capability, 2100u, &node.sign,
+		                            admin.revocations, got, 64u, &n, &refused)
+		                      == FZN_NODE_MEMBERS_OK
+		              && listed(got, n, m1.id.pubkey) && !listed(got, n, m2.id.pubkey),
+		      "a member whose grant is revoked is no longer admitted");
+
+		mp.rename_from = m1.id.pubkey;
+		mp.rename_to = m4.id.pubkey;
+		CHECK(fzn_node_members_pull(members_ask, &mp, node.id.pubkey,
+		                            &state.config.remote_capability, 2100u, &node.sign, NULL, got,
+		                            64u, &n, &refused)
+		                      == FZN_NODE_MEMBERS_OK
+		              && !listed(got, n, m4.id.pubkey),
+		      "a key listed with another member's chain is not admitted: the chain names whom");
+		mp.rename_from = NULL;
+		mp.forge = m1.id.pubkey;
+		CHECK(fzn_node_members_pull(members_ask, &mp, node.id.pubkey,
+		                            &state.config.remote_capability, 2100u, &node.sign, NULL, got,
+		                            64u, &n, &refused)
+		                      == FZN_NODE_MEMBERS_OK
+		              && !listed(got, n, m1.id.pubkey),
+		      "an entry whose hop was altered does not prove");
+		mp.forge = NULL;
+		for (i = 0; i < loaded; i++)
+			fzn_wipe(&all[i], sizeof(all[i]));
+		state.config.has_share = 0;
+		fzn_sign_monocypher_wipe(&m1.signer);
+		fzn_sign_monocypher_wipe(&m2.signer);
+		fzn_sign_monocypher_wipe(&m3.signer);
+		fzn_sign_monocypher_wipe(&m4.signer);
+	}
 
 	fzn_sign_monocypher_wipe(&node.signer);
 	fzn_sign_monocypher_wipe(&device.signer);

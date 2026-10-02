@@ -116,6 +116,9 @@ typedef struct fzn_node_notes {
 	fzn_notes_author_t author;
 	fzn_notes_writer_t admitted[FZN_NODE_NOTES_WRITERS + 1u];
 	size_t admitted_count;
+	/* How many of `admitted` the node was opened with -- itself, its
+	 * peers and its pulls -- before any member proved by a chain. sec 445. */
+	size_t base_count;
 	/* The nodes this one pulls from, which a purge always asks. */
 	fzn_notes_writer_t pulls[FZN_NODE_NOTES_WRITERS];
 	size_t pull_count;
@@ -147,6 +150,13 @@ fzn_notes_err_t fzn_node_notes_init(fzn_node_notes_t *notes, const fzn_persist_o
                                     const uint8_t (*peers)[FZN_PUBKEY_LEN], size_t peer_count,
                                     const uint8_t (*pulls)[FZN_PUBKEY_LEN], size_t pull_count,
                                     uint64_t (*now_ms)(void));
+
+/* ADMIT THE ESTATE'S MEMBERS, proved by their chains (`node/members.h`):
+ * the set becomes the one the node was opened with and these, each once, as
+ * far as room allows. Replaces the members admitted before, so one revoked
+ * since drops out. How many were added. sec 445. */
+size_t fzn_node_notes_admit_members(fzn_node_notes_t *notes, const uint8_t (*keys)[FZN_PUBKEY_LEN],
+                                    size_t count);
 
 /* A peer's notes sync message (`notes/sync.h`), for `node/admin.h`'s remote
  * hook: answered from this node's store. 0 for what is not one. sec 432.
