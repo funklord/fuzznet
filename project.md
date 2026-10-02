@@ -54548,3 +54548,41 @@ lines. No daemon was left running.
 
 **No unit test**: the merge lives in fuzznetd, which has none; the live
 run is its evidence.
+
+## 467. The shortened view of a log, 2026-10-02
+
+Sec 428's viewer: "a viewer shortens for display only: it hides fields
+equal to the previous line's ... along the tree estate / machine / user /
+program[instance] / subsystem, and the file keeps all of it." Nothing here
+writes a format anybody parses; the classic line stays the format, and this
+is how a person reads a run of them.
+
+- **`log/view`**, `fzn_entry_view`, against the entry before:
+  - the date as a line of its own, `-- 2026-10-02 --`, when it changes,
+    and the time of day on each entry;
+  - the tree -- host, user, program, instance (`pid@start`), subsystem --
+    shown from the first field that differs, down, so a new instance shows
+    its subsystem though it is the same;
+  - the position and the level always, `#1834 W`;
+  - causes only when there are any, as the cause's instance field, and the
+    origin's when it is another entry;
+  - the text always, escaped as the line escapes it.
+- **The estate is not in the tree**: a machine names it (sec 456), and the
+  host is the machine as a line shows it.
+- **`fuzznetd --gather ... --short`** reads each gathered line back and
+  prints it shortened; a line that does not read prints as it came.
+
+### Measured for sec 467
+
+**`view_test`, 11 checks:** the first entry in full under its date; the
+same instance hiding all but its new subsystem; the same subsystem hidden
+too; a new instance shown from the instance down; another host shown
+whole; a new day dated and the tree begun again; the text escaped; a cause
+as its instance field, an origin the same as it hidden and another shown;
+a view that does not fit refused; a previous entry with no host refused.
+
+**Live, sec 466's three nodes with `--short`:** R's and M's eight lines
+under one date line, each instance shown once and its later lines as
+`#POS LEVEL` and what changed.
+
+**Sabotage: three entries.**

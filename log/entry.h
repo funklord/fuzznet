@@ -148,6 +148,11 @@ fzn_entry_err_t fzn_entry_classic_parse(const char *line, size_t len,
 #define FZN_ENTRY_RECORD_MIN 55u
 #define FZN_ENTRY_RECORD_MAX 4672u
 
+/* `time_us` as a classic line writes it, `2026-10-02T12:34:56.789123Z`,
+ * into 28 bytes with its NUL; MALFORMED past the year 9999. sec 467. */
+#define FZN_ENTRY_TIME_TEXT 28u
+fzn_entry_err_t fzn_entry_time_text(uint64_t time_us, char out[FZN_ENTRY_TIME_TEXT]);
+
 /* A classic line's TIME field, the first 27 characters of `line`, as
  * microseconds since the epoch; MALFORMED when they are not one. For a
  * reader filtering lines by time without parsing the rest (sec 463). */

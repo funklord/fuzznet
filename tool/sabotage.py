@@ -5844,6 +5844,27 @@ SABOTAGES = [
 		"a text somebody just asked for waits out a whole pull period before anything asks a peer for it -- sec 424",
 	),
 	(
+		"view-hides-what-repeats",
+		"log/view.c",
+		"\t\twhile (from < 5u && strcmp(tree_cur[from], tree_prev[from]) == 0)\n\t\t\tfrom++;\n",
+		"",
+		"the shortened view shortens nothing, every line carrying the whole tree -- sec 467",
+	),
+	(
+		"view-dates-a-new-day",
+		"log/view.c",
+		"\t    || memcmp(now, before, 10u) != 0) {\n",
+		"\t    || 0) {\n",
+		"lines from two days read as one, the time of day the only clue -- sec 467",
+	),
+	(
+		"view-escapes-the-text",
+		"log/view.c",
+		"\t(void)fzn_capture_escape(cur->text, cur->text_len, text, sizeof(text));\n",
+		"\tmemcpy(text, cur->text, cur->text_len);\n\ttext[cur->text_len] = '\\0';\n",
+		"an entry's text reaches a terminal raw, a newline in it forging a line and an escape driving the terminal -- sec 467",
+	),
+	(
 		"caller-sends-what-its-wrap-wrote",
 		"node/caller.c",
 		"\t\tif (n) {\n\t\t\tpayload = wrapped;\n\t\t\tpayload_len = n;\n\t\t}\n",

@@ -192,6 +192,7 @@
 #include <fuzznet/log/ring.h>
 #include <fuzznet/log/retain.h>
 #include <fuzznet/log/cause.h>
+#include <fuzznet/log/view.h>
 #include <fuzznet/node/received.h>
 #include <fuzznet/node/members.h>
 #include <fuzznet/contact/contact.h>
@@ -335,6 +336,7 @@
 #include "log/ring.h"
 #include "log/retain.h"
 #include "log/cause.h"
+#include "log/view.h"
 #include "node/received.h"
 #include "node/members.h"
 #include "contact/contact.h"
@@ -1068,6 +1070,15 @@ int main(void)
 			if (fzn_cause_unwrap((const uint8_t *)"get peer", 8u, &c, &o, &in, &in_len)
 			    != FZN_CAUSE_NONE)
 				FAIL(475);
+		}
+		/* The viewer refuses an entry that is none (sec 467). */
+		{
+			char shown[64];
+			size_t shown_len = 0;
+
+			if (fzn_entry_view(NULL, NULL, NULL, "h", shown, sizeof(shown), &shown_len)
+			    != FZN_ENTRY_ERR_MALFORMED)
+				FAIL(477);
 		}
 #ifdef FZN_LOG_FILE_ON
 		/* A logger's segment, unless the caller names one (sec 458). */

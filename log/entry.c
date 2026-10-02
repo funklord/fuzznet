@@ -598,3 +598,10 @@ fzn_entry_err_t fzn_entry_line_time(const char *line, size_t len, uint64_t *time
 		return FZN_ENTRY_ERR_MALFORMED;
 	return FZN_ENTRY_OK;
 }
+
+fzn_entry_err_t fzn_entry_time_text(uint64_t time_us, char out[FZN_ENTRY_TIME_TEXT])
+{
+	if (!out || !time_text(time_us, out))
+		return FZN_ENTRY_ERR_MALFORMED;
+	return FZN_ENTRY_OK;
+}

@@ -198,7 +198,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              notes/store.c notes/view.c notes/author.c notes/purge.c notes/import.c \
              notes/sync.c notes/share.c notes/received.c \
              trust/trust.c \
-             log/log.c log/capture.c log/entry.c log/ring.c log/retain.c log/cause.c \
+             log/log.c log/capture.c log/entry.c log/ring.c log/retain.c log/cause.c log/view.c \
              sched/sched.c \
              link/link.c
 # RECURSIVE, NOT SNAPSHOT, and that is a fix rather than a style choice.
@@ -288,7 +288,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              notes/store.h notes/view.h notes/author.h notes/purge.h notes/import.h \
              notes/sync.h notes/share.h notes/received.h \
              trust/trust.h \
-             log/log.h log/capture.h log/entry.h log/ring.h log/retain.h log/cause.h \
+             log/log.h log/capture.h log/entry.h log/ring.h log/retain.h log/cause.h log/view.h \
              sched/sched.h \
              link/link.h
 
@@ -411,6 +411,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              trust/test/trust_walk_test.c \
              log/test/log_test.c log/test/capture_test.c log/test/entry_test.c \
              log/test/ring_test.c log/test/retain_test.c log/test/cause_test.c \
+             log/test/view_test.c \
              wire/test/relay_test.c \
              sched/test/sched_test.c \
              sched/test/sched_fuzz.c \
@@ -540,6 +541,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/log/test/ring_test \
              $(BUILD_DIR)/log/test/retain_test \
              $(BUILD_DIR)/log/test/cause_test \
+             $(BUILD_DIR)/log/test/view_test \
              $(BUILD_DIR)/wire/test/relay_test \
              $(BUILD_DIR)/sched/test/sched_test \
              $(BUILD_DIR)/sched/test/sched_fuzz \
@@ -1997,6 +1999,14 @@ $(BUILD_DIR)/log/test/gather_test: $(BUILD_DIR)/log/test/gather_test.o \
                                    $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
+
+# The shortened view of a run of entries. sec 467.
+$(BUILD_DIR)/log/test/view_test: $(BUILD_DIR)/log/test/view_test.o \
+                                 $(BUILD_DIR)/log/view.o \
+                                 $(BUILD_DIR)/log/entry.o \
+                                 $(BUILD_DIR)/log/capture.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
 
 # The prune and keep rules: pure. sec 460.
 $(BUILD_DIR)/log/test/retain_test: $(BUILD_DIR)/log/test/retain_test.o \
@@ -3707,6 +3717,7 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(FUZZNETD_NOTES_OBJS) \
               $(if $(SPOOL_FILE_ON),$(FUZZNETD_SHELF_OBJS)) \
               $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o $(BUILD_DIR)/log/cause.o \
+              $(BUILD_DIR)/log/view.o \
               $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o $(BUILD_DIR)/log/ring.o \
                 $(BUILD_DIR)/log/retain.o $(BUILD_DIR)/log/gather.o) \
               $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o) \

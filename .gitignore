@@ -180,6 +180,7 @@
 /log/test/ring_test
 /log/test/retain_test
 /log/test/cause_test
+/log/test/view_test
 /log/test/gather_test
 /log/test/logger_test
 /log/test/pack_test

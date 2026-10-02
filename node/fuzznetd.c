@@ -67,6 +67,7 @@
 
 #include "../log/entry.h"
 #include "../log/cause.h"
+#include "../log/view.h"
 #ifdef FZN_LOG_FILE_ON
 #include "../log/gather.h"
 #include "../log/logger.h"
@@ -1065,7 +1066,8 @@ static void usage(const char *prog)
 	        "       %s --fuzznet-dir=DIR --gather=PROGRAM [--since=SECONDS] [--match=TEXT]\n"
 	        "              [--node=ROOT_HEX --to HOST PORT] [--root-at HOST PORT]\n"
 	        "              [--pull-from NODE_HEX HOST PORT]...  print hosts' log lines,\n"
-	        "              merged by time; --gather-ring prints their flight recorders\n"
+	        "              merged by time; --gather-ring prints their flight recorders,\n"
+	        "              and --short shortens what repeats from line to line\n"
 	        "%s",
 	        prog, prog, prog, prog, prog, prog, prog, FZND_PULL_EVERY, prog, fzn_cli_usage());
 }
@@ -1181,6 +1183,7 @@ int main(int argc, char **argv)
 	/* GATHERING, sec 463: the troubleshooter's end. */
 	const char *gather_program = NULL, *gather_match = "";
 	int gather_ring = 0;
+	int gather_short = 0;
 	uint64_t gather_since_s = 0;
 	int has_capability = 0;
 	int lfd = -1, ufd = -1, i;
@@ -1253,6 +1256,8 @@ int main(int argc, char **argv)
 			gather_program = argv[i] + 9;
 		} else if (!strcmp(argv[i], "--gather-ring")) {
 			gather_ring = 1;
+		} else if (!strcmp(argv[i], "--short")) {
+			gather_short = 1;
 		} else if (!strncmp(argv[i], "--match=", 8u)) {
 			gather_match = argv[i] + 8;
 		} else if (!strncmp(argv[i], "--since=", 8u)) {
@@ -1784,9 +1789,37 @@ int main(int argc, char **argv)
 			}
 		}
 		qsort(g.lines, g.n, sizeof(*g.lines), by_time);
-		for (k = 0; k < g.n; k++) {
-			printf("%s\n", g.lines[k].text);
-			free(g.lines[k].text);
+		{
+			/* --short, sec 467: each line read back and shown as the viewer
+			 * shortens it against the one before; one that will not read
+			 * is printed as it came. */
+			static uint8_t text_a[FZN_ENTRY_TEXT_MAX], text_b[FZN_ENTRY_TEXT_MAX];
+			static char shown[FZN_ENTRY_LINE_MAX + 64u];
+			static const uint8_t no_machine[FZN_ENTRY_MACHINE_LEN];
+			fzn_entry_t cur, prev;
+			char cur_host[FZN_ENTRY_WORD_MAX + 1u], prev_host[FZN_ENTRY_WORD_MAX + 1u];
+			int have_prev = 0;
+
+			for (k = 0; k < g.n; k++) {
+				const char *line = g.lines[k].text;
+				size_t len = 0;
+
+				if (gather_short
+				    && fzn_entry_classic_parse(line, strlen(line), no_machine, &cur, cur_host,
+				                               k % 2u ? text_b : text_a, FZN_ENTRY_TEXT_MAX)
+				               == FZN_ENTRY_OK
+				    && fzn_entry_view(have_prev ? &prev : NULL, prev_host, &cur, cur_host,
+				                      shown, sizeof(shown), &len)
+				               == FZN_ENTRY_OK) {
+					fwrite(shown, 1u, len, stdout);
+					prev = cur;
+					memcpy(prev_host, cur_host, sizeof(prev_host));
+					have_prev = 1;
+				} else {
+					printf("%s\n", line);
+				}
+				free(g.lines[k].text);
+			}
 		}
 		free(g.lines);
 		if (g.full)
