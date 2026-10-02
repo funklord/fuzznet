@@ -814,6 +814,45 @@ else
 $(error FZN_CAPTURE_RUN must be auto, 1 or 0 -- got "$(FZN_CAPTURE_RUN)")
 endif
 
+# A PROCESS'S LOG FILES, sec 458: its own probe, asking for the calls
+# log/logger.c makes -- open with O_APPEND and O_CLOEXEC, stat and fstat,
+# rename, mkdir, the host name, the account and the wall clock.
+FZN_PROBE_LOGFILE := $(shell printf '%s\n' '#define _POSIX_C_SOURCE 200809L' \
+                      '#include <fcntl.h>' '#include <pwd.h>' '#include <stdio.h>' \
+                      '#include <sys/stat.h>' '#include <time.h>' '#include <unistd.h>' \
+                      'int main(void){char h[64];struct stat s;struct timespec t;' \
+                      'int fd=open("x",O_WRONLY|O_APPEND|O_CREAT|O_EXCL|O_CLOEXEC,0600);' \
+                      '(void)fstat(fd,&s);(void)stat("x",&s);(void)rename("x","y");' \
+                      '(void)mkdir("d",0700);(void)gethostname(h,sizeof h);' \
+                      '(void)getpwuid(geteuid());(void)getpid();' \
+                      'return clock_gettime(CLOCK_REALTIME,&t);}' \
+                      | $(CC) $(FZN_PROBE_CPPFLAGS) $(FZN_PROBE_CFLAGS) -x c - -o /dev/null 2>/dev/null && echo yes || echo no)
+
+FZN_BLAME_LOGFILE := this toolchain has no usable open, stat, rename, gethostname and getpwuid.
+
+ifeq ($(FZN_LOG_FILE),)
+FZN_LOG_FILE := auto
+endif
+
+ifeq ($(FZN_LOG_FILE),auto)
+ifeq ($(FZN_PROBE_LOGFILE),yes)
+LOG_FILE_ON := 1
+else
+LOG_FILE_SKIP := $(FZN_BLAME_LOGFILE) Set FZN_LOG_FILE=0 to build without it.
+endif
+else ifeq ($(FZN_LOG_FILE),1)
+ifeq ($(FZN_PROBE_LOGFILE),yes)
+LOG_FILE_ON := 1
+else
+$(error FZN_LOG_FILE=1 was asked for and $(FZN_BLAME_LOGFILE) \
+        Set FZN_LOG_FILE=0 to build without it, or auto to let the probe decide)
+endif
+else ifeq ($(FZN_LOG_FILE),0)
+LOG_FILE_SKIP := FZN_LOG_FILE=0.
+else
+$(error FZN_LOG_FILE must be auto, 1 or 0 -- got "$(FZN_LOG_FILE)")
+endif
+
 # THE RECORD STORE'S FILE BACKEND REUSES FZN_PROBE_PWRITE rather than adding
 # a probe of its own, and that is consistent with the rule the spool states
 # rather than an exception to it. A probe belongs to the thing it gates
@@ -1160,6 +1199,18 @@ SRCS      += $(CAPTURE_RUN_SRCS)
 HDRS      += $(CAPTURE_RUN_HDRS)
 TEST_SRCS += $(CAPTURE_RUN_TSRC)
 TEST_BINS += $(BUILD_DIR)/log/test/capture_run_test
+endif
+
+LOG_FILE_SRCS := log/logger.c
+LOG_FILE_HDRS := log/logger.h
+LOG_FILE_TSRC := log/test/logger_test.c
+
+ifdef LOG_FILE_ON
+CPPFLAGS  += -DFZN_LOG_FILE_ON
+SRCS      += $(LOG_FILE_SRCS)
+HDRS      += $(LOG_FILE_HDRS)
+TEST_SRCS += $(LOG_FILE_TSRC)
+TEST_BINS += $(BUILD_DIR)/log/test/logger_test
 endif
 
 CLAIM_FILE_SRCS := claim/claim_file.c
@@ -1866,6 +1917,15 @@ $(BUILD_DIR)/log/test/ring_test: $(BUILD_DIR)/log/test/ring_test.o \
                                  $(BUILD_DIR)/log/ring.o \
                                  $(BUILD_DIR)/log/entry.o \
                                  $(BUILD_DIR)/log/capture.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# A process's logger in a scratch directory of its own. sec 458.
+$(BUILD_DIR)/log/test/logger_test: $(BUILD_DIR)/log/test/logger_test.o \
+                                   $(BUILD_DIR)/log/logger.o \
+                                   $(BUILD_DIR)/log/ring.o \
+                                   $(BUILD_DIR)/log/entry.o \
+                                   $(BUILD_DIR)/log/capture.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -3695,6 +3755,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(if $(SPOOL_FILE_ON),$(BUILD_DIR)/node/shelf.o \
                                         $(BUILD_DIR)/notes/text.o \
                                         $(BUILD_DIR)/spool/spool_file.o) \
+                                      $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o) \
                                       $(BUILD_DIR)/state/scope.o \
                                       $(BUILD_DIR)/notes/note.o \
                                       $(BUILD_DIR)/local/client.o \
@@ -3993,6 +4054,10 @@ runtests: $(TEST_BINS)
 	@if [ -n "$(CAPTURE_RUN_SKIP)" ]; then \
 		echo "test: running external tools was NOT built, so its tests"; \
 		echo "test: did not run -- $(CAPTURE_RUN_SKIP)"; \
+	fi
+	@if [ -n "$(LOG_FILE_SKIP)" ]; then \
+		echo "test: the log files were NOT built, so their tests"; \
+		echo "test: did not run -- $(LOG_FILE_SKIP)"; \
 	fi
 
 CASES ?= 200000
@@ -5886,14 +5951,14 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 		exit 1; \
 	fi
 	@echo "installcheck: against the installed headers"
-	@$(CC) $(CFLAGS) $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(CAPTURE_RUN_ON),-DFZN_CAPTURE_RUN_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) $(if $(CLI_ON),-DFZN_CLI_ON) -DFZN_CONSUMER_INSTALLED \
+	@$(CC) $(CFLAGS) $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(CAPTURE_RUN_ON),-DFZN_CAPTURE_RUN_ON) $(if $(LOG_FILE_ON),-DFZN_LOG_FILE_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) $(if $(CLI_ON),-DFZN_CLI_ON) -DFZN_CONSUMER_INSTALLED \
 	       -I$(BUILD_DIR)/installcheck/usr/include \
 	       -o $(BUILD_DIR)/installcheck/consumer_installed \
 	       -Iwire/generated $(MONO_CONSUMER) tool/consumer_check.c $(SRCS) $(GEN_SRCS)
 	@$(BUILD_DIR)/installcheck/consumer_installed
 	@echo "installcheck: against the source tree, from another directory"
 	@cd $(BUILD_DIR)/installcheck && $(CC) $(CFLAGS) \
-	       $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(CAPTURE_RUN_ON),-DFZN_CAPTURE_RUN_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) $(if $(CLI_ON),-DFZN_CLI_ON) -I$(CURDIR) \
+	       $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(CAPTURE_RUN_ON),-DFZN_CAPTURE_RUN_ON) $(if $(LOG_FILE_ON),-DFZN_LOG_FILE_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) $(if $(CLI_ON),-DFZN_CLI_ON) -I$(CURDIR) \
 	       -I$(CURDIR)/wire/generated \
 	       -o consumer_source $(CURDIR)/tool/consumer_check.c \
 	       $(patsubst %,$(CURDIR)/%,$(SRCS)) \
@@ -5974,6 +6039,7 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 		       $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) \
 		       $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) \
 		       $(if $(CAPTURE_RUN_ON),-DFZN_CAPTURE_RUN_ON) \
+		       $(if $(LOG_FILE_ON),-DFZN_LOG_FILE_ON) \
 		       $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) \
 		       $(if $(CLI_ON),-DFZN_CLI_ON) \
 		       -c $(BUILD_DIR)/installcheck/cxx_headers.cpp \
@@ -6064,6 +6130,7 @@ manifest:
 	@$(if $(PERSIST_FILE_ON),echo "backend persist/persist_file.c FZN_PERSIST_FILE_ON";)
 	@$(if $(CLAIM_FILE_ON),echo "backend claim/claim_file.c FZN_CLAIM_FILE_ON";)
 	@$(if $(CAPTURE_RUN_ON),echo "backend log/capture_run.c FZN_CAPTURE_RUN_ON";)
+	@$(if $(LOG_FILE_ON),echo "backend log/logger.c FZN_LOG_FILE_ON";)
 	@$(if $(RECORD_STORE_FILE_ON),echo "backend record/store_file.c FZN_RECORD_STORE_FILE_ON";)
 	@# ONE LINE PER SOURCE, as `binding` and `backend` already are. These two
 	@# were a hand-written literal naming `cli/cli.c` and a bare directory

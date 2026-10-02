@@ -127,6 +127,9 @@
 #ifdef FZN_CAPTURE_RUN_ON
 #include <fuzznet/log/capture_run.h>
 #endif
+#ifdef FZN_LOG_FILE_ON
+#include <fuzznet/log/logger.h>
+#endif
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include <fuzznet/record/store_file.h>
 #endif
@@ -267,6 +270,9 @@
 #endif
 #ifdef FZN_CAPTURE_RUN_ON
 #include "log/capture_run.h"
+#endif
+#ifdef FZN_LOG_FILE_ON
+#include "log/logger.h"
 #endif
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include "record/store_file.h"
@@ -1033,6 +1039,12 @@ int main(void)
 		/* The flight recorder's size is the holder's, 256 KiB (sec 457). */
 		if (FZN_RING_BYTES != 262144u || FZN_ENTRY_RECORD_MAX > 65535u)
 			FAIL(471);
+#ifdef FZN_LOG_FILE_ON
+		/* A logger's segment, unless the caller names one (sec 458). */
+		if (FZN_LOGGER_SEGMENT_DEFAULT != 8u * 1024u * 1024u
+		    || fzn_logger_identify(NULL, NULL, "x", NULL) != FZN_LOGGER_ERR_MALFORMED)
+			FAIL(472);
+#endif
 		/* A received share's host is one word (sec 437). */
 		if (!fzn_node_received_host_ok("example.org", 11u)
 		    || fzn_node_received_host_ok("a b", 3u))

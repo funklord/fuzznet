@@ -54115,3 +54115,66 @@ record.
 installed header.
 
 **Sabotage: six entries.**
+
+## 458. A process's logger and its files, 2026-10-02
+
+The first half of step 3 in sec 456's order: `log/logger`, POSIX, built
+with `FZN_LOG_FILE` -- auto by default, with its own probe for the calls it
+makes, and said by `make test` when it is off, as `FZN_CAPTURE_RUN` is.
+
+- **Who it is, read once.** The machine from `/etc/machine-id`, the host
+  name, the account it runs as -- by name, by number when the password
+  database does not know it -- the program, the pid, and the time it was
+  identified, in milliseconds, as the instance's start. That time is not
+  the kernel's record of the process's start: it makes `pid@start` name one
+  instance, which is all the name asks, and needs nothing Linux-specific.
+- **One call an entry.** The next position, the time now, the entry into
+  the ring always, and into the file when its level is at least as severe
+  as the file keeps. An entry the line would refuse is refused before it
+  takes a position. The entry's name comes back, so a caller can hand it
+  on as a cause.
+- **Per Unix user**: `/var/log/fuzznet` for root, else
+  `$XDG_STATE_HOME/fuzznet/log`, else `~/.local/state/fuzznet/log`;
+  directories made 0700, files 0600.
+- **One file a program**, `PROGRAM.log`, every instance appending whole
+  lines with one `write()` and O_APPEND. A new file opens with
+  `#fuzznet-log 1 machine=MACHINEHEX host=HOST`: the format's version, and
+  which machine the line's host name is.
+- **Segments rotate by size**, 8 MiB unless the caller says: the writer
+  renames the shared file to `PROGRAM.TIME.PID.log`, unique even when two
+  instances rotate at once, and starts a new one. An instance whose open
+  file is no longer what the path names reopens before it writes -- one
+  `stat` a kept line, the price of sharing a file.
+
+**Still to come in step 3**: packing closed segments, the hash-chain
+trailer, the prune and keep rules -- and a first consumer. fuzznetd still
+writes to stderr.
+
+### Measured for sec 458
+
+**`logger_test`, 33 checks, in a scratch directory of its own that it
+leaves empty:**
+- identity: no machine-id and a malformed one refused; the machine, the
+  program, the pid, a start in milliseconds, a host and an account; a
+  program with a slash refused;
+- the directory: XDG_STATE_HOME used, and a relative one ignored for HOME
+  (when not run as root);
+- a warning and a caused entry in the file, a debug entry in the ring
+  only, the header first, the cause written as a name ending in the first
+  entry's instance field; a bad subsystem, and a cause without an origin,
+  refused without taking a position;
+- two instances of one program writing in turn with a small segment size:
+  rotated more than once, every segment opening with its header, all 14
+  kept lines there and whole;
+- the current file moved away and a new one made by the other instance:
+  the next line goes to the new file, not the moved one.
+
+**Sabotage: four entries**, the last found necessary while writing it: the
+first version of the rotation case moved the file and let the stale
+instance write next, where the path names nothing and any reopen passes --
+so the inode comparison was untested until the other instance made the
+new file first. **And then it survived the sweep anyway**: the stale
+instance's moved file was past the test's small segment size, so it rotated
+-- renaming the other instance's new file -- and wrote into a fresh one,
+masking the stale handle. The case now runs at the default segment size,
+where only the file's identity can send the line to the right place.

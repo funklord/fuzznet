@@ -88,6 +88,9 @@
 #ifdef FZN_SPOOL_FILE_ON
 #include "../../node/shelf.h"
 #endif
+#ifdef FZN_LOG_FILE_ON
+#include "../../log/logger.h"
+#endif
 #include "../../persist/persist.h"
 #include "../../tree/tree.h"
 #include "../../admit/admit.h"
@@ -217,6 +220,9 @@ static const char *r_cli(int v) { return fzn_cli_err_str((fzn_cli_err_t)v); }
 #ifdef FZN_SPOOL_FILE_ON
 static const char *r_shelf(int v) { return fzn_node_shelf_err_str((fzn_node_shelf_err_t)v); }
 #endif
+#ifdef FZN_LOG_FILE_ON
+static const char *r_logger(int v) { return fzn_logger_err_str((fzn_logger_err_t)v); }
+#endif
 static const char *r_msg(int v) { return fzn_msg_err_str((fzn_msg_err_t)v); }
 static const char *r_transfer(int v) { return fzn_transfer_err_str((fzn_transfer_err_t)v); }
 static const char *r_scrub(int v) { return fzn_scrub_err_str((fzn_scrub_err_t)v); }
@@ -308,6 +314,9 @@ static const struct subject SUBJECTS[] = {
 #endif
 #ifdef FZN_SPOOL_FILE_ON
 	{ "fzn_node_shelf_err_str", r_shelf, 9 },
+#endif
+#ifdef FZN_LOG_FILE_ON
+	{ "fzn_logger_err_str", r_logger, 4 },
 #endif
 	{ "fzn_msg_err_str", r_msg, 4 },
 	{ "fzn_transfer_err_str", r_transfer, 5 },
