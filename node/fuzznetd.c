@@ -305,6 +305,21 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 		else if (tally.learned || tally.refused)
 			fprintf(stderr, "fuzznetd: %zu note record(s) from %s, %zu refused\n",
 			        tally.learned, pulls[t].host, tally.refused);
+		/* AND PUSHED BACK, sec 446: what this node holds that the peer
+		 * lacks, so a note written here reaches a node that does not pull
+		 * from this one. */
+		{
+			fzn_notes_push_tally_t pt;
+			fzn_notes_sync_err_t perr =
+			        fzn_notes_sync_push(&node_notes.store, peer_ask, &asking, &pt);
+
+			if (perr != FZN_NOTES_SYNC_OK)
+				fprintf(stderr, "fuzznetd: notes to %s: %s\n", pulls[t].host,
+				        fzn_notes_sync_err_str(perr));
+			else if (pt.taken || pt.refused)
+				fprintf(stderr, "fuzznetd: %zu note record(s) to %s, %zu refused\n",
+				        pt.taken, pulls[t].host, pt.refused);
+		}
 		/* THE PURGE CONVERSATION, driven from this side. sec 433. */
 		{
 			fzn_notes_purge_tally_t pt;

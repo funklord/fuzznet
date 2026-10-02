@@ -5767,6 +5767,27 @@ SABOTAGES = [
 		"a member revoked or gone stays a writer for as long as the node runs -- sec 445",
 	),
 	(
+		"sync-take-vouches-for-the-sender",
+		"notes/sync.c",
+		"\tif (len == 0u || request_len != FZN_NOTES_SYNC_PUSH_HEAD_LEN + len || !sender\n\t    || !admits(policy, sender)\n",
+		"\tif (len == 0u || request_len != FZN_NOTES_SYNC_PUSH_HEAD_LEN + len || !sender\n",
+		"any node that can reach this one pushes its notes into it -- sec 446",
+	),
+	(
+		"sync-take-refuses-what-is-purging",
+		"notes/sync.c",
+		"\t    || fzn_notes_purge_pending(store, fzn_record_subject(rec)))\n\t\tgoto answer;\n",
+		"\t    )\n\t\tgoto answer;\n",
+		"a note this node is purging is pushed straight back into it -- sec 446",
+	),
+	(
+		"sync-push-only-what-is-behind",
+		"notes/sync.c",
+		"\t\t\t\tbehind = their_seq[j] < fzn_record_seq(rec);\n",
+		"\t\t\t\tbehind = 1;\n",
+		"every round pushes every note again, whatever the peer holds -- sec 446",
+	),
+	(
 		"shelf-fetch-checks-leaf-lengths",
 		"node/shelf.c",
 		"\t\tfor (i = 0; i < count; i++)\n\t\t\tif (sealed_len[i] != sealed_len_of(h, first + i))\n\t\t\t\treturn FZN_NODE_SHELF_ERR_UNVERIFIED;\n",

@@ -52480,8 +52480,7 @@ set in every build, to the larger of the two families' largest answers.
 - ~~**The admitted set is the nodes a node pulls from.**~~ Since sec 445,
   the estate's members are admitted on the proof of their chains, asked of
   each pull peer every round.
-- **Pull only.** A note written here reaches a peer when the peer next
-  pulls, up to a minute later. Nothing pushes.
+- ~~**Pull only.**~~ A puller pushes in the same round since sec 446.
 - **~~The purge conversation~~: built in sec 433.**
 - **Sharing with contacts**, the rest of phase 4.
 
@@ -53546,8 +53545,7 @@ estate's members by their chains.
 - **The root itself is admitted only where it is pulled from.** A node
   joined through a member, pulling from that member, does not admit the
   estate's root as a writer unless the root is among the member's peers.
-- **Notes still travel only by pulling**, so a member's note reaches the
-  others only through a node that pulls from it.
+- ~~**Notes still travel only by pulling.**~~ Pushed since sec 446.
 
 ### Measured for sec 445
 
@@ -53570,3 +53568,52 @@ which needs a pairing to it, and that topology was not set up here; the
 daemon's wiring is read and not run.
 
 **Sabotage: four entries.**
+
+## 446. Pushing: a member's note reaches the node it pulls from, 2026-10-02
+
+Notes travelled only by pulling, and a node pulls only from the nodes it holds
+a pairing to. A hub pairs its members and holds no pairing to any of them, so
+it pulls from none: a note written on a member reached nobody. Secs 432 and
+445 recorded it.
+
+**The puller pushes in the same round.** Having read the peer's index to
+pull, it has what it needs to push: every claim it holds that the peer lacks
+or holds older goes over as a PUSH, and the peer answers PUSHED -- taken,
+held already, or refused. Types 13 and 14 of the notes sync family, in
+`notes/sync.situ`.
+
+- **One record a message**, so a push fits one frame: fuzznetd does not
+  reassemble a request larger than one, and a record is at most 668 bytes.
+- **The server vouches for the sender as it vouches for a node it pulls
+  from:** a push is taken only from a sender its policy admits, and then the
+  record is admitted as any record is. A record the server would admit,
+  pushed by a key it does not, is refused -- the relaying node is the one
+  answered for.
+- **A note the server is purging is refused**, as a pull refuses one, so a
+  member that has not yet consented cannot push it back; and a note pending
+  purge on the pusher is not pushed.
+- **A contact never pushes**: its requests reach only the shared notes,
+  which are read-only.
+
+### Not yet after sec 446
+
+- **A pushed note's long text stays on the pusher.** The receiver wants it
+  and asks the nodes it pulls from, which a hub has none of; the text
+  arrives when the hub is asked for it by a node that holds it, which
+  nothing does yet.
+- **A push waits for the pusher's round**, up to a minute.
+
+### Measured for sec 446
+
+**`notes_sync_test`, 113 checks:** A's two notes pushed and taken as written;
+a second push offering nothing; after an edit only the edited claim pushed;
+a sender B does not admit refused; a record altered on the way refused; a
+note B is purging not pushed back into it; a record B would admit pushed by
+a stranger refused, and taken from A; a push whose length disagrees refused
+and answered; what is not a push falling through.
+
+**Live, R and M with M pulling from R:** M wrote a note after its first
+round; M's next round logged "1 note record(s) to 127.0.0.1", and R listed
+it -- the case that before this reached nobody. No daemon was left running.
+
+**Sabotage: three entries.**

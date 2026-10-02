@@ -1377,6 +1377,15 @@ size_t fzn_node_notes_remote(void *ctx, const uint8_t *sender, int shared,
 		return 0;
 	if (shared)
 		return answer_shared(n, sender, request, request_len, reply, reply_cap);
+	/* A MEMBER'S PUSH, sec 446: taken from a sender this node admits. A
+	 * contact's requests never reach here. */
+	{
+		size_t taken = fzn_notes_sync_take(&n->store, n->author.policy, n->author.sign, sender,
+		                                   request, request_len, reply, reply_cap);
+
+		if (taken)
+			return taken;
+	}
 	return fzn_notes_sync_answer(&n->store, n->author.policy, sender, now(n), request,
 	                             request_len, reply, reply_cap);
 }

@@ -624,3 +624,116 @@ fzn_notes_sync_err_t fzn_notes_sync_pull_shared(const fzn_notes_store_t *store,
 	return fzn_notes_sync_pull(store, fzn_notes_policy_writers(writers, count), sign, ask,
 	                           ask_ctx, tally);
 }
+
+/* ---- pushing, sec 446 ------------------------------------------------------ */
+
+size_t fzn_notes_sync_take(const fzn_notes_store_t *store, fzn_notes_policy_t policy,
+                           const fzn_sign_ops_t *sign, const uint8_t *sender,
+                           const uint8_t *request, size_t request_len, uint8_t *reply,
+                           size_t reply_cap)
+{
+	uint8_t outcome = FZN_NOTES_SYNC_PUSH_REFUSED;
+	size_t len;
+	fzn_record_t rec;
+	int wrote = 0;
+
+	if (!store || !sign || !request || !reply || reply_cap < FZN_NOTES_SYNC_PUSHED_LEN
+	    || !is_type(request, request_len, FZN_NOTES_SYNC_PUSH))
+		return 0;
+	if (request_len < FZN_NOTES_SYNC_PUSH_HEAD_LEN)
+		goto answer;
+	len = fzn_get_be16(request + 2);
+	/* THE SENDER IS VOUCHED FOR, then the record is admitted as any is. */
+	if (len == 0u || request_len != FZN_NOTES_SYNC_PUSH_HEAD_LEN + len || !sender
+	    || !admits(policy, sender)
+	    || fzn_record_open(request + FZN_NOTES_SYNC_PUSH_HEAD_LEN, len, &rec) != FZN_RECORD_OK
+	    || fzn_notes_purge_pending(store, fzn_record_subject(rec)))
+		goto answer;
+	if (fzn_notes_put(store, request + FZN_NOTES_SYNC_PUSH_HEAD_LEN, len, policy, sign, &wrote,
+	                  NULL)
+	    == FZN_NOTES_OK)
+		outcome = wrote ? FZN_NOTES_SYNC_PUSH_TAKEN : FZN_NOTES_SYNC_PUSH_HELD;
+answer:
+	head(reply, FZN_NOTES_SYNC_PUSHED);
+	reply[2] = outcome;
+	return FZN_NOTES_SYNC_PUSHED_LEN;
+}
+
+fzn_notes_sync_err_t fzn_notes_sync_push(const fzn_notes_store_t *store,
+                                         fzn_notes_sync_ask_t ask, void *ask_ctx,
+                                         fzn_notes_push_tally_t *tally)
+{
+	static uint8_t reply[FZN_NOTES_SYNC_REPLY_MAX];
+	static uint8_t theirs[FZN_NOTES_MAX][FZN_PUBKEY_LEN];
+	static uint64_t their_seq[FZN_NOTES_MAX];
+	static uint8_t mine[FZN_NOTES_MAX][FZN_PUBKEY_LEN];
+	static uint8_t request[FZN_NOTES_SYNC_PUSH_HEAD_LEN + FZN_RECORD_MAX_LEN];
+	uint8_t query[FZN_NOTES_SYNC_INDEX_QUERY_LEN];
+	size_t from = 0, total = 0, n_theirs = 0, n_mine = 0, pages = 0, i, j;
+
+	if (!store || !ask || !tally)
+		return FZN_NOTES_SYNC_MALFORMED;
+	memset(tally, 0, sizeof(*tally));
+	/* THEIR INDEX, a page at a time, as a pull reads it. */
+	do {
+		size_t reply_len = 0, count;
+
+		head(query, FZN_NOTES_SYNC_INDEX_QUERY);
+		fzn_put_be16(query + 2, (uint16_t)from);
+		if (!ask(ask_ctx, query, sizeof(query), reply, sizeof(reply), &reply_len))
+			return FZN_NOTES_SYNC_NO_ANSWER;
+		if (!is_type(reply, reply_len, FZN_NOTES_SYNC_INDEX)
+		    || reply_len < FZN_NOTES_SYNC_INDEX_HEAD_LEN)
+			return FZN_NOTES_SYNC_SHAPE;
+		total = fzn_get_be16(reply + 2);
+		count = fzn_get_be16(reply + 6);
+		if (fzn_get_be16(reply + 4) != from
+		    || reply_len != FZN_NOTES_SYNC_INDEX_HEAD_LEN + (count * FZN_NOTES_SYNC_CLAIM_LEN)
+		    || count > total - from || (count == 0u && from < total))
+			return FZN_NOTES_SYNC_SHAPE;
+		for (i = 0; i < count && n_theirs < FZN_NOTES_MAX; i++) {
+			const uint8_t *c = reply + FZN_NOTES_SYNC_INDEX_HEAD_LEN
+			                   + (i * FZN_NOTES_SYNC_CLAIM_LEN);
+
+			memcpy(theirs[n_theirs], c, FZN_PUBKEY_LEN);
+			their_seq[n_theirs++] = fzn_get_be64(c + FZN_PUBKEY_LEN);
+		}
+		from += count;
+	} while (from < total && ++pages <= FZN_NOTES_MAX);
+
+	if (fzn_notes_claims(store, mine, FZN_NOTES_MAX, &n_mine) != FZN_NOTES_OK)
+		return FZN_NOTES_SYNC_STORE;
+	for (i = 0; i < n_mine; i++) {
+		uint8_t *record = request + FZN_NOTES_SYNC_PUSH_HEAD_LEN;
+		size_t len = 0, reply_len = 0;
+		fzn_record_t rec;
+		int behind = 1;
+
+		if (fzn_notes_get_key(store, mine[i], record, FZN_RECORD_MAX_LEN, &len) != FZN_NOTES_OK
+		    || fzn_record_open(record, len, &rec) != FZN_RECORD_OK
+		    || fzn_notes_purge_pending(store, fzn_record_subject(rec)))
+			continue;
+		/* ONLY WHAT THEY LACK OR HOLD OLDER. */
+		for (j = 0; j < n_theirs && behind; j++)
+			if (memcmp(theirs[j], mine[i], FZN_PUBKEY_LEN) == 0)
+				behind = their_seq[j] < fzn_record_seq(rec);
+		if (!behind)
+			continue;
+		tally->offered++;
+		head(request, FZN_NOTES_SYNC_PUSH);
+		fzn_put_be16(request + 2, (uint16_t)len);
+		if (!ask(ask_ctx, request, FZN_NOTES_SYNC_PUSH_HEAD_LEN + len, reply, sizeof(reply),
+		         &reply_len))
+			return FZN_NOTES_SYNC_NO_ANSWER;
+		if (!is_type(reply, reply_len, FZN_NOTES_SYNC_PUSHED)
+		    || reply_len != FZN_NOTES_SYNC_PUSHED_LEN || reply[2] > FZN_NOTES_SYNC_PUSH_HELD)
+			return FZN_NOTES_SYNC_SHAPE;
+		if (reply[2] == FZN_NOTES_SYNC_PUSH_TAKEN)
+			tally->taken++;
+		else if (reply[2] == FZN_NOTES_SYNC_PUSH_HELD)
+			tally->held++;
+		else
+			tally->refused++;
+	}
+	return FZN_NOTES_SYNC_OK;
+}

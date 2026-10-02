@@ -29,6 +29,8 @@ enum fzn_notes_sync_type : u8 {
 	writers       = 10,  // "These keys."
 	members_query = 11,  // "Who are your members, from FROM on?" sec 445
 	members       = 12,  // "These, with the chains I hold for them."
+	push          = 13,  // "Take this record of mine." sec 446
+	pushed        = 14,  // "Taken, held already, or refused."
 }
 
 struct fzn_notes_sync_index_query {
@@ -157,4 +159,20 @@ struct fzn_notes_sync_members {
 	u16                    from;                      // the first in this page
 	u8                     count;
 	fzn_notes_sync_member  members[count];
+}
+
+// PUSHING, sec 446: a member offering a record the server lacks, one a
+// message so a push fits one frame. The server takes it only from a sender
+// it admits, as any record is admitted, and refuses a note it is purging.
+struct fzn_notes_sync_push {
+	u8                   version [must_eq = 2];
+	fzn_notes_sync_type  type    [must_eq = push];
+	u16                  len     [min = 1, max = 668];
+	u8                   record[len];
+}
+
+struct fzn_notes_sync_pushed {
+	u8                   version [must_eq = 2];
+	fzn_notes_sync_type  type    [must_eq = pushed];
+	u8                   outcome [max = 2];          // 0 refused, 1 taken, 2 held
 }
