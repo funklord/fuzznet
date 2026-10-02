@@ -5844,6 +5844,13 @@ SABOTAGES = [
 		"a text somebody just asked for waits out a whole pull period before anything asks a peer for it -- sec 424",
 	),
 	(
+		"admin-a-removed-contact-is-served-nothing",
+		"node/admin.c",
+		"\t\tif (!admin->store || fzn_contact_get(admin->store, req->sender, &still) != FZN_CONTACT_OK)\n",
+		"\t\tif (!admin->store)\n",
+		"a contact the user removed goes on fetching everything shared with it, and every change made after -- sec 454",
+	),
+	(
 		"notes-move-not-under-a-descendant",
 		"notes/author.c",
 		"\tif (above(author->view, id, parent))\n\t\treturn FZN_NOTES_ERR_MALFORMED;\n",

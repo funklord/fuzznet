@@ -692,7 +692,8 @@ static size_t add_contact(fzn_node_admin_t *admin, const uint8_t *rest, size_t r
 }
 
 /* `remove contact NAME`. What was granted to it is revoked as chains are,
- * not here. */
+ * not here; but removing SUSPENDS it at once, sec 454 -- the remote handler
+ * serves nothing to a key the list no longer holds. */
 static size_t remove_contact(fzn_node_admin_t *admin, const uint8_t *rest, size_t rest_len,
                              char *reply, size_t cap)
 {
@@ -1105,7 +1106,15 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 	 * asked, so a request is answered as what it was granted as. */
 	if (fzn_node_request_shared(&admin->state->config, req->capability)) {
 		size_t n = 0;
+		fzn_contact_t still;
 
+		/* A REMOVED CONTACT IS SUSPENDED AT ONCE, sec 454, as sec 394 has
+		 * the holder decide for removal: nothing is served to a key the
+		 * contact list no longer holds, though its grant and its share
+		 * rows stay -- nothing is deleted, and adding it back serves it
+		 * again. */
+		if (!admin->store || fzn_contact_get(admin->store, req->sender, &still) != FZN_CONTACT_OK)
+			return answer_text(out, reply_cap, FZN_REPLY_DENIED, "no longer a contact");
 		if (admin->notes_remote && req->payload)
 			n = admin->notes_remote(admin->notes_ctx, req->sender, 1, req->payload,
 			                        req->payload_len, reply, reply_cap);

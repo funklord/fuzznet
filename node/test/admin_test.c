@@ -983,6 +983,21 @@ int main(void)
 		n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
 		CHECK(n && notes_shared_seen == 1,
 		      "a contact's request did not reach the notes hook as shared");
+		/* REMOVED, IT IS SUSPENDED, sec 454: refused before either hook,
+		 * and served again once added back. */
+		CHECK(ask(&admin, &owner, "remove contact bobby", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK,
+		      "fixture: bob removed as a contact");
+		notes_shared_seen = -1;
+		n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
+		CHECK(n && fzn_reply_of(out, n, &detail, &detail_len) == FZN_REPLY_DENIED
+		              && notes_shared_seen == -1,
+		      "a removed contact's request was still served");
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK,
+		      "fixture: bob added back");
+		n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
+		CHECK(n && notes_shared_seen == 1, "a contact added back was not served again");
 		req.capability = state.config.remote_capability.b;
 		notes_shared_seen = -1;
 		n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));

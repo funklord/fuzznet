@@ -52717,7 +52717,8 @@ contact entry by itself grants nothing.
 ### The contact verbs
 
     add contact NAME KEY     a key outside the estate, by a name
-    remove contact NAME      forget it; its grants are revoked as chains are
+    remove contact NAME      forget it, which suspends it (sec 454); its
+                             grants are revoked as chains are
     list contact [FROM]      `ok TOTAL FROM NAME,KEY ...`, a page at a time
 
 **A member is never a contact.** `add contact` refuses this node's own
@@ -52872,9 +52873,10 @@ share added before the grant is served once it is made.
 
 - **Receiving**, piece 3.
 - **Removing a contact does not unpair it.** Its peer stays until `remove
-  peer`, though with no share rows its requests reach nothing. Whether
-  `remove contact` should also unpair is a small change left until piece 3
-  shows how a recipient lives with it.
+  peer`. ~~Though with no share rows its requests reach nothing~~ -- that
+  was wrong: the rows stayed and so did the serving, until sec 454 made
+  removal suspend. Whether `remove contact` should also unpair is still
+  open; the pairing grants nothing a suspended contact can use.
 - ~~**`list peer` lists contacts among the members**, unmarked.~~ Marked
   `,contact` since sec 438.
 - **Group shares**, as before.
@@ -53903,3 +53905,46 @@ its own ancestor.
   why, still cut, still at the top.
 
 **Sabotage: four entries.**
+
+## 454. A removed contact is suspended at once, 2026-10-02
+
+**A key the contact list no longer holds is served nothing**, under the
+share capability: no notes, no texts. Before, `remove contact` forgot the
+name and nothing else -- the grant and the share rows stayed, and the
+contact went on pulling everything shared with it, changes made after the
+removal included. Sec 436 recorded that its requests "reach nothing"; they
+reached everything.
+
+**This is sec 394's decision applied to the node's contacts.** The holder
+decided there that removing a contact is a suspension -- immediate, outside
+any agreement, stopping all sharing and deleting nothing -- and sec 395
+built it for `roster/`. The node's contact list (sec 435) is a separate,
+smaller module and had not followed. Now:
+
+- **Immediate:** the remote handler asks the contact list for the sender
+  before either the notes or the text hook, so the next request is
+  refused.
+- **Nothing deleted:** the grant, the pairing and the share rows stay.
+  `add contact` with the same key serves the contact again, with
+  whatever changed meanwhile.
+- **Not a revocation.** Withdrawing the grant is still done as chains are,
+  and retiring a contact for good is the roster's k-of-n act, which the
+  node does not yet carry.
+
+The recipient sees the refusal as "the peer's answer does not parse": a
+sync request gets a text reply. True, and vague; a recipient-side message
+naming suspension would need a reply the sync family can carry.
+
+### Measured for sec 454
+
+**`admin_test`, 144 checks:** a contact's request reaching the notes hook;
+the contact removed, the same request denied before either hook; added
+back, served again.
+
+**Live, A sharing a folder with B:** B pulled the share; A removed B as a
+contact and wrote a note in the folder; B, restarted, pulled and did not
+get it, logging the refusal; A added B back, and B's next pull brought the
+note. **The control**, the same run without the check: B got the note
+written after its removal. No daemon was left running.
+
+**Sabotage: one entry.**
