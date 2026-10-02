@@ -1,0 +1,27 @@
+// A request carrying the names of the log entries it was made for: the
+// envelope sec 462 puts around any remote-hop payload, so the host that
+// answers can log its work as caused by the host that asked. log/cause.c
+// wraps and unwraps it by hand; this is the contract.
+//
+// THE VERSION IS 3, AND THAT IS THE DISPATCH, as notes/sync.situ's 2 and
+// spool/message's 1 are: a payload's first byte says which family it is,
+// and a verb line's first byte is a letter. The host answering takes the
+// envelope off and hands the request inside to whichever family it is.
+//
+// Both names or neither, as on a classic line (log/entry.h): a request
+// with no cause is sent bare, never in an envelope with an empty one.
+//
+// Big-endian, like everything this tree writes.
+
+target buffer;
+endian big;
+
+import "entry.situ";
+
+struct fzn_cause_envelope {
+	u8                     version   [must_eq = 3];
+	fzn_entry_name_record  cause;    // the entry this request is made for
+	fzn_entry_name_record  origin;   // the entry where that work began
+	u16                    inner_len [min = 1];
+	u8                     inner[inner_len];   // the request, as it would go bare
+}

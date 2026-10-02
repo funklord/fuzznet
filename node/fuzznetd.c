@@ -66,6 +66,7 @@
 #include "../session/random_system.h"
 
 #include "../log/entry.h"
+#include "../log/cause.h"
 #ifdef FZN_LOG_FILE_ON
 #include "../log/logger.h"
 #endif
@@ -166,34 +167,96 @@ static void on_crash(int sig)
 #endif
 static void say(fzn_entry_level_t level, const char *subsystem, const char *fmt, ...) FZND_SAY_PRINTF;
 
-static void say(fzn_entry_level_t level, const char *subsystem, const char *fmt, ...)
+/* The same, caused by `cause` and `origin` (both or neither), its own name
+ * in `*named`; 1 when it was logged and named. */
+#if defined(__GNUC__)
+#define FZND_SAY_CAUSED_PRINTF __attribute__((format(printf, 6, 7)))
+#else
+#define FZND_SAY_CAUSED_PRINTF
+#endif
+static int say_caused(fzn_entry_level_t level, const char *subsystem,
+                      const fzn_entry_name_t *cause, const fzn_entry_name_t *origin,
+                      fzn_entry_name_t *named, const char *fmt, ...) FZND_SAY_CAUSED_PRINTF;
+
+/* STDERR KEEPS WHAT IT HAD: down to information. A debug entry -- a round
+ * begun, a request answered -- goes to the ring, and to the file when its
+ * level is kept, not to a terminal. */
+static int say_v(fzn_entry_level_t level, const char *subsystem, const fzn_entry_name_t *cause,
+                 const fzn_entry_name_t *origin, fzn_entry_name_t *named, const char *fmt,
+                 va_list ap)
 {
 	char text[FZND_SAY_MAX];
-	va_list ap;
-	int k;
+	int k = vsnprintf(text, sizeof(text), fmt, ap);
 
-	va_start(ap, fmt);
-	k = vsnprintf(text, sizeof(text), fmt, ap);
-	va_end(ap);
 	if (k < 0)
-		return;
-	fprintf(stderr, "fuzznetd: %s\n", text);
+		return 0;
+	if (level <= FZN_ENTRY_INFO)
+		fprintf(stderr, "fuzznetd: %s\n", text);
 #ifdef FZN_LOG_FILE_ON
 	if (dlog.on) {
 		size_t len = (size_t)k < sizeof(text) ? (size_t)k : sizeof(text) - 1u;
+		int logged = fzn_logger_log(&dlog.logger, level, subsystem, cause, origin,
+		                            (const uint8_t *)text, len, named)
+		             == FZN_LOGGER_OK;
 
-		(void)fzn_logger_log(&dlog.logger, level, subsystem, NULL, NULL,
-		                     (const uint8_t *)text, len, NULL);
 		/* ON AN ERROR, the minutes before it, at most once a minute. */
 		if (level <= FZN_ENTRY_ERROR && log_now_us() - dlog.last_dump_us > 60u * 1000000u) {
 			dlog.last_dump_us = log_now_us();
 			write_ring();
 		}
+		return logged && named;
 	}
 #else
-	(void)level;
 	(void)subsystem;
+	(void)cause;
+	(void)origin;
 #endif
+	(void)named;
+	return 0;
+}
+
+static void say(fzn_entry_level_t level, const char *subsystem, const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	(void)say_v(level, subsystem, NULL, NULL, NULL, fmt, ap);
+	va_end(ap);
+}
+
+static int say_caused(fzn_entry_level_t level, const char *subsystem,
+                      const fzn_entry_name_t *cause, const fzn_entry_name_t *origin,
+                      fzn_entry_name_t *named, const char *fmt, ...)
+{
+	va_list ap;
+	int r;
+
+	va_start(ap, fmt);
+	r = say_v(level, subsystem, cause, origin, named, fmt, ap);
+	va_end(ap);
+	return r;
+}
+
+/* THE ROUND'S OWN ENTRY, sec 462: every request a round makes through
+ * `peer_ask` carries it as cause and origin, so the hosts answering log
+ * their work under it. NULL when nothing was logged to name it. */
+static fzn_entry_name_t round_name;
+static int round_named;
+
+static const fzn_entry_name_t *round_cause(void)
+{
+	return round_named ? &round_name : NULL;
+}
+
+/* THE OTHER END: a request that came with its causes, logged as their
+ * work. */
+static void on_caused(void *ctx, const uint8_t *sender, const fzn_entry_name_t *cause,
+                      const fzn_entry_name_t *origin)
+{
+	(void)ctx;
+	(void)say_caused(FZN_ENTRY_DEBUG, "node/remote", cause, origin, NULL,
+	                 "answering %02x%02x%02x%02x", sender ? sender[0] : 0u,
+	                 sender ? sender[1] : 0u, sender ? sender[2] : 0u, sender ? sender[3] : 0u);
 }
 
 /* PACKED AND PRUNED, once a round and after a rotation. */
@@ -403,6 +466,8 @@ struct peer_asking {
 	fzn_caller_t *caller;
 	uint64_t now;
 	const char *host;
+	/* The entry the request is made for, sec 462; NULL sends it bare. */
+	const fzn_entry_name_t *cause;
 };
 
 static int peer_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
@@ -413,6 +478,17 @@ static int peer_ask(void *ctx, const uint8_t *request, size_t request_len, uint8
 	const uint8_t *detail = NULL;
 	size_t detail_len = 0, len;
 
+	/* IN ITS ENVELOPE when the round has a name, sec 462. */
+	static uint8_t wrapped[FZN_CAUSE_OVERHEAD_MAX + 0xffffu];
+	size_t wrapped_len = 0;
+
+	if (asking->cause && request_len && request_len <= 0xffffu
+	    && fzn_cause_wrap(asking->cause, asking->cause, request, request_len, wrapped,
+	                      sizeof(wrapped), &wrapped_len)
+	               == FZN_CAUSE_OK) {
+		request = wrapped;
+		request_len = wrapped_len;
+	}
 	if (fzn_caller_send(asking->caller, request, request_len, asking->now + 300u, &msg)
 	            != FZN_CALLER_OK
 	    || fzn_caller_recv(asking->caller, msg, reply, reply_cap, reply_len, 3000u)
@@ -490,7 +566,7 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 	 * member wrote and a peer relays is taken. Rebuilt every round, so a
 	 * member revoked since drops out. */
 	for (t = 0; t < npulls; t++) {
-		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
+		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host, round_cause() };
 		size_t got = 0, refused = 0;
 		fzn_node_members_err_t merr = fzn_node_members_pull(
 		        peer_ask, &asking, config->root, &config->remote_capability, now,
@@ -508,7 +584,7 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 	n_pulled_members = n_members;
 	admit_writers(state, roots);
 	for (t = 0; t < npulls; t++) {
-		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
+		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host, round_cause() };
 		fzn_notes_sync_tally_t tally;
 		fzn_notes_sync_err_t err = fzn_notes_sync_pull(&node_notes.store,
 		                                               node_notes.author.policy,
@@ -672,7 +748,7 @@ static void pull_received(uint64_t now)
 		static fzn_notes_received_t seam;
 		static fzn_persist_ops_t ops;
 		fzn_notes_store_t tree;
-		struct peer_asking asking = { &shares_in[i].pt.caller, now, shares_in[i].host };
+		struct peer_asking asking = { &shares_in[i].pt.caller, now, shares_in[i].host, round_cause() };
 		fzn_notes_sync_tally_t tally;
 		fzn_notes_sync_err_t err;
 
@@ -840,7 +916,7 @@ static void fetch_texts(struct pull_target *pulls, size_t npulls, uint64_t now)
 		return;
 	shelf.fresh = 0;
 	for (t = 0; t < npulls; t++) {
-		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
+		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host, round_cause() };
 		size_t got = fzn_node_shelf_fetch_wants(&shelf, peer_ask, &asking);
 
 		if (got)
@@ -1757,6 +1833,7 @@ int main(int argc, char **argv)
 			state.on_local_ctx = &admin;
 			state.on_remote = fzn_node_admin_remote;
 			state.on_remote_ctx = &admin;
+			admin.caused = on_caused;
 #ifdef FZN_SPOOL_FILE_ON
 			{
 				char shelf_dir[FZN_NODE_SHELF_DIR_MAX];
@@ -1961,6 +2038,8 @@ int main(int argc, char **argv)
 			 * more than one. sec 401. */
 			if (now >= next_pull) {
 				log_round();
+				round_named = say_caused(FZN_ENTRY_DEBUG, "node/round", NULL, NULL,
+				                         &round_name, "a round with %zu peer(s)", npulls);
 				for (t = 0; t < npulls; t++) {
 					size_t learned = 0, refused = 0;
 					fzn_node_pull_err_t perr;

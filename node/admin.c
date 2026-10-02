@@ -7,6 +7,7 @@
 #include "../provision/provision.h"
 #include "../contact/contact.h"
 #include "../notes/received.h"
+#include "../log/cause.h"
 #include "members.h"
 #include "received.h"
 
@@ -1099,6 +1100,32 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 
 	if (!admin || !admin->state || !req || !reply || result != FZN_NODE_REMOTE_GRANTED)
 		return 0;
+
+	/* THE CAUSES OFF FIRST, sec 462: whatever the request is -- a verb, a
+	 * notes sync message, a text's span, a contact's -- it may come in an
+	 * envelope naming the entries it was made for, and is handled as the
+	 * request inside. An envelope that does not read is refused rather than
+	 * handled as bytes nobody sent. */
+	if (req->payload) {
+		static fzn_opened_t inner;
+		fzn_entry_name_t cause, origin;
+		const uint8_t *in = NULL;
+		size_t in_len = 0;
+		fzn_cause_err_t cerr = fzn_cause_unwrap(req->payload, req->payload_len, &cause,
+		                                        &origin, &in, &in_len);
+
+		if (cerr == FZN_CAUSE_ERR_MALFORMED)
+			return answer_text(out, reply_cap, FZN_REPLY_MALFORMED,
+			                   "the request's causes do not read");
+		if (cerr == FZN_CAUSE_OK) {
+			inner = *req;
+			inner.payload = in;
+			inner.payload_len = in_len;
+			if (admin->caused)
+				admin->caused(admin->caused_ctx, req->sender, &cause, &origin);
+			req = &inner;
+		}
+	}
 
 	/* A CONTACT, granted the share capability and nothing else, sec 436:
 	 * the notes sync messages over what is shared with it, and no verb,

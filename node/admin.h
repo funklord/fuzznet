@@ -79,6 +79,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "../log/entry.h"
 #include "local.h"
 #include "pair.h"
 #include "revoke.h"
@@ -143,6 +144,14 @@ typedef struct fzn_node_admin {
 	 * this node pulls, for a daemon to reload them; the daemon clears it.
 	 * sec 437. */
 	int received_fresh;
+	/* A REQUEST THAT CAME WITH ITS CAUSES, sec 462: the envelope
+	 * (`log/cause.h`) is taken off before anything else, and this is told
+	 * who asked and for which entries, so the node can log its answer as
+	 * caused by them. NULL: the envelope is still taken off, and nothing
+	 * is told. */
+	void (*caused)(void *ctx, const uint8_t *sender, const fzn_entry_name_t *cause,
+	               const fzn_entry_name_t *origin);
+	void *caused_ctx;
 } fzn_node_admin_t;
 
 /* A `fzn_node_local_handler_t`; `ctx` is a `fzn_node_admin_t`. */

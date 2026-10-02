@@ -108,6 +108,7 @@
 #include "../../log/entry.h"
 #include "../../log/ring.h"
 #include "../../log/retain.h"
+#include "../../log/cause.h"
 #include "../../node/members.h"
 
 #include <stdio.h>
@@ -168,6 +169,7 @@ static const char *r_capture(int v) { return fzn_capture_err_str((fzn_capture_er
 static const char *r_entry(int v) { return fzn_entry_err_str((fzn_entry_err_t)v); }
 static const char *r_ring(int v) { return fzn_ring_err_str((fzn_ring_err_t)v); }
 static const char *r_retain(int v) { return fzn_retain_err_str((fzn_retain_err_t)v); }
+static const char *r_cause(int v) { return fzn_cause_err_str((fzn_cause_err_t)v); }
 static const char *r_members(int v)
 {
 	return fzn_node_members_err_str((fzn_node_members_err_t)v);
@@ -293,6 +295,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_entry_err_str", r_entry, 3 },
 	{ "fzn_ring_err_str", r_ring, 2 },
 	{ "fzn_retain_err_str", r_retain, 2 },
+	{ "fzn_cause_err_str", r_cause, 4 },
 	{ "fzn_node_members_err_str", r_members, 4 },
 	{ "fzn_notes_denial_str", r_notes_denial, 6 },
 	{ "fzn_root_log_err_str", r_root_log, 6 },

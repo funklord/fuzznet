@@ -1,0 +1,51 @@
+# situ wire signature v2
+# schema: cause.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+endian big
+target buffer
+
+enum fzn_entry_level : u8 unknown=error
+  critical=1 error=2 warning=3 note=4 info=5 verbose=6 debug=7 trace=8
+
+struct fzn_cause_envelope size=84..65870
+  @0x0000   1         u8         version  must_eq=3
+  @0x0001   40..166   fzn_entry_name_record cause  big
+  ~         40..166   fzn_entry_name_record origin  big
+  ~         2         u16        inner_len  big min=1
+  ~         1..65535  u8         inner  sized-by=inner_len
+
+struct fzn_entry_name_record size=40..166
+  @0x0000   16        u8         machine  big
+  @0x0010   1         u8         user_len  min=1 max=64
+  @0x0011   1..64     u8         user  sized-by=user_len
+  ~         1         u8         program_len  min=1 max=64
+  ~         1..64     u8         program  sized-by=program_len
+  ~         4         u32        pid  big
+  ~         8         u64        start_ms  big
+  ~         8         u64        position  big
+
+struct fzn_entry_record size=55..4672
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   1         fzn_entry_level level
+  @0x0002   8         u64        time_us  big
+  @0x000a   40..166   fzn_entry_name_record name  big
+  ~         1         u8         subsystem_len  min=1 max=64
+  ~         1..64     u8         subsystem  sized-by=subsystem_len
+  ~         1         u8         cause_count  max=2
+  ~         0..332    fzn_entry_name_record causes  sized-by=cause_count
+  ~         2         u16        text_len  big max=4096
+  ~         0..4096   u8         text  sized-by=text_len

@@ -10,6 +10,7 @@
  * -- the node's compose and the client's framer.
  */
 
+#include "../../log/cause.h"
 #include "../admin.h"
 #include "../roots.h"
 #include "../identity.h"
@@ -307,15 +308,34 @@ static size_t text_shared_stub(void *ctx, const uint8_t *sender, const uint8_t *
  * a reply so the admin takes it. sec 436. */
 static int notes_shared_seen = -1;
 
+static uint8_t notes_seen[64];
+static size_t notes_seen_len;
+
+/* The caused hook, sec 462: who asked, and for which entry. */
+static const uint8_t *caused_sender;
+static fzn_entry_name_t caused_cause;
+static int caused_calls;
+
+static void caused_stub(void *ctx, const uint8_t *sender, const fzn_entry_name_t *cause,
+                        const fzn_entry_name_t *origin)
+{
+	(void)ctx;
+	(void)origin;
+	caused_sender = sender;
+	caused_cause = *cause;
+	caused_calls++;
+}
+
 static size_t notes_remote_stub(void *ctx, const uint8_t *sender, int shared,
                                 const uint8_t *request, size_t request_len, uint8_t *reply,
                                 size_t reply_cap)
 {
 	(void)ctx;
 	(void)sender;
-	(void)request;
-	(void)request_len;
 	notes_shared_seen = shared;
+	/* WHAT ARRIVED, so a test can see an envelope was taken off. */
+	notes_seen_len = request_len < sizeof(notes_seen) ? request_len : sizeof(notes_seen);
+	memcpy(notes_seen, request, notes_seen_len);
 	if (reply_cap < 2u)
 		return 0;
 	reply[0] = 2u;
@@ -1003,6 +1023,48 @@ int main(void)
 		n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
 		CHECK(n && notes_shared_seen == 0,
 		      "a member's request reached the notes hook as a contact's");
+		/* IN ITS ENVELOPE, sec 462: the same request with its causes is
+		 * handled as the bare one, and the node is told who asked for
+		 * which entry. */
+		{
+			static uint8_t env[FZN_CAUSE_OVERHEAD_MAX + 16u];
+			static const uint8_t bare[] = { 2u, 1u, 0u, 0u };
+			fzn_entry_name_t cause;
+			size_t env_len = 0;
+
+			memset(&cause, 0, sizeof(cause));
+			memset(cause.machine, 0x3c, sizeof(cause.machine));
+			strcpy(cause.user, "root");
+			strcpy(cause.program, "fuzznetd");
+			cause.pid = 7u;
+			cause.start_ms = 1u;
+			cause.position = 42u;
+			CHECK(fzn_cause_wrap(&cause, &cause, bare, sizeof(bare), env, sizeof(env),
+			                     &env_len)
+			              == FZN_CAUSE_OK,
+			      "fixture: a request in its envelope");
+			admin.caused = caused_stub;
+			caused_calls = 0;
+			req.payload = env;
+			req.payload_len = env_len;
+			notes_seen_len = 0;
+			n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
+			CHECK(n == 2u && notes_seen_len == sizeof(bare)
+			              && memcmp(notes_seen, bare, sizeof(bare)) == 0 && caused_calls == 1
+			              && caused_sender == outside.id.pubkey
+			              && caused_cause.position == 42u,
+			      "a request in its envelope reached the hook bare, and the node was told "
+			      "who asked and for which entry");
+			env[20] = 0u; /* inside the cause's name */
+			env[17] = 0u; /* the cause's user, empty */
+			n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
+			CHECK(n && fzn_reply_of(out, n, &detail, &detail_len) == FZN_REPLY_MALFORMED
+			              && caused_calls == 1,
+			      "an envelope that does not read was handled rather than refused");
+			admin.caused = NULL;
+			req.payload = (const uint8_t *)"list peer";
+			req.payload_len = 9u;
+		}
 		admin.notes_remote = NULL;
 
 		snprintf(line, sizeof(line), "remove peer %s", dev_hex);

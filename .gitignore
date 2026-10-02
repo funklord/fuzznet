@@ -179,6 +179,7 @@
 /log/test/entry_test
 /log/test/ring_test
 /log/test/retain_test
+/log/test/cause_test
 /log/test/logger_test
 /log/test/pack_test
 /log/test/capture_run_test

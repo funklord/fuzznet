@@ -54347,3 +54347,54 @@ round ten seconds after it; `pack_test` and `logger_test` cover them.
 
 **Sabotage: one entry**, caught only on a machine without
 `/etc/machine-id`, like this one.
+
+## 462. Causes on the wire, 2026-10-02
+
+Step 4 of sec 456's order, which the holder had go in with the format
+rather than later.
+
+- **A request may travel in an envelope** naming the log entries it was
+  made for, `log/cause.situ`: version 3, its cause and its origin in the log
+  record's own name form, then the request as it would have gone bare. Both
+  names or neither, as on a classic line. Version 3 is the dispatch beside
+  notes sync's 2 and the spool's 1, and a verb line's letter.
+- **Every consumer of admin takes it off**, at the top of
+  `fzn_node_admin_remote`, before the contact branch, the blob messages,
+  the notes sync and the verbs -- so raidcfgd's node as much as fuzznetd's
+  handles a request in its envelope as the request inside. An envelope that
+  does not read is refused, not handed on as bytes nobody sent. A new
+  `caused` hook is told who asked and for which entries.
+- **fuzznetd names each round** with a debug entry and sends every request
+  the round makes through `peer_ask` -- notes pulled and pushed, members,
+  texts fetched and pushed, shares received -- in an envelope naming it.
+  Answering, it logs a debug entry caused by the asker's. So one grep for the
+  instance field of a round's entry reads the round on both hosts.
+- **Not yet carried**: the roots and votes pulls, which go through another
+  path than `peer_ask`; and a cause deeper than the round -- each request
+  names the round as both its cause and its origin.
+- **Debug entries do not reach stderr**: `say` prints down to information,
+  as before, and the new entries go to the ring, and to the file at debug.
+
+**A wire break, recorded rather than negotiated**, as sec 400's epochs
+were: a node built before this answers an envelope as a request it does not
+know, so a mixed estate's pulls fail until both ends are rebuilt. The only
+consumers are in this workspace, which is why the holder had it go in now.
+
+### Measured for sec 462
+
+**`cause_test`, 7 checks:** the version, the names, the length and the
+request where the schema puts them; taken off again; a notes message and a
+verb line no envelopes, left untouched; a request wrapped where it already
+sits; an envelope a byte short, a byte long or cut in a name refused; a name
+that is not one refused; an empty request and a short buffer refused.
+
+**`admin_test`, 147 checks**, two new: a request in its envelope reaching
+the notes hook bare, with the hook told the sender and the cause's
+position; an envelope that does not read refused, the hook not told.
+
+**Live, R and M at debug, M pulling from R:** R's note reached M through
+the envelopes. One grep for the instance field of M's round entry, over
+both hosts' files, found the round on M and five entries on R logged as
+caused by it. No debug line reached stderr; no daemon was left running.
+
+**Sabotage: five entries.**

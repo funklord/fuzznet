@@ -148,6 +148,15 @@ fzn_entry_err_t fzn_entry_classic_parse(const char *line, size_t len,
 #define FZN_ENTRY_RECORD_MIN 55u
 #define FZN_ENTRY_RECORD_MAX 4672u
 
+/* A NAME IN THE RECORD'S FORM, `log/entry.situ`'s `fzn_entry_name_record`,
+ * for another message to carry one (`log/cause.h`, sec 462): 40 to 166
+ * bytes. Unpacking reads one name from the front of `in`, `*used` bytes. */
+#define FZN_ENTRY_NAME_RECORD_MAX 166u
+fzn_entry_err_t fzn_entry_name_pack(const fzn_entry_name_t *name, uint8_t *out, size_t cap,
+                                    size_t *len);
+fzn_entry_err_t fzn_entry_name_unpack(const uint8_t *in, size_t len, fzn_entry_name_t *out,
+                                      size_t *used);
+
 /* `entry` as a record into `out`; its length in `*len`. The same fields
  * the classic line refuses are refused here, so a record always has a
  * line. */

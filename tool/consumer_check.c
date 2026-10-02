@@ -190,6 +190,7 @@
 #include <fuzznet/log/entry.h>
 #include <fuzznet/log/ring.h>
 #include <fuzznet/log/retain.h>
+#include <fuzznet/log/cause.h>
 #include <fuzznet/node/received.h>
 #include <fuzznet/node/members.h>
 #include <fuzznet/contact/contact.h>
@@ -331,6 +332,7 @@
 #include "log/entry.h"
 #include "log/ring.h"
 #include "log/retain.h"
+#include "log/cause.h"
 #include "node/received.h"
 #include "node/members.h"
 #include "contact/contact.h"
@@ -1054,6 +1056,16 @@ int main(void)
 			if (fzn_retain_parse("keep * age 7d", 13u, &r) != FZN_RETAIN_OK
 			    || r.kind != FZN_RETAIN_KEEP)
 				FAIL(474);
+		}
+		/* A bare request is no envelope of causes (sec 462). */
+		{
+			fzn_entry_name_t c, o;
+			const uint8_t *in = NULL;
+			size_t in_len = 0;
+
+			if (fzn_cause_unwrap((const uint8_t *)"get peer", 8u, &c, &o, &in, &in_len)
+			    != FZN_CAUSE_NONE)
+				FAIL(475);
 		}
 #ifdef FZN_LOG_FILE_ON
 		/* A logger's segment, unless the caller names one (sec 458). */

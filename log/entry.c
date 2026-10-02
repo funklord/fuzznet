@@ -565,3 +565,29 @@ fzn_entry_err_t fzn_entry_unpack(const uint8_t *in, size_t len, fzn_entry_t *out
 	out->text_len = text_len;
 	return FZN_ENTRY_OK;
 }
+
+fzn_entry_err_t fzn_entry_name_pack(const fzn_entry_name_t *name, uint8_t *out, size_t cap,
+                                    size_t *len)
+{
+	size_t need;
+
+	if (!name || !out || !len || !name_ok(name))
+		return FZN_ENTRY_ERR_MALFORMED;
+	need = name_size(name);
+	if (need > cap)
+		return FZN_ENTRY_ERR_ROOM;
+	(void)put_name(out, name);
+	*len = need;
+	return FZN_ENTRY_OK;
+}
+
+fzn_entry_err_t fzn_entry_name_unpack(const uint8_t *in, size_t len, fzn_entry_name_t *out,
+                                      size_t *used)
+{
+	const uint8_t *at = in;
+
+	if (!in || !out || !used || !take_name(&at, in + len, out))
+		return FZN_ENTRY_ERR_MALFORMED;
+	*used = (size_t)(at - in);
+	return FZN_ENTRY_OK;
+}
