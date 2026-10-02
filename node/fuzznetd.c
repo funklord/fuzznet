@@ -298,13 +298,22 @@ static size_t logs_remote(void *ctx, const uint8_t *sender, const uint8_t *reque
 
 	(void)ctx;
 	if (!request || request_len < 2u || request[0] != FZN_GATHER_VERSION
-	    || request[1] != FZN_GATHER_QUERY)
+	    || (request[1] != FZN_GATHER_QUERY && request[1] != FZN_GATHER_RING_QUERY))
 		return 0;
 	if (!dlog.on || !dlog.estate_scope) {
 		if (reply_cap < sizeof(REFUSAL) - 1u)
 			return 0;
 		memcpy(reply, REFUSAL, sizeof(REFUSAL) - 1u);
 		return sizeof(REFUSAL) - 1u;
+	}
+	/* THE FLIGHT RECORDER, sec 464: each page at debug, so asking for it
+	 * does not crowd out what it holds. */
+	if (request[1] == FZN_GATHER_RING_QUERY) {
+		(void)say_caused(FZN_ENTRY_DEBUG, "log/gather", NULL, NULL, NULL,
+		                 "the ring gathered by %02x%02x%02x%02x", sender ? sender[0] : 0u,
+		                 sender ? sender[1] : 0u, sender ? sender[2] : 0u,
+		                 sender ? sender[3] : 0u);
+		return fzn_gather_ring_answer(&dlog.ring, request, request_len, reply, reply_cap);
 	}
 	(void)say_caused(FZN_ENTRY_INFO, "log/gather", NULL, NULL, NULL,
 	                 "the log gathered by %02x%02x%02x%02x", sender ? sender[0] : 0u,
@@ -316,6 +325,16 @@ static void print_line(void *ctx, const char *line, size_t len)
 {
 	(void)ctx;
 	printf("%.*s\n", (int)len, line);
+}
+
+/* A ring entry as a classic line, shown with the host asked. */
+static void print_entry(void *ctx, const fzn_entry_t *e)
+{
+	static char line[FZN_ENTRY_LINE_MAX];
+	size_t len = 0;
+
+	if (fzn_entry_classic(e, (const char *)ctx, line, sizeof(line), &len) == FZN_ENTRY_OK)
+		fwrite(line, 1u, len, stdout);
 }
 
 /* NOTHING LOGGED FROM HERE: the logger is mid-entry. The loop sees the flag. */
@@ -982,6 +1001,7 @@ static void usage(const char *prog)
 	        "(host-private by default)\n"
 	        "       %s --fuzznet-dir=DIR --gather=PROGRAM [--since=SECONDS] [--match=TEXT]\n"
 	        "              --node=ROOT_HEX --to HOST PORT  print a host's log lines\n"
+	        "       ... --gather-ring instead prints its flight recorder's entries\n"
 	        "%s",
 	        prog, prog, prog, prog, prog, prog, prog, FZND_PULL_EVERY, prog, fzn_cli_usage());
 }
@@ -1096,6 +1116,7 @@ int main(int argc, char **argv)
 	int log_estate = 0;
 	/* GATHERING, sec 463: the troubleshooter's end. */
 	const char *gather_program = NULL, *gather_match = "";
+	int gather_ring = 0;
 	uint64_t gather_since_s = 0;
 	int has_capability = 0;
 	int lfd = -1, ufd = -1, i;
@@ -1166,6 +1187,8 @@ int main(int argc, char **argv)
 			}
 		} else if (!strncmp(argv[i], "--gather=", 9u)) {
 			gather_program = argv[i] + 9;
+		} else if (!strcmp(argv[i], "--gather-ring")) {
+			gather_ring = 1;
 		} else if (!strncmp(argv[i], "--match=", 8u)) {
 			gather_match = argv[i] + 8;
 		} else if (!strncmp(argv[i], "--since=", 8u)) {
@@ -1254,7 +1277,7 @@ int main(int argc, char **argv)
 	/* A NODE THAT SERVES ONLY THE REMOTE HOP needs no local socket, and the
 	 * loop has always taken a listen fd of -1 (sec 381). */
 	if (!sock_path && !pair_hex && !show_prekey && !new_root && !accept_text && !ask_line
-	    && !gather_program
+	    && !gather_program && !gather_ring
 	    && !set_admin && udp_port < 0) {
 		usage(argv[0]);
 		return 2;
@@ -1593,7 +1616,7 @@ int main(int argc, char **argv)
 	 * stored pairing, looked up by the node's root; the address is given,
 	 * since a pairing carries none. Prints the reply line and exits 0 when
 	 * it is `ok`. */
-	if (ask_line || gather_program) {
+	if (ask_line || gather_program || gather_ring) {
 		static fzn_partial_t slots[1];
 		/* A GATHERED PAGE is as large as the host's reply buffer. */
 		static uint8_t slot_buf[1][1u << 17];
@@ -1639,6 +1662,24 @@ int main(int argc, char **argv)
 		caller.reasm = &table;
 		caller.hops = 1u;
 #ifdef FZN_LOG_FILE_ON
+		/* THE HOST'S FLIGHT RECORDER, its entries as lines. sec 464. */
+		if (gather_ring) {
+			struct peer_asking asking = { &caller, wall_clock(), to_host, NULL };
+			fzn_gather_err_t gerr;
+			size_t got = 0;
+
+			gerr = fzn_gather_ring_fetch(peer_ask, &asking, 256u, print_entry,
+			                             (void *)(uintptr_t)to_host, &got);
+			fzn_wipe(&caller, sizeof(caller));
+			fzn_udp_close(fd);
+			if (gerr != FZN_GATHER_OK) {
+				fprintf(stderr, "fuzznetd: --gather-ring: %s\n", fzn_gather_err_str(gerr));
+				return 1;
+			}
+			fprintf(stderr, "fuzznetd: %zu ring entr%s from %s\n", got, got == 1u ? "y" : "ies",
+			        to_host);
+			return 0;
+		}
 		/* THE LOG, page by page, printed as the host wrote it. sec 463. */
 		if (gather_program) {
 			struct peer_asking asking = { &caller, wall_clock(), to_host, NULL };

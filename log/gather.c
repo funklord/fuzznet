@@ -420,3 +420,114 @@ fzn_gather_err_t fzn_gather_fetch(fzn_gather_ask_t ask, void *ask_ctx,
 	}
 	return FZN_GATHER_OK;
 }
+
+/* ---- the flight recorder on request, sec 464 ----------------------------- */
+
+struct ring_page {
+	int started;
+	uint64_t after;
+	uint8_t *reply;
+	size_t cap, used;
+	unsigned count;
+	int full;
+};
+
+static void ring_take(void *ctx, const fzn_entry_t *e)
+{
+	struct ring_page *p = ctx;
+	uint8_t rec[FZN_ENTRY_RECORD_MAX];
+	size_t len = 0;
+
+	if (p->full || (p->started && e->name.position <= p->after))
+		return;
+	if (fzn_entry_pack(e, rec, sizeof(rec), &len) != FZN_ENTRY_OK)
+		return;
+	/* WHOLE RECORDS ONLY: the first that does not fit ends the page, and
+	 * the next page starts past the last one sent. */
+	if (p->cap - p->used < 2u + len || p->count == 0xffffu) {
+		p->full = 1;
+		return;
+	}
+	fzn_put_be16(p->reply + p->used, (uint16_t)len);
+	memcpy(p->reply + p->used + 2, rec, len);
+	p->used += 2u + len;
+	p->count++;
+}
+
+size_t fzn_gather_ring_answer(const fzn_ring_t *ring, const uint8_t *request,
+                              size_t request_len, uint8_t *reply, size_t reply_cap)
+{
+	struct ring_page p;
+
+	if (!request || request_len < 2u || request[0] != FZN_GATHER_VERSION
+	    || request[1] != FZN_GATHER_RING_QUERY)
+		return 0;
+	if (!ring || !reply || reply_cap < FZN_GATHER_RING_HEAD + 2u + FZN_ENTRY_RECORD_MAX
+	    || request_len != FZN_GATHER_RING_QUERY_LEN || request[2] > 1u)
+		return 0;
+	memset(&p, 0, sizeof(p));
+	p.started = request[2];
+	p.after = fzn_get_be64(request + 3);
+	p.reply = reply;
+	p.cap = reply_cap;
+	p.used = FZN_GATHER_RING_HEAD;
+	(void)fzn_ring_walk(ring, ring_take, &p);
+	reply[0] = FZN_GATHER_VERSION;
+	reply[1] = FZN_GATHER_RING;
+	reply[2] = (uint8_t)!p.full;
+	fzn_put_be16(reply + 3, (uint16_t)p.count);
+	return p.used;
+}
+
+fzn_gather_err_t fzn_gather_ring_fetch(fzn_gather_ask_t ask, void *ask_ctx, size_t pages_max,
+                                       fzn_gather_entry_fn each, void *each_ctx,
+                                       size_t *entries)
+{
+	static uint8_t reply[1u << 17];
+	uint8_t request[FZN_GATHER_RING_QUERY_LEN];
+	uint64_t after = 0;
+	int started = 0;
+	size_t pages;
+
+	if (!ask || !each || !entries)
+		return FZN_GATHER_ERR_MALFORMED;
+	*entries = 0;
+	for (pages = 0; pages < pages_max; pages++) {
+		size_t reply_len = 0, pos = FZN_GATHER_RING_HEAD, k;
+		unsigned count;
+
+		request[0] = FZN_GATHER_VERSION;
+		request[1] = FZN_GATHER_RING_QUERY;
+		request[2] = (uint8_t)started;
+		fzn_put_be64(request + 3, after);
+		if (!ask(ask_ctx, request, sizeof(request), reply, sizeof(reply), &reply_len))
+			return FZN_GATHER_ERR_NO_ANSWER;
+		if (reply_len < FZN_GATHER_RING_HEAD || reply[0] != FZN_GATHER_VERSION
+		    || reply[1] != FZN_GATHER_RING || reply[2] > 1u)
+			return FZN_GATHER_ERR_REFUSED;
+		count = fzn_get_be16(reply + 3);
+		for (k = 0; k < count; k++) {
+			fzn_entry_t e;
+			size_t len;
+
+			if (reply_len - pos < 2u)
+				return FZN_GATHER_ERR_REFUSED;
+			len = fzn_get_be16(reply + pos);
+			if (reply_len - pos - 2u < len
+			    || fzn_entry_unpack(reply + pos + 2, len, &e) != FZN_ENTRY_OK)
+				return FZN_GATHER_ERR_REFUSED;
+			each(each_ctx, &e);
+			(*entries)++;
+			after = e.name.position;
+			started = 1;
+			pos += 2u + len;
+		}
+		if (pos != reply_len)
+			return FZN_GATHER_ERR_REFUSED;
+		/* DONE, OR A PAGE THAT BROUGHT NOTHING: a host whose ring holds
+		 * one record too large for its reply would be asked for ever. */
+		if (reply[2] || count == 0u)
+			return FZN_GATHER_OK;
+	}
+	return FZN_GATHER_OK;
+}

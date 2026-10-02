@@ -20,8 +20,10 @@ target buffer;
 endian big;
 
 enum fzn_gather_type : u8 {
-	query = 1,   // "These lines, from this cursor."
-	lines = 2,   // "These, and where to go on from."
+	query      = 1,   // "These lines, from this cursor."
+	lines      = 2,   // "These, and where to go on from."
+	ring_query = 3,   // "Your flight recorder, after this position." sec 464
+	ring       = 4,   // "These records."
 }
 
 struct fzn_gather_query {
@@ -40,6 +42,30 @@ struct fzn_gather_query {
 struct fzn_gather_line {
 	u16  len [min = 1];
 	u8   line[len];
+}
+
+// THE FLIGHT RECORDER ON REQUEST, sec 464: whole performant records, a
+// page at a time, after the last position sent -- a process's positions only
+// rise, so entries arriving or evicted between pages neither tear a record
+// nor repeat one.
+struct fzn_gather_ring_query {
+	u8               version [must_eq = 4];
+	fzn_gather_type  type    [must_eq = ring_query];
+	u8               started [max = 1];   // 0: from the oldest held
+	u64              after;               // else: past this position
+}
+
+struct fzn_gather_record {
+	u16  len [min = 55, max = 4672];
+	u8   record[len];                     // a fzn_entry_record
+}
+
+struct fzn_gather_ring {
+	u8                 version [must_eq = 4];
+	fzn_gather_type    type    [must_eq = ring];
+	u8                 done    [max = 1];
+	u16                count;
+	fzn_gather_record  records[count];
 }
 
 struct fzn_gather_lines {

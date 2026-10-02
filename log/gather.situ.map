@@ -38,3 +38,23 @@ struct fzn_gather_query size=37..164 mutate=Shifting address=Unstable repr=Value
   fzn_gather_query.program               offset=AbsoluteStatic(0x23) size=Bounded(1, 64) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
   fzn_gather_query.match_len             offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
   fzn_gather_query.match                 offset=Dynamic size=Bounded(0, 64) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+
+struct fzn_gather_record size=57..4674 mutate=Shifting repr=ValueConverted
+  fzn_gather_record.len                  offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_gather_record.record               offset=AbsoluteStatic(0x02) size=Bounded(55, 4672) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct fzn_gather_ring size=5..306310595 access=Sequential mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_gather_ring.version                offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_gather_ring.type                   offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_gather_ring.done                   offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_gather_ring.count                  offset=AbsoluteStatic(0x03) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_gather_ring.records                offset=AbsoluteStatic(0x05) size=Bounded(0, 306310590) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting
+  fzn_gather_ring.records[]              offset=FrameStatic(0x00) size=Bounded(57, 4674) align=Aligned(8) repr=ValueConverted atomic=NonAtomic access=Sequential mutate=Shifting
+  fzn_gather_ring.records[].len          offset=FrameStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_gather_ring.records[].record       offset=FrameStatic(0x02) size=Bounded(55, 4672) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct fzn_gather_ring_query size=11 repr=ValueConverted atomic=NonAtomic
+  fzn_gather_ring_query.version          offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_gather_ring_query.type             offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_gather_ring_query.started          offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_gather_ring_query.after            offset=AbsoluteStatic(0x03) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic

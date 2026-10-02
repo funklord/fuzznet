@@ -5844,6 +5844,20 @@ SABOTAGES = [
 		"a text somebody just asked for waits out a whole pull period before anything asks a peer for it -- sec 424",
 	),
 	(
+		"gather-ring-past-the-cursor",
+		"log/gather.c",
+		"\tif (p->full || (p->started && e->name.position <= p->after))\n",
+		"\tif (p->full)\n",
+		"every page of a host's flight recorder starts again from its oldest entry -- sec 464",
+	),
+	(
+		"gather-ring-fetch-moves-its-cursor",
+		"log/gather.c",
+		"\t\t\tafter = e.name.position;\n\t\t\tstarted = 1;\n",
+		"",
+		"the troubleshooter asks for the first page over and over, and sees each entry many times -- sec 464",
+	),
+	(
 		"gather-keeps-to-the-window",
 		"log/gather.c",
 		"\t\t\tif (fzn_entry_line_time(line, len, &t) != FZN_ENTRY_OK || t < q.since_us\n\t\t\t    || t > q.until_us || (q.match[0] && !strstr(line, q.match)))\n",

@@ -119,6 +119,98 @@ static fzn_gather_query_t query(uint64_t since, uint64_t until, const char *matc
 	return q;
 }
 
+/* ---- the flight recorder, sec 464 */
+
+static fzn_ring_t ring;
+static int grow_between_pages;
+static uint64_t next_position;
+static uint8_t text_bytes[2000];
+
+static void put(uint64_t position, size_t text_len)
+{
+	fzn_entry_t e;
+
+	memset(&e, 0, sizeof(e));
+	strcpy(e.name.user, "root");
+	strcpy(e.name.program, "fuzznetd");
+	e.name.pid = 77u;
+	e.name.start_ms = 9u;
+	e.name.position = position;
+	e.time_us = 1u + position;
+	e.level = FZN_ENTRY_DEBUG;
+	strcpy(e.subsystem, "node/round");
+	memset(text_bytes, (int)('a' + (position % 26u)), text_len);
+	e.text = text_bytes;
+	e.text_len = text_len;
+	(void)fzn_ring_put(&ring, &e);
+}
+
+static int ring_host(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                     size_t cap, size_t *reply_len)
+{
+	(void)ctx;
+	/* ROOM FOR A FEW RECORDS, so the ring pages. */
+	*reply_len = fzn_gather_ring_answer(&ring, request, request_len, reply,
+	                                    cap < 6000u ? cap : 6000u);
+	/* AND THE HOST GOES ON LOGGING between pages. */
+	if (grow_between_pages)
+		put(next_position++, 300u);
+	return *reply_len > 0u;
+}
+
+static uint64_t ring_seen[512];
+static size_t n_ring_seen;
+static int texts_whole;
+
+static void note_entry(void *ctx, const fzn_entry_t *e)
+{
+	size_t i;
+
+	(void)ctx;
+	if (n_ring_seen < 512u)
+		ring_seen[n_ring_seen++] = e->name.position;
+	for (i = 0; i < e->text_len; i++)
+		if (e->text[i] != (uint8_t)('a' + (e->name.position % 26u)))
+			texts_whole = 0;
+}
+
+static void test_the_ring(void)
+{
+	size_t got = 0, i;
+	int ordered = 1;
+	uint8_t reply[6000];
+
+	fzn_ring_init(&ring);
+	for (next_position = 0; next_position < 40u; next_position++)
+		put(next_position, 100u + (next_position * 47u) % 1500u);
+	n_ring_seen = 0;
+	texts_whole = 1;
+	CHECK(fzn_gather_ring_fetch(ring_host, NULL, 64u, note_entry, NULL, &got) == FZN_GATHER_OK
+	              && got == 40u && n_ring_seen == 40u && texts_whole,
+	      "every entry of the ring, across pages, each text whole");
+	for (i = 0; i < n_ring_seen; i++)
+		if (ring_seen[i] != i)
+			ordered = 0;
+	CHECK(ordered, "oldest first, in order");
+
+	/* A HOST LOGGING BETWEEN PAGES: every position once, none repeated. */
+	grow_between_pages = 1;
+	n_ring_seen = 0;
+	CHECK(fzn_gather_ring_fetch(ring_host, NULL, 64u, note_entry, NULL, &got) == FZN_GATHER_OK
+	              && got >= 40u,
+	      "a ring that grows while it is read is still read to its end");
+	ordered = 1;
+	for (i = 1; i < n_ring_seen; i++)
+		if (ring_seen[i] != ring_seen[i - 1u] + 1u)
+			ordered = 0;
+	CHECK(ordered && n_ring_seen && ring_seen[0] == 0u,
+	      "and every position comes once, in order, with nothing repeated across pages");
+	grow_between_pages = 0;
+	CHECK(fzn_gather_ring_answer(&ring, (const uint8_t *)"get peer", 8u, reply, sizeof(reply))
+	              == 0u,
+	      "a verb line is no ring query");
+}
+
 static int consecutive(uint64_t first, size_t n)
 {
 	size_t i;
@@ -219,6 +311,8 @@ int main(void)
 	              && lines == 0u,
 	      "a page too small for any line passes them over and ends, rather than looping");
 	reply_cap = 600u;
+
+	test_the_ring();
 
 	(void)snprintf(path, sizeof(path), "%s/netcfgd.9000000.2.log", top);
 	(void)remove(path);

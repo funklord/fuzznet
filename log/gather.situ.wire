@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum fzn_gather_type : u8 unknown=error
-  query=1 lines=2
+  query=1 lines=2 ring_query=3 ring=4
 
 struct fzn_gather_line size=3..65537
   @0x0000   2         u16        len  big min=1
@@ -45,3 +45,20 @@ struct fzn_gather_query size=37..164
   @0x0023   1..64     u8         program  sized-by=program_len
   ~         1         u8         match_len  max=64
   ~         0..64     u8         match  sized-by=match_len
+
+struct fzn_gather_record size=57..4674
+  @0x0000   2         u16        len  big min=55 max=4672
+  @0x0002   55..4672  u8         record  big sized-by=len
+
+struct fzn_gather_ring size=5..306310595
+  @0x0000   1         u8         version  must_eq=4
+  @0x0001   1         fzn_gather_type type  must_eq=ring
+  @0x0002   1         u8         done  max=1
+  @0x0003   2         u16        count  big
+  @0x0005   0..306310590 fzn_gather_record records  sized-by=count
+
+struct fzn_gather_ring_query size=11
+  @0x0000   1         u8         version  must_eq=4
+  @0x0001   1         fzn_gather_type type  must_eq=ring_query
+  @0x0002   1         u8         started  max=1
+  @0x0003   8         u64        after  big

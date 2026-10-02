@@ -1991,6 +1991,7 @@ $(BUILD_DIR)/log/test/cause_test: $(BUILD_DIR)/log/test/cause_test.o \
 # sec 463.
 $(BUILD_DIR)/log/test/gather_test: $(BUILD_DIR)/log/test/gather_test.o \
                                    $(BUILD_DIR)/log/gather.o \
+                                   $(BUILD_DIR)/log/ring.o \
                                    $(BUILD_DIR)/log/entry.o \
                                    $(BUILD_DIR)/log/capture.o \
                                    $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o)

@@ -33,10 +33,15 @@
 #include <stdint.h>
 
 #include "entry.h"
+#include "ring.h"
 
 #define FZN_GATHER_VERSION 4u
 #define FZN_GATHER_QUERY 1u
 #define FZN_GATHER_LINES 2u
+#define FZN_GATHER_RING_QUERY 3u
+#define FZN_GATHER_RING 4u
+#define FZN_GATHER_RING_QUERY_LEN 11u
+#define FZN_GATHER_RING_HEAD 5u
 #define FZN_GATHER_MATCH_MAX 64u
 /* A query at its longest. */
 #define FZN_GATHER_QUERY_MAX (2u + 32u + 1u + FZN_ENTRY_WORD_MAX + 1u + FZN_GATHER_MATCH_MAX)
@@ -85,5 +90,20 @@ typedef void (*fzn_gather_line_fn)(void *ctx, const char *line, size_t len);
 fzn_gather_err_t fzn_gather_fetch(fzn_gather_ask_t ask, void *ask_ctx,
                                   const fzn_gather_query_t *q, size_t pages_max,
                                   fzn_gather_line_fn each, void *each_ctx, size_t *lines);
+
+/* THE FLIGHT RECORDER ON REQUEST, sec 464: a ring query answered from
+ * `ring` with as many whole records as fit `reply_cap`, oldest first, past
+ * the position the query names. 0 when `request` is not one. */
+size_t fzn_gather_ring_answer(const fzn_ring_t *ring, const uint8_t *request,
+                              size_t request_len, uint8_t *reply, size_t reply_cap);
+
+/* Each entry of a host's ring, oldest first, valid for the call. */
+typedef void (*fzn_gather_entry_fn)(void *ctx, const fzn_entry_t *entry);
+
+/* THE TROUBLESHOOTER'S END: every page of the host's ring, each entry handed
+ * to `each`, at most `pages_max` pages. `*entries` counts them. */
+fzn_gather_err_t fzn_gather_ring_fetch(fzn_gather_ask_t ask, void *ask_ctx, size_t pages_max,
+                                       fzn_gather_entry_fn each, void *each_ctx,
+                                       size_t *entries);
 
 #endif /* FZN_LOG_GATHER_H */

@@ -54432,9 +54432,7 @@ so both would refuse every remote request, as host-private does.
 - **The troubleshooter**: `fuzznetd --gather=PROGRAM [--since=SECONDS]
   [--match=TEXT] --node=KEY --to HOST PORT` prints the lines.
 
-**Not yet**: the ring on request, which sec 428 also names -- a dump is
-written on a crash and an error and can be read from the file;
-gathering from several hosts in one command; a reply in the packed format,
+**Not yet**: ~~the ring on request~~ (sec 464); gathering from several hosts in one command; a reply in the packed format,
 since a page of escaped classic lines is already compact enough to carry.
 
 ### Measured for sec 463
@@ -54458,3 +54456,36 @@ and `--match=` on one instance field returned that entry alone. No daemon
 was left running.
 
 **Sabotage: four entries.**
+
+## 464. A host's flight recorder, on request, 2026-10-02
+
+Sec 428 names three things a troubleshooter asks a host for: a time window,
+an entry and everything it caused, and a ring dump. Sec 463 built the first
+two; this is the third, as two more messages of the gather family.
+
+- **A ring query names a position**, and the answer is a page of whole
+  performant records past it, oldest first. A process's positions only
+  rise, so entries logged or evicted between pages neither tear a record
+  nor repeat one -- a byte offset into a ring that moves under it would do
+  both.
+- **The same scope rule as the files**: members only, at estate scope,
+  refused in words at host-private. Each page is logged at debug, so
+  asking for the ring does not crowd out what it holds.
+- **`fuzznetd --gather-ring --node=KEY --to HOST PORT`** prints the host's
+  ring as classic lines, shown with the host asked.
+- **situc calls the two new types breaking**, and what that means is
+  benign: a host built before this refuses them, as it was written to
+  refuse unknown types, so asking an older host for its ring is refused.
+
+### Measured for sec 464
+
+**`gather_test`, 16 checks**, five new: a ring of forty entries of mixed
+size read across pages through a 6000-byte reply, each text whole and in
+order; a host logging a new entry between every page, read to its end with
+every position once and in order; a verb line no ring query.
+
+**Live, R at info and M paired to R:** at host-private M was refused; at
+estate scope M printed R's five ring entries, two of them debug entries
+R's file does not keep. No daemon was left running.
+
+**Sabotage: two entries.**
