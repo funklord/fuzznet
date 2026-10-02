@@ -112,6 +112,9 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_item_text->setPlaceholderText(QStringLiteral("New item"));
 	m_add_item = new QPushButton(QStringLiteral("Add item"), this);
 	m_toggle = new QPushButton(QStringLiteral("Tick / untick"), this);
+	m_remove_item = new QPushButton(QStringLiteral("Remove item"), this);
+	m_cut_button = new QPushButton(QStringLiteral("Cut"), this);
+	m_move_here = new QPushButton(QStringLiteral("Move here"), this);
 	auto *item_row = new QHBoxLayout();
 	m_share_to = new QComboBox(this);
 	m_share = new QPushButton(QStringLiteral("Share"), this);
@@ -135,6 +138,7 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	item_row->addWidget(m_item_text, 1);
 	item_row->addWidget(m_add_item);
 	item_row->addWidget(m_toggle);
+	item_row->addWidget(m_remove_item);
 	edit_row->addWidget(m_import);
 	trash_row->addWidget(m_show_trash);
 	trash_row->addWidget(m_trash_button);
@@ -143,6 +147,8 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	trash_row->addWidget(m_show_archived);
 	trash_row->addWidget(m_pin);
 	trash_row->addWidget(m_archive);
+	trash_row->addWidget(m_cut_button);
+	trash_row->addWidget(m_move_here);
 	share_row->addWidget(m_share_to, 1);
 	share_row->addWidget(m_share);
 	share_row->addWidget(m_unshare);
@@ -194,6 +200,10 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	/* THE ITEM AT THE CURSOR: one line of the body is one item. */
 	connect(m_toggle, &QPushButton::clicked, this,
 	        [this]() { toggle_item(m_body->textCursor().blockNumber()); });
+	connect(m_remove_item, &QPushButton::clicked, this,
+	        [this]() { remove_item(m_body->textCursor().blockNumber()); });
+	connect(m_cut_button, &QPushButton::clicked, this, [this]() { cut(); });
+	connect(m_move_here, &QPushButton::clicked, this, [this]() { move_here(); });
 	connect(m_restore, &QPushButton::clicked, this, [this]() { restore(); });
 	connect(m_empty, &QPushButton::clicked, this, [this]() { empty_trash(); });
 	connect(m_import, &QPushButton::clicked, this, [this]() {
@@ -451,6 +461,9 @@ void fzn_notebook_view::refresh_note()
 	m_item_text->setEnabled(editing && m_is_list);
 	m_add_item->setEnabled(editing && m_is_list);
 	m_toggle->setEnabled(editing && m_is_list);
+	m_remove_item->setEnabled(editing && m_is_list);
+	m_cut_button->setEnabled(editing && have && !m_trash);
+	m_move_here->setEnabled(editing && !m_trash && !m_cut.isEmpty());
 	m_new_note->setEnabled(editing);
 	m_new_folder->setEnabled(editing);
 	m_save->setEnabled(editing && have);
@@ -634,6 +647,52 @@ bool fzn_notebook_view::toggle_item(int index)
 		say(QStringLiteral("The item was not changed: %1").arg(why));
 		return false;
 	}
+	refresh_note();
+	return true;
+}
+
+bool fzn_notebook_view::remove_item(int index)
+{
+	QString why;
+
+	if (shared() || !m_is_list || index < 0 || index >= m_ticks.size())
+		return false;
+	if (ask(QStringLiteral("remove item %1 %2").arg(m_open).arg(index), &why) != 1) {
+		say(QStringLiteral("The item was not removed: %1").arg(why));
+		return false;
+	}
+	refresh_note();
+	return true;
+}
+
+bool fzn_notebook_view::cut()
+{
+	if (shared() || m_open.isEmpty() || m_trash)
+		return false;
+	m_cut = m_open;
+	m_cut_title = m_title->text();
+	refresh_note();
+	say(QStringLiteral("Cut %1; open the folder it goes to and move it there.")
+	            .arg(m_cut_title));
+	return true;
+}
+
+bool fzn_notebook_view::move_here()
+{
+	QString why;
+
+	if (shared() || m_cut.isEmpty() || m_trash)
+		return false;
+	if (ask(QStringLiteral("set note %1 parent %2").arg(m_cut, parent_id()), &why) != 1) {
+		say(QStringLiteral("Not moved: %1").arg(why));
+		return false;
+	}
+	say(QStringLiteral("Moved %1 to %2.")
+	            .arg(m_cut_title, m_path_titles.isEmpty() ? QStringLiteral("the top")
+	                                                      : m_path_titles.last()));
+	m_cut.clear();
+	m_cut_title.clear();
+	refresh_list();
 	refresh_note();
 	return true;
 }

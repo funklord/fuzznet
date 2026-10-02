@@ -95,6 +95,12 @@ public:
 	bool new_list(const QString &title);
 	bool add_item(const QString &text);
 	bool toggle_item(int index);
+	/* sec 453: the item at `index` goes, and the ones after move up. */
+	bool remove_item(int index);
+	/* MOVING, sec 453: cut the open note, open the folder it goes to, and
+	 * move it there. The node refuses a folder under its own descendant. */
+	bool cut();
+	bool move_here();
 	bool save();
 	bool trash();
 	bool restore();
@@ -121,6 +127,8 @@ public:
 	QString warning() const;
 	bool editable() const;
 	QString open_id() const { return m_open; }
+	/* The note cut and waiting to be moved; empty when none is. */
+	QString cut_id() const { return m_cut; }
 	/* The ids listed, in order, as the list shows them. */
 	QStringList listed_ids() const;
 
@@ -148,6 +156,9 @@ private:
 	QStringList m_path_titles;
 	/* The note in the editor, as hex; empty composing nothing. */
 	QString m_open;
+	/* The note cut for a move, and its title for saying so. */
+	QString m_cut;
+	QString m_cut_title;
 	bool m_trash = false;
 	/* Whether the open note is a checklist, and its items' ticks. */
 	bool m_is_list = false;
@@ -183,6 +194,9 @@ private:
 	QLineEdit *m_item_text;
 	QPushButton *m_add_item;
 	QPushButton *m_toggle;
+	QPushButton *m_remove_item;
+	QPushButton *m_cut_button;
+	QPushButton *m_move_here;
 	QComboBox *m_share_to;
 	QPushButton *m_share;
 	QPushButton *m_unshare;

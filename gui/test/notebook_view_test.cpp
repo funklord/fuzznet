@@ -515,8 +515,52 @@ static void test_a_checklist_is_lines_ticked_one_at_a_time(void)
 	              && w.body_text() == QStringLiteral("[ ] milk, two pints\n[ ] eggs"),
 	      "saving a list keeps its items, rather than writing the lines back as text -- "
 	      "read back from the node, not from the screen");
-	CHECK(w.new_note(QStringLiteral("plain")) && !w.add_item(QStringLiteral("x")),
-	      "a note that is no list takes no items");
+	CHECK(w.remove_item(0) && w.body_text() == QStringLiteral("[ ] eggs"),
+	      "the first item is removed and the second moves up, sec 453");
+	CHECK(!w.remove_item(1) && !w.remove_item(-1), "an item that is not there is not removed");
+	CHECK(w.open_note(w.open_id()) && w.body_text() == QStringLiteral("[ ] eggs"),
+	      "and the node holds one item, read back from it");
+	CHECK(w.new_note(QStringLiteral("plain")) && !w.add_item(QStringLiteral("x"))
+	              && !w.remove_item(0),
+	      "a note that is no list takes no items and loses none");
+}
+
+/* MOVING, sec 453: cut, open the folder, move it there. */
+static void test_a_note_is_cut_and_moved(void)
+{
+	QString folder, sub, note;
+	QStringList log;
+
+	setup();
+	fzn_notebook_view w(node_ask, nullptr);
+
+	w.set_log([&log](const QString &l) { log << l; });
+	CHECK(w.new_folder(QStringLiteral("Recipes")) && w.new_note(QStringLiteral("Bread")),
+	      "fixture: a folder and a note beside it");
+	note = w.open_id();
+	folder = w.listed_ids().value(0) == note ? w.listed_ids().value(1) : w.listed_ids().value(0);
+	CHECK(!w.move_here(), "nothing cut, nothing moves");
+	CHECK(w.cut() && w.cut_id() == note, "the note is cut");
+	CHECK(w.descend(folder, QStringLiteral("Recipes")) && w.move_here()
+	              && w.listed_ids() == QStringList{ note } && w.cut_id().isEmpty(),
+	      "opened in the folder, it moves there and is listed there");
+	CHECK(log.contains(QStringLiteral("Moved Bread to Recipes.")), "and the log says where");
+	CHECK(w.ascend() && !w.listed_ids().contains(note), "it has left the top");
+
+	/* A FOLDER NOT UNDER ITS OWN DESCENDANT: the node refuses, and nothing
+	 * moves. */
+	CHECK(w.descend(folder, QStringLiteral("Recipes")) && w.new_folder(QStringLiteral("Cakes")),
+	      "fixture: a folder inside the folder");
+	sub = w.listed_ids().value(0) == note ? w.listed_ids().value(1) : w.listed_ids().value(0);
+	CHECK(w.ascend() && w.open_note(folder) && w.cut()
+	              && w.descend(folder, QStringLiteral("Recipes"))
+	              && w.descend(sub, QStringLiteral("Cakes")),
+	      "fixture: the folder cut, and its own subfolder open");
+	CHECK(!w.move_here() && w.cut_id() == folder
+	              && log.last().startsWith(QStringLiteral("Not moved")),
+	      "it is not moved under its own subfolder, and stays cut");
+	CHECK(w.ascend() && w.ascend() && w.listed_ids().contains(folder),
+	      "it is still at the top");
 }
 
 static void test_pinned_first_and_the_archive_apart(void)
@@ -586,6 +630,7 @@ int main(int argc, char **argv)
 	test_a_shared_tree_reads_and_cannot_be_written();
 	test_an_export_is_imported_into_the_open_folder();
 	test_a_checklist_is_lines_ticked_one_at_a_time();
+	test_a_note_is_cut_and_moved();
 	test_pinned_first_and_the_archive_apart();
 	test_a_refresh_keeps_the_readers_place();
 	if (failures) {

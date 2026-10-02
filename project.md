@@ -51436,9 +51436,11 @@ node, and a fetch spends its disk, so neither is offered to another user.
 
 ### Not yet after sec 424
 
-- **Wants are not persisted.** Sixteen are remembered in memory, so a
+- ~~**Wants are not persisted.** Sixteen are remembered in memory, so a
   restart forgets what was asked for. The model of phase 3 is what knows
-  which notes name texts not here, and can ask again.
+  which notes name texts not here, and can ask again.~~ It does: every
+  round wants each text a note names (sec 432), so a restart's first round
+  asks again. Seen in sec 452's live run, recorded in sec 453.
 - **Only the pull peers are asked**, one after another. Nothing finds out
   which host holds a text, and `spool/transfer.h`'s multi-peer assignment
   is not used: a note's text is at most 256 leaves.
@@ -53857,3 +53859,47 @@ the same run without the scrub: M logged nothing and its file stayed
 different from R's. No daemon was left running.
 
 **Sabotage: five entries.**
+
+## 453. Moving notes and removing items in the view; no move under a descendant, 2026-10-02
+
+**The view reaches two verbs the node already had**: `set note ID parent
+PARENT` and `remove item ID N`. Before, a note stayed in the folder it was
+made in, and a checklist item could be ticked and reworded but not removed.
+
+- **Moving is cut, then Move here.** Cut takes the open note; the reader
+  opens the folder it goes to, the top included, and Move here asks the
+  node. The cut survives opening and leaving folders, and a refused move
+  leaves it cut. A dialog choosing a folder would need a tree the view
+  does not draw; opening the folder is how the view already says where.
+- **Remove item takes the item at the cursor**, as Tick / untick does.
+
+**The node now refuses a move under the note's own descendant**, as it
+already refused one under itself. Before, moving a folder under its own
+subfolder was taken: the two then pointed at each other, left the tree,
+and the view showed them at the top as notes in a cycle -- recoverable,
+but a reader would not know why. `fzn_notes_move` walks up from the
+destination through every writer's claim, each once, so a cycle the view
+already holds -- concurrent moves on two hosts can make one, and only
+those -- ends the walk rather than looping.
+
+Sec 424's "wants are not persisted" is struck here rather than built: the
+round wants every text a note names, so nothing needed persisting, and sec
+452's live run showed a restarted node fetching a text it had no
+remembered want for.
+
+### Measured for sec 453
+
+**`notes_store_test`, 160 checks:** a folder not moving under its child,
+nor under its grandchild, and staying where it was; a note moving up under
+its own ancestor.
+
+**`notebook_view_test`, 133 checks**, against the node's real verbs:
+- the first of two items removed and the second moving up, read back from
+  the node; an item that is not there not removed; a plain note losing
+  none;
+- nothing cut moving nothing; a note cut, its folder opened, moved there,
+  listed there and gone from the top, the log naming where;
+- a folder cut and its own subfolder opened: not moved, the log saying
+  why, still cut, still at the top.
+
+**Sabotage: four entries.**

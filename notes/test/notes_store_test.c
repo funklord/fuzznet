@@ -813,6 +813,24 @@ static void test_authoring(void)
 	      "and puts it last among the folder's children");
 	CHECK(fzn_notes_move(&a, two, two, 8001u) == FZN_NOTES_ERR_MALFORMED,
 	      "a note is not its own parent");
+	/* NOR UNDER ITS OWN DESCENDANT, sec 453: `two` is in the folder now,
+	 * and `deep` under `two`. */
+	{
+		uint8_t deep[FZN_TREE_ID_LEN];
+
+		note = titled("deep", "");
+		CHECK(fzn_notes_create(&a, two, FZN_NOTE_TYPE_NOTE, &note, 8002u, deep)
+		              == FZN_NOTES_OK,
+		      "fixture: a note under the moved one");
+		CHECK(fzn_notes_move(&a, folder, two, 8003u) == FZN_NOTES_ERR_MALFORMED,
+		      "a folder does not move under its own child");
+		CHECK(fzn_notes_move(&a, folder, deep, 8003u) == FZN_NOTES_ERR_MALFORMED
+		              && own(KEY_A, folder, &rec, &node, &note)
+		              && memcmp(node.parent, root, sizeof(root)) == 0,
+		      "nor under its grandchild, and it stays where it was");
+		CHECK(fzn_notes_move(&a, deep, folder, 8004u) == FZN_NOTES_OK,
+		      "while a note moves up under its own ancestor");
+	}
 	CHECK(fzn_notes_move(&a, stray, folder, 8001u) == FZN_NOTES_ERR_ABSENT,
 	      "a note nobody holds does not move");
 

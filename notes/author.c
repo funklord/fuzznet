@@ -234,6 +234,42 @@ fzn_notes_err_t fzn_notes_edit(const fzn_notes_author_t *author,
 	return write_note(author, id, h.parent, h.order, h.content_type, &note, now_ms);
 }
 
+/* WHETHER `id` IS `at` OR ABOVE IT, by any writer's claim on the way up:
+ * moving `id` under `at` would then make a cycle, and the notes in it would
+ * leave the tree for the top of the view. Each claim is walked once, so a
+ * cycle the view already holds -- concurrent moves on two hosts can make
+ * one -- ends the walk. sec 453. */
+static int above(const fzn_notes_view_t *view, const uint8_t id[FZN_TREE_ID_LEN],
+                 const uint8_t at[FZN_TREE_ID_LEN])
+{
+	static uint8_t seen[FZN_NOTES_MAX];
+	static size_t stack[FZN_NOTES_MAX];
+	size_t top = 0, i, k;
+
+	if (memcmp(id, at, FZN_TREE_ID_LEN) == 0)
+		return 1;
+	memset(seen, 0, sizeof(seen));
+	for (i = 0; i < view->count; i++)
+		if (memcmp(view->nodes[i].id, at, FZN_TREE_ID_LEN) == 0) {
+			seen[i] = 1;
+			stack[top++] = i;
+		}
+	while (top) {
+		const uint8_t *up = view->nodes[stack[--top]].parent;
+
+		if (memcmp(up, id, FZN_TREE_ID_LEN) == 0)
+			return 1;
+		if (is_root(up))
+			continue;
+		for (k = 0; k < view->count; k++)
+			if (!seen[k] && memcmp(view->nodes[k].id, up, FZN_TREE_ID_LEN) == 0) {
+				seen[k] = 1;
+				stack[top++] = k;
+			}
+	}
+	return 0;
+}
+
 fzn_notes_err_t fzn_notes_move(const fzn_notes_author_t *author,
                                const uint8_t id[FZN_TREE_ID_LEN],
                                const uint8_t parent[FZN_TREE_ID_LEN], uint64_t now_ms)
@@ -255,6 +291,9 @@ fzn_notes_err_t fzn_notes_move(const fzn_notes_author_t *author,
 	err = fzn_notes_view_load(author->store, author->view);
 	if (err != FZN_NOTES_OK)
 		return err;
+	/* NOT UNDER ITS OWN DESCENDANT, as not under itself. */
+	if (above(author->view, id, parent))
+		return FZN_NOTES_ERR_MALFORMED;
 	err = order_after(author->view, parent, id, &order);
 	if (err != FZN_NOTES_OK)
 		return err;
