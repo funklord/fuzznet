@@ -254,6 +254,9 @@ static void test_a_directory(void)
 		(void)remove(z);
 		(void)remove(ahead);
 		(void)remove(skew);
+		/* AND ITS PACKED FORM, which only a broken settle check makes. */
+		snprintf(z, sizeof(z), "%s.zst", skew);
+		(void)remove(z);
 	}
 	CHECK(fzn_log_pack_dir(top, "a/b", &HASH, 0u, 0u, &packed) == FZN_LOG_PACK_ERR_MALFORMED,
 	      "a program with a slash is refused");
