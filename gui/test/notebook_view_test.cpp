@@ -495,6 +495,28 @@ static void test_an_export_is_imported_into_the_open_folder(void)
 	(void)unlink(path);
 }
 
+static void test_a_checklist_is_lines_ticked_one_at_a_time(void)
+{
+	setup();
+	fzn_notebook_view w(node_ask, nullptr);
+
+	CHECK(w.new_list(QStringLiteral("shopping")) && w.title_text() == QStringLiteral("shopping"),
+	      "a checklist is made and opened");
+	CHECK(w.add_item(QStringLiteral("milk, two pints")) && w.add_item(QStringLiteral("eggs")),
+	      "two items are added");
+	CHECK(w.body_text() == QStringLiteral("[ ] milk, two pints\n[ ] eggs"),
+	      "the body shows them as lines, unticked, the comma and spaces intact");
+	CHECK(w.toggle_item(1) && w.body_text() == QStringLiteral("[ ] milk, two pints\n[x] eggs"),
+	      "the second is ticked");
+	CHECK(w.toggle_item(1) && w.body_text().endsWith(QStringLiteral("[ ] eggs")),
+	      "and unticked");
+	CHECK(!w.toggle_item(2) && !w.toggle_item(-1), "an item that is not there is not toggled");
+	CHECK(w.save() && w.body_text() == QStringLiteral("[ ] milk, two pints\n[ ] eggs"),
+	      "saving a list keeps its items, rather than writing the lines back as text");
+	CHECK(w.new_note(QStringLiteral("plain")) && !w.add_item(QStringLiteral("x")),
+	      "a note that is no list takes no items");
+}
+
 static void test_a_refresh_keeps_the_readers_place(void)
 {
 	int i, kept;
@@ -528,6 +550,7 @@ int main(int argc, char **argv)
 	test_sharing_is_warned_before_and_said_after();
 	test_a_shared_tree_reads_and_cannot_be_written();
 	test_an_export_is_imported_into_the_open_folder();
+	test_a_checklist_is_lines_ticked_one_at_a_time();
 	test_a_refresh_keeps_the_readers_place();
 	if (failures) {
 		fprintf(stderr, "notebook_view_test: %d of %d checks failed\n", failures, checks);

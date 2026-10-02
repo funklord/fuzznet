@@ -556,6 +556,42 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	checks -= 1;
 }
 
+/* `fzn_note_item_put` is the reader's inverse: what it writes walks back
+ * item for item, and what it refuses it writes nothing of. sec 442. */
+static void test_an_item_written_walks_back(void)
+{
+	static uint8_t buf[70000];
+	static uint8_t big[0x10000];
+	fzn_note_t list;
+	fzn_note_item_t item;
+	size_t used = 0, cursor = 0;
+
+	CHECK(fzn_note_item_put(buf, sizeof(buf), &used, FZN_NOTE_ITEM_FLAG_CHECKED,
+	                        (const uint8_t *)"milk", 4u)
+	      == FZN_NOTE_OK);
+	CHECK(fzn_note_item_put(buf, sizeof(buf), &used, 0u, NULL, 0u) == FZN_NOTE_OK);
+	CHECK(used == 3u + 4u + 3u);
+	memset(&list, 0, sizeof(list));
+	list.text = buf;
+	list.text_len = used;
+	CHECK(fzn_note_item_next(&list, &cursor, &item) == FZN_NOTE_OK && item.text_len == 4u
+	      && memcmp(item.text, "milk", 4u) == 0 && item.flags == FZN_NOTE_ITEM_FLAG_CHECKED);
+	CHECK(fzn_note_item_next(&list, &cursor, &item) == FZN_NOTE_OK && item.text_len == 0u
+	      && item.flags == 0u);
+	CHECK(fzn_note_item_next(&list, &cursor, &item) == FZN_NOTE_ERR_SHORT);
+	/* REFUSED, AND NOTHING WRITTEN: a text a u16 cannot carry, and an item
+	 * that does not fit. */
+	memset(big, 'b', sizeof(big));
+	CHECK(fzn_note_item_put(buf, sizeof(buf), &used, 0u, big, 0x10000u) == FZN_NOTE_ERR_LEN
+	      && used == 10u);
+	CHECK(fzn_note_item_put(buf, 12u, &used, 0u, (const uint8_t *)"ab", 2u)
+	              == FZN_NOTE_ERR_CAPACITY
+	      && used == 10u);
+	CHECK(fzn_note_item_put(buf, 15u, &used, 0u, (const uint8_t *)"ab", 2u) == FZN_NOTE_OK
+	      && used == 15u);
+	CHECK(fzn_note_item_put(NULL, 15u, &used, 0u, NULL, 0u) == FZN_NOTE_ERR_NULL);
+}
+
 int main(void)
 {
 	test_a_note_survives_the_round_trip();
@@ -566,6 +602,7 @@ int main(void)
 	test_a_blob_reference_must_be_a_reference();
 	test_labels_are_separated_not_terminated();
 	test_a_checklist_walks_and_refuses_a_truncated_item();
+	test_an_item_written_walks_back();
 	test_the_content_budget_is_exact();
 	test_a_length_that_would_wrap_the_total_is_refused();
 	test_error_strings_exist_for_every_code();

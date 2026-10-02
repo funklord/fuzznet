@@ -226,6 +226,23 @@ fzn_note_err_t fzn_note_item_next(const fzn_note_t *note, size_t *cursor, fzn_no
 	return FZN_NOTE_OK;
 }
 
+fzn_note_err_t fzn_note_item_put(uint8_t *out, size_t cap, size_t *used, uint8_t flags,
+                                 const uint8_t *text, size_t text_len)
+{
+	if (!out || !used || (!text && text_len))
+		return FZN_NOTE_ERR_NULL;
+	/* THE TEXT'S LENGTH IS A u16, and an item past it is refused rather
+	 * than written with a length that wraps. */
+	if (text_len > 0xffffu || *used > cap || cap - *used < 3u + text_len)
+		return text_len > 0xffffu ? FZN_NOTE_ERR_LEN : FZN_NOTE_ERR_CAPACITY;
+	out[*used] = flags;
+	fzn_put_be16(out + *used + 1u, (uint16_t)text_len);
+	if (text_len)
+		memcpy(out + *used + 3u, text, text_len);
+	*used += 3u + text_len;
+	return FZN_NOTE_OK;
+}
+
 fzn_note_err_t fzn_note_blob_ref(const fzn_note_t *note, fzn_note_blob_ref_t *out)
 {
 	if (!note || !out)

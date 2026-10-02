@@ -104,6 +104,12 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_restore = new QPushButton(QStringLiteral("Restore"), this);
 	m_empty = new QPushButton(QStringLiteral("Empty trash"), this);
 	m_import = new QPushButton(QStringLiteral("Import"), this);
+	m_new_list = new QPushButton(QStringLiteral("New list"), this);
+	m_item_text = new QLineEdit(this);
+	m_item_text->setPlaceholderText(QStringLiteral("New item"));
+	m_add_item = new QPushButton(QStringLiteral("Add item"), this);
+	m_toggle = new QPushButton(QStringLiteral("Tick / untick"), this);
+	auto *item_row = new QHBoxLayout();
 	m_share_to = new QComboBox(this);
 	m_share = new QPushButton(QStringLiteral("Share"), this);
 	m_unshare = new QPushButton(QStringLiteral("Unshare"), this);
@@ -121,7 +127,11 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	top->addWidget(m_location, 1);
 	edit_row->addWidget(m_new_note);
 	edit_row->addWidget(m_new_folder);
+	edit_row->addWidget(m_new_list);
 	edit_row->addWidget(m_save);
+	item_row->addWidget(m_item_text, 1);
+	item_row->addWidget(m_add_item);
+	item_row->addWidget(m_toggle);
 	edit_row->addWidget(m_import);
 	trash_row->addWidget(m_show_trash);
 	trash_row->addWidget(m_trash_button);
@@ -136,6 +146,7 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	outer->addLayout(trash_row);
 	outer->addWidget(m_title);
 	outer->addWidget(m_body, 1);
+	outer->addLayout(item_row);
 	outer->addLayout(edit_row);
 	outer->addWidget(m_warning);
 	outer->addLayout(share_row);
@@ -162,6 +173,15 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	connect(m_new_folder, &QPushButton::clicked, this,
 	        [this]() { new_folder(QStringLiteral("New folder")); });
 	connect(m_trash_button, &QPushButton::clicked, this, [this]() { trash(); });
+	connect(m_new_list, &QPushButton::clicked, this,
+	        [this]() { new_list(QStringLiteral("New list")); });
+	connect(m_add_item, &QPushButton::clicked, this, [this]() {
+		if (add_item(m_item_text->text()))
+			m_item_text->clear();
+	});
+	/* THE ITEM AT THE CURSOR: one line of the body is one item. */
+	connect(m_toggle, &QPushButton::clicked, this,
+	        [this]() { toggle_item(m_body->textCursor().blockNumber()); });
 	connect(m_restore, &QPushButton::clicked, this, [this]() { restore(); });
 	connect(m_empty, &QPushButton::clicked, this, [this]() { empty_trash(); });
 	connect(m_import, &QPushButton::clicked, this, [this]() {
@@ -339,6 +359,8 @@ void fzn_notebook_view::refresh_note()
 
 	m_title->clear();
 	m_body->clear();
+	m_is_list = false;
+	m_ticks.clear();
 	if (have) {
 		QString get = shared() ? QStringLiteral("get shared %1 %2").arg(m_tree, m_open)
 		                       : QStringLiteral("get note %1").arg(m_open);
@@ -348,7 +370,35 @@ void fzn_notebook_view::refresh_note()
 			int type = f.value(0).toInt();
 
 			m_title->setText(unescape(f.mid(7).join(QLatin1Char(' '))));
-			if (type != FZN_NOTE_TYPE_FOLDER) {
+			m_is_list = type == FZN_NOTE_TYPE_LIST;
+			if (m_is_list) {
+				QStringList lines;
+				size_t from = 0, total = 0, guard;
+
+				/* `TOTAL FROM FLAGS,TEXT ...`, every page. */
+				for (guard = 0; guard < 256u; guard++) {
+					QStringList w;
+					int i;
+
+					if (ask(QStringLiteral("%1 items %2").arg(get).arg(from), &detail) != 1)
+						break;
+					w = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+					total = w.value(0).toULongLong();
+					for (i = 2; i < w.size(); i++) {
+						bool ticked = (w[i].section(QLatin1Char(','), 0, 0).toUInt()
+						               & FZN_NOTE_ITEM_FLAG_CHECKED)
+						              != 0u;
+
+						m_ticks << ticked;
+						lines << (ticked ? QStringLiteral("[x] ") : QStringLiteral("[ ] "))
+						                         + unescape(w[i].section(QLatin1Char(','), 1));
+						from++;
+					}
+					if (from >= total || w.size() <= 2)
+						break;
+				}
+				m_body->setPlainText(lines.join(QLatin1Char('\n')));
+			} else if (type != FZN_NOTE_TYPE_FOLDER) {
 				QTemporaryFile file;
 
 				if (file.open()) {
@@ -372,7 +422,11 @@ void fzn_notebook_view::refresh_note()
 		}
 	}
 	m_title->setReadOnly(!editing);
-	m_body->setReadOnly(!editing);
+	m_body->setReadOnly(!editing || m_is_list);
+	m_new_list->setEnabled(editing);
+	m_item_text->setEnabled(editing && m_is_list);
+	m_add_item->setEnabled(editing && m_is_list);
+	m_toggle->setEnabled(editing && m_is_list);
 	m_new_note->setEnabled(editing);
 	m_new_folder->setEnabled(editing);
 	m_save->setEnabled(editing && have);
@@ -501,6 +555,59 @@ bool fzn_notebook_view::new_folder(const QString &title)
 	return true;
 }
 
+bool fzn_notebook_view::new_list(const QString &title)
+{
+	QString id;
+	QString one_line = QString(title).replace(QLatin1Char('\n'), QLatin1Char(' '));
+
+	if (shared() || one_line.isEmpty())
+		return false;
+	if (ask(QStringLiteral("add list %1 %2").arg(parent_id(), one_line), &id) != 1) {
+		say(QStringLiteral("The list was not made: %1").arg(id));
+		return false;
+	}
+	m_open = id;
+	refresh_list();
+	refresh_note();
+	refresh_shares();
+	say(QStringLiteral("Made the list %1.").arg(one_line));
+	return true;
+}
+
+bool fzn_notebook_view::add_item(const QString &text)
+{
+	QString why;
+	QString one_line = QString(text).replace(QLatin1Char('\n'), QLatin1Char(' '));
+
+	if (shared() || !m_is_list || one_line.isEmpty())
+		return false;
+	if (ask(QStringLiteral("add item %1 %2").arg(m_open, one_line), &why) != 1) {
+		say(QStringLiteral("The item was not added: %1").arg(why));
+		return false;
+	}
+	refresh_note();
+	return true;
+}
+
+bool fzn_notebook_view::toggle_item(int index)
+{
+	QString why;
+
+	if (shared() || !m_is_list || index < 0 || index >= m_ticks.size())
+		return false;
+	if (ask(QStringLiteral("set note %1 item %2 %3")
+	                .arg(m_open)
+	                .arg(index)
+	                .arg(m_ticks[index] ? QStringLiteral("uncheck") : QStringLiteral("check")),
+	        &why)
+	    != 1) {
+		say(QStringLiteral("The item was not changed: %1").arg(why));
+		return false;
+	}
+	refresh_note();
+	return true;
+}
+
 bool fzn_notebook_view::save()
 {
 	QString why;
@@ -516,7 +623,7 @@ bool fzn_notebook_view::save()
 	}
 	/* THE TEXT THROUGH A FILE: it may hold newlines and be far past one
 	 * request line. A folder has none to save. */
-	if (m_body->isEnabled()) {
+	if (m_body->isEnabled() && !m_is_list) {
 		if (!file.open() || file.write(m_body->toPlainText().toUtf8()) < 0) {
 			say(QStringLiteral("The text could not be written out to save."));
 			return false;

@@ -766,6 +766,82 @@ static void test_import(void)
 	CHECK(rmdir(dir) == 0, "the scratch directory is left empty and removed");
 }
 
+/* CHECKLISTS, sec 442: made, filled, ticked, reworded and emptied through
+ * the verbs, and a list long enough to need a blob read back through it. */
+static void test_checklist(void)
+{
+	char list[65], note[65], line[600];
+	static char long_item[401];
+	int i;
+
+	setup(0);
+	CHECK(ask("add list top shopping") == FZN_REPLY_OK, "a checklist is made");
+	take_id(list);
+	snprintf(line, sizeof(line), "get note %s items", list);
+	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "0 0"), "it starts empty");
+	snprintf(line, sizeof(line), "add item %s milk, two pints", list);
+	CHECK(ask(line) == FZN_REPLY_OK, "an item is added");
+	snprintf(line, sizeof(line), "add item %s eggs", list);
+	CHECK(ask(line) == FZN_REPLY_OK, "and another");
+	snprintf(line, sizeof(line), "get note %s items", list);
+	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "2 0 0,milk%2c%20two%20pints 0,eggs"),
+	      "both listed in order, unchecked, escaped so each stays one field");
+	snprintf(line, sizeof(line), "set note %s item 1 check", list);
+	CHECK(ask(line) == FZN_REPLY_OK, "the second is ticked");
+	snprintf(line, sizeof(line), "set note %s item 0 text oat milk", list);
+	CHECK(ask(line) == FZN_REPLY_OK, "the first is reworded");
+	snprintf(line, sizeof(line), "get note %s items", list);
+	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "2 0 0,oat%20milk 1,eggs"),
+	      "the tick and the rewording are both kept, and nothing else moved");
+	snprintf(line, sizeof(line), "get note %s items 1", list);
+	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "2 1 1,eggs"), "a page from item 1");
+	snprintf(line, sizeof(line), "set note %s item 1 uncheck", list);
+	CHECK(ask(line) == FZN_REPLY_OK, "unticked");
+	snprintf(line, sizeof(line), "remove item %s 0", list);
+	CHECK(ask(line) == FZN_REPLY_OK, "the first removed");
+	snprintf(line, sizeof(line), "get note %s items", list);
+	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "1 0 0,eggs"),
+	      "one item is left, unticked");
+	snprintf(line, sizeof(line), "remove item %s 5", list);
+	CHECK(ask(line) == FZN_REPLY_ERROR, "an item that is not there is refused");
+	snprintf(line, sizeof(line), "set note %s item 3 check", list);
+	CHECK(ask(line) == FZN_REPLY_ERROR, "and cannot be ticked");
+	snprintf(line, sizeof(line), "set note %s item 7 text far away", list);
+	CHECK(ask(line) == FZN_REPLY_ERROR, "nor reworded into being past the end");
+	snprintf(line, sizeof(line), "set note %s item 0 frobnicate", list);
+	CHECK(ask(line) == FZN_REPLY_MALFORMED, "a change that is none is malformed");
+	snprintf(line, sizeof(line), "add item %s", list);
+	CHECK(ask(line) == FZN_REPLY_MALFORMED, "an item with no text is malformed");
+	snprintf(line, sizeof(line), "add item %s x", list);
+	CHECK(ask_as(FZN_ORIGIN_LOCAL, line) == FZN_REPLY_DENIED, "another user may not add one");
+
+	CHECK(ask("add note top plain") == FZN_REPLY_OK, "fixture: a note that is no list");
+	take_id(note);
+	snprintf(line, sizeof(line), "add item %s x", note);
+	CHECK(ask(line) == FZN_REPLY_ERROR, "a note that is no checklist takes no items");
+	snprintf(line, sizeof(line), "get note %s items", note);
+	CHECK(ask(line) == FZN_REPLY_ERROR, "and lists none");
+
+	/* PAST WHAT FITS INLINE, the items are sealed and read back through
+	 * the blob, as a long text is. */
+	notes.seal = toy_seal;
+	notes.open = toy_open;
+	memset(long_item, 'z', sizeof(long_item) - 1u);
+	for (i = 0; i < 4; i++) {
+		snprintf(line, sizeof(line), "add item %s %s", list, long_item);
+		CHECK(ask(line) == FZN_REPLY_OK, "a long item is added");
+	}
+	snprintf(line, sizeof(line), "get note %s", list);
+	CHECK(ask(line) == FZN_REPLY_OK && has(" blob "), "the list's items went into a blob");
+	snprintf(line, sizeof(line), "set note %s item 4 check", list);
+	CHECK(ask(line) == FZN_REPLY_OK, "an item in the blob is ticked");
+	snprintf(line, sizeof(line), "get note %s items 4", list);
+	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "5 4 1,zzzz", 10u),
+	      "and reads back ticked from the blob");
+	notes.seal = NULL;
+	notes.open = NULL;
+}
+
 int main(void)
 {
 	memset(SELF, 0x51, sizeof(SELF));
@@ -779,6 +855,7 @@ int main(void)
 	test_share();
 	test_shared_reads();
 	test_import();
+	test_checklist();
 
 	if (failures) {
 		fprintf(stderr, "notes_test: %d of %d checks failed\n", failures, checks);

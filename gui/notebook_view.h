@@ -89,6 +89,12 @@ public:
 	bool open_note(const QString &id);
 	bool new_note(const QString &title);
 	bool new_folder(const QString &title);
+	/* CHECKLISTS, sec 442: a list's items are lines `[ ] text` and
+	 * `[x] text` in the body, which is read-only for a list; they change
+	 * one at a time through these. */
+	bool new_list(const QString &title);
+	bool add_item(const QString &text);
+	bool toggle_item(int index);
 	bool save();
 	bool trash();
 	bool restore();
@@ -138,6 +144,9 @@ private:
 	/* The note in the editor, as hex; empty composing nothing. */
 	QString m_open;
 	bool m_trash = false;
+	/* Whether the open note is a checklist, and its items' ticks. */
+	bool m_is_list = false;
+	QList<bool> m_ticks;
 	/* Set while a refresh rewrites the tree chooser, so its change is not
 	 * taken for somebody picking a tree. */
 	bool m_updating = false;
@@ -159,6 +168,10 @@ private:
 	QPushButton *m_restore;
 	QPushButton *m_empty;
 	QPushButton *m_import;
+	QPushButton *m_new_list;
+	QLineEdit *m_item_text;
+	QPushButton *m_add_item;
+	QPushButton *m_toggle;
 	QComboBox *m_share_to;
 	QPushButton *m_share;
 	QPushButton *m_unshare;

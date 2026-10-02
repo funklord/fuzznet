@@ -52376,10 +52376,8 @@ long texts to its shelf when it has one.
 
 - **~~Sync between nodes~~: built in sec 432.**
 - **~~The purge conversation~~: built in sec 433.**
-- **Checklist items** have no verbs yet; a list can be read and moved,
-  not edited.
-- **Import** has no verb yet: `notes/import` is a library a client would
-  drive, and the node needs a way to be handed an export.
+- ~~**Checklist items** have no verbs yet.~~ Built in sec 442.
+- ~~**Import** has no verb yet.~~ Built in sec 440.
 
 ### Measured for sec 431
 
@@ -53378,3 +53376,54 @@ suite run with no terminal cannot tell from an inherited stdin.
 - **Adoption by netcfgd and raidcfgd**, which is the cross-project pass sec
   428 describes; they are to be told it exists.
 - **Everything else in sec 428**, waiting on the holder's open questions.
+
+## 442. Checklists, editable through the node and the view, 2026-10-02
+
+Sec 431 recorded that a checklist could be read and moved and not edited,
+and Keep's checklists import as lists (sec 429), so imported lists were
+frozen.
+
+    add list PARENT TITLE              a checklist
+    get note ID items [FROM]           `ok TOTAL FROM FLAGS,TEXT ...`
+    add item ID TEXT                   an item at the end
+    set note ID item N check|uncheck   tick item N, counting from 0
+    set note ID item N text TEXT       reword it
+    remove item ID N                   remove it
+
+- **An edit rewrites the list's items whole**, every item as it was but the
+  one named, through the same text edit a note's text takes. So a list
+  past what fits inline is sealed into a blob as a long text is, and its
+  items are read back through the node's text hook; a list's items are
+  never anywhere a note's text would not be.
+- **One past the last item is an append; anything further is no item.**
+  Rewording item 7 of a two-item list is refused rather than appended.
+- **Each item's text is escaped** in a listing, so a comma or a space stays
+  inside one field.
+- **`fzn_note_item_put`** is the library's encoder, the inverse of
+  `fzn_note_item_next`, refusing a text past a u16 and an item that does
+  not fit, and writing nothing when it refuses.
+
+**The view** shows a list's items as `[ ] text` and `[x] text` lines in a
+read-only body, with New list, an item field and Add item, and Tick / untick
+for the item at the cursor. Saving a list saves its title and leaves its
+items alone, rather than writing the displayed lines back as text.
+
+### Measured for sec 442
+
+**`note_test`, 138 checks:** an item written walks back item for item, an
+empty item included; a text past a u16 and an item past the buffer refused
+with nothing written.
+
+**`notes_test` (node), 195 checks:** a list made, empty, filled; listed in
+order and escaped; ticked and reworded with both kept; a page from an item;
+unticked and removed; an item not there refused, for removal, ticking and
+rewording past the end; a change that is none and an item with no text
+malformed; another user denied; a plain note taking and listing no items; a
+list long enough to be sealed into a blob, edited and read back through it.
+
+**`notebook_view_test`, 108 checks:** a list made and filled, shown as
+lines with a comma and spaces intact, ticked and unticked, an item not there
+not toggled, saved with its items kept, and a plain note taking no items.
+
+**Sabotage: seven entries**, and `notebook-view-saves-text-through-a-file`
+re-aimed at the condition that now leaves a list's text alone.

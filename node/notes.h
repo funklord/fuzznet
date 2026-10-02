@@ -33,6 +33,12 @@
  *                                  node does not hold
  *     get shared NAME ID ...       as `get note`, in that tree
  *
+ *     add list PARENT TITLE        a checklist (sec 442)
+ *     get note ID items [FROM]     its items, `FLAGS,TEXT`, a page at a time
+ *     add item ID TEXT             an item at the end
+ *     set note ID item N check     tick item N (from 0), or uncheck it
+ *     set note ID item N text TEXT reword it
+ *     remove item ID N             remove it
  *     add import PARENT PATH       a KNotes .ics, a Keep .json or a Takeout
  *                                  directory into PARENT (sec 440); answers
  *                                  IMPORTED ALREADY UNDATED REFUSED and the

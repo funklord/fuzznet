@@ -202,6 +202,12 @@ typedef struct fzn_note_item {
  * has no items here: they are in the blob. */
 fzn_note_err_t fzn_note_item_next(const fzn_note_t *note, size_t *cursor, fzn_note_item_t *out);
 
+/* Append one item to `out` at `*used`, advancing it: the inverse of
+ * `fzn_note_item_next`. LEN for a text past a u16's reach, CAPACITY when it
+ * does not fit `cap`; nothing is written either way. sec 442. */
+fzn_note_err_t fzn_note_item_put(uint8_t *out, size_t cap, size_t *used, uint8_t flags,
+                                 const uint8_t *text, size_t text_len);
+
 /* THE BLOB REFERENCE. */
 typedef struct fzn_note_blob_ref {
 	uint8_t root[FZN_BLOB_HASH_LEN];

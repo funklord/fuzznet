@@ -196,6 +196,13 @@ static const fzn_tree_node_t *find(const fzn_node_notes_t *n, const uint8_t id[F
 	return &view.nodes[first];
 }
 
+/* Checklists, below: `get` and `set` reach them. sec 442. */
+static size_t get_items(fzn_node_notes_t *n, const fzn_notes_store_t *store,
+                        const uint8_t id[FZN_TREE_ID_LEN], const uint8_t *at, size_t left,
+                        char *reply, size_t cap);
+static size_t set_item(fzn_node_notes_t *n, const uint8_t id[FZN_TREE_ID_LEN], const uint8_t *at,
+                       size_t left, char *reply, size_t cap);
+
 /* ---- add ----------------------------------------------------------------- */
 
 static size_t add(fzn_node_notes_t *n, uint16_t type, const uint8_t *at, size_t left, char *reply,
@@ -309,6 +316,8 @@ static size_t set(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *rep
 	}
 	if (is_word(field, field_len, "text"))
 		return set_text(n, id, at, left, reply, cap);
+	if (is_word(field, field_len, "item"))
+		return set_item(n, id, at, left, reply, cap);
 	if (is_word(field, field_len, "file")) {
 		/* ONE BYTE PAST THE BOUND is read, so a file at the bound and one
 		 * past it are told apart; the second is refused, not cut. */
@@ -468,6 +477,8 @@ static size_t get(fzn_node_notes_t *n, const fzn_notes_store_t *store, const uin
 			return say(reply, cap, FZN_REPLY_ERROR, "the title does not fit a reply");
 		return answer(reply, cap, FZN_REPLY_OK, detail, used + wrote);
 	}
+	if (is_word(field, field_len, "items"))
+		return get_items(n, store, id, at, left, reply, cap);
 	if (is_word(field, field_len, "text")) {
 		if (note.flags & FZN_NOTE_FLAG_TEXT_IS_BLOB)
 			return say(reply, cap, FZN_REPLY_ERROR, "a blob: get note ID file PATH");
@@ -516,6 +527,237 @@ static size_t get(fzn_node_notes_t *n, const fzn_notes_store_t *store, const uin
 		return answer(reply, cap, FZN_REPLY_OK, detail, k > 0 ? (size_t)k : 0u);
 	}
 	return say(reply, cap, FZN_REPLY_MALFORMED, "no such field");
+}
+
+/* ---- checklists, sec 442 ------------------------------------------------- */
+
+static uint8_t items_buf[FZN_NOTE_TEXT_MAX];
+static uint8_t fresh_buf[FZN_NOTE_TEXT_MAX];
+
+/* A checklist's items, wherever they are: inline in the note, or in its blob
+ * opened through the node's text hook -- a long list is sealed as a long
+ * text is. ABSENT when the blob is not here. */
+static fzn_notes_err_t list_items(fzn_node_notes_t *n, const fzn_note_t *note, uint8_t *out,
+                                  size_t cap, size_t *len)
+{
+	fzn_note_blob_ref_t ref;
+
+	*len = 0;
+	if (note->flags & FZN_NOTE_FLAG_TEXT_IS_BLOB) {
+		if (!n->open || fzn_note_blob_ref(note, &ref) != FZN_NOTE_OK
+		    || !n->open(n->text_ctx, &ref, out, cap, len))
+			return FZN_NOTES_ERR_ABSENT;
+		return FZN_NOTES_OK;
+	}
+	if (note->text_len > cap)
+		return FZN_NOTES_ERR_SHAPE;
+	if (note->text_len)
+		memcpy(out, note->text, note->text_len);
+	*len = note->text_len;
+	return FZN_NOTES_OK;
+}
+
+/* The next item of `len` bytes of items, as a list note's text holds them. */
+static fzn_note_err_t next_item(const uint8_t *bytes, size_t len, size_t *cursor,
+                                fzn_note_item_t *item)
+{
+	fzn_note_t held;
+
+	memset(&held, 0, sizeof(held));
+	held.text = bytes;
+	held.text_len = len;
+	return fzn_note_item_next(&held, cursor, item);
+}
+
+/* The checklist `id` in `store`, with its items in `items_buf`. 0 when it
+ * opened, else the reply saying why. */
+static size_t open_list(fzn_node_notes_t *n, const fzn_notes_store_t *store,
+                        const uint8_t id[FZN_TREE_ID_LEN], fzn_note_t *note, size_t *items_len,
+                        char *reply, size_t cap)
+{
+	const fzn_tree_node_t *node;
+	size_t idx = 0;
+	fzn_notes_err_t err;
+
+	err = fzn_notes_view_load(store, &view);
+	if (err != FZN_NOTES_OK)
+		return refuse(reply, cap, err);
+	node = find(n, id, &idx);
+	if (!node)
+		return refuse(reply, cap, FZN_NOTES_ERR_ABSENT);
+	if (node->content_type != FZN_NOTE_TYPE_LIST
+	    || fzn_note_open(node->content_type, node->content, node->content_len, note)
+	               != FZN_NOTE_OK)
+		return say(reply, cap, FZN_REPLY_ERROR, "not a checklist");
+	err = list_items(n, note, items_buf, sizeof(items_buf), items_len);
+	if (err == FZN_NOTES_ERR_ABSENT)
+		return say(reply, cap, FZN_REPLY_ERROR, "the items are not here yet");
+	if (err != FZN_NOTES_OK)
+		return refuse(reply, cap, err);
+	return 0;
+}
+
+/* `get note ID items [FROM]`: `ok TOTAL FROM FLAGS,TEXT ...`, a page at a
+ * time, each text escaped so an item stays one field. */
+static size_t get_items(fzn_node_notes_t *n, const fzn_notes_store_t *store,
+                        const uint8_t id[FZN_TREE_ID_LEN], const uint8_t *at, size_t left,
+                        char *reply, size_t cap)
+{
+	static char detail[FZN_REPLY_MAX];
+	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	size_t items_len = 0, cursor = 0, total = 0, from = 0, i, used, r;
+	const uint8_t *w;
+	size_t w_len;
+	fzn_note_item_t item;
+	fzn_note_t note;
+	int k;
+
+	if (word(&at, &left, &w, &w_len))
+		for (i = 0; i < w_len; i++) {
+			if (w[i] < '0' || w[i] > '9' || from > FZN_NOTE_TEXT_MAX)
+				return say(reply, cap, FZN_REPLY_MALFORMED, "not an index");
+			from = (from * 10u) + (size_t)(w[i] - '0');
+		}
+	r = open_list(n, store, id, &note, &items_len, reply, cap);
+	if (r)
+		return r;
+	while (next_item(items_buf, items_len, &cursor, &item) == FZN_NOTE_OK)
+		total++;
+	if (from > total)
+		return say(reply, cap, FZN_REPLY_MALFORMED, "past the last item");
+	k = snprintf(detail, sizeof(detail), "%zu %zu", total, from);
+	if (k < 0 || (size_t)k >= limit)
+		return 0;
+	used = (size_t)k;
+	cursor = 0;
+	for (i = 0; next_item(items_buf, items_len, &cursor, &item) == FZN_NOTE_OK; i++) {
+		size_t wrote = 0;
+		char head[8];
+		int m;
+
+		if (i < from)
+			continue;
+		m = snprintf(head, sizeof(head), " %u,", (unsigned)item.flags);
+		if (m < 0 || limit - used < (size_t)m + 1u)
+			break;
+		/* AN ITEM WHOLE OR NOT AT ALL: the page ends where the next one
+		 * does not fit, and the caller asks from there. */
+		if (escape(item.text, item.text_len, detail + used + (size_t)m,
+		           limit - used - (size_t)m, &wrote)
+		    < item.text_len)
+			break;
+		memcpy(detail + used, head, (size_t)m);
+		used += (size_t)m + wrote;
+	}
+	return answer(reply, cap, FZN_REPLY_OK, detail, used);
+}
+
+/* Rewrite the checklist `id`'s items: every item as it was, except item
+ * `which` -- changed to `flags` and `text`, or left out when `drop` -- and
+ * a new one at the end when `which` is the count. */
+static size_t rewrite_items(fzn_node_notes_t *n, const uint8_t id[FZN_TREE_ID_LEN], size_t which,
+                            int drop, int set_flags, uint8_t flags, const uint8_t *text,
+                            size_t text_len, char *reply, size_t cap)
+{
+	size_t items_len = 0, cursor = 0, used = 0, i, r;
+	fzn_note_item_t item;
+	fzn_note_t note;
+	int found = 0;
+
+	r = open_list(n, &n->store, id, &note, &items_len, reply, cap);
+	if (r)
+		return r;
+	for (i = 0; next_item(items_buf, items_len, &cursor, &item) == FZN_NOTE_OK; i++) {
+		uint8_t f = item.flags;
+		const uint8_t *t = item.text;
+		size_t t_len = item.text_len;
+
+		if (i == which) {
+			found = 1;
+			if (drop)
+				continue;
+			if (set_flags)
+				f = flags;
+			if (text) {
+				t = text;
+				t_len = text_len;
+			}
+		}
+		if (fzn_note_item_put(fresh_buf, sizeof(fresh_buf), &used, f, t, t_len) != FZN_NOTE_OK)
+			return say(reply, cap, FZN_REPLY_ERROR, "past what a note can hold");
+	}
+	if (!found) {
+		/* ONE PAST THE LAST IS AN APPEND; anything further is no item. */
+		if (which != i || drop || !text)
+			return say(reply, cap, FZN_REPLY_ERROR, "no such item");
+		if (fzn_note_item_put(fresh_buf, sizeof(fresh_buf), &used, flags, text, text_len)
+		    != FZN_NOTE_OK)
+			return say(reply, cap, FZN_REPLY_ERROR, "past what a note can hold");
+	}
+	return set_text(n, id, fresh_buf, used, reply, cap);
+}
+
+static int parse_index(const uint8_t *w, size_t w_len, size_t *out)
+{
+	size_t i, v = 0;
+
+	if (w_len == 0u || w_len > 6u)
+		return 0;
+	for (i = 0; i < w_len; i++) {
+		if (w[i] < '0' || w[i] > '9')
+			return 0;
+		v = (v * 10u) + (size_t)(w[i] - '0');
+	}
+	*out = v;
+	return 1;
+}
+
+/* `set note ID item N check|uncheck|text TEXT`. */
+static size_t set_item(fzn_node_notes_t *n, const uint8_t id[FZN_TREE_ID_LEN], const uint8_t *at,
+                       size_t left, char *reply, size_t cap)
+{
+	const uint8_t *w, *how;
+	size_t w_len, how_len, which = 0;
+	static const char USAGE[] = "set note ID item N check|uncheck|text TEXT";
+
+	if (!word(&at, &left, &w, &w_len) || !parse_index(w, w_len, &which)
+	    || !word(&at, &left, &how, &how_len))
+		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+	if (is_word(how, how_len, "check") || is_word(how, how_len, "uncheck"))
+		return rewrite_items(n, id, which, 0, 1,
+		                     is_word(how, how_len, "check") ? FZN_NOTE_ITEM_FLAG_CHECKED : 0u,
+		                     NULL, 0u, reply, cap);
+	if (is_word(how, how_len, "text") && left)
+		return rewrite_items(n, id, which, 0, 0, 0u, at, left, reply, cap);
+	return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+}
+
+/* `add item ID TEXT` appends; `remove item ID N` removes. */
+static size_t change_item(fzn_node_notes_t *n, int add, const uint8_t *at, size_t left,
+                          char *reply, size_t cap)
+{
+	uint8_t id[FZN_TREE_ID_LEN];
+	const uint8_t *w;
+	size_t w_len, which = 0, items_len = 0, cursor = 0, count = 0, r;
+	fzn_note_item_t item;
+	fzn_note_t note;
+
+	if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, id) || fzn_tree_is_root(id))
+		return say(reply, cap, FZN_REPLY_MALFORMED,
+		           add ? "add item ID TEXT" : "remove item ID N");
+	if (!add) {
+		if (!word(&at, &left, &w, &w_len) || !parse_index(w, w_len, &which))
+			return say(reply, cap, FZN_REPLY_MALFORMED, "remove item ID N");
+		return rewrite_items(n, id, which, 1, 0, 0u, NULL, 0u, reply, cap);
+	}
+	if (!left)
+		return say(reply, cap, FZN_REPLY_MALFORMED, "add item ID TEXT");
+	r = open_list(n, &n->store, id, &note, &items_len, reply, cap);
+	if (r)
+		return r;
+	while (next_item(items_buf, items_len, &cursor, &item) == FZN_NOTE_OK)
+		count++;
+	return rewrite_items(n, id, count, 0, 1, 0u, at, left, reply, cap);
 }
 
 /* ---- remove note trash --------------------------------------------------- */
@@ -905,9 +1147,18 @@ size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t 
 			return list_shares(n, at, left, reply, reply_cap);
 		return change_share(n, request->parsed == FZN_VERB_ADD, at, left, reply, reply_cap);
 	}
-	if (!is_word(subject, subject_len, "note") && !is_word(subject, subject_len, "folder"))
+	if (is_word(subject, subject_len, "item")) {
+		if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_REMOVE)
+			return 0;
+		if (origin != FZN_ORIGIN_SAME_USER)
+			return say(reply, reply_cap, FZN_REPLY_DENIED, "notes need this node's own user");
+		return change_item(n, request->parsed == FZN_VERB_ADD, at, left, reply, reply_cap);
+	}
+	if (!is_word(subject, subject_len, "note") && !is_word(subject, subject_len, "folder")
+	    && !is_word(subject, subject_len, "list"))
 		return 0;
-	if (is_word(subject, subject_len, "folder") && request->parsed != FZN_VERB_ADD)
+	if ((is_word(subject, subject_len, "folder") || is_word(subject, subject_len, "list"))
+	    && request->parsed != FZN_VERB_ADD)
 		return 0;
 	if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_SET
 	    && request->parsed != FZN_VERB_LIST && request->parsed != FZN_VERB_GET
@@ -919,6 +1170,7 @@ size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t 
 	case FZN_VERB_ADD:
 		return add(n,
 		           is_word(subject, subject_len, "folder") ? FZN_NOTE_TYPE_FOLDER
+		           : is_word(subject, subject_len, "list") ? FZN_NOTE_TYPE_LIST
 		                                                   : FZN_NOTE_TYPE_NOTE,
 		           at, left, reply, reply_cap);
 	case FZN_VERB_SET:
