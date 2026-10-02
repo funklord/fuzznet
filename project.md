@@ -54178,3 +54178,70 @@ instance's moved file was past the test's small segment size, so it rotated
 -- renaming the other instance's new file -- and wrote into a fresh one,
 masking the stale handle. The case now runs at the default segment size,
 where only the file's identity can send the line to the right place.
+
+## 459. Packing closed segments, chained by their trailers, 2026-10-02
+
+The second half of step 3 in sec 456's order: `log/pack`, built with
+`FZN_LOG_PACK`, which links libzstd -- the holder's choice, over running
+the `zstd` tool, and the first library this tree links.
+
+- **A packed segment is `PROGRAM.TIME.PID.log.zst`**: the segment's bytes
+  and then a trailer line, one zstd frame with its content checksum on, so
+  `zstdcat` and `zstdgrep` read it as sec 428 asked.
+- **The trailer chains each segment to the one before**, a program's
+  segments in the order they were closed:
+  `#fuzznet-log-trailer 1 prev=HEX hash=HEX`. The hash folds the segment
+  in 64 KiB chunks from the previous trailer's hash -- `state = H(state ||
+  chunk)` -- because `fzn_hash_ops_t` is one-shot and a segment is
+  megabytes; a program's first starts from zeros. The chain's last hash is
+  kept in `PROGRAM.chain`. Tamper evidence, not prevention: whoever can
+  write the directory can rewrite the whole chain after a change, which a
+  signed trailer will later pin.
+- **`fzn_log_pack_verify`** decompresses, recomputes the chain over the
+  bytes before the trailer and checks both fields, so a reader walks a
+  program's segments one by one.
+- **`fzn_log_pack_dir`** packs a program's settled segments oldest first,
+  under a POSIX record lock on the chain file -- an instance finding it
+  locked packs nothing and leaves it to the holder. Each is written as
+  `.zst.new`, verified, renamed into place, the chain written, and only
+  then the segment removed. **A segment is settled** once it has been
+  closed for ten seconds by default: an instance that checked its file just
+  before another rotated it may still append one line, and it must land
+  before the trailer.
+- **The logger calls a `rotated` hook** after a rotation of its own, so a
+  consumer packs there without the logger linking the packer.
+- **The manifest gains a kind, `link`**: a backend's source and what a
+  consumer's link line needs for it, `link log/pack.c -lzstd`. README names
+  it, as `make style` requires of every kind.
+
+Not done: **the prune and keep rules**, and **a first consumer** --
+fuzznetd still writes to stderr.
+
+### Measured for sec 459
+
+**`pack_test`, 27 checks, against a toy hash and in a scratch directory it
+leaves empty.** The chain is recomputed by the test's own loop, so the
+packer is not checked against itself:
+- one byte, one line, exactly one chunk, exactly two, and past them, each
+  packed with the hash the test computes and verifying;
+- decompressed, the segment's bytes and then the trailer as written above;
+- verified from another prev refused; a byte flipped in the packed file
+  found; a hand-made trailer with the right prev and a wrong hash refused --
+  the case only the hash comparison can refuse, added when planning the
+  sabotage showed the prev check covered for it;
+- a directory: two settled segments packed oldest first and removed, a
+  just-closed one and the current file left, the chain file holding the
+  newest hash, a second pass packing nothing, and a later pass continuing
+  the chain from what the file kept.
+
+**The first run found a real fault**: the chain file was read with a
+buffer one longer than the file and required to fill it, so every pass
+after the first refused the chain it had written.
+
+**`logger_test`** gains the hook being called once per rotation. With
+`FZN_LOG_PACK=0` the suite builds and passes and `make test` says why the
+pack tests did not run.
+
+**Sabotage: six entries.** Not covered: the lock between two instances,
+since POSIX record locks do not contend within one process, and zstd's
+checksum, which the chain's own hash catches first.

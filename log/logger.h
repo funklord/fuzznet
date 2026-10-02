@@ -34,8 +34,9 @@
  * file sees that the path no longer names its open file, and reopens before
  * it writes: one `stat` a kept line, the price of sharing a file.
  *
- * WHAT IS NOT HERE YET (sec 458): packing closed segments, the hash-chain
- * trailer, and the prune and keep rules.
+ * PACKING closed segments, and their hash-chain trailers, is
+ * `log/pack.h`'s (sec 459); `rotated` is where a caller runs it. The prune
+ * and keep rules are not here yet.
  */
 
 #ifndef FZN_LOG_LOGGER_H
@@ -71,6 +72,11 @@ typedef struct fzn_logger {
 	uint64_t segment_max;
 	/* The clock in microseconds; the wall clock when NULL. A test sets it. */
 	uint64_t (*now_us)(void);
+	/* Called after this instance rotates a segment, so the caller can
+	 * pack what has settled (`log/pack.h`, sec 459); the logger does not
+	 * link the packer, which is another backend. */
+	void (*rotated)(void *ctx);
+	void *rotated_ctx;
 } fzn_logger_t;
 
 /* Who this process is: `machine_id_path` is `/etc/machine-id` when NULL.

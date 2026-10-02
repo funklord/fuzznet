@@ -36,6 +36,13 @@ static uint64_t fake_now(void)
 	return clock_us++;
 }
 
+static int rotations;
+
+static void count_rotation(void *ctx)
+{
+	(*(int *)ctx)++;
+}
+
 static size_t read_file(const char *path, char *out, size_t cap)
 {
 	FILE *f = fopen(path, "r");
@@ -197,6 +204,10 @@ int main(void)
 	      "a second instance opens the same program's file");
 	b.now_us = fake_now;
 	a.segment_max = 600u;
+	a.rotated = count_rotation;
+	a.rotated_ctx = &rotations;
+	b.rotated = count_rotation;
+	b.rotated_ctx = &rotations;
 	for (i = 0; i < 12u; i++)
 		CHECK(fzn_logger_log(i % 2u ? &b : &a, FZN_ENTRY_INFO, "apply/exec", NULL, NULL,
 		                     (const uint8_t *)"a line of some length, to fill a segment", 40u,
@@ -214,6 +225,8 @@ int main(void)
 		total += k;
 	}
 	CHECK(nseg >= 3u, "past the segment size, the file was rotated, more than once");
+	CHECK(rotations == (int)nseg - 1,
+	      "and the rotated hook was called once for each rotation, so a packer can follow");
 	CHECK(all_headers && total == 14u,
 	      "every segment opens with its header, and the 14 kept lines are all there, whole");
 	/* THE OTHER INSTANCE FOLLOWS a rotation it did not make: the file is

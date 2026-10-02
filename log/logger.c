@@ -235,7 +235,11 @@ static int rotate_if_full(fzn_logger_t *l, size_t adding, uint64_t at_us)
 		return 0;
 	(void)close(l->fd);
 	l->fd = -1;
-	return open_file(l);
+	if (!open_file(l))
+		return 0;
+	if (l->rotated)
+		l->rotated(l->rotated_ctx);
+	return 1;
 }
 
 fzn_logger_err_t fzn_logger_log(fzn_logger_t *logger, fzn_entry_level_t level,

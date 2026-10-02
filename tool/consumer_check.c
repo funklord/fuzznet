@@ -130,6 +130,9 @@
 #ifdef FZN_LOG_FILE_ON
 #include <fuzznet/log/logger.h>
 #endif
+#ifdef FZN_LOG_PACK_ON
+#include <fuzznet/log/pack.h>
+#endif
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include <fuzznet/record/store_file.h>
 #endif
@@ -273,6 +276,9 @@
 #endif
 #ifdef FZN_LOG_FILE_ON
 #include "log/logger.h"
+#endif
+#ifdef FZN_LOG_PACK_ON
+#include "log/pack.h"
 #endif
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include "record/store_file.h"
@@ -1044,6 +1050,16 @@ int main(void)
 		if (FZN_LOGGER_SEGMENT_DEFAULT != 8u * 1024u * 1024u
 		    || fzn_logger_identify(NULL, NULL, "x", NULL) != FZN_LOGGER_ERR_MALFORMED)
 			FAIL(472);
+#endif
+#ifdef FZN_LOG_PACK_ON
+		/* A packer asked for nothing refuses (sec 459). */
+		{
+			size_t packed = 0;
+
+			if (fzn_log_pack_dir(NULL, "x", NULL, 0u, 0u, &packed)
+			    != FZN_LOG_PACK_ERR_MALFORMED)
+				FAIL(473);
+		}
 #endif
 		/* A received share's host is one word (sec 437). */
 		if (!fzn_node_received_host_ok("example.org", 11u)

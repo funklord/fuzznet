@@ -853,6 +853,44 @@ else
 $(error FZN_LOG_FILE must be auto, 1 or 0 -- got "$(FZN_LOG_FILE)")
 endif
 
+# PACKING CLOSED LOG SEGMENTS, sec 459: libzstd, the holder's choice over
+# running the zstd tool, and the first library this tree links. The probe
+# links, since a header with no library is the case it exists to catch.
+ZSTD_LIBS ?= -lzstd
+FZN_PROBE_ZSTD := $(shell printf '%s\n' '#define _POSIX_C_SOURCE 200809L' \
+                   '#include <fcntl.h>' '#include <zstd.h>' \
+                   'int main(void){ZSTD_CCtx*c=ZSTD_createCCtx();struct flock l;' \
+                   'l.l_type=F_WRLCK;(void)l;' \
+                   'size_t r=ZSTD_CCtx_setParameter(c,ZSTD_c_checksumFlag,1);' \
+                   'ZSTD_freeCCtx(c);return ZSTD_isError(r);}' \
+                   | $(CC) $(FZN_PROBE_CPPFLAGS) $(FZN_PROBE_CFLAGS) -x c - -o /dev/null \
+                     $(ZSTD_LIBS) 2>/dev/null && echo yes || echo no)
+
+FZN_BLAME_ZSTD := no libzstd was found to compile and link against (zstd.h and $(ZSTD_LIBS)).
+
+ifeq ($(FZN_LOG_PACK),)
+FZN_LOG_PACK := auto
+endif
+
+ifeq ($(FZN_LOG_PACK),auto)
+ifeq ($(FZN_PROBE_ZSTD),yes)
+LOG_PACK_ON := 1
+else
+LOG_PACK_SKIP := $(FZN_BLAME_ZSTD) Set FZN_LOG_PACK=0 to build without it.
+endif
+else ifeq ($(FZN_LOG_PACK),1)
+ifeq ($(FZN_PROBE_ZSTD),yes)
+LOG_PACK_ON := 1
+else
+$(error FZN_LOG_PACK=1 was asked for and $(FZN_BLAME_ZSTD) \
+        Set FZN_LOG_PACK=0 to build without it, or auto to let the probe decide)
+endif
+else ifeq ($(FZN_LOG_PACK),0)
+LOG_PACK_SKIP := FZN_LOG_PACK=0.
+else
+$(error FZN_LOG_PACK must be auto, 1 or 0 -- got "$(FZN_LOG_PACK)")
+endif
+
 # THE RECORD STORE'S FILE BACKEND REUSES FZN_PROBE_PWRITE rather than adding
 # a probe of its own, and that is consistent with the rule the spool states
 # rather than an exception to it. A probe belongs to the thing it gates
@@ -1211,6 +1249,18 @@ SRCS      += $(LOG_FILE_SRCS)
 HDRS      += $(LOG_FILE_HDRS)
 TEST_SRCS += $(LOG_FILE_TSRC)
 TEST_BINS += $(BUILD_DIR)/log/test/logger_test
+endif
+
+LOG_PACK_SRCS := log/pack.c
+LOG_PACK_HDRS := log/pack.h
+LOG_PACK_TSRC := log/test/pack_test.c
+
+ifdef LOG_PACK_ON
+CPPFLAGS  += -DFZN_LOG_PACK_ON
+SRCS      += $(LOG_PACK_SRCS)
+HDRS      += $(LOG_PACK_HDRS)
+TEST_SRCS += $(LOG_PACK_TSRC)
+TEST_BINS += $(BUILD_DIR)/log/test/pack_test
 endif
 
 CLAIM_FILE_SRCS := claim/claim_file.c
@@ -1919,6 +1969,12 @@ $(BUILD_DIR)/log/test/ring_test: $(BUILD_DIR)/log/test/ring_test.o \
                                  $(BUILD_DIR)/log/capture.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
+
+# Packing closed segments with libzstd, in a scratch directory. sec 459.
+$(BUILD_DIR)/log/test/pack_test: $(BUILD_DIR)/log/test/pack_test.o \
+                                 $(BUILD_DIR)/log/pack.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@ $(ZSTD_LIBS)
 
 # A process's logger in a scratch directory of its own. sec 458.
 $(BUILD_DIR)/log/test/logger_test: $(BUILD_DIR)/log/test/logger_test.o \
@@ -3756,6 +3812,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                         $(BUILD_DIR)/notes/text.o \
                                         $(BUILD_DIR)/spool/spool_file.o) \
                                       $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o) \
+                                      $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o) \
                                       $(BUILD_DIR)/state/scope.o \
                                       $(BUILD_DIR)/notes/note.o \
                                       $(BUILD_DIR)/local/client.o \
@@ -3823,7 +3880,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/tree/tree.o \
                                       $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
 
 # LINKS relay.o, WHICH IT DID NOT UNTIL THE ROUND TRIP EXISTED. Sealing and
 # relaying were tested in separate binaries, so nothing anywhere asserted that a
@@ -4058,6 +4115,10 @@ runtests: $(TEST_BINS)
 	@if [ -n "$(LOG_FILE_SKIP)" ]; then \
 		echo "test: the log files were NOT built, so their tests"; \
 		echo "test: did not run -- $(LOG_FILE_SKIP)"; \
+	fi
+	@if [ -n "$(LOG_PACK_SKIP)" ]; then \
+		echo "test: packing log segments was NOT built, so its tests"; \
+		echo "test: did not run -- $(LOG_PACK_SKIP)"; \
 	fi
 
 CASES ?= 200000
@@ -5951,18 +6012,20 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 		exit 1; \
 	fi
 	@echo "installcheck: against the installed headers"
-	@$(CC) $(CFLAGS) $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(CAPTURE_RUN_ON),-DFZN_CAPTURE_RUN_ON) $(if $(LOG_FILE_ON),-DFZN_LOG_FILE_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) $(if $(CLI_ON),-DFZN_CLI_ON) -DFZN_CONSUMER_INSTALLED \
+	@$(CC) $(CFLAGS) $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(CAPTURE_RUN_ON),-DFZN_CAPTURE_RUN_ON) $(if $(LOG_FILE_ON),-DFZN_LOG_FILE_ON) $(if $(LOG_PACK_ON),-DFZN_LOG_PACK_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) $(if $(CLI_ON),-DFZN_CLI_ON) -DFZN_CONSUMER_INSTALLED \
 	       -I$(BUILD_DIR)/installcheck/usr/include \
 	       -o $(BUILD_DIR)/installcheck/consumer_installed \
-	       -Iwire/generated $(MONO_CONSUMER) tool/consumer_check.c $(SRCS) $(GEN_SRCS)
+	       -Iwire/generated $(MONO_CONSUMER) tool/consumer_check.c $(SRCS) $(GEN_SRCS) \
+	       $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
 	@$(BUILD_DIR)/installcheck/consumer_installed
 	@echo "installcheck: against the source tree, from another directory"
 	@cd $(BUILD_DIR)/installcheck && $(CC) $(CFLAGS) \
-	       $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(CAPTURE_RUN_ON),-DFZN_CAPTURE_RUN_ON) $(if $(LOG_FILE_ON),-DFZN_LOG_FILE_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) $(if $(CLI_ON),-DFZN_CLI_ON) -I$(CURDIR) \
+	       $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(CAPTURE_RUN_ON),-DFZN_CAPTURE_RUN_ON) $(if $(LOG_FILE_ON),-DFZN_LOG_FILE_ON) $(if $(LOG_PACK_ON),-DFZN_LOG_PACK_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) $(if $(CLI_ON),-DFZN_CLI_ON) -I$(CURDIR) \
 	       -I$(CURDIR)/wire/generated \
 	       -o consumer_source $(CURDIR)/tool/consumer_check.c \
 	       $(patsubst %,$(CURDIR)/%,$(SRCS)) \
-	       $(patsubst %,$(CURDIR)/%,$(GEN_SRCS)) $(MONO_CONSUMER)
+	       $(patsubst %,$(CURDIR)/%,$(GEN_SRCS)) $(MONO_CONSUMER) \
+	       $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
 	@$(BUILD_DIR)/installcheck/consumer_source
 	@# THE FOREIGN BUILD, DRIVEN BY `make manifest` AND NOTHING ELSE. This
 	@# arm exists to make the manifest load-bearing: it reads the emitted
@@ -6040,6 +6103,7 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 		       $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) \
 		       $(if $(CAPTURE_RUN_ON),-DFZN_CAPTURE_RUN_ON) \
 		       $(if $(LOG_FILE_ON),-DFZN_LOG_FILE_ON) \
+		       $(if $(LOG_PACK_ON),-DFZN_LOG_PACK_ON) \
 		       $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) \
 		       $(if $(CLI_ON),-DFZN_CLI_ON) \
 		       -c $(BUILD_DIR)/installcheck/cxx_headers.cpp \
@@ -6131,6 +6195,10 @@ manifest:
 	@$(if $(CLAIM_FILE_ON),echo "backend claim/claim_file.c FZN_CLAIM_FILE_ON";)
 	@$(if $(CAPTURE_RUN_ON),echo "backend log/capture_run.c FZN_CAPTURE_RUN_ON";)
 	@$(if $(LOG_FILE_ON),echo "backend log/logger.c FZN_LOG_FILE_ON";)
+	@$(if $(LOG_PACK_ON),echo "backend log/pack.c FZN_LOG_PACK_ON";)
+	@# A LIBRARY A BACKEND LINKS, sec 459: the backend's source, then what
+	@# to put on the consumer's link line for it.
+	@$(if $(LOG_PACK_ON),echo "link log/pack.c $(ZSTD_LIBS)";)
 	@$(if $(RECORD_STORE_FILE_ON),echo "backend record/store_file.c FZN_RECORD_STORE_FILE_ON";)
 	@# ONE LINE PER SOURCE, as `binding` and `backend` already are. These two
 	@# were a hand-written literal naming `cli/cli.c` and a bare directory
