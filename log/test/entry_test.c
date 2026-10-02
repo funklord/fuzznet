@@ -261,6 +261,86 @@ static void test_lines_that_are_not_ours(void)
 	      "cause, a stray backslash, a raw tab or an empty field is refused");
 }
 
+/* THE PERFORMANT RECORD, sec 457, against log/entry.situ's offsets and
+ * the sizes situc computed for it, 55..4672. */
+static void test_the_record(void)
+{
+	static uint8_t rec[FZN_ENTRY_RECORD_MAX + 8u], big[FZN_ENTRY_TEXT_MAX];
+	fzn_entry_t e = base(), back;
+	size_t len = 0;
+	char host[FZN_ENTRY_WORD_MAX + 1u];
+
+	CHECK(fzn_entry_pack(&e, rec, sizeof(rec), &len) == FZN_ENTRY_OK && rec[0] == 1u
+	              && rec[1] == FZN_ENTRY_WARNING && rec[2] == 0x00u && rec[3] == 0x06u
+	              && rec[9] == 0x83u && memcmp(rec + 10, machine, 16u) == 0 && rec[26] == 4u
+	              && memcmp(rec + 27, "root", 4u) == 0,
+	      "the version, the level, the time big-endian and the name at the schema's offsets");
+	CHECK(fzn_entry_unpack(rec, len, &back) == FZN_ENTRY_OK && same_name(&back.name, &e.name)
+	              && back.time_us == e.time_us && back.level == e.level
+	              && strcmp(back.subsystem, e.subsystem) == 0 && !back.caused
+	              && back.text_len == e.text_len && memcmp(back.text, e.text, e.text_len) == 0,
+	      "a record unpacks to the entry");
+	/* AND THE SAME ENTRY AS A LINE: the two formats convert. */
+	CHECK(fzn_entry_classic(&back, "nabbe", line, sizeof(line), &len) == FZN_ENTRY_OK
+	              && strcmp(line, "2026-10-02T12:34:56.789123Z nabbe root fuzznetd "
+	                              "4121@1727778896123#1834 W notes/sync - - a record refused\n")
+	                         == 0,
+	      "the unpacked record writes the same classic line");
+
+	/* THE SMALLEST AND THE LARGEST, which situc measured. */
+	e = base();
+	strcpy(e.name.user, "u");
+	strcpy(e.name.program, "p");
+	strcpy(e.subsystem, "s");
+	e.text_len = 0u;
+	CHECK(fzn_entry_pack(&e, rec, sizeof(rec), &len) == FZN_ENTRY_OK
+	              && len == FZN_ENTRY_RECORD_MIN,
+	      "the smallest record is 55 bytes, as the schema says");
+	e = base();
+	memset(e.name.user, 'u', FZN_ENTRY_WORD_MAX);
+	e.name.user[FZN_ENTRY_WORD_MAX] = '\0';
+	memset(e.name.program, 'p', FZN_ENTRY_WORD_MAX);
+	e.name.program[FZN_ENTRY_WORD_MAX] = '\0';
+	memset(e.subsystem, 's', FZN_ENTRY_SUBSYSTEM_MAX);
+	e.subsystem[FZN_ENTRY_SUBSYSTEM_MAX] = '\0';
+	e.caused = 1;
+	e.cause = e.name;
+	e.origin = e.name;
+	memset(big, 0xfe, sizeof(big));
+	e.text = big;
+	e.text_len = sizeof(big);
+	CHECK(fzn_entry_pack(&e, rec, sizeof(rec), &len) == FZN_ENTRY_OK
+	              && len == FZN_ENTRY_RECORD_MAX && fzn_entry_unpack(rec, len, &back) == FZN_ENTRY_OK
+	              && back.caused && same_name(&back.origin, &e.origin)
+	              && back.text_len == sizeof(big),
+	      "the largest record is 4672 bytes, as the schema says, and unpacks");
+	CHECK(fzn_entry_pack(&e, rec, len - 1u, &len) == FZN_ENTRY_ERR_ROOM,
+	      "a buffer one short is refused");
+	(void)host;
+
+	/* RECORDS THAT ARE NOT ONES. */
+	e = base();
+	(void)fzn_entry_pack(&e, rec, sizeof(rec), &len);
+	CHECK(fzn_entry_unpack(rec, len - 1u, &back) == FZN_ENTRY_ERR_MALFORMED
+	              && fzn_entry_unpack(rec, len + 1u, &back) == FZN_ENTRY_ERR_MALFORMED,
+	      "a record one byte short, or with one byte past it, is refused");
+	rec[0] = 2u;
+	CHECK(fzn_entry_unpack(rec, len, &back) == FZN_ENTRY_ERR_MALFORMED,
+	      "another version is refused");
+	rec[0] = 1u;
+	rec[1] = 9u;
+	CHECK(fzn_entry_unpack(rec, len, &back) == FZN_ENTRY_ERR_MALFORMED,
+	      "a ninth level is refused");
+	rec[1] = FZN_ENTRY_WARNING;
+	rec[len - 2u - e.text_len - 1u] = 1u; /* the cause count */
+	CHECK(fzn_entry_unpack(rec, len, &back) == FZN_ENTRY_ERR_MALFORMED,
+	      "a cause count of one -- half a cause -- is refused");
+	e = base();
+	strcpy(e.name.user, "a b");
+	CHECK(fzn_entry_pack(&e, rec, sizeof(rec), &len) == FZN_ENTRY_ERR_MALFORMED,
+	      "a record refuses what the line refuses");
+}
+
 int main(void)
 {
 	if (fzn_entry_machine_parse(MACHINE_HEX, 32u, machine) != FZN_ENTRY_OK) {
@@ -274,6 +354,7 @@ int main(void)
 	test_names();
 	test_fields_a_line_cannot_hold();
 	test_lines_that_are_not_ours();
+	test_the_record();
 	CHECK(fzn_entry_level_letter(FZN_ENTRY_CRITICAL) == 'C' && fzn_entry_level_letter(FZN_ENTRY_TRACE) == 'T'
 	              && fzn_entry_level_letter((fzn_entry_level_t)0) == 0,
 	      "the levels' letters");

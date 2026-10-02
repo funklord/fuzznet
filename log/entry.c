@@ -4,6 +4,8 @@
 
 #include "capture.h"
 
+#include "../wire/bytes.h"
+
 #include <stdio.h>
 #include <string.h>
 
@@ -426,6 +428,140 @@ fzn_entry_err_t fzn_entry_classic_parse(const char *line, size_t len,
 	    || text_len > FZN_ENTRY_TEXT_MAX)
 		return FZN_ENTRY_ERR_MALFORMED;
 	out->text = text_buf;
+	out->text_len = text_len;
+	return FZN_ENTRY_OK;
+}
+
+/* ---- the performant record ----------------------------------------------- */
+
+static size_t name_size(const fzn_entry_name_t *n)
+{
+	return FZN_ENTRY_MACHINE_LEN + 1u + strlen(n->user) + 1u + strlen(n->program) + 4u + 8u
+	       + 8u;
+}
+
+static uint8_t *put_name(uint8_t *at, const fzn_entry_name_t *n)
+{
+	size_t u = strlen(n->user), p = strlen(n->program);
+
+	memcpy(at, n->machine, FZN_ENTRY_MACHINE_LEN);
+	at += FZN_ENTRY_MACHINE_LEN;
+	*at++ = (uint8_t)u;
+	memcpy(at, n->user, u);
+	at += u;
+	*at++ = (uint8_t)p;
+	memcpy(at, n->program, p);
+	at += p;
+	fzn_put_be32(at, n->pid);
+	fzn_put_be64(at + 4, n->start_ms);
+	fzn_put_be64(at + 12, n->position);
+	return at + 20;
+}
+
+fzn_entry_err_t fzn_entry_pack(const fzn_entry_t *entry, uint8_t *out, size_t cap, size_t *len)
+{
+	size_t need, s;
+	uint8_t *at;
+
+	if (!entry || !out || !len || !name_ok(&entry->name) || !is_subsystem(entry->subsystem)
+	    || !fzn_entry_level_letter(entry->level) || (!entry->text && entry->text_len)
+	    || entry->text_len > FZN_ENTRY_TEXT_MAX
+	    || (entry->caused && (!name_ok(&entry->cause) || !name_ok(&entry->origin))))
+		return FZN_ENTRY_ERR_MALFORMED;
+	s = strlen(entry->subsystem);
+	need = 1u + 1u + 8u + name_size(&entry->name) + 1u + s + 1u
+	       + (entry->caused ? name_size(&entry->cause) + name_size(&entry->origin) : 0u) + 2u
+	       + entry->text_len;
+	if (need > cap)
+		return FZN_ENTRY_ERR_ROOM;
+	at = out;
+	*at++ = FZN_ENTRY_RECORD_VERSION;
+	*at++ = (uint8_t)entry->level;
+	fzn_put_be64(at, entry->time_us);
+	at = put_name(at + 8, &entry->name);
+	*at++ = (uint8_t)s;
+	memcpy(at, entry->subsystem, s);
+	at += s;
+	*at++ = entry->caused ? 2u : 0u;
+	if (entry->caused) {
+		at = put_name(at, &entry->cause);
+		at = put_name(at, &entry->origin);
+	}
+	fzn_put_be16(at, (uint16_t)entry->text_len);
+	if (entry->text_len)
+		memcpy(at + 2, entry->text, entry->text_len);
+	*len = need;
+	return FZN_ENTRY_OK;
+}
+
+/* A length-prefixed word of at most `max`, into `to`. */
+static int take_word(const uint8_t **at, const uint8_t *end, char *to, size_t max, int subsystem)
+{
+	size_t n;
+
+	if (end - *at < 1)
+		return 0;
+	n = **at;
+	if ((size_t)(end - *at - 1) < n || !copy_word((const char *)*at + 1, n, to, max, subsystem))
+		return 0;
+	*at += 1u + n;
+	return 1;
+}
+
+static int take_name(const uint8_t **at, const uint8_t *end, fzn_entry_name_t *n)
+{
+	memset(n, 0, sizeof(*n));
+	if (end - *at < (ptrdiff_t)FZN_ENTRY_MACHINE_LEN)
+		return 0;
+	memcpy(n->machine, *at, FZN_ENTRY_MACHINE_LEN);
+	*at += FZN_ENTRY_MACHINE_LEN;
+	if (!take_word(at, end, n->user, FZN_ENTRY_WORD_MAX, 0)
+	    || !take_word(at, end, n->program, FZN_ENTRY_WORD_MAX, 0) || end - *at < 20)
+		return 0;
+	n->pid = fzn_get_be32(*at);
+	n->start_ms = fzn_get_be64(*at + 4);
+	n->position = fzn_get_be64(*at + 12);
+	*at += 20;
+	return 1;
+}
+
+fzn_entry_err_t fzn_entry_unpack(const uint8_t *in, size_t len, fzn_entry_t *out)
+{
+	const uint8_t *at = in, *end;
+	size_t text_len;
+
+	if (!in || !out)
+		return FZN_ENTRY_ERR_MALFORMED;
+	memset(out, 0, sizeof(*out));
+	end = in + len;
+	if (len < FZN_ENTRY_RECORD_MIN || len > FZN_ENTRY_RECORD_MAX
+	    || at[0] != FZN_ENTRY_RECORD_VERSION || at[1] < FZN_ENTRY_CRITICAL
+	    || at[1] > FZN_ENTRY_TRACE)
+		return FZN_ENTRY_ERR_MALFORMED;
+	out->level = (fzn_entry_level_t)at[1];
+	out->time_us = fzn_get_be64(at + 2);
+	at += 10;
+	if (!take_name(&at, end, &out->name)
+	    || !take_word(&at, end, out->subsystem, FZN_ENTRY_SUBSYSTEM_MAX, 1) || end - at < 1)
+		return FZN_ENTRY_ERR_MALFORMED;
+	/* 0, or 2: one alone is half a cause. */
+	if (*at == 2u) {
+		at++;
+		if (!take_name(&at, end, &out->cause) || !take_name(&at, end, &out->origin))
+			return FZN_ENTRY_ERR_MALFORMED;
+		out->caused = 1;
+	} else if (*at == 0u) {
+		at++;
+	} else {
+		return FZN_ENTRY_ERR_MALFORMED;
+	}
+	if (end - at < 2)
+		return FZN_ENTRY_ERR_MALFORMED;
+	text_len = fzn_get_be16(at);
+	at += 2;
+	if (text_len > FZN_ENTRY_TEXT_MAX || (size_t)(end - at) != text_len)
+		return FZN_ENTRY_ERR_MALFORMED;
+	out->text = at;
 	out->text_len = text_len;
 	return FZN_ENTRY_OK;
 }

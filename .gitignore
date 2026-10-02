@@ -177,6 +177,7 @@
 /log/test/log_test
 /log/test/capture_test
 /log/test/entry_test
+/log/test/ring_test
 /log/test/capture_run_test
 /wire/test/relay_test
 /sched/test/sched_test

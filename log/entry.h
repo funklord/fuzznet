@@ -141,4 +141,19 @@ fzn_entry_err_t fzn_entry_classic_parse(const char *line, size_t len,
                                           fzn_entry_t *out, char host[FZN_ENTRY_WORD_MAX + 1u],
                                           uint8_t *text_buf, size_t text_cap);
 
+/* THE PERFORMANT RECORD, sec 457: the same entry as fixed binary fields,
+ * laid out by `log/entry.situ` and checked against it. Nothing formatted,
+ * nothing escaped -- the format the flight recorder holds. */
+#define FZN_ENTRY_RECORD_VERSION 1u
+#define FZN_ENTRY_RECORD_MIN 55u
+#define FZN_ENTRY_RECORD_MAX 4672u
+
+/* `entry` as a record into `out`; its length in `*len`. The same fields
+ * the classic line refuses are refused here, so a record always has a
+ * line. */
+fzn_entry_err_t fzn_entry_pack(const fzn_entry_t *entry, uint8_t *out, size_t cap, size_t *len);
+
+/* And back, every byte of `in` used. `out->text` points into `in`. */
+fzn_entry_err_t fzn_entry_unpack(const uint8_t *in, size_t len, fzn_entry_t *out);
+
 #endif /* FZN_LOG_ENTRY_H */

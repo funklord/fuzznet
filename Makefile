@@ -198,7 +198,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              notes/store.c notes/view.c notes/author.c notes/purge.c notes/import.c \
              notes/sync.c notes/share.c notes/received.c \
              trust/trust.c \
-             log/log.c log/capture.c log/entry.c \
+             log/log.c log/capture.c log/entry.c log/ring.c \
              sched/sched.c \
              link/link.c
 # RECURSIVE, NOT SNAPSHOT, and that is a fix rather than a style choice.
@@ -288,7 +288,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              notes/store.h notes/view.h notes/author.h notes/purge.h notes/import.h \
              notes/sync.h notes/share.h notes/received.h \
              trust/trust.h \
-             log/log.h log/capture.h log/entry.h \
+             log/log.h log/capture.h log/entry.h log/ring.h \
              sched/sched.h \
              link/link.h
 
@@ -410,6 +410,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              trust/test/trust_test.c \
              trust/test/trust_walk_test.c \
              log/test/log_test.c log/test/capture_test.c log/test/entry_test.c \
+             log/test/ring_test.c \
              wire/test/relay_test.c \
              sched/test/sched_test.c \
              sched/test/sched_fuzz.c \
@@ -536,6 +537,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/log/test/log_test \
              $(BUILD_DIR)/log/test/capture_test \
              $(BUILD_DIR)/log/test/entry_test \
+             $(BUILD_DIR)/log/test/ring_test \
              $(BUILD_DIR)/wire/test/relay_test \
              $(BUILD_DIR)/sched/test/sched_test \
              $(BUILD_DIR)/sched/test/sched_fuzz \
@@ -1856,6 +1858,14 @@ $(BUILD_DIR)/log/test/capture_test: $(BUILD_DIR)/log/test/capture_test.o \
 $(BUILD_DIR)/log/test/entry_test: $(BUILD_DIR)/log/test/entry_test.o \
                                   $(BUILD_DIR)/log/entry.o \
                                   $(BUILD_DIR)/log/capture.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The flight recorder: eviction, the crash dump and its reading back. sec 457.
+$(BUILD_DIR)/log/test/ring_test: $(BUILD_DIR)/log/test/ring_test.o \
+                                 $(BUILD_DIR)/log/ring.o \
+                                 $(BUILD_DIR)/log/entry.o \
+                                 $(BUILD_DIR)/log/capture.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -3673,6 +3683,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/node/received.o \
                                       $(BUILD_DIR)/log/capture.o \
                                       $(BUILD_DIR)/log/entry.o \
+                                      $(BUILD_DIR)/log/ring.o \
                                       $(BUILD_DIR)/node/members.o \
                                       $(BUILD_DIR)/node/remote.o \
                                       $(BUILD_DIR)/node/node.o \
@@ -5247,7 +5258,8 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               spool/sidecar.situ record/record.situ tree/tree.situ \
               chain/chain.situ provision/provision.situ \
               record/store_file.situ catalog/attribute.situ \
-              roster/roster.situ chain/root_act.situ notes/sync.situ
+              roster/roster.situ chain/root_act.situ notes/sync.situ \
+              log/entry.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #

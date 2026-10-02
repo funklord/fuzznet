@@ -1,0 +1,55 @@
+// The performant log record: one entry as fixed binary fields, cheap to
+// write and fast to scan. sec 457, the second of sec 428's three formats;
+// log/entry.c encodes and decodes it by hand and this is the contract it is
+// measured against.
+//
+// THE SAME RECORD AS THE CLASSIC LINE (log/entry.h), converted without
+// loss: nothing here is formatted -- no time as text, no escaping -- which
+// is what makes it the format the flight recorder holds.
+//
+// THE TEXT IS BYTES IN THIS VERSION. Sec 428 sketched a template id and
+// raw arguments, which needs a registry of templates every reader holds;
+// that is a later version, and the version byte is what says which.
+//
+// Big-endian, like everything this tree writes.
+
+target buffer;
+endian big;
+
+enum fzn_entry_level : u8 {
+	critical = 1,
+	error    = 2,
+	warning  = 3,
+	note     = 4,
+	info     = 5,
+	verbose  = 6,
+	debug    = 7,
+	trace    = 8,
+}
+
+// An entry's name: machine / user / program / pid@start#position.
+struct fzn_entry_name_record {
+	u8   machine[16];                    // /etc/machine-id's 128 bits
+	u8   user_len    [min = 1, max = 64];
+	u8   user[user_len];
+	u8   program_len [min = 1, max = 64];
+	u8   program[program_len];
+	u32  pid;
+	u64  start_ms;                       // the process's start, ms since the epoch
+	u64  position;                       // its place in the instance's entries
+}
+
+struct fzn_entry_record {
+	u8                     version       [must_eq = 1];
+	fzn_entry_level        level;
+	u64                    time_us;      // UTC, since the epoch
+	fzn_entry_name_record  name;
+	u8                     subsystem_len [min = 1, max = 64];
+	u8                     subsystem[subsystem_len];
+	// 0, or 2: the cause and then the origin. One alone is refused, as a
+	// classic line with half a cause is.
+	u8                     cause_count   [max = 2];
+	fzn_entry_name_record  causes[cause_count];
+	u16                    text_len      [max = 4096];
+	u8                     text[text_len];
+}

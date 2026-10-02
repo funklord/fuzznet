@@ -54051,3 +54051,67 @@ refused, 29 February 2026 among them.
 level's letter through the installed header.
 
 **Sabotage: six entries.**
+
+## 457. The performant record and the flight recorder, 2026-10-02
+
+Step 2 of sec 456's order.
+
+### The performant record, `log/entry.situ`
+
+The same entry as the classic line, as fixed binary fields: version, level,
+time in microseconds, the name (machine, user, program, pid, start,
+position), subsystem, a cause count of 0 or 2 and the two names, and the
+text. Nothing is formatted and nothing escaped, which is what makes it the
+format the ring holds. situc measures it at **55 to 4672 bytes**.
+
+- **A situ schema, adopted as a checked contract** like `notes/sync.situ`:
+  `log/entry.c` packs and unpacks by hand, and `make schema` pins the
+  committed `.wire` and `.map`.
+- **The text is bytes in version 1.** Sec 428 sketched a template id and
+  raw arguments, which needs a registry of templates that every reader
+  holds. That is a later version, and the version byte is what says
+  which. This is this tree's proposal for the layout, as sec 428 left it,
+  and it goes to the holder like any format.
+- **A record refuses what the line refuses**, so every record has a line,
+  and the two convert without loss.
+
+### The flight recorder, `log/ring`
+
+256 KiB a process, as the holder set it, holding every entry as records,
+length-prefixed, oldest first.
+
+- **Full, it evicts the oldest whole records** and counts them, so the
+  minutes before an error are the ones kept.
+- **The crash dump is the ring's own bytes.** A signal handler may
+  `write()` and little else, so `fzn_ring_spans` hands over at most two
+  spans that, written in order, are the dump -- nothing computed, no lock.
+  `fzn_ring_load` reads a dump back and refuses one that does not end on a
+  record or holds a record that will not unpack.
+- **On request** the records are walked, oldest first, unpacked.
+
+Not here yet: **who calls it.** The process's logger, putting every entry
+in the ring and the kept ones in files, is step 3, and so is installing a
+crash handler that writes the dump.
+
+### Measured for sec 457
+
+**`entry_test`, 38 checks**, eleven new: the version, the level, the time
+big-endian and the name at the schema's offsets; a record unpacking to the
+entry and writing the same classic line; the smallest record 55 bytes and
+the largest 4672, as situc measured, and unpacking; a buffer one short
+refused; a record a byte short or a byte long, another version, a ninth
+level, a cause count of one, and a word with a space refused.
+
+**`ring_test`, 13 checks:** an empty ring; three entries in order with
+their texts; an entry refused with nothing evicted; 300 entries of mixed
+size past 256 KiB, the oldest evicted and counted, never overrunning, the
+newest held in order; a wrapped ring dumping as two spans; the dump loading
+back to the same entries; a dump cut short or holding a bad record refused
+and leaving the ring empty; the largest entries filling it to within one
+record.
+
+`make schema` checks `log/entry.situ`; `err_str_test` walks
+`fzn_ring_err_str`; `consumer_check` reads the ring's size through the
+installed header.
+
+**Sabotage: six entries.**

@@ -182,6 +182,7 @@
 #include <fuzznet/notes/received.h>
 #include <fuzznet/log/capture.h>
 #include <fuzznet/log/entry.h>
+#include <fuzznet/log/ring.h>
 #include <fuzznet/node/received.h>
 #include <fuzznet/node/members.h>
 #include <fuzznet/contact/contact.h>
@@ -315,6 +316,7 @@
 #include "notes/received.h"
 #include "log/capture.h"
 #include "log/entry.h"
+#include "log/ring.h"
 #include "node/received.h"
 #include "node/members.h"
 #include "contact/contact.h"
@@ -1028,6 +1030,9 @@ int main(void)
 		if (fzn_entry_level_letter(FZN_ENTRY_WARNING) != 'W'
 		    || fzn_entry_level_letter((fzn_entry_level_t)0) != 0)
 			FAIL(470);
+		/* The flight recorder's size is the holder's, 256 KiB (sec 457). */
+		if (FZN_RING_BYTES != 262144u || FZN_ENTRY_RECORD_MAX > 65535u)
+			FAIL(471);
 		/* A received share's host is one word (sec 437). */
 		if (!fzn_node_received_host_ok("example.org", 11u)
 		    || fzn_node_received_host_ok("a b", 3u))
