@@ -1066,6 +1066,11 @@ static size_t empty_trash(fzn_node_notes_t *n, char *reply, size_t cap)
 		if (fzn_notes_partner_seen_at(&n->store, partners[i], &seen) == FZN_NOTES_OK
 		    && now(n) > seen && now(n) - seen > FZN_NODE_NOTES_PARTNER_AGE_MS)
 			continue;
+		/* NOR ONE THAT IS NO WRITER NOW, sec 451: a device un-paired, or a
+		 * member revoked, will not be asked by this node's policy again,
+		 * and a purge pinned to it would wait for ever. */
+		if (!sender_admitted(n, partners[i]))
+			continue;
 		memcpy(asked[n_asked++].key, partners[i], FZN_PUBKEY_LEN);
 	}
 	err = fzn_notes_purge_trash(&n->store, &view, n->author.issuer,

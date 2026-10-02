@@ -268,22 +268,45 @@ struct pull_target {
 	int fd;
 };
 
+/* The members the last round's pulls proved, sec 445, kept so the writer set
+ * can be rebuilt between rounds. */
+static uint8_t pulled_members[FZN_NODE_NOTES_WRITERS][FZN_PUBKEY_LEN];
+static size_t n_pulled_members;
+
+/* THE WRITERS BEYOND THIS NODE AND ITS PULL PEERS, rebuilt from what is live
+ * now, sec 451: the estate's standing roots (sec 450), the peers paired to
+ * this node that are no contact (sec 436), and the members the last round
+ * proved. Asked every pass of the loop, so a device paired or un-paired on
+ * the socket is a writer, or not, at once rather than after a restart. */
+static void admit_writers(const fzn_node_state_t *state, const fzn_node_roots_t *roots)
+{
+	static uint8_t keys[FZN_NODE_NOTES_WRITERS][FZN_PUBKEY_LEN];
+	size_t n, i;
+
+	if (!notes_on)
+		return;
+	n = fzn_node_roots_standing(roots, keys, FZN_NODE_NOTES_WRITERS);
+	for (i = 0; i < state->peer_count && n < FZN_NODE_NOTES_WRITERS; i++)
+		if (!fzn_node_peer_contact(&state->config, &state->peers[i]))
+			memcpy(keys[n++], state->peers[i].sender, FZN_PUBKEY_LEN);
+	for (i = 0; i < n_pulled_members && n < FZN_NODE_NOTES_WRITERS; i++)
+		memcpy(keys[n++], pulled_members[i], FZN_PUBKEY_LEN);
+	(void)fzn_node_notes_admit_members(&node_notes, (const uint8_t (*)[FZN_PUBKEY_LEN])keys, n);
+}
+
 /* Every note each pull peer holds that this node lacks or holds older,
  * admitted as any record is. sec 432. */
 static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
-                       const fzn_node_config_t *config,
+                       const fzn_node_state_t *state,
                        const fzn_revocation_store_t *revocations,
                        const fzn_node_roots_t *roots)
 {
-	static uint8_t members[FZN_NODE_NOTES_WRITERS][FZN_PUBKEY_LEN];
+	const fzn_node_config_t *config = &state->config;
+	uint8_t (*members)[FZN_PUBKEY_LEN] = pulled_members;
 	size_t t, n_members = 0;
 
 	if (!notes_on)
 		return;
-	/* THE ESTATE'S ROOTS, sec 450: each that stands writes as a member
-	 * does, whether or not this node pulls from it, so a note the root
-	 * wrote and a member relays is taken. A removed root drops out. */
-	n_members = fzn_node_roots_standing(roots, members, FZN_NODE_NOTES_WRITERS);
 	/* THE ESTATE'S MEMBERS FIRST, sec 445: each pull peer's, admitted on
 	 * the proof of their chains against this node's own root, so a note a
 	 * member wrote and a peer relays is taken. Rebuilt every round, so a
@@ -304,8 +327,8 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 			        pulls[t].host);
 		n_members += got;
 	}
-	(void)fzn_node_notes_admit_members(&node_notes,
-	                                   (const uint8_t (*)[FZN_PUBKEY_LEN])members, n_members);
+	n_pulled_members = n_members;
+	admit_writers(state, roots);
 	for (t = 0; t < npulls; t++) {
 		struct peer_asking asking = { &pulls[t].caller, now };
 		fzn_notes_sync_tally_t tally;
@@ -1436,9 +1459,9 @@ int main(int argc, char **argv)
 			state.reply = node_reply;
 			state.reply_cap = sizeof(node_reply);
 			{
-				/* ADMITTED: the nodes it pulls from and the nodes paired to
-				 * it, which are the estate's nodes it can exchange notes
-				 * with. sec 433. */
+				/* ADMITTED: the nodes it pulls from, as the base; the
+				 * nodes paired to it join from the live table, sec 451.
+				 * sec 433. */
 				static uint8_t writers[FZND_PULL_TARGETS_MAX + FZN_NODE_PEERS_MAX]
 				                      [FZN_PUBKEY_LEN];
 				uint8_t pull_keys[FZND_PULL_TARGETS_MAX][FZN_PUBKEY_LEN];
@@ -1450,18 +1473,16 @@ int main(int argc, char **argv)
 					       FZN_PUBKEY_LEN);
 					memcpy(writers[nw++], pull_keys[w], FZN_PUBKEY_LEN);
 				}
-				/* A CONTACT IS NO WRITER, sec 436: it is paired to fetch
-				 * what is shared with it, and its notes are not this
-				 * estate's. */
-				for (w = 0; w < loaded && nw < FZN_NODE_NOTES_WRITERS; w++)
-					if (!fzn_node_peer_contact(&state.config, &peers[w]))
-						memcpy(writers[nw++], peers[w].sender, FZN_PUBKEY_LEN);
+				/* THE PAIRED PEERS ARE NOT IN THE BASE, sec 451:
+				 * `admit_writers` adds them from the live table, so
+				 * one un-paired on the socket stops being a writer. */
 				if (fzn_node_notes_init(&node_notes, store_ops, &hash_ops, &sign_ops,
 				                        &rng_ops, identity.pubkey,
 				                        (const uint8_t (*)[FZN_PUBKEY_LEN])writers, nw,
 				                        (const uint8_t (*)[FZN_PUBKEY_LEN])pull_keys, npulls,
 				                        wall_ms)
 				    == FZN_NOTES_OK) {
+					admit_writers(&state, running_roots);
 #ifdef FZN_SPOOL_FILE_ON
 					if (shelf_on) {
 						node_notes.seal = shelf_seal;
@@ -1600,6 +1621,8 @@ int main(int argc, char **argv)
 		for (;;) {
 			uint64_t now = wall_clock();
 
+			admit_writers(&state, running_roots);
+
 			/* EVERY PEER EACH ROUND, one after another. A peer that does
 			 * not answer is reported and the next is asked: what one
 			 * peer cannot say another may, which is the point of asking
@@ -1642,7 +1665,7 @@ int main(int argc, char **argv)
 				}
 				/* NOTES, then TEXTS, secs 432 and 424: a note's text is
 				 * fetched once the note naming it has arrived. */
-				pull_notes(pulls, npulls, now, &state.config, running, running_roots);
+				pull_notes(pulls, npulls, now, &state, running, running_roots);
 				pull_received(now);
 #ifdef FZN_SPOOL_FILE_ON
 				fetch_texts(pulls, npulls, now);
@@ -1670,7 +1693,7 @@ int main(int argc, char **argv)
 			if (notes_on && node_notes.fresh && now >= last_fresh_round + 2u) {
 				node_notes.fresh = 0;
 				last_fresh_round = now;
-				pull_notes(pulls, npulls, now, &state.config, running, running_roots);
+				pull_notes(pulls, npulls, now, &state, running, running_roots);
 			}
 			/* A REQUEST NEVER FINISHED gives its slot back. */
 			if (state.reassembly)

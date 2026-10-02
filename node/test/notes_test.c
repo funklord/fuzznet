@@ -1132,6 +1132,34 @@ static void test_pushing_texts(void)
 	notes.open = NULL;
 }
 
+/* AN UN-PAIRED PARTNER IS NOT PINNED, sec 451: a node admitted from the live
+ * peer table, which pulled and so is a partner, then dropped from it. */
+static void test_unpaired_partner(void)
+{
+	char b[65], line[200];
+	uint8_t query[FZN_NOTES_SYNC_INDEX_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
+		                                          FZN_NOTES_SYNC_INDEX_QUERY, 0, 0 };
+	uint8_t out[FZN_NOTES_SYNC_REPLY_MAX];
+
+	setup(0);
+	CHECK(fzn_node_notes_admit_members(&notes, (const uint8_t (*)[FZN_PUBKEY_LEN])PEER, 1u)
+	                      == 1u
+	              && fzn_node_notes_remote(&notes, PEER, 0, query, sizeof(query), out,
+	                                       sizeof(out))
+	                         > 0u,
+	      "fixture: a paired node, admitted from the live table, pulls this one's index");
+	CHECK(ask("add note top bin") == FZN_REPLY_OK, "fixture: a note to bin");
+	take_id(b);
+	snprintf(line, sizeof(line), "set note %s trash", b);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: it is trashed");
+	CHECK(fzn_node_notes_admit_members(&notes, NULL, 0u) == 0u,
+	      "fixture: the node is un-paired");
+	CHECK(ask("remove note trash") == FZN_REPLY_OK && !strcmp(detail_of(), "1 0"),
+	      "the un-paired partner pins nothing, and the purge goes at once");
+	snprintf(line, sizeof(line), "get note %s", b);
+	CHECK(ask(line) == FZN_REPLY_ERROR, "and the note is gone");
+}
+
 /* A WRITE THAT TAKES TELLS THE DAEMON TO CONVERSE NOW, sec 449; a read, a
  * refusal and a write by somebody else's origin do not. */
 static void test_writes_mark_fresh(void)
@@ -1170,6 +1198,7 @@ int main(void)
 	test_members_join_the_admitted_set();
 	test_pushing_texts();
 	test_writes_mark_fresh();
+	test_unpaired_partner();
 
 	if (failures) {
 		fprintf(stderr, "notes_test: %d of %d checks failed\n", failures, checks);

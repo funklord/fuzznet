@@ -66,7 +66,9 @@
  *
  * EMPTYING THE TRASH asks for consent from every node that holds copies: the
  * nodes this one pulls from, and its partners, the nodes that have pulled
- * from it (`notes/sync.h`) within FZN_NODE_NOTES_PARTNER_AGE_MS. The conversation is driven by whichever side
+ * from it (`notes/sync.h`) within FZN_NODE_NOTES_PARTNER_AGE_MS and are
+ * still admitted -- a partner un-paired or revoked is not pinned, sec 451.
+ * The conversation is driven by whichever side
  * pulls, so a purge completes as each of them next pulls or is pulled from.
  * On a node with none it goes at once. The reply says how many wait.
  */

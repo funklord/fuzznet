@@ -52646,8 +52646,8 @@ number sec 428's retention rules would make configurable.
 - **A purge already waiting on a gone partner still waits.** Releasing
   one needs deciding who may declare a pinned host gone, which is the
   holder's call.
-- **Un-pairing a node does not drop it as a partner**; the age does it
-  eventually.
+- ~~**Un-pairing a node does not drop it as a partner**; the age does it
+  eventually.~~ It is dropped at once since sec 451.
 - **Sharing with contacts**, the rest of phase 4.
 
 ### Measured for sec 434
@@ -53769,3 +53769,42 @@ refused". No daemon was left running.
 
 **Sabotage: two entries.** The wiring in fuzznetd has no unit test; the
 live control is its evidence.
+
+## 451. Pairing and un-pairing change the writers at once, 2026-10-02
+
+**The notes writer set follows the live peer table**, not the one the
+daemon started with. fuzznetd opened the notes with the nodes it pulls from
+and the peers paired at start, and nothing changed that set while it ran:
+a device paired on the socket (`add peer`, `grant share`) could not write
+until a restart -- its push was refused -- and one un-paired with `remove
+peer` stayed a writer until a restart.
+
+- **The base is this node and the nodes it pulls from.** Everything else
+  -- the standing roots (sec 450), the paired peers that are no contact
+  (sec 436), and the members the last round proved (sec 445) -- is put in
+  by `admit_writers`, asked on every pass of the loop. The proved members
+  are kept between rounds, so a pass between rounds does not drop them.
+- **A partner that is no writer now is not pinned by a new purge.** Sec 434
+  left "un-pairing does not drop a partner; the age does it". Emptying the
+  trash now skips a partner the node does not admit, so a device un-paired,
+  or a member revoked, does not hold a purge for the month. A purge already
+  queued keeps the set it pinned, as sec 434 has it.
+
+### Measured for sec 451
+
+**`notes_test` (node), 245 checks:** a node admitted through
+`fzn_node_notes_admit_members`, which pulled and so is a partner, then
+dropped from the set: emptying the trash answers "1 0" and the note is
+gone.
+
+**Live, R and D:** with R running, D paired on R's socket by `add peer`,
+accepted the card and pulled from R with `--pull-from`. A note D wrote was
+listed on R four seconds later, D logging "1 note record(s) to 127.0.0.1,
+0 refused". **Its control**, the live peers left out of the writer set:
+"0 note record(s) to 127.0.0.1, 1 refused". Then R trashed a note D had
+pulled, un-paired D with `remove peer`, and emptied the trash: "ok 1 0".
+**Its control**, the same without `remove peer`: "ok 1 1". No daemon was
+left running.
+
+**Sabotage: one entry**, for the purge. The wiring in fuzznetd has no unit
+test; the live controls are its evidence.

@@ -5844,6 +5844,13 @@ SABOTAGES = [
 		"a text somebody just asked for waits out a whole pull period before anything asks a peer for it -- sec 424",
 	),
 	(
+		"notes-trash-skips-a-partner-no-longer-admitted",
+		"node/notes.c",
+		"\t\tif (!sender_admitted(n, partners[i]))\n\t\t\tcontinue;\n",
+		"",
+		"a purge pins a device the user has un-paired, which will never be asked again, and waits for it until the month runs out -- sec 451",
+	),
+	(
 		"roots-standing-leaves-out-the-removed",
 		"node/roots.c",
 		"\t\tif (fzn_root_view_stands(&roots->view, key))\n\t\t\tmemcpy",
