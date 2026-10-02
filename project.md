@@ -53539,9 +53539,13 @@ estate's members by their chains.
 
 ### Not yet after sec 445
 
-- **A chain through another root is not admitted**: one starting at a root
-  the genesis added (sec 411) needs that root's proof, which a peer record
-  does not keep. Such a member's notes are refused as before, and counted.
+- **A chain through another root of the estate IS admitted**, wherever the
+  puller knows that root: verification reads the root set the revocation
+  store carries (sec 406), which fuzznetd attaches. This entry first said
+  such a chain needed a proof the peer record does not keep; that was an
+  inference, and measuring it -- m1 added as a root, m4's chain from m1 then
+  admitted -- showed it wrong. A chain from a root the puller has not yet
+  learned is refused and counted until it has.
 - **The root itself is admitted only where it is pulled from.** A node
   joined through a member, pulling from that member, does not admit the
   estate's root as a writer unless the root is among the member's peers.

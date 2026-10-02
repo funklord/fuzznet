@@ -18,10 +18,10 @@
  * never this answer, and a contact is never listed, since a share's chain is
  * not membership.
  *
- * A CHAIN THROUGH ANOTHER ROOT IS NOT ADMITTED. One that starts at a root
- * the genesis added (sec 411) needs that root's proof to verify against the
- * estate's root, and a peer record keeps the chain and not the proof; such a
- * member's notes are refused at B as before, and the refusal is counted.
+ * A CHAIN FROM ANOTHER ROOT OF THE ESTATE is admitted where B knows that
+ * root: `fzn_chain_verify` reads the root set `revocations` carries (sec
+ * 406). One from a root B has not learned is refused, and counted, until it
+ * has.
  *
  * Two messages in the notes sync family, version 2, `notes/sync.situ`'s
  * types 11 and 12:

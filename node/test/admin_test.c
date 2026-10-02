@@ -1371,6 +1371,24 @@ int main(void)
 		              && listed(got, n, m1.id.pubkey) && !listed(got, n, m2.id.pubkey),
 		      "a member whose grant is revoked is no longer admitted");
 
+		/* A CHAIN FROM ANOTHER ROOT OF THE ESTATE: once m1 is added as a
+		 * root, m4's chain from it proves through the root set the
+		 * revocation store carries (sec 406). */
+		{
+			uint8_t add[FZN_ROOT_ADD_LEN];
+
+			CHECK(fzn_root_add_issue(node.id.pubkey, m1.id.pubkey, &node.sign, add)
+			                      == FZN_ROOT_LOG_OK
+			              && fzn_node_roots_learn(&roots, &node.ops, add, sizeof(add))
+			                         == FZN_NODE_ROOTS_OK,
+			      "fixture: m1 added as a root of the estate");
+			CHECK(fzn_node_members_pull(members_ask, &mp, node.id.pubkey,
+			                            &state.config.remote_capability, 2100u, &node.sign,
+			                            admin.revocations, got, 64u, &n, &refused)
+			                      == FZN_NODE_MEMBERS_OK
+			              && listed(got, n, m4.id.pubkey),
+			      "a member whose chain starts at another root of the estate is admitted");
+		}
 		mp.rename_from = m1.id.pubkey;
 		mp.rename_to = m4.id.pubkey;
 		CHECK(fzn_node_members_pull(members_ask, &mp, node.id.pubkey,
