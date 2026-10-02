@@ -54369,9 +54369,9 @@ rather than later.
   texts fetched and pushed, shares received -- in an envelope naming it.
   Answering, it logs a debug entry caused by the asker's. So one grep for the
   instance field of a round's entry reads the round on both hosts.
-- **Not yet carried**: the roots and votes pulls, which go through another
-  path than `peer_ask`; and a cause deeper than the round -- each request
-  names the round as both its cause and its origin.
+- **Not yet carried**: ~~the roots and votes pulls, which go through another
+  path than `peer_ask`~~ -- carried since sec 465; and a cause deeper than
+  the round -- each request names the round as both its cause and its origin.
 - **Debug entries do not reach stderr**: `say` prints down to information,
   as before, and the new entries go to the ring, and to the file at debug.
 
@@ -54489,3 +54489,28 @@ estate scope M printed R's five ring entries, two of them debug entries
 R's file does not keep. No daemon was left running.
 
 **Sabotage: two entries.**
+
+## 465. Every request a round makes carries its cause, 2026-10-02
+
+Sec 462 put causes round the requests fuzznetd sends through `peer_ask`.
+The roots and votes pulls are made by the library -- `fzn_node_roots_pull`
+and `fzn_node_votes_pull` take a caller and send on it -- so they went bare.
+
+- **`fzn_caller_t` gains a `wrap` hook**, applied by `fzn_caller_send` to
+  every payload before it is split and sealed: it writes the payload to
+  send, or returns 0 to send it as it is. The caller knows nothing of what
+  is put round a request; `node/caller` does not link `log/`.
+- **fuzznetd sets it on every pull and share caller**, writing the
+  round's envelope, and `peer_ask` no longer wraps: one place for every
+  request a round makes, the library's included.
+
+### Measured for sec 465
+
+**`provision_test`**, two new checks: a node receiving the payload as the
+caller's wrap wrote it, and a payload the wrap left alone going as it was.
+
+**Live, sec 462's run again:** R logged seven entries caused by M's round
+where it had logged five -- the roots and votes requests now among them --
+and both pulls completed. No daemon was left running.
+
+**Sabotage: one entry.**

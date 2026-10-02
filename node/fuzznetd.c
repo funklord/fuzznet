@@ -252,6 +252,23 @@ static const fzn_entry_name_t *round_cause(void)
 	return round_named ? &round_name : NULL;
 }
 
+/* EVERY REQUEST A PULL OR A SHARE'S CALLER SENDS, in an envelope naming the
+ * round, sec 465 -- the roots and votes pulls the library makes included,
+ * which this daemon never sees. 0, sending it bare, when the round has no
+ * name. */
+static size_t caller_wrap(void *ctx, const uint8_t *in, size_t in_len, uint8_t *out,
+                          size_t out_cap)
+{
+	const fzn_entry_name_t *cause = round_cause();
+	size_t n = 0;
+
+	(void)ctx;
+	if (!cause || in_len > 0xffffu
+	    || fzn_cause_wrap(cause, cause, in, in_len, out, out_cap, &n) != FZN_CAUSE_OK)
+		return 0;
+	return n;
+}
+
 /* THE OTHER END: a request that came with its causes, logged as their
  * work. */
 static void on_caused(void *ctx, const uint8_t *sender, const fzn_entry_name_t *cause,
@@ -518,8 +535,6 @@ struct peer_asking {
 	fzn_caller_t *caller;
 	uint64_t now;
 	const char *host;
-	/* The entry the request is made for, sec 462; NULL sends it bare. */
-	const fzn_entry_name_t *cause;
 };
 
 static int peer_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
@@ -530,17 +545,7 @@ static int peer_ask(void *ctx, const uint8_t *request, size_t request_len, uint8
 	const uint8_t *detail = NULL;
 	size_t detail_len = 0, len;
 
-	/* IN ITS ENVELOPE when the round has a name, sec 462. */
-	static uint8_t wrapped[FZN_CAUSE_OVERHEAD_MAX + 0xffffu];
-	size_t wrapped_len = 0;
-
-	if (asking->cause && request_len && request_len <= 0xffffu
-	    && fzn_cause_wrap(asking->cause, asking->cause, request, request_len, wrapped,
-	                      sizeof(wrapped), &wrapped_len)
-	               == FZN_CAUSE_OK) {
-		request = wrapped;
-		request_len = wrapped_len;
-	}
+	/* ITS ENVELOPE, if any, is the caller's `wrap`, sec 465. */
 	if (fzn_caller_send(asking->caller, request, request_len, asking->now + 300u, &msg)
 	            != FZN_CALLER_OK
 	    || fzn_caller_recv(asking->caller, msg, reply, reply_cap, reply_len, 3000u)
@@ -618,7 +623,7 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 	 * member wrote and a peer relays is taken. Rebuilt every round, so a
 	 * member revoked since drops out. */
 	for (t = 0; t < npulls; t++) {
-		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host, round_cause() };
+		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
 		size_t got = 0, refused = 0;
 		fzn_node_members_err_t merr = fzn_node_members_pull(
 		        peer_ask, &asking, config->root, &config->remote_capability, now,
@@ -636,7 +641,7 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 	n_pulled_members = n_members;
 	admit_writers(state, roots);
 	for (t = 0; t < npulls; t++) {
-		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host, round_cause() };
+		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
 		fzn_notes_sync_tally_t tally;
 		fzn_notes_sync_err_t err = fzn_notes_sync_pull(&node_notes.store,
 		                                               node_notes.author.policy,
@@ -785,6 +790,7 @@ static void load_received(int family, const uint8_t self[FZN_PUBKEY_LEN],
 		pt->caller.rng = rng;
 		pt->caller.reasm = &pt->table;
 		pt->caller.hops = 1u;
+		pt->caller.wrap = caller_wrap;
 		nshares_in++;
 	}
 }
@@ -800,7 +806,7 @@ static void pull_received(uint64_t now)
 		static fzn_notes_received_t seam;
 		static fzn_persist_ops_t ops;
 		fzn_notes_store_t tree;
-		struct peer_asking asking = { &shares_in[i].pt.caller, now, shares_in[i].host, round_cause() };
+		struct peer_asking asking = { &shares_in[i].pt.caller, now, shares_in[i].host };
 		fzn_notes_sync_tally_t tally;
 		fzn_notes_sync_err_t err;
 
@@ -968,7 +974,7 @@ static void fetch_texts(struct pull_target *pulls, size_t npulls, uint64_t now)
 		return;
 	shelf.fresh = 0;
 	for (t = 0; t < npulls; t++) {
-		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host, round_cause() };
+		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
 		size_t got = fzn_node_shelf_fetch_wants(&shelf, peer_ask, &asking);
 
 		if (got)
@@ -1664,7 +1670,7 @@ int main(int argc, char **argv)
 #ifdef FZN_LOG_FILE_ON
 		/* THE HOST'S FLIGHT RECORDER, its entries as lines. sec 464. */
 		if (gather_ring) {
-			struct peer_asking asking = { &caller, wall_clock(), to_host, NULL };
+			struct peer_asking asking = { &caller, wall_clock(), to_host };
 			fzn_gather_err_t gerr;
 			size_t got = 0;
 
@@ -1682,7 +1688,7 @@ int main(int argc, char **argv)
 		}
 		/* THE LOG, page by page, printed as the host wrote it. sec 463. */
 		if (gather_program) {
-			struct peer_asking asking = { &caller, wall_clock(), to_host, NULL };
+			struct peer_asking asking = { &caller, wall_clock(), to_host };
 			fzn_gather_query_t q;
 			fzn_gather_err_t gerr;
 			size_t got = 0;
@@ -2149,6 +2155,7 @@ int main(int argc, char **argv)
 			pt->caller.rng = &rng_ops;
 			pt->caller.reasm = &pt->table;
 			pt->caller.hops = 1u;
+			pt->caller.wrap = caller_wrap;
 		}
 
 		load_received(family, identity.pubkey, &hash_ops, &aead_ops, &rng_ops);

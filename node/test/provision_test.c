@@ -44,6 +44,19 @@ static void ok(int cond, const char *what)
 
 static const uint8_t PAYLOAD[] = { 'p', 'i', 'n', 'g' };
 
+/* A WRAP, sec 465: "w:" before the payload, or nothing for a long one. */
+static size_t prefix_wrap(void *ctx, const uint8_t *in, size_t in_len, uint8_t *out,
+                          size_t out_cap)
+{
+	(void)ctx;
+	if (in_len + 2u > out_cap || in_len > 32u)
+		return 0;
+	out[0] = 'w';
+	out[1] = ':';
+	memcpy(out + 2, in, in_len);
+	return in_len + 2u;
+}
+
 static struct {
 	int called;
 	fzn_node_remote_result_t result;
@@ -87,9 +100,12 @@ static size_t on_remote_big(void *ctx, fzn_node_remote_result_t result,
                             size_t reply_cap)
 {
 	(void)ctx;
-	(void)req;
 	observed.called = 1;
 	observed.result = result;
+	if (req && req->payload && req->payload_len <= sizeof(observed.payload)) {
+		memcpy(observed.payload, req->payload, req->payload_len);
+		observed.payload_len = req->payload_len;
+	}
 	if (result != FZN_NODE_REMOTE_GRANTED || reply_cap < sizeof(big_reply))
 		return 0;
 	memcpy(reply, big_reply, sizeof(big_reply));
@@ -579,6 +595,34 @@ int main(void)
 		                   &alen, 200u) == FZN_CALLER_ERR_TIMEOUT,
 		   "recv returned the answer to a DIFFERENT question, so a late "
 		   "reply would be handed back as this one's");
+		(void)fzn_caller_recv(&caller, asked, answer, sizeof(answer), &alen, 200u);
+
+		/* THE WRAP, sec 465: what the node receives is what the caller's
+		 * wrap wrote, and a wrap writing nothing sends the payload as it
+		 * is. */
+		caller.wrap = prefix_wrap;
+		observed.called = 0;
+		observed.payload_len = 0;
+		ok(fzn_caller_send(&caller, PAYLOAD, sizeof(PAYLOAD), 2000u, &asked)
+		           == FZN_CALLER_OK
+		       && fzn_node_run_once(&state, 1000) == 1 && observed.called
+		       && observed.payload_len == sizeof(PAYLOAD) + 2u
+		       && memcmp(observed.payload, "w:ping", 6u) == 0,
+		   "the node did not receive the payload as the caller's wrap wrote it");
+		(void)fzn_caller_recv(&caller, asked, answer, sizeof(answer), &alen, 200u);
+		{
+			static uint8_t long_req[40];
+
+			memset(long_req, 'x', sizeof(long_req));
+			observed.payload_len = 0;
+			ok(fzn_caller_send(&caller, long_req, sizeof(long_req), 2000u, &asked)
+			           == FZN_CALLER_OK
+			       && fzn_node_run_once(&state, 1000) == 1
+			       && observed.payload_len == sizeof(long_req) && observed.payload[0] == 'x',
+			   "a payload the wrap left alone did not go as it was");
+			(void)fzn_caller_recv(&caller, asked, answer, sizeof(answer), &alen, 200u);
+		}
+		caller.wrap = NULL;
 
 		/* A CHUNKED REQUEST, END TO END. sec 370 gave the node step 8,
 		 * so a request larger than a frame is planned, sent as pieces,

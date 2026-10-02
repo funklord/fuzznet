@@ -5844,6 +5844,13 @@ SABOTAGES = [
 		"a text somebody just asked for waits out a whole pull period before anything asks a peer for it -- sec 424",
 	),
 	(
+		"caller-sends-what-its-wrap-wrote",
+		"node/caller.c",
+		"\t\tif (n) {\n\t\t\tpayload = wrapped;\n\t\t\tpayload_len = n;\n\t\t}\n",
+		"\t\t(void)n;\n",
+		"a daemon's causes are written round a request and the request goes without them, so the roots and votes pulls are never traced -- sec 465",
+	),
+	(
 		"gather-ring-past-the-cursor",
 		"log/gather.c",
 		"\tif (p->full || (p->started && e->name.position <= p->after))\n",

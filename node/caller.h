@@ -90,6 +90,13 @@ typedef struct fzn_caller {
 	uint32_t next_msg;
 	/* The hop budget a request states, as `fzn_send_t.hops`. */
 	uint8_t hops;
+	/* EVERY PAYLOAD THROUGH THIS FIRST, sec 465, when set: `wrap` writes
+	 * the payload to send into `out` and returns its length, or 0 to send
+	 * it as it is. It is how a daemon puts its log causes round requests
+	 * the library sends on its behalf -- roots, votes -- which it never sees
+	 * (`log/cause.h`); the caller knows nothing of what is put round them. */
+	size_t (*wrap)(void *ctx, const uint8_t *in, size_t in_len, uint8_t *out, size_t out_cap);
+	void *wrap_ctx;
 } fzn_caller_t;
 
 /* Send one request, reporting the `msg` it went out under.

@@ -47,6 +47,21 @@ fzn_caller_err_t fzn_caller_send(fzn_caller_t *caller, const uint8_t *payload,
 		return FZN_CALLER_ERR_MALFORMED;
 	if (!payload && payload_len)
 		return FZN_CALLER_ERR_MALFORMED;
+	/* THE WRAP, sec 465: what goes is what it writes, when it writes
+	 * anything. One buffer for the process, a caller being used from one
+	 * thread. */
+	if (caller->wrap && payload_len) {
+		static uint8_t wrapped[1u << 17];
+		size_t n = caller->wrap(caller->wrap_ctx, payload, payload_len, wrapped,
+		                        sizeof(wrapped));
+
+		if (n > sizeof(wrapped))
+			return FZN_CALLER_ERR_MALFORMED;
+		if (n) {
+			payload = wrapped;
+			payload_len = n;
+		}
+	}
 	/* PLANNED, NOT REFUSED, SINCE sec 370 gave the node step 8. Until then
 	 * this refused anything past one frame, because the node reassembled
 	 * nothing and an over-large request was dropped at the far end and
