@@ -51875,7 +51875,9 @@ three defects, all since fixed in their tree:
 
 ## 428. Logging across an estate: a design proposal, 2026-10-01
 
-**Status: proposal.** Nothing is built. Its shape was discussed with the
+**Status: proposal.** Nothing was built when this was written; sec 441 has
+since built the relay of external tools' output, which depends on none of the
+open questions. Its shape was discussed with the
 copyright holder, whose decisions are below; the open questions are listed
 at the end. It is written down ahead of the code because the decisions are
 the work: logging is to be harmonized across every project that links
@@ -53286,3 +53288,93 @@ path, a folder not held, and no path refused; the scratch removed.
 and the log saying how many; a second import recognised; a missing path said.
 
 **Sabotage: six entries.**
+
+## 441. Logging, first piece: an external tool's output, relayed, 2026-10-02
+
+Sec 428 is a proposal whose open questions are the holder's -- which property
+names a machine, the start time's resolution, how two retention rules combine,
+and the performant layout. One part of it depends on none of them: relaying
+what an external tool prints. Sec 428 settled that it is one shared function
+rather than something each daemon hand-rolls, and settled its rules. It is
+built here as two pieces, and an entry is handed to the caller's own log,
+whatever that log writes, so adopting the classic line later changes nothing
+here.
+
+### `log/capture`: lines into entries, no I/O
+
+- **One captured line is exactly one entry.** A line split across reads is
+  joined; `\r\n` ends a line as `\n` does; a last line with no newline is
+  emitted at the end and marked unterminated.
+- **The text is untrusted and escaped as `\xNN`:** control bytes, DEL, a
+  backslash -- so `\x` reads back -- NUL, invalid UTF-8, overlong forms and
+  surrogates. Valid UTF-8 passes, except the C1 controls, which a terminal
+  may act on as 8-bit escapes, and U+2028 and U+2029, which some viewers
+  break a line at. A line shaped like one of ours is one entry of the tool's.
+  An escape is written whole or not at all.
+- **Bounded twice, and both bounds said.** A line keeps 4096 bytes and the
+  entry says how many it did not; an invocation emits `volume_max` lines and
+  counts the rest. Sec 428 sends those to the flight recorder, which is not
+  built; the count is what survives of them until it is.
+- **No guessed severity:** each stream's lines carry the caller's level for
+  that stream, stdout information and stderr a warning by default.
+- **The closing entry** says how it ended -- `exit 2 after 14 ms, 1 line`,
+  a signal, the deadline, or that it could not be started -- and what was
+  not kept. It is an error for every end but exit 0, a deadline included.
+- **The invocation as one line**, each argument the caller marks secret
+  written `***`, and a space inside an argument escaped so the line splits
+  back into the arguments passed. One that does not fit is refused rather
+  than cut, since a cut argument reads as a whole one.
+
+### `log/capture_run`: running the tool, POSIX, gated
+
+`FZN_CAPTURE_RUN`, auto by default, with its own probe asking for the calls
+it makes -- fork, exec, pipe, poll, waitpid, a group kill and a monotonic
+clock. Off, `make test` says so and why, as for the file backends.
+
+- **stdin is /dev/null**, so a tool that asks a question gets end of file
+  rather than waiting on a daemon's terminal.
+- **Both streams are read as they arrive**, through poll, so a tool filling
+  one pipe while the other is waited on cannot deadlock.
+- **The deadline kills the tool's whole process group**, which it is started
+  in, so what it spawned goes too. A tool that closed its streams and kept
+  running is waited for until the deadline and no further.
+- **A tool that could not be started is said with exec's errno**, through a
+  close-on-exec pipe, and not as exit 127, which a tool that ran may return.
+- **It is reaped on every path.** SIGPIPE is reset in the child, since a
+  daemon that ignores it would hand that to every tool.
+
+**The two limits sec 428 stated stand**: two pipes lose the order between
+stdout and stderr, and a tool writing to syslog or the journal itself is not
+captured.
+
+### Measured for sec 441
+
+**`capture_test`, 59 checks:** lines, split reads, empty lines, CRLF and a
+lone CR, CR and LF arriving apart, the unterminated last line, the default and
+a caller's rule; a forged entry line, terminal escapes, NUL, backslash and
+DEL, valid UTF-8, invalid and overlong bytes and a surrogate, a C1 control
+and a line separator, whole escapes in a short buffer; a long line's bound
+and its count in the summary; the volume bound and every line counted; each
+end's wording and level, a summary that does not fit refused; the invocation
+with a space and a secret, with nothing marked, too long, and a null
+argument; refusals.
+
+**`capture_run_test`, 10 checks, against `/bin/sh`, every run under a
+deadline of at most two seconds:** an exit status and both streams; a tool
+not installed as NOT_RUN with ENOENT; stdin at end of file; a signal; 3000
+lines on each stream without a deadlock; a deadline stopping a tool whose
+child would sleep thirty seconds, and that child gone afterwards -- read from
+`/proc`, since `kill(pid, 0)` answers yes for a zombie; a tool that closed
+its streams and kept running stopped at the deadline.
+
+`err_str_test` walks `fzn_capture_err_str`, and `consumer_check` escapes a
+line through the installed header.
+
+**Sabotage: eleven entries.** Not covered: stdin from /dev/null, which a
+suite run with no terminal cannot tell from an inherited stdin.
+
+### Not yet after sec 441
+
+- **Adoption by netcfgd and raidcfgd**, which is the cross-project pass sec
+  428 describes; they are to be told it exists.
+- **Everything else in sec 428**, waiting on the holder's open questions.

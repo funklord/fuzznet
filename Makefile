@@ -198,7 +198,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              notes/store.c notes/view.c notes/author.c notes/purge.c notes/import.c \
              notes/sync.c notes/share.c notes/received.c \
              trust/trust.c \
-             log/log.c \
+             log/log.c log/capture.c \
              sched/sched.c \
              link/link.c
 # RECURSIVE, NOT SNAPSHOT, and that is a fix rather than a style choice.
@@ -288,7 +288,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              notes/store.h notes/view.h notes/author.h notes/purge.h notes/import.h \
              notes/sync.h notes/share.h notes/received.h \
              trust/trust.h \
-             log/log.h \
+             log/log.h log/capture.h \
              sched/sched.h \
              link/link.h
 
@@ -409,7 +409,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              notes/test/notes_sync_test.c contact/test/contact_test.c \
              trust/test/trust_test.c \
              trust/test/trust_walk_test.c \
-             log/test/log_test.c \
+             log/test/log_test.c log/test/capture_test.c \
              wire/test/relay_test.c \
              sched/test/sched_test.c \
              sched/test/sched_fuzz.c \
@@ -534,6 +534,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/trust/test/trust_test \
              $(BUILD_DIR)/trust/test/trust_walk_test \
              $(BUILD_DIR)/log/test/log_test \
+             $(BUILD_DIR)/log/test/capture_test \
              $(BUILD_DIR)/wire/test/relay_test \
              $(BUILD_DIR)/sched/test/sched_test \
              $(BUILD_DIR)/sched/test/sched_fuzz \
@@ -769,6 +770,45 @@ else ifeq ($(FZN_CLAIM_FILE),0)
 CLAIM_FILE_SKIP := FZN_CLAIM_FILE=0.
 else
 $(error FZN_CLAIM_FILE must be auto, 1 or 0 -- got "$(FZN_CLAIM_FILE)")
+endif
+
+# RUNNING AN EXTERNAL TOOL, sec 441: its own probe, asking for the calls
+# log/capture_run.c makes -- fork, execvp, pipe, poll, waitpid, kill on a
+# group and a monotonic clock -- since none of the probes above asks about a
+# process.
+FZN_PROBE_SPAWN := $(shell printf '%s\n' '#define _POSIX_C_SOURCE 200809L' \
+                    '#include <poll.h>' '#include <signal.h>' '#include <sys/wait.h>' \
+                    '#include <time.h>' '#include <unistd.h>' \
+                    'int main(void){int p[2];struct pollfd f;struct timespec t;pid_t c;' \
+                    'if(pipe(p))return 1;f.fd=p[0];f.events=POLLIN;(void)poll(&f,1,0);' \
+                    '(void)clock_gettime(CLOCK_MONOTONIC,&t);c=fork();' \
+                    'if(c==0){char*a[]={(char*)"true",0};execvp(a[0],a);_exit(1);}' \
+                    '(void)kill(-c,0);return waitpid(c,0,0)<0;}' \
+                    | $(CC) $(FZN_PROBE_CPPFLAGS) $(FZN_PROBE_CFLAGS) -x c - -o /dev/null 2>/dev/null && echo yes || echo no)
+
+FZN_BLAME_SPAWN := this toolchain has no usable fork, exec, pipe and poll.
+
+ifeq ($(FZN_CAPTURE_RUN),)
+FZN_CAPTURE_RUN := auto
+endif
+
+ifeq ($(FZN_CAPTURE_RUN),auto)
+ifeq ($(FZN_PROBE_SPAWN),yes)
+CAPTURE_RUN_ON := 1
+else
+CAPTURE_RUN_SKIP := $(FZN_BLAME_SPAWN) Set FZN_CAPTURE_RUN=0 to build without it.
+endif
+else ifeq ($(FZN_CAPTURE_RUN),1)
+ifeq ($(FZN_PROBE_SPAWN),yes)
+CAPTURE_RUN_ON := 1
+else
+$(error FZN_CAPTURE_RUN=1 was asked for and $(FZN_BLAME_SPAWN) \
+        Set FZN_CAPTURE_RUN=0 to build without it, or auto to let the probe decide)
+endif
+else ifeq ($(FZN_CAPTURE_RUN),0)
+CAPTURE_RUN_SKIP := FZN_CAPTURE_RUN=0.
+else
+$(error FZN_CAPTURE_RUN must be auto, 1 or 0 -- got "$(FZN_CAPTURE_RUN)")
 endif
 
 # THE RECORD STORE'S FILE BACKEND REUSES FZN_PROBE_PWRITE rather than adding
@@ -1105,6 +1145,18 @@ SRCS      += $(RECORD_STORE_FILE_SRCS)
 HDRS      += $(RECORD_STORE_FILE_HDRS)
 TEST_SRCS += $(RECORD_STORE_FILE_TSRC)
 TEST_BINS += $(BUILD_DIR)/record/test/store_file_test
+endif
+
+CAPTURE_RUN_SRCS := log/capture_run.c
+CAPTURE_RUN_HDRS := log/capture_run.h
+CAPTURE_RUN_TSRC := log/test/capture_run_test.c
+
+ifdef CAPTURE_RUN_ON
+CPPFLAGS  += -DFZN_CAPTURE_RUN_ON
+SRCS      += $(CAPTURE_RUN_SRCS)
+HDRS      += $(CAPTURE_RUN_HDRS)
+TEST_SRCS += $(CAPTURE_RUN_TSRC)
+TEST_BINS += $(BUILD_DIR)/log/test/capture_run_test
 endif
 
 CLAIM_FILE_SRCS := claim/claim_file.c
@@ -1789,6 +1841,19 @@ $(BUILD_DIR)/log/test/log_test: $(BUILD_DIR)/log/test/log_test.o \
                                 $(BUILD_DIR)/record/record.o \
                                 $(BUILD_DIR)/record/journal.o \
                                 $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# A tool's output made into entries: no I/O, so nothing else. sec 441.
+$(BUILD_DIR)/log/test/capture_test: $(BUILD_DIR)/log/test/capture_test.o \
+                                    $(BUILD_DIR)/log/capture.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# Running a tool against /bin/sh, every run under a deadline. sec 441.
+$(BUILD_DIR)/log/test/capture_run_test: $(BUILD_DIR)/log/test/capture_run_test.o \
+                                        $(BUILD_DIR)/log/capture_run.o \
+                                        $(BUILD_DIR)/log/capture.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -3594,6 +3659,7 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/contact/contact.o \
                                       $(BUILD_DIR)/node/received.o \
+                                      $(BUILD_DIR)/log/capture.o \
                                       $(BUILD_DIR)/notes/store.o \
                                       $(BUILD_DIR)/notes/sync.o \
                                       $(BUILD_DIR)/notes/purge.o \
@@ -3896,6 +3962,10 @@ runtests: $(TEST_BINS)
 	@if [ -n "$(SPOOL_FILE_SKIP)" ]; then \
 		echo "test: the file-backed spool backend was NOT built, so its tests"; \
 		echo "test: did not run -- $(SPOOL_FILE_SKIP)"; \
+	fi
+	@if [ -n "$(CAPTURE_RUN_SKIP)" ]; then \
+		echo "test: running external tools was NOT built, so its tests"; \
+		echo "test: did not run -- $(CAPTURE_RUN_SKIP)"; \
 	fi
 
 CASES ?= 200000
@@ -5788,14 +5858,14 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 		exit 1; \
 	fi
 	@echo "installcheck: against the installed headers"
-	@$(CC) $(CFLAGS) $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) $(if $(CLI_ON),-DFZN_CLI_ON) -DFZN_CONSUMER_INSTALLED \
+	@$(CC) $(CFLAGS) $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(CAPTURE_RUN_ON),-DFZN_CAPTURE_RUN_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) $(if $(CLI_ON),-DFZN_CLI_ON) -DFZN_CONSUMER_INSTALLED \
 	       -I$(BUILD_DIR)/installcheck/usr/include \
 	       -o $(BUILD_DIR)/installcheck/consumer_installed \
 	       -Iwire/generated $(MONO_CONSUMER) tool/consumer_check.c $(SRCS) $(GEN_SRCS)
 	@$(BUILD_DIR)/installcheck/consumer_installed
 	@echo "installcheck: against the source tree, from another directory"
 	@cd $(BUILD_DIR)/installcheck && $(CC) $(CFLAGS) \
-	       $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) $(if $(CLI_ON),-DFZN_CLI_ON) -I$(CURDIR) \
+	       $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(CAPTURE_RUN_ON),-DFZN_CAPTURE_RUN_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) $(if $(CLI_ON),-DFZN_CLI_ON) -I$(CURDIR) \
 	       -I$(CURDIR)/wire/generated \
 	       -o consumer_source $(CURDIR)/tool/consumer_check.c \
 	       $(patsubst %,$(CURDIR)/%,$(SRCS)) \
@@ -5875,6 +5945,7 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 		       $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) \
 		       $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) \
 		       $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) \
+		       $(if $(CAPTURE_RUN_ON),-DFZN_CAPTURE_RUN_ON) \
 		       $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) \
 		       $(if $(CLI_ON),-DFZN_CLI_ON) \
 		       -c $(BUILD_DIR)/installcheck/cxx_headers.cpp \
@@ -5964,6 +6035,7 @@ manifest:
 	@for c in $(MONO_NEEDS_INC); do echo "monocypher-include $$c"; done
 	@$(if $(PERSIST_FILE_ON),echo "backend persist/persist_file.c FZN_PERSIST_FILE_ON";)
 	@$(if $(CLAIM_FILE_ON),echo "backend claim/claim_file.c FZN_CLAIM_FILE_ON";)
+	@$(if $(CAPTURE_RUN_ON),echo "backend log/capture_run.c FZN_CAPTURE_RUN_ON";)
 	@$(if $(RECORD_STORE_FILE_ON),echo "backend record/store_file.c FZN_RECORD_STORE_FILE_ON";)
 	@# ONE LINE PER SOURCE, as `binding` and `backend` already are. These two
 	@# were a hand-written literal naming `cli/cli.c` and a bare directory

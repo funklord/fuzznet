@@ -124,6 +124,9 @@
 #ifdef FZN_CLAIM_FILE_ON
 #include <fuzznet/claim/claim_file.h>
 #endif
+#ifdef FZN_CAPTURE_RUN_ON
+#include <fuzznet/log/capture_run.h>
+#endif
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include <fuzznet/record/store_file.h>
 #endif
@@ -177,6 +180,7 @@
 #include <fuzznet/notes/sync.h>
 #include <fuzznet/notes/share.h>
 #include <fuzznet/notes/received.h>
+#include <fuzznet/log/capture.h>
 #include <fuzznet/node/received.h>
 #include <fuzznet/contact/contact.h>
 #include <fuzznet/node/notes.h>
@@ -258,6 +262,9 @@
 #ifdef FZN_CLAIM_FILE_ON
 #include "claim/claim_file.h"
 #endif
+#ifdef FZN_CAPTURE_RUN_ON
+#include "log/capture_run.h"
+#endif
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include "record/store_file.h"
 #endif
@@ -304,6 +311,7 @@
 #include "notes/sync.h"
 #include "notes/share.h"
 #include "notes/received.h"
+#include "log/capture.h"
 #include "node/received.h"
 #include "contact/contact.h"
 #include "node/notes.h"
@@ -1004,6 +1012,14 @@ int main(void)
 		/* A contact's name is a peer name (sec 435). */
 		if (!fzn_contact_name_ok("alice", 5u) || fzn_contact_name_ok("a b", 3u))
 			FAIL(467);
+		/* A tool's output is escaped before it is a log line (sec 441). */
+		{
+			char esc[16];
+
+			if (fzn_capture_escape((const uint8_t *)"a\nb", 3u, esc, sizeof(esc)) != 6u
+			    || strcmp(esc, "a\\x0ab") != 0)
+				FAIL(469);
+		}
 		/* A received share's host is one word (sec 437). */
 		if (!fzn_node_received_host_ok("example.org", 11u)
 		    || fzn_node_received_host_ok("a b", 3u))
