@@ -975,7 +975,10 @@ static void scrub_shelf(uint64_t now)
 	uint8_t began[FZN_BLOB_HASH_LEN];
 	size_t i;
 
-	if (!shelf_on || now < next_scrub)
+	/* A CLOCK SET BACK leaves a schedule further ahead than one period,
+	 * which waiting would honour for as long as the clock was wrong: due
+	 * now instead. sec 469. */
+	if (!shelf_on || (now < next_scrub && next_scrub <= now + FZND_SCRUB_EVERY))
 		return;
 	next_scrub = now + FZND_SCRUB_EVERY;
 	for (i = 0; i < FZND_SCRUB_STEPS; i++) {
@@ -2346,7 +2349,11 @@ int main(int argc, char **argv)
 			 * not answer is reported and the next is asked: what one
 			 * peer cannot say another may, which is the point of asking
 			 * more than one. sec 401. */
-			if (now >= next_pull) {
+			/* DUE, OR SCHEDULED BY A CLOCK SINCE SET BACK: a round more
+			 * than one period away was planned by a clock that read later
+			 * than this one does, and waiting for it would stop every pull
+			 * for as long as the clock had been wrong. sec 469. */
+			if (now >= next_pull || next_pull > now + FZND_PULL_EVERY) {
 				log_round();
 				round_named = say_caused(FZN_ENTRY_DEBUG, "node/round", NULL, NULL,
 				                         &round_name, "a round with %zu peer(s)", npulls);
@@ -2412,7 +2419,8 @@ int main(int argc, char **argv)
 			/* A WRITE HERE GOES OUT NOW, sec 449, a round at most every
 			 * two seconds, so a burst of edits is one round rather than
 			 * one each. */
-			if (notes_on && node_notes.fresh && now >= last_fresh_round + 2u) {
+			if (notes_on && node_notes.fresh
+			    && (now >= last_fresh_round + 2u || last_fresh_round > now)) {
 				node_notes.fresh = 0;
 				last_fresh_round = now;
 				pull_notes(pulls, npulls, now, &state, running, running_roots);

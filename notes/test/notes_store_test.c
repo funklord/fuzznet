@@ -973,6 +973,16 @@ static void test_purge(void)
 	                      == FZN_NOTES_OK
 	              && n == 1u,
 	      "but at it");
+	/* A CLOCK SET BACK, sec 469: the stamp is now in the future. A purge
+	 * waiting for the clock to reach it would be wedged until it did --
+	 * fuzzypickles met that on a phone booted years ahead -- so it is due at
+	 * once and stamped again from the clock as it now reads. */
+	CHECK(fzn_notes_purge_due(&store, 500u, due, 4u, &n) == FZN_NOTES_OK && n == 1u,
+	      "a purge stamped in the future is due at once, not when the clock reaches it");
+	CHECK(fzn_notes_purge_due(&store, 500u + FZN_NOTES_PURGE_RETRY_MS - 1u, due, 4u, &n)
+	                      == FZN_NOTES_OK
+	              && n == 0u,
+	      "and is stamped again, so it is not asked again before an interval from then");
 
 	/* ---- the bound */
 	{

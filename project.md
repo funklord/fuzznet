@@ -54620,3 +54620,42 @@ refused; a host that does not answer saying so.
 a silent host, its "The host did not answer" whole at 24 columns.
 
 **Sabotage: two entries.**
+
+## 469. A clock set back wedges nothing, 2026-10-02
+
+fuzzypickles reported a defect of theirs (their sec 156) and its shape:
+a consensus delete was skipped while `now < last_push + interval`, so an
+entry stamped in the future -- a phone booted with its clock years ahead
+and then corrected -- was never asked again until the clock reached the
+bad stamp, and the trashed note stayed hidden and undeleted. They said:
+"if your purge schedule runs on wall-clock time, it probably has the same
+shape".
+
+- **`fzn_notes_purge_due` already did not.** Its skip also requires
+  `now_ms >= last_push_ms`, so a stamp in the future is due at once and
+  stamped again from the clock as it reads -- there since the purge was
+  written (6422571). fuzzypickles' fix waits one interval after re-stamping
+  instead; both clear the wedge. **But nothing tested it**: the guard could
+  have been removed with the suite green. It is tested now.
+- **fuzznetd's own schedules did have the shape**, three of them: the pull
+  round (`now >= next_pull`), the round after a write (`now >=
+  last_fresh_round + 2`) and the shelf's scrub (`now < next_scrub`). A
+  clock set back after any of them were scheduled stopped them until the
+  clock caught up -- every pull, push, text fetch, pack and prune, for as
+  long as the clock had been wrong. **A schedule more than one period ahead
+  of the clock was set by a clock since set back**, so it is now due at
+  once. The ring dump's rate limit subtracts unsigned and was never wedged.
+
+### Measured for sec 469
+
+**`notes_store_test`, 162 checks:** a purge stamped later than the clock
+due at once, and stamped again so that it is not asked within an interval
+of the new time.
+
+**Live, under libfaketime at ten times speed:** a node started ten years
+ahead ran its round, then had its clock set back to the present: three
+rounds followed in fifteen seconds. **The control**, the round's check
+without the fix: none, the next round waiting for 2036. No daemon was left
+running.
+
+**Sabotage: one entry**, the purge's guard as fuzzypickles' defect had it.

@@ -5844,6 +5844,13 @@ SABOTAGES = [
 		"a text somebody just asked for waits out a whole pull period before anything asks a peer for it -- sec 424",
 	),
 	(
+		"notes-purge-due-survives-a-clock-set-back",
+		"notes/purge.c",
+		"\t\tif (p.last_push_ms != 0u && now_ms - p.last_push_ms < FZN_NOTES_PURGE_RETRY_MS\n\t\t    && now_ms >= p.last_push_ms)\n",
+		"\t\tif (p.last_push_ms != 0u\n\t\t    && (now_ms < p.last_push_ms || now_ms - p.last_push_ms < FZN_NOTES_PURGE_RETRY_MS))\n",
+		"a purge stamped in the future -- a clock set back -- is never asked again until the clock reaches the stamp, and the trashed note stays hidden and undeleted -- sec 469",
+	),
+	(
 		"entries-view-says-a-silent-host",
 		"gui/entries_view.cpp",
 		"\tif (err == FZN_GATHER_ERR_NO_ANSWER)\n\t\tm_status->setText(QStringLiteral(\"The host did not answer.\"));\n\telse if",
