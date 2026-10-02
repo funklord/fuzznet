@@ -507,6 +507,24 @@ fzn_node_roots_err_t fzn_node_roots_key_create(fzn_node_roots_t *roots,
 	return FZN_NODE_ROOTS_OK;
 }
 
+size_t fzn_node_roots_standing(const fzn_node_roots_t *roots, uint8_t (*out)[FZN_PUBKEY_LEN],
+                               size_t cap)
+{
+	size_t i, n = 0;
+
+	if (!roots || !out)
+		return 0;
+	/* THE CANDIDATES are the genesis and every change's subject; the view
+	 * says which stand, so a removed root drops out however it was added. */
+	for (i = 0; i <= roots->set.used && n < cap; i++) {
+		const uint8_t *key = i == 0u ? roots->set.genesis : roots->set.changes[i - 1u].subject;
+
+		if (fzn_root_view_stands(&roots->view, key))
+			memcpy(out[n++], key, FZN_PUBKEY_LEN);
+	}
+	return n;
+}
+
 int fzn_node_roots_acting(const fzn_node_roots_t *roots, const uint8_t identity[FZN_PUBKEY_LEN],
                           const fzn_sign_ops_t *identity_sign, const uint8_t **pubkey,
                           const fzn_sign_ops_t **sign)

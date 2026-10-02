@@ -1513,6 +1513,18 @@ static void test_several_roots_at_a_node(const fzn_cap_id_t *cap)
 	              && fzn_node_roots_learn(&roots, &n.ops, b_rev, sizeof(b_rev))
 	                         == FZN_NODE_ROOTS_OK,
 	      "N would not learn R's add of B or the log entries");
+	/* THE ROOTS THAT STAND, sec 450: R and B, R first. */
+	{
+		uint8_t standing[4][FZN_PUBKEY_LEN];
+
+		CHECK(fzn_node_roots_standing(&roots, standing, 4u) == 2u
+		              && !memcmp(standing[0], r.id.pubkey, FZN_PUBKEY_LEN)
+		              && !memcmp(standing[1], b.id.pubkey, FZN_PUBKEY_LEN),
+		      "R and B did not both stand");
+		CHECK(fzn_node_roots_standing(&roots, standing, 1u) == 1u
+		              && fzn_node_roots_standing(NULL, standing, 4u) == 0u,
+		      "the standing roots overran their cap, or answered for no estate");
+	}
 	CHECK(fzn_revocation_admit(&revs, fzn_revocation_offer_root(rec), r.id.pubkey, &n.sign,
 	                           &hash_ops, NULL) == FZN_CHAIN_OK
 	              && d_revoked(&revs, &r, &n, &d, cap),
@@ -1583,6 +1595,13 @@ static void test_several_roots_at_a_node(const fzn_cap_id_t *cap)
 	      "N would not learn R's removal of B");
 	CHECK(!d_revoked(&revs, &r, &n, &d, cap),
 	      "a removed root's revocation still revoked D");
+	{
+		uint8_t standing[4][FZN_PUBKEY_LEN];
+
+		CHECK(fzn_node_roots_standing(&roots, standing, 4u) == 1u
+		              && !memcmp(standing[0], r.id.pubkey, FZN_PUBKEY_LEN),
+		      "a removed root still stood, sec 450");
+	}
 
 	/* CARRIED, sec 408: node M, knowing nothing, pulls N's root records a
 	 * page per item and judges as N does -- B admitted as a root, and B's

@@ -5844,6 +5844,20 @@ SABOTAGES = [
 		"a text somebody just asked for waits out a whole pull period before anything asks a peer for it -- sec 424",
 	),
 	(
+		"roots-standing-leaves-out-the-removed",
+		"node/roots.c",
+		"\t\tif (fzn_root_view_stands(&roots->view, key))\n\t\t\tmemcpy",
+		"\t\tif (1)\n\t\t\tmemcpy",
+		"a root the estate removed still writes notes every node takes -- sec 450",
+	),
+	(
+		"roots-standing-keeps-its-cap",
+		"node/roots.c",
+		"for (i = 0; i <= roots->set.used && n < cap; i++) {",
+		"for (i = 0; i <= roots->set.used; i++) {",
+		"an estate with more roots than the writer table holds writes past the table -- sec 450",
+	),
+	(
 		"notes-write-marks-fresh",
 		"node/notes.c",
 		"detail_len) == FZN_REPLY_OK)\n\t\tn->fresh = 1;\n",

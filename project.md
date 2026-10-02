@@ -53546,9 +53546,10 @@ estate's members by their chains.
   inference, and measuring it -- m1 added as a root, m4's chain from m1 then
   admitted -- showed it wrong. A chain from a root the puller has not yet
   learned is refused and counted until it has.
-- **The root itself is admitted only where it is pulled from.** A node
+- ~~**The root itself is admitted only where it is pulled from.** A node
   joined through a member, pulling from that member, does not admit the
-  estate's root as a writer unless the root is among the member's peers.
+  estate's root as a writer unless the root is among the member's peers.~~
+  Every standing root is admitted since sec 450.
 - ~~**Notes still travel only by pulling.**~~ Pushed since sec 446.
 
 ### Measured for sec 445
@@ -53729,3 +53730,42 @@ seconds for M's next round. M logged "1 note record(s) to 127.0.0.1". No
 daemon was left running.
 
 **Sabotage: four entries.**
+
+## 450. The estate's roots write wherever their notes arrive, 2026-10-02
+
+**Every root of the estate that stands is a writer of notes at every
+node**, not only at a node that pulls from it. Sec 445 left the gap: N,
+paired by member M and pulling from M, took M's members on the proof of
+their chains -- and the root R is no peer of M's with a chain, so R's
+notes, relayed by M, were refused at N.
+
+`fzn_node_roots_standing` lists the roots the node's root view says stand:
+the genesis and each root added, less those removed. fuzznetd's round puts
+them in the writer set ahead of the members it pulls, so the set is
+rebuilt each round and a root removed since drops out. It is the same
+reading admin's `is_member` already makes (sec 407): a root of the estate
+is a member wherever it is asked.
+
+- **A removed root stops writing.** The view decides, so a root removed by
+  the estate -- the genesis included -- is not admitted, though admin still
+  treats `config.root` as a member unconditionally. That is a difference
+  between the two readings, left as found.
+- **A root key that is no node** (a held root key, sec 409) is admitted as
+  well. It writes no notes, so admitting it costs a slot in the writer
+  table and nothing else.
+
+### Measured for sec 450
+
+**`pair_test`, 240 checks:** with R the genesis and B added, R and B stand
+in that order; a cap of 1 gives one; no estate gives none; after R removes
+B, only R.
+
+**Live, three nodes:** R the root, M paired by R, N paired by M and
+pulling only from M (`--pull-from`). R wrote a note; four seconds after N
+started, R, M and N all listed it, and N logged "1 note record(s) from
+127.0.0.1, 0 refused". **The control**, the same run with the roots left
+out of the writer set: N logged "0 note record(s) from 127.0.0.1, 1
+refused". No daemon was left running.
+
+**Sabotage: two entries.** The wiring in fuzznetd has no unit test; the
+live control is its evidence.

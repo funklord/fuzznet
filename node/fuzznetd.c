@@ -272,13 +272,18 @@ struct pull_target {
  * admitted as any record is. sec 432. */
 static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
                        const fzn_node_config_t *config,
-                       const fzn_revocation_store_t *revocations)
+                       const fzn_revocation_store_t *revocations,
+                       const fzn_node_roots_t *roots)
 {
 	static uint8_t members[FZN_NODE_NOTES_WRITERS][FZN_PUBKEY_LEN];
 	size_t t, n_members = 0;
 
 	if (!notes_on)
 		return;
+	/* THE ESTATE'S ROOTS, sec 450: each that stands writes as a member
+	 * does, whether or not this node pulls from it, so a note the root
+	 * wrote and a member relays is taken. A removed root drops out. */
+	n_members = fzn_node_roots_standing(roots, members, FZN_NODE_NOTES_WRITERS);
 	/* THE ESTATE'S MEMBERS FIRST, sec 445: each pull peer's, admitted on
 	 * the proof of their chains against this node's own root, so a note a
 	 * member wrote and a peer relays is taken. Rebuilt every round, so a
@@ -1637,7 +1642,7 @@ int main(int argc, char **argv)
 				}
 				/* NOTES, then TEXTS, secs 432 and 424: a note's text is
 				 * fetched once the note naming it has arrived. */
-				pull_notes(pulls, npulls, now, &state.config, running);
+				pull_notes(pulls, npulls, now, &state.config, running, running_roots);
 				pull_received(now);
 #ifdef FZN_SPOOL_FILE_ON
 				fetch_texts(pulls, npulls, now);
@@ -1665,7 +1670,7 @@ int main(int argc, char **argv)
 			if (notes_on && node_notes.fresh && now >= last_fresh_round + 2u) {
 				node_notes.fresh = 0;
 				last_fresh_round = now;
-				pull_notes(pulls, npulls, now, &state.config, running);
+				pull_notes(pulls, npulls, now, &state.config, running, running_roots);
 			}
 			/* A REQUEST NEVER FINISHED gives its slot back. */
 			if (state.reassembly)

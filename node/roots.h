@@ -163,6 +163,13 @@ int fzn_node_roots_acting(const fzn_node_roots_t *roots, const uint8_t identity[
                           const fzn_sign_ops_t *identity_sign, const uint8_t **pubkey,
                           const fzn_sign_ops_t **sign);
 
+/* Every root of the estate that stands -- the genesis and each one added,
+ * less those removed -- into `out`, at most `cap`. The count. A root
+ * removed and added again is named once per add; a caller wanting a set
+ * takes each once, as `fzn_node_notes_admit_members` does. sec 450. */
+size_t fzn_node_roots_standing(const fzn_node_roots_t *roots, uint8_t (*out)[FZN_PUBKEY_LEN],
+                               size_t cap);
+
 /* Log `record` as an act of root `pubkey`, signed by `sign`, at the next seq
  * after the root's head in this log, and learn the entry. FORKED when the
  * root's log has forked. */
