@@ -198,7 +198,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              notes/store.c notes/view.c notes/author.c notes/purge.c notes/import.c \
              notes/sync.c notes/share.c notes/received.c \
              trust/trust.c \
-             log/log.c log/capture.c \
+             log/log.c log/capture.c log/entry.c \
              sched/sched.c \
              link/link.c
 # RECURSIVE, NOT SNAPSHOT, and that is a fix rather than a style choice.
@@ -288,7 +288,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              notes/store.h notes/view.h notes/author.h notes/purge.h notes/import.h \
              notes/sync.h notes/share.h notes/received.h \
              trust/trust.h \
-             log/log.h log/capture.h \
+             log/log.h log/capture.h log/entry.h \
              sched/sched.h \
              link/link.h
 
@@ -409,7 +409,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              notes/test/notes_sync_test.c contact/test/contact_test.c \
              trust/test/trust_test.c \
              trust/test/trust_walk_test.c \
-             log/test/log_test.c log/test/capture_test.c \
+             log/test/log_test.c log/test/capture_test.c log/test/entry_test.c \
              wire/test/relay_test.c \
              sched/test/sched_test.c \
              sched/test/sched_fuzz.c \
@@ -535,6 +535,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/trust/test/trust_walk_test \
              $(BUILD_DIR)/log/test/log_test \
              $(BUILD_DIR)/log/test/capture_test \
+             $(BUILD_DIR)/log/test/entry_test \
              $(BUILD_DIR)/wire/test/relay_test \
              $(BUILD_DIR)/sched/test/sched_test \
              $(BUILD_DIR)/sched/test/sched_fuzz \
@@ -1847,6 +1848,14 @@ $(BUILD_DIR)/log/test/log_test: $(BUILD_DIR)/log/test/log_test.o \
 # A tool's output made into entries: no I/O, so nothing else. sec 441.
 $(BUILD_DIR)/log/test/capture_test: $(BUILD_DIR)/log/test/capture_test.o \
                                     $(BUILD_DIR)/log/capture.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# One entry, its name and the classic line; the text escaped as a tool's
+# line is. sec 456.
+$(BUILD_DIR)/log/test/entry_test: $(BUILD_DIR)/log/test/entry_test.o \
+                                  $(BUILD_DIR)/log/entry.o \
+                                  $(BUILD_DIR)/log/capture.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -3663,6 +3672,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/contact/contact.o \
                                       $(BUILD_DIR)/node/received.o \
                                       $(BUILD_DIR)/log/capture.o \
+                                      $(BUILD_DIR)/log/entry.o \
                                       $(BUILD_DIR)/node/members.o \
                                       $(BUILD_DIR)/node/remote.o \
                                       $(BUILD_DIR)/node/node.o \

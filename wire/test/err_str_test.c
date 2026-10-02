@@ -99,6 +99,7 @@
 #include "../../contact/contact.h"
 #include "../../node/received.h"
 #include "../../log/capture.h"
+#include "../../log/entry.h"
 #include "../../node/members.h"
 
 #include <stdio.h>
@@ -156,6 +157,7 @@ static const char *r_note(int v)
 static const char *r_notes(int v) { return fzn_notes_err_str((fzn_notes_err_t)v); }
 static const char *r_contact(int v) { return fzn_contact_err_str((fzn_contact_err_t)v); }
 static const char *r_capture(int v) { return fzn_capture_err_str((fzn_capture_err_t)v); }
+static const char *r_entry(int v) { return fzn_entry_err_str((fzn_entry_err_t)v); }
 static const char *r_members(int v)
 {
 	return fzn_node_members_err_str((fzn_node_members_err_t)v);
@@ -272,6 +274,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_contact_err_str", r_contact, 8 },
 	{ "fzn_node_received_err_str", r_received, 6 },
 	{ "fzn_capture_err_str", r_capture, 3 },
+	{ "fzn_entry_err_str", r_entry, 3 },
 	{ "fzn_node_members_err_str", r_members, 4 },
 	{ "fzn_notes_denial_str", r_notes_denial, 6 },
 	{ "fzn_root_log_err_str", r_root_log, 6 },

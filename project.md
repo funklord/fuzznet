@@ -52088,16 +52088,15 @@ shared function rather than something each daemon hand-rolls:
 
 ### Open, and the holder's to settle
 
-- **Which concrete property names a machine.** A node has an identity
-  key, but a machine has none in fuzznet: its host name is short and can
-  change, and `/etc/machine-id` is stable and long. The line could show
-  the name and the namespace use the stable one.
-- **The process start time's resolution**, seconds or finer: two instances
-  of one program can share a pid only across a restart, so seconds are
-  enough unless a pid is reused within one second.
-- **How two retention rules matching one entry combine**: the most
-  specific wins, or every limit applies and the strictest decides.
-- **The performant format's layout**, to be a situ schema.
+All three were settled on 2026-10-02; sec 456 records the answers.
+
+- ~~**Which concrete property names a machine.**~~ `/etc/machine-id` names
+  it, and a classic line shows the host name.
+- ~~**The process start time's resolution**~~: milliseconds.
+- ~~**How two retention rules matching one entry combine**~~: prune rules
+  all apply, and keep rules expand.
+- **The performant format's layout**, to be a situ schema -- this tree's
+  to propose rather than the holder's to settle.
 
 ### How it would be adopted
 
@@ -53968,3 +53967,87 @@ nodes and sec 452's shelf run, all healthy, logged no refusal.
 
 **No unit test or sabotage entry:** the change is in fuzznetd, which has
 none; the before and after of one live run are the evidence.
+
+## 456. Logging, decided; and the entry and its classic line, 2026-10-02
+
+The holder asked for logging sooner rather than later and answered sec
+428's open questions, and one more that its design implied.
+
+### What the holder decided, 2026-10-02
+
+- **A machine is named by `/etc/machine-id`**, and a classic line shows its
+  host name. The name survives a rename; the file a line is in says which
+  machine the host name was.
+- **A process's start time is in milliseconds.** A pid can be reused
+  within a second on a busy machine, which seconds would not tell apart.
+- **Retention rules are of two kinds.** In the holder's words, a rule that
+  limits reads "prune older than 7 days", and "keep 7 days" is a rule that
+  expands. So every matching prune rule applies, the strictest deciding,
+  and a matching keep rule protects what it covers from them: an entry
+  goes when a prune rule removes it and no keep rule still holds it. **This
+  is this tree's reading of the answer** and goes back to the holder if it
+  is wrong.
+- **Causes travel now, with the format**: the cause and origin names go
+  into the remote hop and the spool messages in the same pass, while the
+  only consumers are in this workspace.
+
+### The order it is built in
+
+1. **The entry, its name and the classic line** -- this section.
+2. **The performant record**, a situ schema, and the 256 KiB flight
+   recorder that holds it.
+3. **Files per Unix user**: segments, rotation, packing, the hash-chain
+   trailer, and the prune and keep rules.
+4. **Causes on the wire.**
+5. **Gathering across an estate**, over the carriage that exists.
+
+### `log/entry`: the record and the classic line
+
+A new module, its symbols `fzn_entry_*` because `log/log.h` -- the record
+log of sec 5, another thing -- already holds `fzn_log_entry_t`.
+
+- **The record:** the entry's name, its time in microseconds UTC, one of
+  flog's eight levels, a subsystem path, a cause and an origin (both or
+  neither), and its text as bytes.
+- **The name** is `MACHINEHEX/USER/PROGRAM/PID@STARTMS#POS`. The estate is
+  not in it: a machine's resources are one estate's (sec 430), so the
+  machine names it.
+- **The line**, every field always present and none holding a space:
+
+      TIME HOST USER PROGRAM PID@STARTMS#POS LEVEL SUBSYSTEM CAUSE ORIGIN TEXT
+      2026-10-02T12:34:56.789123Z nabbe root fuzznetd 4121@1727778896123#1834 W notes/sync - - a record refused
+
+  The level is a letter, `CEWNIVDT`. CAUSE is `<` and a name and ORIGIN
+  `<<` and a name, or `-` each.
+- **The instance field ends every name of the instance**, so one grep for
+  `4121@1727778896123#1834` finds the entry and every entry it caused on
+  any machine -- the proposal's grep made exact.
+- **The text is escaped as `log/capture` escapes a tool's line**, so a
+  newline, a terminal escape or a line forged in our own format inside a
+  text stays one entry, and the text reads back byte for byte.
+- **A field a line cannot hold is refused, not escaped**: a word with a
+  space would move every field after it. A line that does not fit the
+  buffer is refused and nothing is left that could be read as a line.
+- **Parsing is the encoder's inverse**: the file's machine supplied by the
+  caller, since the line shows the host.
+
+### Measured for sec 456
+
+**`entry_test`, 27 checks.** The times are checked against Python's
+`datetime`, not against this calendar: the epoch, 2024-02-29, a
+microsecond into 2000-03-01 and the last microsecond of 9999, each written
+and read back, and the year 10000 refused. The line as laid out above, and
+read back to the same entry; newlines, a backslash, NUL, an escape and bad
+UTF-8 kept on one line and read back; an empty text; a forged line inside
+a text; the longest text all escapes. A cause and an origin written as
+names, and the instance field ending the name. Names at their numbers'
+bounds; a name with no position, a leading zero, a short machine or a pid
+past 32 bits refused; machine-id read with or without its newline and not
+in capitals. A user with a space, an empty subsystem part, a ninth level,
+an empty host and a short buffer refused; eight lines that are not ours
+refused, 29 February 2026 among them.
+
+`err_str_test` walks `fzn_entry_err_str`, and `consumer_check` reads a
+level's letter through the installed header.
+
+**Sabotage: six entries.**
