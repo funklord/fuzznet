@@ -221,6 +221,16 @@ static int shelf_open(void *ctx, const fzn_note_blob_ref_t *ref, uint8_t *out, s
 static uint8_t node_reply[FZND_REPLY_MAX];
 #define FZND_PULL_REPLY_MAX FZND_REPLY_MAX
 
+/* THE REQUESTS THIS NODE REASSEMBLES, sec 447: a request past one frame
+ * arrives in pieces, and sec 370 gave the node a table to put them back
+ * together -- which this daemon never handed it, so every such request was
+ * dropped and its caller timed out. Four at once, each up to 32 KiB, one a
+ * sender, held a minute. A request past 32 KiB is still refused, by the
+ * table, which is a bound rather than a silence the caller cannot tell from
+ * the network. */
+#define FZND_REQUEST_SLOTS 4u
+#define FZND_REQUEST_MAX (32u * 1024u)
+
 /* The node's notes, when it keeps them: answered on the socket, served to
  * peers and pulled from them each round. sec 431, 432. */
 static fzn_node_notes_t node_notes;
@@ -1449,9 +1459,32 @@ int main(int argc, char **argv)
 	 * fatal, since what was pulled before is already loaded from slot 10
 	 * and refusing to serve would cut off every device the root did not
 	 * revoke. sec 384. */
+	{
+		static fzn_partial_t request_slots[FZND_REQUEST_SLOTS];
+		static uint8_t request_bufs[FZND_REQUEST_SLOTS][FZND_REQUEST_MAX];
+		static fzn_reasm_t requests;
+		size_t r;
+		int ok = 1;
+
+		for (r = 0; r < FZND_REQUEST_SLOTS; r++)
+			ok = ok
+			     && fzn_reasm_slot_init(&request_slots[r], request_bufs[r],
+			                            sizeof(request_bufs[r]))
+			                == FZN_REASM_OK;
+		if (ok
+		    && fzn_reasm_init(&requests, request_slots, FZND_REQUEST_SLOTS, 1u, 60u)
+		               == FZN_REASM_OK)
+			state.reassembly = &requests;
+		else
+			fprintf(stderr, "fuzznetd: no request reassembly; requests past one frame "
+			                "are dropped\n");
+	}
+
 	/* A NODE KEEPING NOTES LOOPS TOO, with no estate peer to pull: a
-	 * share it accepts is pulled on the same round. sec 437. */
-	if (npulls || notes_on) {
+	 * share it accepts is pulled on the same round. sec 437. And so does
+	 * one reassembling requests, since the loop is what expires a request
+	 * whose sender stopped part way. sec 447. */
+	if (npulls || notes_on || state.reassembly) {
 		uint64_t next_pull = 0;
 		size_t t;
 
@@ -1593,6 +1626,9 @@ int main(int argc, char **argv)
 				node_notes.fresh = 0;
 				pull_notes(pulls, npulls, now, &state.config, running);
 			}
+			/* A REQUEST NEVER FINISHED gives its slot back. */
+			if (state.reassembly)
+				(void)fzn_reasm_expire(state.reassembly, wall_clock());
 			(void)fzn_node_run_once(&state, 1000);
 		}
 	}

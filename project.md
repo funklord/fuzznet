@@ -53617,3 +53617,31 @@ round; M's next round logged "1 note record(s) to 127.0.0.1", and R listed
 it -- the case that before this reached nobody. No daemon was left running.
 
 **Sabotage: three entries.**
+
+## 447. fuzznetd reassembles a request past one frame, 2026-10-02
+
+Sec 370 gave the node an optional reassembly table, so a request larger
+than one frame could arrive whole; a caller already splits one (`node/caller.c`).
+**fuzznetd never handed the node a table**, so every such request was
+dropped at the node -- a chunked request with no table is not handed up, by
+design -- and its caller timed out, an error about the network for a request
+the node simply would not take. Nothing recorded it; it was found reading the
+daemon while sizing sec 446's push, which keeps to one frame because of it.
+
+**The daemon now gives the node four slots of 32 KiB**, one partial request
+a sender, held a minute, and expires abandoned ones on every turn of its
+loop -- which every node with a table now takes, the loop being what runs
+the expiry. A request past 32 KiB is refused by the table, a bound rather
+than a silence.
+
+### Measured for sec 447
+
+**Live, M asking R over the remote hop:** a 3015-byte request line was
+reassembled and answered -- "malformed not a revocation index", the node's
+real reply to it -- where `status` already was. **The same run with the
+table not handed to the node** answered `status` and timed out on the long
+line, which is the failure this removes, shown rather than inferred. No
+daemon was left running.
+
+**No sabotage entry:** this is the daemon's wiring, which no unit test
+reaches; the live run with the table withheld is its check.
