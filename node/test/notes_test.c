@@ -1132,6 +1132,26 @@ static void test_pushing_texts(void)
 	notes.open = NULL;
 }
 
+/* A WRITE THAT TAKES TELLS THE DAEMON TO CONVERSE NOW, sec 449; a read, a
+ * refusal and a write by somebody else's origin do not. */
+static void test_writes_mark_fresh(void)
+{
+	char note[65], line[200];
+
+	setup(1);
+	CHECK(!notes.fresh, "fixture: a new node is not fresh");
+	CHECK(ask("add note top milk") == FZN_REPLY_OK && notes.fresh, "an add marks it fresh");
+	take_id(note);
+	notes.fresh = 0;
+	CHECK(ask("list note top") == FZN_REPLY_OK && !notes.fresh, "a read does not");
+	snprintf(line, sizeof(line), "get note %s", note);
+	CHECK(ask(line) == FZN_REPLY_OK && !notes.fresh, "nor does a get");
+	CHECK(ask("set note 00 text nothing") != FZN_REPLY_OK && !notes.fresh,
+	      "a refused write does not");
+	snprintf(line, sizeof(line), "set note %s text oat milk", note);
+	CHECK(ask(line) == FZN_REPLY_OK && notes.fresh, "an edit does, whose reply is a bare ok");
+}
+
 int main(void)
 {
 	memset(SELF, 0x51, sizeof(SELF));
@@ -1149,6 +1169,7 @@ int main(void)
 	test_collecting_texts();
 	test_members_join_the_admitted_set();
 	test_pushing_texts();
+	test_writes_mark_fresh();
 
 	if (failures) {
 		fprintf(stderr, "notes_test: %d of %d checks failed\n", failures, checks);

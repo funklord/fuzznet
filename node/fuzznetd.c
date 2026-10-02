@@ -1522,7 +1522,7 @@ int main(int argc, char **argv)
 	 * one reassembling requests, since the loop is what expires a request
 	 * whose sender stopped part way. sec 447. */
 	if (npulls || notes_on || state.reassembly) {
-		uint64_t next_pull = 0;
+		uint64_t next_pull = 0, last_fresh_round = 0;
 		size_t t;
 
 		/* A PULL NEEDS A STORE TO KEEP WHAT IT LEARNS, and `--root-at`
@@ -1659,8 +1659,12 @@ int main(int argc, char **argv)
 				load_received(family, identity.pubkey, &hash_ops, &aead_ops, &rng_ops);
 				pull_received(now);
 			}
-			if (notes_on && node_notes.fresh) {
+			/* A WRITE HERE GOES OUT NOW, sec 449, a round at most every
+			 * two seconds, so a burst of edits is one round rather than
+			 * one each. */
+			if (notes_on && node_notes.fresh && now >= last_fresh_round + 2u) {
 				node_notes.fresh = 0;
+				last_fresh_round = now;
 				pull_notes(pulls, npulls, now, &state.config, running);
 			}
 			/* A REQUEST NEVER FINISHED gives its slot back. */

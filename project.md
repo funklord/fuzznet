@@ -53603,7 +53603,8 @@ held already, or refused. Types 13 and 14 of the notes sync family, in
 
 - ~~**A pushed note's long text stays on the pusher.**~~ Pushed since sec
   448.
-- **A push waits for the pusher's round**, up to a minute.
+- ~~**A push waits for the pusher's round**, up to a minute.~~ A write
+  starts one since sec 449.
 
 ### Measured for sec 446
 
@@ -53694,3 +53695,37 @@ daemon was left running.
 
 **Sabotage: four entries**, and `shelf-fetch-checks-leaf-lengths` and
 `shelf-held-last-leaf-keeps-its-length` re-aimed at the shared path.
+
+## 449. A note written here goes out now, 2026-10-02
+
+**A write that takes marks the notes fresh, and the daemon converses at
+once** rather than at its next round, which sec 446 left up to a minute
+away. `fzn_node_notes_local` sets the `fresh` flag that emptying the trash
+already set, when the verb is a mutating one (`fzn_verb_mutates`) and the
+reply is ok -- a note, an edit, a share, an import, a checklist item. The
+daemon's existing fresh block runs `pull_notes`, which pulls, pushes notes
+and pushes texts.
+
+- **At most one round every two seconds.** A view saving a checklist item
+  by item, or an import of many notes, is one round rather than one per
+  line; the flag stays set and the next loop pass after the two seconds
+  takes it.
+- **A read, or a refusal, starts nothing.** A view listing notes every time
+  it draws would otherwise converse with the estate on every draw.
+- **The reply's newline is stripped before it is read.** A bare `ok\n`
+  does not split as `ok`, and the first version marked an add -- whose
+  reply carries an id -- and missed every edit, whose reply does not. The
+  test caught it.
+
+### Measured for sec 449
+
+**`notes_test` (node), 238 checks:** a new node not fresh; an add marking
+it; a list and a get not; a refused write not; an edit, whose reply is a
+bare ok, marking it.
+
+**Live, R and M with M pulling from R:** M wrote a note after its first
+round; four seconds later R listed it, where sec 446's run waited 64
+seconds for M's next round. M logged "1 note record(s) to 127.0.0.1". No
+daemon was left running.
+
+**Sabotage: four entries.**

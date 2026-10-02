@@ -1385,10 +1385,31 @@ static size_t read_shared(fzn_node_notes_t *n, int listing, const uint8_t *at, s
 	return listing ? list(&store, 1, at, left, reply, cap) : get(n, &store, at, left, reply, cap);
 }
 
+static size_t local_verbs(fzn_node_notes_t *n, fzn_origin_t origin,
+                          const fzn_request_t *request, char *reply, size_t reply_cap);
+
 size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                             char *reply, size_t reply_cap)
 {
 	fzn_node_notes_t *n = (fzn_node_notes_t *)ctx;
+	size_t len = local_verbs(n, origin, request, reply, reply_cap);
+	const uint8_t *detail = NULL;
+	size_t detail_len = 0, line_len = len;
+
+	/* A WRITE THAT TOOK marks the notes fresh, so the daemon pushes it
+	 * now rather than at its next round. sec 449. The reply's newline is
+	 * no part of its token: a bare "ok\n" does not split as "ok". */
+	if (line_len && reply[line_len - 1u] == '\n')
+		line_len--;
+	if (line_len && n && fzn_verb_mutates(request->parsed)
+	    && fzn_reply_of((const uint8_t *)reply, line_len, &detail, &detail_len) == FZN_REPLY_OK)
+		n->fresh = 1;
+	return len;
+}
+
+static size_t local_verbs(fzn_node_notes_t *n, fzn_origin_t origin,
+                          const fzn_request_t *request, char *reply, size_t reply_cap)
+{
 	const uint8_t *at, *subject;
 	size_t left, subject_len;
 

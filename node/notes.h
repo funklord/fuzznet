@@ -146,8 +146,9 @@ typedef struct fzn_node_notes {
 	void *text_ctx;
 	/* The wall clock, in milliseconds. */
 	uint64_t (*now_ms)(void);
-	/* Set when emptying the trash leaves purges waiting, for a caller that
-	 * converses on a timer to do so now instead; the caller clears it. */
+	/* Set when a write takes -- a note, a share, an import -- or emptying
+	 * the trash leaves purges waiting, for a caller that converses on a
+	 * timer to do so now instead; the caller clears it. sec 449. */
 	int fresh;
 } fzn_node_notes_t;
 
