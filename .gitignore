@@ -66,6 +66,7 @@
 /gui/test/trust_view_test
 /gui/test/log_view_test
 /gui/test/qr_view_test
+/gui/test/notebook_view_test
 /gui/test/authz_view_test
 /gui/test/capability_view_test
 /gui/test/provision_view_test

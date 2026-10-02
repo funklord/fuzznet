@@ -53152,3 +53152,90 @@ No daemon was left running.
 
 **Sabotage: seven entries.** Not covered: fuzznetd's two glue functions,
 which the live run shows.
+
+## 439. Notes, phase 5: the widget, speaking fuzznet's local grammar, 2026-10-02
+
+The last phase of sec 422's plan: the notes surface as a widget other
+software hosts, in `gui/notebook_view.{h,cpp}`. Named `_view` like every
+widget here, which is how the qtty render gate finds it, and not
+`notes_view`, which is already `notes/view.h`'s struct tag and collides with
+it in C++.
+
+### Its edge: a way to ask, and a log
+
+fuzzypickles' widget held their `fzp_conn` and emitted a `log_line` signal.
+This one takes **an ask callback** -- one request line in, one reply line
+out -- and **a log callback**:
+
+- `fzn_notebook_view_socket_ask` is the host's, over `local/client` to the
+  node's socket;
+- a test hands in one that splits the line as a node does and answers through
+  `fzn_node_notes_local` in the same process, so the widget is tested against
+  the real verbs and no daemon;
+- **no Q_OBJECT and no moc**, on sec 140's rule: buttons connect to lambdas,
+  and the log is a `std::function` where theirs was a signal.
+
+### What the view does
+
+- **Trees:** this user's own, and each contact's from `list received`.
+  Picking a contact's turns every editing control off; reads go through `list
+  shared` and `get shared`, and its top is the roots of what was shared.
+- **Folders:** walked down by activating one and up by Up, with the location
+  shown; listing pages through `list note PARENT FROM` until the total is
+  reached.
+- **Notes:** made, titled, and saved. **Text travels through files**: a
+  request line is 512 bytes and a text may be 256 KiB with newlines, so Save
+  writes a temporary file and asks `set note ID file PATH`, and opening asks
+  `get note ID file PATH`, which opens a blob as readily as an inline text.
+- **The trash is its own view** of the same listing: trash, restore, and
+  empty, which says how many wait on other nodes.
+- **Sharing:** the open note's subtree with a contact from `list contact`,
+  unsharing, and a line saying with whom it is shared.
+
+### What it carries from fuzzypickles
+
+- **The un-share warning is on screen before anybody shares**, beside the
+  controls rather than in a dialog read after the click: sharing sends the
+  subtree and keeps sending changes; unsharing stops what comes next; what
+  was fetched stays. Unsharing says the last part again.
+- **A node that does not answer says so.** Their sec 112 found an
+  unreachable daemon showing an empty notebook and saying nothing; a hosted
+  widget has no window status line to lean on. "Nothing here yet", "the
+  trash is empty" and "the node did not answer" are three different lines.
+- **A refresh keeps the reader's place.** Their `b32b2c7`: restoring the open
+  note's selection scrolled the list back to it on every poll. The scroll
+  position is taken before the rebuild and put back after.
+
+### Not yet after sec 439
+
+- **fuzzypickles hosting it.** Their widget stays theirs until they switch;
+  the edge is ready and they are to be told.
+- **Import**, which their widget had behind a file dialog; fuzznet's import
+  (sec 429) has no verb yet.
+- **Pinned and archived** are kept by the node and not yet shown.
+
+### Measured for sec 439
+
+**`notebook_view_test`, 91 checks, headless:**
+
+- an empty notebook saying there is nothing, and a node that does not answer
+  saying so in other words;
+- a folder made, listed as one, opened with its location; a note made in it,
+  a forty-line text saved through a file and read back whole; Up to the top
+  and no further; the log told;
+- the trash as its own view: trashed notes leaving the notebook, the trash
+  listing only them, restore, and emptying with no other node to ask;
+- the warning on screen before sharing; shared and unshared with the line
+  saying so, a name that is no contact refused, and the warning repeated in
+  the log;
+- a contact's tree listing what was shared and not this user's own folder,
+  reading the note, nothing editable, no action writing, and back to this
+  user's own tree;
+- a refresh leaving a scrolled list where the reader left it with the last
+  note open.
+
+**`qtty_render_test`** renders it with an empty node and requires "Nothing
+here yet" to reach the terminal grid.
+
+**Sabotage: six entries.** Not covered: `fzn_notebook_view_socket_ask`, the
+host's transport, which no test hosts.

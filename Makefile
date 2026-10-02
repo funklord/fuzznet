@@ -880,7 +880,7 @@ endif
 # from a backslash-continued list by string replacement has broken this file
 # four times -- a dangling continuation swallows the next line, and make
 # reports it against somewhere else entirely.
-GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp
+GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp gui/notebook_view.cpp
 # SPECIFICATION HEADERS: real headers, deliberately NOT installed.
 #
 # The same asymmetry as GUI_HDRS below and for a third reason. These carry a
@@ -906,8 +906,9 @@ GUI_SRCS := gui/trust_view.cpp gui/qr_view.cpp
 # header goes here and graduates the same way.
 SPEC_HDRS :=
 
-GUI_HDRS := gui/trust_view.h gui/qr_view.h
-GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp
+GUI_HDRS := gui/trust_view.h gui/qr_view.h gui/notebook_view.h
+GUI_TSRC := gui/test/trust_view_test.cpp gui/test/qr_view_test.cpp \
+            gui/test/notebook_view_test.cpp
 # THE CONFIGURATION FORM NEEDS BOTH OPTIONS, and that is the design rather
 # than an accident of the build. sec 164: it does not validate, the CLI parser
 # does -- so a GUI build without FZN_CLI has no validator for it to be a front
@@ -1002,7 +1003,8 @@ GUI_OBJS   := $(GUI_SRCS:%.cpp=$(BUILD_DIR)/%.o)
 # written on every build and `-include`d by nothing.
 GUI_TOBJ   := $(GUI_TSRC:%.cpp=$(BUILD_DIR)/%.o)
 TEST_BINS  += $(BUILD_DIR)/gui/test/trust_view_test \
-              $(BUILD_DIR)/gui/test/qr_view_test
+              $(BUILD_DIR)/gui/test/qr_view_test \
+              $(BUILD_DIR)/gui/test/notebook_view_test
 ifdef CLI_ON
 TEST_BINS += $(BUILD_DIR)/gui/test/config_view_test \
              $(BUILD_DIR)/gui/test/log_view_test \
@@ -2821,6 +2823,38 @@ $(BUILD_DIR)/gui/test/log_view_test: $(BUILD_DIR)/gui/test/log_view_test.o \
                                      $(BUILD_DIR)/log/log.o \
                                      $(BUILD_DIR)/record/record.o \
                                      $(BUILD_DIR)/record/journal.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
+
+# The notes widget, against the real note verbs in the same process: its
+# ask callback reaches node/notes.c, and local/client is the host's. sec 439.
+$(BUILD_DIR)/gui/test/notebook_view_test: $(BUILD_DIR)/gui/test/notebook_view_test.o \
+                                     $(BUILD_DIR)/gui/notebook_view.o \
+                                     $(BUILD_DIR)/local/client.o \
+                                     $(BUILD_DIR)/local/socket.o \
+                                     $(BUILD_DIR)/local/line.o \
+                                     $(BUILD_DIR)/local/peer_linux.o \
+                                     $(BUILD_DIR)/node/notes.o \
+                                     $(BUILD_DIR)/notes/store.o \
+                                     $(BUILD_DIR)/notes/view.o \
+                                     $(BUILD_DIR)/notes/author.o \
+                                     $(BUILD_DIR)/notes/purge.o \
+                                     $(BUILD_DIR)/notes/sync.o \
+                                     $(BUILD_DIR)/notes/share.o \
+                                     $(BUILD_DIR)/notes/received.o \
+                                     $(BUILD_DIR)/contact/contact.o \
+                                     $(BUILD_DIR)/chain/service.o \
+                                     $(BUILD_DIR)/notes/note.o \
+                                     $(BUILD_DIR)/tree/tree.o \
+                                     $(BUILD_DIR)/record/record.o \
+                                     $(BUILD_DIR)/local/vocabulary.o \
+                                     $(BUILD_DIR)/local/peer.o \
+                                     $(BUILD_DIR)/persist/persist.o \
+                                     $(BUILD_DIR)/trust/trust.o \
+                                     $(BUILD_DIR)/session/agree.o \
+                                     $(BUILD_DIR)/prekey/prekey.o \
+                                     $(BUILD_DIR)/ratchet/ratchet.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $^ $(QT_LIBS) -o $@
@@ -5392,6 +5426,8 @@ QTTY_RENDER_OBJS := $(BUILD_DIR)/cli/log_print.o $(BUILD_DIR)/qr/qr.o \
                     $(BUILD_DIR)/cli/peer_print.o $(BUILD_DIR)/local/peer.o \
                     $(BUILD_DIR)/cli/sched_print.o \
                     $(BUILD_DIR)/cli/persist_print.o \
+                    $(BUILD_DIR)/local/client.o $(BUILD_DIR)/local/socket.o \
+                    $(BUILD_DIR)/local/line.o $(BUILD_DIR)/local/peer_linux.o \
                     $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/prekey/prekey.o \
                     $(BUILD_DIR)/local/vocabulary.o \
                     $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \
@@ -5499,7 +5535,7 @@ qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS))
 	       gui/sync_view.cpp gui/transfer_view.cpp gui/state_view.cpp \
 	       gui/config_view.cpp gui/link_view.cpp gui/peer_view.cpp \
 	       gui/manifest_view.cpp gui/ledger_view.cpp gui/sched_view.cpp \
-	       gui/persist_view.cpp \
+	       gui/persist_view.cpp gui/notebook_view.cpp \
 	       gui/provision_view.cpp \
 	       $(QTTY_RENDER_OBJS) \
 	       "$$scratch/lib/libqtty.a" $$qobjs $(QT_LIBS) -o "$$scratch/render_test"; \

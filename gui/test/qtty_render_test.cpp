@@ -46,6 +46,7 @@
 #include "../ledger_view.h"
 #include "../sched_view.h"
 #include "../persist_view.h"
+#include "../notebook_view.h"
 
 extern "C" {
 #include "../../log/log.h"
@@ -296,6 +297,15 @@ static int no_sync_op(void *ctx)
 	return 0;
 }
 
+/* A node with no notes: every listing empty, every read refused. */
+static size_t empty_node(void *ctx, const char *line, char *reply, size_t cap)
+{
+	(void)ctx;
+	if (!strncmp(line, "list ", 5u))
+		return (size_t)snprintf(reply, cap, "ok 0 0\n");
+	return (size_t)snprintf(reply, cap, "error no such note\n");
+}
+
 static void test_every_widget_survives_a_terminal(void)
 {
 	fzn_authz_view authz;
@@ -314,6 +324,7 @@ static void test_every_widget_survives_a_terminal(void)
 	fzn_manifest_view_row manifest_rows[1];
 	fzn_ledger_view ledger_v;
 	fzn_sched_view sched_v;
+	fzn_notebook_view notes_v(empty_node, nullptr);
 	fzn_persist_view persist_v;
 	fzn_persist_view_row persist_rows[5];
 	fzn_sched_candidate_t sched_links[3];
@@ -588,6 +599,10 @@ static void test_every_widget_survives_a_terminal(void)
 			 * stops, so the summary has to be about the one slot
 			 * that is gone. */
 			{ "persist_view", &persist_v, "did not come back" },
+			/* THE EMPTY NOTEBOOK SAYS SO, sec 439: the line that
+			 * tells an empty notebook from a silent node, which a
+			 * terminal is the likeliest place to lose. */
+			{ "notebook_view", &notes_v, "Nothing here yet" },
 		};
 
 		for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
