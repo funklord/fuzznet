@@ -64,7 +64,10 @@ enum fzn_notes_sync_type {
 	FZN_NOTES_SYNC_WRITERS = 10,
 	/* 11 and 12 are `node/members.h`'s. */
 	FZN_NOTES_SYNC_PUSH = 13,
-	FZN_NOTES_SYNC_PUSHED = 14
+	FZN_NOTES_SYNC_PUSHED = 14,
+	/* 15 and 16 are `node/notes.h`'s, a pushed note's text. */
+	FZN_NOTES_SYNC_TEXT_PUSH = 15,
+	FZN_NOTES_SYNC_TEXT_PUSHED = 16
 };
 
 /* PUSHING, sec 446: a record the sender holds and the server lacks, one a

@@ -121,6 +121,18 @@ struct fzn_notes_sync_records_query size=35..515 mutate=Shifting atomic=NonAtomi
   fzn_notes_sync_records_query.keys[]    offset=FrameStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
   fzn_notes_sync_records_query.keys[].key offset=FrameStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
 
+struct fzn_notes_sync_text_push size=42.. mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_notes_sync_text_push.version       offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_notes_sync_text_push.type          offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_notes_sync_text_push.root          offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_notes_sync_text_push.length        offset=AbsoluteStatic(0x22) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_notes_sync_text_push.data          offset=AbsoluteStatic(0x2A) size=Unbounded align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct fzn_notes_sync_text_pushed size=3
+  fzn_notes_sync_text_pushed.version     offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_notes_sync_text_pushed.type        offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_notes_sync_text_pushed.outcome     offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+
 struct fzn_notes_sync_writer size=32 atomic=NonAtomic
   fzn_notes_sync_writer.key              offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
 

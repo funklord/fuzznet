@@ -53597,10 +53597,8 @@ held already, or refused. Types 13 and 14 of the notes sync family, in
 
 ### Not yet after sec 446
 
-- **A pushed note's long text stays on the pusher.** The receiver wants it
-  and asks the nodes it pulls from, which a hub has none of; the text
-  arrives when the hub is asked for it by a node that holds it, which
-  nothing does yet.
+- ~~**A pushed note's long text stays on the pusher.**~~ Pushed since sec
+  448.
 - **A push waits for the pusher's round**, up to a minute.
 
 ### Measured for sec 446
@@ -53645,3 +53643,50 @@ daemon was left running.
 
 **No sabotage entry:** this is the daemon's wiring, which no unit test
 reaches; the live run with the table withheld is its check.
+
+## 448. A pushed note's long text is pushed too, 2026-10-02
+
+Sec 446 left a pushed note's long text on its writer: the receiver wants it
+and asks the nodes it pulls from, of which a hub has none. A note arrived
+that nobody there could read.
+
+**The pusher pushes the text after the note**, in the same round. For every
+text a note it holds names, and which it holds whole, it OFFERS -- the root
+and the length -- and the peer answers whole, wanted or refused. While
+wanted, it sends the next span. Types 15 and 16 of the notes sync family.
+
+- **A pushed span is a fetched span.** The pusher builds it by asking its
+  own shelf for it (`fzn_node_shelf_data_at`, the shelf's own answer to a
+  WANT), so it is the span and the proof a fetch would have got; the
+  receiver places it through the same function a fetch now uses
+  (`place_data`), proved against the root before a byte is written. The
+  fetcher's checks moved into that one path rather than being copied.
+- **The receiver takes a text only for a note it holds, at that note's
+  length, from a sender it admits.** A text at another length is refused:
+  placed, the last leaf would prove a length no note names, and the node
+  would serve proofs at it that do not verify.
+- **A span is some 18 KiB**, past one frame; it arrives through the request
+  reassembly sec 447 gave the daemon, which is why that came first.
+
+### Measured for sec 448
+
+**`shelf_test`, 100 checks:** a span altered on the way not proving and
+nothing held; the last span placed at another length not proving -- a span
+short of the last leaf proves at any length, which the first version of this
+case did not know and asserted otherwise; forty leaves arriving in three
+spans and the text whole; it opening to the writer's text; a span for a
+text already whole taken as done; no span for a text not held.
+
+**`notes_test` (node), 231 checks:** no offer with no shelf hooks; a wanted
+text pushed span by span, in order, each once, until whole; a text the peer
+holds whole offered and not sent; a sender the server does not admit
+refused; a length no note names refused; a node with no shelf refusing; a
+contact's request no push at all.
+
+**Live, R and M with M pulling from R:** M wrote a note with a 30,000-byte
+text; M's next round logged "1 note record(s) to 127.0.0.1" and "1 text(s)
+to 127.0.0.1 in 2 span(s)", and R wrote the text out identical to M's. No
+daemon was left running.
+
+**Sabotage: four entries**, and `shelf-fetch-checks-leaf-lengths` and
+`shelf-held-last-leaf-keeps-its-length` re-aimed at the shared path.

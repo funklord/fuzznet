@@ -8,6 +8,7 @@
 #include "../notes/received.h"
 #include "../notes/share.h"
 #include "../notes/text.h"
+#include "../wire/bytes.h"
 
 #include <dirent.h>
 #include <fcntl.h>
@@ -637,6 +638,173 @@ static size_t collect_texts(fzn_node_notes_t *n, const uint8_t *at, size_t left,
 		return say(reply, cap, FZN_REPLY_ERROR, "the texts would not all be looked at");
 	k = snprintf(detail, sizeof(detail), "%zu %zu", removed, kept);
 	return answer(reply, cap, FZN_REPLY_OK, detail, k > 0 ? (size_t)k : 0u);
+}
+
+/* ---- pushing texts, sec 448 ------------------------------------------------ */
+
+#define TEXT_PUSH_HEAD (2u + FZN_BLOB_HASH_LEN + 8u)
+/* One span's DATA at most: the shelf's largest is some 18 KiB, and a
+ * request fuzznetd reassembles is at most 32 KiB (sec 447). */
+#define TEXT_SPAN_MAX (24u * 1024u)
+#define TEXT_PUSHED_LEN 3u
+#define TEXT_REFUSED 0u
+#define TEXT_WANTED 1u
+#define TEXT_WHOLE 2u
+
+/* Whether a note in this node's own tree names the blob `root` at `length`:
+ * a pushed text is taken only for a note this node holds, at its length. */
+static int own_note_names(fzn_node_notes_t *n, const uint8_t *root, uint64_t length)
+{
+	size_t i;
+
+	if (fzn_notes_view_load(&n->store, &view) != FZN_NOTES_OK)
+		return 0;
+	for (i = 0; i < view.count; i++) {
+		fzn_note_t note;
+		fzn_note_blob_ref_t ref;
+
+		if (fzn_note_open(view.nodes[i].content_type, view.nodes[i].content,
+		                  view.nodes[i].content_len, &note)
+		            == FZN_NOTE_OK
+		    && fzn_note_blob_ref(&note, &ref) == FZN_NOTE_OK
+		    && memcmp(ref.root, root, FZN_BLOB_HASH_LEN) == 0 && ref.length == length)
+			return 1;
+	}
+	return 0;
+}
+
+static int sender_admitted(const fzn_node_notes_t *n, const uint8_t *sender)
+{
+	size_t i;
+
+	for (i = 0; sender && i < n->admitted_count; i++)
+		if (memcmp(n->admitted[i].key, sender, FZN_PUBKEY_LEN) == 0)
+			return 1;
+	return 0;
+}
+
+/* THE SERVER OF A PUSHED TEXT: an offer (no data) is answered whole or
+ * wanted; a span is placed. Refused unless the sender is admitted, a note
+ * here names the text at that length, and this node has somewhere to put it. */
+static size_t take_text(fzn_node_notes_t *n, const uint8_t *sender, const uint8_t *request,
+                        size_t request_len, uint8_t *reply, size_t reply_cap)
+{
+	uint8_t outcome = TEXT_REFUSED;
+	const uint8_t *root;
+	uint64_t length;
+	int complete = 0;
+
+	if (request_len < 2u || request[0] != FZN_NOTES_SYNC_VERSION
+	    || request[1] != FZN_NOTES_SYNC_TEXT_PUSH || reply_cap < TEXT_PUSHED_LEN)
+		return 0;
+	if (request_len < TEXT_PUSH_HEAD || !n->place || !sender_admitted(n, sender))
+		goto answer;
+	root = request + 2;
+	length = fzn_get_be64(request + 2 + FZN_BLOB_HASH_LEN);
+	if (!own_note_names(n, root, length))
+		goto answer;
+	if (request_len == TEXT_PUSH_HEAD) {
+		if (n->place(n->text_ctx, root, length, NULL, 0u, &complete))
+			outcome = complete ? TEXT_WHOLE : TEXT_WANTED;
+	} else if (n->place(n->text_ctx, root, length, request + TEXT_PUSH_HEAD,
+	                    request_len - TEXT_PUSH_HEAD, &complete)) {
+		outcome = complete ? TEXT_WHOLE : TEXT_WANTED;
+	}
+answer:
+	reply[0] = FZN_NOTES_SYNC_VERSION;
+	reply[1] = FZN_NOTES_SYNC_TEXT_PUSHED;
+	reply[2] = outcome;
+	return TEXT_PUSHED_LEN;
+}
+
+/* Send one TEXT_PUSH, and read its outcome; 0 on no answer or nonsense. */
+static int push_one(fzn_notes_sync_ask_t ask, void *ask_ctx, const uint8_t *request,
+                    size_t request_len, uint8_t *outcome)
+{
+	uint8_t reply[TEXT_PUSHED_LEN + 1u];
+	size_t reply_len = 0;
+
+	if (!ask(ask_ctx, request, request_len, reply, sizeof(reply), &reply_len)
+	    || reply_len != TEXT_PUSHED_LEN || reply[0] != FZN_NOTES_SYNC_VERSION
+	    || reply[1] != FZN_NOTES_SYNC_TEXT_PUSHED || reply[2] > TEXT_WHOLE)
+		return 0;
+	*outcome = reply[2];
+	return 1;
+}
+
+int fzn_node_notes_push_texts(fzn_node_notes_t *n, fzn_notes_sync_ask_t ask, void *ask_ctx,
+                              fzn_node_notes_text_tally_t *tally)
+{
+	static uint8_t request[TEXT_PUSH_HEAD + TEXT_SPAN_MAX];
+	static uint8_t roots[FZN_NOTES_MAX][FZN_BLOB_HASH_LEN];
+	static uint64_t lengths[FZN_NOTES_MAX];
+	size_t n_roots = 0, i, j;
+
+	if (!n || !ask || !tally)
+		return 0;
+	memset(tally, 0, sizeof(*tally));
+	if (!n->place || !n->span || fzn_notes_view_load(&n->store, &view) != FZN_NOTES_OK)
+		return 1;
+	/* EVERY TEXT A NOTE HERE NAMES, each once. */
+	for (i = 0; i < view.count && n_roots < FZN_NOTES_MAX; i++) {
+		fzn_note_t note;
+		fzn_note_blob_ref_t ref;
+		int seen = 0;
+
+		if (fzn_note_open(view.nodes[i].content_type, view.nodes[i].content,
+		                  view.nodes[i].content_len, &note)
+		            != FZN_NOTE_OK
+		    || fzn_note_blob_ref(&note, &ref) != FZN_NOTE_OK)
+			continue;
+		for (j = 0; j < n_roots && !seen; j++)
+			seen = memcmp(roots[j], ref.root, FZN_BLOB_HASH_LEN) == 0;
+		if (seen)
+			continue;
+		memcpy(roots[n_roots], ref.root, FZN_BLOB_HASH_LEN);
+		lengths[n_roots++] = ref.length;
+	}
+	for (i = 0; i < n_roots; i++) {
+		uint64_t first = 0, count = 0;
+		uint8_t outcome = TEXT_REFUSED;
+		int whole_here = 0;
+
+		/* ONLY A TEXT HELD WHOLE HERE is offered: a part has no proofs. */
+		if (!n->place(n->text_ctx, roots[i], lengths[i], NULL, 0u, &whole_here) || !whole_here)
+			continue;
+		tally->offered++;
+		request[0] = FZN_NOTES_SYNC_VERSION;
+		request[1] = FZN_NOTES_SYNC_TEXT_PUSH;
+		memcpy(request + 2, roots[i], FZN_BLOB_HASH_LEN);
+		fzn_put_be64(request + 2 + FZN_BLOB_HASH_LEN, lengths[i]);
+		if (!push_one(ask, ask_ctx, request, TEXT_PUSH_HEAD, &outcome))
+			return 0;
+		if (outcome == TEXT_REFUSED) {
+			tally->refused++;
+			continue;
+		}
+		if (outcome == TEXT_WHOLE)
+			continue;
+		tally->pushed++;
+		/* SPAN BY SPAN until the peer has it whole, at most one span a
+		 * leaf: every span places at least one leaf or ends it. */
+		while (outcome == TEXT_WANTED && first < lengths[i] + 1u) {
+			size_t data_len = 0;
+
+			if (!n->span(n->text_ctx, roots[i], first, request + TEXT_PUSH_HEAD,
+			             sizeof(request) - TEXT_PUSH_HEAD, &data_len, &count)
+			    || count == 0u)
+				break;
+			if (!push_one(ask, ask_ctx, request, TEXT_PUSH_HEAD + data_len, &outcome))
+				return 0;
+			tally->spans++;
+			if (outcome == TEXT_REFUSED) {
+				tally->refused++;
+				break;
+			}
+			first += count;
+		}
+	}
+	return 1;
 }
 
 /* ---- checklists, sec 442 ------------------------------------------------- */
@@ -1377,8 +1545,15 @@ size_t fzn_node_notes_remote(void *ctx, const uint8_t *sender, int shared,
 		return 0;
 	if (shared)
 		return answer_shared(n, sender, request, request_len, reply, reply_cap);
-	/* A MEMBER'S PUSH, sec 446: taken from a sender this node admits. A
-	 * contact's requests never reach here. */
+	/* A MEMBER'S PUSHED TEXT, sec 448, and A MEMBER'S PUSH, sec 446: taken
+	 * from a sender this node admits. A contact's requests never reach
+	 * here. */
+	{
+		size_t taken = take_text(n, sender, request, request_len, reply, reply_cap);
+
+		if (taken)
+			return taken;
+	}
 	{
 		size_t taken = fzn_notes_sync_take(&n->store, n->author.policy, n->author.sign, sender,
 		                                   request, request_len, reply, reply_cap);

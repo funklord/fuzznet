@@ -1008,6 +1008,130 @@ static void test_members_join_the_admitted_set(void)
 	      "past the room, the rest are not admitted and the node's own set is kept");
 }
 
+/* PUSHED TEXTS, sec 448: one node in the test is both ends, so the fake
+ * shelf knows which side asks -- the pusher holds the text whole, the server
+ * takes it span by span. */
+static int serving;
+static unsigned spans_taken;
+static uint64_t span_firsts[8];
+
+static int fake_place(void *ctx, const uint8_t *root, uint64_t length, const uint8_t *data,
+                      size_t data_len, int *complete)
+{
+	(void)ctx;
+	(void)root;
+	(void)length;
+	if (!serving) {
+		*complete = 1; /* the pusher holds it whole */
+		return 1;
+	}
+	if (data) {
+		if (data_len != 6u || memcmp(data, "SPAN:", 5u) != 0 || spans_taken >= 8u)
+			return 0;
+		span_firsts[spans_taken++] = (uint64_t)(data[5] - '0');
+	}
+	*complete = spans_taken >= 3u;
+	return 1;
+}
+
+static int fake_span(void *ctx, const uint8_t *root, uint64_t first, uint8_t *out, size_t cap,
+                     size_t *out_len, uint64_t *count)
+{
+	(void)ctx;
+	(void)root;
+	if (cap < 6u || first > 2u)
+		return 0;
+	memcpy(out, "SPAN:", 5u);
+	out[5] = (uint8_t)('0' + first);
+	*out_len = 6u;
+	*count = 1u;
+	return 1;
+}
+
+static const uint8_t *pushing_as;
+
+static int ask_self(void *ctx, const uint8_t *request, size_t request_len, uint8_t *answer_buf,
+                    size_t answer_cap, size_t *answer_len)
+{
+	(void)ctx;
+	serving = 1;
+	*answer_len = fzn_node_notes_remote(&notes, pushing_as, 0, request, request_len, answer_buf,
+	                                    answer_cap);
+	serving = 0;
+	return *answer_len > 0u;
+}
+
+static void test_pushing_texts(void)
+{
+	static char long_text[5001];
+	char note[65], line[200], path[64];
+	fzn_node_notes_text_tally_t t;
+	uint8_t stranger[FZN_PUBKEY_LEN];
+	FILE *f;
+
+	setup(1);
+	notes.seal = toy_seal;
+	notes.open = toy_open;
+	memset(long_text, 'v', sizeof(long_text) - 1u);
+	snprintf(path, sizeof(path), "/tmp/fzn-notes-push-%ld.in", (long)getpid());
+	f = fopen(path, "wb");
+	CHECK(f && fwrite(long_text, 1u, sizeof(long_text) - 1u, f) > 0u, "fixture: a long file");
+	if (f)
+		(void)fclose(f);
+	CHECK(ask("add note top long") == FZN_REPLY_OK, "fixture: a note");
+	take_id(note);
+	snprintf(line, sizeof(line), "set note %s file %s", note, path);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: its text a blob");
+	(void)unlink(path);
+
+	CHECK(fzn_node_notes_push_texts(&notes, ask_self, NULL, &t) == 1 && t.offered == 0u,
+	      "with no shelf hooks, nothing is offered");
+	notes.place = fake_place;
+	notes.span = fake_span;
+	spans_taken = 0;
+	pushing_as = PEER;
+	CHECK(fzn_node_notes_push_texts(&notes, ask_self, NULL, &t) == 1 && t.offered == 1u
+	              && t.pushed == 1u && t.spans == 3u && t.refused == 0u,
+	      "a wanted text is pushed span by span until it is whole");
+	CHECK(spans_taken == 3u && span_firsts[0] == 0u && span_firsts[1] == 1u
+	              && span_firsts[2] == 2u,
+	      "the spans arrive in order, each once");
+	CHECK(fzn_node_notes_push_texts(&notes, ask_self, NULL, &t) == 1 && t.offered == 1u
+	              && t.pushed == 0u && t.spans == 0u,
+	      "a text the peer holds whole is offered and not sent");
+	memset(stranger, 0xd6, sizeof(stranger));
+	pushing_as = stranger;
+	spans_taken = 0;
+	CHECK(fzn_node_notes_push_texts(&notes, ask_self, NULL, &t) == 1 && t.refused == 1u
+	              && spans_taken == 0u,
+	      "a sender the server does not admit is refused");
+	pushing_as = PEER;
+	{
+		uint8_t req[2u + FZN_BLOB_HASH_LEN + 8u], out[8];
+		size_t n;
+
+		req[0] = FZN_NOTES_SYNC_VERSION;
+		req[1] = FZN_NOTES_SYNC_TEXT_PUSH;
+		memset(req + 2, 0x5e, FZN_BLOB_HASH_LEN);
+		memset(req + 2 + FZN_BLOB_HASH_LEN, 0, 8u);
+		req[2 + FZN_BLOB_HASH_LEN + 7] = 9u;
+		serving = 1;
+		n = fzn_node_notes_remote(&notes, PEER, 0, req, sizeof(req), out, sizeof(out));
+		CHECK(n == 3u && out[2] == 0u, "a text at a length no note names is refused");
+		notes.place = NULL;
+		req[2 + FZN_BLOB_HASH_LEN + 7] = 0u;
+		n = fzn_node_notes_remote(&notes, PEER, 0, req, sizeof(req), out, sizeof(out));
+		CHECK(n == 3u && out[2] == 0u, "and a node with no shelf refuses every text");
+		serving = 0;
+		CHECK(fzn_node_notes_remote(&notes, PEER, 1, req, sizeof(req), out, sizeof(out)) == 0u,
+		      "and a contact's request is no push at all");
+	}
+	notes.place = NULL;
+	notes.span = NULL;
+	notes.seal = NULL;
+	notes.open = NULL;
+}
+
 int main(void)
 {
 	memset(SELF, 0x51, sizeof(SELF));
@@ -1024,6 +1148,7 @@ int main(void)
 	test_checklist();
 	test_collecting_texts();
 	test_members_join_the_admitted_set();
+	test_pushing_texts();
 
 	if (failures) {
 		fprintf(stderr, "notes_test: %d of %d checks failed\n", failures, checks);

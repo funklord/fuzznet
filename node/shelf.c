@@ -515,6 +515,44 @@ size_t fzn_node_shelf_remote(void *ctx, const uint8_t *request, size_t request_l
 
 /* ---- the fetcher ------------------------------------------------------- */
 
+/* Place one DATA's span, every leaf at the length the text's length gives
+ * it, proved against the root before a byte is written. A fetch passes the
+ * range it ASKED for, which the answer must be; a pushed span was asked for
+ * by nobody and passes NULL. One path, so a fetched span and a pushed one
+ * are held to the same proof. */
+static fzn_node_shelf_err_t place_data(fzn_node_shelf_t *shelf, held_t *h, const uint8_t *data,
+                                       size_t data_len, const fzn_spool_range_t *asked,
+                                       uint32_t asked_transfer)
+{
+	const uint8_t *proof = NULL, *sealed[FZN_NODE_SHELF_SPAN];
+	size_t sealed_len[FZN_NODE_SHELF_SPAN];
+	uint64_t first = 0, count = 0, i;
+	uint32_t transfer = 0;
+	unsigned siblings = 0;
+
+	if (fzn_msg_data_parse(data, data_len, &transfer, &first, &count, &proof, &siblings,
+	                       sealed, sealed_len, FZN_NODE_SHELF_SPAN)
+	            != FZN_MSG_OK
+	    || count == 0u || first >= h->leaves || count > h->leaves - first
+	    || (asked
+	        && (transfer != asked_transfer || first != asked->first || count > asked->count)))
+		return FZN_NODE_SHELF_ERR_SHAPE;
+	/* EVERY LEAF AT THE LENGTH THE NOTE'S LENGTH GIVES IT. The proof
+	 * binds the lengths the peer sent, so a span proving at these lengths
+	 * proves the length this host wrote down -- which is what it will hash
+	 * at when it serves the text on. */
+	for (i = 0; i < count; i++)
+		if (sealed_len[i] != sealed_len_of(h, first + i))
+			return FZN_NODE_SHELF_ERR_UNVERIFIED;
+	if (fzn_spool_place_span(&h->spool, shelf->hash, first, count, sealed, sealed_len, proof,
+	                         siblings)
+	    != FZN_SPOOL_OK)
+		return FZN_NODE_SHELF_ERR_UNVERIFIED;
+	if (fzn_spool_file_checkpoint(&h->file, &h->spool) != FZN_SPOOL_OK)
+		return FZN_NODE_SHELF_ERR_STORE;
+	return FZN_NODE_SHELF_OK;
+}
+
 static fzn_node_shelf_err_t fetch_spans(fzn_node_shelf_t *shelf, held_t *h,
                                         const uint8_t root[FZN_BLOB_HASH_LEN],
                                         fzn_node_shelf_ask_t ask, void *ask_ctx)
@@ -546,11 +584,8 @@ static fzn_node_shelf_err_t fetch_spans(fzn_node_shelf_t *shelf, held_t *h,
 	 * least one leaf or ends the fetch, so this bound is never the one
 	 * that stops it. */
 	for (round = 0; round < h->leaves; round++) {
-		const uint8_t *proof = NULL, *sealed[FZN_NODE_SHELF_SPAN];
-		size_t sealed_len[FZN_NODE_SHELF_SPAN], planned = 0;
-		uint64_t first = 0, count = 0, i;
-		uint32_t transfer = 0;
-		unsigned siblings = 0;
+		size_t planned = 0;
+		fzn_node_shelf_err_t err;
 
 		if (fzn_spool_plan_want(&h->spool, 0, FZN_NODE_SHELF_SPAN, ranges, 1u, &planned)
 		    != FZN_SPOOL_OK)
@@ -565,28 +600,134 @@ static fzn_node_shelf_err_t fetch_spans(fzn_node_shelf_t *shelf, held_t *h,
 			return FZN_NODE_SHELF_ERR_NO_ANSWER;
 		if (fzn_msg_peek(reply, reply_len, &type) != FZN_MSG_OK)
 			return FZN_NODE_SHELF_ERR_ABSENT;
-		if (type != FZN_MSG_DATA
-		    || fzn_msg_data_parse(reply, reply_len, &transfer, &first, &count, &proof,
-		                          &siblings, sealed, sealed_len, FZN_NODE_SHELF_SPAN)
-		               != FZN_MSG_OK
-		    || transfer != (uint32_t)round || first != ranges[0].first || count == 0u
-		    || count > ranges[0].count)
+		if (type != FZN_MSG_DATA)
 			return FZN_NODE_SHELF_ERR_SHAPE;
-		/* EVERY LEAF AT THE LENGTH THE NOTE'S LENGTH GIVES IT. The proof
-		 * binds the lengths the peer sent, so a span proving at these
-		 * lengths proves the length this host wrote down -- which is
-		 * what it will hash at when it serves the text on. */
-		for (i = 0; i < count; i++)
-			if (sealed_len[i] != sealed_len_of(h, first + i))
-				return FZN_NODE_SHELF_ERR_UNVERIFIED;
-		if (fzn_spool_place_span(&h->spool, shelf->hash, first, count, sealed, sealed_len,
-		                         proof, siblings)
-		    != FZN_SPOOL_OK)
-			return FZN_NODE_SHELF_ERR_UNVERIFIED;
-		if (fzn_spool_file_checkpoint(&h->file, &h->spool) != FZN_SPOOL_OK)
-			return FZN_NODE_SHELF_ERR_STORE;
+		err = place_data(shelf, h, reply, reply_len, &ranges[0], (uint32_t)round);
+		if (err != FZN_NODE_SHELF_OK)
+			return err;
 	}
 	return fzn_spool_complete(&h->spool) ? FZN_NODE_SHELF_OK : FZN_NODE_SHELF_ERR_SHAPE;
+}
+
+/* Open `root` at `length` to receive leaves into, resumed, its length
+ * written down: what a fetch and a pushed span both start from. OK with the
+ * file open; HELD when the text is here whole already, and the file is not
+ * opened then. */
+#define HELD_ALREADY 1
+static int open_to_receive(fzn_node_shelf_t *shelf, held_t *h,
+                           const uint8_t root[FZN_BLOB_HASH_LEN], uint64_t length,
+                           fzn_node_shelf_err_t *err)
+{
+	char path[FZN_SPOOL_FILE_PATH_MAX], len_path[FZN_SPOOL_FILE_PATH_MAX];
+	const fzn_spool_ops_t *ops;
+	uint64_t have = 0, before = 0;
+	int had_length;
+
+	*err = FZN_NODE_SHELF_OK;
+	memset(h, 0, sizeof(*h));
+	h->file.fd = -1;
+	if (!geometry(length, &h->leaves, &h->last)) {
+		*err = FZN_NODE_SHELF_ERR_MALFORMED;
+		return 0;
+	}
+	if (fzn_node_shelf_held(shelf, root, &have) == FZN_NODE_SHELF_OK) {
+		if (have != length)
+			*err = FZN_NODE_SHELF_ERR_MALFORMED;
+		return HELD_ALREADY;
+	}
+	h->length = length;
+	if (!path_of(shelf, root, "", path) || !path_of(shelf, root, ".len", len_path)) {
+		*err = FZN_NODE_SHELF_ERR_MALFORMED;
+		return 0;
+	}
+	had_length = read_length(len_path, &before);
+	ops = fzn_spool_file_open(&h->file, path);
+	if (!ops) {
+		*err = FZN_NODE_SHELF_ERR_STORE;
+		return 0;
+	}
+	/* RESUMED, so a fetch cut off part way asks only for the rest. */
+	(void)fzn_spool_file_resume(&h->file, root, h->leaves, h->present, sizeof(h->present));
+	if (fzn_spool_open(&h->spool, root, h->leaves, h->present, sizeof(h->present), ops)
+	    != FZN_SPOOL_OK) {
+		fzn_spool_file_close(&h->file);
+		*err = FZN_NODE_SHELF_ERR_STORE;
+		return 0;
+	}
+	/* A LAST LEAF ALREADY HERE PROVED THE LENGTH IT WAS PLACED AT, so a
+	 * note naming another length for the same root is wrong, and writing
+	 * it down would have this host serve proofs that do not verify. A
+	 * length written by a fetch that never placed the last leaf proved
+	 * nothing and is replaced. */
+	if (had_length && before != length && fzn_spool_has(&h->spool, h->leaves - 1u)) {
+		fzn_spool_file_close(&h->file);
+		*err = FZN_NODE_SHELF_ERR_MALFORMED;
+		return 0;
+	}
+	if (!write_length(shelf, root, length)) {
+		fzn_spool_file_close(&h->file);
+		*err = FZN_NODE_SHELF_ERR_STORE;
+		return 0;
+	}
+	return 0;
+}
+
+fzn_node_shelf_err_t fzn_node_shelf_place(fzn_node_shelf_t *shelf,
+                                          const uint8_t root[FZN_BLOB_HASH_LEN], uint64_t length,
+                                          const uint8_t *data, size_t data_len, int *complete)
+{
+	static held_t h;
+	fzn_node_shelf_err_t err;
+
+	if (!shelf || !root || !data || !complete)
+		return FZN_NODE_SHELF_ERR_MALFORMED;
+	*complete = 0;
+	if (open_to_receive(shelf, &h, root, length, &err) == HELD_ALREADY) {
+		*complete = err == FZN_NODE_SHELF_OK;
+		return err;
+	}
+	if (err != FZN_NODE_SHELF_OK)
+		return err;
+	err = place_data(shelf, &h, data, data_len, NULL, 0u);
+	*complete = err == FZN_NODE_SHELF_OK && fzn_spool_complete(&h.spool);
+	fzn_spool_file_close(&h.file);
+	return err;
+}
+
+fzn_node_shelf_err_t fzn_node_shelf_data_at(fzn_node_shelf_t *shelf,
+                                            const uint8_t root[FZN_BLOB_HASH_LEN], uint64_t first,
+                                            uint8_t *out, size_t cap, size_t *out_len,
+                                            uint64_t *count)
+{
+	uint8_t want[FZN_MSG_WANT_LEN], cookie[FZN_MSG_COOKIE_LEN];
+	const uint8_t *proof = NULL, *sealed[FZN_NODE_SHELF_SPAN];
+	size_t sealed_len[FZN_NODE_SHELF_SPAN], len = 0, got;
+	uint64_t at = 0;
+	uint32_t transfer = 0;
+	unsigned siblings = 0;
+	fzn_msg_type_t type;
+
+	if (!shelf || !root || !out || !out_len || !count)
+		return FZN_NODE_SHELF_ERR_MALFORMED;
+	*out_len = 0;
+	*count = 0;
+	/* THIS SHELF'S OWN ANSWER to a WANT, so a pushed span is exactly what
+	 * a fetch of it would have been: the same span, the same proof. The
+	 * cookie carries nothing here (see the header). */
+	memset(cookie, 0, sizeof(cookie));
+	if (fzn_msg_want_encode(0u, cookie, root, first, FZN_NODE_SHELF_SPAN, want, sizeof(want),
+	                        &len)
+	    != FZN_MSG_OK)
+		return FZN_NODE_SHELF_ERR_MALFORMED;
+	got = fzn_node_shelf_answer(shelf, want, len, out, cap);
+	if (got == 0u || fzn_msg_peek(out, got, &type) != FZN_MSG_OK || type != FZN_MSG_DATA
+	    || fzn_msg_data_parse(out, got, &transfer, &at, count, &proof, &siblings, sealed,
+	                          sealed_len, FZN_NODE_SHELF_SPAN)
+	               != FZN_MSG_OK
+	    || at != first || *count == 0u)
+		return FZN_NODE_SHELF_ERR_ABSENT;
+	*out_len = got;
+	return FZN_NODE_SHELF_OK;
 }
 
 fzn_node_shelf_err_t fzn_node_shelf_fetch(fzn_node_shelf_t *shelf,
@@ -594,47 +735,12 @@ fzn_node_shelf_err_t fzn_node_shelf_fetch(fzn_node_shelf_t *shelf,
                                           fzn_node_shelf_ask_t ask, void *ask_ctx)
 {
 	static held_t h;
-	char path[FZN_SPOOL_FILE_PATH_MAX], len_path[FZN_SPOOL_FILE_PATH_MAX];
-	const fzn_spool_ops_t *ops;
 	fzn_node_shelf_err_t err;
-	uint64_t have = 0, before = 0;
-	int had_length;
 
 	if (!shelf || !root || !ask)
 		return FZN_NODE_SHELF_ERR_MALFORMED;
-	memset(&h, 0, sizeof(h));
-	h.file.fd = -1;
-	if (!geometry(length, &h.leaves, &h.last))
-		return FZN_NODE_SHELF_ERR_MALFORMED;
-	if (fzn_node_shelf_held(shelf, root, &have) == FZN_NODE_SHELF_OK)
-		return have == length ? FZN_NODE_SHELF_OK : FZN_NODE_SHELF_ERR_MALFORMED;
-	h.length = length;
-	if (!path_of(shelf, root, "", path) || !path_of(shelf, root, ".len", len_path))
-		return FZN_NODE_SHELF_ERR_MALFORMED;
-	had_length = read_length(len_path, &before);
-	ops = fzn_spool_file_open(&h.file, path);
-	if (!ops)
-		return FZN_NODE_SHELF_ERR_STORE;
-	/* RESUMED, so a fetch cut off part way asks only for the rest. */
-	(void)fzn_spool_file_resume(&h.file, root, h.leaves, h.present, sizeof(h.present));
-	if (fzn_spool_open(&h.spool, root, h.leaves, h.present, sizeof(h.present), ops)
-	    != FZN_SPOOL_OK) {
-		fzn_spool_file_close(&h.file);
-		return FZN_NODE_SHELF_ERR_STORE;
-	}
-	/* A LAST LEAF ALREADY HERE PROVED THE LENGTH IT WAS PLACED AT, so a
-	 * note naming another length for the same root is wrong, and writing
-	 * it down would have this host serve proofs that do not verify. A
-	 * length written by a fetch that never placed the last leaf proved
-	 * nothing and is replaced. */
-	if (had_length && before != length && fzn_spool_has(&h.spool, h.leaves - 1u)) {
-		fzn_spool_file_close(&h.file);
-		return FZN_NODE_SHELF_ERR_MALFORMED;
-	}
-	if (!write_length(shelf, root, length)) {
-		fzn_spool_file_close(&h.file);
-		return FZN_NODE_SHELF_ERR_STORE;
-	}
+	if (open_to_receive(shelf, &h, root, length, &err) == HELD_ALREADY || err != FZN_NODE_SHELF_OK)
+		return err;
 	err = fetch_spans(shelf, &h, root, ask, ask_ctx);
 	if (fzn_spool_file_checkpoint(&h.file, &h.spool) != FZN_SPOOL_OK
 	    && err == FZN_NODE_SHELF_OK)

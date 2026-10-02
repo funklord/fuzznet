@@ -330,6 +330,17 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 				fprintf(stderr, "fuzznetd: %zu note record(s) to %s, %zu refused\n",
 				        pt.taken, pulls[t].host, pt.refused);
 		}
+		/* AND THEIR TEXTS, sec 448: a pushed note whose text stayed here
+		 * would be a note nobody there could read. */
+		{
+			fzn_node_notes_text_tally_t tt;
+
+			if (!fzn_node_notes_push_texts(&node_notes, peer_ask, &asking, &tt))
+				fprintf(stderr, "fuzznetd: texts to %s: no answer\n", pulls[t].host);
+			else if (tt.pushed || tt.refused)
+				fprintf(stderr, "fuzznetd: %zu text(s) to %s in %zu span(s), %zu refused\n",
+				        tt.pushed, pulls[t].host, tt.spans, tt.refused);
+		}
 		/* THE PURGE CONVERSATION, driven from this side. sec 433. */
 		{
 			fzn_notes_purge_tally_t pt;
@@ -512,6 +523,30 @@ static int shelf_collect(void *ctx, int (*keep)(void *keep_ctx, const uint8_t *r
                          void *keep_ctx, size_t *kept, size_t *removed)
 {
 	return fzn_node_shelf_collect((fzn_node_shelf_t *)ctx, keep, keep_ctx, kept, removed)
+	       == FZN_NODE_SHELF_OK;
+}
+
+/* PUSHED TEXTS, sec 448, over the shelf. */
+static int shelf_place(void *ctx, const uint8_t *root, uint64_t length, const uint8_t *data,
+                       size_t data_len, int *complete)
+{
+	fzn_node_shelf_t *sh = (fzn_node_shelf_t *)ctx;
+	uint64_t have = 0;
+
+	if (!data) {
+		*complete = fzn_node_shelf_held(sh, root, &have) == FZN_NODE_SHELF_OK
+		            && have == length;
+		return 1;
+	}
+	return fzn_node_shelf_place(sh, root, length, data, data_len, complete)
+	       == FZN_NODE_SHELF_OK;
+}
+
+static int shelf_span(void *ctx, const uint8_t *root, uint64_t first, uint8_t *out, size_t cap,
+                      size_t *out_len, uint64_t *count)
+{
+	return fzn_node_shelf_data_at((fzn_node_shelf_t *)ctx, root, first, out, cap, out_len,
+	                              count)
 	       == FZN_NODE_SHELF_OK;
 }
 
@@ -1428,6 +1463,8 @@ int main(int argc, char **argv)
 						node_notes.open = shelf_open;
 						node_notes.text_ctx = &shelf;
 						node_notes.collect = shelf_collect;
+						node_notes.place = shelf_place;
+						node_notes.span = shelf_span;
 						admin.text_shared = shared_text;
 						admin.text_shared_ctx = &shelf;
 					}

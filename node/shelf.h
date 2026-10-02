@@ -167,6 +167,24 @@ fzn_node_shelf_err_t fzn_node_shelf_fetch(fzn_node_shelf_t *shelf,
                                           const uint8_t root[FZN_BLOB_HASH_LEN], uint64_t length,
                                           fzn_node_shelf_ask_t ask, void *ask_ctx);
 
+/* A PUSHED SPAN, sec 448: one DATA message for the text `root` of `length`,
+ * proved against the root and placed exactly as a fetched span is -- one
+ * path for both, so neither is held to less. `*complete` is 1 when the text
+ * is now whole, or was already. UNVERIFIED when the span does not prove,
+ * nothing written. */
+fzn_node_shelf_err_t fzn_node_shelf_place(fzn_node_shelf_t *shelf,
+                                          const uint8_t root[FZN_BLOB_HASH_LEN], uint64_t length,
+                                          const uint8_t *data, size_t data_len, int *complete);
+
+/* THE SPAN TO PUSH from leaf `first` of `root`, as one DATA message into
+ * `out`: this shelf's own answer to a WANT for it, so it is the span a fetch
+ * would have received, proof and all. `*count` leaves. ABSENT when this
+ * shelf does not hold the text whole. sec 448. */
+fzn_node_shelf_err_t fzn_node_shelf_data_at(fzn_node_shelf_t *shelf,
+                                            const uint8_t root[FZN_BLOB_HASH_LEN], uint64_t first,
+                                            uint8_t *out, size_t cap, size_t *out_len,
+                                            uint64_t *count);
+
 /* Remember to fetch a text; OK at once when it is already here. */
 fzn_node_shelf_err_t fzn_node_shelf_want(fzn_node_shelf_t *shelf,
                                          const uint8_t root[FZN_BLOB_HASH_LEN], uint64_t length);

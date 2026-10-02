@@ -31,6 +31,8 @@ enum fzn_notes_sync_type : u8 {
 	members       = 12,  // "These, with the chains I hold for them."
 	push          = 13,  // "Take this record of mine." sec 446
 	pushed        = 14,  // "Taken, held already, or refused."
+	text_push     = 15,  // "Do you want this text? Here is a span." sec 448
+	text_pushed   = 16,  // "Wanted, whole, or refused."
 }
 
 struct fzn_notes_sync_index_query {
@@ -175,4 +177,22 @@ struct fzn_notes_sync_pushed {
 	u8                   version [must_eq = 2];
 	fzn_notes_sync_type  type    [must_eq = pushed];
 	u8                   outcome [max = 2];          // 0 refused, 1 taken, 2 held
+}
+
+// A PUSHED NOTE'S TEXT, sec 448, answered by node/notes.c: with no span an
+// offer, answered whole or wanted; with one, a spool DATA message, placed as
+// a fetched span is. Taken only from an admitted sender, for a note the
+// server holds at that length. A request this size needs reassembly (sec 447).
+struct fzn_notes_sync_text_push {
+	u8                   version [must_eq = 2];
+	fzn_notes_sync_type  type    [must_eq = text_push];
+	u8                   root[32];
+	u64                  length;
+	u8                   data[remaining];            // empty, or one DATA
+}
+
+struct fzn_notes_sync_text_pushed {
+	u8                   version [must_eq = 2];
+	fzn_notes_sync_type  type    [must_eq = text_pushed];
+	u8                   outcome [max = 2];          // 0 refused, 1 wanted, 2 whole
 }

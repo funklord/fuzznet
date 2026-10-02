@@ -106,6 +106,18 @@ typedef int (*fzn_node_notes_collect_fn)(void *ctx,
                                          int (*keep)(void *keep_ctx, const uint8_t *root),
                                          void *keep_ctx, size_t *kept, size_t *removed);
 
+/* PUSHING A TEXT, sec 448. `place` takes one span (`data`, a spool DATA
+ * message) of the text `root` at `length` -- or, with `data` NULL, only says
+ * whether it is whole -- setting `*complete`; nonzero when the span was
+ * taken or the question answered. `span` writes the span from leaf `first`
+ * this node would push, `*count` leaves; nonzero on success. Both are the
+ * node's shelf, in practice. */
+typedef int (*fzn_node_notes_place_fn)(void *ctx, const uint8_t *root, uint64_t length,
+                                       const uint8_t *data, size_t data_len, int *complete);
+typedef int (*fzn_node_notes_span_fn)(void *ctx, const uint8_t *root, uint64_t first,
+                                      uint8_t *out, size_t cap, size_t *out_len,
+                                      uint64_t *count);
+
 /* Open a sealed text back -- the node's shelf, in practice. Nonzero on
  * success, with `*out_len` the text's length. */
 typedef int (*fzn_node_notes_open_fn)(void *ctx, const fzn_note_blob_ref_t *ref, uint8_t *out,
@@ -128,6 +140,9 @@ typedef struct fzn_node_notes {
 	/* Collecting texts no note names, or NULL: then `remove text unused`
 	 * says this node keeps none. sec 443. */
 	fzn_node_notes_collect_fn collect;
+	/* Taking and giving a pushed text's spans, or NULL. sec 448. */
+	fzn_node_notes_place_fn place;
+	fzn_node_notes_span_fn span;
 	void *text_ctx;
 	/* The wall clock, in milliseconds. */
 	uint64_t (*now_ms)(void);
@@ -176,6 +191,22 @@ int fzn_node_notes_shares_blob(fzn_node_notes_t *n, const uint8_t *sender,
 /* Whether a note this node holds -- in its own tree or any sharer's -- has
  * its text in the blob `root`: what collecting the shelf keeps. sec 443. */
 int fzn_node_notes_names_blob(fzn_node_notes_t *n, const uint8_t root[FZN_BLOB_HASH_LEN]);
+
+/* What one push of texts did. */
+typedef struct fzn_node_notes_text_tally {
+	size_t offered; /* texts this node's notes name and it holds whole */
+	size_t pushed;  /* of those, sent because the peer wanted them */
+	size_t spans;
+	size_t refused; /* the peer would not take them */
+} fzn_node_notes_text_tally_t;
+
+/* PUSH THE TEXTS, sec 448: offer every text a note this node holds names,
+ * and send the spans of each the peer wants, until it is whole there. A
+ * pushed note whose text stayed on its writer was a note no one else could
+ * read; the peer takes a text only for a note it holds, at that note's
+ * length, from a sender it admits. */
+int fzn_node_notes_push_texts(fzn_node_notes_t *n, fzn_notes_sync_ask_t ask, void *ask_ctx,
+                              fzn_node_notes_text_tally_t *tally);
 
 /* The verbs above, for `node/admin.h`'s hook. 0 when `request` is not one. */
 size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,

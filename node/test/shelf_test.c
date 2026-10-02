@@ -384,6 +384,71 @@ static void test_a_lying_peer_writes_nothing_and_the_fetch_resumes(void)
 	CHECK(rmdir(dir_d) == 0, "D's directory empties");
 }
 
+/* PUSHED SPANS, sec 448: A's own answers, placed on P span by span, arrive
+ * whole; an altered span writes nothing; and only what A holds is offered. */
+static void test_pushed_spans_arrive_whole_or_not_at_all(void)
+{
+	static uint8_t data[FZN_NODE_SHELF_REPLY_MAX];
+	fzn_node_shelf_t P;
+	char dir_p[96], path[600];
+	size_t len = 0, data_len = 0;
+	uint64_t first = 0, count = 0, length = 0, spans = 0;
+	int complete = 0;
+	fzn_note_err_t terr;
+	uint8_t nowhere[FZN_BLOB_HASH_LEN];
+
+	(void)snprintf(dir_p, sizeof(dir_p), "%s/p", top);
+	CHECK(fzn_node_shelf_init(&P, dir_p, &HASH, &AEAD, &RNG) == FZN_NODE_SHELF_OK, "P opens");
+	CHECK(fzn_node_shelf_data_at(&A, big.root, 0u, data, sizeof(data), &data_len, &count)
+	              == FZN_NODE_SHELF_OK,
+	      "fixture: A's first span of the long text");
+	data[data_len - 1u] ^= 0x01u;
+	CHECK(fzn_node_shelf_place(&P, big.root, big.length, data, data_len, &complete)
+	                      == FZN_NODE_SHELF_ERR_UNVERIFIED
+	              && !complete,
+	      "a span altered on the way does not prove");
+	CHECK(fzn_node_shelf_held(&P, big.root, &length) == FZN_NODE_SHELF_ERR_ABSENT,
+	      "and P holds none of it");
+	/* THE LAST SPAN CARRIES THE LENGTH: a span short of the last leaf
+	 * proves at any length, and the last proves only at the true one. */
+	CHECK(fzn_node_shelf_data_at(&A, big.root, 32u, data, sizeof(data), &data_len, &count)
+	                      == FZN_NODE_SHELF_OK
+	              && fzn_node_shelf_place(&P, big.root, big.length + 1u, data, data_len,
+	                                      &complete)
+	                         == FZN_NODE_SHELF_ERR_UNVERIFIED,
+	      "the last span placed at another length does not prove");
+	while (first < 40u && !complete) {
+		CHECK(fzn_node_shelf_data_at(&A, big.root, first, data, sizeof(data), &data_len,
+		                             &count)
+		                      == FZN_NODE_SHELF_OK
+		              && fzn_node_shelf_place(&P, big.root, big.length, data, data_len,
+		                                      &complete)
+		                         == FZN_NODE_SHELF_OK,
+		      "a span is pushed and placed");
+		first += count ? count : 40u;
+		spans++;
+	}
+	CHECK(complete && spans == 3u, "forty leaves arrive in three spans, and the text is whole");
+	CHECK(fzn_node_shelf_open(&P, &big, out, sizeof(out), &len, &terr) == FZN_NODE_SHELF_OK
+	              && len == big.length && memcmp(out, text_b, big.length) == 0,
+	      "and it opens to A's text");
+	CHECK(fzn_node_shelf_place(&P, big.root, big.length, data, data_len, &complete)
+	                      == FZN_NODE_SHELF_OK
+	              && complete,
+	      "a span for a text already whole is taken as done");
+	memset(nowhere, 0x6e, sizeof(nowhere));
+	CHECK(fzn_node_shelf_data_at(&A, nowhere, 0u, data, sizeof(data), &data_len, &count)
+	              == FZN_NODE_SHELF_ERR_ABSENT,
+	      "a text A does not hold gives no span");
+	file_of(dir_p, big.root, "", path, sizeof(path));
+	(void)remove(path);
+	file_of(dir_p, big.root, ".bits", path, sizeof(path));
+	(void)remove(path);
+	file_of(dir_p, big.root, ".len", path, sizeof(path));
+	(void)remove(path);
+	CHECK(rmdir(dir_p) == 0, "P's directory empties");
+}
+
 static void test_a_peer_going_quiet_is_resumed(void)
 {
 	peer_t quiet = { &A, 0, 0, 0, 2u, 0 };
@@ -781,6 +846,7 @@ int main(void)
 	test_a_small_reply_gets_a_smaller_span();
 	test_nothing_is_created_for_a_named_root();
 	test_a_lying_peer_writes_nothing_and_the_fetch_resumes();
+	test_pushed_spans_arrive_whole_or_not_at_all();
 	test_a_peer_going_quiet_is_resumed();
 	test_a_wrong_length_does_not_prove();
 	test_a_partial_holder_serves_nothing();
