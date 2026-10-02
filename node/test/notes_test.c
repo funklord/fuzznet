@@ -1160,6 +1160,43 @@ static void test_unpaired_partner(void)
 	CHECK(ask(line) == FZN_REPLY_ERROR, "and the note is gone");
 }
 
+/* A PARTNER SEEN WHILE THE CLOCK READ YEARS AHEAD, sec 470: once the clock
+ * is set back it ages from the new time, rather than being pinned until the
+ * clock catches up -- the shape of fuzzypickles' sec 156 defect. */
+static void test_a_partner_seen_in_the_future_ages_from_now(void)
+{
+	char b[65], line[200];
+	uint8_t query[FZN_NOTES_SYNC_INDEX_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
+		                                          FZN_NOTES_SYNC_INDEX_QUERY, 0, 0 };
+	uint8_t out[FZN_NOTES_SYNC_REPLY_MAX];
+	const uint64_t back = clock_ms;
+
+	setup(0);
+	clock_ms = back + (10ull * 365u * 24u * 3600u * 1000u);
+	CHECK(fzn_node_notes_admit_members(&notes, (const uint8_t (*)[FZN_PUBKEY_LEN])PEER, 1u)
+	                      == 1u
+	              && fzn_node_notes_remote(&notes, PEER, 0, query, sizeof(query), out,
+	                                       sizeof(out))
+	                         > 0u,
+	      "fixture: a partner pulls while this node's clock reads ten years ahead");
+	clock_ms = back;
+	CHECK(ask("add note top bin") == FZN_REPLY_OK, "fixture: the clock set back, a note to bin");
+	take_id(b);
+	snprintf(line, sizeof(line), "set note %s trash", b);
+	CHECK(ask(line) == FZN_REPLY_OK && ask("remove note trash") == FZN_REPLY_OK
+	              && !strcmp(detail_of(), "1 1"),
+	      "the partner is pinned: it was seen, and the stamp now reads as today");
+	clock_ms = back + FZN_NODE_NOTES_PARTNER_AGE_MS + 1000u;
+	CHECK(ask("add note top bin later") == FZN_REPLY_OK, "fixture: a month on, another note");
+	take_id(b);
+	snprintf(line, sizeof(line), "set note %s trash", b);
+	CHECK(ask(line) == FZN_REPLY_OK && ask("remove note trash") == FZN_REPLY_OK
+	              && !strcmp(detail_of(), "2 1"),
+	      "a month after the clock was set back, the silent partner pins nothing new -- not ten "
+	      "years on");
+	clock_ms = back;
+}
+
 /* A WRITE THAT TAKES TELLS THE DAEMON TO CONVERSE NOW, sec 449; a read, a
  * refusal and a write by somebody else's origin do not. */
 static void test_writes_mark_fresh(void)
@@ -1199,6 +1236,7 @@ int main(void)
 	test_pushing_texts();
 	test_writes_mark_fresh();
 	test_unpaired_partner();
+	test_a_partner_seen_in_the_future_ages_from_now();
 
 	if (failures) {
 		fprintf(stderr, "notes_test: %d of %d checks failed\n", failures, checks);

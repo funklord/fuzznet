@@ -54659,3 +54659,35 @@ without the fix: none, the next round waiting for 2036. No daemon was left
 running.
 
 **Sabotage: one entry**, the purge's guard as fuzzypickles' defect had it.
+
+## 470. Two more schedules a clock set back wedged, 2026-10-02
+
+Sec 469 swept fuzznetd for fuzzypickles' shape: a wall-clock stamp stored,
+then waited for. The next lens, from that bug, is the library: every
+elapsed time computed from a stored stamp (`now - last < interval`) and
+every deadline compared with `now`. Deadlines -- an expiry, a retention's
+`until` -- are not this shape: a clock set back lengthens what they allow,
+which is wall-clock expiry's nature. Two elapsed-time stamps were:
+
+- **`log/pack`'s settle**, mine from sec 459: a segment closed while the
+  clock read later was never packed until the clock reached its closing
+  time. A closing time more than a settle period ahead of the clock was
+  stamped by a clock since set back, and is now settled; one within the
+  period -- skew -- still waits.
+- **A partner's last pull, in emptying the trash** (sec 434's thirty
+  days): a partner seen while the clock read years ahead, and silent
+  since, was pinned by every purge until the clock passed its stamp and a
+  month more -- fuzzypickles' symptom exactly, a trash that never empties.
+  `fzn_notes_partner_seen_clamped` re-stamps a time later than the clock to
+  the clock, as fuzzypickles' fix does, so a gone partner ages from today.
+
+### Measured for sec 470
+
+**`pack_test`, 30 checks:** a segment stamped years ahead packed and
+continuing the chain, one three seconds ahead waiting.
+
+**`notes_test`, 251 checks:** a partner that pulled while the clock read
+ten years ahead, the clock set back: pinned at first, and a month later
+pinning nothing new.
+
+**Sabotage: two entries.**

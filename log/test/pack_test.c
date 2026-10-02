@@ -232,6 +232,29 @@ static void test_a_directory(void)
 	snprintf(z, sizeof(z), "%s.zst", late);
 	CHECK(fzn_log_pack_verify(z, h2, &HASH, h3) == FZN_LOG_PACK_OK,
 	      "and continues the chain across passes, from the hash the chain file kept");
+
+	/* A CLOCK SET BACK, sec 470: a segment closed while the clock read
+	 * years later is settled, not left until the clock reaches it; one a
+	 * few seconds ahead -- skew -- still waits. */
+	{
+		char ahead[160], skew[160];
+		uint8_t h4[32];
+
+		snprintf(ahead, sizeof(ahead), "%s/netcfgd.900000000000.14.log", top);
+		snprintf(skew, sizeof(skew), "%s/netcfgd.22000000.15.log", top);
+		CHECK(make_segment(ahead, 300u) && make_segment(skew, 200u),
+		      "fixture: a segment stamped years ahead, and one three seconds ahead");
+		CHECK(fzn_log_pack_dir(top, "netcfgd", &HASH, 9000000u + SETTLE, SETTLE, &packed)
+		                      == FZN_LOG_PACK_OK
+		              && packed == 1u && !exists(ahead) && exists(skew),
+		      "the one years ahead is packed, and the one within the settle period waits");
+		snprintf(z, sizeof(z), "%s.zst", ahead);
+		CHECK(fzn_log_pack_verify(z, h3, &HASH, h4) == FZN_LOG_PACK_OK,
+		      "and it continues the chain");
+		(void)remove(z);
+		(void)remove(ahead);
+		(void)remove(skew);
+	}
 	CHECK(fzn_log_pack_dir(top, "a/b", &HASH, 0u, 0u, &packed) == FZN_LOG_PACK_ERR_MALFORMED,
 	      "a program with a slash is refused");
 	snprintf(z, sizeof(z), "%s.zst", a);

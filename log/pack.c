@@ -362,8 +362,12 @@ fzn_log_pack_err_t fzn_log_pack_dir(const char *dir, const char *program,
 
 		if (at == 0u || strlen(e->d_name) >= sizeof(segs[0].name))
 			continue;
-		/* NOT YET SETTLED: a line may still be on its way in. */
-		if (now_us < at || now_us - at < settle_us)
+		/* NOT YET SETTLED: a line may still be on its way in. A closing
+		 * time more than a settle period AHEAD of the clock was stamped by
+		 * a clock since set back, and is settled: waiting for it would
+		 * leave the segment unpacked for as long as the clock was wrong.
+		 * sec 470. */
+		if (at <= now_us + settle_us && (now_us < at || now_us - at < settle_us))
 			continue;
 		segs[n].at = at;
 		strcpy(segs[n].name, e->d_name);

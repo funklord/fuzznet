@@ -142,6 +142,15 @@ fzn_notes_err_t fzn_notes_partners(const fzn_notes_store_t *store,
 fzn_notes_err_t fzn_notes_partner_seen_at(const fzn_notes_store_t *store,
                                           const uint8_t key[FZN_PUBKEY_LEN], uint64_t *ms);
 
+/* The partner `key`'s time as `fzn_notes_partner_seen_at` gives it -- or,
+ * when that is later than `now_ms`, `now_ms`, written back: a stamp in the
+ * future was made by a clock since set back, and aging a partner from it
+ * would keep a gone partner pinned for as long as the clock was wrong.
+ * fuzzypickles met the shape in a purge's schedule (their sec 156). sec 470. */
+fzn_notes_err_t fzn_notes_partner_seen_clamped(const fzn_notes_store_t *store,
+                                               const uint8_t key[FZN_PUBKEY_LEN],
+                                               uint64_t now_ms, uint64_t *ms);
+
 /* How a puller asks a peer: send `request`, fill `reply`. Nonzero on an
  * answer. A test's is another store's `fzn_notes_sync_answer`. */
 typedef int (*fzn_notes_sync_ask_t)(void *ctx, const uint8_t *request, size_t request_len,

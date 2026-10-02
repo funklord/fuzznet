@@ -229,6 +229,21 @@ fzn_notes_err_t fzn_notes_partner_seen_at(const fzn_notes_store_t *store,
 	return FZN_NOTES_OK;
 }
 
+fzn_notes_err_t fzn_notes_partner_seen_clamped(const fzn_notes_store_t *store,
+                                               const uint8_t key[FZN_PUBKEY_LEN],
+                                               uint64_t now_ms, uint64_t *ms)
+{
+	fzn_notes_err_t err = fzn_notes_partner_seen_at(store, key, ms);
+
+	if (err != FZN_NOTES_OK)
+		return err;
+	if (*ms > now_ms) {
+		partner_seen(store, key, now_ms);
+		*ms = now_ms;
+	}
+	return FZN_NOTES_OK;
+}
+
 /* PURGES_QUERY: this store's purges that pin `sender` and it has not
  * answered. */
 static size_t answer_purges(const fzn_notes_store_t *store, const uint8_t *sender,

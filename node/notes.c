@@ -1063,7 +1063,10 @@ static size_t empty_trash(fzn_node_notes_t *n, char *reply, size_t cap)
 		/* A PARTNER GONE A MONTH IS NOT PINNED: a purge waiting on a node
 		 * that will never pull again would wait for ever. One whose time
 		 * will not read is pinned, the side that keeps data. */
-		if (fzn_notes_partner_seen_at(&n->store, partners[i], &seen) == FZN_NOTES_OK
+		/* SEEN "IN THE FUTURE" is re-stamped to now, sec 470, so a gone
+		 * partner ages from today rather than from a clock since set back. */
+		if (fzn_notes_partner_seen_clamped(&n->store, partners[i], now(n), &seen)
+		            == FZN_NOTES_OK
 		    && now(n) > seen && now(n) - seen > FZN_NODE_NOTES_PARTNER_AGE_MS)
 			continue;
 		/* NOR ONE THAT IS NO WRITER NOW, sec 451: a device un-paired, or a

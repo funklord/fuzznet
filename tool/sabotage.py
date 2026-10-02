@@ -5844,6 +5844,20 @@ SABOTAGES = [
 		"a text somebody just asked for waits out a whole pull period before anything asks a peer for it -- sec 424",
 	),
 	(
+		"pack-settles-past-a-clock-set-back",
+		"log/pack.c",
+		"\t\tif (at <= now_us + settle_us && (now_us < at || now_us - at < settle_us))\n",
+		"\t\tif (now_us < at || now_us - at < settle_us)\n",
+		"a segment closed while the clock read later is left unpacked until the clock reaches it -- sec 470",
+	),
+	(
+		"notes-partner-ages-from-a-clock-set-back",
+		"notes/sync.c",
+		"\tif (*ms > now_ms) {\n\t\tpartner_seen(store, key, now_ms);\n",
+		"\tif (0) {\n\t\tpartner_seen(store, key, now_ms);\n",
+		"a partner seen while the clock read years ahead stays pinned by every purge for those years, and the trash is never emptied -- sec 470",
+	),
+	(
 		"notes-purge-due-survives-a-clock-set-back",
 		"notes/purge.c",
 		"\t\tif (p.last_push_ms != 0u && now_ms - p.last_push_ms < FZN_NOTES_PURGE_RETRY_MS\n\t\t    && now_ms >= p.last_push_ms)\n",
@@ -6035,7 +6049,7 @@ SABOTAGES = [
 	(
 		"pack-waits-for-a-segment-to-settle",
 		"log/pack.c",
-		"\t\tif (now_us < at || now_us - at < settle_us)\n\t\t\tcontinue;\n",
+		"\t\tif (at <= now_us + settle_us && (now_us < at || now_us - at < settle_us))\n\t\t\tcontinue;\n",
 		"",
 		"a segment is packed the moment it is closed, and a line another instance was still writing lands after the trailer or is lost -- sec 459",
 	),
