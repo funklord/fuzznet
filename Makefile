@@ -3658,6 +3658,9 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/contact/contact.o \
               $(BUILD_DIR)/contact/group.o \
               $(BUILD_DIR)/log/rules.o \
+              $(BUILD_DIR)/notes/share.o \
+              $(BUILD_DIR)/notes/store.o \
+              $(BUILD_DIR)/record/record.o \
               $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/node/received.o $(BUILD_DIR)/notes/received.o \
               $(BUILD_DIR)/node/members.o \
@@ -3700,6 +3703,9 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/contact/contact.o \
               $(BUILD_DIR)/contact/group.o \
               $(BUILD_DIR)/log/rules.o \
+              $(BUILD_DIR)/notes/share.o \
+              $(BUILD_DIR)/notes/store.o \
+              $(BUILD_DIR)/record/record.o \
               $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/node/received.o $(BUILD_DIR)/notes/received.o \
               $(BUILD_DIR)/node/members.o \

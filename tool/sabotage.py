@@ -8707,6 +8707,20 @@ SABOTAGES = [
 		"\t\t} else if (0) {\n\t\t\treturn 0;\n",
 		"a match with a bare comma is taken, and the same match has two spellings -- sec 477",
 	),
+	(
+		"admin-group-removal-takes-shares",
+		"node/admin.c",
+		"\t\t    || fzn_notes_share_forget(&notes, group.id, &gone) != FZN_NOTES_OK)\n",
+		"\t\t    || 0)\n",
+		"a group made again under a removed one's name inherits its shares, serving them to whoever is in the new group -- sec 478",
+	),
+	(
+		"notes-share-forget-names-its-contact",
+		"notes/share.c",
+		"\t\tif (!fzn_ct_memeq(all[i].contact, contact, FZN_PUBKEY_LEN))\n\t\t\tcontinue;\n\t\terr = fzn_notes_share_remove(store, all[i].subtree, contact);\n",
+		"\t\terr = fzn_notes_share_remove(store, all[i].subtree, all[i].contact);\n",
+		"removing one group unshares everything with everyone -- sec 478",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

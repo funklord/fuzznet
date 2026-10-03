@@ -11,6 +11,8 @@
  */
 
 #include "../../log/cause.h"
+#include "../../notes/share.h"
+#include "../../contact/group.h"
 #include "../admin.h"
 #include "../roots.h"
 #include "../identity.h"
@@ -955,12 +957,40 @@ int main(void)
 		                     &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR,
 		      "erin did not leave, or left twice");
-		CHECK(ask(&admin, &owner, "remove group family", reply, sizeof(reply), &reply_len)
-		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
-		              && ask(&admin, &owner, "list group", reply, sizeof(reply), &reply_len)
-		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
-		              && says(detail, detail_len, "0 0"),
-		      "a removed group was still listed");
+		/* ITS SHARES GO WITH IT, sec 478: made again under the name, the
+		 * group inherits nothing. Another contact's share stays. */
+		{
+			fzn_notes_store_t notes;
+			uint8_t gid[FZN_PUBKEY_LEN], other[FZN_PUBKEY_LEN], sub[FZN_TREE_ID_LEN];
+			uint8_t seen[4][FZN_TREE_ID_LEN];
+			size_t n = 9;
+
+			memset(other, 0x6e, sizeof(other));
+			memset(sub, 0x51, sizeof(sub));
+			CHECK(fzn_notes_store_init(&notes, admin.store, &hash_ops) == FZN_NOTES_OK
+			              && fzn_group_id(&hash_ops, "family", 6u, gid) == FZN_CONTACT_OK
+			              && fzn_notes_share_add(&notes, sub, gid, 1u) == FZN_NOTES_OK
+			              && fzn_notes_share_add(&notes, sub, other, 1u) == FZN_NOTES_OK,
+			      "fixture: a subtree shared with the group and with another contact");
+			CHECK(ask(&admin, &owner, "remove group family", reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK
+			              && ask(&admin, &owner, "list group", reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK
+			              && says(detail, detail_len, "0 0"),
+			      "a removed group was still listed");
+			CHECK(ask(&admin, &owner, "add group family", reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK
+			              && fzn_notes_share_with(&notes, gid, seen, 4u, &n) == FZN_NOTES_OK
+			              && n == 0u,
+			      "a group made again under a removed one's name inherited its shares");
+			CHECK(fzn_notes_share_with(&notes, other, seen, 4u, &n) == FZN_NOTES_OK && n == 1u,
+			      "removing a group took another contact's share with it");
+			(void)fzn_notes_share_remove(&notes, sub, other);
+			(void)ask(&admin, &owner, "remove group family", reply, sizeof(reply), &reply_len);
+		}
 		CHECK(ask(&admin, &owner, "remove contact erin", reply, sizeof(reply), &reply_len),
 		      "fixture: erin forgotten");
 		state.hash = was;

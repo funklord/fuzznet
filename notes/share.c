@@ -142,6 +142,32 @@ fzn_notes_err_t fzn_notes_share_remove(const fzn_notes_store_t *store,
 	return FZN_NOTES_OK;
 }
 
+fzn_notes_err_t fzn_notes_share_forget(const fzn_notes_store_t *store,
+                                       const uint8_t contact[FZN_PUBKEY_LEN], size_t *removed)
+{
+	static fzn_notes_share_t all[FZN_NOTES_SHARES_MAX];
+	size_t count = 0, i;
+	fzn_notes_err_t err;
+
+	if (!store || !store->ops || !contact || !removed)
+		return FZN_NOTES_ERR_MALFORMED;
+	*removed = 0;
+	if (!store->ops->remove)
+		return FZN_NOTES_ERR_UNSUPPORTED;
+	err = fzn_notes_share_list(store, all, FZN_NOTES_SHARES_MAX, &count);
+	if (err != FZN_NOTES_OK)
+		return err;
+	for (i = 0; i < count; i++) {
+		if (!fzn_ct_memeq(all[i].contact, contact, FZN_PUBKEY_LEN))
+			continue;
+		err = fzn_notes_share_remove(store, all[i].subtree, contact);
+		if (err != FZN_NOTES_OK && err != FZN_NOTES_ERR_ABSENT)
+			return err;
+		(*removed)++;
+	}
+	return FZN_NOTES_OK;
+}
+
 fzn_notes_err_t fzn_notes_share_with(const fzn_notes_store_t *store,
                                      const uint8_t contact[FZN_PUBKEY_LEN],
                                      uint8_t (*out)[FZN_TREE_ID_LEN], size_t cap, size_t *count)

@@ -66,6 +66,14 @@ fzn_notes_err_t fzn_notes_share_remove(const fzn_notes_store_t *store,
                                        const uint8_t subtree[FZN_TREE_ID_LEN],
                                        const uint8_t contact[FZN_PUBKEY_LEN]);
 
+/* Every share with `contact` gone, `*removed` of them: what a group's
+ * removal does, sec 478, since a group's id is its name's and a group made
+ * again under the name would otherwise inherit the old one's shares --
+ * reaching whoever is in the new one. fuzzypickles met the shape with
+ * contacts named by name (their sec 163). */
+fzn_notes_err_t fzn_notes_share_forget(const fzn_notes_store_t *store,
+                                       const uint8_t contact[FZN_PUBKEY_LEN], size_t *removed);
+
 /* Every share, `cap` of them. */
 fzn_notes_err_t fzn_notes_share_list(const fzn_notes_store_t *store, fzn_notes_share_t *out,
                                      size_t cap, size_t *count);

@@ -9,6 +9,7 @@
 #include "../contact/group.h"
 #include "../log/rules.h"
 #include "../notes/received.h"
+#include "../notes/share.h"
 #include "../log/cause.h"
 #include "members.h"
 #include "received.h"
@@ -767,8 +768,11 @@ static size_t group_refusal(char *reply, size_t cap, fzn_contact_err_t err)
 	                   fzn_contact_err_str(err));
 }
 
-/* `add group NAME` and `remove group NAME`. Removing a group leaves the
- * shares made with it, which then reach nobody. */
+/* `add group NAME` and `remove group NAME`. REMOVING A GROUP TAKES ITS
+ * SHARES WITH IT, sec 478: its id is its name's, so a group made again
+ * under the name would inherit them and serve the old group's notes to
+ * whoever is in the new one. The shares go first, as fuzzypickles' contact
+ * shares do: a group gone with its shares left is the hazard. */
 static size_t change_group(fzn_node_admin_t *admin, int add, const uint8_t *rest,
                            size_t rest_len, char *reply, size_t cap)
 {
@@ -779,6 +783,20 @@ static size_t change_group(fzn_node_admin_t *admin, int add, const uint8_t *rest
 	if (!next_word(&rest, &rest_len, &name, &name_len))
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED,
 		                   add ? "add group NAME" : "remove group NAME");
+	if (!add) {
+		static fzn_group_t group;
+		fzn_notes_store_t notes;
+		size_t gone = 0;
+
+		err = fzn_group_find(admin->store, admin->state->hash, (const char *)name, name_len,
+		                     &group);
+		if (err != FZN_CONTACT_OK)
+			return group_refusal(reply, cap, err);
+		if (fzn_notes_store_init(&notes, admin->store, admin->state->hash) != FZN_NOTES_OK
+		    || fzn_notes_share_forget(&notes, group.id, &gone) != FZN_NOTES_OK)
+			return answer_text(reply, cap, FZN_REPLY_ERROR,
+			                   "the group's shares would not all go, so it stays");
+	}
 	err = add ? fzn_group_add(admin->store, admin->state->hash, (const char *)name, name_len,
 	                          admin->state->clock ? admin->state->clock() * 1000u : 0u)
 	          : fzn_group_remove(admin->store, admin->state->hash, (const char *)name,

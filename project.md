@@ -54713,7 +54713,9 @@ member now, no group transport.
   leaves is not, with no rows to keep in step. Each member still fetches
   under its own `grant share`: that is the grant per member.
 - **A group removed reaches nobody**, and its share can still be taken
-  away: unsharing needs only the id, which the name gives.
+  away: unsharing needs only the id, which the name gives. ~~That left the
+  share for a group made again under the name~~ -- the verb takes a
+  group's shares with it since sec 478.
 - **A contact removed is suspended whatever groups it is in**, by sec
   454's refusal ahead of every hook.
 - **Persist slot 25, `FZN_PERSIST_CONTACT_GROUP`**, per group, core: a
@@ -55192,3 +55194,45 @@ round repacked both: 78 lines left and none holding `line 1` -- the 22
 that did, `line 1` and `line 10` to `line 19` in each.
 
 **Sabotage: three entries.**
+
+## 478. A group's shares go with it, 2026-10-03
+
+**Found from fuzzypickles' sec 163.** There, an outgoing note share named
+its recipient by local name and outlived the contact, so the next contact
+added under that name was published the note. fuzzypickles asked whether
+this tree's shares had the same hazard.
+
+**Contacts here do not:** a share row names the contact's key (sec 436),
+so a new contact under an old name holds a different key and reaches
+nothing of the old one's. A removed contact is suspended (sec 454), and
+the same key added back is served again, which is the intent.
+
+**Groups did, and it was mine from sec 471.** A group's id is a hash of its
+name, so a share row with `@family` survived `remove group family`. A group
+made again under that name -- with other members -- was served the old
+group's notes. Removing a group now takes its share rows with it,
+`fzn_notes_share_forget`, before the group's record goes, as fuzzypickles'
+fix orders it. A share row that would not go keeps the group, rather than
+leaving a group gone and its shares behind.
+
+Sec 471's "a group removed reaches nobody, and its share can still be
+taken away" described `fzn_group_remove` alone; through the verb, the
+share goes with the group.
+
+### Not yet after sec 478
+
+- **What a removed contact shared with this node stays**, fuzzypickles'
+  open question too: its received share, keyed by its node's key so it
+  cannot pass to anybody else, and the tree pulled from it. Whether
+  removing a contact drops what they shared is **the holder's to decide**.
+
+### Measured for sec 478
+
+**`admin_test`, 177 checks**, three new:
+
+- a subtree shared with `family` and with another contact;
+- `remove group family`, then `add group family`, leaving the new group
+  nothing;
+- the other contact's share still held.
+
+**Sabotage: two entries.**
