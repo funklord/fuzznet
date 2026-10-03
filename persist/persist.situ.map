@@ -18,6 +18,13 @@ struct fzn_persist_admin_confirm_body size=131..1384 mutate=Shifting atomic=NonA
   fzn_persist_admin_confirm_body.hops[]  offset=FrameStatic(0x00) size=Fixed(179) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_admin_confirm_body.hops[].bytes offset=FrameStatic(0x00) size=Fixed(179) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
 
+struct fzn_persist_admin_retention_body size=438..1512 mutate=Shifting atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_admin_retention_body.record offset=AbsoluteStatic(0x00) size=Fixed(258) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_admin_retention_body.hop_count offset=AbsoluteStatic(0x102) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
+  fzn_persist_admin_retention_body.hops  offset=AbsoluteStatic(0x103) size=Bounded(179, 1253) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting effect=EffectOnWrite
+  fzn_persist_admin_retention_body.hops[] offset=FrameStatic(0x00) size=Fixed(179) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_admin_retention_body.hops[].bytes offset=FrameStatic(0x00) size=Fixed(179) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+
 struct fzn_persist_blob size=2.. mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_blob.version               offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
   fzn_persist_blob.tag                   offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
@@ -132,6 +139,12 @@ struct fzn_persist_blob size=2.. mutate=Shifting address=Unstable repr=ValueConv
   fzn_persist_blob.body.log_rule.added_at offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable effect=EffectOnWrite
   fzn_persist_blob.body.retention_set    offset=AbsoluteStatic(0x02) size=Fixed(258) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_blob.body.retention_set.record offset=AbsoluteStatic(0x02) size=Fixed(258) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.admin_retention  offset=AbsoluteStatic(0x02) size=Bounded(438, 1512) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting effect=EffectOnWrite
+  fzn_persist_blob.body.admin_retention.record offset=AbsoluteStatic(0x02) size=Fixed(258) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.admin_retention.hop_count offset=AbsoluteStatic(0x104) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
+  fzn_persist_blob.body.admin_retention.hops offset=AbsoluteStatic(0x105) size=Bounded(179, 1253) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting effect=EffectOnWrite
+  fzn_persist_blob.body.admin_retention.hops[] offset=FrameStatic(0x02) size=Fixed(179) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.admin_retention.hops[].bytes offset=FrameStatic(0x02) size=Fixed(179) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
 
 struct fzn_persist_chain_body size=40 repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_chain_body.key             offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite

@@ -74,6 +74,8 @@ static QString slot_label(fzn_persist_slot_t slot)
 		return QStringLiteral("contact group");
 	case FZN_PERSIST_LOG_RULE:
 		return QStringLiteral("log rule");
+	case FZN_PERSIST_ADMIN_RETENTION:
+		return QStringLiteral("admin retention rule");
 	}
 	/* NO `default:` ABOVE, so a slot added to persist.h draws a -Wswitch
 	 * warning here rather than being drawn as this. */

@@ -989,7 +989,8 @@ static size_t list_retention(fzn_node_admin_t *admin, char *reply, size_t cap)
 
 /* `add estate-retention RULE` and `remove estate-retention RULE`: one of the
  * estate's rules, as this node's acting root, carried with the root
- * records to every host. sec 476. */
+ * records to every host (sec 476) -- or, with no root here, as the admin
+ * this node's admin chain makes it (sec 479). */
 static size_t change_estate_retention(fzn_node_admin_t *admin, int add, const uint8_t *rest,
                                       size_t rest_len, char *reply, size_t cap)
 {
@@ -1002,8 +1003,19 @@ static size_t change_estate_retention(fzn_node_admin_t *admin, int add, const ui
 		                   "age|size|count N");
 	err = fzn_node_roots_set_retention(admin->roots, admin->store, admin->id->pubkey,
 	                                   admin->id->sign, &rule, add);
+	/* NO ROOT HERE, AN ADMIN PERHAPS, sec 479: the holder's "admin (and
+	 * root) capability". The record rides the vote stream with this node's
+	 * admin chain. */
+	if (err == FZN_NODE_ROOTS_NOT_ROOT && admin->admin_chain && admin->admin_chain->hop_count)
+		err = fzn_node_roots_set_retention_as_admin(
+		        admin->roots, admin->store, admin->id->pubkey, admin->id->sign,
+		        (const uint8_t (*)[FZN_HOP_LEN])admin->admin_chain->hops,
+		        admin->admin_chain->hop_count, admin->state->config.root, &rule, add);
 	if (err == FZN_NODE_ROOTS_OK)
 		return answer_text(reply, cap, FZN_REPLY_OK, NULL);
+	if (err == FZN_NODE_ROOTS_NOT_ROOT)
+		return answer_text(reply, cap, FZN_REPLY_ERROR,
+		                   "this node stands as neither a root nor an admin");
 	return answer_text(reply, cap,
 	                   err == FZN_NODE_ROOTS_MALFORMED ? FZN_REPLY_MALFORMED : FZN_REPLY_ERROR,
 	                   err == FZN_NODE_ROOTS_HELD       ? "the rule is the estate's already"

@@ -90,6 +90,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "a group of contacts a subtree can be shared with";
 	case FZN_PERSIST_LOG_RULE:
 		return "a retention rule for this host's logs";
+	case FZN_PERSIST_ADMIN_RETENTION:
+		return "an estate retention rule an admin set, with its chain";
 	}
 	*known = 0;
 	return "an unknown slot";

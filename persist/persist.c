@@ -57,7 +57,8 @@
  * FZN_PERSIST_BLOB_RECEIVED_SHARE, in node/received.c, and 25 is
  * FZN_PERSIST_BLOB_CONTACT_GROUP, in contact/group.c, and 26 is
  * FZN_PERSIST_BLOB_LOG_RULE, in log/rules.c, and 27 is
- * FZN_PERSIST_BLOB_RETENTION_SET, in node/roots.c. */
+ * FZN_PERSIST_BLOB_RETENTION_SET, in node/roots.c, and 28 is
+ * FZN_PERSIST_BLOB_ADMIN_RETENTION, in node/roots.c. */
 #define BLOB_IDENTITY 6u
 
 #define TRUST_BODY (FZN_PUBKEY_LEN + 1u + 8u)                 /* root, source, adopted_at */
@@ -454,6 +455,7 @@ int fzn_persist_slot_is_core(fzn_persist_slot_t slot)
 	case FZN_PERSIST_SHARED_NOTE:
 	case FZN_PERSIST_RECEIVED_SHARE:
 	case FZN_PERSIST_LOG_RULE:
+	case FZN_PERSIST_ADMIN_RETENTION:
 		return 0;
 	default:
 		return 1;	/* named or not: see persist.h */

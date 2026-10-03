@@ -2178,6 +2178,22 @@ int main(int argc, char **argv)
 				fzn_udp_close(ufd);
 			return 1;
 		}
+		/* ADMINS' RETENTION RECORDS, sec 479, once the revocations that
+		 * say which admins stand are loaded. NOT FATAL: they decide how long
+		 * logs stay, and a node that cannot judge them -- no admin
+		 * capability configured -- serves on and says so. */
+		{
+			size_t nadmin = 0;
+
+			if (fzn_node_roots_load_admin_retention(&estate_roots, store_ops,
+			                                        state.config.root, &nadmin)
+			    != FZN_NODE_ROOTS_OK)
+				say(FZN_ENTRY_WARNING, "roots",
+				    "an admin's retention record in %s would not admit", store_dir);
+			else if (nadmin)
+				say(FZN_ENTRY_INFO, "roots", "%zu admin retention record(s) from %s",
+				    nadmin, store_dir);
+		}
 		/* THE ESTATE'S k, when a root has set one; `--quorum` until then.
 		 * sec 418. */
 		(void)fzn_revocation_store_set_k(&revoked,
@@ -2472,7 +2488,8 @@ int main(int argc, char **argv)
 					refused = 0;
 					perr = fzn_node_votes_pull(&pulls[t].caller, state.config.root,
 					                           &sign_ops, &hash_ops, now, running,
-					                           store_ops, &learned, &refused);
+					                           running_roots, store_ops, &learned,
+					                           &refused);
 					if (perr != FZN_NODE_PULL_OK)
 						say(FZN_ENTRY_WARNING, "votes", "votes from %s: %s",
 						        pulls[t].host, fzn_node_pull_err_str(perr));

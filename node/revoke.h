@@ -42,6 +42,7 @@
 #include "pair.h"
 #include "provision.h"
 #include "../chain/revocation.h"
+#include "../chain/root_log.h"
 #include "../persist/persist.h"
 
 typedef enum fzn_node_revoke_err {
@@ -269,11 +270,18 @@ int fzn_node_votes_page(const fzn_persist_ops_t *store, const fzn_node_authority
 
 /* What a pull carries between pages: the vote being assembled, and the
  * counts so far. Zero it before the first page. */
+struct fzn_node_roots;
+
 typedef struct fzn_node_vote_pull {
 	int pending;
 	/* The pending item is a confirmation, in `confirm`, not a vote. */
 	int confirming;
 	uint8_t confirm[FZN_ADMIN_CONFIRM_LEN];
+	/* Or an admin's retention record, sec 479, in `retention`, learned into
+	 * `roots` -- NULL refuses every one, counted. */
+	int retaining;
+	uint8_t retention[FZN_RETENTION_SET_LEN];
+	struct fzn_node_roots *roots;
 	uint8_t record[FZN_REVOCATION_LEN];
 	uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
 	size_t hop_count;
@@ -298,6 +306,7 @@ fzn_node_pull_err_t fzn_node_votes_absorb(fzn_node_vote_pull_t *pull, const uint
 fzn_node_pull_err_t fzn_node_votes_pull(fzn_caller_t *caller, const uint8_t root[FZN_PUBKEY_LEN],
                                         const fzn_sign_ops_t *sign, const fzn_hash_ops_t *hash,
                                         uint64_t now, fzn_revocation_store_t *revocations,
+                                        struct fzn_node_roots *roots,
                                         const fzn_persist_ops_t *store, size_t *learned,
                                         size_t *refused);
 

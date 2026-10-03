@@ -55108,9 +55108,8 @@ offsets: text at 66, signature at 194.
 
 ### Not yet after sec 476
 
-- **Estate admins setting rules.** The holder named admin as well as root.
-  An admin's record needs its admin chain beside it, as an admin's grant
-  does (sec 416), so it is a record of its own rather than this one.
+- ~~**Estate admins setting rules.**~~ Built in sec 479, on this record,
+  riding the vote stream with the admin's chain.
 - **Scopes** (sec 420's vocabulary): a rule for one machine, or one user,
   and "in some cases cross-host" -- a rule on one host about another's
   logs, which needs gathering's copies (sec 428) to exist first.
@@ -55236,3 +55235,81 @@ share goes with the group.
 - the other contact's share still held.
 
 **Sabotage: two entries.**
+
+## 479. Estate admins set retention rules, 2026-10-03
+
+The second half of the holder's "an estate wide admin (and root)
+capability" (sec 476). An admin now sets the estate's retention rules as a
+root does.
+
+### Where an admin's record travels
+
+**An admin is known only by a chain**, and a chain travels only beside a
+record that needs it. An admin that never voted is unknown to a puller,
+and an admin's chain beside a 258-byte record does not fit one item of the
+root stream. The vote stream already carries records with chains,
+assembling them across pages, so an admin's retention record rides there:
+
+- a fifth list in `fzn_node_votes_page`, item `t` and its `h` hops;
+- kept in the new slot 27, `ADMIN_RETENTION`, the record and the chain, as
+  a vote is kept. Not core, as `LOG_RULE` is: retention decides how long
+  logs stay, not who reads them;
+- learned through `fzn_node_roots_learn_admin_retention`, which admits the
+  chain into the attached revocations, `fzn_revocation_admin_admit`. The
+  chain must grant the admin capability to the record's setter, from the
+  pinned root or a member root;
+- re-admitted at start, `fzn_node_roots_load_admin_retention`. A record
+  that will not admit warns rather than stopping the node, since it
+  decides how long logs stay and nothing more.
+
+### Which admin's record counts
+
+The record format is sec 476's, and so is the resolution. What judges a
+record now is `roots->judge`: it counts when its setter's act counts under
+the root set, or when its setter **stands as an admin**.
+
+`fzn_revocation_admin_stands` gives that answer: held in the admin table,
+its grant confirmed, its chain rooted in a root that counts, and not
+revoked by the admins standing. It is the same computation the vote count
+uses, factored out of `fzn_revocation_covers_links` so the two cannot
+disagree. A revoked admin's rules stop counting, and an admin that no
+longer stands cannot set one.
+
+### The estate verbs, as an admin
+
+`add estate-retention` and `remove estate-retention` act as the node's
+root when it has one, and otherwise as the admin its admin chain makes it.
+A node that is neither is told so.
+
+### And a sec 476 defect, found while writing this
+
+**A rule added again after its removal did nothing.** Signatures are
+deterministic, so the same setter, text and `replaces` mint the same bytes.
+The re-add was the very record its removal already replaced. An add now
+follows the removal of the same text when one stands unreplaced, and names
+it, so each cycle is a new record. This applies to roots and admins alike.
+
+### Not measured live
+
+An estate with an admin needs the admin capability configured and a chain
+installed with `--set-admin` on three daemons. The carriage was driven
+through the real page and absorb functions in `pair_test` instead, not
+over sockets.
+
+### Measured for sec 479
+
+**`pair_test`, 251 checks**, eleven new, on sec 416's fixture -- R the
+genesis, A its admin:
+
+- A, no root, refused as a root and setting the rule as an admin, kept in
+  slot 27;
+- the same rule refused as held;
+- D refused on a chain that names A;
+- a pull with no roots refusing A's record, counted;
+- T pulling A's vote stream and holding the rule;
+- T's restart re-admitting it from slot 27;
+- R revoking A's grant, and the rule no longer counting at T;
+- A, revocation pulled, refused a new rule;
+- a root's rule added, removed and added again standing.
+
+**Sabotage: six entries**, three of sec 415's and 476's re-aimed.

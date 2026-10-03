@@ -45,6 +45,25 @@ const char *fzn_node_roots_err_str(fzn_node_roots_err_t err)
 	return "unknown";
 }
 
+/* A RETENTION RECORD COUNTS, sec 479, when its setter's act counts under
+ * the set -- a root's -- or its setter stands as an admin in the attached
+ * revocations. */
+static int judge_member(void *ctx, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	const fzn_node_roots_t *roots = ctx;
+
+	return fzn_root_view_member(&roots->view, key);
+}
+
+static int judge_counts(void *ctx, const uint8_t setter[FZN_PUBKEY_LEN],
+                        const uint8_t act[FZN_ROOT_ACT_ID_LEN])
+{
+	const fzn_node_roots_t *roots = ctx;
+
+	return fzn_root_view_counts(&roots->view, setter, act)
+	       || (roots->revocations && fzn_revocation_admin_stands(roots->revocations, setter));
+}
+
 fzn_node_roots_err_t fzn_node_roots_init(fzn_node_roots_t *roots,
                                          const uint8_t genesis[FZN_PUBKEY_LEN],
                                          const fzn_sign_ops_t *sign,
@@ -60,6 +79,9 @@ fzn_node_roots_err_t fzn_node_roots_init(fzn_node_roots_t *roots,
 	    || fzn_root_view_init(&roots->view, &roots->set, &roots->log) != FZN_ROOT_LOG_OK)
 		return FZN_NODE_ROOTS_MALFORMED;
 	fzn_root_view_ops(&roots->view, &roots->ops);
+	roots->judge.member = judge_member;
+	roots->judge.counts = judge_counts;
+	roots->judge.ctx = roots;
 	roots->sign = sign;
 	roots->hash = hash;
 	return FZN_NODE_ROOTS_OK;
@@ -228,6 +250,7 @@ fzn_node_roots_err_t fzn_node_roots_attach(fzn_node_roots_t *roots,
 {
 	if (!roots || !revocations)
 		return FZN_NODE_ROOTS_MALFORMED;
+	roots->revocations = revocations;
 	return fzn_revocation_store_set_roots(revocations, &roots->ops, roots->hash)
 	               == FZN_CHAIN_OK
 	               ? FZN_NODE_ROOTS_OK
@@ -847,7 +870,7 @@ fzn_node_roots_err_t fzn_node_roots_retention(const fzn_node_roots_t *roots,
 	g.out = out;
 	g.cap = cap;
 	if (fzn_retention_current((const uint8_t *)roots->retention, roots->retention_used,
-	                          &roots->ops, roots->hash, gather_one, &g)
+	                          &roots->judge, roots->hash, gather_one, &g)
 	    < 0)
 		return FZN_NODE_ROOTS_STORE;
 	/* PASSED OVER, not dropped unseen: a rule past `cap` counts with one
@@ -855,6 +878,48 @@ fzn_node_roots_err_t fzn_node_roots_retention(const fzn_node_roots_t *roots,
 	*count = g.count < cap ? g.count : cap;
 	*unread = g.unread + (g.count - *count);
 	return FZN_NODE_ROOTS_OK;
+}
+
+/* A RULE ADDED AGAIN after its removal must not be the record it was the
+ * first time: signatures are deterministic, so the same setter, text and
+ * `replaces` mint the same bytes, which its removal already replaces, and
+ * the add would change nothing. So an add follows the removal of the same
+ * text, when one stands unreplaced, and names it. sec 479. */
+static int follows_removal(const fzn_node_roots_t *roots, const char *text, size_t len,
+                           uint8_t id[FZN_ROOT_ACT_ID_LEN])
+{
+	static uint8_t ids[FZN_NODE_ROOT_RETENTION_MAX][FZN_ROOT_ACT_ID_LEN];
+	size_t i, j, k;
+
+	for (i = 0; i < roots->retention_used; i++)
+		if (!roots->hash->hash(roots->hash->ctx, ids[i], FZN_ROOT_ACT_ID_LEN,
+		                       roots->retention[i], FZN_RETENTION_SET_LEN))
+			return 0;
+	for (i = 0; i < roots->retention_used; i++) {
+		const uint8_t *r = roots->retention[i];
+		int replaced = 0;
+
+		/* A REMOVAL: no text. */
+		if (r[FZN_RETENTION_SET_OFF_TEXT] != 0u)
+			continue;
+		for (k = 0; k < roots->retention_used && !replaced; k++)
+			replaced = memcmp(roots->retention[k] + FZN_RETENTION_SET_OFF_REPLACES, ids[i],
+			                  FZN_ROOT_ACT_ID_LEN)
+			           == 0;
+		if (replaced)
+			continue;
+		/* OF THIS TEXT: the record it removed carries it. */
+		for (j = 0; j < roots->retention_used; j++) {
+			const uint8_t *t = roots->retention[j] + FZN_RETENTION_SET_OFF_TEXT;
+
+			if (memcmp(ids[j], r + FZN_RETENTION_SET_OFF_REPLACES, FZN_ROOT_ACT_ID_LEN) == 0
+			    && memcmp(t, text, len) == 0 && (len == FZN_RETENTION_SET_TEXT_MAX || t[len] == 0u)) {
+				memcpy(id, ids[i], FZN_ROOT_ACT_ID_LEN);
+				return 1;
+			}
+		}
+	}
+	return 0;
 }
 
 fzn_node_roots_err_t fzn_node_roots_set_retention(fzn_node_roots_t *roots,
@@ -865,7 +930,7 @@ fzn_node_roots_err_t fzn_node_roots_set_retention(fzn_node_roots_t *roots,
 {
 	uint8_t record[FZN_RETENTION_SET_LEN];
 	char text[FZN_RETAIN_TEXT_MAX];
-	const uint8_t *as = NULL;
+	const uint8_t *as = NULL, *follows = NULL;
 	const fzn_sign_ops_t *sign = NULL;
 	struct gather g;
 	size_t len = 0;
@@ -881,7 +946,7 @@ fzn_node_roots_err_t fzn_node_roots_set_retention(fzn_node_roots_t *roots,
 	memset(&g, 0, sizeof(g));
 	g.seek = text;
 	if (fzn_retention_current((const uint8_t *)roots->retention, roots->retention_used,
-	                          &roots->ops, roots->hash, gather_one, &g)
+	                          &roots->judge, roots->hash, gather_one, &g)
 	    < 0)
 		return FZN_NODE_ROOTS_STORE;
 	if (add && g.found)
@@ -890,9 +955,13 @@ fzn_node_roots_err_t fzn_node_roots_set_retention(fzn_node_roots_t *roots,
 		return FZN_NODE_ROOTS_REFUSED;
 	if (roots->retention_used >= FZN_NODE_ROOT_RETENTION_MAX)
 		return FZN_NODE_ROOTS_REFUSED;
-	/* A REMOVAL REPLACES THE RECORD THAT CARRIES THE RULE, with no text. */
-	if (fzn_retention_set_issue(as, add ? text : NULL, add ? len : 0u, add ? NULL : g.id, sign,
-	                            record)
+	/* A REMOVAL REPLACES THE RECORD THAT CARRIES THE RULE, with no text;
+	 * an add again follows the removal it undoes. */
+	if (add && follows_removal(roots, text, len, g.id))
+		follows = g.id;
+	else if (!add)
+		follows = g.id;
+	if (fzn_retention_set_issue(as, add ? text : NULL, add ? len : 0u, follows, sign, record)
 	    != FZN_ROOT_LOG_OK)
 		return FZN_NODE_ROOTS_REFUSED;
 	/* LOGGED FIRST, then learned, as a setting of k is. */
@@ -901,4 +970,194 @@ fzn_node_roots_err_t fzn_node_roots_set_retention(fzn_node_roots_t *roots,
 	if (err != FZN_NODE_ROOTS_OK)
 		return err;
 	return fzn_node_roots_learn(roots, store, record, sizeof(record));
+}
+
+/* ---- an admin's retention records, sec 479 ------------------------------ */
+
+#define ADMIN_HOPS_MAX ((size_t)FZN_CHAIN_MAX_HOPS - 1u)
+#define ADMIN_RETENTION_BODY(n) ((size_t)FZN_RETENTION_SET_LEN + 1u + ((size_t)(n) * FZN_HOP_LEN))
+#define ADMIN_RETENTION_BLOB_MAX ((size_t)FZN_PERSIST_HEAD_LEN + ADMIN_RETENTION_BODY(ADMIN_HOPS_MAX))
+
+/* Keep one record in memory, once. */
+static fzn_root_log_err_t keep_retention(fzn_node_roots_t *roots, const uint8_t *record)
+{
+	size_t i;
+
+	for (i = 0; i < roots->retention_used; i++)
+		if (memcmp(roots->retention[i], record, FZN_RETENTION_SET_LEN) == 0)
+			return FZN_ROOT_LOG_OK;
+	if (roots->retention_used >= FZN_NODE_ROOT_RETENTION_MAX)
+		return FZN_ROOT_LOG_ERR_FULL;
+	memcpy(roots->retention[roots->retention_used++], record, FZN_RETENTION_SET_LEN);
+	return FZN_ROOT_LOG_OK;
+}
+
+/* Check one, admit its chain, and keep it in memory. */
+static fzn_node_roots_err_t admit_admin_retention(fzn_node_roots_t *roots, const uint8_t *record,
+                                                  size_t len, const uint8_t (*hops)[FZN_HOP_LEN],
+                                                  size_t hop_count,
+                                                  const uint8_t root[FZN_PUBKEY_LEN])
+{
+	fzn_chain_hop_t opened[FZN_CHAIN_MAX_HOPS];
+	size_t i;
+
+	if (!roots->revocations || !hops || hop_count == 0u || hop_count > ADMIN_HOPS_MAX)
+		return FZN_NODE_ROOTS_REFUSED;
+	if (fzn_retention_set_check(record, len, roots->sign) != FZN_ROOT_LOG_OK)
+		return FZN_NODE_ROOTS_REFUSED;
+	for (i = 0; i < hop_count; i++)
+		if (fzn_hop_open(hops[i], FZN_HOP_LEN, &opened[i]) != FZN_CHAIN_OK)
+			return FZN_NODE_ROOTS_REFUSED;
+	/* THE CHAIN NAMES THE SETTER: `fzn_revocation_admin_admit` holds the
+	 * chain's grantee to the key given, which is the record's setter. */
+	if (fzn_revocation_admin_admit(roots->revocations, record + FZN_RETENTION_SET_OFF_SETTER,
+	                               opened, hop_count, root, roots->sign)
+	    != FZN_CHAIN_OK)
+		return FZN_NODE_ROOTS_REFUSED;
+	if (keep_retention(roots, record) != FZN_ROOT_LOG_OK)
+		return FZN_NODE_ROOTS_REFUSED;
+	return FZN_NODE_ROOTS_OK;
+}
+
+static fzn_node_roots_err_t save_admin_retention(const fzn_node_roots_t *roots,
+                                                 const fzn_persist_ops_t *store,
+                                                 const uint8_t *record,
+                                                 const uint8_t (*hops)[FZN_HOP_LEN],
+                                                 size_t hop_count)
+{
+	static uint8_t blob[ADMIN_RETENTION_BLOB_MAX];
+	uint8_t id[FZN_ROOT_ACT_ID_LEN];
+	uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
+	size_t i;
+
+	if (!store->save
+	    || !roots->hash->hash(roots->hash->ctx, id, sizeof(id), record, FZN_RETENTION_SET_LEN)
+	    || fzn_persist_head_write(blob, sizeof(blob), ADMIN_RETENTION_BODY(hop_count),
+	                              FZN_PERSIST_BLOB_ADMIN_RETENTION)
+	               != FZN_PERSIST_OK)
+		return FZN_NODE_ROOTS_NOT_SAVED;
+	memcpy(body, record, FZN_RETENTION_SET_LEN);
+	body[FZN_RETENTION_SET_LEN] = (uint8_t)hop_count;
+	for (i = 0; i < hop_count; i++)
+		memcpy(body + FZN_RETENTION_SET_LEN + 1u + (i * FZN_HOP_LEN), hops[i], FZN_HOP_LEN);
+	/* FILED UNDER THE RECORD'S OWN ID, as a root record is. */
+	if (!store->save(store->ctx, FZN_PERSIST_ADMIN_RETENTION, id, blob,
+	                 FZN_PERSIST_HEAD_LEN + ADMIN_RETENTION_BODY(hop_count)))
+		return FZN_NODE_ROOTS_NOT_SAVED;
+	return FZN_NODE_ROOTS_OK;
+}
+
+int fzn_node_roots_admin_retention_get(const fzn_persist_ops_t *store,
+                                       const uint8_t subject[FZN_PUBKEY_LEN],
+                                       uint8_t record[FZN_RETENTION_SET_LEN],
+                                       uint8_t (*hops)[FZN_HOP_LEN], size_t *hop_count)
+{
+	static uint8_t blob[ADMIN_RETENTION_BLOB_MAX];
+	const uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
+	size_t len = 0, n, i;
+
+	if (!store || !store->load || !subject || !record || !hops || !hop_count
+	    || !store->load(store->ctx, FZN_PERSIST_ADMIN_RETENTION, subject, blob, sizeof(blob),
+	                    &len)
+	    || len < FZN_PERSIST_HEAD_LEN + ADMIN_RETENTION_BODY(1))
+		return 0;
+	n = body[FZN_RETENTION_SET_LEN];
+	if (n == 0u || n > ADMIN_HOPS_MAX
+	    || fzn_persist_head_check(blob, len, ADMIN_RETENTION_BODY(n),
+	                              FZN_PERSIST_BLOB_ADMIN_RETENTION)
+	               != FZN_PERSIST_OK)
+		return 0;
+	memcpy(record, body, FZN_RETENTION_SET_LEN);
+	for (i = 0; i < n; i++)
+		memcpy(hops[i], body + FZN_RETENTION_SET_LEN + 1u + (i * FZN_HOP_LEN), FZN_HOP_LEN);
+	*hop_count = n;
+	return 1;
+}
+
+fzn_node_roots_err_t fzn_node_roots_learn_admin_retention(
+        fzn_node_roots_t *roots, const fzn_persist_ops_t *store, const uint8_t *record,
+        size_t len, const uint8_t (*hops)[FZN_HOP_LEN], size_t hop_count,
+        const uint8_t root[FZN_PUBKEY_LEN])
+{
+	fzn_node_roots_err_t err;
+
+	if (!roots || !store || !record || !root)
+		return FZN_NODE_ROOTS_MALFORMED;
+	err = admit_admin_retention(roots, record, len, hops, hop_count, root);
+	if (err != FZN_NODE_ROOTS_OK)
+		return err;
+	return save_admin_retention(roots, store, record, hops, hop_count);
+}
+
+fzn_node_roots_err_t fzn_node_roots_load_admin_retention(fzn_node_roots_t *roots,
+                                                         const fzn_persist_ops_t *store,
+                                                         const uint8_t root[FZN_PUBKEY_LEN],
+                                                         size_t *count)
+{
+	static uint8_t subjects[FZN_NODE_ROOT_RETENTION_MAX * FZN_PUBKEY_LEN];
+	static uint8_t hops[ADMIN_HOPS_MAX][FZN_HOP_LEN];
+	uint8_t record[FZN_RETENTION_SET_LEN];
+	size_t found = 0, i, n = 0;
+
+	if (!roots || !store || !store->list || !root || !count)
+		return FZN_NODE_ROOTS_MALFORMED;
+	*count = 0;
+	if (!store->list(store->ctx, FZN_PERSIST_ADMIN_RETENTION, subjects,
+	                 FZN_NODE_ROOT_RETENTION_MAX, &found))
+		return FZN_NODE_ROOTS_STORE;
+	for (i = 0; i < found; i++) {
+		if (!fzn_node_roots_admin_retention_get(store, subjects + (i * (size_t)FZN_PUBKEY_LEN),
+		                                        record, hops, &n)
+		    || admit_admin_retention(roots, record, sizeof(record),
+		                             (const uint8_t (*)[FZN_HOP_LEN])hops, n, root)
+		               != FZN_NODE_ROOTS_OK)
+			return FZN_NODE_ROOTS_STORE;
+		(*count)++;
+	}
+	return FZN_NODE_ROOTS_OK;
+}
+
+fzn_node_roots_err_t fzn_node_roots_set_retention_as_admin(
+        fzn_node_roots_t *roots, const fzn_persist_ops_t *store,
+        const uint8_t identity[FZN_PUBKEY_LEN], const fzn_sign_ops_t *identity_sign,
+        const uint8_t (*hops)[FZN_HOP_LEN], size_t hop_count, const uint8_t root[FZN_PUBKEY_LEN],
+        const fzn_retain_rule_t *rule, int add)
+{
+	uint8_t record[FZN_RETENTION_SET_LEN];
+	char text[FZN_RETAIN_TEXT_MAX];
+	struct gather g;
+	size_t len = 0, before;
+	fzn_node_roots_err_t err;
+
+	if (!roots || !store || !identity || !identity_sign || !hops || !hop_count || !root || !rule
+	    || fzn_retain_text(rule, text, sizeof(text), &len) != FZN_RETAIN_OK
+	    || len >= FZN_RETENTION_SET_TEXT_MAX)
+		return FZN_NODE_ROOTS_MALFORMED;
+	memset(&g, 0, sizeof(g));
+	g.seek = text;
+	if (fzn_retention_current((const uint8_t *)roots->retention, roots->retention_used,
+	                          &roots->judge, roots->hash, gather_one, &g)
+	    < 0)
+		return FZN_NODE_ROOTS_STORE;
+	if (add && g.found)
+		return FZN_NODE_ROOTS_HELD;
+	if (!add && !g.found)
+		return FZN_NODE_ROOTS_REFUSED;
+	if (fzn_retention_set_issue(identity, add ? text : NULL, add ? len : 0u,
+	                            (!add || follows_removal(roots, text, len, g.id)) ? g.id : NULL,
+	                            identity_sign, record)
+	    != FZN_ROOT_LOG_OK)
+		return FZN_NODE_ROOTS_REFUSED;
+	before = roots->retention_used;
+	err = admit_admin_retention(roots, record, sizeof(record), hops, hop_count, root);
+	if (err != FZN_NODE_ROOTS_OK)
+		return err;
+	/* STANDING, not merely holding a chain: a record by an admin the
+	 * revocations do not stand up would be minted and count for nothing.
+	 * The chain admitted stays; the record kept is let go. */
+	if (!fzn_revocation_admin_stands(roots->revocations, identity)) {
+		roots->retention_used = before;
+		return FZN_NODE_ROOTS_NOT_ROOT;
+	}
+	return save_admin_retention(roots, store, record, hops, hop_count);
 }

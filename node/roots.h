@@ -106,9 +106,16 @@ typedef struct fzn_node_roots {
 	/* The roots' settings of the estate's k, sec 418, each checked. */
 	uint8_t settings[FZN_NODE_ROOT_SETTINGS_MAX][FZN_QUORUM_SET_LEN];
 	size_t settings_used;
-	/* The roots' retention records, sec 476, each checked. */
+	/* The retention records, sec 476 -- roots' and, since sec 479, admins'
+	 * -- each checked. */
 	uint8_t retention[FZN_NODE_ROOT_RETENTION_MAX][FZN_RETENTION_SET_LEN];
 	size_t retention_used;
+	/* THE REVOCATIONS ATTACHED (`fzn_node_roots_attach`), which say which
+	 * admins stand, and the ops that judge a retention record by either:
+	 * its setter's act under the set, or its setter standing as an admin.
+	 * sec 479. */
+	fzn_revocation_store_t *revocations;
+	fzn_root_ops_t judge;
 	/* The root key this node holds, if any: `sign` is the signer a seat
 	 * armed with its seed. */
 	int key_held;
@@ -249,6 +256,45 @@ fzn_node_roots_err_t fzn_node_roots_set_retention(fzn_node_roots_t *roots,
                                                   const uint8_t identity[FZN_PUBKEY_LEN],
                                                   const fzn_sign_ops_t *identity_sign,
                                                   const fzn_retain_rule_t *rule, int add);
+
+/* AN ADMIN'S RETENTION RECORDS, sec 479: the holder's "an estate wide admin
+ * (and root) capability". An admin's record carries its admin chain, which
+ * a node admits into its revocations (`fzn_revocation_admin_admit`) so the
+ * record counts while the admin stands -- confirmed, rooted, unrevoked --
+ * and stops when it does not. They are kept in slot 27 with the chain and
+ * travel in the vote stream, where chains already ride, not with the root
+ * records. All of these need the revocations attached.
+ *
+ * Learn one, checked: its shape and signature, its chain granting the admin
+ * capability to its setter from `root` or a member root. Saved, then
+ * counted. REFUSED for any failing check. */
+fzn_node_roots_err_t fzn_node_roots_learn_admin_retention(
+        fzn_node_roots_t *roots, const fzn_persist_ops_t *store, const uint8_t *record,
+        size_t len, const uint8_t (*hops)[FZN_HOP_LEN], size_t hop_count,
+        const uint8_t root[FZN_PUBKEY_LEN]);
+
+/* At start, after the revocations are loaded and attached: every one held.
+ * A record that will not read or admit FAILS the load, as a root record's
+ * does. */
+fzn_node_roots_err_t fzn_node_roots_load_admin_retention(fzn_node_roots_t *roots,
+                                                         const fzn_persist_ops_t *store,
+                                                         const uint8_t root[FZN_PUBKEY_LEN],
+                                                         size_t *count);
+
+/* One held, by its subject, for a stream: the record and its chain. */
+int fzn_node_roots_admin_retention_get(const fzn_persist_ops_t *store,
+                                       const uint8_t subject[FZN_PUBKEY_LEN],
+                                       uint8_t record[FZN_RETENTION_SET_LEN],
+                                       uint8_t (*hops)[FZN_HOP_LEN], size_t *hop_count);
+
+/* Add or remove one estate rule as an admin, on `hops`, the admin chain to
+ * `identity` this node holds: as `fzn_node_roots_set_retention` does for a
+ * root. NOT_ROOT when `identity` does not stand as an admin. */
+fzn_node_roots_err_t fzn_node_roots_set_retention_as_admin(
+        fzn_node_roots_t *roots, const fzn_persist_ops_t *store,
+        const uint8_t identity[FZN_PUBKEY_LEN], const fzn_sign_ops_t *identity_sign,
+        const uint8_t (*hops)[FZN_HOP_LEN], size_t hop_count, const uint8_t root[FZN_PUBKEY_LEN],
+        const fzn_retain_rule_t *rule, int add);
 
 /* PAIRING AS A ROOT BY IDENTITY, sec 419: when this node's identity stands as
  * a root other than the genesis, fill `authority` with no hops and the adds

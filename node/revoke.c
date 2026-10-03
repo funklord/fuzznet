@@ -692,14 +692,21 @@ fzn_node_revoke_err_t fzn_node_confirm_save(const fzn_persist_ops_t *store,
 
 /* The lists a page walks, filled once per page. */
 struct vote_lists {
-	uint8_t subjects[4][FZN_NODE_REVOCATIONS_MAX * FZN_PUBKEY_LEN];
-	size_t count[4];
+	uint8_t subjects[5][FZN_NODE_REVOCATIONS_MAX * FZN_PUBKEY_LEN];
+	size_t count[5];
 };
 
-static const fzn_persist_slot_t VOTE_SLOTS[4] = { FZN_PERSIST_ISSUED_REVOCATION,
+/* The fifth, sec 479: admins' retention records, which ride here because
+ * their chains must. A
+ * page's record buffer is sized for the longest of the three. */
+FZN_STATIC_ASSERT(FZN_RETENTION_SET_LEN >= FZN_REVOCATION_LEN
+                          && FZN_RETENTION_SET_LEN >= FZN_ADMIN_CONFIRM_LEN,
+                  "the vote page's record buffer holds every record it carries");
+static const fzn_persist_slot_t VOTE_SLOTS[5] = { FZN_PERSIST_ISSUED_REVOCATION,
 	                                          FZN_PERSIST_LEARNED_REVOCATION,
 	                                          FZN_PERSIST_VOTE,
-	                                          FZN_PERSIST_ADMIN_CONFIRM };
+	                                          FZN_PERSIST_ADMIN_CONFIRM,
+	                                          FZN_PERSIST_ADMIN_RETENTION };
 
 /* Vote `i` of list `s`: its record and chain. A record this node issued
  * carries the node's authority chain when it was issued under that authority
@@ -770,23 +777,26 @@ int fzn_node_votes_page(const fzn_persist_ops_t *store, const fzn_node_authority
 
 	if (!store || !store->load || !store->list || !out || !len || !total)
 		return 0;
-	for (s = 0; s < 4u; s++)
+	for (s = 0; s < 5u; s++)
 		if (!store->list(store->ctx, VOTE_SLOTS[s], lists.subjects[s],
 		                 FZN_NODE_REVOCATIONS_MAX, &lists.count[s]))
 			return 0;
 
 	/* ONE WALK FOR THE TOTAL AND THE PAGE: every vote is read to count its
 	 * hops, and the ones at or past `from` are written while they fit. */
-	for (s = 0; s < 4u; s++) {
+	for (s = 0; s < 5u; s++) {
 		for (i = 0; i < lists.count[s]; i++) {
-			uint8_t record[FZN_REVOCATION_LEN > FZN_ADMIN_CONFIRM_LEN ? FZN_REVOCATION_LEN
-			                                                          : FZN_ADMIN_CONFIRM_LEN];
-			size_t record_len = (s == 3u) ? FZN_ADMIN_CONFIRM_LEN : FZN_REVOCATION_LEN;
+			uint8_t record[FZN_RETENTION_SET_LEN];
+			size_t record_len = (s == 4u)   ? FZN_RETENTION_SET_LEN
+			                    : (s == 3u) ? FZN_ADMIN_CONFIRM_LEN
+			                                : FZN_REVOCATION_LEN;
+			const uint8_t *subject = lists.subjects[s] + (i * (size_t)FZN_PUBKEY_LEN);
 
-			if (s == 3u ? !load_confirm(store, lists.subjects[s] + (i * (size_t)FZN_PUBKEY_LEN),
-			                            record, hops, &hop_count)
-			            : !vote_at(store, authority, admin, &lists, s, i, record, hops,
-			                       &hop_count))
+			if (s == 4u ? !fzn_node_roots_admin_retention_get(store, subject, record, hops,
+			                                                  &hop_count)
+			    : s == 3u ? !load_confirm(store, subject, record, hops, &hop_count)
+			              : !vote_at(store, authority, admin, &lists, s, i, record, hops,
+			                         &hop_count))
 				return 0;
 			for (h = 0; h <= hop_count; h++, item++) {
 				size_t need = 2u + (h ? FZN_HOP_LEN : record_len) * 2u;
@@ -798,7 +808,7 @@ int fzn_node_votes_page(const fzn_persist_ops_t *store, const fzn_node_authority
 					continue;
 				}
 				out[at++] = ' ';
-				out[at++] = h ? 'h' : (s == 3u ? 'c' : 'r');
+				out[at++] = h ? 'h' : (s == 4u ? 't' : s == 3u ? 'c' : 'r');
 				if (h)
 					put_hex_bytes(out + at, hops[h - 1u], FZN_HOP_LEN);
 				else
@@ -855,6 +865,28 @@ static fzn_node_pull_err_t finish_vote(fzn_node_vote_pull_t *pull,
 	for (i = 0; i < pull->hop_count; i++)
 		if (fzn_hop_open(pull->hops[i], FZN_HOP_LEN, &opened[i]) != FZN_CHAIN_OK)
 			return FZN_NODE_PULL_SHAPE;
+	/* AN ADMIN'S RETENTION RECORD, sec 479: learned with its chain into the
+	 * roots, which admit the chain into the revocations they are attached
+	 * to. With no roots to learn into, refused and counted. */
+	if (pull->retaining) {
+		fzn_node_roots_err_t rerr;
+
+		pull->retaining = 0;
+		if (!pull->roots) {
+			pull->refused++;
+			return FZN_NODE_PULL_OK;
+		}
+		rerr = fzn_node_roots_learn_admin_retention(
+		        pull->roots, store, pull->retention, FZN_RETENTION_SET_LEN,
+		        (const uint8_t (*)[FZN_HOP_LEN])pull->hops, pull->hop_count, root);
+		if (rerr == FZN_NODE_ROOTS_NOT_SAVED)
+			return FZN_NODE_PULL_NOT_SAVED;
+		if (rerr != FZN_NODE_ROOTS_OK)
+			pull->refused++;
+		else
+			pull->learned++;
+		return FZN_NODE_PULL_OK;
+	}
 	/* A CONFIRMATION, sec 415: admitted with its confirmer's chain. A
 	 * store that keeps no table for it answers MALFORMED, which is counted
 	 * as refused below like any other refusal. */
@@ -938,6 +970,7 @@ fzn_node_pull_err_t fzn_node_votes_absorb(fzn_node_vote_pull_t *pull, const uint
 				return FZN_NODE_PULL_SHAPE;
 			pull->pending = 1;
 			pull->confirming = 0;
+			pull->retaining = 0;
 			pull->hop_count = 0;
 		} else if (detail[at + 1u] == 'c') {
 			err = finish_vote(pull, root, sign, hash, revocations, store);
@@ -949,6 +982,19 @@ fzn_node_pull_err_t fzn_node_votes_absorb(fzn_node_vote_pull_t *pull, const uint
 				return FZN_NODE_PULL_SHAPE;
 			pull->pending = 1;
 			pull->confirming = 1;
+			pull->retaining = 0;
+			pull->hop_count = 0;
+		} else if (detail[at + 1u] == 't') {
+			err = finish_vote(pull, root, sign, hash, revocations, store);
+			if (err != FZN_NODE_PULL_OK)
+				return err;
+			body = FZN_RETENTION_SET_LEN;
+			if (detail_len - at < 2u + (body * 2u)
+			    || !unhex_bytes(detail + at + 2u, pull->retention, body))
+				return FZN_NODE_PULL_SHAPE;
+			pull->pending = 1;
+			pull->confirming = 0;
+			pull->retaining = 1;
 			pull->hop_count = 0;
 		} else if (detail[at + 1u] == 'h') {
 			/* A HOP WITH NO RECORD BEFORE IT, or one past the most an
@@ -976,6 +1022,7 @@ fzn_node_pull_err_t fzn_node_votes_absorb(fzn_node_vote_pull_t *pull, const uint
 fzn_node_pull_err_t fzn_node_votes_pull(fzn_caller_t *caller, const uint8_t root[FZN_PUBKEY_LEN],
                                         const fzn_sign_ops_t *sign, const fzn_hash_ops_t *hash,
                                         uint64_t now, fzn_revocation_store_t *revocations,
+                                        struct fzn_node_roots *roots,
                                         const fzn_persist_ops_t *store, size_t *learned,
                                         size_t *refused)
 {
@@ -986,6 +1033,7 @@ fzn_node_pull_err_t fzn_node_votes_pull(fzn_caller_t *caller, const uint8_t root
 	if (!caller || !learned || !refused)
 		return FZN_NODE_PULL_MALFORMED;
 	memset(&pull, 0, sizeof(pull));
+	pull.roots = roots;
 	*learned = 0;
 	*refused = 0;
 

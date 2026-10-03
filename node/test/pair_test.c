@@ -1056,6 +1056,10 @@ static void test_an_estate(const fzn_cap_id_t *cap)
  * of at most `cap` bytes of items -- the serve and the absorb with no
  * transport between them, so a page can be made small enough to split a vote
  * from its chain. The pull err, or -99 when the fixture failed. */
+/* Where a pulled stream's admin retention records are learned, sec 479:
+ * NULL refuses them, as a pull with no roots does. */
+static struct fzn_node_roots *stream_roots;
+
 static int stream_pull(struct node *from, const fzn_node_authority_t *authority,
                        struct node *into, const uint8_t root[FZN_PUBKEY_LEN],
                        fzn_revocation_store_t *revs, size_t cap, fzn_node_vote_pull_t *pull)
@@ -1065,6 +1069,7 @@ static int stream_pull(struct node *from, const fzn_node_authority_t *authority,
 	size_t at = 0, pages = 0;
 
 	memset(pull, 0, sizeof(*pull));
+	pull->roots = stream_roots;
 	while (pages++ < 64u) {
 		size_t len = 0, total = 0, next = 0;
 		int n, err;
@@ -1097,6 +1102,7 @@ static int stream_pull_as(struct node *from, const fzn_node_authority_t *authori
 	size_t at = 0, pages = 0;
 
 	memset(pull, 0, sizeof(*pull));
+	pull->roots = stream_roots;
 	while (pages++ < 64u) {
 		size_t len = 0, total = 0, next = 0;
 		int n, err;
@@ -2246,6 +2252,132 @@ static void test_admins_at_the_node(const fzn_cap_id_t *cap)
 	      "B's vote was not admitted again on its admin chain at start");
 }
 
+/* ---- an admin's retention rules, sec 479 ------------------------------ */
+
+/* R, the genesis, grants A admin. A, no root, sets an estate rule as an
+ * admin; D, no admin, cannot set one on A's chain. T pulls A's vote stream:
+ * the rule arrives with A's chain and counts; a restart of T re-admits it.
+ * R revokes A's grant, T pulls it, and A's rule stops counting. And a root
+ * adding a rule it removed adds it again. */
+static void test_an_admin_sets_retention(const fzn_cap_id_t *cap)
+{
+	static struct node r, a, d, t;
+	static fzn_node_roots_t r_roots, a_roots, t_roots, t_again;
+	static fzn_revocation_t e[5][8];
+	static fzn_revocation_admin_t ad[5][8];
+	static fzn_revocation_confirm_t cf[5][8];
+	static fzn_node_admin_chain_t a_chain;
+	static uint8_t chain[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	fzn_revocation_store_t r_revs, a_revs, d_revs, t_revs, fresh;
+	fzn_node_vote_pull_t pull;
+	fzn_retain_rule_t rule, got[4];
+	fzn_cap_id_t adm;
+	size_t n = 0, unread = 0, learned = 0, count = 0;
+
+	(void)cap;
+	memset(&adm, 0xad, sizeof(adm));
+	CHECK(node_up(&r) && node_up(&a) && node_up(&d) && node_up(&t)
+	              && fzn_node_roots_init(&r_roots, r.id.pubkey, &r.sign, &hash_ops)
+	                         == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_init(&a_roots, r.id.pubkey, &a.sign, &hash_ops)
+	                         == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_init(&t_roots, r.id.pubkey, &t.sign, &hash_ops)
+	                         == FZN_NODE_ROOTS_OK
+	              && admin_store(&r_revs, e[0], ad[0], cf[0], &adm, &r_roots)
+	              && admin_store(&a_revs, e[1], ad[1], cf[1], &adm, &a_roots)
+	              && admin_store(&d_revs, e[2], ad[2], cf[2], &adm, NULL)
+	              && admin_store(&t_revs, e[3], ad[3], cf[3], &adm, &t_roots)
+	              && fzn_retain_parse("prune * level=D age 2d", 22u, &rule) == FZN_RETAIN_OK,
+	      "fixture: the nodes, their roots and stores, and a rule");
+	CHECK(fzn_node_admin_grant(&r_roots, &r.ops, &r.id, NULL, &adm, a.id.pubkey, 1000u, chain,
+	                           &n) == FZN_NODE_REVOKE_OK
+	              && fzn_node_admin_chain_set(&a.ops, &a_revs, &a.id, r.id.pubkey, &adm,
+	                                          (const uint8_t (*)[FZN_HOP_LEN])chain, n, 1100u,
+	                                          &a_chain) == FZN_NODE_REVOKE_OK
+	              && roots_sync(&r, &a_roots, &a, &learned) == FZN_NODE_PULL_OK
+	              && roots_sync(&r, &t_roots, &t, &learned) == FZN_NODE_PULL_OK,
+	      "fixture: A, R's admin, and R's log at A and T");
+
+	CHECK(fzn_node_roots_set_retention(&a_roots, &a.ops, a.id.pubkey, &a.sign, &rule, 1)
+	              == FZN_NODE_ROOTS_NOT_ROOT
+	              && fzn_node_roots_set_retention_as_admin(
+	                         &a_roots, &a.ops, a.id.pubkey, &a.sign,
+	                         (const uint8_t (*)[FZN_HOP_LEN])a_chain.hops, a_chain.hop_count,
+	                         r.id.pubkey, &rule, 1)
+	                         == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_retention(&a_roots, got, 4u, &n, &unread) == FZN_NODE_ROOTS_OK
+	              && n == 1u && rows_in(&a, FZN_PERSIST_ADMIN_RETENTION) == 1u,
+	      "A, no root, did not set the rule as an admin, or it was not kept");
+	CHECK(fzn_node_roots_set_retention_as_admin(
+	              &a_roots, &a.ops, a.id.pubkey, &a.sign,
+	              (const uint8_t (*)[FZN_HOP_LEN])a_chain.hops, a_chain.hop_count, r.id.pubkey,
+	              &rule, 1)
+	              == FZN_NODE_ROOTS_HELD,
+	      "A set the rule twice");
+	CHECK(fzn_node_roots_set_retention_as_admin(
+	              &a_roots, &d.ops, d.id.pubkey, &d.sign,
+	              (const uint8_t (*)[FZN_HOP_LEN])a_chain.hops, a_chain.hop_count, r.id.pubkey,
+	              &rule, 0)
+	              == FZN_NODE_ROOTS_REFUSED
+	              && rows_in(&d, FZN_PERSIST_ADMIN_RETENTION) == 0u,
+	      "D set a rule on a chain that names A");
+
+	/* THE VOTE STREAM CARRIES IT, chain and all. */
+	stream_roots = NULL;
+	CHECK(stream_pull_as(&a, NULL, NULL, &t, r.id.pubkey, &t_revs, &pull) == FZN_NODE_PULL_OK
+	              && pull.refused == 1u && rows_in(&t, FZN_PERSIST_ADMIN_RETENTION) == 0u,
+	      "a pull with no roots took A's record rather than refusing it");
+	stream_roots = &t_roots;
+	CHECK(stream_pull_as(&a, NULL, NULL, &t, r.id.pubkey, &t_revs, &pull) == FZN_NODE_PULL_OK
+	              && pull.learned == 1u && rows_in(&t, FZN_PERSIST_ADMIN_RETENTION) == 1u
+	              && fzn_node_roots_retention(&t_roots, got, 4u, &n, &unread) == FZN_NODE_ROOTS_OK
+	              && n == 1u && got[0].levels == (1u << FZN_ENTRY_DEBUG),
+	      "T did not learn A's rule from its vote stream");
+	stream_roots = NULL;
+	CHECK(fzn_node_roots_init(&t_again, r.id.pubkey, &t.sign, &hash_ops) == FZN_NODE_ROOTS_OK
+	              && admin_store(&fresh, e[4], ad[4], cf[4], &adm, &t_again)
+	              && roots_sync(&r, &t_again, &t, &learned) == FZN_NODE_PULL_OK
+	              && fzn_node_roots_load_admin_retention(&t_again, &t.ops, r.id.pubkey, &count)
+	                         == FZN_NODE_ROOTS_OK
+	              && count == 1u
+	              && fzn_node_roots_retention(&t_again, got, 4u, &n, &unread)
+	                         == FZN_NODE_ROOTS_OK
+	              && n == 1u,
+	      "A's rule did not come back from T's store after a restart");
+
+	/* R REVOKES A'S GRANT, and the rule stops counting at T. */
+	CHECK(fzn_node_revoke(&r.id, r.id.pubkey, NULL, &adm, a.id.pubkey, 1500u, &r_revs, &r.ops)
+	              == FZN_NODE_REVOKE_OK
+	              && stream_pull(&r, NULL, &t, r.id.pubkey, &t_revs, 800u, &pull)
+	                         == FZN_NODE_PULL_OK
+	              && fzn_node_roots_retention(&t_roots, got, 4u, &n, &unread) == FZN_NODE_ROOTS_OK
+	              && n == 0u,
+	      "a revoked admin's rule still counted at T");
+	CHECK(stream_pull(&r, NULL, &a, r.id.pubkey, &a_revs, 800u, &pull) == FZN_NODE_PULL_OK
+	              && fzn_retain_parse("prune * level=T age 1d", 22u, &rule) == FZN_RETAIN_OK
+	              && fzn_node_roots_set_retention_as_admin(
+	                         &a_roots, &a.ops, a.id.pubkey, &a.sign,
+	                         (const uint8_t (*)[FZN_HOP_LEN])a_chain.hops, a_chain.hop_count,
+	                         r.id.pubkey, &rule, 1)
+	                         == FZN_NODE_ROOTS_NOT_ROOT
+	              && rows_in(&a, FZN_PERSIST_ADMIN_RETENTION) == 1u,
+	      "A, its grant revoked, set another rule");
+	(void)fzn_retain_parse("prune * level=D age 2d", 22u, &rule);
+
+	/* A ROOT ADDS AGAIN WHAT IT REMOVED. */
+	CHECK(fzn_node_roots_set_retention(&r_roots, &r.ops, r.id.pubkey, &r.sign, &rule, 1)
+	                      == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_set_retention(&r_roots, &r.ops, r.id.pubkey, &r.sign, &rule, 0)
+	                         == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_retention(&r_roots, got, 4u, &n, &unread) == FZN_NODE_ROOTS_OK
+	              && n == 0u
+	              && fzn_node_roots_set_retention(&r_roots, &r.ops, r.id.pubkey, &r.sign, &rule, 1)
+	                         == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_retention(&r_roots, got, 4u, &n, &unread) == FZN_NODE_ROOTS_OK
+	              && n == 1u,
+	      "a rule added again after its removal did not stand");
+}
+
 /* ---- the estate's k, sec 418 ------------------------------------------ */
 
 /* R, the genesis, sets k to 3 and then to 1, each logged as a setting and the
@@ -2481,6 +2613,7 @@ int main(void)
 	test_confirmations_travel();
 	test_admins_at_the_node(&cap);
 	test_the_estates_k_travels();
+	test_an_admin_sets_retention(&cap);
 	test_a_node_pairs_as_a_root_by_identity(&cap);
 
 	/* ---- A NODE THAT IS NOT ITS OWN ROOT PAIRS NOTHING, and writes nothing. */

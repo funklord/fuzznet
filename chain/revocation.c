@@ -934,14 +934,90 @@ static void confirm_admins(const fzn_revocation_store_t *store, const uint8_t *e
 	}
 }
 
+static fzn_chain_err_t entitled_as_admin(fzn_revocation_store_t *store,
+                                         const uint8_t issuer[FZN_PUBKEY_LEN],
+                                         const fzn_chain_hop_t *hops, size_t hop_count,
+                                         const uint8_t root[FZN_PUBKEY_LEN],
+                                         const fzn_sign_ops_t *sign,
+                                         const fzn_hash_ops_t *hash);
+
+/* WHICH ADMINS STAND: confirmed, rooted, and not revoked by the admins
+ * standing in the first stratum -- the answer every vote count starts from.
+ * One implementation for `fzn_revocation_covers_links` and
+ * `fzn_revocation_admin_stands`, so the two cannot disagree. */
+static void standing_admins(const fzn_revocation_store_t *store,
+                            uint8_t admin_ok[REVOCATION_ADMINS_MAX])
+{
+	uint8_t confirmed[REVOCATION_ADMINS_MAX];
+	size_t a;
+
+	/* WHOSE GRANT IS CONFIRMED, sec 414: an unconfirmed admin's votes
+	 * count in neither stratum. */
+	confirm_admins(store, NULL, confirmed);
+
+	/* THE FIRST STRATUM: which admins' own chains are revoked, counting
+	 * every confirmed admin's vote. The second counts only the admins left
+	 * standing. Mutual revocation takes out both, which fails toward
+	 * revocation; sec 397 records why one rule has no stable answer. */
+	for (a = 0; a < store->admins_used; a++) {
+		const fzn_revocation_admin_t *ad = &store->admins[a];
+		uint8_t own[FZN_CHAIN_MAX_HOPS];
+		size_t h;
+
+		admin_ok[a] = confirmed[a];
+		for (h = 0; h < FZN_CHAIN_MAX_HOPS; h++)
+			own[h] = 0;
+		judge_links(store, (const uint8_t (*)[FZN_PUBKEY_LEN])ad->grantor,
+		            (const uint8_t (*)[FZN_PUBKEY_LEN])ad->grantee, ad->hop_count,
+		            &store->admin_capability, confirmed, own);
+		for (h = 0; h < ad->hop_count; h++)
+			if (own[h])
+				admin_ok[a] = 0;
+	}
+	/* AND CONFIRMED AGAIN BY THOSE STILL STANDING: a revoked admin's
+	 * confirmations stop holding up anybody else. Only ever removes. */
+	confirm_admins(store, admin_ok, confirmed);
+	for (a = 0; a < store->admins_used; a++)
+		admin_ok[a] = admin_ok[a] && confirmed[a];
+}
+
+int fzn_revocation_admin_stands(const fzn_revocation_store_t *store,
+                                const uint8_t key[FZN_PUBKEY_LEN])
+{
+	uint8_t admin_ok[REVOCATION_ADMINS_MAX];
+	size_t a;
+
+	/* A STORE THAT CANNOT BE READ stands nobody up: this answers "may this
+	 * key act as an admin", and the side that refuses is the safe one. */
+	if (!store || !key || corrupt(store) || !store->has_admin)
+		return 0;
+	a = find_admin(store, key);
+	if (a >= store->admins_used)
+		return 0;
+	standing_admins(store, admin_ok);
+	return admin_ok[a] != 0u;
+}
+
+fzn_chain_err_t fzn_revocation_admin_admit(fzn_revocation_store_t *store,
+                                           const uint8_t key[FZN_PUBKEY_LEN],
+                                           const fzn_chain_hop_t *hops, size_t hop_count,
+                                           const uint8_t root[FZN_PUBKEY_LEN],
+                                           const fzn_sign_ops_t *sign)
+{
+	if (!store || !key || !hops || hop_count == 0u || !root || !sign || corrupt(store))
+		return FZN_CHAIN_ERR_MALFORMED;
+	if (!store->has_admin)
+		return FZN_CHAIN_ERR_CHAIN_INVALID;
+	return entitled_as_admin(store, key, hops, hop_count, root, sign, store->confirm_hash);
+}
+
 void fzn_revocation_covers_links(const fzn_revocation_store_t *store,
                                  const uint8_t (*grantors)[FZN_PUBKEY_LEN],
                                  const uint8_t (*grantees)[FZN_PUBKEY_LEN], size_t hop_count,
                                  const fzn_cap_id_t *capability,
                                  uint8_t revoked[FZN_CHAIN_MAX_HOPS])
 {
-	uint8_t admin_ok[REVOCATION_ADMINS_MAX], confirmed[REVOCATION_ADMINS_MAX];
-	size_t a;
+	uint8_t admin_ok[REVOCATION_ADMINS_MAX];
 
 	/* Nowhere to put an answer. Checked first because everything below
 	 * writes. */
@@ -970,34 +1046,7 @@ void fzn_revocation_covers_links(const fzn_revocation_store_t *store,
 	if (hop_count == 0 || hop_count > (size_t)FZN_CHAIN_MAX_HOPS)
 		return;
 
-	/* WHOSE GRANT IS CONFIRMED, sec 414: an unconfirmed admin's votes
-	 * count in neither stratum. */
-	confirm_admins(store, NULL, confirmed);
-
-	/* THE FIRST STRATUM: which admins' own chains are revoked, counting
-	 * every confirmed admin's vote. The second, below, counts only the
-	 * admins left standing. Mutual revocation takes out both, which fails
-	 * toward revocation; sec 397 records why one rule has no stable answer. */
-	for (a = 0; a < store->admins_used; a++) {
-		const fzn_revocation_admin_t *ad = &store->admins[a];
-		uint8_t own[FZN_CHAIN_MAX_HOPS];
-		size_t h;
-
-		admin_ok[a] = confirmed[a];
-		for (h = 0; h < FZN_CHAIN_MAX_HOPS; h++)
-			own[h] = 0;
-		judge_links(store, (const uint8_t (*)[FZN_PUBKEY_LEN])ad->grantor,
-		            (const uint8_t (*)[FZN_PUBKEY_LEN])ad->grantee, ad->hop_count,
-		            &store->admin_capability, confirmed, own);
-		for (h = 0; h < ad->hop_count; h++)
-			if (own[h])
-				admin_ok[a] = 0;
-	}
-	/* AND CONFIRMED AGAIN BY THOSE STILL STANDING: a revoked admin's
-	 * confirmations stop holding up anybody else. Only ever removes. */
-	confirm_admins(store, admin_ok, confirmed);
-	for (a = 0; a < store->admins_used; a++)
-		admin_ok[a] = admin_ok[a] && confirmed[a];
+	standing_admins(store, admin_ok);
 	judge_links(store, grantors, grantees, hop_count, capability, admin_ok, revoked);
 }
 

@@ -234,6 +234,9 @@ typedef enum fzn_persist_slot {
 	/* Per rule: a retention rule set while the node runs, filed under a
 	 * hash of its canonical text. `log/rules.h` keeps it. sec 475. */
 	FZN_PERSIST_LOG_RULE = 26u,
+	/* Per record: an estate retention rule an ADMIN set, with the admin
+	 * chain that entitles it. `node/roots.h` keeps it. sec 479. */
+	FZN_PERSIST_ADMIN_RETENTION = 27u,
 } fzn_persist_slot_t;
 
 typedef enum fzn_persist_err {
@@ -286,6 +289,7 @@ typedef enum fzn_persist_err {
 /* A root's setting of one estate retention rule, in slot 13 beside the root
  * changes and the settings of k. `node/roots.c` keeps it. sec 476. */
 #define FZN_PERSIST_BLOB_RETENTION_SET 27u
+#define FZN_PERSIST_BLOB_ADMIN_RETENTION 28u
 
 /* Write a blob head, or refuse when `cap` cannot hold head and body. */
 fzn_persist_err_t fzn_persist_head_write(uint8_t *out, size_t cap, size_t body,
@@ -415,6 +419,10 @@ typedef struct fzn_persist_ops {
  * NOT CORE: LOG_RULE (sec 475). Lost, a rule stops applying and this
  * host's logs are kept longer; rolled back, a removed rule prunes again.
  * Retention decides how long a host keeps its own logs, not who reads them.
+ *
+ * NOT CORE: ADMIN_RETENTION (sec 479), as LOG_RULE is: it decides how long
+ * logs stay, not who reads them. A root's retention records live in
+ * ROOT_CHANGE, which is core for the root set's sake, not theirs.
  *
  * CORE: CONTACT_GROUP (sec 471), named rather than left to the default.
  * Membership decides which contacts a group share reaches, so a group

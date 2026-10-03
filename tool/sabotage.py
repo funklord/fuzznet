@@ -6609,8 +6609,8 @@ SABOTAGES = [
 	(
 		"node-confirm-served-as-its-kind",
 		"node/revoke.c",
-		"\t\t\t\tout[at++] = h ? 'h' : (s == 3u ? 'c' : 'r');\n",
-		"\t\t\t\tout[at++] = h ? 'h' : 'r';\n",
+		"\t\t\t\tout[at++] = h ? 'h' : (s == 4u ? 't' : s == 3u ? 'c' : 'r');\n",
+		"\t\t\t\tout[at++] = h ? 'h' : (s == 4u ? 't' : 'r');\n",
 		"a confirmation served as a vote is misread by every puller, and the stream stops at it -- sec 415",
 	),
 	(
@@ -8661,15 +8661,15 @@ SABOTAGES = [
 	(
 		"node-retention-held-once",
 		"node/roots.c",
-		"\tif (add && g.found)\n\t\treturn FZN_NODE_ROOTS_HELD;\n",
-		"",
+		"\tif (add && g.found)\n\t\treturn FZN_NODE_ROOTS_HELD;\n\tif (!add && !g.found)\n\t\treturn FZN_NODE_ROOTS_REFUSED;\n\tif (roots->retention_used >= FZN_NODE_ROOT_RETENTION_MAX)\n",
+		"\tif (!add && !g.found)\n\t\treturn FZN_NODE_ROOTS_REFUSED;\n\tif (roots->retention_used >= FZN_NODE_ROOT_RETENTION_MAX)\n",
 		"a rule already the estate's is minted and logged again, spending the root's records on nothing -- sec 476",
 	),
 	(
 		"node-retention-removal-names-its-record",
 		"node/roots.c",
-		"\tif (!add && !g.found)\n\t\treturn FZN_NODE_ROOTS_REFUSED;\n",
-		"",
+		"\tif (!add && !g.found)\n\t\treturn FZN_NODE_ROOTS_REFUSED;\n\tif (roots->retention_used >= FZN_NODE_ROOT_RETENTION_MAX)\n",
+		"\tif (roots->retention_used >= FZN_NODE_ROOT_RETENTION_MAX)\n",
 		"removing a rule the estate does not have mints a record replacing nothing it can name -- sec 476",
 	),
 	(
@@ -8720,6 +8720,48 @@ SABOTAGES = [
 		"\t\tif (!fzn_ct_memeq(all[i].contact, contact, FZN_PUBKEY_LEN))\n\t\t\tcontinue;\n\t\terr = fzn_notes_share_remove(store, all[i].subtree, contact);\n",
 		"\t\terr = fzn_notes_share_remove(store, all[i].subtree, all[i].contact);\n",
 		"removing one group unshares everything with everyone -- sec 478",
+	),
+	(
+		"roots-retention-judges-admins",
+		"node/roots.c",
+		"\t       || (roots->revocations && fzn_revocation_admin_stands(roots->revocations, setter));\n",
+		"\t       ;\n",
+		"an admin's retention rule never counts, so the holder's 'admin (and root)' is root alone -- sec 479",
+	),
+	(
+		"revocation-admin-stands-reads-the-strata",
+		"chain/revocation.c",
+		"\tstanding_admins(store, admin_ok);\n\treturn admin_ok[a] != 0u;\n",
+		"\treturn 1;\n",
+		"a revoked admin's rules go on pruning the estate's logs -- sec 479",
+	),
+	(
+		"roots-admin-retention-admits-the-chain",
+		"node/roots.c",
+		"\tif (fzn_revocation_admin_admit(roots->revocations, record + FZN_RETENTION_SET_OFF_SETTER,\n\t                               opened, hop_count, root, roots->sign)\n\t    != FZN_CHAIN_OK)\n\t\treturn FZN_NODE_ROOTS_REFUSED;\n",
+		"",
+		"a rule signed by anybody, on anybody's admin chain, is taken as an admin's -- sec 479",
+	),
+	(
+		"roots-admin-retention-stands-to-set",
+		"node/roots.c",
+		"\tif (!fzn_revocation_admin_stands(roots->revocations, identity)) {\n",
+		"\tif (0) {\n",
+		"a revoked admin mints and keeps rules nobody else will count -- sec 479",
+	),
+	(
+		"roots-retention-readd-follows-removal",
+		"node/roots.c",
+		"\tif (add && follows_removal(roots, text, len, g.id))\n\t\tfollows = g.id;\n",
+		"",
+		"a rule removed and added again mints the record its removal already replaced, and is not added -- sec 479",
+	),
+	(
+		"votes-page-carries-admin-retention",
+		"node/revoke.c",
+		"\t\t\t\tout[at++] = h ? 'h' : (s == 4u ? 't' : s == 3u ? 'c' : 'r');\n",
+		"\t\t\t\tout[at++] = h ? 'h' : (s == 3u ? 'c' : 'r');\n",
+		"an admin's rule goes out as a revocation, is refused everywhere, and stays on the admin's node -- sec 479",
 	),
 ]
 

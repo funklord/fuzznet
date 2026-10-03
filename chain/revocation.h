@@ -612,6 +612,23 @@ fzn_chain_err_t fzn_revocation_confirm_admit(fzn_revocation_store_t *store,
                                              const uint8_t root[FZN_PUBKEY_LEN],
                                              const fzn_sign_ops_t *sign);
 
+/* WHETHER `key` STANDS AS AN ADMIN: held in the admin table, its grant
+ * confirmed, its chain rooted in a root that counts, and not revoked by the
+ * admins standing -- the admins whose votes count. What a setting by an
+ * admin is judged by (sec 479). 0 for a store that cannot be read. */
+int fzn_revocation_admin_stands(const fzn_revocation_store_t *store,
+                                const uint8_t key[FZN_PUBKEY_LEN]);
+
+/* ADMIT AN ADMIN'S CHAIN WITHOUT A VOTE: `hops` must grant the store's admin
+ * capability to `key`, from `root` or a member root, and the admin is kept
+ * as a vote's chain would keep it. For an admin known by something other
+ * than a vote -- a retention setting, sec 479. OK when already held. */
+fzn_chain_err_t fzn_revocation_admin_admit(fzn_revocation_store_t *store,
+                                           const uint8_t key[FZN_PUBKEY_LEN],
+                                           const fzn_chain_hop_t *hops, size_t hop_count,
+                                           const uint8_t root[FZN_PUBKEY_LEN],
+                                           const fzn_sign_ops_t *sign);
+
 /* WHICH LINKS OF A CHAIN ARE REVOKED, given as each hop's grantor and grantee
  * rather than as opened hops -- for a caller that kept a chain's shape and
  * not its bytes, as the roster does. The same rule as
