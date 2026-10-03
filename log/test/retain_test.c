@@ -1,5 +1,6 @@
 /* retain_test -- the prune and keep rules: their lines, and the plan over a
- * program's closed segments. sec 460. */
+ * program's closed segments. sec 460. Entries by level and subsystem, and
+ * the walk over them, sec 474. */
 
 #include "../retain.h"
 
@@ -126,10 +127,105 @@ static void test_plans(void)
 	CHECK(strcmp(plan(s, 3u, r, 1u, now), "refused") == 0, "a rule that is not one is refused");
 }
 
+/* ENTRY RULES, sec 474. */
+static void test_entries(void)
+{
+	const uint64_t now = 100u * DAY;
+	fzn_retain_rule_t r[4];
+	fzn_retain_walk_t w;
+	fzn_retain_segment_t s[2] = { { now - (40u * DAY), 1000u }, { now - DAY, 1000u } };
+	uint8_t marks[2];
+
+	r[0] = rule("prune netcfgd level=DT age 1d");
+	CHECK(r[0].kind == FZN_RETAIN_PRUNE
+	              && r[0].levels == ((1u << FZN_ENTRY_DEBUG) | (1u << FZN_ENTRY_TRACE))
+	              && !r[0].subsystem[0] && r[0].value == DAY
+	              && fzn_retain_rule_selects_entries(&r[0]),
+	      "a level set selects entries");
+	r[1] = rule("keep * subsystem=notes/sync level=E count 3");
+	CHECK(r[1].kind == FZN_RETAIN_KEEP && strcmp(r[1].subsystem, "notes/sync") == 0
+	              && r[1].levels == (1u << FZN_ENTRY_ERROR) && r[1].limit == FZN_RETAIN_COUNT,
+	      "a subsystem and a level, in either order");
+	{
+		static const char *const BAD[] = {
+			"prune * level= age 1d",      "prune * level=X age 1d",
+			"prune * level=DD age 1d",    "prune * subsystem=/a age 1d",
+			"prune * subsystem=a//b age 1d", "prune * subsystem=a/ age 1d",
+			"prune * level=D level=T age 1d", "prune * age 1d level=D",
+			"prune * level=D subsystem=a subsystem=b age 1d",
+		};
+		fzn_retain_rule_t x;
+		size_t i;
+		int all = 1;
+
+		for (i = 0; i < sizeof(BAD) / sizeof(BAD[0]); i++)
+			all = all && fzn_retain_parse(BAD[i], strlen(BAD[i]), &x) == FZN_RETAIN_ERR_MALFORMED;
+		CHECK(all, "an empty or unknown level, a level twice, a subsystem with an empty "
+		           "step, a selector twice and one after the limit are refused");
+	}
+	CHECK(fzn_retain_reads_entries("netcfgd", r, 1u) && !fzn_retain_reads_entries("other", r, 1u),
+	      "only a program an entry rule names has its segments read");
+	CHECK(strcmp(plan(s, 2u, r, 1u, now), "00") == 0, "the segment plan does not weigh it");
+
+	/* AGE BY ENTRY: a debug line two days old goes, an info line stays. */
+	CHECK(fzn_retain_walk_init(&w, "netcfgd", r, 1u, now) == FZN_RETAIN_OK
+	              && fzn_retain_walk_entry(&w, 0u, now - (2u * DAY), FZN_ENTRY_DEBUG, "apply", 60u)
+	              && !fzn_retain_walk_entry(&w, 0u, now - (2u * DAY), FZN_ENTRY_INFO, "apply", 60u)
+	              && !fzn_retain_walk_entry(&w, 0u, now - 1000u, FZN_ENTRY_TRACE, "apply", 60u),
+	      "an old debug entry goes, an old info entry and a new trace entry stay");
+
+	/* A SEGMENT RULE AND AN ENTRY KEEP: the segment is pruned, its errors kept. */
+	r[0] = rule("prune netcfgd age 30d");
+	r[1] = rule("keep netcfgd level=CEW age 90d");
+	CHECK(fzn_retain_marks("netcfgd", s, 2u, r, 2u, now, marks) == FZN_RETAIN_OK
+	              && marks[0] == FZN_RETAIN_MARK_PRUNED && marks[1] == 0u,
+	      "the segment rule marks the old segment, and only it");
+	CHECK(fzn_retain_walk_init(&w, "netcfgd", r, 2u, now) == FZN_RETAIN_OK
+	              && !fzn_retain_walk_entry(&w, marks[0], now - (41u * DAY), FZN_ENTRY_ERROR, "a",
+	                                        60u)
+	              && fzn_retain_walk_entry(&w, marks[0], now - (41u * DAY), FZN_ENTRY_INFO, "a",
+	                                       60u)
+	              && !fzn_retain_walk_entry(&w, marks[1], now - DAY, FZN_ENTRY_INFO, "a", 60u),
+	      "in the pruned segment an error is kept by the entry rule and an info entry goes; "
+	      "the unmarked segment keeps all");
+	r[1] = rule("keep netcfgd level=CEW age 30d");
+	CHECK(fzn_retain_walk_init(&w, "netcfgd", r, 2u, now) == FZN_RETAIN_OK
+	              && fzn_retain_walk_entry(&w, marks[0], now - (41u * DAY), FZN_ENTRY_ERROR, "a",
+	                                       60u),
+	      "a keep rule whose age the error is past keeps nothing");
+
+	/* COUNT AND SIZE COUNT ONLY WHAT THE RULE SELECTS, newest first. */
+	r[0] = rule("prune * subsystem=notes count 2");
+	CHECK(fzn_retain_walk_init(&w, "netcfgd", r, 1u, now) == FZN_RETAIN_OK
+	              && !fzn_retain_walk_entry(&w, 0u, now, FZN_ENTRY_INFO, "notes", 60u)
+	              && !fzn_retain_walk_entry(&w, 0u, now, FZN_ENTRY_INFO, "notesx", 60u)
+	              && !fzn_retain_walk_entry(&w, 0u, now, FZN_ENTRY_INFO, "notes/sync", 60u)
+	              && fzn_retain_walk_entry(&w, 0u, now, FZN_ENTRY_INFO, "notes/sync/x", 60u)
+	              && !fzn_retain_walk_entry(&w, 0u, now, FZN_ENTRY_INFO, "apply", 60u),
+	      "the newest two under notes stay, the third goes, and notesx and apply are not "
+	      "under it");
+	r[0] = rule("prune * level=I size 100");
+	CHECK(fzn_retain_walk_init(&w, "netcfgd", r, 1u, now) == FZN_RETAIN_OK
+	              && !fzn_retain_walk_entry(&w, 0u, now, FZN_ENTRY_INFO, "a", 60u)
+	              && !fzn_retain_walk_entry(&w, 0u, now, FZN_ENTRY_INFO, "a", 60u)
+	              && !fzn_retain_walk_entry(&w, 0u, now, FZN_ENTRY_DEBUG, "a", 60u)
+	              && fzn_retain_walk_entry(&w, 0u, now, FZN_ENTRY_INFO, "a", 60u),
+	      "the newest 100 bytes of info entries keep an entry that begins within them");
+	r[0] = rule("prune other level=I age 0");
+	CHECK(fzn_retain_walk_init(&w, "netcfgd", r, 1u, now) == FZN_RETAIN_OK
+	              && !fzn_retain_walk_entry(&w, 0u, 0u, FZN_ENTRY_INFO, "a", 60u),
+	      "a rule for another program does not apply");
+	CHECK(fzn_retain_walk_init(&w, "*", r, 1u, now) == FZN_RETAIN_ERR_MALFORMED
+	              && fzn_retain_walk_init(&w, "netcfgd", r, FZN_RETAIN_RULES_MAX + 1u, now)
+	                         == FZN_RETAIN_ERR_MALFORMED,
+	      "a walk over every program, or past the rule bound, is refused");
+}
+
 int main(void)
 {
 	test_lines();
 	test_plans();
+	test_entries();
 	if (failures) {
 		fprintf(stderr, "retain_test: %d of %d checks failed\n", failures, checks);
 		return 1;

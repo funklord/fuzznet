@@ -27,6 +27,18 @@
  * the next one; the trailer is what a host's key can later sign (sec 428).
  * The chain's last hash is kept in `PROGRAM.chain`.
  *
+ * A SEGMENT REPACKED WITHOUT SOME OF ITS LINES (sec 474, the prune and
+ * keep rules over entries) carries a version-2 trailer:
+ *
+ *     #fuzznet-log-trailer 2 prev=HEX hash=HEX was=HEX dropped=N
+ *
+ * `hash` is the chain over what is left, from the same `prev`; `was` is the
+ * hash it was first packed with, which the next segment's `prev` names, so
+ * the chain runs on through it; `dropped` counts the lines taken out, over
+ * every repack. A reader verifies the bytes against `hash` and carries
+ * `was` forward. What a repack costs is said plainly: the lines dropped are
+ * gone, and only their count and the old hash witness that there were any.
+ *
  * TAMPER EVIDENCE, NOT PREVENTION: whoever can write the directory can
  * rewrite the whole chain. What it gives is that a rewrite must be of
  * everything after the change, which a signed trailer later pins.
@@ -48,6 +60,7 @@
 #include <stdint.h>
 
 #include "../session/commitment.h"
+#include "retain.h"
 
 #define FZN_LOG_PACK_HASH_LEN 32u
 /* The chunk the chain folds: 64 KiB. */
@@ -80,6 +93,25 @@ fzn_log_pack_err_t fzn_log_pack_verify(const char *zst_path,
                                        const uint8_t prev[FZN_LOG_PACK_HASH_LEN],
                                        const fzn_hash_ops_t *hash,
                                        uint8_t hash_out[FZN_LOG_PACK_HASH_LEN]);
+
+/* THE PRUNE AND KEEP RULES OVER ENTRIES, sec 474: `program`'s closed
+ * segments in `dir`, packed or not, walked newest first through
+ * `log/retain.h`'s marks and entry walk. A segment every line of which goes
+ * is removed; a PACKED one some of whose lines go is repacked without them,
+ * under a version-2 trailer, written beside it and renamed over it; a plain
+ * one is left whole until it is packed, its lines still counted. A line
+ * that will not read as an entry, and a segment's header, go only with the
+ * whole segment. With no rule selecting entries this is
+ * `fzn_logger_retain`'s whole-segment plan exactly. Under the chain's lock,
+ * as packing is; another instance holding it is not an error. A packed
+ * segment past FZN_LOG_PACK_RETAIN_READ_MAX, or one whose own trailer does
+ * not verify, is kept whole and its lines not counted. `*removed` and
+ * `*repacked` count segments. */
+#define FZN_LOG_PACK_RETAIN_READ_MAX (64u * 1024u * 1024u)
+fzn_log_pack_err_t fzn_log_pack_retain(const char *dir, const char *program,
+                                       const fzn_retain_rule_t *rules, size_t n_rules,
+                                       const fzn_hash_ops_t *hash, uint64_t now_us,
+                                       size_t *removed, size_t *repacked);
 
 /* EVERY SETTLED SEGMENT of `program` in `dir`, oldest first: packed,
  * chained, and removed once packed. `*packed` counts them. OK with nothing

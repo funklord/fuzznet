@@ -297,12 +297,29 @@ static void log_round(void)
 	else if (n)
 		say(FZN_ENTRY_INFO, "log", "%zu log segment(s) packed", n);
 #endif
+#ifdef FZN_LOG_PACK_ON
+	/* THE RULES OVER ENTRIES TOO, sec 474: a packed segment some of whose
+	 * lines go is repacked without them. */
+	{
+		size_t gone = 0, repacked = 0;
+
+		if (dlog.n_rules && dlog.hash
+		    && fzn_log_pack_retain(dlog.logger.dir, "fuzznetd", dlog.rules, dlog.n_rules,
+		                           dlog.hash, log_now_us(), &gone, &repacked)
+		               != FZN_LOG_PACK_OK)
+			say(FZN_ENTRY_WARNING, "log", "the log rules could not all be applied");
+		else if (gone || repacked)
+			say(FZN_ENTRY_INFO, "log",
+			    "%zu log segment(s) removed and %zu repacked by the rules", gone, repacked);
+	}
+#else
 	if (dlog.n_rules && fzn_logger_retain(dlog.logger.dir, "fuzznetd", dlog.rules, dlog.n_rules,
 	                                      log_now_us(), &n)
 	                            != FZN_LOGGER_OK)
 		say(FZN_ENTRY_WARNING, "log", "the log rules could not all be applied");
 	else if (dlog.n_rules && n)
 		say(FZN_ENTRY_INFO, "log", "%zu log segment(s) removed by the rules", n);
+#endif
 #endif
 }
 
@@ -1075,7 +1092,8 @@ static void usage(const char *prog)
 	        "counting as K (default 2), until a root sets the estate's k (set quorum K)\n"
 	        "serving logs to --log-dir=DIR (default /var/log/fuzznet for root, else\n"
 	        "$XDG_STATE_HOME/fuzznet/log) at --log-level=LEVEL (info), rotating at\n"
-	        "--log-segment=BYTES, pruned by --log-rule=\"prune|keep PROG|* age|size|count N\";\n"
+	        "--log-segment=BYTES, pruned by --log-rule=\"prune|keep PROG|* [level=CEWNIVDT]\n"
+	        "[subsystem=PATH] age|size|count N\" as it rotates;\n"
 	        "--no-log-file keeps stderr only; --log-scope=estate lets members gather it\n"
 	        "(host-private by default)\n"
 	        "       %s --fuzznet-dir=DIR --gather=PROGRAM [--since=SECONDS] [--match=TEXT]\n"
@@ -1319,10 +1337,20 @@ int main(int argc, char **argv)
 			    || fzn_retain_parse(v, strlen(v), &dlog.rules[dlog.n_rules])
 			               != FZN_RETAIN_OK) {
 				fprintf(stderr, "fuzznetd: --log-rule: at most %u rules, each "
-				                "\"prune|keep PROGRAM|* age|size|count N[unit]\"\n",
+				                "\"prune|keep PROGRAM|* [level=LETTERS] [subsystem=PATH] "
+				                "age|size|count N[unit]\"\n",
 				        FZND_LOG_RULES_MAX);
 				return 2;
 			}
+#ifndef FZN_LOG_PACK_ON
+			/* AN ENTRY RULE REWRITES SEGMENTS, which only the packing build
+			 * does (sec 474): refused here rather than silently ignored. */
+			if (fzn_retain_rule_selects_entries(&dlog.rules[dlog.n_rules])) {
+				fprintf(stderr, "fuzznetd: --log-rule: a level or a subsystem needs "
+				                "the build with zstd\n");
+				return 2;
+			}
+#endif
 			dlog.n_rules++;
 #else
 			fprintf(stderr, "fuzznetd: --log-rule: built without log files\n");

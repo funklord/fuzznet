@@ -1981,7 +1981,10 @@ $(BUILD_DIR)/log/test/ring_test: $(BUILD_DIR)/log/test/ring_test.o \
 
 # Packing closed segments with libzstd, in a scratch directory. sec 459.
 $(BUILD_DIR)/log/test/pack_test: $(BUILD_DIR)/log/test/pack_test.o \
-                                 $(BUILD_DIR)/log/pack.o
+                                 $(BUILD_DIR)/log/pack.o \
+                                 $(BUILD_DIR)/log/retain.o \
+                                 $(BUILD_DIR)/log/entry.o \
+                                 $(BUILD_DIR)/log/capture.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@ $(ZSTD_LIBS)
 
@@ -2000,7 +2003,8 @@ $(BUILD_DIR)/log/test/gather_test: $(BUILD_DIR)/log/test/gather_test.o \
                                    $(BUILD_DIR)/log/ring.o \
                                    $(BUILD_DIR)/log/entry.o \
                                    $(BUILD_DIR)/log/capture.o \
-                                   $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o)
+                                   $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o \
+                                     $(BUILD_DIR)/log/retain.o)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
 

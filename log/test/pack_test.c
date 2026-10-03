@@ -1,5 +1,6 @@
 /* pack_test -- closed log segments packed with zstd and chained by their
- * trailers. sec 459.
+ * trailers. sec 459. The prune and keep rules over entries, repacking a
+ * segment without some of its lines, sec 474.
  *
  * THE HASH IS A TOY, a 32-byte FNV variant: what is under test is the chain
  * and the packing, not the primitive, and the library takes the hash as an
@@ -11,6 +12,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "../pack.h"
+#include "../entry.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -293,6 +295,229 @@ static void test_a_directory(void)
 	(void)remove(chain_path);
 }
 
+/* ---- the rules over entries, sec 474 ------------------------------------ */
+
+#define DAY (86400ull * 1000000ull)
+
+struct line_spec {
+	fzn_entry_level_t level;
+	const char *subsystem;
+	const char *text;
+	uint64_t time_us;
+};
+
+/* A segment of a header and classic lines. */
+static int write_classic(const char *path, const struct line_spec *l, size_t n, uint64_t pos)
+{
+	static char line[FZN_ENTRY_LINE_MAX];
+	FILE *f = fopen(path, "w");
+	size_t i;
+	int ok;
+
+	if (!f)
+		return 0;
+	ok = fputs("#fuzznet-log 1 machine=00000000000000000000000000000000 host=h\n", f) >= 0;
+	for (i = 0; i < n && ok; i++) {
+		fzn_entry_t e;
+		size_t len = 0;
+
+		memset(&e, 0, sizeof(e));
+		strcpy(e.name.user, "root");
+		strcpy(e.name.program, "netcfgd");
+		e.name.pid = 7u;
+		e.name.start_ms = 1u;
+		e.name.position = pos + i;
+		e.time_us = l[i].time_us;
+		e.level = l[i].level;
+		strcpy(e.subsystem, l[i].subsystem);
+		e.text = (const uint8_t *)l[i].text;
+		e.text_len = strlen(l[i].text);
+		ok = fzn_entry_classic(&e, "h", line, sizeof(line), &len) == FZN_ENTRY_OK
+		     && fwrite(line, 1u, len, f) == len;
+	}
+	return (fclose(f) == 0) && ok;
+}
+
+/* What the packed segment `path` holds, NUL-terminated in `back`. */
+static const char *packed_text(const char *path)
+{
+	size_t n = unzstd(path, back, sizeof(back) - 1u);
+
+	back[n] = '\0';
+	return (const char *)back;
+}
+
+static int retain(const char *const *lines, size_t n, uint64_t now, size_t *removed,
+                  size_t *repacked)
+{
+	fzn_retain_rule_t rules[4];
+	size_t i;
+
+	for (i = 0; i < n; i++)
+		if (fzn_retain_parse(lines[i], strlen(lines[i]), &rules[i]) != FZN_RETAIN_OK)
+			return 0;
+	return fzn_log_pack_retain(top, "netcfgd", rules, n, &HASH, now, removed, repacked)
+	       == FZN_LOG_PACK_OK;
+}
+
+static void test_entry_rules(void)
+{
+	const uint64_t now = 100u * DAY;
+	const struct line_spec old_lines[] = {
+		{ FZN_ENTRY_INFO, "apply", "old info", now - (41u * DAY) },
+		{ FZN_ENTRY_DEBUG, "apply", "old debug", now - (41u * DAY) },
+		{ FZN_ENTRY_ERROR, "apply", "old error", now - (41u * DAY) },
+	};
+	const struct line_spec new_lines[] = {
+		{ FZN_ENTRY_DEBUG, "apply", "new debug", now - DAY - 1000u },
+		{ FZN_ENTRY_INFO, "notes/sync", "new info", now - DAY - 1000u },
+	};
+	char a[160], b[160], c[160], za[200], zb[200], chain_path[160], want[100];
+	uint8_t zero[32] = { 0 }, ha[32], hb[32], carry[32];
+	size_t packed = 0, removed = 9, repacked = 9, k;
+
+	snprintf(a, sizeof(a), "%s/netcfgd.%llu.20.log", top, (unsigned long long)(now - 40u * DAY));
+	snprintf(b, sizeof(b), "%s/netcfgd.%llu.21.log", top, (unsigned long long)(now - DAY));
+	snprintf(c, sizeof(c), "%s/netcfgd.%llu.22.log", top, (unsigned long long)(now - 1000u));
+	snprintf(za, sizeof(za), "%s.zst", a);
+	snprintf(zb, sizeof(zb), "%s.zst", b);
+	snprintf(chain_path, sizeof(chain_path), "%s/netcfgd.chain", top);
+	CHECK(write_classic(a, old_lines, 3u, 0u) && write_classic(b, new_lines, 2u, 3u)
+	              && fzn_log_pack_dir(top, "netcfgd", &HASH, now - 10000u, 1000u, &packed)
+	                         == FZN_LOG_PACK_OK
+	              && packed == 2u && fzn_log_pack_verify(za, zero, &HASH, ha) == FZN_LOG_PACK_OK
+	              && fzn_log_pack_verify(zb, ha, &HASH, hb) == FZN_LOG_PACK_OK,
+	      "fixture: a segment forty days old and one a day old, packed and chained");
+	for (k = 0; k < 32u; k++)
+		snprintf(want + (k * 2u), 3u, "%02x", ha[k]);
+
+	{
+		const char *const r[] = { "prune netcfgd level=DT age 2d" };
+
+		CHECK(retain(r, 1u, now, &removed, &repacked) && removed == 0u && repacked == 1u,
+		      "debug older than two days: the old segment is repacked, nothing removed");
+	}
+	CHECK(strstr(packed_text(za), "old info") && strstr((char *)back, "old error")
+	              && !strstr((char *)back, "old debug")
+	              && strstr((char *)back, "#fuzznet-log-trailer 2 prev=")
+	              && strstr((char *)back, "dropped=1\n") && strstr((char *)back, want)
+	              && strstr((char *)back, "#fuzznet-log 1 machine="),
+	      "the old debug line is gone, the rest and the header stay, under a version-2 "
+	      "trailer naming the old hash and one line dropped");
+	CHECK(fzn_log_pack_verify(za, zero, &HASH, carry) == FZN_LOG_PACK_OK
+	              && memcmp(carry, ha, 32u) == 0
+	              && fzn_log_pack_verify(zb, ha, &HASH, hb) == FZN_LOG_PACK_OK
+	              && strstr(packed_text(zb), "new debug"),
+	      "it verifies and carries its first hash, so the next still chains; the new debug "
+	      "line, a day old, stays");
+
+	{
+		const char *const r[] = { "prune netcfgd age 30d", "keep netcfgd level=E age 90d" };
+
+		CHECK(retain(r, 2u, now, &removed, &repacked) && removed == 0u && repacked == 1u
+		              && !strstr(packed_text(za), "old info") && strstr((char *)back, "old error")
+		              && strstr((char *)back, "dropped=2\n") && strstr((char *)back, want),
+		      "a segment rule prunes the old segment and an entry rule keeps its error line, "
+		      "so it is repacked again, two dropped in all, the first hash still named");
+	}
+	CHECK(fzn_log_pack_verify(za, zero, &HASH, carry) == FZN_LOG_PACK_OK
+	              && memcmp(carry, ha, 32u) == 0,
+	      "and still carries the hash it was first packed with");
+
+	{
+		const char *const r[] = { "prune netcfgd subsystem=notes count 0" };
+
+		CHECK(retain(r, 1u, now, &removed, &repacked) && repacked == 1u
+		              && !strstr(packed_text(zb), "new info") && strstr((char *)back, "new debug")
+		              && fzn_log_pack_verify(zb, ha, &HASH, carry) == FZN_LOG_PACK_OK
+		              && memcmp(carry, hb, 32u) == 0,
+		      "a count over a subsystem drops the newer segment's notes line, which still "
+		      "chains from the older");
+	}
+
+	/* A PACKED SEGMENT THAT DOES NOT VERIFY is kept whole, unread. */
+	{
+		const struct line_spec probe[] = {
+			{ FZN_ENTRY_DEBUG, "probe", "a probe", now - DAY },
+		};
+		static uint8_t plain[1000], z[2000];
+		char bad[160], line[200], hex[65];
+		size_t zn, len = 0;
+		struct stat before, after;
+		FILE *f;
+
+		snprintf(bad, sizeof(bad), "%s/netcfgd.%llu.23.log.zst", top,
+		         (unsigned long long)(now - 50u * DAY));
+		CHECK(write_classic(c, probe, 1u, 9u), "fixture: a debug line of its own subsystem");
+		f = fopen(c, "rb");
+		len = f ? fread(plain, 1u, 500u, f) : 0u;
+		if (f)
+			(void)fclose(f);
+		memset(hex, '0', 64u);
+		hex[64] = '\0';
+		snprintf(line, sizeof(line), "#fuzznet-log-trailer 1 prev=%s hash=%s\n", hex, hex);
+		memcpy(plain + len, line, strlen(line));
+		zn = ZSTD_compress(z, sizeof(z), plain, len + strlen(line), 3);
+		f = fopen(bad, "wb");
+		CHECK(!ZSTD_isError(zn) && f && fwrite(z, 1u, zn, f) == zn && fclose(f) == 0
+		              && stat(bad, &before) == 0,
+		      "fixture: a packed segment whose trailer's hash is wrong");
+		{
+			const char *const r[] = { "prune netcfgd subsystem=probe age 0" };
+
+			CHECK(retain(r, 1u, now, &removed, &repacked) && stat(bad, &after) == 0
+			              && after.st_size == before.st_size && !exists(c),
+			      "it is neither repacked nor removed; and the unpacked segment, its only "
+			      "entry dropped, is removed");
+		}
+		(void)remove(bad);
+	}
+	CHECK(!exists(c), "the unpacked segment whose every entry went is gone");
+
+	/* PART OF AN UNPACKED SEGMENT waits for its packing. */
+	{
+		const struct line_spec two[] = {
+			{ FZN_ENTRY_DEBUG, "apply", "a debug", now - (5u * DAY) },
+			{ FZN_ENTRY_INFO, "apply", "an info", now - (5u * DAY) },
+		};
+		/* Three days: the five-day-old debug line, not the newer segment's. */
+		const char *const r[] = { "prune netcfgd level=D age 3d" };
+		struct stat before, after;
+
+		CHECK(write_classic(c, two, 2u, 10u) && stat(c, &before) == 0
+		              && retain(r, 1u, now, &removed, &repacked) && stat(c, &after) == 0
+		              && after.st_size == before.st_size,
+		      "an unpacked segment some of whose lines go is left whole until it is packed");
+	}
+
+	/* EVERY ENTRY GONE: the segment is removed, and the newer still verifies. */
+	{
+		const char *const r[] = { "prune netcfgd level=E age 2d" };
+
+		CHECK(retain(r, 1u, now, &removed, &repacked) && removed == 1u && !exists(za)
+		              && fzn_log_pack_verify(zb, ha, &HASH, carry) == FZN_LOG_PACK_OK,
+		      "the old segment, its last entry pruned, is removed; the newer verifies from "
+		      "the prev it names");
+	}
+	/* NO ENTRY RULE: segments go whole, unread. */
+	{
+		const char *const r[] = { "prune netcfgd count 0" };
+
+		CHECK(retain(r, 1u, now, &removed, &repacked) && removed == 2u && repacked == 0u
+		              && !exists(zb) && !exists(c),
+		      "with no entry rule, a segment rule removes whole segments");
+	}
+	CHECK(fzn_log_pack_retain(top, "a/b", NULL, 0u, &HASH, now, &removed, &repacked)
+	              == FZN_LOG_PACK_ERR_MALFORMED,
+	      "a program with a slash is refused");
+	(void)remove(za);
+	(void)remove(zb);
+	(void)remove(c);
+	(void)remove(a);
+	(void)remove(b);
+	(void)remove(chain_path);
+}
+
 int main(void)
 {
 	(void)snprintf(top, sizeof(top), "/tmp/fzn-pack-test-XXXXXX");
@@ -302,6 +527,7 @@ int main(void)
 	}
 	test_one_segment();
 	test_a_directory();
+	test_entry_rules();
 	CHECK(rmdir(top) == 0, "the scratch directory is empty, and goes");
 
 	if (failures) {

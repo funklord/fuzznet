@@ -3,6 +3,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "pack.h"
+#include "entry.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -158,29 +159,88 @@ done:
 	return err;
 }
 
+/* ---- trailers ---------------------------------------------------------- */
+
+/* The longest trailer: version 2 with every field at its widest. */
+#define TRAILER_MAX 320u
+
+typedef struct trailer {
+	uint8_t prev[FZN_LOG_PACK_HASH_LEN];
+	uint8_t hash[FZN_LOG_PACK_HASH_LEN];
+	/* VERSION 2, sec 474: a segment repacked without some of its lines.
+	 * `was` is its hash as first packed, which the next segment's `prev`
+	 * names, so the chain still runs through it. */
+	int repacked;
+	uint8_t was[FZN_LOG_PACK_HASH_LEN];
+	uint64_t dropped;
+} trailer_t;
+
+/* `t`, `len` bytes ending in its newline, as a trailer of either version. */
+static int parse_trailer(const uint8_t *t, size_t len, trailer_t *out)
+{
+	static const char V1[] = "#fuzznet-log-trailer 1 prev=";
+	static const char V2[] = "#fuzznet-log-trailer 2 prev=";
+	const size_t head = sizeof(V1) - 1u, v1_len = head + 64u + 6u + 64u + 1u;
+	size_t at, i;
+
+	memset(out, 0, sizeof(*out));
+	if (len < v1_len || t[len - 1u] != '\n')
+		return 0;
+	if (memcmp(t, V1, head) == 0)
+		out->repacked = 0;
+	else if (memcmp(t, V2, head) == 0)
+		out->repacked = 1;
+	else
+		return 0;
+	if (!from_hex((const char *)t + head, out->prev, 32u)
+	    || memcmp(t + head + 64u, " hash=", 6u) != 0
+	    || !from_hex((const char *)t + head + 70u, out->hash, 32u))
+		return 0;
+	at = head + 134u;
+	if (!out->repacked)
+		return len == v1_len;
+	if (len < at + 5u + 64u + 9u + 2u || memcmp(t + at, " was=", 5u) != 0
+	    || !from_hex((const char *)t + at + 5u, out->was, 32u)
+	    || memcmp(t + at + 69u, " dropped=", 9u) != 0)
+		return 0;
+	at += 78u;
+	if (len - 1u - at > 20u || len - 1u == at)
+		return 0;
+	for (i = at; i < len - 1u; i++) {
+		unsigned d = (unsigned)(t[i] - '0');
+
+		if (t[i] < '0' || t[i] > '9' || out->dropped > (UINT64_MAX - d) / 10u)
+			return 0;
+		out->dropped = (out->dropped * 10u) + d;
+	}
+	return 1;
+}
+
+/* What the next segment's prev names: the hash as first packed. */
+static const uint8_t *carried(const trailer_t *t)
+{
+	return t->repacked ? t->was : t->hash;
+}
+
 /* ---- verifying one ------------------------------------------------------- */
 
 /* The trailer is the last line, and it is held back from the chain: the
- * stream's bytes are folded in chunks only once the next ones show they
- * are not the trailer. */
+ * stream's bytes are folded in chunks only once more than the longest
+ * trailer follows them, so they cannot be the trailer. */
 fzn_log_pack_err_t fzn_log_pack_verify(const char *zst_path,
                                        const uint8_t prev[FZN_LOG_PACK_HASH_LEN],
                                        const fzn_hash_ops_t *hash,
                                        uint8_t hash_out[FZN_LOG_PACK_HASH_LEN])
 {
 	static uint8_t inbuf[1u << 16], outbuf[1u << 16];
-	/* A pending window: plain bytes not yet folded, at most one chunk
-	 * and the longest trailer. */
-	static uint8_t pending[FZN_LOG_PACK_CHUNK + 256u];
-	uint8_t state[FZN_LOG_PACK_HASH_LEN], got_prev[FZN_LOG_PACK_HASH_LEN],
-	        got_hash[FZN_LOG_PACK_HASH_LEN];
-	static const char HEAD[] = "#fuzznet-log-trailer 1 prev=";
-	const size_t trailer_len = (sizeof(HEAD) - 1u) + 64u + 6u + 64u + 1u;
+	static uint8_t pending[FZN_LOG_PACK_CHUNK + TRAILER_MAX];
+	uint8_t state[FZN_LOG_PACK_HASH_LEN];
 	fzn_log_pack_err_t err = FZN_LOG_PACK_ERR_ZSTD;
 	ZSTD_DCtx *dc = NULL;
 	FILE *in = NULL;
-	size_t have = 0, n, last = 1;
-	const uint8_t *t;
+	size_t have = 0, n, last = 1, start;
+	int folded = 0;
+	trailer_t tr;
 
 	if (!zst_path || !prev || !hash || !hash->hash || !hash_out)
 		return FZN_LOG_PACK_ERR_MALFORMED;
@@ -201,8 +261,6 @@ fzn_log_pack_err_t fzn_log_pack_verify(const char *zst_path,
 			last = ZSTD_decompressStream(dc, &dst, &src);
 			if (ZSTD_isError(last))
 				goto done;
-			/* KEEP THE TAIL BACK: fold whole chunks only while more
-			 * than a trailer's worth stays pending. */
 			while (off < dst.pos) {
 				size_t take = dst.pos - off;
 
@@ -211,7 +269,7 @@ fzn_log_pack_err_t fzn_log_pack_verify(const char *zst_path,
 				memcpy(pending + have, outbuf + off, take);
 				have += take;
 				off += take;
-				if (have >= FZN_LOG_PACK_CHUNK + trailer_len) {
+				if (have == sizeof(pending)) {
 					if (!fold_chunk(hash, state, pending, FZN_LOG_PACK_CHUNK)) {
 						err = FZN_LOG_PACK_ERR_CHAIN;
 						goto done;
@@ -219,6 +277,7 @@ fzn_log_pack_err_t fzn_log_pack_verify(const char *zst_path,
 					memmove(pending, pending + FZN_LOG_PACK_CHUNK,
 					        have - FZN_LOG_PACK_CHUNK);
 					have -= FZN_LOG_PACK_CHUNK;
+					folded = 1;
 				}
 			}
 		}
@@ -227,24 +286,28 @@ fzn_log_pack_err_t fzn_log_pack_verify(const char *zst_path,
 	if (ferror(in) || last != 0u)
 		goto done;
 	err = FZN_LOG_PACK_ERR_CHAIN;
-	if (have < trailer_len)
+	/* THE LAST LINE: after the newline before the final one, which a
+	 * segment folded already must have left in the window. */
+	if (have < 2u)
 		goto done;
-	t = pending + have - trailer_len;
-	if (memcmp(t, HEAD, sizeof(HEAD) - 1u) != 0 || !from_hex((const char *)t + 28, got_prev, 32u)
-	    || memcmp(t + 92, " hash=", 6u) != 0
-	    || !from_hex((const char *)t + 98, got_hash, 32u) || t[trailer_len - 1u] != '\n'
-	    || (have > trailer_len && pending[have - trailer_len - 1u] != '\n'))
+	for (start = have - 1u; start > 0u && pending[start - 1u] != '\n'; start--)
+		;
+	if ((start == 0u && folded) || have - start > TRAILER_MAX
+	    || !parse_trailer(pending + start, have - start, &tr))
 		goto done;
-	/* THE REST, in the same chunks the packer folded. */
-	n = have - trailer_len;
-	if (n > FZN_LOG_PACK_CHUNK)
+	/* THE REST, in the same chunks the packer folded: at most two. */
+	if (start > FZN_LOG_PACK_CHUNK) {
+		if (!fold_chunk(hash, state, pending, FZN_LOG_PACK_CHUNK)
+		    || !fold_chunk(hash, state, pending + FZN_LOG_PACK_CHUNK,
+		                   start - FZN_LOG_PACK_CHUNK))
+			goto done;
+	} else if (start && !fold_chunk(hash, state, pending, start)) {
 		goto done;
-	if (n && !fold_chunk(hash, state, pending, n))
+	}
+	if (memcmp(tr.prev, prev, FZN_LOG_PACK_HASH_LEN) != 0
+	    || memcmp(tr.hash, state, FZN_LOG_PACK_HASH_LEN) != 0)
 		goto done;
-	if (memcmp(got_prev, prev, FZN_LOG_PACK_HASH_LEN) != 0
-	    || memcmp(got_hash, state, FZN_LOG_PACK_HASH_LEN) != 0)
-		goto done;
-	memcpy(hash_out, state, FZN_LOG_PACK_HASH_LEN);
+	memcpy(hash_out, carried(&tr), FZN_LOG_PACK_HASH_LEN);
 	err = FZN_LOG_PACK_OK;
 done:
 	ZSTD_freeDCtx(dc);
@@ -399,6 +462,357 @@ fzn_log_pack_err_t fzn_log_pack_dir(const char *dir, const char *program,
 		}
 		memcpy(prev, next, sizeof(prev));
 		(*packed)++;
+	}
+done:
+	lk.l_type = F_UNLCK;
+	(void)fcntl(fd, F_SETLK, &lk);
+	(void)close(fd);
+	return err;
+}
+
+/* ---- the rules over entries, sec 474 ------------------------------------- */
+
+/* `PROGRAM.TIME.PID.log` or its `.zst`: the closing time, or 0. */
+static uint64_t segment_at(const char *name, const char *program, int *packed)
+{
+	char plain[256];
+	size_t n = strlen(name);
+
+	*packed = n > 4u && strcmp(name + n - 4u, ".zst") == 0;
+	if (n >= sizeof(plain))
+		return 0;
+	memcpy(plain, name, n + 1u);
+	if (*packed)
+		plain[n - 4u] = '\0';
+	return closed_at(plain, program);
+}
+
+/* A whole segment into a buffer of its own, decompressed when packed: at
+ * most FZN_LOG_PACK_RETAIN_READ_MAX. 0, and nothing held, otherwise. */
+static int read_all(const char *path, int packed, uint8_t **out, size_t *len)
+{
+	static uint8_t inbuf[1u << 16];
+	size_t cap = 1u << 16, have = 0, n, last = 0;
+	ZSTD_DCtx *dc = NULL;
+	uint8_t *buf = malloc(cap);
+	FILE *in = fopen(path, "rb");
+	int ok = 0;
+
+	if (!buf || !in || (packed && !(dc = ZSTD_createDCtx())))
+		goto done;
+	while ((n = fread(inbuf, 1u, sizeof(inbuf), in)) > 0u) {
+		ZSTD_inBuffer src = { inbuf, n, 0 };
+
+		while (src.pos < src.size) {
+			uint8_t *grown;
+
+			if (have == cap) {
+				if (cap >= FZN_LOG_PACK_RETAIN_READ_MAX)
+					goto done;
+				grown = realloc(buf, cap * 2u);
+				if (!grown)
+					goto done;
+				buf = grown;
+				cap *= 2u;
+			}
+			if (packed) {
+				ZSTD_outBuffer dst = { buf + have, cap - have, 0 };
+
+				last = ZSTD_decompressStream(dc, &dst, &src);
+				if (ZSTD_isError(last))
+					goto done;
+				have += dst.pos;
+			} else {
+				size_t take = src.size - src.pos;
+
+				if (take > cap - have)
+					take = cap - have;
+				memcpy(buf + have, inbuf + src.pos, take);
+				src.pos += take;
+				have += take;
+			}
+		}
+	}
+	ok = !ferror(in) && (!packed || last == 0u);
+done:
+	ZSTD_freeDCtx(dc);
+	if (in)
+		(void)fclose(in);
+	if (!ok) {
+		free(buf);
+		return 0;
+	}
+	*out = buf;
+	*len = have;
+	return 1;
+}
+
+/* The chain over `n` bytes from `prev`, in the packer's chunks. */
+static int chain_over(const fzn_hash_ops_t *hash, const uint8_t prev[FZN_LOG_PACK_HASH_LEN],
+                      const uint8_t *b, size_t n, uint8_t out[FZN_LOG_PACK_HASH_LEN])
+{
+	size_t at = 0;
+
+	memcpy(out, prev, FZN_LOG_PACK_HASH_LEN);
+	while (at < n) {
+		size_t take = n - at < FZN_LOG_PACK_CHUNK ? n - at : FZN_LOG_PACK_CHUNK;
+
+		if (!fold_chunk(hash, out, b + at, take))
+			return 0;
+		at += take;
+	}
+	return 1;
+}
+
+/* `content` and a version-2 trailer packed into `tmp`. */
+static int write_repacked(const char *tmp, const uint8_t *content, size_t n, const trailer_t *tr)
+{
+	char line[TRAILER_MAX], ph[65], hh[65], wh[65];
+	ZSTD_CCtx *cc = ZSTD_createCCtx();
+	FILE *out = fopen(tmp, "wb");
+	int ok = 0, k;
+
+	to_hex(tr->prev, FZN_LOG_PACK_HASH_LEN, ph);
+	to_hex(tr->hash, FZN_LOG_PACK_HASH_LEN, hh);
+	to_hex(tr->was, FZN_LOG_PACK_HASH_LEN, wh);
+	k = snprintf(line, sizeof(line), "#fuzznet-log-trailer 2 prev=%s hash=%s was=%s dropped=%llu\n",
+	             ph, hh, wh, (unsigned long long)tr->dropped);
+	if (cc && out && k > 0 && (size_t)k < sizeof(line)
+	    && !ZSTD_isError(ZSTD_CCtx_setParameter(cc, ZSTD_c_checksumFlag, 1))
+	    && compress_into(cc, out, content, n, ZSTD_e_continue)
+	    && compress_into(cc, out, (const uint8_t *)line, (size_t)k, ZSTD_e_end)
+	    && fflush(out) == 0 && fsync(fileno(out)) == 0)
+		ok = 1;
+	ZSTD_freeCCtx(cc);
+	if (out && fclose(out) != 0)
+		ok = 0;
+	return ok;
+}
+
+struct held {
+	uint64_t at;
+	int packed;
+	char name[256];
+};
+
+/* Newest first, ties by name so the order is total. */
+static int newest_first(const void *a, const void *b)
+{
+	const struct held *x = a, *y = b;
+
+	if (x->at != y->at)
+		return x->at > y->at ? -1 : 1;
+	return -strcmp(x->name, y->name);
+}
+
+/* One segment's lines judged, newest first; `drop[i]` per line. 1 when
+ * every line goes. Headers go only with the whole. */
+static int judge(fzn_retain_walk_t *walk, uint8_t mark, const uint8_t *b, size_t n,
+                 const size_t *starts, size_t lines, uint8_t *drop, size_t *dropped)
+{
+	static uint8_t text[FZN_ENTRY_TEXT_MAX];
+	static const uint8_t no_machine[FZN_ENTRY_MACHINE_LEN] = { 0 };
+	const int whole = mark == FZN_RETAIN_MARK_PRUNED;
+	size_t i, kept_other = 0;
+
+	*dropped = 0;
+	for (i = lines; i-- > 0u;) {
+		size_t end = i + 1u < lines ? starts[i + 1u] : n, len = end - starts[i];
+		const char *line = (const char *)b + starts[i];
+		char host[FZN_ENTRY_WORD_MAX + 1u];
+		fzn_entry_t e;
+
+		drop[i] = 0;
+		if (line[0] == '#')
+			continue;
+		if (fzn_entry_classic_parse(line, len, no_machine, &e, host, text, sizeof(text))
+		    == FZN_ENTRY_OK)
+			drop[i] = (uint8_t)fzn_retain_walk_entry(walk, mark, e.time_us, e.level,
+			                                         e.subsystem, len);
+		else
+			drop[i] = (uint8_t)whole;
+		if (drop[i])
+			(*dropped)++;
+		else
+			kept_other++;
+	}
+	return kept_other == 0u && (*dropped > 0u || whole);
+}
+
+/* A packed segment repacked without the lines `drop` names. */
+static fzn_log_pack_err_t repack(const char *path, const char *tmp, const uint8_t *b, size_t n,
+                                 size_t body, const size_t *starts, size_t lines,
+                                 const uint8_t *drop, size_t dropped, const trailer_t *old,
+                                 const fzn_hash_ops_t *hash)
+{
+	uint8_t *kept = malloc(body ? body : 1u), carry[FZN_LOG_PACK_HASH_LEN];
+	size_t used = 0, i;
+	trailer_t tr;
+
+	if (!kept)
+		return FZN_LOG_PACK_ERR_FILE;
+	for (i = 0; i < lines; i++) {
+		size_t end = i + 1u < lines ? starts[i + 1u] : body;
+
+		if (!drop[i]) {
+			memcpy(kept + used, b + starts[i], end - starts[i]);
+			used += end - starts[i];
+		}
+	}
+	(void)n;
+	memset(&tr, 0, sizeof(tr));
+	tr.repacked = 1;
+	memcpy(tr.prev, old->prev, FZN_LOG_PACK_HASH_LEN);
+	memcpy(tr.was, carried(old), FZN_LOG_PACK_HASH_LEN);
+	tr.dropped = old->dropped + dropped;
+	if (!chain_over(hash, tr.prev, kept, used, tr.hash)) {
+		free(kept);
+		return FZN_LOG_PACK_ERR_CHAIN;
+	}
+	/* WRITTEN BESIDE, VERIFIED, RENAMED: the chain it carries must be the
+	 * one it carried before. */
+	if (!write_repacked(tmp, kept, used, &tr)) {
+		free(kept);
+		(void)remove(tmp);
+		return FZN_LOG_PACK_ERR_FILE;
+	}
+	free(kept);
+	if (fzn_log_pack_verify(tmp, tr.prev, hash, carry) != FZN_LOG_PACK_OK
+	    || memcmp(carry, carried(old), FZN_LOG_PACK_HASH_LEN) != 0) {
+		(void)remove(tmp);
+		return FZN_LOG_PACK_ERR_CHAIN;
+	}
+	if (rename(tmp, path) != 0) {
+		(void)remove(tmp);
+		return FZN_LOG_PACK_ERR_FILE;
+	}
+	return FZN_LOG_PACK_OK;
+}
+
+fzn_log_pack_err_t fzn_log_pack_retain(const char *dir, const char *program,
+                                       const fzn_retain_rule_t *rules, size_t n_rules,
+                                       const fzn_hash_ops_t *hash, uint64_t now_us,
+                                       size_t *removed, size_t *repacked)
+{
+	static struct held segs[SEGMENTS_MAX];
+	static fzn_retain_segment_t sizes[SEGMENTS_MAX];
+	static uint8_t marks[SEGMENTS_MAX];
+	static fzn_retain_walk_t walk;
+	char chain_path[PATH_MAX_], path[PATH_MAX_], tmp[PATH_MAX_];
+	fzn_log_pack_err_t err = FZN_LOG_PACK_OK;
+	struct flock lk;
+	struct dirent *e;
+	size_t n = 0, i;
+	int fd, k, entries;
+	DIR *d;
+
+	if (!dir || !program || !program[0] || strchr(program, '/') || (!rules && n_rules) || !hash
+	    || !hash->hash || !removed || !repacked)
+		return FZN_LOG_PACK_ERR_MALFORMED;
+	*removed = 0;
+	*repacked = 0;
+	k = snprintf(chain_path, sizeof(chain_path), "%s/%s.chain", dir, program);
+	if (k <= 0 || (size_t)k >= sizeof(chain_path))
+		return FZN_LOG_PACK_ERR_MALFORMED;
+	fd = open(chain_path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+	if (fd < 0)
+		return FZN_LOG_PACK_ERR_FILE;
+	memset(&lk, 0, sizeof(lk));
+	lk.l_type = F_WRLCK;
+	lk.l_whence = SEEK_SET;
+	if (fcntl(fd, F_SETLK, &lk) != 0) {
+		(void)close(fd);
+		return (errno == EACCES || errno == EAGAIN) ? FZN_LOG_PACK_OK : FZN_LOG_PACK_ERR_FILE;
+	}
+	d = opendir(dir);
+	if (!d) {
+		err = FZN_LOG_PACK_ERR_FILE;
+		goto done;
+	}
+	while ((e = readdir(d)) != NULL && n < SEGMENTS_MAX) {
+		struct held h;
+		struct stat st;
+
+		h.at = segment_at(e->d_name, program, &h.packed);
+		if (h.at == 0u || strlen(e->d_name) >= sizeof(h.name)
+		    || snprintf(path, sizeof(path), "%s/%s", dir, e->d_name) >= (int)sizeof(path)
+		    || stat(path, &st) != 0)
+			continue;
+		strcpy(h.name, e->d_name);
+		segs[n] = h;
+		n++;
+	}
+	(void)closedir(d);
+	qsort(segs, n, sizeof(segs[0]), newest_first);
+	for (i = 0; i < n; i++) {
+		struct stat st;
+
+		(void)snprintf(path, sizeof(path), "%s/%s", dir, segs[i].name);
+		sizes[i].closed_us = segs[i].at;
+		sizes[i].bytes = stat(path, &st) == 0 && st.st_size > 0 ? (uint64_t)st.st_size : 0u;
+	}
+	if (fzn_retain_marks(program, sizes, n, rules, n_rules, now_us, marks) != FZN_RETAIN_OK
+	    || fzn_retain_walk_init(&walk, program, rules, n_rules, now_us) != FZN_RETAIN_OK) {
+		err = FZN_LOG_PACK_ERR_MALFORMED;
+		goto done;
+	}
+	entries = fzn_retain_reads_entries(program, rules, n_rules);
+	for (i = 0; i < n && err == FZN_LOG_PACK_OK; i++) {
+		uint8_t *b = NULL, *drop = NULL;
+		size_t *starts = NULL, len = 0, body, lines = 0, dropped = 0, j;
+		trailer_t tr;
+		int all, readable;
+
+		if (snprintf(path, sizeof(path), "%s/%s", dir, segs[i].name) >= (int)sizeof(path)
+		    || snprintf(tmp, sizeof(tmp), "%s/%s.new", dir, segs[i].name) >= (int)sizeof(tmp)) {
+			err = FZN_LOG_PACK_ERR_MALFORMED;
+			break;
+		}
+		/* NO ENTRY RULE: the whole-segment plan, unread. */
+		readable = entries && read_all(path, segs[i].packed, &b, &len);
+		body = len;
+		/* A PACKED ONE IS READ ONLY WHOLE AND SOUND: its trailer the last
+		 * line, the chain over the rest from its own prev. */
+		if (readable && segs[i].packed) {
+			uint8_t check[FZN_LOG_PACK_HASH_LEN];
+
+			for (body = len ? len - 1u : 0u; body > 0u && b[body - 1u] != '\n'; body--)
+				;
+			readable = len >= 2u && len - body <= TRAILER_MAX
+			           && parse_trailer(b + body, len - body, &tr)
+			           && chain_over(hash, tr.prev, b, body, check)
+			           && memcmp(check, tr.hash, FZN_LOG_PACK_HASH_LEN) == 0;
+		}
+		if (readable) {
+			for (j = 0; j < body; j++)
+				if (j == 0u || b[j - 1u] == '\n')
+					lines++;
+			starts = malloc((lines ? lines : 1u) * sizeof(*starts));
+			drop = malloc(lines ? lines : 1u);
+			readable = starts && drop;
+		}
+		if (!readable) {
+			all = marks[i] == FZN_RETAIN_MARK_PRUNED;
+		} else {
+			for (j = 0, lines = 0; j < body; j++)
+				if (j == 0u || b[j - 1u] == '\n')
+					starts[lines++] = j;
+			all = judge(&walk, marks[i], b, body, starts, lines, drop, &dropped);
+		}
+		if (all) {
+			/* GONE ALREADY is another instance's pass, and fine. */
+			if (remove(path) != 0 && errno != ENOENT)
+				err = FZN_LOG_PACK_ERR_FILE;
+			else
+				(*removed)++;
+		} else if (readable && dropped && segs[i].packed) {
+			err = repack(path, tmp, b, len, body, starts, lines, drop, dropped, &tr, hash);
+			if (err == FZN_LOG_PACK_OK)
+				(*repacked)++;
+		}
+		free(b);
+		free(starts);
+		free(drop);
 	}
 done:
 	lk.l_type = F_UNLCK;

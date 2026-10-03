@@ -54272,7 +54272,9 @@ The last of step 3 in sec 456's order: retention as the holder put it.
 select entries by estate, machine, user, subsystem, level or text. A
 machine and a user are the directory's already; the rest select entries
 inside a segment, and removing some of a segment's entries means rewriting
-it, its packed form and its place in the chain. That is a later version.
+it, its packed form and its place in the chain. That is a later version --
+built in sec 474 for level and subsystem, with repacking; text is not a
+selector yet.
 
 **Where rules come from** is still open: sec 428 has them be state,
 replicated and scoped like any other (`state/`, sec 420). Today a caller
@@ -54857,3 +54859,103 @@ directory:
 - the fixed one logged `1 log segment(s) packed`, and `zstdcat` gives the
   202 lines -- header, entries, trailer -- with the first trailer's
   zero `prev`.
+
+## 474. The rules over entries, and repacking, 2026-10-03
+
+**The holder's answer**, 2026-10-03, to how retention should treat what
+sec 460 left whole: "We should try to stay granular and allow for
+repacking and dynamic retention amounts. if we can, we try to make the
+writer uphold the rules like EXT3-style rather than have delayed work, but
+we don't need to optimize this perfectly now, just allow for it."
+
+### Granular: a rule may select entries
+
+    prune|keep PROGRAM|* [level=LETTERS] [subsystem=PATH] age|size|count N[unit]
+
+- **Letters from `CEWNIVDT`**, so `level=DT` is debug and trace.
+- **A subsystem path is itself and everything below it**, so
+  `subsystem=notes` is `notes` and `notes/sync`, and not `notesx`.
+- **A rule naming either selects entries**; one naming neither is a
+  segment rule, exactly as before.
+- **Over entries**, age is the entry's own time, and size and count are the
+  newest N bytes or N entries of those the rule selects, counted newest
+  first across a program's segments.
+- **The kinds combine as one rule**: an entry goes when a segment rule
+  prunes its segment or an entry rule prunes it, and no keep rule of either
+  kind protects it. So `prune fuzznetd age 30d` beside `keep fuzznetd
+  level=CEW age 90d` keeps a month of everything and three of errors and
+  warnings.
+- **A line that is no entry**, and a segment's header, go only with the
+  whole segment.
+
+### Repacking: the chain runs through a segment rewritten
+
+A packed segment some of whose lines go is rewritten without them, under
+a version-2 trailer:
+
+    #fuzznet-log-trailer 2 prev=HEX hash=HEX was=HEX dropped=N
+
+- **`hash` is the chain over what is left**, from the same `prev`.
+- **`was` is the hash it was first packed with**, which the next segment's
+  `prev` names. A reader verifies the bytes against `hash` and carries
+  `was` forward, so nothing after it is rewritten.
+- **`dropped` counts lines taken out**, over every repack.
+- **What it costs, plainly:** the dropped lines are gone. Only their count
+  and the old hash witness that there were any, so a repacked segment is
+  evidence of its remaining lines, not of what was removed.
+- **A segment every line of which goes is removed.** A packed segment
+  whose own trailer does not verify is kept whole and its lines are not
+  counted; repacking it would launder the change under a fresh trailer.
+- **A segment not yet packed is left whole** until it is, though its lines
+  still count toward size and count limits.
+
+### The writer upholds them
+
+`fzn_log_pack_retain` runs where packing does: in fuzznetd's log round,
+after every rotation and every round, under the same chain lock, with no
+job of its own. Each pass reads every closed segment when an entry rule
+exists. That is the "not optimised perfectly now": a later version can
+remember how far a segment has been judged. **Dynamic amounts** need no
+new mechanism: a rule is re-read on every pass, so whatever supplies the
+rules can change them. Rules as replicated state (sec 428) is that
+supplier, and is still open.
+
+A build without zstd keeps the whole-segment plan, `fzn_logger_retain`,
+and fuzznetd refuses an entry rule there rather than ignoring it.
+
+### Measured for sec 474
+
+**`retain_test`, 29 checks:** selectors parsed in either order; an empty
+or unknown level, a level twice, a subsystem with an empty step, a
+selector twice and one after the limit refused; the segment plan not
+weighing an entry rule; age by entry; a segment rule's prune with an entry
+keep; a keep whose age is past keeping nothing; count and size over only
+what a rule selects, `notesx` not under `notes`; a rule for another
+program not applying.
+
+**`pack_test`, 47 checks**, fifteen new, in a scratch directory of two
+packed segments forty days and a day old:
+
+- debug older than two days repacked out of the old one, under a
+  version-2 trailer naming its first hash and one line dropped, which
+  verifies and carries that hash so the next still chains;
+- repacked again by a segment rule with an error kept, two dropped in all;
+- a count over a subsystem repacking the newer one, still chaining;
+- a packed segment whose trailer does not verify kept whole;
+- an unpacked segment whose only entry goes removed, and one some of
+  whose lines go left whole;
+- a segment whose last entry goes removed, the next verifying from the
+  prev it names;
+- with no entry rule, whole segments removed unread.
+
+**Live, fuzznetd** with `--log-rule="prune fuzznetd level=D age 1d"` and
+two closed segments of 25 debug and 25 info lines three days old:
+
+- one round logged `2 log segment(s) packed` and then `0 log segment(s)
+  removed and 2 repacked by the rules`;
+- each segment holds 25 info lines and no debug, under `dropped=25`;
+- the second's `prev` is the first's `was`, and the chain file holds the
+  second's `was`.
+
+**Sabotage: ten entries**, and three of sec 460's re-aimed at the code they
+guard now.
