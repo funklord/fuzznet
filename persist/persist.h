@@ -228,6 +228,9 @@ typedef enum fzn_persist_slot {
 	/* Per sharer: a share this node accepted, and the address its
 	 * sharer's node is pulled from. `node/received.h` keeps it. sec 437. */
 	FZN_PERSIST_RECEIVED_SHARE = 24u,
+	/* Per group id: a group of contacts, its name and its members' keys.
+	 * `contact/group.h` keeps it. sec 471. */
+	FZN_PERSIST_CONTACT_GROUP = 25u,
 } fzn_persist_slot_t;
 
 typedef enum fzn_persist_err {
@@ -275,6 +278,7 @@ typedef enum fzn_persist_err {
 #define FZN_PERSIST_BLOB_NOTE_SHARE 22u
 #define FZN_PERSIST_BLOB_SHARED_NOTE 23u
 #define FZN_PERSIST_BLOB_RECEIVED_SHARE 24u
+#define FZN_PERSIST_BLOB_CONTACT_GROUP 25u
 
 /* Write a blob head, or refuse when `cap` cannot hold head and body. */
 fzn_persist_err_t fzn_persist_head_write(uint8_t *out, size_t cap, size_t body,
@@ -400,6 +404,11 @@ typedef struct fzn_persist_ops {
  * NOT CORE: RECEIVED_SHARE (sec 437). Lost, a share stops being pulled until
  * it is accepted again; rolled back, a share this node dropped is pulled
  * again, into the sharer's own tree.
+ *
+ * CORE: CONTACT_GROUP (sec 471), named rather than left to the default.
+ * Membership decides which contacts a group share reaches, so a group
+ * rolled back re-admits a member removed from it -- a door, as a share row
+ * is.
  *
  * A SLOT THIS DOES NOT NAME IS CORE. A slot added later without a decision
  * about it lands where losing it costs the least, which is the guarded

@@ -15,6 +15,7 @@
 extern "C" {
 #include "../../node/notes.h"
 #include "../../contact/contact.h"
+#include "../../contact/group.h"
 #include "../../notes/received.h"
 #include "../../notes/text.h"
 #include "../../local/vocabulary.h"
@@ -261,6 +262,26 @@ static size_t list_contacts(char *reply, size_t cap)
 	return used;
 }
 
+/* `list group`, as admin answers it. */
+static size_t list_groups(char *reply, size_t cap)
+{
+	static fzn_group_t all[FZN_GROUPS_MAX];
+	size_t count = 0, i, used;
+	int n;
+
+	if (fzn_group_list(&OPS, all, FZN_GROUPS_MAX, &count) != FZN_CONTACT_OK)
+		return 0;
+	n = snprintf(reply, cap, "ok %zu 0", count);
+	used = n > 0 ? (size_t)n : 0u;
+	for (i = 0; i < count && used < cap; i++) {
+		n = snprintf(reply + used, cap - used, " %s,%zu", all[i].name, all[i].count);
+		used += n > 0 ? (size_t)n : 0u;
+	}
+	if (used + 1u < cap)
+		reply[used++] = '\n';
+	return used;
+}
+
 static size_t node_ask(void *ctx, const char *line, char *reply, size_t cap)
 {
 	fzn_request_t request;
@@ -274,6 +295,8 @@ static size_t node_ask(void *ctx, const char *line, char *reply, size_t cap)
 		return (size_t)snprintf(reply, cap, "%s\n", received ? received : "ok 0");
 	if (!strcmp(line, "list contact"))
 		return list_contacts(reply, cap);
+	if (!strcmp(line, "list group"))
+		return list_groups(reply, cap);
 	memset(&request, 0, sizeof(request));
 	if (!fzn_vocabulary_split((const uint8_t *)line, strlen(line), &request))
 		return (size_t)snprintf(reply, cap, "malformed\n");
@@ -411,6 +434,20 @@ static void test_sharing_is_warned_before_and_said_after(void)
 	              && w.shared_with() == QStringLiteral("Not shared.")
 	              && log.last().contains(QStringLiteral("stays with them")),
 	      "unshared, and told again what stays");
+
+	/* A GROUP, sec 471: offered as `@NAME` beside the contacts. */
+	CHECK(fzn_group_add(&OPS, &HASH, "family", 6u, 1u) == FZN_CONTACT_OK,
+	      "fixture: the group family");
+	CHECK(w.open_note(note)
+	              && w.share_targets()
+	                         == QStringList({ QStringLiteral("carol"), QStringLiteral("@family") }),
+	      "the share chooser offers the contact and then the group");
+	CHECK(w.share_with(QStringLiteral("@family"))
+	              && w.shared_with() == QStringLiteral("Shared with @family."),
+	      "shared with the group, and the widget says so by its name");
+	CHECK(w.unshare_with(QStringLiteral("@family"))
+	              && w.shared_with() == QStringLiteral("Not shared."),
+	      "and unshared");
 }
 
 static void test_a_shared_tree_reads_and_cannot_be_written(void)

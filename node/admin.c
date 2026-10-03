@@ -6,6 +6,7 @@
 #include "roots.h"
 #include "../provision/provision.h"
 #include "../contact/contact.h"
+#include "../contact/group.h"
 #include "../notes/received.h"
 #include "../log/cause.h"
 #include "members.h"
@@ -756,6 +757,142 @@ static size_t list_contacts(fzn_node_admin_t *admin, const uint8_t *rest, size_t
 	return answer(reply, cap, FZN_REPLY_OK, detail, used);
 }
 
+/* ---- groups of contacts, sec 471 ----------------------------------------- */
+
+static size_t group_refusal(char *reply, size_t cap, fzn_contact_err_t err)
+{
+	return answer_text(reply, cap,
+	                   err == FZN_CONTACT_ERR_NAME ? FZN_REPLY_MALFORMED : FZN_REPLY_ERROR,
+	                   fzn_contact_err_str(err));
+}
+
+/* `add group NAME` and `remove group NAME`. Removing a group leaves the
+ * shares made with it, which then reach nobody. */
+static size_t change_group(fzn_node_admin_t *admin, int add, const uint8_t *rest,
+                           size_t rest_len, char *reply, size_t cap)
+{
+	const uint8_t *name;
+	size_t name_len;
+	fzn_contact_err_t err;
+
+	if (!next_word(&rest, &rest_len, &name, &name_len))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED,
+		                   add ? "add group NAME" : "remove group NAME");
+	err = add ? fzn_group_add(admin->store, admin->state->hash, (const char *)name, name_len,
+	                          admin->state->clock ? admin->state->clock() * 1000u : 0u)
+	          : fzn_group_remove(admin->store, admin->state->hash, (const char *)name,
+	                             name_len);
+	return err == FZN_CONTACT_OK ? answer_text(reply, cap, FZN_REPLY_OK, NULL)
+	                             : group_refusal(reply, cap, err);
+}
+
+/* `add member GROUP CONTACT` and `remove member GROUP CONTACT`: a contact
+ * into a group, or out of it. A member is a contact: a key outside the
+ * estate the node knows by name. */
+static size_t change_member(fzn_node_admin_t *admin, int add, const uint8_t *rest,
+                            size_t rest_len, char *reply, size_t cap)
+{
+	const uint8_t *group, *name;
+	size_t group_len, name_len;
+	fzn_contact_t contact;
+	fzn_contact_err_t err;
+
+	if (!next_word(&rest, &rest_len, &group, &group_len)
+	    || !next_word(&rest, &rest_len, &name, &name_len))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED,
+		                   add ? "add member GROUP CONTACT" : "remove member GROUP CONTACT");
+	err = fzn_contact_find(admin->store, (const char *)name, name_len, &contact);
+	if (err == FZN_CONTACT_OK)
+		err = add ? fzn_group_join(admin->store, admin->state->hash, (const char *)group,
+		                           group_len, contact.key)
+		          : fzn_group_leave(admin->store, admin->state->hash, (const char *)group,
+		                            group_len, contact.key);
+	return err == FZN_CONTACT_OK ? answer_text(reply, cap, FZN_REPLY_OK, NULL)
+	                             : group_refusal(reply, cap, err);
+}
+
+/* `list group [FROM]`: `ok TOTAL FROM NAME,COUNT ...`, a page at a time. */
+static size_t list_groups(fzn_node_admin_t *admin, const uint8_t *rest, size_t rest_len,
+                          char *reply, size_t cap)
+{
+	static fzn_group_t all[FZN_GROUPS_MAX];
+	static char detail[FZN_REPLY_MAX];
+	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	size_t count = 0, from = 0, used, i;
+	const uint8_t *w;
+	size_t w_len;
+	int n;
+
+	if (next_word(&rest, &rest_len, &w, &w_len))
+		for (i = 0; i < w_len; i++) {
+			if (w[i] < '0' || w[i] > '9' || from > FZN_GROUPS_MAX)
+				return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not an index");
+			from = (from * 10u) + (size_t)(w[i] - '0');
+		}
+	if (fzn_group_list(admin->store, all, FZN_GROUPS_MAX, &count) != FZN_CONTACT_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "the groups did not read");
+	if (from > count)
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "past the last group");
+	n = snprintf(detail, sizeof(detail), "%zu %zu", count, from);
+	if (n < 0 || (size_t)n >= limit)
+		return 0;
+	used = (size_t)n;
+	for (i = from; i < count; i++) {
+		char item[FZN_CONTACT_NAME_MAX + 8u];
+		int k = snprintf(item, sizeof(item), " %s,%zu", all[i].name, all[i].count);
+
+		if (k < 0 || limit - used < (size_t)k)
+			break;
+		memcpy(detail + used, item, (size_t)k);
+		used += (size_t)k;
+	}
+	return answer(reply, cap, FZN_REPLY_OK, detail, used);
+}
+
+/* `get group NAME`: `ok COUNT NAME ...`, the members by contact name -- a
+ * key that is no contact any more by its hex. */
+static size_t get_group(fzn_node_admin_t *admin, const uint8_t *rest, size_t rest_len,
+                        char *reply, size_t cap)
+{
+	static fzn_group_t g;
+	static char detail[FZN_REPLY_MAX];
+	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	const uint8_t *name;
+	size_t name_len, used, i, k;
+	fzn_contact_err_t err;
+	int n;
+
+	if (!next_word(&rest, &rest_len, &name, &name_len))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "get group NAME");
+	err = fzn_group_find(admin->store, admin->state->hash, (const char *)name, name_len, &g);
+	if (err != FZN_CONTACT_OK)
+		return group_refusal(reply, cap, err);
+	n = snprintf(detail, sizeof(detail), "%zu", g.count);
+	if (n < 0 || (size_t)n >= limit)
+		return 0;
+	used = (size_t)n;
+	for (i = 0; i < g.count; i++) {
+		fzn_contact_t c;
+		char who[(FZN_PUBKEY_LEN * 2u) + 1u];
+		size_t who_len;
+
+		if (fzn_contact_get(admin->store, g.members[i], &c) == FZN_CONTACT_OK) {
+			memcpy(who, c.name, c.name_len);
+			who_len = c.name_len;
+		} else {
+			for (k = 0; k < FZN_PUBKEY_LEN; k++)
+				(void)snprintf(who + (k * 2u), 3u, "%02x", g.members[i][k]);
+			who_len = FZN_PUBKEY_LEN * 2u;
+		}
+		if (limit - used < 1u + who_len)
+			break;
+		detail[used++] = ' ';
+		memcpy(detail + used, who, who_len);
+		used += who_len;
+	}
+	return answer(reply, cap, FZN_REPLY_OK, detail, used);
+}
+
 /* `grant share NAME PREKEY`: pair the contact NAME's node, whose prekey
  * record this is, for the share capability, and answer the card it accepts.
  * sec 436. Granted by this node's own key whatever the estate's root is: a
@@ -1071,6 +1208,36 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 			return remove_contact(admin, rest, rest_len, reply, reply_cap);
 		return list_contacts(admin, rest, rest_len, reply, reply_cap);
 	}
+	/* GROUPS OF CONTACTS, sec 471: as contacts, the node's own user only. */
+	{
+		const uint8_t *g_rest = NULL, *m_rest = NULL;
+		size_t g_len = 0, m_len = 0;
+		int group = subject_word(request, "group", &g_rest, &g_len)
+		            && (request->parsed == FZN_VERB_ADD || request->parsed == FZN_VERB_REMOVE
+		                || request->parsed == FZN_VERB_LIST || request->parsed == FZN_VERB_GET);
+		int member = !group && subject_word(request, "member", &m_rest, &m_len)
+		             && (request->parsed == FZN_VERB_ADD || request->parsed == FZN_VERB_REMOVE);
+
+		rest = member ? m_rest : g_rest;
+		rest_len = member ? m_len : g_len;
+		if (!group && !member)
+			goto not_groups;
+		if (origin != FZN_ORIGIN_SAME_USER)
+			return answer_text(reply, reply_cap, FZN_REPLY_DENIED,
+			                   "groups need this node's own user");
+		if (!admin->state->hash)
+			return answer_text(reply, reply_cap, FZN_REPLY_ERROR, "this node has no hash");
+		if (member)
+			return change_member(admin, request->parsed == FZN_VERB_ADD, rest, rest_len,
+			                     reply, reply_cap);
+		if (request->parsed == FZN_VERB_LIST)
+			return list_groups(admin, rest, rest_len, reply, reply_cap);
+		if (request->parsed == FZN_VERB_GET)
+			return get_group(admin, rest, rest_len, reply, reply_cap);
+		return change_group(admin, request->parsed == FZN_VERB_ADD, rest, rest_len, reply,
+		                    reply_cap);
+	}
+not_groups:
 	/* NOTES, sec 431, when this node keeps them. */
 	if (admin->notes_local) {
 		size_t n = admin->notes_local(admin->notes_ctx, origin, request, reply, reply_cap);

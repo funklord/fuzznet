@@ -902,6 +902,70 @@ int main(void)
 		      "a removed contact was still listed");
 	}
 
+	/* ---- GROUPS OF CONTACTS, sec 471: the verbs, the node's user only. */
+	{
+		const fzn_hash_ops_t *was = state.hash;
+		char key_hex[(FZN_PUBKEY_LEN * 2u) + 1u];
+		size_t k;
+
+		for (k = 0; k < FZN_PUBKEY_LEN; k++)
+			snprintf(key_hex + (2u * k), 3u, "%02x", (unsigned)(0x60u + k));
+		CHECK(ask(&admin, &owner, "add group family", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR,
+		      "a node with no hash made a group");
+		state.hash = &hash_ops;
+		snprintf(line, sizeof(line), "add contact erin %s", key_hex);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK,
+		      "fixture: the contact erin");
+		CHECK(ask(&admin, &member, "add group family", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_DENIED,
+		      "another user made a group");
+		CHECK(ask(&admin, &owner, "add group fam-ily", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_MALFORMED,
+		      "a group name outside [A-Za-z0-9_] was not malformed");
+		CHECK(ask(&admin, &owner, "add group family", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && ask(&admin, &owner, "add group family", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR,
+		      "a group was not made, or was made twice");
+		CHECK(ask(&admin, &owner, "add member family nobody", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR,
+		      "a name that is no contact joined a group");
+		CHECK(ask(&admin, &owner, "add member family", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_MALFORMED,
+		      "a member with no contact was not malformed");
+		CHECK(ask(&admin, &owner, "add member family erin", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && ask(&admin, &owner, "get group family", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && detail_len == 6u && says(detail, detail_len, "1 erin")
+		              && ask(&admin, &owner, "list group", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && says(detail, detail_len, "1 0 family,1"),
+		      "erin did not join, or the group did not read back with her");
+		CHECK(ask(&admin, &member, "get group family", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_DENIED,
+		      "another user read a group");
+		CHECK(ask(&admin, &owner, "remove member family erin", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && ask(&admin, &owner, "remove member family erin", reply, sizeof(reply),
+		                     &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR,
+		      "erin did not leave, or left twice");
+		CHECK(ask(&admin, &owner, "remove group family", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && ask(&admin, &owner, "list group", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && says(detail, detail_len, "0 0"),
+		      "a removed group was still listed");
+		CHECK(ask(&admin, &owner, "remove contact erin", reply, sizeof(reply), &reply_len),
+		      "fixture: erin forgotten");
+		state.hash = was;
+	}
+
 	/* ---- SHARES, sec 436: `grant share` pairs a contact's node for the
 	 * share capability, from this node's own key; the contact is then a
 	 * peer and still no member, and its requests reach only the notes. */

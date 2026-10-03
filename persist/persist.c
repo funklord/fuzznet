@@ -54,7 +54,8 @@
  * FZN_PERSIST_BLOB_CONTACT, in contact/contact.c, and 22 is
  * FZN_PERSIST_BLOB_NOTE_SHARE, in notes/share.c, and 23 is
  * FZN_PERSIST_BLOB_SHARED_NOTE, in notes/received.c, and 24 is
- * FZN_PERSIST_BLOB_RECEIVED_SHARE, in node/received.c. */
+ * FZN_PERSIST_BLOB_RECEIVED_SHARE, in node/received.c, and 25 is
+ * FZN_PERSIST_BLOB_CONTACT_GROUP, in contact/group.c. */
 #define BLOB_IDENTITY 6u
 
 #define TRUST_BODY (FZN_PUBKEY_LEN + 1u + 8u)                 /* root, source, adopted_at */

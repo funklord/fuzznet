@@ -74,6 +74,7 @@ enum fzn_persist_tag : u8 {
 	note_share = 22,
 	shared_note = 23,
 	received_share = 24,
+	contact_group = 25,
 	default = error,
 }
 
@@ -277,6 +278,20 @@ struct fzn_persist_received_share_body {
 	u64 accepted_at;
 }
 
+// A group of contacts: its name, as a contact name, and its members' keys.
+// Filed under its id, a hash of its name. contact/group.c, sec 471.
+struct fzn_persist_group_member {
+	u8  key[32];
+}
+
+struct fzn_persist_contact_group_body {
+	u8  name_len [min = 1, max = 32];
+	u8  name[name_len];
+	u8  count [max = 64];
+	fzn_persist_group_member members[count];
+	u64 made_at;
+}
+
 // version | tag | body. The body is the arm the tag selects.
 struct fzn_persist_blob {
 	u8               version;
@@ -307,6 +322,7 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.note_share: fzn_persist_note_share_body note_share;
 		case fzn_persist_tag.shared_note: fzn_persist_shared_note_body shared_note;
 		case fzn_persist_tag.received_share: fzn_persist_received_share_body received_share;
+		case fzn_persist_tag.contact_group: fzn_persist_contact_group_body contact_group;
 		default: error;
 	}
 }

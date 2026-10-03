@@ -52728,7 +52728,8 @@ the node's own user, reads included.
 ### Not yet after sec 435
 
 - **Issuing and receiving shares**, pieces 2 and 3.
-- **Group shares**, and the group transport they need.
+- ~~**Group shares**, and the group transport they need.~~ Built in sec
+  471 as a grant per member, the holder's choice; no group transport.
 - ~~**The estate's other roots are not checked** by `add contact`.~~
   Every standing root is refused since sec 438.
 
@@ -52878,7 +52879,7 @@ share added before the grant is served once it is made.
   open; the pairing grants nothing a suspended contact can use.
 - ~~**`list peer` lists contacts among the members**, unmarked.~~ Marked
   `,contact` since sec 438.
-- **Group shares**, as before.
+- ~~**Group shares**, as before.~~ Sec 471.
 
 ### Measured for sec 436
 
@@ -53039,7 +53040,7 @@ are `list` and `get` over the sharer's store, made store-generic for it.
 - **`remove received` leaves the pairing**, which grants this node nothing
   and is replaced by the next accept.
 - ~~**A share's blob texts are not fetched.**~~ They are since sec 438.
-- **Group shares**, as before.
+- ~~**Group shares**, as before.~~ Sec 471.
 
 ### Measured for sec 437
 
@@ -54691,3 +54692,77 @@ ten years ahead, the clock set back: pinned at first, and a month later
 pinning nothing new.
 
 **Sabotage: two entries.**
+
+## 471. Group shares, 2026-10-03
+
+**A subtree can be shared with a group of contacts**, the holder's answer
+of 2026-10-03 to sec 435's "contacts only, groups later": a grant per
+member now, no group transport.
+
+- **A group is a name and its members' keys**, kept by the node beside its
+  contacts (`contact/group.h`). Its name follows a contact name's rule; a
+  share names it `@NAME`, which no contact name can be, so the two never
+  collide. Its id is a hash of a label and the name.
+- **A group share is one row, under the group's id.** A contact asking
+  reaches its own rows and those of every group it is in, read at the
+  moment it asks -- so a member added is served at once and one who
+  leaves is not, with no rows to keep in step. Each member still fetches
+  under its own `grant share`: that is the grant per member.
+- **A group removed reaches nobody**, and its share can still be taken
+  away: unsharing needs only the id, which the name gives.
+- **A contact removed is suspended whatever groups it is in**, by sec
+  454's refusal ahead of every hook.
+- **Persist slot 25, `FZN_PERSIST_CONTACT_GROUP`**, per group, core: a
+  group rolled back re-admits a member removed from it. 32 groups of 64.
+
+### The group verbs
+
+    add group NAME                 a new, empty group
+    remove group NAME              forget it; its shares reach nobody
+    add member GROUP CONTACT       a contact into the group
+    remove member GROUP CONTACT    and out of it
+    list group [FROM]              `ok TOTAL FROM NAME,COUNT ...`
+    get group NAME                 `ok COUNT CONTACT ...`, a forgotten
+                                   contact by its key
+    add share SUBTREE @GROUP       as with a contact, and `remove share`
+
+All need the node's own user, reads included, as contacts do. The notebook
+widget offers groups as `@NAME` after the contacts.
+
+**One bug the node test found, which the unit test had hidden:** the hash
+seam returns nonzero on success (`session/commitment.h`), `group.c` took
+zero, and `contact_test`'s toy hash returned zero -- so the two agreed and
+every real hash made no group. The toy returns nonzero now, and a failing
+hash is a case of its own.
+
+**And `make schema` left its situ extraction behind when it refused**, so
+a refused contract -- this section's, until the new tag was recorded --
+turned `make style` red on seventeen C sources no list names. Every
+refusal removes it now; a contract broken on purpose was refused and left
+nothing.
+
+### Not yet after sec 471
+
+- **A group of groups**, and groups fuzzypickles can see: fuzzypickles
+  keeps its own contacts, and adopting this module is the cross-project
+  pass sec 435 named.
+
+### Measured for sec 471
+
+**`contact_test`, 28 checks:** ids per name, names refused, a failing
+hash, add and TAKEN, joining twice keeping one, `ids_of`, name order,
+leaving and ABSENT, filling to 64 and one past it FULL, removing.
+
+**`notes_test`, 266 checks:** a member offered the folder and a
+non-member nothing, a member added served at once, one who leaves served
+nothing, a contact's own row separate from the group's, a removed group
+reaching nobody and its share still removable, `list share` naming
+`@family`.
+
+**`admin_test`, 161 checks:** the verbs, another user denied, a node with
+no hash refused, `get group` naming members by contact name.
+
+**`notebook_view_test`, 137 checks:** the chooser offering `carol` then
+`@family`, sharing and unsharing with the group.
+
+**Sabotage: eight entries.**

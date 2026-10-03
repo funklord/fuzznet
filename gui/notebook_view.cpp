@@ -501,6 +501,14 @@ void fzn_notebook_view::refresh_shares()
 		for (i = 2; i < words.size(); i++)
 			m_share_to->addItem(words[i].section(QLatin1Char(','), 0, 0));
 	}
+	/* `ok TOTAL FROM NAME,COUNT ...`: a group is shared with as `@NAME`,
+	 * which reaches whoever is in it when they ask. sec 471. */
+	if (ask(QStringLiteral("list group"), &detail) == 1) {
+		QStringList words = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+
+		for (i = 2; i < words.size(); i++)
+			m_share_to->addItem(QLatin1Char('@') + words[i].section(QLatin1Char(','), 0, 0));
+	}
 	i = m_share_to->findText(keep);
 	if (i >= 0)
 		m_share_to->setCurrentIndex(i);
@@ -928,6 +936,16 @@ QString fzn_notebook_view::title_text() const
 QString fzn_notebook_view::body_text() const
 {
 	return m_body->toPlainText();
+}
+
+QStringList fzn_notebook_view::share_targets() const
+{
+	QStringList all;
+	int i;
+
+	for (i = 0; i < m_share_to->count(); i++)
+		all << m_share_to->itemText(i);
+	return all;
 }
 
 QString fzn_notebook_view::shared_with() const

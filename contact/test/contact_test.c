@@ -2,6 +2,7 @@
  * order and bound, over `persist/`'s seam in memory. sec 435. */
 
 #include "../contact.h"
+#include "../group.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -26,7 +27,7 @@ struct row {
 	int used;
 	fzn_persist_slot_t slot;
 	uint8_t subject[FZN_PUBKEY_LEN];
-	uint8_t bytes[64];
+	uint8_t bytes[2200]; /* a full group: 64 members */
 	size_t len;
 };
 
@@ -112,6 +113,99 @@ static void key_of(uint8_t k, uint8_t out[FZN_PUBKEY_LEN])
 	memset(out, k, FZN_PUBKEY_LEN);
 }
 
+static int toy_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in, size_t in_len)
+{
+	size_t i;
+
+	(void)ctx;
+	memset(out, 0x5c, out_len);
+	for (i = 0; i < in_len; i++)
+		out[i % out_len] = (uint8_t)((out[i % out_len] * 31u) ^ in[i]);
+	return 1; /* nonzero is success, as the seam says */
+}
+
+static const fzn_hash_ops_t HASH = { toy_hash, NULL };
+
+static int failing_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in, size_t in_len)
+{
+	(void)ctx;
+	(void)in;
+	(void)in_len;
+	memset(out, 0, out_len);
+	return 0;
+}
+
+static const fzn_hash_ops_t FAILING = { failing_hash, NULL };
+
+/* GROUPS, sec 471. */
+static void test_groups(void)
+{
+	static fzn_group_t all[FZN_GROUPS_MAX];
+	uint8_t a[FZN_PUBKEY_LEN], b[FZN_PUBKEY_LEN], id1[FZN_PUBKEY_LEN], id2[FZN_PUBKEY_LEN];
+	uint8_t ids[4][FZN_PUBKEY_LEN];
+	fzn_group_t g;
+	size_t n = 0, i;
+	int ok = 1;
+
+	key_of(0x11, a);
+	key_of(0x22, b);
+	CHECK(fzn_group_id(&HASH, "family", 6u, id1) == FZN_CONTACT_OK
+	              && fzn_group_id(&HASH, "family", 6u, id2) == FZN_CONTACT_OK
+	              && memcmp(id1, id2, sizeof(id1)) == 0
+	              && fzn_group_id(&HASH, "work", 4u, id2) == FZN_CONTACT_OK
+	              && memcmp(id1, id2, sizeof(id1)) != 0,
+	      "a group's id is its name's, the same each time and another name's another");
+	CHECK(fzn_group_id(&FAILING, "family", 6u, id2) == FZN_CONTACT_ERR_MALFORMED
+	              && fzn_group_add(&OPS, &FAILING, "family", 6u, 1u) == FZN_CONTACT_ERR_MALFORMED,
+	      "a hash that fails makes no id and no group");
+	CHECK(fzn_group_id(&HASH, "fam ily", 7u, id2) == FZN_CONTACT_ERR_NAME
+	              && fzn_group_add(&OPS, &HASH, "@x", 2u, 1u) == FZN_CONTACT_ERR_NAME,
+	      "a group's name is a contact name, with no space and no @");
+	CHECK(fzn_group_add(&OPS, &HASH, "work", 4u, 5u) == FZN_CONTACT_OK
+	              && fzn_group_add(&OPS, &HASH, "family", 6u, 6u) == FZN_CONTACT_OK
+	              && fzn_group_add(&OPS, &HASH, "family", 6u, 7u) == FZN_CONTACT_ERR_TAKEN,
+	      "two groups are made, and a third with a name held is refused");
+	CHECK(fzn_group_join(&OPS, &HASH, "family", 6u, a) == FZN_CONTACT_OK
+	              && fzn_group_join(&OPS, &HASH, "family", 6u, a) == FZN_CONTACT_OK
+	              && fzn_group_join(&OPS, &HASH, "family", 6u, b) == FZN_CONTACT_OK
+	              && fzn_group_join(&OPS, &HASH, "work", 4u, b) == FZN_CONTACT_OK
+	              && fzn_group_find(&OPS, &HASH, "family", 6u, &g) == FZN_CONTACT_OK
+	              && g.count == 2u && memcmp(g.members[0], a, sizeof(a)) == 0
+	              && memcmp(g.id, id1, sizeof(id1)) == 0 && g.made_at_ms == 6u,
+	      "members join, a second join keeps one, and the group reads back");
+	CHECK(fzn_group_ids_of(&OPS, b, ids, 4u, &n) == FZN_CONTACT_OK && n == 2u
+	              && fzn_group_ids_of(&OPS, a, ids, 4u, &n) == FZN_CONTACT_OK && n == 1u
+	              && memcmp(ids[0], id1, sizeof(id1)) == 0,
+	      "the groups a key is in: b in both, a in family alone");
+	CHECK(fzn_group_list(&OPS, all, FZN_GROUPS_MAX, &n) == FZN_CONTACT_OK && n == 2u
+	              && strcmp(all[0].name, "family") == 0 && strcmp(all[1].name, "work") == 0,
+	      "groups list in name order");
+	CHECK(fzn_group_leave(&OPS, &HASH, "family", 6u, a) == FZN_CONTACT_OK
+	              && fzn_group_leave(&OPS, &HASH, "family", 6u, a) == FZN_CONTACT_ERR_ABSENT
+	              && fzn_group_find(&OPS, &HASH, "family", 6u, &g) == FZN_CONTACT_OK
+	              && g.count == 1u && memcmp(g.members[0], b, sizeof(b)) == 0,
+	      "a member leaves, and leaving again is absent");
+	for (i = 0; i < FZN_GROUP_MEMBERS_MAX && ok; i++) {
+		uint8_t k[FZN_PUBKEY_LEN];
+
+		memset(k, (int)(0x30 + i), sizeof(k));
+		k[1] = (uint8_t)i;
+		ok = fzn_group_join(&OPS, &HASH, "work", 4u, k) == FZN_CONTACT_OK
+		     || (i == FZN_GROUP_MEMBERS_MAX - 1u);
+	}
+	CHECK(ok && fzn_group_find(&OPS, &HASH, "work", 4u, &g) == FZN_CONTACT_OK
+	              && g.count == FZN_GROUP_MEMBERS_MAX,
+	      "a group fills to its bound and reads back whole");
+	key_of(0x99, a);
+	CHECK(fzn_group_join(&OPS, &HASH, "work", 4u, a) == FZN_CONTACT_ERR_FULL,
+	      "one past the bound is refused");
+	CHECK(fzn_group_remove(&OPS, &HASH, "work", 4u) == FZN_CONTACT_OK
+	              && fzn_group_find(&OPS, &HASH, "work", 4u, &g) == FZN_CONTACT_ERR_ABSENT
+	              && fzn_group_remove(&OPS, &HASH, "work", 4u) == FZN_CONTACT_ERR_ABSENT,
+	      "a group removed is gone, and removing it again is absent");
+	(void)fzn_group_remove(&OPS, &HASH, "family", 6u);
+}
+
 int main(void)
 {
 	static fzn_contact_t all[FZN_CONTACTS_MAX + 4u];
@@ -120,6 +214,7 @@ int main(void)
 	size_t n = 0, i;
 	int ok = 1;
 
+	test_groups();
 	key_of(0xaa, a);
 	key_of(0xbb, b);
 	key_of(0xcc, c);

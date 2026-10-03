@@ -163,7 +163,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              net/udp.c \
              node/node.c node/local.c node/remote.c node/serve.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
-             node/revoke.c node/roots.c node/notes.c contact/contact.c \
+             node/revoke.c node/roots.c node/notes.c contact/contact.c contact/group.c \
              node/received.c node/members.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
              chain/root_log.c \
@@ -255,7 +255,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              net/udp.h \
              node/node.h node/local.h node/remote.h node/serve.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
-             node/revoke.h node/roots.h node/notes.h contact/contact.h \
+             node/revoke.h node/roots.h node/notes.h contact/contact.h contact/group.h \
              node/received.h node/members.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
              chain/root_log.h \
@@ -2095,6 +2095,7 @@ $(BUILD_DIR)/notes/test/notes_store_test: $(BUILD_DIR)/notes/test/notes_store_te
 # contact/: the contact list. sec 435.
 $(BUILD_DIR)/contact/test/contact_test: $(BUILD_DIR)/contact/test/contact_test.o \
                                         $(BUILD_DIR)/contact/contact.o \
+                                        $(BUILD_DIR)/contact/group.o \
                                         $(BUILD_DIR)/persist/persist.o \
                                         $(BUILD_DIR)/trust/trust.o \
                                         $(BUILD_DIR)/session/agree.o \
@@ -2138,6 +2139,7 @@ $(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
                                    $(BUILD_DIR)/notes/received.o \
                                    $(BUILD_DIR)/notes/import.o \
                                    $(BUILD_DIR)/contact/contact.o \
+                                   $(BUILD_DIR)/contact/group.o \
                                    $(BUILD_DIR)/chain/service.o \
                                    $(BUILD_DIR)/notes/note.o \
                                    $(BUILD_DIR)/tree/tree.o \
@@ -3101,6 +3103,7 @@ $(BUILD_DIR)/gui/test/notebook_view_test: $(BUILD_DIR)/gui/test/notebook_view_te
                                      $(BUILD_DIR)/notes/received.o \
                                      $(BUILD_DIR)/notes/import.o \
                                      $(BUILD_DIR)/contact/contact.o \
+                                     $(BUILD_DIR)/contact/group.o \
                                      $(BUILD_DIR)/chain/service.o \
                                      $(BUILD_DIR)/notes/note.o \
                                      $(BUILD_DIR)/tree/tree.o \
@@ -3633,6 +3636,7 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o \
               $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/contact/contact.o \
+              $(BUILD_DIR)/contact/group.o \
               $(BUILD_DIR)/node/received.o $(BUILD_DIR)/notes/received.o \
               $(BUILD_DIR)/node/members.o \
               $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
@@ -3672,6 +3676,7 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/local/client.o \
               $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/contact/contact.o \
+              $(BUILD_DIR)/contact/group.o \
               $(BUILD_DIR)/node/received.o $(BUILD_DIR)/notes/received.o \
               $(BUILD_DIR)/node/members.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
@@ -3724,6 +3729,7 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/node/revoke.o \
               $(BUILD_DIR)/contact/contact.o \
+              $(BUILD_DIR)/contact/group.o \
               $(BUILD_DIR)/node/received.o \
               $(BUILD_DIR)/node/members.o \
               $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/provision/provision.o \
@@ -3858,6 +3864,7 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/contact/contact.o \
+                                      $(BUILD_DIR)/contact/group.o \
                                       $(BUILD_DIR)/node/received.o \
                                       $(BUILD_DIR)/log/capture.o \
                                       $(BUILD_DIR)/log/entry.o \
@@ -5872,11 +5879,15 @@ schema:
 		echo "schema: $(SITU_DIR) is not a git checkout, so nothing can be pinned"; \
 		rm -rf $(BUILD_DIR)/.situ-head; exit 1; \
 	fi
-	@$(BUILD_DIR)/.situ-head/bin/situc wire --check wire/frame.situ
-	@$(BUILD_DIR)/.situ-head/bin/situc map wire/frame.situ > $(BUILD_DIR)/.frame.map.new
+	@# A REFUSAL REMOVES THE EXTRACTION TOO: left in the tree, its C sources
+	@# are ones no list names, and `make style` goes red on them (sec 471).
+	@$(BUILD_DIR)/.situ-head/bin/situc wire --check wire/frame.situ \
+		|| { rm -rf $(BUILD_DIR)/.situ-head; exit 1; }
+	@$(BUILD_DIR)/.situ-head/bin/situc map wire/frame.situ > $(BUILD_DIR)/.frame.map.new \
+		|| { rm -rf $(BUILD_DIR)/.situ-head; exit 1; }
 	@if ! cmp -s $(BUILD_DIR)/.frame.map.new wire/frame.situ.map; then \
 		echo "schema: wire/frame.situ.map is stale -- the schema moved without it"; \
-		rm -f $(BUILD_DIR)/.frame.map.new; exit 1; \
+		rm -f $(BUILD_DIR)/.frame.map.new; rm -rf $(BUILD_DIR)/.situ-head; exit 1; \
 	fi
 	@rm -f $(BUILD_DIR)/.frame.map.new
 	@# The spec schemas: layouts converted to situ as a CHECKED CONTRACT (sec
@@ -5884,11 +5895,13 @@ schema:
 	@# hand-written codec still produces the bytes, and generating the
 	@# accessors (and the owned form) to replace each is the next increment.
 	@for s in $(SITU_SPECS); do \
-		$(BUILD_DIR)/.situ-head/bin/situc wire --check $$s || exit 1; \
-		$(BUILD_DIR)/.situ-head/bin/situc map $$s > $(BUILD_DIR)/.spec.map.new || exit 1; \
+		$(BUILD_DIR)/.situ-head/bin/situc wire --check $$s \
+			|| { rm -rf $(BUILD_DIR)/.situ-head; exit 1; }; \
+		$(BUILD_DIR)/.situ-head/bin/situc map $$s > $(BUILD_DIR)/.spec.map.new \
+			|| { rm -f $(BUILD_DIR)/.spec.map.new; rm -rf $(BUILD_DIR)/.situ-head; exit 1; }; \
 		if ! cmp -s $(BUILD_DIR)/.spec.map.new $$s.map; then \
 			echo "schema: $$s.map is stale -- the schema moved without it"; \
-			rm -f $(BUILD_DIR)/.spec.map.new; exit 1; \
+			rm -f $(BUILD_DIR)/.spec.map.new; rm -rf $(BUILD_DIR)/.situ-head; exit 1; \
 		fi; \
 		rm -f $(BUILD_DIR)/.spec.map.new; \
 	done

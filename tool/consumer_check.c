@@ -196,6 +196,7 @@
 #include <fuzznet/node/received.h>
 #include <fuzznet/node/members.h>
 #include <fuzznet/contact/contact.h>
+#include <fuzznet/contact/group.h>
 #include <fuzznet/node/notes.h>
 #include <fuzznet/trust/trust.h>
 #include <fuzznet/session/random_system.h>
@@ -340,6 +341,7 @@
 #include "node/received.h"
 #include "node/members.h"
 #include "contact/contact.h"
+#include "contact/group.h"
 #include "node/notes.h"
 #include "trust/trust.h"
 #include "session/random_system.h"
@@ -1034,6 +1036,13 @@ int main(void)
 			                          (const uint8_t *)"get", 3u, out, sizeof(out))
 			    != 0u)
 				FAIL(466);
+		}
+		/* A group's id needs a name that is a contact's (sec 471). */
+		{
+			uint8_t gid[FZN_PUBKEY_LEN];
+
+			if (fzn_group_id(NULL, "g", 1u, gid) != FZN_CONTACT_ERR_MALFORMED)
+				FAIL(478);
 		}
 		/* A contact's name is a peer name (sec 435). */
 		if (!fzn_contact_name_ok("alice", 5u) || fzn_contact_name_ok("a b", 3u))

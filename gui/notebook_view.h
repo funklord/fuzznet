@@ -124,6 +124,9 @@ public:
 	QString title_text() const;
 	QString body_text() const;
 	QString shared_with() const;
+	/* Whom the open note can be shared with: contacts by name, then groups
+	 * as `@NAME` (sec 471). */
+	QStringList share_targets() const;
 	QString warning() const;
 	bool editable() const;
 	QString open_id() const { return m_open; }

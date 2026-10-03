@@ -8399,6 +8399,62 @@ SABOTAGES = [
 		"replay. remote_test replays a captured frame; provision_test replays "
 		"a datagram over UDP.",
 	),
+	(
+		"group-hash-nonzero-is-success",
+		"contact/group.c",
+		"\tif (!hash->hash(hash->ctx, out, FZN_PUBKEY_LEN, in, sizeof(LABEL) + len))\n",
+		"\tif (hash->hash(hash->ctx, out, FZN_PUBKEY_LEN, in, sizeof(LABEL) + len) != 0)\n",
+		"a group's id is taken from a hash that failed, and every real hash reads as failing -- sec 471",
+	),
+	(
+		"group-join-once",
+		"contact/group.c",
+		"\t\tif (memcmp(g.members[i], key, FZN_PUBKEY_LEN) == 0)\n\t\t\treturn FZN_CONTACT_OK;\n",
+		"",
+		"a contact joined twice is two members, and leaving once leaves it in -- sec 471",
+	),
+	(
+		"group-leave-removes",
+		"contact/group.c",
+		"\t\t\tg.count--;\n",
+		"",
+		"a member who leaves is still served what the group was shared -- sec 471",
+	),
+	(
+		"group-ids-of-members-only",
+		"contact/group.c",
+		"\t\t\tif (memcmp(all[i].members[j], key, FZN_PUBKEY_LEN) == 0) {\n",
+		"\t\t\tif (1) {\n",
+		"a contact in no group is served every group's shares -- sec 471",
+	),
+	(
+		"group-scope-reads-membership",
+		"node/notes.c",
+		"\tif (fzn_group_ids_of(n->store.ops, sender, groups, FZN_GROUPS_MAX, &n_groups)\n\t    == FZN_CONTACT_OK)\n",
+		"\tif (0)\n",
+		"a subtree shared with a group reaches none of its members -- sec 471",
+	),
+	(
+		"group-unshare-by-id",
+		"node/notes.c",
+		"\t\t           : fzn_group_id(n->store.hash, (const char *)name + 1, name_len - 1u,\n\t\t                          group.id);\n",
+		"\t\t           : fzn_group_find(n->store.ops, n->store.hash, (const char *)name + 1,\n\t\t                            name_len - 1u, &group);\n",
+		"a share with a group since removed can never be taken away -- sec 471",
+	),
+	(
+		"group-share-listed-by-name",
+		"node/notes.c",
+		"\t\t} else if (fzn_group_get(n->store.ops, all[i].contact, &group) == FZN_CONTACT_OK) {\n",
+		"\t\t} else if (0 && fzn_group_get(n->store.ops, all[i].contact, &group) == FZN_CONTACT_OK) {\n",
+		"a group's share lists as a bare key, and a person cannot tell it from a forgotten contact -- sec 471",
+	),
+	(
+		"admin-group-own-user",
+		"node/admin.c",
+		"\t\tif (origin != FZN_ORIGIN_SAME_USER)\n\t\t\treturn answer_text(reply, reply_cap, FZN_REPLY_DENIED,\n\t\t\t                   \"groups need this node's own user\");\n",
+		"",
+		"another user on the machine edits who this user's shares reach -- sec 471",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

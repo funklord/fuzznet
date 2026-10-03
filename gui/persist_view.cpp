@@ -70,6 +70,8 @@ static QString slot_label(fzn_persist_slot_t slot)
 		return QStringLiteral("shared note");
 	case FZN_PERSIST_RECEIVED_SHARE:
 		return QStringLiteral("received share");
+	case FZN_PERSIST_CONTACT_GROUP:
+		return QStringLiteral("contact group");
 	}
 	/* NO `default:` ABOVE, so a slot added to persist.h draws a -Wswitch
 	 * warning here rather than being drawn as this. */

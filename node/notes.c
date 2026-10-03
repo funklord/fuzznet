@@ -5,6 +5,7 @@
 #include "notes.h"
 
 #include "../contact/contact.h"
+#include "../contact/group.h"
 #include "../notes/received.h"
 #include "../notes/share.h"
 #include "../notes/text.h"
@@ -1114,7 +1115,20 @@ static size_t change_share(fzn_node_notes_t *n, int add, const uint8_t *at, size
 	 * will ever hold, which is not a subtree anybody chose. */
 	if (fzn_tree_is_root(subtree))
 		return say(reply, cap, FZN_REPLY_MALFORMED, "share a note, not the top");
-	cerr = fzn_contact_find(n->store.ops, (const char *)name, name_len, &contact);
+	/* `@NAME` IS A GROUP, sec 471, which no contact name can be: the row
+	 * goes under the group's id. Unsharing needs only the id, so a share
+	 * with a group since removed can still be taken away. */
+	if (name_len > 1u && name[0] == '@') {
+		static fzn_group_t group;
+
+		cerr = add ? fzn_group_find(n->store.ops, n->store.hash, (const char *)name + 1,
+		                            name_len - 1u, &group)
+		           : fzn_group_id(n->store.hash, (const char *)name + 1, name_len - 1u,
+		                          group.id);
+		memcpy(contact.key, group.id, FZN_PUBKEY_LEN);
+	} else {
+		cerr = fzn_contact_find(n->store.ops, (const char *)name, name_len, &contact);
+	}
 	if (cerr != FZN_CONTACT_OK)
 		return say(reply, cap,
 		           cerr == FZN_CONTACT_ERR_NAME ? FZN_REPLY_MALFORMED : FZN_REPLY_ERROR,
@@ -1166,6 +1180,7 @@ static size_t list_shares(fzn_node_notes_t *n, const uint8_t *at, size_t left, c
 		return 0;
 	used = (size_t)m;
 	for (i = from; i < count; i++) {
+		static fzn_group_t group;
 		fzn_contact_t contact;
 		char who[FZN_PUBKEY_LEN * 2u];
 		size_t who_len;
@@ -1173,6 +1188,11 @@ static size_t list_shares(fzn_node_notes_t *n, const uint8_t *at, size_t left, c
 		if (fzn_contact_get(n->store.ops, all[i].contact, &contact) == FZN_CONTACT_OK) {
 			memcpy(who, contact.name, contact.name_len);
 			who_len = contact.name_len;
+		} else if (fzn_group_get(n->store.ops, all[i].contact, &group) == FZN_CONTACT_OK) {
+			/* A GROUP'S ROW, sec 471, as it was named. */
+			who[0] = '@';
+			memcpy(who + 1, group.name, group.name_len);
+			who_len = 1u + group.name_len;
 		} else {
 			hex_of(all[i].contact, FZN_PUBKEY_LEN, who);
 			who_len = sizeof(who);
@@ -1513,14 +1533,28 @@ static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender,
                          fzn_notes_sync_scope_t *scope)
 {
 	static uint8_t seeds[FZN_NOTES_SHARES_MAX][FZN_TREE_ID_LEN];
-	size_t seed_count = 0;
+	static uint8_t groups[FZN_GROUPS_MAX][FZN_PUBKEY_LEN];
+	size_t seed_count = 0, n_groups = 0, g;
 
 	scope->ids = (const uint8_t (*)[FZN_TREE_ID_LEN])reach;
 	scope->count = 0;
-	if (sender
-	    && fzn_notes_share_with(&n->store, sender, seeds, FZN_NOTES_SHARES_MAX, &seed_count)
-	               == FZN_NOTES_OK
-	    && seed_count && fzn_notes_view_load(&n->store, &view) == FZN_NOTES_OK)
+	if (!sender
+	    || fzn_notes_share_with(&n->store, sender, seeds, FZN_NOTES_SHARES_MAX, &seed_count)
+	               != FZN_NOTES_OK)
+		return;
+	/* AND EVERY GROUP'S IT IS IN, sec 471: a group share is one row under
+	 * the group's id, so membership is read now, at the request. */
+	if (fzn_group_ids_of(n->store.ops, sender, groups, FZN_GROUPS_MAX, &n_groups)
+	    == FZN_CONTACT_OK)
+		for (g = 0; g < n_groups && seed_count < FZN_NOTES_SHARES_MAX; g++) {
+			size_t more = 0;
+
+			if (fzn_notes_share_with(&n->store, groups[g], seeds + seed_count,
+			                         FZN_NOTES_SHARES_MAX - seed_count, &more)
+			    == FZN_NOTES_OK)
+				seed_count += more;
+		}
+	if (seed_count && fzn_notes_view_load(&n->store, &view) == FZN_NOTES_OK)
 		scope->count = fzn_notes_share_reach(&view, (const uint8_t (*)[FZN_TREE_ID_LEN])seeds,
 		                                     seed_count, reach, FZN_NOTES_MAX);
 }

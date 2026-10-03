@@ -11,6 +11,7 @@
 
 #include "../notes.h"
 #include "../../contact/contact.h"
+#include "../../contact/group.h"
 #include "../../notes/received.h"
 #include "../../notes/text.h"
 
@@ -609,6 +610,56 @@ static void test_share(void)
 	CHECK(ask(line) == FZN_REPLY_OK && indexed(carol, 1) == 0,
 	      "unshared, carol is offered nothing");
 	CHECK(ask(line) == FZN_REPLY_ERROR, "and unsharing again is refused");
+}
+
+/* GROUP SHARES, sec 471: a subtree shared with `@NAME` reaches whoever is
+ * in the group when they ask, and nobody once they leave. */
+static void test_group_share(void)
+{
+	uint8_t carol[FZN_PUBKEY_LEN], dave[FZN_PUBKEY_LEN];
+	char f[65], line[200], want[200];
+
+	setup(1);
+	memset(carol, 0xc4, sizeof(carol));
+	memset(dave, 0xd4, sizeof(dave));
+	CHECK(fzn_contact_add(&OPS, carol, "carol", 5u, 1u) == FZN_CONTACT_OK
+	              && fzn_contact_add(&OPS, dave, "dave", 4u, 1u) == FZN_CONTACT_OK
+	              && fzn_group_add(&OPS, &HASH, "family", 6u, 1u) == FZN_CONTACT_OK
+	              && fzn_group_join(&OPS, &HASH, "family", 6u, carol) == FZN_CONTACT_OK,
+	      "fixture: carol in the group family, dave in none");
+	CHECK(ask("add folder top shared") == FZN_REPLY_OK, "fixture: a folder");
+	take_id(f);
+	snprintf(line, sizeof(line), "add note %s inside", f);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: a note in it");
+
+	snprintf(line, sizeof(line), "add share %s @nobody", f);
+	CHECK(ask(line) == FZN_REPLY_ERROR, "a group that is not there is refused");
+	snprintf(line, sizeof(line), "add share %s @family", f);
+	CHECK(ask(line) == FZN_REPLY_OK, "the folder is shared with the group");
+	snprintf(want, sizeof(want), "1 0 %s,@family", f);
+	CHECK(ask("list share") == FZN_REPLY_OK && !strcmp(detail_of(), want),
+	      "list share names the group as it was named");
+	CHECK(indexed(carol, 1) == 2, "a member is offered the folder and its note");
+	CHECK(indexed(dave, 1) == 0, "a contact in no group is offered nothing");
+
+	CHECK(fzn_group_join(&OPS, &HASH, "family", 6u, dave) == FZN_CONTACT_OK
+	              && indexed(dave, 1) == 2,
+	      "a member added is served at once");
+	CHECK(fzn_group_leave(&OPS, &HASH, "family", 6u, carol) == FZN_CONTACT_OK
+	              && indexed(carol, 1) == 0,
+	      "and one who leaves is served nothing at once");
+
+	snprintf(line, sizeof(line), "add share %s carol", f);
+	CHECK(ask(line) == FZN_REPLY_OK && indexed(carol, 1) == 2,
+	      "a contact's own share and a group's are separate rows");
+	CHECK(fzn_group_remove(&OPS, &HASH, "family", 6u) == FZN_CONTACT_OK
+	              && indexed(dave, 1) == 0,
+	      "a group removed reaches nobody");
+	snprintf(line, sizeof(line), "remove share %s @family", f);
+	CHECK(ask(line) == FZN_REPLY_OK, "and its share can still be taken away");
+	snprintf(want, sizeof(want), "1 0 %s,carol", f);
+	CHECK(ask("list share") == FZN_REPLY_OK && !strcmp(detail_of(), want),
+	      "leaving carol's own");
 }
 
 /* READING A SHARER'S TREE, sec 437: `list shared` and `get shared` over
@@ -1228,6 +1279,7 @@ int main(void)
 	test_trash();
 	test_admission();
 	test_share();
+	test_group_share();
 	test_shared_reads();
 	test_import();
 	test_checklist();
