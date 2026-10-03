@@ -40,7 +40,7 @@ static int toy(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in, size_
 	memset(out, 0, out_len);
 	for (i = 0; i < in_len; i++)
 		out[i % out_len] = (uint8_t)(out[i % out_len] ^ in[i]);
-	return 0;
+	return 1; /* nonzero is success, as the seam says */
 }
 #endif
 static size_t reply_cap = 600u;

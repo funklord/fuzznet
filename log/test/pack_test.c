@@ -42,10 +42,21 @@ static int toy(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in, size_
 			h = (h ^ in[i]) * 16777619u;
 		out[w] = (uint8_t)(h ^ (h >> 13) ^ (h >> 24));
 	}
-	return 0;
+	return 1; /* nonzero is success, as the seam says */
 }
 
 static const fzn_hash_ops_t HASH = { toy, NULL };
+
+static int refusing(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in, size_t in_len)
+{
+	(void)ctx;
+	(void)in;
+	(void)in_len;
+	memset(out, 0, out_len);
+	return 0;
+}
+
+static const fzn_hash_ops_t REFUSING = { refusing, NULL };
 static char top[64];
 static uint8_t seg[300000], back[400000];
 
@@ -174,6 +185,14 @@ static void test_one_segment(void)
 		CHECK(fzn_log_pack_verify(zst, prev, &HASH, other) == FZN_LOG_PACK_ERR_CHAIN,
 		      "a trailer whose hash is not the chain over the bytes is refused");
 	}
+	/* A HASH THAT REFUSES packs nothing and verifies nothing: the seam's
+	 * zero is failure. */
+	n = make_segment(log, 97u);
+	CHECK(n && fzn_log_pack_segment(log, zst, prev, &REFUSING, h) == FZN_LOG_PACK_ERR_CHAIN,
+	      "a hash that refuses packs nothing");
+	CHECK(fzn_log_pack_segment(log, zst, prev, &HASH, h) == FZN_LOG_PACK_OK
+	              && fzn_log_pack_verify(zst, prev, &REFUSING, other) == FZN_LOG_PACK_ERR_CHAIN,
+	      "and verifies nothing");
 	(void)remove(log);
 	(void)remove(zst);
 }

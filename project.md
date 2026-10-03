@@ -54344,7 +54344,9 @@ to its end. No daemon was left running, and nothing was written under the
 account's own `~/.local/state`.
 
 **Not measured live: packing and pruning**, which need a rotation and a
-round ten seconds after it; `pack_test` and `logger_test` cover them.
+round ten seconds after it; ~~`pack_test` and `logger_test` cover them~~ --
+they did not: packing failed with every real hash until sec 473, and a toy
+hash that agreed with the bug is why `pack_test` passed.
 
 **Sabotage: one entry**, caught only on a machine without
 `/etc/machine-id`, like this one.
@@ -54827,3 +54829,31 @@ on a purge left over from above.
   rebuilt `fuzznetd`, and the stale binary released nothing.
 
 **Sabotage: six entries.**
+
+## 473. Packing never worked with a real hash, 2026-10-03
+
+**Every segment fuzznetd closed since sec 461 stayed unpacked.** `log/pack.c`
+took the hash seam's zero as success; the seam returns nonzero on success
+(`session/commitment.h`), so Monocypher's hash refused the first chunk of
+every segment and each round warned "closed log segments would not all
+pack". `pack_test`'s toy hash returned zero and agreed with the bug, as did
+`gather_test`'s, which reads packed segments through it. That is the same
+inversion sec 471 found in `contact/group.c`. A sweep of every call through
+the seam found no third: the rest read nonzero as success.
+
+Sec 461 said `pack_test` covered packing and left it unmeasured live. The
+test covered the mechanism against a hash that does not behave like the
+real one.
+
+### Measured for sec 473
+
+**`pack_test`, 32 checks:** the toy now returns nonzero, and a hash that
+refuses packs nothing and verifies nothing.
+
+**Live**, a closed segment of 200 lines an hour old put in fuzznetd's log
+directory:
+
+- the binary built before the fix warned and left it unpacked;
+- the fixed one logged `1 log segment(s) packed`, and `zstdcat` gives the
+  202 lines -- header, entries, trailer -- with the first trailer's
+  zero `prev`.

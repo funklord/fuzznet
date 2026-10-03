@@ -70,14 +70,16 @@ static int from_hex(const char *t, uint8_t *out, size_t n)
 	return 1;
 }
 
-/* state = H(state || c). */
+/* state = H(state || c). NONZERO IS SUCCESS on this seam, as
+ * `session/commitment.h` says; read the other way, every real hash refused
+ * the first chunk and nothing ever packed. */
 static int fold_chunk(const fzn_hash_ops_t *hash, uint8_t state[FZN_LOG_PACK_HASH_LEN],
                       const uint8_t *c, size_t n)
 {
 	memcpy(fold, state, FZN_LOG_PACK_HASH_LEN);
 	memcpy(fold + FZN_LOG_PACK_HASH_LEN, c, n);
 	return hash->hash(hash->ctx, state, FZN_LOG_PACK_HASH_LEN, fold, FZN_LOG_PACK_HASH_LEN + n)
-	       == 0;
+	       != 0;
 }
 
 /* ---- packing one segment -------------------------------------------------- */

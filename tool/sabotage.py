@@ -8497,6 +8497,13 @@ SABOTAGES = [
 		"",
 		"emptying the trash leaves a purge pinned to a node gone a month, waiting until the next round -- sec 472",
 	),
+	(
+		"pack-hash-nonzero-is-success",
+		"log/pack.c",
+		"\treturn hash->hash(hash->ctx, state, FZN_LOG_PACK_HASH_LEN, fold, FZN_LOG_PACK_HASH_LEN + n)\n\t       != 0;\n",
+		"\treturn hash->hash(hash->ctx, state, FZN_LOG_PACK_HASH_LEN, fold, FZN_LOG_PACK_HASH_LEN + n)\n\t       == 0;\n",
+		"every real hash refuses the first chunk and fuzznetd never packs a segment -- sec 473",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
