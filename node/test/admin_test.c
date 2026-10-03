@@ -966,6 +966,45 @@ int main(void)
 		state.hash = was;
 	}
 
+	/* ---- RETENTION RULES, sec 475: kept, listed one word each, removed. */
+	{
+		const fzn_hash_ops_t *was = state.hash;
+
+		state.hash = &hash_ops;
+		CHECK(ask(&admin, &member, "list retention", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_DENIED,
+		      "another user read this user's retention rules");
+		CHECK(ask(&admin, &owner, "add retention prune * level=D ages 1d", reply, sizeof(reply),
+		          &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_MALFORMED,
+		      "a rule that is not one was not malformed");
+		CHECK(ask(&admin, &owner, "add retention prune fuzznetd level=TD age 48h", reply,
+		          sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && ask(&admin, &owner, "add retention prune fuzznetd level=DT age 2d", reply,
+		                     sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR,
+		      "a rule was not kept, or its other spelling was kept twice");
+		CHECK(ask(&admin, &owner, "list retention", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && detail_len == strlen("1 prune%20fuzznetd%20level=DT%20age%202d")
+		              && says(detail, detail_len, "1 prune%20fuzznetd%20level=DT%20age%202d"),
+		      "the rule was not listed once, in one escaped word of its canonical text");
+		CHECK(ask(&admin, &owner, "remove retention prune fuzznetd level=D level=T age 2d",
+		          reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_MALFORMED
+		              && ask(&admin, &owner, "remove retention prune fuzznetd level=DT age 172800",
+		                     reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && ask(&admin, &owner, "list retention", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && detail_len == 1u && detail[0] == '0',
+		      "the rule was not removed by a third spelling of it");
+		state.hash = was;
+	}
+
 	/* ---- SHARES, sec 436: `grant share` pairs a contact's node for the
 	 * share capability, from this node's own key; the contact is then a
 	 * peer and still no member, and its requests reach only the notes. */

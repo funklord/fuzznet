@@ -88,6 +88,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "a share this host accepted, and where it is pulled from";
 	case FZN_PERSIST_CONTACT_GROUP:
 		return "a group of contacts a subtree can be shared with";
+	case FZN_PERSIST_LOG_RULE:
+		return "a retention rule for this host's logs";
 	}
 	*known = 0;
 	return "an unknown slot";

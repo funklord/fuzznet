@@ -221,11 +221,55 @@ static void test_entries(void)
 	      "a walk over every program, or past the rule bound, is refused");
 }
 
+/* ONE SPELLING, sec 475: a rule kept under its text is kept once. */
+static void test_text(void)
+{
+	static const char *const PAIRS[][2] = {
+		{ "prune * age 720h", "prune * age 30d" },
+		{ "keep netcfgd level=TD subsystem=notes count 5",
+		  "keep netcfgd level=DT subsystem=notes count 5" },
+		{ "prune * subsystem=a/b level=E age 90", "prune * level=E subsystem=a/b age 90s" },
+		{ "keep * size 1048576", "keep * size 1M" },
+		{ "keep * size 1000", "keep * size 1000" },
+		{ "prune x age 0", "prune x age 0d" },
+	};
+	size_t i;
+	int all = 1;
+
+	for (i = 0; i < sizeof(PAIRS) / sizeof(PAIRS[0]); i++) {
+		fzn_retain_rule_t a = rule(PAIRS[i][0]), back;
+		char t[FZN_RETAIN_TEXT_MAX];
+		size_t len = 0;
+
+		if (fzn_retain_text(&a, t, sizeof(t), &len) != FZN_RETAIN_OK
+		    || strcmp(t, PAIRS[i][1]) != 0 || len != strlen(t)
+		    || fzn_retain_parse(t, len, &back) != FZN_RETAIN_OK
+		    || memcmp(&a, &back, sizeof(a)) != 0) {
+			fprintf(stderr, "  text of \"%s\" was \"%s\"\n", PAIRS[i][0], t);
+			all = 0;
+		}
+	}
+	CHECK(all, "every rule has one text, the largest unit dividing it, the levels and "
+	           "selectors in order, and it parses back to the same rule");
+	{
+		fzn_retain_rule_t a = rule("prune * age 1d");
+		char t[8], big[FZN_RETAIN_TEXT_MAX];
+		size_t len = 0;
+
+		CHECK(fzn_retain_text(&a, t, sizeof(t), &len) == FZN_RETAIN_ERR_MALFORMED,
+		      "a text that does not fit is refused, not cut");
+		a.value += 1u;
+		CHECK(fzn_retain_text(&a, big, sizeof(big), &len) == FZN_RETAIN_ERR_MALFORMED,
+		      "an age the parser could not have given is refused");
+	}
+}
+
 int main(void)
 {
 	test_lines();
 	test_plans();
 	test_entries();
+	test_text();
 	if (failures) {
 		fprintf(stderr, "retain_test: %d of %d checks failed\n", failures, checks);
 		return 1;

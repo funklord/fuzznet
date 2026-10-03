@@ -68,6 +68,7 @@
 #include "../log/entry.h"
 #include "../log/cause.h"
 #include "../log/view.h"
+#include "../log/rules.h"
 #ifdef FZN_LOG_FILE_ON
 #include "../log/gather.h"
 #include "../log/logger.h"
@@ -112,6 +113,9 @@ static struct {
 	fzn_ring_t ring;
 	fzn_retain_rule_t rules[FZND_LOG_RULES_MAX];
 	size_t n_rules;
+	/* THE RULES SET WHILE RUNNING, sec 475: read from the store on every
+	 * pass, so `add retention` applies from the next round. */
+	const fzn_persist_ops_t *store;
 	const fzn_hash_ops_t *hash;
 	char ring_path[FZN_LOGGER_PATH_MAX + 32u];
 	uint64_t last_dump_us;
@@ -285,7 +289,8 @@ static void on_caused(void *ctx, const uint8_t *sender, const fzn_entry_name_t *
 static void log_round(void)
 {
 #ifdef FZN_LOG_FILE_ON
-	size_t n = 0;
+	static fzn_retain_rule_t rules[FZND_LOG_RULES_MAX + FZN_LOG_RULES_MAX];
+	size_t n = 0, n_rules = 0;
 
 	if (!dlog.on)
 		return;
@@ -297,14 +302,32 @@ static void log_round(void)
 	else if (n)
 		say(FZN_ENTRY_INFO, "log", "%zu log segment(s) packed", n);
 #endif
+	/* THE COMMAND LINE'S RULES AND THE STORE'S, sec 475. A store whose
+	 * rules will not read applies the command line's alone, and says so. */
+	{
+		size_t held = 0;
+
+		memcpy(rules, dlog.rules, dlog.n_rules * sizeof(rules[0]));
+		n_rules = dlog.n_rules;
+		if (dlog.store) {
+			fzn_log_rules_err_t rerr = fzn_log_rules_list(dlog.store, rules + n_rules,
+			                                              FZN_LOG_RULES_MAX, &held);
+
+			if (rerr != FZN_LOG_RULES_OK)
+				say(FZN_ENTRY_WARNING, "log", "the stored log rules: %s",
+				    fzn_log_rules_err_str(rerr));
+			else
+				n_rules += held;
+		}
+	}
 #ifdef FZN_LOG_PACK_ON
 	/* THE RULES OVER ENTRIES TOO, sec 474: a packed segment some of whose
 	 * lines go is repacked without them. */
 	{
 		size_t gone = 0, repacked = 0;
 
-		if (dlog.n_rules && dlog.hash
-		    && fzn_log_pack_retain(dlog.logger.dir, "fuzznetd", dlog.rules, dlog.n_rules,
+		if (n_rules && dlog.hash
+		    && fzn_log_pack_retain(dlog.logger.dir, "fuzznetd", rules, n_rules,
 		                           dlog.hash, log_now_us(), &gone, &repacked)
 		               != FZN_LOG_PACK_OK)
 			say(FZN_ENTRY_WARNING, "log", "the log rules could not all be applied");
@@ -313,11 +336,11 @@ static void log_round(void)
 			    "%zu log segment(s) removed and %zu repacked by the rules", gone, repacked);
 	}
 #else
-	if (dlog.n_rules && fzn_logger_retain(dlog.logger.dir, "fuzznetd", dlog.rules, dlog.n_rules,
-	                                      log_now_us(), &n)
-	                            != FZN_LOGGER_OK)
+	if (n_rules && fzn_logger_retain(dlog.logger.dir, "fuzznetd", rules, n_rules, log_now_us(),
+	                                 &n)
+	                       != FZN_LOGGER_OK)
 		say(FZN_ENTRY_WARNING, "log", "the log rules could not all be applied");
-	else if (dlog.n_rules && n)
+	else if (n_rules && n)
 		say(FZN_ENTRY_INFO, "log", "%zu log segment(s) removed by the rules", n);
 #endif
 #endif
@@ -1489,6 +1512,9 @@ int main(int argc, char **argv)
 		}
 		fzn_persist_route_ops(&route, &routed);
 		store_ops = &routed;
+#ifdef FZN_LOG_FILE_ON
+		dlog.store = store_ops;
+#endif
 	} else if (cli.store) {
 		fprintf(stderr, "fuzznetd: --fuzznet-store needs --fuzznet-dir: the identity "
 		                "and what keeps attackers out live in the core directory\n");

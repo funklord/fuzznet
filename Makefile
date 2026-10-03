@@ -164,6 +164,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/node.c node/local.c node/remote.c node/serve.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/notes.c contact/contact.c contact/group.c \
+             log/rules.c \
              node/received.c node/members.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
              chain/root_log.c \
@@ -256,6 +257,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/node.h node/local.h node/remote.h node/serve.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/notes.h contact/contact.h contact/group.h \
+             log/rules.h \
              node/received.h node/members.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
              chain/root_log.h \
@@ -410,7 +412,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              trust/test/trust_test.c \
              trust/test/trust_walk_test.c \
              log/test/log_test.c log/test/capture_test.c log/test/entry_test.c \
-             log/test/ring_test.c log/test/retain_test.c log/test/cause_test.c \
+             log/test/ring_test.c log/test/retain_test.c log/test/rules_test.c log/test/cause_test.c \
              log/test/view_test.c \
              wire/test/relay_test.c \
              sched/test/sched_test.c \
@@ -540,6 +542,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/log/test/entry_test \
              $(BUILD_DIR)/log/test/ring_test \
              $(BUILD_DIR)/log/test/retain_test \
+             $(BUILD_DIR)/log/test/rules_test \
              $(BUILD_DIR)/log/test/cause_test \
              $(BUILD_DIR)/log/test/view_test \
              $(BUILD_DIR)/wire/test/relay_test \
@@ -2019,6 +2022,19 @@ $(BUILD_DIR)/log/test/view_test: $(BUILD_DIR)/log/test/view_test.o \
 # The prune and keep rules: pure. sec 460.
 $(BUILD_DIR)/log/test/retain_test: $(BUILD_DIR)/log/test/retain_test.o \
                                    $(BUILD_DIR)/log/retain.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The retention rules a node keeps, over the store in memory. sec 475.
+$(BUILD_DIR)/log/test/rules_test: $(BUILD_DIR)/log/test/rules_test.o \
+                                  $(BUILD_DIR)/log/rules.o \
+                                  $(BUILD_DIR)/log/retain.o \
+                                  $(BUILD_DIR)/persist/persist.o \
+                                  $(BUILD_DIR)/trust/trust.o \
+                                  $(BUILD_DIR)/session/agree.o \
+                                  $(BUILD_DIR)/prekey/prekey.o \
+                                  $(BUILD_DIR)/ratchet/ratchet.o \
+                                  $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -3641,6 +3657,8 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/contact/contact.o \
               $(BUILD_DIR)/contact/group.o \
+              $(BUILD_DIR)/log/rules.o \
+              $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/node/received.o $(BUILD_DIR)/notes/received.o \
               $(BUILD_DIR)/node/members.o \
               $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
@@ -3681,6 +3699,8 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/contact/contact.o \
               $(BUILD_DIR)/contact/group.o \
+              $(BUILD_DIR)/log/rules.o \
+              $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/node/received.o $(BUILD_DIR)/notes/received.o \
               $(BUILD_DIR)/node/members.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
@@ -3734,6 +3754,7 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/node/revoke.o \
               $(BUILD_DIR)/contact/contact.o \
               $(BUILD_DIR)/contact/group.o \
+              $(BUILD_DIR)/log/rules.o \
               $(BUILD_DIR)/node/received.o \
               $(BUILD_DIR)/node/members.o \
               $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/provision/provision.o \
@@ -3869,6 +3890,7 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/contact/contact.o \
                                       $(BUILD_DIR)/contact/group.o \
+                                      $(BUILD_DIR)/log/rules.o \
                                       $(BUILD_DIR)/node/received.o \
                                       $(BUILD_DIR)/log/capture.o \
                                       $(BUILD_DIR)/log/entry.o \

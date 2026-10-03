@@ -7,6 +7,7 @@
 #include "../provision/provision.h"
 #include "../contact/contact.h"
 #include "../contact/group.h"
+#include "../log/rules.h"
 #include "../notes/received.h"
 #include "../log/cause.h"
 #include "members.h"
@@ -893,6 +894,73 @@ static size_t get_group(fzn_node_admin_t *admin, const uint8_t *rest, size_t res
 	return answer(reply, cap, FZN_REPLY_OK, detail, used);
 }
 
+/* ---- retention rules, sec 475 ------------------------------------------- */
+
+/* `add retention RULE` and `remove retention RULE`: a rule of
+ * `log/retain.h`'s, kept in the store and applied by the writer from its
+ * next pass. Either spelling of a rule removes it. */
+static size_t change_retention(fzn_node_admin_t *admin, int add, const uint8_t *rest,
+                               size_t rest_len, char *reply, size_t cap)
+{
+	fzn_retain_rule_t rule;
+	fzn_log_rules_err_t err;
+
+	if (!rest_len || fzn_retain_parse((const char *)rest, rest_len, &rule) != FZN_RETAIN_OK)
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED,
+		                   "prune|keep PROGRAM|* [level=LETTERS] [subsystem=PATH] "
+		                   "age|size|count N");
+	err = add ? fzn_log_rules_add(admin->store, admin->state->hash, &rule,
+	                              admin->state->clock ? admin->state->clock() * 1000u : 0u)
+	          : fzn_log_rules_remove(admin->store, admin->state->hash, &rule);
+	if (err == FZN_LOG_RULES_OK)
+		return answer_text(reply, cap, FZN_REPLY_OK, NULL);
+	return answer_text(reply, cap,
+	                   err == FZN_LOG_RULES_ERR_MALFORMED ? FZN_REPLY_MALFORMED : FZN_REPLY_ERROR,
+	                   fzn_log_rules_err_str(err));
+}
+
+/* `list retention`: `ok COUNT RULE ...`, each rule in its canonical text with
+ * a byte below 0x21, `%` and `,` as `%XX`, so a rule is one word. */
+static size_t list_retention(fzn_node_admin_t *admin, char *reply, size_t cap)
+{
+	static fzn_retain_rule_t rules[FZN_LOG_RULES_MAX];
+	static char detail[FZN_REPLY_MAX];
+	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	size_t count = 0, used, i, j;
+	fzn_log_rules_err_t err = fzn_log_rules_list(admin->store, rules, FZN_LOG_RULES_MAX, &count);
+	int n;
+
+	if (err != FZN_LOG_RULES_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_log_rules_err_str(err));
+	n = snprintf(detail, sizeof(detail), "%zu", count);
+	if (n < 0 || (size_t)n >= limit)
+		return 0;
+	used = (size_t)n;
+	for (i = 0; i < count; i++) {
+		char text[FZN_RETAIN_TEXT_MAX], word[(FZN_RETAIN_TEXT_MAX * 3u) + 2u];
+		size_t len = 0, w = 0;
+
+		if (fzn_retain_text(&rules[i], text, sizeof(text), &len) != FZN_RETAIN_OK)
+			return answer_text(reply, cap, FZN_REPLY_ERROR, "a held rule will not read");
+		word[w++] = ' ';
+		for (j = 0; j < len; j++) {
+			unsigned char c = (unsigned char)text[j];
+
+			if (c < 0x21u || c == '%' || c == ',' || c == 0x7fu) {
+				(void)snprintf(word + w, 4u, "%%%02X", c);
+				w += 3u;
+			} else {
+				word[w++] = (char)c;
+			}
+		}
+		if (limit - used < w)
+			return answer_text(reply, cap, FZN_REPLY_ERROR, "the rules do not fit a line");
+		memcpy(detail + used, word, w);
+		used += w;
+	}
+	return answer(reply, cap, FZN_REPLY_OK, detail, used);
+}
+
 /* `grant share NAME PREKEY`: pair the contact NAME's node, whose prekey
  * record this is, for the share capability, and answer the card it accepts.
  * sec 436. Granted by this node's own key whatever the estate's root is: a
@@ -1238,6 +1306,26 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 		                    reply_cap);
 	}
 not_groups:
+	/* RETENTION RULES, sec 475: the node's own user, whose logs they are. */
+	{
+		const uint8_t *r_rest = NULL;
+		size_t r_len = 0;
+
+		if (subject_word(request, "retention", &r_rest, &r_len)
+		    && (request->parsed == FZN_VERB_ADD || request->parsed == FZN_VERB_REMOVE
+		        || request->parsed == FZN_VERB_LIST)) {
+			if (origin != FZN_ORIGIN_SAME_USER)
+				return answer_text(reply, reply_cap, FZN_REPLY_DENIED,
+				                   "retention rules need this node's own user");
+			if (!admin->store || !admin->state->hash)
+				return answer_text(reply, reply_cap, FZN_REPLY_ERROR,
+				                   "this node keeps no rules");
+			if (request->parsed == FZN_VERB_LIST)
+				return list_retention(admin, reply, reply_cap);
+			return change_retention(admin, request->parsed == FZN_VERB_ADD, r_rest, r_len,
+			                        reply, reply_cap);
+		}
+	}
 	/* NOTES, sec 431, when this node keeps them. */
 	if (admin->notes_local) {
 		size_t n = admin->notes_local(admin->notes_ctx, origin, request, reply, reply_cap);

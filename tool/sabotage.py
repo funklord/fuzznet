@@ -8574,6 +8574,62 @@ SABOTAGES = [
 		"\treturn t->hash;\n",
 		"a reader carries a repacked segment's new hash, and every segment after it stops verifying -- sec 474",
 	),
+	(
+		"log-rules-filed-by-text",
+		"log/rules.c",
+		"\tif (!hash->hash(hash->ctx, subject, FZN_PUBKEY_LEN, in, sizeof(LABEL) + *len))\n",
+		"\tif (!hash->hash(hash->ctx, subject, FZN_PUBKEY_LEN, in, sizeof(LABEL)))\n",
+		"every rule is filed under one subject, so a second rule is refused as the first -- sec 475",
+	),
+	(
+		"log-rules-held-once",
+		"log/rules.c",
+		"\tif (err == FZN_LOG_RULES_OK)\n\t\treturn FZN_LOG_RULES_ERR_TAKEN;\n",
+		"",
+		"adding a held rule again reports success, and the user is never told it was already in force -- sec 475",
+	),
+	(
+		"log-rules-bounded",
+		"log/rules.c",
+		"\tif (count >= FZN_LOG_RULES_MAX)\n\t\treturn FZN_LOG_RULES_ERR_FULL;\n",
+		"",
+		"rules grow past what a list returns, and then the writer cannot read any of them -- sec 475",
+	),
+	(
+		"log-rules-shape-refuses",
+		"log/rules.c",
+		"\t\tif (err != FZN_LOG_RULES_OK)\n\t\t\treturn err == FZN_LOG_RULES_ERR_ABSENT ? FZN_LOG_RULES_ERR_SHAPE : err;\n",
+		"\t\tif (err != FZN_LOG_RULES_OK)\n\t\t\tcontinue;\n",
+		"a held rule that will not read is silently dropped, and logs are kept or pruned against the user's word -- sec 475",
+	),
+	(
+		"log-rules-hash-nonzero-is-success",
+		"log/rules.c",
+		"\tif (!hash->hash(hash->ctx, subject, FZN_PUBKEY_LEN, in, sizeof(LABEL) + *len))\n",
+		"\tif (hash->hash(hash->ctx, subject, FZN_PUBKEY_LEN, in, sizeof(LABEL) + *len) != 0)\n",
+		"every real hash refuses, and no rule can be kept -- sec 475",
+	),
+	(
+		"admin-retention-own-user",
+		"node/admin.c",
+		"\t\t\tif (origin != FZN_ORIGIN_SAME_USER)\n\t\t\t\treturn answer_text(reply, reply_cap, FZN_REPLY_DENIED,\n\t\t\t\t                   \"retention rules need this node's own user\");\n",
+		"",
+		"another user on the machine prunes this user's logs -- sec 475",
+	),
+	(
+		"admin-retention-one-word",
+		"node/admin.c",
+		"\t\t\tif (c < 0x21u || c == '%' || c == ',' || c == 0x7fu) {\n",
+		"\t\t\tif (c == '%' || c == ',' || c == 0x7fu) {\n",
+		"a listed rule spills over several words, and a client reads each word as a rule -- sec 475",
+	),
+	(
+		"retain-text-largest-unit",
+		"log/retain.c",
+		"\t\t\tif (v % AGE[i].us == 0u) {\n\t\t\t\tv /= AGE[i].us;\n\t\t\t\tunit[0] = AGE[i].u;\n\t\t\t\tbreak;\n",
+		"\t\t\tif (v % AGE[i].us == 0u) {\n\t\t\t\tv /= AGE[i].us;\n\t\t\t\tunit[0] = AGE[i].u;\n",
+		"an age is divided by every unit in turn, and 'age 30d' is written as a different number -- sec 475",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

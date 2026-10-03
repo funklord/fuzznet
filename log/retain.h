@@ -107,6 +107,17 @@ typedef struct fzn_retain_segment {
 /* A rule from its line. */
 fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_t *out);
 
+/* The longest line `fzn_retain_text` writes, its NUL included. */
+#define FZN_RETAIN_TEXT_MAX 256u
+
+/* A rule as its line, in one spelling: the selectors in the order the
+ * syntax gives them, the levels in `CEWNIVDT` order, and the number in the
+ * largest unit that divides it. Two lines naming one rule -- `30d` and
+ * `720h` -- give one text, so a rule kept under its text is kept once
+ * (sec 475). NUL-terminated; its length in `*len`. */
+fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_t cap,
+                                 size_t *len);
+
 /* THE PLAN for `program`'s `n` segments at `now_us`: `remove[i]` set to 1
  * for each that goes, 0 for each that stays. The segments may come in any
  * order. Segment rules only: an entry rule is not weighed here. */

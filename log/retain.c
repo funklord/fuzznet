@@ -2,6 +2,7 @@
 
 #include "retain.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* Segments one plan ranks; past it a plan refuses rather than guesses. */
@@ -200,6 +201,65 @@ fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_
 		return FZN_RETAIN_ERR_MALFORMED;
 	if (!number(w[3], n[3], out->limit, &out->value))
 		return FZN_RETAIN_ERR_MALFORMED;
+	return FZN_RETAIN_OK;
+}
+
+static int rule_ok(const fzn_retain_rule_t *r);
+
+fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_t cap,
+                                 size_t *len)
+{
+	static const char LETTERS[] = "CEWNIVDT";
+	char levels[9], unit[2] = { 0, 0 };
+	uint64_t v;
+	size_t i, k = 0;
+	int n;
+
+	if (!rule || !out || !len || !rule_ok(rule))
+		return FZN_RETAIN_ERR_MALFORMED;
+	for (i = 0; i < 8u; i++)
+		if (rule->levels & (1u << (i + 1u)))
+			levels[k++] = LETTERS[i];
+	levels[k] = '\0';
+	v = rule->value;
+	if (rule->limit == FZN_RETAIN_AGE) {
+		static const struct { uint64_t us; char u; } AGE[] = {
+			{ 86400u * (uint64_t)1000000u, 'd' }, { 3600u * (uint64_t)1000000u, 'h' },
+			{ 60u * (uint64_t)1000000u, 'm' },    { 1000000u, 's' },
+		};
+
+		/* A whole number of seconds at least: the parser takes no finer. */
+		if (v % 1000000u)
+			return FZN_RETAIN_ERR_MALFORMED;
+		for (i = 0; i < 4u; i++)
+			if (v % AGE[i].us == 0u) {
+				v /= AGE[i].us;
+				unit[0] = AGE[i].u;
+				break;
+			}
+	} else if (rule->limit == FZN_RETAIN_SIZE && v) {
+		static const struct { uint64_t b; char u; } SIZE[] = {
+			{ 1024u * 1024u * (uint64_t)1024u, 'G' }, { 1024u * 1024u, 'M' }, { 1024u, 'K' },
+		};
+
+		for (i = 0; i < 3u; i++)
+			if (v % SIZE[i].b == 0u) {
+				v /= SIZE[i].b;
+				unit[0] = SIZE[i].u;
+				break;
+			}
+	}
+	n = snprintf(out, cap, "%s %s%s%s%s%s %s %llu%s",
+	             rule->kind == FZN_RETAIN_PRUNE ? "prune" : "keep", rule->program,
+	             k ? " level=" : "", levels, rule->subsystem[0] ? " subsystem=" : "",
+	             rule->subsystem,
+	             rule->limit == FZN_RETAIN_AGE    ? "age"
+	             : rule->limit == FZN_RETAIN_SIZE ? "size"
+	                                              : "count",
+	             (unsigned long long)v, unit);
+	if (n <= 0 || (size_t)n >= cap)
+		return FZN_RETAIN_ERR_MALFORMED;
+	*len = (size_t)n;
 	return FZN_RETAIN_OK;
 }
 

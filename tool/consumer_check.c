@@ -197,6 +197,7 @@
 #include <fuzznet/node/members.h>
 #include <fuzznet/contact/contact.h>
 #include <fuzznet/contact/group.h>
+#include <fuzznet/log/rules.h>
 #include <fuzznet/node/notes.h>
 #include <fuzznet/trust/trust.h>
 #include <fuzznet/session/random_system.h>
@@ -342,6 +343,7 @@
 #include "node/members.h"
 #include "contact/contact.h"
 #include "contact/group.h"
+#include "log/rules.h"
 #include "node/notes.h"
 #include "trust/trust.h"
 #include "session/random_system.h"
@@ -1043,6 +1045,18 @@ int main(void)
 
 			if (fzn_group_id(NULL, "g", 1u, gid) != FZN_CONTACT_ERR_MALFORMED)
 				FAIL(478);
+		}
+		/* A rule kept is kept in one spelling (sec 475). */
+		{
+			fzn_retain_rule_t r;
+			char t[FZN_RETAIN_TEXT_MAX];
+			size_t len = 0;
+
+			if (fzn_retain_parse("prune * age 720h", 16u, &r) != FZN_RETAIN_OK
+			    || fzn_retain_text(&r, t, sizeof(t), &len) != FZN_RETAIN_OK
+			    || strcmp(t, "prune * age 30d") != 0
+			    || fzn_log_rules_add(NULL, NULL, &r, 0u) != FZN_LOG_RULES_ERR_MALFORMED)
+				FAIL(479);
 		}
 		/* A contact's name is a peer name (sec 435). */
 		if (!fzn_contact_name_ok("alice", 5u) || fzn_contact_name_ok("a b", 3u))

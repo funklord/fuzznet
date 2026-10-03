@@ -75,6 +75,7 @@ enum fzn_persist_tag : u8 {
 	shared_note = 23,
 	received_share = 24,
 	contact_group = 25,
+	log_rule = 26,
 	default = error,
 }
 
@@ -292,6 +293,15 @@ struct fzn_persist_contact_group_body {
 	u64 made_at;
 }
 
+// A retention rule set while the node runs: its canonical text, 1 to 255
+// bytes, and when it was added. Filed under a hash of the text.
+// log/rules.c, sec 475.
+struct fzn_persist_log_rule_body {
+	u8  text_len [min = 1, max = 255];
+	u8  text[text_len];
+	u64 added_at;
+}
+
 // version | tag | body. The body is the arm the tag selects.
 struct fzn_persist_blob {
 	u8               version;
@@ -323,6 +333,7 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.shared_note: fzn_persist_shared_note_body shared_note;
 		case fzn_persist_tag.received_share: fzn_persist_received_share_body received_share;
 		case fzn_persist_tag.contact_group: fzn_persist_contact_group_body contact_group;
+		case fzn_persist_tag.log_rule: fzn_persist_log_rule_body log_rule;
 		default: error;
 	}
 }

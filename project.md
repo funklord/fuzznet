@@ -54959,3 +54959,83 @@ two closed segments of 25 debug and 25 info lines three days old:
 
 **Sabotage: ten entries**, and three of sec 460's re-aimed at the code they
 guard now.
+
+## 475. Retention rules set while a node runs, 2026-10-03
+
+**The local half of the holder's "dynamic retention amounts"** (sec 474):
+the node's own user changes the rules through admin, the node keeps them,
+and the writer reads them again on every pass, so a change applies from the
+next round with no restart.
+
+### The retention verbs
+
+    add retention RULE      keep a rule (`log/retain.h`'s line)
+    remove retention RULE   by any spelling of it
+    list retention          `ok COUNT RULE ...`, each rule one word
+
+- **All three need the node's own user**: the logs and the rules are that
+  user's.
+- **In a listing**, a byte below 0x21, `%` and `,` are `%XX`, as notes
+  replies escape, so `prune fuzznetd level=DT age 2d` lists as
+  `prune%20fuzznetd%20level=DT%20age%202d`.
+
+### One rule, one spelling
+
+`fzn_retain_text` writes a rule in one spelling:
+
+- the selectors in the syntax's order;
+- the levels in `CEWNIVDT` order;
+- the number in the largest unit that divides it.
+
+So `age 720h`, `age 30d` and `age 2592000` are one rule. `log/rules`
+files each under a hash of that text in persist slot 26, `LOG_RULE`, so a
+rule is kept once and removed by any spelling. Sixteen are kept, half of
+what one plan weighs; the command line's `--log-rule` takes the other half,
+and both apply. A held rule that will not read makes the list refuse
+rather than drop it, since a rule silently missing is a log kept or pruned
+against the user's word. fuzznetd then applies the command line's rules
+alone and says so.
+
+**Not core**: lost, a rule stops applying and logs are kept longer; rolled
+back, a removed rule prunes again. Retention decides how long a host keeps
+its own logs, not who reads them.
+
+### Not yet after sec 475
+
+- **Rules as estate state** (sec 428): replicated and scoped as any
+  setting. **The holder's to decide:** who may set one -- a root, as k is
+  (sec 418), or each host's own user for that host -- and how two
+  concurrent rule sets resolve. Sec 389's "the more restrictive" does not
+  settle retention, where keeping longer and pruning sooner are both
+  "safer" in different directions.
+- **Text as a selector.**
+
+### Measured for sec 475
+
+**`retain_test`, 32 checks:** six rules each in its one spelling and
+parsing back to the same rule; a text that does not fit, and an age the
+parser could not have given, refused.
+
+**`rules_test`, 10 checks, new:**
+
+- two rules kept, and the first again in days refused as held;
+- listed in canonical order and spelling, and removed by the other
+  spelling;
+- a refusing hash, a rule that is not one, and a store that cannot list
+  refused;
+- the bound, sixteen;
+- a held entry whose text no longer parses making the list refuse.
+
+**`admin_test`, 166 checks**, five new: another user denied, a rule that is
+not one malformed, `48h` then `2d` held once, listed as one escaped word,
+removed by a third spelling in seconds.
+
+**Live, fuzznetd** with no `--log-rule`, and two closed segments of 25
+debug and 25 info lines:
+
+- the first round packed them, 50 debug lines kept: the control;
+- `add retention prune fuzznetd level=TD age 24h` gave `ok`, the same rule
+  in days was refused as held, and `list retention` showed one rule;
+- the next round repacked both segments, leaving 0 debug and 50 info lines.
+
+**Sabotage: eight entries.**
