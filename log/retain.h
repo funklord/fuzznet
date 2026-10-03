@@ -35,7 +35,8 @@
  * one some of which go is REWRITTEN without them (`log/pack.h`'s repack,
  * which keeps the chain). With no entry rule a segment goes whole or not at
  * all, exactly as before. A machine and a user are the directory's already
- * (sec 458), and text is not a selector yet.
+ * (sec 458). TEXT, since sec 477, selects the entries whose text holds a
+ * substring -- the last of sec 428's selectors.
  *
  * THE CURRENT FILE IS NEVER A CANDIDATE: only closed segments, packed or
  * not, are planned over. Removing the oldest packed segments leaves the
@@ -43,10 +44,14 @@
  *
  * A RULE AS TEXT, one line, for configuration:
  *
- *     prune|keep PROGRAM|* [level=LETTERS] [subsystem=PATH] age|size|count N[unit]
+ *     prune|keep PROGRAM|* [level=LETTERS] [subsystem=PATH] [text=MATCH]
+ *                age|size|count N[unit]
  *
  * LETTERS from `CEWNIVDT` (`level=DT`, debug and trace); PATH a subsystem
- * and everything below it (`subsystem=notes` is `notes` and `notes/sync`).
+ * and everything below it (`subsystem=notes` is `notes` and `notes/sync`);
+ * MATCH 1 to 64 bytes an entry's text must hold, a byte below 0x21, `%`,
+ * `,` and 0x7f written `%XX` so the rule stays one line of words
+ * (`text=link%20up`). No NUL.
  *
  * age units s, m, h, d (bare is seconds); size units K, M, G (bare is
  * bytes, powers of 1024); count takes no unit.
@@ -84,6 +89,8 @@ typedef enum fzn_retain_limit {
 /* Rules one plan or walk weighs: a command line's, a node's own and the
  * estate's (secs 475, 476). */
 #define FZN_RETAIN_RULES_MAX 64u
+/* The longest text a rule matches, sec 477. */
+#define FZN_RETAIN_MATCH_MAX 64u
 
 typedef struct fzn_retain_rule {
 	fzn_retain_kind_t kind;
@@ -92,6 +99,10 @@ typedef struct fzn_retain_rule {
 	 * named; a subsystem path, "" for none. Neither named: a segment rule. */
 	uint16_t levels;
 	char subsystem[FZN_ENTRY_SUBSYSTEM_MAX + 1u];
+	/* A substring the entry's text must hold, `match_len` bytes, 0 for
+	 * none. sec 477. */
+	uint8_t match[FZN_RETAIN_MATCH_MAX];
+	size_t match_len;
 	fzn_retain_limit_t limit;
 	uint64_t value;
 } fzn_retain_rule_t;
@@ -157,9 +168,11 @@ fzn_retain_err_t fzn_retain_walk_init(fzn_retain_walk_t *walk, const char *progr
                                       const fzn_retain_rule_t *rules, size_t n_rules,
                                       uint64_t now_us);
 
-/* 1 when the entry written at `time_us` at `level` by `subsystem`, `bytes`
- * long as a line, in a segment the segment rules marked `mark`, goes. */
+/* 1 when the entry written at `time_us` at `level` by `subsystem`, saying
+ * `text` (unescaped, `text_len` bytes), `bytes` long as a line, in a
+ * segment the segment rules marked `mark`, goes. */
 int fzn_retain_walk_entry(fzn_retain_walk_t *walk, uint8_t mark, uint64_t time_us,
-                          fzn_entry_level_t level, const char *subsystem, uint64_t bytes);
+                          fzn_entry_level_t level, const char *subsystem, const uint8_t *text,
+                          size_t text_len, uint64_t bytes);
 
 #endif /* FZN_LOG_RETAIN_H */

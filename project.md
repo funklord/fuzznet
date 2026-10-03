@@ -55006,7 +55006,7 @@ its own logs, not who reads them.
   2026-10-03 -- an estate-wide admin and root capability, scopable, the
   estate's and a host's rules combining as one set. Roots, estate-wide,
   built in sec 476.
-- **Text as a selector.**
+- ~~**Text as a selector.**~~ Built in sec 477.
 
 ### Measured for sec 475
 
@@ -55150,3 +55150,45 @@ segment of 20 debug and 20 info lines three days old.
   was changed, a pulled rule waited a further round to apply.
 
 **Sabotage: eight entries.**
+
+## 477. Text as a retention selector, 2026-10-03
+
+The last of sec 428's selectors: a rule may name a substring an entry's
+text must hold.
+
+    prune * text=link%20up age 7d
+
+- **Matched against the entry's text unescaped**, as the classic line
+  parser gives it, so a match is the bytes a person reads.
+- **Written escaped**: a byte below 0x21, `%`, `,` and 0x7f as `%XX`, as
+  replies escape. The rule stays one line of words, and its canonical text
+  (`fzn_retain_text`) spells the hex in capitals, so `%2c` and `%2C` are one
+  rule.
+- **1 to 64 bytes, no NUL**; a match twice, a bare comma and a short or bad
+  escape are refused.
+- **It selects entries**, as level and subsystem do, and combines with
+  them: `prune fuzznetd level=D text=retry age 1d`.
+- **`fzn_retain_walk_entry` takes the entry's text**, so its callers pass
+  it; `log/pack`'s is the one in the tree.
+
+A rule's canonical text must still fit its store -- 255 bytes kept by a
+node (sec 475), 127 in an estate record (sec 476) -- so a rule naming a long
+subsystem and a long match may be one only a command line can give.
+
+### Measured for sec 477
+
+**`retain_test`, 35 checks:**
+
+- a match unescaped and selecting entries;
+- refused: an empty match, a NUL, a short and a bad escape, a bare comma,
+  a match twice and one past 64 bytes;
+- an entry holding the text going, and one without it, or with no text,
+  staying;
+- a match's canonical spelling, after the level, hex in capitals.
+
+**Live, fuzznetd:** `add retention prune fuzznetd text=line%201 age 1d`
+over two closed segments of 50 lines each, `line 1` to `line 50`. The next
+round repacked both: 78 lines left and none holding `line 1` -- the 22
+that did, `line 1` and `line 10` to `line 19` in each.
+
+**Sabotage: three entries.**

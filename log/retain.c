@@ -99,6 +99,50 @@ static int levels_of(const char *w, size_t n, uint16_t *out)
 	return 1;
 }
 
+/* `%XX`-escaped text into `out`: 1 to FZN_RETAIN_MATCH_MAX bytes, no NUL,
+ * and every byte that must be escaped escaped -- so one match has one
+ * spelling apart from the case of its hex digits. */
+static int match_of(const char *w, size_t n, uint8_t *out, size_t *len)
+{
+	size_t i, k = 0;
+
+	for (i = 0; i < n; i++) {
+		unsigned char c = (unsigned char)w[i];
+
+		if (k == FZN_RETAIN_MATCH_MAX)
+			return 0;
+		if (c == '%') {
+			unsigned v = 0, j;
+
+			if (i + 2u >= n)
+				return 0;
+			for (j = 1; j <= 2u; j++) {
+				char h = w[i + j];
+
+				v <<= 4;
+				if (h >= '0' && h <= '9')
+					v |= (unsigned)(h - '0');
+				else if (h >= 'A' && h <= 'F')
+					v |= (unsigned)(h - 'A' + 10);
+				else if (h >= 'a' && h <= 'f')
+					v |= (unsigned)(h - 'a' + 10);
+				else
+					return 0;
+			}
+			if (v == 0u)
+				return 0;
+			out[k++] = (uint8_t)v;
+			i += 2u;
+		} else if (c < 0x21u || c == ',' || c == 0x7fu) {
+			return 0;
+		} else {
+			out[k++] = c;
+		}
+	}
+	*len = k;
+	return k > 0u;
+}
+
 /* Digits, then at most one unit letter, the product within a u64. */
 static int number(const char *w, size_t n, fzn_retain_limit_t limit, uint64_t *out)
 {
@@ -149,8 +193,8 @@ static int number(const char *w, size_t n, fzn_retain_limit_t limit, uint64_t *o
 
 fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_t *out)
 {
-	const char *at = line, *end, *w[7];
-	size_t n[7], count = 0, i;
+	const char *at = line, *end, *w[8];
+	size_t n[8], count = 0, i;
 
 	if (!line || !out)
 		return FZN_RETAIN_ERR_MALFORMED;
@@ -158,14 +202,18 @@ fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_
 	if (len && line[len - 1u] == '\n')
 		len--;
 	end = line + len;
-	while (count < 7u && next_word(&at, end, &w[count], &n[count]))
+	while (count < 8u && next_word(&at, end, &w[count], &n[count]))
 		count++;
-	/* KIND PROGRAM [level=] [subsystem=] LIMIT N: four words to six. */
-	if (count < 4u || count > 6u)
+	/* KIND PROGRAM [level=] [subsystem=] [text=] LIMIT N: four words to
+	 * seven. */
+	if (count < 4u || count > 7u)
 		return FZN_RETAIN_ERR_MALFORMED;
 	for (i = 2; i < count - 2u; i++) {
 		if (n[i] > 6u && memcmp(w[i], "level=", 6u) == 0 && !out->levels) {
 			if (!levels_of(w[i] + 6, n[i] - 6u, &out->levels))
+				return FZN_RETAIN_ERR_MALFORMED;
+		} else if (n[i] > 5u && memcmp(w[i], "text=", 5u) == 0 && !out->match_len) {
+			if (!match_of(w[i] + 5, n[i] - 5u, out->match, &out->match_len))
 				return FZN_RETAIN_ERR_MALFORMED;
 		} else if (n[i] > 10u && memcmp(w[i], "subsystem=", 10u) == 0 && !out->subsystem[0]) {
 			if (!subsystem_ok(w[i] + 10, n[i] - 10u))
@@ -210,7 +258,7 @@ fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_
                                  size_t *len)
 {
 	static const char LETTERS[] = "CEWNIVDT";
-	char levels[9], unit[2] = { 0, 0 };
+	char levels[9], unit[2] = { 0, 0 }, match[(FZN_RETAIN_MATCH_MAX * 3u) + 7u];
 	uint64_t v;
 	size_t i, k = 0;
 	int n;
@@ -221,6 +269,25 @@ fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_
 		if (rule->levels & (1u << (i + 1u)))
 			levels[k++] = LETTERS[i];
 	levels[k] = '\0';
+	/* THE MATCH, escaped as the parser reads it, hex in capitals. */
+	match[0] = '\0';
+	if (rule->match_len) {
+		size_t m = 0;
+
+		memcpy(match, " text=", 6u);
+		m = 6u;
+		for (i = 0; i < rule->match_len; i++) {
+			unsigned char c = rule->match[i];
+
+			if (c < 0x21u || c == '%' || c == ',' || c == 0x7fu) {
+				(void)snprintf(match + m, 4u, "%%%02X", c);
+				m += 3u;
+			} else {
+				match[m++] = (char)c;
+			}
+		}
+		match[m] = '\0';
+	}
 	v = rule->value;
 	if (rule->limit == FZN_RETAIN_AGE) {
 		static const struct { uint64_t us; char u; } AGE[] = {
@@ -249,10 +316,10 @@ fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_
 				break;
 			}
 	}
-	n = snprintf(out, cap, "%s %s%s%s%s%s %s %llu%s",
+	n = snprintf(out, cap, "%s %s%s%s%s%s%s %s %llu%s",
 	             rule->kind == FZN_RETAIN_PRUNE ? "prune" : "keep", rule->program,
 	             k ? " level=" : "", levels, rule->subsystem[0] ? " subsystem=" : "",
-	             rule->subsystem,
+	             rule->subsystem, match,
 	             rule->limit == FZN_RETAIN_AGE    ? "age"
 	             : rule->limit == FZN_RETAIN_SIZE ? "size"
 	                                              : "count",
@@ -319,12 +386,14 @@ static int rule_ok(const fzn_retain_rule_t *r)
 	       && program_ok(r->program, strlen(r->program))
 	       && (r->levels & ~(uint16_t)0x1feu) == 0u
 	       && memchr(r->subsystem, '\0', sizeof(r->subsystem)) != NULL
-	       && (!r->subsystem[0] || subsystem_ok(r->subsystem, strlen(r->subsystem)));
+	       && (!r->subsystem[0] || subsystem_ok(r->subsystem, strlen(r->subsystem)))
+	       && r->match_len <= FZN_RETAIN_MATCH_MAX
+	       && memchr(r->match, '\0', r->match_len) == NULL;
 }
 
 int fzn_retain_rule_selects_entries(const fzn_retain_rule_t *rule)
 {
-	return rule && (rule->levels || rule->subsystem[0]);
+	return rule && (rule->levels || rule->subsystem[0] || rule->match_len);
 }
 
 int fzn_retain_reads_entries(const char *program, const fzn_retain_rule_t *rules,
@@ -435,14 +504,28 @@ fzn_retain_err_t fzn_retain_walk_init(fzn_retain_walk_t *walk, const char *progr
 	return FZN_RETAIN_OK;
 }
 
+/* `text` holds `match`. */
+static int holds(const uint8_t *text, size_t text_len, const uint8_t *match, size_t match_len)
+{
+	size_t i;
+
+	if (match_len > text_len)
+		return 0;
+	for (i = 0; i + match_len <= text_len; i++)
+		if (memcmp(text + i, match, match_len) == 0)
+			return 1;
+	return 0;
+}
+
 int fzn_retain_walk_entry(fzn_retain_walk_t *walk, uint8_t mark, uint64_t time_us,
-                          fzn_entry_level_t level, const char *subsystem, uint64_t bytes)
+                          fzn_entry_level_t level, const char *subsystem, const uint8_t *text,
+                          size_t text_len, uint64_t bytes)
 {
 	int pruned = (mark & FZN_RETAIN_MARK_PRUNED) != 0;
 	int kept = (mark & FZN_RETAIN_MARK_KEPT) != 0;
 	size_t r;
 
-	if (!walk || !subsystem)
+	if (!walk || !subsystem || (!text && text_len))
 		return 0;
 	for (r = 0; r < walk->n_rules; r++) {
 		const fzn_retain_rule_t *rule = &walk->rules[r];
@@ -453,6 +536,8 @@ int fzn_retain_walk_entry(fzn_retain_walk_t *walk, uint8_t mark, uint64_t time_u
 		if (rule->levels && ((unsigned)level > 8u || !(rule->levels & (1u << (unsigned)level))))
 			continue;
 		if (rule->subsystem[0] && !under(subsystem, rule->subsystem))
+			continue;
+		if (rule->match_len && !holds(text, text_len, rule->match, rule->match_len))
 			continue;
 		/* NEWEST FIRST: what the rule has selected before this entry is
 		 * what is newer than it. */

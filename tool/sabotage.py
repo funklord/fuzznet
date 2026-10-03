@@ -8686,6 +8686,27 @@ SABOTAGES = [
 		"",
 		"an estate rule is neither kept nor carried, and stays on the root that set it -- sec 476",
 	),
+	(
+		"retain-walk-selects-text",
+		"log/retain.c",
+		"\t\tif (rule->match_len && !holds(text, text_len, rule->match, rule->match_len))\n\t\t\tcontinue;\n",
+		"",
+		"a rule for lines holding some text prunes every line -- sec 477",
+	),
+	(
+		"retain-text-match-has-no-nul",
+		"log/retain.c",
+		"\t\t\tif (v == 0u)\n\t\t\t\treturn 0;\n",
+		"",
+		"a match holding a NUL is taken, and no reader can tell where it ends -- sec 477",
+	),
+	(
+		"retain-text-match-is-escaped",
+		"log/retain.c",
+		"\t\t} else if (c < 0x21u || c == ',' || c == 0x7fu) {\n\t\t\treturn 0;\n",
+		"\t\t} else if (0) {\n\t\t\treturn 0;\n",
+		"a match with a bare comma is taken, and the same match has two spellings -- sec 477",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

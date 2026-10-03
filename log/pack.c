@@ -628,7 +628,7 @@ static int judge(fzn_retain_walk_t *walk, uint8_t mark, const uint8_t *b, size_t
 		if (fzn_entry_classic_parse(line, len, no_machine, &e, host, text, sizeof(text))
 		    == FZN_ENTRY_OK)
 			drop[i] = (uint8_t)fzn_retain_walk_entry(walk, mark, e.time_us, e.level,
-			                                         e.subsystem, len);
+			                                         e.subsystem, e.text, e.text_len, len);
 		else
 			drop[i] = (uint8_t)whole;
 		if (drop[i])
