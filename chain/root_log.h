@@ -345,4 +345,56 @@ int fzn_quorum_winner(const uint8_t *records, size_t count, const struct fzn_roo
                       const fzn_hash_ops_t *hash, uint8_t *k,
                       uint8_t winner[FZN_ROOT_ACT_ID_LEN]);
 
+/*
+ * THE ESTATE'S RETENTION RULES, SET BY A ROOT. sec 476, the holder's word of
+ * 2026-10-03: setting retention is an estate-wide admin and root capability,
+ * scopable, started simple -- roots first, estate-wide.
+ *
+ *     retention-set  version | object | setter[32] | replaces[32] | text[128] | signature
+ *
+ * ONE RULE A RECORD. `text` is the rule's line (`log/retain.h`), in its
+ * canonical spelling by convention, NUL-padded; this layer checks only that
+ * it is printable, since the chain does not read log rules. A record with
+ * no text REMOVES the rule it replaces, and must replace one. A record
+ * that replaces another with text CHANGES it.
+ *
+ * WHICH RULES APPLY: a record counts as a quorum setting does -- its
+ * setter's act under the root set -- and the CURRENT records are the
+ * counting ones no counting record replaces. Every current record with
+ * text is a rule of the estate. Two roots adding rules without seeing each
+ * other leaves both, which is the holder's "combine as one rule set".
+ * Logged as an act of kind FZN_ROOT_ACT_SETTING, as a setting of k is.
+ */
+#define FZN_RETENTION_SET_OFF_SETTER 2u
+#define FZN_RETENTION_SET_OFF_REPLACES 34u
+#define FZN_RETENTION_SET_OFF_TEXT 66u
+#define FZN_RETENTION_SET_TEXT_MAX 128u
+#define FZN_RETENTION_SET_BODY_LEN (FZN_RETENTION_SET_OFF_TEXT + FZN_RETENTION_SET_TEXT_MAX)
+#define FZN_RETENTION_SET_LEN (FZN_RETENTION_SET_BODY_LEN + (size_t)FZN_SIG_LEN)
+
+/* Sign a retention record: `text`, `len` bytes of 0x20 to 0x7e and at most
+ * FZN_RETENTION_SET_TEXT_MAX - 1, after the record whose hash is `replaces`
+ * (NULL for none). `len` 0 removes `replaces`, which must then be given.
+ * `out` receives FZN_RETENTION_SET_LEN bytes. */
+fzn_root_log_err_t fzn_retention_set_issue(const uint8_t setter[FZN_PUBKEY_LEN],
+                                           const char *text, size_t len,
+                                           const uint8_t replaces[FZN_ROOT_ACT_ID_LEN],
+                                           const fzn_sign_ops_t *sign, uint8_t *out);
+
+/* Its shape and its setter's signature. OK, SHAPE or SIGNATURE. */
+fzn_root_log_err_t fzn_retention_set_check(const uint8_t *bytes, size_t len,
+                                           const fzn_sign_ops_t *sign);
+
+/* Each current rule's text, NUL-terminated, and its record's hash. */
+typedef void (*fzn_retention_each_fn)(void *ctx, const char *text, size_t len,
+                                      const uint8_t id[FZN_ROOT_ACT_ID_LEN]);
+
+/* THE ESTATE'S RULES from `count` records laid end to end in `records`, each
+ * already checked, judged by `roots` (NULL: every record counts) and named by
+ * `hash`: each current one with text handed to `each`, in the order of their
+ * hashes so the answer does not depend on the order held. The number handed,
+ * or -1 when `count` is past what one resolution judges. */
+int fzn_retention_current(const uint8_t *records, size_t count, const struct fzn_root_ops *roots,
+                          const fzn_hash_ops_t *hash, fzn_retention_each_fn each, void *ctx);
+
 #endif /* FZN_ROOT_LOG_H */

@@ -55002,12 +55002,10 @@ its own logs, not who reads them.
 
 ### Not yet after sec 475
 
-- **Rules as estate state** (sec 428): replicated and scoped as any
-  setting. **The holder's to decide:** who may set one -- a root, as k is
-  (sec 418), or each host's own user for that host -- and how two
-  concurrent rule sets resolve. Sec 389's "the more restrictive" does not
-  settle retention, where keeping longer and pruning sooner are both
-  "safer" in different directions.
+- ~~**Rules as estate state** (sec 428)~~: the holder decided
+  2026-10-03 -- an estate-wide admin and root capability, scopable, the
+  estate's and a host's rules combining as one set. Roots, estate-wide,
+  built in sec 476.
 - **Text as a selector.**
 
 ### Measured for sec 475
@@ -55037,5 +55035,118 @@ debug and 25 info lines:
 - `add retention prune fuzznetd level=TD age 24h` gave `ok`, the same rule
   in days was refused as held, and `list retention` showed one rule;
 - the next round repacked both segments, leaving 0 debug and 50 info lines.
+
+**Sabotage: eight entries.**
+
+## 476. The estate's retention rules, set by a root, 2026-10-03
+
+**The holder's decisions, asked this session:**
+
+- "setting retention needs to be an estate wide admin (and root)
+  capability and the retention settings need to be scopable and in some
+  cases apply cross-host. But we can start simple."
+- **The estate's rules and a host's own combine as one rule set**, under
+  sec 460's rule: every prune applies, every keep expands. The holder
+  chose this over the estate overriding the host and over the host
+  overriding the estate.
+
+**Started simple: roots, estate-wide.** Admins and scopes are the next
+steps, recorded below.
+
+### The retention record
+
+A new signed object, tag 145, `FZN_OBJECT_RETENTION_SET`, 258 bytes:
+
+- the setter;
+- `replaces`: the hash of the record it follows, all-zero for none;
+- the rule's text, NUL-padded to 128 bytes;
+- the signature.
+
+`chain/root_act.situ` states it, and situ's own map agrees with the C
+offsets: text at 66, signature at 194.
+
+- **One rule a record.** A record replacing nothing adds a rule; one
+  replacing another with text changes it; one with no text removes the
+  rule it replaces, and must replace one.
+- **Which rules apply:** a record counts as a setting of k does -- its
+  setter's act under the root set -- and the current records are the
+  counting ones no counting record replaces. Every current record with
+  text is a rule. Two roots adding rules without seeing each other leaves
+  both, which is the holder's "combine".
+- **Logged as a setting**, `FZN_ROOT_ACT_SETTING`, as k is.
+
+### The estate's rules at the node
+
+- **`node/roots` keeps up to 64 records** beside k's settings, saved in
+  slot 13 under blob tag 27 and carried by `get root` as item `r`. They
+  reach every node that pulls root records, ahead of its votes.
+- **`fzn_node_roots_retention` resolves them to rules.** A record whose
+  text is not a rule this build reads, or a rule past the caller's room,
+  is counted as passed over rather than dropped unseen.
+- **fuzznetd combines three sources on every log pass**: its command
+  line's rules, the node's own (sec 475) and the estate's, at most 64 in
+  all.
+- **The log round runs after the pulls now**, not before, so a rule
+  pulled this round applies this round.
+- **A carriage break**, as sec 462's: a node built before this reads an
+  `r` item as a page that is not one, and stops pulling root records from
+  a node that holds an estate rule. Every node of an estate takes this
+  build before a root sets one.
+
+### The estate verbs
+
+    add estate-retention RULE      as this node's acting root
+    remove estate-retention RULE   by any spelling of it
+    list estate-retention          `ok COUNT RULE ...`, as `list retention`
+
+- **Adding and removing need the node's own user** and a root key that
+  stands. A rule the estate has already is refused, and removing one it
+  does not have is "no such estate rule".
+- **Any caller may list**: the rules travel with the root records anyway.
+
+### Not yet after sec 476
+
+- **Estate admins setting rules.** The holder named admin as well as root.
+  An admin's record needs its admin chain beside it, as an admin's grant
+  does (sec 416), so it is a record of its own rather than this one.
+- **Scopes** (sec 420's vocabulary): a rule for one machine, or one user,
+  and "in some cases cross-host" -- a rule on one host about another's
+  logs, which needs gathering's copies (sec 428) to exist first.
+
+### Measured for sec 476
+
+**`root_log_test`, 162 checks:**
+
+- no record, no rules;
+- two roots' rules set without seeing each other both stand, whatever
+  order they are held in;
+- a removal leaves the other rule;
+- a change leaves the change alone;
+- a removed root's rule does not count, with the control counting it;
+- refused: a removal naming nothing, an unprintable byte, a byte past
+  the text's end, another object and a rule changed after signing.
+
+**`admin_test`, 174 checks**, eight new:
+
+- a member denied setting;
+- `48h` then `2d` held once;
+- listed to a member in canonical text;
+- carried by `get root` as an `r` item, across its pages;
+- resolved again after the root records reload;
+- a rule past the caller's room counted as passed over;
+- a rule the estate lacks refused removal, with no act logged;
+- removed by its spelling in seconds.
+
+**Live:** R paired D delegably and D joined, pinned to R. D held a closed
+segment of 20 debug and 20 info lines three days old.
+
+- D's first round packed it, debug kept: the control.
+- `add estate-retention prune fuzznetd level=D age 1d` on R.
+- At D's next round, `list estate-retention` on D showed the rule and
+  D's segment held 0 debug and 20 info lines.
+- Two findings came out of the runs. A merely *paired* D keeps its own
+  anchor and rightly ignores R's rules: the first run, which looked like
+  a bug and was the estate boundary working. And before the round order
+  was changed, a pulled rule waited a further round to apply.
 
 **Sabotage: eight entries.**

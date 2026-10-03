@@ -12,7 +12,13 @@
 #include <string.h>
 
 #define ENTRY_BLOB ((size_t)FZN_PERSIST_HEAD_LEN + FZN_ROOT_ACT_LEN)
-#define CHANGE_BLOB_MAX ((size_t)FZN_PERSIST_HEAD_LEN + FZN_ROOT_REMOVE_LEN)
+/* The longest change: a retention record, sec 476. */
+#define CHANGE_BLOB_MAX ((size_t)FZN_PERSIST_HEAD_LEN + FZN_RETENTION_SET_LEN)
+FZN_STATIC_ASSERT(FZN_RETENTION_SET_LEN >= FZN_ROOT_REMOVE_LEN
+                          && FZN_RETENTION_SET_LEN >= FZN_ROOT_ADD_LEN
+                          && FZN_RETENTION_SET_LEN >= FZN_QUORUM_SET_LEN
+                          && FZN_RETENTION_SET_LEN >= FZN_ROOT_ACT_LEN,
+                  "the retention record is the longest a root record gets");
 
 const char *fzn_node_roots_err_str(fzn_node_roots_err_t err)
 {
@@ -74,6 +80,8 @@ static uint8_t tag_of(const uint8_t *bytes, size_t len)
 		return (uint8_t)FZN_PERSIST_BLOB_ROOT_REMOVE;
 	case FZN_OBJECT_QUORUM_SET:
 		return (uint8_t)FZN_PERSIST_BLOB_QUORUM_SET;
+	case FZN_OBJECT_RETENTION_SET:
+		return (uint8_t)FZN_PERSIST_BLOB_RETENTION_SET;
 	}
 	return 0;
 }
@@ -94,6 +102,21 @@ static fzn_root_log_err_t admit(fzn_node_roots_t *roots, const uint8_t *bytes, s
 		if (roots->settings_used >= FZN_NODE_ROOT_SETTINGS_MAX)
 			return FZN_ROOT_LOG_ERR_FULL;
 		memcpy(roots->settings[roots->settings_used++], bytes, FZN_QUORUM_SET_LEN);
+		return FZN_ROOT_LOG_OK;
+	}
+	/* A RETENTION RECORD, sec 476: as a setting of k. */
+	if (tag_of(bytes, len) == (uint8_t)FZN_PERSIST_BLOB_RETENTION_SET) {
+		fzn_root_log_err_t err = fzn_retention_set_check(bytes, len, roots->sign);
+		size_t i;
+
+		if (err != FZN_ROOT_LOG_OK)
+			return err;
+		for (i = 0; i < roots->retention_used; i++)
+			if (memcmp(roots->retention[i], bytes, FZN_RETENTION_SET_LEN) == 0)
+				return FZN_ROOT_LOG_OK;
+		if (roots->retention_used >= FZN_NODE_ROOT_RETENTION_MAX)
+			return FZN_ROOT_LOG_ERR_FULL;
+		memcpy(roots->retention[roots->retention_used++], bytes, FZN_RETENTION_SET_LEN);
 		return FZN_ROOT_LOG_OK;
 	}
 	if (tag_of(bytes, len) == (uint8_t)FZN_PERSIST_BLOB_ROOT_ENTRY)
@@ -228,6 +251,8 @@ static char letter_of(uint8_t tag)
 		return 'x';
 	case FZN_PERSIST_BLOB_QUORUM_SET:
 		return 'q';
+	case FZN_PERSIST_BLOB_RETENTION_SET:
+		return 'r';
 	}
 	return 0;
 }
@@ -244,6 +269,8 @@ static size_t length_of(uint8_t letter)
 		return FZN_ROOT_REMOVE_LEN;
 	case 'q':
 		return FZN_QUORUM_SET_LEN;
+	case 'r':
+		return FZN_RETENTION_SET_LEN;
 	}
 	return 0;
 }
@@ -361,8 +388,7 @@ fzn_node_pull_err_t fzn_node_roots_absorb(fzn_node_roots_t *roots,
 	    || *total > ITEMS_MAX)
 		return FZN_NODE_PULL_SHAPE;
 	while (at < detail_len) {
-		uint8_t record[FZN_ROOT_ACT_LEN > FZN_ROOT_REMOVE_LEN ? FZN_ROOT_ACT_LEN
-		                                                    : FZN_ROOT_REMOVE_LEN];
+		uint8_t record[FZN_RETENTION_SET_LEN];
 		size_t body;
 		fzn_node_roots_err_t err;
 
@@ -769,6 +795,107 @@ fzn_node_roots_err_t fzn_node_roots_set_quorum(fzn_node_roots_t *roots,
 	if (fzn_quorum_set_issue(as, k, follows, sign, record) != FZN_ROOT_LOG_OK)
 		return FZN_NODE_ROOTS_REFUSED;
 	/* LOGGED FIRST, then learned, as a root change is. */
+	err = fzn_node_roots_log_act(roots, store, as, sign, (uint8_t)FZN_ROOT_ACT_SETTING, record,
+	                             sizeof(record));
+	if (err != FZN_NODE_ROOTS_OK)
+		return err;
+	return fzn_node_roots_learn(roots, store, record, sizeof(record));
+}
+
+/* ---- the estate's retention rules, sec 476 ------------------------------ */
+
+struct gather {
+	fzn_retain_rule_t *out;
+	size_t cap, count, unread;
+	/* For a removal: the canonical text sought, and the record found. */
+	const char *seek;
+	int found;
+	uint8_t id[FZN_ROOT_ACT_ID_LEN];
+};
+
+static void gather_one(void *ctx, const char *text, size_t len,
+                       const uint8_t id[FZN_ROOT_ACT_ID_LEN])
+{
+	struct gather *g = ctx;
+	fzn_retain_rule_t rule;
+
+	if (g->seek) {
+		if (!g->found && strcmp(text, g->seek) == 0) {
+			g->found = 1;
+			memcpy(g->id, id, FZN_ROOT_ACT_ID_LEN);
+		}
+		return;
+	}
+	if (fzn_retain_parse(text, len, &rule) != FZN_RETAIN_OK) {
+		g->unread++;
+		return;
+	}
+	if (g->count < g->cap)
+		g->out[g->count] = rule;
+	g->count++;
+}
+
+fzn_node_roots_err_t fzn_node_roots_retention(const fzn_node_roots_t *roots,
+                                              fzn_retain_rule_t *out, size_t cap, size_t *count,
+                                              size_t *unread)
+{
+	struct gather g;
+
+	if (!roots || (!out && cap) || !count || !unread)
+		return FZN_NODE_ROOTS_MALFORMED;
+	memset(&g, 0, sizeof(g));
+	g.out = out;
+	g.cap = cap;
+	if (fzn_retention_current((const uint8_t *)roots->retention, roots->retention_used,
+	                          &roots->ops, roots->hash, gather_one, &g)
+	    < 0)
+		return FZN_NODE_ROOTS_STORE;
+	/* PASSED OVER, not dropped unseen: a rule past `cap` counts with one
+	 * that will not read. */
+	*count = g.count < cap ? g.count : cap;
+	*unread = g.unread + (g.count - *count);
+	return FZN_NODE_ROOTS_OK;
+}
+
+fzn_node_roots_err_t fzn_node_roots_set_retention(fzn_node_roots_t *roots,
+                                                  const fzn_persist_ops_t *store,
+                                                  const uint8_t identity[FZN_PUBKEY_LEN],
+                                                  const fzn_sign_ops_t *identity_sign,
+                                                  const fzn_retain_rule_t *rule, int add)
+{
+	uint8_t record[FZN_RETENTION_SET_LEN];
+	char text[FZN_RETAIN_TEXT_MAX];
+	const uint8_t *as = NULL;
+	const fzn_sign_ops_t *sign = NULL;
+	struct gather g;
+	size_t len = 0;
+	fzn_node_roots_err_t err;
+
+	if (!roots || !store || !rule
+	    || fzn_retain_text(rule, text, sizeof(text), &len) != FZN_RETAIN_OK
+	    || len >= FZN_RETENTION_SET_TEXT_MAX)
+		return FZN_NODE_ROOTS_MALFORMED;
+	if (!fzn_node_roots_acting(roots, identity, identity_sign, &as, &sign))
+		return FZN_NODE_ROOTS_NOT_ROOT;
+	/* IS IT CURRENT: by its canonical text, which is how it was minted. */
+	memset(&g, 0, sizeof(g));
+	g.seek = text;
+	if (fzn_retention_current((const uint8_t *)roots->retention, roots->retention_used,
+	                          &roots->ops, roots->hash, gather_one, &g)
+	    < 0)
+		return FZN_NODE_ROOTS_STORE;
+	if (add && g.found)
+		return FZN_NODE_ROOTS_HELD;
+	if (!add && !g.found)
+		return FZN_NODE_ROOTS_REFUSED;
+	if (roots->retention_used >= FZN_NODE_ROOT_RETENTION_MAX)
+		return FZN_NODE_ROOTS_REFUSED;
+	/* A REMOVAL REPLACES THE RECORD THAT CARRIES THE RULE, with no text. */
+	if (fzn_retention_set_issue(as, add ? text : NULL, add ? len : 0u, add ? NULL : g.id, sign,
+	                            record)
+	    != FZN_ROOT_LOG_OK)
+		return FZN_NODE_ROOTS_REFUSED;
+	/* LOGGED FIRST, then learned, as a setting of k is. */
 	err = fzn_node_roots_log_act(roots, store, as, sign, (uint8_t)FZN_ROOT_ACT_SETTING, record,
 	                             sizeof(record));
 	if (err != FZN_NODE_ROOTS_OK)

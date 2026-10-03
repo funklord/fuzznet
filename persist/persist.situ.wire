@@ -19,7 +19,7 @@ endian big
 target file
 
 enum fzn_persist_tag : u8 unknown=error
-  trust=1 secret=2 peer=3 chain=4 node_peer=5 identity=6 pairing=7 revocation=8 vote=9 root_entry=10 root_add=11 root_remove=12 own_root=13 admin_confirm=14 own_admin=15 quorum_set=16 note=17 note_seq=18 note_purge=19 note_partner=20 contact=21 note_share=22 shared_note=23 received_share=24 contact_group=25 log_rule=26
+  trust=1 secret=2 peer=3 chain=4 node_peer=5 identity=6 pairing=7 revocation=8 vote=9 root_entry=10 root_add=11 root_remove=12 own_root=13 admin_confirm=14 own_admin=15 quorum_set=16 note=17 note_seq=18 note_purge=19 note_partner=20 contact=21 note_share=22 shared_note=23 received_share=24 contact_group=25 log_rule=26 retention_set=27
 
 struct fzn_persist_admin_confirm_body size=131..1384
   @0x0000   130       u8         record  big
@@ -57,6 +57,7 @@ struct fzn_persist_blob size=2..
   body case 24: received_share fzn_persist_received_share_body
   body case 25: contact_group fzn_persist_contact_group_body
   body case 26: log_rule fzn_persist_log_rule_body
+  body case 27: retention_set fzn_persist_retention_set_body
   body case default: error
 
 struct fzn_persist_chain_body size=40
@@ -148,6 +149,9 @@ struct fzn_persist_received_share_body size=12..264
   @0x0001   1..253    u8         host  sized-by=host_len
   ~         2         u16        port  big min=1
   ~         8         u64        accepted_at  big
+
+struct fzn_persist_retention_set_body size=258
+  @0x0000   258       u8         record  big
 
 struct fzn_persist_revocation_body size=210
   @0x0000   210       u8         record  big

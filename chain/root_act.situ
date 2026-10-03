@@ -74,3 +74,18 @@ struct fzn_quorum_set {
 	// covers(body) = bytes 0..66, FZN_QUORUM_SET_BODY_LEN.
 	checksum u8 signature[64] covers(body); // 67
 }
+
+// A root setting one of the estate's retention rules, sec 476: the rule's
+// line, NUL-padded, after the record whose hash is `replaces`; no text
+// removes the rule it replaces. Logged by the setter as a setting.
+struct fzn_retention_set {
+	authenticated body {
+		u8  version [must_eq = 1];       // 0
+		u8  object [must_eq = 145];      // 1  (FZN_OBJECT_RETENTION_SET)
+		u8  setter[32];                  // 2  FZN_RETENTION_SET_OFF_SETTER
+		u8  replaces[32];                // 34 FZN_RETENTION_SET_OFF_REPLACES
+		u8  text[128];                   // 66 FZN_RETENTION_SET_OFF_TEXT
+	}
+	// covers(body) = bytes 0..193, FZN_RETENTION_SET_BODY_LEN.
+	checksum u8 signature[64] covers(body); // 194
+}

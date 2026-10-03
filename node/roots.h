@@ -53,6 +53,7 @@
 #include "revoke.h"
 #include "../chain/revocation.h"
 #include "../chain/root_log.h"
+#include "../log/retain.h"
 #include "../persist/persist.h"
 #include "../session/random.h"
 
@@ -62,6 +63,10 @@
 
 /* The most settings of k a node keeps: each is a root's deliberate act. */
 #define FZN_NODE_ROOT_SETTINGS_MAX 64u
+
+/* The most retention records a node keeps, sec 476: adds, changes and
+ * removals together, each a root's deliberate act. */
+#define FZN_NODE_ROOT_RETENTION_MAX 64u
 
 typedef enum fzn_node_roots_err {
 	FZN_NODE_ROOTS_OK = 0,
@@ -101,6 +106,9 @@ typedef struct fzn_node_roots {
 	/* The roots' settings of the estate's k, sec 418, each checked. */
 	uint8_t settings[FZN_NODE_ROOT_SETTINGS_MAX][FZN_QUORUM_SET_LEN];
 	size_t settings_used;
+	/* The roots' retention records, sec 476, each checked. */
+	uint8_t retention[FZN_NODE_ROOT_RETENTION_MAX][FZN_RETENTION_SET_LEN];
+	size_t retention_used;
 	/* The root key this node holds, if any: `sign` is the signer a seat
 	 * armed with its seed. */
 	int key_held;
@@ -221,6 +229,26 @@ fzn_node_roots_err_t fzn_node_roots_set_quorum(fzn_node_roots_t *roots,
                                                const fzn_persist_ops_t *store,
                                                const uint8_t identity[FZN_PUBKEY_LEN],
                                                const fzn_sign_ops_t *identity_sign, uint8_t k);
+
+/* THE ESTATE'S RETENTION RULES, sec 476: the current records' rules,
+ * resolved under the set, into `out`, `cap` of them. A record whose text is
+ * no rule -- a newer syntax, say -- and a rule past `cap` are passed over
+ * and counted in `*unread`, so a caller can say so rather than drop them
+ * unseen. */
+fzn_node_roots_err_t fzn_node_roots_retention(const fzn_node_roots_t *roots,
+                                              fzn_retain_rule_t *out, size_t cap, size_t *count,
+                                              size_t *unread);
+
+/* Add one estate rule, or remove one, as this node's acting root: minted in
+ * the rule's canonical text, logged as a setting, learned and saved. HELD
+ * when the rule to add is current already; REFUSED when the rule to remove
+ * is not current, or the records are full. NOT_ROOT when this node stands
+ * as no root. */
+fzn_node_roots_err_t fzn_node_roots_set_retention(fzn_node_roots_t *roots,
+                                                  const fzn_persist_ops_t *store,
+                                                  const uint8_t identity[FZN_PUBKEY_LEN],
+                                                  const fzn_sign_ops_t *identity_sign,
+                                                  const fzn_retain_rule_t *rule, int add);
 
 /* PAIRING AS A ROOT BY IDENTITY, sec 419: when this node's identity stands as
  * a root other than the genesis, fill `authority` with no hops and the adds

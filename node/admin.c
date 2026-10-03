@@ -919,19 +919,15 @@ static size_t change_retention(fzn_node_admin_t *admin, int add, const uint8_t *
 	                   fzn_log_rules_err_str(err));
 }
 
-/* `list retention`: `ok COUNT RULE ...`, each rule in its canonical text with
- * a byte below 0x21, `%` and `,` as `%XX`, so a rule is one word. */
-static size_t list_retention(fzn_node_admin_t *admin, char *reply, size_t cap)
+/* `ok COUNT RULE ...`, each rule in its canonical text with a byte below
+ * 0x21, `%` and `,` as `%XX`, so a rule is one word. */
+static size_t rules_reply(const fzn_retain_rule_t *rules, size_t count, char *reply, size_t cap)
 {
-	static fzn_retain_rule_t rules[FZN_LOG_RULES_MAX];
 	static char detail[FZN_REPLY_MAX];
 	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
-	size_t count = 0, used, i, j;
-	fzn_log_rules_err_t err = fzn_log_rules_list(admin->store, rules, FZN_LOG_RULES_MAX, &count);
+	size_t used, i, j;
 	int n;
 
-	if (err != FZN_LOG_RULES_OK)
-		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_log_rules_err_str(err));
 	n = snprintf(detail, sizeof(detail), "%zu", count);
 	if (n < 0 || (size_t)n >= limit)
 		return 0;
@@ -959,6 +955,61 @@ static size_t list_retention(fzn_node_admin_t *admin, char *reply, size_t cap)
 		used += w;
 	}
 	return answer(reply, cap, FZN_REPLY_OK, detail, used);
+}
+
+/* `list retention`: this node's own rules. */
+static size_t list_retention(fzn_node_admin_t *admin, char *reply, size_t cap)
+{
+	static fzn_retain_rule_t rules[FZN_LOG_RULES_MAX];
+	size_t count = 0;
+	fzn_log_rules_err_t err = fzn_log_rules_list(admin->store, rules, FZN_LOG_RULES_MAX, &count);
+
+	if (err != FZN_LOG_RULES_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_log_rules_err_str(err));
+	return rules_reply(rules, count, reply, cap);
+}
+
+/* `add estate-retention RULE` and `remove estate-retention RULE`: one of the
+ * estate's rules, as this node's acting root, carried with the root
+ * records to every host. sec 476. */
+static size_t change_estate_retention(fzn_node_admin_t *admin, int add, const uint8_t *rest,
+                                      size_t rest_len, char *reply, size_t cap)
+{
+	fzn_retain_rule_t rule;
+	fzn_node_roots_err_t err;
+
+	if (!rest_len || fzn_retain_parse((const char *)rest, rest_len, &rule) != FZN_RETAIN_OK)
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED,
+		                   "prune|keep PROGRAM|* [level=LETTERS] [subsystem=PATH] "
+		                   "age|size|count N");
+	err = fzn_node_roots_set_retention(admin->roots, admin->store, admin->id->pubkey,
+	                                   admin->id->sign, &rule, add);
+	if (err == FZN_NODE_ROOTS_OK)
+		return answer_text(reply, cap, FZN_REPLY_OK, NULL);
+	return answer_text(reply, cap,
+	                   err == FZN_NODE_ROOTS_MALFORMED ? FZN_REPLY_MALFORMED : FZN_REPLY_ERROR,
+	                   err == FZN_NODE_ROOTS_HELD       ? "the rule is the estate's already"
+	                   : err == FZN_NODE_ROOTS_REFUSED && !add ? "no such estate rule"
+	                                                       : fzn_node_roots_err_str(err));
+}
+
+/* `list estate-retention`: the estate's rules as this node resolves them.
+ * Non-mutating: the rules are the estate's, and travel with its root
+ * records. A record whose text is no rule here is refused aloud rather
+ * than listed short. */
+static size_t list_estate_retention(fzn_node_admin_t *admin, char *reply, size_t cap)
+{
+	static fzn_retain_rule_t rules[FZN_NODE_ROOT_RETENTION_MAX];
+	size_t count = 0, unread = 0;
+
+	if (fzn_node_roots_retention(admin->roots, rules, FZN_NODE_ROOT_RETENTION_MAX, &count,
+	                             &unread)
+	    != FZN_NODE_ROOTS_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "the estate's rules did not resolve");
+	if (unread)
+		return answer_text(reply, cap, FZN_REPLY_ERROR,
+		                   "an estate rule is not one this node reads");
+	return rules_reply(rules, count, reply, cap);
 }
 
 /* `grant share NAME PREKEY`: pair the contact NAME's node, whose prekey
@@ -1232,6 +1283,14 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 	if (request->parsed == FZN_VERB_SET && subject_word(request, "quorum", &rest, &rest_len)
 	    && rest && admin->roots)
 		return set_quorum(admin, rest, rest_len, reply, reply_cap);
+	/* THE ESTATE'S RETENTION RULES, sec 476: set as a root, read by any. */
+	if (subject_word(request, "estate-retention", &rest, &rest_len) && admin->roots) {
+		if (request->parsed == FZN_VERB_LIST)
+			return list_estate_retention(admin, reply, reply_cap);
+		if (request->parsed == FZN_VERB_ADD || request->parsed == FZN_VERB_REMOVE)
+			return change_estate_retention(admin, request->parsed == FZN_VERB_ADD, rest,
+			                               rest_len, reply, reply_cap);
+	}
 	/* ADMINS, sec 416: only on a node whose config names the capability. */
 	if (admin->state->config.has_admin && request->parsed == FZN_VERB_GRANT
 	    && subject_word(request, "admin", &rest, &rest_len) && rest)

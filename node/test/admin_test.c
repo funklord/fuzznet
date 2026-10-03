@@ -1483,6 +1483,92 @@ int main(void)
 	              && admin.revocations->quorum == 3u,
 	      "a k of 0 was taken");
 
+	/* ---- THE ESTATE'S RETENTION RULES, sec 476: the owner adds one as this
+	 * root, it travels in `get root` as an `r` item, a store loaded afresh
+	 * resolves it, and a removal by another spelling takes it away. */
+	{
+		static fzn_node_roots_t again;
+		fzn_retain_rule_t rules[4];
+		size_t n = 0, unread = 9, loaded = 0;
+
+		CHECK(ask(&admin, &member, "add estate-retention prune * level=D age 2d", reply,
+		          sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_DENIED,
+		      "a service-group member set an estate rule");
+		CHECK(ask(&admin, &owner, "add estate-retention prune * level=D age 48h", reply,
+		          sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && ask(&admin, &owner, "add estate-retention prune * level=D age 2d", reply,
+		                     sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR
+		              && says(detail, detail_len, "the estate's already"),
+		      "an estate rule was not set, or its other spelling was set twice");
+		CHECK(ask(&admin, &member, "list estate-retention", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && detail_len == strlen("1 prune%20*%20level=D%20age%202d")
+		              && says(detail, detail_len, "1 prune%20*%20level=D%20age%202d"),
+		      "the estate's rule was not listed to a member, once, in its canonical text");
+		/* EVERY PAGE, since a page holds what fits a reply. */
+		{
+			size_t from = 0, total = 1, pages = 0, i;
+			int found = 0;
+
+			while (from < total && pages++ < 64u) {
+				size_t items = 0;
+
+				snprintf(line, sizeof(line), "get root %zu", from);
+				if (!ask(&admin, &member, line, reply, sizeof(reply), &reply_len)
+				    || fzn_reply_of(reply, reply_len, &detail, &detail_len) != FZN_REPLY_OK
+				    || sscanf((const char *)detail, "%zu", &total) != 1)
+					break;
+				found = found || says(detail, detail_len, " r0191");
+				for (i = 0; i < detail_len; i++)
+					items += detail[i] == ' ';
+				if (items < 2u)
+					break;
+				from += items - 1u;
+			}
+			CHECK(found, "get root did not carry the rule as an r item");
+		}
+		CHECK(fzn_node_roots_init(&again, node.id.pubkey, &node.sign, &hash_ops)
+		                      == FZN_NODE_ROOTS_OK
+		              && fzn_node_roots_load(&again, &node.ops, &loaded) == FZN_NODE_ROOTS_OK
+		              && fzn_node_roots_retention(&again, rules, 4u, &n, &unread)
+		                         == FZN_NODE_ROOTS_OK
+		              && n == 1u && unread == 0u && rules[0].levels == (1u << FZN_ENTRY_DEBUG),
+		      "the rule did not survive a reload of the root records");
+		CHECK(fzn_node_roots_retention(&again, rules, 0u, &n, &unread) == FZN_NODE_ROOTS_OK
+		              && n == 0u && unread == 1u,
+		      "a rule past the caller's room was dropped unseen rather than counted");
+		{
+			size_t before = 0, after = 0;
+
+			CHECK(ask(&admin, &owner, "get root", reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK
+			              && sscanf((const char *)detail, "%zu", &before) == 1
+			              && ask(&admin, &owner, "remove estate-retention prune * level=I age 2d",
+			                     reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_ERROR
+			              && says(detail, detail_len, "no such estate rule")
+			              && ask(&admin, &owner, "get root", reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK
+			              && sscanf((const char *)detail, "%zu", &after) == 1 && after == before,
+			      "a rule the estate does not have was removed, or its refusal still logged "
+			      "an act");
+		}
+		CHECK(ask(&admin, &owner, "remove estate-retention prune * level=D age 172800", reply,
+		          sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && ask(&admin, &owner, "list estate-retention", reply, sizeof(reply),
+		                     &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && detail_len == 1u && detail[0] == '0',
+		      "the rule was not removed by another spelling of it");
+	}
+
 	/* ---- WHAT IT DOES NOT SERVE, IT SAYS SO. */
 	CHECK(ask(&admin, &owner, "get peer", reply, sizeof(reply), &reply_len)
 	              && fzn_reply_of(reply, reply_len, &detail, &detail_len)

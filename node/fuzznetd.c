@@ -116,6 +116,9 @@ static struct {
 	/* THE RULES SET WHILE RUNNING, sec 475: read from the store on every
 	 * pass, so `add retention` applies from the next round. */
 	const fzn_persist_ops_t *store;
+	/* THE ESTATE'S RULES, sec 476: resolved from the running root records
+	 * on every pass, so a root's change applies once it has been pulled. */
+	const fzn_node_roots_t *roots;
 	const fzn_hash_ops_t *hash;
 	char ring_path[FZN_LOGGER_PATH_MAX + 32u];
 	uint64_t last_dump_us;
@@ -289,7 +292,7 @@ static void on_caused(void *ctx, const uint8_t *sender, const fzn_entry_name_t *
 static void log_round(void)
 {
 #ifdef FZN_LOG_FILE_ON
-	static fzn_retain_rule_t rules[FZND_LOG_RULES_MAX + FZN_LOG_RULES_MAX];
+	static fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX];
 	size_t n = 0, n_rules = 0;
 
 	if (!dlog.on)
@@ -318,6 +321,24 @@ static void log_round(void)
 				    fzn_log_rules_err_str(rerr));
 			else
 				n_rules += held;
+		}
+		/* AND THE ESTATE'S, combined with these as one rule set: the
+		 * holder's answer of 2026-10-03. */
+		if (dlog.roots) {
+			size_t unread = 0;
+
+			held = 0;
+			if (fzn_node_roots_retention(dlog.roots, rules + n_rules,
+			                             FZN_RETAIN_RULES_MAX - n_rules, &held, &unread)
+			    != FZN_NODE_ROOTS_OK)
+				say(FZN_ENTRY_WARNING, "log", "the estate's log rules did not resolve");
+			else
+				n_rules += held;
+			if (unread)
+				say(FZN_ENTRY_WARNING, "log",
+				    "%zu of the estate's log rules were passed over: past the rules one "
+				    "pass weighs, or not ones this build reads",
+				    unread);
 		}
 	}
 #ifdef FZN_LOG_PACK_ON
@@ -2167,6 +2188,9 @@ int main(int argc, char **argv)
 		state.config.revocations = &revoked;
 		running = &revoked;
 		running_roots = &estate_roots;
+#ifdef FZN_LOG_FILE_ON
+		dlog.roots = running_roots;
+#endif
 		if (nrevoked)
 			say(FZN_ENTRY_INFO, "revoke", "%zu revocation(s) from %s", nrevoked,
 			        store_dir);
@@ -2420,7 +2444,6 @@ int main(int argc, char **argv)
 			 * than this one does, and waiting for it would stop every pull
 			 * for as long as the clock had been wrong. sec 469. */
 			if (now >= next_pull || next_pull > now + FZND_PULL_EVERY) {
-				log_round();
 				round_named = say_caused(FZN_ENTRY_DEBUG, "node/round", NULL, NULL,
 				                         &round_name, "a round with %zu peer(s)", npulls);
 				for (t = 0; t < npulls; t++) {
@@ -2466,6 +2489,10 @@ int main(int argc, char **argv)
 				fetch_texts(pulls, npulls, now);
 				collect_texts();
 #endif
+				/* THE LOG LAST, sec 476: packing and the rules after the
+				 * pulls, so an estate rule pulled this round applies this
+				 * round rather than the next. */
+				log_round();
 				next_pull = wall_clock() + FZND_PULL_EVERY;
 			}
 #ifdef FZN_SPOOL_FILE_ON

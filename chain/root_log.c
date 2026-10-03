@@ -612,3 +612,135 @@ uint8_t fzn_quorum_resolve(const uint8_t *records, size_t count,
 
 	return fzn_quorum_winner(records, count, roots, hash, &k, NULL) ? k : fallback;
 }
+
+/* ---- the estate's retention rules, sec 476 ------------------------------ */
+
+/* The most retention records one resolution judges. */
+#define RETENTION_RECORDS_MAX 64u
+
+fzn_root_log_err_t fzn_retention_set_issue(const uint8_t setter[FZN_PUBKEY_LEN],
+                                           const char *text, size_t len,
+                                           const uint8_t replaces[FZN_ROOT_ACT_ID_LEN],
+                                           const fzn_sign_ops_t *sign, uint8_t *out)
+{
+	size_t i;
+
+	if (!setter || (!text && len) || len >= FZN_RETENTION_SET_TEXT_MAX || (!len && !replaces)
+	    || !sign || !sign->sign || !out)
+		return FZN_ROOT_LOG_ERR_MALFORMED;
+	for (i = 0; i < len; i++)
+		if ((unsigned char)text[i] < 0x20u || (unsigned char)text[i] > 0x7eu)
+			return FZN_ROOT_LOG_ERR_MALFORMED;
+	out[0] = (uint8_t)FZN_SIGNED_VERSION;
+	out[1] = (uint8_t)FZN_OBJECT_RETENTION_SET;
+	memcpy(out + FZN_RETENTION_SET_OFF_SETTER, setter, FZN_PUBKEY_LEN);
+	if (replaces)
+		memcpy(out + FZN_RETENTION_SET_OFF_REPLACES, replaces, FZN_ROOT_ACT_ID_LEN);
+	else
+		memset(out + FZN_RETENTION_SET_OFF_REPLACES, 0, FZN_ROOT_ACT_ID_LEN);
+	memset(out + FZN_RETENTION_SET_OFF_TEXT, 0, FZN_RETENTION_SET_TEXT_MAX);
+	if (len)
+		memcpy(out + FZN_RETENTION_SET_OFF_TEXT, text, len);
+	if (!sign->sign(sign->ctx, out + FZN_RETENTION_SET_BODY_LEN, out,
+	                FZN_RETENTION_SET_BODY_LEN))
+		return FZN_ROOT_LOG_ERR_SIGNATURE;
+	return FZN_ROOT_LOG_OK;
+}
+
+/* The text's length: printable bytes, then NUL padding to the end. 0 for
+ * none, -1 for a field that is neither. */
+static int retention_text_len(const uint8_t *field)
+{
+	size_t n = 0, i;
+
+	while (n < FZN_RETENTION_SET_TEXT_MAX && field[n] >= 0x20u && field[n] <= 0x7eu)
+		n++;
+	for (i = n; i < FZN_RETENTION_SET_TEXT_MAX; i++)
+		if (field[i] != 0u)
+			return -1;
+	return n == FZN_RETENTION_SET_TEXT_MAX ? -1 : (int)n;
+}
+
+fzn_root_log_err_t fzn_retention_set_check(const uint8_t *bytes, size_t len,
+                                           const fzn_sign_ops_t *sign)
+{
+	static const uint8_t ZERO[FZN_ROOT_ACT_ID_LEN] = { 0 };
+	int n;
+
+	if (!bytes || !sign || !sign->verify)
+		return FZN_ROOT_LOG_ERR_MALFORMED;
+	if (len != FZN_RETENTION_SET_LEN || bytes[0] != (uint8_t)FZN_SIGNED_VERSION
+	    || bytes[1] != (uint8_t)FZN_OBJECT_RETENTION_SET)
+		return FZN_ROOT_LOG_ERR_SHAPE;
+	n = retention_text_len(bytes + FZN_RETENTION_SET_OFF_TEXT);
+	/* A REMOVAL NAMES WHAT IT REMOVES: a record with no text replacing
+	 * nothing would be a rule of nothing. */
+	if (n < 0
+	    || (n == 0
+	        && memcmp(bytes + FZN_RETENTION_SET_OFF_REPLACES, ZERO, FZN_ROOT_ACT_ID_LEN) == 0))
+		return FZN_ROOT_LOG_ERR_SHAPE;
+	if (!sign->verify(sign->ctx, bytes + FZN_RETENTION_SET_OFF_SETTER, bytes,
+	                  FZN_RETENTION_SET_BODY_LEN, bytes + FZN_RETENTION_SET_BODY_LEN))
+		return FZN_ROOT_LOG_ERR_SIGNATURE;
+	return FZN_ROOT_LOG_OK;
+}
+
+int fzn_retention_current(const uint8_t *records, size_t count, const struct fzn_root_ops *roots,
+                          const fzn_hash_ops_t *hash, fzn_retention_each_fn each, void *ctx)
+{
+	uint8_t ids[RETENTION_RECORDS_MAX][FZN_ROOT_ACT_ID_LEN];
+	uint8_t counts[RETENTION_RECORDS_MAX], current[RETENTION_RECORDS_MAX];
+	size_t i, j, handed = 0;
+
+	if ((!records && count) || count > RETENTION_RECORDS_MAX || !hash || !hash->hash || !each)
+		return -1;
+	for (i = 0; i < count; i++) {
+		const uint8_t *r = records + (i * FZN_RETENTION_SET_LEN);
+
+		if (!hash->hash(hash->ctx, ids[i], FZN_ROOT_ACT_ID_LEN, r, FZN_RETENTION_SET_LEN))
+			return -1;
+		counts[i] = !roots
+		            || roots->counts(roots->ctx, r + FZN_RETENTION_SET_OFF_SETTER, ids[i]);
+	}
+	/* CURRENT: counting, replaced by no counting record, and carrying a
+	 * rule -- a removal is current only as the absence it leaves. */
+	for (i = 0; i < count; i++) {
+		int replaced = 0;
+
+		current[i] = 0;
+		if (!counts[i] || retention_text_len(records + (i * FZN_RETENTION_SET_LEN)
+		                                     + FZN_RETENTION_SET_OFF_TEXT)
+		                          <= 0)
+			continue;
+		for (j = 0; j < count && !replaced; j++)
+			replaced = j != i && counts[j]
+			           && fzn_ct_memeq(records + (j * FZN_RETENTION_SET_LEN)
+			                                   + FZN_RETENTION_SET_OFF_REPLACES,
+			                           ids[i], FZN_ROOT_ACT_ID_LEN);
+		current[i] = (uint8_t)!replaced;
+	}
+	/* IN THE ORDER OF THEIR HASHES: each pass hands the least not handed. */
+	for (;;) {
+		size_t least = count;
+
+		for (i = 0; i < count; i++)
+			if (current[i]
+			    && (least == count || memcmp(ids[i], ids[least], FZN_ROOT_ACT_ID_LEN) < 0))
+				least = i;
+		if (least == count)
+			break;
+		{
+			const uint8_t *t = records + (least * FZN_RETENTION_SET_LEN)
+			                   + FZN_RETENTION_SET_OFF_TEXT;
+			char text[FZN_RETENTION_SET_TEXT_MAX];
+			int n = retention_text_len(t);
+
+			memcpy(text, t, (size_t)n);
+			text[n] = '\0';
+			each(ctx, text, (size_t)n, ids[least]);
+		}
+		current[least] = 0;
+		handed++;
+	}
+	return (int)handed;
+}

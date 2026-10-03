@@ -76,6 +76,7 @@ enum fzn_persist_tag : u8 {
 	received_share = 24,
 	contact_group = 25,
 	log_rule = 26,
+	retention_set = 27,
 	default = error,
 }
 
@@ -170,6 +171,12 @@ struct fzn_persist_root_remove_body {
 // A root's setting of the estate's k (sec 418), laid out in chain/root_log.h.
 struct fzn_persist_quorum_set_body {
 	u8  record[131];
+}
+
+// A root's setting of one estate retention rule (sec 476), laid out in
+// chain/root_log.h.
+struct fzn_persist_retention_set_body {
+	u8  record[258];
 }
 
 // The seed of the root key a node holds beside its identity (sec 409),
@@ -334,6 +341,7 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.received_share: fzn_persist_received_share_body received_share;
 		case fzn_persist_tag.contact_group: fzn_persist_contact_group_body contact_group;
 		case fzn_persist_tag.log_rule: fzn_persist_log_rule_body log_rule;
+		case fzn_persist_tag.retention_set: fzn_persist_retention_set_body retention_set;
 		default: error;
 	}
 }

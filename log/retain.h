@@ -81,8 +81,9 @@ typedef enum fzn_retain_limit {
 	FZN_RETAIN_COUNT = 3  /* segments */
 } fzn_retain_limit_t;
 
-/* Rules one plan or walk weighs. */
-#define FZN_RETAIN_RULES_MAX 32u
+/* Rules one plan or walk weighs: a command line's, a node's own and the
+ * estate's (secs 475, 476). */
+#define FZN_RETAIN_RULES_MAX 64u
 
 typedef struct fzn_retain_rule {
 	fzn_retain_kind_t kind;

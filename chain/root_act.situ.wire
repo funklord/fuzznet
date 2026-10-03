@@ -30,6 +30,15 @@ struct fzn_quorum_set size=131
   @0x0043   64        u8         signature
   signature covers: body k object replaces setter version
 
+struct fzn_retention_set size=258
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   1         u8         object  must_eq=145
+  @0x0002   32        u8         setter  big
+  @0x0022   32        u8         replaces  big
+  @0x0042   128       u8         text  big
+  @0x00c2   64        u8         signature
+  signature covers: body object replaces setter text version
+
 struct fzn_root_act size=171
   @0x0000   1         u8         version  must_eq=1
   @0x0001   1         u8         object  must_eq=139

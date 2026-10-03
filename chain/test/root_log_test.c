@@ -605,6 +605,116 @@ static void test_the_estates_k(void)
 	      "a setting whose k was changed after signing was taken");
 }
 
+/* One estate retention rule by root `setter` replacing `after` (NULL for
+ * none); `text` NULL removes `after`. */
+static void rule_record(uint8_t out[FZN_RETENTION_SET_LEN], uint8_t setter, const char *text,
+                        const uint8_t *after)
+{
+	uint8_t who[FZN_PUBKEY_LEN], replaces[FZN_ROOT_ACT_ID_LEN];
+
+	key(who, setter);
+	if (after)
+		stub_hash(NULL, replaces, sizeof(replaces), after, FZN_RETENTION_SET_LEN);
+	signing_as = setter;
+	CHECK(fzn_retention_set_issue(who, text, text ? strlen(text) : 0u, after ? replaces : NULL,
+	                              &SIGN, out)
+	              == FZN_ROOT_LOG_OK,
+	      "a retention record would not issue");
+}
+
+static char seen_rules[8][FZN_RETENTION_SET_TEXT_MAX];
+static size_t seen_count;
+
+static void collect(void *ctx, const char *text, size_t len,
+                    const uint8_t id[FZN_ROOT_ACT_ID_LEN])
+{
+	(void)ctx;
+	(void)id;
+	if (seen_count < 8u && len < FZN_RETENTION_SET_TEXT_MAX)
+		memcpy(seen_rules[seen_count++], text, len + 1u);
+}
+
+/* The estate's rules as `count` records resolve, joined by `|`. */
+static const char *rules_of(const uint8_t *records, size_t count, const fzn_root_ops_t *roots)
+{
+	static char joined[1024];
+	size_t i;
+	int n;
+
+	seen_count = 0;
+	joined[0] = '\0';
+	n = fzn_retention_current(records, count, roots, &HASH, collect, NULL);
+	if (n < 0)
+		return "refused";
+	for (i = 0; i < seen_count; i++) {
+		if (i)
+			strcat(joined, "|");
+		strcat(joined, seen_rules[i]);
+	}
+	return (size_t)n == seen_count ? joined : "miscounted";
+}
+
+/* THE ESTATE'S RETENTION RULES, sec 476. A and B add rules without seeing
+ * each other: both stand, whatever order they are held in. C removes A's:
+ * B's alone. D changes B's: D's alone. A removed root's rule does not
+ * count. A removal naming nothing, an unprintable byte, padding that is
+ * not zero, another object and a forged signature are refused. */
+static void test_the_estates_retention(void)
+{
+	static uint8_t held[5][FZN_RETENTION_SET_LEN], swapped[2][FZN_RETENTION_SET_LEN];
+	static const fzn_root_ops_t SET = { member_any, counts_but_nine, NULL };
+	uint8_t bad[FZN_RETENTION_SET_LEN], who[FZN_PUBKEY_LEN];
+	const char *both;
+
+	CHECK(strcmp(rules_of((const uint8_t *)held, 0, NULL), "") == 0, "no record, no rules");
+	rule_record(held[0], 1, "prune * age 30d", NULL);
+	rule_record(held[1], 2, "keep * level=CEW age 90d", NULL);
+	both = rules_of((const uint8_t *)held, 2, NULL);
+	CHECK(strstr(both, "prune * age 30d") && strstr(both, "keep * level=CEW age 90d")
+	              && strlen(both) == strlen("prune * age 30d|keep * level=CEW age 90d"),
+	      "two roots' rules set without seeing each other did not both stand");
+	memcpy(swapped[0], held[1], FZN_RETENTION_SET_LEN);
+	memcpy(swapped[1], held[0], FZN_RETENTION_SET_LEN);
+	CHECK(strcmp(rules_of((const uint8_t *)swapped, 2, NULL), both) == 0,
+	      "the order the records are held in changed the rules or their order");
+	rule_record(held[2], 1, NULL, held[0]);
+	CHECK(strcmp(rules_of((const uint8_t *)held, 3, NULL), "keep * level=CEW age 90d") == 0,
+	      "removing A's rule did not leave B's alone");
+	rule_record(held[3], 2, "keep * level=CEW age 180d", held[1]);
+	CHECK(strcmp(rules_of((const uint8_t *)held, 4, NULL), "keep * level=CEW age 180d") == 0,
+	      "changing B's rule did not leave the change alone");
+	rule_record(held[4], 9, "prune * age 1d", NULL);
+	CHECK(strstr(rules_of((const uint8_t *)held, 5, NULL), "prune * age 1d")
+	              && strcmp(rules_of((const uint8_t *)held, 5, &SET), "keep * level=CEW age 180d")
+	                         == 0,
+	      "a removed root's rule counted, or the control did not count it");
+
+	rule_record(bad, 1, "prune * age 30d", NULL);
+	CHECK(fzn_retention_set_check(bad, sizeof(bad), &SIGN) == FZN_ROOT_LOG_OK,
+	      "a sound record did not check");
+	key(who, 1);
+	CHECK(fzn_retention_set_issue(who, NULL, 0u, NULL, &SIGN, bad) == FZN_ROOT_LOG_ERR_MALFORMED
+	              && fzn_retention_set_issue(who, "a\tb", 3u, NULL, &SIGN, bad)
+	                         == FZN_ROOT_LOG_ERR_MALFORMED,
+	      "a removal naming nothing, or an unprintable byte, was issued");
+	rule_record(bad, 1, "prune * age 30d", NULL);
+	memset(bad + FZN_RETENTION_SET_OFF_TEXT, 0, FZN_RETENTION_SET_TEXT_MAX);
+	CHECK(fzn_retention_set_check(bad, sizeof(bad), &SIGN) == FZN_ROOT_LOG_ERR_SHAPE,
+	      "a record with no text replacing nothing was taken");
+	rule_record(bad, 1, "prune * age 30d", NULL);
+	bad[FZN_RETENTION_SET_OFF_TEXT + 100u] = 'x';
+	CHECK(fzn_retention_set_check(bad, sizeof(bad), &SIGN) == FZN_ROOT_LOG_ERR_SHAPE,
+	      "a byte past the text's end was taken");
+	rule_record(bad, 1, "prune * age 30d", NULL);
+	bad[1] = (uint8_t)FZN_OBJECT_QUORUM_SET;
+	CHECK(fzn_retention_set_check(bad, sizeof(bad), &SIGN) == FZN_ROOT_LOG_ERR_SHAPE,
+	      "another object was taken as a retention record");
+	rule_record(bad, 1, "prune * age 30d", NULL);
+	bad[FZN_RETENTION_SET_OFF_TEXT + 12u] = '9';
+	CHECK(fzn_retention_set_check(bad, sizeof(bad), &SIGN) == FZN_ROOT_LOG_ERR_SIGNATURE,
+	      "a rule changed after signing was taken");
+}
+
 int main(void)
 {
 	test_the_layout();
@@ -615,6 +725,7 @@ int main(void)
 	test_mutual_removal();
 	test_the_set_refuses();
 	test_the_estates_k();
+	test_the_estates_retention();
 	printf("root_log_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }

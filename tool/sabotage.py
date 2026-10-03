@@ -6483,8 +6483,8 @@ SABOTAGES = [
 	(
 		"node-roots-quorum-is-logged",
 		"node/roots.c",
-		"\terr = fzn_node_roots_log_act(roots, store, as, sign, (uint8_t)FZN_ROOT_ACT_SETTING, record,\n",
-		"\terr = FZN_NODE_ROOTS_OK;\n\tif (0) err = fzn_node_roots_log_act(roots, store, as, sign, (uint8_t)FZN_ROOT_ACT_SETTING, record,\n",
+		"\t/* LOGGED FIRST, then learned, as a root change is. */\n\terr = fzn_node_roots_log_act(roots, store, as, sign, (uint8_t)FZN_ROOT_ACT_SETTING, record,\n",
+		"\t/* LOGGED FIRST, then learned, as a root change is. */\n\terr = FZN_NODE_ROOTS_OK;\n\tif (0) err = fzn_node_roots_log_act(roots, store, as, sign, (uint8_t)FZN_ROOT_ACT_SETTING, record,\n",
 		"a root's setting not in its log stops counting at the root's removal whatever the cut -- sec 418",
 	),
 	(
@@ -8629,6 +8629,62 @@ SABOTAGES = [
 		"\t\t\tif (v % AGE[i].us == 0u) {\n\t\t\t\tv /= AGE[i].us;\n\t\t\t\tunit[0] = AGE[i].u;\n\t\t\t\tbreak;\n",
 		"\t\t\tif (v % AGE[i].us == 0u) {\n\t\t\t\tv /= AGE[i].us;\n\t\t\t\tunit[0] = AGE[i].u;\n",
 		"an age is divided by every unit in turn, and 'age 30d' is written as a different number -- sec 475",
+	),
+	(
+		"retention-removal-names-a-rule",
+		"chain/root_log.c",
+		"\tif (n < 0\n\t    || (n == 0\n\t        && memcmp(bytes + FZN_RETENTION_SET_OFF_REPLACES, ZERO, FZN_ROOT_ACT_ID_LEN) == 0))\n",
+		"\tif (n < 0)\n",
+		"a record with no text replacing nothing is taken, a removal of nothing -- sec 476",
+	),
+	(
+		"retention-padding-is-zero",
+		"chain/root_log.c",
+		"\tfor (i = n; i < FZN_RETENTION_SET_TEXT_MAX; i++)\n\t\tif (field[i] != 0u)\n\t\t\treturn -1;\n",
+		"",
+		"bytes after a rule's text are taken and signed, a channel no reader looks at -- sec 476",
+	),
+	(
+		"retention-replaced-is-not-current",
+		"chain/root_log.c",
+		"\t\tcurrent[i] = (uint8_t)!replaced;\n",
+		"\t\tcurrent[i] = 1u;\n",
+		"a rule removed or changed by a root still applies on every host -- sec 476",
+	),
+	(
+		"retention-counts-under-the-set",
+		"chain/root_log.c",
+		"\t\tif (!counts[i] || retention_text_len(records + (i * FZN_RETENTION_SET_LEN)\n",
+		"\t\tif (retention_text_len(records + (i * FZN_RETENTION_SET_LEN)\n",
+		"a removed root's rule, or one by a key that was never a root, prunes the estate's logs -- sec 476",
+	),
+	(
+		"node-retention-held-once",
+		"node/roots.c",
+		"\tif (add && g.found)\n\t\treturn FZN_NODE_ROOTS_HELD;\n",
+		"",
+		"a rule already the estate's is minted and logged again, spending the root's records on nothing -- sec 476",
+	),
+	(
+		"node-retention-removal-names-its-record",
+		"node/roots.c",
+		"\tif (!add && !g.found)\n\t\treturn FZN_NODE_ROOTS_REFUSED;\n",
+		"",
+		"removing a rule the estate does not have mints a record replacing nothing it can name -- sec 476",
+	),
+	(
+		"node-retention-passed-over-is-counted",
+		"node/roots.c",
+		"\t*unread = g.unread + (g.count - *count);\n",
+		"\t*unread = 0;\n",
+		"an estate rule this build cannot read is dropped unseen, and the log kept against the estate's word -- sec 476",
+	),
+	(
+		"node-retention-travels",
+		"node/roots.c",
+		"\tcase FZN_OBJECT_RETENTION_SET:\n\t\treturn (uint8_t)FZN_PERSIST_BLOB_RETENTION_SET;\n",
+		"",
+		"an estate rule is neither kept nor carried, and stays on the root that set it -- sec 476",
 	),
 ]
 

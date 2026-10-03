@@ -283,6 +283,9 @@ typedef enum fzn_persist_err {
 #define FZN_PERSIST_BLOB_RECEIVED_SHARE 24u
 #define FZN_PERSIST_BLOB_CONTACT_GROUP 25u
 #define FZN_PERSIST_BLOB_LOG_RULE 26u
+/* A root's setting of one estate retention rule, in slot 13 beside the root
+ * changes and the settings of k. `node/roots.c` keeps it. sec 476. */
+#define FZN_PERSIST_BLOB_RETENTION_SET 27u
 
 /* Write a blob head, or refuse when `cap` cannot hold head and body. */
 fzn_persist_err_t fzn_persist_head_write(uint8_t *out, size_t cap, size_t body,
