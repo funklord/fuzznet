@@ -755,6 +755,18 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 				        pt.declined);
 		}
 	}
+	/* AND WHAT THE SILENT PIN, sec 472: a purge waiting a month on nodes
+	 * gone as long is released from them, every round. */
+	{
+		size_t released = 0, finished = 0;
+
+		if (!fzn_node_notes_release_purges(&node_notes, &released, &finished))
+			say(FZN_ENTRY_WARNING, "notes/purge", "the purges would not read");
+		else if (released)
+			say(FZN_ENTRY_INFO, "notes/purge",
+			        "%zu silent node(s) released from purges, %zu purge(s) finished",
+			        released, finished);
+	}
 #ifdef FZN_SPOOL_FILE_ON
 	/* A NOTE WHOSE TEXT IS A BLOB NAMES WHAT TO FETCH: every one held is
 	 * wanted on the shelf, which answers at once for a text already here,

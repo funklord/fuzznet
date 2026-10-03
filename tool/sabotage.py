@@ -8455,6 +8455,48 @@ SABOTAGES = [
 		"",
 		"another user on the machine edits who this user's shares reach -- sec 471",
 	),
+	(
+		"purge-release-waits-the-age",
+		"notes/purge.c",
+		"\t\tif (now_ms - p.queued_at_ms <= age_ms)\n\t\t\tcontinue;\n",
+		"",
+		"a purge is released from a host the moment it is queued, before anyone could answer -- sec 472",
+	),
+	(
+		"purge-release-spares-the-heard",
+		"notes/purge.c",
+		"\t\t\tif (!p.answered[j] && !heard(heard_ctx, p.asked[j], now_ms)) {\n",
+		"\t\t\tif (!p.answered[j]) {\n",
+		"a host still in touch is released and the note erased under it unasked -- sec 472",
+	),
+	(
+		"purge-release-clamps-the-future",
+		"notes/purge.c",
+		"\t\tif (p.queued_at_ms > now_ms) {\n",
+		"\t\tif (0) {\n",
+		"a purge queued while the clock read ahead underflows its age and releases every host at once -- sec 472",
+	),
+	(
+		"purge-release-finishes",
+		"notes/purge.c",
+		"\t\tif (done == p.asked_count) {\n\t\t\terr = fzn_notes_purge_finish(store, p.id);\n",
+		"\t\tif (0) {\n\t\t\terr = fzn_notes_purge_finish(store, p.id);\n",
+		"a purge every host is released from is never finished, and the trash never empties -- sec 472",
+	),
+	(
+		"node-release-reads-partners",
+		"node/notes.c",
+		"\treturn now_ms <= seen || now_ms - seen <= FZN_NODE_NOTES_PARTNER_AGE_MS;\n",
+		"\treturn 0;\n",
+		"a partner that pulled yesterday is released from a month-old purge it was about to answer -- sec 472",
+	),
+	(
+		"node-empty-trash-releases-first",
+		"node/notes.c",
+		"\t\tif (!fzn_node_notes_release_purges(n, &released, &finished))\n\t\t\treturn say(reply, cap, FZN_REPLY_ERROR, \"the purges would not read\");\n",
+		"",
+		"emptying the trash leaves a purge pinned to a node gone a month, waiting until the next round -- sec 472",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

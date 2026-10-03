@@ -1041,6 +1041,33 @@ static size_t change_item(fzn_node_notes_t *n, int add, const uint8_t *at, size_
 
 /* ---- remove note trash --------------------------------------------------- */
 
+/* HEARD FROM LATELY: pulled from this node within a month, by its time
+ * clamped to the clock (sec 470). A node that never pulled from this one --
+ * one this node pulls from -- has answered by now if it answers at all,
+ * since this side drives that conversation each round. A time that will
+ * not read keeps the pin, the side that keeps data. */
+static int partner_heard(void *ctx, const uint8_t host[FZN_PUBKEY_LEN], uint64_t now_ms)
+{
+	fzn_node_notes_t *n = ctx;
+	uint64_t seen = 0;
+	fzn_notes_err_t err = fzn_notes_partner_seen_clamped(&n->store, host, now_ms, &seen);
+
+	if (err == FZN_NOTES_ERR_ABSENT)
+		return 0;
+	if (err != FZN_NOTES_OK)
+		return 1;
+	return now_ms <= seen || now_ms - seen <= FZN_NODE_NOTES_PARTNER_AGE_MS;
+}
+
+int fzn_node_notes_release_purges(fzn_node_notes_t *n, size_t *released, size_t *finished)
+{
+	if (!n || !released || !finished)
+		return 0;
+	return fzn_notes_purge_release(&n->store, now(n), FZN_NODE_NOTES_PARTNER_AGE_MS,
+	                               partner_heard, n, released, finished)
+	       == FZN_NOTES_OK;
+}
+
 static size_t empty_trash(fzn_node_notes_t *n, char *reply, size_t cap)
 {
 	static uint8_t partners[FZN_NODE_NOTES_WRITERS][FZN_PUBKEY_LEN];
@@ -1056,6 +1083,14 @@ static size_t empty_trash(fzn_node_notes_t *n, char *reply, size_t cap)
 	if (fzn_notes_partners(&n->store, partners, FZN_NODE_NOTES_WRITERS, &n_partners)
 	    != FZN_NOTES_OK)
 		return say(reply, cap, FZN_REPLY_ERROR, "the partners would not list");
+	/* FIRST, WHAT THE SILENT PIN, sec 472: a purge waiting a month on a
+	 * node gone as long is finished before the count below is taken. */
+	{
+		size_t released = 0, finished = 0;
+
+		if (!fzn_node_notes_release_purges(n, &released, &finished))
+			return say(reply, cap, FZN_REPLY_ERROR, "the purges would not read");
+	}
 	for (i = 0; i < n->pull_count; i++)
 		asked[n_asked++] = n->pulls[i];
 	for (i = 0; i < n_partners; i++) {

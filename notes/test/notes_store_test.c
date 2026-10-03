@@ -885,6 +885,18 @@ static int held_claims(const uint8_t id[FZN_TREE_ID_LEN])
 	       + (fzn_notes_get(&store, id, KEY_B, out, sizeof(out), &len) == FZN_NOTES_OK);
 }
 
+/* Heard from lately: KEY_C while `hear_c` is set, nobody else. */
+static int hear_c;
+static unsigned heard_asked;
+
+static int heard_stub(void *ctx, const uint8_t host[FZN_PUBKEY_LEN], uint64_t now_ms)
+{
+	(void)ctx;
+	(void)now_ms;
+	heard_asked++;
+	return hear_c && memcmp(host, KEY_C, FZN_PUBKEY_LEN) == 0;
+}
+
 static void test_purge(void)
 {
 	fzn_sign_ops_t ops_a, ops_b;
@@ -984,14 +996,69 @@ static void test_purge(void)
 	              && n == 0u,
 	      "and is stamped again, so it is not asked again before an interval from then");
 
+	/* ---- releasing what the silent pin, sec 472 */
+	{
+		uint8_t four[FZN_TREE_ID_LEN];
+		size_t released = 9, finished = 9;
+
+		CHECK(fzn_notes_purge_release(&store, 100u + 1000u, 1000u, heard_stub, NULL, &released,
+		                              &finished)
+		                      == FZN_NOTES_OK
+		              && released == 0u && finished == 0u && fzn_notes_purge_pending(&store, two),
+		      "a purge exactly the age old releases nobody");
+		hear_c = 1;
+		CHECK(fzn_notes_purge_release(&store, 100u + 1001u, 1000u, heard_stub, NULL, &released,
+		                              &finished)
+		                      == FZN_NOTES_OK
+		              && released == 1u && finished == 0u && fzn_notes_purge_pending(&store, two)
+		              && fzn_notes_purge_get(&store, two, &p) == FZN_NOTES_OK
+		              && p.answered[0] && !p.answered[1],
+		      "past it, the silent host is released and one heard from lately still pins");
+		hear_c = 0;
+		CHECK(fzn_notes_purge_release(&store, 100u + 1001u, 1000u, heard_stub, NULL, &released,
+		                              &finished)
+		                      == FZN_NOTES_OK
+		              && released == 1u && finished == 1u && !fzn_notes_purge_pending(&store, two)
+		              && held_claims(two) == 0,
+		      "and once every host is answered or silent, the purge finishes");
+
+		note = titled("fourth", "");
+		CHECK(fzn_notes_create(&a, root, FZN_NOTE_TYPE_NOTE, &note, 5u, four) == FZN_NOTES_OK
+		              && fzn_notes_purge_add(&store, four, fzn_notes_asking(hosts, 2u),
+		                                     1000000u, &complete)
+		                         == FZN_NOTES_OK,
+		      "fixture: a purge queued while the clock read far ahead");
+		heard_asked = 0;
+		CHECK(fzn_notes_purge_release(&store, 5000u, 1000u, heard_stub, NULL, &released,
+		                              &finished)
+		                      == FZN_NOTES_OK
+		              && released == 0u && heard_asked == 0u
+		              && fzn_notes_purge_get(&store, four, &p) == FZN_NOTES_OK
+		              && p.queued_at_ms == 5000u,
+		      "a purge queued in the future is stamped again from now, releasing nobody");
+		CHECK(fzn_notes_purge_release(&store, 6001u, 1000u, heard_stub, NULL, &released,
+		                              &finished)
+		                      == FZN_NOTES_OK
+		              && finished == 1u && !fzn_notes_purge_pending(&store, four),
+		      "and ages from then, not from the clock that was wrong");
+		CHECK(fzn_notes_purge_release(&store, 6001u, 1000u, NULL, NULL, &released, &finished)
+		              == FZN_NOTES_ERR_MALFORMED,
+		      "with no measure of who was heard, nothing is released");
+	}
+
 	/* ---- the bound */
 	{
 		uint8_t id[FZN_TREE_ID_LEN];
 		size_t i;
 		int ok = 1;
 
+		uint8_t queued[FZN_NOTES_PURGE_MAX][FZN_TREE_ID_LEN];
+
+		CHECK(fzn_notes_purge_list(&store, queued, FZN_NOTES_PURGE_MAX, &n) == FZN_NOTES_OK
+		              && n == 0u,
+		      "fixture: the queue is empty, every purge above finished");
 		memset(id, 0x40, sizeof(id));
-		for (i = 1; i < FZN_NOTES_PURGE_MAX && ok; i++) {
+		for (i = 0; i < FZN_NOTES_PURGE_MAX && ok; i++) {
 			id[0] = (uint8_t)i;
 			ok = fzn_notes_purge_add(&store, id, fzn_notes_asking(hosts, 1u), 7u, &complete)
 			     == FZN_NOTES_OK;

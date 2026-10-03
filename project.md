@@ -52639,15 +52639,15 @@ whose time will not read is pinned, the side that keeps data.
 
 **Only at pin time.** A purge already queued keeps the set it pinned --
 the holder's rule that consent is over a set defined beforehand -- so one
-pinned before a partner went quiet still waits for it. Thirty days is a
+pinned before a partner went quiet still waits for it -- until sec 472,
+which releases it a month on. Thirty days is a
 default chosen here, not a decision of the holder's, and is the kind of
 number sec 428's retention rules would make configurable.
 
 ### Not yet after sec 434
 
-- **A purge already waiting on a gone partner still waits.** Releasing
-  one needs deciding who may declare a pinned host gone, which is the
-  holder's call.
+- ~~**A purge already waiting on a gone partner still waits.**~~ The
+  holder decided 2026-10-03: released after thirty days, sec 472.
 - ~~**Un-pairing a node does not drop it as a partner**; the age does it
   eventually.~~ It is dropped at once since sec 451.
 - **Sharing with contacts**, the rest of phase 4.
@@ -54766,3 +54766,64 @@ no hash refused, `get group` naming members by contact name.
 `@family`, sharing and unsharing with the group.
 
 **Sabotage: eight entries.**
+
+## 472. A purge pinned to a node gone a month is released, 2026-10-03
+
+**The holder's answer to sec 434's open question**, 2026-10-03: release
+them after thirty days. A purge queued more than
+`FZN_NODE_NOTES_PARTNER_AGE_MS` ago stops waiting on each pinned node that
+has not answered and has not pulled from this one in as long, and is
+finished -- every claim erased -- once nobody is left to wait on.
+
+- **Silent is two things at once**: no answer to this purge in a month,
+  and no pull from this node in a month. A partner still pulling keeps
+  its pin, since it will answer. A node this one pulls from records no
+  pull, but this side asks it every round, so a month unanswered is a
+  month silent.
+- **The pinned set is still the set**: nobody is added and the release is
+  per host, so a purge pinned to two nodes, one silent and one not, waits
+  on the one still heard from.
+- **A purge queued while the clock read ahead** is stamped again from now
+  rather than aged from a stamp in the future, sec 469's rule. Left
+  alone, it would underflow its age and release every host at once.
+- **The cost is sec 434's**: a node gone that long may still hold an old
+  copy of what is erased.
+- **Where it runs**: `notes/purge.h`'s `fzn_notes_purge_release`, with the
+  caller's measure of who was heard from; `fzn_node_notes_release_purges`
+  measures by partner stamp. fuzznetd runs it every round, and `remove
+  note trash` runs it before counting what waits.
+
+### Measured for sec 472
+
+**`notes_store_test`, 170 checks:**
+
+- a purge exactly the age old releases nobody;
+- past it, the silent host is released while one heard from still pins,
+  and the purge finishes when neither is left;
+- a purge queued in the future is restamped, releases nobody, and then
+  ages from the restamp;
+- with no measure of who was heard from, nothing is released.
+
+The bound's fixture now fills an empty queue itself rather than counting
+on a purge left over from above.
+
+**`notes_test`, 272 checks:**
+
+- a node pulled from that never answers keeps the purge a second short of
+  a month and releases it a second past;
+- a partner that pulled again a month on is not released;
+- emptying the trash again releases what a partner gone since had
+  pinned (`1 0`, where sec 434 left `2 1`);
+- sec 470's clock-set-back case now releases too.
+
+**Live, fuzznetd under faketime:**
+
+- R served, D pulled from R and was stopped, and R's trash was emptied:
+  `ok 1 1`, the note still held;
+- R's clock was moved on 31 days. The next round logged
+  `1 silent node(s) released from purges, 1 purge(s) finished`, and the
+  note was gone.
+- The control was the first run, by accident: `make test` had not
+  rebuilt `fuzznetd`, and the stale binary released nothing.
+
+**Sabotage: six entries.**

@@ -252,6 +252,61 @@ fzn_notes_err_t fzn_notes_purge_due(const fzn_notes_store_t *store, uint64_t now
 	return FZN_NOTES_OK;
 }
 
+fzn_notes_err_t fzn_notes_purge_release(const fzn_notes_store_t *store, uint64_t now_ms,
+                                        uint64_t age_ms, fzn_notes_purge_heard_fn heard,
+                                        void *heard_ctx, size_t *released, size_t *finished)
+{
+	static uint8_t keys[FZN_NOTES_PURGE_MAX][FZN_PUBKEY_LEN];
+	static fzn_notes_purge_t p;
+	size_t held = 0, i, j, done;
+	fzn_notes_err_t err;
+
+	if (!store || !store->ops || !heard || !released || !finished)
+		return FZN_NOTES_ERR_MALFORMED;
+	*released = 0;
+	*finished = 0;
+	if (!store->ops->list
+	    || !store->ops->list(store->ops->ctx, FZN_PERSIST_NOTE_PURGE, (uint8_t *)keys,
+	                         FZN_NOTES_PURGE_MAX, &held))
+		return FZN_NOTES_ERR_BACKEND;
+	for (i = 0; i < held; i++) {
+		int changed = 0;
+
+		if (fzn_notes_purge_get(store, keys[i], &p) != FZN_NOTES_OK)
+			continue;
+		/* STAMPED BY A CLOCK SINCE SET BACK: age it from now. */
+		if (p.queued_at_ms > now_ms) {
+			p.queued_at_ms = now_ms;
+			err = save(store, &p);
+			if (err != FZN_NOTES_OK)
+				return err;
+			continue;
+		}
+		if (now_ms - p.queued_at_ms <= age_ms)
+			continue;
+		for (j = 0, done = 0; j < p.asked_count; j++) {
+			if (!p.answered[j] && !heard(heard_ctx, p.asked[j], now_ms)) {
+				p.answered[j] = 1u;
+				changed = 1;
+				(*released)++;
+			}
+			done += p.answered[j] ? 1u : 0u;
+		}
+		if (!changed)
+			continue;
+		err = save(store, &p);
+		if (err != FZN_NOTES_OK)
+			return err;
+		if (done == p.asked_count) {
+			err = fzn_notes_purge_finish(store, p.id);
+			if (err != FZN_NOTES_OK)
+				return err;
+			(*finished)++;
+		}
+	}
+	return FZN_NOTES_OK;
+}
+
 fzn_notes_err_t fzn_notes_purge_trash(const fzn_notes_store_t *store, fzn_notes_view_t *view,
                                       const uint8_t self[FZN_PUBKEY_LEN],
                                       fzn_notes_asking_t asking, uint64_t now_ms,

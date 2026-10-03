@@ -459,6 +459,23 @@ static void test_trash(void)
 	      "the note pending purge is left out of the listing");
 	snprintf(line, sizeof(line), "get note %s", b);
 	CHECK(ask(line) == FZN_REPLY_OK, "though it is still held");
+	/* A NODE PULLED FROM THAT NEVER ANSWERS, sec 472: released a month
+	 * after the purge was queued, and not a moment before. */
+	{
+		size_t released = 9, finished = 9;
+
+		/* The test clock ticks each time it is read, so a second's margin. */
+		clock_ms += FZN_NODE_NOTES_PARTNER_AGE_MS - 1000u;
+		CHECK(fzn_node_notes_release_purges(&notes, &released, &finished) && released == 0u
+		              && ask(line) == FZN_REPLY_OK,
+		      "a second short of a month, the purge still waits");
+		clock_ms += 2000u;
+		CHECK(fzn_node_notes_release_purges(&notes, &released, &finished) && released == 1u
+		              && finished == 1u && ask(line) == FZN_REPLY_ERROR,
+		      "past it, the silent node is released and the note is gone");
+		CHECK(!fzn_node_notes_release_purges(NULL, &released, &finished),
+		      "no node, no release");
+	}
 
 	/* A PARTNER IS ASKED TOO: a node paired to this one that has pulled
 	 * from it holds copies, though this node does not pull from it. */
@@ -484,17 +501,39 @@ static void test_trash(void)
 	              && notes.fresh,
 	      "the partner is pinned, the purge waits, and the node is told to converse now");
 
-	/* A PARTNER GONE A MONTH IS NOT PINNED. */
-	clock_ms += FZN_NODE_NOTES_PARTNER_AGE_MS + 1000u;
-	CHECK(ask("add note top bin later") == FZN_REPLY_OK, "fixture: another note to bin");
-	take_id(b);
-	snprintf(line, sizeof(line), "set note %s trash", b);
-	CHECK(ask(line) == FZN_REPLY_OK, "it is trashed");
-	CHECK(ask("remove note trash") == FZN_REPLY_OK && !strcmp(detail_of(), "2 1"),
-	      "the earlier purge still waits, under the set it pinned when queued");
-	snprintf(line, sizeof(line), "get note %s", b);
-	CHECK(ask(line) == FZN_REPLY_ERROR,
-	      "and a month after the partner last pulled, the new one pins nobody and is gone");
+	/* A PARTNER STILL PULLING KEEPS ITS PIN, sec 472: it will answer. */
+	{
+		uint8_t query[FZN_NOTES_SYNC_INDEX_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
+			                                          FZN_NOTES_SYNC_INDEX_QUERY, 0, 0 };
+		uint8_t out[FZN_NOTES_SYNC_REPLY_MAX];
+		size_t released = 9, finished = 9;
+
+		clock_ms += FZN_NODE_NOTES_PARTNER_AGE_MS;
+		CHECK(fzn_node_notes_remote(&notes, PEER, 0, query, sizeof(query), out, sizeof(out))
+		              > 0u,
+		      "fixture: the partner pulls again, a month on");
+		clock_ms += 1000u;
+		CHECK(fzn_node_notes_release_purges(&notes, &released, &finished) && released == 0u,
+		      "a month after the purge, a partner heard from lately is not released");
+	}
+	{
+		char first[65];
+
+		memcpy(first, b, sizeof(first));
+		/* A PARTNER GONE A MONTH IS NOT PINNED, and releases what it pinned. */
+		clock_ms += FZN_NODE_NOTES_PARTNER_AGE_MS + 1000u;
+		CHECK(ask("add note top bin later") == FZN_REPLY_OK, "fixture: another note to bin");
+		take_id(b);
+		snprintf(line, sizeof(line), "set note %s trash", b);
+		CHECK(ask(line) == FZN_REPLY_OK, "it is trashed");
+		CHECK(ask("remove note trash") == FZN_REPLY_OK && !strcmp(detail_of(), "1 0"),
+		      "emptying again releases the earlier purge from the partner gone since, "
+		      "and the new one pins nobody");
+		snprintf(line, sizeof(line), "get note %s", first);
+		CHECK(ask(line) == FZN_REPLY_ERROR, "the earlier note is gone");
+		snprintf(line, sizeof(line), "get note %s", b);
+		CHECK(ask(line) == FZN_REPLY_ERROR, "and so is the new one");
+	}
 	CHECK(ask("remove note bin") == FZN_REPLY_MALFORMED, "only the trash is emptied");
 }
 
@@ -1242,9 +1281,9 @@ static void test_a_partner_seen_in_the_future_ages_from_now(void)
 	take_id(b);
 	snprintf(line, sizeof(line), "set note %s trash", b);
 	CHECK(ask(line) == FZN_REPLY_OK && ask("remove note trash") == FZN_REPLY_OK
-	              && !strcmp(detail_of(), "2 1"),
-	      "a month after the clock was set back, the silent partner pins nothing new -- not ten "
-	      "years on");
+	              && !strcmp(detail_of(), "1 0"),
+	      "a month after the clock was set back, the silent partner pins nothing new and is "
+	      "released from what it pinned -- not ten years on");
 	clock_ms = back;
 }
 

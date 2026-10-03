@@ -70,6 +70,9 @@
  * still admitted -- a partner un-paired or revoked is not pinned, sec 451.
  * The conversation is driven by whichever side
  * pulls, so a purge completes as each of them next pulls or is pulled from.
+ * A node silent a month is released from a purge queued a month ago, sec
+ * 472, so a purge pinned to a node that never comes back does not wait for
+ * ever.
  * On a node with none it goes at once. The reply says how many wait.
  */
 
@@ -202,6 +205,13 @@ typedef struct fzn_node_notes_text_tally {
 	size_t spans;
 	size_t refused; /* the peer would not take them */
 } fzn_node_notes_text_tally_t;
+
+/* RELEASE THE PURGES THE SILENT PIN, sec 472: a purge queued more than
+ * FZN_NODE_NOTES_PARTNER_AGE_MS ago stops waiting on each pinned node that
+ * has not answered and has not pulled from this one in that long, and
+ * finishes when none is left (`fzn_notes_purge_release`). Run each round,
+ * and before the trash is emptied. 0 when the store would not read. */
+int fzn_node_notes_release_purges(fzn_node_notes_t *n, size_t *released, size_t *finished);
 
 /* PUSH THE TEXTS, sec 448: offer every text a note this node holds names,
  * and send the spans of each the peer wants, until it is whole there. A

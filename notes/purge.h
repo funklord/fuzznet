@@ -134,6 +134,28 @@ fzn_notes_err_t fzn_notes_purge_list(const fzn_notes_store_t *store,
 fzn_notes_err_t fzn_notes_purge_due(const fzn_notes_store_t *store, uint64_t now_ms,
                                     uint8_t (*ids)[FZN_TREE_ID_LEN], size_t cap, size_t *count);
 
+/* Whether `host` has been heard from lately, by the caller's measure. */
+typedef int (*fzn_notes_purge_heard_fn)(void *ctx, const uint8_t host[FZN_PUBKEY_LEN],
+                                        uint64_t now_ms);
+
+/*
+ * RELEASE WHAT THE SILENT PIN, sec 472: the holder's answer to a purge
+ * pinned to a node that never comes back. A purge queued more than `age_ms`
+ * before `now_ms` counts each host that has not answered, and that `heard`
+ * says has not been heard from lately, as answered; a purge so completed is
+ * finished, every claim erased. The cost accepted is sec 434's: a host gone
+ * that long may still hold an old copy of what is erased.
+ *
+ * A PURGE QUEUED "IN THE FUTURE" was stamped by a clock since set back, and
+ * aging it from that stamp would pin it for as long as the clock was wrong:
+ * it is stamped again from `now_ms`, as sec 470 does a partner's time.
+ *
+ * `*released` counts hosts released, `*finished` purges completed.
+ */
+fzn_notes_err_t fzn_notes_purge_release(const fzn_notes_store_t *store, uint64_t now_ms,
+                                        uint64_t age_ms, fzn_notes_purge_heard_fn heard,
+                                        void *heard_ctx, size_t *released, size_t *finished);
+
 /*
  * Empty the trash: queue a purge of every note whose claim by `self` is
  * trashed, asking `asking`, and finish at once those nobody need consent to.
