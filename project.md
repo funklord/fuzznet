@@ -50403,8 +50403,10 @@ admins, which fails toward revocation, as sec 394 asks removal to err.
   does.
 - **Re-keys**, the other half of the decision, have nothing to confirm
   yet, because nothing here re-keys.
-- **`fzn_revocation_current_epoch` still counts every admin's issuer**
-  when it opens an epoch. That affects numbering only, not verdicts.
+- ~~**`fzn_revocation_current_epoch` still counts every admin's issuer**
+  when it opens an epoch. That affects numbering only, not verdicts.~~
+  It affected verdicts: admins nobody confirmed could stall a revocation.
+  Closed in sec 481.
 
 ### Measured for sec 414
 
@@ -55364,3 +55366,45 @@ to exist (sec 428's replicated copies), which is not built.
   both, 0 debug and 50 info lines left.
 
 **Sabotage: three entries.**
+
+## 481. An admin who does not stand moves no epoch, 2026-10-04
+
+Sec 414 left one line open: "`fzn_revocation_current_epoch` still counts
+every admin's issuer when it opens an epoch. That affects numbering only,
+not verdicts." **Numbering decides verdicts here**, and the line undersold
+it.
+
+An epoch closes when k counted issuers have left it, by withdrawing in it
+or voting in a later one. The question a host asks before casting its own
+vote counts every issuer, since it cannot see the chain each would be
+judged on. So at k = 2:
+
+1. a standing admin votes on a key in epoch 0;
+2. two admins whose grants nobody confirmed vote in epoch 3;
+3. epoch 0 now reads as closed, and a second standing admin's vote is
+   numbered past it, apart from the first;
+4. the two standing votes never meet, and the key is never revoked.
+
+**Admins whose grants nobody confirmed could keep a stolen device from
+being revoked.** Their own votes counted for nothing in any verdict
+(sec 414), and that was the defence the old line leaned on. It did not
+reach the numbering.
+
+**Now the count leaves out an admin who does not stand** -- unconfirmed,
+unrooted or revoked -- through `standing_admins`, the computation the
+verdict and `fzn_revocation_admin_stands` (sec 479) share. A root is never
+left out; any other issuer still counts, since an ancestor's standing
+cannot be told from here.
+
+### Measured for sec 481
+
+**`revocation_test`, 689 checks**, five new. At k = 2 with
+confirmations kept:
+
+- 6, root-granted, votes in epoch 0;
+- 7 and 8, granted by 5 and confirmed by nobody, vote in epoch 3, and no
+  verdict counts them;
+- the store numbers the next vote 0;
+- 5's vote, numbered so, lands beside 6's and the two revoke.
+
+**Sabotage: two entries.**

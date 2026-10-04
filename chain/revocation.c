@@ -635,8 +635,21 @@ static int counts(const fzn_revocation_store_t *store, const fzn_revocation_t *e
 		return 0;
 	if (h->has_floor && entry->epoch <= h->floor)
 		return 0;
-	if (h->any_issuer)
+	/* EVERY ISSUER, BUT NOT AN ADMIN WHO DOES NOT STAND, sec 481: an
+	 * unconfirmed or revoked admin's votes count for nothing, and counted
+	 * here they could close an epoch the admins who stand are still
+	 * voting in -- numbering the next vote past theirs, so the two never
+	 * meet and a stolen key is never revoked. A root is never this. */
+	if (h->any_issuer) {
+		if (h->admin_ok && store->has_admin
+		    && !(store->roots && store->roots->member(store->roots->ctx, entry->issuer))) {
+			size_t a = find_admin(store, entry->issuer);
+
+			if (a < store->admins_used && !h->admin_ok[a])
+				return 0;
+		}
 		return 1;
+	}
 	/* A ROOT IS ENTITLED OVER EVERY HOP, sec 406: the set decides whether
 	 * its record counts, ancestor or not. */
 	if (store->roots && store->roots->member(store->roots->ctx, entry->issuer))
@@ -810,12 +823,16 @@ static void judge_links(const fzn_revocation_store_t *store,
 	}
 }
 
+static void standing_admins(const fzn_revocation_store_t *store,
+                            uint8_t admin_ok[REVOCATION_ADMINS_MAX]);
+
 uint64_t fzn_revocation_current_epoch(const fzn_revocation_store_t *store,
                                       const uint8_t root[FZN_PUBKEY_LEN],
                                       const fzn_cap_id_t *capability,
                                       const uint8_t grantee[FZN_PUBKEY_LEN])
 {
 	const uint8_t (*grantees)[FZN_PUBKEY_LEN] = (const uint8_t (*)[FZN_PUBKEY_LEN])grantee;
+	uint8_t admin_ok[REVOCATION_ADMINS_MAX];
 	struct hop_question h;
 
 	if (!store || !capability || !grantee || corrupt(store) || !store->entries)
@@ -825,7 +842,13 @@ uint64_t fzn_revocation_current_epoch(const fzn_revocation_store_t *store,
 	h.i = 0;
 	h.hop_count = 1u;
 	h.capability = capability;
+	/* WHICH ADMINS STAND, so one who does not cannot move the numbering.
+	 * sec 481. */
 	h.admin_ok = NULL;
+	if (store->has_admin && store->admins_used) {
+		standing_admins(store, admin_ok);
+		h.admin_ok = admin_ok;
+	}
 	h.any_issuer = 1;
 	/* A root's live revocation settles nothing about epochs; its undo
 	 * moves the next vote past it. */

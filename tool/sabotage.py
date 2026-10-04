@@ -8784,6 +8784,20 @@ SABOTAGES = [
 		"\t\telse if (c >= 'a' && c <= 'f')\n\t\t\tv = (unsigned)(c - 'a' + 10);\n\t\telse if (c >= 'A' && c <= 'F')\n\t\t\tv = (unsigned)(c - 'A' + 10);\n\t\telse\n\t\t\treturn 0;\n",
 		"one scope has two spellings, and the same rule is kept twice -- sec 480",
 	),
+	(
+		"revocation-epoch-skips-unstanding-admins",
+		"chain/revocation.c",
+		"\t\t\tif (a < store->admins_used && !h->admin_ok[a])\n\t\t\t\treturn 0;\n",
+		"",
+		"admins nobody confirmed close the epoch standing admins vote in, and a stolen key is never revoked -- sec 481",
+	),
+	(
+		"revocation-epoch-knows-who-stands",
+		"chain/revocation.c",
+		"\t\tstanding_admins(store, admin_ok);\n\t\th.admin_ok = admin_ok;\n",
+		"\t\tstanding_admins(store, admin_ok);\n",
+		"the epoch is numbered by every admin's votes, standing or not -- sec 481",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

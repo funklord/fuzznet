@@ -4191,6 +4191,75 @@ static fzn_chain_err_t confirm(struct fixture *f, uint8_t confirmer, const uint8
  * alone. When the root revokes 6's admin grant, 6's confirmation stops
  * holding 7 up, which 5's vote beside 7's makes visible. Without the table, 7's vote counts as it did before (the
  * control). */
+/* `issuer`'s vote on `grantee` in `epoch`, on its admin chain `hops`. */
+static fzn_chain_err_t vote_in(struct fixture *f, uint8_t issuer, const fzn_cap_id_t *cap,
+                               uint8_t grantee, const fzn_chain_hop_t *hops, size_t n,
+                               uint64_t epoch)
+{
+	uint8_t bytes[FZN_REVOCATION_LEN];
+	uint8_t issuer_key[FZN_PUBKEY_LEN], grantee_key[FZN_PUBKEY_LEN];
+	fzn_revocation_record_t r;
+
+	key(issuer_key, issuer);
+	key(grantee_key, grantee);
+	f->stub.identity = issuer;
+	if (fzn_revocation_issue(issuer_key, cap, grantee_key, 3000, epoch, &f->sign, bytes)
+	            != FZN_CHAIN_OK
+	    || fzn_revocation_open(bytes, FZN_REVOCATION_LEN, &r) != FZN_CHAIN_OK) {
+		stub_reset(&f->stub);
+		return FZN_CHAIN_ERR_MALFORMED;
+	}
+	stub_reset(&f->stub);
+	return fzn_revocation_admit(&f->store, fzn_revocation_offer_chain(r, hops, n), f->root,
+	                            &f->sign, &HASH_OPS, NULL);
+}
+
+/* AN ADMIN WHO DOES NOT STAND MOVES NO EPOCH, sec 481. At k = 2, 6 (root-
+ * granted) votes on key 2 in epoch 0; 7 and 8, granted by 5 and confirmed by
+ * nobody, vote in epoch 3. They count for nothing in the verdict, and they
+ * must not close epoch 0 either: 5's vote, numbered by the store, has to
+ * land beside 6's for the two to revoke. */
+static void test_an_unstanding_admin_moves_no_epoch(void)
+{
+	static fzn_revocation_admin_t admins[8];
+	static fzn_revocation_confirm_t confirms[8];
+	static struct fixture f;
+	uint8_t b5[FZN_HOP_LEN], b6[FZN_HOP_LEN], b57[FZN_HOP_LEN], b58[FZN_HOP_LEN];
+	uint8_t revoked[FZN_CHAIN_MAX_HOPS], two[FZN_PUBKEY_LEN];
+	fzn_chain_hop_t h5, h6, via7[2], via8[2];
+	fzn_cap_id_t cap, adm;
+	uint64_t epoch;
+
+	capability_id(&cap, 0xc0);
+	capability_id(&adm, 0xad);
+	key(two, 2);
+	fixture_init(&f);
+	CHECK(fzn_revocation_store_set_quorum(&f.store, 2u, &adm, admins, 8u) == FZN_CHAIN_OK
+	              && fzn_revocation_store_set_confirmations(&f.store, confirms, 8u, &HASH_OPS)
+	                         == FZN_CHAIN_OK,
+	      "fixture: k = 2 with confirmations");
+	mint_hop(&f, b5, &h5, 0, 5, &adm, 1000, FZN_NO_EXPIRY, 1);
+	mint_hop(&f, b6, &h6, 0, 6, &adm, 1000, FZN_NO_EXPIRY, 0);
+	mint_hop(&f, b57, &via7[1], 5, 7, &adm, 1000, FZN_NO_EXPIRY, 0);
+	mint_hop(&f, b58, &via8[1], 5, 8, &adm, 1000, FZN_NO_EXPIRY, 0);
+	via7[0] = h5;
+	via8[0] = h5;
+	CHECK(vote_in(&f, 6, &cap, 2, &h6, 1, 0u) == FZN_CHAIN_OK
+	              && vote_in(&f, 7, &cap, 2, via7, 2, 3u) == FZN_CHAIN_OK
+	              && vote_in(&f, 8, &cap, 2, via8, 2, 3u) == FZN_CHAIN_OK,
+	      "fixture: 6 in epoch 0, the unconfirmed 7 and 8 in epoch 3");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 0u, "fixture: one standing admin and two unconfirmed revoked");
+	epoch = fzn_revocation_current_epoch(&f.store, f.root, &cap, two);
+	CHECK(epoch == 0u, "two admins who do not stand closed the epoch a standing admin votes in");
+	CHECK(vote_in(&f, 5, &cap, 2, &h5, 1, epoch) == FZN_CHAIN_OK, "fixture: 5 votes as numbered");
+	judge(&f, &cap, revoked);
+	CHECK(revoked[1] == 1u, "two standing admins, numbered by the store, did not revoke");
+	(void)b6;
+	(void)b57;
+	(void)b58;
+}
+
 static void test_an_admin_grant_takes_confirmations(void)
 {
 	static fzn_revocation_admin_t admins[8];
@@ -4476,6 +4545,7 @@ int main(void)
 	test_an_admin_is_named_by_its_chain();
 	test_admins_that_revoke_each_other_both_fall();
 	test_an_admin_grant_takes_confirmations();
+	test_an_unstanding_admin_moves_no_epoch();
 	test_an_admin_chain_from_a_member_root();
 	test_member_root_chains_are_judged_by_the_set();
 	test_the_links_form_holds_the_ceiling();
