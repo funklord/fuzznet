@@ -143,6 +143,32 @@ static int match_of(const char *w, size_t n, uint8_t *out, size_t *len)
 	return k > 0u;
 }
 
+/* `n` bytes from 2n lowercase hex digits -- one spelling, so one scope has
+ * one text. */
+static int hex_of(const char *w, size_t len, uint8_t *out, size_t n)
+{
+	size_t i;
+
+	if (len != n * 2u)
+		return 0;
+	for (i = 0; i < len; i++) {
+		char c = w[i];
+		unsigned v;
+
+		if (c >= '0' && c <= '9')
+			v = (unsigned)(c - '0');
+		else if (c >= 'a' && c <= 'f')
+			v = (unsigned)(c - 'a' + 10);
+		else
+			return 0;
+		if (i % 2u == 0u)
+			out[i / 2u] = (uint8_t)(v << 4);
+		else
+			out[i / 2u] = (uint8_t)(out[i / 2u] | v);
+	}
+	return 1;
+}
+
 /* Digits, then at most one unit letter, the product within a u64. */
 static int number(const char *w, size_t n, fzn_retain_limit_t limit, uint64_t *out)
 {
@@ -193,8 +219,8 @@ static int number(const char *w, size_t n, fzn_retain_limit_t limit, uint64_t *o
 
 fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_t *out)
 {
-	const char *at = line, *end, *w[8];
-	size_t n[8], count = 0, i;
+	const char *at = line, *end, *w[10];
+	size_t n[10], count = 0, i;
 
 	if (!line || !out)
 		return FZN_RETAIN_ERR_MALFORMED;
@@ -202,16 +228,24 @@ fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_
 	if (len && line[len - 1u] == '\n')
 		len--;
 	end = line + len;
-	while (count < 8u && next_word(&at, end, &w[count], &n[count]))
+	while (count < 10u && next_word(&at, end, &w[count], &n[count]))
 		count++;
-	/* KIND PROGRAM [level=] [subsystem=] [text=] LIMIT N: four words to
-	 * seven. */
-	if (count < 4u || count > 7u)
+	/* KIND PROGRAM [host=] [machine=] [level=] [subsystem=] [text=] LIMIT
+	 * N: four words to nine. */
+	if (count < 4u || count > 9u)
 		return FZN_RETAIN_ERR_MALFORMED;
 	for (i = 2; i < count - 2u; i++) {
 		if (n[i] > 6u && memcmp(w[i], "level=", 6u) == 0 && !out->levels) {
 			if (!levels_of(w[i] + 6, n[i] - 6u, &out->levels))
 				return FZN_RETAIN_ERR_MALFORMED;
+		} else if (n[i] > 5u && memcmp(w[i], "host=", 5u) == 0 && !out->has_host) {
+			if (!hex_of(w[i] + 5, n[i] - 5u, out->host, sizeof(out->host)))
+				return FZN_RETAIN_ERR_MALFORMED;
+			out->has_host = 1;
+		} else if (n[i] > 8u && memcmp(w[i], "machine=", 8u) == 0 && !out->has_machine) {
+			if (!hex_of(w[i] + 8, n[i] - 8u, out->machine, sizeof(out->machine)))
+				return FZN_RETAIN_ERR_MALFORMED;
+			out->has_machine = 1;
 		} else if (n[i] > 5u && memcmp(w[i], "text=", 5u) == 0 && !out->match_len) {
 			if (!match_of(w[i] + 5, n[i] - 5u, out->match, &out->match_len))
 				return FZN_RETAIN_ERR_MALFORMED;
@@ -259,6 +293,7 @@ fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_
 {
 	static const char LETTERS[] = "CEWNIVDT";
 	char levels[9], unit[2] = { 0, 0 }, match[(FZN_RETAIN_MATCH_MAX * 3u) + 7u];
+	char scope[6u + 64u + 9u + 32u + 1u];
 	uint64_t v;
 	size_t i, k = 0;
 	int n;
@@ -288,6 +323,26 @@ fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_
 		}
 		match[m] = '\0';
 	}
+	/* THE SCOPE, host then machine, hex in lower case as the parser reads
+	 * it. sec 480. */
+	{
+		size_t m = 0;
+
+		scope[0] = '\0';
+		if (rule->has_host) {
+			memcpy(scope, " host=", 6u);
+			m = 6u;
+			for (i = 0; i < sizeof(rule->host); i++, m += 2u)
+				(void)snprintf(scope + m, 3u, "%02x", rule->host[i]);
+		}
+		if (rule->has_machine) {
+			memcpy(scope + m, " machine=", 9u);
+			m += 9u;
+			for (i = 0; i < sizeof(rule->machine); i++, m += 2u)
+				(void)snprintf(scope + m, 3u, "%02x", rule->machine[i]);
+		}
+		scope[m] = '\0';
+	}
 	v = rule->value;
 	if (rule->limit == FZN_RETAIN_AGE) {
 		static const struct { uint64_t us; char u; } AGE[] = {
@@ -316,8 +371,8 @@ fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_
 				break;
 			}
 	}
-	n = snprintf(out, cap, "%s %s%s%s%s%s%s %s %llu%s",
-	             rule->kind == FZN_RETAIN_PRUNE ? "prune" : "keep", rule->program,
+	n = snprintf(out, cap, "%s %s%s%s%s%s%s%s %s %llu%s",
+	             rule->kind == FZN_RETAIN_PRUNE ? "prune" : "keep", rule->program, scope,
 	             k ? " level=" : "", levels, rule->subsystem[0] ? " subsystem=" : "",
 	             rule->subsystem, match,
 	             rule->limit == FZN_RETAIN_AGE    ? "age"
@@ -388,7 +443,38 @@ static int rule_ok(const fzn_retain_rule_t *r)
 	       && memchr(r->subsystem, '\0', sizeof(r->subsystem)) != NULL
 	       && (!r->subsystem[0] || subsystem_ok(r->subsystem, strlen(r->subsystem)))
 	       && r->match_len <= FZN_RETAIN_MATCH_MAX
-	       && memchr(r->match, '\0', r->match_len) == NULL;
+	       && memchr(r->match, '\0', r->match_len) == NULL
+	       && (r->has_host == 0 || r->has_host == 1)
+	       && (r->has_machine == 0 || r->has_machine == 1);
+}
+
+int fzn_retain_reaches(const fzn_retain_rule_t *rule, const uint8_t host[32],
+                       const uint8_t machine[FZN_ENTRY_MACHINE_LEN])
+{
+	if (!rule)
+		return 0;
+	/* A SCOPE NAMED AND NOT KNOWN HERE reaches nothing: a rule meant for
+	 * one node must not be taken as everyone's for want of a key. */
+	if (rule->has_host && (!host || memcmp(rule->host, host, sizeof(rule->host)) != 0))
+		return 0;
+	if (rule->has_machine
+	    && (!machine || memcmp(rule->machine, machine, sizeof(rule->machine)) != 0))
+		return 0;
+	return 1;
+}
+
+size_t fzn_retain_select_here(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],
+                              const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
+                              fzn_retain_rule_t *out)
+{
+	size_t i, k = 0;
+
+	if (!in || !out)
+		return 0;
+	for (i = 0; i < n; i++)
+		if (fzn_retain_reaches(&in[i], host, machine))
+			out[k++] = in[i];
+	return k;
 }
 
 int fzn_retain_rule_selects_entries(const fzn_retain_rule_t *rule)

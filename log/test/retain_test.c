@@ -252,6 +252,50 @@ static void test_text_selector(void)
 	      "an entry holding the text goes; one without it, and one with no text, stay");
 }
 
+/* SCOPE, sec 480: where a rule applies. */
+static void test_scope(void)
+{
+	static const char *const BAD[] = {
+		"prune * host=aa age 1d",
+		"prune * host=AAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa age 1d",
+		"prune * machine=0B0B age 1d",
+		"prune * machine=0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b machine=0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b age 1d",
+	};
+	fzn_retain_rule_t in[3], out[3], x;
+	uint8_t host[32], other[32], machine[FZN_ENTRY_MACHINE_LEN];
+	char t[FZN_RETAIN_TEXT_MAX];
+	size_t i, len = 0;
+	int all = 1;
+
+	memset(host, 0xaa, sizeof(host));
+	memset(other, 0xab, sizeof(other));
+	memset(machine, 0x0b, sizeof(machine));
+	in[0] = rule("prune * machine=0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b host=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa level=D age 1d");
+	CHECK(in[0].has_host && in[0].has_machine && memcmp(in[0].host, host, 32u) == 0
+	              && memcmp(in[0].machine, machine, sizeof(machine)) == 0
+	              && fzn_retain_rule_selects_entries(&in[0]),
+	      "a host and a machine are read, in either order");
+	CHECK(fzn_retain_text(&in[0], t, sizeof(t), &len) == FZN_RETAIN_OK
+	              && strcmp(t, "prune * host=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa machine=0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b level=D age 1d") == 0,
+	      "the scope's text is host then machine, after the program");
+	for (i = 0; i < sizeof(BAD) / sizeof(BAD[0]); i++)
+		all = all && fzn_retain_parse(BAD[i], strlen(BAD[i]), &x) == FZN_RETAIN_ERR_MALFORMED;
+	CHECK(all, "a short key, upper-case hex, a short machine and a scope twice are refused");
+	CHECK(fzn_retain_reaches(&in[0], host, machine) && !fzn_retain_reaches(&in[0], other, machine)
+	              && !fzn_retain_reaches(&in[0], NULL, machine),
+	      "a host-scoped rule reaches its node alone, and nothing where no key is known");
+	in[1] = rule("prune * machine=0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b age 1d");
+	in[2] = rule("prune * age 1d");
+	machine[0] ^= 1u;
+	CHECK(fzn_retain_select_here(in, 3u, host, machine, out) == 1u && out[0].value == in[2].value
+	              && !out[0].has_machine && !out[0].has_host,
+	      "on another machine only the unscoped rule reaches");
+	machine[0] ^= 1u;
+	CHECK(fzn_retain_select_here(in, 3u, other, machine, out) == 2u && out[0].has_machine
+	              && !out[0].has_host,
+	      "on another node of the machine the machine's rule and the unscoped one reach");
+}
+
 /* ONE SPELLING, sec 475: a rule kept under its text is kept once. */
 static void test_text(void)
 {
@@ -304,6 +348,7 @@ int main(void)
 	test_entries();
 	test_text();
 	test_text_selector();
+	test_scope();
 	if (failures) {
 		fprintf(stderr, "retain_test: %d of %d checks failed\n", failures, checks);
 		return 1;

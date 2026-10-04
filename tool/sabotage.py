@@ -8763,6 +8763,27 @@ SABOTAGES = [
 		"\t\t\t\tout[at++] = h ? 'h' : (s == 3u ? 'c' : 'r');\n",
 		"an admin's rule goes out as a revocation, is refused everywhere, and stays on the admin's node -- sec 479",
 	),
+	(
+		"retain-scope-host-reaches-its-node",
+		"log/retain.c",
+		"\tif (rule->has_host && (!host || memcmp(rule->host, host, sizeof(rule->host)) != 0))\n\t\treturn 0;\n",
+		"",
+		"a rule an admin scoped to one host prunes every host's logs -- sec 480",
+	),
+	(
+		"retain-scope-machine-reaches-its-machine",
+		"log/retain.c",
+		"\tif (rule->has_machine\n\t    && (!machine || memcmp(rule->machine, machine, sizeof(rule->machine)) != 0))\n\t\treturn 0;\n",
+		"",
+		"a rule scoped to one machine prunes every machine's logs -- sec 480",
+	),
+	(
+		"retain-scope-hex-one-spelling",
+		"log/retain.c",
+		"\t\telse if (c >= 'a' && c <= 'f')\n\t\t\tv = (unsigned)(c - 'a' + 10);\n\t\telse\n\t\t\treturn 0;\n",
+		"\t\telse if (c >= 'a' && c <= 'f')\n\t\t\tv = (unsigned)(c - 'a' + 10);\n\t\telse if (c >= 'A' && c <= 'F')\n\t\t\tv = (unsigned)(c - 'A' + 10);\n\t\telse\n\t\t\treturn 0;\n",
+		"one scope has two spellings, and the same rule is kept twice -- sec 480",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

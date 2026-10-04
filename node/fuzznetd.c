@@ -119,6 +119,10 @@ static struct {
 	/* THE ESTATE'S RULES, sec 476: resolved from the running root records
 	 * on every pass, so a root's change applies once it has been pulled. */
 	const fzn_node_roots_t *roots;
+	/* WHO THIS NODE IS, for a rule's scope, sec 480: its key once known.
+	 * Until then a rule scoped to a host reaches nothing here. */
+	int has_host;
+	uint8_t host[FZN_PUBKEY_LEN];
 	const fzn_hash_ops_t *hash;
 	char ring_path[FZN_LOGGER_PATH_MAX + 32u];
 	uint64_t last_dump_us;
@@ -341,6 +345,10 @@ static void log_round(void)
 				    unread);
 		}
 	}
+	/* ONLY THE RULES THAT REACH THIS NODE, sec 480: a rule scoped to
+	 * another host or machine is that one's. */
+	n_rules = fzn_retain_select_here(rules, n_rules, dlog.has_host ? dlog.host : NULL,
+	                                 dlog.logger.self.machine, rules);
 #ifdef FZN_LOG_PACK_ON
 	/* THE RULES OVER ENTRIES TOO, sec 474: a packed segment some of whose
 	 * lines go is repacked without them. */
@@ -2238,6 +2246,10 @@ int main(int argc, char **argv)
 			admin.peers_cap = FZN_NODE_PEERS_MAX;
 			admin.id = &identity;
 			admin.store = store_ops;
+#ifdef FZN_LOG_FILE_ON
+			memcpy(dlog.host, identity.pubkey, FZN_PUBKEY_LEN);
+			dlog.has_host = 1;
+#endif
 			admin.card_lifetime = FZND_CARD_LIFETIME;
 			running_admin = &admin;
 			admin.revocations = &revoked;

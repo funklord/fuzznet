@@ -55110,9 +55110,8 @@ offsets: text at 66, signature at 194.
 
 - ~~**Estate admins setting rules.**~~ Built in sec 479, on this record,
   riding the vote stream with the admin's chain.
-- **Scopes** (sec 420's vocabulary): a rule for one machine, or one user,
-  and "in some cases cross-host" -- a rule on one host about another's
-  logs, which needs gathering's copies (sec 428) to exist first.
+- ~~**Scopes**~~ for one host and one machine: sec 480. A rule applied by
+  one host to another's logs still needs gathering's copies (sec 428).
 
 ### Measured for sec 476
 
@@ -55313,3 +55312,55 @@ genesis, A its admin:
 - a root's rule added, removed and added again standing.
 
 **Sabotage: six entries**, three of sec 415's and 476's re-aimed.
+
+## 480. Retention rules scoped to a host or a machine, 2026-10-04
+
+The holder's "the retention settings need to be scopable and in some cases
+apply cross-host" (sec 476), in sec 420's vocabulary where it has a reader
+today.
+
+    prune|keep PROGRAM|* [host=NODEHEX] [machine=MACHINEHEX] [selectors] LIMIT N
+
+- **`host=`** is a node's key, 64 hex digits. Sec 430 makes a host one
+  account's node, so a host-scoped rule applies to that node's logs alone.
+- **`machine=`** is a machine-id, 32 hex digits, so the rule applies on
+  every node of that machine. Both together: that node, only on that
+  machine.
+- **Lower-case hex only**, so one scope has one spelling. The canonical
+  text puts the scope after the program, host before machine.
+- **A scope is where, not what.** A scoped rule with no selector is a
+  segment rule, as an unscoped one is.
+- **`fzn_retain_reaches` and `fzn_retain_select_here`** answer whether a
+  rule applies here. fuzznetd keeps only the rules that reach it -- its
+  node key, once known, and its logger's machine-id -- before any plan. A
+  rule scoped to a host reaches nothing on a node whose key is not known
+  yet, rather than everything.
+
+**"Cross-host" as built:** a root or an admin anywhere sets an estate rule
+scoped to one host, and that host applies it to its own logs. A rule
+applied by one host to *another's* logs needs copies of that host's logs
+to exist (sec 428's replicated copies), which is not built.
+
+**Group scope is not here.** It needs a notion of which hosts form a group
+-- a zone, a building -- and nothing in the estate says that yet.
+
+### Measured for sec 480
+
+**`retain_test`, 41 checks:**
+
+- a host and a machine read in either order, and written host then machine;
+- refused: a short key, upper-case hex, a short machine and a scope twice;
+- a host-scoped rule reaching its node alone, and nothing where no key is
+  known;
+- on another machine only the unscoped rule reaching;
+- on another node of the machine, the machine's rule and the unscoped one
+  reaching.
+
+**Live, fuzznetd**, two closed segments of 25 debug and 25 info lines each:
+
+- `add retention prune fuzznetd host=<another node> level=D age 1d`: a
+  round later, all 50 debug lines kept;
+- the same rule scoped to this node's own key: the next round repacked
+  both, 0 debug and 50 info lines left.
+
+**Sabotage: three entries.**

@@ -44,14 +44,24 @@
  *
  * A RULE AS TEXT, one line, for configuration:
  *
- *     prune|keep PROGRAM|* [level=LETTERS] [subsystem=PATH] [text=MATCH]
- *                age|size|count N[unit]
+ *     prune|keep PROGRAM|* [host=NODEHEX] [machine=MACHINEHEX]
+ *                [level=LETTERS] [subsystem=PATH] [text=MATCH] age|size|count N[unit]
  *
  * LETTERS from `CEWNIVDT` (`level=DT`, debug and trace); PATH a subsystem
  * and everything below it (`subsystem=notes` is `notes` and `notes/sync`);
  * MATCH 1 to 64 bytes an entry's text must hold, a byte below 0x21, `%`,
  * `,` and 0x7f written `%XX` so the rule stays one line of words
  * (`text=link%20up`). No NUL.
+ *
+ * SCOPE, sec 480, the holder's "scopable": a rule naming `host=` -- a
+ * node's key, 64 hex digits, which sec 430 makes one account's node --
+ * applies on that node alone, and one naming `machine=` -- a machine-id,
+ * 32 hex digits -- on every node of that machine. Both, on that node only
+ * when it is on that machine. Neither: everywhere, as before. A scope says
+ * where a rule applies, not which entries it selects, so a scoped rule is a
+ * segment rule unless it also names a selector. Whoever applies rules asks
+ * `fzn_retain_reaches` first, since a plan has no idea whose logs it is
+ * planning over.
  *
  * age units s, m, h, d (bare is seconds); size units K, M, G (bare is
  * bytes, powers of 1024); count takes no unit.
@@ -103,9 +113,24 @@ typedef struct fzn_retain_rule {
 	 * none. sec 477. */
 	uint8_t match[FZN_RETAIN_MATCH_MAX];
 	size_t match_len;
+	/* WHERE IT APPLIES, sec 480: one node, one machine, or both. */
+	int has_host;
+	uint8_t host[32];
+	int has_machine;
+	uint8_t machine[FZN_ENTRY_MACHINE_LEN];
 	fzn_retain_limit_t limit;
 	uint64_t value;
 } fzn_retain_rule_t;
+
+/* Whether `rule` applies to the logs of the node `host` on the machine
+ * `machine`: its scope names neither, or names them. sec 480. */
+int fzn_retain_reaches(const fzn_retain_rule_t *rule, const uint8_t host[32],
+                       const uint8_t machine[FZN_ENTRY_MACHINE_LEN]);
+
+/* The rules of `in` that reach this node, into `out` in order; how many. */
+size_t fzn_retain_select_here(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],
+                              const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
+                              fzn_retain_rule_t *out);
 
 /* Whether `rule` selects entries rather than segments. */
 int fzn_retain_rule_selects_entries(const fzn_retain_rule_t *rule);
