@@ -39,6 +39,16 @@
  * `was` forward. What a repack costs is said plainly: the lines dropped are
  * gone, and only their count and the old hash witness that there were any.
  *
+ * A TRAILER MAY BE SIGNED (sec 482), by the key of the node that packed or
+ * repacked it, as a suffix on the line:
+ *
+ *     ... hash=HEX [was=HEX dropped=N] key=HEX sig=HEX
+ *
+ * over `fuzznet.log.trailer\0` and the line before ` key=`. An unsigned
+ * trailer is still a trailer, so segments packed before signing read as
+ * they did. A signed one whose signature does not hold is refused: a
+ * changed signed line is what signing exists to show.
+ *
  * TAMPER EVIDENCE, NOT PREVENTION: whoever can write the directory can
  * rewrite the whole chain. What it gives is that a rewrite must be of
  * everything after the change, which a signed trailer later pins.
@@ -59,6 +69,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "../chain/chain.h"
 #include "../session/commitment.h"
 #include "retain.h"
 
@@ -73,17 +84,26 @@ typedef enum fzn_log_pack_err {
 	FZN_LOG_PACK_ERR_MALFORMED = -1, /* a null, a name that is not a segment's */
 	FZN_LOG_PACK_ERR_FILE = -2,      /* a file would not read, write or rename */
 	FZN_LOG_PACK_ERR_ZSTD = -3,      /* zstd refused, or the packed bytes are not a frame */
-	FZN_LOG_PACK_ERR_CHAIN = -4      /* the trailer is missing or does not verify */
+	FZN_LOG_PACK_ERR_CHAIN = -4,     /* the trailer is missing or does not verify */
+	FZN_LOG_PACK_ERR_SIGNATURE = -5  /* a signature would not sign, or does not hold */
 } fzn_log_pack_err_t;
 
 const char *fzn_log_pack_err_str(fzn_log_pack_err_t err);
 
+/* WHO SIGNS, sec 482: the node's key and its signer. NULL where a call
+ * takes one: unsigned, as before. */
+typedef struct fzn_log_pack_signer {
+	uint8_t key[FZN_LOG_PACK_HASH_LEN];
+	const fzn_sign_ops_t *sign;
+} fzn_log_pack_signer_t;
+
 /* The segment at `log_path` packed into `zst_path`, its trailer chained
- * from `prev`; the segment's hash in `hash_out`. The segment is not
- * removed here. */
+ * from `prev` and signed by `signer` when given; the segment's hash in
+ * `hash_out`. The segment is not removed here. */
 fzn_log_pack_err_t fzn_log_pack_segment(const char *log_path, const char *zst_path,
                                         const uint8_t prev[FZN_LOG_PACK_HASH_LEN],
                                         const fzn_hash_ops_t *hash,
+                                        const fzn_log_pack_signer_t *signer,
                                         uint8_t hash_out[FZN_LOG_PACK_HASH_LEN]);
 
 /* A packed segment checked: it decompresses, ends in one trailer, the
@@ -93,6 +113,35 @@ fzn_log_pack_err_t fzn_log_pack_verify(const char *zst_path,
                                        const uint8_t prev[FZN_LOG_PACK_HASH_LEN],
                                        const fzn_hash_ops_t *hash,
                                        uint8_t hash_out[FZN_LOG_PACK_HASH_LEN]);
+
+/* As `fzn_log_pack_verify`, and the signature too: `*is_signed` 1 and its
+ * key in `signer_out` when the trailer is signed and the signature holds,
+ * 0 when it is unsigned; SIGNATURE when it is signed and does not hold. */
+fzn_log_pack_err_t fzn_log_pack_verify_signed(const char *zst_path,
+                                              const uint8_t prev[FZN_LOG_PACK_HASH_LEN],
+                                              const fzn_hash_ops_t *hash,
+                                              const fzn_sign_ops_t *sign,
+                                              uint8_t hash_out[FZN_LOG_PACK_HASH_LEN],
+                                              int *is_signed,
+                                              uint8_t signer_out[FZN_LOG_PACK_HASH_LEN]);
+
+/* What `fzn_log_pack_check` found. */
+typedef struct fzn_log_pack_report {
+	size_t segments;      /* packed segments whose chain held */
+	size_t signed_count;  /* of them, signed with a signature that held */
+	uint8_t signer[FZN_LOG_PACK_HASH_LEN]; /* the first signer met */
+	int signers_differ;   /* a second key signed some */
+	char broken[256];     /* the segment the walk stopped at, or "" */
+} fzn_log_pack_report_t;
+
+/* THE CHAIN OF A DIRECTORY, sec 482: every packed segment of `program`,
+ * oldest first, each verified against the one before -- the oldest from
+ * the prev its own trailer names, since older ones may have been pruned --
+ * and each signature checked. CHAIN, SIGNATURE or ZSTD at the first that
+ * fails, named in `report->broken`. */
+fzn_log_pack_err_t fzn_log_pack_check(const char *dir, const char *program,
+                                      const fzn_hash_ops_t *hash, const fzn_sign_ops_t *sign,
+                                      fzn_log_pack_report_t *report);
 
 /* THE PRUNE AND KEEP RULES OVER ENTRIES, sec 474: `program`'s closed
  * segments in `dir`, packed or not, walked newest first through
@@ -110,14 +159,16 @@ fzn_log_pack_err_t fzn_log_pack_verify(const char *zst_path,
 #define FZN_LOG_PACK_RETAIN_READ_MAX (64u * 1024u * 1024u)
 fzn_log_pack_err_t fzn_log_pack_retain(const char *dir, const char *program,
                                        const fzn_retain_rule_t *rules, size_t n_rules,
-                                       const fzn_hash_ops_t *hash, uint64_t now_us,
+                                       const fzn_hash_ops_t *hash,
+                                       const fzn_log_pack_signer_t *signer, uint64_t now_us,
                                        size_t *removed, size_t *repacked);
 
 /* EVERY SETTLED SEGMENT of `program` in `dir`, oldest first: packed,
  * chained, and removed once packed. `*packed` counts them. OK with nothing
  * packed when another instance holds the chain. */
 fzn_log_pack_err_t fzn_log_pack_dir(const char *dir, const char *program,
-                                    const fzn_hash_ops_t *hash, uint64_t now_us,
+                                    const fzn_hash_ops_t *hash,
+                                    const fzn_log_pack_signer_t *signer, uint64_t now_us,
                                     uint64_t settle_us, size_t *packed);
 
 #endif /* FZN_LOG_PACK_H */

@@ -1123,7 +1123,7 @@ int main(void)
 		{
 			size_t packed = 0;
 
-			if (fzn_log_pack_dir(NULL, "x", NULL, 0u, 0u, &packed)
+			if (fzn_log_pack_dir(NULL, "x", NULL, NULL, 0u, 0u, &packed)
 			    != FZN_LOG_PACK_ERR_MALFORMED)
 				FAIL(473);
 		}

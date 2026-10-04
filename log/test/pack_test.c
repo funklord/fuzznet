@@ -59,6 +59,38 @@ static int refusing(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in, 
 }
 
 static const fzn_hash_ops_t REFUSING = { refusing, NULL };
+
+/* A TOY SIGNER, sec 482: a signature is the toy hash of the key and the
+ * message, so it verifies only under the key it was made with and only over
+ * the bytes it covered. The key is the signer's context. */
+static uint8_t toy_key[32];
+
+static int toy_sig(const uint8_t *key, const uint8_t *msg, size_t n, uint8_t sig[FZN_SIG_LEN])
+{
+	static uint8_t buf[32u + 1024u];
+
+	if (n > 1024u)
+		return 0;
+	memcpy(buf, key, 32u);
+	memcpy(buf + 32, msg, n);
+	return toy(NULL, sig, FZN_SIG_LEN, buf, 32u + n);
+}
+
+static int toy_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, size_t n)
+{
+	return toy_sig((const uint8_t *)ctx, msg, n, sig);
+}
+
+static int toy_verify(void *ctx, const uint8_t pub[FZN_PUBKEY_LEN], const uint8_t *msg, size_t n,
+                      const uint8_t sig[FZN_SIG_LEN])
+{
+	uint8_t want[FZN_SIG_LEN];
+
+	(void)ctx;
+	return toy_sig(pub, msg, n, want) && memcmp(want, sig, FZN_SIG_LEN) == 0;
+}
+
+static fzn_sign_ops_t SIGN = { toy_verify, toy_sign, toy_key };
 static char top[64];
 static uint8_t seg[300000], back[400000];
 
@@ -141,7 +173,7 @@ static void test_one_segment(void)
 	for (i = 0; i < sizeof(SIZES) / sizeof(SIZES[0]); i++) {
 		n = make_segment(log, SIZES[i]);
 		chain(seg, n, prev, want);
-		CHECK(n && fzn_log_pack_segment(log, zst, prev, &HASH, h) == FZN_LOG_PACK_OK
+		CHECK(n && fzn_log_pack_segment(log, zst, prev, &HASH, NULL, h) == FZN_LOG_PACK_OK
 		              && memcmp(h, want, 32u) == 0,
 		      "a segment packs, and its hash is the chain this test computes");
 		CHECK(fzn_log_pack_verify(zst, prev, &HASH, h) == FZN_LOG_PACK_OK
@@ -190,9 +222,9 @@ static void test_one_segment(void)
 	/* A HASH THAT REFUSES packs nothing and verifies nothing: the seam's
 	 * zero is failure. */
 	n = make_segment(log, 97u);
-	CHECK(n && fzn_log_pack_segment(log, zst, prev, &REFUSING, h) == FZN_LOG_PACK_ERR_CHAIN,
+	CHECK(n && fzn_log_pack_segment(log, zst, prev, &REFUSING, NULL, h) == FZN_LOG_PACK_ERR_CHAIN,
 	      "a hash that refuses packs nothing");
-	CHECK(fzn_log_pack_segment(log, zst, prev, &HASH, h) == FZN_LOG_PACK_OK
+	CHECK(fzn_log_pack_segment(log, zst, prev, &HASH, NULL, h) == FZN_LOG_PACK_OK
 	              && fzn_log_pack_verify(zst, prev, &REFUSING, other) == FZN_LOG_PACK_ERR_CHAIN,
 	      "and verifies nothing");
 	(void)remove(log);
@@ -215,7 +247,7 @@ static void test_a_directory(void)
 	CHECK(make_segment(b, 3000u) && make_segment(a, 5000u) && make_segment(late, 100u)
 	              && make_segment(cur, 200u),
 	      "fixture: two settled segments, one just closed, and the current file");
-	CHECK(fzn_log_pack_dir(top, "netcfgd", &HASH, 2000000u + SETTLE, SETTLE, &packed)
+	CHECK(fzn_log_pack_dir(top, "netcfgd", &HASH, NULL, 2000000u + SETTLE, SETTLE, &packed)
 	                      == FZN_LOG_PACK_OK
 	              && packed == 2u,
 	      "the two settled segments are packed, and the just-closed one is not");
@@ -242,11 +274,11 @@ static void test_a_directory(void)
 		}
 	}
 	CHECK(memcmp(ch, h2, 32u) == 0, "and it is the newest segment's");
-	CHECK(fzn_log_pack_dir(top, "netcfgd", &HASH, 2000000u + SETTLE, SETTLE, &packed)
+	CHECK(fzn_log_pack_dir(top, "netcfgd", &HASH, NULL, 2000000u + SETTLE, SETTLE, &packed)
 	                      == FZN_LOG_PACK_OK
 	              && packed == 0u,
 	      "a second pass at the same time packs nothing");
-	CHECK(fzn_log_pack_dir(top, "netcfgd", &HASH, 9000000u + SETTLE, SETTLE, &packed)
+	CHECK(fzn_log_pack_dir(top, "netcfgd", &HASH, NULL, 9000000u + SETTLE, SETTLE, &packed)
 	                      == FZN_LOG_PACK_OK
 	              && packed == 1u && !exists(late),
 	      "once settled, the late one is packed");
@@ -265,7 +297,7 @@ static void test_a_directory(void)
 		snprintf(skew, sizeof(skew), "%s/netcfgd.22000000.15.log", top);
 		CHECK(make_segment(ahead, 300u) && make_segment(skew, 200u),
 		      "fixture: a segment stamped years ahead, and one three seconds ahead");
-		CHECK(fzn_log_pack_dir(top, "netcfgd", &HASH, 9000000u + SETTLE, SETTLE, &packed)
+		CHECK(fzn_log_pack_dir(top, "netcfgd", &HASH, NULL, 9000000u + SETTLE, SETTLE, &packed)
 		                      == FZN_LOG_PACK_OK
 		              && packed == 1u && !exists(ahead) && exists(skew),
 		      "the one years ahead is packed, and the one within the settle period waits");
@@ -279,7 +311,7 @@ static void test_a_directory(void)
 		snprintf(z, sizeof(z), "%s.zst", skew);
 		(void)remove(z);
 	}
-	CHECK(fzn_log_pack_dir(top, "a/b", &HASH, 0u, 0u, &packed) == FZN_LOG_PACK_ERR_MALFORMED,
+	CHECK(fzn_log_pack_dir(top, "a/b", &HASH, NULL, 0u, 0u, &packed) == FZN_LOG_PACK_ERR_MALFORMED,
 	      "a program with a slash is refused");
 	snprintf(z, sizeof(z), "%s.zst", a);
 	(void)remove(z);
@@ -356,7 +388,7 @@ static int retain(const char *const *lines, size_t n, uint64_t now, size_t *remo
 	for (i = 0; i < n; i++)
 		if (fzn_retain_parse(lines[i], strlen(lines[i]), &rules[i]) != FZN_RETAIN_OK)
 			return 0;
-	return fzn_log_pack_retain(top, "netcfgd", rules, n, &HASH, now, removed, repacked)
+	return fzn_log_pack_retain(top, "netcfgd", rules, n, &HASH, NULL, now, removed, repacked)
 	       == FZN_LOG_PACK_OK;
 }
 
@@ -383,7 +415,7 @@ static void test_entry_rules(void)
 	snprintf(zb, sizeof(zb), "%s.zst", b);
 	snprintf(chain_path, sizeof(chain_path), "%s/netcfgd.chain", top);
 	CHECK(write_classic(a, old_lines, 3u, 0u) && write_classic(b, new_lines, 2u, 3u)
-	              && fzn_log_pack_dir(top, "netcfgd", &HASH, now - 10000u, 1000u, &packed)
+	              && fzn_log_pack_dir(top, "netcfgd", &HASH, NULL, now - 10000u, 1000u, &packed)
 	                         == FZN_LOG_PACK_OK
 	              && packed == 2u && fzn_log_pack_verify(za, zero, &HASH, ha) == FZN_LOG_PACK_OK
 	              && fzn_log_pack_verify(zb, ha, &HASH, hb) == FZN_LOG_PACK_OK,
@@ -507,7 +539,7 @@ static void test_entry_rules(void)
 		              && !exists(zb) && !exists(c),
 		      "with no entry rule, a segment rule removes whole segments");
 	}
-	CHECK(fzn_log_pack_retain(top, "a/b", NULL, 0u, &HASH, now, &removed, &repacked)
+	CHECK(fzn_log_pack_retain(top, "a/b", NULL, 0u, &HASH, NULL, now, &removed, &repacked)
 	              == FZN_LOG_PACK_ERR_MALFORMED,
 	      "a program with a slash is refused");
 	(void)remove(za);
@@ -515,6 +547,116 @@ static void test_entry_rules(void)
 	(void)remove(c);
 	(void)remove(a);
 	(void)remove(b);
+	(void)remove(chain_path);
+}
+
+/* ---- signed trailers, sec 482 ------------------------------------------- */
+
+static void test_signed_trailers(void)
+{
+	static const uint64_t SETTLE = 10u * 1000000u;
+	char a[160], b[160], c[160], za[200], zb[200], zc[200], chain_path[160];
+	uint8_t zero[32] = { 0 }, h[32], other[32], key[32];
+	fzn_log_pack_signer_t signer;
+	fzn_log_pack_report_t report;
+	size_t packed = 0, n;
+	int is_signed = 0;
+
+	memset(toy_key, 0x5a, sizeof(toy_key));
+	memcpy(signer.key, toy_key, 32u);
+	signer.sign = &SIGN;
+	snprintf(a, sizeof(a), "%s/netcfgd.1000000.30.log", top);
+	snprintf(b, sizeof(b), "%s/netcfgd.2000000.31.log", top);
+	snprintf(za, sizeof(za), "%s.zst", a);
+	snprintf(zb, sizeof(zb), "%s.zst", b);
+	snprintf(c, sizeof(c), "%s/netcfgd.3000000.32.log", top);
+	snprintf(zc, sizeof(zc), "%s.zst", c);
+	snprintf(chain_path, sizeof(chain_path), "%s/netcfgd.chain", top);
+
+	/* THE OLDER UNSIGNED, as a segment packed before signing was; THE NEWER
+	 * SIGNED. One chain through both. */
+	CHECK(make_segment(a, 3000u)
+	              && fzn_log_pack_dir(top, "netcfgd", &HASH, NULL, 1000000u + SETTLE, SETTLE,
+	                                  &packed) == FZN_LOG_PACK_OK
+	              && packed == 1u && make_segment(b, 4000u)
+	              && fzn_log_pack_dir(top, "netcfgd", &HASH, &signer, 2000000u + SETTLE, SETTLE,
+	                                  &packed) == FZN_LOG_PACK_OK
+	              && packed == 1u,
+	      "fixture: an unsigned segment and a signed one after it");
+	n = unzstd(zb, back, sizeof(back) - 1u);
+	back[n] = '\0';
+	CHECK(strstr((char *)back, " key=5a5a5a") && strstr((char *)back, " sig="),
+	      "the signed trailer carries the key and a signature");
+	CHECK(fzn_log_pack_verify_signed(za, zero, &HASH, &SIGN, h, &is_signed, key)
+	                      == FZN_LOG_PACK_OK
+	              && !is_signed
+	              && fzn_log_pack_verify_signed(zb, h, &HASH, &SIGN, other, &is_signed, key)
+	                         == FZN_LOG_PACK_OK
+	              && is_signed && memcmp(key, toy_key, 32u) == 0,
+	      "the unsigned one verifies unsigned, the signed one signed by its key");
+	CHECK(fzn_log_pack_verify(zb, h, &HASH, other) == FZN_LOG_PACK_OK,
+	      "a reader that does not check signatures still reads a signed trailer");
+	CHECK(fzn_log_pack_check(top, "netcfgd", &HASH, &SIGN, &report) == FZN_LOG_PACK_OK
+	              && report.segments == 2u && report.signed_count == 1u && !report.signers_differ
+	              && memcmp(report.signer, toy_key, 32u) == 0,
+	      "the directory's chain holds, one of two signed, by the key");
+
+	/* A THIRD SEGMENT SIGNED BY ANOTHER KEY: the chain holds, and the
+	 * report says two keys signed. */
+	{
+		static uint8_t key2[32];
+		static fzn_sign_ops_t SIGN2 = { toy_verify, toy_sign, key2 };
+		fzn_log_pack_signer_t second;
+
+		memset(key2, 0x6b, sizeof(key2));
+		memcpy(second.key, key2, 32u);
+		second.sign = &SIGN2;
+		CHECK(make_segment(c, 2000u)
+		              && fzn_log_pack_dir(top, "netcfgd", &HASH, &second, 3000000u + SETTLE,
+		                                  SETTLE, &packed) == FZN_LOG_PACK_OK
+		              && packed == 1u
+		              && fzn_log_pack_check(top, "netcfgd", &HASH, &SIGN, &report)
+		                         == FZN_LOG_PACK_OK
+		              && report.segments == 3u && report.signed_count == 2u
+		              && report.signers_differ,
+		      "a segment signed by a second key did not read as two signers");
+	}
+
+	/* A SIGNATURE CHANGED, the chain untouched: only the signature can
+	 * refuse it. */
+	{
+		static uint8_t z[400000];
+		char *sig;
+		size_t zn;
+		FILE *f;
+
+		n = unzstd(zb, back, sizeof(back) - 1u);
+		back[n] = '\0';
+		sig = strstr((char *)back, " sig=");
+		CHECK(sig != NULL, "fixture: the signature is there to change");
+		if (sig)
+			sig[5] = sig[5] == '0' ? '1' : '0';
+		zn = ZSTD_compress(z, sizeof(z), back, n, 3);
+		f = fopen(zb, "wb");
+		CHECK(!ZSTD_isError(zn) && f && fwrite(z, 1u, zn, f) == zn && fclose(f) == 0,
+		      "fixture: the segment written back with its signature changed");
+		CHECK(fzn_log_pack_verify(zb, h, &HASH, other) == FZN_LOG_PACK_OK
+		              && fzn_log_pack_verify_signed(zb, h, &HASH, &SIGN, other, &is_signed, key)
+		                         == FZN_LOG_PACK_ERR_SIGNATURE,
+		      "a changed signature is refused, though the chain still holds");
+		CHECK(fzn_log_pack_check(top, "netcfgd", &HASH, &SIGN, &report)
+		                      == FZN_LOG_PACK_ERR_SIGNATURE
+		              && report.segments == 1u && strstr(report.broken, "netcfgd.2000000.31"),
+		      "the directory check stops at the changed one and names it");
+	}
+	CHECK(fzn_log_pack_check(top, "a/b", &HASH, &SIGN, &report) == FZN_LOG_PACK_ERR_MALFORMED,
+	      "a program with a slash is refused");
+	(void)remove(za);
+	(void)remove(zb);
+	(void)remove(zc);
+	(void)remove(a);
+	(void)remove(b);
+	(void)remove(c);
 	(void)remove(chain_path);
 }
 
@@ -528,6 +670,7 @@ int main(void)
 	test_one_segment();
 	test_a_directory();
 	test_entry_rules();
+	test_signed_trailers();
 	CHECK(rmdir(top) == 0, "the scratch directory is empty, and goes");
 
 	if (failures) {

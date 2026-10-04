@@ -123,6 +123,12 @@ static struct {
 	 * Until then a rule scoped to a host reaches nothing here. */
 	int has_host;
 	uint8_t host[FZN_PUBKEY_LEN];
+#ifdef FZN_LOG_PACK_ON
+	/* AND ITS SIGNER, sec 482: every trailer this node packs is signed
+	 * with its key, once the key is known. */
+	int has_signer;
+	fzn_log_pack_signer_t signer;
+#endif
 	const fzn_hash_ops_t *hash;
 	char ring_path[FZN_LOGGER_PATH_MAX + 32u];
 	uint64_t last_dump_us;
@@ -302,8 +308,10 @@ static void log_round(void)
 	if (!dlog.on)
 		return;
 #ifdef FZN_LOG_PACK_ON
-	if (dlog.hash && fzn_log_pack_dir(dlog.logger.dir, "fuzznetd", dlog.hash, log_now_us(),
-	                                  FZN_LOG_PACK_SETTLE_DEFAULT, &n)
+	if (dlog.hash
+	    && fzn_log_pack_dir(dlog.logger.dir, "fuzznetd", dlog.hash,
+	                        dlog.has_signer ? &dlog.signer : NULL, log_now_us(),
+	                        FZN_LOG_PACK_SETTLE_DEFAULT, &n)
 	                         != FZN_LOG_PACK_OK)
 		say(FZN_ENTRY_WARNING, "log", "closed log segments would not all pack");
 	else if (n)
@@ -357,7 +365,8 @@ static void log_round(void)
 
 		if (n_rules && dlog.hash
 		    && fzn_log_pack_retain(dlog.logger.dir, "fuzznetd", rules, n_rules,
-		                           dlog.hash, log_now_us(), &gone, &repacked)
+		                           dlog.hash, dlog.has_signer ? &dlog.signer : NULL,
+		                           log_now_us(), &gone, &repacked)
 		               != FZN_LOG_PACK_OK)
 			say(FZN_ENTRY_WARNING, "log", "the log rules could not all be applied");
 		else if (gone || repacked)
@@ -1147,6 +1156,7 @@ static void usage(const char *prog)
 	        "--log-segment=BYTES, pruned by --log-rule=\"prune|keep PROG|* [level=CEWNIVDT]\n"
 	        "[subsystem=PATH] age|size|count N\" as it rotates;\n"
 	        "--no-log-file keeps stderr only; --log-scope=estate lets members gather it\n"
+	        "--check-log[=PROGRAM] walks a packed log's chain and its signatures\n"
 	        "(host-private by default)\n"
 	        "       %s --fuzznet-dir=DIR --gather=PROGRAM [--since=SECONDS] [--match=TEXT]\n"
 	        "              [--node=ROOT_HEX --to HOST PORT] [--root-at HOST PORT]\n"
@@ -1267,6 +1277,8 @@ int main(int argc, char **argv)
 	int log_estate = 0;
 	/* GATHERING, sec 463: the troubleshooter's end. */
 	const char *gather_program = NULL, *gather_match = "";
+	/* `--check-log[=PROGRAM]`: walk a program's packed log, sec 482. */
+	const char *check_log = NULL;
 	int gather_ring = 0;
 	int gather_short = 0;
 	uint64_t gather_since_s = 0;
@@ -1337,6 +1349,8 @@ int main(int argc, char **argv)
 				fprintf(stderr, "fuzznetd: --log-scope: host-private or estate\n");
 				return 2;
 			}
+		} else if (!strcmp(argv[i], "--check-log") || !strncmp(argv[i], "--check-log=", 12u)) {
+			check_log = argv[i][11] == '=' ? argv[i] + 12 : "fuzznetd";
 		} else if (!strncmp(argv[i], "--gather=", 9u)) {
 			gather_program = argv[i] + 9;
 		} else if (!strcmp(argv[i], "--gather-ring")) {
@@ -1441,7 +1455,7 @@ int main(int argc, char **argv)
 	/* A NODE THAT SERVES ONLY THE REMOTE HOP needs no local socket, and the
 	 * loop has always taken a listen fd of -1 (sec 381). */
 	if (!sock_path && !pair_hex && !show_prekey && !new_root && !accept_text && !ask_line
-	    && !gather_program && !gather_ring
+	    && !gather_program && !gather_ring && !check_log
 	    && !set_admin && udp_port < 0) {
 		usage(argv[0]);
 		return 2;
@@ -1783,6 +1797,43 @@ int main(int argc, char **argv)
 	 * stored pairing, looked up by the node's root; the address is given,
 	 * since a pairing carries none. Prints the reply line and exits 0 when
 	 * it is `ok`. */
+	/* CHECKING A LOG'S CHAIN, sec 482: offline, from the log directory,
+	 * every packed segment of a program verified against the one before
+	 * and every signature checked; who signed said, this node by name. */
+	if (check_log) {
+#ifdef FZN_LOG_PACK_ON
+		static fzn_log_pack_report_t report;
+		char dir[FZN_LOGGER_PATH_MAX];
+		const char *where = log_dir;
+		fzn_log_pack_err_t perr;
+
+		if (!where) {
+			if (fzn_logger_default_dir(dir, sizeof(dir)) != FZN_LOGGER_OK) {
+				fprintf(stderr, "fuzznetd: --check-log: no log directory\n");
+				return 2;
+			}
+			where = dir;
+		}
+		perr = fzn_log_pack_check(where, check_log, &hash_ops, &sign_ops, &report);
+		if (perr != FZN_LOG_PACK_OK) {
+			fprintf(stderr, "fuzznetd: %s's log: %s, at %s, after %zu that held\n", check_log,
+			        fzn_log_pack_err_str(perr), report.broken, report.segments);
+			return 1;
+		}
+		printf("fuzznetd: %s's log: %zu packed segment(s), the chain holds; %zu signed%s%s\n",
+		       check_log, report.segments, report.signed_count,
+		       !report.signed_count ? ""
+		       : report.signers_differ ? ", by more than one key"
+		       : (booted && memcmp(report.signer, identity.pubkey, FZN_PUBKEY_LEN) == 0)
+		               ? ", by this node"
+		               : ", by another node",
+		       report.signed_count < report.segments ? "; the rest unsigned" : "");
+		return 0;
+#else
+		fprintf(stderr, "fuzznetd: --check-log: built without packing (FZN_LOG_PACK)\n");
+		return 2;
+#endif
+	}
 #ifdef FZN_LOG_FILE_ON
 	/* GATHERING, secs 463, 464 and 466: from the host --node and --to name,
 	 * and from every host --root-at and --pull-from name, one after
@@ -2249,6 +2300,11 @@ int main(int argc, char **argv)
 #ifdef FZN_LOG_FILE_ON
 			memcpy(dlog.host, identity.pubkey, FZN_PUBKEY_LEN);
 			dlog.has_host = 1;
+#ifdef FZN_LOG_PACK_ON
+			memcpy(dlog.signer.key, identity.pubkey, FZN_PUBKEY_LEN);
+			dlog.signer.sign = identity.sign;
+			dlog.has_signer = identity.sign != NULL;
+#endif
 #endif
 			admin.card_lifetime = FZND_CARD_LIFETIME;
 			running_admin = &admin;

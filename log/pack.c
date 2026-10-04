@@ -39,6 +39,8 @@ const char *fzn_log_pack_err_str(fzn_log_pack_err_t err)
 		return "zstd refused, or the packed bytes are not a frame";
 	case FZN_LOG_PACK_ERR_CHAIN:
 		return "the trailer is missing or does not verify";
+	case FZN_LOG_PACK_ERR_SIGNATURE:
+		return "a trailer's signature would not sign, or does not hold";
 	}
 	return "unknown";
 }
@@ -83,6 +85,33 @@ static int fold_chunk(const fzn_hash_ops_t *hash, uint8_t state[FZN_LOG_PACK_HAS
 	       != 0;
 }
 
+/* ---- signing a trailer, sec 482 ----------------------------------------- */
+
+/* A trailer's signature suffix: ` key=HEX sig=HEX`, 202 characters. */
+#define SIG_SUFFIX_LEN (5u + 64u + 5u + 128u)
+#define SIG_LABEL "fuzznet.log.trailer"
+
+/* `base`, a trailer line without its newline, signed by `signer` as
+ * `SIG_LABEL\0 || base`, its suffix into `out` (SIG_SUFFIX_LEN + 1). */
+static int sign_line(const fzn_log_pack_signer_t *signer, const char *base, size_t n,
+                     char *out)
+{
+	static uint8_t msg[sizeof(SIG_LABEL) + 640u];
+	uint8_t sig[FZN_SIG_LEN];
+
+	if (!signer || !signer->sign || !signer->sign->sign || n > sizeof(msg) - sizeof(SIG_LABEL))
+		return 0;
+	memcpy(msg, SIG_LABEL, sizeof(SIG_LABEL));
+	memcpy(msg + sizeof(SIG_LABEL), base, n);
+	if (!signer->sign->sign(signer->sign->ctx, sig, msg, sizeof(SIG_LABEL) + n))
+		return 0;
+	memcpy(out, " key=", 5u);
+	to_hex(signer->key, 32u, out + 5u);
+	memcpy(out + 69u, " sig=", 5u);
+	to_hex(sig, FZN_SIG_LEN, out + 74u);
+	return 1;
+}
+
 /* ---- packing one segment -------------------------------------------------- */
 
 static int compress_into(ZSTD_CCtx *cc, FILE *out, const uint8_t *in, size_t n,
@@ -105,10 +134,12 @@ static int compress_into(ZSTD_CCtx *cc, FILE *out, const uint8_t *in, size_t n,
 fzn_log_pack_err_t fzn_log_pack_segment(const char *log_path, const char *zst_path,
                                         const uint8_t prev[FZN_LOG_PACK_HASH_LEN],
                                         const fzn_hash_ops_t *hash,
+                                        const fzn_log_pack_signer_t *signer,
                                         uint8_t hash_out[FZN_LOG_PACK_HASH_LEN])
 {
 	uint8_t state[FZN_LOG_PACK_HASH_LEN];
-	char trailer[64 + (4u * FZN_LOG_PACK_HASH_LEN)], ph[(FZN_LOG_PACK_HASH_LEN * 2u) + 1u],
+	char trailer[64u + (4u * FZN_LOG_PACK_HASH_LEN) + SIG_SUFFIX_LEN + 2u],
+	        ph[(FZN_LOG_PACK_HASH_LEN * 2u) + 1u],
 	        hh[(FZN_LOG_PACK_HASH_LEN * 2u) + 1u];
 	fzn_log_pack_err_t err = FZN_LOG_PACK_ERR_FILE;
 	FILE *in = NULL, *out = NULL;
@@ -141,9 +172,19 @@ fzn_log_pack_err_t fzn_log_pack_segment(const char *log_path, const char *zst_pa
 	}
 	to_hex(prev, FZN_LOG_PACK_HASH_LEN, ph);
 	to_hex(state, FZN_LOG_PACK_HASH_LEN, hh);
-	k = snprintf(trailer, sizeof(trailer), "#fuzznet-log-trailer 1 prev=%s hash=%s\n", ph, hh);
-	if (k <= 0 || (size_t)k >= sizeof(trailer)
-	    || !compress_into(cc, out, (const uint8_t *)trailer, (size_t)k, ZSTD_e_end))
+	k = snprintf(trailer, sizeof(trailer), "#fuzznet-log-trailer 1 prev=%s hash=%s", ph, hh);
+	if (k <= 0 || (size_t)k + SIG_SUFFIX_LEN + 2u > sizeof(trailer))
+		goto done;
+	/* SIGNED WHEN A SIGNER IS GIVEN, sec 482. */
+	if (signer) {
+		if (!sign_line(signer, trailer, (size_t)k, trailer + k)) {
+			err = FZN_LOG_PACK_ERR_SIGNATURE;
+			goto done;
+		}
+		k += (int)SIG_SUFFIX_LEN;
+	}
+	trailer[k++] = '\n';
+	if (!compress_into(cc, out, (const uint8_t *)trailer, (size_t)k, ZSTD_e_end))
 		goto done;
 	err = FZN_LOG_PACK_ERR_FILE;
 	if (fflush(out) != 0 || fsync(fileno(out)) != 0)
@@ -162,7 +203,7 @@ done:
 /* ---- trailers ---------------------------------------------------------- */
 
 /* The longest trailer: version 2 with every field at its widest. */
-#define TRAILER_MAX 320u
+#define TRAILER_MAX 576u
 
 typedef struct trailer {
 	uint8_t prev[FZN_LOG_PACK_HASH_LEN];
@@ -173,10 +214,55 @@ typedef struct trailer {
 	int repacked;
 	uint8_t was[FZN_LOG_PACK_HASH_LEN];
 	uint64_t dropped;
+	/* SIGNED, sec 482: by `key`, over the line before ` key=`. */
+	int has_sig;
+	uint8_t key[32];
+	uint8_t sig[FZN_SIG_LEN];
+	char base[TRAILER_MAX];
+	size_t base_len;
 } trailer_t;
 
-/* `t`, `len` bytes ending in its newline, as a trailer of either version. */
+static int parse_base(const uint8_t *t, size_t len, trailer_t *out);
+
+/* `t`, `len` bytes ending in its newline, as a trailer of either version,
+ * signed or not. */
 static int parse_trailer(const uint8_t *t, size_t len, trailer_t *out)
+{
+	uint8_t line[TRAILER_MAX + 1u];
+	size_t k, base;
+	int has_sig = 0;
+	uint8_t key[32], sig[FZN_SIG_LEN];
+
+	if (len < 2u || len > TRAILER_MAX || t[len - 1u] != '\n')
+		return 0;
+	base = len - 1u;
+	for (k = 0; k + 5u <= len; k++)
+		if (memcmp(t + k, " key=", 5u) == 0)
+			break;
+	if (k + 5u <= len) {
+		if (k + SIG_SUFFIX_LEN != len - 1u || !from_hex((const char *)t + k + 5u, key, 32u)
+		    || memcmp(t + k + 69u, " sig=", 5u) != 0
+		    || !from_hex((const char *)t + k + 74u, sig, FZN_SIG_LEN))
+			return 0;
+		base = k;
+		has_sig = 1;
+	}
+	memcpy(line, t, base);
+	line[base] = '\n';
+	if (!parse_base(line, base + 1u, out))
+		return 0;
+	out->has_sig = has_sig;
+	if (has_sig) {
+		memcpy(out->key, key, sizeof(key));
+		memcpy(out->sig, sig, sizeof(sig));
+	}
+	memcpy(out->base, t, base);
+	out->base_len = base;
+	return 1;
+}
+
+/* The line before any signature, newline-terminated. */
+static int parse_base(const uint8_t *t, size_t len, trailer_t *out)
 {
 	static const char V1[] = "#fuzznet-log-trailer 1 prev=";
 	static const char V2[] = "#fuzznet-log-trailer 2 prev=";
@@ -227,10 +313,67 @@ static const uint8_t *carried(const trailer_t *t)
 /* The trailer is the last line, and it is held back from the chain: the
  * stream's bytes are folded in chunks only once more than the longest
  * trailer follows them, so they cannot be the trailer. */
+static fzn_log_pack_err_t verify_core(const char *zst_path,
+                                      const uint8_t *prev, const fzn_hash_ops_t *hash,
+                                      uint8_t hash_out[FZN_LOG_PACK_HASH_LEN], trailer_t *tr_out);
+
 fzn_log_pack_err_t fzn_log_pack_verify(const char *zst_path,
                                        const uint8_t prev[FZN_LOG_PACK_HASH_LEN],
                                        const fzn_hash_ops_t *hash,
                                        uint8_t hash_out[FZN_LOG_PACK_HASH_LEN])
+{
+	static trailer_t tr;
+
+	if (!prev)
+		return FZN_LOG_PACK_ERR_MALFORMED;
+	return verify_core(zst_path, prev, hash, hash_out, &tr);
+}
+
+/* A trailer's signature over its line. */
+static int signature_holds(const trailer_t *tr, const fzn_sign_ops_t *sign)
+{
+	static uint8_t msg[sizeof(SIG_LABEL) + TRAILER_MAX];
+
+	if (!tr->has_sig || !sign || !sign->verify || tr->base_len > TRAILER_MAX)
+		return 0;
+	memcpy(msg, SIG_LABEL, sizeof(SIG_LABEL));
+	memcpy(msg + sizeof(SIG_LABEL), tr->base, tr->base_len);
+	return sign->verify(sign->ctx, tr->key, msg, sizeof(SIG_LABEL) + tr->base_len, tr->sig);
+}
+
+fzn_log_pack_err_t fzn_log_pack_verify_signed(const char *zst_path,
+                                              const uint8_t prev[FZN_LOG_PACK_HASH_LEN],
+                                              const fzn_hash_ops_t *hash,
+                                              const fzn_sign_ops_t *sign,
+                                              uint8_t hash_out[FZN_LOG_PACK_HASH_LEN],
+                                              int *is_signed,
+                                              uint8_t signer_out[FZN_LOG_PACK_HASH_LEN])
+{
+	static trailer_t tr;
+	fzn_log_pack_err_t err;
+
+	if (!sign || !is_signed)
+		return FZN_LOG_PACK_ERR_MALFORMED;
+	*is_signed = 0;
+	err = verify_core(zst_path, prev, hash, hash_out, &tr);
+	if (err != FZN_LOG_PACK_OK)
+		return err;
+	if (!tr.has_sig)
+		return FZN_LOG_PACK_OK;
+	/* A SIGNATURE THAT DOES NOT HOLD is worse than none: somebody changed a
+	 * signed line, and the chain alone could not tell. */
+	if (!signature_holds(&tr, sign))
+		return FZN_LOG_PACK_ERR_SIGNATURE;
+	*is_signed = 1;
+	if (signer_out)
+		memcpy(signer_out, tr.key, sizeof(tr.key));
+	return FZN_LOG_PACK_OK;
+}
+
+/* The chain check, and the trailer it read into `tr_out`. */
+static fzn_log_pack_err_t verify_core(const char *zst_path,
+                                      const uint8_t *prev_in, const fzn_hash_ops_t *hash,
+                                      uint8_t hash_out[FZN_LOG_PACK_HASH_LEN], trailer_t *tr_out)
 {
 	static uint8_t inbuf[1u << 16], outbuf[1u << 16];
 	static uint8_t pending[FZN_LOG_PACK_CHUNK + TRAILER_MAX];
@@ -241,8 +384,9 @@ fzn_log_pack_err_t fzn_log_pack_verify(const char *zst_path,
 	size_t have = 0, n, last = 1, start;
 	int folded = 0;
 	trailer_t tr;
+	const uint8_t *prev = prev_in;
 
-	if (!zst_path || !prev || !hash || !hash->hash || !hash_out)
+	if (!zst_path || !prev || !hash || !hash->hash || !hash_out || !tr_out)
 		return FZN_LOG_PACK_ERR_MALFORMED;
 	in = fopen(zst_path, "rb");
 	if (!in)
@@ -308,6 +452,7 @@ fzn_log_pack_err_t fzn_log_pack_verify(const char *zst_path,
 	    || memcmp(tr.hash, state, FZN_LOG_PACK_HASH_LEN) != 0)
 		goto done;
 	memcpy(hash_out, carried(&tr), FZN_LOG_PACK_HASH_LEN);
+	*tr_out = tr;
 	err = FZN_LOG_PACK_OK;
 done:
 	ZSTD_freeDCtx(dc);
@@ -383,7 +528,8 @@ static int write_chain(int fd, const uint8_t hash[FZN_LOG_PACK_HASH_LEN])
 }
 
 fzn_log_pack_err_t fzn_log_pack_dir(const char *dir, const char *program,
-                                    const fzn_hash_ops_t *hash, uint64_t now_us,
+                                    const fzn_hash_ops_t *hash,
+                                    const fzn_log_pack_signer_t *signer, uint64_t now_us,
                                     uint64_t settle_us, size_t *packed)
 {
 	static struct segment segs[SEGMENTS_MAX];
@@ -448,7 +594,7 @@ fzn_log_pack_err_t fzn_log_pack_dir(const char *dir, const char *program,
 			err = FZN_LOG_PACK_ERR_MALFORMED;
 			break;
 		}
-		err = fzn_log_pack_segment(from, tmp, prev, hash, next);
+		err = fzn_log_pack_segment(from, tmp, prev, hash, signer, next);
 		if (err == FZN_LOG_PACK_OK && fzn_log_pack_verify(tmp, prev, hash, next) != FZN_LOG_PACK_OK)
 			err = FZN_LOG_PACK_ERR_CHAIN;
 		/* THE CHAIN MOVES ONLY WITH THE FILE: renamed into place, the
@@ -565,7 +711,8 @@ static int chain_over(const fzn_hash_ops_t *hash, const uint8_t prev[FZN_LOG_PAC
 }
 
 /* `content` and a version-2 trailer packed into `tmp`. */
-static int write_repacked(const char *tmp, const uint8_t *content, size_t n, const trailer_t *tr)
+static int write_repacked(const char *tmp, const uint8_t *content, size_t n, const trailer_t *tr,
+                          const fzn_log_pack_signer_t *signer)
 {
 	char line[TRAILER_MAX], ph[65], hh[65], wh[65];
 	ZSTD_CCtx *cc = ZSTD_createCCtx();
@@ -575,8 +722,18 @@ static int write_repacked(const char *tmp, const uint8_t *content, size_t n, con
 	to_hex(tr->prev, FZN_LOG_PACK_HASH_LEN, ph);
 	to_hex(tr->hash, FZN_LOG_PACK_HASH_LEN, hh);
 	to_hex(tr->was, FZN_LOG_PACK_HASH_LEN, wh);
-	k = snprintf(line, sizeof(line), "#fuzznet-log-trailer 2 prev=%s hash=%s was=%s dropped=%llu\n",
+	k = snprintf(line, sizeof(line), "#fuzznet-log-trailer 2 prev=%s hash=%s was=%s dropped=%llu",
 	             ph, hh, wh, (unsigned long long)tr->dropped);
+	if (k <= 0 || (size_t)k + SIG_SUFFIX_LEN + 2u > sizeof(line))
+		k = -1;
+	/* RE-SIGNED BY THE REPACKER, sec 482: the old signature was over the
+	 * old line, and the host that thinned its own log signs what is left. */
+	else if (signer && !sign_line(signer, line, (size_t)k, line + k))
+		k = -1;
+	else if (signer)
+		k += (int)SIG_SUFFIX_LEN;
+	if (k > 0)
+		line[k++] = '\n';
 	if (cc && out && k > 0 && (size_t)k < sizeof(line)
 	    && !ZSTD_isError(ZSTD_CCtx_setParameter(cc, ZSTD_c_checksumFlag, 1))
 	    && compress_into(cc, out, content, n, ZSTD_e_continue)
@@ -643,7 +800,8 @@ static int judge(fzn_retain_walk_t *walk, uint8_t mark, const uint8_t *b, size_t
 static fzn_log_pack_err_t repack(const char *path, const char *tmp, const uint8_t *b, size_t n,
                                  size_t body, const size_t *starts, size_t lines,
                                  const uint8_t *drop, size_t dropped, const trailer_t *old,
-                                 const fzn_hash_ops_t *hash)
+                                 const fzn_hash_ops_t *hash,
+                                 const fzn_log_pack_signer_t *signer)
 {
 	uint8_t *kept = malloc(body ? body : 1u), carry[FZN_LOG_PACK_HASH_LEN];
 	size_t used = 0, i;
@@ -671,7 +829,7 @@ static fzn_log_pack_err_t repack(const char *path, const char *tmp, const uint8_
 	}
 	/* WRITTEN BESIDE, VERIFIED, RENAMED: the chain it carries must be the
 	 * one it carried before. */
-	if (!write_repacked(tmp, kept, used, &tr)) {
+	if (!write_repacked(tmp, kept, used, &tr, signer)) {
 		free(kept);
 		(void)remove(tmp);
 		return FZN_LOG_PACK_ERR_FILE;
@@ -691,7 +849,8 @@ static fzn_log_pack_err_t repack(const char *path, const char *tmp, const uint8_
 
 fzn_log_pack_err_t fzn_log_pack_retain(const char *dir, const char *program,
                                        const fzn_retain_rule_t *rules, size_t n_rules,
-                                       const fzn_hash_ops_t *hash, uint64_t now_us,
+                                       const fzn_hash_ops_t *hash,
+                                       const fzn_log_pack_signer_t *signer, uint64_t now_us,
                                        size_t *removed, size_t *repacked)
 {
 	static struct held segs[SEGMENTS_MAX];
@@ -806,7 +965,8 @@ fzn_log_pack_err_t fzn_log_pack_retain(const char *dir, const char *program,
 			else
 				(*removed)++;
 		} else if (readable && dropped && segs[i].packed) {
-			err = repack(path, tmp, b, len, body, starts, lines, drop, dropped, &tr, hash);
+			err = repack(path, tmp, b, len, body, starts, lines, drop, dropped, &tr, hash,
+			             signer);
 			if (err == FZN_LOG_PACK_OK)
 				(*repacked)++;
 		}
@@ -819,4 +979,93 @@ done:
 	(void)fcntl(fd, F_SETLK, &lk);
 	(void)close(fd);
 	return err;
+}
+
+/* ---- checking a directory's chain, sec 482 ------------------------------ */
+
+fzn_log_pack_err_t fzn_log_pack_check(const char *dir, const char *program,
+                                      const fzn_hash_ops_t *hash, const fzn_sign_ops_t *sign,
+                                      fzn_log_pack_report_t *report)
+{
+	static struct held segs[SEGMENTS_MAX];
+	static trailer_t tr;
+	char path[PATH_MAX_];
+	uint8_t prev[FZN_LOG_PACK_HASH_LEN], next[FZN_LOG_PACK_HASH_LEN];
+	struct dirent *e;
+	size_t n = 0, i;
+	DIR *d;
+
+	if (!dir || !program || !program[0] || strchr(program, '/') || !hash || !hash->hash || !sign
+	    || !report)
+		return FZN_LOG_PACK_ERR_MALFORMED;
+	memset(report, 0, sizeof(*report));
+	d = opendir(dir);
+	if (!d)
+		return FZN_LOG_PACK_ERR_FILE;
+	while ((e = readdir(d)) != NULL && n < SEGMENTS_MAX) {
+		struct held h;
+
+		h.at = segment_at(e->d_name, program, &h.packed);
+		if (h.at == 0u || !h.packed || strlen(e->d_name) >= sizeof(h.name))
+			continue;
+		strcpy(h.name, e->d_name);
+		segs[n++] = h;
+	}
+	(void)closedir(d);
+	/* OLDEST FIRST: the order the chain runs. */
+	qsort(segs, n, sizeof(segs[0]), newest_first);
+	for (i = 0; i < n / 2u; i++) {
+		struct held t = segs[i];
+
+		segs[i] = segs[n - 1u - i];
+		segs[n - 1u - i] = t;
+	}
+	for (i = 0; i < n; i++) {
+		fzn_log_pack_err_t err;
+		int is_signed = 0;
+		uint8_t key[FZN_LOG_PACK_HASH_LEN];
+
+		if (snprintf(path, sizeof(path), "%s/%s", dir, segs[i].name) >= (int)sizeof(path))
+			return FZN_LOG_PACK_ERR_MALFORMED;
+		/* THE OLDEST HELD starts from the prev its own trailer names:
+		 * older segments may have been pruned, and the chain is
+		 * verifiable from the oldest kept (sec 460). */
+		if (i == 0u) {
+			uint8_t *b = NULL;
+			size_t len = 0, body;
+			int ok;
+
+			if (!read_all(path, 1, &b, &len)) {
+				snprintf(report->broken, sizeof(report->broken), "%.255s", segs[i].name);
+				return FZN_LOG_PACK_ERR_ZSTD;
+			}
+			for (body = len ? len - 1u : 0u; body > 0u && b[body - 1u] != '\n'; body--)
+				;
+			ok = len >= 2u && len - body <= TRAILER_MAX && parse_trailer(b + body, len - body, &tr);
+			if (ok)
+				memcpy(prev, tr.prev, sizeof(prev));
+			free(b);
+			if (!ok) {
+				snprintf(report->broken, sizeof(report->broken), "%.255s", segs[i].name);
+				return FZN_LOG_PACK_ERR_CHAIN;
+			}
+		}
+		err = fzn_log_pack_verify_signed(path, prev, hash, sign, next, &is_signed, key);
+		if (err != FZN_LOG_PACK_OK) {
+			snprintf(report->broken, sizeof(report->broken), "%.255s", segs[i].name);
+			return err;
+		}
+		report->segments++;
+		if (is_signed) {
+			/* WHO SIGNED: one key throughout is the ordinary case, and a
+			 * second is said, since a host signs only its own. */
+			if (report->signed_count && memcmp(key, report->signer, sizeof(key)) != 0)
+				report->signers_differ = 1;
+			if (!report->signed_count)
+				memcpy(report->signer, key, sizeof(key));
+			report->signed_count++;
+		}
+		memcpy(prev, next, sizeof(prev));
+	}
+	return FZN_LOG_PACK_OK;
 }

@@ -8798,6 +8798,34 @@ SABOTAGES = [
 		"\t\tstanding_admins(store, admin_ok);\n",
 		"the epoch is numbered by every admin's votes, standing or not -- sec 481",
 	),
+	(
+		"pack-signature-checked",
+		"log/pack.c",
+		"\tif (!signature_holds(&tr, sign))\n\t\treturn FZN_LOG_PACK_ERR_SIGNATURE;\n",
+		"",
+		"a signed trailer whose signature was changed reads as signed, and signing proves nothing -- sec 482",
+	),
+	(
+		"pack-signature-covers-the-line",
+		"log/pack.c",
+		"\tmemcpy(msg + sizeof(SIG_LABEL), base, n);\n\tif (!signer->sign->sign(signer->sign->ctx, sig, msg, sizeof(SIG_LABEL) + n))\n",
+		"\tmemcpy(msg + sizeof(SIG_LABEL), base, n);\n\tif (!signer->sign->sign(signer->sign->ctx, sig, msg, sizeof(SIG_LABEL)))\n",
+		"a signature over the label alone fits every trailer, and any can be moved onto any other -- sec 482",
+	),
+	(
+		"pack-signed-when-a-signer-is-given",
+		"log/pack.c",
+		"\tif (signer) {\n\t\tif (!sign_line(signer, trailer, (size_t)k, trailer + k)) {\n",
+		"\tif (0) {\n\t\tif (!sign_line(signer, trailer, (size_t)k, trailer + k)) {\n",
+		"a node with a key packs its log unsigned, and nothing later can tell its trailers from a forger's -- sec 482",
+	),
+	(
+		"pack-check-counts-other-signers",
+		"log/pack.c",
+		"\t\t\tif (report->signed_count && memcmp(key, report->signer, sizeof(key)) != 0)\n\t\t\t\treport->signers_differ = 1;\n",
+		"",
+		"a segment signed by another key reads as this node's -- sec 482",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

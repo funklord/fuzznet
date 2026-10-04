@@ -245,7 +245,7 @@ int main(void)
 		(void)snprintf(log, sizeof(log), "%s/netcfgd.4000000.1.log", top);
 		(void)snprintf(zst, sizeof(zst), "%s/netcfgd.4000000.1.log.zst", top);
 		CHECK(segment("netcfgd.4000000.1.log", "netcfgd", 0u, 5u)
-		              && fzn_log_pack_segment(log, zst, prev, &TOY, h) == FZN_LOG_PACK_OK
+		              && fzn_log_pack_segment(log, zst, prev, &TOY, NULL, h) == FZN_LOG_PACK_OK
 		              && remove(log) == 0,
 		      "fixture: the oldest segment, packed");
 	}

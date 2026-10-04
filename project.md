@@ -55408,3 +55408,74 @@ confirmations kept:
 - 5's vote, numbered so, lands beside 6's and the two revoke.
 
 **Sabotage: two entries.**
+
+## 482. Signed trailers, and checking a log's chain, 2026-10-04
+
+Sec 428 had each segment's trailer "signable later with the host's key",
+and sec 459 built the chain unsigned. Without a key, whoever can write the
+log directory can rewrite everything after a change and leave a chain that
+verifies.
+
+**A trailer may now be signed**, by the node that packed or repacked it,
+as a suffix:
+
+    #fuzznet-log-trailer 1 prev=HEX hash=HEX key=HEX sig=HEX
+    #fuzznet-log-trailer 2 prev=HEX hash=HEX was=HEX dropped=N key=HEX sig=HEX
+
+- **What it covers:** `fuzznet.log.trailer\0` and the line before
+  ` key=` -- the version, the chain's prev and hash, and for a repack the
+  first hash and the count dropped.
+- **An unsigned trailer is still a trailer**, so segments packed before
+  this read as they did, and a reader that does not check signatures
+  (`fzn_log_pack_verify`, gathering) reads a signed one unchanged.
+- **A signature that does not hold is refused**, with the new
+  `FZN_LOG_PACK_ERR_SIGNATURE`: a changed signed line is what signing
+  exists to show.
+- **A repack re-signs**: the host that thinned its own log signs what is
+  left. The old signature was over the old line.
+- **Who signs:** fuzznetd, with its node identity, once it is known.
+  `fzn_log_pack_dir`, `fzn_log_pack_retain` and `fzn_log_pack_segment`
+  take a `fzn_log_pack_signer_t`, NULL for unsigned.
+
+**`fzn_log_pack_check` walks a directory's chain**, oldest first:
+
+- every packed segment verified against the one before, the oldest from
+  the prev its own trailer names, since older ones may have been pruned
+  (sec 460);
+- every signature checked;
+- counts of segments and signed ones, the first signer, and whether a
+  second key signed some;
+- at the first failure, the segment named.
+
+**`fuzznetd --check-log[=PROGRAM]`** runs it offline and says whose key
+signed: this node's, another's, or more than one. Until now nothing walked
+a chain after packing.
+
+**What it is not:** the key that signs is the host's own, so this shows a
+change made after the host signed, and not one the host made itself. The
+next step is copies kept elsewhere (sec 428's replicated copies), where a
+second holder's copy and the host's signature together pin the history.
+
+### Measured for sec 482
+
+**`pack_test`, 58 checks**, eleven new, with a toy signer whose signature
+is the hash of key and message:
+
+- an unsigned segment, then a signed one after it, in one chain;
+- the signed trailer carrying the key and a signature;
+- the unsigned one verifying unsigned, and the signed one signed by its
+  key;
+- a reader that ignores signatures still reading the signed one;
+- the directory check holding, one of two signed;
+- a third segment signed by a second key, reported as more than one
+  signer;
+- a signature digit changed, the chain intact: refused as SIGNATURE, and
+  the directory check stopping at that segment by name.
+
+**Live:** fuzznetd packed a closed segment, and the trailer carried its
+key. `fuzznetd --check-log` gave "1 packed segment(s), the chain holds; 1
+signed, by this node". With one signature digit changed through
+`zstdcat` and `zstd`, it gave "a trailer's signature would not sign, or
+does not hold, at fuzznetd....log.zst, after 0 that held".
+
+**Sabotage: four entries.**
