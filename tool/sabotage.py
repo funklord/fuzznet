@@ -8868,6 +8868,27 @@ SABOTAGES = [
 		"\tif (0)\n\t\treturn say(reply, cap, FZN_REPLY_ERROR,\n",
 		"a person emptying the trash is told there is no room for another note -- sec 484",
 	),
+	(
+		"retention-view-unescapes-the-listing",
+		"gui/retention_view.cpp",
+		"\t\t\tif (ok) {\n\t\t\t\tout.append((char)v);\n\t\t\t\ti += 2;\n\t\t\t\tcontinue;\n\t\t\t}\n",
+		"\t\t\tif (0) {\n\t\t\t\tout.append((char)v);\n\t\t\t\ti += 2;\n\t\t\t\tcontinue;\n\t\t\t}\n",
+		"a rule is shown escaped twice, and removing it by its row names a rule the node does not hold -- sec 485",
+	),
+	(
+		"retention-view-says-no-answer",
+		"gui/retention_view.cpp",
+		"\tlist->clear();\n\tif (r < 0) {\n\t\tstatus->setText(QStringLiteral(\"The node did not answer.\"));\n\t\treturn false;\n\t}\n",
+		"\tlist->clear();\n",
+		"a node that does not answer is shown as one with no rules -- sec 485",
+	),
+	(
+		"retention-view-removes-the-row-selected",
+		"gui/retention_view.cpp",
+		"\tif (rule.isEmpty() && list->currentItem())\n\t\trule = list->currentItem()->text();\n",
+		"",
+		"a selected rule cannot be removed without typing it again -- sec 485",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

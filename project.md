@@ -55595,3 +55595,49 @@ waits, and one note past the queue's bound trashed. Emptying the trash
 says "deletions" and not "note".
 
 **Sabotage: one entry.**
+
+## 485. The retention rules on a widget, 2026-10-05
+
+Secs 475 to 483 gave retention rules as socket verbs. `gui/retention_view`
+puts them in front of a person, beside the notebook (sec 439) and the log
+viewer (sec 468).
+
+- **Two sets side by side**, since they are two decisions with two owners:
+  this node's rules (`list retention`) and the estate's (`list
+  estate-retention`). A note said before the click, full width: an estate
+  rule applies on every host it reaches, and setting one needs a root or an
+  admin.
+- **A rule is typed as its line** and listed in the node's canonical
+  spelling. Removing works from the line typed or from the row selected,
+  which names the rule as the node holds it.
+- **The node's refusals in its words** -- a rule that is not one, one held
+  already, a node that is neither root nor admin. A node that does not
+  answer is said as one, not shown as having no rules.
+- **The way to ask is the notebook's callback**, so a host hands in
+  `fzn_notebook_view_socket_ask`. No `moc`.
+
+**Found by `make qtty` before it shipped:** the render fixture answers
+listings `ok 0 0`, and the widget took every word after the count as a rule
+and showed a rule called `0`. It now takes exactly as many as the count
+says, and a count that does not fit says the listing did not read. The note
+also sat in the estate's half-width column and was clipped at 80 columns;
+it is full width now, needing 49.
+
+### Measured for sec 485
+
+**`retention_view_test`, 10 checks**, new, against a node of the test's
+own whose rules are kept by `log/rules` and parsed by `log/retain`:
+
+- an empty node showing no rules on either side;
+- a rule added here, listed once in canonical spelling;
+- the same rule again refused, and a line that is no rule refused, each in
+  the node's words;
+- an estate rule listed on the estate's side only;
+- the row selected removed by its listed spelling;
+- a node neither root nor admin told so;
+- a silent node said, and then answering again;
+- removing with nothing typed or selected asking for a rule.
+
+**`qtty_render_test`:** the widget at 80x24 says "every host it reaches".
+
+**Sabotage: three entries.**
