@@ -8861,6 +8861,13 @@ SABOTAGES = [
 		"\t\tif (fzn_retain_reaches(&in[i], host, machine))\n",
 		"a rule written for copies prunes this node's own log -- sec 483",
 	),
+	(
+		"notes-full-purge-queue-said-as-one",
+		"node/notes.c",
+		"\tif (err == FZN_NOTES_ERR_FULL)\n\t\treturn say(reply, cap, FZN_REPLY_ERROR,\n",
+		"\tif (0)\n\t\treturn say(reply, cap, FZN_REPLY_ERROR,\n",
+		"a person emptying the trash is told there is no room for another note -- sec 484",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

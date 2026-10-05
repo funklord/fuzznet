@@ -535,6 +535,27 @@ static void test_trash(void)
 		CHECK(ask(line) == FZN_REPLY_ERROR, "and so is the new one");
 	}
 	CHECK(ask("remove note bin") == FZN_REPLY_MALFORMED, "only the trash is emptied");
+
+	/* A FULL QUEUE OF DELETIONS IS SAID AS ONE, sec 484, not as a note
+	 * that does not fit. With a paired node every purge waits, so the
+	 * queue fills at its bound. */
+	{
+		char id[65];
+		size_t i;
+		int ok = 1;
+
+		setup(1);
+		for (i = 0; i <= FZN_NOTES_PURGE_MAX && ok; i++) {
+			ok = ask("add note top doomed") == FZN_REPLY_OK;
+			take_id(id);
+			snprintf(line, sizeof(line), "set note %s trash", id);
+			ok = ok && ask(line) == FZN_REPLY_OK;
+		}
+		CHECK(ok, "fixture: a note past the purge queue's bound, trashed");
+		CHECK(ask("remove note trash") == FZN_REPLY_ERROR && has("deletions")
+		              && !has("note"),
+		      "a full queue of deletions was not said as one");
+	}
 }
 
 static void test_admission(void)

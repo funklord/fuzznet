@@ -55575,3 +55575,23 @@ taking the plain rule while copies take the copy rules.
   signed, by another node".
 
 **Sabotage: five entries.**
+
+## 484. A full queue of deletions is said as one, 2026-10-05
+
+**From fuzzypickles' sec 168**: their empty-trash reported a full queue of
+deletions with an outbox error about undelivered messages. Here it was the
+same shape with another wrong word. `remove note trash` past
+`FZN_NOTES_PURGE_MAX` waiting purges answered with the notes store's text
+for FULL, "no room for another note", to somebody deleting notes.
+
+It now says "this node is already waiting on as many deletions as it will
+-- let one finish", fuzzypickles' wording, so the two trees say the same
+thing.
+
+### Measured for sec 484
+
+**`notes_test`, 275 checks:** a node with a paired node, so every purge
+waits, and one note past the queue's bound trashed. Emptying the trash
+says "deletions" and not "note".
+
+**Sabotage: one entry.**

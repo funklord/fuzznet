@@ -1114,6 +1114,13 @@ static size_t empty_trash(fzn_node_notes_t *n, char *reply, size_t cap)
 	}
 	err = fzn_notes_purge_trash(&n->store, &view, n->author.issuer,
 	                            fzn_notes_asking(asked, n_asked), now(n), &queued);
+	/* THE QUEUE OF DELETIONS IS FULL, sec 484: said as what it is. The
+	 * store's word for FULL is about notes, and the person asked to delete
+	 * some; fuzzypickles met the same misreading (their sec 168). */
+	if (err == FZN_NOTES_ERR_FULL)
+		return say(reply, cap, FZN_REPLY_ERROR,
+		           "this node is already waiting on as many deletions as it will -- let one "
+		           "finish");
 	if (err != FZN_NOTES_OK)
 		return refuse(reply, cap, err);
 	/* What is still waiting for consent, so the reply says which: the
