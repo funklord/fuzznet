@@ -326,6 +326,53 @@ static void test_copy_rules(void)
 	      "the node's own log takes the plain rule, its copies the two copy rules");
 }
 
+/* WHOSE COPIES, sec 487: a copy rule naming a source applies to that host's
+ * copies alone; whoever applies it is still `host=`. */
+static void test_source(void)
+{
+	static const char B[] = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+	static const char A[] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+	fzn_retain_rule_t in[3], out[3], x;
+	uint8_t a[32], b[32];
+	char line[FZN_RETAIN_TEXT_MAX], t[FZN_RETAIN_TEXT_MAX];
+	size_t len = 0, n;
+
+	memset(a, 0xaa, sizeof(a));
+	memset(b, 0xbb, sizeof(b));
+	(void)snprintf(line, sizeof(line), "prune * host=%s copy source=%s age 7d", A, B);
+	in[0] = rule(line);
+	in[1] = rule("prune * copy age 30d");
+	(void)snprintf(line, sizeof(line), "keep * copy source=%s count 2", A);
+	in[2] = rule(line);
+	CHECK(in[0].copy && in[0].has_source && memcmp(in[0].source, b, 32u) == 0
+	              && in[0].has_host && memcmp(in[0].host, a, 32u) == 0,
+	      "a source and a host read apart, in either order");
+	(void)snprintf(line, sizeof(line), "prune * copy source=%s host=%s age 7d", B, A);
+	CHECK(fzn_retain_text(&in[0], t, sizeof(t), &len) == FZN_RETAIN_OK && strcmp(t, line) == 0,
+	      "the source written after copy and before the host");
+	(void)snprintf(line, sizeof(line), "prune * source=%s age 7d", B);
+	n = strlen(line);
+	CHECK(fzn_retain_parse(line, n, &x) == FZN_RETAIN_ERR_MALFORMED,
+	      "a source on a rule that is not a copy rule is refused");
+	(void)snprintf(line, sizeof(line), "prune * copy source=%s source=%s age 7d", B, B);
+	n = strlen(line);
+	CHECK(fzn_retain_parse(line, n, &x) == FZN_RETAIN_ERR_MALFORMED
+	              && fzn_retain_parse("prune * copy source=bb age 7d", 29u, &x)
+	                         == FZN_RETAIN_ERR_MALFORMED,
+	      "a source twice, or a short one, is refused");
+	x = in[1];
+	x.has_source = 1;
+	x.copy = 0;
+	CHECK(fzn_retain_text(&x, t, sizeof(t), &len) == FZN_RETAIN_ERR_MALFORMED,
+	      "a rule holding a source and no copy is not written");
+	CHECK(fzn_retain_select_source(in, 3u, b, out) == 2u && out[0].has_source
+	              && !out[1].has_source,
+	      "B's copies take B's rule and the rule naming no source");
+	CHECK(fzn_retain_select_source(in, 3u, a, out) == 2u && !out[0].has_source
+	              && out[1].has_source && memcmp(out[1].source, a, 32u) == 0,
+	      "A's copies take A's rule and the rule naming no source, not B's");
+}
+
 /* ONE SPELLING, sec 475: a rule kept under its text is kept once. */
 static void test_text(void)
 {
@@ -380,6 +427,7 @@ int main(void)
 	test_text_selector();
 	test_scope();
 	test_copy_rules();
+	test_source();
 	if (failures) {
 		fprintf(stderr, "retain_test: %d of %d checks failed\n", failures, checks);
 		return 1;

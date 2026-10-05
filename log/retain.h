@@ -44,7 +44,7 @@
  *
  * A RULE AS TEXT, one line, for configuration:
  *
- *     prune|keep PROGRAM|* [copy] [host=NODEHEX] [machine=MACHINEHEX]
+ *     prune|keep PROGRAM|* [copy [source=NODEHEX]] [host=NODEHEX] [machine=MACHINEHEX]
  *                [level=LETTERS] [subsystem=PATH] [text=MATCH] age|size|count N[unit]
  *
  * LETTERS from `CEWNIVDT` (`level=DT`, debug and trace); PATH a subsystem
@@ -58,6 +58,12 @@
  * this node's own. A copy is removed whole -- thinning it would leave
  * neither the source's bytes nor its signature -- so a copy rule names no
  * selector.
+ *
+ * SOURCE, sec 487: a copy rule naming `source=` -- the copied host's node
+ * key, 64 hex digits -- applies to the copies of that host alone, wherever
+ * they are kept; one without it, to every host's. Only a copy rule names
+ * one. It is whose logs, where `host=` and `machine=` are who applies, so
+ * `prune * copy source=B host=A age 7d` is "A keeps a week of B's".
  *
  * SCOPE, sec 480, the holder's "scopable": a rule naming `host=` -- a
  * node's key, 64 hex digits, which sec 430 makes one account's node --
@@ -119,8 +125,11 @@ typedef struct fzn_retain_rule {
 	 * none. sec 477. */
 	uint8_t match[FZN_RETAIN_MATCH_MAX];
 	size_t match_len;
-	/* TO COPIES, sec 483, rather than this node's own log. */
+	/* TO COPIES, sec 483, rather than this node's own log; of one source
+	 * host's alone, sec 487. */
 	int copy;
+	int has_source;
+	uint8_t source[32];
 	/* WHERE IT APPLIES, sec 480: one node, one machine, or both. */
 	int has_host;
 	uint8_t host[32];
@@ -144,6 +153,12 @@ size_t fzn_retain_select_here(const fzn_retain_rule_t *in, size_t n, const uint8
 /* The COPY rules of `in` that reach this node, sec 483. */
 size_t fzn_retain_select_copies(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],
                                 const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
+                                fzn_retain_rule_t *out);
+
+/* The rules of `in` -- copy rules, as `fzn_retain_select_copies` gives --
+ * that apply to the copies of the host `source`: those naming no source,
+ * and those naming it. sec 487. */
+size_t fzn_retain_select_source(const fzn_retain_rule_t *in, size_t n, const uint8_t source[32],
                                 fzn_retain_rule_t *out);
 
 /* Whether `rule` selects entries rather than segments. */

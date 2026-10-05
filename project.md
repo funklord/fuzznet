@@ -55341,7 +55341,8 @@ today.
 **"Cross-host" as built:** a root or an admin anywhere sets an estate rule
 scoped to one host, and that host applies it to its own logs. A rule
 applied by one host to *another's* logs needs copies of that host's logs
-to exist (sec 428's replicated copies), which is not built.
+to exist (sec 428's replicated copies), which is not built. **Built
+since:** copies in sec 483, and copy rules naming whose copies in sec 487.
 
 **Group scope is not here.** It needs a notion of which hosts form a group
 -- a zone, a building -- and nothing in the estate says that yet.
@@ -55546,7 +55547,8 @@ something else.
 
 - **Copies are pulled, never pushed**, and only from pull peers. A host
   this node does not pull from is not copied.
-- **One program per node**, the one `--log-copy` names.
+- ~~**One program per node**, the one `--log-copy` names.~~ Several, one
+  `--log-copy` each, since sec 486.
 
 ### Measured for sec 483
 
@@ -55684,5 +55686,53 @@ nor `notes.txt` -- and a smaller cap is honoured.
 
 D's copy of `other` is byte-identical to R's. `~/.local/state/fuzznet`
 stayed absent.
+
+**Sabotage: three entries.**
+
+## 487. Copy rules naming whose copies, 2026-10-05
+
+Sec 480 left "a rule applied by one host to another's logs" waiting on
+copies, and sec 483 built them with one set of copy rules for every source.
+A copy rule can now name the host whose copies it governs:
+
+    prune|keep PROGRAM|* copy [source=NODEHEX] [host=NODEHEX] [machine=MACHINEHEX] LIMIT N
+
+- **`source=`** is the copied host's node key, 64 lower-case hex digits --
+  the name of its directory under `LOGDIR/copy/`. A copy rule naming one
+  applies to that host's copies alone; one naming none, to every host's.
+- **It is whose logs; `host=` and `machine=` stay who applies.** So
+  `prune * copy source=B host=A age 7d`, set as an estate rule by a root or
+  an admin, is "A keeps a week of B's log", and nothing else.
+- **Only a copy rule names a source.** On a rule for a node's own log it is
+  refused, by the parser and by every writer.
+- **Canonical text** puts it after `copy`, before the host. With all three
+  scopes and a program name near its 64 bytes a rule passes the 256 a
+  node keeps, and is refused when written, as any rule that long is; an
+  estate record's 128 take a source alone, as they take a host alone.
+- **`fzn_retain_select_source`** narrows the copy rules to one source.
+  fuzznetd applies to each `copy/HOSTHEX` directory only those.
+
+### Measured for sec 487
+
+**`retain_test`, 52 checks, 7 new:** a source and a host read apart in
+either order and written source first; a source on a plain rule, twice, or
+short, refused, and a rule holding one without `copy` not written; B's
+copies taking B's rule and the unscoped one, A's taking A's and the
+unscoped one and not B's.
+
+**Live, two fuzznetd in one estate**, D copying R's `fuzznetd` and `other`
+segments, three days old:
+
+    copies at first: 2
+    add retention prune * copy source=<another key> age 1d   -> ok
+    copies after a rule for another source: 2
+    add retention prune * copy source=<R's key> age 1d       -> ok
+    copies after a rule for R: 0
+    1 copied segment(s) of fuzznetd of 9018503a removed
+    1 copied segment(s) of other of 9018503a removed
+
+R's own two packed segments stayed, and nothing was copied again after the
+removal, the copy's chain head being kept. `~/.local/state/fuzznet` stayed
+absent.
 
 **Sabotage: three entries.**

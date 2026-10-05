@@ -6061,6 +6061,27 @@ SABOTAGES = [
 		"every pass after the first refuses the chain file its predecessor wrote, and nothing more is ever packed -- sec 459",
 	),
 	(
+		"retain-source-only-on-copies",
+		"log/retain.c",
+		"\tif (out->has_source && !out->copy)\n\t\treturn FZN_RETAIN_ERR_MALFORMED;\n",
+		"",
+		"a source on a rule for this node's own log is read, and the rule is then refused by every writer that checks it -- sec 487",
+	),
+	(
+		"retain-source-selects-its-host",
+		"log/retain.c",
+		"\t\t    && (!in[i].has_source\n\t\t        || memcmp(in[i].source, source, sizeof(in[i].source)) == 0))\n",
+		"\t\t    )\n",
+		"a rule naming one host's copies removes every host's -- sec 487",
+	),
+	(
+		"retain-source-written",
+		"log/retain.c",
+		"\t\tif (rule->has_source) {\n\t\t\tmemcpy(scope, \" source=\", 8u);\n",
+		"\t\tif (0) {\n\t\t\tmemcpy(scope, \" source=\", 8u);\n",
+		"a rule kept or sent as text loses its source and applies to every host's copies -- sec 487",
+	),
+	(
 		"logger-programs-take-off-time-and-pid",
 		"log/logger.c",
 		"\tif (fields == 2u)\n\t\tlen = k;\n",

@@ -230,8 +230,9 @@ fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_
 	end = line + len;
 	while (count < 11u && next_word(&at, end, &w[count], &n[count]))
 		count++;
-	/* KIND PROGRAM [copy] [host=] [machine=] [level=] [subsystem=] [text=]
-	 * LIMIT N: four words to ten. */
+	/* KIND PROGRAM [copy] [source=] [host=] [machine=] [level=] [subsystem=]
+	 * [text=] LIMIT N: four words to ten, since a copy rule names no
+	 * selector and a source only with copy. */
 	if (count < 4u || count > 10u)
 		return FZN_RETAIN_ERR_MALFORMED;
 	for (i = 2; i < count - 2u; i++) {
@@ -240,6 +241,10 @@ fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_
 				return FZN_RETAIN_ERR_MALFORMED;
 		} else if (n[i] == 4u && memcmp(w[i], "copy", 4u) == 0 && !out->copy) {
 			out->copy = 1;
+		} else if (n[i] > 7u && memcmp(w[i], "source=", 7u) == 0 && !out->has_source) {
+			if (!hex_of(w[i] + 7, n[i] - 7u, out->source, sizeof(out->source)))
+				return FZN_RETAIN_ERR_MALFORMED;
+			out->has_source = 1;
 		} else if (n[i] > 5u && memcmp(w[i], "host=", 5u) == 0 && !out->has_host) {
 			if (!hex_of(w[i] + 5, n[i] - 5u, out->host, sizeof(out->host)))
 				return FZN_RETAIN_ERR_MALFORMED;
@@ -262,6 +267,9 @@ fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_
 	}
 	/* A COPY IS KEPT OR REMOVED WHOLE, sec 483. */
 	if (out->copy && (out->levels || out->subsystem[0] || out->match_len))
+		return FZN_RETAIN_ERR_MALFORMED;
+	/* WHOSE COPIES, only of copies, sec 487. */
+	if (out->has_source && !out->copy)
 		return FZN_RETAIN_ERR_MALFORMED;
 	/* The limit and its number are the last two words. */
 	w[2] = w[count - 2u];
@@ -298,7 +306,7 @@ fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_
 {
 	static const char LETTERS[] = "CEWNIVDT";
 	char levels[9], unit[2] = { 0, 0 }, match[(FZN_RETAIN_MATCH_MAX * 3u) + 7u];
-	char scope[6u + 64u + 9u + 32u + 1u];
+	char scope[8u + 64u + 6u + 64u + 9u + 32u + 1u];
 	uint64_t v;
 	size_t i, k = 0;
 	int n;
@@ -328,15 +336,21 @@ fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_
 		}
 		match[m] = '\0';
 	}
-	/* THE SCOPE, host then machine, hex in lower case as the parser reads
-	 * it. sec 480. */
+	/* THE SCOPE, source then host then machine, hex in lower case as the
+	 * parser reads it. secs 480, 487. */
 	{
 		size_t m = 0;
 
 		scope[0] = '\0';
+		if (rule->has_source) {
+			memcpy(scope, " source=", 8u);
+			m = 8u;
+			for (i = 0; i < sizeof(rule->source); i++, m += 2u)
+				(void)snprintf(scope + m, 3u, "%02x", rule->source[i]);
+		}
 		if (rule->has_host) {
-			memcpy(scope, " host=", 6u);
-			m = 6u;
+			memcpy(scope + m, " host=", 6u);
+			m += 6u;
 			for (i = 0; i < sizeof(rule->host); i++, m += 2u)
 				(void)snprintf(scope + m, 3u, "%02x", rule->host[i]);
 		}
@@ -451,6 +465,7 @@ static int rule_ok(const fzn_retain_rule_t *r)
 	       && r->match_len <= FZN_RETAIN_MATCH_MAX
 	       && memchr(r->match, '\0', r->match_len) == NULL
 	       && (r->has_host == 0 || r->has_host == 1)
+	       && (r->has_source == 0 || (r->has_source == 1 && r->copy == 1))
 	       && (r->copy == 0 || (r->copy == 1 && !r->levels && !r->subsystem[0] && !r->match_len))
 	       && (r->has_machine == 0 || r->has_machine == 1);
 }
@@ -494,6 +509,21 @@ size_t fzn_retain_select_copies(const fzn_retain_rule_t *in, size_t n, const uin
 		return 0;
 	for (i = 0; i < n; i++)
 		if (in[i].copy && fzn_retain_reaches(&in[i], host, machine))
+			out[k++] = in[i];
+	return k;
+}
+
+size_t fzn_retain_select_source(const fzn_retain_rule_t *in, size_t n, const uint8_t source[32],
+                                fzn_retain_rule_t *out)
+{
+	size_t i, k = 0;
+
+	if (!in || !out || !source)
+		return 0;
+	for (i = 0; i < n; i++)
+		if (in[i].copy
+		    && (!in[i].has_source
+		        || memcmp(in[i].source, source, sizeof(in[i].source)) == 0))
 			out[k++] = in[i];
 	return k;
 }

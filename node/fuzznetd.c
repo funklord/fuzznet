@@ -310,6 +310,8 @@ static void on_caused(void *ctx, const uint8_t *sender, const fzn_entry_name_t *
 }
 
 /* PACKED AND PRUNED, once a round and after a rotation. */
+static int hex_bytes(const char *text, uint8_t *out, size_t len);
+
 #ifdef FZN_LOG_FILE_ON
 /* Programs one log round tends at most. */
 #define FZND_LOG_PROGRAMS_MAX 32u
@@ -428,9 +430,11 @@ static void log_round(void)
 #ifdef FZN_LOG_PACK_ON
 	/* THE COPIES' RULES, sec 483: each copy directory planned whole by the
 	 * rules naming `copy`, every copy a source host's bytes under its
-	 * signature. */
+	 * signature -- and of those, by the ones naming no source or naming
+	 * the directory's, sec 487. */
 	if (dlog.n_copy_programs) {
 		static fzn_retain_rule_t copy_rules[FZN_RETAIN_RULES_MAX];
+		static fzn_retain_rule_t source_rules[FZN_RETAIN_RULES_MAX];
 		char copies[FZN_LOGGER_PATH_MAX + 8u];
 		size_t n_copy = fzn_retain_select_copies(all_rules, n_all,
 		                                         dlog.has_host ? dlog.host : NULL,
@@ -443,16 +447,20 @@ static void log_round(void)
 		    && (d = opendir(copies)) != NULL) {
 			while ((e = readdir(d)) != NULL) {
 				char sub[FZN_LOGGER_PATH_MAX + 80u];
-				size_t gone = 0, p;
+				uint8_t source[32];
+				size_t gone = 0, p, n_source;
 
 				if (strlen(e->d_name) != 64u
 				    || strspn(e->d_name, "0123456789abcdef") != 64u
+				    || !hex_bytes(e->d_name, source, sizeof(source))
 				    || snprintf(sub, sizeof(sub), "%s/%s", copies, e->d_name)
 				               >= (int)sizeof(sub))
 					continue;
-				for (p = 0; p < dlog.n_copy_programs; p++) {
-					if (fzn_logger_retain(sub, dlog.copy_programs[p], copy_rules, n_copy,
-					                      log_now_us(), &gone)
+				n_source = fzn_retain_select_source(copy_rules, n_copy, source,
+				                                    source_rules);
+				for (p = 0; p < dlog.n_copy_programs && n_source; p++) {
+					if (fzn_logger_retain(sub, dlog.copy_programs[p], source_rules,
+					                      n_source, log_now_us(), &gone)
 					    != FZN_LOGGER_OK)
 						say(FZN_ENTRY_WARNING, "log/copy", "the copy rules could not all "
 						    "be applied to %s of %.8s", dlog.copy_programs[p], e->d_name);
