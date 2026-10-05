@@ -24,6 +24,10 @@ enum fzn_gather_type : u8 {
 	lines      = 2,   // "These, and where to go on from."
 	ring_query = 3,   // "Your flight recorder, after this position." sec 464
 	ring       = 4,   // "These records."
+	segments_query = 5,   // "Your packed segments after this key." sec 483
+	segments       = 6,   // "These, with their sizes."
+	part_query     = 7,   // "This segment's bytes from here."
+	part           = 8,   // "These."
 }
 
 struct fzn_gather_query {
@@ -76,4 +80,47 @@ struct fzn_gather_lines {
 	u64              cursor_off;
 	u16              count;
 	fzn_gather_line  lines[count];
+}
+
+// COPIES OF A HOST'S PACKED LOG, sec 483 (log/copy.h): its packed segments,
+// listed by name and size after the newest a copier holds, and fetched a
+// part at a time. Only a packed segment's own name is served.
+struct fzn_log_copy_segments_query {
+	u8               version     [must_eq = 4];
+	fzn_gather_type  type        [must_eq = segments_query];
+	u8               program_len [min = 1, max = 64];
+	u8               program[program_len];
+	u64              after;      // segments closed after this key
+}
+
+struct fzn_log_copy_segment {
+	u8   name_len [min = 1];
+	u8   name[name_len];         // PROGRAM.TIME.PID.log.zst
+	u64  size;
+}
+
+struct fzn_log_copy_segments {
+	u8                    version [must_eq = 4];
+	fzn_gather_type       type    [must_eq = segments];
+	u8                    done    [max = 1];
+	u8                    count   [max = 64];
+	fzn_log_copy_segment  segments[count];
+}
+
+struct fzn_log_copy_part_query {
+	u8               version  [must_eq = 4];
+	fzn_gather_type  type     [must_eq = part_query];
+	u8               name_len [min = 1];
+	u8               name[name_len];
+	u64              offset;
+}
+
+struct fzn_log_copy_part {
+	u8               version [must_eq = 4];
+	fzn_gather_type  type    [must_eq = part];
+	u8               done    [max = 1];
+	u64              total;
+	u64              offset;
+	u32              len;
+	u8               bytes[len];
 }

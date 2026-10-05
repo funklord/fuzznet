@@ -1069,3 +1069,25 @@ fzn_log_pack_err_t fzn_log_pack_check(const char *dir, const char *program,
 	}
 	return FZN_LOG_PACK_OK;
 }
+
+fzn_log_pack_err_t fzn_log_pack_trailer_prev(const char *zst_path,
+                                             uint8_t prev[FZN_LOG_PACK_HASH_LEN])
+{
+	static trailer_t tr;
+	uint8_t *b = NULL;
+	size_t len = 0, body;
+	int ok;
+
+	if (!zst_path || !prev)
+		return FZN_LOG_PACK_ERR_MALFORMED;
+	if (!read_all(zst_path, 1, &b, &len))
+		return FZN_LOG_PACK_ERR_ZSTD;
+	for (body = len ? len - 1u : 0u; body > 0u && b[body - 1u] != '\n'; body--)
+		;
+	ok = len >= 2u && len - body <= TRAILER_MAX && parse_trailer(b + body, len - body, &tr);
+	free(b);
+	if (!ok)
+		return FZN_LOG_PACK_ERR_CHAIN;
+	memcpy(prev, tr.prev, FZN_LOG_PACK_HASH_LEN);
+	return FZN_LOG_PACK_OK;
+}

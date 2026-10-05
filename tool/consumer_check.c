@@ -132,6 +132,7 @@
 #include <fuzznet/log/gather.h>
 #endif
 #ifdef FZN_LOG_PACK_ON
+#include <fuzznet/log/copy.h>
 #include <fuzznet/log/pack.h>
 #endif
 #ifdef FZN_RECORD_STORE_FILE_ON
@@ -285,6 +286,7 @@
 #include "log/gather.h"
 #endif
 #ifdef FZN_LOG_PACK_ON
+#include "log/copy.h"
 #include "log/pack.h"
 #endif
 #ifdef FZN_RECORD_STORE_FILE_ON
@@ -1126,6 +1128,14 @@ int main(void)
 			if (fzn_log_pack_dir(NULL, "x", NULL, NULL, 0u, 0u, &packed)
 			    != FZN_LOG_PACK_ERR_MALFORMED)
 				FAIL(473);
+		}
+		/* A copier asked for nothing refuses (sec 483). */
+		{
+			fzn_log_copy_tally_t tally;
+
+			if (fzn_log_copy_pull(NULL, NULL, "x", NULL, NULL, NULL, NULL, &tally)
+			    != FZN_LOG_COPY_ERR_MALFORMED)
+				FAIL(480);
 		}
 #endif
 		/* A received share's host is one word (sec 437). */

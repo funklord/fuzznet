@@ -58,3 +58,42 @@ struct fzn_gather_ring_query size=11 repr=ValueConverted atomic=NonAtomic
   fzn_gather_ring_query.type             offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
   fzn_gather_ring_query.started          offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
   fzn_gather_ring_query.after            offset=AbsoluteStatic(0x03) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+
+struct fzn_log_copy_part size=23..4294967318 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_log_copy_part.version              offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_log_copy_part.type                 offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_log_copy_part.done                 offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_log_copy_part.total                offset=AbsoluteStatic(0x03) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_log_copy_part.offset               offset=AbsoluteStatic(0x0B) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_log_copy_part.len                  offset=AbsoluteStatic(0x13) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_log_copy_part.bytes                offset=AbsoluteStatic(0x17) size=Bounded(0, 4294967295) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct fzn_log_copy_part_query size=12..266 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  fzn_log_copy_part_query.version        offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_log_copy_part_query.type           offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_log_copy_part_query.name_len       offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_log_copy_part_query.name           offset=AbsoluteStatic(0x03) size=Bounded(1, 255) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_log_copy_part_query.offset         offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+
+struct fzn_log_copy_segment size=10..264 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  fzn_log_copy_segment.name_len          offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_log_copy_segment.name              offset=AbsoluteStatic(0x01) size=Bounded(1, 255) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_log_copy_segment.size              offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+
+struct fzn_log_copy_segments size=4..16900 access=Sequential mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  fzn_log_copy_segments.version          offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_log_copy_segments.type             offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_log_copy_segments.done             offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_log_copy_segments.count            offset=AbsoluteStatic(0x03) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_log_copy_segments.segments         offset=AbsoluteStatic(0x04) size=Bounded(0, 16896) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting
+  fzn_log_copy_segments.segments[]       offset=FrameStatic(0x00) size=Bounded(10, 264) align=Aligned(8) repr=ValueConverted atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable
+  fzn_log_copy_segments.segments[].name_len offset=FrameStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_log_copy_segments.segments[].name  offset=FrameStatic(0x01) size=Bounded(1, 255) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_log_copy_segments.segments[].size  offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+
+struct fzn_log_copy_segments_query size=12..75 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  fzn_log_copy_segments_query.version    offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_log_copy_segments_query.type       offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_log_copy_segments_query.program_len offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_log_copy_segments_query.program    offset=AbsoluteStatic(0x03) size=Bounded(1, 64) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_log_copy_segments_query.after      offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable

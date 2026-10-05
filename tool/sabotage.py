@@ -6014,8 +6014,8 @@ SABOTAGES = [
 	(
 		"retain-a-rule-has-no-stray-word",
 		"log/retain.c",
-		"\t\t} else {\n\t\t\treturn FZN_RETAIN_ERR_MALFORMED;\n\t\t}\n\t}\n\t/* The limit and its number",
-		"\t\t} else {\n\t\t\tcontinue;\n\t\t}\n\t}\n\t/* The limit and its number",
+		"\t\t} else {\n\t\t\treturn FZN_RETAIN_ERR_MALFORMED;\n\t\t}\n\t}\n\t/* A COPY IS KEPT",
+		"\t\t} else {\n\t\t\tcontinue;\n\t\t}\n\t}\n\t/* A COPY IS KEPT",
 		"a rule with a word that is no selector, or a selector named twice, is taken as if the word were not there -- secs 460, 474",
 	),
 	(
@@ -8825,6 +8825,41 @@ SABOTAGES = [
 		"\t\t\tif (report->signed_count && memcmp(key, report->signer, sizeof(key)) != 0)\n\t\t\t\treport->signers_differ = 1;\n",
 		"",
 		"a segment signed by another key reads as this node's -- sec 482",
+	),
+	(
+		"copy-signed-by-the-host-asked",
+		"log/copy.c",
+		"\t\t\t\tif (perr != FZN_LOG_PACK_OK || !is_signed\n\t\t\t\t    || memcmp(key, host, sizeof(key)) != 0) {\n",
+		"\t\t\t\tif (perr != FZN_LOG_PACK_OK || !is_signed) {\n",
+		"a copy signed by any key is kept as the host's, and a peer can plant another host's history -- sec 483",
+	),
+	(
+		"copy-only-signed-segments",
+		"log/copy.c",
+		"\t\t\t\tif (perr != FZN_LOG_PACK_OK || !is_signed\n",
+		"\t\t\t\tif (perr != FZN_LOG_PACK_OK\n",
+		"an unsigned segment is kept as a copy, which nothing ties to the host -- sec 483",
+	),
+	(
+		"copy-serves-packed-segments-only",
+		"log/copy.c",
+		"\tif (memchr(name, '\\0', nl) || packed_key(name, NULL) == 0u\n",
+		"\tif (memchr(name, '\\0', nl)\n",
+		"a member reads any file in a host's log directory by naming it -- sec 483",
+	),
+	(
+		"retain-copy-rules-are-whole",
+		"log/retain.c",
+		"\tif (out->copy && (out->levels || out->subsystem[0] || out->match_len))\n\t\treturn FZN_RETAIN_ERR_MALFORMED;\n",
+		"",
+		"a copy rule thins a copy, which then holds neither the source's bytes nor its signature -- sec 483",
+	),
+	(
+		"retain-own-log-skips-copy-rules",
+		"log/retain.c",
+		"\t\tif (!in[i].copy && fzn_retain_reaches(&in[i], host, machine))\n",
+		"\t\tif (fzn_retain_reaches(&in[i], host, machine))\n",
+		"a rule written for copies prunes this node's own log -- sec 483",
 	),
 ]
 

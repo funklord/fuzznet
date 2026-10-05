@@ -125,6 +125,11 @@ fzn_log_pack_err_t fzn_log_pack_verify_signed(const char *zst_path,
                                               int *is_signed,
                                               uint8_t signer_out[FZN_LOG_PACK_HASH_LEN]);
 
+/* The prev a packed segment's own trailer names: where a chain held from
+ * this segment on starts, for one whose older segments are not here. */
+fzn_log_pack_err_t fzn_log_pack_trailer_prev(const char *zst_path,
+                                             uint8_t prev[FZN_LOG_PACK_HASH_LEN]);
+
 /* What `fzn_log_pack_check` found. */
 typedef struct fzn_log_pack_report {
 	size_t segments;      /* packed segments whose chain held */

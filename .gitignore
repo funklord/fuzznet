@@ -186,6 +186,7 @@
 /log/test/gather_test
 /log/test/logger_test
 /log/test/pack_test
+/log/test/copy_test
 /log/test/capture_run_test
 /wire/test/relay_test
 /sched/test/sched_test

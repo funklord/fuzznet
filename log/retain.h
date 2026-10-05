@@ -44,7 +44,7 @@
  *
  * A RULE AS TEXT, one line, for configuration:
  *
- *     prune|keep PROGRAM|* [host=NODEHEX] [machine=MACHINEHEX]
+ *     prune|keep PROGRAM|* [copy] [host=NODEHEX] [machine=MACHINEHEX]
  *                [level=LETTERS] [subsystem=PATH] [text=MATCH] age|size|count N[unit]
  *
  * LETTERS from `CEWNIVDT` (`level=DT`, debug and trace); PATH a subsystem
@@ -52,6 +52,12 @@
  * MATCH 1 to 64 bytes an entry's text must hold, a byte below 0x21, `%`,
  * `,` and 0x7f written `%XX` so the rule stays one line of words
  * (`text=link%20up`). No NUL.
+ *
+ * COPY, sec 483: a rule naming `copy` applies to the copies this node keeps
+ * of other hosts' logs (`log/copy.h`), and only to them; one without it, to
+ * this node's own. A copy is removed whole -- thinning it would leave
+ * neither the source's bytes nor its signature -- so a copy rule names no
+ * selector.
  *
  * SCOPE, sec 480, the holder's "scopable": a rule naming `host=` -- a
  * node's key, 64 hex digits, which sec 430 makes one account's node --
@@ -113,6 +119,8 @@ typedef struct fzn_retain_rule {
 	 * none. sec 477. */
 	uint8_t match[FZN_RETAIN_MATCH_MAX];
 	size_t match_len;
+	/* TO COPIES, sec 483, rather than this node's own log. */
+	int copy;
 	/* WHERE IT APPLIES, sec 480: one node, one machine, or both. */
 	int has_host;
 	uint8_t host[32];
@@ -127,10 +135,16 @@ typedef struct fzn_retain_rule {
 int fzn_retain_reaches(const fzn_retain_rule_t *rule, const uint8_t host[32],
                        const uint8_t machine[FZN_ENTRY_MACHINE_LEN]);
 
-/* The rules of `in` that reach this node, into `out` in order; how many. */
+/* The rules of `in` that reach this node's OWN log, into `out` in order --
+ * copy rules left out; how many. */
 size_t fzn_retain_select_here(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],
                               const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
                               fzn_retain_rule_t *out);
+
+/* The COPY rules of `in` that reach this node, sec 483. */
+size_t fzn_retain_select_copies(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],
+                                const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
+                                fzn_retain_rule_t *out);
 
 /* Whether `rule` selects entries rather than segments. */
 int fzn_retain_rule_selects_entries(const fzn_retain_rule_t *rule);

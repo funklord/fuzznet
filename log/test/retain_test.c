@@ -296,6 +296,36 @@ static void test_scope(void)
 	      "on another node of the machine the machine's rule and the unscoped one reach");
 }
 
+/* COPY RULES, sec 483: they reach copies, and only copies. */
+static void test_copy_rules(void)
+{
+	fzn_retain_rule_t in[3], out[3], x;
+	uint8_t host[32], machine[FZN_ENTRY_MACHINE_LEN];
+	char t[FZN_RETAIN_TEXT_MAX];
+	size_t len = 0;
+
+	memset(host, 0xaa, sizeof(host));
+	memset(machine, 0x0b, sizeof(machine));
+	in[0] = rule("prune * copy age 30d");
+	in[1] = rule("prune * age 7d");
+	in[2] = rule("keep netcfgd copy count 3");
+	CHECK(in[0].copy && !in[1].copy && in[2].copy && !fzn_retain_rule_selects_entries(&in[0]),
+	      "the copy word is read, and a copy rule is a segment rule");
+	CHECK(fzn_retain_parse("prune * copy level=D age 1d", 27u, &x) == FZN_RETAIN_ERR_MALFORMED
+	              && fzn_retain_parse("prune * copy text=a age 1d", 26u, &x)
+	                         == FZN_RETAIN_ERR_MALFORMED
+	              && fzn_retain_parse("prune * copy copy age 1d", 24u, &x)
+	                         == FZN_RETAIN_ERR_MALFORMED,
+	      "a copy rule naming a selector, or copy twice, is refused");
+	CHECK(fzn_retain_text(&in[0], t, sizeof(t), &len) == FZN_RETAIN_OK
+	              && strcmp(t, "prune * copy age 30d") == 0,
+	      "copy is written after the program");
+	CHECK(fzn_retain_select_here(in, 3u, host, machine, out) == 1u && !out[0].copy
+	              && fzn_retain_select_copies(in, 3u, host, machine, out) == 2u && out[0].copy
+	              && out[1].copy,
+	      "the node's own log takes the plain rule, its copies the two copy rules");
+}
+
 /* ONE SPELLING, sec 475: a rule kept under its text is kept once. */
 static void test_text(void)
 {
@@ -349,6 +379,7 @@ int main(void)
 	test_text();
 	test_text_selector();
 	test_scope();
+	test_copy_rules();
 	if (failures) {
 		fprintf(stderr, "retain_test: %d of %d checks failed\n", failures, checks);
 		return 1;

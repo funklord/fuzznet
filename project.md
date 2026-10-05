@@ -55479,3 +55479,99 @@ signed, by this node". With one signature digit changed through
 does not hold, at fuzznetd....log.zst, after 0 that held".
 
 **Sabotage: four entries.**
+
+## 483. Copies of another host's log, verified before they are kept, 2026-10-05
+
+Sec 428's replicated copies. **The holder's decisions, asked this session:**
+
+- **Opt-in per node.** A node started with `--log-copy[=PROGRAM]` keeps
+  copies of its pull peers' logs; nothing copies otherwise. Rejected:
+  roots keeping copies of every member, and every member copying every
+  peer.
+- **Verified, under their own rules.** Only whole packed segments are
+  copied, each checked against the chain and the source host's signature
+  before it is kept. Copies follow retention rules that name them;
+  other rules apply to a node's own log only. Rejected: one rule set for
+  both, and copying unverified.
+
+### What travels
+
+A host's **packed** segments, byte for byte -- never its current file, a
+segment not yet packed, or anything else in the directory. Four messages
+of gathering's version-4 family, stated in `log/gather.situ`:
+
+- `segments_query`: a program's packed segments closed after a key;
+- `segments`: their names and sizes, oldest first, 64 a page;
+- `part_query`: a segment's bytes from an offset;
+- `part`: as many as fit a reply.
+
+`fzn_log_copy_answer` serves them. fuzznetd answers through the same gate
+as gathering: members only, at `--log-scope=estate`. A host-private host
+says so in words, and the copier says that.
+
+### What a copier keeps
+
+`fzn_log_copy_pull` fetches each segment whole into `NAME.new` in
+`LOGDIR/copy/HOSTHEX`, then verifies it:
+
+- it chains from the last copy kept, the first from the prev its own
+  trailer names;
+- it is signed, and signed by **the key of the host asked** -- the pull
+  peer's node key, so a peer cannot plant another host's history.
+
+Only then is it renamed into place and the copy's chain head written. A
+segment that fails is refused and named, and the pull of that program stops
+there, since every later one chains from it. So a copy directory holds
+only what verified, and `fuzznetd --check-log --log-dir=LOGDIR/copy/HOSTHEX`
+reads it as the host's chain, "signed, by another node".
+
+### The copies' rules
+
+A rule with the word `copy` -- `prune * copy age 90d` -- applies to every
+copy directory this node keeps, and a rule without it to the node's own
+log only. A copy is removed **whole**: thinning it would leave neither the
+source's bytes nor its signature. So a copy rule naming a level, a
+subsystem or a text is refused.
+
+fuzznetd applies copy rules each log round to every `copy/HOSTHEX`
+directory, through the whole-segment plan.
+
+### A break, stated
+
+`fzn_gather_type` gains four values, so a host built before this does not
+answer them. Copying is opt-in, and such a host is reported as answering
+something else.
+
+### Not yet after sec 483
+
+- **Copies are pulled, never pushed**, and only from pull peers. A host
+  this node does not pull from is not copied.
+- **One program per node**, the one `--log-copy` names.
+
+### Measured for sec 483
+
+**`copy_test`, 12 checks**, new, in a scratch directory it leaves empty, a
+host answering in 700-byte replies:
+
+- two signed segments copied in many parts, with the chain's head, the
+  copy checking as the host's chain signed by the host;
+- a second pull copying nothing, and a segment packed since copied;
+- refused, nothing kept and nothing half-kept: segments signed by a key
+  other than the host asked, and a byte flipped in transit;
+- an unsigned segment refused after the signed ones before it were kept;
+- the chain's head, a path, an unpacked segment and the current file not
+  served.
+
+**`retain_test`, 45 checks**, four new: the copy word read and written
+after the program, a copy rule naming a selector refused, and the own log
+taking the plain rule while copies take the copy rules.
+
+**Live:** R and D, D joined to R's estate, D started with `--log-copy`:
+
+- R host-private: D's pull was refused in R's words, and nothing was kept;
+- R restarted at `--log-scope=estate`: D's next round copied R's packed
+  segment into `copy/<R's key>`, byte-identical to R's;
+- `--check-log` on the copy: "1 packed segment(s), the chain holds; 1
+  signed, by another node".
+
+**Sabotage: five entries.**

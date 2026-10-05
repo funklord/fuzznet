@@ -1263,9 +1263,9 @@ TEST_BINS += $(BUILD_DIR)/log/test/logger_test
 TEST_BINS += $(BUILD_DIR)/log/test/gather_test
 endif
 
-LOG_PACK_SRCS := log/pack.c
-LOG_PACK_HDRS := log/pack.h
-LOG_PACK_TSRC := log/test/pack_test.c
+LOG_PACK_SRCS := log/pack.c log/copy.c
+LOG_PACK_HDRS := log/pack.h log/copy.h
+LOG_PACK_TSRC := log/test/pack_test.c log/test/copy_test.c
 
 ifdef LOG_PACK_ON
 CPPFLAGS  += -DFZN_LOG_PACK_ON
@@ -1273,6 +1273,7 @@ SRCS      += $(LOG_PACK_SRCS)
 HDRS      += $(LOG_PACK_HDRS)
 TEST_SRCS += $(LOG_PACK_TSRC)
 TEST_BINS += $(BUILD_DIR)/log/test/pack_test
+TEST_BINS += $(BUILD_DIR)/log/test/copy_test
 endif
 
 CLAIM_FILE_SRCS := claim/claim_file.c
@@ -1984,6 +1985,16 @@ $(BUILD_DIR)/log/test/ring_test: $(BUILD_DIR)/log/test/ring_test.o \
 
 # Packing closed segments with libzstd, in a scratch directory. sec 459.
 $(BUILD_DIR)/log/test/pack_test: $(BUILD_DIR)/log/test/pack_test.o \
+                                 $(BUILD_DIR)/log/pack.o \
+                                 $(BUILD_DIR)/log/retain.o \
+                                 $(BUILD_DIR)/log/entry.o \
+                                 $(BUILD_DIR)/log/capture.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@ $(ZSTD_LIBS)
+
+# Copies of another host's packed log, verified. sec 483.
+$(BUILD_DIR)/log/test/copy_test: $(BUILD_DIR)/log/test/copy_test.o \
+                                 $(BUILD_DIR)/log/copy.o \
                                  $(BUILD_DIR)/log/pack.o \
                                  $(BUILD_DIR)/log/retain.o \
                                  $(BUILD_DIR)/log/entry.o \
@@ -3773,7 +3784,7 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(BUILD_DIR)/log/view.o \
               $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o $(BUILD_DIR)/log/ring.o \
                 $(BUILD_DIR)/log/retain.o $(BUILD_DIR)/log/gather.o) \
-              $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o) \
+              $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o $(BUILD_DIR)/log/copy.o) \
               $(MONO_OBJS) $(FLOG_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
@@ -3916,7 +3927,8 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                         $(BUILD_DIR)/spool/spool_file.o) \
                                       $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o \
                                         $(BUILD_DIR)/log/gather.o) \
-                                      $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o) \
+                                      $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o \
+                                        $(BUILD_DIR)/log/copy.o) \
                                       $(BUILD_DIR)/state/scope.o \
                                       $(BUILD_DIR)/notes/note.o \
                                       $(BUILD_DIR)/local/client.o \
@@ -6311,9 +6323,11 @@ manifest:
 	@$(if $(LOG_FILE_ON),echo "backend log/logger.c FZN_LOG_FILE_ON";)
 	@$(if $(LOG_FILE_ON),echo "backend log/gather.c FZN_LOG_FILE_ON";)
 	@$(if $(LOG_PACK_ON),echo "backend log/pack.c FZN_LOG_PACK_ON";)
+	@$(if $(LOG_PACK_ON),echo "backend log/copy.c FZN_LOG_PACK_ON";)
 	@# A LIBRARY A BACKEND LINKS, sec 459: the backend's source, then what
 	@# to put on the consumer's link line for it.
 	@$(if $(LOG_PACK_ON),echo "link log/pack.c $(ZSTD_LIBS)";)
+	@$(if $(LOG_PACK_ON),echo "link log/copy.c $(ZSTD_LIBS)";)
 	@$(if $(and $(LOG_FILE_ON),$(LOG_PACK_ON)),echo "link log/gather.c $(ZSTD_LIBS)";)
 	@$(if $(RECORD_STORE_FILE_ON),echo "backend record/store_file.c FZN_RECORD_STORE_FILE_ON";)
 	@# ONE LINE PER SOURCE, as `binding` and `backend` already are. These two

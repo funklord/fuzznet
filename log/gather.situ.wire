@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum fzn_gather_type : u8 unknown=error
-  query=1 lines=2 ring_query=3 ring=4
+  query=1 lines=2 ring_query=3 ring=4 segments_query=5 segments=6 part_query=7 part=8
 
 struct fzn_gather_line size=3..65537
   @0x0000   2         u16        len  big min=1
@@ -62,3 +62,38 @@ struct fzn_gather_ring_query size=11
   @0x0001   1         fzn_gather_type type  must_eq=ring_query
   @0x0002   1         u8         started  max=1
   @0x0003   8         u64        after  big
+
+struct fzn_log_copy_part size=23..4294967318
+  @0x0000   1         u8         version  must_eq=4
+  @0x0001   1         fzn_gather_type type  must_eq=part
+  @0x0002   1         u8         done  max=1
+  @0x0003   8         u64        total  big
+  @0x000b   8         u64        offset  big
+  @0x0013   4         u32        len  big
+  @0x0017   0..4294967295 u8         bytes  sized-by=len
+
+struct fzn_log_copy_part_query size=12..266
+  @0x0000   1         u8         version  must_eq=4
+  @0x0001   1         fzn_gather_type type  must_eq=part_query
+  @0x0002   1         u8         name_len  min=1
+  @0x0003   1..255    u8         name  sized-by=name_len
+  ~         8         u64        offset  big
+
+struct fzn_log_copy_segment size=10..264
+  @0x0000   1         u8         name_len  min=1
+  @0x0001   1..255    u8         name  sized-by=name_len
+  ~         8         u64        size  big
+
+struct fzn_log_copy_segments size=4..16900
+  @0x0000   1         u8         version  must_eq=4
+  @0x0001   1         fzn_gather_type type  must_eq=segments
+  @0x0002   1         u8         done  max=1
+  @0x0003   1         u8         count  max=64
+  @0x0004   0..16896  fzn_log_copy_segment segments  sized-by=count
+
+struct fzn_log_copy_segments_query size=12..75
+  @0x0000   1         u8         version  must_eq=4
+  @0x0001   1         fzn_gather_type type  must_eq=segments_query
+  @0x0002   1         u8         program_len  min=1 max=64
+  @0x0003   1..64     u8         program  sized-by=program_len
+  ~         8         u64        after  big
