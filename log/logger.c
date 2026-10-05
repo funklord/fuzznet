@@ -336,6 +336,74 @@ static uint64_t segment_closed(const char *name, const char *program)
 	return v;
 }
 
+/* `name` as a log file's: its program, into `out`, or 0. A program may hold
+ * a dot, so a segment's is what is left with its TIME.PID.log taken off. */
+static int program_of(const char *name, char out[FZN_ENTRY_WORD_MAX + 1u])
+{
+	size_t len = strlen(name), k, fields = 0;
+	int packed = 0;
+
+	if (len > 8u && !strcmp(name + len - 8u, ".log.zst")) {
+		len -= 8u;
+		packed = 1;
+	} else if (len > 4u && !strcmp(name + len - 4u, ".log"))
+		len -= 4u;
+	else
+		return 0;
+	k = len;
+	while (fields < 2u && k > 0u) {
+		size_t end = k;
+
+		while (k > 0u && name[k - 1u] >= '0' && name[k - 1u] <= '9')
+			k--;
+		if (k == end || k == 0u || name[k - 1u] != '.')
+			break;
+		k--;
+		fields++;
+	}
+	if (fields == 2u)
+		len = k;
+	else if (packed) /* only a closed segment is packed */
+		return 0;
+	if (!len || len > FZN_ENTRY_WORD_MAX)
+		return 0;
+	memcpy(out, name, len);
+	out[len] = '\0';
+	return word_ok(out);
+}
+
+fzn_logger_err_t fzn_logger_programs(const char *dir, char (*out)[FZN_ENTRY_WORD_MAX + 1u],
+                                     size_t max, size_t *n)
+{
+	char program[FZN_ENTRY_WORD_MAX + 1u], swap[FZN_ENTRY_WORD_MAX + 1u];
+	struct dirent *e;
+	size_t k, j;
+	DIR *d;
+
+	if (!dir || !out || !n)
+		return FZN_LOGGER_ERR_MALFORMED;
+	*n = 0;
+	d = opendir(dir);
+	if (!d)
+		return FZN_LOGGER_ERR_FILE;
+	while ((e = readdir(d)) != NULL && *n < max) {
+		if (!program_of(e->d_name, program))
+			continue;
+		for (k = 0; k < *n && strcmp(out[k], program) != 0; k++)
+			;
+		if (k == *n)
+			memcpy(out[(*n)++], program, sizeof(program));
+	}
+	(void)closedir(d);
+	for (k = 1; k < *n; k++)
+		for (j = k; j > 0u && strcmp(out[j - 1u], out[j]) > 0; j--) {
+			memcpy(swap, out[j], sizeof(swap));
+			memcpy(out[j], out[j - 1u], sizeof(swap));
+			memcpy(out[j - 1u], swap, sizeof(swap));
+		}
+	return FZN_LOGGER_OK;
+}
+
 fzn_logger_err_t fzn_logger_retain(const char *dir, const char *program,
                                    const fzn_retain_rule_t *rules, size_t n_rules,
                                    uint64_t now_us, size_t *removed)

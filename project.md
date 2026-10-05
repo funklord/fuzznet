@@ -55641,3 +55641,48 @@ own whose rules are kept by `log/rules` and parsed by `log/retain`:
 **`qtty_render_test`:** the widget at 80x24 says "every host it reaches".
 
 **Sabotage: three entries.**
+
+## 486. Every program in the account's log directory, 2026-10-05
+
+Sec 483 copied one program's log, and sec 459's packing only ever packed
+`fuzznetd`'s: `log_round` named it three times, in the pack, in the rules
+and in the unpacked build's retention. A program logging into the same
+directory through `log/logger` was never packed, so never signed, so never
+copyable -- and a rule naming it was never applied. A host is the
+account's node (sec 430), so its node tends them all.
+
+- **`fzn_logger_programs`** names each program with a file in a directory
+  -- a current `PROGRAM.log`, or a closed `PROGRAM.TIME.PID.log`, packed
+  or not -- once each, in byte order. A program word may hold a dot
+  (`word_ok`), so a segment's program is what is left once its `TIME.PID`
+  is taken off, not its first word. A packed file without them is no file
+  a logger writes and names nothing.
+- **`log_round` packs, signs and applies the rules to each**, `fuzznetd`
+  first, up to 32. Packing takes the chain lock (sec 459), so it is safe
+  beside a program packing its own.
+- **`--log-copy` is given once a program**, up to 8, deduplicated, and a
+  name with a `/` or `.` is refused before it reaches a path. D asks each
+  pull peer for each program, and copy retention walks each.
+
+### Measured for sec 486
+
+**`logger_test`, 42 checks, 3 new:** beside the logger's own files, two
+programs' segments, a current file, a dotted program and three files no
+logger writes give six programs in byte order -- `a.b` whole, the moved
+file from the rotation fixture as `fuzznetd.moved`, and neither `beta.log.zst`
+nor `notes.txt` -- and a smaller cap is honoured.
+
+**Live, two fuzznetd joined to one estate**, R with a closed segment of
+`fuzznetd` and one of `other` three days old, at estate scope; D with
+`--log-copy=fuzznetd --log-copy=other`:
+
+    1 segment(s) of fuzznetd packed
+    1 segment(s) of other packed
+    1 segment(s) of fuzznetd, 3293 bytes, copied from 127.0.0.1
+    1 segment(s) of other, 2258 bytes, copied from 127.0.0.1
+    other's log: 1 packed segment(s), the chain holds; 1 signed, by another node
+
+D's copy of `other` is byte-identical to R's. `~/.local/state/fuzznet`
+stayed absent.
+
+**Sabotage: three entries.**

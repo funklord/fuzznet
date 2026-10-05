@@ -6061,6 +6061,27 @@ SABOTAGES = [
 		"every pass after the first refuses the chain file its predecessor wrote, and nothing more is ever packed -- sec 459",
 	),
 	(
+		"logger-programs-take-off-time-and-pid",
+		"log/logger.c",
+		"\tif (fields == 2u)\n\t\tlen = k;\n",
+		"\tif (fields == 2u)\n\t\tlen = (size_t)(strchr(name, '.') - name);\n",
+		"a program whose name holds a dot is tended under its first word, and its own segments are never packed or pruned -- sec 486",
+	),
+	(
+		"logger-programs-refuse-a-lone-packed-file",
+		"log/logger.c",
+		"\telse if (packed) /* only a closed segment is packed */\n\t\treturn 0;\n",
+		"",
+		"a stray PROGRAM.log.zst names a program nothing logs as, and the node packs and prunes for it -- sec 486",
+	),
+	(
+		"logger-programs-name-each-once",
+		"log/logger.c",
+		"\t\tif (k == *n)\n\t\t\tmemcpy(out[(*n)++], program, sizeof(program));\n",
+		"\t\tmemcpy(out[(*n)++], program, sizeof(program));\n",
+		"a program with many segments fills the list once per segment, and the programs past them are never tended -- sec 486",
+	),
+	(
 		"logger-calls-the-rotated-hook",
 		"log/logger.c",
 		"\tif (l->rotated)\n\t\tl->rotated(l->rotated_ctx);\n",

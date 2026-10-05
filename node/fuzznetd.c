@@ -108,6 +108,9 @@
 #define FZND_LOG_RULES_MAX 16u
 #define FZND_SAY_MAX 1024u
 
+/* Programs `--log-copy` may name, sec 486. */
+#define FZND_COPY_PROGRAMS_MAX 8u
+
 static struct {
 #ifdef FZN_LOG_FILE_ON
 	int on;
@@ -127,8 +130,9 @@ static struct {
 	uint8_t host[FZN_PUBKEY_LEN];
 #ifdef FZN_LOG_PACK_ON
 	/* COPIES OF THE PULL PEERS' LOGS, sec 483: `--log-copy[=PROGRAM]`,
-	 * opt-in. NULL copies nothing. */
-	const char *copy_program;
+	 * opt-in, given once a program, sec 486. None copies nothing. */
+	const char *copy_programs[FZND_COPY_PROGRAMS_MAX];
+	size_t n_copy_programs;
 	/* What verifies a copy's signatures. */
 	const fzn_sign_ops_t *verify;
 	/* AND ITS SIGNER, sec 482: every trailer this node packs is signed
@@ -306,23 +310,50 @@ static void on_caused(void *ctx, const uint8_t *sender, const fzn_entry_name_t *
 }
 
 /* PACKED AND PRUNED, once a round and after a rotation. */
+#ifdef FZN_LOG_FILE_ON
+/* Programs one log round tends at most. */
+#define FZND_LOG_PROGRAMS_MAX 32u
+
+/* THE ACCOUNT'S PROGRAMS, sec 486: every program with a log file in the
+ * account's directory -- a host is the account's node (sec 430), so its
+ * node packs, signs and prunes them all, not only its own. This one first. */
+static size_t log_programs(char (*out)[FZN_ENTRY_WORD_MAX + 1u])
+{
+	static char found[FZND_LOG_PROGRAMS_MAX][FZN_ENTRY_WORD_MAX + 1u];
+	size_t n = 1, n_found = 0, k;
+
+	strcpy(out[0], "fuzznetd");
+	if (fzn_logger_programs(dlog.logger.dir, found, FZND_LOG_PROGRAMS_MAX, &n_found)
+	    != FZN_LOGGER_OK)
+		return n;
+	for (k = 0; k < n_found && n < FZND_LOG_PROGRAMS_MAX; k++)
+		if (strcmp(found[k], "fuzznetd") != 0)
+			memcpy(out[n++], found[k], sizeof(found[k]));
+	return n;
+}
+#endif
+
 static void log_round(void)
 {
 #ifdef FZN_LOG_FILE_ON
 	static fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX], all_rules[FZN_RETAIN_RULES_MAX];
-	size_t n = 0, n_rules = 0, n_all = 0;
+	static char programs[FZND_LOG_PROGRAMS_MAX][FZN_ENTRY_WORD_MAX + 1u];
+	size_t n = 0, n_rules = 0, n_all = 0, n_programs, pi;
 
 	if (!dlog.on)
 		return;
+	n_programs = log_programs(programs);
 #ifdef FZN_LOG_PACK_ON
-	if (dlog.hash
-	    && fzn_log_pack_dir(dlog.logger.dir, "fuzznetd", dlog.hash,
-	                        dlog.has_signer ? &dlog.signer : NULL, log_now_us(),
-	                        FZN_LOG_PACK_SETTLE_DEFAULT, &n)
-	                         != FZN_LOG_PACK_OK)
-		say(FZN_ENTRY_WARNING, "log", "closed log segments would not all pack");
-	else if (n)
-		say(FZN_ENTRY_INFO, "log", "%zu log segment(s) packed", n);
+	for (pi = 0; pi < n_programs && dlog.hash; pi++) {
+		if (fzn_log_pack_dir(dlog.logger.dir, programs[pi], dlog.hash,
+		                     dlog.has_signer ? &dlog.signer : NULL, log_now_us(),
+		                     FZN_LOG_PACK_SETTLE_DEFAULT, &n)
+		    != FZN_LOG_PACK_OK)
+			say(FZN_ENTRY_WARNING, "log", "closed segments of %s would not all pack",
+			    programs[pi]);
+		else if (n)
+			say(FZN_ENTRY_INFO, "log", "%zu segment(s) of %s packed", n, programs[pi]);
+	}
 #endif
 	/* THE COMMAND LINE'S RULES AND THE STORE'S, sec 475. A store whose
 	 * rules will not read applies the command line's alone, and says so. */
@@ -369,32 +400,36 @@ static void log_round(void)
 #ifdef FZN_LOG_PACK_ON
 	/* THE RULES OVER ENTRIES TOO, sec 474: a packed segment some of whose
 	 * lines go is repacked without them. */
-	{
+	for (pi = 0; pi < n_programs && n_rules && dlog.hash; pi++) {
 		size_t gone = 0, repacked = 0;
 
-		if (n_rules && dlog.hash
-		    && fzn_log_pack_retain(dlog.logger.dir, "fuzznetd", rules, n_rules,
-		                           dlog.hash, dlog.has_signer ? &dlog.signer : NULL,
-		                           log_now_us(), &gone, &repacked)
-		               != FZN_LOG_PACK_OK)
-			say(FZN_ENTRY_WARNING, "log", "the log rules could not all be applied");
+		if (fzn_log_pack_retain(dlog.logger.dir, programs[pi], rules, n_rules, dlog.hash,
+		                        dlog.has_signer ? &dlog.signer : NULL, log_now_us(), &gone,
+		                        &repacked)
+		    != FZN_LOG_PACK_OK)
+			say(FZN_ENTRY_WARNING, "log", "the log rules could not all be applied to %s",
+			    programs[pi]);
 		else if (gone || repacked)
 			say(FZN_ENTRY_INFO, "log",
-			    "%zu log segment(s) removed and %zu repacked by the rules", gone, repacked);
+			    "%zu segment(s) of %s removed and %zu repacked by the rules", gone,
+			    programs[pi], repacked);
 	}
 #else
-	if (n_rules && fzn_logger_retain(dlog.logger.dir, "fuzznetd", rules, n_rules, log_now_us(),
-	                                 &n)
-	                       != FZN_LOGGER_OK)
-		say(FZN_ENTRY_WARNING, "log", "the log rules could not all be applied");
-	else if (n_rules && n)
-		say(FZN_ENTRY_INFO, "log", "%zu log segment(s) removed by the rules", n);
+	for (pi = 0; pi < n_programs && n_rules; pi++) {
+		if (fzn_logger_retain(dlog.logger.dir, programs[pi], rules, n_rules, log_now_us(), &n)
+		    != FZN_LOGGER_OK)
+			say(FZN_ENTRY_WARNING, "log", "the log rules could not all be applied to %s",
+			    programs[pi]);
+		else if (n)
+			say(FZN_ENTRY_INFO, "log", "%zu segment(s) of %s removed by the rules", n,
+			    programs[pi]);
+	}
 #endif
 #ifdef FZN_LOG_PACK_ON
 	/* THE COPIES' RULES, sec 483: each copy directory planned whole by the
 	 * rules naming `copy`, every copy a source host's bytes under its
 	 * signature. */
-	if (dlog.copy_program) {
+	if (dlog.n_copy_programs) {
 		static fzn_retain_rule_t copy_rules[FZN_RETAIN_RULES_MAX];
 		char copies[FZN_LOGGER_PATH_MAX + 8u];
 		size_t n_copy = fzn_retain_select_copies(all_rules, n_all,
@@ -408,21 +443,24 @@ static void log_round(void)
 		    && (d = opendir(copies)) != NULL) {
 			while ((e = readdir(d)) != NULL) {
 				char sub[FZN_LOGGER_PATH_MAX + 80u];
-				size_t gone = 0;
+				size_t gone = 0, p;
 
 				if (strlen(e->d_name) != 64u
 				    || strspn(e->d_name, "0123456789abcdef") != 64u
 				    || snprintf(sub, sizeof(sub), "%s/%s", copies, e->d_name)
 				               >= (int)sizeof(sub))
 					continue;
-				if (fzn_logger_retain(sub, dlog.copy_program, copy_rules, n_copy,
-				                      log_now_us(), &gone)
-				    != FZN_LOGGER_OK)
-					say(FZN_ENTRY_WARNING, "log/copy", "the copy rules could not all be "
-					    "applied to %.8s", e->d_name);
-				else if (gone)
-					say(FZN_ENTRY_INFO, "log/copy", "%zu copied segment(s) of %.8s removed",
-					    gone, e->d_name);
+				for (p = 0; p < dlog.n_copy_programs; p++) {
+					if (fzn_logger_retain(sub, dlog.copy_programs[p], copy_rules, n_copy,
+					                      log_now_us(), &gone)
+					    != FZN_LOGGER_OK)
+						say(FZN_ENTRY_WARNING, "log/copy", "the copy rules could not all "
+						    "be applied to %s of %.8s", dlog.copy_programs[p], e->d_name);
+					else if (gone)
+						say(FZN_ENTRY_INFO, "log/copy",
+						    "%zu copied segment(s) of %s of %.8s removed", gone,
+						    dlog.copy_programs[p], e->d_name);
+				}
 			}
 			(void)closedir(d);
 		}
@@ -813,29 +851,33 @@ static void copy_logs(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
 	size_t t;
 
-	if (!dlog.on || !dlog.copy_program)
+	if (!dlog.on || !dlog.n_copy_programs)
 		return;
-	for (t = 0; t < npulls; t++) {
-		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
+	for (t = 0; t < npulls * dlog.n_copy_programs; t++) {
+		/* EACH PEER, EACH PROGRAM, sec 486: every program a chain of its
+		 * own in the peer's copy directory. */
+		struct pull_target *peer = &pulls[t / dlog.n_copy_programs];
+		const char *program = dlog.copy_programs[t % dlog.n_copy_programs];
+		struct peer_asking asking = { &peer->caller, now, peer->host };
 		char dir[FZN_LOGGER_PATH_MAX + 80u];
 		fzn_log_copy_tally_t tally;
 		fzn_log_copy_err_t err;
 
-		if (!fzn_log_copy_dir(dlog.logger.dir, pulls[t].node, dir, sizeof(dir)))
+		if (!fzn_log_copy_dir(dlog.logger.dir, peer->node, dir, sizeof(dir)))
 			continue;
 		if (!dlog.hash || !dlog.verify)
 			return;
-		err = fzn_log_copy_pull(peer_ask, &asking, dlog.copy_program, pulls[t].node, dir,
-		                        dlog.hash, dlog.verify, &tally);
+		err = fzn_log_copy_pull(peer_ask, &asking, program, peer->node, dir, dlog.hash,
+		                        dlog.verify, &tally);
 		if (err == FZN_LOG_COPY_ERR_VERIFY)
-			say(FZN_ENTRY_WARNING, "log/copy", "a copy from %s refused at %s: %s", pulls[t].host,
-			    tally.refused, fzn_log_copy_err_str(err));
+			say(FZN_ENTRY_WARNING, "log/copy", "a copy of %s from %s refused at %s: %s", program,
+			    peer->host, tally.refused, fzn_log_copy_err_str(err));
 		else if (err != FZN_LOG_COPY_OK)
-			say(FZN_ENTRY_WARNING, "log/copy", "copying from %s: %s", pulls[t].host,
+			say(FZN_ENTRY_WARNING, "log/copy", "copying %s from %s: %s", program, peer->host,
 			    fzn_log_copy_err_str(err));
 		if (tally.copied)
-			say(FZN_ENTRY_INFO, "log/copy", "%zu segment(s), %zu bytes, copied from %s",
-			    tally.copied, tally.bytes, pulls[t].host);
+			say(FZN_ENTRY_INFO, "log/copy", "%zu segment(s) of %s, %zu bytes, copied from %s",
+			    tally.copied, program, tally.bytes, peer->host);
 	}
 }
 #endif
@@ -1256,7 +1298,8 @@ static void usage(const char *prog)
 	        "[subsystem=PATH] age|size|count N\" as it rotates;\n"
 	        "--no-log-file keeps stderr only; --log-scope=estate lets members gather it\n"
 	        "--check-log[=PROGRAM] walks a packed log's chain and its signatures;\n"
-	        "--log-copy[=PROGRAM] keeps verified copies of the pull peers' packed logs\n"
+	        "--log-copy[=PROGRAM] keeps verified copies of the pull peers' packed logs,\n"
+	        "once a program, up to 8\n"
 	        "(host-private by default)\n"
 	        "       %s --fuzznet-dir=DIR --gather=PROGRAM [--since=SECONDS] [--match=TEXT]\n"
 	        "              [--node=ROOT_HEX --to HOST PORT] [--root-at HOST PORT]\n"
@@ -1451,7 +1494,27 @@ int main(int argc, char **argv)
 			}
 		} else if (!strcmp(argv[i], "--log-copy") || !strncmp(argv[i], "--log-copy=", 11u)) {
 #ifdef FZN_LOG_PACK_ON
-			dlog.copy_program = argv[i][10] == '=' ? argv[i] + 11 : "fuzznetd";
+			const char *program = argv[i][10] == '=' ? argv[i] + 11 : "fuzznetd";
+			size_t k;
+
+			/* ONCE A PROGRAM, a word a segment name can carry, at most
+			 * FZND_COPY_PROGRAMS_MAX. sec 486. */
+			if (!program[0] || strchr(program, '/') || strchr(program, '.')
+			    || strlen(program) > FZN_ENTRY_WORD_MAX) {
+				fprintf(stderr, "fuzznetd: --log-copy: a program's name, with no / or .\n");
+				return 2;
+			}
+			for (k = 0; k < dlog.n_copy_programs; k++)
+				if (!strcmp(dlog.copy_programs[k], program))
+					break;
+			if (k == dlog.n_copy_programs) {
+				if (dlog.n_copy_programs >= FZND_COPY_PROGRAMS_MAX) {
+					fprintf(stderr, "fuzznetd: --log-copy: at most %u programs\n",
+					        FZND_COPY_PROGRAMS_MAX);
+					return 2;
+				}
+				dlog.copy_programs[dlog.n_copy_programs++] = program;
+			}
 #else
 			fprintf(stderr, "fuzznetd: --log-copy: built without packing (FZN_LOG_PACK)\n");
 			return 2;

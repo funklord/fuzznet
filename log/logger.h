@@ -116,4 +116,11 @@ fzn_logger_err_t fzn_logger_retain(const char *dir, const char *program,
                                    const fzn_retain_rule_t *rules, size_t n_rules,
                                    uint64_t now_us, size_t *removed);
 
+/* THE PROGRAMS LOGGING INTO A DIRECTORY, sec 486: each program with a file
+ * in `dir` -- a current `PROGRAM.log`, or a closed `PROGRAM.TIME.PID.log`,
+ * packed or not -- once, in byte order, at most `max` of them. Other files
+ * are passed over. `*n` counts them. */
+fzn_logger_err_t fzn_logger_programs(const char *dir, char (*out)[FZN_ENTRY_WORD_MAX + 1u],
+                                     size_t max, size_t *n);
+
 #endif /* FZN_LOG_LOGGER_H */

@@ -316,6 +316,37 @@ int main(void)
 		}
 	}
 
+	/* ---- the programs logging into a directory, sec 486 */
+	{
+		static const char *const FILES[] = { "zed.log",          "alpha.1000.1.log.zst",
+			                             "alpha.2000.2.log", "a.b.3000.3.log",
+			                             "beta.log.zst",     "notes.txt",
+			                             "gamma.12.log" };
+		char found[8][FZN_ENTRY_WORD_MAX + 1u];
+		size_t k, n_found = 99;
+		int made = 1;
+
+		for (k = 0; k < sizeof(FILES) / sizeof(FILES[0]); k++) {
+			(void)snprintf(path, sizeof(path), "%s/%s", dir, FILES[k]);
+			made = made && write_file(path, "x\n");
+		}
+		CHECK(made, "fixture, beside the logger's own files: two programs' segments, a current file, a dotted program and "
+		            "three files no logger writes");
+		CHECK(fzn_logger_programs(dir, found, 8u, &n_found) == FZN_LOGGER_OK, "the directory reads");
+		CHECK(n_found == 6u && !strcmp(found[0], "a.b") && !strcmp(found[1], "alpha")
+		              && !strcmp(found[2], "fuzznetd") && !strcmp(found[3], "fuzznetd.moved")
+		              && !strcmp(found[4], "gamma.12") && !strcmp(found[5], "zed"),
+		      "each program once, in byte order -- the logger's own and its moved file beside "
+		      "them -- a dotted name whole, a current file's, and neither a lone packed file "
+		      "nor a stranger");
+		CHECK(fzn_logger_programs(dir, found, 2u, &n_found) == FZN_LOGGER_OK && n_found == 2u,
+		      "no more than asked for");
+		for (k = 0; k < sizeof(FILES) / sizeof(FILES[0]); k++) {
+			(void)snprintf(path, sizeof(path), "%s/%s", dir, FILES[k]);
+			(void)remove(path);
+		}
+	}
+
 	/* REMOVED BY NAME, AND WHAT IS LEFT IS AN ASSERTION. */
 	nseg = segments("fuzznetd", names, 64u);
 	for (i = 0; i < nseg; i++) {
