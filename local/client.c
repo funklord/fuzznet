@@ -95,12 +95,25 @@ fzn_client_err_t fzn_client_connect(const char *path, int *out_fd)
 	return FZN_CLIENT_OK;
 }
 
+/* A NODE THAT HAS GONE does not take the client with it: SIGPIPE turned
+ * into EPIPE for this write alone, as `node/local.c` does for the node. */
+static ssize_t write_quietly(int fd, const uint8_t *buf, size_t len)
+{
+#ifdef MSG_NOSIGNAL
+	ssize_t n = send(fd, buf, len, MSG_NOSIGNAL);
+
+	if (n >= 0 || errno != ENOTSOCK)
+		return n;
+#endif
+	return write(fd, buf, len);
+}
+
 static fzn_client_err_t write_all(int fd, const uint8_t *buf, size_t len)
 {
 	size_t off = 0;
 
 	while (off < len) {
-		ssize_t n = write(fd, buf + off, len - off);
+		ssize_t n = write_quietly(fd, buf + off, len - off);
 
 		if (n < 0) {
 			if (errno == EINTR)

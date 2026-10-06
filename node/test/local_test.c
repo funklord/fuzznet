@@ -164,6 +164,24 @@ static size_t bounded(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origi
 	return strlen(out);
 }
 
+/* A CLIENT GONE BEFORE ITS ANSWER: the request is read, the reply written
+ * to nobody, and the serve returns IO rather than the process ending on
+ * SIGPIPE -- which, left at its default here, would end this test too. */
+static fzn_node_serve_err_t gone_before_the_answer(const fzn_node_config_t *cfg,
+                                                   const fzn_peer_t *peer)
+{
+	int sv[2];
+	fzn_node_serve_err_t r;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0)
+		return FZN_NODE_SERVE_OK;
+	wr(sv[0], "hello\n", 6u);
+	close(sv[0]);
+	r = fzn_node_serve_local(cfg, sv[1], peer, NULL, NULL);
+	close(sv[1]);
+	return r;
+}
+
 int main(void)
 {
 	fzn_node_config_t cfg = base_config();
@@ -180,6 +198,9 @@ int main(void)
 	   "the node's own user is served");
 	ok(strstr(resp, "served") && strstr(resp, "origin 1"),
 	   "the reply names SAME_USER");
+
+	ok(gone_before_the_answer(&cfg, &p) == FZN_NODE_SERVE_IO,
+	   "a client gone before its answer is an IO error, and the process goes on");
 
 	/* LOCAL, a service-group member. */
 	mk_peer(&p, 2000, 1, 44);

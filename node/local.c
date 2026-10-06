@@ -66,12 +66,31 @@ size_t fzn_node_status_line(fzn_authz_verdict_t verdict, fzn_origin_t origin,
 	return len;
 }
 
+/* A REPLY TO A CLIENT THAT HAS GONE does not take the node with it. A
+ * client that closes before reading its answer makes the write raise
+ * SIGPIPE, whose default is to end the process -- measured: a node serving
+ * on its socket exited 141 on the first such client, and any local user
+ * allowed on the socket could stop it that way. MSG_NOSIGNAL turns that
+ * into EPIPE for this one write, leaving the process's own disposition
+ * alone; a descriptor that is no socket, or a system with no MSG_NOSIGNAL,
+ * is written as before. */
+static ssize_t write_quietly(int fd, const char *buf, size_t len)
+{
+#ifdef MSG_NOSIGNAL
+	ssize_t n = send(fd, buf, len, MSG_NOSIGNAL);
+
+	if (n >= 0 || errno != ENOTSOCK)
+		return n;
+#endif
+	return write(fd, buf, len);
+}
+
 static int write_all(int fd, const char *buf, size_t len)
 {
 	size_t off = 0;
 
 	while (off < len) {
-		ssize_t n = write(fd, buf + off, len - off);
+		ssize_t n = write_quietly(fd, buf + off, len - off);
 
 		if (n < 0) {
 			if (errno == EINTR)

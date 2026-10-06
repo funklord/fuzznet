@@ -6061,6 +6061,13 @@ SABOTAGES = [
 		"every pass after the first refuses the chain file its predecessor wrote, and nothing more is ever packed -- sec 459",
 	),
 	(
+		"local-reply-without-sigpipe",
+		"node/local.c",
+		"\t\tssize_t n = write_quietly(fd, buf + off, len - off);\n",
+		"\t\tssize_t n = write(fd, buf + off, len - off);\n",
+		"a local client that closes before reading its answer ends the node with SIGPIPE -- sec 489",
+	),
+	(
 		"copy-push-part-at-its-offset",
 		"log/copy.c",
 		"\t\tif (offset != have)\n\t\t\treturn took(reply, cap, FZN_LOG_COPY_TOOK_MORE, have);\n",
