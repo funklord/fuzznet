@@ -1322,6 +1322,30 @@ static void collect_texts(void)
 #define FZND_SCRUB_EVERY 30u
 #define FZND_SCRUB_STEPS 4u
 
+/* THE FILES AT REST, sec 492: one file a scrub period, since a file can be
+ * gigabytes. A file that fails loses the leaves that changed and stays a
+ * want, so the next round fetches them back. */
+static void scrub_files(uint64_t now)
+{
+	static uint64_t next_scrub;
+	fzn_node_files_err_t err;
+	uint64_t dropped = 0;
+	int checked = 0;
+
+	if (!files_on || (now < next_scrub && next_scrub <= now + FZND_SCRUB_EVERY))
+		return;
+	next_scrub = now + FZND_SCRUB_EVERY;
+	err = fzn_node_files_scrub_step(&files, &checked, &dropped);
+	if (err != FZN_NODE_FILES_OK)
+		say(FZN_ENTRY_ERROR, "files/scrub", "the files' check at rest: %s",
+		    fzn_node_files_err_str(err));
+	else if (dropped && (files.fresh = 1))
+		say(FZN_ENTRY_WARNING, "files/scrub",
+		    "file %02x%02x%02x%02x failed its check at rest; %llu leaf(s) are fetched again",
+		    files.scrub_after[0], files.scrub_after[1], files.scrub_after[2],
+		    files.scrub_after[3], (unsigned long long)dropped);
+}
+
 static void scrub_shelf(uint64_t now)
 {
 	static uint64_t next_scrub;
@@ -2905,6 +2929,7 @@ int main(int argc, char **argv)
 #endif
 #ifdef FZN_SPOOL_FILE_ON
 			scrub_shelf(now);
+			scrub_files(now);
 #endif
 
 			/* EVERY PEER EACH ROUND, one after another. A peer that does

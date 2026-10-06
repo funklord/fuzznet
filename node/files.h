@@ -113,6 +113,8 @@ typedef struct fzn_node_files {
 	/* Set when a file is wanted, for a caller that fetches on a timer to
 	 * fetch now instead; the caller clears it. sec 491. */
 	int fresh;
+	/* Where the scrub left off, sec 492: the root it checked last. */
+	uint8_t scrub_after[FZN_BLOB_HASH_LEN];
 } fzn_node_files_t;
 
 /* Over `dir`, created mode 0700 when it is not there. */
@@ -201,6 +203,35 @@ fzn_node_files_err_t fzn_node_files_fetch(fzn_node_files_t *files,
                                           const uint8_t root[FZN_BLOB_HASH_LEN],
                                           fzn_node_files_ask_t ask, void *ask_ctx,
                                           uint64_t budget, uint64_t *placed);
+
+/* ---- the scrub, sec 492 -------------------------------------------------
+ *
+ * RE-VERIFY A FILE AT REST: every leaf read back and hashed at the length
+ * the file's length gives it. A leaf placed was proved when it arrived and
+ * never again, so this is the only thing that sees a bad sector or a file
+ * changed underneath (`spool/spool.h`, "integrity at rest").
+ *
+ * THE TREE SAYS WHICH LEAF WENT BAD. Each leaf's hash is compared with the
+ * tree's level 0, and when the tree itself still folds to the root, exactly
+ * the leaves that differ are forgotten. When the tree does not, every leaf
+ * goes, and the tree with it; when only the tree is wrong, it is rebuilt
+ * from the leaves.
+ *
+ * REPAIR IS A FETCH. A leaf forgotten stops the blob being whole, and its
+ * length stays, so it is a want (sec 491): the next fetch asks for exactly
+ * what was dropped. Nothing is deleted -- the bytes stay until overwritten.
+ *
+ * `*dropped` counts leaves forgotten; ABSENT when the blob is not here
+ * whole, which is not checked and not touched. */
+fzn_node_files_err_t fzn_node_files_verify(fzn_node_files_t *files,
+                                           const uint8_t root[FZN_BLOB_HASH_LEN],
+                                           uint64_t *dropped);
+
+/* ONE STEP: the next whole file after the one checked last, in order of
+ * root and wrapping, so steps taken on a timer cover the store in turn.
+ * `*checked` is 0 or 1. */
+fzn_node_files_err_t fzn_node_files_scrub_step(fzn_node_files_t *files, int *checked,
+                                               uint64_t *dropped);
 
 /* THE NODE'S VERBS, for `node/admin.h`'s hook; 0 when `request` is not one:
  *

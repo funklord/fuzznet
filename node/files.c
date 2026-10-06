@@ -984,6 +984,131 @@ done:
 	return err;
 }
 
+/* ---- the scrub, sec 492 ------------------------------------------------- */
+
+fzn_node_files_err_t fzn_node_files_verify(fzn_node_files_t *files,
+                                           const uint8_t root[FZN_BLOB_HASH_LEN],
+                                           uint64_t *dropped)
+{
+	static held_t h;
+	uint8_t sealed[FZN_BLOB_SEALED_MAX], leaf[FZN_BLOB_HASH_LEN], kept[FZN_BLOB_HASH_LEN];
+	uint8_t folded[FZN_BLOB_HASH_LEN], by_tree[FZN_BLOB_HASH_LEN];
+	char tree_path[FZN_SPOOL_FILE_PATH_MAX];
+	fzn_blob_tree_t leaves_tree, tree_tree;
+	fzn_blob_levels_io_t io;
+	fzn_blob_levels_t levels;
+	fzn_node_files_err_t err;
+	uint64_t i, differ = 0;
+	size_t got = 0;
+	int tree_fd = -1, tree_ok, leaves_ok;
+
+	if (!files || !root || !dropped)
+		return FZN_NODE_FILES_ERR_MALFORMED;
+	*dropped = 0;
+	if (is_busy(files, root))
+		return FZN_NODE_FILES_ERR_BUSY;
+	err = open_whole(files, root, &h);
+	if (err != FZN_NODE_FILES_OK)
+		return err;
+	if (!tree_open(files, root, &tree_fd)) {
+		fzn_spool_file_close(&h.file);
+		return FZN_NODE_FILES_ERR_ABSENT;
+	}
+	io.read = fd_read;
+	io.write = fd_write;
+	io.ctx = &tree_fd;
+	levels.hash = files->hash;
+	levels.io = &io;
+	levels.leaves = h.leaves;
+
+	/* EVERY LEAF HASHED, and the tree's own level 0 beside it: two roots
+	 * folded, one from what is on disk and one from what the tree says. */
+	fzn_blob_tree_init(&leaves_tree);
+	fzn_blob_tree_init(&tree_tree);
+	err = FZN_NODE_FILES_OK;
+	for (i = 0; i < h.leaves && err == FZN_NODE_FILES_OK; i++) {
+		if (fzn_spool_read(&h.spool, i, sealed, sizeof(sealed), &got) != FZN_SPOOL_OK
+		    || got < sealed_len_of(&h, i)
+		    || fzn_blob_leaf_hash(files->hash, sealed, sealed_len_of(&h, i), leaf)
+		               != FZN_BLOB_OK
+		    || fzn_blob_levels_leaf(&levels, i, kept) != FZN_BLOB_OK
+		    || fzn_blob_tree_push(files->hash, &leaves_tree, leaf) != FZN_BLOB_OK
+		    || fzn_blob_tree_push(files->hash, &tree_tree, kept) != FZN_BLOB_OK)
+			err = FZN_NODE_FILES_ERR_STORE;
+		else if (memcmp(leaf, kept, sizeof(leaf)) != 0)
+			differ++;
+	}
+	if (err != FZN_NODE_FILES_OK)
+		goto out;
+	leaves_ok = fzn_blob_tree_root(files->hash, &leaves_tree, folded) == FZN_BLOB_OK
+	            && memcmp(folded, root, FZN_BLOB_HASH_LEN) == 0;
+	tree_ok = fzn_blob_tree_root(files->hash, &tree_tree, by_tree) == FZN_BLOB_OK
+	          && memcmp(by_tree, root, FZN_BLOB_HASH_LEN) == 0;
+	if (leaves_ok && differ == 0u)
+		goto out;
+	if (leaves_ok) {
+		/* ONLY THE TREE IS WRONG: rebuilt from leaves that fold. */
+		(void)close(tree_fd);
+		tree_fd = -1;
+		err = build_tree(files, &h, root);
+		goto out;
+	}
+	if (tree_ok) {
+		/* THE TREE STANDS: exactly the leaves that differ from it go. */
+		for (i = 0; i < h.leaves; i++)
+			if (fzn_spool_read(&h.spool, i, sealed, sizeof(sealed), &got) == FZN_SPOOL_OK
+			    && got >= sealed_len_of(&h, i)
+			    && fzn_blob_leaf_hash(files->hash, sealed, sealed_len_of(&h, i), leaf)
+			               == FZN_BLOB_OK
+			    && fzn_blob_levels_leaf(&levels, i, kept) == FZN_BLOB_OK
+			    && memcmp(leaf, kept, sizeof(leaf)) != 0)
+				*dropped += fzn_spool_forget(&h.spool, i, 1u);
+	} else {
+		/* NEITHER FOLDS: nothing on disk can say which leaf is right, so
+		 * every leaf goes, and the tree with them. */
+		*dropped = fzn_spool_forget(&h.spool, 0, h.leaves);
+		if (!path_of(files, root, ".tree", tree_path) || remove(tree_path) != 0)
+			err = FZN_NODE_FILES_ERR_STORE;
+	}
+	if (fzn_spool_file_checkpoint(&h.file, &h.spool) != FZN_SPOOL_OK)
+		err = FZN_NODE_FILES_ERR_STORE;
+out:
+	if (tree_fd >= 0)
+		(void)close(tree_fd);
+	fzn_spool_file_close(&h.file);
+	return err;
+}
+
+fzn_node_files_err_t fzn_node_files_scrub_step(fzn_node_files_t *files, int *checked,
+                                               uint64_t *dropped)
+{
+	static uint8_t roots[1024][FZN_BLOB_HASH_LEN];
+	fzn_node_files_err_t err;
+	size_t count = 0, i;
+
+	if (!files || !checked || !dropped)
+		return FZN_NODE_FILES_ERR_MALFORMED;
+	*checked = 0;
+	*dropped = 0;
+	err = fzn_node_files_list(files, roots, sizeof(roots) / sizeof(roots[0]), &count);
+	if (err != FZN_NODE_FILES_OK || count == 0u)
+		return err;
+	if (count > sizeof(roots) / sizeof(roots[0]))
+		count = sizeof(roots) / sizeof(roots[0]);
+	/* THE NEXT AFTER THE LAST, wrapping: the list is in order of root. */
+	for (i = 0; i < count && memcmp(roots[i], files->scrub_after, FZN_BLOB_HASH_LEN) <= 0; i++)
+		;
+	if (i == count)
+		i = 0;
+	memcpy(files->scrub_after, roots[i], FZN_BLOB_HASH_LEN);
+	err = fzn_node_files_verify(files, roots[i], dropped);
+	if (err == FZN_NODE_FILES_ERR_BUSY)
+		return FZN_NODE_FILES_OK;
+	if (err == FZN_NODE_FILES_OK)
+		*checked = 1;
+	return err;
+}
+
 /* ---- the verbs ---------------------------------------------------------- */
 
 static size_t answer(char *reply, size_t cap, fzn_reply_t kind, const char *detail)

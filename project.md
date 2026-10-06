@@ -55983,7 +55983,7 @@ the second asked here:
 |---|---|---|
 | 1 | resume across a restart | **built in sec 491** |
 | 2 | throughput: parallel batches, an adaptive window | a peer at a time since sec 491; several, next |
-| 3 | scrub and repair | after transfers, as the shelf's (sec 452) |
+| 3 | scrub and repair | **built in sec 492** |
 | 4 | tiers: PRIVATE invisible to the unauthorised, PUBLIC servable | open: who may fetch, below |
 | 5 | sealed leaves under a content key; export with the key | **built** |
 | 6 | deletion: one device, all of it, never under a transfer, references kept | **built** |
@@ -56045,7 +56045,8 @@ The verbs, this node's own user only:
   resumed from the sidecar, spans proved against the tree.~~ Built in sec
   491, a peer at a time; several at once with an adaptive window is still
   open.
-- **The scrub**, re-verifying a held file against its tree.
+- ~~**The scrub**, re-verifying a held file against its tree.~~ Built in
+  sec 492, repairing by fetching what it drops.
 - **Tiers.** Who may fetch a file: today the shelf serves any admitted peer
   any root, and a contact only what is shared. fuzzypickles' PUBLIC and
   PRIVATE need saying in those terms -- **a question for the holder**, with
@@ -56137,7 +56138,7 @@ expiring sooner than a peer's clock is off is refused as stale.
   multi-peer assignment; a fetch does not use it yet.
 - **Peers beyond the pull peers**: only hosts this node has an address for
   are asked, as for texts.
-- **The scrub** and **tiers**, as sec 490 lists them.
+- ~~**The scrub**~~, built in sec 492; **tiers**, as sec 490 lists them.
 
 ### Measured for sec 491
 
@@ -56163,3 +56164,50 @@ answering nothing more. `~/.local/state/fuzznet` stayed absent.
 
 **Sabotage: three new entries.** The window's size has none: it is
 fuzznetd's, which has no unit test, and the live run is its measurement.
+
+## 492. A file's check at rest, and its repair, 2026-10-06
+
+fuzzypickles' third requirement, scrub and repair. A leaf placed was
+proved when it arrived and never again (`spool/spool.h`, "integrity at
+rest"), so a bad sector or a file changed underneath is seen only by
+reading the leaves back -- as the shelf does for texts since sec 452.
+
+**`fzn_node_files_verify`** reads every leaf of a whole file, hashes it at
+the length the file's length gives it, and folds two roots: one from the
+leaves on disk and one from the tree's level 0.
+
+- **Both fold, every leaf matches the tree:** intact.
+- **The leaves fold and the tree does not match:** only the tree is wrong,
+  and it is rebuilt from the leaves.
+- **The tree folds and leaves differ from it:** the tree says which, and
+  exactly those leaves are forgotten.
+- **Neither folds:** nothing on disk can say which leaf is right, so every
+  leaf is forgotten and the tree removed.
+
+**Repair is a fetch.** A forgotten leaf stops the file being whole and its
+length stays, so it is a want (sec 491): the next fetch asks for exactly
+what was dropped. fuzznetd checks one file a scrub period -- a file can be
+gigabytes -- and a file that drops leaves starts a fetch at once. Nothing is
+deleted; the bytes stay until overwritten. A file a transfer holds busy is
+passed over.
+
+### Measured for sec 492
+
+**`files_test`, 37 checks, 7 new**, over a file of 301 leaves B fetched
+from A:
+
+- intact found intact;
+- one leaf changed on disk: that one leaf dropped, the file not held and
+  wanted, and fetched back as one leaf, the export the same bytes;
+- only the tree changed: nothing dropped, and a second check clean;
+- after that, another leaf changed: one dropped and fetched back alone --
+  which holds only if the tree was rebuilt rather than passed over;
+- a leaf and the tree both changed: all 301 dropped and fetched back;
+- two scrub steps checking two files.
+
+**Live, fuzznetd:** D fetched R's 6 MB file, then a byte of leaf 5 of D's
+copy was changed on disk; D's next scrub logged "file faa5fa58 failed its
+check at rest; 1 leaf(s) are fetched again", the fetch made it whole, and
+the export was the same bytes.
+
+**Sabotage: three new entries.**

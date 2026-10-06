@@ -6061,6 +6061,27 @@ SABOTAGES = [
 		"every pass after the first refuses the chain file its predecessor wrote, and nothing more is ever packed -- sec 459",
 	),
 	(
+		"files-scrub-drops-only-what-differs",
+		"node/files.c",
+		"\t\t\t    && memcmp(leaf, kept, sizeof(leaf)) != 0)\n\t\t\t\t*dropped += fzn_spool_forget(&h.spool, i, 1u);\n",
+		"\t\t\t    )\n\t\t\t\t*dropped += fzn_spool_forget(&h.spool, i, 1u);\n",
+		"a scrub finding one leaf changed drops the whole file and fetches it all again -- sec 492",
+	),
+	(
+		"files-scrub-rebuilds-a-wrong-tree",
+		"node/files.c",
+		"\t\terr = build_tree(files, &h, root);\n\t\tgoto out;\n",
+		"\t\tgoto out;\n",
+		"a tree changed at rest is passed over, and the next changed leaf costs the whole file -- sec 492",
+	),
+	(
+		"files-scrub-forgets-what-folds-to-nothing",
+		"node/files.c",
+		"\t\t*dropped = fzn_spool_forget(&h.spool, 0, h.leaves);\n",
+		"\t\t*dropped = 0;\n",
+		"a file whose leaves and tree both fail is kept as whole and served wrong -- sec 492",
+	),
+	(
 		"files-fetch-keeps-its-budget",
 		"node/files.c",
 		"\tfor (round = 0; round < h.leaves && *placed < budget; round++) {\n",
@@ -6098,8 +6119,8 @@ SABOTAGES = [
 	(
 		"files-busy-is-not-deleted",
 		"node/files.c",
-		"\tif (is_busy(files, root))\n",
-		"\tif (0)\n",
+		"\tif (is_busy(files, root))\n\t\treturn FZN_NODE_FILES_ERR_BUSY;\n\t/* THE SIDECAR FIRST",
+		"\tif (0)\n\t\treturn FZN_NODE_FILES_ERR_BUSY;\n\t/* THE SIDECAR FIRST",
 		"a file is deleted under a transfer still writing it -- sec 490",
 	),
 	(

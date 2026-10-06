@@ -223,6 +223,27 @@ static size_t verb(fzn_node_files_t *files, fzn_verb_t parsed, fzn_origin_t orig
 	return fzn_node_files_local(files, origin, &r, reply, cap);
 }
 
+/* Flip one byte of `<dir>/<root hex><suffix>` at `offset`. */
+static int flip(const char *in, const uint8_t root[FZN_BLOB_HASH_LEN], const char *suffix,
+                long offset)
+{
+	char path[300], hex[FZN_BLOB_HASH_LEN * 2u + 1u];
+	uint8_t b = 0;
+	size_t i;
+	int fd, ok;
+
+	for (i = 0; i < FZN_BLOB_HASH_LEN; i++)
+		(void)snprintf(hex + (2u * i), 3u, "%02x", root[i]);
+	(void)snprintf(path, sizeof(path), "%s/%s%s", in, hex, suffix);
+	fd = open(path, O_RDWR);
+	if (fd < 0)
+		return 0;
+	ok = pread(fd, &b, 1u, offset) == 1;
+	b ^= 0x5au;
+	ok = ok && pwrite(fd, &b, 1u, offset) == 1;
+	return close(fd) == 0 && ok;
+}
+
 /* A PEER: another store answering as the node would, the shelf's "absent"
  * for a root it does not hold; a byte of every DATA flipped when `lie`. */
 struct peer {
@@ -460,6 +481,71 @@ int main(void)
 		              && same_files(src_path, b_out),
 		      "the fetched file did not export as the one put");
 		(void)remove(b_out);
+
+		/* ---- THE SCRUB, sec 492, over B's copy. */
+		{
+			uint64_t dropped = 9;
+			int checked = 0;
+
+			CHECK(fzn_node_files_verify(&B, big.root, &dropped) == FZN_NODE_FILES_OK
+			              && dropped == 0u
+			              && fzn_node_files_held(&B, big.root, &length) == FZN_NODE_FILES_OK,
+			      "an intact file was not found intact");
+			/* ONE LEAF CHANGED: exactly it dropped, and fetched back alone. */
+			CHECK(flip(dir_b, big.root, "", (5L * 1056L) + 40L)
+			              && fzn_node_files_verify(&B, big.root, &dropped) == FZN_NODE_FILES_OK
+			              && dropped == 1u
+			              && fzn_node_files_held(&B, big.root, &length)
+			                         == FZN_NODE_FILES_ERR_ABSENT
+			              && fzn_node_files_wanted(&B, NULL, NULL, 0) == 1u,
+			      "a changed leaf was not the one leaf dropped, or the file stayed held");
+			CHECK(fzn_node_files_fetch(&B, big.root, peer_ask, &a_peer, 1000u, &placed)
+			              == FZN_NODE_FILES_OK
+			              && placed == 1u
+			              && fzn_node_files_export(&B, &big, b_out) == FZN_NODE_FILES_OK
+			              && same_files(src_path, b_out),
+			      "the dropped leaf was not fetched back alone, or the file did not export");
+			(void)remove(b_out);
+			/* ONLY THE TREE CHANGED: rebuilt, nothing dropped. */
+			CHECK(flip(dir_b, big.root, ".tree", 7L * 32L)
+			              && fzn_node_files_verify(&B, big.root, &dropped) == FZN_NODE_FILES_OK
+			              && dropped == 0u
+			              && fzn_node_files_verify(&B, big.root, &dropped) == FZN_NODE_FILES_OK
+			              && dropped == 0u
+			              && fzn_node_files_held(&B, big.root, &length) == FZN_NODE_FILES_OK,
+			      "a changed tree was not rebuilt from leaves that fold");
+			/* REBUILT, NOT ONLY PASSED OVER: a leaf changed now is found by
+			 * the tree, which it could not be with a node of it wrong. */
+			CHECK(flip(dir_b, big.root, "", (12L * 1056L) + 40L)
+			              && fzn_node_files_verify(&B, big.root, &dropped) == FZN_NODE_FILES_OK
+			              && dropped == 1u
+			              && fzn_node_files_fetch(&B, big.root, peer_ask, &a_peer, 1000u, &placed)
+			                         == FZN_NODE_FILES_OK
+			              && placed == 1u,
+			      "the tree was passed over rather than rebuilt");
+			/* A LEAF AND THE TREE: nothing says which is right, so all goes. */
+			CHECK(flip(dir_b, big.root, "", (9L * 1056L) + 40L)
+			              && flip(dir_b, big.root, ".tree", 3L * 32L)
+			              && fzn_node_files_verify(&B, big.root, &dropped) == FZN_NODE_FILES_OK
+			              && dropped == 301u
+			              && fzn_node_files_fetch(&B, big.root, peer_ask, &a_peer, 1000u, &placed)
+			                         == FZN_NODE_FILES_OK
+			              && placed == 301u,
+			      "with the tree wrong too every leaf was not dropped, or not fetched back");
+			/* THE STEP moves on, wrapping. */
+			{
+				uint8_t first[FZN_BLOB_HASH_LEN];
+
+				CHECK(fzn_node_files_scrub_step(&F, &checked, &dropped) == FZN_NODE_FILES_OK
+				              && checked == 1
+				              && (memcpy(first, F.scrub_after, sizeof(first)), 1)
+				              && fzn_node_files_scrub_step(&F, &checked, &dropped)
+				                         == FZN_NODE_FILES_OK
+				              && checked == 1
+				              && memcmp(first, F.scrub_after, sizeof(first)) != 0,
+				      "two scrub steps did not check two files");
+			}
+		}
 
 		/* B SERVES IT ON, from the tree it built. */
 		{
