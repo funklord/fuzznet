@@ -55223,8 +55223,12 @@ share goes with the group.
 
 - **What a removed contact shared with this node stays**, fuzzypickles'
   open question too: its received share, keyed by its node's key so it
-  cannot pass to anybody else, and the tree pulled from it. Whether
-  removing a contact drops what they shared is **the holder's to decide**.
+  cannot pass to anybody else, and the tree pulled from it. ~~Whether
+  removing a contact drops what they shared is **the holder's to decide**.~~
+  **Decided by the holder 2026-10-06: it stays.** Removing a contact
+  suspends it and keeps what it shared until `remove received`, as
+  un-sharing does not recall. Rejected: dropping it with the contact, and
+  dropping it after a hold period.
 
 ### Measured for sec 478
 
@@ -55545,8 +55549,9 @@ something else.
 
 ### Not yet after sec 483
 
-- **Copies are pulled, never pushed**, and only from pull peers. A host
-  this node does not pull from is not copied.
+- ~~**Copies are pulled, never pushed**, and only from pull peers. A host
+  this node does not pull from is not copied.~~ Pushed since sec 488, by a
+  host to the members it pulls from.
 - ~~**One program per node**, the one `--log-copy` names.~~ Several, one
   `--log-copy` each, since sec 486.
 
@@ -55736,3 +55741,89 @@ removal, the copy's chain head being kept. `~/.local/state/fuzznet` stayed
 absent.
 
 **Sabotage: three entries.**
+
+## 488. Copies pushed by the host whose log they are, 2026-10-06
+
+Sec 483 copied by pulling, so a host nobody can reach -- a laptop, a device
+behind a NAT -- was never copied. **The holder chose 2026-10-06 to build
+pushed copies next.** A host now sends its packed segments itself, to the
+members it pulls from, and a member keeps them exactly as it keeps a pulled
+copy.
+
+- **Both ends opt in.** `--log-push[=PROGRAM]` on the sender, once a
+  program and up to 8, as `--log-copy` is; `--log-copy` on the receiver,
+  which now also means "and take what members push". A member that does not
+  take a program says so, and the sender logs that at debug, since most
+  members will not.
+- **To the pull peers**, since a pairing carries no address (sec 397's
+  reasoning for votes) and those are the hosts this node can reach. A pull
+  needs a pairing the puller holds, made by accepting the other's card --
+  so a host pushing to the member that paired it accepts that member's card
+  too, without joining.
+- **Kept under the sender's key**: the key the hop authenticated, which no
+  byte of the message can name, so a member pushing another host's history
+  has it refused, as a puller asking the wrong host does. Verified by the
+  same `keep` a pull uses -- chained from the copy's head, the first from
+  its own prev, signed by that key -- now one function for both.
+- **A part at a time, resumable.** Parts carry at most 16 KiB, inside the 32
+  KiB a request is put back together to (sec 447). The receiver writes
+  `NAME.new` and answers each part with one of four words: more (and how
+  much it holds), kept, refused, or held already. A part at an offset it is
+  not at is answered with what it holds, and the sender goes on from there,
+  so a push broken off resumes on the next round. A push sends at most 4 MiB
+  a round. Partials of segments since passed are removed by name when a
+  newer one is kept.
+- **After the log round**, so a segment packed this round goes this round.
+- **Whatever the receiver's own scope.** `--log-scope=estate` is about
+  serving this host's log; a pushed copy is the sender's log, sent by its
+  choice. Members only, as all of gathering is.
+
+Four messages, types 9 to 12 of gathering's version-4 family, stated in
+`log/gather.situ` with the `fzn_log_copy_took` enum: `push_query`,
+`push_at`, `push_part`, `push_took`. **A break, as sec 483's was:** a host
+built before this refuses the new types, and pushing to one is reported as
+answering something else.
+
+### Measured for sec 488
+
+**`copy_test`, 25 checks, 13 new:**
+
+- a member taking no copies of the program declining, asked once;
+- a budget of one part sending one, held by the member as a partial;
+- a part past where the member is answered with what it holds, and not
+  written;
+- the next push resuming there, and both segments verified and kept;
+- the pushed copy checking as the host's chain, signed by the host;
+- a second push sending nothing;
+- segments pushed by a member they are not signed by refused, none kept;
+- a part of a segment held answered held, of a program not taken refused,
+  one whose length disagrees no push, and a name that is no packed segment
+  refused with nothing written;
+- an unsigned segment refused even when pulled as a host whose key is all
+  zeros, what an unsigned trailer leaves as its signer. **Found by the
+  sabotage sweep:** with the verifying moved into `keep`, removing the
+  `!is_signed` test survived, because the key compared against was then
+  whatever the stack held -- the old inline code had been caught only
+  because the previous segment's key was still there. `keep` now zeroes
+  the key before reading one, and this case is the one where only the
+  signed test refuses.
+
+**`err_str_test`:** `fzn_log_copy_err_str` renders 7 codes, DECLINED new.
+
+**Live, two fuzznetd in one estate**, R pulling from D and never pulled
+from, R with a closed segment three days old and `--log-push`:
+
+    D without --log-copy holds: 0 copy dir(s)
+    (D restarted with --log-copy)
+    1 segment(s) of fuzznetd, 3345 bytes, kept by 127.0.0.1      (R)
+    fuzznetd.1791014878000000.1.log.zst kept, pushed by 333a62c0  (D)
+    check: 1 packed segment(s), the chain holds; 1 signed, by another node
+
+D's copy is in `copy/<R's key>` and byte-identical to R's.
+`~/.local/state/fuzznet` stayed absent.
+
+**`make schema`:** the four structs and the enum in the committed contract,
+the break classified as above.
+
+**Sabotage: four new entries**, and two of sec 483's re-aimed at `keep`,
+where the check they break now lives.

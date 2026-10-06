@@ -28,6 +28,10 @@ enum fzn_gather_type : u8 {
 	segments       = 6,   // "These, with their sizes."
 	part_query     = 7,   // "This segment's bytes from here."
 	part           = 8,   // "These."
+	push_query     = 9,   // "Do you take this program's copies?" sec 488
+	push_at        = 10,  // "Whether, and the newest I hold of yours."
+	push_part      = 11,  // "Keep these bytes of this segment."
+	push_took      = 12,  // "Where that leaves it."
 }
 
 struct fzn_gather_query {
@@ -123,4 +127,48 @@ struct fzn_log_copy_part {
 	u64              offset;
 	u32              len;
 	u8               bytes[len];
+}
+
+// COPIES PUSHED BY THE HOST, sec 488 (log/copy.h): the same packed segments,
+// sent by the host whose log they are to a member that takes copies of that
+// program. The copy is kept under the SENDER's key and verified against it,
+// exactly as a pulled one. A part a receiver cannot place is answered with
+// what it holds, so a push broken off resumes there.
+struct fzn_log_copy_push_query {
+	u8               version     [must_eq = 4];
+	fzn_gather_type  type        [must_eq = push_query];
+	u8               program_len [min = 1, max = 64];
+	u8               program[program_len];
+}
+
+struct fzn_log_copy_push_at {
+	u8               version [must_eq = 4];
+	fzn_gather_type  type    [must_eq = push_at];
+	u8               taking  [max = 1];    // 0: this member keeps no copies of it
+	u64              after;                // the newest segment held, 0 for none
+}
+
+struct fzn_log_copy_push_part {
+	u8               version  [must_eq = 4];
+	fzn_gather_type  type     [must_eq = push_part];
+	u8               name_len [min = 1];
+	u8               name[name_len];       // PROGRAM.TIME.PID.log.zst
+	u64              total;
+	u64              offset;
+	u32              len;
+	u8               bytes[len];
+}
+
+enum fzn_log_copy_took : u8 {
+	more     = 0,   // "Go on from `held`."
+	kept     = 1,   // "Whole, verified and kept."
+	refused  = 2,   // "Whole, and it did not verify, or not one to take."
+	held     = 3,   // "I hold it, or a newer one, already."
+}
+
+struct fzn_log_copy_push_took {
+	u8                 version [must_eq = 4];
+	fzn_gather_type    type    [must_eq = push_took];
+	fzn_log_copy_took  status;
+	u64                held;               // bytes of the segment held so far
 }
