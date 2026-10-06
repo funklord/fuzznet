@@ -17,6 +17,8 @@
 #include "../pair.h"
 #include "../revoke.h"
 #include "../roots.h"
+#include "../roster.h"
+#include "../../contact/contact.h"
 #include "../admin.h"
 #include "../../provision/provision.h"
 #include "../identity.h"
@@ -1059,6 +1061,8 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 /* Where a pulled stream's admin retention records are learned, sec 479:
  * NULL refuses them, as a pull with no roots does. */
 static struct fzn_node_roots *stream_roots;
+/* And its contacts' roster records, sec 489: NULL refuses them. */
+static struct fzn_node_roster *stream_roster;
 
 static int stream_pull(struct node *from, const fzn_node_authority_t *authority,
                        struct node *into, const uint8_t root[FZN_PUBKEY_LEN],
@@ -1070,6 +1074,7 @@ static int stream_pull(struct node *from, const fzn_node_authority_t *authority,
 
 	memset(pull, 0, sizeof(*pull));
 	pull->roots = stream_roots;
+	pull->roster = stream_roster;
 	while (pages++ < 64u) {
 		size_t len = 0, total = 0, next = 0;
 		int n, err;
@@ -1103,6 +1108,7 @@ static int stream_pull_as(struct node *from, const fzn_node_authority_t *authori
 
 	memset(pull, 0, sizeof(*pull));
 	pull->roots = stream_roots;
+	pull->roster = stream_roster;
 	while (pages++ < 64u) {
 		size_t len = 0, total = 0, next = 0;
 		int n, err;
@@ -2252,6 +2258,183 @@ static void test_admins_at_the_node(const fzn_cap_id_t *cap)
 	      "B's vote was not admitted again on its admin chain at start");
 }
 
+/* ---- contacts as the user's roster, sec 489 --------------------------- */
+
+/* R, the genesis, with N and M joined. N adds X as a contact; M pulls N's
+ * stream and holds X; M removes X, and N, pulling, sees it suspended; N
+ * removing too retires it at k = 2, which M then sees. A re-add is a new
+ * incarnation. A stranger -- no root, no chain -- writes nothing, and its
+ * record pulled by M is refused. A restart re-admits what was held, a
+ * contact that arrived is named, and a contact from before is carried. */
+static void test_contacts_travel(const fzn_cap_id_t *cap)
+{
+	static struct node r, n, m, x, stranger;
+	static fzn_node_roster_t n_ro, m_ro, r_ro, again, s_ro;
+	static fzn_revocation_t n_e[8], m_e[8];
+	fzn_revocation_store_t n_revs, m_revs;
+	fzn_prekey_record_t n_rec, m_rec;
+	fzn_node_pairing_t n_joined, m_joined;
+	fzn_node_authority_t n_auth = { 0 }, m_auth = { 0 };
+	fzn_node_vote_pull_t pull;
+	uint8_t card[FZN_PROVISION_MAX_LEN];
+	size_t card_len = 0, count = 0, named = 0, carried = 0;
+	fzn_contact_t c;
+
+	CHECK(node_up(&r) && node_up(&n) && node_up(&m) && node_up(&x) && node_up(&stranger)
+	              && fzn_prekey_open(n.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &n_rec)
+	                         == FZN_PREKEY_OK
+	              && fzn_prekey_open(m.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &m_rec)
+	                         == FZN_PREKEY_OK
+	              && fzn_node_pair(&r.id, r.id.pubkey, cap, NULL, 1, &r.ops, n_rec, 1000u, 0u,
+	                               card, sizeof(card), &card_len) == FZN_NODE_PAIR_OK
+	              && fzn_node_join(&n.id, card, card_len, 1100u, &n.ops, &n.trust, &n_joined)
+	                         == FZN_NODE_PAIR_OK
+	              && fzn_node_pair(&r.id, r.id.pubkey, cap, NULL, 1, &r.ops, m_rec, 1000u, 0u,
+	                               card, sizeof(card), &card_len) == FZN_NODE_PAIR_OK
+	              && fzn_node_join(&m.id, card, card_len, 1100u, &m.ops, &m.trust, &m_joined)
+	                         == FZN_NODE_PAIR_OK,
+	      "fixture: N and M would not join R's estate");
+	n_auth.hops = (const uint8_t (*)[FZN_HOP_LEN])n_joined.chain;
+	n_auth.hop_count = n_joined.hop_count;
+	m_auth.hops = (const uint8_t (*)[FZN_HOP_LEN])m_joined.chain;
+	m_auth.hop_count = m_joined.hop_count;
+	CHECK(fzn_node_roster_init(&n_ro, r.id.pubkey, cap, &n.sign, NULL, &hash_ops)
+	                      == FZN_NODE_ROSTER_OK
+	              && fzn_node_roster_init(&m_ro, r.id.pubkey, cap, &m.sign, NULL, &hash_ops)
+	                         == FZN_NODE_ROSTER_OK
+	              && fzn_node_roster_init(&r_ro, r.id.pubkey, cap, &r.sign, NULL, &hash_ops)
+	                         == FZN_NODE_ROSTER_OK
+	              && fzn_node_roster_init(&s_ro, r.id.pubkey, cap, &stranger.sign, NULL, &hash_ops)
+	                         == FZN_NODE_ROSTER_OK
+	              && fzn_revocation_store_init(&n_revs, n_e, 8) == FZN_CHAIN_OK
+	              && fzn_revocation_store_init(&m_revs, m_e, 8) == FZN_CHAIN_OK
+	              && fzn_revocation_store_set_quorum(&n_revs, 2u, NULL, NULL, 0u) == FZN_CHAIN_OK
+	              && fzn_revocation_store_set_quorum(&m_revs, 2u, NULL, NULL, 0u) == FZN_CHAIN_OK,
+	      "fixture: the rosters, and stores at k = 2");
+
+	CHECK(fzn_node_roster_write(&n_ro, &n.ops, &n.id, &n_auth, &rng_ops, x.id.pubkey, 1, &n_revs,
+	                            2u) == FZN_NODE_ROSTER_OK
+	              && rows_in(&n, FZN_PERSIST_ROSTER) == 1u
+	              && fzn_node_roster_standing(&n_ro, x.id.pubkey, &n_revs, 2u)
+	                         == FZN_ROSTER_ACTIVE,
+	      "N, a member, did not add X on its chain");
+	CHECK(fzn_node_roster_write(&n_ro, &n.ops, &n.id, &n_auth, &rng_ops, x.id.pubkey, 1, &n_revs,
+	                            2u) == FZN_NODE_ROSTER_OK
+	              && rows_in(&n, FZN_PERSIST_ROSTER) == 1u,
+	      "adding X again wrote a second incarnation");
+	CHECK(fzn_node_roster_write(&s_ro, &stranger.ops, &stranger.id, NULL, &rng_ops, x.id.pubkey,
+	                            1, NULL, 2u) == FZN_NODE_ROSTER_NO_STANDING
+	              && fzn_node_roster_write(&s_ro, &stranger.ops, &stranger.id, &n_auth, &rng_ops,
+	                                       x.id.pubkey, 1, NULL, 2u)
+	                         == FZN_NODE_ROSTER_NO_STANDING
+	              && rows_in(&stranger, FZN_PERSIST_ROSTER) == 0u,
+	      "a stranger with no chain, or with N's, wrote a contact");
+
+	/* THE VOTE STREAM CARRIES IT, chain and all. */
+	stream_roster = NULL;
+	CHECK(stream_pull(&n, NULL, &m, r.id.pubkey, &m_revs, 800u, &pull) == FZN_NODE_PULL_OK
+	              && pull.refused == 1u && rows_in(&m, FZN_PERSIST_ROSTER) == 0u,
+	      "a pull with no roster took N's record rather than refusing it");
+	stream_roster = &m_ro;
+	CHECK(stream_pull(&n, NULL, &m, r.id.pubkey, &m_revs, 800u, &pull) == FZN_NODE_PULL_OK
+	              && pull.learned == 1u && rows_in(&m, FZN_PERSIST_ROSTER) == 1u
+	              && fzn_node_roster_standing(&m_ro, x.id.pubkey, &m_revs, 2u)
+	                         == FZN_ROSTER_ACTIVE,
+	      "M did not learn N's contact from N's stream");
+	CHECK(fzn_node_roster_name_arrivals(&m_ro, &m.ops, &m_revs, 2u, NULL, NULL, 2000u, &named)
+	                      == FZN_NODE_ROSTER_OK
+	              && named == 1u && fzn_contact_get(&m.ops, x.id.pubkey, &c) == FZN_CONTACT_OK
+	              && c.name_len == 10u && memcmp(c.name, "c_", 2u) == 0
+	              && fzn_node_roster_name_arrivals(&m_ro, &m.ops, &m_revs, 2u, NULL, NULL, 2000u,
+	                                               &named) == FZN_NODE_ROSTER_OK
+	              && named == 0u,
+	      "the contact that arrived at M was not named once, c_ and eight digits");
+
+	/* M REMOVES; N SEES IT SUSPENDED; N REMOVING TOO RETIRES IT. */
+	CHECK(fzn_node_roster_write(&m_ro, &m.ops, &m.id, &m_auth, &rng_ops, x.id.pubkey, 0, &m_revs,
+	                            2u) == FZN_NODE_ROSTER_OK
+	              && fzn_node_roster_standing(&m_ro, x.id.pubkey, &m_revs, 2u)
+	                         == FZN_ROSTER_SUSPENDED
+	              && fzn_node_roster_write(&m_ro, &m.ops, &m.id, &m_auth, &rng_ops, x.id.pubkey, 0,
+	                                       &m_revs, 2u) == FZN_NODE_ROSTER_ABSENT,
+	      "M's removal did not suspend X, or M removed it twice");
+	stream_roster = &n_ro;
+	CHECK(stream_pull(&m, NULL, &n, r.id.pubkey, &n_revs, 800u, &pull) == FZN_NODE_PULL_OK
+	              && fzn_node_roster_standing(&n_ro, x.id.pubkey, &n_revs, 2u)
+	                         == FZN_ROSTER_SUSPENDED,
+	      "N, pulling M, did not see X suspended");
+	CHECK(fzn_node_roster_write(&n_ro, &n.ops, &n.id, &n_auth, &rng_ops, x.id.pubkey,
+	                                       0, &n_revs, 2u) == FZN_NODE_ROSTER_OK
+	              && fzn_node_roster_standing(&n_ro, x.id.pubkey, &n_revs, 2u)
+	                         == FZN_ROSTER_RETIRED,
+	      "N removing what M suspended did not retire it at k = 2");
+	stream_roster = &m_ro;
+	CHECK(stream_pull(&n, NULL, &m, r.id.pubkey, &m_revs, 800u, &pull) == FZN_NODE_PULL_OK
+	              && fzn_node_roster_standing(&m_ro, x.id.pubkey, &m_revs, 2u)
+	                         == FZN_ROSTER_RETIRED,
+	      "M, pulling N, did not see X retired");
+	CHECK(fzn_node_roster_write(&m_ro, &m.ops, &m.id, &m_auth, &rng_ops, x.id.pubkey, 1, &m_revs,
+	                            2u) == FZN_NODE_ROSTER_OK
+	              && fzn_node_roster_standing(&m_ro, x.id.pubkey, &m_revs, 2u)
+	                         == FZN_ROSTER_ACTIVE,
+	      "adding X again after its retirement was not a new, active incarnation");
+
+	/* A STRANGER'S RECORD, signed as its own root, is refused at M. */
+	CHECK(fzn_node_roster_init(&s_ro, stranger.id.pubkey, cap, &stranger.sign, NULL, &hash_ops)
+	                      == FZN_NODE_ROSTER_OK
+	              && fzn_node_roster_write(&s_ro, &stranger.ops, &stranger.id, NULL, &rng_ops,
+	                                       r.id.pubkey, 1, NULL, 2u) == FZN_NODE_ROSTER_OK
+	              && stream_pull(&stranger, NULL, &m, r.id.pubkey, &m_revs, 800u, &pull)
+	                         == FZN_NODE_PULL_OK
+	              && pull.refused == 1u && pull.learned == 0u
+	              && fzn_node_roster_standing(&m_ro, r.id.pubkey, &m_revs, 2u)
+	                         == FZN_ROSTER_ABSENT,
+	      "a record by a stranger, no root of this estate, was taken at M");
+	stream_roster = NULL;
+
+	/* A RESTART: what M holds comes back as it was judged. */
+	CHECK(fzn_node_roster_init(&again, r.id.pubkey, cap, &m.sign, NULL, &hash_ops)
+	                      == FZN_NODE_ROSTER_OK
+	              && fzn_node_roster_load(&again, &m.ops, &count) == FZN_NODE_ROSTER_OK
+	              && count == rows_in(&m, FZN_PERSIST_ROSTER) && count == 4u
+	              && fzn_node_roster_standing(&again, x.id.pubkey, &m_revs, 2u)
+	                         == FZN_ROSTER_ACTIVE,
+	      "M's roster did not come back from its store whole");
+
+	/* A CONTACT FROM BEFORE, named on R with no record, is carried -- and
+	 * R, writing as the root, logs the record as its act, sec 413. */
+	{
+		static fzn_node_roots_t r_roots;
+		static fzn_node_admin_t r_admin;
+		size_t i, acts = 0;
+
+		CHECK(fzn_node_roots_init(&r_roots, r.id.pubkey, &r.sign, &hash_ops)
+		              == FZN_NODE_ROOTS_OK,
+		      "fixture: R's roots");
+		memset(&r_admin, 0, sizeof(r_admin));
+		r_admin.roots = &r_roots;
+		r_admin.id = &r.id;
+		r_admin.store = &r.ops;
+		r_ro.wrote = fzn_node_admin_log_roster;
+		r_ro.wrote_ctx = &r_admin;
+		CHECK(fzn_contact_add(&r.ops, x.id.pubkey, "xavier", 6u, 3000u) == FZN_CONTACT_OK
+		              && fzn_node_roster_carry_names(&r_ro, &r.ops, &r.id, NULL, &rng_ops,
+		                                             &carried) == FZN_NODE_ROSTER_OK,
+		      "fixture: R's contact from before, carried");
+		for (i = 0; i < r_roots.log.used; i++)
+			if (r_roots.log.entries[i].kind == (uint8_t)FZN_ROOT_ACT_ROSTER)
+				acts++;
+		CHECK(acts == 1u, "R's roster record, written as the root, is not in its log");
+		r_ro.wrote = NULL;
+	}
+	CHECK(carried == 1u
+	              && fzn_node_roster_standing(&r_ro, x.id.pubkey, NULL, 2u) == FZN_ROSTER_ACTIVE
+	              && fzn_node_roster_carry_names(&r_ro, &r.ops, &r.id, NULL, &rng_ops, &carried)
+	                         == FZN_NODE_ROSTER_OK
+	              && carried == 0u,
+	      "R's contact from before was not carried onto the roster once");
+}
+
 /* ---- an admin's retention rules, sec 479 ------------------------------ */
 
 /* R, the genesis, grants A admin. A, no root, sets an estate rule as an
@@ -2614,6 +2797,7 @@ int main(void)
 	test_admins_at_the_node(&cap);
 	test_the_estates_k_travels();
 	test_an_admin_sets_retention(&cap);
+	test_contacts_travel(&cap);
 	test_a_node_pairs_as_a_root_by_identity(&cap);
 
 	/* ---- A NODE THAT IS NOT ITS OWN ROOT PAIRS NOTHING, and writes nothing. */

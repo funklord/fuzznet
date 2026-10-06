@@ -242,7 +242,9 @@ static int quiet;            /* the node does not answer */
 static const char *received; /* the `list received` reply, or NULL for none */
 static unsigned asked;
 
-/* `list contact`, as admin answers it, from the contacts in the store. */
+/* `list contact`, as admin answers it, from the contacts in the store -- a
+ * contact named `gone` marked suspended, as the roster would mark one
+ * removed on another member (sec 489). */
 static size_t list_contacts(char *reply, size_t cap)
 {
 	static fzn_contact_t all[FZN_CONTACTS_MAX];
@@ -254,7 +256,8 @@ static size_t list_contacts(char *reply, size_t cap)
 	n = snprintf(reply, cap, "ok %zu 0", count);
 	used = n > 0 ? (size_t)n : 0u;
 	for (i = 0; i < count && used < cap; i++) {
-		n = snprintf(reply + used, cap - used, " %s,00", all[i].name);
+		n = snprintf(reply + used, cap - used, " %s,00%s", all[i].name,
+		             strcmp(all[i].name, "gone") ? "" : ",suspended");
 		used += n > 0 ? (size_t)n : 0u;
 	}
 	if (used + 1u < cap)
@@ -435,13 +438,17 @@ static void test_sharing_is_warned_before_and_said_after(void)
 	              && log.last().contains(QStringLiteral("stays with them")),
 	      "unshared, and told again what stays");
 
-	/* A GROUP, sec 471: offered as `@NAME` beside the contacts. */
-	CHECK(fzn_group_add(&OPS, &HASH, "family", 6u, 1u) == FZN_CONTACT_OK,
-	      "fixture: the group family");
+	/* A GROUP, sec 471: offered as `@NAME` beside the contacts. And a
+	 * contact the roster marks suspended, sec 489, not offered at all. */
+	memset(carol, 0x9e, sizeof(carol));
+	CHECK(fzn_group_add(&OPS, &HASH, "family", 6u, 1u) == FZN_CONTACT_OK
+	              && fzn_contact_add(&OPS, carol, "gone", 4u, 1u) == FZN_CONTACT_OK,
+	      "fixture: the group family, and the suspended contact gone");
 	CHECK(w.open_note(note)
 	              && w.share_targets()
 	                         == QStringList({ QStringLiteral("carol"), QStringLiteral("@family") }),
-	      "the share chooser offers the contact and then the group");
+	      "the share chooser offers the contact and then the group, and not the suspended "
+	      "one");
 	CHECK(w.share_with(QStringLiteral("@family"))
 	              && w.shared_with() == QStringLiteral("Shared with @family."),
 	      "shared with the group, and the widget says so by its name");

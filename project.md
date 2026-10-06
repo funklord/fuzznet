@@ -50308,7 +50308,9 @@ A root that counts still retires alone.
 
 ### Not yet after sec 413
 
-**Nothing logs roster records as root acts yet**, because no node writes
+**Closed in sec 489**, where the node writes the roster and logs each record
+it writes as a root. Before that, nothing logged roster records as root
+acts, because no node writes
 a roster. Until one does, a removed root's roster records count only if
 its removal keeps nothing, which is to say they do not count at all. A
 node that writes a roster as a root must log each record with
@@ -53931,7 +53933,7 @@ smaller module and had not followed. Now:
   whatever changed meanwhile.
 - **Not a revocation.** Withdrawing the grant is still done as chains are,
   and retiring a contact for good is the roster's k-of-n act, which the
-  node does not yet carry.
+  node carries since sec 489.
 
 The recipient sees the refusal as "the peer's answer does not parse": a
 sync request gets a text reply. Since sec 455 it also logs the sharer's
@@ -55827,3 +55829,133 @@ the break classified as above.
 
 **Sabotage: four new entries**, and two of sec 483's re-aimed at `keep`,
 where the check they break now lives.
+\n
+## 489. A node's contacts are the user's roster, carried between members, 2026-10-06
+
+**The holder's decisions, asked this session:**
+
+- **Contacts become roster records.** The node's contact list (sec 435) was
+  one node's: a contact added on a laptop never reached the phone in the
+  same estate, and one removed on the phone went on being served by the
+  laptop. `roster/` (secs 388, 395, 413) is the replicated form of that
+  list, and until now only fuzzypickles carried it. Rejected: syncing
+  `contact/` itself last-writer-wins beside the roster -- a second notion
+  of a user's contacts -- and leaving contacts per node.
+- **A re-key is a successor taking over**, for whenever re-keying is
+  built: once confirmed, key B has key A's standing and A is revoked, and
+  what A signed stays valid. Recorded here; nothing re-keys yet.
+
+### `node/roster`
+
+- **The roster says whether a key is a contact**: ACTIVE, SUSPENDED,
+  RETIRED or ABSENT, judged at read time against the revocations this node
+  holds and the estate's k, exactly as `roster/` judges.
+- **The contact list goes on naming keys**, and names do not travel: a name
+  would be a roster setting, and settings are laid out and refused until
+  their resolution is decided (sec 388). A contact added on another member
+  arrives with a name made from its key -- `c_` and 8 hex digits, more
+  while that is another key's -- which `add contact NAME KEY` renames.
+- **Who writes:** the node as its estate's root, alone, or as a member on
+  its chain from the root for the remote capability, the chain it pairs and
+  revokes with. A node that is neither writes nothing.
+- **Kept in core slot 28**, each record with its writer's chain, under the
+  record's hash. Core because a removal rolled back is a removed contact
+  served again. Blob tag 29, stated in `persist/persist.situ`.
+- **Written as a root, logged as its act**, kind `FZN_ROOT_ACT_ROSTER`, as
+  sec 413 asked of the first node to write a roster: `fzn_node_roster_t`
+  calls `wrote` after each record, and `fzn_node_admin_log_roster` logs it
+  when the node acts as a root with its identity. One that will not log is
+  reported, in force and saved.
+
+### The contact verbs, on the roster
+
+- **`add contact NAME KEY`** names the key here and writes an add -- a new
+  incarnation -- unless the key is ACTIVE already.
+- **`remove contact NAME`** writes a removal and forgets the name. A
+  contact one member removed is SUSPENDED everywhere; **another member
+  removing it too is that member confirming**, which removes the same
+  incarnation, and k distinct members retire it. A root retires alone.
+- **`list contact`** marks a named key that is not active: `,suspended`,
+  `,retired` or `,absent`. The notebook's share chooser offers only the
+  unmarked.
+- **A contact is served while the roster says ACTIVE**, as well as while it
+  is named: removed on any member is removed here.
+
+### Carriage
+
+**With the votes**, as the holder decided votes travel (sec 399): item `o`
+and the 157-byte record, then `h` items for the writer's chain. Every node
+serves every record it holds, its own and learned alike, so a record
+reaches a member that never spoke to its writer. Served to members only,
+so a contact never learns it was removed. **A break, as sec 479's `t`
+was:** a node built before this refuses a page carrying `o`.
+
+**Contacts from before** -- named on a node with no record -- are written as
+the node's adds at start, once, so an upgraded node carries them.
+
+**Not here:** deleting a retired contact's data after a hold period (sec
+394's decision 5). The holder decided this session that a removed contact's
+shares stay (sec 478), and deletion on retirement waits to be asked for.
+
+### Found while measuring: a client that leaves kills the node
+
+**Any local client that closed before reading its answer ended fuzznetd
+with SIGPIPE.** Measured: a node serving on its socket exited 141 on the
+first such client. It surfaced as R dying silently in the live run below,
+when the test's client gave up on an answer delayed by a blocked round. Any
+local user allowed on the socket could stop the node that way.
+
+`node/local.c` now writes a reply with `send(..., MSG_NOSIGNAL)`, so the
+write fails with EPIPE and the serve returns IO; `local/client.c` does the
+same for a node that leaves. The process's own disposition is left alone,
+because `log/capture_run.c` hands SIGPIPE's default to the tools it runs.
+A descriptor that is no socket, or a system with no MSG_NOSIGNAL, is
+written as before.
+
+**Also seen, not fixed:** two nodes pulling from each other whose rounds
+start together each block asking the other, and both time out every
+request that round. It is sec 424's "a fetch blocks the loop", met from the
+other side; the live run below starts D 25 s after R.
+
+### Measured for sec 489
+
+**`pair_test`, 270 checks, 19 new** (`test_contacts_travel`):
+
+- N, a member, adding X on its chain; again, no second incarnation;
+- a stranger, with no chain or with N's, writing nothing;
+- a pull with no roster refusing N's record, one with a roster learning it;
+- the arrival at M named once, `c_` and 8 digits;
+- M removing, suspending X, and not removing twice;
+- N seeing it suspended, and N removing too retiring it at k = 2;
+- M seeing it retired, and M adding again an active new incarnation;
+- a stranger's record, signed as its own root, refused at M;
+- M's four records back from its store after a restart, judged the same;
+- R's contact from before carried once, and its record in R's log as a
+  roster act.
+
+**`admin_test`, 188 checks, 11 new:**
+
+- a named contact on no roster not served, and served once carried;
+- removed on the roster and still named here, denied, and listed `,retired`;
+- `add contact` writing a new incarnation and serving again;
+- `remove contact` writing a removal that retires it.
+
+**`local_test`, 34 checks:** a client gone before its answer is an IO error
+and the process goes on. With the old `write`, the test binary itself exits
+141.
+
+**`notebook_view_test`:** a contact marked suspended not offered to share
+with.
+
+**Live, two fuzznetd, D joined to R, each pulling from the other:**
+
+    R: add contact xavier abab...ab                   -> ok
+    D (a round later): list contact  -> c_abababab,abab...ab
+    D: remove contact c_abababab                       -> ok
+    R (a round later): list contact  -> xavier,abab...ab,suspended
+    R: remove contact xavier                           -> ok
+    R: list contact                                    -> ok 0 0
+
+`~/.local/state/fuzznet` stayed absent.
+
+**Sabotage: six new entries.**

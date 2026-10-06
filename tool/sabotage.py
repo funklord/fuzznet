@@ -6061,6 +6061,48 @@ SABOTAGES = [
 		"every pass after the first refuses the chain file its predecessor wrote, and nothing more is ever packed -- sec 459",
 	),
 	(
+		"votes-page-carries-roster-records",
+		"node/revoke.c",
+		"\t\t\t\t            : s == 5u ? 'o'\n",
+		"\t\t\t\t            : s == 5u ? 'r'\n",
+		"a contact's record goes out as a revocation, is refused everywhere, and never leaves the member that wrote it -- sec 489",
+	),
+	(
+		"roster-confirms-once-a-writer",
+		"node/roster.c",
+		"\t\tif (!mine) {\n",
+		"\t\tif (1) {\n",
+		"a member removing a contact it already removed writes another removal, which counts nothing and fills the store -- sec 489",
+	),
+	(
+		"roster-learned-is-admitted",
+		"node/revoke.c",
+		"\t\tif (!pull->roster) {\n",
+		"\t\tif (1) {\n",
+		"every contact record a member pulls is refused, so a contact added or removed on one member never reaches another -- sec 489",
+	),
+	(
+		"roster-written-is-logged",
+		"node/roster.c",
+		"\tif (nr->wrote && !nr->wrote(nr->wrote_ctx, record, len))\n",
+		"\tif (0)\n",
+		"a root's roster record is never in its log, and falls at the root's removal whatever the cut -- sec 489",
+	),
+	(
+		"roster-retired-outranks-suspended",
+		"node/roster.c",
+		"\t\tif (s == FZN_ROSTER_RETIRED || (s == FZN_ROSTER_SUSPENDED && best == FZN_ROSTER_ABSENT))\n",
+		"\t\tif (s == FZN_ROSTER_SUSPENDED && best == FZN_ROSTER_ABSENT)\n",
+		"a retired contact is reported absent, as if nobody had ever removed it -- sec 489",
+	),
+	(
+		"admin-serves-only-active-contacts",
+		"node/admin.c",
+		"\t\tif (admin->roster\n\t\t    && fzn_node_roster_standing(admin->roster, req->sender, admin->revocations,\n",
+		"\t\tif (0 && admin->roster\n\t\t    && fzn_node_roster_standing(admin->roster, req->sender, admin->revocations,\n",
+		"a contact removed on another member of the estate is still served here on its name -- sec 489",
+	),
+	(
 		"local-reply-without-sigpipe",
 		"node/local.c",
 		"\t\tssize_t n = write_quietly(fd, buf + off, len - off);\n",
@@ -6686,8 +6728,8 @@ SABOTAGES = [
 	(
 		"node-confirm-served-as-its-kind",
 		"node/revoke.c",
-		"\t\t\t\tout[at++] = h ? 'h' : (s == 4u ? 't' : s == 3u ? 'c' : 'r');\n",
-		"\t\t\t\tout[at++] = h ? 'h' : (s == 4u ? 't' : 'r');\n",
+		"\t\t\t\t            : s == 3u ? 'c'\n",
+		"\t\t\t\t            : s == 3u ? 'r'\n",
 		"a confirmation served as a vote is misread by every puller, and the stream stops at it -- sec 415",
 	),
 	(
@@ -8836,8 +8878,8 @@ SABOTAGES = [
 	(
 		"votes-page-carries-admin-retention",
 		"node/revoke.c",
-		"\t\t\t\tout[at++] = h ? 'h' : (s == 4u ? 't' : s == 3u ? 'c' : 'r');\n",
-		"\t\t\t\tout[at++] = h ? 'h' : (s == 3u ? 'c' : 'r');\n",
+		"\t\t\t\t            : s == 4u ? 't'\n",
+		"\t\t\t\t            : s == 4u ? 'r'\n",
 		"an admin's rule goes out as a revocation, is refused everywhere, and stays on the admin's node -- sec 479",
 	),
 	(

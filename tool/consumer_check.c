@@ -164,6 +164,7 @@
 #include <fuzznet/node/admin.h>
 #include <fuzznet/node/revoke.h>
 #include <fuzznet/node/roots.h>
+#include <fuzznet/node/roster.h>
 #include <fuzznet/chain/root_log.h>
 #include <fuzznet/session/aead.h>
 #include <fuzznet/session/commitment.h>
@@ -311,6 +312,7 @@
 #include "node/serve.h"
 #include "node/provision.h"
 #include "node/roots.h"
+#include "node/roster.h"
 #include "chain/root_log.h"
 #include "session/aead.h"
 #include "session/commitment.h"

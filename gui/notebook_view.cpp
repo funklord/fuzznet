@@ -494,12 +494,15 @@ void fzn_notebook_view::refresh_shares()
 	if (shared())
 		return;
 	m_share_to->clear();
-	/* `ok TOTAL FROM NAME,KEY ...`. */
+	/* `ok TOTAL FROM NAME,KEY[,STATE] ...`: a contact the roster marks
+	 * suspended, retired or absent is served nothing, so it is not offered.
+	 * sec 489. */
 	if (ask(QStringLiteral("list contact"), &detail) == 1) {
 		QStringList words = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
 
 		for (i = 2; i < words.size(); i++)
-			m_share_to->addItem(words[i].section(QLatin1Char(','), 0, 0));
+			if (words[i].section(QLatin1Char(','), 2, 2).isEmpty())
+				m_share_to->addItem(words[i].section(QLatin1Char(','), 0, 0));
 	}
 	/* `ok TOTAL FROM NAME,COUNT ...`: a group is shared with as `@NAME`,
 	 * which reaches whoever is in it when they ask. sec 471. */

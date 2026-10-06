@@ -111,6 +111,14 @@ typedef struct fzn_node_admin {
 	/* This node's admin chain (`node/revoke.h`), or NULL: then it grants
 	 * and confirms only as a root, and votes on `authority`. sec 416. */
 	fzn_node_admin_chain_t *admin_chain;
+	/* THE CONTACTS AS THE USER'S ROSTER (`node/roster.h`), sec 489, or
+	 * NULL: then a contact is a name on this node alone, as before. With
+	 * it, `add contact` and `remove contact` write roster records signed
+	 * by this node, a contact is served while the roster says it is ACTIVE
+	 * -- judged against `revocations` and its k -- and `list contact`
+	 * marks the ones that are not. `rng` mints an add's incarnation. */
+	struct fzn_node_roster *roster;
+	const fzn_random_ops_t *rng;
 	/* Long notes' texts (`node/shelf.h`), or NULL: then `put`, `fetch` and
 	 * `get text` are unsupported and the remote hop answers no blob
 	 * message. Hooks rather than the shelf itself, because the shelf is
@@ -160,6 +168,16 @@ typedef struct fzn_node_admin {
 	                      size_t request_len, uint8_t *reply, size_t reply_cap);
 	void *logs_ctx;
 } fzn_node_admin_t;
+
+/* Whether `key` is inside this node's estate as `admin` sees it -- itself,
+ * a root that stands, a node paired to it -- so never a contact. sec 489
+ * names arrivals with it. */
+int fzn_node_admin_is_member(const fzn_node_admin_t *admin, const uint8_t key[FZN_PUBKEY_LEN]);
+
+/* A ROSTER RECORD THIS NODE WROTE, logged as its act when it writes as its
+ * own acting root -- a `fzn_node_roster_t.wrote`, `ctx` the admin. 1 when
+ * logged, or when the node is no root acting with its identity. sec 489. */
+int fzn_node_admin_log_roster(void *ctx, const uint8_t *record, size_t len);
 
 /* A `fzn_node_local_handler_t`; `ctx` is a `fzn_node_admin_t`. */
 size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,

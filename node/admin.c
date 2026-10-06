@@ -4,6 +4,7 @@
 
 #include "peer_persist.h"
 #include "roots.h"
+#include "roster.h"
 #include "../provision/provision.h"
 #include "../contact/contact.h"
 #include "../contact/group.h"
@@ -486,6 +487,21 @@ static int log_revocation(fzn_node_admin_t *admin, const uint8_t grantee[FZN_PUB
 	       == FZN_NODE_ROOTS_OK;
 }
 
+int fzn_node_admin_log_roster(void *ctx, const uint8_t *record, size_t len)
+{
+	fzn_node_admin_t *admin = (fzn_node_admin_t *)ctx;
+	const uint8_t *as = NULL;
+	const fzn_sign_ops_t *sign = NULL;
+
+	if (!admin || !record || !admin->roots || admin->authority
+	    || !fzn_node_roots_acting(admin->roots, admin->id->pubkey, admin->id->sign, &as, &sign)
+	    || memcmp(as, admin->id->pubkey, FZN_PUBKEY_LEN) != 0)
+		return 1;
+	return fzn_node_roots_log_act(admin->roots, admin->store, as, sign,
+	                              (uint8_t)FZN_ROOT_ACT_ROSTER, record, len)
+	       == FZN_NODE_ROOTS_OK;
+}
+
 /* `add root KEY` and `remove root KEY [CUT]`: change the estate's roots as
  * this node's acting root. sec 409. */
 static size_t change_root(fzn_node_admin_t *admin, int remove, const uint8_t *text,
@@ -667,6 +683,27 @@ static int next_word(const uint8_t **rest, size_t *rest_len, const uint8_t **w, 
 	return 1;
 }
 
+int fzn_node_admin_is_member(const fzn_node_admin_t *admin, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	return admin && admin->id && admin->state && key && is_member(admin, key);
+}
+
+/* The estate's k a roster is judged at: the running store's, which follows
+ * the estate's setting (sec 418); 0, the roster's default, without one. */
+static size_t roster_k(const fzn_node_admin_t *admin)
+{
+	return admin->revocations ? admin->revocations->quorum : 0u;
+}
+
+/* THE CONTACT AS THE ROSTER SAYS, sec 489: this node's act on it, and the
+ * words for a refusal. */
+static size_t roster_refusal(char *reply, size_t cap, fzn_node_roster_err_t err)
+{
+	return answer_text(reply, cap,
+	                   err == FZN_NODE_ROSTER_NO_STANDING ? FZN_REPLY_DENIED : FZN_REPLY_ERROR,
+	                   fzn_node_roster_err_str(err));
+}
+
 static uint64_t admin_now_ms(const fzn_node_admin_t *admin)
 {
 	return admin->state->clock ? admin->state->clock() * 1000u : 0u;
@@ -692,6 +729,17 @@ static size_t add_contact(fzn_node_admin_t *admin, const uint8_t *rest, size_t r
 		return answer_text(reply, cap,
 		                   err == FZN_CONTACT_ERR_NAME ? FZN_REPLY_MALFORMED : FZN_REPLY_ERROR,
 		                   fzn_contact_err_str(err));
+	/* AND THE USER'S ACT, sec 489: an add on the roster every member pulls,
+	 * unless the key is already a contact there. The name is this node's
+	 * and is kept whatever the roster answers. */
+	if (admin->roster) {
+		fzn_node_roster_err_t rerr =
+		        fzn_node_roster_write(admin->roster, admin->store, admin->id, admin->authority,
+		                              admin->rng, key, 1, admin->revocations, roster_k(admin));
+
+		if (rerr != FZN_NODE_ROSTER_OK)
+			return roster_refusal(reply, cap, rerr);
+	}
 	return answer_text(reply, cap, FZN_REPLY_OK, NULL);
 }
 
@@ -709,6 +757,18 @@ static size_t remove_contact(fzn_node_admin_t *admin, const uint8_t *rest, size_
 	if (!next_word(&rest, &rest_len, &name, &name_len))
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "remove contact NAME");
 	err = fzn_contact_find(admin->store, (const char *)name, name_len, &c);
+	/* THE ROSTER FIRST, sec 489: a removal every member pulls, which
+	 * suspends the contact there as here. One already not active here --
+	 * removed on another member -- needs none, and its name goes. */
+	if (err == FZN_CONTACT_OK && admin->roster) {
+		fzn_node_roster_err_t rerr =
+		        fzn_node_roster_write(admin->roster, admin->store, admin->id, admin->authority,
+		                              admin->rng, c.key, 0, admin->revocations,
+		                              roster_k(admin));
+
+		if (rerr != FZN_NODE_ROSTER_OK && rerr != FZN_NODE_ROSTER_ABSENT)
+			return roster_refusal(reply, cap, rerr);
+	}
 	if (err == FZN_CONTACT_OK)
 		err = fzn_contact_remove(admin->store, c.key);
 	if (err != FZN_CONTACT_OK)
@@ -755,6 +815,26 @@ static size_t list_contacts(fzn_node_admin_t *admin, const uint8_t *rest, size_t
 		detail[used++] = ',';
 		for (k = 0; k < FZN_PUBKEY_LEN; k++)
 			used += (size_t)snprintf(detail + used, 3u, "%02x", all[i].key[k]);
+		/* NOT A CONTACT ON THE ROSTER, sec 489: removed on another
+		 * member, retired, or held by a writer since revoked -- named
+		 * here and served nothing. */
+		if (admin->roster) {
+			fzn_roster_state_t st = fzn_node_roster_standing(admin->roster, all[i].key,
+			                                                 admin->revocations,
+			                                                 roster_k(admin));
+			const char *word = st == FZN_ROSTER_SUSPENDED ? ",suspended"
+			                   : st == FZN_ROSTER_RETIRED ? ",retired"
+			                   : st == FZN_ROSTER_ABSENT  ? ",absent"
+			                                              : "";
+			size_t wl = strlen(word);
+
+			if (limit - used < wl) {
+				used -= need;
+				break;
+			}
+			memcpy(detail + used, word, wl);
+			used += wl;
+		}
 	}
 	return answer(reply, cap, FZN_REPLY_OK, detail, used);
 }
@@ -1485,6 +1565,13 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 		 * rows stay -- nothing is deleted, and adding it back serves it
 		 * again. */
 		if (!admin->store || fzn_contact_get(admin->store, req->sender, &still) != FZN_CONTACT_OK)
+			return answer_text(out, reply_cap, FZN_REPLY_DENIED, "no longer a contact");
+		/* AND ACTIVE ON THE ROSTER, sec 489: removed on any member of the
+		 * estate is removed here, whatever this node's name book says. */
+		if (admin->roster
+		    && fzn_node_roster_standing(admin->roster, req->sender, admin->revocations,
+		                                roster_k(admin))
+		               != FZN_ROSTER_ACTIVE)
 			return answer_text(out, reply_cap, FZN_REPLY_DENIED, "no longer a contact");
 		if (admin->notes_remote && req->payload)
 			n = admin->notes_remote(admin->notes_ctx, req->sender, 1, req->payload,

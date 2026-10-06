@@ -15,6 +15,7 @@
 #include "../../contact/group.h"
 #include "../admin.h"
 #include "../roots.h"
+#include "../roster.h"
 #include "../identity.h"
 #include "../peer_persist.h"
 #include "../received.h"
@@ -91,6 +92,17 @@ static struct mem_entry *find(struct mem_store *m, fzn_persist_slot_t slot,
 	if (subject)
 		memcpy(free_one->subject, subject, FZN_PUBKEY_LEN);
 	return free_one;
+}
+
+/* Rows held in `slot`. */
+static size_t rows_in(const struct mem_store *m, fzn_persist_slot_t slot)
+{
+	size_t i, n = 0;
+
+	for (i = 0; i < sizeof(m->e) / sizeof(m->e[0]); i++)
+		if (m->e[i].used && m->e[i].slot == slot)
+			n++;
+	return n;
 }
 
 static int mem_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, uint8_t *out,
@@ -1167,6 +1179,66 @@ int main(void)
 		      "fixture: bob added back");
 		n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
 		CHECK(n && notes_shared_seen == 1, "a contact added back was not served again");
+		/* THE CONTACTS AS THE ROSTER, sec 489. With a roster and nothing on
+		 * it, a named contact is no contact; carried onto it, it is again.
+		 * A removal on the roster -- here the root's own, which retires
+		 * alone -- denies it while its name stays here, marked; the verbs
+		 * write roster records; adding back is a new incarnation. */
+		{
+			static fzn_node_roster_t ro;
+			size_t carried = 0, rows;
+			char marked[(FZN_PUBKEY_LEN * 2u) + 32u];
+
+			CHECK(fzn_node_roster_init(&ro, node.id.pubkey, &state.config.remote_capability,
+			                           &node.sign, NULL, &hash_ops) == FZN_NODE_ROSTER_OK,
+			      "fixture: a roster");
+			admin.roster = &ro;
+			admin.rng = &rng_ops;
+			notes_shared_seen = -1;
+			req.capability = state.config.share_capability.b;
+			n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
+			CHECK(n && fzn_reply_of(out, n, &detail, &detail_len) == FZN_REPLY_DENIED
+			              && notes_shared_seen == -1,
+			      "a contact named here and on no roster was served");
+			CHECK(fzn_node_roster_carry_names(&ro, &node.ops, &node.id, NULL, &rng_ops,
+			                                  &carried) == FZN_NODE_ROSTER_OK
+			              && carried >= 2u,
+			      "the contacts named here were not carried onto the roster");
+			n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
+			CHECK(n && notes_shared_seen == 1, "a contact carried onto the roster was not served");
+			CHECK(fzn_node_roster_write(&ro, &node.ops, &node.id, NULL, &rng_ops,
+			                            outside.id.pubkey, 0, admin.revocations, 0u)
+			              == FZN_NODE_ROSTER_OK,
+			      "fixture: bob removed on the roster, not here");
+			notes_shared_seen = -1;
+			n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
+			CHECK(n && fzn_reply_of(out, n, &detail, &detail_len) == FZN_REPLY_DENIED
+			              && notes_shared_seen == -1,
+			      "a contact removed on the roster was served on its name here");
+			snprintf(marked, sizeof(marked), "bobby,%s,retired", dev_hex);
+			CHECK(ask(&admin, &owner, "list contact", reply, sizeof(reply), &reply_len)
+			              && says(reply, reply_len, marked),
+			      "list contact did not mark the retired contact");
+			rows = rows_in(&node.store, FZN_PERSIST_ROSTER);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+			              && rows_in(&node.store, FZN_PERSIST_ROSTER) == rows + 1u
+			              && fzn_node_roster_standing(&ro, outside.id.pubkey, admin.revocations, 0u)
+			                         == FZN_ROSTER_ACTIVE,
+			      "add contact did not write a new incarnation for a retired contact");
+			n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
+			CHECK(n && notes_shared_seen == 1, "a contact added on the roster again was not served");
+			rows = rows_in(&node.store, FZN_PERSIST_ROSTER);
+			CHECK(ask(&admin, &owner, "remove contact bobby", reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+			              && rows_in(&node.store, FZN_PERSIST_ROSTER) == rows + 1u
+			              && fzn_node_roster_standing(&ro, outside.id.pubkey, admin.revocations, 0u)
+			                         == FZN_ROSTER_RETIRED,
+			      "remove contact did not write a removal on the roster");
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK,
+			      "fixture: bob added back on the roster");
+		}
 		req.capability = state.config.remote_capability.b;
 		notes_shared_seen = -1;
 		n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));

@@ -43,6 +43,7 @@
 #include "pair.h"
 #include "revoke.h"
 #include "roots.h"
+#include "roster.h"
 #include "peer_persist.h"
 #include "notes.h"
 #include "../notes/received.h"
@@ -801,6 +802,16 @@ static uint8_t node_reply[FZND_REPLY_MAX];
  * the network. */
 #define FZND_REQUEST_SLOTS 4u
 #define FZND_REQUEST_MAX (32u * 1024u)
+
+/* THE CONTACTS AS THE USER'S ROSTER, sec 489: pulled with the votes from
+ * every peer, and the arrivals named. */
+static fzn_node_roster_t node_roster;
+static int roster_on;
+
+static int admin_member(void *ctx, const uint8_t *key)
+{
+	return fzn_node_admin_is_member((const fzn_node_admin_t *)ctx, key);
+}
 
 /* The node's notes, when it keeps them: answered on the socket, served to
  * peers and pulled from them each round. sec 431, 432. */
@@ -2575,6 +2586,38 @@ int main(int argc, char **argv)
 			admin.authority = my_authority;
 			admin.roots = &estate_roots;
 			admin.admin_chain = &own_admin;
+			/* THE CONTACTS AS THE USER'S ROSTER, sec 489: loaded, then every
+			 * contact named here from before carried onto it as this node's
+			 * add, so the members pull them. NOT FATAL: a node that cannot
+			 * keep the roster keeps its contacts on itself, as before. */
+			{
+				size_t nroster = 0, carried = 0;
+				fzn_node_roster_err_t rerr =
+				        fzn_node_roster_init(&node_roster, state.config.root,
+				                             &state.config.remote_capability, &sign_ops,
+				                             &estate_roots.ops, &hash_ops);
+
+				/* EACH RECORD WRITTEN AS A ROOT, in the root's log. sec 413. */
+				node_roster.wrote = fzn_node_admin_log_roster;
+				node_roster.wrote_ctx = &admin;
+				if (rerr == FZN_NODE_ROSTER_OK)
+					rerr = fzn_node_roster_load(&node_roster, store_ops, &nroster);
+				if (rerr == FZN_NODE_ROSTER_OK)
+					rerr = fzn_node_roster_carry_names(&node_roster, store_ops, &identity,
+					                                   my_authority, &rng_ops, &carried);
+				if (rerr == FZN_NODE_ROSTER_OK || rerr == FZN_NODE_ROSTER_NO_STANDING) {
+					admin.roster = &node_roster;
+					admin.rng = &rng_ops;
+					roster_on = 1;
+				}
+				if (rerr != FZN_NODE_ROSTER_OK)
+					say(FZN_ENTRY_WARNING, "contact/roster", "the contacts' roster: %s",
+					    fzn_node_roster_err_str(rerr));
+				if (nroster || carried)
+					say(FZN_ENTRY_INFO, "contact/roster",
+					    "%zu roster record(s) from %s, %zu contact(s) carried onto it",
+					    nroster, store_dir, carried);
+			}
 			state.on_local = fzn_node_admin_handle;
 			state.on_local_ctx = &admin;
 			state.on_remote = fzn_node_admin_remote;
@@ -2819,8 +2862,9 @@ int main(int argc, char **argv)
 					refused = 0;
 					perr = fzn_node_votes_pull(&pulls[t].caller, state.config.root,
 					                           &sign_ops, &hash_ops, now, running,
-					                           running_roots, store_ops, &learned,
-					                           &refused);
+					                           running_roots,
+					                           roster_on ? &node_roster : NULL,
+					                           store_ops, &learned, &refused);
 					if (perr != FZN_NODE_PULL_OK)
 						say(FZN_ENTRY_WARNING, "votes", "votes from %s: %s",
 						        pulls[t].host, fzn_node_pull_err_str(perr));
@@ -2828,6 +2872,22 @@ int main(int argc, char **argv)
 						say(FZN_ENTRY_INFO, "votes",
 						        "%zu vote(s) from %s, %zu refused",
 						        learned, pulls[t].host, refused);
+				}
+				/* CONTACTS ADDED ON ANOTHER MEMBER, sec 489, named here so
+				 * they can be shared with and removed by name. */
+				if (roster_on && running_admin) {
+					size_t named = 0;
+
+					if (fzn_node_roster_name_arrivals(&node_roster, store_ops, running,
+					                                  running ? running->quorum : 0u,
+					                                  admin_member, running_admin,
+					                                  now * 1000u, &named)
+					    != FZN_NODE_ROSTER_OK)
+						say(FZN_ENTRY_WARNING, "contact/roster",
+						    "contacts that arrived would not all be named");
+					else if (named)
+						say(FZN_ENTRY_INFO, "contact/roster",
+						    "%zu contact(s) added on another member, named here", named);
 				}
 				/* NOTES, then TEXTS, secs 432 and 424: a note's text is
 				 * fetched once the note naming it has arrived. */

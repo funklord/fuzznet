@@ -237,6 +237,10 @@ typedef enum fzn_persist_slot {
 	/* Per record: an estate retention rule an ADMIN set, with the admin
 	 * chain that entitles it. `node/roots.h` keeps it. sec 479. */
 	FZN_PERSIST_ADMIN_RETENTION = 27u,
+	/* Per record id: a roster record about a contact -- an add or a
+	 * removal, signed by an estate member -- with its writer's chain.
+	 * `node/roster.h` keeps it. sec 489. */
+	FZN_PERSIST_ROSTER = 28u,
 } fzn_persist_slot_t;
 
 typedef enum fzn_persist_err {
@@ -290,6 +294,9 @@ typedef enum fzn_persist_err {
  * changes and the settings of k. `node/roots.c` keeps it. sec 476. */
 #define FZN_PERSIST_BLOB_RETENTION_SET 27u
 #define FZN_PERSIST_BLOB_ADMIN_RETENTION 28u
+/* A roster record and its writer's chain, in slot 28. `node/roster.c`
+ * keeps it. sec 489. */
+#define FZN_PERSIST_BLOB_ROSTER 29u
 
 /* Write a blob head, or refuse when `cap` cannot hold head and body. */
 fzn_persist_err_t fzn_persist_head_write(uint8_t *out, size_t cap, size_t body,
@@ -423,6 +430,9 @@ typedef struct fzn_persist_ops {
  * NOT CORE: ADMIN_RETENTION (sec 479), as LOG_RULE is: it decides how long
  * logs stay, not who reads them. A root's retention records live in
  * ROOT_CHANGE, which is core for the root set's sake, not theirs.
+ *
+ * CORE: ROSTER (sec 489), named rather than left to the default. A
+ * removal rolled back is a removed contact served again -- a door.
  *
  * CORE: CONTACT_GROUP (sec 471), named rather than left to the default.
  * Membership decides which contacts a group share reaches, so a group

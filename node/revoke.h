@@ -43,6 +43,7 @@
 #include "provision.h"
 #include "../chain/revocation.h"
 #include "../chain/root_log.h"
+#include "../roster/roster.h"
 #include "../persist/persist.h"
 
 typedef enum fzn_node_revoke_err {
@@ -232,7 +233,17 @@ fzn_node_pull_err_t fzn_node_revocations_pull(fzn_caller_t *caller,
  * The stream is this node's slot 9 (its own votes, with its authority chain
  * when it issued them as a member), then slot 10 (the root's, no chain),
  * then slot 11 (votes learned from peers, with the chains they came with),
- * then slot 15 (admin confirmations, sec 415).
+ * then slot 15 (admin confirmations, sec 415), then slot 27 (admins'
+ * retention records, sec 479), then slot 28 (contacts' roster records, item
+ * `o`, sec 489).
+ *
+ * CONTACTS TRAVEL HERE TOO, sec 489: a roster record names its writer and
+ * nothing else, so it needs its writer's chain beside it, as a vote does --
+ * item `o` and the record, then `h` items for the chain, none for a root
+ * writing alone. A node with no roster to learn into counts one refused.
+ * The stream is served only to members, so a contact never learns it was
+ * removed (`roster/roster.h`). A node built before this does not know the
+ * item and refuses the whole page, as with sec 479's `t`.
  *
  * CONFIRMATIONS TRAVEL WITH THE VOTES, sec 415, because they decide which
  * admins' votes count: item `c` and a confirmation, followed by `h` items for
@@ -255,8 +266,10 @@ fzn_node_pull_err_t fzn_node_revocations_pull(fzn_caller_t *caller,
  * is not saved over the newer record.
  */
 
-/* Votes a stream can carry: four slots of up to FZN_NODE_REVOCATIONS_MAX. */
-#define FZN_NODE_VOTES_MAX (4u * FZN_NODE_REVOCATIONS_MAX)
+/* Records a stream can carry: six lists of up to FZN_NODE_REVOCATIONS_MAX --
+ * slots 9, 10, 11 and 15, admins' retention (sec 479) and contacts' roster
+ * records (sec 489). */
+#define FZN_NODE_VOTES_MAX (6u * FZN_NODE_REVOCATIONS_MAX)
 
 /* One page of the stream from item `from`, written as ` ITEM` per item into
  * `out`, stopping before `cap` bytes; `*len` is what was written and `*total`
@@ -271,6 +284,7 @@ int fzn_node_votes_page(const fzn_persist_ops_t *store, const fzn_node_authority
 /* What a pull carries between pages: the vote being assembled, and the
  * counts so far. Zero it before the first page. */
 struct fzn_node_roots;
+struct fzn_node_roster;
 
 typedef struct fzn_node_vote_pull {
 	int pending;
@@ -282,6 +296,11 @@ typedef struct fzn_node_vote_pull {
 	int retaining;
 	uint8_t retention[FZN_RETENTION_SET_LEN];
 	struct fzn_node_roots *roots;
+	/* Or a contact's roster record, sec 489, learned into `roster` --
+	 * NULL refuses every one, counted. */
+	int rostering;
+	uint8_t roster_record[FZN_ROSTER_MIN_LEN];
+	struct fzn_node_roster *roster;
 	uint8_t record[FZN_REVOCATION_LEN];
 	uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
 	size_t hop_count;
@@ -307,6 +326,7 @@ fzn_node_pull_err_t fzn_node_votes_pull(fzn_caller_t *caller, const uint8_t root
                                         const fzn_sign_ops_t *sign, const fzn_hash_ops_t *hash,
                                         uint64_t now, fzn_revocation_store_t *revocations,
                                         struct fzn_node_roots *roots,
+                                        struct fzn_node_roster *roster,
                                         const fzn_persist_ops_t *store, size_t *learned,
                                         size_t *refused);
 
