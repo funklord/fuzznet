@@ -129,6 +129,12 @@ typedef struct fzn_node_admin {
 	size_t (*text_remote)(void *ctx, const uint8_t *request, size_t request_len,
 	                      uint8_t *reply, size_t reply_cap);
 	void *text_ctx;
+	/* The node's files (`node/files.h`), or NULL: then `put file`, `get
+	 * file`, `remove file` and `list file` are unsupported. A hook, as the
+	 * texts are, for the same reason. sec 490. */
+	size_t (*files_local)(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
+	                      char *reply, size_t reply_cap);
+	void *files_ctx;
 	/* The node's notes (`node/notes.h`), or NULL: then the note verbs are
 	 * unsupported. A hook, as the texts are, so admin keeps no notes
 	 * state of its own. Returns 0 for what is not its own. sec 431. */

@@ -172,7 +172,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              chain/chain_store.c chain/service.c claim/claim.c \
              record/store.c qr/qr.c \
              frame/freshness.c \
-             blob/blob.c ratchet/ratchet.c prekey/prekey.c \
+             blob/blob.c blob/levels.c ratchet/ratchet.c prekey/prekey.c \
              provision/provision.c \
              roster/roster.c \
              disclose/disclose.c \
@@ -266,7 +266,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              chain/chain_store.h chain/service.h claim/claim.h \
              record/store.h qr/qr.h \
              frame/freshness.h \
-             blob/blob.h ratchet/ratchet.h prekey/prekey.h \
+             blob/blob.h blob/levels.h ratchet/ratchet.h prekey/prekey.h \
              provision/provision.h \
              roster/roster.h \
              disclose/disclose.h \
@@ -330,7 +330,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              claim/test/claim_test.c claim/test/claim_walk_test.c \
              record/test/store_test.c \
              qr/test/qr_test.c \
-             blob/test/blob_test.c ratchet/test/ratchet_test.c \
+             blob/test/blob_test.c blob/test/levels_test.c ratchet/test/ratchet_test.c \
              ratchet/test/ratchet_fuzz.c session/test/session_fuzz.c \
              prekey/test/prekey_test.c prekey/test/prekey_fuzz.c \
              provision/test/provision_fuzz.c \
@@ -444,6 +444,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/record/test/store_test \
              $(BUILD_DIR)/qr/test/qr_test \
              $(BUILD_DIR)/blob/test/blob_test \
+             $(BUILD_DIR)/blob/test/levels_test \
              $(BUILD_DIR)/ratchet/test/ratchet_test \
              $(BUILD_DIR)/ratchet/test/ratchet_fuzz \
              $(BUILD_DIR)/session/test/session_fuzz \
@@ -1296,16 +1297,17 @@ endif
 # Outside the conditional, for the reason PERSIST_FILE_SRCS is.
 # node/shelf keeps a node's note texts in spool files, so it is built only
 # with them. sec 424.
-SPOOL_FILE_SRCS := spool/spool_file.c node/shelf.c
-SPOOL_FILE_HDRS := spool/spool_file.h node/shelf.h
-SPOOL_FILE_TSRC := spool/test/spool_file_test.c node/test/shelf_test.c
+SPOOL_FILE_SRCS := spool/spool_file.c node/shelf.c node/files.c
+SPOOL_FILE_HDRS := spool/spool_file.h node/shelf.h node/files.h
+SPOOL_FILE_TSRC := spool/test/spool_file_test.c node/test/shelf_test.c node/test/files_test.c
 
 ifdef SPOOL_FILE_ON
 CPPFLAGS  += -DFZN_SPOOL_FILE_ON
 SRCS      += $(SPOOL_FILE_SRCS)
 HDRS      += $(SPOOL_FILE_HDRS)
 TEST_SRCS += $(SPOOL_FILE_TSRC)
-TEST_BINS += $(BUILD_DIR)/spool/test/spool_file_test $(BUILD_DIR)/node/test/shelf_test
+TEST_BINS += $(BUILD_DIR)/spool/test/spool_file_test $(BUILD_DIR)/node/test/shelf_test \
+             $(BUILD_DIR)/node/test/files_test
 endif
 
 # The Monocypher binding, built against the VENDORED submodule by default.
@@ -2088,6 +2090,20 @@ $(BUILD_DIR)/trust/test/trust_walk_test: $(BUILD_DIR)/trust/test/trust_walk_test
 # nothing: blob/ and tree/ give it constants only. sec 422.
 $(BUILD_DIR)/notes/test/note_test: $(BUILD_DIR)/notes/test/note_test.o \
                                    $(BUILD_DIR)/notes/note.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# node/files keeps files of any size in spool files, their trees in
+# blob/levels. sec 490.
+$(BUILD_DIR)/node/test/files_test: $(BUILD_DIR)/node/test/files_test.o \
+                                   $(BUILD_DIR)/node/files.o \
+                                   $(BUILD_DIR)/blob/levels.o \
+                                   $(BUILD_DIR)/spool/spool_file.o \
+                                   $(BUILD_DIR)/spool/spool.o \
+                                   $(BUILD_DIR)/local/vocabulary.o \
+                                   $(BUILD_DIR)/local/peer.o \
+                                   $(BUILD_DIR)/blob/blob.o \
+                                   $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -3381,6 +3397,15 @@ $(BUILD_DIR)/blob/test/blob_test: $(BUILD_DIR)/blob/test/blob_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# blob/levels, sec 490: the tree a seeder keeps outside memory, checked
+# against blob/'s own array builder.
+$(BUILD_DIR)/blob/test/levels_test: $(BUILD_DIR)/blob/test/levels_test.o \
+                                     $(BUILD_DIR)/blob/levels.o \
+                                     $(BUILD_DIR)/blob/blob.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/blob/test/blob_fuzz: $(BUILD_DIR)/blob/test/blob_fuzz.o \
                                    $(BUILD_DIR)/blob/blob.o \
                                    $(BUILD_DIR)/constant_time/constant_time.o
@@ -3781,7 +3806,8 @@ FUZZNETD_NOTES_OBJS := $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/notes/store.o \
                        $(BUILD_DIR)/record/record.o
 
 # The note-text shelf fuzznetd carries where spool files are built. sec 424.
-FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/notes/text.o \
+FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/node/files.o \
+                       $(BUILD_DIR)/blob/levels.o $(BUILD_DIR)/notes/text.o \
                        $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/spool/spool_file.o \
                        $(BUILD_DIR)/spool/spool.o $(BUILD_DIR)/spool/message.o \
                        $(BUILD_DIR)/spool/plan.o $(BUILD_DIR)/blob/blob.o
@@ -3947,6 +3973,8 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/notes/view.o \
                                       $(BUILD_DIR)/tree/tree.o \
                                       $(if $(SPOOL_FILE_ON),$(BUILD_DIR)/node/shelf.o \
+                                        $(BUILD_DIR)/node/files.o \
+                                        $(BUILD_DIR)/blob/levels.o \
                                         $(BUILD_DIR)/notes/text.o \
                                         $(BUILD_DIR)/spool/spool_file.o) \
                                       $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o \

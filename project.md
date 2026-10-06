@@ -55959,3 +55959,126 @@ with.
 `~/.local/state/fuzznet` stayed absent.
 
 **Sabotage: six new entries.**
+
+## 490. fuzzypickles' files move onto spool/ and blob/; the store, 2026-10-06
+
+**The holder's decisions, 2026-10-06** -- the first relayed by fuzzypickles,
+the second asked here:
+
+- **fuzzypickles' file storage moves onto fuzznet's `spool/` and `blob/`**,
+  reversing their decline of 2026-09-01 (their project.md sec 16 and 173),
+  on the instruction that "all basic operations belong in fuzznet,
+  including deletion". fuzzypickles now only fixes defects in its own blob
+  layer and builds its clients against this store.
+- **Files referenced by old-shape roots are invalidated.** Their roots
+  stop resolving and the files are sent again. Rejected: translating each
+  old root to a new one, verifiably, by re-hashing the bytes in the old
+  shape; and running the old layer read-only beside the new. Nothing here
+  maps, serves or recognises an old root. What a dangling reference looks
+  like in fuzzypickles' UI is theirs.
+
+### What the replacement has to do, fuzzypickles' list
+
+| | requirement | here |
+|---|---|---|
+| 1 | resume across a restart | the spool's sidecar, `.bits`; with transfers, next |
+| 2 | throughput: parallel batches, an adaptive window | with transfers, next |
+| 3 | scrub and repair | after transfers, as the shelf's (sec 452) |
+| 4 | tiers: PRIVATE invisible to the unauthorised, PUBLIC servable | open: who may fetch, below |
+| 5 | sealed leaves under a content key; export with the key | **built** |
+| 6 | deletion: one device, all of it, never under a transfer, references kept | **built** |
+
+### `blob/levels`: a tree kept outside memory
+
+A server owes every span it sends a proof, and `fzn_blob_proof_build`
+builds one from every leaf hash -- 128 MiB for a 4 GiB file. `blob/levels`
+writes a blob's PERFECT subtrees, level by level, as leaves are pushed in
+order: level L holds floor(n / 2^L) nodes, a little under 2n hashes in all.
+Every subtree the tree's descent visits is one of these or folds from them
+along its ragged right edge.
+
+**One descent for both.** `fzn_blob_span_proof_from` is the span proof's
+walk with the subtree roots supplied by a callback; the array builder now
+supplies its own, and the levels supply theirs. So a proof read from disk
+has the array's shape by construction, not by a second implementation
+agreeing with it. `FZN_BLOB_ERR_IO` is new, for storage that refuses.
+
+### `node/files`: the store
+
+The shelf's shape (sec 424) made to scale, under `<store>/files`, one
+blob per root:
+
+    <root hex>        the sealed leaves       (spool/spool_file.h)
+    <root hex>.bits   which are present       (its sidecar)
+    <root hex>.len    the file's length, be64
+    <root hex>.tree   its perfect subtrees    (blob/levels.h)
+
+- **A put streams the file twice**: once sealing and hashing every leaf to
+  the root and the tree, once placing every leaf through the spool's own
+  verification, 64 leaves under one proof read from the tree -- so neither
+  a sealing bug nor a tree written wrong can put down a leaf that would not
+  prove. A fresh key each time. A working name until it is whole; the
+  sidecar under the root is written last.
+- **A blob is held** when its sidecar says it is whole and its length and
+  tree agree with it.
+- **The reference is root, key and length**, the 72 bytes a note's text
+  uses. The store holds ciphertext; whoever keeps the reference opens it.
+- **Export** writes a new file -- never over one that is there -- opening
+  every leaf with the key, and leaves nothing half-written when one does
+  not open.
+- **Delete** removes the sidecar first, so the blob stops being held
+  before its leaves go, then the leaves, the tree and the length, each by
+  name. A transfer marks its root busy while it runs, and a busy root is
+  not deleted. What references the file elsewhere is untouched.
+- Up to `FZN_SPOOL_MAX_LEAVES` leaves, 4 GiB.
+
+The verbs, this node's own user only:
+
+    put file PATH          answers the reference, in hex
+    get file REF PATH      exports it to PATH, which must not exist
+    remove file ROOT       deletes it here
+    list file [FROM]       ok TOTAL FROM ROOT,LENGTH ...
+
+### Open after sec 490
+
+- **Transfers**: a file fetched by root from members that hold it, resumed
+  from the sidecar, spans proved against the tree, several peers at once
+  with an adaptive window -- `spool/transfer.h` and `spool/plan.h` have the
+  planning, the shelf's fetch the conversation. A fetched blob's tree is
+  built when it completes.
+- **The scrub**, re-verifying a held file against its tree.
+- **Tiers.** Who may fetch a file: today the shelf serves any admitted peer
+  any root, and a contact only what is shared. fuzzypickles' PUBLIC and
+  PRIVATE need saying in those terms -- **a question for the holder**, with
+  the transfers.
+
+### Measured for sec 490
+
+**`levels_test`, 7 checks**, new: every canonical span of every tree of 1
+to 130 leaves -- over 5000 -- and every leaf's and power-of-two span's at
+255 to 1025, byte for byte the array builder's proof; the apex and each
+leaf read back; the size exactly the perfect nodes; a leaf past the count,
+a refused read and a range out refused.
+
+**`files_test`, 19 checks**, new:
+
+- files of 1 byte, 1024, 1025, 70 KiB and 300 KiB -- past a text's bound --
+  exported byte for byte;
+- four files a blob and nothing else, and the list in order of root;
+- another key refused with nothing left at the destination, and an existing
+  destination refused;
+- an empty file and a missing one refused, leaving nothing;
+- a byte of a leaf changed on disk not exported;
+- a blob with its tree gone not held, and held again when it is back;
+- a busy blob not deleted, and once let go every file of it gone, and not
+  deleted twice;
+- the verbs: another user denied, put answering a reference, get exporting
+  it, list naming lengths, remove deleting.
+
+**`blob_test`** unchanged at its 1847451 checks; **`err_str_test`** walks
+`fzn_node_files_err_str` and the new blob error.
+
+**Live, fuzznetd:** a 20 MB file put in 0.58 s and exported in 0.23 s, the
+same bytes; listed with its length; removed, leaving no file of it.
+
+**Sabotage: six new entries.**

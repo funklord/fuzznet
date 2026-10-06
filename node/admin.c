@@ -1509,6 +1509,13 @@ not_groups:
 		if (n)
 			return n;
 	}
+	/* FILES, sec 490: the store's, when this node has one. */
+	if (admin->files_local) {
+		size_t n = admin->files_local(admin->files_ctx, origin, request, reply, reply_cap);
+
+		if (n)
+			return n;
+	}
 
 	return answer_text(reply, reply_cap, FZN_REPLY_UNSUPPORTED, NULL);
 }

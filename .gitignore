@@ -86,6 +86,7 @@
 /gui/test/persist_view_test
 /claim/test/claim_file_test
 /blob/test/blob_test
+/blob/test/levels_test
 /blob/test/blob_fuzz
 /ratchet/test/ratchet_test
 /ratchet/test/ratchet_fuzz
@@ -241,6 +242,7 @@ __pycache__/
 /node/test/serve_test
 /node/test/provision_test
 /node/test/shelf_test
+/node/test/files_test
 /node/test/notes_test
 /fuzznetd
 /.situ-head/

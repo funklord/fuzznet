@@ -51,6 +51,7 @@
 #include "members.h"
 #include "received.h"
 #ifdef FZN_SPOOL_FILE_ON
+#include "files.h"
 #include "shelf.h"
 #endif
 #include "../local/socket.h"
@@ -763,6 +764,8 @@ static uint64_t wall_ms(void)
  * largest DATA, since the default reply is 512 bytes and one leaf is more.
  * sec 424. */
 static fzn_node_shelf_t shelf;
+/* THE NODE'S FILES, sec 490, beside the texts. */
+static fzn_node_files_t files;
 static int shelf_on;
 
 /* The node's notes seal a long text onto the shelf and open it back. */
@@ -2642,6 +2645,17 @@ int main(int argc, char **argv)
 				} else {
 					say(FZN_ENTRY_WARNING, "shelf", "no shelf for texts under %s",
 					        bulk_dir);
+				}
+				n = snprintf(shelf_dir, sizeof(shelf_dir), "%s/files", bulk_dir);
+				if (n > 0 && (size_t)n < sizeof(shelf_dir)
+				    && fzn_node_files_init(&files, shelf_dir, &hash_ops, &aead_ops,
+				                           &rng_ops)
+				               == FZN_NODE_FILES_OK) {
+					admin.files_local = fzn_node_files_local;
+					admin.files_ctx = &files;
+				} else {
+					say(FZN_ENTRY_WARNING, "files", "no store for files under %s",
+					    bulk_dir);
 				}
 			}
 #endif

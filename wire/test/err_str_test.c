@@ -88,6 +88,7 @@
 #endif
 #ifdef FZN_SPOOL_FILE_ON
 #include "../../node/shelf.h"
+#include "../../node/files.h"
 #endif
 #ifdef FZN_LOG_FILE_ON
 #include "../../log/logger.h"
@@ -236,6 +237,7 @@ static const char *r_cli(int v) { return fzn_cli_err_str((fzn_cli_err_t)v); }
 #endif
 #ifdef FZN_SPOOL_FILE_ON
 static const char *r_shelf(int v) { return fzn_node_shelf_err_str((fzn_node_shelf_err_t)v); }
+static const char *r_files(int v) { return fzn_node_files_err_str((fzn_node_files_err_t)v); }
 #endif
 #ifdef FZN_LOG_FILE_ON
 static const char *r_logger(int v) { return fzn_logger_err_str((fzn_logger_err_t)v); }
@@ -325,7 +327,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_relay_err_str", r_relay, 5 },
 	{ "fzn_sched_err_str", r_sched, 3 },
 	{ "fzn_link_err_str", r_link, 5 },
-	{ "fzn_blob_err_str", r_blob, 8 },
+	{ "fzn_blob_err_str", r_blob, 9 },
 	{ "fzn_authz_verdict_str", r_authz, 3 },
 	{ "fzn_prekey_err_str", r_prekey, 7 },
 	{ "fzn_ratchet_err_str", r_ratchet, 6 },
@@ -340,6 +342,7 @@ static const struct subject SUBJECTS[] = {
 #endif
 #ifdef FZN_SPOOL_FILE_ON
 	{ "fzn_node_shelf_err_str", r_shelf, 9 },
+	{ "fzn_node_files_err_str", r_files, 8 },
 #endif
 #ifdef FZN_LOG_FILE_ON
 	{ "fzn_logger_err_str", r_logger, 4 },

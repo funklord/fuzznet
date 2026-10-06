@@ -95,6 +95,7 @@
 #include <fuzznet/cli/store_print.h>
 #endif
 #include <fuzznet/blob/blob.h>
+#include <fuzznet/blob/levels.h>
 #include <fuzznet/ratchet/ratchet.h>
 #include <fuzznet/prekey/prekey.h>
 #include <fuzznet/provision/provision.h>
@@ -120,6 +121,7 @@
 #ifdef FZN_SPOOL_FILE_ON
 #include <fuzznet/spool/spool_file.h>
 #include <fuzznet/node/shelf.h>
+#include <fuzznet/node/files.h>
 #endif
 #ifdef FZN_CLAIM_FILE_ON
 #include <fuzznet/claim/claim_file.h>
@@ -256,6 +258,7 @@
 #include "cli/store_print.h"
 #endif
 #include "blob/blob.h"
+#include "blob/levels.h"
 #include "ratchet/ratchet.h"
 #include "prekey/prekey.h"
 #include "provision/provision.h"
@@ -275,6 +278,7 @@
 #ifdef FZN_SPOOL_FILE_ON
 #include "spool/spool_file.h"
 #include "node/shelf.h"
+#include "node/files.h"
 #endif
 #ifdef FZN_CLAIM_FILE_ON
 #include "claim/claim_file.h"
@@ -2759,6 +2763,16 @@ int main(void)
 				FAIL(458);
 			if (strcmp(fzn_node_shelf_err_str(FZN_NODE_SHELF_ERR_ABSENT), "unknown") == 0)
 				FAIL(459);
+		}
+		/* And its files, sec 490, the same way. */
+		{
+			static fzn_node_files_t store;
+
+			if (fzn_node_files_init(&store, "", NULL, NULL, NULL)
+			    != FZN_NODE_FILES_ERR_MALFORMED)
+				FAIL(481);
+			if (strcmp(fzn_node_files_err_str(FZN_NODE_FILES_ERR_BUSY), "unknown") == 0)
+				FAIL(482);
 		}
 #endif
 	}

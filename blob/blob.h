@@ -113,6 +113,9 @@ typedef enum fzn_blob_err {
 	/* The streaming tree is full, which needs FZN_BLOB_MAX_LEAVES leaves
 	 * and therefore cannot happen to a caller who is not trying. */
 	FZN_BLOB_ERR_FULL,
+	/* A caller's storage refused a read or a write: the levels a seeder
+	 * keeps outside memory (`blob/levels.h`). */
+	FZN_BLOB_ERR_IO,
 } fzn_blob_err_t;
 
 /*
@@ -407,6 +410,20 @@ uint64_t fzn_blob_span_largest_at(uint64_t leaf_count, uint64_t first, uint64_t 
 fzn_blob_err_t fzn_blob_span_proof_build(const fzn_hash_ops_t *hash, const uint8_t *leaf_hashes,
                                           uint64_t leaf_count, uint64_t first, uint64_t count,
                                           uint8_t *out, size_t out_cap, unsigned *out_count);
+
+/* THE ROOT OF THE SUBTREE OVER LEAVES `[lo, lo + n)`, the bare apex as
+ * `fzn_blob_span_root` gives it -- however the provider comes by it. */
+typedef fzn_blob_err_t (*fzn_blob_subtree_t)(void *ctx, uint64_t lo, uint64_t n,
+                                             uint8_t out[FZN_BLOB_HASH_LEN]);
+
+/* `fzn_blob_span_proof_build` WITH THE SIBLINGS FROM `subtree` rather than
+ * from an array of every leaf hash: one descent for both, so a proof built
+ * from a tree kept on disk (`blob/levels.h`) has exactly the shape the
+ * array's has. A single leaf is the span of count 1, which is what
+ * `fzn_blob_proof_build` returns. */
+fzn_blob_err_t fzn_blob_span_proof_from(fzn_blob_subtree_t subtree, void *subtree_ctx,
+                                         uint64_t leaf_count, uint64_t first, uint64_t count,
+                                         uint8_t *out, size_t out_cap, unsigned *out_count);
 
 /* Verify a span against the blob's root.
  *

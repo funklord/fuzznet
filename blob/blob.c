@@ -728,6 +728,8 @@ const char *fzn_blob_err_str(fzn_blob_err_t err)
 		return "inclusion proof does not reach the root";
 	case FZN_BLOB_ERR_FULL:
 		return "tree is full";
+	case FZN_BLOB_ERR_IO:
+		return "the levels' storage refused";
 	}
 
 	return "unknown";
@@ -751,7 +753,22 @@ const char *fzn_blob_err_str(fzn_blob_err_t err)
  * `fzn_blob_span_is_canonical` and the two proof calls one definition of
  * canonical rather than three.
  */
-static fzn_blob_err_t span_walk(const fzn_hash_ops_t *hash, const uint8_t *leaf_hashes,
+/* A SUBTREE'S ROOT FROM AN ARRAY OF LEAF HASHES, as `fzn_blob_subtree_t`
+ * asks it: the provider the array-taking builders hand the walk. */
+struct leaf_array {
+	const fzn_hash_ops_t *hash;
+	const uint8_t *leaf_hashes;
+};
+
+static fzn_blob_err_t from_array(void *ctx, uint64_t lo, uint64_t n,
+                                 uint8_t out[FZN_BLOB_HASH_LEN])
+{
+	const struct leaf_array *a = (const struct leaf_array *)ctx;
+
+	return subtree_root(a->hash, a->leaf_hashes, lo, n, out);
+}
+
+static fzn_blob_err_t span_walk(fzn_blob_subtree_t subtree, void *subtree_ctx,
                                 uint64_t leaf_count, uint64_t first, uint64_t count,
                                 uint8_t *siblings, size_t cap, unsigned *out_count,
                                 uint64_t *path)
@@ -782,8 +799,8 @@ static fzn_blob_err_t span_walk(const fzn_hash_ops_t *hash, const uint8_t *leaf_
 
 				if (cap < ((size_t)depth + 1u) * FZN_BLOB_HASH_LEN)
 					return FZN_BLOB_ERR_MALFORMED;
-				err = subtree_root(hash, leaf_hashes, lo + k, n - k,
-				                   siblings + ((size_t)depth * FZN_BLOB_HASH_LEN));
+				err = subtree(subtree_ctx, lo + k, n - k,
+				              siblings + ((size_t)depth * FZN_BLOB_HASH_LEN));
 				if (err != FZN_BLOB_OK)
 					return err;
 			}
@@ -796,8 +813,8 @@ static fzn_blob_err_t span_walk(const fzn_hash_ops_t *hash, const uint8_t *leaf_
 
 				if (cap < ((size_t)depth + 1u) * FZN_BLOB_HASH_LEN)
 					return FZN_BLOB_ERR_MALFORMED;
-				err = subtree_root(hash, leaf_hashes, lo, k,
-				                   siblings + ((size_t)depth * FZN_BLOB_HASH_LEN));
+				err = subtree(subtree_ctx, lo, k,
+				              siblings + ((size_t)depth * FZN_BLOB_HASH_LEN));
 				if (err != FZN_BLOB_OK)
 					return err;
 			}
@@ -839,8 +856,27 @@ fzn_blob_err_t fzn_blob_span_proof_build(const fzn_hash_ops_t *hash, const uint8
 	if (count == 0u || count > leaf_count || first > leaf_count - count)
 		return FZN_BLOB_ERR_MALFORMED;
 
+	{
+		struct leaf_array array = { hash, leaf_hashes };
+
+		*out_count = 0u;
+		return span_walk(from_array, &array, leaf_count, first, count, out, out_cap,
+		                 out_count, NULL);
+	}
+}
+
+fzn_blob_err_t fzn_blob_span_proof_from(fzn_blob_subtree_t subtree, void *subtree_ctx,
+                                         uint64_t leaf_count, uint64_t first, uint64_t count,
+                                         uint8_t *out, size_t out_cap, unsigned *out_count)
+{
+	if (!subtree || !out || !out_count)
+		return FZN_BLOB_ERR_MALFORMED;
+	if (leaf_count == 0u || leaf_count > FZN_BLOB_MAX_LEAVES)
+		return FZN_BLOB_ERR_MALFORMED;
+	if (count == 0u || count > leaf_count || first > leaf_count - count)
+		return FZN_BLOB_ERR_MALFORMED;
 	*out_count = 0u;
-	return span_walk(hash, leaf_hashes, leaf_count, first, count, out, out_cap, out_count,
+	return span_walk(subtree, subtree_ctx, leaf_count, first, count, out, out_cap, out_count,
 	                 NULL);
 }
 
