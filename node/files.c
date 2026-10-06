@@ -5,6 +5,8 @@
 #include "files.h"
 
 #include "../blob/levels.h"
+#include "../contact/contact.h"
+#include "../contact/group.h"
 #include "../constant_time/constant_time.h"
 #include "../spool/plan.h"
 #include "../wire/bytes.h"
@@ -16,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #define ROOT_HEX (FZN_BLOB_HASH_LEN * 2u)
@@ -531,6 +534,9 @@ fzn_node_files_err_t fzn_node_files_export(const fzn_node_files_t *files,
 	return err;
 }
 
+static fzn_node_files_err_t forget_rows(fzn_node_files_t *files, const uint8_t *match,
+                                        int by_root, size_t *removed);
+
 fzn_node_files_err_t fzn_node_files_remove(fzn_node_files_t *files,
                                            const uint8_t root[FZN_BLOB_HASH_LEN])
 {
@@ -558,6 +564,15 @@ fzn_node_files_err_t fzn_node_files_remove(fzn_node_files_t *files,
 			gone++;
 		else if (errno != ENOENT)
 			return FZN_NODE_FILES_ERR_STORE;
+	}
+	/* AND ITS SHARES: a file made again under the root -- the same bytes
+	 * put again -- starts private. */
+	{
+		size_t rows = 0;
+
+		if (forget_rows(files, root, 1, &rows) != FZN_NODE_FILES_OK)
+			return FZN_NODE_FILES_ERR_STORE;
+		gone += rows;
 	}
 	return gone ? FZN_NODE_FILES_OK : FZN_NODE_FILES_ERR_ABSENT;
 }
@@ -1109,6 +1124,213 @@ fzn_node_files_err_t fzn_node_files_scrub_step(fzn_node_files_t *files, int *che
 	return err;
 }
 
+/* ---- tiers, sec 493 ----------------------------------------------------- */
+
+const uint8_t FZN_NODE_FILES_EVERY_CONTACT[FZN_PUBKEY_LEN] = {
+	0xffu, 0xffu, 0xffu, 0xffu, 0xffu, 0xffu, 0xffu, 0xffu, 0xffu, 0xffu, 0xffu,
+	0xffu, 0xffu, 0xffu, 0xffu, 0xffu, 0xffu, 0xffu, 0xffu, 0xffu, 0xffu, 0xffu,
+	0xffu, 0xffu, 0xffu, 0xffu, 0xffu, 0xffu, 0xffu, 0xffu, 0xffu, 0xffu
+};
+
+#define SHARE_BODY (FZN_BLOB_HASH_LEN + FZN_PUBKEY_LEN + 8u)
+#define SHARE_BLOB ((size_t)FZN_PERSIST_HEAD_LEN + SHARE_BODY)
+
+/* A row's key: the hash of a label, the root and the grantee, so one share
+ * is one row and a row copied under another key reads as nobody's. */
+static int share_key(const fzn_node_files_t *files, const uint8_t root[FZN_BLOB_HASH_LEN],
+                     const uint8_t grantee[FZN_PUBKEY_LEN], uint8_t key[FZN_PUBKEY_LEN])
+{
+	static const char LABEL[] = "fuzznet-file-share-v1";
+	uint8_t in[sizeof(LABEL) - 1u + FZN_BLOB_HASH_LEN + FZN_PUBKEY_LEN];
+
+	memcpy(in, LABEL, sizeof(LABEL) - 1u);
+	memcpy(in + sizeof(LABEL) - 1u, root, FZN_BLOB_HASH_LEN);
+	memcpy(in + sizeof(LABEL) - 1u + FZN_BLOB_HASH_LEN, grantee, FZN_PUBKEY_LEN);
+	return files->hash->hash(files->hash->ctx, key, FZN_PUBKEY_LEN, in, sizeof(in));
+}
+
+/* Row `key`'s root and grantee, refused when it is not filed under its own
+ * key. */
+static int share_read(const fzn_node_files_t *files, const uint8_t key[FZN_PUBKEY_LEN],
+                      uint8_t root[FZN_BLOB_HASH_LEN], uint8_t grantee[FZN_PUBKEY_LEN])
+{
+	uint8_t blob[SHARE_BLOB], again[FZN_PUBKEY_LEN];
+	size_t len = 0;
+
+	if (!files->store->load(files->store->ctx, FZN_PERSIST_FILE_SHARE, key, blob, sizeof(blob),
+	                        &len)
+	    || fzn_persist_head_check(blob, len, SHARE_BODY, FZN_PERSIST_BLOB_FILE_SHARE)
+	               != FZN_PERSIST_OK)
+		return 0;
+	memcpy(root, blob + FZN_PERSIST_HEAD_LEN, FZN_BLOB_HASH_LEN);
+	memcpy(grantee, blob + FZN_PERSIST_HEAD_LEN + FZN_BLOB_HASH_LEN, FZN_PUBKEY_LEN);
+	return share_key(files, root, grantee, again) && memcmp(again, key, FZN_PUBKEY_LEN) == 0;
+}
+
+/* Every row's key, `*n` of them. */
+static int share_keys(const fzn_node_files_t *files, uint8_t (*keys)[FZN_PUBKEY_LEN], size_t *n)
+{
+	*n = 0;
+	return files->store && files->store->load && files->store->list
+	       && files->store->list(files->store->ctx, FZN_PERSIST_FILE_SHARE, (uint8_t *)keys,
+	                             FZN_NODE_FILES_SHARES_MAX, n);
+}
+
+fzn_node_files_err_t fzn_node_files_share(fzn_node_files_t *files,
+                                          const uint8_t root[FZN_BLOB_HASH_LEN],
+                                          const uint8_t grantee[FZN_PUBKEY_LEN], int add,
+                                          uint64_t now_ms)
+{
+	static uint8_t keys[FZN_NODE_FILES_SHARES_MAX][FZN_PUBKEY_LEN];
+	uint8_t key[FZN_PUBKEY_LEN], blob[SHARE_BLOB], r[FZN_BLOB_HASH_LEN], g[FZN_PUBKEY_LEN];
+	uint64_t length = 0;
+	size_t n = 0, len = 0;
+
+	if (!files || !root || !grantee || !files->store || !files->store->save
+	    || !files->store->load || !share_key(files, root, grantee, key))
+		return FZN_NODE_FILES_ERR_MALFORMED;
+	if (!add) {
+		if (!files->store->remove)
+			return FZN_NODE_FILES_ERR_MALFORMED;
+		if (!share_read(files, key, r, g))
+			return FZN_NODE_FILES_ERR_ABSENT;
+		return files->store->remove(files->store->ctx, FZN_PERSIST_FILE_SHARE, key)
+		               ? FZN_NODE_FILES_OK
+		               : FZN_NODE_FILES_ERR_STORE;
+	}
+	/* A FILE HELD HERE, so a typo is refused rather than shared and
+	 * served nothing. */
+	if (fzn_node_files_held(files, root, &length) != FZN_NODE_FILES_OK)
+		return FZN_NODE_FILES_ERR_ABSENT;
+	/* SHARED AGAIN KEEPS THE ROW AND ITS TIME. */
+	if (files->store->load(files->store->ctx, FZN_PERSIST_FILE_SHARE, key, blob, sizeof(blob),
+	                       &len)
+	    && share_read(files, key, r, g))
+		return FZN_NODE_FILES_OK;
+	if (!share_keys(files, keys, &n) || n >= FZN_NODE_FILES_SHARES_MAX
+	    || fzn_persist_head_write(blob, sizeof(blob), SHARE_BODY, FZN_PERSIST_BLOB_FILE_SHARE)
+	               != FZN_PERSIST_OK)
+		return FZN_NODE_FILES_ERR_STORE;
+	memcpy(blob + FZN_PERSIST_HEAD_LEN, root, FZN_BLOB_HASH_LEN);
+	memcpy(blob + FZN_PERSIST_HEAD_LEN + FZN_BLOB_HASH_LEN, grantee, FZN_PUBKEY_LEN);
+	fzn_put_be64(blob + FZN_PERSIST_HEAD_LEN + FZN_BLOB_HASH_LEN + FZN_PUBKEY_LEN, now_ms);
+	return files->store->save(files->store->ctx, FZN_PERSIST_FILE_SHARE, key, blob, sizeof(blob))
+	               ? FZN_NODE_FILES_OK
+	               : FZN_NODE_FILES_ERR_STORE;
+}
+
+fzn_node_files_err_t fzn_node_files_shares_of(const fzn_node_files_t *files,
+                                              const uint8_t root[FZN_BLOB_HASH_LEN],
+                                              uint8_t (*grantees)[FZN_PUBKEY_LEN], size_t cap,
+                                              size_t *count)
+{
+	static uint8_t keys[FZN_NODE_FILES_SHARES_MAX][FZN_PUBKEY_LEN];
+	uint8_t r[FZN_BLOB_HASH_LEN], g[FZN_PUBKEY_LEN];
+	size_t n = 0, i;
+
+	if (!files || !root || (cap && !grantees) || !count)
+		return FZN_NODE_FILES_ERR_MALFORMED;
+	*count = 0;
+	if (!share_keys(files, keys, &n))
+		return files->store ? FZN_NODE_FILES_ERR_STORE : FZN_NODE_FILES_ERR_MALFORMED;
+	for (i = 0; i < n; i++) {
+		if (!share_read(files, keys[i], r, g) || memcmp(r, root, FZN_BLOB_HASH_LEN) != 0)
+			continue;
+		if (*count < cap)
+			memcpy(grantees[*count], g, FZN_PUBKEY_LEN);
+		(*count)++;
+	}
+	return FZN_NODE_FILES_OK;
+}
+
+int fzn_node_files_shared_with(const fzn_node_files_t *files,
+                               const uint8_t root[FZN_BLOB_HASH_LEN],
+                               const uint8_t sender[FZN_PUBKEY_LEN])
+{
+	static uint8_t grantees[FZN_NODE_FILES_SHARES_MAX][FZN_PUBKEY_LEN];
+	static uint8_t groups[FZN_GROUPS_MAX][FZN_PUBKEY_LEN];
+	size_t n = 0, n_groups = 0, i, j;
+
+	if (!files || !root || !sender
+	    || fzn_node_files_shares_of(files, root, grantees, FZN_NODE_FILES_SHARES_MAX, &n)
+	               != FZN_NODE_FILES_OK)
+		return 0;
+	if (n > FZN_NODE_FILES_SHARES_MAX)
+		n = FZN_NODE_FILES_SHARES_MAX;
+	for (i = 0; i < n; i++)
+		if (memcmp(grantees[i], FZN_NODE_FILES_EVERY_CONTACT, FZN_PUBKEY_LEN) == 0
+		    || memcmp(grantees[i], sender, FZN_PUBKEY_LEN) == 0)
+			return 1;
+	/* AND EVERY GROUP IT IS IN, read now, at the request. */
+	if (fzn_group_ids_of(files->store, sender, groups, FZN_GROUPS_MAX, &n_groups)
+	    != FZN_CONTACT_OK)
+		return 0;
+	for (i = 0; i < n; i++)
+		for (j = 0; j < n_groups; j++)
+			if (memcmp(grantees[i], groups[j], FZN_PUBKEY_LEN) == 0)
+				return 1;
+	return 0;
+}
+
+/* Every row whose root or grantee is `match`, the one `by_root` names. */
+static fzn_node_files_err_t forget_rows(fzn_node_files_t *files, const uint8_t *match,
+                                        int by_root, size_t *removed)
+{
+	static uint8_t keys[FZN_NODE_FILES_SHARES_MAX][FZN_PUBKEY_LEN];
+	uint8_t r[FZN_BLOB_HASH_LEN], g[FZN_PUBKEY_LEN];
+	size_t n = 0, i;
+
+	*removed = 0;
+	if (!files->store)
+		return FZN_NODE_FILES_OK;
+	if (!share_keys(files, keys, &n) || !files->store->remove)
+		return FZN_NODE_FILES_ERR_STORE;
+	for (i = 0; i < n; i++) {
+		if (!share_read(files, keys[i], r, g)
+		    || memcmp(by_root ? r : g, match, FZN_PUBKEY_LEN) != 0)
+			continue;
+		if (!files->store->remove(files->store->ctx, FZN_PERSIST_FILE_SHARE, keys[i]))
+			return FZN_NODE_FILES_ERR_STORE;
+		(*removed)++;
+	}
+	return FZN_NODE_FILES_OK;
+}
+
+fzn_node_files_err_t fzn_node_files_forget(fzn_node_files_t *files,
+                                           const uint8_t grantee[FZN_PUBKEY_LEN],
+                                           size_t *removed)
+{
+	if (!files || !grantee || !removed)
+		return FZN_NODE_FILES_ERR_MALFORMED;
+	return forget_rows(files, grantee, 0, removed);
+}
+
+size_t fzn_node_files_answer_shared(const fzn_node_files_t *files, const uint8_t *sender,
+                                    const uint8_t *request, size_t request_len,
+                                    uint8_t *reply, size_t reply_cap)
+{
+	uint8_t root[FZN_BLOB_HASH_LEN], cookie[FZN_MSG_COOKIE_LEN];
+	uint64_t first = 0, count = 0;
+	uint32_t transfer = 0;
+	fzn_msg_type_t type;
+
+	if (!files || !sender || !request || fzn_msg_peek(request, request_len, &type) != FZN_MSG_OK)
+		return 0;
+	if (type == FZN_MSG_HAVE_QUERY) {
+		if (fzn_msg_have_query_parse(request, request_len, root) != FZN_MSG_OK)
+			return 0;
+	} else if (type == FZN_MSG_WANT) {
+		if (fzn_msg_want_parse(request, request_len, &transfer, cookie, root, &first, &count)
+		    != FZN_MSG_OK)
+			return 0;
+	} else {
+		return 0;
+	}
+	if (!fzn_node_files_shared_with(files, root, sender))
+		return 0;
+	return fzn_node_files_answer(files, request, request_len, reply, reply_cap);
+}
+
 /* ---- the verbs ---------------------------------------------------------- */
 
 static size_t answer(char *reply, size_t cap, fzn_reply_t kind, const char *detail)
@@ -1139,6 +1361,79 @@ static int path_arg(const uint8_t *arg, size_t len, char out[FZN_SPOOL_FILE_PATH
 	return 1;
 }
 
+static uint64_t files_now_ms(void)
+{
+	struct timespec ts;
+
+	if (timespec_get(&ts, TIME_UTC) != TIME_UTC || ts.tv_sec < 0)
+		return 0u;
+	return ((uint64_t)ts.tv_sec * 1000u) + ((uint64_t)ts.tv_nsec / 1000000u);
+}
+
+/* `set file ROOT public|private`, `grant file ROOT NAME|@GROUP`, `revoke
+ * file ROOT NAME|@GROUP`. sec 493. */
+static size_t change_share(fzn_node_files_t *files, fzn_verb_t verb, const uint8_t *arg,
+                           size_t arg_len, char *reply, size_t cap)
+{
+	uint8_t root[FZN_BLOB_HASH_LEN], grantee[FZN_PUBKEY_LEN];
+	const uint8_t *word;
+	size_t word_len;
+	fzn_node_files_err_t err;
+	int add = verb != FZN_VERB_REVOKE;
+
+	if (!files->store)
+		return answer(reply, cap, FZN_REPLY_UNSUPPORTED, "no store for tiers");
+	if (arg_len < ROOT_HEX + 2u || arg[ROOT_HEX] != ' ' || !from_hex(arg, ROOT_HEX, root, sizeof(root)))
+		return answer(reply, cap, FZN_REPLY_MALFORMED,
+		              verb == FZN_VERB_SET ? "set file ROOT public|private"
+		              : add                ? "grant file ROOT NAME|@GROUP"
+		                                   : "revoke file ROOT NAME|@GROUP");
+	word = arg + ROOT_HEX + 1u;
+	word_len = arg_len - ROOT_HEX - 1u;
+	if (verb == FZN_VERB_SET) {
+		if (word_len == 6u && memcmp(word, "public", 6u) == 0)
+			add = 1;
+		else if (word_len == 7u && memcmp(word, "private", 7u) == 0)
+			add = 0;
+		else
+			return answer(reply, cap, FZN_REPLY_MALFORMED, "set file ROOT public|private");
+		memcpy(grantee, FZN_NODE_FILES_EVERY_CONTACT, sizeof(grantee));
+		err = fzn_node_files_share(files, root, grantee, add, files_now_ms());
+		/* PRIVATE ALREADY is what was asked for. */
+		if (!add && err == FZN_NODE_FILES_ERR_ABSENT)
+			err = FZN_NODE_FILES_OK;
+	} else {
+		/* `@NAME` IS A GROUP; one since removed can still be revoked by
+		 * its id, as a notes share can (sec 471). */
+		if (word_len > 1u && word[0] == '@') {
+			static fzn_group_t group;
+			fzn_contact_err_t cerr =
+			        add ? fzn_group_find(files->store, files->hash, (const char *)word + 1,
+			                             word_len - 1u, &group)
+			            : fzn_group_id(files->hash, (const char *)word + 1, word_len - 1u,
+			                           group.id);
+
+			if (cerr != FZN_CONTACT_OK)
+				return answer(reply, cap, FZN_REPLY_ERROR, fzn_contact_err_str(cerr));
+			memcpy(grantee, group.id, sizeof(grantee));
+		} else {
+			fzn_contact_t contact;
+			fzn_contact_err_t cerr =
+			        fzn_contact_find(files->store, (const char *)word, word_len, &contact);
+
+			if (cerr != FZN_CONTACT_OK)
+				return answer(reply, cap,
+				              cerr == FZN_CONTACT_ERR_NAME ? FZN_REPLY_MALFORMED
+				                                           : FZN_REPLY_ERROR,
+				              fzn_contact_err_str(cerr));
+			memcpy(grantee, contact.key, sizeof(grantee));
+		}
+		err = fzn_node_files_share(files, root, grantee, add, files_now_ms());
+	}
+	return err == FZN_NODE_FILES_OK ? answer(reply, cap, FZN_REPLY_OK, NULL)
+	                                : refused(reply, cap, err);
+}
+
 static size_t list_files(const fzn_node_files_t *files, const uint8_t *arg, size_t arg_len,
                          char *reply, size_t cap)
 {
@@ -1164,14 +1459,30 @@ static size_t list_files(const fzn_node_files_t *files, const uint8_t *arg, size
 		return 0;
 	used = (size_t)n;
 	for (i = from; i < count && i < sizeof(roots) / sizeof(roots[0]); i++) {
-		char hex[ROOT_HEX + 1u], item[ROOT_HEX + 24u];
+		char hex[ROOT_HEX + 1u], item[ROOT_HEX + 40u];
 		uint64_t length = 0;
 		int m;
 
 		if (fzn_node_files_held(files, roots[i], &length) != FZN_NODE_FILES_OK)
 			continue;
 		to_hex(roots[i], FZN_BLOB_HASH_LEN, hex);
-		m = snprintf(item, sizeof(item), " %s,%llu", hex, (unsigned long long)length);
+		{
+			static uint8_t grantees[FZN_NODE_FILES_SHARES_MAX][FZN_PUBKEY_LEN];
+			size_t shares = 0, k;
+			int public_ = 0;
+
+			if (files->store
+			    && fzn_node_files_shares_of(files, roots[i], grantees,
+			                                FZN_NODE_FILES_SHARES_MAX, &shares)
+			               == FZN_NODE_FILES_OK)
+				for (k = 0; k < shares && k < FZN_NODE_FILES_SHARES_MAX; k++)
+					if (memcmp(grantees[k], FZN_NODE_FILES_EVERY_CONTACT, FZN_PUBKEY_LEN)
+					    == 0)
+						public_ = 1;
+			m = snprintf(item, sizeof(item), " %s,%llu%s%s", hex,
+			             (unsigned long long)length, public_ ? ",public" : "",
+			             shares > (size_t)public_ ? ",shared" : "");
+		}
 		if (m < 0 || limit - used < (size_t)m)
 			break;
 		memcpy(detail + used, item, (size_t)m);
@@ -1199,7 +1510,8 @@ size_t fzn_node_files_local(void *ctx, fzn_origin_t origin, const fzn_request_t 
 		return 0;
 	if (request->parsed != FZN_VERB_PUT && request->parsed != FZN_VERB_GET
 	    && request->parsed != FZN_VERB_REMOVE && request->parsed != FZN_VERB_LIST
-	    && request->parsed != FZN_VERB_FETCH)
+	    && request->parsed != FZN_VERB_FETCH && request->parsed != FZN_VERB_SET
+	    && request->parsed != FZN_VERB_GRANT && request->parsed != FZN_VERB_REVOKE)
 		return 0;
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return answer(reply, reply_cap, FZN_REPLY_DENIED, "a file needs this node's own user");
@@ -1211,13 +1523,28 @@ size_t fzn_node_files_local(void *ctx, fzn_origin_t origin, const fzn_request_t 
 	}
 	if (request->parsed == FZN_VERB_LIST)
 		return list_files(files, arg, arg_len, reply, reply_cap);
+	if (request->parsed == FZN_VERB_SET || request->parsed == FZN_VERB_GRANT
+	    || request->parsed == FZN_VERB_REVOKE)
+		return change_share(files, request->parsed, arg, arg_len, reply, reply_cap);
 	if (request->parsed == FZN_VERB_PUT) {
 		uint8_t bytes[FZN_NODE_FILE_REF_LEN];
 		char hex[REF_HEX + 1u];
+		int public_ = 0;
 
+		/* `put file PATH public`: a path holding " public" at its end is
+		 * one nobody names, so the word is taken as the tier. */
+		if (arg_len > 7u && memcmp(arg + arg_len - 7u, " public", 7u) == 0) {
+			public_ = 1;
+			arg_len -= 7u;
+		}
 		if (!path_arg(arg, arg_len, path))
-			return answer(reply, reply_cap, FZN_REPLY_MALFORMED, "put file PATH");
+			return answer(reply, reply_cap, FZN_REPLY_MALFORMED, "put file PATH [public]");
+		if (public_ && !files->store)
+			return answer(reply, reply_cap, FZN_REPLY_UNSUPPORTED, "no store for tiers");
 		err = fzn_node_files_put(files, path, &ref);
+		if (err == FZN_NODE_FILES_OK && public_)
+			err = fzn_node_files_share(files, ref.root, FZN_NODE_FILES_EVERY_CONTACT, 1,
+			                           files_now_ms());
 		if (err != FZN_NODE_FILES_OK)
 			return refused(reply, reply_cap, err);
 		fzn_node_file_ref_write(&ref, bytes);

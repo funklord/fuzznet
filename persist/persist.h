@@ -241,6 +241,9 @@ typedef enum fzn_persist_slot {
 	 * removal, signed by an estate member -- with its writer's chain.
 	 * `node/roster.h` keeps it. sec 489. */
 	FZN_PERSIST_ROSTER = 28u,
+	/* Per row: a file shared -- its root and a contact's key, a group's
+	 * id, or every contact. `node/files.h` keeps it. sec 493. */
+	FZN_PERSIST_FILE_SHARE = 29u,
 } fzn_persist_slot_t;
 
 typedef enum fzn_persist_err {
@@ -297,6 +300,8 @@ typedef enum fzn_persist_err {
 /* A roster record and its writer's chain, in slot 28. `node/roster.c`
  * keeps it. sec 489. */
 #define FZN_PERSIST_BLOB_ROSTER 29u
+/* A file's share row, in slot 29. `node/files.c` keeps it. sec 493. */
+#define FZN_PERSIST_BLOB_FILE_SHARE 30u
 
 /* Write a blob head, or refuse when `cap` cannot hold head and body. */
 fzn_persist_err_t fzn_persist_head_write(uint8_t *out, size_t cap, size_t body,
@@ -430,6 +435,10 @@ typedef struct fzn_persist_ops {
  * NOT CORE: ADMIN_RETENTION (sec 479), as LOG_RULE is: it decides how long
  * logs stay, not who reads them. A root's retention records live in
  * ROOT_CHANGE, which is core for the root set's sake, not theirs.
+ *
+ * CORE: FILE_SHARE (sec 493), named rather than left to the default, as
+ * NOTE_SHARE is: a row rolled back is a contact fetching a file after it
+ * was unshared, or a private file served to every contact.
  *
  * CORE: ROSTER (sec 489), named rather than left to the default. A
  * removal rolled back is a removed contact served again -- a door.

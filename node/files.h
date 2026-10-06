@@ -41,6 +41,7 @@
 #include <stdint.h>
 
 #include "../local/vocabulary.h"
+#include "../persist/persist.h"
 #include "../chain/authz.h"
 #include "../blob/blob.h"
 #include "../session/aead.h"
@@ -115,6 +116,10 @@ typedef struct fzn_node_files {
 	int fresh;
 	/* Where the scrub left off, sec 492: the root it checked last. */
 	uint8_t scrub_after[FZN_BLOB_HASH_LEN];
+	/* THE SHARES' STORE, sec 493 -- the node's, where contacts and groups
+	 * live too -- or NULL: then no file is served to a contact and the
+	 * share verbs are unsupported. Set by the caller after init. */
+	const fzn_persist_ops_t *store;
 } fzn_node_files_t;
 
 /* Over `dir`, created mode 0700 when it is not there. */
@@ -233,13 +238,73 @@ fzn_node_files_err_t fzn_node_files_verify(fzn_node_files_t *files,
 fzn_node_files_err_t fzn_node_files_scrub_step(fzn_node_files_t *files, int *checked,
                                                uint64_t *dropped);
 
+/* ---- tiers: who besides the members may fetch a file, sec 493 -----------
+ *
+ * THE HOLDER'S DECISION, 2026-10-07: a PRIVATE file is served to this
+ * estate's members and to the contacts and groups it is shared with; a
+ * PUBLIC one to every contact of this node as well. A file is private until
+ * it is shared or made public.
+ *
+ * A SHARE IS A ROW in persist slot 29 -- the root and a grantee: a
+ * contact's key, a group's id, or FZN_NODE_FILES_EVERY_CONTACT -- filed
+ * under a hash of the two, and CORE: a row rolled back is a contact
+ * fetching a file after it was unshared. A group's membership is read at the
+ * request, as a notes share's is (sec 471). Deleting a file deletes its
+ * rows; forgetting a grantee -- a group removed -- deletes its rows, so a
+ * group made again under the name reaches nothing it did not share (sec
+ * 478's rule).
+ *
+ * THE CONTACT ASKING has already been found a contact and served by the
+ * share capability (`node/admin.c`); this answers only which files. */
+#define FZN_NODE_FILES_SHARES_MAX 256u
+
+/* A grantee meaning every contact of this node. */
+extern const uint8_t FZN_NODE_FILES_EVERY_CONTACT[FZN_PUBKEY_LEN];
+
+/* Share the file `root`, held here, with `grantee` -- or with `add` 0,
+ * stop. ABSENT when the file is not held (sharing) or the share was not
+ * there (stopping). */
+fzn_node_files_err_t fzn_node_files_share(fzn_node_files_t *files,
+                                          const uint8_t root[FZN_BLOB_HASH_LEN],
+                                          const uint8_t grantee[FZN_PUBKEY_LEN], int add,
+                                          uint64_t now_ms);
+
+/* The grantees of `root`, `cap` at most; `*count` how many. */
+fzn_node_files_err_t fzn_node_files_shares_of(const fzn_node_files_t *files,
+                                              const uint8_t root[FZN_BLOB_HASH_LEN],
+                                              uint8_t (*grantees)[FZN_PUBKEY_LEN], size_t cap,
+                                              size_t *count);
+
+/* Whether the contact `sender` may fetch `root`: the file is public, or
+ * shared with it, or with a group it is in. */
+int fzn_node_files_shared_with(const fzn_node_files_t *files,
+                               const uint8_t root[FZN_BLOB_HASH_LEN],
+                               const uint8_t sender[FZN_PUBKEY_LEN]);
+
+/* Every row for `grantee` deleted, `*removed` of them. */
+fzn_node_files_err_t fzn_node_files_forget(fzn_node_files_t *files,
+                                           const uint8_t grantee[FZN_PUBKEY_LEN],
+                                           size_t *removed);
+
+/* THE SERVER FOR A CONTACT: `fzn_node_files_answer` for a HAVE_QUERY or a
+ * WANT whose root `sender` may fetch, and 0 for any other -- the root read
+ * from the request itself, so the question asked and the one permitted are
+ * one. */
+size_t fzn_node_files_answer_shared(const fzn_node_files_t *files, const uint8_t *sender,
+                                    const uint8_t *request, size_t request_len,
+                                    uint8_t *reply, size_t reply_cap);
+
 /* THE NODE'S VERBS, for `node/admin.h`'s hook; 0 when `request` is not one:
  *
- *     put file PATH          seal the file at PATH; answers its reference
+ *     put file PATH [public] seal the file at PATH; answers its reference
  *     get file REF PATH      export it to PATH, a file that is not there
- *     fetch file REF         fetch it from the pull peers, sec 491
+ *     fetch file REF         fetch it from the pull peers and the contacts
+ *                            sharing with this node, secs 491, 493
  *     remove file ROOT       delete it here, or stop fetching it
- *     list file [FROM]       `ok TOTAL FROM ROOT,LENGTH ...`
+ *     list file [FROM]       `ok TOTAL FROM ROOT,LENGTH[,public][,shared] ...`
+ *     set file ROOT public|private
+ *     grant file ROOT NAME|@GROUP     share it with a contact or a group
+ *     revoke file ROOT NAME|@GROUP    stop
  *
  * REF is the reference in hex, ROOT the root. All need this node's own
  * user: a put reads a file as the node, an export writes one. */

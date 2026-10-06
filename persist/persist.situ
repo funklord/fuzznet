@@ -79,6 +79,7 @@ enum fzn_persist_tag : u8 {
 	retention_set = 27,
 	admin_retention = 28,
 	roster = 29,
+	file_share = 30,
 	default = error,
 }
 
@@ -196,6 +197,14 @@ struct fzn_persist_roster_body {
 	u8  record[157];
 	u8  hop_count [max = 8];
 	fzn_persist_hop hops[hop_count];
+}
+
+// A file shared (sec 493): its root, and a contact's key, a group's id, or
+// 32 bytes of 0xff for every contact; and when.
+struct fzn_persist_file_share_body {
+	u8   root[32];
+	u8   grantee[32];
+	u64  shared_at_ms;
 }
 
 // The seed of the root key a node holds beside its identity (sec 409),
@@ -363,6 +372,7 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.retention_set: fzn_persist_retention_set_body retention_set;
 		case fzn_persist_tag.admin_retention: fzn_persist_admin_retention_body admin_retention;
 		case fzn_persist_tag.roster: fzn_persist_roster_body roster;
+		case fzn_persist_tag.file_share: fzn_persist_file_share_body file_share;
 		default: error;
 	}
 }

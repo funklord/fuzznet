@@ -1425,29 +1425,54 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 	for (w = 0; w < n && w < FZN_NODE_FILES_WANTS_MAX; w++) {
 		uint64_t left = FZND_FILE_LEAVES_A_ROUND;
 
-		for (t = 0; t < npulls && left; t++) {
-			struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
+		/* THE PULL PEERS, THEN THE CONTACTS SHARING WITH THIS NODE, sec
+		 * 493: a contact's node answers for what it made public or shared
+		 * here, and nothing else. */
+		for (t = 0; t < npulls + nshares_in && left; t++) {
+			fzn_caller_t *caller = t < npulls ? &pulls[t].caller
+			                                  : &shares_in[t - npulls].pt.caller;
+			const char *host = t < npulls ? pulls[t].host : shares_in[t - npulls].host;
+			struct peer_asking asking = { caller, now, host };
 			uint64_t placed = 0;
-			fzn_node_files_err_t err = fzn_node_files_fetch(&files, roots[w], peer_ask,
-			                                                &asking, left, &placed);
+			fzn_node_files_err_t err;
+
+			if (t >= npulls && shares_in[t - npulls].pt.fd < 0)
+				continue;
+			err = fzn_node_files_fetch(&files, roots[w], peer_ask, &asking, left, &placed);
 
 			left = placed < left ? left - placed : 0u;
 			if (err == FZN_NODE_FILES_OK) {
 				say(FZN_ENTRY_INFO, "files", "file %02x%02x%02x%02x, %llu bytes, whole from %s",
 				    roots[w][0], roots[w][1], roots[w][2], roots[w][3],
-				    (unsigned long long)lengths[w], pulls[t].host);
+				    (unsigned long long)lengths[w], host);
 				break;
 			}
 			if (placed)
 				say(FZN_ENTRY_INFO, "files", "%llu leaf(s) of file %02x%02x%02x%02x from %s",
 				    (unsigned long long)placed, roots[w][0], roots[w][1], roots[w][2],
-				    roots[w][3], pulls[t].host);
+				    roots[w][3], host);
 			if (err != FZN_NODE_FILES_ERR_NOT_THERE && err != FZN_NODE_FILES_ERR_ABSENT)
 				say(FZN_ENTRY_WARNING, "files", "file %02x%02x%02x%02x from %s: %s",
-				    roots[w][0], roots[w][1], roots[w][2], roots[w][3], pulls[t].host,
+				    roots[w][0], roots[w][1], roots[w][2], roots[w][3], host,
 				    fzn_node_files_err_str(err));
 		}
 	}
+}
+
+/* A CONTACT'S FILE REQUEST, and a grantee forgotten: the admin's hooks.
+ * sec 493. */
+static size_t files_shared(void *ctx, const uint8_t *sender, const uint8_t *request,
+                           size_t request_len, uint8_t *reply, size_t reply_cap)
+{
+	return fzn_node_files_answer_shared((const fzn_node_files_t *)ctx, sender, request,
+	                                    request_len, reply, reply_cap);
+}
+
+static int files_forget(void *ctx, const uint8_t *grantee)
+{
+	size_t gone = 0;
+
+	return fzn_node_files_forget((fzn_node_files_t *)ctx, grantee, &gone) == FZN_NODE_FILES_OK;
 }
 
 /* THE REMOTE HOP'S BLOB MESSAGES, sec 491: a file held whole answers first,
@@ -2743,7 +2768,10 @@ int main(int argc, char **argv)
 				                           &rng_ops)
 				               == FZN_NODE_FILES_OK) {
 					admin.files_local = fzn_node_files_local;
+					admin.files_shared = files_shared;
+					admin.files_forget = files_forget;
 					admin.files_ctx = &files;
+					files.store = store_ops;
 					files_on = 1;
 				} else {
 					say(FZN_ENTRY_WARNING, "files", "no store for files under %s",

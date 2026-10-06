@@ -2102,6 +2102,13 @@ $(BUILD_DIR)/node/test/files_test: $(BUILD_DIR)/node/test/files_test.o \
                                    $(BUILD_DIR)/spool/spool.o \
                                    $(BUILD_DIR)/spool/message.o \
                                    $(BUILD_DIR)/spool/plan.o \
+                                   $(BUILD_DIR)/contact/contact.o \
+                                   $(BUILD_DIR)/contact/group.o \
+                                   $(BUILD_DIR)/persist/persist.o \
+                                   $(BUILD_DIR)/trust/trust.o \
+                                   $(BUILD_DIR)/session/agree.o \
+                                   $(BUILD_DIR)/prekey/prekey.o \
+                                   $(BUILD_DIR)/ratchet/ratchet.o \
                                    $(BUILD_DIR)/local/vocabulary.o \
                                    $(BUILD_DIR)/local/peer.o \
                                    $(BUILD_DIR)/blob/blob.o \

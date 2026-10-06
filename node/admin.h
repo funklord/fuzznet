@@ -134,6 +134,12 @@ typedef struct fzn_node_admin {
 	 * texts are, for the same reason. sec 490. */
 	size_t (*files_local)(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
 	                      char *reply, size_t reply_cap);
+	/* A CONTACT'S FILE REQUEST, sec 493: answered only for a file public
+	 * or shared with `sender`, or 0. And a grantee's rows gone, for a
+	 * group removed. NULL serves a contact no file. */
+	size_t (*files_shared)(void *ctx, const uint8_t *sender, const uint8_t *request,
+	                       size_t request_len, uint8_t *reply, size_t reply_cap);
+	int (*files_forget)(void *ctx, const uint8_t *grantee);
 	void *files_ctx;
 	/* The node's notes (`node/notes.h`), or NULL: then the note verbs are
 	 * unsupported. A hook, as the texts are, so admin keeps no notes

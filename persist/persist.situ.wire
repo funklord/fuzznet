@@ -19,7 +19,7 @@ endian big
 target file
 
 enum fzn_persist_tag : u8 unknown=error
-  trust=1 secret=2 peer=3 chain=4 node_peer=5 identity=6 pairing=7 revocation=8 vote=9 root_entry=10 root_add=11 root_remove=12 own_root=13 admin_confirm=14 own_admin=15 quorum_set=16 note=17 note_seq=18 note_purge=19 note_partner=20 contact=21 note_share=22 shared_note=23 received_share=24 contact_group=25 log_rule=26 retention_set=27 admin_retention=28 roster=29
+  trust=1 secret=2 peer=3 chain=4 node_peer=5 identity=6 pairing=7 revocation=8 vote=9 root_entry=10 root_add=11 root_remove=12 own_root=13 admin_confirm=14 own_admin=15 quorum_set=16 note=17 note_seq=18 note_purge=19 note_partner=20 contact=21 note_share=22 shared_note=23 received_share=24 contact_group=25 log_rule=26 retention_set=27 admin_retention=28 roster=29 file_share=30
 
 struct fzn_persist_admin_confirm_body size=131..1384
   @0x0000   130       u8         record  big
@@ -65,6 +65,7 @@ struct fzn_persist_blob size=2..
   body case 27: retention_set fzn_persist_retention_set_body
   body case 28: admin_retention fzn_persist_admin_retention_body
   body case 29: roster fzn_persist_roster_body
+  body case 30: file_share fzn_persist_file_share_body
   body case default: error
 
 struct fzn_persist_chain_body size=40
@@ -82,6 +83,11 @@ struct fzn_persist_contact_group_body size=11..2090
   ~         1         u8         count  max=64
   ~         0..2048   fzn_persist_group_member members  sized-by=count
   ~         8         u64        made_at  big
+
+struct fzn_persist_file_share_body size=72
+  @0x0000   32        u8         root  big
+  @0x0020   32        u8         grantee  big
+  @0x0040   8         u64        shared_at_ms  big
 
 struct fzn_persist_group_member size=32
   @0x0000   32        u8         key  big

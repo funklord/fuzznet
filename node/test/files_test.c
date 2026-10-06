@@ -14,6 +14,8 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "../files.h"
+#include "../../contact/contact.h"
+#include "../../contact/group.h"
 
 #include <dirent.h>
 #include <fcntl.h>
@@ -221,6 +223,116 @@ static size_t verb(fzn_node_files_t *files, fzn_verb_t parsed, fzn_origin_t orig
 	r.arg = (const uint8_t *)arg;
 	r.arg_len = strlen(arg);
 	return fzn_node_files_local(files, origin, &r, reply, cap);
+}
+
+/* A STORE IN MEMORY, for the contacts, the groups and the share rows. */
+struct mem_entry {
+	int used;
+	fzn_persist_slot_t slot;
+	uint8_t subject[FZN_PUBKEY_LEN];
+	uint8_t bytes[512];
+	size_t len;
+};
+static struct mem_entry mem[128];
+
+static struct mem_entry *mem_find(fzn_persist_slot_t slot, const uint8_t *subject, int make)
+{
+	size_t i;
+	struct mem_entry *free_one = NULL;
+
+	for (i = 0; i < sizeof(mem) / sizeof(mem[0]); i++) {
+		if (!mem[i].used) {
+			if (!free_one)
+				free_one = &mem[i];
+			continue;
+		}
+		if (mem[i].slot == slot && memcmp(mem[i].subject, subject, FZN_PUBKEY_LEN) == 0)
+			return &mem[i];
+	}
+	if (!make || !free_one)
+		return NULL;
+	memset(free_one, 0, sizeof(*free_one));
+	free_one->used = 1;
+	free_one->slot = slot;
+	memcpy(free_one->subject, subject, FZN_PUBKEY_LEN);
+	return free_one;
+}
+
+static int mem_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, uint8_t *out,
+                    size_t cap, size_t *len)
+{
+	struct mem_entry *x = mem_find(slot, subject, 0);
+
+	(void)ctx;
+	if (!x || x->len > cap)
+		return 0;
+	memcpy(out, x->bytes, x->len);
+	*len = x->len;
+	return 1;
+}
+
+static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
+                    const uint8_t *bytes, size_t len)
+{
+	struct mem_entry *x;
+
+	(void)ctx;
+	if (len > sizeof(x->bytes) || !(x = mem_find(slot, subject, 1)))
+		return 0;
+	memcpy(x->bytes, bytes, len);
+	x->len = len;
+	return 1;
+}
+
+static int mem_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max, size_t *count)
+{
+	size_t i, n = 0;
+
+	(void)ctx;
+	for (i = 0; i < sizeof(mem) / sizeof(mem[0]); i++)
+		if (mem[i].used && mem[i].slot == slot) {
+			if (n >= max)
+				return 0;
+			memcpy(out + (n * FZN_PUBKEY_LEN), mem[i].subject, FZN_PUBKEY_LEN);
+			n++;
+		}
+	*count = n;
+	return 1;
+}
+
+static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject)
+{
+	struct mem_entry *x = mem_find(slot, subject, 0);
+
+	(void)ctx;
+	if (x)
+		x->used = 0;
+	return 1;
+}
+
+static const fzn_persist_ops_t STORE = { mem_load, mem_save, mem_list, mem_remove, NULL };
+
+static size_t rows(fzn_persist_slot_t slot)
+{
+	size_t i, n = 0;
+
+	for (i = 0; i < sizeof(mem) / sizeof(mem[0]); i++)
+		n += (size_t)(mem[i].used && mem[i].slot == slot);
+	return n;
+}
+
+/* The root at the head of a reference in hex. */
+static int hex_root(const char *hex, uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	size_t i;
+	unsigned v;
+
+	for (i = 0; i < FZN_BLOB_HASH_LEN; i++) {
+		if (sscanf(hex + (2u * i), "%2x", &v) != 1)
+			return 0;
+		root[i] = (uint8_t)v;
+	}
+	return 1;
 }
 
 /* Flip one byte of `<dir>/<root hex><suffix>` at `offset`. */
@@ -579,6 +691,116 @@ int main(void)
 		(void)fzn_node_files_remove(&B, big.root);
 		(void)fzn_node_files_remove(&F, big.root);
 		CHECK(rmdir(dir_b) == 0, "B's directory empties");
+	}
+
+	/* ---- TIERS, sec 493: who besides the members may fetch a file. */
+	{
+		uint8_t bob[FZN_PUBKEY_LEN], carol[FZN_PUBKEY_LEN], fam[FZN_PUBKEY_LEN];
+		uint8_t q[FZN_MSG_WANT_LEN], answer_[FZN_NODE_FILES_REPLY_MAX];
+		uint8_t pub_root[FZN_BLOB_HASH_LEN];
+		fzn_node_file_ref_t t;
+		size_t qlen = 0, n = 0;
+		char root_hex[FZN_BLOB_HASH_LEN * 2u + 1u];
+
+		memset(bob, 0xb0, sizeof(bob));
+		memset(carol, 0xc4, sizeof(carol));
+		F.store = &STORE;
+		CHECK(make_source(src_path, 4000u) && fzn_node_files_put(&F, src_path, &t)
+		                                              == FZN_NODE_FILES_OK
+		              && fzn_contact_add(&STORE, bob, "bob", 3u, 1u) == FZN_CONTACT_OK
+		              && fzn_contact_add(&STORE, carol, "carol", 5u, 1u) == FZN_CONTACT_OK
+		              && fzn_group_add(&STORE, &HASH, "fam", 3u, 1u) == FZN_CONTACT_OK
+		              && fzn_group_join(&STORE, &HASH, "fam", 3u, carol) == FZN_CONTACT_OK
+		              && fzn_group_id(&HASH, "fam", 3u, fam) == FZN_CONTACT_OK
+		              && fzn_msg_have_query_encode(t.root, q, sizeof(q), &qlen) == FZN_MSG_OK,
+		      "fixture: a file, bob, carol in the group fam, and a question for the file");
+		for (i = 0; i < FZN_BLOB_HASH_LEN; i++)
+			(void)snprintf(root_hex + (2u * i), 3u, "%02x", t.root[i]);
+
+		CHECK(!fzn_node_files_shared_with(&F, t.root, bob)
+		              && fzn_node_files_answer_shared(&F, bob, q, qlen, answer_, sizeof(answer_))
+		                         == 0u
+		              && fzn_node_files_answer(&F, q, qlen, answer_, sizeof(answer_)) > 0u,
+		      "a private file was served to a contact, or not to a member");
+		(void)snprintf(line, sizeof(line), "file %s public", root_hex);
+		CHECK(said(&F, FZN_VERB_SET, line, reply, sizeof(reply)) && strcmp(reply, "ok") == 0
+		              && fzn_node_files_shared_with(&F, t.root, bob)
+		              && fzn_node_files_shared_with(&F, t.root, carol)
+		              && fzn_node_files_answer_shared(&F, bob, q, qlen, answer_, sizeof(answer_))
+		                         > 0u,
+		      "a public file was not served to every contact");
+		(void)snprintf(line, sizeof(line), "file %s private", root_hex);
+		CHECK(said(&F, FZN_VERB_SET, line, reply, sizeof(reply)) && strcmp(reply, "ok") == 0
+		              && !fzn_node_files_shared_with(&F, t.root, bob)
+		              && said(&F, FZN_VERB_SET, line, reply, sizeof(reply))
+		              && strcmp(reply, "ok") == 0,
+		      "made private, the file was still served, or private twice refused");
+		(void)snprintf(line, sizeof(line), "file %s bob", root_hex);
+		CHECK(said(&F, FZN_VERB_GRANT, line, reply, sizeof(reply)) && strcmp(reply, "ok") == 0
+		              && fzn_node_files_shared_with(&F, t.root, bob)
+		              && !fzn_node_files_shared_with(&F, t.root, carol)
+		              && said(&F, FZN_VERB_LIST, "file", reply, sizeof(reply))
+		              && strstr(reply, ",4000,shared") != NULL,
+		      "shared with bob, it was not bob's alone, or not listed as shared");
+		(void)snprintf(line, sizeof(line), "file %s @fam", root_hex);
+		CHECK(said(&F, FZN_VERB_GRANT, line, reply, sizeof(reply)) && strcmp(reply, "ok") == 0
+		              && fzn_node_files_shared_with(&F, t.root, carol)
+		              && fzn_node_files_shares_of(&F, t.root, NULL, 0, &n) == FZN_NODE_FILES_OK
+		              && n == 2u,
+		      "shared with the group, carol in it could not fetch it");
+		CHECK(fzn_node_files_forget(&F, fam, &n) == FZN_NODE_FILES_OK && n == 1u
+		              && !fzn_node_files_shared_with(&F, t.root, carol)
+		              && fzn_node_files_shared_with(&F, t.root, bob),
+		      "a group forgotten still reached its member, or took bob's share with it");
+		(void)snprintf(line, sizeof(line), "file %s bob", root_hex);
+		CHECK(said(&F, FZN_VERB_REVOKE, line, reply, sizeof(reply)) && strcmp(reply, "ok") == 0
+		              && !fzn_node_files_shared_with(&F, t.root, bob)
+		              && said(&F, FZN_VERB_REVOKE, line, reply, sizeof(reply))
+		              && strncmp(reply, "error", 5) == 0,
+		      "revoked, bob still fetched it, or revoking twice was not said");
+		(void)snprintf(line, sizeof(line), "file %s dave", root_hex);
+		CHECK(said(&F, FZN_VERB_GRANT, line, reply, sizeof(reply))
+		              && strncmp(reply, "error", 5) == 0,
+		      "a file was shared with a name that is no contact");
+		/* PUT PUBLIC, and deleting a file deletes its rows. */
+		(void)snprintf(line, sizeof(line), "file %s public", src_path);
+		CHECK(said(&F, FZN_VERB_PUT, line, reply, sizeof(reply)) && strncmp(reply, "ok ", 3) == 0
+		              && hex_root(reply + 3, pub_root)
+		              && said(&F, FZN_VERB_LIST, "file", reply, sizeof(reply))
+		              && strstr(reply, ",public") != NULL && rows(FZN_PERSIST_FILE_SHARE) == 1u,
+		      "put public did not make the file public");
+		(void)snprintf(line, sizeof(line), "file %s bob", root_hex);
+		CHECK(said(&F, FZN_VERB_GRANT, line, reply, sizeof(reply))
+		              && rows(FZN_PERSIST_FILE_SHARE) == 2u
+		              && fzn_node_files_remove(&F, t.root) == FZN_NODE_FILES_OK
+		              && rows(FZN_PERSIST_FILE_SHARE) == 1u,
+		      "a file deleted left its share rows");
+		/* A ROW FILED UNDER ANOTHER KEY reaches nobody. */
+		{
+			size_t k, before = 0;
+
+
+			CHECK(fzn_node_files_shares_of(&F, pub_root, NULL, 0, &before) == FZN_NODE_FILES_OK
+			              && before == 1u,
+			      "fixture: the public file's one row");
+			for (k = 0; k < sizeof(mem) / sizeof(mem[0]); k++)
+				if (mem[k].used && mem[k].slot == FZN_PERSIST_FILE_SHARE)
+					mem[k].subject[0] ^= 1u;
+			CHECK(fzn_node_files_shares_of(&F, pub_root, NULL, 0, &n) == FZN_NODE_FILES_OK
+			              && n == 0u,
+			      "a row copied under another key was read as a share");
+		}
+		F.store = NULL;
+		for (i = 0; i < sizeof(mem) / sizeof(mem[0]); i++)
+			mem[i].used = 0;
+		count = 0;
+		if (fzn_node_files_list(&F, roots, 8u, &count) == FZN_NODE_FILES_OK)
+			for (i = 0; i < count && i < 8u; i++)
+				if (memcmp(roots[i], refs[0].root, FZN_BLOB_HASH_LEN)
+				    && memcmp(roots[i], refs[1].root, FZN_BLOB_HASH_LEN)
+				    && memcmp(roots[i], refs[2].root, FZN_BLOB_HASH_LEN)
+				    && memcmp(roots[i], refs[3].root, FZN_BLOB_HASH_LEN))
+					(void)fzn_node_files_remove(&F, roots[i]);
 	}
 
 	/* REMOVED BY NAME, and what is left is an assertion. */

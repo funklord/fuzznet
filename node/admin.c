@@ -873,7 +873,8 @@ static size_t change_group(fzn_node_admin_t *admin, int add, const uint8_t *rest
 		if (err != FZN_CONTACT_OK)
 			return group_refusal(reply, cap, err);
 		if (fzn_notes_store_init(&notes, admin->store, admin->state->hash) != FZN_NOTES_OK
-		    || fzn_notes_share_forget(&notes, group.id, &gone) != FZN_NOTES_OK)
+		    || fzn_notes_share_forget(&notes, group.id, &gone) != FZN_NOTES_OK
+		    || (admin->files_forget && !admin->files_forget(admin->files_ctx, group.id)))
 			return answer_text(reply, cap, FZN_REPLY_ERROR,
 			                   "the group's shares would not all go, so it stays");
 	}
@@ -1587,6 +1588,10 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 		if (!n && admin->text_shared && req->payload)
 			n = admin->text_shared(admin->text_shared_ctx, req->sender, req->payload,
 			                       req->payload_len, reply, reply_cap);
+		/* THE FILES PUBLIC OR SHARED WITH IT, sec 493. */
+		if (!n && admin->files_shared && req->payload)
+			n = admin->files_shared(admin->files_ctx, req->sender, req->payload,
+			                        req->payload_len, reply, reply_cap);
 		return n ? n
 		         : answer_text(out, reply_cap, FZN_REPLY_DENIED,
 		                       "a contact may only fetch what is shared with it");

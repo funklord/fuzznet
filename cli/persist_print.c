@@ -94,6 +94,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "an estate retention rule an admin set, with its chain";
 	case FZN_PERSIST_ROSTER:
 		return "a contact added or removed by a member, with its chain";
+	case FZN_PERSIST_FILE_SHARE:
+		return "a file shared with a contact, a group or every contact";
 	}
 	*known = 0;
 	return "an unknown slot";

@@ -55984,7 +55984,7 @@ the second asked here:
 | 1 | resume across a restart | **built in sec 491** |
 | 2 | throughput: parallel batches, an adaptive window | a peer at a time since sec 491; several, next |
 | 3 | scrub and repair | **built in sec 492** |
-| 4 | tiers: PRIVATE invisible to the unauthorised, PUBLIC servable | open: who may fetch, below |
+| 4 | tiers: PRIVATE invisible to the unauthorised, PUBLIC servable | **built in sec 493** |
 | 5 | sealed leaves under a content key; export with the key | **built** |
 | 6 | deletion: one device, all of it, never under a transfer, references kept | **built** |
 
@@ -56047,10 +56047,9 @@ The verbs, this node's own user only:
   open.
 - ~~**The scrub**, re-verifying a held file against its tree.~~ Built in
   sec 492, repairing by fetching what it drops.
-- **Tiers.** Who may fetch a file: today the shelf serves any admitted peer
-  any root, and a contact only what is shared. fuzzypickles' PUBLIC and
-  PRIVATE need saying in those terms -- **a question for the holder**, with
-  the transfers.
+- ~~**Tiers.** Who may fetch a file -- **a question for the holder**.~~
+  Decided 2026-10-07 and built in sec 493: private to members and those it
+  is shared with, public to every contact.
 
 ### Measured for sec 490
 
@@ -56138,7 +56137,7 @@ expiring sooner than a peer's clock is off is refused as stale.
   multi-peer assignment; a fetch does not use it yet.
 - **Peers beyond the pull peers**: only hosts this node has an address for
   are asked, as for texts.
-- ~~**The scrub**~~, built in sec 492; **tiers**, as sec 490 lists them.
+- ~~**The scrub**~~, built in sec 492; ~~**tiers**~~, built in sec 493.
 
 ### Measured for sec 491
 
@@ -56211,3 +56210,90 @@ check at rest; 1 leaf(s) are fetched again", the fetch made it whole, and
 the export was the same bytes.
 
 **Sabotage: three new entries.**
+
+## 493. File tiers: private, shared, public, 2026-10-07
+
+fuzzypickles' fourth requirement: a PRIVATE file invisible to anyone not
+authorised, a PUBLIC one servable.
+
+**The holder's decision, 2026-10-07:** a private file is served to this
+estate's members and to the contacts and groups it is explicitly shared
+with; a public file to every contact of this node as well. A file is private
+until it is shared or made public, at put or later. Rejected: public to
+contacts with no per-contact shares, and public to any peer the node
+answers, members and contacts aside.
+
+### Shares as rows
+
+- **A share is a row in persist slot 29**, blob tag 30: the file's root, a
+  grantee -- a contact's key, a group's id, or 32 bytes of 0xff for every
+  contact -- and when. Filed under a hash of a label, the root and the
+  grantee, so one share is one row and a row copied under another key reads
+  as nobody's. **Core**, named, as notes shares are (sec 436): a row rolled
+  back is a contact fetching a file after it was unshared.
+- **A group's membership is read at the request**, as a notes share's is
+  (sec 471).
+- **Deleting a file deletes its rows**, so the same bytes put again start
+  private; **removing a group deletes its rows**, sec 478's rule, so a group
+  made again under the name reaches nothing it did not share.
+- **A file must be held to be shared**, so a typo is refused rather than
+  shared and served nothing.
+
+### Serving a contact
+
+A contact reaches the node through the share capability it was granted
+(`grant share`, sec 436) and is checked against the roster (sec 489). Its
+requests go to the note syncs, then the notes' texts, then **the files**:
+`fzn_node_files_answer_shared` reads the root from the HAVE query or WANT
+itself and answers only when the file is public, shared with the contact,
+or shared with a group it is in -- so the question asked and the one
+permitted are one. Members are served as before.
+
+### Fetching from a contact
+
+`fetch file REF` now asks the contacts sharing with this node too -- the
+nodes it pulls shared notes from (`add received`, sec 437) -- after its pull
+peers. Each answers for what it made public or shared here, and nothing
+else.
+
+### The tier verbs
+
+    put file PATH [public]            sealed, and public at once
+    set file ROOT public|private      every contact, or not
+    grant file ROOT NAME|@GROUP       shared with a contact or a group
+    revoke file ROOT NAME|@GROUP      stopped; a removed group by its name
+    list file [FROM]                  ROOT,LENGTH[,public][,shared] ...
+
+### Measured for sec 493
+
+**`files_test`, 50 checks, 13 new**, with contacts bob and carol, carol in
+the group fam:
+
+- private: a member's question answered and bob's not;
+- made public, served to both; made private, served to neither, and private
+  twice not refused;
+- granted to bob: his and not carol's, listed `,shared`;
+- granted to @fam: carol's through the group; fam forgotten, carol's gone
+  and bob's kept;
+- revoked from bob, and a second revoke said; a grant to a name that is no
+  contact refused;
+- put public, listed `,public` with one row; a file deleted taking its rows;
+- a row copied under another key not read as a share.
+
+**`persist_test`:** ROSTER (sec 489) and FILE_SHARE named among the core
+slots it checks.
+
+**Live, two independent fuzznetd, B granted the share capability by its
+contact A:**
+
+    A: put file priv                  A: put file pub public
+    A: list file    -> ROOT,300001 ROOT,200001,public
+    B: fetch file both; six seconds later
+    B: get file pub -> ok, the same bytes
+    B: get file priv -> error not all here
+    A: grant file ROOT_PRIV bob;  B: fetch file priv
+    B: get file priv -> ok, the same bytes
+
+**`make schema`:** the row and the tag in the committed contract.
+
+**Sabotage: four new entries.**

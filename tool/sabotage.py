@@ -6061,6 +6061,34 @@ SABOTAGES = [
 		"every pass after the first refuses the chain file its predecessor wrote, and nothing more is ever packed -- sec 459",
 	),
 	(
+		"files-contact-asks-only-what-is-shared",
+		"node/files.c",
+		"\tif (!fzn_node_files_shared_with(files, root, sender))\n\t\treturn 0;\n",
+		"",
+		"a contact is served every file this node holds, private ones included -- sec 493",
+	),
+	(
+		"files-share-reaches-a-group-member",
+		"node/files.c",
+		"\t\t\tif (memcmp(grantees[i], groups[j], FZN_PUBKEY_LEN) == 0)\n\t\t\t\treturn 1;\n",
+		"\t\t\tif (0)\n\t\t\t\treturn 1;\n",
+		"a file shared with a group reaches none of its members -- sec 493",
+	),
+	(
+		"files-share-row-under-its-own-key",
+		"node/files.c",
+		"\treturn share_key(files, root, grantee, again) && memcmp(again, key, FZN_PUBKEY_LEN) == 0;\n",
+		"\treturn share_key(files, root, grantee, again);\n",
+		"a share row copied under another key reads as a share nobody made -- sec 493",
+	),
+	(
+		"files-removed-takes-its-shares",
+		"node/files.c",
+		"\t\tif (forget_rows(files, root, 1, &rows) != FZN_NODE_FILES_OK)\n",
+		"\t\tif (0)\n",
+		"a file deleted and put again later is public or shared as the old one was -- sec 493",
+	),
+	(
 		"files-scrub-drops-only-what-differs",
 		"node/files.c",
 		"\t\t\t    && memcmp(leaf, kept, sizeof(leaf)) != 0)\n\t\t\t\t*dropped += fzn_spool_forget(&h.spool, i, 1u);\n",
@@ -6133,8 +6161,8 @@ SABOTAGES = [
 	(
 		"files-export-leaves-nothing-half",
 		"node/files.c",
-		"\tif (err != FZN_NODE_FILES_OK)\n\t\t(void)remove(path);\n\treturn err;\n}\n\nfzn_node_files_err_t fzn_node_files_remove(",
-		"\treturn err;\n}\n\nfzn_node_files_err_t fzn_node_files_remove(",
+		"\t/* NOTHING HALF-EXPORTED is left at the destination. */\n\tif (err != FZN_NODE_FILES_OK)\n\t\t(void)remove(path);\n",
+		"\t/* NOTHING HALF-EXPORTED is left at the destination. */\n",
 		"an export that fails part way leaves half a file at its destination, read as the file -- sec 490",
 	),
 	(
@@ -8913,8 +8941,8 @@ SABOTAGES = [
 	(
 		"admin-group-removal-takes-shares",
 		"node/admin.c",
-		"\t\t    || fzn_notes_share_forget(&notes, group.id, &gone) != FZN_NOTES_OK)\n",
-		"\t\t    || 0)\n",
+		"\t\t    || fzn_notes_share_forget(&notes, group.id, &gone) != FZN_NOTES_OK\n",
+		"\t\t    || 0\n",
 		"a group made again under a removed one's name inherits its shares, serving them to whoever is in the new group -- sec 478",
 	),
 	(
