@@ -223,6 +223,30 @@ static size_t verb(fzn_node_files_t *files, fzn_verb_t parsed, fzn_origin_t orig
 	return fzn_node_files_local(files, origin, &r, reply, cap);
 }
 
+/* A PEER: another store answering as the node would, the shelf's "absent"
+ * for a root it does not hold; a byte of every DATA flipped when `lie`. */
+struct peer {
+	const fzn_node_files_t *files;
+	int lie;
+	size_t asked;
+};
+
+static int peer_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                    size_t reply_cap, size_t *reply_len)
+{
+	struct peer *p = (struct peer *)ctx;
+
+	p->asked++;
+	*reply_len = fzn_node_files_answer(p->files, request, request_len, reply, reply_cap);
+	if (*reply_len == 0u && reply_cap >= 6u) {
+		memcpy(reply, "absent", 6u);
+		*reply_len = 6u;
+	}
+	if (p->lie && *reply_len > 200u && reply[0] != 'a')
+		reply[*reply_len - 9u] ^= 1u;
+	return 1;
+}
+
 /* A verb of this node's own user, its reply as a string without the line's
  * end. 0 when nothing was answered. */
 static size_t said(fzn_node_files_t *files, fzn_verb_t parsed, const char *arg, char *reply,
@@ -322,12 +346,19 @@ int main(void)
 			(void)snprintf(hex + (2u * i), 3u, "%02x", refs[3].root[i]);
 		(void)snprintf(path, sizeof(path), "%s/%s.tree", dir, hex);
 		(void)snprintf(aside, sizeof(aside), "%s/aside", top);
-		CHECK(rename(path, aside) == 0
-		              && fzn_node_files_held(&F, refs[3].root, &length)
-		                         == FZN_NODE_FILES_ERR_ABSENT
-		              && rename(aside, path) == 0
-		              && fzn_node_files_held(&F, refs[3].root, &length) == FZN_NODE_FILES_OK,
-		      "a blob was held with its tree gone, or not when it came back");
+		{
+			int moved = rename(path, aside) == 0;
+			int held_without = fzn_node_files_held(&F, refs[3].root, &length)
+			                   != FZN_NODE_FILES_ERR_ABSENT;
+
+			/* BACK WHATEVER WAS SEEN, so a failure here leaves no file
+			 * outside the store for the cleanup to trip on. */
+			CHECK(moved && !held_without && rename(aside, path) == 0
+			              && fzn_node_files_held(&F, refs[3].root, &length)
+			                         == FZN_NODE_FILES_OK,
+			      "a blob was held with its tree gone, or not when it came back");
+			(void)rename(aside, path);
+		}
 	}
 
 	/* DELETED, every file, and not while a transfer holds it. */
@@ -377,6 +408,92 @@ int main(void)
 	              && verb(&F, FZN_VERB_GET, FZN_ORIGIN_SAME_USER, "files", reply, sizeof(reply))
 	                         == 0u,
 	      "a malformed reference was not said, or another subject was taken");
+
+	/* ---- CARRIED, sec 491: B fetches what A holds. */
+	{
+		static fzn_node_files_t B;
+		char dir_b[128], b_out[160];
+		struct peer a_peer = { &F, 0, 0 };
+		uint8_t want_roots[4][FZN_BLOB_HASH_LEN];
+		uint64_t want_lengths[4], placed = 0, total = 0;
+		fzn_node_file_ref_t big;
+
+		(void)snprintf(dir_b, sizeof(dir_b), "%s/b", top);
+		(void)snprintf(b_out, sizeof(b_out), "%s/b_out", top);
+		CHECK(make_source(src_path, (300u * 1024u) + 5u)
+		              && fzn_node_files_put(&F, src_path, &big) == FZN_NODE_FILES_OK
+		              && fzn_node_files_init(&B, dir_b, &HASH, &AEAD, &RNG) == FZN_NODE_FILES_OK,
+		      "fixture: A holds a file of 301 leaves, B an empty store");
+		CHECK(fzn_node_files_fetch(&B, big.root, peer_ask, &a_peer, 1000u, &placed)
+		              == FZN_NODE_FILES_ERR_ABSENT,
+		      "a file never wanted was fetched");
+		CHECK(fzn_node_files_want(&B, big.root, big.length) == FZN_NODE_FILES_OK
+		              && fzn_node_files_wanted(&B, want_roots, want_lengths, 4u) == 1u
+		              && memcmp(want_roots[0], big.root, FZN_BLOB_HASH_LEN) == 0
+		              && want_lengths[0] == big.length,
+		      "the want is not its length on disk");
+
+		/* A PEER CHANGING A LEAF: nothing placed. */
+		a_peer.lie = 1;
+		CHECK(fzn_node_files_fetch(&B, big.root, peer_ask, &a_peer, 1000u, &placed)
+		              == FZN_NODE_FILES_ERR_UNVERIFIED
+		              && placed == 0u,
+		      "a span changed on the way was placed");
+		a_peer.lie = 0;
+
+		/* A BUDGET, THEN THE REST: resumed, not begun again. */
+		CHECK(fzn_node_files_fetch(&B, big.root, peer_ask, &a_peer, 50u, &placed)
+		              == FZN_NODE_FILES_ERR_ABSENT
+		              && placed >= 50u && placed < 301u
+		              && fzn_node_files_held(&B, big.root, &length) == FZN_NODE_FILES_ERR_ABSENT,
+		      "a fetch past its budget, or a part held as whole");
+		total = placed;
+		a_peer.asked = 0;
+		CHECK(fzn_node_files_fetch(&B, big.root, peer_ask, &a_peer, 1000u, &placed)
+		              == FZN_NODE_FILES_OK
+		              && total + placed == 301u
+		              && fzn_node_files_held(&B, big.root, &length) == FZN_NODE_FILES_OK
+		              && length == big.length
+		              && fzn_node_files_wanted(&B, NULL, NULL, 0) == 0u,
+		      "the rest was not fetched, or what was here was fetched again");
+		CHECK(fzn_node_files_export(&B, &big, b_out) == FZN_NODE_FILES_OK
+		              && same_files(src_path, b_out),
+		      "the fetched file did not export as the one put");
+		(void)remove(b_out);
+
+		/* B SERVES IT ON, from the tree it built. */
+		{
+			static fzn_node_files_t C;
+			char dir_c[128];
+			struct peer b_peer = { &B, 0, 0 };
+
+			(void)snprintf(dir_c, sizeof(dir_c), "%s/c", top);
+			CHECK(fzn_node_files_init(&C, dir_c, &HASH, &AEAD, &RNG) == FZN_NODE_FILES_OK
+			              && fzn_node_files_want(&C, big.root, big.length) == FZN_NODE_FILES_OK
+			              && fzn_node_files_fetch(&C, big.root, peer_ask, &b_peer, 1000u,
+			                                      &placed) == FZN_NODE_FILES_OK
+			              && placed == 301u,
+			      "C did not fetch the file from B, which fetched it");
+			(void)fzn_node_files_remove(&C, big.root);
+			CHECK(rmdir(dir_c) == 0, "C's directory empties");
+		}
+
+		/* A PEER HOLDING NOTHING, and a want taken back. */
+		{
+			uint8_t nobody[FZN_BLOB_HASH_LEN];
+
+			memset(nobody, 0x77, sizeof(nobody));
+			CHECK(fzn_node_files_want(&B, nobody, 5000u) == FZN_NODE_FILES_OK
+			              && fzn_node_files_fetch(&B, nobody, peer_ask, &a_peer, 1000u, &placed)
+			                         == FZN_NODE_FILES_ERR_NOT_THERE
+			              && fzn_node_files_remove(&B, nobody) == FZN_NODE_FILES_OK
+			              && fzn_node_files_wanted(&B, NULL, NULL, 0) == 0u,
+			      "a peer holding nothing was not said, or the want stayed");
+		}
+		(void)fzn_node_files_remove(&B, big.root);
+		(void)fzn_node_files_remove(&F, big.root);
+		CHECK(rmdir(dir_b) == 0, "B's directory empties");
+	}
 
 	/* REMOVED BY NAME, and what is left is an assertion. */
 	for (i = 0; i < 4u; i++)

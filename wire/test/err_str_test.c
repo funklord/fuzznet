@@ -342,7 +342,7 @@ static const struct subject SUBJECTS[] = {
 #endif
 #ifdef FZN_SPOOL_FILE_ON
 	{ "fzn_node_shelf_err_str", r_shelf, 9 },
-	{ "fzn_node_files_err_str", r_files, 8 },
+	{ "fzn_node_files_err_str", r_files, 12 },
 #endif
 #ifdef FZN_LOG_FILE_ON
 	{ "fzn_logger_err_str", r_logger, 4 },

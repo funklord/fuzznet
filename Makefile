@@ -2100,6 +2100,8 @@ $(BUILD_DIR)/node/test/files_test: $(BUILD_DIR)/node/test/files_test.o \
                                    $(BUILD_DIR)/blob/levels.o \
                                    $(BUILD_DIR)/spool/spool_file.o \
                                    $(BUILD_DIR)/spool/spool.o \
+                                   $(BUILD_DIR)/spool/message.o \
+                                   $(BUILD_DIR)/spool/plan.o \
                                    $(BUILD_DIR)/local/vocabulary.o \
                                    $(BUILD_DIR)/local/peer.o \
                                    $(BUILD_DIR)/blob/blob.o \

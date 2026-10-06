@@ -6061,6 +6061,27 @@ SABOTAGES = [
 		"every pass after the first refuses the chain file its predecessor wrote, and nothing more is ever packed -- sec 459",
 	),
 	(
+		"files-fetch-keeps-its-budget",
+		"node/files.c",
+		"\tfor (round = 0; round < h.leaves && *placed < budget; round++) {\n",
+		"\tfor (round = 0; round < h.leaves; round++) {\n",
+		"a fetch takes the whole file in one round however large, and the node answers nothing else meanwhile -- sec 491",
+	),
+	(
+		"files-wanted-ends-when-whole",
+		"node/files.c",
+		"\t\t    || fzn_node_files_held(files, root, &have) == FZN_NODE_FILES_OK\n\t\t    || !path_of(files, root, \".len\", len_path) || !read_length(len_path, &length))\n",
+		"\t\t    || !path_of(files, root, \".len\", len_path) || !read_length(len_path, &length))\n",
+		"a file fetched whole is still wanted, and asked for again every round for ever -- sec 491",
+	),
+	(
+		"files-remove-says-absent",
+		"node/files.c",
+		"\treturn gone ? FZN_NODE_FILES_OK : FZN_NODE_FILES_ERR_ABSENT;\n",
+		"\treturn FZN_NODE_FILES_OK;\n",
+		"removing a file that is not here answers that it was removed -- sec 491",
+	),
+	(
 		"levels-fold-left-then-right",
 		"blob/levels.c",
 		"\treturn fzn_blob_node_hash(levels->hash, left, out, out);\n",

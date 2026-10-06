@@ -6,6 +6,7 @@
 
 #include "../blob/levels.h"
 #include "../constant_time/constant_time.h"
+#include "../spool/plan.h"
 #include "../wire/bytes.h"
 
 #include <dirent.h>
@@ -44,6 +45,14 @@ const char *fzn_node_files_err_str(fzn_node_files_err_t err)
 		return "a transfer of it is running";
 	case FZN_NODE_FILES_ERR_EXISTS:
 		return "the destination exists";
+	case FZN_NODE_FILES_ERR_NO_ANSWER:
+		return "the peer did not answer";
+	case FZN_NODE_FILES_ERR_SHAPE:
+		return "the peer's answer does not parse";
+	case FZN_NODE_FILES_ERR_UNVERIFIED:
+		return "the peer's leaves do not prove";
+	case FZN_NODE_FILES_ERR_NOT_THERE:
+		return "the peer does not hold it";
 	}
 	return "unknown";
 }
@@ -199,8 +208,12 @@ static int read_length(const char *path, uint64_t *length)
 }
 
 /* The bitmap a whole blob of FZN_SPOOL_MAX_LEAVES needs: 512 KiB, kept once
- * rather than on the stack. One operation at a time uses it. */
+ * rather than on the stack. TWO OF THEM, one for a blob being read or served
+ * and one for a blob being received, since a fetch asks a peer that may be
+ * this process -- a test's, or a node answering itself -- while its own
+ * blob is open. */
 static uint8_t present[FZN_SPOOL_BITMAP_LEN(FZN_SPOOL_MAX_LEAVES)];
+static uint8_t receiving[FZN_SPOOL_BITMAP_LEN(FZN_SPOOL_MAX_LEAVES)];
 
 typedef struct held {
 	fzn_spool_file_t file;
@@ -523,23 +536,30 @@ fzn_node_files_err_t fzn_node_files_remove(fzn_node_files_t *files,
 {
 	static const char *const AFTER[] = { "", ".tree", ".len" };
 	char path[FZN_SPOOL_FILE_PATH_MAX];
-	size_t i;
+	size_t i, gone = 0;
 
 	if (!files || !root)
 		return FZN_NODE_FILES_ERR_MALFORMED;
 	if (is_busy(files, root))
 		return FZN_NODE_FILES_ERR_BUSY;
 	/* THE SIDECAR FIRST: once it is gone the blob is not held, not
-	 * served and not opened, whatever happens to the rest. */
+	 * served and not opened, whatever happens to the rest. A file wanted
+	 * and not yet begun has none, only its length. */
 	if (!path_of(files, root, ".bits", path))
 		return FZN_NODE_FILES_ERR_MALFORMED;
-	if (remove(path) != 0)
-		return errno == ENOENT ? FZN_NODE_FILES_ERR_ABSENT : FZN_NODE_FILES_ERR_STORE;
-	for (i = 0; i < sizeof(AFTER) / sizeof(AFTER[0]); i++)
-		if (!path_of(files, root, AFTER[i], path)
-		    || (remove(path) != 0 && errno != ENOENT))
+	if (remove(path) == 0)
+		gone++;
+	else if (errno != ENOENT)
+		return FZN_NODE_FILES_ERR_STORE;
+	for (i = 0; i < sizeof(AFTER) / sizeof(AFTER[0]); i++) {
+		if (!path_of(files, root, AFTER[i], path))
+			return FZN_NODE_FILES_ERR_MALFORMED;
+		if (remove(path) == 0)
+			gone++;
+		else if (errno != ENOENT)
 			return FZN_NODE_FILES_ERR_STORE;
-	return FZN_NODE_FILES_OK;
+	}
+	return gone ? FZN_NODE_FILES_OK : FZN_NODE_FILES_ERR_ABSENT;
 }
 
 static int by_root(const void *a, const void *b)
@@ -579,6 +599,389 @@ fzn_node_files_err_t fzn_node_files_list(const fzn_node_files_t *files,
 		memcpy(roots[i], found[i], FZN_BLOB_HASH_LEN);
 	*count = n;
 	return FZN_NODE_FILES_OK;
+}
+
+/* ---- carrying files between hosts, sec 491 ------------------------------ */
+
+static size_t say_absent(uint8_t *reply, size_t reply_cap)
+{
+	static const char ABSENT[] = "absent";
+
+	if (reply_cap < sizeof(ABSENT) - 1u)
+		return 0;
+	memcpy(reply, ABSENT, sizeof(ABSENT) - 1u);
+	return sizeof(ABSENT) - 1u;
+}
+
+/* A leaf's true sealed length, which a spool does not keep. */
+static size_t sealed_len_of(const held_t *h, uint64_t index)
+{
+	return (index + 1u == h->leaves ? h->last : (size_t)FZN_BLOB_LEAF_SIZE)
+	       + FZN_BLOB_LEAF_OVERHEAD;
+}
+
+/* The levels of the blob `h` holds open, behind the tree's descriptor. */
+static int tree_open(const fzn_node_files_t *files, const uint8_t root[FZN_BLOB_HASH_LEN],
+                     int *fd)
+{
+	char path[FZN_SPOOL_FILE_PATH_MAX];
+
+	*fd = -1;
+	if (!path_of(files, root, ".tree", path))
+		return 0;
+	*fd = open(path, O_RDONLY);
+	return *fd >= 0;
+}
+
+static size_t answer_want(const fzn_node_files_t *files, const uint8_t *request,
+                          size_t request_len, uint8_t *reply, size_t reply_cap)
+{
+	static held_t h;
+	static uint8_t leaves[FZN_NODE_FILES_SPAN][FZN_BLOB_SEALED_MAX];
+	const uint8_t *sealed[FZN_NODE_FILES_SPAN];
+	size_t sealed_len[FZN_NODE_FILES_SPAN];
+	uint8_t proof[FZN_MSG_MAX_PROOF * FZN_BLOB_HASH_LEN];
+	uint8_t cookie[FZN_MSG_COOKIE_LEN], root[FZN_BLOB_HASH_LEN];
+	fzn_blob_levels_io_t io;
+	fzn_blob_levels_t levels;
+	uint64_t first = 0, count = 0, i, n;
+	uint32_t transfer = 0;
+	unsigned siblings = 0;
+	size_t len = 0, got = 0;
+	int tree_fd = -1;
+
+	if (fzn_msg_want_parse(request, request_len, &transfer, cookie, root, &first, &count)
+	    != FZN_MSG_OK)
+		return 0;
+	/* NOT A FILE HELD WHOLE HERE: not this store's to answer. */
+	if (open_whole(files, root, &h) != FZN_NODE_FILES_OK)
+		return 0;
+	if (!tree_open(files, root, &tree_fd))
+		goto absent;
+	io.read = fd_read;
+	io.write = fd_write;
+	io.ctx = &tree_fd;
+	levels.hash = files->hash;
+	levels.io = &io;
+	levels.leaves = h.leaves;
+	/* THE LARGEST CANONICAL SPAN at `first` that was asked for, a span
+	 * allows, and the reply holds -- halved until it fits. */
+	if (first >= h.leaves)
+		goto absent;
+	n = fzn_blob_span_largest_at(h.leaves, first,
+	                             count < FZN_NODE_FILES_SPAN ? count : FZN_NODE_FILES_SPAN);
+	for (; n > 0u; n = fzn_blob_span_largest_at(h.leaves, first, n / 2u)) {
+		fzn_msg_err_t err;
+
+		for (i = 0; i < n; i++) {
+			if (fzn_spool_read(&h.spool, first + i, leaves[i], sizeof(leaves[i]), &got)
+			    != FZN_SPOOL_OK)
+				goto absent;
+			sealed[i] = leaves[i];
+			sealed_len[i] = sealed_len_of(&h, first + i);
+		}
+		if (fzn_blob_levels_span_proof(&levels, first, n, proof, sizeof(proof), &siblings)
+		    != FZN_BLOB_OK)
+			goto absent;
+		err = fzn_msg_data_encode(transfer, first, n, proof, siblings, sealed, sealed_len,
+		                          reply, reply_cap, &len);
+		if (err == FZN_MSG_OK) {
+			(void)close(tree_fd);
+			fzn_spool_file_close(&h.file);
+			return len;
+		}
+		if (err != FZN_MSG_ERR_TOO_LARGE)
+			break;
+	}
+absent:
+	if (tree_fd >= 0)
+		(void)close(tree_fd);
+	fzn_spool_file_close(&h.file);
+	return say_absent(reply, reply_cap);
+}
+
+size_t fzn_node_files_answer(const fzn_node_files_t *files, const uint8_t *request,
+                             size_t request_len, uint8_t *reply, size_t reply_cap)
+{
+	static const uint8_t cookie[FZN_MSG_COOKIE_LEN];
+	fzn_msg_type_t type;
+	uint8_t root[FZN_BLOB_HASH_LEN];
+	uint64_t length = 0, leaves = 0;
+	size_t last = 0, len = 0;
+	fzn_spool_range_t all;
+
+	if (!files || !request || !reply || fzn_msg_peek(request, request_len, &type) != FZN_MSG_OK)
+		return 0;
+	if (type == FZN_MSG_WANT)
+		return answer_want(files, request, request_len, reply, reply_cap);
+	if (type != FZN_MSG_HAVE_QUERY
+	    || fzn_msg_have_query_parse(request, request_len, root) != FZN_MSG_OK
+	    || fzn_node_files_held(files, root, &length) != FZN_NODE_FILES_OK
+	    || fzn_blob_geometry(length, &leaves, &last) != FZN_BLOB_OK)
+		return 0;
+	/* THE COOKIE CARRIES NOTHING: the remote hop authenticated the asker
+	 * under its session, as the shelf's does (`node/shelf.h`). */
+	all.first = 0;
+	all.count = leaves;
+	if (fzn_msg_have_encode(root, leaves, cookie, &all, 1u, reply, reply_cap, &len)
+	    != FZN_MSG_OK)
+		return 0;
+	return len;
+}
+
+fzn_node_files_err_t fzn_node_files_want(fzn_node_files_t *files,
+                                         const uint8_t root[FZN_BLOB_HASH_LEN], uint64_t length)
+{
+	char len_path[FZN_SPOOL_FILE_PATH_MAX];
+	uint64_t have = 0, leaves = 0, before = 0;
+	size_t last = 0;
+
+	if (!files || !root || length == 0u || length > FZN_NODE_FILE_MAX
+	    || fzn_blob_geometry(length, &leaves, &last) != FZN_BLOB_OK
+	    || leaves > FZN_SPOOL_MAX_LEAVES)
+		return FZN_NODE_FILES_ERR_MALFORMED;
+	if (fzn_node_files_held(files, root, &have) == FZN_NODE_FILES_OK)
+		return have == length ? FZN_NODE_FILES_OK : FZN_NODE_FILES_ERR_MALFORMED;
+	if (!path_of(files, root, ".len", len_path))
+		return FZN_NODE_FILES_ERR_MALFORMED;
+	/* WANTED ALREADY at this length, or wanted at another and not begun:
+	 * a length only the last leaf proves, so one never placed is replaced
+	 * (`fzn_node_files_fetch` refuses it once that leaf is here). */
+	if (read_length(len_path, &before) && before == length)
+		return FZN_NODE_FILES_OK;
+	if (fzn_node_files_wanted(files, NULL, NULL, 0) >= FZN_NODE_FILES_WANTS_MAX)
+		return FZN_NODE_FILES_ERR_MALFORMED;
+	return write_length(files, root, length) ? FZN_NODE_FILES_OK : FZN_NODE_FILES_ERR_STORE;
+}
+
+size_t fzn_node_files_wanted(const fzn_node_files_t *files, uint8_t (*roots)[FZN_BLOB_HASH_LEN],
+                             uint64_t *lengths, size_t cap)
+{
+	struct dirent *e;
+	size_t n = 0;
+	DIR *d;
+
+	if (!files)
+		return 0;
+	d = opendir(files->dir);
+	if (!d)
+		return 0;
+	/* `<64 hex>.len` WITH NO WHOLE BLOB beside it. */
+	while ((e = readdir(d)) != NULL) {
+		uint8_t root[FZN_BLOB_HASH_LEN];
+		char len_path[FZN_SPOOL_FILE_PATH_MAX];
+		uint64_t length = 0, have = 0;
+
+		if (strlen(e->d_name) != ROOT_HEX + 4u || strcmp(e->d_name + ROOT_HEX, ".len") != 0
+		    || !from_hex((const uint8_t *)e->d_name, ROOT_HEX, root, sizeof(root))
+		    || fzn_node_files_held(files, root, &have) == FZN_NODE_FILES_OK
+		    || !path_of(files, root, ".len", len_path) || !read_length(len_path, &length))
+			continue;
+		if (roots && n < cap) {
+			memcpy(roots[n], root, sizeof(root));
+			lengths[n] = length;
+		}
+		n++;
+	}
+	(void)closedir(d);
+	return n;
+}
+
+/* THE TREE OF A BLOB JUST WHOLE, from its leaves read back and hashed at
+ * the lengths its length gives: written aside, checked to fold to the root,
+ * then named. */
+static fzn_node_files_err_t build_tree(const fzn_node_files_t *files, held_t *h,
+                                       const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	char work[FZN_SPOOL_FILE_PATH_MAX], name[FZN_SPOOL_FILE_PATH_MAX];
+	uint8_t sealed[FZN_BLOB_SEALED_MAX], leaf[FZN_BLOB_HASH_LEN], folded[FZN_BLOB_HASH_LEN];
+	fzn_blob_levels_builder_t builder;
+	fzn_blob_levels_io_t io;
+	fzn_blob_tree_t tree;
+	uint64_t i;
+	size_t got = 0;
+	int fd, ok = 1;
+
+	if (!path_of(files, root, ".tree.new", work) || !path_of(files, root, ".tree", name))
+		return FZN_NODE_FILES_ERR_MALFORMED;
+	fd = open(work, O_RDWR | O_CREAT | O_TRUNC, 0600);
+	if (fd < 0)
+		return FZN_NODE_FILES_ERR_STORE;
+	io.read = fd_read;
+	io.write = fd_write;
+	io.ctx = &fd;
+	fzn_blob_tree_init(&tree);
+	ok = fzn_blob_levels_begin(&builder, h->leaves) == FZN_BLOB_OK;
+	for (i = 0; i < h->leaves && ok; i++)
+		ok = fzn_spool_read(&h->spool, i, sealed, sizeof(sealed), &got) == FZN_SPOOL_OK
+		     && got >= sealed_len_of(h, i)
+		     && fzn_blob_leaf_hash(files->hash, sealed, sealed_len_of(h, i), leaf)
+		                == FZN_BLOB_OK
+		     && fzn_blob_tree_push(files->hash, &tree, leaf) == FZN_BLOB_OK
+		     && fzn_blob_levels_push(files->hash, &builder, &io, leaf) == FZN_BLOB_OK;
+	/* A TREE THAT DOES NOT FOLD TO THE ROOT is not kept: every leaf was
+	 * proved as it landed, so this is the disk, not the peer. */
+	ok = ok && fzn_blob_tree_root(files->hash, &tree, folded) == FZN_BLOB_OK
+	     && memcmp(folded, root, FZN_BLOB_HASH_LEN) == 0 && fsync(fd) == 0;
+	ok = (close(fd) == 0) && ok;
+	if (!ok || rename(work, name) != 0) {
+		(void)remove(work);
+		return FZN_NODE_FILES_ERR_STORE;
+	}
+	return FZN_NODE_FILES_OK;
+}
+
+/* One DATA for the span asked, placed. */
+static fzn_node_files_err_t place_data(const fzn_node_files_t *files, held_t *h,
+                                       const uint8_t *data, size_t data_len,
+                                       const fzn_spool_range_t *asked, uint32_t asked_transfer,
+                                       uint64_t *placed)
+{
+	const uint8_t *proof = NULL, *sealed[FZN_NODE_FILES_SPAN];
+	size_t sealed_len[FZN_NODE_FILES_SPAN];
+	uint64_t first = 0, count = 0, i;
+	uint32_t transfer = 0;
+	unsigned siblings = 0;
+
+	if (fzn_msg_data_parse(data, data_len, &transfer, &first, &count, &proof, &siblings, sealed,
+	                       sealed_len, FZN_NODE_FILES_SPAN)
+	            != FZN_MSG_OK
+	    || count == 0u || first >= h->leaves || count > h->leaves - first
+	    || transfer != asked_transfer || first != asked->first || count > asked->count)
+		return FZN_NODE_FILES_ERR_SHAPE;
+	/* EVERY LEAF AT THE LENGTH THE FILE'S LENGTH GIVES IT: the proof binds
+	 * the lengths the peer sent, so a span proving at these lengths proves
+	 * the length written down here. */
+	for (i = 0; i < count; i++)
+		if (sealed_len[i] != sealed_len_of(h, first + i))
+			return FZN_NODE_FILES_ERR_UNVERIFIED;
+	if (fzn_spool_place_span(&h->spool, files->hash, first, count, sealed, sealed_len, proof,
+	                         siblings)
+	    != FZN_SPOOL_OK)
+		return FZN_NODE_FILES_ERR_UNVERIFIED;
+	*placed += count;
+	return FZN_NODE_FILES_OK;
+}
+
+fzn_node_files_err_t fzn_node_files_fetch(fzn_node_files_t *files,
+                                          const uint8_t root[FZN_BLOB_HASH_LEN],
+                                          fzn_node_files_ask_t ask, void *ask_ctx,
+                                          uint64_t budget, uint64_t *placed)
+{
+	static uint8_t reply[FZN_NODE_FILES_REPLY_MAX];
+	static held_t h;
+	char path[FZN_SPOOL_FILE_PATH_MAX], len_path[FZN_SPOOL_FILE_PATH_MAX];
+	uint8_t request[FZN_MSG_WANT_LEN];
+	uint8_t cookie[FZN_MSG_COOKIE_LEN], their_root[FZN_BLOB_HASH_LEN];
+	fzn_spool_range_t ranges[1];
+	const fzn_spool_ops_t *ops;
+	fzn_node_files_err_t err = FZN_NODE_FILES_OK;
+	uint64_t their_leaves = 0, round, have = 0;
+	size_t len = 0, reply_len = 0, offered = 0;
+	fzn_msg_type_t type;
+	unsigned since_checkpoint = 0;
+
+	if (!files || !root || !ask || !placed)
+		return FZN_NODE_FILES_ERR_MALFORMED;
+	*placed = 0;
+	if (fzn_node_files_held(files, root, &have) == FZN_NODE_FILES_OK)
+		return FZN_NODE_FILES_OK;
+	memset(&h, 0, sizeof(h));
+	h.file.fd = -1;
+	if (!path_of(files, root, "", path) || !path_of(files, root, ".len", len_path))
+		return FZN_NODE_FILES_ERR_MALFORMED;
+	if (!read_length(len_path, &h.length))
+		return FZN_NODE_FILES_ERR_ABSENT;
+	if (h.length == 0u || h.length > FZN_NODE_FILE_MAX
+	    || fzn_blob_geometry(h.length, &h.leaves, &h.last) != FZN_BLOB_OK
+	    || h.leaves > FZN_SPOOL_MAX_LEAVES)
+		return FZN_NODE_FILES_ERR_MALFORMED;
+	if (fzn_node_files_busy(files, root, 1) != FZN_NODE_FILES_OK)
+		return FZN_NODE_FILES_ERR_BUSY;
+
+	/* DO YOU HAVE IT, WHOLE AND AT THIS SIZE: one question first. */
+	if (fzn_msg_have_query_encode(root, request, sizeof(request), &len) != FZN_MSG_OK) {
+		err = FZN_NODE_FILES_ERR_MALFORMED;
+		goto done;
+	}
+	if (!ask(ask_ctx, request, len, reply, sizeof(reply), &reply_len)) {
+		err = FZN_NODE_FILES_ERR_NO_ANSWER;
+		goto done;
+	}
+	if (fzn_msg_peek(reply, reply_len, &type) != FZN_MSG_OK) {
+		err = FZN_NODE_FILES_ERR_NOT_THERE;
+		goto done;
+	}
+	if (type != FZN_MSG_HAVE
+	    || fzn_msg_have_parse(reply, reply_len, their_root, &their_leaves, cookie, ranges, 1u,
+	                          &offered)
+	               != FZN_MSG_OK
+	    || memcmp(their_root, root, FZN_BLOB_HASH_LEN) != 0 || their_leaves != h.leaves) {
+		err = FZN_NODE_FILES_ERR_SHAPE;
+		goto done;
+	}
+
+	/* RESUMED, so a fetch cut off part way asks only for the rest. */
+	ops = fzn_spool_file_open(&h.file, path);
+	if (!ops) {
+		err = FZN_NODE_FILES_ERR_STORE;
+		goto done;
+	}
+	(void)fzn_spool_file_resume(&h.file, root, h.leaves, receiving,
+	                            FZN_SPOOL_BITMAP_LEN(h.leaves));
+	if (fzn_spool_open(&h.spool, root, h.leaves, receiving, FZN_SPOOL_BITMAP_LEN(h.leaves), ops)
+	    != FZN_SPOOL_OK) {
+		err = FZN_NODE_FILES_ERR_STORE;
+		goto done;
+	}
+	/* ONE SPAN A ROUND, until the file is whole or the budget is spent:
+	 * every DATA places at least one leaf or ends the fetch. */
+	for (round = 0; round < h.leaves && *placed < budget; round++) {
+		size_t planned = 0;
+
+		if (fzn_spool_plan_want(&h.spool, 0, FZN_NODE_FILES_SPAN, ranges, 1u, &planned)
+		    != FZN_SPOOL_OK) {
+			err = FZN_NODE_FILES_ERR_STORE;
+			break;
+		}
+		if (planned == 0u)
+			break;
+		if (fzn_msg_want_encode((uint32_t)round, cookie, root, ranges[0].first,
+		                        ranges[0].count, request, sizeof(request), &len)
+		    != FZN_MSG_OK) {
+			err = FZN_NODE_FILES_ERR_MALFORMED;
+			break;
+		}
+		if (!ask(ask_ctx, request, len, reply, sizeof(reply), &reply_len)) {
+			err = FZN_NODE_FILES_ERR_NO_ANSWER;
+			break;
+		}
+		if (fzn_msg_peek(reply, reply_len, &type) != FZN_MSG_OK || type != FZN_MSG_DATA) {
+			err = FZN_NODE_FILES_ERR_NOT_THERE;
+			break;
+		}
+		err = place_data(files, &h, reply, reply_len, &ranges[0], (uint32_t)round, placed);
+		if (err != FZN_NODE_FILES_OK)
+			break;
+		/* A CHECKPOINT NOW AND THEN, not each span: what it guards is a
+		 * re-request of leaves held, which costs bandwidth, not a blob. */
+		if (++since_checkpoint >= 64u) {
+			since_checkpoint = 0;
+			if (fzn_spool_file_checkpoint(&h.file, &h.spool) != FZN_SPOOL_OK) {
+				err = FZN_NODE_FILES_ERR_STORE;
+				break;
+			}
+		}
+	}
+	if (fzn_spool_file_checkpoint(&h.file, &h.spool) != FZN_SPOOL_OK && err == FZN_NODE_FILES_OK)
+		err = FZN_NODE_FILES_ERR_STORE;
+	if (err == FZN_NODE_FILES_OK)
+		err = fzn_spool_complete(&h.spool) ? build_tree(files, &h, root)
+		                                   : FZN_NODE_FILES_ERR_ABSENT;
+done:
+	fzn_spool_file_close(&h.file);
+	(void)fzn_node_files_busy(files, root, 0);
+	return err;
 }
 
 /* ---- the verbs ---------------------------------------------------------- */
@@ -670,7 +1073,8 @@ size_t fzn_node_files_local(void *ctx, fzn_origin_t origin, const fzn_request_t 
 	    || (request->arg_len > sizeof(FILE_) - 1u && request->arg[sizeof(FILE_) - 1u] != ' '))
 		return 0;
 	if (request->parsed != FZN_VERB_PUT && request->parsed != FZN_VERB_GET
-	    && request->parsed != FZN_VERB_REMOVE && request->parsed != FZN_VERB_LIST)
+	    && request->parsed != FZN_VERB_REMOVE && request->parsed != FZN_VERB_LIST
+	    && request->parsed != FZN_VERB_FETCH)
 		return 0;
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return answer(reply, reply_cap, FZN_REPLY_DENIED, "a file needs this node's own user");
@@ -696,6 +1100,21 @@ size_t fzn_node_files_local(void *ctx, fzn_origin_t origin, const fzn_request_t 
 		to_hex(bytes, sizeof(bytes), hex);
 		fzn_wipe(bytes, sizeof(bytes));
 		return answer(reply, reply_cap, FZN_REPLY_OK, hex);
+	}
+	if (request->parsed == FZN_VERB_FETCH) {
+		uint8_t bytes[FZN_NODE_FILE_REF_LEN];
+
+		if (!from_hex(arg, arg_len, bytes, sizeof(bytes)) || !fzn_node_file_ref_read(bytes, &ref)) {
+			fzn_wipe(bytes, sizeof(bytes));
+			return answer(reply, reply_cap, FZN_REPLY_MALFORMED, "fetch file REF");
+		}
+		fzn_wipe(bytes, sizeof(bytes));
+		err = fzn_node_files_want(files, ref.root, ref.length);
+		fzn_wipe(&ref, sizeof(ref));
+		if (err == FZN_NODE_FILES_OK)
+			files->fresh = 1;
+		return err == FZN_NODE_FILES_OK ? answer(reply, reply_cap, FZN_REPLY_OK, NULL)
+		                                : refused(reply, reply_cap, err);
 	}
 	if (request->parsed == FZN_VERB_REMOVE) {
 		uint8_t root[FZN_BLOB_HASH_LEN];

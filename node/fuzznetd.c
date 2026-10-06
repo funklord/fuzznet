@@ -732,7 +732,16 @@ static uint64_t wall_ms(void)
  * rather than by this daemon growing two more flags for numbers almost
  * nobody changes. */
 #define FZND_MAX_AHEAD 600u
-#define FZND_REPLAY_ENTRIES 256u
+/* THE WINDOW, by freshness.h's rule: capacity >= peak arrival rate x
+ * lifetime. Every request this daemon sends lives 300 s, so a slot taken is
+ * held 300 s. It was 256, sized for votes and notes, and a file fetch --
+ * one request a span, sec 491 -- filled it in about eight seconds on a
+ * loopback, after which the node refused every request from anybody until
+ * slots expired: measured, a fetch placed 3984 leaves and then the peer
+ * answered nothing, roots and votes included, for the rest of the run.
+ * 32768 slots of 24 bytes, 768 KiB, hold about 109 requests a second for
+ * the whole lifetime. */
+#define FZND_REPLAY_ENTRIES 32768u
 
 /* HOW LONG A PAIRING CARD MAY WAIT TO BE ACCEPTED. The card carries no
  * secret -- the node's root, the node's prekey, and a grant only the device's
@@ -766,6 +775,7 @@ static uint64_t wall_ms(void)
 static fzn_node_shelf_t shelf;
 /* THE NODE'S FILES, sec 490, beside the texts. */
 static fzn_node_files_t files;
+static int files_on;
 static int shelf_on;
 
 /* The node's notes seal a long text onto the shelf and open it back. */
@@ -1370,6 +1380,63 @@ static size_t shared_text(void *ctx, const uint8_t *sender, const uint8_t *reque
 
 #ifdef FZN_SPOOL_FILE_ON
 /* Every remembered text, from each pull peer in turn until it is here. */
+/* FILES WANTED HERE, sec 491: each fetched from the pull peers in turn, a
+ * bounded amount a round -- the rest on the next, from where the sidecar
+ * says it is -- until one of them has given the whole of it. */
+#define FZND_FILE_LEAVES_A_ROUND 4096u
+
+_Static_assert(FZND_PULL_REPLY_MAX >= FZN_NODE_FILES_REPLY_MAX,
+               "a pull's reassembly holds a file's largest DATA");
+
+static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	static uint8_t roots[FZN_NODE_FILES_WANTS_MAX][FZN_BLOB_HASH_LEN];
+	static uint64_t lengths[FZN_NODE_FILES_WANTS_MAX];
+	size_t n, w, t;
+
+	if (!files_on)
+		return;
+	files.fresh = 0;
+	n = fzn_node_files_wanted(&files, roots, lengths, FZN_NODE_FILES_WANTS_MAX);
+	for (w = 0; w < n && w < FZN_NODE_FILES_WANTS_MAX; w++) {
+		uint64_t left = FZND_FILE_LEAVES_A_ROUND;
+
+		for (t = 0; t < npulls && left; t++) {
+			struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
+			uint64_t placed = 0;
+			fzn_node_files_err_t err = fzn_node_files_fetch(&files, roots[w], peer_ask,
+			                                                &asking, left, &placed);
+
+			left = placed < left ? left - placed : 0u;
+			if (err == FZN_NODE_FILES_OK) {
+				say(FZN_ENTRY_INFO, "files", "file %02x%02x%02x%02x, %llu bytes, whole from %s",
+				    roots[w][0], roots[w][1], roots[w][2], roots[w][3],
+				    (unsigned long long)lengths[w], pulls[t].host);
+				break;
+			}
+			if (placed)
+				say(FZN_ENTRY_INFO, "files", "%llu leaf(s) of file %02x%02x%02x%02x from %s",
+				    (unsigned long long)placed, roots[w][0], roots[w][1], roots[w][2],
+				    roots[w][3], pulls[t].host);
+			if (err != FZN_NODE_FILES_ERR_NOT_THERE && err != FZN_NODE_FILES_ERR_ABSENT)
+				say(FZN_ENTRY_WARNING, "files", "file %02x%02x%02x%02x from %s: %s",
+				    roots[w][0], roots[w][1], roots[w][2], roots[w][3], pulls[t].host,
+				    fzn_node_files_err_str(err));
+		}
+	}
+}
+
+/* THE REMOTE HOP'S BLOB MESSAGES, sec 491: a file held whole answers first,
+ * and anything else is the shelf's, which says "absent" for what it lacks. */
+static size_t blob_remote(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                          size_t reply_cap)
+{
+	size_t n = files_on ? fzn_node_files_answer(&files, request, request_len, reply, reply_cap)
+	                    : 0u;
+
+	return n ? n : fzn_node_shelf_remote(ctx, request, request_len, reply, reply_cap);
+}
+
 static void fetch_texts(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
 	size_t t;
@@ -2640,7 +2707,7 @@ int main(int argc, char **argv)
 				               == FZN_NODE_SHELF_OK) {
 					shelf_on = 1;
 					admin.text_local = fzn_node_shelf_local;
-					admin.text_remote = fzn_node_shelf_remote;
+					admin.text_remote = blob_remote;
 					admin.text_ctx = &shelf;
 				} else {
 					say(FZN_ENTRY_WARNING, "shelf", "no shelf for texts under %s",
@@ -2653,6 +2720,7 @@ int main(int argc, char **argv)
 				               == FZN_NODE_FILES_OK) {
 					admin.files_local = fzn_node_files_local;
 					admin.files_ctx = &files;
+					files_on = 1;
 				} else {
 					say(FZN_ENTRY_WARNING, "files", "no store for files under %s",
 					    bulk_dir);
@@ -2912,6 +2980,7 @@ int main(int argc, char **argv)
 				pull_received(now);
 #ifdef FZN_SPOOL_FILE_ON
 				fetch_texts(pulls, npulls, now);
+				fetch_files(pulls, npulls, now);
 				collect_texts();
 #endif
 				/* THE LOG LAST, sec 476: packing and the rules after the
@@ -2929,6 +2998,8 @@ int main(int argc, char **argv)
 			 * round. sec 424. */
 			if (shelf.fresh)
 				fetch_texts(pulls, npulls, now);
+			if (files.fresh)
+				fetch_files(pulls, npulls, now);
 #endif
 			/* A TRASH JUST EMPTIED is carried to the pull peers now, not
 			 * at the next round. sec 433. */

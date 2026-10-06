@@ -55981,8 +55981,8 @@ the second asked here:
 
 | | requirement | here |
 |---|---|---|
-| 1 | resume across a restart | the spool's sidecar, `.bits`; with transfers, next |
-| 2 | throughput: parallel batches, an adaptive window | with transfers, next |
+| 1 | resume across a restart | **built in sec 491** |
+| 2 | throughput: parallel batches, an adaptive window | a peer at a time since sec 491; several, next |
 | 3 | scrub and repair | after transfers, as the shelf's (sec 452) |
 | 4 | tiers: PRIVATE invisible to the unauthorised, PUBLIC servable | open: who may fetch, below |
 | 5 | sealed leaves under a content key; export with the key | **built** |
@@ -56041,11 +56041,10 @@ The verbs, this node's own user only:
 
 ### Open after sec 490
 
-- **Transfers**: a file fetched by root from members that hold it, resumed
-  from the sidecar, spans proved against the tree, several peers at once
-  with an adaptive window -- `spool/transfer.h` and `spool/plan.h` have the
-  planning, the shelf's fetch the conversation. A fetched blob's tree is
-  built when it completes.
+- ~~**Transfers**: a file fetched by root from members that hold it,
+  resumed from the sidecar, spans proved against the tree.~~ Built in sec
+  491, a peer at a time; several at once with an adaptive window is still
+  open.
 - **The scrub**, re-verifying a held file against its tree.
 - **Tiers.** Who may fetch a file: today the shelf serves any admitted peer
   any root, and a contact only what is shared. fuzzypickles' PUBLIC and
@@ -56082,3 +56081,85 @@ a refused read and a range out refused.
 same bytes; listed with its length; removed, leaving no file of it.
 
 **Sabotage: six new entries.**
+
+## 491. Files carried between hosts, 2026-10-06
+
+Sec 490's store, now fetched by members from the members that hold a file:
+fuzzypickles' first requirement, and the first half of its second.
+
+### How a file travels
+
+The shelf's (sec 424): `spool/message.h`'s four messages over the remote
+hop. A HAVE query first, so a peer holding nothing costs one round trip;
+then a WANT for each canonical span still missing, 16 leaves at most, and
+a DATA answering it with the span's proof **read from the blob's tree on
+disk** (`blob/levels`, sec 490). Every span is verified against the root
+before a byte of it is written, every leaf at the length the file's length
+gives it, so a peer can cost a fetch bandwidth and never a wrong leaf.
+
+- **A want is its length on disk.** `fetch file REF` writes the file's
+  `.len` and nothing else; a `.len` with no whole blob beside it is a file
+  this node is fetching, so a restart picks it up from what the sidecar says
+  is here. No list is kept anywhere else, and `remove file` takes a want
+  back as it deletes a file.
+- **Only a whole blob is served.** A fetched blob's tree is built when its
+  last leaf lands, from the leaves read back -- checked to fold to the root
+  before it is named -- so a host part way through answers as if it held
+  nothing.
+- **A budget a round.** fuzznetd fetches each wanted file from its pull
+  peers in turn, 4096 leaves (4 MiB) a round, checkpointing every 64 spans;
+  the rest on the next round. `fetch file` starts one at once.
+- **The remote hop's blob messages** go to the file store first and to the
+  shelf for anything it does not hold, which says "absent" as before.
+- **Who may fetch** is still the remote hop's members, as for texts; a
+  contact is served no file. Tiers are sec 490's open question.
+
+### Found while measuring: the replay window was 256
+
+**A file fetch wedged the node it fetched from.** fuzznetd's replay window
+held 256 nonces, and every request it admits holds a slot for its 300 s
+lifetime. A fetch sends one request a span, and on a loopback filled the
+window in about eight seconds; the node then refused every request from
+anybody until slots expired. Measured: a fetch placed 3984 leaves, and the
+peer answered nothing more for the rest of the run -- roots and votes
+included -- while staying up. It was sized for votes and notes, against
+`frame/freshness.h`'s own rule, capacity >= peak rate x lifetime.
+
+**It is 32768 now**, 24 bytes a slot, 768 KiB, holding about 109 requests a
+second for the whole lifetime. Shortening the lifetime instead was
+rejected: it is what tolerates clock skew between hosts, and a request
+expiring sooner than a peer's clock is off is refused as stale.
+
+### Not yet after sec 491
+
+- **Several peers at once, and an adaptive window**: a file is fetched from
+  one pull peer at a time, a span per round trip. `spool/transfer.h` has the
+  multi-peer assignment; a fetch does not use it yet.
+- **Peers beyond the pull peers**: only hosts this node has an address for
+  are asked, as for texts.
+- **The scrub** and **tiers**, as sec 490 lists them.
+
+### Measured for sec 491
+
+**`files_test`, 30 checks, 11 new:** B fetching what A holds -- a file
+never wanted not fetched; the want its length on disk; a span altered on
+the way placing nothing; a budget of 50 stopping short and not held; the
+rest fetched without re-fetching what was there, the want gone; the
+fetched file exported as the one put; C fetching it from B, which built
+its tree; a peer holding nothing said, and a want taken back.
+
+**Live, two fuzznetd, D joined to R and pulling from it**, a 6 MB file R
+put:
+
+    D: fetch file REF                          -> ok
+    D (that round): 4096 leaf(s) of file f7247ca6 from 127.0.0.1
+    D: get file REF out                        -> error not all here
+    (D stopped; its .len, .bits and leaves stay)
+    D (restarted, first round): file f7247ca6, 6000001 bytes, whole
+    D: get file REF out                        -> ok, the same bytes
+
+Before the window was resized, the same run stopped at 3984 leaves with R
+answering nothing more. `~/.local/state/fuzznet` stayed absent.
+
+**Sabotage: three new entries.** The window's size has none: it is
+fuzznetd's, which has no unit test, and the live run is its measurement.

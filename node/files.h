@@ -45,6 +45,7 @@
 #include "../blob/blob.h"
 #include "../session/aead.h"
 #include "../session/random.h"
+#include "../spool/message.h"
 #include "../spool/spool_file.h"
 
 /* The directory's length, leaving room for "/<64 hex>.bits" and more. */
@@ -55,6 +56,14 @@
 #define FZN_NODE_FILE_MAX ((uint64_t)FZN_SPOOL_MAX_LEAVES * FZN_BLOB_LEAF_SIZE)
 /* Roots a transfer may hold busy at once. */
 #define FZN_NODE_FILES_BUSY_MAX 16u
+/* Leaves one DATA carries, as the shelf's do (`node/shelf.h`): about 18 KB
+ * a reply, inside what the node's reply buffer holds. */
+#define FZN_NODE_FILES_SPAN 16u
+#define FZN_NODE_FILES_REPLY_MAX                                                               \
+	((size_t)FZN_MSG_DATA_OFF_PROOF + ((size_t)FZN_MSG_MAX_PROOF * FZN_BLOB_HASH_LEN)      \
+	 + ((size_t)FZN_NODE_FILES_SPAN * (4u + FZN_BLOB_SEALED_MAX)))
+/* Files a node fetches at once. */
+#define FZN_NODE_FILES_WANTS_MAX 64u
 
 typedef enum fzn_node_files_err {
 	FZN_NODE_FILES_OK = 0,
@@ -71,7 +80,15 @@ typedef enum fzn_node_files_err {
 	/* A transfer of the blob is running. */
 	FZN_NODE_FILES_ERR_BUSY = -6,
 	/* An export's destination exists already. */
-	FZN_NODE_FILES_ERR_EXISTS = -7
+	FZN_NODE_FILES_ERR_EXISTS = -7,
+	/* The peer did not answer. */
+	FZN_NODE_FILES_ERR_NO_ANSWER = -8,
+	/* The peer answered with something that is not the answer. */
+	FZN_NODE_FILES_ERR_SHAPE = -9,
+	/* The peer's leaves did not prove against the root. Nothing written. */
+	FZN_NODE_FILES_ERR_UNVERIFIED = -10,
+	/* The peer holds none of it, or not all. */
+	FZN_NODE_FILES_ERR_NOT_THERE = -11
 } fzn_node_files_err_t;
 
 const char *fzn_node_files_err_str(fzn_node_files_err_t err);
@@ -93,6 +110,9 @@ typedef struct fzn_node_files {
 	const fzn_random_ops_t *rng;
 	uint8_t busy[FZN_NODE_FILES_BUSY_MAX][FZN_BLOB_HASH_LEN];
 	size_t n_busy;
+	/* Set when a file is wanted, for a caller that fetches on a timer to
+	 * fetch now instead; the caller clears it. sec 491. */
+	int fresh;
 } fzn_node_files_t;
 
 /* Over `dir`, created mode 0700 when it is not there. */
@@ -133,11 +153,61 @@ fzn_node_files_err_t fzn_node_files_list(const fzn_node_files_t *files,
 fzn_node_files_err_t fzn_node_files_busy(fzn_node_files_t *files,
                                          const uint8_t root[FZN_BLOB_HASH_LEN], int busy);
 
+/* ---- carrying files between hosts, sec 491 ----------------------------
+ *
+ * THE SHELF'S CONVERSATION (`spool/message.h`'s four messages over the
+ * remote hop), with the proofs read from the blob's tree on disk: a HAVE
+ * query first, so a peer holding nothing costs one round trip, then a WANT
+ * for each canonical span still missing and a DATA answering it, every span
+ * verified against the root before a byte of it is written.
+ *
+ * A WANT IS ITS LENGTH ON DISK. Wanting a file writes its `.len` first, so a
+ * `.len` with no whole blob beside it is a file this node is fetching, and a
+ * restart picks it up from what the sidecar says is here. Nothing else keeps
+ * a list. `remove file` takes a want back as it deletes a file.
+ *
+ * WHO MAY ASK is the caller's: the node answers the members its remote hop
+ * admits, as the shelf does. A contact is served no file; tiers are open
+ * (sec 490). Only a WHOLE blob is served -- its tree is built when the last
+ * leaf lands, from the leaves read back -- so a host part way through a
+ * fetch answers as if it held nothing.
+ */
+
+/* THE SERVER: a HAVE_QUERY or a WANT for a file held here whole, answered;
+ * 0 for anything else, a root not held included, so a caller can ask the
+ * shelf next. */
+size_t fzn_node_files_answer(const fzn_node_files_t *files, const uint8_t *request,
+                             size_t request_len, uint8_t *reply, size_t reply_cap);
+
+/* How a fetch asks a peer: send `request`, fill `reply`. Nonzero on an
+ * answer. */
+typedef int (*fzn_node_files_ask_t)(void *ctx, const uint8_t *request, size_t request_len,
+                                    uint8_t *reply, size_t reply_cap, size_t *reply_len);
+
+/* WANT the file `root` of `length`: its length written down, so it is
+ * fetched until it is here. OK at once when it is held already. */
+fzn_node_files_err_t fzn_node_files_want(fzn_node_files_t *files,
+                                         const uint8_t root[FZN_BLOB_HASH_LEN], uint64_t length);
+
+/* The files wanted and not yet whole, `cap` at most. */
+size_t fzn_node_files_wanted(const fzn_node_files_t *files, uint8_t (*roots)[FZN_BLOB_HASH_LEN],
+                             uint64_t *lengths, size_t cap);
+
+/* THE FETCHER: up to `budget` leaves of the wanted file `root` from the peer
+ * `ask` reaches, resuming what is here, the root held busy while it runs.
+ * `*placed` counts leaves placed; OK when the file is whole -- its tree
+ * built -- and ABSENT when it is not whole yet, the budget spent. */
+fzn_node_files_err_t fzn_node_files_fetch(fzn_node_files_t *files,
+                                          const uint8_t root[FZN_BLOB_HASH_LEN],
+                                          fzn_node_files_ask_t ask, void *ask_ctx,
+                                          uint64_t budget, uint64_t *placed);
+
 /* THE NODE'S VERBS, for `node/admin.h`'s hook; 0 when `request` is not one:
  *
  *     put file PATH          seal the file at PATH; answers its reference
  *     get file REF PATH      export it to PATH, a file that is not there
- *     remove file ROOT       delete it here
+ *     fetch file REF         fetch it from the pull peers, sec 491
+ *     remove file ROOT       delete it here, or stop fetching it
  *     list file [FROM]       `ok TOTAL FROM ROOT,LENGTH ...`
  *
  * REF is the reference in hex, ROOT the root. All need this node's own
