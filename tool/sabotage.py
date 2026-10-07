@@ -9534,6 +9534,27 @@ SABOTAGES = [
 		"\t    && !roots->logged(roots->logged_ctx, pubkey, sign, kind, act, NULL, 0u))\n",
 		"a journal told only an act's hash carries nothing a receiver can apply -- sec 502",
 	),
+	(
+		"apply-waits-for-a-chain",
+		"node/apply.c",
+		"\treturn tried ? REFUSED : WAIT;\n",
+		"\treturn REFUSED;\n",
+		"an object refused for a chain that has not arrived yet is skipped for good, though its grant comes a round later -- sec 503",
+	),
+	(
+		"apply-marks-what-it-applied",
+		"node/apply.c",
+		"\t\t\t\t(void)fzn_journal_confirm(&ap->journal->journal, entry->issuer,\n\t\t\t\t                          FZN_NODE_JOURNAL_STREAM, seq);\n",
+		"",
+		"a journal never marked applied hands every object over again every round -- sec 503",
+	),
+	(
+		"apply-passes-while-progressing",
+		"node/apply.c",
+		"\tfor (pass = 0; pass < FZN_NODE_APPLY_PASSES && progress; pass++) {\n",
+		"\tfor (pass = 0; pass < 1u && progress; pass++) {\n",
+		"one pass a round leaves a vote waiting on a grant applied in the same round, a round late every time -- sec 503",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

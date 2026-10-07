@@ -57320,3 +57320,93 @@ vote.
   MALFORMED.
 - **`pair_test`, 296 checks:** the roots' hook is handed the succession R
   minted, whole and under its tag.
+
+## 503. Stage 3b: a node applies the journal it holds, 2026-10-07
+
+Since sec 502 each record's body is a signed object whole. This section
+applies them: `node/apply.h` reads every followed stream from what has
+been applied to what has been received, and hands each object to the
+subsystem that keeps its kind.
+
+| The object | Goes to |
+|---|---|
+| a grant's hop | the grant index below |
+| a root change, a setting of k, a root's retention setting | the roots (`fzn_node_roots_learn`) |
+| a vote or withdrawal, a confirmation, an admin's retention setting, a roster record, a succession | `fzn_node_votes_take`, with the signer's chain |
+
+### One admission, two carriages
+
+`fzn_node_votes_take` is new in `node/revoke.c`. It puts one object into
+the vote stream's state machine as the item that stream would have carried
+for it ('r', 'c', 't', 'o', 's') and calls the same `finish_vote`. So **the
+journal and the `get vote` stream cannot judge one object differently**:
+there is one admission, and both carriages reach it.
+
+### Chains are rebuilt, not carried
+
+A grant is itself an act, logged by its grantor (sec 497), so it is in the
+grantor's stream.
+
+- **The index:** every hop applied is kept as grantee, grantor and
+  capability. It holds at most 256, and a full index refuses rather than
+  evicting, since a grant forgotten is a chain nothing can rebuild.
+- **Rebuilding a chain:** `fzn_node_apply_chain` walks from the signer up
+  through the index, grantee to grantor, until it reaches a root (the pinned
+  one or a member of the set), and returns the chain root first. A root's
+  chain is empty.
+- **Which capability:** a signer's object is offered under its member chain
+  first, then under its admin chain, as the vote stream offers either.
+
+### Waiting, and marking applied
+
+- **An object whose signer's chain does not reach a root yet waits.** Its
+  stream stops there and is not marked applied, because the grant may
+  arrive in another stream later in the round or in the next.
+- **One that has a chain and is still refused** is marked applied and
+  counted, since asking again would refuse it again.
+- **Passes repeat within a round while one makes progress,** up to
+  `FZN_CHAIN_MAX_HOPS + 1`, so a grant applied in one stream releases a vote
+  waiting in another in the same round, however the streams are ordered.
+- **A record whose kind its body's tag denies is refused** before anything
+  reads it.
+- **Applying is idempotent**, as every subsystem's admission is. A restart,
+  which replays the journal with nothing marked applied, applies everything
+  again and changes nothing.
+
+### The daemon applies the journal
+
+fuzznetd applies once the estate is followed at start, and after each
+round's journal pull. Each application is said under `journal`: objects
+applied, grants indexed, refused, and streams waiting on a chain. It is a
+warning when something was refused.
+
+**The old carriage still runs beside it until 3c**, so in this stage an
+object usually arrives twice, and the second admission changes nothing.
+
+### Measured for sec 503
+
+**`apply_test`, 12 checks.** One journal, filled by hand, in its own
+directory under /tmp, made and removed by name:
+
+- M's stream is followed first and holds M's roster record adding alice.
+  R's stream holds R's grant to M and R's succession of D to D2.
+  - One round indexes the grant and applies the two objects; nothing
+    waits.
+  - M's record waited on the first pass and was applied on the next.
+  - Alice is active, and D reads through to D2.
+- The index rebuilds M's chain as R's one hop, a root's as empty, and none
+  for a stranger.
+- A stranger's record with no chain anywhere waits, applied to nothing.
+- A record of kind succession carrying a hop is refused.
+- A second round applies nothing.
+
+**Live, R and M over loopback:**
+
+- R revokes D and adds a contact, and its stream gains both objects.
+- M's next round says "2 record(s) from 127.0.0.1" and then "2 object(s)
+  applied, 0 grant(s) indexed, 0 refused, 0 stream(s) waiting on a chain".
+- M restarted alone applies the same two from disk at start.
+- No daemon was left running.
+
+The run's own summary line filtered for "journal" and "record(s) from" and
+so hid the apply line. It was read from M's log directly.

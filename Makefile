@@ -1240,9 +1240,10 @@ TEST_BINS += $(BUILD_DIR)/cli/test/cli_test \
 endif
 
 # node/journal rides with the file store it keeps its streams in. sec 501.
-RECORD_STORE_FILE_SRCS := record/store_file.c node/journal.c
-RECORD_STORE_FILE_HDRS := record/store_file.h node/journal.h
-RECORD_STORE_FILE_TSRC := record/test/store_file_test.c node/test/node_journal_test.c
+RECORD_STORE_FILE_SRCS := record/store_file.c node/journal.c node/apply.c
+RECORD_STORE_FILE_HDRS := record/store_file.h node/journal.h node/apply.h
+RECORD_STORE_FILE_TSRC := record/test/store_file_test.c node/test/node_journal_test.c \
+                          node/test/apply_test.c
 
 ifdef RECORD_STORE_FILE_ON
 CPPFLAGS  += -DFZN_RECORD_STORE_FILE_ON
@@ -1251,6 +1252,7 @@ HDRS      += $(RECORD_STORE_FILE_HDRS)
 TEST_SRCS += $(RECORD_STORE_FILE_TSRC)
 TEST_BINS += $(BUILD_DIR)/record/test/store_file_test
 TEST_BINS += $(BUILD_DIR)/node/test/node_journal_test
+TEST_BINS += $(BUILD_DIR)/node/test/apply_test
 endif
 
 CAPTURE_RUN_SRCS := log/capture_run.c
@@ -3855,6 +3857,51 @@ $(BUILD_DIR)/node/test/node_journal_test: $(BUILD_DIR)/node/test/node_journal_te
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# The journal applied to the subsystems, sec 503: pair_test's set, which
+# node/revoke.o's admission pulls in, and the journal.
+$(BUILD_DIR)/node/test/apply_test: $(BUILD_DIR)/node/test/apply_test.o \
+              $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
+              $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
+              $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
+              $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o \
+              $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o \
+              $(BUILD_DIR)/node/succession.o $(BUILD_DIR)/chain/succession.o \
+              $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
+              $(BUILD_DIR)/contact/contact.o \
+              $(BUILD_DIR)/contact/group.o \
+              $(BUILD_DIR)/log/rules.o \
+              $(BUILD_DIR)/notes/share.o \
+              $(BUILD_DIR)/notes/store.o \
+              $(BUILD_DIR)/record/record.o \
+              $(BUILD_DIR)/log/retain.o \
+              $(BUILD_DIR)/node/received.o $(BUILD_DIR)/notes/received.o \
+              $(BUILD_DIR)/node/members.o \
+              $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
+              $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o \
+              $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/peer.o \
+              $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/caller.o \
+              $(BUILD_DIR)/node/local.o $(BUILD_DIR)/local/socket.o \
+              $(BUILD_DIR)/local/peer_linux.o $(BUILD_DIR)/local/line.o \
+              $(BUILD_DIR)/local/vocabulary.o $(BUILD_DIR)/net/udp.o \
+              $(BUILD_DIR)/version/version.o \
+              $(BUILD_DIR)/provision/provision.o $(BUILD_DIR)/chain/service.o \
+              $(BUILD_DIR)/chain/authz.o $(BUILD_DIR)/frame/freshness.o \
+              $(BUILD_DIR)/chunk/split.o $(BUILD_DIR)/chunk/reassembly.o \
+              $(BUILD_DIR)/chain/sign_monocypher.o $(BUILD_DIR)/monocypher-ed25519.o \
+              $(BUILD_DIR)/session/hash_monocypher.o \
+              $(BUILD_DIR)/session/aead_monocypher.o \
+              $(BUILD_DIR)/session/agree_monocypher.o $(BUILD_DIR)/monocypher.o \
+              $(BUILD_DIR)/session/session.o $(BUILD_DIR)/session/agree.o \
+              $(BUILD_DIR)/session/commitment.o $(BUILD_DIR)/session/random.o \
+              $(BUILD_DIR)/session/random_linux.o \
+              $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/ratchet/ratchet.o \
+              $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/chain/chain.o \
+              $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
+              $(BUILD_DIR)/wire/seal.o \
+              $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # The node's notes, the model and the verbs over it. sec 431.
 FUZZNETD_NOTES_OBJS := $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/notes/store.o \
                        $(BUILD_DIR)/notes/view.o $(BUILD_DIR)/notes/author.o \
@@ -3891,7 +3938,7 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(BUILD_DIR)/session/agree_monocypher.o \
               $(FUZZNETD_NOTES_OBJS) \
               $(if $(SPOOL_FILE_ON),$(FUZZNETD_SHELF_OBJS)) \
-              $(if $(RECORD_STORE_FILE_ON),$(FUZZNETD_JOURNAL_OBJS)) \
+              $(if $(RECORD_STORE_FILE_ON),$(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o) \
               $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o $(BUILD_DIR)/log/cause.o \
               $(BUILD_DIR)/log/view.o \
               $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o $(BUILD_DIR)/log/ring.o \

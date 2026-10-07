@@ -1033,6 +1033,67 @@ static fzn_node_pull_err_t finish_vote(fzn_node_vote_pull_t *pull,
 	return FZN_NODE_PULL_OK;
 }
 
+fzn_node_pull_err_t fzn_node_votes_take(fzn_node_vote_pull_t *pull, char item,
+                                        const uint8_t *object, size_t len,
+                                        const uint8_t (*hops)[FZN_HOP_LEN], size_t hop_count,
+                                        const uint8_t root[FZN_PUBKEY_LEN],
+                                        const fzn_sign_ops_t *sign, const fzn_hash_ops_t *hash,
+                                        fzn_revocation_store_t *revocations,
+                                        const fzn_persist_ops_t *store)
+{
+	size_t i;
+
+	if (!pull || !object || !root || !sign || !hash || !hash->hash || !revocations || !store
+	    || !store->save || hop_count >= FZN_CHAIN_MAX_HOPS || (hop_count && !hops))
+		return FZN_NODE_PULL_MALFORMED;
+	pull->pending = 0;
+	pull->confirming = 0;
+	pull->retaining = 0;
+	pull->rostering = 0;
+	pull->succeeding = 0;
+	/* THE ITEM AS THE STREAM WOULD HAVE CARRIED IT, each kind at its own
+	 * length -- the one place this and `fzn_node_votes_absorb` differ is
+	 * where the bytes came from. */
+	switch (item) {
+	case 'r':
+		if (len != FZN_REVOCATION_LEN)
+			return FZN_NODE_PULL_SHAPE;
+		memcpy(pull->record, object, len);
+		break;
+	case 'c':
+		if (len != FZN_ADMIN_CONFIRM_LEN)
+			return FZN_NODE_PULL_SHAPE;
+		memcpy(pull->confirm, object, len);
+		pull->confirming = 1;
+		break;
+	case 't':
+		if (len != FZN_RETENTION_SET_LEN)
+			return FZN_NODE_PULL_SHAPE;
+		memcpy(pull->retention, object, len);
+		pull->retaining = 1;
+		break;
+	case 'o':
+		if (len != FZN_ROSTER_MIN_LEN)
+			return FZN_NODE_PULL_SHAPE;
+		memcpy(pull->roster_record, object, len);
+		pull->rostering = 1;
+		break;
+	case 's':
+		if (len != FZN_SUCCESSION_LEN)
+			return FZN_NODE_PULL_SHAPE;
+		memcpy(pull->succession, object, len);
+		pull->succeeding = 1;
+		break;
+	default:
+		return FZN_NODE_PULL_MALFORMED;
+	}
+	for (i = 0; i < hop_count; i++)
+		memcpy(pull->hops[i], hops[i], FZN_HOP_LEN);
+	pull->hop_count = hop_count;
+	pull->pending = 1;
+	return finish_vote(pull, root, sign, hash, revocations, store);
+}
+
 fzn_node_pull_err_t fzn_node_votes_absorb(fzn_node_vote_pull_t *pull, const uint8_t *reply,
                                           size_t reply_len, size_t from,
                                           const uint8_t root[FZN_PUBKEY_LEN],

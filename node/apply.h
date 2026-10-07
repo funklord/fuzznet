@@ -1,0 +1,100 @@
+/* What a node does with the journal it holds: each object applied to the
+ * subsystem that keeps its kind. project.md sec 503, stage 3b of sec 500.
+ *
+ * `node/journal.h` keeps and moves the estate streams; since sec 502 each
+ * record's body is a signed object whole, under its tag. This reads every
+ * stream from what has been applied to what has been received and hands each
+ * object on:
+ *
+ *     a grant's hop          to the grant index below
+ *     a root change or a     to the roots (`fzn_node_roots_learn`)
+ *       setting of k, or a root's retention setting
+ *     a vote, a withdrawal,  to `fzn_node_votes_take`, with the signer's
+ *       a confirmation, an     chain rebuilt from the index -- exactly the
+ *       admin's retention      admission the `get vote` stream's items took
+ *       setting, a roster
+ *       record, a succession
+ *
+ * CHAINS ARE NOT CARRIED, THEY ARE REBUILT. A grant is itself an act, logged
+ * by its grantor (sec 497) and so in the grantor's stream; the index holds
+ * every grant applied, and a signer's chain is walked up through it, grantee
+ * to grantor, until a root. A root needs none.
+ *
+ * AN OBJECT WHOSE CHAIN IS NOT HERE YET WAITS, its stream stopped there and
+ * not marked applied, because a grant in another stream may arrive later in
+ * this round or the next. One that has a chain and is still refused is marked
+ * applied and skipped: asking again would refuse it again. Passes repeat
+ * within a round while one makes progress, so a grant applied in one stream
+ * releases a vote waiting in another.
+ *
+ * APPLYING IS IDEMPOTENT, as every subsystem's admission is, so a restart --
+ * whose journal replays with nothing yet marked applied -- applies everything
+ * again and changes nothing.
+ */
+
+#ifndef FZN_NODE_APPLY_H
+#define FZN_NODE_APPLY_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "journal.h"
+#include "revoke.h"
+
+/* The most grants the index holds: every pairing and admin grant in the
+ * estate, each once. */
+#define FZN_NODE_APPLY_GRANTS_MAX 256u
+
+/* The most passes over the streams one round makes. Each pass applies
+ * whatever the last one released; this many releases a chain as deep as a
+ * chain may be, with one to spare. */
+#define FZN_NODE_APPLY_PASSES (FZN_CHAIN_MAX_HOPS + 1u)
+
+typedef struct fzn_node_grant {
+	uint8_t hop[FZN_HOP_LEN];
+	uint8_t grantor[FZN_PUBKEY_LEN];
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	fzn_cap_id_t capability;
+} fzn_node_grant_t;
+
+struct fzn_node_roots;
+struct fzn_node_roster;
+struct fzn_node_successions;
+
+typedef struct fzn_node_apply {
+	fzn_node_journal_t *journal;
+	fzn_revocation_store_t *revocations;
+	struct fzn_node_roots *roots;        /* NULL: the pinned root alone */
+	struct fzn_node_roster *roster;      /* NULL: roster records refused */
+	struct fzn_node_successions *successions;  /* NULL: successions refused */
+	const fzn_persist_ops_t *store;
+	const uint8_t *root;                 /* the pinned root */
+	const fzn_cap_id_t *capability;      /* a member's grant */
+	const fzn_cap_id_t *admin_capability;  /* an admin's grant, or NULL */
+	const fzn_sign_ops_t *sign;
+	const fzn_hash_ops_t *hash;
+	fzn_node_grant_t grants[FZN_NODE_APPLY_GRANTS_MAX];
+	size_t grants_used;
+} fzn_node_apply_t;
+
+typedef struct fzn_node_apply_tally {
+	size_t applied;   /* objects a subsystem took */
+	size_t grants;    /* grants indexed */
+	size_t refused;   /* objects refused with a chain, or of no kind applied */
+	size_t waiting;   /* streams stopped at an object whose chain is not here */
+} fzn_node_apply_tally_t;
+
+/* ONE ROUND: every followed stream, from applied to received, in passes until
+ * one makes no progress. MALFORMED for a context missing its journal, store,
+ * revocations, root, capability, signer or hash; NOT_SAVED when a subsystem
+ * admitted an object and could not keep it. */
+fzn_node_pull_err_t fzn_node_apply_round(fzn_node_apply_t *ap, fzn_node_apply_tally_t *tally);
+
+/* A SIGNER'S CHAIN for `capability`, from the index: the grants walked up
+ * from `key` to a root, root first, into `hops`. 1 with `*hop_count` set --
+ * zero for a root -- or 0 when the index does not reach a root from `key`. */
+int fzn_node_apply_chain(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY_LEN],
+                         const fzn_cap_id_t *capability,
+                         uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t *hop_count);
+
+#endif /* FZN_NODE_APPLY_H */

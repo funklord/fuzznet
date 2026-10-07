@@ -47,6 +47,7 @@
 #include "succession.h"
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include "journal.h"
+#include "apply.h"
 #endif
 #include "peer_persist.h"
 #include "notes.h"
@@ -1075,6 +1076,28 @@ static void follow_estate(const uint8_t identity[FZN_PUBKEY_LEN], const fzn_node
 			say(FZN_ENTRY_WARNING, "journal", "no room to follow another key's stream");
 			break;
 		}
+}
+
+/* THE JOURNAL APPLIED, sec 503: every object pulled, handed to the subsystem
+ * that keeps its kind, with its signer's chain rebuilt from the grants held. */
+static fzn_node_apply_t node_apply;
+
+static void apply_journal(void)
+{
+	fzn_node_apply_tally_t tally;
+	fzn_node_pull_err_t err;
+
+	if (!journal_on || !node_apply.journal)
+		return;
+	err = fzn_node_apply_round(&node_apply, &tally);
+	if (err != FZN_NODE_PULL_OK)
+		say(FZN_ENTRY_WARNING, "journal", "applying the journal: %s",
+		    fzn_node_pull_err_str(err));
+	else if (tally.applied || tally.refused || tally.waiting)
+		say(tally.refused ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "journal",
+		    "%zu object(s) applied, %zu grant(s) indexed, %zu refused, %zu stream(s) waiting "
+		    "on a chain",
+		    tally.applied, tally.grants, tally.refused, tally.waiting);
 }
 
 /* ONE ROUND OF THE JOURNAL against every pull peer. */
@@ -2978,6 +3001,19 @@ int main(int argc, char **argv)
 				admin.journal_remote = journal_remote;
 				admin.journal_ctx = &node_journal;
 				follow_estate(identity.pubkey, &state, &estate_roots);
+				node_apply.journal = &node_journal;
+				node_apply.revocations = &revoked;
+				node_apply.roots = &estate_roots;
+				node_apply.roster = roster_on ? &node_roster : NULL;
+				node_apply.successions = successions_on ? &node_successions : NULL;
+				node_apply.store = store_ops;
+				node_apply.root = state.config.root;
+				node_apply.capability = &state.config.remote_capability;
+				node_apply.admin_capability =
+				        state.config.has_admin ? &state.config.admin_capability : NULL;
+				node_apply.sign = &sign_ops;
+				node_apply.hash = &hash_ops;
+				apply_journal();
 			}
 #endif
 			state.on_local = fzn_node_admin_handle;
@@ -3276,6 +3312,7 @@ int main(int argc, char **argv)
 				 * proved this round's members, so they are followed. */
 				follow_estate(identity.pubkey, &state, running_roots);
 				pull_journal(pulls, npulls, now);
+				apply_journal();
 #endif
 #ifdef FZN_LOG_PACK_ON
 				copy_logs(pulls, npulls, now);

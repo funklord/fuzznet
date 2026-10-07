@@ -1,0 +1,212 @@
+/* See apply.h. */
+
+#include "apply.h"
+#include "roots.h"
+
+#include "../constant_time/constant_time.h"
+
+#include <string.h>
+
+/* What applying one object came to. */
+enum outcome { APPLIED, REFUSED, WAIT, NOT_SAVED };
+
+static int is_root(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	if (fzn_ct_memeq(key, ap->root, FZN_PUBKEY_LEN))
+		return 1;
+	return ap->roots && ap->roots->ops.member && ap->roots->ops.member(ap->roots->ops.ctx, key);
+}
+
+int fzn_node_apply_chain(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY_LEN],
+                         const fzn_cap_id_t *capability,
+                         uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t *hop_count)
+{
+	uint8_t walked[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	const uint8_t *at = key;
+	size_t depth = 0, i;
+
+	if (!ap || !key || !capability || !hops || !hop_count)
+		return 0;
+	/* UP FROM THE SIGNER, a grant at a time, until a root granted. A chain
+	 * may carry FZN_CHAIN_MAX_HOPS - 1 hops when offered beside a vote. */
+	while (!is_root(ap, at)) {
+		const fzn_node_grant_t *g = NULL;
+
+		if (depth + 1u >= FZN_CHAIN_MAX_HOPS)
+			return 0;
+		for (i = 0; i < ap->grants_used && !g; i++)
+			if (fzn_ct_memeq(ap->grants[i].grantee, at, FZN_PUBKEY_LEN)
+			    && fzn_ct_memeq(ap->grants[i].capability.b, capability->b, FZN_CAP_ID_LEN))
+				g = &ap->grants[i];
+		if (!g)
+			return 0;
+		memcpy(walked[depth++], g->hop, FZN_HOP_LEN);
+		at = g->grantor;
+	}
+	/* ROOT FIRST, as a chain is read. */
+	for (i = 0; i < depth; i++)
+		memcpy(hops[i], walked[depth - 1u - i], FZN_HOP_LEN);
+	*hop_count = depth;
+	return 1;
+}
+
+static enum outcome index_grant(fzn_node_apply_t *ap, const uint8_t *body, size_t len,
+                                fzn_node_apply_tally_t *tally)
+{
+	fzn_chain_hop_t hop;
+	fzn_node_grant_t *g;
+	size_t i;
+
+	if (len != FZN_HOP_LEN || fzn_hop_open(body, len, &hop) != FZN_CHAIN_OK)
+		return REFUSED;
+	for (i = 0; i < ap->grants_used; i++)
+		if (memcmp(ap->grants[i].hop, body, FZN_HOP_LEN) == 0)
+			return APPLIED;
+	/* A FULL INDEX REFUSES rather than evicting: a grant forgotten is a
+	 * chain nothing can rebuild, and every vote under it would wait. */
+	if (ap->grants_used >= FZN_NODE_APPLY_GRANTS_MAX)
+		return REFUSED;
+	g = &ap->grants[ap->grants_used++];
+	memcpy(g->hop, body, FZN_HOP_LEN);
+	memcpy(g->grantor, fzn_hop_grantor(hop), FZN_PUBKEY_LEN);
+	memcpy(g->grantee, fzn_hop_grantee(hop), FZN_PUBKEY_LEN);
+	g->capability = *fzn_hop_capability(hop);
+	tally->grants++;
+	return APPLIED;
+}
+
+/* An object through the vote stream's admission, under `signer`'s chain --
+ * as a member, then as an admin -- or none for a root. */
+static enum outcome take(fzn_node_apply_t *ap, char item, const uint8_t *body, size_t len,
+                         const uint8_t signer[FZN_PUBKEY_LEN])
+{
+	static fzn_node_vote_pull_t pull;
+	uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	const fzn_cap_id_t *caps[2];
+	size_t n = 0, c, tried = 0;
+	fzn_node_pull_err_t err;
+
+	memset(&pull, 0, sizeof(pull));
+	pull.roots = ap->roots;
+	pull.roster = ap->roster;
+	pull.successions = ap->successions;
+	if (is_root(ap, signer)) {
+		err = fzn_node_votes_take(&pull, item, body, len, NULL, 0u, ap->root, ap->sign,
+		                          ap->hash, ap->revocations, ap->store);
+		if (err == FZN_NODE_PULL_NOT_SAVED)
+			return NOT_SAVED;
+		return pull.learned ? APPLIED : REFUSED;
+	}
+	caps[0] = ap->capability;
+	caps[1] = ap->admin_capability;
+	for (c = 0; c < 2u; c++) {
+		if (!caps[c] || !fzn_node_apply_chain(ap, signer, caps[c], hops, &n))
+			continue;
+		tried++;
+		pull.learned = 0;
+		err = fzn_node_votes_take(&pull, item, body, len, (const uint8_t (*)[FZN_HOP_LEN])hops,
+		                          n, ap->root, ap->sign, ap->hash, ap->revocations, ap->store);
+		if (err == FZN_NODE_PULL_NOT_SAVED)
+			return NOT_SAVED;
+		if (pull.learned)
+			return APPLIED;
+	}
+	/* NO CHAIN YET: a grant in another stream may still arrive. */
+	return tried ? REFUSED : WAIT;
+}
+
+static enum outcome apply_one(fzn_node_apply_t *ap, fzn_record_t rec,
+                              fzn_node_apply_tally_t *tally)
+{
+	const uint8_t *body = fzn_record_body(rec), *signer = fzn_record_issuer(rec);
+	size_t len = fzn_record_body_len(rec);
+	uint32_t kind = fzn_record_kind(rec);
+	fzn_node_roots_err_t rerr;
+
+	/* THE BODY IS THE OBJECT ITS KIND NAMES, sec 502: a record whose body's
+	 * tag disagrees with its kind is refused before anything reads it. */
+	if (len < 2u || body[1] != (uint8_t)kind)
+		return REFUSED;
+	switch (kind) {
+	case FZN_OBJECT_HOP:
+		return index_grant(ap, body, len, tally);
+	case FZN_OBJECT_ROOT_ADD:
+	case FZN_OBJECT_ROOT_REMOVE:
+	case FZN_OBJECT_QUORUM_SET:
+		if (!ap->roots)
+			return REFUSED;
+		rerr = fzn_node_roots_learn(ap->roots, ap->store, body, len);
+		return rerr == FZN_NODE_ROOTS_OK ? APPLIED
+		       : rerr == FZN_NODE_ROOTS_NOT_SAVED ? NOT_SAVED
+		                                          : REFUSED;
+	case FZN_OBJECT_RETENTION_SET:
+		/* A ROOT'S SETTING TO THE ROOTS, an admin's through its chain. */
+		if (ap->roots && is_root(ap, signer)) {
+			rerr = fzn_node_roots_learn(ap->roots, ap->store, body, len);
+			return rerr == FZN_NODE_ROOTS_OK ? APPLIED
+			       : rerr == FZN_NODE_ROOTS_NOT_SAVED ? NOT_SAVED
+			                                          : REFUSED;
+		}
+		return take(ap, 't', body, len, signer);
+	case FZN_OBJECT_REVOCATION:
+	case FZN_OBJECT_WITHDRAWAL:
+		return take(ap, 'r', body, len, signer);
+	case FZN_OBJECT_ADMIN_CONFIRM:
+		return take(ap, 'c', body, len, signer);
+	case FZN_OBJECT_ROSTER_ADD:
+	case FZN_OBJECT_ROSTER_REMOVE:
+	case FZN_OBJECT_ROSTER_SET:
+		return take(ap, 'o', body, len, signer);
+	case FZN_OBJECT_SUCCESSION:
+		return take(ap, 's', body, len, signer);
+	default:
+		return REFUSED;
+	}
+}
+
+fzn_node_pull_err_t fzn_node_apply_round(fzn_node_apply_t *ap, fzn_node_apply_tally_t *tally)
+{
+	static uint8_t buf[FZN_RECORD_MAX_LEN];
+	size_t pass, e;
+	int progress = 1;
+
+	if (!ap || !tally || !ap->journal || !ap->store || !ap->store->save || !ap->revocations
+	    || !ap->root || !ap->capability || !ap->sign || !ap->hash || !ap->hash->hash)
+		return FZN_NODE_PULL_MALFORMED;
+	memset(tally, 0, sizeof(*tally));
+	for (pass = 0; pass < FZN_NODE_APPLY_PASSES && progress; pass++) {
+		progress = 0;
+		tally->waiting = 0;
+		for (e = 0; e < ap->journal->journal.used; e++) {
+			fzn_journal_entry_t *entry = &ap->journal->entries[e];
+			uint64_t seq;
+
+			if (entry->stream != FZN_NODE_JOURNAL_STREAM)
+				continue;
+			for (seq = entry->applied + 1u; seq <= entry->received; seq++) {
+				fzn_record_t rec;
+				enum outcome out;
+
+				if (fzn_record_store_get(&ap->journal->store, entry->issuer,
+				                         FZN_NODE_JOURNAL_STREAM, seq, buf, sizeof(buf), &rec)
+				    != FZN_RECORD_STORE_OK)
+					break;
+				out = apply_one(ap, rec, tally);
+				if (out == NOT_SAVED)
+					return FZN_NODE_PULL_NOT_SAVED;
+				if (out == WAIT) {
+					tally->waiting++;
+					break;
+				}
+				if (out == APPLIED && fzn_record_kind(rec) != (uint32_t)FZN_OBJECT_HOP)
+					tally->applied++;
+				if (out == REFUSED)
+					tally->refused++;
+				(void)fzn_journal_confirm(&ap->journal->journal, entry->issuer,
+				                          FZN_NODE_JOURNAL_STREAM, seq);
+				progress = 1;
+			}
+		}
+	}
+	return FZN_NODE_PULL_OK;
+}

@@ -343,6 +343,21 @@ fzn_node_pull_err_t fzn_node_votes_absorb(fzn_node_vote_pull_t *pull, const uint
                                           const fzn_persist_ops_t *store, size_t *next,
                                           size_t *total);
 
+/* ONE OBJECT, AS THE STREAM WOULD HAVE CARRIED IT: `item` is the stream's
+ * letter for its kind -- 'r' a vote or withdrawal, 'c' a confirmation, 't' an
+ * admin's retention setting, 'o' a roster record, 's' a succession -- and
+ * `hops` its signer's chain, none for a root. Admitted and saved by exactly
+ * the path `fzn_node_votes_absorb` takes, counted in `pull`'s learned and
+ * refused. What the journal's receiver calls, sec 503, so the two carriages
+ * cannot judge one object differently. */
+fzn_node_pull_err_t fzn_node_votes_take(fzn_node_vote_pull_t *pull, char item,
+                                        const uint8_t *object, size_t len,
+                                        const uint8_t (*hops)[FZN_HOP_LEN], size_t hop_count,
+                                        const uint8_t root[FZN_PUBKEY_LEN],
+                                        const fzn_sign_ops_t *sign, const fzn_hash_ops_t *hash,
+                                        fzn_revocation_store_t *revocations,
+                                        const fzn_persist_ops_t *store);
+
 /* The whole stream from the peer `caller` reaches. `learned` and `refused`
  * are what `fzn_node_vote_pull_t` counted. */
 fzn_node_pull_err_t fzn_node_votes_pull(fzn_caller_t *caller, const uint8_t root[FZN_PUBKEY_LEN],
