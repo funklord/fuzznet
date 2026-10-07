@@ -137,9 +137,9 @@ fzn_node_revoke_err_t fzn_node_confirm_save(const fzn_persist_ops_t *store,
                                             const uint8_t record[FZN_ADMIN_CONFIRM_LEN],
                                             const fzn_node_authority_t *authority);
 
-/* At start: admit every revocation this node ISSUED (slot 9), every one it
- * LEARNED from its estate root (slot 10) and every vote it learned from a
- * peer with its chain (slot 11, sec 399), from `store` into `revocations`,
+/* At start: admit every revocation this node ISSUED (slot 9) and every vote
+ * it learned with its chain (slot 11, sec 399) -- its root's among them since
+ * sec 506 retired slot 10 -- from `store` into `revocations`,
  * verified against `root`, and -- when the store keeps a confirmation table --
  * every admin confirmation (slot 15, sec 415). OK with nothing stored.
  *

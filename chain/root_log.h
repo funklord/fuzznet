@@ -270,15 +270,17 @@ fzn_root_log_err_t fzn_root_set_admit(fzn_root_set_t *set, const uint8_t *bytes,
  * changes. */
 typedef struct fzn_root_view {
 	const fzn_root_set_t *set;
-	const fzn_root_log_t *log;
+	const struct fzn_act_log_ops *acts;
 	uint8_t add_ok[FZN_ROOT_SET_MAX];
 	uint8_t rem_ok[FZN_ROOT_SET_MAX];
 } fzn_root_view_t;
 
-/* Settle `set` against `log` (NULL for none) into `view`, which borrows
- * both. MALFORMED for an unsound set. */
+/* Settle `set` against `acts`, the log of every key's acts (NULL for none),
+ * into `view`, which borrows both. A removal's cut is asked of `acts` --
+ * a root log's (`fzn_root_log_acts`) or, since sec 506, a node's journal's.
+ * MALFORMED for an unsound set. */
 fzn_root_log_err_t fzn_root_view_init(fzn_root_view_t *view, const fzn_root_set_t *set,
-                                      const fzn_root_log_t *log);
+                                      const struct fzn_act_log_ops *acts);
 
 int fzn_root_view_counts(const fzn_root_view_t *view, const uint8_t root[FZN_PUBKEY_LEN],
                          const uint8_t act[FZN_ROOT_ACT_ID_LEN]);
@@ -291,19 +293,19 @@ struct fzn_root_ops;
 void fzn_root_view_ops(const fzn_root_view_t *view, struct fzn_root_ops *ops);
 
 /* Whether `act` (the hash of a record) by `root` counts, under the rule
- * above, with `log` the entries this host holds (NULL for none, in which case
+ * above, with `acts` the log this host holds (NULL for none, in which case
  * nothing a removed root did stands). */
-int fzn_root_set_counts(const fzn_root_set_t *set, const fzn_root_log_t *log,
+int fzn_root_set_counts(const fzn_root_set_t *set, const struct fzn_act_log_ops *acts,
                         const uint8_t root[FZN_PUBKEY_LEN],
                         const uint8_t act[FZN_ROOT_ACT_ID_LEN]);
 
 /* Whether `key` is a root that stands: a member not removed. */
-int fzn_root_set_stands(const fzn_root_set_t *set, const fzn_root_log_t *log,
+int fzn_root_set_stands(const fzn_root_set_t *set, const struct fzn_act_log_ops *acts,
                         const uint8_t key[FZN_PUBKEY_LEN]);
 
 /* Whether `key` is a member at all, removed or not: a root whose acts
  * before its cut may still count. */
-int fzn_root_set_member(const fzn_root_set_t *set, const fzn_root_log_t *log,
+int fzn_root_set_member(const fzn_root_set_t *set, const struct fzn_act_log_ops *acts,
                         const uint8_t key[FZN_PUBKEY_LEN]);
 
 /*

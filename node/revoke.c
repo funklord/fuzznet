@@ -251,8 +251,11 @@ fzn_persist_err_t fzn_node_revocations_load(const fzn_persist_ops_t *store,
                                             const fzn_sign_ops_t *sign,
                                             const fzn_hash_ops_t *hash, size_t *count)
 {
-	static const fzn_persist_slot_t SLOTS[2] = { FZN_PERSIST_ISSUED_REVOCATION,
-		                                     FZN_PERSIST_LEARNED_REVOCATION };
+	/* SLOT 9 ALONE since sec 506: slot 10 held what a member pulled from
+	 * its root with `get revocation`, and nothing has written it since the
+	 * journal took that carriage. A root's vote arrives as any vote does,
+	 * into slot 11 below. */
+	static const fzn_persist_slot_t SLOTS[1] = { FZN_PERSIST_ISSUED_REVOCATION };
 	uint8_t subjects[FZN_NODE_REVOCATIONS_MAX * FZN_PUBKEY_LEN];
 	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS], admin_hops[FZN_CHAIN_MAX_HOPS];
 	const uint8_t *self = NULL, *admin_self = NULL;
@@ -281,7 +284,7 @@ fzn_persist_err_t fzn_node_revocations_load(const fzn_persist_ops_t *store,
 	if (!store->list)
 		return FZN_PERSIST_ERR_BACKEND;
 
-	for (s = 0; s < 2u; s++) {
+	for (s = 0; s < sizeof(SLOTS) / sizeof(SLOTS[0]); s++) {
 		size_t found = 0;
 
 		if (!store->list(store->ctx, SLOTS[s], subjects, FZN_NODE_REVOCATIONS_MAX, &found))
@@ -318,7 +321,7 @@ fzn_persist_err_t fzn_node_revocations_load(const fzn_persist_ops_t *store,
 	}
 
 	/* THE VOTES LEARNED FROM PEERS, each with the chain it came with, and
-	 * each refused as fatally as the two slots above: it was admitted once
+	 * each refused as fatally as the slot above: it was admitted once
 	 * and saved only because it was, so one that will not admit again is a
 	 * store that changed underneath this node. sec 399. */
 	{

@@ -354,9 +354,9 @@ static int removed_in(const fzn_root_set_t *set, const struct settled *st, const
 
 /* THE ACT RULE, under the removals `st` holds: a member not removed, or an
  * act that stands under the cut of every counting removal of its root. A
- * removal naming no cut leaves nothing standing, and without a log nothing a
- * removed root did can be shown to stand. */
-static int counts_in(const fzn_root_set_t *set, const fzn_root_log_t *log,
+ * removal naming no cut leaves nothing standing, and without a log of acts
+ * nothing a removed root did can be shown to stand. */
+static int counts_in(const fzn_root_set_t *set, const struct fzn_act_log_ops *acts,
                      const struct settled *st, const uint8_t *root, const uint8_t *act)
 {
 	size_t i;
@@ -368,8 +368,8 @@ static int counts_in(const fzn_root_set_t *set, const fzn_root_log_t *log,
 
 		if (is_add(c) || !st->rem_ok[i] || !fzn_ct_memeq(c->subject, root, FZN_PUBKEY_LEN))
 			continue;
-		if (!log || all_zero(c->cut, FZN_ROOT_ACT_ID_LEN)
-		    || !fzn_root_log_stands(log, root, c->cut, act))
+		if (!acts || all_zero(c->cut, FZN_ROOT_ACT_ID_LEN)
+		    || !acts->stands(acts->ctx, root, c->cut, act))
 			return 0;
 	}
 	return 1;
@@ -377,7 +377,7 @@ static int counts_in(const fzn_root_set_t *set, const fzn_root_log_t *log,
 
 /* Membership as the least fixed point from the genesis root, with the
  * removals in `st` held fixed. Monotone, so it ends within `used` passes. */
-static void grow_members(const fzn_root_set_t *set, const fzn_root_log_t *log, struct settled *st)
+static void grow_members(const fzn_root_set_t *set, const struct fzn_act_log_ops *acts, struct settled *st)
 {
 	size_t i;
 	int changed = 1;
@@ -390,7 +390,7 @@ static void grow_members(const fzn_root_set_t *set, const fzn_root_log_t *log, s
 
 			if (!is_add(c) || st->add_ok[i])
 				continue;
-			if (counts_in(set, log, st, c->signer, c->id)) {
+			if (counts_in(set, acts, st, c->signer, c->id)) {
 				st->add_ok[i] = 1;
 				changed = 1;
 			}
@@ -401,17 +401,17 @@ static void grow_members(const fzn_root_set_t *set, const fzn_root_log_t *log, s
 /* THE ROUNDS: fix the removals, grow membership, recompute the removals
  * from it, until they stop changing. Bounded by the records: a set that has
  * not settled in `used + 1` rounds takes every removal any round saw. */
-static void settle(const fzn_root_set_t *set, const fzn_root_log_t *log, struct settled *st)
+static void settle(const fzn_root_set_t *set, const struct fzn_act_log_ops *acts, struct settled *st)
 {
 	uint8_t seen[FZN_ROOT_SET_MAX], next[FZN_ROOT_SET_MAX];
 	size_t round, i;
 
 	memset(st, 0, sizeof(*st));
 	st->set = set;
-	st->log = log;
+	st->acts = acts;
 	memset(seen, 0, sizeof(seen));
 	for (round = 0; round <= set->used; round++) {
-		grow_members(set, log, st);
+		grow_members(set, acts, st);
 		memset(next, 0, sizeof(next));
 		for (i = 0; i < set->used; i++)
 			if (!is_add(&set->changes[i])
@@ -424,10 +424,10 @@ static void settle(const fzn_root_set_t *set, const fzn_root_log_t *log, struct 
 		memcpy(st->rem_ok, next, sizeof(next));
 	}
 	memcpy(st->rem_ok, seen, sizeof(seen));
-	grow_members(set, log, st);
+	grow_members(set, acts, st);
 }
 
-int fzn_root_set_counts(const fzn_root_set_t *set, const fzn_root_log_t *log,
+int fzn_root_set_counts(const fzn_root_set_t *set, const struct fzn_act_log_ops *acts,
                         const uint8_t root[FZN_PUBKEY_LEN],
                         const uint8_t act[FZN_ROOT_ACT_ID_LEN])
 {
@@ -435,38 +435,38 @@ int fzn_root_set_counts(const fzn_root_set_t *set, const fzn_root_log_t *log,
 
 	if (!set_sound(set) || !root || !act)
 		return 0;
-	settle(set, log, &st);
-	return counts_in(set, log, &st, root, act);
+	settle(set, acts, &st);
+	return counts_in(set, acts, &st, root, act);
 }
 
-int fzn_root_set_stands(const fzn_root_set_t *set, const fzn_root_log_t *log,
+int fzn_root_set_stands(const fzn_root_set_t *set, const struct fzn_act_log_ops *acts,
                         const uint8_t key[FZN_PUBKEY_LEN])
 {
 	struct settled st;
 
 	if (!set_sound(set) || !key)
 		return 0;
-	settle(set, log, &st);
+	settle(set, acts, &st);
 	return member_in(set, &st, key) && !removed_in(set, &st, key);
 }
 
-int fzn_root_set_member(const fzn_root_set_t *set, const fzn_root_log_t *log,
+int fzn_root_set_member(const fzn_root_set_t *set, const struct fzn_act_log_ops *acts,
                         const uint8_t key[FZN_PUBKEY_LEN])
 {
 	struct settled st;
 
 	if (!set_sound(set) || !key)
 		return 0;
-	settle(set, log, &st);
+	settle(set, acts, &st);
 	return member_in(set, &st, key);
 }
 
 fzn_root_log_err_t fzn_root_view_init(fzn_root_view_t *view, const fzn_root_set_t *set,
-                                      const fzn_root_log_t *log)
+                                      const struct fzn_act_log_ops *acts)
 {
 	if (!view || !set_sound(set))
 		return FZN_ROOT_LOG_ERR_MALFORMED;
-	settle(set, log, view);
+	settle(set, acts, view);
 	return FZN_ROOT_LOG_OK;
 }
 
@@ -475,7 +475,7 @@ int fzn_root_view_counts(const fzn_root_view_t *view, const uint8_t root[FZN_PUB
 {
 	if (!view || !set_sound(view->set) || !root || !act)
 		return 0;
-	return counts_in(view->set, view->log, view, root, act);
+	return counts_in(view->set, view->acts, view, root, act);
 }
 
 int fzn_root_view_stands(const fzn_root_view_t *view, const uint8_t key[FZN_PUBKEY_LEN])

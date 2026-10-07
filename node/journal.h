@@ -33,6 +33,7 @@
 #include <stdint.h>
 
 #include "../record/exchange.h"
+#include "../chain/revocation.h"
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include "../record/store_file.h"
 #endif
@@ -121,6 +122,40 @@ fzn_node_journal_err_t fzn_node_journal_append_object(fzn_node_journal_t *nj,
                                                       const uint8_t *object, size_t len,
                                                       uint64_t now,
                                                       uint8_t id[FZN_RECORD_ID_LEN]);
+
+/*
+ * THE ACT LOG, sec 506. Each key's estate stream is that key's acts in the
+ * order it signed them, chained by `prev`: the per-key log sec 496 kept
+ * beside the journal as root-log entries. So a cut -- the last act of a key
+ * a revocation or a root's removal keeps -- is the id of a record in the
+ * key's stream, and asking whether an act stands under it is a walk down
+ * that stream. A follower holds every key it follows, so a host judges a
+ * cut as the one that drew it does.
+ */
+
+/* The id of the last record of `key`'s stream this journal holds, into `id`:
+ * the default cut. 0 for a key not followed, a stream with nothing in it, or
+ * one marked forked -- the key signed in two places, and neither branch is
+ * its last word. */
+int fzn_node_journal_head(const fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN],
+                          uint8_t id[FZN_RECORD_ID_LEN]);
+
+/* Whether a fork of `key`'s stream has been seen here. */
+int fzn_node_journal_forked(const fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN]);
+
+/* DOES THIS ACT STAND UNDER THIS CUT? 1 when `key`'s stream holds the record
+ * whose id is `cut` and, at or below it, a record whose subject is `act` --
+ * the hash of the act's object. Walked down from the head this journal
+ * admitted, each record checked against the `prev` above it, so a store
+ * edited underneath answers 0. 0 for a cut not on the held branch. Bounded
+ * by the stream's length: one read and one hash a record. */
+int fzn_node_journal_stands(fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN],
+                            const uint8_t cut[FZN_RECORD_ID_LEN],
+                            const uint8_t act[FZN_SUBJECT_LEN]);
+
+/* Fill `ops` so a revocation store or a root set asks this journal. `nj`
+ * must outlive them. */
+void fzn_node_journal_acts(fzn_node_journal_t *nj, fzn_act_log_ops_t *ops);
 
 /* THE SERVER: `fzn_exchange_answer` over this node's journal and store. 0 for
  * a message that is not the journal's. */

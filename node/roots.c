@@ -1,6 +1,7 @@
 /* See roots.h. */
 
 #include "roots.h"
+#include "journal.h"
 
 #include "../wire/bytes.h"
 #include "../local/vocabulary.h"
@@ -76,10 +77,10 @@ fzn_node_roots_err_t fzn_node_roots_init(fzn_node_roots_t *roots,
 	            != FZN_ROOT_LOG_OK
 	    || fzn_root_set_init(&roots->set, genesis, roots->changes, FZN_ROOT_SET_MAX)
 	               != FZN_ROOT_LOG_OK
-	    || fzn_root_view_init(&roots->view, &roots->set, &roots->log) != FZN_ROOT_LOG_OK)
+	    || (fzn_root_log_acts(&roots->log, &roots->acts), 0)
+	    || fzn_root_view_init(&roots->view, &roots->set, &roots->acts) != FZN_ROOT_LOG_OK)
 		return FZN_NODE_ROOTS_MALFORMED;
 	fzn_root_view_ops(&roots->view, &roots->ops);
-	fzn_root_log_acts(&roots->log, &roots->acts);
 	roots->judge.member = judge_member;
 	roots->judge.counts = judge_counts;
 	roots->judge.ctx = roots;
@@ -151,7 +152,20 @@ static fzn_root_log_err_t admit(fzn_node_roots_t *roots, const uint8_t *bytes, s
  * need no refresh. */
 static void settle(fzn_node_roots_t *roots)
 {
-	(void)fzn_root_view_init(&roots->view, &roots->set, &roots->log);
+	(void)fzn_root_view_init(&roots->view, &roots->set, &roots->acts);
+}
+
+fzn_node_roots_err_t fzn_node_roots_set_journal(fzn_node_roots_t *roots,
+                                                struct fzn_node_journal *journal)
+{
+	if (!roots || !journal)
+		return FZN_NODE_ROOTS_MALFORMED;
+	/* IN PLACE: every store attached holds a pointer to `acts`, so each now
+	 * asks the journal without being attached again. */
+	fzn_node_journal_acts(journal, &roots->acts);
+	roots->journal = journal;
+	settle(roots);
+	return FZN_NODE_ROOTS_OK;
 }
 
 fzn_node_roots_err_t fzn_node_roots_learn(fzn_node_roots_t *roots,
@@ -435,7 +449,12 @@ int fzn_node_roots_head(const fzn_node_roots_t *roots, const uint8_t key[FZN_PUB
 	const fzn_root_log_entry_t *head = NULL;
 	size_t i;
 
-	if (!roots || !key || !id || fzn_root_log_forked(&roots->log, key))
+	if (!roots || !key || !id)
+		return 0;
+	/* THE JOURNAL'S HEAD, once it judges, sec 506: a cut is a record id. */
+	if (roots->journal)
+		return fzn_node_journal_head(roots->journal, key, id);
+	if (fzn_root_log_forked(&roots->log, key))
 		return 0;
 	for (i = 0; i < roots->log.used; i++) {
 		const fzn_root_log_entry_t *e = &roots->log.entries[i];

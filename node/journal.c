@@ -196,6 +196,95 @@ fzn_node_journal_err_t fzn_node_journal_append_object(fzn_node_journal_t *nj,
 	return fzn_node_journal_append(nj, issuer, sign, object[1], subject, object, len, now, id);
 }
 
+/* ---- the act log, sec 506 --------------------------------------------- */
+
+static fzn_journal_entry_t *estate_entry(const fzn_node_journal_t *nj,
+                                          const uint8_t key[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	for (i = 0; i < nj->journal.used; i++)
+		if (nj->entries[i].stream == FZN_NODE_JOURNAL_STREAM
+		    && fzn_ct_memeq(nj->entries[i].issuer, key, FZN_PUBKEY_LEN))
+			return (fzn_journal_entry_t *)&nj->entries[i];
+	return NULL;
+}
+
+int fzn_node_journal_forked(const fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	const fzn_journal_entry_t *e;
+
+	if (!nj || !key)
+		return 0;
+	e = estate_entry(nj, key);
+	return e && e->forked;
+}
+
+int fzn_node_journal_head(const fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN],
+                          uint8_t id[FZN_RECORD_ID_LEN])
+{
+	const fzn_journal_entry_t *e;
+
+	if (!nj || !key || !id)
+		return 0;
+	e = estate_entry(nj, key);
+	if (!e || e->forked || !e->has_head || e->received == 0u)
+		return 0;
+	memcpy(id, e->head, FZN_RECORD_ID_LEN);
+	return 1;
+}
+
+int fzn_node_journal_stands(fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN],
+                            const uint8_t cut[FZN_RECORD_ID_LEN],
+                            const uint8_t act[FZN_SUBJECT_LEN])
+{
+	static uint8_t buf[FZN_RECORD_MAX_LEN];
+	uint8_t want[FZN_RECORD_ID_LEN], got[FZN_RECORD_ID_LEN];
+	const fzn_journal_entry_t *e;
+	fzn_record_t rec;
+	uint64_t seq;
+	int below = 0;
+
+	if (!nj || !key || !cut || !act)
+		return 0;
+	e = estate_entry(nj, key);
+	if (!e || !e->has_head || e->received == 0u)
+		return 0;
+	/* DOWN FROM THE HEAD THIS JOURNAL ADMITTED, each record hashed against
+	 * the id the one above it names -- the store is not trusted, as
+	 * `fzn_record_store_stands` does not trust it -- until the cut, then on
+	 * down looking for the act. */
+	memcpy(want, e->head, sizeof(want));
+	for (seq = e->received; seq >= 1u; seq--) {
+		if (fzn_record_store_get(&nj->store, key, FZN_NODE_JOURNAL_STREAM, seq, buf,
+		                         sizeof(buf), &rec) != FZN_RECORD_STORE_OK
+		    || !nj->hash->hash(nj->hash->ctx, got, sizeof(got), rec.base, rec.len)
+		    || memcmp(got, want, sizeof(got)) != 0)
+			return 0;
+		if (!below && memcmp(got, cut, sizeof(got)) == 0)
+			below = 1;
+		if (below && memcmp(fzn_record_subject(rec), act, FZN_SUBJECT_LEN) == 0)
+			return 1;
+		memcpy(want, fzn_record_prev(rec), sizeof(want));
+	}
+	return 0;
+}
+
+static int acts_stands(void *ctx, const uint8_t key[FZN_PUBKEY_LEN],
+                       const uint8_t cut[FZN_REVOCATION_ID_LEN],
+                       const uint8_t act[FZN_REVOCATION_ID_LEN])
+{
+	return fzn_node_journal_stands((fzn_node_journal_t *)ctx, key, cut, act);
+}
+
+void fzn_node_journal_acts(fzn_node_journal_t *nj, fzn_act_log_ops_t *ops)
+{
+	if (!ops)
+		return;
+	ops->stands = acts_stands;
+	ops->ctx = nj;
+}
+
 size_t fzn_node_journal_answer(fzn_node_journal_t *nj, const uint8_t *request,
                                size_t request_len, uint8_t *reply, size_t reply_cap)
 {

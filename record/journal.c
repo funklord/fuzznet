@@ -162,6 +162,7 @@ fzn_journal_err_t fzn_journal_admit_chained(fzn_journal_t *journal,
 		            "two records at sequence %llu on stream %lu: the issuer's key signed "
 		            "in two places",
 		            (unsigned long long)seq, (unsigned long)stream);
+		e->forked = 1;
 		return FZN_JOURNAL_ERR_FORK;
 	}
 	if (e && seq == e->received + 1u && e->has_head
@@ -170,6 +171,7 @@ fzn_journal_err_t fzn_journal_admit_chained(fzn_journal_t *journal,
 		            "a record at sequence %llu on stream %lu names a predecessor this "
 		            "journal does not hold at its head",
 		            (unsigned long long)seq, (unsigned long)stream);
+		e->forked = 1;
 		return FZN_JOURNAL_ERR_FORK;
 	}
 	err = fzn_journal_admit(journal, issuer, stream, seq);
@@ -207,6 +209,7 @@ fzn_journal_err_t fzn_journal_anchor(fzn_journal_t *journal,
 		e->stream = stream;
 		e->applied = 0;
 		e->received = 0;
+		e->forked = 0;
 		/* FROM THE BEGINNING, THE HEAD IS KNOWN: nothing, all-zero, which
 		 * is what a first record names. Anchored part way it is not, and
 		 * the jump below says so -- which is why this needs no test of

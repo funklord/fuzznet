@@ -2891,6 +2891,10 @@ int main(int argc, char **argv)
 				journal_on = 1;
 				estate_roots.logged = journal_logged;
 				estate_roots.logged_ctx = &node_journal;
+				/* AND JUDGES BY IT, sec 506: a cut is a record id in
+				 * the signer's stream, and every store attached to the
+				 * roots asks the journal from here on. */
+				(void)fzn_node_roots_set_journal(&estate_roots, &node_journal);
 			} else {
 				say(FZN_ENTRY_WARNING, "journal",
 				    "no journal kept in %s/records: this node's votes, roots and "

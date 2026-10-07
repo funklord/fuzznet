@@ -1178,7 +1178,7 @@ int main(void)
 		if (fzn_root_set_admit(&roots.set, add, sizeof(add), &sign, &CONSUMER_HASH)
 		    != FZN_ROOT_LOG_OK)
 			FAIL(450);
-		(void)fzn_root_view_init(&roots.view, &roots.set, &roots.log);
+		(void)fzn_root_view_init(&roots.view, &roots.set, &roots.acts);
 		if (!roots.ops.member(roots.ops.ctx, second))
 			FAIL(451);
 	}

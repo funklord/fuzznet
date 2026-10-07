@@ -3571,13 +3571,6 @@ SABOTAGES = [
 		"revoking a revoked grantee again must say so rather than mint a second record the store refuses as a stale copy, which an operator reads as the revocation having failed -- sec 380",
 	),
 	(
-		"revocations-load-reads-learned",
-		"node/revoke.c",
-		"\tfor (s = 0; s < 2u; s++) {\n",
-		"\tfor (s = 0; s < 1u; s++) {\n",
-		"a member that loads only what it issued forgets what it pulled from its root at every restart, and serves a revoked device until the root next answers -- which, with the root down, is never. pair_test's restart check catches it -- sec 384",
-	),
-	(
 		"revocations-load-skips-pre-join",
 		"node/revoke.c",
 		"\t\t\telse\n\t\t\t\tcontinue;\t/* see the header */\n",
@@ -3839,14 +3832,14 @@ SABOTAGES = [
 	(
 		"root-set-removed-acts-need-the-cut",
 		"chain/root_log.c",
-		"\t\tif (!log || all_zero(c->cut, FZN_ROOT_ACT_ID_LEN)\n\t\t    || !fzn_root_log_stands(log, root, c->cut, act))\n\t\t\treturn 0;\n",
+		"\t\tif (!acts || all_zero(c->cut, FZN_ROOT_ACT_ID_LEN)\n\t\t    || !acts->stands(acts->ctx, root, c->cut, act))\n\t\t\treturn 0;\n",
 		"",
 		"a removed root whose every act still counts is a stolen root that was never removed -- sec 405",
 	),
 	(
 		"root-set-an-add-counts-as-an-act",
 		"chain/root_log.c",
-		"\t\t\tif (counts_in(set, log, st, c->signer, c->id)) {\n",
+		"\t\t\tif (counts_in(set, acts, st, c->signer, c->id)) {\n",
 		"\t\t\tif (member_in(set, st, c->signer)) {\n",
 		"an add judged by who signed it rather than whether that act counts lets a thief's root, added after the cut, stand -- sec 405",
 	),
@@ -3867,7 +3860,7 @@ SABOTAGES = [
 	(
 		"root-set-unsettled-takes-every-removal",
 		"chain/root_log.c",
-		"\tmemcpy(st->rem_ok, seen, sizeof(seen));\n\tgrow_members(set, log, st);\n",
+		"\tmemcpy(st->rem_ok, seen, sizeof(seen));\n\tgrow_members(set, acts, st);\n",
 		"",
 		"a set that never settles, answered from whichever round came last, answers by the parity of its record count rather than toward removal -- sec 405",
 	),
@@ -9096,8 +9089,8 @@ SABOTAGES = [
 	(
 		"node-roots-head-refuses-a-fork",
 		"node/roots.c",
-		"\tif (!roots || !key || !id || fzn_root_log_forked(&roots->log, key))\n\t\treturn 0;",
-		"\tif (!roots || !key || !id)\n\t\treturn 0;",
+		"\tif (fzn_root_log_forked(&roots->log, key))\n\t\treturn 0;",
+		"",
 		"a forked log's head is the thief's choice as readily as the owner's, and a default line drawn there keeps the thief's branch -- sec 497",
 	),
 	(
@@ -9421,6 +9414,55 @@ SABOTAGES = [
 		"\treturn fzn_node_roots_log_act(roots, store, identity, identity_sign,\n\t                              (uint8_t)FZN_ROOT_ACT_SETTING, record, sizeof(record));\n}",
 		"\treturn FZN_NODE_ROOTS_OK;\n}",
 		"an admin's retention setting that is not logged never enters the admin's journal, and since the vote stream retired nothing else carries it: every other node keeps the estate's rules without it -- sec 505",
+	),
+	(
+		"journal-head-fork-is-marked",
+		"record/journal.c",
+		"\t\t            \"in two places\",\n\t\t            (unsigned long long)seq, (unsigned long)stream);\n\t\te->forked = 1;\n",
+		"\t\t            \"in two places\",\n\t\t            (unsigned long long)seq, (unsigned long)stream);\n",
+		"a second record at a stream's head refused and left unmarked is a key that signed in two places whose held branch still offers a head every vote defaults its cut to -- sec 506",
+	),
+	(
+		"journal-next-fork-is-marked",
+		"record/journal.c",
+		"\t\t            \"journal does not hold at its head\",\n\t\t            (unsigned long long)seq, (unsigned long)stream);\n\t\te->forked = 1;\n",
+		"\t\t            \"journal does not hold at its head\",\n\t\t            (unsigned long long)seq, (unsigned long)stream);\n",
+		"a record naming another predecessor than the head is a fork as surely as a second record at the head; unmarked, the stream goes on offering a head -- sec 506",
+	),
+	(
+		"node-journal-head-refuses-a-fork",
+		"node/journal.c",
+		"\tif (!e || e->forked || !e->has_head || e->received == 0u)\n\t\treturn 0;\n\tmemcpy(id, e->head, FZN_RECORD_ID_LEN);",
+		"\tif (!e || !e->has_head || e->received == 0u)\n\t\treturn 0;\n\tmemcpy(id, e->head, FZN_RECORD_ID_LEN);",
+		"a forked stream that still offers a head lets a vote default its cut to one branch of a key used in two places -- whichever happened to arrive first -- sec 506",
+	),
+	(
+		"node-journal-stands-checks-the-chain",
+		"node/journal.c",
+		"\t\t    || !nj->hash->hash(nj->hash->ctx, got, sizeof(got), rec.base, rec.len)\n\t\t    || memcmp(got, want, sizeof(got)) != 0)\n\t\t\treturn 0;\n\t\tif (!below",
+		"\t\t    || !nj->hash->hash(nj->hash->ctx, got, sizeof(got), rec.base, rec.len))\n\t\t\treturn 0;\n\t\tif (!below",
+		"a walk that does not check each record against the prev above it believes a store edited underneath, and an act inserted on disk stands under a cut that never covered it -- sec 506",
+	),
+	(
+		"node-journal-stands-only-below-the-cut",
+		"node/journal.c",
+		"\tuint64_t seq;\n\tint below = 0;\n",
+		"\tuint64_t seq;\n\tint below = 1;\n",
+		"an act after the cut that stands is a thief's act counted under a line drawn before it -- the one thing a cut exists to stop -- sec 506",
+	),
+	(
+		"node-roots-head-asks-the-journal",
+		"node/roots.c",
+		"\tif (roots->journal)\n\t\treturn fzn_node_journal_head(roots->journal, key, id);\n",
+		"",
+		"roots judging by a journal that default a vote's cut from the root log name an id the journal does not hold, so nothing the revoked key did stands -- sec 506",
+	),
+	(
+		"node-roots-judge-by-the-journal",
+		"node/roots.c",
+		"\tfzn_node_journal_acts(journal, &roots->acts);\n\troots->journal = journal;",
+		"\troots->journal = journal;",
+		"roots that keep the root log's act ops after a journal is set judge every cut by a log a remote node never receives, and a revoked member's acts before its line drop everywhere but where it was cast -- sec 506",
 	),
 ]
 

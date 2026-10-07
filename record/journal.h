@@ -92,6 +92,12 @@ typedef struct fzn_journal_entry {
 	 * of a stream followed from the beginning, whose head is all-zero. */
 	uint8_t head[FZN_RECORD_ID_LEN];
 	int has_head;
+	/* A FORK SEEN, sec 506: set when `fzn_journal_admit_chained` refused a
+	 * record as a second branch, and never cleared. The branch held stays
+	 * held; what the mark says is that its issuer's key signed in two
+	 * places, so nothing may treat the held branch's head as the issuer's
+	 * last word. */
+	int forked;
 } fzn_journal_entry_t;
 
 /* Declared, not included. sec 209. */

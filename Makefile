@@ -3751,6 +3751,8 @@ $(BUILD_DIR)/node/test/serve_test: $(BUILD_DIR)/node/test/serve_test.o \
 
 # The node's journal, sec 501: its streams in the file store, and the sync.
 # Defined above pair_test, whose prerequisites read it as the rule is read.
+# Wherever node/roots.o links this follows it: the roots judge a cut by the
+# journal since sec 506.
 FUZZNETD_JOURNAL_OBJS := $(BUILD_DIR)/node/journal.o $(BUILD_DIR)/record/exchange.o \
                          $(BUILD_DIR)/record/sync.o $(BUILD_DIR)/record/journal.o \
                          $(BUILD_DIR)/record/store.o \
@@ -3816,6 +3818,7 @@ $(BUILD_DIR)/node/test/admin_test.o: node/test/admin_test.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Inode -Iwire/generated -c $< -o $@
 
 $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
+              $(FUZZNETD_JOURNAL_OBJS) \
               $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/local/client.o \
               $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/contact/contact.o \
@@ -3945,7 +3948,7 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(BUILD_DIR)/session/agree_monocypher.o \
               $(FUZZNETD_NOTES_OBJS) \
               $(if $(SPOOL_FILE_ON),$(FUZZNETD_SHELF_OBJS)) \
-              $(if $(RECORD_STORE_FILE_ON),$(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o) \
+              $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
               $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o $(BUILD_DIR)/log/cause.o \
               $(BUILD_DIR)/log/view.o \
               $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o $(BUILD_DIR)/log/ring.o \
@@ -4110,9 +4113,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/node/roster.o \
                                       $(BUILD_DIR)/node/succession.o \
                                       $(BUILD_DIR)/chain/succession.o \
-                                      $(BUILD_DIR)/record/exchange.o \
-                                      $(if $(RECORD_STORE_FILE_ON),$(BUILD_DIR)/node/journal.o \
-                                        $(BUILD_DIR)/record/store_file.o) \
+                                      $(FUZZNETD_JOURNAL_OBJS) \
                                       $(BUILD_DIR)/node/provision.o \
                                       $(BUILD_DIR)/node/peer_persist.o \
                                       $(BUILD_DIR)/node/caller.o \

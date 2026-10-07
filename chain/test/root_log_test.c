@@ -347,12 +347,19 @@ static void logged(fzn_root_log_t *log, uint8_t id[FZN_ROOT_ACT_ID_LEN], uint8_t
 	stub_hash(NULL, id, FZN_ROOT_ACT_ID_LEN, e, sizeof(e));
 }
 
+/* The log's act-log ops, which the root set asks since sec 506: a fresh
+ * pair per call, so two logs in one expression do not share one. */
+#define ACTS_OF(log) (fzn_root_log_acts((log), &acts_scratch[acts_turn ^= 1u]), \
+                      (const fzn_act_log_ops_t *)&acts_scratch[acts_turn])
+static fzn_act_log_ops_t acts_scratch[2];
+static unsigned acts_turn;
+
 static int stands_key(const fzn_root_set_t *set, const fzn_root_log_t *log, uint8_t id)
 {
 	uint8_t k[FZN_PUBKEY_LEN];
 
 	key(k, id);
-	return fzn_root_set_stands(set, log, k);
+	return fzn_root_set_stands(set, log ? ACTS_OF(log) : NULL, k);
 }
 
 static int counts_act(const fzn_root_set_t *set, const fzn_root_log_t *log, uint8_t root,
@@ -361,7 +368,7 @@ static int counts_act(const fzn_root_set_t *set, const fzn_root_log_t *log, uint
 	uint8_t k[FZN_PUBKEY_LEN];
 
 	key(k, root);
-	return fzn_root_set_counts(set, log, k, act);
+	return fzn_root_set_counts(set, log ? ACTS_OF(log) : NULL, k, act);
 }
 
 /* THE THEFT, told in the order it happens and judged from the records.
@@ -409,7 +416,7 @@ static void test_the_theft(void)
 			CHECK(fzn_root_set_admit(&set, recs[orders[o][i]], lens[orders[o][i]], &SIGN,
 			                         &HASH) == FZN_ROOT_LOG_OK,
 			      "order %zu: a record was refused", o);
-		CHECK(!stands_key(&set, &log, 1) && fzn_root_set_member(&set, &log, genesis),
+		CHECK(!stands_key(&set, &log, 1) && fzn_root_set_member(&set, ACTS_OF(&log), genesis),
 		      "order %zu: the removed genesis root still stands, or stopped being a member",
 		      o);
 		CHECK(stands_key(&set, &log, 2),

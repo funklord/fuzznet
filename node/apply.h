@@ -93,7 +93,8 @@ typedef struct fzn_node_apply_tally {
 /* ONE ROUND: every followed stream, from applied to received, in passes until
  * one makes no progress. MALFORMED for a context missing its journal, store,
  * revocations, root, capability, signer or hash; NOT_SAVED when a subsystem
- * admitted an object and could not keep it. */
+ * admitted an object and could not keep it; REFUSED when the revocation
+ * store is full, the object left unmarked for the next round. */
 fzn_node_pull_err_t fzn_node_apply_round(fzn_node_apply_t *ap, fzn_node_apply_tally_t *tally);
 
 /* A SIGNER'S CHAIN for `capability`, from the index: the grants walked up

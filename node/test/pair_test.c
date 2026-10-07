@@ -321,15 +321,17 @@ static void journal_hook(struct node *n, fzn_node_roots_t *roots)
 	roots->logged_ctx = &n->journal;
 }
 
-/* `roots` for `n`, logging into its journal: what every node's roots do in
- * this suite since sec 505, as the daemon's do. */
+/* `roots` for `n`, logging into its journal and, since sec 506, judging
+ * cuts by it: what every node's roots do in this suite, as the daemon's do. */
 static fzn_node_roots_err_t roots_of(fzn_node_roots_t *roots, const uint8_t genesis[FZN_PUBKEY_LEN],
                                      struct node *n)
 {
 	fzn_node_roots_err_t err = fzn_node_roots_init(roots, genesis, &n->sign, &hash_ops);
 
-	if (err == FZN_NODE_ROOTS_OK)
+	if (err == FZN_NODE_ROOTS_OK) {
 		journal_hook(n, roots);
+		err = fzn_node_roots_set_journal(roots, &n->journal);
+	}
 	return err;
 }
 
@@ -1359,6 +1361,56 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 	      "M's journal replayed did not apply its two grants and two votes again");
 	CHECK(d_revoked(&reloaded, &r, &n, &d, cap), "after a restart M granted D again");
 
+	/* ---- A FULL STORE STOPS THE ROUND, sec 506: Z, whose store holds one
+	 * revocation, carries N's journal and meets the second vote with no
+	 * room. The round fails, and that vote is left unmarked for the next
+	 * one rather than skipped for ever. */
+	{
+		static struct node z;
+		static fzn_revocation_t z_e[1];
+		static fzn_node_apply_t z_ap;
+		fzn_revocation_store_t z_revs;
+		size_t e, short_of = 0;
+
+		CHECK(node_up(&z) && fzn_revocation_store_init(&z_revs, z_e, 1) == FZN_CHAIN_OK,
+		      "fixture: Z with room for one revocation");
+		apply_to(&z_ap, &z_revs, r.id.pubkey, cap);
+		CHECK(!carry(&n, &z, &z_ap, &t), "a round that met a full store reported success");
+		for (e = 0; e < z.journal.journal.used; e++)
+			if (z.journal.entries[e].applied < z.journal.entries[e].received)
+				short_of++;
+		CHECK(short_of == 1u, "the vote a full store had no room for was marked applied");
+	}
+
+	/* ---- A LEARNED VOTE THAT WILL NOT ADMIT AGAIN, written into a member
+	 * Q's store by hand -- a stranger's -- fails Q's restart under R: a
+	 * learned vote is saved only once admitted, so one that will not admit
+	 * is a store changed underneath the node. sec 399. */
+	{
+		static struct node q;
+		static fzn_revocation_t s_e[8];
+		fzn_revocation_store_t scratch;
+		uint8_t blob[FZN_PERSIST_HEAD_LEN + FZN_REVOCATION_LEN + 1u];
+		uint8_t subject[FZN_PUBKEY_LEN];
+		size_t count = 0;
+
+		memset(subject, 0x5a, sizeof(subject));
+		CHECK(node_up(&q)
+		              && fzn_revocation_issue(stranger.id.pubkey, cap, d.id.pubkey, 1500u, 0u,
+		                                      NULL, &stranger.sign, blob + FZN_PERSIST_HEAD_LEN)
+		                         == FZN_CHAIN_OK
+		              && fzn_persist_head_write(blob, sizeof(blob), FZN_REVOCATION_LEN + 1u,
+		                                        FZN_PERSIST_BLOB_VOTE) == FZN_PERSIST_OK
+		              && (blob[FZN_PERSIST_HEAD_LEN + FZN_REVOCATION_LEN] = 0u, 1)
+		              && q.ops.save(q.ops.ctx, FZN_PERSIST_VOTE, subject, blob, sizeof(blob)),
+		      "fixture: a stranger's vote in Q's store");
+		CHECK(fzn_revocation_store_init(&scratch, s_e, 8) == FZN_CHAIN_OK
+		              && fzn_node_revocations_load(&q.ops, &scratch, r.id.pubkey, NULL, NULL,
+		                                           &q.sign, &hash_ops, &count)
+		                         == FZN_PERSIST_ERR_SHAPE,
+		      "a restart admitted past a learned vote that will not admit");
+	}
+
 	/* ---- A STRANGER'S VOTE, in its own journal, carried to M: its stream
 	 * waits for a chain no grant gives it, nothing is refused, and D's
 	 * standing is what it was. */
@@ -1381,6 +1433,10 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 	 * and D stays revoked, one withdrawal of two. R withdraws; N carries it,
 	 * M carries it from N, and D is restored. */
 	{
+		uint8_t old_vote[FZN_REVOCATION_LEN];
+
+		CHECK(fzn_node_issued_revocation(&n.ops, d.id.pubkey, old_vote),
+		      "fixture: N's vote as it was");
 		/* N's OWN STREAM COMES BACK from M as it left: nothing new, and
 		 * no fork. */
 		CHECK(carry(&m, &n, &n_ap, &t) && t.applied == 0u && t.refused == 0u,
@@ -1399,6 +1455,49 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 		      "R's withdrawal did not travel R -> N -> M");
 		CHECK(!d_revoked(&n_revs, &r, &n, &d, cap) && !d_revoked(&m_revs, &r, &n, &d, cap),
 		      "two withdrawals of two left D revoked");
+
+		/* A STALE COPY of N's vote, admitted at M after the withdrawal --
+		 * as a restart replaying the journal into a store already loaded
+		 * past it does -- is not saved over the withdrawal: a restart
+		 * still finds D restored. sec 399. */
+		{
+			static fzn_node_vote_pull_t stale;
+			static fzn_revocation_t a_e[8];
+			fzn_revocation_store_t after;
+			size_t count = 0;
+
+			memset(&stale, 0, sizeof(stale));
+			CHECK(fzn_node_votes_take(&stale, 'r', old_vote, sizeof(old_vote),
+			                          (const uint8_t (*)[FZN_HOP_LEN])n_joined.chain, 1u,
+			                          r.id.pubkey, &m.sign, &hash_ops, &m_revs, &m.ops)
+			                      == FZN_NODE_PULL_OK
+			              && stale.learned == 0u,
+			      "a stale copy of a withdrawn vote was learned");
+			CHECK(fzn_revocation_store_init(&after, a_e, 8) == FZN_CHAIN_OK
+			              && fzn_revocation_store_set_quorum(&after, 2u, NULL, NULL, 0u)
+			                         == FZN_CHAIN_OK
+			              && fzn_node_revocations_load(&m.ops, &after, r.id.pubkey, NULL, NULL,
+			                                           &m.sign, &hash_ops, &count)
+			                         == FZN_PERSIST_OK
+			              && !d_revoked(&after, &r, &n, &d, cap),
+			      "after a stale copy and a restart, M revoked D again");
+		}
+
+		/* AN OBJECT N SIGNED THAT NO ADMISSION TAKES -- a vote for a
+		 * capability its chain does not carry -- is refused at M and
+		 * counted, and the next object in N's stream is still applied. */
+		{
+			uint8_t bogus[FZN_REVOCATION_LEN];
+			fzn_cap_id_t elsewhere = *cap;
+
+			elsewhere.b[0] ^= 1u;
+			CHECK(fzn_revocation_issue(n.id.pubkey, &elsewhere, d.id.pubkey, 1750u, 0u, NULL,
+			                           &n.sign, bogus) == FZN_CHAIN_OK
+			              && fzn_node_journal_append_object(&n.journal, n.id.pubkey, &n.sign,
+			                                                bogus, sizeof(bogus), 1750u, NULL)
+			                         == FZN_NODE_JOURNAL_OK,
+			      "fixture: N's vote for another capability, in its journal");
+		}
 
 		/* N REVOKES AGAIN, IN EPOCH 1, read off the record N signed: both
 		 * withdrew epoch 0 -- R's withdrawal is the root's undo of it
@@ -1421,8 +1520,26 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 		CHECK(!d_revoked(&n_revs, &r, &n, &d, cap),
 		      "one vote after a full undo revoked D at N: the node did not "
 		      "cast it in the open epoch");
-		CHECK(carry(&n, &m, &m_ap, &t) && t.applied == 1u && !d_revoked(&m_revs, &r, &n, &d, cap),
-		      "N's vote in epoch 1 did not reach M, or revoked D there alone");
+		CHECK(carry(&n, &m, &m_ap, &t) && t.refused == 1u && t.applied == 1u
+		              && !d_revoked(&m_revs, &r, &n, &d, cap),
+		      "N's refused object stopped the round at M, or N's vote in epoch 1 did not "
+		      "reach M, or revoked D there alone");
+
+		/* A COPY SUPERSEDED IN ANOTHER SLOT is skipped at a restart, not
+		 * fatal: N applied its own withdrawal into its learned votes, then
+		 * revoked again, so that copy names a target slot 9 no longer
+		 * holds. sec 399. */
+		{
+			static fzn_revocation_t s_e[8];
+			fzn_revocation_store_t scratch;
+			size_t count = 0;
+
+			CHECK(fzn_revocation_store_init(&scratch, s_e, 8) == FZN_CHAIN_OK
+			              && fzn_node_revocations_load(&n.ops, &scratch, r.id.pubkey,
+			                                           &authority, NULL, &n.sign, &hash_ops,
+			                                           &count) == FZN_PERSIST_OK,
+			      "N's restart failed on its own withdrawal superseded by a re-revocation");
+		}
 	}
 	fzn_wipe(&n_joined, sizeof(n_joined));
 	fzn_wipe(&m_joined, sizeof(m_joined));
@@ -1709,17 +1826,13 @@ static void test_a_node_acts_as_a_root(void)
 	              && fzn_root_view_stands(&m_roots.view, x.id.pubkey),
 	      "M, acting as a root, could not add X");
 	{
-		const fzn_root_log_entry_t *mine = NULL;
 		uint8_t cut[FZN_ROOT_ACT_ID_LEN];
-		size_t i;
 
-		for (i = 0; i < m_roots.log.used; i++)
-			if (memcmp(m_roots.log.entries[i].root, m_roots.key, FZN_PUBKEY_LEN) == 0)
-				mine = &m_roots.log.entries[i];
-		CHECK(mine && mine->seq == 0u, "M's act was not logged under its key at seq 0");
-		if (!mine)
-			return;
-		memcpy(cut, mine->id, sizeof(cut));
+		/* THE CUT IS THE ACT'S RECORD in the key's stream, sec 506: the
+		 * first and only one M's key has signed. */
+		CHECK(received_of(&m, m_roots.key) == 1u
+		              && fzn_node_journal_head(&m.journal, m_roots.key, cut),
+		      "M's act was not the first record of its key's stream");
 
 		/* R REMOVES M's KEY AFTER THAT ACT, as seen from M: X stays. */
 		CHECK(fzn_node_roots_change(&r_roots, &r.ops, r.id.pubkey, &r.sign, 1, m_roots.key,
@@ -2222,7 +2335,7 @@ static void test_a_revoked_members_contacts_to_the_line(const fzn_cap_id_t *cap)
 	static fzn_node_apply_t r_ap;
 	fzn_node_apply_tally_t t;
 	uint8_t card[FZN_PROVISION_MAX_LEN], cut[FZN_ROOT_ACT_ID_LEN];
-	size_t card_len = 0, loaded = 0;
+	size_t card_len = 0;
 
 	CHECK(node_up(&r) && node_up(&n) && node_up(&x) && node_up(&y)
 	              && fzn_prekey_open(n.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &n_rec)
@@ -2264,11 +2377,11 @@ static void test_a_revoked_members_contacts_to_the_line(const fzn_cap_id_t *cap)
 	              && memcmp(n_roots.log.entries[0].root, n.id.pubkey, FZN_PUBKEY_LEN) == 0,
 	      "a member's roster record was not logged under the member");
 
-	/* R HOLDS N's LOG AND ITS RECORD, and revokes N with no cut named: the
-	 * head of N's log, everything R had seen it do. */
-	CHECK(fzn_node_roots_load(&r_roots, &n.ops, &loaded) == FZN_NODE_ROOTS_OK && loaded == 1u
-	              && carry(&n, &r, &r_ap, &t) && t.applied == 1u && t.waiting == 0u,
-	      "fixture: R holds N's log entry and its record");
+	/* R HOLDS N's STREAM, carried, and revokes N with no cut named: the
+	 * head of N's stream, everything R had seen it do. Nothing of N's own
+	 * store is read at R: since sec 506 the journal carries the line. */
+	CHECK(carry(&n, &r, &r_ap, &t) && t.applied == 1u && t.waiting == 0u,
+	      "fixture: R holds N's stream and its record");
 	CHECK(fzn_node_roots_head(&r_roots, n.id.pubkey, cut)
 	              && fzn_node_revoke_at(NULL, &r.id, r.id.pubkey, NULL, cap, n.id.pubkey, 1500u, cut,
 	                                    &r_revs, &r.ops) == FZN_NODE_REVOKE_OK,
@@ -2280,18 +2393,18 @@ static void test_a_revoked_members_contacts_to_the_line(const fzn_cap_id_t *cap)
 	CHECK(fzn_node_roster_write(&n_ro, &n.ops, &n.id, &n_auth, &rng_ops, y.id.pubkey, 1, &n_revs,
 	                            2u) == FZN_NODE_ROSTER_OK
 	              && n_roots.log.used == 2u
-	              && fzn_node_roots_load(&r_roots, &n.ops, &loaded) == FZN_NODE_ROOTS_OK
 	              && carry(&n, &r, &r_ap, &t) && t.applied == 1u,
 	      "fixture: the thief's contact, logged and carried to R");
 	CHECK(fzn_node_roster_standing(&r_ro, y.id.pubkey, &r_revs, 2u) == FZN_ROSTER_ABSENT,
 	      "a contact the thief added after the line counted");
 	/* THE HEAD MOVED WITH THE LOG: a vote cast now would keep Y. */
 	{
-		uint8_t now_head[FZN_ROOT_ACT_ID_LEN];
+		uint8_t now_head[FZN_ROOT_ACT_ID_LEN], latest[FZN_ROOT_ACT_ID_LEN];
 
 		CHECK(fzn_node_roots_head(&r_roots, n.id.pubkey, now_head)
-		              && memcmp(now_head, n_roots.log.entries[1].id, sizeof(now_head)) == 0,
-		      "the head of N's log is not its latest entry");
+		              && fzn_node_journal_head(&n.journal, n.id.pubkey, latest)
+		              && memcmp(now_head, latest, sizeof(now_head)) == 0,
+		      "the head of N's stream at R is not N's latest record");
 	}
 	CHECK(fzn_node_roster_standing(&r_ro, x.id.pubkey, &r_revs, 2u) == FZN_ROSTER_ACTIVE,
 	      "the contact from before the line fell with the thief's");
@@ -2314,18 +2427,27 @@ static void test_a_revoked_members_contacts_to_the_line(const fzn_cap_id_t *cap)
 	              && fzn_node_roster_standing(&r_ro, y.id.pubkey, &r_revs, 2u)
 	                         == FZN_ROSTER_ACTIVE,
 	      "undoing the revocation did not bring every contact back");
-	/* A FORKED LOG HAS NO HEAD: a second entry at N's seq 0, signed with
-	 * N's key, and no vote may default to either branch. */
+	/* A FORKED STREAM HAS NO HEAD: a second record at the head of N's
+	 * stream, signed with N's key, offered to R's journal, and no vote may
+	 * default to either branch. */
 	{
-		uint8_t act[FZN_ROOT_ACT_ID_LEN], entry[FZN_ROOT_ACT_LEN], h[FZN_ROOT_ACT_ID_LEN];
+		uint8_t subject[FZN_SUBJECT_LEN], body[2] = { 1u, 0x80u }, h[FZN_ROOT_ACT_ID_LEN];
+		uint8_t buf[FZN_RECORD_MAX_LEN], id[FZN_RECORD_ID_LEN];
+		uint64_t at = received_of(&r, n.id.pubkey);
+		size_t len = 0;
 
-		memset(act, 0x77, sizeof(act));
-		CHECK(fzn_root_act_issue(n.id.pubkey, 0u, NULL, (uint8_t)FZN_ROOT_ACT_ROSTER, act,
-		                         &n.sign, entry) == FZN_ROOT_LOG_OK
-		              && fzn_node_roots_learn(&r_roots, &r.ops, entry, sizeof(entry))
-		                         == FZN_NODE_ROOTS_OK
+		memset(subject, 0x77, sizeof(subject));
+		CHECK(at == 2u
+		              && fzn_record_sign(n.id.pubkey, subject, FZN_NODE_JOURNAL_STREAM, 0x80u, at,
+		                                 subject, 1800u, body, sizeof(body), &n.sign, buf,
+		                                 sizeof(buf), &len) == FZN_RECORD_OK
+		              && hash_ops.hash(hash_ops.ctx, id, sizeof(id), buf, len)
+		              && fzn_journal_admit_chained(&r.journal.journal, n.id.pubkey,
+		                                           FZN_NODE_JOURNAL_STREAM, at, subject, id)
+		                         == FZN_JOURNAL_ERR_FORK
+		              && fzn_node_journal_forked(&r.journal, n.id.pubkey)
 		              && !fzn_node_roots_head(&r_roots, n.id.pubkey, h),
-		      "a forked log still offered a head to vote at");
+		      "a forked stream still offered a head to vote at");
 	}
 }
 

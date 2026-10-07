@@ -7,8 +7,10 @@
 
 #include <string.h>
 
-/* What applying one object came to. */
-enum outcome { APPLIED, REFUSED, WAIT, NOT_SAVED };
+/* What applying one object came to. FULL is a store with no room: the object
+ * is not marked applied, since the next round may have room, and nothing
+ * after it is asked this round, since it would meet the same store. */
+enum outcome { APPLIED, REFUSED, WAIT, NOT_SAVED, FULL };
 
 static int is_root(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY_LEN])
 {
@@ -95,6 +97,8 @@ static enum outcome take(fzn_node_apply_t *ap, char item, const uint8_t *body, s
 		                          ap->hash, ap->revocations, ap->store);
 		if (err == FZN_NODE_PULL_NOT_SAVED)
 			return NOT_SAVED;
+		if (err == FZN_NODE_PULL_REFUSED)
+			return FULL;
 		return pull.learned ? APPLIED : REFUSED;
 	}
 	caps[0] = ap->capability;
@@ -108,6 +112,8 @@ static enum outcome take(fzn_node_apply_t *ap, char item, const uint8_t *body, s
 		                          n, ap->root, ap->sign, ap->hash, ap->revocations, ap->store);
 		if (err == FZN_NODE_PULL_NOT_SAVED)
 			return NOT_SAVED;
+		if (err == FZN_NODE_PULL_REFUSED)
+			return FULL;
 		if (pull.learned)
 			return APPLIED;
 	}
@@ -194,6 +200,11 @@ fzn_node_pull_err_t fzn_node_apply_round(fzn_node_apply_t *ap, fzn_node_apply_ta
 				out = apply_one(ap, rec, tally);
 				if (out == NOT_SAVED)
 					return FZN_NODE_PULL_NOT_SAVED;
+				/* A FULL STORE STOPS THE ROUND with the object unmarked:
+				 * marked, it would be skipped for ever, and a vote lost
+				 * to a full table is a revocation never in force. */
+				if (out == FULL)
+					return FZN_NODE_PULL_REFUSED;
 				if (out == WAIT) {
 					tally->waiting++;
 					break;

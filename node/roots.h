@@ -136,7 +136,20 @@ typedef struct fzn_node_roots {
 	              uint8_t kind, const uint8_t act[FZN_ROOT_ACT_ID_LEN], const uint8_t *record,
 	              size_t len);
 	void *logged_ctx;
+	/* THE JOURNAL THAT JUDGES, sec 506, or NULL while the root log does:
+	 * `fzn_node_roots_set_journal`. */
+	struct fzn_node_journal *journal;
 } fzn_node_roots_t;
+
+/* JUDGE BY `journal` from here on, sec 506: every cut -- a vote's, a
+ * removal's -- is asked of the journal's streams rather than the root log,
+ * and `fzn_node_roots_head` answers with the journal's head. The journal is
+ * the per-key act log the root log was, chained by `prev` and carried to
+ * every follower, so a cut is a record id. `journal` must outlive `roots`.
+ * MALFORMED for a NULL. */
+struct fzn_node_journal;
+fzn_node_roots_err_t fzn_node_roots_set_journal(fzn_node_roots_t *roots,
+                                                struct fzn_node_journal *journal);
 
 /* An estate grown from `genesis`, holding nothing yet. `sign` and `hash`
  * verify and name what it learns, and must outlive it. */

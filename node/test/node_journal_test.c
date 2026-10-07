@@ -240,6 +240,91 @@ static void test_an_object_carried_whole(void)
 	fzn_node_journal_close(&a);
 }
 
+/* THE ACT LOG, sec 506: a key's stream answers what root-log entries did.
+ * Writer W signs three acts; the head is the third; an act stands under a
+ * cut at or above it, and not under one below it or one this stream does not
+ * hold. A second record at the head marks a fork, which leaves no head while
+ * the held branch still answers; and a record edited on disk breaks every
+ * answer that walks through it. */
+static void test_the_stream_is_the_act_log(void)
+{
+	static fzn_node_journal_t a;
+	uint8_t w[FZN_PUBKEY_LEN], ids[3][FZN_RECORD_ID_LEN], head[FZN_RECORD_ID_LEN];
+	uint8_t acts[3][FZN_SUBJECT_LEN], other[FZN_RECORD_ID_LEN], stranger[FZN_PUBKEY_LEN];
+	fzn_act_log_ops_t ops;
+	char path[512];
+	size_t i;
+
+	key(w, 0x55);
+	key(stranger, 0x56);
+	for (i = 0; i < 3u; i++)
+		memset(acts[i], (int)(0x41u + i), sizeof(acts[i]));
+	memset(other, 0x99, sizeof(other));
+	CHECK(fzn_node_journal_init(&a, dir_a, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && append(&a, 0x55, 0x41, ids[0]) && append(&a, 0x55, 0x42, ids[1])
+	              && append(&a, 0x55, 0x43, ids[2]),
+	      "fixture: W signs three acts");
+	CHECK(fzn_node_journal_head(&a, w, head) && memcmp(head, ids[2], sizeof(head)) == 0
+	              && !fzn_node_journal_head(&a, stranger, head),
+	      "the head is not W's last record, or a key not followed had one");
+	CHECK(fzn_node_journal_stands(&a, w, ids[1], acts[0])
+	              && fzn_node_journal_stands(&a, w, ids[1], acts[1])
+	              && !fzn_node_journal_stands(&a, w, ids[1], acts[2]),
+	      "an act at or below the cut did not stand, or one above it did");
+	CHECK(!fzn_node_journal_stands(&a, w, other, acts[0])
+	              && !fzn_node_journal_stands(&a, stranger, ids[2], acts[0]),
+	      "an act stood under a cut the stream does not hold, or for a key not followed");
+	fzn_node_journal_acts(&a, &ops);
+	CHECK(ops.stands(ops.ctx, w, ids[2], acts[2]) && !ops.stands(ops.ctx, w, ids[0], acts[1]),
+	      "the act-log ops did not answer as the journal does");
+
+	/* A FORK: a second record at the head, and the stream has no head. */
+	{
+		uint8_t forked_id[FZN_RECORD_ID_LEN];
+
+		memset(forked_id, 0x13, sizeof(forked_id));
+		CHECK(fzn_journal_admit_chained(&a.journal, w, FZN_NODE_JOURNAL_STREAM, 3u, ids[1],
+		                                forked_id) == FZN_JOURNAL_ERR_FORK
+		              && fzn_node_journal_forked(&a, w) && !fzn_node_journal_head(&a, w, head)
+		              && fzn_node_journal_stands(&a, w, ids[2], acts[0]),
+		      "a fork left a head, went unmarked, or lost the branch held");
+	}
+
+	/* AND THE OTHER SHAPE OF A FORK, on a stream of its own: a next record
+	 * naming a predecessor that is not the head. */
+	{
+		uint8_t v[FZN_PUBKEY_LEN], v_id[FZN_RECORD_ID_LEN], next_id[FZN_RECORD_ID_LEN];
+
+		key(v, 0x57);
+		memset(next_id, 0x24, sizeof(next_id));
+		CHECK(append(&a, 0x57, 0x01, v_id) && !fzn_node_journal_forked(&a, v)
+		              && fzn_journal_admit_chained(&a.journal, v, FZN_NODE_JOURNAL_STREAM, 2u,
+		                                           other, next_id) == FZN_JOURNAL_ERR_FORK
+		              && fzn_node_journal_forked(&a, v),
+		      "a record naming another predecessor than the head went unmarked as a fork");
+	}
+
+	/* EDITED UNDERNEATH: one byte of the second record, and nothing that
+	 * walks through it stands. */
+	stream_path(path, sizeof(path), dir_a, 0x55);
+	{
+		FILE *f = fopen(path, "r+b");
+		int c;
+
+		CHECK(f != NULL && fseek(f, (long)FZN_RECORD_STORE_FILE_SLOT + 2L + 140L, SEEK_SET) == 0
+		              && (c = fgetc(f)) != EOF
+		              && fseek(f, (long)FZN_RECORD_STORE_FILE_SLOT + 2L + 140L, SEEK_SET) == 0
+		              && fputc(c ^ 1, f) != EOF,
+		      "fixture: a byte of the second record flipped");
+		if (f)
+			fclose(f);
+	}
+	CHECK(fzn_node_journal_stands(&a, w, ids[2], acts[2])
+	              && !fzn_node_journal_stands(&a, w, ids[2], acts[0]),
+	      "an act was found standing through a record edited on disk");
+	fzn_node_journal_close(&a);
+}
+
 int main(void)
 {
 	char path[512];
@@ -252,11 +337,16 @@ int main(void)
 	}
 	test_streams_on_disk_and_between_hosts();
 	test_an_object_carried_whole();
+	test_the_stream_is_the_act_log();
 
 	/* EVERY FILE THE SUITE MADE, BY NAME, then the directories. */
 	stream_path(path, sizeof(path), dir_a, 0x31);
 	(void)unlink(path);
 	stream_path(path, sizeof(path), dir_a, 0x77);
+	(void)unlink(path);
+	stream_path(path, sizeof(path), dir_a, 0x55);
+	(void)unlink(path);
+	stream_path(path, sizeof(path), dir_a, 0x57);
 	(void)unlink(path);
 	stream_path(path, sizeof(path), dir_b, 0x31);
 	(void)unlink(path);

@@ -741,6 +741,13 @@ static const fzn_hash_ops_t HASH = { stub_hash, NULL };
  * removes S at the cut after S's logged add of alice: that add still counts,
  * S's removal of alice and the chain from S -- neither logged -- do not. With
  * no cut, nothing S did counts. */
+/* The log's act-log ops, which the root set asks since sec 506: a fresh
+ * pair per call, so two logs in one expression do not share one. */
+#define ACTS_OF(log) (fzn_root_log_acts((log), &acts_scratch[acts_turn ^= 1u]), \
+                      (const fzn_act_log_ops_t *)&acts_scratch[acts_turn])
+static fzn_act_log_ops_t acts_scratch[2];
+static unsigned acts_turn;
+
 static void test_several_roots_write(void)
 {
 	static fzn_root_change_t changes[8];
@@ -767,7 +774,7 @@ static void test_several_roots_write(void)
 	                         == FZN_ROOT_LOG_OK
 	              && fzn_root_set_admit(&set, change, FZN_ROOT_ADD_LEN, &root.sign, &HASH)
 	                         == FZN_ROOT_LOG_OK
-	              && fzn_root_view_init(&v, &set, &log) == FZN_ROOT_LOG_OK
+	              && fzn_root_view_init(&v, &set, ACTS_OF(&log)) == FZN_ROOT_LOG_OK
 	              && fzn_revocation_store_init(&rev, rev_entries, 4) == FZN_CHAIN_OK,
 	      "fixture: R's set with S in it");
 	fzn_root_view_ops(&v, &ops);
@@ -815,7 +822,7 @@ static void test_several_roots_write(void)
 	                         == FZN_ROOT_LOG_OK
 	              && fzn_root_set_admit(&set, change, FZN_ROOT_REMOVE_LEN, &root.sign, &HASH)
 	                         == FZN_ROOT_LOG_OK
-	              && fzn_root_view_init(&v, &set, &log) == FZN_ROOT_LOG_OK,
+	              && fzn_root_view_init(&v, &set, ACTS_OF(&log)) == FZN_ROOT_LOG_OK,
 	      "fixture: S's log entry and R's removal of S at it");
 	CHECK(state_of(&h.r, &alice, 1, &rev, 2) == FZN_ROSTER_ACTIVE,
 	      "after S's removal, its logged add or its unlogged removal was judged wrongly");
@@ -836,7 +843,7 @@ static void test_several_roots_write(void)
 		                         == FZN_ROOT_LOG_OK
 		              && fzn_root_set_admit(&set2, change, FZN_ROOT_REMOVE_LEN, &root.sign,
 		                                    &HASH) == FZN_ROOT_LOG_OK
-		              && fzn_root_view_init(&v, &set2, &log) == FZN_ROOT_LOG_OK,
+		              && fzn_root_view_init(&v, &set2, ACTS_OF(&log)) == FZN_ROOT_LOG_OK,
 		      "fixture: S removed with nothing kept");
 		CHECK(state_of(&h.r, &alice, 1, &rev, 2) == FZN_ROSTER_ABSENT,
 		      "a root removed with no cut still had its add counted");

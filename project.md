@@ -57563,3 +57563,96 @@ stream, and the separate act log and its entries retire.
   votes pull line at all. M restarted alone loads 1 revocation and 1 root
   record and applies the 2 objects again from disk. No daemon was left
   running.
+
+## 506. Stage 4a: the journal is the act log, and a cut is a record id, 2026-10-07
+
+Sec 505 left one thing uncarried: the act log. A vote's cut and a root
+removal's cut are judged against the signer's log of acts (sec 496), whose
+entries rode `get root` and travel nowhere since. A node that never held a
+signer's log judged the signer's acts as not standing.
+
+The journal already is that log. Each key's estate stream is its acts in
+the order it signed them, chained by `prev`, and every follower holds it.
+So stage 4 makes a cut a position in that stream. 4a moves the judging
+onto the journal; 4b, next, retires the root log's entries.
+
+### The journal answers
+
+`node/journal.h` gains the questions the root log answered:
+
+- **`fzn_node_journal_head`** gives the id of the last record of a key's
+  stream: the default cut. There is none for a key not followed, an empty
+  stream, or one marked forked.
+- **`fzn_node_journal_stands`** asks whether an act (the hash of its
+  object, the record's subject) stands under a cut (a record id). It
+  walks down from the head the journal admitted, hashing each record
+  against the `prev` above it, as `fzn_record_store_stands` does, so a
+  store edited underneath answers no.
+- **`fzn_node_journal_acts`** fills the `fzn_act_log_ops_t` a revocation
+  store and a root set ask.
+- **A fork is marked.** `fzn_journal_entry_t` gains `forked`, set by
+  either refusal in `fzn_journal_admit_chained`: a second record at the
+  head, or a next record naming another predecessor. The held branch
+  still answers `stands`; it offers no head, because neither branch is
+  the key's last word.
+
+### Everything that judged a cut asks it
+
+- **The root set takes act-log ops** where it took a root log:
+  `fzn_root_view_init`, `fzn_root_set_counts`, `_stands` and `_member`.
+  `fzn_root_log_acts` still fills them from a log, so a caller with no
+  journal is unchanged.
+- **`fzn_node_roots_set_journal`** points a node's roots at its journal.
+  It replaces the act-log ops in place, so every store already attached
+  follows. `fzn_node_roots_head` then answers with the journal's head, so
+  `revoke peer KEY` with no cut keeps what this node has of KEY's stream.
+- **fuzznetd** sets it as soon as the journal opens. pair_test's
+  `roots_of` does the same for every test node.
+- **The root set judges a removal's cut the same way,** so `remove root
+  KEY CUT` and `revoke peer KEY CUT` take the same kind of id.
+
+**The revoked member's line now holds at a third node.** In pair_test's
+scenario R used to load N's root log from N's store. It now reads nothing
+of N's, carries N's stream, and the line falls exactly as before: X,
+added before it, stays, and Y, added after it, does not.
+
+### The sweep after sec 505
+
+The sabotage sweep over stage 3c found what dropping the stream tests had
+lost:
+
+- **Slot 10 had no writer.** It held what a member pulled with `get
+  revocation`. A root's vote now arrives like any vote and is kept in slot
+  11, so the load reads slot 9 and 11 only, `persist.h` lists slot 10 as
+  retired, and the entry that guarded its read is gone.
+- **Three load and admission guards were left untested,** because the
+  cases exercising them were dropped as stream mechanics when they were
+  properties of the load. They are back in `test_votes_travel`:
+  - a stale copy of a withdrawn vote, admitted through
+    `fzn_node_votes_take` after the withdrawal, as a restart replaying
+    into a loaded store would, is not saved over it;
+  - a node's own withdrawal, applied back into its learned votes and then
+    superseded by a new vote, is skipped at a restart, not fatal;
+  - a stranger's vote written into a member's store by hand fails that
+    member's restart.
+- **A full revocation store lost votes.** `node/apply` treated the store
+  being full as a refusal and marked the object applied, so the vote was
+  skipped for ever. A full store now stops the round with the object
+  unmarked, and the round reports REFUSED. That also makes "a refusal does
+  not stop the pull" observable again: an object N signed for a capability
+  its chain does not carry is refused at M, and the next is applied.
+
+### Measured for sec 506
+
+- `node_journal_test`, 22 checks. One writer signs three acts. The head
+  is the third. Acts at or below a cut stand and one above does not. A
+  cut or key not held stands nothing, and the ops answer as the journal
+  does. Both fork shapes are marked and leave no head while the held
+  branch answers. One flipped byte in the second record on disk stops
+  every walk through it. That check controls itself: had the flip missed,
+  the act would have stood.
+- `pair_test`, 298 checks. These include a store with room for one vote,
+  which fails the round and leaves exactly one stream short.
+- `make test`, `make style` (1160 sabotage entries verified),
+  `make installcheck`, and `live55` again: R's revocation and setting of k
+  reach M in the journal and replay at a restart.

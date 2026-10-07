@@ -88,12 +88,11 @@
  *                        re-admits the device on the next start. Kept as the
  *                        signed record, since the store keeps no record to
  *                        save. `node/revoke.h`, sec 380.
- *   learned revocations  MUST, per grantee, on a node that has joined an
- *                        estate: what it pulled from its root. Refilled by
- *                        the next pull, and the next pull may not come -- a
- *                        member that restarts with its root unreachable
- *                        must still deny what it last learned was revoked.
- *                        sec 384.
+ *   learned revocations  RETIRED, slot 10: what a member pulled from its
+ *                        root with `get revocation` (sec 384). Since sec 506
+ *                        a root's vote arrives in the journal like any
+ *                        other and is kept with the learned votes in slot
+ *                        11; nothing writes slot 10 and nothing reads it.
  *
  * Recoverable rather than required, and deliberately not served here:
  *
@@ -101,7 +100,7 @@
  *   fzn_journal_t        cache, and the journal decides what to re-fetch.
  *   fzn_revocation_store_t  refilled from manifests; sec 13d is the design.
  *                        A node refills it from the records in slots 9 and
- *                        10 instead, secs 380 and 384.
+ *                        11 instead, secs 380 and 399.
  *   fzn_reasm_t          in-flight message fragments. Losing them costs a
  *                        retransmission and nothing else.
  *   fzn_replay_window_t  losing it widens the window a replay can use until
