@@ -56889,9 +56889,121 @@ record above is self-contained, so it can move with the rest.
 
 ### Still to build after sec 498
 
-- **The node.** It keeps, persists and carries successions and their
-  confirmations with the votes. A `rekey` verb pairs the new key, casts the
-  old key's revocation at the cut, and mints the succession. A confirmation
-  verb confirms a succession and casts its own vote at the same cut.
+- **~~The node~~: built in sec 499**, with `add succession` re-keying and
+  confirming, and `list succession`.
 - **Reading through, where keys are named:** a roster subject, a contact's
   key, the shares made to a contact.
+
+## 499. A node re-keys a device, and carries the successions, 2026-10-07
+
+Sec 498's node half. `node/succession.h` holds it.
+
+### Kept and carried
+
+- **Slot 30, blob tag 31:** a succession and its issuer's admin chain (none
+  for a root), saved under the record's hash. Stated in
+  `persist/persist.situ` as `fzn_persist_succession_body`. **It is in the
+  core store, named rather than left to the default.** One rolled back
+  moves a re-keyed device's references back to its revoked key: a loss
+  rather than a door, and the guarded place is where a loss costs least to
+  notice.
+- **`fzn_node_successions_load`** admits every row at start. One that will
+  not read or admit fails the load, as a vote does (sec 380). fuzznetd
+  holds the set beside the roster. A node that cannot load it says so under
+  `votes` and serves on its old keys.
+- **They travel with the votes,** as item `s` of `get vote`, followed by the
+  issuer's chain as `h` items. A succession is judged by the store that
+  judges the votes, and its confirmations already ride there (sec 415).
+  `fzn_node_votes_pull` takes the set. A pull with nowhere to put one
+  refuses it and counts it, as one with no roster does a roster record.
+- **`fzn_node_succession_issue` mints one** as the node's acting root, or
+  as an admin on its admin chain, and gives NOT_ROOT for a node that is
+  neither. It is logged under its signer, as every act is since sec 497,
+  so a re-key a stolen admin signed after its own line falls with it.
+- **`fzn_node_confirm_act` is split out of `fzn_node_admin_confirm`:** it
+  confirms any record by its hash. An admin grant's confirmation hashes the
+  hop first; a succession's names the succession's ID.
+
+### The re-key verbs
+
+- **`add succession OLD PREKEY [CUT|none]` re-keys a device.** In order:
+  1. it pairs the new key from PREKEY, as `add peer` does, and answers
+     with the new key's card;
+  2. it votes OLD revoked at the line, the same default and the same
+     `CUT|none` as `revoke peer`;
+  3. it mints the succession OLD -> NEW at the same line.
+
+  It runs in that order so that nothing is said about OLD until its
+  successor holds a grant. Each step that fails says which steps stood. A
+  key is not its own successor.
+- **`add succession OLD` confirms the one succession of OLD this node
+  holds,** and casts this node's own vote against OLD at that succession's
+  line. The answer is `ok OLD NEW counting` or `ok OLD NEW waiting`. Two
+  re-keys of OLD to different keys are refused, since confirming either
+  takes a side the owner has to take.
+- **`list succession [FROM]`** answers `ok TOTAL FROM OLD>NEW,counting|waiting
+  ...`, paged as `list peer` is.
+
+`ADD` is a mutating verb, so only the node's own user may re-key or
+confirm. `list` is open to the service group.
+
+### What reading through reaches, and a question it raised
+
+Sec 498 listed reading through "where keys are named: a roster subject, a
+contact's key, the shares made to a contact". Surveyed before building,
+that list is mostly the wrong population:
+
+- **A succession this estate issues re-keys one of its own devices.**
+  Members are refused as contacts (`fzn_node_admin_is_member`), and roster
+  subjects are contacts, so no contact row, share row or roster subject
+  names a member.
+- **What names a member is already handled** by the re-key's three acts. The
+  peer set gets the new pairing. Notes admit the new key's chain and drop
+  the old one once revoked, and a purge stops waiting on a partner that is
+  no writer (sec 451). Votes and the act log judge the old key by its cut.
+- **A contact re-keys in its own estate,** under its own roots. Its
+  succession reaching here would be refused as WRONG_ROOT, rightly: this
+  estate's roots have no say over another's keys.
+
+So reading through for contacts needs a **cross-estate trust rule**, and it
+is the holder's to choose:
+
+- **The contact's own estate vouches.** Requires knowing the contact's
+  roots, which this node does not hold today.
+- **The old key vouches for the new.** Exactly what a thief holding the old
+  key can do.
+- **The owner re-adds by hand.** Today's state. With the old contact
+  revoked by its owner, nothing is served to the stolen key either way.
+
+**Not built: a decision for the holder.** Also left to the operator: a
+re-keyed device that held admin needs `grant admin NEW`, since an admin
+grant takes its own confirmations (sec 414) and its hop has to be handed
+to the device.
+
+### Measured for sec 499
+
+**`pair_test`, 294 checks (from 285), with the new `test_a_device_rekeyed`:**
+
+- R pairs D and re-keys it to D2 as the root: the succession is kept,
+  saved and logged, and D reads through to D2 at R. A node acting as no
+  root and holding no admin chain is refused.
+- M pulls R's votes. With nowhere to put the succession the pull refuses it
+  and saves nothing. With M's set it learns it, and M reads D through to
+  D2.
+- A fresh set loading M's store has the one succession, and reads D
+  through.
+- R re-keys D to D3 as well, and D then reads through to nobody.
+
+**`admin_test`, 201 checks (from 193):**
+
+- with no successions kept, the verb is an error;
+- a device re-keyed to itself is MALFORMED;
+- a confirmation with nothing held is an error;
+- a service-group member is denied;
+- the owner's re-key pairs the new key, answers its card, and mints a
+  succession that counts;
+- `list succession` reads `1 0 OLD>NEW,counting`;
+- `add succession OLD` answers `OLD NEW counting`.
+
+Two later admin-grant checks counted the store's confirmations from zero.
+They now count from what the re-key left.

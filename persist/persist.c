@@ -60,7 +60,8 @@
  * FZN_PERSIST_BLOB_RETENTION_SET, in node/roots.c, and 28 is
  * FZN_PERSIST_BLOB_ADMIN_RETENTION, in node/roots.c, and 29 is
  * FZN_PERSIST_BLOB_ROSTER, in node/roster.c, and 30 is
- * FZN_PERSIST_BLOB_FILE_SHARE, in node/files.c. */
+ * FZN_PERSIST_BLOB_FILE_SHARE, in node/files.c, and 31 is
+ * FZN_PERSIST_BLOB_SUCCESSION, in node/succession.c. */
 #define BLOB_IDENTITY 6u
 
 #define TRUST_BODY (FZN_PUBKEY_LEN + 1u + 8u)                 /* root, source, adopted_at */

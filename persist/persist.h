@@ -244,6 +244,9 @@ typedef enum fzn_persist_slot {
 	/* Per row: a file shared -- its root and a contact's key, a group's
 	 * id, or every contact. `node/files.h` keeps it. sec 493. */
 	FZN_PERSIST_FILE_SHARE = 29u,
+	/* Per record id: a succession -- one key succeeded by another -- with
+	 * its issuer's admin chain. `node/succession.h` keeps it. sec 499. */
+	FZN_PERSIST_SUCCESSION = 30u,
 } fzn_persist_slot_t;
 
 typedef enum fzn_persist_err {
@@ -302,6 +305,9 @@ typedef enum fzn_persist_err {
 #define FZN_PERSIST_BLOB_ROSTER 29u
 /* A file's share row, in slot 29. `node/files.c` keeps it. sec 493. */
 #define FZN_PERSIST_BLOB_FILE_SHARE 30u
+/* A succession and its issuer's chain, in slot 30. `node/succession.c`
+ * keeps it. sec 499. */
+#define FZN_PERSIST_BLOB_SUCCESSION 31u
 
 /* Write a blob head, or refuse when `cap` cannot hold head and body. */
 fzn_persist_err_t fzn_persist_head_write(uint8_t *out, size_t cap, size_t body,
@@ -439,6 +445,11 @@ typedef struct fzn_persist_ops {
  * CORE: FILE_SHARE (sec 493), named rather than left to the default, as
  * NOTE_SHARE is: a row rolled back is a contact fetching a file after it
  * was unshared, or a private file served to every contact.
+ *
+ * CORE: SUCCESSION (sec 499), named rather than left to the default. One
+ * rolled back moves a re-keyed device's references back to its revoked key:
+ * a loss rather than a door, and the guarded place is where a loss costs
+ * least to notice.
  *
  * CORE: ROSTER (sec 489), named rather than left to the default. A
  * removal rolled back is a removed contact served again -- a door.

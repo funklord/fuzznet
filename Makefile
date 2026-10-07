@@ -163,7 +163,8 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              net/udp.c \
              node/node.c node/local.c node/remote.c node/serve.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
-             node/revoke.c node/roots.c node/roster.c node/notes.c contact/contact.c \
+             node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
+             contact/contact.c \
              contact/group.c \
              log/rules.c \
              node/received.c node/members.c \
@@ -257,7 +258,8 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              net/udp.h \
              node/node.h node/local.h node/remote.h node/serve.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
-             node/revoke.h node/roots.h node/roster.h node/notes.h contact/contact.h \
+             node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
+             contact/contact.h \
              contact/group.h \
              log/rules.h \
              node/received.h node/members.h \
@@ -3736,6 +3738,7 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o \
               $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o \
+              $(BUILD_DIR)/node/succession.o $(BUILD_DIR)/chain/succession.o \
               $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/contact/contact.o \
               $(BUILD_DIR)/contact/group.o \
@@ -3794,6 +3797,7 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/caller.o \
               $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o \
+              $(BUILD_DIR)/node/succession.o $(BUILD_DIR)/chain/succession.o \
               $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/net/udp.o \
               $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/peer_linux.o \
               $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
@@ -3844,6 +3848,7 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/node/revoke.o \
               $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o \
+              $(BUILD_DIR)/node/succession.o $(BUILD_DIR)/chain/succession.o \
               $(BUILD_DIR)/contact/contact.o \
               $(BUILD_DIR)/contact/group.o \
               $(BUILD_DIR)/log/rules.o \
@@ -4017,6 +4022,8 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/node/pair.o \
                                       $(BUILD_DIR)/node/revoke.o \
                                       $(BUILD_DIR)/node/roster.o \
+                                      $(BUILD_DIR)/node/succession.o \
+                                      $(BUILD_DIR)/chain/succession.o \
                                       $(BUILD_DIR)/node/provision.o \
                                       $(BUILD_DIR)/node/peer_persist.o \
                                       $(BUILD_DIR)/node/caller.o \

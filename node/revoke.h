@@ -40,6 +40,7 @@
 
 #include "caller.h"
 #include "pair.h"
+#include "../chain/succession.h"
 #include "provision.h"
 #include "../chain/revocation.h"
 #include "../chain/root_log.h"
@@ -318,6 +319,11 @@ typedef struct fzn_node_vote_pull {
 	int rostering;
 	uint8_t roster_record[FZN_ROSTER_MIN_LEN];
 	struct fzn_node_roster *roster;
+	/* Or a succession, sec 499, learned into `successions` -- NULL refuses
+	 * every one, counted. */
+	int succeeding;
+	uint8_t succession[FZN_SUCCESSION_LEN];
+	struct fzn_node_successions *successions;
 	uint8_t record[FZN_REVOCATION_LEN];
 	uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
 	size_t hop_count;
@@ -344,6 +350,7 @@ fzn_node_pull_err_t fzn_node_votes_pull(fzn_caller_t *caller, const uint8_t root
                                         uint64_t now, fzn_revocation_store_t *revocations,
                                         struct fzn_node_roots *roots,
                                         struct fzn_node_roster *roster,
+                                        struct fzn_node_successions *successions,
                                         const fzn_persist_ops_t *store, size_t *learned,
                                         size_t *refused);
 
@@ -411,6 +418,18 @@ fzn_node_revoke_err_t fzn_node_admin_grant(struct fzn_node_roots *roots,
                                            const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t now,
                                            uint8_t out[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN],
                                            size_t *out_count);
+
+/* CONFIRM ANY RECORD BY ITS HASH, `grant`: the act inside
+ * `fzn_node_admin_confirm`, which hashes a hop first. What a succession's
+ * confirmation calls with the succession's id (sec 499); the rule a
+ * confirmation counts by is the reader's, `fzn_revocation_confirmed`. */
+fzn_node_revoke_err_t fzn_node_confirm_act(struct fzn_node_roots *roots,
+                                           const fzn_persist_ops_t *store,
+                                           const fzn_node_identity_t *id,
+                                           const fzn_node_admin_chain_t *mine,
+                                           const uint8_t root[FZN_PUBKEY_LEN],
+                                           const uint8_t grant[FZN_REVOCATION_ID_LEN],
+                                           fzn_revocation_store_t *revocations);
 
 /* Confirm the admin grant `hop`, as this node's acting root or through `mine`,
  * admit it into `revocations` and save it. NOT_ROOT when this node is neither;

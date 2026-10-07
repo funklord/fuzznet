@@ -118,6 +118,10 @@ typedef struct fzn_node_admin {
 	 * -- judged against `revocations` and its k -- and `list contact`
 	 * marks the ones that are not. `rng` mints an add's incarnation. */
 	struct fzn_node_roster *roster;
+	/* The successions this node holds, sec 499: what `add succession`
+	 * mints and confirms, and `list succession` reads. NULL for none, and
+	 * the verbs then say so. */
+	struct fzn_node_successions *successions;
 	const fzn_random_ops_t *rng;
 	/* Long notes' texts (`node/shelf.h`), or NULL: then `put`, `fetch` and
 	 * `get text` are unsupported and the remote hop answers no blob

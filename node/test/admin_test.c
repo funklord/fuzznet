@@ -16,6 +16,7 @@
 #include "../admin.h"
 #include "../roots.h"
 #include "../roster.h"
+#include "../succession.h"
 #include "../identity.h"
 #include "../peer_persist.h"
 #include "../received.h"
@@ -809,6 +810,71 @@ int main(void)
 			              && detail_len == strlen(want) && memcmp(detail, want, detail_len) == 0,
 			      "`none` did not move the line to keep nothing");
 		}
+
+		/* ---- A DEVICE RE-KEYED, sec 499: `add succession OLD PREKEY`
+		 * pairs the new key and answers its card; the root's succession
+		 * counts at once; `list succession` names it; `add succession
+		 * OLD` confirms it; a key is not its own successor; with no
+		 * successions kept the verb says so. */
+		{
+			static struct node fresh;
+			static fzn_node_successions_t ns;
+			char fresh_prekey[(FZN_PREKEY_LEN_TOTAL * 2u) + 1u];
+			char own_prekey[(FZN_PREKEY_LEN_TOTAL * 2u) + 1u];
+			char fresh_key[(FZN_PUBKEY_LEN * 2u) + 1u];
+			size_t peers_before = admin.state->peer_count;
+
+			CHECK(node_up(&fresh) && fzn_node_successions_init(&ns, &hash_ops)
+			              == FZN_NODE_REVOKE_OK,
+			      "fixture: the new key and the successions");
+			hex(fresh.id.prekey_record, FZN_PREKEY_LEN_TOTAL, fresh_prekey);
+			hex(fresh.id.pubkey, FZN_PUBKEY_LEN, fresh_key);
+			hex(device.id.prekey_record, FZN_PREKEY_LEN_TOTAL, own_prekey);
+			snprintf(line, sizeof(line), "add succession %s %s", key, fresh_prekey);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_ERROR,
+			      "a node keeping no successions re-keyed a device");
+			admin.successions = &ns;
+			snprintf(line, sizeof(line), "add succession %s %s", key, own_prekey);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_MALFORMED,
+			      "a key was made its own successor");
+			snprintf(line, sizeof(line), "add succession %s", key);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_ERROR,
+			      "a confirmation was taken with no succession held");
+			snprintf(line, sizeof(line), "add succession %s %s", key, fresh_prekey);
+			CHECK(ask(&admin, &member, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_DENIED,
+			      "a service-group member re-keyed a device");
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK
+			              && detail_len > 100u && ns.set.used == 1u
+			              && admin.state->peer_count == peers_before + 1u
+			              && fzn_succession_counts(&ns.set, 0, admin.revocations,
+			                                       node.id.pubkey),
+			      "the owner's re-key did not pair the new key, answer its card and "
+			      "mint a succession that counts");
+			snprintf(want, sizeof(want), "1 0 %s>%s,counting", key, fresh_key);
+			CHECK(ask(&admin, &member, "list succession", reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK
+			              && detail_len == strlen(want) && memcmp(detail, want, detail_len) == 0,
+			      "list succession did not name the re-key as counting");
+			snprintf(line, sizeof(line), "add succession %s", key);
+			snprintf(want, sizeof(want), "%s %s counting", key, fresh_key);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK
+			              && detail_len == strlen(want) && memcmp(detail, want, detail_len) == 0,
+			      "confirming the held succession was not answered with both keys");
+			admin.successions = NULL;
+		}
 	}
 
 	/* ---- THROUGH A ROOT KEY THE CARD WILL NOT FIT A REPLY, and add peer
@@ -844,10 +910,13 @@ int main(void)
 	{
 		uint8_t hop[FZN_HOP_LEN];
 		char key[(FZN_PUBKEY_LEN * 2u) + 1u], hop_hex[(FZN_HOP_LEN * 2u) + 1u];
-		size_t logged = roots.log.used, k;
+		size_t logged = roots.log.used, k, confirmed;
 
 		for (k = 0; k < FZN_PUBKEY_LEN; k++)
 			snprintf(key + (2u * k), 3u, "%02x", device.id.pubkey[k]);
+		/* THE CONFIRMATIONS ALREADY HELD: the re-key above confirmed its
+		 * succession, sec 499. */
+		confirmed = admin.revocations->confirms_used;
 		snprintf(line, sizeof(line), "grant admin %s", key);
 		CHECK(ask(&admin, &member, line, reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
@@ -863,7 +932,7 @@ int main(void)
 		snprintf(line, sizeof(line), "add confirm %s", hop_hex);
 		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
-		              && admin.revocations->confirms_used == 1u
+		              && admin.revocations->confirms_used == confirmed + 1u
 		              && roots.log.used == logged + 2u,
 		      "the root's confirmation was not admitted, or not logged");
 		CHECK(fzn_chain_mint(node.id.pubkey, device.id.pubkey,
@@ -876,7 +945,7 @@ int main(void)
 		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
 		                         == FZN_REPLY_ERROR
-		              && admin.revocations->confirms_used == 1u,
+		              && admin.revocations->confirms_used == confirmed + 1u,
 		      "a hop of another capability was confirmed as a grant of admin");
 		CHECK(ask(&admin, &owner, "add confirm zz", reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)

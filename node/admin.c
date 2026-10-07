@@ -13,6 +13,7 @@
 #include "../notes/share.h"
 #include "../log/cause.h"
 #include "members.h"
+#include "succession.h"
 #include "received.h"
 
 #include <stdio.h>
@@ -595,6 +596,211 @@ int fzn_node_admin_log_roster(void *ctx, const uint8_t *record, size_t len)
 	                                 admin->id->sign, fzn_roster_writer(rec),
 	                                 (uint8_t)FZN_ROOT_ACT_ROSTER, record, len)
 	       == FZN_NODE_ROOTS_OK;
+}
+
+/* ---- successions, sec 499 ---------------------------------------------- */
+
+/* The line a vote against `old` draws: a cut named, `none`, or with neither
+ * the head of `old`'s log as held here (sec 497). 0 for a word that is
+ * neither an id nor `none`. */
+static int line_of(fzn_node_admin_t *admin, const uint8_t old[FZN_PUBKEY_LEN],
+                   const uint8_t *word, size_t word_len, uint8_t cut[FZN_REVOCATION_ID_LEN],
+                   const uint8_t **drawn)
+{
+	*drawn = NULL;
+	if (word && word_len == 4u && memcmp(word, "none", 4u) == 0)
+		return 1;
+	if (word) {
+		if (!unhex(word, word_len, cut, FZN_REVOCATION_ID_LEN))
+			return 0;
+		*drawn = cut;
+		return 1;
+	}
+	if (admin->roots && fzn_node_roots_head(admin->roots, old, cut))
+		*drawn = cut;
+	return 1;
+}
+
+/* This node's vote against `old` at `drawn`, logged: what a re-key and a
+ * confirmation of one both cast. NULL when it stood, else the words to say. */
+static const char *vote_at(fzn_node_admin_t *admin, const uint8_t old[FZN_PUBKEY_LEN],
+                           const uint8_t *drawn)
+{
+	fzn_node_revoke_err_t rerr;
+	uint64_t now = admin->state->clock ? admin->state->clock() : 0u;
+
+	rerr = fzn_node_revoke_at(admin->id, admin->state->config.root, voting_authority(admin),
+	                          &admin->state->config.remote_capability, old, now, drawn,
+	                          admin->revocations, admin->store);
+	if (rerr != FZN_NODE_REVOKE_OK && rerr != FZN_NODE_REVOKE_ALREADY)
+		return fzn_node_revoke_err_str(rerr);
+	if (rerr == FZN_NODE_REVOKE_OK && !log_revocation(admin, old))
+		return "the vote is not in this node's log: it would fall at this node's revocation";
+	return NULL;
+}
+
+/* `add succession OLD`: confirm the one succession of OLD this node holds,
+ * and vote OLD revoked at its line. A fork -- two re-keys of OLD to
+ * different keys -- is refused: confirming either takes a side the owner has
+ * to take. */
+static size_t confirm_succession(fzn_node_admin_t *admin, const uint8_t old[FZN_PUBKEY_LEN],
+                                 const uint8_t *old_hex, size_t old_hex_len, char *reply,
+                                 size_t cap)
+{
+	const fzn_succession_set_t *set = &admin->successions->set;
+	const fzn_succession_t *found = NULL;
+	char detail[(FZN_PUBKEY_LEN * 4u) + 16u];
+	const char *why;
+	fzn_node_revoke_err_t err;
+	size_t i, at;
+
+	for (i = 0; i < set->used; i++) {
+		if (memcmp(set->entries[i].old, old, FZN_PUBKEY_LEN) != 0)
+			continue;
+		if (found && memcmp(found->new_key, set->entries[i].new_key, FZN_PUBKEY_LEN) != 0)
+			return answer_text(reply, cap, FZN_REPLY_ERROR,
+			                   "that key is re-keyed two ways; confirming either takes a side");
+		found = &set->entries[i];
+	}
+	if (!found)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "no succession of that key is held");
+	err = fzn_node_confirm_act(admin->roots, admin->store, admin->id, admin->admin_chain,
+	                           admin->state->config.root, found->id, admin->revocations);
+	if (err != FZN_NODE_REVOKE_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_revoke_err_str(err));
+	{
+		static const uint8_t NOTHING[FZN_REVOCATION_ID_LEN] = { 0 };
+		int none = memcmp(found->cut, NOTHING, sizeof(NOTHING)) == 0;
+
+		why = vote_at(admin, old, none ? NULL : found->cut);
+	}
+	if (why)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, why);
+	memcpy(detail, old_hex, old_hex_len);
+	at = old_hex_len;
+	detail[at++] = ' ';
+	put_hex(detail + at, found->new_key, FZN_PUBKEY_LEN);
+	at += FZN_PUBKEY_LEN * 2u;
+	{
+		const char *state = fzn_succession_counts(set, (size_t)(found - set->entries),
+		                                          admin->revocations,
+		                                          admin->state->config.root)
+		                            ? " counting"
+		                            : " waiting";
+
+		memcpy(detail + at, state, strlen(state));
+		at += strlen(state);
+	}
+	return answer(reply, cap, FZN_REPLY_OK, detail, at);
+}
+
+/* `add succession OLD PREKEY [CUT|none]`: RE-KEY a device. Pair the device's
+ * new key from PREKEY, as `add peer` does; vote OLD revoked at the line; and
+ * mint the succession OLD -> NEW at the same line. The answer is the new
+ * device's card. In that order so that nothing is said about OLD until its
+ * successor holds a grant, and each step that fails says which steps stood.
+ * With one word, `add succession OLD` confirms another's re-key instead. */
+static size_t add_succession(fzn_node_admin_t *admin, const uint8_t *rest, size_t rest_len,
+                             char *reply, size_t cap)
+{
+	uint8_t old[FZN_PUBKEY_LEN], record_bytes[FZN_PREKEY_LEN_TOTAL],
+	        cut[FZN_REVOCATION_ID_LEN];
+	const uint8_t *old_hex = NULL, *prekey_hex = NULL, *line = NULL, *drawn = NULL;
+	size_t old_len = 0, prekey_len = 0, line_len = 0, len;
+	const uint8_t *detail = NULL;
+	size_t detail_len = 0;
+	fzn_prekey_record_t record;
+	fzn_node_revoke_err_t serr;
+	const char *why;
+
+	if (!admin->successions || !admin->revocations)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "this node keeps no successions");
+	if (!next_word(&rest, &rest_len, &old_hex, &old_len)
+	    || !unhex(old_hex, old_len, old, sizeof(old)))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a peer key");
+	if (!next_word(&rest, &rest_len, &prekey_hex, &prekey_len))
+		return confirm_succession(admin, old, old_hex, old_len, reply, cap);
+	if (!unhex(prekey_hex, prekey_len, record_bytes, sizeof(record_bytes))
+	    || fzn_prekey_open(record_bytes, sizeof(record_bytes), &record) != FZN_PREKEY_OK)
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a prekey record");
+	if (memcmp(record.host, old, FZN_PUBKEY_LEN) == 0)
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED,
+		                   "a key is not its own successor");
+	if (!line_of(admin, old,
+	             next_word(&rest, &rest_len, &line, &line_len) ? line : NULL, line_len, cut,
+	             &drawn))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a log entry id, nor none");
+
+	/* THE NEW KEY'S GRANT FIRST, answered with its card. */
+	len = add_peer(admin, prekey_hex, prekey_len, reply, cap);
+	if (fzn_reply_of((const uint8_t *)reply, len, &detail, &detail_len) != FZN_REPLY_OK)
+		return len;
+	why = vote_at(admin, old, drawn);
+	if (why) {
+		static char said[160];
+
+		snprintf(said, sizeof(said), "the new key is paired, and the old is not revoked: %s",
+		         why);
+		return answer_text(reply, cap, FZN_REPLY_ERROR, said);
+	}
+	serr = fzn_node_succession_issue(admin->successions, admin->roots, admin->store, admin->id,
+	                                 admin->admin_chain, admin->revocations,
+	                                 admin->state->config.root, old, record.host, drawn,
+	                                 NULL);
+	if (serr != FZN_NODE_REVOKE_OK) {
+		static char said[160];
+
+		snprintf(said, sizeof(said),
+		         "the new key is paired and the old revoked, and the succession was not: %s",
+		         fzn_node_revoke_err_str(serr));
+		return answer_text(reply, cap, FZN_REPLY_ERROR, said);
+	}
+	return len;
+}
+
+/* `list succession [FROM]`: `ok TOTAL FROM OLD>NEW,STATE ...`, paged as
+ * `list peer` is. STATE is `counting`, or `waiting` for confirmations. */
+static size_t list_successions(fzn_node_admin_t *admin, const uint8_t *from_text,
+                               size_t from_len, char *reply, size_t cap)
+{
+	static char detail[FZN_REPLY_MAX];
+	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	const fzn_succession_set_t *set;
+	size_t from = 0, at, i;
+	int n;
+
+	if (!admin->successions)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "this node keeps no successions");
+	set = &admin->successions->set;
+	for (i = 0; i < from_len; i++) {
+		if (from_text[i] < '0' || from_text[i] > '9' || from > FZN_NODE_SUCCESSIONS_MAX)
+			return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a succession index");
+		from = (from * 10u) + (size_t)(from_text[i] - '0');
+	}
+	if (from > set->used)
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "past the last succession");
+	n = snprintf(detail, sizeof(detail), "%zu %zu", set->used, from);
+	if (n < 0 || (size_t)n >= sizeof(detail))
+		return 0;
+	at = (size_t)n;
+	for (i = from; i < set->used; i++) {
+		int counts = fzn_succession_counts(set, i, admin->revocations,
+		                                   admin->state->config.root);
+		const char *state = counts ? ",counting" : ",waiting";
+		size_t need = 2u + (FZN_PUBKEY_LEN * 4u) + strlen(state);
+
+		if (at + need + 3u > limit)
+			break;
+		detail[at++] = ' ';
+		put_hex(detail + at, set->entries[i].old, FZN_PUBKEY_LEN);
+		at += FZN_PUBKEY_LEN * 2u;
+		detail[at++] = '>';
+		put_hex(detail + at, set->entries[i].new_key, FZN_PUBKEY_LEN);
+		at += FZN_PUBKEY_LEN * 2u;
+		memcpy(detail + at, state, strlen(state));
+		at += strlen(state);
+	}
+	return answer(reply, cap, FZN_REPLY_OK, detail, at);
 }
 
 /* `add root KEY` and `remove root KEY [CUT]`: change the estate's roots as
@@ -1497,6 +1703,14 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 			return change_estate_retention(admin, request->parsed == FZN_VERB_ADD, rest,
 			                               rest_len, reply, reply_cap);
 	}
+	/* SUCCESSIONS, sec 499: re-keying a device, confirming another's
+	 * re-key, and reading what is held. */
+	if (request->parsed == FZN_VERB_ADD && subject_word(request, "succession", &rest, &rest_len)
+	    && rest)
+		return add_succession(admin, rest, rest_len, reply, reply_cap);
+	if (request->parsed == FZN_VERB_LIST
+	    && subject_word(request, "succession", &rest, &rest_len))
+		return list_successions(admin, rest, rest_len, reply, reply_cap);
 	/* ADMINS, sec 416: only on a node whose config names the capability. */
 	if (admin->state->config.has_admin && request->parsed == FZN_VERB_GRANT
 	    && subject_word(request, "admin", &rest, &rest_len) && rest)

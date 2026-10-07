@@ -81,6 +81,7 @@ enum fzn_persist_tag : u8 {
 	admin_retention = 28,
 	roster = 29,
 	file_share = 30,
+	succession = 31,
 	default = error,
 }
 
@@ -206,6 +207,15 @@ struct fzn_persist_file_share_body {
 	u8   root[32];
 	u8   grantee[32];
 	u64  shared_at_ms;
+}
+
+// A succession (sec 499): the signed record whole (194 bytes,
+// chain/succession.situ, opaque here), and its issuer's admin chain -- none
+// for a root.
+struct fzn_persist_succession_body {
+	u8  record[194];
+	u8  hop_count [max = 7];
+	fzn_persist_hop hops[hop_count];
 }
 
 // The seed of the root key a node holds beside its identity (sec 409),
@@ -374,6 +384,7 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.admin_retention: fzn_persist_admin_retention_body admin_retention;
 		case fzn_persist_tag.roster: fzn_persist_roster_body roster;
 		case fzn_persist_tag.file_share: fzn_persist_file_share_body file_share;
+		case fzn_persist_tag.succession: fzn_persist_succession_body succession;
 		default: error;
 	}
 }

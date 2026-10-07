@@ -18,6 +18,7 @@
 #include "../revoke.h"
 #include "../roots.h"
 #include "../roster.h"
+#include "../succession.h"
 #include "../../contact/contact.h"
 #include "../admin.h"
 #include "../../provision/provision.h"
@@ -1063,6 +1064,8 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 static struct fzn_node_roots *stream_roots;
 /* And its contacts' roster records, sec 489: NULL refuses them. */
 static struct fzn_node_roster *stream_roster;
+/* Successions a stream pull learns into, sec 499; NULL refuses them. */
+static struct fzn_node_successions *stream_successions;
 
 static int stream_pull(struct node *from, const fzn_node_authority_t *authority,
                        struct node *into, const uint8_t root[FZN_PUBKEY_LEN],
@@ -1075,6 +1078,7 @@ static int stream_pull(struct node *from, const fzn_node_authority_t *authority,
 	memset(pull, 0, sizeof(*pull));
 	pull->roots = stream_roots;
 	pull->roster = stream_roster;
+	pull->successions = stream_successions;
 	while (pages++ < 64u) {
 		size_t len = 0, total = 0, next = 0;
 		int n, err;
@@ -1109,6 +1113,7 @@ static int stream_pull_as(struct node *from, const fzn_node_authority_t *authori
 	memset(pull, 0, sizeof(*pull));
 	pull->roots = stream_roots;
 	pull->roster = stream_roster;
+	pull->successions = stream_successions;
 	while (pages++ < 64u) {
 		size_t len = 0, total = 0, next = 0;
 		int n, err;
@@ -2403,6 +2408,93 @@ static void test_a_revoked_members_contacts_to_the_line(const fzn_cap_id_t *cap)
 	stream_roster = NULL;
 }
 
+/* A DEVICE RE-KEYED, sec 499. R, the root, pairs D. D's keys are taken; its
+ * owner makes D2 and R mints "D is succeeded by D2", logged as R's act. D
+ * reads through to D2 at R. M, a member, pulls R's votes and the succession
+ * rides with them: M reads D through to D2 too, a pull with nowhere to put
+ * successions refuses it, and a restart at M loads it back. A second
+ * succession of D to another key forks it, and D then reads through to
+ * nobody. */
+static void test_a_device_rekeyed(const fzn_cap_id_t *cap)
+{
+	static struct node r, m, d, d2, d3;
+	static fzn_node_roots_t r_roots;
+	static fzn_node_successions_t r_ns, m_ns, again;
+	static fzn_revocation_t r_e[8], m_e[8];
+	fzn_revocation_store_t r_revs, m_revs;
+	fzn_prekey_record_t m_rec, d_rec;
+	fzn_node_pairing_t m_joined;
+	fzn_node_vote_pull_t pull;
+	uint8_t card[FZN_PROVISION_MAX_LEN], now_key[FZN_PUBKEY_LEN], id[FZN_SUCCESSION_ID_LEN];
+	size_t card_len = 0, loaded = 0;
+	size_t logged;
+
+	CHECK(node_up(&r) && node_up(&m) && node_up(&d) && node_up(&d2) && node_up(&d3)
+	              && fzn_prekey_open(m.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &m_rec)
+	                         == FZN_PREKEY_OK
+	              && fzn_prekey_open(d.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &d_rec)
+	                         == FZN_PREKEY_OK
+	              && fzn_node_pair(&r.id, r.id.pubkey, cap, NULL, 1, &r.ops, m_rec, 1000u, 0u,
+	                               card, sizeof(card), &card_len) == FZN_NODE_PAIR_OK
+	              && fzn_node_join(&m.id, card, card_len, 1100u, &m.ops, &m.trust, &m_joined)
+	                         == FZN_NODE_PAIR_OK
+	              && fzn_node_pair(&r.id, r.id.pubkey, cap, NULL, 0, &r.ops, d_rec, 1000u, 0u,
+	                               card, sizeof(card), &card_len) == FZN_NODE_PAIR_OK,
+	      "fixture: M joins R's estate and R pairs D");
+	CHECK(fzn_node_roots_init(&r_roots, r.id.pubkey, &r.sign, &hash_ops) == FZN_NODE_ROOTS_OK
+	              && fzn_revocation_store_init(&r_revs, r_e, 8) == FZN_CHAIN_OK
+	              && fzn_revocation_store_init(&m_revs, m_e, 8) == FZN_CHAIN_OK
+	              && fzn_node_successions_init(&r_ns, &hash_ops) == FZN_NODE_REVOKE_OK
+	              && fzn_node_successions_init(&m_ns, &hash_ops) == FZN_NODE_REVOKE_OK,
+	      "fixture: R's roots, the stores and the successions");
+
+	/* R RE-KEYS D TO D2, as the root, logged. */
+	logged = r_roots.log.used;
+	CHECK(fzn_node_succession_issue(&r_ns, &r_roots, &r.ops, &r.id, NULL, &r_revs, r.id.pubkey,
+	                                d.id.pubkey, d2.id.pubkey, NULL, id) == FZN_NODE_REVOKE_OK
+	              && r_ns.set.used == 1u && rows_in(&r, FZN_PERSIST_SUCCESSION) == 1u
+	              && r_roots.log.used == logged + 1u,
+	      "R's succession of D was not kept, saved and logged");
+	CHECK(fzn_node_successions_resolve(&r_ns, &r_revs, r.id.pubkey, d.id.pubkey, now_key)
+	              && memcmp(now_key, d2.id.pubkey, FZN_PUBKEY_LEN) == 0,
+	      "D did not read through to D2 at R");
+	CHECK(fzn_node_succession_issue(&r_ns, NULL, &r.ops, &r.id, NULL, &r_revs, r.id.pubkey,
+	                                d.id.pubkey, d3.id.pubkey, NULL, NULL)
+	              == FZN_NODE_REVOKE_NOT_ROOT,
+	      "a node acting as no root and holding no admin chain re-keyed a device");
+
+	/* THE STREAM CARRIES IT: refused with nowhere to put it, learned with. */
+	stream_successions = NULL;
+	CHECK(stream_pull(&r, NULL, &m, r.id.pubkey, &m_revs, 800u, &pull) == FZN_NODE_PULL_OK
+	              && pull.refused == 1u && rows_in(&m, FZN_PERSIST_SUCCESSION) == 0u,
+	      "a pull with nowhere to put a succession took it");
+	stream_successions = &m_ns;
+	CHECK(stream_pull(&r, NULL, &m, r.id.pubkey, &m_revs, 800u, &pull) == FZN_NODE_PULL_OK
+	              && pull.learned == 1u && rows_in(&m, FZN_PERSIST_SUCCESSION) == 1u
+	              && fzn_node_successions_resolve(&m_ns, &m_revs, r.id.pubkey, d.id.pubkey,
+	                                              now_key)
+	              && memcmp(now_key, d2.id.pubkey, FZN_PUBKEY_LEN) == 0,
+	      "M did not learn R's succession from R's stream, or did not read D through");
+	stream_successions = NULL;
+
+	/* A RESTART AT M. */
+	CHECK(fzn_node_successions_init(&again, &hash_ops) == FZN_NODE_REVOKE_OK
+	              && fzn_node_successions_load(&again, &m.ops, &m_revs, r.id.pubkey, &m.sign,
+	                                           &loaded) == FZN_PERSIST_OK
+	              && loaded == 1u
+	              && fzn_node_successions_resolve(&again, &m_revs, r.id.pubkey, d.id.pubkey,
+	                                              now_key)
+	              && memcmp(now_key, d2.id.pubkey, FZN_PUBKEY_LEN) == 0,
+	      "M's succession did not come back from its store");
+
+	/* A FORK: R also re-keys D to D3, and D reads through to nobody. */
+	CHECK(fzn_node_succession_issue(&r_ns, &r_roots, &r.ops, &r.id, NULL, &r_revs, r.id.pubkey,
+	                                d.id.pubkey, d3.id.pubkey, NULL, NULL) == FZN_NODE_REVOKE_OK
+	              && !fzn_node_successions_resolve(&r_ns, &r_revs, r.id.pubkey, d.id.pubkey,
+	                                               now_key),
+	      "a key re-keyed two ways still read through to one of them");
+}
+
 static void test_contacts_travel(const fzn_cap_id_t *cap)
 {
 	static struct node r, n, m, x, stranger;
@@ -2936,6 +3028,7 @@ int main(void)
 	test_an_admin_sets_retention(&cap);
 	test_contacts_travel(&cap);
 	test_a_revoked_members_contacts_to_the_line(&cap);
+	test_a_device_rekeyed(&cap);
 	test_a_node_pairs_as_a_root_by_identity(&cap);
 
 	/* ---- A NODE THAT IS NOT ITS OWN ROOT PAIRS NOTHING, and writes nothing. */

@@ -167,6 +167,7 @@
 #include <fuzznet/node/revoke.h>
 #include <fuzznet/node/roots.h>
 #include <fuzznet/node/roster.h>
+#include <fuzznet/node/succession.h>
 #include <fuzznet/chain/root_log.h>
 #include <fuzznet/chain/succession.h>
 #include <fuzznet/session/aead.h>
@@ -318,6 +319,7 @@
 #include "node/provision.h"
 #include "node/roots.h"
 #include "node/roster.h"
+#include "node/succession.h"
 #include "chain/root_log.h"
 #include "chain/succession.h"
 #include "session/aead.h"

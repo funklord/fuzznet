@@ -44,6 +44,7 @@
 #include "revoke.h"
 #include "roots.h"
 #include "roster.h"
+#include "succession.h"
 #include "peer_persist.h"
 #include "notes.h"
 #include "../notes/received.h"
@@ -824,6 +825,10 @@ static uint8_t node_reply[FZND_REPLY_MAX];
  * every peer, and the arrivals named. */
 static fzn_node_roster_t node_roster;
 static int roster_on;
+/* The successions this node holds, sec 499: loaded with the votes they ride
+ * beside, judged by the same store. */
+static fzn_node_successions_t node_successions;
+static int successions_on;
 
 static int admin_member(void *ctx, const uint8_t *key)
 {
@@ -2835,6 +2840,29 @@ int main(int argc, char **argv)
 					    "%zu roster record(s) from %s, %zu contact(s) carried onto it",
 					    nroster, store_dir, carried);
 			}
+			/* THE SUCCESSIONS, sec 499: a re-keyed device's references read
+			 * through to its new key. NOT FATAL, as the roster is not: a node
+			 * that cannot hold them serves on its old keys. */
+			{
+				size_t nsucc = 0;
+				fzn_persist_err_t serr = FZN_PERSIST_ERR_MALFORMED;
+
+				if (fzn_node_successions_init(&node_successions, &hash_ops)
+				    == FZN_NODE_REVOKE_OK)
+					serr = fzn_node_successions_load(&node_successions, store_ops,
+					                                 &revoked, state.config.root,
+					                                 &sign_ops, &nsucc);
+				if (serr == FZN_PERSIST_OK) {
+					admin.successions = &node_successions;
+					successions_on = 1;
+				} else {
+					say(FZN_ENTRY_WARNING, "votes", "the successions: %s",
+					    fzn_persist_err_str(serr));
+				}
+				if (nsucc)
+					say(FZN_ENTRY_INFO, "votes", "%zu succession(s) from %s", nsucc,
+					    store_dir);
+			}
 			state.on_local = fzn_node_admin_handle;
 			state.on_local_ctx = &admin;
 			state.on_remote = fzn_node_admin_remote;
@@ -3097,6 +3125,7 @@ int main(int argc, char **argv)
 					                           &sign_ops, &hash_ops, now, running,
 					                           running_roots,
 					                           roster_on ? &node_roster : NULL,
+					                           successions_on ? &node_successions : NULL,
 					                           store_ops, &learned, &refused);
 					if (perr != FZN_NODE_PULL_OK)
 						say(FZN_ENTRY_WARNING, "votes", "votes from %s: %s",

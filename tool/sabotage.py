@@ -9352,6 +9352,62 @@ SABOTAGES = [
 		"\treturn r.base + FZN_SUCCESSION_OFF_OLD;\n",
 		"a reader taking the old key for the new reads every reference through to the key being retired -- sec 498",
 	),
+	(
+		"node-succession-saved",
+		"node/succession.c",
+		"\treturn save(store, ns->set.hash, record, hops, hop_count) ? FZN_NODE_REVOKE_OK\n",
+		"\treturn (hop_count < FZN_CHAIN_MAX_HOPS || save) ? FZN_NODE_REVOKE_OK\n",
+		"a succession held and never saved is forgotten at a restart, and the device's references go back to its revoked key -- sec 499",
+	),
+	(
+		"node-succession-logged",
+		"node/succession.c",
+		"\tif (roots\n\t    && fzn_node_roots_log_act(roots, store, as, sign, (uint8_t)FZN_ROOT_ACT_GRANT, record,\n",
+		"\tif (0\n\t    && fzn_node_roots_log_act(roots, store, as, sign, (uint8_t)FZN_ROOT_ACT_GRANT, record,\n",
+		"a re-key never logged falls at its issuer's removal or revocation whatever the line -- sec 499",
+	),
+	(
+		"node-succession-as-a-root",
+		"node/succession.c",
+		"\tif (roots && fzn_node_roots_acting(roots, id->pubkey, id->sign, &as, &sign)) {\n\t\tn = 0;\n",
+		"\tif (0 && roots && fzn_node_roots_acting(roots, id->pubkey, id->sign, &as, &sign)) {\n\t\tn = 0;\n",
+		"a root that cannot re-key a device leaves the owner nobody to re-key it -- sec 499",
+	),
+	(
+		"node-succession-load-admits",
+		"node/succession.c",
+		"\t\t                             &n)\n\t\t    || admit(ns, revocations, root, sign, record, (const uint8_t (*)[FZN_HOP_LEN])hops,\n\t\t             n) != FZN_CHAIN_OK)\n",
+		"\t\t                             &n))\n",
+		"successions loaded from the store and never admitted read nobody through after a restart -- sec 499",
+	),
+	(
+		"votes-page-serves-successions",
+		"node/revoke.c",
+		"\t\t\t\t            : s == 6u ? 's'\n",
+		"\t\t\t\t            : s == 6u ? 'o'\n",
+		"a succession served under another item's letter never reaches a member -- sec 499",
+	),
+	(
+		"votes-absorb-learns-successions",
+		"node/revoke.c",
+		"\t\tpull->succeeding = 0;\n\t\tif (!pull->successions) {\n",
+		"\t\tpull->succeeding = 0;\n\t\tif (1) {\n",
+		"a member that refuses every succession it pulls never learns a device was re-keyed -- sec 499",
+	),
+	(
+		"admin-rekey-mints-the-succession",
+		"node/admin.c",
+		"\tserr = fzn_node_succession_issue(admin->successions, admin->roots, admin->store, admin->id,\n",
+		"\tserr = FZN_NODE_REVOKE_OK;\n\tif (0)\n\t\tserr = fzn_node_succession_issue(admin->successions, admin->roots, admin->store, admin->id,\n",
+		"a re-key that pairs the new key and mints no succession leaves every reference on the revoked key -- sec 499",
+	),
+	(
+		"admin-rekey-not-its-own-successor",
+		"node/admin.c",
+		"\tif (memcmp(record.host, old, FZN_PUBKEY_LEN) == 0)\n\t\treturn answer_text(reply, cap, FZN_REPLY_MALFORMED,\n",
+		"\tif (0)\n\t\treturn answer_text(reply, cap, FZN_REPLY_MALFORMED,\n",
+		"a device re-keyed to itself pairs again and revokes itself before the succession is refused -- sec 499",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
