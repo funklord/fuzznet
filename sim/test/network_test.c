@@ -1180,7 +1180,7 @@ static void scenario_revocation(void)
 	 * verifies that rather than trusting the caller -- and now signed WITH
 	 * the root's key rather than merely naming it as issuer, so
 	 * `fzn_revocation_admit` is checking a signature and not a field. */
-	check(fzn_revocation_issue(net.root, &net.capability, net.hosts[2].pubkey, net.now, 0u,
+	check(fzn_revocation_issue(net.root, &net.capability, net.hosts[2].pubkey, net.now, 0u, NULL,
 	                           sim_signer(&root_signer, &net.sign, net.root),
 	                           rec_region) == FZN_CHAIN_OK,
 	      "the simulation could not issue a revocation");
@@ -1288,7 +1288,7 @@ static void scenario_revocation_split(void)
 	check(sender->chain_len == 1, "the sender should hold a one-hop root grant");
 
 	/* Signed by the root, as scenario 3's is and for the same reason. */
-	check(fzn_revocation_issue(net.root, &net.capability, sender->pubkey, net.now, 0u,
+	check(fzn_revocation_issue(net.root, &net.capability, sender->pubkey, net.now, 0u, NULL,
 	                           sim_signer(&root_signer, &net.sign, net.root),
 	                           rec_region) == FZN_CHAIN_OK,
 	      "the simulation could not issue a revocation");
@@ -1387,7 +1387,7 @@ static void scenario_withdrawal(void)
 	/* The root revokes the sender, and BOTH receivers hear it. That is the
 	 * difference from scenario 3b: there the split is in the revocation,
 	 * here it is in the withdrawal. */
-	check(fzn_revocation_issue(net.root, &net.capability, sender->pubkey, net.now, 0u,
+	check(fzn_revocation_issue(net.root, &net.capability, sender->pubkey, net.now, 0u, NULL,
 	                           sim_signer(&root_signer, &net.sign, net.root),
 	                           rec_region) == FZN_CHAIN_OK,
 	      "the simulation could not issue a revocation");
@@ -1633,7 +1633,7 @@ static void scenario_incomplete(void)
 		size_t man_len = 0;
 
 		fzn_revocation_store_init(&their_store, their_entries, 2);
-		check(fzn_revocation_issue(stranger, &net.capability, bystander->pubkey, net.now, 0u,
+		check(fzn_revocation_issue(stranger, &net.capability, bystander->pubkey, net.now, 0u, NULL,
 		                           sim_signer(&signer, &net.sign, stranger),
 		                           region) == FZN_CHAIN_OK,
 		      "the stranger could not issue a revocation of its own");
@@ -1686,7 +1686,7 @@ static void scenario_incomplete(void)
 		size_t man_len = 0;
 
 		fzn_revocation_store_init(&issuer_store, issuer_entries, 2);
-		check(fzn_revocation_issue(net.root, &net.capability, bystander->pubkey, net.now, 0u,
+		check(fzn_revocation_issue(net.root, &net.capability, bystander->pubkey, net.now, 0u, NULL,
 		                           sim_signer(&signer, &net.sign, net.root),
 		                           root_region) == FZN_CHAIN_OK,
 		      "the root could not revoke the bystander");
@@ -4273,7 +4273,7 @@ static void scenario_held_but_revoked(void)
 	                              "would prove nothing");
 
 	/* The root revokes it, and this host is told. */
-	check(fzn_revocation_issue(net.root, &net.capability, subject->pubkey, net.now, 0u,
+	check(fzn_revocation_issue(net.root, &net.capability, subject->pubkey, net.now, 0u, NULL,
 	                           sim_signer(&root_signer, &net.sign, net.root), rec_region)
 	              == FZN_CHAIN_OK,
 	      "the simulation could not issue a revocation");
@@ -4626,7 +4626,7 @@ static void scenario_local_hop(void)
 	                                  "below would prove nothing");
 
 	/* Revoke the host's grant. Nothing about anybody's groups changes. */
-	check(fzn_revocation_issue(net.root, &net.capability, host->pubkey, net.now, 0u,
+	check(fzn_revocation_issue(net.root, &net.capability, host->pubkey, net.now, 0u, NULL,
 	                           sim_signer(&root_signer, &net.sign, net.root), rec_region)
 	              == FZN_CHAIN_OK,
 	      "the simulation could not issue a revocation");
@@ -5152,7 +5152,7 @@ static void scenario_estate(void)
 	      "something was refused on authority before anything was revoked");
 
 	/* Retire the SECOND member only. */
-	check(fzn_revocation_issue(net.root, &net.capability, net.hosts[2].pubkey, net.now, 0u,
+	check(fzn_revocation_issue(net.root, &net.capability, net.hosts[2].pubkey, net.now, 0u, NULL,
 	                           sim_signer(&root_signer, &net.sign, net.root),
 	                           rec_region) == FZN_CHAIN_OK,
 	      "the simulation could not issue the revocation");

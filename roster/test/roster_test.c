@@ -219,7 +219,7 @@ static int revoke_member(fzn_revocation_store_t *store, fzn_revocation_t *entrie
 	hash.hash = stub_hash;
 	hash.ctx = NULL;
 	return fzn_revocation_store_init(store, entries, n) == FZN_CHAIN_OK
-	       && fzn_revocation_issue(root.key, &manage, member.key, 600, 0u, &root.sign, bytes)
+	       && fzn_revocation_issue(root.key, &manage, member.key, 600, 0u, NULL, &root.sign, bytes)
 	                  == FZN_CHAIN_OK
 	       && fzn_revocation_open(bytes, sizeof(bytes), &rec) == FZN_CHAIN_OK
 	       && fzn_revocation_admit(store, fzn_revocation_offer_root(rec), root.key, &root.sign,
@@ -843,6 +843,147 @@ static void test_several_roots_write(void)
 	}
 }
 
+/* A REVOKED MEMBER'S RECORDS STAND UP TO ITS CUT, sec 496. The member adds
+ * alice, logged at seq 0, and then -- after a theft, say -- adds bob, logged
+ * at seq 1. The root revokes the member with the cut at alice's entry: alice
+ * stays active and bob is absent. With no act log, neither counts, which is
+ * what a revocation meant before votes carried a cut. Withdrawn -- the
+ * device found unharmed -- and both count again. */
+static void test_a_revoked_writers_records_stand_to_the_cut(void)
+{
+	static held_t h;
+	static fzn_revocation_t rev_entries[4];
+	static fzn_root_log_entry_t logged[4];
+	fzn_revocation_store_t rev;
+	fzn_root_log_t log;
+	fzn_act_log_ops_t acts;
+	fzn_roster_authority_t a = authority();
+	rec_t m_alice, m_bob;
+	uint8_t hop_bytes[FZN_HOP_LEN], entry[FZN_ROOT_ACT_LEN], bytes[FZN_REVOCATION_LEN];
+	uint8_t act[FZN_REVOCATION_ID_LEN], at_alice[FZN_ROOT_ACT_ID_LEN];
+	uint8_t at_bob[FZN_ROOT_ACT_ID_LEN], vote_id[FZN_REVOCATION_ID_LEN];
+	fzn_revocation_record_t vote;
+	fzn_chain_hop_t hop[1];
+
+	a.hash = &HASH;
+	CHECK(held_init(&h) && member_chain(hop_bytes, &hop[0], FZN_NO_EXPIRY)
+	              && fzn_root_log_init(&log, logged, 4) == FZN_ROOT_LOG_OK
+	              && fzn_revocation_store_init(&rev, rev_entries, 4) == FZN_CHAIN_OK,
+	      "fixture");
+	add(&m_alice, &member, &alice, 1, 60);
+	add(&m_bob, &member, &bob, 2, 61);
+	CHECK(fzn_roster_admit(&h.r, view(&m_alice), hop, 1, &a) == FZN_ROSTER_OK
+	              && fzn_roster_admit(&h.r, view(&m_bob), hop, 1, &a) == FZN_ROSTER_OK,
+	      "the member's adds were refused with a hash and no root set");
+
+	/* THE MEMBER'S LOG: alice at seq 0, bob at seq 1. */
+	CHECK(stub_hash(NULL, act, sizeof(act), m_alice.bytes, m_alice.len)
+	              && fzn_root_act_issue(member.key, 0, NULL, (uint8_t)FZN_ROOT_ACT_ROSTER, act,
+	                                    &member.sign, entry) == FZN_ROOT_LOG_OK
+	              && fzn_root_log_admit(&log, entry, sizeof(entry), &member.sign, &HASH)
+	                         == FZN_ROOT_LOG_OK
+	              && stub_hash(NULL, at_alice, sizeof(at_alice), entry, sizeof(entry))
+	              && stub_hash(NULL, act, sizeof(act), m_bob.bytes, m_bob.len)
+	              && fzn_root_act_issue(member.key, 1, at_alice, (uint8_t)FZN_ROOT_ACT_ROSTER, act,
+	                                    &member.sign, entry) == FZN_ROOT_LOG_OK
+	              && fzn_root_log_admit(&log, entry, sizeof(entry), &member.sign, &HASH)
+	                         == FZN_ROOT_LOG_OK
+	              && stub_hash(NULL, at_bob, sizeof(at_bob), entry, sizeof(entry)),
+	      "fixture: the member's log");
+
+	/* THE ROOT REVOKES THE MEMBER, trusting it up to alice. */
+	CHECK(fzn_revocation_issue(root.key, &manage, member.key, 600, 0u, at_alice, &root.sign, bytes)
+	              == FZN_CHAIN_OK
+	              && fzn_revocation_open(bytes, sizeof(bytes), &vote) == FZN_CHAIN_OK
+	              && fzn_revocation_admit(&rev, fzn_revocation_offer_root(vote), root.key,
+	                                      &root.sign, &HASH, NULL) == FZN_CHAIN_OK
+	              && stub_hash(NULL, vote_id, sizeof(vote_id), bytes, sizeof(bytes)),
+	      "fixture: the root's vote with a cut");
+	CHECK(state_of(&h.r, &alice, 1, &rev, 2) == FZN_ROSTER_ABSENT
+	              && state_of(&h.r, &bob, 2, &rev, 2) == FZN_ROSTER_ABSENT,
+	      "the control: with no act log a revoked member's add still counted");
+	fzn_root_log_acts(&log, &acts);
+	CHECK(fzn_revocation_store_set_acts(&rev, &acts) == FZN_CHAIN_OK, "fixture: the act log");
+	CHECK(state_of(&h.r, &alice, 1, &rev, 2) == FZN_ROSTER_ACTIVE,
+	      "a revoked member's add before its cut did not stand");
+	CHECK(state_of(&h.r, &bob, 2, &rev, 2) == FZN_ROSTER_ABSENT,
+	      "a revoked member's add after its cut stood");
+
+	/* FOUND UNHARMED: the root withdraws, and bob is back. */
+	CHECK(fzn_revocation_issue_withdrawal(root.key, &manage, member.key, 700, 0u, vote_id,
+	                                      &root.sign, bytes) == FZN_CHAIN_OK
+	              && fzn_revocation_open(bytes, sizeof(bytes), &vote) == FZN_CHAIN_OK
+	              && fzn_revocation_admit(&rev, fzn_revocation_offer_root(vote), root.key,
+	                                      &root.sign, &HASH, NULL) == FZN_CHAIN_OK,
+	      "fixture: the root's withdrawal");
+	CHECK(state_of(&h.r, &alice, 1, &rev, 2) == FZN_ROSTER_ACTIVE
+	              && state_of(&h.r, &bob, 2, &rev, 2) == FZN_ROSTER_ACTIVE,
+	      "undoing the revocation did not bring the member's records back");
+	(void)at_bob;
+}
+
+/* A GRANT MADE BEFORE THE CUT KEEPS ITS DEVICE, sec 496. The member, on a
+ * delegable grant, grants member2 and logs that hop; member2 adds bob. The
+ * root revokes the member at the hop's entry: member2's add stands, since
+ * what the revoked member did next in member2's chain -- the grant -- is
+ * before the line. At a cut that keeps nothing, it falls. */
+static void test_a_grant_before_the_cut_keeps_its_device(void)
+{
+	static held_t h;
+	static fzn_revocation_t rev_entries[4];
+	static fzn_root_log_entry_t logged[4];
+	fzn_revocation_store_t rev;
+	fzn_root_log_t log;
+	fzn_act_log_ops_t acts;
+	fzn_roster_authority_t a = authority();
+	rec_t d_bob;
+	uint8_t hops_bytes[2][FZN_HOP_LEN], entry[FZN_ROOT_ACT_LEN], bytes[FZN_REVOCATION_LEN];
+	uint8_t act[FZN_REVOCATION_ID_LEN], at_grant[FZN_ROOT_ACT_ID_LEN];
+	uint8_t vote_id[FZN_REVOCATION_ID_LEN];
+	fzn_revocation_record_t vote;
+	fzn_chain_hop_t hops[2];
+
+	a.hash = &HASH;
+	CHECK(held_init(&h)
+	              && fzn_chain_mint(root.key, member.key, &manage, 100, FZN_NO_EXPIRY, 1,
+	                                &root.sign, hops_bytes[0]) == FZN_CHAIN_OK
+	              && fzn_hop_open(hops_bytes[0], FZN_HOP_LEN, &hops[0]) == FZN_CHAIN_OK
+	              && fzn_chain_mint(member.key, member2.key, &manage, 110, FZN_NO_EXPIRY, 0,
+	                                &member.sign, hops_bytes[1]) == FZN_CHAIN_OK
+	              && fzn_hop_open(hops_bytes[1], FZN_HOP_LEN, &hops[1]) == FZN_CHAIN_OK
+	              && fzn_root_log_init(&log, logged, 4) == FZN_ROOT_LOG_OK
+	              && fzn_revocation_store_init(&rev, rev_entries, 4) == FZN_CHAIN_OK,
+	      "fixture: root -> member -> member2");
+	add(&d_bob, &member2, &bob, 3, 70);
+	CHECK(fzn_roster_admit(&h.r, view(&d_bob), hops, 2, &a) == FZN_ROSTER_OK,
+	      "member2's add on a two-hop chain was refused");
+	CHECK(stub_hash(NULL, act, sizeof(act), hops_bytes[1], FZN_HOP_LEN)
+	              && fzn_root_act_issue(member.key, 0, NULL, (uint8_t)FZN_ROOT_ACT_GRANT, act,
+	                                    &member.sign, entry) == FZN_ROOT_LOG_OK
+	              && fzn_root_log_admit(&log, entry, sizeof(entry), &member.sign, &HASH)
+	                         == FZN_ROOT_LOG_OK
+	              && stub_hash(NULL, at_grant, sizeof(at_grant), entry, sizeof(entry)),
+	      "fixture: the member logs its grant");
+	fzn_root_log_acts(&log, &acts);
+	CHECK(fzn_revocation_store_set_acts(&rev, &acts) == FZN_CHAIN_OK, "fixture: the act log");
+	CHECK(fzn_revocation_issue(root.key, &manage, member.key, 600, 0u, at_grant, &root.sign,
+	                           bytes) == FZN_CHAIN_OK
+	              && fzn_revocation_open(bytes, sizeof(bytes), &vote) == FZN_CHAIN_OK
+	              && fzn_revocation_admit(&rev, fzn_revocation_offer_root(vote), root.key,
+	                                      &root.sign, &HASH, NULL) == FZN_CHAIN_OK
+	              && stub_hash(NULL, vote_id, sizeof(vote_id), bytes, sizeof(bytes)),
+	      "fixture: the root revokes the member at its grant");
+	CHECK(state_of(&h.r, &bob, 3, &rev, 2) == FZN_ROSTER_ACTIVE,
+	      "a device granted before its grantor's cut lost its record");
+	CHECK(fzn_revocation_reissue(root.key, &manage, member.key, 610, 0u, vote_id, NULL,
+	                             &root.sign, bytes) == FZN_CHAIN_OK
+	              && fzn_revocation_open(bytes, sizeof(bytes), &vote) == FZN_CHAIN_OK
+	              && fzn_revocation_admit(&rev, fzn_revocation_offer_root(vote), root.key,
+	                                      &root.sign, &HASH, NULL) == FZN_CHAIN_OK
+	              && state_of(&h.r, &bob, 3, &rev, 2) == FZN_ROSTER_ABSENT,
+	      "with the cut withdrawn to nothing, the device's record still counted");
+}
+
 int main(void)
 {
 	who_init(&root, 0x10u);
@@ -866,6 +1007,8 @@ int main(void)
 	test_order_independence();
 	test_bundle_and_restore();
 	test_several_roots_write();
+	test_a_revoked_writers_records_stand_to_the_cut();
+	test_a_grant_before_the_cut_keeps_its_device();
 
 	printf("roster_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;

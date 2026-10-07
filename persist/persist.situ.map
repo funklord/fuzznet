@@ -65,12 +65,12 @@ struct fzn_persist_blob size=2.. mutate=Shifting address=Unstable repr=ValueConv
   fzn_persist_blob.body.pairing.chain    offset=AbsoluteStatic(0x83) size=Bounded(179, 1432) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting effect=EffectOnWrite
   fzn_persist_blob.body.pairing.chain[]  offset=FrameStatic(0x02) size=Fixed(179) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_blob.body.pairing.chain[].bytes offset=FrameStatic(0x02) size=Fixed(179) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
-  fzn_persist_blob.body.revocation       offset=AbsoluteStatic(0x02) size=Fixed(210) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
-  fzn_persist_blob.body.revocation.record offset=AbsoluteStatic(0x02) size=Fixed(210) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
-  fzn_persist_blob.body.vote             offset=AbsoluteStatic(0x02) size=Bounded(211, 1464) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting effect=EffectOnWrite
-  fzn_persist_blob.body.vote.record      offset=AbsoluteStatic(0x02) size=Fixed(210) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
-  fzn_persist_blob.body.vote.hop_count   offset=AbsoluteStatic(0xD4) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
-  fzn_persist_blob.body.vote.hops        offset=AbsoluteStatic(0xD5) size=Bounded(0, 1253) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting effect=EffectOnWrite
+  fzn_persist_blob.body.revocation       offset=AbsoluteStatic(0x02) size=Fixed(242) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.revocation.record offset=AbsoluteStatic(0x02) size=Fixed(242) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.vote             offset=AbsoluteStatic(0x02) size=Bounded(243, 1496) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting effect=EffectOnWrite
+  fzn_persist_blob.body.vote.record      offset=AbsoluteStatic(0x02) size=Fixed(242) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.vote.hop_count   offset=AbsoluteStatic(0xF4) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
+  fzn_persist_blob.body.vote.hops        offset=AbsoluteStatic(0xF5) size=Bounded(0, 1253) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting effect=EffectOnWrite
   fzn_persist_blob.body.vote.hops[]      offset=FrameStatic(0x02) size=Fixed(179) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_blob.body.vote.hops[].bytes offset=FrameStatic(0x02) size=Fixed(179) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_blob.body.root_entry       offset=AbsoluteStatic(0x02) size=Fixed(171) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
@@ -268,8 +268,8 @@ struct fzn_persist_received_share_body size=12..264 mutate=Shifting address=Unst
 struct fzn_persist_retention_set_body size=258 atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_retention_set_body.record  offset=AbsoluteStatic(0x00) size=Fixed(258) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
 
-struct fzn_persist_revocation_body size=210 atomic=NonAtomic effect=EffectOnWrite
-  fzn_persist_revocation_body.record     offset=AbsoluteStatic(0x00) size=Fixed(210) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+struct fzn_persist_revocation_body size=242 atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_revocation_body.record     offset=AbsoluteStatic(0x00) size=Fixed(242) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
 
 struct fzn_persist_root_add_body size=130 atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_root_add_body.record       offset=AbsoluteStatic(0x00) size=Fixed(130) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
@@ -301,9 +301,9 @@ struct fzn_persist_trust_body size=41 repr=ValueConverted atomic=NonAtomic effec
   fzn_persist_trust_body.source          offset=AbsoluteStatic(0x20) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
   fzn_persist_trust_body.adopted_at      offset=AbsoluteStatic(0x21) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
 
-struct fzn_persist_vote_body size=211..1464 mutate=Shifting atomic=NonAtomic effect=EffectOnWrite
-  fzn_persist_vote_body.record           offset=AbsoluteStatic(0x00) size=Fixed(210) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
-  fzn_persist_vote_body.hop_count        offset=AbsoluteStatic(0xD2) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
-  fzn_persist_vote_body.hops             offset=AbsoluteStatic(0xD3) size=Bounded(0, 1253) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting effect=EffectOnWrite
+struct fzn_persist_vote_body size=243..1496 mutate=Shifting atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_vote_body.record           offset=AbsoluteStatic(0x00) size=Fixed(242) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_vote_body.hop_count        offset=AbsoluteStatic(0xF2) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
+  fzn_persist_vote_body.hops             offset=AbsoluteStatic(0xF3) size=Bounded(0, 1253) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting effect=EffectOnWrite
   fzn_persist_vote_body.hops[]           offset=FrameStatic(0x00) size=Fixed(179) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_vote_body.hops[].bytes     offset=FrameStatic(0x00) size=Fixed(179) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite

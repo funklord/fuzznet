@@ -294,6 +294,15 @@ static size_t get_revocations(fzn_node_admin_t *admin, const uint8_t *from_text,
  * with its issuer's chain, as the item stream `node/revoke.h` describes --
  * `ok TOTAL FROM ITEM ...`. What a node pulls from any estate peer (sec 399).
  * Non-mutating, so a remote caller holding the node's grant may ask. */
+/* `TOTAL FROM` at its widest, with the terminator snprintf writes. */
+#define VOTE_HEAD 12u
+_Static_assert(FZN_NODE_VOTES_MAX * 16u < 100000u, "a vote index no longer prints in five digits");
+/* A VOTE TRAVELS ON THE DEFAULT BUFFER: `ok `, the head, one record item and
+ * the newline fit FZN_NODE_REPLY_MAX, so a remote caller that supplies no
+ * buffer can still be served a vote a page at a time. */
+_Static_assert(3u + VOTE_HEAD + 2u + (2u * FZN_REVOCATION_LEN) + 1u <= FZN_NODE_REPLY_MAX,
+               "a vote no longer fits the remote path's default reply");
+
 static size_t get_votes(fzn_node_admin_t *admin, const uint8_t *from_text, size_t from_len,
                         char *reply, size_t cap)
 {
@@ -308,18 +317,21 @@ static size_t get_votes(fzn_node_admin_t *admin, const uint8_t *from_text, size_
 		from = (from * 10u) + (size_t)(from_text[i] - '0');
 	}
 	/* The head is written after the walk, which is what knows the total;
-	 * its room is reserved here at the widest a total and an index print. */
-	if (limit < 3u + 24u
+	 * its room is reserved here at the widest a total and an index print:
+	 * both are bounded by FZN_NODE_VOTES_MAX * 16, five digits. Reserving
+	 * more cost a vote its place on the remote path's default buffer once a
+	 * vote grew its cut (sec 496): 512 less 24 left 484 for a 486-byte item. */
+	if (limit < 3u + VOTE_HEAD
 	    || !fzn_node_votes_page(admin->store, admin->authority,
-	                            fzn_node_admin_chain_view(admin->admin_chain), from, detail + 24u,
-	                            limit - 3u - 24u, &len, &total))
+	                            fzn_node_admin_chain_view(admin->admin_chain), from, detail + VOTE_HEAD,
+	                            limit - 3u - VOTE_HEAD, &len, &total))
 		return answer_text(reply, cap, FZN_REPLY_ERROR, "the votes did not read");
 	if (from > total)
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "past the last vote");
-	n = snprintf(detail, 24u, "%zu %zu", total, from);
-	if (n < 0 || (size_t)n >= 24u)
+	n = snprintf(detail, VOTE_HEAD, "%zu %zu", total, from);
+	if (n < 0 || (size_t)n >= VOTE_HEAD)
 		return 0;
-	memmove(detail + n, detail + 24u, len);
+	memmove(detail + n, detail + VOTE_HEAD, len);
 	return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)n + len);
 }
 

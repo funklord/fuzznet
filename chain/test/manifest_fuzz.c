@@ -357,7 +357,7 @@ static const char *fuzz_one(const uint8_t *data, size_t len, struct coverage *co
 		fzn_revocation_record_t rrec;
 
 		identity = keys[ki][0];
-		if (fzn_revocation_issue(keys[ki], &caps[ci], grantees[gi], 1000u, 0u, &sign, rbytes) !=
+		if (fzn_revocation_issue(keys[ki], &caps[ci], grantees[gi], 1000u, 0u, NULL, &sign, rbytes) !=
 		    FZN_CHAIN_OK)
 			return "the fixture could not issue a revocation";
 		if (fzn_revocation_open(rbytes, FZN_REVOCATION_LEN, &rrec) != FZN_CHAIN_OK)

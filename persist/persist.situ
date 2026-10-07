@@ -29,10 +29,11 @@
 //   PAIRING_BODY  = 32+32+32+32+1 + 179 * hop_count = 308..1561
 //                                  (node, capability, send_key, send_ckey,
 //                                  hop_count, chain; node/pair.c, secs 377, 391)
-//   REVOCATION_BODY = 210          (a signed revocation record,
+//   REVOCATION_BODY = 242          (a signed revocation record,
 //                                  chain/revocation.situ; node/revoke.c, sec 380;
-//                                  202 until the epoch, sec 400)
-//   VOTE_BODY = 210 + 1 + 179 * hop_count = 211..1464
+//                                  202 until the epoch, sec 400, and 210
+//                                  until the cut, sec 496)
+//   VOTE_BODY = 242 + 1 + 179 * hop_count = 243..1496
 //                                  (record, hop_count, chain; node/revoke.c,
 //                                  sec 399)
 //   NODE_PEER_BODY = 32+32+32+1 + 179 * hop_count = 97..1529
@@ -134,11 +135,11 @@ struct fzn_persist_pairing_body {
 	fzn_persist_hop chain[hop_count];
 }
 
-// A revocation this node issued, as the signed record it minted (210 bytes,
+// A revocation this node issued, as the signed record it minted (242 bytes,
 // chain/revocation.situ -- kept opaque here, as the pairing's hop is).
-// REVOCATION_BODY = 210.
+// REVOCATION_BODY = 242.
 struct fzn_persist_revocation_body {
-	u8  record[210];
+	u8  record[242];
 }
 
 // One signed hop, opaque here as the pairing's is (179 bytes,
@@ -151,7 +152,7 @@ struct fzn_persist_hop {
 // issuer (sec 399): none for the root's, and at most seven, since an offered
 // chain may carry FZN_CHAIN_MAX_HOPS - 1 hops and node/revoke.c refuses more.
 struct fzn_persist_vote_body {
-	u8  record[210];
+	u8  record[242];
 	u8  hop_count [max = 7];
 	fzn_persist_hop hops[hop_count];
 }

@@ -168,6 +168,15 @@ int fzn_root_log_stands(const fzn_root_log_t *log, const uint8_t root[FZN_PUBKEY
                         const uint8_t cut[FZN_ROOT_ACT_ID_LEN],
                         const uint8_t act[FZN_ROOT_ACT_ID_LEN]);
 
+/* EVERY KEY'S ACTS, NOT ONLY A ROOT'S, sec 496. Nothing in an entry or in
+ * the question above needs its signer to be a root: a device logs its acts
+ * in the same shape, and a revocation's cut is asked of the device's chain
+ * exactly as a removal's cut is asked of a root's. Fill `ops` so a revocation
+ * store asks `log`, which must outlive them; see
+ * `fzn_revocation_store_set_acts`. */
+struct fzn_act_log_ops;
+void fzn_root_log_acts(const fzn_root_log_t *log, struct fzn_act_log_ops *ops);
+
 /* Whether `root` has signed two different entries at one seq: the mark of a
  * key used in two places, which is what a stolen root looks like. */
 int fzn_root_log_forked(const fzn_root_log_t *log, const uint8_t root[FZN_PUBKEY_LEN]);

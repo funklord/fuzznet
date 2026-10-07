@@ -139,12 +139,12 @@ static fzn_node_revoke_err_t issue(const fzn_node_identity_t *id,
 		cerr = fzn_revocation_reissue(id->pubkey, capability, grantee, now,
 		                              fzn_revocation_current_epoch(revocations, root, capability,
 		                                                           grantee),
-		                              fzn_revocation_supersedes(prev_rec), id->sign,
+		                              fzn_revocation_supersedes(prev_rec), NULL, id->sign,
 		                              record);
 	} else {
 		cerr = fzn_revocation_issue(id->pubkey, capability, grantee, now,
 		                            fzn_revocation_current_epoch(revocations, root, capability,
-		                                                         grantee),
+		                                                         grantee), NULL,
 		                            id->sign, record);
 	}
 	if (cerr != FZN_CHAIN_OK
@@ -772,6 +772,13 @@ static void put_hex_bytes(char *out, const uint8_t *bytes, size_t len)
 		out[(2u * i) + 1u] = DIGITS[bytes[i] & 15u];
 	}
 }
+
+/* ONE BUFFER FOR EVERY KIND OF ITEM: it is sized for the longest, which a
+ * revocation must not outgrow (242 since sec 496). */
+_Static_assert(FZN_RETENTION_SET_LEN >= FZN_REVOCATION_LEN
+                       && FZN_RETENTION_SET_LEN >= FZN_ROSTER_MIN_LEN
+                       && FZN_RETENTION_SET_LEN >= FZN_ADMIN_CONFIRM_LEN,
+               "the vote page's record buffer is smaller than an item");
 
 int fzn_node_votes_page(const fzn_persist_ops_t *store, const fzn_node_authority_t *authority,
                         const fzn_node_authority_t *admin, size_t from, char *out, size_t cap,

@@ -224,9 +224,12 @@ static size_t intern_writer(fzn_roster_t *roster, const uint8_t *key,
 		memcpy(w.grantor[i], fzn_hop_grantor(hops[i]), FZN_PUBKEY_LEN);
 		memcpy(w.grantee[i], fzn_hop_grantee(hops[i]), FZN_PUBKEY_LEN);
 	}
-	if (hash && hop_count
-	    && !hash->hash(hash->ctx, w.first_act, sizeof(w.first_act), hops[0].base, FZN_HOP_LEN))
-		return (size_t)-1;
+	for (i = 0; hash && i < hop_count; i++)
+		if (!hash->hash(hash->ctx, w.hop_act[i], sizeof(w.hop_act[i]), hops[i].base,
+		                FZN_HOP_LEN))
+			return (size_t)-1;
+	if (hop_count)
+		memcpy(w.first_act, w.hop_act[0], sizeof(w.first_act));
 	for (i = 0; i < roster->writers_used; i++)
 		if (memcmp(&roster->writers[i], &w, sizeof(w)) == 0)
 			return i;
@@ -248,7 +251,7 @@ static fzn_roster_err_t apply(fzn_roster_t *roster, fzn_roster_record_t record,
 
 	if (!roster || !roster->entries || !roster->writers || !authority || !authority->root
 	    || !authority->capability || !authority->sign || !authority->sign->verify
-	    || (!authority->roots != !authority->hash)
+	    || (authority->roots && !authority->hash)
 	    || (authority->roots && (!authority->roots->member || !authority->roots->counts))
 	    || (authority->hash && !authority->hash->hash))
 		return FZN_ROSTER_ERR_MALFORMED;
@@ -387,6 +390,13 @@ fzn_roster_err_t fzn_roster_bundle_open(const uint8_t *bytes, size_t len,
  * ancestor in the chain, as `fzn_revocation_covers_chain` derives it. The
  * root, with no chain, is never revoked.
  *
+ * OR A REVOKED HOP'S GRANTEE DID WHAT FOLLOWS IT BEFORE THE LINE, sec 496.
+ * A hop revokes a key, and what that key did next in this chain is either
+ * the grant of the hop after it or, at the end, this record. Either stands
+ * when the key's log shows it under the cut of every vote revoking it --
+ * so a device granted, or a contact added, before a theft keeps counting,
+ * and what the thief did after does not.
+ *
  * UNDER A ROOT SET, sec 413: a root writing alone counts as the set says of
  * `act`, the record's hash -- always while it stands, and after its removal
  * only for what its log shows before the cut. A chain counts only while its
@@ -413,7 +423,12 @@ static int counts(const fzn_roster_writer_t *w, const uint8_t act[FZN_REVOCATION
 	                            (const uint8_t (*)[FZN_PUBKEY_LEN])w->grantee, w->hop_count,
 	                            &w->capability, revoked);
 	for (i = 0; i < w->hop_count; i++)
-		if (revoked[i])
+		if (revoked[i]
+		    && !fzn_revocation_act_stands(revocations,
+		                                  (const uint8_t (*)[FZN_PUBKEY_LEN])w->grantor,
+		                                  (const uint8_t (*)[FZN_PUBKEY_LEN])w->grantee,
+		                                  w->hop_count, &w->capability, i,
+		                                  i + 1u < w->hop_count ? w->hop_act[i + 1u] : act))
 			return 0;
 	return 1;
 }

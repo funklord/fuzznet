@@ -56425,3 +56425,222 @@ on their own blob layer today, and four things were missing.
   nothing written.
 
 **Sabotage: one new entry.**
+
+## 496. A revocation draws a line: what a revoked key did before it stands, 2026-10-07
+
+**The holder's direction, 2026-10-07**, given in place of a question about
+where a re-key's line goes. The case is a stolen device that is found again,
+and it has two outcomes:
+
+- **It never left its owner's hands.** Then the revocation is undone and
+  everything the device did counts, as though it had never been revoked.
+- **Its keys can no longer be trusted.** Then it is re-keyed (sec 394's
+  "successor takes over"), and what it did after it was taken has to be
+  removable while what it did before stays.
+
+The goal stated with it: chains in which **every operation after a
+revocation can, at least eventually, be removed**, and subsystems on a fully
+journaled format that **can go back in time**.
+
+### What there was
+
+Roots already had this, as of secs 404 to 406:
+
+- every act a root signs is logged in a chain of entries, each naming the
+  one before;
+- a removal names a cut in that chain;
+- an act of a removed root counts only while it lies on the chain that ends
+  at the cut.
+
+Every other key had one of two extremes:
+
+- **A revoked writer of the roster counted for nothing** (sec 395), so its
+  contacts added in good faith fell with the thief's.
+- **A revoked writer's notes stayed**, since notes judge their writers on
+  arrival and never again.
+
+The undo half, measured by reading the code rather than assumed:
+
+- **The roster** is judged when it is read, so a withdrawal brings every
+  record back.
+- **Notes** refused while a writer was revoked are not stored, so the next
+  pull after the undo fetches them again.
+
+So undoing already restored what it should. The gap was on the revoking side.
+
+### The record
+
+**A vote names a cut.** A revocation gains a signed 32-byte `cut` at offset
+146: the id of the last entry of the grantee's act log that the voter still
+trusts. The signature moves to 178 and a record is 242 bytes. A record of the
+210-byte layout does not open, by its length: **this is a breaking wire
+change**, as sec 400's epoch was.
+
+- `situc wire --check` classified `chain/revocation.situ` as "2 breaking,
+  1 compatible" and `persist/persist.situ` as "4 breaking" (the stored
+  revocation and the vote body).
+- Both were regenerated against situ `08c4682`. situ's map puts the cut at
+  0x92 and the signature at 0xB2.
+- `revocation.c`'s static asserts and `revocation_test`'s table pin the same
+  offsets as literals.
+
+**A withdrawal carries zero**, and `open` refuses one that does not. Undoing a
+vote restores everything, so a withdrawal has no line to draw. A store entry
+keeps the cut of the vote it undid, which the latch below needs.
+
+`fzn_revocation_encode` takes the cut last, and `issue` and `reissue` take it
+after the epoch and supersedes. It is an argument rather than a defaulted
+field, for the header's own reason. The 89 call sites were rewritten by a
+script that:
+
+- counted each call's arguments before editing;
+- refused to write unless deleting every inserted `NULL` reproduced the
+  original file.
+
+### The rule
+
+`fzn_revocation_act_stands(store, links..., i, act)` answers for hop `i`
+whether the act whose hash is `act`, signed by that hop's grantee, still
+counts:
+
+- **A hop nobody revoked: yes.**
+- **A revoked hop: yes only when the act stands, in the store's act log,
+  under the cut of every vote that binds.** The votes that bind are every
+  counted vote still live and, in a latch, the votes of the epoch holding
+  it, withdrawn ones included. The root's undo is applied first. **The
+  tightest cut holds**, as it does between two removals of one root
+  (sec 406).
+- **An all-zero cut trusts nothing**, and **with no act log nothing
+  stands**. That is exactly what a revocation meant before, so a store
+  that sets no log answers as it always did.
+- **A reissue over a live vote may move its line.** That is how a voter who
+  learns more about a theft says so without first undoing its vote.
+- **Judged when read; nothing is deleted.** An undo is therefore free to
+  restore everything, which is the found-unharmed case.
+
+The log is a seam on the store, `fzn_act_log_ops_t`, set with
+`fzn_revocation_store_set_acts`. `fzn_root_log_acts` fills it from **the same
+log roots use**: nothing in an entry, nor in `fzn_root_log_stands`, needs the
+signer to be a root. So a device's acts are logged in the same shape, and a
+fork at a seq is refused by the same walk.
+
+### The roster
+
+`counts` no longer drops a writer whose chain has a revoked hop. It asks
+`fzn_revocation_act_stands` about **what that hop's grantee did next in this
+chain**:
+
+- for a hop in the middle, the grant of the hop after it, so a device the
+  revoked member granted before the line keeps its records;
+- for the last hop, the record itself.
+
+The roster now keeps every hop's hash (`hop_act`), not only the first. An
+authority may now carry a hash without a root set. A set still needs one.
+Without a hash a one-root estate names no acts, and so keeps nothing of a
+revoked member's.
+
+### Found while building
+
+- **A vote no longer fitted the remote path's default reply.** `get vote`
+  reserved 24 bytes for its `TOTAL FROM` head. 512 less that and `ok `
+  left 484 bytes for a record item that is now 2 + 242 x 2 = 486. Both
+  numbers are bounded by `FZN_NODE_VOTES_MAX * 16`, which is five digits,
+  so the head takes 12. A static assert now holds the sum under
+  `FZN_NODE_REPLY_MAX`. `pair_test`'s remote pull is what failed.
+- **Not fixed, recorded:** a retention-set item is 2 + 258 x 2 = 518 bytes,
+  so it has never fitted the 512-byte default. fuzznetd supplies its own
+  larger buffer, so the daemon is unaffected. A consumer serving on the
+  default buffer cannot carry an estate's retention rules.
+- **`fzn_revocation_store_init` did not clear the new field.** The first
+  roster case crashed reading a stack store's garbage. Every store made by
+  `store_init` would have done the same.
+
+### A journal: the holder's question, and the recommendation
+
+The holder asked whether fuzznet should have a full journaling format for
+all its operations, not always on, for three reasons:
+
+- to find serious bugs during development;
+- to save data from bugs once people use it;
+- as a fully abstract system for revocation, and for tests that are hard to
+  simulate.
+
+The recommendation is two tiers, because the two jobs pull opposite ways:
+
+1. **The act log: always on, replicated and signed.** One small entry per
+   security-relevant act, chained per key. It is what this section builds
+   on, and it is the abstract revocation system: a subsystem asks whether
+   an act stands and need know nothing about revocation. Other hosts judge
+   it, so it has to be signed and has to travel, and it cannot be the
+   thing that is switched off.
+2. **An operation journal: local and switchable.** Every write to
+   persistent state as its new bytes, with periodic snapshots, so state
+   can be replayed or rolled back.
+   - It is the debugging and rescue tool, and the half that lets
+     overwrite-shaped state go back in time. Notes keep only a note's
+     latest version, so the version before a cut is gone today.
+   - **A captured journal is also a test fixture**, the holder's point:
+     record a real run and replay it into a fresh node, or build one by
+     hand for what is hard to stage, such as a stolen key forking its log,
+     clocks set back, or partitions healing out of order.
+   - `log/` already has the segments, signed and chained trailers, packing
+     and retention rules to carry it.
+
+What tier 2 has to settle before it is built:
+
+- **Deletion.** A journal that keeps everything defeats purges, removed
+  files and a retired contact's data. Entries hold content by hash, or
+  encrypted under keys that can be destroyed, so a deletion still deletes.
+- **Growth.** Retention and snapshots bound it, and the existing retention
+  rules can govern it.
+- **Determinism.** Replay works only where a subsystem's state is a pure
+  function of its entries. The roster already is; notes and persist slots
+  would need that discipline.
+
+**Not decided.** Tier 1 is what this section builds, and the node's half is
+next. Whether and when to build tier 2 is the holder's decision.
+
+### Still to build after sec 496
+
+- **The node logs every act it signs,** not only those it signs as a root:
+  grants, roster records, votes and confirmations. Members' logs travel
+  with the root records. The node sets the act log on its store and a hash
+  on its roster authority.
+- **A vote's default cut is the head of the grantee's log this node
+  holds**: "everything I had seen it do". `revoke peer KEY [CUT]` lets an
+  owner draw the line earlier.
+- **Re-keying as a succession with a cut** (sec 394's "successor takes
+  over").
+- **Admins' votes, confirmations and settings** under their cut. They count
+  for nothing once their admin is revoked (sec 481), as roster writers did.
+- **Notes going back in time**, which needs tier 2's history.
+
+### Measured for sec 496
+
+**`revocation_test`, 715 checks (from 690):**
+
+- the cut at 146, reading back; no cut is all-zero;
+- a withdrawal with a cut is neither encoded nor opened;
+- on the chain 0 -> 1 -> 2, key 2 logs A, B, C, plus a fork at B's seq:
+  - unrevoked, every act stands;
+  - the root revokes at B: with no log nothing stands; with the log A and
+    B stand, and C, an unlogged act and the forked act do not;
+  - key 1 votes at A: B falls, so the tighter cut holds;
+  - the root widens to C by reissue, and B still falls under key 1's A;
+    key 1 withdraws, and C stands;
+  - the root reissues with no cut, and A falls;
+  - the root withdraws, and every act stands again, the unlogged one
+    included.
+
+**`roster_test`, 96 checks (from 79):**
+
+- a member adds alice, logged at seq 0, then bob, logged at seq 1, and the
+  root revokes it at alice's entry:
+  - with no act log, both are absent (the control);
+  - with the log, alice is active and bob absent;
+  - withdrawn, both are active;
+- on root -> member -> member2, the member logs its grant and the root
+  revokes it at that entry: member2's add of bob stays active, and falls
+  once the root's reissue keeps nothing.
+
+`pair_test`'s one-item vote page grew from 430 to 494 bytes.

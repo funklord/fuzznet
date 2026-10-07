@@ -235,6 +235,10 @@ typedef struct fzn_roster_writer {
 	 * root set asks about once that root is removed. Zero when the roster
 	 * was given no hash, or for a root writing alone. sec 413. */
 	uint8_t first_act[FZN_REVOCATION_ID_LEN];
+	/* Every hop's hash, each the act its grantor logged: what a revoked
+	 * grantor's cut is asked about, sec 496. `hop_act[0]` is `first_act`.
+	 * Zero when the roster was given no hash. */
+	uint8_t hop_act[FZN_CHAIN_MAX_HOPS][FZN_REVOCATION_ID_LEN];
 } fzn_roster_writer_t;
 
 /* One incarnation, as this host holds it. Writers are indices into the
@@ -275,10 +279,13 @@ fzn_roster_err_t fzn_roster_init(fzn_roster_t *roster, fzn_roster_entry_t *entri
  * capability a writer's chain must carry, and the verifier. No clock and no
  * revocations -- those are the reader's (see the header).
  *
- * `roots` and `hash`, sec 413, both or neither: the estate's root set, whose
- * members write as the root does, and the hash that names a record and a
- * hop as the acts a root logs. NULL for the pinned root alone. Zero the
- * struct before filling it, so fields a caller does not know are NULL. */
+ * `roots` and `hash`, sec 413: the estate's root set, whose members write as
+ * the root does, and the hash that names a record and a hop as the acts their
+ * signers log. NULL roots for the pinned root alone. A set needs the hash; the
+ * hash needs no set since sec 496, because a revoked member's records are
+ * judged by its own log's cut whether or not the estate has several roots,
+ * and with no hash nothing a revoked writer did can be shown to stand. Zero
+ * the struct before filling it, so fields a caller does not know are NULL. */
 typedef struct fzn_roster_authority {
 	const uint8_t *root;
 	const fzn_cap_id_t *capability;

@@ -512,6 +512,21 @@ void fzn_root_view_ops(const fzn_root_view_t *view, struct fzn_root_ops *ops)
 	ops->ctx = (void *)(uintptr_t)view;
 }
 
+static int acts_stands(void *ctx, const uint8_t key[FZN_PUBKEY_LEN],
+                       const uint8_t cut[FZN_ROOT_ACT_ID_LEN],
+                       const uint8_t act[FZN_ROOT_ACT_ID_LEN])
+{
+	return fzn_root_log_stands((const fzn_root_log_t *)ctx, key, cut, act);
+}
+
+void fzn_root_log_acts(const fzn_root_log_t *log, struct fzn_act_log_ops *ops)
+{
+	if (!ops)
+		return;
+	ops->stands = acts_stands;
+	ops->ctx = (void *)(uintptr_t)log;
+}
+
 /* ---- the estate's k, sec 418 ----------------------------------------- */
 
 fzn_root_log_err_t fzn_quorum_set_issue(const uint8_t setter[FZN_PUBKEY_LEN], uint8_t k,

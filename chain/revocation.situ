@@ -31,10 +31,11 @@ struct fzn_revocation {
 		u64 issued_at;           // FZN_REV_OFF_ISSUED_AT  98
 		u8  supersedes[32];      // FZN_REV_OFF_SUPERSEDES 106  (the rev-id)
 		u64 epoch;               // FZN_REV_OFF_EPOCH      138  (sec 400)
+		u8  cut[32];             // FZN_REV_OFF_CUT        146  (sec 496)
 	}
-	// covers(body) = bytes 0..145, FZN_REVOCATION_BODY_LEN. Ed25519 is
+	// covers(body) = bytes 0..177, FZN_REVOCATION_BODY_LEN. Ed25519 is
 	// extern, so no codec: the caller signs and verifies.
-	checksum u8 signature[64] covers(body); // FZN_REV_OFF_SIGNATURE 146
+	checksum u8 signature[64] covers(body); // FZN_REV_OFF_SIGNATURE 178
 }
 
 // An admin's confirmation of another's admin grant, sec 414: the hop that

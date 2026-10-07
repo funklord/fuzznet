@@ -671,6 +671,11 @@ typedef struct fzn_revocation {
 	 * names the withdrawal itself, which is what a removed root's log is
 	 * asked about. sec 406. */
 	uint8_t held[FZN_REVOCATION_ID_LEN];
+
+	/* THE CUT OF THE VOTE THIS ENTRY HOLDS, or of the vote a withdrawal
+	 * undid: the last act of the grantee's the issuer still trusts, zero
+	 * for none. sec 496. */
+	uint8_t cut[FZN_REVOCATION_ID_LEN];
 } fzn_revocation_t;
 
 /* The store, DECLARED here and DEFINED in revocation.h.

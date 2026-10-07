@@ -837,7 +837,7 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 		fzn_revocation_record_t rec;
 
 		CHECK(fzn_revocation_store_init(&revoked, entries, 4) == FZN_CHAIN_OK
-		              && fzn_revocation_issue(r.id.pubkey, cap, d.id.pubkey, 1400u, 0u, &r.sign,
+		              && fzn_revocation_issue(r.id.pubkey, cap, d.id.pubkey, 1400u, 0u, NULL, &r.sign,
 		                                      record) == FZN_CHAIN_OK
 		              && fzn_revocation_open(record, sizeof(record), &rec) == FZN_CHAIN_OK
 		              && fzn_revocation_admit(&revoked, fzn_revocation_offer_root(rec),
@@ -893,7 +893,7 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 		      "after a restart N granted a device R had revoked");
 
 		/* A RECORD R DID NOT SIGN admits nothing and is not saved. */
-		CHECK(fzn_revocation_issue(other.id.pubkey, cap, d.id.pubkey, 1500u, 0u, &other.sign,
+		CHECK(fzn_revocation_issue(other.id.pubkey, cap, d.id.pubkey, 1500u, 0u, NULL, &other.sign,
 		                           record) == FZN_CHAIN_OK
 		              && (len = page_of(page, sizeof(page), 1u, 0u, record)) != 0u,
 		      "fixture: another root's record");
@@ -977,7 +977,7 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 			uint8_t blob[FZN_PERSIST_HEAD_LEN + FZN_REVOCATION_LEN];
 
 			elsewhere.b[0] ^= 1u;
-			CHECK(fzn_revocation_issue(n.id.pubkey, &elsewhere, d.id.pubkey, 1850u, 0u,
+			CHECK(fzn_revocation_issue(n.id.pubkey, &elsewhere, d.id.pubkey, 1850u, 0u, NULL,
 			                           &n.sign, blob + FZN_PERSIST_HEAD_LEN) == FZN_CHAIN_OK
 			              && fzn_persist_head_write(blob, sizeof(blob), FZN_REVOCATION_LEN,
 			                                        FZN_PERSIST_BLOB_REVOCATION)
@@ -1223,10 +1223,10 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 	CHECK(d_revoked(&n_revs, &r, &n, &d, cap), "two votes of two did not revoke D at N");
 
 	/* ---- M PULLS FROM N ONLY, a page per item, and receives both: N's own
-	 * with its chain and R's that N relayed. A page of 430 bytes holds one
+	 * with its chain and R's that N relayed. A page of 494 bytes holds one
 	 * record or one hop, so N's vote and its chain arrive on different pages
 	 * and the vote is held across them. */
-	err = stream_pull(&n, &authority, &m, r.id.pubkey, &m_revs, 430u, &pull);
+	err = stream_pull(&n, &authority, &m, r.id.pubkey, &m_revs, 494u, &pull);
 	CHECK(err == FZN_NODE_PULL_OK && pull.learned == 2u && pull.refused == 0u,
 	      "M did not learn both votes from N alone, a page an item");
 	CHECK(d_revoked(&m_revs, &r, &n, &d, cap),
@@ -1276,7 +1276,7 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 		uint8_t subject[FZN_PUBKEY_LEN];
 
 		memset(subject, 0x5a, sizeof(subject));
-		CHECK(fzn_revocation_issue(stranger.id.pubkey, cap, d.id.pubkey, 1500u, 0u,
+		CHECK(fzn_revocation_issue(stranger.id.pubkey, cap, d.id.pubkey, 1500u, 0u, NULL,
 		                           &stranger.sign, blob + FZN_PERSIST_HEAD_LEN) == FZN_CHAIN_OK
 		              && fzn_persist_head_write(blob, sizeof(blob), FZN_REVOCATION_LEN + 1u,
 		                                        FZN_PERSIST_BLOB_VOTE) == FZN_PERSIST_OK
@@ -1508,7 +1508,7 @@ static void test_several_roots_at_a_node(const fzn_cap_id_t *cap)
 	/* R ADDS B, and logs it; B revokes D, and logs it. */
 	CHECK(fzn_root_add_issue(r.id.pubkey, b.id.pubkey, &r.sign, add) == FZN_ROOT_LOG_OK
 	              && root_logs(&r, 0, NULL, add, sizeof(add), r_add, id_add)
-	              && fzn_revocation_issue(b.id.pubkey, cap, d.id.pubkey, 1500u, 0u, &b.sign, rev)
+	              && fzn_revocation_issue(b.id.pubkey, cap, d.id.pubkey, 1500u, 0u, NULL, &b.sign, rev)
 	                         == FZN_CHAIN_OK
 	              && fzn_revocation_open(rev, sizeof(rev), &rec) == FZN_CHAIN_OK
 	              && root_logs(&b, 0, NULL, rev, sizeof(rev), b_rev, id_rev),

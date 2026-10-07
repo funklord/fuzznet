@@ -558,8 +558,8 @@ SABOTAGES = [
 	(
 		"revocation-generation-moves-on-a-write",
 		"chain/revocation.c",
-		"\tstore->entries[store->used].withdrawn = 0;\n\tstore->entries[store->used].epoch = fzn_revocation_epoch(record);\n\tmemcpy(store->entries[store->used].held, id, FZN_REVOCATION_ID_LEN);\n\tstore->used++;\n\t/* An answer this store gives may now differ; sec 354. */\n\tstore->generation++;",
-		"\tstore->entries[store->used].withdrawn = 0;\n\tstore->entries[store->used].epoch = fzn_revocation_epoch(record);\n\tmemcpy(store->entries[store->used].held, id, FZN_REVOCATION_ID_LEN);\n\tstore->used++;",
+		"\tstore->entries[store->used].withdrawn = 0;\n\tstore->entries[store->used].epoch = fzn_revocation_epoch(record);\n\tmemcpy(store->entries[store->used].held, id, FZN_REVOCATION_ID_LEN);\n\tmemcpy(store->entries[store->used].cut, fzn_revocation_cut(record), FZN_REVOCATION_ID_LEN);\n\tstore->used++;\n\t/* An answer this store gives may now differ; sec 354. */\n\tstore->generation++;",
+		"\tstore->entries[store->used].withdrawn = 0;\n\tstore->entries[store->used].epoch = fzn_revocation_epoch(record);\n\tmemcpy(store->entries[store->used].held, id, FZN_REVOCATION_ID_LEN);\n\tmemcpy(store->entries[store->used].cut, fzn_revocation_cut(record), FZN_REVOCATION_ID_LEN);\n\tstore->used++;",
 		"the store counts its own writes so a cache can tell an answer might "
 		"have changed. A write that does not bump leaves every memo entry "
 		"looking current, so a peer revoked a moment ago keeps its cached "
@@ -2262,8 +2262,8 @@ SABOTAGES = [
 	(
 		"rev-walk-reads-action",
 		"chain/revocation.c",
-		"\t\t\tif (!store->entries[e].withdrawn)\n\t\t\t\tlive++;\n",
-		"\t\t\tlive++;\n",
+		"\t\tif (!store->entries[e].withdrawn)\n\t\t\tlive++;\n",
+		"\t\tlive++;\n",
 		"the chain walk is a second reader and must read the action too",
 	),
 	(
@@ -3755,8 +3755,8 @@ SABOTAGES = [
 	(
 		"roster-revoked-writer-counts-for-nothing",
 		"roster/roster.c",
-		"\t\tif (revoked[i])\n\t\t\treturn 0;\n",
-		"\t\tif (revoked[i])\n\t\t\t;\n",
+		"\t\tif (revoked[i]\n\t\t    && !fzn_revocation_act_stands(",
+		"\t\tif (0 && revoked[i]\n\t\t    && !fzn_revocation_act_stands(",
 		"a writer counted whatever its revocations lets a revoked, stolen device add contacts and suspend or retire the user's roster -- sec 394",
 	),
 	(
@@ -3790,14 +3790,14 @@ SABOTAGES = [
 	(
 		"revocation-quorum-counts",
 		"chain/revocation.c",
-		"\tsize_t i, e, q = store->quorum ? store->quorum : 1u;\n",
-		"\tsize_t i, e, q = 1u;\n",
+		"\tsize_t i, q = store->quorum ? store->quorum : 1u;\n",
+		"\tsize_t i, q = 1u;\n",
 		"a quorum nobody reads makes one entitled issuer enough, which is the single stolen admin sec 394's k-of-n exists to stop -- sec 397",
 	),
 	(
 		"revocation-latch-holds",
 		"chain/revocation.c",
-		"\t\tif (cast >= q && left < q)\n\t\t\trevoked[i] = 1;\n",
+		"\tif (cast >= q && left < q) {\n\t\tif (current)\n\t\t\t*current = epoch;\n\t\treturn HOP_LATCHED;\n\t}\n",
 		"",
 		"with no latch one withdrawal undoes a k-of-n revocation, so a single admin can reinstate what k agreed to remove -- sec 397",
 	),
@@ -3860,8 +3860,8 @@ SABOTAGES = [
 	(
 		"revocation-epoch-recorded-on-append",
 		"chain/revocation.c",
-		"\tstore->entries[store->used].epoch = fzn_revocation_epoch(record);\n\tmemcpy(store->entries[store->used].held, id, FZN_REVOCATION_ID_LEN);\n\tstore->used++;\n\t/* An answer",
-		"\tmemcpy(store->entries[store->used].held, id, FZN_REVOCATION_ID_LEN);\n\tstore->used++;\n\t/* An answer",
+		"\tstore->entries[store->used].epoch = fzn_revocation_epoch(record);\n\tmemcpy(store->entries[store->used].held, id, FZN_REVOCATION_ID_LEN);\n\tmemcpy(store->entries[store->used].cut, fzn_revocation_cut(record), FZN_REVOCATION_ID_LEN);\n\tstore->used++;\n\t/* An answer",
+		"\tmemcpy(store->entries[store->used].held, id, FZN_REVOCATION_ID_LEN);\n\tmemcpy(store->entries[store->used].cut, fzn_revocation_cut(record), FZN_REVOCATION_ID_LEN);\n\tstore->used++;\n\t/* An answer",
 		"an entry that does not keep its record's epoch is judged in whatever epoch its slot held -- sec 400",
 	),
 	(
@@ -3972,8 +3972,8 @@ SABOTAGES = [
 	(
 		"revocation-an-entry-holds-its-record",
 		"chain/revocation.c",
-		"\tmemcpy(store->entries[store->used].held, id, FZN_REVOCATION_ID_LEN);\n\tstore->used++;\n",
-		"\tstore->used++;\n",
+		"\tmemcpy(store->entries[store->used].held, id, FZN_REVOCATION_ID_LEN);\n\tmemcpy(store->entries[store->used].cut, fzn_revocation_cut(record), FZN_REVOCATION_ID_LEN);\n\tstore->used++;\n",
+		"\tmemcpy(store->entries[store->used].cut, fzn_revocation_cut(record), FZN_REVOCATION_ID_LEN);\n\tstore->used++;\n",
 		"an entry that does not know which record it holds cannot be asked about a removed root's log, and its revocation before the cut stops counting -- sec 406",
 	),
 	(
@@ -6959,7 +6959,7 @@ SABOTAGES = [
 	(
 		"roster-set-needs-hash",
 		"roster/roster.c",
-		"\t    || (!authority->roots != !authority->hash)\n",
+		"\t    || (authority->roots && !authority->hash)\n",
 		"",
 		"a set with no hash names every record as the zero act, which a removed root's cut cannot tell apart -- sec 413",
 	),
@@ -7115,11 +7115,13 @@ SABOTAGES = [
 		"chain/revocation.c",
 		"\t\t\tmemcpy(entry->id, id, FZN_REVOCATION_ID_LEN);\n"
 		"\t\t\tmemcpy(entry->held, id, FZN_REVOCATION_ID_LEN);\n"
+		"\t\t\tmemcpy(entry->cut, fzn_revocation_cut(record), FZN_REVOCATION_ID_LEN);\n"
 		"\t\t\tfzn_manifest_satisfy(manifest, fzn_revocation_issuer(record),\n"
 		"\t\t\t                     fzn_revocation_capability(record),\n"
 		"\t\t\t                     fzn_revocation_grantee(record));\n",
 		"\t\t\tmemcpy(entry->id, id, FZN_REVOCATION_ID_LEN);\n"
-		"\t\t\tmemcpy(entry->held, id, FZN_REVOCATION_ID_LEN);\n",
+		"\t\t\tmemcpy(entry->held, id, FZN_REVOCATION_ID_LEN);\n"
+		"\t\t\tmemcpy(entry->cut, fzn_revocation_cut(record), FZN_REVOCATION_ID_LEN);\n",
 		"a reissue that lifts a withdrawal stores what the deficit named, so the "
 		"deficit must drain with it",
 	),
@@ -7149,13 +7151,9 @@ SABOTAGES = [
 		"rev-reissue-advances-id",
 		"chain/revocation.c",
 		"\t\tif (!fzn_ct_memeq(id, entry->id, FZN_REVOCATION_ID_LEN) &&\n"
-		"\t\t    fzn_ct_memeq(fzn_revocation_supersedes(record), entry->id,\n"
-		"\t\t                 FZN_REVOCATION_ID_LEN)) {\n"
-		"\t\t\tmemcpy(entry->id, id, FZN_REVOCATION_ID_LEN);\n"
-		"\t\t\tmemcpy(entry->held, id, FZN_REVOCATION_ID_LEN);\n"
-		"\t\t\tentry->epoch = fzn_revocation_epoch(record);\n"
-		"\t\t}\n",
-		"",
+		"\t\t    fzn_ct_memeq(fzn_revocation_supersedes(record), entry->id,\n",
+		"\t\tif (0 && !fzn_ct_memeq(id, entry->id, FZN_REVOCATION_ID_LEN) &&\n"
+		"\t\t    fzn_ct_memeq(fzn_revocation_supersedes(record), entry->id,\n",
 		"a store that does not advance to the current revocation applies a "
 		"withdrawal of the superseded one, which un-revokes a revoked pair",
 	),
@@ -7165,6 +7163,9 @@ SABOTAGES = [
 		"\t\t\tstore->entries[store->used].withdrawn = 1;\n"
 		"\t\t\tstore->entries[store->used].epoch = fzn_revocation_epoch(record);\n"
 		"\t\t\tmemcpy(store->entries[store->used].held, id, FZN_REVOCATION_ID_LEN);\n"
+		"\t\t\t/* A tombstone undid a vote this host never saw, so it\n"
+		"\t\t\t * keeps no line of that vote's. */\n"
+		"\t\t\tmemset(store->entries[store->used].cut, 0, FZN_REVOCATION_ID_LEN);\n"
 		"\t\t\tstore->used++;\n"
 		"\t\t\tstore->generation++;\n\t\t\treturn FZN_CHAIN_OK;\n",
 		"\t\t\treturn FZN_CHAIN_ERR_UNKNOWN_TARGET;\n",
@@ -9148,7 +9149,69 @@ SABOTAGES = [
 		"",
 		"a selected rule cannot be removed without typing it again -- sec 485",
 	),
-]
+	(
+		"revocation-a-cut-binds-every-vote",
+		"chain/revocation.c",
+		"\t\tbinding++;\n\t\tif (all_zero(entry->cut",
+		"\t\tif (binding++ > 0u)\n\t\t\tcontinue;\n\t\tif (all_zero(entry->cut",
+		"one vote's line read alone lets the widest cut win, so a thief's acts after a careful voter's line count on a careless one's -- sec 496",
+	),
+	(
+		"revocation-a-withdrawal-draws-no-line",
+		"chain/revocation.c",
+		"\tif (bytes[FZN_REV_OFF_OBJECT] == (uint8_t)FZN_OBJECT_WITHDRAWAL &&\n\t    !all_zero(bytes + FZN_REV_OFF_CUT, FZN_REVOCATION_ID_LEN))\n\t\treturn FZN_CHAIN_ERR_SHAPE;\n",
+		"",
+		"a withdrawal carrying a cut is a second meaning for one field that nothing reads -- sec 496",
+	),
+	(
+		"revocation-an-entry-keeps-its-cut",
+		"chain/revocation.c",
+		"\tmemcpy(store->entries[store->used].cut, fzn_revocation_cut(record), FZN_REVOCATION_ID_LEN);\n\tstore->used++;\n\t/* An answer",
+		"\tstore->used++;\n\t/* An answer",
+		"a store that drops a vote's cut keeps nothing a revoked key did, which is the revocation sec 496 replaced -- sec 496",
+	),
+	(
+		"revocation-a-reissue-moves-the-line",
+		"chain/revocation.c",
+		"\t\t\tif (!fzn_ct_memeq(entry->cut, fzn_revocation_cut(record),\n",
+		"\t\t\tif (0 && !fzn_ct_memeq(entry->cut, fzn_revocation_cut(record),\n",
+		"a voter who learns more about a theft cannot say so without undoing its vote first -- sec 496",
+	),
+	(
+		"revocation-a-free-hop-stands",
+		"chain/revocation.c",
+		"\tif (verdict == HOP_FREE)\n\t\treturn 1;\n",
+		"",
+		"an act of a key nobody revoked asked about a cut nobody drew stops counting -- sec 496",
+	),
+	(
+		"root-log-acts-asks-the-log",
+		"chain/root_log.c",
+		"\treturn fzn_root_log_stands((const fzn_root_log_t *)ctx, key, cut, act);\n",
+		"\treturn ctx != NULL && key && cut && act;\n",
+		"an act log that answers yes for everything keeps a thief's acts after the cut -- sec 496",
+	),
+	(
+		"roster-a-revoked-hop-asks-the-next-act",
+		"roster/roster.c",
+		"i + 1u < w->hop_count ? w->hop_act[i + 1u] : act))",
+		"act))",
+		"asking a revoked grantor's log about a record it never wrote drops every device it granted before the line -- sec 496",
+	),
+	(
+		"roster-hashes-every-hop",
+		"roster/roster.c",
+		"\tfor (i = 0; hash && i < hop_count; i++)\n\t\tif (!hash->hash(hash->ctx, w.hop_act[i]",
+		"\tfor (i = 0; hash && i < 1u && i < hop_count; i++)\n\t\tif (!hash->hash(hash->ctx, w.hop_act[i]",
+		"a hop with no act cannot be found in its grantor's log, so a device granted before the cut falls -- sec 496",
+	),
+	(
+		"roster-a-hash-needs-no-set",
+		"roster/roster.c",
+		"\t    || (authority->roots && !authority->hash)\n",
+		"\t    || (!authority->roots != !authority->hash)\n",
+		"a roster that names no acts without a root set keeps nothing of a revoked member's in a one-root estate -- sec 496",
+	),]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
 # that a clean run reads as clean: an expected survivor reported as a finding

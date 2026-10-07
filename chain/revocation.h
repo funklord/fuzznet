@@ -66,14 +66,16 @@
  *         98     8  issued_at
  *        106    32  supersedes (the id of a revocation this replaces)
  *        138     8  epoch      (the k-of-n cycle this vote belongs to)
- *        146    64  signature
+ *        146    32  cut        (the last act of the grantee's still trusted)
+ *        178    64  signature
  *
- * The signature covers bytes 0 through 145. The epoch arrived in sec 400;
- * a record of the old 202-byte layout does not open, by its length. The object byte is what stops a
+ * The signature covers bytes 0 through 177. The epoch arrived in sec 400 and
+ * the cut in sec 496; a record of either older layout (202 or 210 bytes)
+ * does not open, by its length. The object byte is what stops a
  * signature made over a hop being presented as a revocation, and vice versa;
  * wire/bytes.h records what it cost fuzzypickles to learn that two record
  * types of the same length can have ONE SIGNATURE THAT VERIFIES AS BOTH. */
-#define FZN_REVOCATION_BODY_LEN 146u
+#define FZN_REVOCATION_BODY_LEN 178u
 #define FZN_REVOCATION_LEN (FZN_REVOCATION_BODY_LEN + (size_t)FZN_SIG_LEN)
 
 #define FZN_REV_OFF_VERSION 0u
@@ -130,6 +132,26 @@
  * and closing an epoch takes k distinct entitled issuers. One issuer
  * signing epoch UINT64_MAX is one of the k and nothing more. */
 #define FZN_REV_OFF_EPOCH 138u
+/* WHAT OF THE REVOKED KEY'S OWN WORK STILL STANDS. sec 496.
+ *
+ * A revoked key did things before it was revoked: wrote roster records,
+ * granted devices, cast votes. Some of that was its owner's and some, after
+ * a theft, may be a thief's. A record carries no time anybody can trust to
+ * tell the two apart, so the line is drawn by ancestry, as a removed root's
+ * is (sec 404): every act a key signs is logged in a chain of entries, and
+ * a vote names the CUT -- the id of the last entry of the grantee's log the
+ * voter still trusts. An act of a revoked key counts only while it stands
+ * under the cut of every vote that revokes it; the tightest cut holds.
+ *
+ * ALL-ZERO TRUSTS NOTHING, which is what a revocation meant before the field
+ * existed: a revoked writer counted for nothing. A WITHDRAWAL CARRIES ZERO,
+ * refused otherwise at `open`, since undoing a vote restores everything and
+ * has no line to draw; a store keeps the cut of the vote it undid.
+ *
+ * JUDGED WHEN READ, never applied: nothing is deleted when a key is revoked,
+ * so an undo -- a device found that never left its owner's hands -- brings
+ * every act back. */
+#define FZN_REV_OFF_CUT 146u
 #define FZN_REV_OFF_SIGNATURE FZN_REVOCATION_BODY_LEN
 
 /* A revocation as it travels: what is withdrawn, who says so, and the proof.
@@ -173,10 +195,12 @@ fzn_chain_err_t fzn_revocation_encode(uint8_t *out, uint8_t object,
                                       const fzn_cap_id_t *capability,
                                       const uint8_t grantee[FZN_PUBKEY_LEN],
                                       uint64_t issued_at, uint64_t epoch,
-                                      const uint8_t supersedes[FZN_REVOCATION_ID_LEN]);
+                                      const uint8_t supersedes[FZN_REVOCATION_ID_LEN],
+                                      const uint8_t cut[FZN_REVOCATION_ID_LEN]);
 
 /* Encode and sign a revocation: `issuer` withdraws `capability` from
- * `grantee`. `out` receives FZN_REVOCATION_LEN bytes.
+ * `grantee`, still trusting the grantee's acts up to `cut` (NULL for
+ * none, sec 496). `out` receives FZN_REVOCATION_LEN bytes.
  *
  * The counterpart to `fzn_chain_mint`, and it exists for the same reason:
  * without it, the root has no way to produce a revocation and every consumer
@@ -189,7 +213,8 @@ fzn_chain_err_t fzn_revocation_encode(uint8_t *out, uint8_t object,
 fzn_chain_err_t fzn_revocation_issue(const uint8_t issuer[FZN_PUBKEY_LEN],
                                      const fzn_cap_id_t *capability,
                                      const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t issued_at,
-                                     uint64_t epoch, const fzn_sign_ops_t *sign, uint8_t *out);
+                                     uint64_t epoch, const uint8_t cut[FZN_REVOCATION_ID_LEN],
+                                     const fzn_sign_ops_t *sign, uint8_t *out);
 
 /* THE THREE MINTING CALLS, and the split is the whole of how the chaining
  * rule is enforced rather than documented.
@@ -228,6 +253,7 @@ fzn_chain_err_t fzn_revocation_reissue(const uint8_t issuer[FZN_PUBKEY_LEN],
                                        const uint8_t grantee[FZN_PUBKEY_LEN],
                                        uint64_t issued_at, uint64_t epoch,
                                        const uint8_t supersedes[FZN_REVOCATION_ID_LEN],
+                                       const uint8_t cut[FZN_REVOCATION_ID_LEN],
                                        const fzn_sign_ops_t *sign, uint8_t *out);
 
 fzn_chain_err_t fzn_revocation_issue_withdrawal(const uint8_t issuer[FZN_PUBKEY_LEN],
@@ -361,6 +387,13 @@ static inline uint64_t fzn_revocation_epoch(fzn_revocation_record_t rec)
 	return fzn_get_be64(rec.base + FZN_REV_OFF_EPOCH);
 }
 
+/* The cut, sec 496: all-zero when the vote trusts nothing of the grantee's,
+ * and always on a withdrawal. */
+static inline const uint8_t *fzn_revocation_cut(fzn_revocation_record_t rec)
+{
+	return rec.base + FZN_REV_OFF_CUT;
+}
+
 static inline const uint8_t *fzn_revocation_signature(fzn_revocation_record_t rec)
 {
 	return rec.base + FZN_REV_OFF_SIGNATURE;
@@ -429,6 +462,18 @@ typedef struct fzn_revocation_confirm {
  * `chain/root_log.h` fills these from a settled view; a consumer may bring
  * its own. A vtable rather than the module, so that nothing linking the
  * store has to link the set. */
+/* A KEY'S LOG OF ITS ACTS, as a store asks it. sec 496. `stands` is 1 when
+ * the act whose hash is `act`, signed by `key`, is logged at or before the
+ * entry `cut` in that key's chain of entries. `chain/root_log.h` fills it
+ * from a log, the same log a root's acts are kept in: the entry's shape
+ * names a key, and nothing in it needs the key to be a root. */
+typedef struct fzn_act_log_ops {
+	int (*stands)(void *ctx, const uint8_t key[FZN_PUBKEY_LEN],
+	              const uint8_t cut[FZN_REVOCATION_ID_LEN],
+	              const uint8_t act[FZN_REVOCATION_ID_LEN]);
+	void *ctx;
+} fzn_act_log_ops_t;
+
 typedef struct fzn_root_ops {
 	int (*member)(void *ctx, const uint8_t key[FZN_PUBKEY_LEN]);
 	int (*counts)(void *ctx, const uint8_t root[FZN_PUBKEY_LEN],
@@ -481,6 +526,10 @@ struct fzn_revocation_store {
 	size_t confirm_capacity;
 	size_t confirms_used;
 	const fzn_hash_ops_t *confirm_hash;
+	/* THE LOG OF EVERY KEY'S ACTS, sec 496: NULL when none is kept, and
+	 * then nothing a revoked key did stands -- what a revocation meant
+	 * before votes carried a cut. Set with `fzn_revocation_store_set_acts`. */
+	const fzn_act_log_ops_t *acts;
 };
 
 fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_revocation_t *entries,
@@ -634,6 +683,32 @@ fzn_chain_err_t fzn_revocation_admin_admit(fzn_revocation_store_t *store,
  * not its bytes, as the roster does. The same rule as
  * `fzn_revocation_covers_chain`, which is this applied to a chain's hops:
  * one implementation, so the two cannot disagree. */
+/*
+ * WHAT A REVOKED KEY DID THAT STILL STANDS. sec 496, the holder's direction of
+ * 2026-10-07: a device stolen and later found is either restored -- its votes
+ * withdrawn, and then everything it did counts again, since nothing here is
+ * ever deleted -- or re-keyed, and then what it did after it left its owner's
+ * hands has to be removable while what it did before stays.
+ *
+ * `fzn_revocation_act_stands` answers for hop `i` of a chain given by its
+ * links, as `fzn_revocation_covers_links` takes one: 1 when that hop is not
+ * revoked, or when it is and the act whose hash is `act`, signed by
+ * `grantees[i]`, stands in the store's act log under the cut of every vote
+ * that holds the revocation. 0 with no act log, for an all-zero cut, for a
+ * corrupt store, and for a question with no subject.
+ *
+ * `fzn_revocation_store_set_acts` sets the log, or NULL for none; MALFORMED
+ * for one with no `stands`.
+ */
+fzn_chain_err_t fzn_revocation_store_set_acts(fzn_revocation_store_t *store,
+                                              const fzn_act_log_ops_t *acts);
+
+int fzn_revocation_act_stands(const fzn_revocation_store_t *store,
+                              const uint8_t (*grantors)[FZN_PUBKEY_LEN],
+                              const uint8_t (*grantees)[FZN_PUBKEY_LEN], size_t hop_count,
+                              const fzn_cap_id_t *capability, size_t i,
+                              const uint8_t act[FZN_REVOCATION_ID_LEN]);
+
 void fzn_revocation_covers_links(const fzn_revocation_store_t *store,
                                  const uint8_t (*grantors)[FZN_PUBKEY_LEN],
                                  const uint8_t (*grantees)[FZN_PUBKEY_LEN], size_t hop_count,

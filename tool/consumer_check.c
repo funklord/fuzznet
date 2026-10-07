@@ -925,7 +925,7 @@ int main(void)
 		fzn_revocation_record_t rec;
 
 		memset(grantee, 0x09, sizeof(grantee));
-		if (fzn_revocation_issue(root, &cap, grantee, 1500, 0u, &sign, rev_bytes) !=
+		if (fzn_revocation_issue(root, &cap, grantee, 1500, 0u, NULL, &sign, rev_bytes) !=
 		    FZN_CHAIN_OK)
 			FAIL(100);
 		if (fzn_revocation_open(rev_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
@@ -1216,7 +1216,7 @@ int main(void)
 			FAIL(135);
 
 		/* The middle key withdraws the capability from the leaf. */
-		if (fzn_revocation_issue(mid, &cap, leaf, 1500, 0u, &sign, rev_bytes) !=
+		if (fzn_revocation_issue(mid, &cap, leaf, 1500, 0u, NULL, &sign, rev_bytes) !=
 		    FZN_CHAIN_OK)
 			FAIL(136);
 		if (fzn_revocation_open(rev_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
@@ -1289,7 +1289,7 @@ int main(void)
 			FAIL(260);
 
 		/* Revoke, and read the pair back as revoked. */
-		if (fzn_revocation_issue(root, &cap, grantee, 1000, 0u, &sign, rev_bytes) !=
+		if (fzn_revocation_issue(root, &cap, grantee, 1000, 0u, NULL, &sign, rev_bytes) !=
 		    FZN_CHAIN_OK)
 			FAIL(261);
 		if (fzn_revocation_open(rev_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
@@ -1344,7 +1344,7 @@ int main(void)
 		 * original instant the record is byte-identical to the first
 		 * and is refused one line earlier, as the stale copy it cannot
 		 * be told apart from. */
-		if (fzn_revocation_issue(root, &cap, grantee, 4000, 0u, &sign, again_bytes) !=
+		if (fzn_revocation_issue(root, &cap, grantee, 4000, 0u, NULL, &sign, again_bytes) !=
 		    FZN_CHAIN_OK)
 			FAIL(275);
 		if (fzn_revocation_open(again_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
@@ -1356,7 +1356,7 @@ int main(void)
 			FAIL(278);
 
 		/* And the call that is correct for this case. */
-		if (fzn_revocation_reissue(root, &cap, grantee, 5000, 0u, id, &sign,
+		if (fzn_revocation_reissue(root, &cap, grantee, 5000, 0u, id, NULL, &sign,
 		                           again_bytes) != FZN_CHAIN_OK)
 			FAIL(279);
 		if (fzn_revocation_open(again_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
@@ -1388,7 +1388,7 @@ int main(void)
 			FAIL(284);
 
 		/* Minted in order, delivered in the other. */
-		if (fzn_revocation_issue(root, &cap, grantee, 1000, 0u, &sign, rev_bytes) !=
+		if (fzn_revocation_issue(root, &cap, grantee, 1000, 0u, NULL, &sign, rev_bytes) !=
 		    FZN_CHAIN_OK)
 			FAIL(285);
 		if (!consumer_hash(NULL, id, sizeof(id), rev_bytes, FZN_REVOCATION_LEN))
@@ -1545,7 +1545,7 @@ int main(void)
 		 * of the parameter `fzn_revocation_admit` gained. */
 		if (fzn_revocation_store_init(&fresh, fresh_storage, 4) != FZN_CHAIN_OK)
 			FAIL(121);
-		if (fzn_revocation_issue(root, &cap, grantee, 1500, 0u, &sign, rev_bytes) !=
+		if (fzn_revocation_issue(root, &cap, grantee, 1500, 0u, NULL, &sign, rev_bytes) !=
 		    FZN_CHAIN_OK)
 			FAIL(122);
 		if (fzn_revocation_open(rev_bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)

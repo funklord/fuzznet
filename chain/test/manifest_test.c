@@ -414,7 +414,7 @@ static void revoke_at(struct fixture *f, const uint8_t issuer[FZN_PUBKEY_LEN],
 	fzn_revocation_record_t rec;
 
 	f->stub.identity = issuer[0];
-	if (fzn_revocation_issue(issuer, capability, grantee, issued_at, 0u, &f->sign, bytes) !=
+	if (fzn_revocation_issue(issuer, capability, grantee, issued_at, 0u, NULL, &f->sign, bytes) !=
 	    FZN_CHAIN_OK) {
 		fprintf(stderr, "  FAIL manifest_test.c: the fixture could not issue a revocation\n");
 		failures++;
@@ -440,7 +440,7 @@ static void revoke(struct fixture *f, const uint8_t issuer[FZN_PUBKEY_LEN],
 	fzn_revocation_record_t rec;
 
 	f->stub.identity = issuer[0];
-	if (fzn_revocation_issue(issuer, capability, grantee, 1000, 0u, &f->sign, bytes) !=
+	if (fzn_revocation_issue(issuer, capability, grantee, 1000, 0u, NULL, &f->sign, bytes) !=
 	    FZN_CHAIN_OK) {
 		fprintf(stderr, "  FAIL manifest_test.c: the fixture could not issue a revocation\n");
 		failures++;
@@ -929,7 +929,7 @@ static int revoke_then_withdraw(struct fixture *f, const uint8_t issuer[FZN_PUBK
 	fzn_revocation_record_t rec;
 
 	f->stub.identity = issuer[0];
-	if (fzn_revocation_issue(issuer, capability, grantee, 1000, 0u, &f->sign, bytes) !=
+	if (fzn_revocation_issue(issuer, capability, grantee, 1000, 0u, NULL, &f->sign, bytes) !=
 	    FZN_CHAIN_OK)
 		return 0;
 	if (fzn_revocation_open(bytes, FZN_REVOCATION_LEN, &rec) != FZN_CHAIN_OK)
@@ -1455,7 +1455,7 @@ static void test_issue_stops_at_its_own_pair_ceiling(void)
 		key(grantee, 5);
 
 		f.stub.identity = f.root[0];
-		if (fzn_revocation_issue(f.root, &cap, grantee, 1000, 0u, &f.sign, bytes) !=
+		if (fzn_revocation_issue(f.root, &cap, grantee, 1000, 0u, NULL, &f.sign, bytes) !=
 		            FZN_CHAIN_OK ||
 		    fzn_revocation_open(bytes, FZN_REVOCATION_LEN, &r) != FZN_CHAIN_OK ||
 		    fzn_revocation_admit(&crowd_store, fzn_revocation_offer_root(r), f.root,
@@ -1912,7 +1912,7 @@ static void test_the_deficit_reads_the_whole_field(void)
 		fzn_revocation_record_t r;
 
 		joiner.stub.identity = 0;
-		CHECK(fzn_revocation_issue(f.root, &cap, grantee, 1000, 0u, &joiner.sign, rev) ==
+		CHECK(fzn_revocation_issue(f.root, &cap, grantee, 1000, 0u, NULL, &joiner.sign, rev) ==
 		              FZN_CHAIN_OK,
 		      "issue");
 		CHECK(fzn_revocation_open(rev, FZN_REVOCATION_LEN, &r) == FZN_CHAIN_OK, "open");
@@ -2088,7 +2088,7 @@ static void test_the_overflow_flag_is_sticky(void)
 		side.stub.identity = 0;
 		for (size_t i = 0; i < 2; i++) {
 			CHECK(fzn_revocation_issue(f.root, &want[i].capability, want[i].grantee,
-			                           1000, 0u, &side.sign, rev) == FZN_CHAIN_OK,
+			                           1000, 0u, NULL, &side.sign, rev) == FZN_CHAIN_OK,
 			      "issue");
 			CHECK(fzn_revocation_open(rev, FZN_REVOCATION_LEN, &r) == FZN_CHAIN_OK,
 			      "open");
@@ -2464,10 +2464,10 @@ static void test_a_revocation_settles_what_it_covers(void)
 	CHECK(fzn_manifest_pending(&joiner.manifest, f.root) == 2, "pending is %zu",
 	      fzn_manifest_pending(&joiner.manifest, f.root));
 
-	CHECK(fzn_revocation_issue(f.root, &cap_a, grantee, 1000, 0u, &joiner.sign, rev[0]) ==
+	CHECK(fzn_revocation_issue(f.root, &cap_a, grantee, 1000, 0u, NULL, &joiner.sign, rev[0]) ==
 	              FZN_CHAIN_OK,
 	      "issue");
-	CHECK(fzn_revocation_issue(f.root, &cap_b, grantee, 1000, 0u, &joiner.sign, rev[1]) ==
+	CHECK(fzn_revocation_issue(f.root, &cap_b, grantee, 1000, 0u, NULL, &joiner.sign, rev[1]) ==
 	              FZN_CHAIN_OK,
 	      "issue");
 	CHECK(fzn_revocation_open(rev[0], FZN_REVOCATION_LEN, &batch[0]) == FZN_CHAIN_OK,
@@ -2898,7 +2898,7 @@ static void test_the_withdrawal_paths_drain_the_deficit(void)
 	 * to be handed them back in leg 1. */
 	fixture_init(&peer);
 	peer.stub.identity = peer.root[0];
-	CHECK(fzn_revocation_issue(peer.root, &cap, grantee, 1000, 0u, &peer.sign, rev) ==
+	CHECK(fzn_revocation_issue(peer.root, &cap, grantee, 1000, 0u, NULL, &peer.sign, rev) ==
 	              FZN_CHAIN_OK,
 	      "the peer could not issue the revocation this test is about");
 	stub_reset(&peer.stub);
@@ -2946,7 +2946,7 @@ static void test_the_withdrawal_paths_drain_the_deficit(void)
 	CHECK(host_ahead_of_its_deficit(&host, man, peer.root, &cap, grantee, id),
 	      "the fixture for the un-chained leg did not build");
 	peer.stub.identity = peer.root[0];
-	CHECK(fzn_revocation_issue(peer.root, &cap, grantee, 3000, 0u, &peer.sign, other) ==
+	CHECK(fzn_revocation_issue(peer.root, &cap, grantee, 3000, 0u, NULL, &peer.sign, other) ==
 	              FZN_CHAIN_OK,
 	      "the peer could not issue a second revocation of the pair");
 	stub_reset(&peer.stub);
@@ -2969,7 +2969,7 @@ static void test_the_withdrawal_paths_drain_the_deficit(void)
 	CHECK(host_ahead_of_its_deficit(&host, man, peer.root, &cap, grantee, id),
 	      "the fixture for the chained leg did not build");
 	peer.stub.identity = peer.root[0];
-	CHECK(fzn_revocation_reissue(peer.root, &cap, grantee, 3000, 0u, id, &peer.sign,
+	CHECK(fzn_revocation_reissue(peer.root, &cap, grantee, 3000, 0u, id, NULL, &peer.sign,
 	                             other) == FZN_CHAIN_OK,
 	      "the peer could not chain a reissue to the record it supersedes");
 	stub_reset(&peer.stub);
@@ -3434,7 +3434,7 @@ static void test_the_recovery_loop_drains_what_a_partial_peer_can_supply(void)
 	 * storage -- which is why these live in the test rather than being read
 	 * back out of `f.store`. */
 	for (i = 0; i < 4; i++)
-		CHECK(fzn_revocation_issue(f.root, &cap[i], grantee[i], 1000, 0u, &joiner.sign,
+		CHECK(fzn_revocation_issue(f.root, &cap[i], grantee[i], 1000, 0u, NULL, &joiner.sign,
 		                           rev[i]) == FZN_CHAIN_OK, "issue revocation");
 
 	/* WHICH TWO THE PEER LACKS is decided by asking the plain report what it
@@ -3672,7 +3672,7 @@ static void test_two_partial_peers_between_them_complete_the_set(void)
 	                         sizeof(bytes), &len) == FZN_MANIFEST_OK, "issue");
 	CHECK(fzn_manifest_open(bytes, len, &rec) == FZN_MANIFEST_OK, "open");
 	for (i = 0; i < 4; i++)
-		CHECK(fzn_revocation_issue(issuer.root, &cap[i], grantee[i], 1000, 0u,
+		CHECK(fzn_revocation_issue(issuer.root, &cap[i], grantee[i], 1000, 0u, NULL,
 		                           &issuer.sign, rev[i]) == FZN_CHAIN_OK, "issue rev");
 
 	/* TWO PEERS SPLITTING THE SET, and neither can finish the joiner alone. */
