@@ -48,8 +48,8 @@
  * FZN_PERSIST_BLOB_OWN_ROOT, all packed in node/roots.c, and 14 and 15 are
  * FZN_PERSIST_BLOB_ADMIN_CONFIRM and FZN_PERSIST_BLOB_OWN_ADMIN, packed in
  * node/revoke.c, and 16 is FZN_PERSIST_BLOB_QUORUM_SET, in node/roots.c, and
- * 17 and 18 are FZN_PERSIST_BLOB_NOTE and FZN_PERSIST_BLOB_NOTE_SEQ, packed in
- * notes/store.c, 19 is FZN_PERSIST_BLOB_NOTE_PURGE, in notes/purge.c, and 20
+ * 17 is FZN_PERSIST_BLOB_NOTE, packed in notes/store.c, 18 is retired (sec
+ * 517), 19 is FZN_PERSIST_BLOB_NOTE_PURGE, in notes/purge.c, and 20
  * is FZN_PERSIST_BLOB_NOTE_PARTNER, in notes/sync.c, and 21 is
  * FZN_PERSIST_BLOB_CONTACT, in contact/contact.c, and 22 is
  * FZN_PERSIST_BLOB_NOTE_SHARE, in notes/share.c, and 23 is
@@ -451,7 +451,6 @@ int fzn_persist_slot_is_core(fzn_persist_slot_t slot)
 	case FZN_PERSIST_NODE_PEER:
 	case FZN_PERSIST_PAIRED_NODE:
 	case FZN_PERSIST_NOTE:
-	case FZN_PERSIST_NOTE_SEQ:
 	case FZN_PERSIST_NOTE_PURGE:
 	case FZN_PERSIST_NOTE_PARTNER:
 	case FZN_PERSIST_CONTACT:

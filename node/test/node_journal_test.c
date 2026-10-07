@@ -356,11 +356,35 @@ static void test_a_second_stream(void)
 	              && fzn_node_journal_received(&a, w, FZN_NODE_JOURNAL_STREAM) == 0u
 	              && fzn_record_store_stands(&a.store, &HASH, w, 0u, 2u, ids[1], 1u, ids[0]),
 	      "stream 0 did not chain its two, or the estate stream moved");
+	/* A WRITE HANDS THE RECORD BACK, sec 517: the bytes the store keeps,
+	 * the third of the stream, naming the second. */
+	{
+		static uint8_t out[FZN_RECORD_MAX_LEN], held[FZN_RECORD_MAX_LEN];
+		uint8_t id[FZN_RECORD_ID_LEN];
+		fzn_record_t rec, kept;
+		size_t len = 0;
+
+		CHECK(fzn_node_journal_write(&a, w, 0u, &SIGN, 0x36u, subject, &body, 1u, 7u, out,
+		                             FZN_RECORD_MAX_LEN - 1u, &len, id)
+		              == FZN_NODE_JOURNAL_MALFORMED
+		              && fzn_node_journal_received(&a, w, 0u) == 2u,
+		      "a write into a short buffer was signed or kept");
+		CHECK(fzn_node_journal_write(&a, w, 0u, &SIGN, 0x36u, subject, &body, 1u, 7u, out,
+		                             sizeof(out), &len, id)
+		                      == FZN_NODE_JOURNAL_OK
+		              && fzn_record_open(out, len, &rec) == FZN_RECORD_OK
+		              && fzn_record_seq(rec) == 3u
+		              && memcmp(fzn_record_prev(rec), ids[1], FZN_RECORD_ID_LEN) == 0
+		              && fzn_record_store_get(&a.store, w, 0u, 3u, held, sizeof(held), &kept)
+		                         == FZN_RECORD_STORE_OK
+		              && kept.len == len && memcmp(held, out, len) == 0,
+		      "a write did not hand back the third record, chained, as the store keeps it");
+	}
 	fzn_node_journal_close(&a);
 	CHECK(fzn_node_journal_init(&a, dir_a, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
 	              && fzn_node_journal_follow_stream(&a, w, 0u, &replayed) == FZN_NODE_JOURNAL_OK
-	              && replayed == 2u && fzn_node_journal_received(&a, w, 0u) == 2u,
-	      "a fresh journal following stream 0 did not replay its two");
+	              && replayed == 3u && fzn_node_journal_received(&a, w, 0u) == 3u,
+	      "a fresh journal following stream 0 did not replay its three");
 	fzn_node_journal_close(&a);
 }
 

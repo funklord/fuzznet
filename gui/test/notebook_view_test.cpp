@@ -19,6 +19,7 @@ extern "C" {
 #include "../../notes/received.h"
 #include "../../notes/text.h"
 #include "../../notes/test/blob_stub.h"
+#include "../../notes/test/chain_stub.h"
 #include "../../local/vocabulary.h"
 }
 
@@ -291,6 +292,7 @@ static void setup(void)
 	      "fixture: the node's notes open");
 	notes.seal = blob_stub_seal;
 	notes.open = blob_stub_open;
+	notes.chain = chain_stub_chain;
 	quiet = 0;
 	received = NULL;
 }

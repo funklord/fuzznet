@@ -164,14 +164,31 @@ fzn_node_journal_err_t fzn_node_journal_append_on(fzn_node_journal_t *nj,
                                                   uint64_t now,
                                                   uint8_t id_out[FZN_RECORD_ID_LEN])
 {
-	uint8_t buf[FZN_RECORD_MAX_LEN], id[FZN_RECORD_ID_LEN];
+	uint8_t buf[FZN_RECORD_MAX_LEN];
+	size_t len = 0;
+
+	return fzn_node_journal_write(nj, issuer, stream, sign, kind, subject, body, body_len, now,
+	                              buf, sizeof(buf), &len, id_out);
+}
+
+fzn_node_journal_err_t fzn_node_journal_write(fzn_node_journal_t *nj,
+                                              const uint8_t issuer[FZN_PUBKEY_LEN],
+                                              uint32_t stream, const fzn_sign_ops_t *sign,
+                                              uint32_t kind,
+                                              const uint8_t subject[FZN_SUBJECT_LEN],
+                                              const uint8_t *body, size_t body_len, uint64_t now,
+                                              uint8_t *buf, size_t cap, size_t *out_len,
+                                              uint8_t id_out[FZN_RECORD_ID_LEN])
+{
+	uint8_t id[FZN_RECORD_ID_LEN];
 	const fzn_journal_entry_t *e;
 	fzn_node_journal_err_t err;
 	fzn_record_t rec;
 	uint64_t seq;
 	size_t len = 0;
 
-	if (!nj || !issuer || !sign || !sign->sign || !subject || (body_len && !body))
+	if (!nj || !issuer || !sign || !sign->sign || !subject || (body_len && !body) || !buf
+	    || !out_len || cap < FZN_RECORD_MAX_LEN)
 		return FZN_NODE_JOURNAL_MALFORMED;
 	err = fzn_node_journal_follow_stream(nj, issuer, stream, NULL);
 	if (err != FZN_NODE_JOURNAL_OK)
@@ -183,7 +200,7 @@ fzn_node_journal_err_t fzn_node_journal_append_on(fzn_node_journal_t *nj,
 		return FZN_NODE_JOURNAL_REFUSED;
 	seq = e->received + 1u;
 	if (fzn_record_sign(issuer, subject, stream, kind, seq, seq == 1u ? NULL : e->head, now,
-	                    body, body_len, sign, buf, sizeof(buf), &len) != FZN_RECORD_OK
+	                    body, body_len, sign, buf, cap, &len) != FZN_RECORD_OK
 	    || fzn_record_open(buf, len, &rec) != FZN_RECORD_OK
 	    || !nj->hash->hash(nj->hash->ctx, id, sizeof(id), buf, len)
 	    || fzn_journal_admit_chained(&nj->journal, issuer, stream, seq, fzn_record_prev(rec), id)
@@ -191,6 +208,7 @@ fzn_node_journal_err_t fzn_node_journal_append_on(fzn_node_journal_t *nj,
 		return FZN_NODE_JOURNAL_REFUSED;
 	if (fzn_record_store_put(&nj->store, rec) != FZN_RECORD_STORE_OK)
 		return FZN_NODE_JOURNAL_STORE;
+	*out_len = len;
 	if (id_out)
 		memcpy(id_out, id, sizeof(id));
 	return FZN_NODE_JOURNAL_OK;

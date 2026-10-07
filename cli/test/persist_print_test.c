@@ -127,7 +127,6 @@ int main(void)
 			                        FZN_PERSIST_ADMIN_CONFIRM,
 			                        FZN_PERSIST_OWN_ADMIN,
 			                        FZN_PERSIST_NOTE,
-			                        FZN_PERSIST_NOTE_SEQ,
 			                        FZN_PERSIST_NOTE_PURGE,
 			                        FZN_PERSIST_NOTE_PARTNER,
 			                        FZN_PERSIST_CONTACT,

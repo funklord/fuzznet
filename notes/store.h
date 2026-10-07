@@ -41,10 +41,13 @@
  *
  * ONE SEQUENCE PER HOST, NOT PER NOTE, on stream FZN_NOTE_STREAM. `record.h`
  * numbers a writer's records per stream, so a per-note version used as `seq`
- * would collide across notes in one stream. `fzn_notes_next_seq` is that
- * counter, saved BEFORE it is used: a crash between the two costs one
- * skipped number, and a counter that went backwards would re-issue numbers a
- * sibling already holds, whose newer records it then refuses for ever.
+ * would collide across notes in one stream. Since sec 517 a host's note
+ * records are its journal's stream 0, chained, and the journal numbers them
+ * (`notes/author.h`); the counter this kept is retired with its slot.
+ *
+ * SO THIS IS AN INDEX: each claim's latest record, which a view reads. The
+ * note's history is the stream, and every record superseded here is still
+ * there.
  */
 
 #ifndef FZN_NOTES_STORE_H
@@ -216,19 +219,5 @@ fzn_notes_err_t fzn_notes_get_key(const fzn_notes_store_t *store,
 fzn_notes_err_t fzn_notes_erase(const fzn_notes_store_t *store,
                                 const uint8_t id[FZN_SUBJECT_LEN],
                                 const uint8_t issuer[FZN_PUBKEY_LEN]);
-
-/*
- * The next sequence `issuer` -- this host -- signs a note record at, saved
- * before it is returned. The first is 1, since `record.h` refuses 0.
- *
- * FLOORED BY WHAT IS HELD. The counter is one blob, and `persist/` answers
- * "absent" and "could not read" alike; a counter lost, rolled back or
- * restored from an old copy would restart below numbers this host has
- * already signed. So the answer is past both the counter and the highest
- * sequence of any note record from `issuer` this store holds -- the records
- * a sibling would compare against, which the counter only summarises.
- */
-fzn_notes_err_t fzn_notes_next_seq(const fzn_notes_store_t *store,
-                                   const uint8_t issuer[FZN_PUBKEY_LEN], uint64_t *out);
 
 #endif /* FZN_NOTES_STORE_H */

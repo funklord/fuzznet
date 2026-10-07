@@ -10,11 +10,13 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "../notes.h"
+#include "../journal.h"
 #include "../../contact/contact.h"
 #include "../../contact/group.h"
 #include "../../notes/received.h"
 #include "../../notes/text.h"
 #include "../../notes/test/blob_stub.h"
+#include "../../notes/test/chain_stub.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -254,6 +256,8 @@ static void hooks(void)
 	notes.seal = blob_stub_seal;
 	notes.open = blob_stub_open;
 	notes.text_ctx = NULL;
+	notes.chain = chain_stub_chain;
+	notes.chain_ctx = NULL;
 }
 
 static void setup(size_t peers)
@@ -1172,6 +1176,126 @@ static int ask_self(void *ctx, const uint8_t *request, size_t request_len, uint8
 	return *answer_len > 0u;
 }
 
+/* ---- a record store in memory, under a real journal, sec 517 ------------- */
+
+#define REC_SLOTS 16u
+
+static struct rec_slot {
+	uint8_t issuer[FZN_PUBKEY_LEN];
+	uint32_t stream;
+	uint64_t seq;
+	size_t len;
+	uint8_t bytes[FZN_RECORD_MAX_LEN];
+} rec_slots[REC_SLOTS];
+static size_t rec_count;
+
+static int rec_put(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream, uint64_t seq,
+                   const uint8_t *bytes, size_t len)
+{
+	struct rec_slot *s;
+
+	(void)ctx;
+	if (rec_count >= REC_SLOTS || len > FZN_RECORD_MAX_LEN)
+		return 0;
+	s = &rec_slots[rec_count++];
+	memcpy(s->issuer, issuer, FZN_PUBKEY_LEN);
+	s->stream = stream;
+	s->seq = seq;
+	s->len = len;
+	memcpy(s->bytes, bytes, len);
+	return 1;
+}
+
+static int rec_get(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream, uint64_t seq,
+                   uint8_t *out, size_t cap, size_t *len_out, int *found_out)
+{
+	size_t i;
+
+	(void)ctx;
+	*found_out = 0;
+	for (i = 0; i < rec_count; i++)
+		if (rec_slots[i].stream == stream && rec_slots[i].seq == seq
+		    && memcmp(rec_slots[i].issuer, issuer, FZN_PUBKEY_LEN) == 0) {
+			*found_out = 1;
+			if (rec_slots[i].len > cap)
+				return 0;
+			memcpy(out, rec_slots[i].bytes, rec_slots[i].len);
+			*len_out = rec_slots[i].len;
+			return 1;
+		}
+	return 1;
+}
+
+/* What fuzznetd's `journal_chain` does: the next record of stream 0. */
+static int journal_chain(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN],
+                         const fzn_sign_ops_t *sign, const uint8_t subject[FZN_SUBJECT_LEN],
+                         const uint8_t *body, size_t body_len, uint64_t now_ms, uint8_t *record,
+                         size_t cap, size_t *record_len)
+{
+	return fzn_node_journal_write((fzn_node_journal_t *)ctx, issuer, FZN_NOTE_STREAM, sign,
+	                              FZN_NOTE_KIND, subject, body, body_len, now_ms, record, cap,
+	                              record_len, NULL)
+	       == FZN_NODE_JOURNAL_OK;
+}
+
+/* THE HISTORY, sec 517: through the node's verbs, every write is the next
+ * record of this node's stream 0 in a real journal, naming the hash of the
+ * one before; the index holds the last of them; and with no journal, no note
+ * is written and the reply says why. */
+static void test_the_journal_chain(void)
+{
+	static fzn_node_journal_t nj;
+	static fzn_record_store_ops_t rops = { rec_put, rec_get, NULL };
+	static uint8_t held[FZN_RECORD_MAX_LEN];
+	uint8_t id[FZN_TREE_ID_LEN], prev[FZN_RECORD_ID_LEN];
+	char note[65], line[200];
+	size_t i, held_len = 0;
+	int chained = 1;
+
+	setup(0);
+	memset(rec_slots, 0, sizeof(rec_slots));
+	rec_count = 0;
+	CHECK(fzn_node_journal_init_store(&nj, &rops, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK,
+	      "fixture: a journal over a store in memory");
+	notes.chain = journal_chain;
+	notes.chain_ctx = &nj;
+	CHECK(ask("add note top first") == FZN_REPLY_OK, "fixture: a note");
+	take_id(note);
+	snprintf(line, sizeof(line), "set note %s title second", note);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: a rename");
+	snprintf(line, sizeof(line), "set note %s pin", note);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: a pin");
+	CHECK(fzn_node_journal_received(&nj, SELF, FZN_NOTE_STREAM) == 3u && rec_count == 3u,
+	      "three writes are three records of this node's stream 0");
+	for (i = 0; i < 3u; i++) {
+		fzn_record_t rec;
+
+		if (fzn_record_open(rec_slots[i].bytes, rec_slots[i].len, &rec) != FZN_RECORD_OK
+		    || fzn_record_seq(rec) != i + 1u || fzn_record_kind(rec) != FZN_NOTE_KIND
+		    || (i > 0u && memcmp(fzn_record_prev(rec), prev, sizeof(prev)) != 0))
+			chained = 0;
+		stub_hash(NULL, prev, sizeof(prev), rec_slots[i].bytes, rec_slots[i].len);
+	}
+	CHECK(chained, "each names the hash of the one before");
+	for (i = 0; i < FZN_TREE_ID_LEN; i++) {
+		unsigned v;
+
+		(void)sscanf(note + (2u * i), "%2x", &v);
+		id[i] = (uint8_t)v;
+	}
+	CHECK(fzn_notes_get(&notes.store, id, SELF, held, sizeof(held), &held_len) == FZN_NOTES_OK
+	              && held_len == rec_slots[2].len
+	              && memcmp(held, rec_slots[2].bytes, held_len) == 0,
+	      "and the index holds the last of them, byte for byte");
+
+	notes.chain = NULL;
+	snprintf(line, sizeof(line), "set note %s title third", note);
+	CHECK(ask(line) == FZN_REPLY_ERROR && has("journal") && rec_count == 3u,
+	      "with no journal, no note is written, and the reply says so");
+	fzn_node_journal_close(&nj);
+	hooks();
+}
+
 static void test_pushing_texts(void)
 {
 	static char long_text[5001];
@@ -1342,6 +1466,7 @@ int main(void)
 	test_collecting_texts();
 	test_members_join_the_admitted_set();
 	test_pushing_texts();
+	test_the_journal_chain();
 	test_writes_mark_fresh();
 	test_unpaired_partner();
 	test_a_partner_seen_in_the_future_ages_from_now();

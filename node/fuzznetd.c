@@ -1040,6 +1040,20 @@ static int journal_logged(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN],
 	       == FZN_NODE_JOURNAL_OK;
 }
 
+/* What the notes' author calls for every note record, sec 517: the next of
+ * this node's stream 0, chained and kept, and handed back for the claims
+ * index. */
+static int journal_chain(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN],
+                         const fzn_sign_ops_t *sign, const uint8_t subject[FZN_SUBJECT_LEN],
+                         const uint8_t *body, size_t body_len, uint64_t now_ms, uint8_t *record,
+                         size_t cap, size_t *record_len)
+{
+	return fzn_node_journal_write((fzn_node_journal_t *)ctx, issuer, FZN_NOTE_STREAM, sign,
+	                              FZN_NOTE_KIND, subject, body, body_len, now_ms, record, cap,
+	                              record_len, NULL)
+	       == FZN_NODE_JOURNAL_OK;
+}
+
 #endif
 
 /* THE JOURNAL FOR `roots`, sec 508: opened once in `records/` under
@@ -3158,6 +3172,14 @@ int main(int argc, char **argv)
 						node_notes.span = shelf_span;
 						admin.text_shared = shared_text;
 						admin.text_shared_ctx = &shelf;
+					}
+#endif
+#ifdef FZN_RECORD_STORE_FILE_ON
+					/* EVERY NOTE RECORD IS CHAINED, sec 517: with no
+					 * journal, no note is written, and the verbs say so. */
+					if (journal_on) {
+						node_notes.chain = journal_chain;
+						node_notes.chain_ctx = &node_journal;
 					}
 #endif
 					admin.notes_local = fzn_node_notes_local;

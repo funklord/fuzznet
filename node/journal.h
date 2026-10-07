@@ -135,6 +135,19 @@ fzn_node_journal_err_t fzn_node_journal_append_on(fzn_node_journal_t *nj,
                                                   uint64_t now,
                                                   uint8_t id_out[FZN_RECORD_ID_LEN]);
 
+/* `fzn_node_journal_append_on`, and the record it signed into `out`, `cap`
+ * bytes (FZN_RECORD_MAX_LEN fits any), `*out_len` of them: for a caller that
+ * files the record somewhere besides the journal, as notes' claims index
+ * does with each note record (sec 517). MALFORMED for a short `out`. */
+fzn_node_journal_err_t fzn_node_journal_write(fzn_node_journal_t *nj,
+                                              const uint8_t issuer[FZN_PUBKEY_LEN],
+                                              uint32_t stream, const fzn_sign_ops_t *sign,
+                                              uint32_t kind,
+                                              const uint8_t subject[FZN_SUBJECT_LEN],
+                                              const uint8_t *body, size_t body_len, uint64_t now,
+                                              uint8_t *out, size_t cap, size_t *out_len,
+                                              uint8_t id_out[FZN_RECORD_ID_LEN]);
+
 /* WRITE AN OBJECT: `fzn_node_journal_append` with the object's tag (its
  * second byte) as the kind, its hash as the subject, and its bytes, `len` of
  * them, as the body. MALFORMED for something that is not a signed object of

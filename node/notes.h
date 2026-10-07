@@ -143,6 +143,10 @@ typedef struct fzn_node_notes {
 	 * its meta. */
 	fzn_notes_seal_fn seal;
 	fzn_notes_open_fn open;
+	/* Where this node's note records are chained, sec 517 -- its journal's
+	 * stream 0. NULL and no note can be written. */
+	fzn_notes_chain_fn chain;
+	void *chain_ctx;
 	/* Collecting texts no note names, or NULL: then `remove text unused`
 	 * says this node keeps none. sec 443. */
 	fzn_node_notes_collect_fn collect;

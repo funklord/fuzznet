@@ -941,6 +941,17 @@ else
 $(error FZN_RECORD_STORE_FILE must be auto, 1 or 0 -- got "$(FZN_RECORD_STORE_FILE)")
 endif
 
+# The node's journal, sec 501: its streams in the file store, and the sync.
+# Defined here, beside the option it reads, because a rule's prerequisites
+# are expanded as the rule is read: every rule naming it must come after.
+# Wherever node/roots.o links this follows it: the roots judge a cut by the
+# journal since sec 506; and node/notes' suite links it since sec 517, its
+# notes chained into a journal's stream 0.
+FUZZNETD_JOURNAL_OBJS := $(BUILD_DIR)/node/journal.o $(BUILD_DIR)/record/exchange.o \
+                         $(BUILD_DIR)/record/sync.o $(BUILD_DIR)/record/journal.o \
+                         $(BUILD_DIR)/record/store.o \
+                         $(if $(RECORD_STORE_FILE_ON),$(BUILD_DIR)/record/store_file.o)
+
 # THE CLI VOCABULARY, WHICH HAS NO PROBE AND DOES NOT WANT ONE. Every other
 # option here gates a POSIX call and asks the compiler whether it exists;
 # `cli/` is plain C11 with no platform surface, so there is nothing to ask and
@@ -2206,6 +2217,7 @@ $(BUILD_DIR)/notes/test/notes_sync_test: $(BUILD_DIR)/notes/test/notes_sync_test
 # node/notes: the note verbs a node answers on its local socket. sec 431.
 $(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
                                    $(BUILD_DIR)/node/notes.o \
+                                   $(FUZZNETD_JOURNAL_OBJS) \
                                    $(BUILD_DIR)/notes/store.o \
                                    $(BUILD_DIR)/notes/view.o \
                                    $(BUILD_DIR)/notes/author.o \
@@ -3749,14 +3761,6 @@ $(BUILD_DIR)/node/test/serve_test: $(BUILD_DIR)/node/test/serve_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-# The node's journal, sec 501: its streams in the file store, and the sync.
-# Defined above pair_test, whose prerequisites read it as the rule is read.
-# Wherever node/roots.o links this follows it: the roots judge a cut by the
-# journal since sec 506.
-FUZZNETD_JOURNAL_OBJS := $(BUILD_DIR)/node/journal.o $(BUILD_DIR)/record/exchange.o \
-                         $(BUILD_DIR)/record/sync.o $(BUILD_DIR)/record/journal.o \
-                         $(BUILD_DIR)/record/store.o \
-                         $(if $(RECORD_STORE_FILE_ON),$(BUILD_DIR)/record/store_file.o)
 
 # Pairing under real primitives: two nodes built by node/identity, the
 # pairing, the card accepted, and the node's own authorisation check over the

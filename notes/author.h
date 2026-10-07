@@ -41,6 +41,15 @@
  * same content under the same key is not a key reused. A note whose blob is
  * not here yet can be pinned, trashed and moved, and its content not edited:
  * PENDING.
+ *
+ * EVERY RECORD IS CHAINED, since sec 517 (the design is sec 511): `chain`
+ * signs the body as the next record of this host's notes stream, naming the
+ * one before, and hands the record back -- the node's journal, in practice
+ * (`node/journal.h`). The journal is the note's history; the store this
+ * writes into after is the index of each claim's latest record, which a view
+ * reads. Room in that index and this host's own admission are checked BEFORE
+ * the chain is asked, so a write the index would refuse leaves nothing in the
+ * history either.
  */
 
 #ifndef FZN_NOTES_AUTHOR_H
@@ -62,6 +71,16 @@ typedef int (*fzn_notes_seal_fn)(void *ctx, const uint8_t *payload, size_t len,
 typedef int (*fzn_notes_open_fn)(void *ctx, const fzn_note_blob_ref_t *ref, uint8_t *out,
                                  size_t cap, size_t *out_len);
 
+/* Sign `body` as the next record of `issuer`'s notes stream -- FZN_NOTE_KIND
+ * on FZN_NOTE_STREAM, about `subject`, naming the stream's last record -- keep
+ * it, and copy it into `record`, `cap` bytes, `*record_len` of them. Nonzero
+ * on success. */
+typedef int (*fzn_notes_chain_fn)(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN],
+                                  const fzn_sign_ops_t *sign,
+                                  const uint8_t subject[FZN_SUBJECT_LEN], const uint8_t *body,
+                                  size_t body_len, uint64_t now_ms, uint8_t *record,
+                                  size_t cap, size_t *record_len);
+
 /* Everything writing a note needs. All borrowed. `view` is scratch, since an
  * edit of another writer's note and a create's placement both read the tree. */
 typedef struct fzn_notes_author {
@@ -77,6 +96,9 @@ typedef struct fzn_notes_author {
 	fzn_notes_seal_fn seal;
 	fzn_notes_open_fn open;
 	void *text_ctx;
+	/* Where records are chained, sec 517: required. */
+	fzn_notes_chain_fn chain;
+	void *chain_ctx;
 } fzn_notes_author_t;
 
 /* A NOTE'S CONTENT, READ: `node`'s meta into `meta`, and its payload, opened

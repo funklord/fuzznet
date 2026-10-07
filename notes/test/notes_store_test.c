@@ -14,6 +14,7 @@
 #include "../text.h"
 #include "../view.h"
 #include "blob_stub.h"
+#include "chain_stub.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -433,34 +434,6 @@ static void test_capacity_and_erase(void)
 	}
 }
 
-static void test_the_sequence(void)
-{
-	uint64_t seq = 0;
-	struct row *r;
-
-	wipe();
-	CHECK(fzn_notes_next_seq(&store, KEY_A, &seq) == FZN_NOTES_OK && seq == 1u,
-	      "the first sequence is 1");
-	CHECK(fzn_notes_next_seq(&store, KEY_A, &seq) == FZN_NOTES_OK && seq == 2u,
-	      "and the next is 2");
-	note_of(0, KEY_A, 5, 0, 9, "signed at nine");
-	note_of(1, KEY_B, 6, 0, 50, "a sibling's, at fifty");
-	CHECK(put(0, NULL) == FZN_NOTES_OK && put(1, NULL) == FZN_NOTES_OK, "fixture: two records");
-	r = find(FZN_PERSIST_NOTE_SEQ, NULL);
-	CHECK(r != NULL, "fixture: the counter is held");
-	if (r)
-		r->used = 0;
-	CHECK(fzn_notes_next_seq(&store, KEY_A, &seq) == FZN_NOTES_OK && seq == 10u,
-	      "a lost counter resumes past this host's own held records");
-	CHECK(fzn_notes_next_seq(&store, KEY_A, &seq) == FZN_NOTES_OK && seq == 11u,
-	      "and goes on from there");
-	r = find(FZN_PERSIST_NOTE_SEQ, NULL);
-	if (r)
-		r->bytes[1] ^= 0x7fu;
-	CHECK(fzn_notes_next_seq(&store, KEY_A, &seq) == FZN_NOTES_ERR_SHAPE,
-	      "a counter that will not read is refused, not restarted");
-}
-
 static void test_the_view(void)
 {
 	static fzn_notes_view_t view;
@@ -582,6 +555,7 @@ static fzn_notes_author_t author_as(uint8_t *key, fzn_sign_ops_t *ops)
 	a.rng = &RNG;
 	a.policy = own_hosts();
 	blob_stub_attach(&a);
+	chain_stub_attach(&a);
 	return a;
 }
 
@@ -675,9 +649,63 @@ static void test_authoring(void)
 	              == FZN_NOTES_ERR_MALFORMED,
 	      "a type this build may not write is refused");
 	note = titled("from a stranger", "");
-	CHECK(fzn_notes_create(&c, root, FZN_NOTE_TYPE_NOTE, &note, 5003u, stray)
-	              == FZN_NOTES_ERR_DENIED,
-	      "a host outside its own admitted set cannot write a note");
+	{
+		size_t chained = chain_stub.chained;
+
+		CHECK(fzn_notes_create(&c, root, FZN_NOTE_TYPE_NOTE, &note, 5003u, stray)
+		                      == FZN_NOTES_ERR_DENIED
+		              && chain_stub.chained == chained,
+		      "a host outside its own admitted set cannot write a note, nor chain one");
+	}
+
+	/* ---- the chain, sec 517: every record the next of this host's
+	 * stream, naming the one before; nothing written when the chain is
+	 * missing or refuses. */
+	{
+		fzn_notes_author_t unchained = a;
+		static const uint8_t zero[FZN_RECORD_ID_LEN];
+		size_t chained = chain_stub.chained, i;
+		uint64_t first_seq = 0;
+
+		/* `own` reads into one buffer, so the first sequence is kept
+		 * before the second record is read over it. */
+		CHECK(own(KEY_A, one, &rec, &node, &note) && (first_seq = fzn_record_seq(rec)) > 0u
+		              && own(KEY_A, two, &rec, &node, &note)
+		              && fzn_record_seq(rec) == first_seq + 1u
+		              && memcmp(fzn_record_prev(rec), zero, sizeof(zero)) != 0,
+		      "the second note's record follows the first's, naming one before it");
+		unchained.chain = NULL;
+		note = titled("unchained", "");
+		CHECK(fzn_notes_create(&unchained, root, FZN_NOTE_TYPE_NOTE, &note, 5004u, stray)
+		                      == FZN_NOTES_ERR_MALFORMED
+		              && chain_stub.chained == chained,
+		      "an author with no chain writes nothing");
+		chain_stub.refuse = 1;
+		CHECK(fzn_notes_create(&a, root, FZN_NOTE_TYPE_NOTE, &note, 5004u, stray)
+		                      == FZN_NOTES_ERR_BACKEND
+		              && fzn_notes_view_load(&store, &author_view) == FZN_NOTES_OK
+		              && fzn_notes_children(&author_view, root, out, 8u, &n, &cut)
+		                         == FZN_NOTES_OK
+		              && n == 3u,
+		      "a chain that will not write leaves no note in the index");
+		chain_stub.refuse = 0;
+		/* A STORE FROM BEFORE THE CHAIN: its record of a note at a sequence
+		 * past where the chain stands. Said, not silently dropped. */
+		for (i = 0; i < chain_stub.count; i++)
+			if (memcmp(chain_stub.issuer[i], KEY_A, FZN_PUBKEY_LEN) == 0)
+				break;
+		if (i < chain_stub.count) {
+			uint64_t was = chain_stub.seq[i];
+
+			/* Below `two`'s record, and on no sequence another of
+			 * `two`'s records holds. */
+			chain_stub.seq[i] = 0;
+			CHECK(fzn_notes_edit(&a, two, 0u, NULL, FZN_NOTE_FLAG_PINNED, 0u, 5005u)
+			              == FZN_NOTES_ERR_SHAPE,
+			      "an edit the index holds a later record of is refused, not dropped");
+			chain_stub.seq[i] = was;
+		}
+	}
 
 	/* ---- edit */
 	CHECK(own(KEY_A, one, &rec, &node, &note), "fixture: the first note");
@@ -1505,7 +1533,6 @@ int main(void)
 	test_supersession();
 	test_damage_and_misplacement();
 	test_capacity_and_erase();
-	test_the_sequence();
 	test_the_view();
 	test_authoring();
 	test_purge();

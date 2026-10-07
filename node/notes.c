@@ -226,24 +226,31 @@ static const fzn_tree_node_t *find(const fzn_node_notes_t *n, const uint8_t id[F
 	return &view.nodes[first];
 }
 
-/* The author, with the node's content hooks as they are now: fuzznetd sets
- * them after `fzn_node_notes_init`, so they are read at each write. */
+/* The author, with the node's content and chain hooks as they are now:
+ * fuzznetd sets them after `fzn_node_notes_init`, so they are read at each
+ * write. */
 static const fzn_notes_author_t *author_of(fzn_node_notes_t *n)
 {
 	n->author.seal = n->seal;
 	n->author.open = n->open;
 	n->author.text_ctx = n->text_ctx;
+	n->author.chain = n->chain;
+	n->author.chain_ctx = n->chain_ctx;
 	return &n->author;
 }
 
-/* NOWHERE TO KEEP CONTENT, and so no note can be written: an error, not a
- * malformed request, since the request was well formed. 0 when there is. */
+/* NOWHERE TO KEEP CONTENT OR HISTORY, and so no note can be written: an
+ * error, not a malformed request, since the request was well formed. 0 when
+ * there is both. */
 static size_t no_content_store(const fzn_node_notes_t *n, char *reply, size_t cap)
 {
-	if (n->seal && n->open)
-		return 0;
-	return say(reply, cap, FZN_REPLY_ERROR,
-	           "this node keeps no blob store, where every note's content goes");
+	if (!n->seal || !n->open)
+		return say(reply, cap, FZN_REPLY_ERROR,
+		           "this node keeps no blob store, where every note's content goes");
+	if (!n->chain)
+		return say(reply, cap, FZN_REPLY_ERROR,
+		           "this node keeps no journal, where every note's history goes");
+	return 0;
 }
 
 /* `node`'s meta, and its payload opened into `payload_buf`. */

@@ -9,6 +9,7 @@
 
 #include "../author.h"
 #include "blob_stub.h"
+#include "chain_stub.h"
 #include "../purge.h"
 #include "../received.h"
 #include "../share.h"
@@ -227,6 +228,7 @@ static fzn_notes_author_t author_on(fzn_notes_store_t *store, uint8_t *key, fzn_
 	a.rng = &RNG;
 	a.policy = both();
 	blob_stub_attach(&a);
+	chain_stub_attach(&a);
 	return a;
 }
 
@@ -964,8 +966,13 @@ static void test_received(void)
 	      "a writer the sharer does not name has its note refused");
 
 	/* READ-ONLY: nothing but notes is held in a sharer's tree. */
-	CHECK(fzn_notes_next_seq(&from_alice, KEY_B, &seq) != FZN_NOTES_OK,
-	      "B cannot take a sequence to sign in A's tree");
+	{
+		uint8_t blob[16] = { 0 };
+
+		CHECK(!from_alice.ops->save(from_alice.ops->ctx, FZN_PERSIST_NOTE_PURGE, KEY_B, blob,
+		                            sizeof(blob)),
+		      "nothing but a note is saved in A's tree");
+	}
 
 	/* A ROW COPIED UNDER ANOTHER KEY is not listed twice. */
 	{

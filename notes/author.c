@@ -31,7 +31,7 @@ static int is_root(const uint8_t id[FZN_TREE_ID_LEN])
 static int author_ok(const fzn_notes_author_t *a)
 {
 	return a && a->store && a->view && a->issuer && a->sign && a->sign->sign && a->seal
-	       && a->open;
+	       && a->open && a->chain;
 }
 
 fzn_notes_err_t fzn_notes_read(fzn_notes_open_fn open, void *ctx, const fzn_tree_node_t *node,
@@ -131,7 +131,30 @@ static fzn_notes_err_t held_note(const fzn_notes_author_t *a, const uint8_t id[F
 	return FZN_NOTES_ERR_ABSENT;
 }
 
-/* Build, sign as this host at its next sequence, and put. */
+/* WHETHER THE INDEX WILL TAKE A RECORD of `id` from this host: its key in
+ * the admitted set, and room for the claim -- held already, or a place left.
+ * Asked before the chain, which cannot take a record back. */
+static fzn_notes_err_t index_takes(const fzn_notes_author_t *a, const uint8_t id[FZN_TREE_ID_LEN])
+{
+	static uint8_t keys[FZN_NOTES_MAX][FZN_PUBKEY_LEN];
+	static uint8_t record[FZN_RECORD_MAX_LEN];
+	size_t i, count = 0, len = 0;
+	int admitted = 0;
+	fzn_notes_err_t err;
+
+	for (i = 0; a->policy.spelled && a->policy.admitted && i < a->policy.admitted_count; i++)
+		admitted |= memcmp(a->policy.admitted[i].key, a->issuer, FZN_PUBKEY_LEN) == 0;
+	if (!admitted)
+		return FZN_NOTES_ERR_DENIED;
+	if (fzn_notes_get(a->store, id, a->issuer, record, sizeof(record), &len) == FZN_NOTES_OK)
+		return FZN_NOTES_OK;
+	err = fzn_notes_claims(a->store, keys, FZN_NOTES_MAX, &count);
+	if (err != FZN_NOTES_OK)
+		return err;
+	return count < FZN_NOTES_MAX ? FZN_NOTES_OK : FZN_NOTES_ERR_FULL;
+}
+
+/* Build, chain as this host's next note record, and put. */
 static fzn_notes_err_t write_note(const fzn_notes_author_t *a,
                                   const uint8_t id[FZN_TREE_ID_LEN],
                                   const uint8_t parent[FZN_TREE_ID_LEN], uint64_t order,
@@ -142,7 +165,7 @@ static fzn_notes_err_t write_note(const fzn_notes_author_t *a,
 	static uint8_t body[FZN_RECORD_BODY_MAX];
 	static uint8_t record[FZN_RECORD_MAX_LEN];
 	size_t body_len = 0, record_len = 0;
-	uint64_t seq = 0;
+	int wrote = 0;
 	fzn_notes_err_t err;
 
 	if (fzn_note_meta_write(meta, content) != FZN_NOTE_OK
@@ -150,17 +173,23 @@ static fzn_notes_err_t write_note(const fzn_notes_author_t *a,
 	                     sizeof(body), &body_len)
 	               != FZN_TREE_OK)
 		return FZN_NOTES_ERR_MALFORMED;
-	/* THE SEQUENCE LAST, after everything that can refuse: a number taken
-	 * and not used is a gap nothing minds, but there is no reason to make
-	 * one for a note that was never going to be written. */
-	err = fzn_notes_next_seq(a->store, a->issuer, &seq);
+	/* THE CHAIN LAST, after everything that can refuse: a record in the
+	 * history cannot be taken back, so one the index would not take is
+	 * never made. */
+	err = index_takes(a, id);
 	if (err != FZN_NOTES_OK)
 		return err;
-	if (fzn_record_sign(a->issuer, id, FZN_NOTE_STREAM, FZN_NOTE_KIND, seq, NULL, now_ms, body,
-	                    body_len, a->sign, record, sizeof(record), &record_len)
-	    != FZN_RECORD_OK)
-		return FZN_NOTES_ERR_MALFORMED;
-	return fzn_notes_put(a->store, record, record_len, a->policy, a->sign, NULL, NULL);
+	if (!a->chain(a->chain_ctx, a->issuer, a->sign, id, body, body_len, now_ms, record,
+	              sizeof(record), &record_len))
+		return FZN_NOTES_ERR_BACKEND;
+	err = fzn_notes_put(a->store, record, record_len, a->policy, a->sign, &wrote, NULL);
+	if (err != FZN_NOTES_OK)
+		return err;
+	/* A RECORD THE INDEX CALLS OLDER than the one it holds from this host
+	 * is a store kept before sec 517, whose own records were numbered by a
+	 * counter the chain starts below. It is not migrated: said, not
+	 * dropped. */
+	return wrote ? FZN_NOTES_OK : FZN_NOTES_ERR_SHAPE;
 }
 
 /* Seal `fields`' title, text and labels as a new blob, its reference into

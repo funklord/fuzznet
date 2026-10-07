@@ -857,7 +857,7 @@ static void test_the_route_sends_each_slot_where_the_rule_says(void)
 	};
 	static const fzn_persist_slot_t BULK[] = { FZN_PERSIST_NODE_PEER,
 		                                   FZN_PERSIST_PAIRED_NODE, FZN_PERSIST_NOTE,
-		                                   FZN_PERSIST_NOTE_SEQ, FZN_PERSIST_NOTE_PURGE,
+		                                   FZN_PERSIST_NOTE_PURGE,
 		                                   FZN_PERSIST_NOTE_PARTNER, FZN_PERSIST_CONTACT,
 		                                   FZN_PERSIST_SHARED_NOTE,
 		                                   FZN_PERSIST_RECEIVED_SHARE,

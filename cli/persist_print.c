@@ -68,8 +68,6 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "this host's own admin chain";
 	case FZN_PERSIST_NOTE:
 		return "a writer's record of a note";
-	case FZN_PERSIST_NOTE_SEQ:
-		return "the last sequence this host signed a note at";
 	case FZN_PERSIST_NOTE_PURGE:
 		return "a note's purge awaiting its hosts' consent";
 	case FZN_PERSIST_NOTE_PARTNER:

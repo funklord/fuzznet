@@ -12,8 +12,6 @@
 static const char CLAIM_LABEL[16] = "fuzznet-note-v1\0";
 
 #define NOTE_BLOB_MAX ((size_t)FZN_PERSIST_HEAD_LEN + FZN_RECORD_MAX_LEN)
-#define SEQ_BODY 8u
-#define SEQ_BLOB ((size_t)FZN_PERSIST_HEAD_LEN + SEQ_BODY)
 
 const char *fzn_notes_err_str(fzn_notes_err_t err)
 {
@@ -268,51 +266,5 @@ fzn_notes_err_t fzn_notes_erase(const fzn_notes_store_t *store,
 		return FZN_NOTES_ERR_UNSUPPORTED;
 	if (!store->ops->remove(store->ops->ctx, FZN_PERSIST_NOTE, key))
 		return FZN_NOTES_ERR_BACKEND;
-	return FZN_NOTES_OK;
-}
-
-fzn_notes_err_t fzn_notes_next_seq(const fzn_notes_store_t *store,
-                                   const uint8_t issuer[FZN_PUBKEY_LEN], uint64_t *out)
-{
-	static uint8_t keys[FZN_NOTES_MAX][FZN_PUBKEY_LEN];
-	static uint8_t held[NOTE_BLOB_MAX];
-	uint8_t blob[SEQ_BLOB];
-	uint64_t last = 0;
-	size_t len = 0, count = 0, i;
-
-	if (!store || !store->ops || !issuer || !out)
-		return FZN_NOTES_ERR_MALFORMED;
-	/* THE FLOOR: every held record this host signed. A store that will
-	 * not list cannot give one, and a counter alone is the failure above. */
-	if (fzn_notes_claims(store, keys, FZN_NOTES_MAX, &count) != FZN_NOTES_OK)
-		return FZN_NOTES_ERR_BACKEND;
-	for (i = 0; i < count; i++) {
-		fzn_record_t rec;
-		size_t record_len = 0;
-
-		if (load_key(store, keys[i], held, sizeof(held), &record_len, &rec) == FZN_NOTES_OK
-		    && fzn_ct_memeq(fzn_record_issuer(rec), issuer, FZN_PUBKEY_LEN)
-		    && fzn_record_seq(rec) > last)
-			last = fzn_record_seq(rec);
-	}
-	if (store->ops->load(store->ops->ctx, FZN_PERSIST_NOTE_SEQ, NULL, blob, sizeof(blob), &len)) {
-		/* A COUNTER THAT WILL NOT READ IS REFUSED, not restarted: starting
-		 * again at 1 re-issues numbers every sibling already holds. */
-		if (fzn_persist_head_check(blob, len, SEQ_BODY, FZN_PERSIST_BLOB_NOTE_SEQ)
-		    != FZN_PERSIST_OK)
-			return FZN_NOTES_ERR_SHAPE;
-		if (fzn_get_be64(blob + FZN_PERSIST_HEAD_LEN) > last)
-			last = fzn_get_be64(blob + FZN_PERSIST_HEAD_LEN);
-	}
-	if (last == UINT64_MAX)
-		return FZN_NOTES_ERR_FULL;
-	if (fzn_persist_head_write(blob, sizeof(blob), SEQ_BODY, FZN_PERSIST_BLOB_NOTE_SEQ)
-	    != FZN_PERSIST_OK)
-		return FZN_NOTES_ERR_MALFORMED;
-	fzn_put_be64(blob + FZN_PERSIST_HEAD_LEN, last + 1u);
-	/* SAVED BEFORE IT IS RETURNED: see store.h. */
-	if (!store->ops->save(store->ops->ctx, FZN_PERSIST_NOTE_SEQ, NULL, blob, sizeof(blob)))
-		return FZN_NOTES_ERR_BACKEND;
-	*out = last + 1u;
 	return FZN_NOTES_OK;
 }

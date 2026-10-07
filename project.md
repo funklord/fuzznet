@@ -58350,3 +58350,88 @@ renaming to the naming scheme, so this refusal waits for that too.
 - Two sabotage entries are re-anchored:
   - `group-add-draws-a-fresh-id` replaces the hash seam's polarity.
   - `group-unshare-by-id` is now on the hex path.
+
+## 517. Stage 5, step 3b: every note record is chained into the journal, 2026-10-08
+
+Step 3b of sec 511: a host's note records are its journal's stream 0,
+chained, and the notes store becomes the index of each claim's latest
+record.
+
+### What a write does now
+
+- **The author takes a `chain` hook, and requires it**, beside seal and
+  open. It hands the hook the record's body. The hook signs it as the next
+  record of this host's stream 0, naming the one before, keeps it, and
+  hands the record back. In the node the hook is the journal:
+  `fzn_node_journal_write`, which is `fzn_node_journal_append_on` returning
+  the signed bytes.
+- **The store files what comes back**, as before. It keeps only each
+  claim's latest record, which is what a view reads. Every record a newer
+  one superseded stays in the stream, so the stream is the note's history.
+- **The index is asked before the chain.** A record in the history cannot
+  be taken back, so a write the index would refuse is never chained. The
+  author checks two things first: this host is in its own admitted set, and
+  the claim is held or there is room for it. A chain that refuses leaves
+  nothing in the index either.
+- **The journal numbers the stream.** `fzn_notes_next_seq` and its counter
+  are retired, and persist slot 18 with them, not to be reused. The
+  journal's head is the floor the counter used to approximate.
+
+### What is not migrated
+
+A store kept before this holds the host's own note records at sequences the
+old counter issued, and the chain starts at 1 below them. An edit of such a
+note would be a record the index calls older, which it would keep quietly
+and never show. The author answers SHAPE instead, so the edit is refused
+rather than lost. As with sec 514's format break, nothing is rewritten.
+
+### What waits for later steps
+
+- **Rebuilding the index from the journal waits for step 5.** A purge
+  erases claims, and nothing durable remembers that a note was purged. A
+  rebuild at start would bring every purged note back from its records.
+  Step 5's durable purge mark is what makes a rebuild safe.
+  - Until then, one window is open. If a crash comes between the journal
+    keeping a record and the index filing it, the history has a write the
+    view lacks. The note's next write supersedes it.
+- **Members still sync notes through notes' own protocol** (step 4).
+  Chained records travel through it unchanged, because admission never
+  read `prev`. A member does not yet follow a sibling's stream 0, so a
+  host's history is its own until then. A `history` verb waits for step 4
+  for the same reason.
+- `FUZZNETD_JOURNAL_OBJS` moves up the Makefile, beside the option it
+  reads. A rule's prerequisites are expanded as the rule is read, and node
+  notes' suite, which now links a journal, comes before where it was.
+
+### Tests of the chain
+
+- `notes/test/chain_stub.h` chains each issuer's records from 1, naming
+  the one before by a toy digest. Every suite that writes notes attaches
+  it.
+- `notes_store_test`, 170 checks, with these new cases:
+  - a stranger's write is not chained;
+  - the second note's record follows the first's and names one before it;
+  - an author with no chain, or a chain that refuses, leaves nothing;
+  - an edit the index holds a later record of is refused as SHAPE.
+- `node/test/notes_test`, 290 checks, puts the node over a real
+  `fzn_node_journal` on a record store in memory:
+  - three writes through the verbs are three records of stream 0;
+  - each names the hash of the one before;
+  - the index holds the last, byte for byte;
+  - with no journal, a write is refused, and the reply names the journal.
+- `node_journal_test`, 27 checks: a write hands back the third record,
+  chained, as the store keeps it, and a short buffer signs nothing.
+- Live, `live58`:
+  - R creates a note and renames it. Its stream-0 file holds two records,
+    1028 bytes.
+  - R restarts and renames the note again. The rename is taken, so the
+    chain carried on from its head rather than restarting at 1, and the
+    file holds three records, 1730 bytes.
+  - M, pulling through notes' own sync, lists R's latest title.
+- The counter's three tests and three sabotage entries are retired. Five
+  new entries replace them:
+  - `notes-author-index-before-chain`
+  - `notes-author-says-an-older-index`
+  - `node-notes-no-journal-said`
+  - `journal-write-hands-back-the-record`
+  - `node-notes-no-store-said`, re-anchored
