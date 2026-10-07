@@ -57022,7 +57022,7 @@ are accepted, and no old carriage has to coexist once its kind has moved.
    holds, and a record store answers whether an act stands under a cut.
    This is the act log's machinery (secs 404 and 496), moved into
    `record/`. **Built in this section.**
-2. **The node runs the journal.**
+2. **~~The node runs the journal~~: built in sec 501.**
    - Each key gets one estate stream, served from a record store and
      pulled with `record/sync`'s digest and fetch plan.
    - A node follows every key the estate admits, and nothing else, since
@@ -57132,3 +57132,138 @@ the chain ending at the cut.
     1 stop standing.
 
 `err_str_test` walks the journal's eighth code.
+
+## 501. Stage 2: the node runs the journal, 2026-10-07
+
+Sec 500's second stage. Every node keeps a journal: one estate stream per
+key it follows, in a record store on disk, served to members and pulled from
+its pull peers each round. In this stage the streams carry a mirror of the
+act log, so the journal moves real chains end to end before stage 3 moves
+each kind of act onto records of its own.
+
+### The sync, `record/exchange.h`
+
+**Binary, not a reply line.** A record is up to 700 bytes, which is 1,400
+hex characters, and a reply line is bounded at 1,024 (`FZN_REPLY_MAX`). So
+the exchange is four binary messages over the remote hop, as notes sync is.
+They are stated in `record/exchange.situ`, which is added to `make schema`'s
+list:
+
+    DIGEST_QUERY   "your positions, from this one"
+    DIGEST         "these, of this many"           44 bytes a position
+    RECORDS_QUERY  "this stream's records, from this sequence, at most n"
+    RECORDS        "these"                         2-byte length, then the record
+
+The version byte is 5. Versions 1 to 4 are spool messages, notes sync and
+members, causes and gather. A node dispatching on the first byte falls
+through to its verbs, and a message from another version is answered with
+nothing.
+
+- **The server**, `fzn_exchange_answer`, pages its digest and serves a
+  stream's records from the store. It serves only up to what its journal
+  has received, so a record held past the position is never offered.
+- **The client**, `fzn_exchange_pull`, pages the peer's digest and plans
+  with `fzn_sync_plan_fetch`, which never asks about a stream this host
+  does not follow. A record is taken only when it is:
+  1. exactly the next one asked for, by issuer, stream and sequence;
+  2. signed by its issuer;
+  3. a link in the chain held (`fzn_journal_admit_chained`).
+
+  A fork stops that stream for the round and is counted.
+- **Admitted, then stored.** A record the journal refuses is never written,
+  so a fork at the head cannot overwrite the honest record at its sequence.
+  A write that fails after admission leaves the journal ahead of the store,
+  which the next start corrects, since positions are rebuilt from the store.
+  The pull says so as STORE.
+- **`FZN_EXCHANGE_REPLY_MIN`** (706) is one whole record and its length in a
+  RECORDS message; a smaller reply buffer is refused.
+
+### The node, `node/journal.h`
+
+- **The estate stream, `FZN_NODE_JOURNAL_STREAM` (1),** is inside fuzznet's
+  reserved range and is not notes' stream 0. A node follows at most 256
+  streams.
+- **`fzn_node_journal_follow`** anchors a key's stream from the beginning,
+  then replays what the store holds through the same checks a pull applies:
+  signature, then chain. A record edited on disk stops the replay there.
+- **`fzn_node_journal_append`** writes the next record of a key's stream,
+  naming its head.
+- **What is written in this stage:** every act `fzn_node_roots_log_act`
+  logs, through a new hook on the roots (`logged`). It becomes a record of
+  kind `FZN_NODE_JOURNAL_KIND_ACT`, with subject the act's hash and body
+  the act log's kind byte. A hook that refuses fails the logging, so an act
+  the journal would not keep never passes for one recorded.
+- **It is built with the file store**, under `RECORD_STORE_FILE_ON`. A hook
+  rather than a call keeps `node/roots.o` free of the journal for every
+  binary that does not use one.
+
+### The daemon keeps a journal
+
+- **The records live in `records/` under the core directory,** made 0700.
+  The journal is not fatal: a node that cannot keep one says so under
+  `journal` and serves on the act log, as every node did before.
+- **What a node follows:**
+  - its identity and its root key;
+  - the estate's pinned root and the roots that stand;
+  - the peers paired to it that are no contact;
+  - the members the last round proved.
+
+  The set is re-asked every round, so a member paired since is followed
+  from its first act.
+- **Served to members only,** through a new admin hook, `journal_remote`,
+  on the member path. A contact's request never reaches it: the estate's
+  acts are the estate's.
+- **Pulled each round,** after the notes, whose pull proves the round's
+  members. A round that learned or refused anything is said under
+  `journal`, at warning when a stream stopped at a fork.
+- **Following a stream makes its file even before anything arrives**, since
+  the file store opens with create. In a cache directory that is
+  untidiness, not a fault.
+
+### Measured for sec 501
+
+**`exchange_test`, 20 checks.** Two hosts in one process, the client's
+`ask` calling the server directly:
+
+- B, following W only, learns W's five records from A one a page, with the
+  reply at its floor. B's position is past the fifth, a cut at W's fifth
+  holds W's second at B, and X's stream, which B does not follow, is not
+  fetched. A second round learns nothing.
+- With a window of three, a third host takes the five in two rounds.
+- B holds three. A serves a fourth naming another predecessor: one fork,
+  nothing learned, and B stays at three.
+  - The honest fourth with its signature broken is refused.
+  - Whole, the fourth and fifth are learned.
+- A lying server answers one sequence on, or with another issuer's stream:
+  refused each time, and nothing is learned.
+- The server answers nothing to another version, a short query, or a query
+  from sequence zero. A pull with a reply buffer under one record is
+  MALFORMED.
+
+**`node_journal_test`, 11 checks.** Two journals, each in its own
+directory under /tmp, made and removed by name, with a directory that will
+not go failing the suite:
+
+- A writes three of W's records, one chain, and one of a stranger's.
+- After a restart A replays the three, and following again replays nothing.
+- B, following W only, pulls three and none of the stranger's, and the chain
+  holds at B.
+- After a restart B replays its three.
+- With one byte of B's third record changed on disk, B replays two.
+
+**`pair_test`, 296 checks.** The roots' hook is told of the act R logs when
+it re-keys D, and a hook that refuses makes the next act NOT_SAVED.
+
+**Live, two daemons over loopback,** with R the root and M a member pulling
+from R:
+
+- R revokes D, and R's stream file is 191 bytes: one 189-byte record and its
+  2-byte length.
+- M's first round, before the revocation, finds nothing. Its next says "1
+  record(s) from 127.0.0.1, 0 refused, 0 stream(s) stopped at a fork", and
+  M's copy of R's stream is 191 bytes.
+- No daemon was left running.
+
+The first run of that script waited for "record(s) from" and matched the
+roots' line at M's first round, before any journal record existed. The
+second waited for the journal's own wording.

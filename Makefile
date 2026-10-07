@@ -196,7 +196,8 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              session/random.c session/random_linux.c session/agree.c \
              session/session.c \
              version/version.c \
-             record/record.c record/journal.c record/sync.c record/ledger.c \
+             record/record.c record/journal.c record/sync.c record/exchange.c \
+             record/ledger.c \
              state/state.c state/scope.c notes/note.c notes/text.c \
              notes/store.c notes/view.c notes/author.c notes/purge.c notes/import.c \
              notes/sync.c notes/share.c notes/received.c \
@@ -289,7 +290,8 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              session/random.h session/random_system.h session/agree.h \
              session/session.h \
              version/version.h \
-             record/record.h record/journal.h record/sync.h record/ledger.h \
+             record/record.h record/journal.h record/sync.h record/exchange.h \
+             record/ledger.h \
              state/state.h state/scope.h notes/note.h notes/text.h \
              notes/store.h notes/view.h notes/author.h notes/purge.h notes/import.h \
              notes/sync.h notes/share.h notes/received.h \
@@ -408,7 +410,8 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              record/test/journal_test.c \
              record/test/record_test.c \
              tree/test/tree_test.c \
-             record/test/sync_test.c record/test/ledger_test.c \
+             record/test/sync_test.c record/test/exchange_test.c \
+             record/test/ledger_test.c \
              state/test/state_test.c state/test/scope_test.c notes/test/note_test.c \
              notes/test/text_test.c \
              notes/test/notes_store_test.c node/test/notes_test.c \
@@ -532,6 +535,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/tree/test/tree_test \
              $(BUILD_DIR)/tree/test/tree_kat_test \
              $(BUILD_DIR)/record/test/sync_test \
+             $(BUILD_DIR)/record/test/exchange_test \
              $(BUILD_DIR)/record/test/ledger_test \
              $(BUILD_DIR)/state/test/state_test \
              $(BUILD_DIR)/state/test/scope_test \
@@ -1235,9 +1239,10 @@ TEST_BINS += $(BUILD_DIR)/cli/test/cli_test \
                $(BUILD_DIR)/cli/test/store_print_test
 endif
 
-RECORD_STORE_FILE_SRCS := record/store_file.c
-RECORD_STORE_FILE_HDRS := record/store_file.h
-RECORD_STORE_FILE_TSRC := record/test/store_file_test.c
+# node/journal rides with the file store it keeps its streams in. sec 501.
+RECORD_STORE_FILE_SRCS := record/store_file.c node/journal.c
+RECORD_STORE_FILE_HDRS := record/store_file.h node/journal.h
+RECORD_STORE_FILE_TSRC := record/test/store_file_test.c node/test/node_journal_test.c
 
 ifdef RECORD_STORE_FILE_ON
 CPPFLAGS  += -DFZN_RECORD_STORE_FILE_ON
@@ -1245,6 +1250,7 @@ SRCS      += $(RECORD_STORE_FILE_SRCS)
 HDRS      += $(RECORD_STORE_FILE_HDRS)
 TEST_SRCS += $(RECORD_STORE_FILE_TSRC)
 TEST_BINS += $(BUILD_DIR)/record/test/store_file_test
+TEST_BINS += $(BUILD_DIR)/node/test/node_journal_test
 endif
 
 CAPTURE_RUN_SRCS := log/capture_run.c
@@ -2248,6 +2254,19 @@ $(BUILD_DIR)/record/test/sync_test: $(BUILD_DIR)/record/test/sync_test.o \
                                     $(BUILD_DIR)/record/sync.o \
                                     $(BUILD_DIR)/record/journal.o \
                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The journal between two hosts, sec 501: both ends in one process, the
+# client asking the server through a function call, over real records and an
+# in-memory store.
+$(BUILD_DIR)/record/test/exchange_test: $(BUILD_DIR)/record/test/exchange_test.o \
+                                        $(BUILD_DIR)/record/exchange.o \
+                                        $(BUILD_DIR)/record/sync.o \
+                                        $(BUILD_DIR)/record/journal.o \
+                                        $(BUILD_DIR)/record/store.o \
+                                        $(BUILD_DIR)/record/record.o \
+                                        $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -3824,6 +3843,18 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# The node's journal, sec 501: its streams in the file store, and the sync.
+FUZZNETD_JOURNAL_OBJS := $(BUILD_DIR)/node/journal.o $(BUILD_DIR)/record/exchange.o \
+                         $(BUILD_DIR)/record/sync.o $(BUILD_DIR)/record/journal.o \
+                         $(BUILD_DIR)/record/store.o $(BUILD_DIR)/record/store_file.o
+
+$(BUILD_DIR)/node/test/node_journal_test: $(BUILD_DIR)/node/test/node_journal_test.o \
+                                     $(FUZZNETD_JOURNAL_OBJS) \
+                                     $(BUILD_DIR)/record/record.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # The node's notes, the model and the verbs over it. sec 431.
 FUZZNETD_NOTES_OBJS := $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/notes/store.o \
                        $(BUILD_DIR)/notes/view.o $(BUILD_DIR)/notes/author.o \
@@ -3860,6 +3891,7 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(BUILD_DIR)/session/agree_monocypher.o \
               $(FUZZNETD_NOTES_OBJS) \
               $(if $(SPOOL_FILE_ON),$(FUZZNETD_SHELF_OBJS)) \
+              $(if $(RECORD_STORE_FILE_ON),$(FUZZNETD_JOURNAL_OBJS)) \
               $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o $(BUILD_DIR)/log/cause.o \
               $(BUILD_DIR)/log/view.o \
               $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o $(BUILD_DIR)/log/ring.o \
@@ -4024,6 +4056,9 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/node/roster.o \
                                       $(BUILD_DIR)/node/succession.o \
                                       $(BUILD_DIR)/chain/succession.o \
+                                      $(BUILD_DIR)/record/exchange.o \
+                                      $(if $(RECORD_STORE_FILE_ON),$(BUILD_DIR)/node/journal.o \
+                                        $(BUILD_DIR)/record/store_file.o) \
                                       $(BUILD_DIR)/node/provision.o \
                                       $(BUILD_DIR)/node/peer_persist.o \
                                       $(BUILD_DIR)/node/caller.o \
@@ -5587,6 +5622,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               chain/chain.situ provision/provision.situ \
               record/store_file.situ catalog/attribute.situ \
               roster/roster.situ chain/root_act.situ chain/succession.situ \
+              record/exchange.situ \
               notes/sync.situ \
               log/entry.situ log/cause.situ log/gather.situ
 

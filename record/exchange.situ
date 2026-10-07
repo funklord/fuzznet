@@ -1,0 +1,62 @@
+// The journal's messages: what one host asks another for, and the answer.
+// project.md sec 501. The hand-written codec is record/exchange.c; this is
+// its checked contract, in `make schema`'s list.
+//
+// Binary rather than a reply line, because a record is up to 700 bytes and a
+// line of hex is bounded at 1024 characters (FZN_REPLY_MAX). The first byte is
+// the message version, 5, below any verb's first letter, so a node dispatching
+// on it falls through to its verbs -- as notes sync (2) and gather (4) do.
+
+target buffer;
+endian big;
+
+enum fzn_exchange_type : u8 {
+	digest_query  = 1,   // "Your positions, from this one."
+	digest        = 2,   // "These, of this many."
+	records_query = 3,   // "This stream's records, from this sequence."
+	records       = 4,   // "These."
+}
+
+struct fzn_exchange_digest_query {
+	u8                 version [must_eq = 5];
+	fzn_exchange_type  type    [must_eq = digest_query];
+	u16                from;                 // the first position wanted
+}
+
+// One (issuer, stream) and how far the answering host holds it.
+struct fzn_exchange_position {
+	u8   issuer[32];
+	u32  stream;
+	u64  received;
+}
+
+struct fzn_exchange_digest {
+	u8                     version [must_eq = 5];
+	fzn_exchange_type      type    [must_eq = digest];
+	u16                    total;            // every position held
+	u16                    from;             // echoed
+	u16                    count;
+	fzn_exchange_position  positions[count];
+}
+
+struct fzn_exchange_records_query {
+	u8                 version [must_eq = 5];
+	fzn_exchange_type  type    [must_eq = records_query];
+	u8                 issuer[32];
+	u32                stream;
+	u64                from    [min = 1];    // the first sequence wanted
+	u16                max     [min = 1];    // at most this many
+}
+
+// One record, whole: record/record.situ's `fzn_record`, 188 to 700 bytes.
+struct fzn_exchange_record {
+	u16  len [min = 188, max = 700];
+	u8   record[len];
+}
+
+struct fzn_exchange_records {
+	u8                   version [must_eq = 5];
+	fzn_exchange_type    type    [must_eq = records];
+	u16                  count;
+	fzn_exchange_record  records[count];
+}

@@ -90,6 +90,10 @@
 #include "../../node/shelf.h"
 #include "../../node/files.h"
 #endif
+#include "../../record/exchange.h"
+#ifdef FZN_RECORD_STORE_FILE_ON
+#include "../../node/journal.h"
+#endif
 #ifdef FZN_LOG_FILE_ON
 #include "../../log/logger.h"
 #include "../../log/gather.h"
@@ -235,6 +239,13 @@ static const char *r_rstore(int v) { return fzn_record_store_err_str((fzn_record
 #ifdef FZN_CLI_ON
 static const char *r_cli(int v) { return fzn_cli_err_str((fzn_cli_err_t)v); }
 #endif
+static const char *r_exchange(int v) { return fzn_exchange_err_str((fzn_exchange_err_t)v); }
+#ifdef FZN_RECORD_STORE_FILE_ON
+static const char *r_njournal(int v)
+{
+	return fzn_node_journal_err_str((fzn_node_journal_err_t)v);
+}
+#endif
 #ifdef FZN_SPOOL_FILE_ON
 static const char *r_shelf(int v) { return fzn_node_shelf_err_str((fzn_node_shelf_err_t)v); }
 static const char *r_files(int v) { return fzn_node_files_err_str((fzn_node_files_err_t)v); }
@@ -339,6 +350,10 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_qr_err_str", r_qr, 4 },
 #ifdef FZN_CLI_ON
 	{ "fzn_cli_err_str", r_cli, 4 },
+#endif
+	{ "fzn_exchange_err_str", r_exchange, 5 },
+#ifdef FZN_RECORD_STORE_FILE_ON
+	{ "fzn_node_journal_err_str", r_njournal, 5 },
 #endif
 #ifdef FZN_SPOOL_FILE_ON
 	{ "fzn_node_shelf_err_str", r_shelf, 9 },

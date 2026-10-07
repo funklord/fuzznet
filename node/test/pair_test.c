@@ -2408,6 +2408,23 @@ static void test_a_revoked_members_contacts_to_the_line(const fzn_cap_id_t *cap)
 	stream_roster = NULL;
 }
 
+/* THE ROOTS' HOOK, sec 501: counts the acts it is told of, and refuses when
+ * told to, as a journal that would not keep one does. */
+static size_t hooked_acts;
+static int hook_refuses;
+
+static int count_logged(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const fzn_sign_ops_t *sign,
+                        uint8_t kind, const uint8_t act[FZN_ROOT_ACT_ID_LEN])
+{
+	(void)ctx;
+	(void)pubkey;
+	(void)sign;
+	(void)kind;
+	(void)act;
+	hooked_acts++;
+	return !hook_refuses;
+}
+
 /* A DEVICE RE-KEYED, sec 499. R, the root, pairs D. D's keys are taken; its
  * owner makes D2 and R mints "D is succeeded by D2", logged as R's act. D
  * reads through to D2 at R. M, a member, pulls R's votes and the succession
@@ -2448,13 +2465,16 @@ static void test_a_device_rekeyed(const fzn_cap_id_t *cap)
 	              && fzn_node_successions_init(&m_ns, &hash_ops) == FZN_NODE_REVOKE_OK,
 	      "fixture: R's roots, the stores and the successions");
 
-	/* R RE-KEYS D TO D2, as the root, logged. */
+	/* R RE-KEYS D TO D2, as the root, logged -- and the hook told. */
+	r_roots.logged = count_logged;
+	hooked_acts = 0;
 	logged = r_roots.log.used;
 	CHECK(fzn_node_succession_issue(&r_ns, &r_roots, &r.ops, &r.id, NULL, &r_revs, r.id.pubkey,
 	                                d.id.pubkey, d2.id.pubkey, NULL, id) == FZN_NODE_REVOKE_OK
 	              && r_ns.set.used == 1u && rows_in(&r, FZN_PERSIST_SUCCESSION) == 1u
 	              && r_roots.log.used == logged + 1u,
 	      "R's succession of D was not kept, saved and logged");
+	CHECK(hooked_acts == 1u, "the roots' hook was not told of the act R logged");
 	CHECK(fzn_node_successions_resolve(&r_ns, &r_revs, r.id.pubkey, d.id.pubkey, now_key)
 	              && memcmp(now_key, d2.id.pubkey, FZN_PUBKEY_LEN) == 0,
 	      "D did not read through to D2 at R");
@@ -2493,6 +2513,16 @@ static void test_a_device_rekeyed(const fzn_cap_id_t *cap)
 	              && !fzn_node_successions_resolve(&r_ns, &r_revs, r.id.pubkey, d.id.pubkey,
 	                                               now_key),
 	      "a key re-keyed two ways still read through to one of them");
+
+	/* A HOOK THAT REFUSES FAILS THE LOGGING: an act the journal would not
+	 * keep must not pass for one recorded. */
+	hook_refuses = 1;
+	CHECK(fzn_node_succession_issue(&r_ns, &r_roots, &r.ops, &r.id, NULL, &r_revs, r.id.pubkey,
+	                                d2.id.pubkey, d3.id.pubkey, NULL, NULL)
+	              == FZN_NODE_REVOKE_NOT_SAVED,
+	      "an act the hook refused was reported as logged");
+	hook_refuses = 0;
+	r_roots.logged = NULL;
 }
 
 static void test_contacts_travel(const fzn_cap_id_t *cap)

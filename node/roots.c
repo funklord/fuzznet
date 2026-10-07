@@ -603,6 +603,7 @@ fzn_node_roots_err_t fzn_node_roots_log_act(fzn_node_roots_t *roots,
 {
 	const fzn_root_log_entry_t *head = NULL;
 	uint8_t act[FZN_ROOT_ACT_ID_LEN], entry[FZN_ROOT_ACT_LEN];
+	fzn_node_roots_err_t err;
 	size_t i;
 
 	if (!roots || !store || !pubkey || !sign || !record)
@@ -621,7 +622,12 @@ fzn_node_roots_err_t fzn_node_roots_log_act(fzn_node_roots_t *roots,
 	    || fzn_root_act_issue(pubkey, head ? head->seq + 1u : 0u, head ? head->id : NULL, kind,
 	                          act, sign, entry) != FZN_ROOT_LOG_OK)
 		return FZN_NODE_ROOTS_REFUSED;
-	return fzn_node_roots_learn(roots, store, entry, sizeof(entry));
+	err = fzn_node_roots_learn(roots, store, entry, sizeof(entry));
+	/* AND INTO THE JOURNAL, sec 501, where one is kept. */
+	if (err == FZN_NODE_ROOTS_OK && roots->logged
+	    && !roots->logged(roots->logged_ctx, pubkey, sign, kind, act))
+		return FZN_NODE_ROOTS_NOT_SAVED;
+	return err;
 }
 
 fzn_node_roots_err_t fzn_node_roots_log_signed(fzn_node_roots_t *roots,

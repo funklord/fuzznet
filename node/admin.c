@@ -1928,6 +1928,15 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 			return n;
 	}
 
+	/* A JOURNAL MESSAGE, version byte 5, the same way. sec 501. */
+	if (admin->journal_remote && req->payload) {
+		size_t n = admin->journal_remote(admin->journal_ctx, req->payload, req->payload_len,
+		                                 reply, reply_cap);
+
+		if (n)
+			return n;
+	}
+
 	/* A NOTES SYNC MESSAGE, version byte 2, the same way. sec 432. */
 	if (admin->notes_remote && req->payload) {
 		size_t n = admin->notes_remote(admin->notes_ctx, req->sender, 0, req->payload,

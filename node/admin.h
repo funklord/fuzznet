@@ -158,6 +158,12 @@ typedef struct fzn_node_admin {
 	size_t (*notes_remote)(void *ctx, const uint8_t *sender, int shared, const uint8_t *request,
 	                       size_t request_len, uint8_t *reply, size_t reply_cap);
 	void *notes_ctx;
+	/* A JOURNAL MESSAGE from a member, sec 501 (`record/exchange.h`):
+	 * answered from this node's journal, or 0 to fall through. NULL keeps
+	 * no journal. Never a contact's: the estate's acts are the estate's. */
+	size_t (*journal_remote)(void *ctx, const uint8_t *request, size_t request_len,
+	                         uint8_t *reply, size_t reply_cap);
+	void *journal_ctx;
 	/* A contact's text request (`spool/message.h`), sec 438: answered only
 	 * for the texts of notes shared with `sender`, or 0. NULL serves a
 	 * contact no texts. */

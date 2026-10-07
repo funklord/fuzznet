@@ -9471,6 +9471,55 @@ SABOTAGES = [
 		"\t\t    || 0)\n\t\t\treturn 0;\n",
 		"a cut walked without comparing each record to the id above it trusts whatever the untrusted store hands back -- sec 500",
 	),
+	(
+		"exchange-pull-takes-the-next-one",
+		"record/exchange.c",
+		"\t\t    || fzn_record_stream(rec) != want->stream || fzn_record_seq(rec) != *next\n",
+		"\t\t    || fzn_record_stream(rec) != want->stream\n",
+		"a pull that takes whatever sequence comes back lets a peer skip a record the chain then never asks for -- sec 501",
+	),
+	(
+		"exchange-pull-takes-the-issuer-asked",
+		"record/exchange.c",
+		"\t\t    || memcmp(fzn_record_issuer(rec), want->issuer, FZN_PUBKEY_LEN) != 0\n",
+		"",
+		"a pull that takes another issuer's record for the one asked about files it under a stream it does not belong to -- sec 501",
+	),
+	(
+		"exchange-pull-verifies",
+		"record/exchange.c",
+		"\t\t    || fzn_record_verify(rec, sign) != FZN_RECORD_OK\n",
+		"",
+		"a record nobody signed, served by a peer, enters the journal as the issuer's -- sec 501",
+	),
+	(
+		"exchange-pull-counts-a-fork",
+		"record/exchange.c",
+		"\t\tif (jerr == FZN_JOURNAL_ERR_FORK) {\n\t\t\ttally->forks++;\n",
+		"\t\tif (jerr == FZN_JOURNAL_ERR_FORK) {\n",
+		"a fork said as nothing hides the one sign a key was stolen -- sec 501",
+	),
+	(
+		"node-journal-replay-verifies",
+		"node/journal.c",
+		"\t\tif (serr != FZN_RECORD_STORE_OK || fzn_record_verify(rec, nj->sign) != FZN_RECORD_OK\n",
+		"\t\tif (serr != FZN_RECORD_STORE_OK\n",
+		"a store edited underneath is believed at every start -- sec 501",
+	),
+	(
+		"node-journal-append-names-the-head",
+		"node/journal.c",
+		"\t                    seq == 1u ? NULL : e->head, now, body, body_len, sign, buf, sizeof(buf),\n",
+		"\t                    NULL, now, body, body_len, sign, buf, sizeof(buf),\n",
+		"a record written without its predecessor is refused by the node's own chain, and nothing past the first act is kept -- sec 501",
+	),
+	(
+		"roots-logged-hook-called",
+		"node/roots.c",
+		"\tif (err == FZN_NODE_ROOTS_OK && roots->logged\n",
+		"\tif (0 && err == FZN_NODE_ROOTS_OK && roots->logged\n",
+		"an act logged and never mirrored leaves the journal without it, and a cut judged on the journal drops it -- sec 501",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

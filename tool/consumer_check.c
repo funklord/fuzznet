@@ -139,6 +139,7 @@
 #endif
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include <fuzznet/record/store_file.h>
+#include <fuzznet/node/journal.h>
 #endif
 #ifdef FZN_CLI_ON
 #include <fuzznet/cli/cli.h>
@@ -181,6 +182,7 @@
 #include <fuzznet/link/link.h>
 #include <fuzznet/sched/sched.h>
 #include <fuzznet/record/sync.h>
+#include <fuzznet/record/exchange.h>
 #include <fuzznet/state/state.h>
 #include <fuzznet/state/scope.h>
 #include <fuzznet/notes/note.h>
@@ -298,6 +300,7 @@
 #endif
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include "record/store_file.h"
+#include "node/journal.h"
 #endif
 #ifdef FZN_CLI_ON
 #include "cli/cli.h"
@@ -333,6 +336,7 @@
 #include "link/link.h"
 #include "sched/sched.h"
 #include "record/sync.h"
+#include "record/exchange.h"
 #include "state/state.h"
 #include "state/scope.h"
 #include "notes/note.h"

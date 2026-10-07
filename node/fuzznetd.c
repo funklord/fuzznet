@@ -45,6 +45,9 @@
 #include "roots.h"
 #include "roster.h"
 #include "succession.h"
+#ifdef FZN_RECORD_STORE_FILE_ON
+#include "journal.h"
+#endif
 #include "peer_persist.h"
 #include "notes.h"
 #include "../notes/received.h"
@@ -82,6 +85,7 @@
 #endif
 
 #include <dirent.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -89,6 +93,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -1009,6 +1014,88 @@ static void copy_logs(struct pull_target *pulls, size_t npulls, uint64_t now)
 		if (tally.copied)
 			say(FZN_ENTRY_INFO, "log/copy", "%zu segment(s) of %s, %zu bytes, copied from %s",
 			    tally.copied, program, tally.bytes, peer->host);
+	}
+}
+#endif
+
+#ifdef FZN_RECORD_STORE_FILE_ON
+/* THE JOURNAL, sec 501: every key's estate stream this node follows, in
+ * `records/` under the core directory, served to members and pulled from the
+ * pull peers each round. */
+static fzn_node_journal_t node_journal;
+static int journal_on;
+
+/* What the roots call for every act logged: the act, mirrored as a record of
+ * its signer's estate stream. */
+static int journal_logged(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN],
+                          const fzn_sign_ops_t *sign, uint8_t kind,
+                          const uint8_t act[FZN_ROOT_ACT_ID_LEN])
+{
+	return fzn_node_journal_append((fzn_node_journal_t *)ctx, pubkey, sign,
+	                               FZN_NODE_JOURNAL_KIND_ACT, act, &kind, 1u, wall_clock(),
+	                               NULL)
+	       == FZN_NODE_JOURNAL_OK;
+}
+
+static size_t journal_remote(void *ctx, const uint8_t *request, size_t request_len,
+                             uint8_t *reply, size_t reply_cap)
+{
+	return fzn_node_journal_answer((fzn_node_journal_t *)ctx, request, request_len, reply,
+	                               reply_cap);
+}
+
+/* FOLLOW THE ESTATE: this node's own keys, the roots that stand, the peers
+ * paired to it that are no contact, and the members the last round proved.
+ * Asked every round, so a member paired since is followed from its first
+ * act. Following is idempotent. */
+static void follow_estate(const uint8_t identity[FZN_PUBKEY_LEN], const fzn_node_state_t *state,
+                          const fzn_node_roots_t *roots)
+{
+	static uint8_t keys[FZN_NODE_JOURNAL_STREAMS_MAX][FZN_PUBKEY_LEN];
+	size_t n = 0, i;
+
+	if (!journal_on)
+		return;
+	memcpy(keys[n++], identity, FZN_PUBKEY_LEN);
+	memcpy(keys[n++], state->config.root, FZN_PUBKEY_LEN);
+	if (roots) {
+		if (roots->key_held)
+			memcpy(keys[n++], roots->key, FZN_PUBKEY_LEN);
+		n += fzn_node_roots_standing(roots, keys + n, FZN_NODE_JOURNAL_STREAMS_MAX / 2u - n);
+	}
+	for (i = 0; i < state->peer_count && n < FZN_NODE_JOURNAL_STREAMS_MAX; i++)
+		if (!fzn_node_peer_contact(&state->config, &state->peers[i]))
+			memcpy(keys[n++], state->peers[i].sender, FZN_PUBKEY_LEN);
+	for (i = 0; i < n_pulled_members && n < FZN_NODE_JOURNAL_STREAMS_MAX; i++)
+		memcpy(keys[n++], pulled_members[i], FZN_PUBKEY_LEN);
+	for (i = 0; i < n; i++)
+		if (fzn_node_journal_follow(&node_journal, keys[i], NULL) == FZN_NODE_JOURNAL_FULL) {
+			say(FZN_ENTRY_WARNING, "journal", "no room to follow another key's stream");
+			break;
+		}
+}
+
+/* ONE ROUND OF THE JOURNAL against every pull peer. */
+static void pull_journal(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	static uint8_t reply[FZND_PULL_REPLY_MAX];
+	size_t t;
+
+	if (!journal_on)
+		return;
+	for (t = 0; t < npulls; t++) {
+		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
+		fzn_exchange_tally_t tally;
+		fzn_exchange_err_t err = fzn_node_journal_pull(&node_journal, peer_ask, &asking, reply,
+		                                               sizeof(reply), &tally);
+
+		if (err != FZN_EXCHANGE_OK)
+			say(FZN_ENTRY_WARNING, "journal", "the journal from %s: %s", pulls[t].host,
+			    fzn_exchange_err_str(err));
+		else if (tally.learned || tally.refused || tally.forks)
+			say(tally.forks ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "journal",
+			    "%zu record(s) from %s, %zu refused, %zu stream(s) stopped at a fork",
+			    tally.learned, pulls[t].host, tally.refused, tally.forks);
 	}
 }
 #endif
@@ -2762,6 +2849,27 @@ int main(int argc, char **argv)
 #ifdef FZN_LOG_FILE_ON
 		dlog.roots = running_roots;
 #endif
+#ifdef FZN_RECORD_STORE_FILE_ON
+		/* THE JOURNAL, sec 501, in `records/` under the core directory:
+		 * opened, every act logged from here on mirrored into it, and the
+		 * estate followed. NOT FATAL: a node that cannot keep one serves on
+		 * the act log, as every node did before. */
+		if (store_dir) {
+			static char records_dir[FZN_RECORD_STORE_FILE_PATH_MAX];
+			int w = snprintf(records_dir, sizeof(records_dir), "%s/records", store_dir);
+
+			if (w > 0 && (size_t)w < sizeof(records_dir)
+			    && (mkdir(records_dir, 0700) == 0 || errno == EEXIST)
+			    && fzn_node_journal_init(&node_journal, records_dir, &sign_ops, &hash_ops)
+			               == FZN_NODE_JOURNAL_OK) {
+				journal_on = 1;
+				estate_roots.logged = journal_logged;
+				estate_roots.logged_ctx = &node_journal;
+			} else {
+				say(FZN_ENTRY_WARNING, "journal", "no journal kept in %s/records", store_dir);
+			}
+		}
+#endif
 		if (nrevoked)
 			say(FZN_ENTRY_INFO, "revoke", "%zu revocation(s) from %s", nrevoked,
 			        store_dir);
@@ -2863,6 +2971,13 @@ int main(int argc, char **argv)
 					say(FZN_ENTRY_INFO, "votes", "%zu succession(s) from %s", nsucc,
 					    store_dir);
 			}
+#ifdef FZN_RECORD_STORE_FILE_ON
+			if (journal_on) {
+				admin.journal_remote = journal_remote;
+				admin.journal_ctx = &node_journal;
+				follow_estate(identity.pubkey, &state, &estate_roots);
+			}
+#endif
 			state.on_local = fzn_node_admin_handle;
 			state.on_local_ctx = &admin;
 			state.on_remote = fzn_node_admin_remote;
@@ -3154,6 +3269,12 @@ int main(int argc, char **argv)
 				/* NOTES, then TEXTS, secs 432 and 424: a note's text is
 				 * fetched once the note naming it has arrived. */
 				pull_notes(pulls, npulls, now, &state, running, running_roots);
+#ifdef FZN_RECORD_STORE_FILE_ON
+				/* THE JOURNAL, sec 501: after the notes, whose pull
+				 * proved this round's members, so they are followed. */
+				follow_estate(identity.pubkey, &state, running_roots);
+				pull_journal(pulls, npulls, now);
+#endif
 #ifdef FZN_LOG_PACK_ON
 				copy_logs(pulls, npulls, now);
 #endif

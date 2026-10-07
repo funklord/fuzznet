@@ -1,0 +1,58 @@
+# situ wire signature v2
+# schema: exchange.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+endian big
+target buffer
+
+enum fzn_exchange_type : u8 unknown=error
+  digest_query=1 digest=2 records_query=3 records=4
+
+struct fzn_exchange_digest size=8..2883548
+  @0x0000   1         u8         version  must_eq=5
+  @0x0001   1         fzn_exchange_type type  must_eq=digest
+  @0x0002   2         u16        total  big
+  @0x0004   2         u16        from  big
+  @0x0006   2         u16        count  big
+  @0x0008   0..2883540 fzn_exchange_position positions  sized-by=count
+
+struct fzn_exchange_digest_query size=4
+  @0x0000   1         u8         version  must_eq=5
+  @0x0001   1         fzn_exchange_type type  must_eq=digest_query
+  @0x0002   2         u16        from  big
+
+struct fzn_exchange_position size=44
+  @0x0000   32        u8         issuer  big
+  @0x0020   4         u32        stream  big
+  @0x0024   8         u64        received  big
+
+struct fzn_exchange_record size=190..702
+  @0x0000   2         u16        len  big min=188 max=700
+  @0x0002   188..700  u8         record  big sized-by=len
+
+struct fzn_exchange_records size=4..46005574
+  @0x0000   1         u8         version  must_eq=5
+  @0x0001   1         fzn_exchange_type type  must_eq=records
+  @0x0002   2         u16        count  big
+  @0x0004   0..46005570 fzn_exchange_record records  sized-by=count
+
+struct fzn_exchange_records_query size=48
+  @0x0000   1         u8         version  must_eq=5
+  @0x0001   1         fzn_exchange_type type  must_eq=records_query
+  @0x0002   32        u8         issuer  big
+  @0x0022   4         u32        stream  big
+  @0x0026   8         u64        from  big min=1
+  @0x002e   2         u16        max  big min=1
