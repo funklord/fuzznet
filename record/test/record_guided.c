@@ -233,7 +233,7 @@ static int drive(const uint8_t *data, size_t size)
 		 * over the bytes its signature covers, so the only way to make
 		 * one is to encode it -- and a harness that assembled a struct
 		 * by hand would be driving a shape no consumer can produce. */
-		if (fzn_record_sign(issuer, subject, str, kind_i, seq, seq, bodies[seq % 16u],
+		if (fzn_record_sign(issuer, subject, str, kind_i, seq, NULL, seq, bodies[seq % 16u],
 		                    sizeof(bodies[0]), &sign, buf, FZN_RECORD_MAX_LEN,
 		                    &rec_len) != FZN_RECORD_OK)
 			return 1;

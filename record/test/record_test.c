@@ -67,10 +67,10 @@ static void expect_at(int ok, int line, const char *what)
  * path would make the record module depend on the schema it deliberately does
  * not need. If that ceiling ever moves, this assertion is what fails.
  *
- * 668 against 1024 leaves 356 bytes for whatever a consumer wraps a record
+ * 700 against 1024 leaves 324 bytes for whatever a consumer wraps a record
  * in, at a full 512-byte body. */
-_Static_assert(FZN_RECORD_MAX_LEN == 668u, "a full record is not 668 bytes");
-_Static_assert(FZN_RECORD_MIN_LEN == 156u, "an empty record is not 156 bytes");
+_Static_assert(FZN_RECORD_MAX_LEN == 700u, "a full record is not 700 bytes");
+_Static_assert(FZN_RECORD_MIN_LEN == 188u, "an empty record is not 188 bytes");
 _Static_assert(FZN_RECORD_MAX_LEN <= 1024u,
                 "a full record does not fit frame.situ's payload ceiling");
 
@@ -299,7 +299,7 @@ static void test_is_open_agrees_with_open(void)
 	ops.sign = stub_sign;
 	ops.ctx = &st;
 
-	expect(fzn_record_sign(issuer, subject, 0, 1, 1, 1, body, sizeof(body), &ops, buf,
+	expect(fzn_record_sign(issuer, subject, 0, 1, 1, NULL, 1, body, sizeof(body), &ops, buf,
 	                      sizeof(buf), &wrote) == FZN_RECORD_OK,
 	      "the fixture could not sign a record");
 
@@ -391,7 +391,7 @@ static void test_is_open_agrees_with_open(void)
  * oversized body too. Only a hand-built view gets here -- which is exactly the
  * input class `is_open` exists for.
  *
- * The bound is pinned from both sides. 512 with a 668-byte buffer must be
+ * The bound is pinned from both sides. 512 with a 700-byte buffer must be
  * ACCEPTED and 513 with a 669-byte buffer REFUSED, so a guard that refuses
  * everything long scores nothing here and `>=` in place of `>` goes red. */
 /* A VIEW SHORTER THAN A HEADER, ON A BUFFER SIZED EXACTLY TO IT.
@@ -490,7 +490,7 @@ static void test_is_open_bounds_its_own_reads(void)
 
 static void test_is_open_bounds_the_body(void)
 {
-	/* 156 + 600. Deliberately past FZN_RECORD_MAX_LEN, and the only buffer
+	/* 188 + 600. Deliberately past FZN_RECORD_MAX_LEN, and the only buffer
 	 * in this file that is. */
 	static uint8_t oversize[(size_t)FZN_RECORD_HEADER_LEN + 600u + FZN_SIG_LEN];
 	fzn_sign_ops_t ops;
@@ -565,24 +565,66 @@ static void test_the_sign_operands(void)
 	memset(subject, 0xA2, sizeof(subject));
 	memset(body, 0xA3, sizeof(body));
 
-	expect_err(fzn_record_sign(NULL, subject, 0u, 1u, 1u, 1u, body, sizeof(body), &sign, buf,
+	expect_err(fzn_record_sign(NULL, subject, 0u, 1u, 1u, NULL, 1u, body, sizeof(body), &sign, buf,
 	                      sizeof(buf), &out_len), FZN_RECORD_ERR_MALFORMED,
 	           "sign accepted a null issuer");
-	expect_err(fzn_record_sign(issuer, NULL, 0u, 1u, 1u, 1u, body, sizeof(body), &sign, buf,
+	expect_err(fzn_record_sign(issuer, NULL, 0u, 1u, 1u, NULL, 1u, body, sizeof(body), &sign, buf,
 	                      sizeof(buf), &out_len), FZN_RECORD_ERR_MALFORMED,
 	           "sign accepted a null subject");
-	expect_err(fzn_record_sign(issuer, subject, 0u, 1u, 1u, 1u, body, sizeof(body), NULL, buf,
+	expect_err(fzn_record_sign(issuer, subject, 0u, 1u, 1u, NULL, 1u, body, sizeof(body), NULL, buf,
 	                      sizeof(buf), &out_len), FZN_RECORD_ERR_MALFORMED,
 	           "sign accepted a null signer");
-	expect_err(fzn_record_sign(issuer, subject, 0u, 1u, 1u, 1u, body, sizeof(body), &no_sign, buf,
+	expect_err(fzn_record_sign(issuer, subject, 0u, 1u, 1u, NULL, 1u, body, sizeof(body), &no_sign, buf,
 	                      sizeof(buf), &out_len), FZN_RECORD_ERR_MALFORMED,
 	           "sign accepted a signer struct whose sign member is null");
-	expect_err(fzn_record_sign(issuer, subject, 0u, 1u, 1u, 1u, body, sizeof(body), &sign, NULL,
+	expect_err(fzn_record_sign(issuer, subject, 0u, 1u, 1u, NULL, 1u, body, sizeof(body), &sign, NULL,
 	                      sizeof(buf), &out_len), FZN_RECORD_ERR_MALFORMED,
 	           "sign accepted a null out");
-	expect_err(fzn_record_sign(issuer, subject, 0u, 1u, 1u, 1u, body, sizeof(body), &sign, buf,
+	expect_err(fzn_record_sign(issuer, subject, 0u, 1u, 1u, NULL, 1u, body, sizeof(body), &sign, buf,
 	                      sizeof(buf), NULL), FZN_RECORD_ERR_MALFORMED,
 	           "sign accepted a null out length");
+}
+
+/* A STREAM'S FIRST RECORD NAMES NOTHING, sec 500. `prev` lands at 82 and
+ * reads back; at seq 1 a nonzero one is neither signed nor opened; at a later
+ * seq a zero one is a record (a stream kept unchained) and opens. */
+static void test_prev_and_the_first_record(void)
+{
+	struct stub stub;
+	fzn_sign_ops_t sign = { stub_verify, stub_sign, &stub };
+	uint8_t issuer[FZN_PUBKEY_LEN], subject[FZN_SUBJECT_LEN], prev[FZN_RECORD_ID_LEN];
+	uint8_t body[4], buf[FZN_RECORD_MAX_LEN];
+	size_t len = 0;
+	fzn_record_t r;
+
+	memset(&stub, 0, sizeof(stub));
+	memset(issuer, 0xA1, sizeof(issuer));
+	memcpy(stub.key, issuer, sizeof(stub.key));
+	memset(subject, 0xA2, sizeof(subject));
+	memset(body, 0xA3, sizeof(body));
+	memset(prev, 0x7e, sizeof(prev));
+	expect(fzn_record_sign(issuer, subject, 0u, 1u, 2u, prev, 1u, body, sizeof(body), &sign,
+	                       buf, sizeof(buf), &len) == FZN_RECORD_OK
+	               && fzn_record_open(buf, len, &r) == FZN_RECORD_OK
+	               && buf[82] == 0x7eu && buf[113] == 0x7eu
+	               && memcmp(fzn_record_prev(r), prev, sizeof(prev)) == 0,
+	       "prev did not land at 82, or did not read back");
+	expect_err(fzn_record_sign(issuer, subject, 0u, 1u, 1u, prev, 1u, body, sizeof(body),
+	                           &sign, buf, sizeof(buf), &len),
+	           FZN_RECORD_ERR_MALFORMED, "a first record naming a predecessor was signed");
+	expect(fzn_record_sign(issuer, subject, 0u, 1u, 1u, NULL, 1u, body, sizeof(body), &sign,
+	                       buf, sizeof(buf), &len) == FZN_RECORD_OK,
+	       "fixture: a first record");
+	buf[100] = 1u;
+	expect_err(fzn_record_open(buf, len, &r), FZN_RECORD_ERR_SHAPE,
+	           "a first record naming a predecessor opened");
+	r.base = buf;
+	r.len = len;
+	expect(!fzn_record_is_open(r), "is_open took a first record naming a predecessor");
+	expect(fzn_record_sign(issuer, subject, 0u, 1u, 9u, NULL, 1u, body, sizeof(body), &sign,
+	                       buf, sizeof(buf), &len) == FZN_RECORD_OK
+	               && fzn_record_open(buf, len, &r) == FZN_RECORD_OK,
+	       "a later record keeping no chain did not open");
 }
 
 int main(void)
@@ -612,7 +654,7 @@ int main(void)
 	 * The second half is only checkable because the stub signer is a
 	 * deterministic function of what it is handed -- which it is on
 	 * purpose, and which a real Ed25519 signer also is. */
-	expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, ISSUED_AT, body,
+	expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, NULL, ISSUED_AT, body,
 	                           sizeof(body), &sign, genuine, sizeof(genuine), &genuine_len),
 	           FZN_RECORD_OK, "signing a well-formed record");
 	expect(genuine_len == FZN_RECORD_HEADER_LEN + sizeof(body) + FZN_SIG_LEN,
@@ -657,7 +699,7 @@ int main(void)
 
 		expect_err(fzn_record_sign(fzn_record_issuer(rec), fzn_record_subject(rec),
 		                           fzn_record_stream(rec), fzn_record_kind(rec),
-		                           fzn_record_seq(rec), fzn_record_issued_at(rec),
+		                           fzn_record_seq(rec), NULL, fzn_record_issued_at(rec),
 		                           fzn_record_body(rec), fzn_record_body_len(rec),
 		                           &sign, again, sizeof(again), &again_len),
 		           FZN_RECORD_OK, "re-encoding what open read back");
@@ -756,7 +798,7 @@ int main(void)
 		fzn_record_t r;
 
 		memset(big_body, 0xc0, sizeof(big_body));
-		expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, ISSUED_AT,
+		expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, NULL, ISSUED_AT,
 		                           big_body, sizeof(big_body), &sign, big, sizeof(big),
 		                           &big_len),
 		           FZN_RECORD_OK, "signing a record with a 64-byte body");
@@ -847,7 +889,7 @@ int main(void)
 		fzn_record_t r;
 
 		memset(max_body, 0x5a, sizeof(max_body));
-		expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, ISSUED_AT,
+		expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, NULL, ISSUED_AT,
 		                           max_body, FZN_RECORD_BODY_MAX, &sign, full,
 		                           sizeof(full), &full_len),
 		           FZN_RECORD_OK, "signing a body exactly at the bound");
@@ -859,7 +901,7 @@ int main(void)
 		           "verifying a record with a body at the bound");
 
 		/* One past it, refused by the encoder. */
-		expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, ISSUED_AT,
+		expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, NULL, ISSUED_AT,
 		                           max_body, FZN_RECORD_BODY_MAX + 1u, &sign, over,
 		                           sizeof(over), &full_len),
 		           FZN_RECORD_ERR_BODY_TOO_LARGE, "signing a body past the bound");
@@ -885,7 +927,7 @@ int main(void)
 		size_t empty_len = 0;
 		fzn_record_t r;
 
-		expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, ISSUED_AT, NULL,
+		expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, NULL, ISSUED_AT, NULL,
 		                           0, &sign, empty, sizeof(empty), &empty_len),
 		           FZN_RECORD_OK, "signing a record with no body");
 		expect(empty_len == FZN_RECORD_MIN_LEN,
@@ -927,29 +969,29 @@ int main(void)
 			           FZN_RECORD_ERR_MALFORMED, "verifying a view nobody opened");
 		}
 
-		expect_err(fzn_record_sign(NULL, subject, STREAM, KIND, SEQ, ISSUED_AT, body,
+		expect_err(fzn_record_sign(NULL, subject, STREAM, KIND, SEQ, NULL, ISSUED_AT, body,
 		                           sizeof(body), &sign, small, sizeof(small), &n),
 		           FZN_RECORD_ERR_MALFORMED, "signing with no issuer");
-		expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, ISSUED_AT, body,
+		expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, NULL, ISSUED_AT, body,
 		                           sizeof(body), &no_sign, small, sizeof(small), &n),
 		           FZN_RECORD_ERR_MALFORMED, "signing with sign ops that have no sign");
-		expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, ISSUED_AT, NULL,
+		expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, NULL, ISSUED_AT, NULL,
 		                           4, &sign, small, sizeof(small), &n),
 		           FZN_RECORD_ERR_MALFORMED, "signing a null body of non-zero length");
-		expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, 0, ISSUED_AT, body,
+		expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, 0, NULL, ISSUED_AT, body,
 		                           sizeof(body), &sign, small, sizeof(small), &n),
 		           FZN_RECORD_ERR_SEQ_ZERO, "signing a record at sequence zero");
 
 		/* `small` holds a record with no body and this one has four
 		 * bytes of it, so the buffer is short by exactly four. */
-		expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, ISSUED_AT, body,
+		expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, NULL, ISSUED_AT, body,
 		                           sizeof(body), &sign, small, sizeof(small), &n),
 		           FZN_RECORD_ERR_MALFORMED, "signing into a buffer four bytes short");
 		expect(n == 0, "a failed sign reported a length");
 
 		/* A signer that refuses is UNSIGNED, not MALFORMED: the request
 		 * was well formed and the answer was no. */
-		expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, ISSUED_AT, NULL,
+		expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, NULL, ISSUED_AT, NULL,
 		                           0, &refuses, small, sizeof(small), &n),
 		           FZN_RECORD_ERR_UNSIGNED, "a signer that refuses");
 
@@ -966,7 +1008,7 @@ int main(void)
 			size_t nonzero = 0;
 			size_t i;
 
-			expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, ISSUED_AT,
+			expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ, NULL, ISSUED_AT,
 			                           body, sizeof(body), &sign, reused,
 			                           sizeof(reused), &good_len),
 			           FZN_RECORD_OK, "the first record into the shared buffer");
@@ -977,7 +1019,7 @@ int main(void)
 			expect(nonzero != 0, "the fixture's signature is all zero, so this "
 			                     "proves nothing");
 
-			expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ + 1u,
+			expect_err(fzn_record_sign(issuer, subject, STREAM, KIND, SEQ + 1u, NULL,
 			                           ISSUED_AT, body, sizeof(body), &refuses,
 			                           reused, sizeof(reused), &n),
 			           FZN_RECORD_ERR_UNSIGNED, "the refused record into the same "
@@ -1006,6 +1048,7 @@ int main(void)
 	test_is_open_bounds_the_body();
 	test_the_sign_operands();
 
+	test_prev_and_the_first_record();
 	printf("record_test: %d checks, %d failure(s)\n", checks, failures);
 
 	return failures == 0 ? 0 : 1;

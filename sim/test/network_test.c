@@ -2735,7 +2735,7 @@ static void sim_make_record(struct sim_net *net, fzn_record_t *r, const struct s
 	 * `fzn_record_issuer` -- so the two agree only for a record whose issuer
 	 * really made it. `sim_receive_record` below is where that check now
 	 * happens, and `scenario_forgery` is what proves it discriminates. */
-	if (fzn_record_sign(issuer->pubkey, subject, STREAM_STATE, KIND_SETTING, seq, 1,
+	if (fzn_record_sign(issuer->pubkey, subject, STREAM_STATE, KIND_SETTING, seq, NULL, 1,
 	                    state_bodies[issuer->id][seq - 1u], sizeof(state_bodies[0][0]),
 	                    sim_signer(&signer, &net->sign, issuer->pubkey),
 	                    wire, FZN_RECORD_MAX_LEN, &wrote) != FZN_RECORD_OK)
@@ -3037,7 +3037,7 @@ static size_t sim_sign_record_as(const struct sim_net *net,
 
 	memset(subject, subject_seed, sizeof(subject));
 	memset(body, subject_seed, sizeof(body));
-	if (fzn_record_sign(issuer, subject, STREAM_STATE, KIND_SETTING, seq, 1, body,
+	if (fzn_record_sign(issuer, subject, STREAM_STATE, KIND_SETTING, seq, NULL, 1, body,
 	                    sizeof(body), sim_signer(&who, &net->sign, signer), out,
 	                    FZN_RECORD_MAX_LEN, &wrote) != FZN_RECORD_OK)
 		return 0;
@@ -4744,7 +4744,7 @@ static void scenario_gui_to_peer(void)
 	check(fzn_vocabulary_admit(&admin, verb_set, sizeof(verb_set) - 1u, rules, 1u)
 	              == FZN_PEER_MEMBER,
 	      "a client in the named group was not admitted");
-	check(fzn_record_sign(daemon->pubkey, subject, 0u, 1u, 1u, net.now, value,
+	check(fzn_record_sign(daemon->pubkey, subject, 0u, 1u, 1u, NULL, net.now, value,
 	                      sizeof(value), sim_signer(&signer, &net.sign, daemon->pubkey),
 	                      rec_wire, sizeof(rec_wire), &wrote) == FZN_RECORD_OK,
 	      "the daemon could not sign the setting it was asked for");
@@ -5368,7 +5368,7 @@ static void tree_make(struct sim_net *net, size_t n)
 		setup_faults++;
 		return;
 	}
-	if (fzn_record_sign(h->pubkey, id, STREAM_TREE, KIND_NODE, (uint64_t)n + 1u, 1,
+	if (fzn_record_sign(h->pubkey, id, STREAM_TREE, KIND_NODE, (uint64_t)n + 1u, NULL, 1,
 	                    body, body_len,
 	                    sim_signer(&signer, &net->sign, h->pubkey),
 	                    tree_wire[n], FZN_RECORD_MAX_LEN, &tree_wire_len[n])

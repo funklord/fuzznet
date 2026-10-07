@@ -134,7 +134,7 @@ static fzn_notes_err_t write_note(const fzn_notes_author_t *a,
 	err = fzn_notes_next_seq(a->store, a->issuer, &seq);
 	if (err != FZN_NOTES_OK)
 		return err;
-	if (fzn_record_sign(a->issuer, id, FZN_NOTE_STREAM, FZN_NOTE_KIND, seq, now_ms, body,
+	if (fzn_record_sign(a->issuer, id, FZN_NOTE_STREAM, FZN_NOTE_KIND, seq, NULL, now_ms, body,
 	                    body_len, a->sign, record, sizeof(record), &record_len)
 	    != FZN_RECORD_OK)
 		return FZN_NOTES_ERR_MALFORMED;

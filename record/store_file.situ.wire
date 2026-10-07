@@ -18,6 +18,6 @@
 endian big
 target file
 
-struct fzn_record_store_slot size=2..670
-  @0x0000   2         u16        len  big max=668
-  @0x0002   0..668    u8         record  sized-by=len
+struct fzn_record_store_slot size=2..702
+  @0x0000   2         u16        len  big max=700
+  @0x0002   0..700    u8         record  sized-by=len

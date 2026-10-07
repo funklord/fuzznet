@@ -225,7 +225,7 @@ static void test_one_signature_serves_two_fidelities(void)
 
 	/* THE BODY IS THE ROOT AND NOTHING ELSE. 32 opaque bytes, which
 	 * `record/` already carries without interpreting. */
-	if (fzn_record_sign(issuer_pub, subject, 1u, 9u, 1u, 1000u, root,
+	if (fzn_record_sign(issuer_pub, subject, 1u, 9u, 1u, NULL, 1000u, root,
 	                    FZN_BLOB_HASH_LEN, &issuer_sign, record_bytes,
 	                    sizeof(record_bytes), &record_len) != FZN_RECORD_OK) {
 		check(0, "the record did not sign, so nothing below is tested");
@@ -272,7 +272,7 @@ static void test_one_signature_serves_two_fidelities(void)
 		uint8_t again[FZN_RECORD_MAX_LEN];
 		size_t again_len = 0;
 
-		check(fzn_record_sign(issuer_pub, subject, 1u, 9u, 1u, 1000u, root,
+		check(fzn_record_sign(issuer_pub, subject, 1u, 9u, 1u, NULL, 1000u, root,
 		                      FZN_BLOB_HASH_LEN, &issuer_sign, again, sizeof(again),
 		                      &again_len) == FZN_RECORD_OK,
 		      "the record did not re-sign");

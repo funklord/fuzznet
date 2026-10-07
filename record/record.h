@@ -70,13 +70,22 @@
  *       66     4  stream
  *       70     4  kind
  *       74     8  seq
- *       82     8  issued_at
- *       90     2  body_len
- *       92     n  body       (n = body_len, 0..FZN_RECORD_BODY_MAX)
- *     92+n    64  signature
+ *       82    32  prev       (the id of this stream's previous record)
+ *      114     8  issued_at
+ *      122     2  body_len
+ *      124     n  body       (n = body_len, 0..FZN_RECORD_BODY_MAX)
+ *    124+n    64  signature
  *
- * So a record is 156 bytes plus its body, and at most 668. That fits
- * `frame.situ`'s `u16 length [max = 1024]` payload ceiling with 356 bytes to
+ * `prev` arrived in sec 500, when this module became the journal every key's
+ * acts are kept in: each record names its predecessor in the same (issuer,
+ * stream) by ID -- the hash of its whole bytes -- so a stream is a chain, a
+ * fork is two records naming one predecessor, and a revocation's line is a
+ * record in it. Zero at seq 1, refused otherwise there. Zero at a later seq
+ * says the issuer keeps no chain in this stream, which a record may say and
+ * a chained journal (`fzn_journal_admit_chained`) refuses.
+ *
+ * So a record is 188 bytes plus its body, and at most 700. That fits
+ * `frame.situ`'s `u16 length [max = 1024]` payload ceiling with 324 bytes to
  * spare even at a full body, which is checked rather than assumed in
  * `record/test/record_test.c`.
  *
@@ -170,9 +179,13 @@
 FZN_STATIC_ASSERT(FZN_STREAM_RESERVED <= FZN_STREAM_INDEX_MAX,
                "the reserved stream range must fit inside product 0's half");
 
+/* A RECORD'S ID: the hash of its whole bytes, signature included, as every
+ * signed object here is named. What `prev` holds and a cut names. sec 500. */
+#define FZN_RECORD_ID_LEN 32u
+
 /* WHERE EACH FIELD SITS. Written as a running sum of the field widths rather
  * than as literals, so that changing a width cannot leave an offset behind:
- * the arithmetic is the layout. `record.c` asserts the total against the 92
+ * the arithmetic is the layout. `record.c` asserts the total against the 124
  * the header comment states, which is the one place a literal appears and the
  * one place a reader checks it against the table. */
 #define FZN_RECORD_OFF_VERSION   0u
@@ -182,7 +195,8 @@ FZN_STATIC_ASSERT(FZN_STREAM_RESERVED <= FZN_STREAM_INDEX_MAX,
 #define FZN_RECORD_OFF_STREAM    (FZN_RECORD_OFF_SUBJECT + FZN_SUBJECT_LEN)
 #define FZN_RECORD_OFF_KIND      (FZN_RECORD_OFF_STREAM + 4u)
 #define FZN_RECORD_OFF_SEQ       (FZN_RECORD_OFF_KIND + 4u)
-#define FZN_RECORD_OFF_ISSUED_AT (FZN_RECORD_OFF_SEQ + 8u)
+#define FZN_RECORD_OFF_PREV      (FZN_RECORD_OFF_SEQ + 8u)
+#define FZN_RECORD_OFF_ISSUED_AT (FZN_RECORD_OFF_PREV + FZN_RECORD_ID_LEN)
 #define FZN_RECORD_OFF_BODY_LEN  (FZN_RECORD_OFF_ISSUED_AT + 8u)
 #define FZN_RECORD_OFF_BODY      (FZN_RECORD_OFF_BODY_LEN + 2u)
 
@@ -317,6 +331,18 @@ static inline int fzn_record_is_open(fzn_record_t r)
 	 * cases and every one of them was this. */
 	if (fzn_get_be64(r.base + FZN_RECORD_OFF_SEQ) == 0u)
 		return 0;
+	/* AND A FIRST RECORD NAMING A PREDECESSOR, which `fzn_record_open`
+	 * refuses since sec 500: the fuzz harness compares the two on every
+	 * input, and they must refuse the same things. */
+	if (fzn_get_be64(r.base + FZN_RECORD_OFF_SEQ) == 1u) {
+		uint8_t acc = 0;
+		size_t i;
+
+		for (i = 0; i < FZN_RECORD_ID_LEN; i++)
+			acc |= r.base[FZN_RECORD_OFF_PREV + i];
+		if (acc != 0u)
+			return 0;
+	}
 
 	/* EXACT, not "at least". A buffer longer than the record it holds is a
 	 * different fault from a short one and neither is a record. */
@@ -396,6 +422,13 @@ static inline uint32_t fzn_record_kind(fzn_record_t r)
 static inline uint64_t fzn_record_seq(fzn_record_t r)
 {
 	return fzn_get_be64(r.base + FZN_RECORD_OFF_SEQ);
+}
+
+/* The id of the previous record in this (issuer, stream), sec 500: all-zero
+ * at seq 1, and at a later seq for a stream its issuer keeps unchained. */
+static inline const uint8_t *fzn_record_prev(fzn_record_t r)
+{
+	return r.base + FZN_RECORD_OFF_PREV;
 }
 
 /* THE ISSUER'S CLOCK, AND NOT TRUSTED FOR ORDERING. Clocks disagree;
@@ -498,7 +531,8 @@ fzn_record_err_t fzn_record_verify(fzn_record_t record, const fzn_sign_ops_t *si
  * fields with a bound; FZN_RECORD_ERR_UNSIGNED if the signer refuses. */
 fzn_record_err_t fzn_record_sign(const uint8_t issuer[FZN_PUBKEY_LEN],
                                  const uint8_t subject[FZN_SUBJECT_LEN], uint32_t stream,
-                                 uint32_t kind, uint64_t seq, uint64_t issued_at,
+                                 uint32_t kind, uint64_t seq,
+                                 const uint8_t prev[FZN_RECORD_ID_LEN], uint64_t issued_at,
                                  const uint8_t *body, size_t body_len,
                                  const fzn_sign_ops_t *sign, uint8_t *out, size_t out_cap,
                                  size_t *out_len);

@@ -204,7 +204,7 @@ static size_t node_of(int slot, uint8_t *key, uint8_t id, uint8_t parent, uint64
 	up[0] = parent;
 	if (fzn_tree_body(up, 100u * id, FZN_NOTE_TYPE_NOTE, (const uint8_t *)content,
 	                  strlen(content), body, sizeof(body), &body_len) != FZN_TREE_OK
-	    || fzn_record_sign(key, subject, stream, kind, seq, 1000u, body, body_len, &signer,
+	    || fzn_record_sign(key, subject, stream, kind, seq, NULL, 1000u, body, body_len, &signer,
 	                       buf[slot], FZN_RECORD_MAX_LEN, &len) != FZN_RECORD_OK) {
 		CHECK(0, "fixture: a node record would not sign");
 		return 0;
@@ -858,7 +858,7 @@ static void test_authoring(void)
 		CHECK(fzn_tree_body(folder, 1u, 0x7777u, bad, sizeof(bad), body, sizeof(body),
 		                    &body_len)
 		                      == FZN_TREE_OK
-		              && fzn_record_sign(KEY_B, subject, FZN_NOTE_STREAM, FZN_NOTE_KIND, 900u,
+		              && fzn_record_sign(KEY_B, subject, FZN_NOTE_STREAM, FZN_NOTE_KIND, 900u, NULL,
 		                                 1u, body, body_len, &signer, buf[0], FZN_RECORD_MAX_LEN,
 		                                 &len)
 		                         == FZN_RECORD_OK,

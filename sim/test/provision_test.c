@@ -569,7 +569,7 @@ int main(void)
 		for (i = 0; i < sizeof(body); i++)
 			body[i] = (uint8_t)((i * 7u) + 1u);
 
-		check(fzn_record_sign(device_pub, subject, STREAM, KIND, 1u, 1000u, body,
+		check(fzn_record_sign(device_pub, subject, STREAM, KIND, 1u, NULL, 1000u, body,
 		                      sizeof(body), &device_sign, wire, sizeof(wire),
 		                      &wire_len) == FZN_RECORD_OK,
 		      "the device could not sign the record it wants to send");
@@ -1785,7 +1785,7 @@ int main(void)
 		check(fzn_tree_body(root_id, 100u, 1u, CONTENT, sizeof(CONTENT), body,
 		                    sizeof(body), &body_len) == FZN_TREE_OK,
 		      "a node body would not encode");
-		check(fzn_record_sign(device_pub, id_first, FZN_STREAM_RESERVED + 3u, 7u, 1u,
+		check(fzn_record_sign(device_pub, id_first, FZN_STREAM_RESERVED + 3u, 7u, 1u, NULL,
 		                      1000u, body, body_len, &device_sign, node_wire,
 		                      sizeof(node_wire), &node_len) == FZN_RECORD_OK,
 		      "the node's record would not sign");

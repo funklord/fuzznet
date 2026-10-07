@@ -87,10 +87,11 @@ static void expect_at(int ok, int line, const char *what)
  *       66     4  stream
  *       70     4  kind
  *       74     8  seq
- *       82     8  issued_at
- *       90     2  body_len
- *       92     n  body
- *     92+n    64  signature
+ *       82    32  prev       (sec 500)
+ *      114     8  issued_at
+ *      122     2  body_len
+ *      124     n  body
+ *    124+n    64  signature
  */
 #define KAT_OFF_VERSION    0
 #define KAT_OFF_OBJECT     1
@@ -99,13 +100,14 @@ static void expect_at(int ok, int line, const char *what)
 #define KAT_OFF_STREAM    66
 #define KAT_OFF_KIND      70
 #define KAT_OFF_SEQ       74
-#define KAT_OFF_ISSUED_AT 82
-#define KAT_OFF_BODY_LEN  90
-#define KAT_OFF_BODY      92
-#define KAT_HEADER_LEN    92
+#define KAT_OFF_PREV      82
+#define KAT_OFF_ISSUED_AT 114
+#define KAT_OFF_BODY_LEN  122
+#define KAT_OFF_BODY      124
+#define KAT_HEADER_LEN    124
 #define KAT_SIG_LEN       64
-#define KAT_MIN_LEN      156   /* 92 + 0 + 64 */
-#define KAT_MAX_LEN      668   /* 92 + 512 + 64 */
+#define KAT_MIN_LEN      188   /* 124 + 0 + 64 */
+#define KAT_MAX_LEN      700   /* 124 + 512 + 64 */
 
 static void test_the_constants_match_the_table(void)
 {
@@ -116,17 +118,18 @@ static void test_the_constants_match_the_table(void)
 	expect(FZN_RECORD_OFF_STREAM == KAT_OFF_STREAM, "stream is not at 66");
 	expect(FZN_RECORD_OFF_KIND == KAT_OFF_KIND, "kind is not at 70");
 	expect(FZN_RECORD_OFF_SEQ == KAT_OFF_SEQ, "seq is not at 74");
+	expect(FZN_RECORD_OFF_PREV == KAT_OFF_PREV, "prev is not at 82");
 	expect(FZN_RECORD_OFF_ISSUED_AT == KAT_OFF_ISSUED_AT,
-	       "issued_at is not at 82");
+	       "issued_at is not at 114");
 	expect(FZN_RECORD_OFF_BODY_LEN == KAT_OFF_BODY_LEN,
-	       "body_len is not at 90");
-	expect(FZN_RECORD_OFF_BODY == KAT_OFF_BODY, "the body is not at 92");
-	expect(FZN_RECORD_HEADER_LEN == KAT_HEADER_LEN, "the header is not 92");
+	       "body_len is not at 122");
+	expect(FZN_RECORD_OFF_BODY == KAT_OFF_BODY, "the body is not at 124");
+	expect(FZN_RECORD_HEADER_LEN == KAT_HEADER_LEN, "the header is not 124");
 	expect(FZN_SIG_LEN == KAT_SIG_LEN, "a signature is not 64 bytes");
 	expect((size_t)FZN_RECORD_MIN_LEN == (size_t)KAT_MIN_LEN,
-	       "the minimum record is not 156 bytes");
+	       "the minimum record is not 188 bytes");
 	expect((size_t)FZN_RECORD_MAX_LEN == (size_t)KAT_MAX_LEN,
-	       "the maximum record is not 668 bytes");
+	       "the maximum record is not 700 bytes");
 	expect(FZN_PUBKEY_LEN == 32, "an issuer is not 32 bytes");
 	expect(FZN_SUBJECT_LEN == 32, "a subject is not 32 bytes");
 }
@@ -151,6 +154,14 @@ static const uint8_t KAT_SUBJECT[32] = {
 #define KAT_SEQ       0x0011223344556677ull
 #define KAT_ISSUED_AT 0x8899AABBCCDDEEFFull
 static const uint8_t KAT_BODY[4] = { 0xDE, 0xAD, 0xBE, 0xEF };
+/* The predecessor's id: 0x33 repeated, nonzero so that the vector shows where
+ * it lands, which a zero one would not. */
+static const uint8_t KAT_PREV[32] = {
+	0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+	0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+	0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+	0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33
+};
 
 /* The signed range, written out from the table. The signature follows and is
  * the stub's, so it is not part of this array. */
@@ -173,11 +184,16 @@ static const uint8_t KAT_SIGNED[KAT_HEADER_LEN + 4] = {
 	0x00, 0xC0, 0xFF, 0xEE,
 	/* 74..81  seq, big-endian */
 	0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
-	/* 82..89  issued_at, big-endian */
+	/* 82..113 prev, the vector's KAT_PREV */
+	0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+	0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+	0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+	0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33,
+	/* 114..121 issued_at, big-endian */
 	0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF,
-	/* 90..91  body_len, big-endian */
+	/* 122..123 body_len, big-endian */
 	0x00, 0x04,
-	/* 92..95  body */
+	/* 124..127 body */
 	0xDE, 0xAD, 0xBE, 0xEF
 };
 
@@ -215,7 +231,7 @@ static void test_the_encoder_produces_these_bytes(void)
 
 	memset(out, 0xA5, sizeof(out));
 	expect(fzn_record_sign(KAT_ISSUER, KAT_SUBJECT, KAT_STREAM, KAT_KIND,
-	                       KAT_SEQ, KAT_ISSUED_AT, KAT_BODY, sizeof(KAT_BODY),
+	                       KAT_SEQ, KAT_PREV, KAT_ISSUED_AT, KAT_BODY, sizeof(KAT_BODY),
 	                       &stub, out, sizeof(out), &out_len) == FZN_RECORD_OK,
 	       "the vector's record was refused");
 	expect(out_len == sizeof(KAT_SIGNED) + KAT_SIG_LEN,

@@ -168,7 +168,7 @@ static void make_keyed(fzn_record_t *r, const uint8_t issuer[FZN_PUBKEY_LEN],
 	memset(&ops, 0, sizeof(ops));
 	ops.sign = fixture_sign;
 
-	if (fzn_record_sign(issuer, subject, stream, kind, seq, 1, body, body_len, &ops, slot,
+	if (fzn_record_sign(issuer, subject, stream, kind, seq, NULL, 1, body, body_len, &ops, slot,
 	                    FZN_RECORD_MAX_LEN, &wrote) != FZN_RECORD_OK) {
 		fprintf(stderr, "  FAIL state_test.c: the fixture could not sign a record\n");
 		failures++;

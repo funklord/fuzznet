@@ -128,7 +128,7 @@ static fzn_record_t make(uint8_t *buf, size_t cap, const uint8_t *issuer, uint32
 	memset(&r, 0, sizeof(r));
 	memset(body, (int)(seq & 0xffu), body_len);
 	memcpy(signing_key, issuer, FZN_PUBKEY_LEN);
-	if (fzn_record_sign(issuer, SUBJECT, stream, 1u, seq, 1u, body, body_len, &SIGN, buf,
+	if (fzn_record_sign(issuer, SUBJECT, stream, 1u, seq, NULL, 1u, body, body_len, &SIGN, buf,
 	                    cap, &wrote) != FZN_RECORD_OK)
 		return r;
 	if (fzn_record_open(buf, wrote, &r) != FZN_RECORD_OK)

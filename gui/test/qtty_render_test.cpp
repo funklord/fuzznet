@@ -115,7 +115,7 @@ static int make(fzn_record_t *r, size_t which, uint64_t seq, const uint8_t *body
 
 	memset(&ops, 0, sizeof(ops));
 	ops.sign = stub_sign;
-	if (fzn_record_sign(ISSUER, SUBJECT, 5u, 3u, seq, 1u, body, body_len, &ops,
+	if (fzn_record_sign(ISSUER, SUBJECT, 5u, 3u, seq, NULL, 1u, body, body_len, &ops,
 	                    SLOTS[which], FZN_RECORD_MAX_LEN, &wrote) != FZN_RECORD_OK)
 		return 0;
 	return fzn_record_open(SLOTS[which], wrote, r) == FZN_RECORD_OK;

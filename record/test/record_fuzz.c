@@ -143,22 +143,24 @@
 #define WANT_VERSION      1u
 #define WANT_OBJECT       130u
 #define WANT_OFF_SEQ      74u
-#define WANT_OFF_BODY_LEN 90u
-#define WANT_HEADER_LEN   92u
+#define WANT_OFF_PREV     82u
+#define WANT_OFF_BODY_LEN 122u
+#define WANT_HEADER_LEN   124u
 #define WANT_BODY_MAX     512u
 #define WANT_SIG_LEN      64u
-#define WANT_MIN_LEN      156u
-#define WANT_MAX_LEN      668u
+#define WANT_MIN_LEN      188u
+#define WANT_MAX_LEN      700u
 
 _Static_assert(WANT_VERSION == (unsigned)FZN_SIGNED_VERSION, "oracle: the version byte moved");
 _Static_assert(WANT_OBJECT == (unsigned)FZN_OBJECT_RECORD, "oracle: the object byte moved");
 _Static_assert(WANT_OFF_SEQ == FZN_RECORD_OFF_SEQ, "oracle: seq moved");
+_Static_assert(WANT_OFF_PREV == FZN_RECORD_OFF_PREV, "oracle: prev moved");
 _Static_assert(WANT_OFF_BODY_LEN == FZN_RECORD_OFF_BODY_LEN, "oracle: body_len moved");
-_Static_assert(WANT_HEADER_LEN == FZN_RECORD_HEADER_LEN, "oracle: the header is not 92 bytes");
+_Static_assert(WANT_HEADER_LEN == FZN_RECORD_HEADER_LEN, "oracle: the header is not 124 bytes");
 _Static_assert(WANT_BODY_MAX == FZN_RECORD_BODY_MAX, "oracle: the body bound moved");
 _Static_assert(WANT_SIG_LEN == FZN_SIG_LEN, "oracle: the signature length moved");
-_Static_assert(WANT_MIN_LEN == FZN_RECORD_MIN_LEN, "oracle: an empty record is not 156 bytes");
-_Static_assert(WANT_MAX_LEN == FZN_RECORD_MAX_LEN, "oracle: a full record is not 668 bytes");
+_Static_assert(WANT_MIN_LEN == FZN_RECORD_MIN_LEN, "oracle: an empty record is not 188 bytes");
+_Static_assert(WANT_MAX_LEN == FZN_RECORD_MAX_LEN, "oracle: a full record is not 700 bytes");
 
 /* Four past the longest record, so that a length ABOVE the one the bytes
  * claim is an ordinary case rather than one nobody can construct. The slack
@@ -316,6 +318,12 @@ static fzn_record_err_t open_ought(const uint8_t *bytes, size_t len)
 		seq = (seq << 8) | (uint64_t)bytes[WANT_OFF_SEQ + i];
 	if (seq == 0)
 		return FZN_RECORD_ERR_SEQ_ZERO;
+	/* A FIRST RECORD NAMES NO PREDECESSOR, the header's table says since
+	 * sec 500: any nonzero byte of `prev` at seq 1 is not a record. */
+	if (seq == 1u)
+		for (i = 0; i < 32u; i++)
+			if (bytes[WANT_OFF_PREV + i] != 0u)
+				return FZN_RECORD_ERR_SHAPE;
 
 	return FZN_RECORD_OK;
 }
@@ -368,7 +376,7 @@ static fzn_record_err_t sign_ought(const struct fields *f, size_t out_cap)
 static fzn_record_err_t mint(const struct fields *f, const fzn_sign_ops_t *ops, uint8_t *out,
                              size_t out_cap, size_t *out_len)
 {
-	return fzn_record_sign(f->issuer, f->subject, f->stream, f->kind, f->seq, f->issued_at,
+	return fzn_record_sign(f->issuer, f->subject, f->stream, f->kind, f->seq, NULL, f->issued_at,
 	                       f->body, f->body_len, ops, out, out_cap, out_len);
 }
 

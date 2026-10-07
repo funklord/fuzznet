@@ -186,9 +186,9 @@ typedef enum fzn_signed_object {
 	 * sec 13d the design. It is the fourth object one root key signs
 	 * through this seam, and it is the one that makes the paragraph above
 	 * concrete rather than cautionary: a manifest of n pairs is 100 + 64n
-	 * bytes, a record is 156 to 668, so a one-pair manifest and a record
-	 * with an 8-byte body are both 164 -- and every manifest from one
-	 * pair to eight has a record of exactly its length. Same seam, same
+	 * bytes, a record is 188 to 700, so a two-pair manifest and a record
+	 * with a 40-byte body are both 228 -- and every manifest from two
+	 * pairs to nine has a record of exactly its length. Same seam, same
 	 * key, colliding lengths, which is fuzzypickles' incident with the
 	 * numbers changed. The tag is what separates them. */
 	FZN_OBJECT_MANIFEST = 131u,
@@ -201,7 +201,8 @@ typedef enum fzn_signed_object {
 	 * and subject are the same 32 bytes -- so without a tag, a host's
 	 * prekey record and any other object that key signs are separated by
 	 * nothing but their lengths, and this one is 138 bytes, which is
-	 * inside a record's 156-to-668 range at no distance at all. */
+	 * 50 bytes short of a record's 188-to-700 range, which is no distance
+	 * worth relying on. */
 	FZN_OBJECT_PREKEY = 132u,
 	/* A withdrawal: the record that undoes a revocation, naming it by
 	 * hash. `chain/revocation.h` carries the layout and project.md sec 56

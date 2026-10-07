@@ -67,7 +67,7 @@ static int make(fzn_record_t *r, const uint8_t issuer[FZN_PUBKEY_LEN],
 	memset(&ops, 0, sizeof(ops));
 	ops.sign = fixture_sign;
 
-	if (fzn_record_sign(issuer, subject, 1u, kind, seq, 1, body, body_len, &ops, slot,
+	if (fzn_record_sign(issuer, subject, 1u, kind, seq, NULL, 1, body, body_len, &ops, slot,
 	                    FZN_RECORD_MAX_LEN, &wrote) != FZN_RECORD_OK)
 		return 0;
 	return fzn_record_open(slot, wrote, r) == FZN_RECORD_OK;

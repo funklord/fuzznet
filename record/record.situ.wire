@@ -18,7 +18,7 @@
 endian big
 target buffer
 
-struct fzn_record size=156..668
+struct fzn_record size=188..700
   @0x0000   1         u8         version  must_eq=1
   @0x0001   1         u8         object  must_eq=130
   @0x0002   32        u8         issuer  big
@@ -26,8 +26,9 @@ struct fzn_record size=156..668
   @0x0042   4         u32        stream  big
   @0x0046   4         u32        kind  big
   @0x004a   8         u64        seq  big
-  @0x0052   8         u64        issued_at  big
-  @0x005a   2         u16        body_len  big max=512
-  @0x005c   0..512    u8         content  sized-by=body_len
+  @0x0052   32        u8         prev  big
+  @0x0072   8         u64        issued_at  big
+  @0x007a   2         u16        body_len  big max=512
+  @0x007c   0..512    u8         content  sized-by=body_len
   ~         64        u8         signature
-  signature covers: body body_len content issued_at issuer kind object seq stream subject version
+  signature covers: body body_len content issued_at issuer kind object prev seq stream subject version

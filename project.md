@@ -57007,3 +57007,128 @@ to the device.
 
 Two later admin-grant checks counted the store's confirmations from zero.
 They now count from what the re-key left.
+
+## 500. One journal for every act, decided; stage 1, records chain, 2026-10-07
+
+**The holder's decision of 2026-10-07, on sec 498's proposal:** "There are
+no users, change is cheap now, so let's do it." Every act a key signs
+becomes a record in that key's journal, carried by one sync. Wire breaks
+are accepted, and no old carriage has to coexist once its kind has moved.
+
+### The plan
+
+1. **Records chain.** A record names its predecessor in its (issuer,
+   stream). A journal refuses a record that does not extend the chain it
+   holds, and a record store answers whether an act stands under a cut.
+   This is the act log's machinery (secs 404 and 496), moved into
+   `record/`. **Built in this section.**
+2. **The node runs the journal.**
+   - Each key gets one estate stream, served from a record store and
+     pulled with `record/sync`'s digest and fetch plan.
+   - A node follows every key the estate admits, and nothing else, since
+     adopting a stream stays deliberate (`fzn_journal_anchor`).
+3. **Each security object becomes a record kind,** one at a time:
+   - root changes and settings;
+   - revocation votes and withdrawals;
+   - confirmations;
+   - roster records;
+   - successions.
+
+   Each kind's `chain/` codec reads and writes a record's body, and its
+   item in the `get vote` and `get root` streams is deleted.
+   - **Grants are logged as GRANT records** carrying the hop, so a key's
+     chain can be rebuilt from its grantors' journals.
+   - **Hops stay standalone credentials**, since a card and the remote hop
+     present them.
+4. **The act log and the item streams retire.** A revocation's cut becomes
+   a (sequence, id) in the revoked key's estate stream.
+5. **Notes keep their history** in the same format, and the local operation
+   journal (sec 496's tier 2) arrives.
+
+### Stage 1: the record names its predecessor
+
+- **`prev`, 32 bytes, at offset 82.** It holds the id (the hash of the
+  whole bytes) of the previous record in the same (issuer, stream).
+  `issued_at` moves to 114, `body_len` to 122 and the body to 124. A record
+  is now 188 to 700 bytes, which still fits a frame's 1024 with 324 to
+  spare.
+- **Zero at seq 1, and refused otherwise there**, by `open`, by
+  `is_open` and by `sign`. The fuzz harness compares `open` with
+  `is_open` on every input, so both refuse it, and its independent model
+  of `open` learned the rule from the header's table.
+- **Zero at a later seq means the stream is kept unchained.** That is a
+  valid record, and a chained journal refuses it. Notes are such a stream
+  until stage 5: they number one stream per issuer from a counter that may
+  skip on a crash, and keep no predecessor's id.
+- `fzn_record_sign` takes `prev` after `seq`. The 57 call sites were
+  rewritten by a script that counted each call's arguments, and refused to
+  write unless removing every inserted `NULL` reproduced the original file.
+- `record/record.situ` and `record/store_file.situ` say the same.
+  `situc wire --check` classified them "5 breaking, 1 compatible" and "1
+  breaking, 1 compatible", and both were regenerated against situ
+  `08c4682`, which puts `prev` at 0x52 and `issued_at` at 0x72. A store
+  file's slot is 702 bytes.
+
+### The journal holds a chain
+
+- **A journal entry keeps `head`,** the id of the record at `received`, and
+  `has_head`, whether it is known. Followed from the beginning the head is
+  known and all-zero. Anchored part way it is not.
+- **`fzn_journal_admit_chained(journal, issuer, stream, seq, prev, id)`**
+  is `fzn_journal_admit` plus the chain. It returns the new
+  `FZN_JOURNAL_ERR_FORK`, moving nothing, for:
+  - a record whose `prev` is not the head;
+  - a second, different record at the head's own sequence. That is a key
+    signing in two places, which is what a stolen key looks like.
+
+  A stream whose head is not known takes its first record's word.
+- **What it cannot see** is a different record below the head: it keeps one
+  id, not the stream. That is the store's.
+- **`fzn_journal_admit` without the chain forgets the head**, so a stream
+  admitted both ways never refuses an honest record against a stale one.
+- **Both refusals are logged as critical**, under `record/journal`.
+
+### The store answers a cut
+
+`fzn_record_store_stands(store, hash, issuer, stream, cut_seq, cut_id,
+act_seq, act_id)` is 1 when the act is the record at `act_seq` and lies on
+the chain ending at the cut.
+
+- It walks down from the cut, hashing each record and comparing it with
+  the id the record above names, starting from the id the cut's signer
+  named.
+- **The store is not trusted and need not be.** A well-signed but different
+  record anywhere on the way breaks the hash chain, and nothing behind it
+  stands.
+- It costs one read and one hash a step.
+
+### Measured for sec 500's stage 1
+
+- **`record_test`, 140 checks.**
+  - `prev` lands at 82 and reads back.
+  - A first record naming a predecessor is not signed, does not open, and
+    is not `is_open`.
+  - A later record keeping no chain opens.
+  - The layout line now reads 124 + body + 64, 188..700.
+- **`record_kat_test`:** the table and the vector carry a nonzero `prev`
+  (0x33 repeated), so the vector shows where it lands.
+- **`journal_test`, 114 checks, with `test_a_stream_is_a_chain`:**
+  - a first record naming a predecessor is FORK;
+  - the first record is admitted;
+  - a second, different record at the head is FORK;
+  - the head again is a DUPLICATE;
+  - a record naming an unheld predecessor is FORK and the position does
+    not move;
+  - the honest second record is admitted;
+  - anchored part way, the first record is taken on its word and the next
+    is checked;
+  - an unchained admit lets the next chained record through.
+- **`store_test`, 104 checks, with `test_a_cut_over_a_chain`:** a chain
+  1 <- 2 <- 3.
+  - Under the cut at 3, all three stand.
+  - A record after the cut, an act under the wrong id, a cut whose id is
+    not its record's, and a cut in another stream do not.
+  - A different, well-signed record 2 put in the store's place makes record
+    1 stop standing.
+
+`err_str_test` walks the journal's eighth code.

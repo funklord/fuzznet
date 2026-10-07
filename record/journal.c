@@ -133,6 +133,50 @@ fzn_journal_err_t fzn_journal_admit(fzn_journal_t *journal,
 	}
 
 	e->received = seq;
+	/* UNCHAINED, THE HEAD IS NO LONGER KNOWN: `fzn_journal_admit_chained`
+	 * sets it again after calling this, and a stream admitted without it
+	 * leaves its next chained record to be taken on its word rather than
+	 * refused against a head that is no longer the head. */
+	memset(e->head, 0, sizeof(e->head));
+	e->has_head = 0;
+	return FZN_JOURNAL_OK;
+}
+
+fzn_journal_err_t fzn_journal_admit_chained(fzn_journal_t *journal,
+                                            const uint8_t issuer[FZN_PUBKEY_LEN],
+                                            uint32_t stream, uint64_t seq,
+                                            const uint8_t prev[FZN_RECORD_ID_LEN],
+                                            const uint8_t id[FZN_RECORD_ID_LEN])
+{
+	fzn_journal_entry_t *e;
+	fzn_journal_err_t err;
+
+	if (!usable(journal, issuer) || !prev || !id || seq == 0)
+		return FZN_JOURNAL_ERR_MALFORMED;
+	e = find(journal, issuer, stream);
+	/* A SECOND RECORD AT THE HEAD ITSELF: the one place below the next
+	 * sequence a single kept id can still tell an echo from a fork. */
+	if (e && e->has_head && seq == e->received && e->received != 0u
+	    && memcmp(e->head, id, FZN_RECORD_ID_LEN) != 0) {
+		JOURNAL_LOG(journal, "record/journal", FLOG_CRIT,
+		            "two records at sequence %llu on stream %lu: the issuer's key signed "
+		            "in two places",
+		            (unsigned long long)seq, (unsigned long)stream);
+		return FZN_JOURNAL_ERR_FORK;
+	}
+	if (e && seq == e->received + 1u && e->has_head
+	    && memcmp(e->head, prev, FZN_RECORD_ID_LEN) != 0) {
+		JOURNAL_LOG(journal, "record/journal", FLOG_CRIT,
+		            "a record at sequence %llu on stream %lu names a predecessor this "
+		            "journal does not hold at its head",
+		            (unsigned long long)seq, (unsigned long)stream);
+		return FZN_JOURNAL_ERR_FORK;
+	}
+	err = fzn_journal_admit(journal, issuer, stream, seq);
+	if (err != FZN_JOURNAL_OK)
+		return err;
+	memcpy(e->head, id, FZN_RECORD_ID_LEN);
+	e->has_head = 1;
 	return FZN_JOURNAL_OK;
 }
 
@@ -163,6 +207,12 @@ fzn_journal_err_t fzn_journal_anchor(fzn_journal_t *journal,
 		e->stream = stream;
 		e->applied = 0;
 		e->received = 0;
+		/* FROM THE BEGINNING, THE HEAD IS KNOWN: nothing, all-zero, which
+		 * is what a first record names. Anchored part way it is not, and
+		 * the jump below says so -- which is why this needs no test of
+		 * `seq` (sabotage measured the one it had deciding nothing). */
+		memset(e->head, 0, sizeof(e->head));
+		e->has_head = 1;
 
 		/* SEQUENCE ZERO MEANS "FOLLOW FROM THE BEGINNING", and this
 		 * file reserved it for exactly that -- "no record yet, so an
@@ -191,6 +241,10 @@ fzn_journal_err_t fzn_journal_anchor(fzn_journal_t *journal,
 		return FZN_JOURNAL_ERR_DUPLICATE;
 
 	e->received = seq;
+	/* A JUMP LEAVES NO KNOWN HEAD: the record at the new position is not
+	 * one this journal has seen, so the next is taken on its word. */
+	memset(e->head, 0, sizeof(e->head));
+	e->has_head = 0;
 
 	/* NOTHING CLAMPS `applied` HERE, AND THE REFUSAL ABOVE IS WHY. An
 	 * anchor never moves backwards, so `received` only increases; `applied`
@@ -302,6 +356,8 @@ const char *fzn_journal_err_str(fzn_journal_err_t err)
 		return "nothing received from this issuer";
 	case FZN_JOURNAL_ERR_NOT_RECEIVED:
 		return "confirming further than was received";
+	case FZN_JOURNAL_ERR_FORK:
+		return "does not extend the chain held";
 	}
 
 	return "unknown";

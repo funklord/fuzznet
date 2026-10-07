@@ -659,7 +659,7 @@ int main(void)
 		 * struct and set its fields; a record is a view over the bytes
 		 * its signature covers now, so a consumer signs one and opens
 		 * it -- which is what this file exists to demonstrate. */
-		if (fzn_record_sign(alice, subject, 0, 1, 1, 1, body, sizeof(body), &ops, wire,
+		if (fzn_record_sign(alice, subject, 0, 1, 1, NULL, 1, body, sizeof(body), &ops, wire,
 		                    sizeof(wire), &wrote) != FZN_RECORD_OK)
 			FAIL(41);
 		if (fzn_record_open(wire, wrote, &r) != FZN_RECORD_OK)
@@ -667,21 +667,21 @@ int main(void)
 		if (fzn_state_apply(&st, &r) != FZN_STATE_OK)
 			FAIL(41);
 
-		if (fzn_record_sign(alice, subject, 0, 1, 2, 1, body, sizeof(body), &ops, wire,
+		if (fzn_record_sign(alice, subject, 0, 1, 2, NULL, 1, body, sizeof(body), &ops, wire,
 		                    sizeof(wire), &wrote) != FZN_RECORD_OK ||
 		    fzn_record_open(wire, wrote, &r) != FZN_RECORD_OK)
 			FAIL(42);
 		if (fzn_state_apply(&st, &r) != FZN_STATE_OK)
 			FAIL(42);
 
-		if (fzn_record_sign(alice, subject, 0, 1, 1, 1, body, sizeof(body), &ops, wire,
+		if (fzn_record_sign(alice, subject, 0, 1, 1, NULL, 1, body, sizeof(body), &ops, wire,
 		                    sizeof(wire), &wrote) != FZN_RECORD_OK ||
 		    fzn_record_open(wire, wrote, &r) != FZN_RECORD_OK)
 			FAIL(43);
 		if (fzn_state_apply(&st, &r) != FZN_STATE_ERR_STALE)
 			FAIL(43);
 
-		if (fzn_record_sign(mallory, subject, 0, 1, 99, 1, body, sizeof(body), &ops, wire,
+		if (fzn_record_sign(mallory, subject, 0, 1, 99, NULL, 1, body, sizeof(body), &ops, wire,
 		                    sizeof(wire), &wrote) != FZN_RECORD_OK ||
 		    fzn_record_open(wire, wrote, &r) != FZN_RECORD_OK)
 			FAIL(44);
@@ -737,7 +737,7 @@ int main(void)
 			FAIL(60);
 
 		for (uint64_t q = 1; q <= 3; q++) {
-			if (fzn_record_sign(who, subject, 0, 1, q, 1, b, sizeof(b), &ops, wire,
+			if (fzn_record_sign(who, subject, 0, 1, q, NULL, 1, b, sizeof(b), &ops, wire,
 			                    sizeof(wire), &wrote) != FZN_RECORD_OK ||
 			    fzn_record_open(wire, wrote, &r) != FZN_RECORD_OK)
 				FAIL(61);
@@ -1768,7 +1768,7 @@ int main(void)
 
 		if (fzn_state_init(&opt, opt_slots, 2) != FZN_STATE_OK)
 			FAIL(170);
-		if (fzn_record_sign(owner, peer_key, 0, KIND_SHARE_LOCATION, 1, 1, yes,
+		if (fzn_record_sign(owner, peer_key, 0, KIND_SHARE_LOCATION, 1, NULL, 1, yes,
 		                    sizeof(yes), &ops, wire, sizeof(wire), &wrote)
 		    != FZN_RECORD_OK)
 			FAIL(171);
@@ -1785,7 +1785,7 @@ int main(void)
 		if (fzn_state_get(&opt, peer_key, KIND_SHARE_LOCATION + 1u) != NULL)
 			FAIL(175);
 
-		if (fzn_record_sign(owner, peer_key, 0, KIND_SHARE_LOCATION, 2, 1, yes,
+		if (fzn_record_sign(owner, peer_key, 0, KIND_SHARE_LOCATION, 2, NULL, 1, yes,
 		                    sizeof(yes), &ops, wire, sizeof(wire), &wrote)
 		    != FZN_RECORD_OK)
 			FAIL(176);
@@ -2020,7 +2020,7 @@ int main(void)
 			if (fzn_state_init(&tiers, tier_slots, 4) != FZN_STATE_OK)
 				FAIL(355);
 
-			if (fzn_record_sign(owner, blob, 0, KIND_TIER, 1, 1, cold, sizeof(cold),
+			if (fzn_record_sign(owner, blob, 0, KIND_TIER, 1, NULL, 1, cold, sizeof(cold),
 			                    &tops, twire, sizeof(twire), &twrote) != FZN_RECORD_OK
 			    || fzn_record_open(twire, twrote, &tr) != FZN_RECORD_OK)
 				FAIL(356);
@@ -2033,7 +2033,7 @@ int main(void)
 				FAIL(357);
 
 			/* Retiering is an ordinary later record. */
-			if (fzn_record_sign(owner, blob, 0, KIND_TIER, 2, 2, hot, sizeof(hot),
+			if (fzn_record_sign(owner, blob, 0, KIND_TIER, 2, NULL, 2, hot, sizeof(hot),
 			                    &tops, twire2, sizeof(twire2), &twrote) != FZN_RECORD_OK
 			    || fzn_record_open(twire2, twrote, &tr) != FZN_RECORD_OK)
 				FAIL(358);
@@ -2048,7 +2048,7 @@ int main(void)
 			 * expressed as a record is authenticated and
 			 * issuer-scoped; a tier expressed as a storage
 			 * namespace is whoever can write the directory. */
-			if (fzn_record_sign(stranger, blob, 0, KIND_TIER, 99, 3, cold,
+			if (fzn_record_sign(stranger, blob, 0, KIND_TIER, 99, NULL, 3, cold,
 			                    sizeof(cold), &tops, twire3, sizeof(twire3), &twrote)
 			            != FZN_RECORD_OK
 			    || fzn_record_open(twire3, twrote, &tr) != FZN_RECORD_OK)

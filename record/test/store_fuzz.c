@@ -246,7 +246,7 @@ static int fuzz_one(uint32_t seed, struct coverage *cov)
 
 			for (i = 0; i < sizeof(body); i++)
 				body[i] = (uint8_t)next(&state);
-			if (fzn_record_sign(issuer, SUBJECT, stream, 1u, (uint64_t)seqi + 1u, 1u,
+			if (fzn_record_sign(issuer, SUBJECT, stream, 1u, (uint64_t)seqi + 1u, NULL, 1u,
 			                    body, sizeof(body), &SIGN, bytes, sizeof(bytes),
 			                    &len) != FZN_RECORD_OK ||
 			    fzn_record_open(bytes, len, &rec) != FZN_RECORD_OK)

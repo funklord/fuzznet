@@ -69,6 +69,13 @@ typedef enum fzn_journal_err {
 	 * clamping, because the alternative is a sibling reporting itself up to
 	 * date on records nobody sent it. */
 	FZN_JOURNAL_ERR_NOT_RECEIVED = -6,
+	/* A record that does not extend the chain this journal holds, sec 500:
+	 * its `prev` is not the id of the record at the head, or it is a second,
+	 * different record at the head's own sequence. Two records from one
+	 * issuer with one predecessor is a key used in two places -- what a
+	 * stolen key looks like -- and the second is refused rather than
+	 * followed, so what a host holds is one line whichever copy came first. */
+	FZN_JOURNAL_ERR_FORK = -7,
 } fzn_journal_err_t;
 
 /* One issuer's position. `received` is the highest CONTIGUOUS sequence held:
@@ -78,6 +85,13 @@ typedef struct fzn_journal_entry {
 	uint32_t stream;
 	uint64_t received;
 	uint64_t applied;
+	/* THE ID OF THE RECORD AT `received`, sec 500, kept by
+	 * `fzn_journal_admit_chained`: what the next record's `prev` must name.
+	 * `has_head` is 0 while it is not known -- a stream anchored part way,
+	 * whose first record is then taken on its word -- and 1 from the start
+	 * of a stream followed from the beginning, whose head is all-zero. */
+	uint8_t head[FZN_RECORD_ID_LEN];
+	int has_head;
 } fzn_journal_entry_t;
 
 /* Declared, not included. sec 209. */
@@ -135,6 +149,24 @@ fzn_journal_err_t fzn_journal_init(fzn_journal_t *journal, fzn_journal_entry_t *
 fzn_journal_err_t fzn_journal_admit(fzn_journal_t *journal,
                                      const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
                                      uint64_t seq);
+
+/* ADMIT A RECORD AS A LINK IN ITS STREAM'S CHAIN. sec 500.
+ *
+ * `fzn_journal_admit`, plus the chain: the record must name the held head as
+ * its `prev`, and its `id` -- the hash of its whole bytes -- becomes the head.
+ * FORK for a record whose `prev` is not the head, and for a second, different
+ * record at the head's own sequence; neither moves anything. A stream whose
+ * head is not known (anchored part way) takes its first record's word.
+ *
+ * WHAT THIS CANNOT SEE is a different record at a sequence below the head:
+ * the journal keeps one id, not the stream. Holding the records is
+ * `record/store.h`'s, which is where a cut is judged too
+ * (`fzn_record_store_stands`). */
+fzn_journal_err_t fzn_journal_admit_chained(fzn_journal_t *journal,
+                                            const uint8_t issuer[FZN_PUBKEY_LEN],
+                                            uint32_t stream, uint64_t seq,
+                                            const uint8_t prev[FZN_RECORD_ID_LEN],
+                                            const uint8_t id[FZN_RECORD_ID_LEN]);
 
 /* Start following an issuer from `seq`, deliberately.
  *

@@ -22,9 +22,9 @@
  * section rules out. **The compact layout costs the property the design is
  * built on**, so the slot wastes space instead.
  *
- * WHAT IT WASTES, MEASURED RATHER THAN WAVED AT. A slot is 670 bytes and a
- * record is between 156 and 668, so a minimal record occupies about four
- * times its length and a full one wastes two bytes. That is paid only on
+ * WHAT IT WASTES, MEASURED RATHER THAN WAVED AT. A slot is 702 bytes and a
+ * record is between 188 and 700 (since sec 500's `prev`), so a minimal record
+ * occupies about four times its length and a full one wastes two bytes. That is paid only on
  * slots actually written: the file is SPARSE, and a sequence never received
  * occupies no blocks at all. sec 132 also classifies this store as a cache --
  * `persist/persist.h` puts the journal and the state among the recoverable
@@ -57,7 +57,7 @@
  * thing that needs the claim.
  *
  * ON A FILESYSTEM WITHOUT SPARSE SUPPORT the file is as large as its highest
- * sequence implies -- 670 bytes times that sequence -- which is the same
+ * sequence implies -- 702 bytes times that sequence -- which is the same
  * caution `spool/spool_file.h` records for a preallocated blob. Nothing here
  * can check it, so it is written down.
  */

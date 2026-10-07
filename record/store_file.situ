@@ -29,7 +29,7 @@ endian big;
 
 struct fzn_record_store_slot {
 	// FZN_RECORD_STORE_FILE_SLOT header: the record's byte length, 0 = empty.
-	u16 len [max = 668];
+	u16 len [max = 700];
 	// The record bytes, `len` of them; see record/record.situ for their
 	// structure. Zero on an empty slot.
 	u8  record[len];

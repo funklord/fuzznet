@@ -1,4 +1,5 @@
 #include "store.h"
+#include "../session/commitment.h"
 
 /* Diagnostics through flog, vendored and possibly absent. sec 209. */
 #ifdef FZN_FLOG_ON
@@ -119,4 +120,32 @@ const char *fzn_record_store_err_str(fzn_record_store_err_t err)
 		return "filed under another address";
 	}
 	return "unknown";
+}
+
+int fzn_record_store_stands(fzn_record_store_t *store, const struct fzn_hash_ops *hash,
+                            const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                            uint64_t cut_seq, const uint8_t cut_id[FZN_RECORD_ID_LEN],
+                            uint64_t act_seq, const uint8_t act_id[FZN_RECORD_ID_LEN])
+{
+	uint8_t buf[FZN_RECORD_MAX_LEN];
+	uint8_t want[FZN_RECORD_ID_LEN], got[FZN_RECORD_ID_LEN];
+	fzn_record_t rec;
+	uint64_t seq;
+
+	if (!store || !hash || !hash->hash || !issuer || !cut_id || !act_id || act_seq == 0u
+	    || act_seq > cut_seq)
+		return 0;
+	/* FROM THE CUT DOWN: each record must hash to the id the one above it
+	 * names, starting from the id the cut's signer named. */
+	memcpy(want, cut_id, sizeof(want));
+	for (seq = cut_seq;; seq--) {
+		if (fzn_record_store_get(store, issuer, stream, seq, buf, sizeof(buf), &rec)
+		            != FZN_RECORD_STORE_OK
+		    || !hash->hash(hash->ctx, got, sizeof(got), rec.base, rec.len)
+		    || memcmp(got, want, sizeof(got)) != 0)
+			return 0;
+		if (seq == act_seq)
+			return memcmp(got, act_id, sizeof(got)) == 0;
+		memcpy(want, fzn_record_prev(rec), sizeof(want));
+	}
 }

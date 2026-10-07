@@ -164,4 +164,27 @@ fzn_record_store_err_t fzn_record_store_get(fzn_record_store_t *store,
                                             uint8_t *out, size_t cap,
                                             fzn_record_t *record_out);
 
+/*
+ * DOES THIS ACT STAND UNDER THIS CUT? sec 500. 1 when the record at `act_seq`
+ * in (issuer, stream) is the one whose id is `act_id` and lies on the chain
+ * that ends at the record whose id is `cut_id` at `cut_seq`: the cut itself,
+ * or reached from it by following `prev` one sequence at a time. 0 after the
+ * cut, on another branch, behind a record this store does not hold, or for a
+ * stream kept unchained.
+ *
+ * THE STORE IS NOT TRUSTED AND NEED NOT BE. The cut's id is the trusted
+ * thing -- a revocation names it under its issuer's signature -- and every
+ * step back is a hash compared with the `prev` the step before carries, so a
+ * store that hands over a different record anywhere on the way breaks the
+ * chain and answers 0. No signature is checked; none needs to be.
+ *
+ * Bounded by the distance from the cut back to the act: one read and one hash
+ * a step.
+ */
+struct fzn_hash_ops;
+int fzn_record_store_stands(fzn_record_store_t *store, const struct fzn_hash_ops *hash,
+                            const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                            uint64_t cut_seq, const uint8_t cut_id[FZN_RECORD_ID_LEN],
+                            uint64_t act_seq, const uint8_t act_id[FZN_RECORD_ID_LEN]);
+
 #endif

@@ -27,11 +27,12 @@ struct fzn_record {
 		u32 stream;              // FZN_RECORD_OFF_STREAM     66
 		u32 kind;                // FZN_RECORD_OFF_KIND       70
 		u64 seq;                 // FZN_RECORD_OFF_SEQ        74
-		u64 issued_at;           // FZN_RECORD_OFF_ISSUED_AT  82
-		u16 body_len  [max = 512]; // FZN_RECORD_OFF_BODY_LEN 90 (FZN_RECORD_BODY_MAX)
-		u8  content[body_len];   // FZN_RECORD_OFF_BODY       92 = FZN_RECORD_HEADER_LEN
+		u8  prev[32];            // FZN_RECORD_OFF_PREV       82 (sec 500)
+		u64 issued_at;           // FZN_RECORD_OFF_ISSUED_AT  114
+		u16 body_len  [max = 512]; // FZN_RECORD_OFF_BODY_LEN 122 (FZN_RECORD_BODY_MAX)
+		u8  content[body_len];   // FZN_RECORD_OFF_BODY       124 = FZN_RECORD_HEADER_LEN
 	}
 	// covers(body): the whole record but the signature. Ed25519 is
 	// extern, so no codec -- the caller signs and verifies.
-	checksum u8 signature[64] covers(body); // at 92 + body_len (FZN_SIG_LEN)
+	checksum u8 signature[64] covers(body); // at 124 + body_len (FZN_SIG_LEN)
 }

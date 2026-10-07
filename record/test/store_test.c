@@ -16,6 +16,7 @@
 
 #include "../store.h"
 #include "../journal.h"
+#include "../../session/commitment.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -220,7 +221,7 @@ static fzn_record_t make(uint8_t *buf, size_t cap, const uint8_t *issuer, uint32
 	memset(&r, 0, sizeof(r));
 	memset(body, body_byte, sizeof(body));
 	memcpy(signing_key, issuer, FZN_PUBKEY_LEN);
-	if (fzn_record_sign(issuer, SUBJECT, stream, 1u, seq, 1u, body, sizeof(body), &SIGN,
+	if (fzn_record_sign(issuer, SUBJECT, stream, 1u, seq, NULL, 1u, body, sizeof(body), &SIGN,
 	                    buf, cap, &wrote) != FZN_RECORD_OK)
 		return r;
 	if (fzn_record_open(buf, wrote, &r) != FZN_RECORD_OK)
@@ -229,6 +230,87 @@ static fzn_record_t make(uint8_t *buf, size_t cap, const uint8_t *issuer, uint32
 }
 
 /* ---- the cases --------------------------------------------------------- */
+
+/* ---- a cut over a chain, sec 500 --------------------------------------- */
+
+static int mix_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in, size_t in_len)
+{
+	uint64_t h = 0x84222325cbf29ce4ull;
+	size_t i;
+
+	(void)ctx;
+	for (i = 0; i < in_len; i++)
+		h = (h ^ in[i]) * 0x100000001b3ull;
+	for (i = 0; i < out_len; i++) {
+		h = (h ^ (uint64_t)i) * 0x100000001b3ull;
+		out[i] = (uint8_t)(h >> 40);
+	}
+	return 1;
+}
+
+static const fzn_hash_ops_t MIX = { mix_hash, NULL };
+
+/* One link: a record at `seq` naming `prev`, put, with its id into `id`. */
+static int link_put(fzn_record_store_t *store, uint64_t seq, const uint8_t *prev,
+                    uint8_t body_byte, uint8_t id[FZN_RECORD_ID_LEN])
+{
+	uint8_t buf[FZN_RECORD_MAX_LEN], body[4];
+	size_t wrote = 0;
+	fzn_record_t r;
+
+	memset(body, body_byte, sizeof(body));
+	memcpy(signing_key, ISSUER, FZN_PUBKEY_LEN);
+	return fzn_record_sign(ISSUER, SUBJECT, 3u, 1u, seq, prev, 1u, body, sizeof(body), &SIGN,
+	                       buf, sizeof(buf), &wrote) == FZN_RECORD_OK
+	       && fzn_record_open(buf, wrote, &r) == FZN_RECORD_OK
+	       && fzn_record_store_put(store, r) == FZN_RECORD_STORE_OK
+	       && mix_hash(NULL, id, FZN_RECORD_ID_LEN, buf, wrote);
+}
+
+/* Three records chained 1 <- 2 <- 3. Under the cut at 3, records 1 and 2
+ * stand by their ids and nothing else does: not a wrong id, not a record
+ * after the cut, not under a cut whose id is not the record's. Then the
+ * store is made to hold a different record 2 -- well signed, at the right
+ * address -- and nothing below it stands any more, because the hash chain
+ * from the trusted cut no longer reaches it. */
+static void test_a_cut_over_a_chain(void)
+{
+	static struct table t;
+	fzn_record_store_ops_t ops;
+	fzn_record_store_t store;
+	uint8_t id1[FZN_RECORD_ID_LEN], id2[FZN_RECORD_ID_LEN], id3[FZN_RECORD_ID_LEN];
+	uint8_t forged[FZN_RECORD_ID_LEN];
+	int i;
+
+	table_init(&t, &ops);
+	store.ops = &ops;
+	store.log = NULL;
+	CHECK(link_put(&store, 1u, NULL, 0x01, id1) && link_put(&store, 2u, id1, 0x02, id2)
+	              && link_put(&store, 3u, id2, 0x03, id3),
+	      "fixture: a chain of three");
+	CHECK(fzn_record_store_stands(&store, &MIX, ISSUER, 3u, 3u, id3, 1u, id1)
+	              && fzn_record_store_stands(&store, &MIX, ISSUER, 3u, 3u, id3, 2u, id2)
+	              && fzn_record_store_stands(&store, &MIX, ISSUER, 3u, 3u, id3, 3u, id3),
+	      "a record on the chain ending at the cut did not stand");
+	CHECK(!fzn_record_store_stands(&store, &MIX, ISSUER, 3u, 2u, id2, 3u, id3),
+	      "a record after the cut stood");
+	CHECK(!fzn_record_store_stands(&store, &MIX, ISSUER, 3u, 3u, id3, 1u, id2),
+	      "an act under the wrong id stood");
+	CHECK(!fzn_record_store_stands(&store, &MIX, ISSUER, 3u, 3u, id1, 1u, id1),
+	      "a cut naming an id the record at its sequence does not have held");
+	CHECK(!fzn_record_store_stands(&store, &MIX, ISSUER, 4u, 3u, id3, 1u, id1),
+	      "a cut in another stream held");
+
+	/* A DIFFERENT RECORD 2, well signed and well placed. */
+	for (i = 0; i < SLOTS; i++)
+		if (t.slots[i].used && t.slots[i].seq == 2u)
+			t.slots[i].used = 0;
+	CHECK(link_put(&store, 2u, id1, 0x22, forged), "fixture: another record 2");
+	CHECK(!fzn_record_store_stands(&store, &MIX, ISSUER, 3u, 3u, id3, 1u, id1),
+	      "a record behind a link the store changed still stood");
+}
+
+
 
 static void test_a_record_comes_back_as_it_went_in(void)
 {
@@ -648,6 +730,7 @@ int main(void)
 	test_a_failing_put_is_reported();
 	test_a_reader_replays_what_an_owner_fetched();
 	test_the_errors_render();
+	test_a_cut_over_a_chain();
 	test_the_suite_can_tell_pass_from_fail();
 
 #ifdef FZN_FLOG_ON

@@ -7,7 +7,7 @@
 /* THE HEADER'S TABLE, CHECKED BY THE COMPILER. record.h states the layout
  * twice -- once as a table a reader consults and once as the running sum the
  * accessors index with -- and this is what stops the two drifting apart. It
- * is the only place the literal 92 appears in the code.
+ * is the only place the literal 124 appears in the code.
  *
  * The offsets are checked individually rather than only the total, because a
  * total is the one thing that survives two fields swapping widths. */
@@ -16,17 +16,30 @@ _Static_assert(FZN_RECORD_OFF_SUBJECT == 34u, "record layout: subject moved");
 _Static_assert(FZN_RECORD_OFF_STREAM == 66u, "record layout: stream moved");
 _Static_assert(FZN_RECORD_OFF_KIND == 70u, "record layout: kind moved");
 _Static_assert(FZN_RECORD_OFF_SEQ == 74u, "record layout: seq moved");
-_Static_assert(FZN_RECORD_OFF_ISSUED_AT == 82u, "record layout: issued_at moved");
-_Static_assert(FZN_RECORD_OFF_BODY_LEN == 90u, "record layout: body_len moved");
-_Static_assert(FZN_RECORD_HEADER_LEN == 92u, "record layout: the header is not 92 bytes");
-_Static_assert(FZN_RECORD_MIN_LEN == 156u, "record layout: an empty record is not 156 bytes");
-_Static_assert(FZN_RECORD_MAX_LEN == 668u, "record layout: a full record is not 668 bytes");
+_Static_assert(FZN_RECORD_OFF_PREV == 82u, "record layout: prev moved");
+_Static_assert(FZN_RECORD_OFF_ISSUED_AT == 114u, "record layout: issued_at moved");
+_Static_assert(FZN_RECORD_OFF_BODY_LEN == 122u, "record layout: body_len moved");
+_Static_assert(FZN_RECORD_HEADER_LEN == 124u, "record layout: the header is not 124 bytes");
+_Static_assert(FZN_RECORD_MIN_LEN == 188u, "record layout: an empty record is not 188 bytes");
+_Static_assert(FZN_RECORD_MAX_LEN == 700u, "record layout: a full record is not 700 bytes");
 
 /* `body_len` is written with fzn_put_be16 and read with fzn_get_be16, so a
  * body bound that did not fit sixteen bits would encode a length nobody could
  * read back. Cheap to state and it is the assertion that would fire if
  * somebody raised the bound for a consumer that wanted more. */
 _Static_assert(FZN_RECORD_BODY_MAX <= 0xffffu, "a body length must fit the u16 that carries it");
+
+/* All-zero, which is how "no predecessor" is spelled. Accumulated rather than
+ * early-returned, as revocation.c's `all_zero` is; nothing here is secret. */
+static int prev_is_zero(const uint8_t *p)
+{
+	uint8_t acc = 0;
+	size_t i;
+
+	for (i = 0; i < FZN_RECORD_ID_LEN; i++)
+		acc |= p[i];
+	return acc == 0u;
+}
 
 fzn_record_err_t fzn_record_open(const uint8_t *bytes, size_t len, fzn_record_t *out)
 {
@@ -74,6 +87,11 @@ fzn_record_err_t fzn_record_open(const uint8_t *bytes, size_t len, fzn_record_t 
 	 * structural. */
 	if (fzn_get_be64(bytes + FZN_RECORD_OFF_SEQ) == 0)
 		return FZN_RECORD_ERR_SEQ_ZERO;
+	/* THE FIRST RECORD OF A STREAM HAS NO PREDECESSOR, sec 500, so one
+	 * naming one is not a record anybody chained honestly. */
+	if (fzn_get_be64(bytes + FZN_RECORD_OFF_SEQ) == 1u
+	    && !prev_is_zero(bytes + FZN_RECORD_OFF_PREV))
+		return FZN_RECORD_ERR_SHAPE;
 
 	out->base = bytes;
 	out->len = len;
@@ -108,7 +126,8 @@ fzn_record_err_t fzn_record_verify(fzn_record_t record, const fzn_sign_ops_t *si
 
 fzn_record_err_t fzn_record_sign(const uint8_t issuer[FZN_PUBKEY_LEN],
                                  const uint8_t subject[FZN_SUBJECT_LEN], uint32_t stream,
-                                 uint32_t kind, uint64_t seq, uint64_t issued_at,
+                                 uint32_t kind, uint64_t seq,
+                                 const uint8_t prev[FZN_RECORD_ID_LEN], uint64_t issued_at,
                                  const uint8_t *body, size_t body_len,
                                  const fzn_sign_ops_t *sign, uint8_t *out, size_t out_cap,
                                  size_t *out_len)
@@ -128,6 +147,9 @@ fzn_record_err_t fzn_record_sign(const uint8_t issuer[FZN_PUBKEY_LEN],
 	 * as well as there so that this cannot mint what that will not read. */
 	if (seq == 0)
 		return FZN_RECORD_ERR_SEQ_ZERO;
+	/* Nor what `open` refuses for a first record. */
+	if (seq == 1u && prev && !prev_is_zero(prev))
+		return FZN_RECORD_ERR_MALFORMED;
 
 	signed_len = (size_t)FZN_RECORD_HEADER_LEN + body_len;
 	if (out_cap < signed_len + FZN_SIG_LEN)
@@ -140,6 +162,10 @@ fzn_record_err_t fzn_record_sign(const uint8_t issuer[FZN_PUBKEY_LEN],
 	fzn_put_be32(out + FZN_RECORD_OFF_STREAM, stream);
 	fzn_put_be32(out + FZN_RECORD_OFF_KIND, kind);
 	fzn_put_be64(out + FZN_RECORD_OFF_SEQ, seq);
+	if (prev)
+		memcpy(out + FZN_RECORD_OFF_PREV, prev, FZN_RECORD_ID_LEN);
+	else
+		memset(out + FZN_RECORD_OFF_PREV, 0, FZN_RECORD_ID_LEN);
 	fzn_put_be64(out + FZN_RECORD_OFF_ISSUED_AT, issued_at);
 	fzn_put_be16(out + FZN_RECORD_OFF_BODY_LEN, (uint16_t)body_len);
 	if (body_len != 0)

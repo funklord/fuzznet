@@ -70,6 +70,54 @@ static void identity(uint8_t out[FZN_PUBKEY_LEN], uint8_t seed)
 	memset(out, seed, FZN_PUBKEY_LEN);
 }
 
+/* A STREAM AS A CHAIN, sec 500. Followed from the beginning, the head is
+ * known and all-zero: the first record names nothing, the second names the
+ * first. A record naming anything but the head is a fork and moves nothing;
+ * so is a second, different record at the head's own sequence. A stream
+ * anchored part way takes its first record on its word. An unchained admit
+ * forgets the head, so a later chained record is not refused against it. */
+static void test_a_stream_is_a_chain(void)
+{
+	fzn_journal_t j;
+	fzn_journal_entry_t entries[3];
+	uint8_t who[FZN_PUBKEY_LEN], zero[FZN_RECORD_ID_LEN], one[FZN_RECORD_ID_LEN];
+	uint8_t two[FZN_RECORD_ID_LEN], other[FZN_RECORD_ID_LEN];
+
+	identity(who, 0x5a);
+	memset(zero, 0, sizeof(zero));
+	memset(one, 0x01, sizeof(one));
+	memset(two, 0x02, sizeof(two));
+	memset(other, 0x0f, sizeof(other));
+	memset(entries, 0, sizeof(entries));
+	expect_err(fzn_journal_init(&j, entries, 3), FZN_JOURNAL_OK, "init");
+	expect_err(fzn_journal_anchor(&j, who, 7, 0), FZN_JOURNAL_OK, "follow from the beginning");
+	expect_err(fzn_journal_admit_chained(&j, who, 7, 1, other, one), FZN_JOURNAL_ERR_FORK,
+	           "a first record naming a predecessor");
+	expect_err(fzn_journal_admit_chained(&j, who, 7, 1, zero, one), FZN_JOURNAL_OK,
+	           "the first record");
+	expect_err(fzn_journal_admit_chained(&j, who, 7, 1, zero, two), FZN_JOURNAL_ERR_FORK,
+	           "a second, different record at the head");
+	expect_err(fzn_journal_admit_chained(&j, who, 7, 1, zero, one), FZN_JOURNAL_ERR_DUPLICATE,
+	           "the head again is an echo");
+	expect_err(fzn_journal_admit_chained(&j, who, 7, 2, other, two), FZN_JOURNAL_ERR_FORK,
+	           "a record naming a predecessor the journal does not hold");
+	expect(fzn_journal_next(&j, who, 7) == 2u, "a fork moved the position");
+	expect_err(fzn_journal_admit_chained(&j, who, 7, 2, one, two), FZN_JOURNAL_OK,
+	           "the second record, naming the first");
+
+	/* PART WAY: the head is not known, so the first record is taken. */
+	expect_err(fzn_journal_anchor(&j, who, 8, 5), FZN_JOURNAL_OK, "anchor part way");
+	expect_err(fzn_journal_admit_chained(&j, who, 8, 6, other, one), FZN_JOURNAL_OK,
+	           "the first record after a part-way anchor, on its word");
+	expect_err(fzn_journal_admit_chained(&j, who, 8, 7, other, two), FZN_JOURNAL_ERR_FORK,
+	           "after it, the head is held");
+
+	/* UNCHAINED FORGETS: the head kept would be stale. */
+	expect_err(fzn_journal_admit(&j, who, 8, 7), FZN_JOURNAL_OK, "an unchained admit");
+	expect_err(fzn_journal_admit_chained(&j, who, 8, 8, other, two), FZN_JOURNAL_OK,
+	           "a chained record after an unchained one was refused against a stale head");
+}
+
 int main(void)
 {
 	fzn_journal_t j;
@@ -435,6 +483,7 @@ int main(void)
 	}
 #endif
 
+	test_a_stream_is_a_chain();
 	printf("journal_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }
