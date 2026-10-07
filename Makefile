@@ -4953,6 +4953,13 @@ style: $(OBJS)
 	@# test suite" is the sentence somebody will quote instead.
 	python3 tool/test_style_gate.py
 	python3 tool/style_gate.py check
+	@# AND project.md HELD TO THE TREE, which `check` cannot see: it reads
+	@# whitespace and indentation, while a heading stated twice or a
+	@# backticked path naming no file is a `docs`-mode finding. Added
+	@# 2026-10-07 on the holder's instruction, after a sweep found this
+	@# target running one half of the gate it is named for. No count
+	@# written here, for the reason given above about synced files.
+	python3 tool/style_gate.py docs
 	@# THE SABOTAGE TABLE IS A LIST KEPT BY HAND, and it is the one list
 	@# here whose staleness is invisible. `make sabotage` says so when it
 	@# runs, and it rewrites tracked files, so it is deliberately outside
