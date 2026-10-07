@@ -597,6 +597,31 @@ int main(void)
 		   "reply would be handed back as this one's");
 		(void)fzn_caller_recv(&caller, asked, answer, sizeof(answer), &alen, 200u);
 
+		/* TWO OUT, TAKEN AS THEY COME, sec 494: `recv_any` hands back each
+		 * reply with the message it answers, and only this caller's. */
+		{
+			uint32_t first = 0, second = 0, got_a = 0, got_b = 0;
+
+			ok(fzn_caller_send(&caller, PAYLOAD, sizeof(PAYLOAD), 2000u, &first)
+			               == FZN_CALLER_OK
+			       && fzn_caller_send(&caller, PAYLOAD, sizeof(PAYLOAD), 2000u, &second)
+			                  == FZN_CALLER_OK
+			       && fzn_node_run_once(&state, 1000) == 1
+			       && fzn_node_run_once(&state, 1000) == 1,
+			   "fixture: two requests out, both served");
+			ok(fzn_caller_recv_any(&caller, &got_a, answer, sizeof(answer), &alen, 2000u)
+			               == FZN_CALLER_OK
+			       && alen == sizeof(big_reply)
+			       && fzn_caller_recv_any(&caller, &got_b, answer, sizeof(answer), &alen,
+			                              2000u) == FZN_CALLER_OK
+			       && ((got_a == first && got_b == second)
+			           || (got_a == second && got_b == first)),
+			   "recv_any did not hand back both replies, each with its own message");
+			ok(fzn_caller_recv_any(&caller, &got_a, answer, sizeof(answer), &alen, 200u)
+			       == FZN_CALLER_ERR_TIMEOUT,
+			   "recv_any returned a reply with none out");
+		}
+
 		/* THE WRAP, sec 465: what the node receives is what the caller's
 		 * wrap wrote, and a wrap writing nothing sends the payload as it
 		 * is. */

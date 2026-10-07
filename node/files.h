@@ -57,9 +57,14 @@
 #define FZN_NODE_FILE_MAX ((uint64_t)FZN_SPOOL_MAX_LEAVES * FZN_BLOB_LEAF_SIZE)
 /* Roots a transfer may hold busy at once. */
 #define FZN_NODE_FILES_BUSY_MAX 16u
-/* Leaves one DATA carries, as the shelf's do (`node/shelf.h`): about 18 KB
- * a reply, inside what the node's reply buffer holds. */
-#define FZN_NODE_FILES_SPAN 16u
+/* Leaves one DATA carries: the most `spool/message.h` allows, about 68 KB a
+ * reply in 67 datagrams. FEWER REQUESTS FOR THE SAME BYTES is the point, sec
+ * 494: every request a node admits holds a slot of its replay window for the
+ * request's 300 s lifetime, and at 16 leaves a request a sustained fetch
+ * asked about 240 times a second -- a 32768-slot window full in about 2.3
+ * minutes, the serving node then refusing everybody. At 64 the same bytes
+ * are a quarter of the requests. */
+#define FZN_NODE_FILES_SPAN 64u
 #define FZN_NODE_FILES_REPLY_MAX                                                               \
 	((size_t)FZN_MSG_DATA_OFF_PROOF + ((size_t)FZN_MSG_MAX_PROOF * FZN_BLOB_HASH_LEN)      \
 	 + ((size_t)FZN_NODE_FILES_SPAN * (4u + FZN_BLOB_SEALED_MAX)))
@@ -293,6 +298,49 @@ fzn_node_files_err_t fzn_node_files_forget(fzn_node_files_t *files,
 size_t fzn_node_files_answer_shared(const fzn_node_files_t *files, const uint8_t *sender,
                                     const uint8_t *request, size_t request_len,
                                     uint8_t *reply, size_t reply_cap);
+
+/* ---- several peers at once, sec 494 ------------------------------------
+ *
+ * fuzzypickles' second requirement: parallel batches and an adaptive
+ * window. A fetch asks every peer whether it holds the file whole, then
+ * keeps spans in flight across all that do, `spool/transfer.h` deciding
+ * which: two peers are never sent the same span, a span a peer does not
+ * answer in time goes back to be asked of another, and the window opens by
+ * one a window of deliveries and halves on a loss (AIMD, no slow start).
+ * A peer that fails three times running -- spans that did not prove, or
+ * did not come -- is asked nothing more this fetch.
+ *
+ * A PEER IS TWO CALLS: send a request, saying which message it went out as;
+ * and poll for the reply to any of them, saying which it answers. The node's
+ * are a caller's (`fzn_caller_send`, `fzn_caller_recv_any`); a test's are
+ * another store's answer, queued. No socket here.
+ */
+#define FZN_NODE_FILES_PEERS_MAX 16u
+/* How long a span may be out before it is asked of somebody else. */
+#define FZN_NODE_FILES_SPAN_DEADLINE_MS 3000u
+
+typedef struct fzn_node_files_peer {
+	int (*send)(void *ctx, const uint8_t *request, size_t request_len, uint32_t *msg);
+	/* 1 with a reply to one of this peer's messages, 0 when none came in
+	 * `timeout_ms`. */
+	int (*poll)(void *ctx, uint8_t *reply, size_t reply_cap, size_t *reply_len, uint32_t *msg,
+	            unsigned timeout_ms);
+	void *ctx;
+} fzn_node_files_peer_t;
+
+/* THE FETCHER OVER SEVERAL PEERS: up to `budget` leaves of the wanted file
+ * `root`, `now_ms` the caller's clock, at most `window` spans out at once --
+ * the window's ceiling, which a peer's reassembly must have the slots for,
+ * up to FZN_TRANSFER_MAX_ASSIGNS. `*placed` counts leaves placed and
+ * `*holders` the peers that said they hold it whole. OK when the file is
+ * whole, ABSENT when the budget ran out first, NOT_THERE when no peer holds
+ * it, and otherwise why the last peer was given up on. */
+fzn_node_files_err_t fzn_node_files_fetch_many(fzn_node_files_t *files,
+                                               const uint8_t root[FZN_BLOB_HASH_LEN],
+                                               const fzn_node_files_peer_t *peers, size_t n_peers,
+                                               uint64_t (*now_ms)(void), size_t window,
+                                               uint64_t budget, uint64_t *placed,
+                                               size_t *holders);
 
 /* THE NODE'S VERBS, for `node/admin.h`'s hook; 0 when `request` is not one:
  *

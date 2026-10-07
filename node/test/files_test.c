@@ -380,6 +380,76 @@ static int peer_ask(void *ctx, const uint8_t *request, size_t request_len, uint8
 	return 1;
 }
 
+/* A QUEUED PEER, sec 494: answers at once from a store and holds replies
+ * until polled, so several requests are really out at once. `silent` answers
+ * the HAVE and nothing after; `lie` flips a byte of every DATA. */
+#define QUEUE 64u
+struct queued {
+	const fzn_node_files_t *files;
+	int silent, lie;
+	uint32_t next;
+	size_t head, tail, deepest, wants;
+	uint32_t msg[QUEUE];
+	size_t len[QUEUE];
+	uint8_t reply[QUEUE][FZN_NODE_FILES_REPLY_MAX];
+};
+
+/* Replies held across every queued peer, and the most there ever were. */
+static size_t out_now, out_most;
+
+static int queued_send(void *ctx, const uint8_t *request, size_t request_len, uint32_t *msg)
+{
+	struct queued *q = (struct queued *)ctx;
+	size_t at = q->tail % QUEUE, n;
+	fzn_msg_type_t type;
+
+	*msg = ++q->next;
+	if (fzn_msg_peek(request, request_len, &type) == FZN_MSG_OK && type == FZN_MSG_WANT) {
+		q->wants++;
+		if (q->silent)
+			return 1;
+	}
+	n = fzn_node_files_answer(q->files, request, request_len, q->reply[at],
+	                          sizeof(q->reply[at]));
+	if (n == 0u || q->tail - q->head >= QUEUE)
+		return 1;
+	if (q->lie && n > 200u)
+		q->reply[at][n - 9u] ^= 1u;
+	q->msg[at] = *msg;
+	q->len[at] = n;
+	q->tail++;
+	if (q->tail - q->head > q->deepest)
+		q->deepest = q->tail - q->head;
+	if (++out_now > out_most)
+		out_most = out_now;
+	return 1;
+}
+
+static int queued_poll(void *ctx, uint8_t *reply, size_t cap, size_t *len, uint32_t *msg,
+                       unsigned timeout_ms)
+{
+	struct queued *q = (struct queued *)ctx;
+	size_t at = q->head % QUEUE;
+
+	(void)timeout_ms;
+	if (q->head == q->tail || q->len[at] > cap)
+		return 0;
+	memcpy(reply, q->reply[at], q->len[at]);
+	*len = q->len[at];
+	*msg = q->msg[at];
+	q->head++;
+	out_now--;
+	return 1;
+}
+
+/* A clock that moves half a second a reading, so a deadline passes within a
+ * test's few calls. */
+static uint64_t fake_ms;
+static uint64_t fake_clock(void)
+{
+	return fake_ms += 500u;
+}
+
 /* A verb of this node's own user, its reply as a string without the line's
  * end. 0 when nothing was answered. */
 static size_t said(fzn_node_files_t *files, fzn_verb_t parsed, const char *arg, char *reply,
@@ -657,6 +727,63 @@ int main(void)
 				              && memcmp(first, F.scrub_after, sizeof(first)) != 0,
 				      "two scrub steps did not check two files");
 			}
+		}
+
+		/* ---- SEVERAL PEERS AT ONCE, sec 494. */
+		{
+			static struct queued good, good2, silent, liar;
+			fzn_node_files_peer_t peers[2];
+			size_t holders = 0;
+
+			memset(&good, 0, sizeof(good));
+			memset(&good2, 0, sizeof(good2));
+			good.files = good2.files = &F;
+			peers[0].send = queued_send;
+			peers[0].poll = queued_poll;
+			peers[0].ctx = &good;
+			peers[1] = peers[0];
+			peers[1].ctx = &good2;
+			(void)fzn_node_files_remove(&B, big.root);
+			out_now = out_most = 0;
+			CHECK(fzn_node_files_want(&B, big.root, big.length) == FZN_NODE_FILES_OK
+			              && fzn_node_files_fetch_many(&B, big.root, peers, 2u, fake_clock,
+			                                           16u, 1000u, &placed, &holders)
+			                         == FZN_NODE_FILES_OK
+			              && placed == 301u && holders == 2u && good.wants >= 1u
+			              && good2.wants >= 1u && out_most > 1u,
+			      "two peers did not both serve spans, or never more than one was out");
+
+			/* ONE SILENT: its spans expire and go to the other. */
+			memset(&silent, 0, sizeof(silent));
+			memset(&good, 0, sizeof(good));
+			silent.files = good.files = &F;
+			silent.silent = 1;
+			peers[0].ctx = &silent;
+			peers[1].ctx = &good;
+			(void)fzn_node_files_remove(&B, big.root);
+			CHECK(fzn_node_files_want(&B, big.root, big.length) == FZN_NODE_FILES_OK
+			              && fzn_node_files_fetch_many(&B, big.root, peers, 2u, fake_clock,
+			                                           16u, 1000u, &placed, &holders)
+			                         == FZN_NODE_FILES_OK
+			              && placed == 301u && silent.wants >= 1u && silent.wants <= 8u,
+			      "a silent peer stopped the fetch, or was asked without end");
+
+			/* ONE LYING: its spans refused and asked of the other. */
+			memset(&liar, 0, sizeof(liar));
+			memset(&good, 0, sizeof(good));
+			liar.files = good.files = &F;
+			liar.lie = 1;
+			peers[0].ctx = &liar;
+			(void)fzn_node_files_remove(&B, big.root);
+			CHECK(fzn_node_files_want(&B, big.root, big.length) == FZN_NODE_FILES_OK
+			              && fzn_node_files_fetch_many(&B, big.root, peers, 2u, fake_clock,
+			                                           16u, 1000u, &placed, &holders)
+			                         == FZN_NODE_FILES_OK
+			              && placed == 301u && liar.wants >= 1u && liar.wants <= 3u
+			              && fzn_node_files_export(&B, &big, b_out) == FZN_NODE_FILES_OK
+			              && same_files(src_path, b_out),
+			      "a lying peer put a leaf down, or the file did not come whole from the other");
+			(void)remove(b_out);
 		}
 
 		/* B SERVES IT ON, from the tree it built. */

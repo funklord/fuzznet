@@ -112,9 +112,26 @@ fzn_caller_err_t fzn_caller_send(fzn_caller_t *caller, const uint8_t *payload,
 	return FZN_CALLER_OK;
 }
 
+static fzn_caller_err_t receive(fzn_caller_t *caller, int any, uint32_t *msg, uint8_t *reply,
+                                size_t reply_cap, size_t *reply_len, unsigned timeout_ms);
+
 fzn_caller_err_t fzn_caller_recv(fzn_caller_t *caller, uint32_t msg,
                                  uint8_t *reply, size_t reply_cap,
                                  size_t *reply_len, unsigned timeout_ms)
+{
+	return receive(caller, 0, &msg, reply, reply_cap, reply_len, timeout_ms);
+}
+
+fzn_caller_err_t fzn_caller_recv_any(fzn_caller_t *caller, uint32_t *msg, uint8_t *reply,
+                                     size_t reply_cap, size_t *reply_len, unsigned timeout_ms)
+{
+	if (!msg)
+		return FZN_CALLER_ERR_MALFORMED;
+	return receive(caller, 1, msg, reply, reply_cap, reply_len, timeout_ms);
+}
+
+static fzn_caller_err_t receive(fzn_caller_t *caller, int any, uint32_t *msg, uint8_t *reply,
+                                size_t reply_cap, size_t *reply_len, unsigned timeout_ms)
 {
 	struct timeval tv;
 
@@ -144,7 +161,9 @@ fzn_caller_err_t fzn_caller_recv(fzn_caller_t *caller, uint32_t msg,
 		if (fzn_seal_open(in, in_len, caller->send_key, caller->send_ckey,
 		                  caller->hash, caller->aead, &opened) != FZN_SEAL_OK)
 			continue;
-		if (opened.msg != msg)
+		/* ANOTHER QUESTION'S ANSWER: skipped by a caller waiting for one,
+		 * taken by one waiting for any of its own (sec 494). */
+		if (!any && opened.msg != *msg)
 			continue;
 
 		/* ONE PIECE STILL GOES THROUGH REASSEMBLY. A reply of one frame
@@ -169,6 +188,7 @@ fzn_caller_err_t fzn_caller_recv(fzn_caller_t *caller, uint32_t msg,
 		}
 		memcpy(reply, done->buf, done->bytes);
 		*reply_len = done->bytes;
+		*msg = opened.msg;
 		fzn_reasm_release(done);
 		return FZN_CALLER_OK;
 	}

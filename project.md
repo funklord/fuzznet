@@ -55982,7 +55982,7 @@ the second asked here:
 | | requirement | here |
 |---|---|---|
 | 1 | resume across a restart | **built in sec 491** |
-| 2 | throughput: parallel batches, an adaptive window | a peer at a time since sec 491; several, next |
+| 2 | throughput: parallel batches, an adaptive window | **built in sec 494** |
 | 3 | scrub and repair | **built in sec 492** |
 | 4 | tiers: PRIVATE invisible to the unauthorised, PUBLIC servable | **built in sec 493** |
 | 5 | sealed leaves under a content key; export with the key | **built** |
@@ -56132,9 +56132,8 @@ expiring sooner than a peer's clock is off is refused as stale.
 
 ### Not yet after sec 491
 
-- **Several peers at once, and an adaptive window**: a file is fetched from
-  one pull peer at a time, a span per round trip. `spool/transfer.h` has the
-  multi-peer assignment; a fetch does not use it yet.
+- ~~**Several peers at once, and an adaptive window**: a file is fetched
+  from one pull peer at a time.~~ Built in sec 494 on `spool/transfer.h`.
 - **Peers beyond the pull peers**: only hosts this node has an address for
   are asked, as for texts.
 - ~~**The scrub**~~, built in sec 492; ~~**tiers**~~, built in sec 493.
@@ -56297,3 +56296,76 @@ contact A:**
 **`make schema`:** the row and the tag in the committed contract.
 
 **Sabotage: four new entries.**
+
+## 494. A file from several peers at once, 2026-10-07
+
+fuzzypickles' second requirement: parallel batches with an adaptive window.
+
+### The fetch
+
+`fzn_node_files_fetch_many` asks every peer -- the pull peers, then the
+contacts sharing with this node -- whether it holds the file whole, then
+keeps spans in flight across all that do. **`spool/transfer.h` decides
+which**, as it was built to (secs 106-107): two peers are never sent the
+same span, a span not answered within 3 s goes back to be asked of
+somebody else, and the window opens by one a window of deliveries and
+halves on a loss -- AIMD with no slow start. A peer failing three times
+running, with spans that did not prove or did not come, is asked nothing
+more that fetch.
+
+- **A peer is two calls**: send a request, naming the message it went out
+  as, and poll for a reply to any of them. The node's are a caller's --
+  `fzn_caller_send` and a new `fzn_caller_recv_any`, which returns
+  whichever reply completes and which message it answers. A test's are
+  another store's answer, queued.
+- **The sequential fetch is the same code**: `fzn_node_files_fetch` is
+  `fetch_many` over one peer that answers as it is asked, a window of one.
+- **fuzznetd lends its peers one reassembly table** while a fetch runs,
+  with a slot for each span out. A batch that placed leaves of an
+  unfinished file starts the next at once; the 4 MiB budget is what lets the
+  loop answer between batches, not a rate.
+
+### Spans of 64, and why
+
+**A span of 64 leaves, about 68 KB a DATA, and a window of two.** At 16
+leaves a request, a sustained fetch asked about 240 times a second, and
+every request a node admits holds a slot of its replay window for 300 s:
+the 32768 slots of sec 491 would be full in about 2.3 minutes, roughly a
+500 MB file, and the serving node would refuse everybody again. At 64 the
+same bytes are a quarter of the requests. The window stays at two because
+a socket's default receive buffer holds about a hundred datagrams: two
+spans of 67 are already near it, and a window past it loses replies to the
+kernel, which AIMD would read as loss.
+
+### Measured for sec 494
+
+**`files_test`, 53 checks, 3 new**, over queued peers and a clock moving
+half a second a reading:
+
+- two good peers: the file whole, both asked, and more than one span out at
+  once;
+- one silent after its HAVE: the file whole from the other, the silent one
+  asked a bounded number of times;
+- one lying: none of its leaves placed, the file whole from the other and
+  exported as the one put.
+
+The earlier fetch cases pass unchanged on the new code.
+
+**`node_provision_test`, 86 checks, 3 new:** two requests out and both
+served, `recv_any` handing back both replies each with its own message, and
+none returned when none is out.
+
+**Live, three fuzznetd: R and M holding a 30 MB file, D pulling from both:**
+
+    M, from R alone:        whole from 1 peer(s) in 8.2 s
+    D, from R and M:        whole from 2 peer(s) in 8.1 s, the same bytes
+
+**Two peers are not faster than one here, and that is the measurement.** On
+a loopback the fetching node's own work -- verifying spans, writing them,
+building the tree -- sets the pace at about 3.7 MB/s, so pipelining has no
+latency to hide. What the window buys is a link with round-trip time, which
+this machine cannot show without root to shape one. The 64-leaf span did
+not change the time and cut the requests by four.
+
+**Sabotage: three new entries**, and two re-aimed: sec 491's budget entry
+at the new loop, and the caller's late-reply entry at its new condition.

@@ -868,7 +868,7 @@ SABOTAGES = [
 	(
 		"caller-skips-another-msgs-reply",
 		"node/caller.c",
-		"\t\tif (opened.msg != msg)\n\t\t\tcontinue;",
+		"\t\tif (!any && opened.msg != *msg)\n\t\t\tcontinue;",
 		"\t\tif (0)\n\t\t\tcontinue;",
 		"a reply carrying another `msg` is skipped, not returned as the "
 		"answer to this question. The socket can hold a late reply to an "
@@ -6061,6 +6061,27 @@ SABOTAGES = [
 		"every pass after the first refuses the chain file its predecessor wrote, and nothing more is ever packed -- sec 459",
 	),
 	(
+		"caller-recv-any-names-its-message",
+		"node/caller.c",
+		"\t\t*msg = opened.msg;\n",
+		"",
+		"a reply taken by recv_any is filed under whatever message the caller last named, and a fetch places one span's leaves as another's -- sec 494",
+	),
+	(
+		"files-silent-peer-given-up",
+		"node/files.c",
+		"\t\t\t\t\tif (alive[out[k].peer] && ++failures[out[k].peer] >= 3u) {\n",
+		"\t\t\t\t\tif (0) {\n",
+		"a peer that never answers is sent spans for as long as the fetch runs, each waiting out its deadline -- sec 494",
+	),
+	(
+		"files-lying-peer-given-up",
+		"node/files.c",
+		"\t\t\t\t\tif (++failures[k] >= 3u) {\n",
+		"\t\t\t\t\tif (0) {\n",
+		"a peer whose spans never prove is asked again and again, and every span it is given wasted -- sec 494",
+	),
+	(
 		"files-contact-asks-only-what-is-shared",
 		"node/files.c",
 		"\tif (!fzn_node_files_shared_with(files, root, sender))\n\t\treturn 0;\n",
@@ -6112,8 +6133,8 @@ SABOTAGES = [
 	(
 		"files-fetch-keeps-its-budget",
 		"node/files.c",
-		"\tfor (round = 0; round < h.leaves && *placed < budget; round++) {\n",
-		"\tfor (round = 0; round < h.leaves; round++) {\n",
+		"\t\tfor (asks = 0, stop = 0; !stop && *placed < budget && asks < FZN_TRANSFER_MAX_ASSIGNS;) {\n\t\t\tint progress = 0;\n\n\t\t\tfor (j = 0; j < n_peers && !stop && *placed < budget; j++) {\n",
+		"\t\tfor (asks = 0, stop = 0; !stop && asks < FZN_TRANSFER_MAX_ASSIGNS;) {\n\t\t\tint progress = 0;\n\n\t\t\tfor (j = 0; j < n_peers && !stop; j++) {\n",
 		"a fetch takes the whole file in one round however large, and the node answers nothing else meanwhile -- sec 491",
 	),
 	(

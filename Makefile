@@ -2102,6 +2102,7 @@ $(BUILD_DIR)/node/test/files_test: $(BUILD_DIR)/node/test/files_test.o \
                                    $(BUILD_DIR)/spool/spool.o \
                                    $(BUILD_DIR)/spool/message.o \
                                    $(BUILD_DIR)/spool/plan.o \
+                                   $(BUILD_DIR)/spool/transfer.o \
                                    $(BUILD_DIR)/contact/contact.o \
                                    $(BUILD_DIR)/contact/group.o \
                                    $(BUILD_DIR)/persist/persist.o \
@@ -3819,7 +3820,8 @@ FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/node/files.o \
                        $(BUILD_DIR)/blob/levels.o $(BUILD_DIR)/notes/text.o \
                        $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/spool/spool_file.o \
                        $(BUILD_DIR)/spool/spool.o $(BUILD_DIR)/spool/message.o \
-                       $(BUILD_DIR)/spool/plan.o $(BUILD_DIR)/blob/blob.o
+                       $(BUILD_DIR)/spool/plan.o $(BUILD_DIR)/spool/transfer.o \
+                       $(BUILD_DIR)/blob/blob.o
 
 # The fuzznetd daemon. Its main() is in node/, so the pattern rule resolves
 # "serve.h" without -Inode.
@@ -3984,6 +3986,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(if $(SPOOL_FILE_ON),$(BUILD_DIR)/node/shelf.o \
                                         $(BUILD_DIR)/node/files.o \
                                         $(BUILD_DIR)/blob/levels.o \
+                                        $(BUILD_DIR)/spool/transfer.o \
                                         $(BUILD_DIR)/notes/text.o \
                                         $(BUILD_DIR)/spool/spool_file.o) \
                                       $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o \

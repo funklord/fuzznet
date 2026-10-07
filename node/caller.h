@@ -135,6 +135,14 @@ fzn_caller_err_t fzn_caller_recv(fzn_caller_t *caller, uint32_t msg,
  * into a failure. The timeout is what bounds the wait.
  *
  * `*reply_len` is set only on OK. */
+/* THE REPLY TO WHICHEVER OF THIS CALLER'S REQUESTS COMPLETES FIRST, and in
+ * `*msg` which one it answers. sec 494. A caller with several requests out
+ * -- a file fetched a window of spans at a time -- takes them as they come
+ * rather than in the order it asked. The reassembly table must have a slot
+ * for each request out at once; a reply finding none is refused there. */
+fzn_caller_err_t fzn_caller_recv_any(fzn_caller_t *caller, uint32_t *msg, uint8_t *reply,
+                                     size_t reply_cap, size_t *reply_len, unsigned timeout_ms);
+
 fzn_caller_err_t fzn_caller_ask(fzn_caller_t *caller, const uint8_t *payload,
                                 size_t payload_len, uint64_t expires_at,
                                 uint8_t *reply, size_t reply_cap,
