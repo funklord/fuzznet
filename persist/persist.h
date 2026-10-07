@@ -88,11 +88,9 @@
  *                        re-admits the device on the next start. Kept as the
  *                        signed record, since the store keeps no record to
  *                        save. `node/revoke.h`, sec 380.
- *   learned revocations  RETIRED, slot 10: what a member pulled from its
- *                        root with `get revocation` (sec 384). Since sec 506
- *                        a root's vote arrives in the journal like any
- *                        other and is kept with the learned votes in slot
- *                        11; nothing writes slot 10 and nothing reads it.
+ *   learned revocations  RETIRED with slot 10, sec 509: a root's vote
+ *                        arrives in the journal like any other and is kept
+ *                        with the learned votes in slot 11.
  *
  * Recoverable rather than required, and deliberately not served here:
  *
@@ -177,16 +175,15 @@ typedef enum fzn_persist_slot {
 	 * variable-width decimal up to FZN_PERSIST_FILE_SLOT_MAX, so slot 10
 	 * is `10-...` beside every existing name unchanged (sec 382). */
 	FZN_PERSIST_ISSUED_REVOCATION = 9u,
-	/* Per grantee, the latest revocation this node LEARNED from its estate
-	 * root. `node/revoke.h` keeps it. sec 384. */
-	FZN_PERSIST_LEARNED_REVOCATION = 10u,
+	/* 10 IS RETIRED, sec 509, and not to be reused: it held a revocation
+	 * a member pulled from its root with `get revocation` (sec 384). A
+	 * root's vote arrives in the journal like any other and lands in 11. */
 	/* Per (issuer, capability, grantee), keyed by a hash of the three: a
 	 * vote this node LEARNED from any peer, with the chain that entitles
 	 * its issuer. `node/revoke.h` keeps it. sec 399. */
 	FZN_PERSIST_VOTE = 11u,
-	/* Per entry id: a root log entry this node holds, its own root's or
-	 * learned. `node/roots.h` keeps it. sec 407. */
-	FZN_PERSIST_ROOT_ENTRY = 12u,
+	/* 12 IS RETIRED, sec 509, and not to be reused: it held the root
+	 * log's entries (sec 407). A key's acts are its journal stream now. */
 	/* Per record id: a root-add, a root-remove or a root's setting of k
 	 * (sec 418) this node holds. `node/roots.h` keeps it. sec 407. */
 	FZN_PERSIST_ROOT_CHANGE = 13u,
@@ -278,7 +275,7 @@ typedef enum fzn_persist_err {
 #define FZN_PERSIST_BLOB_PAIRING 7u
 #define FZN_PERSIST_BLOB_REVOCATION 8u
 #define FZN_PERSIST_BLOB_VOTE 9u
-#define FZN_PERSIST_BLOB_ROOT_ENTRY 10u
+/* 10 is retired with the root log's entries, sec 509, and not reused. */
 #define FZN_PERSIST_BLOB_ROOT_ADD 11u
 #define FZN_PERSIST_BLOB_ROOT_REMOVE 12u
 #define FZN_PERSIST_BLOB_OWN_ROOT 13u
@@ -394,10 +391,9 @@ typedef struct fzn_persist_ops {
  *                        this one as a judgement, the holder's to overrule)
  *   SEND_/RECV_CHAIN     ratchet positions: rolled back, keys are reused
  *   OWN_IDENTITY         the signing seed
- *   ISSUED_/LEARNED_REVOCATION  lost, a revoked device is admitted again
+ *   ISSUED_REVOCATION    lost, a revoked device is admitted again
  *   VOTE                 lost, a revocation short of its quorum again
- *   ROOT_ENTRY/_CHANGE   lost, a removed root's cut can no longer be
- *                        followed, or a removed root counts again
+ *   ROOT_CHANGE          lost, a removed root counts again
  *   OWN_ROOT             the seed of a root key: the estate's authority
  *   ADMIN_CONFIRM        lost, an admin grant falls short of its k - 1
  *   OWN_ADMIN            lost, this node votes and confirms as nobody

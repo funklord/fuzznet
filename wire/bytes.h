@@ -248,12 +248,11 @@ typedef enum fzn_signed_object {
 	 * other, whatever its bytes happen to be. */
 	FZN_OBJECT_CARD_V2 = 138u,	/* RETIRED 2026-09-30, sec 410: never reuse */
 
-	/* AN ENTRY IN A ROOT'S LOG, sec 404: one act a root signed, named by the
-	 * act's hash, chained to the root's previous entry. A removal of the root
-	 * names a cut in this chain; what lies on the chain up to the cut stands
-	 * and nothing else does. Its own tag because it shares a signer with
-	 * everything a root signs, and must never read as any of them. */
-	FZN_OBJECT_ROOT_ACT = 139u,
+	/* AN ENTRY IN A ROOT'S LOG, sec 404: one act a key signed, named by the
+	 * act's hash, chained to its previous entry. Retired in sec 509, when
+	 * the journal became the act log: a key's acts are the records of its
+	 * stream, and a cut is a record id. */
+	FZN_OBJECT_ROOT_ACT = 139u,	/* RETIRED 2026-10-07, sec 509: never reuse */
 
 	/* A CHANGE TO THE ROOT SET, sec 405: one root adding another, and one
 	 * root removing another at a cut in its log. Two tags on WITHDRAWAL's

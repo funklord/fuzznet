@@ -1,10 +1,14 @@
-/* Tests for chain/root_log.c: the entry's layout, admission, and the two
- * questions a removal asks -- does an act lie on the chain up to the cut, and
- * has the root signed two entries at one seq. project.md sec 404. */
+/* Tests for chain/root_log.c: the root set, its removals and their cuts
+ * (sec 405), the estate's k (sec 418) and its retention rules (sec 476).
+ *
+ * The root log's own entries are gone since sec 509 -- the journal is the act
+ * log, and `node/test/node_journal_test.c` tests a cut, a fork and a store
+ * edited underneath -- so a removal's cut is asked here of the act-log stub. */
 
 #include "../root_log.h"
 #include "../revocation.h"
 #include "../../wire/bytes.h"
+#include "acts_stub.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -118,200 +122,6 @@ static void act_of(uint8_t out[FZN_ROOT_ACT_ID_LEN], uint8_t seed)
 	out[0] = 0xa0u;
 }
 
-/* One entry: `root` logs act `seed` at `seq` after `prev`, into `out`, and
- * its id into `id`. */
-static void entry(uint8_t out[FZN_ROOT_ACT_LEN], uint8_t id[FZN_ROOT_ACT_ID_LEN], uint8_t root,
-                  uint64_t seq, const uint8_t *prev, uint8_t seed)
-{
-	uint8_t r[FZN_PUBKEY_LEN], a[FZN_ROOT_ACT_ID_LEN];
-
-	key(r, root);
-	act_of(a, seed);
-	signing_as = root;
-	CHECK(fzn_root_act_issue(r, seq, prev, (uint8_t)FZN_ROOT_ACT_GRANT, a, &SIGN, out)
-	              == FZN_ROOT_LOG_OK,
-	      "fixture: entry %u/%u would not sign", (unsigned)root, (unsigned)seq);
-	stub_hash(NULL, id, FZN_ROOT_ACT_ID_LEN, out, FZN_ROOT_ACT_LEN);
-}
-
-static void test_the_layout(void)
-{
-	uint8_t e[FZN_ROOT_ACT_LEN], id[FZN_ROOT_ACT_ID_LEN], bad[FZN_ROOT_ACT_LEN];
-	uint8_t r[FZN_PUBKEY_LEN], a[FZN_ROOT_ACT_ID_LEN];
-	fzn_root_act_t v;
-
-	entry(e, id, 7, 0, NULL, 1);
-	key(r, 7);
-	act_of(a, 1);
-	CHECK(fzn_root_act_open(e, sizeof(e), &v) == FZN_ROOT_LOG_OK,
-	      "an entry would not open");
-	CHECK(e[0] == 1u && e[1] == (uint8_t)FZN_OBJECT_ROOT_ACT && e[1] == 139u,
-	      "version or object byte is not where the table says");
-	CHECK(memcmp(fzn_root_act_root(v), r, FZN_PUBKEY_LEN) == 0 && fzn_root_act_seq(v) == 0u
-	              && fzn_root_act_kind(v) == (uint8_t)FZN_ROOT_ACT_GRANT
-	              && memcmp(fzn_root_act_act(v), a, sizeof(a)) == 0,
-	      "an entry's fields did not read back");
-	CHECK(e[74] == (uint8_t)FZN_ROOT_ACT_GRANT && e[75] == 0xa0u,
-	      "the kind or the act is not at 74 and 75");
-
-	/* THE CHAIN'S SHAPE: seq 0 names nothing, every later seq names one. */
-	memcpy(bad, e, sizeof(bad));
-	bad[FZN_ROOT_ACT_OFF_PREV] = 1u;
-	CHECK(fzn_root_act_open(bad, sizeof(bad), &v) == FZN_ROOT_LOG_ERR_SHAPE,
-	      "a first entry naming a predecessor opened");
-	memcpy(bad, e, sizeof(bad));
-	bad[FZN_ROOT_ACT_OFF_SEQ + 7u] = 1u;
-	CHECK(fzn_root_act_open(bad, sizeof(bad), &v) == FZN_ROOT_LOG_ERR_SHAPE,
-	      "a later entry naming no predecessor opened");
-	memcpy(bad, e, sizeof(bad));
-	bad[FZN_ROOT_ACT_OFF_KIND] = 0u;
-	CHECK(fzn_root_act_open(bad, sizeof(bad), &v) == FZN_ROOT_LOG_ERR_SHAPE,
-	      "an entry of kind 0 opened");
-	/* THE FIRST VALUE PAST THE LAST KIND, named from the enum so a kind
-	 * added later moves it: it was 6 until sec 418 made 6 a setting. */
-	bad[FZN_ROOT_ACT_OFF_KIND] = (uint8_t)(FZN_ROOT_ACT_SETTING + 1u);
-	CHECK(fzn_root_act_open(bad, sizeof(bad), &v) == FZN_ROOT_LOG_ERR_SHAPE,
-	      "an entry of an unknown kind opened");
-	bad[FZN_ROOT_ACT_OFF_KIND] = (uint8_t)FZN_ROOT_ACT_SETTING;
-	CHECK(fzn_root_act_open(bad, sizeof(bad), &v) == FZN_ROOT_LOG_OK,
-	      "an entry of the setting kind was refused for its kind");
-	CHECK(fzn_root_act_open(e, sizeof(e) - 1u, &v) == FZN_ROOT_LOG_ERR_SHAPE,
-	      "a short entry opened");
-	signing_as = 7;
-	CHECK(fzn_root_act_issue(r, 1, NULL, (uint8_t)FZN_ROOT_ACT_GRANT, a, &SIGN, bad)
-	              == FZN_ROOT_LOG_ERR_MALFORMED,
-	      "a later entry with no predecessor was minted");
-}
-
-static void test_admission(void)
-{
-	static fzn_root_log_entry_t entries[2];
-	fzn_root_log_t log;
-	uint8_t e0[FZN_ROOT_ACT_LEN], e1[FZN_ROOT_ACT_LEN], e2[FZN_ROOT_ACT_LEN];
-	uint8_t id0[FZN_ROOT_ACT_ID_LEN], id1[FZN_ROOT_ACT_ID_LEN], id2[FZN_ROOT_ACT_ID_LEN];
-
-	CHECK(fzn_root_log_init(&log, entries, 2) == FZN_ROOT_LOG_OK, "init");
-	entry(e0, id0, 7, 0, NULL, 1);
-	entry(e1, id1, 7, 1, id0, 2);
-	entry(e2, id2, 7, 2, id1, 3);
-	CHECK(fzn_root_log_admit(&log, e0, sizeof(e0), &SIGN, &HASH) == FZN_ROOT_LOG_OK
-	              && fzn_root_log_admit(&log, e0, sizeof(e0), &SIGN, &HASH) == FZN_ROOT_LOG_OK
-	              && log.used == 1u,
-	      "admitting one entry twice was not idempotent");
-	e1[FZN_ROOT_ACT_OFF_SIGNATURE] ^= 1u;
-	CHECK(fzn_root_log_admit(&log, e1, sizeof(e1), &SIGN, &HASH) == FZN_ROOT_LOG_ERR_SIGNATURE
-	              && log.used == 1u,
-	      "an entry with a broken signature was kept");
-	e1[FZN_ROOT_ACT_OFF_SIGNATURE] ^= 1u;
-	/* SIGNED BY ANOTHER KEY than the root it names. */
-	{
-		uint8_t forged[FZN_ROOT_ACT_LEN];
-
-		memcpy(forged, e1, sizeof(forged));
-		mac(forged + FZN_ROOT_ACT_OFF_SIGNATURE, 9, forged, FZN_ROOT_ACT_BODY_LEN);
-		CHECK(fzn_root_log_admit(&log, forged, sizeof(forged), &SIGN, &HASH)
-		              == FZN_ROOT_LOG_ERR_SIGNATURE,
-		      "an entry signed by another key than its root was kept");
-	}
-	CHECK(fzn_root_log_admit(&log, e1, sizeof(e1), &SIGN, &HASH) == FZN_ROOT_LOG_OK
-	              && fzn_root_log_admit(&log, e2, sizeof(e2), &SIGN, &HASH)
-	                         == FZN_ROOT_LOG_ERR_FULL
-	              && log.used == 2u,
-	      "a full log took a third entry, or refused the second");
-}
-
-/* THE CUT. Root 7 logs acts 1, 2 and 3 in a chain; a removal cutting at the
- * second entry keeps acts 1 and 2 and loses 3. Admitted last-first, since a
- * log is a set and arrival order says nothing. */
-static void test_the_cut(void)
-{
-	static fzn_root_log_entry_t entries[8];
-	fzn_root_log_t log;
-	uint8_t e0[FZN_ROOT_ACT_LEN], e1[FZN_ROOT_ACT_LEN], e2[FZN_ROOT_ACT_LEN];
-	uint8_t id0[FZN_ROOT_ACT_ID_LEN], id1[FZN_ROOT_ACT_ID_LEN], id2[FZN_ROOT_ACT_ID_LEN];
-	uint8_t seven[FZN_PUBKEY_LEN], eight[FZN_PUBKEY_LEN];
-	uint8_t a1[FZN_ROOT_ACT_ID_LEN], a2[FZN_ROOT_ACT_ID_LEN], a3[FZN_ROOT_ACT_ID_LEN];
-	uint8_t a9[FZN_ROOT_ACT_ID_LEN];
-
-	key(seven, 7);
-	key(eight, 8);
-	act_of(a1, 1);
-	act_of(a2, 2);
-	act_of(a3, 3);
-	act_of(a9, 9);
-	entry(e0, id0, 7, 0, NULL, 1);
-	entry(e1, id1, 7, 1, id0, 2);
-	entry(e2, id2, 7, 2, id1, 3);
-	CHECK(fzn_root_log_init(&log, entries, 8) == FZN_ROOT_LOG_OK
-	              && fzn_root_log_admit(&log, e2, sizeof(e2), &SIGN, &HASH) == FZN_ROOT_LOG_OK
-	              && fzn_root_log_admit(&log, e1, sizeof(e1), &SIGN, &HASH) == FZN_ROOT_LOG_OK
-	              && fzn_root_log_admit(&log, e0, sizeof(e0), &SIGN, &HASH) == FZN_ROOT_LOG_OK,
-	      "fixture: a chain of three");
-	CHECK(fzn_root_log_stands(&log, seven, id1, a1) && fzn_root_log_stands(&log, seven, id1, a2),
-	      "an act before the cut, or the cut's own, did not stand");
-	CHECK(!fzn_root_log_stands(&log, seven, id1, a3),
-	      "an act after the cut stood");
-	CHECK(fzn_root_log_stands(&log, seven, id2, a3),
-	      "the last act did not stand under a cut at the end");
-	CHECK(!fzn_root_log_stands(&log, seven, id1, a9), "an act never logged stood");
-	CHECK(!fzn_root_log_stands(&log, eight, id1, a1),
-	      "another root's cut reached this root's acts");
-	CHECK(!fzn_root_log_forked(&log, seven), "a straight chain was called a fork");
-
-	/* A FORK: a second entry at seq 1, as a thief replaying from seq 0
-	 * makes. Seen as a fork; its act does not stand under the honest cut,
-	 * and the honest history before the fork stands under either. */
-	{
-		uint8_t f1[FZN_ROOT_ACT_LEN], fid[FZN_ROOT_ACT_ID_LEN];
-
-		entry(f1, fid, 7, 1, id0, 9);
-		CHECK(fzn_root_log_admit(&log, f1, sizeof(f1), &SIGN, &HASH) == FZN_ROOT_LOG_OK,
-		      "a fork was refused rather than kept as evidence");
-		CHECK(fzn_root_log_forked(&log, seven), "two entries at one seq were not a fork");
-		CHECK(!fzn_root_log_stands(&log, seven, id2, a9),
-		      "an act on a fork stood under the honest cut");
-		CHECK(fzn_root_log_stands(&log, seven, fid, a1),
-		      "the history shared before the fork did not stand");
-	}
-}
-
-/* A BROKEN CHAIN DOES NOT STAND: a missing link, a link that skips a seq, and
- * a link to another root's entry. */
-static void test_a_broken_chain(void)
-{
-	static fzn_root_log_entry_t entries[8];
-	fzn_root_log_t log;
-	uint8_t e0[FZN_ROOT_ACT_LEN], e1[FZN_ROOT_ACT_LEN], e2[FZN_ROOT_ACT_LEN];
-	uint8_t skip[FZN_ROOT_ACT_LEN], other[FZN_ROOT_ACT_LEN];
-	uint8_t id0[FZN_ROOT_ACT_ID_LEN], id1[FZN_ROOT_ACT_ID_LEN], id2[FZN_ROOT_ACT_ID_LEN];
-	uint8_t sid[FZN_ROOT_ACT_ID_LEN], oid[FZN_ROOT_ACT_ID_LEN];
-	uint8_t seven[FZN_PUBKEY_LEN], eight[FZN_PUBKEY_LEN], a1[FZN_ROOT_ACT_ID_LEN];
-
-	key(seven, 7);
-	key(eight, 8);
-	act_of(a1, 1);
-	entry(e0, id0, 7, 0, NULL, 1);
-	entry(e1, id1, 7, 1, id0, 2);
-	entry(e2, id2, 7, 2, id1, 3);
-	entry(skip, sid, 7, 3, id0, 4);
-	entry(other, oid, 8, 2, id1, 5);
-	CHECK(fzn_root_log_init(&log, entries, 8) == FZN_ROOT_LOG_OK
-	              && fzn_root_log_admit(&log, e0, sizeof(e0), &SIGN, &HASH) == FZN_ROOT_LOG_OK
-	              && fzn_root_log_admit(&log, e2, sizeof(e2), &SIGN, &HASH) == FZN_ROOT_LOG_OK,
-	      "fixture: a chain with its middle missing");
-	CHECK(!fzn_root_log_stands(&log, seven, id2, a1),
-	      "an act behind a link this log does not hold stood");
-	CHECK(fzn_root_log_admit(&log, e1, sizeof(e1), &SIGN, &HASH) == FZN_ROOT_LOG_OK
-	              && fzn_root_log_stands(&log, seven, id2, a1),
-	      "the control: with the link held the act did not stand");
-	CHECK(fzn_root_log_admit(&log, skip, sizeof(skip), &SIGN, &HASH) == FZN_ROOT_LOG_OK
-	              && !fzn_root_log_stands(&log, seven, sid, a1),
-	      "a link that skips a seq was followed");
-	CHECK(fzn_root_log_admit(&log, other, sizeof(other), &SIGN, &HASH) == FZN_ROOT_LOG_OK
-	              && !fzn_root_log_stands(&log, eight, oid, a1),
-	      "a chain was followed into another root's entries");
-}
-
 /* ---- the root set, sec 405 ------------------------------------------- */
 
 /* A signed root-set record into `out`, its id into `id`. */
@@ -331,30 +141,25 @@ static size_t change(uint8_t *out, uint8_t id[FZN_ROOT_ACT_ID_LEN], int remove, 
 	return len;
 }
 
-/* A log entry by `root` at `seq` after `prev`, naming the act `act`, admitted
- * into `log`; its id into `id`. */
-static void logged(fzn_root_log_t *log, uint8_t id[FZN_ROOT_ACT_ID_LEN], uint8_t root,
-                   uint64_t seq, const uint8_t *prev, const uint8_t act[FZN_ROOT_ACT_ID_LEN])
+/* `root` logs the act `act` after the entry `prev` in `log`, the act-log stub
+ * (`acts_stub.h`, sec 509); the entry's id into `id`. */
+static void logged(acts_stub_t *log, uint8_t id[FZN_ROOT_ACT_ID_LEN], uint8_t root,
+                   const uint8_t *prev, const uint8_t act[FZN_ROOT_ACT_ID_LEN])
 {
-	uint8_t r[FZN_PUBKEY_LEN], e[FZN_ROOT_ACT_LEN];
+	uint8_t r[FZN_PUBKEY_LEN];
 
 	key(r, root);
-	signing_as = root;
-	CHECK(fzn_root_act_issue(r, seq, prev, (uint8_t)FZN_ROOT_ACT_GRANT, act, &SIGN, e)
-	              == FZN_ROOT_LOG_OK
-	              && fzn_root_log_admit(log, e, sizeof(e), &SIGN, &HASH) == FZN_ROOT_LOG_OK,
-	      "fixture: a log entry");
-	stub_hash(NULL, id, FZN_ROOT_ACT_ID_LEN, e, sizeof(e));
+	CHECK(acts_stub_log(log, r, prev, act, id), "fixture: an act logged");
 }
 
 /* The log's act-log ops, which the root set asks since sec 506: a fresh
  * pair per call, so two logs in one expression do not share one. */
-#define ACTS_OF(log) (fzn_root_log_acts((log), &acts_scratch[acts_turn ^= 1u]), \
+#define ACTS_OF(log) (acts_stub_ops((log), &acts_scratch[acts_turn ^= 1u]), \
                       (const fzn_act_log_ops_t *)&acts_scratch[acts_turn])
 static fzn_act_log_ops_t acts_scratch[2];
 static unsigned acts_turn;
 
-static int stands_key(const fzn_root_set_t *set, const fzn_root_log_t *log, uint8_t id)
+static int stands_key(const fzn_root_set_t *set, acts_stub_t *log, uint8_t id)
 {
 	uint8_t k[FZN_PUBKEY_LEN];
 
@@ -362,7 +167,7 @@ static int stands_key(const fzn_root_set_t *set, const fzn_root_log_t *log, uint
 	return fzn_root_set_stands(set, log ? ACTS_OF(log) : NULL, k);
 }
 
-static int counts_act(const fzn_root_set_t *set, const fzn_root_log_t *log, uint8_t root,
+static int counts_act(const fzn_root_set_t *set, acts_stub_t *log, uint8_t root,
                       const uint8_t act[FZN_ROOT_ACT_ID_LEN])
 {
 	uint8_t k[FZN_PUBKEY_LEN];
@@ -381,7 +186,7 @@ static int counts_act(const fzn_root_set_t *set, const fzn_root_log_t *log, uint
  * counts for nothing. Every order of the four records gives that. */
 static void test_the_theft(void)
 {
-	static fzn_root_log_entry_t entries[8];
+	static acts_stub_t log;
 	static fzn_root_change_t changes[4];
 	uint8_t recs[4][FZN_ROOT_REMOVE_LEN], rids[4][FZN_ROOT_ACT_ID_LEN];
 	size_t lens[4];
@@ -391,24 +196,23 @@ static void test_the_theft(void)
 	static const uint8_t orders[4][4] = {
 		{ 0, 1, 2, 3 }, { 3, 2, 1, 0 }, { 2, 0, 3, 1 }, { 1, 3, 0, 2 }
 	};
-	fzn_root_log_t log;
 	fzn_root_set_t set;
 	size_t o, i;
 
 	act_of(a10, 10);
 	act_of(a11, 11);
 	key(genesis, 1);
-	CHECK(fzn_root_log_init(&log, entries, 8) == FZN_ROOT_LOG_OK, "fixture: log");
+	memset(&log, 0, sizeof(log));
 	lens[0] = change(recs[0], rids[0], 0, 1, 2, NULL);	/* 1 adds 2 */
 	lens[1] = change(recs[1], rids[1], 0, 1, 3, NULL);	/* the thief: 1 adds 3 */
-	logged(&log, e0, 1, 0, NULL, rids[0]);
-	logged(&log, e1, 1, 1, e0, a10);
-	logged(&log, e2, 1, 2, e1, rids[1]);
-	logged(&log, e3, 1, 3, e2, a11);
+	logged(&log, e0, 1, NULL, rids[0]);
+	logged(&log, e1, 1, e0, a10);
+	logged(&log, e2, 1, e1, rids[1]);
+	logged(&log, e3, 1, e2, a11);
 	lens[2] = change(recs[2], rids[2], 1, 2, 1, e1);	/* 2 removes 1 at e1 */
-	logged(&log, h0, 2, 0, NULL, rids[2]);
+	logged(&log, h0, 2, NULL, rids[2]);
 	lens[3] = change(recs[3], rids[3], 1, 3, 2, NULL);	/* 3 removes 2 */
-	logged(&log, t0, 3, 0, NULL, rids[3]);
+	logged(&log, t0, 3, NULL, rids[3]);
 
 	for (o = 0; o < 4u; o++) {
 		CHECK(fzn_root_set_init(&set, genesis, changes, 4) == FZN_ROOT_LOG_OK, "fixture: set");
@@ -435,20 +239,18 @@ static void test_the_theft(void)
  * control is that before the removals both stood. */
 static void test_mutual_removal(void)
 {
-	static fzn_root_log_entry_t entries[4];
+	static acts_stub_t log;
 	static fzn_root_change_t changes[4];
 	uint8_t add[FZN_ROOT_ADD_LEN], r12[FZN_ROOT_REMOVE_LEN], r21[FZN_ROOT_REMOVE_LEN];
 	uint8_t id_add[FZN_ROOT_ACT_ID_LEN], id12[FZN_ROOT_ACT_ID_LEN], id21[FZN_ROOT_ACT_ID_LEN];
 	uint8_t e0[FZN_ROOT_ACT_ID_LEN], genesis[FZN_PUBKEY_LEN];
-	fzn_root_log_t log;
 	fzn_root_set_t set;
 
 	key(genesis, 1);
-	CHECK(fzn_root_log_init(&log, entries, 4) == FZN_ROOT_LOG_OK
-	              && fzn_root_set_init(&set, genesis, changes, 4) == FZN_ROOT_LOG_OK,
-	      "fixture");
+	memset(&log, 0, sizeof(log));
+	CHECK(fzn_root_set_init(&set, genesis, changes, 4) == FZN_ROOT_LOG_OK, "fixture");
 	change(add, id_add, 0, 1, 2, NULL);
-	logged(&log, e0, 1, 0, NULL, id_add);
+	logged(&log, e0, 1, NULL, id_add);
 	CHECK(fzn_root_set_admit(&set, add, sizeof(add), &SIGN, &HASH) == FZN_ROOT_LOG_OK
 	              && stands_key(&set, &log, 1) && stands_key(&set, &log, 2),
 	      "the control: before any removal both roots did not stand");
@@ -480,10 +282,9 @@ static void test_mutual_removal(void)
 static void test_the_set_refuses(void)
 {
 	static fzn_root_change_t changes[FZN_ROOT_SET_MAX + 1u];
-	static fzn_root_log_entry_t entries[4];
+	static acts_stub_t log;
 	uint8_t add[FZN_ROOT_ADD_LEN], rem[FZN_ROOT_REMOVE_LEN], id[FZN_ROOT_ACT_ID_LEN];
 	uint8_t e0[FZN_ROOT_ACT_ID_LEN], a10[FZN_ROOT_ACT_ID_LEN], genesis[FZN_PUBKEY_LEN];
-	fzn_root_log_t log;
 	fzn_root_set_t set;
 
 	key(genesis, 1);
@@ -491,9 +292,8 @@ static void test_the_set_refuses(void)
 	CHECK(fzn_root_set_init(&set, genesis, changes, FZN_ROOT_SET_MAX + 1u)
 	              == FZN_ROOT_LOG_ERR_MALFORMED,
 	      "a set past its bound was accepted");
-	CHECK(fzn_root_set_init(&set, genesis, changes, 4) == FZN_ROOT_LOG_OK
-	              && fzn_root_log_init(&log, entries, 4) == FZN_ROOT_LOG_OK,
-	      "fixture");
+	memset(&log, 0, sizeof(log));
+	CHECK(fzn_root_set_init(&set, genesis, changes, 4) == FZN_ROOT_LOG_OK, "fixture");
 	CHECK(stands_key(&set, &log, 1) && !stands_key(&set, &log, 9),
 	      "the genesis root does not stand alone, or a stranger does");
 	change(add, id, 0, 1, 2, NULL);
@@ -505,13 +305,13 @@ static void test_the_set_refuses(void)
 	CHECK(fzn_root_set_admit(&set, add, sizeof(add), &SIGN, &HASH)
 	              == FZN_ROOT_LOG_ERR_SIGNATURE,
 	      "a root-add with a broken signature was kept");
-	add[1] = (uint8_t)FZN_OBJECT_ROOT_ACT;
+	add[1] = (uint8_t)FZN_OBJECT_REVOCATION;
 	CHECK(fzn_root_set_admit(&set, add, sizeof(add), &SIGN, &HASH) == FZN_ROOT_LOG_ERR_SHAPE,
 	      "another object was read as a root-set record");
 	/* THE GENESIS ROOT REMOVED AT A CUT, judged with and without the log:
 	 * with it the act before the cut counts; without it nothing can be
 	 * shown to stand. And a removal naming no cut keeps nothing. */
-	logged(&log, e0, 1, 0, NULL, a10);
+	logged(&log, e0, 1, NULL, a10);
 	change(rem, id, 1, 2, 1, e0);
 	CHECK(fzn_root_set_admit(&set, rem, sizeof(rem), &SIGN, &HASH) == FZN_ROOT_LOG_OK
 	              && counts_act(&set, &log, 1, a10) && !counts_act(&set, NULL, 1, a10),
@@ -724,10 +524,6 @@ static void test_the_estates_retention(void)
 
 int main(void)
 {
-	test_the_layout();
-	test_admission();
-	test_the_cut();
-	test_a_broken_chain();
 	test_the_theft();
 	test_mutual_removal();
 	test_the_set_refuses();

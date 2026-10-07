@@ -57758,3 +57758,59 @@ indexed grants.
 - `live55`: M's restart applies R's 2 objects and indexes 2 grants. The
   grants are R's offline pairings of M and D, which never reached the
   journal before this section.
+
+## 509. Stage 4b-ii: the root log leaves the library, 2026-10-07
+
+Sec 508 stopped the node keeping root-log entries. Nothing in the library
+used them after that, so this section removes them. Stage 4 is complete:
+the act log is the journal, and a cut is a record id.
+
+### What went
+
+| Gone | Where |
+|---|---|
+| the 171-byte root-log entry (`fzn_root_act_*`, `FZN_ROOT_ACT_LEN` and its offsets) | `chain/root_log.h` |
+| the log that kept them (`fzn_root_log_t`, `_init`, `_admit`, `_stands`, `_forked`, `_acts`) | `chain/root_log.c` |
+| the entry's schema and its kinds enum | `chain/root_act.situ` |
+| object tag 139, `FZN_OBJECT_ROOT_ACT`, kept as an enumerator marked retired, as CARD_V2's 138 is | `wire/bytes.h` |
+| persist slots 10 (learned revocations, sec 384) and 12 (root-log entries), and blob tag 10, left as numbers never to reuse | `persist/persist.h`, `persist.situ` |
+| their printers | `cli/persist_print.c`, `gui/persist_view.cpp` |
+| 8 sabotage entries guarding the log | `tool/sabotage.py` |
+
+What stays in `chain/root_log`: the root set, its view and its cuts (asked
+of `fzn_act_log_ops_t`), the estate's k, the retention rules, and the act
+kinds the roots' `logged` hook is told. `FZN_ROOT_ACT_ID_LEN` stays as the
+length of an act id and of a cut. The schema file keeps its name, so the
+root records it still describes keep their place in situ's coverage.
+
+### The suites ask a stub
+
+A cut is still a question the revocation store, the root set and the
+roster ask, and their suites need something to answer it.
+`chain/test/acts_stub.h` answers it as the journal does. An entry names its
+key, the act and the entry before it. An act stands under a cut when it is
+the cut or is reached from it by following `prev` within one key, so an
+act on a fork stands under neither branch's cut but its own. Nothing is
+signed, because what is under test is the store asking. It is header-only
+and static, so none of it reaches the library.
+
+- **revocation_test** (sec 496's cut, sec 406's several roots) and
+  **roster_test** (a removed root's writes, a revoked writer's records, a
+  grant before the cut) moved onto it unchanged in what they assert.
+- **root_log_test** keeps the set, k and retention tests, and loses the
+  log's own: layout, admission, the cut, a broken chain.
+  `node_journal_test` covers the journal's equivalents: the cut, both fork
+  shapes, and a store edited underneath.
+
+- **persist_print_test** sized its list of slots at 27 by hand. With two
+  slots retired, the zeroes left behind read as slots that did not report
+  their loss. The list is now sized by itself.
+- **The style gate's header walk** skips headers under a `test/`
+  directory. `acts_stub.h` is the first such header. It is compiled into
+  three suites, and installing it would ship a stub as API.
+
+### Measured for sec 509
+
+- `make test`, `make style` (1152 sabotage entries verified),
+  `make installcheck`, `make schema` (root_act, persist and provision
+  regenerated), and `make qtty` for the GUI view.

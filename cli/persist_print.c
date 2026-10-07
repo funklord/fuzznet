@@ -56,12 +56,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "a node this host is paired to";
 	case FZN_PERSIST_ISSUED_REVOCATION:
 		return "a revocation this host issued";
-	case FZN_PERSIST_LEARNED_REVOCATION:
-		return "a revocation this host learned from its estate";
 	case FZN_PERSIST_VOTE:
 		return "a revocation vote this host learned from a peer";
-	case FZN_PERSIST_ROOT_ENTRY:
-		return "an entry in a root's log";
 	case FZN_PERSIST_ROOT_CHANGE:
 		return "a change to the estate's roots";
 	case FZN_PERSIST_OWN_ROOT:

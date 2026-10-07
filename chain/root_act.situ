@@ -1,39 +1,16 @@
-// A root log entry as a situ schema: the hand-written codec is
+// The root records as situ schemas: the hand-written codec is
 // chain/root_log.c, and this is its checked contract, the way
-// chain/revocation.situ is revocation.c's. project.md sec 404.
+// chain/revocation.situ is revocation.c's. project.md secs 405, 418, 476.
 //
-// One act a root signed, named by the hash of its record, chained to the
-// root's previous entry. The body is `authenticated` and the signature a
+// The body of each is `authenticated` and the signature a
 // `checksum ... covers(body)`; Ed25519 is extern, so no codec.
+//
+// The file is named for the root-log entry it described from sec 404 until
+// sec 509 retired it: a key's acts are its journal stream now. The name is
+// kept so the schema keeps its place in the coverage.
 
 target buffer;
 endian big;
-
-// The kinds fzn_root_act_open accepts. Zero is not one, so a zeroed record
-// names no act.
-enum fzn_root_act_kind : u8 {
-	grant = 1,
-	revocation = 2,
-	roster = 3,
-	root_add = 4,
-	root_remove = 5,
-	setting = 6,
-	default = error,
-}
-
-struct fzn_root_act {
-	authenticated body {
-		u8  version [must_eq = 1];       // FZN_ROOT_ACT_OFF_VERSION 0
-		u8  object [must_eq = 139];      // FZN_ROOT_ACT_OFF_OBJECT  1 (FZN_OBJECT_ROOT_ACT)
-		u8  root[32];                    // FZN_ROOT_ACT_OFF_ROOT    2
-		u64 seq;                         // FZN_ROOT_ACT_OFF_SEQ     34
-		u8  prev[32];                    // FZN_ROOT_ACT_OFF_PREV    42  (zero at seq 0)
-		fzn_root_act_kind kind;          // FZN_ROOT_ACT_OFF_KIND    74
-		u8  act[32];                     // FZN_ROOT_ACT_OFF_ACT     75  (the act's hash)
-	}
-	// covers(body) = bytes 0..106, FZN_ROOT_ACT_BODY_LEN.
-	checksum u8 signature[64] covers(body); // FZN_ROOT_ACT_OFF_SIGNATURE 107
-}
 
 // A root adding another, sec 405. Logged by the adder as an act.
 struct fzn_root_add {

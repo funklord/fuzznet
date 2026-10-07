@@ -73,8 +73,6 @@ struct fzn_persist_blob size=2.. mutate=Shifting address=Unstable repr=ValueConv
   fzn_persist_blob.body.vote.hops        offset=AbsoluteStatic(0xF5) size=Bounded(0, 1253) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting effect=EffectOnWrite
   fzn_persist_blob.body.vote.hops[]      offset=FrameStatic(0x02) size=Fixed(179) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_blob.body.vote.hops[].bytes offset=FrameStatic(0x02) size=Fixed(179) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
-  fzn_persist_blob.body.root_entry       offset=AbsoluteStatic(0x02) size=Fixed(171) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
-  fzn_persist_blob.body.root_entry.record offset=AbsoluteStatic(0x02) size=Fixed(171) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_blob.body.root_add         offset=AbsoluteStatic(0x02) size=Fixed(130) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_blob.body.root_add.record  offset=AbsoluteStatic(0x02) size=Fixed(130) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_blob.body.root_remove      offset=AbsoluteStatic(0x02) size=Fixed(162) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
@@ -279,9 +277,6 @@ struct fzn_persist_revocation_body size=242 atomic=NonAtomic effect=EffectOnWrit
 
 struct fzn_persist_root_add_body size=130 atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_root_add_body.record       offset=AbsoluteStatic(0x00) size=Fixed(130) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
-
-struct fzn_persist_root_entry_body size=171 atomic=NonAtomic effect=EffectOnWrite
-  fzn_persist_root_entry_body.record     offset=AbsoluteStatic(0x00) size=Fixed(171) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
 
 struct fzn_persist_root_remove_body size=162 atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_root_remove_body.record    offset=AbsoluteStatic(0x00) size=Fixed(162) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite

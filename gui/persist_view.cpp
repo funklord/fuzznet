@@ -40,12 +40,8 @@ static QString slot_label(fzn_persist_slot_t slot)
 		return QStringLiteral("paired node");
 	case FZN_PERSIST_ISSUED_REVOCATION:
 		return QStringLiteral("issued revocation");
-	case FZN_PERSIST_LEARNED_REVOCATION:
-		return QStringLiteral("learned revocation");
 	case FZN_PERSIST_VOTE:
 		return QStringLiteral("learned vote");
-	case FZN_PERSIST_ROOT_ENTRY:
-		return QStringLiteral("root log entry");
 	case FZN_PERSIST_ROOT_CHANGE:
 		return QStringLiteral("root change");
 	case FZN_PERSIST_OWN_ROOT:

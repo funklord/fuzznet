@@ -60,7 +60,7 @@ enum fzn_persist_tag : u8 {
 	pairing = 7,
 	revocation = 8,
 	vote = 9,
-	root_entry = 10,
+	// 10 was root_entry, the root log's, retired in sec 509.
 	root_add = 11,
 	root_remove = 12,
 	own_root = 13,
@@ -158,13 +158,8 @@ struct fzn_persist_vote_body {
 	fzn_persist_hop hops[hop_count];
 }
 
-// A root log entry, a root-add and a root-remove, as node/roots.c keeps
-// them (sec 407): each the signed record whole, opaque here, laid out in
-// chain/root_act.situ.
-struct fzn_persist_root_entry_body {
-	u8  record[171];
-}
-
+// A root-add and a root-remove, as node/roots.c keeps them (sec 407): each
+// the signed record whole, opaque here, laid out in chain/root_act.situ.
 struct fzn_persist_root_add_body {
 	u8  record[130];
 }
@@ -363,7 +358,6 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.pairing:  fzn_persist_pairing_body  pairing;
 		case fzn_persist_tag.revocation: fzn_persist_revocation_body revocation;
 		case fzn_persist_tag.vote: fzn_persist_vote_body vote;
-		case fzn_persist_tag.root_entry: fzn_persist_root_entry_body root_entry;
 		case fzn_persist_tag.root_add: fzn_persist_root_add_body root_add;
 		case fzn_persist_tag.root_remove: fzn_persist_root_remove_body root_remove;
 		case fzn_persist_tag.own_root: fzn_persist_own_root_body own_root;

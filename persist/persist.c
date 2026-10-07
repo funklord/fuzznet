@@ -43,7 +43,7 @@
 /* 5 is FZN_PERSIST_BLOB_NODE_PEER, packed in node/peer_persist.c, 7 is
  * FZN_PERSIST_BLOB_PAIRING, packed in node/pair.c, and 8 and 9 are
  * FZN_PERSIST_BLOB_REVOCATION and FZN_PERSIST_BLOB_VOTE, packed in
- * node/revoke.c, and 10 to 12 are FZN_PERSIST_BLOB_ROOT_ENTRY,
+ * node/revoke.c, 10 is retired (sec 509), 11 and 12 are
  * FZN_PERSIST_BLOB_ROOT_ADD and FZN_PERSIST_BLOB_ROOT_REMOVE, and 13 is
  * FZN_PERSIST_BLOB_OWN_ROOT, all packed in node/roots.c, and 14 and 15 are
  * FZN_PERSIST_BLOB_ADMIN_CONFIRM and FZN_PERSIST_BLOB_OWN_ADMIN, packed in

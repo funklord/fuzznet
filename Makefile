@@ -5245,9 +5245,14 @@ style: $(OBJS)
 	@# `installcheck`'s C++ arm parses every member without Qt's flags. A
 	@# C++-only header that needs `QWidget` fails both. It is a real public
 	@# header and it is installed below; it is not a C one. sec 140.
+	@# A HEADER UNDER A test/ DIRECTORY IS A SUITE'S, compiled into its
+	@# binaries and nothing else: `chain/test/acts_stub.h`, the act-log stub
+	@# three suites ask a cut of since sec 509. Installing it would ship a
+	@# stub as API, so it is excluded rather than listed.
 	@known=" $(HDRS) $(GUI_HDRS) $(SPEC_HDRS) "; missing=; n=0; \
 	for h in `find . -name '*.h' -not -path './.git/*' -not -path './.claude/*' \
 	                 -not -path './wire/generated/*' -not -path './tool/*' \
+	                 -not -path '*/test/*' \
 	                 -not -path './build/*' -not -path './san/*' \
 	                 -not -path './installcheck/*' \
 	                 -not -path './*-coverage/*' $(VENDOR_PRUNE) \
