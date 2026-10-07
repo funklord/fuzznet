@@ -15,12 +15,11 @@
  * the estate's pinned root, which is every node before sec 407 -- the answers
  * are the single-root answers exactly.
  *
- * CARRIED AS VOTES ARE (sec 408): `get root [FROM]` pages every root record a
- * node holds, `e` and a log entry, `a` and a root-add, `x` and a root-remove,
- * `q` and a setting of k (sec 418),
- * each whole, and a puller learns each. Every item stands alone, so no state
- * crosses a page. A record that will not admit is counted and skipped, for the
- * reason a vote is: a peer may hold what this node never will.
+ * CARRIED IN THE JOURNAL (sec 505): a root change, a setting of k and a
+ * root's retention setting are each their signer's act, logged and so in its
+ * journal (`node/journal.h`), and a reader applies each through
+ * `fzn_node_roots_learn` (`node/apply.h`). The `get root` stream that carried
+ * them from sec 408 is gone.
  *
  * A NODE'S OWN ROOT KEY (sec 409), separate from its identity as sec 403
  * decided: at most one, its seed in the core slot 14, seated as the identity's
@@ -299,9 +298,10 @@ fzn_node_roots_err_t fzn_node_roots_set_retention(fzn_node_roots_t *roots,
  * (and root) capability". An admin's record carries its admin chain, which
  * a node admits into its revocations (`fzn_revocation_admin_admit`) so the
  * record counts while the admin stands -- confirmed, rooted, unrevoked --
- * and stops when it does not. They are kept in slot 27 with the chain and
- * travel in the vote stream, where chains already ride, not with the root
- * records. All of these need the revocations attached.
+ * and stops when it does not. They are kept in slot 27 with the chain, and
+ * since sec 505 one is logged as its setter's act and travels in the
+ * setter's journal; a reader rebuilds the chain from the grants it holds.
+ * All of these need the revocations attached.
  *
  * Learn one, checked: its shape and signature, its chain granting the admin
  * capability to its setter from `root` or a member root. Saved, then
@@ -346,24 +346,5 @@ fzn_node_roots_err_t fzn_node_roots_identity_root(fzn_node_roots_t *roots,
                                                   uint8_t proof[FZN_PROVISION_PROOF_MAX]
                                                               [FZN_PROVISION_PROOF_ITEM_LEN],
                                                   fzn_node_authority_t *authority);
-
-/* Every root record the store holds, as items from `from`, written as
- * ` ITEM` into `out` while they fit in `cap`; `*len` written, `*total` items.
- * 0 when the store cannot list or a stored record will not read. */
-int fzn_node_roots_page(const fzn_persist_ops_t *store, size_t from, char *out, size_t cap,
-                        size_t *len, size_t *total);
-
-/* One page, `reply` answering `get root FROM`: learn every item, and set
- * `*next` and `*total`. `*learned` and `*refused` count on. */
-fzn_node_pull_err_t fzn_node_roots_absorb(fzn_node_roots_t *roots,
-                                          const fzn_persist_ops_t *store,
-                                          const uint8_t *reply, size_t reply_len, size_t from,
-                                          size_t *next, size_t *total, size_t *learned,
-                                          size_t *refused);
-
-/* The whole stream from the peer `caller` reaches. */
-fzn_node_pull_err_t fzn_node_roots_pull(fzn_node_roots_t *roots, const fzn_persist_ops_t *store,
-                                        fzn_caller_t *caller, uint64_t now, size_t *learned,
-                                        size_t *refused);
 
 #endif /* FZN_NODE_ROOTS_H */

@@ -720,18 +720,17 @@ int main(void)
 		              && detail_len > 64u && memcmp(detail, key, 64u) == 0,
 		      "a grantee whose revocation was undone could not be revoked again");
 
-		/* ---- AND SERVED AS A VOTE: `get vote` is not mutating, so a
-		 * group member may read it, and it answers the one record this
-		 * root holds as one item with no chain. sec 399. */
+		/* ---- AND NOT SERVED AS A VOTE: the journal carries it, sec 505,
+		 * and the verbs that paged votes, root records and revocations are
+		 * gone -- asked, none answers ok. */
 		CHECK(ask(&admin, &member, "get vote", reply, sizeof(reply), &reply_len)
-		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
-		              && detail_len == 5u + (FZN_REVOCATION_LEN * 2u)
-		              && memcmp(detail, "1 0 r", 5u) == 0,
-		      "get vote did not serve the node's one vote as one record item");
-		CHECK(ask(&admin, &member, "get vote 2", reply, sizeof(reply), &reply_len)
-		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
-		                         == FZN_REPLY_MALFORMED,
-		      "an offset past the last vote was answered as an empty page");
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) != FZN_REPLY_OK
+		              && ask(&admin, &member, "get root", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) != FZN_REPLY_OK
+		              && ask(&admin, &member, "get revocation", reply, sizeof(reply),
+		                     &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) != FZN_REPLY_OK,
+		      "a verb of the retired vote stream still answered ok");
 
 		/* ADD AND REMOVE A ROOT: the owner may, a group member may not, and
 		 * a cut that is not an id is refused. sec 409. */
@@ -754,22 +753,6 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && !fzn_root_view_stands(&roots.view, device.id.pubkey),
 		      "the node's own user could not remove a root");
-
-		/* AND ROOT RECORDS, served whole: the pairings' grants, then five
-		 * log entries -- the revocation, its withdrawal, the re-revocation,
-		 * and the two root changes -- and the two changes themselves.
-		 * sec 408. */
-		{
-			char head[24];
-
-			snprintf(head, sizeof(head), "%zu 0 ", granted + 7u);
-			CHECK(ask(&admin, &member, "get root", reply, sizeof(reply), &reply_len)
-			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
-			                         == FZN_REPLY_OK
-			              && detail_len > strlen(head)
-			              && memcmp(detail, head, strlen(head)) == 0,
-			      "get root did not serve every root record this node holds");
-		}
 
 		/* ---- A LINE NAMED, MOVED AND KEPT, sec 497: a cut that is not an
 		 * id is refused; a named one moves the held vote's line and the
@@ -1713,8 +1696,9 @@ int main(void)
 	      "a k of 0 was taken");
 
 	/* ---- THE ESTATE'S RETENTION RULES, sec 476: the owner adds one as this
-	 * root, it travels in `get root` as an `r` item, a store loaded afresh
-	 * resolves it, and a removal by another spelling takes it away. */
+	 * root, logged as its act -- which the journal carries since sec 505 --
+	 * a store loaded afresh resolves it, and a removal by another spelling
+	 * takes it away. */
 	{
 		static fzn_node_roots_t again;
 		fzn_retain_rule_t rules[4];
@@ -1737,28 +1721,6 @@ int main(void)
 		              && detail_len == strlen("1 prune%20*%20level=D%20age%202d")
 		              && says(detail, detail_len, "1 prune%20*%20level=D%20age%202d"),
 		      "the estate's rule was not listed to a member, once, in its canonical text");
-		/* EVERY PAGE, since a page holds what fits a reply. */
-		{
-			size_t from = 0, total = 1, pages = 0, i;
-			int found = 0;
-
-			while (from < total && pages++ < 64u) {
-				size_t items = 0;
-
-				snprintf(line, sizeof(line), "get root %zu", from);
-				if (!ask(&admin, &member, line, reply, sizeof(reply), &reply_len)
-				    || fzn_reply_of(reply, reply_len, &detail, &detail_len) != FZN_REPLY_OK
-				    || sscanf((const char *)detail, "%zu", &total) != 1)
-					break;
-				found = found || says(detail, detail_len, " r0191");
-				for (i = 0; i < detail_len; i++)
-					items += detail[i] == ' ';
-				if (items < 2u)
-					break;
-				from += items - 1u;
-			}
-			CHECK(found, "get root did not carry the rule as an r item");
-		}
 		CHECK(fzn_node_roots_init(&again, node.id.pubkey, &node.sign, &hash_ops)
 		                      == FZN_NODE_ROOTS_OK
 		              && fzn_node_roots_load(&again, &node.ops, &loaded) == FZN_NODE_ROOTS_OK
@@ -1770,21 +1732,14 @@ int main(void)
 		              && n == 0u && unread == 1u,
 		      "a rule past the caller's room was dropped unseen rather than counted");
 		{
-			size_t before = 0, after = 0;
+			size_t before = admin.roots->log.used;
 
-			CHECK(ask(&admin, &owner, "get root", reply, sizeof(reply), &reply_len)
-			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
-			                         == FZN_REPLY_OK
-			              && sscanf((const char *)detail, "%zu", &before) == 1
-			              && ask(&admin, &owner, "remove estate-retention prune * level=I age 2d",
-			                     reply, sizeof(reply), &reply_len)
+			CHECK(ask(&admin, &owner, "remove estate-retention prune * level=I age 2d", reply,
+			          sizeof(reply), &reply_len)
 			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
 			                         == FZN_REPLY_ERROR
 			              && says(detail, detail_len, "no such estate rule")
-			              && ask(&admin, &owner, "get root", reply, sizeof(reply), &reply_len)
-			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
-			                         == FZN_REPLY_OK
-			              && sscanf((const char *)detail, "%zu", &after) == 1 && after == before,
+			              && admin.roots->log.used == before,
 			      "a rule the estate does not have was removed, or its refusal still logged "
 			      "an act");
 		}

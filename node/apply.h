@@ -10,9 +10,9 @@
  *     a root change or a     to the roots (`fzn_node_roots_learn`)
  *       setting of k, or a root's retention setting
  *     a vote, a withdrawal,  to `fzn_node_votes_take`, with the signer's
- *       a confirmation, an     chain rebuilt from the index -- exactly the
- *       admin's retention      admission the `get vote` stream's items took
- *       setting, a roster
+ *       a confirmation, an     chain rebuilt from the index -- the
+ *       admin's retention      admission the retired vote stream's items
+ *       setting, a roster      took, sec 505
  *       record, a succession
  *
  * CHAINS ARE NOT CARRIED, THEY ARE REBUILT. A grant is itself an act, logged
@@ -30,6 +30,12 @@
  * APPLYING IS IDEMPOTENT, as every subsystem's admission is, so a restart --
  * whose journal replays with nothing yet marked applied -- applies everything
  * again and changes nothing.
+ *
+ * ONE INDEX PER JOURNAL. A grant is marked applied in the journal once, and
+ * only the context that applied it holds it in its index, so a second
+ * context over the same journal never sees it and every vote under it waits
+ * for ever. The daemon keeps one context; a caller wanting another over the
+ * same journal carries the index across (sec 505).
  */
 
 #ifndef FZN_NODE_APPLY_H

@@ -255,124 +255,6 @@ static size_t list_peers(fzn_node_admin_t *admin, const uint8_t *from_text, size
 	return answer(reply, cap, FZN_REPLY_OK, detail, at);
 }
 
-/* `get revocation [FROM]`: the revocations this node ISSUED, as the signed
- * records, paged as `list peer` is -- `ok TOTAL FROM RECORD ...`, each record
- * 420 hex characters. What a member node pulls from its root (sec 384).
- * Non-mutating, so a remote caller holding the node's grant may ask. */
-static size_t get_revocations(fzn_node_admin_t *admin, const uint8_t *from_text,
-                              size_t from_len, char *reply, size_t cap)
-{
-	static uint8_t subjects[FZN_NODE_REVOCATIONS_MAX * FZN_PUBKEY_LEN];
-	static char detail[FZN_REPLY_MAX];
-	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
-	size_t from = 0, total = 0, at, i;
-	int n;
-
-	if (!admin->store->list
-	    || !admin->store->list(admin->store->ctx, FZN_PERSIST_ISSUED_REVOCATION, subjects,
-	                           FZN_NODE_REVOCATIONS_MAX, &total))
-		return answer_text(reply, cap, FZN_REPLY_ERROR, "this store cannot list revocations");
-	for (i = 0; i < from_len; i++) {
-		if (from_text[i] < '0' || from_text[i] > '9' || from > FZN_NODE_REVOCATIONS_MAX)
-			return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a revocation index");
-		from = (from * 10u) + (size_t)(from_text[i] - '0');
-	}
-	if (from > total)
-		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "past the last revocation");
-	n = snprintf(detail, sizeof(detail), "%zu %zu", total, from);
-	if (n < 0 || (size_t)n >= sizeof(detail))
-		return 0;
-	at = (size_t)n;
-	for (i = from; i < total; i++) {
-		uint8_t record[FZN_REVOCATION_LEN];
-
-		if (at + 1u + (FZN_REVOCATION_LEN * 2u) + 3u > limit)
-			break;
-		if (!fzn_node_issued_revocation(admin->store, subjects + (i * (size_t)FZN_PUBKEY_LEN),
-		                                record))
-			return answer_text(reply, cap, FZN_REPLY_ERROR, "a stored revocation did not read");
-		detail[at++] = ' ';
-		put_hex(detail + at, record, FZN_REVOCATION_LEN);
-		at += FZN_REVOCATION_LEN * 2u;
-	}
-	return answer(reply, cap, FZN_REPLY_OK, detail, at);
-}
-
-/* `get vote [FROM]`: every vote this node holds, its own and learned, each
- * with its issuer's chain, as the item stream `node/revoke.h` describes --
- * `ok TOTAL FROM ITEM ...`. What a node pulls from any estate peer (sec 399).
- * Non-mutating, so a remote caller holding the node's grant may ask. */
-/* `TOTAL FROM` at its widest, with the terminator snprintf writes. */
-#define VOTE_HEAD 12u
-_Static_assert(FZN_NODE_VOTES_MAX * 16u < 100000u, "a vote index no longer prints in five digits");
-/* A VOTE TRAVELS ON THE DEFAULT BUFFER: `ok `, the head, one record item and
- * the newline fit FZN_NODE_REPLY_MAX, so a remote caller that supplies no
- * buffer can still be served a vote a page at a time. */
-_Static_assert(3u + VOTE_HEAD + 2u + (2u * FZN_REVOCATION_LEN) + 1u <= FZN_NODE_REPLY_MAX,
-               "a vote no longer fits the remote path's default reply");
-
-static size_t get_votes(fzn_node_admin_t *admin, const uint8_t *from_text, size_t from_len,
-                        char *reply, size_t cap)
-{
-	static char detail[FZN_REPLY_MAX];
-	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
-	size_t from = 0, total = 0, len = 0, i;
-	int n;
-
-	for (i = 0; i < from_len; i++) {
-		if (from_text[i] < '0' || from_text[i] > '9' || from > FZN_NODE_VOTES_MAX * 16u)
-			return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a vote index");
-		from = (from * 10u) + (size_t)(from_text[i] - '0');
-	}
-	/* The head is written after the walk, which is what knows the total;
-	 * its room is reserved here at the widest a total and an index print:
-	 * both are bounded by FZN_NODE_VOTES_MAX * 16, five digits. Reserving
-	 * more cost a vote its place on the remote path's default buffer once a
-	 * vote grew its cut (sec 496): 512 less 24 left 484 for a 486-byte item. */
-	if (limit < 3u + VOTE_HEAD
-	    || !fzn_node_votes_page(admin->store, admin->authority,
-	                            fzn_node_admin_chain_view(admin->admin_chain), from, detail + VOTE_HEAD,
-	                            limit - 3u - VOTE_HEAD, &len, &total))
-		return answer_text(reply, cap, FZN_REPLY_ERROR, "the votes did not read");
-	if (from > total)
-		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "past the last vote");
-	n = snprintf(detail, VOTE_HEAD, "%zu %zu", total, from);
-	if (n < 0 || (size_t)n >= VOTE_HEAD)
-		return 0;
-	memmove(detail + n, detail + VOTE_HEAD, len);
-	return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)n + len);
-}
-
-/* `get root [FROM]`: every root record this node holds, as the item stream
- * `node/roots.h` describes -- `ok TOTAL FROM ITEM ...`. What a node pulls
- * from any peer before its votes (sec 408). Non-mutating, so a remote caller
- * holding the node's grant may ask. */
-static size_t get_roots(fzn_node_admin_t *admin, const uint8_t *from_text, size_t from_len,
-                        char *reply, size_t cap)
-{
-	static char detail[FZN_REPLY_MAX];
-	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
-	size_t from = 0, total = 0, len = 0, i;
-	int n;
-
-	for (i = 0; i < from_len; i++) {
-		if (from_text[i] < '0' || from_text[i] > '9' || from > FZN_NODE_ROOT_LOG_MAX * 32u)
-			return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a root record index");
-		from = (from * 10u) + (size_t)(from_text[i] - '0');
-	}
-	if (limit < 3u + 24u
-	    || !fzn_node_roots_page(admin->store, from, detail + 24u, limit - 3u - 24u, &len,
-	                            &total))
-		return answer_text(reply, cap, FZN_REPLY_ERROR, "the root records did not read");
-	if (from > total)
-		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "past the last root record");
-	n = snprintf(detail, 24u, "%zu %zu", total, from);
-	if (n < 0 || (size_t)n >= 24u)
-		return 0;
-	memmove(detail + n, detail + 24u, len);
-	return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)n + len);
-}
-
 /* Is `arg` the word `WORD`, alone or followed by a space and more? */
 static int subject_word(const fzn_request_t *request, const char *word, const uint8_t **rest,
                         size_t *rest_len)
@@ -1355,8 +1237,8 @@ static size_t change_estate_retention(fzn_node_admin_t *admin, int add, const ui
 	err = fzn_node_roots_set_retention(admin->roots, admin->store, admin->id->pubkey,
 	                                   admin->id->sign, &rule, add);
 	/* NO ROOT HERE, AN ADMIN PERHAPS, sec 479: the holder's "admin (and
-	 * root) capability". The record rides the vote stream with this node's
-	 * admin chain. */
+	 * root) capability". The record is this node's act, in its journal,
+	 * and a reader rebuilds the admin chain from the grants (sec 505). */
 	if (err == FZN_NODE_ROOTS_NOT_ROOT && admin->admin_chain && admin->admin_chain->hop_count)
 		err = fzn_node_roots_set_retention_as_admin(
 		        admin->roots, admin->store, admin->id->pubkey, admin->id->sign,
@@ -1648,12 +1530,6 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 		if (request->parsed == FZN_VERB_REVOKE && rest && admin->revocations)
 			return revoke_peer(admin, rest, rest_len, reply, reply_cap);
 	}
-	if (request->parsed == FZN_VERB_GET && subject_revocation(request, &rest, &rest_len))
-		return get_revocations(admin, rest, rest_len, reply, reply_cap);
-	if (request->parsed == FZN_VERB_GET && subject_word(request, "vote", &rest, &rest_len))
-		return get_votes(admin, rest, rest_len, reply, reply_cap);
-	if (request->parsed == FZN_VERB_GET && subject_word(request, "root", &rest, &rest_len))
-		return get_roots(admin, rest, rest_len, reply, reply_cap);
 	if ((request->parsed == FZN_VERB_ADD || request->parsed == FZN_VERB_REMOVE)
 	    && subject_word(request, "root", &rest, &rest_len) && rest && admin->roots)
 		return change_root(admin, request->parsed == FZN_VERB_REMOVE, rest, rest_len, reply,
@@ -1942,11 +1818,8 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 		                            reply_cap);
 	if (request.parsed == FZN_VERB_LIST && subject_peer(&request, &rest, &rest_len))
 		return list_peers(admin, rest, rest_len, out, reply_cap);
-	if (request.parsed == FZN_VERB_GET && subject_revocation(&request, &rest, &rest_len))
-		return get_revocations(admin, rest, rest_len, out, reply_cap);
-	if (request.parsed == FZN_VERB_GET && subject_word(&request, "vote", &rest, &rest_len))
-		return get_votes(admin, rest, rest_len, out, reply_cap);
-	if (request.parsed == FZN_VERB_GET && subject_word(&request, "root", &rest, &rest_len))
-		return get_roots(admin, rest, rest_len, out, reply_cap);
+	/* THE ESTATE'S ACTS TRAVEL IN THE JOURNAL, sec 505: `get vote`, `get
+	 * root` and `get revocation` are gone, and a journal message is
+	 * answered above. */
 	return answer_text(out, reply_cap, FZN_REPLY_UNSUPPORTED, NULL);
 }

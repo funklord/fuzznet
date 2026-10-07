@@ -2877,8 +2877,9 @@ int main(int argc, char **argv)
 #ifdef FZN_RECORD_STORE_FILE_ON
 		/* THE JOURNAL, sec 501, in `records/` under the core directory:
 		 * opened, every act logged from here on mirrored into it, and the
-		 * estate followed. NOT FATAL: a node that cannot keep one serves on
-		 * the act log, as every node did before. */
+		 * estate followed. NOT FATAL, and NOT QUIET: since sec 505 the
+		 * journal is the only way the estate's acts travel, so a node that
+		 * cannot keep one still serves, and says it is alone. */
 		if (store_dir) {
 			static char records_dir[FZN_RECORD_STORE_FILE_PATH_MAX];
 			int w = snprintf(records_dir, sizeof(records_dir), "%s/records", store_dir);
@@ -2891,9 +2892,16 @@ int main(int argc, char **argv)
 				estate_roots.logged = journal_logged;
 				estate_roots.logged_ctx = &node_journal;
 			} else {
-				say(FZN_ENTRY_WARNING, "journal", "no journal kept in %s/records", store_dir);
+				say(FZN_ENTRY_WARNING, "journal",
+				    "no journal kept in %s/records: this node's votes, roots and "
+				    "settings reach no peer, and no peer's reach it",
+				    store_dir);
 			}
 		}
+#else
+		say(FZN_ENTRY_WARNING, "journal",
+		    "built without the record file store: this node's votes, roots and settings "
+		    "reach no peer, and no peer's reach it");
 #endif
 		if (nrevoked)
 			say(FZN_ENTRY_INFO, "revoke", "%zu revocation(s) from %s", nrevoked,
@@ -3250,44 +3258,21 @@ int main(int argc, char **argv)
 			if (now >= next_pull || next_pull > now + FZND_PULL_EVERY) {
 				round_named = say_caused(FZN_ENTRY_DEBUG, "node/round", NULL, NULL,
 				                         &round_name, "a round with %zu peer(s)", npulls);
-				for (t = 0; t < npulls; t++) {
-					size_t learned = 0, refused = 0;
-					fzn_node_pull_err_t perr;
-
-					/* ROOTS BEFORE VOTES, sec 408: a vote cast by a root
-					 * this node has not yet heard of admits only once it
-					 * has. */
-					perr = fzn_node_roots_pull(running_roots, store_ops,
-					                           &pulls[t].caller, now, &learned,
-					                           &refused);
-					if (perr != FZN_NODE_PULL_OK)
-						say(FZN_ENTRY_WARNING, "roots", "roots from %s: %s",
-						        pulls[t].host, fzn_node_pull_err_str(perr));
-					else if (learned || refused)
-						say(FZN_ENTRY_INFO, "roots",
-						        "%zu root record(s) from %s, %zu refused",
-						        learned, pulls[t].host, refused);
-					/* THE ESTATE'S k MAY HAVE ARRIVED WITH THEM. sec 418. */
-					if (running)
-						(void)fzn_revocation_store_set_k(
-						        running,
-						        fzn_node_roots_quorum(running_roots, (uint8_t)quorum));
-					learned = 0;
-					refused = 0;
-					perr = fzn_node_votes_pull(&pulls[t].caller, state.config.root,
-					                           &sign_ops, &hash_ops, now, running,
-					                           running_roots,
-					                           roster_on ? &node_roster : NULL,
-					                           successions_on ? &node_successions : NULL,
-					                           store_ops, &learned, &refused);
-					if (perr != FZN_NODE_PULL_OK)
-						say(FZN_ENTRY_WARNING, "votes", "votes from %s: %s",
-						        pulls[t].host, fzn_node_pull_err_str(perr));
-					else if (learned || refused)
-						say(FZN_ENTRY_INFO, "votes",
-						        "%zu vote(s) from %s, %zu refused",
-						        learned, pulls[t].host, refused);
-				}
+				/* THE ESTATE'S ACTS, sec 505: roots, votes, confirmations,
+				 * settings, contacts and successions all arrive in the
+				 * journal, pulled and applied before anything reads them.
+				 * The journal follows the members the last round's notes
+				 * proved, so a member paired since is read from its first
+				 * act a round later. */
+#ifdef FZN_RECORD_STORE_FILE_ON
+				follow_estate(identity.pubkey, &state, running_roots);
+				pull_journal(pulls, npulls, now);
+				apply_journal();
+#endif
+				/* THE ESTATE'S k MAY HAVE ARRIVED WITH THEM. sec 418. */
+				if (running)
+					(void)fzn_revocation_store_set_k(
+					        running, fzn_node_roots_quorum(running_roots, (uint8_t)quorum));
 				/* CONTACTS ADDED ON ANOTHER MEMBER, sec 489, named here so
 				 * they can be shared with and removed by name. */
 				if (roster_on && running_admin) {
@@ -3307,13 +3292,6 @@ int main(int argc, char **argv)
 				/* NOTES, then TEXTS, secs 432 and 424: a note's text is
 				 * fetched once the note naming it has arrived. */
 				pull_notes(pulls, npulls, now, &state, running, running_roots);
-#ifdef FZN_RECORD_STORE_FILE_ON
-				/* THE JOURNAL, sec 501: after the notes, whose pull
-				 * proved this round's members, so they are followed. */
-				follow_estate(identity.pubkey, &state, running_roots);
-				pull_journal(pulls, npulls, now);
-				apply_journal();
-#endif
 #ifdef FZN_LOG_PACK_ON
 				copy_logs(pulls, npulls, now);
 #endif

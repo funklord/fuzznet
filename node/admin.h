@@ -27,22 +27,12 @@
  *                       minted, admitted and saved in the revocation's place
  *                       (`node/revoke.h`). `ok KEY`, or an error when this
  *                       node holds no revocation of KEY in force.
- *     get revocation [FROM]
- *                       `ok TOTAL FROM HEX ...`, the records this node issued,
- *                       paged; also served to a remote caller (sec 384)
- *     get vote [FROM]   `ok TOTAL FROM ITEM ...`, every vote this node holds
- *                       with its issuer's chain, as the item stream
- *                       `node/revoke.h` describes; also served remotely,
- *                       and what a node pulls from any peer (sec 399)
  *     add root KEY      make KEY a root, as this node's acting root: the
  *                       change is minted, logged and learned. `ok KEY`, or
  *                       an error when this node stands as no root (sec 409)
  *     remove root KEY [CUT]
  *                       remove root KEY at CUT, the id of the last entry of
  *                       its log to keep, or none of it standing without one
- *     get root [FROM]   `ok TOTAL FROM ITEM ...`, every root log entry and
- *                       root change this node holds; also served remotely,
- *                       and pulled before votes (sec 408)
  *     grant admin KEY   grant KEY the estate's admin capability, as this
  *                       node's acting root or through its own admin chain:
  *                       `ok h<HOP> ...`, KEY's whole chain, which KEY installs

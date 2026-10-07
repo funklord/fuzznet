@@ -118,11 +118,10 @@ fzn_node_revoke_err_t fzn_node_revoke_at(struct fzn_node_roots *roots,
  * second. A later `fzn_node_revoke` of the grantee then supersedes the
  * revocation this undid, which is what admission requires of a re-revocation.
  *
- * WHAT IT DOES NOT DO: tell anybody. A member that pulled the revocation
- * learns the withdrawal on its next pull, because `get revocation` serves slot
- * 9 and the withdrawal is now what slot 9 holds (sec 384). A host that learned
- * the revocation any other way keeps it; `chain/revocation.h` says why no
- * manifest carries withdrawals. */
+ * HOW IT IS TOLD: with `roots`, the withdrawal is logged as this node's act
+ * and so enters its journal, which every peer following it applies (sec
+ * 505). A host that learned the revocation any other way keeps it;
+ * `chain/revocation.h` says why no manifest carries withdrawals. */
 fzn_node_revoke_err_t fzn_node_unrevoke(struct fzn_node_roots *roots,
                                       const fzn_node_identity_t *id,
                                         const uint8_t root[FZN_PUBKEY_LEN],
@@ -132,8 +131,7 @@ fzn_node_revoke_err_t fzn_node_unrevoke(struct fzn_node_roots *roots,
                                         const fzn_persist_ops_t *store);
 
 /* Save a confirmation this node signed, with `authority` -- its admin chain,
- * or NULL as a root -- so the vote stream serves it and a restart re-admits
- * it. sec 415. */
+ * or NULL as a root -- so a restart re-admits it. sec 415. */
 fzn_node_revoke_err_t fzn_node_confirm_save(const fzn_persist_ops_t *store,
                                             const fzn_hash_ops_t *hash,
                                             const uint8_t record[FZN_ADMIN_CONFIRM_LEN],
@@ -170,32 +168,16 @@ fzn_persist_err_t fzn_node_revocations_load(const fzn_persist_ops_t *store,
                                             const fzn_sign_ops_t *sign,
                                             const fzn_hash_ops_t *hash, size_t *count);
 
-/* The revocation this node issued for `grantee`, into `record` -- what a
- * member asking `get revocation` is served. 1 when one is held. */
+/* The revocation this node issued for `grantee`, into `record`, from slot 9.
+ * 1 when one is held. */
 int fzn_node_issued_revocation(const fzn_persist_ops_t *store,
                                const uint8_t grantee[FZN_PUBKEY_LEN],
                                uint8_t record[FZN_REVOCATION_LEN]);
 
 /*
- * PULL THE ROOT'S REVOCATIONS INTO A MEMBER NODE. sec 384.
- *
- * fuzzypickles pushes: whoever mints a revocation sends it to every
- * registered sibling, which works because siblings register each other both
- * ways at join, addresses included. fuzznet's hop runs one way -- a caller
- * asks a node -- and a joined node already holds the pairing that makes it
- * its root's caller, while the root holds the node only as a peer it serves
- * and has no address for it (a pairing carries none, sec 377). So a member
- * ASKS: `get revocation` over `caller`, page by page, until the root's stated
- * total is reached.
- *
- * WHAT ARRIVES IS VERIFIED, NOT TRUSTED. Each record is admitted as root-
- * issued -- `fzn_revocation_offer_root` against `root` -- so a record the
- * root did not sign admits nothing. What admits is saved as slot 10 under its
- * grantee, so a restart with the root unreachable still denies it.
- *
- * `learned` counts records admitted and saved. A page that will not parse,
- * or a record that will not admit, stops the pull with an error rather than
- * carrying on past it.
+ * WHAT APPLYING AN OBJECT COMES TO. sec 384 named these for the pull of a
+ * root's revocations; since sec 505 the journal carries every act and
+ * `fzn_node_votes_take` and `node/apply.h` report in them.
  */
 typedef enum fzn_node_pull_err {
 	FZN_NODE_PULL_OK = 0,
@@ -212,104 +194,36 @@ typedef enum fzn_node_pull_err {
 
 const char *fzn_node_pull_err_str(fzn_node_pull_err_t err);
 
-/* ONE PAGE OF A PULL, absorbed: `reply` is the root's answer to
- * `get revocation FROM`, a reply line. Admits and saves what it carries, adds
- * to `*learned`, and sets `*next` and `*total` so a caller knows whether to
- * ask again and from where. Split from the pull for the reason sec 369 split
- * `fzn_caller_ask`: a consumer with its own poll loop sends, returns to the
- * loop, and absorbs the answer when the socket says one is there, and a test
- * that turns the root's loop by hand can do the same. */
-fzn_node_pull_err_t fzn_node_revocations_absorb(const uint8_t *reply, size_t reply_len,
-                                                size_t from,
-                                                const uint8_t root[FZN_PUBKEY_LEN],
-                                                const fzn_sign_ops_t *sign,
-                                                const fzn_hash_ops_t *hash,
-                                                fzn_revocation_store_t *revocations,
-                                                const fzn_persist_ops_t *store,
-                                                size_t *learned, size_t *next, size_t *total);
-
-fzn_node_pull_err_t fzn_node_revocations_pull(fzn_caller_t *caller,
-                                              const uint8_t root[FZN_PUBKEY_LEN],
-                                              const fzn_sign_ops_t *sign,
-                                              const fzn_hash_ops_t *hash, uint64_t now,
-                                              fzn_revocation_store_t *revocations,
-                                              const fzn_persist_ops_t *store,
-                                              size_t *learned);
-
 /* The most revocations `fzn_node_revocations_load` enumerates in one call. */
 #define FZN_NODE_REVOCATIONS_MAX 256u
 
 /*
- * VOTES, AND PULLING THEM FROM ANY PEER. sec 399.
+ * VOTES, AND HOW THEY ARE ADMITTED. sec 399, carried by the journal since
+ * sec 505.
  *
  * Under a quorum above one (sec 397) a revocation is a vote, and a host needs
- * k of them from distinct entitled issuers -- so what a node learned from one
- * peer has to reach the next. The holder's decision: every node serves every
- * vote it holds, its own and learned ones alike, each with the chain that
- * entitles its issuer, and a node pulls from any estate peer it can reach.
- * The root is one peer among them.
+ * k of them from distinct entitled issuers -- so what one node signs has to
+ * reach the next. Every vote, withdrawal, confirmation (sec 415), admin's
+ * retention setting (sec 479), contact's roster record (sec 489) and
+ * succession (sec 499) is its signer's act and so in its signer's journal;
+ * a node applies each with the chain that entitles its signer, rebuilt from
+ * the grants it holds (`node/apply.h`).
  *
- * A VOTE IS A RECORD AND A CHAIN, and the pair does not fit one reply line:
- * a record is 420 hex characters and a hop 358, so a record with a two-hop
- * chain is past FZN_REPLY_MAX. So `get vote FROM` serves a STREAM OF ITEMS,
- * `r` and a record or `h` and a hop, each hop belonging to the record before
- * it, paged by item index as `get revocation` pages by record:
- * `ok TOTAL FROM ITEM ...`. The puller holds the vote it is assembling across
- * pages and admits it when the next record, or the stream's end, arrives.
- *
- * The stream is this node's slot 9 (its own votes, with its authority chain
- * when it issued them as a member), then slot 10 (the root's, no chain),
- * then slot 11 (votes learned from peers, with the chains they came with),
- * then slot 15 (admin confirmations, sec 415), then slot 27 (admins'
- * retention records, sec 479), then slot 28 (contacts' roster records, item
- * `o`, sec 489).
- *
- * CONTACTS TRAVEL HERE TOO, sec 489: a roster record names its writer and
- * nothing else, so it needs its writer's chain beside it, as a vote does --
- * item `o` and the record, then `h` items for the chain, none for a root
- * writing alone. A node with no roster to learn into counts one refused.
- * The stream is served only to members, so a contact never learns it was
- * removed (`roster/roster.h`). A node built before this does not know the
- * item and refuses the whole page, as with sec 479's `t`.
- *
- * CONFIRMATIONS TRAVEL WITH THE VOTES, sec 415, because they decide which
- * admins' votes count: item `c` and a confirmation, followed by `h` items for
- * the confirmer's admin chain, none for a root's. A node whose store keeps no
- * confirmation table counts one as refused and goes on; one that admits it
- * saves it in slot 15 under the record's hash, and re-admits it at start.
- *
- * WHAT ARRIVES IS VERIFIED, NOT TRUSTED, as for the root's pull: each vote
- * is admitted with its chain, `fzn_revocation_offer_chain`, or as the root's
- * when it carries none. A vote admission refuses -- a stranger's, a stale
- * copy, a second chain for one admin -- is COUNTED AND SKIPPED rather than
- * stopping the pull, because a pull from any peer is a pull from a peer that
- * may hold what this node never will; one peer's junk must not stop this node
- * learning the rest. A full store stops it, since everything after would be
- * refused the same way.
+ * WHAT ARRIVES IS VERIFIED, NOT TRUSTED: each vote is admitted with its
+ * chain, `fzn_revocation_offer_chain`, or as the root's when it carries none.
+ * One admission refuses -- a stranger's, a stale copy, a second chain for one
+ * admin -- is COUNTED AND SKIPPED rather than stopping the rest. A full store
+ * stops it, since everything after would be refused the same way.
  *
  * What admits, and is what the store now holds for its triple, is saved as
  * slot 11 under a hash of the triple, so a restart re-admits it. A stale copy
  * that admission accepts without taking -- a revocation already withdrawn --
- * is not saved over the newer record.
+ * is not saved over the newer record. A confirmation is saved in slot 15
+ * under the record's hash.
  */
 
-/* Records a stream can carry: six lists of up to FZN_NODE_REVOCATIONS_MAX --
- * slots 9, 10, 11 and 15, admins' retention (sec 479) and contacts' roster
- * records (sec 489). */
-#define FZN_NODE_VOTES_MAX (6u * FZN_NODE_REVOCATIONS_MAX)
-
-/* One page of the stream from item `from`, written as ` ITEM` per item into
- * `out`, stopping before `cap` bytes; `*len` is what was written and `*total`
- * the stream's length in items. 0 when the store cannot list or a stored
- * record will not read. A record this node issued carries `authority` when
- * it withdraws the capability that chain carries, and otherwise `admin`, this
- * node's admin chain, when it holds one (sec 416). */
-int fzn_node_votes_page(const fzn_persist_ops_t *store, const fzn_node_authority_t *authority,
-                        const fzn_node_authority_t *admin, size_t from, char *out, size_t cap,
-                        size_t *len, size_t *total);
-
-/* What a pull carries between pages: the vote being assembled, and the
- * counts so far. Zero it before the first page. */
+/* What admission carries: the object being admitted, where its kind is
+ * learned into, and the counts so far. Zero it before the first. */
 struct fzn_node_roots;
 struct fzn_node_roster;
 
@@ -340,25 +254,12 @@ typedef struct fzn_node_vote_pull {
 	size_t refused;
 } fzn_node_vote_pull_t;
 
-/* ONE PAGE: `reply` answers `get vote FROM`. Admits and saves every vote the
- * page completes, and sets `*next` and `*total`. The vote the stream ends on
- * is admitted when `*next` reaches `*total`. */
-fzn_node_pull_err_t fzn_node_votes_absorb(fzn_node_vote_pull_t *pull, const uint8_t *reply,
-                                          size_t reply_len, size_t from,
-                                          const uint8_t root[FZN_PUBKEY_LEN],
-                                          const fzn_sign_ops_t *sign,
-                                          const fzn_hash_ops_t *hash,
-                                          fzn_revocation_store_t *revocations,
-                                          const fzn_persist_ops_t *store, size_t *next,
-                                          size_t *total);
-
-/* ONE OBJECT, AS THE STREAM WOULD HAVE CARRIED IT: `item` is the stream's
- * letter for its kind -- 'r' a vote or withdrawal, 'c' a confirmation, 't' an
- * admin's retention setting, 'o' a roster record, 's' a succession -- and
- * `hops` its signer's chain, none for a root. Admitted and saved by exactly
- * the path `fzn_node_votes_absorb` takes, counted in `pull`'s learned and
- * refused. What the journal's receiver calls, sec 503, so the two carriages
- * cannot judge one object differently. */
+/* ONE OBJECT: `item` is the letter for its kind -- 'r' a vote or
+ * withdrawal, 'c' a confirmation, 't' an admin's retention setting, 'o' a
+ * roster record, 's' a succession, the letters the retired vote stream
+ * carried them under -- and `hops` its signer's chain, none for a root.
+ * Admitted and saved, counted in `pull`'s learned and refused. What the
+ * journal's receiver calls, sec 503. */
 fzn_node_pull_err_t fzn_node_votes_take(fzn_node_vote_pull_t *pull, char item,
                                         const uint8_t *object, size_t len,
                                         const uint8_t (*hops)[FZN_HOP_LEN], size_t hop_count,
@@ -367,17 +268,6 @@ fzn_node_pull_err_t fzn_node_votes_take(fzn_node_vote_pull_t *pull, char item,
                                         fzn_revocation_store_t *revocations,
                                         const fzn_persist_ops_t *store);
 
-/* The whole stream from the peer `caller` reaches. `learned` and `refused`
- * are what `fzn_node_vote_pull_t` counted. */
-fzn_node_pull_err_t fzn_node_votes_pull(fzn_caller_t *caller, const uint8_t root[FZN_PUBKEY_LEN],
-                                        const fzn_sign_ops_t *sign, const fzn_hash_ops_t *hash,
-                                        uint64_t now, fzn_revocation_store_t *revocations,
-                                        struct fzn_node_roots *roots,
-                                        struct fzn_node_roster *roster,
-                                        struct fzn_node_successions *successions,
-                                        const fzn_persist_ops_t *store, size_t *learned,
-                                        size_t *refused);
-
 /*
  * ADMINS AT THE NODE: HOLDING, GRANTING, CONFIRMING. sec 416.
  *
@@ -385,7 +275,7 @@ fzn_node_pull_err_t fzn_node_votes_pull(fzn_caller_t *caller, const uint8_t root
  * estate's admin capability, its last hop delegable, so the node may both vote
  * as an admin and grant admin onward. A node holds at most one, in the core
  * slot 16, and votes on it: `fzn_node_revoke` takes it as its authority, and
- * the load and the vote stream carry it with the records it issued.
+ * the load re-admits the records it issued on it.
  *
  * A GRANT is minted by this node's acting root when it has one -- one hop from
  * that root, logged in its log as a grant -- and otherwise by this node as an
@@ -397,7 +287,7 @@ fzn_node_pull_err_t fzn_node_votes_pull(fzn_caller_t *caller, const uint8_t root
  * A CONFIRMATION names a hop by its hash. This node signs it as its acting
  * root when it has one -- logged as a grant, since confirming an admin is part
  * of making one -- and otherwise as an admin, showing its admin chain. It is
- * admitted into the running store and saved, so the vote stream serves it.
+ * admitted into the running store, saved, and logged as this node's act.
  */
 struct fzn_node_roots;
 

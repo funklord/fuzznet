@@ -4,10 +4,10 @@
  * the successions it holds, in slot 30 with their issuers' admin chains, the
  * one that writes a new one, and the one that confirms another's.
  *
- * THEY TRAVEL WITH THE VOTES, as an item `s` of the `get vote` stream
- * (`node/revoke.h`), followed by its issuer's chain as `h` items, because a
- * succession is judged by the same store that judges the votes and its
- * confirmations already ride there (sec 415).
+ * THEY TRAVEL AS THE VOTES DO: a succession is its issuer's act, in its
+ * issuer's journal, and a reader admits it with the issuer's chain through
+ * the admission votes take (`fzn_node_votes_take`), because a succession is
+ * judged by the same store that judges the votes (sec 505).
  *
  * THE ERRORS ARE `fzn_node_revoke_err_t`'s: a succession fails in the ways a
  * vote does -- no standing, refused, not saved -- and a second enum would be
@@ -62,7 +62,7 @@ fzn_node_revoke_err_t fzn_node_successions_learn(fzn_node_successions_t *ns,
                                                  size_t hop_count);
 
 /* ONE ROW of slot 30 by its subject: the record and the chain beside it. 1
- * when it loaded and every hop opens. What the vote stream serves. */
+ * when it loaded and every hop opens. What the load reads. */
 int fzn_node_succession_get(const fzn_persist_ops_t *store, const uint8_t subject[FZN_PUBKEY_LEN],
                             uint8_t record[FZN_SUCCESSION_LEN],
                             uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t *hop_count);

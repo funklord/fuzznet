@@ -54,9 +54,9 @@
 #define FZN_NODE_ROSTER_ENTRIES 128u
 /* Writers: the estate's members that write contacts, each chain once. */
 #define FZN_NODE_ROSTER_WRITERS 32u
-/* Records a node keeps and serves: the vote stream lists each of its slots
- * up to FZN_NODE_REVOCATIONS_MAX, which this matches -- an add and a removal
- * or two for each of FZN_CONTACTS_MAX contacts, with room for re-adds. */
+/* Records a node keeps: a slot is listed up to FZN_NODE_REVOCATIONS_MAX,
+ * which this matches -- an add and a removal or two for each of
+ * FZN_CONTACTS_MAX contacts, with room for re-adds. */
 #define FZN_NODE_ROSTER_RECORDS 256u
 
 typedef enum fzn_node_roster_err {
@@ -154,7 +154,7 @@ size_t fzn_node_roster_subjects(const fzn_node_roster_t *nr, uint8_t (*out)[FZN_
                                 size_t cap);
 
 /* THE RECORD FILED UNDER `id` in slot 28, and its writer's chain, as the
- * vote stream serves it. 1 when one reads. */
+ * load reads it. 1 when one reads. */
 int fzn_node_roster_get(const fzn_persist_ops_t *store, const uint8_t id[FZN_PUBKEY_LEN],
                         uint8_t record[FZN_ROSTER_MIN_LEN], uint8_t (*hops)[FZN_HOP_LEN],
                         size_t *hop_count);

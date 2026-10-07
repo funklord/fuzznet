@@ -57455,3 +57455,111 @@ four parts:
   file.
 - admin_test's log counts after `revoke peer` and `remove revocation` hold
   with the logging moved into the library.
+
+## 505. Stage 3c done: the journal is the only carriage, 2026-10-07
+
+Sec 504 said what stage 3c had to do: give pair_test a journal per node,
+move its ten scenarios onto it, then delete the old carriage. All three are
+done. Every act the estate makes now travels in its signer's journal and
+nowhere else.
+
+### What was deleted
+
+| Gone | Where |
+|---|---|
+| `fzn_node_votes_page`, `_absorb`, `_pull` | `node/revoke.c` |
+| `fzn_node_revocations_absorb`, `_pull` | `node/revoke.c` |
+| `fzn_node_roots_page`, `_absorb`, `_pull` | `node/roots.c` |
+| the verbs `get vote`, `get root`, `get revocation`, local and remote | `node/admin.c` |
+| fuzznetd's roots and votes pulls each round | `node/fuzznetd.c` |
+| 20 sabotage entries guarding the above | `tool/sabotage.py` |
+
+The admission each of them reached is kept: `fzn_node_votes_take` and
+`fzn_node_roots_learn`, which `node/apply` calls.
+
+fuzznetd's round now runs the journal first: it follows the estate, pulls,
+applies, and then re-reads the estate's k. A member proved by a round's
+notes is followed from the next round, one round later than before.
+
+**A node that keeps no journal says so.** Before this section the old pulls
+covered for it. Now its votes, roots and settings reach no peer and no
+peer's reach it, so fuzznetd warns at start when `records/` will not open,
+and when the build has no record file store at all.
+
+### pair_test on journals
+
+- **Each test node has a journal** over an in-memory record store.
+  `roots_of` builds a node's roots already hooked into its journal, as the
+  daemon's are. Every `fzn_node_roots_init` in the suite was rewritten to it
+  (31 sites, by a pattern that names the node whose signer the roots use).
+- **`carry(from, into)`:** `into` follows every stream `from` holds, pulls
+  them through `fzn_node_journal_answer`, and applies them.
+  **`carried_over_hop`** does the same through `fzn_node_admin_remote` over
+  a real UDP hop and pairing, which is the coverage the remote `get vote`
+  test gave.
+- **`log_grant_of`** logs a grant made by `fzn_node_pair`, which logs
+  nothing itself, as `fuzznetd --pair` and the admin verb do.
+- **`roots_sync` keeps its signature** and its nine callers, and carries
+  the journal instead.
+
+**What each scenario kept:** relay through a third node, k-of-n, the latch
+and both withdrawals, the epoch after a full undo, its own vote coming back,
+a restart that replays the journal into a fresh store, admin chains rebuilt
+from grants in two journals, confirmations, roster records, successions,
+retention, and a stranger's object waiting for a chain without stopping
+anything.
+
+**What was dropped:** the stream's own hazards, which the journal does not
+have. That means paging a vote apart from its chain, a page answering the
+wrong offset, an empty page short of its total, an item letter naming the
+wrong kind, and a stale copy offered in a page. The exchange's grammar is
+`exchange_test`'s.
+
+### Two things the move found
+
+- **An admin's retention setting was never logged as an act.**
+  `fzn_node_roots_set_retention_as_admin` saved it, the vote stream served
+  it from the store, and nothing else carried it. With the stream gone it
+  would never have left the admin's node. It is now logged as a setting, so
+  it enters the admin's journal, and a sabotage entry
+  (`admin-retention-is-an-act`) holds it.
+- **One grant index per journal.** `fzn_node_apply_t` holds the grants it
+  applied, but the journal holds the mark saying they were applied. A
+  second context over the same journal never sees those grants, so every
+  vote under them waits for ever. The daemon has one context, so this is a
+  precondition rather than a fault, and `node/apply.h` now states it. The
+  suite keeps each node's index on the node and carries it across the
+  contexts a case gives it.
+
+### What the journal does not carry yet: act-log entries
+
+The `get root` stream carried each key's act-log entries (item `e`) beside
+the root records. Nothing carries them now. A vote's cut and a root
+removal's cut are judged against the act log a node holds of the signer
+(sec 496). A node that never held a signer's log finds the signer's acts
+absent and judges that they do not stand. That **errs toward denial**: a
+revoked member's contacts from before its line drop at nodes that never saw
+its log, where sec 497 kept them.
+
+The node that cast the vote holds the log, so the vote's own judgement is
+unchanged. pair_test's line scenario loads N's log from N's store, so it
+cannot see this.
+
+**Stage 4 closes it, and is next.** The journal record's own `seq` and
+`prev` are a per-key act log, so a cut becomes a position in the signer's
+stream, and the separate act log and its entries retire.
+
+### Measured for sec 505
+
+- `pair_test`: 288 checks, all ten scenarios on journals, nothing left of
+  the stream helpers.
+- `admin_test`: 198 checks. Its `get vote` and `get root` checks became one
+  check that none of the three retired verbs answers ok, and the
+  retention-refusal check counts the log rather than a page total.
+- `make test`, `make style` (the sabotage verify included, 1154 entries),
+  `make installcheck` and `make schema` pass.
+- **Live, R and M over loopback** (`live55`): R revokes D and sets k. M's
+  round pulls 2 records and applies 2 objects, and its log has no roots or
+  votes pull line at all. M restarted alone loads 1 revocation and 1 root
+  record and applies the 2 objects again from disk. No daemon was left
+  running.

@@ -19,6 +19,8 @@
 #include "../roots.h"
 #include "../roster.h"
 #include "../succession.h"
+#include "../journal.h"
+#include "../apply.h"
 #include "../../contact/contact.h"
 #include "../admin.h"
 #include "../../provision/provision.h"
@@ -178,6 +180,22 @@ static unsigned peers_held(struct mem_store *m)
 
 /* ---- one node: its store, its signer, its identity -------------------- */
 
+/* A NODE'S RECORDS, in memory: what its journal keeps. sec 505. */
+#define JOURNAL_SLOTS 96u
+
+struct record_slot {
+	int used;
+	uint8_t issuer[FZN_PUBKEY_LEN];
+	uint32_t stream;
+	uint64_t seq;
+	uint8_t bytes[FZN_RECORD_MAX_LEN];
+	size_t len;
+};
+
+struct record_mem {
+	struct record_slot slots[JOURNAL_SLOTS];
+};
+
 struct node {
 	struct mem_store store;
 	fzn_persist_ops_t ops;
@@ -187,7 +205,66 @@ struct node {
 	fzn_agree_secret_t agree_secret;
 	fzn_trust_t trust;
 	fzn_node_identity_t id;
+	/* ITS JOURNAL, sec 505: over `records`, filled by the roots a case
+	 * gives it (`journal_hook`) and from other nodes (`carry`). */
+	struct record_mem records;
+	fzn_record_store_ops_t record_ops;
+	fzn_node_journal_t journal;
+	/* ITS GRANT INDEX, kept across every apply context a case gives it:
+	 * a grant is marked applied in the journal once, so the index that
+	 * took it is the node's, as the daemon's one context is. */
+	fzn_node_grant_t grants[FZN_NODE_APPLY_GRANTS_MAX];
+	size_t grants_used;
 };
+
+static int record_put(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                      uint64_t seq, const uint8_t *bytes, size_t len)
+{
+	struct record_mem *m = ctx;
+	size_t i, free_one = JOURNAL_SLOTS;
+
+	for (i = 0; i < JOURNAL_SLOTS; i++) {
+		if (!m->slots[i].used) {
+			if (free_one == JOURNAL_SLOTS)
+				free_one = i;
+			continue;
+		}
+		if (m->slots[i].stream == stream && m->slots[i].seq == seq
+		    && memcmp(m->slots[i].issuer, issuer, FZN_PUBKEY_LEN) == 0) {
+			free_one = i;
+			break;
+		}
+	}
+	if (free_one == JOURNAL_SLOTS || len > FZN_RECORD_MAX_LEN)
+		return 0;
+	m->slots[free_one].used = 1;
+	memcpy(m->slots[free_one].issuer, issuer, FZN_PUBKEY_LEN);
+	m->slots[free_one].stream = stream;
+	m->slots[free_one].seq = seq;
+	memcpy(m->slots[free_one].bytes, bytes, len);
+	m->slots[free_one].len = len;
+	return 1;
+}
+
+static int record_get(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                      uint64_t seq, uint8_t *out, size_t cap, size_t *len_out, int *found_out)
+{
+	struct record_mem *m = ctx;
+	size_t i;
+
+	*found_out = 0;
+	for (i = 0; i < JOURNAL_SLOTS; i++)
+		if (m->slots[i].used && m->slots[i].stream == stream && m->slots[i].seq == seq
+		    && memcmp(m->slots[i].issuer, issuer, FZN_PUBKEY_LEN) == 0) {
+			*found_out = 1;
+			if (m->slots[i].len > cap)
+				return 0;
+			memcpy(out, m->slots[i].bytes, m->slots[i].len);
+			*len_out = m->slots[i].len;
+			return 1;
+		}
+	return 0;
+}
 
 static fzn_hash_ops_t hash_ops;
 static fzn_agree_ops_t agree_ops;
@@ -212,8 +289,124 @@ static int node_up(struct node *n)
 	env.hash = &hash_ops;
 	env.agree = &agree_ops;
 	env.log = NULL;
+	n->record_ops.put = record_put;
+	n->record_ops.get = record_get;
+	n->record_ops.ctx = &n->records;
 	return fzn_node_identity_create(&env, 1000u, &n->agree_secret, &n->trust, &n->id)
-	       == FZN_NODE_IDENTITY_OK;
+	               == FZN_NODE_IDENTITY_OK
+	       && fzn_node_journal_init_store(&n->journal, &n->record_ops, &n->sign, &hash_ops)
+	                  == FZN_NODE_JOURNAL_OK;
+}
+
+/* ---- the journal between test nodes, sec 505 ---------------------------- */
+
+/* What a node's roots tell its journal: each act's object, as the daemon's
+ * hook writes it. */
+static int journal_logged(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN],
+                          const fzn_sign_ops_t *sign, uint8_t kind,
+                          const uint8_t act[FZN_ROOT_ACT_ID_LEN], const uint8_t *record,
+                          size_t len)
+{
+	(void)kind;
+	(void)act;
+	return fzn_node_journal_append_object((fzn_node_journal_t *)ctx, pubkey, sign, record, len,
+	                                      1000u, NULL)
+	       == FZN_NODE_JOURNAL_OK;
+}
+
+/* `roots` log into `n`'s journal from here on. */
+static void journal_hook(struct node *n, fzn_node_roots_t *roots)
+{
+	roots->logged = journal_logged;
+	roots->logged_ctx = &n->journal;
+}
+
+/* `roots` for `n`, logging into its journal: what every node's roots do in
+ * this suite since sec 505, as the daemon's do. */
+static fzn_node_roots_err_t roots_of(fzn_node_roots_t *roots, const uint8_t genesis[FZN_PUBKEY_LEN],
+                                     struct node *n)
+{
+	fzn_node_roots_err_t err = fzn_node_roots_init(roots, genesis, &n->sign, &hash_ops);
+
+	if (err == FZN_NODE_ROOTS_OK)
+		journal_hook(n, roots);
+	return err;
+}
+
+/* A grant `n` made, logged by `roots` as its act -- what the admin verb and
+ * `fuzznetd --pair` do, and `fzn_node_pair` does not. */
+static int log_grant_of(struct node *n, fzn_node_roots_t *roots, const uint8_t hop[FZN_HOP_LEN])
+{
+	return fzn_node_roots_log_signed(roots, &n->ops, n->id.pubkey, &n->sign, n->id.pubkey,
+	                                 (uint8_t)FZN_ROOT_ACT_GRANT, hop, FZN_HOP_LEN)
+	       == FZN_NODE_ROOTS_OK;
+}
+
+static int journal_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                       size_t reply_cap, size_t *reply_len)
+{
+	*reply_len = fzn_node_journal_answer((fzn_node_journal_t *)ctx, request, request_len, reply,
+	                                     reply_cap);
+	return *reply_len != 0u;
+}
+
+/* How far `n`'s journal holds `key`'s estate stream: 0 when not followed. */
+static uint64_t received_of(const struct node *n, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	size_t e;
+
+	for (e = 0; e < n->journal.journal.used; e++)
+		if (memcmp(n->journal.entries[e].issuer, key, FZN_PUBKEY_LEN) == 0)
+			return n->journal.entries[e].received;
+	return 0;
+}
+
+/* What a node applies its journal to: `revs` under root R, with member
+ * grants of `cap`. */
+static void apply_to(fzn_node_apply_t *ap, fzn_revocation_store_t *revs,
+                     const uint8_t root[FZN_PUBKEY_LEN], const fzn_cap_id_t *cap)
+{
+	memset(ap, 0, sizeof(*ap));
+	ap->revocations = revs;
+	ap->root = root;
+	ap->capability = cap;
+}
+
+/* `into` APPLIES WHAT IT HOLDS: `ap` names the subsystems; its journal is
+ * set here. */
+static int apply_at(struct node *into, fzn_node_apply_t *ap, fzn_node_apply_tally_t *t)
+{
+	int ok;
+
+	ap->journal = &into->journal;
+	ap->store = &into->ops;
+	ap->sign = &into->sign;
+	ap->hash = &hash_ops;
+	memcpy(ap->grants, into->grants, sizeof(into->grants));
+	ap->grants_used = into->grants_used;
+	ok = fzn_node_apply_round(ap, t) == FZN_NODE_PULL_OK;
+	memcpy(into->grants, ap->grants, sizeof(into->grants));
+	into->grants_used = ap->grants_used;
+	return ok;
+}
+
+/* CARRY: `into` follows every stream `from` holds, pulls them through the
+ * exchange as a remote hop would carry it, and applies. */
+static int carry(struct node *from, struct node *into, fzn_node_apply_t *ap,
+                 fzn_node_apply_tally_t *t)
+{
+	static uint8_t reply[8192];
+	fzn_exchange_tally_t xt;
+	size_t e;
+
+	for (e = 0; e < from->journal.journal.used; e++)
+		if (fzn_node_journal_follow(&into->journal, from->journal.entries[e].issuer, NULL)
+		    != FZN_NODE_JOURNAL_OK)
+			return 0;
+	if (fzn_node_journal_pull(&into->journal, journal_ask, &from->journal, reply, sizeof(reply),
+	                          &xt) != FZN_EXCHANGE_OK || xt.refused || xt.forks)
+		return 0;
+	return apply_at(into, ap, t);
 }
 
 static fzn_authz_verdict_t node_decides(const struct node *n, const fzn_cap_id_t *required,
@@ -589,150 +782,12 @@ out:
 	return result;
 }
 
-/* THE ROOT ANSWERS A MEMBER'S PULL: R serves `fzn_node_admin_remote` over
- * the remote hop, and N asks `get revocation` page by page through the
- * pairing it joined with, absorbing each answer. The loop is turned by hand
- * -- send, one turn of R, receive, absorb -- which is what
- * `fzn_node_revocations_absorb` is split out for. The pull err, or -99 when
- * the fixture failed. */
-static int pulled_from_as(struct node *root, struct node *member, const fzn_cap_id_t *cap,
-                          fzn_revocation_store_t *member_revs, size_t *learned,
-                          fzn_node_vote_pull_t *votes, fzn_node_roots_t *roots)
-{
-	static fzn_node_peer_t peers[4];
-	static fzn_replay_entry_t entries[16];
-	static uint8_t reply[FZN_REPLY_MAX + 1u];
-	fzn_replay_window_t replay;
-	fzn_node_pairing_t pairing;
-	fzn_node_state_t state;
-	fzn_node_admin_t admin;
-	fzn_caller_t caller;
-	fzn_partial_t slots[1];
-	static uint8_t slot_buf[1][2048];
-	fzn_reasm_t table;
-	fzn_aead_ops_t aead;
-	fzn_udp_addr_t addr;
-	size_t loaded = 0, from = 0, pages = 0;
-	int sfd = -1, dfd = -1, result = -99;
-
-	*learned = 0;
-	fzn_aead_monocypher_init(&aead);
-	if (fzn_node_pairing_load(&member->ops, root->id.pubkey, &pairing) != FZN_PERSIST_OK
-	    || fzn_node_peers_load(&root->ops, peers, 4, &loaded) != FZN_PERSIST_OK
-	    || fzn_udp_bind(AF_INET, "127.0.0.1", 0, &sfd) != FZN_UDP_OK
-	    || fzn_udp_bind(AF_INET, "127.0.0.1", 0, &dfd) != FZN_UDP_OK
-	    || fzn_udp_resolve(AF_INET, "127.0.0.1", port_of(sfd), &addr) != FZN_UDP_OK
-	    || fzn_replay_init(&replay, entries, 16, 100000u) != FZN_FRESH_OK
-	    || fzn_reasm_slot_init(&slots[0], slot_buf[0], sizeof(slot_buf[0])) != FZN_REASM_OK
-	    || fzn_reasm_init(&table, slots, 1, 1u, 60u) != FZN_REASM_OK)
-		goto out;
-
-	memset(&state, 0, sizeof(state));
-	state.config.serves_remote = 1;
-	state.config.remote_capability = *cap;
-	memcpy(state.config.root, root->id.pubkey, FZN_PUBKEY_LEN);
-	memcpy(state.node_pubkey, root->id.pubkey, FZN_PUBKEY_LEN);
-	state.listen_fd = -1;
-	state.udp_fd = sfd;
-	state.peers = peers;
-	state.peer_count = loaded;
-	state.hash = &hash_ops;
-	state.aead = &aead;
-	state.sign = &root->sign;
-	state.rng = &rng_ops;
-	state.clock = fixed_clock;
-	state.replay = &replay;
-	memset(&admin, 0, sizeof(admin));
-	admin.state = &state;
-	admin.id = &root->id;
-	admin.store = &root->ops;
-	state.on_remote = fzn_node_admin_remote;
-	state.on_remote_ctx = &admin;
-
-	memset(&caller, 0, sizeof(caller));
-	fzn_node_pairing_caller(&pairing, member->id.pubkey, &caller);
-	caller.fd = dfd;
-	caller.node = addr;
-	caller.hash = &hash_ops;
-	caller.aead = &aead;
-	caller.rng = &rng_ops;
-	caller.reasm = &table;
-	caller.hops = 1u;
-
-	while (pages++ < 8u) {
-		char ask[32];
-		size_t reply_len = 0, next = 0, total = 0;
-		uint32_t msg = 0;
-		int n = snprintf(ask, sizeof(ask),
-		                 roots ? "get root %zu" : votes ? "get vote %zu" : "get revocation %zu",
-		                 from);
-
-		if (fzn_caller_send(&caller, (const uint8_t *)ask, (size_t)n, 3500u, &msg)
-		            != FZN_CALLER_OK
-		    || fzn_node_run_once(&state, 1000) != 1
-		    || fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len, 1000u)
-		               != FZN_CALLER_OK)
-			break;
-		if (roots) {
-			size_t refused = 0;
-
-			result = fzn_node_roots_absorb(roots, &member->ops, reply, reply_len, from,
-			                               &next, &total, learned, &refused);
-		} else if (votes) {
-			result = fzn_node_votes_absorb(votes, reply, reply_len, from,
-			                               root->id.pubkey, &member->sign, &hash_ops,
-			                               member_revs, &member->ops, &next, &total);
-			*learned = votes->learned;
-		} else {
-			result = fzn_node_revocations_absorb(reply, reply_len, from, root->id.pubkey,
-			                                     &member->sign, &hash_ops, member_revs,
-			                                     &member->ops, learned, &next, &total);
-		}
-		if (result != FZN_NODE_PULL_OK || next >= total)
-			break;
-		from = next;
-	}
-	fzn_wipe(&caller, sizeof(caller));
-out:
-	fzn_wipe(&pairing, sizeof(pairing));
-	if (sfd >= 0)
-		fzn_udp_close(sfd);
-	if (dfd >= 0)
-		fzn_udp_close(dfd);
-	return result;
-}
-
-static int pulled_from(struct node *root, struct node *member, const fzn_cap_id_t *cap,
-                       fzn_revocation_store_t *member_revs, size_t *learned)
-{
-	return pulled_from_as(root, member, cap, member_revs, learned, NULL, NULL);
-}
-
-/* A reply line `ok TOTAL FROM HEX`, for the pages a real root would not send. */
-static size_t page_of(char *out, size_t cap, size_t total, size_t from,
-                      const uint8_t record[FZN_REVOCATION_LEN])
-{
-	static const char digits[] = "0123456789abcdef";
-	int n = snprintf(out, cap, "ok %zu %zu ", total, from);
-	size_t at, i;
-
-	if (n < 0 || (size_t)n + FZN_REVOCATION_LEN * 2u + 2u > cap)
-		return 0;
-	at = (size_t)n;
-	for (i = 0; i < FZN_REVOCATION_LEN; i++) {
-		out[at++] = digits[record[i] >> 4];
-		out[at++] = digits[record[i] & 15u];
-	}
-	out[at++] = '\n';
-	out[at] = '\0';
-	return at;
-}
-
 /* ---- AN ESTATE OF THREE: a root R, a node N that joins it, and a device D
  * that N pairs by extending the grant R gave it. sec 383. */
 static void test_an_estate(const fzn_cap_id_t *cap)
 {
 	static struct node r, n, d, other;
+	static fzn_node_roots_t r_roots;
 	fzn_prekey_record_t n_rec, d_rec;
 	fzn_node_pairing_t joined, d_pairing;
 	fzn_node_authority_t authority = { 0 };
@@ -849,41 +904,43 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 		      "N granted a device the estate root had revoked");
 	}
 
-	/* ---- N LEARNS R's REVOCATIONS BY ASKING R. sec 384. Before that, a
-	 * record N issued as its own root before it joined, which the load must
-	 * skip rather than fail on. */
+	/* ---- N LEARNS R's REVOCATIONS FROM R's JOURNAL. sec 384, carried
+	 * since sec 505. Before that, a record N issued as its own root before it
+	 * joined, which the load must skip rather than fail on. */
 	{
 		static fzn_revocation_t r_entries[4], n_entries[4], l_entries[4];
+		static fzn_node_apply_t n_ap;
 		fzn_revocation_store_t r_revs, n_revs, reloaded;
+		fzn_node_apply_tally_t t;
 		uint8_t record[FZN_REVOCATION_LEN];
-		char page[FZN_REPLY_MAX + 1u];
-		size_t learned = 0, count = 0, next = 0, total = 0, len;
+		size_t count = 0;
 
-		CHECK(fzn_revocation_store_init(&r_revs, r_entries, 4) == FZN_CHAIN_OK
+		CHECK(roots_of(&r_roots, r.id.pubkey, &r)
+		              == FZN_NODE_ROOTS_OK
+		              && fzn_revocation_store_init(&r_revs, r_entries, 4) == FZN_CHAIN_OK
 		              && fzn_revocation_store_init(&n_revs, n_entries, 4) == FZN_CHAIN_OK
 		              && fzn_revocation_store_init(&reloaded, l_entries, 4) == FZN_CHAIN_OK
 		              && fzn_node_revoke(NULL, &n.id, n.id.pubkey, NULL, cap, other.id.pubkey, 1150u,
 		                                 &n_revs, &n.ops) == FZN_NODE_REVOKE_OK
 		              && fzn_revocation_store_init(&n_revs, n_entries, 4) == FZN_CHAIN_OK,
 		      "fixture: revocation stores, or N's pre-join revocation");
+		journal_hook(&r, &r_roots);
+		apply_to(&n_ap, &n_revs, r.id.pubkey, cap);
 
-		/* Nothing revoked yet: a pull of nothing is a pull, and learns
-		 * nothing. */
-		CHECK(pulled_from(&r, &n, cap, &n_revs, &learned) == FZN_NODE_PULL_OK
-		              && learned == 0u,
-		      "a pull from a root with nothing revoked failed, or learned something");
+		/* Nothing revoked yet: carrying an empty journal is a carry, and
+		 * applies nothing. */
+		CHECK(carry(&r, &n, &n_ap, &t) && t.applied == 0u && t.refused == 0u,
+		      "carrying a root's empty journal failed, or applied something");
 
-		CHECK(fzn_node_revoke(NULL, &r.id, r.id.pubkey, NULL, cap, d.id.pubkey, 1400u, &r_revs, &r.ops)
-		              == FZN_NODE_REVOKE_OK,
+		CHECK(fzn_node_revoke(&r_roots, &r.id, r.id.pubkey, NULL, cap, d.id.pubkey, 1400u,
+		                      &r_revs, &r.ops) == FZN_NODE_REVOKE_OK,
 		      "fixture: R would not revoke D");
-		CHECK(pulled_from(&r, &n, cap, &n_revs, &learned) == FZN_NODE_PULL_OK
-		              && learned == 1u,
-		      "N did not learn R's revocation of D by asking R");
+		CHECK(carry(&r, &n, &n_ap, &t) && t.applied == 1u,
+		      "N did not apply R's revocation of D from R's journal");
 		CHECK(granted_by(&n, r.id.pubkey, &d, cap, &n_revs) == 0,
-		      "N granted D after pulling R's revocation of it");
-		CHECK(pulled_from(&r, &n, cap, &n_revs, &learned) == FZN_NODE_PULL_OK
-		              && learned == 1u,
-		      "pulling a revocation N already holds failed -- every periodic pull would");
+		      "N granted D after carrying R's revocation of it");
+		CHECK(carry(&r, &n, &n_ap, &t) && t.applied == 0u && t.refused == 0u,
+		      "carrying a journal N already holds applied or refused something");
 
 		/* A RESTART with R unreachable: what N saved is what it denies by. */
 		CHECK(fzn_node_revocations_load(&n.ops, &reloaded, r.id.pubkey, NULL, NULL, &n.sign, &hash_ops,
@@ -893,34 +950,16 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 		CHECK(granted_by(&n, r.id.pubkey, &d, cap, &reloaded) == 0,
 		      "after a restart N granted a device R had revoked");
 
-		/* A RECORD R DID NOT SIGN admits nothing and is not saved. */
+		/* A RECORD R DID NOT SIGN, in another root's journal, waits for a
+		 * chain and admits nothing. */
 		CHECK(fzn_revocation_issue(other.id.pubkey, cap, d.id.pubkey, 1500u, 0u, NULL, &other.sign,
 		                           record) == FZN_CHAIN_OK
-		              && (len = page_of(page, sizeof(page), 1u, 0u, record)) != 0u,
-		      "fixture: another root's record");
-		learned = 0;
-		CHECK(fzn_node_revocations_absorb((const uint8_t *)page, len, 0u, r.id.pubkey, &n.sign,
-		                                  &hash_ops, &n_revs, &n.ops, &learned, &next, &total)
-		                      == FZN_NODE_PULL_REFUSED
-		              && learned == 0u,
+		              && fzn_node_journal_append_object(&other.journal, other.id.pubkey,
+		                                                &other.sign, record, sizeof(record),
+		                                                1500u, NULL) == FZN_NODE_JOURNAL_OK,
+		      "fixture: another root's record in its journal");
+		CHECK(carry(&other, &n, &n_ap, &t) && t.applied == 0u && t.waiting == 1u,
 		      "N admitted a revocation its root did not sign");
-
-		/* A PAGE AT THE WRONG OFFSET, or one that promises more and
-		 * carries nothing, is the root's grammar broken, not a pull done. */
-		CHECK(fzn_node_revocations_absorb((const uint8_t *)page, len, 1u, r.id.pubkey, &n.sign,
-		                                  &hash_ops, &n_revs, &n.ops, &learned, &next, &total)
-		              == FZN_NODE_PULL_SHAPE,
-		      "N absorbed a page answering an offset it did not ask for");
-		len = (size_t)snprintf(page, sizeof(page), "ok 2 0\n");
-		CHECK(fzn_node_revocations_absorb((const uint8_t *)page, len, 0u, r.id.pubkey, &n.sign,
-		                                  &hash_ops, &n_revs, &n.ops, &learned, &next, &total)
-		              == FZN_NODE_PULL_SHAPE,
-		      "N took an empty page short of the total as a finished pull");
-		len = (size_t)snprintf(page, sizeof(page), "denied\n");
-		CHECK(fzn_node_revocations_absorb((const uint8_t *)page, len, 0u, r.id.pubkey, &n.sign,
-		                                  &hash_ops, &n_revs, &n.ops, &learned, &next, &total)
-		              == FZN_NODE_PULL_NO_ANSWER,
-		      "N took a refusal as a page");
 	}
 
 	/* ---- A MEMBER REVOKES WHAT IT DELEGATED, through its chain. sec 385.
@@ -934,7 +973,7 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 		fzn_prekey_record_t e_rec;
 		fzn_node_pairing_t e_pairing;
 		fzn_node_authority_t leaf = { 0 };
-		size_t count = 0, learned = 0;
+		size_t count = 0;
 
 		CHECK(node_up(&e)
 		              && fzn_prekey_open(e.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &e_rec)
@@ -1004,7 +1043,9 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 		 * it supersedes the one undone and denies again. */
 		{
 			static fzn_revocation_t a_entries[8], b_entries[8], c_entries[8];
+			static fzn_node_apply_t a_ap;
 			fzn_revocation_store_t after, again, root_revs;
+			fzn_node_apply_tally_t t;
 
 			CHECK(fzn_revocation_store_init(&after, a_entries, 8) == FZN_CHAIN_OK
 			              && fzn_revocation_store_init(&again, b_entries, 8) == FZN_CHAIN_OK
@@ -1035,17 +1076,18 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 			              && granted_by(&n, r.id.pubkey, &e, cap, &again) == 0,
 			      "after a restart N granted E, revoked again after an undo");
 
-			/* THE ROOT UNDOES, AND A MEMBER LEARNS IT BY PULLING: slot 9 at
-			 * R now holds the withdrawal, so that is what `get revocation`
-			 * serves, and it lands on the revocation N already holds. */
+			/* THE ROOT UNDOES, AND A MEMBER LEARNS IT FROM THE JOURNAL:
+			 * the withdrawal is R's next act, and it lands on the
+			 * revocation N already holds. */
 			CHECK(granted_by(&n, r.id.pubkey, &d, cap, &again) == 0,
 			      "fixture: N does not hold R's revocation of D");
-			CHECK(fzn_node_unrevoke(NULL, &r.id, r.id.pubkey, NULL, d.id.pubkey, 2000u, &root_revs,
-			                        &r.ops) == FZN_NODE_REVOKE_OK,
+			CHECK(fzn_node_unrevoke(&r_roots, &r.id, r.id.pubkey, NULL, d.id.pubkey, 2000u,
+			                        &root_revs, &r.ops) == FZN_NODE_REVOKE_OK,
 			      "R would not undo its revocation of D");
-			CHECK(pulled_from(&r, &n, cap, &again, &learned) == FZN_NODE_PULL_OK
+			apply_to(&a_ap, &again, r.id.pubkey, cap);
+			CHECK(carry(&r, &n, &a_ap, &t) && t.applied == 1u
 			              && granted_by(&n, r.id.pubkey, &d, cap, &again) == 1,
-			      "N did not learn by pulling that R had undone its revocation of D");
+			      "N did not learn from R's journal that R had undone its revocation of D");
 		}
 		fzn_wipe(&e_pairing, sizeof(e_pairing));
 	}
@@ -1055,84 +1097,123 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 
 /* ---- VOTES TRAVEL, sec 399 ------------------------------------------- */
 
-/* The whole vote stream `from` serves, absorbed into `into`, a page at a time
- * of at most `cap` bytes of items -- the serve and the absorb with no
- * transport between them, so a page can be made small enough to split a vote
- * from its chain. The pull err, or -99 when the fixture failed. */
-/* Where a pulled stream's admin retention records are learned, sec 479:
- * NULL refuses them, as a pull with no roots does. */
-static struct fzn_node_roots *stream_roots;
-/* And its contacts' roster records, sec 489: NULL refuses them. */
-static struct fzn_node_roster *stream_roster;
-/* Successions a stream pull learns into, sec 499; NULL refuses them. */
-static struct fzn_node_successions *stream_successions;
+/* ---- THE JOURNAL OVER THE REMOTE HOP, sec 505 ---------------------------- */
 
-static int stream_pull(struct node *from, const fzn_node_authority_t *authority,
-                       struct node *into, const uint8_t root[FZN_PUBKEY_LEN],
-                       fzn_revocation_store_t *revs, size_t cap, fzn_node_vote_pull_t *pull)
+struct hop_asking {
+	fzn_caller_t *caller;
+	fzn_node_state_t *state;
+};
+
+/* One request over the hop: sent, one turn of the serving node, received. */
+static int hop_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                   size_t reply_cap, size_t *reply_len)
 {
-	static char body[FZN_REPLY_MAX];
-	static char page[FZN_REPLY_MAX + 64u];
-	size_t at = 0, pages = 0;
+	struct hop_asking *asking = ctx;
+	uint32_t msg = 0;
 
-	memset(pull, 0, sizeof(*pull));
-	pull->roots = stream_roots;
-	pull->roster = stream_roster;
-	pull->successions = stream_successions;
-	while (pages++ < 64u) {
-		size_t len = 0, total = 0, next = 0;
-		int n, err;
-
-		if (!fzn_node_votes_page(&from->ops, authority, NULL, at, body, cap, &len, &total))
-			return -99;
-		n = snprintf(page, sizeof(page), "ok %zu %zu", total, at);
-		if (n < 0 || (size_t)n + len + 2u > sizeof(page))
-			return -99;
-		memcpy(page + n, body, len);
-		page[(size_t)n + len] = '\n';
-		err = fzn_node_votes_absorb(pull, (const uint8_t *)page, (size_t)n + len + 1u, at,
-		                            root, &into->sign, &hash_ops, revs, &into->ops, &next,
-		                            &total);
-		if (err != FZN_NODE_PULL_OK || next >= total)
-			return err;
-		at = next;
-	}
-	return -99;
+	return fzn_caller_send(asking->caller, request, request_len, 3500u, &msg) == FZN_CALLER_OK
+	       && fzn_node_run_once(asking->state, 1000) == 1
+	       && fzn_caller_recv(asking->caller, msg, reply, reply_cap, reply_len, 1000u)
+	                  == FZN_CALLER_OK;
 }
 
-/* `stream_pull` with this node's admin chain as well. sec 416. */
-static int stream_pull_as(struct node *from, const fzn_node_authority_t *authority,
-                          const fzn_node_authority_t *admin, struct node *into,
-                          const uint8_t root[FZN_PUBKEY_LEN], fzn_revocation_store_t *revs,
-                          fzn_node_vote_pull_t *pull)
+static size_t hop_journal_remote(void *ctx, const uint8_t *request, size_t request_len,
+                                 uint8_t *reply, size_t reply_cap)
 {
-	static char body[FZN_REPLY_MAX];
-	static char page[FZN_REPLY_MAX + 64u];
-	size_t at = 0, pages = 0;
+	return fzn_node_journal_answer((fzn_node_journal_t *)ctx, request, request_len, reply,
+	                               reply_cap);
+}
 
-	memset(pull, 0, sizeof(*pull));
-	pull->roots = stream_roots;
-	pull->roster = stream_roster;
-	pull->successions = stream_successions;
-	while (pages++ < 64u) {
-		size_t len = 0, total = 0, next = 0;
-		int n, err;
+/* CARRIED OVER THE HOP: `root` serves `fzn_node_admin_remote` with its
+ * journal behind it, as fuzznetd does; `member` follows every stream `root`
+ * holds and pulls them through the pairing it joined with, then applies. The
+ * exchange tally lands in `xt`. 1 when the pull and the application ran. */
+static int carried_over_hop(struct node *root, struct node *member, const fzn_cap_id_t *cap,
+                            fzn_node_apply_t *ap, fzn_node_apply_tally_t *t,
+                            fzn_exchange_tally_t *xt)
+{
+	static fzn_node_peer_t peers[4];
+	static fzn_replay_entry_t entries[16];
+	static uint8_t served[16384], reply[16384], slot_buf[1][16384];
+	fzn_replay_window_t replay;
+	fzn_node_pairing_t pairing;
+	fzn_node_state_t state;
+	fzn_node_admin_t admin;
+	fzn_caller_t caller;
+	fzn_partial_t slots[1];
+	fzn_reasm_t table;
+	fzn_aead_ops_t aead;
+	fzn_udp_addr_t addr;
+	struct hop_asking asking;
+	size_t loaded = 0, e;
+	int sfd = -1, dfd = -1, result = 0;
 
-		if (!fzn_node_votes_page(&from->ops, authority, admin, at, body, 800u, &len, &total))
-			return -99;
-		n = snprintf(page, sizeof(page), "ok %zu %zu", total, at);
-		if (n < 0 || (size_t)n + len + 2u > sizeof(page))
-			return -99;
-		memcpy(page + n, body, len);
-		page[(size_t)n + len] = '\n';
-		err = fzn_node_votes_absorb(pull, (const uint8_t *)page, (size_t)n + len + 1u, at,
-		                            root, &into->sign, &hash_ops, revs, &into->ops, &next,
-		                            &total);
-		if (err != FZN_NODE_PULL_OK || next >= total)
-			return err;
-		at = next;
-	}
-	return -99;
+	memset(xt, 0, sizeof(*xt));
+	fzn_aead_monocypher_init(&aead);
+	if (fzn_node_pairing_load(&member->ops, root->id.pubkey, &pairing) != FZN_PERSIST_OK
+	    || fzn_node_peers_load(&root->ops, peers, 4, &loaded) != FZN_PERSIST_OK
+	    || fzn_udp_bind(AF_INET, "127.0.0.1", 0, &sfd) != FZN_UDP_OK
+	    || fzn_udp_bind(AF_INET, "127.0.0.1", 0, &dfd) != FZN_UDP_OK
+	    || fzn_udp_resolve(AF_INET, "127.0.0.1", port_of(sfd), &addr) != FZN_UDP_OK
+	    || fzn_replay_init(&replay, entries, 16, 100000u) != FZN_FRESH_OK
+	    || fzn_reasm_slot_init(&slots[0], slot_buf[0], sizeof(slot_buf[0])) != FZN_REASM_OK
+	    || fzn_reasm_init(&table, slots, 1, 1u, 60u) != FZN_REASM_OK)
+		goto out;
+
+	memset(&state, 0, sizeof(state));
+	state.config.serves_remote = 1;
+	state.config.remote_capability = *cap;
+	memcpy(state.config.root, root->id.pubkey, FZN_PUBKEY_LEN);
+	memcpy(state.node_pubkey, root->id.pubkey, FZN_PUBKEY_LEN);
+	state.listen_fd = -1;
+	state.udp_fd = sfd;
+	state.peers = peers;
+	state.peer_count = loaded;
+	state.hash = &hash_ops;
+	state.aead = &aead;
+	state.sign = &root->sign;
+	state.rng = &rng_ops;
+	state.clock = fixed_clock;
+	state.replay = &replay;
+	state.reply = served;
+	state.reply_cap = sizeof(served);
+	memset(&admin, 0, sizeof(admin));
+	admin.state = &state;
+	admin.id = &root->id;
+	admin.store = &root->ops;
+	admin.journal_remote = hop_journal_remote;
+	admin.journal_ctx = &root->journal;
+	state.on_remote = fzn_node_admin_remote;
+	state.on_remote_ctx = &admin;
+
+	memset(&caller, 0, sizeof(caller));
+	fzn_node_pairing_caller(&pairing, member->id.pubkey, &caller);
+	caller.fd = dfd;
+	caller.node = addr;
+	caller.hash = &hash_ops;
+	caller.aead = &aead;
+	caller.rng = &rng_ops;
+	caller.reasm = &table;
+	caller.hops = 1u;
+	asking.caller = &caller;
+	asking.state = &state;
+
+	for (e = 0; e < root->journal.journal.used; e++)
+		if (fzn_node_journal_follow(&member->journal, root->journal.entries[e].issuer, NULL)
+		    != FZN_NODE_JOURNAL_OK)
+			goto done;
+	if (fzn_node_journal_pull(&member->journal, hop_ask, &asking, reply, sizeof(reply), xt)
+	    == FZN_EXCHANGE_OK)
+		result = apply_at(member, ap, t);
+done:
+	fzn_wipe(&caller, sizeof(caller));
+out:
+	fzn_wipe(&pairing, sizeof(pairing));
+	if (sfd >= 0)
+		fzn_udp_close(sfd);
+	if (dfd >= 0)
+		fzn_udp_close(dfd);
+	return result;
 }
 
 /* Whether `revs` revokes D on the chain R -> N -> D, at either hop. */
@@ -1154,25 +1235,30 @@ static int d_revoked(const fzn_revocation_store_t *revs, const struct node *r,
 /* AT k = 2 THE ROOT ALONE CANNOT CUT D OFF, AND N ALONE CANNOT EITHER; both
  * can, and a third node that hears from only one of them hears both.
  *
- * R grants N, N grants D, R grants M. R and N each vote against D. N pulls
- * R's vote; M pulls from N and receives N's own vote with the chain that
- * makes N D's grantor AND R's vote, which N only relayed -- one peer serving
- * everything it holds is what lets a vote reach a host that never spoke to
- * its issuer. Then the latch holds across the network, a stranger's vote is
- * refused without stopping the pull, a restart keeps what was learned, and a
- * stale copy is not saved over the withdrawal that superseded it. */
+ * R grants N, N grants D, R grants M, and R logs its two grants. R and N
+ * each vote against D, each vote landing in its signer's journal. N carries
+ * R's journal; M carries from N only and receives N's own vote AND R's,
+ * which N only relayed, with the grant that gives N its chain -- one peer
+ * serving every stream it holds is what lets a vote reach a host that never
+ * spoke to its issuer. Then the journal over the remote hop, a restart that
+ * replays the journal and applies it again, the latch across the network,
+ * and a stranger's vote that waits for a chain without stopping anything.
+ * sec 505: the journal carries what the vote stream carried. */
 static void test_votes_travel(const fzn_cap_id_t *cap)
 {
 	static struct node r, n, d, m, stranger;
 	static fzn_revocation_t r_e[8], n_e[8], m_e[8], l_e[8];
+	static fzn_node_roots_t r_roots, n_roots;
+	static fzn_node_apply_t n_ap, m_ap, l_ap;
+	static fzn_node_journal_t replayed;
 	fzn_revocation_store_t r_revs, n_revs, m_revs, reloaded;
 	fzn_prekey_record_t n_rec, d_rec, m_rec;
 	fzn_node_pairing_t n_joined, m_joined, d_pairing;
 	fzn_node_authority_t authority = { 0 };
-	fzn_node_vote_pull_t pull;
+	fzn_node_apply_tally_t t;
+	fzn_exchange_tally_t xt;
 	uint8_t card[FZN_PROVISION_MAX_LEN];
-	size_t card_len = 0, count = 0, learned = 0;
-	int err;
+	size_t card_len = 0;
 
 	CHECK(node_up(&r) && node_up(&n) && node_up(&d) && node_up(&m) && node_up(&stranger)
 	              && fzn_prekey_open(n.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &n_rec)
@@ -1182,6 +1268,12 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 	              && fzn_prekey_open(m.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &m_rec)
 	                         == FZN_PREKEY_OK,
 	      "fixture: the nodes would not come up");
+	CHECK(roots_of(&r_roots, r.id.pubkey, &r) == FZN_NODE_ROOTS_OK
+	              && roots_of(&n_roots, r.id.pubkey, &n)
+	                         == FZN_NODE_ROOTS_OK,
+	      "fixture: R's and N's roots");
+	journal_hook(&r, &r_roots);
+	journal_hook(&n, &n_roots);
 	CHECK(fzn_node_pair(&r.id, r.id.pubkey, cap, NULL, 1, &r.ops, n_rec, 1000u, 0u, card,
 	                    sizeof(card), &card_len) == FZN_NODE_PAIR_OK
 	              && fzn_node_join(&n.id, card, card_len, 1100u, &n.ops, &n.trust, &n_joined)
@@ -1189,8 +1281,10 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 	              && fzn_node_pair(&r.id, r.id.pubkey, cap, NULL, 1, &r.ops, m_rec, 1000u, 0u,
 	                               card, sizeof(card), &card_len) == FZN_NODE_PAIR_OK
 	              && fzn_node_join(&m.id, card, card_len, 1100u, &m.ops, &m.trust, &m_joined)
-	                         == FZN_NODE_PAIR_OK,
-	      "fixture: N and M would not join R's estate");
+	                         == FZN_NODE_PAIR_OK
+	              && log_grant_of(&r, &r_roots, n_joined.chain[0])
+	              && log_grant_of(&r, &r_roots, m_joined.chain[0]),
+	      "fixture: N and M would not join R's estate, or R would not log the grants");
 	authority.hops = (const uint8_t (*)[FZN_HOP_LEN])n_joined.chain;
 	authority.hop_count = n_joined.hop_count;
 	CHECK(fzn_node_pair(&n.id, r.id.pubkey, cap, &authority, 0, &n.ops, d_rec, 1200u, 0u, card,
@@ -1207,258 +1301,128 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 	              && fzn_revocation_store_set_quorum(&reloaded, 2u, NULL, NULL, 0u)
 	                         == FZN_CHAIN_OK,
 	      "fixture: stores at quorum 2");
+	apply_to(&n_ap, &n_revs, r.id.pubkey, cap);
+	apply_to(&m_ap, &m_revs, r.id.pubkey, cap);
 
-	/* ---- AN EMPTY STREAM IS A STREAM. */
-	CHECK(stream_pull(&r, NULL, &n, r.id.pubkey, &n_revs, 1000u, &pull) == FZN_NODE_PULL_OK
-	              && pull.learned == 0u && pull.refused == 0u,
-	      "pulling an empty stream failed, or learned something");
+	/* ---- R's GRANTS ALONE carry and apply nothing but the index. */
+	CHECK(carry(&r, &n, &n_ap, &t) && t.grants == 2u && t.applied == 0u && t.refused == 0u
+	              && t.waiting == 0u,
+	      "N did not index R's two grants, or applied something else");
 
-	/* ---- ONE VOTE EACH, and neither alone revokes. */
-	CHECK(fzn_node_revoke(NULL, &r.id, r.id.pubkey, NULL, cap, d.id.pubkey, 1400u, &r_revs, &r.ops)
-	              == FZN_NODE_REVOKE_OK
-	              && fzn_node_revoke(NULL, &n.id, r.id.pubkey, &authority, cap, d.id.pubkey, 1400u,
-	                                 &n_revs, &n.ops) == FZN_NODE_REVOKE_OK,
+	/* ---- ONE VOTE EACH, each in its signer's journal, and neither alone
+	 * revokes. */
+	CHECK(fzn_node_revoke(&r_roots, &r.id, r.id.pubkey, NULL, cap, d.id.pubkey, 1400u, &r_revs,
+	                      &r.ops) == FZN_NODE_REVOKE_OK
+	              && fzn_node_revoke(&n_roots, &n.id, r.id.pubkey, &authority, cap, d.id.pubkey,
+	                                 1400u, &n_revs, &n.ops) == FZN_NODE_REVOKE_OK,
 	      "R or N would not cast its vote against D");
+	CHECK(received_of(&r, r.id.pubkey) == 3u && received_of(&n, n.id.pubkey) == 1u,
+	      "R's journal does not hold its two grants and its vote, or N's its vote");
 	CHECK(!d_revoked(&n_revs, &r, &n, &d, cap), "one vote of two revoked D at N");
 
-	/* ---- N PULLS R's VOTE, and at N the two make the quorum. */
-	CHECK(stream_pull(&r, NULL, &n, r.id.pubkey, &n_revs, 1000u, &pull) == FZN_NODE_PULL_OK
-	              && pull.learned == 1u && pull.refused == 0u,
-	      "N did not learn R's vote");
+	/* ---- N CARRIES R's JOURNAL, and at N the two make the quorum. N
+	 * applies its own stream with it: its vote, which it holds already. */
+	CHECK(carry(&r, &n, &n_ap, &t) && t.applied == 2u && t.refused == 0u,
+	      "N did not apply R's vote and its own");
 	CHECK(d_revoked(&n_revs, &r, &n, &d, cap), "two votes of two did not revoke D at N");
 
-	/* ---- M PULLS FROM N ONLY, a page per item, and receives both: N's own
-	 * with its chain and R's that N relayed. A page of 494 bytes holds one
-	 * record or one hop, so N's vote and its chain arrive on different pages
-	 * and the vote is held across them. */
-	err = stream_pull(&n, &authority, &m, r.id.pubkey, &m_revs, 494u, &pull);
-	CHECK(err == FZN_NODE_PULL_OK && pull.learned == 2u && pull.refused == 0u,
-	      "M did not learn both votes from N alone, a page an item");
+	/* ---- M CARRIES FROM N ONLY and receives both streams: N's own vote,
+	 * and R's grants and vote, which N relayed. N's vote waits on the first
+	 * pass if N's stream is read before R's grant, and applies on the next. */
+	CHECK(carry(&n, &m, &m_ap, &t) && t.applied == 2u && t.refused == 0u && t.waiting == 0u,
+	      "M did not apply both votes from N alone");
 	CHECK(d_revoked(&m_revs, &r, &n, &d, cap),
 	      "M, holding both votes, did not revoke D -- a relayed vote did not count");
 
-	/* ---- AGAIN, AND OVER THE WIRE: M holds a pairing to R, so it pulls
-	 * `get vote` from R's running remote hop. What it already holds is
-	 * learned again, not refused: every periodic pull would otherwise
-	 * report refusals. */
+	/* ---- AGAIN, AND OVER THE WIRE: M pulls R's journal through the
+	 * pairing it joined with, from R's running remote hop. It holds R's
+	 * stream already, so nothing is new and nothing is refused. */
+	CHECK(carried_over_hop(&r, &m, cap, &m_ap, &t, &xt) && xt.refused == 0u && xt.forks == 0u
+	              && xt.learned == 0u && t.applied == 0u,
+	      "M's pull of R's journal over the remote hop failed, or took something twice");
+
+	/* ---- A RESTART REPLAYS THE JOURNAL AND APPLIES IT AGAIN: a journal
+	 * opened fresh over M's records, every stream followed, into a fresh
+	 * store with a fresh index, revokes D as M did. */
+	CHECK(fzn_node_journal_init_store(&replayed, &m.record_ops, &m.sign, &hash_ops)
+	                      == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_follow(&replayed, r.id.pubkey, NULL) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_follow(&replayed, n.id.pubkey, NULL) == FZN_NODE_JOURNAL_OK,
+	      "fixture: M's journal replayed");
+	apply_to(&l_ap, &reloaded, r.id.pubkey, cap);
+	l_ap.journal = &replayed;
+	l_ap.store = &m.ops;
+	l_ap.sign = &m.sign;
+	l_ap.hash = &hash_ops;
+	CHECK(fzn_node_apply_round(&l_ap, &t) == FZN_NODE_PULL_OK && t.grants == 2u
+	              && t.applied == 2u && t.refused == 0u,
+	      "M's journal replayed did not apply its two grants and two votes again");
+	CHECK(d_revoked(&reloaded, &r, &n, &d, cap), "after a restart M granted D again");
+
+	/* ---- A STRANGER'S VOTE, in its own journal, carried to M: its stream
+	 * waits for a chain no grant gives it, nothing is refused, and D's
+	 * standing is what it was. */
 	{
-		fzn_node_vote_pull_t over;
+		uint8_t vote[FZN_REVOCATION_LEN];
 
-		memset(&over, 0, sizeof(over));
-		CHECK(pulled_from_as(&r, &m, cap, &m_revs, &learned, &over, NULL) == FZN_NODE_PULL_OK
-		              && learned == 1u && over.refused == 0u,
-		      "M did not pull R's vote with `get vote` over the remote hop");
-	}
-
-	/* AND ROOT RECORDS, the same way: R holds one root-add, and M pulls it
-	 * with `get root` over the remote hop. sec 408. */
-	{
-		static fzn_node_roots_t r_roots, m_roots;
-		uint8_t add[FZN_ROOT_ADD_LEN];
-
-		CHECK(fzn_node_roots_init(&r_roots, r.id.pubkey, &r.sign, &hash_ops)
-		              == FZN_NODE_ROOTS_OK
-		              && fzn_node_roots_init(&m_roots, r.id.pubkey, &m.sign, &hash_ops)
-		                         == FZN_NODE_ROOTS_OK
-		              && fzn_root_add_issue(r.id.pubkey, stranger.id.pubkey, &r.sign, add)
-		                         == FZN_ROOT_LOG_OK
-		              && fzn_node_roots_learn(&r_roots, &r.ops, add, sizeof(add))
-		                         == FZN_NODE_ROOTS_OK,
-		      "fixture: R holds a root-add");
-		learned = 0;
-		CHECK(pulled_from_as(&r, &m, cap, &m_revs, &learned, NULL, &m_roots)
-		                      == FZN_NODE_PULL_OK
-		              && learned == 1u && fzn_root_view_member(&m_roots.view, stranger.id.pubkey),
-		      "M did not pull R's root-add with `get root` over the remote hop");
-	}
-
-	/* ---- A STRANGER'S VOTE, written into R's learned votes by hand, is
-	 * refused at M and counted, and the pull goes on past it. At R, which
-	 * saved it without admitting it, the restart refuses: a learned vote
-	 * that will not admit again is a store changed underneath the node. */
-	{
-		uint8_t blob[FZN_PERSIST_HEAD_LEN + FZN_REVOCATION_LEN + 1u];
-		uint8_t subject[FZN_PUBKEY_LEN];
-
-		memset(subject, 0x5a, sizeof(subject));
 		CHECK(fzn_revocation_issue(stranger.id.pubkey, cap, d.id.pubkey, 1500u, 0u, NULL,
-		                           &stranger.sign, blob + FZN_PERSIST_HEAD_LEN) == FZN_CHAIN_OK
-		              && fzn_persist_head_write(blob, sizeof(blob), FZN_REVOCATION_LEN + 1u,
-		                                        FZN_PERSIST_BLOB_VOTE) == FZN_PERSIST_OK
-		              && (blob[FZN_PERSIST_HEAD_LEN + FZN_REVOCATION_LEN] = 0u, 1)
-		              && r.ops.save(r.ops.ctx, FZN_PERSIST_VOTE, subject, blob, sizeof(blob)),
-		      "fixture: a stranger's vote in R's store");
-		CHECK(stream_pull(&r, NULL, &m, r.id.pubkey, &m_revs, 1000u, &pull)
-		                      == FZN_NODE_PULL_OK
-		              && pull.learned == 1u && pull.refused == 1u,
-		      "a stranger's vote stopped the pull, or was not counted as refused");
-		{
-			static fzn_revocation_t s_e[8];
-			fzn_revocation_store_t scratch;
-
-			CHECK(fzn_revocation_store_init(&scratch, s_e, 8) == FZN_CHAIN_OK
-			              && fzn_node_revocations_load(&r.ops, &scratch, r.id.pubkey, NULL, NULL,
-			                                           &r.sign, &hash_ops, &count)
-			                         == FZN_PERSIST_ERR_SHAPE,
-			      "a restart admitted past a learned vote that will not admit");
-		}
-		CHECK(fzn_node_revocations_load(&m.ops, &reloaded, r.id.pubkey, NULL, NULL, &m.sign,
-		                                &hash_ops, &count) == FZN_PERSIST_OK
-		              && count == 2u,
-		      "M's restart did not reload exactly the two votes it learned");
-		CHECK(d_revoked(&reloaded, &r, &n, &d, cap), "after a restart M granted D again");
+		                           &stranger.sign, vote) == FZN_CHAIN_OK
+		              && fzn_node_journal_append_object(&stranger.journal, stranger.id.pubkey,
+		                                                &stranger.sign, vote, sizeof(vote), 1500u,
+		                                                NULL) == FZN_NODE_JOURNAL_OK,
+		      "fixture: a stranger's vote in its journal");
+		CHECK(carry(&stranger, &m, &m_ap, &t) && t.waiting == 1u && t.applied == 0u
+		              && t.refused == 0u,
+		      "a stranger's vote did not wait for a chain at M");
+		CHECK(d_revoked(&m_revs, &r, &n, &d, cap), "a stranger's vote changed D at M");
 	}
 
-	/* ---- THE LATCH ACROSS THE NETWORK. N withdraws; M learns it and D
-	 * stays revoked, one withdrawal of two. R withdraws; N learns it, M
-	 * learns it from N, and D is restored. */
+	/* ---- THE LATCH ACROSS THE NETWORK. N withdraws; M carries it from N
+	 * and D stays revoked, one withdrawal of two. R withdraws; N carries it,
+	 * M carries it from N, and D is restored. */
 	{
-		static fzn_revocation_t a_e[8];
-		fzn_revocation_store_t after;
-		uint8_t old_vote[FZN_REVOCATION_LEN];
-
-		CHECK(fzn_node_issued_revocation(&n.ops, d.id.pubkey, old_vote),
-		      "fixture: N's vote as it was");
-
-		/* N's OWN VOTE COMES BACK: pulled from M, it is kept in N's
-		 * learned votes beside the one N issued. */
-		CHECK(stream_pull(&m, NULL, &n, r.id.pubkey, &n_revs, 1000u, &pull)
-		                      == FZN_NODE_PULL_OK
-		              && pull.learned == 2u,
-		      "N did not take its own vote and R's back from M");
-		CHECK(fzn_node_unrevoke(NULL, &n.id, r.id.pubkey, &authority, d.id.pubkey, 1600u, &n_revs,
-		                        &n.ops) == FZN_NODE_REVOKE_OK
-		              && stream_pull(&n, &authority, &m, r.id.pubkey, &m_revs, 1000u, &pull)
-		                         == FZN_NODE_PULL_OK,
-		      "N would not withdraw, or M would not pull the withdrawal");
+		/* N's OWN STREAM COMES BACK from M as it left: nothing new, and
+		 * no fork. */
+		CHECK(carry(&m, &n, &n_ap, &t) && t.applied == 0u && t.refused == 0u,
+		      "N's own stream back from M was not the stream N wrote");
+		CHECK(fzn_node_unrevoke(&n_roots, &n.id, r.id.pubkey, &authority, d.id.pubkey, 1600u,
+		                        &n_revs, &n.ops) == FZN_NODE_REVOKE_OK
+		              && carry(&n, &m, &m_ap, &t) && t.applied == 1u,
+		      "N would not withdraw, or M would not apply the withdrawal");
 		CHECK(d_revoked(&m_revs, &r, &n, &d, cap),
 		      "one withdrawal of two restored D at M: the latch did not travel");
 
-		CHECK(fzn_node_unrevoke(NULL, &r.id, r.id.pubkey, NULL, d.id.pubkey, 1700u, &r_revs,
+		CHECK(fzn_node_unrevoke(&r_roots, &r.id, r.id.pubkey, NULL, d.id.pubkey, 1700u, &r_revs,
 		                        &r.ops) == FZN_NODE_REVOKE_OK
-		              && stream_pull(&r, NULL, &n, r.id.pubkey, &n_revs, 1000u, &pull)
-		                         == FZN_NODE_PULL_OK
-		              && stream_pull(&n, &authority, &m, r.id.pubkey, &m_revs, 1000u, &pull)
-		                         == FZN_NODE_PULL_OK,
+		              && carry(&r, &n, &n_ap, &t) && t.applied == 2u
+		              && carry(&n, &m, &m_ap, &t) && t.applied == 1u,
 		      "R's withdrawal did not travel R -> N -> M");
 		CHECK(!d_revoked(&n_revs, &r, &n, &d, cap) && !d_revoked(&m_revs, &r, &n, &d, cap),
 		      "two withdrawals of two left D revoked");
 
-		/* A STALE COPY of N's vote, offered to M after the withdrawal, is
-		 * not saved over it: a restart still finds D restored. */
+		/* N REVOKES AGAIN, IN EPOCH 1, read off the record N signed: both
+		 * withdrew epoch 0 -- R's withdrawal is the root's undo of it
+		 * since sec 403 -- so a vote cast in 0 would sit under the root's
+		 * floor and count for nothing. sec 400. And one vote of two, at N
+		 * and at M, revokes nothing. */
 		{
-			char page[FZN_REPLY_MAX + 1u];
-			fzn_node_vote_pull_t stale;
-			size_t next = 0, total = 0, at, i, h;
-			static const char digits[] = "0123456789abcdef";
+			uint8_t again[FZN_REVOCATION_LEN];
+			fzn_revocation_record_t again_rec;
 
-			memset(&stale, 0, sizeof(stale));
-			at = (size_t)snprintf(page, sizeof(page), "ok 2 0 r");
-			for (i = 0; i < FZN_REVOCATION_LEN; i++) {
-				page[at++] = digits[old_vote[i] >> 4];
-				page[at++] = digits[old_vote[i] & 15u];
-			}
-			page[at++] = ' ';
-			page[at++] = 'h';
-			for (h = 0; h < FZN_HOP_LEN; h++) {
-				page[at++] = digits[n_joined.chain[0][h] >> 4];
-				page[at++] = digits[n_joined.chain[0][h] & 15u];
-			}
-			page[at++] = '\n';
-			CHECK(fzn_node_votes_absorb(&stale, (const uint8_t *)page, at, 0u, r.id.pubkey,
-			                            &m.sign, &hash_ops, &m_revs, &m.ops, &next, &total)
-			                      == FZN_NODE_PULL_OK
-			              && stale.learned == 0u,
-			      "a stale copy of a withdrawn vote was learned");
-			CHECK(fzn_revocation_store_init(&after, a_e, 8) == FZN_CHAIN_OK
-			              && fzn_revocation_store_set_quorum(&after, 2u, NULL, NULL, 0u)
+			CHECK(fzn_node_revoke(&n_roots, &n.id, r.id.pubkey, &authority, cap, d.id.pubkey,
+			                      1800u, &n_revs, &n.ops) == FZN_NODE_REVOKE_OK
+			              && fzn_node_issued_revocation(&n.ops, d.id.pubkey, again)
+			              && fzn_revocation_open(again, sizeof(again), &again_rec)
 			                         == FZN_CHAIN_OK
-			              && fzn_node_revocations_load(&m.ops, &after, r.id.pubkey, NULL, NULL,
-			                                           &m.sign, &hash_ops, &count)
-			                         == FZN_PERSIST_OK
-			              && !d_revoked(&after, &r, &n, &d, cap),
-			      "after a stale copy and a restart, M revoked D again");
+			              && fzn_revocation_epoch(again_rec) == 1u,
+			      "N's vote after the root's undo was not cast in epoch 1, so it "
+			      "counts for nothing");
 		}
-
-		/* A COPY SUPERSEDED IN ANOTHER SLOT is skipped at a restart, not
-		 * fatal. N takes its own withdrawal back from M, then revokes D
-		 * again: slot 9 now holds a revocation superseding the one that
-		 * withdrawal named, so the copy in slot 11 names a target that is
-		 * gone and admission refuses it. The triple is already held. */
-		{
-			static fzn_revocation_t s_e[8];
-			fzn_revocation_store_t scratch;
-
-			CHECK(stream_pull(&m, NULL, &n, r.id.pubkey, &n_revs, 1000u, &pull)
-			                      == FZN_NODE_PULL_OK
-			              && fzn_node_revoke(NULL, &n.id, r.id.pubkey, &authority, cap, d.id.pubkey,
-			                                 1800u, &n_revs, &n.ops) == FZN_NODE_REVOKE_OK,
-			      "fixture: N's withdrawal back from M, then N revoking again");
-			/* AND THAT VOTE IS IN EPOCH 1, read off the record N signed:
-			 * both withdrew epoch 0 -- R's withdrawal is the root's undo of
-			 * it since sec 403 -- so a vote cast in 0 would sit under the
-			 * root's floor and count for nothing. sec 400. */
-			{
-				uint8_t again[FZN_REVOCATION_LEN];
-				fzn_revocation_record_t again_rec;
-
-				CHECK(fzn_node_issued_revocation(&n.ops, d.id.pubkey, again)
-				              && fzn_revocation_open(again, sizeof(again), &again_rec)
-				                         == FZN_CHAIN_OK
-				              && fzn_revocation_epoch(again_rec) == 1u,
-				      "N's vote after the root's undo was not cast in epoch 1, so it "
-				      "counts for nothing");
-			}
-			CHECK(!d_revoked(&n_revs, &r, &n, &d, cap),
-			      "one vote after a full undo revoked D at N: the node did not "
-			      "cast it in the open epoch");
-			CHECK(fzn_revocation_store_init(&scratch, s_e, 8) == FZN_CHAIN_OK
-			              && fzn_node_revocations_load(&n.ops, &scratch, r.id.pubkey,
-			                                           &authority, NULL, &n.sign, &hash_ops, &count)
-			                         == FZN_PERSIST_OK,
-			      "N's restart failed on its own withdrawal superseded by a re-revocation");
-		}
-	}
-
-	/* ---- STREAMS THAT DO NOT PARSE: a whole, well-formed hop with no
-	 * record before it; a page answering an offset nobody asked for; and a
-	 * page promising items and carrying none. */
-	{
-		static char bad[FZN_REPLY_MAX + 1u];
-		static const char digits[] = "0123456789abcdef";
-		size_t next = 0, total = 0, at, h;
-
-		at = (size_t)snprintf(bad, sizeof(bad), "ok 1 0 h");
-		for (h = 0; h < FZN_HOP_LEN; h++) {
-			bad[at++] = digits[n_joined.chain[0][h] >> 4];
-			bad[at++] = digits[n_joined.chain[0][h] & 15u];
-		}
-		bad[at++] = '\n';
-		memset(&pull, 0, sizeof(pull));
-		CHECK(fzn_node_votes_absorb(&pull, (const uint8_t *)bad, at, 0u, r.id.pubkey, &m.sign,
-		                            &hash_ops, &m_revs, &m.ops, &next, &total)
-		              == FZN_NODE_PULL_SHAPE,
-		      "a whole hop with no record before it was absorbed");
-
-		at = (size_t)snprintf(bad, sizeof(bad), "ok 3 1 h");
-		for (h = 0; h < FZN_HOP_LEN; h++) {
-			bad[at++] = digits[n_joined.chain[0][h] >> 4];
-			bad[at++] = digits[n_joined.chain[0][h] & 15u];
-		}
-		bad[at++] = '\n';
-		memset(&pull, 0, sizeof(pull));
-		pull.pending = 1;
-		CHECK(fzn_node_votes_absorb(&pull, (const uint8_t *)bad, at, 0u, r.id.pubkey, &m.sign,
-		                            &hash_ops, &m_revs, &m.ops, &next, &total)
-		              == FZN_NODE_PULL_SHAPE,
-		      "a vote page answering offset 1 was taken as the answer to 0");
-
-		at = (size_t)snprintf(bad, sizeof(bad), "ok 2 0\n");
-		memset(&pull, 0, sizeof(pull));
-		CHECK(fzn_node_votes_absorb(&pull, (const uint8_t *)bad, at, 0u, r.id.pubkey, &m.sign,
-		                            &hash_ops, &m_revs, &m.ops, &next, &total)
-		              == FZN_NODE_PULL_SHAPE,
-		      "an empty vote page short of its total was taken as a finished pull");
+		CHECK(!d_revoked(&n_revs, &r, &n, &d, cap),
+		      "one vote after a full undo revoked D at N: the node did not "
+		      "cast it in the open epoch");
+		CHECK(carry(&n, &m, &m_ap, &t) && t.applied == 1u && !d_revoked(&m_revs, &r, &n, &d, cap),
+		      "N's vote in epoch 1 did not reach M, or revoked D there alone");
 	}
 	fzn_wipe(&n_joined, sizeof(n_joined));
 	fzn_wipe(&m_joined, sizeof(m_joined));
@@ -1505,7 +1469,7 @@ static void test_several_roots_at_a_node(const fzn_cap_id_t *cap)
 	      "fixture: the nodes");
 	CHECK(fzn_revocation_store_init(&revs, e1, 8) == FZN_CHAIN_OK
 	              && fzn_revocation_store_set_quorum(&revs, 2u, NULL, NULL, 0u) == FZN_CHAIN_OK
-	              && fzn_node_roots_init(&roots, r.id.pubkey, &n.sign, &hash_ops)
+	              && roots_of(&roots, r.id.pubkey, &n)
 	                         == FZN_NODE_ROOTS_OK
 	              && fzn_node_roots_attach(&roots, &revs) == FZN_NODE_ROOTS_OK,
 	      "fixture: N's store with R's set attached");
@@ -1551,7 +1515,7 @@ static void test_several_roots_at_a_node(const fzn_cap_id_t *cap)
 	CHECK(fzn_revocation_store_init(&reloaded, e2, 8) == FZN_CHAIN_OK
 	              && fzn_revocation_store_set_quorum(&reloaded, 2u, NULL, NULL, 0u)
 	                         == FZN_CHAIN_OK
-	              && fzn_node_roots_init(&again, r.id.pubkey, &n.sign, &hash_ops)
+	              && roots_of(&again, r.id.pubkey, &n)
 	                         == FZN_NODE_ROOTS_OK
 	              && fzn_node_roots_load(&again, &n.ops, &count) == FZN_NODE_ROOTS_OK
 	              && count == 3u
@@ -1577,7 +1541,7 @@ static void test_several_roots_at_a_node(const fzn_cap_id_t *cap)
 		              && (memcpy(blob + FZN_PERSIST_HEAD_LEN, r_add, FZN_ROOT_ACT_LEN), 1)
 		              && x.ops.save(x.ops.ctx, FZN_PERSIST_ROOT_CHANGE, subject, blob,
 		                            sizeof(blob))
-		              && fzn_node_roots_init(&bad, r.id.pubkey, &x.sign, &hash_ops)
+		              && roots_of(&bad, r.id.pubkey, &x)
 		                         == FZN_NODE_ROOTS_OK
 		              && fzn_node_roots_load(&bad, &x.ops, &count) == FZN_NODE_ROOTS_STORE,
 		      "a root log entry filed as a root change was loaded");
@@ -1585,7 +1549,7 @@ static void test_several_roots_at_a_node(const fzn_cap_id_t *cap)
 		              && (blob[sizeof(blob) - 1u] ^= 1u, 1)
 		              && x.ops.save(x.ops.ctx, FZN_PERSIST_ROOT_ENTRY, subject, blob,
 		                            sizeof(blob))
-		              && fzn_node_roots_init(&bad, r.id.pubkey, &x.sign, &hash_ops)
+		              && roots_of(&bad, r.id.pubkey, &x)
 		                         == FZN_NODE_ROOTS_OK
 		              && fzn_node_roots_load(&bad, &x.ops, &count) == FZN_NODE_ROOTS_STORE,
 		      "a stored root log entry whose signature fails was loaded");
@@ -1620,139 +1584,68 @@ static void test_several_roots_at_a_node(const fzn_cap_id_t *cap)
 		      "a removed root still stood, sec 450");
 	}
 
-	/* CARRIED, sec 408: node M, knowing nothing, pulls N's root records a
-	 * page per item and judges as N does -- B admitted as a root, and B's
-	 * revocation not counting once R's removal of B arrives with it. */
+	/* CARRIED, sec 408 and since sec 505 in the journal: node M, knowing
+	 * nothing, carries R's and B's journals and judges as N does -- B's
+	 * revocation counts once R's add of B is applied, and stops counting once
+	 * R's removal of B arrives after it. */
 	{
 		static struct node m;
 		static fzn_node_roots_t m_roots;
 		static fzn_revocation_t e3[8];
-		static char body[FZN_REPLY_MAX];
-		static char page[FZN_REPLY_MAX + 64u];
+		static fzn_node_apply_t m_ap;
 		fzn_revocation_store_t m_revs;
-		size_t at = 0, pages = 0, learned = 0, refused = 0, total = 0, next = 0, len = 0;
-		int err = FZN_NODE_PULL_OK;
+		fzn_node_apply_tally_t t;
 
 		CHECK(node_up(&m)
 		              && fzn_revocation_store_init(&m_revs, e3, 8) == FZN_CHAIN_OK
 		              && fzn_revocation_store_set_quorum(&m_revs, 2u, NULL, NULL, 0u)
 		                         == FZN_CHAIN_OK
-		              && fzn_node_roots_init(&m_roots, r.id.pubkey, &m.sign, &hash_ops)
-		                         == FZN_NODE_ROOTS_OK
-		              && fzn_node_roots_attach(&m_roots, &m_revs) == FZN_NODE_ROOTS_OK,
-		      "fixture: M");
-		while (pages++ < 16u && err == FZN_NODE_PULL_OK) {
-			int w;
-
-			if (!fzn_node_roots_page(&n.ops, at, body, 400u, &len, &total))
-				break;
-			w = snprintf(page, sizeof(page), "ok %zu %zu", total, at);
-			memcpy(page + w, body, len);
-			page[(size_t)w + len] = '\n';
-			err = fzn_node_roots_absorb(&m_roots, &m.ops, (const uint8_t *)page,
-			                            (size_t)w + len + 1u, at, &next, &total, &learned,
-			                            &refused);
-			if (next >= total)
-				break;
-			at = next;
-		}
-		CHECK(err == FZN_NODE_PULL_OK && learned == 5u && refused == 0u && pages > 2u,
-		      "M did not learn N's five root records a page an item");
-		CHECK(fzn_revocation_admit(&m_revs, fzn_revocation_offer_root(rec), r.id.pubkey,
-		                           &m.sign, &hash_ops, NULL) == FZN_CHAIN_OK
+		              && roots_of(&m_roots, r.id.pubkey, &m) == FZN_NODE_ROOTS_OK
+		              && fzn_node_roots_attach(&m_roots, &m_revs) == FZN_NODE_ROOTS_OK
+		              && fzn_node_journal_append_object(&r.journal, r.id.pubkey, &r.sign, add,
+		                                                sizeof(add), 1500u, NULL)
+		                         == FZN_NODE_JOURNAL_OK
+		              && fzn_node_journal_append_object(&b.journal, b.id.pubkey, &b.sign, rev,
+		                                                sizeof(rev), 1500u, NULL)
+		                         == FZN_NODE_JOURNAL_OK,
+		      "fixture: M, and R's add and B's revocation in their journals");
+		apply_to(&m_ap, &m_revs, r.id.pubkey, cap);
+		m_ap.roots = &m_roots;
+		CHECK(carry(&b, &m, &m_ap, &t) && t.waiting == 1u && t.applied == 0u
 		              && !d_revoked(&m_revs, &r, &n, &d, cap),
-		      "M did not judge B's revocation as N does after the pull");
-
-		/* PAGES THAT DO NOT PARSE: an answer to an offset nobody asked
-		 * for, and an item whose letter names another kind than its
-		 * record -- R's log entry sent as an `a`, a root-add. */
-		{
-			static const char digits[] = "0123456789abcdef";
-			size_t h, w;
-
-			w = (size_t)snprintf(page, sizeof(page), "ok 2 1 e");
-			for (h = 0; h < FZN_ROOT_ACT_LEN; h++) {
-				page[w++] = digits[r_add[h] >> 4];
-				page[w++] = digits[r_add[h] & 15u];
-			}
-			page[w++] = '\n';
-			CHECK(fzn_node_roots_absorb(&m_roots, &m.ops, (const uint8_t *)page, w, 0u,
-			                            &next, &total, &learned, &refused)
-			              == FZN_NODE_PULL_SHAPE,
-			      "a root page answering offset 1 was taken as the answer to 0");
-			w = (size_t)snprintf(page, sizeof(page), "ok 1 0 a");
-			for (h = 0; h < FZN_ROOT_ADD_LEN; h++) {
-				page[w++] = digits[r_add[h] >> 4];
-				page[w++] = digits[r_add[h] & 15u];
-			}
-			page[w++] = '\n';
-			CHECK(fzn_node_roots_absorb(&m_roots, &m.ops, (const uint8_t *)page, w, 0u,
-			                            &next, &total, &learned, &refused)
-			              == FZN_NODE_PULL_SHAPE,
-			      "an item whose letter names another kind than its record was taken");
-		}
-
-		/* A REFUSED ITEM IS COUNTED AND THE PULL GOES ON: a peer holding a
-		 * log entry whose signature fails. */
-		{
-			static struct node y;
-			uint8_t blob[FZN_PERSIST_HEAD_LEN + FZN_ROOT_ACT_LEN];
-			uint8_t subject[FZN_PUBKEY_LEN];
-			int w;
-
-			memset(subject, 0x44, sizeof(subject));
-			CHECK(node_up(&y)
-			              && fzn_persist_head_write(blob, sizeof(blob), FZN_ROOT_ACT_LEN,
-			                                        FZN_PERSIST_BLOB_ROOT_ENTRY)
-			                         == FZN_PERSIST_OK
-			              && (memcpy(blob + FZN_PERSIST_HEAD_LEN, r_add, FZN_ROOT_ACT_LEN),
-			                  blob[sizeof(blob) - 1u] ^= 1u, 1)
-			              && y.ops.save(y.ops.ctx, FZN_PERSIST_ROOT_ENTRY, subject, blob,
-			                            sizeof(blob))
-			              && fzn_node_roots_page(&y.ops, 0, body, sizeof(body), &len, &total),
-			      "fixture: a peer holding a forged entry");
-			w = snprintf(page, sizeof(page), "ok %zu 0", total);
-			memcpy(page + w, body, len);
-			page[(size_t)w + len] = '\n';
-			learned = refused = 0;
-			CHECK(fzn_node_roots_absorb(&m_roots, &m.ops, (const uint8_t *)page,
-			                            (size_t)w + len + 1u, 0u, &next, &total, &learned,
-			                            &refused) == FZN_NODE_PULL_OK
-			              && refused == 1u,
-			      "a refused root record stopped the pull, or was not counted");
-		}
-
+		      "M took B's revocation before it knew B was a root");
+		CHECK(carry(&r, &m, &m_ap, &t) && t.applied == 2u && t.waiting == 0u
+		              && d_revoked(&m_revs, &r, &n, &d, cap),
+		      "M, carrying R's add of B, did not count B's revocation");
+		CHECK(fzn_node_journal_append_object(&r.journal, r.id.pubkey, &r.sign, rem, sizeof(rem),
+		                                     1600u, NULL) == FZN_NODE_JOURNAL_OK
+		              && carry(&r, &m, &m_ap, &t) && t.applied == 1u
+		              && !d_revoked(&m_revs, &r, &n, &d, cap),
+		      "M did not judge B's revocation as N does once R's removal arrived");
 	}
 }
 
-/* Every root record `from` holds, paged into `into` as a pull would. The
- * pull err, and the items learned into `*learned`. */
+/* Every root record `from`'s journal holds, carried into `into_node` and
+ * applied to `into`, as the daemon's round does since sec 505. The pull err,
+ * and the objects applied into `*learned`. */
 static int roots_sync(struct node *from, fzn_node_roots_t *into, struct node *into_node,
                       size_t *learned)
 {
-	static char body[FZN_REPLY_MAX];
-	static char page[FZN_REPLY_MAX + 64u];
-	size_t at = 0, pages = 0, refused = 0;
-	int err = FZN_NODE_PULL_OK;
+	static fzn_node_apply_t ap;
+	static fzn_revocation_t scratch_e[8];
+	static fzn_revocation_store_t scratch;
+	static const fzn_cap_id_t no_cap = { { 0 } };
+	fzn_node_apply_tally_t t;
 
 	*learned = 0;
-	while (pages++ < 64u) {
-		size_t len = 0, total = 0, next = 0;
-		int w;
-
-		if (!fzn_node_roots_page(&from->ops, at, body, 800u, &len, &total))
-			return -99;
-		w = snprintf(page, sizeof(page), "ok %zu %zu", total, at);
-		memcpy(page + w, body, len);
-		page[(size_t)w + len] = '\n';
-		err = fzn_node_roots_absorb(into, &into_node->ops, (const uint8_t *)page,
-		                            (size_t)w + len + 1u, at, &next, &total, learned,
-		                            &refused);
-		if (err != FZN_NODE_PULL_OK || next >= total)
-			return err;
-		at = next;
-	}
-	return -99;
+	if (fzn_revocation_store_init(&scratch, scratch_e, 8) != FZN_CHAIN_OK)
+		return -99;
+	apply_to(&ap, into->revocations ? into->revocations : &scratch, from->id.pubkey, &no_cap);
+	ap.roots = into;
+	if (!carry(from, into_node, &ap, &t))
+		return -99;
+	*learned = t.applied;
+	return FZN_NODE_PULL_OK;
 }
 
 /* A NODE ACTS AS A ROOT, sec 409. R, the genesis root, acts with its
@@ -1775,8 +1668,8 @@ static void test_a_node_acts_as_a_root(void)
 	CHECK(node_up(&r) && node_up(&m) && node_up(&x), "fixture: the nodes");
 	fzn_sign_monocypher_init(&m_root_sign, &m_root_signer);
 	fzn_sign_monocypher_seat_init(&m_root_seat, &m_root_signer);
-	CHECK(fzn_node_roots_init(&r_roots, r.id.pubkey, &r.sign, &hash_ops) == FZN_NODE_ROOTS_OK
-	              && fzn_node_roots_init(&m_roots, r.id.pubkey, &m.sign, &hash_ops)
+	CHECK(roots_of(&r_roots, r.id.pubkey, &r) == FZN_NODE_ROOTS_OK
+	              && roots_of(&m_roots, r.id.pubkey, &m)
 	                         == FZN_NODE_ROOTS_OK,
 	      "fixture: the roots");
 	CHECK(fzn_node_roots_acting(&r_roots, r.id.pubkey, &r.sign, &as, &as_sign)
@@ -1797,13 +1690,15 @@ static void test_a_node_acts_as_a_root(void)
 	              == FZN_NODE_ROOTS_NOT_ROOT,
 	      "a node that stands as no root changed the root set");
 
-	/* R ADDS M's KEY; M pulls R's records and acts as that key. */
+	/* R ADDS M's KEY; M carries R's journal and acts as that key. The
+	 * journal carries the add itself, one object, where the root stream
+	 * carried it beside its act log entry. */
 	CHECK(fzn_node_roots_change(&r_roots, &r.ops, r.id.pubkey, &r.sign, 0, m_roots.key, NULL)
 	              == FZN_NODE_ROOTS_OK
 	              && r_roots.log.used == 1u,
 	      "R could not add M's key, or did not log the add");
 	CHECK(roots_sync(&r, &m_roots, &m, &learned) == FZN_NODE_PULL_OK
-	              && learned == 2u
+	              && learned == 1u
 	              && fzn_node_roots_acting(&m_roots, m.id.pubkey, &m.sign, &as, &as_sign)
 	              && memcmp(as, m_roots.key, FZN_PUBKEY_LEN) == 0,
 	      "M did not act as its own root key once R had added it");
@@ -1846,7 +1741,7 @@ static void test_a_node_acts_as_a_root(void)
 	/* M's KEY RELOADS AS THE SAME KEY. */
 	fzn_sign_monocypher_init(&again_sign, &again_signer);
 	fzn_sign_monocypher_seat_init(&again_seat, &again_signer);
-	CHECK(fzn_node_roots_init(&again, r.id.pubkey, &m.sign, &hash_ops) == FZN_NODE_ROOTS_OK
+	CHECK(roots_of(&again, r.id.pubkey, &m) == FZN_NODE_ROOTS_OK
 	              && fzn_node_roots_key_load(&again, &m.ops, &again_seat, &again_sign)
 	                         == FZN_NODE_ROOTS_OK
 	              && again.key_held && memcmp(again.key, m_roots.key, FZN_PUBKEY_LEN) == 0,
@@ -1922,7 +1817,7 @@ static void test_a_card_proves_its_root(const fzn_cap_id_t *cap)
 	      "D refused a chain from K with the proof that K is R's root");
 	CHECK(rows_in(&d, FZN_PERSIST_ROOT_CHANGE) == 1u,
 	      "D did not save the root-add the card proved its root with");
-	CHECK(fzn_node_roots_init(&roots, r.id.pubkey, &d.sign, &hash_ops) == FZN_NODE_ROOTS_OK
+	CHECK(roots_of(&roots, r.id.pubkey, &d) == FZN_NODE_ROOTS_OK
 	              && fzn_node_roots_load(&roots, &d.ops, &count) == FZN_NODE_ROOTS_OK
 	              && count == 1u && roots.ops.member(roots.ops.ctx, k.id.pubkey),
 	      "D's roots, loaded again, do not make K a root of R's estate");
@@ -1986,8 +1881,8 @@ static void test_a_node_pairs_through_its_root_key(const fzn_cap_id_t *cap)
 	      "fixture: the nodes");
 	fzn_sign_monocypher_init(&k_sign, &k_signer);
 	fzn_sign_monocypher_seat_init(&k_seat, &k_signer);
-	CHECK(fzn_node_roots_init(&r_roots, r.id.pubkey, &r.sign, &hash_ops) == FZN_NODE_ROOTS_OK
-	              && fzn_node_roots_init(&m_roots, r.id.pubkey, &m.sign, &hash_ops)
+	CHECK(roots_of(&r_roots, r.id.pubkey, &r) == FZN_NODE_ROOTS_OK
+	              && roots_of(&m_roots, r.id.pubkey, &m)
 	                         == FZN_NODE_ROOTS_OK
 	              && fzn_node_roots_key_create(&m_roots, &m.ops, &rng_ops, &k_seat, &k_sign)
 	                         == FZN_NODE_ROOTS_OK,
@@ -2060,7 +1955,7 @@ static void test_a_node_pairs_through_its_root_key(const fzn_cap_id_t *cap)
 	      "the control: the genesis pin alone took a chain from K");
 
 	/* TOO DEEP FOR A CARD: R-A, A-B, B-C, C-K is four adds. */
-	CHECK(fzn_node_roots_init(&deep, r.id.pubkey, &m.sign, &hash_ops) == FZN_NODE_ROOTS_OK
+	CHECK(roots_of(&deep, r.id.pubkey, &m) == FZN_NODE_ROOTS_OK
 	              && fzn_node_roots_key_load(&deep, &m.ops, &k_seat, &k_sign) == FZN_NODE_ROOTS_OK
 	              && add_as(&r, a.id.pubkey, &deep, &a) && add_as(&a, b.id.pubkey, &deep, &a)
 	              && add_as(&b, c.id.pubkey, &deep, &a) && add_as(&c, deep.key, &deep, &a)
@@ -2073,11 +1968,12 @@ static void test_a_node_pairs_through_its_root_key(const fzn_cap_id_t *cap)
 
 /* ---- confirmations travel with the votes, sec 415 --------------------- */
 
-/* S holds two confirmations: R's, as a root, and A's, shown with A's admin
- * chain R -> A. T pulls S's vote stream into a store with an admin
- * capability and a confirmation table: both admit and are saved in slot 15,
- * and a fresh store re-admits both from T's rows. U, whose store keeps no
- * table, counts both as refused and saves nothing. */
+/* Two confirmations in two journals: R's, as a root, and A's, under A's
+ * admin chain R -> A, whose grant is R's act. T carries both journals into a
+ * store with an admin capability and a confirmation table: both admit and
+ * are saved in slot 15, and a fresh store re-admits both from T's rows. U,
+ * whose store keeps no table, refuses both and saves nothing. Since sec 505
+ * the journal carries them, where S's vote stream did. */
 static void test_confirmations_travel(void)
 {
 	static struct node r, a, b, s, t, u;
@@ -2085,14 +1981,16 @@ static void test_confirmations_travel(void)
 	static fzn_revocation_admin_t ad1[4], ad2[4];
 	static fzn_revocation_confirm_t c1[4], c2[4];
 	fzn_revocation_store_t into, fresh, plain;
-	fzn_node_vote_pull_t pull;
+	static fzn_node_apply_t t_ap, u_ap;
+	fzn_node_apply_tally_t tally;
 	fzn_node_authority_t a_chain = { 0 };
-	fzn_cap_id_t adm;
+	fzn_cap_id_t adm, member;
 	uint8_t hop_a[FZN_HOP_LEN], hop_b[FZN_HOP_LEN], grant[FZN_REVOCATION_ID_LEN];
 	uint8_t by_root[FZN_ADMIN_CONFIRM_LEN], by_a[FZN_ADMIN_CONFIRM_LEN];
 	size_t count = 0;
 
 	memset(&adm, 0xad, sizeof(adm));
+	memset(&member, 0x3e, sizeof(member));
 	CHECK(node_up(&r) && node_up(&a) && node_up(&b) && node_up(&s) && node_up(&t)
 	              && node_up(&u),
 	      "fixture: the nodes");
@@ -2112,14 +2010,26 @@ static void test_confirmations_travel(void)
 	                         == FZN_NODE_REVOKE_OK
 	              && rows_in(&s, FZN_PERSIST_ADMIN_CONFIRM) == 2u,
 	      "S did not keep its two confirmations in slot 15");
+	CHECK(fzn_node_journal_append_object(&r.journal, r.id.pubkey, &r.sign, hop_a, FZN_HOP_LEN,
+	                                     1000u, NULL) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_append_object(&r.journal, r.id.pubkey, &r.sign, by_root,
+	                                                sizeof(by_root), 1000u, NULL)
+	                         == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_append_object(&a.journal, a.id.pubkey, &a.sign, by_a,
+	                                                sizeof(by_a), 1000u, NULL)
+	                         == FZN_NODE_JOURNAL_OK,
+	      "fixture: R's grant of A and confirmation, and A's, in their journals");
 
 	CHECK(fzn_revocation_store_init(&into, e1, 4) == FZN_CHAIN_OK
 	              && fzn_revocation_store_set_quorum(&into, 2u, &adm, ad1, 4u) == FZN_CHAIN_OK
 	              && fzn_revocation_store_set_confirmations(&into, c1, 4u, &hash_ops)
 	                         == FZN_CHAIN_OK,
 	      "fixture: T's store with both tables");
-	CHECK(stream_pull(&s, NULL, &t, r.id.pubkey, &into, 800u, &pull) == FZN_NODE_PULL_OK
-	              && pull.learned == 2u && pull.refused == 0u && into.confirms_used == 2u
+	apply_to(&t_ap, &into, r.id.pubkey, &member);
+	t_ap.admin_capability = &adm;
+	CHECK(carry(&a, &t, &t_ap, &tally) && tally.waiting == 1u
+	              && carry(&r, &t, &t_ap, &tally) && tally.applied == 2u
+	              && tally.refused == 0u && tally.waiting == 0u && into.confirms_used == 2u
 	              && into.admins_used == 1u,
 	      "T did not learn both confirmations, or did not take A as an admin from its chain");
 	CHECK(rows_in(&t, FZN_PERSIST_ADMIN_CONFIRM) == 2u,
@@ -2135,9 +2045,12 @@ static void test_confirmations_travel(void)
 
 	/* A STORE WITH NO TABLE: counted and skipped, nothing saved. */
 	CHECK(fzn_revocation_store_init(&plain, e3, 4) == FZN_CHAIN_OK
-	              && stream_pull(&s, NULL, &u, r.id.pubkey, &plain, 800u, &pull)
-	                         == FZN_NODE_PULL_OK
-	              && pull.learned == 0u && pull.refused == 2u
+	              && (apply_to(&u_ap, &plain, r.id.pubkey, &member),
+	                  u_ap.admin_capability = &adm, carry(&r, &u, &u_ap, &tally))
+	              && carry(&a, &u, &u_ap, &tally)
+	              && tally.applied == 0u && tally.refused == 1u
+	              && rows_in(&u, FZN_PERSIST_ADMIN_CONFIRM) == 0u
+	              && plain.confirms_used == 0u
 	              && rows_in(&u, FZN_PERSIST_ADMIN_CONFIRM) == 0u,
 	      "a store keeping no confirmation table took or saved a confirmation");
 }
@@ -2165,20 +2078,21 @@ static int admin_store(fzn_revocation_store_t *revs, fzn_revocation_t *entries,
 static void test_admins_at_the_node(const fzn_cap_id_t *cap)
 {
 	static struct node r, a, b, c, d, t;
-	static fzn_node_roots_t r_roots, a_roots, c_roots;
+	static fzn_node_roots_t r_roots, a_roots, b_roots, c_roots;
+	static fzn_node_apply_t t_ap;
 	static fzn_revocation_t e[6][8];
 	static fzn_revocation_admin_t ad[6][8];
 	static fzn_revocation_confirm_t cf[6][8];
 	static fzn_node_admin_chain_t a_chain, b_chain, c_chain, back;
 	static uint8_t chain[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], b_hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
 	fzn_revocation_store_t r_revs, a_revs, b_revs, c_revs, t_revs, fresh;
-	fzn_node_vote_pull_t pull;
+	fzn_node_apply_tally_t tally;
 	fzn_cap_id_t adm;
 	size_t n = 0, logged, count = 0;
 
 	memset(&adm, 0xad, sizeof(adm));
 	CHECK(node_up(&r) && node_up(&a) && node_up(&b) && node_up(&c) && node_up(&d) && node_up(&t)
-	              && fzn_node_roots_init(&r_roots, r.id.pubkey, &r.sign, &hash_ops)
+	              && roots_of(&r_roots, r.id.pubkey, &r)
 	                         == FZN_NODE_ROOTS_OK
 	              && admin_store(&r_revs, e[0], ad[0], cf[0], &adm, &r_roots)
 	              && admin_store(&a_revs, e[1], ad[1], cf[1], &adm, NULL)
@@ -2223,8 +2137,8 @@ static void test_admins_at_the_node(const fzn_cap_id_t *cap)
 	      "fixture: C, R's admin");
 	/* AND LOGGED UNDER A, an admin and no root, sec 497: a grant before
 	 * A's line keeps B an admin after A is revoked. */
-	CHECK(fzn_node_roots_init(&a_roots, r.id.pubkey, &a.sign, &hash_ops) == FZN_NODE_ROOTS_OK
-	              && fzn_node_roots_init(&c_roots, r.id.pubkey, &c.sign, &hash_ops)
+	CHECK(roots_of(&a_roots, r.id.pubkey, &a) == FZN_NODE_ROOTS_OK
+	              && roots_of(&c_roots, r.id.pubkey, &c)
 	                         == FZN_NODE_ROOTS_OK,
 	      "fixture: A's and C's logs");
 	CHECK(fzn_node_admin_grant(&a_roots, &a.ops, &a.id, &a_chain, &adm, b.id.pubkey, 1200u, b_hops,
@@ -2256,15 +2170,22 @@ static void test_admins_at_the_node(const fzn_cap_id_t *cap)
 	              == FZN_NODE_REVOKE_NOT_ROOT,
 	      "a node neither root nor admin confirmed");
 
-	/* B VOTES ON ITS ADMIN CHAIN, and the chain travels and reloads with it. */
-	CHECK(fzn_node_revoke(NULL, &b.id, r.id.pubkey, fzn_node_admin_chain_view(&b_chain), cap,
-	                      d.id.pubkey, 1400u, &b_revs, &b.ops) == FZN_NODE_REVOKE_OK
+	/* B VOTES ON ITS ADMIN CHAIN, and the chain reloads with it. T carries
+	 * B's journal, which holds the vote, and rebuilds B's chain from the two
+	 * grants in R's and A's: the vote waits until they are applied. */
+	CHECK(roots_of(&b_roots, r.id.pubkey, &b) == FZN_NODE_ROOTS_OK
+	              && fzn_node_revoke(&b_roots, &b.id, r.id.pubkey,
+	                                 fzn_node_admin_chain_view(&b_chain), cap, d.id.pubkey, 1400u,
+	                                 &b_revs, &b.ops) == FZN_NODE_REVOKE_OK
 	              && b_revs.admins_used == 1u,
 	      "B could not vote on its admin chain, or was not taken as an admin");
-	CHECK(stream_pull_as(&b, NULL, fzn_node_admin_chain_view(&b_chain), &t, r.id.pubkey,
-	                     &t_revs, &pull) == FZN_NODE_PULL_OK
-	              && pull.learned == 1u && t_revs.admins_used == 1u,
-	      "B's vote did not travel on its admin chain");
+	apply_to(&t_ap, &t_revs, r.id.pubkey, cap);
+	t_ap.admin_capability = &adm;
+	CHECK(carry(&b, &t, &t_ap, &tally) && tally.waiting == 1u && tally.applied == 0u,
+	      "B's vote was taken before any grant gave B a chain");
+	CHECK(carry(&r, &t, &t_ap, &tally) && carry(&a, &t, &t_ap, &tally) && tally.waiting == 0u
+	              && t_revs.admins_used == 1u && t_revs.used == 1u,
+	      "B's vote did not travel on its admin chain, rebuilt from R's and A's grants");
 	CHECK(admin_store(&fresh, e[5], ad[5], cf[5], &adm, NULL)
 	              && fzn_node_revocations_load(&b.ops, &fresh, r.id.pubkey, NULL,
 	                                           fzn_node_admin_chain_view(&b_chain), &b.sign,
@@ -2298,7 +2219,8 @@ static void test_a_revoked_members_contacts_to_the_line(const fzn_cap_id_t *cap)
 	fzn_prekey_record_t n_rec;
 	fzn_node_pairing_t n_joined;
 	fzn_node_authority_t n_auth = { 0 };
-	fzn_node_vote_pull_t pull;
+	static fzn_node_apply_t r_ap;
+	fzn_node_apply_tally_t t;
 	uint8_t card[FZN_PROVISION_MAX_LEN], cut[FZN_ROOT_ACT_ID_LEN];
 	size_t card_len = 0, loaded = 0;
 
@@ -2316,9 +2238,9 @@ static void test_a_revoked_members_contacts_to_the_line(const fzn_cap_id_t *cap)
 	                      == FZN_NODE_ROSTER_OK
 	              && fzn_node_roster_init(&r_ro, r.id.pubkey, cap, &r.sign, NULL, &hash_ops)
 	                         == FZN_NODE_ROSTER_OK
-	              && fzn_node_roots_init(&n_roots, r.id.pubkey, &n.sign, &hash_ops)
+	              && roots_of(&n_roots, r.id.pubkey, &n)
 	                         == FZN_NODE_ROOTS_OK
-	              && fzn_node_roots_init(&r_roots, r.id.pubkey, &r.sign, &hash_ops)
+	              && roots_of(&r_roots, r.id.pubkey, &r)
 	                         == FZN_NODE_ROOTS_OK
 	              && fzn_revocation_store_init(&n_revs, n_e, 8) == FZN_CHAIN_OK
 	              && fzn_revocation_store_init(&r_revs, r_e, 8) == FZN_CHAIN_OK
@@ -2330,6 +2252,10 @@ static void test_a_revoked_members_contacts_to_the_line(const fzn_cap_id_t *cap)
 	n_admin.store = &n.ops;
 	n_ro.wrote = fzn_node_admin_log_roster;
 	n_ro.wrote_ctx = &n_admin;
+	CHECK(log_grant_of(&r, &r_roots, n_joined.chain[0]), "fixture: R logs its grant of N");
+	apply_to(&r_ap, &r_revs, r.id.pubkey, cap);
+	r_ap.roots = &r_roots;
+	r_ap.roster = &r_ro;
 
 	/* N, A MEMBER, ADDS X, logged under its own key. */
 	CHECK(fzn_node_roster_write(&n_ro, &n.ops, &n.id, &n_auth, &rng_ops, x.id.pubkey, 1, &n_revs,
@@ -2340,11 +2266,8 @@ static void test_a_revoked_members_contacts_to_the_line(const fzn_cap_id_t *cap)
 
 	/* R HOLDS N's LOG AND ITS RECORD, and revokes N with no cut named: the
 	 * head of N's log, everything R had seen it do. */
-	stream_roster = &r_ro;
 	CHECK(fzn_node_roots_load(&r_roots, &n.ops, &loaded) == FZN_NODE_ROOTS_OK && loaded == 1u
-	              && stream_pull(&n, NULL, &r, r.id.pubkey, &r_revs, 800u, &pull)
-	                         == FZN_NODE_PULL_OK
-	              && pull.learned == 1u,
+	              && carry(&n, &r, &r_ap, &t) && t.applied == 1u && t.waiting == 0u,
 	      "fixture: R holds N's log entry and its record");
 	CHECK(fzn_node_roots_head(&r_roots, n.id.pubkey, cut)
 	              && fzn_node_revoke_at(NULL, &r.id, r.id.pubkey, NULL, cap, n.id.pubkey, 1500u, cut,
@@ -2358,8 +2281,7 @@ static void test_a_revoked_members_contacts_to_the_line(const fzn_cap_id_t *cap)
 	                            2u) == FZN_NODE_ROSTER_OK
 	              && n_roots.log.used == 2u
 	              && fzn_node_roots_load(&r_roots, &n.ops, &loaded) == FZN_NODE_ROOTS_OK
-	              && stream_pull(&n, NULL, &r, r.id.pubkey, &r_revs, 800u, &pull)
-	                         == FZN_NODE_PULL_OK,
+	              && carry(&n, &r, &r_ap, &t) && t.applied == 1u,
 	      "fixture: the thief's contact, logged and carried to R");
 	CHECK(fzn_node_roster_standing(&r_ro, y.id.pubkey, &r_revs, 2u) == FZN_ROSTER_ABSENT,
 	      "a contact the thief added after the line counted");
@@ -2405,7 +2327,6 @@ static void test_a_revoked_members_contacts_to_the_line(const fzn_cap_id_t *cap)
 		              && !fzn_node_roots_head(&r_roots, n.id.pubkey, h),
 		      "a forked log still offered a head to vote at");
 	}
-	stream_roster = NULL;
 }
 
 /* THE ROOTS' HOOK, sec 501: counts the acts it is told of, and refuses when
@@ -2417,16 +2338,12 @@ static int count_logged(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const f
                         uint8_t kind, const uint8_t act[FZN_ROOT_ACT_ID_LEN],
                         const uint8_t *record, size_t len)
 {
-	(void)ctx;
 	/* THE ACT'S OWN BYTES, sec 502: a succession, whole. */
 	if (!record || len != FZN_SUCCESSION_LEN || record[1] != (uint8_t)FZN_OBJECT_SUCCESSION)
 		return 0;
-	(void)pubkey;
-	(void)sign;
-	(void)kind;
-	(void)act;
 	hooked_acts++;
-	return !hook_refuses;
+	/* AND ON INTO THE NODE'S JOURNAL, `ctx`, as `roots_of` hooked it. */
+	return !hook_refuses && (!ctx || journal_logged(ctx, pubkey, sign, kind, act, record, len));
 }
 
 /* A DEVICE RE-KEYED, sec 499. R, the root, pairs D. D's keys are taken; its
@@ -2438,19 +2355,22 @@ static int count_logged(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const f
  * nobody. */
 static void test_a_device_rekeyed(const fzn_cap_id_t *cap)
 {
-	static struct node r, m, d, d2, d3;
+	static struct node r, m, u, d, d2, d3;
 	static fzn_node_roots_t r_roots;
+	static fzn_node_apply_t m_ap, u_ap;
 	static fzn_node_successions_t r_ns, m_ns, again;
 	static fzn_revocation_t r_e[8], m_e[8];
-	fzn_revocation_store_t r_revs, m_revs;
+	fzn_revocation_store_t r_revs, m_revs, u_revs;
+	static fzn_revocation_t u_e[8];
 	fzn_prekey_record_t m_rec, d_rec;
 	fzn_node_pairing_t m_joined;
-	fzn_node_vote_pull_t pull;
+	fzn_node_apply_tally_t t;
 	uint8_t card[FZN_PROVISION_MAX_LEN], now_key[FZN_PUBKEY_LEN], id[FZN_SUCCESSION_ID_LEN];
 	size_t card_len = 0, loaded = 0;
 	size_t logged;
 
-	CHECK(node_up(&r) && node_up(&m) && node_up(&d) && node_up(&d2) && node_up(&d3)
+	CHECK(node_up(&r) && node_up(&m) && node_up(&u) && node_up(&d) && node_up(&d2)
+	              && node_up(&d3)
 	              && fzn_prekey_open(m.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &m_rec)
 	                         == FZN_PREKEY_OK
 	              && fzn_prekey_open(d.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &d_rec)
@@ -2462,9 +2382,10 @@ static void test_a_device_rekeyed(const fzn_cap_id_t *cap)
 	              && fzn_node_pair(&r.id, r.id.pubkey, cap, NULL, 0, &r.ops, d_rec, 1000u, 0u,
 	                               card, sizeof(card), &card_len) == FZN_NODE_PAIR_OK,
 	      "fixture: M joins R's estate and R pairs D");
-	CHECK(fzn_node_roots_init(&r_roots, r.id.pubkey, &r.sign, &hash_ops) == FZN_NODE_ROOTS_OK
+	CHECK(roots_of(&r_roots, r.id.pubkey, &r) == FZN_NODE_ROOTS_OK
 	              && fzn_revocation_store_init(&r_revs, r_e, 8) == FZN_CHAIN_OK
 	              && fzn_revocation_store_init(&m_revs, m_e, 8) == FZN_CHAIN_OK
+	              && fzn_revocation_store_init(&u_revs, u_e, 8) == FZN_CHAIN_OK
 	              && fzn_node_successions_init(&r_ns, &hash_ops) == FZN_NODE_REVOKE_OK
 	              && fzn_node_successions_init(&m_ns, &hash_ops) == FZN_NODE_REVOKE_OK,
 	      "fixture: R's roots, the stores and the successions");
@@ -2487,19 +2408,18 @@ static void test_a_device_rekeyed(const fzn_cap_id_t *cap)
 	              == FZN_NODE_REVOKE_NOT_ROOT,
 	      "a node acting as no root and holding no admin chain re-keyed a device");
 
-	/* THE STREAM CARRIES IT: refused with nowhere to put it, learned with. */
-	stream_successions = NULL;
-	CHECK(stream_pull(&r, NULL, &m, r.id.pubkey, &m_revs, 800u, &pull) == FZN_NODE_PULL_OK
-	              && pull.refused == 1u && rows_in(&m, FZN_PERSIST_SUCCESSION) == 0u,
-	      "a pull with nowhere to put a succession took it");
-	stream_successions = &m_ns;
-	CHECK(stream_pull(&r, NULL, &m, r.id.pubkey, &m_revs, 800u, &pull) == FZN_NODE_PULL_OK
-	              && pull.learned == 1u && rows_in(&m, FZN_PERSIST_SUCCESSION) == 1u
+	/* THE JOURNAL CARRIES IT: refused at U, which has nowhere to put it,
+	 * and applied at M. */
+	apply_to(&u_ap, &u_revs, r.id.pubkey, cap);
+	CHECK(carry(&r, &u, &u_ap, &t) && t.refused == 1u && rows_in(&u, FZN_PERSIST_SUCCESSION) == 0u,
+	      "a node with nowhere to put a succession took it");
+	apply_to(&m_ap, &m_revs, r.id.pubkey, cap);
+	m_ap.successions = &m_ns;
+	CHECK(carry(&r, &m, &m_ap, &t) && t.applied == 1u && rows_in(&m, FZN_PERSIST_SUCCESSION) == 1u
 	              && fzn_node_successions_resolve(&m_ns, &m_revs, r.id.pubkey, d.id.pubkey,
 	                                              now_key)
 	              && memcmp(now_key, d2.id.pubkey, FZN_PUBKEY_LEN) == 0,
-	      "M did not learn R's succession from R's stream, or did not read D through");
-	stream_successions = NULL;
+	      "M did not apply R's succession from R's journal, or did not read D through");
 
 	/* A RESTART AT M. */
 	CHECK(fzn_node_successions_init(&again, &hash_ops) == FZN_NODE_REVOKE_OK
@@ -2531,19 +2451,23 @@ static void test_a_device_rekeyed(const fzn_cap_id_t *cap)
 
 static void test_contacts_travel(const fzn_cap_id_t *cap)
 {
-	static struct node r, n, m, x, stranger;
+	static struct node r, n, m, u, x, stranger;
 	static fzn_node_roster_t n_ro, m_ro, r_ro, again, s_ro;
-	static fzn_revocation_t n_e[8], m_e[8];
-	fzn_revocation_store_t n_revs, m_revs;
+	static fzn_node_roots_t r_log, n_log, m_log, s_log;
+	static fzn_node_admin_t n_admin, m_admin, s_admin;
+	static fzn_node_apply_t n_ap, m_ap, u_ap;
+	static fzn_revocation_t n_e[8], m_e[8], u_e[8];
+	fzn_revocation_store_t n_revs, m_revs, u_revs;
 	fzn_prekey_record_t n_rec, m_rec;
 	fzn_node_pairing_t n_joined, m_joined;
 	fzn_node_authority_t n_auth = { 0 }, m_auth = { 0 };
-	fzn_node_vote_pull_t pull;
+	fzn_node_apply_tally_t t;
 	uint8_t card[FZN_PROVISION_MAX_LEN];
 	size_t card_len = 0, count = 0, named = 0, carried = 0;
 	fzn_contact_t c;
 
-	CHECK(node_up(&r) && node_up(&n) && node_up(&m) && node_up(&x) && node_up(&stranger)
+	CHECK(node_up(&r) && node_up(&n) && node_up(&m) && node_up(&u) && node_up(&x)
+	              && node_up(&stranger)
 	              && fzn_prekey_open(n.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &n_rec)
 	                         == FZN_PREKEY_OK
 	              && fzn_prekey_open(m.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &m_rec)
@@ -2561,6 +2485,16 @@ static void test_contacts_travel(const fzn_cap_id_t *cap)
 	n_auth.hop_count = n_joined.hop_count;
 	m_auth.hops = (const uint8_t (*)[FZN_HOP_LEN])m_joined.chain;
 	m_auth.hop_count = m_joined.hop_count;
+	/* EACH WRITER'S RECORDS LOGGED INTO ITS JOURNAL, as the daemon's are,
+	 * and R's grants of N and M in R's, whence a reader rebuilds their
+	 * chains. sec 505. */
+	CHECK(roots_of(&r_log, r.id.pubkey, &r) == FZN_NODE_ROOTS_OK
+	              && roots_of(&n_log, r.id.pubkey, &n) == FZN_NODE_ROOTS_OK
+	              && roots_of(&m_log, r.id.pubkey, &m) == FZN_NODE_ROOTS_OK
+	              && roots_of(&s_log, stranger.id.pubkey, &stranger) == FZN_NODE_ROOTS_OK
+	              && log_grant_of(&r, &r_log, n_joined.chain[0])
+	              && log_grant_of(&r, &r_log, m_joined.chain[0]),
+	      "fixture: the logs, and R's grants logged");
 	CHECK(fzn_node_roster_init(&n_ro, r.id.pubkey, cap, &n.sign, NULL, &hash_ops)
 	                      == FZN_NODE_ROSTER_OK
 	              && fzn_node_roster_init(&m_ro, r.id.pubkey, cap, &m.sign, NULL, &hash_ops)
@@ -2572,8 +2506,26 @@ static void test_contacts_travel(const fzn_cap_id_t *cap)
 	              && fzn_revocation_store_init(&n_revs, n_e, 8) == FZN_CHAIN_OK
 	              && fzn_revocation_store_init(&m_revs, m_e, 8) == FZN_CHAIN_OK
 	              && fzn_revocation_store_set_quorum(&n_revs, 2u, NULL, NULL, 0u) == FZN_CHAIN_OK
-	              && fzn_revocation_store_set_quorum(&m_revs, 2u, NULL, NULL, 0u) == FZN_CHAIN_OK,
+	              && fzn_revocation_store_set_quorum(&m_revs, 2u, NULL, NULL, 0u) == FZN_CHAIN_OK
+	              && fzn_revocation_store_init(&u_revs, u_e, 8) == FZN_CHAIN_OK,
 	      "fixture: the rosters, and stores at k = 2");
+	memset(&n_admin, 0, sizeof(n_admin));
+	n_admin.roots = &n_log;
+	n_admin.id = &n.id;
+	n_admin.store = &n.ops;
+	n_ro.wrote = fzn_node_admin_log_roster;
+	n_ro.wrote_ctx = &n_admin;
+	memset(&m_admin, 0, sizeof(m_admin));
+	m_admin.roots = &m_log;
+	m_admin.id = &m.id;
+	m_admin.store = &m.ops;
+	m_ro.wrote = fzn_node_admin_log_roster;
+	m_ro.wrote_ctx = &m_admin;
+	apply_to(&n_ap, &n_revs, r.id.pubkey, cap);
+	n_ap.roster = &n_ro;
+	apply_to(&m_ap, &m_revs, r.id.pubkey, cap);
+	m_ap.roster = &m_ro;
+	apply_to(&u_ap, &u_revs, r.id.pubkey, cap);
 
 	CHECK(fzn_node_roster_write(&n_ro, &n.ops, &n.id, &n_auth, &rng_ops, x.id.pubkey, 1, &n_revs,
 	                            2u) == FZN_NODE_ROSTER_OK
@@ -2593,17 +2545,16 @@ static void test_contacts_travel(const fzn_cap_id_t *cap)
 	              && rows_in(&stranger, FZN_PERSIST_ROSTER) == 0u,
 	      "a stranger with no chain, or with N's, wrote a contact");
 
-	/* THE VOTE STREAM CARRIES IT, chain and all. */
-	stream_roster = NULL;
-	CHECK(stream_pull(&n, NULL, &m, r.id.pubkey, &m_revs, 800u, &pull) == FZN_NODE_PULL_OK
-	              && pull.refused == 1u && rows_in(&m, FZN_PERSIST_ROSTER) == 0u,
-	      "a pull with no roster took N's record rather than refusing it");
-	stream_roster = &m_ro;
-	CHECK(stream_pull(&n, NULL, &m, r.id.pubkey, &m_revs, 800u, &pull) == FZN_NODE_PULL_OK
-	              && pull.learned == 1u && rows_in(&m, FZN_PERSIST_ROSTER) == 1u
+	/* THE JOURNAL CARRIES IT, and R's carries the grant N's chain is
+	 * rebuilt from. U, with no roster, refuses it. */
+	CHECK(carry(&r, &u, &u_ap, &t) && carry(&n, &u, &u_ap, &t) && t.refused == 1u
+	              && rows_in(&u, FZN_PERSIST_ROSTER) == 0u,
+	      "a node with no roster took N's record rather than refusing it");
+	CHECK(carry(&r, &n, &n_ap, &t) && carry(&r, &m, &m_ap, &t) && carry(&n, &m, &m_ap, &t)
+	              && t.applied == 1u && rows_in(&m, FZN_PERSIST_ROSTER) == 1u
 	              && fzn_node_roster_standing(&m_ro, x.id.pubkey, &m_revs, 2u)
 	                         == FZN_ROSTER_ACTIVE,
-	      "M did not learn N's contact from N's stream");
+	      "M did not apply N's contact from N's journal");
 	CHECK(fzn_node_roster_name_arrivals(&m_ro, &m.ops, &m_revs, 2u, NULL, NULL, 2000u, &named)
 	                      == FZN_NODE_ROSTER_OK
 	              && named == 1u && fzn_contact_get(&m.ops, x.id.pubkey, &c) == FZN_CONTACT_OK
@@ -2621,39 +2572,41 @@ static void test_contacts_travel(const fzn_cap_id_t *cap)
 	              && fzn_node_roster_write(&m_ro, &m.ops, &m.id, &m_auth, &rng_ops, x.id.pubkey, 0,
 	                                       &m_revs, 2u) == FZN_NODE_ROSTER_ABSENT,
 	      "M's removal did not suspend X, or M removed it twice");
-	stream_roster = &n_ro;
-	CHECK(stream_pull(&m, NULL, &n, r.id.pubkey, &n_revs, 800u, &pull) == FZN_NODE_PULL_OK
+	CHECK(carry(&m, &n, &n_ap, &t) && t.applied == 1u
 	              && fzn_node_roster_standing(&n_ro, x.id.pubkey, &n_revs, 2u)
 	                         == FZN_ROSTER_SUSPENDED,
-	      "N, pulling M, did not see X suspended");
+	      "N, carrying M's journal, did not see X suspended");
 	CHECK(fzn_node_roster_write(&n_ro, &n.ops, &n.id, &n_auth, &rng_ops, x.id.pubkey,
 	                                       0, &n_revs, 2u) == FZN_NODE_ROSTER_OK
 	              && fzn_node_roster_standing(&n_ro, x.id.pubkey, &n_revs, 2u)
 	                         == FZN_ROSTER_RETIRED,
 	      "N removing what M suspended did not retire it at k = 2");
-	stream_roster = &m_ro;
-	CHECK(stream_pull(&n, NULL, &m, r.id.pubkey, &m_revs, 800u, &pull) == FZN_NODE_PULL_OK
+	CHECK(carry(&n, &m, &m_ap, &t)
 	              && fzn_node_roster_standing(&m_ro, x.id.pubkey, &m_revs, 2u)
 	                         == FZN_ROSTER_RETIRED,
-	      "M, pulling N, did not see X retired");
+	      "M, carrying N's journal, did not see X retired");
 	CHECK(fzn_node_roster_write(&m_ro, &m.ops, &m.id, &m_auth, &rng_ops, x.id.pubkey, 1, &m_revs,
 	                            2u) == FZN_NODE_ROSTER_OK
 	              && fzn_node_roster_standing(&m_ro, x.id.pubkey, &m_revs, 2u)
 	                         == FZN_ROSTER_ACTIVE,
 	      "adding X again after its retirement was not a new, active incarnation");
 
-	/* A STRANGER'S RECORD, signed as its own root, is refused at M. */
+	/* A STRANGER'S RECORD, signed as its own root and in its journal,
+	 * waits at M for a chain no grant gives it. */
+	memset(&s_admin, 0, sizeof(s_admin));
+	s_admin.roots = &s_log;
+	s_admin.id = &stranger.id;
+	s_admin.store = &stranger.ops;
 	CHECK(fzn_node_roster_init(&s_ro, stranger.id.pubkey, cap, &stranger.sign, NULL, &hash_ops)
 	                      == FZN_NODE_ROSTER_OK
+	              && (s_ro.wrote = fzn_node_admin_log_roster, s_ro.wrote_ctx = &s_admin, 1)
 	              && fzn_node_roster_write(&s_ro, &stranger.ops, &stranger.id, NULL, &rng_ops,
 	                                       r.id.pubkey, 1, NULL, 2u) == FZN_NODE_ROSTER_OK
-	              && stream_pull(&stranger, NULL, &m, r.id.pubkey, &m_revs, 800u, &pull)
-	                         == FZN_NODE_PULL_OK
-	              && pull.refused == 1u && pull.learned == 0u
+	              && received_of(&stranger, stranger.id.pubkey) == 1u
+	              && carry(&stranger, &m, &m_ap, &t) && t.waiting == 1u && t.refused == 0u
 	              && fzn_node_roster_standing(&m_ro, r.id.pubkey, &m_revs, 2u)
 	                         == FZN_ROSTER_ABSENT,
 	      "a record by a stranger, no root of this estate, was taken at M");
-	stream_roster = NULL;
 
 	/* A RESTART: what M holds comes back as it was judged. */
 	CHECK(fzn_node_roster_init(&again, r.id.pubkey, cap, &m.sign, NULL, &hash_ops)
@@ -2671,7 +2624,7 @@ static void test_contacts_travel(const fzn_cap_id_t *cap)
 		static fzn_node_admin_t r_admin;
 		size_t i, acts = 0;
 
-		CHECK(fzn_node_roots_init(&r_roots, r.id.pubkey, &r.sign, &hash_ops)
+		CHECK(roots_of(&r_roots, r.id.pubkey, &r)
 		              == FZN_NODE_ROOTS_OK,
 		      "fixture: R's roots");
 		memset(&r_admin, 0, sizeof(r_admin));
@@ -2701,33 +2654,35 @@ static void test_contacts_travel(const fzn_cap_id_t *cap)
 /* ---- an admin's retention rules, sec 479 ------------------------------ */
 
 /* R, the genesis, grants A admin. A, no root, sets an estate rule as an
- * admin; D, no admin, cannot set one on A's chain. T pulls A's vote stream:
- * the rule arrives with A's chain and counts; a restart of T re-admits it.
- * R revokes A's grant, T pulls it, and A's rule stops counting. And a root
- * adding a rule it removed adds it again. */
+ * admin; D, no admin, cannot set one on A's chain. T carries A's journal:
+ * the rule counts on the chain rebuilt from R's grant; a restart of T
+ * re-admits it. R revokes A's grant, T carries it, and A's rule stops
+ * counting. And a root adding a rule it removed adds it again. */
 static void test_an_admin_sets_retention(const fzn_cap_id_t *cap)
 {
-	static struct node r, a, d, t;
+	static struct node r, a, d, t, u;
 	static fzn_node_roots_t r_roots, a_roots, t_roots, t_again;
-	static fzn_revocation_t e[5][8];
-	static fzn_revocation_admin_t ad[5][8];
-	static fzn_revocation_confirm_t cf[5][8];
+	static fzn_node_apply_t t_ap, u_ap, a_ap;
+	static fzn_revocation_t e[6][8];
+	static fzn_revocation_admin_t ad[6][8];
+	static fzn_revocation_confirm_t cf[6][8];
 	static fzn_node_admin_chain_t a_chain;
 	static uint8_t chain[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
-	fzn_revocation_store_t r_revs, a_revs, d_revs, t_revs, fresh;
-	fzn_node_vote_pull_t pull;
+	fzn_revocation_store_t r_revs, a_revs, d_revs, t_revs, u_revs, fresh;
+	fzn_node_apply_tally_t tally;
 	fzn_retain_rule_t rule, got[4];
 	fzn_cap_id_t adm;
 	size_t n = 0, unread = 0, learned = 0, count = 0;
 
 	(void)cap;
 	memset(&adm, 0xad, sizeof(adm));
-	CHECK(node_up(&r) && node_up(&a) && node_up(&d) && node_up(&t)
-	              && fzn_node_roots_init(&r_roots, r.id.pubkey, &r.sign, &hash_ops)
+	CHECK(node_up(&r) && node_up(&a) && node_up(&d) && node_up(&t) && node_up(&u)
+	              && admin_store(&u_revs, e[5], ad[5], cf[5], &adm, NULL)
+	              && roots_of(&r_roots, r.id.pubkey, &r)
 	                         == FZN_NODE_ROOTS_OK
-	              && fzn_node_roots_init(&a_roots, r.id.pubkey, &a.sign, &hash_ops)
+	              && roots_of(&a_roots, r.id.pubkey, &a)
 	                         == FZN_NODE_ROOTS_OK
-	              && fzn_node_roots_init(&t_roots, r.id.pubkey, &t.sign, &hash_ops)
+	              && roots_of(&t_roots, r.id.pubkey, &t)
 	                         == FZN_NODE_ROOTS_OK
 	              && admin_store(&r_revs, e[0], ad[0], cf[0], &adm, &r_roots)
 	              && admin_store(&a_revs, e[1], ad[1], cf[1], &adm, &a_roots)
@@ -2768,19 +2723,22 @@ static void test_an_admin_sets_retention(const fzn_cap_id_t *cap)
 	              && rows_in(&d, FZN_PERSIST_ADMIN_RETENTION) == 0u,
 	      "D set a rule on a chain that names A");
 
-	/* THE VOTE STREAM CARRIES IT, chain and all. */
-	stream_roots = NULL;
-	CHECK(stream_pull_as(&a, NULL, NULL, &t, r.id.pubkey, &t_revs, &pull) == FZN_NODE_PULL_OK
-	              && pull.refused == 1u && rows_in(&t, FZN_PERSIST_ADMIN_RETENTION) == 0u,
-	      "a pull with no roots took A's record rather than refusing it");
-	stream_roots = &t_roots;
-	CHECK(stream_pull_as(&a, NULL, NULL, &t, r.id.pubkey, &t_revs, &pull) == FZN_NODE_PULL_OK
-	              && pull.learned == 1u && rows_in(&t, FZN_PERSIST_ADMIN_RETENTION) == 1u
+	/* THE JOURNAL CARRIES IT, and R's the grant A's chain is rebuilt from.
+	 * U, with no roots, refuses it. */
+	apply_to(&u_ap, &u_revs, r.id.pubkey, cap);
+	u_ap.admin_capability = &adm;
+	CHECK(carry(&r, &u, &u_ap, &tally) && carry(&a, &u, &u_ap, &tally) && tally.refused == 1u
+	              && rows_in(&u, FZN_PERSIST_ADMIN_RETENTION) == 0u,
+	      "a node with no roots took A's record rather than refusing it");
+	apply_to(&t_ap, &t_revs, r.id.pubkey, cap);
+	t_ap.roots = &t_roots;
+	t_ap.admin_capability = &adm;
+	CHECK(carry(&a, &t, &t_ap, &tally) && tally.applied == 1u
+	              && rows_in(&t, FZN_PERSIST_ADMIN_RETENTION) == 1u
 	              && fzn_node_roots_retention(&t_roots, got, 4u, &n, &unread) == FZN_NODE_ROOTS_OK
 	              && n == 1u && got[0].levels == (1u << FZN_ENTRY_DEBUG),
-	      "T did not learn A's rule from its vote stream");
-	stream_roots = NULL;
-	CHECK(fzn_node_roots_init(&t_again, r.id.pubkey, &t.sign, &hash_ops) == FZN_NODE_ROOTS_OK
+	      "T did not apply A's rule from A's journal");
+	CHECK(roots_of(&t_again, r.id.pubkey, &t) == FZN_NODE_ROOTS_OK
 	              && admin_store(&fresh, e[4], ad[4], cf[4], &adm, &t_again)
 	              && roots_sync(&r, &t_again, &t, &learned) == FZN_NODE_PULL_OK
 	              && fzn_node_roots_load_admin_retention(&t_again, &t.ops, r.id.pubkey, &count)
@@ -2792,14 +2750,16 @@ static void test_an_admin_sets_retention(const fzn_cap_id_t *cap)
 	      "A's rule did not come back from T's store after a restart");
 
 	/* R REVOKES A'S GRANT, and the rule stops counting at T. */
-	CHECK(fzn_node_revoke(NULL, &r.id, r.id.pubkey, NULL, &adm, a.id.pubkey, 1500u, &r_revs, &r.ops)
-	              == FZN_NODE_REVOKE_OK
-	              && stream_pull(&r, NULL, &t, r.id.pubkey, &t_revs, 800u, &pull)
-	                         == FZN_NODE_PULL_OK
+	CHECK(fzn_node_revoke(&r_roots, &r.id, r.id.pubkey, NULL, &adm, a.id.pubkey, 1500u, &r_revs,
+	                      &r.ops) == FZN_NODE_REVOKE_OK
+	              && carry(&r, &t, &t_ap, &tally) && tally.applied == 1u
 	              && fzn_node_roots_retention(&t_roots, got, 4u, &n, &unread) == FZN_NODE_ROOTS_OK
 	              && n == 0u,
 	      "a revoked admin's rule still counted at T");
-	CHECK(stream_pull(&r, NULL, &a, r.id.pubkey, &a_revs, 800u, &pull) == FZN_NODE_PULL_OK
+	apply_to(&a_ap, &a_revs, r.id.pubkey, cap);
+	a_ap.roots = &a_roots;
+	a_ap.admin_capability = &adm;
+	CHECK(carry(&r, &a, &a_ap, &tally)
 	              && fzn_retain_parse("prune * level=T age 1d", 22u, &rule) == FZN_RETAIN_OK
 	              && fzn_node_roots_set_retention_as_admin(
 	                         &a_roots, &a.ops, a.id.pubkey, &a.sign,
@@ -2836,9 +2796,9 @@ static void test_the_estates_k_travels(void)
 	size_t learned = 0, count = 0;
 
 	CHECK(node_up(&r) && node_up(&m)
-	              && fzn_node_roots_init(&r_roots, r.id.pubkey, &r.sign, &hash_ops)
+	              && roots_of(&r_roots, r.id.pubkey, &r)
 	                         == FZN_NODE_ROOTS_OK
-	              && fzn_node_roots_init(&m_roots, r.id.pubkey, &m.sign, &hash_ops)
+	              && roots_of(&m_roots, r.id.pubkey, &m)
 	                         == FZN_NODE_ROOTS_OK,
 	      "fixture: the nodes and their roots");
 	CHECK(fzn_node_roots_quorum(&r_roots, 2u) == 2u, "no setting did not read the fallback");
@@ -2857,7 +2817,7 @@ static void test_the_estates_k_travels(void)
 	CHECK(roots_sync(&r, &m_roots, &m, &learned) == FZN_NODE_PULL_OK
 	              && fzn_node_roots_quorum(&m_roots, 2u) == 1u,
 	      "M, having pulled R's records, does not read k = 1");
-	CHECK(fzn_node_roots_init(&again, r.id.pubkey, &r.sign, &hash_ops) == FZN_NODE_ROOTS_OK
+	CHECK(roots_of(&again, r.id.pubkey, &r) == FZN_NODE_ROOTS_OK
 	              && fzn_node_roots_load(&again, &r.ops, &count) == FZN_NODE_ROOTS_OK
 	              && fzn_node_roots_quorum(&again, 2u) == 1u,
 	      "R's k did not come back from its store");
@@ -2889,9 +2849,9 @@ static void test_a_node_pairs_as_a_root_by_identity(const fzn_cap_id_t *cap)
 	CHECK(node_up(&r) && node_up(&m) && node_up(&d) && node_up(&x)
 	              && fzn_prekey_open(d.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &d_rec)
 	                         == FZN_PREKEY_OK
-	              && fzn_node_roots_init(&r_roots, r.id.pubkey, &r.sign, &hash_ops)
+	              && roots_of(&r_roots, r.id.pubkey, &r)
 	                         == FZN_NODE_ROOTS_OK
-	              && fzn_node_roots_init(&m_roots, r.id.pubkey, &m.sign, &hash_ops)
+	              && roots_of(&m_roots, r.id.pubkey, &m)
 	                         == FZN_NODE_ROOTS_OK,
 	      "fixture: the nodes and their roots");
 	CHECK(fzn_node_roots_identity_root(&m_roots, &m.ops, m.id.pubkey, proof, &auth)

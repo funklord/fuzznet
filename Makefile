@@ -3749,15 +3749,24 @@ $(BUILD_DIR)/node/test/serve_test: $(BUILD_DIR)/node/test/serve_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# The node's journal, sec 501: its streams in the file store, and the sync.
+# Defined above pair_test, whose prerequisites read it as the rule is read.
+FUZZNETD_JOURNAL_OBJS := $(BUILD_DIR)/node/journal.o $(BUILD_DIR)/record/exchange.o \
+                         $(BUILD_DIR)/record/sync.o $(BUILD_DIR)/record/journal.o \
+                         $(BUILD_DIR)/record/store.o \
+                         $(if $(RECORD_STORE_FILE_ON),$(BUILD_DIR)/record/store_file.o)
+
 # Pairing under real primitives: two nodes built by node/identity, the
 # pairing, the card accepted, and the node's own authorisation check over the
-# result. The provision_test set plus identity, pair and peer_persist.
+# result. The provision_test set plus identity, pair and peer_persist, and
+# since sec 505 the journal each node carries its acts in.
 # sec 376.
 $(BUILD_DIR)/node/test/pair_test.o: node/test/pair_test.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Inode -Iwire/generated -c $< -o $@
 
 $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
+              $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
               $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o \
@@ -3847,12 +3856,6 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
-
-# The node's journal, sec 501: its streams in the file store, and the sync.
-FUZZNETD_JOURNAL_OBJS := $(BUILD_DIR)/node/journal.o $(BUILD_DIR)/record/exchange.o \
-                         $(BUILD_DIR)/record/sync.o $(BUILD_DIR)/record/journal.o \
-                         $(BUILD_DIR)/record/store.o \
-                         $(if $(RECORD_STORE_FILE_ON),$(BUILD_DIR)/record/store_file.o)
 
 $(BUILD_DIR)/node/test/node_journal_test: $(BUILD_DIR)/node/test/node_journal_test.o \
                                      $(FUZZNETD_JOURNAL_OBJS) \
