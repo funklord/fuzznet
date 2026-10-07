@@ -56369,3 +56369,59 @@ not change the time and cut the requests by four.
 
 **Sabotage: three new entries**, and two re-aimed: sec 491's budget entry
 at the new loop, and the caller's late-reply entry at its new condition.
+
+## 495. What fuzzypickles' clients ask of a file, 2026-10-07
+
+fuzzypickles measured the store's verbs against what their GUI and TUI call
+on their own blob layer today, and four things were missing.
+
+- **Progress.** `get file ROOT` answers `ok HELD TOTAL LENGTH
+  whole|partial|fetching private|public SHARES [busy]` -- leaves here,
+  leaves in all, bytes, and whether a transfer is running on it now. `list
+  file` lists files still arriving after the whole ones, marked
+  `,fetching=HELD/TOTAL`; its TOTAL still counts the whole ones.
+- **A ranged read while the file arrives**, for library playback.
+  `get file REF OFFSET LENGTH PATH` writes that range, opened with the key,
+  to a new file, and answers `ok whole|partial`. Every leaf the range
+  touches must be here first -- each was proved against the root as it
+  landed -- and a range the fetch has not reached is refused with nothing
+  written: "the fetch has not reached that range yet". A path of two
+  numbers is read as a range, so a client names one absolutely.
+- **The tier as written.** `put file` answers `ok REF private|public`, read
+  back from the share rows rather than echoed from the request -- the check
+  that caught their TUI storing PUBLIC under a "private" comment for six
+  weeks. `get file ROOT` says the same at any time.
+- **A check at rest on request.** `get file ROOT check` runs sec 492's
+  check now, answering `ok intact` or `ok dropped N`; what it drops is
+  fetched again.
+
+### Answered, not built
+
+- **The length is in bytes, and it is authenticated**, two ways. The leaf
+  count is bound into the root (`blob.h`), and the last leaf's sealed
+  length is the true length's remainder plus the overhead; a fetch places
+  every span only at the lengths its own length gives (sec 491), and the
+  span's proof covers those exact bytes. So a wrong length is refused,
+  never trusted: as a different leaf count before anything is asked, or as
+  a span that does not prove.
+- **An owed-keys outbox** -- their sec 180 finding, a bounded outbox of keys
+  owed to group members that filled with debts nobody could pay -- has no
+  counterpart here. A file share is a row (sec 493), and the content key
+  travels in the reference, which the store never sends anybody; there is
+  no list of keys owed to group members to fill.
+
+### Measured for sec 495
+
+**`files_test`, 62 checks, 9 new:**
+
+- `put file` answering the reference and ` private`;
+- bytes 1000 to 3999 of a whole file read as those bytes, `ok whole`, and a
+  range past the end refused with nothing written;
+- `get file ROOT` saying `ok 5 5 5000 whole private 0`, and `check` saying
+  `ok intact`;
+- part way through a fetch: the status saying the leaves held, of 301, not
+  whole and wanted; `list file` marking it fetching; a range inside what
+  had arrived read as those bytes and `partial`; a range past it refused,
+  nothing written.
+
+**Sabotage: one new entry.**

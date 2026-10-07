@@ -6068,6 +6068,13 @@ SABOTAGES = [
 		"a reply taken by recv_any is filed under whatever message the caller last named, and a fetch places one span's leaves as another's -- sec 494",
 	),
 	(
+		"files-range-waits-for-its-leaves",
+		"node/files.c",
+		"\tfor (i = first; i <= last && opened; i++)\n\t\tif (!fzn_spool_has(&h.spool, i))\n\t\t\tbreak;\n",
+		"\ti = last + 1u;\n",
+		"a range the fetch has not reached is read from leaves never placed, and fails part way rather than saying it has not arrived -- sec 495",
+	),
+	(
 		"files-silent-peer-given-up",
 		"node/files.c",
 		"\t\t\t\t\tif (alive[out[k].peer] && ++failures[out[k].peer] >= 3u) {\n",
@@ -6175,8 +6182,8 @@ SABOTAGES = [
 	(
 		"files-export-writes-a-new-file",
 		"node/files.c",
-		"\tfd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0600);\n",
-		"\tfd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);\n",
+		"\t/* A NEW FILE, never one written over. */\n\tfd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0600);\n",
+		"\t/* A NEW FILE, never one written over. */\n\tfd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0600);\n",
 		"an export writes over whatever was at its destination -- sec 490",
 	),
 	(

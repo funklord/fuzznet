@@ -1574,6 +1574,147 @@ size_t fzn_node_files_answer_shared(const fzn_node_files_t *files, const uint8_t
 	return fzn_node_files_answer(files, request, request_len, reply, reply_cap);
 }
 
+/* ---- what the clients ask, sec 495 -------------------------------------- */
+
+/* The blob `root` opened as far as it is here, whole or not: its length, and
+ * its sidecar's bitmap when it has one. 0 when it has no length. */
+static int open_any(const fzn_node_files_t *files, const uint8_t root[FZN_BLOB_HASH_LEN],
+                    held_t *h, int *opened)
+{
+	char path[FZN_SPOOL_FILE_PATH_MAX], len_path[FZN_SPOOL_FILE_PATH_MAX];
+	const fzn_spool_ops_t *ops;
+	uint64_t leaves = 0;
+
+	memset(h, 0, sizeof(*h));
+	h->file.fd = -1;
+	*opened = 0;
+	if (!path_of(files, root, "", path) || !path_of(files, root, ".len", len_path)
+	    || !read_length(len_path, &h->length) || h->length == 0u
+	    || h->length > FZN_NODE_FILE_MAX
+	    || fzn_blob_geometry(h->length, &h->leaves, &h->last) != FZN_BLOB_OK)
+		return 0;
+	/* NO SIDECAR YET: wanted and not begun, nothing here. */
+	if (fzn_spool_file_leaves(path, root, &leaves) != FZN_SPOOL_OK || leaves != h->leaves)
+		return 1;
+	ops = fzn_spool_file_open(&h->file, path);
+	if (!ops)
+		return 1;
+	(void)fzn_spool_file_resume(&h->file, root, leaves, present, FZN_SPOOL_BITMAP_LEN(leaves));
+	if (fzn_spool_open(&h->spool, root, leaves, present, FZN_SPOOL_BITMAP_LEN(leaves), ops)
+	    != FZN_SPOOL_OK) {
+		fzn_spool_file_close(&h->file);
+		return 1;
+	}
+	*opened = 1;
+	return 1;
+}
+
+fzn_node_files_err_t fzn_node_files_status(const fzn_node_files_t *files,
+                                           const uint8_t root[FZN_BLOB_HASH_LEN],
+                                           fzn_node_file_status_t *status)
+{
+	static held_t h;
+	static uint8_t grantees[FZN_NODE_FILES_SHARES_MAX][FZN_PUBKEY_LEN];
+	uint64_t length = 0;
+	size_t k;
+	int opened = 0;
+
+	if (!files || !root || !status)
+		return FZN_NODE_FILES_ERR_MALFORMED;
+	memset(status, 0, sizeof(*status));
+	if (!open_any(files, root, &h, &opened))
+		return FZN_NODE_FILES_ERR_ABSENT;
+	status->length = h.length;
+	status->total = h.leaves;
+	status->held = opened ? h.spool.have : 0u;
+	if (opened)
+		fzn_spool_file_close(&h.file);
+	status->whole = fzn_node_files_held(files, root, &length) == FZN_NODE_FILES_OK;
+	status->wanted = !status->whole;
+	status->busy = is_busy(files, root);
+	if (files->store
+	    && fzn_node_files_shares_of(files, root, grantees, FZN_NODE_FILES_SHARES_MAX,
+	                                &status->shares)
+	               == FZN_NODE_FILES_OK)
+		for (k = 0; k < status->shares && k < FZN_NODE_FILES_SHARES_MAX; k++)
+			if (memcmp(grantees[k], FZN_NODE_FILES_EVERY_CONTACT, FZN_PUBKEY_LEN) == 0) {
+				status->public_ = 1;
+				status->shares--;
+				break;
+			}
+	return FZN_NODE_FILES_OK;
+}
+
+fzn_node_files_err_t fzn_node_files_read_range(const fzn_node_files_t *files,
+                                               const fzn_node_file_ref_t *ref, uint64_t offset,
+                                               uint64_t len, const char *path, int *whole)
+{
+	static held_t h;
+	uint8_t sealed[FZN_BLOB_SEALED_MAX], plain[FZN_BLOB_LEAF_SIZE];
+	fzn_node_files_err_t err = FZN_NODE_FILES_OK;
+	uint64_t first, last, i, length = 0;
+	int opened = 0, fd;
+
+	if (!files || !ref || !path || !whole || len == 0u)
+		return FZN_NODE_FILES_ERR_MALFORMED;
+	*whole = 0;
+	if (!open_any(files, ref->root, &h, &opened))
+		return FZN_NODE_FILES_ERR_ABSENT;
+	if (h.length != ref->length || offset >= h.length || len > h.length - offset) {
+		if (opened)
+			fzn_spool_file_close(&h.file);
+		return h.length != ref->length ? FZN_NODE_FILES_ERR_ABSENT
+		                               : FZN_NODE_FILES_ERR_MALFORMED;
+	}
+	first = offset / FZN_BLOB_LEAF_SIZE;
+	last = (offset + len - 1u) / FZN_BLOB_LEAF_SIZE;
+	/* EVERY LEAF THE RANGE TOUCHES, HERE, before anything is written: a
+	 * fetch that has not reached the range says so and leaves nothing. */
+	for (i = first; i <= last && opened; i++)
+		if (!fzn_spool_has(&h.spool, i))
+			break;
+	if (!opened || i <= last) {
+		if (opened)
+			fzn_spool_file_close(&h.file);
+		return FZN_NODE_FILES_ERR_ABSENT;
+	}
+	fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0600);
+	if (fd < 0) {
+		fzn_spool_file_close(&h.file);
+		return errno == EEXIST ? FZN_NODE_FILES_ERR_EXISTS : FZN_NODE_FILES_ERR_STORE;
+	}
+	for (i = first; i <= last && err == FZN_NODE_FILES_OK; i++) {
+		size_t got = 0, opened_len = 0, from, to;
+		uint64_t base = i * FZN_BLOB_LEAF_SIZE;
+
+		if (fzn_spool_read(&h.spool, i, sealed, sizeof(sealed), &got) != FZN_SPOOL_OK
+		    || got < sealed_len_of(&h, i))
+			err = FZN_NODE_FILES_ERR_STORE;
+		else if (fzn_blob_leaf_open(files->hash, files->aead, ref->key, i, sealed,
+		                            sealed_len_of(&h, i), plain, sizeof(plain), &opened_len)
+		         != FZN_BLOB_OK)
+			err = FZN_NODE_FILES_ERR_CRYPTO;
+		else {
+			/* THIS LEAF'S PART OF THE RANGE. */
+			from = offset > base ? (size_t)(offset - base) : 0u;
+			to = offset + len < base + opened_len ? (size_t)(offset + len - base) : opened_len;
+			if (!fd_write(&fd, base + from - offset, plain + from, to - from))
+				err = FZN_NODE_FILES_ERR_STORE;
+		}
+	}
+	fzn_wipe(plain, sizeof(plain));
+	fzn_spool_file_close(&h.file);
+	if (err == FZN_NODE_FILES_OK && fsync(fd) != 0)
+		err = FZN_NODE_FILES_ERR_STORE;
+	if (close(fd) != 0 && err == FZN_NODE_FILES_OK)
+		err = FZN_NODE_FILES_ERR_STORE;
+	if (err != FZN_NODE_FILES_OK)
+		(void)remove(path);
+	else
+		*whole = fzn_node_files_held(files, ref->root, &length) == FZN_NODE_FILES_OK;
+	return err;
+}
+
 /* ---- the verbs ---------------------------------------------------------- */
 
 static size_t answer(char *reply, size_t cap, fzn_reply_t kind, const char *detail)
@@ -1731,6 +1872,29 @@ static size_t list_files(const fzn_node_files_t *files, const uint8_t *arg, size
 		memcpy(detail + used, item, (size_t)m);
 		used += (size_t)m;
 	}
+	/* AND WHAT IS ARRIVING, sec 495, after the whole ones. */
+	{
+		static uint8_t wanted[FZN_NODE_FILES_WANTS_MAX][FZN_BLOB_HASH_LEN];
+		static uint64_t lengths[FZN_NODE_FILES_WANTS_MAX];
+		size_t nw = fzn_node_files_wanted(files, wanted, lengths, FZN_NODE_FILES_WANTS_MAX), w;
+
+		for (w = 0; w < nw && w < FZN_NODE_FILES_WANTS_MAX; w++) {
+			fzn_node_file_status_t st;
+			char hex[ROOT_HEX + 1u], item[ROOT_HEX + 64u];
+			int m;
+
+			if (fzn_node_files_status(files, wanted[w], &st) != FZN_NODE_FILES_OK)
+				continue;
+			to_hex(wanted[w], FZN_BLOB_HASH_LEN, hex);
+			m = snprintf(item, sizeof(item), " %s,%llu,fetching=%llu/%llu", hex,
+			             (unsigned long long)st.length, (unsigned long long)st.held,
+			             (unsigned long long)st.total);
+			if (m < 0 || limit - used < (size_t)m)
+				break;
+			memcpy(detail + used, item, (size_t)m);
+			used += (size_t)m;
+		}
+	}
 	detail[used] = '\0';
 	return answer(reply, cap, FZN_REPLY_OK, detail);
 }
@@ -1791,10 +1955,23 @@ size_t fzn_node_files_local(void *ctx, fzn_origin_t origin, const fzn_request_t 
 		if (err != FZN_NODE_FILES_OK)
 			return refused(reply, reply_cap, err);
 		fzn_node_file_ref_write(&ref, bytes);
-		fzn_wipe(&ref, sizeof(ref));
-		to_hex(bytes, sizeof(bytes), hex);
-		fzn_wipe(bytes, sizeof(bytes));
-		return answer(reply, reply_cap, FZN_REPLY_OK, hex);
+		/* THE TIER AS WRITTEN, read back rather than echoed: sec 495. */
+		{
+			fzn_node_file_status_t st;
+			char line[REF_HEX + 10u];
+
+			if (fzn_node_files_status(files, ref.root, &st) != FZN_NODE_FILES_OK) {
+				fzn_wipe(&ref, sizeof(ref));
+				fzn_wipe(bytes, sizeof(bytes));
+				return answer(reply, reply_cap, FZN_REPLY_ERROR, "put, and its tier unread");
+			}
+			fzn_wipe(&ref, sizeof(ref));
+			to_hex(bytes, sizeof(bytes), hex);
+			fzn_wipe(bytes, sizeof(bytes));
+			(void)snprintf(line, sizeof(line), "%s %s", hex, st.public_ ? "public" : "private");
+			fzn_wipe(hex, sizeof(hex));
+			return answer(reply, reply_cap, FZN_REPLY_OK, line);
+		}
 	}
 	if (request->parsed == FZN_VERB_FETCH) {
 		uint8_t bytes[FZN_NODE_FILE_REF_LEN];
@@ -1820,17 +1997,88 @@ size_t fzn_node_files_local(void *ctx, fzn_origin_t origin, const fzn_request_t 
 		return err == FZN_NODE_FILES_OK ? answer(reply, reply_cap, FZN_REPLY_OK, NULL)
 		                                : refused(reply, reply_cap, err);
 	}
-	/* `get file REF PATH`. */
+	/* `get file ROOT [check]`: where it stands, or its check at rest. */
+	if (arg_len == ROOT_HEX || (arg_len == ROOT_HEX + 6u && memcmp(arg + ROOT_HEX, " check", 6u) == 0)) {
+		uint8_t root[FZN_BLOB_HASH_LEN];
+		char line[160];
+
+		if (!from_hex(arg, ROOT_HEX, root, sizeof(root)))
+			return answer(reply, reply_cap, FZN_REPLY_MALFORMED, "get file ROOT [check]");
+		if (arg_len > ROOT_HEX) {
+			uint64_t dropped = 0;
+
+			err = fzn_node_files_verify(files, root, &dropped);
+			if (err != FZN_NODE_FILES_OK)
+				return refused(reply, reply_cap, err);
+			if (dropped)
+				files->fresh = 1;
+			if (dropped)
+				(void)snprintf(line, sizeof(line), "dropped %llu", (unsigned long long)dropped);
+			else
+				(void)snprintf(line, sizeof(line), "intact");
+			return answer(reply, reply_cap, FZN_REPLY_OK, line);
+		}
+		{
+			fzn_node_file_status_t st;
+
+			err = fzn_node_files_status(files, root, &st);
+			if (err != FZN_NODE_FILES_OK)
+				return refused(reply, reply_cap, err);
+			(void)snprintf(line, sizeof(line), "%llu %llu %llu %s %s %zu%s",
+			               (unsigned long long)st.held, (unsigned long long)st.total,
+			               (unsigned long long)st.length,
+			               st.whole ? "whole" : st.held ? "partial" : "fetching",
+			               st.public_ ? "public" : "private", st.shares,
+			               st.busy ? " busy" : "");
+			return answer(reply, reply_cap, FZN_REPLY_OK, line);
+		}
+	}
+	/* `get file REF PATH`, or `get file REF OFFSET LENGTH PATH`. */
 	{
 		uint8_t bytes[FZN_NODE_FILE_REF_LEN];
+		const uint8_t *rest = arg + REF_HEX + 1u;
+		size_t rest_len = arg_len > REF_HEX + 1u ? arg_len - REF_HEX - 1u : 0u;
+		uint64_t numbers[2] = { 0, 0 };
+		size_t n_numbers = 0, at = 0;
 
 		if (arg_len < REF_HEX + 2u || arg[REF_HEX] != ' '
-		    || !from_hex(arg, REF_HEX, bytes, sizeof(bytes)) || !fzn_node_file_ref_read(bytes, &ref)
-		    || !path_arg(arg + REF_HEX + 1u, arg_len - REF_HEX - 1u, path)) {
+		    || !from_hex(arg, REF_HEX, bytes, sizeof(bytes)) || !fzn_node_file_ref_read(bytes, &ref)) {
 			fzn_wipe(bytes, sizeof(bytes));
-			return answer(reply, reply_cap, FZN_REPLY_MALFORMED, "get file REF PATH");
+			return answer(reply, reply_cap, FZN_REPLY_MALFORMED, "get file REF [OFFSET LENGTH] PATH");
 		}
 		fzn_wipe(bytes, sizeof(bytes));
+		/* TWO NUMBERS FIRST ARE A RANGE. */
+		while (n_numbers < 2u) {
+			size_t d = 0;
+			uint64_t v = 0;
+
+			while (at + d < rest_len && rest[at + d] >= '0' && rest[at + d] <= '9'
+			       && v <= (UINT64_MAX - 9u) / 10u)
+				v = (v * 10u) + (uint64_t)(rest[at + d++] - '0');
+			if (d == 0u || at + d >= rest_len || rest[at + d] != ' ')
+				break;
+			numbers[n_numbers++] = v;
+			at += d + 1u;
+		}
+		if (n_numbers == 1u)
+			at = 0;
+		if (!path_arg(rest + (n_numbers == 2u ? at : 0u),
+		              rest_len - (n_numbers == 2u ? at : 0u), path)) {
+			fzn_wipe(&ref, sizeof(ref));
+			return answer(reply, reply_cap, FZN_REPLY_MALFORMED, "get file REF [OFFSET LENGTH] PATH");
+		}
+		if (n_numbers == 2u) {
+			int whole = 0;
+
+			err = fzn_node_files_read_range(files, &ref, numbers[0], numbers[1], path, &whole);
+			fzn_wipe(&ref, sizeof(ref));
+			if (err == FZN_NODE_FILES_ERR_ABSENT)
+				return answer(reply, reply_cap, FZN_REPLY_ERROR,
+				              "the fetch has not reached that range yet");
+			return err == FZN_NODE_FILES_OK
+			               ? answer(reply, reply_cap, FZN_REPLY_OK, whole ? "whole" : "partial")
+			               : refused(reply, reply_cap, err);
+		}
 		err = fzn_node_files_export(files, &ref, path);
 		fzn_wipe(&ref, sizeof(ref));
 		return err == FZN_NODE_FILES_OK ? answer(reply, reply_cap, FZN_REPLY_OK, NULL)

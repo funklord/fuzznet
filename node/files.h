@@ -342,14 +342,57 @@ fzn_node_files_err_t fzn_node_files_fetch_many(fzn_node_files_t *files,
                                                uint64_t budget, uint64_t *placed,
                                                size_t *holders);
 
+/* ---- what the clients ask of a file, sec 495 --------------------------
+ *
+ * fuzzypickles' clients, measured against what they call today: progress
+ * while a file arrives, a ranged read of what has arrived, the tier a file
+ * was actually stored under, and a check at rest on request. */
+
+typedef struct fzn_node_file_status {
+	uint64_t length;  /* bytes */
+	uint64_t held;    /* leaves here */
+	uint64_t total;   /* leaves in all */
+	int whole;        /* held whole, its tree beside it: served and exported */
+	int wanted;       /* being fetched */
+	int busy;         /* a transfer is running on it now */
+	int public_;      /* served to every contact */
+	size_t shares;    /* contacts and groups it is shared with */
+} fzn_node_file_status_t;
+
+/* WHERE A FILE STANDS: held whole, or wanted and how much is here. ABSENT
+ * when it is neither. */
+fzn_node_files_err_t fzn_node_files_status(const fzn_node_files_t *files,
+                                           const uint8_t root[FZN_BLOB_HASH_LEN],
+                                           fzn_node_file_status_t *status);
+
+/* A RANGED READ of the file `ref` names: `len` bytes from `offset` opened
+ * with its key into a new file at `path`, WHILE IT ARRIVES -- every leaf the
+ * range touches must be here, and each was proved against the root as it
+ * landed. ABSENT, with nothing written, when the fetch has not reached the
+ * range; MALFORMED past the file's end. `*whole` says whether the file is. */
+fzn_node_files_err_t fzn_node_files_read_range(const fzn_node_files_t *files,
+                                               const fzn_node_file_ref_t *ref, uint64_t offset,
+                                               uint64_t len, const char *path, int *whole);
+
 /* THE NODE'S VERBS, for `node/admin.h`'s hook; 0 when `request` is not one:
  *
- *     put file PATH [public] seal the file at PATH; answers its reference
+ *     put file PATH [public] seal the file at PATH; answers its reference and
+ *                            the tier written: `ok REF private|public`
  *     get file REF PATH      export it to PATH, a file that is not there
+ *     get file REF OFFSET LENGTH PATH
+ *                            that range, while the file arrives, sec 495:
+ *                            `ok whole|partial`; a PATH of two numbers is
+ *                            read as a range, so name one absolutely
+ *     get file ROOT          `ok HELD TOTAL LENGTH whole|partial|fetching
+ *                            private|public SHARES [busy]`, sec 495
+ *     get file ROOT check    the check at rest, now: `ok intact` or
+ *                            `ok dropped N`, sec 495
  *     fetch file REF         fetch it from the pull peers and the contacts
  *                            sharing with this node, secs 491, 493
  *     remove file ROOT       delete it here, or stop fetching it
- *     list file [FROM]       `ok TOTAL FROM ROOT,LENGTH[,public][,shared] ...`
+ *     list file [FROM]       `ok TOTAL FROM ROOT,LENGTH[,public][,shared] ...`,
+ *                            files arriving after the whole ones, marked
+ *                            `,fetching=HELD/TOTAL`, sec 495
  *     set file ROOT public|private
  *     grant file ROOT NAME|@GROUP     share it with a contact or a group
  *     revoke file ROOT NAME|@GROUP    stop

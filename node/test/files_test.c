@@ -583,8 +583,9 @@ int main(void)
 	      "a put by another user was taken");
 	(void)snprintf(line, sizeof(line), "file %s", src_path);
 	CHECK(said(&F, FZN_VERB_PUT, line, reply, sizeof(reply))
-	              && strncmp(reply, "ok ", 3) == 0 && strlen(reply) == 3u + 144u,
-	      "put file did not answer a reference");
+	              && strncmp(reply, "ok ", 3) == 0 && strlen(reply) == 3u + 144u + 8u
+	              && strcmp(reply + 3u + 144u, " private") == 0,
+	      "put file did not answer a reference and the tier written");
 	{
 		char ref_hex[145];
 
@@ -598,7 +599,38 @@ int main(void)
 		CHECK(said(&F, FZN_VERB_LIST, "file", reply, sizeof(reply))
 		              && strncmp(reply, "ok 5 0 ", 7) == 0 && strstr(reply, ",5000") != NULL,
 		      "list file did not name the five whole blobs and their lengths");
+		/* A RANGE OF IT, sec 495: bytes 1000 to 3999, and past the end refused. */
+		(void)snprintf(line, sizeof(line), "file %s 1000 3000 %s", ref_hex, out_path);
+		{
+			FILE *a = fopen(src_path, "rb"), *b;
+			uint8_t want[3000], got[3000];
+			int same = 0;
+
+			if (a && fseek(a, 1000L, SEEK_SET) == 0 && fread(want, 1u, 3000u, a) == 3000u)
+				same = 1;
+			if (a)
+				(void)fclose(a);
+			CHECK(said(&F, FZN_VERB_GET, line, reply, sizeof(reply))
+			              && strcmp(reply, "ok whole") == 0 && (b = fopen(out_path, "rb")) != NULL
+			              && fread(got, 1u, sizeof(got) + 1u, b) == 3000u && fclose(b) == 0
+			              && same && memcmp(want, got, sizeof(got)) == 0,
+			      "a range of a whole file was not those bytes");
+			(void)remove(out_path);
+		}
+		(void)snprintf(line, sizeof(line), "file %s 4000 2000 %s", ref_hex, out_path);
+		CHECK(said(&F, FZN_VERB_GET, line, reply, sizeof(reply))
+		              && strncmp(reply, "malformed", 9) == 0 && access(out_path, F_OK) != 0,
+		      "a range past the file's end was read");
 		ref_hex[64] = '\0';
+		/* WHERE IT STANDS, and its check at rest, sec 495. */
+		(void)snprintf(line, sizeof(line), "file %s", ref_hex);
+		CHECK(said(&F, FZN_VERB_GET, line, reply, sizeof(reply))
+		              && strcmp(reply, "ok 5 5 5000 whole private 0") == 0,
+		      "get file ROOT did not say five of five leaves, whole and private");
+		(void)snprintf(line, sizeof(line), "file %s check", ref_hex);
+		CHECK(said(&F, FZN_VERB_GET, line, reply, sizeof(reply))
+		              && strcmp(reply, "ok intact") == 0,
+		      "get file ROOT check did not find an intact file intact");
 		(void)snprintf(line, sizeof(line), "file %s", ref_hex);
 		CHECK(verb(&F, FZN_VERB_REMOVE, FZN_ORIGIN_SAME_USER, line, reply, sizeof(reply))
 		              && strncmp(reply, "ok", 2) == 0 && entries(dir) == 16u,
@@ -651,6 +683,45 @@ int main(void)
 		              && fzn_node_files_held(&B, big.root, &length) == FZN_NODE_FILES_ERR_ABSENT,
 		      "a fetch past its budget, or a part held as whole");
 		total = placed;
+		/* WHILE IT ARRIVES, sec 495: where it stands, what is listed, and a
+		 * range read from what is here and refused past it. */
+		{
+			fzn_node_file_status_t st;
+			int whole = 1;
+			char part[160];
+
+			(void)snprintf(part, sizeof(part), "%s/part", top);
+			CHECK(fzn_node_files_status(&B, big.root, &st) == FZN_NODE_FILES_OK
+			              && st.held == total && st.total == 301u && !st.whole && st.wanted
+			              && st.length == big.length,
+			      "a file part way not said as part way");
+			CHECK(said(&B, FZN_VERB_LIST, "file", reply, sizeof(reply))
+			              && strstr(reply, ",fetching=") != NULL,
+			      "a file arriving was not listed as fetching");
+			CHECK(fzn_node_files_read_range(&B, &big, 10u, 20000u, part, &whole)
+			              == FZN_NODE_FILES_OK
+			              && !whole,
+			      "a range of what had arrived was not read");
+			{
+				FILE *a = fopen(src_path, "rb"), *b = fopen(part, "rb");
+				uint8_t want[20000], got[20000];
+
+				CHECK(a && b && fseek(a, 10L, SEEK_SET) == 0
+				              && fread(want, 1u, sizeof(want), a) == sizeof(want)
+				              && fread(got, 1u, sizeof(got), b) == sizeof(got)
+				              && memcmp(want, got, sizeof(got)) == 0,
+				      "the range read was not those bytes of the file");
+				if (a)
+					(void)fclose(a);
+				if (b)
+					(void)fclose(b);
+			}
+			(void)remove(part);
+			CHECK(fzn_node_files_read_range(&B, &big, 299u * 1024u, 100u, part, &whole)
+			              == FZN_NODE_FILES_ERR_ABSENT
+			              && access(part, F_OK) != 0,
+			      "a range the fetch had not reached was read, or left a file");
+		}
 		a_peer.asked = 0;
 		CHECK(fzn_node_files_fetch(&B, big.root, peer_ask, &a_peer, 1000u, &placed)
 		              == FZN_NODE_FILES_OK
