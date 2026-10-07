@@ -2,6 +2,9 @@
 
 #include "text.h"
 
+_Static_assert(FZN_NOTE_PAYLOAD_MAX == FZN_NOTE_TEXT_MAX,
+               "a note's payload is one blob, and its ceiling is a blob's");
+
 #include "../constant_time/constant_time.h"
 
 #include <string.h>

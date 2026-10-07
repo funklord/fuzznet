@@ -6406,8 +6406,8 @@ SABOTAGES = [
 	(
 		"note-reserved-type-refused",
 		"notes/note.c",
-		"\tif (content_type == FZN_NOTE_TYPE_NONE)\n\t\treturn FZN_NOTE_ERR_TYPE;\n",
-		"",
+		"\tif (content_type == FZN_NOTE_TYPE_NONE)\n\t\treturn FZN_NOTE_ERR_TYPE;\n\tif (content_len < FZN_NOTE_HEADER_LEN)\n",
+		"\tif (content_len < FZN_NOTE_HEADER_LEN)\n",
 		"an all-zero header decodes as a valid node of a valid type -- sec 422",
 	),
 	(
@@ -9421,6 +9421,34 @@ SABOTAGES = [
 		"\t\tif (jerr == FZN_JOURNAL_ERR_FORK) {\n\t\t\tforks++;\n\t\t\tbreak;\n\t\t}\n\t\tif (jerr == FZN_JOURNAL_ERR_DUPLICATE) {\n\t\t\theld++;",
 		"\t\tif (jerr == FZN_JOURNAL_ERR_FORK) {\n\t\t\theld++;\n\t\t\tcontinue;\n\t\t}\n\t\tif (jerr == FZN_JOURNAL_ERR_DUPLICATE) {\n\t\t\theld++;",
 		"a fork pushed and counted as held is a key signing in two places that nobody hears about -- sec 512",
+	),
+	(
+		"note-payload-partitions",
+		"notes/note.c",
+		"\tif (n2 > payload_len || FZN_NOTE_PAYLOAD_HEADER_LEN + n1 + n2 + n3 != payload_len)\n\t\treturn FZN_NOTE_ERR_PARTITION;",
+		"\tif (n2 > payload_len || FZN_NOTE_PAYLOAD_HEADER_LEN + n1 + n2 + n3 > payload_len)\n\t\treturn FZN_NOTE_ERR_PARTITION;",
+		"a payload whose lengths leave bytes over is two encodings of one note, and bytes nobody owns ride inside a sealed blob -- sec 513",
+	),
+	(
+		"note-meta-is-exactly-its-length",
+		"notes/note.c",
+		"\tif (content_len != FZN_NOTE_META_LEN)\n\t\treturn FZN_NOTE_ERR_PARTITION;",
+		"",
+		"a meta with trailing bytes is a second encoding of one record's note -- sec 513",
+	),
+	(
+		"note-meta-knows-its-flags",
+		"notes/note.c",
+		"\tif (content[FZN_NOTE_META_OFF_FLAGS] & ~FZN_NOTE_META_FLAGS_KNOWN)\n\t\treturn FZN_NOTE_ERR_TYPE;\n\tout->flags",
+		"\tout->flags",
+		"a version-2 note claiming TEXT_IS_BLOB, or a flag this build does not know, reads as one it does -- sec 513",
+	),
+	(
+		"note-payload-bounds-the-title",
+		"notes/note.c",
+		"\tif (n1 > FZN_NOTE_TITLE_MAX || n3 > FZN_NOTE_LABELS_MAX)\n\t\treturn FZN_NOTE_ERR_LEN;\n\t/* THE PARTITION",
+		"\t/* THE PARTITION",
+		"a title or labels past the bounds a listing caches overflow the cache entry every note gets -- sec 513",
 	),
 ]
 

@@ -592,6 +592,149 @@ static void test_an_item_written_walks_back(void)
 	CHECK(fzn_note_item_put(NULL, 15u, &used, 0u, NULL, 0u) == FZN_NOTE_ERR_NULL);
 }
 
+/* ---- version 2, sec 513 --------------------------------------------- */
+
+static fzn_note_meta_t a_meta(void)
+{
+	fzn_note_meta_t m;
+	size_t i;
+
+	memset(&m, 0, sizeof(m));
+	m.flags = FZN_NOTE_FLAG_PINNED | FZN_NOTE_FLAG_TRASHED;
+	m.colour = 0x11223344u;
+	m.created_at_ms = 1000u;
+	m.edited_at_ms = 2000u;
+	for (i = 0; i < FZN_BLOB_HASH_LEN; i++)
+		m.content.root[i] = (uint8_t)(0x40u + i);
+	for (i = 0; i < FZN_BLOB_KEY_LEN; i++)
+		m.content.key[i] = (uint8_t)(0x80u + i);
+	m.content.length = 9u + 5u;
+	return m;
+}
+
+/* THE META: 94 bytes at the offsets the schema states, read back whole. */
+static void test_a_meta_round_trips(void)
+{
+	fzn_note_meta_t m = a_meta(), back;
+	uint8_t b[FZN_NOTE_META_LEN];
+
+	CHECK(fzn_note_meta_write(&m, b) == FZN_NOTE_OK);
+	CHECK(b[0] == 2u && b[1] == (FZN_NOTE_FLAG_PINNED | FZN_NOTE_FLAG_TRASHED) && b[2] == 0x11u
+	      && b[22] == 0x40u && b[54] == 0x80u && b[93] == 14u);
+	CHECK(fzn_note_meta_open(FZN_NOTE_TYPE_NOTE, b, sizeof(b), &back) == FZN_NOTE_OK);
+	CHECK(back.flags == m.flags && back.colour == m.colour && back.created_at_ms == 1000u
+	      && back.edited_at_ms == 2000u && back.content.length == 14u
+	      && memcmp(back.content.root, m.content.root, FZN_BLOB_HASH_LEN) == 0
+	      && memcmp(back.content.key, m.content.key, FZN_BLOB_KEY_LEN) == 0);
+}
+
+/* WHAT A META REFUSES: the reserved type, a short body, version 1, a
+ * trailing byte, a flag it does not know -- TEXT_IS_BLOB among them, since
+ * every note is a blob -- and a payload shorter than a payload's header. */
+static void test_a_meta_refuses(void)
+{
+	fzn_note_meta_t m = a_meta(), back;
+	uint8_t b[FZN_NOTE_META_LEN + 1u];
+
+	CHECK(fzn_note_meta_write(&m, b) == FZN_NOTE_OK);
+	CHECK(fzn_note_meta_open(FZN_NOTE_TYPE_NONE, b, FZN_NOTE_META_LEN, &back)
+	      == FZN_NOTE_ERR_TYPE);
+	CHECK(fzn_note_meta_open(FZN_NOTE_TYPE_NOTE, b, FZN_NOTE_META_LEN - 1u, &back)
+	      == FZN_NOTE_ERR_SHORT);
+	CHECK(fzn_note_meta_open(FZN_NOTE_TYPE_NOTE, b, sizeof(b), &back) == FZN_NOTE_ERR_PARTITION);
+	b[0] = 1u;
+	CHECK(fzn_note_meta_open(FZN_NOTE_TYPE_NOTE, b, FZN_NOTE_META_LEN, &back)
+	      == FZN_NOTE_ERR_VERSION);
+	b[0] = 2u;
+	b[1] = FZN_NOTE_FLAG_TEXT_IS_BLOB;
+	CHECK(fzn_note_meta_open(FZN_NOTE_TYPE_NOTE, b, FZN_NOTE_META_LEN, &back) == FZN_NOTE_ERR_TYPE);
+	b[1] = 0u;
+	b[93] = 8u;
+	CHECK(fzn_note_meta_open(FZN_NOTE_TYPE_NOTE, b, FZN_NOTE_META_LEN, &back)
+	      == FZN_NOTE_ERR_BLOB_LEN);
+	m.flags = FZN_NOTE_FLAG_TEXT_IS_BLOB;
+	CHECK(fzn_note_meta_write(&m, b) == FZN_NOTE_ERR_TYPE);
+	m.flags = 0u;
+	m.content.length = 8u;
+	CHECK(fzn_note_meta_write(&m, b) == FZN_NOTE_ERR_BLOB_LEN);
+}
+
+/* THE PAYLOAD: title, text and labels round-trip, and the label and item
+ * helpers read a payload as they read a version-1 note. */
+static void test_a_payload_round_trips(void)
+{
+	static const uint8_t labels[] = "work\0home";
+	static uint8_t items[64];
+	uint8_t p[256];
+	fzn_note_t n, back;
+	const uint8_t *label;
+	size_t len = 0, used = 0, label_len = 0, cursor = 0;
+	fzn_note_item_t item;
+
+	memset(&n, 0, sizeof(n));
+	n.title = (const uint8_t *)"groceries";
+	n.title_len = 9u;
+	CHECK(fzn_note_item_put(items, sizeof(items), &used, FZN_NOTE_ITEM_FLAG_CHECKED,
+	                        (const uint8_t *)"milk", 4u) == FZN_NOTE_OK
+	      && fzn_note_item_put(items, sizeof(items), &used, 0u, (const uint8_t *)"eggs", 4u)
+	                 == FZN_NOTE_OK);
+	n.text = items;
+	n.text_len = used;
+	n.labels = labels;
+	n.labels_len = sizeof(labels) - 1u;
+	CHECK(fzn_note_payload_write(&n, p, sizeof(p), &len) == FZN_NOTE_OK
+	      && len == 9u + 9u + used + n.labels_len);
+	CHECK(p[0] == 1u && p[2] == 9u && p[4] == (uint8_t)n.labels_len && p[8] == (uint8_t)used);
+	CHECK(fzn_note_payload_open(p, len, &back) == FZN_NOTE_OK && back.title_len == 9u
+	      && memcmp(back.title, "groceries", 9u) == 0 && back.flags == 0u);
+	CHECK(fzn_note_label_count(&back) == 2u
+	      && fzn_note_label(&back, 1u, &label, &label_len) == FZN_NOTE_OK && label_len == 4u
+	      && memcmp(label, "home", 4u) == 0);
+	CHECK(fzn_note_item_next(&back, &cursor, &item) == FZN_NOTE_OK && item.text_len == 4u
+	      && (item.flags & FZN_NOTE_ITEM_FLAG_CHECKED));
+	CHECK(fzn_note_shape_ok(FZN_NOTE_TYPE_LIST, &back) == FZN_NOTE_OK);
+	CHECK(fzn_note_shape_ok(FZN_NOTE_TYPE_FOLDER, &back) == FZN_NOTE_ERR_PARTITION);
+
+	/* AN EMPTY NOTE is a header and nothing else, still a payload. */
+	memset(&n, 0, sizeof(n));
+	CHECK(fzn_note_payload_write(&n, p, sizeof(p), &len) == FZN_NOTE_OK && len == 9u
+	      && fzn_note_payload_open(p, len, &back) == FZN_NOTE_OK && back.title_len == 0u);
+}
+
+/* WHAT A PAYLOAD REFUSES: lengths that do not tile it, a title or labels
+ * past the bounds a listing caches, an unknown version, a short header, and
+ * a buffer too small to write into. */
+static void test_a_payload_refuses(void)
+{
+	static uint8_t big[FZN_NOTE_LABELS_MAX + 1u];
+	uint8_t p[64];
+	fzn_note_t n, back;
+	size_t len = 0;
+
+	memset(&n, 0, sizeof(n));
+	n.title = (const uint8_t *)"t";
+	n.title_len = 1u;
+	CHECK(fzn_note_payload_write(&n, p, sizeof(p), &len) == FZN_NOTE_OK && len == 10u);
+	CHECK(fzn_note_payload_open(p, len + 1u, &back) == FZN_NOTE_ERR_PARTITION);
+	CHECK(fzn_note_payload_open(p, len - 1u, &back) == FZN_NOTE_ERR_PARTITION);
+	CHECK(fzn_note_payload_open(p, 8u, &back) == FZN_NOTE_ERR_SHORT);
+	p[0] = 2u;
+	CHECK(fzn_note_payload_open(p, len, &back) == FZN_NOTE_ERR_VERSION);
+	p[0] = 1u;
+	p[1] = 0x01u; /* a title of 257 */
+	p[2] = 0x01u;
+	CHECK(fzn_note_payload_open(p, len, &back) == FZN_NOTE_ERR_LEN);
+	n.title = big;
+	n.title_len = FZN_NOTE_TITLE_MAX + 1u;
+	CHECK(fzn_note_payload_write(&n, p, sizeof(p), &len) == FZN_NOTE_ERR_LEN);
+	n.title_len = 0u;
+	n.labels = big;
+	n.labels_len = FZN_NOTE_LABELS_MAX + 1u;
+	CHECK(fzn_note_payload_write(&n, p, sizeof(p), &len) == FZN_NOTE_ERR_LEN);
+	n.labels_len = 60u;
+	CHECK(fzn_note_payload_write(&n, p, sizeof(p), &len) == FZN_NOTE_ERR_CAPACITY);
+}
+
 int main(void)
 {
 	test_a_note_survives_the_round_trip();
@@ -612,6 +755,10 @@ int main(void)
 	test_an_unknown_flag_is_not_written();
 	test_a_blob_reference_round_trips();
 	test_the_suite_can_tell_pass_from_fail();
+	test_a_meta_round_trips();
+	test_a_meta_refuses();
+	test_a_payload_round_trips();
+	test_a_payload_refuses();
 
 	printf("note_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

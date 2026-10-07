@@ -1,0 +1,34 @@
+// A note, version 2, as situ schemas: the hand-written codec is notes/note.c,
+// and these are its checked contract. project.md sec 513.
+//
+// Since sec 511 a note record carries no content. Its body is tree/'s header
+// and `fzn_note_meta`: what is not content -- flags, colour, the two times --
+// and the reference to a sealed blob. The blob's plaintext is
+// `fzn_note_payload`: title, text and labels. A purge destroys the blob and
+// its key; the record stays as a shell, and its chain unbroken.
+
+target buffer;
+endian big;
+
+struct fzn_note_meta {
+	u8   version [must_eq = 2];      // FZN_NOTE_META_OFF_VERSION  0
+	u8   flags [max = 7];            // FZN_NOTE_META_OFF_FLAGS    1  PINNED | ARCHIVED | TRASHED
+	u32  colour;                     // FZN_NOTE_META_OFF_COLOUR   2  0xRRGGBBAA, all-zero unset
+	u64  created_at;                 // FZN_NOTE_META_OFF_CREATED  6  ms since epoch
+	u64  edited_at;                  // FZN_NOTE_META_OFF_EDITED   14
+	u8   root[32];                   // FZN_NOTE_META_OFF_REF      22 the content blob's root
+	u8   key[32];                    //                            54 the key that opens it
+	u64  length [min = 9];           //                            86 its plaintext's length
+}
+
+// The blob's plaintext. The three lengths tile what follows the header: a
+// payload is refused unless 9 + title + text + labels is its whole length.
+struct fzn_note_payload {
+	u8   version [must_eq = 1];      // FZN_NOTE_PAYLOAD_OFF_VERSION    0
+	u16  title_len [max = 255];      // FZN_NOTE_PAYLOAD_OFF_TITLE_LEN  1
+	u16  labels_len [max = 1024];    // FZN_NOTE_PAYLOAD_OFF_LABELS_LEN 3
+	u32  text_len;                   // FZN_NOTE_PAYLOAD_OFF_TEXT_LEN   5
+	u8   title[title_len];           // 9, UTF-8, no NUL
+	u8   text[text_len];             // UTF-8, or a list's items
+	u8   labels[labels_len];         // NUL-separated UTF-8, no trailing NUL
+}

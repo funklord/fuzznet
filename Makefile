@@ -5690,7 +5690,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               record/store_file.situ catalog/attribute.situ \
               roster/roster.situ chain/root_act.situ chain/succession.situ \
               record/exchange.situ \
-              notes/sync.situ \
+              notes/sync.situ notes/note.situ \
               log/entry.situ log/cause.situ log/gather.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.

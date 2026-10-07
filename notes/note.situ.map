@@ -1,0 +1,31 @@
+# situ capability map v1
+# schema: note.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct fzn_note_meta size=94 repr=ValueConverted atomic=NonAtomic
+  fzn_note_meta.version                  offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_note_meta.flags                    offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_note_meta.colour                   offset=AbsoluteStatic(0x02) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_note_meta.created_at               offset=AbsoluteStatic(0x06) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_note_meta.edited_at                offset=AbsoluteStatic(0x0E) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_note_meta.root                     offset=AbsoluteStatic(0x16) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_note_meta.key                      offset=AbsoluteStatic(0x36) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_note_meta.length                   offset=AbsoluteStatic(0x56) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+
+struct fzn_note_payload size=9..4294968583 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  fzn_note_payload.version               offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_note_payload.title_len             offset=AbsoluteStatic(0x01) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_note_payload.labels_len            offset=AbsoluteStatic(0x03) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_note_payload.text_len              offset=AbsoluteStatic(0x05) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_note_payload.title                 offset=AbsoluteStatic(0x09) size=Bounded(0, 255) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_note_payload.text                  offset=Dynamic size=Bounded(0, 4294967295) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+  fzn_note_payload.labels                offset=Dynamic size=Bounded(0, 1024) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable

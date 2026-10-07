@@ -58018,3 +58018,67 @@ pull peer right after pulling from it.
 - `make test`, `make style` (1154 sabotage entries; two new, two
   re-anchored on code the stream argument moved), `make installcheck`,
   `make schema`.
+
+## 513. Stage 5, step 2: a note's version 2, its content in a payload, 2026-10-07
+
+Sec 511 moves every note's content out of its record. This step builds the
+codec. The consumers move onto it in step 3, which deletes version 1.
+
+### The two layouts
+
+Both are in `notes/note.situ`, a new schema in `make schema`'s list. No
+schema had described the note body before.
+
+- **The meta**, a node's content, is exactly 94 bytes:
+  - version 2;
+  - flags: PINNED, ARCHIVED and TRASHED;
+  - colour and the two times;
+  - the content blob's root, key and length, at 22.
+
+  TEXT_IS_BLOB is refused in version 2, since every note is a blob.
+- **The payload**, the blob's plaintext:
+  - version 1;
+  - title, labels and text lengths, the text's 32-bit;
+  - then title, text and labels.
+
+  It partitions as version 1's content did: refused unless the header and
+  the three lengths are its whole length.
+
+### What is bounded
+
+- **The title is at most 255 bytes and the labels at most 1024.** sec 511
+  promises clients a listing of titles without a blob read each, which
+  means a cache entry beside every note, so these two have to be bounded.
+- **The text is bounded only by the payload,** which is one blob and so
+  at most `FZN_NOTE_TEXT_MAX`'s 256 KiB. `notes/text.c` asserts the two
+  ceilings equal.
+- **An empty note is still a payload**, 9 bytes. A meta naming a payload
+  shorter than that is refused.
+
+### What carries over
+
+A payload reads into `fzn_note_t`'s title, text and labels and leaves its
+other fields zero. So the label helpers, the checklist item walk and the
+shape check read it unchanged. Flags, colour and times are
+`fzn_note_meta_t`'s.
+
+### Measured for sec 513
+
+- `note_test`, 169 checks (from 122), with four new tests:
+  - the meta round-trips at the schema's offsets;
+  - the meta refuses the reserved type, a short body, version 1, a trailing
+    byte, TEXT_IS_BLOB, and a payload under 9 bytes, on read and on write;
+  - a list's payload round-trips, labels and items read back from it, and
+    an empty note is a 9-byte payload;
+  - the payload refuses lengths that do not tile, a title past 255, labels
+    past 1024, an unknown version, a short header, and a short buffer.
+- Four sabotage entries, each probed against note_test: the partition, the
+  meta's exact length, its known flags, and the title bound. All four are
+  caught.
+  - The first probe read FAIL lines from stdout, where note_test does not
+    print them, and reported all four survived. Reading stderr, all four
+    are caught.
+  - One older entry, `note-reserved-type-refused`, matched the new codec's
+    identical check as well, and is re-anchored on version 1's.
+- `make test`, `make style` (1158 entries), `make installcheck`, and
+  `make schema` with the new schema.

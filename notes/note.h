@@ -224,6 +224,94 @@ fzn_note_err_t fzn_note_blob_ref(const fzn_note_t *note, fzn_note_blob_ref_t *ou
 fzn_note_err_t fzn_note_blob_ref_write(const fzn_note_blob_ref_t *ref,
                                        uint8_t out[FZN_NOTE_BLOB_REF_LEN]);
 
+/*
+ * VERSION 2: THE RECORD KEEPS NO CONTENT. project.md secs 511 and 513, stated
+ * in `notes/note.situ`.
+ *
+ * A purge must still delete a note whose records stay in a chained stream,
+ * so the record holds only what is not content, and a reference to a sealed
+ * blob that holds the rest:
+ *
+ *      off  size  field            (the META, a node's content)
+ *        0     1  version          (2)
+ *        1     1  flags            PINNED | ARCHIVED | TRASHED
+ *        2     4  colour           (0xRRGGBBAA; all-zero is "unset")
+ *        6     8  created_at       (ms since epoch)
+ *       14     8  edited_at        (ms since epoch)
+ *       22    72  the content blob: root | key | length
+ *
+ *      off  size  field            (the PAYLOAD, the blob's plaintext)
+ *        0     1  version          (1)
+ *        1     2  title_len        n1, at most FZN_NOTE_TITLE_MAX
+ *        3     2  labels_len       n3, at most FZN_NOTE_LABELS_MAX
+ *        5     4  text_len         n2
+ *        9    n1  title
+ *             n2  text             (UTF-8, or a list's items)
+ *             n3  labels           (NUL-separated, no trailing NUL)
+ *
+ * The payload partitions as version 1's content did: refused unless the
+ * header and the three lengths are its whole length. Every note has a blob,
+ * an empty one included, so its length is never below the header's 9.
+ *
+ * A PAYLOAD READS INTO `fzn_note_t`'s title, text and labels, and only those:
+ * the label and item helpers above work on it unchanged. Flags, colour and
+ * times are the meta's. Pinning, trashing and moving a note keep its
+ * reference -- the same content under the same key, which is not a key
+ * reused -- and an edit seals a new blob under a new key.
+ */
+#define FZN_NOTE_META_VERSION    2u
+#define FZN_NOTE_META_OFF_VERSION 0u
+#define FZN_NOTE_META_OFF_FLAGS   1u
+#define FZN_NOTE_META_OFF_COLOUR  2u
+#define FZN_NOTE_META_OFF_CREATED 6u
+#define FZN_NOTE_META_OFF_EDITED  14u
+#define FZN_NOTE_META_OFF_REF     22u
+#define FZN_NOTE_META_LEN         (FZN_NOTE_META_OFF_REF + FZN_NOTE_BLOB_REF_LEN)
+#define FZN_NOTE_META_FLAGS_KNOWN                                                             \
+	(FZN_NOTE_FLAG_PINNED | FZN_NOTE_FLAG_ARCHIVED | FZN_NOTE_FLAG_TRASHED)
+
+#define FZN_NOTE_PAYLOAD_VERSION         1u
+#define FZN_NOTE_PAYLOAD_OFF_VERSION     0u
+#define FZN_NOTE_PAYLOAD_OFF_TITLE_LEN   1u
+#define FZN_NOTE_PAYLOAD_OFF_LABELS_LEN  3u
+#define FZN_NOTE_PAYLOAD_OFF_TEXT_LEN    5u
+#define FZN_NOTE_PAYLOAD_HEADER_LEN      9u
+/* A title and labels a listing can cache beside every note (sec 511's
+ * promise to clients): bounded, where the text need not be. */
+#define FZN_NOTE_TITLE_MAX  255u
+#define FZN_NOTE_LABELS_MAX 1024u
+/* A payload is one blob, whose ceiling is `notes/text.h`'s FZN_NOTE_TEXT_MAX,
+ * asserted equal there. */
+#define FZN_NOTE_PAYLOAD_MAX (256u * 1024u)
+
+typedef struct fzn_note_meta {
+	uint64_t created_at_ms;
+	uint64_t edited_at_ms;
+	uint32_t colour;
+	uint8_t flags;
+	fzn_note_blob_ref_t content;
+} fzn_note_meta_t;
+
+/* Parse a node's content as a version-2 note: exactly FZN_NOTE_META_LEN
+ * bytes, version 2, only known flags, and a reference to a payload at least
+ * a header long. The reserved type is refused, an unknown one parses. */
+fzn_note_err_t fzn_note_meta_open(uint16_t content_type, const uint8_t *content,
+                                  size_t content_len, fzn_note_meta_t *out);
+
+/* The counterpart: FZN_NOTE_META_LEN bytes into `out`, refusing what
+ * `fzn_note_meta_open` would refuse. */
+fzn_note_err_t fzn_note_meta_write(const fzn_note_meta_t *meta, uint8_t out[FZN_NOTE_META_LEN]);
+
+/* Parse a blob's plaintext into `out`'s title, text and labels, every other
+ * field zeroed; the pointers aim into `payload`, which must outlive `out`. */
+fzn_note_err_t fzn_note_payload_open(const uint8_t *payload, size_t payload_len,
+                                     fzn_note_t *out);
+
+/* Write `note`'s title, text and labels as a payload: LEN for a title,
+ * labels or whole past their bounds, CAPACITY when `out_cap` is short. */
+fzn_note_err_t fzn_note_payload_write(const fzn_note_t *note, uint8_t *out, size_t out_cap,
+                                      size_t *out_len);
+
 /* A short name for an error. Never NULL. */
 const char *fzn_note_err_str(fzn_note_err_t err);
 
