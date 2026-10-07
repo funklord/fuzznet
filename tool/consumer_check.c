@@ -168,6 +168,7 @@
 #include <fuzznet/node/roots.h>
 #include <fuzznet/node/roster.h>
 #include <fuzznet/chain/root_log.h>
+#include <fuzznet/chain/succession.h>
 #include <fuzznet/session/aead.h>
 #include <fuzznet/session/commitment.h>
 #include <fuzznet/session/random.h>
@@ -318,6 +319,7 @@
 #include "node/roots.h"
 #include "node/roster.h"
 #include "chain/root_log.h"
+#include "chain/succession.h"
 #include "session/aead.h"
 #include "session/commitment.h"
 #include "session/random.h"

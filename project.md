@@ -56738,3 +56738,160 @@ made as admins, are logged under A and C.
 
 Its in-memory store grew from 64 rows to 128, since the seventeen pairings
 now take a log row each.
+
+## 498. A succession: one key succeeded by another, 2026-10-07
+
+The holder's decision of 2026-10-07, after secs 496 and 497: **build the
+succession record.** A device whose keys can no longer be trusted is
+re-keyed (sec 394's "successor takes over"). Sec 496's cut already keeps
+what the old key did before the theft. What a revocation cannot say is that
+the new key is the same device. Without that, every contact, share and
+member row naming the old key loses it, and the owner re-adds each by hand
+on every host.
+
+This is the library half. `chain/succession.h` holds it.
+
+### The succession record
+
+- **A new signed object, `FZN_OBJECT_SUCCESSION` (146):** "OLD is
+  succeeded by NEW, trusted up to CUT", signed by an issuer. 194 bytes.
+  The cut is the same line sec 496 draws: the last entry of OLD's act log
+  still trusted.
+- **Laid out in `chain/succession.situ`**, added to `make schema`'s list.
+  situ `08c4682` gives a size of 194 and the signature at 130, and
+  `succession.c` pins the same offsets as literals.
+- **OLD equal to NEW is refused** at `issue` and at `open`.
+- **Its ID is the hash of its whole record**, and that ID is what a
+  confirmation names.
+
+**It does not revoke OLD, and it does not grant NEW.** Those are a
+revocation vote at the same cut and an ordinary pairing, which the node's
+verb casts beside it. They are kept apart so that each act is judged by
+the rule it already has: k of n for the revocation, a pairing for the
+grant, and the succession by its own rule, below.
+
+### Who may issue one, and when it counts
+
+**Admission** (`fzn_succession_admit`) checks:
+
+- the shape;
+- the issuer's signature;
+- the issuer's standing. That is a root with no chain (the pinned root, or
+  any member of the set), or an admin showing its admin chain, which
+  `fzn_revocation_admin_admit` keeps as a vote's chain is kept.
+
+A record arriving twice is kept once, and nothing is evicted.
+
+**Counting** follows the rule an admin grant follows (sec 414), through a
+new question on the store, `fzn_revocation_confirmed(store, issuer, act,
+root)`:
+
+- **a root's succession counts alone**, while the root set says its record
+  counts;
+- **an admin's counts once it stands, with k - 1 confirmations** naming the
+  succession's ID, each from another admin who stands, or with one from a
+  root;
+- **its issuer's own confirmation is not one**;
+- **a revoked admin's succession stops counting**;
+- **with no confirmations kept, or k = 1, an admin who stands acts alone**,
+  as its grants would.
+
+It is judged when read, from what is held, so arrival order decides
+nothing. The confirmation object is sec 414's, unchanged: it already names
+any record by its hash.
+
+### Reading through
+
+`fzn_succession_resolve(set, revocations, root, key, out)` follows counting
+successions from `key` to the newest key, and gives `key` itself when
+nothing succeeds it.
+
+- **Two counting successions of one key to different keys are a fork.** A
+  stolen admin key could re-key a device to its own choice while the owner
+  re-keys it to theirs. A fork resolves to nothing, so no reference moves
+  until one of them stops counting.
+- **A cycle resolves to nothing too.** It needs no check of its own: it
+  never reaches a key nothing succeeds, so it runs into
+  `FZN_SUCCESSION_DEPTH_MAX` (16) as an over-long chain does.
+- Both fail toward the old key's references staying put, where a wrong
+  guess would hand them to a thief.
+
+### Measured for sec 498
+
+**`succession_test`, 26 checks:**
+
+- The layout lands at 2, 34, 66, 98 and 130, and reads back. A short
+  record, another object and a key succeeded by itself do not open, and
+  the last is not signed either.
+- The root's succession:
+  - is admitted, counts alone, is kept once, and reads OLD through to NEW;
+  - a stranger's with no chain is WRONG_ROOT, and one with a changed signed
+    byte is CHAIN_INVALID;
+  - 21 -> 22 -> 23 reads through to 23 from either;
+  - adding 23 -> 21 makes a cycle that names nobody;
+  - a full set refuses.
+- Two re-keys of one key resolve to nothing.
+- At k = 2, an admin's succession:
+  - is refused without the admin's chain;
+  - counts for nothing alone, and still nothing once the admin confirms it
+    itself;
+  - counts once a second admin confirms it;
+  - stops counting when the root revokes the issuing admin.
+- At k = 3, one root confirmation settles an admin's succession.
+
+### The protocol and the journal: the holder's question, and a proposal
+
+The holder asked how different the network protocol is from the journal,
+and whether the two should be closely related. Measured by reading the
+tree, there are four layers:
+
+- **Transport.** Frames, sealing, the replay window, sessions, the remote
+  hop and the local grammar. It moves bytes and keeps no history, and
+  should stay that way.
+- **`record/`, a journal already.** Signed records per (issuer, stream),
+  sequenced rather than clocked. `record/journal.h` keeps received and
+  applied apart and refuses gaps, `record/sync.h` plans fetches from a
+  peer's digest, and `state/`, `tree/` and `log/` apply what arrives. Notes
+  ride on it. Nothing in `node/` calls `fzn_journal_*`, `fzn_sync_*` or
+  `fzn_state_*`.
+- **The security records, each with its own carriage.** Votes, roster
+  records, root changes, confirmations, retention settings and now
+  successions are each a signed object of their own type, carried as a
+  paged item stream (`get vote`, `get root`). Each re-solves paging,
+  deduplication and ordering. Sec 496's reply-size fit is one cost of
+  that.
+- **The act log** (secs 404 and 496): a per-key hash chain that can see a
+  fork and supports a cut by entry id. `record/journal` orders by sequence
+  alone, so two different records at one seq are a duplicate to it, not an
+  equivocation.
+
+**Proposed: one per-key journal for everything a key signs, and one sync
+for it.**
+
+- A record gains a `prev` hash beside its sequence, so the record journal
+  is the act log. A gap is a missing entry, a fork is two entries with one
+  predecessor, and a revocation's cut is a position in it.
+- Votes, roster records, successions and notes become kinds of record.
+- `record/sync`'s digest-and-offer replaces the per-type streams.
+- A subsystem's state becomes a fold over the entries that stand, so going
+  back in time after a revocation is folding again.
+- Sec 496's tier-2 operation journal uses the same format, signed by the
+  node's own key and never carried. A captured one replays as a test
+  fixture.
+- Transport stays separate: the journal is the payload, and frames are how
+  pieces of it move.
+
+**The cost is a migration of every signed object type, with a wire break
+each.** It is the size of the old `catalog/` retirement (secs 317-327) and
+would be staged the same way, with the existing carriages coexisting until
+each type has moved. **Not decided: the holder's call.** The succession
+record above is self-contained, so it can move with the rest.
+
+### Still to build after sec 498
+
+- **The node.** It keeps, persists and carries successions and their
+  confirmations with the votes. A `rekey` verb pairs the new key, casts the
+  old key's revocation at the cut, and mints the succession. A confirmation
+  verb confirms a succession and casts its own vote at the same cut.
+- **Reading through, where keys are named:** a roster subject, a contact's
+  key, the shares made to a contact.

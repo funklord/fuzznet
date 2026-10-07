@@ -668,6 +668,18 @@ fzn_chain_err_t fzn_revocation_confirm_admit(fzn_revocation_store_t *store,
 int fzn_revocation_admin_stands(const fzn_revocation_store_t *store,
                                 const uint8_t key[FZN_PUBKEY_LEN]);
 
+/* WHETHER A RECORD SIGNED BY `issuer` IS CONFIRMED, by the rule an admin
+ * grant is (sec 414): `issuer` a root whose record `act` counts -- the pinned
+ * `root`, or a member of the set -- or an admin who stands, with k - 1
+ * confirmations naming `act` from other admins who stand, or one from a root.
+ * With no confirmations kept, or k = 1, an admin who stands acts alone. For
+ * a record that is a grant in all but name: a succession (sec 498). 0 for a
+ * store that cannot be read. */
+int fzn_revocation_confirmed(const fzn_revocation_store_t *store,
+                             const uint8_t issuer[FZN_PUBKEY_LEN],
+                             const uint8_t act[FZN_REVOCATION_ID_LEN],
+                             const uint8_t root[FZN_PUBKEY_LEN]);
+
 /* ADMIT AN ADMIN'S CHAIN WITHOUT A VOTE: `hops` must grant the store's admin
  * capability to `key`, from `root` or a member root, and the admin is kept
  * as a vote's chain would keep it. For an admin known by something other

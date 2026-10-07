@@ -168,7 +168,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              log/rules.c \
              node/received.c node/members.c \
              chain/chain.c chain/revocation.c chain/manifest.c chain/authz.c \
-             chain/root_log.c \
+             chain/root_log.c chain/succession.c \
              chain/chain_store.c chain/service.c claim/claim.c \
              record/store.c qr/qr.c \
              frame/freshness.c \
@@ -262,7 +262,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              log/rules.h \
              node/received.h node/members.h \
              chain/chain.h chain/revocation.h chain/manifest.h chain/authz.h \
-             chain/root_log.h \
+             chain/root_log.h chain/succession.h \
              chain/chain_store.h chain/service.h claim/claim.h \
              record/store.h qr/qr.h \
              frame/freshness.h \
@@ -324,7 +324,7 @@ CRYPTO_SYMS := crypto_|blake2|chacha|poly1305|argon2|x25519|ed25519
 CORE_HDRS := $(HDRS)
 
 TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
-             chain/test/root_log_test.c \
+             chain/test/root_log_test.c chain/test/succession_test.c \
              chain/test/manifest_test.c chain/test/authz_test.c \
              chain/test/chain_store_test.c chain/test/service_test.c \
              claim/test/claim_test.c claim/test/claim_walk_test.c \
@@ -435,6 +435,7 @@ TEST_OBJS  = $(TEST_SRCS:%.c=$(BUILD_DIR)/%.o)
 TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/chain/test/revocation_test \
              $(BUILD_DIR)/chain/test/root_log_test \
+             $(BUILD_DIR)/chain/test/succession_test \
              $(BUILD_DIR)/chain/test/manifest_test \
              $(BUILD_DIR)/chain/test/authz_test \
              $(BUILD_DIR)/chain/test/chain_store_test \
@@ -2430,6 +2431,19 @@ $(BUILD_DIR)/chain/test/revocation_test: $(BUILD_DIR)/chain/test/revocation_test
 $(BUILD_DIR)/chain/test/root_log_test: $(BUILD_DIR)/chain/test/root_log_test.o \
                                        $(BUILD_DIR)/chain/root_log.o \
                                        $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# chain/succession is judged by the revocation store's confirmation rule, so
+# it links the store and the chain verifier the store's admin admission
+# calls. sec 498.
+$(BUILD_DIR)/chain/test/succession_test: $(BUILD_DIR)/chain/test/succession_test.o \
+                                         $(BUILD_DIR)/chain/succession.o \
+                                         $(BUILD_DIR)/chain/revocation.o \
+                                         $(BUILD_DIR)/chain/root_log.o \
+                                         $(BUILD_DIR)/chain/manifest.o \
+                                         $(BUILD_DIR)/chain/chain.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -5565,7 +5579,8 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               spool/sidecar.situ record/record.situ tree/tree.situ \
               chain/chain.situ provision/provision.situ \
               record/store_file.situ catalog/attribute.situ \
-              roster/roster.situ chain/root_act.situ notes/sync.situ \
+              roster/roster.situ chain/root_act.situ chain/succession.situ \
+              notes/sync.situ \
               log/entry.situ log/cause.situ log/gather.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.

@@ -1055,6 +1055,49 @@ int fzn_revocation_admin_stands(const fzn_revocation_store_t *store,
 	return admin_ok[a] != 0u;
 }
 
+int fzn_revocation_confirmed(const fzn_revocation_store_t *store,
+                             const uint8_t issuer[FZN_PUBKEY_LEN],
+                             const uint8_t act[FZN_REVOCATION_ID_LEN],
+                             const uint8_t root[FZN_PUBKEY_LEN])
+{
+	uint8_t admin_ok[REVOCATION_ADMINS_MAX];
+	const uint8_t *seen[REVOCATION_ADMINS_MAX];
+	size_t need, count = 0, c, j;
+
+	if (!store || !issuer || !act || !root || corrupt(store))
+		return 0;
+	/* A ROOT'S WORD SETTLES IT, while its record counts. */
+	if (root_confirms(store, issuer, root, act))
+		return 1;
+	if (!fzn_revocation_admin_stands(store, issuer))
+		return 0;
+	need = (store->quorum ? store->quorum : 1u) - 1u;
+	/* NO CONFIRMATIONS KEPT, OR k = 1: an admin who stands acts alone, as
+	 * its grants would. */
+	if (!store->confirm_hash || need == 0u)
+		return 1;
+	standing_admins(store, admin_ok);
+	for (c = 0; c < store->confirms_used && count < need; c++) {
+		const fzn_revocation_confirm_t *cf = &store->confirms[c];
+		size_t b;
+
+		if (!fzn_ct_memeq(cf->grant, act, FZN_REVOCATION_ID_LEN)
+		    || fzn_ct_memeq(cf->confirmer, issuer, FZN_PUBKEY_LEN))
+			continue;
+		if (root_confirms(store, cf->confirmer, root, cf->act))
+			return 1;
+		b = find_admin(store, cf->confirmer);
+		if (b >= store->admins_used || !admin_ok[b])
+			continue;
+		for (j = 0; j < count; j++)
+			if (fzn_ct_memeq(seen[j], cf->confirmer, FZN_PUBKEY_LEN))
+				break;
+		if (j == count)
+			seen[count++] = cf->confirmer;
+	}
+	return count >= need;
+}
+
 fzn_chain_err_t fzn_revocation_admin_admit(fzn_revocation_store_t *store,
                                            const uint8_t key[FZN_PUBKEY_LEN],
                                            const fzn_chain_hop_t *hops, size_t hop_count,

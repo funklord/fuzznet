@@ -29,6 +29,7 @@
 /chunk/test/agreement_test
 /chain/test/revocation_test
 /chain/test/root_log_test
+/chain/test/succession_test
 /chain/test/manifest_test
 /chain/test/authz_test
 /chain/test/chain_store_test

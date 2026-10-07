@@ -1,0 +1,23 @@
+// A succession as a situ schema: the hand-written codec is
+// chain/succession.c, and this is its checked contract, the way
+// chain/root_act.situ is root_log.c's. project.md sec 498.
+//
+// One key succeeded by another, with the line in the old key's act log up to
+// which its acts are still trusted. The body is `authenticated` and the
+// signature a `checksum ... covers(body)`; Ed25519 is extern, so no codec.
+
+target buffer;
+endian big;
+
+struct fzn_succession {
+	authenticated body {
+		u8  version [must_eq = 1];       // FZN_SUCCESSION_OFF_VERSION 0
+		u8  object [must_eq = 146];      // FZN_SUCCESSION_OFF_OBJECT  1 (FZN_OBJECT_SUCCESSION)
+		u8  issuer[32];                  // FZN_SUCCESSION_OFF_ISSUER  2
+		u8  old[32];                     // FZN_SUCCESSION_OFF_OLD     34
+		u8  successor[32];               // FZN_SUCCESSION_OFF_NEW     66
+		u8  cut[32];                     // FZN_SUCCESSION_OFF_CUT     98
+	}
+	// covers(body) = bytes 0..129, FZN_SUCCESSION_BODY_LEN.
+	checksum u8 signature[64] covers(body); // FZN_SUCCESSION_OFF_SIGNATURE 130
+}

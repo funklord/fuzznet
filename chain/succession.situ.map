@@ -1,0 +1,22 @@
+# situ capability map v1
+# schema: succession.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct fzn_succession size=194 mutate=Immutable atomic=NonAtomic auth=Covered(signature)
+  fzn_succession.body                    offset=AbsoluteStatic(0x00) size=Fixed(130) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_succession.version                 offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_succession.object                  offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord auth=Covered(signature)
+  fzn_succession.issuer                  offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_succession.old                     offset=AbsoluteStatic(0x22) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_succession.successor               offset=AbsoluteStatic(0x42) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_succession.cut                     offset=AbsoluteStatic(0x62) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic auth=Covered(signature)
+  fzn_succession.signature               offset=AbsoluteStatic(0x82) size=Fixed(64) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Immutable
