@@ -187,26 +187,14 @@ static int take_records(fzn_journal_t *journal, fzn_record_store_t *store,
 	return 1;
 }
 
-fzn_exchange_err_t fzn_exchange_pull(fzn_journal_t *journal, fzn_record_store_t *store,
-                                     const fzn_sign_ops_t *sign, const fzn_hash_ops_t *hash,
-                                     uint64_t max_per_request, fzn_exchange_ask_t ask,
-                                     void *ask_ctx, uint8_t *reply, size_t reply_cap,
-                                     fzn_exchange_tally_t *tally)
+/* THE PEER'S POSITIONS, a page at a time, bounded by what a planner will
+ * look at, into `theirs`; how many into `*n`. */
+static fzn_exchange_err_t read_digest(fzn_exchange_ask_t ask, void *ask_ctx, uint8_t *reply,
+                                      size_t reply_cap, fzn_sync_position_t *theirs, size_t *n_out)
 {
-	static fzn_sync_position_t theirs[FZN_SYNC_MAX_POSITIONS];
-	static fzn_sync_request_t plan_out[FZN_SYNC_MAX_POSITIONS];
-	uint8_t request[FZN_EXCHANGE_RECORDS_QUERY_LEN];
+	uint8_t request[FZN_EXCHANGE_DIGEST_QUERY_LEN];
 	size_t n = 0, total = 0, pages = 0, reply_len, i;
-	fzn_sync_plan_t plan;
-	fzn_exchange_err_t err = FZN_EXCHANGE_OK;
 
-	if (!journal || !store || !sign || !sign->verify || !hash || !hash->hash || !ask || !reply
-	    || !tally || reply_cap < FZN_EXCHANGE_REPLY_MIN || max_per_request == 0u)
-		return FZN_EXCHANGE_ERR_MALFORMED;
-	memset(tally, 0, sizeof(*tally));
-
-	/* THE PEER'S POSITIONS, a page at a time, bounded by what a planner
-	 * will look at. */
 	do {
 		size_t count;
 
@@ -234,6 +222,30 @@ fzn_exchange_err_t fzn_exchange_pull(fzn_journal_t *journal, fzn_record_store_t 
 			theirs[n].received = fzn_get_be64(p + 36u);
 		}
 	} while (n < total && n < FZN_SYNC_MAX_POSITIONS && ++pages <= FZN_SYNC_MAX_POSITIONS);
+	*n_out = n;
+	return FZN_EXCHANGE_OK;
+}
+
+fzn_exchange_err_t fzn_exchange_pull(fzn_journal_t *journal, fzn_record_store_t *store,
+                                     const fzn_sign_ops_t *sign, const fzn_hash_ops_t *hash,
+                                     uint64_t max_per_request, fzn_exchange_ask_t ask,
+                                     void *ask_ctx, uint8_t *reply, size_t reply_cap,
+                                     fzn_exchange_tally_t *tally)
+{
+	static fzn_sync_position_t theirs[FZN_SYNC_MAX_POSITIONS];
+	static fzn_sync_request_t plan_out[FZN_SYNC_MAX_POSITIONS];
+	uint8_t request[FZN_EXCHANGE_RECORDS_QUERY_LEN];
+	size_t n = 0, reply_len, i;
+	fzn_sync_plan_t plan;
+	fzn_exchange_err_t err = FZN_EXCHANGE_OK;
+
+	if (!journal || !store || !sign || !sign->verify || !hash || !hash->hash || !ask || !reply
+	    || !tally || reply_cap < FZN_EXCHANGE_REPLY_MIN || max_per_request == 0u)
+		return FZN_EXCHANGE_ERR_MALFORMED;
+	memset(tally, 0, sizeof(*tally));
+	err = read_digest(ask, ask_ctx, reply, reply_cap, theirs, &n);
+	if (err != FZN_EXCHANGE_OK)
+		return err;
 	tally->positions = n;
 
 	if (fzn_sync_plan_fetch(journal, theirs, n, max_per_request, plan_out,
@@ -261,6 +273,144 @@ fzn_exchange_err_t fzn_exchange_pull(fzn_journal_t *journal, fzn_record_store_t 
 		}
 		if (err != FZN_EXCHANGE_OK)
 			return err;
+	}
+	return FZN_EXCHANGE_OK;
+}
+
+/* ---- the push, sec 512 ------------------------------------------------- */
+
+_Static_assert(FZN_EXCHANGE_PUSHED_LEN == 2u + (4u * 2u), "exchange: PUSHED is not 10 bytes");
+
+size_t fzn_exchange_take_push(fzn_journal_t *journal, fzn_record_store_t *store,
+                              const fzn_sign_ops_t *sign, const fzn_hash_ops_t *hash,
+                              const uint8_t *request, size_t request_len, uint8_t *reply,
+                              size_t reply_cap)
+{
+	size_t count, at = FZN_EXCHANGE_PUSH_HEAD_LEN, i;
+	unsigned taken = 0, held = 0, refused = 0, forks = 0;
+
+	if (!journal || !store || !sign || !sign->verify || !hash || !hash->hash || !reply
+	    || !is(request, request_len, (uint8_t)FZN_EXCHANGE_PUSH)
+	    || request_len < FZN_EXCHANGE_PUSH_HEAD_LEN || reply_cap < FZN_EXCHANGE_PUSHED_LEN)
+		return 0;
+	count = fzn_get_be16(request + 2);
+	for (i = 0; i < count; i++) {
+		uint8_t id[FZN_RECORD_ID_LEN];
+		const uint8_t *issuer;
+		fzn_journal_err_t jerr;
+		fzn_record_t rec;
+		uint32_t stream;
+		uint64_t seq;
+		size_t len;
+
+		if (request_len - at < 2u
+		    || request_len - at - 2u < (len = fzn_get_be16(request + at))
+		    || fzn_record_open(request + at + 2u, len, &rec) != FZN_RECORD_OK
+		    || fzn_record_verify(rec, sign) != FZN_RECORD_OK
+		    || !hash->hash(hash->ctx, id, sizeof(id), rec.base, rec.len)) {
+			refused++;
+			break;
+		}
+		at += 2u + len;
+		issuer = fzn_record_issuer(rec);
+		stream = fzn_record_stream(rec);
+		seq = fzn_record_seq(rec);
+		/* THE NEXT ONE OR NOTHING: a record ahead of the position is a gap
+		 * the pusher should not have left, and one behind it is held. */
+		if (seq < fzn_journal_next(journal, issuer, stream)) {
+			held++;
+			continue;
+		}
+		jerr = fzn_journal_admit_chained(journal, issuer, stream, seq, fzn_record_prev(rec), id);
+		if (jerr == FZN_JOURNAL_ERR_FORK) {
+			forks++;
+			break;
+		}
+		if (jerr == FZN_JOURNAL_ERR_DUPLICATE) {
+			held++;
+			continue;
+		}
+		/* ADMITTED, THEN STORED, as a pull stores. */
+		if (jerr != FZN_JOURNAL_OK || fzn_record_store_put(store, rec) != FZN_RECORD_STORE_OK) {
+			refused++;
+			break;
+		}
+		taken++;
+	}
+	reply[0] = (uint8_t)FZN_EXCHANGE_VERSION;
+	reply[1] = (uint8_t)FZN_EXCHANGE_PUSHED;
+	fzn_put_be16(reply + 2, (uint16_t)taken);
+	fzn_put_be16(reply + 4, (uint16_t)held);
+	fzn_put_be16(reply + 6, (uint16_t)refused);
+	fzn_put_be16(reply + 8, (uint16_t)forks);
+	return FZN_EXCHANGE_PUSHED_LEN;
+}
+
+fzn_exchange_err_t fzn_exchange_push(fzn_journal_t *journal, fzn_record_store_t *store,
+                                     fzn_exchange_ask_t ask, void *ask_ctx, uint8_t *reply,
+                                     size_t reply_cap, fzn_exchange_push_tally_t *tally)
+{
+	static fzn_sync_position_t theirs[FZN_SYNC_MAX_POSITIONS];
+	static uint8_t message[FZN_EXCHANGE_PUSH_HEAD_LEN + 16u * (2u + FZN_RECORD_MAX_LEN)];
+	size_t n = 0, p;
+	fzn_exchange_err_t err;
+
+	if (!journal || !store || !ask || !reply || !tally || reply_cap < FZN_EXCHANGE_REPLY_MIN)
+		return FZN_EXCHANGE_ERR_MALFORMED;
+	memset(tally, 0, sizeof(*tally));
+	err = read_digest(ask, ask_ctx, reply, reply_cap, theirs, &n);
+	if (err != FZN_EXCHANGE_OK)
+		return err;
+	tally->positions = n;
+	/* EVERY STREAM THE PEER LISTS that this journal holds further. A
+	 * message is as large as the smaller of the caller's buffer and this
+	 * one, so the peer can answer it in a reply of the same size. */
+	for (p = 0; p < n; p++) {
+		uint64_t mine = fzn_journal_next(journal, theirs[p].issuer, theirs[p].stream) - 1u;
+		uint64_t seq = theirs[p].received + 1u;
+		size_t cap = reply_cap < sizeof(message) ? reply_cap : sizeof(message);
+
+		while (seq <= mine) {
+			uint8_t buf[FZN_RECORD_MAX_LEN];
+			size_t at = FZN_EXCHANGE_PUSH_HEAD_LEN, count = 0, reply_len = 0;
+			unsigned taken, refused, forks;
+
+			while (seq <= mine && count < 0xffffu) {
+				fzn_record_t rec;
+
+				if (fzn_record_store_get(store, theirs[p].issuer, theirs[p].stream, seq, buf,
+				                         sizeof(buf), &rec) != FZN_RECORD_STORE_OK
+				    || cap - at < 2u + rec.len)
+					break;
+				fzn_put_be16(message + at, (uint16_t)rec.len);
+				memcpy(message + at + 2u, rec.base, rec.len);
+				at += 2u + rec.len;
+				count++;
+				seq++;
+			}
+			if (count == 0u)
+				break;
+			message[0] = (uint8_t)FZN_EXCHANGE_VERSION;
+			message[1] = (uint8_t)FZN_EXCHANGE_PUSH;
+			fzn_put_be16(message + 2, (uint16_t)count);
+			tally->offered += count;
+			if (!ask(ask_ctx, message, at, reply, reply_cap, &reply_len))
+				return FZN_EXCHANGE_ERR_NO_ANSWER;
+			if (!is(reply, reply_len, (uint8_t)FZN_EXCHANGE_PUSHED)
+			    || reply_len != FZN_EXCHANGE_PUSHED_LEN)
+				return FZN_EXCHANGE_ERR_SHAPE;
+			taken = fzn_get_be16(reply + 2);
+			refused = fzn_get_be16(reply + 6);
+			forks = fzn_get_be16(reply + 8);
+			tally->taken += taken;
+			tally->held += fzn_get_be16(reply + 4);
+			tally->refused += refused;
+			tally->forks += forks;
+			/* A MESSAGE NOT WHOLLY TAKEN ends the stream for the round:
+			 * whatever came after the refusal would be refused too. */
+			if (refused || forks)
+				break;
+		}
 	}
 	return FZN_EXCHANGE_OK;
 }

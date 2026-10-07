@@ -273,6 +273,123 @@ static void test_a_follower_learns_the_chain(void)
 	}
 }
 
+/* THE PUSH, sec 512. The taker answers a digest as any server does, and
+ * takes a PUSH through `fzn_exchange_take_push`. */
+static int push_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *out,
+                    size_t out_cap, size_t *out_len)
+{
+	struct host *taker = ctx;
+	size_t cap = out_cap < taker->reply_cap ? out_cap : taker->reply_cap;
+
+	*out_len = fzn_exchange_take_push(&taker->journal, &taker->store, &SIGN, &HASH, request,
+	                                  request_len, out, cap);
+	if (*out_len)
+		return 1;
+	return ask(ctx, request, request_len, out, out_cap, out_len);
+}
+
+/* A holds W's five and X's two. B follows W and holds its first two. A pushes:
+ * B takes W's third to fifth and is never offered X; a second push offers
+ * nothing. At the floor buffer it goes over several messages. A PUSH carrying
+ * X's record, which B does not follow, is refused; and C, holding a different
+ * third record of W's, stops W at the fork. */
+static void test_a_push(void)
+{
+	static struct host a, b, c, d;
+	uint8_t ids[5][FZN_RECORD_ID_LEN], x_ids[2][FZN_RECORD_ID_LEN], w[FZN_PUBKEY_LEN];
+	uint8_t x[FZN_PUBKEY_LEN];
+	fzn_exchange_push_tally_t t;
+
+	host_init(&a);
+	host_init(&b);
+	key(w, 0x41);
+	key(x, 0x58);
+	CHECK(hold_chain(&a, 0x41, 5, ids) && hold_chain(&a, 0x58, 2, x_ids)
+	              && hold_chain(&b, 0x41, 2, ids),
+	      "fixture: A holds W's five and X's two, B W's first two");
+	CHECK(fzn_exchange_push(&a.journal, &a.store, push_ask, &b, reply, sizeof(reply), &t)
+	                      == FZN_EXCHANGE_OK
+	              && t.positions == 1u && t.offered == 3u && t.taken == 3u && t.held == 0u
+	              && t.refused == 0u && t.forks == 0u,
+	      "B did not take W's third to fifth, or was offered more");
+	CHECK(fzn_journal_next(&b.journal, w, 1u) == 6u
+	              && fzn_record_store_stands(&b.store, &HASH, w, 1u, 5u, ids[4], 1u, ids[0]),
+	      "B's position is not past W's fifth, or the chain does not hold");
+	CHECK(fzn_journal_next(&b.journal, x, 1u) == 1u, "B took a stream it does not follow");
+	CHECK(fzn_exchange_push(&a.journal, &a.store, push_ask, &b, reply, sizeof(reply), &t)
+	                      == FZN_EXCHANGE_OK
+	              && t.offered == 0u,
+	      "a second push offered what B holds");
+
+	/* AT THE FLOOR BUFFER: room for one record of the largest size, so a
+	 * stream goes over several messages. */
+	host_init(&d);
+	CHECK(fzn_journal_anchor(&d.journal, w, 1u, 0) == FZN_JOURNAL_OK
+	              && fzn_exchange_push(&a.journal, &a.store, push_ask, &d, reply,
+	                                   FZN_EXCHANGE_REPLY_MIN, &t) == FZN_EXCHANGE_OK
+	              && t.offered == 5u && t.taken == 5u && fzn_journal_next(&d.journal, w, 1u) == 6u,
+	      "at the floor buffer W's five did not all arrive");
+
+	/* A STREAM THE TAKER DOES NOT FOLLOW, sent anyway: refused. */
+	{
+		uint8_t msg[FZN_EXCHANGE_PUSH_HEAD_LEN + 2u + FZN_RECORD_MAX_LEN], out[16];
+		uint8_t buf[FZN_RECORD_MAX_LEN], id[FZN_RECORD_ID_LEN];
+		size_t len = 0, n;
+
+		CHECK(make(buf, &len, 0x58, 1, NULL, 1, id), "fixture: X's first record");
+		msg[0] = (uint8_t)FZN_EXCHANGE_VERSION;
+		msg[1] = (uint8_t)FZN_EXCHANGE_PUSH;
+		msg[2] = 0u;
+		msg[3] = 1u;
+		msg[4] = (uint8_t)(len >> 8);
+		msg[5] = (uint8_t)len;
+		memcpy(msg + 6, buf, len);
+		n = fzn_exchange_take_push(&b.journal, &b.store, &SIGN, &HASH, msg, 6u + len, out,
+		                           sizeof(out));
+		CHECK(n == FZN_EXCHANGE_PUSHED_LEN && out[3] == 0u && out[7] == 1u
+		              && fzn_journal_next(&b.journal, x, 1u) == 1u,
+		      "a pushed record of a stream B does not follow was taken");
+
+		/* AND ONE B DOES FOLLOW, ITS SIGNATURE BROKEN: refused unread. */
+		host_init(&d);
+		CHECK(fzn_journal_anchor(&d.journal, w, 1u, 0) == FZN_JOURNAL_OK
+		              && make(buf, &len, 0x41, 1, NULL, 1, id),
+		      "fixture: W's first record, for a taker following W");
+		buf[len - 1u] ^= 1u;
+		msg[4] = (uint8_t)(len >> 8);
+		msg[5] = (uint8_t)len;
+		memcpy(msg + 6, buf, len);
+		n = fzn_exchange_take_push(&d.journal, &d.store, &SIGN, &HASH, msg, 6u + len, out,
+		                           sizeof(out));
+		CHECK(n == FZN_EXCHANGE_PUSHED_LEN && out[3] == 0u && out[7] == 1u
+		              && fzn_journal_next(&d.journal, w, 1u) == 1u,
+		      "a pushed record whose signature fails was taken");
+	}
+
+	/* A FORK AT THE TAKER: C holds a different third record of W's. */
+	{
+		uint8_t buf[FZN_RECORD_MAX_LEN], other[FZN_RECORD_ID_LEN];
+		size_t len = 0;
+		fzn_record_t r;
+
+		host_init(&c);
+		CHECK(hold_chain(&c, 0x41, 2, ids) && make(buf, &len, 0x41, 3, ids[1], 0x77, other)
+		              && fzn_record_open(buf, len, &r) == FZN_RECORD_OK
+		              && fzn_journal_admit_chained(&c.journal, w, 1u, 3u, fzn_record_prev(r),
+		                                           other) == FZN_JOURNAL_OK
+		              && fzn_record_store_put(&c.store, r) == FZN_RECORD_STORE_OK,
+		      "fixture: C holds a different third record of W's");
+		CHECK(fzn_exchange_push(&a.journal, &a.store, push_ask, &c, reply,
+		                        FZN_EXCHANGE_REPLY_MIN, &t) == FZN_EXCHANGE_OK
+		              && t.offered == 2u && t.forks == 1u && t.taken == 0u
+		              && fzn_journal_next(&c.journal, w, 1u) == 4u,
+		      "a push past C's different third record was not stopped at the fork");
+	}
+	CHECK(fzn_exchange_take_push(NULL, &b.store, &SIGN, &HASH, reply, 4u, reply, sizeof(reply))
+	              == 0u,
+	      "take_push took no journal");
+}
+
 /* A SERVER THAT LIES, by rewriting what it was asked: one sequence further
  * on, or another issuer's stream. What comes back is well signed and is not
  * the record the client asked for. */
@@ -405,6 +522,7 @@ static void test_the_edges(void)
 
 int main(void)
 {
+	test_a_push();
 	test_a_follower_learns_the_chain();
 	test_a_fork_and_a_forgery();
 	test_a_lying_server();

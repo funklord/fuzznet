@@ -7,12 +7,14 @@
  * shape `get vote` and `get root` each grew, paging and deduplicating and
  * ordering on their own, which sec 500 retires.
  *
- * FOUR MESSAGES, BINARY, stated in `record/exchange.situ`:
+ * SIX MESSAGES, BINARY, stated in `record/exchange.situ`:
  *
  *     DIGEST_QUERY   "your positions, from this one"
  *     DIGEST         "these, of this many"
  *     RECORDS_QUERY  "this stream's records, from this sequence, at most n"
  *     RECORDS        "these"
+ *     PUSH           "take these", unasked (sec 512)
+ *     PUSHED         "taken, held, refused, forked"
  *
  * Binary because a record is up to 700 bytes and a reply line of hex is
  * bounded at 1024 characters. The first byte is the version, 5, below any
@@ -25,6 +27,14 @@
  * its issuer, and extending the chain this host holds
  * (`fzn_journal_admit_chained`). A fork stops that stream for the round and
  * is counted; the record is not kept.
+ *
+ * A PUSH IS ADMITTED AS A PULL IS, and only on a stream the taker follows:
+ * a hub pulls from nobody it is not paired to, so without a push a member's
+ * records reached nobody but the members that pull it (sec 446's reason for
+ * notes' push, met again). The pusher reads the taker's digest and sends
+ * only what each listed stream lacks, so a stream the taker does not follow
+ * is never offered, and one sent anyway is refused by the journal, which
+ * adopts no issuer it was not told to follow.
  *
  * ADMITTED, THEN STORED. A record the journal refuses is never written, so a
  * fork at the head cannot overwrite the honest record at its sequence. A store
@@ -50,7 +60,9 @@ typedef enum fzn_exchange_type {
 	FZN_EXCHANGE_DIGEST_QUERY = 1,
 	FZN_EXCHANGE_DIGEST = 2,
 	FZN_EXCHANGE_RECORDS_QUERY = 3,
-	FZN_EXCHANGE_RECORDS = 4
+	FZN_EXCHANGE_RECORDS = 4,
+	FZN_EXCHANGE_PUSH = 5,
+	FZN_EXCHANGE_PUSHED = 6
 } fzn_exchange_type_t;
 
 #define FZN_EXCHANGE_DIGEST_QUERY_LEN 4u
@@ -58,6 +70,9 @@ typedef enum fzn_exchange_type {
 #define FZN_EXCHANGE_DIGEST_HEAD_LEN 8u
 #define FZN_EXCHANGE_RECORDS_QUERY_LEN 48u
 #define FZN_EXCHANGE_RECORDS_HEAD_LEN 4u
+/* A PUSH is laid out as RECORDS is; PUSHED is its four counts. */
+#define FZN_EXCHANGE_PUSH_HEAD_LEN 4u
+#define FZN_EXCHANGE_PUSHED_LEN 10u
 
 /* The smallest reply buffer either side may use: one whole record and its
  * length in a RECORDS message. A smaller one could never carry the largest
@@ -99,6 +114,37 @@ typedef struct fzn_exchange_tally {
 	size_t refused;     /* records not the next one, or not signed */
 	size_t forks;       /* streams stopped at a fork */
 } fzn_exchange_tally_t;
+
+/* THE TAKER: one PUSH, admitted record by record exactly as a pull admits
+ * them -- each opened, verified by its issuer, the next of a stream this
+ * journal follows, and extending its chain -- and stored once admitted. A
+ * record already held is counted held; the first that is refused or forks
+ * stops the rest of the message, since every record after it in one stream
+ * would be refused the same way. PUSHED into `reply`, its length, or 0 when
+ * `request` is not a PUSH. A store that will not keep an admitted record
+ * stops the message and counts it refused. */
+size_t fzn_exchange_take_push(fzn_journal_t *journal, fzn_record_store_t *store,
+                              const fzn_sign_ops_t *sign, const fzn_hash_ops_t *hash,
+                              const uint8_t *request, size_t request_len, uint8_t *reply,
+                              size_t reply_cap);
+
+typedef struct fzn_exchange_push_tally {
+	size_t positions;   /* the peer's, read */
+	size_t offered;     /* records sent */
+	size_t taken;       /* of those, admitted and kept there */
+	size_t held;        /* already held there */
+	size_t refused;     /* refused there */
+	size_t forks;       /* stopped there at a fork */
+} fzn_exchange_push_tally_t;
+
+/* THE PUSHER: read the peer's digest, and for every stream it lists that
+ * this journal holds further, send the records it lacks, as many to a
+ * message as fit in `reply_cap`, the stream stopping at the first message
+ * that is not wholly taken. `reply` is the caller's, at least
+ * FZN_EXCHANGE_REPLY_MIN, and carries both each PUSH and its answer. */
+fzn_exchange_err_t fzn_exchange_push(fzn_journal_t *journal, fzn_record_store_t *store,
+                                     fzn_exchange_ask_t ask, void *ask_ctx, uint8_t *reply,
+                                     size_t reply_cap, fzn_exchange_push_tally_t *tally);
 
 /* THE CLIENT: one round against one peer. Pages the peer's digest, plans with
  * `fzn_sync_plan_fetch` at `max_per_request`, and asks for each range until

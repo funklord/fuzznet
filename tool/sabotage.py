@@ -9264,8 +9264,8 @@ SABOTAGES = [
 	(
 		"exchange-pull-verifies",
 		"record/exchange.c",
-		"\t\t    || fzn_record_verify(rec, sign) != FZN_RECORD_OK\n",
-		"",
+		"\t\t    || fzn_record_stream(rec) != want->stream || fzn_record_seq(rec) != *next\n\t\t    || fzn_record_verify(rec, sign) != FZN_RECORD_OK\n",
+		"\t\t    || fzn_record_stream(rec) != want->stream || fzn_record_seq(rec) != *next\n",
 		"a record nobody signed, served by a peer, enters the journal as the issuer's -- sec 501",
 	),
 	(
@@ -9285,8 +9285,8 @@ SABOTAGES = [
 	(
 		"node-journal-append-names-the-head",
 		"node/journal.c",
-		"\t                    seq == 1u ? NULL : e->head, now, body, body_len, sign, buf, sizeof(buf),\n",
-		"\t                    NULL, now, body, body_len, sign, buf, sizeof(buf),\n",
+		"\tif (fzn_record_sign(issuer, subject, stream, kind, seq, seq == 1u ? NULL : e->head, now,\n",
+		"\tif (fzn_record_sign(issuer, subject, stream, kind, seq, NULL, now,\n",
 		"a record written without its predecessor is refused by the node's own chain, and nothing past the first act is kept -- sec 501",
 	),
 	(
@@ -9407,6 +9407,20 @@ SABOTAGES = [
 		"\tif (roots->revocations\n\t    && fzn_revocation_store_set_acts(roots->revocations, &roots->acts) != FZN_CHAIN_OK)\n\t\treturn FZN_NODE_ROOTS_MALFORMED;\n",
 		"",
 		"a store attached before the journal was set keeps asking no act log, and every cut drawn against it keeps nothing of the revoked key's -- sec 508",
+	),
+	(
+		"exchange-push-verifies-what-arrives",
+		"record/exchange.c",
+		"\t\t    || fzn_record_open(request + at + 2u, len, &rec) != FZN_RECORD_OK\n\t\t    || fzn_record_verify(rec, sign) != FZN_RECORD_OK\n\t\t    || !hash->hash(hash->ctx, id, sizeof(id), rec.base, rec.len)) {\n\t\t\trefused++;",
+		"\t\t    || fzn_record_open(request + at + 2u, len, &rec) != FZN_RECORD_OK\n\t\t    || !hash->hash(hash->ctx, id, sizeof(id), rec.base, rec.len)) {\n\t\t\trefused++;",
+		"a push taken unverified writes a record nobody signed into a stream every follower then admits from this host -- sec 512",
+	),
+	(
+		"exchange-push-stops-at-a-fork",
+		"record/exchange.c",
+		"\t\tif (jerr == FZN_JOURNAL_ERR_FORK) {\n\t\t\tforks++;\n\t\t\tbreak;\n\t\t}\n\t\tif (jerr == FZN_JOURNAL_ERR_DUPLICATE) {\n\t\t\theld++;",
+		"\t\tif (jerr == FZN_JOURNAL_ERR_FORK) {\n\t\t\theld++;\n\t\t\tcontinue;\n\t\t}\n\t\tif (jerr == FZN_JOURNAL_ERR_DUPLICATE) {\n\t\t\theld++;",
+		"a fork pushed and counted as held is a key signing in two places that nobody hears about -- sec 512",
 	),
 ]
 

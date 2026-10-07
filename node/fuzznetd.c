@@ -1165,6 +1165,22 @@ static void pull_journal(struct pull_target *pulls, size_t npulls, uint64_t now)
 			say(tally.forks ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "journal",
 			    "%zu record(s) from %s, %zu refused, %zu stream(s) stopped at a fork",
 			    tally.learned, pulls[t].host, tally.refused, tally.forks);
+		/* AND PUSHED BACK, sec 512: what this node holds of every stream
+		 * the peer follows, so a hub that pulls from nobody still hears
+		 * this member. */
+		{
+			fzn_exchange_push_tally_t pushed;
+			fzn_exchange_err_t perr = fzn_node_journal_push(&node_journal, peer_ask, &asking,
+			                                                reply, sizeof(reply), &pushed);
+
+			if (perr != FZN_EXCHANGE_OK)
+				say(FZN_ENTRY_WARNING, "journal", "pushing to %s: %s", pulls[t].host,
+				    fzn_exchange_err_str(perr));
+			else if (pushed.taken || pushed.refused || pushed.forks)
+				say(pushed.refused || pushed.forks ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO,
+				    "journal", "%zu record(s) pushed to %s, %zu refused, %zu forked",
+				    pushed.taken, pulls[t].host, pushed.refused, pushed.forks);
+		}
 	}
 }
 #endif

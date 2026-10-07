@@ -57848,3 +57848,173 @@ until `remove received`. Two things remain:
   contact the owning device has removed is never acked, so the delegating
   host retries for good. It needs a "cannot deliver" answer that host can
   act on. Recorded for when that wire is built here.
+
+## 511. Stage 5 decided: notes become a journal stream, content in blobs, 2026-10-07
+
+Sec 500's stage 5 says notes keep their history in the journal's format, and
+the local operation journal (sec 496's tier 2) arrives. Sec 496 left one
+question that decides the shape. A purge must still delete, but a record
+cannot be taken out of the middle of a hash chain that followers fetch and
+verify. It also left deletion, growth and determinism open for tier 2. All
+three were put to the holder.
+
+### The holder's decisions, 2026-10-07
+
+- **Notes:** "Journal stream, content in blobs." Each host's note records
+  become a chained journal stream carried by the one journal sync, and
+  notes' own sync retires for members. Every note's content (title, text,
+  labels) moves into a sealed blob. A purge destroys the blobs and their
+  keys, and the chained records stay behind as contentless shells, so the
+  chain never breaks.
+  - **Costs accepted:** a rewrite of notes' store, sync, sharing and purge;
+    a blob fetch for every note read, a sticky note's included; and
+    fuzzypickles' note format breaks.
+  - **Rejected:** keeping versions locally with records unchained, which
+    leaves notes outside the journal and outside revocation lines; and
+    deferring notes behind tier 2.
+- **The operation journal:** "Entries by hash, purge-aware." An entry
+  records a write as the hash of the new bytes, and the bytes are kept
+  beside it. Deleting the bytes deletes the content while the record of the
+  operation survives, and a purge or a removal erases them. Retention rules
+  bound growth. Replay covers only the subsystems whose state is a pure
+  function of their entries, and the list of them is stated.
+  - **Rejected:** entries holding the whole bytes, where a purged note
+    survives until retention drops it; and leaving tier 2 for later.
+
+### The design
+
+The map behind it reads every notes module.
+
+- **The record keeps what is not content:**
+  - flags, colour, created and edited times;
+  - the tree position (parent and order);
+  - a fixed reference: the root, the content key and the length of a
+    sealed blob.
+
+  The blob holds title, text and labels. The note body's version goes to 2,
+  and TEXT_IS_BLOB retires, since every note is one. Pinning, trashing and
+  moving reuse the reference: the same content under the same key is not a
+  key reused. An edit seals a new blob under a new key, as long text does
+  today (`notes/text.h`).
+- **Notes stay on stream 0, kind 0x36, now chained.** Each host's note
+  records name their predecessor, and a member follows each sibling's
+  notes stream as it follows the estate stream. `node/journal`, which
+  fixes every question to the estate stream, gains a stream argument. The
+  latest record per (note, writer) is what a view shows, and every earlier
+  record of the note is its history.
+- **Members sync through the journal exchange.** Notes' INDEX, RECORDS and
+  PUSH between members retire. Sec 446 pushed because a hub pulls from
+  nobody it is not paired to, and the journal has the same gap for
+  members' votes today, so the exchange gains a push.
+- **Contacts keep the scoped protocol.** A hash chain cannot be served in
+  part: a contact following a host's stream would get every note, or holes
+  it can never fill. So a contact is still served the latest record of each
+  note in the shared subtree, derived from the journal, and admits it
+  without a chain, as it does today.
+- **A purge destroys content, not records.** Erasing a note now destroys
+  every blob its history names, and marks the note purged durably, so views
+  and the contact protocol hide it. Its records stay in the stream as
+  shells. The pinned-host conversation (sec 427) stays: it is what makes
+  every sibling destroy its copy.
+- **Blobs are needed for every note,** so notes need a blob store wherever
+  they run. The node's is the shelf (`node/shelf.h`), built with the spool
+  file store. A suite gets an in-memory one through the hooks `node/notes.h`
+  already takes. The shelf's 16 wants are far below a node's notes. Every
+  note now names a blob, so the want list has to grow or be derived from
+  the notes held, and that is part of the step that needs it.
+
+### What clients are promised
+
+fuzzypickles' GUI and TUI draw the whole tree with titles and search it.
+They asked for two things before their notes move onto these:
+
+- **A listing answers title and labels without a blob read per note.** The
+  node opens each blob once, when it arrives or is written, and keeps the
+  title and labels in a local cache keyed by the blob's root. The cache is
+  not carried and is destroyed with the blob, so a purge still deletes it.
+  `list note` reads the cache. A note whose blob has not arrived lists as
+  pending, with no title, rather than as an empty row.
+- **A purged note is not listed.** Its shells stay in the stream and are
+  never returned by `list note` or served to a contact.
+
+### The steps
+
+1. The journal across streams, and the exchange's push.
+2. The note body, version 2, and the content blob.
+3. Notes over the journal: store, view, author and history.
+4. Members' sync on the journal; contacts' scoped serving from it.
+5. Purge over shells.
+6. The daemon, the verbs, the GUI and import.
+7. The operation journal (5b).
+
+fuzzypickles consumes notes as a vendored component. They are told before
+the format breaks.
+
+## 512. Stage 5, step 1: the journal across streams, and the exchange's push, 2026-10-07
+
+### Any stream
+
+`node/journal` fixed every question to the estate stream. Notes will be
+each key's stream 0 beside it (sec 511), so the journal now takes a
+stream:
+
+- `fzn_node_journal_follow_stream`
+- `fzn_node_journal_append_on`
+- `fzn_node_journal_received`
+
+The estate-stream calls are wrappers over these, so no caller changed. The
+exchange already moved records per (issuer, stream).
+
+### The push
+
+A hub pulls from nobody it is not paired to, so a member's records reached
+only the members that pull it. Sec 446 met this for notes and gave them a
+push; the journal had the same gap for members' votes. The exchange gains
+two messages, version 5, stated in `record/exchange.situ`:
+
+- **PUSH** carries consecutive records, laid out as RECORDS is.
+- **PUSHED** answers with four counts: taken, held, refused and forked.
+
+How each side behaves:
+
+- **`fzn_exchange_push`** reads the peer's digest, and sends only what each
+  stream it lists lacks. A stream the peer does not follow is never
+  offered. A message not wholly taken ends that stream for the round.
+- **`fzn_exchange_take_push`** admits record by record, exactly as a pull
+  does: opened, verified by its issuer, the next of a stream the taker
+  follows, extending its chain, and stored once admitted. A record already
+  held counts held. The first refusal or fork stops the message.
+- **One sent anyway** for a stream the taker does not follow is refused:
+  the journal adopts no issuer it was not told to follow.
+- **The read is shared.** The digest read the pull did inline is now
+  `read_digest`, shared by both.
+
+`fzn_node_journal_answer` takes a PUSH through the journal's signer and
+hash, and `fzn_node_journal_push` is the round. fuzznetd pushes to each
+pull peer right after pulling from it.
+
+### Measured for sec 512
+
+- **`exchange_test`, 33 checks**, with `test_a_push`:
+  - B follows W and holds its first two: A's push takes the third to fifth,
+    never offers X, and a second push offers nothing;
+  - at the floor buffer, W's five arrive over several messages;
+  - a pushed record of a stream B does not follow is refused, and so is
+    one of W's with its signature broken;
+  - C, holding a different third record of W's, stops W at the fork.
+
+  The first draft expected one record a message at the floor buffer. A
+  floor sized for the largest record holds two or three of the test's small
+  ones, so the check was wrong rather than the code.
+- **`node_journal_test`, 25 checks.** Two records on W's stream 0 chain
+  there, the estate stream does not move, and a fresh journal following
+  stream 0 replays them. The scratch directory not removing would have
+  caught a stream-0 file named wrongly.
+- **Live, `live56`, R and M over loopback.** M joins R and pairs E
+  offline, then revokes E while running. M's first round pushes its grant
+  of E and the next pushes the vote. R, which pulls from nobody, indexes
+  the grant and then applies the vote: "1 object(s) applied". No daemon
+  was left running.
+- `make test`, `make style` (1154 sabotage entries; two new, two
+  re-anchored on code the stream argument moved), `make installcheck`,
+  `make schema`.

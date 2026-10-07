@@ -15,6 +15,8 @@ enum fzn_exchange_type : u8 {
 	digest        = 2,   // "These, of this many."
 	records_query = 3,   // "This stream's records, from this sequence."
 	records       = 4,   // "These."
+	push          = 5,   // "Take these", unasked. sec 512.
+	pushed        = 6,   // "Taken, held, refused, forked."
 }
 
 struct fzn_exchange_digest_query {
@@ -59,4 +61,23 @@ struct fzn_exchange_records {
 	fzn_exchange_type    type    [must_eq = records];
 	u16                  count;
 	fzn_exchange_record  records[count];
+}
+
+// A push is laid out as RECORDS is: consecutive records of the streams the
+// taker's digest listed, sent unasked. sec 512.
+struct fzn_exchange_push {
+	u8                   version [must_eq = 5];
+	fzn_exchange_type    type    [must_eq = push];
+	u16                  count;
+	fzn_exchange_record  records[count];
+}
+
+// What became of a push, record by record.
+struct fzn_exchange_pushed {
+	u8                 version [must_eq = 5];
+	fzn_exchange_type  type    [must_eq = pushed];
+	u16                taken;
+	u16                held;
+	u16                refused;
+	u16                forks;
 }

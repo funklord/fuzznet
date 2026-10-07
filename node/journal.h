@@ -101,6 +101,19 @@ fzn_node_journal_err_t fzn_node_journal_follow(fzn_node_journal_t *nj,
                                                const uint8_t key[FZN_PUBKEY_LEN],
                                                size_t *replayed);
 
+/* FOLLOW `key`'s `stream`, as `fzn_node_journal_follow` follows its estate
+ * stream: a key's notes are its stream 0 (`notes/store.h`), its acts its
+ * estate stream. sec 512. */
+fzn_node_journal_err_t fzn_node_journal_follow_stream(fzn_node_journal_t *nj,
+                                                      const uint8_t key[FZN_PUBKEY_LEN],
+                                                      uint32_t stream, size_t *replayed);
+
+/* How far this journal holds `key`'s `stream`: the highest sequence of an
+ * unbroken run from 1, which the store holds and the chain admitted. 0 when
+ * the stream is not followed or holds nothing. */
+uint64_t fzn_node_journal_received(const fzn_node_journal_t *nj,
+                                   const uint8_t key[FZN_PUBKEY_LEN], uint32_t stream);
+
 /* WRITE ONE: the next record of `issuer`'s estate stream, signed by `sign`
  * (which holds `issuer`'s secret), naming the stream's head, admitted and
  * stored. The stream is followed first if it was not. Its id lands in `id`
@@ -111,6 +124,16 @@ fzn_node_journal_err_t fzn_node_journal_append(fzn_node_journal_t *nj,
                                                const uint8_t subject[FZN_SUBJECT_LEN],
                                                const uint8_t *body, size_t body_len,
                                                uint64_t now, uint8_t id[FZN_RECORD_ID_LEN]);
+
+/* `fzn_node_journal_append` on any `stream`. sec 512. */
+fzn_node_journal_err_t fzn_node_journal_append_on(fzn_node_journal_t *nj,
+                                                  const uint8_t issuer[FZN_PUBKEY_LEN],
+                                                  uint32_t stream, const fzn_sign_ops_t *sign,
+                                                  uint32_t kind,
+                                                  const uint8_t subject[FZN_SUBJECT_LEN],
+                                                  const uint8_t *body, size_t body_len,
+                                                  uint64_t now,
+                                                  uint8_t id_out[FZN_RECORD_ID_LEN]);
 
 /* WRITE AN OBJECT: `fzn_node_journal_append` with the object's tag (its
  * second byte) as the kind, its hash as the subject, and its bytes, `len` of
@@ -157,7 +180,14 @@ int fzn_node_journal_stands(fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY
  * must outlive them. */
 void fzn_node_journal_acts(fzn_node_journal_t *nj, fzn_act_log_ops_t *ops);
 
-/* THE SERVER: `fzn_exchange_answer` over this node's journal and store. 0 for
+/* THE PUSHER: one round of `fzn_exchange_push` against one peer, every
+ * stream the peer follows that this node holds further. sec 512. */
+fzn_exchange_err_t fzn_node_journal_push(fzn_node_journal_t *nj, fzn_exchange_ask_t ask,
+                                         void *ask_ctx, uint8_t *reply, size_t reply_cap,
+                                         fzn_exchange_push_tally_t *tally);
+
+/* THE SERVER: `fzn_exchange_answer` over this node's journal and store, and a
+ * PUSH taken through `fzn_exchange_take_push`. 0 for
  * a message that is not the journal's. */
 size_t fzn_node_journal_answer(fzn_node_journal_t *nj, const uint8_t *request,
                                size_t request_len, uint8_t *reply, size_t reply_cap);

@@ -109,8 +109,17 @@ static int append(fzn_node_journal_t *nj, uint8_t writer, uint8_t subject_byte,
 	                               1u, 1000u, id) == FZN_NODE_JOURNAL_OK;
 }
 
-/* The file the store keeps a stream in, by the rule store_file.c follows. */
+/* The file the store keeps `writer`'s `stream` in, by the rule store_file.c
+ * follows. */
+static void stream_file(char *out, size_t cap, const char *dir, uint8_t writer, uint32_t stream);
+
+/* The file the store keeps an estate stream in. */
 static void stream_path(char *out, size_t cap, const char *dir, uint8_t writer)
+{
+	stream_file(out, cap, dir, writer, FZN_NODE_JOURNAL_STREAM);
+}
+
+static void stream_file(char *out, size_t cap, const char *dir, uint8_t writer, uint32_t stream)
 {
 	static const char DIGITS[] = "0123456789abcdef";
 	uint8_t issuer[FZN_PUBKEY_LEN];
@@ -123,7 +132,7 @@ static void stream_path(char *out, size_t cap, const char *dir, uint8_t writer)
 		hex[i * 2u + 1u] = DIGITS[issuer[i] & 0x0fu];
 	}
 	hex[FZN_PUBKEY_LEN * 2u] = '\0';
-	snprintf(out, cap, "%s/%s-%08lx.rec", dir, hex, (unsigned long)FZN_NODE_JOURNAL_STREAM);
+	snprintf(out, cap, "%s/%s-%08lx.rec", dir, hex, (unsigned long)stream);
 }
 
 static void test_streams_on_disk_and_between_hosts(void)
@@ -325,6 +334,36 @@ static void test_the_stream_is_the_act_log(void)
 	fzn_node_journal_close(&a);
 }
 
+/* ANY STREAM, sec 512: a key's notes are its stream 0 beside its estate
+ * stream. Two records appended on stream 0 chain there, leave the estate
+ * stream alone, and replay into a fresh journal following stream 0. */
+static void test_a_second_stream(void)
+{
+	static fzn_node_journal_t a;
+	uint8_t w[FZN_PUBKEY_LEN], subject[FZN_SUBJECT_LEN], body = 1u, ids[2][FZN_RECORD_ID_LEN];
+	size_t replayed = 0;
+
+	key(w, 0x60);
+	memset(subject, 0x22, sizeof(subject));
+	signing_as = 0x60;
+	CHECK(fzn_node_journal_init(&a, dir_a, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_append_on(&a, w, 0u, &SIGN, 0x36u, subject, &body, 1u, 5u,
+	                                            ids[0]) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_append_on(&a, w, 0u, &SIGN, 0x36u, subject, &body, 1u, 6u,
+	                                            ids[1]) == FZN_NODE_JOURNAL_OK,
+	      "fixture: two records on W's stream 0");
+	CHECK(fzn_node_journal_received(&a, w, 0u) == 2u
+	              && fzn_node_journal_received(&a, w, FZN_NODE_JOURNAL_STREAM) == 0u
+	              && fzn_record_store_stands(&a.store, &HASH, w, 0u, 2u, ids[1], 1u, ids[0]),
+	      "stream 0 did not chain its two, or the estate stream moved");
+	fzn_node_journal_close(&a);
+	CHECK(fzn_node_journal_init(&a, dir_a, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_follow_stream(&a, w, 0u, &replayed) == FZN_NODE_JOURNAL_OK
+	              && replayed == 2u && fzn_node_journal_received(&a, w, 0u) == 2u,
+	      "a fresh journal following stream 0 did not replay its two");
+	fzn_node_journal_close(&a);
+}
+
 int main(void)
 {
 	char path[512];
@@ -338,6 +377,7 @@ int main(void)
 	test_streams_on_disk_and_between_hosts();
 	test_an_object_carried_whole();
 	test_the_stream_is_the_act_log();
+	test_a_second_stream();
 
 	/* EVERY FILE THE SUITE MADE, BY NAME, then the directories. */
 	stream_path(path, sizeof(path), dir_a, 0x31);
@@ -347,6 +387,8 @@ int main(void)
 	stream_path(path, sizeof(path), dir_a, 0x55);
 	(void)unlink(path);
 	stream_path(path, sizeof(path), dir_a, 0x57);
+	(void)unlink(path);
+	stream_file(path, sizeof(path), dir_a, 0x60, 0u);
 	(void)unlink(path);
 	stream_path(path, sizeof(path), dir_b, 0x31);
 	(void)unlink(path);

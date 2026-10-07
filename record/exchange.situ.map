@@ -33,6 +33,23 @@ struct fzn_exchange_position size=44 repr=ValueConverted atomic=NonAtomic
   fzn_exchange_position.stream           offset=AbsoluteStatic(0x20) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
   fzn_exchange_position.received         offset=AbsoluteStatic(0x24) size=Fixed(8) align=Aligned(4) repr=ValueConverted atomic=NonAtomic
 
+struct fzn_exchange_push size=4..46005574 access=Sequential mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_exchange_push.version              offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_exchange_push.type                 offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_exchange_push.count                offset=AbsoluteStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  fzn_exchange_push.records              offset=AbsoluteStatic(0x04) size=Bounded(0, 46005570) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting
+  fzn_exchange_push.records[]            offset=FrameStatic(0x00) size=Bounded(190, 702) align=Aligned(8) repr=ValueConverted atomic=NonAtomic access=Sequential mutate=Shifting
+  fzn_exchange_push.records[].len        offset=FrameStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_exchange_push.records[].record     offset=FrameStatic(0x02) size=Bounded(188, 700) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct fzn_exchange_pushed size=10 repr=ValueConverted
+  fzn_exchange_pushed.version            offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_exchange_pushed.type               offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_exchange_pushed.taken              offset=AbsoluteStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  fzn_exchange_pushed.held               offset=AbsoluteStatic(0x04) size=Fixed(2) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
+  fzn_exchange_pushed.refused            offset=AbsoluteStatic(0x06) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  fzn_exchange_pushed.forks              offset=AbsoluteStatic(0x08) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+
 struct fzn_exchange_record size=190..702 mutate=Shifting repr=ValueConverted
   fzn_exchange_record.len                offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
   fzn_exchange_record.record             offset=AbsoluteStatic(0x02) size=Bounded(188, 700) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting

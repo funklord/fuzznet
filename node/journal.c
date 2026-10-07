@@ -82,21 +82,29 @@ void fzn_node_journal_close(fzn_node_journal_t *nj)
 #endif
 }
 
-/* Whether this journal already follows `key`'s estate stream. */
-static int followed(const fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN])
+/* `key`'s position on `stream`, or NULL when not followed. */
+static fzn_journal_entry_t *entry_of(const fzn_node_journal_t *nj,
+                                     const uint8_t key[FZN_PUBKEY_LEN], uint32_t stream)
 {
 	size_t i;
 
 	for (i = 0; i < nj->journal.used; i++)
-		if (nj->entries[i].stream == FZN_NODE_JOURNAL_STREAM
+		if (nj->entries[i].stream == stream
 		    && fzn_ct_memeq(nj->entries[i].issuer, key, FZN_PUBKEY_LEN))
-			return 1;
-	return 0;
+			return (fzn_journal_entry_t *)&nj->entries[i];
+	return NULL;
 }
 
 fzn_node_journal_err_t fzn_node_journal_follow(fzn_node_journal_t *nj,
                                                const uint8_t key[FZN_PUBKEY_LEN],
                                                size_t *replayed)
+{
+	return fzn_node_journal_follow_stream(nj, key, FZN_NODE_JOURNAL_STREAM, replayed);
+}
+
+fzn_node_journal_err_t fzn_node_journal_follow_stream(fzn_node_journal_t *nj,
+                                                      const uint8_t key[FZN_PUBKEY_LEN],
+                                                      uint32_t stream, size_t *replayed)
 {
 	uint8_t buf[FZN_RECORD_MAX_LEN], id[FZN_RECORD_ID_LEN];
 	fzn_journal_err_t jerr;
@@ -107,9 +115,9 @@ fzn_node_journal_err_t fzn_node_journal_follow(fzn_node_journal_t *nj,
 		*replayed = 0;
 	if (!nj || !key)
 		return FZN_NODE_JOURNAL_MALFORMED;
-	if (followed(nj, key))
+	if (entry_of(nj, key, stream))
 		return FZN_NODE_JOURNAL_OK;
-	jerr = fzn_journal_anchor(&nj->journal, key, FZN_NODE_JOURNAL_STREAM, 0);
+	jerr = fzn_journal_anchor(&nj->journal, key, stream, 0);
 	if (jerr == FZN_JOURNAL_ERR_FULL)
 		return FZN_NODE_JOURNAL_FULL;
 	if (jerr != FZN_JOURNAL_OK)
@@ -121,14 +129,13 @@ fzn_node_journal_err_t fzn_node_journal_follow(fzn_node_journal_t *nj,
 		fzn_record_t rec;
 		fzn_record_store_err_t serr;
 
-		serr = fzn_record_store_get(&nj->store, key, FZN_NODE_JOURNAL_STREAM, seq, buf,
-		                            sizeof(buf), &rec);
+		serr = fzn_record_store_get(&nj->store, key, stream, seq, buf, sizeof(buf), &rec);
 		if (serr == FZN_RECORD_STORE_ERR_ABSENT)
 			break;
 		if (serr != FZN_RECORD_STORE_OK || fzn_record_verify(rec, nj->sign) != FZN_RECORD_OK
 		    || !nj->hash->hash(nj->hash->ctx, id, sizeof(id), rec.base, rec.len)
-		    || fzn_journal_admit_chained(&nj->journal, key, FZN_NODE_JOURNAL_STREAM, seq,
-		                                 fzn_record_prev(rec), id) != FZN_JOURNAL_OK)
+		    || fzn_journal_admit_chained(&nj->journal, key, stream, seq, fzn_record_prev(rec),
+		                                 id) != FZN_JOURNAL_OK)
 			break;
 		n++;
 	}
@@ -144,34 +151,43 @@ fzn_node_journal_err_t fzn_node_journal_append(fzn_node_journal_t *nj,
                                                const uint8_t *body, size_t body_len,
                                                uint64_t now, uint8_t id_out[FZN_RECORD_ID_LEN])
 {
+	return fzn_node_journal_append_on(nj, issuer, FZN_NODE_JOURNAL_STREAM, sign, kind, subject,
+	                                  body, body_len, now, id_out);
+}
+
+fzn_node_journal_err_t fzn_node_journal_append_on(fzn_node_journal_t *nj,
+                                                  const uint8_t issuer[FZN_PUBKEY_LEN],
+                                                  uint32_t stream, const fzn_sign_ops_t *sign,
+                                                  uint32_t kind,
+                                                  const uint8_t subject[FZN_SUBJECT_LEN],
+                                                  const uint8_t *body, size_t body_len,
+                                                  uint64_t now,
+                                                  uint8_t id_out[FZN_RECORD_ID_LEN])
+{
 	uint8_t buf[FZN_RECORD_MAX_LEN], id[FZN_RECORD_ID_LEN];
-	const fzn_journal_entry_t *e = NULL;
+	const fzn_journal_entry_t *e;
 	fzn_node_journal_err_t err;
 	fzn_record_t rec;
 	uint64_t seq;
-	size_t len = 0, i;
+	size_t len = 0;
 
 	if (!nj || !issuer || !sign || !sign->sign || !subject || (body_len && !body))
 		return FZN_NODE_JOURNAL_MALFORMED;
-	err = fzn_node_journal_follow(nj, issuer, NULL);
+	err = fzn_node_journal_follow_stream(nj, issuer, stream, NULL);
 	if (err != FZN_NODE_JOURNAL_OK)
 		return err;
-	for (i = 0; i < nj->journal.used && !e; i++)
-		if (nj->entries[i].stream == FZN_NODE_JOURNAL_STREAM
-		    && fzn_ct_memeq(nj->entries[i].issuer, issuer, FZN_PUBKEY_LEN))
-			e = &nj->entries[i];
+	e = entry_of(nj, issuer, stream);
 	/* THE HEAD MUST BE KNOWN to be named: a stream this node writes is
 	 * followed from the beginning, so it always is. */
 	if (!e || !e->has_head)
 		return FZN_NODE_JOURNAL_REFUSED;
 	seq = e->received + 1u;
-	if (fzn_record_sign(issuer, subject, FZN_NODE_JOURNAL_STREAM, kind, seq,
-	                    seq == 1u ? NULL : e->head, now, body, body_len, sign, buf, sizeof(buf),
-	                    &len) != FZN_RECORD_OK
+	if (fzn_record_sign(issuer, subject, stream, kind, seq, seq == 1u ? NULL : e->head, now,
+	                    body, body_len, sign, buf, sizeof(buf), &len) != FZN_RECORD_OK
 	    || fzn_record_open(buf, len, &rec) != FZN_RECORD_OK
 	    || !nj->hash->hash(nj->hash->ctx, id, sizeof(id), buf, len)
-	    || fzn_journal_admit_chained(&nj->journal, issuer, FZN_NODE_JOURNAL_STREAM, seq,
-	                                 fzn_record_prev(rec), id) != FZN_JOURNAL_OK)
+	    || fzn_journal_admit_chained(&nj->journal, issuer, stream, seq, fzn_record_prev(rec), id)
+	               != FZN_JOURNAL_OK)
 		return FZN_NODE_JOURNAL_REFUSED;
 	if (fzn_record_store_put(&nj->store, rec) != FZN_RECORD_STORE_OK)
 		return FZN_NODE_JOURNAL_STORE;
@@ -201,13 +217,18 @@ fzn_node_journal_err_t fzn_node_journal_append_object(fzn_node_journal_t *nj,
 static fzn_journal_entry_t *estate_entry(const fzn_node_journal_t *nj,
                                           const uint8_t key[FZN_PUBKEY_LEN])
 {
-	size_t i;
+	return entry_of(nj, key, FZN_NODE_JOURNAL_STREAM);
+}
 
-	for (i = 0; i < nj->journal.used; i++)
-		if (nj->entries[i].stream == FZN_NODE_JOURNAL_STREAM
-		    && fzn_ct_memeq(nj->entries[i].issuer, key, FZN_PUBKEY_LEN))
-			return (fzn_journal_entry_t *)&nj->entries[i];
-	return NULL;
+uint64_t fzn_node_journal_received(const fzn_node_journal_t *nj,
+                                   const uint8_t key[FZN_PUBKEY_LEN], uint32_t stream)
+{
+	const fzn_journal_entry_t *e;
+
+	if (!nj || !key)
+		return 0;
+	e = entry_of(nj, key, stream);
+	return e ? e->received : 0u;
 }
 
 int fzn_node_journal_forked(const fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN])
@@ -288,10 +309,27 @@ void fzn_node_journal_acts(fzn_node_journal_t *nj, fzn_act_log_ops_t *ops)
 size_t fzn_node_journal_answer(fzn_node_journal_t *nj, const uint8_t *request,
                                size_t request_len, uint8_t *reply, size_t reply_cap)
 {
+	size_t n;
+
 	if (!nj)
 		return 0;
+	/* A PUSH IS TAKEN HERE, where the signer and the hash are: the
+	 * exchange's own answer reads and never admits. sec 512. */
+	n = fzn_exchange_take_push(&nj->journal, &nj->store, nj->sign, nj->hash, request,
+	                           request_len, reply, reply_cap);
+	if (n)
+		return n;
 	return fzn_exchange_answer(&nj->journal, &nj->store, request, request_len, reply,
 	                           reply_cap);
+}
+
+fzn_exchange_err_t fzn_node_journal_push(fzn_node_journal_t *nj, fzn_exchange_ask_t ask,
+                                         void *ask_ctx, uint8_t *reply, size_t reply_cap,
+                                         fzn_exchange_push_tally_t *tally)
+{
+	if (!nj)
+		return FZN_EXCHANGE_ERR_MALFORMED;
+	return fzn_exchange_push(&nj->journal, &nj->store, ask, ask_ctx, reply, reply_cap, tally);
 }
 
 fzn_exchange_err_t fzn_node_journal_pull(fzn_node_journal_t *nj, fzn_exchange_ask_t ask,

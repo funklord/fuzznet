@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum fzn_exchange_type : u8 unknown=error
-  digest_query=1 digest=2 records_query=3 records=4
+  digest_query=1 digest=2 records_query=3 records=4 push=5 pushed=6
 
 struct fzn_exchange_digest size=8..2883548
   @0x0000   1         u8         version  must_eq=5
@@ -38,6 +38,20 @@ struct fzn_exchange_position size=44
   @0x0000   32        u8         issuer  big
   @0x0020   4         u32        stream  big
   @0x0024   8         u64        received  big
+
+struct fzn_exchange_push size=4..46005574
+  @0x0000   1         u8         version  must_eq=5
+  @0x0001   1         fzn_exchange_type type  must_eq=push
+  @0x0002   2         u16        count  big
+  @0x0004   0..46005570 fzn_exchange_record records  sized-by=count
+
+struct fzn_exchange_pushed size=10
+  @0x0000   1         u8         version  must_eq=5
+  @0x0001   1         fzn_exchange_type type  must_eq=pushed
+  @0x0002   2         u16        taken  big
+  @0x0004   2         u16        held  big
+  @0x0006   2         u16        refused  big
+  @0x0008   2         u16        forks  big
 
 struct fzn_exchange_record size=190..702
   @0x0000   2         u16        len  big min=188 max=700
