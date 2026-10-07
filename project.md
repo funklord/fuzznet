@@ -57814,3 +57814,37 @@ and static, so none of it reaches the library.
 - `make test`, `make style` (1152 sabotage entries verified),
   `make installcheck`, `make schema` (root_act, persist and provision
   regenerated), and `make qtty` for the GUI view.
+
+## 510. The sweep over stage 4, and two questions from fuzzypickles, 2026-10-07
+
+### What the stage 4 sweep left
+
+The sabotage sweep over the entries stages 4a to 4b-ii touched, plus the
+four revoke-load guards sec 506 restored and the two purge entries: 74
+entries, 73 caught. These include all four restored guards, the full-store
+stop in `node/apply`, and both purge retries.
+
+The one survivor was `node-roots-set-journal-repoints-the-store`.
+`fzn_node_roots_set_journal` re-points a store attached before it, and
+every test set the journal first (`roots_of`) and attached after. fuzznetd
+does the reverse: it attaches at start and sets the journal when
+`records/` opens. pair_test's revoked-member scenario now builds R's roots
+in the daemon's order. With the re-point removed, the line falls: X,
+added before it, is dropped (two failures).
+
+### Open, from fuzzypickles' sec 196
+
+fuzzypickles drafted dropping a removed contact's incoming shares, then
+reverted it before commit because it reversed the holder's decision of
+2026-10-06 (sec 478 above). Both trees keep what a removed contact shared
+until `remove received`. Two things remain:
+
+- **A removed contact is still pulled.** fuzznetd's `pull_received` asks
+  every received share each round, a suspended contact's included, so new
+  notes go on arriving from a contact the user removed. The decision keeps
+  what was shared. Whether a suspended contact is still pulled is **the
+  holder's to decide**.
+- **A requirement for the sibling wire.** A delegated message whose
+  contact the owning device has removed is never acked, so the delegating
+  host retries for good. It needs a "cannot deliver" answer that host can
+  act on. Recorded for when that wire is built here.

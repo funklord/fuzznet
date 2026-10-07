@@ -2361,11 +2361,17 @@ static void test_a_revoked_members_contacts_to_the_line(const fzn_cap_id_t *cap)
 	                         == FZN_NODE_ROSTER_OK
 	              && roots_of(&n_roots, r.id.pubkey, &n)
 	                         == FZN_NODE_ROOTS_OK
-	              && roots_of(&r_roots, r.id.pubkey, &r)
-	                         == FZN_NODE_ROOTS_OK
 	              && fzn_revocation_store_init(&n_revs, n_e, 8) == FZN_CHAIN_OK
 	              && fzn_revocation_store_init(&r_revs, r_e, 8) == FZN_CHAIN_OK
-	              && fzn_node_roots_attach(&r_roots, &r_revs) == FZN_NODE_ROOTS_OK,
+	              /* R IN THE DAEMON'S ORDER, sec 508: attached first, the
+	               * journal set after, as fuzznetd does at start -- so the
+	               * store must be re-pointed at the journal to judge N's
+	               * line at all. */
+	              && fzn_node_roots_init(&r_roots, r.id.pubkey, &r.sign, &hash_ops)
+	                         == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_attach(&r_roots, &r_revs) == FZN_NODE_ROOTS_OK
+	              && (journal_hook(&r, &r_roots), 1)
+	              && fzn_node_roots_set_journal(&r_roots, &r.journal) == FZN_NODE_ROOTS_OK,
 	      "fixture: the rosters, the roots and the stores");
 	memset(&n_admin, 0, sizeof(n_admin));
 	n_admin.roots = &n_roots;
