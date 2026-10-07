@@ -1040,6 +1040,50 @@ static int journal_logged(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN],
 	       == FZN_NODE_JOURNAL_OK;
 }
 
+#endif
+
+/* THE JOURNAL FOR `roots`, sec 508: opened once in `records/` under
+ * `store_dir`, and `roots` then log every act into it and judge every cut by
+ * it. The running daemon and `--pair` both come here, since an act logged
+ * anywhere else is an act no peer ever sees. 1 when the journal is open; 0
+ * with no store directory, a records directory that will not open, or a
+ * build without the record file store. */
+static int journal_for(const char *store_dir, fzn_node_roots_t *roots, const fzn_sign_ops_t *sign,
+                       const fzn_hash_ops_t *hash)
+{
+#ifdef FZN_RECORD_STORE_FILE_ON
+	static char records_dir[FZN_RECORD_STORE_FILE_PATH_MAX];
+
+	if (!journal_on) {
+		int w;
+
+		if (!store_dir)
+			return 0;
+		w = snprintf(records_dir, sizeof(records_dir), "%s/records", store_dir);
+		if (w <= 0 || (size_t)w >= sizeof(records_dir)
+		    || (mkdir(records_dir, 0700) != 0 && errno != EEXIST)
+		    || fzn_node_journal_init(&node_journal, records_dir, sign, hash)
+		               != FZN_NODE_JOURNAL_OK)
+			return 0;
+		journal_on = 1;
+	}
+	if (roots) {
+		roots->logged = journal_logged;
+		roots->logged_ctx = &node_journal;
+		if (fzn_node_roots_set_journal(roots, &node_journal) != FZN_NODE_ROOTS_OK)
+			return 0;
+	}
+	return 1;
+#else
+	(void)store_dir;
+	(void)roots;
+	(void)sign;
+	(void)hash;
+	return 0;
+#endif
+}
+
+#ifdef FZN_RECORD_STORE_FILE_ON
 static size_t journal_remote(void *ctx, const uint8_t *request, size_t request_len,
                              uint8_t *reply, size_t reply_cap)
 {
@@ -1093,7 +1137,7 @@ static void apply_journal(void)
 	if (err != FZN_NODE_PULL_OK)
 		say(FZN_ENTRY_WARNING, "journal", "applying the journal: %s",
 		    fzn_node_pull_err_str(err));
-	else if (tally.applied || tally.refused || tally.waiting)
+	else if (tally.applied || tally.grants || tally.refused || tally.waiting)
 		say(tally.refused ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "journal",
 		    "%zu object(s) applied, %zu grant(s) indexed, %zu refused, %zu stream(s) waiting "
 		    "on a chain",
@@ -1738,7 +1782,8 @@ static void usage(const char *prog)
  * not its own root, are `node/pair.h`'s, where a suite reaches them. */
 static int pair_device(const fzn_node_identity_t *id, const fzn_node_config_t *config,
                        const fzn_node_authority_t *authority, int delegable,
-                       const fzn_persist_ops_t *store, const char *prekey_hex, uint64_t now)
+                       const fzn_persist_ops_t *store, const char *store_dir,
+                       const char *prekey_hex, uint64_t now)
 {
 	uint8_t record_bytes[FZN_PREKEY_LEN_TOTAL];
 	uint8_t card[FZN_PROVISION_MAX_LEN];
@@ -1762,7 +1807,9 @@ static int pair_device(const fzn_node_identity_t *id, const fzn_node_config_t *c
 	}
 	/* THE GRANT, LOGGED UNDER THIS NODE, sec 497: a device paired before a
 	 * revocation's line keeps its standing only if its grant is in this
-	 * node's log. Read back from the peer set just saved. */
+	 * node's stream, and a peer rebuilds the device's chain from it -- so it
+	 * goes into the journal, sec 508. Read back from the peer set just
+	 * saved. */
 	{
 		static fzn_node_roots_t logged;
 		static fzn_node_peer_t peers[FZN_NODE_PEERS_MAX];
@@ -1772,6 +1819,7 @@ static int pair_device(const fzn_node_identity_t *id, const fzn_node_config_t *c
 		if (fzn_node_roots_init(&logged, config->root, id->sign, id->hash)
 		            == FZN_NODE_ROOTS_OK
 		    && fzn_node_roots_load(&logged, store, &nroots) == FZN_NODE_ROOTS_OK
+		    && journal_for(store_dir, &logged, id->sign, id->hash)
 		    && fzn_node_peers_load(store, peers, FZN_NODE_PEERS_MAX, &npeers)
 		               == FZN_PERSIST_OK)
 			for (i = 0; i < npeers && !done; i++) {
@@ -1789,8 +1837,9 @@ static int pair_device(const fzn_node_identity_t *id, const fzn_node_config_t *c
 				                                    FZN_HOP_LEN) == FZN_NODE_ROOTS_OK;
 			}
 		if (!done)
-			fprintf(stderr, "fuzznetd: paired, and the grant is not in this node's log: it "
-			                "would fall at this node's revocation\n");
+			fprintf(stderr, "fuzznetd: paired, and the grant is not in this node's journal: "
+			                "no peer can rebuild the device's chain, and it would fall at "
+			                "this node's revocation\n");
 	}
 	if (fzn_provision_text(card, card_len, text, sizeof(text)) != FZN_PROVISION_OK) {
 		fprintf(stderr, "fuzznetd: the device is saved but its card would not encode; "
@@ -2679,6 +2728,11 @@ int main(int argc, char **argv)
 				        store_dir);
 				return 1;
 			}
+			/* THE KEY'S GRANT GOES INTO THE JOURNAL, sec 508, or no peer
+			 * rebuilds the chain the card carries. */
+			if (!journal_for(store_dir, &pair_roots, &sign_ops, &hash_ops))
+				fprintf(stderr, "fuzznetd: no journal in %s/records: a grant through the "
+				                "root key reaches no peer\n", store_dir);
 			/* AS A ROOT BY IDENTITY FIRST, sec 419: one hop and the proof,
 			 * a shorter card than a root key's two hops. */
 			rerr = fzn_node_roots_identity_root(&pair_roots, store_ops, identity.pubkey,
@@ -2696,7 +2750,7 @@ int main(int argc, char **argv)
 			}
 		}
 		return pair_device(&identity, &state.config, my_authority, delegable, store_ops,
-		                   pair_hex, wall_clock());
+		                   store_dir, pair_hex, wall_clock());
 	}
 	/* REFUSED RATHER THAN BOUND. A remote hop with no identity seals its
 	 * replies as from the zero key and verifies chains against a zero
@@ -2880,28 +2934,13 @@ int main(int argc, char **argv)
 		 * estate followed. NOT FATAL, and NOT QUIET: since sec 505 the
 		 * journal is the only way the estate's acts travel, so a node that
 		 * cannot keep one still serves, and says it is alone. */
-		if (store_dir) {
-			static char records_dir[FZN_RECORD_STORE_FILE_PATH_MAX];
-			int w = snprintf(records_dir, sizeof(records_dir), "%s/records", store_dir);
-
-			if (w > 0 && (size_t)w < sizeof(records_dir)
-			    && (mkdir(records_dir, 0700) == 0 || errno == EEXIST)
-			    && fzn_node_journal_init(&node_journal, records_dir, &sign_ops, &hash_ops)
-			               == FZN_NODE_JOURNAL_OK) {
-				journal_on = 1;
-				estate_roots.logged = journal_logged;
-				estate_roots.logged_ctx = &node_journal;
-				/* AND JUDGES BY IT, sec 506: a cut is a record id in
-				 * the signer's stream, and every store attached to the
-				 * roots asks the journal from here on. */
-				(void)fzn_node_roots_set_journal(&estate_roots, &node_journal);
-			} else {
-				say(FZN_ENTRY_WARNING, "journal",
-				    "no journal kept in %s/records: this node's votes, roots and "
-				    "settings reach no peer, and no peer's reach it",
-				    store_dir);
-			}
-		}
+		/* AND JUDGES BY IT, sec 506: a cut is a record id in the signer's
+		 * stream, and every store attached to the roots asks the journal. */
+		if (store_dir && !journal_for(store_dir, &estate_roots, &sign_ops, &hash_ops))
+			say(FZN_ENTRY_WARNING, "journal",
+			    "no journal kept in %s/records: this node's votes, roots and "
+			    "settings reach no peer, and no peer's reach it",
+			    store_dir);
 #else
 		say(FZN_ENTRY_WARNING, "journal",
 		    "built without the record file store: this node's votes, roots and settings "

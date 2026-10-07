@@ -15,6 +15,7 @@
 #include "../../contact/group.h"
 #include "../admin.h"
 #include "../roots.h"
+#include "../journal.h"
 #include "../roster.h"
 #include "../succession.h"
 #include "../identity.h"
@@ -206,6 +207,107 @@ static int node_up(struct node *n)
 static uint64_t fixed_clock(void)
 {
 	return 2000u;
+}
+
+/* ---- the node's journal, sec 508: the act log its roots keep --------- */
+
+#define JOURNAL_ROWS 128u
+
+struct record_row {
+	int used;
+	uint8_t issuer[FZN_PUBKEY_LEN];
+	uint32_t stream;
+	uint64_t seq;
+	uint8_t bytes[FZN_RECORD_MAX_LEN];
+	size_t len;
+};
+
+static struct record_row journal_rows[JOURNAL_ROWS];
+
+static struct record_row *record_row(const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                                     uint64_t seq, int make)
+{
+	size_t i;
+
+	for (i = 0; i < JOURNAL_ROWS; i++)
+		if (journal_rows[i].used && journal_rows[i].stream == stream
+		    && journal_rows[i].seq == seq
+		    && memcmp(journal_rows[i].issuer, issuer, FZN_PUBKEY_LEN) == 0)
+			return &journal_rows[i];
+	for (i = 0; make && i < JOURNAL_ROWS; i++)
+		if (!journal_rows[i].used)
+			return &journal_rows[i];
+	return NULL;
+}
+
+static int record_put(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                      uint64_t seq, const uint8_t *bytes, size_t len)
+{
+	struct record_row *r = record_row(issuer, stream, seq, 1);
+
+	(void)ctx;
+	if (!r || len > sizeof(r->bytes))
+		return 0;
+	r->used = 1;
+	memcpy(r->issuer, issuer, FZN_PUBKEY_LEN);
+	r->stream = stream;
+	r->seq = seq;
+	memcpy(r->bytes, bytes, len);
+	r->len = len;
+	return 1;
+}
+
+static int record_get(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                      uint64_t seq, uint8_t *out, size_t cap, size_t *len_out, int *found_out)
+{
+	struct record_row *r = record_row(issuer, stream, seq, 0);
+
+	(void)ctx;
+	*found_out = r != NULL;
+	if (!r || r->len > cap)
+		return 0;
+	memcpy(out, r->bytes, r->len);
+	*len_out = r->len;
+	return 1;
+}
+
+static const fzn_record_store_ops_t journal_ops = { record_put, record_get, NULL };
+static fzn_node_journal_t journal;
+
+static int journal_logged(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN],
+                          const fzn_sign_ops_t *sign, uint8_t kind,
+                          const uint8_t act[FZN_ROOT_ACT_ID_LEN], const uint8_t *record,
+                          size_t len)
+{
+	(void)kind;
+	(void)act;
+	return fzn_node_journal_append_object((fzn_node_journal_t *)ctx, pubkey, sign, record, len,
+	                                      2000u, NULL)
+	       == FZN_NODE_JOURNAL_OK;
+}
+
+/* The acts `key` has logged here: the records of its stream. */
+static uint64_t acts_by(const uint8_t key[FZN_PUBKEY_LEN])
+{
+	size_t e;
+
+	for (e = 0; e < journal.journal.used; e++)
+		if (journal.entries[e].stream == FZN_NODE_JOURNAL_STREAM
+		    && memcmp(journal.entries[e].issuer, key, FZN_PUBKEY_LEN) == 0)
+			return journal.entries[e].received;
+	return 0;
+}
+
+/* The kind -- the object's tag -- of `key`'s record at `seq`, or 0. */
+static uint32_t kind_at(const uint8_t key[FZN_PUBKEY_LEN], uint64_t seq)
+{
+	static uint8_t buf[FZN_RECORD_MAX_LEN];
+	fzn_record_t rec;
+
+	if (fzn_record_store_get(&journal.store, key, FZN_NODE_JOURNAL_STREAM, seq, buf,
+	                         sizeof(buf), &rec) != FZN_RECORD_STORE_OK)
+		return 0;
+	return fzn_record_kind(rec);
 }
 
 static void hex(const uint8_t *in, size_t len, char *out)
@@ -464,8 +566,13 @@ int main(void)
 
 	CHECK(fzn_node_roots_init(&roots, node.id.pubkey, &node.sign, &hash_ops)
 	              == FZN_NODE_ROOTS_OK
-	              && fzn_node_roots_attach(&roots, admin.revocations) == FZN_NODE_ROOTS_OK,
-	      "fixture: the roots");
+	              && fzn_node_roots_attach(&roots, admin.revocations) == FZN_NODE_ROOTS_OK
+	              && fzn_node_journal_init_store(&journal, &journal_ops, &node.sign, &hash_ops)
+	                         == FZN_NODE_JOURNAL_OK
+	              && fzn_node_roots_set_journal(&roots, &journal) == FZN_NODE_ROOTS_OK,
+	      "fixture: the roots, judging by the node's journal");
+	roots.logged = journal_logged;
+	roots.logged_ctx = &journal;
 	admin.roots = &roots;
 
 	memset(&owner, 0, sizeof(owner));
@@ -674,9 +781,9 @@ int main(void)
 		char want[(FZN_PUBKEY_LEN * 2u) + (FZN_REVOCATION_ID_LEN * 2u) + 32u];
 		/* THE GRANTS LOGGED BY THE PAIRINGS ABOVE, sec 497: each `add
 		 * peer` logs its hop, so the counts below are past these. */
-		size_t granted = roots.log.used;
+		size_t granted = (size_t)acts_by(node.id.pubkey);
 
-		CHECK(granted > 0u && roots.log.entries[0].kind == (uint8_t)FZN_ROOT_ACT_GRANT,
+		CHECK(granted > 0u && kind_at(node.id.pubkey, 1u) == (uint32_t)FZN_OBJECT_HOP,
 		      "the pairings above logged no grant");
 		hex(device.id.pubkey, FZN_PUBKEY_LEN, key);
 		snprintf(line, sizeof(line), "revoke peer %s", key);
@@ -691,7 +798,7 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && detail_len == strlen(want) && memcmp(detail, want, detail_len) == 0,
 		      "the node's own user could not revoke a grant, or the answer did not name it");
-		CHECK(roots.log.used == granted + 1u, "the root's revocation was not logged");
+		CHECK((size_t)acts_by(node.id.pubkey) == granted + 1u, "the root's revocation was not logged");
 		snprintf(want, sizeof(want), "%s already keeping nothing", key);
 		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
@@ -709,7 +816,7 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && detail_len == 64u && memcmp(detail, key, 64u) == 0,
 		      "the node's own user could not undo a revocation, or the answer did not name it");
-		CHECK(roots.log.used == granted + 2u, "the root's withdrawal was not logged");
+		CHECK((size_t)acts_by(node.id.pubkey) == granted + 2u, "the root's withdrawal was not logged");
 		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
 		                         == FZN_REPLY_ERROR,
@@ -761,7 +868,7 @@ int main(void)
 		{
 			char line_hex[(FZN_REVOCATION_ID_LEN * 2u) + 1u];
 			uint8_t named[FZN_REVOCATION_ID_LEN];
-			size_t logged = roots.log.used;
+			size_t logged = (size_t)acts_by(node.id.pubkey);
 
 			memset(named, 0xab, sizeof(named));
 			hex(named, sizeof(named), line_hex);
@@ -776,7 +883,7 @@ int main(void)
 			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
 			                         == FZN_REPLY_OK
 			              && detail_len == strlen(want) && memcmp(detail, want, detail_len) == 0
-			              && roots.log.used == logged + 1u,
+			              && (size_t)acts_by(node.id.pubkey) == logged + 1u,
 			      "a named cut did not move the vote's line, or the move was not logged");
 			snprintf(line, sizeof(line), "revoke peer %s", key);
 			snprintf(want, sizeof(want), "%s already keeping %s", key, line_hex);
@@ -893,7 +1000,7 @@ int main(void)
 	{
 		uint8_t hop[FZN_HOP_LEN];
 		char key[(FZN_PUBKEY_LEN * 2u) + 1u], hop_hex[(FZN_HOP_LEN * 2u) + 1u];
-		size_t logged = roots.log.used, k, confirmed;
+		size_t logged = (size_t)acts_by(node.id.pubkey), k, confirmed;
 
 		for (k = 0; k < FZN_PUBKEY_LEN; k++)
 			snprintf(key + (2u * k), 3u, "%02x", device.id.pubkey[k]);
@@ -908,7 +1015,7 @@ int main(void)
 		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && detail_len == 1u + (FZN_HOP_LEN * 2u) && detail[0] == 'h'
-		              && roots.log.used == logged + 1u,
+		              && (size_t)acts_by(node.id.pubkey) == logged + 1u,
 		      "the owner's grant of admin was not one hop, or not logged");
 		memcpy(hop_hex, detail + 1u, FZN_HOP_LEN * 2u);
 		hop_hex[FZN_HOP_LEN * 2u] = '\0';
@@ -916,7 +1023,7 @@ int main(void)
 		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && admin.revocations->confirms_used == confirmed + 1u
-		              && roots.log.used == logged + 2u,
+		              && (size_t)acts_by(node.id.pubkey) == logged + 2u,
 		      "the root's confirmation was not admitted, or not logged");
 		CHECK(fzn_chain_mint(node.id.pubkey, device.id.pubkey,
 		                     &state.config.remote_capability, 1000u, FZN_NO_EXPIRY, 0,
@@ -1732,14 +1839,14 @@ int main(void)
 		              && n == 0u && unread == 1u,
 		      "a rule past the caller's room was dropped unseen rather than counted");
 		{
-			size_t before = admin.roots->log.used;
+			size_t before = (size_t)acts_by(node.id.pubkey);
 
 			CHECK(ask(&admin, &owner, "remove estate-retention prune * level=I age 2d", reply,
 			          sizeof(reply), &reply_len)
 			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
 			                         == FZN_REPLY_ERROR
 			              && says(detail, detail_len, "no such estate rule")
-			              && admin.roots->log.used == before,
+			              && (size_t)acts_by(node.id.pubkey) == before,
 			      "a rule the estate does not have was removed, or its refusal still logged "
 			      "an act");
 		}

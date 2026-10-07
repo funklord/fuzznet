@@ -374,6 +374,37 @@ static void apply_to(fzn_node_apply_t *ap, fzn_revocation_store_t *revs,
 	ap->capability = cap;
 }
 
+/* THE ACT LOG IS THE JOURNAL, sec 508: every record `n` holds, of every
+ * stream -- what a roots' log count was. */
+static uint64_t journal_total(const struct node *n)
+{
+	uint64_t total = 0;
+	size_t e;
+
+	for (e = 0; e < n->journal.journal.used; e++)
+		total += n->journal.entries[e].received;
+	return total;
+}
+
+/* How many of `key`'s records `n` holds whose kind -- its object's tag -- is
+ * `kind`. */
+static size_t kinds_of(struct node *n, const uint8_t key[FZN_PUBKEY_LEN], uint32_t kind)
+{
+	static uint8_t buf[FZN_RECORD_MAX_LEN];
+	uint64_t seq, top = received_of(n, key);
+	size_t count = 0;
+
+	for (seq = 1u; seq <= top; seq++) {
+		fzn_record_t rec;
+
+		if (fzn_record_store_get(&n->journal.store, key, FZN_NODE_JOURNAL_STREAM, seq, buf,
+		                         sizeof(buf), &rec) == FZN_RECORD_STORE_OK
+		    && fzn_record_kind(rec) == kind)
+			count++;
+	}
+	return count;
+}
+
 /* `into` APPLIES WHAT IT HOLDS: `ap` names the subsystems; its journal is
  * set here. */
 static int apply_at(struct node *into, fzn_node_apply_t *ap, fzn_node_apply_tally_t *t)
@@ -1548,20 +1579,6 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 
 /* ---- SEVERAL ROOTS AT A NODE, sec 407 --------------------------------- */
 
-/* `signer` logs `record` as its act at `seq` after `prev`, into `entry`; the
- * entry's id into `id`. */
-static int root_logs(struct node *signer, uint64_t seq, const uint8_t *prev,
-                     const uint8_t *record, size_t len, uint8_t entry[FZN_ROOT_ACT_LEN],
-                     uint8_t id[FZN_ROOT_ACT_ID_LEN])
-{
-	uint8_t act[FZN_ROOT_ACT_ID_LEN];
-
-	return hash_ops.hash(hash_ops.ctx, act, sizeof(act), record, len)
-	       && fzn_root_act_issue(signer->id.pubkey, seq, prev, (uint8_t)FZN_ROOT_ACT_GRANT, act,
-	                             &signer->sign, entry) == FZN_ROOT_LOG_OK
-	       && hash_ops.hash(hash_ops.ctx, id, FZN_ROOT_ACT_ID_LEN, entry, FZN_ROOT_ACT_LEN);
-}
-
 /* ROOT R ADDS ROOT B, which revokes device D; node N learns it all.
  *
  * B is nobody's ancestor on D's chain R -> N -> D. At k = 2, N's store with
@@ -1576,9 +1593,6 @@ static void test_several_roots_at_a_node(const fzn_cap_id_t *cap)
 	static fzn_revocation_t e1[8], e2[8];
 	fzn_revocation_store_t revs, reloaded;
 	uint8_t add[FZN_ROOT_ADD_LEN], rem[FZN_ROOT_REMOVE_LEN], rev[FZN_REVOCATION_LEN];
-	uint8_t r_add[FZN_ROOT_ACT_LEN], r_rem[FZN_ROOT_ACT_LEN], b_rev[FZN_ROOT_ACT_LEN];
-	uint8_t id_add[FZN_ROOT_ACT_ID_LEN], id_rem[FZN_ROOT_ACT_ID_LEN];
-	uint8_t id_rev[FZN_ROOT_ACT_ID_LEN];
 	fzn_revocation_record_t rec;
 	size_t count = 0;
 
@@ -1591,26 +1605,20 @@ static void test_several_roots_at_a_node(const fzn_cap_id_t *cap)
 	              && fzn_node_roots_attach(&roots, &revs) == FZN_NODE_ROOTS_OK,
 	      "fixture: N's store with R's set attached");
 
-	/* R ADDS B, and logs it; B revokes D, and logs it. */
+	/* R ADDS B; B revokes D. */
 	CHECK(fzn_root_add_issue(r.id.pubkey, b.id.pubkey, &r.sign, add) == FZN_ROOT_LOG_OK
-	              && root_logs(&r, 0, NULL, add, sizeof(add), r_add, id_add)
 	              && fzn_revocation_issue(b.id.pubkey, cap, d.id.pubkey, 1500u, 0u, NULL, &b.sign, rev)
 	                         == FZN_CHAIN_OK
-	              && fzn_revocation_open(rev, sizeof(rev), &rec) == FZN_CHAIN_OK
-	              && root_logs(&b, 0, NULL, rev, sizeof(rev), b_rev, id_rev),
-	      "fixture: the add, the revocation and their log entries");
+	              && fzn_revocation_open(rev, sizeof(rev), &rec) == FZN_CHAIN_OK,
+	      "fixture: the add and the revocation");
 
 	/* BEFORE N KNOWS OF B, B's revocation is another estate's. */
 	CHECK(fzn_revocation_admit(&revs, fzn_revocation_offer_root(rec), r.id.pubkey, &n.sign,
 	                           &hash_ops, NULL) == FZN_CHAIN_ERR_WRONG_ROOT,
 	      "the control: B's revocation admitted before N knew B was a root");
 
-	CHECK(fzn_node_roots_learn(&roots, &n.ops, add, sizeof(add)) == FZN_NODE_ROOTS_OK
-	              && fzn_node_roots_learn(&roots, &n.ops, r_add, sizeof(r_add))
-	                         == FZN_NODE_ROOTS_OK
-	              && fzn_node_roots_learn(&roots, &n.ops, b_rev, sizeof(b_rev))
-	                         == FZN_NODE_ROOTS_OK,
-	      "N would not learn R's add of B or the log entries");
+	CHECK(fzn_node_roots_learn(&roots, &n.ops, add, sizeof(add)) == FZN_NODE_ROOTS_OK,
+	      "N would not learn R's add of B");
 	/* THE ROOTS THAT STAND, sec 450: R and B, R first. */
 	{
 		uint8_t standing[4][FZN_PUBKEY_LEN];
@@ -1635,7 +1643,7 @@ static void test_several_roots_at_a_node(const fzn_cap_id_t *cap)
 	              && roots_of(&again, r.id.pubkey, &n)
 	                         == FZN_NODE_ROOTS_OK
 	              && fzn_node_roots_load(&again, &n.ops, &count) == FZN_NODE_ROOTS_OK
-	              && count == 3u
+	              && count == 1u
 	              && fzn_node_roots_attach(&again, &reloaded) == FZN_NODE_ROOTS_OK
 	              && fzn_revocation_admit(&reloaded, fzn_revocation_offer_root(rec),
 	                                      r.id.pubkey, &n.sign, &hash_ops, NULL)
@@ -1643,33 +1651,36 @@ static void test_several_roots_at_a_node(const fzn_cap_id_t *cap)
 	              && d_revoked(&reloaded, &r, &n, &d, cap),
 	      "after a restart N no longer knew B, or D was not revoked");
 
-	/* A STORE CHANGED UNDERNEATH: an entry filed as a change, and an entry
-	 * whose signature no longer verifies. Each fails the load. */
+	/* A STORE CHANGED UNDERNEATH: a row in slot 13 that names no root
+	 * record -- a root-log entry of before sec 508 would be one -- and a
+	 * root-add whose signature no longer verifies. Each fails the load. */
 	{
 		static struct node x;
 		static fzn_node_roots_t bad;
-		uint8_t blob[FZN_PERSIST_HEAD_LEN + FZN_ROOT_ACT_LEN];
+		uint8_t blob[FZN_PERSIST_HEAD_LEN + FZN_ROOT_ADD_LEN];
 		uint8_t subject[FZN_PUBKEY_LEN];
 
 		memset(subject, 0x33, sizeof(subject));
 		CHECK(node_up(&x)
-		              && fzn_persist_head_write(blob, sizeof(blob), FZN_ROOT_ACT_LEN,
-		                                        FZN_PERSIST_BLOB_ROOT_ENTRY) == FZN_PERSIST_OK
-		              && (memcpy(blob + FZN_PERSIST_HEAD_LEN, r_add, FZN_ROOT_ACT_LEN), 1)
+		              && fzn_persist_head_write(blob, sizeof(blob), FZN_ROOT_ADD_LEN,
+		                                        FZN_PERSIST_BLOB_ROOT_ADD) == FZN_PERSIST_OK
+		              && (memcpy(blob + FZN_PERSIST_HEAD_LEN, add, FZN_ROOT_ADD_LEN),
+		                  blob[FZN_PERSIST_HEAD_LEN + 1u] = (uint8_t)FZN_OBJECT_REVOCATION, 1)
 		              && x.ops.save(x.ops.ctx, FZN_PERSIST_ROOT_CHANGE, subject, blob,
 		                            sizeof(blob))
 		              && roots_of(&bad, r.id.pubkey, &x)
 		                         == FZN_NODE_ROOTS_OK
 		              && fzn_node_roots_load(&bad, &x.ops, &count) == FZN_NODE_ROOTS_STORE,
-		      "a root log entry filed as a root change was loaded");
+		      "a row naming no root record was loaded");
 		CHECK(node_up(&x)
-		              && (blob[sizeof(blob) - 1u] ^= 1u, 1)
-		              && x.ops.save(x.ops.ctx, FZN_PERSIST_ROOT_ENTRY, subject, blob,
+		              && (memcpy(blob + FZN_PERSIST_HEAD_LEN, add, FZN_ROOT_ADD_LEN),
+		                  blob[sizeof(blob) - 1u] ^= 1u, 1)
+		              && x.ops.save(x.ops.ctx, FZN_PERSIST_ROOT_CHANGE, subject, blob,
 		                            sizeof(blob))
 		              && roots_of(&bad, r.id.pubkey, &x)
 		                         == FZN_NODE_ROOTS_OK
 		              && fzn_node_roots_load(&bad, &x.ops, &count) == FZN_NODE_ROOTS_STORE,
-		      "a stored root log entry whose signature fails was loaded");
+		      "a stored root-add whose signature fails was loaded");
 	}
 
 	/* A FORGED CHANGE: R's key as signer, somebody else's signature. */
@@ -1686,10 +1697,7 @@ static void test_several_roots_at_a_node(const fzn_cap_id_t *cap)
 	/* R REMOVES B WITH NO CUT: nothing B did counts. */
 	CHECK(fzn_root_remove_issue(r.id.pubkey, b.id.pubkey, NULL, &r.sign, rem)
 	              == FZN_ROOT_LOG_OK
-	              && root_logs(&r, 1, id_add, rem, sizeof(rem), r_rem, id_rem)
-	              && fzn_node_roots_learn(&roots, &n.ops, rem, sizeof(rem)) == FZN_NODE_ROOTS_OK
-	              && fzn_node_roots_learn(&roots, &n.ops, r_rem, sizeof(r_rem))
-	                         == FZN_NODE_ROOTS_OK,
+	              && fzn_node_roots_learn(&roots, &n.ops, rem, sizeof(rem)) == FZN_NODE_ROOTS_OK,
 	      "N would not learn R's removal of B");
 	CHECK(!d_revoked(&revs, &r, &n, &d, cap),
 	      "a removed root's revocation still revoked D");
@@ -1812,7 +1820,7 @@ static void test_a_node_acts_as_a_root(void)
 	 * carried it beside its act log entry. */
 	CHECK(fzn_node_roots_change(&r_roots, &r.ops, r.id.pubkey, &r.sign, 0, m_roots.key, NULL)
 	              == FZN_NODE_ROOTS_OK
-	              && r_roots.log.used == 1u,
+	              && received_of(&r, r.id.pubkey) == 1u,
 	      "R could not add M's key, or did not log the add");
 	CHECK(roots_sync(&r, &m_roots, &m, &learned) == FZN_NODE_PULL_OK
 	              && learned == 1u
@@ -1860,19 +1868,27 @@ static void test_a_node_acts_as_a_root(void)
 	              && again.key_held && memcmp(again.key, m_roots.key, FZN_PUBKEY_LEN) == 0,
 	      "M's root key did not reload as the same key");
 
-	/* A FORKED LOG IS NOT EXTENDED: a second entry at R's seq 0, signed by
-	 * hand, and R's next act is refused. */
+	/* A FORKED STREAM IS NOT EXTENDED: a second record at the head of R's
+	 * stream, signed with R's key and offered to R's journal, and R's next
+	 * act is refused. */
 	{
-		uint8_t fork[FZN_ROOT_ACT_LEN], act[FZN_ROOT_ACT_ID_LEN];
+		uint8_t subject[FZN_SUBJECT_LEN], body[2] = { 1u, 0x80u };
+		uint8_t buf[FZN_RECORD_MAX_LEN], id[FZN_RECORD_ID_LEN];
+		uint64_t at = received_of(&r, r.id.pubkey);
+		size_t len = 0;
 
-		memset(act, 0x77, sizeof(act));
-		CHECK(fzn_root_act_issue(r.id.pubkey, 0, NULL, (uint8_t)FZN_ROOT_ACT_GRANT, act,
-		                         &r.sign, fork) == FZN_ROOT_LOG_OK
-		              && fzn_node_roots_learn(&r_roots, &r.ops, fork, sizeof(fork))
-		                         == FZN_NODE_ROOTS_OK
+		memset(subject, 0x77, sizeof(subject));
+		CHECK(at > 0u
+		              && fzn_record_sign(r.id.pubkey, subject, FZN_NODE_JOURNAL_STREAM, 0x80u, at,
+		                                 subject, 1800u, body, sizeof(body), &r.sign, buf,
+		                                 sizeof(buf), &len) == FZN_RECORD_OK
+		              && hash_ops.hash(hash_ops.ctx, id, sizeof(id), buf, len)
+		              && fzn_journal_admit_chained(&r.journal.journal, r.id.pubkey,
+		                                           FZN_NODE_JOURNAL_STREAM, at, subject, id)
+		                         == FZN_JOURNAL_ERR_FORK
 		              && fzn_node_roots_change(&r_roots, &r.ops, r.id.pubkey, &r.sign, 0,
 		                                       x.id.pubkey, NULL) == FZN_NODE_ROOTS_FORKED,
-		      "a root whose log had forked extended it");
+		      "a root whose stream had forked extended it");
 	}
 	fzn_sign_monocypher_wipe(&m_root_signer);
 	fzn_sign_monocypher_wipe(&again_signer);
@@ -1948,15 +1964,9 @@ static int add_as(struct node *by, const uint8_t key[FZN_PUBKEY_LEN], fzn_node_r
 	       && fzn_node_roots_learn(into, &store->ops, add, sizeof(add)) == FZN_NODE_ROOTS_OK;
 }
 
-static size_t grants_by(const fzn_node_roots_t *roots, const uint8_t key[FZN_PUBKEY_LEN])
+static size_t grants_by(struct node *n, const uint8_t key[FZN_PUBKEY_LEN])
 {
-	size_t i, n = 0;
-
-	for (i = 0; i < roots->log.used; i++)
-		if (memcmp(roots->log.entries[i].root, key, FZN_PUBKEY_LEN) == 0
-		    && roots->log.entries[i].kind == (uint8_t)FZN_ROOT_ACT_GRANT)
-			n++;
-	return n;
+	return kinds_of(n, key, (uint32_t)FZN_OBJECT_HOP);
 }
 
 /* M holds a root key K and has joined nothing. R, the genesis, adds Y and X;
@@ -2004,7 +2014,7 @@ static void test_a_node_pairs_through_its_root_key(const fzn_cap_id_t *cap)
 	/* BEFORE K STANDS: no grant, and nothing logged. */
 	CHECK(fzn_node_roots_self_grant(&m_roots, &m.ops, m.id.pubkey, cap, hop, proof, &through)
 	              == FZN_NODE_ROOTS_NOT_ROOT
-	              && m_roots.log.used == 0u,
+	              && journal_total(&m) == 0u,
 	      "M granted as a root key no root had added");
 
 	/* R ADDS Y, A DEAD END, AND Q, AND REMOVES Q WITH NOTHING KEPT; Q'S ADD OF
@@ -2034,11 +2044,11 @@ static void test_a_node_pairs_through_its_root_key(const fzn_cap_id_t *cap)
 	              && memcmp(proof[1] + FZN_ROOT_SET_OFF_SUBJECT, m_roots.key, FZN_PUBKEY_LEN)
 	                         == 0,
 	      "M's grant through K did not carry the proof R-X, X-K");
-	CHECK(grants_by(&m_roots, m_roots.key) == 1u, "K's grant to M was not logged once");
-	used = m_roots.log.used;
+	CHECK(grants_by(&m, m_roots.key) == 1u, "K's grant to M was not logged once");
+	used = (size_t)journal_total(&m);
 	CHECK(fzn_node_roots_self_grant(&m_roots, &m.ops, m.id.pubkey, cap, again, proof, &through)
 	              == FZN_NODE_ROOTS_OK
-	              && memcmp(hop, again, FZN_HOP_LEN) == 0 && m_roots.log.used == used,
+	              && memcmp(hop, again, FZN_HOP_LEN) == 0 && journal_total(&m) == used,
 	      "a second grant under one capability was another hop, or logged again");
 
 	/* M PAIRS D THROUGH K, and D, pinning R, accepts. */
@@ -2217,8 +2227,8 @@ static void test_admins_at_the_node(const fzn_cap_id_t *cap)
 	/* R GRANTS A, as a root, logged. */
 	CHECK(fzn_node_admin_grant(&r_roots, &r.ops, &r.id, NULL, &adm, a.id.pubkey, 1000u, chain,
 	                           &n) == FZN_NODE_REVOKE_OK
-	              && n == 1u && r_roots.log.used == 1u
-	              && r_roots.log.entries[0].kind == (uint8_t)FZN_ROOT_ACT_GRANT,
+	              && n == 1u && received_of(&r, r.id.pubkey) == 1u
+	              && grants_by(&r, r.id.pubkey) == 1u,
 	      "R did not grant A admin as one logged hop");
 	CHECK(fzn_node_admin_chain_set(&b.ops, &b_revs, &b.id, r.id.pubkey, &adm,
 	                               (const uint8_t (*)[FZN_HOP_LEN])chain, n, 1100u, &back)
@@ -2257,8 +2267,7 @@ static void test_admins_at_the_node(const fzn_cap_id_t *cap)
 	CHECK(fzn_node_admin_grant(&a_roots, &a.ops, &a.id, &a_chain, &adm, b.id.pubkey, 1200u, b_hops,
 	                           &n) == FZN_NODE_REVOKE_OK
 	              && n == 2u && memcmp(b_hops[0], a_chain.hops[0], FZN_HOP_LEN) == 0
-	              && a_roots.log.used == 1u
-	              && memcmp(a_roots.log.entries[0].root, a.id.pubkey, FZN_PUBKEY_LEN) == 0
+	              && journal_total(&a) == 1u && received_of(&a, a.id.pubkey) == 1u
 	              && fzn_node_admin_chain_set(&b.ops, &b_revs, &b.id, r.id.pubkey, &adm,
 	                                          (const uint8_t (*)[FZN_HOP_LEN])b_hops, n, 1300u,
 	                                          &b_chain) == FZN_NODE_REVOKE_OK,
@@ -2271,13 +2280,12 @@ static void test_admins_at_the_node(const fzn_cap_id_t *cap)
 	CHECK(fzn_node_admin_confirm(&c_roots, &c.ops, &c.id, &c_chain, r.id.pubkey, b_hops[1],
 	                             &c_revs) == FZN_NODE_REVOKE_OK
 	              && c_revs.confirms_used == 1u && rows_in(&c, FZN_PERSIST_ADMIN_CONFIRM) == 1u
-	              && c_roots.log.used == 1u
-	              && memcmp(c_roots.log.entries[0].root, c.id.pubkey, FZN_PUBKEY_LEN) == 0,
+	              && journal_total(&c) == 1u && received_of(&c, c.id.pubkey) == 1u,
 	      "C's confirmation of A's grant was not admitted, saved and logged under C");
-	logged = r_roots.log.used;
+	logged = (size_t)received_of(&r, r.id.pubkey);
 	CHECK(fzn_node_admin_confirm(&r_roots, &r.ops, &r.id, NULL, r.id.pubkey, b_hops[1], &r_revs)
 	              == FZN_NODE_REVOKE_OK
-	              && r_revs.confirms_used == 1u && r_roots.log.used == logged + 1u,
+	              && r_revs.confirms_used == 1u && received_of(&r, r.id.pubkey) == logged + 1u,
 	      "R's confirmation was not admitted, or not logged as its act");
 	CHECK(fzn_node_admin_confirm(NULL, &d.ops, &d.id, NULL, r.id.pubkey, b_hops[1], &c_revs)
 	              == FZN_NODE_REVOKE_NOT_ROOT,
@@ -2373,8 +2381,7 @@ static void test_a_revoked_members_contacts_to_the_line(const fzn_cap_id_t *cap)
 	/* N, A MEMBER, ADDS X, logged under its own key. */
 	CHECK(fzn_node_roster_write(&n_ro, &n.ops, &n.id, &n_auth, &rng_ops, x.id.pubkey, 1, &n_revs,
 	                            2u) == FZN_NODE_ROSTER_OK
-	              && n_roots.log.used == 1u
-	              && memcmp(n_roots.log.entries[0].root, n.id.pubkey, FZN_PUBKEY_LEN) == 0,
+	              && received_of(&n, n.id.pubkey) == 1u,
 	      "a member's roster record was not logged under the member");
 
 	/* R HOLDS N's STREAM, carried, and revokes N with no cut named: the
@@ -2392,7 +2399,7 @@ static void test_a_revoked_members_contacts_to_the_line(const fzn_cap_id_t *cap)
 	/* THE THIEF, holding N's key, adds Y: logged after the line. */
 	CHECK(fzn_node_roster_write(&n_ro, &n.ops, &n.id, &n_auth, &rng_ops, y.id.pubkey, 1, &n_revs,
 	                            2u) == FZN_NODE_ROSTER_OK
-	              && n_roots.log.used == 2u
+	              && received_of(&n, n.id.pubkey) == 2u
 	              && carry(&n, &r, &r_ap, &t) && t.applied == 1u,
 	      "fixture: the thief's contact, logged and carried to R");
 	CHECK(fzn_node_roster_standing(&r_ro, y.id.pubkey, &r_revs, 2u) == FZN_ROSTER_ABSENT,
@@ -2515,11 +2522,11 @@ static void test_a_device_rekeyed(const fzn_cap_id_t *cap)
 	/* R RE-KEYS D TO D2, as the root, logged -- and the hook told. */
 	r_roots.logged = count_logged;
 	hooked_acts = 0;
-	logged = r_roots.log.used;
+	logged = (size_t)received_of(&r, r.id.pubkey);
 	CHECK(fzn_node_succession_issue(&r_ns, &r_roots, &r.ops, &r.id, NULL, &r_revs, r.id.pubkey,
 	                                d.id.pubkey, d2.id.pubkey, NULL, id) == FZN_NODE_REVOKE_OK
 	              && r_ns.set.used == 1u && rows_in(&r, FZN_PERSIST_SUCCESSION) == 1u
-	              && r_roots.log.used == logged + 1u,
+	              && received_of(&r, r.id.pubkey) == logged + 1u,
 	      "R's succession of D was not kept, saved and logged");
 	CHECK(hooked_acts == 1u, "the roots' hook was not told of the act R logged");
 	CHECK(fzn_node_successions_resolve(&r_ns, &r_revs, r.id.pubkey, d.id.pubkey, now_key)
@@ -2744,7 +2751,7 @@ static void test_contacts_travel(const fzn_cap_id_t *cap)
 	{
 		static fzn_node_roots_t r_roots;
 		static fzn_node_admin_t r_admin;
-		size_t i, acts = 0;
+		size_t acts = 0;
 
 		CHECK(roots_of(&r_roots, r.id.pubkey, &r)
 		              == FZN_NODE_ROOTS_OK,
@@ -2759,9 +2766,8 @@ static void test_contacts_travel(const fzn_cap_id_t *cap)
 		              && fzn_node_roster_carry_names(&r_ro, &r.ops, &r.id, NULL, &rng_ops,
 		                                             &carried) == FZN_NODE_ROSTER_OK,
 		      "fixture: R's contact from before, carried");
-		for (i = 0; i < r_roots.log.used; i++)
-			if (r_roots.log.entries[i].kind == (uint8_t)FZN_ROOT_ACT_ROSTER)
-				acts++;
+		acts = kinds_of(&r, r.id.pubkey, (uint32_t)FZN_OBJECT_ROSTER_ADD)
+		       + kinds_of(&r, r.id.pubkey, (uint32_t)FZN_OBJECT_ROSTER_SET);
 		CHECK(acts == 1u, "R's roster record, written as the root, is not in its log");
 		r_ro.wrote = NULL;
 	}
@@ -2926,8 +2932,8 @@ static void test_the_estates_k_travels(void)
 	CHECK(fzn_node_roots_quorum(&r_roots, 2u) == 2u, "no setting did not read the fallback");
 	CHECK(fzn_node_roots_set_quorum(&r_roots, &r.ops, r.id.pubkey, &r.sign, 3u)
 	              == FZN_NODE_ROOTS_OK
-	              && fzn_node_roots_quorum(&r_roots, 2u) == 3u && r_roots.log.used == 1u
-	              && r_roots.log.entries[0].kind == (uint8_t)FZN_ROOT_ACT_SETTING,
+	              && fzn_node_roots_quorum(&r_roots, 2u) == 3u && received_of(&r, r.id.pubkey) == 1u
+	              && kinds_of(&r, r.id.pubkey, (uint32_t)FZN_OBJECT_QUORUM_SET) == 1u,
 	      "R's setting of 3 did not take, or was not logged as a setting");
 	CHECK(fzn_node_roots_set_quorum(&r_roots, &r.ops, r.id.pubkey, &r.sign, 1u)
 	              == FZN_NODE_ROOTS_OK

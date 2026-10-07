@@ -3921,13 +3921,6 @@ SABOTAGES = [
 		"a root learned and not settled into the view is not a root until the node restarts -- sec 407",
 	),
 	(
-		"node-roots-slot-and-tag-agree",
-		"node/roots.c",
-		"\t\tif (!tag || (slot == FZN_PERSIST_ROOT_ENTRY) != (tag == FZN_PERSIST_BLOB_ROOT_ENTRY)\n",
-		"\t\tif (!tag\n",
-		"a record filed in the other slot is a store written by something else, and loading it anyway hides that -- sec 407",
-	),
-	(
 		"node-roots-load-admits-or-fails",
 		"node/roots.c",
 		"\t\t    || admit(roots, blob + FZN_PERSIST_HEAD_LEN, body) != FZN_ROOT_LOG_OK)\n\t\t\treturn FZN_NODE_ROOTS_STORE;\n",
@@ -3944,7 +3937,7 @@ SABOTAGES = [
 	(
 		"node-roots-forked-log-is-not-extended",
 		"node/roots.c",
-		"\tif (fzn_root_log_forked(&roots->log, pubkey))\n\t\treturn FZN_NODE_ROOTS_FORKED;\n",
+		"\tif (roots->journal && fzn_node_journal_forked(roots->journal, pubkey))\n\t\treturn FZN_NODE_ROOTS_FORKED;\n",
 		"",
 		"extending a forked log picks a branch, which is the thief's choice to make as readily as the owner's -- sec 409",
 	),
@@ -9080,24 +9073,10 @@ SABOTAGES = [
 		"a member's act never logged falls at the member's revocation whatever the line, so every contact it added goes with the thief's -- sec 497",
 	),
 	(
-		"node-roots-head-is-the-latest",
-		"node/roots.c",
-		"\t\tif (fzn_ct_memeq(e->root, key, FZN_PUBKEY_LEN) && (!head || e->seq > head->seq))\n\t\t\thead = e;\n\t}\n\tif (!head)\n\t\treturn 0;",
-		"\t\tif (fzn_ct_memeq(e->root, key, FZN_PUBKEY_LEN) && (!head || e->seq < head->seq))\n\t\t\thead = e;\n\t}\n\tif (!head)\n\t\treturn 0;",
-		"a default line at the first act rather than the last drops everything the owner did since -- sec 497",
-	),
-	(
-		"node-roots-head-refuses-a-fork",
-		"node/roots.c",
-		"\tif (fzn_root_log_forked(&roots->log, key))\n\t\treturn 0;",
-		"",
-		"a forked log's head is the thief's choice as readily as the owner's, and a default line drawn there keeps the thief's branch -- sec 497",
-	),
-	(
 		"node-roots-attach-sets-the-act-log",
 		"node/roots.c",
-		"\t               && fzn_revocation_store_set_acts(revocations, &roots->acts) == FZN_CHAIN_OK\n",
-		"",
+		"\t               && fzn_revocation_store_set_acts(revocations,\n\t                                                roots->journal ? &roots->acts : NULL)",
+		"\t               && fzn_revocation_store_set_acts(revocations, NULL)",
 		"a node's store with no act log keeps nothing of a revoked member's, whatever its vote's line -- sec 497",
 	),
 	(
@@ -9369,8 +9348,8 @@ SABOTAGES = [
 	(
 		"roots-logged-hook-called",
 		"node/roots.c",
-		"\tif (err == FZN_NODE_ROOTS_OK && roots->logged\n",
-		"\tif (0 && err == FZN_NODE_ROOTS_OK && roots->logged\n",
+		"\tif (roots->logged && !roots->logged(roots->logged_ctx, pubkey, sign, kind, act, record, len))",
+		"\tif (0 && roots->logged && !roots->logged(roots->logged_ctx, pubkey, sign, kind, act, record, len))",
 		"an act logged and never mirrored leaves the journal without it, and a cut judged on the journal drops it -- sec 501",
 	),
 	(
@@ -9383,8 +9362,8 @@ SABOTAGES = [
 	(
 		"roots-logged-hook-gets-the-object",
 		"node/roots.c",
-		"\t    && !roots->logged(roots->logged_ctx, pubkey, sign, kind, act, record, len))\n",
-		"\t    && !roots->logged(roots->logged_ctx, pubkey, sign, kind, act, NULL, 0u))\n",
+		"\tif (roots->logged && !roots->logged(roots->logged_ctx, pubkey, sign, kind, act, record, len))",
+		"\tif (roots->logged && !roots->logged(roots->logged_ctx, pubkey, sign, kind, act, NULL, 0u))",
 		"a journal told only an act's hash carries nothing a receiver can apply -- sec 502",
 	),
 	(
@@ -9453,8 +9432,8 @@ SABOTAGES = [
 	(
 		"node-roots-head-asks-the-journal",
 		"node/roots.c",
-		"\tif (roots->journal)\n\t\treturn fzn_node_journal_head(roots->journal, key, id);\n",
-		"",
+		"\treturn roots->journal && fzn_node_journal_head(roots->journal, key, id);",
+		"\treturn 0;",
 		"roots judging by a journal that default a vote's cut from the root log name an id the journal does not hold, so nothing the revoked key did stands -- sec 506",
 	),
 	(
@@ -9477,6 +9456,13 @@ SABOTAGES = [
 		"\t\tif (changed) {\n\t\t\terr = save(store, &p);\n\t\t\tif (err != FZN_NOTES_OK)\n\t\t\t\treturn err;\n\t\t}\n",
 		"\t\tif (!changed)\n\t\t\tcontinue;\n\t\terr = save(store, &p);\n\t\tif (err != FZN_NOTES_OK)\n\t\t\treturn err;\n",
 		"a release that only finishes purges whose answers it changed never retries one whose erase failed after its last answer -- sec 507",
+	),
+	(
+		"node-roots-set-journal-repoints-the-store",
+		"node/roots.c",
+		"\tif (roots->revocations\n\t    && fzn_revocation_store_set_acts(roots->revocations, &roots->acts) != FZN_CHAIN_OK)\n\t\treturn FZN_NODE_ROOTS_MALFORMED;\n",
+		"",
+		"a store attached before the journal was set keeps asking no act log, and every cut drawn against it keeps nothing of the revoked key's -- sec 508",
 	),
 ]
 

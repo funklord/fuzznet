@@ -57694,3 +57694,67 @@ anything.
   finish after, is finished by the next release.
 - Both checks were run against the code before the fix and failed. Both
   are sabotage entries now.
+
+## 508. Stage 4b-i: the node keeps no root log; acts are logged into the journal, 2026-10-07
+
+Since sec 506 the journal judged every cut, and the root log's entries were
+kept only to be kept. This section stops keeping them in the node.
+`chain/root_log`'s log type and its act object are still in the library,
+and 4b-ii takes them out.
+
+### What changed in `node/roots`
+
+- **No log, no entries.** `fzn_node_roots_t` loses `log`, its 4096
+  entries (about 0.6 MB a copy) and `FZN_NODE_ROOT_LOG_MAX`.
+- **Logging an act is the journal's append.** `fzn_node_roots_log_act`
+  checks the signer's stream for a fork, hashes the act and tells
+  `logged`. No entry is minted, learned or saved in slot 12.
+- **The head and the fork come from the journal.** Roots with no journal
+  have no head.
+- **`fzn_node_roots_self_grant`'s "logged once"** asks whether the key's
+  stream already holds the grant.
+- **Roots with no journal judge no cut.** Their act-log ops are unset, so a
+  store attached to them asks nothing, and nothing a removed root or a
+  revoked key did can be shown to stand. That errs toward removal.
+  `fzn_node_roots_set_journal` now also re-points a store attached before
+  it.
+- **The load reads slot 13 alone,** its list bounded by what slot 13 can
+  hold (the set's changes, the settings of k, the retention records). A
+  row there that names no root record fails the load, as the old
+  slot-and-tag check did.
+
+### `fuzznetd --pair` logs into the journal
+
+`--pair` runs without the daemon, and its roots had no journal hook. The
+grant it made went only into the root log, so no peer ever rebuilt the
+paired node's chain from the journal: `live55`'s M indexed "0 grant(s)".
+With the root log gone it would have gone nowhere.
+
+`journal_for` now opens the journal once, for the daemon and for both
+`--pair` paths (the identity's grant, and the root key's self-grant), and
+hooks the roots to it. If the journal will not open, `--pair` still pairs
+and says the grant reaches no peer.
+
+The daemon's per-round journal line also now reports a round that only
+indexed grants.
+
+### The tests
+
+- **pair_test** counts acts as records in a node's journal (`kinds_of`,
+  `journal_total`, `received_of`) instead of root-log entries.
+- **The several-roots scenario** logs no hand-made entries. Its two
+  "store changed underneath" cases are now a slot-13 row naming no root
+  record and a root-add whose signature fails.
+- **The forked-log case** is now a second record at the head of R's
+  stream, after which R's next root change is FORKED.
+- **admin_test's node has a journal,** over an in-memory record store, and
+  counts acts there.
+
+### Measured for sec 508
+
+- `make test`, `make style` (1160 sabotage entries; eight re-aimed or
+  dropped with the code they guarded, one added for `set_journal`
+  re-pointing an attached store), `make installcheck`, `make schema`.
+- `live55`: M's restart applies R's 2 objects and indexes 2 grants. The
+  grants are R's offline pairings of M and D, which never reached the
+  journal before this section.

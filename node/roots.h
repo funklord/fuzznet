@@ -1,13 +1,20 @@
-/* A node's view of its estate's roots: the root log and the root set it
- * holds, persisted, and attached to its revocation store. project.md sec 407.
+/* A node's view of its estate's roots: the root set it holds, persisted, and
+ * attached to its revocation store. project.md sec 407.
  *
  * sec 403 gave an estate several roots, each acting alone and each
- * removable; secs 404 to 406 built the log, the set and verification against
- * them in `chain/`. This is where a node keeps them. Every root log entry and
- * every root-add or root-remove it learns is saved in the core directory --
- * losing one would let a removed root count again, or leave a removal's cut
- * impossible to follow -- and admitted again at start, before any revocation,
- * so that a revocation by a member root re-admits.
+ * removable; secs 404 to 406 built the set and verification against it in
+ * `chain/`. This is where a node keeps it. Every root-add, root-remove and
+ * root setting it learns is saved in the core directory -- losing one would
+ * let a removed root count again -- and admitted again at start, before any
+ * revocation, so that a revocation by a member root re-admits.
+ *
+ * THE ACT LOG IS THE JOURNAL, sec 508. Every act this node signs is logged
+ * into its journal (`logged`), and a removal's or a vote's cut is a record
+ * id in the signer's stream, judged by the journal the roots are given with
+ * `fzn_node_roots_set_journal`. Roots with no journal log nothing and judge
+ * no cut: nothing a removed root or a revoked key did can be shown to stand,
+ * which errs toward removal. The root-log entries of secs 404 to 497 are
+ * gone.
  *
  * ATTACHED, the node's revocation store and every `fzn_chain_verify` over it
  * read the set: a chain may start at any root it names, and a removed root's
@@ -26,9 +33,9 @@
  * is. The node ACTS as a root with that key while the set says it stands, and
  * otherwise with its identity key while THAT stands -- which is how a node
  * that is its estate's genesis root, every root node before sec 409, goes on
- * working unchanged. Every act signed as a root is appended to the root's log
- * at the next seq after its head, and a root whose log has forked -- a key
- * used in two places -- is refused rather than extended.
+ * working unchanged. Every act signed as a root is appended to its key's
+ * stream, and a key whose stream has forked -- a key used in two places -- is
+ * refused rather than extended.
  *
  * A PAIRING CARD'S PROOF (sec 410): a card whose chain starts at a root
  * other than the genesis carries the root-adds that made it one, and the
@@ -55,13 +62,6 @@
 #include "../log/retain.h"
 #include "../persist/persist.h"
 #include "../session/random.h"
-
-/* The most log entries a node keeps. A log never evicts. An estate's roots
- * act rarely, but since sec 497 every key logs every act it signs -- each
- * member's pairings, votes, confirmations and roster records -- so a
- * revocation's cut can keep what it did before the line. 4096 entries is
- * about 0.6 MB a copy, and fuzznetd holds four. */
-#define FZN_NODE_ROOT_LOG_MAX 4096u
 
 /* The most settings of k a node keeps: each is a root's deliberate act. */
 #define FZN_NODE_ROOT_SETTINGS_MAX 64u
@@ -97,14 +97,13 @@ typedef enum fzn_node_roots_err {
 const char *fzn_node_roots_err_str(fzn_node_roots_err_t err);
 
 typedef struct fzn_node_roots {
-	fzn_root_log_t log;
-	fzn_root_log_entry_t entries[FZN_NODE_ROOT_LOG_MAX];
 	fzn_root_set_t set;
 	fzn_root_change_t changes[FZN_ROOT_SET_MAX];
 	fzn_root_view_t view;
 	fzn_root_ops_t ops;
-	/* The log asked about any key's acts, sec 497: what a revocation's cut
-	 * is judged against, set on every store this is attached to. */
+	/* The log asked about any key's acts, sec 497 -- the journal's since
+	 * sec 508, and unset without one: what a cut is judged against, set on
+	 * every store this is attached to. */
 	fzn_act_log_ops_t acts;
 	const fzn_sign_ops_t *sign;
 	const fzn_hash_ops_t *hash;
@@ -136,16 +135,16 @@ typedef struct fzn_node_roots {
 	              uint8_t kind, const uint8_t act[FZN_ROOT_ACT_ID_LEN], const uint8_t *record,
 	              size_t len);
 	void *logged_ctx;
-	/* THE JOURNAL THAT JUDGES, sec 506, or NULL while the root log does:
+	/* THE JOURNAL THAT JUDGES, sec 506, or NULL for none:
 	 * `fzn_node_roots_set_journal`. */
 	struct fzn_node_journal *journal;
 } fzn_node_roots_t;
 
 /* JUDGE BY `journal` from here on, sec 506: every cut -- a vote's, a
- * removal's -- is asked of the journal's streams rather than the root log,
- * and `fzn_node_roots_head` answers with the journal's head. The journal is
- * the per-key act log the root log was, chained by `prev` and carried to
- * every follower, so a cut is a record id. `journal` must outlive `roots`.
+ * removal's -- is asked of the journal's streams, here and in the store
+ * attached, and `fzn_node_roots_head` answers with the journal's head. The
+ * journal is the per-key act log, chained by `prev` and carried to every
+ * follower, so a cut is a record id. `journal` must outlive `roots`.
  * MALFORMED for a NULL. */
 struct fzn_node_journal;
 fzn_node_roots_err_t fzn_node_roots_set_journal(fzn_node_roots_t *roots,
@@ -158,15 +157,16 @@ fzn_node_roots_err_t fzn_node_roots_init(fzn_node_roots_t *roots,
                                          const fzn_sign_ops_t *sign,
                                          const fzn_hash_ops_t *hash);
 
-/* At start: admit every root log entry (slot 12) and root change (slot 13)
- * in `store`. A record that will not read or admit FAILS the load, as a
- * revocation does (sec 380). `count` is how many were admitted. */
+/* At start: admit every root record (slot 13) in `store`. A record that will
+ * not read or admit FAILS the load, as a revocation does (sec 380). `count`
+ * is how many were admitted. */
 fzn_node_roots_err_t fzn_node_roots_load(fzn_node_roots_t *roots,
                                          const fzn_persist_ops_t *store, size_t *count);
 
-/* Learn one record -- a root log entry, a root-add or a root-remove, told
- * apart by its object byte -- admit it, and save it. The view is settled
- * again, so an attached store answers under it at once. */
+/* Learn one record -- a root-add, a root-remove, a setting of k or a root's
+ * retention setting, told apart by its object byte -- admit it, and save it.
+ * The view is settled again, so an attached store answers under it at
+ * once. */
 fzn_node_roots_err_t fzn_node_roots_learn(fzn_node_roots_t *roots,
                                           const fzn_persist_ops_t *store,
                                           const uint8_t *bytes, size_t len);
@@ -209,9 +209,10 @@ int fzn_node_roots_acting(const fzn_node_roots_t *roots, const uint8_t identity[
 /* LOG AN ACT THIS NODE SIGNED, by whichever of its keys `signer` is: its
  * identity (signed by `identity_sign`) or the root key it holds. Every act,
  * as a root or not, sec 497: a revocation's cut is drawn in the signer's own
- * log, so an act never logged falls at the signer's revocation whatever the
- * line. OK, logging nothing, when `signer` is neither of this node's keys --
- * a record relayed rather than signed here. */
+ * stream, so an act never logged falls at the signer's revocation whatever
+ * the line. Logging is `logged`, the journal's append, since sec 508. OK,
+ * logging nothing, when `signer` is neither of this node's keys -- a record
+ * relayed rather than signed here. FORKED when the signer's stream has. */
 fzn_node_roots_err_t fzn_node_roots_log_signed(fzn_node_roots_t *roots,
                                                const fzn_persist_ops_t *store,
                                                const uint8_t identity[FZN_PUBKEY_LEN],
@@ -220,11 +221,11 @@ fzn_node_roots_err_t fzn_node_roots_log_signed(fzn_node_roots_t *roots,
                                                uint8_t kind, const uint8_t *record,
                                                size_t len);
 
-/* THE HEAD OF `key`'s LOG, the id of its entry at the greatest seq: what a
- * vote against `key` trusts by default -- everything this node had seen it
- * do. 0, writing nothing, when the log holds nothing of `key`'s or has
- * forked, since a fork's head is the thief's choice as readily as the
- * owner's. sec 497. */
+/* THE HEAD OF `key`'s STREAM in the journal, the id of its last record: what
+ * a vote against `key` trusts by default -- everything this node had seen it
+ * do. 0, writing nothing, with no journal, or when it holds nothing of
+ * `key`'s or the stream has forked, since a fork's head is the thief's
+ * choice as readily as the owner's. secs 497 and 506. */
 int fzn_node_roots_head(const fzn_node_roots_t *roots, const uint8_t key[FZN_PUBKEY_LEN],
                         uint8_t id[FZN_ROOT_ACT_ID_LEN]);
 
@@ -235,9 +236,10 @@ int fzn_node_roots_head(const fzn_node_roots_t *roots, const uint8_t key[FZN_PUB
 size_t fzn_node_roots_standing(const fzn_node_roots_t *roots, uint8_t (*out)[FZN_PUBKEY_LEN],
                                size_t cap);
 
-/* Log `record` as an act of `pubkey`, signed by `sign`, at the next seq
- * after that key's head in this log, and learn the entry. FORKED when the
- * key's log has forked. Any key, not only a root's, since sec 497. */
+/* Log `record` as an act of `pubkey`, signed by `sign`: `logged` is told,
+ * which appends it to the key's stream. FORKED when the key's stream has
+ * forked. Any key, not only a root's, since sec 497. `store` is unused since
+ * sec 508, which retired the root log's own entries. */
 fzn_node_roots_err_t fzn_node_roots_log_act(fzn_node_roots_t *roots,
                                             const fzn_persist_ops_t *store,
                                             const uint8_t pubkey[FZN_PUBKEY_LEN],

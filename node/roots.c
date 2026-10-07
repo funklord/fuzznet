@@ -12,14 +12,16 @@
 
 #include <string.h>
 
-#define ENTRY_BLOB ((size_t)FZN_PERSIST_HEAD_LEN + FZN_ROOT_ACT_LEN)
 /* The longest change: a retention record, sec 476. */
 #define CHANGE_BLOB_MAX ((size_t)FZN_PERSIST_HEAD_LEN + FZN_RETENTION_SET_LEN)
 FZN_STATIC_ASSERT(FZN_RETENTION_SET_LEN >= FZN_ROOT_REMOVE_LEN
                           && FZN_RETENTION_SET_LEN >= FZN_ROOT_ADD_LEN
-                          && FZN_RETENTION_SET_LEN >= FZN_QUORUM_SET_LEN
-                          && FZN_RETENTION_SET_LEN >= FZN_ROOT_ACT_LEN,
+                          && FZN_RETENTION_SET_LEN >= FZN_QUORUM_SET_LEN,
                   "the retention record is the longest a root record gets");
+/* EVERY ROW SLOT 13 CAN HOLD: the set's changes, the settings of k and the
+ * retention records, each bounded where it is kept. */
+#define CHANGES_HELD_MAX \
+	((size_t)FZN_ROOT_SET_MAX + FZN_NODE_ROOT_SETTINGS_MAX + FZN_NODE_ROOT_RETENTION_MAX)
 
 const char *fzn_node_roots_err_str(fzn_node_roots_err_t err)
 {
@@ -37,7 +39,7 @@ const char *fzn_node_roots_err_str(fzn_node_roots_err_t err)
 	case FZN_NODE_ROOTS_NOT_ROOT:
 		return "this node holds no key that stands as a root";
 	case FZN_NODE_ROOTS_FORKED:
-		return "this root's log has forked, and extending it would pick a branch";
+		return "this key's stream has forked, and extending it would pick a branch";
 	case FZN_NODE_ROOTS_HELD:
 		return "this node already holds a root key";
 	case FZN_NODE_ROOTS_NO_PROOF:
@@ -73,12 +75,11 @@ fzn_node_roots_err_t fzn_node_roots_init(fzn_node_roots_t *roots,
 	if (!roots || !genesis || !sign || !sign->verify || !hash || !hash->hash)
 		return FZN_NODE_ROOTS_MALFORMED;
 	memset(roots, 0, sizeof(*roots));
-	if (fzn_root_log_init(&roots->log, roots->entries, FZN_NODE_ROOT_LOG_MAX)
+	/* NO ACT LOG UNTIL A JOURNAL IS SET, sec 508: without one nothing a
+	 * removed root did can be shown to stand, which errs toward removal. */
+	if (fzn_root_set_init(&roots->set, genesis, roots->changes, FZN_ROOT_SET_MAX)
 	            != FZN_ROOT_LOG_OK
-	    || fzn_root_set_init(&roots->set, genesis, roots->changes, FZN_ROOT_SET_MAX)
-	               != FZN_ROOT_LOG_OK
-	    || (fzn_root_log_acts(&roots->log, &roots->acts), 0)
-	    || fzn_root_view_init(&roots->view, &roots->set, &roots->acts) != FZN_ROOT_LOG_OK)
+	    || fzn_root_view_init(&roots->view, &roots->set, NULL) != FZN_ROOT_LOG_OK)
 		return FZN_NODE_ROOTS_MALFORMED;
 	fzn_root_view_ops(&roots->view, &roots->ops);
 	roots->judge.member = judge_member;
@@ -96,8 +97,6 @@ static uint8_t tag_of(const uint8_t *bytes, size_t len)
 	if (len < 2u)
 		return 0;
 	switch (bytes[1]) {
-	case FZN_OBJECT_ROOT_ACT:
-		return (uint8_t)FZN_PERSIST_BLOB_ROOT_ENTRY;
 	case FZN_OBJECT_ROOT_ADD:
 		return (uint8_t)FZN_PERSIST_BLOB_ROOT_ADD;
 	case FZN_OBJECT_ROOT_REMOVE:
@@ -143,8 +142,6 @@ static fzn_root_log_err_t admit(fzn_node_roots_t *roots, const uint8_t *bytes, s
 		memcpy(roots->retention[roots->retention_used++], bytes, FZN_RETENTION_SET_LEN);
 		return FZN_ROOT_LOG_OK;
 	}
-	if (tag_of(bytes, len) == (uint8_t)FZN_PERSIST_BLOB_ROOT_ENTRY)
-		return fzn_root_log_admit(&roots->log, bytes, len, roots->sign, roots->hash);
 	return fzn_root_set_admit(&roots->set, bytes, len, roots->sign, roots->hash);
 }
 
@@ -152,7 +149,7 @@ static fzn_root_log_err_t admit(fzn_node_roots_t *roots, const uint8_t *bytes, s
  * need no refresh. */
 static void settle(fzn_node_roots_t *roots)
 {
-	(void)fzn_root_view_init(&roots->view, &roots->set, &roots->acts);
+	(void)fzn_root_view_init(&roots->view, &roots->set, roots->journal ? &roots->acts : NULL);
 }
 
 fzn_node_roots_err_t fzn_node_roots_set_journal(fzn_node_roots_t *roots,
@@ -160,10 +157,13 @@ fzn_node_roots_err_t fzn_node_roots_set_journal(fzn_node_roots_t *roots,
 {
 	if (!roots || !journal)
 		return FZN_NODE_ROOTS_MALFORMED;
-	/* IN PLACE: every store attached holds a pointer to `acts`, so each now
-	 * asks the journal without being attached again. */
+	/* IN PLACE: a store attached before this holds a pointer to `acts` or,
+	 * attached with no journal, none; either way it asks the journal now. */
 	fzn_node_journal_acts(journal, &roots->acts);
 	roots->journal = journal;
+	if (roots->revocations
+	    && fzn_revocation_store_set_acts(roots->revocations, &roots->acts) != FZN_CHAIN_OK)
+		return FZN_NODE_ROOTS_MALFORMED;
 	settle(roots);
 	return FZN_NODE_ROOTS_OK;
 }
@@ -172,7 +172,7 @@ fzn_node_roots_err_t fzn_node_roots_learn(fzn_node_roots_t *roots,
                                           const fzn_persist_ops_t *store,
                                           const uint8_t *bytes, size_t len)
 {
-	size_t room = (CHANGE_BLOB_MAX > ENTRY_BLOB ? CHANGE_BLOB_MAX : ENTRY_BLOB);
+	size_t room = CHANGE_BLOB_MAX;
 	uint8_t tag;
 
 	if (!roots || !store || !store->save || !bytes)
@@ -190,10 +190,9 @@ fzn_node_roots_err_t fzn_node_roots_save(const fzn_persist_ops_t *store,
                                          const fzn_hash_ops_t *hash, const uint8_t *bytes,
                                          size_t len)
 {
-	uint8_t blob[CHANGE_BLOB_MAX > ENTRY_BLOB ? CHANGE_BLOB_MAX : ENTRY_BLOB];
+	uint8_t blob[CHANGE_BLOB_MAX];
 	uint8_t id[FZN_ROOT_ACT_ID_LEN];
 	uint8_t tag;
-	fzn_persist_slot_t slot;
 
 	if (!store || !store->save || !hash || !hash->hash || !bytes)
 		return FZN_NODE_ROOTS_MALFORMED;
@@ -202,29 +201,27 @@ fzn_node_roots_err_t fzn_node_roots_save(const fzn_persist_ops_t *store,
 		return FZN_NODE_ROOTS_REFUSED;
 	/* SAVED UNDER THE RECORD'S OWN ID, the hash every reference to it
 	 * names, so one record has one row however often it is learned. */
-	slot = (tag == (uint8_t)FZN_PERSIST_BLOB_ROOT_ENTRY) ? FZN_PERSIST_ROOT_ENTRY
-	                                                    : FZN_PERSIST_ROOT_CHANGE;
 	if (!hash->hash(hash->ctx, id, sizeof(id), bytes, len)
 	    || fzn_persist_head_write(blob, sizeof(blob), len, tag) != FZN_PERSIST_OK)
 		return FZN_NODE_ROOTS_NOT_SAVED;
 	memcpy(blob + FZN_PERSIST_HEAD_LEN, bytes, len);
-	if (!store->save(store->ctx, slot, id, blob, (size_t)FZN_PERSIST_HEAD_LEN + len))
+	if (!store->save(store->ctx, FZN_PERSIST_ROOT_CHANGE, id, blob,
+	                 (size_t)FZN_PERSIST_HEAD_LEN + len))
 		return FZN_NODE_ROOTS_NOT_SAVED;
 	return FZN_NODE_ROOTS_OK;
 }
 
-/* One slot's records, admitted. Entries are admitted before changes by the
- * caller's order, though nothing here depends on it: both are sets. */
+/* Slot 13's records, admitted. */
 static fzn_node_roots_err_t load_slot(fzn_node_roots_t *roots, const fzn_persist_ops_t *store,
                                       fzn_persist_slot_t slot, size_t *count)
 {
-	static uint8_t subjects[FZN_NODE_ROOT_LOG_MAX * FZN_PUBKEY_LEN];
+	static uint8_t subjects[CHANGES_HELD_MAX * FZN_PUBKEY_LEN];
 	size_t found = 0, i;
 
-	if (!store->list(store->ctx, slot, subjects, FZN_NODE_ROOT_LOG_MAX, &found))
+	if (!store->list(store->ctx, slot, subjects, CHANGES_HELD_MAX, &found))
 		return FZN_NODE_ROOTS_STORE;
 	for (i = 0; i < found; i++) {
-		uint8_t blob[CHANGE_BLOB_MAX > ENTRY_BLOB ? CHANGE_BLOB_MAX : ENTRY_BLOB];
+		uint8_t blob[CHANGE_BLOB_MAX];
 		size_t len = 0, body;
 		uint8_t tag;
 
@@ -234,10 +231,9 @@ static fzn_node_roots_err_t load_slot(fzn_node_roots_t *roots, const fzn_persist
 			return FZN_NODE_ROOTS_STORE;
 		body = len - FZN_PERSIST_HEAD_LEN;
 		tag = tag_of(blob + FZN_PERSIST_HEAD_LEN, body);
-		/* THE SLOT AND THE TAG MUST AGREE: an entry filed as a change, or
-		 * the reverse, is a store that was written by something else. */
-		if (!tag || (slot == FZN_PERSIST_ROOT_ENTRY) != (tag == FZN_PERSIST_BLOB_ROOT_ENTRY)
-		    || fzn_persist_head_check(blob, len, body, tag) != FZN_PERSIST_OK
+		/* A ROW THAT NAMES NO ROOT RECORD, a root-log entry of before sec
+		 * 507 among them, is a store written by something else. */
+		if (!tag || fzn_persist_head_check(blob, len, body, tag) != FZN_PERSIST_OK
 		    || admit(roots, blob + FZN_PERSIST_HEAD_LEN, body) != FZN_ROOT_LOG_OK)
 			return FZN_NODE_ROOTS_STORE;
 		(*count)++;
@@ -253,9 +249,7 @@ fzn_node_roots_err_t fzn_node_roots_load(fzn_node_roots_t *roots,
 	if (!roots || !store || !store->load || !store->list || !count)
 		return FZN_NODE_ROOTS_MALFORMED;
 	*count = 0;
-	err = load_slot(roots, store, FZN_PERSIST_ROOT_ENTRY, count);
-	if (err == FZN_NODE_ROOTS_OK)
-		err = load_slot(roots, store, FZN_PERSIST_ROOT_CHANGE, count);
+	err = load_slot(roots, store, FZN_PERSIST_ROOT_CHANGE, count);
 	settle(roots);
 	return err;
 }
@@ -268,7 +262,9 @@ fzn_node_roots_err_t fzn_node_roots_attach(fzn_node_roots_t *roots,
 	roots->revocations = revocations;
 	return fzn_revocation_store_set_roots(revocations, &roots->ops, roots->hash)
 	                       == FZN_CHAIN_OK
-	               && fzn_revocation_store_set_acts(revocations, &roots->acts) == FZN_CHAIN_OK
+	               && fzn_revocation_store_set_acts(revocations,
+	                                                roots->journal ? &roots->acts : NULL)
+	                          == FZN_CHAIN_OK
 	               ? FZN_NODE_ROOTS_OK
 	               : FZN_NODE_ROOTS_MALFORMED;
 }
@@ -395,33 +391,21 @@ fzn_node_roots_err_t fzn_node_roots_log_act(fzn_node_roots_t *roots,
                                             const fzn_sign_ops_t *sign, uint8_t kind,
                                             const uint8_t *record, size_t len)
 {
-	const fzn_root_log_entry_t *head = NULL;
-	uint8_t act[FZN_ROOT_ACT_ID_LEN], entry[FZN_ROOT_ACT_LEN];
-	fzn_node_roots_err_t err;
-	size_t i;
+	uint8_t act[FZN_ROOT_ACT_ID_LEN];
 
 	if (!roots || !store || !pubkey || !sign || !record)
 		return FZN_NODE_ROOTS_MALFORMED;
-	if (fzn_root_log_forked(&roots->log, pubkey))
+	/* A STREAM THAT HAS FORKED is a key used in two places, and extending
+	 * either branch would be choosing one. */
+	if (roots->journal && fzn_node_journal_forked(roots->journal, pubkey))
 		return FZN_NODE_ROOTS_FORKED;
-	/* THE HEAD: this root's entry at the greatest seq. With no fork there
-	 * is exactly one there. */
-	for (i = 0; i < roots->log.used; i++) {
-		const fzn_root_log_entry_t *e = &roots->log.entries[i];
-
-		if (fzn_ct_memeq(e->root, pubkey, FZN_PUBKEY_LEN) && (!head || e->seq > head->seq))
-			head = e;
-	}
-	if (!roots->hash->hash(roots->hash->ctx, act, sizeof(act), record, len)
-	    || fzn_root_act_issue(pubkey, head ? head->seq + 1u : 0u, head ? head->id : NULL, kind,
-	                          act, sign, entry) != FZN_ROOT_LOG_OK)
+	if (!roots->hash->hash(roots->hash->ctx, act, sizeof(act), record, len))
 		return FZN_NODE_ROOTS_REFUSED;
-	err = fzn_node_roots_learn(roots, store, entry, sizeof(entry));
-	/* AND INTO THE JOURNAL, sec 501, where one is kept. */
-	if (err == FZN_NODE_ROOTS_OK && roots->logged
-	    && !roots->logged(roots->logged_ctx, pubkey, sign, kind, act, record, len))
+	/* INTO THE JOURNAL, the act log since sec 508: the record is the act,
+	 * and the stream's order is the log's. */
+	if (roots->logged && !roots->logged(roots->logged_ctx, pubkey, sign, kind, act, record, len))
 		return FZN_NODE_ROOTS_NOT_SAVED;
-	return err;
+	return FZN_NODE_ROOTS_OK;
 }
 
 fzn_node_roots_err_t fzn_node_roots_log_signed(fzn_node_roots_t *roots,
@@ -446,26 +430,10 @@ fzn_node_roots_err_t fzn_node_roots_log_signed(fzn_node_roots_t *roots,
 int fzn_node_roots_head(const fzn_node_roots_t *roots, const uint8_t key[FZN_PUBKEY_LEN],
                         uint8_t id[FZN_ROOT_ACT_ID_LEN])
 {
-	const fzn_root_log_entry_t *head = NULL;
-	size_t i;
-
 	if (!roots || !key || !id)
 		return 0;
-	/* THE JOURNAL'S HEAD, once it judges, sec 506: a cut is a record id. */
-	if (roots->journal)
-		return fzn_node_journal_head(roots->journal, key, id);
-	if (fzn_root_log_forked(&roots->log, key))
-		return 0;
-	for (i = 0; i < roots->log.used; i++) {
-		const fzn_root_log_entry_t *e = &roots->log.entries[i];
-
-		if (fzn_ct_memeq(e->root, key, FZN_PUBKEY_LEN) && (!head || e->seq > head->seq))
-			head = e;
-	}
-	if (!head)
-		return 0;
-	memcpy(id, head->id, FZN_ROOT_ACT_ID_LEN);
-	return 1;
+	/* THE JOURNAL'S HEAD, sec 506: a cut is a record id. */
+	return roots->journal && fzn_node_journal_head(roots->journal, key, id);
 }
 
 fzn_node_roots_err_t fzn_node_roots_change(fzn_node_roots_t *roots,
@@ -593,9 +561,9 @@ fzn_node_roots_err_t fzn_node_roots_self_grant(fzn_node_roots_t *roots,
                                                            [FZN_PROVISION_PROOF_ITEM_LEN],
                                                fzn_node_authority_t *authority)
 {
-	uint8_t act[FZN_ROOT_ACT_ID_LEN];
-	size_t count = 0, i;
-	int logged = 0;
+	uint8_t act[FZN_ROOT_ACT_ID_LEN], head[FZN_ROOT_ACT_ID_LEN];
+	size_t count = 0;
+	int logged;
 	fzn_node_roots_err_t err;
 
 	if (!roots || !store || !store->load || !identity || !cap || !hop || !proof || !authority)
@@ -612,9 +580,9 @@ fzn_node_roots_err_t fzn_node_roots_self_grant(fzn_node_roots_t *roots,
 	            != FZN_CHAIN_OK
 	    || !roots->hash->hash(roots->hash->ctx, act, sizeof(act), hop, FZN_HOP_LEN))
 		return FZN_NODE_ROOTS_REFUSED;
-	for (i = 0; i < roots->log.used && !logged; i++)
-		logged = fzn_ct_memeq(roots->log.entries[i].root, roots->key, FZN_PUBKEY_LEN)
-		         && fzn_ct_memeq(roots->log.entries[i].act, act, sizeof(act));
+	/* ONCE: already in the key's stream, it is not appended again. */
+	logged = roots->journal && fzn_node_journal_head(roots->journal, roots->key, head)
+	         && fzn_node_journal_stands(roots->journal, roots->key, head, act);
 	if (!logged) {
 		err = fzn_node_roots_log_act(roots, store, roots->key, roots->key_sign,
 		                             (uint8_t)FZN_ROOT_ACT_GRANT, hop, FZN_HOP_LEN);
