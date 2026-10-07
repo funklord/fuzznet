@@ -289,6 +289,14 @@ fzn_compose_err_t fzn_reply_compose(uint8_t *out, size_t cap, size_t *out_len,
                                     fzn_reply_t reply, const uint8_t *detail,
                                     size_t detail_len);
 
+/* THE ROOM AN `ok` REPLY'S DETAIL HAS in a `cap`-byte buffer: the line is
+ * `ok SP detail LF`, at most FZN_REPLY_MAX in all, so four bytes less than
+ * the smaller of the two. A page filled to the line's bound rather than
+ * this one is refused whole by the composer, and the caller hears nothing:
+ * eleven of thirteen paging verbs did so until a 5000-byte note's text first
+ * filled one, sec 514. 0 for a buffer with no room at all. */
+size_t fzn_reply_ok_room(size_t cap);
+
 /* Read a reply line: the token as an `fzn_reply_t`, and the rest of the line
  * pointed at through `detail`. Borrowed from `line`, so it lives no longer.
  *

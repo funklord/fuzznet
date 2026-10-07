@@ -1290,7 +1290,7 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 			        released, finished);
 	}
 #ifdef FZN_SPOOL_FILE_ON
-	/* A NOTE WHOSE TEXT IS A BLOB NAMES WHAT TO FETCH: every one held is
+	/* EVERY NOTE'S CONTENT IS A BLOB, sec 514, and names what to fetch: each held is
 	 * wanted on the shelf, which answers at once for a text already here,
 	 * so the texts follow their notes in the same round. sec 432. */
 	if (shelf_on
@@ -1299,13 +1299,9 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 		size_t i;
 
 		for (i = 0; i < v->count; i++) {
-			fzn_note_t note;
 			fzn_note_blob_ref_t ref;
 
-			if (fzn_note_open(v->nodes[i].content_type, v->nodes[i].content,
-			                  v->nodes[i].content_len, &note)
-			            == FZN_NOTE_OK
-			    && fzn_note_blob_ref(&note, &ref) == FZN_NOTE_OK)
+			if (fzn_notes_ref_of(&v->nodes[i], &ref))
 				(void)fzn_node_shelf_want(&shelf, ref.root, ref.length);
 		}
 	}
@@ -1424,13 +1420,9 @@ static void pull_received(uint64_t now)
 			size_t k, got;
 
 			for (k = 0; k < v->count; k++) {
-				fzn_note_t note;
 				fzn_note_blob_ref_t ref;
 
-				if (fzn_note_open(v->nodes[k].content_type, v->nodes[k].content,
-				                  v->nodes[k].content_len, &note)
-				            == FZN_NOTE_OK
-				    && fzn_note_blob_ref(&note, &ref) == FZN_NOTE_OK)
+				if (fzn_notes_ref_of(&v->nodes[k], &ref))
 					(void)fzn_node_shelf_want(&shelf, ref.root, ref.length);
 			}
 			got = fzn_node_shelf_fetch_wants(&shelf, peer_ask, &asking);

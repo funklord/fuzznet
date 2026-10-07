@@ -33,9 +33,14 @@
  * children. It can make a cycle, which `tree/` reports rather than forbids;
  * only a note made its own parent is refused, since that one is never meant.
  *
- * A LONG NOTE'S TEXT is sealed before it gets here (`node/shelf.h`): the text
- * field a caller passes is then the 72-byte reference, with
- * FZN_NOTE_FLAG_TEXT_IS_BLOB set in the note it hands over.
+ * EVERY NOTE'S CONTENT IS A SEALED BLOB, since sec 514 (the design is sec
+ * 511): the record carries the meta, and title, text and labels are the
+ * payload `seal` puts in a blob. An edit naming a content field opens the
+ * held payload through `open`, changes it, and seals a new blob under a new
+ * key; an edit of flags or colour, and a move, keep the reference, since the
+ * same content under the same key is not a key reused. A note whose blob is
+ * not here yet can be pinned, trashed and moved, and its content not edited:
+ * PENDING.
  */
 
 #ifndef FZN_NOTES_AUTHOR_H
@@ -46,6 +51,16 @@
 
 #include "view.h"
 #include "../session/random.h"
+
+/* Seal a payload into a blob and fill its reference -- the node's shelf, in
+ * practice (`node/shelf.h`). Nonzero on success. */
+typedef int (*fzn_notes_seal_fn)(void *ctx, const uint8_t *payload, size_t len,
+                                 fzn_note_blob_ref_t *ref);
+
+/* Open a blob back into its payload. Nonzero on success, with `*out_len` the
+ * payload's length; zero when it is not here, or will not open. */
+typedef int (*fzn_notes_open_fn)(void *ctx, const fzn_note_blob_ref_t *ref, uint8_t *out,
+                                 size_t cap, size_t *out_len);
 
 /* Everything writing a note needs. All borrowed. `view` is scratch, since an
  * edit of another writer's note and a create's placement both read the tree. */
@@ -58,19 +73,34 @@ typedef struct fzn_notes_author {
 	const fzn_random_ops_t *rng;
 	/* The admitted set this host's own records go through. */
 	fzn_notes_policy_t policy;
+	/* Where content goes and comes from, sec 514: both are required. */
+	fzn_notes_seal_fn seal;
+	fzn_notes_open_fn open;
+	void *text_ctx;
 } fzn_notes_author_t;
+
+/* A NOTE'S CONTENT, READ: `node`'s meta into `meta`, and its payload, opened
+ * through `open` into `buf`, into `out`'s title, text and labels. SHAPE for a
+ * node that is no version-2 note; PENDING when the blob does not open, or
+ * `open` is NULL -- `meta` is filled either way. */
+fzn_notes_err_t fzn_notes_read(fzn_notes_open_fn open, void *ctx, const fzn_tree_node_t *node,
+                               fzn_note_meta_t *meta, uint8_t *buf, size_t cap,
+                               fzn_note_t *out);
+
+/* The blob reference in `node`'s meta: nonzero for a version-2 note. What
+ * every scan for the texts a tree names reads, sec 514. */
+int fzn_notes_ref_of(const fzn_tree_node_t *node, fzn_note_blob_ref_t *ref);
 
 /* Which fields an edit replaces. A field not named keeps what it said. */
 #define FZN_NOTES_EDIT_TITLE  0x01u
-#define FZN_NOTES_EDIT_TEXT   0x02u /* and the TEXT_IS_BLOB flag with it */
+#define FZN_NOTES_EDIT_TEXT   0x02u
 #define FZN_NOTES_EDIT_LABELS 0x04u
 #define FZN_NOTES_EDIT_COLOUR 0x08u
 #define FZN_NOTES_EDIT_FIELDS                                                                 \
 	(FZN_NOTES_EDIT_TITLE | FZN_NOTES_EDIT_TEXT | FZN_NOTES_EDIT_LABELS                    \
 	 | FZN_NOTES_EDIT_COLOUR)
 
-/* The flags an edit may set or clear: pinned, archived, trashed. TEXT_IS_BLOB
- * moves only with the text, since it says what the text field is. */
+/* The flags an edit may set or clear: pinned, archived, trashed. */
 #define FZN_NOTES_EDIT_FLAGS                                                                  \
 	(FZN_NOTE_FLAG_PINNED | FZN_NOTE_FLAG_ARCHIVED | FZN_NOTE_FLAG_TRASHED)
 

@@ -7,11 +7,11 @@
 
 #include <string.h>
 
-/* A title and labels must fit inline with whatever text a note carries; the
- * text alone may be a blob. These bound the scratch, not what is accepted:
- * `fzn_note_content` is what refuses a note that will not fit. */
-#define TITLE_CAP FZN_NOTE_CONTENT_MAX
-#define LABELS_CAP FZN_NOTE_CONTENT_MAX
+/* One past a title's and labels' bounds, sec 513: these bound the scratch,
+ * not what is accepted, and a field past its bound reaches the author whole
+ * enough to be refused there rather than cut here. */
+#define TITLE_CAP (FZN_NOTE_TITLE_MAX + 1u)
+#define LABELS_CAP (FZN_NOTE_LABELS_MAX + 1u)
 #define ITEM_CAP 0xffffu
 
 /* The scratch a parsed note lives in while its callback runs. */
@@ -576,23 +576,31 @@ void fzn_notes_import_refuse(void *ctx, fzn_notes_import_refusal_t why, const ui
 		run->on_refused(run->refused_ctx, why, t, t_len);
 }
 
-/* Whether a note with this creation time and title is held already. */
+/* Whether a note with this creation time and title is held already: the
+ * time from each meta, and the title only where the time agrees, read from
+ * its payload. A note whose content is not here is not recognised by it. */
 static int imported_before(const fzn_notes_import_run_t *run,
                            const fzn_notes_import_entry_t *e)
 {
+	static uint8_t payload[FZN_NOTE_PAYLOAD_MAX];
 	const fzn_notes_view_t *view = run->author->view;
 	size_t i;
 
 	if (fzn_notes_view_load(run->author->store, run->author->view) != FZN_NOTES_OK)
 		return 0;
 	for (i = 0; i < view->count; i++) {
+		fzn_note_meta_t meta;
 		fzn_note_t note;
 
-		if (fzn_note_open(view->nodes[i].content_type, view->nodes[i].content,
-		                  view->nodes[i].content_len, &note)
-		            == FZN_NOTE_OK
-		    && note.created_at_ms == e->created_at_ms && note.title_len == e->title_len
-		    && memcmp(note.title, e->title, e->title_len) == 0)
+		if (fzn_note_meta_open(view->nodes[i].content_type, view->nodes[i].content,
+		                       view->nodes[i].content_len, &meta)
+		            != FZN_NOTE_OK
+		    || meta.created_at_ms != e->created_at_ms)
+			continue;
+		if (fzn_notes_read(run->author->open, run->author->text_ctx, &view->nodes[i], &meta,
+		                   payload, sizeof(payload), &note)
+		            == FZN_NOTES_OK
+		    && note.title_len == e->title_len && memcmp(note.title, e->title, e->title_len) == 0)
 			return 1;
 	}
 	return 0;
@@ -601,11 +609,9 @@ static int imported_before(const fzn_notes_import_run_t *run,
 int fzn_notes_import_take(void *ctx, const fzn_notes_import_entry_t *e)
 {
 	fzn_notes_import_run_t *run = (fzn_notes_import_run_t *)ctx;
-	uint8_t id[FZN_TREE_ID_LEN], ref_bytes[FZN_NOTE_BLOB_REF_LEN];
+	uint8_t id[FZN_TREE_ID_LEN];
 	fzn_note_t note;
 	fzn_notes_err_t err;
-	size_t ignored = 0;
-	static uint8_t probe[FZN_TREE_CONTENT_MAX];
 
 	if (!run || !run->author || !e)
 		return 1;
@@ -621,29 +627,11 @@ int fzn_notes_import_take(void *ctx, const fzn_notes_import_entry_t *e)
 	note.labels = e->labels;
 	note.labels_len = e->labels_len;
 	note.flags = e->flags;
-	/* INLINE WHEN IT FITS; otherwise the text is sealed and the note
-	 * carries its reference. Nothing is shortened to make it fit. */
-	if (fzn_note_content(&note, probe, sizeof(probe), &ignored) != FZN_NOTE_OK) {
-		fzn_note_blob_ref_t ref;
-
-		if (!run->seal) {
-			fzn_notes_import_refuse(run, FZN_NOTES_IMPORT_NO_SEAL, e->title, e->title_len);
-			return 0;
-		}
-		if (!run->seal(run->seal_ctx, e->text, e->text_len, &ref)
-		    || fzn_note_blob_ref_write(&ref, ref_bytes) != FZN_NOTE_OK) {
-			fzn_notes_import_refuse(run, FZN_NOTES_IMPORT_FAILED, e->title, e->title_len);
-			return 0;
-		}
-		note.text = ref_bytes;
-		note.text_len = sizeof(ref_bytes);
-		note.flags |= FZN_NOTE_FLAG_TEXT_IS_BLOB;
-	}
 	err = fzn_notes_create_dated(run->author, run->folder, e->content_type, &note,
 	                             e->created_at_ms, run->now_ms, id);
 	if (err != FZN_NOTES_OK) {
-		/* A title and labels too long to sit beside a reference land
-		 * here, as does a store that refused: named either way. */
+		/* A title or labels past their bounds land here, as does a store
+		 * or a seal that refused: named either way. */
 		fzn_notes_import_refuse(run, err == FZN_NOTES_ERR_MALFORMED ? FZN_NOTES_IMPORT_TOO_LONG
 		                                                             : FZN_NOTES_IMPORT_FAILED,
 		                        e->title, e->title_len);

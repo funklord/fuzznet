@@ -988,26 +988,22 @@ int main(void)
 			FAIL(455);
 	}
 
-	/* A NOTE, sec 422: a long one as a blob reference, built and read back. */
+	/* A NOTE, sec 514: its meta, naming its sealed content, built and read
+	 * back. */
 	{
-		uint8_t field[FZN_NOTE_BLOB_REF_LEN], content[FZN_TREE_CONTENT_MAX];
-		fzn_note_blob_ref_t ref, back;
-		fzn_note_t note, opened;
-		size_t content_len = 0;
+		uint8_t content[FZN_NOTE_META_LEN];
+		fzn_note_meta_t meta, back;
 
-		memset(&ref, 0x0d, sizeof(ref));
-		ref.length = 5000u;
-		memset(&note, 0, sizeof(note));
-		note.flags = FZN_NOTE_FLAG_TEXT_IS_BLOB;
-		note.text = field;
-		note.text_len = sizeof(field);
-		if (fzn_note_blob_ref_write(&ref, field) != FZN_NOTE_OK
-		    || fzn_note_content(&note, content, sizeof(content), &content_len) != FZN_NOTE_OK
-		    || fzn_note_open(FZN_NOTE_TYPE_NOTE, content, content_len, &opened) != FZN_NOTE_OK
-		    || fzn_note_blob_ref(&opened, &back) != FZN_NOTE_OK || back.length != 5000u)
+		memset(&meta, 0, sizeof(meta));
+		memset(&meta.content, 0x0d, sizeof(meta.content));
+		meta.content.length = 5000u;
+		if (fzn_note_meta_write(&meta, content) != FZN_NOTE_OK
+		    || fzn_note_meta_open(FZN_NOTE_TYPE_NOTE, content, sizeof(content), &back)
+		               != FZN_NOTE_OK
+		    || back.content.length != 5000u)
 			FAIL(456);
 		/* NOT HERE YET on a host holding no spool for it, sec 423. */
-		if (fzn_note_text_state(&opened, NULL) != FZN_NOTE_TEXT_PENDING)
+		if (fzn_note_text_state(&back.content, NULL) != FZN_NOTE_TEXT_PENDING)
 			FAIL(457);
 	}
 

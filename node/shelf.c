@@ -900,20 +900,18 @@ static size_t answer(char *reply, size_t cap, fzn_reply_t kind, const char *deta
 	return len;
 }
 
-/* A reference from its hex: the bytes `notes/note.h` lays out, read the way a
- * note's own text field is read. */
+/* A reference from its hex: the bytes `notes/note.h` lays out, as a note's
+ * meta carries them at FZN_NOTE_META_OFF_REF. */
 static int ref_from_hex(const uint8_t *text, size_t text_len, fzn_note_blob_ref_t *ref)
 {
 	uint8_t bytes[FZN_NOTE_BLOB_REF_LEN];
-	fzn_note_t note;
 
 	if (!from_hex(text, text_len, bytes, sizeof(bytes)))
 		return 0;
-	memset(&note, 0, sizeof(note));
-	note.flags = FZN_NOTE_FLAG_TEXT_IS_BLOB;
-	note.text = bytes;
-	note.text_len = sizeof(bytes);
-	return fzn_note_blob_ref(&note, ref) == FZN_NOTE_OK && ref->length > 0u;
+	memcpy(ref->root, bytes + FZN_NOTE_REF_OFF_ROOT, FZN_BLOB_HASH_LEN);
+	memcpy(ref->key, bytes + FZN_NOTE_REF_OFF_KEY, FZN_BLOB_KEY_LEN);
+	ref->length = fzn_get_be64(bytes + FZN_NOTE_REF_OFF_LEN);
+	return ref->length > 0u;
 }
 
 static size_t put_text(fzn_node_shelf_t *shelf, const uint8_t *arg, size_t arg_len, char *reply,

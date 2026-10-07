@@ -87,7 +87,8 @@ typedef enum fzn_notes_err {
 	FZN_NOTES_ERR_BACKEND = -5,      /* the backend refused, or cannot list */
 	FZN_NOTES_ERR_ABSENT = -6,       /* this host holds no such claim */
 	FZN_NOTES_ERR_SHAPE = -7,        /* what came back is not that claim's record */
-	FZN_NOTES_ERR_UNSUPPORTED = -8   /* the backend cannot remove */
+	FZN_NOTES_ERR_UNSUPPORTED = -8,  /* the backend cannot remove */
+	FZN_NOTES_ERR_PENDING = -9       /* a note's content is not here yet, sec 514 */
 } fzn_notes_err_t;
 
 const char *fzn_notes_err_str(fzn_notes_err_t err);

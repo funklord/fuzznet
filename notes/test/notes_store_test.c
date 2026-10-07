@@ -13,6 +13,7 @@
 #include "../import.h"
 #include "../text.h"
 #include "../view.h"
+#include "blob_stub.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -580,6 +581,7 @@ static fzn_notes_author_t author_as(uint8_t *key, fzn_sign_ops_t *ops)
 	a.sign = ops;
 	a.rng = &RNG;
 	a.policy = own_hosts();
+	blob_stub_attach(&a);
 	return a;
 }
 
@@ -595,18 +597,30 @@ static fzn_note_t titled(const char *title, const char *text)
 	return n;
 }
 
-/* This host's own claim on `id`, opened: its node and its note. */
+/* This host's own claim on `id`, opened: its node, and its note -- the
+ * payload's fields with the meta's flags, colour and times beside them, and
+ * the content's reference in `own_ref`. */
+static fzn_note_blob_ref_t own_ref;
+
 static int own(uint8_t *key, const uint8_t id[FZN_TREE_ID_LEN], fzn_record_t *rec,
                fzn_tree_node_t *node, fzn_note_t *note)
 {
-	static uint8_t out[FZN_RECORD_MAX_LEN];
+	static uint8_t out[FZN_RECORD_MAX_LEN], payload[FZN_NOTE_PAYLOAD_MAX];
+	fzn_note_meta_t meta;
 	size_t len = 0;
 
-	return fzn_notes_get(&store, id, key, out, sizeof(out), &len) == FZN_NOTES_OK
-	       && fzn_record_open(out, len, rec) == FZN_RECORD_OK
-	       && fzn_tree_open(*rec, node) == FZN_TREE_OK
-	       && fzn_note_open(node->content_type, node->content, node->content_len, note)
-	                  == FZN_NOTE_OK;
+	if (fzn_notes_get(&store, id, key, out, sizeof(out), &len) != FZN_NOTES_OK
+	    || fzn_record_open(out, len, rec) != FZN_RECORD_OK
+	    || fzn_tree_open(*rec, node) != FZN_TREE_OK
+	    || fzn_notes_read(blob_stub_open, NULL, node, &meta, payload, sizeof(payload), note)
+	               != FZN_NOTES_OK)
+		return 0;
+	note->flags = meta.flags;
+	note->colour = meta.colour;
+	note->created_at_ms = meta.created_at_ms;
+	note->edited_at_ms = meta.edited_at_ms;
+	own_ref = meta.content;
+	return 1;
 }
 
 static int says(const fzn_note_t *n, const char *title, const char *text)
@@ -689,53 +703,64 @@ static void test_authoring(void)
 	              && own(KEY_A, one, &rec, &node, &note)
 	              && !(note.flags & FZN_NOTE_FLAG_TRASHED) && (note.flags & FZN_NOTE_FLAG_PINNED),
 	      "and is brought back from the trash, still pinned");
+	/* ---- the content is a blob, sec 514: a text of any length up to the
+	 * payload's bound is sealed whole; a flag edit keeps the reference, a
+	 * content edit seals a new one, and a note whose content is not here
+	 * can be flagged and not edited. */
 	{
-		fzn_note_blob_ref_t ref;
-		uint8_t field[FZN_NOTE_BLOB_REF_LEN];
+		static uint8_t long_text[5000];
+		fzn_note_blob_ref_t first;
 
-		memset(&ref, 0x5a, sizeof(ref));
-		ref.length = 5000u;
-		CHECK(fzn_note_blob_ref_write(&ref, field) == FZN_NOTE_OK, "fixture: a reference");
+		memset(long_text, 'x', sizeof(long_text));
 		memset(&with, 0, sizeof(with));
-		with.text = field;
-		with.text_len = sizeof(field);
-		with.flags = FZN_NOTE_FLAG_TEXT_IS_BLOB;
+		with.text = long_text;
+		with.text_len = sizeof(long_text);
 		CHECK(fzn_notes_edit(&a, one, FZN_NOTES_EDIT_TEXT, &with, 0u, 0u, 6004u)
 		              == FZN_NOTES_OK
+		              && own(KEY_A, one, &rec, &node, &note) && note.text_len == 5000u
+		              && note.title_len == 8u && memcmp(note.title, "oat milk", 8u) == 0
+		              && own_ref.length == 9u + 8u + 5000u,
+		      "a long text is sealed whole beside the title");
+		first = own_ref;
+		CHECK(fzn_notes_edit(&a, one, 0u, NULL, 0u, FZN_NOTE_FLAG_PINNED, 6005u) == FZN_NOTES_OK
 		              && own(KEY_A, one, &rec, &node, &note)
-		              && (note.flags & FZN_NOTE_FLAG_TEXT_IS_BLOB)
-		              && fzn_note_blob_ref(&note, &ref) == FZN_NOTE_OK && ref.length == 5000u,
-		      "a long text goes in as its reference, with the flag that says so");
+		              && memcmp(&own_ref, &first, sizeof(first)) == 0,
+		      "unpinning keeps the reference: the same content under the same key");
 		with = titled("", "short again");
-		CHECK(fzn_notes_edit(&a, one, FZN_NOTES_EDIT_TEXT, &with, 0u, 0u, 6005u)
+		CHECK(fzn_notes_edit(&a, one, FZN_NOTES_EDIT_TEXT, &with, 0u, 0u, 6006u)
 		              == FZN_NOTES_OK
 		              && own(KEY_A, one, &rec, &node, &note)
-		              && !(note.flags & FZN_NOTE_FLAG_TEXT_IS_BLOB)
+		              && says(&note, "oat milk", "short again")
+		              && memcmp(own_ref.root, first.root, sizeof(first.root)) != 0,
+		      "and a text edit seals a new blob");
+		blob_stub.refuse = 1;
+		with = titled("", "unsealed");
+		CHECK(fzn_notes_edit(&a, one, FZN_NOTES_EDIT_TEXT, &with, 0u, 0u, 6007u)
+		              != FZN_NOTES_OK
+		              && own(KEY_A, one, &rec, &node, &note)
 		              && says(&note, "oat milk", "short again"),
-		      "and an inline text clears it");
+		      "a seal that fails writes nothing");
+		blob_stub.refuse = 0;
+		with = titled("gone", "soon");
+		CHECK(fzn_notes_create(&a, root, FZN_NOTE_TYPE_NOTE, &with, 6008u, stray)
+		              == FZN_NOTES_OK
+		              && own(KEY_A, stray, &rec, &node, &note),
+		      "fixture: a note whose content is about to go");
+		blob_stub_drop(&own_ref);
+		with = titled("renamed", "");
+		CHECK(fzn_notes_edit(&a, stray, FZN_NOTES_EDIT_TITLE, &with, 0u, 0u, 6009u)
+		              == FZN_NOTES_ERR_PENDING,
+		      "a note whose content is not here cannot have it edited");
+		CHECK(fzn_notes_edit(&a, stray, 0u, NULL, FZN_NOTE_FLAG_TRASHED, 0u, 6010u)
+		              == FZN_NOTES_OK
+		              && !own(KEY_A, stray, &rec, &node, &note),
+		      "and can still be trashed, its content still not here");
 	}
 	CHECK(fzn_notes_edit(&a, one, 0u, NULL, FZN_NOTE_FLAG_TRASHED, FZN_NOTE_FLAG_TRASHED, 1u)
 	              == FZN_NOTES_ERR_MALFORMED,
 	      "setting and clearing one flag at once is refused");
-	CHECK(fzn_notes_edit(&a, one, 0u, NULL, FZN_NOTE_FLAG_TEXT_IS_BLOB, 0u, 1u)
-	              == FZN_NOTES_ERR_MALFORMED,
-	      "the blob flag does not move without the text");
-	/* A PLAIN TEXT OF EXACTLY A REFERENCE'S WIDTH is where the flag alone
-	 * would pass every shape check and turn prose into a "reference". */
-	{
-		static const char seventy_two[] = "123456789012345678901234567890123456789012345678901234567890123456789012";
-
-		with = titled("", seventy_two);
-		CHECK(sizeof(seventy_two) - 1u == FZN_NOTE_BLOB_REF_LEN
-		              && fzn_notes_edit(&a, one, FZN_NOTES_EDIT_TEXT, &with, 0u, 0u, 6006u)
-		                         == FZN_NOTES_OK,
-		      "fixture: a plain text of 72 bytes");
-		CHECK(fzn_notes_edit(&a, one, 0u, NULL, FZN_NOTE_FLAG_TEXT_IS_BLOB, 0u, 6007u)
-		              == FZN_NOTES_ERR_MALFORMED
-		              && own(KEY_A, one, &rec, &node, &note)
-		              && !(note.flags & FZN_NOTE_FLAG_TEXT_IS_BLOB),
-		      "the blob flag alone does not make a 72-byte text a reference");
-	}
+	CHECK(fzn_notes_edit(&a, one, 0u, NULL, 0x08u, 0u, 1u) == FZN_NOTES_ERR_MALFORMED,
+	      "version 1's blob flag is no flag an edit may set");
 	CHECK(fzn_notes_edit(&a, one, 0u, NULL, 0u, 0u, 1u) == FZN_NOTES_ERR_MALFORMED,
 	      "an edit that changes nothing is refused");
 	CHECK(fzn_notes_edit(&a, root, 0u, NULL, FZN_NOTE_FLAG_PINNED, 0u, 1u)
@@ -1205,22 +1230,6 @@ static int is(const uint8_t *b, size_t n, const char *want)
 	return n == strlen(want) && memcmp(b, want, n) == 0;
 }
 
-/* A seal hook: records what it sealed, and can refuse. */
-static size_t sealed_len;
-static int seal_refuses;
-
-static int toy_seal(void *ctx, const uint8_t *t, size_t n, fzn_note_blob_ref_t *ref)
-{
-	(void)ctx;
-	(void)t;
-	if (seal_refuses)
-		return 0;
-	sealed_len = n;
-	memset(ref, 0x3c, sizeof(*ref));
-	ref->length = n;
-	return 1;
-}
-
 static uint8_t big[(2u * FZN_NOTE_TEXT_MAX) + 4096u];
 
 static void test_import_parsing(void)
@@ -1390,9 +1399,9 @@ static void test_import_run(void)
 	fzn_notes_author_t a = author_as(KEY_A, &ops_a);
 	fzn_notes_import_run_t run;
 	uint8_t root[FZN_TREE_ID_LEN];
+	static uint8_t payload[FZN_NOTE_PAYLOAD_MAX];
 	fzn_note_t note;
-	fzn_record_t rec;
-	fzn_tree_node_t node;
+	fzn_note_meta_t meta;
 	size_t i, found = 0;
 	static const char dated[] = "{\"title\":\"dated\",\"textContent\":\"x\","
 	                            "\"createdTimestampUsec\":1600000000000000}";
@@ -1420,11 +1429,11 @@ static void test_import_run(void)
 	      "two notes are imported, one undated");
 	CHECK(fzn_notes_view_load(&store, &author_view) == FZN_NOTES_OK, "fixture: the view");
 	for (i = 0; i < author_view.count; i++)
-		if (fzn_note_open(author_view.nodes[i].content_type, author_view.nodes[i].content,
-		                  author_view.nodes[i].content_len, &note)
-		            == FZN_NOTE_OK
+		if (fzn_notes_read(blob_stub_open, NULL, &author_view.nodes[i], &meta, payload,
+		                   sizeof(payload), &note)
+		            == FZN_NOTES_OK
 		    && is(note.title, note.title_len, "dated")
-		    && note.created_at_ms == 1600000000000u && note.edited_at_ms == 9000u
+		    && meta.created_at_ms == 1600000000000u && meta.edited_at_ms == 9000u
 		    && memcmp(author_view.nodes[i].parent, run.folder, FZN_TREE_ID_LEN) == 0)
 			found++;
 	CHECK(found == 1u, "the dated note keeps its source's creation time, in the folder");
@@ -1449,13 +1458,11 @@ static void test_import_run(void)
 		      "a note made in the same millisecond under another title is imported");
 	}
 
-	/* ---- a long text is sealed, and without a seal hook refused */
+	/* ---- a long text is sealed whole, and refused when the seal fails */
 	{
 		static const char head[] = "{\"title\":\"long\",\"createdTimestampUsec\":5,"
 		                           "\"textContent\":\"";
-		uint8_t id[FZN_SUBJECT_LEN];
 		size_t n = sizeof(head) - 1u;
-		fzn_note_blob_ref_t ref;
 
 		memcpy(big, head, n);
 		for (i = 0; i < 5000u; i++)
@@ -1463,40 +1470,27 @@ static void test_import_run(void)
 		memcpy(big + n, "\"}", 2u);
 		n += 2u;
 		run.imported = run.refused = 0;
+		blob_stub.refuse = 1;
 		CHECK(fzn_notes_import_keep(big, n, fzn_notes_import_take, &run,
 		                            fzn_notes_import_refuse, &run)
 		                      == FZN_NOTES_OK
 		              && run.refused == 1u && run.imported == 0u,
-		      "a text too long for inline, with no seal hook, is refused");
-		run.seal = toy_seal;
-		seal_refuses = 1;
+		      "a note whose content will not seal is refused");
+		blob_stub.refuse = 0;
 		CHECK(fzn_notes_import_keep(big, n, fzn_notes_import_take, &run,
 		                            fzn_notes_import_refuse, &run)
 		                      == FZN_NOTES_OK
-		              && run.refused == 2u && run.imported == 0u,
-		      "and with a seal hook that fails, refused too");
-		seal_refuses = 0;
-		CHECK(fzn_notes_import_keep(big, n, fzn_notes_import_take, &run,
-		                            fzn_notes_import_refuse, &run)
-		                      == FZN_NOTES_OK
-		              && run.imported == 1u && sealed_len == 5000u,
-		      "with one that seals, it is imported");
+		              && run.imported == 1u,
+		      "with a seal that works, it is imported");
 		CHECK(fzn_notes_view_load(&store, &author_view) == FZN_NOTES_OK, "fixture: view");
 		found = 0;
 		for (i = 0; i < author_view.count; i++)
-			if (fzn_note_open(author_view.nodes[i].content_type,
-			                  author_view.nodes[i].content,
-			                  author_view.nodes[i].content_len, &note)
-			            == FZN_NOTE_OK
-			    && is(note.title, note.title_len, "long")
-			    && (note.flags & FZN_NOTE_FLAG_TEXT_IS_BLOB)
-			    && fzn_note_blob_ref(&note, &ref) == FZN_NOTE_OK && ref.length == 5000u) {
-				memcpy(id, author_view.nodes[i].id, sizeof(id));
+			if (fzn_notes_read(blob_stub_open, NULL, &author_view.nodes[i], &meta, payload,
+			                   sizeof(payload), &note)
+			            == FZN_NOTES_OK
+			    && is(note.title, note.title_len, "long") && note.text_len == 5000u)
 				found++;
-			}
-		CHECK(found == 1u, "carrying the sealed text's reference");
-		(void)rec;
-		(void)node;
+		CHECK(found == 1u, "its whole text sealed");
 	}
 }
 

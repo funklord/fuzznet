@@ -220,8 +220,9 @@ static size_t list_peers(fzn_node_admin_t *admin, const uint8_t *from_text, size
 	/* THE PAGE FOLLOWS THE BUFFER IT IS WRITTEN INTO, not only the line
 	 * bound: the remote path's default reply buffer is FZN_NODE_REPLY_MAX,
 	 * half the grammar's, and a page sized for the grammar would fail to
-	 * compose there and the caller would hear nothing. Less the newline. */
-	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	 * compose there and the caller would hear nothing. Less `ok ` and the
+	 * newline: `fzn_reply_ok_room`. */
+	size_t limit = fzn_reply_ok_room(cap);
 	int n;
 
 	for (i = 0; i < from_len; i++) {
@@ -235,14 +236,14 @@ static size_t list_peers(fzn_node_admin_t *admin, const uint8_t *from_text, size
 	if (n < 0 || (size_t)n >= sizeof(detail))
 		return 0;
 	at = (size_t)n;
-	/* One space and 64 hex characters per key, under the reply's bound
-	 * less the `ok ` in front of the detail; a contact's key is followed by
-	 * `,contact`, since a peer paired for a share is no member (sec 436). */
+	/* One space and 64 hex characters per key, within that room; a
+	 * contact's key is followed by `,contact`, since a peer paired for a
+	 * share is no member (sec 436). */
 	for (i = from; i < total; i++) {
 		int contact = fzn_node_peer_contact(&admin->state->config, &admin->state->peers[i]);
 		size_t need = 1u + (FZN_PUBKEY_LEN * 2u) + (contact ? 8u : 0u);
 
-		if (at + need + 3u > limit)
+		if (at + need > limit)
 			break;
 		detail[at++] = ' ';
 		put_hex(detail + at, admin->state->peers[i].sender, FZN_PUBKEY_LEN);
@@ -618,7 +619,7 @@ static size_t list_successions(fzn_node_admin_t *admin, const uint8_t *from_text
                                size_t from_len, char *reply, size_t cap)
 {
 	static char detail[FZN_REPLY_MAX];
-	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	size_t limit = fzn_reply_ok_room(cap);
 	const fzn_succession_set_t *set;
 	size_t from = 0, at, i;
 	int n;
@@ -643,7 +644,7 @@ static size_t list_successions(fzn_node_admin_t *admin, const uint8_t *from_text
 		const char *state = counts ? ",counting" : ",waiting";
 		size_t need = 2u + (FZN_PUBKEY_LEN * 4u) + strlen(state);
 
-		if (at + need + 3u > limit)
+		if (at + need > limit)
 			break;
 		detail[at++] = ' ';
 		put_hex(detail + at, set->entries[i].old, FZN_PUBKEY_LEN);
@@ -936,7 +937,7 @@ static size_t list_contacts(fzn_node_admin_t *admin, const uint8_t *rest, size_t
 {
 	static fzn_contact_t all[FZN_CONTACTS_MAX];
 	static char detail[FZN_REPLY_MAX];
-	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	size_t limit = fzn_reply_ok_room(cap);
 	size_t count = 0, from = 0, used, i, k;
 	const uint8_t *w;
 	size_t w_len;
@@ -1069,7 +1070,7 @@ static size_t list_groups(fzn_node_admin_t *admin, const uint8_t *rest, size_t r
 {
 	static fzn_group_t all[FZN_GROUPS_MAX];
 	static char detail[FZN_REPLY_MAX];
-	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	size_t limit = fzn_reply_ok_room(cap);
 	size_t count = 0, from = 0, used, i;
 	const uint8_t *w;
 	size_t w_len;
@@ -1108,7 +1109,7 @@ static size_t get_group(fzn_node_admin_t *admin, const uint8_t *rest, size_t res
 {
 	static fzn_group_t g;
 	static char detail[FZN_REPLY_MAX];
-	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	size_t limit = fzn_reply_ok_room(cap);
 	const uint8_t *name;
 	size_t name_len, used, i, k;
 	fzn_contact_err_t err;
@@ -1175,7 +1176,7 @@ static size_t change_retention(fzn_node_admin_t *admin, int add, const uint8_t *
 static size_t rules_reply(const fzn_retain_rule_t *rules, size_t count, char *reply, size_t cap)
 {
 	static char detail[FZN_REPLY_MAX];
-	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	size_t limit = fzn_reply_ok_room(cap);
 	size_t used, i, j;
 	int n;
 
@@ -1427,7 +1428,7 @@ static size_t list_received(fzn_node_admin_t *admin, char *reply, size_t cap)
 {
 	fzn_node_received_t all[FZN_NODE_RECEIVED_MAX];
 	static char detail[FZN_REPLY_MAX];
-	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	size_t limit = fzn_reply_ok_room(cap);
 	size_t count = 0, used, i, k;
 	int n;
 

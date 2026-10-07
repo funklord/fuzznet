@@ -396,7 +396,7 @@ void fzn_notebook_view::refresh_note()
 	if (have) {
 		QString get = shared() ? QStringLiteral("get shared %1 %2").arg(m_tree, m_open)
 		                       : QStringLiteral("get note %1").arg(m_open);
-		/* `TYPE FLAGS CREATED EDITED PARENT inline|blob LEN TITLE`. */
+		/* `TYPE FLAGS CREATED EDITED PARENT blob|pending LEN TITLE`. */
 		if (ask(get, &detail) == 1) {
 			QStringList f = detail.split(QLatin1Char(' '));
 			int type = f.value(0).toInt();

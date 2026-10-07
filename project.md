@@ -58082,3 +58082,176 @@ shape check read it unchanged. Flags, colour and times are
     identical check as well, and is re-anchored on version 1's.
 - `make test`, `make style` (1158 entries), `make installcheck`, and
   `make schema` with the new schema.
+
+## 514. Stage 5, step 3a: every note's content is a sealed blob, and version 1 is gone, 2026-10-08
+
+Step 3a of sec 511 moves every writer and reader of a note onto sec 513's
+version 2. Records stay unchained; chaining them through the journal is 3b.
+
+### What a note is now
+
+- **The record holds the meta**: flags, colour, the two times, and the
+  reference to the content blob. Title, text and labels are the payload
+  sealed in that blob, every note's, an empty one included.
+- **The author seals and opens**: `fzn_notes_author_t` gains `seal`, `open`
+  and their context, and refuses to write without both.
+  - A content edit opens the held payload, changes the fields it names,
+    and seals a new blob under a new key.
+  - A flag edit, a colour edit and a move keep the reference: the same
+    content under the same key is not a key reused.
+  - A content edit of a note whose blob is not here is `PENDING`, the new
+    `FZN_NOTES_ERR_PENDING`. Writing the other fields back empty would
+    delete them. Pinning, trashing and moving it still work.
+- **`fzn_notes_read`** reads a node's meta and opens its payload. It answers
+  `SHAPE` for no version-2 note and `PENDING` when the blob does not open;
+  the meta is filled either way. **`fzn_notes_ref_of`** answers a node's
+  reference alone, and every scan for the blobs a tree names uses it: the
+  shelf's wants in `fuzznetd`, collection, shares and pushed texts.
+- **Version 1 is deleted**: `fzn_note_open`, `fzn_note_content`,
+  `fzn_note_blob_ref`, TEXT_IS_BLOB, its offsets and FZN_NOTE_CONTENT_MAX. A
+  meta carrying 0x08 is refused. A store holding version-1 records reads
+  them as unreadable notes, which sec 511 accepted as the format break.
+- **`fzn_note_text_state` takes a reference** rather than a note. Its INLINE
+  state is retired, since no text is inline; no reference, or one no blob
+  can have, is BROKEN.
+
+### What the node says
+
+- `get note ID` answers `TYPE FLAGS CREATED EDITED PARENT blob LEN TITLE`,
+  with LEN the text's length. For a note whose blob is not here it answers
+  `pending` and the sealed payload's length, with no title. The word that
+  was `inline|blob` is now `blob|pending`, in the same place.
+- `get note ID text` pages any text, a long one included, and says "not
+  here yet" for a pending one. Before, a blob's text was refused there and
+  had to go through `file`.
+- `list note` marks a pending note with FZN_NODE_NOTES_LIST_PENDING, 0x80,
+  in its flags field. A note's own flags stop at 0x04, and the GUI reads
+  only its own bits. Such a note lists with an empty title. This is sec
+  511's promise that a note whose blob is absent lists as pending.
+- **A listing opens one blob per note** to get the titles. The cache sec 511
+  promised, keyed by blob root, is step 6. Until then a long listing costs
+  one shelf open per note.
+- A node with no blob store refuses every write with an error naming why,
+  not as malformed: the request was well formed. `fuzznetd` always has a
+  shelf where spools are built.
+
+### A reply bound eleven verbs got wrong
+
+A 5000-byte text was the first `get note ID text` page to fill a reply. It
+came back as no reply at all.
+
+- The cause: the page was sized to the line's bound, FZN_REPLY_MAX. The line
+  is `ok`, a space, the detail and a newline, so a full page was four bytes
+  over, and the composer refused the whole line.
+- Thirteen paging verbs in `node/notes.c`, `node/admin.c` and
+  `node/files.c` computed that budget by hand:
+  - Eleven left no room for `ok `.
+  - The two in admin that did were off by one when the buffer was larger
+    than the grammar's line.
+- Each now calls `fzn_reply_ok_room` in `local/vocabulary.h`.
+- Only the notes page has a test that fills it. The other verbs' pages fill
+  only with enough peers, contacts or files.
+
+### Superseded blobs
+
+Every content edit leaves the previous blob on the shelf, where version 1
+left one only for a long text. `remove text unused` collects them, as it
+did. The shelf grows by one payload per content edit until then.
+
+### Tests
+
+- `notes/test/blob_stub.h` seals and opens in a static arena with no cipher,
+  for any suite that writes notes. Three model suites, the node suite and
+  `notebook_view_test` use it.
+- `notebook_view_test` had a one-slot toy store. Under version 2 it answered
+  only the payload sealed last, so every older note read as pending, and
+  its 137 checks passed anyway: none of them asserts on an older note's
+  title.
+- `note_test` is ported onto the payload and meta, 139 checks. The
+  version-1 cases with no counterpart are gone: the blob flag's width, and
+  the content budget. The budget case now bounds the payload at 256 KiB.
+- `text_test`: 35 checks.
+- `notes_store_test`: 173 checks. New cases:
+  - a long text is sealed whole;
+  - unpinning keeps the reference;
+  - a text edit seals a new blob;
+  - a failed seal writes nothing;
+  - a pending note's content cannot be edited and it can still be trashed;
+  - version 1's flag is refused.
+- `node/test/notes_test`: 280 checks. New cases:
+  - no store is an error;
+  - a long text pages;
+  - a pending note is `pending` in `get`, marked in `list`, its text not
+    read, its title not edited, and it is still pinned.
+- Live, `live57`: R writes two notes, one with a 5000-byte text, and M pulls.
+  M lists both titles, reads the short text, and writes the long one to a
+  file byte for byte. M logs "2 text(s)" fetched in the same round as the
+  records.
+
+### The sweep over version 1's guards
+
+- Twenty-one sabotage entries named version-1 code. They are handled three
+  ways:
+  - Fifteen are re-anchored on the code that does the same job now.
+  - Three are replaced by new guards on the same job:
+    - `notes-edit-pending-not-blanked` replaces the blob flag moving with
+      the text.
+    - `node-notes-no-store-said` replaces sealing a long text.
+    - `node-notes-pending-not-read` replaces a blob not paged as text.
+  - Three are retired: `import-run-seals-long`,
+    `note-lengths-partition-the-body` and `note-blob-ref-width-read`.
+    Sealing is the author's now, and sec 513's
+    `note-payload-partitions` holds the partition.
+- Two new entries: `node-notes-list-marks-pending` and
+  `reply-ok-room-leaves-ok`.
+- All twenty were probed, each against the suite that should catch it.
+  Nineteen were caught by a named check. `note-field-fits-before-sum` left
+  no FAIL line, and the full harness reports it caught: without the bound,
+  a title of SIZE_MAX wraps the sum and the copy faults.
+
+### Still open in stage 5
+
+- 3b: chain notes through the journal's stream 0.
+- 4: members' sync onto the journal.
+- 5: purge over shells.
+- 6: the daemon, GUI and import, including the title cache.
+- 7: the operation journal.
+
+An import's duplicate check reads the title from the blob. A note whose blob
+is not here is therefore not recognised as imported before, and a re-import
+then brings in a second copy.
+
+## 515. fuzzypickles' contacts move onto fzn_contact: what they require, 2026-10-08
+
+fuzzypickles reported a holder decision of 2026-10-08, their sec 201.
+Contacts are referenced by key everywhere, and names are labels for
+presentation only. That is `contact/contact.h`'s model already. They adopt
+it by moving their contacts onto `fzn_contact`, not by re-keying their own
+first.
+
+Their requirements, as they stated them:
+
+- All per-contact state is keyed by the contact's key: delivery state,
+  outbox, settlement, delegation, shares and message history. Names
+  resolve to keys only at the CLI and IPC edge and in a client's display.
+- A rename relabels the same key, which is `fzn_contact_add` with a key it
+  holds. The holder wants a rename to follow the contact to every device
+  of the user, and history to show the new name.
+- Two of their sibling-wire fields carry names today: the peer_sync contact
+  record, and the delegation payload's recipient. In this design they
+  become keys.
+
+Left to this tree by the holder the same day, and not yet designed:
+
+- message storage bounds (their inbox is 100 lines across all contacts);
+- group administration from a device other than the creator.
+
+**Where this tree stands.** Whether a key is a contact already travels
+between the estate's members, as roster records (sec 489). The name does
+not. Sec 489 left it as each node's own, because a name is a roster setting
+and roster settings are refused until their resolution is decided. A
+contact added on another member arrives as `c_` and eight hex digits.
+
+So a rename that follows the contact to every device is exactly that
+undecided resolution. It is the requirement that now asks for it, and
+nothing is decided here yet.

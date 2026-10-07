@@ -329,13 +329,13 @@ fzn_notes_err_t fzn_notes_purge_trash(const fzn_notes_store_t *store, fzn_notes_
 	/* THIS HOST'S OWN TRASHED CLAIMS, the ids copied out before anything
 	 * is erased under the view. */
 	for (i = 0; i < view->count; i++) {
-		fzn_note_t note;
+		fzn_note_meta_t meta;
 
 		if (!fzn_ct_memeq(view->writers[i], self, FZN_PUBKEY_LEN)
-		    || fzn_note_open(view->nodes[i].content_type, view->nodes[i].content,
-		                     view->nodes[i].content_len, &note)
+		    || fzn_note_meta_open(view->nodes[i].content_type, view->nodes[i].content,
+		                          view->nodes[i].content_len, &meta)
 		               != FZN_NOTE_OK
-		    || !(note.flags & FZN_NOTE_FLAG_TRASHED))
+		    || !(meta.flags & FZN_NOTE_FLAG_TRASHED))
 			continue;
 		memcpy(ids[n++], view->nodes[i].id, FZN_TREE_ID_LEN);
 	}

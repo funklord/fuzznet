@@ -8,6 +8,7 @@
  * is its secret. */
 
 #include "../author.h"
+#include "blob_stub.h"
 #include "../purge.h"
 #include "../received.h"
 #include "../share.h"
@@ -225,6 +226,7 @@ static fzn_notes_author_t author_on(fzn_notes_store_t *store, uint8_t *key, fzn_
 	a.sign = sign;
 	a.rng = &RNG;
 	a.policy = both();
+	blob_stub_attach(&a);
 	return a;
 }
 
@@ -254,14 +256,14 @@ static int title_is(fzn_notes_store_t *store, const uint8_t id[FZN_TREE_ID_LEN],
 	size_t len = 0;
 	fzn_record_t rec;
 	fzn_tree_node_t node;
-	fzn_note_t note;
+	const uint8_t *t;
+	size_t t_len = 0;
 
 	return fzn_notes_get(store, id, writer, out, sizeof(out), &len) == FZN_NOTES_OK
 	       && fzn_record_open(out, len, &rec) == FZN_RECORD_OK
 	       && fzn_tree_open(rec, &node) == FZN_TREE_OK
-	       && fzn_note_open(node.content_type, node.content, node.content_len, &note)
-	                  == FZN_NOTE_OK
-	       && note.title_len == strlen(title) && memcmp(note.title, title, note.title_len) == 0;
+	       && (t = blob_stub_title(&node, &t_len)) != NULL && t_len == strlen(title)
+	       && memcmp(t, title, t_len) == 0;
 }
 
 /* ---- the peer ------------------------------------------------------------ */

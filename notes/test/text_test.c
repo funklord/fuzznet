@@ -323,22 +323,18 @@ static size_t sealed_len_of(uint64_t i, uint64_t leaves, size_t len)
 	return (i + 1u == leaves ? last : (size_t)FZN_BLOB_LEAF_SIZE) + FZN_BLOB_LEAF_OVERHEAD;
 }
 
-/* A note whose text is in `field` as a reference, built and opened. */
-static int blob_note(const fzn_note_blob_ref_t *ref, uint8_t field[FZN_NOTE_BLOB_REF_LEN],
-                     uint8_t *content, size_t cap, fzn_note_t *out)
+/* A note's meta naming `ref`, built and opened -- the reference a host
+ * reads out of a record, sec 514. */
+static int blob_note(const fzn_note_blob_ref_t *ref, fzn_note_meta_t *out)
 {
-	fzn_note_t in;
-	size_t len = 0;
+	uint8_t content[FZN_NOTE_META_LEN];
+	fzn_note_meta_t in;
 
 	memset(&in, 0, sizeof(in));
-	in.title = (const uint8_t *)"Minutes";
-	in.title_len = 7u;
-	in.flags = FZN_NOTE_FLAG_TEXT_IS_BLOB;
-	in.text = field;
-	in.text_len = FZN_NOTE_BLOB_REF_LEN;
-	return fzn_note_blob_ref_write(ref, field) == FZN_NOTE_OK
-	       && fzn_note_content(&in, content, cap, &len) == FZN_NOTE_OK
-	       && fzn_note_open(FZN_NOTE_TYPE_NOTE, content, len, out) == FZN_NOTE_OK;
+	in.content = *ref;
+	return fzn_note_meta_write(&in, content) == FZN_NOTE_OK
+	       && fzn_note_meta_open(FZN_NOTE_TYPE_NOTE, content, sizeof(content), out)
+	                  == FZN_NOTE_OK;
 }
 
 /* THE REQUIREMENT, END TO END, and the state a sibling is in on the way: a
@@ -352,11 +348,10 @@ static void test_a_long_note_reaches_a_sibling(void)
 	static uint8_t hashes[FZN_NOTE_TEXT_LEAVES_MAX][FZN_BLOB_HASH_LEN];
 	fzn_spool_ops_t o_mine = { mem_read, mem_write, mem_sync, &mine };
 	fzn_spool_ops_t o_theirs = { mem_read, mem_write, mem_sync, &theirs };
-	uint8_t field[FZN_NOTE_BLOB_REF_LEN], content[FZN_TREE_CONTENT_MAX];
 	uint8_t sealed[FZN_BLOB_SEALED_MAX], proof[FZN_BLOB_MAX_DEPTH * FZN_BLOB_HASH_LEN];
 	fzn_spool_t s_mine, s_theirs;
 	fzn_note_blob_ref_t ref, named;
-	fzn_note_t note;
+	fzn_note_meta_t note;
 	uint64_t i;
 	size_t got = 0, len = 0;
 	unsigned siblings = 0;
@@ -365,12 +360,12 @@ static void test_a_long_note_reaches_a_sibling(void)
 	fill_text(5000u, 9);
 	CHECK(fzn_note_text_seal(&HASH, &AEAD, &RNG, text, 5000u, &o_mine, p_mine, sizeof(p_mine),
 	                         &s_mine, &ref) == FZN_NOTE_OK
-	              && blob_note(&ref, field, content, sizeof(content), &note)
-	              && fzn_note_blob_ref(&note, &named) == FZN_NOTE_OK,
+	              && blob_note(&ref, &note),
 	      "fixture: a 5000-byte note on this host");
-	CHECK(fzn_note_text_state(&note, &s_mine) == FZN_NOTE_TEXT_HERE,
+	named = note.content;
+	CHECK(fzn_note_text_state(&named, &s_mine) == FZN_NOTE_TEXT_HERE,
 	      "the writer's own note is not HERE");
-	CHECK(fzn_note_text_state(&note, NULL) == FZN_NOTE_TEXT_PENDING,
+	CHECK(fzn_note_text_state(&named, NULL) == FZN_NOTE_TEXT_PENDING,
 	      "a host holding no spool for the note's blob did not say PENDING");
 
 	/* THE SIBLING: its spool over the root the note names, filled from the
@@ -387,7 +382,7 @@ static void test_a_long_note_reaches_a_sibling(void)
 		                          hashes[i]) != FZN_BLOB_OK)
 			pending_until_last = 0;
 	for (i = 0; i < s_mine.leaves; i++) {
-		if (fzn_note_text_state(&note, &s_theirs) != FZN_NOTE_TEXT_PENDING)
+		if (fzn_note_text_state(&named, &s_theirs) != FZN_NOTE_TEXT_PENDING)
 			pending_until_last = 0;
 		len = sealed_len_of(i, s_mine.leaves, 5000u);
 		if (fzn_spool_read(&s_mine, i, sealed, sizeof(sealed), &got) != FZN_SPOOL_OK
@@ -398,7 +393,7 @@ static void test_a_long_note_reaches_a_sibling(void)
 			pending_until_last = 0;
 	}
 	CHECK(pending_until_last, "the sibling's note was not PENDING until its last leaf landed");
-	CHECK(fzn_note_text_state(&note, &s_theirs) == FZN_NOTE_TEXT_HERE,
+	CHECK(fzn_note_text_state(&named, &s_theirs) == FZN_NOTE_TEXT_HERE,
 	      "the sibling's note is not HERE with every leaf");
 	CHECK(fzn_note_text_open(&HASH, &AEAD, &s_theirs, &named, back, sizeof(back), &got)
 	                      == FZN_NOTE_OK
@@ -406,41 +401,34 @@ static void test_a_long_note_reaches_a_sibling(void)
 	      "the sibling did not read the text that was written");
 }
 
-/* THE STATES: inline, and a reference to nothing is BROKEN, never pending. */
+/* THE STATES: a reference to nothing is BROKEN, never pending, and so is
+ * no reference at all -- there is no inline text since sec 514. */
 static void test_the_states(void)
 {
 	static mem_t m;
 	static uint8_t present[FZN_NOTE_TEXT_PRESENT_LEN];
 	fzn_spool_ops_t ops = { mem_read, mem_write, mem_sync, &m };
-	uint8_t field[FZN_NOTE_BLOB_REF_LEN], content[FZN_TREE_CONTENT_MAX], short_content[64];
 	fzn_spool_t spool, other;
 	fzn_note_blob_ref_t ref, other_ref;
-	fzn_note_t note, in;
-	size_t len = 0;
+	fzn_note_meta_t note;
 
-	memset(&in, 0, sizeof(in));
-	in.text = (const uint8_t *)"milk";
-	in.text_len = 4u;
-	CHECK(fzn_note_content(&in, short_content, sizeof(short_content), &len) == FZN_NOTE_OK
-	              && fzn_note_open(FZN_NOTE_TYPE_NOTE, short_content, len, &note) == FZN_NOTE_OK
-	              && fzn_note_text_state(&note, NULL) == FZN_NOTE_TEXT_INLINE,
-	      "a short note's text is not INLINE");
+	CHECK(fzn_note_text_state(NULL, NULL) == FZN_NOTE_TEXT_BROKEN,
+	      "no reference at all was not BROKEN");
 
 	fill_text(2000u, 5);
 	CHECK(fzn_note_text_seal(&HASH, &AEAD, &RNG, text, 2000u, &ops, present, sizeof(present),
 	                         &spool, &ref) == FZN_NOTE_OK
-	              && blob_note(&ref, field, content, sizeof(content), &note),
+	              && blob_note(&ref, &note),
 	      "fixture: a blob note");
 	other_ref = ref;
 	other = spool;
 	other.root[0] ^= 1u;
-	CHECK(fzn_note_text_state(&note, &other) == FZN_NOTE_TEXT_PENDING,
+	CHECK(fzn_note_text_state(&note.content, &other) == FZN_NOTE_TEXT_PENDING,
 	      "a spool for another blob made the note HERE");
 
 	/* A length past the bound names nothing that can arrive. */
 	other_ref.length = (uint64_t)FZN_NOTE_TEXT_MAX + 1u;
-	CHECK(blob_note(&other_ref, field, content, sizeof(content), &note)
-	              && fzn_note_text_state(&note, &spool) == FZN_NOTE_TEXT_BROKEN,
+	CHECK(fzn_note_text_state(&other_ref, &spool) == FZN_NOTE_TEXT_BROKEN,
 	      "a reference past the bound was not BROKEN");
 }
 

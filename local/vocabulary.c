@@ -359,6 +359,13 @@ fzn_compose_err_t fzn_reply_compose(uint8_t *out, size_t cap, size_t *out_len,
 	                              detail_len);
 }
 
+size_t fzn_reply_ok_room(size_t cap)
+{
+	size_t line = cap < FZN_REPLY_MAX ? cap : FZN_REPLY_MAX;
+
+	return line > 4u ? line - 4u : 0u;
+}
+
 fzn_reply_t fzn_reply_of(const uint8_t *line, size_t line_len,
                          const uint8_t **detail, size_t *detail_len)
 {

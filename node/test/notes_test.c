@@ -14,6 +14,7 @@
 #include "../../contact/group.h"
 #include "../../notes/received.h"
 #include "../../notes/text.h"
+#include "../../notes/test/blob_stub.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -198,32 +199,6 @@ static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject
 
 static fzn_persist_ops_t OPS = { mem_load, mem_save, mem_list, mem_remove, NULL };
 
-/* ---- a toy blob store for long texts ------------------------------------- */
-
-static uint8_t blob[FZN_NOTE_TEXT_MAX];
-static size_t blob_len;
-
-static int toy_seal(void *ctx, const uint8_t *text, size_t len, fzn_note_blob_ref_t *ref)
-{
-	(void)ctx;
-	memcpy(blob, text, len);
-	blob_len = len;
-	memset(ref, 0x5e, sizeof(*ref));
-	ref->length = len;
-	return 1;
-}
-
-static int toy_open(void *ctx, const fzn_note_blob_ref_t *ref, uint8_t *out, size_t cap,
-                    size_t *out_len)
-{
-	(void)ctx;
-	if (ref->length != blob_len || cap < blob_len)
-		return 0;
-	memcpy(out, blob, blob_len);
-	*out_len = blob_len;
-	return 1;
-}
-
 /* ---- asking -------------------------------------------------------------- */
 
 static fzn_node_notes_t notes;
@@ -273,6 +248,14 @@ static int has(const char *needle)
 	return strstr(reply, needle) != NULL;
 }
 
+/* Every note's content is sealed, sec 514: the node's shelf, stubbed. */
+static void hooks(void)
+{
+	notes.seal = blob_stub_seal;
+	notes.open = blob_stub_open;
+	notes.text_ctx = NULL;
+}
+
 static void setup(size_t peers)
 {
 	memset(rows, 0, sizeof(rows));
@@ -281,6 +264,7 @@ static void setup(size_t peers)
 	                          (const uint8_t (*)[FZN_PUBKEY_LEN])PEER, peers, now_ms)
 	              == FZN_NOTES_OK,
 	      "the node's notes open");
+	hooks();
 }
 
 /* ---- cases --------------------------------------------------------------- */
@@ -311,7 +295,7 @@ static void test_add_list_get(void)
 	      "the folder's child is listed, its title escaped");
 
 	snprintf(line, sizeof(line), "get note %s", milk);
-	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "1 0 ", 4u) && has(" inline 0 milk"),
+	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "1 0 ", 4u) && has(" blob 0 milk"),
 	      "get answers the type, flags, times, parent, text length and title");
 	snprintf(line, sizeof(line), "set note %s title oat milk", milk);
 	CHECK(ask(line) == FZN_REPLY_OK, "a rename");
@@ -324,7 +308,7 @@ static void test_add_list_get(void)
 	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "15 11 cold"),
 	      "and from an offset");
 	snprintf(line, sizeof(line), "get note %s", milk);
-	CHECK(ask(line) == FZN_REPLY_OK && has(" inline 15 oat%20milk"),
+	CHECK(ask(line) == FZN_REPLY_OK && has(" blob 15 oat%20milk"),
 	      "and the rename kept the text");
 
 	snprintf(line, sizeof(line), "set note %s pin", milk);
@@ -369,16 +353,15 @@ static void test_long_text(void)
 	CHECK(ask("add note top long") == FZN_REPLY_OK, "fixture: a note");
 	take_id(note);
 	snprintf(line, sizeof(line), "set note %s file %s", note, path);
-	CHECK(ask(line) == FZN_REPLY_ERROR, "a text too long for inline, with no seal, is refused");
-
-	notes.seal = toy_seal;
-	notes.open = toy_open;
-	CHECK(ask(line) == FZN_REPLY_OK && blob_len == sizeof(big),
-	      "with a seal, the file's text is sealed whole");
+	notes.seal = NULL;
+	CHECK(ask(line) == FZN_REPLY_ERROR, "with no seal, no text is written");
+	hooks();
+	CHECK(ask(line) == FZN_REPLY_OK, "with one, the file's text is sealed whole");
 	snprintf(line, sizeof(line), "get note %s", note);
 	CHECK(ask(line) == FZN_REPLY_OK && has(" blob 5000 long"), "the note says blob, 5000 bytes");
 	snprintf(line, sizeof(line), "get note %s text", note);
-	CHECK(ask(line) == FZN_REPLY_ERROR, "a blob is not paged as inline text");
+	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "5000 0 abcdef", 13u),
+	      "and is paged as any text is");
 	snprintf(line, sizeof(line), "get note %s file %s", note, out);
 	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "5000"),
 	      "it is written to a file, opened from its blob");
@@ -398,9 +381,34 @@ static void test_long_text(void)
 		      "into a file only its owner can read");
 	}
 	snprintf(line, sizeof(line), "set note %s text short again", note);
-	CHECK(ask(line) == FZN_REPLY_OK, "an inline text replaces it");
+	CHECK(ask(line) == FZN_REPLY_OK, "a short text replaces it");
 	snprintf(line, sizeof(line), "get note %s", note);
-	CHECK(ask(line) == FZN_REPLY_OK && has(" inline 11 long"), "and the note is inline again");
+	CHECK(ask(line) == FZN_REPLY_OK && has(" blob 11 long"), "in a blob of its own");
+
+	/* NOT HERE YET, sec 514: a note whose blob this node lacks lists by its
+	 * meta, marked pending, with no title; its text is not read, and its
+	 * content not edited, while pinning it still is. */
+	{
+		uint8_t root[FZN_BLOB_HASH_LEN];
+		fzn_note_blob_ref_t ref;
+		char item[100];
+
+		blob_stub_last_root(root);
+		memcpy(ref.root, root, sizeof(root));
+		blob_stub_drop(&ref);
+		snprintf(line, sizeof(line), "get note %s", note);
+		CHECK(ask(line) == FZN_REPLY_OK && has(" pending ") && !has("long"),
+		      "get says pending, and no title");
+		snprintf(item, sizeof(item), "%s,1,%u,1,0,", note, FZN_NODE_NOTES_LIST_PENDING);
+		CHECK(ask("list note top") == FZN_REPLY_OK && has(item),
+		      "the listing marks it pending, untitled");
+		snprintf(line, sizeof(line), "get note %s text", note);
+		CHECK(ask(line) == FZN_REPLY_ERROR && has("not here yet"), "its text is not read");
+		snprintf(line, sizeof(line), "set note %s title renamed", note);
+		CHECK(ask(line) == FZN_REPLY_ERROR, "its title is not edited");
+		snprintf(line, sizeof(line), "set note %s pin", note);
+		CHECK(ask(line) == FZN_REPLY_OK, "and it is pinned all the same");
+	}
 	CHECK(remove(path) == 0 && remove(out) == 0, "the scratch files are removed");
 }
 
@@ -484,6 +492,7 @@ static void test_trash(void)
 	                          (const uint8_t (*)[FZN_PUBKEY_LEN])PEER, 1u, NULL, 0u, now_ms)
 	              == FZN_NOTES_OK,
 	      "fixture: a node pulling from nobody, with one paired node");
+	hooks();
 	{
 		uint8_t query[FZN_NOTES_SYNC_INDEX_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
 			                                          FZN_NOTES_SYNC_INDEX_QUERY, 0, 0 };
@@ -637,16 +646,14 @@ static void test_share(void)
 		FILE *fp;
 
 		memset(big, 'q', sizeof(big));
-		memset(root, 0x5e, sizeof(root));
 		snprintf(path, sizeof(path), "/tmp/fzn-notes-share-%ld.in", (long)getpid());
 		fp = fopen(path, "wb");
 		CHECK(fp && fwrite(big, 1u, sizeof(big), fp) == sizeof(big), "fixture: a long file");
 		if (fp)
 			(void)fclose(fp);
-		notes.seal = toy_seal;
-		notes.open = toy_open;
 		snprintf(line, sizeof(line), "set note %s file %s", g, path);
 		CHECK(ask(line) == FZN_REPLY_OK, "fixture: g's text a blob");
+		blob_stub_last_root(root);
 		CHECK(!fzn_node_notes_shares_blob(&notes, carol, root),
 		      "a blob of a note outside the share is not carol's");
 		snprintf(line, sizeof(line), "set note %s parent %s", g, f);
@@ -657,8 +664,6 @@ static void test_share(void)
 		root[0] ^= 1u;
 		CHECK(!fzn_node_notes_shares_blob(&notes, carol, root), "nor another root");
 		(void)unlink(path);
-		notes.seal = NULL;
-		notes.open = NULL;
 	}
 
 	CHECK(fzn_contact_remove(&OPS, carol) == FZN_CONTACT_OK, "fixture: carol forgotten");
@@ -925,15 +930,9 @@ static void test_checklist(void)
 	CHECK(ask(line) == FZN_REPLY_MALFORMED, "an item with no text is malformed");
 	snprintf(line, sizeof(line), "add item %s x", list);
 	CHECK(ask_as(FZN_ORIGIN_LOCAL, line) == FZN_REPLY_DENIED, "another user may not add one");
-	/* WITH A SEAL TO HAND, which is the case that matters: text an edit
-	 * refuses as malformed is taken for too long and sealed into a blob,
-	 * whose items nothing checks. */
-	notes.seal = toy_seal;
-	notes.open = toy_open;
+	/* A CHECKLIST'S TEXT IS ITS ITEMS, and not set over them. */
 	snprintf(line, sizeof(line), "set note %s text [ ] eggs", list);
 	CHECK(ask(line) == FZN_REPLY_ERROR, "a checklist's text is not set over its items");
-	notes.seal = NULL;
-	notes.open = NULL;
 	snprintf(line, sizeof(line), "get note %s items", list);
 	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "1 0 0,eggs"),
 	      "and its items are as they were");
@@ -945,10 +944,7 @@ static void test_checklist(void)
 	snprintf(line, sizeof(line), "get note %s items", note);
 	CHECK(ask(line) == FZN_REPLY_ERROR, "and lists none");
 
-	/* PAST WHAT FITS INLINE, the items are sealed and read back through
-	 * the blob, as a long text is. */
-	notes.seal = toy_seal;
-	notes.open = toy_open;
+	/* LONG ITEMS are sealed and read back through the blob, as any are. */
 	memset(long_item, 'z', sizeof(long_item) - 1u);
 	for (i = 0; i < 4; i++) {
 		snprintf(line, sizeof(line), "add item %s %s", list, long_item);
@@ -961,8 +957,6 @@ static void test_checklist(void)
 	snprintf(line, sizeof(line), "get note %s items 4", list);
 	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "5 4 1,zzzz", 10u),
 	      "and reads back ticked from the blob");
-	notes.seal = NULL;
-	notes.open = NULL;
 }
 
 /* COLLECTING TEXTS, sec 443: a blob is kept while a note names it, in this
@@ -1001,8 +995,6 @@ static void test_collecting_texts(void)
 	int wrote = 0;
 
 	setup(0);
-	notes.seal = toy_seal;
-	notes.open = toy_open;
 	memset(blob_root, 0x5e, sizeof(blob_root));
 	CHECK(!fzn_node_notes_names_blob(&notes, blob_root), "no note names a text yet");
 	CHECK(ask("remove text unused") == FZN_REPLY_ERROR,
@@ -1022,6 +1014,7 @@ static void test_collecting_texts(void)
 		snprintf(line, sizeof(line), "set note %s file %s", note, path);
 		CHECK(ask(line) == FZN_REPLY_OK, "fixture: the note's text sealed into a blob");
 		(void)unlink(path);
+		blob_stub_last_root(blob_root);
 	}
 	CHECK(fzn_node_notes_names_blob(&notes, blob_root), "this node's note names its blob");
 
@@ -1049,7 +1042,6 @@ static void test_collecting_texts(void)
 	      "and once the share is forgotten, nothing names it");
 
 	/* THE VERB: the hook is asked about each root, and the counts answer. */
-	memset(offered[0], 0x5e, FZN_BLOB_HASH_LEN);
 	memset(offered[1], 0x11, FZN_BLOB_HASH_LEN);
 	memset(offered[2], 0x22, FZN_BLOB_HASH_LEN);
 	notes.collect = fake_collect;
@@ -1067,6 +1059,7 @@ static void test_collecting_texts(void)
 		snprintf(line, sizeof(line), "set note %s file %s", note, path);
 		CHECK(ask(line) == FZN_REPLY_OK, "fixture: its text a blob");
 		(void)unlink(path);
+		blob_stub_last_root(offered[0]);
 	}
 	CHECK(ask_as(FZN_ORIGIN_LOCAL, "remove text unused") == FZN_REPLY_DENIED,
 	      "another user may not collect");
@@ -1075,8 +1068,6 @@ static void test_collecting_texts(void)
 	              && decisions[0] && !decisions[1] && !decisions[2],
 	      "the named blob is kept and the two nothing names removed");
 	notes.collect = NULL;
-	notes.seal = NULL;
-	notes.open = NULL;
 }
 
 /* MEMBERS PROVED BY CHAINS JOIN THE ADMITTED SET, sec 445: added once,
@@ -1181,8 +1172,6 @@ static void test_pushing_texts(void)
 	FILE *f;
 
 	setup(1);
-	notes.seal = toy_seal;
-	notes.open = toy_open;
 	memset(long_text, 'v', sizeof(long_text) - 1u);
 	snprintf(path, sizeof(path), "/tmp/fzn-notes-push-%ld.in", (long)getpid());
 	f = fopen(path, "wb");
@@ -1239,8 +1228,6 @@ static void test_pushing_texts(void)
 	}
 	notes.place = NULL;
 	notes.span = NULL;
-	notes.seal = NULL;
-	notes.open = NULL;
 }
 
 /* AN UN-PAIRED PARTNER IS NOT PINNED, sec 451: a node admitted from the live

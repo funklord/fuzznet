@@ -7,19 +7,19 @@
 /* Where a new last child goes when there are none: room to insert before. */
 #define FIRST_ORDER 1000u
 
-/* A note as held, with its variable fields COPIED OUT. A note is a view over
- * the record it was opened from, and the buffers it points into are reused to
- * build its successor, so a preserved field held as a pointer would be read
- * after it had been overwritten. */
+/* A note as held: its placement and its meta. Its payload is opened only
+ * when an edit changes it, into `payload`, and a note view over that buffer
+ * is safe while the successor is built in others. */
 typedef struct held {
 	uint8_t parent[FZN_TREE_ID_LEN];
 	uint64_t order;
 	uint16_t content_type;
-	fzn_note_t note;
-	uint8_t title[FZN_NOTE_CONTENT_MAX];
-	uint8_t text[FZN_NOTE_CONTENT_MAX];
-	uint8_t labels[FZN_NOTE_CONTENT_MAX];
+	fzn_note_meta_t meta;
 } held_t;
+
+/* The one payload buffer: opening the held note's, then writing the new. */
+static uint8_t payload_in[FZN_NOTE_PAYLOAD_MAX];
+static uint8_t payload_out[FZN_NOTE_PAYLOAD_MAX];
 
 static int is_root(const uint8_t id[FZN_TREE_ID_LEN])
 {
@@ -30,7 +30,37 @@ static int is_root(const uint8_t id[FZN_TREE_ID_LEN])
 
 static int author_ok(const fzn_notes_author_t *a)
 {
-	return a && a->store && a->view && a->issuer && a->sign && a->sign->sign;
+	return a && a->store && a->view && a->issuer && a->sign && a->sign->sign && a->seal
+	       && a->open;
+}
+
+fzn_notes_err_t fzn_notes_read(fzn_notes_open_fn open, void *ctx, const fzn_tree_node_t *node,
+                               fzn_note_meta_t *meta, uint8_t *buf, size_t cap,
+                               fzn_note_t *out)
+{
+	size_t len = 0;
+
+	if (!node || !meta || !buf || !out)
+		return FZN_NOTES_ERR_MALFORMED;
+	if (fzn_note_meta_open(node->content_type, node->content, node->content_len, meta)
+	    != FZN_NOTE_OK)
+		return FZN_NOTES_ERR_SHAPE;
+	if (!open || !open(ctx, &meta->content, buf, cap, &len) || len != meta->content.length)
+		return FZN_NOTES_ERR_PENDING;
+	return fzn_note_payload_open(buf, len, out) == FZN_NOTE_OK ? FZN_NOTES_OK
+	                                                           : FZN_NOTES_ERR_SHAPE;
+}
+
+int fzn_notes_ref_of(const fzn_tree_node_t *node, fzn_note_blob_ref_t *ref)
+{
+	fzn_note_meta_t meta;
+
+	if (!node || !ref
+	    || fzn_note_meta_open(node->content_type, node->content, node->content_len, &meta)
+	               != FZN_NOTE_OK)
+		return 0;
+	*ref = meta.content;
+	return 1;
 }
 
 /* An order after every child `parent` has, `id` aside -- so a note moved
@@ -65,8 +95,6 @@ static fzn_notes_err_t order_after(const fzn_notes_view_t *view,
 
 static fzn_notes_err_t take(const fzn_tree_node_t *node, held_t *h)
 {
-	fzn_note_t note;
-
 	memcpy(h->parent, node->parent, FZN_TREE_ID_LEN);
 	h->order = node->order;
 	h->content_type = node->content_type;
@@ -74,16 +102,9 @@ static fzn_notes_err_t take(const fzn_tree_node_t *node, held_t *h)
 	 * as empty -- which is what an edit of unreadable content would do --
 	 * deletes what a newer host wrote. fuzzypickles' edit took the
 	 * placement and carried on; this refuses. */
-	if (fzn_note_open(node->content_type, node->content, node->content_len, &note)
+	if (fzn_note_meta_open(node->content_type, node->content, node->content_len, &h->meta)
 	    != FZN_NOTE_OK)
 		return FZN_NOTES_ERR_SHAPE;
-	h->note = note;
-	memcpy(h->title, note.title, note.title_len);
-	memcpy(h->text, note.text, note.text_len);
-	memcpy(h->labels, note.labels, note.labels_len);
-	h->note.title = h->title;
-	h->note.text = h->text;
-	h->note.labels = h->labels;
 	return FZN_NOTES_OK;
 }
 
@@ -114,18 +135,19 @@ static fzn_notes_err_t held_note(const fzn_notes_author_t *a, const uint8_t id[F
 static fzn_notes_err_t write_note(const fzn_notes_author_t *a,
                                   const uint8_t id[FZN_TREE_ID_LEN],
                                   const uint8_t parent[FZN_TREE_ID_LEN], uint64_t order,
-                                  uint16_t content_type, const fzn_note_t *note, uint64_t now_ms)
+                                  uint16_t content_type, const fzn_note_meta_t *meta,
+                                  uint64_t now_ms)
 {
-	static uint8_t content[FZN_NOTE_CONTENT_MAX + FZN_NOTE_HEADER_LEN];
+	static uint8_t content[FZN_NOTE_META_LEN];
 	static uint8_t body[FZN_RECORD_BODY_MAX];
 	static uint8_t record[FZN_RECORD_MAX_LEN];
-	size_t content_len = 0, body_len = 0, record_len = 0;
+	size_t body_len = 0, record_len = 0;
 	uint64_t seq = 0;
 	fzn_notes_err_t err;
 
-	if (fzn_note_content(note, content, sizeof(content), &content_len) != FZN_NOTE_OK
-	    || fzn_tree_body(parent, order, content_type, content, content_len, body, sizeof(body),
-	                     &body_len)
+	if (fzn_note_meta_write(meta, content) != FZN_NOTE_OK
+	    || fzn_tree_body(parent, order, content_type, content, sizeof(content), body,
+	                     sizeof(body), &body_len)
 	               != FZN_TREE_OK)
 		return FZN_NOTES_ERR_MALFORMED;
 	/* THE SEQUENCE LAST, after everything that can refuse: a number taken
@@ -139,6 +161,24 @@ static fzn_notes_err_t write_note(const fzn_notes_author_t *a,
 	    != FZN_RECORD_OK)
 		return FZN_NOTES_ERR_MALFORMED;
 	return fzn_notes_put(a->store, record, record_len, a->policy, a->sign, NULL, NULL);
+}
+
+/* Seal `fields`' title, text and labels as a new blob, its reference into
+ * `ref`, after checking the shape `content_type` requires. */
+static fzn_notes_err_t seal_payload(const fzn_notes_author_t *a, uint16_t content_type,
+                                    const fzn_note_t *fields, fzn_note_blob_ref_t *ref)
+{
+	size_t len = 0;
+	fzn_note_err_t nerr;
+
+	if (fzn_note_shape_ok(content_type, fields) != FZN_NOTE_OK)
+		return FZN_NOTES_ERR_MALFORMED;
+	nerr = fzn_note_payload_write(fields, payload_out, sizeof(payload_out), &len);
+	if (nerr != FZN_NOTE_OK)
+		return FZN_NOTES_ERR_MALFORMED;
+	if (!a->seal(a->text_ctx, payload_out, len, ref))
+		return FZN_NOTES_ERR_BACKEND;
+	return FZN_NOTES_OK;
 }
 
 fzn_notes_err_t fzn_notes_create(const fzn_notes_author_t *author,
@@ -155,7 +195,8 @@ fzn_notes_err_t fzn_notes_create_dated(const fzn_notes_author_t *author,
                                        uint64_t created_at_ms, uint64_t now_ms,
                                        uint8_t id_out[FZN_TREE_ID_LEN])
 {
-	fzn_note_t note;
+	fzn_note_meta_t meta;
+	fzn_note_t content;
 	uint64_t order = 0;
 	fzn_notes_err_t err;
 
@@ -164,12 +205,25 @@ fzn_notes_err_t fzn_notes_create_dated(const fzn_notes_author_t *author,
 		return FZN_NOTES_ERR_MALFORMED;
 	if (!fzn_note_type_writable(content_type))
 		return FZN_NOTES_ERR_MALFORMED;
-	note = *fields;
-	note.version = FZN_NOTE_VERSION;
-	note.created_at_ms = created_at_ms ? created_at_ms : now_ms;
-	note.edited_at_ms = now_ms;
-	if (fzn_note_shape_ok(content_type, &note) != FZN_NOTE_OK)
+	if (fields->flags & (uint8_t)~FZN_NOTE_META_FLAGS_KNOWN)
 		return FZN_NOTES_ERR_MALFORMED;
+	/* THE CONTENT ALONE goes into the payload; flags and colour are the
+	 * meta's. */
+	memset(&content, 0, sizeof(content));
+	content.title = fields->title;
+	content.title_len = fields->title_len;
+	content.text = fields->text;
+	content.text_len = fields->text_len;
+	content.labels = fields->labels;
+	content.labels_len = fields->labels_len;
+	memset(&meta, 0, sizeof(meta));
+	meta.flags = fields->flags;
+	meta.colour = fields->colour;
+	meta.created_at_ms = created_at_ms ? created_at_ms : now_ms;
+	meta.edited_at_ms = now_ms;
+	err = seal_payload(author, content_type, &content, &meta.content);
+	if (err != FZN_NOTES_OK)
+		return err;
 	if (!author->rng->fill(author->rng->ctx, id_out, FZN_TREE_ID_LEN))
 		return FZN_NOTES_ERR_BACKEND;
 	/* THE ALL-ZERO ID IS THE ROOT, which is not a node. */
@@ -181,7 +235,7 @@ fzn_notes_err_t fzn_notes_create_dated(const fzn_notes_author_t *author,
 	err = order_after(author->view, parent, NULL, &order);
 	if (err != FZN_NOTES_OK)
 		return err;
-	return write_note(author, id_out, parent, order, content_type, &note, now_ms);
+	return write_note(author, id_out, parent, order, content_type, &meta, now_ms);
 }
 
 fzn_notes_err_t fzn_notes_edit(const fzn_notes_author_t *author,
@@ -190,7 +244,7 @@ fzn_notes_err_t fzn_notes_edit(const fzn_notes_author_t *author,
                                uint64_t now_ms)
 {
 	static held_t h;
-	fzn_note_t note;
+	fzn_note_meta_t meta;
 	fzn_notes_err_t err;
 
 	if (!author_ok(author) || !id)
@@ -208,30 +262,45 @@ fzn_notes_err_t fzn_notes_edit(const fzn_notes_author_t *author,
 		return err;
 
 	/* WHATEVER THIS EDIT DOES NOT NAME KEEPS WHAT THE NOTE SAID. */
-	note = h.note;
-	if (which & FZN_NOTES_EDIT_TITLE) {
-		note.title = with->title;
-		note.title_len = with->title_len;
-	}
-	if (which & FZN_NOTES_EDIT_TEXT) {
-		note.text = with->text;
-		note.text_len = with->text_len;
-		note.flags = (uint8_t)((note.flags & ~FZN_NOTE_FLAG_TEXT_IS_BLOB)
-		                       | (with->flags & FZN_NOTE_FLAG_TEXT_IS_BLOB));
-	}
-	if (which & FZN_NOTES_EDIT_LABELS) {
-		note.labels = with->labels;
-		note.labels_len = with->labels_len;
+	meta = h.meta;
+	if (which & (FZN_NOTES_EDIT_TITLE | FZN_NOTES_EDIT_TEXT | FZN_NOTES_EDIT_LABELS)) {
+		fzn_note_t content;
+		size_t len = 0;
+
+		/* THE HELD PAYLOAD, OPENED, so the fields this edit keeps are kept:
+		 * a content edit of a note whose blob is not here yet would
+		 * otherwise write those fields back empty. */
+		if (!author->open(author->text_ctx, &h.meta.content, payload_in, sizeof(payload_in),
+		                  &len)
+		    || len != h.meta.content.length)
+			return FZN_NOTES_ERR_PENDING;
+		if (fzn_note_payload_open(payload_in, len, &content) != FZN_NOTE_OK)
+			return FZN_NOTES_ERR_SHAPE;
+		if (which & FZN_NOTES_EDIT_TITLE) {
+			content.title = with->title;
+			content.title_len = with->title_len;
+		}
+		if (which & FZN_NOTES_EDIT_TEXT) {
+			content.text = with->text;
+			content.text_len = with->text_len;
+		}
+		if (which & FZN_NOTES_EDIT_LABELS) {
+			content.labels = with->labels;
+			content.labels_len = with->labels_len;
+		}
+		/* A NEW BLOB UNDER A NEW KEY: `blob/` forbids a key reused across
+		 * different contents. */
+		err = seal_payload(author, h.content_type, &content, &meta.content);
+		if (err != FZN_NOTES_OK)
+			return err;
 	}
 	if (which & FZN_NOTES_EDIT_COLOUR)
-		note.colour = with->colour;
-	note.flags = (uint8_t)((note.flags | set) & ~clear);
+		meta.colour = with->colour;
+	meta.flags = (uint8_t)((meta.flags | set) & ~clear);
 	/* The note's own creation time; only the edit time moves. */
-	note.edited_at_ms = now_ms;
-	if (fzn_note_shape_ok(h.content_type, &note) != FZN_NOTE_OK)
-		return FZN_NOTES_ERR_MALFORMED;
+	meta.edited_at_ms = now_ms;
 	/* SAME PARENT, SAME ORDER, SAME TYPE: an edit is not a move. */
-	return write_note(author, id, h.parent, h.order, h.content_type, &note, now_ms);
+	return write_note(author, id, h.parent, h.order, h.content_type, &meta, now_ms);
 }
 
 /* WHETHER `id` IS `at` OR ABOVE IT, by any writer's claim on the way up:
@@ -275,7 +344,7 @@ fzn_notes_err_t fzn_notes_move(const fzn_notes_author_t *author,
                                const uint8_t parent[FZN_TREE_ID_LEN], uint64_t now_ms)
 {
 	static held_t h;
-	fzn_note_t note;
+	fzn_note_meta_t meta;
 	uint64_t order = 0;
 	fzn_notes_err_t err;
 
@@ -297,7 +366,8 @@ fzn_notes_err_t fzn_notes_move(const fzn_notes_author_t *author,
 	err = order_after(author->view, parent, id, &order);
 	if (err != FZN_NOTES_OK)
 		return err;
-	note = h.note;
-	note.edited_at_ms = now_ms;
-	return write_note(author, id, parent, order, h.content_type, &note, now_ms);
+	/* THE SAME CONTENT, so the same reference: a move is placement only. */
+	meta = h.meta;
+	meta.edited_at_ms = now_ms;
+	return write_note(author, id, parent, order, h.content_type, &meta, now_ms);
 }

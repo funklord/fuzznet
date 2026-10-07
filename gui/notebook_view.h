@@ -33,9 +33,10 @@
  *
  * TEXT TRAVELS THROUGH FILES. A request line is 512 bytes and a note's text
  * may be 256 KiB with newlines in it, so saving writes a temporary file and
- * asks `set note ID file PATH`, and opening asks `get note ID file PATH` --
- * which opens a blob as readily as an inline text. The node reads and writes
- * them as itself, which is why the verbs need the node's own user.
+ * asks `set note ID file PATH`, and opening asks `get note ID file PATH`,
+ * which the node answers from the note's sealed blob (sec 514). The node
+ * reads and writes them as itself, which is why the verbs need the node's
+ * own user.
  *
  * NO Q_OBJECT AND THEREFORE NO moc, on sec 140's rule: buttons connect to
  * lambdas, and the log is a callback rather than a signal.

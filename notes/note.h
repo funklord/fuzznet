@@ -16,22 +16,19 @@
  * registry and this layout are this module's, and `tree/` stays generic.
  *
  * 470 BYTES DOES NOT HOLD A NOTE. FZN_RECORD_BODY_MAX is 512 and tree/'s own
- * header takes 42, so content is 470; the header below takes 28, leaving 442
- * for title, text and labels TOGETHER. A sticky note fits; a paragraph and a
- * shopping list of any length do not.
+ * header takes 42, so content is 470. Version 1 put title, text and labels in
+ * it, inline, with a long text as a blob; since sec 514 every note's content
+ * is a blob, and the record holds its META -- flags, colour, times and the
+ * blob reference -- below. A purge then destroys the blob and its key and
+ * leaves the record, which a chained stream cannot lose, as a shell (sec
+ * 511). Version 1 is refused on read: no store held it past sec 514.
  *
- * SO A LONG NOTE'S TEXT IS A BLOB, and FZN_NOTE_FLAG_TEXT_IS_BLOB is the
- * ordinary path rather than an escape hatch. The text field then holds a
- * BLOB REFERENCE: the root `blob/` names the sealed text by, the content key
- * that opens it, and the text's length -- 72 bytes. fuzzypickles' layout
- * reserved this flag with a 32-byte id that nothing ever wrote; a 32-byte id
- * cannot name a private blob, which needs its key too, so the reference is
- * what the flag means here. Short notes stay inline, so the common sticky-note
- * case needs no fetch and the blob layer can stay idle.
+ * THE BLOB REFERENCE: the root `blob/` names the sealed payload by, the
+ * content key that opens it, and the payload's length -- 72 bytes.
  *
  * THE KEY TRAVELS IN THE NOTE, and that is the confidentiality decision. A
- * long note's text is exactly as private as a short note's: whoever holds the
- * signed record can read either, and a host serving the blob without the
+ * note's content is exactly as private as its record: whoever holds the
+ * signed record can read it, and a host serving the blob without the
  * record holds ciphertext it cannot open (`blob/`'s whole design). It follows
  * that sharing a long note shares a permanent capability to fetch its text
  * from anyone serving it, and un-sharing cannot take that back -- which the
@@ -39,27 +36,7 @@
  * Every edit is a new blob under a new key: `blob/` forbids reusing a key
  * across different content.
  *
- * THE LAYOUT. Big-endian, fixed fields first:
- *
- *      off  size  field
- *        0     1  version      (1; any other value is refused)
- *        1     1  flags
- *        2     4  colour       (0xRRGGBBAA; all-zero is "unset", not black)
- *        6     8  created_at   (ms since epoch)
- *       14     8  edited_at    (ms since epoch)
- *       22     2  title_len    n1
- *       24     2  text_len     n2
- *       26     2  labels_len   n3
- *       28    n1  title        (UTF-8, no NUL)
- *             n2  text         (UTF-8, or a blob reference if TEXT_IS_BLOB)
- *             n3  labels       (NUL-separated UTF-8, no trailing NUL)
- *
- * THREE VARIABLE FIELDS ARE SAFE BECAUSE OF ONE COMPARISON: a body is refused
- * unless FZN_NOTE_HEADER_LEN + n1 + n2 + n3 == content_len. That makes the
- * lengths a PARTITION, so a body cannot describe an overlap, a gap, or a field
- * running past its end.
- *
- *     blob reference   root[32] | content key[32] | text length (u64)
+ * The layout is version 2's, below.
  */
 
 #ifndef FZN_NOTE_H
@@ -78,7 +55,7 @@ enum fzn_note_content_type {
 	/* RESERVED AND REFUSED ON READ: an all-zero header must not decode as a
 	 * valid node of a valid type. */
 	FZN_NOTE_TYPE_NONE = 0x0000,
-	FZN_NOTE_TYPE_NOTE = 0x0001,       /* text, per the layout above */
+	FZN_NOTE_TYPE_NOTE = 0x0001,       /* text */
 	FZN_NOTE_TYPE_LIST = 0x0002,       /* a checklist; items in place of text */
 	FZN_NOTE_TYPE_FOLDER = 0x0003,     /* a container: header only */
 	FZN_NOTE_TYPE_ATTACHMENT = 0x0004  /* a blob reference, as a child node */
@@ -98,38 +75,19 @@ int fzn_note_type_known(uint16_t content_type);
  * asked for. */
 int fzn_note_type_writable(uint16_t content_type);
 
-#define FZN_NOTE_VERSION 1u
-
-#define FZN_NOTE_OFF_VERSION    0u
-#define FZN_NOTE_OFF_FLAGS      1u
-#define FZN_NOTE_OFF_COLOUR     2u
-#define FZN_NOTE_OFF_CREATED    6u
-#define FZN_NOTE_OFF_EDITED     14u
-#define FZN_NOTE_OFF_TITLE_LEN  22u
-#define FZN_NOTE_OFF_TEXT_LEN   24u
-#define FZN_NOTE_OFF_LABELS_LEN 26u
-#define FZN_NOTE_HEADER_LEN     28u
-
 #define FZN_NOTE_FLAG_PINNED       0x01u
 #define FZN_NOTE_FLAG_ARCHIVED     0x02u
 /* TRASHED IS A FLAG RATHER THAN A DELETION because nothing here deletes: a
  * note removed on one host reappears as trashed rather than vanishing when an
  * older host syncs. */
 #define FZN_NOTE_FLAG_TRASHED      0x04u
-#define FZN_NOTE_FLAG_TEXT_IS_BLOB 0x08u
-#define FZN_NOTE_FLAGS_KNOWN                                                                  \
-	(FZN_NOTE_FLAG_PINNED | FZN_NOTE_FLAG_ARCHIVED | FZN_NOTE_FLAG_TRASHED                 \
-	 | FZN_NOTE_FLAG_TEXT_IS_BLOB)
+/* 0x08 was TEXT_IS_BLOB, version 1's; a meta carrying it is refused. */
 
-/* The blob reference, when TEXT_IS_BLOB is set. */
+/* The blob reference, as a meta carries it at FZN_NOTE_META_OFF_REF. */
 #define FZN_NOTE_REF_OFF_ROOT 0u
 #define FZN_NOTE_REF_OFF_KEY  (FZN_NOTE_REF_OFF_ROOT + FZN_BLOB_HASH_LEN)
 #define FZN_NOTE_REF_OFF_LEN  (FZN_NOTE_REF_OFF_KEY + FZN_BLOB_KEY_LEN)
 #define FZN_NOTE_BLOB_REF_LEN (FZN_NOTE_REF_OFF_LEN + 8u)
-
-/* What is left for title, text and labels together: derived from tree/'s
- * constant, not restated. */
-#define FZN_NOTE_CONTENT_MAX ((size_t)FZN_TREE_CONTENT_MAX - FZN_NOTE_HEADER_LEN)
 
 typedef enum fzn_note_err {
 	FZN_NOTE_OK = 0,
@@ -139,20 +97,22 @@ typedef enum fzn_note_err {
 	FZN_NOTE_ERR_PARTITION = -4, /* the three lengths do not tile the body */
 	FZN_NOTE_ERR_CAPACITY = -5,  /* the output buffer is too small */
 	FZN_NOTE_ERR_LEN = -6,       /* the fields do not fit a node's content */
-	FZN_NOTE_ERR_BLOB_LEN = -7,  /* TEXT_IS_BLOB set, and the text is no reference */
+	FZN_NOTE_ERR_BLOB_LEN = -7,  /* a reference no payload could have */
 	FZN_NOTE_ERR_TYPE = -8,      /* the reserved type, or a shape its type forbids */
-	/* For a long note's text, `notes/text.h` (sec 423): */
+	/* For a note's sealed content, `notes/text.h` (sec 423): */
 	FZN_NOTE_ERR_CRYPTO = -9,    /* the random source, the seal or the hash refused */
 	FZN_NOTE_ERR_STORE = -10,    /* the spool refused a leaf, or could not be read */
 	FZN_NOTE_ERR_ABSENT = -11,   /* the text is not all here yet */
 	FZN_NOTE_ERR_MISMATCH = -12  /* the spool holds another blob, or the text is not its length */
 } fzn_note_err_t;
 
-/* A note as a VIEW: every pointer aims into the content it was parsed from,
- * which must outlive this -- tree/'s rule, and record/'s before it. */
+/* A note's fields as a VIEW: every pointer aims into the payload it was
+ * parsed from, which must outlive this -- tree/'s rule, and record/'s before
+ * it. The times, colour and flags are what a writer hands the author; read
+ * back, they are the meta's and zero here. */
 typedef struct fzn_note {
 	const uint8_t *title;
-	const uint8_t *text; /* or a blob reference, when TEXT_IS_BLOB is set */
+	const uint8_t *text;
 	const uint8_t *labels;
 	size_t title_len;
 	size_t text_len;
@@ -161,21 +121,7 @@ typedef struct fzn_note {
 	uint64_t edited_at_ms;
 	uint32_t colour;
 	uint8_t flags;
-	uint8_t version;
 } fzn_note_t;
-
-/* Parse a node's content as a note: layout only, never a key. The reserved
- * type is refused; an unknown nonzero type parses normally. A TEXT_IS_BLOB
- * note whose text is not exactly a blob reference is refused, since a name of
- * the wrong width names nothing. */
-fzn_note_err_t fzn_note_open(uint16_t content_type, const uint8_t *content, size_t content_len,
-                             fzn_note_t *out);
-
-/* Build a note's content for signing: the counterpart to `fzn_note_open`.
- * `*out_len` is what was written. Each length must fit its 16-bit field
- * before the sum is trusted, and the whole must fit a node's content. */
-fzn_note_err_t fzn_note_content(const fzn_note_t *note, uint8_t *out, size_t out_cap,
-                                size_t *out_len);
 
 /* Whether a note's fields are the shape its type requires, checked when this
  * host CREATES one and not when it reads one: a folder holds no text or
@@ -198,8 +144,7 @@ typedef struct fzn_note_item {
 } fzn_note_item_t;
 
 /* Walk the items from `*cursor` (start at 0), advancing it. SHORT at a clean
- * end, PARTITION when an item runs past the end. A note whose text is a blob
- * has no items here: they are in the blob. */
+ * end, PARTITION when an item runs past the end. */
 fzn_note_err_t fzn_note_item_next(const fzn_note_t *note, size_t *cursor, fzn_note_item_t *out);
 
 /* Append one item to `out` at `*used`, advancing it: the inverse of
@@ -215,12 +160,8 @@ typedef struct fzn_note_blob_ref {
 	uint64_t length;
 } fzn_note_blob_ref_t;
 
-/* The reference a TEXT_IS_BLOB note names. BLOB_LEN when the note holds no
- * reference -- not TEXT_IS_BLOB, or the wrong width. */
-fzn_note_err_t fzn_note_blob_ref(const fzn_note_t *note, fzn_note_blob_ref_t *out);
-
-/* The reference's FZN_NOTE_BLOB_REF_LEN bytes, for a note's text field. A
- * length of 0 is refused: an empty text is inline, never a blob. */
+/* The reference's FZN_NOTE_BLOB_REF_LEN bytes, as a meta and the shelf's
+ * verbs carry them. A length of 0 is refused: a reference to nothing. */
 fzn_note_err_t fzn_note_blob_ref_write(const fzn_note_blob_ref_t *ref,
                                        uint8_t out[FZN_NOTE_BLOB_REF_LEN]);
 

@@ -73,7 +73,8 @@ typedef int (*fzn_notes_import_fn)(void *ctx, const fzn_notes_import_entry_t *en
 typedef enum fzn_notes_import_refusal {
 	FZN_NOTES_IMPORT_UNPARSED = 1, /* malformed, or empty */
 	FZN_NOTES_IMPORT_TOO_LONG = 2, /* a field past what any note can hold */
-	FZN_NOTES_IMPORT_NO_SEAL = 3,  /* too long for inline, and no seal hook */
+	/* 3 was NO_SEAL, a text too long for inline with no seal hook: since
+	 * sec 514 every note is sealed, and an author without a seal refuses. */
 	FZN_NOTES_IMPORT_FAILED = 4    /* the store, the seal or the author refused */
 } fzn_notes_import_refusal_t;
 
@@ -104,11 +105,6 @@ fzn_notes_err_t fzn_notes_import_knotes(const uint8_t *ics, size_t len, fzn_note
                                         void *ctx, fzn_notes_import_refused_fn refused,
                                         void *refused_ctx);
 
-/* Seal a long text and fill its reference -- the node's shelf, in practice
- * (`node/shelf.h`). Nonzero on success. */
-typedef int (*fzn_notes_seal_fn)(void *ctx, const uint8_t *text, size_t len,
-                                 fzn_note_blob_ref_t *ref);
-
 /*
  * An import in progress: where notes go, how long texts are sealed, and the
  * tally. Hand `fzn_notes_import_take` to a parser with this as its context,
@@ -117,8 +113,6 @@ typedef int (*fzn_notes_seal_fn)(void *ctx, const uint8_t *text, size_t len,
 typedef struct fzn_notes_import_run {
 	const fzn_notes_author_t *author;
 	uint8_t folder[FZN_TREE_ID_LEN];
-	fzn_notes_seal_fn seal; /* NULL: a text too long for inline is refused */
-	void *seal_ctx;
 	uint64_t now_ms;
 	size_t imported;
 	size_t already;  /* recognised from an earlier import, not written again */
@@ -129,8 +123,9 @@ typedef struct fzn_notes_import_run {
 	void *refused_ctx;
 } fzn_notes_import_run_t;
 
-/* The parser callback: create one note under the run's folder, sealing its
- * text when it does not fit inline, unless an earlier import brought it. */
+/* The parser callback: create one note under the run's folder -- its content
+ * sealed by the author, as every note's is since sec 514 -- unless an earlier
+ * import brought it. */
 int fzn_notes_import_take(void *run, const fzn_notes_import_entry_t *entry);
 
 /* The parser refusal hook: count it, and pass it to the run's `on_refused`. */

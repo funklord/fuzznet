@@ -18,6 +18,7 @@ extern "C" {
 #include "../../contact/group.h"
 #include "../../notes/received.h"
 #include "../../notes/text.h"
+#include "../../notes/test/blob_stub.h"
 #include "../../local/vocabulary.h"
 }
 
@@ -209,32 +210,6 @@ static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject
 
 static fzn_persist_ops_t OPS = { mem_load, mem_save, mem_list, mem_remove, NULL };
 
-/* ---- a toy blob store for long texts ------------------------------------- */
-
-static uint8_t blob[FZN_NOTE_TEXT_MAX];
-static size_t blob_len;
-
-static int toy_seal(void *ctx, const uint8_t *text, size_t len, fzn_note_blob_ref_t *ref)
-{
-	(void)ctx;
-	memcpy(blob, text, len);
-	blob_len = len;
-	memset(ref, 0x5e, sizeof(*ref));
-	ref->length = len;
-	return 1;
-}
-
-static int toy_open(void *ctx, const fzn_note_blob_ref_t *ref, uint8_t *out, size_t cap,
-                    size_t *out_len)
-{
-	(void)ctx;
-	if (ref->length != blob_len || cap < blob_len)
-		return 0;
-	memcpy(out, blob, blob_len);
-	*out_len = blob_len;
-	return 1;
-}
-
 /* ---- the node, asked as the widget asks it ------------------------------ */
 
 static fzn_node_notes_t notes;
@@ -314,8 +289,8 @@ static void setup(void)
 	                          now_ms)
 	              == FZN_NOTES_OK,
 	      "fixture: the node's notes open");
-	notes.seal = toy_seal;
-	notes.open = toy_open;
+	notes.seal = blob_stub_seal;
+	notes.open = blob_stub_open;
 	quiet = 0;
 	received = NULL;
 }

@@ -10,18 +10,18 @@
  *     add note PARENT TITLE        a note under PARENT, titled; answers its id
  *     add folder PARENT TITLE      a folder
  *     set note ID title TEXT       rename
- *     set note ID text TEXT        replace the text, inline
- *     set note ID file PATH        replace the text from a file, sealed into
- *                                  a blob when it does not fit inline
+ *     set note ID text TEXT        replace the text
+ *     set note ID file PATH        replace the text from a file
  *     set note ID parent PARENT    move
  *     set note ID FLAG             pin, unpin, trash, untrash, archive,
  *                                  unarchive
  *     list note PARENT [FROM]      children, a page at a time; a note
- *                                  pending purge is left out
+ *                                  pending purge is left out, and one whose
+ *                                  content is not here carries
+ *                                  FZN_NODE_NOTES_LIST_PENDING
  *     get note ID                  one note's fields
- *     get note ID text [FROM]      its inline text, a page at a time
- *     get note ID file PATH        its whole text into a file, opened from its
- *                                  blob when it is one
+ *     get note ID text [FROM]      its text, a page at a time
+ *     get note ID file PATH        its whole text into a file
  *     remove note trash            empty the trash
  *     add share SUBTREE NAME       share SUBTREE with the contact NAME (sec 436)
  *     remove share SUBTREE NAME    stop
@@ -123,10 +123,9 @@ typedef int (*fzn_node_notes_span_fn)(void *ctx, const uint8_t *root, uint64_t f
                                       uint8_t *out, size_t cap, size_t *out_len,
                                       uint64_t *count);
 
-/* Open a sealed text back -- the node's shelf, in practice. Nonzero on
- * success, with `*out_len` the text's length. */
-typedef int (*fzn_node_notes_open_fn)(void *ctx, const fzn_note_blob_ref_t *ref, uint8_t *out,
-                                      size_t cap, size_t *out_len);
+/* A LISTING'S FLAGS carry this beside the note's own, which stop at 0x04:
+ * the note's content is not here yet, so its title is empty. sec 514. */
+#define FZN_NODE_NOTES_LIST_PENDING 0x80u
 
 typedef struct fzn_node_notes {
 	fzn_notes_store_t store;
@@ -139,9 +138,11 @@ typedef struct fzn_node_notes {
 	/* The nodes this one pulls from, which a purge always asks. */
 	fzn_notes_writer_t pulls[FZN_NODE_NOTES_WRITERS];
 	size_t pull_count;
-	/* Long texts: both NULL and a text too long for inline is refused. */
+	/* Where every note's content is sealed and opened, sec 514 -- the
+	 * node's shelf. Both NULL and no note can be written, nor read past
+	 * its meta. */
 	fzn_notes_seal_fn seal;
-	fzn_node_notes_open_fn open;
+	fzn_notes_open_fn open;
 	/* Collecting texts no note names, or NULL: then `remove text unused`
 	 * says this node keeps none. sec 443. */
 	fzn_node_notes_collect_fn collect;

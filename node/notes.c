@@ -27,6 +27,9 @@ static const char HEX[] = "0123456789abcdef";
  * and shared by the verbs, which the node's one loop runs one at a time. */
 static fzn_notes_view_t view;
 
+/* Every note's payload, opened (sec 514): one at a time, read and done. */
+static uint8_t payload_buf[FZN_NOTE_PAYLOAD_MAX];
+
 static size_t answer(char *reply, size_t cap, fzn_reply_t kind, const char *detail, size_t len)
 {
 	size_t out = 0;
@@ -223,6 +226,34 @@ static const fzn_tree_node_t *find(const fzn_node_notes_t *n, const uint8_t id[F
 	return &view.nodes[first];
 }
 
+/* The author, with the node's content hooks as they are now: fuzznetd sets
+ * them after `fzn_node_notes_init`, so they are read at each write. */
+static const fzn_notes_author_t *author_of(fzn_node_notes_t *n)
+{
+	n->author.seal = n->seal;
+	n->author.open = n->open;
+	n->author.text_ctx = n->text_ctx;
+	return &n->author;
+}
+
+/* NOWHERE TO KEEP CONTENT, and so no note can be written: an error, not a
+ * malformed request, since the request was well formed. 0 when there is. */
+static size_t no_content_store(const fzn_node_notes_t *n, char *reply, size_t cap)
+{
+	if (n->seal && n->open)
+		return 0;
+	return say(reply, cap, FZN_REPLY_ERROR,
+	           "this node keeps no blob store, where every note's content goes");
+}
+
+/* `node`'s meta, and its payload opened into `payload_buf`. */
+static fzn_notes_err_t read_note(const fzn_node_notes_t *n, const fzn_tree_node_t *node,
+                                 fzn_note_meta_t *meta, fzn_note_t *note)
+{
+	return fzn_notes_read(n->open, n->text_ctx, node, meta, payload_buf, sizeof(payload_buf),
+	                      note);
+}
+
 /* Checklists, below: `get` and `set` reach them. sec 442. */
 static size_t get_items(fzn_node_notes_t *n, const fzn_notes_store_t *store,
                         const uint8_t id[FZN_TREE_ID_LEN], const uint8_t *at, size_t left,
@@ -241,13 +272,16 @@ static size_t add(fzn_node_notes_t *n, uint16_t type, const uint8_t *at, size_t 
 	char hex[ID_HEX];
 	fzn_note_t note;
 	fzn_notes_err_t err;
+	size_t r = no_content_store(n, reply, cap);
 
+	if (r)
+		return r;
 	if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, parent))
 		return say(reply, cap, FZN_REPLY_MALFORMED, "add note PARENT TITLE");
 	memset(&note, 0, sizeof(note));
 	note.title = at;
 	note.title_len = left;
-	err = fzn_notes_create(&n->author, parent, type, &note, now(n), id);
+	err = fzn_notes_create(author_of(n), parent, type, &note, now(n), id);
 	if (err != FZN_NOTES_OK)
 		return refuse(reply, cap, err);
 	hex_of(id, sizeof(id), hex);
@@ -265,24 +299,9 @@ static size_t set_text(fzn_node_notes_t *n, const uint8_t id[FZN_TREE_ID_LEN],
 	memset(&with, 0, sizeof(with));
 	with.text = text;
 	with.text_len = len;
-	err = fzn_notes_edit(&n->author, id, FZN_NOTES_EDIT_TEXT, &with, 0u, 0u, now(n));
-	/* TOO LONG FOR INLINE, AND A SEAL TO HAND: the text goes into a blob
-	 * and the note carries its reference. Nothing is cut to make it fit. */
-	if (err == FZN_NOTES_ERR_MALFORMED && n->seal && len > 0u) {
-		fzn_note_blob_ref_t ref;
-		uint8_t field[FZN_NOTE_BLOB_REF_LEN];
-
-		if (!n->seal(n->text_ctx, text, len, &ref)
-		    || fzn_note_blob_ref_write(&ref, field) != FZN_NOTE_OK)
-			return say(reply, cap, FZN_REPLY_ERROR, "the text would not seal");
-		with.text = field;
-		with.text_len = sizeof(field);
-		with.flags = FZN_NOTE_FLAG_TEXT_IS_BLOB;
-		err = fzn_notes_edit(&n->author, id, FZN_NOTES_EDIT_TEXT, &with, 0u, 0u, now(n));
-	} else if (err == FZN_NOTES_ERR_MALFORMED && len > 0u) {
-		/* The request was well formed; the note cannot hold it. */
-		return say(reply, cap, FZN_REPLY_ERROR, "too long to hold inline, and no blob store");
-	}
+	/* Every text is sealed into the note's blob, since sec 514; nothing is
+	 * cut to fit, and a payload past its bound is refused whole. */
+	err = fzn_notes_edit(author_of(n), id, FZN_NOTES_EDIT_TEXT, &with, 0u, 0u, now(n));
 	if (err != FZN_NOTES_OK)
 		return refuse(reply, cap, err);
 	return say(reply, cap, FZN_REPLY_OK, NULL);
@@ -319,16 +338,19 @@ static size_t set(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *rep
 	};
 	uint8_t id[FZN_TREE_ID_LEN], parent[FZN_TREE_ID_LEN];
 	const uint8_t *w, *field;
-	size_t w_len, field_len, i, len = 0;
+	size_t w_len, field_len, i, len = 0, r = no_content_store(n, reply, cap);
 	fzn_note_t with;
 	fzn_notes_err_t err;
+
+	if (r)
+		return r;
 
 	if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, id)
 	    || !word(&at, &left, &field, &field_len))
 		return say(reply, cap, FZN_REPLY_MALFORMED, "set note ID FIELD [VALUE]");
 	for (i = 0; i < sizeof(FLAGS) / sizeof(FLAGS[0]); i++)
 		if (is_word(field, field_len, FLAGS[i].word)) {
-			err = fzn_notes_edit(&n->author, id, 0u, NULL, FLAGS[i].set, FLAGS[i].clear,
+			err = fzn_notes_edit(author_of(n), id, 0u, NULL, FLAGS[i].set, FLAGS[i].clear,
 			                     now(n));
 			return err == FZN_NOTES_OK ? say(reply, cap, FZN_REPLY_OK, NULL)
 			                           : refuse(reply, cap, err);
@@ -337,14 +359,14 @@ static size_t set(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *rep
 		memset(&with, 0, sizeof(with));
 		with.title = at;
 		with.title_len = left;
-		err = fzn_notes_edit(&n->author, id, FZN_NOTES_EDIT_TITLE, &with, 0u, 0u, now(n));
+		err = fzn_notes_edit(author_of(n), id, FZN_NOTES_EDIT_TITLE, &with, 0u, 0u, now(n));
 		return err == FZN_NOTES_OK ? say(reply, cap, FZN_REPLY_OK, NULL)
 		                           : refuse(reply, cap, err);
 	}
 	/* A CHECKLIST'S TEXT IS ITS ITEMS, so its items change through the
 	 * item verbs only. The edit checks a list's shape, and refuses bytes
-	 * that are no items as malformed -- which `set_text` reads as too long
-	 * for inline and seals into a blob, whose items nothing checks. sec 442. */
+	 * that are no items as malformed, and this answer is the plainer one.
+	 * sec 442. */
 	if (is_word(field, field_len, "text") || is_word(field, field_len, "file")) {
 		size_t idx = 0;
 		const fzn_tree_node_t *node;
@@ -370,7 +392,7 @@ static size_t set(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *rep
 	if (is_word(field, field_len, "parent")) {
 		if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, parent))
 			return say(reply, cap, FZN_REPLY_MALFORMED, "set note ID parent PARENT");
-		err = fzn_notes_move(&n->author, id, parent, now(n));
+		err = fzn_notes_move(author_of(n), id, parent, now(n));
 		return err == FZN_NOTES_OK ? say(reply, cap, FZN_REPLY_OK, NULL)
 		                           : refuse(reply, cap, err);
 	}
@@ -381,13 +403,13 @@ static size_t set(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *rep
 
 /* `store` is this node's notes, or a sharer's tree when `shared` is set
  * (sec 437): then the top is the shared subtrees' roots. */
-static size_t list(const fzn_notes_store_t *store, int shared, const uint8_t *at, size_t left,
+static size_t list(const fzn_node_notes_t *n, const fzn_notes_store_t *store, int shared, const uint8_t *at, size_t left,
                    char *reply, size_t cap)
 {
 	static const fzn_tree_node_t *out[FZN_NOTES_MAX];
 	static uint8_t contested[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
 	static char detail[FZN_REPLY_MAX];
-	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	size_t limit = fzn_reply_ok_room(cap);
 	uint8_t parent[FZN_TREE_ID_LEN];
 	const uint8_t *w;
 	size_t w_len, count = 0, from = 0, used, i, j, n_contested;
@@ -434,17 +456,26 @@ static size_t list(const fzn_notes_store_t *store, int shared, const uint8_t *at
 		char item[ID_HEX + 32u];
 		int is_contested = 0, m;
 		fzn_note_t note;
+		fzn_note_meta_t meta;
 		const uint8_t *title = (const uint8_t *)"";
 		size_t title_len = 0;
 		uint8_t flags = 0;
 
 		for (j = 0; j < n_contested && j < FZN_NOTES_MAX; j++)
 			is_contested |= memcmp(contested[j], node->id, FZN_TREE_ID_LEN) == 0;
-		if (fzn_note_open(node->content_type, node->content, node->content_len, &note)
-		    == FZN_NOTE_OK) {
+		/* THE TITLE IS IN THE BLOB, so a note whose blob is not here
+		 * lists by its meta, marked pending. sec 514. */
+		switch (read_note(n, node, &meta, &note)) {
+		case FZN_NOTES_OK:
 			title = note.title;
 			title_len = note.title_len;
-			flags = note.flags;
+			flags = meta.flags;
+			break;
+		case FZN_NOTES_ERR_PENDING:
+			flags = (uint8_t)(meta.flags | FZN_NODE_NOTES_LIST_PENDING);
+			break;
+		default:
+			break;
 		}
 		hex_of(node->id, FZN_TREE_ID_LEN, item);
 		m = snprintf(item + ID_HEX, sizeof(item) - ID_HEX, ",%u,%u,%d,%d,",
@@ -472,16 +503,16 @@ static size_t list(const fzn_notes_store_t *store, int shared, const uint8_t *at
 static size_t get(fzn_node_notes_t *n, const fzn_notes_store_t *store, const uint8_t *at,
                   size_t left, char *reply, size_t cap)
 {
-	static uint8_t text[FZN_NOTE_TEXT_MAX];
 	static char detail[FZN_REPLY_MAX];
-	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	size_t limit = fzn_reply_ok_room(cap);
 	uint8_t id[FZN_TREE_ID_LEN];
 	const uint8_t *w, *field;
 	size_t w_len, field_len, idx = 0, used, wrote = 0, from = 0, i;
 	const fzn_tree_node_t *node;
 	fzn_note_t note;
+	fzn_note_meta_t meta;
 	fzn_notes_err_t err;
-	int k;
+	int k, pending;
 
 	if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, id) || fzn_tree_is_root(id))
 		return say(reply, cap, FZN_REPLY_MALFORMED, "get note ID [text [FROM] | file PATH]");
@@ -491,24 +522,27 @@ static size_t get(fzn_node_notes_t *n, const fzn_notes_store_t *store, const uin
 	node = find(n, id, &idx);
 	if (!node)
 		return refuse(reply, cap, FZN_NOTES_ERR_ABSENT);
-	if (fzn_note_open(node->content_type, node->content, node->content_len, &note)
-	    != FZN_NOTE_OK)
-		return refuse(reply, cap, FZN_NOTES_ERR_SHAPE);
+	err = read_note(n, node, &meta, &note);
+	if (err != FZN_NOTES_OK && err != FZN_NOTES_ERR_PENDING)
+		return refuse(reply, cap, err);
+	pending = err == FZN_NOTES_ERR_PENDING;
+	if (pending)
+		memset(&note, 0, sizeof(note));
 
 	if (!word(&at, &left, &field, &field_len)) {
-		/* THE FIELDS: type, flags, created, edited, parent, the text's
-		 * length and whether it is a blob, then the title, escaped. */
-		fzn_note_blob_ref_t ref;
-		int blob = fzn_note_blob_ref(&note, &ref) == FZN_NOTE_OK;
+		/* THE FIELDS: type, flags, created, edited, parent, `blob` and
+		 * the text's length -- or `pending` and the sealed payload's,
+		 * with no title -- then the title, escaped. sec 514. */
 		char parent[ID_HEX + 1u];
 
 		hex_of(node->parent, FZN_TREE_ID_LEN, parent);
 		parent[ID_HEX] = '\0';
 		k = snprintf(detail, sizeof(detail), "%u %u %llu %llu %s %s %llu ",
-		             (unsigned)node->content_type, (unsigned)note.flags,
-		             (unsigned long long)note.created_at_ms,
-		             (unsigned long long)note.edited_at_ms, parent, blob ? "blob" : "inline",
-		             (unsigned long long)(blob ? ref.length : note.text_len));
+		             (unsigned)node->content_type, (unsigned)meta.flags,
+		             (unsigned long long)meta.created_at_ms,
+		             (unsigned long long)meta.edited_at_ms, parent,
+		             pending ? "pending" : "blob",
+		             (unsigned long long)(pending ? meta.content.length : note.text_len));
 		if (k < 0 || (size_t)k >= limit)
 			return 0;
 		used = (size_t)k;
@@ -519,9 +553,9 @@ static size_t get(fzn_node_notes_t *n, const fzn_notes_store_t *store, const uin
 	}
 	if (is_word(field, field_len, "items"))
 		return get_items(n, store, id, at, left, reply, cap);
+	if (pending)
+		return say(reply, cap, FZN_REPLY_ERROR, "the text is not here yet");
 	if (is_word(field, field_len, "text")) {
-		if (note.flags & FZN_NOTE_FLAG_TEXT_IS_BLOB)
-			return say(reply, cap, FZN_REPLY_ERROR, "a blob: get note ID file PATH");
 		if (word(&at, &left, &w, &w_len))
 			for (i = 0; i < w_len; i++) {
 				if (w[i] < '0' || w[i] > '9' || from > FZN_NOTE_TEXT_MAX)
@@ -543,14 +577,6 @@ static size_t get(fzn_node_notes_t *n, const fzn_notes_store_t *store, const uin
 		char name[512];
 		int fd, ok;
 
-		if (note.flags & FZN_NOTE_FLAG_TEXT_IS_BLOB) {
-			fzn_note_blob_ref_t ref;
-
-			if (!n->open || fzn_note_blob_ref(&note, &ref) != FZN_NOTE_OK
-			    || !n->open(n->text_ctx, &ref, text, sizeof(text), &body_len))
-				return say(reply, cap, FZN_REPLY_ERROR, "the text is not here yet");
-			body = text;
-		}
 		if (left == 0u || left >= sizeof(name) || memchr(at, '\0', left))
 			return say(reply, cap, FZN_REPLY_MALFORMED, "get note ID file PATH");
 		memcpy(name, at, left);
@@ -577,13 +603,9 @@ static int view_names(const fzn_notes_view_t *v, const uint8_t root[FZN_BLOB_HAS
 	size_t i;
 
 	for (i = 0; i < v->count; i++) {
-		fzn_note_t note;
 		fzn_note_blob_ref_t ref;
 
-		if (fzn_note_open(v->nodes[i].content_type, v->nodes[i].content,
-		                  v->nodes[i].content_len, &note)
-		            == FZN_NOTE_OK
-		    && fzn_note_blob_ref(&note, &ref) == FZN_NOTE_OK
+		if (fzn_notes_ref_of(&v->nodes[i], &ref)
 		    && memcmp(ref.root, root, FZN_BLOB_HASH_LEN) == 0)
 			return 1;
 	}
@@ -661,13 +683,9 @@ static int own_note_names(fzn_node_notes_t *n, const uint8_t *root, uint64_t len
 	if (fzn_notes_view_load(&n->store, &view) != FZN_NOTES_OK)
 		return 0;
 	for (i = 0; i < view.count; i++) {
-		fzn_note_t note;
 		fzn_note_blob_ref_t ref;
 
-		if (fzn_note_open(view.nodes[i].content_type, view.nodes[i].content,
-		                  view.nodes[i].content_len, &note)
-		            == FZN_NOTE_OK
-		    && fzn_note_blob_ref(&note, &ref) == FZN_NOTE_OK
+		if (fzn_notes_ref_of(&view.nodes[i], &ref)
 		    && memcmp(ref.root, root, FZN_BLOB_HASH_LEN) == 0 && ref.length == length)
 			return 1;
 	}
@@ -748,14 +766,10 @@ int fzn_node_notes_push_texts(fzn_node_notes_t *n, fzn_notes_sync_ask_t ask, voi
 		return 1;
 	/* EVERY TEXT A NOTE HERE NAMES, each once. */
 	for (i = 0; i < view.count && n_roots < FZN_NOTES_MAX; i++) {
-		fzn_note_t note;
 		fzn_note_blob_ref_t ref;
 		int seen = 0;
 
-		if (fzn_note_open(view.nodes[i].content_type, view.nodes[i].content,
-		                  view.nodes[i].content_len, &note)
-		            != FZN_NOTE_OK
-		    || fzn_note_blob_ref(&note, &ref) != FZN_NOTE_OK)
+		if (!fzn_notes_ref_of(&view.nodes[i], &ref))
 			continue;
 		for (j = 0; j < n_roots && !seen; j++)
 			seen = memcmp(roots[j], ref.root, FZN_BLOB_HASH_LEN) == 0;
@@ -813,21 +827,11 @@ int fzn_node_notes_push_texts(fzn_node_notes_t *n, fzn_notes_sync_ask_t ask, voi
 static uint8_t items_buf[FZN_NOTE_TEXT_MAX];
 static uint8_t fresh_buf[FZN_NOTE_TEXT_MAX];
 
-/* A checklist's items, wherever they are: inline in the note, or in its blob
- * opened through the node's text hook -- a long list is sealed as a long
- * text is. ABSENT when the blob is not here. */
-static fzn_notes_err_t list_items(fzn_node_notes_t *n, const fzn_note_t *note, uint8_t *out,
-                                  size_t cap, size_t *len)
+/* A checklist's items: its payload's text, copied out of `payload_buf` so
+ * an item rewritten can be read from while the next payload is built. */
+static fzn_notes_err_t list_items(const fzn_note_t *note, uint8_t *out, size_t cap, size_t *len)
 {
-	fzn_note_blob_ref_t ref;
-
 	*len = 0;
-	if (note->flags & FZN_NOTE_FLAG_TEXT_IS_BLOB) {
-		if (!n->open || fzn_note_blob_ref(note, &ref) != FZN_NOTE_OK
-		    || !n->open(n->text_ctx, &ref, out, cap, len))
-			return FZN_NOTES_ERR_ABSENT;
-		return FZN_NOTES_OK;
-	}
 	if (note->text_len > cap)
 		return FZN_NOTES_ERR_SHAPE;
 	if (note->text_len)
@@ -855,6 +859,7 @@ static size_t open_list(fzn_node_notes_t *n, const fzn_notes_store_t *store,
                         char *reply, size_t cap)
 {
 	const fzn_tree_node_t *node;
+	fzn_note_meta_t meta;
 	size_t idx = 0;
 	fzn_notes_err_t err;
 
@@ -864,13 +869,13 @@ static size_t open_list(fzn_node_notes_t *n, const fzn_notes_store_t *store,
 	node = find(n, id, &idx);
 	if (!node)
 		return refuse(reply, cap, FZN_NOTES_ERR_ABSENT);
-	if (node->content_type != FZN_NOTE_TYPE_LIST
-	    || fzn_note_open(node->content_type, node->content, node->content_len, note)
-	               != FZN_NOTE_OK)
+	if (node->content_type != FZN_NOTE_TYPE_LIST)
 		return say(reply, cap, FZN_REPLY_ERROR, "not a checklist");
-	err = list_items(n, note, items_buf, sizeof(items_buf), items_len);
-	if (err == FZN_NOTES_ERR_ABSENT)
+	err = read_note(n, node, &meta, note);
+	if (err == FZN_NOTES_ERR_PENDING)
 		return say(reply, cap, FZN_REPLY_ERROR, "the items are not here yet");
+	if (err == FZN_NOTES_OK)
+		err = list_items(note, items_buf, sizeof(items_buf), items_len);
 	if (err != FZN_NOTES_OK)
 		return refuse(reply, cap, err);
 	return 0;
@@ -883,7 +888,7 @@ static size_t get_items(fzn_node_notes_t *n, const fzn_notes_store_t *store,
                         char *reply, size_t cap)
 {
 	static char detail[FZN_REPLY_MAX];
-	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	size_t limit = fzn_reply_ok_room(cap);
 	size_t items_len = 0, cursor = 0, total = 0, from = 0, i, used, r;
 	const uint8_t *w;
 	size_t w_len;
@@ -1021,6 +1026,9 @@ static size_t change_item(fzn_node_notes_t *n, int add, const uint8_t *at, size_
 	fzn_note_item_t item;
 	fzn_note_t note;
 
+	r = no_content_store(n, reply, cap);
+	if (r)
+		return r;
 	if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, id) || fzn_tree_is_root(id))
 		return say(reply, cap, FZN_REPLY_MALFORMED,
 		           add ? "add item ID TEXT" : "remove item ID N");
@@ -1199,7 +1207,7 @@ static size_t list_shares(fzn_node_notes_t *n, const uint8_t *at, size_t left, c
 {
 	static fzn_notes_share_t all[FZN_NOTES_SHARES_MAX];
 	static char detail[FZN_REPLY_MAX];
-	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	size_t limit = fzn_reply_ok_room(cap);
 	size_t count = 0, from = 0, used, i;
 	const uint8_t *w;
 	size_t w_len;
@@ -1341,13 +1349,16 @@ static size_t import(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *
 {
 	static struct refused_names names;
 	static char detail[FZN_REPLY_MAX];
-	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	size_t limit = fzn_reply_ok_room(cap);
 	fzn_notes_import_run_t run;
 	char path[512];
 	const uint8_t *w;
-	size_t w_len, idx = 0;
+	size_t w_len, idx = 0, r = no_content_store(n, reply, cap);
 	struct stat st;
 	int k;
+
+	if (r)
+		return r;
 
 	memset(&run, 0, sizeof(run));
 	if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, run.folder) || left == 0u
@@ -1364,9 +1375,7 @@ static size_t import(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *
 	}
 	if (stat(path, &st) != 0)
 		return say(reply, cap, FZN_REPLY_ERROR, "cannot read that path");
-	run.author = &n->author;
-	run.seal = n->seal;
-	run.seal_ctx = n->text_ctx;
+	run.author = author_of(n);
 	run.now_ms = now(n);
 	memset(&names, 0, sizeof(names));
 	run.on_refused = name_refused;
@@ -1452,7 +1461,7 @@ static size_t read_shared(fzn_node_notes_t *n, int listing, const uint8_t *at, s
 	            != FZN_NOTES_OK
 	    || fzn_notes_store_init(&store, &ops, n->store.hash) != FZN_NOTES_OK)
 		return say(reply, cap, FZN_REPLY_ERROR, "the shared notes would not open");
-	return listing ? list(&store, 1, at, left, reply, cap) : get(n, &store, at, left, reply, cap);
+	return listing ? list(n, &store, 1, at, left, reply, cap) : get(n, &store, at, left, reply, cap);
 }
 
 static size_t local_verbs(fzn_node_notes_t *n, fzn_origin_t origin,
@@ -1551,7 +1560,7 @@ static size_t local_verbs(fzn_node_notes_t *n, fzn_origin_t origin,
 	case FZN_VERB_SET:
 		return set(n, at, left, reply, reply_cap);
 	case FZN_VERB_LIST:
-		return list(&n->store, 0, at, left, reply, reply_cap);
+		return list(n, &n->store, 0, at, left, reply, reply_cap);
 	case FZN_VERB_GET:
 		return get(n, &n->store, at, left, reply, reply_cap);
 	case FZN_VERB_REMOVE:
@@ -1623,17 +1632,12 @@ int fzn_node_notes_shares_blob(fzn_node_notes_t *n, const uint8_t *sender,
 	/* EVERY CLAIM ON A NOTE IN SCOPE, whoever wrote it: what is served of a
 	 * note is every writer's record of it, so its texts are too. */
 	for (i = 0; i < view.count; i++) {
-		fzn_note_t note;
 		fzn_note_blob_ref_t ref;
 		int in = 0;
 
 		for (j = 0; j < scope.count && !in; j++)
 			in = memcmp(scope.ids[j], view.nodes[i].id, FZN_TREE_ID_LEN) == 0;
-		if (in
-		    && fzn_note_open(view.nodes[i].content_type, view.nodes[i].content,
-		                     view.nodes[i].content_len, &note)
-		               == FZN_NOTE_OK
-		    && fzn_note_blob_ref(&note, &ref) == FZN_NOTE_OK
+		if (in && fzn_notes_ref_of(&view.nodes[i], &ref)
 		    && memcmp(ref.root, root, FZN_BLOB_HASH_LEN) == 0)
 			return 1;
 	}

@@ -1,7 +1,8 @@
-/* A long note's text, held as a blob. sec 423, phase 2 of the notes move.
+/* A note's content, held as a blob. sec 423, phase 2 of the notes move; every
+ * note's since sec 514.
  *
- * `notes/note.h` gives a long note a 72-byte reference -- root, content key,
- * length -- in place of its text. This is the other end of that reference:
+ * `notes/note.h` gives a note's meta a 72-byte reference -- root, content key,
+ * length -- to its sealed payload. This is the other end of that reference:
  * sealing a text into a `spool/` under a fresh key, opening it back, and
  * saying what state a note's text is in on this host. How the leaves travel
  * between hosts is the next half of phase 2 and not here.
@@ -45,7 +46,7 @@
  * and fill `ref` with what a note names it by. Every leaf is placed through
  * `fzn_spool_place`, so it is verified against the root before it is written,
  * as a stranger's would be. LEN for an empty text or one past
- * FZN_NOTE_TEXT_MAX: an empty text is inline. */
+ * FZN_NOTE_TEXT_MAX: a payload is never empty. */
 fzn_note_err_t fzn_note_text_seal(const fzn_hash_ops_t *hash, const fzn_aead_ops_t *aead,
                                   const fzn_random_ops_t *rng, const uint8_t *text, size_t len,
                                   const fzn_spool_ops_t *ops, uint8_t *present,
@@ -63,9 +64,8 @@ fzn_note_err_t fzn_note_text_open(const fzn_hash_ops_t *hash, const fzn_aead_ops
                                   const fzn_spool_t *spool, const fzn_note_blob_ref_t *ref,
                                   uint8_t *out, size_t out_cap, size_t *out_len);
 
+/* 0 was INLINE, retired with the inline text in sec 514. */
 typedef enum fzn_note_text_state {
-	/* The text is in the note itself. */
-	FZN_NOTE_TEXT_INLINE = 0,
 	/* A blob, and all of it is here. */
 	FZN_NOTE_TEXT_HERE = 1,
 	/* A blob that is not all here yet: verified and placed, unreadable. */
@@ -74,9 +74,11 @@ typedef enum fzn_note_text_state {
 	FZN_NOTE_TEXT_BROKEN = 3
 } fzn_note_text_state_t;
 
-/* What state `note`'s text is in, given the spool this host holds for its
- * blob -- NULL when it holds none. A spool for another blob is not this
- * note's text, so it answers PENDING, not HERE. */
-fzn_note_text_state_t fzn_note_text_state(const fzn_note_t *note, const fzn_spool_t *spool);
+/* What state the content `ref` names is in, given the spool this host holds
+ * for its blob -- NULL when it holds none. A spool for another blob is not
+ * this note's content, so it answers PENDING, not HERE; a NULL `ref`, or one
+ * no blob can have, is BROKEN. */
+fzn_note_text_state_t fzn_note_text_state(const fzn_note_blob_ref_t *ref,
+                                          const fzn_spool_t *spool);
 
 #endif /* FZN_NOTE_TEXT_H */

@@ -36,6 +36,8 @@ const char *fzn_notes_err_str(fzn_notes_err_t err)
 		return "the store returned something else";
 	case FZN_NOTES_ERR_UNSUPPORTED:
 		return "the store cannot forget";
+	case FZN_NOTES_ERR_PENDING:
+		return "the note's content is not here yet";
 	}
 	return "unknown";
 }

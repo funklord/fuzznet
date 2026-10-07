@@ -1823,7 +1823,7 @@ static size_t list_files(const fzn_node_files_t *files, const uint8_t *arg, size
 {
 	static uint8_t roots[1024][FZN_BLOB_HASH_LEN];
 	char detail[FZN_REPLY_MAX + 1u];
-	size_t limit = (cap > 0u && cap - 1u < FZN_REPLY_MAX) ? cap - 1u : FZN_REPLY_MAX;
+	size_t limit = fzn_reply_ok_room(cap);
 	size_t count = 0, from = 0, used, i;
 	fzn_node_files_err_t err;
 	int n;

@@ -4432,15 +4432,15 @@ SABOTAGES = [
 	(
 		"text-state-names-this-blob",
 		"notes/text.c",
-		"\tif (!spool || !fzn_ct_memeq(spool->root, ref.root, FZN_BLOB_HASH_LEN)\n",
+		"\tif (!spool || !fzn_ct_memeq(spool->root, ref->root, FZN_BLOB_HASH_LEN)\n",
 		"\tif (!spool\n",
 		"a spool for another blob makes a note's text HERE when it is not -- sec 423",
 	),
 	(
 		"text-state-broken-is-not-pending",
 		"notes/text.c",
-		"\t    || fzn_blob_geometry(ref.length, &leaves, &last) != FZN_BLOB_OK)\n\t\treturn FZN_NOTE_TEXT_BROKEN;\n",
-		"\t    || fzn_blob_geometry(ref.length, &leaves, &last) != FZN_BLOB_OK)\n\t\treturn FZN_NOTE_TEXT_PENDING;\n",
+		"\t    || fzn_blob_geometry(ref->length, &leaves, &last) != FZN_BLOB_OK)\n\t\treturn FZN_NOTE_TEXT_BROKEN;\n",
+		"\t    || fzn_blob_geometry(ref->length, &leaves, &last) != FZN_BLOB_OK)\n\t\treturn FZN_NOTE_TEXT_PENDING;\n",
 		"a reference that names nothing waits for ever as pending, where it should say broken -- sec 423",
 	),
 	(
@@ -4565,8 +4565,8 @@ SABOTAGES = [
 	(
 		"notes-author-refuses-unreadable",
 		"notes/author.c",
-		"\t    != FZN_NOTE_OK)\n\t\treturn FZN_NOTES_ERR_SHAPE;\n\th->note = note;\n",
-		"\t    != FZN_NOTE_OK)\n\t\tmemset(&note, 0, sizeof(note));\n\th->note = note;\n",
+		"&h->meta)\n\t    != FZN_NOTE_OK)\n\t\treturn FZN_NOTES_ERR_SHAPE;\n",
+		"&h->meta)\n\t    != FZN_NOTE_OK)\n\t\tmemset(&h->meta, 0, sizeof(h->meta));\n",
 		"an edit of a note a newer host wrote in a type this build cannot read writes its fields back empty, deleting it -- sec 426",
 	),
 	(
@@ -4579,8 +4579,8 @@ SABOTAGES = [
 	(
 		"notes-edit-keeps-labels",
 		"notes/author.c",
-		"\th->note.labels = h->labels;\n",
-		"\th->note.labels = h->labels;\n\th->note.labels_len = 0;\n",
+		"\t\t\treturn FZN_NOTES_ERR_SHAPE;\n\t\tif (which & FZN_NOTES_EDIT_TITLE) {\n",
+		"\t\t\treturn FZN_NOTES_ERR_SHAPE;\n\t\tcontent.labels_len = 0;\n\t\tif (which & FZN_NOTES_EDIT_TITLE) {\n",
 		"every edit drops a note's labels, which fuzzypickles' copy did until their sec 146 -- sec 426",
 	),
 	(
@@ -4593,22 +4593,22 @@ SABOTAGES = [
 	(
 		"notes-edit-keeps-created",
 		"notes/author.c",
-		"\t/* The note's own creation time; only the edit time moves. */\n\tnote.edited_at_ms = now_ms;\n",
-		"\t/* The note's own creation time; only the edit time moves. */\n\tnote.edited_at_ms = now_ms;\n\tnote.created_at_ms = now_ms;\n",
+		"\t/* The note's own creation time; only the edit time moves. */\n\tmeta.edited_at_ms = now_ms;\n",
+		"\t/* The note's own creation time; only the edit time moves. */\n\tmeta.edited_at_ms = now_ms;\n\tmeta.created_at_ms = now_ms;\n",
 		"every edit makes a note new, and the creation time a user sorts by becomes the last edit's -- sec 426",
 	),
 	(
-		"notes-edit-blob-flag-moves-with-text",
+		"notes-edit-pending-not-blanked",
 		"notes/author.c",
-		"\t\tnote.flags = (uint8_t)((note.flags & ~FZN_NOTE_FLAG_TEXT_IS_BLOB)\n\t\t                       | (with->flags & FZN_NOTE_FLAG_TEXT_IS_BLOB));\n",
-		"",
-		"a reference is written as a short text, or a short text read as a reference -- sec 426",
+		"\t\t    || len != h.meta.content.length)\n\t\t\treturn FZN_NOTES_ERR_PENDING;\n",
+		"\t\t    || len != h.meta.content.length) {\n\t\t\tmemset(payload_in, 0, FZN_NOTE_PAYLOAD_HEADER_LEN);\n\t\t\tpayload_in[0] = 1u;\n\t\t\tlen = FZN_NOTE_PAYLOAD_HEADER_LEN;\n\t\t}\n",
+		"a content edit of a note whose blob is not here writes its other fields back empty -- sec 514",
 	),
 	(
 		"notes-edit-keeps-place",
 		"notes/author.c",
-		"\treturn write_note(author, id, h.parent, h.order, h.content_type, &note, now_ms);\n",
-		"\treturn write_note(author, id, author->issuer, h.order, h.content_type, &note, now_ms);\n",
+		"\treturn write_note(author, id, h.parent, h.order, h.content_type, &meta, now_ms);\n",
+		"\treturn write_note(author, id, author->issuer, h.order, h.content_type, &meta, now_ms);\n",
 		"editing a note moves it -- sec 426",
 	),
 	(
@@ -4705,14 +4705,14 @@ SABOTAGES = [
 	(
 		"notes-purge-trash-only-own",
 		"notes/purge.c",
-		"\t\tif (!fzn_ct_memeq(view->writers[i], self, FZN_PUBKEY_LEN)\n\t\t    || fzn_note_open(",
-		"\t\tif (fzn_note_open(",
+		"\t\tif (!fzn_ct_memeq(view->writers[i], self, FZN_PUBKEY_LEN)\n\t\t    || fzn_note_meta_open(",
+		"\t\tif (fzn_note_meta_open(",
 		"a host empties a sibling's trash for it -- sec 427",
 	),
 	(
 		"notes-purge-trash-only-trashed",
 		"notes/purge.c",
-		"\t\t    || !(note.flags & FZN_NOTE_FLAG_TRASHED))\n",
+		"\t\t    || !(meta.flags & FZN_NOTE_FLAG_TRASHED))\n",
 		"\t\t    )\n",
 		"emptying the trash erases notes that were never in it -- sec 427",
 	),
@@ -4845,8 +4845,8 @@ SABOTAGES = [
 	(
 		"import-run-dedup-by-title",
 		"notes/import.c",
-		"\t\t    && note.created_at_ms == e->created_at_ms && note.title_len == e->title_len\n\t\t    && memcmp(note.title, e->title, e->title_len) == 0)\n",
-		"\t\t    && note.created_at_ms == e->created_at_ms)\n",
+		"\t\t    && note.title_len == e->title_len && memcmp(note.title, e->title, e->title_len) == 0)\n",
+		"\t\t    )\n",
 		"two notes made in one millisecond are one note to a re-import, and the second is never brought across -- sec 429",
 	),
 	(
@@ -4855,13 +4855,6 @@ SABOTAGES = [
 		"\t                             e->created_at_ms, run->now_ms, id);\n",
 		"\t                             0u, run->now_ms, id);\n",
 		"an imported note's creation time is the import's, so a re-import recognises nothing -- sec 429",
-	),
-	(
-		"import-run-seals-long",
-		"notes/import.c",
-		"\t\tnote.flags |= FZN_NOTE_FLAG_TEXT_IS_BLOB;\n",
-		"",
-		"a sealed text's reference is written as if it were the text -- sec 429",
 	),
 	(
 		"node-notes-own-user-only",
@@ -4878,11 +4871,11 @@ SABOTAGES = [
 		"a title with a space, a comma or a newline breaks the listing it is in -- sec 431",
 	),
 	(
-		"node-notes-seals-long",
+		"node-notes-no-store-said",
 		"node/notes.c",
-		"\tif (err == FZN_NOTES_ERR_MALFORMED && n->seal && len > 0u) {\n",
-		"\tif (0) {\n",
-		"a text too long for inline is refused although the node has a blob store for it -- sec 431",
+		"\tif (n->seal && n->open)\n\t\treturn 0;\n",
+		"\treturn 0;\n",
+		"a node with no blob store answers a well-formed write as malformed -- sec 514",
 	),
 	(
 		"node-notes-empty-asks-peers",
@@ -4892,11 +4885,25 @@ SABOTAGES = [
 		"emptying the trash erases at once on a node whose pull peers still hold the notes -- sec 431",
 	),
 	(
-		"node-notes-blob-not-paged",
+		"node-notes-pending-not-read",
 		"node/notes.c",
-		"\t\tif (note.flags & FZN_NOTE_FLAG_TEXT_IS_BLOB)\n\t\t\treturn say(reply, cap, FZN_REPLY_ERROR, \"a blob: get note ID file PATH\");\n",
+		"\tif (pending)\n\t\treturn say(reply, cap, FZN_REPLY_ERROR, \"the text is not here yet\");\n",
 		"",
-		"a blob's reference is handed to a client as if it were the text -- sec 431",
+		"a note whose content is not here reads as an empty text -- sec 514",
+	),
+	(
+		"node-notes-list-marks-pending",
+		"node/notes.c",
+		"\t\t\tflags = (uint8_t)(meta.flags | FZN_NODE_NOTES_LIST_PENDING);\n",
+		"\t\t\tflags = meta.flags;\n",
+		"a note whose content is not here lists as an untitled note, not a pending one -- sec 514",
+	),
+	(
+		"reply-ok-room-leaves-ok",
+		"local/vocabulary.c",
+		"\treturn line > 4u ? line - 4u : 0u;\n",
+		"\treturn line > 1u ? line - 1u : 0u;\n",
+		"a page filled to the line's bound is refused whole, and the client hears nothing -- sec 514",
 	),
 	(
 		"node-notes-file-private",
@@ -5265,16 +5272,16 @@ SABOTAGES = [
 	(
 		"notes-shares-blob-in-scope",
 		"node/notes.c",
-		"\t\tif (in\n\t\t    && fzn_note_open(",
-		"\t\tif (1\n\t\t    && fzn_note_open(",
+		"\t\tif (in && fzn_notes_ref_of(",
+		"\t\tif (1 && fzn_notes_ref_of(",
 		"a text is a contact's to fetch if any note anywhere has it -- sec 438",
 	),
 	(
 		"notes-shares-blob-names-the-root",
 		"node/notes.c",
-		"\t\t               == FZN_NOTE_OK\n\t\t    && fzn_note_blob_ref(&note, &ref) == FZN_NOTE_OK\n\t\t    && memcmp(ref.root, root, FZN_BLOB_HASH_LEN) == 0)\n\t\t\treturn 1;\n",
-		"\t\t               == FZN_NOTE_OK\n\t\t    && fzn_note_blob_ref(&note, &ref) == FZN_NOTE_OK)\n\t\t\treturn 1;\n",
-		"one shared long note opens every text this node holds to the contact -- sec 438",
+		"\t\tif (in && fzn_notes_ref_of(&view.nodes[i], &ref)\n\t\t    && memcmp(ref.root, root, FZN_BLOB_HASH_LEN) == 0)\n",
+		"\t\tif (in && fzn_notes_ref_of(&view.nodes[i], &ref))\n",
+		"one shared note opens every text this node holds to the contact -- sec 438",
 	),
 	(
 		"admin-contact-reaches-texts",
@@ -5489,8 +5496,8 @@ SABOTAGES = [
 	(
 		"notes-items-only-on-a-checklist",
 		"node/notes.c",
-		"\tif (node->content_type != FZN_NOTE_TYPE_LIST\n\t    ||",
-		"\tif (0\n\t    ||",
+		"\tif (node->content_type != FZN_NOTE_TYPE_LIST)\n\t\treturn say(reply, cap, FZN_REPLY_ERROR, \"not a checklist\");\n",
+		"",
 		"items are written into a plain note's text -- sec 442",
 	),
 	(
@@ -6397,30 +6404,16 @@ SABOTAGES = [
 		"a node with a shelf answers no peer's blob message, so no text is ever fetched from it -- sec 424",
 	),
 	(
-		"note-lengths-partition-the-body",
-		"notes/note.c",
-		"\tif (FZN_NOTE_HEADER_LEN + n1 + n2 + n3 != content_len)\n",
-		"\tif (FZN_NOTE_HEADER_LEN + n1 + n2 + n3 > content_len)\n",
-		"lengths that leave a gap describe bytes nobody owns, and a note reads differently on two hosts -- sec 422",
-	),
-	(
 		"note-reserved-type-refused",
 		"notes/note.c",
-		"\tif (content_type == FZN_NOTE_TYPE_NONE)\n\t\treturn FZN_NOTE_ERR_TYPE;\n\tif (content_len < FZN_NOTE_HEADER_LEN)\n",
-		"\tif (content_len < FZN_NOTE_HEADER_LEN)\n",
+		"\tif (content_type == FZN_NOTE_TYPE_NONE)\n\t\treturn FZN_NOTE_ERR_TYPE;\n\tif (content_len < FZN_NOTE_META_LEN)\n",
+		"\tif (content_len < FZN_NOTE_META_LEN)\n",
 		"an all-zero header decodes as a valid node of a valid type -- sec 422",
-	),
-	(
-		"note-blob-ref-width-read",
-		"notes/note.c",
-		"\tif ((out->flags & FZN_NOTE_FLAG_TEXT_IS_BLOB) && n2 != FZN_NOTE_BLOB_REF_LEN)\n\t\treturn FZN_NOTE_ERR_BLOB_LEN;\n\treturn FZN_NOTE_OK;\n",
-		"\treturn FZN_NOTE_OK;\n",
-		"a blob note whose text is not a reference is shown as if it named something -- sec 422",
 	),
 	(
 		"note-field-fits-before-sum",
 		"notes/note.c",
-		"\tif (note->title_len > 0xFFFFu || note->text_len > 0xFFFFu || note->labels_len > 0xFFFFu)\n\t\treturn FZN_NOTE_ERR_LEN;\n",
+		"\tif (note->title_len > FZN_NOTE_TITLE_MAX || note->labels_len > FZN_NOTE_LABELS_MAX\n\t    || note->text_len > FZN_NOTE_PAYLOAD_MAX)\n\t\treturn FZN_NOTE_ERR_LEN;\n",
 		"",
 		"a length that wraps the sum reaches memcpy with nothing bounding it -- sec 422",
 	),
@@ -6448,9 +6441,9 @@ SABOTAGES = [
 	(
 		"note-reference-names-something",
 		"notes/note.c",
-		"\tif (out->length == 0u)\n\t\treturn FZN_NOTE_ERR_BLOB_LEN;\n",
+		"\tif (ref->length == 0u)\n\t\treturn FZN_NOTE_ERR_BLOB_LEN;\n",
 		"",
-		"a reference to an empty blob is followed, where an empty text is inline -- sec 422",
+		"a reference to an empty blob is written, where every payload has a header -- sec 422",
 	),
 	(
 		"scope-unknown-reads-private",

@@ -1,6 +1,6 @@
 /* note_test -- the note body format, ported from fuzzypickles'
- * core/test/notes_test.c at b419405 with its cases intact, and the blob
- * reference sec 422 gives TEXT_IS_BLOB. */
+ * core/test/notes_test.c at b419405 with its cases intact, and carried onto
+ * version 2's meta and payload in sec 514. */
 
 #include "../note.h"
 
@@ -21,13 +21,13 @@ static void check_at(int ok, int line, const char *what)
 
 #define CHECK(cond) check_at((cond) ? 1 : 0, __LINE__, #cond)
 
-/* Encode a note and parse it straight back, which most of these need. */
+/* Encode a payload and parse it straight back, which most of these need. */
 static fzn_note_err_t round_trip(const fzn_note_t *in, uint8_t *buf, size_t cap, size_t *len,
                                  fzn_note_t *out)
 {
-	fzn_note_err_t err = fzn_note_content(in, buf, cap, len);
+	fzn_note_err_t err = fzn_note_payload_write(in, buf, cap, len);
 	if (err != FZN_NOTE_OK) return err;
-	return fzn_note_open(FZN_NOTE_TYPE_NOTE, buf, *len, out);
+	return fzn_note_payload_open(buf, *len, out);
 }
 
 static void test_a_note_survives_the_round_trip(void)
@@ -43,19 +43,14 @@ static void test_a_note_survives_the_round_trip(void)
 	in.text_len = 14;
 	in.labels = (const uint8_t *)"home\0errands";
 	in.labels_len = 12;
+	/* Flags, colour and times are the meta's, and a payload drops them. */
 	in.colour = 0xFFAA0080u;
-	in.created_at_ms = 1756000000000ull;
-	in.edited_at_ms = 1756000060000ull;
 	in.flags = FZN_NOTE_FLAG_PINNED;
 
 	CHECK(round_trip(&in, buf, sizeof buf, &len, &out) == FZN_NOTE_OK);
-	CHECK(len == FZN_NOTE_HEADER_LEN + 8 + 14 + 12);
+	CHECK(len == FZN_NOTE_PAYLOAD_HEADER_LEN + 8 + 14 + 12);
 
-	CHECK(out.version == FZN_NOTE_VERSION);
-	CHECK(out.flags == FZN_NOTE_FLAG_PINNED);
-	CHECK(out.colour == 0xFFAA0080u);
-	CHECK(out.created_at_ms == 1756000000000ull);
-	CHECK(out.edited_at_ms == 1756000060000ull);
+	CHECK(out.flags == 0u && out.colour == 0u);
 	CHECK(out.title_len == 8 && memcmp(out.title, "Shopping", 8) == 0);
 	CHECK(out.text_len == 14 && memcmp(out.text, "milk and bread", 14) == 0);
 	CHECK(out.labels_len == 12);
@@ -82,25 +77,24 @@ static void test_lengths_must_tile_the_body_exactly(void)
 	in.text = (const uint8_t *)"body";
 	in.text_len = 4;
 
-	CHECK(fzn_note_content(&in, buf, sizeof buf, &len) == FZN_NOTE_OK);
-	CHECK(fzn_note_open(FZN_NOTE_TYPE_NOTE, buf, len, &out) == FZN_NOTE_OK);
+	CHECK(round_trip(&in, buf, sizeof buf, &len, &out) == FZN_NOTE_OK);
 
 	/* A gap: text_len one short, so one byte belongs to nobody. */
-	buf[FZN_NOTE_OFF_TEXT_LEN + 1] = 3;
-	CHECK(fzn_note_open(FZN_NOTE_TYPE_NOTE, buf, len, &out) == FZN_NOTE_ERR_PARTITION);
+	buf[FZN_NOTE_PAYLOAD_OFF_TEXT_LEN + 3] = 3;
+	CHECK(fzn_note_payload_open(buf, len, &out) == FZN_NOTE_ERR_PARTITION);
 
 	/* An overrun: text_len one long, so the field runs past the end. */
-	buf[FZN_NOTE_OFF_TEXT_LEN + 1] = 5;
-	CHECK(fzn_note_open(FZN_NOTE_TYPE_NOTE, buf, len, &out) == FZN_NOTE_ERR_PARTITION);
+	buf[FZN_NOTE_PAYLOAD_OFF_TEXT_LEN + 3] = 5;
+	CHECK(fzn_note_payload_open(buf, len, &out) == FZN_NOTE_ERR_PARTITION);
 
 	/* Restored, to show the buffer itself was fine all along. */
-	buf[FZN_NOTE_OFF_TEXT_LEN + 1] = 4;
-	CHECK(fzn_note_open(FZN_NOTE_TYPE_NOTE, buf, len, &out) == FZN_NOTE_OK);
+	buf[FZN_NOTE_PAYLOAD_OFF_TEXT_LEN + 3] = 4;
+	CHECK(fzn_note_payload_open(buf, len, &out) == FZN_NOTE_OK);
 
 	/* And a truncated body, which is the same check from the other side. */
-	CHECK(fzn_note_open(FZN_NOTE_TYPE_NOTE, buf, len - 1, &out) == FZN_NOTE_ERR_PARTITION);
-	CHECK(fzn_note_open(FZN_NOTE_TYPE_NOTE, buf, FZN_NOTE_HEADER_LEN - 1, &out) ==
-	      FZN_NOTE_ERR_SHORT);
+	CHECK(fzn_note_payload_open(buf, len - 1, &out) == FZN_NOTE_ERR_PARTITION);
+	CHECK(fzn_note_payload_open(buf, FZN_NOTE_PAYLOAD_HEADER_LEN - 1, &out)
+	      == FZN_NOTE_ERR_SHORT);
 }
 
 /*
@@ -114,19 +108,18 @@ static void test_lengths_must_tile_the_body_exactly(void)
  */
 static void test_an_unknown_type_is_readable_and_not_refused(void)
 {
-	uint8_t buf[512];
-	size_t len = 0;
-	fzn_note_t in, out;
+	uint8_t buf[FZN_NOTE_META_LEN];
+	fzn_note_meta_t in, out;
 
 	memset(&in, 0, sizeof in);
-	in.title = (const uint8_t *)"from a newer host";
-	in.title_len = 17;
+	in.colour = 0x01020304u;
+	in.content.length = 26u;
 
-	CHECK(fzn_note_content(&in, buf, sizeof buf, &len) == FZN_NOTE_OK);
+	CHECK(fzn_note_meta_write(&in, buf) == FZN_NOTE_OK);
 
 	CHECK(!fzn_note_type_known(0x0777));
-	CHECK(fzn_note_open(0x0777, buf, len, &out) == FZN_NOTE_OK);
-	CHECK(out.title_len == 17 && memcmp(out.title, "from a newer host", 17) == 0);
+	CHECK(fzn_note_meta_open(0x0777, buf, sizeof buf, &out) == FZN_NOTE_OK);
+	CHECK(out.colour == 0x01020304u && out.content.length == 26u);
 
 	/* The types we do know, so the predicate is not vacuously false. */
 	CHECK(fzn_note_type_known(FZN_NOTE_TYPE_NOTE));
@@ -141,70 +134,18 @@ static void test_an_unknown_type_is_readable_and_not_refused(void)
  */
 static void test_the_reserved_type_is_refused(void)
 {
-	uint8_t zeros[64];
-	fzn_note_t out;
+	uint8_t zeros[FZN_NOTE_META_LEN];
+	fzn_note_meta_t out;
 
 	memset(zeros, 0, sizeof zeros);
 	CHECK(!fzn_note_type_known(FZN_NOTE_TYPE_NONE));
-	CHECK(fzn_note_open(FZN_NOTE_TYPE_NONE, zeros, sizeof zeros, &out) == FZN_NOTE_ERR_TYPE);
+	CHECK(fzn_note_meta_open(FZN_NOTE_TYPE_NONE, zeros, sizeof zeros, &out)
+	      == FZN_NOTE_ERR_TYPE);
 
 	/* And it is refused BEFORE the version, so an all-zero buffer cannot
 	 * reach the layout at all. */
-	CHECK(fzn_note_open(FZN_NOTE_TYPE_NOTE, zeros, sizeof zeros, &out) == FZN_NOTE_ERR_VERSION);
-}
-
-static void test_an_unknown_version_is_refused(void)
-{
-	uint8_t buf[512];
-	size_t len = 0;
-	fzn_note_t in, out;
-
-	memset(&in, 0, sizeof in);
-	CHECK(fzn_note_content(&in, buf, sizeof buf, &len) == FZN_NOTE_OK);
-	CHECK(fzn_note_open(FZN_NOTE_TYPE_NOTE, buf, len, &out) == FZN_NOTE_OK);
-
-	buf[FZN_NOTE_OFF_VERSION] = 2;
-	CHECK(fzn_note_open(FZN_NOTE_TYPE_NOTE, buf, len, &out) == FZN_NOTE_ERR_VERSION);
-}
-
-/*
- * A blob reference of the wrong width names nothing, so it is refused rather
- * than shown -- on both sides, because the decoder cannot tell a truncated
- * reference from an honest one and the encoder is where it has to be stopped.
- * The width is the reference's (root, key and length), not the 32-byte id
- * fuzzypickles' layout reserved and never wrote: that width is now refused.
- */
-static void test_a_blob_reference_must_be_a_reference(void)
-{
-	uint8_t buf[512];
-	uint8_t id[FZN_NOTE_BLOB_REF_LEN];
-	size_t len = 0;
-	fzn_note_t in, out;
-
-	memset(id, 0xAB, sizeof id);
-	memset(&in, 0, sizeof in);
-	in.flags = FZN_NOTE_FLAG_TEXT_IS_BLOB;
-	in.text = id;
-	in.text_len = sizeof id;
-
-	CHECK(round_trip(&in, buf, sizeof buf, &len, &out) == FZN_NOTE_OK);
-	CHECK(out.text_len == FZN_NOTE_BLOB_REF_LEN);
-	CHECK((out.flags & FZN_NOTE_FLAG_TEXT_IS_BLOB) != 0);
-
-	/* The old 32-byte id is no reference. */
-	in.text_len = 32;
-	CHECK(fzn_note_content(&in, buf, sizeof buf, &len) == FZN_NOTE_ERR_BLOB_LEN);
-
-	/* The encoder refuses a short one. */
-	in.text_len = 8;
-	CHECK(fzn_note_content(&in, buf, sizeof buf, &len) == FZN_NOTE_ERR_BLOB_LEN);
-
-	/* And so does the decoder, when the flag is set after the fact. */
-	in.flags = 0;
-	in.text_len = 8;
-	CHECK(fzn_note_content(&in, buf, sizeof buf, &len) == FZN_NOTE_OK);
-	buf[FZN_NOTE_OFF_FLAGS] = FZN_NOTE_FLAG_TEXT_IS_BLOB;
-	CHECK(fzn_note_open(FZN_NOTE_TYPE_NOTE, buf, len, &out) == FZN_NOTE_ERR_BLOB_LEN);
+	CHECK(fzn_note_meta_open(FZN_NOTE_TYPE_NOTE, zeros, sizeof zeros, &out)
+	      == FZN_NOTE_ERR_VERSION);
 }
 
 /*
@@ -277,8 +218,7 @@ static void test_a_checklist_walks_and_refuses_a_truncated_item(void)
 	memset(&in, 0, sizeof in);
 	in.text = items;
 	in.text_len = n;
-	CHECK(fzn_note_content(&in, buf, sizeof buf, &len) == FZN_NOTE_OK);
-	CHECK(fzn_note_open(FZN_NOTE_TYPE_LIST, buf, len, &out) == FZN_NOTE_OK);
+	CHECK(round_trip(&in, buf, sizeof buf, &len, &out) == FZN_NOTE_OK);
 
 	cursor = 0;
 	CHECK(fzn_note_item_next(&out, &cursor, &item) == FZN_NOTE_OK);
@@ -293,8 +233,7 @@ static void test_a_checklist_walks_and_refuses_a_truncated_item(void)
 	 * the distinction the body-level partition check makes, one level down.
 	 * Without it a walk would read past the text into the labels. */
 	in.text_len = n - 1;
-	CHECK(fzn_note_content(&in, buf, sizeof buf, &len) == FZN_NOTE_OK);
-	CHECK(fzn_note_open(FZN_NOTE_TYPE_LIST, buf, len, &out) == FZN_NOTE_OK);
+	CHECK(round_trip(&in, buf, sizeof buf, &len, &out) == FZN_NOTE_OK);
 	cursor = 0;
 	CHECK(fzn_note_item_next(&out, &cursor, &item) == FZN_NOTE_OK);
 	CHECK(fzn_note_item_next(&out, &cursor, &item) == FZN_NOTE_ERR_PARTITION);
@@ -307,8 +246,8 @@ static void test_a_checklist_walks_and_refuses_a_truncated_item(void)
  */
 static void test_the_content_budget_is_exact(void)
 {
-	static uint8_t big[1024];
-	uint8_t buf[1024];
+	static uint8_t big[FZN_NOTE_PAYLOAD_MAX], buf[FZN_NOTE_PAYLOAD_MAX];
+	const size_t room = FZN_NOTE_PAYLOAD_MAX - FZN_NOTE_PAYLOAD_HEADER_LEN;
 	size_t len = 0;
 	fzn_note_t in;
 
@@ -316,17 +255,18 @@ static void test_the_content_budget_is_exact(void)
 	memset(&in, 0, sizeof in);
 	in.text = big;
 
-	in.text_len = FZN_NOTE_CONTENT_MAX;
-	CHECK(fzn_note_content(&in, buf, sizeof buf, &len) == FZN_NOTE_OK);
-	CHECK(len == FZN_NOTE_HEADER_LEN + FZN_NOTE_CONTENT_MAX);
+	in.text_len = room;
+	CHECK(fzn_note_payload_write(&in, buf, sizeof buf, &len) == FZN_NOTE_OK);
+	CHECK(len == FZN_NOTE_PAYLOAD_MAX);
 
-	in.text_len = FZN_NOTE_CONTENT_MAX + 1;
-	CHECK(fzn_note_content(&in, buf, sizeof buf, &len) == FZN_NOTE_ERR_LEN);
+	in.text_len = room + 1;
+	CHECK(fzn_note_payload_write(&in, buf, sizeof buf, &len) == FZN_NOTE_ERR_LEN);
 
 	/* And a buffer too small is a capacity answer, not a length one: the
 	 * note is representable, this caller just did not bring room for it. */
-	in.text_len = FZN_NOTE_CONTENT_MAX;
-	CHECK(fzn_note_content(&in, buf, FZN_NOTE_HEADER_LEN, &len) == FZN_NOTE_ERR_CAPACITY);
+	in.text_len = room;
+	CHECK(fzn_note_payload_write(&in, buf, FZN_NOTE_PAYLOAD_HEADER_LEN, &len)
+	      == FZN_NOTE_ERR_CAPACITY);
 }
 
 /*
@@ -342,9 +282,10 @@ static void test_the_content_budget_is_exact(void)
  * code.
  *
  * What the guard actually stops is the sum WRAPPING. At SIZE_MAX the total
- * `28 + n1 + n2 + n3` overflows to a small number, sails past the budget and
+ * `9 + n1 + n2 + n3` overflows to a small number, sails past the budget and
  * the capacity checks, and reaches memcpy with a length nothing bounded.
- * That is the case worth a test, and it is the one only this guard catches.
+ * That is the case worth a test, and it is the one only this guard catches:
+ * version 2's per-field bounds, checked before the sum. sec 514.
  */
 static void test_a_length_that_would_wrap_the_total_is_refused(void)
 {
@@ -355,14 +296,18 @@ static void test_a_length_that_would_wrap_the_total_is_refused(void)
 	memset(&in, 0, sizeof in);
 	in.title = buf; /* a valid pointer; the guard returns before reading it */
 	in.title_len = (size_t)-1;
-	CHECK(fzn_note_content(&in, buf, sizeof buf, &len) == FZN_NOTE_ERR_LEN);
+	CHECK(fzn_note_payload_write(&in, buf, sizeof buf, &len) == FZN_NOTE_ERR_LEN);
+	memset(&in, 0, sizeof in);
+	in.text = buf;
+	in.text_len = (size_t)-1;
+	CHECK(fzn_note_payload_write(&in, buf, sizeof buf, &len) == FZN_NOTE_ERR_LEN);
 
 	/* And the ordinary oversize case still answers, by whichever check
 	 * reaches it first -- the point is that it is refused, not truncated. */
 	memset(&in, 0, sizeof in);
 	in.title = buf;
 	in.title_len = 70000; /* 70000 & 0xFFFF == 4464, a different note */
-	CHECK(fzn_note_content(&in, buf, sizeof buf, &len) == FZN_NOTE_ERR_LEN);
+	CHECK(fzn_note_payload_write(&in, buf, sizeof buf, &len) == FZN_NOTE_ERR_LEN);
 }
 
 static void test_error_strings_exist_for_every_code(void)
@@ -484,66 +429,23 @@ static void test_an_unknown_flag_is_not_written(void)
 }
 
 /*
- * THE LONG NOTE, sec 422: a note whose text is past the inline budget is
- * written as a reference to a blob, and the reference -- root, content key,
- * length -- round-trips through a note's content exactly. A note that holds
- * no reference has none to read, and a reference to nothing is refused both
- * ways, since an empty text is inline.
+ * THE BLOB REFERENCE, written as a meta and the shelf's verbs carry it: a
+ * reference to nothing is refused, since every payload has a header.
  */
 static void test_a_blob_reference_round_trips(void)
 {
-	static uint8_t long_text[5000];
-	uint8_t buf[512], field[FZN_NOTE_BLOB_REF_LEN];
-	size_t len = 0;
-	fzn_note_blob_ref_t ref, back;
-	fzn_note_t in, out;
-
-	memset(long_text, 'x', sizeof long_text);
-	memset(&in, 0, sizeof in);
-	in.title = (const uint8_t *)"Minutes";
-	in.title_len = 7;
-	in.text = long_text;
-	in.text_len = sizeof long_text;
-	CHECK(fzn_note_content(&in, buf, sizeof buf, &len) == FZN_NOTE_ERR_LEN);
+	uint8_t field[FZN_NOTE_BLOB_REF_LEN];
+	fzn_note_blob_ref_t ref;
 
 	memset(ref.root, 0x11, sizeof ref.root);
 	memset(ref.key, 0x22, sizeof ref.key);
-	ref.length = sizeof long_text;
+	ref.length = 5000u;
 	CHECK(fzn_note_blob_ref_write(&ref, field) == FZN_NOTE_OK);
-	in.flags = FZN_NOTE_FLAG_TEXT_IS_BLOB;
-	in.text = field;
-	in.text_len = sizeof field;
-	in.labels = (const uint8_t *)"work";
-	in.labels_len = 4;
-	CHECK(fzn_note_content(&in, buf, sizeof buf, &len) == FZN_NOTE_OK);
-	CHECK(fzn_note_open(FZN_NOTE_TYPE_NOTE, buf, len, &out) == FZN_NOTE_OK);
-	CHECK(fzn_note_blob_ref(&out, &back) == FZN_NOTE_OK);
-	CHECK(memcmp(back.root, ref.root, sizeof ref.root) == 0);
-	CHECK(memcmp(back.key, ref.key, sizeof ref.key) == 0);
-	CHECK(back.length == sizeof long_text);
-	CHECK(out.title_len == 7 && out.labels_len == 4);
-
-	/* A note that holds no reference has none to read. */
-	in.flags = 0;
-	in.text = (const uint8_t *)"short";
-	in.text_len = 5;
-	CHECK(fzn_note_content(&in, buf, sizeof buf, &len) == FZN_NOTE_OK);
-	CHECK(fzn_note_open(FZN_NOTE_TYPE_NOTE, buf, len, &out) == FZN_NOTE_OK);
-	CHECK(fzn_note_blob_ref(&out, &back) == FZN_NOTE_ERR_BLOB_LEN);
-
-	/* A reference to nothing, refused to write and to read. */
+	CHECK(field[FZN_NOTE_REF_OFF_ROOT] == 0x11u && field[FZN_NOTE_REF_OFF_KEY] == 0x22u
+	      && field[FZN_NOTE_REF_OFF_LEN + 6] == 0x13u && field[FZN_NOTE_REF_OFF_LEN + 7] == 0x88u);
 	ref.length = 0;
 	CHECK(fzn_note_blob_ref_write(&ref, field) == FZN_NOTE_ERR_BLOB_LEN);
-	ref.length = 1;
-	CHECK(fzn_note_blob_ref_write(&ref, field) == FZN_NOTE_OK);
-	memset(field + FZN_NOTE_REF_OFF_LEN, 0, 8);
-	in.flags = FZN_NOTE_FLAG_TEXT_IS_BLOB;
-	in.text = field;
-	in.text_len = sizeof field;
-	CHECK(fzn_note_content(&in, buf, sizeof buf, &len) == FZN_NOTE_OK);
-	CHECK(fzn_note_open(FZN_NOTE_TYPE_NOTE, buf, len, &out) == FZN_NOTE_OK);
-	CHECK(fzn_note_blob_ref(&out, &back) == FZN_NOTE_ERR_BLOB_LEN);
-	CHECK(fzn_note_blob_ref(NULL, &back) == FZN_NOTE_ERR_NULL);
+	CHECK(fzn_note_blob_ref_write(NULL, field) == FZN_NOTE_ERR_NULL);
 }
 
 static void test_the_suite_can_tell_pass_from_fail(void)
@@ -646,13 +548,13 @@ static void test_a_meta_refuses(void)
 	CHECK(fzn_note_meta_open(FZN_NOTE_TYPE_NOTE, b, FZN_NOTE_META_LEN, &back)
 	      == FZN_NOTE_ERR_VERSION);
 	b[0] = 2u;
-	b[1] = FZN_NOTE_FLAG_TEXT_IS_BLOB;
+	b[1] = 0x08u; /* version 1's TEXT_IS_BLOB */
 	CHECK(fzn_note_meta_open(FZN_NOTE_TYPE_NOTE, b, FZN_NOTE_META_LEN, &back) == FZN_NOTE_ERR_TYPE);
 	b[1] = 0u;
 	b[93] = 8u;
 	CHECK(fzn_note_meta_open(FZN_NOTE_TYPE_NOTE, b, FZN_NOTE_META_LEN, &back)
 	      == FZN_NOTE_ERR_BLOB_LEN);
-	m.flags = FZN_NOTE_FLAG_TEXT_IS_BLOB;
+	m.flags = 0x08u;
 	CHECK(fzn_note_meta_write(&m, b) == FZN_NOTE_ERR_TYPE);
 	m.flags = 0u;
 	m.content.length = 8u;
@@ -741,8 +643,6 @@ int main(void)
 	test_lengths_must_tile_the_body_exactly();
 	test_an_unknown_type_is_readable_and_not_refused();
 	test_the_reserved_type_is_refused();
-	test_an_unknown_version_is_refused();
-	test_a_blob_reference_must_be_a_reference();
 	test_labels_are_separated_not_terminated();
 	test_a_checklist_walks_and_refuses_a_truncated_item();
 	test_an_item_written_walks_back();

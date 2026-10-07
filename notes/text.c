@@ -138,18 +138,16 @@ fzn_note_err_t fzn_note_text_open(const fzn_hash_ops_t *hash, const fzn_aead_ops
 	return FZN_NOTE_OK;
 }
 
-fzn_note_text_state_t fzn_note_text_state(const fzn_note_t *note, const fzn_spool_t *spool)
+fzn_note_text_state_t fzn_note_text_state(const fzn_note_blob_ref_t *ref,
+                                          const fzn_spool_t *spool)
 {
-	fzn_note_blob_ref_t ref;
 	uint64_t leaves = 0;
 	size_t last = 0;
 
-	if (!note || !(note->flags & FZN_NOTE_FLAG_TEXT_IS_BLOB))
-		return FZN_NOTE_TEXT_INLINE;
-	if (fzn_note_blob_ref(note, &ref) != FZN_NOTE_OK || ref.length > FZN_NOTE_TEXT_MAX
-	    || fzn_blob_geometry(ref.length, &leaves, &last) != FZN_BLOB_OK)
+	if (!ref || ref->length == 0u || ref->length > FZN_NOTE_TEXT_MAX
+	    || fzn_blob_geometry(ref->length, &leaves, &last) != FZN_BLOB_OK)
 		return FZN_NOTE_TEXT_BROKEN;
-	if (!spool || !fzn_ct_memeq(spool->root, ref.root, FZN_BLOB_HASH_LEN)
+	if (!spool || !fzn_ct_memeq(spool->root, ref->root, FZN_BLOB_HASH_LEN)
 	    || spool->leaves != leaves || !fzn_spool_complete(spool))
 		return FZN_NOTE_TEXT_PENDING;
 	return FZN_NOTE_TEXT_HERE;
