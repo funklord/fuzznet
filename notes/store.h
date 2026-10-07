@@ -91,7 +91,8 @@ typedef enum fzn_notes_err {
 	FZN_NOTES_ERR_ABSENT = -6,       /* this host holds no such claim */
 	FZN_NOTES_ERR_SHAPE = -7,        /* what came back is not that claim's record */
 	FZN_NOTES_ERR_UNSUPPORTED = -8,  /* the backend cannot remove */
-	FZN_NOTES_ERR_PENDING = -9       /* a note's content is not here yet, sec 514 */
+	FZN_NOTES_ERR_PENDING = -9,      /* a note's content is not here yet, sec 514 */
+	FZN_NOTES_ERR_PURGED = -10       /* the note was purged here, sec 518 */
 } fzn_notes_err_t;
 
 const char *fzn_notes_err_str(fzn_notes_err_t err);
@@ -182,9 +183,24 @@ fzn_notes_err_t fzn_notes_claim_key(const fzn_notes_store_t *store,
                                     uint8_t out[FZN_PUBKEY_LEN]);
 
 /*
+ * THE PURGE MARK, sec 518. A note's records stay in its writers' journal
+ * streams for good, so erasing its claims is not enough: the next time the
+ * index is fed from a stream, every record of the note would be filed
+ * again. A purged note's id is marked, in core persist, before its claims
+ * are erased, and nothing of it is filed here again. Ids are random, so a
+ * mark never stands in the way of a note written since.
+ */
+fzn_notes_err_t fzn_notes_mark_purged(const fzn_notes_store_t *store,
+                                      const uint8_t id[FZN_SUBJECT_LEN]);
+
+/* Whether `id` is marked purged. A mark that will not read counts as one: a
+ * deletion is not undone because a row could not be read. */
+int fzn_notes_purged(const fzn_notes_store_t *store, const uint8_t id[FZN_SUBJECT_LEN]);
+
+/*
  * File a record under the claim it carries, ADMITTING IT FIRST, INSIDE: a
  * check beside the write is one somebody forgets. DENIED with `*why` set when
- * the policy refuses. `*wrote` (may be NULL) says whether anything changed:
+ * the policy refuses; PURGED for a record of a note marked purged. `*wrote` (may be NULL) says whether anything changed:
  * an older record, or the same one again, is OK and writes nothing.
  * Capacity is checked before anything is written, so a refused put leaves
  * nothing behind. A held record that will not open is damage and is replaced

@@ -36,6 +36,8 @@ const char *fzn_notes_err_str(fzn_notes_err_t err)
 		return "the store cannot forget";
 	case FZN_NOTES_ERR_PENDING:
 		return "the note's content is not here yet";
+	case FZN_NOTES_ERR_PURGED:
+		return "the note was purged here";
 	}
 	return "unknown";
 }
@@ -173,6 +175,9 @@ fzn_notes_err_t fzn_notes_put(const fzn_notes_store_t *store, const uint8_t *rec
 		return FZN_NOTES_ERR_DENIED;
 	if (fzn_record_open(record, record_len, &rec) != FZN_RECORD_OK)
 		return FZN_NOTES_ERR_MALFORMED;
+	/* AFTER ADMISSION, so a refusal of who wrote it still reads as one. */
+	if (fzn_notes_purged(store, fzn_record_subject(rec)))
+		return FZN_NOTES_ERR_PURGED;
 	err = fzn_notes_claim_key(store, fzn_record_subject(rec), fzn_record_issuer(rec), key);
 	if (err != FZN_NOTES_OK)
 		return err;
@@ -251,6 +256,41 @@ fzn_notes_err_t fzn_notes_get(const fzn_notes_store_t *store, const uint8_t id[F
 	if (err != FZN_NOTES_OK)
 		return err;
 	return fzn_notes_get_key(store, key, out, cap, out_len);
+}
+
+#define PURGED_BODY 1u
+#define PURGED_BLOB ((size_t)FZN_PERSIST_HEAD_LEN + PURGED_BODY)
+
+fzn_notes_err_t fzn_notes_mark_purged(const fzn_notes_store_t *store,
+                                      const uint8_t id[FZN_SUBJECT_LEN])
+{
+	uint8_t blob[PURGED_BLOB];
+
+	if (!store || !store->ops || !store->ops->save || !id)
+		return FZN_NOTES_ERR_MALFORMED;
+	if (fzn_persist_head_write(blob, sizeof(blob), PURGED_BODY, FZN_PERSIST_BLOB_NOTE_PURGED)
+	    != FZN_PERSIST_OK)
+		return FZN_NOTES_ERR_MALFORMED;
+	blob[FZN_PERSIST_HEAD_LEN] = 1u;
+	if (!store->ops->save(store->ops->ctx, FZN_PERSIST_NOTE_PURGED, id, blob, sizeof(blob)))
+		return FZN_NOTES_ERR_BACKEND;
+	return FZN_NOTES_OK;
+}
+
+int fzn_notes_purged(const fzn_notes_store_t *store, const uint8_t id[FZN_SUBJECT_LEN])
+{
+	uint8_t blob[PURGED_BLOB + 1u];
+	size_t len = 0;
+
+	if (!store || !store->ops || !store->ops->load || !id)
+		return 0;
+	if (!store->ops->load(store->ops->ctx, FZN_PERSIST_NOTE_PURGED, id, blob, sizeof(blob),
+	                      &len))
+		return 0;
+	/* ANY ROW IS A MARK: one that will not read as one is still a note a
+	 * user asked to be gone. */
+	(void)fzn_persist_head_check(blob, len, PURGED_BODY, FZN_PERSIST_BLOB_NOTE_PURGED);
+	return 1;
 }
 
 fzn_notes_err_t fzn_notes_erase(const fzn_notes_store_t *store,

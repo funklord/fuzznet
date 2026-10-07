@@ -58435,3 +58435,73 @@ rather than lost. As with sec 514's format break, nothing is rewritten.
   - `node-notes-no-journal-said`
   - `journal-write-hands-back-the-record`
   - `node-notes-no-store-said`, re-anchored
+
+## 518. Stage 5, step 4a: a purge marks the note, so its history cannot file it again, 2026-10-08
+
+Step 4 of sec 511 has members sync notes through the journal: each follows
+its siblings' stream 0, and the records pulled are filed into the claims
+index. That cannot be done safely before something durable says a note was
+purged.
+
+- A purge erases claims, and a note's records stay in its writers' streams
+  for good.
+- So a member that pulls a sibling's stream after the purge would file the
+  note again from its older records.
+- So would every rebuild of the index from the journal, which sec 517
+  already deferred for this reason.
+
+Sec 511 put the durable purge mark in step 5. It is built here, first, as
+step 4a. That is a change of order inside the decided design, not a new
+decision: sec 511 already says a purge "marks the note purged durably, so
+views and the contact protocol hide it". Step 5 keeps the rest, destroying
+the blobs.
+
+### What a purge does now
+
+- **`fzn_notes_erase_note` marks the note first, then erases its claims.**
+  Every purge path goes through it: emptying the trash, answering a
+  sibling's PURGE, finishing a purge that reached consent.
+  - A crash after the mark leaves claims that the index no longer adds to,
+    and the erase is retried.
+  - A crash before the mark leaves the note whole.
+  - The other order would leave a note erased from the index and refiled
+    from its writers' streams.
+  - A store that cannot remove is refused before anything is marked.
+- **`fzn_notes_put` refuses any record of a marked note, as PURGED**, the
+  new `FZN_NOTES_ERR_PURGED`. It checks after admission, so a refusal of
+  the writer still reads as one. This covers a peer's offer, a push, and
+  the journal's feed in 4b alike.
+- **A mark is one row in persist slot 31**, `FZN_PERSIST_NOTE_PURGED`,
+  under the note's id. The blob is tag 32: one version byte, with the row
+  itself as the mark.
+  - **It is core.** A mark rolled back is a purged note filed again from
+    history, which is a deletion undone. That is the roster's reason for
+    core in sec 489.
+  - **Marks are kept for good.** A note's history is kept for good, so its
+    mark must be too.
+  - Note ids are random, so a mark never stands in the way of a note
+    written since.
+- **A mark that will not read still counts.** A row is a note a user asked
+  to be gone, whatever state the row is in.
+
+### Also corrected
+
+Sec 517 retired slot 18 in `persist/persist.h` and left `note_seq` in
+`persist/persist.situ`. The schema gate could not see that, since it
+compares the schema with its generated files, not with the header. Tag 18
+and its body are retired from the schema too now, and the generated
+`.wire` and `.map` regenerated with tag 32 added.
+
+### Tests of the mark
+
+- `notes_store_test`, 174 checks:
+  - a store that cannot forget marks nothing;
+  - a finished purge marks the note and not a bystander;
+  - a record of the purged note offered again is refused, and nothing is
+    filed;
+  - another note still takes a new writer's record.
+- In `notes_sync_test`, two fixtures used the note erase only to empty a
+  store between steps. They now forget the claims with `fzn_notes_erase`,
+  since the note erase is a purge.
+- Two sabotage entries, both caught: `notes-put-refuses-purged` and
+  `notes-erase-marks-first`.

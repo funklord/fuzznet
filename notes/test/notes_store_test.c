@@ -1009,16 +1009,37 @@ static void test_purge(void)
 		CHECK(fzn_notes_store_init(&fixed, &no_remove, &HASH) == FZN_NOTES_OK
 		              && fzn_notes_purge_finish(&fixed, one) == FZN_NOTES_ERR_UNSUPPORTED
 		              && fzn_notes_erase_note(&fixed, one, &erased) == FZN_NOTES_ERR_UNSUPPORTED
-		              && fzn_notes_purge_pending(&store, one) && held_claims(one) == 2,
-		      "a store that cannot forget does not finish, and keeps the purge");
+		              && fzn_notes_purge_pending(&store, one) && held_claims(one) == 2
+		              && !fzn_notes_purged(&store, one),
+		      "a store that cannot forget does not finish, keeps the purge, and marks nothing");
 	}
-	note = titled("bystander", "");
-	CHECK(fzn_notes_create(&a, root, FZN_NOTE_TYPE_NOTE, &note, 4u, three) == FZN_NOTES_OK,
-	      "fixture: a note nobody is purging");
-	CHECK(fzn_notes_purge_finish(&store, one) == FZN_NOTES_OK && held_claims(one) == 0
-	              && !fzn_notes_purge_pending(&store, one),
-	      "finishing erases every writer's claim, then the purge");
-	CHECK(held_claims(three) == 1, "and leaves every other note alone");
+	/* B's record of the note, kept to offer again once it is purged. */
+	{
+		static uint8_t kept[FZN_RECORD_MAX_LEN];
+		size_t kept_len = 0;
+		int wrote = 1;
+
+		CHECK(fzn_notes_get(&store, one, KEY_B, kept, sizeof(kept), &kept_len) == FZN_NOTES_OK,
+		      "fixture: B's record of the note");
+		note = titled("bystander", "");
+		CHECK(fzn_notes_create(&a, root, FZN_NOTE_TYPE_NOTE, &note, 4u, three) == FZN_NOTES_OK,
+		      "fixture: a note nobody is purging");
+		CHECK(fzn_notes_purge_finish(&store, one) == FZN_NOTES_OK && held_claims(one) == 0
+		              && !fzn_notes_purge_pending(&store, one),
+		      "finishing erases every writer's claim, then the purge");
+		CHECK(held_claims(three) == 1, "and leaves every other note alone");
+		/* THE MARK, sec 518: the note's records are still in its writers'
+		 * streams, and none of them is filed again. */
+		CHECK(fzn_notes_purged(&store, one) && !fzn_notes_purged(&store, three),
+		      "the purged note is marked, and the bystander is not");
+		CHECK(fzn_notes_put(&store, kept, kept_len, own_hosts(), &VERIFY, &wrote, NULL)
+		                      == FZN_NOTES_ERR_PURGED
+		              && held_claims(one) == 0,
+		      "a record of the purged note offered again is refused, and nothing is filed");
+		CHECK(fzn_notes_edit(&b, three, 0u, NULL, FZN_NOTE_FLAG_PINNED, 0u, 5u) == FZN_NOTES_OK
+		              && held_claims(three) == 2,
+		      "while another note takes a new writer's record as before");
+	}
 
 	/* ---- retry */
 	note = titled("second", "");

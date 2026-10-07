@@ -435,14 +435,14 @@ static void test_peers_that_misbehave(void)
 	      "a peer answering nothing is no answer");
 	/* B is given `one`, then asks for `two` and is pushed `one` instead. */
 	CHECK(fzn_notes_sync_pull(&store_b, both(), &sign_b, ask, &from_a, &t) == FZN_NOTES_SYNC_OK
-	              && fzn_notes_erase_note(&store_b, two, NULL) == FZN_NOTES_OK
-	              && fzn_notes_erase_note(&store_b, one, NULL) == FZN_NOTES_OK,
-	      "fixture: B empty again");
+	              && fzn_notes_erase(&store_b, two, KEY_A) == FZN_NOTES_OK
+	              && fzn_notes_erase(&store_b, one, KEY_A) == FZN_NOTES_OK,
+	      "fixture: B empty again, its claims forgotten and nothing purged");
 	memcpy(pusher.push_id, one, sizeof(one));
 	CHECK(fzn_notes_sync_pull(&store_b, both(), &sign_b, ask, &pusher, &t) == FZN_NOTES_SYNC_OK
 	              && t.refused == 0u,
 	      "fixture: a record asked for is taken");
-	CHECK(fzn_notes_erase_note(&store_b, two, NULL) == FZN_NOTES_OK, "fixture: B lacks two");
+	CHECK(fzn_notes_erase(&store_b, two, KEY_A) == FZN_NOTES_OK, "fixture: B lacks two");
 	CHECK(fzn_notes_sync_pull(&store_b, both(), &sign_b, ask, &pusher, &t) == FZN_NOTES_SYNC_OK
 	              && t.fetched == 1u && t.refused == 1u
 	              && !title_is(&store_b, two, KEY_A, "two"),

@@ -242,6 +242,10 @@ typedef enum fzn_persist_slot {
 	/* Per record id: a succession -- one key succeeded by another -- with
 	 * its issuer's admin chain. `node/succession.h` keeps it. sec 499. */
 	FZN_PERSIST_SUCCESSION = 30u,
+	/* Per note id: the note was purged, and a record of it is never filed
+	 * again, from the journal or from anybody. `notes/purge.h` keeps it.
+	 * sec 518. */
+	FZN_PERSIST_NOTE_PURGED = 31u,
 } fzn_persist_slot_t;
 
 typedef enum fzn_persist_err {
@@ -303,6 +307,9 @@ typedef enum fzn_persist_err {
 /* A succession and its issuer's chain, in slot 30. `node/succession.c`
  * keeps it. sec 499. */
 #define FZN_PERSIST_BLOB_SUCCESSION 31u
+/* A note's purge mark, in slot 31: a version byte, the mark being the row.
+ * `notes/purge.c` keeps it. sec 518. */
+#define FZN_PERSIST_BLOB_NOTE_PURGED 32u
 
 /* Write a blob head, or refuse when `cap` cannot hold head and body. */
 fzn_persist_err_t fzn_persist_head_write(uint8_t *out, size_t cap, size_t body,
@@ -444,6 +451,11 @@ typedef struct fzn_persist_ops {
  *
  * CORE: ROSTER (sec 489), named rather than left to the default. A
  * removal rolled back is a removed contact served again -- a door.
+ *
+ * CORE: NOTE_PURGED (sec 518), named rather than left to the default, for
+ * the roster's reason. A note's records stay in its writers' journal
+ * streams for good, so a mark rolled back is a purged note filed again from
+ * history the next time the index is fed: a deletion undone.
  *
  * CORE: CONTACT_GROUP (sec 471), named rather than left to the default.
  * Membership decides which contacts a group share reaches, so a group

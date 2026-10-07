@@ -92,6 +92,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "a file shared with a contact, a group or every contact";
 	case FZN_PERSIST_SUCCESSION:
 		return "a key succeeded by another, with its issuer's chain";
+	case FZN_PERSIST_NOTE_PURGED:
+		return "a note purged, whose records are never filed again";
 	}
 	*known = 0;
 	return "an unknown slot";

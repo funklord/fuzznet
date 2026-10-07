@@ -68,7 +68,7 @@ enum fzn_persist_tag : u8 {
 	own_admin = 15,
 	quorum_set = 16,
 	note = 17,
-	note_seq = 18,
+	// 18 was note_seq, the notes' counter, retired in sec 517.
 	note_purge = 19,
 	note_partner = 20,
 	contact = 21,
@@ -82,6 +82,7 @@ enum fzn_persist_tag : u8 {
 	roster = 29,
 	file_share = 30,
 	succession = 31,
+	note_purged = 32,
 	default = error,
 }
 
@@ -256,9 +257,10 @@ struct fzn_persist_note_body {
 	u8  record[remaining];
 }
 
-// The last sequence this host signed a note record at. sec 425.
-struct fzn_persist_note_seq_body {
-	u64 seq;
+// A note purged: the row is the mark, under the note's id. notes/purge.c,
+// sec 518.
+struct fzn_persist_note_purged_body {
+	u8 version [must_eq = 1];
 }
 
 // One host pinned to sign off a purge, and whether it has. sec 427.
@@ -367,7 +369,6 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.own_admin: fzn_persist_own_admin_body own_admin;
 		case fzn_persist_tag.quorum_set: fzn_persist_quorum_set_body quorum_set;
 		case fzn_persist_tag.note: fzn_persist_note_body note;
-		case fzn_persist_tag.note_seq: fzn_persist_note_seq_body note_seq;
 		case fzn_persist_tag.note_purge: fzn_persist_note_purge_body note_purge;
 		case fzn_persist_tag.note_partner: fzn_persist_note_partner_body note_partner;
 		case fzn_persist_tag.contact: fzn_persist_contact_body contact;
@@ -381,6 +382,7 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.roster: fzn_persist_roster_body roster;
 		case fzn_persist_tag.file_share: fzn_persist_file_share_body file_share;
 		case fzn_persist_tag.succession: fzn_persist_succession_body succession;
+		case fzn_persist_tag.note_purged: fzn_persist_note_purged_body note_purged;
 		default: error;
 	}
 }

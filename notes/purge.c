@@ -175,6 +175,13 @@ fzn_notes_err_t fzn_notes_erase_note(const fzn_notes_store_t *store,
 	/* A BACKEND THAT CANNOT FORGET must not let a host answer "erased". */
 	if (!store->ops->remove)
 		return FZN_NOTES_ERR_UNSUPPORTED;
+	/* THE MARK FIRST, sec 518: a crash after it leaves claims the index
+	 * no longer adds to, and erasing them is retried; one before it leaves
+	 * a note still whole. The other order leaves a note gone from the
+	 * index and filed again from its writers' streams. */
+	err = fzn_notes_mark_purged(store, id);
+	if (err != FZN_NOTES_OK)
+		return err;
 	err = fzn_notes_claims(store, keys, FZN_NOTES_MAX, &count);
 	if (err != FZN_NOTES_OK)
 		return err;

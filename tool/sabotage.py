@@ -9423,6 +9423,20 @@ SABOTAGES = [
 		"a fork pushed and counted as held is a key signing in two places that nobody hears about -- sec 512",
 	),
 	(
+		"notes-put-refuses-purged",
+		"notes/store.c",
+		"\tif (fzn_notes_purged(store, fzn_record_subject(rec)))\n\t\treturn FZN_NOTES_ERR_PURGED;\n",
+		"",
+		"a purged note is filed again from any record of it a peer or a journal offers -- sec 518",
+	),
+	(
+		"notes-erase-marks-first",
+		"notes/purge.c",
+		"\terr = fzn_notes_mark_purged(store, id);\n\tif (err != FZN_NOTES_OK)\n\t\treturn err;\n",
+		"",
+		"a purge erases a note's claims and leaves nothing to stop its history filing it again -- sec 518",
+	),
+	(
 		"note-payload-partitions",
 		"notes/note.c",
 		"\tif (n2 > payload_len || FZN_NOTE_PAYLOAD_HEADER_LEN + n1 + n2 + n3 != payload_len)\n\t\treturn FZN_NOTE_ERR_PARTITION;",

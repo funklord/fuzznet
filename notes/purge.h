@@ -114,7 +114,8 @@ fzn_notes_err_t fzn_notes_purge_answer(const fzn_notes_store_t *store,
 
 /* Erase every claim on `id` -- a node can carry one per writer, and erasing
  * one would leave it readable -- and report how many. What a host asked to
- * purge does, and what the asker does once consent is complete. */
+ * purge does, and what the asker does once consent is complete. The note is
+ * marked purged first (`notes/store.h`), so nothing of it is filed again. */
 fzn_notes_err_t fzn_notes_erase_note(const fzn_notes_store_t *store,
                                      const uint8_t id[FZN_TREE_ID_LEN], size_t *erased);
 
