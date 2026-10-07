@@ -55,10 +55,12 @@ fzn_node_roster_err_t fzn_node_roster_init(fzn_node_roster_t *nr,
 	nr->authority.root = nr->root;
 	nr->authority.capability = &nr->capability;
 	nr->authority.sign = sign;
-	/* THE SET AND THE HASH TOGETHER, as the authority takes them: with no
-	 * set, the pinned root alone, and records still filed by their hash. */
+	/* THE SET, OR THE PINNED ROOT ALONE; AND THE HASH ALWAYS, sec 497: a
+	 * revoked member's records are judged by its log's cut whether the
+	 * estate has one root or several, and with no hash nothing it wrote
+	 * could be shown to lie before the line. */
 	nr->authority.roots = roots;
-	nr->authority.hash = roots ? hash : NULL;
+	nr->authority.hash = hash;
 	nr->hash = hash;
 	return FZN_NODE_ROSTER_OK;
 }

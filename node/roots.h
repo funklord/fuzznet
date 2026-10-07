@@ -57,9 +57,12 @@
 #include "../persist/persist.h"
 #include "../session/random.h"
 
-/* The most log entries a node keeps. A log never evicts, and an estate's
- * roots act rarely: a pairing, a revocation, a change to the set. */
-#define FZN_NODE_ROOT_LOG_MAX 256u
+/* The most log entries a node keeps. A log never evicts. An estate's roots
+ * act rarely, but since sec 497 every key logs every act it signs -- each
+ * member's pairings, votes, confirmations and roster records -- so a
+ * revocation's cut can keep what it did before the line. 4096 entries is
+ * about 0.6 MB a copy, and fuzznetd holds four. */
+#define FZN_NODE_ROOT_LOG_MAX 4096u
 
 /* The most settings of k a node keeps: each is a root's deliberate act. */
 #define FZN_NODE_ROOT_SETTINGS_MAX 64u
@@ -101,6 +104,9 @@ typedef struct fzn_node_roots {
 	fzn_root_change_t changes[FZN_ROOT_SET_MAX];
 	fzn_root_view_t view;
 	fzn_root_ops_t ops;
+	/* The log asked about any key's acts, sec 497: what a revocation's cut
+	 * is judged against, set on every store this is attached to. */
+	fzn_act_log_ops_t acts;
 	const fzn_sign_ops_t *sign;
 	const fzn_hash_ops_t *hash;
 	/* The roots' settings of the estate's k, sec 418, each checked. */
@@ -178,6 +184,28 @@ int fzn_node_roots_acting(const fzn_node_roots_t *roots, const uint8_t identity[
                           const fzn_sign_ops_t *identity_sign, const uint8_t **pubkey,
                           const fzn_sign_ops_t **sign);
 
+/* LOG AN ACT THIS NODE SIGNED, by whichever of its keys `signer` is: its
+ * identity (signed by `identity_sign`) or the root key it holds. Every act,
+ * as a root or not, sec 497: a revocation's cut is drawn in the signer's own
+ * log, so an act never logged falls at the signer's revocation whatever the
+ * line. OK, logging nothing, when `signer` is neither of this node's keys --
+ * a record relayed rather than signed here. */
+fzn_node_roots_err_t fzn_node_roots_log_signed(fzn_node_roots_t *roots,
+                                               const fzn_persist_ops_t *store,
+                                               const uint8_t identity[FZN_PUBKEY_LEN],
+                                               const fzn_sign_ops_t *identity_sign,
+                                               const uint8_t signer[FZN_PUBKEY_LEN],
+                                               uint8_t kind, const uint8_t *record,
+                                               size_t len);
+
+/* THE HEAD OF `key`'s LOG, the id of its entry at the greatest seq: what a
+ * vote against `key` trusts by default -- everything this node had seen it
+ * do. 0, writing nothing, when the log holds nothing of `key`'s or has
+ * forked, since a fork's head is the thief's choice as readily as the
+ * owner's. sec 497. */
+int fzn_node_roots_head(const fzn_node_roots_t *roots, const uint8_t key[FZN_PUBKEY_LEN],
+                        uint8_t id[FZN_ROOT_ACT_ID_LEN]);
+
 /* Every root of the estate that stands -- the genesis and each one added,
  * less those removed -- into `out`, at most `cap`. The count. A root
  * removed and added again is named once per add; a caller wanting a set
@@ -185,9 +213,9 @@ int fzn_node_roots_acting(const fzn_node_roots_t *roots, const uint8_t identity[
 size_t fzn_node_roots_standing(const fzn_node_roots_t *roots, uint8_t (*out)[FZN_PUBKEY_LEN],
                                size_t cap);
 
-/* Log `record` as an act of root `pubkey`, signed by `sign`, at the next seq
- * after the root's head in this log, and learn the entry. FORKED when the
- * root's log has forked. */
+/* Log `record` as an act of `pubkey`, signed by `sign`, at the next seq
+ * after that key's head in this log, and learn the entry. FORKED when the
+ * key's log has forked. Any key, not only a root's, since sec 497. */
 fzn_node_roots_err_t fzn_node_roots_log_act(fzn_node_roots_t *roots,
                                             const fzn_persist_ops_t *store,
                                             const uint8_t pubkey[FZN_PUBKEY_LEN],

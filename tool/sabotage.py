@@ -3496,8 +3496,8 @@ SABOTAGES = [
 	(
 		"admin-reloads-the-running-peer-set",
 		"node/admin.c",
-		"\tadmin->state->peers = admin->peers;\n\tadmin->state->peer_count = loaded;\n\n\tif (fzn_provision_text(",
-		"\n\tif (fzn_provision_text(",
+		"\tadmin->state->peers = admin->peers;\n\tadmin->state->peer_count = loaded;\n\tif (!log_grant(admin, record.host))",
+		"\tif (!log_grant(admin, record.host))",
 		"a device paired into a running node that the loop's peer set never learns of is paired on disk and refused on the wire until a restart -- the thing add peer exists to avoid -- sec 378",
 	),
 	(
@@ -3566,8 +3566,8 @@ SABOTAGES = [
 	(
 		"revoke-already-is-already",
 		"node/revoke.c",
-		"\t\tif (!fzn_revocation_is_withdrawal(prev_rec))\n\t\t\treturn FZN_NODE_REVOKE_ALREADY;\n",
-		"",
+		"\t\t\t\treturn FZN_NODE_REVOKE_ALREADY;\n\t\t\tif (!id->hash->hash(id->hash->ctx, target",
+		"\t\t\t\t;\n\t\t\tif (!id->hash->hash(id->hash->ctx, target",
 		"revoking a revoked grantee again must say so rather than mint a second record the store refuses as a stale copy, which an operator reads as the revocation having failed -- sec 380",
 	),
 	(
@@ -3874,8 +3874,8 @@ SABOTAGES = [
 	(
 		"node-votes-in-the-open-epoch",
 		"node/revoke.c",
-		"\t\tcerr = fzn_revocation_reissue(id->pubkey, capability, grantee, now,\n\t\t                              fzn_revocation_current_epoch(revocations, root, capability,\n\t\t                                                           grantee),\n",
-		"\t\tcerr = fzn_revocation_reissue(id->pubkey, capability, grantee, now, 0u,\n",
+		"\t\t\tcerr = fzn_revocation_reissue(\n\t\t\t        id->pubkey, capability, grantee, now,\n\t\t\t        fzn_revocation_current_epoch(revocations, root, capability, grantee),\n",
+		"\t\t\tcerr = fzn_revocation_reissue(\n\t\t\t        id->pubkey, capability, grantee, now, 0u,\n",
 		"a node re-voting in the epoch an undo closed is ignored under the root's floor, or re-shuts the latch on its own vote -- secs 400, 403",
 	),
 	(
@@ -9211,7 +9211,78 @@ SABOTAGES = [
 		"\t    || (authority->roots && !authority->hash)\n",
 		"\t    || (!authority->roots != !authority->hash)\n",
 		"a roster that names no acts without a root set keeps nothing of a revoked member's in a one-root estate -- sec 496",
-	),]
+	),
+	(
+		"node-roots-logs-the-identitys-acts",
+		"node/roots.c",
+		"\tif (identity && identity_sign && fzn_ct_memeq(signer, identity, FZN_PUBKEY_LEN))\n\t\treturn fzn_node_roots_log_act(",
+		"\tif (identity && identity_sign && fzn_ct_memeq(signer, identity, FZN_PUBKEY_LEN))\n\t\treturn FZN_NODE_ROOTS_OK;\n\tif (0)\n\t\treturn fzn_node_roots_log_act(",
+		"a member's act never logged falls at the member's revocation whatever the line, so every contact it added goes with the thief's -- sec 497",
+	),
+	(
+		"node-roots-head-is-the-latest",
+		"node/roots.c",
+		"\t\tif (fzn_ct_memeq(e->root, key, FZN_PUBKEY_LEN) && (!head || e->seq > head->seq))\n\t\t\thead = e;\n\t}\n\tif (!head)\n\t\treturn 0;",
+		"\t\tif (fzn_ct_memeq(e->root, key, FZN_PUBKEY_LEN) && (!head || e->seq < head->seq))\n\t\t\thead = e;\n\t}\n\tif (!head)\n\t\treturn 0;",
+		"a default line at the first act rather than the last drops everything the owner did since -- sec 497",
+	),
+	(
+		"node-roots-head-refuses-a-fork",
+		"node/roots.c",
+		"\tif (!roots || !key || !id || fzn_root_log_forked(&roots->log, key))\n\t\treturn 0;",
+		"\tif (!roots || !key || !id)\n\t\treturn 0;",
+		"a forked log's head is the thief's choice as readily as the owner's, and a default line drawn there keeps the thief's branch -- sec 497",
+	),
+	(
+		"node-roots-attach-sets-the-act-log",
+		"node/roots.c",
+		"\t               && fzn_revocation_store_set_acts(revocations, &roots->acts) == FZN_CHAIN_OK\n",
+		"",
+		"a node's store with no act log keeps nothing of a revoked member's, whatever its vote's line -- sec 497",
+	),
+	(
+		"node-roster-hash-always",
+		"node/roster.c",
+		"\tnr->authority.hash = hash;\n",
+		"\tnr->authority.hash = roots ? hash : NULL;\n",
+		"a one-root estate's roster names no acts, so a revoked member's contacts fall at any line -- sec 497",
+	),
+	(
+		"node-revoke-moves-the-line",
+		"node/revoke.c",
+		"\t\t\tif (!move\n",
+		"\t\t\tif (1\n",
+		"an owner who learns when a device was taken cannot move the line without undoing the vote first -- sec 497",
+	),
+	(
+		"node-admin-no-cut-keeps-the-line",
+		"node/admin.c",
+		"\tif (!named && fzn_node_issued_revocation(admin->store, grantee, held)\n",
+		"\tif (0 && !named && fzn_node_issued_revocation(admin->store, grantee, held)\n",
+		"asking again with no cut widens the line to whatever a thief has logged since -- sec 497",
+	),
+	(
+		"node-admin-logs-the-grant",
+		"node/admin.c",
+		"\tif (!log_grant(admin, record.host))\n",
+		"\tif (0)\n",
+		"a device a member paired falls at the member's revocation whatever the line, its grant never logged -- sec 497",
+	),
+	(
+		"node-admin-grant-logged-as-admin",
+		"node/revoke.c",
+		"\t/* LOGGED AS AN ADMIN TOO, sec 497, as a root's grant is above. */\n\tif (roots\n",
+		"\t/* LOGGED AS AN ADMIN TOO, sec 497, as a root's grant is above. */\n\tif (0\n",
+		"an admin's grant never logged falls at the admin's revocation, so every admin it made goes too -- sec 497",
+	),
+	(
+		"node-admin-confirm-logged-as-admin",
+		"node/revoke.c",
+		"\t\t * admin's line keeps counting after it is revoked. */\n\t\tif (roots\n",
+		"\t\t * admin's line keeps counting after it is revoked. */\n\t\tif (0\n",
+		"an admin's confirmation never logged falls at the admin's revocation whatever the line -- sec 497",
+	),
+]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
 # that a clean run reads as clean: an expected survivor reported as a finding

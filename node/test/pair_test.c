@@ -2160,7 +2160,7 @@ static int admin_store(fzn_revocation_store_t *revs, fzn_revocation_t *entries,
 static void test_admins_at_the_node(const fzn_cap_id_t *cap)
 {
 	static struct node r, a, b, c, d, t;
-	static fzn_node_roots_t r_roots;
+	static fzn_node_roots_t r_roots, a_roots, c_roots;
 	static fzn_revocation_t e[6][8];
 	static fzn_revocation_admin_t ad[6][8];
 	static fzn_revocation_confirm_t cf[6][8];
@@ -2216,9 +2216,17 @@ static void test_admins_at_the_node(const fzn_cap_id_t *cap)
 	                                          (const uint8_t (*)[FZN_HOP_LEN])chain, n, 1100u,
 	                                          &c_chain) == FZN_NODE_REVOKE_OK,
 	      "fixture: C, R's admin");
-	CHECK(fzn_node_admin_grant(NULL, &a.ops, &a.id, &a_chain, &adm, b.id.pubkey, 1200u, b_hops,
+	/* AND LOGGED UNDER A, an admin and no root, sec 497: a grant before
+	 * A's line keeps B an admin after A is revoked. */
+	CHECK(fzn_node_roots_init(&a_roots, r.id.pubkey, &a.sign, &hash_ops) == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_init(&c_roots, r.id.pubkey, &c.sign, &hash_ops)
+	                         == FZN_NODE_ROOTS_OK,
+	      "fixture: A's and C's logs");
+	CHECK(fzn_node_admin_grant(&a_roots, &a.ops, &a.id, &a_chain, &adm, b.id.pubkey, 1200u, b_hops,
 	                           &n) == FZN_NODE_REVOKE_OK
 	              && n == 2u && memcmp(b_hops[0], a_chain.hops[0], FZN_HOP_LEN) == 0
+	              && a_roots.log.used == 1u
+	              && memcmp(a_roots.log.entries[0].root, a.id.pubkey, FZN_PUBKEY_LEN) == 0
 	              && fzn_node_admin_chain_set(&b.ops, &b_revs, &b.id, r.id.pubkey, &adm,
 	                                          (const uint8_t (*)[FZN_HOP_LEN])b_hops, n, 1300u,
 	                                          &b_chain) == FZN_NODE_REVOKE_OK,
@@ -2228,10 +2236,12 @@ static void test_admins_at_the_node(const fzn_cap_id_t *cap)
 	      "a node neither root nor admin granted admin");
 
 	/* CONFIRMATIONS: C as an admin, R as a root and logged, D not at all. */
-	CHECK(fzn_node_admin_confirm(NULL, &c.ops, &c.id, &c_chain, r.id.pubkey, b_hops[1], &c_revs)
-	              == FZN_NODE_REVOKE_OK
-	              && c_revs.confirms_used == 1u && rows_in(&c, FZN_PERSIST_ADMIN_CONFIRM) == 1u,
-	      "C's confirmation of A's grant was not admitted and saved");
+	CHECK(fzn_node_admin_confirm(&c_roots, &c.ops, &c.id, &c_chain, r.id.pubkey, b_hops[1],
+	                             &c_revs) == FZN_NODE_REVOKE_OK
+	              && c_revs.confirms_used == 1u && rows_in(&c, FZN_PERSIST_ADMIN_CONFIRM) == 1u
+	              && c_roots.log.used == 1u
+	              && memcmp(c_roots.log.entries[0].root, c.id.pubkey, FZN_PUBKEY_LEN) == 0,
+	      "C's confirmation of A's grant was not admitted, saved and logged under C");
 	logged = r_roots.log.used;
 	CHECK(fzn_node_admin_confirm(&r_roots, &r.ops, &r.id, NULL, r.id.pubkey, b_hops[1], &r_revs)
 	              == FZN_NODE_REVOKE_OK
@@ -2266,6 +2276,133 @@ static void test_admins_at_the_node(const fzn_cap_id_t *cap)
  * incarnation. A stranger -- no root, no chain -- writes nothing, and its
  * record pulled by M is refused. A restart re-admits what was held, a
  * contact that arrived is named, and a contact from before is carried. */
+/* A REVOKED MEMBER'S CONTACTS, TO THE LINE. sec 497. N joins R's estate and
+ * adds X, the record logged under N. R holds N's log and record, and revokes
+ * N with no cut named: the vote keeps what R had seen N do, so X stays. A
+ * thief holding N's key then adds Y, logged after the line: at R, Y is
+ * absent and X active. R's vote moved to keep nothing drops X as well; and
+ * undone -- the device found unharmed -- both count again. */
+static void test_a_revoked_members_contacts_to_the_line(const fzn_cap_id_t *cap)
+{
+	static struct node r, n, x, y;
+	static fzn_node_roster_t n_ro, r_ro;
+	static fzn_node_roots_t n_roots, r_roots;
+	static fzn_node_admin_t n_admin;
+	static fzn_revocation_t n_e[8], r_e[8];
+	fzn_revocation_store_t n_revs, r_revs;
+	fzn_prekey_record_t n_rec;
+	fzn_node_pairing_t n_joined;
+	fzn_node_authority_t n_auth = { 0 };
+	fzn_node_vote_pull_t pull;
+	uint8_t card[FZN_PROVISION_MAX_LEN], cut[FZN_ROOT_ACT_ID_LEN];
+	size_t card_len = 0, loaded = 0;
+
+	CHECK(node_up(&r) && node_up(&n) && node_up(&x) && node_up(&y)
+	              && fzn_prekey_open(n.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &n_rec)
+	                         == FZN_PREKEY_OK
+	              && fzn_node_pair(&r.id, r.id.pubkey, cap, NULL, 1, &r.ops, n_rec, 1000u, 0u,
+	                               card, sizeof(card), &card_len) == FZN_NODE_PAIR_OK
+	              && fzn_node_join(&n.id, card, card_len, 1100u, &n.ops, &n.trust, &n_joined)
+	                         == FZN_NODE_PAIR_OK,
+	      "fixture: N would not join R's estate");
+	n_auth.hops = (const uint8_t (*)[FZN_HOP_LEN])n_joined.chain;
+	n_auth.hop_count = n_joined.hop_count;
+	CHECK(fzn_node_roster_init(&n_ro, r.id.pubkey, cap, &n.sign, NULL, &hash_ops)
+	                      == FZN_NODE_ROSTER_OK
+	              && fzn_node_roster_init(&r_ro, r.id.pubkey, cap, &r.sign, NULL, &hash_ops)
+	                         == FZN_NODE_ROSTER_OK
+	              && fzn_node_roots_init(&n_roots, r.id.pubkey, &n.sign, &hash_ops)
+	                         == FZN_NODE_ROOTS_OK
+	              && fzn_node_roots_init(&r_roots, r.id.pubkey, &r.sign, &hash_ops)
+	                         == FZN_NODE_ROOTS_OK
+	              && fzn_revocation_store_init(&n_revs, n_e, 8) == FZN_CHAIN_OK
+	              && fzn_revocation_store_init(&r_revs, r_e, 8) == FZN_CHAIN_OK
+	              && fzn_node_roots_attach(&r_roots, &r_revs) == FZN_NODE_ROOTS_OK,
+	      "fixture: the rosters, the roots and the stores");
+	memset(&n_admin, 0, sizeof(n_admin));
+	n_admin.roots = &n_roots;
+	n_admin.id = &n.id;
+	n_admin.store = &n.ops;
+	n_ro.wrote = fzn_node_admin_log_roster;
+	n_ro.wrote_ctx = &n_admin;
+
+	/* N, A MEMBER, ADDS X, logged under its own key. */
+	CHECK(fzn_node_roster_write(&n_ro, &n.ops, &n.id, &n_auth, &rng_ops, x.id.pubkey, 1, &n_revs,
+	                            2u) == FZN_NODE_ROSTER_OK
+	              && n_roots.log.used == 1u
+	              && memcmp(n_roots.log.entries[0].root, n.id.pubkey, FZN_PUBKEY_LEN) == 0,
+	      "a member's roster record was not logged under the member");
+
+	/* R HOLDS N's LOG AND ITS RECORD, and revokes N with no cut named: the
+	 * head of N's log, everything R had seen it do. */
+	stream_roster = &r_ro;
+	CHECK(fzn_node_roots_load(&r_roots, &n.ops, &loaded) == FZN_NODE_ROOTS_OK && loaded == 1u
+	              && stream_pull(&n, NULL, &r, r.id.pubkey, &r_revs, 800u, &pull)
+	                         == FZN_NODE_PULL_OK
+	              && pull.learned == 1u,
+	      "fixture: R holds N's log entry and its record");
+	CHECK(fzn_node_roots_head(&r_roots, n.id.pubkey, cut)
+	              && fzn_node_revoke_at(&r.id, r.id.pubkey, NULL, cap, n.id.pubkey, 1500u, cut,
+	                                    &r_revs, &r.ops) == FZN_NODE_REVOKE_OK,
+	      "R would not revoke N at the head of N's log");
+	CHECK(fzn_node_roster_standing(&r_ro, x.id.pubkey, &r_revs, 2u) == FZN_ROSTER_ACTIVE,
+	      "a revoked member's contact from before the line was dropped");
+
+	/* THE THIEF, holding N's key, adds Y: logged after the line. */
+	CHECK(fzn_node_roster_write(&n_ro, &n.ops, &n.id, &n_auth, &rng_ops, y.id.pubkey, 1, &n_revs,
+	                            2u) == FZN_NODE_ROSTER_OK
+	              && n_roots.log.used == 2u
+	              && fzn_node_roots_load(&r_roots, &n.ops, &loaded) == FZN_NODE_ROOTS_OK
+	              && stream_pull(&n, NULL, &r, r.id.pubkey, &r_revs, 800u, &pull)
+	                         == FZN_NODE_PULL_OK,
+	      "fixture: the thief's contact, logged and carried to R");
+	CHECK(fzn_node_roster_standing(&r_ro, y.id.pubkey, &r_revs, 2u) == FZN_ROSTER_ABSENT,
+	      "a contact the thief added after the line counted");
+	/* THE HEAD MOVED WITH THE LOG: a vote cast now would keep Y. */
+	{
+		uint8_t now_head[FZN_ROOT_ACT_ID_LEN];
+
+		CHECK(fzn_node_roots_head(&r_roots, n.id.pubkey, now_head)
+		              && memcmp(now_head, n_roots.log.entries[1].id, sizeof(now_head)) == 0,
+		      "the head of N's log is not its latest entry");
+	}
+	CHECK(fzn_node_roster_standing(&r_ro, x.id.pubkey, &r_revs, 2u) == FZN_ROSTER_ACTIVE,
+	      "the contact from before the line fell with the thief's");
+	CHECK(fzn_node_revoke_at(&r.id, r.id.pubkey, NULL, cap, n.id.pubkey, 1500u, cut, &r_revs,
+	                         &r.ops) == FZN_NODE_REVOKE_ALREADY,
+	      "revoking at the same line again was not answered already");
+
+	/* MOVED TO KEEP NOTHING: X falls too. */
+	CHECK(fzn_node_revoke_at(&r.id, r.id.pubkey, NULL, cap, n.id.pubkey, 1600u, NULL, &r_revs,
+	                         &r.ops) == FZN_NODE_REVOKE_OK
+	              && fzn_node_roster_standing(&r_ro, x.id.pubkey, &r_revs, 2u)
+	                         == FZN_ROSTER_ABSENT,
+	      "a vote moved to keep nothing kept the member's contact");
+
+	/* FOUND UNHARMED: undone, and both count again. */
+	CHECK(fzn_node_unrevoke(&r.id, r.id.pubkey, NULL, n.id.pubkey, 1700u, &r_revs, &r.ops)
+	                      == FZN_NODE_REVOKE_OK
+	              && fzn_node_roster_standing(&r_ro, x.id.pubkey, &r_revs, 2u)
+	                         == FZN_ROSTER_ACTIVE
+	              && fzn_node_roster_standing(&r_ro, y.id.pubkey, &r_revs, 2u)
+	                         == FZN_ROSTER_ACTIVE,
+	      "undoing the revocation did not bring every contact back");
+	/* A FORKED LOG HAS NO HEAD: a second entry at N's seq 0, signed with
+	 * N's key, and no vote may default to either branch. */
+	{
+		uint8_t act[FZN_ROOT_ACT_ID_LEN], entry[FZN_ROOT_ACT_LEN], h[FZN_ROOT_ACT_ID_LEN];
+
+		memset(act, 0x77, sizeof(act));
+		CHECK(fzn_root_act_issue(n.id.pubkey, 0u, NULL, (uint8_t)FZN_ROOT_ACT_ROSTER, act,
+		                         &n.sign, entry) == FZN_ROOT_LOG_OK
+		              && fzn_node_roots_learn(&r_roots, &r.ops, entry, sizeof(entry))
+		                         == FZN_NODE_ROOTS_OK
+		              && !fzn_node_roots_head(&r_roots, n.id.pubkey, h),
+		      "a forked log still offered a head to vote at");
+	}
+	stream_roster = NULL;
+}
+
 static void test_contacts_travel(const fzn_cap_id_t *cap)
 {
 	static struct node r, n, m, x, stranger;
@@ -2798,6 +2935,7 @@ int main(void)
 	test_the_estates_k_travels();
 	test_an_admin_sets_retention(&cap);
 	test_contacts_travel(&cap);
+	test_a_revoked_members_contacts_to_the_line(&cap);
 	test_a_node_pairs_as_a_root_by_identity(&cap);
 
 	/* ---- A NODE THAT IS NOT ITS OWN ROOT PAIRS NOTHING, and writes nothing. */

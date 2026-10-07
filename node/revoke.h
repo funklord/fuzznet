@@ -85,6 +85,23 @@ fzn_node_revoke_err_t fzn_node_revoke(const fzn_node_identity_t *id,
                                       fzn_revocation_store_t *revocations,
                                       const fzn_persist_ops_t *store);
 
+/* REVOKE, DRAWING A LINE. sec 497. As `fzn_node_revoke`, whose vote trusts
+ * nothing of the grantee's, but naming `cut` -- the id of the last entry of
+ * the grantee's act log this node still trusts, or NULL for none.
+ *
+ * OVER A VOTE OF THIS NODE'S STILL LIVE, it MOVES THE LINE: a reissue
+ * superseding the held vote, with the new cut. That is how an owner who
+ * learns when a device was taken says so without first undoing its vote.
+ * ALREADY when the held vote already draws this line. */
+fzn_node_revoke_err_t fzn_node_revoke_at(const fzn_node_identity_t *id,
+                                         const uint8_t root[FZN_PUBKEY_LEN],
+                                         const fzn_node_authority_t *authority,
+                                         const fzn_cap_id_t *capability,
+                                         const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t now,
+                                         const uint8_t cut[FZN_REVOCATION_ID_LEN],
+                                         fzn_revocation_store_t *revocations,
+                                         const fzn_persist_ops_t *store);
+
 /* UNDO this node's revocation of `grantee`: mint the withdrawal naming the
  * record held in slot 9, admit it, and save it in that record's place. sec 386.
  *

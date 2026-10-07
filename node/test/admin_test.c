@@ -60,8 +60,10 @@ struct mem_entry {
 	size_t len;
 };
 
+/* 128 rows: every pairing logs its grant since sec 497, and the seventeen
+ * paired below took a row each from cases that had sized this at 64. */
 struct mem_store {
-	struct mem_entry e[64];
+	struct mem_entry e[128];
 	unsigned saves;
 };
 
@@ -668,20 +670,28 @@ int main(void)
 	 * already was. sec 380. */
 	{
 		char key[(FZN_PUBKEY_LEN * 2u) + 1u];
-		char want[(FZN_PUBKEY_LEN * 2u) + 16u];
+		char want[(FZN_PUBKEY_LEN * 2u) + (FZN_REVOCATION_ID_LEN * 2u) + 32u];
+		/* THE GRANTS LOGGED BY THE PAIRINGS ABOVE, sec 497: each `add
+		 * peer` logs its hop, so the counts below are past these. */
+		size_t granted = roots.log.used;
 
+		CHECK(granted > 0u && roots.log.entries[0].kind == (uint8_t)FZN_ROOT_ACT_GRANT,
+		      "the pairings above logged no grant");
 		hex(device.id.pubkey, FZN_PUBKEY_LEN, key);
 		snprintf(line, sizeof(line), "revoke peer %s", key);
 		CHECK(ask(&admin, &member, line, reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
 		                         == FZN_REPLY_DENIED,
 		      "a service-group member revoked a grant");
+		/* THE ANSWER SAYS THE LINE, sec 497: the device logged nothing
+		 * here, so the vote keeps nothing of it. */
+		snprintf(want, sizeof(want), "%s keeping nothing", key);
 		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
-		              && detail_len == 64u && memcmp(detail, key, 64u) == 0,
+		              && detail_len == strlen(want) && memcmp(detail, want, detail_len) == 0,
 		      "the node's own user could not revoke a grant, or the answer did not name it");
-		CHECK(roots.log.used == 1u, "the root's revocation was not logged");
-		snprintf(want, sizeof(want), "%s already", key);
+		CHECK(roots.log.used == granted + 1u, "the root's revocation was not logged");
+		snprintf(want, sizeof(want), "%s already keeping nothing", key);
 		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && detail_len == strlen(want) && memcmp(detail, want, detail_len) == 0,
@@ -698,7 +708,7 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && detail_len == 64u && memcmp(detail, key, 64u) == 0,
 		      "the node's own user could not undo a revocation, or the answer did not name it");
-		CHECK(roots.log.used == 2u, "the root's withdrawal was not logged");
+		CHECK(roots.log.used == granted + 2u, "the root's withdrawal was not logged");
 		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
 		                         == FZN_REPLY_ERROR,
@@ -706,7 +716,7 @@ int main(void)
 		snprintf(line, sizeof(line), "revoke peer %s", key);
 		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
-		              && detail_len == 64u,
+		              && detail_len > 64u && memcmp(detail, key, 64u) == 0,
 		      "a grantee whose revocation was undone could not be revoked again");
 
 		/* ---- AND SERVED AS A VOTE: `get vote` is not mutating, so a
@@ -744,13 +754,61 @@ int main(void)
 		              && !fzn_root_view_stands(&roots.view, device.id.pubkey),
 		      "the node's own user could not remove a root");
 
-		/* AND ROOT RECORDS, served whole: five log entries -- the
-		 * revocation, its withdrawal, the re-revocation, and the two root
-		 * changes -- and the two changes themselves. sec 408. */
-		CHECK(ask(&admin, &member, "get root", reply, sizeof(reply), &reply_len)
-		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
-		              && detail_len > 3u && memcmp(detail, "7 0 ", 4u) == 0,
-		      "get root did not serve the seven root records this node holds");
+		/* AND ROOT RECORDS, served whole: the pairings' grants, then five
+		 * log entries -- the revocation, its withdrawal, the re-revocation,
+		 * and the two root changes -- and the two changes themselves.
+		 * sec 408. */
+		{
+			char head[24];
+
+			snprintf(head, sizeof(head), "%zu 0 ", granted + 7u);
+			CHECK(ask(&admin, &member, "get root", reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK
+			              && detail_len > strlen(head)
+			              && memcmp(detail, head, strlen(head)) == 0,
+			      "get root did not serve every root record this node holds");
+		}
+
+		/* ---- A LINE NAMED, MOVED AND KEPT, sec 497: a cut that is not an
+		 * id is refused; a named one moves the held vote's line and the
+		 * answer reads it back; asking again with no cut leaves it; `none`
+		 * keeps nothing. */
+		{
+			char line_hex[(FZN_REVOCATION_ID_LEN * 2u) + 1u];
+			uint8_t named[FZN_REVOCATION_ID_LEN];
+			size_t logged = roots.log.used;
+
+			memset(named, 0xab, sizeof(named));
+			hex(named, sizeof(named), line_hex);
+			snprintf(line, sizeof(line), "revoke peer %s zz", key);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_MALFORMED,
+			      "a cut that is not an id was taken");
+			snprintf(line, sizeof(line), "revoke peer %s %s", key, line_hex);
+			snprintf(want, sizeof(want), "%s keeping %s", key, line_hex);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK
+			              && detail_len == strlen(want) && memcmp(detail, want, detail_len) == 0
+			              && roots.log.used == logged + 1u,
+			      "a named cut did not move the vote's line, or the move was not logged");
+			snprintf(line, sizeof(line), "revoke peer %s", key);
+			snprintf(want, sizeof(want), "%s already keeping %s", key, line_hex);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK
+			              && detail_len == strlen(want) && memcmp(detail, want, detail_len) == 0,
+			      "asking again with no cut moved the line");
+			snprintf(line, sizeof(line), "revoke peer %s none", key);
+			snprintf(want, sizeof(want), "%s keeping nothing", key);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK
+			              && detail_len == strlen(want) && memcmp(detail, want, detail_len) == 0,
+			      "`none` did not move the line to keep nothing");
+		}
 	}
 
 	/* ---- THROUGH A ROOT KEY THE CARD WILL NOT FIT A REPLY, and add peer

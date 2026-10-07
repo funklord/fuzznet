@@ -1643,6 +1643,38 @@ static int pair_device(const fzn_node_identity_t *id, const fzn_node_config_t *c
 		fprintf(stderr, "fuzznetd: not paired: %s\n", fzn_node_pair_err_str(perr));
 		return 1;
 	}
+	/* THE GRANT, LOGGED UNDER THIS NODE, sec 497: a device paired before a
+	 * revocation's line keeps its standing only if its grant is in this
+	 * node's log. Read back from the peer set just saved. */
+	{
+		static fzn_node_roots_t logged;
+		static fzn_node_peer_t peers[FZN_NODE_PEERS_MAX];
+		size_t nroots = 0, npeers = 0, i;
+		int done = 0;
+
+		if (fzn_node_roots_init(&logged, config->root, id->sign, id->hash)
+		            == FZN_NODE_ROOTS_OK
+		    && fzn_node_roots_load(&logged, store, &nroots) == FZN_NODE_ROOTS_OK
+		    && fzn_node_peers_load(store, peers, FZN_NODE_PEERS_MAX, &npeers)
+		               == FZN_PERSIST_OK)
+			for (i = 0; i < npeers && !done; i++) {
+				fzn_chain_hop_t hop;
+				const uint8_t *last;
+
+				if (memcmp(peers[i].sender, record.host, FZN_PUBKEY_LEN) != 0
+				    || peers[i].hop_count == 0u)
+					continue;
+				last = peers[i].hop_bytes[peers[i].hop_count - 1u];
+				done = fzn_hop_open(last, FZN_HOP_LEN, &hop) == FZN_CHAIN_OK
+				       && fzn_node_roots_log_signed(&logged, store, id->pubkey, id->sign,
+				                                    fzn_hop_grantor(hop),
+				                                    (uint8_t)FZN_ROOT_ACT_GRANT, last,
+				                                    FZN_HOP_LEN) == FZN_NODE_ROOTS_OK;
+			}
+		if (!done)
+			fprintf(stderr, "fuzznetd: paired, and the grant is not in this node's log: it "
+			                "would fall at this node's revocation\n");
+	}
 	if (fzn_provision_text(card, card_len, text, sizeof(text)) != FZN_PROVISION_OK) {
 		fprintf(stderr, "fuzznetd: the device is saved but its card would not encode; "
 		                "pair it again\n");

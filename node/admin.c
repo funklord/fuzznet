@@ -18,6 +18,9 @@
 #include <stdio.h>
 #include <string.h>
 
+static int log_grant(struct fzn_node_admin *admin, const uint8_t device[FZN_PUBKEY_LEN]);
+static int next_word(const uint8_t **rest, size_t *rest_len, const uint8_t **w, size_t *w_len);
+
 /* `ok ` and the whole card text must fit one reply line, or `add peer` is a
  * verb this node cannot answer. Pinned at TWO hops -- a card from the root,
  * and one from a member the root granted -- which is every card this node
@@ -158,6 +161,10 @@ static size_t add_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t hex_l
 		                   "paired and saved, and the running peer set did not reload");
 	admin->state->peers = admin->peers;
 	admin->state->peer_count = loaded;
+	if (!log_grant(admin, record.host))
+		return answer_text(reply, cap, FZN_REPLY_ERROR,
+		                   "paired and saved, and the grant is not in this node's log: it "
+		                   "would fall at this node's revocation");
 
 	if (fzn_provision_text(card, card_len, text, sizeof(text)) != FZN_PROVISION_OK)
 		return answer_text(reply, cap, FZN_REPLY_ERROR,
@@ -445,72 +452,148 @@ static int acts_as_root(fzn_node_admin_t *admin)
 	                                &sign);
 }
 
-/* `revoke peer KEY`. */
+/* `revoke peer KEY [CUT|none]`. sec 497: the vote draws a line in KEY's act
+ * log, and the answer says where -- `ok KEY keeping CUT` or `ok KEY keeping
+ * nothing`.
+ *
+ * WITH NO CUT NAMED, a first vote keeps everything this node has seen KEY
+ * do: the head of KEY's log as held here, or nothing when it holds none or
+ * the log has forked. A later `revoke peer KEY` with no cut leaves the line
+ * where it is, so asking again never widens it to whatever a thief has
+ * logged since. A CUT, or `none`, moves the line of a vote already cast. */
 static int log_revocation(fzn_node_admin_t *admin, const uint8_t grantee[FZN_PUBKEY_LEN]);
 
-static size_t revoke_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t hex_len,
+static size_t revoke_peer(fzn_node_admin_t *admin, const uint8_t *rest, size_t rest_len,
                           char *reply, size_t cap)
 {
 	static const char already[] = " already";
-	char detail[(FZN_PUBKEY_LEN * 2u) + sizeof(already)];
-	uint8_t grantee[FZN_PUBKEY_LEN];
+	static const char keeping[] = " keeping ";
+	char detail[(FZN_PUBKEY_LEN * 2u) + sizeof(already) + sizeof(keeping)
+	            + (FZN_REVOCATION_ID_LEN * 2u)];
+	uint8_t grantee[FZN_PUBKEY_LEN], cut[FZN_REVOCATION_ID_LEN], held[FZN_REVOCATION_LEN];
+	const uint8_t *hex = NULL, *line = NULL;
+	size_t hex_len = 0, line_len = 0, at;
+	const uint8_t *drawn = NULL;
+	fzn_revocation_record_t rec;
 	fzn_node_revoke_err_t rerr;
 	uint64_t now;
+	int named;
 
-	if (!unhex(hex, hex_len, grantee, sizeof(grantee)))
+	if (!next_word(&rest, &rest_len, &hex, &hex_len)
+	    || !unhex(hex, hex_len, grantee, sizeof(grantee)))
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a peer key");
+	named = next_word(&rest, &rest_len, &line, &line_len);
+	if (named && !(line_len == 4u && memcmp(line, "none", 4u) == 0)
+	    && !unhex(line, line_len, cut, sizeof(cut)))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a log entry id, nor none");
+	if (named)
+		drawn = (line_len == 4u && memcmp(line, "none", 4u) == 0) ? NULL : cut;
+	else if (admin->roots && fzn_node_roots_head(admin->roots, grantee, cut))
+		drawn = cut;
 	now = admin->state->clock ? admin->state->clock() : 0u;
-	rerr = fzn_node_revoke(admin->id, admin->state->config.root, voting_authority(admin),
-	                       &admin->state->config.remote_capability, grantee, now,
-	                       admin->revocations, admin->store);
+	/* NO CUT NAMED OVER A LIVE VOTE leaves its line: `fzn_node_revoke_at`
+	 * would move it to today's head, so the held vote answers `already`. */
+	if (!named && fzn_node_issued_revocation(admin->store, grantee, held)
+	    && fzn_revocation_open(held, sizeof(held), &rec) == FZN_CHAIN_OK
+	    && !fzn_revocation_is_withdrawal(rec))
+		rerr = FZN_NODE_REVOKE_ALREADY;
+	else
+		rerr = fzn_node_revoke_at(admin->id, admin->state->config.root,
+		                          voting_authority(admin),
+		                          &admin->state->config.remote_capability, grantee, now, drawn,
+		                          admin->revocations, admin->store);
 	if (rerr != FZN_NODE_REVOKE_OK && rerr != FZN_NODE_REVOKE_ALREADY)
 		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_revoke_err_str(rerr));
 	if (rerr == FZN_NODE_REVOKE_OK && !log_revocation(admin, grantee))
 		return answer_text(reply, cap, FZN_REPLY_ERROR,
-		                   "revoked, and not in this root's log: it would fall at this "
-		                   "root's removal");
+		                   "revoked, and not in this node's log: it would fall at this "
+		                   "node's revocation");
 	memcpy(detail, hex, hex_len);
+	at = hex_len;
 	if (rerr == FZN_NODE_REVOKE_ALREADY) {
-		memcpy(detail + hex_len, already, sizeof(already) - 1u);
-		return answer(reply, cap, FZN_REPLY_OK, detail, hex_len + sizeof(already) - 1u);
+		memcpy(detail + at, already, sizeof(already) - 1u);
+		at += sizeof(already) - 1u;
 	}
-	return answer(reply, cap, FZN_REPLY_OK, detail, hex_len);
+	/* THE LINE THE HELD VOTE DRAWS, read back rather than echoed. */
+	memcpy(detail + at, keeping, sizeof(keeping) - 1u);
+	at += sizeof(keeping) - 1u;
+	if (fzn_node_issued_revocation(admin->store, grantee, held)
+	    && fzn_revocation_open(held, sizeof(held), &rec) == FZN_CHAIN_OK) {
+		static const uint8_t NOTHING[FZN_REVOCATION_ID_LEN] = { 0 };
+
+		if (memcmp(fzn_revocation_cut(rec), NOTHING, sizeof(NOTHING)) == 0) {
+			memcpy(detail + at, "nothing", 7u);
+			at += 7u;
+		} else {
+			put_hex(detail + at, fzn_revocation_cut(rec), FZN_REVOCATION_ID_LEN);
+			at += FZN_REVOCATION_ID_LEN * 2u;
+		}
+	}
+	return answer(reply, cap, FZN_REPLY_OK, detail, at);
 }
 
-/* LOG A REVOCATION OR WITHDRAWAL THIS NODE SIGNED AS A ROOT, sec 409: the
- * record now in slot 9 for `grantee`, when the node signs with its identity
- * and that identity stands as a root. A root's act that is not in its log
- * falls at the root's removal whatever the cut, so an unlogged one is
- * reported rather than passed off as done. 1 when logged or not a root act. */
+/* LOG A REVOCATION OR WITHDRAWAL THIS NODE SIGNED: the record now in slot 9
+ * for `grantee`, under its issuer. A root's since sec 409, and every key's
+ * since sec 497: an act that is not in its signer's log falls at the
+ * signer's removal or revocation whatever the line, so an unlogged one is
+ * reported rather than passed off as done. 1 when logged, or with no log. */
 static int log_revocation(fzn_node_admin_t *admin, const uint8_t grantee[FZN_PUBKEY_LEN])
 {
-	const uint8_t *as = NULL;
-	const fzn_sign_ops_t *sign = NULL;
 	uint8_t record[FZN_REVOCATION_LEN];
+	fzn_revocation_record_t rec;
 
-	if (!admin->roots || admin->authority
-	    || !fzn_node_roots_acting(admin->roots, admin->id->pubkey, admin->id->sign, &as, &sign)
-	    || memcmp(as, admin->id->pubkey, FZN_PUBKEY_LEN) != 0)
+	if (!admin->roots)
 		return 1;
-	if (!fzn_node_issued_revocation(admin->store, grantee, record))
+	if (!fzn_node_issued_revocation(admin->store, grantee, record)
+	    || fzn_revocation_open(record, sizeof(record), &rec) != FZN_CHAIN_OK)
 		return 0;
-	return fzn_node_roots_log_act(admin->roots, admin->store, as, sign,
-	                              (uint8_t)FZN_ROOT_ACT_REVOCATION, record, sizeof(record))
+	return fzn_node_roots_log_signed(admin->roots, admin->store, admin->id->pubkey,
+	                                 admin->id->sign, fzn_revocation_issuer(rec),
+	                                 (uint8_t)FZN_ROOT_ACT_REVOCATION, record, sizeof(record))
 	       == FZN_NODE_ROOTS_OK;
+}
+
+/* LOG THE GRANT THIS NODE JUST MADE TO `device`: the last hop of the chain
+ * the peer set holds for it, under its grantor. sec 497: a device granted
+ * by a member that is later revoked keeps its standing only if the grant
+ * lies before the member's line, which needs the grant logged. 1 when
+ * logged, or with no log. */
+static int log_grant(fzn_node_admin_t *admin, const uint8_t device[FZN_PUBKEY_LEN])
+{
+	fzn_chain_hop_t hop;
+	size_t i;
+
+	if (!admin->roots)
+		return 1;
+	for (i = 0; i < admin->state->peer_count; i++) {
+		const fzn_node_peer_t *p = &admin->state->peers[i];
+
+		if (memcmp(p->sender, device, FZN_PUBKEY_LEN) != 0 || p->hop_count == 0u)
+			continue;
+		if (fzn_hop_open(p->hop_bytes[p->hop_count - 1u], FZN_HOP_LEN, &hop) != FZN_CHAIN_OK)
+			return 0;
+		return fzn_node_roots_log_signed(admin->roots, admin->store, admin->id->pubkey,
+		                                 admin->id->sign, fzn_hop_grantor(hop),
+		                                 (uint8_t)FZN_ROOT_ACT_GRANT,
+		                                 p->hop_bytes[p->hop_count - 1u], FZN_HOP_LEN)
+		       == FZN_NODE_ROOTS_OK;
+	}
+	return 0;
 }
 
 int fzn_node_admin_log_roster(void *ctx, const uint8_t *record, size_t len)
 {
 	fzn_node_admin_t *admin = (fzn_node_admin_t *)ctx;
-	const uint8_t *as = NULL;
-	const fzn_sign_ops_t *sign = NULL;
+	fzn_roster_record_t rec;
 
-	if (!admin || !record || !admin->roots || admin->authority
-	    || !fzn_node_roots_acting(admin->roots, admin->id->pubkey, admin->id->sign, &as, &sign)
-	    || memcmp(as, admin->id->pubkey, FZN_PUBKEY_LEN) != 0)
+	if (!admin || !record || !admin->roots)
 		return 1;
-	return fzn_node_roots_log_act(admin->roots, admin->store, as, sign,
-	                              (uint8_t)FZN_ROOT_ACT_ROSTER, record, len)
+	/* UNDER ITS WRITER, root or member, sec 497. */
+	if (fzn_roster_open(record, len, &rec) != FZN_ROSTER_OK)
+		return 0;
+	return fzn_node_roots_log_signed(admin->roots, admin->store, admin->id->pubkey,
+	                                 admin->id->sign, fzn_roster_writer(rec),
+	                                 (uint8_t)FZN_ROOT_ACT_ROSTER, record, len)
 	       == FZN_NODE_ROOTS_OK;
 }
 

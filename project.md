@@ -56468,7 +56468,7 @@ The undo half, measured by reading the code rather than assumed:
 
 So undoing already restored what it should. The gap was on the revoking side.
 
-### The record
+### A vote's cut on the wire
 
 **A vote names a cut.** A revocation gains a signed 32-byte `cut` at offset
 146: the id of the last entry of the grantee's act log that the voter still
@@ -56497,7 +56497,7 @@ script that:
 - refused to write unless deleting every inserted `NULL` reproduced the
   original file.
 
-### The rule
+### What still stands
 
 `fzn_revocation_act_stands(store, links..., i, act)` answers for hop `i`
 whether the act whose hash is `act`, signed by that hop's grantee, still
@@ -56602,13 +56602,8 @@ next. Whether and when to build tier 2 is the holder's decision.
 
 ### Still to build after sec 496
 
-- **The node logs every act it signs,** not only those it signs as a root:
-  grants, roster records, votes and confirmations. Members' logs travel
-  with the root records. The node sets the act log on its store and a hash
-  on its roster authority.
-- **A vote's default cut is the head of the grantee's log this node
-  holds**: "everything I had seen it do". `revoke peer KEY [CUT]` lets an
-  owner draw the line earlier.
+- **~~The node logs every act it signs~~ and ~~a vote's default cut~~:
+  built in sec 497**, with `revoke peer KEY [CUT|none]`.
 - **Re-keying as a succession with a cut** (sec 394's "successor takes
   over").
 - **Admins' votes, confirmations and settings** under their cut. They count
@@ -56644,3 +56639,102 @@ next. Whether and when to build tier 2 is the holder's decision.
   once the root's reissue keeps nothing.
 
 `pair_test`'s one-item vote page grew from 430 to 494 bytes.
+
+## 497. A node logs every act it signs, and its vote draws a line, 2026-10-07
+
+Sec 496's node half. The library could judge a revoked key's acts against
+a vote's cut. The node never gave it one, and logged acts only when it
+signed them as a root.
+
+### Every act, under the key that signed it
+
+`fzn_node_roots_log_signed(roots, store, identity, identity_sign, signer,
+kind, record, len)` logs a record under whichever of the node's keys signed
+it: its identity, or the root key it holds. For a record relayed rather
+than signed here, it logs nothing and says OK.
+
+The logged acts:
+
+- **revocations and withdrawals**, under their issuer (`log_revocation`);
+- **roster records**, under their writer (`fzn_node_admin_log_roster`, the
+  roster's `wrote` hook);
+- **pairings**, the device's last hop under its grantor, both from `add
+  peer` (`log_grant`) and from `fuzznetd --pair`;
+- **admin grants and confirmations made as an admin**, beside the ones a
+  root already logged (sec 416).
+
+Each logged act used to be gated on "acting as a root with its identity".
+That gate is gone, and a failure to log is still said rather than passed
+off as done.
+
+**Carriage needed nothing new.** `get root` serves every entry a node has
+admitted, and admission never asked whether an entry's signer is a root.
+A pull asks for roots before votes, so a member's log travels wherever its
+roster records do. A host that holds the records and not the log gets the
+old answer: nothing of the revoked member's stands.
+
+**The log holds 4096 entries**, up from 256. Every member's pairings,
+votes and roster records now land in it. That is about 0.6 MB a copy,
+and fuzznetd holds four. The fork check before each logged act is
+quadratic, about 16M comparisons at a full log; it is recorded rather than
+fixed.
+
+### The store and the roster
+
+- `fzn_node_roots_attach` sets the act log on the store it attaches, so
+  every store judging the estate's revocations can ask it.
+- The node roster's authority always carries the hash, so a one-root
+  estate names its acts.
+
+### The vote's line
+
+`fzn_node_revoke_at` takes the cut. Over a vote this node still holds live,
+it **moves the line** by a reissue naming that vote, in its epoch, and
+answers ALREADY when the line is unchanged. `fzn_node_revoke` keeps its
+meaning: a vote that trusts nothing, and ALREADY over a live one.
+
+`fzn_node_roots_head(roots, key, id)` gives the id of the entry at the
+greatest seq of `key`'s log, and nothing when the log holds none or has
+forked. A fork's head is the thief's choice as readily as the owner's.
+
+`revoke peer KEY [CUT|none]`:
+
+- **With no cut named, a first vote keeps everything this node has seen
+  KEY do**, the head of KEY's log as held here.
+- **Asking again with no cut leaves the line where it is**, so a repeated
+  `revoke peer` never widens it to whatever a thief has logged since.
+- **A CUT, or `none`, moves the line** of a vote already cast.
+- **The answer says the line**, `ok KEY keeping CUT` or `ok KEY keeping
+  nothing`, read back from the held vote rather than echoed. A changed
+  reply: it was `ok KEY`.
+
+### Measured for sec 497
+
+**`pair_test`, 285 checks (from 270), with the new
+`test_a_revoked_members_contacts_to_the_line`:**
+
+- N, a member, adds X, and the record is logged under N's key.
+- R holds N's log and record, and revokes N at the head of N's log: X
+  stays active.
+- A thief holding N's key adds Y. At R, Y is absent and X still active.
+  The head has moved to Y's entry, so a vote cast now would keep Y.
+  Revoking at the same line again is ALREADY.
+- Moved to keep nothing, X falls.
+- Undone, X and Y are both active.
+- A second entry at N's seq 0 forks the log, and no head is offered.
+
+In `test_admins_at_the_node`, A's admin grant and C's confirmation, both
+made as admins, are logged under A and C.
+
+**`admin_test`, 193 checks (from 188):**
+
+- the pairings' grants are logged;
+- `revoke peer` answers `keeping nothing` for a device that logged
+  nothing here;
+- a cut that is not an id is refused;
+- a named cut moves the line, is logged, and is read back;
+- asking again with no cut answers `already keeping` the same line;
+- `none` keeps nothing.
+
+Its in-memory store grew from 64 rows to 128, since the seventeen pairings
+now take a log row each.

@@ -81,8 +81,10 @@ static fzn_node_revoke_err_t issue(const fzn_node_identity_t *id,
                                    const fzn_cap_id_t *capability,
                                    const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t now,
                                    fzn_revocation_store_t *revocations,
-                                   const fzn_persist_ops_t *store, int withdraw)
+                                   const fzn_persist_ops_t *store, int withdraw,
+                                   const uint8_t cut[FZN_REVOCATION_ID_LEN], int move)
 {
+	static const uint8_t NOTHING[FZN_REVOCATION_ID_LEN] = { 0 };
 	uint8_t previous[FZN_REVOCATION_LEN];
 	uint8_t record[FZN_REVOCATION_LEN];
 	uint8_t blob[BLOB_LEN];
@@ -134,17 +136,31 @@ static fzn_node_revoke_err_t issue(const fzn_node_identity_t *id,
 		 * (revocation.h), so after a withdrawal the re-revocation names
 		 * the revocation that withdrawal undid -- a predecessor, which is
 		 * all admission requires. */
-		if (!fzn_revocation_is_withdrawal(prev_rec))
-			return FZN_NODE_REVOKE_ALREADY;
-		cerr = fzn_revocation_reissue(id->pubkey, capability, grantee, now,
-		                              fzn_revocation_current_epoch(revocations, root, capability,
-		                                                           grantee),
-		                              fzn_revocation_supersedes(prev_rec), NULL, id->sign,
-		                              record);
+		if (!fzn_revocation_is_withdrawal(prev_rec)) {
+			uint8_t target[FZN_REVOCATION_ID_LEN];
+
+			/* A LIVE VOTE, AND A LINE TO MOVE, sec 497: a reissue naming
+			 * the held vote, in its epoch, with the new cut. */
+			if (!move
+			    || memcmp(fzn_revocation_cut(prev_rec), cut ? cut : NOTHING,
+			              FZN_REVOCATION_ID_LEN) == 0)
+				return FZN_NODE_REVOKE_ALREADY;
+			if (!id->hash->hash(id->hash->ctx, target, sizeof(target), previous,
+			                    sizeof(previous)))
+				return FZN_NODE_REVOKE_STORE_REFUSED;
+			cerr = fzn_revocation_reissue(id->pubkey, fzn_revocation_capability(prev_rec),
+			                              grantee, now, fzn_revocation_epoch(prev_rec),
+			                              target, cut, id->sign, record);
+		} else {
+			cerr = fzn_revocation_reissue(
+			        id->pubkey, capability, grantee, now,
+			        fzn_revocation_current_epoch(revocations, root, capability, grantee),
+			        fzn_revocation_supersedes(prev_rec), cut, id->sign, record);
+		}
 	} else {
 		cerr = fzn_revocation_issue(id->pubkey, capability, grantee, now,
 		                            fzn_revocation_current_epoch(revocations, root, capability,
-		                                                         grantee), NULL,
+		                                                         grantee), cut,
 		                            id->sign, record);
 	}
 	if (cerr != FZN_CHAIN_OK
@@ -175,7 +191,19 @@ fzn_node_revoke_err_t fzn_node_revoke(const fzn_node_identity_t *id,
                                       fzn_revocation_store_t *revocations,
                                       const fzn_persist_ops_t *store)
 {
-	return issue(id, root, authority, capability, grantee, now, revocations, store, 0);
+	return issue(id, root, authority, capability, grantee, now, revocations, store, 0, NULL, 0);
+}
+
+fzn_node_revoke_err_t fzn_node_revoke_at(const fzn_node_identity_t *id,
+                                         const uint8_t root[FZN_PUBKEY_LEN],
+                                         const fzn_node_authority_t *authority,
+                                         const fzn_cap_id_t *capability,
+                                         const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t now,
+                                         const uint8_t cut[FZN_REVOCATION_ID_LEN],
+                                         fzn_revocation_store_t *revocations,
+                                         const fzn_persist_ops_t *store)
+{
+	return issue(id, root, authority, capability, grantee, now, revocations, store, 0, cut, 1);
 }
 
 fzn_node_revoke_err_t fzn_node_unrevoke(const fzn_node_identity_t *id,
@@ -185,7 +213,7 @@ fzn_node_revoke_err_t fzn_node_unrevoke(const fzn_node_identity_t *id,
                                         fzn_revocation_store_t *revocations,
                                         const fzn_persist_ops_t *store)
 {
-	return issue(id, root, authority, NULL, grantee, now, revocations, store, 1);
+	return issue(id, root, authority, NULL, grantee, now, revocations, store, 1, NULL, 0);
 }
 
 int fzn_node_issued_revocation(const fzn_persist_ops_t *store,
@@ -1259,6 +1287,12 @@ fzn_node_revoke_err_t fzn_node_admin_grant(struct fzn_node_roots *roots,
 	                   out[mine->hop_count])
 	    != FZN_CHAIN_OK)
 		return FZN_NODE_REVOKE_STORE_REFUSED;
+	/* LOGGED AS AN ADMIN TOO, sec 497, as a root's grant is above. */
+	if (roots
+	    && fzn_node_roots_log_act(roots, store, id->pubkey, id->sign, (uint8_t)FZN_ROOT_ACT_GRANT,
+	                              out[mine->hop_count], FZN_HOP_LEN)
+	               != FZN_NODE_ROOTS_OK)
+		return FZN_NODE_REVOKE_NOT_SAVED;
 	*out_count = mine->hop_count + 1u;
 	return FZN_NODE_REVOKE_OK;
 }
@@ -1301,6 +1335,13 @@ fzn_node_revoke_err_t fzn_node_admin_confirm(struct fzn_node_roots *roots,
 				return FZN_NODE_REVOKE_MALFORMED;
 		if (fzn_admin_confirm_issue(id->pubkey, grant, id->sign, record) != FZN_CHAIN_OK)
 			return FZN_NODE_REVOKE_STORE_REFUSED;
+		/* AS AN ADMIN, logged too, sec 497: a confirmation before this
+		 * admin's line keeps counting after it is revoked. */
+		if (roots
+		    && fzn_node_roots_log_act(roots, store, id->pubkey, id->sign,
+		                              (uint8_t)FZN_ROOT_ACT_GRANT, record, sizeof(record))
+		               != FZN_NODE_ROOTS_OK)
+			return FZN_NODE_REVOKE_NOT_SAVED;
 	} else {
 		return FZN_NODE_REVOKE_NOT_ROOT;
 	}

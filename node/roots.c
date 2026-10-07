@@ -79,6 +79,7 @@ fzn_node_roots_err_t fzn_node_roots_init(fzn_node_roots_t *roots,
 	    || fzn_root_view_init(&roots->view, &roots->set, &roots->log) != FZN_ROOT_LOG_OK)
 		return FZN_NODE_ROOTS_MALFORMED;
 	fzn_root_view_ops(&roots->view, &roots->ops);
+	fzn_root_log_acts(&roots->log, &roots->acts);
 	roots->judge.member = judge_member;
 	roots->judge.counts = judge_counts;
 	roots->judge.ctx = roots;
@@ -252,7 +253,8 @@ fzn_node_roots_err_t fzn_node_roots_attach(fzn_node_roots_t *roots,
 		return FZN_NODE_ROOTS_MALFORMED;
 	roots->revocations = revocations;
 	return fzn_revocation_store_set_roots(revocations, &roots->ops, roots->hash)
-	               == FZN_CHAIN_OK
+	                       == FZN_CHAIN_OK
+	               && fzn_revocation_store_set_acts(revocations, &roots->acts) == FZN_CHAIN_OK
 	               ? FZN_NODE_ROOTS_OK
 	               : FZN_NODE_ROOTS_MALFORMED;
 }
@@ -620,6 +622,45 @@ fzn_node_roots_err_t fzn_node_roots_log_act(fzn_node_roots_t *roots,
 	                          act, sign, entry) != FZN_ROOT_LOG_OK)
 		return FZN_NODE_ROOTS_REFUSED;
 	return fzn_node_roots_learn(roots, store, entry, sizeof(entry));
+}
+
+fzn_node_roots_err_t fzn_node_roots_log_signed(fzn_node_roots_t *roots,
+                                               const fzn_persist_ops_t *store,
+                                               const uint8_t identity[FZN_PUBKEY_LEN],
+                                               const fzn_sign_ops_t *identity_sign,
+                                               const uint8_t signer[FZN_PUBKEY_LEN],
+                                               uint8_t kind, const uint8_t *record,
+                                               size_t len)
+{
+	if (!roots || !store || !signer || !record)
+		return FZN_NODE_ROOTS_MALFORMED;
+	if (identity && identity_sign && fzn_ct_memeq(signer, identity, FZN_PUBKEY_LEN))
+		return fzn_node_roots_log_act(roots, store, identity, identity_sign, kind, record,
+		                              len);
+	if (roots->key_held && roots->key_sign && fzn_ct_memeq(signer, roots->key, FZN_PUBKEY_LEN))
+		return fzn_node_roots_log_act(roots, store, roots->key, roots->key_sign, kind, record,
+		                              len);
+	return FZN_NODE_ROOTS_OK;
+}
+
+int fzn_node_roots_head(const fzn_node_roots_t *roots, const uint8_t key[FZN_PUBKEY_LEN],
+                        uint8_t id[FZN_ROOT_ACT_ID_LEN])
+{
+	const fzn_root_log_entry_t *head = NULL;
+	size_t i;
+
+	if (!roots || !key || !id || fzn_root_log_forked(&roots->log, key))
+		return 0;
+	for (i = 0; i < roots->log.used; i++) {
+		const fzn_root_log_entry_t *e = &roots->log.entries[i];
+
+		if (fzn_ct_memeq(e->root, key, FZN_PUBKEY_LEN) && (!head || e->seq > head->seq))
+			head = e;
+	}
+	if (!head)
+		return 0;
+	memcpy(id, head->id, FZN_ROOT_ACT_ID_LEN);
+	return 1;
 }
 
 fzn_node_roots_err_t fzn_node_roots_change(fzn_node_roots_t *roots,
