@@ -71,14 +71,21 @@ typedef enum fzn_node_revoke_err {
 
 const char *fzn_node_revoke_err_str(fzn_node_revoke_err_t err);
 
-/* Revoke `grantee`'s grant of `capability` from this node. `root` is the root
+/* Declared, not included: `node/roots.h` includes this header. */
+struct fzn_node_roots;
+
+/* `roots`, on all three: where the vote is logged as this node's act, sec
+ * 504, and so carried in its journal; NULL logs nothing.
+ *
+ * Revoke `grantee`'s grant of `capability` from this node. `root` is the root
  * the node verifies against: this node's own key when `authority` is NULL,
  * the estate root otherwise, with `authority` the node's chain from it -- as
  * `fzn_node_pair` takes them. The record is
  * admitted into `revocations` FIRST and saved second: a revocation in force
  * and unsaved is a smaller failure than one saved and not in force, which
  * would be the operator told a device is cut off while the node serves it. */
-fzn_node_revoke_err_t fzn_node_revoke(const fzn_node_identity_t *id,
+fzn_node_revoke_err_t fzn_node_revoke(struct fzn_node_roots *roots,
+                                      const fzn_node_identity_t *id,
                                       const uint8_t root[FZN_PUBKEY_LEN],
                                       const fzn_node_authority_t *authority,
                                       const fzn_cap_id_t *capability,
@@ -94,7 +101,8 @@ fzn_node_revoke_err_t fzn_node_revoke(const fzn_node_identity_t *id,
  * superseding the held vote, with the new cut. That is how an owner who
  * learns when a device was taken says so without first undoing its vote.
  * ALREADY when the held vote already draws this line. */
-fzn_node_revoke_err_t fzn_node_revoke_at(const fzn_node_identity_t *id,
+fzn_node_revoke_err_t fzn_node_revoke_at(struct fzn_node_roots *roots,
+                                      const fzn_node_identity_t *id,
                                          const uint8_t root[FZN_PUBKEY_LEN],
                                          const fzn_node_authority_t *authority,
                                          const fzn_cap_id_t *capability,
@@ -115,7 +123,8 @@ fzn_node_revoke_err_t fzn_node_revoke_at(const fzn_node_identity_t *id,
  * 9 and the withdrawal is now what slot 9 holds (sec 384). A host that learned
  * the revocation any other way keeps it; `chain/revocation.h` says why no
  * manifest carries withdrawals. */
-fzn_node_revoke_err_t fzn_node_unrevoke(const fzn_node_identity_t *id,
+fzn_node_revoke_err_t fzn_node_unrevoke(struct fzn_node_roots *roots,
+                                      const fzn_node_identity_t *id,
                                         const uint8_t root[FZN_PUBKEY_LEN],
                                         const fzn_node_authority_t *authority,
                                         const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t now,

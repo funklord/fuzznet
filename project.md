@@ -57410,3 +57410,48 @@ directory under /tmp, made and removed by name:
 
 The run's own summary line filtered for "journal" and "record(s) from" and
 so hid the apply line. It was read from M's log directly.
+
+## 504. Stage 3c begins: a journal without a disk, and votes logged at mint, 2026-10-07
+
+Stage 3c deletes the old carriage: the `get vote` and `get root` item
+streams, `get revocation`, and the daemon's pulls of them. It cannot do so
+yet, because pair_test proves ten scenarios through those streams'
+helpers. Those scenarios have to move onto journals first, so 3c runs in
+four parts:
+
+1. **This section:** two things the move needs.
+2. pair_test's infrastructure: a journal per test node, and carrying
+   between them.
+3. Each scenario moved onto it, one at a time.
+4. The old carriage deleted.
+
+### A journal on any record store
+
+- **`fzn_node_journal_init_store`** builds a journal over any
+  `fzn_record_store_ops_t`, which a suite can hold in memory.
+  `fzn_node_journal_init(dir)` is now the file store's use of it.
+- **`node/journal` and `node/apply` are part of the library** whatever is
+  built. Only the file-backed init and the daemon's use of it stay under
+  `RECORD_STORE_FILE_ON`.
+
+### A vote is logged where it is made
+
+- **`fzn_node_revoke`, `fzn_node_revoke_at` and `fzn_node_unrevoke` take
+  the roots first,** as `fzn_node_admin_grant` already does. After the vote
+  is admitted and saved, each logs it as the node's act under its issuer, so
+  it reaches the journal; NULL logs nothing.
+- **The admin verbs' own logging step is gone.** It covered the socket and
+  nothing else, so a vote cast through the library directly was never
+  logged and would never travel.
+- **The sabotage entry for it is re-aimed** at the new site.
+
+### Measured for sec 504
+
+- `node_journal_test` (13 checks) and `apply_test` (12) pass over the
+  reworked init.
+- `pair_test` (296) and `admin_test` (201) pass with the revoke functions'
+  new first argument. The 25 test call sites were rewritten by a script
+  that refused to write unless removing each inserted `NULL` reproduced the
+  file.
+- admin_test's log counts after `revoke peer` and `remove revocation` hold
+  with the logging moved into the library.

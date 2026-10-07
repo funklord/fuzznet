@@ -23,21 +23,17 @@ const char *fzn_node_journal_err_str(fzn_node_journal_err_t err)
 	return "unknown";
 }
 
-fzn_node_journal_err_t fzn_node_journal_init(fzn_node_journal_t *nj, const char *dir,
-                                             const fzn_sign_ops_t *sign,
-                                             const fzn_hash_ops_t *hash)
+fzn_node_journal_err_t fzn_node_journal_init_store(fzn_node_journal_t *nj,
+                                                   const fzn_record_store_ops_t *ops,
+                                                   const fzn_sign_ops_t *sign,
+                                                   const fzn_hash_ops_t *hash)
 {
-	const fzn_record_store_ops_t *ops;
-
-	if (!nj || !dir || !sign || !sign->verify || !hash || !hash->hash)
+	if (!nj || !ops || !ops->get || !ops->put || !sign || !sign->verify || !hash || !hash->hash)
 		return FZN_NODE_JOURNAL_MALFORMED;
 	memset(nj, 0, sizeof(*nj));
 	if (fzn_journal_init(&nj->journal, nj->entries, FZN_NODE_JOURNAL_STREAMS_MAX)
 	    != FZN_JOURNAL_OK)
 		return FZN_NODE_JOURNAL_MALFORMED;
-	ops = fzn_record_store_file_open(&nj->file, dir);
-	if (!ops)
-		return FZN_NODE_JOURNAL_STORE;
 	nj->store.ops = ops;
 	nj->store.log = NULL;
 	nj->sign = sign;
@@ -45,10 +41,45 @@ fzn_node_journal_err_t fzn_node_journal_init(fzn_node_journal_t *nj, const char 
 	return FZN_NODE_JOURNAL_OK;
 }
 
+#ifdef FZN_RECORD_STORE_FILE_ON
+fzn_node_journal_err_t fzn_node_journal_init(fzn_node_journal_t *nj, const char *dir,
+                                             const fzn_sign_ops_t *sign,
+                                             const fzn_hash_ops_t *hash)
+{
+	static fzn_record_store_file_t opening;
+	const fzn_record_store_ops_t *ops;
+	fzn_node_journal_err_t err;
+
+	if (!nj || !dir)
+		return FZN_NODE_JOURNAL_MALFORMED;
+	/* OPENED BESIDE THE JOURNAL, THEN MOVED IN: init clears the struct, and
+	 * the ops point into the file backend, so they must be re-pointed at
+	 * the copy the journal keeps. */
+	memset(&opening, 0, sizeof(opening));
+	ops = fzn_record_store_file_open(&opening, dir);
+	if (!ops)
+		return FZN_NODE_JOURNAL_STORE;
+	err = fzn_node_journal_init_store(nj, ops, sign, hash);
+	if (err != FZN_NODE_JOURNAL_OK) {
+		fzn_record_store_file_close(&opening);
+		return err;
+	}
+	nj->file = opening;
+	nj->file.ops.ctx = &nj->file;
+	nj->store.ops = &nj->file.ops;
+	nj->has_file = 1;
+	return FZN_NODE_JOURNAL_OK;
+}
+#endif
+
 void fzn_node_journal_close(fzn_node_journal_t *nj)
 {
-	if (nj)
+#ifdef FZN_RECORD_STORE_FILE_ON
+	if (nj && nj->has_file)
 		fzn_record_store_file_close(&nj->file);
+#else
+	(void)nj;
+#endif
 }
 
 /* Whether this journal already follows `key`'s estate stream. */

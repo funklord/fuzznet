@@ -357,10 +357,10 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		              && fzn_revocation_store_init(&fresh, fresh_entries, 8) == FZN_CHAIN_OK,
 		      "fixture: revocation stores");
 		state.config.revocations = &revoked;
-		CHECK(fzn_node_revoke(&node->id, node->id.pubkey, NULL, cap, device->id.pubkey, 3000u,
+		CHECK(fzn_node_revoke(NULL, &node->id, node->id.pubkey, NULL, cap, device->id.pubkey, 3000u,
 		                      &revoked, &node->ops) == FZN_NODE_REVOKE_OK,
 		      "the node would not revoke the device it paired");
-		CHECK(fzn_node_revoke(&node->id, node->id.pubkey, NULL, cap, device->id.pubkey, 3001u,
+		CHECK(fzn_node_revoke(NULL, &node->id, node->id.pubkey, NULL, cap, device->id.pubkey, 3001u,
 		                      &revoked, &node->ops) == FZN_NODE_REVOKE_ALREADY,
 		      "revoking twice was not reported as already revoked");
 
@@ -502,7 +502,7 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		fzn_revocation_store_t rs = { 0 };
 
 		CHECK(fzn_revocation_store_init(&rs, rs_entries, 2) == FZN_CHAIN_OK
-		              && fzn_node_revoke(&device->id, node->id.pubkey, NULL, cap, node->id.pubkey,
+		              && fzn_node_revoke(NULL, &device->id, node->id.pubkey, NULL, cap, node->id.pubkey,
 		                                 3000u, &rs, &device->ops)
 		                         == FZN_NODE_REVOKE_NOT_ROOT,
 		      "a node revoked under a root that is not its own key");
@@ -862,7 +862,7 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 		CHECK(fzn_revocation_store_init(&r_revs, r_entries, 4) == FZN_CHAIN_OK
 		              && fzn_revocation_store_init(&n_revs, n_entries, 4) == FZN_CHAIN_OK
 		              && fzn_revocation_store_init(&reloaded, l_entries, 4) == FZN_CHAIN_OK
-		              && fzn_node_revoke(&n.id, n.id.pubkey, NULL, cap, other.id.pubkey, 1150u,
+		              && fzn_node_revoke(NULL, &n.id, n.id.pubkey, NULL, cap, other.id.pubkey, 1150u,
 		                                 &n_revs, &n.ops) == FZN_NODE_REVOKE_OK
 		              && fzn_revocation_store_init(&n_revs, n_entries, 4) == FZN_CHAIN_OK,
 		      "fixture: revocation stores, or N's pre-join revocation");
@@ -873,7 +873,7 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 		              && learned == 0u,
 		      "a pull from a root with nothing revoked failed, or learned something");
 
-		CHECK(fzn_node_revoke(&r.id, r.id.pubkey, NULL, cap, d.id.pubkey, 1400u, &r_revs, &r.ops)
+		CHECK(fzn_node_revoke(NULL, &r.id, r.id.pubkey, NULL, cap, d.id.pubkey, 1400u, &r_revs, &r.ops)
 		              == FZN_NODE_REVOKE_OK,
 		      "fixture: R would not revoke D");
 		CHECK(pulled_from(&r, &n, cap, &n_revs, &learned) == FZN_NODE_PULL_OK
@@ -954,19 +954,19 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 		 * root, or through a chain it may not pass on. */
 		leaf.hops = (const uint8_t (*)[FZN_HOP_LEN])e_pairing.chain;
 		leaf.hop_count = e_pairing.hop_count;
-		CHECK(fzn_node_revoke(&n.id, r.id.pubkey, NULL, cap, e.id.pubkey, 1800u, &mine,
+		CHECK(fzn_node_revoke(NULL, &n.id, r.id.pubkey, NULL, cap, e.id.pubkey, 1800u, &mine,
 		                      &n.ops) == FZN_NODE_REVOKE_NOT_ROOT,
 		      "a member revoked as though it were the estate's root");
-		CHECK(fzn_node_revoke(&e.id, n.id.pubkey, &leaf, cap, d.id.pubkey, 1800u, &mine,
+		CHECK(fzn_node_revoke(NULL, &e.id, n.id.pubkey, &leaf, cap, d.id.pubkey, 1800u, &mine,
 		                      &e.ops) == FZN_NODE_REVOKE_NOT_ROOT,
 		      "a device revoked through a grant it may not pass on");
 
-		CHECK(fzn_node_revoke(&n.id, r.id.pubkey, &authority, cap, e.id.pubkey, 1800u, &mine,
+		CHECK(fzn_node_revoke(NULL, &n.id, r.id.pubkey, &authority, cap, e.id.pubkey, 1800u, &mine,
 		                      &n.ops) == FZN_NODE_REVOKE_OK,
 		      "N would not revoke the device it paired, through its own chain");
 		CHECK(granted_by(&n, r.id.pubkey, &e, cap, &mine) == 0,
 		      "N granted a device it had itself revoked");
-		CHECK(fzn_node_revoke(&n.id, r.id.pubkey, &authority, cap, e.id.pubkey, 1801u, &mine,
+		CHECK(fzn_node_revoke(NULL, &n.id, r.id.pubkey, &authority, cap, e.id.pubkey, 1801u, &mine,
 		                      &n.ops) == FZN_NODE_REVOKE_ALREADY,
 		      "a member's second revocation of one device was not reported as already");
 
@@ -1011,22 +1011,22 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 			              && fzn_revocation_store_init(&root_revs, c_entries, 8)
 			                         == FZN_CHAIN_OK,
 			      "fixture: stores for the undo");
-			CHECK(fzn_node_unrevoke(&n.id, r.id.pubkey, NULL, e.id.pubkey, 1900u, &mine,
+			CHECK(fzn_node_unrevoke(NULL, &n.id, r.id.pubkey, NULL, e.id.pubkey, 1900u, &mine,
 			                        &n.ops) == FZN_NODE_REVOKE_NOT_ROOT,
 			      "a member undid a revocation as though it were the root");
-			CHECK(fzn_node_unrevoke(&n.id, r.id.pubkey, &authority, e.id.pubkey, 1900u, &mine,
+			CHECK(fzn_node_unrevoke(NULL, &n.id, r.id.pubkey, &authority, e.id.pubkey, 1900u, &mine,
 			                        &n.ops) == FZN_NODE_REVOKE_OK,
 			      "N would not undo its own revocation of E");
 			CHECK(granted_by(&n, r.id.pubkey, &e, cap, &mine) == 1,
 			      "N still denied E after undoing its revocation");
-			CHECK(fzn_node_unrevoke(&n.id, r.id.pubkey, &authority, e.id.pubkey, 1901u, &mine,
+			CHECK(fzn_node_unrevoke(NULL, &n.id, r.id.pubkey, &authority, e.id.pubkey, 1901u, &mine,
 			                        &n.ops) == FZN_NODE_REVOKE_NOT_REVOKED,
 			      "undoing twice was not reported as nothing to undo");
 			CHECK(fzn_node_revocations_load(&n.ops, &after, r.id.pubkey, &authority, NULL, &n.sign,
 			                                &hash_ops, &count) == FZN_PERSIST_OK
 			              && granted_by(&n, r.id.pubkey, &e, cap, &after) == 1,
 			      "after a restart N denied E again, or would not load the withdrawal");
-			CHECK(fzn_node_revoke(&n.id, r.id.pubkey, &authority, cap, e.id.pubkey, 1950u,
+			CHECK(fzn_node_revoke(NULL, &n.id, r.id.pubkey, &authority, cap, e.id.pubkey, 1950u,
 			                      &after, &n.ops) == FZN_NODE_REVOKE_OK
 			              && granted_by(&n, r.id.pubkey, &e, cap, &after) == 0,
 			      "revoking E again after the undo did not deny it");
@@ -1040,7 +1040,7 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 			 * serves, and it lands on the revocation N already holds. */
 			CHECK(granted_by(&n, r.id.pubkey, &d, cap, &again) == 0,
 			      "fixture: N does not hold R's revocation of D");
-			CHECK(fzn_node_unrevoke(&r.id, r.id.pubkey, NULL, d.id.pubkey, 2000u, &root_revs,
+			CHECK(fzn_node_unrevoke(NULL, &r.id, r.id.pubkey, NULL, d.id.pubkey, 2000u, &root_revs,
 			                        &r.ops) == FZN_NODE_REVOKE_OK,
 			      "R would not undo its revocation of D");
 			CHECK(pulled_from(&r, &n, cap, &again, &learned) == FZN_NODE_PULL_OK
@@ -1214,9 +1214,9 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 	      "pulling an empty stream failed, or learned something");
 
 	/* ---- ONE VOTE EACH, and neither alone revokes. */
-	CHECK(fzn_node_revoke(&r.id, r.id.pubkey, NULL, cap, d.id.pubkey, 1400u, &r_revs, &r.ops)
+	CHECK(fzn_node_revoke(NULL, &r.id, r.id.pubkey, NULL, cap, d.id.pubkey, 1400u, &r_revs, &r.ops)
 	              == FZN_NODE_REVOKE_OK
-	              && fzn_node_revoke(&n.id, r.id.pubkey, &authority, cap, d.id.pubkey, 1400u,
+	              && fzn_node_revoke(NULL, &n.id, r.id.pubkey, &authority, cap, d.id.pubkey, 1400u,
 	                                 &n_revs, &n.ops) == FZN_NODE_REVOKE_OK,
 	      "R or N would not cast its vote against D");
 	CHECK(!d_revoked(&n_revs, &r, &n, &d, cap), "one vote of two revoked D at N");
@@ -1326,7 +1326,7 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 		                      == FZN_NODE_PULL_OK
 		              && pull.learned == 2u,
 		      "N did not take its own vote and R's back from M");
-		CHECK(fzn_node_unrevoke(&n.id, r.id.pubkey, &authority, d.id.pubkey, 1600u, &n_revs,
+		CHECK(fzn_node_unrevoke(NULL, &n.id, r.id.pubkey, &authority, d.id.pubkey, 1600u, &n_revs,
 		                        &n.ops) == FZN_NODE_REVOKE_OK
 		              && stream_pull(&n, &authority, &m, r.id.pubkey, &m_revs, 1000u, &pull)
 		                         == FZN_NODE_PULL_OK,
@@ -1334,7 +1334,7 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 		CHECK(d_revoked(&m_revs, &r, &n, &d, cap),
 		      "one withdrawal of two restored D at M: the latch did not travel");
 
-		CHECK(fzn_node_unrevoke(&r.id, r.id.pubkey, NULL, d.id.pubkey, 1700u, &r_revs,
+		CHECK(fzn_node_unrevoke(NULL, &r.id, r.id.pubkey, NULL, d.id.pubkey, 1700u, &r_revs,
 		                        &r.ops) == FZN_NODE_REVOKE_OK
 		              && stream_pull(&r, NULL, &n, r.id.pubkey, &n_revs, 1000u, &pull)
 		                         == FZN_NODE_PULL_OK
@@ -1391,7 +1391,7 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 
 			CHECK(stream_pull(&m, NULL, &n, r.id.pubkey, &n_revs, 1000u, &pull)
 			                      == FZN_NODE_PULL_OK
-			              && fzn_node_revoke(&n.id, r.id.pubkey, &authority, cap, d.id.pubkey,
+			              && fzn_node_revoke(NULL, &n.id, r.id.pubkey, &authority, cap, d.id.pubkey,
 			                                 1800u, &n_revs, &n.ops) == FZN_NODE_REVOKE_OK,
 			      "fixture: N's withdrawal back from M, then N revoking again");
 			/* AND THAT VOTE IS IN EPOCH 1, read off the record N signed:
@@ -2257,7 +2257,7 @@ static void test_admins_at_the_node(const fzn_cap_id_t *cap)
 	      "a node neither root nor admin confirmed");
 
 	/* B VOTES ON ITS ADMIN CHAIN, and the chain travels and reloads with it. */
-	CHECK(fzn_node_revoke(&b.id, r.id.pubkey, fzn_node_admin_chain_view(&b_chain), cap,
+	CHECK(fzn_node_revoke(NULL, &b.id, r.id.pubkey, fzn_node_admin_chain_view(&b_chain), cap,
 	                      d.id.pubkey, 1400u, &b_revs, &b.ops) == FZN_NODE_REVOKE_OK
 	              && b_revs.admins_used == 1u,
 	      "B could not vote on its admin chain, or was not taken as an admin");
@@ -2347,7 +2347,7 @@ static void test_a_revoked_members_contacts_to_the_line(const fzn_cap_id_t *cap)
 	              && pull.learned == 1u,
 	      "fixture: R holds N's log entry and its record");
 	CHECK(fzn_node_roots_head(&r_roots, n.id.pubkey, cut)
-	              && fzn_node_revoke_at(&r.id, r.id.pubkey, NULL, cap, n.id.pubkey, 1500u, cut,
+	              && fzn_node_revoke_at(NULL, &r.id, r.id.pubkey, NULL, cap, n.id.pubkey, 1500u, cut,
 	                                    &r_revs, &r.ops) == FZN_NODE_REVOKE_OK,
 	      "R would not revoke N at the head of N's log");
 	CHECK(fzn_node_roster_standing(&r_ro, x.id.pubkey, &r_revs, 2u) == FZN_ROSTER_ACTIVE,
@@ -2373,19 +2373,19 @@ static void test_a_revoked_members_contacts_to_the_line(const fzn_cap_id_t *cap)
 	}
 	CHECK(fzn_node_roster_standing(&r_ro, x.id.pubkey, &r_revs, 2u) == FZN_ROSTER_ACTIVE,
 	      "the contact from before the line fell with the thief's");
-	CHECK(fzn_node_revoke_at(&r.id, r.id.pubkey, NULL, cap, n.id.pubkey, 1500u, cut, &r_revs,
+	CHECK(fzn_node_revoke_at(NULL, &r.id, r.id.pubkey, NULL, cap, n.id.pubkey, 1500u, cut, &r_revs,
 	                         &r.ops) == FZN_NODE_REVOKE_ALREADY,
 	      "revoking at the same line again was not answered already");
 
 	/* MOVED TO KEEP NOTHING: X falls too. */
-	CHECK(fzn_node_revoke_at(&r.id, r.id.pubkey, NULL, cap, n.id.pubkey, 1600u, NULL, &r_revs,
+	CHECK(fzn_node_revoke_at(NULL, &r.id, r.id.pubkey, NULL, cap, n.id.pubkey, 1600u, NULL, &r_revs,
 	                         &r.ops) == FZN_NODE_REVOKE_OK
 	              && fzn_node_roster_standing(&r_ro, x.id.pubkey, &r_revs, 2u)
 	                         == FZN_ROSTER_ABSENT,
 	      "a vote moved to keep nothing kept the member's contact");
 
 	/* FOUND UNHARMED: undone, and both count again. */
-	CHECK(fzn_node_unrevoke(&r.id, r.id.pubkey, NULL, n.id.pubkey, 1700u, &r_revs, &r.ops)
+	CHECK(fzn_node_unrevoke(NULL, &r.id, r.id.pubkey, NULL, n.id.pubkey, 1700u, &r_revs, &r.ops)
 	                      == FZN_NODE_REVOKE_OK
 	              && fzn_node_roster_standing(&r_ro, x.id.pubkey, &r_revs, 2u)
 	                         == FZN_ROSTER_ACTIVE
@@ -2792,7 +2792,7 @@ static void test_an_admin_sets_retention(const fzn_cap_id_t *cap)
 	      "A's rule did not come back from T's store after a restart");
 
 	/* R REVOKES A'S GRANT, and the rule stops counting at T. */
-	CHECK(fzn_node_revoke(&r.id, r.id.pubkey, NULL, &adm, a.id.pubkey, 1500u, &r_revs, &r.ops)
+	CHECK(fzn_node_revoke(NULL, &r.id, r.id.pubkey, NULL, &adm, a.id.pubkey, 1500u, &r_revs, &r.ops)
 	              == FZN_NODE_REVOKE_OK
 	              && stream_pull(&r, NULL, &t, r.id.pubkey, &t_revs, 800u, &pull)
 	                         == FZN_NODE_PULL_OK

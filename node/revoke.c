@@ -76,7 +76,7 @@ static int open_authority(const fzn_node_authority_t *authority,
 /* Revoke, or with `withdraw` undo the revocation held for `grantee`: one
  * path, so standing, admission and the save are the same for both. A
  * withdrawal takes its capability from the record it undoes. */
-static fzn_node_revoke_err_t issue(const fzn_node_identity_t *id,
+static fzn_node_revoke_err_t issue(struct fzn_node_roots *roots, const fzn_node_identity_t *id,
                                    const uint8_t root[FZN_PUBKEY_LEN],
                                    const fzn_node_authority_t *authority,
                                    const fzn_cap_id_t *capability,
@@ -181,10 +181,18 @@ static fzn_node_revoke_err_t issue(const fzn_node_identity_t *id,
 	memcpy(blob + FZN_PERSIST_HEAD_LEN, record, FZN_REVOCATION_LEN);
 	if (!store->save(store->ctx, FZN_PERSIST_ISSUED_REVOCATION, grantee, blob, sizeof(blob)))
 		return FZN_NODE_REVOKE_NOT_SAVED;
+	/* LOGGED WHERE IT IS MADE, sec 504, under its issuer: a vote not in its
+	 * signer's log falls at the signer's revocation whatever the line, and a
+	 * vote not in its signer's journal reaches nobody. */
+	if (roots
+	    && fzn_node_roots_log_signed(roots, store, id->pubkey, id->sign, id->pubkey,
+	                                 (uint8_t)FZN_ROOT_ACT_REVOCATION, record, sizeof(record))
+	               != FZN_NODE_ROOTS_OK)
+		return FZN_NODE_REVOKE_NOT_SAVED;
 	return FZN_NODE_REVOKE_OK;
 }
 
-fzn_node_revoke_err_t fzn_node_revoke(const fzn_node_identity_t *id,
+fzn_node_revoke_err_t fzn_node_revoke(struct fzn_node_roots *roots, const fzn_node_identity_t *id,
                                       const uint8_t root[FZN_PUBKEY_LEN],
                                       const fzn_node_authority_t *authority,
                                       const fzn_cap_id_t *capability,
@@ -192,10 +200,11 @@ fzn_node_revoke_err_t fzn_node_revoke(const fzn_node_identity_t *id,
                                       fzn_revocation_store_t *revocations,
                                       const fzn_persist_ops_t *store)
 {
-	return issue(id, root, authority, capability, grantee, now, revocations, store, 0, NULL, 0);
+	return issue(roots, id, root, authority, capability, grantee, now, revocations, store, 0, NULL,
+	             0);
 }
 
-fzn_node_revoke_err_t fzn_node_revoke_at(const fzn_node_identity_t *id,
+fzn_node_revoke_err_t fzn_node_revoke_at(struct fzn_node_roots *roots, const fzn_node_identity_t *id,
                                          const uint8_t root[FZN_PUBKEY_LEN],
                                          const fzn_node_authority_t *authority,
                                          const fzn_cap_id_t *capability,
@@ -204,17 +213,18 @@ fzn_node_revoke_err_t fzn_node_revoke_at(const fzn_node_identity_t *id,
                                          fzn_revocation_store_t *revocations,
                                          const fzn_persist_ops_t *store)
 {
-	return issue(id, root, authority, capability, grantee, now, revocations, store, 0, cut, 1);
+	return issue(roots, id, root, authority, capability, grantee, now, revocations, store, 0, cut,
+	             1);
 }
 
-fzn_node_revoke_err_t fzn_node_unrevoke(const fzn_node_identity_t *id,
+fzn_node_revoke_err_t fzn_node_unrevoke(struct fzn_node_roots *roots, const fzn_node_identity_t *id,
                                         const uint8_t root[FZN_PUBKEY_LEN],
                                         const fzn_node_authority_t *authority,
                                         const uint8_t grantee[FZN_PUBKEY_LEN], uint64_t now,
                                         fzn_revocation_store_t *revocations,
                                         const fzn_persist_ops_t *store)
 {
-	return issue(id, root, authority, NULL, grantee, now, revocations, store, 1, NULL, 0);
+	return issue(roots, id, root, authority, NULL, grantee, now, revocations, store, 1, NULL, 0);
 }
 
 int fzn_node_issued_revocation(const fzn_persist_ops_t *store,

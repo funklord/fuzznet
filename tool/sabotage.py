@@ -4076,10 +4076,10 @@ SABOTAGES = [
 	),
 	(
 		"admin-a-root-revocation-is-logged",
-		"node/admin.c",
-		"\tif (rerr == FZN_NODE_REVOKE_OK && !log_revocation(admin, grantee))\n",
-		"\tif (0)\n",
-		"a revocation a root signed and did not log falls at that root's removal, whatever its cut -- sec 409",
+		"node/revoke.c",
+		"\tif (roots\n\t    && fzn_node_roots_log_signed(roots, store, id->pubkey, id->sign, id->pubkey,\n",
+		"\tif (0\n\t    && fzn_node_roots_log_signed(roots, store, id->pubkey, id->sign, id->pubkey,\n",
+		"a revocation not logged where it is made falls at its signer's removal whatever its cut, and never reaches the journal -- secs 409, 504",
 	),
 	(
 		"admin-local-changes-roots",

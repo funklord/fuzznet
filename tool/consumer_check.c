@@ -139,9 +139,9 @@
 #endif
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include <fuzznet/record/store_file.h>
+#endif
 #include <fuzznet/node/journal.h>
 #include <fuzznet/node/apply.h>
-#endif
 #ifdef FZN_CLI_ON
 #include <fuzznet/cli/cli.h>
 #endif
@@ -301,9 +301,9 @@
 #endif
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include "record/store_file.h"
+#endif
 #include "node/journal.h"
 #include "node/apply.h"
-#endif
 #ifdef FZN_CLI_ON
 #include "cli/cli.h"
 #endif

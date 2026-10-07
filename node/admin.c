@@ -462,7 +462,6 @@ static int acts_as_root(fzn_node_admin_t *admin)
  * the log has forked. A later `revoke peer KEY` with no cut leaves the line
  * where it is, so asking again never widens it to whatever a thief has
  * logged since. A CUT, or `none`, moves the line of a vote already cast. */
-static int log_revocation(fzn_node_admin_t *admin, const uint8_t grantee[FZN_PUBKEY_LEN]);
 
 static size_t revoke_peer(fzn_node_admin_t *admin, const uint8_t *rest, size_t rest_len,
                           char *reply, size_t cap)
@@ -499,16 +498,12 @@ static size_t revoke_peer(fzn_node_admin_t *admin, const uint8_t *rest, size_t r
 	    && !fzn_revocation_is_withdrawal(rec))
 		rerr = FZN_NODE_REVOKE_ALREADY;
 	else
-		rerr = fzn_node_revoke_at(admin->id, admin->state->config.root,
+		rerr = fzn_node_revoke_at(admin->roots, admin->id, admin->state->config.root,
 		                          voting_authority(admin),
 		                          &admin->state->config.remote_capability, grantee, now, drawn,
 		                          admin->revocations, admin->store);
 	if (rerr != FZN_NODE_REVOKE_OK && rerr != FZN_NODE_REVOKE_ALREADY)
 		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_revoke_err_str(rerr));
-	if (rerr == FZN_NODE_REVOKE_OK && !log_revocation(admin, grantee))
-		return answer_text(reply, cap, FZN_REPLY_ERROR,
-		                   "revoked, and not in this node's log: it would fall at this "
-		                   "node's revocation");
 	memcpy(detail, hex, hex_len);
 	at = hex_len;
 	if (rerr == FZN_NODE_REVOKE_ALREADY) {
@@ -531,27 +526,6 @@ static size_t revoke_peer(fzn_node_admin_t *admin, const uint8_t *rest, size_t r
 		}
 	}
 	return answer(reply, cap, FZN_REPLY_OK, detail, at);
-}
-
-/* LOG A REVOCATION OR WITHDRAWAL THIS NODE SIGNED: the record now in slot 9
- * for `grantee`, under its issuer. A root's since sec 409, and every key's
- * since sec 497: an act that is not in its signer's log falls at the
- * signer's removal or revocation whatever the line, so an unlogged one is
- * reported rather than passed off as done. 1 when logged, or with no log. */
-static int log_revocation(fzn_node_admin_t *admin, const uint8_t grantee[FZN_PUBKEY_LEN])
-{
-	uint8_t record[FZN_REVOCATION_LEN];
-	fzn_revocation_record_t rec;
-
-	if (!admin->roots)
-		return 1;
-	if (!fzn_node_issued_revocation(admin->store, grantee, record)
-	    || fzn_revocation_open(record, sizeof(record), &rec) != FZN_CHAIN_OK)
-		return 0;
-	return fzn_node_roots_log_signed(admin->roots, admin->store, admin->id->pubkey,
-	                                 admin->id->sign, fzn_revocation_issuer(rec),
-	                                 (uint8_t)FZN_ROOT_ACT_REVOCATION, record, sizeof(record))
-	       == FZN_NODE_ROOTS_OK;
 }
 
 /* LOG THE GRANT THIS NODE JUST MADE TO `device`: the last hop of the chain
@@ -629,13 +603,11 @@ static const char *vote_at(fzn_node_admin_t *admin, const uint8_t old[FZN_PUBKEY
 	fzn_node_revoke_err_t rerr;
 	uint64_t now = admin->state->clock ? admin->state->clock() : 0u;
 
-	rerr = fzn_node_revoke_at(admin->id, admin->state->config.root, voting_authority(admin),
-	                          &admin->state->config.remote_capability, old, now, drawn,
-	                          admin->revocations, admin->store);
+	rerr = fzn_node_revoke_at(admin->roots, admin->id, admin->state->config.root,
+	                          voting_authority(admin), &admin->state->config.remote_capability,
+	                          old, now, drawn, admin->revocations, admin->store);
 	if (rerr != FZN_NODE_REVOKE_OK && rerr != FZN_NODE_REVOKE_ALREADY)
 		return fzn_node_revoke_err_str(rerr);
-	if (rerr == FZN_NODE_REVOKE_OK && !log_revocation(admin, old))
-		return "the vote is not in this node's log: it would fall at this node's revocation";
 	return NULL;
 }
 
@@ -842,14 +814,11 @@ static size_t unrevoke_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t 
 	if (!unhex(hex, hex_len, grantee, sizeof(grantee)))
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a peer key");
 	now = admin->state->clock ? admin->state->clock() : 0u;
-	rerr = fzn_node_unrevoke(admin->id, admin->state->config.root, voting_authority(admin),
-	                         grantee, now, admin->revocations, admin->store);
+	rerr = fzn_node_unrevoke(admin->roots, admin->id, admin->state->config.root,
+	                         voting_authority(admin), grantee, now, admin->revocations,
+	                         admin->store);
 	if (rerr != FZN_NODE_REVOKE_OK)
 		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_revoke_err_str(rerr));
-	if (!log_revocation(admin, grantee))
-		return answer_text(reply, cap, FZN_REPLY_ERROR,
-		                   "withdrawn, and not in this root's log: it would fall at this "
-		                   "root's removal");
 	return answer(reply, cap, FZN_REPLY_OK, (const char *)hex, hex_len);
 }
 

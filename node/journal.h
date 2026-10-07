@@ -33,7 +33,9 @@
 #include <stdint.h>
 
 #include "../record/exchange.h"
+#ifdef FZN_RECORD_STORE_FILE_ON
 #include "../record/store_file.h"
+#endif
 
 /* The estate stream: every act a key signs for its estate, one chain per key.
  * Inside fuzznet's reserved range (record.h), and not notes' stream 0. */
@@ -63,17 +65,29 @@ const char *fzn_node_journal_err_str(fzn_node_journal_err_t err);
 typedef struct fzn_node_journal {
 	fzn_journal_t journal;
 	fzn_journal_entry_t entries[FZN_NODE_JOURNAL_STREAMS_MAX];
+#ifdef FZN_RECORD_STORE_FILE_ON
 	fzn_record_store_file_t file;
+	int has_file;
+#endif
 	fzn_record_store_t store;
 	const fzn_sign_ops_t *sign;
 	const fzn_hash_ops_t *hash;
 } fzn_node_journal_t;
 
-/* Over the record store in `dir`, which must exist. `sign` verifies what is
- * replayed and pulled; `hash` names records. Both must outlive it. */
+/* OVER ANY RECORD STORE, `ops`, which must outlive it: memory for a suite,
+ * the file store for a daemon. sec 504: a journal needs a store, not a disk.
+ * `sign` verifies what is replayed and pulled; `hash` names records. */
+fzn_node_journal_err_t fzn_node_journal_init_store(fzn_node_journal_t *nj,
+                                                   const fzn_record_store_ops_t *ops,
+                                                   const fzn_sign_ops_t *sign,
+                                                   const fzn_hash_ops_t *hash);
+
+#ifdef FZN_RECORD_STORE_FILE_ON
+/* Over the file store in `dir`, which must exist. */
 fzn_node_journal_err_t fzn_node_journal_init(fzn_node_journal_t *nj, const char *dir,
                                              const fzn_sign_ops_t *sign,
                                              const fzn_hash_ops_t *hash);
+#endif
 
 void fzn_node_journal_close(fzn_node_journal_t *nj);
 

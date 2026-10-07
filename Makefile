@@ -164,6 +164,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/node.c node/local.c node/remote.c node/serve.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
+             node/journal.c node/apply.c \
              contact/contact.c \
              contact/group.c \
              log/rules.c \
@@ -260,6 +261,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/node.h node/local.h node/remote.h node/serve.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
+             node/journal.h node/apply.h \
              contact/contact.h \
              contact/group.h \
              log/rules.h \
@@ -1239,9 +1241,10 @@ TEST_BINS += $(BUILD_DIR)/cli/test/cli_test \
                $(BUILD_DIR)/cli/test/store_print_test
 endif
 
-# node/journal rides with the file store it keeps its streams in. sec 501.
-RECORD_STORE_FILE_SRCS := record/store_file.c node/journal.c node/apply.c
-RECORD_STORE_FILE_HDRS := record/store_file.h node/journal.h node/apply.h
+# node/journal's suites keep their streams on disk; the journal itself sits
+# on any record store since sec 504.
+RECORD_STORE_FILE_SRCS := record/store_file.c
+RECORD_STORE_FILE_HDRS := record/store_file.h
 RECORD_STORE_FILE_TSRC := record/test/store_file_test.c node/test/node_journal_test.c \
                           node/test/apply_test.c
 
@@ -3848,7 +3851,8 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
 # The node's journal, sec 501: its streams in the file store, and the sync.
 FUZZNETD_JOURNAL_OBJS := $(BUILD_DIR)/node/journal.o $(BUILD_DIR)/record/exchange.o \
                          $(BUILD_DIR)/record/sync.o $(BUILD_DIR)/record/journal.o \
-                         $(BUILD_DIR)/record/store.o $(BUILD_DIR)/record/store_file.o
+                         $(BUILD_DIR)/record/store.o \
+                         $(if $(RECORD_STORE_FILE_ON),$(BUILD_DIR)/record/store_file.o)
 
 $(BUILD_DIR)/node/test/node_journal_test: $(BUILD_DIR)/node/test/node_journal_test.o \
                                      $(FUZZNETD_JOURNAL_OBJS) \
