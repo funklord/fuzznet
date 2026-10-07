@@ -416,7 +416,7 @@ static void test_sharing_is_warned_before_and_said_after(void)
 	/* A GROUP, sec 471: offered as `@NAME` beside the contacts. And a
 	 * contact the roster marks suspended, sec 489, not offered at all. */
 	memset(carol, 0x9e, sizeof(carol));
-	CHECK(fzn_group_add(&OPS, &HASH, "family", 6u, 1u) == FZN_CONTACT_OK
+	CHECK(fzn_group_add(&OPS, &RNG, "family", 6u, 1u) == FZN_CONTACT_OK
 	              && fzn_contact_add(&OPS, carol, "gone", 4u, 1u) == FZN_CONTACT_OK,
 	      "fixture: the group family, and the suspended contact gone");
 	CHECK(w.open_note(note)

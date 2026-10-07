@@ -682,15 +682,18 @@ static void test_share(void)
 static void test_group_share(void)
 {
 	uint8_t carol[FZN_PUBKEY_LEN], dave[FZN_PUBKEY_LEN];
-	char f[65], line[200], want[200];
+	static fzn_group_t family;
+	char f[65], line[200], want[200], gid_hex[65];
+	size_t i;
 
 	setup(1);
 	memset(carol, 0xc4, sizeof(carol));
 	memset(dave, 0xd4, sizeof(dave));
 	CHECK(fzn_contact_add(&OPS, carol, "carol", 5u, 1u) == FZN_CONTACT_OK
 	              && fzn_contact_add(&OPS, dave, "dave", 4u, 1u) == FZN_CONTACT_OK
-	              && fzn_group_add(&OPS, &HASH, "family", 6u, 1u) == FZN_CONTACT_OK
-	              && fzn_group_join(&OPS, &HASH, "family", 6u, carol) == FZN_CONTACT_OK,
+	              && fzn_group_add(&OPS, &RNG, "family", 6u, 1u) == FZN_CONTACT_OK
+	              && fzn_group_join(&OPS, "family", 6u, carol) == FZN_CONTACT_OK
+	              && fzn_group_find(&OPS, "family", 6u, &family) == FZN_CONTACT_OK,
 	      "fixture: carol in the group family, dave in none");
 	CHECK(ask("add folder top shared") == FZN_REPLY_OK, "fixture: a folder");
 	take_id(f);
@@ -707,21 +710,27 @@ static void test_group_share(void)
 	CHECK(indexed(carol, 1) == 2, "a member is offered the folder and its note");
 	CHECK(indexed(dave, 1) == 0, "a contact in no group is offered nothing");
 
-	CHECK(fzn_group_join(&OPS, &HASH, "family", 6u, dave) == FZN_CONTACT_OK
+	CHECK(fzn_group_join(&OPS, "family", 6u, dave) == FZN_CONTACT_OK
 	              && indexed(dave, 1) == 2,
 	      "a member added is served at once");
-	CHECK(fzn_group_leave(&OPS, &HASH, "family", 6u, carol) == FZN_CONTACT_OK
+	CHECK(fzn_group_leave(&OPS, "family", 6u, carol) == FZN_CONTACT_OK
 	              && indexed(carol, 1) == 0,
 	      "and one who leaves is served nothing at once");
 
 	snprintf(line, sizeof(line), "add share %s carol", f);
 	CHECK(ask(line) == FZN_REPLY_OK && indexed(carol, 1) == 2,
 	      "a contact's own share and a group's are separate rows");
-	CHECK(fzn_group_remove(&OPS, &HASH, "family", 6u) == FZN_CONTACT_OK
+	CHECK(fzn_group_remove(&OPS, "family", 6u) == FZN_CONTACT_OK
 	              && indexed(dave, 1) == 0,
 	      "a group removed reaches nobody");
+	/* BY ITS ID, sec 516: the name is gone with the group, and is no
+	 * identity to work one out from. */
 	snprintf(line, sizeof(line), "remove share %s @family", f);
-	CHECK(ask(line) == FZN_REPLY_OK, "and its share can still be taken away");
+	CHECK(ask(line) == FZN_REPLY_ERROR, "a removed group's name finds nothing");
+	for (i = 0; i < FZN_PUBKEY_LEN; i++)
+		snprintf(gid_hex + (2u * i), 3u, "%02x", family.id[i]);
+	snprintf(line, sizeof(line), "remove share %s %s", f, gid_hex);
+	CHECK(ask(line) == FZN_REPLY_OK, "and its share is taken away by the id list share prints");
 	snprintf(want, sizeof(want), "1 0 %s,carol", f);
 	CHECK(ask("list share") == FZN_REPLY_OK && !strcmp(detail_of(), want),
 	      "leaving carol's own");

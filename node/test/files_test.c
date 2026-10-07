@@ -894,6 +894,7 @@ int main(void)
 	/* ---- TIERS, sec 493: who besides the members may fetch a file. */
 	{
 		uint8_t bob[FZN_PUBKEY_LEN], carol[FZN_PUBKEY_LEN], fam[FZN_PUBKEY_LEN];
+		static fzn_group_t fam_group;
 		uint8_t q[FZN_MSG_WANT_LEN], answer_[FZN_NODE_FILES_REPLY_MAX];
 		uint8_t pub_root[FZN_BLOB_HASH_LEN];
 		fzn_node_file_ref_t t;
@@ -907,9 +908,10 @@ int main(void)
 		                                              == FZN_NODE_FILES_OK
 		              && fzn_contact_add(&STORE, bob, "bob", 3u, 1u) == FZN_CONTACT_OK
 		              && fzn_contact_add(&STORE, carol, "carol", 5u, 1u) == FZN_CONTACT_OK
-		              && fzn_group_add(&STORE, &HASH, "fam", 3u, 1u) == FZN_CONTACT_OK
-		              && fzn_group_join(&STORE, &HASH, "fam", 3u, carol) == FZN_CONTACT_OK
-		              && fzn_group_id(&HASH, "fam", 3u, fam) == FZN_CONTACT_OK
+		              && fzn_group_add(&STORE, &RNG, "fam", 3u, 1u) == FZN_CONTACT_OK
+		              && fzn_group_join(&STORE, "fam", 3u, carol) == FZN_CONTACT_OK
+		              && fzn_group_find(&STORE, "fam", 3u, &fam_group) == FZN_CONTACT_OK
+		              && memcpy(fam, fam_group.id, sizeof(fam)) != NULL
 		              && fzn_msg_have_query_encode(t.root, q, sizeof(q), &qlen) == FZN_MSG_OK,
 		      "fixture: a file, bob, carol in the group fam, and a question for the file");
 		for (i = 0; i < FZN_BLOB_HASH_LEN; i++)

@@ -1021,8 +1021,7 @@ static size_t change_group(fzn_node_admin_t *admin, int add, const uint8_t *rest
 		fzn_notes_store_t notes;
 		size_t gone = 0;
 
-		err = fzn_group_find(admin->store, admin->state->hash, (const char *)name, name_len,
-		                     &group);
+		err = fzn_group_find(admin->store, (const char *)name, name_len, &group);
 		if (err != FZN_CONTACT_OK)
 			return group_refusal(reply, cap, err);
 		if (fzn_notes_store_init(&notes, admin->store, admin->state->hash) != FZN_NOTES_OK
@@ -1031,10 +1030,9 @@ static size_t change_group(fzn_node_admin_t *admin, int add, const uint8_t *rest
 			return answer_text(reply, cap, FZN_REPLY_ERROR,
 			                   "the group's shares would not all go, so it stays");
 	}
-	err = add ? fzn_group_add(admin->store, admin->state->hash, (const char *)name, name_len,
+	err = add ? fzn_group_add(admin->store, admin->rng, (const char *)name, name_len,
 	                          admin->state->clock ? admin->state->clock() * 1000u : 0u)
-	          : fzn_group_remove(admin->store, admin->state->hash, (const char *)name,
-	                             name_len);
+	          : fzn_group_remove(admin->store, (const char *)name, name_len);
 	return err == FZN_CONTACT_OK ? answer_text(reply, cap, FZN_REPLY_OK, NULL)
 	                             : group_refusal(reply, cap, err);
 }
@@ -1056,10 +1054,8 @@ static size_t change_member(fzn_node_admin_t *admin, int add, const uint8_t *res
 		                   add ? "add member GROUP CONTACT" : "remove member GROUP CONTACT");
 	err = fzn_contact_find(admin->store, (const char *)name, name_len, &contact);
 	if (err == FZN_CONTACT_OK)
-		err = add ? fzn_group_join(admin->store, admin->state->hash, (const char *)group,
-		                           group_len, contact.key)
-		          : fzn_group_leave(admin->store, admin->state->hash, (const char *)group,
-		                            group_len, contact.key);
+		err = add ? fzn_group_join(admin->store, (const char *)group, group_len, contact.key)
+		          : fzn_group_leave(admin->store, (const char *)group, group_len, contact.key);
 	return err == FZN_CONTACT_OK ? answer_text(reply, cap, FZN_REPLY_OK, NULL)
 	                             : group_refusal(reply, cap, err);
 }
@@ -1117,7 +1113,7 @@ static size_t get_group(fzn_node_admin_t *admin, const uint8_t *rest, size_t res
 
 	if (!next_word(&rest, &rest_len, &name, &name_len))
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "get group NAME");
-	err = fzn_group_find(admin->store, admin->state->hash, (const char *)name, name_len, &g);
+	err = fzn_group_find(admin->store, (const char *)name, name_len, &g);
 	if (err != FZN_CONTACT_OK)
 		return group_refusal(reply, cap, err);
 	n = snprintf(detail, sizeof(detail), "%zu", g.count);

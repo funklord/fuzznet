@@ -321,7 +321,9 @@ struct fzn_persist_received_share_body {
 }
 
 // A group of contacts: its name, as a contact name, and its members' keys.
-// Filed under its id, a hash of its name. contact/group.c, sec 471.
+// Filed under its id, drawn at random when it is made (sec 516); groups made
+// before then keep the hash of their name they were filed under, which is an
+// id like any other. contact/group.c, sec 471.
 struct fzn_persist_group_member {
 	u8  key[32];
 }

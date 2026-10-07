@@ -1787,15 +1787,15 @@ static size_t change_share(fzn_node_files_t *files, fzn_verb_t verb, const uint8
 		if (!add && err == FZN_NODE_FILES_ERR_ABSENT)
 			err = FZN_NODE_FILES_OK;
 	} else {
-		/* `@NAME` IS A GROUP; one since removed can still be revoked by
-		 * its id, as a notes share can (sec 471). */
-		if (word_len > 1u && word[0] == '@') {
+		/* `@NAME` IS A GROUP, found by its name; a revocation also takes
+		 * the grantee as 64 hex, as a notes share does (sec 516). */
+		if (!add && word_len == 2u * sizeof(grantee)
+		    && from_hex(word, word_len, grantee, sizeof(grantee))) {
+			/* The grantee as given. */
+		} else if (word_len > 1u && word[0] == '@') {
 			static fzn_group_t group;
 			fzn_contact_err_t cerr =
-			        add ? fzn_group_find(files->store, files->hash, (const char *)word + 1,
-			                             word_len - 1u, &group)
-			            : fzn_group_id(files->hash, (const char *)word + 1, word_len - 1u,
-			                           group.id);
+			        fzn_group_find(files->store, (const char *)word + 1, word_len - 1u, &group);
 
 			if (cerr != FZN_CONTACT_OK)
 				return answer(reply, cap, FZN_REPLY_ERROR, fzn_contact_err_str(cerr));

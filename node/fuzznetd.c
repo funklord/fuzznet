@@ -2985,6 +2985,9 @@ int main(int argc, char **argv)
 			admin.peers_cap = FZN_NODE_PEERS_MAX;
 			admin.id = &identity;
 			admin.store = store_ops;
+			/* IDS ARE DRAWN, a group's among them (sec 516), whether or
+			 * not the roster below loads. */
+			admin.rng = &rng_ops;
 #ifdef FZN_LOG_FILE_ON
 			memcpy(dlog.host, identity.pubkey, FZN_PUBKEY_LEN);
 			dlog.has_host = 1;
@@ -3021,7 +3024,6 @@ int main(int argc, char **argv)
 					                                   my_authority, &rng_ops, &carried);
 				if (rerr == FZN_NODE_ROSTER_OK || rerr == FZN_NODE_ROSTER_NO_STANDING) {
 					admin.roster = &node_roster;
-					admin.rng = &rng_ops;
 					roster_on = 1;
 				}
 				if (rerr != FZN_NODE_ROSTER_OK)

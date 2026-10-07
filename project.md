@@ -58255,3 +58255,98 @@ contact added on another member arrives as `c_` and eight hex digits.
 So a rename that follows the contact to every device is exactly that
 undecided resolution. It is the requirement that now asks for it, and
 nothing is decided here yet.
+
+## 516. Nothing that matters keys on a name; a group's id is random, 2026-10-08
+
+**The holder's decision, 2026-10-08:** anything that matters is keyed by a
+contact's key or an id, never by a name. A name is presentation. The
+naming scheme should become configurable, and a name may later be several
+fields, so no stored state, record or wire format may depend on one. The
+holder declined to design a rename verb now.
+
+This answers sec 515's open question in part. Renaming waits on the naming
+scheme, and identity does not.
+
+### The audit
+
+Every place a contact or group name is stored, carried, or used to decide
+identity was swept. That covered:
+
+- `contact/`, `notes/share.c`, `notes/received.c` and `node/received.c`;
+- `node/files.c`, `node/roster.c`, `node/admin.c`, `node/notes.c` and
+  `node/fuzznetd.c`;
+- every `.situ` schema, and the persist slots.
+
+The results:
+
+- **Contacts were already right.** A contact is filed under its key, and
+  every share, grant, roster record and received share refers to it by key.
+  The name is a label, unique to one key, and is resolved to the key where
+  a person types it. Nine verbs do that, and nothing stored afterwards
+  carries the name.
+- **A group was its name.** `fzn_group_id` was a hash of a label and the
+  name. Groups were filed under it, notes and file shares were granted to
+  it, and access checks compared it. Unsharing worked the id out of the
+  typed `@NAME` without looking anything up. So a group removed and made
+  again under its name was the same group to every row left under the old
+  one, and no group could ever be renamed.
+
+### Groups get random ids
+
+- `fzn_group_id` is removed. `fzn_group_add` takes a random source and
+  draws the id. It refuses an id already filed rather than writing over the
+  group there, and it checks the name before anything else.
+- Find, join, leave and remove go by name through a scan of the groups, and
+  no longer take a hash. A name is where a person picks a group, not where
+  it is filed.
+- Groups made before keep the hashed id they were filed under. It is read
+  back like any other id, so no store is migrated.
+- `remove share SUBTREE GRANTEE` and `revoke file ROOT GRANTEE` also take
+  the grantee as 64 hex. No name can be 64 characters, and `list share`
+  already prints the hex for a row whose contact or group is gone. A share
+  is taken away by identity, never by deriving an id from a name.
+  - That replaces sec 471's "unsharing needs only the id, worked from the
+    name", which only held because the name was the identity.
+- `fuzznetd` gives the admin its random source with the rest of its wiring.
+  It had been set only when the roster loaded, which would have stopped
+  groups being made whenever the roster failed to load.
+
+### Still names, deliberately
+
+- **Replies show names**: `list share`, `list contact`, `list group`,
+  `get group` and `list received`. They are display. A client takes the key
+  or id from the same reply where one is printed, and should never parse a
+  name back as identity.
+- **`c_` and eight hex digits**, the name a contact arriving through the
+  roster gets (sec 489), is derived from its key. It is still only a label.
+
+### fuzzypickles' requirement, recorded and not built
+
+fuzzypickles relayed this decision from the holder (their sec 200), and
+handed it to this tree:
+
+- Adding a contact whose key is already held under another name is refused,
+  and the refusal names the existing contact: "that key is already your
+  contact p1 -- nothing was added".
+- This covers peer-add and pairing, both sending and approving a request.
+- An approval refused this way leaves the request pending.
+
+It is not built, because today `add contact NAME KEY` on a held key is how
+a contact is renamed, including a roster arrival's `c_` name (sec 489).
+Refusing it leaves no way to rename. The holder's answer above defers
+renaming to the naming scheme, so this refusal waits for that too.
+
+### Tests of the random ids
+
+- `contact_test`: 30 checks. New cases:
+  - a source that draws nothing makes no group;
+  - a group made again under a removed one's name has a new id and no
+    members;
+  - an id already filed is not drawn over.
+- `node/test/notes_test`: 281 checks. A removed group's `@NAME` now finds
+  nothing, and its leftover row is taken away by the id `list share`
+  prints.
+- `admin_test`, 198 checks; `files_test`, 62; `notebook_view_test`, 137.
+- Two sabotage entries are re-anchored:
+  - `group-add-draws-a-fresh-id` replaces the hash seam's polarity.
+  - `group-unshare-by-id` is now on the hex path.

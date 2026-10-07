@@ -1053,11 +1053,13 @@ int main(void)
 			    != 0u)
 				FAIL(466);
 		}
-		/* A group's id needs a name that is a contact's (sec 471). */
+		/* A group is found by a name that is a contact's (sec 471), and
+		 * made only under an id drawn for it (sec 516). */
 		{
-			uint8_t gid[FZN_PUBKEY_LEN];
+			fzn_group_t g;
 
-			if (fzn_group_id(NULL, "g", 1u, gid) != FZN_CONTACT_ERR_MALFORMED)
+			if (fzn_group_find(NULL, "g", 1u, &g) != FZN_CONTACT_ERR_MALFORMED
+			    || fzn_group_add(NULL, NULL, "g", 1u, 0u) != FZN_CONTACT_ERR_MALFORMED)
 				FAIL(478);
 		}
 		/* A rule kept is kept in one spelling (sec 475). */

@@ -8464,11 +8464,11 @@ SABOTAGES = [
 		"a datagram over UDP.",
 	),
 	(
-		"group-hash-nonzero-is-success",
+		"group-add-draws-a-fresh-id",
 		"contact/group.c",
-		"\tif (!hash->hash(hash->ctx, out, FZN_PUBKEY_LEN, in, sizeof(LABEL) + len))\n",
-		"\tif (hash->hash(hash->ctx, out, FZN_PUBKEY_LEN, in, sizeof(LABEL) + len) != 0)\n",
-		"a group's id is taken from a hash that failed, and every real hash reads as failing -- sec 471",
+		"\t    || fzn_group_get(store, g.id, &other) != FZN_CONTACT_ERR_ABSENT)\n",
+		")\n",
+		"a group is filed over another whose id was drawn again, and inherits its shares -- sec 516",
 	),
 	(
 		"group-join-once",
@@ -8501,9 +8501,9 @@ SABOTAGES = [
 	(
 		"group-unshare-by-id",
 		"node/notes.c",
-		"\t\t           : fzn_group_id(n->store.hash, (const char *)name + 1, name_len - 1u,\n\t\t                          group.id);\n",
-		"\t\t           : fzn_group_find(n->store.ops, n->store.hash, (const char *)name + 1,\n\t\t                            name_len - 1u, &group);\n",
-		"a share with a group since removed can never be taken away -- sec 471",
+		"\tif (!add && name_len == ID_HEX && parse_id(name, name_len, contact.key)) {\n",
+		"\tif (0) {\n",
+		"a share with a group since removed can never be taken away -- sec 516",
 	),
 	(
 		"group-share-listed-by-name",

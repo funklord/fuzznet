@@ -536,6 +536,7 @@ int main(void)
 	admin.peers_cap = 32;
 	admin.id = &node.id;
 	admin.store = &node.ops;
+	admin.rng = &rng_ops;
 	admin.card_lifetime = 86400u;
 	{
 		static fzn_revocation_t revoked_entries[8];
@@ -1189,6 +1190,7 @@ int main(void)
 		/* ITS SHARES GO WITH IT, sec 478: made again under the name, the
 		 * group inherits nothing. Another contact's share stays. */
 		{
+			static fzn_group_t family;
 			fzn_notes_store_t notes;
 			uint8_t gid[FZN_PUBKEY_LEN], other[FZN_PUBKEY_LEN], sub[FZN_TREE_ID_LEN];
 			uint8_t seen[4][FZN_TREE_ID_LEN];
@@ -1197,7 +1199,8 @@ int main(void)
 			memset(other, 0x6e, sizeof(other));
 			memset(sub, 0x51, sizeof(sub));
 			CHECK(fzn_notes_store_init(&notes, admin.store, &hash_ops) == FZN_NOTES_OK
-			              && fzn_group_id(&hash_ops, "family", 6u, gid) == FZN_CONTACT_OK
+			              && fzn_group_find(admin.store, "family", 6u, &family) == FZN_CONTACT_OK
+			              && memcpy(gid, family.id, sizeof(gid)) != NULL
 			              && fzn_notes_share_add(&notes, sub, gid, 1u) == FZN_NOTES_OK
 			              && fzn_notes_share_add(&notes, sub, other, 1u) == FZN_NOTES_OK,
 			      "fixture: a subtree shared with the group and with another contact");

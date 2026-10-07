@@ -1166,15 +1166,16 @@ static size_t change_share(fzn_node_notes_t *n, int add, const uint8_t *at, size
 	if (fzn_tree_is_root(subtree))
 		return say(reply, cap, FZN_REPLY_MALFORMED, "share a note, not the top");
 	/* `@NAME` IS A GROUP, sec 471, which no contact name can be: the row
-	 * goes under the group's id. Unsharing needs only the id, so a share
-	 * with a group since removed can still be taken away. */
-	if (name_len > 1u && name[0] == '@') {
+	 * goes under the group's id, found by its name. UNSHARING ALSO TAKES
+	 * THE GRANTEE AS 64 HEX, which no name can be and `list share` prints
+	 * for a row whose contact or group is gone: a share is taken away by
+	 * identity, never by working an id out of a name. sec 516. */
+	if (!add && name_len == ID_HEX && parse_id(name, name_len, contact.key)) {
+		cerr = FZN_CONTACT_OK;
+	} else if (name_len > 1u && name[0] == '@') {
 		static fzn_group_t group;
 
-		cerr = add ? fzn_group_find(n->store.ops, n->store.hash, (const char *)name + 1,
-		                            name_len - 1u, &group)
-		           : fzn_group_id(n->store.hash, (const char *)name + 1, name_len - 1u,
-		                          group.id);
+		cerr = fzn_group_find(n->store.ops, (const char *)name + 1, name_len - 1u, &group);
 		memcpy(contact.key, group.id, FZN_PUBKEY_LEN);
 	} else {
 		cerr = fzn_contact_find(n->store.ops, (const char *)name, name_len, &contact);
