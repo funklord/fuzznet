@@ -2414,9 +2414,13 @@ static size_t hooked_acts;
 static int hook_refuses;
 
 static int count_logged(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const fzn_sign_ops_t *sign,
-                        uint8_t kind, const uint8_t act[FZN_ROOT_ACT_ID_LEN])
+                        uint8_t kind, const uint8_t act[FZN_ROOT_ACT_ID_LEN],
+                        const uint8_t *record, size_t len)
 {
 	(void)ctx;
+	/* THE ACT'S OWN BYTES, sec 502: a succession, whole. */
+	if (!record || len != FZN_SUCCESSION_LEN || record[1] != (uint8_t)FZN_OBJECT_SUCCESSION)
+		return 0;
 	(void)pubkey;
 	(void)sign;
 	(void)kind;

@@ -149,6 +149,22 @@ fzn_node_journal_err_t fzn_node_journal_append(fzn_node_journal_t *nj,
 	return FZN_NODE_JOURNAL_OK;
 }
 
+fzn_node_journal_err_t fzn_node_journal_append_object(fzn_node_journal_t *nj,
+                                                      const uint8_t issuer[FZN_PUBKEY_LEN],
+                                                      const fzn_sign_ops_t *sign,
+                                                      const uint8_t *object, size_t len,
+                                                      uint64_t now,
+                                                      uint8_t id[FZN_RECORD_ID_LEN])
+{
+	uint8_t subject[FZN_SUBJECT_LEN];
+
+	if (!nj || !object || len < 2u || len > FZN_RECORD_BODY_MAX
+	    || !FZN_OBJECT_IS_LIBRARY(object[1])
+	    || !nj->hash->hash(nj->hash->ctx, subject, sizeof(subject), object, len))
+		return FZN_NODE_JOURNAL_MALFORMED;
+	return fzn_node_journal_append(nj, issuer, sign, object[1], subject, object, len, now, id);
+}
+
 size_t fzn_node_journal_answer(fzn_node_journal_t *nj, const uint8_t *request,
                                size_t request_len, uint8_t *reply, size_t reply_cap)
 {

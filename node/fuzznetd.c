@@ -1025,15 +1025,17 @@ static void copy_logs(struct pull_target *pulls, size_t npulls, uint64_t now)
 static fzn_node_journal_t node_journal;
 static int journal_on;
 
-/* What the roots call for every act logged: the act, mirrored as a record of
- * its signer's estate stream. */
+/* What the roots call for every act logged: the act's own signed object, as
+ * the next record of its signer's estate stream. sec 502. */
 static int journal_logged(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN],
                           const fzn_sign_ops_t *sign, uint8_t kind,
-                          const uint8_t act[FZN_ROOT_ACT_ID_LEN])
+                          const uint8_t act[FZN_ROOT_ACT_ID_LEN], const uint8_t *record,
+                          size_t len)
 {
-	return fzn_node_journal_append((fzn_node_journal_t *)ctx, pubkey, sign,
-	                               FZN_NODE_JOURNAL_KIND_ACT, act, &kind, 1u, wall_clock(),
-	                               NULL)
+	(void)kind;
+	(void)act;
+	return fzn_node_journal_append_object((fzn_node_journal_t *)ctx, pubkey, sign, record, len,
+	                                      wall_clock(), NULL)
 	       == FZN_NODE_JOURNAL_OK;
 }
 

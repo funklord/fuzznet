@@ -9520,6 +9520,20 @@ SABOTAGES = [
 		"\tif (0 && err == FZN_NODE_ROOTS_OK && roots->logged\n",
 		"an act logged and never mirrored leaves the journal without it, and a cut judged on the journal drops it -- sec 501",
 	),
+	(
+		"node-journal-object-is-a-library-tag",
+		"node/journal.c",
+		"\t    || !FZN_OBJECT_IS_LIBRARY(object[1])\n",
+		"",
+		"a record whose body is no signed object of this library's is carried as one, and a receiver applies it by a tag nobody assigned -- sec 502",
+	),
+	(
+		"roots-logged-hook-gets-the-object",
+		"node/roots.c",
+		"\t    && !roots->logged(roots->logged_ctx, pubkey, sign, kind, act, record, len))\n",
+		"\t    && !roots->logged(roots->logged_ctx, pubkey, sign, kind, act, NULL, 0u))\n",
+		"a journal told only an act's hash carries nothing a receiver can apply -- sec 502",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

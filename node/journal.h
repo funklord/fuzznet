@@ -11,11 +11,15 @@
  * fetches only streams followed, so a stranger's stream is never taken. The
  * daemon follows its own keys, the estate's roots and its members.
  *
- * WHAT IS WRITTEN, IN THIS STAGE: a record of kind FZN_NODE_JOURNAL_KIND_ACT
- * for every act the node logs (`fzn_node_roots_log_act`), its subject the
- * act's hash and its body the act's kind. It mirrors the act log, so the
- * journal carries real chains end to end before sec 500's stage 3 moves each
- * kind of act onto records of its own and stage 4 retires the act log.
+ * WHAT IS WRITTEN: every act the node logs (`fzn_node_roots_log_act`), as a
+ * record whose body is the act's own signed object, whole -- a vote, a roster
+ * record, a confirmation, a root change, a setting, a succession, or a grant's
+ * hop -- whose kind is that object's tag (`wire/bytes.h`, 128 and up), and
+ * whose subject is the object's hash, the act the act log names. sec 502:
+ * the journal carries the objects themselves, so a host that holds a key's
+ * stream holds everything that key signed for its estate. The object keeps
+ * its own signature inside the record's; flattening each into native fields
+ * is a later step that changes no carriage.
  *
  * THE STORE IS NOT TRUSTED, here as in `record/store.h`: a stream is replayed
  * through the signature check and the chain on every start, so a file edited
@@ -41,12 +45,6 @@
 /* The most records one request asks for: a window the next round extends. */
 #define FZN_NODE_JOURNAL_WINDOW 64u
 
-/* The kinds of record on the estate stream. Zero is no kind. */
-typedef enum fzn_node_journal_kind {
-	/* An act the node logged, mirrored: subject the act's hash, body the
-	 * act log's kind byte. Until sec 500's stage 4. */
-	FZN_NODE_JOURNAL_KIND_ACT = 1
-} fzn_node_journal_kind_t;
 
 typedef enum fzn_node_journal_err {
 	FZN_NODE_JOURNAL_OK = 0,
@@ -98,6 +96,17 @@ fzn_node_journal_err_t fzn_node_journal_append(fzn_node_journal_t *nj,
                                                const uint8_t subject[FZN_SUBJECT_LEN],
                                                const uint8_t *body, size_t body_len,
                                                uint64_t now, uint8_t id[FZN_RECORD_ID_LEN]);
+
+/* WRITE AN OBJECT: `fzn_node_journal_append` with the object's tag (its
+ * second byte) as the kind, its hash as the subject, and its bytes, `len` of
+ * them, as the body. MALFORMED for something that is not a signed object of
+ * this library's -- a tag below 128 -- or does not fit a record's body. */
+fzn_node_journal_err_t fzn_node_journal_append_object(fzn_node_journal_t *nj,
+                                                      const uint8_t issuer[FZN_PUBKEY_LEN],
+                                                      const fzn_sign_ops_t *sign,
+                                                      const uint8_t *object, size_t len,
+                                                      uint64_t now,
+                                                      uint8_t id[FZN_RECORD_ID_LEN]);
 
 /* THE SERVER: `fzn_exchange_answer` over this node's journal and store. 0 for
  * a message that is not the journal's. */

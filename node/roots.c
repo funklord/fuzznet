@@ -625,7 +625,7 @@ fzn_node_roots_err_t fzn_node_roots_log_act(fzn_node_roots_t *roots,
 	err = fzn_node_roots_learn(roots, store, entry, sizeof(entry));
 	/* AND INTO THE JOURNAL, sec 501, where one is kept. */
 	if (err == FZN_NODE_ROOTS_OK && roots->logged
-	    && !roots->logged(roots->logged_ctx, pubkey, sign, kind, act))
+	    && !roots->logged(roots->logged_ctx, pubkey, sign, kind, act, record, len))
 		return FZN_NODE_ROOTS_NOT_SAVED;
 	return err;
 }

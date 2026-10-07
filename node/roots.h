@@ -128,11 +128,14 @@ typedef struct fzn_node_roots {
 	uint8_t key[FZN_PUBKEY_LEN];
 	const fzn_sign_ops_t *key_sign;
 	/* CALLED FOR EVERY ACT LOGGED, sec 501: `pubkey` signed the act whose
-	 * hash is `act`, of the act log's `kind`, with `sign`. What the daemon
-	 * mirrors into the journal (`node/journal.h`). 0 fails the logging, as
-	 * an act unrecorded must not pass for one recorded. NULL for none. */
+	 * hash is `act`, of the act log's `kind`, with `sign`; `record` is the
+	 * act's own signed bytes, `len` of them, since sec 502 -- what the
+	 * daemon carries in the journal (`node/journal.h`). 0 fails the
+	 * logging, as an act unrecorded must not pass for one recorded. NULL
+	 * for none. */
 	int (*logged)(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN], const fzn_sign_ops_t *sign,
-	              uint8_t kind, const uint8_t act[FZN_ROOT_ACT_ID_LEN]);
+	              uint8_t kind, const uint8_t act[FZN_ROOT_ACT_ID_LEN], const uint8_t *record,
+	              size_t len);
 	void *logged_ctx;
 } fzn_node_roots_t;
 

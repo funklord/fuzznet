@@ -105,7 +105,7 @@ static int append(fzn_node_journal_t *nj, uint8_t writer, uint8_t subject_byte,
 	key(issuer, writer);
 	memset(subject, subject_byte, sizeof(subject));
 	signing_as = writer;
-	return fzn_node_journal_append(nj, issuer, &SIGN, FZN_NODE_JOURNAL_KIND_ACT, subject, &body,
+	return fzn_node_journal_append(nj, issuer, &SIGN, (uint32_t)FZN_OBJECT_HOP, subject, &body,
 	                               1u, 1000u, id) == FZN_NODE_JOURNAL_OK;
 }
 
@@ -204,6 +204,42 @@ static void test_streams_on_disk_and_between_hosts(void)
 	fzn_node_journal_close(&b);
 }
 
+/* AN OBJECT, CARRIED WHOLE, sec 502: the record's kind is the object's tag,
+ * its subject the object's hash, its body the object's bytes. Something that
+ * is no signed object of this library's -- a tag below 128 -- is refused. */
+static void test_an_object_carried_whole(void)
+{
+	static fzn_node_journal_t a;
+	uint8_t w[FZN_PUBKEY_LEN], object[194], hash[FZN_SUBJECT_LEN], buf[FZN_RECORD_MAX_LEN];
+	fzn_record_t rec;
+	size_t i;
+
+	key(w, 0x31);
+	for (i = 0; i < sizeof(object); i++)
+		object[i] = (uint8_t)(i * 13u);
+	object[0] = 1u;
+	object[1] = (uint8_t)FZN_OBJECT_SUCCESSION;
+	mix_hash(NULL, hash, sizeof(hash), object, sizeof(object));
+	signing_as = 0x31;
+	CHECK(fzn_node_journal_init(&a, dir_a, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_append_object(&a, w, &SIGN, object, sizeof(object), 7u,
+	                                                NULL) == FZN_NODE_JOURNAL_OK
+	              && fzn_record_store_get(&a.store, w, FZN_NODE_JOURNAL_STREAM,
+	                                      fzn_journal_next(&a.journal, w, FZN_NODE_JOURNAL_STREAM)
+	                                              - 1u,
+	                                      buf, sizeof(buf), &rec) == FZN_RECORD_STORE_OK
+	              && fzn_record_kind(rec) == (uint32_t)FZN_OBJECT_SUCCESSION
+	              && memcmp(fzn_record_subject(rec), hash, sizeof(hash)) == 0
+	              && fzn_record_body_len(rec) == sizeof(object)
+	              && memcmp(fzn_record_body(rec), object, sizeof(object)) == 0,
+	      "an object was not carried whole, under its tag and its hash");
+	object[1] = 0x36u;
+	CHECK(fzn_node_journal_append_object(&a, w, &SIGN, object, sizeof(object), 7u, NULL)
+	              == FZN_NODE_JOURNAL_MALFORMED,
+	      "something that is no signed object of this library's was carried");
+	fzn_node_journal_close(&a);
+}
+
 int main(void)
 {
 	char path[512];
@@ -215,6 +251,7 @@ int main(void)
 		return 1;
 	}
 	test_streams_on_disk_and_between_hosts();
+	test_an_object_carried_whole();
 
 	/* EVERY FILE THE SUITE MADE, BY NAME, then the directories. */
 	stream_path(path, sizeof(path), dir_a, 0x31);

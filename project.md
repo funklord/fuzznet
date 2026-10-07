@@ -57267,3 +57267,56 @@ from R:
 The first run of that script waited for "record(s) from" and matched the
 roots' line at M's first round, before any journal record existed. The
 second waited for the journal's own wording.
+
+## 502. Stage 3a: the journal carries the objects themselves, 2026-10-07
+
+Stage 3 of sec 500 moves each kind of security record onto the journal. It
+is built in three parts:
+
+- **3a, this section:** the journal carries the objects.
+- **3b:** a receiver applies what it pulls.
+- **3c:** the old carriage is deleted.
+
+### Each act's object, whole
+
+Until now a record mirrored an act: its subject was the act's hash and its
+body one byte. Now **the record's body is the act's own signed object,
+whole.** That covers:
+
+- a revocation vote or a withdrawal;
+- a roster record;
+- an admin confirmation;
+- a root change, or a setting of k or of a retention rule;
+- a succession;
+- a grant's hop.
+
+The record's **kind is the object's tag** (`wire/bytes.h`, 128 and up), and
+its **subject is the object's hash**, which is the act the act log names.
+Every one of them fits the 512-byte body: the largest, a retention setting,
+is 258 bytes.
+
+- **`fzn_node_journal_append_object`** writes one. It refuses something
+  whose tag is below 128, since that is no signed object of this library's,
+  and anything that does not fit a body. The record kind
+  `FZN_NODE_JOURNAL_KIND_ACT` is gone.
+- **The roots' `logged` hook passes the act's bytes,** which
+  `fzn_node_roots_log_act` already held. fuzznetd writes them as the next
+  record of the signer's stream.
+
+**The object keeps its own signature inside the record's.** That is
+redundant, and deliberately left: each subsystem's admission goes on
+reading its own object unchanged. Flattening each object into native record
+fields is a later step that changes no carriage.
+
+**A host that holds a key's stream now holds everything that key signed
+for its estate**, grants included. That is what 3b needs to rebuild a
+signer's chain from its grantors' streams rather than carry it beside every
+vote.
+
+### Measured for sec 502
+
+- **`node_journal_test`, 13 checks:** a 194-byte succession carried whole,
+  as kind 146, under its own hash; an object with tag 0x36 refused as
+  MALFORMED.
+- **`pair_test`, 296 checks:** the roots' hook is handed the succession R
+  minted, whole and under its tag.
