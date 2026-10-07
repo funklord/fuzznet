@@ -292,11 +292,14 @@ fzn_notes_err_t fzn_notes_purge_release(const fzn_notes_store_t *store, uint64_t
 			}
 			done += p.answered[j] ? 1u : 0u;
 		}
-		if (!changed)
-			continue;
-		err = save(store, &p);
-		if (err != FZN_NOTES_OK)
-			return err;
+		if (changed) {
+			err = save(store, &p);
+			if (err != FZN_NOTES_OK)
+				return err;
+		}
+		/* EVERY HOST ANSWERED, NOW OR IN AN EARLIER ROUND: an all-answered
+		 * purge still queued is one whose erase failed after the last
+		 * answer, and this is the retry nothing else would make. */
 		if (done == p.asked_count) {
 			err = fzn_notes_purge_finish(store, p.id);
 			if (err != FZN_NOTES_OK)

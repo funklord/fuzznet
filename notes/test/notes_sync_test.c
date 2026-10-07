@@ -185,6 +185,17 @@ static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject
 	return 1;
 }
 
+/* A REMOVAL THAT FAILS FOR A NOTE while `refuse_note_removal` is set: the
+ * erase after a purge's last answer, failing. */
+static int refuse_note_removal;
+
+static int remove_unless_note(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject)
+{
+	if (refuse_note_removal && slot == FZN_PERSIST_NOTE)
+		return 0;
+	return mem_remove(ctx, slot, subject);
+}
+
 static struct table table_a, table_b;
 static fzn_persist_ops_t ops_a = { mem_load, mem_save, mem_list, mem_remove, &table_a };
 static fzn_persist_ops_t ops_b = { mem_load, mem_save, mem_list, mem_remove, &table_b };
@@ -560,6 +571,43 @@ static void test_purge_conversation(void)
 		CHECK(fzn_notes_sync_purges(&store_a, both(), KEY_B, ask, &junk, &pt)
 		              == FZN_NOTES_SYNC_SHAPE,
 		      "nonsense in answer is SHAPE");
+	}
+
+	/* ---- AN ERASE THAT FAILS AFTER THE LAST ANSWER, reported by
+	 * fuzzypickles: B erases w for A and A records the answer, then A's own
+	 * erase fails. Every pinned host has answered, so no question is owed;
+	 * the next round must finish the purge anyway rather than hold w and its
+	 * queue slot for good. */
+	{
+		static fzn_persist_ops_t flaky;
+		static fzn_notes_store_t on_a;
+		uint8_t w[FZN_TREE_ID_LEN];
+
+		flaky = ops_a;
+		flaky.remove = remove_unless_note;
+		CHECK(fzn_notes_sync_purges(&store_a, both(), KEY_B, ask, &b_for_a, &pt)
+		                      == FZN_NOTES_SYNC_OK
+		              && !fzn_notes_purge_pending(&store_a, x),
+		      "fixture: A's purge of z, which B could not forget, finished with B that can");
+		CHECK(fzn_notes_store_init(&on_a, &flaky, &HASH) == FZN_NOTES_OK
+		              && write(&a, "w", w)
+		              && fzn_notes_sync_pull(&store_b, both(), &sign_b, ask, &a_for_b, &t)
+		                         == FZN_NOTES_SYNC_OK,
+		      "fixture: w on A and B");
+		memcpy(pin.key, KEY_B, FZN_PUBKEY_LEN);
+		refuse_note_removal = 1;
+		CHECK(fzn_notes_purge_add(&on_a, w, fzn_notes_asking(&pin, 1u), 9u, &complete)
+		                      == FZN_NOTES_OK
+		              && fzn_notes_sync_purges(&on_a, both(), KEY_B, ask, &b_for_a, &pt)
+		                         == FZN_NOTES_SYNC_STORE
+		              && fzn_notes_purge_pending(&on_a, w),
+		      "fixture: B erased w and A's own erase failed, the purge still queued");
+		refuse_note_removal = 0;
+		CHECK(fzn_notes_sync_purges(&on_a, both(), KEY_B, ask, &b_for_a, &pt)
+		                      == FZN_NOTES_SYNC_OK
+		              && pt.finished == 1u && pt.asked == 0u && !fzn_notes_purge_pending(&on_a, w),
+		      "a purge every pinned host had answered was never finished after its erase "
+		      "failed");
 	}
 }
 

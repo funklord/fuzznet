@@ -1041,6 +1041,27 @@ static void test_purge(void)
 		                      == FZN_NOTES_OK
 		              && finished == 1u && !fzn_notes_purge_pending(&store, four),
 		      "and ages from then, not from the clock that was wrong");
+
+		/* EVERY HOST ANSWERED AND NOTHING FINISHED IT -- the erase after the
+		 * last answer failed, as fuzzypickles found theirs could. Nobody is
+		 * left to release, and the purge must finish anyway. */
+		{
+			uint8_t five[FZN_TREE_ID_LEN];
+
+			note = titled("fifth", "");
+			CHECK(fzn_notes_create(&a, root, FZN_NOTE_TYPE_NOTE, &note, 6u, five) == FZN_NOTES_OK
+			              && fzn_notes_purge_add(&store, five, fzn_notes_asking(hosts, 2u), 6001u,
+			                                     &complete) == FZN_NOTES_OK
+			              && fzn_notes_purge_answer(&store, five, KEY_B, &complete) == FZN_NOTES_OK
+			              && fzn_notes_purge_answer(&store, five, KEY_C, &complete) == FZN_NOTES_OK
+			              && complete && fzn_notes_purge_pending(&store, five),
+			      "fixture: a purge every host answered, its erase never made");
+			CHECK(fzn_notes_purge_release(&store, 6001u + 1001u, 1000u, heard_stub, NULL,
+			                              &released, &finished) == FZN_NOTES_OK
+			              && released == 0u && finished == 1u
+			              && !fzn_notes_purge_pending(&store, five) && held_claims(five) == 0,
+			      "a purge every host had answered was never finished by a release");
+		}
 		CHECK(fzn_notes_purge_release(&store, 6001u, 1000u, NULL, NULL, &released, &finished)
 		              == FZN_NOTES_ERR_MALFORMED,
 		      "with no measure of who was heard, nothing is released");

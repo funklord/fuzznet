@@ -234,7 +234,12 @@ typedef struct fzn_notes_purge_tally {
 /* One round of the conversation with the node `host`, reached by `ask`: ask
  * it to erase each note this store has a purge pinning it for, finishing each
  * purge whose consent completes; then take its purges that pin this node,
- * erasing each when `policy` admits `host`, and acknowledge them. */
+ * erasing each when `policy` admits `host`, and acknowledge them.
+ *
+ * A PURGE EVERY PINNED HOST HAS ANSWERED, still queued, is finished first,
+ * whichever host this round is with: its erase failed after the last answer,
+ * no host is owed a question about it, and nothing else would retry it. It
+ * counts in `finished`; a finish that fails again is STORE. */
 fzn_notes_sync_err_t fzn_notes_sync_purges(const fzn_notes_store_t *store,
                                            fzn_notes_policy_t policy,
                                            const uint8_t host[FZN_PUBKEY_LEN],

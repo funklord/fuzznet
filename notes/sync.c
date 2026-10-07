@@ -535,6 +535,22 @@ fzn_notes_sync_err_t fzn_notes_sync_purges(const fzn_notes_store_t *store,
 
 		if (fzn_notes_purge_get(store, ids[i], &p) != FZN_NOTES_OK)
 			continue;
+		/* EVERY HOST ANSWERED AND THE PURGE STILL QUEUED: the erase after
+		 * the last answer failed, and no host is owed a question any more,
+		 * so nothing below would ever reach it. Finish it first. Reported
+		 * by fuzzypickles, whose purge had the same edge (their sec 191). */
+		{
+			size_t answered = 0;
+
+			for (j = 0; j < p.asked_count; j++)
+				answered += p.answered[j] ? 1u : 0u;
+			if (answered == p.asked_count) {
+				if (fzn_notes_purge_finish(store, p.id) != FZN_NOTES_OK)
+					return FZN_NOTES_SYNC_STORE;
+				tally->finished++;
+				continue;
+			}
+		}
 		/* ONLY A HOST THE PURGE PINNED, AND ONLY UNTIL IT ANSWERS. */
 		for (j = 0; j < p.asked_count && !pinned; j++)
 			pinned = !p.answered[j] && fzn_ct_memeq(p.asked[j], host, FZN_PUBKEY_LEN);

@@ -57656,3 +57656,41 @@ lost:
 - `make test`, `make style` (1160 sabotage entries verified),
   `make installcheck`, and `live55` again: R's revocation and setting of k
   reach M in the journal and replay at a restart.
+
+## 507. A purge whose last erase failed is finished by the next round, 2026-10-07
+
+Reported by fuzzypickles, who fixed the same defect in their purge (their
+sec 191) and asked us to check ours. Ours had it.
+
+The last host's answer is recorded first, then the note is erased and the
+queue entry dropped (`fzn_notes_purge_finish`). If that erase failed, the
+entry stayed with every pinned host marked answered, and nothing finished
+it:
+
+- **`fzn_notes_sync_purges`** asks a host only while the purge pins it
+  unanswered, so no round asked about it again.
+- **`fzn_notes_purge_release`** went on only for a purge whose answers it
+  had just changed, and there was nobody left to change.
+- **The server side's `answer_ack`** drops the finish's error, so a failure
+  there leaves the same state.
+
+The note was never erased, it held a purge-queue slot for good, and its
+records stayed refused by `fzn_notes_purge_pending`.
+
+**The fix, the one fuzzypickles chose:** every round first finishes any
+queued purge whose pinned hosts have all answered. `fzn_notes_sync_purges`
+does so before asking, whichever host the round is with, and counts it in
+`finished`; a finish that fails again is STORE. `fzn_notes_purge_release`
+finishes an all-answered purge whether or not this release answered
+anything.
+
+### Measured for sec 507
+
+- `notes_sync_test`, 117 checks. A's store refuses to remove a note while
+  B erases w and A records the answer, so the round is STORE and the purge
+  stays queued. With removal working again, the next round asks nobody and
+  finishes it.
+- `notes_store_test`, 172 checks. A purge both hosts answered, with no
+  finish after, is finished by the next release.
+- Both checks were run against the code before the fix and failed. Both
+  are sabotage entries now.

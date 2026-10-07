@@ -9464,6 +9464,20 @@ SABOTAGES = [
 		"\troots->journal = journal;",
 		"roots that keep the root log's act ops after a journal is set judge every cut by a log a remote node never receives, and a revoked member's acts before its line drop everywhere but where it was cast -- sec 506",
 	),
+	(
+		"notes-sync-finishes-an-answered-purge",
+		"notes/sync.c",
+		"\t\t\tif (answered == p.asked_count) {",
+		"\t\t\tif (0) {",
+		"a purge whose erase failed after the last host answered is owed no question, so no round reaches it again: the note is never erased and holds its queue slot for good -- reported by fuzzypickles, sec 507",
+	),
+	(
+		"notes-release-finishes-an-answered-purge",
+		"notes/purge.c",
+		"\t\tif (changed) {\n\t\t\terr = save(store, &p);\n\t\t\tif (err != FZN_NOTES_OK)\n\t\t\t\treturn err;\n\t\t}\n",
+		"\t\tif (!changed)\n\t\t\tcontinue;\n\t\terr = save(store, &p);\n\t\tif (err != FZN_NOTES_OK)\n\t\t\treturn err;\n",
+		"a release that only finishes purges whose answers it changed never retries one whose erase failed after its last answer -- sec 507",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
