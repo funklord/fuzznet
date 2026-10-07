@@ -1044,13 +1044,13 @@ static int journal_logged(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN],
  * this node's stream 0, chained and kept, and handed back for the claims
  * index. */
 static int journal_chain(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN],
-                         const fzn_sign_ops_t *sign, const uint8_t subject[FZN_SUBJECT_LEN],
+                         const fzn_sign_ops_t *sign, uint32_t kind,
+                         const uint8_t subject[FZN_SUBJECT_LEN],
                          const uint8_t *body, size_t body_len, uint64_t now_ms, uint8_t *record,
                          size_t cap, size_t *record_len)
 {
-	return fzn_node_journal_write((fzn_node_journal_t *)ctx, issuer, FZN_NOTE_STREAM, sign,
-	                              FZN_NOTE_KIND, subject, body, body_len, now_ms, record, cap,
-	                              record_len, NULL)
+	return fzn_node_journal_write((fzn_node_journal_t *)ctx, issuer, FZN_NOTE_STREAM, sign, kind,
+	                              subject, body, body_len, now_ms, record, cap, record_len, NULL)
 	       == FZN_NODE_JOURNAL_OK;
 }
 
@@ -1098,17 +1098,42 @@ static int journal_for(const char *store_dir, fzn_node_roots_t *roots, const fzn
 }
 
 #ifdef FZN_RECORD_STORE_FILE_ON
+/* A PUSH TAKEN, sec 519: a member's notes arrive in the journal, and a hub
+ * that pulls from nobody hears them only so. The loop feeds the index at
+ * once rather than at the next round, as the notes' own push did. */
+static int journal_pushed;
+
 static size_t journal_remote(void *ctx, const uint8_t *request, size_t request_len,
                              uint8_t *reply, size_t reply_cap)
 {
-	return fzn_node_journal_answer((fzn_node_journal_t *)ctx, request, request_len, reply,
-	                               reply_cap);
+	size_t n = fzn_node_journal_answer((fzn_node_journal_t *)ctx, request, request_len, reply,
+	                                   reply_cap);
+
+	if (n && request_len >= 2u && request[0] == FZN_EXCHANGE_VERSION
+	    && request[1] == FZN_EXCHANGE_PUSH)
+		journal_pushed = 1;
+	return n;
 }
+
+/* THE NODES WHOSE NOTES THIS NODE FILES, sec 519: itself, the estate's
+ * root node, the peers paired to it that are no contact, and the members
+ * the last round proved -- the keys that write notes, where roots are keys
+ * that write acts. Each one's notes stream is followed, and its records fed
+ * into the index from a cursor kept for it here. */
+#define NOTES_STREAMS_MAX (FZN_NODE_JOURNAL_STREAMS_MAX / 2u)
+static uint8_t notes_keys[NOTES_STREAMS_MAX][FZN_PUBKEY_LEN];
+static size_t n_notes_keys;
+static struct notes_cursor {
+	uint8_t key[FZN_PUBKEY_LEN];
+	uint64_t at;
+} notes_cursors[NOTES_STREAMS_MAX];
+static size_t n_notes_cursors;
 
 /* FOLLOW THE ESTATE: this node's own keys, the roots that stand, the peers
  * paired to it that are no contact, and the members the last round proved.
  * Asked every round, so a member paired since is followed from its first
- * act. Following is idempotent. */
+ * act. Following is idempotent. The nodes among them are followed on their
+ * notes stream too (sec 519). */
 static void follow_estate(const uint8_t identity[FZN_PUBKEY_LEN], const fzn_node_state_t *state,
                           const fzn_node_roots_t *roots)
 {
@@ -1134,6 +1159,74 @@ static void follow_estate(const uint8_t identity[FZN_PUBKEY_LEN], const fzn_node
 			say(FZN_ENTRY_WARNING, "journal", "no room to follow another key's stream");
 			break;
 		}
+	/* THE NODES' NOTES STREAMS: the same keys less the roots. */
+	n_notes_keys = 0;
+	memcpy(notes_keys[n_notes_keys++], identity, FZN_PUBKEY_LEN);
+	memcpy(notes_keys[n_notes_keys++], state->config.root, FZN_PUBKEY_LEN);
+	for (i = 0; i < state->peer_count && n_notes_keys < NOTES_STREAMS_MAX; i++)
+		if (!fzn_node_peer_contact(&state->config, &state->peers[i]))
+			memcpy(notes_keys[n_notes_keys++], state->peers[i].sender, FZN_PUBKEY_LEN);
+	for (i = 0; i < n_pulled_members && n_notes_keys < NOTES_STREAMS_MAX; i++)
+		memcpy(notes_keys[n_notes_keys++], pulled_members[i], FZN_PUBKEY_LEN);
+	for (i = 0; i < n_notes_keys; i++)
+		if (fzn_node_journal_follow_stream(&node_journal, notes_keys[i], FZN_NOTE_STREAM, NULL)
+		    == FZN_NODE_JOURNAL_FULL) {
+			say(FZN_ENTRY_WARNING, "journal", "no room to follow another node's notes");
+			break;
+		}
+}
+
+/* A note record out of the journal's store, for the index. */
+static int journal_read(void *ctx, const uint8_t key[FZN_PUBKEY_LEN], uint64_t seq, uint8_t *out,
+                        size_t cap, size_t *out_len)
+{
+	fzn_record_t rec;
+
+	(void)ctx;
+	if (fzn_record_store_get(&node_journal.store, key, FZN_NOTE_STREAM, seq, out, cap, &rec)
+	    != FZN_RECORD_STORE_OK)
+		return 0;
+	*out_len = rec.len;
+	return 1;
+}
+
+/* THE INDEX FED FROM THE JOURNAL, sec 519: every node's notes stream from
+ * where this run last left it -- from the beginning at start, which rebuilds
+ * the index, so a record kept and not filed before a crash is filed now. */
+static void index_notes(void)
+{
+	size_t i, k;
+
+	if (!journal_on || !notes_on)
+		return;
+	for (i = 0; i < n_notes_keys; i++) {
+		fzn_node_notes_index_tally_t t;
+		fzn_notes_err_t err;
+		struct notes_cursor *c = NULL;
+		uint64_t to = fzn_node_journal_received(&node_journal, notes_keys[i], FZN_NOTE_STREAM);
+
+		for (k = 0; k < n_notes_cursors && !c; k++)
+			if (memcmp(notes_cursors[k].key, notes_keys[i], FZN_PUBKEY_LEN) == 0)
+				c = &notes_cursors[k];
+		if (!c) {
+			if (n_notes_cursors >= NOTES_STREAMS_MAX)
+				break;
+			c = &notes_cursors[n_notes_cursors++];
+			memcpy(c->key, notes_keys[i], FZN_PUBKEY_LEN);
+			c->at = 0;
+		}
+		if (c->at >= to)
+			continue;
+		err = fzn_node_notes_index_stream(&node_notes, journal_read, NULL, notes_keys[i], &c->at,
+		                                  to, &t);
+		if (err != FZN_NOTES_OK)
+			say(FZN_ENTRY_WARNING, "notes/index", "a notes stream would not all file: %s",
+			    fzn_notes_err_str(err));
+		else if (t.filed || t.purged || t.waiting)
+			say(FZN_ENTRY_INFO, "notes/index",
+			    "%zu note record(s) filed, %zu purge(s), %zu held already%s", t.filed,
+			    t.purged, t.held, t.waiting ? ", a writer not yet admitted waits" : "");
+	}
 }
 
 /* THE JOURNAL APPLIED, sec 503: every object pulled, handed to the subsystem
@@ -1234,36 +1327,27 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 	}
 	n_pulled_members = n_members;
 	admit_writers(state, roots);
+#ifdef FZN_RECORD_STORE_FILE_ON
+	index_notes();
+#endif
+	/* A PURGE NOT SAID, sec 519: marked here, and no follower told. */
+	{
+		static size_t untold;
+
+		if (node_notes.purges_untold != untold) {
+			untold = node_notes.purges_untold;
+			say(FZN_ENTRY_WARNING, "notes/purge",
+			    "%zu purge(s) marked here were not written to the journal", untold);
+		}
+	}
+	/* THE NOTES THEMSELVES COME IN THE JOURNAL, sec 519: pulled and pushed
+	 * with every other stream, and filed by `index_notes`. What is left to
+	 * say to each peer here is their texts and the purge conversation. */
 	for (t = 0; t < npulls; t++) {
 		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
-		fzn_notes_sync_tally_t tally;
-		fzn_notes_sync_err_t err = fzn_notes_sync_pull(&node_notes.store,
-		                                               node_notes.author.policy,
-		                                               node_notes.author.sign, peer_ask,
-		                                               &asking, &tally);
+		fzn_notes_sync_err_t err;
 
-		if (err != FZN_NOTES_SYNC_OK)
-			say(FZN_ENTRY_WARNING, "notes/sync", "notes from %s: %s", pulls[t].host,
-			        fzn_notes_sync_err_str(err));
-		else if (tally.learned || tally.refused)
-			say(FZN_ENTRY_INFO, "notes/sync", "%zu note record(s) from %s, %zu refused",
-			        tally.learned, pulls[t].host, tally.refused);
-		/* AND PUSHED BACK, sec 446: what this node holds that the peer
-		 * lacks, so a note written here reaches a node that does not pull
-		 * from this one. */
-		{
-			fzn_notes_push_tally_t pt;
-			fzn_notes_sync_err_t perr =
-			        fzn_notes_sync_push(&node_notes.store, peer_ask, &asking, &pt);
-
-			if (perr != FZN_NOTES_SYNC_OK)
-				say(FZN_ENTRY_WARNING, "notes/push", "notes to %s: %s", pulls[t].host,
-				        fzn_notes_sync_err_str(perr));
-			else if (pt.taken || pt.refused)
-				say(FZN_ENTRY_INFO, "notes/push", "%zu note record(s) to %s, %zu refused",
-				        pt.taken, pulls[t].host, pt.refused);
-		}
-		/* AND THEIR TEXTS, sec 448: a pushed note whose text stayed here
+		/* THEIR TEXTS, sec 448: a pushed note whose text stayed here
 		 * would be a note nobody there could read. */
 		{
 			fzn_node_notes_text_tally_t tt;
@@ -3409,8 +3493,18 @@ int main(int argc, char **argv)
 			    && (now >= last_fresh_round + 2u || last_fresh_round > now)) {
 				node_notes.fresh = 0;
 				last_fresh_round = now;
+				/* THE NOTE GOES IN THE JOURNAL, sec 519, pushed with it. */
+#ifdef FZN_RECORD_STORE_FILE_ON
+				pull_journal(pulls, npulls, now);
+#endif
 				pull_notes(pulls, npulls, now, &state, running, running_roots);
 			}
+#ifdef FZN_RECORD_STORE_FILE_ON
+			if (journal_pushed) {
+				journal_pushed = 0;
+				index_notes();
+			}
+#endif
 			/* A REQUEST NEVER FINISHED gives its slot back. */
 			if (state.reassembly)
 				(void)fzn_reasm_expire(state.reassembly, wall_clock());

@@ -179,8 +179,8 @@ static fzn_notes_err_t write_note(const fzn_notes_author_t *a,
 	err = index_takes(a, id);
 	if (err != FZN_NOTES_OK)
 		return err;
-	if (!a->chain(a->chain_ctx, a->issuer, a->sign, id, body, body_len, now_ms, record,
-	              sizeof(record), &record_len))
+	if (!a->chain(a->chain_ctx, a->issuer, a->sign, FZN_NOTE_KIND, id, body, body_len, now_ms,
+	              record, sizeof(record), &record_len))
 		return FZN_NOTES_ERR_BACKEND;
 	err = fzn_notes_put(a->store, record, record_len, a->policy, a->sign, &wrote, NULL);
 	if (err != FZN_NOTES_OK)

@@ -147,6 +147,10 @@ typedef struct fzn_node_notes {
 	 * stream 0. NULL and no note can be written. */
 	fzn_notes_chain_fn chain;
 	void *chain_ctx;
+	/* Purges marked here that no purge record could be written for, sec
+	 * 519: told to no follower of this node's stream, so only the pinned
+	 * conversation carries them. The caller reads and logs it. */
+	size_t purges_untold;
 	/* Collecting texts no note names, or NULL: then `remove text unused`
 	 * says this node keeps none. sec 443. */
 	fzn_node_notes_collect_fn collect;
@@ -191,6 +195,36 @@ size_t fzn_node_notes_admit_members(fzn_node_notes_t *notes, const uint8_t (*key
 size_t fzn_node_notes_remote(void *ctx, const uint8_t *sender, int shared,
                              const uint8_t *request, size_t request_len, uint8_t *reply,
                              size_t reply_cap);
+
+/* READ ONE RECORD of `key`'s notes stream, at `seq`, into `out` -- the
+ * node's journal store, in practice. Nonzero when it is held and fits. */
+typedef int (*fzn_node_notes_read_fn)(void *ctx, const uint8_t key[FZN_PUBKEY_LEN],
+                                      uint64_t seq, uint8_t *out, size_t cap, size_t *out_len);
+
+typedef struct fzn_node_notes_index_tally {
+	size_t filed;   /* note records the index took */
+	size_t held;    /* note records it held already, or newer */
+	size_t purged;  /* records of notes purged here, and purge records acted on */
+	size_t skipped; /* records of no notes kind, or that will not read */
+	int waiting;    /* stopped at a writer not admitted yet: the next round retries */
+} fzn_node_notes_index_tally_t;
+
+/*
+ * FEED THE INDEX FROM A STREAM, sec 519: `key`'s notes stream from just past
+ * `*cursor` to `to`, read through `read`, each record filed as a pulled one
+ * would be. A note record goes through `fzn_notes_put`; a purge record from a
+ * writer this node admits, verified, purges the note here as a PURGE from it
+ * would. `*cursor` advances past every record dealt with, and stops before a
+ * writer not admitted yet -- a member proved later is not a record lost.
+ * Records of kinds that are not notes' are passed over.
+ *
+ * From a cursor of 0 this is the index rebuilt from the stream, which the
+ * purge mark (sec 518) makes safe: a purged note's records are refused.
+ */
+fzn_notes_err_t fzn_node_notes_index_stream(fzn_node_notes_t *n, fzn_node_notes_read_fn read,
+                                            void *ctx, const uint8_t key[FZN_PUBKEY_LEN],
+                                            uint64_t *cursor, uint64_t to,
+                                            fzn_node_notes_index_tally_t *tally);
 
 /* Whether a note the subtrees shared with `sender` reach has its text in the
  * blob `root`: the texts a contact may fetch from this node's shelf, sec 438.

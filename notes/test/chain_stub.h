@@ -47,7 +47,7 @@ static inline void chain_stub_digest(const uint8_t *bytes, size_t len,
 }
 
 static inline int chain_stub_chain(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN],
-                                   const fzn_sign_ops_t *sign,
+                                   const fzn_sign_ops_t *sign, uint32_t kind,
                                    const uint8_t subject[FZN_SUBJECT_LEN], const uint8_t *body,
                                    size_t body_len, uint64_t now_ms, uint8_t *record,
                                    size_t cap, size_t *record_len)
@@ -67,7 +67,7 @@ static inline int chain_stub_chain(void *ctx, const uint8_t issuer[FZN_PUBKEY_LE
 		chain_stub.seq[i] = 0;
 		chain_stub.count++;
 	}
-	if (fzn_record_sign(issuer, subject, FZN_NOTE_STREAM, FZN_NOTE_KIND, chain_stub.seq[i] + 1u,
+	if (fzn_record_sign(issuer, subject, FZN_NOTE_STREAM, kind, chain_stub.seq[i] + 1u,
 	                    chain_stub.seq[i] ? chain_stub.head[i] : NULL, now_ms, body, body_len,
 	                    sign, record, cap, record_len)
 	    != FZN_RECORD_OK)

@@ -58505,3 +58505,116 @@ and its body are retired from the schema too now, and the generated
   since the note erase is a purge.
 - Two sabotage entries, both caught: `notes-put-refuses-purged` and
   `notes-erase-marks-first`.
+
+## 519. Stage 5, step 4b: members carry notes in the journal, and a purge travels with them, 2026-10-08
+
+Step 4 of sec 511, after sec 518's mark: members sync notes through the
+journal, and notes' own record carriage between members retires.
+
+### What members do now
+
+- **A node follows every node's notes stream** that it follows for acts:
+  - itself, the estate's root node, its paired peers that are no
+    contact, and the members the last round proved;
+  - not the roots, which are keys that write acts and not notes.
+
+  Each of those streams is pulled and pushed by the journal exchange,
+  with the estate's streams.
+- **The index is fed from them**, through `fzn_node_notes_index_stream`, a
+  stream at a time from a cursor the daemon keeps:
+  - A note record goes through `fzn_notes_put`.
+  - A writer not admitted yet stops the cursor. The next round retries,
+    so a member proved a round late loses nothing.
+  - Records of kinds that are not notes' are passed over.
+- **Every run starts its cursors at 0, so the index is rebuilt from the
+  journal at start.** That is the rebuild sec 517 deferred. It closes the
+  window where a crash fell between keeping a record and filing it. It is
+  safe because of sec 518's mark.
+- **A hub hears a member's notes by the member's push.** The daemon notes
+  when it takes a journal push and feeds the index at once. Without that,
+  a hub would wait for its next round, up to a minute, where the old notes
+  push was filed on arrival.
+- **Notes' INDEX, RECORDS and PUSH between members retire.**
+  - From a member, the node now answers only the purge conversation:
+    PURGE, PURGE_ACK and PURGES_QUERY. A member's INDEX goes unanswered.
+  - PUSH and PUSHED are removed, with `fzn_notes_sync_push` and
+    `fzn_notes_sync_take`. Types 13 and 14 are retired.
+  - `fzn_notes_sync_answer` keeps INDEX and RECORDS, as the server for a
+    peer holding a whole store. Contacts are served by the scoped answer,
+    and the suites drive the puller contacts depend on (`pull_shared`
+    builds on `fzn_notes_sync_pull`).
+- **Partners are recorded on PURGES_QUERY**, which every member sends each
+  round, where they were recorded on INDEX_QUERY, which members no longer
+  send. Without that, no purge would pin anybody.
+
+### A purge travels: the purge record
+
+The mark of sec 518 is local. A member that joins after a purge's pinned
+conversation has finished holds no mark. It would follow the note's
+writers' streams and file the note again, and after step 5 it would show
+as a shell listed pending, indefinitely.
+
+- **When a note is first marked purged here, the node writes a purge
+  record into its own notes stream.** Its kind is `FZN_NOTE_PURGE_KIND`,
+  and it is about the note's id. The store's new `purged` hook is called
+  once, only when the mark is new, so a retried erase writes nothing more.
+- **A follower feeding the index meets it and purges the note too:**
+  verified, then marked and erased. That holds only for a writer this node
+  admits, which is the rule a PURGE message already has: who may ask a
+  note to go is who may write one. Its own mark then writes its own purge
+  record, once.
+- **The pinned conversation is unchanged.** It is still what asks each
+  holder to erase, and what lets the asker finish. The record is what
+  reaches a host the conversation never knew of.
+- **The kind is 0x136, above a byte.** fuzzypickles' command values double
+  as record kinds and fill 0x20 onward, with 0x20–0x7E and 0x80–0xFF both
+  reserved for their future subsystems. A kind no byte can spell meets
+  none of them.
+- **A purge record that cannot be written is counted, not lost silently.**
+  The daemon warns when the count moves. The mark here stands either way.
+
+The chain hook takes the record's kind as a parameter for this.
+
+### Tests of the feed
+
+- `node/test/notes_test`, 301 checks, over a real journal:
+  - a sibling's note is filed from its stream and listed, and fed again
+    from the cursor nothing is filed twice;
+  - its purge record purges the note here, which this node says once in
+    its own stream;
+  - fed again from 0, the note is not filed or told again;
+  - a purge from a writer not admitted waits, and the note stays;
+  - a writer not admitted waits at its cursor and is filed once proved.
+  - The partner fixtures ask PURGES_QUERY, and a member's INDEX goes
+    unanswered.
+- `notes_sync_test`, 103 checks. The PUSH tests go, and a member asking
+  for purges is now recorded as a partner.
+- Live, `live59`, with hub R, M pulling from R, and J paired at the start
+  but first run after the purge:
+  - M lists R's two notes after its first round.
+  - M renames one, and R lists the rename five seconds later through the
+    push.
+  - R purges it. M's next round answers the purge, and both R and M then
+    list only the other note.
+  - J then starts and lists only that note. Its index filed three of R's
+    records, then met R's purge record.
+- Three PUSH sabotage entries are retired, and `notes-sync-partner-recorded`
+  is re-anchored on PURGES_QUERY. Five entries are new, and all six are
+  caught:
+  - `node-notes-members-get-only-purges`
+  - `notes-feed-waits-for-a-writer`
+  - `notes-feed-purge-needs-admitted`
+  - `notes-purge-is-told`
+  - `notes-mark-tells-once`
+
+### Still open after step 4
+
+- **R listed both writers' titles after M's rename.** Two writers' claims
+  on one note are left unresolved by `tree/`, as before, and the listing
+  shows each. Nothing here changed that.
+- **A `history` verb**, now that a member holds its siblings' streams.
+- **Step 5: purge over shells.** Destroy every blob a purged note's
+  history names; the mark is done.
+- **Step 6: the daemon's verbs, the GUI and import,** including the title
+  cache sec 511 promised clients.
+- **Step 7: the operation journal.**

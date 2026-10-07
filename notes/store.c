@@ -105,6 +105,8 @@ fzn_notes_err_t fzn_notes_store_init(fzn_notes_store_t *store, const fzn_persist
 		return FZN_NOTES_ERR_MALFORMED;
 	store->ops = ops;
 	store->hash = hash;
+	store->purged = NULL;
+	store->purged_ctx = NULL;
 	return FZN_NOTES_OK;
 }
 
@@ -268,12 +270,18 @@ fzn_notes_err_t fzn_notes_mark_purged(const fzn_notes_store_t *store,
 
 	if (!store || !store->ops || !store->ops->save || !id)
 		return FZN_NOTES_ERR_MALFORMED;
+	/* ONCE: a mark held already is a purge this host has told of, and the
+	 * retries an erase is owed must not tell it again. */
+	if (fzn_notes_purged(store, id))
+		return FZN_NOTES_OK;
 	if (fzn_persist_head_write(blob, sizeof(blob), PURGED_BODY, FZN_PERSIST_BLOB_NOTE_PURGED)
 	    != FZN_PERSIST_OK)
 		return FZN_NOTES_ERR_MALFORMED;
 	blob[FZN_PERSIST_HEAD_LEN] = 1u;
 	if (!store->ops->save(store->ops->ctx, FZN_PERSIST_NOTE_PURGED, id, blob, sizeof(blob)))
 		return FZN_NOTES_ERR_BACKEND;
+	if (store->purged)
+		store->purged(store->purged_ctx, id);
 	return FZN_NOTES_OK;
 }
 

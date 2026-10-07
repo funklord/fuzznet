@@ -71,12 +71,13 @@ typedef int (*fzn_notes_seal_fn)(void *ctx, const uint8_t *payload, size_t len,
 typedef int (*fzn_notes_open_fn)(void *ctx, const fzn_note_blob_ref_t *ref, uint8_t *out,
                                  size_t cap, size_t *out_len);
 
-/* Sign `body` as the next record of `issuer`'s notes stream -- FZN_NOTE_KIND
- * on FZN_NOTE_STREAM, about `subject`, naming the stream's last record -- keep
+/* Sign `body` as the next record of `issuer`'s notes stream -- `kind` on
+ * FZN_NOTE_STREAM, about `subject`, naming the stream's last record -- keep
  * it, and copy it into `record`, `cap` bytes, `*record_len` of them. Nonzero
- * on success. */
+ * on success. The kind is FZN_NOTE_KIND for a note, FZN_NOTE_PURGE_KIND for
+ * a purge (sec 519). */
 typedef int (*fzn_notes_chain_fn)(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN],
-                                  const fzn_sign_ops_t *sign,
+                                  const fzn_sign_ops_t *sign, uint32_t kind,
                                   const uint8_t subject[FZN_SUBJECT_LEN], const uint8_t *body,
                                   size_t body_len, uint64_t now_ms, uint8_t *record,
                                   size_t cap, size_t *record_len);

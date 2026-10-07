@@ -498,13 +498,13 @@ static void test_trash(void)
 	      "fixture: a node pulling from nobody, with one paired node");
 	hooks();
 	{
-		uint8_t query[FZN_NOTES_SYNC_INDEX_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
-			                                          FZN_NOTES_SYNC_INDEX_QUERY, 0, 0 };
+		uint8_t query[FZN_NOTES_SYNC_PURGES_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
+			                                           FZN_NOTES_SYNC_PURGES_QUERY };
 		uint8_t out[FZN_NOTES_SYNC_REPLY_MAX];
 
 		CHECK(fzn_node_notes_remote(&notes, PEER, 0, query, sizeof(query), out, sizeof(out))
 		              > 0u,
-		      "fixture: the paired node pulls this one's index");
+		      "fixture: the paired node asks for this one's purges");
 	}
 	CHECK(ask("add note top bin") == FZN_REPLY_OK, "fixture: a note to bin");
 	take_id(b);
@@ -516,15 +516,15 @@ static void test_trash(void)
 
 	/* A PARTNER STILL PULLING KEEPS ITS PIN, sec 472: it will answer. */
 	{
-		uint8_t query[FZN_NOTES_SYNC_INDEX_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
-			                                          FZN_NOTES_SYNC_INDEX_QUERY, 0, 0 };
+		uint8_t query[FZN_NOTES_SYNC_PURGES_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
+			                                           FZN_NOTES_SYNC_PURGES_QUERY };
 		uint8_t out[FZN_NOTES_SYNC_REPLY_MAX];
 		size_t released = 9, finished = 9;
 
 		clock_ms += FZN_NODE_NOTES_PARTNER_AGE_MS;
 		CHECK(fzn_node_notes_remote(&notes, PEER, 0, query, sizeof(query), out, sizeof(out))
 		              > 0u,
-		      "fixture: the partner pulls again, a month on");
+		      "fixture: the partner asks again, a month on");
 		clock_ms += 1000u;
 		CHECK(fzn_node_notes_release_purges(&notes, &released, &finished) && released == 0u,
 		      "a month after the purge, a partner heard from lately is not released");
@@ -632,7 +632,9 @@ static void test_share(void)
 	      "list share names the subtree and the contact");
 	CHECK(indexed(carol, 1) == 2, "carol is offered the folder and the note in it");
 	CHECK(indexed(PEER, 1) == 0, "a contact shared nothing is offered nothing");
-	CHECK(indexed(PEER, 0) == 3, "while a member is offered all three");
+	/* A MEMBER IS OFFERED NOTHING HERE, sec 519: its notes come in the
+	 * journal, and its INDEX goes unanswered. */
+	CHECK(indexed(PEER, 0) == -1, "while a member's index goes unanswered");
 
 	snprintf(line, sizeof(line), "set note %s parent top", g);
 	CHECK(ask(line) == FZN_REPLY_OK && indexed(carol, 1) == 1,
@@ -1228,13 +1230,13 @@ static int rec_get(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t str
 
 /* What fuzznetd's `journal_chain` does: the next record of stream 0. */
 static int journal_chain(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN],
-                         const fzn_sign_ops_t *sign, const uint8_t subject[FZN_SUBJECT_LEN],
+                         const fzn_sign_ops_t *sign, uint32_t kind,
+                         const uint8_t subject[FZN_SUBJECT_LEN],
                          const uint8_t *body, size_t body_len, uint64_t now_ms, uint8_t *record,
                          size_t cap, size_t *record_len)
 {
-	return fzn_node_journal_write((fzn_node_journal_t *)ctx, issuer, FZN_NOTE_STREAM, sign,
-	                              FZN_NOTE_KIND, subject, body, body_len, now_ms, record, cap,
-	                              record_len, NULL)
+	return fzn_node_journal_write((fzn_node_journal_t *)ctx, issuer, FZN_NOTE_STREAM, sign, kind,
+	                              subject, body, body_len, now_ms, record, cap, record_len, NULL)
 	       == FZN_NODE_JOURNAL_OK;
 }
 
@@ -1292,6 +1294,151 @@ static void test_the_journal_chain(void)
 	snprintf(line, sizeof(line), "set note %s title third", note);
 	CHECK(ask(line) == FZN_REPLY_ERROR && has("journal") && rec_count == 3u,
 	      "with no journal, no note is written, and the reply says so");
+	fzn_node_journal_close(&nj);
+	hooks();
+}
+
+/* Read a note record of `key`'s stream 0 out of the memory store. */
+static int read_rec(void *ctx, const uint8_t key[FZN_PUBKEY_LEN], uint64_t seq, uint8_t *out,
+                    size_t cap, size_t *out_len)
+{
+	int found = 0;
+
+	return rec_get(ctx, key, FZN_NOTE_STREAM, seq, out, cap, out_len, &found) && found;
+}
+
+/* A NOTE `writer` WROTE, as the next record of its stream 0 in `nj`: a
+ * payload sealed through the blob stub, and the meta naming it. */
+static int note_by(fzn_node_journal_t *nj, const uint8_t writer[FZN_PUBKEY_LEN],
+                   const fzn_sign_ops_t *sign, const uint8_t id[FZN_TREE_ID_LEN],
+                   const char *title)
+{
+	static const uint8_t top[FZN_TREE_ID_LEN];
+	uint8_t payload[64], content[FZN_NOTE_META_LEN], body[FZN_RECORD_BODY_MAX];
+	static uint8_t record[FZN_RECORD_MAX_LEN];
+	fzn_note_meta_t meta;
+	fzn_note_t fields;
+	size_t len = 0, body_len = 0;
+
+	memset(&fields, 0, sizeof(fields));
+	fields.title = (const uint8_t *)title;
+	fields.title_len = strlen(title);
+	memset(&meta, 0, sizeof(meta));
+	return fzn_note_payload_write(&fields, payload, sizeof(payload), &len) == FZN_NOTE_OK
+	       && blob_stub_seal(NULL, payload, len, &meta.content)
+	       && fzn_note_meta_write(&meta, content) == FZN_NOTE_OK
+	       && fzn_tree_body(top, 1000u, FZN_NOTE_TYPE_NOTE, content, sizeof(content), body,
+	                        sizeof(body), &body_len)
+	                  == FZN_TREE_OK
+	       && fzn_node_journal_write(nj, writer, FZN_NOTE_STREAM, sign, FZN_NOTE_KIND, id, body,
+	                                 body_len, 1u, record, sizeof(record), &len, NULL)
+	                  == FZN_NODE_JOURNAL_OK;
+}
+
+/* THE INDEX FED FROM A STREAM, sec 519: a sibling's note filed from its
+ * stream; its purge record acted on, and told again in this node's own; the
+ * stream fed again from the start without the note coming back; and a writer
+ * not admitted yet waiting at its cursor until it is. */
+static void test_the_feed(void)
+{
+	static fzn_node_journal_t nj;
+	static fzn_record_store_ops_t rops = { rec_put, rec_get, NULL };
+	static const uint8_t mark[1] = { 1u };
+	static uint8_t record[FZN_RECORD_MAX_LEN];
+	uint8_t id[FZN_TREE_ID_LEN], other_id[FZN_TREE_ID_LEN], stranger[FZN_PUBKEY_LEN];
+	fzn_sign_ops_t as_peer = { toy_verify, toy_sign, PEER };
+	fzn_sign_ops_t as_stranger = { toy_verify, toy_sign, stranger };
+	fzn_node_notes_index_tally_t t;
+	uint64_t at = 0, again = 0, waits = 0, own_before;
+	size_t len = 0;
+
+	setup(1);
+	memset(rec_slots, 0, sizeof(rec_slots));
+	rec_count = 0;
+	memset(id, 0x41, sizeof(id));
+	memset(other_id, 0x42, sizeof(other_id));
+	memset(stranger, 0x5a, sizeof(stranger));
+	CHECK(fzn_node_journal_init_store(&nj, &rops, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && note_by(&nj, PEER, &as_peer, id, "theirs"),
+	      "fixture: the paired node's note, the first record of its stream 0");
+	notes.chain = journal_chain;
+	notes.chain_ctx = &nj;
+
+	CHECK(fzn_node_notes_index_stream(&notes, read_rec, NULL, PEER, &at,
+	                                  fzn_node_journal_received(&nj, PEER, FZN_NOTE_STREAM), &t)
+	                      == FZN_NOTES_OK
+	              && t.filed == 1u && at == 1u
+	              && ask("list note top") == FZN_REPLY_OK && has(",theirs"),
+	      "a sibling's note is filed from its stream, and listed");
+	CHECK(fzn_node_notes_index_stream(&notes, read_rec, NULL, PEER, &at, 1u, &t) == FZN_NOTES_OK
+	              && t.filed == 0u && t.held == 0u && at == 1u,
+	      "fed again from its cursor, nothing is filed twice");
+
+	own_before = fzn_node_journal_received(&nj, SELF, FZN_NOTE_STREAM);
+	CHECK(fzn_node_journal_write(&nj, PEER, FZN_NOTE_STREAM, &as_peer, FZN_NOTE_PURGE_KIND, id,
+	                             mark, sizeof(mark), 2u, record, sizeof(record), &len, NULL)
+	                      == FZN_NODE_JOURNAL_OK
+	              && fzn_node_notes_index_stream(&notes, read_rec, NULL, PEER, &at,
+	                                             fzn_node_journal_received(&nj, PEER,
+	                                                                       FZN_NOTE_STREAM),
+	                                             &t)
+	                         == FZN_NOTES_OK
+	              && t.purged == 1u && at == 2u && fzn_notes_purged(&notes.store, id)
+	              && ask("list note top") == FZN_REPLY_OK && !has(",theirs"),
+	      "its purge record purges the note here: marked, and no longer listed");
+	CHECK(fzn_node_journal_received(&nj, SELF, FZN_NOTE_STREAM) == own_before + 1u,
+	      "and this node says so in its own stream, once");
+
+	CHECK(fzn_node_notes_index_stream(&notes, read_rec, NULL, PEER, &again, 2u, &t)
+	                      == FZN_NOTES_OK
+	              && t.filed == 0u && t.purged == 2u && again == 2u
+	              && fzn_node_journal_received(&nj, SELF, FZN_NOTE_STREAM) == own_before + 1u
+	              && ask("list note top") == FZN_REPLY_OK && !has(",theirs"),
+	      "fed again from the start, the purged note is not filed again, nor told again");
+
+	/* A PURGE FROM A WRITER NOT ADMITTED waits too, and purges nothing:
+	 * who may ask a note to go is who may write one. */
+	{
+		uint8_t ours[FZN_TREE_ID_LEN], outsider[FZN_PUBKEY_LEN];
+		fzn_sign_ops_t as_outsider = { toy_verify, toy_sign, outsider };
+		char hexid[65];
+		uint64_t cut = 0;
+		size_t i;
+
+		memset(outsider, 0x6b, sizeof(outsider));
+		CHECK(ask("add note top ours") == FZN_REPLY_OK, "fixture: a note of this node's");
+		take_id(hexid);
+		for (i = 0; i < FZN_TREE_ID_LEN; i++) {
+			unsigned v;
+
+			(void)sscanf(hexid + (2u * i), "%2x", &v);
+			ours[i] = (uint8_t)v;
+		}
+		CHECK(fzn_node_journal_write(&nj, outsider, FZN_NOTE_STREAM, &as_outsider,
+		                             FZN_NOTE_PURGE_KIND, ours, mark, sizeof(mark), 3u, record,
+		                             sizeof(record), &len, NULL)
+		                      == FZN_NODE_JOURNAL_OK
+		              && fzn_node_notes_index_stream(&notes, read_rec, NULL, outsider, &cut, 1u,
+		                                             &t)
+		                         == FZN_NOTES_OK
+		              && t.waiting && t.purged == 0u && cut == 0u
+		              && !fzn_notes_purged(&notes.store, ours)
+		              && ask("list note top") == FZN_REPLY_OK && has(",ours"),
+		      "a purge from a writer not admitted waits, and the note stays");
+	}
+	CHECK(note_by(&nj, stranger, &as_stranger, other_id, "unproved")
+	              && fzn_node_notes_index_stream(&notes, read_rec, NULL, stranger, &waits, 1u,
+	                                             &t)
+	                         == FZN_NOTES_OK
+	              && t.waiting && waits == 0u,
+	      "a writer not admitted yet waits at its cursor");
+	CHECK(fzn_node_notes_admit_members(&notes, (const uint8_t (*)[FZN_PUBKEY_LEN])stranger, 1u)
+	                      == 1u
+	              && fzn_node_notes_index_stream(&notes, read_rec, NULL, stranger, &waits, 1u,
+	                                             &t)
+	                         == FZN_NOTES_OK
+	              && t.filed == 1u && waits == 1u,
+	      "and is filed once it is proved a member");
 	fzn_node_journal_close(&nj);
 	hooks();
 }
@@ -1368,8 +1515,8 @@ static void test_pushing_texts(void)
 static void test_unpaired_partner(void)
 {
 	char b[65], line[200];
-	uint8_t query[FZN_NOTES_SYNC_INDEX_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
-		                                          FZN_NOTES_SYNC_INDEX_QUERY, 0, 0 };
+	uint8_t query[FZN_NOTES_SYNC_PURGES_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
+		                                           FZN_NOTES_SYNC_PURGES_QUERY };
 	uint8_t out[FZN_NOTES_SYNC_REPLY_MAX];
 
 	setup(0);
@@ -1378,7 +1525,7 @@ static void test_unpaired_partner(void)
 	              && fzn_node_notes_remote(&notes, PEER, 0, query, sizeof(query), out,
 	                                       sizeof(out))
 	                         > 0u,
-	      "fixture: a paired node, admitted from the live table, pulls this one's index");
+	      "fixture: a paired node, admitted from the live table, asks for its purges");
 	CHECK(ask("add note top bin") == FZN_REPLY_OK, "fixture: a note to bin");
 	take_id(b);
 	snprintf(line, sizeof(line), "set note %s trash", b);
@@ -1397,8 +1544,8 @@ static void test_unpaired_partner(void)
 static void test_a_partner_seen_in_the_future_ages_from_now(void)
 {
 	char b[65], line[200];
-	uint8_t query[FZN_NOTES_SYNC_INDEX_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
-		                                          FZN_NOTES_SYNC_INDEX_QUERY, 0, 0 };
+	uint8_t query[FZN_NOTES_SYNC_PURGES_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
+		                                           FZN_NOTES_SYNC_PURGES_QUERY };
 	uint8_t out[FZN_NOTES_SYNC_REPLY_MAX];
 	const uint64_t back = clock_ms;
 
@@ -1409,7 +1556,7 @@ static void test_a_partner_seen_in_the_future_ages_from_now(void)
 	              && fzn_node_notes_remote(&notes, PEER, 0, query, sizeof(query), out,
 	                                       sizeof(out))
 	                         > 0u,
-	      "fixture: a partner pulls while this node's clock reads ten years ahead");
+	      "fixture: a partner asks while this node's clock reads ten years ahead");
 	clock_ms = back;
 	CHECK(ask("add note top bin") == FZN_REPLY_OK, "fixture: the clock set back, a note to bin");
 	take_id(b);
@@ -1467,6 +1614,7 @@ int main(void)
 	test_members_join_the_admitted_set();
 	test_pushing_texts();
 	test_the_journal_chain();
+	test_the_feed();
 	test_writes_mark_fresh();
 	test_unpaired_partner();
 	test_a_partner_seen_in_the_future_ages_from_now();

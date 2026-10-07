@@ -27,6 +27,9 @@ static const char HEX[] = "0123456789abcdef";
  * and shared by the verbs, which the node's one loop runs one at a time. */
 static fzn_notes_view_t view;
 
+/* Below: a purge marked here, said in this node's stream. sec 519. */
+static void told_purged(void *ctx, const uint8_t id[FZN_SUBJECT_LEN]);
+
 /* Every note's payload, opened (sec 514): one at a time, read and done. */
 static uint8_t payload_buf[FZN_NOTE_PAYLOAD_MAX];
 
@@ -162,6 +165,8 @@ fzn_notes_err_t fzn_node_notes_init(fzn_node_notes_t *notes, const fzn_persist_o
 	err = fzn_notes_store_init(&notes->store, store, hash);
 	if (err != FZN_NOTES_OK)
 		return err;
+	notes->store.purged = told_purged;
+	notes->store.purged_ctx = notes;
 	memcpy(notes->admitted[0].key, self, FZN_PUBKEY_LEN);
 	for (i = 0; i < peer_count; i++)
 		memcpy(notes->admitted[i + 1u].key, peers[i], FZN_PUBKEY_LEN);
@@ -224,6 +229,24 @@ static const fzn_tree_node_t *find(const fzn_node_notes_t *n, const uint8_t id[F
 		return NULL;
 	*at = first;
 	return &view.nodes[first];
+}
+
+/* A NOTE MARKED PURGED HERE, sec 519: said in this node's notes stream, so
+ * every member following it marks it too -- one joining after the pinned
+ * conversation has finished included, who would otherwise file the note
+ * again from its writers' streams. Counted when it cannot be said: the mark
+ * here stands either way. */
+static void told_purged(void *ctx, const uint8_t id[FZN_SUBJECT_LEN])
+{
+	static uint8_t record[FZN_RECORD_MAX_LEN];
+	static const uint8_t body[1] = { 1u };
+	fzn_node_notes_t *n = (fzn_node_notes_t *)ctx;
+	size_t len = 0;
+
+	if (!n->chain
+	    || !n->chain(n->chain_ctx, n->author.issuer, n->author.sign, FZN_NOTE_PURGE_KIND, id,
+	                 body, sizeof(body), now(n), record, sizeof(record), &len))
+		n->purges_untold++;
 }
 
 /* The author, with the node's content and chain hooks as they are now:
@@ -1628,6 +1651,81 @@ static size_t answer_shared(fzn_node_notes_t *n, const uint8_t *sender, const ui
 	                                    reply_cap);
 }
 
+/* ---- the index fed from a stream, sec 519 ---------------------------------- */
+
+static int node_admits(const fzn_node_notes_t *n, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	for (i = 0; i < n->admitted_count; i++)
+		if (memcmp(n->admitted[i].key, key, FZN_PUBKEY_LEN) == 0)
+			return 1;
+	return 0;
+}
+
+fzn_notes_err_t fzn_node_notes_index_stream(fzn_node_notes_t *n, fzn_node_notes_read_fn read,
+                                            void *ctx, const uint8_t key[FZN_PUBKEY_LEN],
+                                            uint64_t *cursor, uint64_t to,
+                                            fzn_node_notes_index_tally_t *tally)
+{
+	static uint8_t record[FZN_RECORD_MAX_LEN];
+	uint64_t seq;
+
+	if (!n || !read || !key || !cursor || !tally)
+		return FZN_NOTES_ERR_MALFORMED;
+	memset(tally, 0, sizeof(*tally));
+	for (seq = *cursor + 1u; seq <= to; seq++) {
+		fzn_record_t rec;
+		size_t len = 0;
+		fzn_notes_err_t err;
+		int wrote = 0;
+
+		/* A RECORD THE STORE WILL NOT GIVE is not passed over: the cursor
+		 * stays, and the next round asks again. */
+		if (!read(ctx, key, seq, record, sizeof(record), &len))
+			return FZN_NOTES_ERR_BACKEND;
+		if (fzn_record_open(record, len, &rec) != FZN_RECORD_OK
+		    || memcmp(fzn_record_issuer(rec), key, FZN_PUBKEY_LEN) != 0
+		    || fzn_record_seq(rec) != seq || fzn_record_stream(rec) != FZN_NOTE_STREAM) {
+			tally->skipped++;
+		} else if (fzn_record_kind(rec) == FZN_NOTE_KIND) {
+			err = fzn_notes_put(&n->store, record, len, n->author.policy, n->author.sign, &wrote,
+			                    NULL);
+			if (err == FZN_NOTES_ERR_DENIED) {
+				tally->waiting = 1;
+				return FZN_NOTES_OK;
+			}
+			if (err == FZN_NOTES_OK)
+				(*(wrote ? &tally->filed : &tally->held))++;
+			else if (err == FZN_NOTES_ERR_PURGED)
+				tally->purged++;
+			else if (err == FZN_NOTES_ERR_FULL || err == FZN_NOTES_ERR_BACKEND)
+				return err;
+			else
+				tally->skipped++;
+		} else if (fzn_record_kind(rec) == FZN_NOTE_PURGE_KIND) {
+			/* WHO MAY ASK A NOTE TO GO is who may write one, as for a
+			 * PURGE message: a writer this node admits. */
+			if (!node_admits(n, key)) {
+				tally->waiting = 1;
+				return FZN_NOTES_OK;
+			}
+			if (fzn_record_verify(rec, n->author.sign) != FZN_RECORD_OK) {
+				tally->skipped++;
+			} else {
+				err = fzn_notes_erase_note(&n->store, fzn_record_subject(rec), NULL);
+				if (err != FZN_NOTES_OK)
+					return err;
+				tally->purged++;
+			}
+		} else {
+			tally->skipped++;
+		}
+		*cursor = seq;
+	}
+	return FZN_NOTES_OK;
+}
+
 int fzn_node_notes_shares_blob(fzn_node_notes_t *n, const uint8_t *sender,
                                const uint8_t root[FZN_BLOB_HASH_LEN])
 {
@@ -1662,22 +1760,21 @@ size_t fzn_node_notes_remote(void *ctx, const uint8_t *sender, int shared,
 		return 0;
 	if (shared)
 		return answer_shared(n, sender, request, request_len, reply, reply_cap);
-	/* A MEMBER'S PUSHED TEXT, sec 448, and A MEMBER'S PUSH, sec 446: taken
-	 * from a sender this node admits. A contact's requests never reach
-	 * here. */
+	/* A MEMBER'S PUSHED TEXT, sec 448: taken from a sender this node
+	 * admits. A contact's requests never reach here. */
 	{
 		size_t taken = take_text(n, sender, request, request_len, reply, reply_cap);
 
 		if (taken)
 			return taken;
 	}
-	{
-		size_t taken = fzn_notes_sync_take(&n->store, n->author.policy, n->author.sign, sender,
-		                                   request, request_len, reply, reply_cap);
-
-		if (taken)
-			return taken;
-	}
+	/* ONLY THE PURGE CONVERSATION, sec 519: a member's notes come in the
+	 * journal now, so its INDEX and RECORDS go unanswered, and PUSH is
+	 * retired. */
+	if (request_len < 2u || request[0] != FZN_NOTES_SYNC_VERSION
+	    || (request[1] != FZN_NOTES_SYNC_PURGE && request[1] != FZN_NOTES_SYNC_PURGE_ACK
+	        && request[1] != FZN_NOTES_SYNC_PURGES_QUERY))
+		return 0;
 	return fzn_notes_sync_answer(&n->store, n->author.policy, sender, now(n), request,
 	                             request_len, reply, reply_cap);
 }

@@ -62,22 +62,13 @@ enum fzn_notes_sync_type {
 	FZN_NOTES_SYNC_PURGES = 8,
 	FZN_NOTES_SYNC_WRITERS_QUERY = 9,
 	FZN_NOTES_SYNC_WRITERS = 10,
-	/* 11 and 12 are `node/members.h`'s. */
-	FZN_NOTES_SYNC_PUSH = 13,
-	FZN_NOTES_SYNC_PUSHED = 14,
+	/* 11 and 12 are `node/members.h`'s. 13 and 14 were PUSH and PUSHED,
+	 * retired in sec 519: members carry notes in the journal, whose
+	 * exchange pushes. */
 	/* 15 and 16 are `node/notes.h`'s, a pushed note's text. */
 	FZN_NOTES_SYNC_TEXT_PUSH = 15,
 	FZN_NOTES_SYNC_TEXT_PUSHED = 16
 };
-
-/* PUSHING, sec 446: a record the sender holds and the server lacks, one a
- * message, so a push fits one frame. PUSH is version | type | len u16 |
- * record; PUSHED is version | type | outcome. */
-#define FZN_NOTES_SYNC_PUSH_HEAD_LEN 4u
-#define FZN_NOTES_SYNC_PUSHED_LEN 3u
-#define FZN_NOTES_SYNC_PUSH_REFUSED 0u /* not admitted, malformed, or pending purge here */
-#define FZN_NOTES_SYNC_PUSH_TAKEN 1u
-#define FZN_NOTES_SYNC_PUSH_HELD 2u    /* this one or a newer was held already */
 
 /* WHO WROTE WHAT IS SHARED, sec 437: the distinct writers of the notes a
  * share reaches, which a recipient admits in that sharer's tree and nowhere
@@ -193,33 +184,6 @@ fzn_notes_sync_err_t fzn_notes_sync_pull_shared(const fzn_notes_store_t *store,
                                                 const fzn_sign_ops_t *sign,
                                                 fzn_notes_sync_ask_t ask, void *ask_ctx,
                                                 fzn_notes_sync_tally_t *tally);
-
-/* THE SERVER OF A PUSH, sec 446: take the one record a PUSH carries from
- * `sender`, admitted by `policy` as any record is, and only when `policy`
- * admits `sender` itself -- the node pushing is the node vouched for, as a
- * node pulled from is. A note pending purge here is refused, as a pull
- * refuses one. 0 for anything that is not a PUSH. */
-size_t fzn_notes_sync_take(const fzn_notes_store_t *store, fzn_notes_policy_t policy,
-                           const fzn_sign_ops_t *sign, const uint8_t *sender,
-                           const uint8_t *request, size_t request_len, uint8_t *reply,
-                           size_t reply_cap);
-
-typedef struct fzn_notes_push_tally {
-	size_t offered; /* claims held here that the peer lacked or held older */
-	size_t taken;
-	size_t held;    /* the peer had it, or newer, by the time it was pushed */
-	size_t refused;
-} fzn_notes_push_tally_t;
-
-/* THE PUSHER, sec 446: ask the peer `ask` reaches for its index, and push
- * every claim this store holds that the peer lacks or holds older, one
- * record a message. Pulling alone carries a note only to a node that pulls
- * from its writer; a hub pulls from nobody it is not paired to, so without
- * this a member's note reached no one. A note pending purge here is not
- * pushed. */
-fzn_notes_sync_err_t fzn_notes_sync_push(const fzn_notes_store_t *store,
-                                         fzn_notes_sync_ask_t ask, void *ask_ctx,
-                                         fzn_notes_push_tally_t *tally);
 
 /* What one round of the purge conversation did. */
 typedef struct fzn_notes_purge_tally {

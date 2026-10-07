@@ -76,6 +76,12 @@
  * and fuzzypickles' value. */
 #define FZN_NOTE_STREAM 0u
 
+/* THE KIND A PURGE RECORD CARRIES on the same stream, sec 519: "this note is
+ * purged", about the note's id, written by the host that marked it. Above a
+ * byte on purpose: fuzzypickles' command values double as record kinds and
+ * fill 0x20 onward, and a kind no byte can spell meets none of them. */
+#define FZN_NOTE_PURGE_KIND 0x136u
+
 /* Claims one host may hold: a node nobody has fought over costs one, a
  * contested node one per writer. A bound rather than a promise, and the
  * failure is FZN_NOTES_ERR_FULL rather than a silent drop. */
@@ -171,6 +177,11 @@ const char *fzn_notes_denial_str(fzn_notes_denial_t why);
 typedef struct fzn_notes_store {
 	const fzn_persist_ops_t *ops;
 	const fzn_hash_ops_t *hash;
+	/* Told once, when a note is first marked purged here, so the mark can
+	 * travel (sec 519): the node appends a purge record to its notes
+	 * stream. NULL after `fzn_notes_store_init`, and for a sharer's tree. */
+	void (*purged)(void *ctx, const uint8_t id[FZN_SUBJECT_LEN]);
+	void *purged_ctx;
 } fzn_notes_store_t;
 
 fzn_notes_err_t fzn_notes_store_init(fzn_notes_store_t *store, const fzn_persist_ops_t *ops,

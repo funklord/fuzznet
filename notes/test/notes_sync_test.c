@@ -867,7 +867,6 @@ static void test_received(void)
 	fzn_notes_sync_tally_t t;
 	const fzn_tree_node_t *top[8];
 	size_t n = 0, i, removed = 0;
-	uint64_t seq = 0;
 	int cut = 0;
 
 	reset();
@@ -1013,128 +1012,32 @@ static void test_received(void)
 	(void)o;
 }
 
-/* ---- pushing, sec 446 ----------------------------------------------------- */
+/* ---- partners from the purge conversation, sec 519 ---------------------- */
 
-/* B, serving a push from A: its index, and taking what A pushes, admitted
- * by `pushee_policy`. `flip` alters a pushed record's last byte. */
-static fzn_notes_policy_t pushee_policy;
-static int flip;
-
-static int ask_pushee(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
-                      size_t reply_cap, size_t *reply_len)
+/* A MEMBER ASKING FOR PURGES IS A PARTNER: since sec 519 members ask nobody
+ * for the index, so the purges query each one sends every round is what
+ * makes it a host a purge must pin. A host this store does not admit is
+ * answered and recorded as nothing. */
+static void test_partner_from_purges_query(void)
 {
-	static uint8_t copy[FZN_NOTES_SYNC_PUSH_HEAD_LEN + FZN_RECORD_MAX_LEN];
-
-	(void)ctx;
-	if (flip && request_len > FZN_NOTES_SYNC_PUSH_HEAD_LEN && request_len <= sizeof(copy)
-	    && request[1] == FZN_NOTES_SYNC_PUSH) {
-		memcpy(copy, request, request_len);
-		copy[request_len - 1u] ^= 0x01u;
-		request = copy;
-	}
-	*reply_len = fzn_notes_sync_take(&store_b, pushee_policy, &sign_b, KEY_A, request,
-	                                 request_len, reply, reply_cap);
-	if (!*reply_len)
-		*reply_len = fzn_notes_sync_answer(&store_b, pushee_policy, KEY_A, 1u, request,
-		                                   request_len, reply, reply_cap);
-	return *reply_len > 0u;
-}
-
-static void test_push(void)
-{
-	fzn_notes_author_t a = author_on(&store_a, KEY_A, &sign_a);
-	uint8_t one[FZN_TREE_ID_LEN], two[FZN_TREE_ID_LEN];
-	fzn_notes_push_tally_t t;
-	fzn_note_t with;
-	int complete = 0;
-	fzn_notes_writer_t ask_a;
+	uint8_t query[FZN_NOTES_SYNC_PURGES_QUERY_LEN] = { FZN_NOTES_SYNC_VERSION,
+		                                           FZN_NOTES_SYNC_PURGES_QUERY };
+	uint8_t out[FZN_NOTES_SYNC_REPLY_MAX], partners[4][FZN_PUBKEY_LEN], stranger[FZN_PUBKEY_LEN];
+	size_t n = 9;
 
 	reset();
-	pushee_policy = both();
-	flip = 0;
-	CHECK(write(&a, "one", one) && write(&a, "two", two), "fixture: two notes on A");
-	CHECK(fzn_notes_sync_push(&store_a, ask_pushee, NULL, &t) == FZN_NOTES_SYNC_OK
-	              && t.offered == 2u && t.taken == 2u && t.refused == 0u && held(&store_b) == 2u,
-	      "A pushes its two notes, and B takes them");
-	CHECK(title_is(&store_b, two, KEY_A, "two"), "as A wrote them");
-	CHECK(fzn_notes_sync_push(&store_a, ask_pushee, NULL, &t) == FZN_NOTES_SYNC_OK
-	              && t.offered == 0u,
-	      "a second push offers nothing: B's index says it is current");
-	memset(&with, 0, sizeof(with));
-	with.title = (const uint8_t *)"two, renamed";
-	with.title_len = 12u;
-	CHECK(fzn_notes_edit(&a, two, FZN_NOTES_EDIT_TITLE, &with, 0u, 0u, 2u) == FZN_NOTES_OK,
-	      "fixture: A renames one");
-	CHECK(fzn_notes_sync_push(&store_a, ask_pushee, NULL, &t) == FZN_NOTES_SYNC_OK
-	              && t.offered == 1u && t.taken == 1u
-	              && title_is(&store_b, two, KEY_A, "two, renamed"),
-	      "after an edit, only the edited claim is pushed");
-
-	/* REFUSED: a sender B does not admit, a forged record, a note B is
-	 * purging. */
-	reset();
-	CHECK(write(&a, "three", one), "fixture: a note on A");
-	(void)both(); /* fills `writers`, of which B alone is the second */
-	pushee_policy = fzn_notes_policy_writers(writers + 1, 1u);
-	CHECK(fzn_notes_sync_push(&store_a, ask_pushee, NULL, &t) == FZN_NOTES_SYNC_OK
-	              && t.offered == 1u && t.refused == 1u && held(&store_b) == 0u,
-	      "a sender B does not admit has its push refused");
-	pushee_policy = both();
-	flip = 1;
-	CHECK(fzn_notes_sync_push(&store_a, ask_pushee, NULL, &t) == FZN_NOTES_SYNC_OK
-	              && t.refused == 1u && held(&store_b) == 0u,
-	      "a record altered on the way is refused");
-	flip = 0;
-	memcpy(ask_a.key, KEY_A, FZN_PUBKEY_LEN);
-	CHECK(fzn_notes_purge_add(&store_b, one, fzn_notes_asking(&ask_a, 1u), 5u, &complete)
-	              == FZN_NOTES_OK,
-	      "fixture: B purging the note");
-	CHECK(fzn_notes_sync_push(&store_a, ask_pushee, NULL, &t) == FZN_NOTES_SYNC_OK
-	              && t.refused == 1u && held(&store_b) == 0u,
-	      "a note B is purging is not pushed back into it");
-	{
-		uint8_t bad[5] = { FZN_NOTES_SYNC_VERSION, FZN_NOTES_SYNC_PUSH, 0, 9, 0 };
-		uint8_t out[8];
-
-		CHECK(fzn_notes_sync_take(&store_b, both(), &sign_b, KEY_A, bad, sizeof(bad), out,
-		                          sizeof(out))
-		                      == FZN_NOTES_SYNC_PUSHED_LEN
-		              && out[2] == FZN_NOTES_SYNC_PUSH_REFUSED,
-		      "a push whose length disagrees with its record is refused, and answered");
-		/* THE SENDER IS VOUCHED FOR, apart from the record: A's own record,
-		 * which B admits, pushed by a key B does not. */
-		{
-			static uint8_t push[FZN_NOTES_SYNC_PUSH_HEAD_LEN + FZN_RECORD_MAX_LEN];
-			uint8_t stranger[FZN_PUBKEY_LEN], four[FZN_TREE_ID_LEN];
-			size_t len = 0;
-
-			memset(stranger, 0xd5, sizeof(stranger));
-			push[0] = FZN_NOTES_SYNC_VERSION;
-			push[1] = FZN_NOTES_SYNC_PUSH;
-			CHECK(write(&a, "four", four)
-			              && fzn_notes_get(&store_a, four, KEY_A,
-			                               push + FZN_NOTES_SYNC_PUSH_HEAD_LEN, FZN_RECORD_MAX_LEN,
-			                               &len)
-			                         == FZN_NOTES_OK,
-			      "fixture: a new record of A's");
-			push[2] = (uint8_t)(len >> 8);
-			push[3] = (uint8_t)len;
-			CHECK(fzn_notes_sync_take(&store_b, both(), &sign_b, stranger, push,
-			                          FZN_NOTES_SYNC_PUSH_HEAD_LEN + len, out, sizeof(out))
-			                      == FZN_NOTES_SYNC_PUSHED_LEN
-			              && out[2] == FZN_NOTES_SYNC_PUSH_REFUSED,
-			      "a record B would admit, pushed by a sender it does not, is refused");
-			CHECK(fzn_notes_sync_take(&store_b, both(), &sign_b, KEY_A, push,
-			                          FZN_NOTES_SYNC_PUSH_HEAD_LEN + len, out, sizeof(out))
-			                      == FZN_NOTES_SYNC_PUSHED_LEN
-			              && out[2] == FZN_NOTES_SYNC_PUSH_TAKEN,
-			      "and taken from A");
-		}
-		CHECK(fzn_notes_sync_take(&store_b, both(), &sign_b, KEY_A, (const uint8_t *)"\x02\x01",
-		                          2u, out, sizeof(out))
-		              == 0u,
-		      "what is not a push falls through");
-	}
+	memset(stranger, 0x77, sizeof(stranger));
+	CHECK(fzn_notes_sync_answer(&store_b, both(), stranger, 5u, query, sizeof(query), out,
+	                            sizeof(out))
+	                      > 0u
+	              && fzn_notes_partners(&store_b, partners, 4u, &n) == FZN_NOTES_OK && n == 0u,
+	      "a stranger asking for purges is answered and made no partner");
+	CHECK(fzn_notes_sync_answer(&store_b, both(), KEY_A, 5u, query, sizeof(query), out,
+	                            sizeof(out))
+	                      > 0u
+	              && fzn_notes_partners(&store_b, partners, 4u, &n) == FZN_NOTES_OK && n == 1u
+	              && memcmp(partners[0], KEY_A, FZN_PUBKEY_LEN) == 0,
+	      "a member asking for purges is recorded a partner");
 }
 
 int main(void)
@@ -1153,7 +1056,7 @@ int main(void)
 	test_share_table();
 	test_share_scope();
 	test_received();
-	test_push();
+	test_partner_from_purges_query();
 
 	if (failures) {
 		fprintf(stderr, "notes_sync_test: %d of %d checks failed\n", failures, checks);
