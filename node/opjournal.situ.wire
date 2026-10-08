@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum fzn_opjournal_op : u8 unknown=error
-  save=1 remove=2
+  save=1 remove=2 opened=3
 
 struct fzn_opjournal_entry size=72
   @0x0000   1         u8         version  must_eq=1

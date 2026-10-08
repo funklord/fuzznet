@@ -766,8 +766,13 @@ static uint64_t wall_ms(void)
  * for as long as the root takes to answer, at most 3 s a page, which is the
  * price of asking from the loop's own thread. sec 384. */
 #define FZND_PULL_EVERY 60u
-/* The operation journal's default byte budget, sec 523. */
+/* The operation journal's default byte budget, sec 523; the writes a
+ * generation takes before the next opens, and how many are kept, sec 524.
+ * A file-store record slot is 702 bytes, so a generation is about 46 MB of
+ * entries at most, and the two kept about 92 MB. */
 #define FZND_OP_JOURNAL_BUDGET (64ull * 1024u * 1024u)
+#define FZND_OP_JOURNAL_ROTATE 65536u
+#define FZND_OP_JOURNAL_KEEP 2u
 
 /* THE PEERS A NODE PULLS VOTES FROM: `--root-at` for the pairing it joined
  * with, and `--pull-from` for any other node it holds a pairing to. Each has
@@ -1029,28 +1034,111 @@ static void copy_logs(struct pull_target *pulls, size_t npulls, uint64_t now)
 static fzn_node_journal_t node_journal;
 static int journal_on;
 
-/* THE OPERATION JOURNAL, sec 523: switchable, off unless asked for. Every
- * write to this node's persistent state, entered by hash on its own stream
- * in a journal of its own under `opjournal/`, which nothing serves. */
-static fzn_node_journal_t op_nj;
+/* THE OPERATION JOURNAL, secs 523 and 524: switchable, off unless asked
+ * for. Every write to this node's persistent state, entered by hash on its
+ * own stream, in generations under `opjournal/`, a directory each named by
+ * its number, which nothing serves. */
+static fzn_node_journal_t op_nj[FZN_OPJOURNAL_GENERATIONS_MAX];
+static char op_dir[FZN_RECORD_STORE_FILE_PATH_MAX];
+static const uint8_t *op_issuer;
+static const fzn_sign_ops_t *op_sign;
+static const fzn_hash_ops_t *op_hash;
 static fzn_opjournal_t op_oj;
 static fzn_persist_ops_t op_ops;
 
-/* Open it over `*ops`, and make `*ops` the journalled ops. */
+static int op_generation_dir(uint64_t generation, char *out, size_t cap)
+{
+	int w = snprintf(out, cap, "%s/%llu", op_dir, (unsigned long long)generation);
+
+	return w > 0 && (size_t)w < cap;
+}
+
+static fzn_node_journal_t *op_generation_open(void *ctx, uint64_t generation)
+{
+	fzn_node_journal_t *nj = &op_nj[generation % FZN_OPJOURNAL_GENERATIONS_MAX];
+	char dir[FZN_RECORD_STORE_FILE_PATH_MAX];
+
+	(void)ctx;
+	if (!op_generation_dir(generation, dir, sizeof(dir))
+	    || (mkdir(dir, 0700) != 0 && errno != EEXIST))
+		return NULL;
+	fzn_node_journal_close(nj);
+	if (fzn_node_journal_init(nj, dir, op_sign, op_hash) != FZN_NODE_JOURNAL_OK
+	    || fzn_node_journal_follow_stream(nj, op_issuer, FZN_OPJOURNAL_STREAM, NULL)
+	               != FZN_NODE_JOURNAL_OK)
+		return NULL;
+	return nj;
+}
+
+/* DROPPED WHOLE: the generation's one stream file, named by the store that
+ * wrote it rather than spelled here, then its directory. */
+static void op_generation_drop(void *ctx, uint64_t generation)
+{
+	fzn_node_journal_t *nj = &op_nj[generation % FZN_OPJOURNAL_GENERATIONS_MAX];
+	char dir[FZN_RECORD_STORE_FILE_PATH_MAX];
+	fzn_record_store_file_t file;
+
+	(void)ctx;
+	fzn_node_journal_close(nj);
+	memset(nj, 0, sizeof(*nj));
+	if (!op_generation_dir(generation, dir, sizeof(dir)) || !fzn_record_store_file_open(&file, dir))
+		return;
+	(void)fzn_record_store_file_forget(&file, op_issuer, FZN_OPJOURNAL_STREAM);
+	(void)rmdir(dir);
+}
+
+/* WHICH GENERATIONS EXIST: the directories under `opjournal/` named by a
+ * number, which must run unbroken. Nonzero unless they do not. */
+static int op_generations_held(uint64_t *first, uint64_t *last)
+{
+	DIR *d = opendir(op_dir);
+	struct dirent *ent;
+	uint64_t count = 0;
+
+	*first = *last = 0u;
+	if (!d)
+		return 0;
+	while ((ent = readdir(d)) != NULL) {
+		char *end = NULL;
+		unsigned long long g;
+
+		if (ent->d_name[0] < '1' || ent->d_name[0] > '9')
+			continue;
+		g = strtoull(ent->d_name, &end, 10);
+		if (!end || *end != '\0')
+			continue;
+		if (*first == 0u || g < *first)
+			*first = g;
+		if (g > *last)
+			*last = g;
+		count++;
+	}
+	(void)closedir(d);
+	return count == 0u
+	       || (*last - *first + 1u == count && count <= FZN_OPJOURNAL_GENERATIONS_MAX);
+}
+
+/* Open it over `*ops`, and make `*ops` the journalled ops. A replay opens
+ * only a journal that exists, and writes none into being. */
 static int op_journal_open(const char *store_dir, const uint8_t issuer[FZN_PUBKEY_LEN],
                            const fzn_sign_ops_t *sign, const fzn_hash_ops_t *hash,
-                           uint64_t budget, const fzn_persist_ops_t **ops)
+                           uint64_t budget, uint64_t rotate_at, int replaying,
+                           const fzn_persist_ops_t **ops)
 {
-	static char dir[FZN_RECORD_STORE_FILE_PATH_MAX];
-	int w = snprintf(dir, sizeof(dir), "%s/opjournal", store_dir);
+	int w = snprintf(op_dir, sizeof(op_dir), "%s/opjournal", store_dir);
 
-	if (w <= 0 || (size_t)w >= sizeof(dir) || (mkdir(dir, 0700) != 0 && errno != EEXIST)
-	    || fzn_node_journal_init(&op_nj, dir, sign, hash) != FZN_NODE_JOURNAL_OK
-	    || fzn_node_journal_follow_stream(&op_nj, issuer, FZN_OPJOURNAL_STREAM, NULL)
-	               != FZN_NODE_JOURNAL_OK)
+	if (w <= 0 || (size_t)w >= sizeof(op_dir) || (mkdir(op_dir, 0700) != 0 && errno != EEXIST))
 		return 0;
 	memset(&op_oj, 0, sizeof(op_oj));
-	op_oj.journal = &op_nj;
+	if (!op_generations_held(&op_oj.first, &op_oj.last) || (replaying && op_oj.last == 0u))
+		return 0;
+	op_issuer = issuer;
+	op_sign = sign;
+	op_hash = hash;
+	op_oj.generations.open = op_generation_open;
+	op_oj.generations.drop = op_generation_drop;
+	op_oj.keep = FZND_OP_JOURNAL_KEEP;
+	op_oj.rotate_at = rotate_at;
 	op_oj.base = *ops;
 	op_oj.issuer = issuer;
 	op_oj.sign = sign;
@@ -1921,9 +2009,11 @@ static void usage(const char *prog)
 	        "[subsystem=PATH] age|size|count N\" as it rotates;\n"
 	        "--no-log-file keeps stderr only; --log-scope=estate lets members gather it\n"
 	        "--op-journal[=BYTES] enters every write to this node's state in a journal\n"
-	        "of its own, by hash, keeping up to BYTES of written state (64 MiB);\n"
-	        "--op-journal-replay=ENTRY --into=DIR writes the state as of that entry\n"
-	        "into a fresh store at DIR, and exits\n"
+	        "of its own, by hash, keeping up to BYTES of written state (64 MiB), in\n"
+	        "generations of --op-journal-rotate=WRITES (65536), the newest two kept;\n"
+	        "--op-journal-replay=ENTRY [--op-journal-generation=N] --into=DIR writes\n"
+	        "the state as of that entry of generation N (the newest) into a fresh\n"
+	        "store at DIR, and exits\n"
 	        "--check-log[=PROGRAM] walks a packed log's chain and its signatures;\n"
 	        "--log-copy[=PROGRAM] keeps verified copies of the pull peers' packed logs,\n"
 	        "and takes the ones members push, once a program, up to 8;\n"
@@ -2084,6 +2174,8 @@ int main(int argc, char **argv)
 	int log_file = 1;
 	int op_journal = 0;
 	unsigned long long op_journal_budget = FZND_OP_JOURNAL_BUDGET;
+	unsigned long long op_journal_rotate = FZND_OP_JOURNAL_ROTATE;
+	unsigned long long replay_generation = 0;
 	/* REPLAY AND EXIT, sec 523: the state as of an entry, into a store. */
 	const char *replay_into = NULL;
 	unsigned long long replay_to = 0;
@@ -2164,6 +2256,25 @@ int main(int argc, char **argv)
 			replay_to = strtoull(argv[i] + 20, &end, 10);
 			if (!end || *end != '\0') {
 				fprintf(stderr, "fuzznetd: --op-journal-replay=ENTRY: an entry's number\n");
+				return 2;
+			}
+		} else if (!strncmp(argv[i], "--op-journal-generation=", 24u)) {
+			char *end = NULL;
+
+			replay_generation = strtoull(argv[i] + 24, &end, 10);
+			if (!end || *end != '\0' || replay_generation == 0u) {
+				fprintf(stderr, "fuzznetd: --op-journal-generation=N: a generation's "
+				                "number\n");
+				return 2;
+			}
+		} else if (!strncmp(argv[i], "--op-journal-rotate=", 20u)) {
+			char *end = NULL;
+
+			op_journal = 1;
+			op_journal_rotate = strtoull(argv[i] + 20, &end, 10);
+			if (!end || *end != '\0' || op_journal_rotate == 0u) {
+				fprintf(stderr, "fuzznetd: --op-journal-rotate=WRITES: writes a generation "
+				                "takes\n");
 				return 2;
 			}
 		} else if (!strncmp(argv[i], "--into=", 7u)) {
@@ -2471,9 +2582,10 @@ int main(int argc, char **argv)
 		 * is handed the journalled ops. */
 		if (op_journal) {
 			if (!op_journal_open(store_dir, identity.pubkey, &sign_ops, &hash_ops,
-			                     op_journal_budget, &store_ops)) {
+			                     op_journal_budget, op_journal_rotate, replaying,
+			                     &store_ops)) {
 				fprintf(stderr, "fuzznetd: --op-journal: no operation journal in "
-				                "%s/opjournal\n",
+				                "%s/opjournal, or its generations do not run unbroken\n",
 				        store_dir);
 				return 1;
 			}
@@ -2493,9 +2605,13 @@ int main(int argc, char **argv)
 					                "directory it can make\n");
 					return 2;
 				}
-				if (!fzn_opjournal_replay(&op_oj, replay_to, into, &rt)) {
-					fprintf(stderr, "fuzznetd: the replay stopped at an entry that will not "
-					                "read, or a write %s refused\n",
+				if (!fzn_opjournal_replay(&op_oj, replay_generation, replay_to, into, &rt)) {
+					fprintf(stderr, "fuzznetd: generation %llu is not held whole (%llu to "
+					                "%llu are), or the replay stopped at an entry that will "
+					                "not read, or a write %s refused\n",
+					        replay_generation ? replay_generation
+					                          : (unsigned long long)op_oj.last,
+					        (unsigned long long)op_oj.first, (unsigned long long)op_oj.last,
 					        replay_into);
 					return 1;
 				}
@@ -2504,15 +2620,11 @@ int main(int argc, char **argv)
 				       replay_into, rt.saved, rt.removed, rt.missing, rt.skipped);
 				return 0;
 			}
-			fprintf(stderr, "fuzznetd: operation journal on, %llu entr%s, %llu byte(s) "
-			                "kept of %llu\n",
-			        (unsigned long long)fzn_node_journal_received(&op_nj, identity.pubkey,
-			                                                      FZN_OPJOURNAL_STREAM),
-			        fzn_node_journal_received(&op_nj, identity.pubkey,
-			                                  FZN_OPJOURNAL_STREAM)
-			                        == 1u
-			                ? "y"
-			                : "ies",
+			fprintf(stderr, "fuzznetd: operation journal on, generations %llu to %llu, "
+			                "%llu entr%s in the newest, %llu byte(s) kept of %llu\n",
+			        (unsigned long long)op_oj.first, (unsigned long long)op_oj.last,
+			        (unsigned long long)fzn_opjournal_entries(&op_oj, 0u),
+			        fzn_opjournal_entries(&op_oj, 0u) == 1u ? "y" : "ies",
 			        (unsigned long long)op_oj.kept, (unsigned long long)op_journal_budget);
 		}
 #endif
@@ -3653,17 +3765,22 @@ int main(int argc, char **argv)
 				index_notes();
 			}
 			/* A WRITE THE OPERATION JOURNAL MISSED, sec 523: made, and not
-			 * entered, so a replay will not show it. Said once per change. */
+			 * entered, so a replay will not show it; or a rotation put off,
+			 * sec 524, so the newest generation grows past its size. Said
+			 * once per change. */
 			{
-				static size_t unrecorded, unkept;
+				static size_t unrecorded, unkept, unrotated;
 
 				if (op_journal
-				    && (op_oj.unrecorded != unrecorded || op_oj.unkept != unkept)) {
+				    && (op_oj.unrecorded != unrecorded || op_oj.unkept != unkept
+				        || op_oj.unrotated != unrotated)) {
 					unrecorded = op_oj.unrecorded;
 					unkept = op_oj.unkept;
+					unrotated = op_oj.unrotated;
 					say(FZN_ENTRY_WARNING, "opjournal",
-					    "%zu write(s) not entered, %zu whose bytes were not kept",
-					    unrecorded, unkept);
+					    "%zu write(s) not entered, %zu whose bytes were not kept, %zu "
+					    "rotation(s) put off",
+					    unrecorded, unkept, unrotated);
 				}
 			}
 #endif

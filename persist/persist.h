@@ -255,6 +255,12 @@ typedef enum fzn_persist_slot {
 	FZN_PERSIST_OP_BYTES = 33u,
 } fzn_persist_slot_t;
 
+/* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
+ * operation journal's snapshot (sec 524) lists each in turn. A slot added
+ * above moves it, and persist_test holds it to the highest slot its core
+ * and store lists name. */
+#define FZN_PERSIST_SLOT_END 34u
+
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,
 	FZN_PERSIST_ERR_MALFORMED,
@@ -485,6 +491,28 @@ typedef struct fzn_persist_ops {
  * about it lands where losing it costs the least, which is the guarded
  * place. 1 for core, 0 otherwise. */
 int fzn_persist_slot_is_core(fzn_persist_slot_t slot);
+
+/* WHETHER A SLOT HOLDS ONE ROW FOR THE WHOLE HOST, under a NULL subject,
+ * rather than one per subject. `list` cannot enumerate these, since they
+ * have no subject to list, so a caller walking every row loads them
+ * instead. 1 for whole-host, 0 otherwise.
+ *
+ * INLINE, because it is the slots' vocabulary rather than code: the
+ * operation journal asks it, and linking persist.c for it would bring the
+ * trust, prekey and ratchet packers into every binary that journals. */
+static inline int fzn_persist_slot_whole_host(fzn_persist_slot_t slot)
+{
+	switch (slot) {
+	case FZN_PERSIST_TRUST:
+	case FZN_PERSIST_OWN_PREKEY:
+	case FZN_PERSIST_OWN_IDENTITY:
+	case FZN_PERSIST_OWN_ROOT:
+	case FZN_PERSIST_OWN_ADMIN:
+		return 1;
+	default:
+		return 0;
+	}
+}
 
 /* TWO BACKENDS AS ONE: every call for a core slot goes to `core`, every
  * other to `store`. `fzn_persist_route_ops` fills `ops` with dispatchers over

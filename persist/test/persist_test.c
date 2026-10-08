@@ -888,6 +888,29 @@ static void test_the_route_sends_each_slot_where_the_rule_says(void)
 		              && bulk.calls[BULK[i]] == 1u && core.calls[BULK[i]] == 0u,
 		      "slot %u was not loaded from the store backend", (unsigned)BULK[i]);
 	}
+	/* THE BOUND A WALK OF EVERY SLOT STOPS AT is one past the highest slot
+	 * the two lists name, so a slot added to either moves it or fails. */
+	{
+		unsigned top = 0;
+
+		for (i = 0; i < sizeof(CORE) / sizeof(CORE[0]); i++)
+			top = (unsigned)CORE[i] > top ? (unsigned)CORE[i] : top;
+		for (i = 0; i < sizeof(BULK) / sizeof(BULK[0]); i++)
+			top = (unsigned)BULK[i] > top ? (unsigned)BULK[i] : top;
+		CHECK(top + 1u == FZN_PERSIST_SLOT_END, "FZN_PERSIST_SLOT_END is %u, not one past %u",
+		      (unsigned)FZN_PERSIST_SLOT_END, top);
+	}
+	/* WHOLE-HOST SLOTS are the five a host holds one of, under no subject. */
+	{
+		unsigned s, whole = 0;
+
+		for (s = 1u; s < FZN_PERSIST_SLOT_END; s++)
+			whole += (unsigned)fzn_persist_slot_whole_host((fzn_persist_slot_t)s);
+		CHECK(whole == 5u && fzn_persist_slot_whole_host(FZN_PERSIST_TRUST)
+		              && fzn_persist_slot_whole_host(FZN_PERSIST_OWN_ADMIN)
+		              && !fzn_persist_slot_whole_host(FZN_PERSIST_CONTACT),
+		      "%u whole-host slots, not the five", whole);
+	}
 	/* A SLOT NOBODY DECIDED ABOUT IS CORE: the guarded place. */
 	CHECK(fzn_persist_slot_is_core((fzn_persist_slot_t)(COUNTED_SLOTS - 2u)),
 	      "a slot the rule does not name was sent somewhere less guarded");

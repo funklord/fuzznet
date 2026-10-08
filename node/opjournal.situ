@@ -1,6 +1,6 @@
 // One entry of a node's operation journal: a write to persistent state, as
 // the body of a record on the node's own stream in a journal of its own,
-// never served. project.md sec 523, sec 496's tier 2. The hand-written codec
+// never served. project.md secs 523-524, sec 496's tier 2. The hand-written codec
 // is node/opjournal.c; this is its checked contract, in `make schema`'s list.
 //
 // The bytes written are not here: an entry names them by hash, and they are
@@ -12,6 +12,7 @@ endian big;
 enum fzn_opjournal_op : u8 {
 	save   = 1,
 	remove = 2,
+	opened = 3,     // a generation's snapshot is whole; length counts its entries
 }
 
 struct fzn_opjournal_entry {
@@ -21,5 +22,6 @@ struct fzn_opjournal_entry {
 	u8                flags [max = 3];      // 1: a subject; 2: the bytes are kept
 	u8                subject[32];          // the row, all-zero for a whole-host slot
 	u8                hash[32];             // of the bytes saved; all-zero otherwise
-	u32               length;               // of the bytes saved; 0 otherwise
+	u32               length;               // of the bytes saved; for opened, the
+	                                        // snapshot's entries; 0 otherwise
 }

@@ -4,6 +4,7 @@
 
 #include "../wire/bytes.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
@@ -28,22 +29,15 @@ static void hex(char *out, const uint8_t *bytes, size_t len)
 	out[len * 2u] = '\0';
 }
 
-/* Open the file for one (issuer, stream), reusing the cached descriptor when
- * it is already the right one. Returns the descriptor or -1. */
-static int stream_fd(fzn_record_store_file_t *file, const uint8_t issuer[FZN_PUBKEY_LEN],
-                     uint32_t stream)
+/* The path of one (issuer, stream)'s file. Nonzero on success. */
+static int stream_path(const fzn_record_store_file_t *file, const uint8_t issuer[FZN_PUBKEY_LEN],
+                       uint32_t stream, char path[FZN_RECORD_STORE_FILE_PATH_MAX])
 {
 	char issuer_hex[FZN_PUBKEY_LEN * 2u + 1u];
-	char path[FZN_RECORD_STORE_FILE_PATH_MAX];
 	int wrote;
-	int fd;
-
-	if (file->cached && file->stream == stream
-	    && memcmp(file->issuer, issuer, FZN_PUBKEY_LEN) == 0)
-		return file->fd;
 
 	hex(issuer_hex, issuer, FZN_PUBKEY_LEN);
-	wrote = snprintf(path, sizeof(path), "%s/%s-%08lx.rec", file->dir, issuer_hex,
+	wrote = snprintf(path, FZN_RECORD_STORE_FILE_PATH_MAX, "%s/%s-%08lx.rec", file->dir, issuer_hex,
 	                 (unsigned long)stream);
 	/* UNREACHABLE BY CONSTRUCTION, AND KEPT. `fzn_record_store_file_open`
 	 * refuses a directory that leaves less than FZN_RECORD_STORE_FILE_NAME_LEN
@@ -52,7 +46,21 @@ static int stream_fd(fzn_record_store_file_t *file, const uint8_t issuer[FZN_PUB
 	 * deliberately not covered by a test, since covering it would mean
 	 * removing the bound that makes it unreachable; project.md sec 135
 	 * records that rather than leaving it to be discovered. */
-	if (wrote < 0 || (size_t)wrote >= sizeof(path))
+	return wrote >= 0 && (size_t)wrote < FZN_RECORD_STORE_FILE_PATH_MAX;
+}
+
+/* Open the file for one (issuer, stream), reusing the cached descriptor when
+ * it is already the right one. Returns the descriptor or -1. */
+static int stream_fd(fzn_record_store_file_t *file, const uint8_t issuer[FZN_PUBKEY_LEN],
+                     uint32_t stream)
+{
+	char path[FZN_RECORD_STORE_FILE_PATH_MAX];
+	int fd;
+
+	if (file->cached && file->stream == stream
+	    && memcmp(file->issuer, issuer, FZN_PUBKEY_LEN) == 0)
+		return file->fd;
+	if (!stream_path(file, issuer, stream, path))
 		return -1;
 
 	fd = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
@@ -182,6 +190,19 @@ const fzn_record_store_ops_t *fzn_record_store_file_open(fzn_record_store_file_t
 	file->ops = STORE_FILE_OPS;
 	file->ops.ctx = file;
 	return &file->ops;
+}
+
+int fzn_record_store_file_forget(fzn_record_store_file_t *file,
+                                 const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream)
+{
+	char path[FZN_RECORD_STORE_FILE_PATH_MAX];
+
+	if (!file || !issuer || !stream_path(file, issuer, stream, path))
+		return 0;
+	if (file->cached && file->stream == stream
+	    && memcmp(file->issuer, issuer, FZN_PUBKEY_LEN) == 0)
+		fzn_record_store_file_close(file);
+	return unlink(path) == 0 || errno == ENOENT;
 }
 
 void fzn_record_store_file_close(fzn_record_store_file_t *file)

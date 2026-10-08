@@ -481,6 +481,55 @@ static void test_streams_and_issuers_do_not_share_a_file(void)
 	unlink_stream(ISSUER, 13u);
 }
 
+/* FORGETTING A STREAM removes its file whole, closes it when it is the one
+ * cached, and touches no other stream or issuer. sec 524. */
+static void test_a_stream_can_be_forgotten(void)
+{
+	fzn_record_store_file_t backend;
+	const fzn_record_store_ops_t *ops;
+	fzn_record_store_t store;
+	uint8_t buf[FZN_RECORD_MAX_LEN], out[FZN_RECORD_MAX_LEN];
+	fzn_record_t r, got;
+	char path[512];
+	struct stat st;
+
+	ops = fzn_record_store_file_open(&backend, dir);
+	REQUIRE(ops != NULL, "the backend would not open");
+	REQUIRE(fzn_record_store_init(&store, ops) == FZN_RECORD_STORE_OK, "init refused");
+	r = make(buf, sizeof(buf), ISSUER, 20u, 1u, 4u);
+	REQUIRE(fzn_record_is_open(r) && fzn_record_store_put(&store, r) == FZN_RECORD_STORE_OK,
+	        "fixture: the stream to forget");
+	r = make(buf, sizeof(buf), ISSUER, 21u, 1u, 4u);
+	REQUIRE(fzn_record_is_open(r) && fzn_record_store_put(&store, r) == FZN_RECORD_STORE_OK,
+	        "fixture: another stream of the issuer");
+	r = make(buf, sizeof(buf), OTHER_ISSUER, 20u, 1u, 4u);
+	REQUIRE(fzn_record_is_open(r) && fzn_record_store_put(&store, r) == FZN_RECORD_STORE_OK,
+	        "fixture: the same stream of another issuer");
+	REQUIRE(fzn_record_store_get(&store, ISSUER, 20u, 1u, out, sizeof(out), &got)
+	                == FZN_RECORD_STORE_OK,
+	        "fixture: the stream to forget is the one cached");
+
+	stream_path(path, sizeof(path), ISSUER, 20u);
+	CHECK(fzn_record_store_file_forget(&backend, ISSUER, 20u) && stat(path, &st) != 0
+	              && !backend.cached,
+	      "a forgotten stream's file is gone, and its cached descriptor closed");
+	CHECK(fzn_record_store_get(&store, ISSUER, 21u, 1u, out, sizeof(out), &got)
+	                      == FZN_RECORD_STORE_OK
+	              && fzn_record_store_get(&store, OTHER_ISSUER, 20u, 1u, out, sizeof(out), &got)
+	                         == FZN_RECORD_STORE_OK,
+	      "the issuer's other stream and another issuer's same stream are untouched");
+	CHECK(fzn_record_store_get(&store, ISSUER, 20u, 1u, out, sizeof(out), &got)
+	              == FZN_RECORD_STORE_ERR_ABSENT,
+	      "and the forgotten stream reads as never written");
+	CHECK(fzn_record_store_file_forget(&backend, ISSUER, 22u),
+	      "forgetting a stream that never existed answers that it is gone");
+
+	fzn_record_store_file_close(&backend);
+	unlink_stream(ISSUER, 20u);
+	unlink_stream(ISSUER, 21u);
+	unlink_stream(OTHER_ISSUER, 20u);
+}
+
 /* A sequence whose slot offset would not fit must be refused rather than
  * wrapping onto another record's slot. */
 static void test_an_unaddressable_sequence_is_refused(void)
@@ -723,6 +772,7 @@ int main(void)
 	test_a_corrupt_length_is_refused_not_believed();
 	test_the_file_is_sparse();
 	test_streams_and_issuers_do_not_share_a_file();
+	test_a_stream_can_be_forgotten();
 	test_an_unaddressable_sequence_is_refused();
 	test_the_length_is_written_after_the_record();
 	test_a_wrapping_sequence_does_not_land_on_another_slot();

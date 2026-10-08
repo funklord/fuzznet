@@ -123,6 +123,20 @@ typedef struct fzn_record_store_file {
 const fzn_record_store_ops_t *fzn_record_store_file_open(fzn_record_store_file_t *file,
                                                          const char *dir);
 
+/*
+ * FORGET ONE STREAM WHOLE: its file is unlinked, and closed first if it is
+ * the one cached. 1 when it is gone afterwards, including when it never
+ * existed; 0 when it could not be removed.
+ *
+ * NOT FOR A SERVED STREAM. The arrangement above rests on records never
+ * changing once written, and a follower or another reader of a served
+ * stream would see records it holds vanish. This is for a stream nothing
+ * else reads -- the operation journal's generations (sec 524), which are
+ * dropped whole because no single record of them can be.
+ */
+int fzn_record_store_file_forget(fzn_record_store_file_t *file,
+                                 const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream);
+
 /* Close whatever stream file is cached. Idempotent, so a cleanup path may
  * call it without asking whether an open succeeded. */
 void fzn_record_store_file_close(fzn_record_store_file_t *file);

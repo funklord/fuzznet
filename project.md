@@ -58867,14 +58867,16 @@ journal is purge-aware. `node/opjournal.{h,c}` is the code, and
 - **The bytes are kept by hash**, in the wrapped store's persist slot 33,
   `FZN_PERSIST_OP_BYTES`, which is not core. Erasing them deletes the
   content, while the entry, which says only that a write happened, stays.
+  Since sec 524 each entry keeps its own copy, under its place rather than
+  its hash.
 
 ### Purge-aware
 
 - **A remove erases the row's history.** Every byte any entry kept for
   that row goes with it. A purged note's meta, a removed contact or a
   forgotten share therefore leaves nothing readable here, which is what
-  "purge-aware" asked for. Bytes shared by two rows go with either, which
-  loses history and never keeps content.
+  "purge-aware" asked for. Since sec 524 no two entries share a copy, so
+  no other row's history goes with it.
 - **Secret and session slots keep no bytes at all**: own prekey, peer,
   both chains, node peer, own identity, paired node, own root, notes'
   wrap keys (sec 520), and slot 33 itself. Their old states must not
@@ -58889,11 +58891,8 @@ journal is purge-aware. `node/opjournal.{h,c}` is the code, and
   and their entries stay.
 - **Across a restart**, `fzn_opjournal_start` walks the journal once to
   recount what is kept, so the budget holds.
-- **Not built: rotating the entries themselves** into generations with a
-  snapshot. An entry is about 260 bytes as a stored record, so a node
-  writing a thousand times a day grows by about 95 MB a year. The tool is
-  off unless asked for. This is the next thing to build if a node runs it
-  for long.
+- **Rotating the entries themselves is built in sec 524**: generations,
+  each opening with a snapshot, the oldest dropped whole.
 
 ### Replay
 
@@ -58970,3 +58969,134 @@ Five entries, each probed and caught:
 - replay checks the hash;
 - the journal stores before admitting;
 - the budget bounds.
+
+## 524. The operation journal in generations, each opening with a snapshot, 2026-10-08
+
+Sec 523 named rotation as the next thing to build, and the holder chose it
+after stage 5's seven steps were done. Kept bytes had a budget, but the
+entries themselves only grew. An entry is one record, and the file store
+gives every record a 702-byte slot (`FZN_RECORD_STORE_FILE_SLOT`). A node
+writing a thousand times a day therefore grows by about 256 MB a year, not
+the 95 MB sec 523 estimated from the record's own length.
+
+### Why generations
+
+- **The store cannot forget a record.** Sec 132's arrangement rests on
+  records never changing once written, so no single entry can be deleted.
+- **So each generation is a journal of its own**, a directory each under
+  `<store>/opjournal/`, named by its number. Once more than `keep` are held,
+  the oldest is dropped whole. `fzn_record_store_file_forget` unlinks its
+  one stream file, and its header says it is only for a stream nothing
+  serves, which the operation journal's is.
+- **Rejected: deleting old records inside one journal.** That breaks the
+  store's immutability for every reader, and the chain would then name
+  predecessors nothing holds.
+
+### Every generation opens with a snapshot
+
+- **What the snapshot holds.** It has one save entry for every row of every
+  slot that keeps bytes, as the wrapped store holds it, then an OPENED
+  entry (op 3, `node/opjournal.situ`) whose length counts them. Each
+  generation therefore replays alone, from nothing.
+- **Generation 1 takes one too.** Replay now covers what was written before
+  the journal was turned on, which sec 523's replay did not.
+- **How rows are found.** Whole-host slots are loaded, and the rest are
+  listed. `fzn_persist_slot_whole_host` names the five whole-host slots,
+  inline in `persist/persist.h` so the journal does not link persist.c's
+  packers. `FZN_PERSIST_SLOT_END` bounds the walk. persist_test holds it to
+  one past the highest slot its core and store lists name, so a new slot
+  added to either list moves it or fails.
+- **A snapshot that cannot be whole drops its generation.** That happens
+  when a slot has no `list`, holds more than
+  `FZN_OPJOURNAL_SNAPSHOT_ROWS`, or a listed row will not load. The
+  rotation is then put off by a quarter of a generation and counted in
+  `unrotated`, which the daemon warns about with the other two counts.
+- **A crash mid-snapshot leaves a generation with no OPENED.** Start drops
+  it, and replay refuses one, since it would rebuild a state that was never
+  the node's.
+- **Rotation counts writes after OPENED, not entries.** Counting entries
+  meant a state larger than a generation rotated on every write. The suite
+  met that before the daemon did.
+
+### Bytes per entry, not per hash
+
+- **Kept bytes are keyed by the entry's place**, generation and sequence,
+  in slot 33. Under one key per hash, a snapshot's copy of a row and the
+  save that wrote it shared bytes, so the budget erasing the old save would
+  have erased the snapshot's copy. Two identical writes were counted twice
+  and erased once.
+- **The cost is a copy per entry**, a snapshot's included, and the byte
+  budget bounds it as before. Entries still name their bytes by hash, and
+  replay still checks it.
+- **A removal walks every generation held.** Dropping a generation erases
+  its bytes first.
+- **An entry the journal refuses takes its bytes back out.** The next
+  entry would take the same place, so without this the leftover could only
+  be seen in `kept`.
+
+### The daemon's generations
+
+- **Options:**
+  - `--op-journal-rotate=WRITES` sets the generation size, 65536 by
+    default.
+  - Two generations are kept (`FZND_OP_JOURNAL_KEEP`), so entries reach
+    about 92 MB at most.
+  - `--op-journal-generation=N` picks the generation a replay reads; the
+    newest is the default.
+- **Replay refuses rather than creating a journal.** A replay where no
+  generation exists says so, and a gap in the numbered directories is
+  refused at start.
+- **Startup line:** "generations A to B, N entries in the newest, K
+  byte(s) kept of B".
+- **A sec 523 journal is not migrated.** Its records sit directly in
+  `opjournal/` and are ignored. Only this session's live test directories
+  ever held one.
+
+### Not built
+
+- **The walk is bounded, not removed.** A removal reads every entry of
+  every generation held, as sec 523's did of the one journal, so it is at
+  most two generations' worth of reads.
+- **The slot bound is only as good as the lists.** A slot added to neither
+  of persist_test's lists, and not to `FZN_PERSIST_SLOT_END`, would be left
+  out of snapshots. Whatever made the author skip the lists would also
+  skip the bound.
+
+### Tests of sec 524
+
+- `node/test/opjournal_test`, 52 checks. The new ones cover:
+  - the first generation's snapshot of rows written before the journal,
+    without the secret, with OPENED counting two;
+  - rotation at three writes, each generation replaying alone, generation
+    1 still replaying to a point before the rotation;
+  - generation 1 dropped with its bytes, then refused a replay;
+  - a removal erasing a row's bytes from two generations' snapshots;
+  - a snapshot as large as a generation not rotating on the next write;
+  - a cut-short generation refused a replay, and dropped at restart;
+  - a rotation put off, not retried at once, then taken;
+  - `keep` of 0 or of the maximum refused;
+  - the refused entry's bytes taken back out at once.
+- `record/test/store_file_test`, 106 checks: a forgotten stream is
+  unlinked, its cached descriptor is closed, and other streams and issuers
+  are untouched.
+- `persist/test/persist_test`, 447 checks: the slot bound and the five
+  whole-host slots.
+- **Live, against a private copy of the binary, with
+  `--op-journal-rotate=3`:**
+  - six verbs left generations 3 and 4, with 1 and 2 dropped whole;
+  - a restart reopened them, and the daemon's own startup writes rotated
+    to 4 and 5;
+  - the newest replayed alone into exactly the live store's rows for the
+    slots that keep bytes (1 trust, 2 notes, 1 contact, 3 roster), without
+    the removed contact;
+  - generation 4 replayed whole;
+  - generation 1 was refused, the message naming 4 to 5 as held.
+
+### Sabotage of sec 524
+
+Eleven new entries, each probed and caught: one per mechanism above,
+plus `forget` closing its cache. Three earlier entries had moved and were
+re-anchored. The cache entry now names `stream_fd`'s compare, since
+`forget` repeats it. The refused-entry case first survived its sabotage:
+the test looked only after the next write, which overwrote the leftover.
+It now checks at once.
