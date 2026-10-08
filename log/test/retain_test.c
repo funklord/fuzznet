@@ -418,6 +418,78 @@ static void test_text(void)
 	}
 }
 
+/* WHAT DATA, sec 531: message rules in the same grammar, kept apart from
+ * the log's; and every log rule written before reads and writes as it did. */
+static void test_message_rules(void)
+{
+	static const char *const BAD[] = {
+		"prune messages level=D age 1d",
+		"prune messages subsystem=notes age 1d",
+		"prune messages text=hi age 1d",
+		"prune messages copy age 1d",
+		"prune * contact=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa age 1d",
+		"prune messages contact=aa age 1d",
+		"prune messages",
+	};
+	static const char C[] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+	fzn_retain_rule_t in[4], out[4], x;
+	uint8_t host[32], machine[FZN_ENTRY_MACHINE_LEN];
+	char line[FZN_RETAIN_TEXT_MAX], t[FZN_RETAIN_TEXT_MAX];
+	size_t i, len = 0;
+	int all = 1;
+
+	memset(host, 0xbb, sizeof(host));
+	memset(machine, 0x0b, sizeof(machine));
+	snprintf(line, sizeof(line), "keep messages contact=%s count 100", C);
+	in[0] = rule(line);
+	CHECK(in[0].data == FZN_RETAIN_MESSAGES && in[0].has_contact && in[0].contact[0] == 0xaau
+	              && in[0].kind == FZN_RETAIN_KEEP && in[0].limit == FZN_RETAIN_COUNT
+	              && in[0].value == 100u && in[0].program[0] == '\0',
+	      "a message rule reads, its contact named");
+	CHECK(fzn_retain_text(&in[0], t, sizeof(t), &len) == FZN_RETAIN_OK && strcmp(t, line) == 0,
+	      "and writes back as it was given");
+	in[1] = rule("prune messages age 360d");
+	CHECK(in[1].data == FZN_RETAIN_MESSAGES && !in[1].has_contact
+	              && fzn_retain_text(&in[1], t, sizeof(t), &len) == FZN_RETAIN_OK
+	              && strcmp(t, "prune messages age 360d") == 0,
+	      "and one for every conversation");
+	for (i = 0; i < sizeof(BAD) / sizeof(BAD[0]); i++)
+		all = all && fzn_retain_parse(BAD[i], strlen(BAD[i]), &x) == FZN_RETAIN_ERR_MALFORMED;
+	CHECK(all, "a message rule naming a log selector is refused, and a contact on a log rule");
+	in[2] = rule("prune log messages age 1d");
+	CHECK(in[2].data == FZN_RETAIN_LOG && strcmp(in[2].program, "messages") == 0
+	              && fzn_retain_text(&in[2], t, sizeof(t), &len) == FZN_RETAIN_OK
+	              && strcmp(t, "prune log messages age 1d") == 0,
+	      "a program called messages is a log rule, written with its data word");
+	in[3] = rule("prune log netcfgd age 1d");
+	CHECK(in[3].data == FZN_RETAIN_LOG && strcmp(in[3].program, "netcfgd") == 0
+	              && fzn_retain_text(&in[3], t, sizeof(t), &len) == FZN_RETAIN_OK
+	              && strcmp(t, "prune netcfgd age 1d") == 0,
+	      "and any other log rule keeps the text it always had");
+	CHECK(fzn_retain_select_here(in, 4u, host, machine, out) == 2u
+	              && out[0].data == FZN_RETAIN_LOG && out[1].data == FZN_RETAIN_LOG,
+	      "the log's selection leaves the message rules out");
+	CHECK(fzn_retain_select_messages(in, 4u, host, machine, out) == 2u
+	              && out[0].data == FZN_RETAIN_MESSAGES && out[1].data == FZN_RETAIN_MESSAGES,
+	      "and the messages' takes them alone");
+	snprintf(line, sizeof(line), "prune messages host=%s age 1d",
+	         "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc");
+	in[0] = rule(line);
+	CHECK(in[0].data == FZN_RETAIN_MESSAGES && in[0].has_host
+	              && fzn_retain_select_messages(in, 4u, host, machine, out) == 1u
+	              && !out[0].has_host,
+	      "a message rule scoped to another host is that host's, not this one's");
+	{
+		fzn_retain_segment_t s[1] = { { 0u, 10u } };
+		uint8_t gone[1] = { 9u };
+
+		CHECK(fzn_retain_plan("messages", s, 1u, &in[1], 1u, 400u * DAY, gone)
+		                      == FZN_RETAIN_OK
+		              && gone[0] == 0u,
+		      "nor does a log plan weigh a message rule, whatever its program is called");
+	}
+}
+
 int main(void)
 {
 	test_lines();
@@ -428,6 +500,7 @@ int main(void)
 	test_scope();
 	test_copy_rules();
 	test_source();
+	test_message_rules();
 	if (failures) {
 		fprintf(stderr, "retain_test: %d of %d checks failed\n", failures, checks);
 		return 1;

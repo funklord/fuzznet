@@ -38,6 +38,21 @@ uint32_t fzn_message_epoch_of(uint64_t ms)
 	return (uint32_t)((year - 1970u) * 12u + (month - 1u));
 }
 
+uint64_t fzn_message_epoch_start(uint32_t epoch)
+{
+	/* A civil date to days, after Howard Hinnant's days_from_civil, for
+	 * the first of the month. */
+	uint64_t year = 1970u + epoch / 12u, month = 1u + epoch % 12u;
+	uint64_t y = month <= 2u ? year - 1u : year;
+	uint64_t era = y / 400u;
+	uint64_t yoe = y - era * 400u;
+	uint64_t mp = month > 2u ? month - 3u : month + 9u;
+	uint64_t doy = (153u * mp + 2u) / 5u;
+	uint64_t doe = yoe * 365u + yoe / 4u - yoe / 100u + doy;
+
+	return (era * 146097u + doe - 719468u) * 86400000u;
+}
+
 /* Where part `part` of a text of `len` bytes starts, and how long it is. */
 static int part_span(size_t len, uint8_t part, uint8_t parts, size_t *at, size_t *n)
 {

@@ -112,6 +112,9 @@ size_t fzn_message_parts_for(size_t len);
  * destroys must not hold anything younger than what the rule names. */
 uint32_t fzn_message_epoch_of(uint64_t ms);
 
+/* When epoch `epoch` begins: its month's first millisecond, UTC. */
+uint64_t fzn_message_epoch_start(uint32_t epoch);
+
 /*
  * SEAL part `part` of `parts` of `text` (`len` bytes in all) into `body`,
  * FZN_RECORD_BODY_MAX bytes, `*body_len` of them, under `key` for `contact`

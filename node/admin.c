@@ -1156,6 +1156,7 @@ static size_t change_retention(fzn_node_admin_t *admin, int add, const uint8_t *
 	if (!rest_len || fzn_retain_parse((const char *)rest, rest_len, &rule) != FZN_RETAIN_OK)
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED,
 		                   "prune|keep PROGRAM|* [level=LETTERS] [subsystem=PATH] "
+		                   "age|size|count N, or prune|keep messages [contact=KEY] "
 		                   "age|size|count N");
 	err = add ? fzn_log_rules_add(admin->store, admin->state->hash, &rule,
 	                              admin->state->clock ? admin->state->clock() * 1000u : 0u)
@@ -1230,6 +1231,7 @@ static size_t change_estate_retention(fzn_node_admin_t *admin, int add, const ui
 	if (!rest_len || fzn_retain_parse((const char *)rest, rest_len, &rule) != FZN_RETAIN_OK)
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED,
 		                   "prune|keep PROGRAM|* [level=LETTERS] [subsystem=PATH] "
+		                   "age|size|count N, or prune|keep messages [contact=KEY] "
 		                   "age|size|count N");
 	err = fzn_node_roots_set_retention(admin->roots, admin->store, admin->id->pubkey,
 	                                   admin->id->sign, &rule, add);

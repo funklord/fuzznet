@@ -3891,6 +3891,7 @@ $(BUILD_DIR)/node/test/opjournal_test: $(BUILD_DIR)/node/test/opjournal_test.o \
 # XChaCha20-Poly1305: a stand-in AEAD would agree with whatever sealed it.
 $(BUILD_DIR)/messages/test/messages_test: $(BUILD_DIR)/messages/test/messages_test.o \
                                   $(BUILD_DIR)/messages/messages.o \
+                                  $(BUILD_DIR)/log/retain.o \
                                   $(BUILD_DIR)/messages/line.o \
                                   $(BUILD_DIR)/session/random.o \
                                   $(FUZZNETD_JOURNAL_OBJS) \
@@ -3904,6 +3905,7 @@ $(BUILD_DIR)/messages/test/messages_test: $(BUILD_DIR)/messages/test/messages_te
 $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
                                   $(BUILD_DIR)/node/messages.o \
                                   $(BUILD_DIR)/messages/messages.o \
+                                  $(BUILD_DIR)/log/retain.o \
                                   $(BUILD_DIR)/messages/line.o \
                                   $(BUILD_DIR)/contact/contact.o \
                                   $(BUILD_DIR)/persist/persist.o \
@@ -4003,11 +4005,11 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(if $(SPOOL_FILE_ON),$(FUZZNETD_SHELF_OBJS)) \
               $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
               $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/messages/messages.o \
-              $(BUILD_DIR)/messages/line.o \
+              $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o $(BUILD_DIR)/log/cause.o \
               $(BUILD_DIR)/log/view.o \
               $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o $(BUILD_DIR)/log/ring.o \
-                $(BUILD_DIR)/log/retain.o $(BUILD_DIR)/log/gather.o) \
+                $(BUILD_DIR)/log/gather.o) \
               $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o $(BUILD_DIR)/log/copy.o) \
               $(MONO_OBJS) $(FLOG_OBJS)
 	@mkdir -p $(dir $@)

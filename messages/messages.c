@@ -25,6 +25,8 @@ const char *fzn_messages_err_str(fzn_messages_err_t err)
 		return "deeper than a listing walks";
 	case FZN_MESSAGES_ERR_EQUIVOCATION:
 		return "another key is held for that conversation and month";
+	case FZN_MESSAGES_ERR_GONE:
+		return "that conversation's month was trimmed";
 	}
 	return "unknown";
 }
@@ -39,7 +41,9 @@ static int set_cursor(const fzn_messages_t *m, const uint8_t device[FZN_PUBKEY_L
                       uint64_t seq);
 static int index_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                         const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq, uint8_t direction,
-                        const uint8_t id[FZN_MESSAGE_ID_LEN]);
+                        const uint8_t id[FZN_MESSAGE_ID_LEN], uint32_t epoch, size_t size);
+static int is_gone(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                   uint32_t epoch);
 static int set_read(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                     const uint8_t id[FZN_MESSAGE_ID_LEN], uint64_t at);
 
@@ -203,7 +207,7 @@ fzn_messages_err_t fzn_messages_write(const fzn_messages_t *m,
 	/* ITS OWN LINE INDEXED NOW, so its conversation lists it without an
 	 * absorb between. */
 	if (took_own(m, before)
-	    && (!index_append(m, contact, m->issuer, own_head(m), direction, id)
+	    && (!index_append(m, contact, m->issuer, own_head(m), direction, id, epoch, len)
 	        || !set_cursor(m, m->issuer, own_head(m))))
 		return FZN_MESSAGES_ERR_BACKEND;
 	return FZN_MESSAGES_OK;
@@ -325,6 +329,10 @@ fzn_messages_err_t fzn_messages_key_take(const fzn_messages_t *m,
 
 	if (!ready(m) || !contact || !device || !key)
 		return FZN_MESSAGES_ERR_MALFORMED;
+	/* A TRIMMED MONTH TAKES NO KEY BACK, sec 531: a member still holding
+	 * one would otherwise undo the trim at the next round. */
+	if (is_gone(m, contact, epoch))
+		return FZN_MESSAGES_ERR_GONE;
 	if (key_of(m, contact, epoch, device, held)) {
 		same = memcmp(held, key, sizeof(held)) == 0;
 		memset(held, 0, sizeof(held));
@@ -346,7 +354,13 @@ fzn_messages_err_t fzn_messages_key_take(const fzn_messages_t *m,
 #define ENTRY_SEQ FZN_PUBKEY_LEN
 #define ENTRY_DIRECTION (ENTRY_SEQ + 8u)
 #define ENTRY_ID (ENTRY_DIRECTION + 1u)
-#define ENTRY_LEN (ENTRY_ID + FZN_MESSAGE_ID_LEN)
+/* And its month and its text's size, sec 531, so the rules weigh a
+ * conversation from its index alone. */
+#define ENTRY_EPOCH (ENTRY_ID + FZN_MESSAGE_ID_LEN)
+#define ENTRY_SIZE (ENTRY_EPOCH + 4u)
+#define ENTRY_LEN (ENTRY_SIZE + 2u)
+/* The conversations held, sec 531: a list of contact keys, chunked so. */
+#define CONVERSATIONS_CHUNK 16u
 /* How far back an absorb looks for the same line already indexed: a line
  * two devices both wrote is written by both at about the same time. */
 #define RECENT_ENTRIES 64u
@@ -428,7 +442,82 @@ typedef struct entry {
 	uint64_t seq;
 	uint8_t direction;
 	uint8_t id[FZN_MESSAGE_ID_LEN];
+	uint32_t epoch;
+	uint16_t size;
 } entry_t;
+
+static const uint8_t NOBODY[FZN_PUBKEY_LEN];
+
+/* ADD `contact` to the conversations held: once, when its index gains its
+ * first line. */
+static int conversation_add(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN])
+{
+	uint8_t row[FZN_PUBKEY_LEN], chunk[CONVERSATIONS_CHUNK * FZN_PUBKEY_LEN];
+	uint64_t n = load_number(m, "convs", NOBODY);
+	size_t in_chunk = (size_t)(n % CONVERSATIONS_CHUNK), len = 0;
+
+	if (!index_row(m, "convchnk", NOBODY, (uint32_t)(n / CONVERSATIONS_CHUNK), row))
+		return 0;
+	if (in_chunk
+	    && (!m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, chunk, sizeof(chunk),
+	                        &len)
+	        || len != in_chunk * FZN_PUBKEY_LEN))
+		return 0;
+	memcpy(chunk + in_chunk * FZN_PUBKEY_LEN, contact, FZN_PUBKEY_LEN);
+	return m->store->save(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, chunk,
+	                      (in_chunk + 1u) * FZN_PUBKEY_LEN)
+	       && save_number(m, "convs", NOBODY, n + 1u);
+}
+
+/* Conversation `i`'s contact. */
+static int conversation_at(const fzn_messages_t *m, uint64_t i, uint8_t contact[FZN_PUBKEY_LEN])
+{
+	uint8_t row[FZN_PUBKEY_LEN], chunk[CONVERSATIONS_CHUNK * FZN_PUBKEY_LEN];
+	size_t k = (size_t)(i % CONVERSATIONS_CHUNK), len = 0;
+
+	if (!index_row(m, "convchnk", NOBODY, (uint32_t)(i / CONVERSATIONS_CHUNK), row)
+	    || !m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, chunk, sizeof(chunk),
+	                       &len)
+	    || (k + 1u) * FZN_PUBKEY_LEN > len)
+		return 0;
+	memcpy(contact, chunk + k * FZN_PUBKEY_LEN, FZN_PUBKEY_LEN);
+	return 1;
+}
+
+static int conversations_clear(const fzn_messages_t *m)
+{
+	uint8_t row[FZN_PUBKEY_LEN];
+	uint64_t n = load_number(m, "convs", NOBODY), c;
+
+	for (c = 0; c * CONVERSATIONS_CHUNK < n; c++)
+		if (!index_row(m, "convchnk", NOBODY, (uint32_t)c, row)
+		    || !m->store->remove(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row))
+			return 0;
+	return index_row(m, "convs", NOBODY, 0u, row)
+	       && m->store->remove(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row);
+}
+
+/* A TRIMMED MONTH, sec 531: its keys destroyed, and marked so none is taken
+ * back. Not derived: nothing in the journal says it, so a reindex keeps it. */
+static int is_gone(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                   uint32_t epoch)
+{
+	uint8_t row[FZN_PUBKEY_LEN], b[1];
+	size_t len = 0;
+
+	return index_row(m, "gone", contact, epoch, row)
+	       && m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, b, sizeof(b), &len)
+	       && len == 1u;
+}
+
+static int set_gone(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                    uint32_t epoch)
+{
+	uint8_t row[FZN_PUBKEY_LEN], b[1] = { 1u };
+
+	return index_row(m, "gone", contact, epoch, row)
+	       && m->store->save(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, b, sizeof(b));
+}
 
 static int index_entry(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN], uint64_t i,
                        entry_t *e);
@@ -451,7 +540,7 @@ static int recently_indexed(const fzn_messages_t *m, const uint8_t contact[FZN_P
  * recent entries, written by another device, is not appended again. */
 static int index_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                         const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq, uint8_t direction,
-                        const uint8_t id[FZN_MESSAGE_ID_LEN])
+                        const uint8_t id[FZN_MESSAGE_ID_LEN], uint32_t epoch, size_t size)
 {
 	uint8_t row[FZN_PUBKEY_LEN], chunk[CHUNK_BYTES];
 	uint64_t n = count_of(m, contact);
@@ -459,6 +548,8 @@ static int index_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKE
 
 	if (recently_indexed(m, contact, n, direction, id))
 		return 1;
+	if (n == 0u && !conversation_add(m, contact))
+		return 0;
 	chunk_held.valid = 0;
 	if (n / FZN_MESSAGES_INDEX_CHUNK > UINT32_MAX
 	    || !index_row(m, "chunk", contact, (uint32_t)(n / FZN_MESSAGES_INDEX_CHUNK), row))
@@ -472,6 +563,9 @@ static int index_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKE
 	fzn_put_be64(chunk + in_chunk * ENTRY_LEN + ENTRY_SEQ, seq);
 	chunk[in_chunk * ENTRY_LEN + ENTRY_DIRECTION] = direction;
 	memcpy(chunk + in_chunk * ENTRY_LEN + ENTRY_ID, id, FZN_MESSAGE_ID_LEN);
+	fzn_put_be32(chunk + in_chunk * ENTRY_LEN + ENTRY_EPOCH, epoch);
+	chunk[in_chunk * ENTRY_LEN + ENTRY_SIZE] = (uint8_t)(size >> 8);
+	chunk[in_chunk * ENTRY_LEN + ENTRY_SIZE + 1u] = (uint8_t)size;
 	/* THE ENTRY, THEN THE COUNT: a crash between leaves an entry the count
 	 * does not reach, which the next append writes over. */
 	return m->store->save(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, chunk,
@@ -505,6 +599,9 @@ static int index_entry(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY
 	e->seq = fzn_get_be64(chunk_held.bytes + k * ENTRY_LEN + ENTRY_SEQ);
 	e->direction = chunk_held.bytes[k * ENTRY_LEN + ENTRY_DIRECTION];
 	memcpy(e->id, chunk_held.bytes + k * ENTRY_LEN + ENTRY_ID, FZN_MESSAGE_ID_LEN);
+	e->epoch = fzn_get_be32(chunk_held.bytes + k * ENTRY_LEN + ENTRY_EPOCH);
+	e->size = (uint16_t)((chunk_held.bytes[k * ENTRY_LEN + ENTRY_SIZE] << 8)
+	                     | chunk_held.bytes[k * ENTRY_LEN + ENTRY_SIZE + 1u]);
 	return 1;
 }
 
@@ -574,7 +671,9 @@ static fzn_messages_err_t take_in(const fzn_messages_t *m, const uint8_t device[
 	if (fzn_record_kind(rec) == FZN_MESSAGE_LINE_KIND
 	    && fzn_message_line_read(fzn_record_body(rec), fzn_record_body_len(rec), &p)
 	    && p.part + 1u == p.parts) {
-		if (seen) {
+		/* A TRIMMED MONTH'S LINE is reported to nobody: its key is not to
+		 * be asked for, nor given. */
+		if (seen && !is_gone(m, contact, p.epoch)) {
 			int held = key_of(m, contact, p.epoch, device, key);
 
 			memset(key, 0, sizeof(key));
@@ -583,7 +682,8 @@ static fzn_messages_err_t take_in(const fzn_messages_t *m, const uint8_t device[
 		/* INDEXED, THEN THE CURSOR MOVED, at once: an index entry is the
 		 * one thing taken in twice that would show twice. */
 		if (fresh
-		    && (!index_append(m, contact, device, seq, p.direction, p.id)
+		    && (!index_append(m, contact, device, seq, p.direction, p.id, p.epoch,
+		                      p.text_len + (p.parts == 2u ? FZN_MESSAGE_PART_MAX : 0u))
 		        || !set_cursor(m, device, seq)))
 			return FZN_MESSAGES_ERR_BACKEND;
 	} else if (fresh && fzn_record_kind(rec) == FZN_MESSAGE_MARK_KIND
@@ -945,6 +1045,8 @@ fzn_messages_err_t fzn_messages_reindex(const fzn_messages_t *m, size_t *marks)
 	if (!ready(m) || !m->store->remove || !m->devices
 	    || m->device_count > FZN_MESSAGES_DEVICES_MAX)
 		return FZN_MESSAGES_ERR_MALFORMED;
+	if (!conversations_clear(m))
+		return FZN_MESSAGES_ERR_BACKEND;
 	for (d = 0; d < m->device_count; d++) {
 		uint64_t seq, held = fzn_node_journal_received(m->journal, m->devices[d],
 		                                               FZN_MESSAGE_STREAM);
@@ -979,4 +1081,124 @@ fzn_messages_err_t fzn_messages_reindex(const fzn_messages_t *m, size_t *marks)
 		at[d] = 0u;
 	}
 	return fzn_messages_absorb(m, at, NULL, NULL, marks);
+}
+
+/* ---- trimming, by the rules, sec 531 ------------------------------------- */
+
+/* Months one conversation's walk keeps account of; a conversation spanning
+ * more has its older months stay, never trimmed for want of room. */
+#define TRIM_MONTHS 512u
+
+/* Whether entry `e`, the rule's `counted`th line with `bytes` before it, is
+ * within the rule's limit at `now_us`. AGE IS BY THE MONTH: a line is within
+ * when any of its month is, so a prune takes only months wholly older, and
+ * a keep protects every month it touches. */
+static int trim_within(const fzn_retain_rule_t *r, const entry_t *e, uint64_t counted, uint64_t bytes,
+                       uint64_t now_us)
+{
+	uint64_t end_us;
+
+	switch (r->limit) {
+	case FZN_RETAIN_AGE:
+		end_us = fzn_message_epoch_start(e->epoch + 1u) * 1000u;
+		return end_us >= now_us || now_us - end_us <= r->value;
+	case FZN_RETAIN_SIZE:
+		return bytes < r->value;
+	case FZN_RETAIN_COUNT:
+		return counted < r->value;
+	}
+	return 1;
+}
+
+fzn_messages_err_t fzn_messages_trim(const fzn_messages_t *m, const fzn_retain_rule_t *rules,
+                                     size_t n_rules, uint64_t now_ms,
+                                     fzn_messages_trim_tally_t *tally)
+{
+	static struct {
+		uint32_t epoch;
+		int stays;
+	} months[TRIM_MONTHS];
+	uint64_t counted[FZN_RETAIN_RULES_MAX], bytes[FZN_RETAIN_RULES_MAX];
+	uint8_t contact[FZN_PUBKEY_LEN];
+	uint32_t current;
+	uint64_t now_us, n_conv, c;
+	size_t r;
+
+	if (!ready(m) || (!rules && n_rules) || n_rules > FZN_RETAIN_RULES_MAX || !tally)
+		return FZN_MESSAGES_ERR_MALFORMED;
+	memset(tally, 0, sizeof(*tally));
+	if (!n_rules)
+		return FZN_MESSAGES_OK;
+	now_us = now_ms * 1000u;
+	current = fzn_message_epoch_of(now_ms);
+	n_conv = load_number(m, "convs", NOBODY);
+	for (c = 0; c < n_conv; c++) {
+		int applies[FZN_RETAIN_RULES_MAX], any = 0, trimmed = 0;
+		size_t n_months = 0, k;
+		uint64_t i;
+
+		if (!conversation_at(m, c, contact))
+			return FZN_MESSAGES_ERR_BACKEND;
+		for (r = 0; r < n_rules; r++) {
+			applies[r] = rules[r].data == FZN_RETAIN_MESSAGES
+			             && (!rules[r].has_contact
+			                 || memcmp(rules[r].contact, contact, FZN_PUBKEY_LEN) == 0);
+			any |= applies[r];
+			counted[r] = bytes[r] = 0u;
+		}
+		if (!any)
+			continue;
+		/* NEWEST FIRST: a line goes when a prune rule marks it and no keep
+		 * rule protects it, and a MONTH goes when every line of it goes.
+		 * Its key is the unit: no part of a month is deleted. */
+		for (i = count_of(m, contact); i > 0u; i--) {
+			entry_t e;
+			int pruned = 0, kept = 0;
+
+			if (!index_entry(m, contact, i - 1u, &e))
+				return FZN_MESSAGES_ERR_BACKEND;
+			for (r = 0; r < n_rules; r++) {
+				int within;
+
+				if (!applies[r])
+					continue;
+				within = trim_within(&rules[r], &e, counted[r], bytes[r], now_us);
+				if (rules[r].kind == FZN_RETAIN_PRUNE && !within)
+					pruned = 1;
+				if (rules[r].kind == FZN_RETAIN_KEEP && within)
+					kept = 1;
+				counted[r]++;
+				bytes[r] += e.size;
+			}
+			for (k = 0; k < n_months && months[k].epoch != e.epoch; k++)
+				;
+			if (k == n_months) {
+				if (n_months == TRIM_MONTHS)
+					continue;
+				months[n_months].epoch = e.epoch;
+				months[n_months].stays = 0;
+				n_months++;
+			}
+			if (!pruned || kept)
+				months[k].stays = 1;
+		}
+		/* THE CURRENT MONTH IS NEVER TRIMMED, as a log's open file is never
+		 * pruned: its key is the one new lines are sealed under. */
+		for (k = 0; k < n_months; k++) {
+			fzn_messages_err_t err;
+
+			if (months[k].stays || months[k].epoch >= current
+			    || is_gone(m, contact, months[k].epoch))
+				continue;
+			err = fzn_messages_forget_epoch(m, contact, months[k].epoch);
+			if (err != FZN_MESSAGES_OK)
+				return err;
+			if (!set_gone(m, contact, months[k].epoch))
+				return FZN_MESSAGES_ERR_BACKEND;
+			tally->months++;
+			trimmed = 1;
+		}
+		tally->conversations += (size_t)trimmed;
+	}
+	return FZN_MESSAGES_OK;
 }

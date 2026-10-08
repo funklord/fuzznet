@@ -60,7 +60,7 @@ typedef struct row {
 	int has_subject;
 	uint8_t subject[FZN_PUBKEY_LEN];
 	size_t len;
-	uint8_t bytes[960];
+	uint8_t bytes[1024];
 } row_t;
 
 typedef struct mem {

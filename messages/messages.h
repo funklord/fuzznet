@@ -50,6 +50,7 @@
 #include <stdint.h>
 
 #include "line.h"
+#include "../log/retain.h"
 #include "../node/journal.h"
 #include "../persist/persist.h"
 #include "../session/random.h"
@@ -71,7 +72,8 @@ typedef enum fzn_messages_err {
 	FZN_MESSAGES_ERR_BACKEND = -4,   /* the store refused, or cannot list */
 	FZN_MESSAGES_ERR_SEAL = -5,      /* the randomness or the seal refused */
 	FZN_MESSAGES_ERR_DEEP = -6,      /* past FZN_MESSAGES_WALK_MAX */
-	FZN_MESSAGES_ERR_EQUIVOCATION = -7 /* another key is held for that row */
+	FZN_MESSAGES_ERR_EQUIVOCATION = -7, /* another key is held for that row */
+	FZN_MESSAGES_ERR_GONE = -8      /* that conversation's month was trimmed */
 } fzn_messages_err_t;
 
 const char *fzn_messages_err_str(fzn_messages_err_t err);
@@ -225,5 +227,25 @@ fzn_messages_err_t fzn_messages_reindex(const fzn_messages_t *m, size_t *marks);
 fzn_messages_err_t fzn_messages_forget_epoch(const fzn_messages_t *m,
                                              const uint8_t contact[FZN_PUBKEY_LEN],
                                              uint32_t epoch);
+
+typedef struct fzn_messages_trim_tally {
+	size_t conversations; /* conversations a month went from */
+	size_t months;        /* months trimmed, all conversations together */
+} fzn_messages_trim_tally_t;
+
+/*
+ * TRIM BY THE RULES, sec 531: the message rules of `rules` (`log/retain.h`,
+ * those of data MESSAGES; the caller has chosen the ones that reach this
+ * node) over every conversation held, newest first, at `now_ms`. A line goes
+ * when a prune rule marks it and no keep rule protects it; age is by the
+ * month, a line within when any of its month is. A MONTH IS TRIMMED when
+ * every line of it goes and it is not the current month: its keys are
+ * destroyed, every listed device's, and the month marked GONE here, so no
+ * key for it is taken again or asked for. Its lines stay listed as shells.
+ * No rule, no trim: nothing is trimmed by default.
+ */
+fzn_messages_err_t fzn_messages_trim(const fzn_messages_t *m, const fzn_retain_rule_t *rules,
+                                     size_t n_rules, uint64_t now_ms,
+                                     fzn_messages_trim_tally_t *tally);
 
 #endif /* FZN_MESSAGES_H */

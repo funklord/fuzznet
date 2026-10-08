@@ -170,6 +170,17 @@ int main(void)
 	              && fzn_log_rules_list(&OPS, held, FZN_LOG_RULES_MAX, &n) == FZN_LOG_RULES_OK
 	              && n == 1u && fzn_log_rules_remove(&OPS, &HASH, &x) == FZN_LOG_RULES_ERR_ABSENT,
 	      "removed by the other spelling, and removing again is absent");
+	/* A RULE OVER CONVERSATIONS, sec 531, is kept beside the logs' and comes
+	 * back whole, its contact the longest word a rule carries. */
+	x = rule("prune messages contact=" "abababababababababababababababab"
+	         "abababababababababababababababab host=" "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+	         "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd age 365d");
+	CHECK(x.data == FZN_RETAIN_MESSAGES && fzn_log_rules_add(&OPS, &HASH, &x, 7u) == FZN_LOG_RULES_OK
+	              && fzn_log_rules_list(&OPS, held, FZN_LOG_RULES_MAX, &n) == FZN_LOG_RULES_OK
+	              && n == 2u && held[1].data == FZN_RETAIN_MESSAGES && held[1].has_contact
+	              && held[1].contact[31] == 0xabu
+	              && fzn_log_rules_remove(&OPS, &HASH, &x) == FZN_LOG_RULES_OK,
+	      "a rule over conversations is stored, listed whole and removed");
 	CHECK(fzn_log_rules_add(&OPS, &REFUSING, &a, 8u) == FZN_LOG_RULES_ERR_BACKEND,
 	      "a hash that refuses files nothing");
 	memset(&x, 0, sizeof(x));

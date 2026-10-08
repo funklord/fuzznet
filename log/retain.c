@@ -219,8 +219,8 @@ static int number(const char *w, size_t n, fzn_retain_limit_t limit, uint64_t *o
 
 fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_t *out)
 {
-	const char *at = line, *end, *w[11];
-	size_t n[11], count = 0, i;
+	const char *at = line, *end, *w[12], *limit_w, *value_w;
+	size_t n[12], count = 0, i, first = 2, program = 1, limit_n, value_n;
 
 	if (!line || !out)
 		return FZN_RETAIN_ERR_MALFORMED;
@@ -228,15 +228,28 @@ fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_
 	if (len && line[len - 1u] == '\n')
 		len--;
 	end = line + len;
-	while (count < 11u && next_word(&at, end, &w[count], &n[count]))
+	while (count < 12u && next_word(&at, end, &w[count], &n[count]))
 		count++;
-	/* KIND PROGRAM [copy] [source=] [host=] [machine=] [level=] [subsystem=]
-	 * [text=] LIMIT N: four words to ten, since a copy rule names no
-	 * selector and a source only with copy. */
-	if (count < 4u || count > 10u)
+	/* KIND [log|messages] PROGRAM [copy] [source=] [host=] [machine=]
+	 * [level=] [subsystem=] [text=] LIMIT N, or KIND messages [contact=]
+	 * [host=] [machine=] LIMIT N: the data word is sec 531's, and a rule
+	 * without one is a log rule as every rule before it was. */
+	if (count >= 2u && is(w[1], n[1], "messages")) {
+		out->data = FZN_RETAIN_MESSAGES;
+		program = 0;
+	} else if (count >= 3u && is(w[1], n[1], "log")) {
+		program = 2;
+		first = 3;
+	}
+	if (count < first + 2u || count > first + 8u)
 		return FZN_RETAIN_ERR_MALFORMED;
-	for (i = 2; i < count - 2u; i++) {
-		if (n[i] > 6u && memcmp(w[i], "level=", 6u) == 0 && !out->levels) {
+	for (i = first; i < count - 2u; i++) {
+		if (n[i] > 8u && memcmp(w[i], "contact=", 8u) == 0 && !out->has_contact
+		    && out->data == FZN_RETAIN_MESSAGES) {
+			if (!hex_of(w[i] + 8, n[i] - 8u, out->contact, sizeof(out->contact)))
+				return FZN_RETAIN_ERR_MALFORMED;
+			out->has_contact = 1;
+		} else if (n[i] > 6u && memcmp(w[i], "level=", 6u) == 0 && !out->levels) {
 			if (!levels_of(w[i] + 6, n[i] - 6u, &out->levels))
 				return FZN_RETAIN_ERR_MALFORMED;
 		} else if (n[i] == 4u && memcmp(w[i], "copy", 4u) == 0 && !out->copy) {
@@ -271,30 +284,39 @@ fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_
 	/* WHOSE COPIES, only of copies, sec 487. */
 	if (out->has_source && !out->copy)
 		return FZN_RETAIN_ERR_MALFORMED;
-	/* The limit and its number are the last two words. */
-	w[2] = w[count - 2u];
-	n[2] = n[count - 2u];
-	w[3] = w[count - 1u];
-	n[3] = n[count - 1u];
+	/* A MESSAGE RULE NAMES NO LOG SELECTOR, sec 531: its lines are sealed
+	 * and go by the month, so nothing but a contact and a scope chooses
+	 * among them. */
+	if (out->data == FZN_RETAIN_MESSAGES
+	    && (out->copy || out->has_source || out->levels || out->subsystem[0] || out->match_len))
+		return FZN_RETAIN_ERR_MALFORMED;
+	/* The limit and its number are the last two words: read into words of
+	 * their own, since the program may be the third. */
+	limit_w = w[count - 2u];
+	limit_n = n[count - 2u];
+	value_w = w[count - 1u];
+	value_n = n[count - 1u];
 	if (is(w[0], n[0], "prune"))
 		out->kind = FZN_RETAIN_PRUNE;
 	else if (is(w[0], n[0], "keep"))
 		out->kind = FZN_RETAIN_KEEP;
 	else
 		return FZN_RETAIN_ERR_MALFORMED;
-	if (!program_ok(w[1], n[1]))
-		return FZN_RETAIN_ERR_MALFORMED;
-	memcpy(out->program, w[1], n[1]);
-	out->program[n[1]] = '\0';
-	if (is(w[2], n[2], "age"))
+	if (program) {
+		if (!program_ok(w[program], n[program]))
+			return FZN_RETAIN_ERR_MALFORMED;
+		memcpy(out->program, w[program], n[program]);
+		out->program[n[program]] = '\0';
+	}
+	if (is(limit_w, limit_n, "age"))
 		out->limit = FZN_RETAIN_AGE;
-	else if (is(w[2], n[2], "size"))
+	else if (is(limit_w, limit_n, "size"))
 		out->limit = FZN_RETAIN_SIZE;
-	else if (is(w[2], n[2], "count"))
+	else if (is(limit_w, limit_n, "count"))
 		out->limit = FZN_RETAIN_COUNT;
 	else
 		return FZN_RETAIN_ERR_MALFORMED;
-	if (!number(w[3], n[3], out->limit, &out->value))
+	if (!number(value_w, value_n, out->limit, &out->value))
 		return FZN_RETAIN_ERR_MALFORMED;
 	return FZN_RETAIN_OK;
 }
@@ -306,7 +328,8 @@ fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_
 {
 	static const char LETTERS[] = "CEWNIVDT";
 	char levels[9], unit[2] = { 0, 0 }, match[(FZN_RETAIN_MATCH_MAX * 3u) + 7u];
-	char scope[8u + 64u + 6u + 64u + 9u + 32u + 1u];
+	char scope[9u + 64u + 8u + 64u + 6u + 64u + 9u + 32u + 1u];
+	char what[16u + FZN_ENTRY_WORD_MAX];
 	uint64_t v;
 	size_t i, k = 0;
 	int n;
@@ -342,9 +365,15 @@ fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_
 		size_t m = 0;
 
 		scope[0] = '\0';
+		if (rule->has_contact) {
+			memcpy(scope, " contact=", 9u);
+			m = 9u;
+			for (i = 0; i < sizeof(rule->contact); i++, m += 2u)
+				(void)snprintf(scope + m, 3u, "%02x", rule->contact[i]);
+		}
 		if (rule->has_source) {
-			memcpy(scope, " source=", 8u);
-			m = 8u;
+			memcpy(scope + m, " source=", 8u);
+			m += 8u;
 			for (i = 0; i < sizeof(rule->source); i++, m += 2u)
 				(void)snprintf(scope + m, 3u, "%02x", rule->source[i]);
 		}
@@ -390,8 +419,17 @@ fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_
 				break;
 			}
 	}
+	/* THE DATA WORD, sec 531: written for a message rule, and for a log
+	 * rule only where its program would read as one, so every log rule
+	 * before keeps its text and its stored row. */
+	if (rule->data == FZN_RETAIN_MESSAGES)
+		(void)snprintf(what, sizeof(what), "messages");
+	else if (strcmp(rule->program, "log") == 0 || strcmp(rule->program, "messages") == 0)
+		(void)snprintf(what, sizeof(what), "log %s", rule->program);
+	else
+		(void)snprintf(what, sizeof(what), "%s", rule->program);
 	n = snprintf(out, cap, "%s %s%s%s%s%s%s%s%s %s %llu%s",
-	             rule->kind == FZN_RETAIN_PRUNE ? "prune" : "keep", rule->program,
+	             rule->kind == FZN_RETAIN_PRUNE ? "prune" : "keep", what,
 	             rule->copy ? " copy" : "", scope,
 	             k ? " level=" : "", levels, rule->subsystem[0] ? " subsystem=" : "",
 	             rule->subsystem, match,
@@ -449,12 +487,23 @@ static int within(const fzn_retain_rule_t *r, const fzn_retain_segment_t *seg, s
 
 static int matches(const fzn_retain_rule_t *r, const char *program)
 {
-	return strcmp(r->program, "*") == 0 || strcmp(r->program, program) == 0;
+	return r->data == FZN_RETAIN_LOG
+	       && (strcmp(r->program, "*") == 0 || strcmp(r->program, program) == 0);
 }
 
 static int rule_ok(const fzn_retain_rule_t *r)
 {
-	return (r->kind == FZN_RETAIN_PRUNE || r->kind == FZN_RETAIN_KEEP)
+	/* A MESSAGE RULE: no program, no log selector, a contact or none. */
+	if (r->data == FZN_RETAIN_MESSAGES)
+		return (r->kind == FZN_RETAIN_PRUNE || r->kind == FZN_RETAIN_KEEP)
+		       && (r->limit == FZN_RETAIN_AGE || r->limit == FZN_RETAIN_SIZE
+		           || r->limit == FZN_RETAIN_COUNT)
+		       && r->program[0] == '\0' && !r->levels && !r->subsystem[0] && !r->match_len
+		       && !r->copy && !r->has_source && (r->has_contact == 0 || r->has_contact == 1)
+		       && (r->has_host == 0 || r->has_host == 1)
+		       && (r->has_machine == 0 || r->has_machine == 1);
+	return r->data == FZN_RETAIN_LOG && !r->has_contact
+	       && (r->kind == FZN_RETAIN_PRUNE || r->kind == FZN_RETAIN_KEEP)
 	       && (r->limit == FZN_RETAIN_AGE || r->limit == FZN_RETAIN_SIZE
 	           || r->limit == FZN_RETAIN_COUNT)
 	       && memchr(r->program, '\0', sizeof(r->program)) != NULL
@@ -494,7 +543,22 @@ size_t fzn_retain_select_here(const fzn_retain_rule_t *in, size_t n, const uint8
 	if (!in || !out)
 		return 0;
 	for (i = 0; i < n; i++)
-		if (!in[i].copy && fzn_retain_reaches(&in[i], host, machine))
+		if (in[i].data == FZN_RETAIN_LOG && !in[i].copy
+		    && fzn_retain_reaches(&in[i], host, machine))
+			out[k++] = in[i];
+	return k;
+}
+
+size_t fzn_retain_select_messages(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],
+                                  const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
+                                  fzn_retain_rule_t *out)
+{
+	size_t i, k = 0;
+
+	if (!in || !out)
+		return 0;
+	for (i = 0; i < n; i++)
+		if (in[i].data == FZN_RETAIN_MESSAGES && fzn_retain_reaches(&in[i], host, machine))
 			out[k++] = in[i];
 	return k;
 }
@@ -508,7 +572,8 @@ size_t fzn_retain_select_copies(const fzn_retain_rule_t *in, size_t n, const uin
 	if (!in || !out)
 		return 0;
 	for (i = 0; i < n; i++)
-		if (in[i].copy && fzn_retain_reaches(&in[i], host, machine))
+		if (in[i].data == FZN_RETAIN_LOG && in[i].copy
+		    && fzn_retain_reaches(&in[i], host, machine))
 			out[k++] = in[i];
 	return k;
 }

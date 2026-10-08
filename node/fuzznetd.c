@@ -123,10 +123,8 @@
 #define FZND_COPY_PROGRAMS_MAX 8u
 
 static struct {
-#ifdef FZN_LOG_FILE_ON
-	int on;
-	fzn_logger_t logger;
-	fzn_ring_t ring;
+	/* THE RULES, OF LOGS AND OF CONVERSATIONS ALIKE, sec 531: one set, read
+	 * whether or not this build writes log files. */
 	fzn_retain_rule_t rules[FZND_LOG_RULES_MAX];
 	size_t n_rules;
 	/* THE RULES SET WHILE RUNNING, sec 475: read from the store on every
@@ -139,6 +137,10 @@ static struct {
 	 * Until then a rule scoped to a host reaches nothing here. */
 	int has_host;
 	uint8_t host[FZN_PUBKEY_LEN];
+#ifdef FZN_LOG_FILE_ON
+	int on;
+	fzn_logger_t logger;
+	fzn_ring_t ring;
 #ifdef FZN_LOG_PACK_ON
 	/* COPIES OF THE PULL PEERS' LOGS, sec 483: `--log-copy[=PROGRAM]`,
 	 * opt-in, given once a program, sec 486. None copies nothing. */
@@ -165,7 +167,6 @@ static struct {
 	 * unless `--log-scope=estate`, as sec 428 has the holder decide. */
 	int estate_scope;
 #endif
-	int unused;
 } dlog;
 
 static uint64_t log_now_us(void)
@@ -350,6 +351,63 @@ static size_t log_programs(char (*out)[FZN_ENTRY_WORD_MAX + 1u])
 }
 #endif
 
+#if defined(FZN_LOG_FILE_ON) || defined(FZN_RECORD_STORE_FILE_ON)
+/* THE MACHINE, for a rule's `machine=`: the logger's reading of it, or
+ * none in a build without log files, which no machine-scoped rule reaches. */
+static const uint8_t *here_machine(void)
+{
+#ifdef FZN_LOG_FILE_ON
+	if (dlog.on)
+		return dlog.logger.self.machine;
+#endif
+	{
+		static const uint8_t none[FZN_ENTRY_MACHINE_LEN];
+
+		return none;
+	}
+}
+
+/* EVERY RULE THERE IS, sec 531: the command line's, the store's (sec 475)
+ * and the estate's (sec 476), as one set, whatever data each names. A store
+ * whose rules will not read applies the others, and says so. */
+static size_t gather_rules(fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX])
+{
+	size_t n_rules, held = 0;
+
+	memcpy(rules, dlog.rules, dlog.n_rules * sizeof(rules[0]));
+	n_rules = dlog.n_rules;
+	if (dlog.store) {
+		fzn_log_rules_err_t rerr = fzn_log_rules_list(dlog.store, rules + n_rules,
+		                                              FZN_LOG_RULES_MAX, &held);
+
+		if (rerr != FZN_LOG_RULES_OK)
+			say(FZN_ENTRY_WARNING, "log", "the stored log rules: %s",
+			    fzn_log_rules_err_str(rerr));
+		else
+			n_rules += held;
+	}
+	/* AND THE ESTATE'S, combined with these as one rule set: the holder's
+	 * answer of 2026-10-03. */
+	if (dlog.roots) {
+		size_t unread = 0;
+
+		held = 0;
+		if (fzn_node_roots_retention(dlog.roots, rules + n_rules,
+		                             FZN_RETAIN_RULES_MAX - n_rules, &held, &unread)
+		    != FZN_NODE_ROOTS_OK)
+			say(FZN_ENTRY_WARNING, "log", "the estate's log rules did not resolve");
+		else
+			n_rules += held;
+		if (unread)
+			say(FZN_ENTRY_WARNING, "log",
+			    "%zu of the estate's log rules were passed over: past the rules one "
+			    "pass weighs, or not ones this build reads",
+			    unread);
+	}
+	return n_rules;
+}
+#endif
+
 static void log_round(void)
 {
 #ifdef FZN_LOG_FILE_ON
@@ -372,42 +430,7 @@ static void log_round(void)
 			say(FZN_ENTRY_INFO, "log", "%zu segment(s) of %s packed", n, programs[pi]);
 	}
 #endif
-	/* THE COMMAND LINE'S RULES AND THE STORE'S, sec 475. A store whose
-	 * rules will not read applies the command line's alone, and says so. */
-	{
-		size_t held = 0;
-
-		memcpy(rules, dlog.rules, dlog.n_rules * sizeof(rules[0]));
-		n_rules = dlog.n_rules;
-		if (dlog.store) {
-			fzn_log_rules_err_t rerr = fzn_log_rules_list(dlog.store, rules + n_rules,
-			                                              FZN_LOG_RULES_MAX, &held);
-
-			if (rerr != FZN_LOG_RULES_OK)
-				say(FZN_ENTRY_WARNING, "log", "the stored log rules: %s",
-				    fzn_log_rules_err_str(rerr));
-			else
-				n_rules += held;
-		}
-		/* AND THE ESTATE'S, combined with these as one rule set: the
-		 * holder's answer of 2026-10-03. */
-		if (dlog.roots) {
-			size_t unread = 0;
-
-			held = 0;
-			if (fzn_node_roots_retention(dlog.roots, rules + n_rules,
-			                             FZN_RETAIN_RULES_MAX - n_rules, &held, &unread)
-			    != FZN_NODE_ROOTS_OK)
-				say(FZN_ENTRY_WARNING, "log", "the estate's log rules did not resolve");
-			else
-				n_rules += held;
-			if (unread)
-				say(FZN_ENTRY_WARNING, "log",
-				    "%zu of the estate's log rules were passed over: past the rules one "
-				    "pass weighs, or not ones this build reads",
-				    unread);
-		}
-	}
+	n_rules = gather_rules(rules);
 	/* ONLY THE RULES THAT REACH THIS NODE, sec 480: a rule scoped to
 	 * another host or machine is that one's. */
 	n_all = n_rules;
@@ -1451,8 +1474,41 @@ static int messages_absorb(void)
 	return 1;
 }
 
+/* How often the rules trim conversations, sec 531: they go by the month,
+ * so an hour is soon enough. */
+#define FZND_TRIM_EVERY 3600u
+
+/* CONVERSATIONS TRIMMED BY THE RULES, sec 531: the rules naming `messages`
+ * that reach this node, from the one set the logs' are drawn from. No rule
+ * trims nothing -- there is no default deletion of messages. */
+static void messages_trim(uint64_t now)
+{
+	static fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX];
+	static uint64_t next_trim;
+	fzn_messages_trim_tally_t tally;
+	fzn_messages_err_t err;
+	size_t n;
+
+	if (now < next_trim && next_trim <= now + FZND_TRIM_EVERY)
+		return;
+	next_trim = now + FZND_TRIM_EVERY;
+	n = gather_rules(rules);
+	n = fzn_retain_select_messages(rules, n, dlog.has_host ? dlog.host : NULL, here_machine(),
+	                               rules);
+	if (!n)
+		return;
+	err = fzn_messages_trim(&node_messages.m, rules, n, wall_ms(), &tally);
+	if (err != FZN_MESSAGES_OK)
+		say(FZN_ENTRY_WARNING, "messages", "trimming by the rules: %s",
+		    fzn_messages_err_str(err));
+	else if (tally.months)
+		say(FZN_ENTRY_INFO, "messages",
+		    "%zu month(s) of %zu conversation(s) trimmed by the rules", tally.months,
+		    tally.conversations);
+}
+
 /* CONVERSATIONS, sec 527: what the journal brought absorbed, then keys
- * given to and asked of every pull peer. */
+ * given to and asked of every pull peer, then the rules' trim. */
 static void messages_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
 	fzn_node_messages_tally_t t;
@@ -1460,6 +1516,7 @@ static void messages_round(struct pull_target *pulls, size_t npulls, uint64_t no
 
 	if (!messages_absorb())
 		return;
+	messages_trim(now);
 	for (p = 0; p < npulls; p++) {
 		struct peer_asking asking = { &pulls[p].caller, now, pulls[p].host };
 
@@ -2418,7 +2475,6 @@ int main(int argc, char **argv)
 			}
 			log_segment = (uint64_t)v;
 		} else if (!strncmp(argv[i], "--log-rule=", 11u)) {
-#ifdef FZN_LOG_FILE_ON
 			const char *v = argv[i] + 11;
 
 			if (dlog.n_rules >= FZND_LOG_RULES_MAX
@@ -2426,11 +2482,19 @@ int main(int argc, char **argv)
 			               != FZN_RETAIN_OK) {
 				fprintf(stderr, "fuzznetd: --log-rule: at most %u rules, each "
 				                "\"prune|keep PROGRAM|* [level=LETTERS] [subsystem=PATH] "
-				                "age|size|count N[unit]\"\n",
+				                "age|size|count N[unit]\" or \"prune|keep messages "
+				                "[contact=KEY] age|size|count N[unit]\"\n",
 				        FZND_LOG_RULES_MAX);
 				return 2;
 			}
-#ifndef FZN_LOG_PACK_ON
+#ifndef FZN_LOG_FILE_ON
+			/* A LOG RULE WITH NO LOGS is refused rather than ignored; a rule
+			 * over conversations, sec 531, needs none. */
+			if (dlog.rules[dlog.n_rules].data == FZN_RETAIN_LOG) {
+				fprintf(stderr, "fuzznetd: --log-rule: built without log files\n");
+				return 2;
+			}
+#elif !defined(FZN_LOG_PACK_ON)
 			/* AN ENTRY RULE REWRITES SEGMENTS, which only the packing build
 			 * does (sec 474): refused here rather than silently ignored. */
 			if (fzn_retain_rule_selects_entries(&dlog.rules[dlog.n_rules])) {
@@ -2440,10 +2504,6 @@ int main(int argc, char **argv)
 			}
 #endif
 			dlog.n_rules++;
-#else
-			fprintf(stderr, "fuzznetd: --log-rule: built without log files\n");
-			return 2;
-#endif
 		} else if (!strcmp(argv[i], "--to") && i + 2 < argc) {
 			to_host = argv[++i];
 			to_port = strtol(argv[++i], NULL, 10);
@@ -2577,9 +2637,7 @@ int main(int argc, char **argv)
 		}
 		fzn_persist_route_ops(&route, &routed);
 		store_ops = &routed;
-#ifdef FZN_LOG_FILE_ON
 		dlog.store = store_ops;
-#endif
 	} else if (cli.store) {
 		fprintf(stderr, "fuzznetd: --fuzznet-store needs --fuzznet-dir: the identity "
 		                "and what keeps attackers out live in the core directory\n");
@@ -2645,9 +2703,7 @@ int main(int argc, char **argv)
 				        store_dir);
 				return 1;
 			}
-#ifdef FZN_LOG_FILE_ON
 			dlog.store = store_ops;
-#endif
 			/* REPLAY AND EXIT: the replayable slots as they stood after
 			 * entry `replay_to`, into a fresh store at `replay_into`. */
 			if (replaying) {
@@ -3347,9 +3403,7 @@ int main(int argc, char **argv)
 		state.config.revocations = &revoked;
 		running = &revoked;
 		running_roots = &estate_roots;
-#ifdef FZN_LOG_FILE_ON
 		dlog.roots = running_roots;
-#endif
 #ifdef FZN_RECORD_STORE_FILE_ON
 		/* THE JOURNAL, sec 501, in `records/` under the core directory:
 		 * opened, every act logged from here on mirrored into it, and the
@@ -3402,9 +3456,9 @@ int main(int argc, char **argv)
 			/* IDS ARE DRAWN, a group's among them (sec 516), whether or
 			 * not the roster below loads. */
 			admin.rng = &rng_ops;
-#ifdef FZN_LOG_FILE_ON
 			memcpy(dlog.host, identity.pubkey, FZN_PUBKEY_LEN);
 			dlog.has_host = 1;
+#ifdef FZN_LOG_FILE_ON
 #ifdef FZN_LOG_PACK_ON
 			memcpy(dlog.signer.key, identity.pubkey, FZN_PUBKEY_LEN);
 			dlog.signer.sign = identity.sign;

@@ -59731,3 +59731,97 @@ it.
 
 `node/test/messages_test`, 46 checks. The other gates are unchanged and
 pass.
+
+## 531. Phase 4: conversations trimmed by the same rules as logs, 2026-10-08
+
+The holder, asked how message rules should be shaped: "Like logs we want
+to have a ruleset that is flexible and works in the same way, it can trim
+locally, globally, on specific nodes. based on various criteria like size,
+amount, time etc. the rule system needs to be the same for all "similar"
+things, logs, messages, telemetry, etc. and as similar as possible for
+other things." The earlier answer still holds: "Definitely no default
+deletion of messages" -- no rule, nothing trimmed.
+
+### One grammar, a data word
+
+A rule names the data it is over. `log/retain.h`:
+
+    prune|keep log PROGRAM|* [level=] [subsystem=] [text=] [copy] [source=] [host=] [machine=] LIMIT N
+    prune|keep messages [contact=KEYHEX] [host=] [machine=] LIMIT N
+
+A rule with no data word is a log rule, read and written exactly as
+before, so no stored or estate rule changes its text or its hash. `log`
+is written out only for a program called `log` or `messages`. A message
+rule refuses the log-only selectors; `contact=` is refused on a log rule.
+The log planners (`select_here`, `select_copies`, `matches`) take log
+rules alone, and `fzn_retain_select_messages` takes message rules by the
+same host/machine scope. Telemetry, when it exists, is a third data word
+in the same place.
+
+So the three places a rule can live are the three the logs already have:
+local (`add retention`, slot 26), the estate's (`add estate-retention`,
+roots and admins), and the command line (`--log-rule=`, which now also
+works in a build without log files, refusing only log rules there).
+fuzznetd's `gather_rules` is the one merge both consumers draw from.
+
+### Trimming by the month
+
+`fzn_messages_trim` walks each conversation's index newest first. A line
+goes when some prune rule that applies marks it and no keep rule
+protects it; age, size and count mean what they mean for a log, size
+being the line's text bytes. The unit deleted is a MONTH, because the key
+is per (contact, month, device): a month goes when every line in it goes,
+and then every device's key for it is forgotten and a tombstone row
+(`gone`, slot 36, not derived, kept by reindex) is set. A month is aged
+from its END, so "age 60d" never removes a line younger than 60 days.
+
+- **The current month is never trimmed**, like a log's open segment: it
+  is the key new lines are sealed under. Age alone cannot reach that
+  guard; a count can, when a line dated earlier is written later (import,
+  a clock set back), which is the test that pins it.
+- **The tombstone is what keeps a trim**: key carriage would otherwise
+  bring the month's key back from any member at the next round.
+  `fzn_messages_key_take` answers `FZN_MESSAGES_ERR_GONE`, and absorb
+  reports no gone month as lacking, so nobody asks for it.
+- The lines stay in the journal as shells, listed unreadable. Removing
+  the records themselves is the op journal's retention (stage 5 step 7),
+  not this.
+- fuzznetd trims once an hour, after an absorb, with the rules that reach
+  this node, and logs `N month(s) of M conversation(s) trimmed`.
+
+The index entry grew an epoch and a size (63 bytes, a chunk 1008), and a
+conversation list (`convs`) so the trim can find every conversation.
+
+### Limits, stated
+
+- Duplicate copies of one line (rare; dedup checks the recent 64) are
+  counted twice by a count or size rule.
+- 512 months per conversation per pass; past that, months stay.
+- Every conversation's whole index is walked; hourly keeps that cheap.
+- The daemon's call is verified by building, not by a test: no verb
+  writes a line dated in an earlier month, so a live run cannot reach a
+  trimmable month. The library function is what the tests pin.
+- Found while checking the no-log build: `FZN_LOG_FILE=0` with packing
+  left on does not compile at HEAD either (`push_logs` reads `dlog.on`,
+  `dlog.n_push_programs`); `FZN_LOG_FILE=0 FZN_LOG_PACK=0` builds, with
+  the trim. Not fixed here.
+
+### Measured for sec 531
+
+`make -j4 test`, `make style`, `make schema`, `make installcheck`, all 0.
+retain_test 62, rules_test 11, messages_test 120, node messages_test 46.
+A month's start is pinned against `date -u` for October 2026 and March
+2000, not against the code: the trim's fixtures date their lines with the
+same function, so a test using only it would agree with any error in it.
+
+### Sabotage of sec 531
+
+Twelve entries, each probed caught: a month starting a day late, contact
+only on message rules, the
+log's selection leaving message rules out, message rules scoped by host,
+the contact scope, keep protecting, a month going whole, age from the
+month's end, the current month staying, the tombstone refusing a key,
+gone months not lacked, and the tombstone written. Three survived their
+first probe -- host scope, contact scope and the current month -- and
+each gained the case it lacked. Three older entries were re-anchored to
+the changed text and probed caught again.

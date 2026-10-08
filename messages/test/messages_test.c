@@ -61,7 +61,7 @@ typedef struct row {
 	int has_subject;
 	uint8_t subject[FZN_PUBKEY_LEN];
 	size_t len;
-	uint8_t bytes[960];
+	uint8_t bytes[1024];
 } row_t;
 
 typedef struct mem {
@@ -317,6 +317,20 @@ static void test_the_epoch(void)
 	CHECK(fzn_message_epoch_of(1767225599000ull) == 671u
 	              && fzn_message_epoch_of(1767225600000ull) == 672u,
 	      "the last second of a year is December's, the next January's");
+	/* From `date -u -d 2026-10-01 +%s` and `-d 2000-03-01`: not from the
+	 * code under test, which the trim's fixtures also use. */
+	CHECK(fzn_message_epoch_start(681u) == 1790812800000ull
+	              && fzn_message_epoch_start(362u) == 951868800000ull,
+	      "a month starts at its first millisecond, past a leap February of a 400th year");
+	{
+		uint32_t e;
+		int all = 1;
+
+		for (e = 1u; e < 2400u; e++)
+			all = all && fzn_message_epoch_of(fzn_message_epoch_start(e)) == e
+			      && fzn_message_epoch_of(fzn_message_epoch_start(e) - 1u) == e - 1u;
+		CHECK(all, "and every month's start is its own, the millisecond before the last's");
+	}
 }
 
 static void test_the_codec(void)
@@ -447,6 +461,17 @@ static void test_a_hand_off_given_up_on_stays(void)
 
 /* A's journal reopened over the same records, following both devices'
  * streams: what the journal sync leaves A holding. A's store is kept. */
+/* A `seen` that counts what it is told. */
+static void count_seen(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch,
+                       const uint8_t device[FZN_PUBKEY_LEN], int held)
+{
+	(void)contact;
+	(void)epoch;
+	(void)device;
+	(void)held;
+	(*(size_t *)ctx)++;
+}
+
 static void sync_a(void)
 {
 	uint64_t at[2] = { 0u, 0u };
@@ -654,6 +679,155 @@ static void test_reindex_orders_by_writing(void)
 	      "and an absorb from the beginning again takes nothing in twice");
 }
 
+/* ---- trimming by the rules, sec 531 ------------------------------------------ */
+
+/* A line written on the tenth of month `epoch` (678 July 2026 .. 681
+ * October). */
+static int write_in(device_t *d, uint32_t epoch, const uint8_t *contact, uint8_t n,
+                    const char *text)
+{
+	clock_ms = fzn_message_epoch_start(epoch) + 9ull * 86400000u;
+	return write_line(d, contact, FZN_MESSAGE_OUT, n, text);
+}
+
+static fzn_retain_rule_t rule_of(const char *line)
+{
+	fzn_retain_rule_t r;
+
+	if (fzn_retain_parse(line, strlen(line), &r) != FZN_RETAIN_OK)
+		memset(&r, 0, sizeof(r));
+	return r;
+}
+
+/* Whether line `n` with `contact` reads, -1 when it is not listed. */
+static int readable(device_t *d, const uint8_t *contact, uint8_t n)
+{
+	size_t i;
+
+	if (!list(d, contact, 0u, FZN_MESSAGES_PAGE_MAX))
+		return -1;
+	for (i = 0; i < count; i++)
+		if (page[i].id[0] == n)
+			return page[i].readable;
+	return -1;
+}
+
+static fzn_messages_trim_tally_t trimmed;
+
+static int trim(device_t *d, const fzn_retain_rule_t *rules, size_t n)
+{
+	return fzn_messages_trim(&d->m, rules, n, OCTOBER_2026, &trimmed) == FZN_MESSAGES_OK;
+}
+
+static void test_trimming_by_age(void)
+{
+	fzn_retain_rule_t r;
+	size_t marks;
+	uint8_t key[FZN_CONVERSATION_KEY_LEN];
+
+	setup();
+	CHECK(write_in(&A, 678u, X, 1u, "july") && write_in(&A, 679u, X, 2u, "august")
+	              && write_in(&A, 680u, X, 3u, "september") && write_in(&A, 681u, X, 4u, "october")
+	              && write_in(&A, 678u, Y, 5u, "y in july"),
+	      "fixture: x's lines from July to October, and one of y's in July");
+	CHECK(trim(&A, NULL, 0u) && trimmed.months == 0u && readable(&A, X, 1u) == 1,
+	      "no rule trims nothing");
+	r = rule_of("prune messages age 60d");
+	CHECK(trim(&A, &r, 1u) && trimmed.months == 2u && trimmed.conversations == 2u,
+	      "older than 60 days by the month: July, of both conversations");
+	CHECK(readable(&A, X, 1u) == 0 && readable(&A, X, 2u) == 1 && readable(&A, Y, 5u) == 0,
+	      "July's lines are shells, listed, and August's read: it ended within 60 days");
+	CHECK(trim(&A, &r, 1u) && trimmed.months == 0u, "trimming again finds nothing more");
+	memset(key, 0x77, sizeof(key));
+	CHECK(fzn_messages_key_take(&A.m, X, 678u, A.pub, key) == FZN_MESSAGES_ERR_GONE,
+	      "and a trimmed month takes no key back");
+	r = rule_of("prune messages age 0d");
+	CHECK(trim(&A, &r, 1u) && readable(&A, X, 4u) == 1,
+	      "the current month is never trimmed, whatever the rule");
+	CHECK(fzn_messages_reindex(&A.m, &marks) == FZN_MESSAGES_OK
+	              && fzn_messages_key_take(&A.m, X, 679u, A.pub, key) == FZN_MESSAGES_ERR_GONE,
+	      "a rebuilt index keeps what was trimmed: a tombstone is not derived");
+	r = rule_of("prune messages age 0d");
+	CHECK(trim(&A, &r, 1u) && trimmed.months == 0u && readable(&A, X, 4u) == 1,
+	      "and after it, nothing comes back to be trimmed twice");
+}
+
+static void test_trimming_by_count_with_a_keep(void)
+{
+	fzn_retain_rule_t r[2];
+	char line[160];
+
+	setup();
+	CHECK(write_in(&A, 678u, X, 1u, "july") && write_in(&A, 679u, X, 2u, "august")
+	              && write_in(&A, 680u, X, 3u, "september") && write_in(&A, 681u, X, 4u, "october")
+	              && write_in(&A, 678u, Y, 5u, "y in july") && write_in(&A, 679u, Y, 6u, "y in august"),
+	      "fixture: x from July to October, y in July and August");
+	snprintf(line, sizeof(line), "prune messages contact=%s count 1",
+	         "5858585858585858585858585858585858585858585858585858585858585858");
+	r[0] = rule_of(line);
+	r[1] = rule_of("keep messages age 50d");
+	CHECK(trim(&A, r, 2u) && trimmed.months == 1u && readable(&A, X, 1u) == 0
+	              && readable(&A, X, 2u) == 1 && readable(&A, X, 3u) == 1,
+	      "past x's newest line, kept within 50 days: only July goes");
+	CHECK(readable(&A, Y, 5u) == 1, "and a rule for x does not touch y, past whose newest July is");
+	CHECK(trim(&A, r, 1u) && trimmed.months == 2u && readable(&A, X, 2u) == 0
+	              && readable(&A, X, 3u) == 0 && readable(&A, X, 4u) == 1,
+	      "without the keep, August and September go too, October being current");
+}
+
+/* THE CURRENT MONTH STAYS even when every line of it is past a rule: a line
+ * dated earlier can be written after it, from an import or a clock set
+ * back, and push it out of a count. */
+static void test_the_current_month_stays(void)
+{
+	fzn_retain_rule_t r;
+
+	setup();
+	CHECK(write_in(&A, 681u, X, 4u, "october") && write_in(&A, 680u, X, 3u, "september, after"),
+	      "fixture: October's line written, then September's");
+	clock_ms = OCTOBER_2026;
+	r = rule_of("prune messages count 1");
+	CHECK(trim(&A, &r, 1u) && trimmed.months == 0u && readable(&A, X, 4u) == 1
+	              && readable(&A, X, 3u) == 1,
+	      "past the count, October stays: it is the month new lines are sealed under");
+}
+
+static void test_trimming_by_size(void)
+{
+	fzn_retain_rule_t r;
+
+	setup();
+	CHECK(write_in(&A, 679u, X, 2u, "cccccc") && write_in(&A, 680u, X, 3u, "bbbbbb")
+	              && write_in(&A, 681u, X, 4u, "aaaaaa"),
+	      "fixture: six bytes a month, August to October");
+	r = rule_of("prune messages size 10");
+	CHECK(trim(&A, &r, 1u) && trimmed.months == 1u && readable(&A, X, 3u) == 1
+	              && readable(&A, X, 2u) == 0,
+	      "the newest ten bytes reach into September, which stays; August goes");
+}
+
+/* EVERY DEVICE'S KEY FOR THE MONTH goes, and a trimmed month's lines are not
+ * reported to whoever would ask for or give their keys. */
+static void test_a_trim_reaches_every_device_key(void)
+{
+	fzn_retain_rule_t r;
+	uint64_t at[2] = { 0u, 0u };
+	size_t reported = 0;
+
+	setup();
+	CHECK(write_in(&B, 678u, X, 1u, "b in july"), "fixture: B writes in July");
+	clock_ms = OCTOBER_2026;
+	sync_a();
+	keys_b_to_a();
+	CHECK(readable(&A, X, 1u) == 1, "fixture: A reads B's July line");
+	r = rule_of("prune messages age 30d");
+	CHECK(trim(&A, &r, 1u) && trimmed.months == 1u && readable(&A, X, 1u) == 0,
+	      "trimmed on A, B's key for July is gone from A too");
+	CHECK(fzn_messages_absorb(&A.m, at, count_seen, &reported, NULL) == FZN_MESSAGES_OK
+	              && reported == 0u,
+	      "and its line is reported to no one, so its key is never asked for again");
+}
+
 static void test_reindex_rebuilds_from_nothing(void)
 {
 	size_t marks = 0, i;
@@ -725,6 +899,11 @@ int main(void)
 	test_import_keeps_a_line_once();
 	test_read_state_travels();
 	test_reindex_orders_by_writing();
+	test_trimming_by_age();
+	test_trimming_by_count_with_a_keep();
+	test_trimming_by_size();
+	test_the_current_month_stays();
+	test_a_trim_reaches_every_device_key();
 	test_reindex_rebuilds_from_nothing();
 	test_a_month_forgotten_leaves_shells();
 	if (failures) {

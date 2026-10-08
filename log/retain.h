@@ -75,6 +75,18 @@
  * `fzn_retain_reaches` first, since a plan has no idea whose logs it is
  * planning over.
  *
+ * WHAT DATA, sec 531: the holder's "the rule system needs to be the same
+ * for all similar things, logs, messages, telemetry". A rule's second word
+ * may name it:
+ *     prune|keep log PROGRAM|* ...        a log rule, as above
+ *     prune|keep messages [contact=KEYHEX] [host=] [machine=] LIMIT N
+ * and a rule naming neither is a log rule, its second word the program, so
+ * every rule written before reads as it did and keeps its text. A program
+ * called `log` or `messages` is written `log PROGRAM`. A MESSAGE RULE
+ * applies to conversations (`messages/messages.h`): `contact=` names one,
+ * none means all of them; age, size and count are over a conversation's
+ * lines newest first, as over a program's entries; scope is as above. It
+ * names no log selector, and the log's plans never weigh it.
  * age units s, m, h, d (bare is seconds); size units K, M, G (bare is
  * bytes, powers of 1024); count takes no unit.
  *
@@ -114,8 +126,19 @@ typedef enum fzn_retain_limit {
 /* The longest text a rule matches, sec 477. */
 #define FZN_RETAIN_MATCH_MAX 64u
 
+/* What a rule's data is, sec 531. */
+typedef enum fzn_retain_data {
+	FZN_RETAIN_LOG = 0,
+	FZN_RETAIN_MESSAGES = 1
+} fzn_retain_data_t;
+
 typedef struct fzn_retain_rule {
 	fzn_retain_kind_t kind;
+	/* LOG for every rule written before sec 531. */
+	fzn_retain_data_t data;
+	/* A MESSAGE RULE's one conversation, by the contact's key. */
+	int has_contact;
+	uint8_t contact[32];
 	char program[FZN_ENTRY_WORD_MAX + 1u]; /* "*" for every program */
 	/* ENTRY SELECTORS, sec 474: bit `1 << level` per level, 0 for none
 	 * named; a subsystem path, "" for none. Neither named: a segment rule. */
@@ -145,7 +168,7 @@ int fzn_retain_reaches(const fzn_retain_rule_t *rule, const uint8_t host[32],
                        const uint8_t machine[FZN_ENTRY_MACHINE_LEN]);
 
 /* The rules of `in` that reach this node's OWN log, into `out` in order --
- * copy rules left out; how many. */
+ * copy rules and message rules left out; how many. */
 size_t fzn_retain_select_here(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],
                               const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
                               fzn_retain_rule_t *out);
@@ -154,6 +177,11 @@ size_t fzn_retain_select_here(const fzn_retain_rule_t *in, size_t n, const uint8
 size_t fzn_retain_select_copies(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],
                                 const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
                                 fzn_retain_rule_t *out);
+
+/* The MESSAGE rules of `in` that reach this node, sec 531. */
+size_t fzn_retain_select_messages(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],
+                                  const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
+                                  fzn_retain_rule_t *out);
 
 /* The rules of `in` -- copy rules, as `fzn_retain_select_copies` gives --
  * that apply to the copies of the host `source`: those naming no source,
