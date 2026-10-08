@@ -1,0 +1,36 @@
+# situ wire signature v2
+# schema: setting.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+endian big
+target buffer
+
+enum fzn_setting_scope : u8 unknown=error
+  host=1 estate=3
+
+struct fzn_setting size=144..463
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   1         u8         object  must_eq=147
+  @0x0002   32        u8         setter  big
+  @0x0022   1         fzn_setting_scope scope
+  @0x0023   32        u8         about  big
+  @0x0043   8         u64        version_no  big
+  @0x004b   1         u8         key_len  min=1 max=64
+  @0x004c   1..64     u8         key  sized-by=key_len
+  ~         1         u8         op  max=1
+  ~         2         u16        value_len  big max=256
+  ~         0..256    u8         value  sized-by=value_len
+  ~         64        u8         signature  big

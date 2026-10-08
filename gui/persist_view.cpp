@@ -90,6 +90,8 @@ static QString slot_label(fzn_persist_slot_t slot)
 		return QStringLiteral("message index");
 	case FZN_PERSIST_MESSAGE_LINE:
 		return QStringLiteral("message line");
+	case FZN_PERSIST_SETTING:
+		return QStringLiteral("setting");
 	}
 	/* NO `default:` ABOVE, so a slot added to persist.h draws a -Wswitch
 	 * warning here -- once, in the build after persist.h changes, and not

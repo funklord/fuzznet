@@ -1679,6 +1679,14 @@ not_groups:
 		if (n)
 			return n;
 	}
+	/* SETTINGS, sec 540, when this node keeps a journal. */
+	if (admin->settings_local) {
+		size_t n = admin->settings_local(admin->settings_ctx, origin, request, reply,
+		                                 reply_cap);
+
+		if (n)
+			return n;
+	}
 
 	return answer_text(reply, reply_cap, FZN_REPLY_UNSUPPORTED, NULL);
 }

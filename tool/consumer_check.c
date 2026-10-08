@@ -146,6 +146,7 @@
 #include <fuzznet/messages/messages.h>
 #include <fuzznet/node/messages.h>
 #include <fuzznet/node/apply.h>
+#include <fuzznet/node/settings.h>
 #ifdef FZN_CLI_ON
 #include <fuzznet/cli/cli.h>
 #endif
@@ -190,6 +191,7 @@
 #include <fuzznet/record/exchange.h>
 #include <fuzznet/state/state.h>
 #include <fuzznet/state/scope.h>
+#include <fuzznet/state/setting.h>
 #include <fuzznet/notes/note.h>
 #include <fuzznet/notes/text.h>
 #include <fuzznet/notes/store.h>
@@ -312,6 +314,7 @@
 #include "messages/messages.h"
 #include "node/messages.h"
 #include "node/apply.h"
+#include "node/settings.h"
 #ifdef FZN_CLI_ON
 #include "cli/cli.h"
 #endif
@@ -349,6 +352,7 @@
 #include "record/exchange.h"
 #include "state/state.h"
 #include "state/scope.h"
+#include "state/setting.h"
 #include "notes/note.h"
 #include "notes/text.h"
 #include "notes/store.h"

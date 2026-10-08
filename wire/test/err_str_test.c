@@ -94,6 +94,8 @@
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include "../../node/journal.h"
 #include "../../messages/messages.h"
+#include "../../node/settings.h"
+#include "../../state/setting.h"
 #endif
 #ifdef FZN_LOG_FILE_ON
 #include "../../log/logger.h"
@@ -242,6 +244,11 @@ static const char *r_cli(int v) { return fzn_cli_err_str((fzn_cli_err_t)v); }
 #endif
 static const char *r_exchange(int v) { return fzn_exchange_err_str((fzn_exchange_err_t)v); }
 static const char *r_messages(int v) { return fzn_messages_err_str((fzn_messages_err_t)v); }
+static const char *r_setting(int v) { return fzn_setting_err_str((fzn_setting_err_t)v); }
+static const char *r_node_settings(int v)
+{
+	return fzn_node_settings_err_str((fzn_node_settings_err_t)v);
+}
 #ifdef FZN_RECORD_STORE_FILE_ON
 static const char *r_njournal(int v)
 {
@@ -355,6 +362,8 @@ static const struct subject SUBJECTS[] = {
 #endif
 	{ "fzn_exchange_err_str", r_exchange, 5 },
 	{ "fzn_messages_err_str", r_messages, 9 },
+	{ "fzn_setting_err_str", r_setting, 5 },
+	{ "fzn_node_settings_err_str", r_node_settings, 6 },
 #ifdef FZN_RECORD_STORE_FILE_ON
 	{ "fzn_node_journal_err_str", r_njournal, 5 },
 #endif

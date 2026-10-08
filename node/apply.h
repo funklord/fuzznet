@@ -46,6 +46,7 @@
 
 #include "journal.h"
 #include "revoke.h"
+#include "../state/setting.h"
 
 /* The most grants the index holds: every pairing and admin grant in the
  * estate, each once. */
@@ -73,6 +74,10 @@ typedef struct fzn_node_apply {
 	struct fzn_node_roots *roots;        /* NULL: the pinned root alone */
 	struct fzn_node_roster *roster;      /* NULL: roster records refused */
 	struct fzn_node_successions *successions;  /* NULL: successions refused */
+	struct fzn_node_settings *settings;  /* NULL: settings refused, sec 540 */
+	/* The clock a member chain's expiry is judged at; NULL judges none
+	 * expired. */
+	uint64_t (*now)(void);
 	const fzn_persist_ops_t *store;
 	const uint8_t *root;                 /* the pinned root */
 	const fzn_cap_id_t *capability;      /* a member's grant */
@@ -103,5 +108,17 @@ fzn_node_pull_err_t fzn_node_apply_round(fzn_node_apply_t *ap, fzn_node_apply_ta
 int fzn_node_apply_chain(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY_LEN],
                          const fzn_cap_id_t *capability,
                          uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t *hop_count);
+
+/*
+ * A SETTER'S RANK for a setting of `scope` about `about`, sec 540: ROOT for a
+ * root; ADMIN for a key whose admin chain, from the index, the revocation
+ * store admits; HOST for a key setting its own host-scoped cell whose member
+ * chain verifies. 1 with `*rank` set; 0 when no chain reaches a root yet, so
+ * the setting waits; -1 when a chain is here and grants neither. A node's own
+ * write is judged by this before it is written (`node/settings.h`).
+ */
+int fzn_node_apply_rank(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY_LEN],
+                        fzn_scope_t scope, const uint8_t about[FZN_SUBJECT_LEN],
+                        fzn_setting_rank_t *rank);
 
 #endif /* FZN_NODE_APPLY_H */

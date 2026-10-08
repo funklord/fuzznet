@@ -1,0 +1,528 @@
+/* See settings.h. */
+
+#include "settings.h"
+
+#include "apply.h"
+#include "../wire/bytes.h"
+
+#include <stdio.h>
+#include <string.h>
+
+static const char HEX[] = "0123456789abcdef";
+
+const char *fzn_node_settings_err_str(fzn_node_settings_err_t err)
+{
+	switch (err) {
+	case FZN_NODE_SETTINGS_OK:
+		return "ok";
+	case FZN_NODE_SETTINGS_MALFORMED:
+		return "malformed";
+	case FZN_NODE_SETTINGS_REFUSED:
+		return "this setter may not set that";
+	case FZN_NODE_SETTINGS_STALE:
+		return "older than the setting standing";
+	case FZN_NODE_SETTINGS_BACKEND:
+		return "the store refused";
+	case FZN_NODE_SETTINGS_JOURNAL:
+		return "the journal refused";
+	}
+	return "unknown";
+}
+
+static int ready(const fzn_node_settings_t *ns)
+{
+	return ns && ns->store && ns->store->load && ns->store->save && ns->hash && ns->hash->hash
+	       && ns->verify && ns->verify->verify;
+}
+
+/* ---- rows ---------------------------------------------------------------- */
+
+/* A row: the rank, then the setting as its setter signed it. */
+#define ROW_MAX (1u + FZN_SETTING_MAX)
+
+/* The row of `cell` at `rank`. */
+static int row_of(const fzn_node_settings_t *ns, const uint8_t cell[FZN_SUBJECT_LEN],
+                  fzn_setting_rank_t rank, uint8_t row[FZN_PUBKEY_LEN])
+{
+	static const char DOMAIN[] = "fuzznet.setting.row";
+	uint8_t in[sizeof(DOMAIN) - 1u + FZN_SUBJECT_LEN + 1u];
+	size_t at = sizeof(DOMAIN) - 1u;
+
+	memcpy(in, DOMAIN, at);
+	memcpy(in + at, cell, FZN_SUBJECT_LEN);
+	in[at + FZN_SUBJECT_LEN] = (uint8_t)rank;
+	return ns->hash->hash(ns->hash->ctx, row, FZN_PUBKEY_LEN, in, sizeof(in));
+}
+
+/* The setting standing for `cell` at `rank`, opened from `buf` (ROW_MAX);
+ * its length, without the rank, in `*obj_len` (may be NULL). */
+static int standing(const fzn_node_settings_t *ns, const uint8_t cell[FZN_SUBJECT_LEN],
+                    fzn_setting_rank_t rank, uint8_t *buf, fzn_setting_t *s, size_t *obj_len)
+{
+	uint8_t row[FZN_PUBKEY_LEN], again[FZN_SUBJECT_LEN];
+	size_t len = 0;
+
+	if (obj_len)
+		*obj_len = 0;
+
+	/* WHAT IT SAYS IT IS, where it was looked for: a row of the cell and
+	 * rank it is filed under, or not this cell's. */
+	return row_of(ns, cell, rank, row)
+	       && ns->store->load(ns->store->ctx, FZN_PERSIST_SETTING, row, buf, ROW_MAX, &len)
+	       && len > 1u && buf[0] == (uint8_t)rank
+	       && fzn_setting_open(buf + 1u, len - 1u, ns->verify, s) == FZN_SETTING_OK
+	       && fzn_setting_cell(s, ns->hash, again)
+	       && memcmp(again, cell, FZN_SUBJECT_LEN) == 0 && (!obj_len || (*obj_len = len - 1u));
+}
+
+fzn_node_settings_err_t fzn_node_settings_learn(const fzn_node_settings_t *ns,
+                                                const uint8_t *bytes, size_t len,
+                                                fzn_setting_rank_t rank)
+{
+	static uint8_t held_buf[ROW_MAX], row_bytes[ROW_MAX];
+	uint8_t cell[FZN_SUBJECT_LEN], row[FZN_PUBKEY_LEN];
+	fzn_setting_t s, held;
+	size_t held_len = 0;
+
+	if (!ready(ns) || !bytes || (unsigned)rank >= FZN_SETTING_RANKS)
+		return FZN_NODE_SETTINGS_MALFORMED;
+	if (fzn_setting_open(bytes, len, ns->verify, &s) != FZN_SETTING_OK
+	    || !fzn_setting_cell(&s, ns->hash, cell))
+		return FZN_NODE_SETTINGS_REFUSED;
+	if (standing(ns, cell, rank, held_buf, &held, &held_len)) {
+		/* THE SAME SETTING AGAIN is what a journal replays: kept, no
+		 * change. */
+		if (held_len == len && memcmp(held_buf + 1u, bytes, len) == 0)
+			return FZN_NODE_SETTINGS_OK;
+		if (!fzn_setting_supersedes(&s, &held))
+			return FZN_NODE_SETTINGS_STALE;
+	}
+	if (!row_of(ns, cell, rank, row))
+		return FZN_NODE_SETTINGS_BACKEND;
+	row_bytes[0] = (uint8_t)rank;
+	memcpy(row_bytes + 1u, bytes, len);
+	return ns->store->save(ns->store->ctx, FZN_PERSIST_SETTING, row, row_bytes, 1u + len)
+	               ? FZN_NODE_SETTINGS_OK
+	               : FZN_NODE_SETTINGS_BACKEND;
+}
+
+/* THE RANK IN FORCE for `cell`: the highest whose standing setting sets a
+ * value, opened from `buf`; -1 when none does. */
+static int in_force(const fzn_node_settings_t *ns, const uint8_t cell[FZN_SUBJECT_LEN],
+                    uint8_t *buf, fzn_setting_t *s)
+{
+	int r;
+
+	for (r = (int)FZN_SETTING_RANKS - 1; r >= 0; r--)
+		if (standing(ns, cell, (fzn_setting_rank_t)r, buf, s, NULL) && s->set)
+			return r;
+	return -1;
+}
+
+int fzn_node_settings_get(const fzn_node_settings_t *ns, fzn_scope_t scope,
+                          const uint8_t about[FZN_SUBJECT_LEN], const uint8_t *key,
+                          size_t key_len, uint8_t *value, size_t *value_len,
+                          fzn_setting_rank_t *rank)
+{
+	static uint8_t buf[ROW_MAX];
+	uint8_t cell[FZN_SUBJECT_LEN];
+	fzn_setting_t s;
+	int r;
+
+	if (!ready(ns) || !value || !value_len || !rank
+	    || !fzn_setting_cell_of(scope, about, key, key_len, ns->hash, cell))
+		return 0;
+	r = in_force(ns, cell, buf, &s);
+	if (r < 0)
+		return 0;
+	memcpy(value, s.value, s.value_len);
+	*value_len = s.value_len;
+	*rank = (fzn_setting_rank_t)r;
+	return 1;
+}
+
+fzn_node_settings_err_t fzn_node_settings_each(const fzn_node_settings_t *ns,
+                                               fzn_node_settings_each_fn each, void *ctx)
+{
+	static uint8_t rows[FZN_NODE_SETTINGS_ROWS * FZN_PUBKEY_LEN];
+	static uint8_t buf[ROW_MAX], top[ROW_MAX];
+	size_t n = 0, i;
+
+	if (!ready(ns) || !ns->store->list || !each)
+		return FZN_NODE_SETTINGS_MALFORMED;
+	if (!ns->store->list(ns->store->ctx, FZN_PERSIST_SETTING, rows, FZN_NODE_SETTINGS_ROWS, &n))
+		return FZN_NODE_SETTINGS_BACKEND;
+	for (i = 0; i < n; i++) {
+		uint8_t cell[FZN_SUBJECT_LEN], again[FZN_PUBKEY_LEN];
+		fzn_setting_t s, t;
+		size_t len = 0;
+		int r;
+
+		/* EACH CELL ONCE, from the row that is in force for it: a row is
+		 * reported when it is its cell's highest live rank. */
+		if (!ns->store->load(ns->store->ctx, FZN_PERSIST_SETTING, rows + (i * FZN_PUBKEY_LEN), buf,
+		                     sizeof(buf), &len)
+		    || len < 2u || buf[0] >= FZN_SETTING_RANKS
+		    || fzn_setting_open(buf + 1u, len - 1u, ns->verify, &s) != FZN_SETTING_OK
+		    || !s.set || !fzn_setting_cell(&s, ns->hash, cell)
+		    || !row_of(ns, cell, (fzn_setting_rank_t)buf[0], again)
+		    || memcmp(again, rows + (i * FZN_PUBKEY_LEN), FZN_PUBKEY_LEN) != 0)
+			continue;
+		r = in_force(ns, cell, top, &t);
+		if (r == (int)buf[0])
+			each(ctx, &s, (fzn_setting_rank_t)r);
+	}
+	return FZN_NODE_SETTINGS_OK;
+}
+
+fzn_node_settings_err_t fzn_node_settings_write(const fzn_node_settings_t *ns,
+                                                fzn_scope_t scope,
+                                                const uint8_t about[FZN_SUBJECT_LEN],
+                                                const uint8_t *key, size_t key_len, int set,
+                                                const uint8_t *value, size_t value_len)
+{
+	static uint8_t buf[ROW_MAX];
+	uint8_t bytes[FZN_SETTING_MAX], cell[FZN_SUBJECT_LEN];
+	fzn_setting_rank_t rank;
+	uint64_t version = 0;
+	size_t len = 0;
+	int r;
+
+	if (!ready(ns) || !ns->journal || !ns->id || !ns->id->sign || !ns->apply || !ns->now || !about
+	    || !fzn_setting_cell_of(scope, about, key, key_len, ns->hash, cell))
+		return FZN_NODE_SETTINGS_MALFORMED;
+	/* JUDGED BEFORE IT IS WRITTEN, by what judges it where it is applied:
+	 * a setting this node may not make is never in its stream. */
+	if (fzn_node_apply_rank(ns->apply, ns->id->pubkey, scope, about, &rank) != 1)
+		return FZN_NODE_SETTINGS_REFUSED;
+	/* ONE PAST EVERY VERSION HELD FOR THE CELL, at any rank. */
+	for (r = 0; r < (int)FZN_SETTING_RANKS; r++) {
+		fzn_setting_t s;
+
+		if (standing(ns, cell, (fzn_setting_rank_t)r, buf, &s, NULL) && s.version >= version)
+			version = s.version + 1u;
+	}
+	if (version == 0u)
+		version = 1u;
+	if (fzn_setting_issue(ns->id->pubkey, ns->id->sign, scope, about, version, key, key_len,
+	                      set, value, value_len, bytes, &len)
+	    != FZN_SETTING_OK)
+		return FZN_NODE_SETTINGS_MALFORMED;
+	if (fzn_node_journal_append_object(ns->journal, ns->id->pubkey, ns->id->sign, bytes, len,
+	                                   ns->now(), NULL)
+	    != FZN_NODE_JOURNAL_OK)
+		return FZN_NODE_SETTINGS_JOURNAL;
+	return fzn_node_settings_learn(ns, bytes, len, rank);
+}
+
+/* ---- the verbs ------------------------------------------------------------ */
+
+static size_t answer(char *reply, size_t cap, fzn_reply_t kind, const char *detail, size_t len)
+{
+	size_t out = 0;
+
+	if (fzn_reply_compose((uint8_t *)reply, cap, &out, kind, (const uint8_t *)detail, len)
+	    != FZN_COMPOSE_OK)
+		return 0;
+	return out;
+}
+
+static size_t say(char *reply, size_t cap, fzn_reply_t kind, const char *detail)
+{
+	return answer(reply, cap, kind, detail, detail ? strlen(detail) : 0u);
+}
+
+static size_t refuse(char *reply, size_t cap, fzn_node_settings_err_t err)
+{
+	return say(reply, cap,
+	           err == FZN_NODE_SETTINGS_MALFORMED ? FZN_REPLY_MALFORMED
+	           : err == FZN_NODE_SETTINGS_REFUSED ? FZN_REPLY_DENIED
+	                                              : FZN_REPLY_ERROR,
+	           fzn_node_settings_err_str(err));
+}
+
+/* The next space-separated word, and what follows it. */
+static int word(const uint8_t **at, size_t *left, const uint8_t **w, size_t *w_len)
+{
+	size_t i = 0;
+
+	while (*left && **at == ' ') {
+		(*at)++;
+		(*left)--;
+	}
+	if (!*left)
+		return 0;
+	while (i < *left && (*at)[i] != ' ')
+		i++;
+	*w = *at;
+	*w_len = i;
+	*at += i;
+	*left -= i;
+	return 1;
+}
+
+static int is_word(const uint8_t *w, size_t w_len, const char *s)
+{
+	return w_len == strlen(s) && memcmp(w, s, w_len) == 0;
+}
+
+static int nibble(uint8_t c)
+{
+	const char *h = memchr(HEX, c, 16u);
+
+	return h ? (int)(h - HEX) : -1;
+}
+
+static int parse_hex(const uint8_t *w, size_t w_len, uint8_t *out, size_t n)
+{
+	size_t i;
+
+	if (w_len != n * 2u)
+		return 0;
+	for (i = 0; i < n; i++) {
+		int hi = nibble(w[i * 2u]), lo = nibble(w[(i * 2u) + 1u]);
+
+		if (hi < 0 || lo < 0)
+			return 0;
+		out[i] = (uint8_t)((hi << 4) | lo);
+	}
+	return 1;
+}
+
+/* SCOPE: `estate`, `host` or `host=KEYHEX`, into the scope and what it is
+ * about. */
+static int scope_of(const fzn_node_settings_t *ns, const uint8_t *w, size_t w_len,
+                    fzn_scope_t *scope, uint8_t about[FZN_SUBJECT_LEN])
+{
+	if (is_word(w, w_len, "estate") && ns->estate) {
+		*scope = FZN_SCOPE_ESTATE;
+		memcpy(about, ns->estate, FZN_SUBJECT_LEN);
+		return 1;
+	}
+	if (is_word(w, w_len, "host") && ns->id) {
+		*scope = FZN_SCOPE_HOST;
+		memcpy(about, ns->id->pubkey, FZN_SUBJECT_LEN);
+		return 1;
+	}
+	if (w_len == 5u + 2u * FZN_SUBJECT_LEN && memcmp(w, "host=", 5u) == 0) {
+		*scope = FZN_SCOPE_HOST;
+		return parse_hex(w + 5u, w_len - 5u, about, FZN_SUBJECT_LEN);
+	}
+	return 0;
+}
+
+/* `n` bytes with %XX undone into `out` (at most `cap`). */
+static int unescape(const uint8_t *in, size_t n, uint8_t *out, size_t cap, size_t *len)
+{
+	size_t i, w = 0;
+
+	for (i = 0; i < n; i++) {
+		uint8_t c = in[i];
+
+		if (c == '%') {
+			int hi, lo;
+
+			if (i + 2u >= n)
+				return 0;
+			hi = nibble(in[i + 1u]);
+			lo = nibble(in[i + 2u]);
+			if (hi < 0 || lo < 0)
+				return 0;
+			c = (uint8_t)((hi << 4) | lo);
+			i += 2u;
+		}
+		if (w == cap)
+			return 0;
+		out[w++] = c;
+	}
+	*len = w;
+	return 1;
+}
+
+/* `n` bytes escaped, as notes' listing does: a byte below 0x21, `%` and `,`
+ * as %XX. How many bytes were written into `out`, at most `cap`; 0 and
+ * nothing promised when it did not all fit. */
+static size_t escape(const uint8_t *b, size_t n, char *out, size_t cap, int *whole)
+{
+	size_t i, w = 0;
+
+	*whole = 0;
+	for (i = 0; i < n; i++) {
+		uint8_t c = b[i];
+
+		if (c <= 0x20u || c == '%' || c == ',' || c == 0x7fu) {
+			if (cap - w < 3u)
+				return w;
+			out[w++] = '%';
+			out[w++] = HEX[c >> 4];
+			out[w++] = HEX[c & 15u];
+		} else {
+			if (cap == w)
+				return w;
+			out[w++] = (char)c;
+		}
+	}
+	*whole = 1;
+	return w;
+}
+
+static const char *const RANKS[FZN_SETTING_RANKS] = { "host", "admin", "root" };
+
+static size_t set_setting(const fzn_node_settings_t *ns, int set, const uint8_t *at, size_t left,
+                          char *reply, size_t cap)
+{
+	static const char USAGE[] = "set setting SCOPE KEY VALUE, or remove setting SCOPE KEY";
+	uint8_t about[FZN_SUBJECT_LEN], value[FZN_SETTING_VALUE_MAX];
+	const uint8_t *w, *key;
+	size_t w_len, key_len, value_len = 0;
+	fzn_scope_t scope;
+	fzn_node_settings_err_t err;
+
+	if (!word(&at, &left, &w, &w_len) || !scope_of(ns, w, w_len, &scope, about)
+	    || !word(&at, &left, &key, &key_len) || !fzn_setting_key_ok(key, key_len))
+		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+	while (left && *at == ' ') {
+		at++;
+		left--;
+	}
+	if (set ? (!left || !unescape(at, left, value, sizeof(value), &value_len)) : left != 0u)
+		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+	err = fzn_node_settings_write(ns, scope, about, key, key_len, set, value, value_len);
+	if (err != FZN_NODE_SETTINGS_OK)
+		return refuse(reply, cap, err);
+	return say(reply, cap, FZN_REPLY_OK, NULL);
+}
+
+static size_t get_setting(const fzn_node_settings_t *ns, const uint8_t *at, size_t left,
+                          char *reply, size_t cap)
+{
+	static const char USAGE[] = "get setting SCOPE KEY";
+	uint8_t about[FZN_SUBJECT_LEN], value[FZN_SETTING_VALUE_MAX];
+	char detail[8u + 3u * FZN_SETTING_VALUE_MAX];
+	const uint8_t *w, *key;
+	size_t w_len, key_len, value_len = 0, n;
+	fzn_setting_rank_t rank;
+	fzn_scope_t scope;
+	int whole = 0, k;
+
+	if (!word(&at, &left, &w, &w_len) || !scope_of(ns, w, w_len, &scope, about)
+	    || !word(&at, &left, &key, &key_len) || !fzn_setting_key_ok(key, key_len) || left)
+		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+	if (!fzn_node_settings_get(ns, scope, about, key, key_len, value, &value_len, &rank))
+		return say(reply, cap, FZN_REPLY_OK, "absent");
+	k = snprintf(detail, sizeof(detail), "%s ", RANKS[rank]);
+	if (k < 0)
+		return 0;
+	n = (size_t)k + escape(value, value_len, detail + k, sizeof(detail) - (size_t)k, &whole);
+	if (!whole)
+		return 0;
+	return answer(reply, cap, FZN_REPLY_OK, detail, n);
+}
+
+/* THE LISTING'S WALK: every value in force, the ones past `from` written. */
+struct listing {
+	size_t from, seen, shown, used, limit;
+	int more;
+	char *items;
+	size_t cap;
+};
+
+static void list_one(void *ctx, const fzn_setting_t *s, fzn_setting_rank_t rank)
+{
+	struct listing *l = (struct listing *)ctx;
+	char item[8u + 2u * FZN_SUBJECT_LEN + FZN_SETTING_KEY_MAX + 48u + 3u * FZN_SETTING_VALUE_MAX];
+	size_t n, i;
+	int k, whole = 0;
+
+	if (l->more || l->seen++ < l->from)
+		return;
+	k = snprintf(item, sizeof(item), " %s,", fzn_scope_name(s->scope));
+	if (k < 0)
+		return;
+	n = (size_t)k;
+	for (i = 0; i < FZN_SUBJECT_LEN; i++) {
+		item[n++] = HEX[s->about[i] >> 4];
+		item[n++] = HEX[s->about[i] & 15u];
+	}
+	item[n++] = ',';
+	memcpy(item + n, s->key, s->key_len);
+	n += s->key_len;
+	k = snprintf(item + n, sizeof(item) - n, ",%s,%llu,", RANKS[rank],
+	             (unsigned long long)s->version);
+	if (k < 0)
+		return;
+	n += (size_t)k;
+	n += escape(s->value, s->value_len, item + n, sizeof(item) - n, &whole);
+	/* A VALUE GOES IN WHOLE OR NOT AT ALL: the page ends where the next
+	 * does not fit, and the caller asks from FROM + SHOWN. */
+	if (!whole || l->used + n > l->limit) {
+		l->more = 1;
+		return;
+	}
+	memcpy(l->items + l->used, item, n);
+	l->used += n;
+	l->shown++;
+}
+
+static size_t list_settings(const fzn_node_settings_t *ns, const uint8_t *at, size_t left,
+                            char *reply, size_t cap)
+{
+	static char items[FZN_REPLY_MAX], detail[FZN_REPLY_MAX];
+	const uint8_t *w;
+	size_t w_len, i;
+	struct listing l;
+	fzn_node_settings_err_t err;
+	int k;
+
+	memset(&l, 0, sizeof(l));
+	if (word(&at, &left, &w, &w_len)) {
+		for (i = 0; i < w_len; i++) {
+			if (w[i] < '0' || w[i] > '9' || l.from > FZN_NODE_SETTINGS_ROWS)
+				return say(reply, cap, FZN_REPLY_MALFORMED, "list setting [FROM]");
+			l.from = (l.from * 10u) + (size_t)(w[i] - '0');
+		}
+	}
+	l.items = items;
+	l.cap = sizeof(items);
+	/* ROOM FOR THE HEAD, `FROM SHOWN MORE`, beside the items. */
+	l.limit = fzn_reply_ok_room(cap) > 24u ? fzn_reply_ok_room(cap) - 24u : 0u;
+	if (l.limit > sizeof(items))
+		l.limit = sizeof(items);
+	err = fzn_node_settings_each(ns, list_one, &l);
+	if (err != FZN_NODE_SETTINGS_OK)
+		return refuse(reply, cap, err);
+	k = snprintf(detail, sizeof(detail), "%zu %zu %d", l.from, l.shown, l.more);
+	if (k < 0 || (size_t)k + l.used > sizeof(detail))
+		return 0;
+	memcpy(detail + k, items, l.used);
+	return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)k + l.used);
+}
+
+size_t fzn_node_settings_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
+                               char *reply, size_t reply_cap)
+{
+	const fzn_node_settings_t *ns = (const fzn_node_settings_t *)ctx;
+	const uint8_t *at, *subject;
+	size_t left, subject_len;
+
+	if (!ns || !request || !reply || !request->arg)
+		return 0;
+	at = request->arg;
+	left = request->arg_len;
+	if (!word(&at, &left, &subject, &subject_len) || !is_word(subject, subject_len, "setting"))
+		return 0;
+	if (request->parsed != FZN_VERB_SET && request->parsed != FZN_VERB_REMOVE
+	    && request->parsed != FZN_VERB_LIST && request->parsed != FZN_VERB_GET)
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return say(reply, reply_cap, FZN_REPLY_DENIED, "settings need this node's own user");
+	if (!ready(ns))
+		return say(reply, reply_cap, FZN_REPLY_UNSUPPORTED, "no store for settings");
+	if (request->parsed == FZN_VERB_SET)
+		return set_setting(ns, 1, at, left, reply, reply_cap);
+	if (request->parsed == FZN_VERB_REMOVE)
+		return set_setting(ns, 0, at, left, reply, reply_cap);
+	if (request->parsed == FZN_VERB_GET)
+		return get_setting(ns, at, left, reply, reply_cap);
+	return list_settings(ns, at, left, reply, reply_cap);
+}

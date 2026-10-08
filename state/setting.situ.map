@@ -1,0 +1,26 @@
+# situ capability map v1
+# schema: setting.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct fzn_setting size=144..463 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  fzn_setting.version                    offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_setting.object                     offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_setting.setter                     offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_setting.scope                      offset=AbsoluteStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_setting.about                      offset=AbsoluteStatic(0x23) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  fzn_setting.version_no                 offset=AbsoluteStatic(0x43) size=Fixed(8) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_setting.key_len                    offset=AbsoluteStatic(0x4B) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_setting.key                        offset=AbsoluteStatic(0x4C) size=Bounded(1, 64) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_setting.op                         offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  fzn_setting.value_len                  offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  fzn_setting.value                      offset=Dynamic size=Bounded(0, 256) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+  fzn_setting.signature                  offset=Dynamic size=Fixed(64) align=Unaligned repr=MemoryIdentical atomic=NonAtomic address=Unstable

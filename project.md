@@ -60358,3 +60358,90 @@ call is now what opens waiting rows. Four new sabotage entries -- rows kept
 opened, a key opens what waited, a trim removes before it saves, forgetting
 a month reaches the rows -- and one re-anchored, each probed caught, with
 the sixteen from sec 536 probed again and caught.
+
+## 540. Stage 2, first part: settings, a node's configuration in the estate, 2026-10-08
+
+Sec 535's second stage: one record kind for configuration, so a new
+setting is a key and not a new record kind, slot and apply path; every
+admin node a source and a backup of every node's configuration, a node's
+local configuration among it; and the holder's rule between writers
+(sec 535 decision 3) and for local configuration (decision 4).
+
+### A setting
+
+`state/setting.{h,c}`, with `state/setting.situ` as its checked contract:
+a signed object, tag 147 (`FZN_OBJECT_SETTING`), naming a scope (sec
+420), what it is about -- a host's key, or the estate's root -- a key, a
+version, and a value or a clear. 144 to 463 bytes, so one fits a record.
+
+- **Keys** are 1 to 64 of a-z, 0-9 and `._/-`; **values** printable ASCII,
+  at most 256 bytes -- what is configured here is text a person reads.
+- **The scopes served** are host and estate. Group is refused until a
+  consumer needs it; host-private has no cell, as sec 420 has it.
+- **The cell** is (scope, the scoped subject of what it is about, key).
+
+### Why not `state/` as it stands
+
+Sec 535 proposed resolving settings with `state/state.h`. Read again, it
+is an in-memory table whose cells point into record buffers the caller
+keeps alive, and it deliberately resolves no conflict between writers.
+Settings must outlive their records -- the journal becomes a window --
+and the holder gave a rule to resolve them by. So settings are kept by
+`node/settings.{h,c}` in a slot of their own, and keep the one property
+`state/` paid for: a clear is a tombstone within its writer's layer, so
+an older value replayed cannot come back.
+
+### Rank, judged; one layer per rank
+
+- **A rank is judged where a setting is applied, never claimed**:
+  `fzn_node_apply_rank` in `node/apply.c` gives ROOT to a root, ADMIN to
+  a key whose admin chain the revocation store admits (as an admin's
+  retention setting is admitted, sec 479), and HOST to a member setting
+  its OWN host-scoped cell whose member chain verifies. A key with no
+  chain yet waits, as any act does; a member with no standing for the
+  cell is refused rather than left to wait, since a waiting record stops
+  its setter's whole stream -- which the first run of the suite showed.
+- **A node's own write is judged by the same call before it is written**,
+  so a setting a node may not make never enters its stream, and the
+  writer and every node applying the record agree on its rank.
+- **The setter must be the record's signer**: a setting carried in
+  another key's stream is refused.
+- **One row per (cell, rank)** in persist slot 38, `FZN_PERSIST_SETTING`
+  (core): within a rank the higher version stands, then the greater
+  setter key, then -- one setter equivocating at one version -- a set
+  over a clear and the greater value, so every host converges. The value
+  IN FORCE is the highest rank whose standing setting sets one.
+- **A refinement of the holder's rank-then-version rule, so it can be
+  lived with**: a clear withdraws only its own rank's layer. An admin
+  clearing a host's cell leaves the host's own value in force again; a
+  single tombstone outranking everything would lock the host out of its
+  own cell for good.
+- **A writer's version** is one past every version held for the cell.
+
+### The verbs, and local configuration
+
+`set setting`, `remove setting`, `get setting` and `list setting`, for
+the node's own user (remote use is stage 3), with SCOPE `estate`, `host`
+or `host=KEYHEX`. A node's local configuration is its host-scoped cells:
+the node writes them at host rank, an admin or a root writes them for it
+at a higher one, and every node following the estate holds them.
+
+### The first consumer: retention rules
+
+Rules kept under keys `retention/...` -- the estate's, and this host's
+own -- join the command line's, the store's and the estate's in
+fuzznetd's `gather_rules`, so the one rule system of sec 531 now has a
+place an admin can set any node's rules from. The old record kinds (k,
+retention) are untouched; moving them onto settings is the next part.
+
+### Measured for sec 540
+
+setting_test 20 checks; apply_test 33, its settings case covering the
+three ranks, a member refused for the estate's cell and another host's, a
+stranger waiting, an admin's clear revealing the host's value, a stale
+version, a node's own write judged before its stream, the verbs, a setting
+in another key's stream, an admin chain that does not verify, and a row
+under another cell's place. `make livecheck` gains phases: a rule kept as
+this host's setting, set by the verb, trims a second conversation after a
+restart, and keeps applying. Twelve sabotage entries, each probed caught;
+three survived first and gained the cases named last above.

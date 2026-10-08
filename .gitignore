@@ -170,6 +170,7 @@
 /record/test/sync_fuzz
 /state/test/state_test
 /state/test/scope_test
+/state/test/setting_test
 /notes/test/note_test
 /notes/test/text_test
 /notes/test/notes_store_test

@@ -3,18 +3,22 @@
 
 A line's month is the writing clock's, so a line old enough to trim can
 only be written by a daemon whose clock says so: phase a runs fuzznetd
-under `faketime` some sixty days back and writes one line. The phases
-after it restart the same node on the real clock:
+under `faketime` some sixty days back and writes one line in each of two
+conversations, x's and y's. The phases after it restart the same node on
+the real clock:
 
-    b  no rule                                -> the line reads
+    b  no rule                                -> both read
     c  a message rule for another host, and
-       a log rule                             -> the line reads
-    d  `prune messages age 1d`                -> the month is trimmed
-    e  no rule again                          -> it stays trimmed
+       a log rule                             -> both read
+    d  `prune messages contact=X age 1d`      -> x's month trimmed, y's reads
+    e  the same rule, for every contact, SET AS THIS HOST'S SETTING by the
+       admin verb (sec 540), after the pass   -> y's still reads
+    f  no command-line rule                   -> the setting trims y's month
+    g  again                                  -> both stay trimmed
 
-b and c are the controls, and a control means nothing unless the trim
+b, c and e are the controls, and a control means nothing unless the trim
 ran: every phase waits for the daemon's own debug line saying a trim pass
-finished, and reads that pass's rule count, before it looks at the line.
+finished, and reads that pass's rule count, before it looks at the lines.
 
 BOUNDED FROM INSIDE: one deadline over the whole run, each daemon in its
 own process group, stopped with TERM and then KILL, and checked gone.
@@ -38,6 +42,7 @@ import time
 
 DEADLINE = time.monotonic() + 240.0
 CONTACT = "5a" * 32
+OTHER_CONTACT = "6b" * 32
 OTHER_HOST = "77" * 32
 LINE_ID = "01" + "00" * 15
 CAPABILITY = ["--fuzznet-service=1", "--fuzznet-product=1"]
@@ -137,9 +142,9 @@ class daemon:
 		self.err.close()
 
 
-def row(run, tag):
-	"""The test line's row: (written_at_ms, readable, text)."""
-	reply = ask(run.sock, "list message " + CONTACT)
+def row(run, tag, contact=CONTACT):
+	"""A conversation's one line: (written_at_ms, readable, text)."""
+	reply = ask(run.sock, "list message " + contact)
 	fields = reply.split(" ", 4)
 	if len(fields) < 5 or fields[0] != "ok" or fields[2] != "1":
 		raise failed("%s: list message answered %r" % (tag, reply))
@@ -147,21 +152,36 @@ def row(run, tag):
 	return int(parts[6]), int(parts[7]), parts[8]
 
 
-def phase(run, tag, want_pass, want_readable, extra=()):
+def phase(run, tag, want_pass, want_readable, extra=(), then=None):
+	"""One daemon: its first trim pass's counts, then each conversation's
+	line readable or not, as `want_readable` (x's, y's); `then`, given,
+	is asked of the daemon after both are checked."""
 	d = daemon(run, tag, extra=extra)
 	try:
 		got = d.trim_pass()
 		if got != want_pass:
 			raise failed("%s: the trim pass said %d of %d rule(s), %d month(s); "
 			             "expected %d of %d, %d" % ((tag,) + got + want_pass))
-		_, readable, _ = row(run, tag)
+		readable = (row(run, tag, CONTACT)[1], row(run, tag, OTHER_CONTACT)[1])
 		if readable != want_readable:
-			raise failed("%s: the line reads %d after the pass, expected %d"
-			             % (tag, readable, want_readable))
+			raise failed("%s: the lines read %d and %d after the pass, expected %d and %d"
+			             % ((tag,) + readable + want_readable))
+		if then:
+			then(run, tag)
 	finally:
 		d.stop()
-	print("livecheck: %s: %d of %d rule(s) applied, %d month(s) trimmed, line readable %d"
-	      % ((tag,) + want_pass + (want_readable,)))
+	print("livecheck: %s: %d of %d rule(s) applied, %d month(s) trimmed, lines readable %d %d"
+	      % ((tag,) + want_pass + want_readable))
+
+
+def set_the_rule(run, tag):
+	"""This host's retention rule, as a setting, by the admin verb."""
+	reply = ask(run.sock, "set setting host retention/1 prune messages age 1d")
+	if reply != "ok":
+		raise failed("%s: set setting answered %r" % (tag, reply))
+	reply = ask(run.sock, "get setting host retention/1")
+	if reply != "ok root prune%20messages%20age%201d":
+		raise failed("%s: get setting answered %r" % (tag, reply))
 
 
 def main(argv):
@@ -190,9 +210,11 @@ def main(argv):
 			fake = "@" + then.strftime("%Y-%m-%d") + " 12:00:00"
 			d = daemon(run, "a", fake=fake)
 			try:
-				reply = ask(run.sock, "add message %s out %s an old line" % (CONTACT, LINE_ID))
-				if reply != "ok":
-					raise failed("a: add message answered %r" % reply)
+				for contact in (CONTACT, OTHER_CONTACT):
+					reply = ask(run.sock,
+					            "add message %s out %s an old line" % (contact, LINE_ID))
+					if reply != "ok":
+						raise failed("a: add message answered %r" % reply)
 				written, readable, text = row(run, "a")
 			finally:
 				d.stop()
@@ -201,13 +223,16 @@ def main(argv):
 			if written > (time.time() - 31 * 86400) * 1000 or readable != 1:
 				raise failed("a: the line was written at %d ms, readable %d: faketime did "
 				             "not take, so nothing below would be old enough" % (written, readable))
-			print("livecheck: a: one line written under %s, readable" % fake)
-			phase(run, "b", (0, 0, 0), 1)
-			phase(run, "c", (0, 2, 0), 1,
+			print("livecheck: a: a line in each of two conversations written under %s" % fake)
+			phase(run, "b", (0, 0, 0), (1, 1))
+			phase(run, "c", (0, 2, 0), (1, 1),
 			      ["--log-rule=prune messages host=%s age 1d" % OTHER_HOST,
 			       "--log-rule=prune * age 1d"])
-			phase(run, "d", (1, 1, 1), 0, ["--log-rule=prune messages age 1d"])
-			phase(run, "e", (0, 0, 0), 0)
+			phase(run, "d", (1, 1, 1), (0, 1),
+			      ["--log-rule=prune messages contact=%s age 1d" % CONTACT])
+			phase(run, "e", (0, 0, 0), (0, 1), then=set_the_rule)
+			phase(run, "f", (1, 1, 1), (0, 0))
+			phase(run, "g", (1, 1, 0), (0, 0))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

@@ -157,6 +157,11 @@ typedef struct fzn_node_admin {
 	size_t (*messages_remote)(void *ctx, const uint8_t *sender, const uint8_t *request,
 	                          size_t request_len, uint8_t *reply, size_t reply_cap);
 	void *messages_ctx;
+	/* The estate's configuration (`node/settings.h`), or NULL: then the
+	 * setting verbs are unsupported. sec 540. */
+	size_t (*settings_local)(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
+	                         char *reply, size_t reply_cap);
+	void *settings_ctx;
 	/* A JOURNAL MESSAGE from a member, sec 501 (`record/exchange.h`):
 	 * answered from this node's journal, or 0 to fall through. NULL keeps
 	 * no journal. Never a contact's: the estate's acts are the estate's. */

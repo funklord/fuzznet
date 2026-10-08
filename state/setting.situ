@@ -1,0 +1,31 @@
+// A setting, one cell of the estate's configuration, as a situ schema: the
+// hand-written codec is state/setting.c, and this is its checked contract.
+// project.md sec 540.
+//
+// A signed object, tag 147, carried as a record of its setter's estate
+// stream. Its setter's rank -- root, admin, the host itself -- is not in it:
+// it is judged where the setting is applied (node/apply.c), so no setter can
+// claim one.
+
+target buffer;
+endian big;
+
+enum fzn_setting_scope : u8 {
+	host   = 1,	// about one host: `about` is its key
+	estate = 3,	// about the estate: `about` is its root
+}
+
+struct fzn_setting {
+	u8                 version [must_eq = 1];        //  0
+	u8                 object [must_eq = 147];       //  1 FZN_OBJECT_SETTING
+	u8                 setter[32];                   //  2 who signed it
+	fzn_setting_scope  scope;                        // 34
+	u8                 about[32];                    // 35 the host's key, or the estate's root
+	u64                version_no;                   // 67 a cell's versions rise
+	u8                 key_len [min = 1, max = 64];  // 75
+	u8                 key[key_len];                 // 76 a-z 0-9 . _ / -
+	u8                 op [max = 1];                 //    1 sets the value below, 0 clears
+	u16                value_len [max = 256];        //    0 for a clear
+	u8                 value[value_len];             //    printable ASCII
+	u8                 signature[64];                //    the setter's, over all before it
+}

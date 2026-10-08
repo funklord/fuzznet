@@ -9,6 +9,7 @@
 
 #include "../apply.h"
 #include "../roster.h"
+#include "../settings.h"
 #include "../succession.h"
 
 #include <stdio.h>
@@ -292,6 +293,298 @@ static void test_the_journal_applied(void)
 	fzn_node_journal_close(&nj);
 }
 
+/* ---- settings, judged, sec 540 -------------------------------------------- */
+
+static int setting_by(fzn_node_journal_t *nj, uint8_t setter, fzn_scope_t scope, uint8_t about,
+                      uint64_t version, const char *k, int set, const char *value)
+{
+	uint8_t who[FZN_PUBKEY_LEN], subject[FZN_SUBJECT_LEN], obj[FZN_SETTING_MAX];
+	size_t len = 0;
+
+	key(who, setter);
+	key(subject, about);
+	signing_as = setter;
+	return fzn_setting_issue(who, &SIGN, scope, subject, version, (const uint8_t *)k, strlen(k),
+	                         set, (const uint8_t *)value, value ? strlen(value) : 0u, obj, &len)
+	               == FZN_SETTING_OK
+	       && put(nj, setter, obj, len);
+}
+
+static int in_force(const fzn_node_settings_t *ns, fzn_scope_t scope, uint8_t about,
+                    const char *k, const char *want, fzn_setting_rank_t want_rank)
+{
+	uint8_t subject[FZN_SUBJECT_LEN], value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank = FZN_SETTING_RANK_HOST;
+	size_t len = 0;
+
+	key(subject, about);
+	if (!fzn_node_settings_get(ns, scope, subject, (const uint8_t *)k, strlen(k), value, &len,
+	                           &rank))
+		return want == NULL;
+	return want && len == strlen(want) && memcmp(value, want, len) == 0 && rank == want_rank;
+}
+
+/* Whether `n` bytes of `needle` occur in `hay`. */
+static int holds(const uint8_t *hay, size_t len, const char *needle, size_t n)
+{
+	size_t i;
+
+	for (i = 0; i + n <= len; i++)
+		if (memcmp(hay + i, needle, n) == 0)
+			return 1;
+	return 0;
+}
+
+static size_t values_seen;
+
+static void count_value(void *ctx, const fzn_setting_t *s, fzn_setting_rank_t rank)
+{
+	(void)ctx;
+	(void)s;
+	(void)rank;
+	values_seen++;
+}
+
+static uint64_t clock_now(void)
+{
+	return 1000u;
+}
+
+static char reply[2048];
+
+static size_t said(fzn_node_settings_t *ns, fzn_origin_t origin, const char *line)
+{
+	fzn_request_t req;
+
+	memset(reply, 0, sizeof(reply));
+	if (!fzn_vocabulary_split((const uint8_t *)line, strlen(line), &req))
+		return 0;
+	return fzn_node_settings_local(ns, origin, &req, reply, sizeof(reply));
+}
+
+static int replied(const char *start)
+{
+	return strncmp(reply, start, strlen(start)) == 0;
+}
+
+static void test_settings_judged(void)
+{
+	static fzn_node_journal_t nj;
+	static fzn_revocation_t rev_entries[8];
+	static fzn_revocation_admin_t admins[4];
+	static fzn_node_apply_t ap;
+	static fzn_node_settings_t ns;
+	static fzn_node_identity_t me;
+	fzn_revocation_store_t revs;
+	fzn_persist_ops_t store = { 0 };
+	fzn_node_apply_tally_t t;
+	fzn_cap_id_t cap, admin_cap;
+	uint8_t r[FZN_PUBKEY_LEN], m[FZN_PUBKEY_LEN], a[FZN_PUBKEY_LEN], hop[FZN_HOP_LEN];
+	uint8_t estate[FZN_SUBJECT_LEN];
+	uint64_t before;
+
+	store.load = mem_load;
+	store.save = mem_save;
+	store.list = mem_list;
+	memset(&cap, 0x61, sizeof(cap));
+	memset(&admin_cap, 0x62, sizeof(admin_cap));
+	key(r, 0x91);
+	key(m, 0x92);
+	key(a, 0x93);
+	memcpy(estate, r, sizeof(estate));
+	CHECK(fzn_node_journal_init(&nj, dir, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && fzn_revocation_store_init(&revs, rev_entries, 8) == FZN_CHAIN_OK
+	              && fzn_revocation_store_set_quorum(&revs, 1u, &admin_cap, admins, 4u)
+	                         == FZN_CHAIN_OK,
+	      "fixture: a journal, and a revocation store that knows the admin capability");
+	memset(&ap, 0, sizeof(ap));
+	ap.journal = &nj;
+	ap.revocations = &revs;
+	ap.store = &store;
+	ap.root = r;
+	ap.capability = &cap;
+	ap.admin_capability = &admin_cap;
+	ap.sign = &SIGN;
+	ap.hash = &HASH;
+	ap.settings = &ns;
+	ap.now = clock_now;
+	memset(&ns, 0, sizeof(ns));
+	ns.store = &store;
+	ns.hash = &HASH;
+	ns.verify = &SIGN;
+	ns.apply = &ap;
+	ns.estate = estate;
+
+	/* THE GRANTS: R makes M a member and A an admin. */
+	signing_as = 0x91;
+	CHECK(fzn_chain_mint(r, m, &cap, 100u, FZN_NO_EXPIRY, 0, &SIGN, hop) == FZN_CHAIN_OK
+	              && put(&nj, 0x91, hop, sizeof(hop))
+	              && fzn_chain_mint(r, a, &admin_cap, 100u, FZN_NO_EXPIRY, 0, &SIGN, hop)
+	                         == FZN_CHAIN_OK
+	              && put(&nj, 0x91, hop, sizeof(hop)),
+	      "fixture: R's grants to M, a member, and to A, an admin");
+	CHECK(setting_by(&nj, 0x91, FZN_SCOPE_ESTATE, 0x91, 1u, "retention/a", 1,
+	                 "prune messages age 30d")
+	              && setting_by(&nj, 0x92, FZN_SCOPE_HOST, 0x92, 1u, "net/mtu", 1, "1500")
+	              && setting_by(&nj, 0x92, FZN_SCOPE_ESTATE, 0x91, 1u, "net/mtu", 1, "9000")
+	              && setting_by(&nj, 0x92, FZN_SCOPE_HOST, 0x93, 1u, "net/mtu", 1, "1")
+	              && setting_by(&nj, 0x93, FZN_SCOPE_HOST, 0x92, 1u, "net/mtu", 1, "1400")
+	              && setting_by(&nj, 0x94, FZN_SCOPE_HOST, 0x94, 1u, "net/mtu", 1, "7"),
+	      "fixture: settings by the root, the member, the admin and a stranger");
+	CHECK(fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK && t.applied == 3u
+	              && t.refused == 2u && t.waiting == 1u,
+	      "the root's, the member's own and the admin's applied; the member's of the estate "
+	      "and of another host refused; the stranger's waiting");
+	CHECK(in_force(&ns, FZN_SCOPE_ESTATE, 0x91, "retention/a", "prune messages age 30d",
+	               FZN_SETTING_RANK_ROOT),
+	      "the root's estate setting is not in force at the root's rank");
+	CHECK(in_force(&ns, FZN_SCOPE_HOST, 0x92, "net/mtu", "1400", FZN_SETTING_RANK_ADMIN)
+	              && in_force(&ns, FZN_SCOPE_ESTATE, 0x91, "net/mtu", NULL, FZN_SETTING_RANK_HOST)
+	              && in_force(&ns, FZN_SCOPE_HOST, 0x93, "net/mtu", NULL, FZN_SETTING_RANK_HOST),
+	      "the admin's value is not in force over the member's own, or a refused one is");
+
+	/* THE ADMIN'S CLEAR withdraws its layer and no more. */
+	CHECK(setting_by(&nj, 0x93, FZN_SCOPE_HOST, 0x92, 2u, "net/mtu", 0, NULL)
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && in_force(&ns, FZN_SCOPE_HOST, 0x92, "net/mtu", "1500", FZN_SETTING_RANK_HOST),
+	      "the admin's clear did not leave the member's own value in force again");
+	/* WITHIN A RANK THE HIGHER VERSION, and an older one is stale. */
+	CHECK(setting_by(&nj, 0x92, FZN_SCOPE_HOST, 0x92, 3u, "net/mtu", 1, "1600")
+	              && setting_by(&nj, 0x92, FZN_SCOPE_HOST, 0x92, 2u, "net/mtu", 1, "1700")
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK && t.refused == 0u
+	              && in_force(&ns, FZN_SCOPE_HOST, 0x92, "net/mtu", "1600", FZN_SETTING_RANK_HOST),
+	      "an older version replaced a newer one at the member's rank");
+	values_seen = 0;
+	CHECK(fzn_node_settings_each(&ns, count_value, NULL) == FZN_NODE_SETTINGS_OK
+	              && values_seen == 2u,
+	      "the walk did not hand each value in force once: the estate's rule and the member's");
+
+	/* A NODE'S OWN WRITE, judged before it is written: the root may set the
+	 * estate's cell, and a member may not, and leaves nothing in its
+	 * stream. */
+	ns.journal = &nj;
+	ns.id = &me;
+	ns.now = clock_now;
+	memset(&me, 0, sizeof(me));
+	me.sign = &SIGN;
+	memcpy(me.pubkey, r, FZN_PUBKEY_LEN);
+	signing_as = 0x91;
+	CHECK(fzn_node_settings_write(&ns, FZN_SCOPE_ESTATE, estate, (const uint8_t *)"k", 1u, 1,
+	                              (const uint8_t *)"v", 1u)
+	              == FZN_NODE_SETTINGS_OK
+	              && in_force(&ns, FZN_SCOPE_ESTATE, 0x91, "k", "v", FZN_SETTING_RANK_ROOT),
+	      "the root's own write is not in force at once");
+	memcpy(me.pubkey, m, FZN_PUBKEY_LEN);
+	signing_as = 0x92;
+	before = fzn_node_journal_received(&nj, m, FZN_NODE_JOURNAL_STREAM);
+	CHECK(fzn_node_settings_write(&ns, FZN_SCOPE_ESTATE, estate, (const uint8_t *)"k", 1u, 1,
+	                              (const uint8_t *)"w", 1u)
+	              == FZN_NODE_SETTINGS_REFUSED
+	              && fzn_node_journal_received(&nj, m, FZN_NODE_JOURNAL_STREAM) == before
+	              && in_force(&ns, FZN_SCOPE_ESTATE, 0x91, "k", "v", FZN_SETTING_RANK_ROOT),
+	      "a member's write to the estate was not refused before its stream");
+	CHECK(fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK && t.refused == 0u
+	              && in_force(&ns, FZN_SCOPE_ESTATE, 0x91, "k", "v", FZN_SETTING_RANK_ROOT),
+	      "the root's own write, applied again from its stream, was not the same");
+
+	/* THE VERBS, as the root's own user. */
+	{
+		static const char DIGITS[] = "0123456789abcdef";
+		char line[256], m_hex[2u * FZN_PUBKEY_LEN + 1u];
+		size_t i;
+
+		for (i = 0; i < FZN_PUBKEY_LEN; i++) {
+			m_hex[i * 2u] = DIGITS[m[i] >> 4];
+			m_hex[(i * 2u) + 1u] = DIGITS[m[i] & 15u];
+		}
+		m_hex[2u * FZN_PUBKEY_LEN] = '\0';
+		memcpy(me.pubkey, r, FZN_PUBKEY_LEN);
+		signing_as = 0x91;
+		CHECK(said(&ns, FZN_ORIGIN_SAME_USER,
+		           "set setting estate retention/b prune messages age 60d")
+		              && replied("ok")
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "get setting estate retention/b")
+		              && strcmp(reply, "ok root prune%20messages%20age%2060d\n") == 0,
+		      "a value set by the verb is not got back, at the root's rank, escaped");
+		(void)snprintf(line, sizeof(line), "set setting host=%s net/mtu 1300", m_hex);
+		CHECK(said(&ns, FZN_ORIGIN_SAME_USER, line) && replied("ok")
+		              && in_force(&ns, FZN_SCOPE_HOST, 0x92, "net/mtu", "1300",
+		                          FZN_SETTING_RANK_ROOT),
+		      "the root did not set another host's cell over the host's own value");
+		CHECK(said(&ns, FZN_ORIGIN_SAME_USER, "list setting") && replied("ok 0 4 0 ")
+		              && strstr(reply, ",retention/b,root,") && strstr(reply, ",net/mtu,root,")
+		              && strstr(reply, "host,"),
+		      "the listing does not hand the four values in force, each with its rank");
+		CHECK(said(&ns, FZN_ORIGIN_SAME_USER, "remove setting estate retention/b")
+		              && replied("ok")
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "get setting estate retention/b")
+		              && strcmp(reply, "ok absent\n") == 0,
+		      "a removed setting is still got");
+		CHECK(said(&ns, FZN_ORIGIN_LOCAL, "set setting estate x 1") && replied("denied")
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "set setting estate Bad 1")
+		              && replied("malformed")
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "set setting nowhere x 1")
+		              && replied("malformed")
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "set thing x 1") == 0u,
+		      "another user, a bad key or scope, or another subject was not refused or passed");
+	}
+
+	/* A SETTING IN ANOTHER KEY'S STREAM: the root's object, carried as the
+	 * admin's record, is judged by nobody's standing -- refused. */
+	{
+		uint8_t obj[FZN_SETTING_MAX];
+		size_t len = 0;
+
+		signing_as = 0x91;
+		CHECK(fzn_setting_issue(r, &SIGN, FZN_SCOPE_ESTATE, estate, 1u, (const uint8_t *)"z",
+		                        1u, 1, (const uint8_t *)"1", 1u, obj, &len)
+		                      == FZN_SETTING_OK
+		              && put(&nj, 0x93, obj, len) && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+		              && t.refused == 1u
+		              && in_force(&ns, FZN_SCOPE_ESTATE, 0x91, "z", NULL, FZN_SETTING_RANK_HOST),
+		      "a setting carried in another key's stream was applied");
+	}
+	/* AN ADMIN CHAIN THE INDEX FINDS AND THE STORE DOES NOT ADMIT: A, whose
+	 * grant cannot be passed on, grants the admin capability to X. */
+	{
+		uint8_t x[FZN_PUBKEY_LEN];
+
+		key(x, 0x95);
+		signing_as = 0x93;
+		CHECK(fzn_chain_mint(a, x, &admin_cap, 100u, FZN_NO_EXPIRY, 0, &SIGN, hop) == FZN_CHAIN_OK
+		              && put(&nj, 0x93, hop, sizeof(hop))
+		              && setting_by(&nj, 0x95, FZN_SCOPE_ESTATE, 0x91, 1u, "y", 1, "1")
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK && t.refused == 1u
+		              && in_force(&ns, FZN_SCOPE_ESTATE, 0x91, "y", NULL, FZN_SETTING_RANK_HOST),
+		      "a chain under the admin capability that does not verify ranked as an admin's");
+	}
+	/* A ROW UNDER ANOTHER CELL'S PLACE is not that cell's: the estate's
+	 * rule copied over the root's row for the member's cell, which then
+	 * falls to the member's own value. */
+	{
+		struct row *from = NULL, *to = NULL;
+		size_t i;
+
+		for (i = 0; i < ROWS; i++) {
+			if (!rows[i].used || rows[i].slot != FZN_PERSIST_SETTING || rows[i].len < 2u
+			    || rows[i].bytes[0] != (uint8_t)FZN_SETTING_RANK_ROOT)
+				continue;
+			if (holds(rows[i].bytes, rows[i].len, "retention/a", 11u))
+				from = &rows[i];
+			else if (holds(rows[i].bytes, rows[i].len, "net/mtu", 7u))
+				to = &rows[i];
+		}
+		CHECK(from && to, "fixture: the root's rows for the estate's rule and the member's cell");
+		if (from && to) {
+			memcpy(to->bytes, from->bytes, from->len);
+			to->len = from->len;
+			CHECK(in_force(&ns, FZN_SCOPE_HOST, 0x92, "net/mtu", "1600", FZN_SETTING_RANK_HOST),
+			      "a row copied under another cell's place answered for that cell");
+		}
+	}
+	fzn_node_journal_close(&nj);
+}
+
 int main(void)
 {
 	char path[512];
@@ -303,6 +596,7 @@ int main(void)
 		return 1;
 	}
 	test_the_journal_applied();
+	test_settings_judged();
 	/* EVERY STREAM FILE, BY NAME, then the directory. */
 	for (i = 0; i < n_used; i++) {
 		static const char DIGITS[] = "0123456789abcdef";

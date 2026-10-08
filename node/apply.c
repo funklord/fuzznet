@@ -2,6 +2,7 @@
 
 #include "apply.h"
 #include "roots.h"
+#include "settings.h"
 
 #include "../constant_time/constant_time.h"
 
@@ -121,6 +122,105 @@ static enum outcome take(fzn_node_apply_t *ap, char item, const uint8_t *body, s
 	return tried ? REFUSED : WAIT;
 }
 
+/* Whether `hops` (`n` of them, from the index) grant `capability` to `key`
+ * from a root, verified now. */
+static int chain_proves(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY_LEN],
+                        const uint8_t (*hops)[FZN_HOP_LEN], size_t n,
+                        const fzn_cap_id_t *capability)
+{
+	fzn_chain_hop_t opened[FZN_CHAIN_MAX_HOPS];
+	fzn_chain_t verdict;
+	size_t i;
+
+	if (n == 0u || n > FZN_CHAIN_MAX_HOPS)
+		return 0;
+	for (i = 0; i < n; i++)
+		if (fzn_hop_open(hops[i], FZN_HOP_LEN, &opened[i]) != FZN_CHAIN_OK)
+			return 0;
+	/* THE CHAIN'S OWN ROOT, which must be one: the pinned root or a member
+	 * of the set. */
+	return is_root(ap, fzn_hop_grantor(opened[0]))
+	       && fzn_chain_verify(opened, n, fzn_hop_grantor(opened[0]), capability,
+	                           ap->now ? ap->now() : 0u, ap->sign, ap->revocations, NULL,
+	                           &verdict)
+	                  == FZN_CHAIN_OK
+	       && fzn_ct_memeq(verdict.grantee, key, FZN_PUBKEY_LEN);
+}
+
+int fzn_node_apply_rank(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY_LEN],
+                        fzn_scope_t scope, const uint8_t about[FZN_SUBJECT_LEN],
+                        fzn_setting_rank_t *rank)
+{
+	uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	fzn_chain_hop_t opened[FZN_CHAIN_MAX_HOPS];
+	size_t n = 0, i;
+	int found = 0;
+
+	if (!ap || !key || !about || !rank || !ap->root || !ap->sign)
+		return -1;
+	if (is_root(ap, key)) {
+		*rank = FZN_SETTING_RANK_ROOT;
+		return 1;
+	}
+	/* AN ADMIN BY THE STANDING A RETENTION SETTING TAKES (sec 479): the
+	 * chain admitted by the revocation store, confirmations and all. */
+	if (ap->admin_capability && ap->revocations
+	    && fzn_node_apply_chain(ap, key, ap->admin_capability, hops, &n) && n) {
+		found = 1;
+		for (i = 0; i < n; i++)
+			if (fzn_hop_open(hops[i], FZN_HOP_LEN, &opened[i]) != FZN_CHAIN_OK)
+				break;
+		if (i == n
+		    && fzn_revocation_admin_admit(ap->revocations, key, opened, n, ap->root, ap->sign)
+		               == FZN_CHAIN_OK) {
+			*rank = FZN_SETTING_RANK_ADMIN;
+			return 1;
+		}
+	}
+	/* THE HOST ITSELF, for its own host-scoped cells alone. */
+	if (scope == FZN_SCOPE_HOST && fzn_ct_memeq(about, key, FZN_PUBKEY_LEN) && ap->capability
+	    && fzn_node_apply_chain(ap, key, ap->capability, hops, &n) && n) {
+		found = 1;
+		if (chain_proves(ap, key, (const uint8_t (*)[FZN_HOP_LEN])hops, n, ap->capability)) {
+			*rank = FZN_SETTING_RANK_HOST;
+			return 1;
+		}
+	}
+	/* A MEMBER WITH NO STANDING FOR THIS CELL IS REFUSED, not left to wait:
+	 * its chain is here, so nothing still to arrive would change the
+	 * answer, and a setting that waits stops its setter's whole stream. */
+	if (!found && ap->capability && fzn_node_apply_chain(ap, key, ap->capability, hops, &n) && n)
+		found = 1;
+	return found ? -1 : 0;
+}
+
+/* A SETTING, sec 540: judged by its setter's standing, then kept at that
+ * rank. Its setter must be the record's signer: no setting rides another
+ * key's stream. */
+static enum outcome take_setting(fzn_node_apply_t *ap, const uint8_t *body, size_t len,
+                                 const uint8_t *signer)
+{
+	fzn_node_settings_err_t err;
+	fzn_setting_rank_t rank;
+	fzn_setting_t s;
+	int judged;
+
+	if (!ap->settings || fzn_setting_open(body, len, ap->sign, &s) != FZN_SETTING_OK
+	    || !fzn_ct_memeq(s.setter, signer, FZN_PUBKEY_LEN))
+		return REFUSED;
+	judged = fzn_node_apply_rank(ap, signer, s.scope, s.about, &rank);
+	if (judged == 0)
+		return WAIT;
+	if (judged < 0)
+		return REFUSED;
+	err = fzn_node_settings_learn(ap->settings, body, len, rank);
+	if (err == FZN_NODE_SETTINGS_BACKEND)
+		return NOT_SAVED;
+	/* STALE IS APPLIED: an older setting met a newer one standing, which is
+	 * the order a journal may hand them in. */
+	return err == FZN_NODE_SETTINGS_OK || err == FZN_NODE_SETTINGS_STALE ? APPLIED : REFUSED;
+}
+
 static enum outcome apply_one(fzn_node_apply_t *ap, fzn_record_t rec,
                               fzn_node_apply_tally_t *tally)
 {
@@ -165,6 +265,8 @@ static enum outcome apply_one(fzn_node_apply_t *ap, fzn_record_t rec,
 		return take(ap, 'o', body, len, signer);
 	case FZN_OBJECT_SUCCESSION:
 		return take(ap, 's', body, len, signer);
+	case FZN_OBJECT_SETTING:
+		return take_setting(ap, body, len, signer);
 	default:
 		return REFUSED;
 	}

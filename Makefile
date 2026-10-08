@@ -164,7 +164,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/node.c node/local.c node/remote.c node/serve.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
-             node/journal.c node/opjournal.c node/apply.c \
+             node/journal.c node/opjournal.c node/apply.c node/settings.c \
              messages/line.c messages/messages.c node/messages.c \
              contact/contact.c \
              contact/group.c \
@@ -200,7 +200,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              version/version.c \
              record/record.c record/journal.c record/sync.c record/exchange.c \
              record/ledger.c \
-             state/state.c state/scope.c notes/note.c notes/text.c \
+             state/state.c state/scope.c state/setting.c notes/note.c notes/text.c \
              notes/store.c notes/view.c notes/author.c notes/purge.c notes/import.c \
              notes/sync.c notes/share.c notes/received.c \
              trust/trust.c \
@@ -262,7 +262,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/node.h node/local.h node/remote.h node/serve.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
-             node/journal.h node/opjournal.h node/apply.h \
+             node/journal.h node/opjournal.h node/apply.h node/settings.h \
              messages/line.h messages/messages.h node/messages.h \
              contact/contact.h \
              contact/group.h \
@@ -296,7 +296,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              version/version.h \
              record/record.h record/journal.h record/sync.h record/exchange.h \
              record/ledger.h \
-             state/state.h state/scope.h notes/note.h notes/text.h \
+             state/state.h state/scope.h state/setting.h notes/note.h notes/text.h \
              notes/store.h notes/view.h notes/author.h notes/purge.h notes/import.h \
              notes/sync.h notes/share.h notes/received.h \
              trust/trust.h \
@@ -416,7 +416,8 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              tree/test/tree_test.c \
              record/test/sync_test.c record/test/exchange_test.c \
              record/test/ledger_test.c \
-             state/test/state_test.c state/test/scope_test.c notes/test/note_test.c \
+             state/test/state_test.c state/test/scope_test.c state/test/setting_test.c \
+             notes/test/note_test.c \
              notes/test/text_test.c \
              notes/test/notes_store_test.c node/test/notes_test.c \
              notes/test/notes_sync_test.c contact/test/contact_test.c \
@@ -543,6 +544,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/record/test/ledger_test \
              $(BUILD_DIR)/state/test/state_test \
              $(BUILD_DIR)/state/test/scope_test \
+             $(BUILD_DIR)/state/test/setting_test \
              $(BUILD_DIR)/notes/test/note_test \
              $(BUILD_DIR)/notes/test/text_test \
              $(BUILD_DIR)/notes/test/notes_store_test \
@@ -2279,6 +2281,13 @@ $(BUILD_DIR)/state/test/scope_test: $(BUILD_DIR)/state/test/scope_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# A setting as a signed object, sec 540, under a stub hash and signature.
+$(BUILD_DIR)/state/test/setting_test: $(BUILD_DIR)/state/test/setting_test.o \
+                                      $(BUILD_DIR)/state/setting.o \
+                                      $(BUILD_DIR)/state/scope.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/state/test/state_test: $(BUILD_DIR)/state/test/state_test.o \
                                     $(BUILD_DIR)/state/state.o \
                                     $(BUILD_DIR)/record/record.o \
@@ -3792,6 +3801,7 @@ $(BUILD_DIR)/node/test/pair_test.o: node/test/pair_test.c
 
 $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
+              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o \
@@ -3938,6 +3948,7 @@ $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
 # node/revoke.o's admission pulls in, and the journal.
 $(BUILD_DIR)/node/test/apply_test: $(BUILD_DIR)/node/test/apply_test.o \
               $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
+              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o \
@@ -4016,6 +4027,7 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(FUZZNETD_NOTES_OBJS) \
               $(if $(SPOOL_FILE_ON),$(FUZZNETD_SHELF_OBJS)) \
               $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
+              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/messages/messages.o \
               $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o $(BUILD_DIR)/log/cause.o \
@@ -4171,6 +4183,9 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o \
                                         $(BUILD_DIR)/log/copy.o) \
                                       $(BUILD_DIR)/state/scope.o \
+                                      $(BUILD_DIR)/state/setting.o \
+                                      $(BUILD_DIR)/node/settings.o \
+                                      $(BUILD_DIR)/node/apply.o \
                                       $(BUILD_DIR)/notes/note.o \
                                       $(BUILD_DIR)/local/client.o \
                                       $(BUILD_DIR)/node/roots.o \
@@ -5784,7 +5799,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               roster/roster.situ chain/root_act.situ chain/succession.situ \
               record/exchange.situ \
               notes/sync.situ notes/note.situ node/opjournal.situ messages/line.situ \
-              messages/keys.situ \
+              messages/keys.situ state/setting.situ \
               log/entry.situ log/cause.situ log/gather.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.

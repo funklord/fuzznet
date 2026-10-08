@@ -50,6 +50,7 @@
 #include "opjournal.h"
 #include "messages.h"
 #include "apply.h"
+#include "settings.h"
 #endif
 #include "peer_persist.h"
 #include "notes.h"
@@ -369,9 +370,44 @@ static const uint8_t *here_machine(void)
 	}
 }
 
+#ifdef FZN_RECORD_STORE_FILE_ON
+/* THE ESTATE'S CONFIGURATION, sec 540: set by verbs, carried by the journal,
+ * judged and kept by the apply context. */
+static fzn_node_settings_t node_settings;
+
+/* RETENTION RULES AS SETTINGS, sec 540: every value in force under a key
+ * `retention/...`, the estate's and this host's own, each a rule's line. */
+struct setting_rules {
+	fzn_retain_rule_t *rules;
+	size_t *n;
+	size_t unread;
+};
+
+static void setting_rule(void *ctx, const fzn_setting_t *s, fzn_setting_rank_t rank)
+{
+	struct setting_rules *sr = (struct setting_rules *)ctx;
+
+	(void)rank;
+	if (s->key_len < 11u || memcmp(s->key, "retention/", 10u) != 0)
+		return;
+	if (s->scope != FZN_SCOPE_ESTATE
+	    && !(s->scope == FZN_SCOPE_HOST && dlog.has_host
+	         && memcmp(s->about, dlog.host, FZN_PUBKEY_LEN) == 0))
+		return;
+	if (*sr->n >= FZN_RETAIN_RULES_MAX
+	    || fzn_retain_parse((const char *)s->value, s->value_len, &sr->rules[*sr->n])
+	               != FZN_RETAIN_OK) {
+		sr->unread++;
+		return;
+	}
+	(*sr->n)++;
+}
+#endif
+
 /* EVERY RULE THERE IS, sec 531: the command line's, the store's (sec 475)
- * and the estate's (sec 476), as one set, whatever data each names. A store
- * whose rules will not read applies the others, and says so. */
+ * and the estate's (sec 476), as one set, whatever data each names; and since
+ * sec 540 those kept as settings. A store whose rules will not read applies
+ * the others, and says so. */
 static size_t gather_rules(fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX])
 {
 	size_t n_rules, held = 0;
@@ -406,6 +442,19 @@ static size_t gather_rules(fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX])
 			    "pass weighs, or not ones this build reads",
 			    unread);
 	}
+#ifdef FZN_RECORD_STORE_FILE_ON
+	if (node_settings.store) {
+		struct setting_rules sr = { rules, &n_rules, 0 };
+
+		if (fzn_node_settings_each(&node_settings, setting_rule, &sr) != FZN_NODE_SETTINGS_OK)
+			say(FZN_ENTRY_WARNING, "log", "the retention rules kept as settings did not read");
+		if (sr.unread)
+			say(FZN_ENTRY_WARNING, "log",
+			    "%zu retention rule(s) kept as settings were passed over: past the rules "
+			    "one pass weighs, or not rules",
+			    sr.unread);
+	}
+#endif
 	return n_rules;
 }
 #endif
@@ -3597,6 +3646,20 @@ int main(int argc, char **argv)
 				        state.config.has_admin ? &state.config.admin_capability : NULL;
 				node_apply.sign = &sign_ops;
 				node_apply.hash = &hash_ops;
+				node_apply.now = wall_clock;
+				/* THE ESTATE'S CONFIGURATION, sec 540, judged by the same
+				 * context that applies it. */
+				node_settings.store = store_ops;
+				node_settings.hash = &hash_ops;
+				node_settings.verify = &sign_ops;
+				node_settings.journal = &node_journal;
+				node_settings.id = &identity;
+				node_settings.apply = &node_apply;
+				node_settings.estate = state.config.root;
+				node_settings.now = wall_clock;
+				node_apply.settings = &node_settings;
+				admin.settings_local = fzn_node_settings_local;
+				admin.settings_ctx = &node_settings;
 				apply_journal();
 			}
 #endif
