@@ -107,6 +107,71 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_trash_button = new QPushButton(QStringLiteral("Trash"), this);
 	m_restore = new QPushButton(QStringLiteral("Restore"), this);
 	m_empty = new QPushButton(QStringLiteral("Empty trash"), this);
+	m_empty->setObjectName(QStringLiteral("empty_trash"));
+	m_new_folder->setObjectName(QStringLiteral("new_folder"));
+	/* THE CONFIRMATION, a notice bar under the trash row. */
+	m_empty_bar = new QWidget(this);
+	m_empty_bar->setObjectName(QStringLiteral("empty_trash_bar"));
+	{
+		auto *bar = new QHBoxLayout(m_empty_bar);
+		auto *note = new QLabel(QStringLiteral("Empty the trash? Its notes are erased on "
+		                                       "every node that holds them, and this cannot "
+		                                       "be undone."),
+		                        m_empty_bar);
+		auto *cancel = new QPushButton(QStringLiteral("Cancel"), m_empty_bar);
+
+		note->setWordWrap(true);
+		m_empty_confirm = new QPushButton(QStringLiteral("Empty trash"), m_empty_bar);
+		m_empty_confirm->setObjectName(QStringLiteral("empty_trash_confirm"));
+		cancel->setObjectName(QStringLiteral("empty_trash_cancel"));
+		bar->addWidget(note, 1);
+		bar->addWidget(m_empty_confirm);
+		bar->addWidget(cancel);
+		connect(m_empty_confirm, &QPushButton::clicked, this, [this]() {
+			m_empty_bar->hide();
+			empty_trash();
+		});
+		connect(cancel, &QPushButton::clicked, m_empty_bar, &QWidget::hide);
+	}
+	m_empty_bar->hide();
+	/* A NEW FOLDER'S NAME, asked in a row of its own. */
+	m_folder_row = new QWidget(this);
+	m_folder_row->setObjectName(QStringLiteral("new_folder_row"));
+	{
+		auto *row = new QHBoxLayout(m_folder_row);
+		auto *cancel = new QPushButton(QStringLiteral("Cancel"), m_folder_row);
+
+		m_folder_name = new QLineEdit(m_folder_row);
+		m_folder_name->setPlaceholderText(QStringLiteral("Folder name"));
+		m_folder_name->setObjectName(QStringLiteral("new_folder_name"));
+		m_folder_create = new QPushButton(QStringLiteral("Create"), m_folder_row);
+		m_folder_create->setObjectName(QStringLiteral("new_folder_create"));
+		m_folder_create->setEnabled(false);
+		cancel->setObjectName(QStringLiteral("new_folder_cancel"));
+		row->addWidget(m_folder_name, 1);
+		row->addWidget(m_folder_create);
+		row->addWidget(cancel);
+		connect(m_folder_name, &QLineEdit::textChanged, this, [this](const QString &t) {
+			m_folder_create->setEnabled(!t.trimmed().isEmpty());
+		});
+		auto create = [this]() {
+			QString name = m_folder_name->text().trimmed();
+
+			if (name.isEmpty())
+				return;
+			if (new_folder(name)) {
+				m_folder_name->clear();
+				m_folder_row->hide();
+			}
+		};
+		connect(m_folder_create, &QPushButton::clicked, this, create);
+		connect(m_folder_name, &QLineEdit::returnPressed, this, create);
+		connect(cancel, &QPushButton::clicked, this, [this]() {
+			m_folder_name->clear();
+			m_folder_row->hide();
+		});
+	}
+	m_folder_row->hide();
 	m_import = new QPushButton(QStringLiteral("Import"), this);
 	m_new_list = new QPushButton(QStringLiteral("New list"), this);
 	m_item_text = new QLineEdit(this);
@@ -157,10 +222,12 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	outer->addWidget(m_status);
 	outer->addWidget(m_list, 1);
 	outer->addLayout(trash_row);
+	outer->addWidget(m_empty_bar);
 	outer->addWidget(m_title);
 	outer->addWidget(m_body, 1);
 	outer->addLayout(item_row);
 	outer->addLayout(edit_row);
+	outer->addWidget(m_folder_row);
 	outer->addWidget(m_warning);
 	outer->addLayout(share_row);
 	outer->addWidget(m_shared_with);
@@ -189,8 +256,7 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	connect(m_save, &QPushButton::clicked, this, [this]() { save(); });
 	connect(m_new_note, &QPushButton::clicked, this,
 	        [this]() { new_note(QStringLiteral("Untitled")); });
-	connect(m_new_folder, &QPushButton::clicked, this,
-	        [this]() { new_folder(QStringLiteral("New folder")); });
+	connect(m_new_folder, &QPushButton::clicked, this, [this]() { ask_new_folder(); });
 	connect(m_trash_button, &QPushButton::clicked, this, [this]() { trash(); });
 	connect(m_new_list, &QPushButton::clicked, this,
 	        [this]() { new_list(QStringLiteral("New list")); });
@@ -206,7 +272,7 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	connect(m_cut_button, &QPushButton::clicked, this, [this]() { cut(); });
 	connect(m_move_here, &QPushButton::clicked, this, [this]() { move_here(); });
 	connect(m_restore, &QPushButton::clicked, this, [this]() { restore(); });
-	connect(m_empty, &QPushButton::clicked, this, [this]() { empty_trash(); });
+	connect(m_empty, &QPushButton::clicked, this, [this]() { ask_empty_trash(); });
 	connect(m_import, &QPushButton::clicked, this, [this]() {
 		QString path = QFileDialog::getOpenFileName(
 		        this, QStringLiteral("Import notes"), QString(),
@@ -495,6 +561,11 @@ void fzn_notebook_view::refresh_note()
 	m_archive->setText((m_flags & FZN_NOTE_FLAG_ARCHIVED) ? QStringLiteral("Unarchive")
 	                                                      : QStringLiteral("Archive"));
 	m_empty->setEnabled(editing);
+	/* A ROW ASKING ABOUT A TREE NO LONGER EDITABLE GOES WITH IT. */
+	if (!editing) {
+		m_empty_bar->hide();
+		m_folder_row->hide();
+	}
 	m_import->setEnabled(editing);
 	m_share->setEnabled(editing && have);
 	m_unshare->setEnabled(editing && have);
@@ -792,6 +863,22 @@ bool fzn_notebook_view::restore()
 	refresh_note();
 	say(QStringLiteral("Restored."));
 	return true;
+}
+
+void fzn_notebook_view::ask_empty_trash()
+{
+	if (!m_empty->isEnabled())
+		return;
+	m_empty_bar->show();
+	m_empty_confirm->setFocus();
+}
+
+void fzn_notebook_view::ask_new_folder()
+{
+	if (!m_new_folder->isEnabled())
+		return;
+	m_folder_row->show();
+	m_folder_name->setFocus();
 }
 
 bool fzn_notebook_view::empty_trash()

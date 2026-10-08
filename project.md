@@ -59641,3 +59641,46 @@ Two sec 526 entries moved with the code and were re-anchored. One,
 `messages-page-filters-contact`, was removed: a conversation's page now
 reads only that conversation's index, so the filter it guarded no longer
 exists.
+
+## 529. The notes view asks before erasing, and asks a folder's name, inline, 2026-10-08
+
+fuzzypickles reported a requirement against `gui/notebook_view.cpp` at
+`0651254`, in their sec 216 (`42fc7d4`).
+- **Empty trash erased on one click**, with no confirmation, and an erase
+  cannot be undone.
+- **New folder made a folder called "New folder"** and never asked its
+  name.
+- **The holder's rule, as they relayed it:** no blocking modal unless it is
+  exactly the right fit. Their own notes widget was made inline meanwhile.
+
+### What the view does now
+
+- **Empty trash opens a notice bar under the trash row.** It says the
+  trash's notes are erased on every node that holds them and that this
+  cannot be undone, with its own Empty trash and Cancel. Only the bar's
+  Empty trash erases.
+- **New folder opens a row with a name field, Create and Cancel.** Create
+  waits for a name, Enter takes it, and the row goes once the folder is
+  made.
+- **A tree that stops being editable takes either row with it.**
+- **`empty_trash` and `new_folder` are unchanged** as the actions: what
+  changed is what the buttons call, `ask_empty_trash` and
+  `ask_new_folder`.
+
+### Measured for sec 529
+
+- `gui/test/notebook_view_test`, 157 checks. The new case clicks through
+  both rows by name: the trash is not erased by Empty trash alone, nor
+  after Cancel, only by the bar's own button. New folder makes nothing
+  until a name is given and Create is pressed.
+- `make qtty` renders the views, this one among them, at 126 checks.
+- The first draft set the rows' margins to zero. `make style` refuses that,
+  since a character cell cannot honour pixel geometry, so the margins are
+  the defaults.
+
+### Sabotage of sec 529
+
+Three entries, each probed and caught:
+- the button erasing on one click;
+- New folder not asking a name;
+- Create offered before a name is typed.

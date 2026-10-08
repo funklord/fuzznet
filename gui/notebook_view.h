@@ -106,6 +106,12 @@ public:
 	bool trash();
 	bool restore();
 	bool empty_trash();
+	/* WHAT THE BUTTONS DO, inline rather than in a dialog (sec 529): Empty
+	 * trash asks first in a bar under the trash row, since an erase cannot
+	 * be undone, and New folder asks its name in a row of its own. Each row
+	 * goes on Cancel, or once its action is taken. */
+	void ask_empty_trash();
+	void ask_new_folder();
 	bool share_with(const QString &contact);
 	bool unshare_with(const QString &contact);
 	void show_trash(bool on);
@@ -195,6 +201,11 @@ private:
 	QPushButton *m_trash_button;
 	QPushButton *m_restore;
 	QPushButton *m_empty;
+	QWidget *m_empty_bar;
+	QPushButton *m_empty_confirm;
+	QWidget *m_folder_row;
+	QLineEdit *m_folder_name;
+	QPushButton *m_folder_create;
 	QPushButton *m_import;
 	QPushButton *m_new_list;
 	QLineEdit *m_item_text;

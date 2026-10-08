@@ -26,8 +26,10 @@ extern "C" {
 #include "../notebook_view.h"
 
 #include <QApplication>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QPlainTextEdit>
+#include <QPushButton>
 #include <QScrollBar>
 
 #include <stdio.h>
@@ -387,6 +389,56 @@ static void test_the_trash_is_its_own_view(void)
 	CHECK(w.list()->count() == 0, "with no other node to ask, it is gone at once");
 }
 
+/* NOTHING IS ERASED ON ONE CLICK, and no dialog asks: Empty trash opens a
+ * bar under the trash row, and only its own Empty trash erases. New folder
+ * asks the name in a row of its own. sec 529. */
+static void test_erasing_and_naming_are_asked_inline(void)
+{
+	QString b;
+
+	setup();
+	fzn_notebook_view w(node_ask, nullptr);
+	auto *empty = w.findChild<QPushButton *>(QStringLiteral("empty_trash"));
+	auto *bar = w.findChild<QWidget *>(QStringLiteral("empty_trash_bar"));
+	auto *confirm = w.findChild<QPushButton *>(QStringLiteral("empty_trash_confirm"));
+	auto *cancel = w.findChild<QPushButton *>(QStringLiteral("empty_trash_cancel"));
+	auto *folder = w.findChild<QPushButton *>(QStringLiteral("new_folder"));
+	auto *row = w.findChild<QWidget *>(QStringLiteral("new_folder_row"));
+	auto *name = w.findChild<QLineEdit *>(QStringLiteral("new_folder_name"));
+	auto *create = w.findChild<QPushButton *>(QStringLiteral("new_folder_create"));
+
+	CHECK(empty && bar && confirm && cancel && folder && row && name && create,
+	      "fixture: the buttons and rows are there by name");
+	if (!(empty && bar && confirm && cancel && folder && row && name && create))
+		return;
+	CHECK(bar->isHidden() && row->isHidden(), "neither row shows until asked for");
+	CHECK(w.new_note(QStringLiteral("bin")) && !(b = w.open_id()).isEmpty() && w.trash(),
+	      "fixture: a note in the trash");
+	empty->click();
+	w.show_trash(true);
+	CHECK(!bar->isHidden() && w.listed_ids() == QStringList{ b },
+	      "Empty trash opens the bar, and erases nothing yet");
+	cancel->click();
+	CHECK(bar->isHidden() && w.listed_ids() == QStringList{ b },
+	      "Cancel closes it, the note still in the trash");
+	empty->click();
+	confirm->click();
+	CHECK(bar->isHidden() && w.list()->count() == 0,
+	      "and the bar's own Empty trash erases it");
+
+	w.show_trash(false);
+	folder->click();
+	CHECK(!row->isHidden() && !create->isEnabled() && w.list()->count() == 0,
+	      "New folder asks a name, makes nothing yet, and Create waits for one");
+	name->setText(QStringLiteral("Trips"));
+	CHECK(create->isEnabled(), "a name enables Create");
+	create->click();
+	CHECK(w.list()->count() == 1
+	              && w.list()->item(0)->text().contains(QStringLiteral("Trips")),
+	      "Create makes the folder by that name");
+	CHECK(row->isHidden() && name->text().isEmpty(), "and the row goes, emptied");
+}
+
 static void test_sharing_is_warned_before_and_said_after(void)
 {
 	uint8_t carol[FZN_PUBKEY_LEN];
@@ -713,6 +765,7 @@ int main(int argc, char **argv)
 	test_an_empty_notebook_and_a_silent_node_read_differently();
 	test_notes_are_made_saved_and_read_back();
 	test_the_trash_is_its_own_view();
+	test_erasing_and_naming_are_asked_inline();
 	test_sharing_is_warned_before_and_said_after();
 	test_a_shared_tree_reads_and_cannot_be_written();
 	test_an_export_is_imported_into_the_open_folder();

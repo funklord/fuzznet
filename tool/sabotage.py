@@ -9822,6 +9822,27 @@ SABOTAGES = [
 		"a write through the verbs waits for the next round to travel -- sec 528",
 	),
 	(
+		"gui-empty-trash-asks-first",
+		"gui/notebook_view.cpp",
+		"\tconnect(m_empty, &QPushButton::clicked, this, [this]() { ask_empty_trash(); });",
+		"\tconnect(m_empty, &QPushButton::clicked, this, [this]() { empty_trash(); });",
+		"one click erases the trash, which cannot be undone -- sec 529",
+	),
+	(
+		"gui-new-folder-asks-name",
+		"gui/notebook_view.cpp",
+		"\tconnect(m_new_folder, &QPushButton::clicked, this, [this]() { ask_new_folder(); });",
+		"\tconnect(m_new_folder, &QPushButton::clicked, this, [this]() { new_folder(QStringLiteral(\"New folder\")); });",
+		"every folder is made as \"New folder\", its name never asked -- sec 529",
+	),
+	(
+		"gui-create-waits-for-a-name",
+		"gui/notebook_view.cpp",
+		"\t\tm_folder_create->setEnabled(false);\n",
+		"",
+		"Create is offered before a name is typed -- sec 529",
+	),
+	(
 		"opjournal-refused-entry-takes-bytes-back",
 		"node/opjournal.c",
 		"\t\tif (e->flags & FZN_OPJOURNAL_BYTES_KEPT) {\n\t\t\t(void)oj->base->remove(oj->base->ctx, FZN_PERSIST_OP_BYTES, key);",
