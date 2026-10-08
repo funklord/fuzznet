@@ -1665,7 +1665,7 @@ static void journal_cut(uint64_t now)
 {
 	static uint64_t next_cut;
 	uint64_t span, cut_before, total = 0;
-	size_t i, k, streams = 0;
+	size_t i, k, streams = 0, forgot = 0;
 
 	if (!journal_on || !node_journal.keep)
 		return;
@@ -1712,9 +1712,20 @@ static void journal_cut(uint64_t now)
 		say(FZN_ENTRY_INFO, "journal",
 		    "%llu record(s) older than the window cut from %zu stream(s)",
 		    (unsigned long long)total, streams);
+	/* AND THE CLEARS LEARNED BEFORE IT, sec 549: no journal holds an older
+	 * set to arrive late any more. */
+	if (node_settings.store) {
+		fzn_node_settings_err_t serr =
+		        fzn_node_settings_forget_clears(&node_settings, cut_before, &forgot);
+
+		if (serr != FZN_NODE_SETTINGS_OK)
+			say(FZN_ENTRY_WARNING, "settings", "clears past the window: %s",
+			    fzn_node_settings_err_str(serr));
+	}
 	/* EVERY PASS THAT RAN SAYS SO, at debug, as the trim's does. */
-	say(FZN_ENTRY_DEBUG, "journal", "cut pass: a window of %llu day(s), %llu record(s) cut",
-	    (unsigned long long)(span / 86400u), (unsigned long long)total);
+	say(FZN_ENTRY_DEBUG, "journal",
+	    "cut pass: a window of %llu day(s), %llu record(s) cut, %zu clear(s) forgotten",
+	    (unsigned long long)(span / 86400u), (unsigned long long)total, forgot);
 }
 #endif
 

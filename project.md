@@ -60690,6 +60690,37 @@ note. The file store's zeroing and its hole punch each make a cut slot
 read absent, so on a filesystem that punches, no test can see the
 zeroing alone.
 
-Still open from decision 6: a clear is to be remembered for the window
-and then forgotten, which needs a stored setting to carry when this node
-learned it.
+Decision 6, a clear remembered for the window and then forgotten, is
+built in sec 549.
+
+## 549. Stage 4: a clear is forgotten after the window, 2026-10-09
+
+Decision 6 of sec 544. A clear stands only to stop an older set that
+arrives late from putting its value back. Past the journal's window no
+journal holds such a set any more, and a node away longer rejoins by
+state transfer.
+
+- **A setting row carries when this node learned it**: the rank with its
+  top bit set, eight bytes of seconds, then the signed setting. A row of
+  the older shape (rank, setting) still reads, as learned at a time not
+  known. A journal's replay of the same setting keeps the original time.
+- **`fzn_node_settings_forget_clears`** removes each clear learned before
+  the window's edge. A clear learned at a time not known is stamped now,
+  so its window starts when it is first found. Sets are never forgotten.
+  fuzznetd calls it in the hourly cut pass (sec 548).
+- **A written version is no lower than the clock.** A writer took one past
+  every version it held. Once it had forgotten a clear, its next set
+  could reuse a lower version, and a node that had not forgotten the clear
+  yet would refuse that set as stale, for good. Versions are now
+  `max(held + 1, now)`, a hybrid of Lamport counter and clock, so a later
+  write supersedes the forgotten clear everywhere.
+
+Measured: apply_test 47 checks -- a clear inside the window stands
+against a late older set; past it the clear goes and a late set takes
+the cell; an older-shaped clear starts its window when first found; sets
+are never forgotten; a write's version is the clock. `tool/live_cut.py`
+now sets and clears a cell under the old clock: the 100-day control
+forgets nothing, the 30-day pass forgets that one clear while the cell
+still reads absent, and the restart forgets nothing more. Five sabotage
+entries, each probed caught, and sec 540's row-is-its-cell entry
+re-anchored on the new row reader.

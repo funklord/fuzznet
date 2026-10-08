@@ -9957,8 +9957,8 @@ SABOTAGES = [
 	(
 		"settings-row-is-its-cell",
 		"node/settings.c",
-		"\t       && memcmp(again, cell, FZN_SUBJECT_LEN) == 0 && (!obj_len || (*obj_len = len - 1u));",
-		"\t       && (!obj_len || (*obj_len = len - 1u));",
+		"\t    || !fzn_setting_cell(s, ns->hash, again) || memcmp(again, cell, FZN_SUBJECT_LEN) != 0)",
+		"\t    || !fzn_setting_cell(s, ns->hash, again))",
 		"a row under another cell's place answers for that cell -- sec 540",
 	),
 	(
@@ -10191,6 +10191,41 @@ SABOTAGES = [
 		"\treturn days ? days : FZN_NODE_SETTINGS_WINDOW_DAYS;",
 		"\treturn days;",
 		"a window that is no count of days is zero days, and the whole journal is cut -- sec 548",
+	),
+	(
+		"settings-clear-kept-for-the-window",
+		"node/settings.c",
+		"\t\tif (learned >= older_than)\n\t\t\tcontinue;",
+		"\t\tif (0)\n\t\t\tcontinue;",
+		"a clear is forgotten inside the window, and a late older set puts the value back -- sec 549",
+	),
+	(
+		"settings-sets-never-forgotten",
+		"node/settings.c",
+		"\t\t    || fzn_setting_open(buf + at, len - at, ns->verify, &s) != FZN_SETTING_OK || s.set)\n\t\t\tcontinue;\n\t\t/* A CLEAR",
+		"\t\t    || fzn_setting_open(buf + at, len - at, ns->verify, &s) != FZN_SETTING_OK)\n\t\t\tcontinue;\n\t\t/* A CLEAR",
+		"a value in force is forgotten with the clears -- sec 549",
+	),
+	(
+		"settings-unknown-learning-starts-the-window",
+		"node/settings.c",
+		"\t\tif (learned == 0u) {",
+		"\t\tif (0) {",
+		"a clear from before the stamp is forgotten at once rather than kept a window -- sec 549",
+	),
+	(
+		"settings-learning-is-stamped",
+		"node/settings.c",
+		"\treturn row_save(ns, row, rank, ns->now ? ns->now() : 0u, bytes, len)",
+		"\treturn row_save(ns, row, rank, 0u, bytes, len)",
+		"every setting reads as learned at a time not known, and no clear is ever forgotten -- sec 549",
+	),
+	(
+		"settings-version-floored-on-the-clock",
+		"node/settings.c",
+		"\tversion = ns->now();\n",
+		"\tversion = 0;\n",
+		"a write after a forgotten clear reuses a lower version, and a node still holding the clear refuses it for good -- sec 549",
 	),
 	(
 		"node-messages-give-as-sender",

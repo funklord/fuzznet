@@ -106,8 +106,9 @@ fzn_node_settings_err_t fzn_node_settings_each(const fzn_node_settings_t *ns,
 
 /*
  * WRITE A SETTING as this node: judged first (REFUSED when this node may not
- * set that cell), then signed at one past every version held for the cell,
- * written into this node's estate stream, and kept. `set` 0 is a clear.
+ * set that cell), then signed at one past every version held for the cell
+ * and no lower than the clock (sec 549), written into this node's estate
+ * stream, and kept. `set` 0 is a clear.
  */
 fzn_node_settings_err_t fzn_node_settings_write(const fzn_node_settings_t *ns,
                                                 fzn_scope_t scope,
@@ -136,6 +137,18 @@ fzn_node_settings_err_t fzn_node_settings_take_rules(const fzn_node_settings_t *
  * otherwise: the older k records' resolution, or `--quorum`. */
 #define FZN_NODE_SETTINGS_K_KEY "revocation/k"
 uint8_t fzn_node_settings_quorum(const fzn_node_settings_t *ns, uint8_t fallback);
+
+/*
+ * FORGET THE CLEARS LEARNED BEFORE `older_than`, sec 549: a clear stands only
+ * to stop an older set arriving late from putting its value back, and past
+ * the journal's window no journal holds one to arrive -- a node away longer
+ * rejoins by state transfer. `*forgot` counts them. A clear learned at a time
+ * not known -- a row from before sec 549, or learned with no clock -- has its
+ * window started now instead. Sets are never forgotten. MALFORMED with no
+ * clock, list or remove in the store.
+ */
+fzn_node_settings_err_t fzn_node_settings_forget_clears(const fzn_node_settings_t *ns,
+                                                        uint64_t older_than, size_t *forgot);
 
 /* THE JOURNAL'S WINDOW AS A SETTING, sec 548: the estate cell
  * `journal/window`, in days from 1 to 36500, at whatever rank is in force --

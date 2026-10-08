@@ -382,9 +382,19 @@ static void count_value(void *ctx, const fzn_setting_t *s, fzn_setting_rank_t ra
 	values_seen++;
 }
 
+/* The settings' clock, which the clears case moves. */
+static uint64_t clock_at = 1000u;
+
 static uint64_t clock_now(void)
 {
-	return 1000u;
+	return clock_at;
+}
+
+static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject)
+{
+	(void)ctx;
+	mem_remove_row(slot, subject);
+	return 1;
 }
 
 static char reply[2048];
@@ -610,6 +620,68 @@ static void test_settings_judged(void)
 	              && fzn_node_settings_window_days(&ns) == 36500u,
 	      "a window of 0 or past 36500 days counted, or 36500 did not");
 
+	/* CLEARS FORGOTTEN, sec 549. The root sets c/x and clears it at 5000.
+	 * Until the window has passed the clear stands against a late older
+	 * set; once it has, the clear goes and the late set is taken. A set is
+	 * never forgotten, and a clear in a row of the older shape starts its
+	 * window when it is first found. A write's version is no lower than
+	 * the clock. */
+	{
+		size_t forgot = 0, i;
+		struct row *legacy = NULL;
+
+		store.remove = mem_remove;
+		clock_at = 5000u;
+		CHECK(setting_by(&nj, 0x91, FZN_SCOPE_ESTATE, 0x91, 10u, "c/x", 1, "on")
+		              && setting_by(&nj, 0x91, FZN_SCOPE_ESTATE, 0x91, 11u, "c/x", 0, NULL)
+		              && setting_by(&nj, 0x91, FZN_SCOPE_ESTATE, 0x91, 10u, "c/y", 0, NULL)
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+		              && in_force(&ns, FZN_SCOPE_ESTATE, 0x91, "c/x", NULL,
+		                          FZN_SETTING_RANK_HOST),
+		      "fixture: the root sets c/x and clears it, and clears c/y, at 5000");
+		for (i = 0; i < ROWS; i++)
+			if (rows[i].used && rows[i].slot == FZN_PERSIST_SETTING
+			    && holds(rows[i].bytes, rows[i].len, "c/y", 3u) && rows[i].len > 9u) {
+				legacy = &rows[i];
+				legacy->bytes[0] &= 0x7fu;
+				memmove(legacy->bytes + 1u, legacy->bytes + 9u, legacy->len - 9u);
+				legacy->len -= 8u;
+			}
+		CHECK(legacy != NULL, "fixture: c/y's clear rewritten in the older shape");
+		clock_at = 6000u;
+		CHECK(fzn_node_settings_forget_clears(&ns, 5000u, &forgot) == FZN_NODE_SETTINGS_OK
+		              && setting_by(&nj, 0x91, FZN_SCOPE_ESTATE, 0x91, 9u, "c/x", 1, "late")
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+		              && in_force(&ns, FZN_SCOPE_ESTATE, 0x91, "c/x", NULL,
+		                          FZN_SETTING_RANK_HOST),
+		      "a clear inside the window was forgotten, and a late older set took the cell");
+		CHECK(legacy->used && (legacy->bytes[0] & 0x80u) && legacy->len > 9u
+		              && fzn_get_be64(legacy->bytes + 1u) == 6000u,
+		      "a clear of the older shape did not start its window when first found");
+		CHECK(fzn_node_settings_forget_clears(&ns, 5001u, &forgot) == FZN_NODE_SETTINGS_OK
+		              && forgot >= 1u
+		              && setting_by(&nj, 0x91, FZN_SCOPE_ESTATE, 0x91, 8u, "c/x", 1, "later")
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+		              && in_force(&ns, FZN_SCOPE_ESTATE, 0x91, "c/x", "later",
+		                          FZN_SETTING_RANK_ROOT)
+		              && legacy->used,
+		      "a clear past the window stood, or the older-shaped one went before its window");
+		CHECK(fzn_node_settings_forget_clears(&ns, UINT64_MAX, &forgot) == FZN_NODE_SETTINGS_OK
+		              && !legacy->used
+		              && in_force(&ns, FZN_SCOPE_ESTATE, 0x91, "c/x", "later",
+		                          FZN_SETTING_RANK_ROOT)
+		              && in_force(&ns, FZN_SCOPE_ESTATE, 0x91, "k", "v", FZN_SETTING_RANK_ROOT),
+		      "a set was forgotten, or a clear past every window was not");
+		memcpy(me.pubkey, r, FZN_PUBKEY_LEN);
+		signing_as = 0x91;
+		CHECK(fzn_node_settings_write(&ns, FZN_SCOPE_ESTATE, estate, (const uint8_t *)"c/w",
+		                              3u, 1, (const uint8_t *)"1", 1u) == FZN_NODE_SETTINGS_OK
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "list setting")
+		              && strstr(reply, ",c/w,root,6000,") != NULL,
+		      "a write's version was below the clock");
+		clock_at = 1000u;
+	}
+
 	/* A SETTING IN ANOTHER KEY'S STREAM: the root's object, carried as the
 	 * admin's record, is judged by nobody's standing -- refused. */
 	{
@@ -648,7 +720,7 @@ static void test_settings_judged(void)
 
 		for (i = 0; i < ROWS; i++) {
 			if (!rows[i].used || rows[i].slot != FZN_PERSIST_SETTING || rows[i].len < 2u
-			    || rows[i].bytes[0] != (uint8_t)FZN_SETTING_RANK_ROOT)
+			    || (rows[i].bytes[0] & 0x7fu) != (uint8_t)FZN_SETTING_RANK_ROOT)
 				continue;
 			if (holds(rows[i].bytes, rows[i].len, "retention/a", 11u))
 				from = &rows[i];

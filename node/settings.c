@@ -4,6 +4,7 @@
 
 #include "apply.h"
 #include "../log/rules.h"
+#include "../wire/bytes.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -37,8 +38,49 @@ static int ready(const fzn_node_settings_t *ns)
 
 /* ---- rows ---------------------------------------------------------------- */
 
-/* A row: the rank, then the setting as its setter signed it. */
-#define ROW_MAX (1u + FZN_SETTING_MAX)
+/* A row: the rank with its top bit set, when this node learned the setting
+ * (seconds, 0 for not known), then the setting as its setter signed it --
+ * sec 549, so a clear can be forgotten once the window has passed. A row
+ * written before that is the rank and the setting, and reads as learned at
+ * a time not known. */
+#define ROW_STAMPED 0x80u
+#define ROW_HEAD 9u
+#define ROW_MAX (ROW_HEAD + FZN_SETTING_MAX)
+
+/* A row's parts: its rank, when it was learned, and where its setting
+ * starts. 0 for a row of neither shape. */
+static int row_read(const uint8_t *buf, size_t len, fzn_setting_rank_t *rank, uint64_t *learned,
+                    size_t *head)
+{
+	if (len < 2u)
+		return 0;
+	if (buf[0] & ROW_STAMPED) {
+		if (len <= ROW_HEAD)
+			return 0;
+		*rank = (fzn_setting_rank_t)(buf[0] & ~ROW_STAMPED);
+		*learned = fzn_get_be64(buf + 1u);
+		*head = ROW_HEAD;
+	} else {
+		*rank = (fzn_setting_rank_t)buf[0];
+		*learned = 0;
+		*head = 1u;
+	}
+	return (unsigned)*rank < FZN_SETTING_RANKS;
+}
+
+/* Save `bytes` as `cell`'s row at `rank`, learned at `learned`. */
+static int row_save(const fzn_node_settings_t *ns, const uint8_t row[FZN_PUBKEY_LEN],
+                    fzn_setting_rank_t rank, uint64_t learned, const uint8_t *bytes, size_t len)
+{
+	static uint8_t out[ROW_MAX];
+
+	if (len > FZN_SETTING_MAX)
+		return 0;
+	out[0] = (uint8_t)(ROW_STAMPED | (unsigned)rank);
+	fzn_put_be64(out + 1u, learned);
+	memcpy(out + ROW_HEAD, bytes, len);
+	return ns->store->save(ns->store->ctx, FZN_PERSIST_SETTING, row, out, ROW_HEAD + len);
+}
 
 /* The row of `cell` at `rank`. */
 static int row_of(const fzn_node_settings_t *ns, const uint8_t cell[FZN_SUBJECT_LEN],
@@ -55,53 +97,60 @@ static int row_of(const fzn_node_settings_t *ns, const uint8_t cell[FZN_SUBJECT_
 }
 
 /* The setting standing for `cell` at `rank`, opened from `buf` (ROW_MAX);
- * its length, without the rank, in `*obj_len` (may be NULL). */
+ * where it starts in `buf` and its length in `*head` and `*obj_len` (either
+ * may be NULL). */
 static int standing(const fzn_node_settings_t *ns, const uint8_t cell[FZN_SUBJECT_LEN],
-                    fzn_setting_rank_t rank, uint8_t *buf, fzn_setting_t *s, size_t *obj_len)
+                    fzn_setting_rank_t rank, uint8_t *buf, fzn_setting_t *s, size_t *obj_len,
+                    size_t *head)
 {
 	uint8_t row[FZN_PUBKEY_LEN], again[FZN_SUBJECT_LEN];
-	size_t len = 0;
+	fzn_setting_rank_t filed;
+	uint64_t learned;
+	size_t len = 0, at = 0;
 
 	if (obj_len)
 		*obj_len = 0;
 
 	/* WHAT IT SAYS IT IS, where it was looked for: a row of the cell and
 	 * rank it is filed under, or not this cell's. */
-	return row_of(ns, cell, rank, row)
-	       && ns->store->load(ns->store->ctx, FZN_PERSIST_SETTING, row, buf, ROW_MAX, &len)
-	       && len > 1u && buf[0] == (uint8_t)rank
-	       && fzn_setting_open(buf + 1u, len - 1u, ns->verify, s) == FZN_SETTING_OK
-	       && fzn_setting_cell(s, ns->hash, again)
-	       && memcmp(again, cell, FZN_SUBJECT_LEN) == 0 && (!obj_len || (*obj_len = len - 1u));
+	if (!row_of(ns, cell, rank, row)
+	    || !ns->store->load(ns->store->ctx, FZN_PERSIST_SETTING, row, buf, ROW_MAX, &len)
+	    || !row_read(buf, len, &filed, &learned, &at) || filed != rank
+	    || fzn_setting_open(buf + at, len - at, ns->verify, s) != FZN_SETTING_OK
+	    || !fzn_setting_cell(s, ns->hash, again) || memcmp(again, cell, FZN_SUBJECT_LEN) != 0)
+		return 0;
+	if (obj_len)
+		*obj_len = len - at;
+	if (head)
+		*head = at;
+	return 1;
 }
 
 fzn_node_settings_err_t fzn_node_settings_learn(const fzn_node_settings_t *ns,
                                                 const uint8_t *bytes, size_t len,
                                                 fzn_setting_rank_t rank)
 {
-	static uint8_t held_buf[ROW_MAX], row_bytes[ROW_MAX];
+	static uint8_t held_buf[ROW_MAX];
 	uint8_t cell[FZN_SUBJECT_LEN], row[FZN_PUBKEY_LEN];
 	fzn_setting_t s, held;
-	size_t held_len = 0;
+	size_t held_len = 0, held_at = 0;
 
 	if (!ready(ns) || !bytes || (unsigned)rank >= FZN_SETTING_RANKS)
 		return FZN_NODE_SETTINGS_MALFORMED;
 	if (fzn_setting_open(bytes, len, ns->verify, &s) != FZN_SETTING_OK
 	    || !fzn_setting_cell(&s, ns->hash, cell))
 		return FZN_NODE_SETTINGS_REFUSED;
-	if (standing(ns, cell, rank, held_buf, &held, &held_len)) {
+	if (standing(ns, cell, rank, held_buf, &held, &held_len, &held_at)) {
 		/* THE SAME SETTING AGAIN is what a journal replays: kept, no
-		 * change. */
-		if (held_len == len && memcmp(held_buf + 1u, bytes, len) == 0)
+		 * change -- and its learning time kept with it. */
+		if (held_len == len && memcmp(held_buf + held_at, bytes, len) == 0)
 			return FZN_NODE_SETTINGS_OK;
 		if (!fzn_setting_supersedes(&s, &held))
 			return FZN_NODE_SETTINGS_STALE;
 	}
 	if (!row_of(ns, cell, rank, row))
 		return FZN_NODE_SETTINGS_BACKEND;
-	row_bytes[0] = (uint8_t)rank;
-	memcpy(row_bytes + 1u, bytes, len);
-	return ns->store->save(ns->store->ctx, FZN_PERSIST_SETTING, row, row_bytes, 1u + len)
+	return row_save(ns, row, rank, ns->now ? ns->now() : 0u, bytes, len)
 	               ? FZN_NODE_SETTINGS_OK
 	               : FZN_NODE_SETTINGS_BACKEND;
 }
@@ -114,7 +163,7 @@ static int in_force(const fzn_node_settings_t *ns, const uint8_t cell[FZN_SUBJEC
 	int r;
 
 	for (r = (int)FZN_SETTING_RANKS - 1; r >= 0; r--)
-		if (standing(ns, cell, (fzn_setting_rank_t)r, buf, s, NULL) && s->set)
+		if (standing(ns, cell, (fzn_setting_rank_t)r, buf, s, NULL, NULL) && s->set)
 			return r;
 	return -1;
 }
@@ -154,23 +203,24 @@ fzn_node_settings_err_t fzn_node_settings_each(const fzn_node_settings_t *ns,
 		return FZN_NODE_SETTINGS_BACKEND;
 	for (i = 0; i < n; i++) {
 		uint8_t cell[FZN_SUBJECT_LEN], again[FZN_PUBKEY_LEN];
+		fzn_setting_rank_t rank;
 		fzn_setting_t s, t;
-		size_t len = 0;
+		uint64_t learned;
+		size_t len = 0, at = 0;
 		int r;
 
 		/* EACH CELL ONCE, from the row that is in force for it: a row is
 		 * reported when it is its cell's highest live rank. */
 		if (!ns->store->load(ns->store->ctx, FZN_PERSIST_SETTING, rows + (i * FZN_PUBKEY_LEN), buf,
 		                     sizeof(buf), &len)
-		    || len < 2u || buf[0] >= FZN_SETTING_RANKS
-		    || fzn_setting_open(buf + 1u, len - 1u, ns->verify, &s) != FZN_SETTING_OK
-		    || !s.set || !fzn_setting_cell(&s, ns->hash, cell)
-		    || !row_of(ns, cell, (fzn_setting_rank_t)buf[0], again)
+		    || !row_read(buf, len, &rank, &learned, &at)
+		    || fzn_setting_open(buf + at, len - at, ns->verify, &s) != FZN_SETTING_OK
+		    || !s.set || !fzn_setting_cell(&s, ns->hash, cell) || !row_of(ns, cell, rank, again)
 		    || memcmp(again, rows + (i * FZN_PUBKEY_LEN), FZN_PUBKEY_LEN) != 0)
 			continue;
 		r = in_force(ns, cell, top, &t);
-		if (r == (int)buf[0])
-			each(ctx, &s, (fzn_setting_rank_t)r);
+		if (r == (int)rank)
+			each(ctx, &s, rank);
 	}
 	return FZN_NODE_SETTINGS_OK;
 }
@@ -195,11 +245,16 @@ fzn_node_settings_err_t fzn_node_settings_write(const fzn_node_settings_t *ns,
 	 * a setting this node may not make is never in its stream. */
 	if (fzn_node_apply_rank(ns->apply, ns->id->pubkey, scope, about, &rank) != 1)
 		return FZN_NODE_SETTINGS_REFUSED;
-	/* ONE PAST EVERY VERSION HELD FOR THE CELL, at any rank. */
+	/* ONE PAST EVERY VERSION HELD FOR THE CELL, at any rank, AND NO LOWER
+	 * THAN THE CLOCK, sec 549: a clear is forgotten here once the window
+	 * has passed, and a write after that must still supersede it on a
+	 * node that has not forgotten it yet. */
+	version = ns->now();
 	for (r = 0; r < (int)FZN_SETTING_RANKS; r++) {
 		fzn_setting_t s;
 
-		if (standing(ns, cell, (fzn_setting_rank_t)r, buf, &s, NULL) && s.version >= version)
+		if (standing(ns, cell, (fzn_setting_rank_t)r, buf, &s, NULL, NULL)
+		    && s.version >= version)
 			version = s.version + 1u;
 	}
 	if (version == 0u)
@@ -230,6 +285,46 @@ int fzn_node_settings_rule_key(const fzn_hash_ops_t *hash, const char *text, siz
 		key[11u + (2u * i)] = (uint8_t)HEX[h[i] & 15u];
 	}
 	return 1;
+}
+
+fzn_node_settings_err_t fzn_node_settings_forget_clears(const fzn_node_settings_t *ns,
+                                                        uint64_t older_than, size_t *forgot)
+{
+	static uint8_t rows[FZN_NODE_SETTINGS_ROWS * FZN_PUBKEY_LEN];
+	static uint8_t buf[ROW_MAX];
+	size_t n = 0, i;
+
+	if (!forgot)
+		return FZN_NODE_SETTINGS_MALFORMED;
+	*forgot = 0;
+	if (!ready(ns) || !ns->store->list || !ns->store->remove || !ns->now)
+		return FZN_NODE_SETTINGS_MALFORMED;
+	if (!ns->store->list(ns->store->ctx, FZN_PERSIST_SETTING, rows, FZN_NODE_SETTINGS_ROWS, &n))
+		return FZN_NODE_SETTINGS_BACKEND;
+	for (i = 0; i < n; i++) {
+		const uint8_t *row = rows + (i * FZN_PUBKEY_LEN);
+		fzn_setting_rank_t rank;
+		fzn_setting_t s;
+		uint64_t learned;
+		size_t len = 0, at = 0;
+
+		if (!ns->store->load(ns->store->ctx, FZN_PERSIST_SETTING, row, buf, sizeof(buf), &len)
+		    || !row_read(buf, len, &rank, &learned, &at)
+		    || fzn_setting_open(buf + at, len - at, ns->verify, &s) != FZN_SETTING_OK || s.set)
+			continue;
+		/* A CLEAR LEARNED AT A TIME NOT KNOWN starts its window now. */
+		if (learned == 0u) {
+			if (!row_save(ns, row, rank, ns->now(), buf + at, len - at))
+				return FZN_NODE_SETTINGS_BACKEND;
+			continue;
+		}
+		if (learned >= older_than)
+			continue;
+		if (!ns->store->remove(ns->store->ctx, FZN_PERSIST_SETTING, row))
+			return FZN_NODE_SETTINGS_BACKEND;
+		(*forgot)++;
+	}
+	return FZN_NODE_SETTINGS_OK;
 }
 
 /* A COUNT FROM 1 TO `max` in `value`, or 0: digits only, and no more of them
