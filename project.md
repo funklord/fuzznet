@@ -59162,6 +59162,25 @@ line has to run and must skip its write. Nothing here needs it.
 - **The control:** with `style`'s line put back to a literal `$(MAKE)`,
   `make -n style` exits 2 again with the message the inbox quoted.
 
+### The parse-time half, and the other two modes
+
+claude-guidelines widened the question again the same day, in their
+`3d783c0`. A `$(shell)` evaluated at parse time runs in every mode,
+raidcfgd's having cloned two submodules under `-n`. They sampled fuzznet
+at `97719d9`, as vendored by raidcfgd. Re-taken at this tree's HEAD by
+`grep -n '$(shell' Makefile`: there are 12 calls, all at parse time, and
+none changes state.
+- Eight are compiler probes piping source to `-o /dev/null`.
+- Three are `pkg-config` queries.
+- One is a `sed` reading `.gitmodules`.
+
+Make also runs a `$(MAKE)` line under `-t` and `-q`. Those were not
+measured in this tree, because `make -t` here would mark every object up
+to date under the other sessions building it. By enumeration instead:
+after this section, no line naming `$(MAKE)` literally carries anything
+else that writes. Under `-t` a sub-make touches its own targets, which is
+what `-t` asks for.
+
 ### Not built in sec 525
 
 No gate holds the rule. A check that every literal `$(MAKE)` line carries
