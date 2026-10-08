@@ -169,6 +169,7 @@ static struct {
 #endif
 } dlog;
 
+#ifdef FZN_LOG_FILE_ON
 static uint64_t log_now_us(void)
 {
 	struct timespec t;
@@ -177,6 +178,7 @@ static uint64_t log_now_us(void)
 		return 0;
 	return ((uint64_t)t.tv_sec * 1000000u) + ((uint64_t)t.tv_nsec / 1000u);
 }
+#endif
 
 #ifdef FZN_LOG_FILE_ON
 /* The ring's bytes into its dump file: open, two writes, close -- nothing
@@ -3113,6 +3115,11 @@ int main(int argc, char **argv)
 		fprintf(stderr, "fuzznetd: --gather: built without log files (FZN_LOG_FILE)\n");
 		return 2;
 	}
+	/* --short, --match and --since shape a gathering, which this build
+	 * refuses above; alone they ask for nothing, as in the build with logs. */
+	(void)gather_short;
+	(void)gather_match;
+	(void)gather_since_s;
 #endif
 	if (ask_line) {
 		static fzn_partial_t slots[1];

@@ -59802,9 +59802,13 @@ conversation list (`convs`) so the trim can find every conversation.
   writes a line dated in an earlier month, so a live run cannot reach a
   trimmable month. The library function is what the tests pin.
 - Found while checking the no-log build: `FZN_LOG_FILE=0` with packing
-  left on does not compile at HEAD either (`push_logs` reads `dlog.on`,
-  `dlog.n_push_programs`); `FZN_LOG_FILE=0 FZN_LOG_PACK=0` builds, with
-  the trim. Not fixed here.
+  left on did not compile (`push_logs` reads `dlog.on`,
+  `dlog.n_push_programs`). Fixed after this section by tying packing to
+  log files in the Makefile, since `log/pack.c` opens, renames and lists
+  the logger's segments: with no log files `FZN_LOG_PACK=auto` turns
+  packing off and says why, and `FZN_LOG_PACK=1` refuses. That build
+  compiles without warnings and `make test` passes in it, the log and
+  packing suites reported as not run.
 
 ### Measured for sec 531
 

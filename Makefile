@@ -893,14 +893,26 @@ ifeq ($(FZN_LOG_PACK),)
 FZN_LOG_PACK := auto
 endif
 
+# PACKING PACKS LOG FILES, so it needs them as well as zstd: log/pack.c
+# opens, renames and lists the segments the logger writes, the same calls
+# the log-file probe asks about. A build without log files therefore has no
+# packing -- `auto` says so and `1` refuses -- rather than compiling the
+# daemon's packing paths against a logger that is not there.
+FZN_BLAME_PACK_LOGFILE := packing packs log files, and this build has none: $(LOG_FILE_SKIP)
+
 ifeq ($(FZN_LOG_PACK),auto)
-ifeq ($(FZN_PROBE_ZSTD),yes)
+ifndef LOG_FILE_ON
+LOG_PACK_SKIP := $(FZN_BLAME_PACK_LOGFILE)
+else ifeq ($(FZN_PROBE_ZSTD),yes)
 LOG_PACK_ON := 1
 else
 LOG_PACK_SKIP := $(FZN_BLAME_ZSTD) Set FZN_LOG_PACK=0 to build without it.
 endif
 else ifeq ($(FZN_LOG_PACK),1)
-ifeq ($(FZN_PROBE_ZSTD),yes)
+ifndef LOG_FILE_ON
+$(error FZN_LOG_PACK=1 was asked for and $(FZN_BLAME_PACK_LOGFILE) \
+        Set FZN_LOG_PACK=0, or build with log files)
+else ifeq ($(FZN_PROBE_ZSTD),yes)
 LOG_PACK_ON := 1
 else
 $(error FZN_LOG_PACK=1 was asked for and $(FZN_BLAME_ZSTD) \
