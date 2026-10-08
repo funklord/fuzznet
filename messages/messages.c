@@ -44,6 +44,10 @@ static int index_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKE
                         const uint8_t id[FZN_MESSAGE_ID_LEN], uint32_t epoch, size_t size);
 static int is_gone(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                    uint32_t epoch);
+static int keep_line(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                     const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq, uint64_t written_at,
+                     const fzn_message_part_t *last, const uint8_t *const body[2],
+                     const size_t body_len[2], size_t held);
 static int set_read(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                     const uint8_t id[FZN_MESSAGE_ID_LEN], uint64_t at);
 
@@ -141,6 +145,123 @@ uint8_t fzn_messages_state(const fzn_messages_t *m, const uint8_t contact[FZN_PU
 	return held[0];
 }
 
+/* ---- a line as the store keeps it, sec 536 ------------------------------ */
+
+/* `line.situ`'s fzn_message_stored: a head, then up to two sealed parts,
+ * each a length and the line record's body as it was written. */
+#define STORED_CONTACT 1u
+#define STORED_DEVICE (STORED_CONTACT + FZN_PUBKEY_LEN)
+#define STORED_SEQ (STORED_DEVICE + FZN_PUBKEY_LEN)
+#define STORED_WRITTEN (STORED_SEQ + 8u)
+#define STORED_STIME (STORED_WRITTEN + 8u)
+#define STORED_DIRECTION (STORED_STIME + 8u)
+#define STORED_ID (STORED_DIRECTION + 1u)
+#define STORED_EPOCH (STORED_ID + FZN_MESSAGE_ID_LEN)
+#define STORED_PARTS (STORED_EPOCH + 4u)
+#define STORED_HELD (STORED_PARTS + 1u)
+#define STORED_HEAD (STORED_HELD + 1u)
+#define STORED_MAX (STORED_HEAD + 2u * (2u + FZN_RECORD_BODY_MAX))
+
+/* One stored line, read: its parts point into the buffer it was read into. */
+typedef struct stored {
+	uint8_t contact[FZN_PUBKEY_LEN];
+	uint8_t device[FZN_PUBKEY_LEN];
+	uint64_t seq;
+	uint64_t written_at;
+	uint64_t stime;
+	uint8_t direction;
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	uint32_t epoch;
+	uint8_t parts;
+	uint8_t held;
+	const uint8_t *body[2];
+	size_t body_len[2];
+} stored_t;
+
+/* A line's row: the device that wrote it and its last part's sequence,
+ * which is what its index entry names. */
+static int line_row(const fzn_messages_t *m, const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq,
+                    uint8_t row[FZN_PUBKEY_LEN])
+{
+	static const char DOMAIN[] = "fuzznet.message.line";
+	uint8_t in[sizeof(DOMAIN) - 1u + FZN_PUBKEY_LEN + 8u];
+	size_t at = sizeof(DOMAIN) - 1u;
+
+	memcpy(in, DOMAIN, at);
+	memcpy(in + at, device, FZN_PUBKEY_LEN);
+	fzn_put_be64(in + at + FZN_PUBKEY_LEN, seq);
+	return m->hash->hash(m->hash->ctx, row, FZN_PUBKEY_LEN, in, sizeof(in));
+}
+
+static int stored_save(const fzn_messages_t *m, const stored_t *s)
+{
+	uint8_t row[FZN_PUBKEY_LEN], b[STORED_MAX];
+	size_t at = STORED_HEAD, i;
+
+	if (s->parts < 1u || s->parts > 2u || s->held > s->parts || !line_row(m, s->device, s->seq, row))
+		return 0;
+	b[0] = 1u;
+	memcpy(b + STORED_CONTACT, s->contact, FZN_PUBKEY_LEN);
+	memcpy(b + STORED_DEVICE, s->device, FZN_PUBKEY_LEN);
+	fzn_put_be64(b + STORED_SEQ, s->seq);
+	fzn_put_be64(b + STORED_WRITTEN, s->written_at);
+	fzn_put_be64(b + STORED_STIME, s->stime);
+	b[STORED_DIRECTION] = s->direction;
+	memcpy(b + STORED_ID, s->id, FZN_MESSAGE_ID_LEN);
+	fzn_put_be32(b + STORED_EPOCH, s->epoch);
+	b[STORED_PARTS] = s->parts;
+	b[STORED_HELD] = s->held;
+	for (i = 0; i < s->held; i++) {
+		if (s->body_len[i] < FZN_MESSAGE_LINE_HEAD || s->body_len[i] > FZN_RECORD_BODY_MAX)
+			return 0;
+		b[at] = (uint8_t)(s->body_len[i] >> 8);
+		b[at + 1u] = (uint8_t)s->body_len[i];
+		memcpy(b + at + 2u, s->body[i], s->body_len[i]);
+		at += 2u + s->body_len[i];
+	}
+	return m->store->save(m->store->ctx, FZN_PERSIST_MESSAGE_LINE, row, b, at);
+}
+
+/* The line `device` wrote ending at `seq`, into `buf` (STORED_MAX bytes):
+ * zero when no row is held or it does not read whole. */
+static int stored_load(const fzn_messages_t *m, const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq,
+                       uint8_t *buf, stored_t *s)
+{
+	uint8_t row[FZN_PUBKEY_LEN];
+	size_t len = 0, at = STORED_HEAD, i;
+
+	if (!line_row(m, device, seq, row)
+	    || !m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_LINE, row, buf, STORED_MAX, &len)
+	    || len < STORED_HEAD || buf[0] != 1u)
+		return 0;
+	memcpy(s->contact, buf + STORED_CONTACT, FZN_PUBKEY_LEN);
+	memcpy(s->device, buf + STORED_DEVICE, FZN_PUBKEY_LEN);
+	s->seq = fzn_get_be64(buf + STORED_SEQ);
+	s->written_at = fzn_get_be64(buf + STORED_WRITTEN);
+	s->stime = fzn_get_be64(buf + STORED_STIME);
+	s->direction = buf[STORED_DIRECTION];
+	memcpy(s->id, buf + STORED_ID, FZN_MESSAGE_ID_LEN);
+	s->epoch = fzn_get_be32(buf + STORED_EPOCH);
+	s->parts = buf[STORED_PARTS];
+	s->held = buf[STORED_HELD];
+	/* WHAT IT SAYS IT IS, where it was looked for: a row under another
+	 * line's place is not that line. */
+	if (memcmp(s->device, device, FZN_PUBKEY_LEN) != 0 || s->seq != seq
+	    || !direction_ok(s->direction) || s->parts < 1u || s->parts > 2u || s->held > s->parts)
+		return 0;
+	for (i = 0; i < s->held; i++) {
+		if (len - at < 2u)
+			return 0;
+		s->body_len[i] = ((size_t)buf[at] << 8) | buf[at + 1u];
+		if (s->body_len[i] < FZN_MESSAGE_LINE_HEAD || s->body_len[i] > FZN_RECORD_BODY_MAX
+		    || len - at - 2u < s->body_len[i])
+			return 0;
+		s->body[i] = buf + at + 2u;
+		at += 2u + s->body_len[i];
+	}
+	return at == len;
+}
+
 /* ---- writing --------------------------------------------------------- */
 
 /* How far this device's own stream reaches now. */
@@ -163,10 +284,13 @@ fzn_messages_err_t fzn_messages_write(const fzn_messages_t *m,
                                       const char *text, size_t len)
 {
 	uint8_t key[FZN_CONVERSATION_KEY_LEN], row[FZN_PUBKEY_LEN], nonce[FZN_AEAD_NONCE_LEN];
-	uint8_t body[FZN_RECORD_BODY_MAX];
+	uint8_t bodies[2][FZN_RECORD_BODY_MAX];
+	const uint8_t *body[2] = { bodies[0], bodies[1] };
+	size_t body_len[2] = { 0, 0 };
+	fzn_message_part_t last;
 	uint64_t now, before;
 	uint32_t epoch;
-	size_t parts, body_len = 0;
+	size_t parts;
 	uint8_t part;
 
 	if (!ready(m) || !contact || !id || (!text && len) || !direction_ok(direction))
@@ -191,23 +315,24 @@ fzn_messages_err_t fzn_messages_write(const fzn_messages_t *m,
 		if (!fzn_nonce_next(m->rng, nonce)
 		    || !fzn_message_line_seal(m->aead, key, contact, direction, id, stime, epoch,
 		                              nonce, (const uint8_t *)text, len, part, (uint8_t)parts,
-		                              body, &body_len)) {
+		                              bodies[part], &body_len[part])) {
 			memset(key, 0, sizeof(key));
 			return FZN_MESSAGES_ERR_SEAL;
 		}
 		if (fzn_node_journal_append_on(m->journal, m->issuer, FZN_MESSAGE_STREAM, m->sign,
-		                               FZN_MESSAGE_LINE_KIND, contact, body, body_len, now,
-		                               NULL)
+		                               FZN_MESSAGE_LINE_KIND, contact, bodies[part],
+		                               body_len[part], now, NULL)
 		    != FZN_NODE_JOURNAL_OK) {
 			memset(key, 0, sizeof(key));
 			return FZN_MESSAGES_ERR_JOURNAL;
 		}
 	}
 	memset(key, 0, sizeof(key));
-	/* ITS OWN LINE INDEXED NOW, so its conversation lists it without an
-	 * absorb between. */
+	/* ITS OWN LINE KEPT AND INDEXED NOW, so its conversation lists it
+	 * without an absorb between. */
 	if (took_own(m, before)
-	    && (!index_append(m, contact, m->issuer, own_head(m), direction, id, epoch, len)
+	    && (!fzn_message_line_read(bodies[parts - 1u], body_len[parts - 1u], &last)
+	        || !keep_line(m, contact, m->issuer, own_head(m), now, &last, body, body_len, parts)
 	        || !set_cursor(m, m->issuer, own_head(m))))
 		return FZN_MESSAGES_ERR_BACKEND;
 	return FZN_MESSAGES_OK;
@@ -497,6 +622,80 @@ static int conversations_clear(const fzn_messages_t *m)
 	       && m->store->remove(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row);
 }
 
+/* EVERY LINE IN THE ORDER IT WAS LEARNED, across conversations, sec 536:
+ * each entry a conversation and its place in that conversation's index, so
+ * a listing of everyone's lines reads the store and not the journal. */
+#define ALL_ENTRY_LEN (FZN_PUBKEY_LEN + 8u)
+#define ALL_CHUNK_BYTES (FZN_MESSAGES_INDEX_CHUNK * ALL_ENTRY_LEN)
+
+static struct {
+	int valid;
+	uint32_t chunk;
+	size_t len;
+	uint8_t bytes[ALL_CHUNK_BYTES];
+} all_held;
+
+static int all_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN], uint64_t i)
+{
+	uint8_t row[FZN_PUBKEY_LEN], chunk[ALL_CHUNK_BYTES];
+	uint64_t n = load_number(m, "alls", NOBODY);
+	size_t in_chunk = (size_t)(n % FZN_MESSAGES_INDEX_CHUNK), len = 0;
+
+	all_held.valid = 0;
+	if (n / FZN_MESSAGES_INDEX_CHUNK > UINT32_MAX
+	    || !index_row(m, "allchnk", NOBODY, (uint32_t)(n / FZN_MESSAGES_INDEX_CHUNK), row))
+		return 0;
+	if (in_chunk
+	    && (!m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, chunk, sizeof(chunk),
+	                        &len)
+	        || len != in_chunk * ALL_ENTRY_LEN))
+		return 0;
+	memcpy(chunk + in_chunk * ALL_ENTRY_LEN, contact, FZN_PUBKEY_LEN);
+	fzn_put_be64(chunk + in_chunk * ALL_ENTRY_LEN + FZN_PUBKEY_LEN, i);
+	return m->store->save(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, chunk,
+	                      (in_chunk + 1u) * ALL_ENTRY_LEN)
+	       && save_number(m, "alls", NOBODY, n + 1u);
+}
+
+/* Entry `k` of every line's order: its conversation and its place there. */
+static int all_entry(const fzn_messages_t *m, uint64_t k, uint8_t contact[FZN_PUBKEY_LEN],
+                     uint64_t *i)
+{
+	uint32_t c = (uint32_t)(k / FZN_MESSAGES_INDEX_CHUNK);
+	size_t at = (size_t)(k % FZN_MESSAGES_INDEX_CHUNK) * ALL_ENTRY_LEN;
+
+	if (!all_held.valid || all_held.chunk != c) {
+		uint8_t row[FZN_PUBKEY_LEN];
+
+		all_held.valid = 0;
+		if (!index_row(m, "allchnk", NOBODY, c, row)
+		    || !m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, all_held.bytes,
+		                       sizeof(all_held.bytes), &all_held.len))
+			return 0;
+		all_held.chunk = c;
+		all_held.valid = 1;
+	}
+	if (at + ALL_ENTRY_LEN > all_held.len)
+		return 0;
+	memcpy(contact, all_held.bytes + at, FZN_PUBKEY_LEN);
+	*i = fzn_get_be64(all_held.bytes + at + FZN_PUBKEY_LEN);
+	return 1;
+}
+
+static int all_clear(const fzn_messages_t *m)
+{
+	uint8_t row[FZN_PUBKEY_LEN];
+	uint64_t n = load_number(m, "alls", NOBODY), c;
+
+	all_held.valid = 0;
+	for (c = 0; c * FZN_MESSAGES_INDEX_CHUNK < n; c++)
+		if (!index_row(m, "allchnk", NOBODY, (uint32_t)c, row)
+		    || !m->store->remove(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row))
+			return 0;
+	return index_row(m, "alls", NOBODY, 0u, row)
+	       && m->store->remove(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row);
+}
+
 /* A TRIMMED MONTH, sec 531: its keys destroyed, and marked so none is taken
  * back. Not derived: nothing in the journal says it, so a reindex keeps it. */
 static int is_gone(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
@@ -567,10 +766,46 @@ static int index_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKE
 	chunk[in_chunk * ENTRY_LEN + ENTRY_SIZE] = (uint8_t)(size >> 8);
 	chunk[in_chunk * ENTRY_LEN + ENTRY_SIZE + 1u] = (uint8_t)size;
 	/* THE ENTRY, THEN THE COUNT: a crash between leaves an entry the count
-	 * does not reach, which the next append writes over. */
+	 * does not reach, which the next append writes over. Then its place in
+	 * every line's order; a crash before that leaves the line out of the
+	 * listing of everyone's until a reindex. */
 	return m->store->save(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, chunk,
 	                      (in_chunk + 1u) * ENTRY_LEN)
-	       && save_number(m, "count", contact, n + 1u);
+	       && save_number(m, "count", contact, n + 1u) && all_append(m, contact, n);
+}
+
+/* KEEP A LINE: its row, then its index entry, once -- a line another device
+ * wrote first is already kept, under that device's place. `held` of its
+ * parts are given in `body`, all of them or none; a trimmed month's line
+ * keeps its head alone, its parts let go with its keys. */
+static int keep_line(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                     const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq, uint64_t written_at,
+                     const fzn_message_part_t *last, const uint8_t *const body[2],
+                     const size_t body_len[2], size_t held)
+{
+	stored_t s;
+	size_t i;
+
+	if (recently_indexed(m, contact, count_of(m, contact), last->direction, last->id))
+		return 1;
+	memcpy(s.contact, contact, FZN_PUBKEY_LEN);
+	memcpy(s.device, device, FZN_PUBKEY_LEN);
+	s.seq = seq;
+	s.written_at = written_at;
+	s.stime = last->stime;
+	s.direction = last->direction;
+	memcpy(s.id, last->id, FZN_MESSAGE_ID_LEN);
+	s.epoch = last->epoch;
+	s.parts = last->parts;
+	s.held = (uint8_t)(held == last->parts && !is_gone(m, contact, last->epoch) ? held : 0u);
+	for (i = 0; i < s.held; i++) {
+		s.body[i] = body[i];
+		s.body_len[i] = body_len[i];
+	}
+	/* THE ROW, THEN THE ENTRY: an entry never names a line nothing keeps. */
+	return stored_save(m, &s)
+	       && index_append(m, contact, device, seq, last->direction, last->id, last->epoch,
+	                       last->text_len + (last->parts == 2u ? FZN_MESSAGE_PART_MAX : 0u));
 }
 
 /* Entry `i` of `contact`'s index. */
@@ -655,6 +890,34 @@ int fzn_messages_read_position(const fzn_messages_t *m, const uint8_t contact[FZ
 
 /* ---- taking streams in ---------------------------------------------------- */
 
+/* A LINE'S PARTS, from the journal, ending at `rec` (`seq`, parsed as
+ * `last`): nonzero with every part's body when each is there and of this
+ * line. Read while the journal still holds them, which is when a line is
+ * taken in. */
+static int parts_of(const fzn_messages_t *m, const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq,
+                    fzn_record_t rec, const fzn_message_part_t *last, const uint8_t *body[2],
+                    size_t body_len[2])
+{
+	static uint8_t earlier[FZN_RECORD_MAX_LEN];
+	fzn_message_part_t p;
+	fzn_record_t prev;
+
+	body[last->parts - 1u] = fzn_record_body(rec);
+	body_len[last->parts - 1u] = fzn_record_body_len(rec);
+	if (last->parts == 1u)
+		return 1;
+	if (seq < 2u || !record_at(m, device, seq - 1u, earlier, sizeof(earlier), &prev)
+	    || fzn_record_kind(prev) != FZN_MESSAGE_LINE_KIND
+	    || memcmp(fzn_record_subject(prev), fzn_record_subject(rec), FZN_PUBKEY_LEN) != 0
+	    || !fzn_message_line_read(fzn_record_body(prev), fzn_record_body_len(prev), &p)
+	    || p.part != 0u || p.parts != last->parts || p.direction != last->direction
+	    || p.epoch != last->epoch || memcmp(p.id, last->id, FZN_MESSAGE_ID_LEN) != 0)
+		return 0;
+	body[0] = fzn_record_body(prev);
+	body_len[0] = fzn_record_body_len(prev);
+	return 1;
+}
+
 /* ONE RECORD TAKEN IN: its key reported whatever `done` says, and past
  * `*done` everything else -- the line indexed, the mark or the read position
  * applied -- with `*done` moved to it. */
@@ -679,13 +942,18 @@ static fzn_messages_err_t take_in(const fzn_messages_t *m, const uint8_t device[
 			memset(key, 0, sizeof(key));
 			seen(ctx, contact, p.epoch, device, held);
 		}
-		/* INDEXED, THEN THE CURSOR MOVED, at once: an index entry is the
-		 * one thing taken in twice that would show twice. */
-		if (fresh
-		    && (!index_append(m, contact, device, seq, p.direction, p.id, p.epoch,
-		                      p.text_len + (p.parts == 2u ? FZN_MESSAGE_PART_MAX : 0u))
-		        || !set_cursor(m, device, seq)))
-			return FZN_MESSAGES_ERR_BACKEND;
+		/* KEPT, THEN THE CURSOR MOVED, at once: an index entry is the one
+		 * thing taken in twice that would show twice. */
+		if (fresh) {
+			const uint8_t *body[2] = { NULL, NULL };
+			size_t body_len[2] = { 0, 0 };
+			size_t held = parts_of(m, device, seq, rec, &p, body, body_len) ? p.parts : 0u;
+
+			if (!keep_line(m, contact, device, seq, fzn_record_issued_at(rec), &p, body,
+			               body_len, held)
+			    || !set_cursor(m, device, seq))
+				return FZN_MESSAGES_ERR_BACKEND;
+		}
 	} else if (fresh && fzn_record_kind(rec) == FZN_MESSAGE_MARK_KIND
 	           && fzn_message_mark_read(fzn_record_body(rec), fzn_record_body_len(rec), &mark)) {
 		(*marks)++;
@@ -766,42 +1034,28 @@ static int record_at(const fzn_messages_t *m, const uint8_t device[FZN_PUBKEY_LE
 	       == FZN_RECORD_STORE_OK;
 }
 
-/* ONE LINE'S TEXT, from its last part at `seq` back through the parts
- * before it, opened under its month's key. Zero when it does not open --
- * the key gone, or a part missing -- `out->readable` 0 and the text
- * empty. */
-static void open_text(const fzn_messages_t *m, const uint8_t device[FZN_PUBKEY_LEN],
-                      uint64_t seq, const fzn_message_part_t *last, fzn_message_t *out)
+/* ONE LINE'S TEXT, from its stored parts, opened under its month's key.
+ * Zero when it does not open -- the key gone, or its parts let go -- with
+ * `out->readable` 0 and the text empty. */
+static void open_stored(const fzn_messages_t *m, const stored_t *s, fzn_message_t *out)
 {
-	static uint8_t buf[FZN_RECORD_MAX_LEN];
 	uint8_t key[FZN_CONVERSATION_KEY_LEN];
 	uint8_t text[FZN_MESSAGE_TEXT_MAX];
 	fzn_message_part_t p;
-	fzn_record_t rec;
 	size_t at = 0, n = 0;
 	uint8_t i;
 
 	out->readable = 0;
 	out->text[0] = '\0';
 	out->text_len = 0;
-	if (!key_of(m, out->contact, last->epoch, device, key))
+	if (s->held != s->parts || !key_of(m, s->contact, s->epoch, s->device, key))
 		return;
-	for (i = 0; i < last->parts; i++) {
-		uint64_t s = seq - (uint64_t)(last->parts - 1u - i);
-
-		if (i + 1u == last->parts) {
-			p = *last;
-		} else if (s == 0u || !record_at(m, device, s, buf, sizeof(buf), &rec)
-		           || fzn_record_kind(rec) != FZN_MESSAGE_LINE_KIND
-		           || memcmp(fzn_record_subject(rec), out->contact, FZN_PUBKEY_LEN) != 0
-		           || !fzn_message_line_read(fzn_record_body(rec), fzn_record_body_len(rec), &p)
-		           || p.part != i || p.parts != last->parts || p.direction != last->direction
-		           || memcmp(p.id, last->id, FZN_MESSAGE_ID_LEN) != 0) {
-			memset(key, 0, sizeof(key));
-			return;
-		}
-		if (!fzn_message_line_open(m->aead, key, out->contact, &p, text + at,
-		                           sizeof(text) - at, &n)) {
+	for (i = 0; i < s->parts; i++) {
+		if (!fzn_message_line_read(s->body[i], s->body_len[i], &p) || p.part != i
+		    || p.parts != s->parts || p.direction != s->direction || p.epoch != s->epoch
+		    || memcmp(p.id, s->id, FZN_MESSAGE_ID_LEN) != 0
+		    || !fzn_message_line_open(m->aead, key, s->contact, &p, text + at,
+		                              sizeof(text) - at, &n)) {
 			memset(key, 0, sizeof(key));
 			memset(text, 0, sizeof(text));
 			return;
@@ -843,20 +1097,6 @@ static void see(size_t *n, uint8_t direction, const uint8_t contact[FZN_PUBKEY_L
 	memcpy(seen[*n].contact, contact, FZN_PUBKEY_LEN);
 	memcpy(seen[*n].id, id, FZN_MESSAGE_ID_LEN);
 	(*n)++;
-}
-
-/* `contact`'s index entry `i` as a line: its last part read from where the
- * entry points. Zero when the entry or the record will not read. */
-static int indexed_line(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
-                        const entry_t *e, fzn_record_t *rec, fzn_message_part_t *p)
-{
-	static uint8_t buf[FZN_RECORD_MAX_LEN];
-
-	return record_at(m, e->device, e->seq, buf, sizeof(buf), rec)
-	       && fzn_record_kind(*rec) == FZN_MESSAGE_LINE_KIND
-	       && memcmp(fzn_record_subject(*rec), contact, FZN_PUBKEY_LEN) == 0
-	       && fzn_message_line_read(fzn_record_body(*rec), fzn_record_body_len(*rec), p)
-	       && p->part + 1u == p->parts;
 }
 
 /* SEARCHED BY ITS INDEX ALONE, which names each line's direction and id: no
@@ -911,61 +1151,55 @@ fzn_messages_err_t fzn_messages_unread(const fzn_messages_t *m,
 	return FZN_MESSAGES_OK;
 }
 
-/* Fill a listing's line from its last part. */
-static void fill(const fzn_messages_t *m, const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq,
-                 fzn_record_t rec, const fzn_message_part_t *p, fzn_message_t *o)
+/* A listing's line, from its stored row. */
+static void fill(const fzn_messages_t *m, const stored_t *s, fzn_message_t *o)
 {
-	memcpy(o->contact, fzn_record_subject(rec), FZN_PUBKEY_LEN);
-	memcpy(o->device, device, FZN_PUBKEY_LEN);
-	memcpy(o->id, p->id, FZN_MESSAGE_ID_LEN);
-	o->direction = p->direction;
-	o->stime = p->stime;
-	o->written_at = fzn_record_issued_at(rec);
+	memcpy(o->contact, s->contact, FZN_PUBKEY_LEN);
+	memcpy(o->device, s->device, FZN_PUBKEY_LEN);
+	memcpy(o->id, s->id, FZN_MESSAGE_ID_LEN);
+	o->direction = s->direction;
+	o->stime = s->stime;
+	o->written_at = s->written_at;
 	o->state = fzn_messages_state(m, o->contact, o->direction, o->id);
-	open_text(m, device, seq, p, o);
+	open_stored(m, s, o);
 }
 
-/* ONE CONVERSATION, from its index alone. */
-static fzn_messages_err_t page_of(const fzn_messages_t *m, const uint8_t *contact, size_t offset,
-                                  fzn_message_t *out, size_t cap, size_t *count, int *more)
+/* ONE CONVERSATION'S PLACE `i` AS A PAGE'S LINE, unless seen before: 1 shown
+ * or skipped, 0 passed over, -1 when the page is full. A line whose row will
+ * not read is passed over, as one whose record would not read was. */
+static int page_line(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN], uint64_t i,
+                     size_t offset, fzn_message_t *out, size_t cap, size_t *count,
+                     size_t *n_seen, size_t *skipped)
 {
-	fzn_message_part_t p;
-	fzn_record_t rec;
+	static uint8_t buf[STORED_MAX];
+	stored_t s;
 	entry_t e;
-	uint64_t i;
-	size_t n_seen = 0, skipped = 0;
 
-	for (i = count_of(m, contact); i > 0u; i--) {
-		/* THE INDEX DECIDES what is skipped or seen before; a record is
-		 * read only for a line the page shows. */
-		if (!index_entry(m, contact, i - 1u, &e)
-		    || seen_before(n_seen, e.direction, contact, e.id))
-			continue;
-		if (*count == cap) {
-			*more = 1;
-			return FZN_MESSAGES_OK;
-		}
-		see(&n_seen, e.direction, contact, e.id);
-		if (skipped < offset) {
-			skipped++;
-			continue;
-		}
-		if (!indexed_line(m, contact, &e, &rec, &p))
-			continue;
-		fill(m, e.device, e.seq, rec, &p, &out[(*count)++]);
+	/* THE INDEX DECIDES what is skipped or seen before; a row is read only
+	 * for a line the page shows. */
+	if (!index_entry(m, contact, i, &e) || seen_before(*n_seen, e.direction, contact, e.id))
+		return 0;
+	if (*count == cap)
+		return -1;
+	see(n_seen, e.direction, contact, e.id);
+	if (*skipped < offset) {
+		(*skipped)++;
+		return 1;
 	}
-	return FZN_MESSAGES_OK;
+	if (!stored_load(m, e.device, e.seq, buf, &s)
+	    || memcmp(s.contact, contact, FZN_PUBKEY_LEN) != 0)
+		return 0;
+	fill(m, &s, &out[(*count)++]);
+	return 1;
 }
 
 fzn_messages_err_t fzn_messages_page(const fzn_messages_t *m, const uint8_t *contact,
                                      size_t offset, fzn_message_t *out, size_t cap,
                                      size_t *count, int *more)
 {
-	static uint8_t bufs[FZN_MESSAGES_DEVICES_MAX][FZN_RECORD_MAX_LEN];
-	fzn_record_t heads[FZN_MESSAGES_DEVICES_MAX];
-	uint64_t at[FZN_MESSAGES_DEVICES_MAX];
-	int loaded[FZN_MESSAGES_DEVICES_MAX];
-	size_t d, n_seen = 0, skipped = 0;
+	uint8_t c[FZN_PUBKEY_LEN];
+	uint64_t i, k;
+	size_t n_seen = 0, skipped = 0;
 
 	if (!ready(m) || !out || !count || !more || !m->devices || m->device_count == 0u
 	    || m->device_count > FZN_MESSAGES_DEVICES_MAX || cap > FZN_MESSAGES_PAGE_MAX)
@@ -974,56 +1208,23 @@ fzn_messages_err_t fzn_messages_page(const fzn_messages_t *m, const uint8_t *con
 		return FZN_MESSAGES_ERR_DEEP;
 	*count = 0;
 	*more = 0;
-	if (contact)
-		return page_of(m, contact, offset, out, cap, count, more);
-	for (d = 0; d < m->device_count; d++) {
-		at[d] = fzn_node_journal_received(m->journal, m->devices[d], FZN_MESSAGE_STREAM);
-		loaded[d] = 0;
-	}
-	/* EVERYONE'S, NEWEST FIRST ACROSS THE DEVICES: each step takes the newest
-	 * of every stream's next record back, so lines interleave as they were
-	 * written. */
-	for (;;) {
-		fzn_message_part_t p;
-		fzn_record_t rec;
-		size_t best = m->device_count;
-		uint64_t seq;
-
-		for (d = 0; d < m->device_count; d++) {
-			if (!loaded[d] && at[d] > 0u) {
-				if (!record_at(m, m->devices[d], at[d], bufs[d], sizeof(bufs[d]), &heads[d]))
-					return FZN_MESSAGES_ERR_JOURNAL;
-				loaded[d] = 1;
+	/* ONE CONVERSATION, from its index; or EVERYONE'S, from every line's
+	 * order -- newest first either way, and from the store alone. */
+	if (contact) {
+		for (i = count_of(m, contact); i > 0u; i--)
+			if (page_line(m, contact, i - 1u, offset, out, cap, count, &n_seen, &skipped) < 0) {
+				*more = 1;
+				break;
 			}
-			if (loaded[d]
-			    && (best == m->device_count
-			        || fzn_record_issued_at(heads[d]) > fzn_record_issued_at(heads[best])))
-				best = d;
-		}
-		if (best == m->device_count)
-			return FZN_MESSAGES_OK;
-		rec = heads[best];
-		seq = at[best];
-		at[best]--;
-		loaded[best] = 0;
-		/* A LINE IS FOUND BY ITS LAST PART; the parts before it are read
-		 * back from there, and passed over when the walk reaches them. */
-		if (fzn_record_kind(rec) != FZN_MESSAGE_LINE_KIND
-		    || !fzn_message_line_read(fzn_record_body(rec), fzn_record_body_len(rec), &p)
-		    || p.part + 1u != p.parts
-		    || seen_before(n_seen, p.direction, fzn_record_subject(rec), p.id))
-			continue;
-		if (*count == cap) {
-			*more = 1;
-			return FZN_MESSAGES_OK;
-		}
-		see(&n_seen, p.direction, fzn_record_subject(rec), p.id);
-		if (skipped < offset) {
-			skipped++;
-			continue;
-		}
-		fill(m, m->devices[best], seq, rec, &p, &out[(*count)++]);
+		return FZN_MESSAGES_OK;
 	}
+	for (k = load_number(m, "alls", NOBODY); k > 0u; k--)
+		if (all_entry(m, k - 1u, c, &i)
+		    && page_line(m, c, i, offset, out, cap, count, &n_seen, &skipped) < 0) {
+			*more = 1;
+			break;
+		}
+	return FZN_MESSAGES_OK;
 }
 
 /*
@@ -1045,7 +1246,7 @@ fzn_messages_err_t fzn_messages_reindex(const fzn_messages_t *m, size_t *marks)
 	if (!ready(m) || !m->store->remove || !m->devices
 	    || m->device_count > FZN_MESSAGES_DEVICES_MAX)
 		return FZN_MESSAGES_ERR_MALFORMED;
-	if (!conversations_clear(m))
+	if (!conversations_clear(m) || !all_clear(m))
 		return FZN_MESSAGES_ERR_BACKEND;
 	for (d = 0; d < m->device_count; d++) {
 		uint64_t seq, held = fzn_node_journal_received(m->journal, m->devices[d],
@@ -1083,6 +1284,30 @@ fzn_messages_err_t fzn_messages_reindex(const fzn_messages_t *m, size_t *marks)
 	return fzn_messages_absorb(m, at, NULL, NULL, marks);
 }
 
+/* The store's layout, sec 536: 1 once lines are kept in rows. */
+#define LAYOUT_ROWS 1u
+
+fzn_messages_err_t fzn_messages_upgrade(const fzn_messages_t *m, int *rebuilt)
+{
+	fzn_messages_err_t err;
+
+	if (!rebuilt)
+		return FZN_MESSAGES_ERR_MALFORMED;
+	*rebuilt = 0;
+	if (!ready(m))
+		return FZN_MESSAGES_ERR_MALFORMED;
+	if (load_number(m, "layout", NOBODY) >= LAYOUT_ROWS)
+		return FZN_MESSAGES_OK;
+	err = fzn_messages_reindex(m, NULL);
+	if (err != FZN_MESSAGES_OK)
+		return err;
+	if (!save_number(m, "layout", NOBODY, LAYOUT_ROWS))
+		return FZN_MESSAGES_ERR_BACKEND;
+	/* A NEW STORE has nothing to rebuild, and says so. */
+	*rebuilt = load_number(m, "convs", NOBODY) > 0u;
+	return FZN_MESSAGES_OK;
+}
+
 /* ---- trimming, by the rules, sec 531 ------------------------------------- */
 
 /* Months one conversation's walk keeps account of; a conversation spanning
@@ -1117,7 +1342,9 @@ fzn_messages_err_t fzn_messages_trim(const fzn_messages_t *m, const fzn_retain_r
 	static struct {
 		uint32_t epoch;
 		int stays;
+		int gone_now;
 	} months[TRIM_MONTHS];
+	static uint8_t buf[STORED_MAX];
 	uint64_t counted[FZN_RETAIN_RULES_MAX], bytes[FZN_RETAIN_RULES_MAX];
 	uint8_t contact[FZN_PUBKEY_LEN];
 	uint32_t current;
@@ -1177,6 +1404,7 @@ fzn_messages_err_t fzn_messages_trim(const fzn_messages_t *m, const fzn_retain_r
 					continue;
 				months[n_months].epoch = e.epoch;
 				months[n_months].stays = 0;
+				months[n_months].gone_now = 0;
 				n_months++;
 			}
 			if (!pruned || kept)
@@ -1195,8 +1423,26 @@ fzn_messages_err_t fzn_messages_trim(const fzn_messages_t *m, const fzn_retain_r
 				return err;
 			if (!set_gone(m, contact, months[k].epoch))
 				return FZN_MESSAGES_ERR_BACKEND;
+			months[k].gone_now = 1;
 			tally->months++;
 			trimmed = 1;
+		}
+		/* AND THEIR PARTS LET GO, each row keeping its head, so the store
+		 * holds no sealed text of a month whose keys are gone. */
+		for (i = count_of(m, contact); trimmed && i > 0u; i--) {
+			stored_t s;
+			entry_t e;
+
+			if (!index_entry(m, contact, i - 1u, &e))
+				return FZN_MESSAGES_ERR_BACKEND;
+			for (k = 0; k < n_months && months[k].epoch != e.epoch; k++)
+				;
+			if (k == n_months || !months[k].gone_now
+			    || !stored_load(m, e.device, e.seq, buf, &s) || s.held == 0u)
+				continue;
+			s.held = 0u;
+			if (!stored_save(m, &s))
+				return FZN_MESSAGES_ERR_BACKEND;
 		}
 		tally->conversations += (size_t)trimmed;
 	}

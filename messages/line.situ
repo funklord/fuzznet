@@ -50,3 +50,29 @@ struct fzn_message_mark {
 	fzn_message_state      state;                   //  2
 	u8                     id[16];                  //  3 the line's id
 }
+
+// A LINE AS THE STORE KEEPS IT, sec 536: persist slot 37, one row per line
+// a conversation's index names, under a hash of the writing device and the
+// last part's sequence. The journal carries lines between devices for its
+// window; this row is what is left when the journal has let them go. Its
+// parts are the line records' bodies as written, still sealed; a trimmed
+// month's rows keep their head and hold no parts.
+struct fzn_message_stored {
+	u8                     version [must_eq = 1];   //   0
+	u8                     contact[32];             //   1 the record's subject
+	u8                     device[32];              //  33 the device that wrote it
+	u64                    seq;                     //  65 its last part's, there
+	u64                    written_at;              //  73 when the device wrote it, ms
+	u64                    stime;                   //  81 the sender's time, ms
+	fzn_message_direction  direction;               //  89
+	u8                     id[16];                  //  90
+	u32                    epoch;                   // 106 the key's month
+	u8                     parts [min = 1, max = 2];// 110 how many the text takes
+	u8                     held [max = 2];          // 111 parts kept: all, or 0 once trimmed
+	fzn_message_stored_part sealed[held];           // 112
+}
+
+struct fzn_message_stored_part {
+	u16                    len [min = 72, max = 512];
+	u8                     body[len];               // a fzn_message_line, sealed
+}

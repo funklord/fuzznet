@@ -53,7 +53,7 @@ static uint64_t now_ms(void)
 
 /* ---- a persist store in memory ----------------------------------------------- */
 
-#define ROWS 192u
+#define ROWS 384u
 
 typedef struct row {
 	int used;
@@ -61,7 +61,7 @@ typedef struct row {
 	int has_subject;
 	uint8_t subject[FZN_PUBKEY_LEN];
 	size_t len;
-	uint8_t bytes[1024];
+	uint8_t bytes[1280];
 } row_t;
 
 typedef struct mem {
@@ -557,11 +557,12 @@ static void test_the_newest_mark_wins(void)
 	      "A's later mark is the state, though B's stream is read after A's");
 }
 
-/* ONE CONVERSATION FROM ITS INDEX: a page of x's lines reads x's records
- * and none of y's, however many of y's lie between. */
+/* FROM THE STORE ALONE, sec 536: a page of x's lines, and a page of
+ * everyone's, read no journal record at all -- the rows and the index are
+ * enough. */
 static void test_one_conversation_reads_only_its_own(void)
 {
-	size_t i, reads;
+	size_t i;
 
 	setup();
 	CHECK(write_line(&A, X, FZN_MESSAGE_OUT, 1u, "x one"), "fixture: x's first line");
@@ -572,10 +573,10 @@ static void test_one_conversation_reads_only_its_own(void)
 	CHECK(list(&A, X, 0u, 5u) && count == 2u && !more && is_line(0, 2u, FZN_MESSAGE_IN, "x two")
 	              && is_line(1, 1u, FZN_MESSAGE_OUT, "x one"),
 	      "x's page holds x's two lines, newest first");
-	reads = rec_reads;
-	CHECK(reads <= 2u, "and read only their two records, none of y's thirty");
-	CHECK(list(&A, NULL, 0u, 5u) && count == 5u && more && rec_reads > reads + 5u,
-	      "where everyone's page walks the stream itself");
+	CHECK(rec_reads == 0u, "and read no record, x's or y's thirty");
+	CHECK(list(&A, NULL, 0u, 5u) && count == 5u && more && is_line(0, 2u, FZN_MESSAGE_IN, "x two")
+	              && rec_reads == 0u,
+	      "everyone's page too: newest first, from the store, no record read");
 }
 
 /* IMPORT, deduplicated by id and direction, by any device. */
@@ -828,6 +829,163 @@ static void test_a_trim_reaches_every_device_key(void)
 	      "and its line is reported to no one, so its key is never asked for again");
 }
 
+/* ---- the store keeps the lines, sec 536 ---------------------------------------- */
+
+/* A row's head alone, `line.situ`'s fzn_message_stored with no parts. */
+#define STORED_HEAD_LEN 112u
+
+/* Rows of the line slot, and of them those holding a head alone. */
+static size_t line_rows(device_t *d, size_t *heads_only)
+{
+	size_t i, n = 0;
+
+	*heads_only = 0;
+	for (i = 0; i < ROWS; i++)
+		if (d->store.rows[i].used && d->store.rows[i].slot == FZN_PERSIST_MESSAGE_LINE) {
+			n++;
+			*heads_only += d->store.rows[i].len == STORED_HEAD_LEN;
+		}
+	return n;
+}
+
+/* THE JOURNAL LET GO: every record gone, as a window cut past them would. */
+static void journal_cut(void)
+{
+	memset(recs, 0, sizeof(recs));
+	n_recs = 0;
+}
+
+static void test_the_store_outlives_the_journal(void)
+{
+	char long_text[FZN_MESSAGE_TEXT_MAX + 1u];
+	size_t heads = 9;
+
+	setup();
+	memset(long_text, 'w', FZN_MESSAGE_TEXT_MAX);
+	long_text[FZN_MESSAGE_TEXT_MAX] = '\0';
+	CHECK(write_line(&A, X, FZN_MESSAGE_OUT, 1u, "a short one")
+	              && write_line(&B, X, FZN_MESSAGE_IN, 2u, long_text),
+	      "fixture: A writes a line, B a line of two parts");
+	clock_ms = OCTOBER_2026 + 60000u;
+	sync_a();
+	keys_b_to_a();
+	CHECK(line_rows(&A, &heads) == 2u && heads == 0u,
+	      "A keeps both lines in rows, parts and all");
+	journal_cut();
+	rec_reads = 0;
+	CHECK(list(&A, X, 0u, 5u) && count == 2u && is_line(0, 2u, FZN_MESSAGE_IN, long_text)
+	              && is_line(1, 1u, FZN_MESSAGE_OUT, "a short one") && rec_reads == 0u,
+	      "with every record gone, x's page reads both whole, the long one from two parts");
+	CHECK(list(&A, NULL, 0u, 5u) && count == 2u && is_line(0, 2u, FZN_MESSAGE_IN, long_text)
+	              && page[0].written_at > page[1].written_at && rec_reads == 0u,
+	      "and everyone's page, newest first, with when each was written kept");
+}
+
+static void test_a_trimmed_month_keeps_heads_only(void)
+{
+	fzn_retain_rule_t r = rule_of("prune messages age 60d");
+	size_t heads = 9, marks = 0;
+
+	setup();
+	CHECK(write_in(&A, 678u, X, 1u, "july") && write_in(&A, 679u, X, 2u, "august"),
+	      "fixture: a line in July, one in August");
+	CHECK(trim(&A, &r, 1u) && trimmed.months == 1u && line_rows(&A, &heads) == 2u
+	              && heads == 1u,
+	      "July trimmed: its row keeps its head and lets its sealed parts go");
+	CHECK(fzn_messages_reindex(&A.m, &marks) == FZN_MESSAGES_OK && line_rows(&A, &heads) == 2u
+	              && heads == 1u,
+	      "and a rebuild from a journal that still holds July does not bring them back");
+	journal_cut();
+	CHECK(list(&A, X, 0u, 5u) && count == 2u && is_line(0, 2u, FZN_MESSAGE_OUT, "august")
+	              && !page[1].readable && page[1].id[0] == 1u && page[1].stime != 0u
+	              && page[1].written_at != 0u,
+	      "July is listed as a shell with its times, from its head alone");
+}
+
+static void test_a_line_two_devices_wrote_is_kept_once(void)
+{
+	size_t heads = 9;
+
+	setup();
+	CHECK(write_line(&A, X, FZN_MESSAGE_OUT, 7u, "the same line")
+	              && write_line(&B, X, FZN_MESSAGE_OUT, 7u, "the same line"),
+	      "fixture: A and B each write line 7");
+	sync_a();
+	CHECK(line_rows(&A, &heads) == 1u && list(&A, X, 0u, 5u) && count == 1u,
+	      "A keeps one row for it, and lists it once");
+}
+
+/* A ROW UNDER ANOTHER LINE'S PLACE is not that line: copied over line 1's
+ * row, line 2's bytes are refused there rather than shown as line 1. */
+static void test_a_row_must_be_its_own_line(void)
+{
+	row_t *first = NULL, *second = NULL;
+	size_t i;
+
+	setup();
+	CHECK(write_line(&A, X, FZN_MESSAGE_OUT, 1u, "one") && write_line(&A, X, FZN_MESSAGE_OUT, 2u, "two"),
+	      "fixture: two lines");
+	for (i = 0; i < ROWS; i++)
+		if (A.store.rows[i].used && A.store.rows[i].slot == FZN_PERSIST_MESSAGE_LINE) {
+			if (!first)
+				first = &A.store.rows[i];
+			else
+				second = &A.store.rows[i];
+		}
+	CHECK(first && second, "fixture: both rows found");
+	if (!first || !second)
+		return;
+	memcpy(first->bytes, second->bytes, second->len);
+	first->len = second->len;
+	CHECK(list(&A, X, 0u, 5u) && count == 1u && page[0].text_len == 3u,
+	      "one line lists, once: the copy under the other's place is passed over");
+}
+
+/* PAST WHAT KEEPING LOOKS BACK OVER: B's copy of a line arrives 64 lines
+ * after A's, so the index holds it twice and the page alone shows it once. */
+static void test_a_late_copy_is_listed_once(void)
+{
+	char text[8];
+	uint8_t n;
+	int ok = 1;
+
+	setup();
+	CHECK(write_line(&A, X, FZN_MESSAGE_OUT, 7u, "seven"), "fixture: A writes line 7");
+	for (n = 100u; n < 164u && ok; n++) {
+		snprintf(text, sizeof(text), "%u", n);
+		ok = write_line(&A, X, FZN_MESSAGE_OUT, n, text);
+	}
+	CHECK(ok && write_line(&B, X, FZN_MESSAGE_OUT, 7u, "seven"),
+	      "fixture: 64 more of A's, then B's copy of line 7");
+	sync_a();
+	CHECK(list(&A, X, 60u, 20u) && count == 5u && !more,
+	      "65 lines, not 66: the copy past the look-back is shown once");
+}
+
+static void test_an_older_store_is_rebuilt_once(void)
+{
+	size_t i, heads = 9;
+	int rebuilt = -1;
+
+	setup();
+	CHECK(write_line(&A, X, FZN_MESSAGE_OUT, 1u, "before rows"),
+	      "fixture: a line written");
+	/* AS A STORE FROM BEFORE SEC 536 HOLDS IT: its index, no rows. */
+	for (i = 0; i < ROWS; i++)
+		if (A.store.rows[i].used && A.store.rows[i].slot == FZN_PERSIST_MESSAGE_LINE)
+			memset(&A.store.rows[i], 0, sizeof(A.store.rows[i]));
+	CHECK(list(&A, X, 0u, 5u) && count == 0u, "fixture: without its row the line is not listed");
+	CHECK(fzn_messages_upgrade(&A.m, &rebuilt) == FZN_MESSAGES_OK && rebuilt == 1
+	              && line_rows(&A, &heads) == 1u && list(&A, X, 0u, 5u)
+	              && is_line(0, 1u, FZN_MESSAGE_OUT, "before rows"),
+	      "the upgrade rebuilds it from the journal, and the line lists again");
+	CHECK(fzn_messages_upgrade(&A.m, &rebuilt) == FZN_MESSAGES_OK && rebuilt == 0,
+	      "once: a second upgrade rebuilds nothing");
+	setup();
+	CHECK(fzn_messages_upgrade(&A.m, &rebuilt) == FZN_MESSAGES_OK && rebuilt == 0,
+	      "and a new store, with nothing to rebuild, says it rebuilt nothing");
+}
+
 static void test_reindex_rebuilds_from_nothing(void)
 {
 	size_t marks = 0, i;
@@ -900,6 +1058,12 @@ int main(void)
 	test_read_state_travels();
 	test_reindex_orders_by_writing();
 	test_trimming_by_age();
+	test_the_store_outlives_the_journal();
+	test_a_trimmed_month_keeps_heads_only();
+	test_a_line_two_devices_wrote_is_kept_once();
+	test_an_older_store_is_rebuilt_once();
+	test_a_row_must_be_its_own_line();
+	test_a_late_copy_is_listed_once();
 	test_trimming_by_count_with_a_keep();
 	test_trimming_by_size();
 	test_the_current_month_stays();

@@ -52,7 +52,7 @@ static uint64_t now_ms(void)
 
 /* ---- a persist store in memory ---------------------------------------------- */
 
-#define ROWS 96u
+#define ROWS 256u
 
 typedef struct row {
 	int used;
@@ -60,7 +60,7 @@ typedef struct row {
 	int has_subject;
 	uint8_t subject[FZN_PUBKEY_LEN];
 	size_t len;
-	uint8_t bytes[1024];
+	uint8_t bytes[1280];
 } row_t;
 
 typedef struct mem {

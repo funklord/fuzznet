@@ -9705,8 +9705,8 @@ SABOTAGES = [
 	(
 		"messages-page-shows-a-line-once",
 		"messages/messages.c",
-		"\t\t    || seen_before(n_seen, p.direction, fzn_record_subject(rec), p.id))",
-		"\t\t    || 0)",
+		"\tif (!index_entry(m, contact, i, &e) || seen_before(*n_seen, e.direction, contact, e.id))",
+		"\tif (!index_entry(m, contact, i, &e) || 0)",
 		"a line two devices both wrote is listed twice -- sec 526",
 	),
 	(
@@ -9815,6 +9815,69 @@ SABOTAGES = [
 		"a contact key whose hex is all decimal digits is read as a page offset and refused",
 	),
 	(
+		"messages-page-reads-rows",
+		"messages/messages.c",
+		"\tif (!stored_load(m, e.device, e.seq, buf, &s)\n\t    || memcmp(s.contact, contact, FZN_PUBKEY_LEN) != 0)\n\t\treturn 0;\n\tfill(m, &s, &out[(*count)++]);",
+		"\tif (!stored_load(m, e.device, e.seq, buf, &s) || 1)\n\t\treturn 0;\n\tfill(m, &s, &out[(*count)++]);",
+		"a page lists no line from the store, only what the journal still holds -- sec 536",
+	),
+	(
+		"messages-row-is-its-own-line",
+		"messages/messages.c",
+		"\tif (memcmp(s->device, device, FZN_PUBKEY_LEN) != 0 || s->seq != seq\n\t    || !direction_ok(s->direction)",
+		"\tif (!direction_ok(s->direction)",
+		"a row under another line's place is shown as that line -- sec 536",
+	),
+	(
+		"messages-keep-once",
+		"messages/messages.c",
+		"\tif (recently_indexed(m, contact, count_of(m, contact), last->direction, last->id))\n\t\treturn 1;\n\tmemcpy(s.contact, contact, FZN_PUBKEY_LEN);",
+		"\tmemcpy(s.contact, contact, FZN_PUBKEY_LEN);",
+		"a line two devices wrote is kept twice, a row nothing indexes -- sec 536",
+	),
+	(
+		"messages-gone-month-keeps-head",
+		"messages/messages.c",
+		"\ts.held = (uint8_t)(held == last->parts && !is_gone(m, contact, last->epoch) ? held : 0u);",
+		"\ts.held = (uint8_t)(held == last->parts ? held : 0u);",
+		"a rebuild brings a trimmed month's sealed parts back into the store -- sec 536",
+	),
+	(
+		"messages-trim-lets-parts-go",
+		"messages/messages.c",
+		"\t\t\ts.held = 0u;\n\t\t\tif (!stored_save(m, &s))",
+		"\t\t\ts.held = s.held;\n\t\t\tif (!stored_save(m, &s))",
+		"a trimmed month's sealed text stays in the store -- sec 536",
+	),
+	(
+		"messages-row-written-at",
+		"messages/messages.c",
+		"\t\t\tif (!keep_line(m, contact, device, seq, fzn_record_issued_at(rec), &p, body,",
+		"\t\t\tif (!keep_line(m, contact, device, seq, 0u, &p, body,",
+		"an absorbed line loses when it was written, and everyone's page its order of time -- sec 536",
+	),
+	(
+		"messages-every-line-order",
+		"messages/messages.c",
+		"\t       && save_number(m, \"count\", contact, n + 1u) && all_append(m, contact, n);",
+		"\t       && save_number(m, \"count\", contact, n + 1u);",
+		"everyone's page lists nothing, its order never kept -- sec 536",
+	),
+	(
+		"messages-upgrade-once",
+		"messages/messages.c",
+		"\tif (load_number(m, \"layout\", NOBODY) >= LAYOUT_ROWS)",
+		"\tif (load_number(m, \"layout\", NOBODY) > LAYOUT_ROWS)",
+		"every start rebuilds the store, which a cut journal would empty -- sec 536",
+	),
+	(
+		"messages-earlier-part-kept",
+		"messages/messages.c",
+		"\tbody[0] = fzn_record_body(prev);\n\tbody_len[0] = fzn_record_body_len(prev);\n\treturn 1;",
+		"\tbody[0] = fzn_record_body(rec);\n\tbody_len[0] = fzn_record_body_len(rec);\n\treturn 1;",
+		"a two-part line is kept with its last part twice and its first lost -- sec 536",
+	),
+	(
 		"node-messages-give-as-sender",
 		"node/messages.c",
 		"\t\tif (fzn_messages_key_take(&nm->m, e, fzn_get_be32(e + FZN_PUBKEY_LEN), sender,",
@@ -9866,8 +9929,8 @@ SABOTAGES = [
 	(
 		"messages-page-from-the-index",
 		"messages/messages.c",
-		"\tif (contact)\n\t\treturn page_of(m, contact, offset, out, cap, count, more);",
-		"\tif (0)\n\t\treturn page_of(m, contact, offset, out, cap, count, more);",
+		"\tif (contact) {\n\t\tfor (i = count_of(m, contact); i > 0u; i--)",
+		"\tif (0) {\n\t\tfor (i = count_of(m, contact); i > 0u; i--)",
 		"one conversation's page reads every conversation's records -- sec 528",
 	),
 	(
@@ -9908,8 +9971,8 @@ SABOTAGES = [
 	(
 		"messages-own-line-indexed-at-once",
 		"messages/messages.c",
-		"\tif (took_own(m, before)\n\t    && (!index_append(m, contact, m->issuer, own_head(m), direction, id, epoch, len)",
-		"\tif (0\n\t    && (!index_append(m, contact, m->issuer, own_head(m), direction, id, epoch, len)",
+		"\tif (took_own(m, before)\n\t    && (!fzn_message_line_read(bodies[parts - 1u], body_len[parts - 1u], &last)",
+		"\tif (0\n\t    && (!fzn_message_line_read(bodies[parts - 1u], body_len[parts - 1u], &last)",
 		"a line written here is not in its conversation until an absorb -- sec 528",
 	),
 	(

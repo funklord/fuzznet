@@ -60138,3 +60138,132 @@ Still open, and the holder's:
    away before it must rejoin by state transfer.
 7. **The order of the stages**, proposed as above: 1 and 2 first, since 4
    deletes data that 1 has not yet moved, and 3 and 5 build on 2.
+
+## 536. Stage 1: conversations kept in the store, not the journal, 2026-10-08
+
+Sec 535's first stage, which the holder chose to start: a line's text
+was read back from the journal's record store, so a journal cut to its
+window would have deleted conversations.
+
+### What the store keeps now
+
+- **A row per line, persist slot 37 (`FZN_PERSIST_MESSAGE_LINE`)**, keyed
+  by a hash of the writing device and the line's last sequence, which is
+  what its index entry names. The layout is `line.situ`'s
+  `fzn_message_stored`: a 112-byte head (contact, device, sequence, when
+  written, the sender's time, direction, id, month, parts) and the line
+  records' bodies as written, still sealed. 112 to 1140 bytes. Bulk, not
+  core: it is sealed and holds no key.
+- **Kept when a line is taken in**: a write keeps its own at once, and an
+  absorb keeps another device's, reading its earlier part from the
+  journal while the journal still holds it. Kept once: a line another
+  device already wrote is not kept again (the same 64-entry look-back
+  the index uses), and the row is saved before the index entry, so no
+  entry names a line nothing keeps.
+- **Every line's order across conversations** in slot 36 ("alls"), each
+  entry a conversation and a place in its index, so the listing of
+  everyone's lines no longer walks the devices' streams.
+- **Every listing reads rows and the index alone.** The suite cuts the
+  journal -- every record gone -- and both pages still list every line,
+  a two-part one whole, with no record read.
+- **A trim lets go of the month's sealed parts** (sec 531): each row of a
+  trimmed month keeps its head and holds no parts, so it lists as a shell
+  with its times. A rebuild from a journal that still holds the month
+  does not bring them back.
+- **A row under another line's place is refused**, not shown as that
+  line: its head must name the place it was found at.
+
+### What the index is now, and what a rebuild can do
+
+The store cannot enumerate an unbounded slot (`list` is all-or-nothing up
+to a cap), so the index cannot be rebuilt from the rows: it is the record
+of which lines exist. `fzn_messages_reindex` still rebuilds everything
+from the journal, which is right while the journal holds every line.
+**Stage 4 must change that**: once the journal is a window, a rebuild
+from it would drop every line older than the window. The header says so.
+
+### Stores from before this section
+
+`fzn_messages_upgrade`, once per store: a store without the layout mark
+is rebuilt by `fzn_messages_reindex` from the journal, which still holds
+every line, and marked. fuzznetd calls it on its first absorb, with every
+device followed, and says so when it rebuilt any conversation. The
+in-process recipe in `node/messages.h` gains it. Messages were built
+today (secs 526 to 531) and nothing has adopted them, so this is for the
+holder's own test stores.
+
+### Known limits of sec 536
+
+- **The operation journal snapshots slots by listing them**, and refuses
+  a snapshot past `FZN_OPJOURNAL_SNAPSHOT_ROWS` (4096) rows of a slot,
+  putting rotation off (sec 524). One row per line reaches that at 4096
+  lines, so a node with `--op-journal` and more lines than that stops
+  rotating, and says so. A listing that streams rather than fills one
+  buffer is the operation journal's fix, not this section's.
+- A crash between a line's index entry and its place in every line's
+  order leaves it out of the listing of everyone's until a reindex.
+
+### Measured for sec 536
+
+messages_test 141 checks, node messages_test 47. `make -j4 test`, `make
+style`, `make schema`, `make installcheck`, `make qtty` and `make
+livecheck`, all 0. Nine new sabotage entries, each probed caught --
+listings read rows, a row is its own line, kept once, a gone month keeps
+its head through a rebuild, a trim lets parts go, when written is kept,
+every line's order is kept, the upgrade runs once, the earlier part is
+kept. Three older entries were re-anchored to the new text and probed;
+one, the page showing a line once, survived, because keeping once now
+hides most duplicates before the page sees them, and gained the case it
+lacked: a copy arriving 64 lines after the first, past what keeping looks
+back over.
+
+## 537. Storage classes: the holder's proposal, 2026-10-08
+
+The holder, while stage 1 was being built: "Let's class storage types
+straight away: immediate (journal), write optimized (fluffy structures,
+typical binary file formats), long term/archive/fossil (compressed and
+possibly parity across several hosts) ... What do you think?"
+
+Asked as a question, so recorded as a proposal, not a decision. What the
+tree already has toward each:
+
+    immediate         the journal: carriage and a window (sec 535)
+    write-optimized   persist slots; sec 536 put messages here
+    fossil            logs come closest: packed with zstd, chained and
+                      signed (secs 459, 482), copied between hosts
+                      (secs 483, 488); no parity
+
+What was proposed back:
+
+1. **Moving between classes is a retention action**: beside prune and
+   keep, an `archive` verb, so one grammar decides where data lives as
+   well as how long.
+2. **A fossil verifies without the journal**: a signed, chained trailer
+   per archived segment, as packed logs have.
+3. **Sealed data needs its keys decided**: messages and notes are sealed
+   and a trim destroys keys, so an archive of them must carry keys or
+   re-seal under an archive key, or it is a backup nobody can open. Per
+   kind, and the holder's.
+4. **Parity across hosts is its own subsystem** -- k of n erasure coding,
+   placement, repair -- best built on the file layer's multi-peer fetch
+   (sec 494) and repair at rest (sec 492), after an archive works with
+   plain copies.
+
+## 538. Two notes from siblings, 2026-10-08
+
+- **fmake builds this tree**, from fmake's session, measured in its copy:
+  plain `fmake` compiles 168 objects and links `fuzznetd` and
+  `consumer_check` once three test names that repeat across directories
+  -- `messages_test` twice, `provision_test` three times -- are given
+  `[target.*]` stanzas naming their roots. The rest of what it refused is
+  inside the qtty checkout, which needs qtty's include path, and fmake
+  declines to decide that for this tree. Nothing was asked; the README
+  line `harmonization.md` asks for would rest on this measurement.
+- **A blob fetch from one holder must answer each blob**, fuzzypickles
+  sec 226, their holder's decision: in fzpd a holder's one-reply-per-
+  source-per-5-s budget left every HAVE query after the first unanswered,
+  and four blobs fetched at once took 61 s with one given up; with a
+  burst of 16 per 5 s per address for HAVE queries, all four took 0 s.
+  For the spool and blob layer here: whatever limits unsolicited
+  HAVE-style queries must allow a burst per source likewise. Nothing to
+  build now.

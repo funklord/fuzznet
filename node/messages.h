@@ -19,15 +19,18 @@
  * as the giver's own; the first key held stands. A contact's request never
  * reaches here.
  *
- * NOTHING IS DELETED, as sec 526 records the holder deciding: there is no
- * verb that removes or trims a line.
+ * NOTHING IS DELETED BY DEFAULT, as sec 526 records the holder deciding:
+ * there is no verb that removes a line, and only a retention rule the user
+ * set trims one (sec 531).
  *
  * HOSTING IT IN-PROCESS, without fuzznetd (sec 530), is this order, and
  * `node/test/messages_test`'s two-host case runs it end to end over two
  * stores joined only by the exchange:
  *
  *   start   fzn_node_journal_init over the host's store; fzn_node_messages_init;
- *           fzn_node_messages_devices with the user's other devices.
+ *           fzn_node_messages_devices with the user's other devices; then
+ *           `fzn_messages_upgrade` on `.m`, once, which keeps a store from
+ *           before sec 536 in rows.
  *   serve   a member's request to `fzn_node_journal_answer` first, then to
  *           `fzn_node_messages_remote`; after an answered PUSH, absorb
  *           (`fzn_node_messages_absorb`), or a hub never sees what its

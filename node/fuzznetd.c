@@ -1474,11 +1474,26 @@ static void pull_journal(struct pull_target *pulls, size_t npulls, uint64_t now)
  * from nobody absorbs what its members push. Nonzero when it went. */
 static int messages_absorb(void)
 {
+	static int upgraded;
 	fzn_node_messages_tally_t t;
 	fzn_messages_err_t err;
+	int rebuilt = 0;
 
 	if (!messages_on)
 		return 0;
+	/* ONCE, with every device followed: a store from before sec 536 is
+	 * rebuilt so its lines are kept in rows. */
+	if (!upgraded) {
+		err = fzn_messages_upgrade(&node_messages.m, &rebuilt);
+		if (err != FZN_MESSAGES_OK) {
+			say(FZN_ENTRY_WARNING, "messages", "keeping lines in rows: %s",
+			    fzn_messages_err_str(err));
+			return 0;
+		}
+		upgraded = 1;
+		if (rebuilt)
+			say(FZN_ENTRY_INFO, "messages", "conversations rebuilt, their lines kept in rows");
+	}
 	err = fzn_node_messages_absorb(&node_messages, &t);
 	if (err != FZN_MESSAGES_OK) {
 		say(FZN_ENTRY_WARNING, "messages", "absorbing: %s", fzn_messages_err_str(err));

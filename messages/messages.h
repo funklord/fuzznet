@@ -1,11 +1,17 @@
-/* Conversations: the lines a user's devices sent and received, kept in the
- * journal. project.md secs 526 to 528, the move of fuzzypickles' message
- * storage into this tree; `messages/line.h` is the format.
+/* Conversations: the lines a user's devices sent and received. project.md
+ * secs 526 to 528 and 536, the move of fuzzypickles' message storage into
+ * this tree; `messages/line.h` is the format.
  *
- * WHERE LINES LIVE. Each device writes the lines it sent or received as
+ * HOW LINES TRAVEL. Each device writes the lines it sent or received as
  * records of its own FZN_MESSAGE_STREAM, so the user's other devices hold
  * them by the journal sync every other act already rides, direction and
  * all. A line is shown once however many devices wrote it.
+ *
+ * WHERE LINES LIVE, sec 536: in the store, not the journal, which keeps
+ * them only for its window (sec 535). A line taken in -- written here, or
+ * absorbed from another device -- is kept as a row of
+ * FZN_PERSIST_MESSAGE_LINE, its parts still sealed, and every listing reads
+ * rows and the index alone.
  *
  * NOTHING IS DELETED BY DEFAULT, and nothing bounds storage: the holder,
  * 2026-10-08, "custom rules delete/trim data. Definitely no default deletion
@@ -14,7 +20,8 @@
  * travel between them -- kept in persist slot FZN_PERSIST_CONVERSATION_KEY
  * and never in the journal, so a rule can trim by destroying a month's keys
  * (`fzn_messages_forget_epoch`) and leave the records as shells, listed and
- * unreadable. No rule is built, so nothing calls it but a test. Keys travel
+ * unreadable; a trim lets go of the month's sealed parts in their rows too
+ * (sec 531). Keys travel
  * between a user's devices through `node/messages.h` (sec 527); another
  * device's lines are shells here until its key arrives.
  *
@@ -170,9 +177,10 @@ fzn_messages_err_t fzn_messages_unread(const fzn_messages_t *m,
                                        int *more);
 
 /*
- * A PAGE, newest first: lines with `contact`, from that conversation's index
- * alone, in the order this store learned of them; or with anyone for NULL,
- * every device's stream merged by when each was written. Past the first
+ * A PAGE, newest first, from the store alone: lines with `contact`, from
+ * that conversation's index, in the order this store learned of them; or
+ * with anyone for NULL, every line in the order it was learned, which an
+ * absorb makes the order the devices wrote them in. Past the first
  * `offset`, at most `cap` (FZN_MESSAGES_PAGE_MAX), `*count` of them, `*more`
  * nonzero when another follows. DEEP when `offset` and `cap` together pass
  * FZN_MESSAGES_WALK_MAX.
@@ -215,11 +223,20 @@ typedef void (*fzn_messages_seen_fn)(void *ctx, const uint8_t contact[FZN_PUBKEY
 fzn_messages_err_t fzn_messages_absorb(const fzn_messages_t *m, uint64_t *at,
                                        fzn_messages_seen_fn seen, void *ctx, size_t *marks);
 
-/* REBUILD everything derived -- indexes, line states, read positions, how
- * far each stream was taken in -- from what the journal holds, every
+/* REBUILD the indexes, line states, read positions and how far each stream
+ * was taken in -- and each line's row -- from what the journal holds, every
  * device's records merged in the order they were written. What a lost or
- * doubted index is replaced with. `*marks` (may be NULL) counts marks. */
+ * doubted index is replaced with, WHILE THE JOURNAL HOLDS EVERY LINE: once
+ * it is a window (sec 535 stage 4) it holds the window's lines only, and
+ * the index is the one record of the rest. A trimmed month's rows are
+ * rebuilt without their parts. `*marks` (may be NULL) counts marks. */
 fzn_messages_err_t fzn_messages_reindex(const fzn_messages_t *m, size_t *marks);
+
+/* BRING A STORE TO THIS LAYOUT, sec 536: a store whose lines predate their
+ * rows is rebuilt once by `fzn_messages_reindex`, from the journal, which
+ * holds every line until it is kept as a window; `*rebuilt` says whether it
+ * held any conversation to rebuild. Call it with every device listed, before anything lists lines. */
+fzn_messages_err_t fzn_messages_upgrade(const fzn_messages_t *m, int *rebuilt);
 
 /* DESTROY `contact`'s keys for `epoch`, this device's and every listed
  * device's, so that month's lines are shells here. For a trimming rule,
