@@ -59908,3 +59908,60 @@ without -- is the holder's call, not this section's.
   message`**, which takes an all-digit word as a page offset. Such a key
   has odds near 10^-13, so it is recorded rather than changed; the run
   used a key with letters.
+
+## 534. `make livecheck`: the daemon's message trim, repeatable, 2026-10-08
+
+Sec 533's run, made a target on the holder's instruction: the first in
+this tree that starts fuzznetd. `tool/live_trim.py` drives it, and
+`check` now includes it.
+
+### What it runs
+
+Phase a writes one line under `faketime` about sixty days back -- far
+enough that the line's month ended more than a day ago whatever today is,
+so the test does not depend on the date it runs on. Then the same node
+restarts on the real clock: b with no rule, c with a message rule scoped
+to another host and a log rule, d with `prune messages age 1d`, e with no
+rule. b, c and e must leave the line as d's pass left it, readable or not.
+
+**A control is evidence only if the trim ran**, so fuzznetd now logs one
+debug line per trim pass that completed -- "trim pass: N of M rule(s) over
+conversations here, K month(s) trimmed" -- and each phase waits for it in
+the daemon's log (30 s at most) and checks N, M and K before reading the
+line: b 0/0/0, c 0/2/0 (the other host's rule and the log rule both
+gathered and neither applied), d 1/1/1, e 0/0/0. A failed pass logs its
+warning and not this line.
+
+**faketime is checked as a capability, not a name**: if the line comes
+back written within the last 31 days, the clock was not faked, and the
+run fails saying so rather than testing a current-month line that can
+never be trimmed.
+
+Bounded from inside: one 240 s deadline, every daemon in its own process
+group stopped with TERM then KILL, scratch in two TemporaryDirectory trees
+(the socket's under /tmp, short and absolute as `fzn_socket_path_ok`
+requires), and a final check that no daemon outlived its phase. The
+target adds `timeout 300` and depends on fuzznetd, so it never runs a
+stale binary.
+
+It says SKIPPED with no faketime on PATH, and in a build lacking fuzznetd,
+the record store or log files.
+
+### livecheck seen to fail
+
+Three sabotages, each run against the script, each failing as named:
+
+    messages_trim never called       b: no trim pass was logged within 30 s
+    a faketime that fakes nothing    a: written at <now> ms ... faketime
+                                        did not take
+    no faketime on PATH              SKIPPED, exit 0
+
+The first is not a `tool/sabotage.py` entry: that harness rebuilds
+through `make test`, which does not run this target, so an entry there
+would survive by construction.
+
+### Measured for sec 534
+
+`make livecheck` passes in about 25 s; `make style`, `make -j4 test`, 0.
+After every run: no fuzznetd left in the process table and no `fzs.` or
+`fzn-live.` directory left in /tmp.

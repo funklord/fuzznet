@@ -1502,24 +1502,31 @@ static void messages_trim(uint64_t now)
 	static uint64_t next_trim;
 	fzn_messages_trim_tally_t tally;
 	fzn_messages_err_t err;
-	size_t n;
+	size_t n, gathered;
 
 	if (now < next_trim && next_trim <= now + FZND_TRIM_EVERY)
 		return;
 	next_trim = now + FZND_TRIM_EVERY;
-	n = gather_rules(rules);
-	n = fzn_retain_select_messages(rules, n, dlog.has_host ? dlog.host : NULL, here_machine(),
-	                               rules);
-	if (!n)
-		return;
-	err = fzn_messages_trim(&node_messages.m, rules, n, wall_ms(), &tally);
-	if (err != FZN_MESSAGES_OK)
+	gathered = gather_rules(rules);
+	n = fzn_retain_select_messages(rules, gathered, dlog.has_host ? dlog.host : NULL,
+	                               here_machine(), rules);
+	memset(&tally, 0, sizeof(tally));
+	err = n ? fzn_messages_trim(&node_messages.m, rules, n, wall_ms(), &tally) : FZN_MESSAGES_OK;
+	if (err != FZN_MESSAGES_OK) {
 		say(FZN_ENTRY_WARNING, "messages", "trimming by the rules: %s",
 		    fzn_messages_err_str(err));
-	else if (tally.months)
+		return;
+	}
+	if (tally.months)
 		say(FZN_ENTRY_INFO, "messages",
 		    "%zu month(s) of %zu conversation(s) trimmed by the rules", tally.months,
 		    tally.conversations);
+	/* EVERY PASS THAT RAN SAYS SO, at debug: that nothing was trimmed reads
+	 * the same as a pass that never happened, and `make livecheck` waits on
+	 * this line before believing either. */
+	say(FZN_ENTRY_DEBUG, "messages",
+	    "trim pass: %zu of %zu rule(s) over conversations here, %zu month(s) trimmed", n,
+	    gathered, tally.months);
 }
 
 /* CONVERSATIONS, sec 527: what the journal brought absorbed, then keys

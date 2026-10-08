@@ -1914,7 +1914,7 @@ endif
 DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(GUI_TOBJ:.o=.d) \
        $(PROG_OBJS:.o=.d)
 
-.PHONY: check runtests all test fuzz guided guided-one installcheck coverage sancheck schema qtty qrcheck style codegencheck ctcheck analyze sabotage reach hooks clean install
+.PHONY: check runtests all test fuzz guided guided-one installcheck coverage sancheck schema qtty qrcheck livecheck style codegencheck ctcheck analyze sabotage reach hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -4940,7 +4940,7 @@ reach:
 # project.md sec 53 has the eight-cell matrix.
 #
 # It costs 1.8s here.
-check: style test installcheck ctcheck sancheck qrcheck qttycheck
+check: style test installcheck ctcheck sancheck qrcheck qttycheck livecheck
 
 # THE SUITE AGAIN UNDER AddressSanitizer AND UBSan, on the holder's
 # instruction 2026-09-04. What it costs is roughly the test time again; what
@@ -5873,6 +5873,22 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
 # flag; only the vendored translation units are compiled with -w.
 QUIRC_VENDORED := quirc
 QUIRC_DIR      ?= $(QUIRC_VENDORED)
+
+# THE DAEMON ITSELF, run: its message trim end to end, sec 534. The only
+# target here that starts fuzznetd. A line old enough to trim can only be
+# written under an earlier clock, so `faketime` writes it, and the script
+# says SKIPPED when it is absent. It needs a fuzznetd, the record store its
+# conversations live in, and log files, because it waits on the daemon's
+# own debug line saying a trim pass ran -- a build without one of those has
+# nothing to run, and says which. tool/live_trim.py bounds itself: one
+# deadline, each daemon in its own process group, scratch removed.
+livecheck: $(FUZZNETD)
+ifeq ($(and $(FUZZNETD),$(RECORD_STORE_FILE_ON),$(LOG_FILE_ON)),)
+	@echo "livecheck: SKIPPED -- it needs fuzznetd, the record store and log files," \
+	      "and this build lacks one"
+else
+	@timeout 300 python3 tool/live_trim.py $(FUZZNETD)
+endif
 
 # ONE SHELL, BECAUSE A SKIP MUST STOP THE TARGET. Written first as separate
 # recipe lines with an `exit 0` in the skip, which does not skip anything:
