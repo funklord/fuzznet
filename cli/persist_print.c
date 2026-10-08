@@ -96,6 +96,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "a note purged, whose records are never filed again";
 	case FZN_PERSIST_NOTE_WRAP:
 		return "the key a note's content keys are wrapped under";
+	case FZN_PERSIST_OP_BYTES:
+		return "bytes an operation-journal entry saved";
 	}
 	*known = 0;
 	return "an unknown slot";

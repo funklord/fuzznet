@@ -1,0 +1,25 @@
+// One entry of a node's operation journal: a write to persistent state, as
+// the body of a record on the node's own stream in a journal of its own,
+// never served. project.md sec 523, sec 496's tier 2. The hand-written codec
+// is node/opjournal.c; this is its checked contract, in `make schema`'s list.
+//
+// The bytes written are not here: an entry names them by hash, and they are
+// kept beside it, so erasing them deletes the content while the entry stays.
+
+target buffer;
+endian big;
+
+enum fzn_opjournal_op : u8 {
+	save   = 1,
+	remove = 2,
+}
+
+struct fzn_opjournal_entry {
+	u8                version [must_eq = 1];
+	fzn_opjournal_op  op;
+	u8                slot;                 // a persist slot, fzn_persist_slot_t
+	u8                flags [max = 3];      // 1: a subject; 2: the bytes are kept
+	u8                subject[32];          // the row, all-zero for a whole-host slot
+	u8                hash[32];             // of the bytes saved; all-zero otherwise
+	u32               length;               // of the bytes saved; 0 otherwise
+}

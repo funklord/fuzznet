@@ -458,6 +458,7 @@ int fzn_persist_slot_is_core(fzn_persist_slot_t slot)
 	case FZN_PERSIST_RECEIVED_SHARE:
 	case FZN_PERSIST_LOG_RULE:
 	case FZN_PERSIST_ADMIN_RETENTION:
+	case FZN_PERSIST_OP_BYTES:
 		return 0;
 	default:
 		return 1;	/* named or not: see persist.h */

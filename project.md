@@ -58838,3 +58838,135 @@ options were:
 
 Step 7, the operation journal (sec 511's 5b), and with it the retention
 rules the history question waits on.
+
+## 523. Stage 5, step 7: the operation journal, by hash and purge-aware, 2026-10-08
+
+Step 7 of sec 511 is sec 496's tier 2, which the holder decided as 5b:
+every write to a node's persistent state is entered by hash, and the
+journal is purge-aware. `node/opjournal.{h,c}` is the code, and
+`node/opjournal.situ` is the entry's contract, in `make schema`'s list.
+
+### What the operation journal is
+
+- **A decorator over the persist ops.** `fzn_opjournal_ops` fills ops
+  that pass every load and list through. After each save or remove the
+  wrapped ops took, it writes an entry giving the op, the slot, the row,
+  and the hash and length of the bytes saved. Nothing writes persistent
+  state except through these ops, so nothing escapes the journal.
+- **Write first, entry after.** A crash between the two leaves a write
+  the journal does not show. It never leaves an entry for a write that
+  did not happen. A write whose entry will not take is counted in
+  `unrecorded` and is not refused: the journal is a record of the state,
+  not a gate on it.
+- **Sec 498's format, never carried.** Each entry is the 72-byte body of
+  a record on the node's own stream 2, kind 0x201, signed and chained.
+  These records live in a `fzn_node_journal_t` of their own under
+  `<store>/opjournal/`, which nothing serves or follows. Reusing the node
+  journal costs nothing new, and a captured journal can be read with the
+  tools that read the others.
+- **The bytes are kept by hash**, in the wrapped store's persist slot 33,
+  `FZN_PERSIST_OP_BYTES`, which is not core. Erasing them deletes the
+  content, while the entry, which says only that a write happened, stays.
+
+### Purge-aware
+
+- **A remove erases the row's history.** Every byte any entry kept for
+  that row goes with it. A purged note's meta, a removed contact or a
+  forgotten share therefore leaves nothing readable here, which is what
+  "purge-aware" asked for. Bytes shared by two rows go with either, which
+  loses history and never keeps content.
+- **Secret and session slots keep no bytes at all**: own prekey, peer,
+  both chains, node peer, own identity, paired node, own root, notes'
+  wrap keys (sec 520), and slot 33 itself. Their old states must not
+  outlive them, since forward secrecy is a ratchet's old keys being gone,
+  and a purge destroys a wrap key. Their entries say a write happened,
+  with no hash. `fzn_opjournal_keeps` names the slots that do keep bytes.
+
+### Retention
+
+- **A byte budget.** It defaults to 64 MiB and is set with
+  `--op-journal=BYTES`. Past it, the oldest kept bytes are erased first
+  and their entries stay.
+- **Across a restart**, `fzn_opjournal_start` walks the journal once to
+  recount what is kept, so the budget holds.
+- **Not built: rotating the entries themselves** into generations with a
+  snapshot. An entry is about 260 bytes as a stored record, so a node
+  writing a thousand times a day grows by about 95 MB a year. The tool is
+  off unless asked for. This is the next thing to build if a node runs it
+  for long.
+
+### Replay
+
+- `fuzznetd --op-journal-replay=ENTRY --into=DIR` rebuilds the slots that
+  keep bytes, as they stood after that entry, into a fresh store, then
+  prints a tally and exits. A slot is a pure function of its entries
+  exactly when every one of its writes is kept, which is why the replayed
+  slots and the kept slots are one list.
+- **Each save's bytes are checked against the entry's hash.** A save
+  whose bytes were erased, or will not match, is counted as missing, not
+  guessed at.
+- **Two uses:**
+  - a rescue, taking a node's state back to before a mistake;
+  - a test fixture, where a captured journal replays to a known state.
+
+### The daemon's operation journal
+
+- `--op-journal` turns it on. A node that does not ask wraps nothing and
+  keeps nothing.
+- At start it prints "operation journal on, N entries, K byte(s) kept of
+  B".
+- When `unrecorded` or `unkept` moves, the loop warns under subsystem
+  `opjournal`. `log_gate` reads `*_LOG` sites, not the daemon's `say`, so
+  this warning is outside that gate, as the daemon's other `say` sites
+  already are.
+
+### A fix to the node journal, found here
+
+`fzn_node_journal_write` admitted a record to the chain before storing
+it. When the store refused, the chain named a head nothing held, and
+every write after it chained to a record no follower could fetch. It now
+stores first and admits second. A store that refuses leaves the chain
+where it was, and the stream's next write is entry 1 again. The case
+surfaced through the operation journal's refusing-store test. It applies
+equally to stream 0, the notes stream.
+
+### History
+
+Sec 522 left the history verb for "when retention rules exist". The rules
+in this step are the operation journal's, and they keep a note's earlier
+meta rows by hash until a purge or the budget erases them. Notes' blobs
+are still collected within a round, so a note's text is not kept, and
+the question put in sec 522 stands as it was.
+
+### Tests of step 7
+
+- `node/test/opjournal_test`, 26 checks:
+  - the entry codec round-trips, and refuses a short entry, an unknown
+    version, op or flag;
+  - writes enter entries, and replay rebuilds them, to the end or to an
+    earlier entry;
+  - a removal erases the row's history, so replay counts it missing;
+  - tampered bytes are refused by hash;
+  - a secret slot keeps no bytes;
+  - a journal whose store refuses counts `unrecorded`, and the next
+    write is entry 1. This is the node journal fix above, seen from its
+    caller;
+  - the budget erases the oldest bytes first, and a restart recounts
+    them.
+- Live, with `--no-log-file`, against a private copy of the binary:
+  - a node with `--op-journal` added a contact, a note, renamed the note
+    and removed the contact;
+  - replay to the end gave 4 saved, 1 removed, 1 missing and 1 skipped,
+    with a note row and two roster rows and no contact row. The contact's
+    save is the one missing, because its removal erased its bytes;
+  - replay to entry 3 gave the state as it stood then.
+
+### Sabotage
+
+Five entries, each probed and caught:
+
+- secrets keep nothing;
+- removal erases history;
+- replay checks the hash;
+- the journal stores before admitting;
+- the budget bounds.

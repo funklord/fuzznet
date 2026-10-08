@@ -47,6 +47,7 @@
 #include "succession.h"
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include "journal.h"
+#include "opjournal.h"
 #include "apply.h"
 #endif
 #include "peer_persist.h"
@@ -765,6 +766,8 @@ static uint64_t wall_ms(void)
  * for as long as the root takes to answer, at most 3 s a page, which is the
  * price of asking from the loop's own thread. sec 384. */
 #define FZND_PULL_EVERY 60u
+/* The operation journal's default byte budget, sec 523. */
+#define FZND_OP_JOURNAL_BUDGET (64ull * 1024u * 1024u)
 
 /* THE PEERS A NODE PULLS VOTES FROM: `--root-at` for the pairing it joined
  * with, and `--pull-from` for any other node it holds a pairing to. Each has
@@ -1025,6 +1028,41 @@ static void copy_logs(struct pull_target *pulls, size_t npulls, uint64_t now)
  * pull peers each round. */
 static fzn_node_journal_t node_journal;
 static int journal_on;
+
+/* THE OPERATION JOURNAL, sec 523: switchable, off unless asked for. Every
+ * write to this node's persistent state, entered by hash on its own stream
+ * in a journal of its own under `opjournal/`, which nothing serves. */
+static fzn_node_journal_t op_nj;
+static fzn_opjournal_t op_oj;
+static fzn_persist_ops_t op_ops;
+
+/* Open it over `*ops`, and make `*ops` the journalled ops. */
+static int op_journal_open(const char *store_dir, const uint8_t issuer[FZN_PUBKEY_LEN],
+                           const fzn_sign_ops_t *sign, const fzn_hash_ops_t *hash,
+                           uint64_t budget, const fzn_persist_ops_t **ops)
+{
+	static char dir[FZN_RECORD_STORE_FILE_PATH_MAX];
+	int w = snprintf(dir, sizeof(dir), "%s/opjournal", store_dir);
+
+	if (w <= 0 || (size_t)w >= sizeof(dir) || (mkdir(dir, 0700) != 0 && errno != EEXIST)
+	    || fzn_node_journal_init(&op_nj, dir, sign, hash) != FZN_NODE_JOURNAL_OK
+	    || fzn_node_journal_follow_stream(&op_nj, issuer, FZN_OPJOURNAL_STREAM, NULL)
+	               != FZN_NODE_JOURNAL_OK)
+		return 0;
+	memset(&op_oj, 0, sizeof(op_oj));
+	op_oj.journal = &op_nj;
+	op_oj.base = *ops;
+	op_oj.issuer = issuer;
+	op_oj.sign = sign;
+	op_oj.hash = hash;
+	op_oj.now = wall_ms;
+	op_oj.budget = budget;
+	if (!fzn_opjournal_start(&op_oj))
+		return 0;
+	fzn_opjournal_ops(&op_oj, &op_ops);
+	*ops = &op_ops;
+	return 1;
+}
 
 /* What the roots call for every act logged: the act's own signed object, as
  * the next record of its signer's estate stream. sec 502. */
@@ -1882,6 +1920,10 @@ static void usage(const char *prog)
 	        "--log-segment=BYTES, pruned by --log-rule=\"prune|keep PROG|* [level=CEWNIVDT]\n"
 	        "[subsystem=PATH] age|size|count N\" as it rotates;\n"
 	        "--no-log-file keeps stderr only; --log-scope=estate lets members gather it\n"
+	        "--op-journal[=BYTES] enters every write to this node's state in a journal\n"
+	        "of its own, by hash, keeping up to BYTES of written state (64 MiB);\n"
+	        "--op-journal-replay=ENTRY --into=DIR writes the state as of that entry\n"
+	        "into a fresh store at DIR, and exits\n"
 	        "--check-log[=PROGRAM] walks a packed log's chain and its signatures;\n"
 	        "--log-copy[=PROGRAM] keeps verified copies of the pull peers' packed logs,\n"
 	        "and takes the ones members push, once a program, up to 8;\n"
@@ -2040,6 +2082,12 @@ int main(int argc, char **argv)
 	fzn_entry_level_t log_keep = FZN_ENTRY_INFO;
 	uint64_t log_segment = 0;
 	int log_file = 1;
+	int op_journal = 0;
+	unsigned long long op_journal_budget = FZND_OP_JOURNAL_BUDGET;
+	/* REPLAY AND EXIT, sec 523: the state as of an entry, into a store. */
+	const char *replay_into = NULL;
+	unsigned long long replay_to = 0;
+	int replaying = 0;
 	int log_estate = 0;
 	/* GATHERING, sec 463: the troubleshooter's end. */
 	const char *gather_program = NULL, *gather_match = "";
@@ -2106,6 +2154,29 @@ int main(int argc, char **argv)
 			log_dir = argv[i] + 10;
 		} else if (!strcmp(argv[i], "--no-log-file")) {
 			log_file = 0;
+		} else if (!strcmp(argv[i], "--op-journal")) {
+			op_journal = 1;
+		} else if (!strncmp(argv[i], "--op-journal-replay=", 20u)) {
+			char *end = NULL;
+
+			op_journal = 1;
+			replaying = 1;
+			replay_to = strtoull(argv[i] + 20, &end, 10);
+			if (!end || *end != '\0') {
+				fprintf(stderr, "fuzznetd: --op-journal-replay=ENTRY: an entry's number\n");
+				return 2;
+			}
+		} else if (!strncmp(argv[i], "--into=", 7u)) {
+			replay_into = argv[i] + 7;
+		} else if (!strncmp(argv[i], "--op-journal=", 13u)) {
+			char *end = NULL;
+
+			op_journal = 1;
+			op_journal_budget = strtoull(argv[i] + 13, &end, 10);
+			if (!end || *end != '\0' || op_journal_budget == 0u) {
+				fprintf(stderr, "fuzznetd: --op-journal=BYTES: a byte budget\n");
+				return 2;
+			}
 		} else if (!strncmp(argv[i], "--log-scope=", 12u)) {
 			if (!strcmp(argv[i] + 12, "estate")) {
 				log_estate = 1;
@@ -2240,7 +2311,7 @@ int main(int argc, char **argv)
 	 * loop has always taken a listen fd of -1 (sec 381). */
 	if (!sock_path && !pair_hex && !show_prekey && !new_root && !accept_text && !ask_line
 	    && !gather_program && !gather_ring && !check_log
-	    && !set_admin && udp_port < 0) {
+	    && !set_admin && !replaying && udp_port < 0) {
 		usage(argv[0]);
 		return 2;
 	}
@@ -2392,6 +2463,59 @@ int main(int argc, char **argv)
 		fprintf(stderr, "fuzznetd: identity ");
 		print_hex(stderr, identity.pubkey, FZN_PUBKEY_LEN);
 		fprintf(stderr, " %s %s\n", created ? "created in" : "loaded from", store_dir);
+#ifdef FZN_RECORD_STORE_FILE_ON
+		/* THE OPERATION JOURNAL WRAPS THE STORE FROM HERE, sec 523: its
+		 * entries are signed as this node, so not before the identity.
+		 * The one write before it is the identity's own seed, a slot that
+		 * keeps no bytes anyway. Everything handed the store after this
+		 * is handed the journalled ops. */
+		if (op_journal) {
+			if (!op_journal_open(store_dir, identity.pubkey, &sign_ops, &hash_ops,
+			                     op_journal_budget, &store_ops)) {
+				fprintf(stderr, "fuzznetd: --op-journal: no operation journal in "
+				                "%s/opjournal\n",
+				        store_dir);
+				return 1;
+			}
+#ifdef FZN_LOG_FILE_ON
+			dlog.store = store_ops;
+#endif
+			/* REPLAY AND EXIT: the replayable slots as they stood after
+			 * entry `replay_to`, into a fresh store at `replay_into`. */
+			if (replaying) {
+				static fzn_persist_file_t into_file;
+				const fzn_persist_ops_t *into;
+				fzn_opjournal_replay_tally_t rt;
+
+				if (!replay_into || (mkdir(replay_into, 0700) != 0 && errno != EEXIST)
+				    || !(into = fzn_persist_file_init(&into_file, replay_into))) {
+					fprintf(stderr, "fuzznetd: --op-journal-replay needs --into=DIR, a "
+					                "directory it can make\n");
+					return 2;
+				}
+				if (!fzn_opjournal_replay(&op_oj, replay_to, into, &rt)) {
+					fprintf(stderr, "fuzznetd: the replay stopped at an entry that will not "
+					                "read, or a write %s refused\n",
+					        replay_into);
+					return 1;
+				}
+				printf("replayed into %s: %zu saved, %zu removed, %zu missing, %zu "
+				       "skipped\n",
+				       replay_into, rt.saved, rt.removed, rt.missing, rt.skipped);
+				return 0;
+			}
+			fprintf(stderr, "fuzznetd: operation journal on, %llu entr%s, %llu byte(s) "
+			                "kept of %llu\n",
+			        (unsigned long long)fzn_node_journal_received(&op_nj, identity.pubkey,
+			                                                      FZN_OPJOURNAL_STREAM),
+			        fzn_node_journal_received(&op_nj, identity.pubkey,
+			                                  FZN_OPJOURNAL_STREAM)
+			                        == 1u
+			                ? "y"
+			                : "ies",
+			        (unsigned long long)op_oj.kept, (unsigned long long)op_journal_budget);
+		}
+#endif
 
 		/* A NODE THAT HAS JOINED AN ESTATE grants through the hop its root
 		 * gave it, which it holds as its pairing to that root (sec 383). A
@@ -3527,6 +3651,20 @@ int main(int argc, char **argv)
 			if (journal_pushed) {
 				journal_pushed = 0;
 				index_notes();
+			}
+			/* A WRITE THE OPERATION JOURNAL MISSED, sec 523: made, and not
+			 * entered, so a replay will not show it. Said once per change. */
+			{
+				static size_t unrecorded, unkept;
+
+				if (op_journal
+				    && (op_oj.unrecorded != unrecorded || op_oj.unkept != unkept)) {
+					unrecorded = op_oj.unrecorded;
+					unkept = op_oj.unkept;
+					say(FZN_ENTRY_WARNING, "opjournal",
+					    "%zu write(s) not entered, %zu whose bytes were not kept",
+					    unrecorded, unkept);
+				}
 			}
 #endif
 #ifdef FZN_SPOOL_FILE_ON

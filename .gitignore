@@ -248,6 +248,7 @@ __pycache__/
 /node/test/shelf_test
 /node/test/files_test
 /node/test/notes_test
+/node/test/opjournal_test
 /fuzznetd
 /.situ-head/
 /.gen.new/

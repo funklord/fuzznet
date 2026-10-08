@@ -202,12 +202,18 @@ fzn_node_journal_err_t fzn_node_journal_write(fzn_node_journal_t *nj,
 	if (fzn_record_sign(issuer, subject, stream, kind, seq, seq == 1u ? NULL : e->head, now,
 	                    body, body_len, sign, buf, cap, &len) != FZN_RECORD_OK
 	    || fzn_record_open(buf, len, &rec) != FZN_RECORD_OK
-	    || !nj->hash->hash(nj->hash->ctx, id, sizeof(id), buf, len)
-	    || fzn_journal_admit_chained(&nj->journal, issuer, stream, seq, fzn_record_prev(rec), id)
-	               != FZN_JOURNAL_OK)
+	    || !nj->hash->hash(nj->hash->ctx, id, sizeof(id), buf, len))
 		return FZN_NODE_JOURNAL_REFUSED;
+	/* KEPT, THEN ADMITTED, sec 523: admitted first, a store that refused
+	 * the record left the chain naming a head nothing holds, and every
+	 * write after it chained to a record no follower could fetch. The
+	 * stream's own next record, at the head's sequence plus one and naming
+	 * the head, is one the chain takes. */
 	if (fzn_record_store_put(&nj->store, rec) != FZN_RECORD_STORE_OK)
 		return FZN_NODE_JOURNAL_STORE;
+	if (fzn_journal_admit_chained(&nj->journal, issuer, stream, seq, fzn_record_prev(rec), id)
+	    != FZN_JOURNAL_OK)
+		return FZN_NODE_JOURNAL_REFUSED;
 	*out_len = len;
 	if (id_out)
 		memcpy(id_out, id, sizeof(id));

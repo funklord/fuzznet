@@ -863,7 +863,8 @@ static void test_the_route_sends_each_slot_where_the_rule_says(void)
 		                                   FZN_PERSIST_SHARED_NOTE,
 		                                   FZN_PERSIST_RECEIVED_SHARE,
 		                                   FZN_PERSIST_LOG_RULE,
-		                                   FZN_PERSIST_ADMIN_RETENTION };
+		                                   FZN_PERSIST_ADMIN_RETENTION,
+		                                   FZN_PERSIST_OP_BYTES };
 	struct counting core, bulk;
 	fzn_persist_ops_t core_ops = { count_load, count_save, count_list, NULL, &core };
 	fzn_persist_ops_t bulk_ops = { count_load, count_save, NULL, NULL, &bulk };

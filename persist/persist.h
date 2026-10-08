@@ -249,6 +249,10 @@ typedef enum fzn_persist_slot {
 	/* Per note id: the key the note's content keys are wrapped under, kept
 	 * here and never in the journal, so a purge can destroy it. sec 520. */
 	FZN_PERSIST_NOTE_WRAP = 32u,
+	/* Per hash: the bytes an operation-journal entry saved, as they were
+	 * written to another slot, kept so the state can be replayed; erased
+	 * when that row is removed. `node/opjournal.h` keeps it. sec 523. */
+	FZN_PERSIST_OP_BYTES = 33u,
 } fzn_persist_slot_t;
 
 typedef enum fzn_persist_err {
@@ -419,6 +423,11 @@ typedef struct fzn_persist_ops {
  * wrote what. A lost purge leaves a trashed note held until it is emptied again,
  * and a lost partner one held by a node a purge forgot to ask: space and
  * convergence, not a door.
+ *
+ * NOT CORE: OP_BYTES (sec 523). The operation journal's kept bytes are a
+ * record of states already written elsewhere; lost, the history is shorter,
+ * and rolled back it holds bytes a later removal erased, which a removal of
+ * that row erases again.
  *
  * NOT CORE: CONTACT (sec 435). A contact entry is a name for a key and
  * grants nothing; what a contact may do is the chains issued to it, revoked
