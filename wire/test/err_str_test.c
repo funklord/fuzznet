@@ -93,6 +93,7 @@
 #include "../../record/exchange.h"
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include "../../node/journal.h"
+#include "../../messages/messages.h"
 #endif
 #ifdef FZN_LOG_FILE_ON
 #include "../../log/logger.h"
@@ -240,6 +241,7 @@ static const char *r_rstore(int v) { return fzn_record_store_err_str((fzn_record
 static const char *r_cli(int v) { return fzn_cli_err_str((fzn_cli_err_t)v); }
 #endif
 static const char *r_exchange(int v) { return fzn_exchange_err_str((fzn_exchange_err_t)v); }
+static const char *r_messages(int v) { return fzn_messages_err_str((fzn_messages_err_t)v); }
 #ifdef FZN_RECORD_STORE_FILE_ON
 static const char *r_njournal(int v)
 {
@@ -352,6 +354,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_cli_err_str", r_cli, 4 },
 #endif
 	{ "fzn_exchange_err_str", r_exchange, 5 },
+	{ "fzn_messages_err_str", r_messages, 7 },
 #ifdef FZN_RECORD_STORE_FILE_ON
 	{ "fzn_node_journal_err_str", r_njournal, 5 },
 #endif

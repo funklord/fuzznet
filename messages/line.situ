@@ -1,0 +1,45 @@
+// A conversation line and a mark on one, as situ schemas: the hand-written
+// codec is messages/line.c, and these are its checked contract. project.md
+// sec 526.
+//
+// Both are bodies of records on the writing device's FZN_MESSAGE_STREAM
+// (3), with the contact's key as the record's subject. A line's text is
+// sealed under the conversation's key for its month (the epoch), kept
+// outside the journal, so a rule that trims a month destroys that key and
+// leaves the records as shells. A text longer than one record holds takes two
+// line records, parts 0 and 1, written one after the other.
+
+target buffer;
+endian big;
+
+enum fzn_message_direction : u8 {
+	out = 1,	// this user sent it
+	in  = 2,	// the contact sent it
+}
+
+struct fzn_message_line {
+	u8                     version [must_eq = 1];   //  0
+	fzn_message_direction  direction;               //  1
+	u8                     part [max = 1];          //  2 this record's part, from 0
+	u8                     parts [min = 1, max = 2];//  3 how many the text takes
+	u8                     id[16];                  //  4 the caller's message id
+	u64                    stime;                   // 20 the sender's time, ms
+	u32                    epoch;                   // 28 months since 1970-01, the key's
+	u8                     nonce[24];               // 32 drawn at random
+	u8                     tag[16];                 // 56 the AEAD tag over this part
+	u8                     text[remaining];         // 72 sealed, at most 440 bytes
+}
+
+enum fzn_message_state : u8 {
+	delivered     = 1,	// the contact's host took it
+	settled       = 2,	// the contact's user realm has it
+	handed_over   = 3,	// given to another of the user's devices to send
+	not_delivered = 4,	// no device of the user's could send it (sec 521)
+}
+
+struct fzn_message_mark {
+	u8                     version [must_eq = 1];   //  0
+	fzn_message_direction  direction;               //  1 the line's
+	fzn_message_state      state;                   //  2
+	u8                     id[16];                  //  3 the line's id
+}

@@ -253,13 +253,23 @@ typedef enum fzn_persist_slot {
 	 * written to another slot, kept so the state can be replayed; erased
 	 * when that row is removed. `node/opjournal.h` keeps it. sec 523. */
 	FZN_PERSIST_OP_BYTES = 33u,
+	/* Per (contact, month, device), keyed by a hash of the three: the key
+	 * one device's lines in a conversation that month are sealed under,
+	 * kept here and
+	 * never in the journal, so a trimming rule can destroy it.
+	 * `messages/messages.h` keeps it. sec 526. */
+	FZN_PERSIST_CONVERSATION_KEY = 34u,
+	/* Per line, keyed by a hash of its contact, direction and id: its
+	 * latest mark, rebuilt from the journal when lost. NOT CORE: it is
+	 * derived. `messages/messages.h` keeps it. sec 526. */
+	FZN_PERSIST_MESSAGE_STATE = 35u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 34u
+#define FZN_PERSIST_SLOT_END 36u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,

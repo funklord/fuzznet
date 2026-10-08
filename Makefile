@@ -165,6 +165,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
              node/journal.c node/opjournal.c node/apply.c \
+             messages/line.c messages/messages.c \
              contact/contact.c \
              contact/group.c \
              log/rules.c \
@@ -262,6 +263,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
              node/journal.h node/opjournal.h node/apply.h \
+             messages/line.h messages/messages.h \
              contact/contact.h \
              contact/group.h \
              log/rules.h \
@@ -1258,7 +1260,8 @@ endif
 RECORD_STORE_FILE_SRCS := record/store_file.c
 RECORD_STORE_FILE_HDRS := record/store_file.h
 RECORD_STORE_FILE_TSRC := record/test/store_file_test.c node/test/node_journal_test.c \
-                          node/test/opjournal_test.c node/test/apply_test.c
+                          node/test/opjournal_test.c node/test/apply_test.c \
+                          messages/test/messages_test.c
 
 ifdef RECORD_STORE_FILE_ON
 CPPFLAGS  += -DFZN_RECORD_STORE_FILE_ON
@@ -1269,6 +1272,7 @@ TEST_BINS += $(BUILD_DIR)/record/test/store_file_test
 TEST_BINS += $(BUILD_DIR)/node/test/node_journal_test
 TEST_BINS += $(BUILD_DIR)/node/test/opjournal_test
 TEST_BINS += $(BUILD_DIR)/node/test/apply_test
+TEST_BINS += $(BUILD_DIR)/messages/test/messages_test
 endif
 
 CAPTURE_RUN_SRCS := log/capture_run.c
@@ -3882,6 +3886,18 @@ $(BUILD_DIR)/node/test/opjournal_test: $(BUILD_DIR)/node/test/opjournal_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# Conversations in the journal, sec 526, under real Ed25519, BLAKE2b and
+# XChaCha20-Poly1305: a stand-in AEAD would agree with whatever sealed it.
+$(BUILD_DIR)/messages/test/messages_test: $(BUILD_DIR)/messages/test/messages_test.o \
+                                  $(BUILD_DIR)/messages/messages.o \
+                                  $(BUILD_DIR)/messages/line.o \
+                                  $(BUILD_DIR)/session/random.o \
+                                  $(FUZZNETD_JOURNAL_OBJS) \
+                                  $(BUILD_DIR)/record/record.o \
+                                  $(BUILD_DIR)/constant_time/constant_time.o $(MONO_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # The journal applied to the subsystems, sec 503: pair_test's set, which
 # node/revoke.o's admission pulls in, and the journal.
 $(BUILD_DIR)/node/test/apply_test: $(BUILD_DIR)/node/test/apply_test.o \
@@ -4129,6 +4145,9 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/node/succession.o \
                                       $(BUILD_DIR)/chain/succession.o \
                                       $(FUZZNETD_JOURNAL_OBJS) \
+                                      $(BUILD_DIR)/messages/messages.o \
+                                      $(BUILD_DIR)/messages/line.o \
+                                      $(BUILD_DIR)/session/random.o \
                                       $(BUILD_DIR)/node/provision.o \
                                       $(BUILD_DIR)/node/peer_persist.o \
                                       $(BUILD_DIR)/node/caller.o \
@@ -5726,7 +5745,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               record/store_file.situ catalog/attribute.situ \
               roster/roster.situ chain/root_act.situ chain/succession.situ \
               record/exchange.situ \
-              notes/sync.situ notes/note.situ node/opjournal.situ \
+              notes/sync.situ notes/note.situ node/opjournal.situ messages/line.situ \
               log/entry.situ log/cause.situ log/gather.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.

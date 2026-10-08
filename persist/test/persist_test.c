@@ -854,7 +854,7 @@ static void test_the_route_sends_each_slot_where_the_rule_says(void)
 		FZN_PERSIST_OWN_ROOT, FZN_PERSIST_ADMIN_CONFIRM, FZN_PERSIST_OWN_ADMIN,
 		FZN_PERSIST_NOTE_SHARE, FZN_PERSIST_CONTACT_GROUP, FZN_PERSIST_ROSTER,
 		FZN_PERSIST_FILE_SHARE, FZN_PERSIST_SUCCESSION, FZN_PERSIST_NOTE_PURGED,
-		FZN_PERSIST_NOTE_WRAP,
+		FZN_PERSIST_NOTE_WRAP, FZN_PERSIST_CONVERSATION_KEY,
 	};
 	static const fzn_persist_slot_t BULK[] = { FZN_PERSIST_NODE_PEER,
 		                                   FZN_PERSIST_PAIRED_NODE, FZN_PERSIST_NOTE,
@@ -864,7 +864,8 @@ static void test_the_route_sends_each_slot_where_the_rule_says(void)
 		                                   FZN_PERSIST_RECEIVED_SHARE,
 		                                   FZN_PERSIST_LOG_RULE,
 		                                   FZN_PERSIST_ADMIN_RETENTION,
-		                                   FZN_PERSIST_OP_BYTES };
+		                                   FZN_PERSIST_OP_BYTES,
+		                                   FZN_PERSIST_MESSAGE_STATE };
 	struct counting core, bulk;
 	fzn_persist_ops_t core_ops = { count_load, count_save, count_list, NULL, &core };
 	fzn_persist_ops_t bulk_ops = { count_load, count_save, NULL, NULL, &bulk };

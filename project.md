@@ -58763,8 +58763,11 @@ devices where no linked device owns the contact any more, or the contact
 was removed. Until it is built here, their clients show only a notice: a
 count, and the last contact's name.
 
-It joins sec 510's sibling-wire "cannot deliver" requirement. Neither is
-built yet.
+The storage half is built in sec 526: the device that hands a message off
+keeps it as its own line, and marks it not delivered when no device could
+send it. fuzzypickles' sweep writes it once they take the module (sec 526,
+phase 3). Sec 510's sibling-wire "cannot deliver" requirement is still not
+built.
 
 ## 522. Stage 5, step 6: the title cache, labels in the listing, and pending in the widget, 2026-10-08
 
@@ -59187,3 +59190,181 @@ No gate holds the rule. A check that every literal `$(MAKE)` line carries
 nothing but the recursion would refuse `qttycheck`'s guard chain, which is
 read-only. So it would need a list of exceptions, and that is the shape a
 gate gets switched off by.
+
+## 526. Messages move into fuzznet, phase 1: lines in the journal, and sec 521, 2026-10-08
+
+### The holder's decisions, 2026-10-08
+
+- **Start the message move.** Sec 521 asked for an undelivered line to be
+  kept, but fuzznet had no conversation storage. fuzzypickles keeps its
+  one-to-one lines in its own 100-line `inbox.log`. The holder chose to
+  begin moving that storage here, with sec 521 as one state in it.
+  Rejected:
+  - a store for undelivered lines only, beside fuzzypickles' inbox;
+  - a design written first and nothing built.
+- **Lines live in the journal, their text sealed.** Each device's lines are
+  a chained stream on its own key, carried to the user's other devices by
+  the one journal sync. The text is sealed under keys kept outside the
+  journal, as note wrap keys are (sec 520). Rejected:
+  - plain text in the record, which no device could ever delete;
+  - local rows with a sync of their own, outside the one-journal model.
+- **No bound.** The holder's words: "custom rules delete/trim data.
+  Definitely no default deletion of messages, other data maybe." Nothing
+  bounds message storage, and nothing deletes a line by default.
+
+### What fuzzypickles has, from reading its tree
+
+A survey of their tree at its HEAD of 2026-10-08, made by reading the code
+and not by running it:
+- **One file for all lines.** `<state_dir>/inbox.log` holds both
+  directions for every contact, 100 lines in all, oldest evicted first.
+- **What a line holds.** A line is the other end's host key, a 16-byte
+  commitment as its id, the sender's time, the local time and the text.
+  It has no read or delivery state: delivery is in their outbox,
+  settlement and delegation blobs, and read positions are each client's.
+- **Two things this design answers.** Both are my reading of their code;
+  neither is a test result.
+  - Their catch-up wire carries no direction, so a line one device sent
+    lands on another as received.
+  - A delegating device writes no line, which is why sec 521 had nothing
+    to mark.
+
+### The format, `messages/line.situ`
+
+Two record kinds on stream 3, `FZN_MESSAGE_STREAM`, each with the contact's
+key as the record's subject:
+- **A line**, kind 0x37:
+  - its direction, its part and how many parts there are;
+  - the caller's 16-byte id, the sender's time, and the key epoch;
+  - a random nonce, and the AEAD tag;
+  - the sealed text.
+
+  A record body is 512 bytes and the head 72, so one part holds 440 bytes
+  of text, and fuzzypickles' 512-byte texts take two parts. The parts tile
+  one way only: a first of two parts must be full.
+- **A mark**, kind 0x137, carries a line's direction, its id and a state:
+  delivered, settled, handed over, or not delivered. A line's state is the
+  newest of its marks, by when they were written, whichever device wrote
+  them.
+
+### Sealing, and trimming without deleting
+
+- **One key per conversation, month and writing device**, kept in persist
+  slot 34 (`FZN_PERSIST_CONVERSATION_KEY`, core). The operation journal
+  never keeps it.
+- **A line opens under its writer's key.** Keys are per device so that two
+  devices, each drawing one for the same conversation and month, never
+  claim one row once keys travel between them.
+- **What the additional data binds.** It binds each part to its
+  conversation, id, direction, place among the parts, sender's time and
+  epoch. The suite opens a part under another key, another conversation,
+  the other direction and another month, and each one fails.
+- **The epoch is whole months since January 1970, UTC.** "Keep a year" is
+  the shape a trimming rule takes, and a month's key holds nothing younger
+  than the month.
+- **How trimming will work.** No rule is built. `fzn_messages_forget_epoch`
+  destroys a conversation's keys for a month, every device's, and its lines
+  stay listed as shells. Nothing calls it but the suite.
+
+### The store, `messages/messages.h`
+
+- **`fzn_messages_write`** draws the month's key on its first line, keeping
+  it before anything is sealed, then appends the line's parts.
+- **`fzn_messages_mark`** appends a mark, then sets the line's state in
+  persist slot 35 (`FZN_PERSIST_MESSAGE_STATE`, not core). Slot 35 is
+  derived and holds the newest mark's state and time.
+- **`fzn_messages_reindex`** rebuilds slot 35 from the journal in two
+  passes over every mark. The first removes each marked line's row, and
+  the second applies the newest. Listing the rows to clear them would fail
+  past any cap, and the store is unbounded.
+- **`fzn_messages_page`** lists newest first, for one contact or for
+  everyone:
+  - it merges the streams of the devices it is given, by when each record
+    was written;
+  - it shows a line once however many devices wrote it;
+  - it reads a two-part line from its last part back;
+  - it lists a line whose key is not here as a shell, `readable` 0.
+
+  It walks back from the streams' heads with no index, so a page deep in a
+  long history costs that depth, and a page past 4096 lines is refused.
+  An index is the answer if a real history shows the walk to be slow.
+
+### Sec 521
+
+A device that hands a message to another of the user's devices now writes
+it as its own outgoing line and marks it handed over. When no device could
+send it, it marks it not delivered, and the text stays in the
+conversation. The suite runs this flow. Wiring it to fuzzypickles' sweep is
+theirs, once they take this module.
+
+### Phases
+
+1. **Built here:** the format, sealing, keys, the store, the listing, marks
+   and reindex.
+2. **The daemon:**
+   - verbs to write, mark and list;
+   - following the user's devices' stream 3, which the journal sync
+     already carries;
+   - feeding marks that arrive by sync into slot 35;
+   - carrying conversation keys to the user's own devices, which nothing
+     does yet. Until then, another device's lines are shells here, and the
+     suite shows them so.
+3. **fuzzypickles takes the module:**
+   - its inbox, outbox states and delegation write here;
+   - its catch-up and replication give way to the journal;
+   - its clients list through the daemon.
+4. **Trimming rules**, user-configured as log rules are (sec 428), over
+   `fzn_messages_forget_epoch`.
+
+### Limits
+
+- A crash between a two-part line's parts leaves its first part, which no
+  listing shows.
+- Message storage grows without bound, by the holder's decision. At a
+  702-byte record slot, a line costs one or two slots.
+
+### Tests of sec 526
+
+`messages/test/messages_test`, 44 checks, under real Ed25519, BLAKE2b and
+XChaCha20-Poly1305:
+- **Epochs:** January 1970, October 2026, a leap day, and the last second
+  of a year.
+- **The codec:**
+  - a line seals out of the clear and opens to its text;
+  - it fails to open under a wrong key, conversation, direction or month;
+  - part counts, and the parts' tiling, are refused when wrong;
+  - marks round-trip, and an unknown state is refused.
+- **Listing:**
+  - newest first, a two-part line whole and an empty one;
+  - paging with `more`, and a refusal past the deepest walk;
+  - a text past 512 bytes refused.
+- **Sec 521:** a handed-over line, then not delivered, keeps its text.
+- **Two devices:**
+  - B's lines list on A once A follows B's stream, shells until B's key
+    reaches A;
+  - a line both wrote is listed once;
+  - the newest mark wins when the older is read last;
+  - forgetting a month takes both devices' keys.
+- **Reindex:** it replaces a state row newer than any mark with the
+  journal's.
+- **A month forgotten:** it leaves its lines as shells and touches no
+  other month or contact.
+
+### Sabotage of sec 526
+
+Eleven entries, each probed and caught:
+- the additional data binding direction;
+- the parts' tiling;
+- the epoch's leap-year adjustment;
+- a key per month, and a key per device;
+- forgetting every device's key;
+- a mark setting the state, and the newest mark winning;
+- reindex clearing;
+- the contact filter, and showing a line once.
+
+Two needed the suite changed first:
+- **The newest mark winning.** The two-device case read the older mark
+  first, so order alone gave the right answer. A case where the older mark
+  is read last now holds it.
+- **Reindex clearing.** The planted row had the real mark's time, so
+  applying marks overwrote it anyway. It now carries a later time.

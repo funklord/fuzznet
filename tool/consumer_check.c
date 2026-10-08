@@ -142,6 +142,8 @@
 #endif
 #include <fuzznet/node/journal.h>
 #include <fuzznet/node/opjournal.h>
+#include <fuzznet/messages/line.h>
+#include <fuzznet/messages/messages.h>
 #include <fuzznet/node/apply.h>
 #ifdef FZN_CLI_ON
 #include <fuzznet/cli/cli.h>
@@ -305,6 +307,8 @@
 #endif
 #include "node/journal.h"
 #include "node/opjournal.h"
+#include "messages/line.h"
+#include "messages/messages.h"
 #include "node/apply.h"
 #ifdef FZN_CLI_ON
 #include "cli/cli.h"

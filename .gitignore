@@ -249,6 +249,7 @@ __pycache__/
 /node/test/files_test
 /node/test/notes_test
 /node/test/opjournal_test
+/messages/test/messages_test
 /fuzznetd
 /.situ-head/
 /.gen.new/

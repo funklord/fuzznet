@@ -59,8 +59,10 @@ int fzn_opjournal_keeps(fzn_persist_slot_t slot)
 	case FZN_PERSIST_OWN_IDENTITY:
 	case FZN_PERSIST_PAIRED_NODE:
 	case FZN_PERSIST_OWN_ROOT:
-	/* A NOTE'S WRAP KEY, which a purge destroys (sec 520). */
+	/* A NOTE'S WRAP KEY, which a purge destroys (sec 520), and a
+	 * CONVERSATION'S KEY, which a trimming rule destroys (sec 526). */
 	case FZN_PERSIST_NOTE_WRAP:
+	case FZN_PERSIST_CONVERSATION_KEY:
 	/* AND ITS OWN BYTES, which are not a state to replay. */
 	case FZN_PERSIST_OP_BYTES:
 		return 0;
