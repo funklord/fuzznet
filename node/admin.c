@@ -1877,6 +1877,28 @@ not_groups:
 	return answer_text(reply, reply_cap, FZN_REPLY_UNSUPPORTED, NULL);
 }
 
+/* WHETHER `sender` MAY RUN THIS NODE'S VERBS REMOTELY, sec 543: only where
+ * this host's setting `remote/admin` is in force as `on`, and only for a
+ * sender judged an admin or a root -- as a setting's setter is judged, by
+ * the same call. Off on a node without settings. */
+static int remote_admin(const fzn_node_admin_t *admin, const uint8_t *sender)
+{
+	static const char KEY[] = "remote/admin";
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	size_t len = 0;
+
+	if (!admin->settings || !admin->settings->apply || !sender || !admin->id
+	    || !fzn_node_settings_get(admin->settings, FZN_SCOPE_HOST, admin->id->pubkey,
+	                              (const uint8_t *)KEY, sizeof(KEY) - 1u, value, &len, &rank)
+	    || len != 2u || memcmp(value, "on", 2u) != 0)
+		return 0;
+	return fzn_node_apply_rank(admin->settings->apply, sender, FZN_SCOPE_HOST, admin->id->pubkey,
+	                           &rank)
+	               == 1
+	       && rank >= FZN_SETTING_RANK_ADMIN;
+}
+
 size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
                              const fzn_opened_t *req, uint8_t *reply, size_t reply_cap)
 {
@@ -2022,6 +2044,23 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 	if (!line || !fzn_vocabulary_split(line, line_len, &request))
 		return answer_text(out, reply_cap, FZN_REPLY_MALFORMED, NULL);
 
+	if (request.parsed != FZN_VERB_STATUS && remote_admin(admin, req->sender)) {
+		/* EVERY VERB, as this node's own user's, sec 543: the holder's of
+		 * 2026-10-08, on a node configured to take them from an admin. */
+		if (admin->remote_ran) {
+			size_t said = 0, words = 0;
+
+			while (said < line_len && words < 2u) {
+				if (line[said] == ' ' && (said == 0u || line[said - 1u] != ' '))
+					words++;
+				if (words < 2u)
+					said++;
+			}
+			admin->remote_ran(admin->remote_ran_ctx, req->sender, line, said);
+		}
+		return fzn_node_admin_handle(admin, FZN_AUTHZ_GRANTED_BY_CHAIN, FZN_ORIGIN_SAME_USER, NULL,
+		                             &request, out, reply_cap);
+	}
 	if (fzn_verb_mutates(request.parsed))
 		return answer_text(out, reply_cap, FZN_REPLY_DENIED,
 		                   "a remote caller may not change this node");

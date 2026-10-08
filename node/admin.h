@@ -165,6 +165,12 @@ typedef struct fzn_node_admin {
 	/* The same settings, typed, which the retention verbs write once this
 	 * node has them (sec 541); NULL keeps the older record kinds. */
 	struct fzn_node_settings *settings;
+	/* TOLD OF EVERY VERB AN ADMIN RAN HERE REMOTELY, sec 543: who, and the
+	 * verb and its subject -- not the rest of the line, which may carry a
+	 * key or a secret. NULL tells nobody. */
+	void (*remote_ran)(void *ctx, const uint8_t *sender, const uint8_t *verb_and_subject,
+	                   size_t len);
+	void *remote_ran_ctx;
 	/* A JOURNAL MESSAGE from a member, sec 501 (`record/exchange.h`):
 	 * answered from this node's journal, or 0 to fall through. NULL keeps
 	 * no journal. Never a contact's: the estate's acts are the estate's. */

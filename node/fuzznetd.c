@@ -371,6 +371,15 @@ static const uint8_t *here_machine(void)
 }
 
 #ifdef FZN_RECORD_STORE_FILE_ON
+/* A VERB AN ADMIN RAN HERE REMOTELY, sec 543: said, with who ran it, so a
+ * node's log shows what was done to it from elsewhere. */
+static void remote_ran(void *ctx, const uint8_t *sender, const uint8_t *what, size_t len)
+{
+	(void)ctx;
+	say(FZN_ENTRY_NOTE, "node/remote-admin", "%02x%02x%02x%02x ran %.*s", sender[0], sender[1],
+	    sender[2], sender[3], (int)len, (const char *)what);
+}
+
 /* THE ESTATE'S CONFIGURATION, sec 540: set by verbs, carried by the journal,
  * judged and kept by the apply context. */
 static fzn_node_settings_t node_settings;
@@ -3677,6 +3686,7 @@ int main(int argc, char **argv)
 				admin.settings_local = fzn_node_settings_local;
 				admin.settings_ctx = &node_settings;
 				admin.settings = &node_settings;
+				admin.remote_ran = remote_ran;
 				apply_journal();
 				retention_to_settings(&identity);
 				/* THE ESTATE'S k AS A ROOT SET IT, sec 542, from the start

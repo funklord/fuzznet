@@ -343,6 +343,36 @@ static uint64_t settings_clock(void)
 	return 1000u;
 }
 
+/* What the remote-verb hook was told last. */
+static char remote_heard[64];
+
+static void remote_ran_stub(void *ctx, const uint8_t *sender, const uint8_t *what, size_t len)
+{
+	(void)ctx;
+	(void)sender;
+	snprintf(remote_heard, sizeof(remote_heard), "%.*s", (int)len, (const char *)what);
+}
+
+/* `line` from `sender` as a member's remote request: its reply's kind. */
+static fzn_reply_t remote_said(fzn_node_admin_t *admin, const uint8_t *sender, const char *line,
+                               uint8_t *out, size_t cap)
+{
+	const uint8_t *detail = NULL;
+	size_t detail_len = 0, n;
+	fzn_opened_t rq;
+
+	memset(&rq, 0, sizeof(rq));
+	rq.capability = admin->state->config.remote_capability.b;
+	rq.sender = sender;
+	rq.payload = (const uint8_t *)line;
+	rq.payload_len = strlen(line);
+	n = fzn_node_admin_remote(admin, FZN_NODE_REMOTE_GRANTED, &rq, out, cap);
+	/* THE LINE'S TERMINATOR OFF, as `ask` takes it off. */
+	if (n && out[n - 1u] == '\n')
+		n--;
+	return n ? fzn_reply_of(out, n, &detail, &detail_len) : FZN_REPLY_NONE;
+}
+
 /* Whether this host's setting for `rule_text`'s rule is in force. */
 static int rule_in_settings(const fzn_node_settings_t *ns, fzn_scope_t scope,
                             const uint8_t *about, const char *rule_text)
@@ -2018,6 +2048,53 @@ int main(void)
 			              && (!admin.revocations || admin.revocations->quorum == k_was),
 			      "a node that is no root set the estate's k");
 			ap.root = node.id.pubkey;
+		}
+
+		/* REMOTE VERBS, sec 543: every verb, as this node's own user's, from a
+		 * sender judged an admin or a root, on a node whose setting says
+		 * so; off by default. The node is the root here, so the root's own
+		 * key is the admin sending. */
+		{
+			uint8_t stranger[FZN_PUBKEY_LEN], out[2048];
+
+			memset(stranger, 0x6d, sizeof(stranger));
+			admin.remote_ran = remote_ran_stub;
+			remote_heard[0] = '\0';
+			CHECK(remote_said(&admin, node.id.pubkey, "add retention prune * age 13d", out,
+			                  sizeof(out))
+			                      == FZN_REPLY_DENIED
+			              && remote_heard[0] == '\0',
+			      "a remote verb was run on a node not configured to take them");
+			CHECK(fzn_node_settings_write(&ns, FZN_SCOPE_HOST, node.id.pubkey,
+			                              (const uint8_t *)"remote/admin", 12u, 1,
+			                              (const uint8_t *)"on", 2u)
+			                      == FZN_NODE_SETTINGS_OK
+			              && remote_said(&admin, node.id.pubkey, "add retention prune * age 13d",
+			                             out, sizeof(out))
+			                         == FZN_REPLY_OK
+			              && rule_in_settings(&ns, FZN_SCOPE_HOST, node.id.pubkey,
+			                                  "prune * age 13d")
+			              && strcmp(remote_heard, "add retention") == 0
+			              && remote_said(&admin, node.id.pubkey, "list retention", out,
+			                             sizeof(out))
+			                         == FZN_REPLY_OK,
+			      "with remote/admin on, a root's remote verbs were not run as the owner's, "
+			      "or the hook was told more than the verb and its subject");
+			CHECK(remote_said(&admin, stranger, "add retention prune * age 14d", out,
+			                  sizeof(out))
+			                      == FZN_REPLY_DENIED
+			              && !rule_in_settings(&ns, FZN_SCOPE_HOST, node.id.pubkey,
+			                                   "prune * age 14d"),
+			      "a member judged no admin ran a remote verb");
+			CHECK(fzn_node_settings_write(&ns, FZN_SCOPE_HOST, node.id.pubkey,
+			                              (const uint8_t *)"remote/admin", 12u, 1,
+			                              (const uint8_t *)"off", 3u)
+			                      == FZN_NODE_SETTINGS_OK
+			              && remote_said(&admin, node.id.pubkey, "remove retention prune * age 13d",
+			                             out, sizeof(out))
+			                         == FZN_REPLY_DENIED,
+			      "with remote/admin off again, a remote verb still ran");
+			admin.remote_ran = NULL;
 		}
 
 		/* AND THE OLDER ROWS MOVED: a rule left in slot 26 becomes this

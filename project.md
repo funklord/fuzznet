@@ -60129,9 +60129,8 @@ Settled, each the option recommended:
 
 Still open, and the holder's:
 
-5. **Remote verbs**: confirmed off by default per node, but not yet which
-   verbs may ever be remote -- in particular pairing, revocation and
-   erasing data. Needed by stage 3.
+5. **Remote verbs: every verb**, on a node configured to take them, off
+   by default -- settled 2026-10-08, built as sec 543.
 6. **How long a clear (a deleted setting) is remembered.** Forgotten too
    soon, a node returning with the old value can bring it back. Needed by
    stage 4; the obvious bound is the window plus the longest a node may be
@@ -60499,3 +60498,33 @@ Measured: apply_test 36 and admin_test 207 checks; three new sabotage
 entries -- root rank only, the range, and the verb's refusal -- each
 probed caught, and one re-anchored. fuzznetd's per-round application of k
 is not reached by a suite.
+
+## 543. Stage 3: every verb remotely, on a node configured for it, 2026-10-08
+
+The holder settled sec 535's decision 5: on a node configured to allow
+it, **every** verb may be run remotely, erasing included. And the frame
+for reading the ranks: "An estate isn't normally a collection of users,
+it is a distributed system used mostly by a single user (but we have
+automation which might not be distinguishable from a user)". Root, admin
+and host are standings among one person's machines and automation, not
+between people.
+
+- **`remote/admin` = `on`**, this host's own setting, opens it; off by
+  default. Like any setting, an admin or a root can set it for a host.
+- **The caller must be judged an admin or a root** by
+  `fzn_node_apply_rank`, the call that judges a setting's setter. A
+  member below that, and a contact (answered before verbs are reached),
+  are refused.
+- **The verb then runs as the node's own user's** (`fzn_node_admin_handle`
+  with that origin), so every verb behaves remotely as it does locally.
+- **Each is told to `remote_ran`**, which fuzznetd logs under
+  `node/remote-admin` with the caller -- the verb and its subject only,
+  since the rest of a line can carry a key.
+- The caller's side exists already: `fuzznetd --ask LINE --node=ROOT --to
+  HOST PORT`.
+
+Measured: admin_test 211 checks -- off refuses, on runs a mutating verb
+and a listing as the owner's, a member below admin is refused, off again
+refuses, the hook hears only "add retention" -- and three sabotage
+entries, each probed caught. Not tested: a caller of host rank, since the
+fixture's only key with a chain is the root's.

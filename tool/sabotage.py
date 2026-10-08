@@ -10046,6 +10046,27 @@ SABOTAGES = [
 		"a node that is no root writes the estate's k -- secs 418, 542",
 	),
 	(
+		"admin-remote-needs-setting-on",
+		"node/admin.c",
+		"\t    || len != 2u || memcmp(value, \"on\", 2u) != 0)\n\t\treturn 0;",
+		"\t    )\n\t\treturn 0;",
+		"a node set to take no remote verbs takes them anyway -- sec 543",
+	),
+	(
+		"admin-remote-needs-standing",
+		"node/admin.c",
+		"\treturn fzn_node_apply_rank(admin->settings->apply, sender, FZN_SCOPE_HOST, admin->id->pubkey,\n\t                           &rank)\n\t               == 1\n\t       && rank >= FZN_SETTING_RANK_ADMIN;",
+		"\t(void)rank;\n\treturn 1;",
+		"any member runs every verb remotely, not only an admin or a root -- sec 543",
+	),
+	(
+		"admin-remote-logs-verb-only",
+		"node/admin.c",
+		"\t\t\tadmin->remote_ran(admin->remote_ran_ctx, req->sender, line, said);",
+		"\t\t\tadmin->remote_ran(admin->remote_ran_ctx, req->sender, line, line_len);",
+		"a remote verb's whole line, a key or a secret in it, goes to the log -- sec 543",
+	),
+	(
 		"node-messages-give-as-sender",
 		"node/messages.c",
 		"\t\tif (fzn_messages_key_take(&nm->m, e, fzn_get_be32(e + FZN_PUBKEY_LEN), sender,",
