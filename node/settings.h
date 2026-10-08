@@ -115,6 +115,21 @@ fzn_node_settings_err_t fzn_node_settings_write(const fzn_node_settings_t *ns,
                                                 const uint8_t *key, size_t key_len, int set,
                                                 const uint8_t *value, size_t value_len);
 
+/* A RETENTION RULE'S KEY, sec 541: `retention/` and 32 hex digits of a hash
+ * of the rule's canonical text (`log/retain.h`), so one rule is one cell
+ * however it was spelt. 0 when the hash refuses. */
+#define FZN_NODE_SETTINGS_RULE_KEY_LEN (10u + 32u)
+int fzn_node_settings_rule_key(const fzn_hash_ops_t *hash, const char *text, size_t len,
+                               uint8_t key[FZN_NODE_SETTINGS_RULE_KEY_LEN]);
+
+/* THIS HOST'S OLDER RULES INTO ITS SETTINGS, sec 541: each rule kept in
+ * persist slot FZN_PERSIST_LOG_RULE (`log/rules.h`) written as the host
+ * `about`'s setting, then taken out of the slot. A rule this node may not
+ * write as a setting stays where it was. `*moved` counts the rules moved. */
+fzn_node_settings_err_t fzn_node_settings_take_rules(const fzn_node_settings_t *ns,
+                                                     const uint8_t about[FZN_SUBJECT_LEN],
+                                                     size_t *moved);
+
 /* The verbs above; 0 for a request that is not one. */
 size_t fzn_node_settings_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                                char *reply, size_t reply_cap);

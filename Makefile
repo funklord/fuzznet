@@ -3853,6 +3853,8 @@ $(BUILD_DIR)/node/test/admin_test.o: node/test/admin_test.c
 $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(FUZZNETD_JOURNAL_OBJS) \
               $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/local/client.o \
+              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/apply.o \
+              $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/contact/contact.o \
               $(BUILD_DIR)/contact/group.o \

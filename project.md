@@ -60445,3 +60445,32 @@ under another cell's place. `make livecheck` gains phases: a rule kept as
 this host's setting, set by the verb, trims a second conversation after a
 restart, and keeps applying. Twelve sabotage entries, each probed caught;
 three survived first and gained the cases named last above.
+
+## 541. Stage 2: retention rules move onto settings, 2026-10-08
+
+The first older kind moved onto sec 540's settings.
+
+- **`add retention` and `remove retention` write this host's settings** on
+  a node that keeps them, under `retention/` and 32 hex digits of a hash of
+  the rule's canonical text (`fzn_node_settings_rule_key`), so one rule is
+  one cell however spelt. `add estate-retention` and `remove
+  estate-retention` write the estate's, ranked as any setting is -- a
+  root, or an admin -- which is who the older kind allowed.
+- **The older kinds stay readable**: listings show slot 26 rows and the
+  older estate records beside the settings, and a removal reaches a rule
+  wherever it is. A removal that leaves the rule in force because a higher
+  rank holds it says so rather than answering ok.
+- **Slot 26 rows move into this host's settings at each start**
+  (`fzn_node_settings_take_rules`): written, then taken out of the slot. A
+  rule a node cannot yet write as a setting -- it stands in no estate --
+  stays and is tried again.
+- **Older estate records are not moved**: they are signed by their
+  setters, which no node can re-sign for. They are read until they are
+  removed.
+- A node without a journal keeps the older behaviour whole.
+
+Measured: admin_test 205 checks, a case with settings attached covering
+add, list, remove by another spelling, the older row removed, the estate's
+rule, and the move; five sabotage entries, each probed caught. Not covered
+by a test: the "a higher rank keeps the rule" answer, since the fixture's
+node is the root and nothing outranks it.

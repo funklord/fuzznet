@@ -5,6 +5,7 @@
 #include "peer_persist.h"
 #include "roots.h"
 #include "roster.h"
+#include "settings.h"
 #include "../provision/provision.h"
 #include "../contact/contact.h"
 #include "../contact/group.h"
@@ -1147,6 +1148,107 @@ static size_t get_group(fzn_node_admin_t *admin, const uint8_t *rest, size_t res
 /* `add retention RULE` and `remove retention RULE`: a rule of
  * `log/retain.h`'s, kept in the store and applied by the writer from its
  * next pass. Either spelling of a rule removes it. */
+/* ---- retention rules as settings, sec 541 ------------------------------ */
+
+/* A rule's key and its canonical text, which is its value. */
+#define RETENTION_KEY_LEN FZN_NODE_SETTINGS_RULE_KEY_LEN
+
+static int retention_cell(const fzn_node_admin_t *admin, const fzn_retain_rule_t *rule,
+                          uint8_t key[RETENTION_KEY_LEN], char text[FZN_RETAIN_TEXT_MAX],
+                          size_t *text_len)
+{
+	return fzn_retain_text(rule, text, FZN_RETAIN_TEXT_MAX, text_len) == FZN_RETAIN_OK
+	       && *text_len <= FZN_SETTING_VALUE_MAX
+	       && fzn_node_settings_rule_key(admin->state->hash, text, *text_len, key);
+}
+
+static size_t settings_refusal(char *reply, size_t cap, fzn_node_settings_err_t err)
+{
+	if (err == FZN_NODE_SETTINGS_REFUSED)
+		return answer_text(reply, cap, FZN_REPLY_ERROR,
+		                   "this node stands as neither a root nor an admin");
+	return answer_text(reply, cap,
+	                   err == FZN_NODE_SETTINGS_MALFORMED ? FZN_REPLY_MALFORMED : FZN_REPLY_ERROR,
+	                   fzn_node_settings_err_str(err));
+}
+
+/* SET OR CLEAR one rule as a setting of `scope` about `about`. A clear that
+ * leaves the rule in force -- a higher rank holds it -- says so. `*held`
+ * says whether a removal found the rule among the settings at all. */
+static size_t rule_as_setting(fzn_node_admin_t *admin, fzn_scope_t scope, const uint8_t *about,
+                              const fzn_retain_rule_t *rule, int add, int *held, char *reply,
+                              size_t cap)
+{
+	uint8_t key[RETENTION_KEY_LEN], value[FZN_SETTING_VALUE_MAX];
+	char text[FZN_RETAIN_TEXT_MAX];
+	size_t text_len = 0, value_len = 0;
+	fzn_setting_rank_t rank;
+	fzn_node_settings_err_t err;
+
+	*held = 1;
+	if (!retention_cell(admin, rule, key, text, &text_len))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "the rule does not fit a setting");
+	if (!add && !fzn_node_settings_get(admin->settings, scope, about, key, sizeof(key), value,
+	                                   &value_len, &rank)) {
+		*held = 0;
+		return 0;
+	}
+	err = fzn_node_settings_write(admin->settings, scope, about, key, sizeof(key), add,
+	                              (const uint8_t *)text, add ? text_len : 0u);
+	if (err != FZN_NODE_SETTINGS_OK)
+		return settings_refusal(reply, cap, err);
+	if (!add && fzn_node_settings_get(admin->settings, scope, about, key, sizeof(key), value,
+	                                  &value_len, &rank))
+		return answer_text(reply, cap, FZN_REPLY_ERROR,
+		                   "a higher rank keeps the rule, which this node's clear does not reach");
+	return answer_text(reply, cap, FZN_REPLY_OK, NULL);
+}
+
+/* THE RULES KEPT AS SETTINGS of `scope` about `about`, added to `rules`
+ * where their canonical text is not there already. */
+struct rule_list {
+	fzn_retain_rule_t *rules;
+	size_t cap, n, unread;
+	fzn_scope_t scope;
+	const uint8_t *about;
+};
+
+static int rule_listed(const struct rule_list *l, const fzn_retain_rule_t *rule)
+{
+	char a[FZN_RETAIN_TEXT_MAX], b[FZN_RETAIN_TEXT_MAX];
+	size_t a_len = 0, b_len = 0, i;
+
+	if (fzn_retain_text(rule, a, sizeof(a), &a_len) != FZN_RETAIN_OK)
+		return 0;
+	for (i = 0; i < l->n; i++)
+		if (fzn_retain_text(&l->rules[i], b, sizeof(b), &b_len) == FZN_RETAIN_OK
+		    && a_len == b_len && memcmp(a, b, a_len) == 0)
+			return 1;
+	return 0;
+}
+
+static void collect_rule(void *ctx, const fzn_setting_t *s, fzn_setting_rank_t rank)
+{
+	struct rule_list *l = (struct rule_list *)ctx;
+	fzn_retain_rule_t rule;
+
+	(void)rank;
+	if (s->scope != l->scope || memcmp(s->about, l->about, FZN_SUBJECT_LEN) != 0
+	    || s->key_len < 11u || memcmp(s->key, "retention/", 10u) != 0)
+		return;
+	if (fzn_retain_parse((const char *)s->value, s->value_len, &rule) != FZN_RETAIN_OK) {
+		l->unread++;
+		return;
+	}
+	if (rule_listed(l, &rule))
+		return;
+	if (l->n >= l->cap) {
+		l->unread++;
+		return;
+	}
+	l->rules[l->n++] = rule;
+}
+
 static size_t change_retention(fzn_node_admin_t *admin, int add, const uint8_t *rest,
                                size_t rest_len, char *reply, size_t cap)
 {
@@ -1158,6 +1260,24 @@ static size_t change_retention(fzn_node_admin_t *admin, int add, const uint8_t *
 		                   "prune|keep PROGRAM|* [level=LETTERS] [subsystem=PATH] "
 		                   "age|size|count N, or prune|keep messages [contact=KEY] "
 		                   "age|size|count N");
+	/* AS THIS HOST'S SETTING, sec 541, where this node keeps settings: an
+	 * admin's node then holds it too, and may set it. A removal also takes
+	 * the rule out of the store's older rows, where it may still be. */
+	if (admin->settings) {
+		int held = 1, legacy;
+		size_t n = rule_as_setting(admin, FZN_SCOPE_HOST, admin->id->pubkey, &rule, add, &held,
+		                           reply, cap);
+
+		if (add)
+			return n;
+		legacy = fzn_log_rules_remove(admin->store, admin->state->hash, &rule)
+		         == FZN_LOG_RULES_OK;
+		if (held)
+			return n;
+		return legacy ? answer_text(reply, cap, FZN_REPLY_OK, NULL)
+		              : answer_text(reply, cap, FZN_REPLY_ERROR,
+		                            fzn_log_rules_err_str(FZN_LOG_RULES_ERR_ABSENT));
+	}
 	err = add ? fzn_log_rules_add(admin->store, admin->state->hash, &rule,
 	                              admin->state->clock ? admin->state->clock() * 1000u : 0u)
 	          : fzn_log_rules_remove(admin->store, admin->state->hash, &rule);
@@ -1206,16 +1326,29 @@ static size_t rules_reply(const fzn_retain_rule_t *rules, size_t count, char *re
 	return answer(reply, cap, FZN_REPLY_OK, detail, used);
 }
 
-/* `list retention`: this node's own rules. */
+/* `list retention`: this node's own rules -- the store's older rows, and
+ * since sec 541 this host's settings. */
 static size_t list_retention(fzn_node_admin_t *admin, char *reply, size_t cap)
 {
-	static fzn_retain_rule_t rules[FZN_LOG_RULES_MAX];
+	static fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX];
 	size_t count = 0;
 	fzn_log_rules_err_t err = fzn_log_rules_list(admin->store, rules, FZN_LOG_RULES_MAX, &count);
+	struct rule_list l;
 
 	if (err != FZN_LOG_RULES_OK)
 		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_log_rules_err_str(err));
-	return rules_reply(rules, count, reply, cap);
+	l.rules = rules;
+	l.cap = FZN_RETAIN_RULES_MAX;
+	l.n = count;
+	l.unread = 0;
+	l.scope = FZN_SCOPE_HOST;
+	l.about = admin->id->pubkey;
+	if (admin->settings
+	    && (fzn_node_settings_each(admin->settings, collect_rule, &l) != FZN_NODE_SETTINGS_OK
+	        || l.unread))
+		return answer_text(reply, cap, FZN_REPLY_ERROR,
+		                   "a rule kept as a setting does not read, or past what one list holds");
+	return rules_reply(rules, l.n, reply, cap);
 }
 
 /* `add estate-retention RULE` and `remove estate-retention RULE`: one of the
@@ -1233,6 +1366,17 @@ static size_t change_estate_retention(fzn_node_admin_t *admin, int add, const ui
 		                   "prune|keep PROGRAM|* [level=LETTERS] [subsystem=PATH] "
 		                   "age|size|count N, or prune|keep messages [contact=KEY] "
 		                   "age|size|count N");
+	/* AS THE ESTATE'S SETTING, sec 541, where this node keeps settings: its
+	 * rank, a root's or an admin's, is judged as any setting's is. A rule
+	 * only the older records hold is removed the older way, below. */
+	if (admin->settings && admin->settings->estate) {
+		int held = 1;
+		size_t n = rule_as_setting(admin, FZN_SCOPE_ESTATE, admin->settings->estate, &rule, add,
+		                           &held, reply, cap);
+
+		if (add || held)
+			return n;
+	}
 	err = fzn_node_roots_set_retention(admin->roots, admin->store, admin->id->pubkey,
 	                                   admin->id->sign, &rule, add);
 	/* NO ROOT HERE, AN ADMIN PERHAPS, sec 479: the holder's "admin (and
@@ -1271,6 +1415,22 @@ static size_t list_estate_retention(fzn_node_admin_t *admin, char *reply, size_t
 	if (unread)
 		return answer_text(reply, cap, FZN_REPLY_ERROR,
 		                   "an estate rule is not one this node reads");
+	/* AND THE ESTATE'S SETTINGS, sec 541. */
+	if (admin->settings && admin->settings->estate) {
+		struct rule_list l;
+
+		l.rules = rules;
+		l.cap = FZN_NODE_ROOT_RETENTION_MAX;
+		l.n = count;
+		l.unread = 0;
+		l.scope = FZN_SCOPE_ESTATE;
+		l.about = admin->settings->estate;
+		if (fzn_node_settings_each(admin->settings, collect_rule, &l) != FZN_NODE_SETTINGS_OK
+		    || l.unread)
+			return answer_text(reply, cap, FZN_REPLY_ERROR,
+			                   "an estate rule kept as a setting does not read");
+		count = l.n;
+	}
 	return rules_reply(rules, count, reply, cap);
 }
 

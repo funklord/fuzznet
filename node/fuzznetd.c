@@ -404,6 +404,22 @@ static void setting_rule(void *ctx, const fzn_setting_t *s, fzn_setting_rank_t r
 }
 #endif
 
+#ifdef FZN_RECORD_STORE_FILE_ON
+/* THIS HOST'S OLDER RULES INTO ITS SETTINGS, sec 541, at every start: a
+ * rule this node could not yet write as a setting -- it stands nowhere in an
+ * estate -- is tried again. */
+static void retention_to_settings(const fzn_node_identity_t *id)
+{
+	size_t moved = 0;
+
+	if (fzn_node_settings_take_rules(&node_settings, id->pubkey, &moved) != FZN_NODE_SETTINGS_OK)
+		say(FZN_ENTRY_WARNING, "log", "this host's older retention rules did not read");
+	else if (moved)
+		say(FZN_ENTRY_INFO, "log", "%zu retention rule(s) moved into this host's settings",
+		    moved);
+}
+#endif
+
 /* EVERY RULE THERE IS, sec 531: the command line's, the store's (sec 475)
  * and the estate's (sec 476), as one set, whatever data each names; and since
  * sec 540 those kept as settings. A store whose rules will not read applies
@@ -3660,7 +3676,9 @@ int main(int argc, char **argv)
 				node_apply.settings = &node_settings;
 				admin.settings_local = fzn_node_settings_local;
 				admin.settings_ctx = &node_settings;
+				admin.settings = &node_settings;
 				apply_journal();
+				retention_to_settings(&identity);
 			}
 #endif
 			state.on_local = fzn_node_admin_handle;

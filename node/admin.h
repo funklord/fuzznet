@@ -162,6 +162,9 @@ typedef struct fzn_node_admin {
 	size_t (*settings_local)(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
 	                         char *reply, size_t reply_cap);
 	void *settings_ctx;
+	/* The same settings, typed, which the retention verbs write once this
+	 * node has them (sec 541); NULL keeps the older record kinds. */
+	struct fzn_node_settings *settings;
 	/* A JOURNAL MESSAGE from a member, sec 501 (`record/exchange.h`):
 	 * answered from this node's journal, or 0 to fall through. NULL keeps
 	 * no journal. Never a contact's: the estate's acts are the estate's. */

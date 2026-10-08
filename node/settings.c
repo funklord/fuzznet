@@ -3,7 +3,7 @@
 #include "settings.h"
 
 #include "apply.h"
-#include "../wire/bytes.h"
+#include "../log/rules.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -213,6 +213,58 @@ fzn_node_settings_err_t fzn_node_settings_write(const fzn_node_settings_t *ns,
 	    != FZN_NODE_JOURNAL_OK)
 		return FZN_NODE_SETTINGS_JOURNAL;
 	return fzn_node_settings_learn(ns, bytes, len, rank);
+}
+
+int fzn_node_settings_rule_key(const fzn_hash_ops_t *hash, const char *text, size_t len,
+                               uint8_t key[FZN_NODE_SETTINGS_RULE_KEY_LEN])
+{
+	uint8_t h[16];
+	size_t i;
+
+	if (!hash || !hash->hash || !text || !key
+	    || !hash->hash(hash->ctx, h, sizeof(h), (const uint8_t *)text, len))
+		return 0;
+	memcpy(key, "retention/", 10u);
+	for (i = 0; i < sizeof(h); i++) {
+		key[10u + (2u * i)] = (uint8_t)HEX[h[i] >> 4];
+		key[11u + (2u * i)] = (uint8_t)HEX[h[i] & 15u];
+	}
+	return 1;
+}
+
+fzn_node_settings_err_t fzn_node_settings_take_rules(const fzn_node_settings_t *ns,
+                                                     const uint8_t about[FZN_SUBJECT_LEN],
+                                                     size_t *moved)
+{
+	static fzn_retain_rule_t held[FZN_LOG_RULES_MAX];
+	size_t n = 0, i;
+
+	if (!moved)
+		return FZN_NODE_SETTINGS_MALFORMED;
+	*moved = 0;
+	if (!ready(ns) || !about)
+		return FZN_NODE_SETTINGS_MALFORMED;
+	if (fzn_log_rules_list(ns->store, held, FZN_LOG_RULES_MAX, &n) != FZN_LOG_RULES_OK)
+		return FZN_NODE_SETTINGS_BACKEND;
+	for (i = 0; i < n; i++) {
+		char text[FZN_RETAIN_TEXT_MAX];
+		uint8_t key[FZN_NODE_SETTINGS_RULE_KEY_LEN];
+		size_t len = 0;
+
+		/* WRITTEN, THEN TAKEN OUT: a crash between leaves the rule in both,
+		 * which the next start finishes. */
+		if (fzn_retain_text(&held[i], text, sizeof(text), &len) != FZN_RETAIN_OK
+		    || len > FZN_SETTING_VALUE_MAX
+		    || !fzn_node_settings_rule_key(ns->hash, text, len, key)
+		    || fzn_node_settings_write(ns, FZN_SCOPE_HOST, about, key, sizeof(key), 1,
+		                               (const uint8_t *)text, len)
+		               != FZN_NODE_SETTINGS_OK)
+			continue;
+		if (fzn_log_rules_remove(ns->store, ns->hash, &held[i]) != FZN_LOG_RULES_OK)
+			return FZN_NODE_SETTINGS_BACKEND;
+		(*moved)++;
+	}
+	return FZN_NODE_SETTINGS_OK;
 }
 
 /* ---- the verbs ------------------------------------------------------------ */

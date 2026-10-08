@@ -16,6 +16,9 @@
 #include "../admin.h"
 #include "../roots.h"
 #include "../journal.h"
+#include "../apply.h"
+#include "../settings.h"
+#include "../../log/rules.h"
 #include "../roster.h"
 #include "../succession.h"
 #include "../identity.h"
@@ -325,6 +328,38 @@ static void hex(const uint8_t *in, size_t len, char *out)
 /* One request over a socketpair, served by the admin handler, the reply read
  * by the client library as a caller would. */
 /* Whether a reply's detail, `len` bytes and not terminated, holds `what`. */
+/* The count a listing of rules begins with. */
+static size_t rules_counted(const uint8_t *detail, size_t len)
+{
+	size_t i, n = 0;
+
+	for (i = 0; i < len && detail[i] >= '0' && detail[i] <= '9'; i++)
+		n = (n * 10u) + (size_t)(detail[i] - '0');
+	return n;
+}
+
+static uint64_t settings_clock(void)
+{
+	return 1000u;
+}
+
+/* Whether this host's setting for `rule_text`'s rule is in force. */
+static int rule_in_settings(const fzn_node_settings_t *ns, fzn_scope_t scope,
+                            const uint8_t *about, const char *rule_text)
+{
+	uint8_t key[FZN_NODE_SETTINGS_RULE_KEY_LEN], value[FZN_SETTING_VALUE_MAX];
+	char text[FZN_RETAIN_TEXT_MAX];
+	fzn_retain_rule_t rule;
+	fzn_setting_rank_t rank;
+	size_t len = 0, value_len = 0;
+
+	return fzn_retain_parse(rule_text, strlen(rule_text), &rule) == FZN_RETAIN_OK
+	       && fzn_retain_text(&rule, text, sizeof(text), &len) == FZN_RETAIN_OK
+	       && fzn_node_settings_rule_key(&hash_ops, text, len, key)
+	       && fzn_node_settings_get(ns, scope, about, key, sizeof(key), value, &value_len, &rank)
+	       && value_len == len && memcmp(value, text, len) == 0;
+}
+
 static int says(const uint8_t *detail, size_t len, const char *what)
 {
 	size_t n = strlen(what), i;
@@ -1865,6 +1900,124 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && detail_len == 1u && detail[0] == '0',
 		      "the rule was not removed by another spelling of it");
+	}
+
+	/* ---- RETENTION RULES AS SETTINGS, sec 541: with settings attached the
+	 * verbs write them, and a rule in the store's older rows is still
+	 * listed and removed. */
+	{
+		static fzn_node_apply_t ap;
+		static fzn_node_settings_t ns;
+		const fzn_hash_ops_t *was = state.hash;
+		size_t before = 0, estate_before = 0, n = 0, unread = 0;
+		fzn_retain_rule_t rules[8];
+
+		state.hash = &hash_ops;
+		CHECK(ask(&admin, &owner, "add retention prune * age 9d", reply, sizeof(reply),
+		          &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && ask(&admin, &owner, "list retention", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK,
+		      "fixture: a rule in the store's older rows, before settings are attached");
+		before = rules_counted(detail, detail_len);
+		memset(&ap, 0, sizeof(ap));
+		ap.journal = &journal;
+		ap.revocations = admin.revocations;
+		ap.store = admin.store;
+		ap.root = node.id.pubkey;
+		ap.capability = &state.config.remote_capability;
+		ap.sign = &node.sign;
+		ap.hash = &hash_ops;
+		ap.settings = &ns;
+		memset(&ns, 0, sizeof(ns));
+		ns.store = admin.store;
+		ns.hash = &hash_ops;
+		ns.verify = &node.sign;
+		ns.journal = &journal;
+		ns.id = &node.id;
+		ns.apply = &ap;
+		ns.estate = node.id.pubkey;
+		ns.now = settings_clock;
+		admin.settings = &ns;
+
+		CHECK(ask(&admin, &owner, "add retention prune fuzznetd age 3d", reply, sizeof(reply),
+		          &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && rule_in_settings(&ns, FZN_SCOPE_HOST, node.id.pubkey,
+		                                  "prune fuzznetd age 3d")
+		              && ask(&admin, &owner, "list retention", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && rules_counted(detail, detail_len) == before + 1u
+		              && says(detail, detail_len, "prune%20fuzznetd%20age%203d")
+		              && says(detail, detail_len, "prune%20*%20age%209d"),
+		      "a rule added with settings attached is not this host's setting, or the listing "
+		      "lost the older row");
+		CHECK(ask(&admin, &owner, "remove retention prune * age 216h", reply, sizeof(reply),
+		          &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && ask(&admin, &owner, "remove retention prune fuzznetd age 72h", reply,
+		                     sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && !rule_in_settings(&ns, FZN_SCOPE_HOST, node.id.pubkey,
+		                                   "prune fuzznetd age 3d")
+		              && ask(&admin, &owner, "list retention", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && rules_counted(detail, detail_len) == before - 1u,
+		      "the older row and the setting were not both removed, by other spellings");
+		CHECK(ask(&admin, &owner, "remove retention prune fuzznetd age 3d", reply,
+		          sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR,
+		      "removing a rule held nowhere was not refused");
+
+		CHECK(fzn_node_roots_retention(admin.roots, rules, 8u, &estate_before, &unread)
+		              == FZN_NODE_ROOTS_OK
+		              && ask(&admin, &owner, "add estate-retention prune * level=D age 5d", reply,
+		                     sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && rule_in_settings(&ns, FZN_SCOPE_ESTATE, node.id.pubkey,
+		                                  "prune * level=D age 5d")
+		              && fzn_node_roots_retention(admin.roots, rules, 8u, &n, &unread)
+		                         == FZN_NODE_ROOTS_OK
+		              && n == estate_before
+		              && ask(&admin, &owner, "list estate-retention", reply, sizeof(reply),
+		                     &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && rules_counted(detail, detail_len) == estate_before + 1u,
+		      "an estate rule added with settings attached is not the estate's setting, or "
+		      "went into the older records");
+		CHECK(ask(&admin, &owner, "remove estate-retention prune * level=D age 120h", reply,
+		          sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && !rule_in_settings(&ns, FZN_SCOPE_ESTATE, node.id.pubkey,
+		                                   "prune * level=D age 5d")
+		              && ask(&admin, &owner, "list estate-retention", reply, sizeof(reply),
+		                     &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && rules_counted(detail, detail_len) == estate_before,
+		      "the estate's setting was not removed by another spelling");
+		/* AND THE OLDER ROWS MOVED: a rule left in slot 26 becomes this
+		 * host's setting, and leaves the slot. */
+		{
+			size_t moved = 9, held = 9;
+
+			admin.settings = NULL;
+			CHECK(ask(&admin, &owner, "add retention prune * age 11d", reply, sizeof(reply),
+			          &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK
+			              && fzn_node_settings_take_rules(&ns, node.id.pubkey, &moved)
+			                         == FZN_NODE_SETTINGS_OK
+			              && moved == 1u
+			              && rule_in_settings(&ns, FZN_SCOPE_HOST, node.id.pubkey,
+			                                  "prune * age 11d")
+			              && fzn_log_rules_list(admin.store, rules, 8u, &held)
+			                         == FZN_LOG_RULES_OK
+			              && held == before - 1u,
+			      "an older row was not moved into this host's settings, or stayed in the "
+			      "slot");
+		}
+		admin.settings = NULL;
+		state.hash = was;
 	}
 
 	/* ---- WHAT IT DOES NOT SERVE, IT SAYS SO. */
