@@ -4916,6 +4916,21 @@ sancheck:
 	@echo "sancheck: the suite under AddressSanitizer and UBSan"
 	@$(MAKE) --no-print-directory runtests BUILD_DIR=$(BUILD_DIR)-san SANITIZE=1
 
+# A SUB-MAKE WHOSE OUTPUT IS READ, as data, rather than one that builds.
+# sec 525. Make runs a recipe line naming $(MAKE) even under `make -n`, and
+# the sub-make inherits the -n, so it prints its recipe's commands where the
+# caller expected the target's output: `make -n style` harvested `echo`,
+# `for` and `printf` as manifest kinds and failed naming the README, and
+# `make -n installcheck` would have written commands into manifest.txt.
+#
+# THE INDIRECTION IS THE FIX. Make marks a line recursive only when its
+# recipe text names $(MAKE) or ${MAKE} itself -- measured with GNU make
+# 4.4.1, a line naming it through this variable is printed under -n like any
+# other and not run. So a dry run of `style` or `installcheck` stays dry
+# here, and a real run is unchanged. $(MAKE) stays literal where the sub-make
+# builds, so that -n reaches it.
+MAKE_READ = $(MAKE)
+
 # STYLE BUILDS WHAT IT INSPECTS, since sec 231. The renderer sweep reads
 # `nm` over $(SRCS)'s objects and the guard above refuses when one is
 # missing -- correctly, since a sweep over a subset reports a pass over less
@@ -5511,7 +5526,7 @@ style: $(OBJS)
 	@# somewhere in README.md as a backticked word, so the paragraph can be
 	@# rewritten freely and only a kind going unmentioned fails. A gate over
 	@# wording would be a gate somebody deletes.
-	@kinds=`$(MAKE) -s --no-print-directory manifest 2>/dev/null \
+	@kinds=`$(MAKE_READ) -s --no-print-directory manifest 2>/dev/null \
 	        | awk '{ print $$1 }' | grep -v '^#' | sort -u`; \
 	n=`echo "$$kinds" | grep -c .`; \
 	if [ "$$n" -eq 0 ]; then \
@@ -6372,7 +6387,7 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 	@# in. The bindings are emitted under `binding` and not compiled here,
 	@# which is what the split means.
 	@echo "installcheck: against the manifest a foreign build would read"
-	@$(MAKE) --no-print-directory manifest > $(BUILD_DIR)/installcheck/manifest.txt
+	@$(MAKE_READ) --no-print-directory manifest > $(BUILD_DIR)/installcheck/manifest.txt
 	@srcs=; incs=; \
 	while read -r key val; do \
 		case "$$key" in \

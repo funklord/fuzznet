@@ -59100,3 +59100,57 @@ re-anchored. The cache entry now names `stream_fd`'s compare, since
 `forget` repeats it. The refused-entry case first survived its sabotage:
 the test looked only after the next write, which overwrote the leftover.
 It now checks at once.
+
+## 525. A dry run of style and installcheck stays dry, 2026-10-08
+
+claude-guidelines reported through `.git/cc-inbox/` on 2026-10-07 that
+`make -n style` exits 2 while `make style` passes. It names "echo for printf
+`sed" as manifest kinds the README does not name. Their diagnosis is right,
+and the cause is as they described it:
+- make runs any recipe line naming `$(MAKE)` even under `-n`;
+- the sub-make inherits the `-n`, so the kinds check harvested the
+  `manifest` recipe's printed commands instead of its output.
+
+### The fix
+
+`MAKE_READ` names a sub-make whose output is read as data. A line naming
+`$(MAKE)` through it is not marked recursive: under `-n` it is printed like
+any other line and not run. Make marks a line recursive only when its
+recipe text names `$(MAKE)` or `${MAKE}` itself, measured with GNU make
+4.4.1. A real run is unchanged.
+
+There are two such sites:
+- the kinds check in `style`;
+- installcheck's `make manifest > .../installcheck/manifest.txt`. Under
+  `-n` this would have written commands into the file, the overwritten
+  artifact ossacli reported for its own tree.
+
+### The other remedy, and why it lost
+
+The first draft took the `n` out of MAKEFLAGS for the sub-make, so that the
+check would run for real under `-n`. Measuring showed the indirection
+alone already kept the line from running. The `sed` was dead code, and a
+dry run that executes is the thing `-n` promises not to do.
+
+### Measured for sec 525
+
+| run | before | after |
+|---|---|---|
+| `make -n style` | exit 2, with the reported message | exit 0, the kinds line printed and not run |
+| `make style` | | "11 manifest kinds, each named in README.md" |
+| `make -n installcheck` | | exit 0, no `manifest.txt` written |
+| `make installcheck`, and with `-j4` | | pass, no jobserver warning |
+
+**The control:** with the kinds line put back to a literal `$(MAKE)`, `make
+-n style` exits 2 again with the message the inbox quoted.
+
+### Not changed
+
+- **qtty's build** runs `$(MAKE)` in a scratch checkout of qtty. That
+  sub-make builds, so `-n` should reach it, and it does. Under `make -n
+  qtty` the line still runs: it takes a real `git archive` and runs a real
+  qmake, then a printing sub-build. It then fails, finding no
+  `libqtty.a`. Making that target dry is a separate question from this
+  one.
+- The other `$(MAKE)` lines start builds or test runs, and none reads what
+  the sub-make prints.
