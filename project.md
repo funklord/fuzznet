@@ -60564,3 +60564,21 @@ The steps, in order:
 Decision 6, the holder's of 2026-10-08: a clear is remembered for the
 window. Past it no journal holds the older records, and a node away
 longer rejoins by state transfer, which replaces its store.
+
+## 545. Stage 4, step 1: grants kept, so chains outlive a cut, 2026-10-08
+
+Sec 544's first step. The grant index lived only in memory and was
+rebuilt by replaying the journal, so a cut journal would leave no chain
+to rebuild and every act after it waiting.
+
+- **Every grant applied is kept** in core persist slot 39,
+  `FZN_PERSIST_GRANT`, under a hash of the hop's bytes. A grant that will
+  not keep is not applied, and comes round again.
+- **`fzn_node_apply_load_grants`** fills the index from the slot. fuzznetd
+  calls it before the first round, so chains no longer depend on replay. A
+  row that is not the hop its place names refuses the whole load rather
+  than half loading it.
+
+Measured: apply_test 38 checks -- a fresh context rebuilds a member's
+chain from the store alone, loads nothing twice, and refuses a misplaced
+row -- with two sabotage entries, each probed caught.

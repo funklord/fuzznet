@@ -279,13 +279,18 @@ typedef enum fzn_persist_slot {
 	 * estate's configuration, its permissions and rules among it.
 	 * `node/settings.h` keeps it. sec 540. */
 	FZN_PERSIST_SETTING = 38u,
+	/* Per hop, keyed by a hash of its bytes: a grant the journal carried,
+	 * as its grantor signed it, so a chain is rebuilt without replaying a
+	 * journal that may be cut. CORE: grants are authority. `node/apply.h`
+	 * keeps it. sec 545. */
+	FZN_PERSIST_GRANT = 39u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 39u
+#define FZN_PERSIST_SLOT_END 40u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,

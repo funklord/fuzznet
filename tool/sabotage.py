@@ -10067,6 +10067,20 @@ SABOTAGES = [
 		"a remote verb's whole line, a key or a secret in it, goes to the log -- sec 543",
 	),
 	(
+		"apply-grant-kept",
+		"node/apply.c",
+		"\tif (!grant_row(ap, body, row)\n\t    || !ap->store->save(ap->store->ctx, FZN_PERSIST_GRANT, row, body, FZN_HOP_LEN)) {",
+		"\tif (0) {",
+		"a grant lives only in memory, so a cut journal leaves no chain to rebuild -- sec 545",
+	),
+	(
+		"apply-grant-row-is-its-hop",
+		"node/apply.c",
+		"\t\t    || len != FZN_HOP_LEN || !grant_row(ap, hop, again)\n\t\t    || memcmp(again, rows + (i * FZN_PUBKEY_LEN), FZN_PUBKEY_LEN) != 0)",
+		"\t\t    || len != FZN_HOP_LEN)",
+		"a hop filed under another's place is loaded as a grant -- sec 545",
+	),
+	(
 		"node-messages-give-as-sender",
 		"node/messages.c",
 		"\t\tif (fzn_messages_key_take(&nm->m, e, fzn_get_be32(e + FZN_PUBKEY_LEN), sender,",

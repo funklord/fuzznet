@@ -53,29 +53,87 @@ int fzn_node_apply_chain(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKE
 	return 1;
 }
 
-static enum outcome index_grant(fzn_node_apply_t *ap, const uint8_t *body, size_t len,
-                                fzn_node_apply_tally_t *tally)
+/* A grant's row in FZN_PERSIST_GRANT: a hash of the hop's bytes. */
+static int grant_row(const fzn_node_apply_t *ap, const uint8_t *hop, uint8_t row[FZN_PUBKEY_LEN])
+{
+	return ap->hash->hash(ap->hash->ctx, row, FZN_PUBKEY_LEN, hop, FZN_HOP_LEN);
+}
+
+/* Add `body` (a hop) to the in-memory index: 1 added, 0 held already, -1
+ * not a hop or no room. */
+static int index_add(fzn_node_apply_t *ap, const uint8_t *body, size_t len)
 {
 	fzn_chain_hop_t hop;
 	fzn_node_grant_t *g;
 	size_t i;
 
 	if (len != FZN_HOP_LEN || fzn_hop_open(body, len, &hop) != FZN_CHAIN_OK)
-		return REFUSED;
+		return -1;
 	for (i = 0; i < ap->grants_used; i++)
 		if (memcmp(ap->grants[i].hop, body, FZN_HOP_LEN) == 0)
-			return APPLIED;
+			return 0;
 	/* A FULL INDEX REFUSES rather than evicting: a grant forgotten is a
 	 * chain nothing can rebuild, and every vote under it would wait. */
 	if (ap->grants_used >= FZN_NODE_APPLY_GRANTS_MAX)
-		return REFUSED;
+		return -1;
 	g = &ap->grants[ap->grants_used++];
 	memcpy(g->hop, body, FZN_HOP_LEN);
 	memcpy(g->grantor, fzn_hop_grantor(hop), FZN_PUBKEY_LEN);
 	memcpy(g->grantee, fzn_hop_grantee(hop), FZN_PUBKEY_LEN);
 	g->capability = *fzn_hop_capability(hop);
-	tally->grants++;
+	return 1;
+}
+
+static enum outcome index_grant(fzn_node_apply_t *ap, const uint8_t *body, size_t len,
+                                fzn_node_apply_tally_t *tally)
+{
+	uint8_t row[FZN_PUBKEY_LEN];
+	int added = index_add(ap, body, len);
+
+	if (added < 0)
+		return REFUSED;
+	/* KEPT AS WELL AS INDEXED, sec 545, so the chain outlives the journal
+	 * that carried it: a grant not kept is not applied, and is asked again
+	 * next round. */
+	if (!grant_row(ap, body, row)
+	    || !ap->store->save(ap->store->ctx, FZN_PERSIST_GRANT, row, body, FZN_HOP_LEN)) {
+		if (added)
+			ap->grants_used--;
+		return NOT_SAVED;
+	}
+	if (added)
+		tally->grants++;
 	return APPLIED;
+}
+
+int fzn_node_apply_load_grants(fzn_node_apply_t *ap, size_t *loaded)
+{
+	static uint8_t rows[FZN_NODE_APPLY_GRANTS_MAX * FZN_PUBKEY_LEN];
+	uint8_t hop[FZN_HOP_LEN], again[FZN_PUBKEY_LEN];
+	size_t n = 0, i, len = 0;
+	int added;
+
+	if (!loaded)
+		return 0;
+	*loaded = 0;
+	if (!ap || !ap->store || !ap->store->list || !ap->store->load || !ap->hash || !ap->hash->hash
+	    || !ap->store->list(ap->store->ctx, FZN_PERSIST_GRANT, rows, FZN_NODE_APPLY_GRANTS_MAX,
+	                        &n))
+		return 0;
+	for (i = 0; i < n; i++) {
+		/* WHAT IT SAYS IT IS, under its own place: a hop filed under
+		 * another's hash is not that grant. */
+		if (!ap->store->load(ap->store->ctx, FZN_PERSIST_GRANT, rows + (i * FZN_PUBKEY_LEN), hop,
+		                     sizeof(hop), &len)
+		    || len != FZN_HOP_LEN || !grant_row(ap, hop, again)
+		    || memcmp(again, rows + (i * FZN_PUBKEY_LEN), FZN_PUBKEY_LEN) != 0)
+			return 0;
+		added = index_add(ap, hop, len);
+		if (added < 0)
+			return 0;
+		*loaded += (size_t)added;
+	}
+	return 1;
 }
 
 /* An object through the vote stream's admission, under `signer`'s chain --

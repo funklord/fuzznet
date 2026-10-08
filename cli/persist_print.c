@@ -108,6 +108,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "a conversation line as the store keeps it";
 	case FZN_PERSIST_SETTING:
 		return "a setting of the estate's configuration, at one rank";
+	case FZN_PERSIST_GRANT:
+		return "a grant the journal carried, kept so chains outlive it";
 	}
 	*known = 0;
 	return "an unknown slot";

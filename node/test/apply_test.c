@@ -125,6 +125,15 @@ static int mem_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, 
 	return 1;
 }
 
+/* Forget a row, for a case that planted one. */
+static void mem_remove_row(fzn_persist_slot_t slot, const uint8_t *subject)
+{
+	struct row *r = row_of(slot, subject, 0);
+
+	if (r)
+		memset(r, 0, sizeof(*r));
+}
+
 static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
                     const uint8_t *bytes, size_t len)
 {
@@ -263,6 +272,34 @@ static void test_the_journal_applied(void)
 		              && fzn_node_apply_chain(&ap, r, &cap, hops, &n) && n == 0u
 		              && !fzn_node_apply_chain(&ap, s, &cap, hops, &n),
 		      "the index did not rebuild M's chain, a root's empty one, and no stranger's");
+	}
+	/* THE GRANTS KEPT, sec 545: a fresh context, with no journal round at
+	 * all, rebuilds M's chain from the store alone. */
+	{
+		static fzn_node_apply_t fresh;
+		uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+		size_t n = 9, loaded = 9;
+
+		fresh = ap;
+		fresh.grants_used = 0;
+		CHECK(!fzn_node_apply_chain(&fresh, m, &cap, hops, &n)
+		              && fzn_node_apply_load_grants(&fresh, &loaded) && loaded == 1u
+		              && fzn_node_apply_chain(&fresh, m, &cap, hops, &n) && n == 1u
+		              && memcmp(hops[0], hop, FZN_HOP_LEN) == 0
+		              && fzn_node_apply_load_grants(&fresh, &loaded) && loaded == 0u,
+		      "a fresh context did not rebuild M's chain from the kept grants, or loaded "
+		      "one twice");
+		/* A HOP UNDER ANOTHER'S PLACE is refused, not loaded. */
+		{
+			uint8_t wrong[FZN_PUBKEY_LEN];
+
+			memset(wrong, 0x5c, sizeof(wrong));
+			fresh.grants_used = 0;
+			CHECK(mem_save(NULL, FZN_PERSIST_GRANT, wrong, hop, FZN_HOP_LEN)
+			              && !fzn_node_apply_load_grants(&fresh, &loaded),
+			      "a grant row filed under another hop's place was loaded");
+			mem_remove_row(FZN_PERSIST_GRANT, wrong);
+		}
 	}
 
 	/* A STRANGER'S RECORD, with no chain anywhere: it waits. */

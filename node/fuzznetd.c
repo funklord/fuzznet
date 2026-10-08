@@ -3687,6 +3687,21 @@ int main(int argc, char **argv)
 				admin.settings_ctx = &node_settings;
 				admin.settings = &node_settings;
 				admin.remote_ran = remote_ran;
+				/* THE GRANTS FROM THE STORE, sec 545, before any record is
+				 * applied, so a chain does not depend on the journal still
+				 * holding the grant that made it. */
+				{
+					size_t grants = 0;
+
+					if (!fzn_node_apply_load_grants(&node_apply, &grants))
+						say(FZN_ENTRY_WARNING, "journal",
+						    "the grants kept in %s would not load; chains rebuild from "
+						    "the journal alone",
+						    store_dir);
+					else if (grants)
+						say(FZN_ENTRY_INFO, "journal", "%zu grant(s) from %s", grants,
+						    store_dir);
+				}
 				apply_journal();
 				retention_to_settings(&identity);
 				/* THE ESTATE'S k AS A ROOT SET IT, sec 542, from the start

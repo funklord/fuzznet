@@ -102,6 +102,16 @@ typedef struct fzn_node_apply_tally {
  * store is full, the object left unmarked for the next round. */
 fzn_node_pull_err_t fzn_node_apply_round(fzn_node_apply_t *ap, fzn_node_apply_tally_t *tally);
 
+/*
+ * THE GRANT INDEX FROM THE STORE, sec 545: every grant kept in slot
+ * FZN_PERSIST_GRANT added to the index, so chains are rebuilt without
+ * replaying a journal that may have been cut. Called before the first
+ * round. 1 with `*loaded` counting the grants added; 0 when the store
+ * cannot list, holds more than FZN_NODE_APPLY_GRANTS_MAX, or a row is not a
+ * grant -- refused rather than half loaded.
+ */
+int fzn_node_apply_load_grants(fzn_node_apply_t *ap, size_t *loaded);
+
 /* A SIGNER'S CHAIN for `capability`, from the index: the grants walked up
  * from `key` to a root, root first, into `hops`. 1 with `*hop_count` set --
  * zero for a root -- or 0 when the index does not reach a root from `key`. */
