@@ -83,6 +83,54 @@ void fzn_node_journal_close(fzn_node_journal_t *nj)
 }
 
 /* `key`'s position on `stream`, or NULL when not followed. */
+/* ---- each stream's base, sec 547 --------------------------------------------- */
+
+/* A base row: the first sequence held, then the id of the record before it. */
+#define BASE_ROW (8u + FZN_RECORD_ID_LEN)
+
+static int base_row(const fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN], uint32_t stream,
+                    uint8_t row[FZN_PUBKEY_LEN])
+{
+	static const char DOMAIN[] = "fuzznet.journal.base";
+	uint8_t in[sizeof(DOMAIN) - 1u + FZN_PUBKEY_LEN + 4u];
+	size_t at = sizeof(DOMAIN) - 1u;
+
+	memcpy(in, DOMAIN, at);
+	memcpy(in + at, key, FZN_PUBKEY_LEN);
+	fzn_put_be32(in + at + FZN_PUBKEY_LEN, stream);
+	return nj->hash->hash(nj->hash->ctx, row, FZN_PUBKEY_LEN, in, sizeof(in));
+}
+
+/* `key`'s `stream`'s base and the id below it: 1 and all zero when none is
+ * kept, as a stream never cut starts. A row of another shape, or naming a
+ * base of 1 or less, is none -- nothing below 1 can have been cut. */
+static uint64_t base_get(const fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN],
+                         uint32_t stream, uint8_t below[FZN_RECORD_ID_LEN])
+{
+	uint8_t row[FZN_PUBKEY_LEN], bytes[BASE_ROW];
+	size_t len = 0;
+	uint64_t base;
+
+	memset(below, 0, FZN_RECORD_ID_LEN);
+	if (!nj->keep || !nj->keep->load || !base_row(nj, key, stream, row)
+	    || !nj->keep->load(nj->keep->ctx, FZN_PERSIST_JOURNAL_BASE, row, bytes, sizeof(bytes),
+	                       &len)
+	    || len != BASE_ROW || (base = fzn_get_be64(bytes)) <= 1u)
+		return 1u;
+	memcpy(below, bytes + 8u, FZN_RECORD_ID_LEN);
+	return base;
+}
+
+uint64_t fzn_node_journal_base(const fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN],
+                               uint32_t stream)
+{
+	uint8_t below[FZN_RECORD_ID_LEN];
+
+	if (!nj || !key)
+		return 1u;
+	return base_get(nj, key, stream, below);
+}
+
 static fzn_journal_entry_t *entry_of(const fzn_node_journal_t *nj,
                                      const uint8_t key[FZN_PUBKEY_LEN], uint32_t stream)
 {
@@ -106,9 +154,10 @@ fzn_node_journal_err_t fzn_node_journal_follow_stream(fzn_node_journal_t *nj,
                                                       const uint8_t key[FZN_PUBKEY_LEN],
                                                       uint32_t stream, size_t *replayed)
 {
-	uint8_t buf[FZN_RECORD_MAX_LEN], id[FZN_RECORD_ID_LEN];
+	uint8_t buf[FZN_RECORD_MAX_LEN], id[FZN_RECORD_ID_LEN], below[FZN_RECORD_ID_LEN];
+	fzn_journal_entry_t *e;
 	fzn_journal_err_t jerr;
-	uint64_t seq;
+	uint64_t seq, base;
 	size_t n = 0;
 
 	if (replayed)
@@ -117,15 +166,25 @@ fzn_node_journal_err_t fzn_node_journal_follow_stream(fzn_node_journal_t *nj,
 		return FZN_NODE_JOURNAL_MALFORMED;
 	if (entry_of(nj, key, stream))
 		return FZN_NODE_JOURNAL_OK;
-	jerr = fzn_journal_anchor(&nj->journal, key, stream, 0);
+	base = base_get(nj, key, stream, below);
+	jerr = fzn_journal_anchor(&nj->journal, key, stream, base - 1u);
 	if (jerr == FZN_JOURNAL_ERR_FULL)
 		return FZN_NODE_JOURNAL_FULL;
-	if (jerr != FZN_JOURNAL_OK)
+	if (jerr != FZN_JOURNAL_OK || !(e = entry_of(nj, key, stream)))
 		return FZN_NODE_JOURNAL_MALFORMED;
+	/* CUT BELOW ITS BASE, sec 547: the head is the record the cut let go
+	 * last, so the first one held must name it, and what was cut was
+	 * applied before it went. */
+	if (base > 1u) {
+		memcpy(e->head, below, sizeof(below));
+		e->has_head = 1;
+		if (fzn_journal_confirm(&nj->journal, key, stream, base - 1u) != FZN_JOURNAL_OK)
+			return FZN_NODE_JOURNAL_MALFORMED;
+	}
 	/* WHAT THE STORE HOLDS, through the same checks a pull applies: a
 	 * record edited on disk stops the stream there rather than being
 	 * believed. */
-	for (seq = 1;; seq++) {
+	for (seq = base;; seq++) {
 		fzn_record_t rec;
 		fzn_record_store_err_t serr;
 
@@ -308,8 +367,8 @@ static int spine_get(const fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_
 	uint8_t row[FZN_PUBKEY_LEN], bytes[SPINE_ROW];
 	size_t len = 0, k = (size_t)((seq - 1u) % SPINE_CHUNK);
 
-	if (!nj->spine || !nj->spine->load || seq == 0u || !spine_row(nj, key, (seq - 1u) / SPINE_CHUNK, row)
-	    || !nj->spine->load(nj->spine->ctx, FZN_PERSIST_JOURNAL_SPINE, row, bytes, sizeof(bytes),
+	if (!nj->keep || !nj->keep->load || seq == 0u || !spine_row(nj, key, (seq - 1u) / SPINE_CHUNK, row)
+	    || !nj->keep->load(nj->keep->ctx, FZN_PERSIST_JOURNAL_SPINE, row, bytes, sizeof(bytes),
 	                        &len)
 	    || len != SPINE_ROW)
 		return 0;
@@ -326,7 +385,7 @@ fzn_node_journal_err_t fzn_node_journal_spine_keep(fzn_node_journal_t *nj,
 	size_t len = 0, k;
 	fzn_record_t rec;
 
-	if (!nj || !key || seq == 0u || !nj->spine || !nj->spine->load || !nj->spine->save)
+	if (!nj || !key || seq == 0u || !nj->keep || !nj->keep->load || !nj->keep->save)
 		return FZN_NODE_JOURNAL_MALFORMED;
 	if (fzn_record_store_get(&nj->store, key, FZN_NODE_JOURNAL_STREAM, seq, buf, sizeof(buf), &rec)
 	            != FZN_RECORD_STORE_OK
@@ -334,7 +393,7 @@ fzn_node_journal_err_t fzn_node_journal_spine_keep(fzn_node_journal_t *nj,
 		return FZN_NODE_JOURNAL_STORE;
 	if (!spine_row(nj, key, (seq - 1u) / SPINE_CHUNK, row))
 		return FZN_NODE_JOURNAL_STORE;
-	if (!nj->spine->load(nj->spine->ctx, FZN_PERSIST_JOURNAL_SPINE, row, bytes, sizeof(bytes), &len)
+	if (!nj->keep->load(nj->keep->ctx, FZN_PERSIST_JOURNAL_SPINE, row, bytes, sizeof(bytes), &len)
 	    || len != SPINE_ROW)
 		memset(bytes, 0, sizeof(bytes));
 	k = (size_t)((seq - 1u) % SPINE_CHUNK);
@@ -342,7 +401,32 @@ fzn_node_journal_err_t fzn_node_journal_spine_keep(fzn_node_journal_t *nj,
 	memcpy(bytes + (k * SPINE_ENTRY) + FZN_RECORD_ID_LEN, fzn_record_prev(rec), FZN_RECORD_ID_LEN);
 	memcpy(bytes + (k * SPINE_ENTRY) + (2u * FZN_RECORD_ID_LEN), fzn_record_subject(rec),
 	       FZN_SUBJECT_LEN);
-	return nj->spine->save(nj->spine->ctx, FZN_PERSIST_JOURNAL_SPINE, row, bytes, sizeof(bytes))
+	return nj->keep->save(nj->keep->ctx, FZN_PERSIST_JOURNAL_SPINE, row, bytes, sizeof(bytes))
+	               ? FZN_NODE_JOURNAL_OK
+	               : FZN_NODE_JOURNAL_STORE;
+}
+
+fzn_node_journal_err_t fzn_node_journal_base_set(fzn_node_journal_t *nj,
+                                                 const uint8_t key[FZN_PUBKEY_LEN],
+                                                 uint32_t stream, uint64_t base)
+{
+	static uint8_t buf[FZN_RECORD_MAX_LEN];
+	uint8_t row[FZN_PUBKEY_LEN], bytes[BASE_ROW], below[FZN_RECORD_ID_LEN];
+	const fzn_journal_entry_t *e;
+	fzn_record_t rec;
+
+	if (!nj || !key || !nj->keep || !nj->keep->load || !nj->keep->save
+	    || !(e = entry_of(nj, key, stream)) || base <= base_get(nj, key, stream, below)
+	    || base - 1u > e->received)
+		return FZN_NODE_JOURNAL_MALFORMED;
+	if (fzn_record_store_get(&nj->store, key, stream, base - 1u, buf, sizeof(buf), &rec)
+	            != FZN_RECORD_STORE_OK
+	    || !nj->hash->hash(nj->hash->ctx, below, sizeof(below), rec.base, rec.len)
+	    || !base_row(nj, key, stream, row))
+		return FZN_NODE_JOURNAL_STORE;
+	fzn_put_be64(bytes, base);
+	memcpy(bytes + 8u, below, sizeof(below));
+	return nj->keep->save(nj->keep->ctx, FZN_PERSIST_JOURNAL_BASE, row, bytes, sizeof(bytes))
 	               ? FZN_NODE_JOURNAL_OK
 	               : FZN_NODE_JOURNAL_STORE;
 }

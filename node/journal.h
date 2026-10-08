@@ -74,10 +74,11 @@ typedef struct fzn_node_journal {
 	fzn_record_store_t store;
 	const fzn_sign_ops_t *sign;
 	const fzn_hash_ops_t *hash;
-	/* THE SPINE, sec 546: where an estate act's id, predecessor and subject
-	 * are kept when its record is cut. NULL keeps none, and an act behind a
-	 * cut record does not stand. */
-	const fzn_persist_ops_t *spine;
+	/* WHAT A CUT KEEPS: the spine, where an estate act's id, predecessor
+	 * and subject go when its record is cut (sec 546), and each stream's
+	 * base (sec 547). NULL keeps neither: an act behind a cut record does
+	 * not stand, and every stream is read from 1. */
+	const fzn_persist_ops_t *keep;
 } fzn_node_journal_t;
 
 /* OVER ANY RECORD STORE, `ops`, which must outlive it: memory for a suite,
@@ -97,11 +98,16 @@ fzn_node_journal_err_t fzn_node_journal_init(fzn_node_journal_t *nj, const char 
 
 void fzn_node_journal_close(fzn_node_journal_t *nj);
 
-/* FOLLOW `key`'s estate stream, from the beginning, and replay what the store
+/* FOLLOW `key`'s estate stream, from its base, and replay what the store
  * holds of it: each record opened, verified and admitted in order, until the
  * first the store does not hold or the chain does not take. `replayed` (may
  * be NULL) is how many. Following a stream already followed replays nothing
- * and is OK. */
+ * and is OK.
+ *
+ * FROM ITS BASE, sec 547: a stream cut below its base is anchored just under
+ * it, with the id the base row keeps as its head, so the first record held
+ * must name it, and everything below counted applied -- it was, or it would
+ * not have been cut. */
 fzn_node_journal_err_t fzn_node_journal_follow(fzn_node_journal_t *nj,
                                                const uint8_t key[FZN_PUBKEY_LEN],
                                                size_t *replayed);
@@ -114,8 +120,8 @@ fzn_node_journal_err_t fzn_node_journal_follow_stream(fzn_node_journal_t *nj,
                                                       uint32_t stream, size_t *replayed);
 
 /* How far this journal holds `key`'s `stream`: the highest sequence of an
- * unbroken run from 1, which the store holds and the chain admitted. 0 when
- * the stream is not followed or holds nothing. */
+ * unbroken run from its base, which the store holds and the chain admitted.
+ * 0 when the stream is not followed or holds nothing. */
 uint64_t fzn_node_journal_received(const fzn_node_journal_t *nj,
                                    const uint8_t key[FZN_PUBKEY_LEN], uint32_t stream);
 
@@ -192,17 +198,34 @@ int fzn_node_journal_forked(const fzn_node_journal_t *nj, const uint8_t key[FZN_
  * by the stream's length: one read and one hash a record. A record absent
  * from the store is read from the spine (sec 546), where it was kept when it
  * was cut, and checked against the `prev` above it as a record is. */
+int fzn_node_journal_stands(fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN],
+                            const uint8_t cut[FZN_RECORD_ID_LEN],
+                            const uint8_t act[FZN_SUBJECT_LEN]);
+
 /* KEEP ESTATE ACT `seq` OF `key`'S STREAM IN THE SPINE, sec 546: its id,
  * predecessor and subject, read from the record, which must be held and
  * chain to what is held above it as `fzn_node_journal_stands` would check.
- * Called before a record is cut. MALFORMED with no spine. */
+ * Called before a record is cut. MALFORMED with no `keep`. */
 fzn_node_journal_err_t fzn_node_journal_spine_keep(fzn_node_journal_t *nj,
                                                    const uint8_t key[FZN_PUBKEY_LEN],
                                                    uint64_t seq);
 
-int fzn_node_journal_stands(fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN],
-                            const uint8_t cut[FZN_RECORD_ID_LEN],
-                            const uint8_t act[FZN_SUBJECT_LEN]);
+/* THE FIRST SEQUENCE OF `key`'S `stream` THIS JOURNAL STILL HOLDS, sec 547:
+ * 1 for a stream never cut, or with no `keep`. Where a reader of the stream
+ * starts. */
+uint64_t fzn_node_journal_base(const fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN],
+                               uint32_t stream);
+
+/* MOVE `key`'S `stream`'S BASE UP TO `base`, before the records below it are
+ * cut: kept with the id of the record at `base` - 1, which must be held.
+ * Whether the stream's reader is past it is the caller's to know -- the
+ * estate stream's apply, the notes index, the messages store each keep their
+ * own place. A base never moves down. MALFORMED for no `keep`, a stream not
+ * followed, a base at or below the current one, or one above what is
+ * received; STORE for a record not held or a row that will not keep. */
+fzn_node_journal_err_t fzn_node_journal_base_set(fzn_node_journal_t *nj,
+                                                 const uint8_t key[FZN_PUBKEY_LEN],
+                                                 uint32_t stream, uint64_t base);
 
 /* Fill `ops` so a revocation store or a root set asks this journal. `nj`
  * must outlive them. */

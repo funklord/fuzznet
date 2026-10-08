@@ -290,13 +290,19 @@ typedef enum fzn_persist_slot {
 	 * answered. CORE: it decides which acts count. `node/journal.h` keeps
 	 * it. sec 546. */
 	FZN_PERSIST_JOURNAL_SPINE = 40u,
+	/* Per (key, stream), keyed by a hash of the two: the first sequence the
+	 * journal still holds and the id of the record before it, so a stream
+	 * cut below is followed from there, its chain still checked. CORE: it
+	 * decides where a stream's history starts. `node/journal.h` keeps it.
+	 * sec 547. */
+	FZN_PERSIST_JOURNAL_BASE = 41u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 41u
+#define FZN_PERSIST_SLOT_END 42u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,

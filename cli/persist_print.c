@@ -112,6 +112,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "a grant the journal carried, kept so chains outlive it";
 	case FZN_PERSIST_JOURNAL_SPINE:
 		return "the ids of estate acts cut from the journal, so their standing is judged";
+	case FZN_PERSIST_JOURNAL_BASE:
+		return "where each journal stream starts once cut, and the id below it";
 	}
 	*known = 0;
 	return "an unknown slot";

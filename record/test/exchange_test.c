@@ -271,6 +271,38 @@ static void test_a_follower_learns_the_chain(void)
 		              && t.learned == 2u && fzn_journal_next(&c.journal, w, 1u) == 6u,
 		      "a window of three did not take the five in two rounds");
 	}
+
+	/* A PEER CUT BELOW ITS BASE, sec 547: A lets W's first two go. A
+	 * newcomer asking from the first is sent nothing and counts the stream
+	 * missing; B, already past the cut, still learns and misses nothing. */
+	{
+		static struct host d;
+		uint8_t sixth[FZN_RECORD_MAX_LEN], six_id[FZN_RECORD_ID_LEN];
+		size_t six_len = 0, i;
+		fzn_record_t r;
+
+		for (i = 0; i < SLOTS; i++)
+			if (a.slots[i].used && a.slots[i].stream == 1u && a.slots[i].seq <= 2u
+			    && memcmp(a.slots[i].issuer, w, FZN_PUBKEY_LEN) == 0)
+				a.slots[i].used = 0;
+		host_init(&d);
+		CHECK(fzn_journal_anchor(&d.journal, w, 1u, 0) == FZN_JOURNAL_OK
+		              && fzn_exchange_pull(&d.journal, &d.store, &SIGN, &HASH, 64u, ask, &a,
+		                                   reply, sizeof(reply), &t) == FZN_EXCHANGE_OK
+		              && t.learned == 0u && t.missing == 1u
+		              && fzn_journal_next(&d.journal, w, 1u) == 1u,
+		      "a peer cut below its base was not counted missing, or something was learned");
+		CHECK(make(sixth, &six_len, 0x41, 6u, ids[4], 6u, six_id)
+		              && fzn_record_open(sixth, six_len, &r) == FZN_RECORD_OK
+		              && fzn_journal_admit_chained(&a.journal, w, 1u, 6u, fzn_record_prev(r),
+		                                           six_id) == FZN_JOURNAL_OK
+		              && fzn_record_store_put(&a.store, r) == FZN_RECORD_STORE_OK,
+		      "fixture: W's sixth at A");
+		CHECK(fzn_exchange_pull(&b.journal, &b.store, &SIGN, &HASH, 64u, ask, &a, reply,
+		                        sizeof(reply), &t) == FZN_EXCHANGE_OK
+		              && t.learned == 1u && t.missing == 0u,
+		      "a follower past the cut did not learn the sixth, or was counted missing");
+	}
 }
 
 /* THE PUSH, sec 512. The taker answers a digest as any server does, and

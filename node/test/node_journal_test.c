@@ -334,7 +334,8 @@ static void test_the_stream_is_the_act_log(void)
 	fzn_node_journal_close(&a);
 }
 
-/* A persist store in memory, enough for the spine: a few rows by subject. */
+/* A persist store in memory, enough for the spine and the bases: a few rows
+ * by subject. */
 static struct {
 	uint8_t subject[8][FZN_PUBKEY_LEN];
 	uint8_t bytes[8][1536];
@@ -349,7 +350,7 @@ static int mem_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, 
 
 	(void)ctx;
 	for (i = 0; i < mem.n; i++)
-		if (slot == FZN_PERSIST_JOURNAL_SPINE
+		if ((slot == FZN_PERSIST_JOURNAL_SPINE || slot == FZN_PERSIST_JOURNAL_BASE)
 		    && memcmp(mem.subject[i], subject, FZN_PUBKEY_LEN) == 0 && mem.len[i] <= cap) {
 			memcpy(out, mem.bytes[i], mem.len[i]);
 			*len = mem.len[i];
@@ -364,7 +365,8 @@ static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	size_t i;
 
 	(void)ctx;
-	if (slot != FZN_PERSIST_JOURNAL_SPINE || len > sizeof(mem.bytes[0]))
+	if ((slot != FZN_PERSIST_JOURNAL_SPINE && slot != FZN_PERSIST_JOURNAL_BASE)
+	    || len > sizeof(mem.bytes[0]))
 		return 0;
 	for (i = 0; i < mem.n && memcmp(mem.subject[i], subject, FZN_PUBKEY_LEN) != 0; i++)
 		;
@@ -414,7 +416,7 @@ static void test_the_spine_outlives_a_cut(void)
 	      "fixture: X signs three acts");
 	CHECK(fzn_node_journal_spine_keep(&a, x, 1u) == FZN_NODE_JOURNAL_MALFORMED,
 	      "an entry was kept with no spine");
-	a.spine = &SPINE;
+	a.keep = &SPINE;
 	CHECK(fzn_node_journal_spine_keep(&a, x, 1u) == FZN_NODE_JOURNAL_OK
 	              && fzn_node_journal_spine_keep(&a, x, 2u) == FZN_NODE_JOURNAL_OK
 	              && fzn_node_journal_spine_keep(&a, x, 9u) == FZN_NODE_JOURNAL_STORE,
@@ -427,11 +429,11 @@ static void test_the_spine_outlives_a_cut(void)
 	              && !fzn_node_journal_stands(&a, x, ids[0], acts[1])
 	              && !fzn_node_journal_stands(&a, x, ids[1], acts[2]),
 	      "an act below the cut did not stand through the spine, or one above it did");
-	a.spine = NULL;
+	a.keep = NULL;
 	CHECK(!fzn_node_journal_stands(&a, x, ids[2], acts[0])
 	              && fzn_node_journal_stands(&a, x, ids[2], acts[2]),
 	      "an act stood across a gap with no spine, or one above the gap did not");
-	a.spine = &SPINE;
+	a.keep = &SPINE;
 	/* EDITED UNDERNEATH: the second entry's predecessor, and the walk
 	 * through it reaches nothing. */
 	mem.bytes[0][FZN_RECORD_ID_LEN + FZN_RECORD_ID_LEN + FZN_SUBJECT_LEN + FZN_RECORD_ID_LEN] ^= 1u;
@@ -439,6 +441,87 @@ static void test_the_spine_outlives_a_cut(void)
 	              && fzn_node_journal_stands(&a, x, ids[2], acts[1]),
 	      "an act stood through a spine entry edited underneath");
 	fzn_node_journal_close(&a);
+}
+
+/* THE BASE, sec 547: a stream cut below it is followed from there. Writer Y
+ * signs four acts; the first two go to the spine, the base moves to the
+ * third, and the two are blanked on disk. A journal opened afresh replays
+ * the two held, counts the two cut as applied, holds the same head, and an
+ * act behind the base still stands. With no base kept the same store reads
+ * as empty; a base row whose id is not the one the first held record names
+ * admits nothing; and a base never moves down or past what is held. */
+static void test_a_stream_read_from_its_base(void)
+{
+	static fzn_node_journal_t a, b;
+	static const fzn_persist_ops_t KEEP = { mem_load, mem_save, NULL, NULL, NULL };
+	uint8_t y[FZN_PUBKEY_LEN], ids[4][FZN_RECORD_ID_LEN], acts[4][FZN_SUBJECT_LEN];
+	uint8_t head[FZN_RECORD_ID_LEN];
+	char path[512];
+	size_t i, n = 0;
+
+	key(y, 0x59);
+	for (i = 0; i < 4u; i++)
+		memset(acts[i], (int)(0x71u + i), sizeof(acts[i]));
+	CHECK(fzn_node_journal_init(&a, dir_a, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && append(&a, 0x59, 0x71, ids[0]) && append(&a, 0x59, 0x72, ids[1])
+	              && append(&a, 0x59, 0x73, ids[2]) && append(&a, 0x59, 0x74, ids[3]),
+	      "fixture: Y signs four acts");
+	CHECK(fzn_node_journal_base_set(&a, y, FZN_NODE_JOURNAL_STREAM, 3u)
+	              == FZN_NODE_JOURNAL_MALFORMED
+	              && fzn_node_journal_base(&a, y, FZN_NODE_JOURNAL_STREAM) == 1u,
+	      "a base was kept with nowhere to keep it");
+	a.keep = &KEEP;
+	CHECK(fzn_node_journal_base_set(&a, y, FZN_NODE_JOURNAL_STREAM, 6u)
+	              == FZN_NODE_JOURNAL_MALFORMED
+	              && fzn_node_journal_base_set(&a, y, FZN_NODE_JOURNAL_STREAM, 1u)
+	                         == FZN_NODE_JOURNAL_MALFORMED,
+	      "a base past what is held, or at the start, was kept");
+	CHECK(fzn_node_journal_spine_keep(&a, y, 1u) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_spine_keep(&a, y, 2u) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_base_set(&a, y, FZN_NODE_JOURNAL_STREAM, 3u)
+	                         == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_base(&a, y, FZN_NODE_JOURNAL_STREAM) == 3u
+	              && fzn_node_journal_base_set(&a, y, FZN_NODE_JOURNAL_STREAM, 2u)
+	                         == FZN_NODE_JOURNAL_MALFORMED,
+	      "the base did not move to the third, or moved back down");
+	fzn_node_journal_close(&a);
+	stream_path(path, sizeof(path), dir_a, 0x59);
+	CHECK(blank(path, 1u) && blank(path, 2u), "fixture: the first two records cut");
+
+	CHECK(fzn_node_journal_init(&b, dir_a, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK,
+	      "fixture: a journal opened afresh");
+	b.keep = &KEEP;
+	CHECK(fzn_node_journal_follow(&b, y, &n) == FZN_NODE_JOURNAL_OK && n == 2u
+	              && fzn_node_journal_received(&b, y, FZN_NODE_JOURNAL_STREAM) == 4u
+	              && fzn_journal_pending(&b.journal, y, FZN_NODE_JOURNAL_STREAM) == 2u
+	              && fzn_node_journal_head(&b, y, head)
+	              && memcmp(head, ids[3], sizeof(head)) == 0,
+	      "the stream was not followed from its base, or what was cut was not applied");
+	CHECK(fzn_node_journal_stands(&b, y, ids[3], acts[0])
+	              && fzn_node_journal_stands(&b, y, ids[1], acts[1])
+	              && !fzn_node_journal_stands(&b, y, ids[1], acts[2]),
+	      "an act behind the base did not stand, or one above the cut did");
+	fzn_node_journal_close(&b);
+
+	/* NO BASE KEPT: the same store reads from 1 and stops at the hole. */
+	CHECK(fzn_node_journal_init(&b, dir_a, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_follow(&b, y, &n) == FZN_NODE_JOURNAL_OK && n == 0u
+	              && fzn_node_journal_received(&b, y, FZN_NODE_JOURNAL_STREAM) == 0u,
+	      "a stream with no base kept read past a hole at its start");
+	fzn_node_journal_close(&b);
+
+	/* A BASE ROW EDITED UNDERNEATH: its id no longer the one the third
+	 * record names, and the chain admits nothing. */
+	for (i = 0; i < mem.n; i++)
+		if (mem.len[i] == 8u + FZN_RECORD_ID_LEN)
+			mem.bytes[i][8] ^= 1u;
+	CHECK(fzn_node_journal_init(&b, dir_a, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK,
+	      "fixture: a journal opened afresh");
+	b.keep = &KEEP;
+	CHECK(fzn_node_journal_follow(&b, y, &n) == FZN_NODE_JOURNAL_OK && n == 0u
+	              && fzn_node_journal_received(&b, y, FZN_NODE_JOURNAL_STREAM) == 2u,
+	      "a record was admitted under a base whose id it does not name");
+	fzn_node_journal_close(&b);
 }
 
 /* ANY STREAM, sec 512: a key's notes are its stream 0 beside its estate
@@ -510,6 +593,7 @@ int main(void)
 	test_the_stream_is_the_act_log();
 	test_a_second_stream();
 	test_the_spine_outlives_a_cut();
+	test_a_stream_read_from_its_base();
 
 	/* EVERY FILE THE SUITE MADE, BY NAME, then the directories. */
 	stream_path(path, sizeof(path), dir_a, 0x31);
@@ -521,6 +605,8 @@ int main(void)
 	stream_path(path, sizeof(path), dir_a, 0x57);
 	(void)unlink(path);
 	stream_path(path, sizeof(path), dir_a, 0x58);
+	(void)unlink(path);
+	stream_path(path, sizeof(path), dir_a, 0x59);
 	(void)unlink(path);
 	stream_file(path, sizeof(path), dir_a, 0x60, 0u);
 	(void)unlink(path);

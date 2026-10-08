@@ -1294,7 +1294,7 @@ static int journal_chain(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN],
  * with no store directory, a records directory that will not open, or a
  * build without the record file store. */
 static int journal_for(const char *store_dir, fzn_node_roots_t *roots, const fzn_sign_ops_t *sign,
-                       const fzn_hash_ops_t *hash, const fzn_persist_ops_t *spine)
+                       const fzn_hash_ops_t *hash, const fzn_persist_ops_t *keep)
 {
 #ifdef FZN_RECORD_STORE_FILE_ON
 	static char records_dir[FZN_RECORD_STORE_FILE_PATH_MAX];
@@ -1312,10 +1312,11 @@ static int journal_for(const char *store_dir, fzn_node_roots_t *roots, const fzn
 			return 0;
 		journal_on = 1;
 	}
-	/* THE SPINE IN THE NODE'S STORE, sec 546, so an act cut from the
-	 * journal is still judged. */
-	if (spine)
-		node_journal.spine = spine;
+	/* THE SPINE AND THE BASES IN THE NODE'S STORE, secs 546 and 547, so an
+	 * act cut from the journal is still judged and a cut stream is read
+	 * from where it starts. */
+	if (keep)
+		node_journal.keep = keep;
 	if (roots) {
 		roots->logged = journal_logged;
 		roots->logged_ctx = &node_journal;
@@ -1328,7 +1329,7 @@ static int journal_for(const char *store_dir, fzn_node_roots_t *roots, const fzn
 	(void)roots;
 	(void)sign;
 	(void)hash;
-	(void)spine;
+	(void)keep;
 	return 0;
 #endif
 }
@@ -1447,8 +1448,9 @@ static int journal_read(void *ctx, const uint8_t key[FZN_PUBKEY_LEN], uint64_t s
 }
 
 /* THE INDEX FED FROM THE JOURNAL, sec 519: every node's notes stream from
- * where this run last left it -- from the beginning at start, which rebuilds
- * the index, so a record kept and not filed before a crash is filed now. */
+ * where this run last left it -- from its base at start (sec 547), which
+ * rebuilds the index from what is held, so a record kept and not filed
+ * before a crash is filed now. */
 static void index_notes(void)
 {
 	size_t i, k;
@@ -1469,7 +1471,9 @@ static void index_notes(void)
 				break;
 			c = &notes_cursors[n_notes_cursors++];
 			memcpy(c->key, notes_keys[i], FZN_PUBKEY_LEN);
-			c->at = 0;
+			/* FROM THE STREAM'S BASE, sec 547: below it is cut. */
+			c->at = fzn_node_journal_base(&node_journal, notes_keys[i], FZN_NOTE_STREAM)
+			        - 1u;
 		}
 		if (c->at >= to)
 			continue;
@@ -1524,6 +1528,11 @@ static void pull_journal(struct pull_target *pulls, size_t npulls, uint64_t now)
 		if (err != FZN_EXCHANGE_OK)
 			say(FZN_ENTRY_WARNING, "journal", "the journal from %s: %s", pulls[t].host,
 			    fzn_exchange_err_str(err));
+		else if (tally.missing)
+			say(FZN_ENTRY_WARNING, "journal",
+			    "%zu stream(s) %s claims no longer hold what this node lacks: cut below "
+			    "their base, and only a state transfer brings them on",
+			    tally.missing, pulls[t].host);
 		else if (tally.learned || tally.refused || tally.forks)
 			say(tally.forks ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "journal",
 			    "%zu record(s) from %s, %zu refused, %zu stream(s) stopped at a fork",

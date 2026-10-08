@@ -1371,7 +1371,8 @@ fzn_messages_err_t fzn_messages_reindex(const fzn_messages_t *m, size_t *marks)
 		                                               FZN_MESSAGE_STREAM);
 		uint8_t row[FZN_PUBKEY_LEN];
 
-		for (seq = 1u; seq <= held; seq++) {
+		for (seq = fzn_node_journal_base(m->journal, m->devices[d], FZN_MESSAGE_STREAM);
+		     seq <= held; seq++) {
 			fzn_message_mark_t mark;
 			fzn_record_t rec;
 			const uint8_t *contact;

@@ -60603,3 +60603,40 @@ Measured: node_journal_test 34 checks -- two records kept and then blanked
 on disk answer as before; with no spine the walk stops at the gap; an
 edited entry stands nothing behind it -- with three sabotage entries, each
 probed caught.
+
+## 547. Stage 4, step 3: streams read from their base, 2026-10-09
+
+Sec 544's third step. Every reader of a journal stream started at
+sequence 1, so a stream cut below would read as empty at the first hole.
+
+- **A base per stream**, kept by `fzn_node_journal_base_set` in core
+  persist slot 41, `FZN_PERSIST_JOURNAL_BASE`: the first sequence held and
+  the id of the record below it. The record store has only put and get, so
+  where a stream starts is kept rather than found. A base never moves down
+  and never past what is received. The cut (step 4) sets it before it
+  punches anything, so a crash between the two leaves records held above
+  the base rather than holes below a base nobody recorded.
+- **The start-up scan anchors a cut stream just below its base**, with the
+  kept id as its head, so the first record held must name it, and counts
+  everything below as applied.
+- **The readers start there**: apply, through the applied count; the notes
+  index and the messages cursors at the base; and the messages reindex
+  from it. The op journal keeps its own rotation (sec 524) and no base.
+- **A peer that no longer holds what this node lacks** sends an empty
+  answer, and the pull now counts it (`missing` in the exchange tally).
+  fuzznetd warns that only a state transfer (stage 5) brings that stream
+  on. There is no wire change.
+
+Measured: node_journal_test 45 checks -- a journal opened afresh over a
+stream whose first two records are blanked replays the two held, counts
+the two cut as applied, keeps the head, and an act behind the base still
+stands; with no base the same store reads as empty; an edited base row
+admits nothing. exchange_test 36 checks -- a newcomer pulling from a cut
+peer learns nothing and counts the stream missing, while a follower past
+the cut learns on. Six sabotage entries, each probed caught.
+
+Not exercised: the notes and messages readers starting at a base, since
+nothing sets a base on those streams yet. A message line of two parts
+straddling a base would not be re-read on restart, so step 4 must cut
+the messages stream only at a line's boundary. That step decides which
+streams are cut, and tests those readers then.

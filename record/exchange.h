@@ -113,6 +113,12 @@ typedef struct fzn_exchange_tally {
 	size_t learned;     /* records admitted and kept */
 	size_t refused;     /* records not the next one, or not signed */
 	size_t forks;       /* streams stopped at a fork */
+	/* RANGES THE PEER CLAIMS AND SENT NOTHING OF: its position is past
+	 * what this host holds and it no longer holds the next record --
+	 * cut below its base (project.md sec 547), or a store that lost it.
+	 * Either way no pull from this peer brings the stream on; it wants
+	 * a state transfer. */
+	size_t missing;
 } fzn_exchange_tally_t;
 
 /* THE TAKER: one PUSH, admitted record by record exactly as a pull admits

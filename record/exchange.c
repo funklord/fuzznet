@@ -136,8 +136,10 @@ static int take_records(fzn_journal_t *journal, fzn_record_store_t *store,
 		return 0;
 	}
 	count = fzn_get_be16(reply + 2);
-	if (count == 0u)
+	if (count == 0u) {
+		tally->missing++;
 		return 0;
+	}
 	for (i = 0; i < count; i++) {
 		fzn_record_t rec;
 		size_t len;

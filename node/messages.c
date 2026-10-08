@@ -277,9 +277,9 @@ fzn_messages_err_t fzn_node_messages_absorb(fzn_node_messages_t *nm,
 	fzn_messages_err_t err;
 
 	memset(tally, 0, sizeof(*tally));
-	/* EACH DEVICE FROM WHERE THIS RUN LAST READ IT, from the beginning at
-	 * start: what was taken in before is not taken in again, but its keys
-	 * are noted again. */
+	/* EACH DEVICE FROM WHERE THIS RUN LAST READ IT, from its base at start
+	 * (sec 547): what was taken in before is not taken in again, but its
+	 * keys are noted again. */
 	for (d = 0; d < nm->m.device_count; d++) {
 		where[d] = NULL;
 		for (k = 0; k < nm->n_cursors && !where[d]; k++)
@@ -287,7 +287,9 @@ fzn_messages_err_t fzn_node_messages_absorb(fzn_node_messages_t *nm,
 				where[d] = &nm->cursors[k].at;
 		if (!where[d] && nm->n_cursors < FZN_MESSAGES_DEVICES_MAX) {
 			memcpy(nm->cursors[nm->n_cursors].key, nm->devices[d], FZN_PUBKEY_LEN);
-			nm->cursors[nm->n_cursors].at = 0u;
+			nm->cursors[nm->n_cursors].at =
+			        fzn_node_journal_base(nm->m.journal, nm->devices[d], FZN_MESSAGE_STREAM)
+			        - 1u;
 			where[d] = &nm->cursors[nm->n_cursors++].at;
 		}
 		at[d] = where[d] ? *where[d] : 0u;
