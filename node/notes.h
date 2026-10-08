@@ -15,10 +15,13 @@
  *     set note ID parent PARENT    move
  *     set note ID FLAG             pin, unpin, trash, untrash, archive,
  *                                  unarchive
- *     list note PARENT [FROM]      children, a page at a time; a note
- *                                  pending purge is left out, and one whose
- *                                  content is not here carries
- *                                  FZN_NODE_NOTES_LIST_PENDING
+ *     list note PARENT [FROM]      children, a page at a time, each
+ *                                  ID,TYPE,FLAGS,REACHABLE,CONTESTED,TITLE,
+ *                                  LABELS; a note pending purge is left out,
+ *                                  and one whose content is not here carries
+ *                                  FZN_NODE_NOTES_LIST_PENDING. Titles and
+ *                                  labels come from a cache by blob root
+ *                                  (sec 522), each blob opened once
  *     get note ID                  one note's fields
  *     get note ID text [FROM]      its text, a page at a time
  *     get note ID file PATH        its whole text into a file
@@ -199,6 +202,13 @@ size_t fzn_node_notes_admit_members(fzn_node_notes_t *notes, const uint8_t (*key
 size_t fzn_node_notes_remote(void *ctx, const uint8_t *sender, int shared,
                              const uint8_t *request, size_t request_len, uint8_t *reply,
                              size_t reply_cap);
+
+/* How many blobs listings have opened since start, to fill the title cache
+ * (sec 522): a listing answered from it opens none. For a suite to see. */
+extern size_t fzn_node_notes_title_opens;
+
+/* Whether a listing holds `root`'s title and labels. For a suite to see. */
+int fzn_node_notes_title_cached(const uint8_t root[FZN_BLOB_HASH_LEN]);
 
 /* READ ONE RECORD of `key`'s notes stream, at `seq`, into `out` -- the
  * node's journal store, in practice. Nonzero when it is held and fits. */

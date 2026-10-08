@@ -135,6 +135,8 @@ public:
 	QString cut_id() const { return m_cut; }
 	/* The ids listed, in order, as the list shows them. */
 	QStringList listed_ids() const;
+	/* The rows' text, in the same order, as a person reads them. */
+	QStringList listed_texts() const;
 
 private:
 	/* One request; the reply's detail past the status word into `detail`,

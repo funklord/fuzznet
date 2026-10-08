@@ -647,6 +647,64 @@ static void test_a_refresh_keeps_the_readers_place(void)
 	w.hide();
 }
 
+/* NOT HERE YET, AND LABELLED, secs 514 and 522: a note whose blob has not
+ * arrived is a row saying so, not an empty one; a labelled note shows its
+ * labels on hover. */
+static void test_a_pending_note_says_so_and_labels_show(void)
+{
+	static const uint8_t labels[] = { 'h', 'o', 'm', 'e', 0, 'w', 'o', 'r', 'k' };
+	static const uint8_t top[FZN_TREE_ID_LEN] = { 0 };
+	static uint8_t record[FZN_RECORD_MAX_LEN];
+	uint8_t unseen[FZN_TREE_ID_LEN], seen[FZN_TREE_ID_LEN];
+	fzn_note_blob_ref_t ref;
+	fzn_tree_node_t node;
+	fzn_record_t rec;
+	fzn_note_t fields;
+	size_t len = 0;
+	int i, row = -1;
+
+	setup();
+	blob_stub_attach(&notes.author);
+	chain_stub_attach(&notes.author);
+	memset(&fields, 0, sizeof(fields));
+	fields.title = (const uint8_t *)"never listed";
+	fields.title_len = 12u;
+	CHECK(fzn_notes_create(&notes.author, top, FZN_NOTE_TYPE_NOTE, &fields, 1u, unseen)
+	              == FZN_NOTES_OK,
+	      "fixture: a note never listed");
+	fields.title = (const uint8_t *)"tagged";
+	fields.title_len = 6u;
+	fields.labels = labels;
+	fields.labels_len = sizeof(labels);
+	CHECK(fzn_notes_create(&notes.author, top, FZN_NOTE_TYPE_NOTE, &fields, 2u, seen)
+	              == FZN_NOTES_OK,
+	      "fixture: a labelled note");
+	CHECK(fzn_notes_get(&notes.store, unseen, SELF, record, sizeof(record), &len) == FZN_NOTES_OK
+	              && fzn_record_open(record, len, &rec) == FZN_RECORD_OK
+	              && fzn_tree_open(rec, &node) == FZN_TREE_OK && fzn_notes_ref_of(&node, &ref),
+	      "fixture: the first note's blob");
+	blob_stub_drop(&ref);
+	fzn_notebook_view w(node_ask, nullptr);
+
+	CHECK(w.listed_texts().contains(QStringLiteral("(not here yet)"))
+	              && !w.listed_texts().contains(QStringLiteral("never listed")),
+	      "a note whose blob has not arrived lists as not here yet");
+	for (i = 0; i < w.list()->count(); i++)
+		if (w.list()->item(i)->text() == QStringLiteral("tagged"))
+			row = i;
+	CHECK(row >= 0 && w.list()->item(row)->toolTip() == QStringLiteral("home, work"),
+	      "a labelled note shows its labels on hover");
+	{
+		char hex[65];
+		int k;
+
+		for (k = 0; k < (int)FZN_TREE_ID_LEN; k++)
+			snprintf(hex + (2 * k), 3u, "%02x", unseen[k]);
+		CHECK(w.open_note(QString::fromLatin1(hex)), "fixture: the pending note opens");
+		CHECK(!w.editable(), "opened, a pending note's content cannot be edited");
+	}
+}
+
 int main(int argc, char **argv)
 {
 	QApplication app(argc, argv);
@@ -662,6 +720,7 @@ int main(int argc, char **argv)
 	test_a_note_is_cut_and_moved();
 	test_pinned_first_and_the_archive_apart();
 	test_a_refresh_keeps_the_readers_place();
+	test_a_pending_note_says_so_and_labels_show();
 	if (failures) {
 		fprintf(stderr, "notebook_view_test: %d of %d checks failed\n", failures, checks);
 		return 1;

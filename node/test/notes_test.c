@@ -1472,6 +1472,66 @@ static void test_the_feed(void)
 	hooks();
 }
 
+/* THE TITLE CACHE, sec 522: a listing opens each blob once; labels come as
+ * a seventh field; and a root collection drops takes its entry with it. */
+static void test_the_title_cache(void)
+{
+	static const uint8_t labels[] = { 'h', 'o', 'm', 'e', 0, 'w', 'o', 'r', 'k' };
+	static const uint8_t top[FZN_TREE_ID_LEN];
+	uint8_t id[FZN_TREE_ID_LEN];
+	fzn_note_blob_ref_t ref;
+	fzn_note_t fields;
+	size_t opens;
+
+	setup(0);
+	/* THE AUTHOR AS THE VERBS HAND IT OVER: no verb has run yet. */
+	blob_stub_attach(&notes.author);
+	chain_stub_attach(&notes.author);
+	memset(&fields, 0, sizeof(fields));
+	fields.title = (const uint8_t *)"tagged";
+	fields.title_len = 6u;
+	fields.labels = labels;
+	fields.labels_len = sizeof(labels);
+	CHECK(fzn_notes_create(&notes.author, top, FZN_NOTE_TYPE_NOTE, &fields, 1u, id)
+	              == FZN_NOTES_OK,
+	      "fixture: a note with two labels");
+	opens = fzn_node_notes_title_opens;
+	CHECK(ask("list note top") == FZN_REPLY_OK && has(",tagged,home%00work")
+	              && fzn_node_notes_title_opens == opens + 1u,
+	      "a listing opens the blob once and gives the labels as a seventh field");
+	CHECK(ask("list note top") == FZN_REPLY_OK && has(",tagged,home%00work")
+	              && fzn_node_notes_title_opens == opens + 1u,
+	      "and lists it again from the cache, opening nothing");
+	{
+		fzn_tree_node_t node;
+		fzn_record_t rec;
+		static uint8_t record[FZN_RECORD_MAX_LEN];
+		size_t len = 0;
+
+		CHECK(fzn_notes_get(&notes.store, id, SELF, record, sizeof(record), &len)
+		                      == FZN_NOTES_OK
+		              && fzn_record_open(record, len, &rec) == FZN_RECORD_OK
+		              && fzn_tree_open(rec, &node) == FZN_TREE_OK
+		              && fzn_notes_ref_of(&node, &ref) && fzn_node_notes_title_cached(ref.root),
+		      "fixture: the note's root, cached");
+	}
+	{
+		char line[200], hex[65];
+		size_t i;
+
+		for (i = 0; i < FZN_TREE_ID_LEN; i++)
+			snprintf(hex + (2u * i), 3u, "%02x", id[i]);
+		snprintf(line, sizeof(line), "set note %s title retitled", hex);
+		CHECK(ask(line) == FZN_REPLY_OK, "fixture: a rename, sealing a new blob");
+	}
+	CHECK(fzn_node_notes_title_cached(ref.root) && !fzn_node_notes_names_blob(&notes, ref.root)
+	              && !fzn_node_notes_title_cached(ref.root),
+	      "collection asking about the old root, which nothing names now, drops its entry");
+	CHECK(ask("list note top") == FZN_REPLY_OK && has(",retitled,home%00work")
+	              && fzn_node_notes_title_opens == opens + 2u,
+	      "and the renamed note is opened once, under its new root");
+}
+
 static void test_pushing_texts(void)
 {
 	static char long_text[5001];
@@ -1644,6 +1704,7 @@ int main(void)
 	test_pushing_texts();
 	test_the_journal_chain();
 	test_the_feed();
+	test_the_title_cache();
 	test_writes_mark_fresh();
 	test_unpaired_partner();
 	test_a_partner_seen_in_the_future_ages_from_now();

@@ -5,6 +5,7 @@
 extern "C" {
 #include "../local/client.h"
 #include "../local/vocabulary.h"
+#include "../node/notes.h"
 #include "../notes/note.h"
 }
 
@@ -346,12 +347,22 @@ void fzn_notebook_view::refresh_list()
 			if (trashed != m_trash || (!m_trash && archived != m_archived))
 				continue;
 			QString title = unescape(f[5]);
-			QString shown = type == FZN_NOTE_TYPE_FOLDER ? title + QStringLiteral("/") : title;
+			/* NOT HERE YET, sec 514: the note's blob, or its wrap key, has
+			 * not arrived, so it has no title to show -- said, rather than
+			 * shown as a row with nothing in it. */
+			bool pending = (flags & FZN_NODE_NOTES_LIST_PENDING) != 0u;
+			QString shown = pending                         ? QStringLiteral("(not here yet)")
+			                : type == FZN_NOTE_TYPE_FOLDER ? title + QStringLiteral("/")
+			                                                : title;
 			auto *item = new QListWidgetItem(pinned ? QStringLiteral("* ") + shown : shown);
 
 			item->setData(ROLE_ID, f[0]);
 			item->setData(ROLE_TYPE, type);
 			item->setData(ROLE_TITLE, title);
+			/* THE LABELS, a seventh field since sec 522, shown on hover. */
+			if (f.size() >= 7 && !f[6].isEmpty())
+				item->setToolTip(unescape(f[6]).split(QLatin1Char('\0')).join(
+				        QStringLiteral(", ")));
 			/* PINNED FIRST, in the order they came; the rest after. */
 			if (pinned)
 				m_list->insertItem(pinned_at++, item);
@@ -387,6 +398,7 @@ void fzn_notebook_view::refresh_note()
 	QString detail;
 	bool editing = !shared();
 	bool have = !m_open.isEmpty();
+	bool pending = false;
 
 	m_title->clear();
 	m_body->clear();
@@ -405,7 +417,14 @@ void fzn_notebook_view::refresh_note()
 
 			m_title->setText(unescape(f.mid(7).join(QLatin1Char(' '))));
 			m_is_list = type == FZN_NOTE_TYPE_LIST;
-			if (m_is_list) {
+			/* NOT HERE YET, sec 514: there is no content to show, and an
+			 * edit of it the node would refuse. It can still be moved,
+			 * pinned or trashed. */
+			pending = f.value(5) == QStringLiteral("pending");
+			if (pending) {
+				set_status(QStringLiteral("This note's content is not here yet; it can be "
+				                          "moved, pinned or trashed, not edited."));
+			} else if (m_is_list) {
 				QStringList lines;
 				size_t from = 0, total = 0, guard;
 
@@ -455,18 +474,18 @@ void fzn_notebook_view::refresh_note()
 			have = false;
 		}
 	}
-	m_title->setReadOnly(!editing);
-	m_body->setReadOnly(!editing || m_is_list);
+	m_title->setReadOnly(!editing || pending);
+	m_body->setReadOnly(!editing || m_is_list || pending);
 	m_new_list->setEnabled(editing);
-	m_item_text->setEnabled(editing && m_is_list);
-	m_add_item->setEnabled(editing && m_is_list);
-	m_toggle->setEnabled(editing && m_is_list);
-	m_remove_item->setEnabled(editing && m_is_list);
+	m_item_text->setEnabled(editing && m_is_list && !pending);
+	m_add_item->setEnabled(editing && m_is_list && !pending);
+	m_toggle->setEnabled(editing && m_is_list && !pending);
+	m_remove_item->setEnabled(editing && m_is_list && !pending);
 	m_cut_button->setEnabled(editing && have && !m_trash);
 	m_move_here->setEnabled(editing && !m_trash && !m_cut.isEmpty());
 	m_new_note->setEnabled(editing);
 	m_new_folder->setEnabled(editing);
-	m_save->setEnabled(editing && have);
+	m_save->setEnabled(editing && have && !pending);
 	m_trash_button->setEnabled(editing && have && !m_trash);
 	m_restore->setEnabled(editing && have && m_trash);
 	m_pin->setEnabled(editing && have && !m_trash);
@@ -964,6 +983,16 @@ QString fzn_notebook_view::warning() const
 bool fzn_notebook_view::editable() const
 {
 	return !m_title->isReadOnly() && m_save->isEnabled();
+}
+
+QStringList fzn_notebook_view::listed_texts() const
+{
+	QStringList texts;
+	int i;
+
+	for (i = 0; i < m_list->count(); i++)
+		texts << m_list->item(i)->text();
+	return texts;
 }
 
 QStringList fzn_notebook_view::listed_ids() const

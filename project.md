@@ -58765,3 +58765,76 @@ count, and the last contact's name.
 
 It joins sec 510's sibling-wire "cannot deliver" requirement. Neither is
 built yet.
+
+## 522. Stage 5, step 6: the title cache, labels in the listing, and pending in the widget, 2026-10-08
+
+Step 6 of sec 511 covers the daemon's verbs, the GUI and import, and
+includes the two promises sec 511 made to fuzzypickles' clients.
+
+### The title cache
+
+- **A listing opens each blob once.** `list note` takes a note's title
+  and labels from a cache keyed by its blob root, and opens a blob only
+  on a miss, to fill it. The content under a root never changes, so an
+  entry never goes stale. A note whose blob or wrap key is not here is
+  not cached, and lists as pending.
+- **It is in memory only**, never carried and never on disk, sized at
+  FZN_NOTES_MAX entries, and the entry listed longest ago is replaced.
+- **It goes with its blob.** Collection asks `fzn_node_notes_names_blob`
+  before removing a root, and a root nothing names is dropped from the
+  cache there. Since sec 520 a purge collects at once, so a purged note's
+  title and labels go with its blobs. This is sec 511's "destroyed with
+  the blob".
+- **Labels are a seventh field of each listed item**, after the title and
+  escaped as it is, with the NUL between two labels as `%00`. That lets a
+  client search them without opening a note. A client reading six fields
+  is unaffected, since the title is escaped and holds no comma.
+
+### The widget
+
+- A pending note lists as "(not here yet)", not as a row with nothing in
+  it.
+- Opened, a pending note's title, text and items cannot be edited, and it
+  says why. It can still be moved, pinned or trashed, as the node allows.
+- A labelled note shows its labels on hover. The widget has no search to
+  use them in yet.
+- `listed_texts` gives a suite the rows as a person reads them.
+
+### Import
+
+Nothing changed here. Import has written through the author since sec
+514, so every imported note is sealed, wrapped and chained like any
+other.
+
+### No history verb yet
+
+The holder decided 2026-10-08 to finish step 6 without one, and decide
+when retention rules exist (step 7). The question put was what history
+should show. A note's earlier records stay in the journal, but collection
+removes every superseded version's blob within a round, so a history
+command could show who changed a note and when, not what it said. The
+options were:
+
+- keeping superseded blobs, bounded by retention;
+- metadata only;
+- no verb yet.
+
+### Tests of step 6
+
+- `node/test/notes_test`, 312 checks:
+  - a listing opens a labelled note's blob once and gives the labels;
+  - listing again opens nothing;
+  - collection asking about a root nothing names drops its entry;
+  - the renamed note is opened once under its new root.
+- `notebook_view_test`, 146 checks:
+  - a note whose blob never arrived lists as "(not here yet)";
+  - a labelled note's tooltip is its labels;
+  - an opened pending note is not editable.
+- Five sabotage entries, all caught: the cache's hits, its drop, the
+  labels field, the widget's pending row, and the widget's pending open.
+  The probe now sets `QT_QPA_PLATFORM=offscreen` for the widget's suite.
+
+### What is left of stage 5
+
+Step 7, the operation journal (sec 511's 5b), and with it the retention
+rules the history question waits on.

@@ -288,6 +288,77 @@ static fzn_notes_err_t read_note(const fzn_node_notes_t *n, const fzn_notes_stor
 	                      sizeof(payload_buf), note);
 }
 
+/* ---- the title cache, sec 522 -------------------------------------------- */
+
+/* WHAT A LISTING SHOWS, by blob root: sec 511 promised clients a listing that
+ * answers title and labels without a blob read per note. The content under a
+ * root never changes, so an entry never goes stale; it goes when collection
+ * drops its root (`fzn_node_notes_names_blob`), which a purge does at once
+ * (sec 520). In memory only: never carried, never on disk. */
+#define TITLES_MAX FZN_NOTES_MAX
+
+static struct title {
+	uint8_t root[FZN_BLOB_HASH_LEN];
+	uint64_t used; /* 0 for an empty slot, else when last listed */
+	size_t title_len;
+	size_t labels_len;
+	uint8_t title[FZN_NOTE_TITLE_MAX];
+	uint8_t labels[FZN_NOTE_LABELS_MAX];
+} titles[TITLES_MAX];
+static uint64_t titles_clock;
+size_t fzn_node_notes_title_opens;
+
+static struct title *title_at(const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	size_t i;
+
+	for (i = 0; i < TITLES_MAX; i++)
+		if (titles[i].used && memcmp(titles[i].root, root, FZN_BLOB_HASH_LEN) == 0) {
+			titles[i].used = ++titles_clock;
+			return &titles[i];
+		}
+	return NULL;
+}
+
+/* An entry for `root` from `note`, over the slot listed longest ago. */
+static void title_keep(const uint8_t root[FZN_BLOB_HASH_LEN], const fzn_note_t *note)
+{
+	size_t i, at = 0;
+
+	if (note->title_len > FZN_NOTE_TITLE_MAX || note->labels_len > FZN_NOTE_LABELS_MAX)
+		return;
+	for (i = 1; i < TITLES_MAX && titles[at].used; i++)
+		if (!titles[i].used || titles[i].used < titles[at].used)
+			at = i;
+	memcpy(titles[at].root, root, FZN_BLOB_HASH_LEN);
+	titles[at].title_len = note->title_len;
+	titles[at].labels_len = note->labels_len;
+	if (note->title_len)
+		memcpy(titles[at].title, note->title, note->title_len);
+	if (note->labels_len)
+		memcpy(titles[at].labels, note->labels, note->labels_len);
+	titles[at].used = ++titles_clock;
+}
+
+int fzn_node_notes_title_cached(const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	size_t i;
+
+	for (i = 0; root && i < TITLES_MAX; i++)
+		if (titles[i].used && memcmp(titles[i].root, root, FZN_BLOB_HASH_LEN) == 0)
+			return 1;
+	return 0;
+}
+
+static void title_drop(const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	size_t i;
+
+	for (i = 0; i < TITLES_MAX; i++)
+		if (titles[i].used && memcmp(titles[i].root, root, FZN_BLOB_HASH_LEN) == 0)
+			memset(&titles[i], 0, sizeof(titles[i]));
+}
+
 /* Checklists, below: `get` and `set` reach them. sec 442. */
 static size_t get_items(fzn_node_notes_t *n, const fzn_notes_store_t *store,
                         const uint8_t id[FZN_TREE_ID_LEN], const uint8_t *at, size_t left,
@@ -491,25 +562,43 @@ static size_t list(const fzn_node_notes_t *n, const fzn_notes_store_t *store, in
 		int is_contested = 0, m;
 		fzn_note_t note;
 		fzn_note_meta_t meta;
-		const uint8_t *title = (const uint8_t *)"";
-		size_t title_len = 0;
+		const uint8_t *title = (const uint8_t *)"", *labels = title;
+		size_t title_len = 0, labels_len = 0, lwrote = 0;
+		const struct title *cached = NULL;
 		uint8_t flags = 0;
 
 		for (j = 0; j < n_contested && j < FZN_NOTES_MAX; j++)
 			is_contested |= memcmp(contested[j], node->id, FZN_TREE_ID_LEN) == 0;
 		/* THE TITLE IS IN THE BLOB, so a note whose blob is not here
-		 * lists by its meta, marked pending. sec 514. */
-		switch (read_note(n, store, node, &meta, &note)) {
-		case FZN_NOTES_OK:
-			title = note.title;
-			title_len = note.title_len;
-			flags = meta.flags;
-			break;
-		case FZN_NOTES_ERR_PENDING:
-			flags = (uint8_t)(meta.flags | FZN_NODE_NOTES_LIST_PENDING);
-			break;
-		default:
-			break;
+		 * lists by its meta, marked pending (sec 514). A blob opened
+		 * once is listed from the cache after (sec 522). */
+		if (fzn_note_meta_open(node->content_type, node->content, node->content_len, &meta)
+		    == FZN_NOTE_OK) {
+			cached = title_at(meta.content.root);
+			if (cached) {
+				title = cached->title;
+				title_len = cached->title_len;
+				labels = cached->labels;
+				labels_len = cached->labels_len;
+				flags = meta.flags;
+			} else {
+				switch (read_note(n, store, node, &meta, &note)) {
+				case FZN_NOTES_OK:
+					fzn_node_notes_title_opens++;
+					title_keep(meta.content.root, &note);
+					title = note.title;
+					title_len = note.title_len;
+					labels = note.labels;
+					labels_len = note.labels_len;
+					flags = meta.flags;
+					break;
+				case FZN_NOTES_ERR_PENDING:
+					flags = (uint8_t)(meta.flags | FZN_NODE_NOTES_LIST_PENDING);
+					break;
+				default:
+					break;
+				}
+			}
 		}
 		hex_of(node->id, FZN_TREE_ID_LEN, item);
 		m = snprintf(item + ID_HEX, sizeof(item) - ID_HEX, ",%u,%u,%d,%d,",
@@ -527,7 +616,20 @@ static size_t list(const fzn_node_notes_t *n, const fzn_notes_store_t *store, in
 		              limit - used - 1u - ID_HEX - (size_t)m, &wrote);
 		if (took < title_len)
 			break;
-		used += 1u + ID_HEX + (size_t)m + wrote;
+		/* AND ITS LABELS, a seventh field, escaped as the title is (the
+		 * NUL between two labels too), so a client searches them without
+		 * opening a note. sec 522. */
+		{
+			size_t pos = used + 1u + ID_HEX + (size_t)m + wrote;
+
+			if (limit - pos < 1u)
+				break;
+			detail[pos] = ',';
+			if (escape(labels, labels_len, detail + pos + 1u, limit - pos - 1u, &lwrote)
+			    < labels_len)
+				break;
+		}
+		used += 1u + ID_HEX + (size_t)m + wrote + 1u + lwrote;
 	}
 	return answer(reply, cap, FZN_REPLY_OK, detail, used);
 }
@@ -646,7 +748,20 @@ static int view_names(const fzn_notes_view_t *v, const uint8_t root[FZN_BLOB_HAS
 	return 0;
 }
 
+static int names_blob(fzn_node_notes_t *n, const uint8_t root[FZN_BLOB_HASH_LEN]);
+
 int fzn_node_notes_names_blob(fzn_node_notes_t *n, const uint8_t root[FZN_BLOB_HASH_LEN])
+{
+	int named = names_blob(n, root);
+
+	/* A BLOB NO NOTE NAMES takes its listing with it, sec 522: collection
+	 * asks here before it removes one, and a purge collects at once. */
+	if (!named && root)
+		title_drop(root);
+	return named;
+}
+
+static int names_blob(fzn_node_notes_t *n, const uint8_t root[FZN_BLOB_HASH_LEN])
 {
 	static uint8_t sharers[FZN_NOTES_RECEIVED_ROWS][FZN_PUBKEY_LEN];
 	size_t count = 0, i;
