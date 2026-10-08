@@ -149,55 +149,61 @@ static size_t rows_in(mem_t *m, fzn_persist_slot_t slot)
 	return n;
 }
 
-/* ---- one record store, shared: what the journal sync leaves every device ---- */
+/* ---- record stores: one shared, as the journal sync leaves every device,
+ * and one per device, for hosts joined only by the exchange ---------------- */
 
 #define RECS 64u
 
-static struct rec {
-	uint8_t issuer[FZN_PUBKEY_LEN];
-	uint32_t stream;
-	uint64_t seq;
-	size_t len;
-	uint8_t bytes[FZN_RECORD_MAX_LEN];
-} recs[RECS];
-static size_t n_recs;
+typedef struct recs {
+	struct rec {
+		uint8_t issuer[FZN_PUBKEY_LEN];
+		uint32_t stream;
+		uint64_t seq;
+		size_t len;
+		uint8_t bytes[FZN_RECORD_MAX_LEN];
+	} r[RECS];
+	size_t n;
+} recs_t;
+
+static recs_t shared;
 
 static int rec_put(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream, uint64_t seq,
                    const uint8_t *bytes, size_t len)
 {
-	(void)ctx;
-	if (n_recs >= RECS)
+	recs_t *s = (recs_t *)ctx;
+
+	if (s->n >= RECS)
 		return 0;
-	memcpy(recs[n_recs].issuer, issuer, FZN_PUBKEY_LEN);
-	recs[n_recs].stream = stream;
-	recs[n_recs].seq = seq;
-	recs[n_recs].len = len;
-	memcpy(recs[n_recs].bytes, bytes, len);
-	n_recs++;
+	memcpy(s->r[s->n].issuer, issuer, FZN_PUBKEY_LEN);
+	s->r[s->n].stream = stream;
+	s->r[s->n].seq = seq;
+	s->r[s->n].len = len;
+	memcpy(s->r[s->n].bytes, bytes, len);
+	s->n++;
 	return 1;
 }
 
 static int rec_get(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream, uint64_t seq,
                    uint8_t *out, size_t cap, size_t *len_out, int *found_out)
 {
+	recs_t *s = (recs_t *)ctx;
 	size_t i;
 
-	(void)ctx;
 	*found_out = 0;
-	for (i = 0; i < n_recs; i++)
-		if (recs[i].seq == seq && recs[i].stream == stream
-		    && memcmp(recs[i].issuer, issuer, FZN_PUBKEY_LEN) == 0) {
+	for (i = 0; i < s->n; i++)
+		if (s->r[i].seq == seq && s->r[i].stream == stream
+		    && memcmp(s->r[i].issuer, issuer, FZN_PUBKEY_LEN) == 0) {
 			*found_out = 1;
-			if (recs[i].len > cap)
+			if (s->r[i].len > cap)
 				return 0;
-			memcpy(out, recs[i].bytes, recs[i].len);
-			*len_out = recs[i].len;
+			memcpy(out, s->r[i].bytes, s->r[i].len);
+			*len_out = s->r[i].len;
 			return 1;
 		}
 	return 1;
 }
 
-static fzn_record_store_ops_t rops = { rec_put, rec_get, NULL };
+static fzn_record_store_ops_t rops = { rec_put, rec_get, &shared };
 
 /* ---- three devices of one user: A, B, and H the hub -------------------------- */
 
@@ -209,6 +215,9 @@ typedef struct device {
 	fzn_persist_ops_t store_ops;
 	fzn_node_journal_t journal;
 	fzn_node_messages_t nm;
+	/* A host's own records, when it keeps them apart. */
+	recs_t own;
+	fzn_record_store_ops_t own_ops;
 } device_t;
 
 static device_t A, B, H;
@@ -250,8 +259,7 @@ static void synced(device_t *d)
 
 static void setup(void)
 {
-	memset(recs, 0, sizeof(recs));
-	n_recs = 0;
+	memset(&shared, 0, sizeof(shared));
 	rng_counter = 0;
 	device_up(&A, 0x11);
 	device_up(&B, 0x22);
@@ -541,6 +549,148 @@ static void test_marks_are_absorbed(void)
 	      "and an absorb with nothing new reads nothing");
 }
 
+/* ---- two hosts joined only by the exchange: what fzpd will run ---------- */
+
+static device_t M, R; /* a member, and the hub it pulls from */
+
+/* A HOST ANSWERING A MEMBER, as fuzznetd's admin dispatches it: the
+ * journal's messages first, then the conversation keys. A PUSH taken is
+ * noted, since the host absorbs after one. */
+typedef struct serve {
+	device_t *to;
+	device_t *from;
+	int pushed;
+} serve_t;
+
+static int serve(void *ctx, const uint8_t *request, size_t request_len, uint8_t *out,
+                 size_t out_cap, size_t *out_len)
+{
+	serve_t *s = (serve_t *)ctx;
+	size_t n = fzn_node_journal_answer(&s->to->journal, request, request_len, out, out_cap);
+
+	if (n) {
+		if (request_len >= 2u && request[0] == FZN_EXCHANGE_VERSION
+		    && request[1] == FZN_EXCHANGE_PUSH)
+			s->pushed = 1;
+	} else {
+		n = fzn_node_messages_remote(&s->to->nm, s->from->pub, request, request_len, out,
+		                             out_cap);
+	}
+	if (!n)
+		return 0;
+	*out_len = n;
+	return 1;
+}
+
+/* A host over records of its own, following itself and `peer`. */
+static void host_up(device_t *d, const device_t *peer)
+{
+	memset(&d->own, 0, sizeof(d->own));
+	d->own_ops.put = rec_put;
+	d->own_ops.get = rec_get;
+	d->own_ops.ctx = &d->own;
+	(void)fzn_node_journal_init_store(&d->journal, &d->own_ops, &d->sign, &HASH);
+	(void)fzn_node_messages_init(&d->nm, &d->store_ops, &d->journal, d->pub, &d->sign, &RNG,
+	                             &AEAD, &HASH, now_ms);
+	(void)fzn_node_messages_devices(&d->nm, (const uint8_t(*)[FZN_PUBKEY_LEN])peer->pub, 1u);
+}
+
+/* ONE ROUND OF THE MEMBER WITH ITS HUB, in the order a host runs it: pull,
+ * push, the hub absorbing what was pushed, the member absorbing what was
+ * pulled, then the keys. */
+static int member_round(void)
+{
+	static uint8_t buf[16384];
+	serve_t s = { &R, &M, 0 };
+	fzn_exchange_tally_t pulled;
+	fzn_exchange_push_tally_t pushed;
+	fzn_node_messages_tally_t absorbed;
+
+	if (fzn_node_journal_pull(&M.journal, serve, &s, buf, sizeof(buf), &pulled)
+	            != FZN_EXCHANGE_OK
+	    || fzn_node_journal_push(&M.journal, serve, &s, buf, sizeof(buf), &pushed)
+	               != FZN_EXCHANGE_OK
+	    || (s.pushed && fzn_node_messages_absorb(&R.nm, &absorbed) != FZN_MESSAGES_OK)
+	    || fzn_node_messages_absorb(&M.nm, &absorbed) != FZN_MESSAGES_OK)
+		return 0;
+	memset(&t, 0, sizeof(t));
+	return fzn_node_messages_round(&M.nm, serve, &s, &t);
+}
+
+static int one_line_is(device_t *d, uint8_t first, uint8_t state, const char *text)
+{
+	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
+	size_t count = 0, i;
+	int more = 0;
+
+	if (fzn_messages_page(&d->nm.m, X, 0u, page, FZN_MESSAGES_PAGE_MAX, &count, &more)
+	    != FZN_MESSAGES_OK)
+		return 0;
+	for (i = 0; i < count; i++)
+		if (page[i].id[0] == first)
+			return page[i].readable && page[i].state == state
+			       && page[i].text_len == strlen(text)
+			       && memcmp(page[i].text, text, page[i].text_len) == 0;
+	return 0;
+}
+
+static void test_two_hosts_over_the_exchange(void)
+{
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	size_t unread = 9u, before;
+	int beyond = 1;
+
+	setup();
+	device_up(&M, 0x44);
+	device_up(&R, 0x55);
+	host_up(&M, &R);
+	host_up(&R, &M);
+
+	memset(id, 0x61, sizeof(id));
+	CHECK(fzn_messages_write(&R.nm.m, X, FZN_MESSAGE_OUT, id, 1u, "from the hub", 12u)
+	              == FZN_MESSAGES_OK,
+	      "fixture: the hub writes a line");
+	before = M.own.n;
+	CHECK(member_round() && M.own.n > before && t.taken == 1u
+	              && one_line_is(&M, 0x61, 0u, "from the hub"),
+	      "a round pulls it into the member's own records, asks its key, and it opens");
+
+	memset(id, 0x62, sizeof(id));
+	CHECK(fzn_messages_write(&M.nm.m, X, FZN_MESSAGE_IN, id, 2u, "from the member", 15u)
+	              == FZN_MESSAGES_OK,
+	      "fixture: the member writes a line");
+	before = R.own.n;
+	CHECK(member_round() && R.own.n > before && t.given == 1u
+	              && one_line_is(&R, 0x62, 0u, "from the member"),
+	      "the next pushes it to the hub, gives its key, and it opens there");
+
+	memset(id, 0x61, sizeof(id));
+	CHECK(fzn_messages_mark(&M.nm.m, X, FZN_MESSAGE_OUT, id, FZN_MESSAGE_DELIVERED)
+	                      == FZN_MESSAGES_OK
+	              && fzn_messages_unread(&R.nm.m, X, &unread, &beyond) == FZN_MESSAGES_OK
+	              && unread == 1u,
+	      "fixture: the member marks the hub's line; one unread on the hub");
+	memset(id, 0x62, sizeof(id));
+	CHECK(fzn_messages_read_up_to(&M.nm.m, X, id) == FZN_MESSAGES_OK && member_round()
+	              && one_line_is(&R, 0x61, FZN_MESSAGE_DELIVERED, "from the hub")
+	              && fzn_messages_unread(&R.nm.m, X, &unread, &beyond) == FZN_MESSAGES_OK
+	              && unread == 0u,
+	      "a round carries the mark and the read position to the hub");
+
+	/* SEC 521, across hosts: handed over, given up on, text whole. */
+	memset(id, 0x63, sizeof(id));
+	CHECK(fzn_messages_write(&M.nm.m, X, FZN_MESSAGE_OUT, id, 3u, "via another", 11u)
+	                      == FZN_MESSAGES_OK
+	              && fzn_messages_mark(&M.nm.m, X, FZN_MESSAGE_OUT, id, FZN_MESSAGE_HANDED_OVER)
+	                         == FZN_MESSAGES_OK
+	              && fzn_messages_mark(&M.nm.m, X, FZN_MESSAGE_OUT, id,
+	                                   FZN_MESSAGE_NOT_DELIVERED)
+	                         == FZN_MESSAGES_OK
+	              && member_round()
+	              && one_line_is(&R, 0x63, FZN_MESSAGE_NOT_DELIVERED, "via another"),
+	      "a line handed over and given up on reaches the hub, not delivered, text whole");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -562,6 +712,7 @@ int main(void)
 	test_keys_through_a_hub();
 	test_keys_cannot_be_planted();
 	test_marks_are_absorbed();
+	test_two_hosts_over_the_exchange();
 	if (failures) {
 		fprintf(stderr, "node messages_test: %d of %d checks failed\n", failures, checks);
 		return 1;

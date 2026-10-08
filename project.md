@@ -59684,3 +59684,50 @@ Three entries, each probed and caught:
 - the button erasing on one click;
 - New folder not asking a name;
 - Create offered before a name is typed.
+
+## 530. Phase 3 prep: hosting conversations in-process, tested end to end, 2026-10-08
+
+Sec 528 found that fzpd runs none of fuzznet's journal exchange, so phase 3
+means fzpd hosting it in-process. Nothing tested that path:
+- the node suite's devices shared one record store, standing in for the
+  sync;
+- the live runs went through fuzznetd.
+
+### The recipe, in `node/messages.h`
+
+1. **Start:** `fzn_node_journal_init` over the host's store, then
+   `fzn_node_messages_init`, then `fzn_node_messages_devices` with the
+   user's other devices.
+2. **Serve:** a member's request goes to `fzn_node_journal_answer` first,
+   then to `fzn_node_messages_remote`. After an answered PUSH, absorb.
+3. **Round,** with each device the host pulls from:
+   `fzn_node_journal_pull`, `fzn_node_journal_push`,
+   `fzn_node_messages_absorb`, then `fzn_node_messages_round`. Run a round
+   straight after a write to send it at once.
+
+The transport is the host's own: `ask` is whatever carries a request and
+its answer.
+
+### The test
+
+`node/test/messages_test`'s `test_two_hosts_over_the_exchange` runs that
+order between a member and a hub. Each keeps its own record store, joined
+only by the real journal pull and push and the key messages. Four checks:
+- a hub's line pulled into the member's own records, its key asked for,
+  and the line opened;
+- a member's reply pushed to the hub, its key given, and the reply opened
+  there;
+- a mark and a read position carried to the hub, its unread going from one
+  to none;
+- sec 521 across hosts: a line handed over and given up on reaches the hub
+  marked not delivered, its text whole.
+
+**Shown able to fail.** With the hub's absorb after a PUSH removed, every
+check from the reply's arrival on fails. That also shows a host that skips
+that step never sees what its members push, which is why the recipe names
+it.
+
+### Measured for sec 530
+
+`node/test/messages_test`, 46 checks. The other gates are unchanged and
+pass.

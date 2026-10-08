@@ -21,6 +21,24 @@
  *
  * NOTHING IS DELETED, as sec 526 records the holder deciding: there is no
  * verb that removes or trims a line.
+ *
+ * HOSTING IT IN-PROCESS, without fuzznetd (sec 530), is this order, and
+ * `node/test/messages_test`'s two-host case runs it end to end over two
+ * stores joined only by the exchange:
+ *
+ *   start   fzn_node_journal_init over the host's store; fzn_node_messages_init;
+ *           fzn_node_messages_devices with the user's other devices.
+ *   serve   a member's request to `fzn_node_journal_answer` first, then to
+ *           `fzn_node_messages_remote`; after an answered PUSH, absorb
+ *           (`fzn_node_messages_absorb`), or a hub never sees what its
+ *           members push.
+ *   round   with each device it pulls from: `fzn_node_journal_pull`,
+ *           `fzn_node_journal_push`, `fzn_node_messages_absorb`, then
+ *           `fzn_node_messages_round`. Run one straight after a write to
+ *           send it at once; fuzznetd does on `fresh`.
+ *
+ * The transport is the host's: `ask` is whatever carries a request to the
+ * other device and its answer back.
  */
 
 #ifndef FZN_NODE_MESSAGES_H
