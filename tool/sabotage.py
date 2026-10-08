@@ -9724,6 +9724,13 @@ SABOTAGES = [
 		"a month starts a day late, so its first day's lines are aged as the month before's -- sec 531",
 	),
 	(
+		"persist-view-every-slot-labelled",
+		"gui/persist_view.cpp",
+		"\tcase FZN_PERSIST_MESSAGE_INDEX:\n\t\treturn QStringLiteral(\"message index\");\n",
+		"",
+		"a slot added to persist.h is drawn as unknown, its -Wswitch warning unseen in an incremental build",
+	),
+	(
 		"retain-contact-only-messages",
 		"log/retain.c",
 		"\t\t    && out->data == FZN_RETAIN_MESSAGES) {\n\t\t\tif (!hex_of(w[i] + 8,",

@@ -132,6 +132,48 @@ int main(int argc, char **argv)
 	      "the row does not carry the printer's own words, so the widget has "
 	      "composed a second wording that can drift");
 
+	/* ---- EVERY SLOT HAS A LABEL. The switch's -Wswitch warning was meant
+	 * to say so, and is seen only when this file happens to be compiled;
+	 * nine slots were drawn as "unknown slot" before this walked them.
+	 *
+	 * TWO CELLS, below the end marker persist_test holds to the highest
+	 * slot: a slot the printer knows -- it says LOADED of a clean read --
+	 * carries a label of its own, and a number it does not know is one
+	 * persist.h retired, drawn as unknown. The retired numbers are named,
+	 * so retiring another fails here addressed to whoever did it. */
+	{
+		unsigned s;
+		int known = 0, labelled = 0, retired_unknown = 0, other_unknown = 0;
+
+		for (s = 1u; s < FZN_PERSIST_SLOT_END; s++) {
+			char line[FZN_PERSIST_PRINT_MAX];
+			size_t len = 0u;
+			fzn_persist_line_t said = FZN_PERSIST_LINE_NONE;
+			int drawn_unknown;
+
+			if (fzn_persist_print((fzn_persist_slot_t)s, FZN_PERSIST_OK, 1, line,
+			                      sizeof(line), &len, &said)
+			    != FZN_PERSIST_OK)
+				continue;
+			rows[0] = row_of((fzn_persist_slot_t)s, FZN_PERSIST_OK, 1);
+			view.show_slots(rows, 1u);
+			drawn_unknown = view.rows_text().startsWith(QStringLiteral("unknown slot"));
+			if (said == FZN_PERSIST_LINE_LOADED) {
+				known++;
+				labelled += !view.rows_text().isEmpty() && !drawn_unknown;
+			} else if (s == 10u || s == 12u || s == 18u) {
+				retired_unknown += drawn_unknown;
+			} else {
+				other_unknown++;
+			}
+		}
+		CHECK(known >= 33 && labelled == known,
+		      "a slot the printer knows is drawn as \"unknown slot\"");
+		CHECK(retired_unknown == 3 && other_unknown == 0,
+		      "the retired slots 10, 12 and 18 are not the only numbers the printer "
+		      "does not know, or are not drawn as unknown");
+	}
+
 	printf("persist_view_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;
 }

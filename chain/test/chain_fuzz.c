@@ -347,11 +347,14 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	 * the same array. `capacity` is the array's real length rather than
 	 * `nrevs`, which is what the old (array, count) signature had no way to
 	 * be told -- see chain.h. */
-	/* The trailing NULL is the log added in sec 211, and the 0 after it
-	 * the generation. A positional initialiser names every field or the
-	 * compiler says so. */
+	/* The NULL after the counts is the log added in sec 211, and the 0
+	 * after it the generation; the empty tail is the admins, the roots,
+	 * the confirmations and the act log. A positional initialiser names
+	 * every field or the compiler says so -- once, in the build after the
+	 * header changes, which is how five fields went unnamed here. */
 	fzn_revocation_store_t rev_store = { revs, MAX_REVS, 0, NULL, 0,
-	                                     1, 0, { { 0 } }, NULL, 0, 0, NULL, NULL };
+	                                     1, 0, { { 0 } }, NULL, 0, 0, NULL, NULL,
+	                                     NULL, 0, 0, NULL, NULL };
 	uint8_t root[FZN_PUBKEY_LEN];
 	fzn_cap_id_t cap;
 	struct stub stub = { 0, 0 };

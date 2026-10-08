@@ -70,9 +70,30 @@ static QString slot_label(fzn_persist_slot_t slot)
 		return QStringLiteral("log rule");
 	case FZN_PERSIST_ADMIN_RETENTION:
 		return QStringLiteral("admin retention rule");
+	case FZN_PERSIST_ROSTER:
+		return QStringLiteral("roster record");
+	case FZN_PERSIST_FILE_SHARE:
+		return QStringLiteral("file share");
+	case FZN_PERSIST_SUCCESSION:
+		return QStringLiteral("key succession");
+	case FZN_PERSIST_NOTE_PURGED:
+		return QStringLiteral("purged note");
+	case FZN_PERSIST_NOTE_WRAP:
+		return QStringLiteral("note wrapping key");
+	case FZN_PERSIST_OP_BYTES:
+		return QStringLiteral("operation bytes");
+	case FZN_PERSIST_CONVERSATION_KEY:
+		return QStringLiteral("conversation key");
+	case FZN_PERSIST_MESSAGE_STATE:
+		return QStringLiteral("message mark");
+	case FZN_PERSIST_MESSAGE_INDEX:
+		return QStringLiteral("message index");
 	}
 	/* NO `default:` ABOVE, so a slot added to persist.h draws a -Wswitch
-	 * warning here rather than being drawn as this. */
+	 * warning here -- once, in the build after persist.h changes, and not
+	 * again while the object is current. Nine slots, 28 to 36, went
+	 * unlabelled that way; persist_view_test now walks every slot and
+	 * fails on this. */
 	return QStringLiteral("unknown slot");
 }
 

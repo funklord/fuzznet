@@ -59829,3 +59829,34 @@ gone months not lacked, and the tombstone written. Three survived their
 first probe -- host scope, contact scope and the current month -- and
 each gained the case it lacked. Three older entries were re-anchored to
 the changed text and probed caught again.
+
+## 532. Warnings an incremental build hides, 2026-10-08
+
+Two guards in this tree rely on the compiler warning when something new
+is added -- `gui/persist_view.cpp`'s slot switch has no `default:` so
+`-Wswitch` names a new slot, and the chain suites build the revocation
+store with a positional initialiser so `-Wmissing-field-initializers`
+names a new field. Both warn only when their file is compiled: once,
+in the build after the header changed, among everything else that build
+printed, and never again, since the object is then current. They went
+unseen: nine slots (28 to
+36) were drawn in the persist view as "unknown slot", and three chain
+suites left five store fields (the confirmations and the act log)
+unnamed. A full build into an empty `BUILD_DIR` showed both, and
+nothing else.
+
+Both are fixed, and the slot labels are now held by a test rather than
+by a warning: `persist_view_test` walks every number below
+`FZN_PERSIST_SLOT_END` and splits it two ways -- a slot the printer
+knows (it says LOADED of a clean read) must carry its own label, and the
+numbers it does not know must be exactly the retired 10, 12 and 18,
+drawn as unknown. The first draft of that test took "the printer
+accepts it" as the population, and failed on the retired numbers, which
+the printer accepts and answers "cannot say".
+
+### Measured for sec 532
+
+A full `make test` into an empty scratch `BUILD_DIR`: no warnings.
+`make -j4 test`, `make style`, `make qtty`, `make installcheck`, all 0.
+Sabotage `persist-view-every-slot-labelled` (one label removed) probed
+caught.
