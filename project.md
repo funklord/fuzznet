@@ -60131,10 +60131,8 @@ Still open, and the holder's:
 
 5. **Remote verbs: every verb**, on a node configured to take them, off
    by default -- settled 2026-10-08, built as sec 543.
-6. **How long a clear (a deleted setting) is remembered.** Forgotten too
-   soon, a node returning with the old value can bring it back. Needed by
-   stage 4; the obvious bound is the window plus the longest a node may be
-   away before it must rejoin by state transfer.
+6. **A clear is remembered for the window** -- settled 2026-10-08; see
+   sec 544.
 7. **The order of the stages**, proposed as above: 1 and 2 first, since 4
    deletes data that 1 has not yet moved, and 3 and 5 build on 2.
 
@@ -60528,3 +60526,41 @@ and a listing as the owner's, a member below admin is refused, off again
 refuses, the hook hears only "add retention" -- and three sabotage
 entries, each probed caught. Not tested: a caller of host rank, since the
 fixture's only key with a chain is the root's.
+
+## 544. Stage 4 planned: what a cut journal breaks first, 2026-10-08
+
+Sec 535's stage 4 keeps the journal as a window. Read against the code,
+four things assume a stream's whole history and would break silently:
+
+| Assumes history | Where | What a cut does to it |
+|---|---|---|
+| a stream is scanned from sequence 1 at start | `fzn_node_journal_follow_stream` | a stream cut below its base reads as empty |
+| the grant index is rebuilt by replay | `node/apply.c`, in memory | no chain can be rebuilt; every later act waits |
+| an act's standing under a cut walks back record by record | `fzn_record_store_stands`, used by roots (sec 405) and revocation cuts (sec 496) | an act behind the base no longer stands |
+| the notes index reads each stream from 1 | `index_notes` in fuzznetd | it stops at the first hole |
+
+The record store makes the cut itself simple: one sparse file per stream,
+a fixed slot per sequence, and an unwritten slot reads as absent, so the
+old end is let go by punching holes below a base. A stream's base is its
+first slot with data, and that record names its predecessor, which is the
+part-way anchoring `record/journal.h` already accepts.
+
+The steps, in order:
+
+1. **The grant index kept in a slot**, so chains survive a cut and a
+   restart without replay.
+2. **Each stream's chain of record ids kept beside it**, 32 bytes a record,
+   so `stands` walks back past the base through ids it verified when the
+   records were present.
+3. **Streams read from their base**: the start-up scan, the notes index,
+   and part-way anchoring for a stream followed for the first time. A
+   follower behind a peer's base stops and says it needs a state transfer
+   (stage 5) rather than skipping.
+4. **The cut**: the window an estate setting, 60 days by default; slots
+   below it punched once their records are applied; and a setting's clear
+   forgotten after the window (decision 6), which needs a stored setting to
+   carry when this node learned it.
+
+Decision 6, the holder's of 2026-10-08: a clear is remembered for the
+window. Past it no journal holds the older records, and a node away
+longer rejoins by state transfer, which replaces its store.
