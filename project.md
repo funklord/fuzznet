@@ -60267,3 +60267,16 @@ What was proposed back:
   For the spool and blob layer here: whatever limits unsolicited
   HAVE-style queries must allow a burst per source likewise. Nothing to
   build now.
+- **The same fix showed fzpd serving a private root to anyone who names
+  it**, fuzzypickles reports (their sec 226): their test of "private blobs
+  are never fetchable by ID" had passed only because the rate limit
+  silenced its query. Their sec 11 forbids it, their later library design
+  accepts it (encryption the only boundary, at the cost of showing which
+  roots a host holds), and their holder has held the decision. **This
+  tree is on the sec 11 side** (sec 493): `fzn_node_files_answer_shared`
+  answers a contact's HAVE or WANT only for a file public or shared with
+  it. Checked against their trap: `node/test/files_test.c` asks the share
+  check directly, with no rate limit between, beside a control the same
+  question answers for a member and once the file is public; sabotage
+  `files-contact-asks-only-what-is-shared` removes the check and is
+  caught.
