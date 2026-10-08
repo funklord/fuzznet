@@ -60111,24 +60111,30 @@ disagree.
 nodes, one offline past a short window, rejoining by state transfer, and
 a setting written at one admin node applied at the other.
 
-### sec 535: decisions that are the holder's
+### sec 535: the holder's decisions, 2026-10-08
 
-1. **The default window**: 30, 45 or 60 days.
-2. **Messages out of the journal into their own store** (stage 1). This
-   revisits sec 526's decision to keep lines in the journal.
-3. **Which wins between two writers of one cell.** `state/` reports the
-   conflict and does not resolve it. The options:
-   - latest by a Lamport version, ties by issuer key -- simple, but an
-     admin's stale node can win by writing late;
-   - rank first (root, then admin, then the host itself), version within
-     a rank;
-   - refuse a write that does not name the version it replaces, so a
-     conflict is surfaced to an operator rather than resolved.
-   And whether a host's own command line or its cell wins for local
-   config.
-4. **Remote verbs**: off by default per node, and which verbs may ever be
-   remote -- in particular pairing, revocation and erasing data.
-5. **How long a clear (a deleted setting) is remembered.** Forgotten too
-   soon, a node returning with the old value can bring it back.
-6. **The order of the stages.** Proposed as above: 1 and 2 first, since
-   4 deletes data that 1 has not yet moved, and 3 and 5 build on 2.
+Settled, each the option recommended:
+
+1. **The window defaults to 60 days**, an estate cell like any other.
+2. **Messages move out of the journal into their own store** (stage 1),
+   superseding sec 526's "lines in the journal" for storage; the journal
+   still carries them for the window.
+3. **Between writers of one cell, rank first, then version**: a root
+   over an admin over the host itself, and within a rank the higher
+   Lamport version, ties broken by key. A stale lower-ranked writer can
+   never override a higher one.
+4. **For a node's local config, the database wins**: the command line
+   gives defaults, and a host-scoped cell an admin writes overrides it,
+   so a remote change takes effect.
+
+Still open, and the holder's:
+
+5. **Remote verbs**: confirmed off by default per node, but not yet which
+   verbs may ever be remote -- in particular pairing, revocation and
+   erasing data. Needed by stage 3.
+6. **How long a clear (a deleted setting) is remembered.** Forgotten too
+   soon, a node returning with the old value can bring it back. Needed by
+   stage 4; the obvious bound is the window plus the longest a node may be
+   away before it must rejoin by state transfer.
+7. **The order of the stages**, proposed as above: 1 and 2 first, since 4
+   deletes data that 1 has not yet moved, and 3 and 5 build on 2.
