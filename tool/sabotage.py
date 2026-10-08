@@ -9808,6 +9808,13 @@ SABOTAGES = [
 		"a trim leaves no tombstone, so key carriage brings the month back -- sec 531",
 	),
 	(
+		"node-messages-list-digit-key",
+		"node/messages.c",
+		"\t\tif (!all_digits(w, w_len) || w_len == 2u * FZN_PUBKEY_LEN) {",
+		"\t\tif (!all_digits(w, w_len)) {",
+		"a contact key whose hex is all decimal digits is read as a page offset and refused",
+	),
+	(
 		"node-messages-give-as-sender",
 		"node/messages.c",
 		"\t\tif (fzn_messages_key_take(&nm->m, e, fzn_get_be32(e + FZN_PUBKEY_LEN), sender,",

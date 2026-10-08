@@ -157,7 +157,8 @@ size_t fzn_node_messages_remote(void *ctx, const uint8_t *sender, const uint8_t 
  * is a floor. A listing answers `ok FROM SHOWN MORE` then each line as
  * KEY,NAME,ID,DIRECTION,STATE,STIME,WRITTEN,READABLE,TEXT -- NAME `-` for a
  * key no contact holds, STATE `-` for none, TEXT escaped -- as many as fit;
- * the next page is asked FROM + SHOWN.
+ * the next page is asked FROM + SHOWN. In a listing a word of digits
+ * alone is FROM, unless it is a whole key's 64 hex digits, which is WHO.
  */
 size_t fzn_node_messages_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                                char *reply, size_t reply_cap);

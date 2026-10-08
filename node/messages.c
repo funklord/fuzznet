@@ -673,9 +673,12 @@ static size_t list(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char
 	int more = 0, k;
 	fzn_messages_err_t err;
 
-	/* AN ALL-DIGIT WORD IS FROM: a contact named so is reached by its key. */
+	/* AN ALL-DIGIT WORD IS FROM: a contact named so is reached by its key.
+	 * But a word as long as a key is a key, digits or not -- a key's hex
+	 * can be all decimal digits, and was read as a page offset, refused as
+	 * past the walk. A FROM is at most four digits, so the two never meet. */
 	if (word(&at, &left, &w, &w_len)) {
-		if (!all_digits(w, w_len)) {
+		if (!all_digits(w, w_len) || w_len == 2u * FZN_PUBKEY_LEN) {
 			if (!who(nm, w, w_len, contact))
 				return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
 			filter = contact;

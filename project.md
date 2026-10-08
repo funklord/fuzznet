@@ -59904,10 +59904,13 @@ without -- is the holder's call, not this section's.
   itself and as its root; the devices are counted distinct and the keys
   were not, so 1 fell short of 2. Measured against the distinct keys
   now, and the restart after the fix is silent.
-- **A contact key that is all decimal digits is read as FROM by `list
-  message`**, which takes an all-digit word as a page offset. Such a key
-  has odds near 10^-13, so it is recorded rather than changed; the run
-  used a key with letters.
+- **A contact key that is all decimal digits was read as FROM by `list
+  message`**, which takes an all-digit word as a page offset. Fixed after
+  this section: a word of a whole key's 64 hex digits is WHO, digits or
+  not, and a FROM is at most four digits, so the two cannot collide.
+  `node/test/messages_test.c` lists by the fixture's own key, which is
+  all digits, with a FROM after it; sabotage
+  `node-messages-list-digit-key` removes the fix and is caught.
 
 ## 534. `make livecheck`: the daemon's message trim, repeatable, 2026-10-08
 
