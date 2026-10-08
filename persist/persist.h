@@ -284,13 +284,19 @@ typedef enum fzn_persist_slot {
 	 * journal that may be cut. CORE: grants are authority. `node/apply.h`
 	 * keeps it. sec 545. */
 	FZN_PERSIST_GRANT = 39u,
+	/* Per (key, chunk of 16 sequences), keyed by a hash of the two: each
+	 * estate act's id, predecessor and subject, kept when its record is cut
+	 * from the journal, so whether an act stands under a cut is still
+	 * answered. CORE: it decides which acts count. `node/journal.h` keeps
+	 * it. sec 546. */
+	FZN_PERSIST_JOURNAL_SPINE = 40u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 40u
+#define FZN_PERSIST_SLOT_END 41u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,

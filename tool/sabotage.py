@@ -9376,8 +9376,8 @@ SABOTAGES = [
 	(
 		"node-journal-stands-checks-the-chain",
 		"node/journal.c",
-		"\t\t    || !nj->hash->hash(nj->hash->ctx, got, sizeof(got), rec.base, rec.len)\n\t\t    || memcmp(got, want, sizeof(got)) != 0)\n\t\t\treturn 0;\n\t\tif (!below",
-		"\t\t    || !nj->hash->hash(nj->hash->ctx, got, sizeof(got), rec.base, rec.len))\n\t\t\treturn 0;\n\t\tif (!below",
+		"\t\tif (memcmp(got, want, sizeof(got)) != 0)\n\t\t\treturn 0;\n\t\tif (!below",
+		"\t\tif (0)\n\t\t\treturn 0;\n\t\tif (!below",
 		"a walk that does not check each record against the prev above it believes a store edited underneath, and an act inserted on disk stands under a cut that never covered it -- sec 506",
 	),
 	(
@@ -10079,6 +10079,27 @@ SABOTAGES = [
 		"\t\t    || len != FZN_HOP_LEN || !grant_row(ap, hop, again)\n\t\t    || memcmp(again, rows + (i * FZN_PUBKEY_LEN), FZN_PUBKEY_LEN) != 0)",
 		"\t\t    || len != FZN_HOP_LEN)",
 		"a hop filed under another's place is loaded as a grant -- sec 545",
+	),
+	(
+		"journal-spine-id-is-checked",
+		"node/journal.c",
+		"\t\t\tmemcpy(got, entry, sizeof(got));",
+		"\t\t\tmemcpy(got, want, sizeof(got));",
+		"a spine entry edited underneath is walked through as if its id chained -- sec 546",
+	),
+	(
+		"journal-spine-keeps-the-predecessor",
+		"node/journal.c",
+		"\tmemcpy(bytes + (k * SPINE_ENTRY) + FZN_RECORD_ID_LEN, fzn_record_prev(rec), FZN_RECORD_ID_LEN);",
+		"\tmemcpy(bytes + (k * SPINE_ENTRY) + FZN_RECORD_ID_LEN, id, FZN_RECORD_ID_LEN);",
+		"the spine keeps no predecessor, so no walk passes a cut record -- sec 546",
+	),
+	(
+		"journal-spine-entry-per-seq",
+		"node/journal.c",
+		"\tk = (size_t)((seq - 1u) % SPINE_CHUNK);",
+		"\tk = 0;",
+		"every kept entry lands on the row's first, so a cut stream answers for one record -- sec 546",
 	),
 	(
 		"node-messages-give-as-sender",

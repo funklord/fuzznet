@@ -334,6 +334,113 @@ static void test_the_stream_is_the_act_log(void)
 	fzn_node_journal_close(&a);
 }
 
+/* A persist store in memory, enough for the spine: a few rows by subject. */
+static struct {
+	uint8_t subject[8][FZN_PUBKEY_LEN];
+	uint8_t bytes[8][1536];
+	size_t len[8];
+	size_t n;
+} mem;
+
+static int mem_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, uint8_t *out,
+                    size_t cap, size_t *len)
+{
+	size_t i;
+
+	(void)ctx;
+	for (i = 0; i < mem.n; i++)
+		if (slot == FZN_PERSIST_JOURNAL_SPINE
+		    && memcmp(mem.subject[i], subject, FZN_PUBKEY_LEN) == 0 && mem.len[i] <= cap) {
+			memcpy(out, mem.bytes[i], mem.len[i]);
+			*len = mem.len[i];
+			return 1;
+		}
+	return 0;
+}
+
+static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
+                    const uint8_t *bytes, size_t len)
+{
+	size_t i;
+
+	(void)ctx;
+	if (slot != FZN_PERSIST_JOURNAL_SPINE || len > sizeof(mem.bytes[0]))
+		return 0;
+	for (i = 0; i < mem.n && memcmp(mem.subject[i], subject, FZN_PUBKEY_LEN) != 0; i++)
+		;
+	if (i == mem.n) {
+		if (mem.n == 8u)
+			return 0;
+		mem.n++;
+	}
+	memcpy(mem.subject[i], subject, FZN_PUBKEY_LEN);
+	memcpy(mem.bytes[i], bytes, len);
+	mem.len[i] = len;
+	return 1;
+}
+
+/* Blank slot `seq` of a stream file's length prefix, as a cut leaves it. */
+static int blank(const char *path, uint64_t seq)
+{
+	FILE *f = fopen(path, "r+b");
+	int ok = f != NULL && fseek(f, (long)((seq - 1u) * FZN_RECORD_STORE_FILE_SLOT), SEEK_SET) == 0
+	         && fputc(0, f) != EOF && fputc(0, f) != EOF;
+
+	if (f)
+		ok = fclose(f) == 0 && ok;
+	return ok;
+}
+
+/* THE SPINE, sec 546: the ids of acts cut from a stream kept beside it, so
+ * an act below the cut still stands. Writer X signs three acts; the first two
+ * are kept in the spine and then blanked on disk. Every answer the whole
+ * stream gave is given again; without the spine the walk stops at the gap;
+ * and a spine entry edited underneath answers no more than an edited record
+ * does. */
+static void test_the_spine_outlives_a_cut(void)
+{
+	static fzn_node_journal_t a;
+	static const fzn_persist_ops_t SPINE = { mem_load, mem_save, NULL, NULL, NULL };
+	uint8_t x[FZN_PUBKEY_LEN], ids[3][FZN_RECORD_ID_LEN], acts[3][FZN_SUBJECT_LEN];
+	char path[512];
+	size_t i;
+
+	key(x, 0x58);
+	for (i = 0; i < 3u; i++)
+		memset(acts[i], (int)(0x61u + i), sizeof(acts[i]));
+	CHECK(fzn_node_journal_init(&a, dir_a, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && append(&a, 0x58, 0x61, ids[0]) && append(&a, 0x58, 0x62, ids[1])
+	              && append(&a, 0x58, 0x63, ids[2]),
+	      "fixture: X signs three acts");
+	CHECK(fzn_node_journal_spine_keep(&a, x, 1u) == FZN_NODE_JOURNAL_MALFORMED,
+	      "an entry was kept with no spine");
+	a.spine = &SPINE;
+	CHECK(fzn_node_journal_spine_keep(&a, x, 1u) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_spine_keep(&a, x, 2u) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_spine_keep(&a, x, 9u) == FZN_NODE_JOURNAL_STORE,
+	      "the first two acts were not kept, or one never held was");
+	stream_path(path, sizeof(path), dir_a, 0x58);
+	CHECK(blank(path, 1u) && blank(path, 2u), "fixture: the first two records cut");
+	CHECK(fzn_node_journal_stands(&a, x, ids[0], acts[0])
+	              && fzn_node_journal_stands(&a, x, ids[1], acts[0])
+	              && fzn_node_journal_stands(&a, x, ids[2], acts[1])
+	              && !fzn_node_journal_stands(&a, x, ids[0], acts[1])
+	              && !fzn_node_journal_stands(&a, x, ids[1], acts[2]),
+	      "an act below the cut did not stand through the spine, or one above it did");
+	a.spine = NULL;
+	CHECK(!fzn_node_journal_stands(&a, x, ids[2], acts[0])
+	              && fzn_node_journal_stands(&a, x, ids[2], acts[2]),
+	      "an act stood across a gap with no spine, or one above the gap did not");
+	a.spine = &SPINE;
+	/* EDITED UNDERNEATH: the second entry's predecessor, and the walk
+	 * through it reaches nothing. */
+	mem.bytes[0][FZN_RECORD_ID_LEN + FZN_RECORD_ID_LEN + FZN_SUBJECT_LEN + FZN_RECORD_ID_LEN] ^= 1u;
+	CHECK(!fzn_node_journal_stands(&a, x, ids[2], acts[0])
+	              && fzn_node_journal_stands(&a, x, ids[2], acts[1]),
+	      "an act stood through a spine entry edited underneath");
+	fzn_node_journal_close(&a);
+}
+
 /* ANY STREAM, sec 512: a key's notes are its stream 0 beside its estate
  * stream. Two records appended on stream 0 chain there, leave the estate
  * stream alone, and replay into a fresh journal following stream 0. */
@@ -402,6 +509,7 @@ int main(void)
 	test_an_object_carried_whole();
 	test_the_stream_is_the_act_log();
 	test_a_second_stream();
+	test_the_spine_outlives_a_cut();
 
 	/* EVERY FILE THE SUITE MADE, BY NAME, then the directories. */
 	stream_path(path, sizeof(path), dir_a, 0x31);
@@ -411,6 +519,8 @@ int main(void)
 	stream_path(path, sizeof(path), dir_a, 0x55);
 	(void)unlink(path);
 	stream_path(path, sizeof(path), dir_a, 0x57);
+	(void)unlink(path);
+	stream_path(path, sizeof(path), dir_a, 0x58);
 	(void)unlink(path);
 	stream_file(path, sizeof(path), dir_a, 0x60, 0u);
 	(void)unlink(path);

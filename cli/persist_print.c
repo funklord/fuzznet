@@ -110,6 +110,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "a setting of the estate's configuration, at one rank";
 	case FZN_PERSIST_GRANT:
 		return "a grant the journal carried, kept so chains outlive it";
+	case FZN_PERSIST_JOURNAL_SPINE:
+		return "the ids of estate acts cut from the journal, so their standing is judged";
 	}
 	*known = 0;
 	return "an unknown slot";

@@ -32,6 +32,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "../persist/persist.h"
 #include "../record/exchange.h"
 #include "../chain/revocation.h"
 #ifdef FZN_RECORD_STORE_FILE_ON
@@ -73,6 +74,10 @@ typedef struct fzn_node_journal {
 	fzn_record_store_t store;
 	const fzn_sign_ops_t *sign;
 	const fzn_hash_ops_t *hash;
+	/* THE SPINE, sec 546: where an estate act's id, predecessor and subject
+	 * are kept when its record is cut. NULL keeps none, and an act behind a
+	 * cut record does not stand. */
+	const fzn_persist_ops_t *spine;
 } fzn_node_journal_t;
 
 /* OVER ANY RECORD STORE, `ops`, which must outlive it: memory for a suite,
@@ -184,7 +189,17 @@ int fzn_node_journal_forked(const fzn_node_journal_t *nj, const uint8_t key[FZN_
  * the hash of the act's object. Walked down from the head this journal
  * admitted, each record checked against the `prev` above it, so a store
  * edited underneath answers 0. 0 for a cut not on the held branch. Bounded
- * by the stream's length: one read and one hash a record. */
+ * by the stream's length: one read and one hash a record. A record absent
+ * from the store is read from the spine (sec 546), where it was kept when it
+ * was cut, and checked against the `prev` above it as a record is. */
+/* KEEP ESTATE ACT `seq` OF `key`'S STREAM IN THE SPINE, sec 546: its id,
+ * predecessor and subject, read from the record, which must be held and
+ * chain to what is held above it as `fzn_node_journal_stands` would check.
+ * Called before a record is cut. MALFORMED with no spine. */
+fzn_node_journal_err_t fzn_node_journal_spine_keep(fzn_node_journal_t *nj,
+                                                   const uint8_t key[FZN_PUBKEY_LEN],
+                                                   uint64_t seq);
+
 int fzn_node_journal_stands(fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN],
                             const uint8_t cut[FZN_RECORD_ID_LEN],
                             const uint8_t act[FZN_SUBJECT_LEN]);

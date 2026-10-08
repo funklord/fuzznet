@@ -279,6 +279,74 @@ int fzn_node_journal_head(const fzn_node_journal_t *nj, const uint8_t key[FZN_PU
 	return 1;
 }
 
+/* ---- the spine, sec 546 ---------------------------------------------------- */
+
+/* An entry: the record's id, its predecessor's, and its subject. */
+#define SPINE_ENTRY (FZN_RECORD_ID_LEN + FZN_RECORD_ID_LEN + FZN_SUBJECT_LEN)
+#define SPINE_CHUNK 16u
+#define SPINE_ROW (SPINE_ENTRY * SPINE_CHUNK)
+
+static int spine_row(const fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN],
+                     uint64_t chunk, uint8_t row[FZN_PUBKEY_LEN])
+{
+	static const char DOMAIN[] = "fuzznet.journal.spine";
+	uint8_t in[sizeof(DOMAIN) - 1u + FZN_PUBKEY_LEN + 8u];
+	size_t at = sizeof(DOMAIN) - 1u;
+
+	memcpy(in, DOMAIN, at);
+	memcpy(in + at, key, FZN_PUBKEY_LEN);
+	fzn_put_be64(in + at + FZN_PUBKEY_LEN, chunk);
+	return nj->hash->hash(nj->hash->ctx, row, FZN_PUBKEY_LEN, in, sizeof(in));
+}
+
+/* Entry `seq` of `key`'s spine into `entry` (SPINE_ENTRY bytes): 0 when none
+ * is kept -- an all-zero id is none. */
+static int spine_get(const fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN], uint64_t seq,
+                     uint8_t entry[SPINE_ENTRY])
+{
+	static const uint8_t NONE[FZN_RECORD_ID_LEN];
+	uint8_t row[FZN_PUBKEY_LEN], bytes[SPINE_ROW];
+	size_t len = 0, k = (size_t)((seq - 1u) % SPINE_CHUNK);
+
+	if (!nj->spine || !nj->spine->load || seq == 0u || !spine_row(nj, key, (seq - 1u) / SPINE_CHUNK, row)
+	    || !nj->spine->load(nj->spine->ctx, FZN_PERSIST_JOURNAL_SPINE, row, bytes, sizeof(bytes),
+	                        &len)
+	    || len != SPINE_ROW)
+		return 0;
+	memcpy(entry, bytes + (k * SPINE_ENTRY), SPINE_ENTRY);
+	return memcmp(entry, NONE, FZN_RECORD_ID_LEN) != 0;
+}
+
+fzn_node_journal_err_t fzn_node_journal_spine_keep(fzn_node_journal_t *nj,
+                                                   const uint8_t key[FZN_PUBKEY_LEN],
+                                                   uint64_t seq)
+{
+	static uint8_t buf[FZN_RECORD_MAX_LEN];
+	uint8_t row[FZN_PUBKEY_LEN], bytes[SPINE_ROW], id[FZN_RECORD_ID_LEN];
+	size_t len = 0, k;
+	fzn_record_t rec;
+
+	if (!nj || !key || seq == 0u || !nj->spine || !nj->spine->load || !nj->spine->save)
+		return FZN_NODE_JOURNAL_MALFORMED;
+	if (fzn_record_store_get(&nj->store, key, FZN_NODE_JOURNAL_STREAM, seq, buf, sizeof(buf), &rec)
+	            != FZN_RECORD_STORE_OK
+	    || !nj->hash->hash(nj->hash->ctx, id, sizeof(id), rec.base, rec.len))
+		return FZN_NODE_JOURNAL_STORE;
+	if (!spine_row(nj, key, (seq - 1u) / SPINE_CHUNK, row))
+		return FZN_NODE_JOURNAL_STORE;
+	if (!nj->spine->load(nj->spine->ctx, FZN_PERSIST_JOURNAL_SPINE, row, bytes, sizeof(bytes), &len)
+	    || len != SPINE_ROW)
+		memset(bytes, 0, sizeof(bytes));
+	k = (size_t)((seq - 1u) % SPINE_CHUNK);
+	memcpy(bytes + (k * SPINE_ENTRY), id, FZN_RECORD_ID_LEN);
+	memcpy(bytes + (k * SPINE_ENTRY) + FZN_RECORD_ID_LEN, fzn_record_prev(rec), FZN_RECORD_ID_LEN);
+	memcpy(bytes + (k * SPINE_ENTRY) + (2u * FZN_RECORD_ID_LEN), fzn_record_subject(rec),
+	       FZN_SUBJECT_LEN);
+	return nj->spine->save(nj->spine->ctx, FZN_PERSIST_JOURNAL_SPINE, row, bytes, sizeof(bytes))
+	               ? FZN_NODE_JOURNAL_OK
+	               : FZN_NODE_JOURNAL_STORE;
+}
+
 int fzn_node_journal_stands(fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN],
                             const uint8_t cut[FZN_RECORD_ID_LEN],
                             const uint8_t act[FZN_SUBJECT_LEN])
@@ -301,16 +369,33 @@ int fzn_node_journal_stands(fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY
 	 * down looking for the act. */
 	memcpy(want, e->head, sizeof(want));
 	for (seq = e->received; seq >= 1u; seq--) {
-		if (fzn_record_store_get(&nj->store, key, FZN_NODE_JOURNAL_STREAM, seq, buf,
-		                         sizeof(buf), &rec) != FZN_RECORD_STORE_OK
-		    || !nj->hash->hash(nj->hash->ctx, got, sizeof(got), rec.base, rec.len)
-		    || memcmp(got, want, sizeof(got)) != 0)
+		uint8_t entry[SPINE_ENTRY];
+		const uint8_t *subject, *prev;
+		fzn_record_store_err_t serr = fzn_record_store_get(&nj->store, key,
+		                                                   FZN_NODE_JOURNAL_STREAM, seq, buf,
+		                                                   sizeof(buf), &rec);
+
+		if (serr == FZN_RECORD_STORE_OK) {
+			if (!nj->hash->hash(nj->hash->ctx, got, sizeof(got), rec.base, rec.len))
+				return 0;
+			subject = fzn_record_subject(rec);
+			prev = fzn_record_prev(rec);
+		} else if (serr == FZN_RECORD_STORE_ERR_ABSENT && spine_get(nj, key, seq, entry)) {
+			/* CUT, AND KEPT IN THE SPINE when it was held, its id the
+			 * one the record above must name like any record's. */
+			memcpy(got, entry, sizeof(got));
+			prev = entry + FZN_RECORD_ID_LEN;
+			subject = entry + (2u * FZN_RECORD_ID_LEN);
+		} else {
+			return 0;
+		}
+		if (memcmp(got, want, sizeof(got)) != 0)
 			return 0;
 		if (!below && memcmp(got, cut, sizeof(got)) == 0)
 			below = 1;
-		if (below && memcmp(fzn_record_subject(rec), act, FZN_SUBJECT_LEN) == 0)
+		if (below && memcmp(subject, act, FZN_SUBJECT_LEN) == 0)
 			return 1;
-		memcpy(want, fzn_record_prev(rec), sizeof(want));
+		memcpy(want, prev, sizeof(want));
 	}
 	return 0;
 }

@@ -1294,7 +1294,7 @@ static int journal_chain(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN],
  * with no store directory, a records directory that will not open, or a
  * build without the record file store. */
 static int journal_for(const char *store_dir, fzn_node_roots_t *roots, const fzn_sign_ops_t *sign,
-                       const fzn_hash_ops_t *hash)
+                       const fzn_hash_ops_t *hash, const fzn_persist_ops_t *spine)
 {
 #ifdef FZN_RECORD_STORE_FILE_ON
 	static char records_dir[FZN_RECORD_STORE_FILE_PATH_MAX];
@@ -1312,6 +1312,10 @@ static int journal_for(const char *store_dir, fzn_node_roots_t *roots, const fzn
 			return 0;
 		journal_on = 1;
 	}
+	/* THE SPINE IN THE NODE'S STORE, sec 546, so an act cut from the
+	 * journal is still judged. */
+	if (spine)
+		node_journal.spine = spine;
 	if (roots) {
 		roots->logged = journal_logged;
 		roots->logged_ctx = &node_journal;
@@ -1324,6 +1328,7 @@ static int journal_for(const char *store_dir, fzn_node_roots_t *roots, const fzn
 	(void)roots;
 	(void)sign;
 	(void)hash;
+	(void)spine;
 	return 0;
 #endif
 }
@@ -2305,7 +2310,7 @@ static int pair_device(const fzn_node_identity_t *id, const fzn_node_config_t *c
 		if (fzn_node_roots_init(&logged, config->root, id->sign, id->hash)
 		            == FZN_NODE_ROOTS_OK
 		    && fzn_node_roots_load(&logged, store, &nroots) == FZN_NODE_ROOTS_OK
-		    && journal_for(store_dir, &logged, id->sign, id->hash)
+		    && journal_for(store_dir, &logged, id->sign, id->hash, store)
 		    && fzn_node_peers_load(store, peers, FZN_NODE_PEERS_MAX, &npeers)
 		               == FZN_PERSIST_OK)
 			for (i = 0; i < npeers && !done; i++) {
@@ -3324,7 +3329,7 @@ int main(int argc, char **argv)
 			}
 			/* THE KEY'S GRANT GOES INTO THE JOURNAL, sec 508, or no peer
 			 * rebuilds the chain the card carries. */
-			if (!journal_for(store_dir, &pair_roots, &sign_ops, &hash_ops))
+			if (!journal_for(store_dir, &pair_roots, &sign_ops, &hash_ops, store_ops))
 				fprintf(stderr, "fuzznetd: no journal in %s/records: a grant through the "
 				                "root key reaches no peer\n", store_dir);
 			/* AS A ROOT BY IDENTITY FIRST, sec 419: one hop and the proof,
@@ -3528,7 +3533,7 @@ int main(int argc, char **argv)
 		 * cannot keep one still serves, and says it is alone. */
 		/* AND JUDGES BY IT, sec 506: a cut is a record id in the signer's
 		 * stream, and every store attached to the roots asks the journal. */
-		if (store_dir && !journal_for(store_dir, &estate_roots, &sign_ops, &hash_ops))
+		if (store_dir && !journal_for(store_dir, &estate_roots, &sign_ops, &hash_ops, store_ops))
 			say(FZN_ENTRY_WARNING, "journal",
 			    "no journal kept in %s/records: this node's votes, roots and "
 			    "settings reach no peer, and no peer's reach it",

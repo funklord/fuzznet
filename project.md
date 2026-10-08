@@ -60582,3 +60582,24 @@ to rebuild and every act after it waiting.
 Measured: apply_test 38 checks -- a fresh context rebuilds a member's
 chain from the store alone, loads nothing twice, and refuses a misplaced
 row -- with two sabotage entries, each probed caught.
+
+## 546. Stage 4, step 2: the spine, so acts stand past a cut, 2026-10-08
+
+Sec 544's second step. `fzn_node_journal_stands` walked a stream down
+record by record, so a cut record ended the walk and every act behind it
+stopped standing.
+
+- **The spine**: per estate stream, each record's id, predecessor and
+  subject, 96 bytes, sixteen to a row in core persist slot 40,
+  `FZN_PERSIST_JOURNAL_SPINE`. `fzn_node_journal_spine_keep` takes them
+  from the held record; the cut (step 4) calls it before letting a record
+  go.
+- **`stands` reads a record the store no longer holds from the spine**,
+  and checks its id against the predecessor named above it as it does a
+  record's, so an entry edited underneath ends the walk.
+- fuzznetd hands the journal its store as the spine.
+
+Measured: node_journal_test 34 checks -- two records kept and then blanked
+on disk answer as before; with no spine the walk stops at the gap; an
+edited entry stands nothing behind it -- with three sabotage entries, each
+probed caught.
