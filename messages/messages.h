@@ -15,8 +15,9 @@
  * travel between them -- kept in persist slot FZN_PERSIST_CONVERSATION_KEY
  * and never in the journal, so a rule can trim by destroying a month's keys
  * (`fzn_messages_forget_epoch`) and leave the records as shells, listed and
- * unreadable. No rule is built, so nothing calls it but a test. Keys do not
- * travel yet: another device's lines are shells here until they do.
+ * unreadable. No rule is built, so nothing calls it but a test. Keys travel
+ * between a user's devices through `node/messages.h` (sec 527); another
+ * device's lines are shells here until its key arrives.
  *
  * A LINE'S STATE is the latest mark on it -- delivered, settled, handed
  * over, not delivered -- which may be written later and by another device.
@@ -42,7 +43,7 @@
 #include "../session/random.h"
 
 /* The most devices a listing merges: this one and the user's others. */
-#define FZN_MESSAGES_DEVICES_MAX 8u
+#define FZN_MESSAGES_DEVICES_MAX 32u
 /* The most lines a page holds, and the deepest a listing walks: offset and
  * page together. A deeper page is refused, not cut short. */
 #define FZN_MESSAGES_PAGE_MAX 20u
@@ -55,7 +56,8 @@ typedef enum fzn_messages_err {
 	FZN_MESSAGES_ERR_JOURNAL = -3,   /* a record would not chain, or will not read */
 	FZN_MESSAGES_ERR_BACKEND = -4,   /* the store refused, or cannot list */
 	FZN_MESSAGES_ERR_SEAL = -5,      /* the randomness or the seal refused */
-	FZN_MESSAGES_ERR_DEEP = -6       /* past FZN_MESSAGES_WALK_MAX */
+	FZN_MESSAGES_ERR_DEEP = -6,      /* past FZN_MESSAGES_WALK_MAX */
+	FZN_MESSAGES_ERR_EQUIVOCATION = -7 /* another key is held for that row */
 } fzn_messages_err_t;
 
 const char *fzn_messages_err_str(fzn_messages_err_t err);
@@ -133,6 +135,39 @@ fzn_messages_err_t fzn_messages_page(const fzn_messages_t *m,
  * device: what a lost or doubted state store is replaced with. `*marks` is
  * how many were read (may be NULL). */
 fzn_messages_err_t fzn_messages_reindex(const fzn_messages_t *m, size_t *marks);
+
+/* `device`'s key for `contact` and `epoch`, held here: nonzero when it is. */
+int fzn_messages_key_get(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                         uint32_t epoch, const uint8_t device[FZN_PUBKEY_LEN],
+                         uint8_t key[FZN_CONVERSATION_KEY_LEN]);
+
+/* KEEP `device`'s key for `contact` and `epoch`, carried from another of
+ * the user's devices. THE FIRST HELD STANDS: the same key again is OK, and a
+ * different one EQUIVOCATION, so a gift can neither replace a key nor bring
+ * back one a rule destroyed and then dressed differently. */
+fzn_messages_err_t fzn_messages_key_take(const fzn_messages_t *m,
+                                         const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch,
+                                         const uint8_t device[FZN_PUBKEY_LEN],
+                                         const uint8_t key[FZN_CONVERSATION_KEY_LEN]);
+
+/* A line's key, seen by `fzn_messages_absorb`: `held` nonzero when this
+ * store holds it. */
+typedef void (*fzn_messages_seen_fn)(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN],
+                                     uint32_t epoch, const uint8_t device[FZN_PUBKEY_LEN],
+                                     int held);
+
+/*
+ * ABSORB what `device`'s stream gained, from `*at` (the last record taken,
+ * 0 for none) to `to`: every mark becomes the line's state here when it is
+ * the newest, and every line's key is reported to `seen` (may be NULL), held
+ * or not -- so a caller learns which keys to ask for and which of its own to
+ * give. `*at` moves past every record read; `*marks` (may be NULL) counts
+ * the marks. What a pull brings is absorbed from where the last one left.
+ */
+fzn_messages_err_t fzn_messages_absorb(const fzn_messages_t *m,
+                                       const uint8_t device[FZN_PUBKEY_LEN], uint64_t *at,
+                                       uint64_t to, fzn_messages_seen_fn seen, void *ctx,
+                                       size_t *marks);
 
 /* DESTROY `contact`'s keys for `epoch`, this device's and every listed
  * device's, so that month's lines are shells here. For a trimming rule,

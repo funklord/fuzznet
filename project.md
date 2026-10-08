@@ -59301,14 +59301,9 @@ theirs, once they take this module.
 
 1. **Built here:** the format, sealing, keys, the store, the listing, marks
    and reindex.
-2. **The daemon:**
-   - verbs to write, mark and list;
-   - following the user's devices' stream 3, which the journal sync
-     already carries;
-   - feeding marks that arrive by sync into slot 35;
-   - carrying conversation keys to the user's own devices, which nothing
-     does yet. Until then, another device's lines are shells here, and the
-     suite shows them so.
+2. **The daemon, built in sec 527:** the verbs, every device's stream 3
+   followed, marks absorbed as they arrive, and conversation keys carried
+   between the user's own devices.
 3. **fuzzypickles takes the module:**
    - its inbox, outbox states and delegation write here;
    - its catch-up and replication give way to the journal;
@@ -59368,3 +59363,139 @@ Two needed the suite changed first:
   is read last now holds it.
 - **Reindex clearing.** The planted row had the real mark's time, so
   applying marks overwrote it anyway. It now carries a later time.
+
+## 527. Messages move, phase 2: the daemon, and keys between a user's devices, 2026-10-08
+
+Phase 2 of sec 526: the verbs, every device's stream followed, marks
+absorbed as they arrive, and conversation keys carried between the user's
+own devices. The holder's sec 526 decisions stand: nothing deletes or
+trims a line.
+
+### `node/messages`
+
+- **The devices** are the nodes `follow_estate` already follows for notes:
+  - this node;
+  - the paired peers that are not contacts;
+  - the members the last round proved.
+
+  Their stream 3 is followed in the same journal, so the journal's own pull
+  and push carry lines and marks both ways. The most devices a listing
+  merges is now 32.
+- **Absorbing.** Each device's stream is read from where the last absorb
+  left it, from the beginning at start, by `fzn_messages_absorb`. A mark
+  becomes the line's state when it is the newest. Each line's key is
+  noted: one this node lacks is asked for, and one this node drew is
+  given.
+
+  The daemon absorbs:
+  - after each pull round;
+  - after a member's PUSH, so a hub that pulls from nobody absorbs too.
+    The first live run showed the gap: M's `delivered` reached R's journal
+    and not R's state.
+- **The verbs**, for this node's own user only:
+  - `add message WHO out|in ID [at MS] TEXT | file PATH`. WHO is a
+    contact's name or key; names are resolved at this edge only. TEXT is
+    the rest of the line with %XX undone, and a 512-byte text comes by
+    file, as a long note's text does. A request line is 512 bytes.
+  - `set message WHO out|in ID delivered|settled|handed-over|not-delivered`.
+    `set` rather than a new verb, since the vocabulary's verb set is closed.
+  - `list message [WHO] [FROM]` answers `ok FROM SHOWN MORE`, then each line
+    as `KEY,NAME,ID,DIRECTION,STATE,STIME,WRITTEN,READABLE,TEXT`. A page
+    ends where the next line does not fit, and an all-digit word is FROM.
+
+  No verb removes a line.
+
+### Keys between devices, `messages/keys.situ`
+
+Four member-only messages in notes-sync's version-2 type space, 23 to 26,
+after notes' 22. They reach the node only below `node/admin`'s contact
+branch, which a request under the share capability never leaves.
+
+| type | name | carries |
+|---|---|---|
+| 23 | GIVE | up to 8 keys the asker drew, for its own lines |
+| 24 | GIVEN | how many were taken, and how many refused |
+| 25 | WANT | up to 8 places (contact, month, device) the asker lacks |
+| 26 | KEYS | those of the wanted the answerer holds |
+
+- **A given key is kept as the giver's own.** The device it is filed under
+  is the sender, so a member cannot plant a key for another device's
+  lines.
+- **The first key held stands.** `fzn_messages_key_take` refuses a
+  different key for a held row as EQUIVOCATION, and the GIVEN reply counts
+  it refused.
+- **A KEYS answer is checked twice.** One carrying more keys than were
+  asked is refused whole, and a key for a place not asked for is not taken.
+- **A key given is given once.** A key the first member answered for, taken
+  or refused, leaves the list, since one member holding it is enough for
+  the rest to ask it there. The typical shape is devices pulling from one
+  hub. Keys a node never got to give are noted again from its streams at
+  the next start.
+- **What is noted waits in two lists of 64**, lacked and to give. Past
+  that, the rest are noted again at the next start.
+
+### From fuzzypickles, 2026-10-08
+
+Their reply to the phase 1 message:
+- They confirmed the first point, a sent line arriving on another device as
+  received, in their code and by test.
+- They fixed it as an interim in their `a52bfc0`, their sec 214, by no
+  longer serving sent lines in catch-up. So a new device gets no sent
+  history until phase 3, rather than a misquoted one.
+- They recorded a requirement for phase 3: a line's direction travels with
+  it between a user's devices, so sent history reaches a new device as
+  sent. `messages/line.h` carries it.
+- The second point, a delegating host writing no line, is their sec 199's
+  gap, left to phase 3.
+
+### Measured for sec 527
+
+- `node/test/messages_test`, 36 checks, three devices under real
+  Ed25519, BLAKE2b and XChaCha20-Poly1305:
+  - **The verbs:** by name and by key, escapes, `at`, by file at 512
+    bytes, and 513 refused whole. Also another user, an unknown name, a bad
+    escape and a bad state refused, with a page and FROM.
+  - **A lacked key:** asked of the device that drew it, taken, the line
+    opened, and never asked again. A later line under the same key reads
+    at once, and is never offered as the reader's own.
+  - **Through a hub:** A gives its key to the hub, and B, which never talks
+    to A, asks the hub and reads A's line.
+  - **Planting:** B's gift for A's conversation is kept as B's. A's
+    different key is refused. An answer with an extra key is refused whole,
+    and one moved to an unasked place is not taken.
+  - **Marks:** a mark made on B is A's state once absorbed, and an absorb
+    with nothing new reads nothing.
+- `messages/test/messages_test`, 44 checks, unchanged.
+- **Live**, two daemons, with `--no-log-file`, against a private copy of
+  the binary. M is paired to R and pulls from it:
+  - R writes a line to carol. On its first round M lists it readable: M
+    absorbed it, lacked the key, and asked R for it.
+  - M writes a reply and marks R's line delivered, then restarts so its
+    round runs at once.
+  - R lists M's reply readable, its key given since R pulls from nobody,
+    and its own line `delivered` once absorbing after a push was added.
+
+### Not built in sec 527
+
+- **Absorb on write.** A key or mark written here waits for the next round
+  (60 s) to travel, as a written note does not: notes mark themselves
+  fresh. Restarting forces a round, which is how the live test drove it.
+- **The `messages` subsystem's warnings come through `say`,** which
+  `log_gate` does not read, as the daemon's other `say` sites are not read.
+
+### Sabotage of sec 527
+
+Seven entries, each probed and caught:
+- the first key standing;
+- a given key kept as the sender's;
+- taking only asked places, and no more keys than asked;
+- giving only this node's own;
+- absorb cursors kept;
+- the verbs for this node's own user only.
+
+Three needed the suite changed first:
+- a check that a gift is kept under its giver, not only that the other
+  key is untouched;
+- an answer moved to an unasked place, which the count check alone passed;
+- a second line under a held key, which is what would wrongly queue
+  another device's key to give.

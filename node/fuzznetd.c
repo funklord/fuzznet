@@ -48,6 +48,7 @@
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include "journal.h"
 #include "opjournal.h"
+#include "messages.h"
 #include "apply.h"
 #endif
 #include "peer_persist.h"
@@ -1034,6 +1035,11 @@ static void copy_logs(struct pull_target *pulls, size_t npulls, uint64_t now)
 static fzn_node_journal_t node_journal;
 static int journal_on;
 
+/* THE NODE'S CONVERSATIONS, sec 527: lines on every device's stream 3,
+ * carried by the journal; keys carried member to member each round. */
+static fzn_node_messages_t node_messages;
+static int messages_on;
+
 /* THE OPERATION JOURNAL, secs 523 and 524: switchable, off unless asked
  * for. Every write to this node's persistent state, entered by hash on its
  * own stream, in generations under `opjournal/`, a directory each named by
@@ -1300,6 +1306,13 @@ static void follow_estate(const uint8_t identity[FZN_PUBKEY_LEN], const fzn_node
 			say(FZN_ENTRY_WARNING, "journal", "no room to follow another node's notes");
 			break;
 		}
+	/* THEIR CONVERSATIONS, sec 527: the same nodes' stream 3. */
+	if (messages_on
+	    && fzn_node_messages_devices(&node_messages,
+	                                 (const uint8_t(*)[FZN_PUBKEY_LEN])notes_keys, n_notes_keys)
+	               < (n_notes_keys < FZN_MESSAGES_DEVICES_MAX ? n_notes_keys
+	                                                          : FZN_MESSAGES_DEVICES_MAX))
+		say(FZN_ENTRY_WARNING, "messages", "not every node's conversations are followed");
 }
 
 /* A note record out of the journal's store, for the index. */
@@ -1414,6 +1427,49 @@ static void pull_journal(struct pull_target *pulls, size_t npulls, uint64_t now)
 				    "journal", "%zu record(s) pushed to %s, %zu refused, %zu forked",
 				    pushed.taken, pulls[t].host, pushed.refused, pushed.forks);
 		}
+	}
+}
+#endif
+
+#ifdef FZN_RECORD_STORE_FILE_ON
+/* WHAT THE JOURNAL BROUGHT, pulled or pushed, absorbed: a hub that pulls
+ * from nobody absorbs what its members push. Nonzero when it went. */
+static int messages_absorb(void)
+{
+	fzn_node_messages_tally_t t;
+	fzn_messages_err_t err;
+
+	if (!messages_on)
+		return 0;
+	err = fzn_node_messages_absorb(&node_messages, &t);
+	if (err != FZN_MESSAGES_OK) {
+		say(FZN_ENTRY_WARNING, "messages", "absorbing: %s", fzn_messages_err_str(err));
+		return 0;
+	}
+	if (t.marks)
+		say(FZN_ENTRY_INFO, "messages", "%zu mark(s) absorbed", t.marks);
+	return 1;
+}
+
+/* CONVERSATIONS, sec 527: what the journal brought absorbed, then keys
+ * given to and asked of every pull peer. */
+static void messages_round(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	fzn_node_messages_tally_t t;
+	size_t p;
+
+	if (!messages_absorb())
+		return;
+	for (p = 0; p < npulls; p++) {
+		struct peer_asking asking = { &pulls[p].caller, now, pulls[p].host };
+
+		memset(&t, 0, sizeof(t));
+		if (!fzn_node_messages_round(&node_messages, peer_ask, &asking, &t))
+			say(FZN_ENTRY_WARNING, "messages", "keys with %s: no answer", pulls[p].host);
+		else if (t.given || t.refused || t.taken)
+			say(t.refused ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "messages",
+			    "keys with %s: %zu given, %zu refused, %zu taken, %zu still lacked",
+			    pulls[p].host, t.given, t.refused, t.taken, t.lacking);
 	}
 }
 #endif
@@ -3419,6 +3475,19 @@ int main(int argc, char **argv)
 			if (journal_on) {
 				admin.journal_remote = journal_remote;
 				admin.journal_ctx = &node_journal;
+				/* CONVERSATIONS, sec 527, before the estate is followed, so
+				 * its nodes' stream 3 is followed with the rest. */
+				if (fzn_node_messages_init(&node_messages, store_ops, &node_journal,
+				                           identity.pubkey, &sign_ops, &rng_ops, &aead_ops,
+				                           &hash_ops, wall_ms)
+				    == FZN_MESSAGES_OK) {
+					messages_on = 1;
+					admin.messages_local = fzn_node_messages_local;
+					admin.messages_remote = fzn_node_messages_remote;
+					admin.messages_ctx = &node_messages;
+				} else {
+					say(FZN_ENTRY_WARNING, "messages", "no conversations: the journal refused");
+				}
 				follow_estate(identity.pubkey, &state, &estate_roots);
 				node_apply.journal = &node_journal;
 				node_apply.revocations = &revoked;
@@ -3687,6 +3756,7 @@ int main(int argc, char **argv)
 				follow_estate(identity.pubkey, &state, running_roots);
 				pull_journal(pulls, npulls, now);
 				apply_journal();
+				messages_round(pulls, npulls, now);
 #endif
 				/* THE ESTATE'S k MAY HAVE ARRIVED WITH THEM. sec 418. */
 				if (running)
@@ -3756,6 +3826,7 @@ int main(int argc, char **argv)
 				/* THE NOTE GOES IN THE JOURNAL, sec 519, pushed with it. */
 #ifdef FZN_RECORD_STORE_FILE_ON
 				pull_journal(pulls, npulls, now);
+				messages_round(pulls, npulls, now);
 #endif
 				pull_notes(pulls, npulls, now, &state, running, running_roots);
 			}
@@ -3763,6 +3834,7 @@ int main(int argc, char **argv)
 			if (journal_pushed) {
 				journal_pushed = 0;
 				index_notes();
+				(void)messages_absorb();
 			}
 			/* A WRITE THE OPERATION JOURNAL MISSED, sec 523: made, and not
 			 * entered, so a replay will not show it; or a rotation put off,

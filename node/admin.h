@@ -148,6 +148,15 @@ typedef struct fzn_node_admin {
 	size_t (*notes_remote)(void *ctx, const uint8_t *sender, int shared, const uint8_t *request,
 	                       size_t request_len, uint8_t *reply, size_t reply_cap);
 	void *notes_ctx;
+	/* The node's conversations (`node/messages.h`), or NULL: then the
+	 * message verbs are unsupported. `messages_remote` answers a member's
+	 * GIVE and WANT of conversation keys, and is never asked by a
+	 * contact. Each returns 0 for what is not its own. sec 527. */
+	size_t (*messages_local)(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
+	                         char *reply, size_t reply_cap);
+	size_t (*messages_remote)(void *ctx, const uint8_t *sender, const uint8_t *request,
+	                          size_t request_len, uint8_t *reply, size_t reply_cap);
+	void *messages_ctx;
 	/* A JOURNAL MESSAGE from a member, sec 501 (`record/exchange.h`):
 	 * answered from this node's journal, or 0 to fall through. NULL keeps
 	 * no journal. Never a contact's: the estate's acts are the estate's. */

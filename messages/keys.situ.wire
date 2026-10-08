@@ -1,0 +1,59 @@
+# situ wire signature v2
+# schema: keys.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+endian big
+target buffer
+
+struct fzn_message_key_given size=68
+  @0x0000   32        u8         contact  big
+  @0x0020   4         u32        epoch  big
+  @0x0024   32        u8         key  big
+
+struct fzn_message_key_held size=100
+  @0x0000   32        u8         contact  big
+  @0x0020   4         u32        epoch  big
+  @0x0024   32        u8         device  big
+  @0x0044   32        u8         key  big
+
+struct fzn_message_key_wanted size=68
+  @0x0000   32        u8         contact  big
+  @0x0020   4         u32        epoch  big
+  @0x0024   32        u8         device  big
+
+struct fzn_message_keys size=3..803
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         u8         type  must_eq=26
+  @0x0002   1         u8         count  max=8
+  @0x0003   0..800    fzn_message_key_held keys  sized-by=count
+
+struct fzn_message_keys_give size=71..547
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         u8         type  must_eq=23
+  @0x0002   1         u8         count  min=1 max=8
+  @0x0003   68..544   fzn_message_key_given keys  big sized-by=count
+
+struct fzn_message_keys_given size=4
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         u8         type  must_eq=24
+  @0x0002   1         u8         taken  max=8
+  @0x0003   1         u8         refused  max=8
+
+struct fzn_message_keys_want size=71..547
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         u8         type  must_eq=25
+  @0x0002   1         u8         count  min=1 max=8
+  @0x0003   68..544   fzn_message_key_wanted keys  big sized-by=count

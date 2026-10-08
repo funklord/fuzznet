@@ -1,0 +1,65 @@
+# situ capability map v1
+# schema: keys.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct fzn_message_key_given size=68 repr=ValueConverted atomic=NonAtomic
+  fzn_message_key_given.contact          offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_message_key_given.epoch            offset=AbsoluteStatic(0x20) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_message_key_given.key              offset=AbsoluteStatic(0x24) size=Fixed(32) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic
+
+struct fzn_message_key_held size=100 repr=ValueConverted atomic=NonAtomic
+  fzn_message_key_held.contact           offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_message_key_held.epoch             offset=AbsoluteStatic(0x20) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_message_key_held.device            offset=AbsoluteStatic(0x24) size=Fixed(32) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic
+  fzn_message_key_held.key               offset=AbsoluteStatic(0x44) size=Fixed(32) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic
+
+struct fzn_message_key_wanted size=68 repr=ValueConverted atomic=NonAtomic
+  fzn_message_key_wanted.contact         offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_message_key_wanted.epoch           offset=AbsoluteStatic(0x20) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_message_key_wanted.device          offset=AbsoluteStatic(0x24) size=Fixed(32) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic
+
+struct fzn_message_keys size=3..803 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_message_keys.version               offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_keys.type                  offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_keys.count                 offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_keys.keys                  offset=AbsoluteStatic(0x03) size=Bounded(0, 800) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  fzn_message_keys.keys[]                offset=FrameStatic(0x00) size=Fixed(100) align=Aligned(8) repr=ValueConverted atomic=NonAtomic
+  fzn_message_keys.keys[].contact        offset=FrameStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_message_keys.keys[].epoch          offset=FrameStatic(0x20) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_message_keys.keys[].device         offset=FrameStatic(0x24) size=Fixed(32) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic
+  fzn_message_keys.keys[].key            offset=FrameStatic(0x44) size=Fixed(32) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic
+
+struct fzn_message_keys_give size=71..547 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_message_keys_give.version          offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_keys_give.type             offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_keys_give.count            offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_keys_give.keys             offset=AbsoluteStatic(0x03) size=Bounded(68, 544) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  fzn_message_keys_give.keys[]           offset=FrameStatic(0x00) size=Fixed(68) align=Aligned(8) repr=ValueConverted atomic=NonAtomic
+  fzn_message_keys_give.keys[].contact   offset=FrameStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_message_keys_give.keys[].epoch     offset=FrameStatic(0x20) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_message_keys_give.keys[].key       offset=FrameStatic(0x24) size=Fixed(32) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic
+
+struct fzn_message_keys_given size=4
+  fzn_message_keys_given.version         offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_keys_given.type            offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_keys_given.taken           offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_keys_given.refused         offset=AbsoluteStatic(0x03) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+
+struct fzn_message_keys_want size=71..547 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_message_keys_want.version          offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_keys_want.type             offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_keys_want.count            offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_keys_want.keys             offset=AbsoluteStatic(0x03) size=Bounded(68, 544) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  fzn_message_keys_want.keys[]           offset=FrameStatic(0x00) size=Fixed(68) align=Aligned(8) repr=ValueConverted atomic=NonAtomic
+  fzn_message_keys_want.keys[].contact   offset=FrameStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_message_keys_want.keys[].epoch     offset=FrameStatic(0x20) size=Fixed(4) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_message_keys_want.keys[].device    offset=FrameStatic(0x24) size=Fixed(32) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic

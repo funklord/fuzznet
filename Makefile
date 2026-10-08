@@ -165,7 +165,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
              node/journal.c node/opjournal.c node/apply.c \
-             messages/line.c messages/messages.c \
+             messages/line.c messages/messages.c node/messages.c \
              contact/contact.c \
              contact/group.c \
              log/rules.c \
@@ -263,7 +263,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
              node/journal.h node/opjournal.h node/apply.h \
-             messages/line.h messages/messages.h \
+             messages/line.h messages/messages.h node/messages.h \
              contact/contact.h \
              contact/group.h \
              log/rules.h \
@@ -1261,7 +1261,7 @@ RECORD_STORE_FILE_SRCS := record/store_file.c
 RECORD_STORE_FILE_HDRS := record/store_file.h
 RECORD_STORE_FILE_TSRC := record/test/store_file_test.c node/test/node_journal_test.c \
                           node/test/opjournal_test.c node/test/apply_test.c \
-                          messages/test/messages_test.c
+                          messages/test/messages_test.c node/test/messages_test.c
 
 ifdef RECORD_STORE_FILE_ON
 CPPFLAGS  += -DFZN_RECORD_STORE_FILE_ON
@@ -1273,6 +1273,7 @@ TEST_BINS += $(BUILD_DIR)/node/test/node_journal_test
 TEST_BINS += $(BUILD_DIR)/node/test/opjournal_test
 TEST_BINS += $(BUILD_DIR)/node/test/apply_test
 TEST_BINS += $(BUILD_DIR)/messages/test/messages_test
+TEST_BINS += $(BUILD_DIR)/node/test/messages_test
 endif
 
 CAPTURE_RUN_SRCS := log/capture_run.c
@@ -3898,6 +3899,27 @@ $(BUILD_DIR)/messages/test/messages_test: $(BUILD_DIR)/messages/test/messages_te
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# A node's conversations, sec 527: the verbs, absorbing, and keys carried
+# between three devices, a hub among them.
+$(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
+                                  $(BUILD_DIR)/node/messages.o \
+                                  $(BUILD_DIR)/messages/messages.o \
+                                  $(BUILD_DIR)/messages/line.o \
+                                  $(BUILD_DIR)/contact/contact.o \
+                                  $(BUILD_DIR)/persist/persist.o \
+                                  $(BUILD_DIR)/trust/trust.o \
+                                  $(BUILD_DIR)/session/agree.o \
+                                  $(BUILD_DIR)/prekey/prekey.o \
+                                  $(BUILD_DIR)/ratchet/ratchet.o \
+                                  $(BUILD_DIR)/local/vocabulary.o \
+                                  $(BUILD_DIR)/local/peer.o \
+                                  $(BUILD_DIR)/session/random.o \
+                                  $(FUZZNETD_JOURNAL_OBJS) \
+                                  $(BUILD_DIR)/record/record.o \
+                                  $(BUILD_DIR)/constant_time/constant_time.o $(MONO_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # The journal applied to the subsystems, sec 503: pair_test's set, which
 # node/revoke.o's admission pulls in, and the journal.
 $(BUILD_DIR)/node/test/apply_test: $(BUILD_DIR)/node/test/apply_test.o \
@@ -3980,6 +4002,8 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(FUZZNETD_NOTES_OBJS) \
               $(if $(SPOOL_FILE_ON),$(FUZZNETD_SHELF_OBJS)) \
               $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
+              $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/messages/messages.o \
+              $(BUILD_DIR)/messages/line.o \
               $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o $(BUILD_DIR)/log/cause.o \
               $(BUILD_DIR)/log/view.o \
               $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o $(BUILD_DIR)/log/ring.o \
@@ -5746,6 +5770,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               roster/roster.situ chain/root_act.situ chain/succession.situ \
               record/exchange.situ \
               notes/sync.situ notes/note.situ node/opjournal.situ messages/line.situ \
+              messages/keys.situ \
               log/entry.situ log/cause.situ log/gather.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.

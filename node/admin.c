@@ -1669,6 +1669,14 @@ not_groups:
 		if (n)
 			return n;
 	}
+	/* MESSAGES, sec 527, when this node keeps them. */
+	if (admin->messages_local) {
+		size_t n = admin->messages_local(admin->messages_ctx, origin, request, reply,
+		                                 reply_cap);
+
+		if (n)
+			return n;
+	}
 
 	return answer_text(reply, reply_cap, FZN_REPLY_UNSUPPORTED, NULL);
 }
@@ -1784,6 +1792,16 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 	if (admin->notes_remote && req->payload) {
 		size_t n = admin->notes_remote(admin->notes_ctx, req->sender, 0, req->payload,
 		                               req->payload_len, reply, reply_cap);
+
+		if (n)
+			return n;
+	}
+	/* A MEMBER'S CONVERSATION KEYS, the same version byte, types 23 to
+	 * 26. sec 527. Below the contact branch, so a contact never reaches
+	 * them. */
+	if (admin->messages_remote && req->payload) {
+		size_t n = admin->messages_remote(admin->messages_ctx, req->sender, req->payload,
+		                                  req->payload_len, reply, reply_cap);
 
 		if (n)
 			return n;

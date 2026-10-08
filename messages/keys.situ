@@ -1,0 +1,66 @@
+// Conversation keys between one user's devices: the four messages, as situ
+// schemas. The hand-written codec is node/messages.c, and these are its
+// checked contract. project.md sec 527.
+//
+// They share notes-sync's version byte and type space (notes/sync.h): 23
+// to 26, after notes' 22. Only a member asks or is answered: a contact's
+// request never reaches them.
+//
+// A KEY IS GIVEN BY THE DEVICE THAT DREW IT, for lines it wrote, so a hub
+// that pulls from nobody still comes by every member's keys. It is ASKED
+// FOR by a device holding a line it cannot open, from whichever member
+// holds the key.
+
+target buffer;
+endian big;
+
+// GIVE: keys the asker drew, for its own lines; `device` is the asker.
+struct fzn_message_keys_give {
+	u8   version [must_eq = 2];
+	u8   type [must_eq = 23];
+	u8   count [min = 1, max = 8];
+	fzn_message_key_given keys[count];
+}
+
+struct fzn_message_key_given {
+	u8   contact[32];
+	u32  epoch;
+	u8   key[32];
+}
+
+// GIVEN: how many were taken, and how many refused (another key held).
+struct fzn_message_keys_given {
+	u8   version [must_eq = 2];
+	u8   type [must_eq = 24];
+	u8   taken [max = 8];
+	u8   refused [max = 8];
+}
+
+// WANT: keys the asker lacks, each naming the device that wrote the line.
+struct fzn_message_keys_want {
+	u8   version [must_eq = 2];
+	u8   type [must_eq = 25];
+	u8   count [min = 1, max = 8];
+	fzn_message_key_wanted keys[count];
+}
+
+struct fzn_message_key_wanted {
+	u8   contact[32];
+	u32  epoch;
+	u8   device[32];
+}
+
+// KEYS: those of the wanted the answerer holds, possibly none.
+struct fzn_message_keys {
+	u8   version [must_eq = 2];
+	u8   type [must_eq = 26];
+	u8   count [max = 8];
+	fzn_message_key_held keys[count];
+}
+
+struct fzn_message_key_held {
+	u8   contact[32];
+	u32  epoch;
+	u8   device[32];
+	u8   key[32];
+}

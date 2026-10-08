@@ -23,12 +23,17 @@ const char *fzn_messages_err_str(fzn_messages_err_t err)
 		return "the seal refused";
 	case FZN_MESSAGES_ERR_DEEP:
 		return "deeper than a listing walks";
+	case FZN_MESSAGES_ERR_EQUIVOCATION:
+		return "another key is held for that conversation and month";
 	}
 	return "unknown";
 }
 
 /* A state row: the state, then the time of the mark that set it. */
 #define STATE_LEN 9u
+
+static int record_at(const fzn_messages_t *m, const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq,
+                     uint8_t *buf, size_t cap, fzn_record_t *rec);
 
 static int ready(const fzn_messages_t *m)
 {
@@ -221,6 +226,77 @@ fzn_messages_err_t fzn_messages_forget_epoch(const fzn_messages_t *m,
 		if (!key_row(m, contact, epoch, m->devices[d], row)
 		    || !m->store->remove(m->store->ctx, FZN_PERSIST_CONVERSATION_KEY, row))
 			return FZN_MESSAGES_ERR_BACKEND;
+	return FZN_MESSAGES_OK;
+}
+
+/* ---- keys between devices --------------------------------------------- */
+
+int fzn_messages_key_get(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                         uint32_t epoch, const uint8_t device[FZN_PUBKEY_LEN],
+                         uint8_t key[FZN_CONVERSATION_KEY_LEN])
+{
+	return ready(m) && contact && device && key && key_of(m, contact, epoch, device, key);
+}
+
+fzn_messages_err_t fzn_messages_key_take(const fzn_messages_t *m,
+                                         const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch,
+                                         const uint8_t device[FZN_PUBKEY_LEN],
+                                         const uint8_t key[FZN_CONVERSATION_KEY_LEN])
+{
+	uint8_t held[FZN_CONVERSATION_KEY_LEN], row[FZN_PUBKEY_LEN];
+	int same;
+
+	if (!ready(m) || !contact || !device || !key)
+		return FZN_MESSAGES_ERR_MALFORMED;
+	if (key_of(m, contact, epoch, device, held)) {
+		same = memcmp(held, key, sizeof(held)) == 0;
+		memset(held, 0, sizeof(held));
+		return same ? FZN_MESSAGES_OK : FZN_MESSAGES_ERR_EQUIVOCATION;
+	}
+	if (!key_row(m, contact, epoch, device, row))
+		return FZN_MESSAGES_ERR_SEAL;
+	return m->store->save(m->store->ctx, FZN_PERSIST_CONVERSATION_KEY, row, key,
+	                      FZN_CONVERSATION_KEY_LEN)
+	               ? FZN_MESSAGES_OK
+	               : FZN_MESSAGES_ERR_BACKEND;
+}
+
+fzn_messages_err_t fzn_messages_absorb(const fzn_messages_t *m,
+                                       const uint8_t device[FZN_PUBKEY_LEN], uint64_t *at,
+                                       uint64_t to, fzn_messages_seen_fn seen, void *ctx,
+                                       size_t *marks)
+{
+	static uint8_t buf[FZN_RECORD_MAX_LEN];
+	uint8_t key[FZN_CONVERSATION_KEY_LEN];
+	size_t read = 0;
+
+	if (!ready(m) || !device || !at)
+		return FZN_MESSAGES_ERR_MALFORMED;
+	while (*at < to) {
+		fzn_message_mark_t mark;
+		fzn_message_part_t p;
+		fzn_record_t rec;
+
+		if (!record_at(m, device, *at + 1u, buf, sizeof(buf), &rec))
+			return FZN_MESSAGES_ERR_JOURNAL;
+		(*at)++;
+		if (fzn_record_kind(rec) == FZN_MESSAGE_MARK_KIND
+		    && fzn_message_mark_read(fzn_record_body(rec), fzn_record_body_len(rec), &mark)) {
+			read++;
+			if (!set_state(m, fzn_record_subject(rec), mark.direction, mark.id, mark.state,
+			               fzn_record_issued_at(rec)))
+				return FZN_MESSAGES_ERR_BACKEND;
+		} else if (seen && fzn_record_kind(rec) == FZN_MESSAGE_LINE_KIND
+		           && fzn_message_line_read(fzn_record_body(rec), fzn_record_body_len(rec), &p)
+		           && p.part + 1u == p.parts) {
+			int held = key_of(m, fzn_record_subject(rec), p.epoch, device, key);
+
+			memset(key, 0, sizeof(key));
+			seen(ctx, fzn_record_subject(rec), p.epoch, device, held);
+		}
+	}
+	if (marks)
+		*marks = read;
 	return FZN_MESSAGES_OK;
 }
 
