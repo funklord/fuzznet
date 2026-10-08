@@ -29,10 +29,16 @@ enum fzn_notes_sync_type : u8 {
 	writers       = 10,  // "These keys."
 	members_query = 11,  // "Who are your members, from FROM on?" sec 445
 	members       = 12,  // "These, with the chains I hold for them."
-	push          = 13,  // "Take this record of mine." sec 446
-	pushed        = 14,  // "Taken, held already, or refused."
+	// 13 and 14 were push and pushed, retired in sec 519: members carry
+	// notes in the journal, whose exchange pushes.
 	text_push     = 15,  // "Do you want this text? Here is a span." sec 448
 	text_pushed   = 16,  // "Wanted, whole, or refused."
+	wraps_query   = 17,  // "The wrap keys of these notes." sec 520
+	wraps         = 18,  // "These, of those I may give you."
+	lacks_query   = 19,  // "Which notes do you hold without a key?"
+	lacks         = 20,  // "These."
+	give          = 21,  // "Take these keys."
+	given         = 22,  // "Taken, this many."
 }
 
 struct fzn_notes_sync_index_query {
@@ -163,22 +169,6 @@ struct fzn_notes_sync_members {
 	fzn_notes_sync_member  members[count];
 }
 
-// PUSHING, sec 446: a member offering a record the server lacks, one a
-// message so a push fits one frame. The server takes it only from a sender
-// it admits, as any record is admitted, and refuses a note it is purging.
-struct fzn_notes_sync_push {
-	u8                   version [must_eq = 2];
-	fzn_notes_sync_type  type    [must_eq = push];
-	u16                  len     [min = 1, max = 668];
-	u8                   record[len];
-}
-
-struct fzn_notes_sync_pushed {
-	u8                   version [must_eq = 2];
-	fzn_notes_sync_type  type    [must_eq = pushed];
-	u8                   outcome [max = 2];          // 0 refused, 1 taken, 2 held
-}
-
 // A PUSHED NOTE'S TEXT, sec 448, answered by node/notes.c: with no span an
 // offer, answered whole or wanted; with one, a spool DATA message, placed as
 // a fetched span is. Taken only from an admitted sender, for a note the
@@ -195,4 +185,55 @@ struct fzn_notes_sync_text_pushed {
 	u8                   version [must_eq = 2];
 	fzn_notes_sync_type  type    [must_eq = text_pushed];
 	u8                   outcome [max = 2];          // 0 refused, 1 wanted, 2 whole
+}
+
+// WRAP KEYS, sec 520: a note's records carry its content keys wrapped under
+// a key kept beside the store and never in the journal, given over the
+// session a node pulls on. To a member, any note's; to a contact, only those
+// in its share's scope (notes/sync.c). FZN_NOTES_SYNC_WRAPS_MAX = 16. A
+// note id is the fzn_notes_sync_note_id the purges use.
+struct fzn_notes_sync_wrap {
+	u8 id[32];
+	u8 key[32];
+}
+
+struct fzn_notes_sync_wraps_query {
+	u8                      version [must_eq = 2];
+	fzn_notes_sync_type     type    [must_eq = wraps_query];
+	u8                      count   [max = 16];
+	fzn_notes_sync_note_id  ids[count];
+}
+
+struct fzn_notes_sync_wraps {
+	u8                   version [must_eq = 2];
+	fzn_notes_sync_type  type    [must_eq = wraps];
+	u8                   count   [max = 16];
+	fzn_notes_sync_wrap  keys[count];
+}
+
+// A member only: the notes the answering node indexes without a key.
+struct fzn_notes_sync_lacks_query {
+	u8                   version [must_eq = 2];
+	fzn_notes_sync_type  type    [must_eq = lacks_query];
+}
+
+struct fzn_notes_sync_lacks {
+	u8                      version [must_eq = 2];
+	fzn_notes_sync_type     type    [must_eq = lacks];
+	u8                      count   [max = 16];
+	fzn_notes_sync_note_id  ids[count];
+}
+
+// Taken only for a note the taker indexes, and the first key held stands.
+struct fzn_notes_sync_give {
+	u8                   version [must_eq = 2];
+	fzn_notes_sync_type  type    [must_eq = give];
+	u8                   count   [max = 16];
+	fzn_notes_sync_wrap  keys[count];
+}
+
+struct fzn_notes_sync_given {
+	u8                   version [must_eq = 2];
+	fzn_notes_sync_type  type    [must_eq = given];
+	u8                   taken   [max = 16];
 }

@@ -19,11 +19,22 @@ endian big
 target buffer
 
 enum fzn_notes_sync_type : u8 unknown=error
-  index_query=1 index=2 records_query=3 records=4 purge=5 purge_ack=6 purges_query=7 purges=8 writers_query=9 writers=10 members_query=11 members=12 push=13 pushed=14 text_push=15 text_pushed=16
+  index_query=1 index=2 records_query=3 records=4 purge=5 purge_ack=6 purges_query=7 purges=8 writers_query=9 writers=10 members_query=11 members=12 text_push=15 text_pushed=16 wraps_query=17 wraps=18 lacks_query=19 lacks=20 give=21 given=22
 
 struct fzn_notes_sync_claim size=40
   @0x0000   32        u8         key  big
   @0x0020   8         u64        seq  big
+
+struct fzn_notes_sync_give size=3..1027
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         fzn_notes_sync_type type  must_eq=give
+  @0x0002   1         u8         count  max=16
+  @0x0003   0..1024   fzn_notes_sync_wrap keys  sized-by=count
+
+struct fzn_notes_sync_given size=3
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         fzn_notes_sync_type type  must_eq=given
+  @0x0002   1         u8         taken  max=16
 
 struct fzn_notes_sync_hop size=179
   @0x0000   179       u8         bytes  big
@@ -43,6 +54,16 @@ struct fzn_notes_sync_index_query size=4
 
 struct fzn_notes_sync_key size=32
   @0x0000   32        u8         key  big
+
+struct fzn_notes_sync_lacks size=3..515
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         fzn_notes_sync_type type  must_eq=lacks
+  @0x0002   1         u8         count  max=16
+  @0x0003   0..512    fzn_notes_sync_note_id ids  sized-by=count
+
+struct fzn_notes_sync_lacks_query size=2
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         fzn_notes_sync_type type  must_eq=lacks_query
 
 struct fzn_notes_sync_member size=212..1465
   @0x0000   32        u8         key  big
@@ -86,17 +107,6 @@ struct fzn_notes_sync_purges_query size=2
   @0x0000   1         u8         version  must_eq=2
   @0x0001   1         fzn_notes_sync_type type  must_eq=purges_query
 
-struct fzn_notes_sync_push size=5..672
-  @0x0000   1         u8         version  must_eq=2
-  @0x0001   1         fzn_notes_sync_type type  must_eq=push
-  @0x0002   2         u16        len  big min=1 max=668
-  @0x0004   1..668    u8         record  sized-by=len
-
-struct fzn_notes_sync_pushed size=3
-  @0x0000   1         u8         version  must_eq=2
-  @0x0001   1         fzn_notes_sync_type type  must_eq=pushed
-  @0x0002   1         u8         outcome  max=2
-
 struct fzn_notes_sync_record size=3..670
   @0x0000   2         u16        len  big min=1 max=668
   @0x0002   1..668    u8         record  sized-by=len
@@ -124,6 +134,22 @@ struct fzn_notes_sync_text_pushed size=3
   @0x0000   1         u8         version  must_eq=2
   @0x0001   1         fzn_notes_sync_type type  must_eq=text_pushed
   @0x0002   1         u8         outcome  max=2
+
+struct fzn_notes_sync_wrap size=64
+  @0x0000   32        u8         id  big
+  @0x0020   32        u8         key  big
+
+struct fzn_notes_sync_wraps size=3..1027
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         fzn_notes_sync_type type  must_eq=wraps
+  @0x0002   1         u8         count  max=16
+  @0x0003   0..1024   fzn_notes_sync_wrap keys  sized-by=count
+
+struct fzn_notes_sync_wraps_query size=3..515
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         fzn_notes_sync_type type  must_eq=wraps_query
+  @0x0002   1         u8         count  max=16
+  @0x0003   0..512    fzn_notes_sync_note_id ids  sized-by=count
 
 struct fzn_notes_sync_writer size=32
   @0x0000   32        u8         key  big
