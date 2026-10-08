@@ -75,6 +75,9 @@ typedef struct fzn_node_messages {
 	size_t n_gives;
 	/* Keys noted past the room above. */
 	size_t dropped;
+	/* SET BY A WRITE THROUGH THE VERBS, sec 528, so the daemon pushes it
+	 * now rather than at its next round; the daemon clears it. */
+	int fresh;
 } fzn_node_messages_t;
 
 typedef struct fzn_node_messages_tally {
@@ -128,9 +131,12 @@ size_t fzn_node_messages_remote(void *ctx, const uint8_t *sender, const uint8_t 
  *
  *   add message WHO out|in ID [at MS] TEXT | file PATH
  *   set message WHO out|in ID delivered|settled|handed-over|not-delivered
+ *   set message WHO read ID
+ *   get message WHO unread
  *   list message [WHO] [FROM]
  *
- * A listing answers `ok FROM SHOWN MORE` then each line as
+ * `get message WHO unread` answers `ok COUNT MORE`, MORE 1 when the count
+ * is a floor. A listing answers `ok FROM SHOWN MORE` then each line as
  * KEY,NAME,ID,DIRECTION,STATE,STIME,WRITTEN,READABLE,TEXT -- NAME `-` for a
  * key no contact holds, STATE `-` for none, TEXT escaped -- as many as fit;
  * the next page is asked FROM + SHOWN.

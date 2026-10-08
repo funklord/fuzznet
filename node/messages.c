@@ -271,29 +271,34 @@ fzn_messages_err_t fzn_node_messages_absorb(fzn_node_messages_t *nm,
 
 	if (!nm || !tally)
 		return FZN_MESSAGES_ERR_MALFORMED;
-	memset(tally, 0, sizeof(*tally));
-	for (d = 0; d < nm->m.device_count; d++) {
-		uint64_t to = fzn_node_journal_received(nm->m.journal, nm->devices[d],
-		                                        FZN_MESSAGE_STREAM);
-		uint64_t *at = NULL;
-		size_t marks = 0;
-		fzn_messages_err_t err;
+	uint64_t at[FZN_MESSAGES_DEVICES_MAX];
+	uint64_t *where[FZN_MESSAGES_DEVICES_MAX];
+	size_t marks = 0;
+	fzn_messages_err_t err;
 
-		for (k = 0; k < nm->n_cursors && !at; k++)
+	memset(tally, 0, sizeof(*tally));
+	/* EACH DEVICE FROM WHERE THIS RUN LAST READ IT, from the beginning at
+	 * start: what was taken in before is not taken in again, but its keys
+	 * are noted again. */
+	for (d = 0; d < nm->m.device_count; d++) {
+		where[d] = NULL;
+		for (k = 0; k < nm->n_cursors && !where[d]; k++)
 			if (same_key(nm->cursors[k].key, nm->devices[d]))
-				at = &nm->cursors[k].at;
-		if (!at) {
-			if (nm->n_cursors >= FZN_MESSAGES_DEVICES_MAX)
-				continue;
+				where[d] = &nm->cursors[k].at;
+		if (!where[d] && nm->n_cursors < FZN_MESSAGES_DEVICES_MAX) {
 			memcpy(nm->cursors[nm->n_cursors].key, nm->devices[d], FZN_PUBKEY_LEN);
 			nm->cursors[nm->n_cursors].at = 0u;
-			at = &nm->cursors[nm->n_cursors++].at;
+			where[d] = &nm->cursors[nm->n_cursors++].at;
 		}
-		err = fzn_messages_absorb(&nm->m, nm->devices[d], at, to, seen, nm, &marks);
-		if (err != FZN_MESSAGES_OK)
-			return err;
-		tally->marks += marks;
+		at[d] = where[d] ? *where[d] : 0u;
 	}
+	err = fzn_messages_absorb(&nm->m, at, seen, nm, &marks);
+	if (err != FZN_MESSAGES_OK)
+		return err;
+	for (d = 0; d < nm->m.device_count; d++)
+		if (where[d])
+			*where[d] = at[d];
+	tally->marks = marks;
 	tally->lacking = nm->n_lacks;
 	return FZN_MESSAGES_OK;
 }
@@ -582,24 +587,64 @@ static size_t add(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char 
 	}
 	err = fzn_messages_write(&nm->m, contact, direction, id, stime, text, len);
 	memset(text, 0, sizeof(text));
-	return err == FZN_MESSAGES_OK ? say(reply, cap, FZN_REPLY_OK, NULL) : refuse(reply, cap, err);
+	if (err != FZN_MESSAGES_OK)
+		return refuse(reply, cap, err);
+	nm->fresh = 1;
+	return say(reply, cap, FZN_REPLY_OK, NULL);
 }
 
 static size_t set(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char *reply,
                   size_t cap)
 {
-	static const char USAGE[] =
-	        "set message WHO out|in ID delivered|settled|handed-over|not-delivered";
+	static const char USAGE[] = "set message WHO out|in ID "
+	                            "delivered|settled|handed-over|not-delivered, "
+	                            "or set message WHO read ID";
 	uint8_t contact[FZN_PUBKEY_LEN], id[FZN_MESSAGE_ID_LEN], direction = 0, state = 0;
-	const uint8_t *w;
-	size_t w_len;
+	const uint8_t *w, *rest = at;
+	size_t w_len, rest_left = left;
 	fzn_messages_err_t err;
 
-	if (!line_of(nm, &at, &left, contact, &direction, id) || !word(&at, &left, &w, &w_len)
-	    || !state_of(w, w_len, &state) || left)
-		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
-	err = fzn_messages_mark(&nm->m, contact, direction, id, state);
-	return err == FZN_MESSAGES_OK ? say(reply, cap, FZN_REPLY_OK, NULL) : refuse(reply, cap, err);
+	/* `WHO read ID`: the conversation read up to that line. sec 528. */
+	if (word(&rest, &rest_left, &w, &w_len) && who(nm, w, w_len, contact)
+	    && word(&rest, &rest_left, &w, &w_len) && is_word(w, w_len, "read")) {
+		if (!word(&rest, &rest_left, &w, &w_len)
+		    || !parse_hex(w, w_len, id, FZN_MESSAGE_ID_LEN) || rest_left)
+			return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+		err = fzn_messages_read_up_to(&nm->m, contact, id);
+	} else {
+		if (!line_of(nm, &at, &left, contact, &direction, id)
+		    || !word(&at, &left, &w, &w_len) || !state_of(w, w_len, &state) || left)
+			return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+		err = fzn_messages_mark(&nm->m, contact, direction, id, state);
+	}
+	if (err != FZN_MESSAGES_OK)
+		return refuse(reply, cap, err);
+	nm->fresh = 1;
+	return say(reply, cap, FZN_REPLY_OK, NULL);
+}
+
+/* `get message WHO unread`: `ok COUNT MORE`, MORE 1 when the count is a
+ * floor. sec 528. */
+static size_t get(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char *reply,
+                  size_t cap)
+{
+	uint8_t contact[FZN_PUBKEY_LEN];
+	const uint8_t *w;
+	size_t w_len, count = 0;
+	char detail[48];
+	int more = 0, k;
+	fzn_messages_err_t err;
+
+	if (!word(&at, &left, &w, &w_len) || !who(nm, w, w_len, contact)
+	    || !word(&at, &left, &w, &w_len) || !is_word(w, w_len, "unread") || left)
+		return say(reply, cap, FZN_REPLY_MALFORMED, "get message WHO unread");
+	err = fzn_messages_unread(&nm->m, contact, &count, &more);
+	if (err != FZN_MESSAGES_OK)
+		return refuse(reply, cap, err);
+	k = snprintf(detail, sizeof(detail), "%zu %d", count, more);
+	if (k < 0 || (size_t)k >= sizeof(detail))
+		return 0;
+	return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)k);
 }
 
 /* `FROM SHOWN MORE`: two numbers of at most four digits and a flag. */
@@ -713,7 +758,7 @@ size_t fzn_node_messages_local(void *ctx, fzn_origin_t origin, const fzn_request
 	if (!word(&at, &left, &subject, &subject_len) || !is_word(subject, subject_len, "message"))
 		return 0;
 	if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_SET
-	    && request->parsed != FZN_VERB_LIST)
+	    && request->parsed != FZN_VERB_LIST && request->parsed != FZN_VERB_GET)
 		return 0;
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return say(reply, reply_cap, FZN_REPLY_DENIED, "messages need this node's own user");
@@ -721,5 +766,7 @@ size_t fzn_node_messages_local(void *ctx, fzn_origin_t origin, const fzn_request
 		return add(nm, at, left, reply, reply_cap);
 	if (request->parsed == FZN_VERB_SET)
 		return set(nm, at, left, reply, reply_cap);
+	if (request->parsed == FZN_VERB_GET)
+		return get(nm, at, left, reply, reply_cap);
 	return list(nm, at, left, reply, reply_cap);
 }

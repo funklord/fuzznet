@@ -165,6 +165,25 @@ int fzn_message_mark_write(const fzn_message_mark_t *m, uint8_t out[FZN_MESSAGE_
 	return 1;
 }
 
+int fzn_message_position_write(const uint8_t id[FZN_MESSAGE_ID_LEN],
+                               uint8_t out[FZN_MESSAGE_READ_LEN])
+{
+	if (!id || !out)
+		return 0;
+	out[FZN_MESSAGE_READ_OFF_VERSION] = FZN_MESSAGE_VERSION;
+	memcpy(out + FZN_MESSAGE_READ_OFF_ID, id, FZN_MESSAGE_ID_LEN);
+	return 1;
+}
+
+int fzn_message_position_read(const uint8_t *body, size_t len, uint8_t id[FZN_MESSAGE_ID_LEN])
+{
+	if (!body || !id || len != FZN_MESSAGE_READ_LEN
+	    || body[FZN_MESSAGE_READ_OFF_VERSION] != FZN_MESSAGE_VERSION)
+		return 0;
+	memcpy(id, body + FZN_MESSAGE_READ_OFF_ID, FZN_MESSAGE_ID_LEN);
+	return 1;
+}
+
 int fzn_message_mark_read(const uint8_t *body, size_t len, fzn_message_mark_t *out)
 {
 	if (!body || !out || len != FZN_MESSAGE_MARK_LEN

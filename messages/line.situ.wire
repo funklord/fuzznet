@@ -41,3 +41,7 @@ struct fzn_message_mark size=19
   @0x0001   1         fzn_message_direction direction
   @0x0002   1         fzn_message_state state
   @0x0003   16        u8         id  big
+
+struct fzn_message_read size=17
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   16        u8         id  big

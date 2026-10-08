@@ -59477,9 +59477,9 @@ Their reply to the phase 1 message:
 
 ### Not built in sec 527
 
-- **Absorb on write.** A key or mark written here waits for the next round
-  (60 s) to travel, as a written note does not: notes mark themselves
-  fresh. Restarting forces a round, which is how the live test drove it.
+- **~~Absorb on write~~: pushed at once since sec 528.** In this section a
+  key or mark written here waited for the next round (60 s), and the live
+  test forced a round by restarting.
 - **The `messages` subsystem's warnings come through `say`,** which
   `log_gate` does not read, as the daemon's other `say` sites are not read.
 
@@ -59499,3 +59499,145 @@ Three needed the suite changed first:
 - an answer moved to an unasked place, which the count check alone passed;
 - a second line under a held key, which is what would wrongly queue
   another device's key to give.
+
+## 528. What fuzzypickles needs before phase 3, built on fuzznet's side, 2026-10-08
+
+fuzzypickles listed what they need before they take the module, in their
+sec 215 (`341c26c`). The holder decided their two open questions and had
+this tree's half built now. On their side the holder has put phase 3 on
+hold ("hold phase 3 for now"), so nothing there switches yet.
+
+### The holder's decisions on read state and groups, 2026-10-08
+
+- **Read state moves into fuzznet, synced** between a user's devices. A
+  read position per conversation is a record, and the newest wins wherever
+  it was written. Rejected:
+  - read positions kept per device and not carried;
+  - leaving them in the clients, as their sec 176 has them.
+- **Phase 3 is one-to-one first.** Group history, their own store with its
+  own repair (their secs 66 and 100), moves in a later phase.
+
+### Their five, as they stand
+
+| | need | here |
+|---|---|---|
+| 1 | prompt travel, no worse than about a minute | fuzznetd pushes a write at once. In-process, fzpd pushes when it likes, once it hosts the exchange (below). |
+| 2 | in-process library use | already met: `messages/*` and `node/messages.*` are in `make manifest`, which their core Makefile reads |
+| 3 | a line's state by their 16-byte id | `fzn_messages_state`, unchanged. No mark on an OUT line means it is still being sent, now said in the header. |
+| 4 | one conversation, paged, newest first, reading no other | built: a per-conversation index |
+| 5 | import of each host's inbox, deduplicated by their id | built: `fzn_messages_import` |
+
+**The finding that matters most for them.** fzpd calls none of fuzznet's
+journal exchange: `fzn_node_journal_pull`, `push` and `init` appear nowhere
+outside their vendored tree. They confirmed this independently. Lines in
+the journal travel between hosts only by that exchange, so phase 3 means
+fzpd hosting it: journal pull and push over their transport, then
+`fzn_node_messages_absorb` and `fzn_node_messages_round`. That is also how
+they push at once after a write. The same exchange carries stage-5 notes
+(sec 519).
+
+### The index, persist slot 36 (`FZN_PERSIST_MESSAGE_INDEX`)
+
+The slot is derived and not core, and `fzn_messages_reindex` rebuilds it
+from the journal. It holds:
+- **Each conversation's lines** as a count and chunks of 16 entries. An
+  entry names the device, the sequence of the line's last part there, and
+  the line's direction and id.
+  - With the id in the entry, `fzn_messages_held` and the unread count
+    read the index alone.
+  - A page reads a record only for a line it shows. A suite case counts
+    the store's reads: a page of x's two lines reads two records with
+    thirty of y's lines between them.
+- **Each conversation's read position:** the line's id, and when the
+  position was written.
+- **How far each device's stream was taken in**, so a restart takes
+  nothing in twice.
+
+How lines get into the index:
+- **Absorbing merges every device's new records oldest first, by when
+  each was written.** A rebuild therefore lists a conversation in the order
+  it was written.
+- **In normal running, a conversation is in the order this store learned
+  of its lines.** That differs only for a line that reached this store
+  late.
+- **A line two devices both wrote is indexed once.** An absorb skips a line
+  its conversation's last 64 entries already hold. The first version
+  indexed both copies, and the copy learned last, a shell on this device
+  since its key had not arrived, hid the readable one. The two-device suite
+  case caught it.
+- **A write here indexes its own line at once** when the store had taken
+  in all of this device's stream before it, so its conversation lists it
+  with no absorb between.
+- **Absorbing runs from an in-memory place per device**, from the beginning
+  each run, so every line's key is noted again for giving and asking. The
+  stored place decides what is taken in: index entries, marks and read
+  positions only past it.
+
+### Read state
+
+- **`fzn_messages_read_up_to`** writes a read record, kind 0x237,
+  `messages/line.situ`'s `fzn_message_read`. The conversation's read
+  position here is the newest such record, wherever it was written.
+- **`fzn_messages_unread`** counts IN lines above the position, or all of
+  them when there is none. It stops at the position whichever way its line
+  went, and past 4096 lines the count is a floor.
+- **The verbs:**
+  - `set message WHO read ID`
+  - `get message WHO unread`, which answers `ok COUNT MORE`.
+
+### Importing an inbox
+
+`fzn_messages_import` writes a line unless its conversation already holds
+that direction and id, written by any device. So a line the user's hosts
+each held before the move is kept once. The same id in the other direction
+is another line, and is written. What is checked is what was absorbed, so
+absorb first.
+
+### Push on write in fuzznetd
+
+A write through the verbs sets `node_messages.fresh`. The loop then pushes
+the journal and runs a key round at once, with the same two-second floor
+notes have.
+
+### Measured for sec 528
+
+- `messages/test/messages_test`, 97 checks. The new cases:
+  - one conversation's page reads only its own records;
+  - import kept once by id and direction, by any device;
+  - read state: unread counts, a read on B clearing unread on A, and an
+    older read arriving later not replacing a newer one;
+  - a rebuild ordering a conversation as written;
+  - an absorb from the beginning again taking in no mark twice.
+- `node/test/messages_test`, 39 checks: the read and unread verbs, and a
+  write setting `fresh`.
+- **Live**, two daemons, M a member pulling from hub R. Neither daemon
+  was restarted after its first round:
+  - 4 s after M wrote a reply, R listed it readable, its key given in the
+    fresh round. In sec 527 this took a restart.
+  - R counted one unread. Four seconds after M set the conversation read,
+    R counted none.
+
+### Sabotage of sec 528
+
+Nine new entries, each probed and caught:
+- indexing a line once;
+- a page from the index;
+- absorbing only past the cursor;
+- absorbing oldest first;
+- the newest read winning;
+- unread stopping at the read position;
+- import checking what is held;
+- a line written here indexed at once;
+- a write through the verbs being fresh.
+
+Two needed the suite changed first:
+- **Absorbing past the cursor** survived its first probe. Re-taking lines
+  in is hidden by the recent-entries check, so the case now carries a
+  mark, which nothing else keeps once.
+- **The newest read winning** needed an older read arriving after a newer
+  one.
+
+Two sec 526 entries moved with the code and were re-anchored. One,
+`messages-page-filters-contact`, was removed: a conversation's page now
+reads only that conversation's index, so the filter it guarded no longer
+exists.

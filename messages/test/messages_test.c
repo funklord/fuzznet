@@ -53,7 +53,7 @@ static uint64_t now_ms(void)
 
 /* ---- a persist store in memory ----------------------------------------------- */
 
-#define ROWS 160u
+#define ROWS 192u
 
 typedef struct row {
 	int used;
@@ -61,7 +61,7 @@ typedef struct row {
 	int has_subject;
 	uint8_t subject[FZN_PUBKEY_LEN];
 	size_t len;
-	uint8_t bytes[64];
+	uint8_t bytes[960];
 } row_t;
 
 typedef struct mem {
@@ -152,7 +152,7 @@ static size_t rows_in(mem_t *m, fzn_persist_slot_t slot)
 
 /* ---- one record store in memory, shared by both devices' journals ---------- */
 
-#define RECS 96u
+#define RECS 160u
 
 static struct rec {
 	uint8_t issuer[FZN_PUBKEY_LEN];
@@ -178,12 +178,16 @@ static int rec_put(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t str
 	return 1;
 }
 
+/* Every record read, for a listing that must read one conversation only. */
+static size_t rec_reads;
+
 static int rec_get(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream, uint64_t seq,
                    uint8_t *out, size_t cap, size_t *len_out, int *found_out)
 {
 	size_t i;
 
 	(void)ctx;
+	rec_reads++;
 	*found_out = 0;
 	for (i = 0; i < n_recs; i++)
 		if (recs[i].seq == seq && recs[i].stream == stream
@@ -445,10 +449,15 @@ static void test_a_hand_off_given_up_on_stays(void)
  * streams: what the journal sync leaves A holding. A's store is kept. */
 static void sync_a(void)
 {
+	uint64_t at[2] = { 0u, 0u };
+
 	(void)fzn_node_journal_init_store(&A.journal, &rops, &A.sign, &HASH);
 	(void)fzn_node_journal_follow_stream(&A.journal, A.pub, FZN_MESSAGE_STREAM, NULL);
 	(void)fzn_node_journal_follow_stream(&A.journal, B.pub, FZN_MESSAGE_STREAM, NULL);
 	A.m.device_count = 2u;
+	/* AND TAKEN IN, as the daemon does after a pull: from the beginning
+	 * here, which takes in only what A had not. */
+	(void)fzn_messages_absorb(&A.m, at, NULL, NULL, NULL);
 }
 
 /* What the key carriage will do, which is not built: B's conversation keys,
@@ -523,6 +532,128 @@ static void test_the_newest_mark_wins(void)
 	      "A's later mark is the state, though B's stream is read after A's");
 }
 
+/* ONE CONVERSATION FROM ITS INDEX: a page of x's lines reads x's records
+ * and none of y's, however many of y's lie between. */
+static void test_one_conversation_reads_only_its_own(void)
+{
+	size_t i, reads;
+
+	setup();
+	CHECK(write_line(&A, X, FZN_MESSAGE_OUT, 1u, "x one"), "fixture: x's first line");
+	for (i = 0; i < 30u; i++)
+		CHECK(write_line(&A, Y, FZN_MESSAGE_IN, (uint8_t)(40u + i), "y"), "fixture: y's lines");
+	CHECK(write_line(&A, X, FZN_MESSAGE_IN, 2u, "x two"), "fixture: x's second line");
+	rec_reads = 0;
+	CHECK(list(&A, X, 0u, 5u) && count == 2u && !more && is_line(0, 2u, FZN_MESSAGE_IN, "x two")
+	              && is_line(1, 1u, FZN_MESSAGE_OUT, "x one"),
+	      "x's page holds x's two lines, newest first");
+	reads = rec_reads;
+	CHECK(reads <= 2u, "and read only their two records, none of y's thirty");
+	CHECK(list(&A, NULL, 0u, 5u) && count == 5u && more && rec_reads > reads + 5u,
+	      "where everyone's page walks the stream itself");
+}
+
+/* IMPORT, deduplicated by id and direction, by any device. */
+static void test_import_keeps_a_line_once(void)
+{
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	int written = -1;
+
+	setup();
+	id_of(id, 5u);
+	CHECK(write_line(&B, X, FZN_MESSAGE_IN, 5u, "held on b"), "fixture: B holds a line");
+	sync_a();
+	CHECK(fzn_messages_held(&A.m, X, FZN_MESSAGE_IN, id), "absorbed, A holds it");
+	CHECK(fzn_messages_import(&A.m, X, FZN_MESSAGE_IN, id, 1u, "held on b", 9u, &written)
+	                      == FZN_MESSAGES_OK
+	              && written == 0,
+	      "importing it on A writes nothing");
+	CHECK(fzn_messages_import(&A.m, X, FZN_MESSAGE_OUT, id, 1u, "the reply", 9u, &written)
+	                      == FZN_MESSAGES_OK
+	              && written == 1,
+	      "the same id the other way is another line, and is written");
+	id_of(id, 6u);
+	CHECK(fzn_messages_import(&A.m, X, FZN_MESSAGE_IN, id, 1u, "new", 3u, &written)
+	                      == FZN_MESSAGES_OK
+	              && written == 1
+	              && fzn_messages_import(&A.m, X, FZN_MESSAGE_IN, id, 1u, "new", 3u, &written)
+	                         == FZN_MESSAGES_OK
+	              && written == 0,
+	      "a new one is written, and importing it twice writes it once");
+}
+
+/* READ STATE: a position per conversation, the newest wins wherever it was
+ * written, and unread counts the IN lines above it. */
+static void test_read_state_travels(void)
+{
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	size_t unread = 99u;
+	int beyond = 1;
+
+	setup();
+	CHECK(write_line(&A, X, FZN_MESSAGE_IN, 1u, "one") && write_line(&A, X, FZN_MESSAGE_IN, 2u, "two")
+	              && write_line(&A, X, FZN_MESSAGE_OUT, 3u, "mine")
+	              && write_line(&A, X, FZN_MESSAGE_IN, 4u, "three"),
+	      "fixture: three lines in, one out");
+	CHECK(fzn_messages_unread(&A.m, X, &unread, &beyond) == FZN_MESSAGES_OK && unread == 3u && !beyond,
+	      "nothing read: three unread, the line out not among them");
+	id_of(id, 2u);
+	CHECK(fzn_messages_read_up_to(&A.m, X, id) == FZN_MESSAGES_OK
+	              && fzn_messages_unread(&A.m, X, &unread, &beyond) == FZN_MESSAGES_OK && unread == 1u,
+	      "read up to the second: one unread above it");
+	id_of(id, 4u);
+	sync_a();
+	CHECK(fzn_messages_read_up_to(&B.m, X, id) == FZN_MESSAGES_OK, "fixture: B reads to the last");
+	sync_a();
+	CHECK(fzn_messages_read_position(&A.m, X, id) && id[0] == 4u
+	              && fzn_messages_unread(&A.m, X, &unread, &beyond) == FZN_MESSAGES_OK && unread == 0u,
+	      "read on B, carried and absorbed: nothing unread on A");
+	id_of(id, 2u);
+	CHECK(fzn_messages_read_up_to(&A.m, X, id) == FZN_MESSAGES_OK
+	              && fzn_messages_read_position(&A.m, X, id) && id[0] == 2u,
+	      "and a later read on A, though further back, is the newest and stands");
+	/* AN OLDER READ ARRIVING LATER does not move it. */
+	id_of(id, 1u);
+	CHECK(fzn_messages_read_up_to(&B.m, X, id) == FZN_MESSAGES_OK, "fixture: B reads to the first");
+	id_of(id, 3u);
+	CHECK(fzn_messages_read_up_to(&A.m, X, id) == FZN_MESSAGES_OK,
+	      "fixture: then A, later, to the third");
+	sync_a();
+	CHECK(fzn_messages_read_position(&A.m, X, id) && id[0] == 3u,
+	      "B's read, absorbed after A's newer one, does not replace it");
+}
+
+/* THE ORDER A REBUILD GIVES is the order the lines were written, whichever
+ * device wrote them; and taking a stream in again from the beginning adds
+ * nothing. */
+static void test_reindex_orders_by_writing(void)
+{
+	size_t marks = 0, before;
+	uint64_t at[2] = { 0u, 0u };
+
+	setup();
+	CHECK(write_line(&A, X, FZN_MESSAGE_OUT, 1u, "a1") && write_line(&B, X, FZN_MESSAGE_IN, 2u, "b2")
+	              && write_line(&A, X, FZN_MESSAGE_OUT, 3u, "a3")
+	              && write_line(&B, X, FZN_MESSAGE_IN, 4u, "b4"),
+	      "fixture: A and B write in turn");
+	sync_a();
+	keys_b_to_a();
+	CHECK(fzn_messages_reindex(&A.m, &marks) == FZN_MESSAGES_OK && list(&A, X, 0u, 5u)
+	              && count == 4u && is_line(0, 4u, FZN_MESSAGE_IN, "b4")
+	              && is_line(1, 3u, FZN_MESSAGE_OUT, "a3") && is_line(2, 2u, FZN_MESSAGE_IN, "b2")
+	              && is_line(3, 1u, FZN_MESSAGE_OUT, "a1"),
+	      "rebuilt, the conversation lists as it was written");
+	CHECK(mark(&B, X, FZN_MESSAGE_IN, 2u, FZN_MESSAGE_DELIVERED), "fixture: B marks a line");
+	sync_a();
+	before = rows_in(&A.store, FZN_PERSIST_MESSAGE_INDEX);
+	/* A MARK TAKEN IN AGAIN is what a cursor ignored would show: index
+	 * entries are also kept once by the recent-entries check, marks not. */
+	CHECK(fzn_messages_absorb(&A.m, at, NULL, NULL, &marks) == FZN_MESSAGES_OK && marks == 0u
+	              && rows_in(&A.store, FZN_PERSIST_MESSAGE_INDEX) == before && list(&A, X, 0u, 5u)
+	              && count == 4u,
+	      "and an absorb from the beginning again takes nothing in twice");
+}
+
 static void test_reindex_rebuilds_from_nothing(void)
 {
 	size_t marks = 0, i;
@@ -590,6 +721,10 @@ int main(void)
 	test_a_hand_off_given_up_on_stays();
 	test_two_devices();
 	test_the_newest_mark_wins();
+	test_one_conversation_reads_only_its_own();
+	test_import_keeps_a_line_once();
+	test_read_state_travels();
+	test_reindex_orders_by_writing();
 	test_reindex_rebuilds_from_nothing();
 	test_a_month_forgotten_leaves_shells();
 	if (failures) {

@@ -1,12 +1,11 @@
 /* Conversations: the lines a user's devices sent and received, kept in the
- * journal. project.md sec 526, the start of the move of fuzzypickles'
- * message storage into this tree; `messages/line.h` is the format.
+ * journal. project.md secs 526 to 528, the move of fuzzypickles' message
+ * storage into this tree; `messages/line.h` is the format.
  *
  * WHERE LINES LIVE. Each device writes the lines it sent or received as
  * records of its own FZN_MESSAGE_STREAM, so the user's other devices hold
  * them by the journal sync every other act already rides, direction and
- * all. A listing merges the streams of the devices it is given, newest
- * first, and shows a line once however many devices wrote it.
+ * all. A line is shown once however many devices wrote it.
  *
  * NOTHING IS DELETED BY DEFAULT, and nothing bounds storage: the holder,
  * 2026-10-08, "custom rules delete/trim data. Definitely no default deletion
@@ -21,9 +20,22 @@
  *
  * A LINE'S STATE is the latest mark on it -- delivered, settled, handed
  * over, not delivered -- which may be written later and by another device.
- * The journal holds the marks; FZN_PERSIST_MESSAGE_STATE holds the latest
- * per line, so a listing need not find them, and `fzn_messages_reindex`
- * rebuilds it from the journal.
+ * AN OUT LINE WITH NO MARK IS STILL BEING SENT: 0 from `fzn_messages_state`
+ * is "sending" for a line this user wrote, and NOT_DELIVERED is the one
+ * state that says it never will be. FZN_PERSIST_MESSAGE_STATE holds the
+ * latest per line, so a reader need not find the marks.
+ *
+ * WHAT IS DERIVED, sec 528, in FZN_PERSIST_MESSAGE_INDEX: each
+ * conversation's lines in the order this store learned of them, so one
+ * conversation pages, is searched and counts unread without reading any
+ * other; each conversation's read position; and how far each device's
+ * stream has been taken in. `fzn_messages_absorb` keeps them, a write
+ * here keeps them for its own line at once, and `fzn_messages_reindex`
+ * rebuilds them all from the journal.
+ *
+ * READ STATE TRAVELS (the holder, 2026-10-08): a conversation's read
+ * position is a record too, the newest wins wherever it was written, so
+ * reading on one device clears unread on every other.
  *
  * SEC 521, a hand-off given up on: the device that hands a message to
  * another of the user's devices writes it as its own OUT line and marks it
@@ -48,6 +60,8 @@
  * page together. A deeper page is refused, not cut short. */
 #define FZN_MESSAGES_PAGE_MAX 20u
 #define FZN_MESSAGES_WALK_MAX 4096u
+/* A conversation's index is kept this many lines to a row. */
+#define FZN_MESSAGES_INDEX_CHUNK 16u
 
 typedef enum fzn_messages_err {
 	FZN_MESSAGES_OK = 0,
@@ -64,7 +78,7 @@ const char *fzn_messages_err_str(fzn_messages_err_t err);
 
 /* Everything the store needs. All borrowed. */
 typedef struct fzn_messages {
-	/* Conversation keys and line states. */
+	/* Conversation keys, line states, and the index. */
 	const fzn_persist_ops_t *store;
 	/* Where lines are chained, and read: it must follow FZN_MESSAGE_STREAM
 	 * of every device below. */
@@ -88,7 +102,7 @@ typedef struct fzn_message {
 	uint8_t device[FZN_PUBKEY_LEN];
 	uint8_t id[FZN_MESSAGE_ID_LEN];
 	uint8_t direction;
-	/* The latest mark, 0 for none. */
+	/* The latest mark, 0 for none: for an OUT line, still being sent. */
 	uint8_t state;
 	/* The sender's time, and when the device wrote it. */
 	uint64_t stime;
@@ -111,6 +125,21 @@ fzn_messages_err_t fzn_messages_write(const fzn_messages_t *m,
                                       const uint8_t id[FZN_MESSAGE_ID_LEN], uint64_t stime,
                                       const char *text, size_t len);
 
+/*
+ * IMPORT A LINE held before the move: written as `fzn_messages_write`
+ * writes, unless `contact`'s conversation already holds (`direction`,
+ * `id`) -- written by any device -- when nothing is written. `*written`
+ * says which. What was absorbed is what is checked, so absorb first.
+ */
+fzn_messages_err_t fzn_messages_import(const fzn_messages_t *m,
+                                       const uint8_t contact[FZN_PUBKEY_LEN], uint8_t direction,
+                                       const uint8_t id[FZN_MESSAGE_ID_LEN], uint64_t stime,
+                                       const char *text, size_t len, int *written);
+
+/* Whether `contact`'s conversation holds (`direction`, `id`), as absorbed. */
+int fzn_messages_held(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                      uint8_t direction, const uint8_t id[FZN_MESSAGE_ID_LEN]);
+
 /* MARK the line (`contact`, `direction`, `id`) with `state`, as a record,
  * and make it the line's state here. */
 fzn_messages_err_t fzn_messages_mark(const fzn_messages_t *m,
@@ -121,20 +150,34 @@ fzn_messages_err_t fzn_messages_mark(const fzn_messages_t *m,
 uint8_t fzn_messages_state(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                            uint8_t direction, const uint8_t id[FZN_MESSAGE_ID_LEN]);
 
+/* READ `contact`'s conversation up to the line `id`, as a record, and make
+ * it the read position here. */
+fzn_messages_err_t fzn_messages_read_up_to(const fzn_messages_t *m,
+                                           const uint8_t contact[FZN_PUBKEY_LEN],
+                                           const uint8_t id[FZN_MESSAGE_ID_LEN]);
+
+/* The read position: nonzero, and the line's id, when there is one. */
+int fzn_messages_read_position(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                               uint8_t id[FZN_MESSAGE_ID_LEN]);
+
+/* HOW MANY IN LINES are newer than the read position -- all of them when
+ * there is none -- counted down to FZN_MESSAGES_WALK_MAX lines, past which
+ * `*more` is set and the count is a floor. */
+fzn_messages_err_t fzn_messages_unread(const fzn_messages_t *m,
+                                       const uint8_t contact[FZN_PUBKEY_LEN], size_t *count,
+                                       int *more);
+
 /*
- * A PAGE, newest first: lines with `contact`, or with anyone for NULL,
- * past the first `offset`, at most `cap` (FZN_MESSAGES_PAGE_MAX), `*count`
- * of them, `*more` nonzero when another follows. DEEP when `offset` and
- * `cap` together pass FZN_MESSAGES_WALK_MAX.
+ * A PAGE, newest first: lines with `contact`, from that conversation's index
+ * alone, in the order this store learned of them; or with anyone for NULL,
+ * every device's stream merged by when each was written. Past the first
+ * `offset`, at most `cap` (FZN_MESSAGES_PAGE_MAX), `*count` of them, `*more`
+ * nonzero when another follows. DEEP when `offset` and `cap` together pass
+ * FZN_MESSAGES_WALK_MAX.
  */
 fzn_messages_err_t fzn_messages_page(const fzn_messages_t *m,
                                      const uint8_t *contact, size_t offset, fzn_message_t *out,
                                      size_t cap, size_t *count, int *more);
-
-/* REBUILD the line states from the marks the journal holds, for every
- * device: what a lost or doubted state store is replaced with. `*marks` is
- * how many were read (may be NULL). */
-fzn_messages_err_t fzn_messages_reindex(const fzn_messages_t *m, size_t *marks);
 
 /* `device`'s key for `contact` and `epoch`, held here: nonzero when it is. */
 int fzn_messages_key_get(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
@@ -157,17 +200,24 @@ typedef void (*fzn_messages_seen_fn)(void *ctx, const uint8_t contact[FZN_PUBKEY
                                      int held);
 
 /*
- * ABSORB what `device`'s stream gained, from `*at` (the last record taken,
- * 0 for none) to `to`: every mark becomes the line's state here when it is
- * the newest, and every line's key is reported to `seen` (may be NULL), held
- * or not -- so a caller learns which keys to ask for and which of its own to
- * give. `*at` moves past every record read; `*marks` (may be NULL) counts
- * the marks. What a pull brings is absorbed from where the last one left.
+ * ABSORB what every device's stream gained since `at` -- one entry per
+ * device, parallel to `devices`, 0 to read from the beginning -- merged
+ * oldest first by when each record was written. Every line's key is
+ * reported to `seen` (may be NULL), held or not, so a caller learns which
+ * keys to ask for and which of its own to give. Past how far the store had
+ * already taken each stream in, a line joins its conversation's index, a
+ * mark becomes its line's state when it is the newest, and a read position
+ * becomes the conversation's when it is. `at` moves past every record
+ * read; `*marks` (may be NULL) counts the marks taken in.
  */
-fzn_messages_err_t fzn_messages_absorb(const fzn_messages_t *m,
-                                       const uint8_t device[FZN_PUBKEY_LEN], uint64_t *at,
-                                       uint64_t to, fzn_messages_seen_fn seen, void *ctx,
-                                       size_t *marks);
+fzn_messages_err_t fzn_messages_absorb(const fzn_messages_t *m, uint64_t *at,
+                                       fzn_messages_seen_fn seen, void *ctx, size_t *marks);
+
+/* REBUILD everything derived -- indexes, line states, read positions, how
+ * far each stream was taken in -- from what the journal holds, every
+ * device's records merged in the order they were written. What a lost or
+ * doubted index is replaced with. `*marks` (may be NULL) counts marks. */
+fzn_messages_err_t fzn_messages_reindex(const fzn_messages_t *m, size_t *marks);
 
 /* DESTROY `contact`'s keys for `epoch`, this device's and every listed
  * device's, so that month's lines are shells here. For a trimming rule,

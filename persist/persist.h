@@ -263,13 +263,18 @@ typedef enum fzn_persist_slot {
 	 * latest mark, rebuilt from the journal when lost. NOT CORE: it is
 	 * derived. `messages/messages.h` keeps it. sec 526. */
 	FZN_PERSIST_MESSAGE_STATE = 35u,
+	/* Keyed by hashes of what each row is: each conversation's index of
+	 * lines, its read position, and how far each device's stream was taken
+	 * in. NOT CORE: it is derived, and `fzn_messages_reindex` rebuilds it
+	 * from the journal. `messages/messages.h` keeps it. sec 528. */
+	FZN_PERSIST_MESSAGE_INDEX = 36u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 36u
+#define FZN_PERSIST_SLOT_END 37u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,

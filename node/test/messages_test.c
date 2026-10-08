@@ -60,7 +60,7 @@ typedef struct row {
 	int has_subject;
 	uint8_t subject[FZN_PUBKEY_LEN];
 	size_t len;
-	uint8_t bytes[128];
+	uint8_t bytes[960];
 } row_t;
 
 typedef struct mem {
@@ -352,6 +352,16 @@ static void test_the_verbs(void)
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "list message 1") && replied("ok 1 1 0 ")
 	              && strstr(reply, ID1),
 	      "and a listing from 1 starts at the second");
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "get message carol unread") && replied("ok 1 0"),
+	      "one line in, nothing read: one unread");
+	A.nm.fresh = 0;
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "set message carol read " ID2) && replied("ok")
+	              && A.nm.fresh
+	              && verb(&A, FZN_ORIGIN_SAME_USER, "get message carol unread")
+	              && replied("ok 0 0"),
+	      "read up to it, none unread, and the write marked fresh for the daemon to push");
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "get message carol everything") && replied("malformed"),
+	      "a get that is not unread is refused");
 	CHECK(verb(&A, FZN_ORIGIN_LOCAL, "list message") && replied("denied"),
 	      "another user is refused");
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "add message dave out " ID1 " hi")

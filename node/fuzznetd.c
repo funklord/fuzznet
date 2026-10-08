@@ -3831,6 +3831,16 @@ int main(int argc, char **argv)
 				pull_notes(pulls, npulls, now, &state, running, running_roots);
 			}
 #ifdef FZN_RECORD_STORE_FILE_ON
+			/* A MESSAGE WRITTEN HERE GOES AT ONCE, sec 528: the journal
+			 * pushed, then keys given and asked, rather than waiting for
+			 * the next round. The same two-second floor as notes'. */
+			if (messages_on && node_messages.fresh
+			    && (now >= last_fresh_round + 2u || last_fresh_round > now)) {
+				node_messages.fresh = 0;
+				last_fresh_round = now;
+				pull_journal(pulls, npulls, now);
+				messages_round(pulls, npulls, now);
+			}
 			if (journal_pushed) {
 				journal_pushed = 0;
 				index_notes();

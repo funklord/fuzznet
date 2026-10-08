@@ -102,6 +102,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "the key a conversation's lines of one month are sealed under";
 	case FZN_PERSIST_MESSAGE_STATE:
 		return "a conversation line's latest mark";
+	case FZN_PERSIST_MESSAGE_INDEX:
+		return "a conversation's index, read position, or how far a stream was taken in";
 	}
 	*known = 0;
 	return "an unknown slot";

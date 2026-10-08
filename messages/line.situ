@@ -37,6 +37,13 @@ enum fzn_message_state : u8 {
 	not_delivered = 4,	// no device of the user's could send it (sec 521)
 }
 
+// A conversation read up to a line, kind 0x237, sec 528: the newest such
+// record, wherever written, is the conversation's read position.
+struct fzn_message_read {
+	u8                     version [must_eq = 1];   //  0
+	u8                     id[16];                  //  1 the line read up to
+}
+
 struct fzn_message_mark {
 	u8                     version [must_eq = 1];   //  0
 	fzn_message_direction  direction;               //  1 the line's

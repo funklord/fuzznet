@@ -20,6 +20,9 @@
  * A MARK sets a line's state after it was written: delivered, settled,
  * handed over to another of the user's devices, or not delivered. The
  * latest mark is the line's state.
+ *
+ * A READ POSITION, sec 528, says a conversation was read up to a line; the
+ * latest is the conversation's, wherever it was written.
  */
 
 #ifndef FZN_MESSAGES_LINE_H
@@ -36,6 +39,8 @@
 #define FZN_MESSAGE_STREAM 3u
 #define FZN_MESSAGE_LINE_KIND 0x37u
 #define FZN_MESSAGE_MARK_KIND 0x137u
+/* A conversation read up to a line, sec 528. */
+#define FZN_MESSAGE_READ_KIND 0x237u
 
 #define FZN_MESSAGE_VERSION 1u
 #define FZN_MESSAGE_ID_LEN 16u
@@ -70,6 +75,10 @@
 #define FZN_MESSAGE_MARK_OFF_STATE 2u
 #define FZN_MESSAGE_MARK_OFF_ID 3u
 #define FZN_MESSAGE_MARK_LEN 19u
+
+#define FZN_MESSAGE_READ_OFF_VERSION 0u
+#define FZN_MESSAGE_READ_OFF_ID 1u
+#define FZN_MESSAGE_READ_LEN 17u
 
 /* A conversation's key for one epoch. */
 #define FZN_CONVERSATION_KEY_LEN FZN_AEAD_KEY_LEN
@@ -128,5 +137,10 @@ int fzn_message_line_open(const fzn_aead_ops_t *aead, const uint8_t key[FZN_CONV
 
 int fzn_message_mark_write(const fzn_message_mark_t *m, uint8_t out[FZN_MESSAGE_MARK_LEN]);
 int fzn_message_mark_read(const uint8_t *body, size_t len, fzn_message_mark_t *out);
+
+/* A read position's body: the id of the line read up to. */
+int fzn_message_position_write(const uint8_t id[FZN_MESSAGE_ID_LEN],
+                               uint8_t out[FZN_MESSAGE_READ_LEN]);
+int fzn_message_position_read(const uint8_t *body, size_t len, uint8_t id[FZN_MESSAGE_ID_LEN]);
 
 #endif /* FZN_MESSAGES_LINE_H */

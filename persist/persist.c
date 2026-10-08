@@ -460,6 +460,7 @@ int fzn_persist_slot_is_core(fzn_persist_slot_t slot)
 	case FZN_PERSIST_ADMIN_RETENTION:
 	case FZN_PERSIST_OP_BYTES:
 	case FZN_PERSIST_MESSAGE_STATE:
+	case FZN_PERSIST_MESSAGE_INDEX:
 		return 0;
 	default:
 		return 1;	/* named or not: see persist.h */
