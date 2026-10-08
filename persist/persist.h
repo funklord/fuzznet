@@ -246,6 +246,9 @@ typedef enum fzn_persist_slot {
 	 * again, from the journal or from anybody. `notes/purge.h` keeps it.
 	 * sec 518. */
 	FZN_PERSIST_NOTE_PURGED = 31u,
+	/* Per note id: the key the note's content keys are wrapped under, kept
+	 * here and never in the journal, so a purge can destroy it. sec 520. */
+	FZN_PERSIST_NOTE_WRAP = 32u,
 } fzn_persist_slot_t;
 
 typedef enum fzn_persist_err {
@@ -310,6 +313,9 @@ typedef enum fzn_persist_err {
 /* A note's purge mark, in slot 31: a version byte, the mark being the row.
  * `notes/purge.c` keeps it. sec 518. */
 #define FZN_PERSIST_BLOB_NOTE_PURGED 32u
+/* A note's wrap key, in slot 32: 32 bytes. `notes/store.c` keeps it.
+ * sec 520. */
+#define FZN_PERSIST_BLOB_NOTE_WRAP 33u
 
 /* Write a blob head, or refuse when `cap` cannot hold head and body. */
 fzn_persist_err_t fzn_persist_head_write(uint8_t *out, size_t cap, size_t body,
@@ -451,6 +457,10 @@ typedef struct fzn_persist_ops {
  *
  * CORE: ROSTER (sec 489), named rather than left to the default. A
  * removal rolled back is a removed contact served again -- a door.
+ *
+ * CORE: NOTE_WRAP (sec 520), named rather than left to the default. A wrap
+ * key rolled back is one a purge destroyed come back, and with it every copy
+ * of the note's content that escaped the purge readable again.
  *
  * CORE: NOTE_PURGED (sec 518), named rather than left to the default, for
  * the roster's reason. A note's records stay in its writers' journal

@@ -3,6 +3,7 @@
  * version 2's meta and payload in sec 514. */
 
 #include "../note.h"
+#include "../../session/commitment.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -521,7 +522,7 @@ static void test_a_meta_round_trips(void)
 	uint8_t b[FZN_NOTE_META_LEN];
 
 	CHECK(fzn_note_meta_write(&m, b) == FZN_NOTE_OK);
-	CHECK(b[0] == 2u && b[1] == (FZN_NOTE_FLAG_PINNED | FZN_NOTE_FLAG_TRASHED) && b[2] == 0x11u
+	CHECK(b[0] == 3u && b[1] == (FZN_NOTE_FLAG_PINNED | FZN_NOTE_FLAG_TRASHED) && b[2] == 0x11u
 	      && b[22] == 0x40u && b[54] == 0x80u && b[93] == 14u);
 	CHECK(fzn_note_meta_open(FZN_NOTE_TYPE_NOTE, b, sizeof(b), &back) == FZN_NOTE_OK);
 	CHECK(back.flags == m.flags && back.colour == m.colour && back.created_at_ms == 1000u
@@ -547,7 +548,10 @@ static void test_a_meta_refuses(void)
 	b[0] = 1u;
 	CHECK(fzn_note_meta_open(FZN_NOTE_TYPE_NOTE, b, FZN_NOTE_META_LEN, &back)
 	      == FZN_NOTE_ERR_VERSION);
-	b[0] = 2u;
+	b[0] = 2u; /* version 2 carried the key bare, sec 520 */
+	CHECK(fzn_note_meta_open(FZN_NOTE_TYPE_NOTE, b, FZN_NOTE_META_LEN, &back)
+	      == FZN_NOTE_ERR_VERSION);
+	b[0] = 3u;
 	b[1] = 0x08u; /* version 1's TEXT_IS_BLOB */
 	CHECK(fzn_note_meta_open(FZN_NOTE_TYPE_NOTE, b, FZN_NOTE_META_LEN, &back) == FZN_NOTE_ERR_TYPE);
 	b[1] = 0u;
@@ -637,6 +641,55 @@ static void test_a_payload_refuses(void)
 	CHECK(fzn_note_payload_write(&n, p, sizeof(p), &len) == FZN_NOTE_ERR_CAPACITY);
 }
 
+/* THE WRAP, sec 520: one operation both ways; another root, or another
+ * wrap key, another pad; and a hash that refuses wraps nothing. */
+static int toy_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in, size_t in_len)
+{
+	size_t i;
+
+	(void)ctx;
+	memset(out, 0x5c, out_len);
+	for (i = 0; i < in_len; i++)
+		out[i % out_len] = (uint8_t)((out[i % out_len] * 31u) ^ in[i]);
+	return 1;
+}
+
+static int refusing_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in,
+                         size_t in_len)
+{
+	(void)ctx;
+	(void)in;
+	(void)in_len;
+	memset(out, 0, out_len);
+	return 0;
+}
+
+static void test_the_wrap(void)
+{
+	static const fzn_hash_ops_t HASH = { toy_hash, NULL };
+	static const fzn_hash_ops_t REFUSING = { refusing_hash, NULL };
+	uint8_t wk[FZN_NOTE_WRAP_KEY_LEN], other_wk[FZN_NOTE_WRAP_KEY_LEN];
+	uint8_t root[FZN_BLOB_HASH_LEN], other_root[FZN_BLOB_HASH_LEN];
+	uint8_t key[FZN_BLOB_KEY_LEN], wrapped[FZN_BLOB_KEY_LEN], back[FZN_BLOB_KEY_LEN];
+	uint8_t a[FZN_BLOB_KEY_LEN], b[FZN_BLOB_KEY_LEN];
+
+	memset(wk, 0x11, sizeof(wk));
+	memset(other_wk, 0x12, sizeof(other_wk));
+	memset(root, 0x21, sizeof(root));
+	memset(other_root, 0x22, sizeof(other_root));
+	memset(key, 0x33, sizeof(key));
+	CHECK(fzn_note_wrap(&HASH, wk, root, key, wrapped) == FZN_NOTE_OK
+	      && memcmp(wrapped, key, sizeof(key)) != 0
+	      && fzn_note_wrap(&HASH, wk, root, wrapped, back) == FZN_NOTE_OK
+	      && memcmp(back, key, sizeof(key)) == 0);
+	CHECK(fzn_note_wrap(&HASH, wk, other_root, key, a) == FZN_NOTE_OK
+	      && fzn_note_wrap(&HASH, other_wk, root, key, b) == FZN_NOTE_OK
+	      && memcmp(a, wrapped, sizeof(a)) != 0 && memcmp(b, wrapped, sizeof(b)) != 0);
+	memcpy(back, key, sizeof(back));
+	CHECK(fzn_note_wrap(&REFUSING, wk, root, key, back) == FZN_NOTE_ERR_CRYPTO);
+	CHECK(fzn_note_wrap(NULL, wk, root, key, back) == FZN_NOTE_ERR_NULL);
+}
+
 int main(void)
 {
 	test_a_note_survives_the_round_trip();
@@ -659,6 +712,7 @@ int main(void)
 	test_a_meta_refuses();
 	test_a_payload_round_trips();
 	test_a_payload_refuses();
+	test_the_wrap();
 
 	printf("note_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures == 0 ? 0 : 1;

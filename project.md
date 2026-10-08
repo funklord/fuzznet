@@ -58618,3 +58618,150 @@ The chain hook takes the record's kind as a parameter for this.
 - **Step 6: the daemon's verbs, the GUI and import,** including the title
   cache sec 511 promised clients.
 - **Step 7: the operation journal.**
+
+## 520. Stage 5, step 5: a purge destroys a note's key, so no shell of it unwraps, 2026-10-08
+
+Sec 511 promised that a purge destroys a note's blobs and their keys, while
+its records stay as shells. Its own design then put the content key in the
+record, and sec 513 built it that way. A record is signed and chained and
+cannot lose a field, so every shell of a purged note carried the key to its
+content, for good:
+
+- every member's journal held it;
+- a member joining later downloaded it;
+- any copy of the ciphertext that escaped the purge stayed readable to
+  whoever held a shell.
+
+### The holder's decision, 2026-10-08
+
+Put to the holder as a design contradiction, with three options:
+
+- **Chosen, "wrap key outside journal":** the record carries the content
+  key wrapped under a per-note wrap key that never enters the journal.
+  Members exchange wrap keys over their authenticated sessions and keep
+  them locally, and a purge destroys the wrap key everywhere.
+- **Rejected:**
+  - accepting the limit and correcting sec 511;
+  - an estate key rotated at every purge, which would re-seal every live
+    note on each one.
+
+### The wrap
+
+- **`wrapped = key XOR H("fuzznet.note.wrap" | wrap key | blob root)`**, in
+  `fzn_note_wrap`, one operation both ways. The root is per content, so
+  every version of a note wraps under a different pad. A key unwrapped
+  wrong opens nothing, since the blob's AEAD authenticates it. The meta
+  keeps its 94 bytes.
+- **The meta's version goes to 3.** A version-2 meta carried the key bare,
+  and is refused.
+- **A note's wrap key is 32 random bytes the creator draws**, kept in core
+  persist slot 32 (`FZN_PERSIST_NOTE_WRAP`, blob tag 33) under the note's
+  id, beside the store and never in the journal.
+  - It is core: a key rolled back is a key a purge destroyed come back.
+  - The first key held stands. A different one offered later is refused
+    as EQUIVOCATION, and a purged note takes none, as PURGED.
+
+### What uses it
+
+- **The author** draws the wrap key with the id, keeps it before sealing,
+  and wraps the content key it seals. If the write fails, it keeps no wrap
+  key behind. A content edit unwraps to open and wraps what it seals. A
+  note whose wrap key is not here yet is PENDING to edit, as one whose
+  blob is not.
+- **`fzn_notes_read` takes the store it reads from.** It unwraps under that
+  store's wrap key and hands the plain key to `open` only, while the meta
+  it returns keeps the key wrapped, as the record does. With no wrap key,
+  a note reads, and lists, as pending.
+- **A sharer's tree holds the wrap keys its sharer gave**, in the base
+  slot under a hash of a label, the sharer and the note. That keeps them
+  apart from this node's own keys and from other sharers'.
+  `fzn_notes_received_forget` takes a hash now and destroys them with the
+  tree.
+
+### The exchange
+
+Six new notes-sync messages, types 17 to 22:
+
+- **WRAPS_QUERY and WRAPS:** "the keys of these notes". A member is
+  answered for any note held, and a contact only for notes in its share's
+  scope.
+- **LACKS_QUERY and LACKS:** "which notes do you index without a key". A
+  member only.
+- **GIVE and GIVEN:** the keys a member lacks. That is how a hub, which
+  pulls from nobody, comes by its members' keys.
+
+A key is taken only for a note the taker indexes, so a gift cannot plant
+one. A key outside the asker's scope is not given even when it names the
+note by id.
+
+`fzn_notes_sync_wraps` runs one round: it asks for what this store lacks
+and, for a member, gives what the peer lacks.
+
+- The daemon runs it with every member each round.
+- It runs it, asking only, after each pull of a sharer's tree.
+
+### A purge with wrap keys
+
+- **`fzn_notes_erase_note` marks the note, destroys its wrap key, then
+  erases its claims.** Every shell left anywhere now holds a key nothing
+  can unwrap.
+- **The blobs go at once.** Once its claims are erased, nothing held names
+  any blob of the purged note's history. The node raises `purged_fresh`
+  when a note is first purged, and the daemon collects the shelf on the
+  next pass of its loop rather than waiting for the round's collection.
+
+### Tests of the wrap
+
+- `note_test`, 144 checks:
+  - the wrap is its own inverse;
+  - another root or another wrap key gives another pad;
+  - a hash that refuses wraps nothing;
+  - a version-2 meta is refused.
+- `notes_sync_test`, 114 checks:
+  - a stranger is told no key;
+  - a member asking is given the key and reads the note;
+  - a hub is given keys by a member;
+  - a gift for a note not indexed is not planted, and a different key
+    does not replace one held;
+  - a stranger's gift is not answered;
+  - a contact asking an out-of-scope note's key by id is given none;
+  - a purge destroys the key and refuses one offered after;
+  - every pull in the suite now takes the keys too, and B cannot read a
+    note before its key arrives.
+- `node/test/notes_test`, 304 checks. A shared note with no wrap key lists
+  as pending, and a sibling's purge destroys the wrap key and raises the
+  collection flag.
+- `admin_test` gives the forget the daemon's hash.
+- **The blob stub refused nothing.** `notes-read-unwraps`, which opens
+  under the wrapped key, survived the first probe. `blob_stub_open` ignored
+  the key it was handed, so no suite could tell a wrapped key from an
+  unwrapped one. The stub now draws each blob a key and refuses any other,
+  as the shelf's AEAD does, and the entry is caught.
+- Ten sabotage entries, all caught:
+  - two re-anchored on changed code;
+  - eight new: the pad, first-stands, purged refused, purge destroys the
+    key, members only, gifts only for indexed notes, scope, and the read
+    unwrapping.
+- Live, `live60`:
+  - R writes a note with a 5000-byte text, and M pulls it.
+  - M's log reads "wrap keys with 127.0.0.1: 2 taken", and M writes the
+    text to a file byte for byte.
+  - R purges the note, and M's next round answers. Both then answer "not
+    held here".
+  - The shelves went from 3 and 2 blobs to 1 and 1, the surviving note's.
+
+## 521. fuzzypickles: a message that could not be delivered stays, 2026-10-08
+
+fuzzypickles reported a holder decision of 2026-10-08, their sec 204:
+message storage is this tree's. The requirement, as they stated it: a
+message the user typed that could not be delivered must stay in that
+conversation as the user's own line, marked not delivered, so the text is
+not lost.
+
+The case that prompted it is a message handed to another of the user's
+devices where no linked device owns the contact any more, or the contact
+was removed. Until it is built here, their clients show only a notice: a
+count, and the last contact's name.
+
+It joins sec 510's sibling-wire "cannot deliver" requirement. Neither is
+built yet.

@@ -182,6 +182,11 @@ fzn_notes_err_t fzn_notes_erase_note(const fzn_notes_store_t *store,
 	err = fzn_notes_mark_purged(store, id);
 	if (err != FZN_NOTES_OK)
 		return err;
+	/* THE WRAP KEY GOES WITH IT, sec 520: every shell the note leaves holds
+	 * a content key only this unwrapped. */
+	err = fzn_notes_wrap_erase(store, id);
+	if (err != FZN_NOTES_OK)
+		return err;
 	err = fzn_notes_claims(store, keys, FZN_NOTES_MAX, &count);
 	if (err != FZN_NOTES_OK)
 		return err;

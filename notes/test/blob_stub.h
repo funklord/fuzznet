@@ -4,7 +4,10 @@
  * Since sec 514 every note's content is a sealed blob, so every suite that
  * writes a note needs somewhere to seal it. The node's shelf is the real
  * one; this keeps each payload in a static arena under a root that is only
- * its slot number, with no cipher and no key. What is under test is the
+ * its slot number, with no cipher. It draws each blob a key and refuses to
+ * open under any other, as the shelf's AEAD does: a stand-in that ignored the
+ * key could not tell a wrapped one from an unwrapped one (sec 520), and once
+ * did not. What is under test is the
  * notes model handing content over and taking it back, not the blob layer,
  * which `notes/test/text_test.c` covers.
  *
@@ -33,6 +36,7 @@ static struct {
 	size_t used;
 	size_t at[BLOB_STUB_SLOTS];
 	size_t len[BLOB_STUB_SLOTS];
+	uint8_t key[BLOB_STUB_SLOTS][FZN_BLOB_KEY_LEN];
 	size_t count;
 	/* Seals refused while set, as a full shelf would refuse them. */
 	int refuse;
@@ -57,6 +61,10 @@ static inline int blob_stub_seal(void *ctx, const uint8_t *payload, size_t len,
 	ref->root[0] = (uint8_t)((slot + 1u) >> 8);
 	ref->root[1] = (uint8_t)(slot + 1u);
 	ref->length = len;
+	/* A KEY OF ITS OWN, from the slot, as a fresh key per blob. */
+	memset(ref->key, 0xb0 ^ (int)(slot & 0xffu), sizeof(ref->key));
+	ref->key[1] = (uint8_t)(slot >> 8);
+	memcpy(blob_stub.key[slot], ref->key, sizeof(ref->key));
 	return 1;
 }
 
@@ -70,7 +78,8 @@ static inline int blob_stub_open(void *ctx, const fzn_note_blob_ref_t *ref, uint
 		return 0;
 	slot = (((size_t)ref->root[0] << 8) | ref->root[1]);
 	if (slot == 0u || slot > blob_stub.count || blob_stub.len[slot - 1u] != ref->length
-	    || ref->length > cap)
+	    || ref->length > cap
+	    || memcmp(blob_stub.key[slot - 1u], ref->key, sizeof(ref->key)) != 0)
 		return 0;
 	memcpy(out, blob_stub.arena + blob_stub.at[slot - 1u], (size_t)ref->length);
 	*out_len = (size_t)ref->length;
@@ -104,14 +113,15 @@ static inline void blob_stub_attach(fzn_notes_author_t *a)
 
 /* `node`'s title through this stub, or NULL with `*len` 0 when it will not
  * read. The bytes are a static copy, good until the next call. */
-static inline const uint8_t *blob_stub_title(const fzn_tree_node_t *node, size_t *len)
+static inline const uint8_t *blob_stub_title(const fzn_notes_store_t *store,
+                                             const fzn_tree_node_t *node, size_t *len)
 {
 	static uint8_t buf[FZN_NOTE_PAYLOAD_MAX];
 	fzn_note_meta_t meta;
 	fzn_note_t note;
 
 	*len = 0;
-	if (fzn_notes_read(blob_stub_open, NULL, node, &meta, buf, sizeof(buf), &note)
+	if (fzn_notes_read(store, blob_stub_open, NULL, node, &meta, buf, sizeof(buf), &note)
 	    != FZN_NOTES_OK)
 		return NULL;
 	*len = note.title_len;

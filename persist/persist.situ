@@ -83,6 +83,7 @@ enum fzn_persist_tag : u8 {
 	file_share = 30,
 	succession = 31,
 	note_purged = 32,
+	note_wrap = 33,
 	default = error,
 }
 
@@ -263,6 +264,12 @@ struct fzn_persist_note_purged_body {
 	u8 version [must_eq = 1];
 }
 
+// A note's wrap key, under the note's id: what its content keys are wrapped
+// under in its records. Never in the journal. notes/store.c, sec 520.
+struct fzn_persist_note_wrap_body {
+	u8 key[32];
+}
+
 // One host pinned to sign off a purge, and whether it has. sec 427.
 struct fzn_persist_purge_host {
 	u8  host[32];
@@ -383,6 +390,7 @@ struct fzn_persist_blob {
 		case fzn_persist_tag.file_share: fzn_persist_file_share_body file_share;
 		case fzn_persist_tag.succession: fzn_persist_succession_body succession;
 		case fzn_persist_tag.note_purged: fzn_persist_note_purged_body note_purged;
+		case fzn_persist_tag.note_wrap: fzn_persist_note_wrap_body note_wrap;
 		default: error;
 	}
 }

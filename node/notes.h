@@ -151,6 +151,10 @@ typedef struct fzn_node_notes {
 	 * 519: told to no follower of this node's stream, so only the pinned
 	 * conversation carries them. The caller reads and logs it. */
 	size_t purges_untold;
+	/* Set when a note is first purged here, for a caller keeping blobs to
+	 * collect them now: every blob the note's history names is named by no
+	 * held note any more, and goes (sec 520). The caller clears it. */
+	int purged_fresh;
 	/* Collecting texts no note names, or NULL: then `remove text unused`
 	 * says this node keeps none. sec 443. */
 	fzn_node_notes_collect_fn collect;

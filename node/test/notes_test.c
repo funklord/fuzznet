@@ -788,6 +788,19 @@ static void test_shared_reads(void)
 	              && fzn_notes_put(&tree, record, len, notes.author.policy, &SIGN, &wrote, NULL)
 	                         == FZN_NOTES_OK,
 	      "fixture: G and H in carol's tree");
+	/* THEIR WRAP KEYS, sec 520, as carol's node would give them: kept in
+	 * her tree, apart from this node's own. */
+	{
+		uint8_t key[FZN_NOTE_WRAP_KEY_LEN];
+
+		CHECK(ask("list shared carol top") == FZN_REPLY_OK && has(",1,128,"),
+		      "without its wrap key a shared note lists as pending");
+		CHECK(fzn_notes_wrap_get(&notes.store, gid, key) == FZN_NOTES_OK
+		              && fzn_notes_wrap_put(&tree, gid, key) == FZN_NOTES_OK
+		              && fzn_notes_wrap_get(&notes.store, hid, key) == FZN_NOTES_OK
+		              && fzn_notes_wrap_put(&tree, hid, key) == FZN_NOTES_OK,
+		      "fixture: G's and H's wrap keys in carol's tree");
+	}
 
 	snprintf(want, sizeof(want), "1 0 %s,", g);
 	CHECK(ask("list shared carol top") == FZN_REPLY_OK && !strncmp(detail_of(), want, strlen(want))
@@ -1052,7 +1065,7 @@ static void test_collecting_texts(void)
 	      "fixture: and gone from this node's own");
 	CHECK(fzn_node_notes_names_blob(&notes, blob_root),
 	      "a blob named only in a sharer's tree is kept");
-	CHECK(fzn_notes_received_forget(&OPS, carol, &len) == FZN_NOTES_OK
+	CHECK(fzn_notes_received_forget(&OPS, &HASH, carol, &len) == FZN_NOTES_OK
 	              && !fzn_node_notes_names_blob(&notes, blob_root),
 	      "and once the share is forgotten, nothing names it");
 
@@ -1320,12 +1333,20 @@ static int note_by(fzn_node_journal_t *nj, const uint8_t writer[FZN_PUBKEY_LEN],
 	fzn_note_t fields;
 	size_t len = 0, body_len = 0;
 
+	uint8_t wk[FZN_NOTE_WRAP_KEY_LEN];
+
 	memset(&fields, 0, sizeof(fields));
 	fields.title = (const uint8_t *)title;
 	fields.title_len = strlen(title);
 	memset(&meta, 0, sizeof(meta));
+	/* ITS WRAP KEY, sec 520: drawn by the writer, and handed to this node as
+	 * the exchange would hand it. */
+	memset(wk, id[0] ^ 0x5au, sizeof(wk));
 	return fzn_note_payload_write(&fields, payload, sizeof(payload), &len) == FZN_NOTE_OK
 	       && blob_stub_seal(NULL, payload, len, &meta.content)
+	       && fzn_notes_wrap_put(&notes.store, id, wk) == FZN_NOTES_OK
+	       && fzn_note_wrap(&HASH, wk, meta.content.root, meta.content.key, meta.content.key)
+	                  == FZN_NOTE_OK
 	       && fzn_note_meta_write(&meta, content) == FZN_NOTE_OK
 	       && fzn_tree_body(top, 1000u, FZN_NOTE_TYPE_NOTE, content, sizeof(content), body,
 	                        sizeof(body), &body_len)
@@ -1388,6 +1409,14 @@ static void test_the_feed(void)
 	      "its purge record purges the note here: marked, and no longer listed");
 	CHECK(fzn_node_journal_received(&nj, SELF, FZN_NOTE_STREAM) == own_before + 1u,
 	      "and this node says so in its own stream, once");
+	{
+		uint8_t key[FZN_NOTE_WRAP_KEY_LEN];
+
+		CHECK(notes.purged_fresh && fzn_notes_wrap_get(&notes.store, id, key)
+		                                    == FZN_NOTES_ERR_ABSENT,
+		      "its wrap key is destroyed, and the node told to collect its blobs now");
+		notes.purged_fresh = 0;
+	}
 
 	CHECK(fzn_node_notes_index_stream(&notes, read_rec, NULL, PEER, &again, 2u, &t)
 	                      == FZN_NOTES_OK

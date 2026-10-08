@@ -1662,11 +1662,15 @@ int main(void)
 			              && tree.save(tree.ctx, FZN_PERSIST_NOTE, claim, blob, sizeof(blob)),
 			      "fixture: a note in bob's tree");
 			admin.received_fresh = 0;
+			/* THE DAEMON'S HASH, which files the wrap keys bob's tree held
+			 * and forgetting it destroys (sec 520). */
+			state.hash = &hash_ops;
 			CHECK(ask(&admin, &owner, "remove received bobby", reply, sizeof(reply), &reply_len)
 			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
 			                         == FZN_REPLY_OK
 			              && admin.received_fresh,
 			      "the owner could not stop bob's share, or the daemon was not told");
+			state.hash = NULL;
 			CHECK(!tree.load(tree.ctx, FZN_PERSIST_NOTE, claim, blob, sizeof(blob), &gone_len),
 			      "what was pulled from bob stayed after the share was removed");
 			CHECK(ask(&admin, &owner, "list received", reply, sizeof(reply), &reply_len)

@@ -67,8 +67,39 @@ enum fzn_notes_sync_type {
 	 * exchange pushes. */
 	/* 15 and 16 are `node/notes.h`'s, a pushed note's text. */
 	FZN_NOTES_SYNC_TEXT_PUSH = 15,
-	FZN_NOTES_SYNC_TEXT_PUSHED = 16
+	FZN_NOTES_SYNC_TEXT_PUSHED = 16,
+	/* Wrap keys, sec 520: below. */
+	FZN_NOTES_SYNC_WRAPS_QUERY = 17,
+	FZN_NOTES_SYNC_WRAPS = 18,
+	FZN_NOTES_SYNC_LACKS_QUERY = 19,
+	FZN_NOTES_SYNC_LACKS = 20,
+	FZN_NOTES_SYNC_GIVE = 21,
+	FZN_NOTES_SYNC_GIVEN = 22
 };
+
+/*
+ * WRAP KEYS, sec 520. A note's records carry its content keys wrapped under
+ * a key kept beside the store and never in the journal, so a host that has a
+ * note's records is given its wrap key over the session it pulls on:
+ *
+ *   - WRAPS_QUERY names up to FZN_NOTES_SYNC_WRAPS_MAX note ids, and WRAPS
+ *     answers with the wrap keys held for them: to a member, any; to a
+ *     contact, only those of notes in its share's scope. ids are
+ *     head | count u8 | id[32]...; keys head | count u8 | (id[32] key[32])...
+ *   - LACKS_QUERY asks a member which notes it indexes without a key, and
+ *     LACKS names up to the same many; GIVE then hands it those keys, and
+ *     GIVEN says how many it took. That is how a hub, which pulls from
+ *     nobody, comes by its members' keys.
+ *
+ * A KEY IS TAKEN ONLY FOR A NOTE THE TAKER INDEXES, and not for one purged
+ * there, and the first one held stands (`fzn_notes_wrap_put`): a peer cannot
+ * use a gift to plant keys, nor to replace one.
+ */
+#define FZN_NOTES_SYNC_WRAPS_MAX 16u
+#define FZN_NOTES_SYNC_WRAP_ENTRY_LEN ((size_t)FZN_TREE_ID_LEN + FZN_NOTE_WRAP_KEY_LEN)
+#define FZN_NOTES_SYNC_WRAPS_REPLY_MAX                                                         \
+	((size_t)FZN_NOTES_SYNC_LIST_HEAD_LEN                                                  \
+	 + ((size_t)FZN_NOTES_SYNC_WRAPS_MAX * FZN_NOTES_SYNC_WRAP_ENTRY_LEN))
 
 /* WHO WROTE WHAT IS SHARED, sec 437: the distinct writers of the notes a
  * share reaches, which a recipient admits in that sharer's tree and nowhere
@@ -184,6 +215,21 @@ fzn_notes_sync_err_t fzn_notes_sync_pull_shared(const fzn_notes_store_t *store,
                                                 const fzn_sign_ops_t *sign,
                                                 fzn_notes_sync_ask_t ask, void *ask_ctx,
                                                 fzn_notes_sync_tally_t *tally);
+
+typedef struct fzn_notes_wrap_tally {
+	size_t asked;   /* notes this store lacked a key for, asked about */
+	size_t taken;   /* keys the peer gave that this store took */
+	size_t refused; /* keys the peer gave that this store would not take */
+	size_t given;   /* keys this store gave that the peer took */
+} fzn_notes_wrap_tally_t;
+
+/* ONE ROUND OF WRAP KEYS with the peer `ask` reaches: ask it for the key of
+ * every note this store indexes without one; then, when `give`, ask which it
+ * lacks and give those this store holds. `give` is for a member; a sharer's
+ * tree only asks. sec 520. */
+fzn_notes_sync_err_t fzn_notes_sync_wraps(const fzn_notes_store_t *store,
+                                          fzn_notes_sync_ask_t ask, void *ask_ctx, int give,
+                                          fzn_notes_wrap_tally_t *tally);
 
 /* What one round of the purge conversation did. */
 typedef struct fzn_notes_purge_tally {

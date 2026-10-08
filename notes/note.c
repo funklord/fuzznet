@@ -2,6 +2,8 @@
 
 #include "note.h"
 
+#include "../session/commitment.h"
+
 #include "../wire/bytes.h"
 
 #include <string.h>
@@ -286,6 +288,33 @@ fzn_note_err_t fzn_note_payload_write(const fzn_note_t *note, uint8_t *out, size
 	if (note->labels_len)
 		memcpy(p, note->labels, note->labels_len);
 	*out_len = need;
+	return FZN_NOTE_OK;
+}
+
+_Static_assert(FZN_BLOB_KEY_LEN == 32u, "a pad is one hash; the key must be its width");
+
+fzn_note_err_t fzn_note_wrap(const struct fzn_hash_ops *hash,
+                             const uint8_t wrap_key[FZN_NOTE_WRAP_KEY_LEN],
+                             const uint8_t root[FZN_BLOB_HASH_LEN],
+                             const uint8_t key[FZN_BLOB_KEY_LEN], uint8_t out[FZN_BLOB_KEY_LEN])
+{
+	static const char LABEL[] = "fuzznet.note.wrap";
+	uint8_t in[sizeof(LABEL) - 1u + FZN_NOTE_WRAP_KEY_LEN + FZN_BLOB_HASH_LEN];
+	uint8_t pad[FZN_BLOB_KEY_LEN];
+	size_t i;
+
+	if (!hash || !hash->hash || !wrap_key || !root || !key || !out)
+		return FZN_NOTE_ERR_NULL;
+	memcpy(in, LABEL, sizeof(LABEL) - 1u);
+	memcpy(in + sizeof(LABEL) - 1u, wrap_key, FZN_NOTE_WRAP_KEY_LEN);
+	memcpy(in + sizeof(LABEL) - 1u + FZN_NOTE_WRAP_KEY_LEN, root, FZN_BLOB_HASH_LEN);
+	/* NONZERO IS SUCCESS on this seam (`session/commitment.h`). */
+	if (!hash->hash(hash->ctx, pad, sizeof(pad), in, sizeof(in)))
+		return FZN_NOTE_ERR_CRYPTO;
+	for (i = 0; i < FZN_BLOB_KEY_LEN; i++)
+		out[i] = (uint8_t)(key[i] ^ pad[i]);
+	/* THE PAD IS KEY MATERIAL, and goes with the call. */
+	memset(pad, 0, sizeof(pad));
 	return FZN_NOTE_OK;
 }
 

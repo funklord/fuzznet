@@ -11,13 +11,13 @@ target buffer;
 endian big;
 
 struct fzn_note_meta {
-	u8   version [must_eq = 2];      // FZN_NOTE_META_OFF_VERSION  0
+	u8   version [must_eq = 3];      // FZN_NOTE_META_OFF_VERSION  0  3 since sec 520
 	u8   flags [max = 7];            // FZN_NOTE_META_OFF_FLAGS    1  PINNED | ARCHIVED | TRASHED
 	u32  colour;                     // FZN_NOTE_META_OFF_COLOUR   2  0xRRGGBBAA, all-zero unset
 	u64  created_at;                 // FZN_NOTE_META_OFF_CREATED  6  ms since epoch
 	u64  edited_at;                  // FZN_NOTE_META_OFF_EDITED   14
 	u8   root[32];                   // FZN_NOTE_META_OFF_REF      22 the content blob's root
-	u8   key[32];                    //                            54 the key that opens it
+	u8   key[32];                    //                            54 that key, wrapped (sec 520)
 	u64  length [min = 9];           //                            86 its plaintext's length
 }
 

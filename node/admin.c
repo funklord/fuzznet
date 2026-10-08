@@ -1490,7 +1490,8 @@ static size_t remove_received(fzn_node_admin_t *admin, const uint8_t *rest, size
 	admin->received_fresh = 1;
 	/* WHAT WAS PULLED GOES TOO: a share this node stopped taking is not
 	 * one it keeps reading from a copy nobody refreshes. */
-	if (fzn_notes_received_forget(admin->store, contact.key, &gone) != FZN_NOTES_OK)
+	if (fzn_notes_received_forget(admin->store, admin->state->hash, contact.key, &gone)
+	    != FZN_NOTES_OK)
 		return answer_text(reply, cap, FZN_REPLY_ERROR,
 		                   "stopped, and the pulled notes would not all go");
 	return answer_text(reply, cap, FZN_REPLY_OK, NULL);

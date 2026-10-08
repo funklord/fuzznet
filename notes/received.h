@@ -54,9 +54,11 @@ fzn_notes_err_t fzn_notes_received_ops(fzn_notes_received_t *seam, const fzn_per
                                        const uint8_t sharer[FZN_PUBKEY_LEN],
                                        fzn_persist_ops_t *ops);
 
-/* Forget every note `sharer` shared with this node. `*removed` (may be NULL)
- * counts the rows. UNSUPPORTED when the base cannot remove. */
+/* Forget every note `sharer` shared with this node, and the wrap keys it gave
+ * for them (sec 520), which `hash` files. `*removed` (may be NULL) counts the
+ * notes' rows. UNSUPPORTED when the base cannot remove. */
 fzn_notes_err_t fzn_notes_received_forget(const fzn_persist_ops_t *base,
+                                          const fzn_hash_ops_t *hash,
                                           const uint8_t sharer[FZN_PUBKEY_LEN], size_t *removed);
 
 /* The sharers whose trees this node holds rows of, each once, `cap` of

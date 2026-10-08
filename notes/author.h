@@ -35,7 +35,10 @@
  *
  * EVERY NOTE'S CONTENT IS A SEALED BLOB, since sec 514 (the design is sec
  * 511): the record carries the meta, and title, text and labels are the
- * payload `seal` puts in a blob. An edit naming a content field opens the
+ * payload `seal` puts in a blob. The meta's key is WRAPPED under the note's
+ * wrap key (sec 520), which a create draws and keeps beside the store before
+ * anything is sealed, and which a content edit needs: a note whose wrap key
+ * is not here yet is PENDING to edit, as one whose blob is not. An edit naming a content field opens the
  * held payload through `open`, changes it, and seals a new blob under a new
  * key; an edit of flags or colour, and a move, keep the reference, since the
  * same content under the same key is not a key reused. A note whose blob is
@@ -103,12 +106,15 @@ typedef struct fzn_notes_author {
 } fzn_notes_author_t;
 
 /* A NOTE'S CONTENT, READ: `node`'s meta into `meta`, and its payload, opened
- * through `open` into `buf`, into `out`'s title, text and labels. SHAPE for a
- * node that is no version-2 note; PENDING when the blob does not open, or
- * `open` is NULL -- `meta` is filled either way. */
-fzn_notes_err_t fzn_notes_read(fzn_notes_open_fn open, void *ctx, const fzn_tree_node_t *node,
-                               fzn_note_meta_t *meta, uint8_t *buf, size_t cap,
-                               fzn_note_t *out);
+ * through `open` into `buf`, into `out`'s title, text and labels. The content
+ * key is unwrapped under the note's wrap key in `store` (sec 520) and handed
+ * to `open` only; `meta` keeps it wrapped, as the record does. SHAPE for a
+ * node that is no version-3 note; PENDING when this store holds no wrap key
+ * for it, the blob does not open, or `open` is NULL -- `meta` is filled
+ * either way. */
+fzn_notes_err_t fzn_notes_read(const fzn_notes_store_t *store, fzn_notes_open_fn open,
+                               void *ctx, const fzn_tree_node_t *node, fzn_note_meta_t *meta,
+                               uint8_t *buf, size_t cap, fzn_note_t *out);
 
 /* The blob reference in `node`'s meta: nonzero for a version-2 note. What
  * every scan for the texts a tree names reads, sec 514. */

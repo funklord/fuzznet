@@ -264,7 +264,7 @@ static int title_is(fzn_notes_store_t *store, const uint8_t id[FZN_TREE_ID_LEN],
 	return fzn_notes_get(store, id, writer, out, sizeof(out), &len) == FZN_NOTES_OK
 	       && fzn_record_open(out, len, &rec) == FZN_RECORD_OK
 	       && fzn_tree_open(rec, &node) == FZN_TREE_OK
-	       && (t = blob_stub_title(&node, &t_len)) != NULL && t_len == strlen(title)
+	       && (t = blob_stub_title(store, &node, &t_len)) != NULL && t_len == strlen(title)
 	       && memcmp(t, title, t_len) == 0;
 }
 
@@ -314,6 +314,20 @@ static int ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *r
 	return *reply_len > 0u;
 }
 
+/* THE WRAP KEYS a store lacks, asked of `from` as the node `as` (sec 520): a
+ * member's server answers only a key it admits. */
+static int wraps(const fzn_notes_store_t *to, peer_t *from, const uint8_t *as)
+{
+	const uint8_t *was = from->sender;
+	fzn_notes_wrap_tally_t wt;
+	int ok;
+
+	from->sender = as;
+	ok = fzn_notes_sync_wraps(to, ask, from, 0, &wt) == FZN_NOTES_SYNC_OK;
+	from->sender = was;
+	return ok;
+}
+
 /* ---- cases --------------------------------------------------------------- */
 
 static void reset(void)
@@ -338,7 +352,10 @@ static void test_converge(void)
 	              && t.offered == 3u && t.fetched == 3u && t.learned == 3u && t.refused == 0u
 	              && held(&store_b) == 3u,
 	      "B pulls A's three notes");
-	CHECK(title_is(&store_b, two, KEY_A, "two"), "and holds them as A wrote them");
+	CHECK(!title_is(&store_b, two, KEY_A, "two"),
+	      "unreadable until its wrap key arrives, which is not in the records (sec 520)");
+	CHECK(wraps(&store_b, &from_a, KEY_B) && title_is(&store_b, two, KEY_A, "two"),
+	      "and holds them as A wrote them once it has");
 	CHECK(fzn_notes_sync_pull(&store_b, both(), &sign_b, ask, &from_a, &t) == FZN_NOTES_SYNC_OK
 	              && t.offered == 3u && t.fetched == 0u && t.learned == 0u,
 	      "a second pull fetches nothing: the index says B is current");
@@ -351,7 +368,7 @@ static void test_converge(void)
 	CHECK(fzn_notes_sync_pull(&store_b, both(), &sign_b, ask, &from_a, &t) == FZN_NOTES_SYNC_OK
 	              && t.fetched == 1u && t.learned == 1u
 	              && title_is(&store_b, two, KEY_A, "two, renamed"),
-	      "after an edit, only the edited claim travels");
+	      "after an edit, only the edited claim travels, under the wrap key B holds");
 	CHECK(fzn_notes_sync_pull(&store_a, both(), &sign_a, ask, &from_b, &t) == FZN_NOTES_SYNC_OK
 	              && t.offered == 3u && t.fetched == 0u,
 	      "and A, pulling from B, finds nothing newer");
@@ -385,8 +402,8 @@ static void test_purge_rules(void)
 	memcpy(ask_b.key, KEY_B, FZN_PUBKEY_LEN);
 	CHECK(write(&a, "x", x) && write(&a, "y", y), "fixture: two notes on A");
 	CHECK(fzn_notes_sync_pull(&store_b, both(), &sign_b, ask, &from_a, &t) == FZN_NOTES_SYNC_OK
-	              && held(&store_b) == 2u,
-	      "fixture: B holds both");
+	              && held(&store_b) == 2u && wraps(&store_b, &from_a, KEY_B),
+	      "fixture: B holds both, and their wrap keys");
 
 	/* THE RESURRECTION: A purges x asking B; B consents and erases; A's
 	 * next round must not hand x back. */
@@ -735,6 +752,7 @@ static void test_share_scope(void)
 	fzn_notes_sync_scope_t scope;
 	scoped_peer_t from_a = { &store_a, &scope };
 	fzn_notes_sync_tally_t t;
+	fzn_notes_wrap_tally_t wt;
 	size_t n = 0, i;
 
 	reset();
@@ -770,11 +788,29 @@ static void test_share_scope(void)
 	CHECK(fzn_notes_sync_pull(&store_b, both(), &sign_b, ask_scoped, &from_a, &t)
 	                      == FZN_NOTES_SYNC_OK
 	              && t.offered == 2u && t.learned == 2u && held(&store_b) == 2u
+	              && fzn_notes_sync_wraps(&store_b, ask_scoped, &from_a, 0, &wt)
+	                         == FZN_NOTES_SYNC_OK
+	              && wt.taken == 2u
 	              && title_is(&store_b, g, KEY_A, "child")
 	              && title_is(&store_b, h, KEY_A, "grandchild"),
 	      "a contact pulling a share of G gets G and H");
 	CHECK(!title_is(&store_b, f, KEY_A, "folder") && !title_is(&store_b, o, KEY_A, "other"),
 	      "and neither F nor O");
+	/* A KEY OUT OF SCOPE, asked by id, is not given: knowing a note's id is
+	 * not being shared it. sec 520. */
+	{
+		uint8_t q[FZN_NOTES_SYNC_LIST_HEAD_LEN + FZN_TREE_ID_LEN];
+		uint8_t out[FZN_NOTES_SYNC_WRAPS_REPLY_MAX];
+		size_t out_len = 0;
+
+		q[0] = FZN_NOTES_SYNC_VERSION;
+		q[1] = FZN_NOTES_SYNC_WRAPS_QUERY;
+		q[2] = 1u;
+		memcpy(q + FZN_NOTES_SYNC_LIST_HEAD_LEN, f, FZN_TREE_ID_LEN);
+		CHECK(ask_scoped(&from_a, q, sizeof(q), out, sizeof(out), &out_len)
+		              && out_len == FZN_NOTES_SYNC_LIST_HEAD_LEN && out[2] == 0u,
+		      "a contact asking F's wrap key by its id is given none");
+	}
 
 	/* ASKED BY KEY for every claim A holds, it still answers the scope's. */
 	CHECK(fzn_notes_claims(&store_a, keys, FZN_NOTES_MAX, &n) == FZN_NOTES_OK && n == 4u,
@@ -865,6 +901,7 @@ static void test_received(void)
 	fzn_persist_ops_t seam_ops, other_ops;
 	fzn_notes_store_t from_alice, from_bob;
 	fzn_notes_sync_tally_t t;
+	fzn_notes_wrap_tally_t wt;
 	const fzn_tree_node_t *top[8];
 	size_t n = 0, i, removed = 0;
 	int cut = 0;
@@ -895,8 +932,11 @@ static void test_received(void)
 
 	CHECK(fzn_notes_sync_pull_shared(&from_alice, &sign_b, ask_scoped, &from_a, &t)
 	                      == FZN_NOTES_SYNC_OK
-	              && t.learned == 3u && t.refused == 0u && held(&from_alice) == 3u,
-	      "B pulls what A shared, both writers' notes, into A's tree");
+	              && t.learned == 3u && t.refused == 0u && held(&from_alice) == 3u
+	              && fzn_notes_sync_wraps(&from_alice, ask_scoped, &from_a, 0, &wt)
+	                         == FZN_NOTES_SYNC_OK
+	              && wt.taken == 3u,
+	      "B pulls what A shared, both writers' notes, into A's tree, and their wrap keys");
 	CHECK(title_is(&from_alice, h, KEY_A, "grandchild")
 	              && title_is(&from_alice, by_b, KEY_B, "by b"),
 	      "and holds them as they were written");
@@ -947,7 +987,7 @@ static void test_received(void)
 	}
 
 	/* ONLY THE WRITERS THE SHARER NAMES. */
-	CHECK(fzn_notes_received_forget(&ops_b, KEY_A, &removed) == FZN_NOTES_OK && removed == 3u
+	CHECK(fzn_notes_received_forget(&ops_b, &HASH, KEY_A, &removed) == FZN_NOTES_OK && removed == 3u
 	              && held(&from_alice) == 0u,
 	      "forgetting A's share removes its three notes");
 	{
@@ -1012,6 +1052,82 @@ static void test_received(void)
 	(void)o;
 }
 
+/* ---- wrap keys, sec 520 ---------------------------------------------------- */
+
+/* A GIFT OF ONE KEY, answered by `to`'s server as from `as`. */
+static size_t give_one(const fzn_notes_store_t *to, const uint8_t *as,
+                       const uint8_t id[FZN_TREE_ID_LEN], uint8_t fill)
+{
+	uint8_t msg[FZN_NOTES_SYNC_LIST_HEAD_LEN + FZN_NOTES_SYNC_WRAP_ENTRY_LEN];
+	uint8_t out[FZN_NOTES_SYNC_LIST_HEAD_LEN];
+
+	msg[0] = FZN_NOTES_SYNC_VERSION;
+	msg[1] = FZN_NOTES_SYNC_GIVE;
+	msg[2] = 1u;
+	memcpy(msg + FZN_NOTES_SYNC_LIST_HEAD_LEN, id, FZN_TREE_ID_LEN);
+	memset(msg + FZN_NOTES_SYNC_LIST_HEAD_LEN + FZN_TREE_ID_LEN, fill, FZN_NOTE_WRAP_KEY_LEN);
+	if (fzn_notes_sync_answer(to, both(), as, 1u, msg, sizeof(msg), out, sizeof(out))
+	    != FZN_NOTES_SYNC_LIST_HEAD_LEN)
+		return 99u;
+	return out[2];
+}
+
+/* THE EXCHANGE: asked by a member and refused a stranger; given to a node
+ * that pulls from nobody; never planted for a note not indexed, never
+ * replacing a key held, and gone with a purge. */
+static void test_wrap_exchange(void)
+{
+	fzn_notes_author_t a = author_on(&store_a, KEY_A, &sign_a);
+	peer_t from_a = { &store_a, 0, 0, 0, 0, { 0 }, 0, NULL };
+	peer_t from_b = { &store_b, 0, 0, 0, 0, { 0 }, 0, NULL };
+	fzn_notes_sync_tally_t t;
+	fzn_notes_wrap_tally_t wt;
+	uint8_t one[FZN_TREE_ID_LEN], two[FZN_TREE_ID_LEN], nowhere[FZN_TREE_ID_LEN];
+	uint8_t stranger[FZN_PUBKEY_LEN], key[FZN_NOTE_WRAP_KEY_LEN];
+	size_t erased = 0;
+
+	reset();
+	memset(stranger, 0x77, sizeof(stranger));
+	memset(nowhere, 0x6e, sizeof(nowhere));
+	CHECK(write(&a, "one", one)
+	              && fzn_notes_sync_pull(&store_b, both(), &sign_b, ask, &from_a, &t)
+	                         == FZN_NOTES_SYNC_OK,
+	      "fixture: B holds A's note, and not its wrap key");
+	from_a.sender = stranger;
+	CHECK(fzn_notes_sync_wraps(&store_b, ask, &from_a, 0, &wt) == FZN_NOTES_SYNC_NO_ANSWER
+	              && !title_is(&store_b, one, KEY_A, "one"),
+	      "a node A does not admit is told no key");
+	from_a.sender = KEY_B;
+	CHECK(fzn_notes_sync_wraps(&store_b, ask, &from_a, 0, &wt) == FZN_NOTES_SYNC_OK
+	              && wt.asked == 1u && wt.taken == 1u && title_is(&store_b, one, KEY_A, "one"),
+	      "a member asking is given it, and reads the note");
+
+	/* GIVEN, as to a hub: B pulls the records and asks nobody; A gives. */
+	CHECK(write(&a, "two", two)
+	              && fzn_notes_sync_pull(&store_b, both(), &sign_b, ask, &from_a, &t)
+	                         == FZN_NOTES_SYNC_OK
+	              && !title_is(&store_b, two, KEY_A, "two"),
+	      "fixture: B holds A's second note, and not its key");
+	from_b.sender = KEY_A;
+	CHECK(fzn_notes_sync_wraps(&store_a, ask, &from_b, 1, &wt) == FZN_NOTES_SYNC_OK
+	              && wt.asked == 0u && wt.given == 1u && title_is(&store_b, two, KEY_A, "two"),
+	      "A asks B what it lacks and gives it the key");
+
+	CHECK(give_one(&store_b, KEY_A, nowhere, 0x11) == 0u
+	              && fzn_notes_wrap_get(&store_b, nowhere, key) == FZN_NOTES_ERR_ABSENT,
+	      "a key for a note B does not index is not planted");
+	CHECK(give_one(&store_b, KEY_A, one, 0x22) == 0u && title_is(&store_b, one, KEY_A, "one"),
+	      "nor does a different key replace the one B holds");
+	CHECK(give_one(&store_b, stranger, two, 0x33) == 99u,
+	      "and a stranger's gift is not answered");
+
+	/* A PURGE TAKES THE KEY, and none comes back. */
+	CHECK(fzn_notes_erase_note(&store_b, one, &erased) == FZN_NOTES_OK
+	              && fzn_notes_wrap_get(&store_b, one, key) == FZN_NOTES_ERR_ABSENT
+	              && fzn_notes_wrap_put(&store_b, one, key) == FZN_NOTES_ERR_PURGED,
+	      "a purge destroys the wrap key, and refuses one offered after");
+}
+
 /* ---- partners from the purge conversation, sec 519 ---------------------- */
 
 /* A MEMBER ASKING FOR PURGES IS A PARTNER: since sec 519 members ask nobody
@@ -1057,6 +1173,7 @@ int main(void)
 	test_share_scope();
 	test_received();
 	test_partner_from_purges_query();
+	test_wrap_exchange();
 
 	if (failures) {
 		fprintf(stderr, "notes_sync_test: %d of %d checks failed\n", failures, checks);

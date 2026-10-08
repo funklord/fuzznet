@@ -174,12 +174,12 @@ fzn_note_err_t fzn_note_blob_ref_write(const fzn_note_blob_ref_t *ref,
  * blob that holds the rest:
  *
  *      off  size  field            (the META, a node's content)
- *        0     1  version          (2)
+ *        0     1  version          (3; 2 carried the key bare, sec 520)
  *        1     1  flags            PINNED | ARCHIVED | TRASHED
  *        2     4  colour           (0xRRGGBBAA; all-zero is "unset")
  *        6     8  created_at       (ms since epoch)
  *       14     8  edited_at        (ms since epoch)
- *       22    72  the content blob: root | key | length
+ *       22    72  the content blob: root | key | length, the key WRAPPED
  *
  *      off  size  field            (the PAYLOAD, the blob's plaintext)
  *        0     1  version          (1)
@@ -200,7 +200,7 @@ fzn_note_err_t fzn_note_blob_ref_write(const fzn_note_blob_ref_t *ref,
  * reference -- the same content under the same key, which is not a key
  * reused -- and an edit seals a new blob under a new key.
  */
-#define FZN_NOTE_META_VERSION    2u
+#define FZN_NOTE_META_VERSION    3u
 #define FZN_NOTE_META_OFF_VERSION 0u
 #define FZN_NOTE_META_OFF_FLAGS   1u
 #define FZN_NOTE_META_OFF_COLOUR  2u
@@ -252,6 +252,26 @@ fzn_note_err_t fzn_note_payload_open(const uint8_t *payload, size_t payload_len,
  * labels or whole past their bounds, CAPACITY when `out_cap` is short. */
 fzn_note_err_t fzn_note_payload_write(const fzn_note_t *note, uint8_t *out, size_t out_cap,
                                       size_t *out_len);
+
+/*
+ * THE WRAP, sec 520. A record's key field is the content key wrapped under
+ * the note's wrap key, which is kept beside the store and never in the
+ * journal: a purge destroys the wrap key, and every shell the note leaves
+ * then holds a key nothing can unwrap. A version-2 meta carried the key
+ * bare, and is refused.
+ *
+ *     wrapped = key XOR H("fuzznet.note.wrap" | wrap key | blob root)
+ *
+ * One operation both ways. The root is per content, so two versions of a
+ * note wrap under different pads; a key unwrapped wrong opens nothing,
+ * since the blob's AEAD authenticates it. `out` may be `key`.
+ */
+#define FZN_NOTE_WRAP_KEY_LEN 32u
+struct fzn_hash_ops; /* `session/commitment.h` */
+fzn_note_err_t fzn_note_wrap(const struct fzn_hash_ops *hash,
+                             const uint8_t wrap_key[FZN_NOTE_WRAP_KEY_LEN],
+                             const uint8_t root[FZN_BLOB_HASH_LEN],
+                             const uint8_t key[FZN_BLOB_KEY_LEN], uint8_t out[FZN_BLOB_KEY_LEN]);
 
 /* A short name for an error. Never NULL. */
 const char *fzn_note_err_str(fzn_note_err_t err);

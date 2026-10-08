@@ -469,6 +469,14 @@ static void test_a_shared_tree_reads_and_cannot_be_written(void)
 	                               nullptr)
 	                         == FZN_NOTES_OK,
 	      "fixture: G in carol's tree");
+	/* AND ITS WRAP KEY, sec 520, as carol's node would give it. */
+	{
+		uint8_t key[FZN_NOTE_WRAP_KEY_LEN];
+
+		CHECK(fzn_notes_wrap_get(&notes.store, gid, key) == FZN_NOTES_OK
+		              && fzn_notes_wrap_put(&tree, gid, key) == FZN_NOTES_OK,
+		      "fixture: G's wrap key in carol's tree");
+	}
 	received = "ok 1 carol,127.0.0.1,7000";
 	fzn_notebook_view w(node_ask, nullptr);
 

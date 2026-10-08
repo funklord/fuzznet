@@ -19,7 +19,7 @@ endian big
 target buffer
 
 struct fzn_note_meta size=94
-  @0x0000   1         u8         version  must_eq=2
+  @0x0000   1         u8         version  must_eq=3
   @0x0001   1         u8         flags  max=7
   @0x0002   4         u32        colour  big
   @0x0006   8         u64        created_at  big

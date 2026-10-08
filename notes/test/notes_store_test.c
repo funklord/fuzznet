@@ -586,7 +586,7 @@ static int own(uint8_t *key, const uint8_t id[FZN_TREE_ID_LEN], fzn_record_t *re
 	if (fzn_notes_get(&store, id, key, out, sizeof(out), &len) != FZN_NOTES_OK
 	    || fzn_record_open(out, len, rec) != FZN_RECORD_OK
 	    || fzn_tree_open(*rec, node) != FZN_TREE_OK
-	    || fzn_notes_read(blob_stub_open, NULL, node, &meta, payload, sizeof(payload), note)
+	    || fzn_notes_read(&store, blob_stub_open, NULL, node, &meta, payload, sizeof(payload), note)
 	               != FZN_NOTES_OK)
 		return 0;
 	note->flags = meta.flags;
@@ -1478,7 +1478,7 @@ static void test_import_run(void)
 	      "two notes are imported, one undated");
 	CHECK(fzn_notes_view_load(&store, &author_view) == FZN_NOTES_OK, "fixture: the view");
 	for (i = 0; i < author_view.count; i++)
-		if (fzn_notes_read(blob_stub_open, NULL, &author_view.nodes[i], &meta, payload,
+		if (fzn_notes_read(&store, blob_stub_open, NULL, &author_view.nodes[i], &meta, payload,
 		                   sizeof(payload), &note)
 		            == FZN_NOTES_OK
 		    && is(note.title, note.title_len, "dated")
@@ -1534,7 +1534,7 @@ static void test_import_run(void)
 		CHECK(fzn_notes_view_load(&store, &author_view) == FZN_NOTES_OK, "fixture: view");
 		found = 0;
 		for (i = 0; i < author_view.count; i++)
-			if (fzn_notes_read(blob_stub_open, NULL, &author_view.nodes[i], &meta, payload,
+			if (fzn_notes_read(&store, blob_stub_open, NULL, &author_view.nodes[i], &meta, payload,
 			                   sizeof(payload), &note)
 			            == FZN_NOTES_OK
 			    && is(note.title, note.title_len, "long") && note.text_len == 5000u)

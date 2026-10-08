@@ -298,6 +298,135 @@ static size_t answer_ack(const fzn_notes_store_t *store, const uint8_t *sender,
 	return FZN_NOTES_SYNC_PURGE_ACK_LEN;
 }
 
+/* ---- wrap keys, sec 520 ---------------------------------------------------- */
+
+/* The notes this store indexes, each once: every claim's subject. */
+static size_t held_ids(const fzn_notes_store_t *store, uint8_t (*ids)[FZN_TREE_ID_LEN])
+{
+	static uint8_t keys[FZN_NOTES_MAX][FZN_PUBKEY_LEN];
+	static uint8_t record[FZN_RECORD_MAX_LEN];
+	size_t count = 0, i, j, n = 0;
+
+	if (fzn_notes_claims(store, keys, FZN_NOTES_MAX, &count) != FZN_NOTES_OK)
+		return 0;
+	for (i = 0; i < count; i++) {
+		fzn_record_t rec;
+		size_t len = 0;
+		int seen = 0;
+
+		if (fzn_notes_get_key(store, keys[i], record, sizeof(record), &len) != FZN_NOTES_OK
+		    || fzn_record_open(record, len, &rec) != FZN_RECORD_OK)
+			continue;
+		for (j = 0; j < n && !seen; j++)
+			seen = memcmp(ids[j], fzn_record_subject(rec), FZN_TREE_ID_LEN) == 0;
+		if (!seen)
+			memcpy(ids[n++], fzn_record_subject(rec), FZN_TREE_ID_LEN);
+	}
+	return n;
+}
+
+static int listed(const uint8_t (*ids)[FZN_TREE_ID_LEN], size_t n, const uint8_t *id)
+{
+	size_t i;
+
+	for (i = 0; i < n; i++)
+		if (memcmp(ids[i], id, FZN_TREE_ID_LEN) == 0)
+			return 1;
+	return 0;
+}
+
+/* WRAPS: the keys held for the notes asked about, within `scope`. */
+static size_t answer_wraps(const fzn_notes_store_t *store, const fzn_notes_sync_scope_t *scope,
+                           const uint8_t *request, size_t request_len, uint8_t *reply,
+                           size_t cap)
+{
+	size_t count, i, at = FZN_NOTES_SYNC_LIST_HEAD_LEN, n = 0;
+
+	if (request_len < FZN_NOTES_SYNC_LIST_HEAD_LEN)
+		return 0;
+	count = request[2];
+	if (count > FZN_NOTES_SYNC_WRAPS_MAX
+	    || request_len != FZN_NOTES_SYNC_LIST_HEAD_LEN + (count * FZN_TREE_ID_LEN)
+	    || cap < FZN_NOTES_SYNC_LIST_HEAD_LEN + (count * FZN_NOTES_SYNC_WRAP_ENTRY_LEN))
+		return 0;
+	for (i = 0; i < count; i++) {
+		const uint8_t *id = request + FZN_NOTES_SYNC_LIST_HEAD_LEN + (i * FZN_TREE_ID_LEN);
+
+		if (!in_scope(scope, id) || fzn_notes_purged(store, id)
+		    || fzn_notes_wrap_get(store, id, reply + at + FZN_TREE_ID_LEN) != FZN_NOTES_OK)
+			continue;
+		memcpy(reply + at, id, FZN_TREE_ID_LEN);
+		at += FZN_NOTES_SYNC_WRAP_ENTRY_LEN;
+		n++;
+	}
+	head(reply, FZN_NOTES_SYNC_WRAPS);
+	reply[2] = (uint8_t)n;
+	return at;
+}
+
+/* LACKS: the notes this store indexes with no key, the first that fit. */
+static size_t answer_lacks(const fzn_notes_store_t *store, size_t request_len, uint8_t *reply,
+                           size_t cap)
+{
+	static uint8_t ids[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
+	uint8_t key[FZN_NOTE_WRAP_KEY_LEN];
+	size_t held, i, n = 0;
+
+	if (request_len != FZN_NOTES_SYNC_HEAD_LEN
+	    || cap < FZN_NOTES_SYNC_LIST_HEAD_LEN + (FZN_NOTES_SYNC_WRAPS_MAX * FZN_TREE_ID_LEN))
+		return 0;
+	held = held_ids(store, ids);
+	for (i = 0; i < held && n < FZN_NOTES_SYNC_WRAPS_MAX; i++) {
+		if (fzn_notes_purged(store, ids[i])
+		    || fzn_notes_wrap_get(store, ids[i], key) != FZN_NOTES_ERR_ABSENT)
+			continue;
+		memcpy(reply + FZN_NOTES_SYNC_LIST_HEAD_LEN + (n * FZN_TREE_ID_LEN), ids[i],
+		       FZN_TREE_ID_LEN);
+		n++;
+	}
+	memset(key, 0, sizeof(key));
+	head(reply, FZN_NOTES_SYNC_LACKS);
+	reply[2] = (uint8_t)n;
+	return FZN_NOTES_SYNC_LIST_HEAD_LEN + (n * FZN_TREE_ID_LEN);
+}
+
+/* Take `count` entries of `bytes` for the notes this store indexes. */
+static size_t take_wraps(const fzn_notes_store_t *store, const uint8_t *bytes, size_t count,
+                         size_t *refused)
+{
+	static uint8_t ids[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
+	size_t held = held_ids(store, ids), i, taken = 0;
+
+	for (i = 0; i < count; i++) {
+		const uint8_t *e = bytes + (i * FZN_NOTES_SYNC_WRAP_ENTRY_LEN);
+
+		if (listed((const uint8_t (*)[FZN_TREE_ID_LEN])ids, held, e)
+		    && fzn_notes_wrap_put(store, e, e + FZN_TREE_ID_LEN) == FZN_NOTES_OK)
+			taken++;
+		else if (refused)
+			(*refused)++;
+	}
+	return taken;
+}
+
+/* GIVE, from an admitted member: taken for the notes indexed here. */
+static size_t answer_give(const fzn_notes_store_t *store, const uint8_t *request,
+                          size_t request_len, uint8_t *reply, size_t cap)
+{
+	size_t count;
+
+	if (request_len < FZN_NOTES_SYNC_LIST_HEAD_LEN || cap < FZN_NOTES_SYNC_LIST_HEAD_LEN)
+		return 0;
+	count = request[2];
+	if (count > FZN_NOTES_SYNC_WRAPS_MAX
+	    || request_len
+	               != FZN_NOTES_SYNC_LIST_HEAD_LEN + (count * FZN_NOTES_SYNC_WRAP_ENTRY_LEN))
+		return 0;
+	head(reply, FZN_NOTES_SYNC_GIVEN);
+	reply[2] = (uint8_t)take_wraps(store, request + FZN_NOTES_SYNC_LIST_HEAD_LEN, count, NULL);
+	return FZN_NOTES_SYNC_LIST_HEAD_LEN;
+}
+
 size_t fzn_notes_sync_answer(const fzn_notes_store_t *store, fzn_notes_policy_t policy,
                              const uint8_t *sender, uint64_t now_ms, const uint8_t *request,
                              size_t request_len, uint8_t *reply, size_t reply_cap)
@@ -319,6 +448,17 @@ size_t fzn_notes_sync_answer(const fzn_notes_store_t *store, fzn_notes_policy_t 
 		return answer_purges(store, admits(policy, sender) ? sender : NULL, reply,
 		                     reply_cap);
 	}
+	/* WRAP KEYS, sec 520: a member's, both ways. A sender this node does
+	 * not admit is answered nothing. */
+	if (is_type(request, request_len, FZN_NOTES_SYNC_WRAPS_QUERY))
+		return admits(policy, sender)
+		               ? answer_wraps(store, NULL, request, request_len, reply, reply_cap)
+		               : 0;
+	if (is_type(request, request_len, FZN_NOTES_SYNC_LACKS_QUERY))
+		return admits(policy, sender) ? answer_lacks(store, request_len, reply, reply_cap) : 0;
+	if (is_type(request, request_len, FZN_NOTES_SYNC_GIVE))
+		return admits(policy, sender) ? answer_give(store, request, request_len, reply, reply_cap)
+		                              : 0;
 	if (is_type(request, request_len, FZN_NOTES_SYNC_INDEX_QUERY)) {
 		/* A NODE THIS ONE ADMITS, PULLING, HOLDS COPIES: a partner. */
 		if (admits(policy, sender))
@@ -381,6 +521,9 @@ size_t fzn_notes_sync_answer_scoped(const fzn_notes_store_t *store,
 		return answer_records(store, scope, request, request_len, reply, reply_cap);
 	if (is_type(request, request_len, FZN_NOTES_SYNC_WRITERS_QUERY))
 		return answer_writers(store, scope, request_len, reply, reply_cap);
+	/* A CONTACT'S WRAP KEYS, sec 520: only for notes in its scope. */
+	if (is_type(request, request_len, FZN_NOTES_SYNC_WRAPS_QUERY))
+		return answer_wraps(store, scope, request, request_len, reply, reply_cap);
 	return 0;
 }
 
@@ -660,4 +803,96 @@ fzn_notes_sync_err_t fzn_notes_sync_pull_shared(const fzn_notes_store_t *store,
 		return FZN_NOTES_SYNC_OK;
 	return fzn_notes_sync_pull(store, fzn_notes_policy_writers(writers, count), sign, ask,
 	                           ask_ctx, tally);
+}
+
+/* ---- the wrap puller, sec 520 ------------------------------------------------ */
+
+fzn_notes_sync_err_t fzn_notes_sync_wraps(const fzn_notes_store_t *store,
+                                          fzn_notes_sync_ask_t ask, void *ask_ctx, int give,
+                                          fzn_notes_wrap_tally_t *tally)
+{
+	static uint8_t ids[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
+	static uint8_t lacking[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
+	static uint8_t request[FZN_NOTES_SYNC_WRAPS_REPLY_MAX];
+	static uint8_t reply[FZN_NOTES_SYNC_WRAPS_REPLY_MAX];
+	uint8_t key[FZN_NOTE_WRAP_KEY_LEN];
+	size_t held, n_lacking = 0, i, from, reply_len = 0;
+
+	if (!store || !ask || !tally)
+		return FZN_NOTES_SYNC_MALFORMED;
+	memset(tally, 0, sizeof(*tally));
+	held = held_ids(store, ids);
+	for (i = 0; i < held; i++)
+		if (!fzn_notes_purged(store, ids[i])
+		    && fzn_notes_wrap_get(store, ids[i], key) == FZN_NOTES_ERR_ABSENT)
+			memcpy(lacking[n_lacking++], ids[i], FZN_TREE_ID_LEN);
+	memset(key, 0, sizeof(key));
+	/* WHAT THIS STORE LACKS, asked a page at a time. */
+	for (from = 0; from < n_lacking; from += FZN_NOTES_SYNC_WRAPS_MAX) {
+		size_t count = n_lacking - from < FZN_NOTES_SYNC_WRAPS_MAX ? n_lacking - from
+		                                                            : FZN_NOTES_SYNC_WRAPS_MAX;
+		size_t got, j;
+
+		head(request, FZN_NOTES_SYNC_WRAPS_QUERY);
+		request[2] = (uint8_t)count;
+		memcpy(request + FZN_NOTES_SYNC_LIST_HEAD_LEN, lacking[from], count * FZN_TREE_ID_LEN);
+		tally->asked += count;
+		if (!ask(ask_ctx, request, FZN_NOTES_SYNC_LIST_HEAD_LEN + (count * FZN_TREE_ID_LEN),
+		         reply, sizeof(reply), &reply_len))
+			return FZN_NOTES_SYNC_NO_ANSWER;
+		if (!is_type(reply, reply_len, FZN_NOTES_SYNC_WRAPS)
+		    || reply_len < FZN_NOTES_SYNC_LIST_HEAD_LEN || reply[2] > count
+		    || reply_len != FZN_NOTES_SYNC_LIST_HEAD_LEN
+		                            + ((size_t)reply[2] * FZN_NOTES_SYNC_WRAP_ENTRY_LEN))
+			return FZN_NOTES_SYNC_SHAPE;
+		got = reply[2];
+		/* ONLY WHAT WAS ASKED: a key for a note not asked about is not
+		 * taken, however this store might index it. */
+		for (j = 0; j < got; j++)
+			if (!listed((const uint8_t (*)[FZN_TREE_ID_LEN])lacking + from, count,
+			            reply + FZN_NOTES_SYNC_LIST_HEAD_LEN
+			                    + (j * FZN_NOTES_SYNC_WRAP_ENTRY_LEN)))
+				return FZN_NOTES_SYNC_SHAPE;
+		tally->taken += take_wraps(store, reply + FZN_NOTES_SYNC_LIST_HEAD_LEN, got,
+		                           &tally->refused);
+	}
+	if (!give)
+		return FZN_NOTES_SYNC_OK;
+	/* WHAT THE PEER LACKS, given from what this store holds. */
+	head(request, FZN_NOTES_SYNC_LACKS_QUERY);
+	if (!ask(ask_ctx, request, FZN_NOTES_SYNC_HEAD_LEN, reply, sizeof(reply), &reply_len))
+		return FZN_NOTES_SYNC_NO_ANSWER;
+	if (!is_type(reply, reply_len, FZN_NOTES_SYNC_LACKS)
+	    || reply_len < FZN_NOTES_SYNC_LIST_HEAD_LEN || reply[2] > FZN_NOTES_SYNC_WRAPS_MAX
+	    || reply_len != FZN_NOTES_SYNC_LIST_HEAD_LEN + ((size_t)reply[2] * FZN_TREE_ID_LEN))
+		return FZN_NOTES_SYNC_SHAPE;
+	{
+		size_t count = reply[2], at = FZN_NOTES_SYNC_LIST_HEAD_LEN, n = 0;
+
+		for (i = 0; i < count; i++) {
+			const uint8_t *id = reply + FZN_NOTES_SYNC_LIST_HEAD_LEN + (i * FZN_TREE_ID_LEN);
+
+			if (fzn_notes_purged(store, id)
+			    || fzn_notes_wrap_get(store, id, request + at + FZN_TREE_ID_LEN)
+			               != FZN_NOTES_OK)
+				continue;
+			memcpy(request + at, id, FZN_TREE_ID_LEN);
+			at += FZN_NOTES_SYNC_WRAP_ENTRY_LEN;
+			n++;
+		}
+		if (n == 0u)
+			return FZN_NOTES_SYNC_OK;
+		head(request, FZN_NOTES_SYNC_GIVE);
+		request[2] = (uint8_t)n;
+		if (!ask(ask_ctx, request, at, reply, sizeof(reply), &reply_len)) {
+			memset(request, 0, at);
+			return FZN_NOTES_SYNC_NO_ANSWER;
+		}
+		memset(request, 0, at);
+		if (!is_type(reply, reply_len, FZN_NOTES_SYNC_GIVEN)
+		    || reply_len != FZN_NOTES_SYNC_LIST_HEAD_LEN || reply[2] > n)
+			return FZN_NOTES_SYNC_SHAPE;
+		tally->given = reply[2];
+	}
+	return FZN_NOTES_SYNC_OK;
 }

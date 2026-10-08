@@ -94,6 +94,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "a key succeeded by another, with its issuer's chain";
 	case FZN_PERSIST_NOTE_PURGED:
 		return "a note purged, whose records are never filed again";
+	case FZN_PERSIST_NOTE_WRAP:
+		return "the key a note's content keys are wrapped under";
 	}
 	*known = 0;
 	return "an unknown slot";

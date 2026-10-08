@@ -597,8 +597,8 @@ static int imported_before(const fzn_notes_import_run_t *run,
 		            != FZN_NOTE_OK
 		    || meta.created_at_ms != e->created_at_ms)
 			continue;
-		if (fzn_notes_read(run->author->open, run->author->text_ctx, &view->nodes[i], &meta,
-		                   payload, sizeof(payload), &note)
+		if (fzn_notes_read(run->author->store, run->author->open, run->author->text_ctx,
+		                   &view->nodes[i], &meta, payload, sizeof(payload), &note)
 		            == FZN_NOTES_OK
 		    && note.title_len == e->title_len && memcmp(note.title, e->title, e->title_len) == 0)
 			return 1;

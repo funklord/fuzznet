@@ -301,6 +301,77 @@ int fzn_notes_purged(const fzn_notes_store_t *store, const uint8_t id[FZN_SUBJEC
 	return 1;
 }
 
+#define WRAP_BLOB ((size_t)FZN_PERSIST_HEAD_LEN + FZN_NOTE_WRAP_KEY_LEN)
+
+fzn_notes_err_t fzn_notes_wrap_get(const fzn_notes_store_t *store,
+                                   const uint8_t id[FZN_SUBJECT_LEN],
+                                   uint8_t out[FZN_NOTE_WRAP_KEY_LEN])
+{
+	uint8_t blob[WRAP_BLOB + 1u];
+	size_t len = 0;
+
+	if (!store || !store->ops || !store->ops->load || !id || !out)
+		return FZN_NOTES_ERR_MALFORMED;
+	if (!store->ops->load(store->ops->ctx, FZN_PERSIST_NOTE_WRAP, id, blob, sizeof(blob), &len))
+		return FZN_NOTES_ERR_ABSENT;
+	if (fzn_persist_head_check(blob, len, FZN_NOTE_WRAP_KEY_LEN, FZN_PERSIST_BLOB_NOTE_WRAP)
+	    != FZN_PERSIST_OK)
+		return FZN_NOTES_ERR_SHAPE;
+	memcpy(out, blob + FZN_PERSIST_HEAD_LEN, FZN_NOTE_WRAP_KEY_LEN);
+	memset(blob, 0, sizeof(blob));
+	return FZN_NOTES_OK;
+}
+
+fzn_notes_err_t fzn_notes_wrap_put(const fzn_notes_store_t *store,
+                                   const uint8_t id[FZN_SUBJECT_LEN],
+                                   const uint8_t key[FZN_NOTE_WRAP_KEY_LEN])
+{
+	uint8_t blob[WRAP_BLOB], held[FZN_NOTE_WRAP_KEY_LEN];
+	fzn_notes_err_t err;
+	int same;
+
+	if (!store || !store->ops || !store->ops->save || !id || !key)
+		return FZN_NOTES_ERR_MALFORMED;
+	if (fzn_notes_purged(store, id))
+		return FZN_NOTES_ERR_PURGED;
+	err = fzn_notes_wrap_get(store, id, held);
+	if (err == FZN_NOTES_OK) {
+		same = fzn_ct_memeq(held, key, sizeof(held));
+		memset(held, 0, sizeof(held));
+		return same ? FZN_NOTES_OK : FZN_NOTES_ERR_EQUIVOCATION;
+	}
+	if (err != FZN_NOTES_ERR_ABSENT)
+		return err;
+	if (fzn_persist_head_write(blob, sizeof(blob), FZN_NOTE_WRAP_KEY_LEN,
+	                           FZN_PERSIST_BLOB_NOTE_WRAP)
+	    != FZN_PERSIST_OK)
+		return FZN_NOTES_ERR_MALFORMED;
+	memcpy(blob + FZN_PERSIST_HEAD_LEN, key, FZN_NOTE_WRAP_KEY_LEN);
+	err = store->ops->save(store->ops->ctx, FZN_PERSIST_NOTE_WRAP, id, blob, sizeof(blob))
+	              ? FZN_NOTES_OK
+	              : FZN_NOTES_ERR_BACKEND;
+	memset(blob, 0, sizeof(blob));
+	return err;
+}
+
+fzn_notes_err_t fzn_notes_wrap_erase(const fzn_notes_store_t *store,
+                                     const uint8_t id[FZN_SUBJECT_LEN])
+{
+	uint8_t held[FZN_NOTE_WRAP_KEY_LEN];
+	fzn_notes_err_t err;
+
+	if (!store || !store->ops || !id)
+		return FZN_NOTES_ERR_MALFORMED;
+	err = fzn_notes_wrap_get(store, id, held);
+	memset(held, 0, sizeof(held));
+	if (err == FZN_NOTES_ERR_ABSENT)
+		return FZN_NOTES_OK;
+	if (!store->ops->remove)
+		return FZN_NOTES_ERR_UNSUPPORTED;
+	return store->ops->remove(store->ops->ctx, FZN_PERSIST_NOTE_WRAP, id) ? FZN_NOTES_OK
+	                                                                      : FZN_NOTES_ERR_BACKEND;
+}
+
 fzn_notes_err_t fzn_notes_erase(const fzn_notes_store_t *store,
                                 const uint8_t id[FZN_SUBJECT_LEN],
                                 const uint8_t issuer[FZN_PUBKEY_LEN])

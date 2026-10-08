@@ -1347,6 +1347,21 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
 		fzn_notes_sync_err_t err;
 
+		/* THEIR WRAP KEYS, sec 520, both ways: a note this node holds the
+		 * records of is unreadable here until its wrap key arrives. */
+		{
+			fzn_notes_wrap_tally_t wt;
+			fzn_notes_sync_err_t werr = fzn_notes_sync_wraps(&node_notes.store, peer_ask,
+			                                                 &asking, 1, &wt);
+
+			if (werr != FZN_NOTES_SYNC_OK)
+				say(FZN_ENTRY_WARNING, "notes/wrap", "wrap keys with %s: %s", pulls[t].host,
+				        fzn_notes_sync_err_str(werr));
+			else if (wt.taken || wt.refused || wt.given)
+				say(wt.refused ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "notes/wrap",
+				        "wrap keys with %s: %zu taken, %zu refused, %zu given", pulls[t].host,
+				        wt.taken, wt.refused, wt.given);
+		}
 		/* THEIR TEXTS, sec 448: a pushed note whose text stayed here
 		 * would be a note nobody there could read. */
 		{
@@ -1509,6 +1524,15 @@ static void pull_received(uint64_t now)
 		else if (tally.learned || tally.refused)
 			say(FZN_ENTRY_INFO, "notes/received", "%zu shared note record(s) from %s, %zu refused",
 			        tally.learned, shares_in[i].host, tally.refused);
+		/* AND THEIR WRAP KEYS, sec 520: asked, never given. */
+		{
+			fzn_notes_wrap_tally_t wt;
+			fzn_notes_sync_err_t werr = fzn_notes_sync_wraps(&tree, peer_ask, &asking, 0, &wt);
+
+			if (werr != FZN_NOTES_SYNC_OK)
+				say(FZN_ENTRY_WARNING, "notes/received", "shared wrap keys from %s: %s",
+				        shares_in[i].host, fzn_notes_sync_err_str(werr));
+		}
 #ifdef FZN_SPOOL_FILE_ON
 		/* THE SHARED NOTES' TEXTS, sec 438: each blob one of them names is
 		 * wanted on the shelf and asked of the sharer, which serves a
@@ -3503,6 +3527,15 @@ int main(int argc, char **argv)
 			if (journal_pushed) {
 				journal_pushed = 0;
 				index_notes();
+			}
+#endif
+#ifdef FZN_SPOOL_FILE_ON
+			/* A NOTE PURGED HERE takes its blobs at once, sec 520: its
+			 * wrap key went with the purge, and every blob its history
+			 * names is named by no held note now. */
+			if (node_notes.purged_fresh) {
+				node_notes.purged_fresh = 0;
+				collect_texts();
 			}
 #endif
 			/* A REQUEST NEVER FINISHED gives its slot back. */

@@ -34,18 +34,47 @@ static int author_ok(const fzn_notes_author_t *a)
 	       && a->open && a->chain;
 }
 
-fzn_notes_err_t fzn_notes_read(fzn_notes_open_fn open, void *ctx, const fzn_tree_node_t *node,
-                               fzn_note_meta_t *meta, uint8_t *buf, size_t cap,
-                               fzn_note_t *out)
+/* `ref`'s key wrapped, or unwrapped -- one operation -- under `id`'s wrap
+ * key in `store`, into `out`. PENDING when the store holds none. sec 520. */
+static fzn_notes_err_t wrapped(const fzn_notes_store_t *store, const uint8_t id[FZN_TREE_ID_LEN],
+                               const fzn_note_blob_ref_t *ref, fzn_note_blob_ref_t *out)
 {
-	size_t len = 0;
+	uint8_t wk[FZN_NOTE_WRAP_KEY_LEN];
+	fzn_notes_err_t err = fzn_notes_wrap_get(store, id, wk);
 
-	if (!node || !meta || !buf || !out)
+	if (err == FZN_NOTES_ERR_ABSENT)
+		return FZN_NOTES_ERR_PENDING;
+	if (err != FZN_NOTES_OK)
+		return err;
+	*out = *ref;
+	if (fzn_note_wrap(store->hash, wk, ref->root, ref->key, out->key) != FZN_NOTE_OK)
+		err = FZN_NOTES_ERR_MALFORMED;
+	memset(wk, 0, sizeof(wk));
+	return err;
+}
+
+fzn_notes_err_t fzn_notes_read(const fzn_notes_store_t *store, fzn_notes_open_fn open,
+                               void *ctx, const fzn_tree_node_t *node, fzn_note_meta_t *meta,
+                               uint8_t *buf, size_t cap, fzn_note_t *out)
+{
+	fzn_note_blob_ref_t plain;
+	fzn_notes_err_t err;
+	size_t len = 0;
+	int opened;
+
+	if (!store || !node || !meta || !buf || !out)
 		return FZN_NOTES_ERR_MALFORMED;
 	if (fzn_note_meta_open(node->content_type, node->content, node->content_len, meta)
 	    != FZN_NOTE_OK)
 		return FZN_NOTES_ERR_SHAPE;
-	if (!open || !open(ctx, &meta->content, buf, cap, &len) || len != meta->content.length)
+	if (!open)
+		return FZN_NOTES_ERR_PENDING;
+	err = wrapped(store, node->id, &meta->content, &plain);
+	if (err != FZN_NOTES_OK)
+		return err;
+	opened = open(ctx, &plain, buf, cap, &len) && len == meta->content.length;
+	memset(plain.key, 0, sizeof(plain.key));
+	if (!opened)
 		return FZN_NOTES_ERR_PENDING;
 	return fzn_note_payload_open(buf, len, out) == FZN_NOTE_OK ? FZN_NOTES_OK
 	                                                           : FZN_NOTES_ERR_SHAPE;
@@ -250,21 +279,40 @@ fzn_notes_err_t fzn_notes_create_dated(const fzn_notes_author_t *author,
 	meta.colour = fields->colour;
 	meta.created_at_ms = created_at_ms ? created_at_ms : now_ms;
 	meta.edited_at_ms = now_ms;
-	err = seal_payload(author, content_type, &content, &meta.content);
-	if (err != FZN_NOTES_OK)
-		return err;
 	if (!author->rng->fill(author->rng->ctx, id_out, FZN_TREE_ID_LEN))
 		return FZN_NOTES_ERR_BACKEND;
 	/* THE ALL-ZERO ID IS THE ROOT, which is not a node. */
 	if (is_root(id_out))
 		id_out[0] = 1u;
+	/* THE WRAP KEY FIRST, sec 520, kept before anything names it: a record
+	 * here must never wrap under a key this host does not hold. */
+	{
+		uint8_t wk[FZN_NOTE_WRAP_KEY_LEN];
+
+		err = author->rng->fill(author->rng->ctx, wk, sizeof(wk))
+		              ? fzn_notes_wrap_put(author->store, id_out, wk)
+		              : FZN_NOTES_ERR_BACKEND;
+		memset(wk, 0, sizeof(wk));
+		if (err != FZN_NOTES_OK)
+			return err;
+	}
+	err = seal_payload(author, content_type, &content, &meta.content);
+	if (err == FZN_NOTES_OK)
+		err = wrapped(author->store, id_out, &meta.content, &meta.content);
+	if (err != FZN_NOTES_OK) {
+		(void)fzn_notes_wrap_erase(author->store, id_out);
+		return err;
+	}
 	err = fzn_notes_view_load(author->store, author->view);
 	if (err != FZN_NOTES_OK)
 		return err;
 	err = order_after(author->view, parent, NULL, &order);
+	if (err == FZN_NOTES_OK)
+		err = write_note(author, id_out, parent, order, content_type, &meta, now_ms);
+	/* A NOTE NEVER WRITTEN keeps no wrap key behind it. */
 	if (err != FZN_NOTES_OK)
-		return err;
-	return write_note(author, id_out, parent, order, content_type, &meta, now_ms);
+		(void)fzn_notes_wrap_erase(author->store, id_out);
+	return err;
 }
 
 fzn_notes_err_t fzn_notes_edit(const fzn_notes_author_t *author,
@@ -293,15 +341,20 @@ fzn_notes_err_t fzn_notes_edit(const fzn_notes_author_t *author,
 	/* WHATEVER THIS EDIT DOES NOT NAME KEEPS WHAT THE NOTE SAID. */
 	meta = h.meta;
 	if (which & (FZN_NOTES_EDIT_TITLE | FZN_NOTES_EDIT_TEXT | FZN_NOTES_EDIT_LABELS)) {
+		fzn_note_blob_ref_t plain;
 		fzn_note_t content;
 		size_t len = 0;
+		int opened;
 
 		/* THE HELD PAYLOAD, OPENED, so the fields this edit keeps are kept:
-		 * a content edit of a note whose blob is not here yet would
-		 * otherwise write those fields back empty. */
-		if (!author->open(author->text_ctx, &h.meta.content, payload_in, sizeof(payload_in),
-		                  &len)
-		    || len != h.meta.content.length)
+		 * a content edit of a note whose blob, or wrap key, is not here
+		 * yet would otherwise write those fields back empty. */
+		err = wrapped(author->store, id, &h.meta.content, &plain);
+		if (err != FZN_NOTES_OK)
+			return err;
+		opened = author->open(author->text_ctx, &plain, payload_in, sizeof(payload_in), &len);
+		memset(plain.key, 0, sizeof(plain.key));
+		if (!opened || len != h.meta.content.length)
 			return FZN_NOTES_ERR_PENDING;
 		if (fzn_note_payload_open(payload_in, len, &content) != FZN_NOTE_OK)
 			return FZN_NOTES_ERR_SHAPE;
@@ -320,6 +373,8 @@ fzn_notes_err_t fzn_notes_edit(const fzn_notes_author_t *author,
 		/* A NEW BLOB UNDER A NEW KEY: `blob/` forbids a key reused across
 		 * different contents. */
 		err = seal_payload(author, h.content_type, &content, &meta.content);
+		if (err == FZN_NOTES_OK)
+			err = wrapped(author->store, id, &meta.content, &meta.content);
 		if (err != FZN_NOTES_OK)
 			return err;
 	}

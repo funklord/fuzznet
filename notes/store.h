@@ -209,6 +209,27 @@ fzn_notes_err_t fzn_notes_mark_purged(const fzn_notes_store_t *store,
 int fzn_notes_purged(const fzn_notes_store_t *store, const uint8_t id[FZN_SUBJECT_LEN]);
 
 /*
+ * A NOTE'S WRAP KEY, sec 520: what its records' content keys are wrapped
+ * under (`notes/note.h`), kept here and never in the journal. The note's
+ * creator draws it; members and contacts it is shared with are given it
+ * over their sessions; a purge destroys it.
+ *
+ * THE FIRST ONE HELD STANDS: a note has one creator and so one wrap key,
+ * and a different one offered later is refused as EQUIVOCATION rather than
+ * written over the key every record here unwraps under. A purged note takes
+ * none, as PURGED.
+ */
+fzn_notes_err_t fzn_notes_wrap_get(const fzn_notes_store_t *store,
+                                   const uint8_t id[FZN_SUBJECT_LEN],
+                                   uint8_t out[FZN_NOTE_WRAP_KEY_LEN]);
+fzn_notes_err_t fzn_notes_wrap_put(const fzn_notes_store_t *store,
+                                   const uint8_t id[FZN_SUBJECT_LEN],
+                                   const uint8_t key[FZN_NOTE_WRAP_KEY_LEN]);
+/* ABSENT is not a failure here: a key never held is a key destroyed. */
+fzn_notes_err_t fzn_notes_wrap_erase(const fzn_notes_store_t *store,
+                                     const uint8_t id[FZN_SUBJECT_LEN]);
+
+/*
  * File a record under the claim it carries, ADMITTING IT FIRST, INSIDE: a
  * check beside the write is one somebody forgets. DENIED with `*why` set when
  * the policy refuses; PURGED for a record of a note marked purged. `*wrote` (may be NULL) says whether anything changed:

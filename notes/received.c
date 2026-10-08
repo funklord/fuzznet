@@ -6,6 +6,20 @@
 
 /* Sixteen bytes, as this tree's other derivation labels are. */
 static const char ROW_LABEL[16] = "fuzznet-recvd-v1";
+/* A sharer's wrap key for a note, sec 520: its own label, so no wrap row is
+ * ever a note row's key, nor one sharer's another's. */
+static const char WRAP_LABEL[16] = "fuzznet-rcvwrap1";
+
+static int wrap_key_of(const fzn_hash_ops_t *hash, const uint8_t sharer[FZN_PUBKEY_LEN],
+                       const uint8_t id[FZN_PUBKEY_LEN], uint8_t out[FZN_PUBKEY_LEN])
+{
+	uint8_t input[sizeof(WRAP_LABEL) + (2u * FZN_PUBKEY_LEN)];
+
+	memcpy(input, WRAP_LABEL, sizeof(WRAP_LABEL));
+	memcpy(input + sizeof(WRAP_LABEL), sharer, FZN_PUBKEY_LEN);
+	memcpy(input + sizeof(WRAP_LABEL) + FZN_PUBKEY_LEN, id, FZN_PUBKEY_LEN);
+	return hash->hash(hash->ctx, out, FZN_PUBKEY_LEN, input, sizeof(input));
+}
 
 #define PREFIX_LEN (2u * FZN_PUBKEY_LEN) /* sharer | claim key */
 #define ROW_MAX ((size_t)FZN_PERSIST_HEAD_LEN + PREFIX_LEN + FZN_RECORD_MAX_LEN)
@@ -45,8 +59,15 @@ static int seam_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	uint8_t key[FZN_PUBKEY_LEN];
 	size_t n = 0, record_len;
 
-	/* NOTHING BUT NOTES: no sequence, no purge, no partner is held in a
-	 * sharer's tree, so each reads absent. */
+	/* A WRAP KEY THE SHARER GAVE, sec 520, filed apart from this node's
+	 * own under a key of the sharer and the note. */
+	if (slot == FZN_PERSIST_NOTE_WRAP) {
+		if (!subject || !wrap_key_of(seam->hash, seam->sharer, subject, key))
+			return 0;
+		return seam->base->load(seam->base->ctx, FZN_PERSIST_NOTE_WRAP, key, out, cap, len);
+	}
+	/* NOTHING BUT NOTES AND THEIR WRAP KEYS: no purge, no partner is held
+	 * in a sharer's tree, so each reads absent. */
 	if (slot != FZN_PERSIST_NOTE || !subject || !row_key(seam, subject, key)
 	    || !row_read(seam->base, key, row, &n))
 		return 0;
@@ -70,9 +91,13 @@ static int seam_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	uint8_t key[FZN_PUBKEY_LEN];
 	size_t record_len;
 
-	/* A SHARER'S TREE IS WRITTEN ONLY BY PULLING: a counter, a purge or a
-	 * partner saved here would be this node acting in a tree it does not
-	 * own. */
+	if (slot == FZN_PERSIST_NOTE_WRAP) {
+		if (!subject || !bytes || !wrap_key_of(seam->hash, seam->sharer, subject, key))
+			return 0;
+		return seam->base->save(seam->base->ctx, FZN_PERSIST_NOTE_WRAP, key, bytes, len);
+	}
+	/* A SHARER'S TREE IS WRITTEN ONLY BY PULLING: a purge or a partner
+	 * saved here would be this node acting in a tree it does not own. */
 	if (slot != FZN_PERSIST_NOTE || !subject || !bytes || len <= FZN_PERSIST_HEAD_LEN
 	    || fzn_persist_head_check(bytes, len, len - FZN_PERSIST_HEAD_LEN, FZN_PERSIST_BLOB_NOTE)
 	               != FZN_PERSIST_OK)
@@ -133,6 +158,12 @@ static int seam_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subjec
 	const fzn_notes_received_t *seam = (const fzn_notes_received_t *)ctx;
 	uint8_t key[FZN_PUBKEY_LEN];
 
+	if (slot == FZN_PERSIST_NOTE_WRAP) {
+		if (!subject || !seam->base->remove
+		    || !wrap_key_of(seam->hash, seam->sharer, subject, key))
+			return 0;
+		return seam->base->remove(seam->base->ctx, FZN_PERSIST_NOTE_WRAP, key);
+	}
 	if (slot != FZN_PERSIST_NOTE)
 		return 1; /* nothing else is held, so it is gone */
 	if (!subject || !seam->base->remove || !row_key(seam, subject, key))
@@ -160,6 +191,7 @@ fzn_notes_err_t fzn_notes_received_ops(fzn_notes_received_t *seam, const fzn_per
 }
 
 fzn_notes_err_t fzn_notes_received_forget(const fzn_persist_ops_t *base,
+                                          const fzn_hash_ops_t *hash,
                                           const uint8_t sharer[FZN_PUBKEY_LEN], size_t *removed)
 {
 	static uint8_t keys[FZN_NOTES_RECEIVED_ROWS][FZN_PUBKEY_LEN];
@@ -168,7 +200,7 @@ fzn_notes_err_t fzn_notes_received_forget(const fzn_persist_ops_t *base,
 
 	if (removed)
 		*removed = 0;
-	if (!base || !base->list || !base->load || !sharer)
+	if (!base || !base->list || !base->load || !hash || !hash->hash || !sharer)
 		return FZN_NOTES_ERR_MALFORMED;
 	if (!base->remove)
 		return FZN_NOTES_ERR_UNSUPPORTED;
@@ -176,9 +208,19 @@ fzn_notes_err_t fzn_notes_received_forget(const fzn_persist_ops_t *base,
 	                &held))
 		return FZN_NOTES_ERR_BACKEND;
 	for (i = 0; i < held; i++) {
+		fzn_record_t rec;
+		uint8_t wrap_row[FZN_PUBKEY_LEN];
+
 		if (!row_read(base, keys[i], row, &len)
 		    || memcmp(row + FZN_PERSIST_HEAD_LEN, sharer, FZN_PUBKEY_LEN) != 0)
 			continue;
+		/* ITS NOTE'S WRAP KEY FIRST, while the row still names the note:
+		 * a key left with no row naming it could never be found again. */
+		if (fzn_record_open(row + FZN_PERSIST_HEAD_LEN + PREFIX_LEN,
+		                    len - FZN_PERSIST_HEAD_LEN - PREFIX_LEN, &rec)
+		            == FZN_RECORD_OK
+		    && wrap_key_of(hash, sharer, fzn_record_subject(rec), wrap_row))
+			(void)base->remove(base->ctx, FZN_PERSIST_NOTE_WRAP, wrap_row);
 		if (!base->remove(base->ctx, FZN_PERSIST_SHARED_NOTE, keys[i]))
 			return FZN_NOTES_ERR_BACKEND;
 		n++;

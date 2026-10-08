@@ -243,6 +243,7 @@ static void told_purged(void *ctx, const uint8_t id[FZN_SUBJECT_LEN])
 	fzn_node_notes_t *n = (fzn_node_notes_t *)ctx;
 	size_t len = 0;
 
+	n->purged_fresh = 1;
 	if (!n->chain
 	    || !n->chain(n->chain_ctx, n->author.issuer, n->author.sign, FZN_NOTE_PURGE_KIND, id,
 	                 body, sizeof(body), now(n), record, sizeof(record), &len))
@@ -276,12 +277,15 @@ static size_t no_content_store(const fzn_node_notes_t *n, char *reply, size_t ca
 	return 0;
 }
 
-/* `node`'s meta, and its payload opened into `payload_buf`. */
-static fzn_notes_err_t read_note(const fzn_node_notes_t *n, const fzn_tree_node_t *node,
-                                 fzn_note_meta_t *meta, fzn_note_t *note)
+/* `node`'s meta, and its payload opened into `payload_buf`: its key
+ * unwrapped under the wrap key `store` holds, this node's own or a sharer's
+ * tree's (sec 520). */
+static fzn_notes_err_t read_note(const fzn_node_notes_t *n, const fzn_notes_store_t *store,
+                                 const fzn_tree_node_t *node, fzn_note_meta_t *meta,
+                                 fzn_note_t *note)
 {
-	return fzn_notes_read(n->open, n->text_ctx, node, meta, payload_buf, sizeof(payload_buf),
-	                      note);
+	return fzn_notes_read(store, n->open, n->text_ctx, node, meta, payload_buf,
+	                      sizeof(payload_buf), note);
 }
 
 /* Checklists, below: `get` and `set` reach them. sec 442. */
@@ -495,7 +499,7 @@ static size_t list(const fzn_node_notes_t *n, const fzn_notes_store_t *store, in
 			is_contested |= memcmp(contested[j], node->id, FZN_TREE_ID_LEN) == 0;
 		/* THE TITLE IS IN THE BLOB, so a note whose blob is not here
 		 * lists by its meta, marked pending. sec 514. */
-		switch (read_note(n, node, &meta, &note)) {
+		switch (read_note(n, store, node, &meta, &note)) {
 		case FZN_NOTES_OK:
 			title = note.title;
 			title_len = note.title_len;
@@ -552,7 +556,7 @@ static size_t get(fzn_node_notes_t *n, const fzn_notes_store_t *store, const uin
 	node = find(n, id, &idx);
 	if (!node)
 		return refuse(reply, cap, FZN_NOTES_ERR_ABSENT);
-	err = read_note(n, node, &meta, &note);
+	err = read_note(n, store, node, &meta, &note);
 	if (err != FZN_NOTES_OK && err != FZN_NOTES_ERR_PENDING)
 		return refuse(reply, cap, err);
 	pending = err == FZN_NOTES_ERR_PENDING;
@@ -901,7 +905,7 @@ static size_t open_list(fzn_node_notes_t *n, const fzn_notes_store_t *store,
 		return refuse(reply, cap, FZN_NOTES_ERR_ABSENT);
 	if (node->content_type != FZN_NOTE_TYPE_LIST)
 		return say(reply, cap, FZN_REPLY_ERROR, "not a checklist");
-	err = read_note(n, node, &meta, note);
+	err = read_note(n, store, node, &meta, note);
 	if (err == FZN_NOTES_ERR_PENDING)
 		return say(reply, cap, FZN_REPLY_ERROR, "the items are not here yet");
 	if (err == FZN_NOTES_OK)
@@ -1768,12 +1772,14 @@ size_t fzn_node_notes_remote(void *ctx, const uint8_t *sender, int shared,
 		if (taken)
 			return taken;
 	}
-	/* ONLY THE PURGE CONVERSATION, sec 519: a member's notes come in the
-	 * journal now, so its INDEX and RECORDS go unanswered, and PUSH is
-	 * retired. */
+	/* ONLY THE PURGE CONVERSATION, sec 519, AND WRAP KEYS, sec 520: a
+	 * member's notes come in the journal now, so its INDEX and RECORDS go
+	 * unanswered, and PUSH is retired. */
 	if (request_len < 2u || request[0] != FZN_NOTES_SYNC_VERSION
 	    || (request[1] != FZN_NOTES_SYNC_PURGE && request[1] != FZN_NOTES_SYNC_PURGE_ACK
-	        && request[1] != FZN_NOTES_SYNC_PURGES_QUERY))
+	        && request[1] != FZN_NOTES_SYNC_PURGES_QUERY
+	        && request[1] != FZN_NOTES_SYNC_WRAPS_QUERY
+	        && request[1] != FZN_NOTES_SYNC_LACKS_QUERY && request[1] != FZN_NOTES_SYNC_GIVE))
 		return 0;
 	return fzn_notes_sync_answer(&n->store, n->author.policy, sender, now(n), request,
 	                             request_len, reply, reply_cap);
