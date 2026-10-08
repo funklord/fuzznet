@@ -193,7 +193,7 @@ static int table_get(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t s
 	return 1;
 }
 
-static const fzn_record_store_ops_t TABLE_OPS = { table_put, table_get, NULL };
+static const fzn_record_store_ops_t TABLE_OPS = { table_put, table_get, NULL, NULL };
 
 static void table_init(struct table *t, fzn_record_store_ops_t *ops)
 {

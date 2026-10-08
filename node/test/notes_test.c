@@ -1260,7 +1260,7 @@ static int journal_chain(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN],
 static void test_the_journal_chain(void)
 {
 	static fzn_node_journal_t nj;
-	static fzn_record_store_ops_t rops = { rec_put, rec_get, NULL };
+	static fzn_record_store_ops_t rops = { rec_put, rec_get, NULL, NULL };
 	static uint8_t held[FZN_RECORD_MAX_LEN];
 	uint8_t id[FZN_TREE_ID_LEN], prev[FZN_RECORD_ID_LEN];
 	char note[65], line[200];
@@ -1363,7 +1363,7 @@ static int note_by(fzn_node_journal_t *nj, const uint8_t writer[FZN_PUBKEY_LEN],
 static void test_the_feed(void)
 {
 	static fzn_node_journal_t nj;
-	static fzn_record_store_ops_t rops = { rec_put, rec_get, NULL };
+	static fzn_record_store_ops_t rops = { rec_put, rec_get, NULL, NULL };
 	static const uint8_t mark[1] = { 1u };
 	static uint8_t record[FZN_RECORD_MAX_LEN];
 	uint8_t id[FZN_TREE_ID_LEN], other_id[FZN_TREE_ID_LEN], stranger[FZN_PUBKEY_LEN];

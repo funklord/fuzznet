@@ -274,7 +274,7 @@ static int record_get(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t 
 	return 1;
 }
 
-static const fzn_record_store_ops_t journal_ops = { record_put, record_get, NULL };
+static const fzn_record_store_ops_t journal_ops = { record_put, record_get, NULL, NULL };
 static fzn_node_journal_t journal;
 
 static int journal_logged(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN],

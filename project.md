@@ -60640,3 +60640,56 @@ nothing sets a base on those streams yet. A message line of two parts
 straddling a base would not be re-read on restart, so step 4 must cut
 the messages stream only at a line's boundary. That step decides which
 streams are cut, and tests those readers then.
+
+## 548. Stage 4, step 4: the cut, and the journal's window, 2026-10-09
+
+Sec 544's last step: the journal keeps a window and lets the rest go.
+
+- **The window is the estate setting `journal/window`**, in days from 1 to
+  36500, at whatever rank is in force; 60 when unset or not a count, the
+  holder's figure of 2026-10-08 (`fzn_node_settings_window_days`).
+- **fuzznetd cuts hourly**, in the round after apply and messages: each
+  followed estate, notes and conversations stream below its first record
+  younger than the window, and no further than that stream's reader has
+  got -- apply's applied count, the notes index cursor, the messages
+  cursor. Each reader keeps what it read in the store (settings and
+  grants, sec 540 and 545; note claims, slot 17; message rows, sec 536),
+  so what is cut is history, not state. The op journal is not cut here;
+  it rotates (sec 524).
+- **`fzn_node_journal_cut`** keeps estate acts in the spine, moves the
+  base, then lets the records go, so a crash at any point leaves a base
+  that says where the stream starts. `fzn_record_store_cut` is a new
+  optional backend operation; the file store zeroes each slot's length
+  and then punches the range's blocks out where the system can.
+- **A message line is never cut between its parts**
+  (`fzn_node_messages_cut_point`), because its first part is read back
+  from the journal when its last is taken in.
+
+Found on the way: a record's `issued_at` is in seconds on the estate
+stream (settings and root acts stamp `wall_clock`) and in milliseconds on
+the notes, conversations and op-journal streams. The record header does
+not say which. The cut takes each stream's clock in its own unit; making
+it one unit is a wire question left open.
+
+Measured: store_file_test 154 checks -- a range cut reads absent, the
+record above it holds, and the file gives blocks back. node_journal_test
+56 -- the cut point stops at the first young record and at the reader,
+the cut keeps the spine and the base, and a journal opened afresh follows
+from it. apply_test 40 -- the window's default and bounds. node
+messages_test 53 -- the cut point keeps a two-part line whole.
+`tool/live_cut.py`, now part of `make livecheck`, runs the daemon under a
+clock 62 days back and then on the real one: a 100-day window cuts
+nothing, a 30-day window cuts the two old records while the line and the
+setting still read, and a restart cuts nothing more. Against a build
+that reads every stream from 1, the restart fails, which is what makes
+it a check. Seven sabotage entries, each probed caught, and the two
+sec 542 entries for k re-anchored on the shared count parser.
+
+Not seen: a notes stream cut by the daemon, since the live run writes no
+note. The file store's zeroing and its hole punch each make a cut slot
+read absent, so on a filesystem that punches, no test can see the
+zeroing alone.
+
+Still open from decision 6: a clear is to be remembered for the window
+and then forgotten, which needs a stored setting to carry when this node
+learned it.

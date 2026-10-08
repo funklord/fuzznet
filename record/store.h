@@ -93,6 +93,12 @@ typedef struct fzn_record_store_ops {
 	int (*get)(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
 	           uint64_t seq, uint8_t *out, size_t cap, size_t *len_out, int *found_out);
 	void *ctx;
+	/* LET RECORDS [`from`, `below`) OF ONE STREAM GO, sec 548: afterwards
+	 * each reads as absent. OPTIONAL, and NULL is an honest "this store
+	 * keeps everything" -- a journal over it is never cut. Nonzero when
+	 * every one is gone. */
+	int (*cut)(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream, uint64_t from,
+	           uint64_t below);
 } fzn_record_store_ops_t;
 
 /* Declared, not included. sec 209. */
@@ -158,6 +164,20 @@ fzn_record_store_err_t fzn_record_store_put(fzn_record_store_t *store, fzn_recor
  * Checks shape, then placement, then stops. THE CALLER STILL OWES
  * `fzn_record_verify`.
  */
+/*
+ * LET A STREAM'S OLD END GO: records [`from`, `below`) of (issuer, stream)
+ * read as absent afterwards. sec 548, the journal's window. MALFORMED for a
+ * backend with no `cut`, a `from` of zero or a range that is empty; BACKEND
+ * when it would not.
+ *
+ * A READER OF THE STREAM SEES THEM GO, which the immutability sec 132 rests
+ * on does not allow for, so only the journal that owns the stream's base
+ * calls this, after moving the base above the range (`node/journal.h`).
+ */
+fzn_record_store_err_t fzn_record_store_cut(fzn_record_store_t *store,
+                                            const uint8_t issuer[FZN_PUBKEY_LEN],
+                                            uint32_t stream, uint64_t from, uint64_t below);
+
 fzn_record_store_err_t fzn_record_store_get(fzn_record_store_t *store,
                                             const uint8_t issuer[FZN_PUBKEY_LEN],
                                             uint32_t stream, uint64_t seq,

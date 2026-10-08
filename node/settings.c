@@ -232,25 +232,57 @@ int fzn_node_settings_rule_key(const fzn_hash_ops_t *hash, const char *text, siz
 	return 1;
 }
 
+/* A COUNT FROM 1 TO `max` in `value`, or 0: digits only, and no more of them
+ * than `max` has, so nothing overflows on the way. */
+static unsigned count_of(const uint8_t *value, size_t len, unsigned max)
+{
+	unsigned n = 0, m;
+	size_t i, digits = 0;
+
+	for (m = max; m; m /= 10u)
+		digits++;
+	if (len == 0u || len > digits)
+		return 0;
+	for (i = 0; i < len; i++) {
+		if (value[i] < '0' || value[i] > '9')
+			return 0;
+		n = (n * 10u) + (unsigned)(value[i] - '0');
+	}
+	return n <= max ? n : 0u;
+}
+
 uint8_t fzn_node_settings_quorum(const fzn_node_settings_t *ns, uint8_t fallback)
 {
 	uint8_t value[FZN_SETTING_VALUE_MAX];
 	fzn_setting_rank_t rank;
-	size_t len = 0, i;
-	unsigned k = 0;
+	size_t len = 0;
+	unsigned k;
 
 	if (!ready(ns) || !ns->estate
 	    || !fzn_node_settings_get(ns, FZN_SCOPE_ESTATE, ns->estate,
 	                              (const uint8_t *)FZN_NODE_SETTINGS_K_KEY,
 	                              sizeof(FZN_NODE_SETTINGS_K_KEY) - 1u, value, &len, &rank)
-	    || rank != FZN_SETTING_RANK_ROOT || len == 0u || len > 3u)
+	    || rank != FZN_SETTING_RANK_ROOT)
 		return fallback;
-	for (i = 0; i < len; i++) {
-		if (value[i] < '0' || value[i] > '9')
-			return fallback;
-		k = (k * 10u) + (unsigned)(value[i] - '0');
-	}
-	return k >= 1u && k <= 255u ? (uint8_t)k : fallback;
+	k = count_of(value, len, 255u);
+	return k ? (uint8_t)k : fallback;
+}
+
+unsigned fzn_node_settings_window_days(const fzn_node_settings_t *ns)
+{
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	size_t len = 0;
+	unsigned days;
+
+	if (!ready(ns) || !ns->estate
+	    || !fzn_node_settings_get(ns, FZN_SCOPE_ESTATE, ns->estate,
+	                              (const uint8_t *)FZN_NODE_SETTINGS_WINDOW_KEY,
+	                              sizeof(FZN_NODE_SETTINGS_WINDOW_KEY) - 1u, value, &len,
+	                              &rank))
+		return FZN_NODE_SETTINGS_WINDOW_DAYS;
+	days = count_of(value, len, 36500u);
+	return days ? days : FZN_NODE_SETTINGS_WINDOW_DAYS;
 }
 
 fzn_node_settings_err_t fzn_node_settings_take_rules(const fzn_node_settings_t *ns,

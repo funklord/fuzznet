@@ -207,7 +207,7 @@ static int rec_get(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t str
 	return 1;
 }
 
-static fzn_record_store_ops_t rops = { rec_put, rec_get, NULL };
+static fzn_record_store_ops_t rops = { rec_put, rec_get, NULL, NULL };
 
 /* ---- two devices of one user, and two contacts ----------------------------- */
 

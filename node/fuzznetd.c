@@ -1654,6 +1654,68 @@ static void messages_round(struct pull_target *pulls, size_t npulls, uint64_t no
 			    pulls[p].host, t.given, t.refused, t.taken, t.lacking);
 	}
 }
+
+/* THE JOURNAL'S WINDOW, sec 548: hourly, every followed estate, notes and
+ * conversations stream cut below the first record younger than the window
+ * -- `journal/window` days, 60 unset -- and no further than its own reader
+ * has got: apply, the notes index, the messages store. Each keeps what it
+ * read, so the journal holds only what is in transit and recent. The
+ * estate stream's clock is seconds and the other two milliseconds. */
+static void journal_cut(uint64_t now)
+{
+	static uint64_t next_cut;
+	uint64_t span, cut_before, total = 0;
+	size_t i, k, streams = 0;
+
+	if (!journal_on || !node_journal.keep)
+		return;
+	if (now < next_cut && next_cut <= now + FZND_TRIM_EVERY)
+		return;
+	next_cut = now + FZND_TRIM_EVERY;
+	span = (uint64_t)fzn_node_settings_window_days(&node_settings) * 86400u;
+	if (now <= span)
+		return;
+	cut_before = now - span;
+	for (i = 0; i < node_journal.journal.used; i++) {
+		const fzn_journal_entry_t *e = &node_journal.entries[i];
+		uint64_t below;
+		size_t n = 0;
+		fzn_node_journal_err_t err;
+
+		if (e->stream == FZN_NODE_JOURNAL_STREAM) {
+			below = fzn_node_journal_cut_point(&node_journal, e->issuer, e->stream,
+			                                   e->applied, cut_before);
+		} else if (e->stream == FZN_NOTE_STREAM && notes_on) {
+			uint64_t indexed = 0;
+
+			for (k = 0; k < n_notes_cursors; k++)
+				if (memcmp(notes_cursors[k].key, e->issuer, FZN_PUBKEY_LEN) == 0)
+					indexed = notes_cursors[k].at;
+			below = fzn_node_journal_cut_point(&node_journal, e->issuer, e->stream, indexed,
+			                                   cut_before * 1000u);
+		} else if (e->stream == FZN_MESSAGE_STREAM && messages_on) {
+			below = fzn_node_messages_cut_point(&node_messages, e->issuer,
+			                                    cut_before * 1000u);
+		} else {
+			continue;
+		}
+		err = fzn_node_journal_cut(&node_journal, e->issuer, e->stream, below, &n);
+		if (err != FZN_NODE_JOURNAL_OK) {
+			say(FZN_ENTRY_WARNING, "journal", "a stream would not cut: %s",
+			    fzn_node_journal_err_str(err));
+			continue;
+		}
+		total += n;
+		streams += n != 0u;
+	}
+	if (total)
+		say(FZN_ENTRY_INFO, "journal",
+		    "%llu record(s) older than the window cut from %zu stream(s)",
+		    (unsigned long long)total, streams);
+	/* EVERY PASS THAT RAN SAYS SO, at debug, as the trim's does. */
+	say(FZN_ENTRY_DEBUG, "journal", "cut pass: a window of %llu day(s), %llu record(s) cut",
+	    (unsigned long long)(span / 86400u), (unsigned long long)total);
+}
 #endif
 
 /* Every note each pull peer holds that this node lacks or holds older,
@@ -3981,6 +4043,7 @@ int main(int argc, char **argv)
 				pull_journal(pulls, npulls, now);
 				apply_journal();
 				messages_round(pulls, npulls, now);
+				journal_cut(now);
 #endif
 				/* THE ESTATE'S k MAY HAVE ARRIVED WITH THEM, sec 418 -- as a
 				 * root's setting since sec 542, which outranks the older

@@ -54,6 +54,17 @@ fzn_record_store_err_t fzn_record_store_put(fzn_record_store_t *store, fzn_recor
 	return FZN_RECORD_STORE_OK;
 }
 
+fzn_record_store_err_t fzn_record_store_cut(fzn_record_store_t *store,
+                                            const uint8_t issuer[FZN_PUBKEY_LEN],
+                                            uint32_t stream, uint64_t from, uint64_t below)
+{
+	if (!store || !store->ops || !store->ops->cut || !issuer || from == 0u || below <= from)
+		return FZN_RECORD_STORE_ERR_MALFORMED;
+	if (!store->ops->cut(store->ops->ctx, issuer, stream, from, below))
+		return FZN_RECORD_STORE_ERR_BACKEND;
+	return FZN_RECORD_STORE_OK;
+}
+
 fzn_record_store_err_t fzn_record_store_get(fzn_record_store_t *store,
                                             const uint8_t issuer[FZN_PUBKEY_LEN],
                                             uint32_t stream, uint64_t seq,

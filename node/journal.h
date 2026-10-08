@@ -227,6 +227,27 @@ fzn_node_journal_err_t fzn_node_journal_base_set(fzn_node_journal_t *nj,
                                                  const uint8_t key[FZN_PUBKEY_LEN],
                                                  uint32_t stream, uint64_t base);
 
+/* WHERE A CUT OF `key`'S `stream` COULD END, sec 548: the first sequence from
+ * the base that is past `limit`, not held, or issued at or after `older_than`
+ * -- in the stream's own clock, which is not one unit across streams (sec
+ * 548). Records [base, the answer) are each held and older. The base itself
+ * when none is. `limit` is how far the stream's reader has got: nothing it
+ * has not taken in is cut. */
+uint64_t fzn_node_journal_cut_point(fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN],
+                                    uint32_t stream, uint64_t limit, uint64_t older_than);
+
+/* CUT `key`'S `stream` BELOW `below`, sec 548: the estate stream's records
+ * kept in the spine first, the base moved up to `below`, then the records
+ * let go -- that order, so a crash at any point leaves a stream whose base
+ * says where it starts and whose standing is still judged. `*cut` (may be
+ * NULL) is how many went. OK with nothing cut for a `below` at or under the
+ * base. MALFORMED for no `keep`, a stream not followed, or a `below` past
+ * what is received; STORE for a record not held, a row that will not keep,
+ * or a store that cannot cut. */
+fzn_node_journal_err_t fzn_node_journal_cut(fzn_node_journal_t *nj,
+                                            const uint8_t key[FZN_PUBKEY_LEN], uint32_t stream,
+                                            uint64_t below, size_t *cut);
+
 /* Fill `ops` so a revocation store or a root set asks this journal. `nj`
  * must outlive them. */
 void fzn_node_journal_acts(fzn_node_journal_t *nj, fzn_act_log_ops_t *ops);

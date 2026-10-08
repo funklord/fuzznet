@@ -431,6 +431,63 @@ fzn_node_journal_err_t fzn_node_journal_base_set(fzn_node_journal_t *nj,
 	               : FZN_NODE_JOURNAL_STORE;
 }
 
+uint64_t fzn_node_journal_cut_point(fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN],
+                                    uint32_t stream, uint64_t limit, uint64_t older_than)
+{
+	static uint8_t buf[FZN_RECORD_MAX_LEN];
+	uint8_t below[FZN_RECORD_ID_LEN];
+	const fzn_journal_entry_t *e;
+	uint64_t seq;
+
+	if (!nj || !key)
+		return 1u;
+	seq = base_get(nj, key, stream, below);
+	if (!(e = entry_of(nj, key, stream)))
+		return seq;
+	for (; seq <= limit && seq <= e->received; seq++) {
+		fzn_record_t rec;
+
+		if (fzn_record_store_get(&nj->store, key, stream, seq, buf, sizeof(buf), &rec)
+		            != FZN_RECORD_STORE_OK
+		    || fzn_record_issued_at(rec) >= older_than)
+			break;
+	}
+	return seq;
+}
+
+fzn_node_journal_err_t fzn_node_journal_cut(fzn_node_journal_t *nj,
+                                            const uint8_t key[FZN_PUBKEY_LEN], uint32_t stream,
+                                            uint64_t below, size_t *cut)
+{
+	uint8_t id[FZN_RECORD_ID_LEN];
+	const fzn_journal_entry_t *e;
+	fzn_node_journal_err_t err;
+	uint64_t base, seq;
+
+	if (cut)
+		*cut = 0;
+	if (!nj || !key || !nj->keep || !(e = entry_of(nj, key, stream)) || below - 1u > e->received)
+		return FZN_NODE_JOURNAL_MALFORMED;
+	base = base_get(nj, key, stream, id);
+	if (below <= base)
+		return FZN_NODE_JOURNAL_OK;
+	if (!nj->store.ops->cut)
+		return FZN_NODE_JOURNAL_STORE;
+	/* THE SPINE FIRST: an estate act's standing outlives its record. */
+	if (stream == FZN_NODE_JOURNAL_STREAM)
+		for (seq = base; seq < below; seq++)
+			if ((err = fzn_node_journal_spine_keep(nj, key, seq)) != FZN_NODE_JOURNAL_OK)
+				return err;
+	/* THEN THE BASE, so no reader starts in the hole about to open. */
+	if ((err = fzn_node_journal_base_set(nj, key, stream, below)) != FZN_NODE_JOURNAL_OK)
+		return err;
+	if (fzn_record_store_cut(&nj->store, key, stream, base, below) != FZN_RECORD_STORE_OK)
+		return FZN_NODE_JOURNAL_STORE;
+	if (cut)
+		*cut = (size_t)(below - base);
+	return FZN_NODE_JOURNAL_OK;
+}
+
 int fzn_node_journal_stands(fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN],
                             const uint8_t cut[FZN_RECORD_ID_LEN],
                             const uint8_t act[FZN_SUBJECT_LEN])

@@ -137,6 +137,14 @@ fzn_node_settings_err_t fzn_node_settings_take_rules(const fzn_node_settings_t *
 #define FZN_NODE_SETTINGS_K_KEY "revocation/k"
 uint8_t fzn_node_settings_quorum(const fzn_node_settings_t *ns, uint8_t fallback);
 
+/* THE JOURNAL'S WINDOW AS A SETTING, sec 548: the estate cell
+ * `journal/window`, in days from 1 to 36500, at whatever rank is in force --
+ * an admin's estate setting is the estate's. FZN_NODE_SETTINGS_WINDOW_DAYS
+ * otherwise, the holder's 60 of 2026-10-08. */
+#define FZN_NODE_SETTINGS_WINDOW_KEY "journal/window"
+#define FZN_NODE_SETTINGS_WINDOW_DAYS 60u
+unsigned fzn_node_settings_window_days(const fzn_node_settings_t *ns);
+
 /* The verbs above; 0 for a request that is not one. */
 size_t fzn_node_settings_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                                char *reply, size_t reply_cap);

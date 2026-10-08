@@ -208,6 +208,41 @@ size_t fzn_node_messages_devices(fzn_node_messages_t *nm, const uint8_t (*keys)[
 	return count;
 }
 
+/* Whether `device`'s record at `seq` is a line's part with more to follow. */
+static int line_continues(fzn_node_messages_t *nm, const uint8_t device[FZN_PUBKEY_LEN],
+                          uint64_t seq)
+{
+	static uint8_t buf[FZN_RECORD_MAX_LEN];
+	fzn_message_part_t p;
+	fzn_record_t rec;
+
+	return fzn_record_store_get(&nm->m.journal->store, device, FZN_MESSAGE_STREAM, seq, buf,
+	                            sizeof(buf), &rec) == FZN_RECORD_STORE_OK
+	       && fzn_record_kind(rec) == FZN_MESSAGE_LINE_KIND
+	       && fzn_message_line_read(fzn_record_body(rec), fzn_record_body_len(rec), &p)
+	       && p.part + 1u < p.parts;
+}
+
+uint64_t fzn_node_messages_cut_point(fzn_node_messages_t *nm, const uint8_t device[FZN_PUBKEY_LEN],
+                                     uint64_t older_than_ms)
+{
+	uint64_t base, below, absorbed = 0;
+	size_t k;
+
+	if (!nm || !nm->m.journal || !device)
+		return 1u;
+	base = fzn_node_journal_base(nm->m.journal, device, FZN_MESSAGE_STREAM);
+	for (k = 0; k < nm->n_cursors; k++)
+		if (same_key(nm->cursors[k].key, device))
+			absorbed = nm->cursors[k].at;
+	below = fzn_node_journal_cut_point(nm->m.journal, device, FZN_MESSAGE_STREAM, absorbed,
+	                                   older_than_ms);
+	/* THE LAST RECORD CUT ENDS A LINE. */
+	while (below > base && line_continues(nm, device, below - 1u))
+		below--;
+	return below;
+}
+
 static int key_place_is(const fzn_node_message_key_t *k, const uint8_t contact[FZN_PUBKEY_LEN],
                         uint32_t epoch, const uint8_t device[FZN_PUBKEY_LEN])
 {

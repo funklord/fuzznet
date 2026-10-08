@@ -129,6 +129,14 @@ size_t fzn_node_messages_devices(fzn_node_messages_t *nm, const uint8_t (*keys)[
 fzn_messages_err_t fzn_node_messages_absorb(fzn_node_messages_t *nm,
                                             fzn_node_messages_tally_t *tally);
 
+/* WHERE `device`'S CONVERSATIONS STREAM MAY BE CUT, sec 548: below the first
+ * record issued at or after `older_than_ms`, no further than this run has
+ * absorbed, and never between a line's parts -- a line's first part is read
+ * back from the journal when its last is taken in. The stream's base when
+ * nothing may go. */
+uint64_t fzn_node_messages_cut_point(fzn_node_messages_t *nm, const uint8_t device[FZN_PUBKEY_LEN],
+                                     uint64_t older_than_ms);
+
 /* How a node asks a member: send `request`, fill `reply`. Nonzero on an
  * answer. */
 typedef int (*fzn_node_messages_ask_t)(void *ctx, const uint8_t *request, size_t request_len,

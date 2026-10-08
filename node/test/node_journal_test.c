@@ -524,6 +524,79 @@ static void test_a_stream_read_from_its_base(void)
 	fzn_node_journal_close(&b);
 }
 
+/* THE CUT, sec 548. Writer Z signs five acts at 10 to 50. The cut point
+ * stops at the first record as young as the window's edge and at what the
+ * reader has taken; a cut below the fourth keeps the three in the spine,
+ * moves the base and lets them go; the acts behind it still stand, and a
+ * journal opened afresh follows from the base. A cut at or under the base
+ * cuts nothing; one past what is held, or with nowhere to keep, is refused. */
+static void test_the_cut(void)
+{
+	static fzn_node_journal_t a, b;
+	static const fzn_persist_ops_t KEEP = { mem_load, mem_save, NULL, NULL, NULL };
+	uint8_t z[FZN_PUBKEY_LEN], ids[5][FZN_RECORD_ID_LEN], acts[5][FZN_SUBJECT_LEN];
+	uint8_t buf[FZN_RECORD_MAX_LEN];
+	fzn_record_t rec;
+	size_t i, n = 0;
+	int ok = 1;
+
+	key(z, 0x5a);
+	signing_as = 0x5a;
+	CHECK(fzn_node_journal_init(&a, dir_a, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK,
+	      "fixture: a journal");
+	for (i = 0; i < 5u; i++) {
+		uint8_t body = 1u;
+
+		memset(acts[i], (int)(0x81u + i), sizeof(acts[i]));
+		ok = ok
+		     && fzn_node_journal_append(&a, z, &SIGN, (uint32_t)FZN_OBJECT_HOP, acts[i], &body,
+		                                1u, 10u * (i + 1u), ids[i]) == FZN_NODE_JOURNAL_OK;
+	}
+	CHECK(ok, "fixture: Z signs five acts at 10 to 50");
+	CHECK(fzn_node_journal_cut_point(&a, z, FZN_NODE_JOURNAL_STREAM, 5u, 35u) == 4u
+	              && fzn_node_journal_cut_point(&a, z, FZN_NODE_JOURNAL_STREAM, 2u, 35u) == 3u
+	              && fzn_node_journal_cut_point(&a, z, FZN_NODE_JOURNAL_STREAM, 5u, 10u) == 1u,
+	      "the cut point passed a young record, or what the reader has not taken");
+	CHECK(fzn_node_journal_cut(&a, z, FZN_NODE_JOURNAL_STREAM, 4u, &n)
+	              == FZN_NODE_JOURNAL_MALFORMED,
+	      "a cut with nowhere to keep the base was made");
+	a.keep = &KEEP;
+	CHECK(fzn_node_journal_cut(&a, z, FZN_NODE_JOURNAL_STREAM, 7u, &n)
+	              == FZN_NODE_JOURNAL_MALFORMED,
+	      "a cut past what is held was made");
+	CHECK(fzn_node_journal_cut(&a, z, FZN_NODE_JOURNAL_STREAM, 4u, &n) == FZN_NODE_JOURNAL_OK
+	              && n == 3u && fzn_node_journal_base(&a, z, FZN_NODE_JOURNAL_STREAM) == 4u,
+	      "the first three were not cut, or the base did not move");
+	for (i = 1; i <= 3u; i++)
+		if (fzn_record_store_get(&a.store, z, FZN_NODE_JOURNAL_STREAM, i, buf, sizeof(buf),
+		                         &rec) != FZN_RECORD_STORE_ERR_ABSENT)
+			ok = 0;
+	CHECK(ok
+	              && fzn_record_store_get(&a.store, z, FZN_NODE_JOURNAL_STREAM, 4u, buf,
+	                                      sizeof(buf), &rec) == FZN_RECORD_STORE_OK,
+	      "a record cut is still held, or the one above the cut is not");
+	CHECK(fzn_node_journal_stands(&a, z, ids[4], acts[0])
+	              && fzn_node_journal_stands(&a, z, ids[2], acts[2])
+	              && !fzn_node_journal_stands(&a, z, ids[2], acts[3]),
+	      "an act behind the cut did not stand, or one above its cut did");
+	CHECK(fzn_node_journal_cut(&a, z, FZN_NODE_JOURNAL_STREAM, 4u, &n) == FZN_NODE_JOURNAL_OK
+	              && n == 0u
+	              && fzn_node_journal_cut(&a, z, FZN_NODE_JOURNAL_STREAM, 2u, &n)
+	                         == FZN_NODE_JOURNAL_OK
+	              && n == 0u,
+	      "a cut at or under the base cut something");
+	fzn_node_journal_close(&a);
+
+	CHECK(fzn_node_journal_init(&b, dir_a, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK,
+	      "fixture: a journal opened afresh");
+	b.keep = &KEEP;
+	CHECK(fzn_node_journal_follow(&b, z, &n) == FZN_NODE_JOURNAL_OK && n == 2u
+	              && fzn_node_journal_received(&b, z, FZN_NODE_JOURNAL_STREAM) == 5u
+	              && fzn_node_journal_stands(&b, z, ids[4], acts[1]),
+	      "a cut stream was not followed from its base after a restart");
+	fzn_node_journal_close(&b);
+}
+
 /* ANY STREAM, sec 512: a key's notes are its stream 0 beside its estate
  * stream. Two records appended on stream 0 chain there, leave the estate
  * stream alone, and replay into a fresh journal following stream 0. */
@@ -594,6 +667,7 @@ int main(void)
 	test_a_second_stream();
 	test_the_spine_outlives_a_cut();
 	test_a_stream_read_from_its_base();
+	test_the_cut();
 
 	/* EVERY FILE THE SUITE MADE, BY NAME, then the directories. */
 	stream_path(path, sizeof(path), dir_a, 0x31);
@@ -607,6 +681,8 @@ int main(void)
 	stream_path(path, sizeof(path), dir_a, 0x58);
 	(void)unlink(path);
 	stream_path(path, sizeof(path), dir_a, 0x59);
+	(void)unlink(path);
+	stream_path(path, sizeof(path), dir_a, 0x5a);
 	(void)unlink(path);
 	stream_file(path, sizeof(path), dir_a, 0x60, 0u);
 	(void)unlink(path);

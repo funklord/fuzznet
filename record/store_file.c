@@ -1,4 +1,8 @@
 #define _POSIX_C_SOURCE 200809L
+/* For `fallocate`'s hole punching, where there is one: sec 548. */
+#if defined(__linux__)
+#define _GNU_SOURCE
+#endif
 
 #include "store_file.h"
 
@@ -166,7 +170,35 @@ static int store_file_get(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint3
 	return 1;
 }
 
-static const fzn_record_store_ops_t STORE_FILE_OPS = { store_file_put, store_file_get, NULL };
+/* CUT [from, below): each slot's length zeroed, from the top down, so every
+ * one reads as absent whatever happens next; then the range's blocks given
+ * back where the system punches holes. Zeroing is the cut and punching only
+ * the space, so a filesystem that will not punch still cuts. */
+static int store_file_cut(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                          uint64_t from, uint64_t below)
+{
+	fzn_record_store_file_t *file = (fzn_record_store_file_t *)ctx;
+	static const uint8_t zero[2];
+	uint64_t seq;
+	int fd;
+
+	if (!file || !issuer || from == 0u || below <= from || below - 1u > MAX_SEQ)
+		return 0;
+	fd = stream_fd(file, issuer, stream);
+	if (fd < 0)
+		return 0;
+	for (seq = below - 1u; seq >= from; seq--)
+		if (pwrite(fd, zero, sizeof(zero), (off_t)((seq - 1u) * SLOT)) != (ssize_t)sizeof(zero))
+			return 0;
+#ifdef FALLOC_FL_PUNCH_HOLE
+	(void)fallocate(fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
+	                (off_t)((from - 1u) * SLOT), (off_t)((below - from) * SLOT));
+#endif
+	return 1;
+}
+
+static const fzn_record_store_ops_t STORE_FILE_OPS = { store_file_put, store_file_get, NULL,
+	                                               store_file_cut };
 
 const fzn_record_store_ops_t *fzn_record_store_file_open(fzn_record_store_file_t *file,
                                                          const char *dir)

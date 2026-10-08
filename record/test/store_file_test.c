@@ -530,6 +530,54 @@ static void test_a_stream_can_be_forgotten(void)
 	unlink_stream(OTHER_ISSUER, 20u);
 }
 
+/* A RANGE CUT, sec 548: forty records, the first thirty-nine let go. Those
+ * read as absent and the fortieth as before; the blocks they held are given
+ * back; and a cut from zero or of nothing is refused. */
+static void test_a_range_can_be_cut(void)
+{
+	fzn_record_store_file_t backend;
+	const fzn_record_store_ops_t *ops;
+	fzn_record_store_t store;
+	uint8_t buf[FZN_RECORD_MAX_LEN], out[FZN_RECORD_MAX_LEN];
+	fzn_record_t r, got;
+	char path[512];
+	struct stat before, after;
+	uint64_t seq;
+	int all_absent = 1;
+
+	ops = fzn_record_store_file_open(&backend, dir);
+	REQUIRE(ops != NULL, "the backend would not open");
+	REQUIRE(fzn_record_store_init(&store, ops) == FZN_RECORD_STORE_OK, "init refused");
+	for (seq = 1u; seq <= 40u; seq++) {
+		r = make(buf, sizeof(buf), ISSUER, 23u, seq, FZN_RECORD_BODY_MAX);
+		REQUIRE(fzn_record_is_open(r) && fzn_record_store_put(&store, r) == FZN_RECORD_STORE_OK,
+		        "fixture: forty records");
+	}
+	stream_path(path, sizeof(path), ISSUER, 23u);
+	REQUIRE(stat(path, &before) == 0, "the stream file could not be measured");
+	CHECK(fzn_record_store_cut(&store, ISSUER, 23u, 0u, 3u) == FZN_RECORD_STORE_ERR_MALFORMED
+	              && fzn_record_store_cut(&store, ISSUER, 23u, 5u, 5u)
+	                         == FZN_RECORD_STORE_ERR_MALFORMED,
+	      "a cut from zero, or of nothing, was not refused");
+	CHECK(fzn_record_store_cut(&store, ISSUER, 23u, 1u, 40u) == FZN_RECORD_STORE_OK,
+	      "the first thirty-nine would not cut");
+	for (seq = 1u; seq < 40u; seq++)
+		if (fzn_record_store_get(&store, ISSUER, 23u, seq, out, sizeof(out), &got)
+		    != FZN_RECORD_STORE_ERR_ABSENT)
+			all_absent = 0;
+	CHECK(all_absent
+	              && fzn_record_store_get(&store, ISSUER, 23u, 40u, out, sizeof(out), &got)
+	                         == FZN_RECORD_STORE_OK,
+	      "a record cut still reads, or the one above the cut does not");
+	REQUIRE(stat(path, &after) == 0, "the stream file could not be measured again");
+	CHECK(after.st_blocks < before.st_blocks,
+	      "the cut gave no blocks back: %lld before, %lld after", (long long)before.st_blocks,
+	      (long long)after.st_blocks);
+
+	fzn_record_store_file_close(&backend);
+	unlink_stream(ISSUER, 23u);
+}
+
 /* A sequence whose slot offset would not fit must be refused rather than
  * wrapping onto another record's slot. */
 static void test_an_unaddressable_sequence_is_refused(void)
@@ -768,6 +816,7 @@ int main(void)
 	test_both_ends_of_the_length_survive();
 	test_a_record_larger_than_the_buffer_is_refused();
 	test_an_unwritten_slot_reads_as_absent();
+	test_a_range_can_be_cut();
 	test_bytes_without_a_length_are_absent();
 	test_a_corrupt_length_is_refused_not_believed();
 	test_the_file_is_sparse();

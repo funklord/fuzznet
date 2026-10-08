@@ -203,7 +203,7 @@ static int rec_get(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t str
 	return 1;
 }
 
-static fzn_record_store_ops_t rops = { rec_put, rec_get, &shared };
+static fzn_record_store_ops_t rops = { rec_put, rec_get, &shared, NULL };
 
 /* ---- three devices of one user: A, B, and H the hub -------------------------- */
 
@@ -696,6 +696,56 @@ static void test_two_hosts_over_the_exchange(void)
 	      "a line handed over and given up on reaches the hub, not delivered, text whole");
 }
 
+/* THE CUT POINT, sec 548: a line of two parts, absorbed. A cut never ends on
+ * its first part -- that is read back when the last is taken in -- whether
+ * the absorb stopped there or not; it goes no further than what was
+ * absorbed; and nothing younger than the window's edge goes. */
+static void test_a_cut_keeps_a_line_whole(void)
+{
+	static uint8_t buf[FZN_RECORD_MAX_LEN];
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	char text[FZN_MESSAGE_TEXT_MAX];
+	uint64_t held, s, first = 0, *at = NULL;
+	size_t k;
+
+	setup();
+	memset(id, 0x41, sizeof(id));
+	memset(text, 'w', sizeof(text));
+	CHECK(fzn_messages_write(&A.nm.m, X, FZN_MESSAGE_OUT, id, 7u, text, sizeof(text))
+	              == FZN_MESSAGES_OK
+	              && fzn_node_messages_absorb(&A.nm, &t) == FZN_MESSAGES_OK,
+	      "fixture: A writes a line of the whole 512 bytes, and absorbs it");
+	held = fzn_node_journal_received(&A.journal, A.pub, FZN_MESSAGE_STREAM);
+	for (s = 1u; s <= held && !first; s++) {
+		fzn_message_part_t p;
+		fzn_record_t rec;
+
+		if (fzn_record_store_get(&A.journal.store, A.pub, FZN_MESSAGE_STREAM, s, buf,
+		                         sizeof(buf), &rec) == FZN_RECORD_STORE_OK
+		    && fzn_record_kind(rec) == FZN_MESSAGE_LINE_KIND
+		    && fzn_message_line_read(fzn_record_body(rec), fzn_record_body_len(rec), &p)
+		    && p.part == 0u && p.parts == 2u)
+			first = s;
+	}
+	for (k = 0; k < A.nm.n_cursors; k++)
+		if (memcmp(A.nm.cursors[k].key, A.pub, FZN_PUBKEY_LEN) == 0)
+			at = &A.nm.cursors[k].at;
+	CHECK(first != 0u && at && *at == held, "fixture: the line's first part, and A's cursor");
+	if (!first || !at)
+		return;
+	CHECK(fzn_node_messages_cut_point(&A.nm, A.pub, UINT64_MAX) == held + 1u,
+	      "everything absorbed and older did not go");
+	*at = first;
+	CHECK(fzn_node_messages_cut_point(&A.nm, A.pub, UINT64_MAX) == first,
+	      "a cut ended on a line's first part");
+	*at = first - 1u;
+	CHECK(fzn_node_messages_cut_point(&A.nm, A.pub, UINT64_MAX) == first,
+	      "a cut went past what was absorbed");
+	*at = held;
+	CHECK(fzn_node_messages_cut_point(&A.nm, A.pub, 0u) == 1u,
+	      "a record younger than the window's edge went");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -718,6 +768,7 @@ int main(void)
 	test_keys_cannot_be_planted();
 	test_marks_are_absorbed();
 	test_two_hosts_over_the_exchange();
+	test_a_cut_keeps_a_line_whole();
 	if (failures) {
 		fprintf(stderr, "node messages_test: %d of %d checks failed\n", failures, checks);
 		return 1;

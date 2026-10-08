@@ -590,6 +590,26 @@ static void test_settings_judged(void)
 	              && fzn_node_settings_quorum(&ns, 2u) == 2u,
 	      "a k of 0, of no count, or past 255 was counted");
 
+	/* THE JOURNAL'S WINDOW, sec 548: 60 days until set, an admin's value
+	 * counts, and one that is no count of days leaves 60. */
+	CHECK(fzn_node_settings_window_days(&ns) == 60u
+	              && setting_by(&nj, 0x93, FZN_SCOPE_ESTATE, 0x91, 1u, "journal/window", 1, "30")
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && fzn_node_settings_window_days(&ns) == 30u,
+	      "the window was not 60 unset, or an admin's 30 did not count");
+	CHECK(setting_by(&nj, 0x93, FZN_SCOPE_ESTATE, 0x91, 2u, "journal/window", 1, "0")
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && fzn_node_settings_window_days(&ns) == 60u
+	              && setting_by(&nj, 0x93, FZN_SCOPE_ESTATE, 0x91, 3u, "journal/window", 1,
+	                            "36501")
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && fzn_node_settings_window_days(&ns) == 60u
+	              && setting_by(&nj, 0x93, FZN_SCOPE_ESTATE, 0x91, 4u, "journal/window", 1,
+	                            "36500")
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && fzn_node_settings_window_days(&ns) == 36500u,
+	      "a window of 0 or past 36500 days counted, or 36500 did not");
+
 	/* A SETTING IN ANOTHER KEY'S STREAM: the root's object, carried as the
 	 * admin's record, is judged by nobody's standing -- refused. */
 	{
