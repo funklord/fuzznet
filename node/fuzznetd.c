@@ -1331,13 +1331,26 @@ static void follow_estate(const uint8_t identity[FZN_PUBKEY_LEN], const fzn_node
 			say(FZN_ENTRY_WARNING, "journal", "no room to follow another node's notes");
 			break;
 		}
-	/* THEIR CONVERSATIONS, sec 527: the same nodes' stream 3. */
-	if (messages_on
-	    && fzn_node_messages_devices(&node_messages,
-	                                 (const uint8_t(*)[FZN_PUBKEY_LEN])notes_keys, n_notes_keys)
-	               < (n_notes_keys < FZN_MESSAGES_DEVICES_MAX ? n_notes_keys
-	                                                          : FZN_MESSAGES_DEVICES_MAX))
-		say(FZN_ENTRY_WARNING, "messages", "not every node's conversations are followed");
+	/* THEIR CONVERSATIONS, sec 527: the same nodes' stream 3. Measured
+	 * against the DISTINCT keys, as the devices are counted: a node that
+	 * is its own root lists its key twice, and counting the copy warned on
+	 * every start of a node with nobody to fall short of. */
+	if (messages_on) {
+		size_t distinct = 0, j;
+
+		for (i = 0; i < n_notes_keys; i++) {
+			for (j = 0; j < i && memcmp(notes_keys[j], notes_keys[i], FZN_PUBKEY_LEN) != 0;
+			     j++)
+				;
+			distinct += j == i;
+		}
+		if (fzn_node_messages_devices(&node_messages,
+		                              (const uint8_t(*)[FZN_PUBKEY_LEN])notes_keys,
+		                              n_notes_keys)
+		    < (distinct < FZN_MESSAGES_DEVICES_MAX ? distinct : FZN_MESSAGES_DEVICES_MAX))
+			say(FZN_ENTRY_WARNING, "messages",
+			    "not every node's conversations are followed");
+	}
 }
 
 /* A note record out of the journal's store, for the index. */

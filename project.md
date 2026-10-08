@@ -59798,9 +59798,8 @@ conversation list (`convs`) so the trim can find every conversation.
   counted twice by a count or size rule.
 - 512 months per conversation per pass; past that, months stay.
 - Every conversation's whole index is walked; hourly keeps that cheap.
-- The daemon's call is verified by building, not by a test: no verb
-  writes a line dated in an earlier month, so a live run cannot reach a
-  trimmable month. The library function is what the tests pin.
+- The daemon's call was verified by building only when this section was
+  written; sec 533 runs it end to end under `faketime`.
 - Found while checking the no-log build: `FZN_LOG_FILE=0` with packing
   left on did not compile (`push_logs` reads `dlog.on`,
   `dlog.n_push_programs`). Fixed after this section by tying packing to
@@ -59860,3 +59859,52 @@ A full `make test` into an empty scratch `BUILD_DIR`: no warnings.
 `make -j4 test`, `make style`, `make qtty`, `make installcheck`, all 0.
 Sabotage `persist-view-every-slot-labelled` (one label removed) probed
 caught.
+
+## 533. The daemon's trim, run end to end, 2026-10-08
+
+Sec 531 left fuzznetd's call to the trim verified by building only: no
+verb writes a line dated in an earlier month, since a line's month is
+the writing clock's (`fzn_messages_write`), not its `at` time. `faketime`
+supplies the earlier clock, and the run below drives the real daemon
+through its admin socket.
+
+### The run, and how to repeat it
+
+One node, `--fuzznet-dir` in a scratch directory, `--fuzznet-service=1
+--fuzznet-product=1` (the admin verbs need the capability), each daemon
+under `timeout 60` and stopped with a signal after each phase. The admin
+client is one line out and one line back over the AF_UNIX socket. The
+socket path must be absolute and short (`fzn_socket_path_ok` refuses a
+relative one, and a session scratch path is past `sun_path`), so it went
+in a `mktemp -d /tmp/fzs.XXXXXX`, removed afterwards.
+
+    a  faketime -f "@2026-09-10 12:00:00" (FAKETIME_DONT_FAKE_MONOTONIC=1)
+       add message KEY out 0100..00 september line   -> readable 1
+    b  real clock, no rule                           -> readable 1
+    c  --log-rule="prune messages host=OTHER age 1d" -> readable 1
+    d  --log-rule="prune messages age 1d"            -> readable 0, and
+       "1 month(s) of 1 conversation(s) trimmed by the rules"
+    e  real clock, no rule again                     -> readable 0
+
+So b and c are the controls: the same daemon, the same line and the same
+wait leave the line readable with no rule and with a rule scoped to
+another host, and only the rule that reaches this node trims it. e shows
+the trim survives a restart. The line stays listed as a shell, its
+stime and written time intact.
+
+No make target runs this. None in the tree drives a daemon, and adding
+the first -- with `faketime` as a dependency it would have to skip
+without -- is the holder's call, not this section's.
+
+### Two things the run found
+
+- **A false warning on every start of a node that is its own root**,
+  from sec 527: "not every node's conversations are followed". The keys
+  handed to `fzn_node_messages_devices` list the node's key twice, as
+  itself and as its root; the devices are counted distinct and the keys
+  were not, so 1 fell short of 2. Measured against the distinct keys
+  now, and the restart after the fix is silent.
+- **A contact key that is all decimal digits is read as FROM by `list
+  message`**, which takes an all-digit word as a page offset. Such a key
+  has odds near 10^-13, so it is recorded rather than changed; the run
+  used a key with letters.
