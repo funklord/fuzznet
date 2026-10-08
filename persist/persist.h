@@ -269,9 +269,10 @@ typedef enum fzn_persist_slot {
 	 * from the journal. `messages/messages.h` keeps it. sec 528. */
 	FZN_PERSIST_MESSAGE_INDEX = 36u,
 	/* Per line its index names, keyed by a hash of the writing device and
-	 * the last part's sequence: the line as the store keeps it, its parts
-	 * still sealed, so it outlives the journal's window. NOT DERIVED once
-	 * the journal is cut. `messages/messages.h` keeps it. sec 536. */
+	 * the last part's sequence: the line as the store keeps it, opened once
+	 * its key has been here (sec 539), so it outlives the journal's window.
+	 * NOT DERIVED once the journal is cut. `messages/messages.h` keeps it.
+	 * sec 536. */
 	FZN_PERSIST_MESSAGE_LINE = 37u,
 } fzn_persist_slot_t;
 

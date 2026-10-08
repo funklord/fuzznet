@@ -60150,10 +60150,11 @@ window would have deleted conversations.
 - **A row per line, persist slot 37 (`FZN_PERSIST_MESSAGE_LINE`)**, keyed
   by a hash of the writing device and the line's last sequence, which is
   what its index entry names. The layout is `line.situ`'s
-  `fzn_message_stored`: a 112-byte head (contact, device, sequence, when
-  written, the sender's time, direction, id, month, parts) and the line
-  records' bodies as written, still sealed. 112 to 1140 bytes. Bulk, not
-  core: it is sealed and holds no key.
+  `fzn_message_stored`: a head (contact, device, sequence, when written,
+  the sender's time, direction, id, month, parts) and the line's text.
+  Bulk, not core: it holds no key. **Sec 539 changed what follows the
+  head**: built here as the sealed bodies, it is now the opened text, with
+  the sealed bodies only while a line waits for its key.
 - **Kept when a line is taken in**: a write keeps its own at once, and an
   absorb keeps another device's, reading its earlier part from the
   journal while the journal still holds it. Kept once: a line another
@@ -60166,9 +60167,9 @@ window would have deleted conversations.
 - **Every listing reads rows and the index alone.** The suite cuts the
   journal -- every record gone -- and both pages still list every line,
   a two-part one whole, with no record read.
-- **A trim lets go of the month's sealed parts** (sec 531): each row of a
-  trimmed month keeps its head and holds no parts, so it lists as a shell
-  with its times. A rebuild from a journal that still holds the month
+- **A trim lets go of the month's text** (sec 531): each row of a trimmed
+  month keeps its head and holds nothing else, so it lists as a shell with
+  its times; since sec 539 the row is removed before its head is saved. A rebuild from a journal that still holds the month
   does not bring them back.
 - **A row under another line's place is refused**, not shown as that
   line: its head must name the place it was found at.
@@ -60280,3 +60281,80 @@ What was proposed back:
   question answers for a member and once the file is public; sabotage
   `files-contact-asks-only-what-is-shared` removes the check and is
   caught.
+
+## 539. Data is stored decrypted unless staying sealed buys something, 2026-10-08
+
+The holder's design decision: "we decrypt data NORMALLY when we store it,
+unless there is a clear advantage to the data staying in its encrypted
+form, (retransmitted stuff that can be reused, where it doesn't weaken the
+encryption). In other cases if we want to use encryption on disk we do that
+separately and later, it is not a priority (mostly useful for phones that
+are lost)".
+
+### Where it applies, swept
+
+What this tree keeps sealed at rest, found by every source that seals or
+opens with the AEAD:
+
+| Data at rest | Kept | Under the rule |
+|---|---|---|
+| Message rows, slot 37 (sec 536) | sealed parts, opened on each read | **opened** -- never retransmitted |
+| Journal records (lines, notes) | sealed | sealed -- they are what travels |
+| Notes' texts on the shelf | sealed blob leaves, by root | sealed -- fetched and pushed by root and reused as they are |
+| Files (`node/files.c`) | as put; a leaf sealed per transfer | already as decided |
+| Session frames | opened on receipt | already as decided |
+
+So the change is the message rows. Encryption on disk, where wanted, is a
+separate and later piece, as the holder put it.
+
+### Why stage 1 had kept them sealed, and the trade
+
+Asked why stage 1 had kept rows sealed, the record is that it was not
+decided: sec 526's "journal with text sealed" was a choice about the
+journal, and stage 1 carried the sealed bodies into rows without weighing
+it again for storage nothing retransmits. Weighed then:
+
+- **For sealed rows, one real advantage**: deletion by destroying a key
+  reaches every copy, those outside fuzznet's reach included. In this tree
+  the concrete copy is an operation journal (sec 523): a rewritten row's
+  earlier bytes stay kept until rotation or the budget erases them, and only
+  a REMOVE erases a row's history. The rest -- disk blocks, backups of the
+  store -- are what disk encryption covers. Keys sit on the same disk, so
+  sealing gave no protection for a lost phone.
+- **For opened rows**: a line once opened cannot be lost to a lost key; a
+  month's keys are needed only while its journal copies are in the window,
+  not kept and carried for ever; catch-up past the window (sec 535 stage 5)
+  can send text over the sealed session instead of keys; search and previews
+  need not decrypt every line; a read needs no key.
+
+The holder chose opened rows, with the trim fixed to remove before it
+saves.
+
+### What changed for sec 539
+
+- **`line.situ`'s `fzn_message_stored` is version 2**: the head, then
+  whether the line is opened, its text when it is, and its sealed parts only
+  while it waits for its key -- 115 to 1655 bytes; opened, at most 627.
+- **A line is opened as it is kept** when its key is here: always for a
+  line written here, and for another device's once its key has come.
+- **A key arriving later opens the rows that waited for it**:
+  `fzn_messages_key_take` walks the conversation's index for that device's
+  lines of that month, as rarely as keys arrive.
+- **Forgetting a month reaches the rows**: `fzn_messages_forget_epoch`, what
+  a trim calls, destroys the month's keys -- the journal's sealed copies --
+  and lets go of the month's text in the rows, each row REMOVED and its head
+  saved again, so an operation journal forgets the text with it.
+- **Layout 2**: `fzn_messages_upgrade` rebuilds a store once more, from the
+  journal, which still holds every line.
+
+### Measured for sec 539
+
+messages_test 146 checks, node messages_test 47. The suite reads the row
+bytes for the text in the clear, and reads a line from B with every key
+and every journal record gone once its key had opened it; a test helper
+that copied key rows straight into A's store, bypassing
+`fzn_messages_key_take`, was changed to give them through it, since that
+call is now what opens waiting rows. Four new sabotage entries -- rows kept
+opened, a key opens what waited, a trim removes before it saves, forgetting
+a month reaches the rows -- and one re-anchored, each probed caught, with
+the sixteen from sec 536 probed again and caught.

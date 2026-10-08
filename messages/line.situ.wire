@@ -46,8 +46,8 @@ struct fzn_message_read size=17
   @0x0000   1         u8         version  must_eq=1
   @0x0001   16        u8         id  big
 
-struct fzn_message_stored size=112..1140
-  @0x0000   1         u8         version  must_eq=1
+struct fzn_message_stored size=115..1655
+  @0x0000   1         u8         version  must_eq=2
   @0x0001   32        u8         contact  big
   @0x0021   32        u8         device  big
   @0x0041   8         u64        seq  big
@@ -57,8 +57,11 @@ struct fzn_message_stored size=112..1140
   @0x005a   16        u8         id  big
   @0x006a   4         u32        epoch  big
   @0x006e   1         u8         parts  min=1 max=2
-  @0x006f   1         u8         held  max=2
-  @0x0070   0..1028   fzn_message_stored_part sealed  sized-by=held
+  @0x006f   1         u8         opened  max=1
+  @0x0070   2         u16        text_len  big max=512
+  @0x0072   0..512    u8         text  sized-by=text_len
+  ~         1         u8         held  max=2
+  ~         0..1028   fzn_message_stored_part sealed  sized-by=held
 
 struct fzn_message_stored_part size=74..514
   @0x0000   2         u16        len  big min=72 max=512

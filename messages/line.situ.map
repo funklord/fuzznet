@@ -33,7 +33,7 @@ struct fzn_message_read size=17 atomic=NonAtomic
   fzn_message_read.version               offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   fzn_message_read.id                    offset=AbsoluteStatic(0x01) size=Fixed(16) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
 
-struct fzn_message_stored size=112..1140 access=Sequential mutate=Shifting repr=ValueConverted atomic=NonAtomic
+struct fzn_message_stored size=115..1655 access=Sequential mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
   fzn_message_stored.version             offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   fzn_message_stored.contact             offset=AbsoluteStatic(0x01) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
   fzn_message_stored.device              offset=AbsoluteStatic(0x21) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
@@ -44,11 +44,14 @@ struct fzn_message_stored size=112..1140 access=Sequential mutate=Shifting repr=
   fzn_message_stored.id                  offset=AbsoluteStatic(0x5A) size=Fixed(16) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
   fzn_message_stored.epoch               offset=AbsoluteStatic(0x6A) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
   fzn_message_stored.parts               offset=AbsoluteStatic(0x6E) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
-  fzn_message_stored.held                offset=AbsoluteStatic(0x6F) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  fzn_message_stored.sealed              offset=AbsoluteStatic(0x70) size=Bounded(0, 1028) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting
-  fzn_message_stored.sealed[]            offset=FrameStatic(0x00) size=Bounded(74, 514) align=Aligned(8) repr=ValueConverted atomic=NonAtomic access=Sequential mutate=Shifting
-  fzn_message_stored.sealed[].len        offset=FrameStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
-  fzn_message_stored.sealed[].body       offset=FrameStatic(0x02) size=Bounded(72, 512) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_message_stored.opened              offset=AbsoluteStatic(0x6F) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_stored.text_len            offset=AbsoluteStatic(0x70) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_message_stored.text                offset=AbsoluteStatic(0x72) size=Bounded(0, 512) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_message_stored.held                offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  fzn_message_stored.sealed              offset=Dynamic size=Bounded(0, 1028) align=Unaligned repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable
+  fzn_message_stored.sealed[]            offset=FrameStatic(0x00) size=Bounded(74, 514) align=Aligned(8) repr=ValueConverted atomic=NonAtomic access=Sequential mutate=Shifting address=FrameStable
+  fzn_message_stored.sealed[].len        offset=FrameStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord address=FrameStable
+  fzn_message_stored.sealed[].body       offset=FrameStatic(0x02) size=Bounded(72, 512) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=FrameStable
 
 struct fzn_message_stored_part size=74..514 mutate=Shifting repr=ValueConverted
   fzn_message_stored_part.len            offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord

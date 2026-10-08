@@ -51,14 +51,18 @@ struct fzn_message_mark {
 	u8                     id[16];                  //  3 the line's id
 }
 
-// A LINE AS THE STORE KEEPS IT, sec 536: persist slot 37, one row per line
-// a conversation's index names, under a hash of the writing device and the
-// last part's sequence. The journal carries lines between devices for its
-// window; this row is what is left when the journal has let them go. Its
-// parts are the line records' bodies as written, still sealed; a trimmed
-// month's rows keep their head and hold no parts.
+// A LINE AS THE STORE KEEPS IT, secs 536 and 539: persist slot 37, one row
+// per line a conversation's index names, under a hash of the writing device
+// and the last part's sequence. The journal carries lines between devices
+// for its window; this row is what is left when the journal has let them go.
+//
+// KEPT OPENED (sec 539): data is stored decrypted unless staying sealed buys
+// something, and a row is never retransmitted. So a row holds the line's
+// text once its key has been here, and holds its parts still sealed -- the
+// line records' bodies as written -- only while it waits for that key. A
+// trimmed month's rows keep their head and hold neither.
 struct fzn_message_stored {
-	u8                     version [must_eq = 1];   //   0
+	u8                     version [must_eq = 2];   //   0
 	u8                     contact[32];             //   1 the record's subject
 	u8                     device[32];              //  33 the device that wrote it
 	u64                    seq;                     //  65 its last part's, there
@@ -68,8 +72,11 @@ struct fzn_message_stored {
 	u8                     id[16];                  //  90
 	u32                    epoch;                   // 106 the key's month
 	u8                     parts [min = 1, max = 2];// 110 how many the text takes
-	u8                     held [max = 2];          // 111 parts kept: all, or 0 once trimmed
-	fzn_message_stored_part sealed[held];           // 112
+	u8                     opened [max = 1];        // 111 1: the text is below
+	u16                    text_len [max = 512];    // 112 0 unless opened
+	u8                     text[text_len];          // 114 the line's text, opened
+	u8                     held [max = 2];          // parts sealed: all while waiting, else 0
+	fzn_message_stored_part sealed[held];
 }
 
 struct fzn_message_stored_part {

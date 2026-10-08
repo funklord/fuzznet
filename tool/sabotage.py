@@ -9845,9 +9845,9 @@ SABOTAGES = [
 	(
 		"messages-trim-lets-parts-go",
 		"messages/messages.c",
-		"\t\t\ts.held = 0u;\n\t\t\tif (!stored_save(m, &s))",
-		"\t\t\ts.held = s.held;\n\t\t\tif (!stored_save(m, &s))",
-		"a trimmed month's sealed text stays in the store -- sec 536",
+		"\t\ts.opened = 0u;\n\t\ts.text_len = 0;\n\t\ts.held = 0u;",
+		"\t\ts.text_len = s.text_len;\n\t\ts.held = 0u;",
+		"a trimmed month's text stays in the store, in the clear -- secs 536, 539",
 	),
 	(
 		"messages-row-written-at",
@@ -9876,6 +9876,34 @@ SABOTAGES = [
 		"\tbody[0] = fzn_record_body(prev);\n\tbody_len[0] = fzn_record_body_len(prev);\n\treturn 1;",
 		"\tbody[0] = fzn_record_body(rec);\n\tbody_len[0] = fzn_record_body_len(rec);\n\treturn 1;",
 		"a two-part line is kept with its last part twice and its first lost -- sec 536",
+	),
+	(
+		"messages-row-kept-opened",
+		"messages/messages.c",
+		"\tif (!s->opened && s->held && open_parts(m, s, text, &n)) {",
+		"\tif (0 && open_parts(m, s, text, &n)) {",
+		"a line whose key is here is kept sealed, its text lost with its key -- sec 539",
+	),
+	(
+		"messages-key-opens-waiting",
+		"messages/messages.c",
+		"\t               && open_waiting(m, contact, epoch, device)\n",
+		"",
+		"a key arriving after its lines opens none of them: they stay shells -- sec 539",
+	),
+	(
+		"messages-let-go-removes-first",
+		"messages/messages.c",
+		"\t\t    || !m->store->remove(m->store->ctx, FZN_PERSIST_MESSAGE_LINE, row)\n\t\t    || !stored_save(m, &s))",
+		"\t\t    || !stored_save(m, &s))",
+		"a trim rewrites a row, so an operation journal keeps the text it held -- sec 539",
+	),
+	(
+		"messages-forget-reaches-rows",
+		"messages/messages.c",
+		"\treturn let_go(m, contact, epoch) ? FZN_MESSAGES_OK : FZN_MESSAGES_ERR_BACKEND;",
+		"\treturn FZN_MESSAGES_OK;",
+		"forgetting a month destroys its keys and leaves its text readable in the rows -- sec 539",
 	),
 	(
 		"node-messages-give-as-sender",

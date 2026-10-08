@@ -10,18 +10,21 @@
  * WHERE LINES LIVE, sec 536: in the store, not the journal, which keeps
  * them only for its window (sec 535). A line taken in -- written here, or
  * absorbed from another device -- is kept as a row of
- * FZN_PERSIST_MESSAGE_LINE, its parts still sealed, and every listing reads
- * rows and the index alone.
+ * FZN_PERSIST_MESSAGE_LINE, and every listing reads rows and the index
+ * alone. KEPT OPENED, sec 539: the holder's rule is that data is stored
+ * decrypted unless staying sealed buys something, and a row is never
+ * retransmitted. A line whose key is not here yet waits in its row sealed,
+ * and is opened when `fzn_messages_key_take` brings the key.
  *
  * NOTHING IS DELETED BY DEFAULT, and nothing bounds storage: the holder,
  * 2026-10-08, "custom rules delete/trim data. Definitely no default deletion
- * of messages." Text is sealed under a key per conversation, month and
- * writing device -- per device, so two never claim one key's row when keys
- * travel between them -- kept in persist slot FZN_PERSIST_CONVERSATION_KEY
- * and never in the journal, so a rule can trim by destroying a month's keys
- * (`fzn_messages_forget_epoch`) and leave the records as shells, listed and
- * unreadable; a trim lets go of the month's sealed parts in their rows too
- * (sec 531). Keys travel
+ * of messages." In the journal, text is sealed under a key per conversation,
+ * month and writing device -- per device, so two never claim one key's row
+ * when keys travel between them -- kept in persist slot
+ * FZN_PERSIST_CONVERSATION_KEY and never in the journal. A rule trims a
+ * month (`fzn_messages_forget_epoch`, sec 531) by destroying those keys,
+ * which leaves the journal's records as shells, and by letting go of the
+ * month's text in the rows, which keep their heads and list as shells. Keys travel
  * between a user's devices through `node/messages.h` (sec 527); another
  * device's lines are shells here until its key arrives.
  *
@@ -239,8 +242,9 @@ fzn_messages_err_t fzn_messages_reindex(const fzn_messages_t *m, size_t *marks);
 fzn_messages_err_t fzn_messages_upgrade(const fzn_messages_t *m, int *rebuilt);
 
 /* DESTROY `contact`'s keys for `epoch`, this device's and every listed
- * device's, so that month's lines are shells here. For a trimming rule,
- * which is not built: nothing calls this by default. */
+ * device's, and let go of that month's text in the rows -- each removed and
+ * its head saved again -- so that month's lines are shells here. What a
+ * trimming rule calls (sec 531); nothing calls it by default. */
 fzn_messages_err_t fzn_messages_forget_epoch(const fzn_messages_t *m,
                                              const uint8_t contact[FZN_PUBKEY_LEN],
                                              uint32_t epoch);

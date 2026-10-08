@@ -132,9 +132,14 @@ static int mem_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max
 	return 1;
 }
 
+/* Line rows removed, for a trim that must remove before it saves. */
+static size_t line_removes;
+
 static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject)
 {
 	row_t *r = find((mem_t *)ctx, slot, subject);
+
+	line_removes += slot == FZN_PERSIST_MESSAGE_LINE && r != NULL;
 
 	if (r)
 		memset(r, 0, sizeof(*r));
@@ -487,14 +492,21 @@ static void sync_a(void)
 
 /* What the key carriage will do, which is not built: B's conversation keys,
  * copied into A's store. */
+/* B's keys given to A as node/messages carries them, through
+ * `fzn_messages_key_take`, which opens A's rows that waited for them: every
+ * key B holds for x and y in the months the cases write in. */
 static void keys_b_to_a(void)
 {
-	size_t i;
+	uint8_t key[FZN_CONVERSATION_KEY_LEN];
+	const uint8_t *contacts[2] = { X, Y };
+	uint32_t epoch;
+	size_t c;
 
-	for (i = 0; i < ROWS; i++)
-		if (B.store.rows[i].used && B.store.rows[i].slot == FZN_PERSIST_CONVERSATION_KEY)
-			(void)mem_save(&A.store, FZN_PERSIST_CONVERSATION_KEY, B.store.rows[i].subject,
-			               B.store.rows[i].bytes, B.store.rows[i].len);
+	for (c = 0; c < 2u; c++)
+		for (epoch = 676u; epoch <= 682u; epoch++)
+			if (fzn_messages_key_get(&B.m, contacts[c], epoch, B.pub, key))
+				(void)fzn_messages_key_take(&A.m, contacts[c], epoch, B.pub, key);
+	memset(key, 0, sizeof(key));
 }
 
 /* TWO DEVICES: B's lines reach A's listing once A follows B's stream, as
@@ -831,8 +843,32 @@ static void test_a_trim_reaches_every_device_key(void)
 
 /* ---- the store keeps the lines, sec 536 ---------------------------------------- */
 
-/* A row's head alone, `line.situ`'s fzn_message_stored with no parts. */
-#define STORED_HEAD_LEN 112u
+/* A row's head alone, `line.situ`'s fzn_message_stored with neither text
+ * nor parts. */
+#define STORED_HEAD_LEN 115u
+
+/* Whether any line row holds `text` in the clear. */
+static int rows_hold(device_t *d, const char *text)
+{
+	size_t i, j, n = strlen(text);
+
+	for (i = 0; i < ROWS; i++)
+		if (d->store.rows[i].used && d->store.rows[i].slot == FZN_PERSIST_MESSAGE_LINE)
+			for (j = 0; j + n <= d->store.rows[i].len; j++)
+				if (memcmp(d->store.rows[i].bytes + j, text, n) == 0)
+					return 1;
+	return 0;
+}
+
+/* Every conversation key gone from `d`'s store. */
+static void keys_gone(device_t *d)
+{
+	size_t i;
+
+	for (i = 0; i < ROWS; i++)
+		if (d->store.rows[i].used && d->store.rows[i].slot == FZN_PERSIST_CONVERSATION_KEY)
+			memset(&d->store.rows[i], 0, sizeof(d->store.rows[i]));
+}
 
 /* Rows of the line slot, and of them those holding a head alone. */
 static size_t line_rows(device_t *d, size_t *heads_only)
@@ -869,8 +905,8 @@ static void test_the_store_outlives_the_journal(void)
 	clock_ms = OCTOBER_2026 + 60000u;
 	sync_a();
 	keys_b_to_a();
-	CHECK(line_rows(&A, &heads) == 2u && heads == 0u,
-	      "A keeps both lines in rows, parts and all");
+	CHECK(line_rows(&A, &heads) == 2u && heads == 0u && rows_hold(&A, "a short one"),
+	      "A keeps both lines in rows, opened: the text is there in the clear");
 	journal_cut();
 	rec_reads = 0;
 	CHECK(list(&A, X, 0u, 5u) && count == 2u && is_line(0, 2u, FZN_MESSAGE_IN, long_text)
@@ -889,9 +925,12 @@ static void test_a_trimmed_month_keeps_heads_only(void)
 	setup();
 	CHECK(write_in(&A, 678u, X, 1u, "july") && write_in(&A, 679u, X, 2u, "august"),
 	      "fixture: a line in July, one in August");
+	line_removes = 0;
 	CHECK(trim(&A, &r, 1u) && trimmed.months == 1u && line_rows(&A, &heads) == 2u
-	              && heads == 1u,
-	      "July trimmed: its row keeps its head and lets its sealed parts go");
+	              && heads == 1u && !rows_hold(&A, "july") && rows_hold(&A, "august"),
+	      "July trimmed: its row keeps its head and its text is gone");
+	CHECK(line_removes == 1u,
+	      "removed before its head was saved, which erases an operation journal's copy");
 	CHECK(fzn_messages_reindex(&A.m, &marks) == FZN_MESSAGES_OK && line_rows(&A, &heads) == 2u
 	              && heads == 1u,
 	      "and a rebuild from a journal that still holds July does not bring them back");
@@ -960,6 +999,25 @@ static void test_a_late_copy_is_listed_once(void)
 	sync_a();
 	CHECK(list(&A, X, 60u, 20u) && count == 5u && !more,
 	      "65 lines, not 66: the copy past the look-back is shown once");
+}
+
+/* A LINE THAT ARRIVES BEFORE ITS KEY waits sealed in its row, opens when
+ * the key comes, and once opened needs no key to read. sec 539. */
+static void test_a_line_waits_for_its_key(void)
+{
+	setup();
+	CHECK(write_line(&B, X, FZN_MESSAGE_IN, 3u, "from b"), "fixture: B writes a line");
+	sync_a();
+	CHECK(list(&A, X, 0u, 5u) && count == 1u && !page[0].readable && !rows_hold(&A, "from b"),
+	      "A holds B's line before B's key: a shell, kept sealed");
+	keys_b_to_a();
+	CHECK(list(&A, X, 0u, 5u) && is_line(0, 3u, FZN_MESSAGE_IN, "from b")
+	              && rows_hold(&A, "from b"),
+	      "the key arrives and opens the row: readable, and kept opened");
+	keys_gone(&A);
+	journal_cut();
+	CHECK(list(&A, X, 0u, 5u) && is_line(0, 3u, FZN_MESSAGE_IN, "from b"),
+	      "and with every key and every record gone it still reads");
 }
 
 static void test_an_older_store_is_rebuilt_once(void)
@@ -1064,6 +1122,7 @@ int main(void)
 	test_an_older_store_is_rebuilt_once();
 	test_a_row_must_be_its_own_line();
 	test_a_late_copy_is_listed_once();
+	test_a_line_waits_for_its_key();
 	test_trimming_by_count_with_a_keep();
 	test_trimming_by_size();
 	test_the_current_month_stays();
