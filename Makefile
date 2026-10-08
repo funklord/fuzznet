@@ -4769,10 +4769,11 @@ analyze:
 		echo "analyze: gcc -fanalyzer over the library and the tests"; \
 		$(MAKE) --no-print-directory test BUILD_DIR=$(BUILD_DIR)-analyze \
 		        CFLAGS="-Os -g -fanalyzer" 2>&1 | grep -E "Wanalyzer" || true; \
-		rm -rf $(BUILD_DIR)-analyze; \
 	else \
 		echo "analyze: this compiler has no -fanalyzer, so it was SKIPPED"; \
 	fi
+	@# OFF THE SUB-MAKE'S LINE, sec 525: there it ran under `make -n` too.
+	@rm -rf $(BUILD_DIR)-analyze
 	@if command -v cppcheck >/dev/null 2>&1; then \
 		echo "analyze: cppcheck --check-level=exhaustive over the library"; \
 		cppcheck --enable=warning,performance,portability \
@@ -4916,20 +4917,25 @@ sancheck:
 	@echo "sancheck: the suite under AddressSanitizer and UBSan"
 	@$(MAKE) --no-print-directory runtests BUILD_DIR=$(BUILD_DIR)-san SANITIZE=1
 
-# A SUB-MAKE WHOSE OUTPUT IS READ, as data, rather than one that builds.
-# sec 525. Make runs a recipe line naming $(MAKE) even under `make -n`, and
-# the sub-make inherits the -n, so it prints its recipe's commands where the
-# caller expected the target's output: `make -n style` harvested `echo`,
-# `for` and `printf` as manifest kinds and failed naming the README, and
-# `make -n installcheck` would have written commands into manifest.txt.
+# A SUB-MAKE MAKE DOES NOT MARK RECURSIVE. sec 525. Make runs a recipe line
+# naming $(MAKE) even under `make -n`, and the sub-make inherits the -n --
+# so EVERYTHING ELSE ON THAT LINE runs for real in a dry run, and anything
+# reading the sub-make's output reads its printed commands instead. `make -n
+# style` harvested `echo`, `for` and `printf` as manifest kinds and failed
+# naming the README; `make -n qtty` took a real `git archive` and qmake and
+# then failed, the sub-build having only printed.
 #
 # THE INDIRECTION IS THE FIX. Make marks a line recursive only when its
 # recipe text names $(MAKE) or ${MAKE} itself -- measured with GNU make
 # 4.4.1, a line naming it through this variable is printed under -n like any
-# other and not run. So a dry run of `style` or `installcheck` stays dry
-# here, and a real run is unchanged. $(MAKE) stays literal where the sub-make
-# builds, so that -n reaches it.
-MAKE_READ = $(MAKE)
+# other and not run, and a real run is unchanged. So: $(MAKE) literally only
+# on a line that does nothing but recurse; through this where the line also
+# reads what the sub-make prints or works around it; and a state write
+# never shares a line with a literal $(MAKE) (`analyze` keeps its `rm -rf`
+# on a line of its own). The question that finds these is what else is on
+# the line, not whether its output is read -- claude-guidelines, from
+# raidcfgd.
+MAKE_UNMARKED = $(MAKE)
 
 # STYLE BUILDS WHAT IT INSPECTS, since sec 231. The renderer sweep reads
 # `nm` over $(SRCS)'s objects and the guard above refuses when one is
@@ -5526,7 +5532,7 @@ style: $(OBJS)
 	@# somewhere in README.md as a backticked word, so the paragraph can be
 	@# rewritten freely and only a kind going unmentioned fails. A gate over
 	@# wording would be a gate somebody deletes.
-	@kinds=`$(MAKE_READ) -s --no-print-directory manifest 2>/dev/null \
+	@kinds=`$(MAKE_UNMARKED) -s --no-print-directory manifest 2>/dev/null \
 	        | awk '{ print $$1 }' | grep -v '^#' | sort -u`; \
 	n=`echo "$$kinds" | grep -c .`; \
 	if [ "$$n" -eq 0 ]; then \
@@ -6068,7 +6074,7 @@ qtty: $(if $(and $(GUI_ON),$(CLI_ON)),$(QTTY_RENDER_OBJS) $(if $(LOG_FILE_ON),$(
 		exit 1; \
 	fi; \
 	( cd "$$scratch" && qmake6 qtty.pro >/dev/null 2>&1 && \
-	  $(MAKE) -j$(QTTY_JOBS) >qtty-build.log 2>&1 ) || { \
+	  $(MAKE_UNMARKED) -j$(QTTY_JOBS) >qtty-build.log 2>&1 ) || { \
 		echo "qtty: their library would not build; the log goes with the scratch"; \
 		exit 1; }; \
 	test -f "$$scratch/lib/libqtty.a" || { \
@@ -6387,7 +6393,7 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 	@# in. The bindings are emitted under `binding` and not compiled here,
 	@# which is what the split means.
 	@echo "installcheck: against the manifest a foreign build would read"
-	@$(MAKE_READ) --no-print-directory manifest > $(BUILD_DIR)/installcheck/manifest.txt
+	@$(MAKE_UNMARKED) --no-print-directory manifest > $(BUILD_DIR)/installcheck/manifest.txt
 	@srcs=; incs=; \
 	while read -r key val; do \
 		case "$$key" in \

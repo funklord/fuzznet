@@ -59101,7 +59101,7 @@ re-anchored. The cache entry now names `stream_fd`'s compare, since
 the test looked only after the next write, which overwrote the leftover.
 It now checks at once.
 
-## 525. A dry run of style and installcheck stays dry, 2026-10-08
+## 525. Dry runs stay dry: style, installcheck, qtty and analyze, 2026-10-08
 
 claude-guidelines reported through `.git/cc-inbox/` on 2026-10-07 that
 `make -n style` exits 2 while `make style` passes. It names "echo for printf
@@ -59113,44 +59113,58 @@ and the cause is as they described it:
 
 ### The fix
 
-`MAKE_READ` names a sub-make whose output is read as data. A line naming
-`$(MAKE)` through it is not marked recursive: under `-n` it is printed like
-any other line and not run. Make marks a line recursive only when its
-recipe text names `$(MAKE)` or `${MAKE}` itself, measured with GNU make
-4.4.1. A real run is unchanged.
+`MAKE_UNMARKED` names a sub-make that make does not mark recursive. Make
+marks a line recursive only when its recipe text names `$(MAKE)` or
+`${MAKE}` itself, measured with GNU make 4.4.1. A line naming it through the
+variable is printed under `-n` like any other and not run, and a real run is
+unchanged. The rule the Makefile states beside it:
+- `$(MAKE)` literally only on a line that does nothing but recurse;
+- through `MAKE_UNMARKED` where the line also reads what the sub-make
+  prints, or works around it;
+- a state write never shares a line with a literal `$(MAKE)`.
 
-There are two such sites:
-- the kinds check in `style`;
-- installcheck's `make manifest > .../installcheck/manifest.txt`. Under
-  `-n` this would have written commands into the file, the overwritten
-  artifact ossacli reported for its own tree.
+### The sweep, by what else is on the line
+
+The first version of this section swept by asking which sub-makes have their
+output read, found two, and called the rest honest. claude-guidelines'
+signal from raidcfgd (their `67d7896`) showed that question is too narrow.
+The one that enumerates the class is what else is on the line. Re-swept
+that way, every logical recipe line naming `$(MAKE)`:
+
+| line | what else is on it | under `-n` before | now |
+|---|---|---|---|
+| `style`'s kinds check | reads the manifest | exit 2, the reported message | printed, not run |
+| installcheck's `manifest > manifest.txt` | writes a file | commands written into it | printed, not run |
+| `qtty` | `git archive`, qmake, a compile in a scratch | real archive and qmake, then "their library would not build", exit 2 | printed, not run |
+| `analyze` | `rm -rf $(BUILD_DIR)-analyze` | deleted it: a sentinel in `.-analyze` was gone | `rm` on its own line; sentinel kept |
+| the four guided runs, sancheck, coverage, installcheck's install | nothing, or a redirect to /dev/null | honest | unchanged |
+| `qttycheck` | read-only guards, then the `qtty` sub-make | inherited `qtty`'s failure | inherits its fix |
 
 ### The other remedy, and why it lost
 
 The first draft took the `n` out of MAKEFLAGS for the sub-make, so that the
 check would run for real under `-n`. Measuring showed the indirection
 alone already kept the line from running. The `sed` was dead code, and a
-dry run that executes is the thing `-n` promises not to do.
+dry run that executes is the thing `-n` promises not to do. raidcfgd's guard
+for a stamp, `$(filter-out --%,...)` over MAKEFLAGS, is the remedy where a
+line has to run and must skip its write. Nothing here needs it.
 
 ### Measured for sec 525
 
-| run | before | after |
-|---|---|---|
-| `make -n style` | exit 2, with the reported message | exit 0, the kinds line printed and not run |
-| `make style` | | "11 manifest kinds, each named in README.md" |
-| `make -n installcheck` | | exit 0, no `manifest.txt` written |
-| `make installcheck`, and with `-j4` | | pass, no jobserver warning |
+- `make -n style`, `make -n installcheck`, `make -n qtty` and `make -n
+  analyze` exit 0. installcheck writes no `manifest.txt`, and `analyze`
+  leaves `.-analyze` alone.
+- `make style` checks 11 manifest kinds. `make installcheck` passes, and
+  with `-j4` shows no jobserver warning.
+- `make qtty` builds qtty through `MAKE_UNMARKED` and passes, with quirc,
+  126 checks.
+- `make analyze CC=false`, the cheap arm, still removes `.-analyze`.
+- **The control:** with `style`'s line put back to a literal `$(MAKE)`,
+  `make -n style` exits 2 again with the message the inbox quoted.
 
-**The control:** with the kinds line put back to a literal `$(MAKE)`, `make
--n style` exits 2 again with the message the inbox quoted.
+### Not built in sec 525
 
-### Not changed
-
-- **qtty's build** runs `$(MAKE)` in a scratch checkout of qtty. That
-  sub-make builds, so `-n` should reach it, and it does. Under `make -n
-  qtty` the line still runs: it takes a real `git archive` and runs a real
-  qmake, then a printing sub-build. It then fails, finding no
-  `libqtty.a`. Making that target dry is a separate question from this
-  one.
-- The other `$(MAKE)` lines start builds or test runs, and none reads what
-  the sub-make prints.
+No gate holds the rule. A check that every literal `$(MAKE)` line carries
+nothing but the recursion would refuse `qttycheck`'s guard chain, which is
+read-only. So it would need a list of exceptions, and that is the shape a
+gate gets switched off by.
