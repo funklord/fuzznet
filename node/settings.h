@@ -130,6 +130,13 @@ fzn_node_settings_err_t fzn_node_settings_take_rules(const fzn_node_settings_t *
                                                      const uint8_t about[FZN_SUBJECT_LEN],
                                                      size_t *moved);
 
+/* THE ESTATE'S k AS A SETTING, sec 542: the estate cell `revocation/k`,
+ * counted only when it is in force at a ROOT's rank -- k is a root's to set,
+ * as sec 418 has it -- and only as a count from 1 to 255. `fallback`
+ * otherwise: the older k records' resolution, or `--quorum`. */
+#define FZN_NODE_SETTINGS_K_KEY "revocation/k"
+uint8_t fzn_node_settings_quorum(const fzn_node_settings_t *ns, uint8_t fallback);
+
 /* The verbs above; 0 for a request that is not one. */
 size_t fzn_node_settings_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                                char *reply, size_t reply_cap);

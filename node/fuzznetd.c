@@ -3679,6 +3679,14 @@ int main(int argc, char **argv)
 				admin.settings = &node_settings;
 				apply_journal();
 				retention_to_settings(&identity);
+				/* THE ESTATE'S k AS A ROOT SET IT, sec 542, from the start
+				 * rather than from the first round. */
+				if (running)
+					(void)fzn_revocation_store_set_k(
+					        running,
+					        fzn_node_settings_quorum(
+					                &node_settings,
+					                fzn_node_roots_quorum(running_roots, (uint8_t)quorum)));
 			}
 #endif
 			state.on_local = fzn_node_admin_handle;
@@ -3935,10 +3943,20 @@ int main(int argc, char **argv)
 				apply_journal();
 				messages_round(pulls, npulls, now);
 #endif
-				/* THE ESTATE'S k MAY HAVE ARRIVED WITH THEM. sec 418. */
+				/* THE ESTATE'S k MAY HAVE ARRIVED WITH THEM, sec 418 -- as a
+				 * root's setting since sec 542, which outranks the older
+				 * records. */
 				if (running)
 					(void)fzn_revocation_store_set_k(
-					        running, fzn_node_roots_quorum(running_roots, (uint8_t)quorum));
+					        running,
+#ifdef FZN_RECORD_STORE_FILE_ON
+					        fzn_node_settings_quorum(
+					                &node_settings,
+					                fzn_node_roots_quorum(running_roots, (uint8_t)quorum))
+#else
+					        fzn_node_roots_quorum(running_roots, (uint8_t)quorum)
+#endif
+					);
 				/* CONTACTS ADDED ON ANOTHER MEMBER, sec 489, named here so
 				 * they can be shared with and removed by name. */
 				if (roster_on && running_admin) {

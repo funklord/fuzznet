@@ -4,6 +4,7 @@
 
 #include "peer_persist.h"
 #include "roots.h"
+#include "apply.h"
 #include "roster.h"
 #include "settings.h"
 #include "../provision/provision.h"
@@ -739,7 +740,10 @@ static size_t grant_admin(fzn_node_admin_t *admin, const uint8_t *hex, size_t he
 	return answer(reply, cap, FZN_REPLY_OK, detail, at);
 }
 
-/* `set quorum K`: the estate's k, as this node's acting root. sec 418. */
+static size_t settings_refusal(char *reply, size_t cap, fzn_node_settings_err_t err);
+
+/* `set quorum K`: the estate's k, as this node's acting root. sec 418, and
+ * as the estate's setting since sec 542. */
 static size_t set_quorum(fzn_node_admin_t *admin, const uint8_t *text, size_t text_len,
                          char *reply, size_t cap)
 {
@@ -758,16 +762,38 @@ static size_t set_quorum(fzn_node_admin_t *admin, const uint8_t *text, size_t te
 	}
 	if (k < 1u || k > 255u)
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "k is 1 to 255");
-	err = fzn_node_roots_set_quorum(admin->roots, admin->store, admin->id->pubkey,
-	                                admin->id->sign, (uint8_t)k);
-	if (err != FZN_NODE_ROOTS_OK)
-		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_roots_err_str(err));
-	/* IN FORCE AT ONCE, as resolved: a concurrent higher k still wins. */
+	/* AS THE ESTATE'S SETTING, sec 542, where this node keeps settings: a
+	 * root's to set, so a node that stands as less is refused before it
+	 * writes anything. */
+	if (admin->settings && admin->settings->estate && admin->settings->apply) {
+		fzn_setting_rank_t rank;
+		fzn_node_settings_err_t serr;
+
+		if (fzn_node_apply_rank(admin->settings->apply, admin->id->pubkey, FZN_SCOPE_ESTATE,
+		                        admin->settings->estate, &rank)
+		            != 1
+		    || rank != FZN_SETTING_RANK_ROOT)
+			return answer_text(reply, cap, FZN_REPLY_ERROR, "the estate's k is a root's to set");
+		serr = fzn_node_settings_write(admin->settings, FZN_SCOPE_ESTATE,
+		                               admin->settings->estate,
+		                               (const uint8_t *)FZN_NODE_SETTINGS_K_KEY,
+		                               sizeof(FZN_NODE_SETTINGS_K_KEY) - 1u, 1, text, text_len);
+		if (serr != FZN_NODE_SETTINGS_OK)
+			return settings_refusal(reply, cap, serr);
+	} else {
+		err = fzn_node_roots_set_quorum(admin->roots, admin->store, admin->id->pubkey,
+		                                admin->id->sign, (uint8_t)k);
+		if (err != FZN_NODE_ROOTS_OK)
+			return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_roots_err_str(err));
+	}
+	/* IN FORCE AT ONCE, as resolved: a concurrent higher k still wins among
+	 * the older records, and a root's setting over them. */
 	if (admin->revocations) {
 		uint8_t now = (uint8_t)admin->revocations->quorum;
 
-		(void)fzn_revocation_store_set_k(admin->revocations,
-		                                 fzn_node_roots_quorum(admin->roots, now));
+		(void)fzn_revocation_store_set_k(
+		        admin->revocations,
+		        fzn_node_settings_quorum(admin->settings, fzn_node_roots_quorum(admin->roots, now)));
 	}
 	n = snprintf(detail, sizeof(detail), "%zu",
 	             admin->revocations ? admin->revocations->quorum : (size_t)k);

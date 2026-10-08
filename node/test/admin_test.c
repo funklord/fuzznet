@@ -1995,6 +1995,31 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && rules_counted(detail, detail_len) == estate_before,
 		      "the estate's setting was not removed by another spelling");
+		/* THE ESTATE'S k AS A SETTING, sec 542: this node is the root. */
+		if (admin.revocations)
+			CHECK(ask(&admin, &owner, "set quorum 3", reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK
+			              && admin.revocations->quorum == 3u
+			              && fzn_node_settings_quorum(&ns, 9u) == 3u,
+			      "set quorum with settings attached did not write the estate's setting and "
+			      "put k in force");
+		/* AND NOT A ROOT'S TO SET from a node judged as no root. */
+		{
+			uint8_t elsewhere[FZN_PUBKEY_LEN];
+			size_t k_was = admin.revocations ? admin.revocations->quorum : 0u;
+
+			memset(elsewhere, 0x7e, sizeof(elsewhere));
+			ap.root = elsewhere;
+			CHECK(ask(&admin, &owner, "set quorum 4", reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_ERROR
+			              && says(detail, detail_len, "a root's to set")
+			              && (!admin.revocations || admin.revocations->quorum == k_was),
+			      "a node that is no root set the estate's k");
+			ap.root = node.id.pubkey;
+		}
+
 		/* AND THE OLDER ROWS MOVED: a rule left in slot 26 becomes this
 		 * host's setting, and leaves the slot. */
 		{

@@ -232,6 +232,27 @@ int fzn_node_settings_rule_key(const fzn_hash_ops_t *hash, const char *text, siz
 	return 1;
 }
 
+uint8_t fzn_node_settings_quorum(const fzn_node_settings_t *ns, uint8_t fallback)
+{
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	size_t len = 0, i;
+	unsigned k = 0;
+
+	if (!ready(ns) || !ns->estate
+	    || !fzn_node_settings_get(ns, FZN_SCOPE_ESTATE, ns->estate,
+	                              (const uint8_t *)FZN_NODE_SETTINGS_K_KEY,
+	                              sizeof(FZN_NODE_SETTINGS_K_KEY) - 1u, value, &len, &rank)
+	    || rank != FZN_SETTING_RANK_ROOT || len == 0u || len > 3u)
+		return fallback;
+	for (i = 0; i < len; i++) {
+		if (value[i] < '0' || value[i] > '9')
+			return fallback;
+		k = (k * 10u) + (unsigned)(value[i] - '0');
+	}
+	return k >= 1u && k <= 255u ? (uint8_t)k : fallback;
+}
+
 fzn_node_settings_err_t fzn_node_settings_take_rules(const fzn_node_settings_t *ns,
                                                      const uint8_t about[FZN_SUBJECT_LEN],
                                                      size_t *moved)

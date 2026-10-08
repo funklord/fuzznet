@@ -529,6 +529,30 @@ static void test_settings_judged(void)
 		      "another user, a bad key or scope, or another subject was not refused or passed");
 	}
 
+	/* THE ESTATE'S k, sec 542: a root's to set. An admin's value is held
+	 * at its rank and not counted; a root's is; a value that is no count
+	 * leaves the fallback. */
+	CHECK(setting_by(&nj, 0x93, FZN_SCOPE_ESTATE, 0x91, 1u, "revocation/k", 1, "5")
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && in_force(&ns, FZN_SCOPE_ESTATE, 0x91, "revocation/k", "5",
+	                          FZN_SETTING_RANK_ADMIN)
+	              && fzn_node_settings_quorum(&ns, 2u) == 2u,
+	      "an admin's k counted");
+	CHECK(setting_by(&nj, 0x91, FZN_SCOPE_ESTATE, 0x91, 2u, "revocation/k", 1, "3")
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && fzn_node_settings_quorum(&ns, 2u) == 3u,
+	      "a root's k did not count");
+	CHECK(setting_by(&nj, 0x91, FZN_SCOPE_ESTATE, 0x91, 3u, "revocation/k", 1, "0")
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && fzn_node_settings_quorum(&ns, 2u) == 2u
+	              && setting_by(&nj, 0x91, FZN_SCOPE_ESTATE, 0x91, 4u, "revocation/k", 1, "2x")
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && fzn_node_settings_quorum(&ns, 2u) == 2u
+	              && setting_by(&nj, 0x91, FZN_SCOPE_ESTATE, 0x91, 5u, "revocation/k", 1, "256")
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && fzn_node_settings_quorum(&ns, 2u) == 2u,
+	      "a k of 0, of no count, or past 255 was counted");
+
 	/* A SETTING IN ANOTHER KEY'S STREAM: the root's object, carried as the
 	 * admin's record, is judged by nobody's standing -- refused. */
 	{

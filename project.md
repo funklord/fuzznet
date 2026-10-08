@@ -60474,3 +60474,28 @@ add, list, remove by another spelling, the older row removed, the estate's
 rule, and the move; five sabotage entries, each probed caught. Not covered
 by a test: the "a higher rank keeps the rule" answer, since the fixture's
 node is the root and nothing outranks it.
+
+## 542. Stage 2: the estate's k moves onto settings, 2026-10-08
+
+The second older kind moved onto sec 540's settings, keeping sec 418's
+rule that k is a root's to set.
+
+- **k is the estate setting `revocation/k`**, a count from 1 to 255, and
+  `fzn_node_settings_quorum` counts it only when it is in force at a
+  ROOT's rank. An admin's value is held at its rank and not counted; a
+  value that is no count is ignored.
+- **A root's k setting outranks the older k records**: the order is the
+  setting, then the older records' resolution, then `--quorum`. The two
+  cannot be ordered against each other by version, so the newer mechanism
+  wins outright.
+- **`set quorum` writes the setting** on a node that keeps settings, and
+  refuses before writing on a node judged as no root. fuzznetd applies k
+  from the setting at start and after every round; the verb puts it in
+  force at once.
+- Older k records are not moved, for sec 541's reason: only their roots
+  could re-sign them.
+
+Measured: apply_test 36 and admin_test 207 checks; three new sabotage
+entries -- root rank only, the range, and the verb's refusal -- each
+probed caught, and one re-anchored. fuzznetd's per-round application of k
+is not reached by a suite.

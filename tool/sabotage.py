@@ -6588,7 +6588,7 @@ SABOTAGES = [
 	(
 		"admin-quorum-in-force-at-once",
 		"node/admin.c",
-		"\t\t(void)fzn_revocation_store_set_k(admin->revocations,\n\t\t                                 fzn_node_roots_quorum(admin->roots, now));\n",
+		"\t\t(void)fzn_revocation_store_set_k(\n\t\t        admin->revocations,\n\t\t        fzn_node_settings_quorum(admin->settings, fzn_node_roots_quorum(admin->roots, now)));\n",
 		"\t\t(void)now;\n",
 		"a k set and not applied leaves the running node judging by the old one until a restart -- sec 418",
 	),
@@ -10023,6 +10023,27 @@ SABOTAGES = [
 		"\t\tif (fzn_log_rules_remove(ns->store, ns->hash, &held[i]) != FZN_LOG_RULES_OK)\n\t\t\treturn FZN_NODE_SETTINGS_BACKEND;\n",
 		"",
 		"a rule moved into settings stays in the older slot too, twice over -- sec 541",
+	),
+	(
+		"settings-k-root-rank-only",
+		"node/settings.c",
+		"\t    || rank != FZN_SETTING_RANK_ROOT || len == 0u || len > 3u)",
+		"\t    || len == 0u || len > 3u)",
+		"an admin sets the estate's k, which is a root's to set -- secs 418, 542",
+	),
+	(
+		"settings-k-in-range",
+		"node/settings.c",
+		"\treturn k >= 1u && k <= 255u ? (uint8_t)k : fallback;",
+		"\treturn (uint8_t)k;",
+		"a k of 0 or past 255 is put in force -- sec 542",
+	),
+	(
+		"admin-set-quorum-root-only",
+		"node/admin.c",
+		"\t\t    || rank != FZN_SETTING_RANK_ROOT)\n\t\t\treturn answer_text(reply, cap, FZN_REPLY_ERROR, \"the estate's k is a root's to set\");",
+		"\t\t    && 0)\n\t\t\treturn answer_text(reply, cap, FZN_REPLY_ERROR, \"the estate's k is a root's to set\");",
+		"a node that is no root writes the estate's k -- secs 418, 542",
 	),
 	(
 		"node-messages-give-as-sender",
