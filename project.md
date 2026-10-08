@@ -59968,3 +59968,167 @@ would survive by construction.
 `make livecheck` passes in about 25 s; `make style`, `make -j4 test`, 0.
 After every run: no fuzznetd left in the process table and no `fzs.` or
 `fzn-live.` directory left in /tmp.
+
+## 535. A distributed database for config, and the journal as a window: proposal, 2026-10-08
+
+The holder, after being told the journal never shrinks and config is
+mostly local:
+
+> "The journal is meant to be a temporary storage mirroring what is in the
+> optimized storage, possibly make a default 30-60 days. It is
+> understandable that a journal can't be easily pruned except possibly at
+> the ends. However granular deletion of other data is possible, as most
+> stuff also ends up being stored efficiently. without the cruft and chains
+> of a journal, we just need a way to ensure the journal keeps making sense
+> even when it is cut off and only knows part of the history. However we
+> need a distributed database, strong enough to store
+> config/permissions/capabilities/rules etc. Every admin node is a
+> potential source of new configuration for every other node (and a
+> backup). Including their local config. This is a distributed system,
+> which means all operations need to be accessible remotely if configured
+> that way."
+
+This section is a proposal: what exists, what conflicts with the above,
+and a staged plan. **The decisions listed at its end are the holder's.**
+Nothing here is built yet.
+
+### sec 535: where the tree stands, measured
+
+- **The journal is append-only and never cut.** Served streams live in
+  per-(issuer, stream) files; `fzn_record_store_file_forget` drops a stream
+  whole and its header forbids it for a served stream. Only the operation
+  journal's generations are dropped (sec 524).
+- **Following part way is already in the low layer.** `record/journal.h`'s
+  `fzn_journal_anchor` takes a starting seq, and a stream "anchored part
+  way" takes its first record's word for its `prev`. `node/journal.c`
+  always anchors at 0, from the beginning.
+- **The operation journal already does snapshot-then-drop**, for one
+  node's own store: each generation opens with every row of every slot,
+  so it replays alone (sec 524). That is the shape the shared journal
+  needs, with the difference that its snapshot has to be served to and
+  verified by other nodes.
+- **Most journaled data is also in the optimized store**: roots, votes,
+  confirmations, roster, successions and settings are applied into their
+  slots (sec 503); notes are kept in slot 17 besides stream 0.
+- **Messages are not.** A line's sealed text is read back from the
+  journal's record store (`messages/messages.c`, the page walk's
+  `fzn_record_store_get`), and slots 35 and 36 index into it by (device,
+  seq). Cutting stream 3 today deletes conversations. This revisits sec
+  526's "lines in the journal".
+- **A general cell store exists and nothing in the node uses it.**
+  `state/state.h` resolves records into current values -- "a permission, a
+  rule and a configuration setting are the same object at this layer" --
+  with values a function of the set of records, not their order, and a
+  clear that lands before what it clears. With sec 420's scopes (host-
+  private, host, group, estate) it is most of the vocabulary the holder's
+  database needs. What it does not do is choose between two writers: a
+  second issuer's value for a set cell is reported as a conflict and not
+  resolved.
+- **Every estate setting so far is its own record kind**: k (sec 399),
+  roots' and admins' retention (secs 476, 479), the roster (sec 489). A
+  new setting has meant a new kind, a new slot and a new apply path.
+- **Local config is local**: the command line, `--pull-from`, log options,
+  and `add retention` (slot 26, sec 475) are seen by no other node.
+- **No mutating verb is remote.** `node/admin.c` refuses any mutating verb
+  whose origin is not `FZN_ORIGIN_SAME_USER`; messages, notes and files do
+  the same. Over the remote hop a node answers status and the exchanges
+  (journal, notes, files, gather).
+
+### sec 535: the proposal, in stages
+
+**1. Messages get their own storage.** On absorb, a line's sealed record
+body is copied into a slot keyed as its index entry is, and the page walk
+reads that slot. The journal then carries lines for the window and the
+store keeps them; a trim (sec 531) erases the rows of a month as it
+destroys its keys. Prerequisite for cutting stream 3.
+
+**2. One record kind for settings, resolved by `state/`.** A SETTING
+names a scope (sec 420), a subject (`fzn_scope_subject`: the estate, a
+group, or one host), a key path and a value or a clear. The node applies
+settings into `state/` cells and keeps the resolved cells in a slot, so
+they survive the journal's window. Authority is a capability per scope,
+checked with the existing chain machinery (`fzn_node_apply_chain`):
+
+- estate and group cells need the estate's admin capability;
+- a host's cells need that host's own key or the admin capability.
+
+So every admin is a writer for every node, and every node that follows
+the estate holds every other node's settings: the backup the holder asked
+for. **A node's local config becomes its host-scoped cells**: what is on
+its command line is the default, and a cell overrides it (or the
+reverse; decision 3). Host-private stays the one scope with no cell, for
+what must never leave the machine.
+
+The existing per-kind settings (k, retention, later others) migrate onto
+this kind one at a time, each keeping its old kind readable until the
+estate has moved. Retention rules are the first candidate, which also
+puts slot 26's local rules where admins can see and set them.
+
+**3. Operations reachable remotely, when configured.** Two paths, for
+two kinds of operation:
+
+- **A change of config is a SETTING**, written by whichever admin node
+  the operator stands at and carried by the journal. It applies when it
+  arrives, so it reaches a node that is offline now, and it is kept on
+  every follower.
+- **An action or a read** (list, status, gather, trim now, pair) is a
+  verb sent over the remote hop, as gather already is (sec 463), gated
+  by the caller's chain and by a host-scoped cell saying whether this
+  node takes remote verbs at all -- off by default.
+
+The node's own local user keeps every verb whatever the cells say, so a
+bad setting cannot lock a machine's owner out of it.
+
+**4. The journal as a window.** Each served stream is held from a BASE to
+its head:
+
+- **Segments, not one file per stream**, so the old end drops whole, as
+  the operation journal's generations do. No single record is deleted
+  from inside a segment.
+- **The base is kept**: the stream's first held seq and the id of the
+  record before it. A follower anchors at a peer's base
+  (`fzn_journal_anchor`, part way) rather than at 0, and the chain is
+  verified from there on. What is given up is the check that nothing
+  before the base forks, which is recorded as a limit.
+- **A segment is dropped only when all of its records are** older than
+  the window, applied here, and not needed by an open decision: a purge
+  awaiting consensus (sec 427), votes not yet at k, a revocation whose cut
+  still has acts after it to judge (sec 496). A decision still open holds
+  its segment past the window, and the node says so.
+- **The window is an estate cell**, `journal window`, defaulting within
+  the holder's 30 to 60 days (decision 1).
+
+**5. Catch-up past the window: a state transfer.** A node offline longer
+than the window, or a new member, cannot replay from a base past what it
+missed. It is sent the resolved store instead, as signed objects with
+their chains, each verifiable on its own as journal records are. The
+trust gap is OMISSION: a sender that leaves out a revocation is not
+caught by any signature. So the receiver asks more than one admin and
+compares a digest of each scope's cells, refusing to finish while they
+disagree.
+
+**6. A live test across a cut**, in `make livecheck` (sec 534): two
+nodes, one offline past a short window, rejoining by state transfer, and
+a setting written at one admin node applied at the other.
+
+### sec 535: decisions that are the holder's
+
+1. **The default window**: 30, 45 or 60 days.
+2. **Messages out of the journal into their own store** (stage 1). This
+   revisits sec 526's decision to keep lines in the journal.
+3. **Which wins between two writers of one cell.** `state/` reports the
+   conflict and does not resolve it. The options:
+   - latest by a Lamport version, ties by issuer key -- simple, but an
+     admin's stale node can win by writing late;
+   - rank first (root, then admin, then the host itself), version within
+     a rank;
+   - refuse a write that does not name the version it replaces, so a
+     conflict is surfaced to an operator rather than resolved.
+   And whether a host's own command line or its cell wins for local
+   config.
+4. **Remote verbs**: off by default per node, and which verbs may ever be
+   remote -- in particular pairing, revocation and erasing data.
+5. **How long a clear (a deleted setting) is remembered.** Forgotten too
+   soon, a node returning with the old value can bring it back.
+6. **The order of the stages.** Proposed as above: 1 and 2 first, since
+   4 deletes data that 1 has not yet moved, and 3 and 5 build on 2.
