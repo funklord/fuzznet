@@ -91,6 +91,13 @@ static uint64_t packed_key(const char *name, const char *program)
 	return v;
 }
 
+static int make_dir(const char *path);
+
+uint64_t fzn_log_copy_packed_time(const char *name)
+{
+	return name ? packed_key(name, NULL) : 0u;
+}
+
 int fzn_log_copy_dir(const char *dir, const uint8_t host[FZN_LOG_PACK_HASH_LEN], char *out,
                      size_t cap)
 {
@@ -242,6 +249,11 @@ size_t fzn_log_copy_answer(const char *dir, const uint8_t *request, size_t reque
 }
 
 /* ---- the puller ---------------------------------------------------------- */
+
+int fzn_log_copy_make_dir(const char *path)
+{
+	return path && make_dir(path);
+}
 
 static int make_dir(const char *path)
 {

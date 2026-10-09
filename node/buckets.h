@@ -103,6 +103,13 @@ fzn_buckets_err_t fzn_buckets_add_ref(const fzn_buckets_t *b, fzn_buckets_kind_t
                                       const uint8_t id[FZN_BUCKETS_ID_LEN], uint64_t size,
                                       const uint8_t *ref, size_t ref_len, int *added);
 
+/* THE ITEM A REF WAS LAST TAKEN AS, sec 571: its id and length, ABSENT for
+ * a ref never taken. A kind that scans the files it keeps hashes only a
+ * file whose ref is new or whose length moved. */
+fzn_buckets_err_t fzn_buckets_by_ref(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
+                                     const uint8_t *ref, size_t ref_len,
+                                     uint8_t id[FZN_BUCKETS_ID_LEN], uint64_t *size);
+
 /* WHERE ITS KIND KEEPS `id`: its ref and length. ABSENT for an item held in
  * a row, or none. */
 fzn_buckets_err_t fzn_buckets_ref(const fzn_buckets_t *b, fzn_buckets_kind_t kind,

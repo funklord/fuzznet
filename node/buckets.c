@@ -27,6 +27,10 @@
 #define R_LEN (R_SIZE + 8u)
 #define R_REF (R_LEN + 2u)
 #define ROW_MAX (I_ITEM + FZN_BUCKETS_ITEM_MAX)
+/* fzn_buckets_byref, sec 571. */
+#define BR_ID 2u
+#define BR_SIZE (BR_ID + FZN_BUCKETS_ID_LEN)
+#define BR_LEN (BR_SIZE + 8u)
 #define CHUNK_BYTES (FZN_BUCKETS_CHUNK * FZN_BUCKETS_ID_LEN)
 
 const char *fzn_buckets_err_str(fzn_buckets_err_t err)
@@ -321,6 +325,7 @@ fzn_buckets_err_t fzn_buckets_add_ref(const fzn_buckets_t *b, fzn_buckets_kind_t
                                       const uint8_t *ref, size_t ref_len, int *added)
 {
 	uint8_t row_bytes[R_REF + FZN_BUCKETS_REF_MAX];
+	fzn_buckets_err_t err;
 
 	if (added)
 		*added = 0;
@@ -333,7 +338,44 @@ fzn_buckets_err_t fzn_buckets_add_ref(const fzn_buckets_t *b, fzn_buckets_kind_t
 	row_bytes[R_LEN] = (uint8_t)(ref_len >> 8);
 	row_bytes[R_LEN + 1u] = (uint8_t)ref_len;
 	memcpy(row_bytes + R_REF, ref, ref_len);
-	return take(b, kind, subject, month, id, row_bytes, R_REF + ref_len, added);
+	err = take(b, kind, subject, month, id, row_bytes, R_REF + ref_len, added);
+	if (err != FZN_BUCKETS_OK)
+		return err;
+	/* AND WHAT THE REF WAS TAKEN AS, so a scan knows the file. sec 571. */
+	{
+		uint8_t key[FZN_BUCKETS_ID_LEN], row[FZN_PUBKEY_LEN], br[BR_LEN];
+
+		br[0] = VERSION;
+		br[B_KIND] = (uint8_t)kind;
+		memcpy(br + BR_ID, id, FZN_BUCKETS_ID_LEN);
+		fzn_put_be64(br + BR_SIZE, size);
+		if (!b->hash->hash(b->hash->ctx, key, sizeof(key), ref, ref_len)
+		    || !row_of(b, "fuzznet.bucket.byref", kind, key, 0, 0u, 0, 0u, row)
+		    || !b->store->save(b->store->ctx, FZN_PERSIST_BUCKET_IDS, row, br, sizeof(br)))
+			return FZN_BUCKETS_BACKEND;
+	}
+	return FZN_BUCKETS_OK;
+}
+
+fzn_buckets_err_t fzn_buckets_by_ref(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
+                                     const uint8_t *ref, size_t ref_len,
+                                     uint8_t id[FZN_BUCKETS_ID_LEN], uint64_t *size)
+{
+	uint8_t key[FZN_BUCKETS_ID_LEN], row[FZN_PUBKEY_LEN], br[BR_LEN];
+	size_t len = 0;
+
+	if (!ready(b, kind) || !ref || ref_len == 0u || ref_len > FZN_BUCKETS_REF_MAX || !id
+	    || !size)
+		return FZN_BUCKETS_MALFORMED;
+	if (!b->hash->hash(b->hash->ctx, key, sizeof(key), ref, ref_len)
+	    || !row_of(b, "fuzznet.bucket.byref", kind, key, 0, 0u, 0, 0u, row))
+		return FZN_BUCKETS_BACKEND;
+	if (!b->store->load(b->store->ctx, FZN_PERSIST_BUCKET_IDS, row, br, sizeof(br), &len)
+	    || len != BR_LEN || br[0] != VERSION || br[B_KIND] != (uint8_t)kind)
+		return FZN_BUCKETS_ABSENT;
+	memcpy(id, br + BR_ID, FZN_BUCKETS_ID_LEN);
+	*size = fzn_get_be64(br + BR_SIZE);
+	return FZN_BUCKETS_OK;
 }
 
 int fzn_buckets_has(const fzn_buckets_t *b, fzn_buckets_kind_t kind,

@@ -90,6 +90,14 @@ typedef enum fzn_log_copy_err {
 
 const char *fzn_log_copy_err_str(fzn_log_copy_err_t err);
 
+/* A PACKED SEGMENT'S NAME, `PROGRAM.TIME.PID.log.zst`, read: its closing
+ * time in microseconds, or 0 for a name that is not one. sec 571. */
+uint64_t fzn_log_copy_packed_time(const char *name);
+
+/* `path` and every directory above it, owner-only: nonzero when it is
+ * there afterwards. sec 571. */
+int fzn_log_copy_make_dir(const char *path);
+
 /* THE HOST'S ANSWER to a segments or part query, from the log in `dir`. 0
  * when `request` is neither, so a caller dispatching on the first bytes
  * falls through. */

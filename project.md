@@ -61445,7 +61445,8 @@ through the gate. Five sabotage entries, each probed caught.
    by the subject's key, one segment at a time: a month can arrive in
    any order, so chain completeness becomes a check's report rather than
    a gate. Served: this host's own segments, and the copies it holds.
-   Wanted: the log rules, copy rules, `source=` and policy.
+   Wanted: the log rules, copy rules, `source=` and policy. Built in sec
+   571.
 4. Removal by segment: a log's retention removes single segments, not
    months. A removed item keeps its id in its bucket, so the digest still
    agrees with peers that hold it, and answers as not held; only a month
@@ -61553,3 +61554,67 @@ small one; and a receiver whose kind will not stage refusing the large
 one. Four sabotage entries, and one re-anchored on code this change
 moved; all five probed caught, the fetch without its kind's hooks by the
 suite crashing on the missing hook rather than by a failed check.
+
+## 571. Stage 4, step 3: logs as a kind on the layer, 2026-10-09
+
+Sec 568's third step: a host's packed segments travel by the bucket
+exchange, both ways, beside the copy pull and push of secs 483 and 488,
+which step 5 retires.
+
+- **`node/log_buckets`** (POSIX, built with FZN_LOG_PACK) is the logs kind.
+  An item is a packed segment whole, its name in front --
+  `[name length][name][.zst bytes]` -- so whoever keeps it keeps it as
+  itself; its subject is the host whose log it is, its month the UTC month
+  of its closing time, read from its name. Segments are large items (sec
+  570): the row names the file, `o/NAME` for this host's own and
+  `c/HOSTHEX/NAME` for a copy, and the module reads, stages and keeps them.
+- **A scan** takes this host's packed segments into its buckets each pass,
+  hashing a file only when its ref is new or its length moved
+  (`fzn_buckets_by_ref`, a row per ref added to the layer for it).
+- **A segment is kept only signed by its subject**, written beside the
+  copies and checked -- it decompresses, its trailer verifies from the prev
+  it names, its signature holds and is the subject's -- then renamed into
+  `copy/HOSTHEX/` and taken. One offered under another month than it closed
+  in is refused, and so is one whose whole is not its id: its name is in
+  no signature, so the id is what keeps a renamed segment out. Its chain to
+  the segment before is not asked, a month arriving in any order;
+  `fzn_log_pack_check` over the copy directory reports it. This host's own
+  coming back is kept as a copy under its own key, never in the live log.
+- **Wanted** by what does not depend on the program, since a bucket is
+  not one program's: the log policy, an age prune of every program, and
+  any keep -- an age keep within its age, a count or size keep counted as
+  covering. A count or size prune is not weighed, for the reason sec 566
+  gave: a month refused that the trim would keep is lost.
+- **Served** through sec 567's gate: a host its own log, or every source's
+  when it holds the retention capability. **fuzznetd** scans each pass and
+  pulls and pushes logs with each in-estate peer after conversations; the
+  `reconcile pass:` line ends with segments taken, refused and pushed.
+
+Known, and step 4's: a segment repacked here under entry rules keeps its
+name and changes its bytes, so its old id stays in its bucket naming a
+file that no longer hashes to it, and a peer fetching it refuses it every
+time it asks. And the copy pull and push of secs 483 and 488 still run
+when `--log-copy` and `--log-push` are given, until step 5.
+
+A lesson from the live check, kept because it cost three runs: a kept log
+directory's file holds every earlier run's lines, so waiting for a pass
+line matched an old run's -- the harness now reads a daemon's own lines
+by its pid -- and a pass count was the wrong witness altogether, since a
+daemon left waiting for a pack runs further passes. The check asserts on
+the copy files instead.
+
+Measured: log_buckets_test 23 checks -- a scan takes three segments, by
+the month each closed in, and a second takes none, the large ones packed
+past a row; B pulls all three over the smallest reply, kept as copies that
+`fzn_log_pack_check` finds chained and signed by A, nothing staged left
+behind; one signed by another key and one unsigned are refused; a drop
+policy fetches nothing and a 40-day keep beside it only September; a push
+carries all three; a name changed in flight is refused by its id, and a
+segment offered under another month by its name. `tool/live_rejoin.py`
+adds phase g: A and B with 4 KiB segments in log directories kept across
+runs, short runs until each closed one, a run packing them, then B
+pushing its own to A, which keeps them as copies, while B holds none of
+A's; A grants B retention -- B's key read off A's copy directory -- and B
+then takes A's. Against a fuzznetd serving every log bucket to anyone,
+phase g fails at "B holds copies ... without the retention capability".
+Four sabotage entries, each probed caught.

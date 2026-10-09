@@ -19,6 +19,12 @@ struct fzn_buckets_bucket size=78 repr=ValueConverted atomic=NonAtomic
   fzn_buckets_bucket.count               offset=AbsoluteStatic(0x26) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
   fzn_buckets_bucket.sum                 offset=AbsoluteStatic(0x2E) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
 
+struct fzn_buckets_byref size=42 repr=ValueConverted atomic=NonAtomic
+  fzn_buckets_byref.version              offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_buckets_byref.kind                 offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_buckets_byref.id                   offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_buckets_byref.size                 offset=AbsoluteStatic(0x22) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+
 struct fzn_buckets_gone size=38 repr=ValueConverted atomic=NonAtomic
   fzn_buckets_gone.version               offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   fzn_buckets_gone.kind                  offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord

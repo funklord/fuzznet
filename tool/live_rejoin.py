@@ -30,6 +30,13 @@ older than the 60-day window when A next cuts:
        its own journal on the real clock. A pulls from nobody, so only B's
        push can bring it (sec 569): B's pass pushes it, and it reads at A,
        its key given by B's own key round
+    g  logs on the bucket exchange (sec 571), A and B with segments of 4 KiB
+       in log directories kept across runs: short runs until each has closed
+       a segment, one that packs them, and in the next B pushes its own to A,
+       which keeps
+       them as copies under B's key, while B, without the retention
+       capability, takes none of A's. A then grants B the capability, read
+       off that copy directory's name, and B takes A's
 
 The waits are on the daemons' own lines -- A's cut pass, B's reconcile
 pass, B's "moved up" -- and each is checked before the settings are.
@@ -65,7 +72,9 @@ WITNESS_RE = re.compile(r"an estate stream moved up to 127\.0\.0\.1's base, its 
                         r"confirmed by (\d+) other peer\(s\) of (\d+) asked")
 LINES_RE = re.compile(r"reconcile pass: .*; lines (\d+) lacked, (\d+) filed, (\d+) month\(s\) "
                       r"passed over")
-PUSHED_RE = re.compile(r"reconcile pass: .*, (\d+) pushed")
+PACKED_RE = re.compile(r"segment\(s\) of \S+ packed")
+SEGMENTS_RE = re.compile(r"segments (\d+) taken, (\d+) refused, (\d+) pushed")
+PUSHED_RE = re.compile(r"passed over, (\d+) pushed")
 MISSING_RE = re.compile(r"claims no longer hold what this node lacks|would not move")
 
 
@@ -86,10 +95,16 @@ def command(run, args, fake):
 class daemon:
 	"""One fuzznetd over a store, stopped and reaped on every path out."""
 
-	def __init__(self, run, tag, store, sock, fake=None, extra=()):
+	def __init__(self, run, tag, store, sock, fake=None, extra=(), log_dir=None):
 		self.tag = tag
-		self.log_dir = os.path.join(run.scratch, "log-" + tag)
-		os.mkdir(self.log_dir)
+		# A LOG DIRECTORY KEPT ACROSS RUNS when named, so segments one run
+		# closed are packed by the next.
+		self.log_dir = log_dir or os.path.join(run.scratch, "log-" + tag)
+		# A KEPT DIRECTORY'S FILE HOLDS EARLIER RUNS' LINES: this run's are
+		# told by its pid, which every line names.
+		self.kept = bool(log_dir)
+		if not os.path.isdir(self.log_dir):
+			os.mkdir(self.log_dir)
 		if os.path.exists(sock):
 			os.unlink(sock)
 		argv = [run.fuzznetd, "--socket=" + sock, "--fuzznet-dir=" + store,
@@ -118,10 +133,18 @@ class daemon:
 			return f.read(4096).decode(errors="replace")
 
 	def log(self):
+		"""This run's log: the current file's lines, which a kept directory's
+		earlier runs have rotated away."""
 		text = ""
 		for name in sorted(os.listdir(self.log_dir)):
-			with open(os.path.join(self.log_dir, name), "rb") as f:
+			path = os.path.join(self.log_dir, name)
+			if not os.path.isfile(path) or not name.endswith(".log"):
+				continue
+			with open(path, "rb") as f:
 				text += f.read(1 << 20).decode(errors="replace")
+		if self.kept:
+			mine = " %d@" % self.proc.pid
+			text = "".join(l for l in text.splitlines(True) if mine in l)
 		return text
 
 	def wait_for(self, pattern, what):
@@ -392,6 +415,95 @@ def main(argv):
 				a.stop()
 			print("livecheck: f: B pushed %s line(s) A could not have pulled, and it reads "
 			      "at A" % pushed.group(1))
+
+			# g: logs, both ways, gated by the retention capability. sec 571.
+			a_logs = os.path.join(scratch, "log-a-g")
+			b_logs = os.path.join(scratch, "log-b-g")
+			small = ["--log-segment=4096"]
+			g_runs = 0
+
+			def both(pack=False):
+				"""One run of A and B; B's segment counts from its first pass.
+				With `pack`, each waited on until its log pass packed."""
+				nonlocal g_runs
+				g_runs += 1
+				a = daemon(run, "ag%d" % g_runs, a_dir, a_sock,
+				           extra=["--udp-port=" + port] + small, log_dir=a_logs)
+				try:
+					# A'S OWN PASS FIRST: its scan has taken its segments into
+					# its buckets before B asks for them.
+					a.wait_for(SEGMENTS_RE, "A's reconcile pass")
+					b = daemon(run, "bg%d" % g_runs, b_dir, b_sock,
+					           extra=["--root-at", "127.0.0.1", port] + small, log_dir=b_logs)
+					try:
+						seg = b.wait_for(SEGMENTS_RE, "reconcile pass")
+						run.g_notes = [l for l in b.log().splitlines()
+						               if "log/copy" in l or "segment" in l][-6:]
+						if pack:
+							b.wait_for(PACKED_RE, "B's log pass packing")
+							a.wait_for(PACKED_RE, "A's log pass packing")
+						return seg
+					finally:
+						b.stop()
+				finally:
+					a.stop()
+
+			def closed(log_dir):
+				if not os.path.isdir(log_dir):
+					return []
+				return [n for n in os.listdir(log_dir)
+				        if n.endswith(".log") and n.count(".") >= 3]
+
+			def packed(log_dir):
+				if not os.path.isdir(log_dir):
+					return []
+				return [n for n in os.listdir(log_dir) if n.endswith(".log.zst")]
+
+			# A RUN LOGS ABOUT 1.4 KiB, so a segment of 4 KiB closes in a few.
+			while not (closed(a_logs) and closed(b_logs)):
+				if g_runs >= 8:
+					raise failed("g: eight runs closed %d of A's segments and %d of B's"
+					             % (len(closed(a_logs)), len(closed(b_logs))))
+				both()
+			time.sleep(11)
+			both(pack=True)
+			if not packed(a_logs) or not packed(b_logs):
+				raise failed("g: after two runs A packed %d segment(s) and B %d; each wrote past "
+				             "4 KiB" % (len(packed(a_logs)), len(packed(b_logs))))
+			seg = both()
+			copies = os.path.join(a_logs, "copy")
+			holders = os.listdir(copies) if os.path.isdir(copies) else []
+			if int(seg.group(3)) < 1 or len(holders) != 1 \
+			   or not packed(os.path.join(copies, holders[0])):
+				raise failed("g: B pushed %s segment(s) and A holds copies of %r (%d packed "
+				             "there); B's own were to reach A. B said: %s"
+				             % (seg.group(3), holders,
+				                len(packed(os.path.join(copies, holders[0]))) if holders else 0,
+				                " | ".join(run.g_notes)))
+			# WHAT B HOLDS, not what one pass counted: B holds none of A's.
+			b_copies = os.path.join(b_logs, "copy")
+			b_held = [h for h in (os.listdir(b_copies) if os.path.isdir(b_copies) else [])
+			          if packed(os.path.join(b_copies, h))]
+			if b_held:
+				raise failed("g: B holds copies of %r without the retention capability"
+				             % b_held)
+			b_key = holders[0]
+			pushed_segments = seg.group(3)
+			a = daemon(run, "ag-grant", a_dir, a_sock, extra=["--udp-port=" + port])
+			try:
+				reply = ask(a_sock, "grant retention " + b_key)
+				if not reply.startswith("ok h"):
+					raise failed("g: grant retention answered %r" % reply)
+			finally:
+				a.stop()
+			seg = both()
+			b_holders = os.listdir(b_copies) if os.path.isdir(b_copies) else []
+			if int(seg.group(1)) < 1 or len(b_holders) != 1 \
+			   or not packed(os.path.join(b_copies, b_holders[0])):
+				raise failed("g: with the retention capability B took %s of A's segments and "
+				             "holds copies of %r" % (seg.group(1), b_holders))
+			print("livecheck: g: B pushed %s of its segments to A; granted retention, it took "
+			      "%s of A's" % (pushed_segments, seg.group(1)))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

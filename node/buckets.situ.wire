@@ -29,6 +29,12 @@ struct fzn_buckets_bucket size=78
   @0x0026   8         u64        count  big
   @0x002e   32        u8         sum  big
 
+struct fzn_buckets_byref size=42
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   1         fzn_buckets_kind kind
+  @0x0002   32        u8         id  big
+  @0x0022   8         u64        size  big max=67108864
+
 struct fzn_buckets_gone size=38
   @0x0000   1         u8         version  must_eq=1
   @0x0001   1         fzn_buckets_kind kind

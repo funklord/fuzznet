@@ -50,6 +50,9 @@
 #include "opjournal.h"
 #include "messages.h"
 #include "apply.h"
+#ifdef FZN_LOG_PACK_ON
+#include "log_buckets.h"
+#endif
 #include "reconcile.h"
 #include "settings.h"
 #endif
@@ -1530,12 +1533,14 @@ static int serves_bucket(void *ctx, fzn_buckets_kind_t kind, const uint8_t subje
 	struct serving_to *to = (struct serving_to *)ctx;
 	size_t d;
 
-	(void)subject;
 	if (to->holds < 0)
 		to->holds = retention_capability
 		            && fzn_node_apply_holds(&node_apply, to->sender, retention_capability);
 	if (to->holds)
 		return 1;
+	/* A HOST'S OWN LOG is its own to be served, sec 571. */
+	if (kind == FZN_BUCKETS_LOGS)
+		return memcmp(subject, to->sender, FZN_PUBKEY_LEN) == 0;
 	if (kind == FZN_BUCKETS_MESSAGES && messages_on)
 		for (d = 0; d < node_messages.m.device_count; d++)
 			if (memcmp(node_messages.devices[d], to->sender, FZN_PUBKEY_LEN) == 0)
@@ -1603,6 +1608,33 @@ static int line_wanted(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN], uint32_
 	               : 1;
 }
 
+#if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
+/* THIS HOST'S LOG AS BUCKET ITEMS, sec 571: its packed segments, and the
+ * copies of other hosts' it keeps, carried by the bucket exchange. Ready
+ * once the log directory and this host's key are known. */
+static fzn_log_buckets_t node_logs;
+static fzn_buckets_t logs_store;
+static fzn_reconcile_filer_t logs_filer;
+static int logs_ready;
+static fzn_retain_rule_t logs_own[FZN_RETAIN_RULES_MAX], logs_copy[FZN_RETAIN_RULES_MAX];
+
+static int logs_up(void)
+{
+	if (logs_ready)
+		return 1;
+	if (!dlog.on || !dlog.has_host || !dlog.hash || !dlog.verify || !node_apply.store)
+		return 0;
+	logs_store.store = node_apply.store;
+	logs_store.hash = dlog.hash;
+	if (!fzn_log_buckets_init(&node_logs, &logs_store, dlog.logger.dir, dlog.hash, dlog.verify,
+	                          dlog.host))
+		return 0;
+	fzn_log_buckets_filer(&node_logs, &logs_filer);
+	logs_ready = 1;
+	return 1;
+}
+#endif
+
 /* A LINE PUSHED AND KEPT, sec 569: its key, when this node's, given at the
  * round's key exchange. */
 static void line_pushed(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch,
@@ -1629,6 +1661,9 @@ static size_t holdings_remote(void *ctx, const uint8_t *sender, const uint8_t *r
 	srv.gate = &gate;
 	/* A MEMBER'S LINES PUSHED, sec 569, filed and judged as fetched ones. */
 	srv.takers[FZN_BUCKETS_MESSAGES] = messages_on ? &lines : NULL;
+#if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
+	srv.takers[FZN_BUCKETS_LOGS] = logs_up() ? &logs_filer : NULL;
+#endif
 	srv.sender = sender;
 	return fzn_reconcile_serve(&srv, request, request_len, reply, reply_cap);
 }
@@ -1666,16 +1701,37 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 	fzn_reconcile_notes_t notes = { notes_file, &node_notes };
 	size_t t, lacked = 0, applied = 0, waiting = 0, refused = 0, foreign = 0;
 	size_t lines_lacked = 0, lines_filed = 0, lines_passed = 0, lines_pushed = 0;
+	size_t segments_taken = 0, segments_refused = 0, segments_pushed = 0;
 
 	if (!node_apply.store || !node_apply.journal || !node_apply.root)
 		return;
-	if (messages_on) {
+	{
 		static fzn_retain_rule_t gathered[FZN_RETAIN_RULES_MAX];
 		size_t n = gather_rules(gathered);
 
-		line_rules.n = fzn_retain_select_messages(gathered, n, dlog.has_host ? dlog.host : NULL,
-		                                          here_machine(), line_rules.rules);
-		line_rules.now_ms = wall_ms();
+		if (messages_on) {
+			line_rules.n = fzn_retain_select_messages(gathered, n,
+			                                          dlog.has_host ? dlog.host : NULL,
+			                                          here_machine(), line_rules.rules);
+			line_rules.now_ms = wall_ms();
+		}
+#if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
+		/* THIS HOST'S SEGMENTS TAKEN, and the rules a fetch asks, sec 571. */
+		if (logs_up()) {
+			size_t taken = 0;
+
+			if (!fzn_log_buckets_scan(&node_logs, &taken))
+				say(FZN_ENTRY_WARNING, "log/copy", "taking this host's segments as items "
+				                                   "failed part way");
+			node_logs.own_rules = logs_own;
+			node_logs.n_own = fzn_retain_select_here(gathered, n, dlog.host, here_machine(),
+			                                         logs_own);
+			node_logs.copy_rules = logs_copy;
+			node_logs.n_copy = fzn_retain_select_copies(gathered, n, dlog.host,
+			                                             here_machine(), logs_copy);
+			node_logs.now_us = wall_ms() * 1000u;
+		}
+#endif
 	}
 	for (t = 0; t < npulls; t++) {
 		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
@@ -1751,14 +1807,43 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 				lines_pushed += bt.sent;
 			}
 		}
+#if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
+		/* AND LOGS, both ways, sec 571: what this host is served of the
+		 * peer's -- its own, or every source's with the retention
+		 * capability -- and what the peer may hold of this host's. */
+		if (logs_ready) {
+			struct serving_to to = {
+				pulls[t].is_root_at ? node_apply.root : pulls[t].node, -1
+			};
+			fzn_reconcile_gate_t gate = { serves_bucket, &to };
+			fzn_reconcile_bucket_tally_t lt;
+
+			err = fzn_reconcile_buckets(&logs_store, FZN_BUCKETS_LOGS, &logs_filer, peer_ask,
+			                            &asking, reply, sizeof(reply), &lt);
+			if (err != FZN_RECONCILE_OK)
+				say(FZN_ENTRY_WARNING, "log/copy", "logs from %s: %s", pulls[t].host,
+				    fzn_reconcile_err_str(err));
+			else {
+				segments_taken += lt.applied;
+				segments_refused += lt.refused;
+			}
+			err = fzn_reconcile_push(&logs_store, FZN_BUCKETS_LOGS, &gate, &logs_filer, NULL,
+			                         peer_ask, &asking, reply, sizeof(reply), &lt);
+			if (err != FZN_RECONCILE_OK)
+				say(FZN_ENTRY_WARNING, "log/copy", "logs to %s: %s", pulls[t].host,
+				    fzn_reconcile_err_str(err));
+			else
+				segments_pushed += lt.sent;
+		}
+#endif
 	}
 	/* EVERY PASS THAT RAN SAYS SO, at debug, as the trim's and the cut's do. */
 	say(FZN_ENTRY_DEBUG, "reconcile",
 	    "reconcile pass: %zu peer(s), %zu of another estate passed over, %zu lacked, "
 	    "%zu applied, %zu waiting, %zu refused; lines %zu lacked, %zu filed, %zu month(s) "
-	    "passed over, %zu pushed",
+	    "passed over, %zu pushed; segments %zu taken, %zu refused, %zu pushed",
 	    npulls, foreign, lacked, applied, waiting, refused, lines_lacked, lines_filed,
-	    lines_passed, lines_pushed);
+	    lines_passed, lines_pushed, segments_taken, segments_refused, segments_pushed);
 }
 
 /* STREAMS THIS NODE IS BEHIND A PEER'S BASE ON, sec 552: the peer cut what

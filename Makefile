@@ -1324,9 +1324,9 @@ TEST_BINS += $(BUILD_DIR)/log/test/logger_test
 TEST_BINS += $(BUILD_DIR)/log/test/gather_test
 endif
 
-LOG_PACK_SRCS := log/pack.c log/copy.c
-LOG_PACK_HDRS := log/pack.h log/copy.h
-LOG_PACK_TSRC := log/test/pack_test.c log/test/copy_test.c
+LOG_PACK_SRCS := log/pack.c log/copy.c node/log_buckets.c
+LOG_PACK_HDRS := log/pack.h log/copy.h node/log_buckets.h
+LOG_PACK_TSRC := log/test/pack_test.c log/test/copy_test.c node/test/log_buckets_test.c
 
 ifdef LOG_PACK_ON
 CPPFLAGS  += -DFZN_LOG_PACK_ON
@@ -1335,6 +1335,7 @@ HDRS      += $(LOG_PACK_HDRS)
 TEST_SRCS += $(LOG_PACK_TSRC)
 TEST_BINS += $(BUILD_DIR)/log/test/pack_test
 TEST_BINS += $(BUILD_DIR)/log/test/copy_test
+TEST_BINS += $(BUILD_DIR)/node/test/log_buckets_test
 endif
 
 CLAIM_FILE_SRCS := claim/claim_file.c
@@ -4032,6 +4033,15 @@ $(BUILD_DIR)/node/test/buckets_test: $(BUILD_DIR)/node/test/buckets_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# A host's packed log segments as bucket items, sec 571.
+$(BUILD_DIR)/node/test/log_buckets_test: $(BUILD_DIR)/node/test/log_buckets_test.o \
+                                         $(BUILD_DIR)/node/log_buckets.o \
+                                         $(BUILD_DIR)/node/reconcile.o \
+                                         $(BUILD_DIR)/log/copy.o $(BUILD_DIR)/log/pack.o \
+                                         $(BUILD_DIR)/messages/line.o $(NODE_APPLY_LINK)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@ $(ZSTD_LIBS)
+
 # The node's notes, the model and the verbs over it. sec 431.
 FUZZNETD_NOTES_OBJS := $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/notes/store.o \
                        $(BUILD_DIR)/notes/view.o $(BUILD_DIR)/notes/author.o \
@@ -4077,7 +4087,8 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(BUILD_DIR)/log/view.o \
               $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o $(BUILD_DIR)/log/ring.o \
                 $(BUILD_DIR)/log/gather.o) \
-              $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o $(BUILD_DIR)/log/copy.o) \
+              $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o $(BUILD_DIR)/log/copy.o \
+                $(BUILD_DIR)/node/log_buckets.o) \
               $(MONO_OBJS) $(FLOG_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
