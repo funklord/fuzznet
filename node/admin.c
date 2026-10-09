@@ -2006,6 +2006,15 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 			return n;
 	}
 
+	/* A RECONCILIATION MESSAGE, version byte 6, the same way. sec 551. */
+	if (admin->holdings_remote && req->payload) {
+		size_t n = admin->holdings_remote(admin->holdings_ctx, req->payload, req->payload_len,
+		                                  reply, reply_cap);
+
+		if (n)
+			return n;
+	}
+
 	/* A NOTES SYNC MESSAGE, version byte 2, the same way. sec 432. */
 	if (admin->notes_remote && req->payload) {
 		size_t n = admin->notes_remote(admin->notes_ctx, req->sender, 0, req->payload,

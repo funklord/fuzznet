@@ -60783,3 +60783,43 @@ another tag or a short one is passed over; the ids come back ascending;
 both setting row shapes read past their heads. Five sabotage entries,
 each probed caught. Not covered: the revocation signer offset, since the
 fixture holds no votes.
+
+## 551. Stage 5, steps 2 and 3: the reconcile exchange, every round, 2026-10-09
+
+Sec 550's second and third steps, built together because the round is
+little more than the exchange's client.
+
+- **`node/reconcile.h`**, contract `node/reconcile.situ` (version byte 6,
+  below every verb and apart from notes and messages 2, cause 3, gather 4
+  and the journal 5): DIGEST, a count and digest per class; IDS, a page
+  of a class's ids ascending; OBJECTS, the objects named, as many as fit.
+  A class too large to list answers a count of all ones and is skipped.
+- **The round, `fzn_reconcile_round`**: classes in order, grants first.
+  A class whose count and digest agree costs nothing beyond the one
+  DIGEST. Otherwise the peer's ids are paged, the ones this node lacks are
+  asked for 32 at a time, and what did not fit a reply is asked again.
+  Each object must hash to an id asked for. It is then applied by
+  `fzn_node_apply_object`, so a forged object is refused by its signature
+  as a journal record's would be. An object whose signer's chain has not
+  arrived is not kept, and is fetched again next round.
+- **fuzznetd** serves the exchange to members after the journal's
+  (`holdings_remote` in `node/admin.h`, never to a contact) and runs a
+  round with every pull peer after applying the journal. It logs what
+  came and was refused, and a debug line every pass.
+
+A round only adds. What is superseded is decided where each class is
+applied, so a peer holding less is never a reason to hold less.
+
+Measured: reconcile_test 10 checks, two nodes in one process. A node
+holding nothing comes to its peer's digests in one round: two grants and
+twenty settings, the admin's and the member's among them. A second round
+asks the digest alone. Over the smallest reply buffer the same arrives
+by pages and re-asks. A peer that changes a byte of every object it
+sends has all three refused and nothing kept. A peer that leaves the
+last id of every page out leaves a grant and a setting missing, and the
+next peer fills both. Four sabotage entries, each probed caught.
+
+Not exercised: fuzznetd's round and its admin hook, until step 5's live
+check; note claims (slot 17), which reconcile through the notes store's
+own path in a later step; and step 4, streams behind a peer's base, so
+a cut stream's `missing` warning still repeats every round.

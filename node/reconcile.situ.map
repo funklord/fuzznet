@@ -1,0 +1,74 @@
+# situ capability map v1
+# schema: reconcile.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct fzn_reconcile_class size=37 repr=ValueConverted atomic=NonAtomic
+  fzn_reconcile_class.class              offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_class.count              offset=AbsoluteStatic(0x01) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_reconcile_class.digest             offset=AbsoluteStatic(0x05) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+
+struct fzn_reconcile_digest size=3..299 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_reconcile_digest.version           offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_digest.type              offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_digest.count             offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_digest.classes           offset=AbsoluteStatic(0x03) size=Bounded(0, 296) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  fzn_reconcile_digest.classes[]         offset=FrameStatic(0x00) size=Fixed(37) align=Aligned(8) repr=ValueConverted atomic=NonAtomic
+  fzn_reconcile_digest.classes[].class   offset=FrameStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_digest.classes[].count   offset=FrameStatic(0x01) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_reconcile_digest.classes[].digest  offset=FrameStatic(0x05) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+
+struct fzn_reconcile_digest_query size=2
+  fzn_reconcile_digest_query.version     offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_digest_query.type        offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+
+struct fzn_reconcile_id size=32 atomic=NonAtomic
+  fzn_reconcile_id.id                    offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+
+struct fzn_reconcile_ids size=13..2097133 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_reconcile_ids.version              offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_ids.type                 offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_ids.class                offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_ids.total                offset=AbsoluteStatic(0x03) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_reconcile_ids.from                 offset=AbsoluteStatic(0x07) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_reconcile_ids.count                offset=AbsoluteStatic(0x0B) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_reconcile_ids.ids                  offset=AbsoluteStatic(0x0D) size=Bounded(0, 2097120) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  fzn_reconcile_ids.ids[]                offset=FrameStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_reconcile_ids.ids[].id             offset=FrameStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+
+struct fzn_reconcile_ids_query size=7 repr=ValueConverted atomic=NonAtomic
+  fzn_reconcile_ids_query.version        offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_ids_query.type           offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_ids_query.class          offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_ids_query.from           offset=AbsoluteStatic(0x03) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+
+struct fzn_reconcile_object size=5..2050 mutate=Shifting repr=ValueConverted
+  fzn_reconcile_object.len               offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_reconcile_object.object            offset=AbsoluteStatic(0x02) size=Bounded(3, 2048) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct fzn_reconcile_objects size=5..134346755 access=Sequential mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_reconcile_objects.version          offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_objects.type             offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_objects.class            offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_objects.count            offset=AbsoluteStatic(0x03) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_reconcile_objects.objects          offset=AbsoluteStatic(0x05) size=Bounded(0, 134346750) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting
+  fzn_reconcile_objects.objects[]        offset=FrameStatic(0x00) size=Bounded(5, 2050) align=Aligned(8) repr=ValueConverted atomic=NonAtomic access=Sequential mutate=Shifting
+  fzn_reconcile_objects.objects[].len    offset=FrameStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_reconcile_objects.objects[].object offset=FrameStatic(0x02) size=Bounded(3, 2048) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct fzn_reconcile_objects_query size=36..1028 mutate=Shifting atomic=NonAtomic
+  fzn_reconcile_objects_query.version    offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_objects_query.type       offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_objects_query.class      offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_objects_query.count      offset=AbsoluteStatic(0x03) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_objects_query.ids        offset=AbsoluteStatic(0x04) size=Bounded(32, 1024) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  fzn_reconcile_objects_query.ids[]      offset=FrameStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_reconcile_objects_query.ids[].id   offset=FrameStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic

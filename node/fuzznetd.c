@@ -50,6 +50,7 @@
 #include "opjournal.h"
 #include "messages.h"
 #include "apply.h"
+#include "reconcile.h"
 #include "settings.h"
 #endif
 #include "peer_persist.h"
@@ -1509,6 +1510,51 @@ static void apply_journal(void)
 		    "%zu object(s) applied, %zu grant(s) indexed, %zu refused, %zu stream(s) waiting "
 		    "on a chain",
 		    tally.applied, tally.grants, tally.refused, tally.waiting);
+}
+
+/* WHAT THIS NODE HOLDS OF THE ESTATE'S STATE, served to a member, sec 551. */
+static size_t holdings_remote(void *ctx, const uint8_t *request, size_t request_len,
+                              uint8_t *reply, size_t reply_cap)
+{
+	const fzn_node_apply_t *ap = (const fzn_node_apply_t *)ctx;
+
+	return fzn_reconcile_answer(ap->store, ap->hash, request, request_len, reply, reply_cap);
+}
+
+/* ONE ROUND OF RECONCILIATION against every pull peer, sec 551: what the
+ * journal did not bring -- cut before this node saw it -- fetched from what
+ * the peer holds, every round, so a gap one peer leaves another fills. */
+static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	static uint8_t reply[FZND_PULL_REPLY_MAX];
+	size_t t, lacked = 0, applied = 0, waiting = 0, refused = 0;
+
+	if (!node_apply.store || !node_apply.journal)
+		return;
+	for (t = 0; t < npulls; t++) {
+		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
+		fzn_reconcile_tally_t tally;
+		fzn_reconcile_err_t err = fzn_reconcile_round(&node_apply, peer_ask, &asking, reply,
+		                                              sizeof(reply), &tally);
+
+		if (err != FZN_RECONCILE_OK) {
+			say(FZN_ENTRY_WARNING, "reconcile", "the estate's state from %s: %s",
+			    pulls[t].host, fzn_reconcile_err_str(err));
+			continue;
+		}
+		if (tally.applied || tally.refused || tally.full)
+			say(tally.refused || tally.full ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "reconcile",
+			    "%zu object(s) from %s, %zu refused, %zu class(es) too large to list",
+			    tally.applied, pulls[t].host, tally.refused, tally.full);
+		lacked += tally.lacked;
+		applied += tally.applied;
+		waiting += tally.waiting;
+		refused += tally.refused;
+	}
+	/* EVERY PASS THAT RAN SAYS SO, at debug, as the trim's and the cut's do. */
+	say(FZN_ENTRY_DEBUG, "reconcile",
+	    "reconcile pass: %zu peer(s), %zu lacked, %zu applied, %zu waiting, %zu refused",
+	    npulls, lacked, applied, waiting, refused);
 }
 
 /* ONE ROUND OF THE JOURNAL against every pull peer. */
@@ -3770,6 +3816,8 @@ int main(int argc, char **argv)
 				node_settings.estate = state.config.root;
 				node_settings.now = wall_clock;
 				node_apply.settings = &node_settings;
+				admin.holdings_remote = holdings_remote;
+				admin.holdings_ctx = &node_apply;
 				admin.settings_local = fzn_node_settings_local;
 				admin.settings_ctx = &node_settings;
 				admin.settings = &node_settings;
@@ -4053,6 +4101,7 @@ int main(int argc, char **argv)
 				follow_estate(identity.pubkey, &state, running_roots);
 				pull_journal(pulls, npulls, now);
 				apply_journal();
+				reconcile_estate(pulls, npulls, now);
 				messages_round(pulls, npulls, now);
 				journal_cut(now);
 #endif

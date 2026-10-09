@@ -148,6 +148,7 @@
 #include <fuzznet/node/apply.h>
 #include <fuzznet/node/settings.h>
 #include <fuzznet/node/holdings.h>
+#include <fuzznet/node/reconcile.h>
 #ifdef FZN_CLI_ON
 #include <fuzznet/cli/cli.h>
 #endif
@@ -317,6 +318,7 @@
 #include "node/apply.h"
 #include "node/settings.h"
 #include "node/holdings.h"
+#include "node/reconcile.h"
 #ifdef FZN_CLI_ON
 #include "cli/cli.h"
 #endif

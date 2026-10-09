@@ -1,0 +1,73 @@
+# situ wire signature v2
+# schema: reconcile.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+endian big
+target buffer
+
+enum fzn_reconcile_type : u8 unknown=error
+  digest_query=1 digest=2 ids_query=3 ids=4 objects_query=5 objects=6
+
+struct fzn_reconcile_class size=37
+  @0x0000   1         u8         class  max=7
+  @0x0001   4         u32        count  big
+  @0x0005   32        u8         digest  big
+
+struct fzn_reconcile_digest size=3..299
+  @0x0000   1         u8         version  must_eq=6
+  @0x0001   1         fzn_reconcile_type type  must_eq=digest
+  @0x0002   1         u8         count  max=8
+  @0x0003   0..296    fzn_reconcile_class classes  sized-by=count
+
+struct fzn_reconcile_digest_query size=2
+  @0x0000   1         u8         version  must_eq=6
+  @0x0001   1         fzn_reconcile_type type  must_eq=digest_query
+
+struct fzn_reconcile_id size=32
+  @0x0000   32        u8         id  big
+
+struct fzn_reconcile_ids size=13..2097133
+  @0x0000   1         u8         version  must_eq=6
+  @0x0001   1         fzn_reconcile_type type  must_eq=ids
+  @0x0002   1         u8         class  max=7
+  @0x0003   4         u32        total  big
+  @0x0007   4         u32        from  big
+  @0x000b   2         u16        count  big
+  @0x000d   0..2097120 fzn_reconcile_id ids  sized-by=count
+
+struct fzn_reconcile_ids_query size=7
+  @0x0000   1         u8         version  must_eq=6
+  @0x0001   1         fzn_reconcile_type type  must_eq=ids_query
+  @0x0002   1         u8         class  max=7
+  @0x0003   4         u32        from  big
+
+struct fzn_reconcile_object size=5..2050
+  @0x0000   2         u16        len  big min=3 max=2048
+  @0x0002   3..2048   u8         object  big sized-by=len
+
+struct fzn_reconcile_objects size=5..134346755
+  @0x0000   1         u8         version  must_eq=6
+  @0x0001   1         fzn_reconcile_type type  must_eq=objects
+  @0x0002   1         u8         class  max=7
+  @0x0003   2         u16        count  big
+  @0x0005   0..134346750 fzn_reconcile_object objects  sized-by=count
+
+struct fzn_reconcile_objects_query size=36..1028
+  @0x0000   1         u8         version  must_eq=6
+  @0x0001   1         fzn_reconcile_type type  must_eq=objects_query
+  @0x0002   1         u8         class  max=7
+  @0x0003   1         u8         count  min=1 max=32
+  @0x0004   32..1024  fzn_reconcile_id ids  big sized-by=count

@@ -1,0 +1,82 @@
+// Reconciliation's messages: what one node holds of the estate's state, and
+// the objects another lacks. project.md sec 551. The hand-written codec is
+// node/reconcile.c; this is its checked contract, in `make schema`'s list.
+//
+// The first byte is the message version, 6, below any verb's first letter
+// and apart from notes and messages (2), cause (3), gather (4) and the
+// journal's exchange (5), so a node dispatching on it falls through.
+
+target buffer;
+endian big;
+
+enum fzn_reconcile_type : u8 {
+	digest_query  = 1,   // "What do you hold?"
+	digest        = 2,   // "Of each class, this many, digested so."
+	ids_query     = 3,   // "That class's ids, from this one."
+	ids           = 4,   // "These, of this many."
+	objects_query = 5,   // "These objects, by id."
+	objects       = 6,   // "Those I hold of them."
+}
+
+struct fzn_reconcile_digest_query {
+	u8                  version [must_eq = 6];
+	fzn_reconcile_type  type    [must_eq = digest_query];
+}
+
+// One class: node/holdings.h's fzn_holdings_class_t, its count, its digest.
+struct fzn_reconcile_class {
+	u8   class   [max = 7];
+	u32  count;
+	u8   digest[32];
+}
+
+struct fzn_reconcile_digest {
+	u8                   version [must_eq = 6];
+	fzn_reconcile_type   type    [must_eq = digest];
+	u8                   count   [max = 8];
+	fzn_reconcile_class  classes[count];
+}
+
+struct fzn_reconcile_ids_query {
+	u8                  version [must_eq = 6];
+	fzn_reconcile_type  type    [must_eq = ids_query];
+	u8                  class   [max = 7];
+	u32                 from;               // the first id wanted, by position
+}
+
+struct fzn_reconcile_id {
+	u8  id[32];
+}
+
+struct fzn_reconcile_ids {
+	u8                  version [must_eq = 6];
+	fzn_reconcile_type  type    [must_eq = ids];
+	u8                  class   [max = 7];
+	u32                 total;              // every id of the class held
+	u32                 from;               // echoed
+	u16                 count;
+	fzn_reconcile_id    ids[count];         // ascending
+}
+
+struct fzn_reconcile_objects_query {
+	u8                  version [must_eq = 6];
+	fzn_reconcile_type  type    [must_eq = objects_query];
+	u8                  class   [max = 7];
+	u8                  count   [min = 1, max = 32];
+	fzn_reconcile_id    ids[count];
+}
+
+// One signed object, whole: a hop, a root record, a vote, a confirmation,
+// a retention record, a roster record, a succession or a setting.
+struct fzn_reconcile_object {
+	u16  len [min = 3, max = 2048];
+	u8   object[len];
+}
+
+struct fzn_reconcile_objects {
+	u8                    version [must_eq = 6];
+	fzn_reconcile_type    type    [must_eq = objects];
+	u8                    class   [max = 7];
+	u16                   count;
+	fzn_reconcile_object  objects[count];
+}
