@@ -60874,32 +60874,62 @@ moves it makes, until step 5's live check. A peer that lies about the
 subjects in a bridge is caught by nothing yet. The remedy is the one
 reconciliation uses, comparing with a second peer, and it is not built.
 
-## 553. Stage 5, step 5 blocked: a paired device cannot rank its root node's settings, 2026-10-09
+## 553. A device paired to a node is not in its estate; a member takes its settings, 2026-10-09
 
-Found while setting up sec 550's live check, before any of it was
-written. Reproduction, two stores over loopback, both with
-`--fuzznet-service=1 --fuzznet-product=1`:
+Set up for sec 550's live check. The first reading of it was wrong and is
+rewritten here. Two stores over loopback, both with
+`--fuzznet-service=1 --fuzznet-product=1`, and A made a root with
+`--new-root`:
 
-1. A: `--new-root`. B: `--prekey`. A: `--pair=PREKEY` prints a `FZN3:`
-   card; B: `--accept=CARD` pairs to A. `--join` is refused, since the
-   grant cannot be passed on.
-2. A serves with `--udp-port`, B with `--pull-from A_ID 127.0.0.1 PORT`.
-3. On A, `set setting estate x/one 1` answers `ok`. `list setting` shows
-   it at root rank, about A's own identity.
-4. B's reconciliation (sec 551) fetches two objects. The grant applies
-   and the setting waits, every round, for 75 seconds:
-   `reconcile pass: 1 peer(s), 1 lacked, 0 applied, 1 waiting`. B also
-   logs `1 member(s) from 127.0.0.1 did not prove`, its `list peer` is
-   empty, and `get setting estate x/one` answers `ok absent`.
+- **Paired, not joined.** A: `--pair=PREKEY`; B: `--accept=CARD`; B
+  serving `--pull-from A_ID 127.0.0.1 PORT`. A's estate setting reached B
+  by reconciliation and waited at B every round. That is correct: a plain
+  `--accept` pairs B to A as a device, and B's estate stays its own,
+  rooted at B, so A's setting is another estate's and nothing at B ranks
+  it. `--join` is refused for that card, since its grant cannot be
+  passed on.
+- **Joined.** A: `--pair=PREKEY --delegable`; B: `--accept=CARD --join`
+  answers "joined the estate rooted at" A's identity; B serving
+  `--root-at 127.0.0.1 PORT`. Two settings A wrote before B started
+  arrived through the journal and are in force at B at root rank.
 
-What is established: `fzn_node_apply_rank` at B returns 0 for A's key,
-no chain reaching a root. So B neither counts A as a root nor holds a
-chain for it, while A takes itself as the estate's root. This is not
-reconciliation's: the journal path judges by the same call and would
-wait the same way.
+So nothing blocks the live check: it is written with a joined member.
 
-What is not established: whether B's root is A's identity or the key
-`--new-root` made, and whether the identity-root pairing of sec 419 is
-meant to give B the root record that would rank A. Until a device can
-rank its root node's settings, the planned check -- a setting written at
-one node arriving at another across a cut window -- has nothing to show.
+One observation from the first setup stands, and is open rather than
+fixed. A node pulling from a peer of another estate reconciles with it
+like any peer, so that estate's objects are fetched every round and wait
+for ever. It costs bandwidth, not correctness. Limiting reconciliation
+to peers of this node's estate needs the daemon to know a pull peer's
+estate, which it does not today.
+
+## 554. Stage 5, step 5: a member away past the window rejoins, live, 2026-10-09
+
+Sec 550's last step. `tool/live_rejoin.py`, now part of `make livecheck`,
+runs two daemons over loopback. A makes a root and pairs B with a grant
+B can pass on, and B joins (sec 553). Setup and phase a run under a clock
+62 days back:
+
+- **a.** A sets `x/old`. B, serving with `--root-at`, takes it by the
+  journal and is stopped. A then sets `x/away`, which B never pulls.
+- **b.** On the real clock, A's first cut pass cuts what is older than
+  the 60-day window: three records, `x/old`'s and `x/away`'s among them.
+  A sets `x/now`. B starts: its pull finds A's stream cut below what it
+  lacks and moves it up to A's base (sec 552). Its reconcile pass applies
+  two objects, `x/away` among them, which is in no journal any more
+  (sec 551). All three settings read at B at root rank.
+- **c.** B restarts. Its journal follows from the new base, the pull
+  misses nothing, and the three settings read.
+
+The waits are on the daemons' own log lines, each checked before the
+settings are. Run against a daemon that does not move streams up, phase b
+fails waiting for the move. Run against one whose reconcile pass logs and
+fetches nothing, phase b fails at "applied 0 ... x/away is in no
+journal" rather than at a missing log line. The first version of that
+control removed the whole pass and failed in phase a, on the line, which
+proved nothing about the setting.
+
+Stage 5 is built: holdings (550), reconciliation every round (551),
+streams moved up to a peer's base (552), and this. Still open: note
+claims (slot 17) are not reconciled; the subjects in a spine bridge are
+the peer's word; and a pull peer of another estate is reconciled with
+every round to no effect (sec 553).
