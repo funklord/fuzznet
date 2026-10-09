@@ -39,11 +39,18 @@
 #define FZN_BUCKETS_CHUNK 64u
 /* The most buckets of one kind a node lists: past it the kind is FULL. */
 #define FZN_BUCKETS_MAX 4096u
+/* AN ITEM TOO LARGE FOR A ROW, sec 570: its kind keeps it, and the row names
+ * it -- in at most this many bytes of the kind's choosing -- with its
+ * length, at most FZN_BUCKETS_LARGE_MAX: a log copy's bound (sec 483). */
+#define FZN_BUCKETS_REF_MAX 256u
+#define FZN_BUCKETS_LARGE_MAX (64u * 1024u * 1024u)
 
 /* `node/buckets.situ`'s fzn_buckets_kind. Logs and telemetry join here. */
 typedef enum fzn_buckets_kind {
 	FZN_BUCKETS_MESSAGES = 0,
-	FZN_BUCKETS_KINDS = 1
+	/* A host's packed log segments, its subject the source host. sec 570. */
+	FZN_BUCKETS_LOGS = 1,
+	FZN_BUCKETS_KINDS = 2
 } fzn_buckets_kind_t;
 
 typedef enum fzn_buckets_err {
@@ -56,7 +63,9 @@ typedef enum fzn_buckets_err {
 	/* The bucket was let go here. */
 	FZN_BUCKETS_GONE = -4,
 	/* No such item here. */
-	FZN_BUCKETS_ABSENT = -5
+	FZN_BUCKETS_ABSENT = -5,
+	/* The item is held, by its kind: `fzn_buckets_ref` names it. */
+	FZN_BUCKETS_LARGE = -6
 } fzn_buckets_err_t;
 
 const char *fzn_buckets_err_str(fzn_buckets_err_t err);
@@ -85,12 +94,29 @@ fzn_buckets_err_t fzn_buckets_add(const fzn_buckets_t *b, fzn_buckets_kind_t kin
                                   const uint8_t subject[FZN_PUBKEY_LEN], uint32_t month,
                                   const uint8_t *item, size_t len, int *added);
 
+/* TAKE AN ITEM ITS KIND KEEPS, sec 570: `id` -- the hash of its bytes, which
+ * the kind checked -- of `size` bytes, named `ref` (`ref_len` bytes, the
+ * kind's own name for it). Held, counted and listed as any item; served
+ * through the kind. */
+fzn_buckets_err_t fzn_buckets_add_ref(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
+                                      const uint8_t subject[FZN_PUBKEY_LEN], uint32_t month,
+                                      const uint8_t id[FZN_BUCKETS_ID_LEN], uint64_t size,
+                                      const uint8_t *ref, size_t ref_len, int *added);
+
+/* WHERE ITS KIND KEEPS `id`: its ref and length. ABSENT for an item held in
+ * a row, or none. */
+fzn_buckets_err_t fzn_buckets_ref(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
+                                  const uint8_t id[FZN_BUCKETS_ID_LEN],
+                                  uint8_t ref[FZN_BUCKETS_REF_MAX], size_t *ref_len,
+                                  uint64_t *size);
+
 /* Whether the item `id` of `kind` is held, indexed. */
 int fzn_buckets_has(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
                     const uint8_t id[FZN_BUCKETS_ID_LEN]);
 
 /* THE ITEM `id`, into `out` (room for `cap`), `*len` bytes, and its
- * bucket's subject and month (either may be NULL). ABSENT when not held. */
+ * bucket's subject and month (either may be NULL). ABSENT when not held;
+ * LARGE, the subject and month given, for one its kind keeps. */
 fzn_buckets_err_t fzn_buckets_item(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
                                    const uint8_t id[FZN_BUCKETS_ID_LEN], uint8_t *out,
                                    size_t cap, size_t *len, uint8_t subject[FZN_PUBKEY_LEN],

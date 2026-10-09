@@ -21,6 +21,12 @@
 #define I_INDEXED (B_MONTH + 4u)
 #define I_LEN (I_INDEXED + 1u)
 #define I_ITEM (I_LEN + 2u)
+/* fzn_buckets_ref, sec 570: the same head, then the size and the ref. */
+#define REF_VERSION 2u
+#define R_SIZE (I_INDEXED + 1u)
+#define R_LEN (R_SIZE + 8u)
+#define R_REF (R_LEN + 2u)
+#define ROW_MAX (I_ITEM + FZN_BUCKETS_ITEM_MAX)
 #define CHUNK_BYTES (FZN_BUCKETS_CHUNK * FZN_BUCKETS_ID_LEN)
 
 const char *fzn_buckets_err_str(fzn_buckets_err_t err)
@@ -38,6 +44,8 @@ const char *fzn_buckets_err_str(fzn_buckets_err_t err)
 		return "the bucket was let go here";
 	case FZN_BUCKETS_ABSENT:
 		return "no such item here";
+	case FZN_BUCKETS_LARGE:
+		return "the item is kept by its kind, not in a row";
 	}
 	return "unknown";
 }
@@ -148,21 +156,33 @@ int fzn_buckets_gone(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
 	       && len == G_LEN && head_is(bytes, len, G_LEN, kind, subject, 1, month);
 }
 
-/* The item row of `id`, read into `out` (I_ITEM + FZN_BUCKETS_ITEM_MAX):
- * its length, or 0 when absent or not this kind's. */
-static size_t item_load(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
-                        const uint8_t id[FZN_BUCKETS_ID_LEN], uint8_t *out)
+/* THE ROW OF `id`, read into `out` (ROW_MAX): 1 an item held in it, 2 a
+ * ref to one its kind keeps (sec 570), 0 none or not this kind's; its
+ * length into `*len`. */
+static int row_load(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
+                    const uint8_t id[FZN_BUCKETS_ID_LEN], uint8_t *out, size_t *len)
 {
 	uint8_t row[FZN_PUBKEY_LEN];
-	size_t len = 0, n;
+	size_t n;
 
+	*len = 0;
 	if (!row_of(b, "fuzznet.bucket.item", kind, id, 0, 0u, 0, 0u, row)
-	    || !b->store->load(b->store->ctx, FZN_PERSIST_BUCKET_ITEM, row, out,
-	                       I_ITEM + FZN_BUCKETS_ITEM_MAX, &len)
-	    || !head_is(out, len, I_ITEM + 1u, kind, NULL, 0, 0u) || out[I_INDEXED] > 1u)
+	    || !b->store->load(b->store->ctx, FZN_PERSIST_BUCKET_ITEM, row, out, ROW_MAX, len)
+	    || *len <= I_INDEXED || out[B_KIND] != (uint8_t)kind || out[I_INDEXED] > 1u)
 		return 0;
-	n = ((size_t)out[I_LEN] << 8) | out[I_LEN + 1u];
-	return n >= 1u && n <= FZN_BUCKETS_ITEM_MAX && len == I_ITEM + n ? len : 0;
+	if (out[0] == VERSION && *len >= I_ITEM + 1u) {
+		n = ((size_t)out[I_LEN] << 8) | out[I_LEN + 1u];
+		return n >= 1u && n <= FZN_BUCKETS_ITEM_MAX && *len == I_ITEM + n ? 1 : 0;
+	}
+	if (out[0] == REF_VERSION && *len >= R_REF + 1u) {
+		n = ((size_t)out[R_LEN] << 8) | out[R_LEN + 1u];
+		return n >= 1u && n <= FZN_BUCKETS_REF_MAX && *len == R_REF + n
+		                       && fzn_get_be64(out + R_SIZE) >= 1u
+		                       && fzn_get_be64(out + R_SIZE) <= FZN_BUCKETS_LARGE_MAX
+		               ? 2
+		               : 0;
+	}
+	return 0;
 }
 
 static int item_save(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
@@ -204,26 +224,24 @@ static void sum_add(uint8_t sum[FZN_BUCKETS_ID_LEN], const uint8_t id[FZN_BUCKET
 	}
 }
 
-fzn_buckets_err_t fzn_buckets_add(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
-                                  const uint8_t subject[FZN_PUBKEY_LEN], uint32_t month,
-                                  const uint8_t *item, size_t len, int *added)
+/* TAKE `id` UNDER (kind, subject, month), its row -- an item or a ref,
+ * its mark at I_INDEXED -- in `row_bytes`. */
+static fzn_buckets_err_t take(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
+                              const uint8_t subject[FZN_PUBKEY_LEN], uint32_t month,
+                              const uint8_t id[FZN_BUCKETS_ID_LEN], uint8_t *row_bytes,
+                              size_t row_len, int *added)
 {
-	static uint8_t row_bytes[I_ITEM + FZN_BUCKETS_ITEM_MAX];
-	uint8_t id[FZN_BUCKETS_ID_LEN], bucket[B_LEN], chunk[CHUNK_BYTES], row[FZN_PUBKEY_LEN];
+	static uint8_t held_row[ROW_MAX];
+	uint8_t bucket[B_LEN], chunk[CHUNK_BYTES], row[FZN_PUBKEY_LEN];
 	uint64_t count;
-	size_t in_chunk;
+	size_t in_chunk, held_len = 0;
 	int held, indexed = 0;
 
-	if (added)
-		*added = 0;
-	if (!ready(b, kind) || !subject || !item || len == 0u || len > FZN_BUCKETS_ITEM_MAX
-	    || !fzn_buckets_id(b->hash, item, len, id))
-		return FZN_BUCKETS_MALFORMED;
 	if (fzn_buckets_gone(b, kind, subject, month))
 		return FZN_BUCKETS_GONE;
 	/* TAKEN AND INDEXED ALREADY: nothing to do. Saved but not indexed --
 	 * a crash between the two -- is indexed now. */
-	if (item_load(b, kind, id, row_bytes) && row_bytes[I_INDEXED] == 1u)
+	if (row_load(b, kind, id, held_row, &held_len) && held_row[I_INDEXED] == 1u)
 		return FZN_BUCKETS_OK;
 	held = bucket_load(b, kind, subject, month, bucket);
 	if (held < 0)
@@ -235,17 +253,13 @@ fzn_buckets_err_t fzn_buckets_add(const fzn_buckets_t *b, fzn_buckets_kind_t kin
 	count = fzn_get_be64(bucket + B_COUNT);
 	if (count / FZN_BUCKETS_CHUNK >= UINT32_MAX)
 		return FZN_BUCKETS_FULL;
-	/* THE BYTES, THEN THE ID AND COUNT, THEN THE MARK. A crash before the
+	/* THE ROW, THEN THE ID AND COUNT, THEN THE MARK. A crash before the
 	 * count leaves an item no listing names, taken again next time -- its
 	 * id written over, since a chunk is read only as far as the count. One
 	 * after the count, before the mark, leaves its id the last counted,
 	 * which this finds rather than counting it twice. */
-	put_head(row_bytes, kind, subject, month);
 	row_bytes[I_INDEXED] = 0u;
-	row_bytes[I_LEN] = (uint8_t)(len >> 8);
-	row_bytes[I_LEN + 1u] = (uint8_t)len;
-	memcpy(row_bytes + I_ITEM, item, len);
-	if (!item_save(b, kind, id, row_bytes, I_ITEM + len))
+	if (!item_save(b, kind, id, row_bytes, row_len))
 		return FZN_BUCKETS_BACKEND;
 	if (count > 0u) {
 		size_t last = (size_t)((count - 1u) % FZN_BUCKETS_CHUNK);
@@ -275,19 +289,60 @@ fzn_buckets_err_t fzn_buckets_add(const fzn_buckets_t *b, fzn_buckets_kind_t kin
 			return FZN_BUCKETS_BACKEND;
 	}
 	row_bytes[I_INDEXED] = 1u;
-	if (!item_save(b, kind, id, row_bytes, I_ITEM + len))
+	if (!item_save(b, kind, id, row_bytes, row_len))
 		return FZN_BUCKETS_BACKEND;
 	if (added)
 		*added = 1;
 	return FZN_BUCKETS_OK;
 }
 
+fzn_buckets_err_t fzn_buckets_add(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
+                                  const uint8_t subject[FZN_PUBKEY_LEN], uint32_t month,
+                                  const uint8_t *item, size_t len, int *added)
+{
+	static uint8_t row_bytes[ROW_MAX];
+	uint8_t id[FZN_BUCKETS_ID_LEN];
+
+	if (added)
+		*added = 0;
+	if (!ready(b, kind) || !subject || !item || len == 0u || len > FZN_BUCKETS_ITEM_MAX
+	    || !fzn_buckets_id(b->hash, item, len, id))
+		return FZN_BUCKETS_MALFORMED;
+	put_head(row_bytes, kind, subject, month);
+	row_bytes[I_LEN] = (uint8_t)(len >> 8);
+	row_bytes[I_LEN + 1u] = (uint8_t)len;
+	memcpy(row_bytes + I_ITEM, item, len);
+	return take(b, kind, subject, month, id, row_bytes, I_ITEM + len, added);
+}
+
+fzn_buckets_err_t fzn_buckets_add_ref(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
+                                      const uint8_t subject[FZN_PUBKEY_LEN], uint32_t month,
+                                      const uint8_t id[FZN_BUCKETS_ID_LEN], uint64_t size,
+                                      const uint8_t *ref, size_t ref_len, int *added)
+{
+	uint8_t row_bytes[R_REF + FZN_BUCKETS_REF_MAX];
+
+	if (added)
+		*added = 0;
+	if (!ready(b, kind) || !subject || !id || !ref || ref_len == 0u
+	    || ref_len > FZN_BUCKETS_REF_MAX || size == 0u || size > FZN_BUCKETS_LARGE_MAX)
+		return FZN_BUCKETS_MALFORMED;
+	put_head(row_bytes, kind, subject, month);
+	row_bytes[0] = REF_VERSION;
+	fzn_put_be64(row_bytes + R_SIZE, size);
+	row_bytes[R_LEN] = (uint8_t)(ref_len >> 8);
+	row_bytes[R_LEN + 1u] = (uint8_t)ref_len;
+	memcpy(row_bytes + R_REF, ref, ref_len);
+	return take(b, kind, subject, month, id, row_bytes, R_REF + ref_len, added);
+}
+
 int fzn_buckets_has(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
                     const uint8_t id[FZN_BUCKETS_ID_LEN])
 {
-	static uint8_t bytes[I_ITEM + FZN_BUCKETS_ITEM_MAX];
+	static uint8_t bytes[ROW_MAX];
+	size_t len = 0;
 
-	return ready(b, kind) && id && item_load(b, kind, id, bytes) && bytes[I_INDEXED] == 1u;
+	return ready(b, kind) && id && row_load(b, kind, id, bytes, &len) && bytes[I_INDEXED] == 1u;
 }
 
 fzn_buckets_err_t fzn_buckets_item(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
@@ -295,24 +350,47 @@ fzn_buckets_err_t fzn_buckets_item(const fzn_buckets_t *b, fzn_buckets_kind_t ki
                                    size_t cap, size_t *len, uint8_t subject[FZN_PUBKEY_LEN],
                                    uint32_t *month)
 {
-	static uint8_t bytes[I_ITEM + FZN_BUCKETS_ITEM_MAX];
-	size_t n;
+	static uint8_t bytes[ROW_MAX];
+	size_t n = 0;
+	int what;
 
 	if (!ready(b, kind) || !id || !out || !len)
 		return FZN_BUCKETS_MALFORMED;
 	*len = 0;
-	n = item_load(b, kind, id, bytes);
-	if (!n || bytes[I_INDEXED] != 1u)
+	what = row_load(b, kind, id, bytes, &n);
+	if (!what || bytes[I_INDEXED] != 1u)
 		return FZN_BUCKETS_ABSENT;
+	if (subject)
+		memcpy(subject, bytes + B_SUBJECT, FZN_PUBKEY_LEN);
+	if (month)
+		*month = fzn_get_be32(bytes + B_MONTH);
+	if (what == 2)
+		return FZN_BUCKETS_LARGE;
 	n -= I_ITEM;
 	if (n > cap)
 		return FZN_BUCKETS_MALFORMED;
 	memcpy(out, bytes + I_ITEM, n);
 	*len = n;
-	if (subject)
-		memcpy(subject, bytes + B_SUBJECT, FZN_PUBKEY_LEN);
-	if (month)
-		*month = fzn_get_be32(bytes + B_MONTH);
+	return FZN_BUCKETS_OK;
+}
+
+fzn_buckets_err_t fzn_buckets_ref(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
+                                  const uint8_t id[FZN_BUCKETS_ID_LEN],
+                                  uint8_t ref[FZN_BUCKETS_REF_MAX], size_t *ref_len,
+                                  uint64_t *size)
+{
+	static uint8_t bytes[ROW_MAX];
+	size_t n = 0;
+
+	if (!ready(b, kind) || !id || !ref || !ref_len || !size)
+		return FZN_BUCKETS_MALFORMED;
+	*ref_len = 0;
+	*size = 0;
+	if (row_load(b, kind, id, bytes, &n) != 2 || bytes[I_INDEXED] != 1u)
+		return FZN_BUCKETS_ABSENT;
+	*ref_len = n - R_REF;
+	memcpy(ref, bytes + R_REF, *ref_len);
+	*size = fzn_get_be64(bytes + R_SIZE);
 	return FZN_BUCKETS_OK;
 }
 

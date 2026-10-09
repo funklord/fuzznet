@@ -61438,7 +61438,8 @@ through the gate. Five sabotage entries, each probed caught.
    Built in sec 569.
 2. Large items: an item row that names where the item is rather than
    holding it, a reader for the server's pieces, and a fetch that writes
-   pieces to a staging file rather than memory.
+   pieces to a staging file rather than memory. Built in sec 570, the
+   staging the kind's.
 3. Logs as a kind: a packed segment is an item, its subject the source
    host, its month its closing time's. Filed by its trailer's signature
    by the subject's key, one segment at a time: a month can arrive in
@@ -61506,3 +61507,49 @@ A pulls from nobody, so B's push is the only way it can arrive, and it
 reads at A, its key given by B. Against a fuzznetd that does not push,
 phase f fails at "pushed 0 line(s)". Six sabotage entries, each probed
 caught.
+
+## 570. Stage 4, step 2: items too large for a row, kept by their kind, 2026-10-09
+
+Sec 568's second step. A log segment runs to megabytes -- a copy's bound
+is 64 MiB (sec 483) -- and the layer's code holds an item in a static
+buffer of 4096 bytes. So a large item is the kind's to keep, as log copies
+already are files, and the layer and the exchange carry it in pieces.
+
+- **A ref row** (`fzn_buckets_ref`, version 2 in slot 44, beside version
+  1's item rows) names where the kind keeps an item, in up to 256 bytes of
+  the kind's own, with its length up to `FZN_BUCKETS_LARGE_MAX` (64 MiB).
+  `fzn_buckets_add_ref` takes one into its bucket by the same steps as an
+  item, crash points and all; `fzn_buckets_item` answers LARGE for it, and
+  `fzn_buckets_ref` names it.
+- **The filer gains three hooks**: STAGE takes a large item's pieces in
+  order, from 0, a piece at 0 beginning it afresh; FINISH, once all are
+  there, checks the whole hashes to its id -- the kind holds the bytes,
+  so the check is the kind's -- then judges and files it; READ gives bytes
+  of one it keeps, by its ref. Each NULL for a kind with no large items.
+- **The exchange** carries lengths to 64 MiB. Served: an item's pieces
+  read through its kind. Pulled: pieces past 4096 bytes go to STAGE and
+  then FINISH, a kind without them refusing at the first piece. Pushed:
+  the pusher reads through the kind, and the receiver stages through it,
+  answering not wanted where its kind takes none so large. The server
+  takes one filer per kind now (`takers[]`), the logs kind (1) having
+  joined messages in the enum.
+
+Known: a kind stages by id, so two senders pushing one large item at once
+share its staging, and the second's first piece starts it afresh; the
+push resumes from what the receiver says it holds.
+
+Not seen by a test, and why: a receiver that ignored its kind's STAGE
+answer is still refused at FINISH, and the not-wanted answer of a kind
+that takes no large items is reached by no case here.
+
+Measured: buckets_test 66 checks -- a 50,000-byte item and a small one in
+one bucket of the logs kind, pulled over the smallest reply (about 25
+pieces through the kind's stage, checked whole and kept by ref, the
+buckets' digests agreeing after); the same with a changed byte refused
+and nothing kept; a kind with no large hooks refusing at the first piece
+and keeping the small item; pushed, read through the pusher's kind and
+staged through the receiver's; a pusher with no reader sending only the
+small one; and a receiver whose kind will not stage refusing the large
+one. Four sabotage entries, and one re-anchored on code this change
+moved; all five probed caught, the fetch without its kind's hooks by the
+suite crashing on the missing hook rather than by a failed check.

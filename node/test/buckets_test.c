@@ -459,7 +459,7 @@ static int months_wanted(void *ctx, const uint8_t subject[FZN_PUBKEY_LEN], uint3
 static fzn_reconcile_err_t round_b_from_a(fzn_reconcile_bucket_tally_t *t, size_t cap)
 {
 	static uint8_t reply[8192];
-	fzn_reconcile_filer_t filer = { keep_it, months_wanted, (void *)&B };
+	fzn_reconcile_filer_t filer = { keep_it, months_wanted, (void *)&B, NULL, NULL, NULL };
 
 	asked.store = &store_a;
 	asked.cap = cap;
@@ -666,7 +666,7 @@ static int to_b(void *ctx, const uint8_t *request, size_t request_len, uint8_t *
                 size_t reply_cap, size_t *reply_len)
 {
 	static uint8_t copy[FZN_RECONCILE_ITEM_PUT_HEAD_LEN + FZN_RECONCILE_PIECE_MAX];
-	fzn_reconcile_filer_t filer = { keep_it, months_wanted, (void *)&B };
+	fzn_reconcile_filer_t filer = { keep_it, months_wanted, (void *)&B, NULL, NULL, NULL };
 	fzn_reconcile_server_t srv;
 	size_t n;
 
@@ -674,7 +674,7 @@ static int to_b(void *ctx, const uint8_t *request, size_t request_len, uint8_t *
 	memset(&srv, 0, sizeof(srv));
 	srv.store = &store_b;
 	srv.hash = &HASH;
-	srv.taker = receiving.taking ? &filer : NULL;
+	srv.takers[FZN_BUCKETS_MESSAGES] = receiving.taking ? &filer : NULL;
 	srv.sender = sender_a;
 	if (request_len >= 2u && request[1] == FZN_RECONCILE_ITEM_PUT) {
 		receiving.puts++;
@@ -705,7 +705,7 @@ static fzn_reconcile_err_t push_a_to_b(fzn_reconcile_bucket_tally_t *t)
 {
 	static uint8_t reply[FZN_RECONCILE_REPLY_MIN];
 
-	return fzn_reconcile_push(&A, FZN_BUCKETS_MESSAGES, NULL, NULL, to_b, NULL, reply,
+	return fzn_reconcile_push(&A, FZN_BUCKETS_MESSAGES, NULL, NULL, NULL, to_b, NULL, reply,
 	                          sizeof(reply), t);
 }
 
@@ -791,6 +791,273 @@ static void test_what_a_push_does_not_leave(void)
 	      "the next push resent what B held, or did not finish the item");
 }
 
+/* ---- large items, sec 570: kept by their kind, in pieces ---------------- */
+
+/* A KIND THAT KEEPS ITS OWN ITEMS, in memory: a few items each node holds,
+ * named by id, and one staging area per node. */
+#define LARGE_ITEMS 4u
+#define LARGE_LEN 50000u
+
+struct large {
+	const fzn_buckets_t *b;
+	struct {
+		int used;
+		uint8_t id[FZN_BUCKETS_ID_LEN];
+		size_t len;
+		uint8_t bytes[LARGE_LEN];
+	} items[LARGE_ITEMS];
+	uint8_t staging[LARGE_LEN];
+	uint8_t staging_id[FZN_BUCKETS_ID_LEN];
+	size_t staged;
+	int refuse_stage;
+};
+
+static struct large large_a, large_b;
+
+static int large_read(void *ctx, const uint8_t *ref, size_t ref_len, uint64_t offset,
+                      uint8_t *out, size_t n)
+{
+	struct large *l = (struct large *)ctx;
+	size_t i;
+
+	if (ref_len != FZN_BUCKETS_ID_LEN)
+		return 0;
+	for (i = 0; i < LARGE_ITEMS; i++)
+		if (l->items[i].used && memcmp(l->items[i].id, ref, FZN_BUCKETS_ID_LEN) == 0) {
+			if (offset > l->items[i].len || n > l->items[i].len - offset)
+				return 0;
+			memcpy(out, l->items[i].bytes + offset, n);
+			return 1;
+		}
+	return 0;
+}
+
+static int large_stage(void *ctx, const uint8_t id[FZN_BUCKETS_ID_LEN], uint64_t total,
+                       uint64_t offset, const uint8_t *bytes, size_t n)
+{
+	struct large *l = (struct large *)ctx;
+
+	if (l->refuse_stage || total > LARGE_LEN)
+		return 0;
+	if (offset == 0u) {
+		memcpy(l->staging_id, id, FZN_BUCKETS_ID_LEN);
+		l->staged = 0;
+	}
+	if (memcmp(l->staging_id, id, FZN_BUCKETS_ID_LEN) != 0 || offset != l->staged
+	    || n > total - offset)
+		return 0;
+	memcpy(l->staging + offset, bytes, n);
+	l->staged += n;
+	return 1;
+}
+
+/* Keep `bytes` as one of `l`'s items, and take it into its bucket. */
+static int large_keep(struct large *l, const uint8_t *subject, uint32_t month,
+                      const uint8_t *bytes, size_t len, const uint8_t id[FZN_BUCKETS_ID_LEN])
+{
+	size_t i;
+
+	for (i = 0; i < LARGE_ITEMS && l->items[i].used; i++)
+		;
+	if (i == LARGE_ITEMS)
+		return 0;
+	l->items[i].used = 1;
+	memcpy(l->items[i].id, id, FZN_BUCKETS_ID_LEN);
+	l->items[i].len = len;
+	memcpy(l->items[i].bytes, bytes, len);
+	return fzn_buckets_add_ref(l->b, FZN_BUCKETS_LOGS, subject, month, id, len, id,
+	                           FZN_BUCKETS_ID_LEN, NULL)
+	       == FZN_BUCKETS_OK;
+}
+
+static fzn_node_apply_outcome_t large_finish(void *ctx, const uint8_t subject[FZN_PUBKEY_LEN],
+                                             uint32_t month, const uint8_t id[FZN_BUCKETS_ID_LEN],
+                                             uint64_t total)
+{
+	struct large *l = (struct large *)ctx;
+	uint8_t got[FZN_BUCKETS_ID_LEN];
+
+	/* THE WHOLE, checked here: the kind holds the bytes. */
+	if (l->staged != total || memcmp(l->staging_id, id, FZN_BUCKETS_ID_LEN) != 0
+	    || !fzn_buckets_id(&HASH, l->staging, l->staged, got)
+	    || memcmp(got, id, FZN_BUCKETS_ID_LEN) != 0)
+		return FZN_NODE_APPLY_REFUSED;
+	return large_keep(l, subject, month, l->staging, l->staged, id) ? FZN_NODE_APPLY_APPLIED
+	                                                                 : FZN_NODE_APPLY_NOT_SAVED;
+}
+
+static fzn_node_apply_outcome_t large_file(void *ctx, const uint8_t subject[FZN_PUBKEY_LEN],
+                                           uint32_t month, const uint8_t *item, size_t len)
+{
+	struct large *l = (struct large *)ctx;
+
+	return fzn_buckets_add(l->b, FZN_BUCKETS_LOGS, subject, month, item, len, NULL)
+	                       == FZN_BUCKETS_OK
+	               ? FZN_NODE_APPLY_APPLIED
+	               : FZN_NODE_APPLY_NOT_SAVED;
+}
+
+static const fzn_reconcile_filer_t LARGE_A = { large_file, NULL, &large_a, large_stage,
+	                                       large_finish, large_read };
+static const fzn_reconcile_filer_t LARGE_B = { large_file, NULL, &large_b, large_stage,
+	                                       large_finish, large_read };
+
+/* A ASKED BY B, serving its large items through its kind. */
+static int large_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                     size_t reply_cap, size_t *reply_len)
+{
+	fzn_reconcile_server_t srv;
+	size_t n;
+
+	(void)ctx;
+	memset(&srv, 0, sizeof(srv));
+	srv.store = &store_a;
+	srv.hash = &HASH;
+	srv.takers[FZN_BUCKETS_LOGS] = &LARGE_A;
+	n = fzn_reconcile_serve(&srv, request, request_len, answer_buf,
+	                        reply_cap < FZN_RECONCILE_REPLY_MIN ? reply_cap
+	                                                            : FZN_RECONCILE_REPLY_MIN);
+	if (!n)
+		return 0;
+	if (asked.lie && n > FZN_RECONCILE_ITEM_HEAD_LEN && answer_buf[1] == FZN_RECONCILE_ITEM)
+		answer_buf[FZN_RECONCILE_ITEM_HEAD_LEN] ^= 0x01u;
+	memcpy(reply, answer_buf, n);
+	*reply_len = n;
+	return 1;
+}
+
+/* B ASKED BY A, taking A's pushed large items through its kind. */
+static int large_to_b(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                      size_t reply_cap, size_t *reply_len)
+{
+	fzn_reconcile_server_t srv;
+	size_t n;
+
+	(void)ctx;
+	memset(&srv, 0, sizeof(srv));
+	srv.store = &store_b;
+	srv.hash = &HASH;
+	srv.takers[FZN_BUCKETS_LOGS] = receiving.taking ? &LARGE_B : NULL;
+	srv.sender = sender_a;
+	n = fzn_reconcile_serve(&srv, request, request_len, reply, reply_cap);
+	if (!n)
+		return 0;
+	*reply_len = n;
+	return 1;
+}
+
+static void large_fresh(void)
+{
+	fresh();
+	memset(&large_a, 0, sizeof(large_a));
+	memset(&large_b, 0, sizeof(large_b));
+	large_a.b = &A;
+	large_b.b = &B;
+	memset(sender_a, 0xa0, sizeof(sender_a));
+	asked.lie = 0;
+}
+
+static int add_large_small(const uint8_t *subject);
+
+/* A large item and a small one at A, in one bucket of the logs kind. */
+static int large_fixture(uint8_t subject[FZN_PUBKEY_LEN], uint8_t id[FZN_BUCKETS_ID_LEN])
+{
+	static uint8_t big[LARGE_LEN];
+	size_t i;
+
+	subject_of(subject, 30);
+	for (i = 0; i < sizeof(big); i++)
+		big[i] = (uint8_t)(i * 131u + (i >> 9));
+	return fzn_buckets_id(&HASH, big, sizeof(big), id)
+	       && large_keep(&large_a, subject, 790u, big, sizeof(big), id)
+	       && add_large_small(subject);
+}
+
+static int add_large_small(const uint8_t *subject)
+{
+	uint8_t item[64];
+
+	return fzn_buckets_add(&A, FZN_BUCKETS_LOGS, subject, 790u, item, item_of(item, 7u, 40u),
+	                       NULL)
+	       == FZN_BUCKETS_OK;
+}
+
+static void test_large_items_pulled_and_pushed(void)
+{
+	static uint8_t reply[8192];
+	uint8_t s1[FZN_PUBKEY_LEN], id[FZN_BUCKETS_ID_LEN];
+	fzn_reconcile_filer_t no_large = { large_file, NULL, &large_b, NULL, NULL, NULL };
+	fzn_reconcile_bucket_tally_t t;
+	fzn_bucket_t a, b;
+	fzn_reconcile_err_t err;
+
+	/* PULLED over the smallest reply: some 25 pieces, staged by the kind,
+	 * checked whole, and kept by ref. */
+	large_fresh();
+	CHECK(large_fixture(s1, id), "fixture: a large item and a small one at A");
+	err = fzn_reconcile_buckets(&B, FZN_BUCKETS_LOGS, &LARGE_B, large_ask, NULL, reply,
+	                            sizeof(reply), &t);
+	CHECK(err == FZN_RECONCILE_OK && t.applied == 2u && t.refused == 0u
+	              && fzn_buckets_has(&B, FZN_BUCKETS_LOGS, id) && large_b.items[0].used
+	              && large_b.items[0].len == LARGE_LEN
+	              && memcmp(large_b.items[0].bytes, large_a.items[0].bytes, LARGE_LEN) == 0
+	              && fzn_buckets_bucket(&A, FZN_BUCKETS_LOGS, s1, 790u, &a) == FZN_BUCKETS_OK
+	              && fzn_buckets_bucket(&B, FZN_BUCKETS_LOGS, s1, 790u, &b) == FZN_BUCKETS_OK
+	              && memcmp(a.digest, b.digest, sizeof(a.digest)) == 0,
+	      "B did not pull the large item whole, or its bucket is not A's");
+	CHECK(fzn_buckets_item(&B, FZN_BUCKETS_LOGS, id, reply, sizeof(reply), &t.lacked, NULL,
+	                       NULL)
+	              == FZN_BUCKETS_LARGE,
+	      "the large item is held in a row, not by its kind");
+	/* A LIAR'S CHANGED BYTE fails the kind's check, and nothing is kept. */
+	large_fresh();
+	CHECK(large_fixture(s1, id), "fixture: again");
+	asked.lie = 1;
+	CHECK(fzn_reconcile_buckets(&B, FZN_BUCKETS_LOGS, &LARGE_B, large_ask, NULL, reply,
+	                            sizeof(reply), &t)
+	                      == FZN_RECONCILE_OK
+	              && t.refused == 2u && !fzn_buckets_has(&B, FZN_BUCKETS_LOGS, id)
+	              && !large_b.items[0].used,
+	      "a large item with a changed byte was kept");
+	asked.lie = 0;
+	/* A KIND WITH NO LARGE HOOKS refuses it at its first piece. */
+	CHECK(fzn_reconcile_buckets(&B, FZN_BUCKETS_LOGS, &no_large, large_ask, NULL, reply,
+	                            sizeof(reply), &t)
+	                      == FZN_RECONCILE_OK
+	              && t.refused == 1u && t.applied == 1u && !fzn_buckets_has(&B, FZN_BUCKETS_LOGS, id),
+	      "a kind that takes no large items took one");
+
+	/* PUSHED: read through A's kind, staged through B's. */
+	large_fresh();
+	CHECK(large_fixture(s1, id), "fixture: again, to push");
+	memset(&receiving, 0, sizeof(receiving));
+	receiving.taking = 1;
+	CHECK(fzn_reconcile_push(&A, FZN_BUCKETS_LOGS, NULL, &LARGE_A, NULL, large_to_b, NULL, reply,
+	                         FZN_RECONCILE_REPLY_MIN, &t)
+	                      == FZN_RECONCILE_OK
+	              && t.sent == 2u && t.refused == 0u && fzn_buckets_has(&B, FZN_BUCKETS_LOGS, id)
+	              && large_b.items[0].used
+	              && memcmp(large_b.items[0].bytes, large_a.items[0].bytes, LARGE_LEN) == 0,
+	      "A did not push the large item whole");
+	/* A PUSHER WITHOUT ITS KIND'S READER sends only what rows hold. */
+	large_fresh();
+	CHECK(large_fixture(s1, id), "fixture: again, to push without a reader");
+	CHECK(fzn_reconcile_push(&A, FZN_BUCKETS_LOGS, NULL, NULL, NULL, large_to_b, NULL, reply,
+	                         FZN_RECONCILE_REPLY_MIN, &t)
+	                      == FZN_RECONCILE_OK
+	              && t.sent == 1u && !fzn_buckets_has(&B, FZN_BUCKETS_LOGS, id),
+	      "a pusher with no reader sent a large item, or not the small one");
+	/* A RECEIVER STAGING NOTHING refuses it whole, keeps the small one. */
+	large_fresh();
+	CHECK(large_fixture(s1, id), "fixture: again, to a receiver that will not stage");
+	large_b.refuse_stage = 1;
+	CHECK(fzn_reconcile_push(&A, FZN_BUCKETS_LOGS, NULL, &LARGE_A, NULL, large_to_b, NULL, reply,
+	                         FZN_RECONCILE_REPLY_MIN, &t)
+	                      == FZN_RECONCILE_OK
+	              && t.sent == 1u && t.refused == 1u && !fzn_buckets_has(&B, FZN_BUCKETS_LOGS, id),
+	      "a receiver that would not stage kept the large item");
+}
+
 int main(void)
 {
 	test_an_item_is_held_once();
@@ -806,6 +1073,7 @@ int main(void)
 	test_a_gate_serves_only_what_it_may();
 	test_a_push_brings_a_peer_up();
 	test_what_a_push_does_not_leave();
+	test_large_items_pulled_and_pushed();
 	printf("buckets_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;
 }

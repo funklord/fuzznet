@@ -154,7 +154,9 @@ typedef struct fzn_reconcile_server {
 	const fzn_hash_ops_t *hash;
 	fzn_node_journal_t *journal;
 	const fzn_reconcile_gate_t *gate;
-	const struct fzn_reconcile_filer *taker;
+	/* EACH KIND'S FILER, sec 570: what takes its pushed items, and reads the
+	 * items it keeps itself. NULL takes none, and serves no large item. */
+	const struct fzn_reconcile_filer *takers[FZN_BUCKETS_KINDS];
 	const uint8_t *sender;
 } fzn_reconcile_server_t;
 
@@ -198,6 +200,19 @@ typedef struct fzn_reconcile_filer {
 	                                 uint32_t month, const uint8_t *item, size_t len);
 	int (*wanted)(void *ctx, const uint8_t subject[FZN_PUBKEY_LEN], uint32_t month);
 	void *ctx;
+	/* AN ITEM PAST FZN_BUCKETS_ITEM_MAX, sec 570, the kind's to keep: its
+	 * pieces handed to STAGE in order as they come, from 0, and FINISH once
+	 * all `total` are there -- the kind checks the whole hashes to `id`,
+	 * then judges and files it, answering as `file` does. READ gives
+	 * `n` bytes from `offset` of one it holds, named by its ref, to serve
+	 * or push. Each NULL where the kind has no large items. */
+	int (*stage)(void *ctx, const uint8_t id[FZN_BUCKETS_ID_LEN], uint64_t total,
+	             uint64_t offset, const uint8_t *bytes, size_t n);
+	fzn_node_apply_outcome_t (*finish)(void *ctx, const uint8_t subject[FZN_PUBKEY_LEN],
+	                                   uint32_t month, const uint8_t id[FZN_BUCKETS_ID_LEN],
+	                                   uint64_t total);
+	int (*read)(void *ctx, const uint8_t *ref, size_t ref_len, uint64_t offset, uint8_t *out,
+	            size_t n);
 } fzn_reconcile_filer_t;
 
 typedef struct fzn_reconcile_bucket_tally {
@@ -228,6 +243,8 @@ fzn_reconcile_err_t fzn_reconcile_buckets(const fzn_buckets_t *b, fzn_buckets_ki
  * paged and each item it lacks is sent in pieces, resumed from what it
  * says it holds. `gate` (NULL for every bucket) is this node's view of
  * what the peer may be given -- the same gate a peer asking would meet.
+ * `filer` (may be NULL) reads the items the kind keeps itself (sec 570);
+ * without it those are not pushed.
  * The peer judges each item as one it fetched: tally's `sent` it kept,
  * `held` it had, `refused`, and `passed` its rules would not hold. */
 /* WHAT A PUSHER IS TOLD OF EACH ITEM THE PEER KEPT, sec 569: what the
@@ -241,6 +258,7 @@ typedef struct fzn_reconcile_sent {
 
 fzn_reconcile_err_t fzn_reconcile_push(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
                                        const fzn_reconcile_gate_t *gate,
+                                       const fzn_reconcile_filer_t *filer,
                                        const fzn_reconcile_sent_t *sent,
                                        fzn_reconcile_ask_t ask, void *ask_ctx, uint8_t *reply,
                                        size_t reply_cap, fzn_reconcile_bucket_tally_t *tally);

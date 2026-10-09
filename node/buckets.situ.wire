@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum fzn_buckets_kind : u8 unknown=error
-  messages=0
+  messages=0 logs=1
 
 struct fzn_buckets_bucket size=78
   @0x0000   1         u8         version  must_eq=1
@@ -43,3 +43,13 @@ struct fzn_buckets_item size=42..4137
   @0x0026   1         u8         indexed  max=1
   @0x0027   2         u16        len  big min=1 max=4096
   @0x0029   1..4096   u8         item  sized-by=len
+
+struct fzn_buckets_ref size=50..305
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         fzn_buckets_kind kind
+  @0x0002   32        u8         subject  big
+  @0x0022   4         u32        month  big
+  @0x0026   1         u8         indexed  max=1
+  @0x0027   8         u64        size  big max=67108864
+  @0x002f   2         u16        len  big min=1 max=256
+  @0x0031   1..256    u8         ref  sized-by=len

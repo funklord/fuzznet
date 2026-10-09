@@ -1617,7 +1617,7 @@ static size_t holdings_remote(void *ctx, const uint8_t *sender, const uint8_t *r
 	const fzn_node_apply_t *ap = (const fzn_node_apply_t *)ctx;
 	struct serving_to to = { sender, -1 };
 	fzn_reconcile_gate_t gate = { serves_bucket, &to };
-	fzn_reconcile_filer_t lines = { line_file, line_wanted, &line_rules };
+	fzn_reconcile_filer_t lines = { line_file, line_wanted, &line_rules, NULL, NULL, NULL };
 	fzn_reconcile_server_t srv;
 
 	if (!sender)
@@ -1628,7 +1628,7 @@ static size_t holdings_remote(void *ctx, const uint8_t *sender, const uint8_t *r
 	srv.journal = ap->journal;
 	srv.gate = &gate;
 	/* A MEMBER'S LINES PUSHED, sec 569, filed and judged as fetched ones. */
-	srv.taker = messages_on ? &lines : NULL;
+	srv.takers[FZN_BUCKETS_MESSAGES] = messages_on ? &lines : NULL;
 	srv.sender = sender;
 	return fzn_reconcile_serve(&srv, request, request_len, reply, reply_cap);
 }
@@ -1706,7 +1706,7 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 		 * the journal's window is handed the lines it missed. After the
 		 * classes, so a member's chain is here before its lines. */
 		if (messages_on && messages_upgrade()) {
-			fzn_reconcile_filer_t lines = { line_file, line_wanted, &line_rules };
+			fzn_reconcile_filer_t lines = { line_file, line_wanted, &line_rules, NULL, NULL, NULL };
 			fzn_reconcile_bucket_tally_t bt;
 
 			err = fzn_reconcile_buckets(&node_messages.buckets, FZN_BUCKETS_MESSAGES, &lines,
@@ -1737,7 +1737,8 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 				fzn_reconcile_sent_t owed = { line_pushed, &node_messages };
 
 				err = fzn_reconcile_push(&node_messages.buckets, FZN_BUCKETS_MESSAGES, &gate,
-				                         &owed, peer_ask, &asking, reply, sizeof(reply), &bt);
+				                         NULL, &owed, peer_ask, &asking, reply, sizeof(reply),
+				                         &bt);
 				if (err != FZN_RECONCILE_OK) {
 					say(FZN_ENTRY_WARNING, "reconcile", "conversations to %s: %s",
 					    pulls[t].host, fzn_reconcile_err_str(err));

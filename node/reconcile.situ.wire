@@ -49,7 +49,7 @@ struct fzn_reconcile_bucket size=76
 struct fzn_reconcile_bucket_ids size=49..2097169
   @0x0000   1         u8         version  must_eq=6
   @0x0001   1         fzn_reconcile_type type  must_eq=bucket_ids
-  @0x0002   1         u8         kind  max=0
+  @0x0002   1         u8         kind  max=1
   @0x0003   32        u8         subject  big
   @0x0023   4         u32        month  big
   @0x0027   4         u32        total  big
@@ -60,7 +60,7 @@ struct fzn_reconcile_bucket_ids size=49..2097169
 struct fzn_reconcile_bucket_ids_query size=43
   @0x0000   1         u8         version  must_eq=6
   @0x0001   1         fzn_reconcile_type type  must_eq=bucket_ids_query
-  @0x0002   1         u8         kind  max=0
+  @0x0002   1         u8         kind  max=1
   @0x0003   32        u8         subject  big
   @0x0023   4         u32        month  big
   @0x0027   4         u32        from  big
@@ -68,7 +68,7 @@ struct fzn_reconcile_bucket_ids_query size=43
 struct fzn_reconcile_buckets size=13..4980673
   @0x0000   1         u8         version  must_eq=6
   @0x0001   1         fzn_reconcile_type type  must_eq=buckets
-  @0x0002   1         u8         kind  max=0
+  @0x0002   1         u8         kind  max=1
   @0x0003   4         u32        total  big
   @0x0007   4         u32        from  big
   @0x000b   2         u16        count  big
@@ -77,7 +77,7 @@ struct fzn_reconcile_buckets size=13..4980673
 struct fzn_reconcile_buckets_query size=7
   @0x0000   1         u8         version  must_eq=6
   @0x0001   1         fzn_reconcile_type type  must_eq=buckets_query
-  @0x0002   1         u8         kind  max=0
+  @0x0002   1         u8         kind  max=1
   @0x0003   4         u32        from  big
 
 struct fzn_reconcile_class size=37
@@ -116,9 +116,9 @@ struct fzn_reconcile_ids_query size=7
 struct fzn_reconcile_item size=45..65580
   @0x0000   1         u8         version  must_eq=6
   @0x0001   1         fzn_reconcile_type type  must_eq=item
-  @0x0002   1         u8         kind  max=0
+  @0x0002   1         u8         kind  max=1
   @0x0003   32        u8         id  big
-  @0x0023   4         u32        total  big max=4096
+  @0x0023   4         u32        total  big max=67108864
   @0x0027   4         u32        offset  big
   @0x002b   2         u16        len  big
   @0x002d   0..65535  u8         bytes  sized-by=len
@@ -126,11 +126,11 @@ struct fzn_reconcile_item size=45..65580
 struct fzn_reconcile_item_put size=81..65616
   @0x0000   1         u8         version  must_eq=6
   @0x0001   1         fzn_reconcile_type type  must_eq=item_put
-  @0x0002   1         u8         kind  max=0
+  @0x0002   1         u8         kind  max=1
   @0x0003   32        u8         subject  big
   @0x0023   4         u32        month  big
   @0x0027   32        u8         id  big
-  @0x0047   4         u32        total  big min=1 max=4096
+  @0x0047   4         u32        total  big min=1 max=67108864
   @0x004b   4         u32        offset  big
   @0x004f   2         u16        len  big
   @0x0051   0..65535  u8         bytes  sized-by=len
@@ -138,14 +138,14 @@ struct fzn_reconcile_item_put size=81..65616
 struct fzn_reconcile_item_query size=39
   @0x0000   1         u8         version  must_eq=6
   @0x0001   1         fzn_reconcile_type type  must_eq=item_query
-  @0x0002   1         u8         kind  max=0
+  @0x0002   1         u8         kind  max=1
   @0x0003   32        u8         id  big
   @0x0023   4         u32        offset  big
 
 struct fzn_reconcile_item_took size=40
   @0x0000   1         u8         version  must_eq=6
   @0x0001   1         fzn_reconcile_type type  must_eq=item_took
-  @0x0002   1         u8         kind  max=0
+  @0x0002   1         u8         kind  max=1
   @0x0003   32        u8         id  big
   @0x0023   1         fzn_reconcile_took took
   @0x0024   4         u32        held  big

@@ -132,7 +132,7 @@ struct fzn_reconcile_objects {
 struct fzn_reconcile_buckets_query {
 	u8                  version [must_eq = 6];
 	fzn_reconcile_type  type    [must_eq = buckets_query];
-	u8                  kind    [max = 0];  // node/buckets.situ's fzn_buckets_kind
+	u8                  kind    [max = 1];  // node/buckets.situ's fzn_buckets_kind
 	u32                 from;               // the first bucket wanted, by position
 }
 
@@ -147,7 +147,7 @@ struct fzn_reconcile_bucket {
 struct fzn_reconcile_buckets {
 	u8                    version [must_eq = 6];
 	fzn_reconcile_type    type    [must_eq = buckets];
-	u8                    kind    [max = 0];
+	u8                    kind    [max = 1];
 	u32                   total;            // every bucket of the kind held
 	u32                   from;             // echoed
 	u16                   count;
@@ -157,7 +157,7 @@ struct fzn_reconcile_buckets {
 struct fzn_reconcile_bucket_ids_query {
 	u8                  version [must_eq = 6];
 	fzn_reconcile_type  type    [must_eq = bucket_ids_query];
-	u8                  kind    [max = 0];
+	u8                  kind    [max = 1];
 	u8                  subject[32];
 	u32                 month;
 	u32                 from;
@@ -166,7 +166,7 @@ struct fzn_reconcile_bucket_ids_query {
 struct fzn_reconcile_bucket_ids {
 	u8                  version [must_eq = 6];
 	fzn_reconcile_type  type    [must_eq = bucket_ids];
-	u8                  kind    [max = 0];
+	u8                  kind    [max = 1];
 	u8                  subject[32];
 	u32                 month;
 	u32                 total;
@@ -178,7 +178,7 @@ struct fzn_reconcile_bucket_ids {
 struct fzn_reconcile_item_query {
 	u8                  version [must_eq = 6];
 	fzn_reconcile_type  type    [must_eq = item_query];
-	u8                  kind    [max = 0];
+	u8                  kind    [max = 1];
 	u8                  id[32];
 	u32                 offset;
 }
@@ -186,9 +186,9 @@ struct fzn_reconcile_item_query {
 struct fzn_reconcile_item {
 	u8                  version [must_eq = 6];
 	fzn_reconcile_type  type    [must_eq = item];
-	u8                  kind    [max = 0];
+	u8                  kind    [max = 1];
 	u8                  id[32];
-	u32                 total   [max = 4096]; // the item's length; 0, not held
+	u32                 total   [max = 67108864]; // the item's length; 0, not held
 	u32                 offset;             // echoed
 	u16                 len;
 	u8                  bytes[len];
@@ -199,11 +199,11 @@ struct fzn_reconcile_item {
 struct fzn_reconcile_item_put {
 	u8                  version [must_eq = 6];
 	fzn_reconcile_type  type    [must_eq = item_put];
-	u8                  kind    [max = 0];
+	u8                  kind    [max = 1];
 	u8                  subject[32];
 	u32                 month;
 	u8                  id[32];
-	u32                 total   [min = 1, max = 4096]; // the item's length
+	u32                 total   [min = 1, max = 67108864]; // the item's length
 	u32                 offset;             // where these bytes start
 	u16                 len;
 	u8                  bytes[len];
@@ -212,7 +212,7 @@ struct fzn_reconcile_item_put {
 struct fzn_reconcile_item_took {
 	u8                  version [must_eq = 6];
 	fzn_reconcile_type  type    [must_eq = item_took];
-	u8                  kind    [max = 0];
+	u8                  kind    [max = 1];
 	u8                  id[32];
 	fzn_reconcile_took  took;
 	u32                 held;               // bytes held of it, for `more`

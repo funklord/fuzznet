@@ -10363,7 +10363,7 @@ SABOTAGES = [
 	(
 		'reconcile-gate-bars-items',
 		'node/reconcile.c',
-		'\tif (err == FZN_BUCKETS_OK && !served(gate, request[2], subject))\n\t\tlen = 0;\n',
+		'\tif (err != FZN_BUCKETS_ABSENT && !served(gate, request[2], subject))\n\t\tlen = 0;\n',
 		'',
 		'a caller asking a barred item by its id is handed it -- sec 567',
 	),
@@ -10415,6 +10415,34 @@ SABOTAGES = [
 		'\tmemset(key, 0, sizeof(key));\n\tnote_key(nm, nm->gives, &nm->n_gives, contact, epoch, device);',
 		'\tmemset(key, 0, sizeof(key));',
 		'a line pushed to a peer stays a shell there: its key is never given -- sec 569',
+	),
+	(
+		'buckets-a-ref-is-no-row-item',
+		'node/buckets.c',
+		'\tif (what == 2)\n\t\treturn FZN_BUCKETS_LARGE;\n',
+		'',
+		"a ref row's bytes are served as if they were the item -- sec 570",
+	),
+	(
+		'reconcile-serves-large-through-its-kind',
+		'node/reconcile.c',
+		'\t\tlen = (size_t)size;\n\t}\n\tif (err != FZN_BUCKETS_ABSENT',
+		'\t\tlen = 0;\n\t}\n\tif (err != FZN_BUCKETS_ABSENT',
+		'an item its kind keeps is served as not held -- sec 570',
+	),
+	(
+		'reconcile-fetch-large-needs-its-kind',
+		'node/reconcile.c',
+		'\t\t\tif (*is_large && (!filer->stage || !filer->finish)) {',
+		'\t\t\tif (0) {',
+		"a kind with no large hooks is handed a large item's pieces -- sec 570",
+	),
+	(
+		'reconcile-push-large-through-its-kind',
+		'node/reconcile.c',
+		'\t\tlen = (size_t)size;\n\t\tlarge = 1;',
+		'\t\tlen = (size_t)size;\n\t\tlarge = 0;',
+		'a large item is pushed from a row that does not hold it -- sec 570',
 	),
 	(
 		"journal-cut-keeps-the-spine-first",

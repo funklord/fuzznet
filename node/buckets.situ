@@ -11,6 +11,7 @@ endian big;
 
 enum fzn_buckets_kind : u8 {
 	messages = 0,   // a conversation's lines: subject a contact, items a line's records
+	logs     = 1,   // a host's packed log segments: subject the source host, sec 570
 }
 
 // FZN_PERSIST_BUCKET, one per bucket held: how many items, and their ids'
@@ -45,4 +46,18 @@ struct fzn_buckets_item {
 	u8               indexed [max = 1];
 	u16              len [min = 1, max = 4096];
 	u8               item[len];
+}
+
+// FZN_PERSIST_BUCKET_ITEM again, sec 570: an item too large for a row,
+// named where its kind keeps it, with its length. Version 2 tells it from a
+// row holding the item.
+struct fzn_buckets_ref {
+	u8               version [must_eq = 2];
+	fzn_buckets_kind kind;
+	u8               subject[32];
+	u32              month;
+	u8               indexed [max = 1];
+	u64              size [max = 67108864];  // the item's length
+	u16              len [min = 1, max = 256];
+	u8               ref[len];               // the kind's name for it
 }
