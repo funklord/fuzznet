@@ -948,6 +948,67 @@ static void test_holdings(void)
 	memset(rows, 0, sizeof(rows));
 }
 
+/* A CAPABILITY HELD, sec 567: a root holds it; a key granted it by a root,
+ * its grant applied from the journal, holds it while the grant stands; a
+ * stranger, a key granted another capability, and one whose grant has
+ * expired do not. */
+static void test_a_capability_held(void)
+{
+	static fzn_node_journal_t nj;
+	static fzn_revocation_t rev_entries[8];
+	static fzn_node_apply_t ap;
+	fzn_revocation_store_t revs;
+	fzn_persist_ops_t store = { 0 };
+	fzn_node_apply_tally_t t;
+	fzn_cap_id_t cap, retention;
+	uint8_t r[FZN_PUBKEY_LEN], m[FZN_PUBKEY_LEN], o[FZN_PUBKEY_LEN], e[FZN_PUBKEY_LEN];
+	uint8_t s[FZN_PUBKEY_LEN], hop[FZN_HOP_LEN];
+
+	store.load = mem_load;
+	store.save = mem_save;
+	store.list = mem_list;
+	memset(&cap, 0x71, sizeof(cap));
+	memset(&retention, 0x72, sizeof(retention));
+	key(r, 0xa1);
+	key(m, 0xa2);
+	key(o, 0xa3);
+	key(e, 0xa4);
+	key(s, 0xa5);
+	CHECK(fzn_node_journal_init(&nj, dir, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && fzn_revocation_store_init(&revs, rev_entries, 8) == FZN_CHAIN_OK,
+	      "fixture: a journal and a revocation store");
+	memset(&ap, 0, sizeof(ap));
+	ap.journal = &nj;
+	ap.revocations = &revs;
+	ap.store = &store;
+	ap.root = r;
+	ap.capability = &cap;
+	ap.sign = &SIGN;
+	ap.hash = &HASH;
+	ap.now = clock_now;
+	clock_at = 1000u;
+	signing_as = 0xa1;
+	CHECK(fzn_chain_mint(r, m, &retention, 100u, FZN_NO_EXPIRY, 0, &SIGN, hop) == FZN_CHAIN_OK
+	              && put(&nj, 0xa1, hop, sizeof(hop))
+	              && fzn_chain_mint(r, o, &cap, 100u, FZN_NO_EXPIRY, 0, &SIGN, hop)
+	                         == FZN_CHAIN_OK
+	              && put(&nj, 0xa1, hop, sizeof(hop))
+	              && fzn_chain_mint(r, e, &retention, 100u, 500u, 0, &SIGN, hop) == FZN_CHAIN_OK
+	              && put(&nj, 0xa1, hop, sizeof(hop)),
+	      "fixture: R grants M the capability, O another, and E the capability until 500");
+	CHECK(fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK && t.grants == 3u,
+	      "fixture: the three grants applied");
+	CHECK(fzn_node_apply_holds(&ap, r, &retention) && fzn_node_apply_holds(&ap, m, &retention),
+	      "the root, or the key it granted the capability, does not hold it");
+	CHECK(!fzn_node_apply_holds(&ap, s, &retention) && !fzn_node_apply_holds(&ap, o, &retention)
+	              && fzn_node_apply_holds(&ap, o, &cap),
+	      "a stranger, or a key granted another capability, holds it");
+	CHECK(!fzn_node_apply_holds(&ap, e, &retention),
+	      "a key whose grant expired at 500 holds it at 1000");
+	clock_at = 400u;
+	CHECK(fzn_node_apply_holds(&ap, e, &retention), "and before 500 it does not hold it");
+}
+
 int main(void)
 {
 	char path[512];
@@ -961,6 +1022,7 @@ int main(void)
 	test_the_journal_applied();
 	test_settings_judged();
 	test_holdings();
+	test_a_capability_held();
 	/* EVERY STREAM FILE, BY NAME, then the directory. */
 	for (i = 0; i < n_used; i++) {
 		static const char DIGITS[] = "0123456789abcdef";

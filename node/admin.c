@@ -740,6 +740,34 @@ static size_t grant_admin(fzn_node_admin_t *admin, const uint8_t *hex, size_t he
 	return answer(reply, cap, FZN_REPLY_OK, detail, at);
 }
 
+/* `grant retention KEY`: the retention capability to KEY, sec 567, one hop
+ * minted and logged by this node acting as a root, and so carried to every
+ * member by the journal. A ROOT'S ALONE: an admin's chain is for the admin
+ * capability, and a hop of another capability under it would verify for
+ * neither. */
+static size_t grant_retention(fzn_node_admin_t *admin, const uint8_t *hex, size_t hex_len,
+                              char *reply, size_t cap)
+{
+	uint8_t chain[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	char detail[1u + FZN_HOP_LEN * 2u];
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	fzn_node_revoke_err_t err;
+	size_t n = 0;
+
+	if (!unhex(hex, hex_len, grantee, sizeof(grantee)))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a key");
+	err = fzn_node_admin_grant(admin->roots, admin->store, admin->id, NULL,
+	                           &admin->state->config.retention_capability, grantee,
+	                           admin->state->clock ? admin->state->clock() : 0u, chain, &n);
+	if (err != FZN_NODE_REVOKE_OK)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_revoke_err_str(err));
+	if (n != 1u)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "the grant is not one hop");
+	detail[0] = 'h';
+	put_hex(detail + 1, chain[0], FZN_HOP_LEN);
+	return answer(reply, cap, FZN_REPLY_OK, detail, sizeof(detail));
+}
+
 static size_t settings_refusal(char *reply, size_t cap, fzn_node_settings_err_t err);
 
 /* `set quorum K`: the estate's k, as this node's acting root. sec 418, and
@@ -1749,6 +1777,10 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 	if (admin->state->config.has_admin && request->parsed == FZN_VERB_ADD
 	    && subject_word(request, "confirm", &rest, &rest_len) && rest && admin->revocations)
 		return confirm_admin(admin, rest, rest_len, reply, reply_cap);
+	/* THE RETENTION CAPABILITY, sec 567. */
+	if (admin->state->config.has_retention && request->parsed == FZN_VERB_GRANT
+	    && subject_word(request, "retention", &rest, &rest_len) && rest)
+		return grant_retention(admin, rest, rest_len, reply, reply_cap);
 	/* SHARES, sec 436: the grant is the pairing, so it is admin's; which
 	 * subtrees it reaches is the notes' `add share`. */
 	if (request->parsed == FZN_VERB_GRANT && subject_word(request, "share", &rest, &rest_len)
@@ -2008,8 +2040,8 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 
 	/* A RECONCILIATION MESSAGE, version byte 6, the same way. sec 551. */
 	if (admin->holdings_remote && req->payload) {
-		size_t n = admin->holdings_remote(admin->holdings_ctx, req->payload, req->payload_len,
-		                                  reply, reply_cap);
+		size_t n = admin->holdings_remote(admin->holdings_ctx, req->sender, req->payload,
+		                                  req->payload_len, reply, reply_cap);
 
 		if (n)
 			return n;

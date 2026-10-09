@@ -102,6 +102,23 @@ size_t fzn_reconcile_answer(const fzn_persist_ops_t *store, const fzn_hash_ops_t
                             fzn_node_journal_t *journal, const uint8_t *request,
                             size_t request_len, uint8_t *reply, size_t reply_cap);
 
+/* WHICH BUCKETS ONE CALLER IS SERVED, sec 567: nonzero for a bucket of
+ * `kind` about `subject` it may hold. A caller holding the retention
+ * capability is served every bucket; one without it, only its own. */
+typedef struct fzn_reconcile_gate {
+	int (*serves)(void *ctx, fzn_buckets_kind_t kind, const uint8_t subject[FZN_PUBKEY_LEN]);
+	void *ctx;
+} fzn_reconcile_gate_t;
+
+/* `fzn_reconcile_answer`, with the buckets of append-only kinds answered
+ * through `gate` (NULL serves every one): a bucket the caller may not hold
+ * is not listed, names no ids, and its items answer as not held -- the
+ * same answers a node that holds none of it gives. */
+size_t fzn_reconcile_answer_gated(const fzn_persist_ops_t *store, const fzn_hash_ops_t *hash,
+                                  fzn_node_journal_t *journal, const fzn_reconcile_gate_t *gate,
+                                  const uint8_t *request, size_t request_len, uint8_t *reply,
+                                  size_t reply_cap);
+
 /* How a node reaches its peer: send `request`, fill `reply`, 1 for an
  * answer. The shape every pull here takes. */
 typedef int (*fzn_reconcile_ask_t)(void *ctx, const uint8_t *request, size_t request_len,

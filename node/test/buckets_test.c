@@ -411,6 +411,7 @@ static struct asked {
 	size_t cap;
 	int lie; /* 1: flip a byte of every item sent */
 	size_t asks;
+	const fzn_reconcile_gate_t *gate; /* the asked node's, NULL for none */
 } asked;
 
 static int ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
@@ -418,7 +419,8 @@ static int ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *r
 {
 	struct asked *a = (struct asked *)ctx;
 	size_t cap = a->cap && a->cap < reply_cap ? a->cap : reply_cap;
-	size_t n = fzn_reconcile_answer(a->store, &HASH, NULL, request, request_len, answer_buf, cap);
+	size_t n = fzn_reconcile_answer_gated(a->store, &HASH, NULL, a->gate, request, request_len,
+	                                      answer_buf, cap);
 
 	a->asks++;
 	if (!n)
@@ -569,6 +571,85 @@ static void test_what_is_not_taken(void)
 	memset(refused_subject, 0xff, sizeof(refused_subject));
 }
 
+/* THE GATE, sec 567: a caller is served only the buckets it may hold.
+ * One it may not is not listed, names no ids, and its items answer as not
+ * held -- even asked for by id, as a caller that learned one elsewhere
+ * would. */
+static uint8_t barred[FZN_PUBKEY_LEN];
+
+static int serves_but_barred(void *ctx, fzn_buckets_kind_t kind,
+                             const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	(void)ctx;
+	return kind == FZN_BUCKETS_MESSAGES && memcmp(subject, barred, FZN_PUBKEY_LEN) != 0;
+}
+
+static void test_a_gate_serves_only_what_it_may(void)
+{
+	static uint8_t request[FZN_RECONCILE_ITEM_QUERY_LEN], reply[8192];
+	uint8_t s1[FZN_PUBKEY_LEN], s2[FZN_PUBKEY_LEN], item[64], id[FZN_BUCKETS_ID_LEN];
+	fzn_reconcile_gate_t gate = { serves_but_barred, NULL };
+	fzn_reconcile_bucket_tally_t t;
+	fzn_bucket_t k;
+	size_t n;
+
+	fresh();
+	asked.lie = 0;
+	wanted_months_below = 0;
+	memset(refused_subject, 0xff, sizeof(refused_subject));
+	subject_of(s1, 15);
+	subject_of(s2, 16);
+	memcpy(barred, s1, sizeof(barred));
+	CHECK(add_n(&A, s1, 760u, 1u, 25u) && add_n(&A, s1, 761u, 2u, 25u)
+	              && add_n(&A, s2, 760u, 3u, 25u),
+	      "fixture: two buckets of a barred subject, one of another, at A");
+	asked.gate = &gate;
+	CHECK(round_b_from_a(&t, 0u) == FZN_RECONCILE_OK && t.buckets == 1u && t.applied == 1u
+	              && fzn_buckets_bucket(&B, FZN_BUCKETS_MESSAGES, s1, 760u, &k) == FZN_BUCKETS_OK
+	              && k.count == 0u,
+	      "a round through the gate took more than the one bucket it may hold");
+	n = item_of(item, 1u, 25u);
+	fzn_buckets_id(&HASH, item, n, id);
+	request[0] = (uint8_t)FZN_RECONCILE_VERSION;
+	request[1] = (uint8_t)FZN_RECONCILE_ITEM_QUERY;
+	request[2] = (uint8_t)FZN_BUCKETS_MESSAGES;
+	memcpy(request + 3u, id, sizeof(id));
+	memset(request + 35u, 0, 4u);
+	n = fzn_reconcile_answer_gated(&store_a, &HASH, NULL, &gate, request, sizeof(request), reply,
+	                               sizeof(reply));
+	CHECK(n == FZN_RECONCILE_ITEM_HEAD_LEN && reply[1] == FZN_RECONCILE_ITEM && reply[35] == 0u
+	              && reply[36] == 0u && reply[37] == 0u && reply[38] == 0u,
+	      "a barred item asked for by its id was handed over");
+	n = fzn_reconcile_answer(&store_a, &HASH, NULL, request, sizeof(request), reply,
+	                         sizeof(reply));
+	CHECK(n > FZN_RECONCILE_ITEM_HEAD_LEN,
+	      "with no gate the same item is not served: the check above proved nothing");
+	{
+		uint8_t q[FZN_RECONCILE_BUCKET_IDS_QUERY_LEN];
+
+		q[0] = (uint8_t)FZN_RECONCILE_VERSION;
+		q[1] = (uint8_t)FZN_RECONCILE_BUCKET_IDS_QUERY;
+		q[2] = (uint8_t)FZN_BUCKETS_MESSAGES;
+		memcpy(q + 3u, s1, FZN_PUBKEY_LEN);
+		q[35] = 0u;
+		q[36] = 0u;
+		q[37] = (uint8_t)(760u >> 8);
+		q[38] = (uint8_t)760u;
+		memset(q + 39u, 0, 4u);
+		n = fzn_reconcile_answer_gated(&store_a, &HASH, NULL, &gate, q, sizeof(q), reply,
+		                               sizeof(reply));
+		CHECK(n == FZN_RECONCILE_BUCKET_IDS_HEAD_LEN && reply[1] == FZN_RECONCILE_BUCKET_IDS
+		              && reply[42] == 0u,
+		      "a barred bucket's ids, asked for directly, were named");
+		n = fzn_reconcile_answer(&store_a, &HASH, NULL, q, sizeof(q), reply, sizeof(reply));
+		CHECK(n == FZN_RECONCILE_BUCKET_IDS_HEAD_LEN + FZN_BUCKETS_ID_LEN,
+		      "with no gate the bucket names no id: the check above proved nothing");
+	}
+	asked.gate = NULL;
+	CHECK(round_b_from_a(&t, 0u) == FZN_RECONCILE_OK && t.applied == 2u,
+	      "without the gate B did not take the two barred buckets' items");
+}
+
 int main(void)
 {
 	test_an_item_is_held_once();
@@ -581,6 +662,7 @@ int main(void)
 	test_a_node_takes_a_peer_s_buckets();
 	test_pieces_over_the_smallest_reply();
 	test_what_is_not_taken();
+	test_a_gate_serves_only_what_it_may();
 	printf("buckets_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;
 }

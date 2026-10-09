@@ -61252,7 +61252,7 @@ it over.
 2. A default policy per kind in the rule grammar, and the rules asked
    before a bucket is fetched: stage 1 passes over only a month already
    let go. Built in sec 566.
-3. The retention capability, and serving gated on it.
+3. The retention capability, and serving gated on it. Built in sec 567.
 4. Logs on the layer. Segments become items, the copy pull and push of secs
    483 and 488 retire, and `--log-copy` becomes a rule.
 5. Telemetry exists only in prose (secs 5, 531); when it is built, it is a
@@ -61365,3 +61365,48 @@ joining under `policy messages drop` passes A's old month over and
 files no line; against a fuzznetd that wants every month, it files one
 and the phase fails. Eleven sabotage entries, and two older ones
 re-anchored on code this change moved; all thirteen probed caught.
+
+## 567. Stage 3: the retention capability, and serving gated on it, 2026-10-09
+
+Sec 564's third stage.
+
+- **The capability** is derived beside the admin one, under
+  `FZN_NODE_RETENTION_NAME` (`fuzznet.retention`), in
+  `fzn_node_config_t.retention_capability`.
+- **`grant retention KEY`** mints one hop of it from this node acting as a
+  root and logs it, so the journal carries it to every member, whose apply
+  indexes and keeps it as any grant (class GRANTS). A root's verb alone:
+  an admin's chain is for the admin capability, and a hop of another
+  capability under it would verify for neither. Admin grants of retention
+  would need their own chain shape; not built, and not asked for.
+- **`fzn_node_apply_holds`** says whether a key holds a capability: a
+  root does, and any other key by a chain from a root among the indexed
+  grants, verified now, so an expired or revoked grant does not.
+- **`fzn_reconcile_answer_gated`** answers the bucket queries through a
+  per-caller gate. A bucket the caller may not hold is not listed (it is
+  filtered before paging, so a caller's positions hold between pages),
+  names no ids, and its items answer as not held, even asked for by id.
+  Those are the answers a node that holds none of it gives, so a caller
+  cannot tell a barred bucket from an absent one; the server is the one
+  that knows.
+- **fuzznetd's gate**: a caller holding the capability is served every
+  bucket. One without it is served only its own, which for conversations
+  means it is one of the devices whose lines this node follows.
+
+What the gate changes today, measured rather than assumed: nothing for
+conversations. Every caller that reaches the hop past the contact branch
+is a member or a peer paired to this node, and both are among the devices
+the messages store follows (sec 527). The capability starts deciding with
+logs in stage 4, where a host's own data is its own source alone.
+
+Measured: apply_test 66 checks -- the root and a granted key hold the
+capability, a stranger and a key granted another do not, and a grant
+expiring at 500 holds at 400 and not at 1000. buckets_test 44 -- through
+a gate barring one subject, a round takes only the other's bucket; a
+barred item asked by id answers not held, and a barred bucket's ids
+asked directly name none, each beside a control showing the same query
+answered without the gate. admin_test 222 -- a group member is denied the
+verb, a key that is none is malformed, and the owner's grant is one hop
+of the retention capability to that key from this root, logged.
+`make livecheck` passes unchanged, the rejoining member's line served
+through the gate. Five sabotage entries, each probed caught.

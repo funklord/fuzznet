@@ -209,8 +209,15 @@ static size_t answer_base(fzn_node_journal_t *journal, const uint8_t *request, s
  * of its own, asking for each of the peer's in turn. */
 static fzn_bucket_t served_buckets[FZN_BUCKETS_MAX];
 
-static size_t answer_buckets(const fzn_buckets_t *b, const uint8_t *request, size_t request_len,
-                             uint8_t *reply, size_t reply_cap)
+static int served(const fzn_reconcile_gate_t *gate, uint8_t kind,
+                  const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	return !gate || (gate->serves && gate->serves(gate->ctx, (fzn_buckets_kind_t)kind, subject));
+}
+
+static size_t answer_buckets(const fzn_buckets_t *b, const fzn_reconcile_gate_t *gate,
+                             const uint8_t *request, size_t request_len, uint8_t *reply,
+                             size_t reply_cap)
 {
 	size_t n = 0, from, count, room, i, at = FZN_RECONCILE_BUCKETS_HEAD_LEN;
 
@@ -228,6 +235,16 @@ static size_t answer_buckets(const fzn_buckets_t *b, const uint8_t *request, siz
 		break;
 	default:
 		return 0;
+	}
+	/* ONLY WHAT THE CALLER MAY HOLD, before paging, so the positions it
+	 * pages by are the same each time it asks. */
+	if (n != COUNT_FULL && gate) {
+		size_t kept = 0;
+
+		for (i = 0; i < n; i++)
+			if (served(gate, request[2], served_buckets[i].subject))
+				served_buckets[kept++] = served_buckets[i];
+		n = kept;
 	}
 	from = fzn_get_be32(request + 3u);
 	count = n != COUNT_FULL && from < n ? n - from : 0u;
@@ -251,8 +268,9 @@ static size_t answer_buckets(const fzn_buckets_t *b, const uint8_t *request, siz
 	return at;
 }
 
-static size_t answer_bucket_ids(const fzn_buckets_t *b, const uint8_t *request,
-                                size_t request_len, uint8_t *reply, size_t reply_cap)
+static size_t answer_bucket_ids(const fzn_buckets_t *b, const fzn_reconcile_gate_t *gate,
+                                const uint8_t *request, size_t request_len, uint8_t *reply,
+                                size_t reply_cap)
 {
 	uint64_t total = 0;
 	size_t count = 0, room;
@@ -266,11 +284,14 @@ static size_t answer_bucket_ids(const fzn_buckets_t *b, const uint8_t *request,
 	room = (reply_cap - FZN_RECONCILE_BUCKET_IDS_HEAD_LEN) / FZN_BUCKETS_ID_LEN;
 	if (room > 0xffffu)
 		room = 0xffffu;
-	if (fzn_buckets_ids(b, (fzn_buckets_kind_t)request[2], request + 3u, month, from,
-	                    (uint8_t(*)[FZN_BUCKETS_ID_LEN])(reply + FZN_RECONCILE_BUCKET_IDS_HEAD_LEN),
-	                    room, &count, &total)
-	            != FZN_BUCKETS_OK
-	    || total > 0xffffffffu)
+	/* A BUCKET THE CALLER MAY NOT HOLD names no ids, as one not held. */
+	if (served(gate, request[2], request + 3u)
+	    && (fzn_buckets_ids(b, (fzn_buckets_kind_t)request[2], request + 3u, month, from,
+	                        (uint8_t(*)[FZN_BUCKETS_ID_LEN])(reply
+	                                                         + FZN_RECONCILE_BUCKET_IDS_HEAD_LEN),
+	                        room, &count, &total)
+	                != FZN_BUCKETS_OK
+	        || total > 0xffffffffu))
 		return 0;
 	reply[0] = (uint8_t)FZN_RECONCILE_VERSION;
 	reply[1] = (uint8_t)FZN_RECONCILE_BUCKET_IDS;
@@ -283,9 +304,11 @@ static size_t answer_bucket_ids(const fzn_buckets_t *b, const uint8_t *request,
 
 static uint8_t served_item[FZN_BUCKETS_ITEM_MAX];
 
-static size_t answer_item(const fzn_buckets_t *b, const uint8_t *request, size_t request_len,
-                          uint8_t *reply, size_t reply_cap)
+static size_t answer_item(const fzn_buckets_t *b, const fzn_reconcile_gate_t *gate,
+                          const uint8_t *request, size_t request_len, uint8_t *reply,
+                          size_t reply_cap)
 {
+	uint8_t subject[FZN_PUBKEY_LEN];
 	size_t len = 0, n = 0;
 	uint32_t offset;
 	fzn_buckets_err_t err;
@@ -295,9 +318,11 @@ static size_t answer_item(const fzn_buckets_t *b, const uint8_t *request, size_t
 		return 0;
 	offset = fzn_get_be32(request + 35u);
 	err = fzn_buckets_item(b, (fzn_buckets_kind_t)request[2], request + 3u, served_item,
-	                       sizeof(served_item), &len, NULL, NULL);
+	                       sizeof(served_item), &len, subject, NULL);
 	if (err != FZN_BUCKETS_OK && err != FZN_BUCKETS_ABSENT)
 		return 0;
+	if (err == FZN_BUCKETS_OK && !served(gate, request[2], subject))
+		len = 0;
 	/* NOT HELD answers 0 of 0; an offset past the end, nothing of all. */
 	if (offset < len) {
 		n = len - offset;
@@ -318,6 +343,15 @@ size_t fzn_reconcile_answer(const fzn_persist_ops_t *store, const fzn_hash_ops_t
                             fzn_node_journal_t *journal, const uint8_t *request,
                             size_t request_len, uint8_t *reply, size_t reply_cap)
 {
+	return fzn_reconcile_answer_gated(store, hash, journal, NULL, request, request_len, reply,
+	                                  reply_cap);
+}
+
+size_t fzn_reconcile_answer_gated(const fzn_persist_ops_t *store, const fzn_hash_ops_t *hash,
+                                  fzn_node_journal_t *journal, const fzn_reconcile_gate_t *gate,
+                                  const uint8_t *request, size_t request_len, uint8_t *reply,
+                                  size_t reply_cap)
+{
 	if (!store || !hash || !hash->hash || !request || !reply || request_len < 2u
 	    || request[0] != (uint8_t)FZN_RECONCILE_VERSION)
 		return 0;
@@ -335,11 +369,11 @@ size_t fzn_reconcile_answer(const fzn_persist_ops_t *store, const fzn_hash_ops_t
 		fzn_buckets_t b = { store, hash };
 
 		if (request[1] == (uint8_t)FZN_RECONCILE_BUCKETS_QUERY)
-			return answer_buckets(&b, request, request_len, reply, reply_cap);
+			return answer_buckets(&b, gate, request, request_len, reply, reply_cap);
 		if (request[1] == (uint8_t)FZN_RECONCILE_BUCKET_IDS_QUERY)
-			return answer_bucket_ids(&b, request, request_len, reply, reply_cap);
+			return answer_bucket_ids(&b, gate, request, request_len, reply, reply_cap);
 		if (request[1] == (uint8_t)FZN_RECONCILE_ITEM_QUERY)
-			return answer_item(&b, request, request_len, reply, reply_cap);
+			return answer_item(&b, gate, request, request_len, reply, reply_cap);
 	}
 	return 0;
 }

@@ -1513,13 +1513,47 @@ static void apply_journal(void)
 }
 
 /* WHAT THIS NODE HOLDS OF THE ESTATE'S STATE, served to a member, sec 551. */
-static size_t holdings_remote(void *ctx, const uint8_t *request, size_t request_len,
-                              uint8_t *reply, size_t reply_cap)
+/* WHAT ONE CALLER IS SERVED OF THE APPEND-ONLY KINDS, sec 567: every
+ * bucket when it holds the retention capability, and otherwise only its
+ * own -- its user's conversations, which here means it is one of the
+ * devices whose lines this node follows. Decided once a request. */
+struct serving_to {
+	const uint8_t *sender;
+	int holds; /* -1 not asked yet */
+};
+
+/* The retention capability, NULL on a node that derives none. */
+static const fzn_cap_id_t *retention_capability;
+
+static int serves_bucket(void *ctx, fzn_buckets_kind_t kind, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	struct serving_to *to = (struct serving_to *)ctx;
+	size_t d;
+
+	(void)subject;
+	if (to->holds < 0)
+		to->holds = retention_capability
+		            && fzn_node_apply_holds(&node_apply, to->sender, retention_capability);
+	if (to->holds)
+		return 1;
+	if (kind == FZN_BUCKETS_MESSAGES && messages_on)
+		for (d = 0; d < node_messages.m.device_count; d++)
+			if (memcmp(node_messages.devices[d], to->sender, FZN_PUBKEY_LEN) == 0)
+				return 1;
+	return 0;
+}
+
+static size_t holdings_remote(void *ctx, const uint8_t *sender, const uint8_t *request,
+                              size_t request_len, uint8_t *reply, size_t reply_cap)
 {
 	const fzn_node_apply_t *ap = (const fzn_node_apply_t *)ctx;
+	struct serving_to to = { sender, -1 };
+	fzn_reconcile_gate_t gate = { serves_bucket, &to };
 
-	return fzn_reconcile_answer(ap->store, ap->hash, ap->journal, request, request_len, reply,
-	                            reply_cap);
+	if (!sender)
+		return 0;
+	return fzn_reconcile_answer_gated(ap->store, ap->hash, ap->journal, &gate, request,
+	                                  request_len, reply, reply_cap);
 }
 
 /* A NOTE CLAIM RECONCILED, sec 555: filed as the index files one, a writer
@@ -3063,13 +3097,18 @@ int main(int argc, char **argv)
 		    || fzn_service_capability(cli.service, cli.product,
 		                              (const uint8_t *)FZN_NODE_ADMIN_NAME,
 		                              sizeof(FZN_NODE_ADMIN_NAME) - 1u, &hash_ops,
-		                              &state.config.admin_capability) != FZN_CHAIN_OK) {
+		                              &state.config.admin_capability) != FZN_CHAIN_OK
+		    || fzn_service_capability(cli.service, cli.product,
+		                              (const uint8_t *)FZN_NODE_RETENTION_NAME,
+		                              sizeof(FZN_NODE_RETENTION_NAME) - 1u, &hash_ops,
+		                              &state.config.retention_capability) != FZN_CHAIN_OK) {
 			fprintf(stderr, "fuzznetd: the remote capability needs both "
 			                "--fuzznet-service and --fuzznet-product\n");
 			return 2;
 		}
 		has_capability = 1;
 		state.config.has_admin = 1;
+		state.config.has_retention = 1;
 	}
 	if ((udp_port >= 0 || pair_hex) && !has_capability) {
 		fprintf(stderr, "fuzznetd: %s needs --fuzznet-service and --fuzznet-product: "
@@ -4032,6 +4071,9 @@ int main(int argc, char **argv)
 				node_apply.settings = &node_settings;
 				admin.holdings_remote = holdings_remote;
 				admin.holdings_ctx = &node_apply;
+				retention_capability = state.config.has_retention
+				                               ? &state.config.retention_capability
+				                               : NULL;
 				admin.settings_local = fzn_node_settings_local;
 				admin.settings_ctx = &node_settings;
 				admin.settings = &node_settings;

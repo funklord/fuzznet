@@ -140,6 +140,12 @@ int fzn_node_apply_chain(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKE
                          const fzn_cap_id_t *capability,
                          uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t *hop_count);
 
+/* WHETHER `key` HOLDS `capability`, sec 567: a root does; any other key by a
+ * chain from a root among the grants this node indexed, verified now --
+ * expired or revoked, it does not. */
+int fzn_node_apply_holds(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY_LEN],
+                         const fzn_cap_id_t *capability);
+
 /*
  * A SETTER'S RANK for a setting of `scope` about `about`, sec 540: ROOT for a
  * root; ADMIN for a key whose admin chain, from the index, the revocation

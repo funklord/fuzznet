@@ -180,9 +180,11 @@ typedef struct fzn_node_admin {
 	/* A RECONCILIATION MESSAGE from a member, sec 551
 	 * (`node/reconcile.h`): answered from what this node holds of the
 	 * estate's state, or 0 to fall through. NULL serves none. Never a
-	 * contact's, for the journal's reason. */
-	size_t (*holdings_remote)(void *ctx, const uint8_t *request, size_t request_len,
-	                          uint8_t *reply, size_t reply_cap);
+	 * contact's, for the journal's reason. `sender` is the caller, whose
+	 * retention capability decides which append-only data it is served
+	 * (sec 567). */
+	size_t (*holdings_remote)(void *ctx, const uint8_t *sender, const uint8_t *request,
+	                          size_t request_len, uint8_t *reply, size_t reply_cap);
 	void *holdings_ctx;
 	/* A contact's text request (`spool/message.h`), sec 438: answered only
 	 * for the texts of notes shared with `sender`, or 0. NULL serves a

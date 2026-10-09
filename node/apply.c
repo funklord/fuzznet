@@ -205,6 +205,19 @@ static int chain_proves(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY
 	       && fzn_ct_memeq(verdict.grantee, key, FZN_PUBKEY_LEN);
 }
 
+int fzn_node_apply_holds(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY_LEN],
+                         const fzn_cap_id_t *capability)
+{
+	uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	size_t n = 0;
+
+	if (!ap || !key || !capability || !ap->root || !ap->sign)
+		return 0;
+	return is_root(ap, key)
+	       || (fzn_node_apply_chain(ap, key, capability, hops, &n)
+	           && chain_proves(ap, key, (const uint8_t (*)[FZN_HOP_LEN])hops, n, capability));
+}
+
 int fzn_node_apply_rank(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY_LEN],
                         fzn_scope_t scope, const uint8_t about[FZN_SUBJECT_LEN],
                         fzn_setting_rank_t *rank)

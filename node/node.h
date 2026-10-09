@@ -75,6 +75,12 @@ typedef struct fzn_node_config {
 	int has_share;
 	fzn_cap_id_t share_capability;
 	uint8_t share_root[FZN_PUBKEY_LEN];
+	/* THE RETENTION CAPABILITY, sec 567: derived beside the admin one under
+	 * FZN_NODE_RETENTION_NAME, meaningful when `has_retention` is set. A
+	 * key holding it through a chain from a root is served any append-only
+	 * data this node holds; one without it, only its own. */
+	int has_retention;
+	fzn_cap_id_t retention_capability;
 } fzn_node_config_t;
 
 /* Whether a remote request naming `capability` (FZN_CAP_ID_LEN bytes, as a
@@ -93,6 +99,8 @@ fzn_authz_verdict_t fzn_node_decide_share(const fzn_node_config_t *config,
 /* The name the admin capability is derived under, sec 415: fuzznet's own,
  * dotted so no consumer's plain word for its own capability can be it. */
 #define FZN_NODE_ADMIN_NAME "fuzznet.admin"
+/* The name the retention capability is derived under, sec 567. */
+#define FZN_NODE_RETENTION_NAME "fuzznet.retention"
 
 /* How serving one caller ended. OK and DENIED both mean a response was
  * written: the node authenticated and authorised the caller and answered,

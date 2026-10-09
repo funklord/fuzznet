@@ -390,6 +390,30 @@ static int rule_in_settings(const fzn_node_settings_t *ns, fzn_scope_t scope,
 	       && value_len == len && memcmp(value, text, len) == 0;
 }
 
+/* `n` hex digits of `hex` into `out`: nonzero when every pair reads. */
+static int unhex_into(const uint8_t *hex, size_t n, uint8_t *out)
+{
+	size_t i;
+
+	if (n % 2u)
+		return 0;
+	for (i = 0; i < n; i++) {
+		uint8_t c = hex[i], v;
+
+		if (c >= '0' && c <= '9')
+			v = (uint8_t)(c - '0');
+		else if (c >= 'a' && c <= 'f')
+			v = (uint8_t)(c - 'a' + 10);
+		else
+			return 0;
+		if (i % 2u)
+			out[i / 2u] = (uint8_t)(out[i / 2u] | v);
+		else
+			out[i / 2u] = (uint8_t)(v << 4);
+	}
+	return 1;
+}
+
 static int says(const uint8_t *detail, size_t len, const char *what)
 {
 	size_t n = strlen(what), i;
@@ -623,6 +647,14 @@ int main(void)
 		                                                        &hash_ops) == FZN_CHAIN_OK,
 		      "fixture: revocation store");
 		state.config.has_admin = 1;
+		/* THE RETENTION CAPABILITY, sec 567, derived as fuzznetd derives it. */
+		CHECK(fzn_service_capability(7u, 3u, (const uint8_t *)FZN_NODE_RETENTION_NAME,
+		                             sizeof(FZN_NODE_RETENTION_NAME) - 1u, &hash_ops,
+		                             &state.config.retention_capability) == FZN_CHAIN_OK
+		              && memcmp(&state.config.retention_capability,
+		                        &state.config.admin_capability, sizeof(fzn_cap_id_t)) != 0,
+		      "fixture: the retention capability, not the admin one");
+		state.config.has_retention = 1;
 		admin.revocations = &revoked;
 		state.config.revocations = &revoked;
 	}
@@ -1058,6 +1090,40 @@ int main(void)
 		              && !says(detail, detail_len, "fuzznetd --pair"),
 		      "the control: a node holding no root key was sent to fuzznetd --pair");
 		memcpy(state.config.root, pinned, FZN_PUBKEY_LEN);
+	}
+
+	/* ---- THE RETENTION CAPABILITY, sec 567: a group member may not grant
+	 * it; the owner grants it as this root, one hop of that capability to
+	 * that key, and logged. */
+	{
+		char key[(FZN_PUBKEY_LEN * 2u) + 1u];
+		uint8_t hop[FZN_HOP_LEN];
+		fzn_chain_hop_t view;
+		size_t logged = (size_t)acts_by(node.id.pubkey), k;
+
+		for (k = 0; k < FZN_PUBKEY_LEN; k++)
+			snprintf(key + (2u * k), 3u, "%02x", device.id.pubkey[k]);
+		snprintf(line, sizeof(line), "grant retention %s", key);
+		CHECK(ask(&admin, &member, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_DENIED,
+		      "a service-group member granted the retention capability");
+		CHECK(ask(&admin, &owner, "grant retention zz", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_MALFORMED,
+		      "a grant to no key was not answered malformed");
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && detail_len == 1u + (FZN_HOP_LEN * 2u) && detail[0] == 'h'
+		              && unhex_into(detail + 1, FZN_HOP_LEN * 2u, hop)
+		              && fzn_hop_open(hop, FZN_HOP_LEN, &view) == FZN_CHAIN_OK
+		              && memcmp(fzn_hop_capability(view), &state.config.retention_capability,
+		                        sizeof(fzn_cap_id_t)) == 0
+		              && memcmp(fzn_hop_grantee(view), device.id.pubkey, FZN_PUBKEY_LEN) == 0
+		              && memcmp(fzn_hop_grantor(view), node.id.pubkey, FZN_PUBKEY_LEN) == 0
+		              && (size_t)acts_by(node.id.pubkey) == logged + 1u,
+		      "the owner's grant was not one hop of the retention capability to the device, "
+		      "from this root, logged");
 	}
 
 	/* ---- ADMINS, sec 416: a group member may not grant; the owner grants
