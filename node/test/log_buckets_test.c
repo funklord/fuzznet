@@ -639,6 +639,10 @@ static void test_a_segment_s_name(void)
 {
 	CHECK(fzn_log_copy_packed_time("netcfgd.1783641600000000.42.log.zst") == 1783641600000000ull,
 	      "a segment's name did not read as its closing time");
+	/* A SUFFIX OF THE RIGHT LENGTH AND THE WRONG BYTES: the one name only the
+	 * suffix's own check refuses, the pid's place passing it. */
+	CHECK(fzn_log_copy_packed_time("netcfgd.17.42.log.zzz") == 0u,
+	      "a name ending in another eight bytes read as a packed segment's");
 	CHECK(fzn_log_copy_packed_time("netcfgd.17.42.log") == 0u
 	              && fzn_log_copy_packed_time("a/b.17.42.log.zst") == 0u
 	              && fzn_log_copy_packed_time("netcfgd.1x.42.log.zst") == 0u

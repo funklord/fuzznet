@@ -61690,8 +61690,11 @@ session ran test, style, schema and livecheck at each step and not
 installcheck. Both are included now, the logs kind's refusal of a missing
 store exercised, and installcheck passes every arrangement.
 
-Measured: `make test` 223 binaries (copy_test gone), log_buckets_test 36
-checks -- a packed segment's name read for its time, and six names that
+Measured: `make test` 223 binaries (copy_test gone), log_buckets_test 37
+checks -- a packed segment's name read for its time, and seven names that
 are none refused; `make installcheck`, style and livecheck pass, and
 `make schema` stops only at sec 565's runtime drift. Seven sabotage
-entries over the retired code removed; two added for the name's checks.
+entries over the retired code removed; two added for the name's checks,
+each probed caught -- the suffix's only once a name with eight other
+suffix bytes was tried, every other bad name being refused first by the
+pid's place eight bytes from the end.
