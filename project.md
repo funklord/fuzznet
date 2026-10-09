@@ -61044,6 +61044,25 @@ answering moves B2 unconfirmed, which is the case the witness exists
 for. `tool/live_rejoin.py` asserts B's line: confirmed by 0 of 0 asked,
 B pulling from A alone. Two sabotage entries, each probed caught.
 
-Not exercised live: a witness that is a second running daemon. That
-needs a third node joined to the estate. The comparison is the unit
-tests', and the wiring is seen live only with none to ask.
+A witness that is a second running daemon is exercised live in sec 558.
+
+## 558. A rejoining member's bridge witnessed by a third node, live, 2026-10-09
+
+Sec 557's open item. `tool/live_witness.py`, now part of `make
+livecheck`, runs three daemons over loopback. A makes a root, and B and W
+join its estate with grants they can pass on. W also pairs B, so B pulls
+from both A (`--root-at`) and W (`--pull-from`).
+
+- **Under a clock 62 days back.** A sets `x/old`, and B takes it and is
+  stopped. A sets `x/away`, and W, started after it, takes all of A's
+  stream.
+- **On the real clock.** A and W each cut what is older than the window:
+  five records each, W keeping its spine. B starts. Its pull finds A's
+  estate stream cut below what it lacks, the bridge A serves is asked of
+  W, and the daemon logs "confirmed by 1 other peer(s) of 1 asked" before
+  B moves up to A's base and reconciles `x/away`.
+
+Run against a daemon that passes no witnesses, the check fails at
+"confirmed by 0 of 0". Not staged live: a witness that disagrees. Every
+node runs one binary, so a sabotage there makes A and W tell the same
+lie, and the disagreement stays the unit test's (sec 557).

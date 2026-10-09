@@ -5905,16 +5905,17 @@ QUIRC_VENDORED := quirc
 QUIRC_DIR      ?= $(QUIRC_VENDORED)
 
 # THE DAEMON ITSELF, run: its message trim end to end, sec 534, the
-# journal's window cut end to end, sec 548, and a member away past the window
-# rejoining two daemons over loopback, sec 554. The only target here that
-# starts fuzznetd. A line old enough to trim can only be
+# journal's window cut end to end, sec 548, a member away past the window
+# rejoining two daemons over loopback, sec 554, and its bridge witnessed by a
+# third, sec 558. The only target here that starts fuzznetd. A line old enough to trim can only be
 # written under an earlier clock, so `faketime` writes it, and the script
 # says SKIPPED when it is absent. It needs a fuzznetd, the record store its
 # conversations live in, and log files, because it waits on the daemon's
 # own debug line saying a trim or cut pass ran -- a build without one of
 # those has nothing to run, and says which. tool/live_trim.py,
-# tool/live_cut.py and tool/live_rejoin.py bound themselves: one deadline,
-# each daemon in its own process group, scratch removed.
+# tool/live_cut.py, tool/live_rejoin.py and tool/live_witness.py bound
+# themselves: one deadline, each daemon in its own process group, scratch
+# removed.
 livecheck: $(FUZZNETD)
 ifeq ($(and $(FUZZNETD),$(RECORD_STORE_FILE_ON),$(LOG_FILE_ON)),)
 	@echo "livecheck: SKIPPED -- it needs fuzznetd, the record store and log files," \
@@ -5923,6 +5924,7 @@ else
 	@timeout 300 python3 tool/live_trim.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_cut.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_rejoin.py $(FUZZNETD)
+	@timeout 300 python3 tool/live_witness.py $(FUZZNETD)
 endif
 
 # ONE SHELL, BECAUSE A SKIP MUST STOP THE TARGET. Written first as separate
