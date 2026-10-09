@@ -1522,12 +1522,30 @@ static size_t holdings_remote(void *ctx, const uint8_t *request, size_t request_
 	                            reply_cap);
 }
 
+/* A NOTE CLAIM RECONCILED, sec 555: filed as the index files one, a writer
+ * not admitted yet left to be offered again. */
+static fzn_node_apply_outcome_t notes_file(void *ctx, const uint8_t *record, size_t len)
+{
+	switch (fzn_node_notes_file((fzn_node_notes_t *)ctx, record, len, NULL)) {
+	case FZN_NOTES_OK:
+		return FZN_NODE_APPLY_APPLIED;
+	case FZN_NOTES_ERR_DENIED:
+		return FZN_NODE_APPLY_WAITING;
+	case FZN_NOTES_ERR_FULL:
+	case FZN_NOTES_ERR_BACKEND:
+		return FZN_NODE_APPLY_NOT_SAVED;
+	default:
+		return FZN_NODE_APPLY_REFUSED;
+	}
+}
+
 /* ONE ROUND OF RECONCILIATION against every pull peer, sec 551: what the
  * journal did not bring -- cut before this node saw it -- fetched from what
  * the peer holds, every round, so a gap one peer leaves another fills. */
 static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
 	static uint8_t reply[FZND_PULL_REPLY_MAX];
+	fzn_reconcile_notes_t notes = { notes_file, &node_notes };
 	size_t t, lacked = 0, applied = 0, waiting = 0, refused = 0;
 
 	if (!node_apply.store || !node_apply.journal)
@@ -1535,8 +1553,9 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 	for (t = 0; t < npulls; t++) {
 		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
 		fzn_reconcile_tally_t tally;
-		fzn_reconcile_err_t err = fzn_reconcile_round(&node_apply, peer_ask, &asking, reply,
-		                                              sizeof(reply), &tally);
+		fzn_reconcile_err_t err = fzn_reconcile_round(&node_apply, notes_on ? &notes : NULL,
+		                                              peer_ask, &asking, reply, sizeof(reply),
+		                                              &tally);
 
 		if (err != FZN_RECONCILE_OK) {
 			say(FZN_ENTRY_WARNING, "reconcile", "the estate's state from %s: %s",
@@ -4145,6 +4164,10 @@ int main(int argc, char **argv)
 				apply_journal();
 				reconcile_estate(pulls, npulls, now);
 				messages_round(pulls, npulls, now);
+				/* THE NOTES INDEX FIRST, so the cut sees how far it has
+				 * read: a notes stream is cut no further than its cursor,
+				 * which the round's own index has not moved yet. sec 555. */
+				index_notes();
 				journal_cut(now);
 #endif
 				/* THE ESTATE'S k MAY HAVE ARRIVED WITH THEM, sec 418 -- as a

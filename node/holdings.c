@@ -60,6 +60,7 @@ static const struct class_shape {
 	[FZN_HOLDINGS_SUCCESSIONS] = { FZN_PERSIST_SUCCESSION, HEAD_PERSIST, FZN_SUCCESSION_LEN,
 	                               { FZN_OBJECT_SUCCESSION } },
 	[FZN_HOLDINGS_SETTINGS] = { FZN_PERSIST_SETTING, HEAD_SETTING, 0u, { FZN_OBJECT_SETTING } },
+	[FZN_HOLDINGS_NOTES] = { FZN_PERSIST_NOTE, HEAD_PERSIST, 0u, { FZN_OBJECT_RECORD } },
 };
 
 /* The class's object in `row`: its offset and length, or 0. */

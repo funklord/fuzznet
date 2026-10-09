@@ -224,6 +224,18 @@ typedef struct fzn_node_notes_index_tally {
 } fzn_node_notes_index_tally_t;
 
 /*
+ * ONE NOTE CLAIM ALONE, sec 555: a note record that came by reconciliation
+ * rather than in a stream, filed exactly as the index files one -- by
+ * `fzn_notes_put`, which admits its writer, verifies it, keeps it only if it
+ * is the newest of its (note, writer), and refuses a note purged here.
+ * `*wrote` (may be NULL) says whether anything changed. DENIED for a writer
+ * not admitted yet, so the caller offers it again; PURGED; MALFORMED for a
+ * record that is not a note record of a notes stream.
+ */
+fzn_notes_err_t fzn_node_notes_file(fzn_node_notes_t *n, const uint8_t *record, size_t len,
+                                    int *wrote);
+
+/*
  * FEED THE INDEX FROM A STREAM, sec 519: `key`'s notes stream from just past
  * `*cursor` to `to`, read through `read`, each record filed as a pulled one
  * would be. A note record goes through `fzn_notes_put`; a purge record from a

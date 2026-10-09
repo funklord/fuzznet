@@ -10340,6 +10340,27 @@ SABOTAGES = [
 		"a pull counts a stream missing without saying which, and none is ever moved up -- sec 552",
 	),
 	(
+		"reconcile-answer-lists-into-its-own-buffer",
+		"node/reconcile.c",
+		"\tif (fzn_holdings_ids(store, hash, (fzn_holdings_class_t)cls, served_ids, FZN_HOLDINGS_MAX,",
+		"\tif (fzn_holdings_ids(store, hash, (fzn_holdings_class_t)cls, ids_buf, FZN_HOLDINGS_MAX,",
+		"an answer overwrites the list a round in the same process is searching, and the round fetches what it holds -- sec 555",
+	),
+	(
+		"reconcile-claims-go-to-the-notes-path",
+		"node/reconcile.c",
+		"\t\t\t\tswitch (cls == (uint8_t)FZN_HOLDINGS_NOTES",
+		"\t\t\t\tswitch (0",
+		"a note claim is judged as an estate object and refused -- sec 555",
+	),
+	(
+		"notes-file-takes-only-claims",
+		"node/notes.c",
+		"\t    || fzn_record_stream(rec) != FZN_NOTE_STREAM || fzn_record_kind(rec) != FZN_NOTE_KIND)\n\t\treturn FZN_NOTES_ERR_MALFORMED;\n\treturn fzn_notes_put(",
+		"\t    || fzn_record_stream(rec) != FZN_NOTE_STREAM)\n\t\treturn FZN_NOTES_ERR_MALFORMED;\n\treturn fzn_notes_put(",
+		"a purge record handed over as a claim is filed as one -- sec 555",
+	),
+	(
 		"node-messages-give-as-sender",
 		"node/messages.c",
 		"\t\tif (fzn_messages_key_take(&nm->m, e, fzn_get_be32(e + FZN_PUBKEY_LEN), sender,",

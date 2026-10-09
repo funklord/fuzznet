@@ -78,6 +78,39 @@ def ask(sock_path, line):
 	return buf.decode(errors="replace").rstrip("\n")
 
 
+def stop_process(proc, wrapped):
+	"""Stop one daemon and reap it, its process group KILLed if it lingers.
+
+	A DAEMON UNDER `faketime` IS SIGNALLED ITSELF, not its wrapper: the
+	wrapper removes the named semaphore and shared memory it made in
+	/dev/shm only when its child exits, so signalling the group killed it
+	first and left them behind. They accumulated -- 55 pairs in a day --
+	until a wrapper given a recycled pid met a stale name and refused to
+	start ("sem_open: File exists"). project.md sec 555."""
+	if proc.poll() is not None:
+		return
+	kids = []
+	if wrapped:
+		try:
+			with open("/proc/%d/task/%d/children" % (proc.pid, proc.pid)) as f:
+				kids = [int(k) for k in f.read().split()]
+		except OSError:
+			kids = []
+	if kids:
+		for k in kids:
+			try:
+				os.kill(k, signal.SIGTERM)
+			except ProcessLookupError:
+				pass
+	else:
+		os.killpg(proc.pid, signal.SIGTERM)
+	try:
+		proc.wait(timeout=10)
+	except subprocess.TimeoutExpired:
+		os.killpg(proc.pid, signal.SIGKILL)
+		proc.wait(timeout=10)
+
+
 class daemon:
 	"""One fuzznetd over the node, stopped and reaped on every path out."""
 
@@ -91,6 +124,7 @@ class daemon:
 		argv = [run.fuzznetd, "--socket=" + run.sock, "--fuzznet-dir=" + run.node,
 		        "--log-dir=" + self.log_dir, "--log-level=debug"] + CAPABILITY + list(extra)
 		env = dict(os.environ)
+		self.wrapped = bool(fake)
 		if fake:
 			argv = ["faketime", "-f", fake] + argv
 			env["FAKETIME_DONT_FAKE_MONOTONIC"] = "1"
@@ -132,13 +166,7 @@ class daemon:
 			time.sleep(0.2)
 
 	def stop(self):
-		if self.proc.poll() is None:
-			os.killpg(self.proc.pid, signal.SIGTERM)
-			try:
-				self.proc.wait(timeout=10)
-			except subprocess.TimeoutExpired:
-				os.killpg(self.proc.pid, signal.SIGKILL)
-				self.proc.wait(timeout=10)
+		stop_process(self.proc, self.wrapped)
 		self.err.close()
 
 

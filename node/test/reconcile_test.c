@@ -345,17 +345,17 @@ static void test_a_node_comes_to_its_peer(void)
 	}
 	CHECK(ok && held(&a, FZN_HOLDINGS_GRANTS) == 2u && held(&a, FZN_HOLDINGS_SETTINGS) == 20u,
 	      "fixture: A holds two grants and twenty settings");
-	CHECK(fzn_reconcile_round(&b.ap, ask, &pa, reply, sizeof(reply), &t) == FZN_RECONCILE_OK
+	CHECK(fzn_reconcile_round(&b.ap, NULL, ask, &pa, reply, sizeof(reply), &t) == FZN_RECONCILE_OK
 	              && t.classes == 2u && t.lacked == 22u && t.applied == 22u && t.waiting == 0u
 	              && t.refused == 0u && same(&a, &b),
 	      "a node holding nothing did not come to its peer's digests in one round");
 	pa.asked = 0;
-	CHECK(fzn_reconcile_round(&b.ap, ask, &pa, reply, sizeof(reply), &t) == FZN_RECONCILE_OK
+	CHECK(fzn_reconcile_round(&b.ap, NULL, ask, &pa, reply, sizeof(reply), &t) == FZN_RECONCILE_OK
 	              && t.classes == 0u && t.lacked == 0u && pa.asked == 1u,
 	      "a round with nothing to do asked more than the digest, or fetched");
 	pa.cap = FZN_RECONCILE_REPLY_MIN;
 	pa.asked = 0;
-	CHECK(fzn_reconcile_round(&c.ap, ask, &pa, reply, sizeof(reply), &t) == FZN_RECONCILE_OK
+	CHECK(fzn_reconcile_round(&c.ap, NULL, ask, &pa, reply, sizeof(reply), &t) == FZN_RECONCILE_OK
 	              && t.applied == 22u && same(&a, &c) && pa.asked > 5u,
 	      "over the smallest reply buffer the round did not page, re-ask and arrive");
 }
@@ -376,19 +376,19 @@ static void test_a_dishonest_peer(void)
 	              && grant(&a, 0x91, 0x93, &admin_cap)
 	              && setting(&a, 0x91, FZN_SCOPE_ESTATE, 0x91, "k", "v"),
 	      "fixture: A holds two grants and a setting");
-	CHECK(fzn_reconcile_round(&b.ap, ask, &liar, reply, sizeof(reply), &t) == FZN_RECONCILE_OK
+	CHECK(fzn_reconcile_round(&b.ap, NULL, ask, &liar, reply, sizeof(reply), &t) == FZN_RECONCILE_OK
 	              && t.applied == 0u && t.refused == 3u && held(&b, FZN_HOLDINGS_GRANTS) == 0u
 	              && held(&b, FZN_HOLDINGS_SETTINGS) == 0u,
 	      "an object changed on the way was taken");
-	CHECK(fzn_reconcile_round(&b.ap, ask, &omitter, reply, sizeof(reply), &t)
+	CHECK(fzn_reconcile_round(&b.ap, NULL, ask, &omitter, reply, sizeof(reply), &t)
 	                      == FZN_RECONCILE_OK
 	              && held(&b, FZN_HOLDINGS_GRANTS) == 1u && held(&b, FZN_HOLDINGS_SETTINGS) == 0u
 	              && !same(&a, &b),
 	      "fixture: a peer leaving the last id of each page out leaves a grant and the setting");
-	CHECK(fzn_reconcile_round(&b.ap, ask, &honest, reply, sizeof(reply), &t) == FZN_RECONCILE_OK
+	CHECK(fzn_reconcile_round(&b.ap, NULL, ask, &honest, reply, sizeof(reply), &t) == FZN_RECONCILE_OK
 	              && t.lacked == 2u && same(&a, &b),
 	      "the next peer did not fill the gap the first left");
-	CHECK(fzn_reconcile_round(&b.ap, ask, &honest, reply, FZN_RECONCILE_REPLY_MIN - 1u, &t)
+	CHECK(fzn_reconcile_round(&b.ap, NULL, ask, &honest, reply, FZN_RECONCILE_REPLY_MIN - 1u, &t)
 	              == FZN_RECONCILE_ERR_MALFORMED,
 	      "a reply buffer under the floor was accepted");
 }
@@ -555,6 +555,68 @@ static void test_a_stream_behind_a_peers_base(void)
 	      "a notes stream behind A's base did not move up with no bridge");
 }
 
+/* A STAND-IN FOR THE NOTES STORE: a claim is kept as its own row unless its
+ * fourth byte is 0x99, the mark of a writer not admitted, which waits. */
+static fzn_node_apply_outcome_t stub_file(void *ctx, const uint8_t *record, size_t len)
+{
+	node_t *n = (node_t *)ctx;
+	uint8_t row[FZN_PERSIST_HEAD_LEN + 64u];
+
+	if (len > 64u)
+		return FZN_NODE_APPLY_REFUSED;
+	if (record[3] == 0x99u)
+		return FZN_NODE_APPLY_WAITING;
+	row[0] = 1u;
+	row[1] = 1u;
+	memcpy(row + FZN_PERSIST_HEAD_LEN, record, len);
+	return mem_save(&n->mem, FZN_PERSIST_NOTE, record + 2, row, FZN_PERSIST_HEAD_LEN + len)
+	               ? FZN_NODE_APPLY_APPLIED
+	               : FZN_NODE_APPLY_NOT_SAVED;
+}
+
+/* A note-claim-shaped row of `n`'s: a record's version and tag, `fill`. */
+static void claim(node_t *n, uint8_t fill)
+{
+	uint8_t row[FZN_PERSIST_HEAD_LEN + 48u];
+
+	memset(row, fill, sizeof(row));
+	row[0] = 1u;
+	row[1] = 1u;
+	row[FZN_PERSIST_HEAD_LEN] = FZN_SIGNED_VERSION;
+	row[FZN_PERSIST_HEAD_LEN + 1u] = FZN_OBJECT_RECORD;
+	(void)mem_save(&n->mem, FZN_PERSIST_NOTE, row + FZN_PERSIST_HEAD_LEN + 2u, row, sizeof(row));
+}
+
+/* NOTE CLAIMS, sec 555: the last class, filed by the notes store's own path.
+ * With no notes store the class is passed over and nothing is lacked; with
+ * one, A's three claims are fetched, two filed and the third -- a writer
+ * not admitted -- waiting, and asked for again the next round. */
+static void test_note_claims(void)
+{
+	static node_t a, b;
+	struct peer pa = { &a, sizeof(reply), 0, 0 };
+	fzn_reconcile_notes_t notes = { stub_file, &b };
+	fzn_reconcile_tally_t t;
+
+	CHECK(node_up(&a) && node_up(&b), "fixture: two nodes");
+	claim(&a, 0x11);
+	claim(&a, 0x22);
+	claim(&a, 0x99);
+	CHECK(held(&a, FZN_HOLDINGS_NOTES) == 3u, "fixture: A holds three note claims");
+	CHECK(fzn_reconcile_round(&b.ap, NULL, ask, &pa, reply, sizeof(reply), &t) == FZN_RECONCILE_OK
+	              && t.classes == 0u && t.lacked == 0u && held(&b, FZN_HOLDINGS_NOTES) == 0u,
+	      "with no notes store the claims were fetched");
+	CHECK(fzn_reconcile_round(&b.ap, &notes, ask, &pa, reply, sizeof(reply), &t)
+	                      == FZN_RECONCILE_OK
+	              && t.lacked == 3u && t.applied == 2u && t.waiting == 1u
+	              && held(&b, FZN_HOLDINGS_NOTES) == 2u,
+	      "the claims were not filed by the notes path, the stranger's waiting");
+	CHECK(fzn_reconcile_round(&b.ap, &notes, ask, &pa, reply, sizeof(reply), &t)
+	                      == FZN_RECONCILE_OK
+	              && t.lacked == 1u && t.waiting == 1u,
+	      "the waiting claim was not asked for again");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -575,6 +637,7 @@ int main(void)
 	test_a_node_comes_to_its_peer();
 	test_a_dishonest_peer();
 	test_a_stream_behind_a_peers_base();
+	test_note_claims();
 	if (failures) {
 		fprintf(stderr, "reconcile_test: %d of %d checks failed\n", failures, checks);
 		return 1;

@@ -97,13 +97,22 @@ typedef struct fzn_reconcile_tally {
 	size_t full;     /* classes too large to list, here or there */
 } fzn_reconcile_tally_t;
 
+/* WHERE A NOTE CLAIM GOES, sec 555: one note record, filed by the notes
+ * store's own path (`fzn_node_notes_file`), answered as an object applied
+ * would be -- WAITING for a writer not admitted yet. */
+typedef struct fzn_reconcile_notes {
+	fzn_node_apply_outcome_t (*file)(void *ctx, const uint8_t *record, size_t len);
+	void *ctx;
+} fzn_reconcile_notes_t;
+
 /* ONE ROUND WITH ONE PEER: every class, in the order of
  * `fzn_holdings_class_t` -- grants first, so a chain is here before what it
- * entitles -- compared and, where it differs, brought up to the peer's.
- * `reply` is the caller's, at least FZN_RECONCILE_REPLY_MIN. */
-fzn_reconcile_err_t fzn_reconcile_round(fzn_node_apply_t *ap, fzn_reconcile_ask_t ask,
-                                        void *ask_ctx, uint8_t *reply, size_t reply_cap,
-                                        fzn_reconcile_tally_t *tally);
+ * entitles, and note claims last -- compared and, where it differs, brought
+ * up to the peer's. `notes` NULL passes the note claims over. `reply` is
+ * the caller's, at least FZN_RECONCILE_REPLY_MIN. */
+fzn_reconcile_err_t fzn_reconcile_round(fzn_node_apply_t *ap, const fzn_reconcile_notes_t *notes,
+                                        fzn_reconcile_ask_t ask, void *ask_ctx, uint8_t *reply,
+                                        size_t reply_cap, fzn_reconcile_tally_t *tally);
 
 /*
  * A STREAM THIS NODE IS BEHIND A PEER'S BASE ON, sec 552: the peer's base,

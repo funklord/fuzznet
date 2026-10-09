@@ -7,14 +7,15 @@ setup and phase a under `faketime` sixty-two days back, so what they write is
 older than the 60-day window when A next cuts:
 
     a  A sets x/old; B, serving with --root-at A, takes it by the journal and
-       is stopped; A then sets x/away, which B never pulls
+       is stopped; A then sets x/away and writes a note, which B never pulls
     b  A, on the real clock, sets x/now and cuts what is older than the
-       window -- x/old's and x/away's records among it. B starts: its pull
-       finds A's stream cut below what it lacks, moves up to A's base
-       (sec 552), and reconciliation (sec 551) brings x/away, which no
-       journal holds any more
-    c  B restarts: its journal follows from the new base, the pull misses
-       nothing, and the three settings read
+       window -- x/old's, x/away's and the note's records among it. B
+       starts: its pull finds both of A's streams cut below what it lacks,
+       moves each up to A's base (sec 552), and reconciliation brings x/away
+       and the note's claim (secs 551, 555), which no journal holds any
+       more; the note lists, its wrap key given by the wraps exchange
+    c  B restarts: its journal follows from the new bases, the pull misses
+       nothing, and the settings and the note read
 
 The waits are on the daemons' own lines -- A's cut pass, B's reconcile
 pass, B's "moved up" -- and each is checked before the settings are.
@@ -32,7 +33,6 @@ import datetime
 import os
 import re
 import shutil
-import signal
 import subprocess
 import sys
 import tempfile
@@ -40,7 +40,7 @@ import time
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from live_trim import ask, failed, left  # noqa: E402
+from live_trim import ask, failed, left, stop_process  # noqa: E402
 
 CAPABILITY = ["--fuzznet-service=1", "--fuzznet-product=1"]
 CUT_RE = re.compile(r"cut pass: a window of (\d+) day\(s\), (\d+) record\(s\) cut")
@@ -76,6 +76,7 @@ class daemon:
 		argv = [run.fuzznetd, "--socket=" + sock, "--fuzznet-dir=" + store,
 		        "--log-dir=" + self.log_dir, "--log-level=debug"] + CAPABILITY + list(extra)
 		env = dict(os.environ)
+		self.wrapped = bool(fake)
 		if fake:
 			argv = ["faketime", "-f", fake] + argv
 			env["FAKETIME_DONT_FAKE_MONOTONIC"] = "1"
@@ -119,13 +120,7 @@ class daemon:
 			time.sleep(0.2)
 
 	def stop(self):
-		if self.proc.poll() is None:
-			os.killpg(self.proc.pid, signal.SIGTERM)
-			try:
-				self.proc.wait(timeout=10)
-			except subprocess.TimeoutExpired:
-				os.killpg(self.proc.pid, signal.SIGKILL)
-				self.proc.wait(timeout=10)
+		stop_process(self.proc, self.wrapped)
 		self.err.close()
 
 
@@ -133,6 +128,13 @@ def expect(sock, tag, line, want):
 	reply = ask(sock, line)
 	if reply != want:
 		raise failed("%s: %s answered %r, expected %r" % (tag, line, reply, want))
+
+
+def listed(sock, tag):
+	"""The note A wrote while B was away, listed at B."""
+	reply = ask(sock, "list note top")
+	if not reply.startswith("ok ") or ",away-note," not in reply:
+		raise failed("%s: list note top answered %r, without away-note" % (tag, reply))
 
 
 def main(argv):
@@ -181,6 +183,9 @@ def main(argv):
 				finally:
 					b.stop()
 				expect(a_sock, "a", "set setting estate x/away 1", "ok")
+				reply = ask(a_sock, "add note top away-note")
+				if not reply.startswith("ok"):
+					raise failed("a: add note answered %r" % reply)
 			finally:
 				a.stop()
 			print("livecheck: a: B took x/old by the journal and left; A set x/away under %s"
@@ -203,6 +208,10 @@ def main(argv):
 						             "is in no journal" % (rec.group(3), rec.group(5)))
 					for key in ("x/old", "x/away", "x/now"):
 						expect(b_sock, "b", "get setting estate " + key, "ok root 1")
+					if moved.group(1) != "2":
+						raise failed("b: B moved %s stream(s) up; A's estate and notes streams "
+						             "were both cut below it" % moved.group(1))
+					listed(b_sock, "b")
 				finally:
 					b.stop()
 				print("livecheck: b: A cut %s record(s); B moved %s stream(s) up to A's base "
@@ -217,6 +226,7 @@ def main(argv):
 						raise failed("c: B's pull after the move still missed a stream")
 					for key in ("x/old", "x/away", "x/now"):
 						expect(b_sock, "c", "get setting estate " + key, "ok root 1")
+					listed(b_sock, "c")
 				finally:
 					b.stop()
 			finally:

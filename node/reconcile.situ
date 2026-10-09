@@ -26,8 +26,9 @@ struct fzn_reconcile_digest_query {
 }
 
 // One class: node/holdings.h's fzn_holdings_class_t, its count, its digest.
+// A class past this build's is a newer peer's, and is passed over.
 struct fzn_reconcile_class {
-	u8   class   [max = 7];
+	u8   class   [max = 8];
 	u32  count;
 	u8   digest[32];
 }
@@ -35,14 +36,14 @@ struct fzn_reconcile_class {
 struct fzn_reconcile_digest {
 	u8                   version [must_eq = 6];
 	fzn_reconcile_type   type    [must_eq = digest];
-	u8                   count   [max = 8];
+	u8                   count   [max = 9];
 	fzn_reconcile_class  classes[count];
 }
 
 struct fzn_reconcile_ids_query {
 	u8                  version [must_eq = 6];
 	fzn_reconcile_type  type    [must_eq = ids_query];
-	u8                  class   [max = 7];
+	u8                  class   [max = 8];
 	u32                 from;               // the first id wanted, by position
 }
 
@@ -53,7 +54,7 @@ struct fzn_reconcile_id {
 struct fzn_reconcile_ids {
 	u8                  version [must_eq = 6];
 	fzn_reconcile_type  type    [must_eq = ids];
-	u8                  class   [max = 7];
+	u8                  class   [max = 8];
 	u32                 total;              // every id of the class held
 	u32                 from;               // echoed
 	u16                 count;
@@ -63,13 +64,14 @@ struct fzn_reconcile_ids {
 struct fzn_reconcile_objects_query {
 	u8                  version [must_eq = 6];
 	fzn_reconcile_type  type    [must_eq = objects_query];
-	u8                  class   [max = 7];
+	u8                  class   [max = 8];
 	u8                  count   [min = 1, max = 32];
 	fzn_reconcile_id    ids[count];
 }
 
 // One signed object, whole: a hop, a root record, a vote, a confirmation,
-// a retention record, a roster record, a succession or a setting.
+// a retention record, a roster record, a succession, a setting, or a note
+// record (sec 555).
 struct fzn_reconcile_object {
 	u16  len [min = 3, max = 2048];
 	u8   object[len];
@@ -103,7 +105,7 @@ struct fzn_reconcile_base {
 struct fzn_reconcile_objects {
 	u8                    version [must_eq = 6];
 	fzn_reconcile_type    type    [must_eq = objects];
-	u8                    class   [max = 7];
+	u8                    class   [max = 8];
 	u16                   count;
 	fzn_reconcile_object  objects[count];
 }

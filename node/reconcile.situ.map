@@ -36,11 +36,11 @@ struct fzn_reconcile_class size=37 repr=ValueConverted atomic=NonAtomic
   fzn_reconcile_class.count              offset=AbsoluteStatic(0x01) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
   fzn_reconcile_class.digest             offset=AbsoluteStatic(0x05) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
 
-struct fzn_reconcile_digest size=3..299 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+struct fzn_reconcile_digest size=3..336 mutate=Shifting repr=ValueConverted atomic=NonAtomic
   fzn_reconcile_digest.version           offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   fzn_reconcile_digest.type              offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
   fzn_reconcile_digest.count             offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
-  fzn_reconcile_digest.classes           offset=AbsoluteStatic(0x03) size=Bounded(0, 296) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  fzn_reconcile_digest.classes           offset=AbsoluteStatic(0x03) size=Bounded(0, 333) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
   fzn_reconcile_digest.classes[]         offset=FrameStatic(0x00) size=Fixed(37) align=Aligned(8) repr=ValueConverted atomic=NonAtomic
   fzn_reconcile_digest.classes[].class   offset=FrameStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   fzn_reconcile_digest.classes[].count   offset=FrameStatic(0x01) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic

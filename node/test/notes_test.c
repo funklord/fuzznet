@@ -1356,6 +1356,53 @@ static int note_by(fzn_node_journal_t *nj, const uint8_t writer[FZN_PUBKEY_LEN],
 	                  == FZN_NODE_JOURNAL_OK;
 }
 
+/* ONE CLAIM ALONE, sec 555: the paired node's note record handed over as
+ * reconciliation hands it, not read from a stream. It is filed and listed;
+ * handed again it changes nothing; a record with a byte changed is not
+ * filed; a purge record is not a claim; and a writer not admitted yet is
+ * DENIED, so it is offered again. */
+static void test_a_claim_alone(void)
+{
+	static fzn_node_journal_t nj;
+	static fzn_record_store_ops_t rops = { rec_put, rec_get, NULL, NULL };
+	static const uint8_t mark[1] = { 1u };
+	static uint8_t record[FZN_RECORD_MAX_LEN], bad[FZN_RECORD_MAX_LEN];
+	uint8_t id[FZN_TREE_ID_LEN], stranger[FZN_PUBKEY_LEN];
+	fzn_sign_ops_t as_peer = { toy_verify, toy_sign, PEER };
+	fzn_sign_ops_t as_stranger = { toy_verify, toy_sign, stranger };
+	size_t len = 0;
+	int wrote = 0;
+
+	setup(1);
+	memset(rec_slots, 0, sizeof(rec_slots));
+	rec_count = 0;
+	memset(id, 0x43, sizeof(id));
+	memset(stranger, 0x5b, sizeof(stranger));
+	CHECK(fzn_node_journal_init_store(&nj, &rops, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && note_by(&nj, PEER, &as_peer, id, "alone")
+	              && read_rec(NULL, PEER, 1u, record, sizeof(record), &len),
+	      "fixture: the paired node's note record");
+	memcpy(bad, record, len);
+	bad[len - 1u] ^= 1u;
+	CHECK(fzn_node_notes_file(&notes, bad, len, &wrote) != FZN_NOTES_OK && !wrote,
+	      "a claim with a byte changed was filed");
+	CHECK(fzn_node_notes_file(&notes, record, len, &wrote) == FZN_NOTES_OK && wrote
+	              && ask("list note top") == FZN_REPLY_OK && has(",alone"),
+	      "a claim alone was not filed and listed");
+	CHECK(fzn_node_notes_file(&notes, record, len, &wrote) == FZN_NOTES_OK && !wrote,
+	      "the same claim handed again changed something");
+	CHECK(fzn_node_journal_write(&nj, PEER, FZN_NOTE_STREAM, &as_peer, FZN_NOTE_PURGE_KIND, id,
+	                             mark, sizeof(mark), 2u, record, sizeof(record), &len, NULL)
+	                      == FZN_NODE_JOURNAL_OK
+	              && fzn_node_notes_file(&notes, record, len, &wrote) == FZN_NOTES_ERR_MALFORMED,
+	      "a purge record was taken as a claim");
+	memset(id, 0x44, sizeof(id));
+	CHECK(note_by(&nj, stranger, &as_stranger, id, "stranger's")
+	              && read_rec(NULL, stranger, 1u, record, sizeof(record), &len)
+	              && fzn_node_notes_file(&notes, record, len, &wrote) == FZN_NOTES_ERR_DENIED,
+	      "a claim by a writer not admitted was not DENIED");
+}
+
 /* THE INDEX FED FROM A STREAM, sec 519: a sibling's note filed from its
  * stream; its purge record acted on, and told again in this node's own; the
  * stream fed again from the start without the note coming back; and a writer
@@ -1704,6 +1751,7 @@ int main(void)
 	test_pushing_texts();
 	test_the_journal_chain();
 	test_the_feed();
+	test_a_claim_alone();
 	test_the_title_cache();
 	test_writes_mark_fresh();
 	test_unpaired_partner();

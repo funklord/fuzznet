@@ -60933,3 +60933,58 @@ streams moved up to a peer's base (552), and this. Still open: note
 claims (slot 17) are not reconciled; the subjects in a spine bridge are
 the peer's word; and a pull peer of another estate is reconciled with
 every round to no effect (sec 553).
+
+## 555. Note claims reconciled, 2026-10-09
+
+The class sec 551 left out. A note claim -- slot 17, the newest record of
+each (note, writer) -- is a whole stream-0 record. Notes admit and keep
+it by their own rules, not by `fzn_node_apply_object`'s.
+
+- **`FZN_HOLDINGS_NOTES`**, class 8, last in the order: a claim's writer
+  is admitted by the estate state reconciled before it.
+  `node/reconcile.situ`'s class bound grows to 8, and a peer sending a
+  class past its own build's skips it.
+- **The round takes a notes hook** (`fzn_reconcile_notes_t`) and passes
+  the class over without one. fuzznetd's files each claim with
+  **`fzn_node_notes_file`**, which takes only a note record of a notes
+  stream and files it by `fzn_notes_put`, as the index files one from a
+  stream: the writer admitted, the record verified, kept only if newest,
+  and refused for a note purged here. A writer not admitted yet waits
+  and is fetched again next round. Purges and wrap keys keep their own
+  exchanges.
+
+**A defect from sec 551, found by this step's test.** The answer and the
+round shared one static id buffer. A process answering a peer in the
+middle of its own round -- or one playing both peers, as the suite
+does -- overwrote the list the round was searching, and fetched what it
+already held. The earlier cases passed because the server's ids happened
+to be a superset of the client's. The answer has a buffer of its own now.
+
+**And an ordering in fuzznetd.** The cut pass ran before the round's
+notes index, so a notes stream's limit was the index cursor from the
+round before -- at start, the base -- and a node's own notes stream was
+never cut in its first round. The index now runs just before the cut.
+
+Measured: notes_test 319 checks -- a claim alone is filed and listed;
+handed again it changes nothing; one with a byte changed is not filed; a
+purge record is no claim; a writer not admitted is DENIED.
+reconcile_test 22: with no notes hook the class is passed over; with
+one, two claims are filed, the third waits and is asked for again.
+`tool/live_rejoin.py` now has A write a note while B is away. A's first
+cut pass cuts four records, the note's among them, and B moves both of
+A's streams up to their bases. Its reconcile pass applies the note's
+claim with the two settings, the wraps exchange gives the key, and the
+note lists at B, and again after B restarts. Against a daemon reconciling
+without the notes hook, the check fails at the missing note. Three
+sabotage entries, each probed caught.
+
+**And the live harnesses leaked into /dev/shm**, found when this step's
+livecheck failed with "faketime: sem_open: File exists". A daemon under
+`faketime` was stopped by signalling its whole process group, so the
+wrapper died before removing the named semaphore and shared memory it
+makes per pid. 110 files -- 55 pairs -- had accumulated over a day of runs,
+until a wrapper given a recycled pid met a stale name. `stop_process` in
+`tool/live_trim.py`, used by all three harnesses, now signals the wrapper's
+child and lets the wrapper exit and clean up. Measured: HEAD's
+`live_cut.py` leaves two files a run, the fixed `make livecheck` none. The
+110 were removed by name, each only once its pid was checked gone.

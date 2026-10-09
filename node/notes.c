@@ -1782,6 +1782,19 @@ static int node_admits(const fzn_node_notes_t *n, const uint8_t key[FZN_PUBKEY_L
 	return 0;
 }
 
+fzn_notes_err_t fzn_node_notes_file(fzn_node_notes_t *n, const uint8_t *record, size_t len,
+                                    int *wrote)
+{
+	fzn_record_t rec;
+
+	if (wrote)
+		*wrote = 0;
+	if (!n || !record || fzn_record_open(record, len, &rec) != FZN_RECORD_OK
+	    || fzn_record_stream(rec) != FZN_NOTE_STREAM || fzn_record_kind(rec) != FZN_NOTE_KIND)
+		return FZN_NOTES_ERR_MALFORMED;
+	return fzn_notes_put(&n->store, record, len, n->author.policy, n->author.sign, wrote, NULL);
+}
+
 fzn_notes_err_t fzn_node_notes_index_stream(fzn_node_notes_t *n, fzn_node_notes_read_fn read,
                                             void *ctx, const uint8_t key[FZN_PUBKEY_LEN],
                                             uint64_t *cursor, uint64_t to,

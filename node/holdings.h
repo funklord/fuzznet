@@ -18,7 +18,9 @@
  * set agree on it whatever order they learned it in.
  *
  * Per node and secret slots are not classes, nor are conversations: lines
- * carry no signatures and their transfer was deferred by the holder.
+ * carry no signatures and their transfer was deferred by the holder. Note
+ * claims are a class whose objects are whole stream-0 records, filed by the
+ * notes store's own path rather than `fzn_node_apply_object` (sec 555).
  */
 #ifndef FZN_NODE_HOLDINGS_H
 #define FZN_NODE_HOLDINGS_H
@@ -44,7 +46,10 @@ typedef enum fzn_holdings_class {
 	FZN_HOLDINGS_ROSTER = 5,      /* slot 28, roster records */
 	FZN_HOLDINGS_SUCCESSIONS = 6, /* slot 30, successions */
 	FZN_HOLDINGS_SETTINGS = 7,    /* slot 38, settings standing */
-	FZN_HOLDINGS_CLASSES = 8
+	/* slot 17, the newest note record of each (note, writer): last, since
+	 * a writer is admitted by the estate state before it. sec 555. */
+	FZN_HOLDINGS_NOTES = 8,
+	FZN_HOLDINGS_CLASSES = 9
 } fzn_holdings_class_t;
 
 typedef enum fzn_holdings_err {

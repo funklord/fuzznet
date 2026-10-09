@@ -33,8 +33,12 @@ static int is(const uint8_t *m, size_t len, uint8_t type)
 
 /* ---- the server ------------------------------------------------------------ */
 
-/* One class's ids, ascending, shared by the answer and the round: the two
- * never run at once in one process, and 128 KiB is not stack. */
+/* One class's ids, ascending: the answer's, and the round's own. TWO
+ * BUFFERS, NOT ONE SHARED: a node answering a peer while it is in the middle
+ * of its own round -- or one process playing both sides, as a suite does --
+ * would otherwise overwrite the list the round is searching, and fetch what
+ * it holds. 128 KiB each is not stack. sec 555. */
+static uint8_t served_ids[FZN_HOLDINGS_MAX][FZN_HOLDINGS_ID_LEN];
 static uint8_t ids_buf[FZN_HOLDINGS_MAX][FZN_HOLDINGS_ID_LEN];
 
 static size_t answer_digest(const fzn_persist_ops_t *store, const fzn_hash_ops_t *hash,
@@ -79,8 +83,8 @@ static size_t answer_ids(const fzn_persist_ops_t *store, const fzn_hash_ops_t *h
 		return 0;
 	cls = request[2];
 	from = fzn_get_be32(request + 3u);
-	if (fzn_holdings_ids(store, hash, (fzn_holdings_class_t)cls, ids_buf, FZN_HOLDINGS_MAX, &n)
-	    != FZN_HOLDINGS_OK)
+	if (fzn_holdings_ids(store, hash, (fzn_holdings_class_t)cls, served_ids, FZN_HOLDINGS_MAX,
+	                     &n) != FZN_HOLDINGS_OK)
 		return 0;
 	count = from < n ? n - from : 0u;
 	room = (reply_cap - FZN_RECONCILE_IDS_HEAD_LEN) / FZN_HOLDINGS_ID_LEN;
@@ -95,7 +99,7 @@ static size_t answer_ids(const fzn_persist_ops_t *store, const fzn_hash_ops_t *h
 	fzn_put_be32(reply + 7u, (uint32_t)from);
 	fzn_put_be16(reply + 11u, (uint16_t)count);
 	if (count)
-		memcpy(reply + FZN_RECONCILE_IDS_HEAD_LEN, ids_buf[from], count * FZN_HOLDINGS_ID_LEN);
+		memcpy(reply + FZN_RECONCILE_IDS_HEAD_LEN, served_ids[from], count * FZN_HOLDINGS_ID_LEN);
 	return FZN_RECONCILE_IDS_HEAD_LEN + (count * FZN_HOLDINGS_ID_LEN);
 }
 
@@ -222,9 +226,9 @@ static uint8_t lacked[FZN_HOLDINGS_MAX][FZN_HOLDINGS_ID_LEN];
  * object hashed to one of the ids asked, so a peer sends nothing it was not
  * asked for; what does not fit is asked again; a batch that brings nothing
  * is given up on for the round -- the peer no longer holds it. */
-static fzn_reconcile_err_t fetch(fzn_node_apply_t *ap, fzn_reconcile_ask_t ask, void *ask_ctx,
-                                 uint8_t cls, size_t n, uint8_t *reply, size_t reply_cap,
-                                 fzn_reconcile_tally_t *tally)
+static fzn_reconcile_err_t fetch(fzn_node_apply_t *ap, const fzn_reconcile_notes_t *notes,
+                                 fzn_reconcile_ask_t ask, void *ask_ctx, uint8_t cls, size_t n,
+                                 uint8_t *reply, size_t reply_cap, fzn_reconcile_tally_t *tally)
 {
 	uint8_t request[FZN_RECONCILE_OBJECTS_QUERY_HEAD_LEN
 	                + (size_t)FZN_RECONCILE_ASK_MAX * FZN_HOLDINGS_ID_LEN];
@@ -271,7 +275,9 @@ static fzn_reconcile_err_t fetch(fzn_node_apply_t *ap, fzn_reconcile_ask_t ask, 
 				got[j] = 1;
 				kept++;
 				memset(&t, 0, sizeof(t));
-				switch (fzn_node_apply_object(ap, reply + at, len, &t)) {
+				switch (cls == (uint8_t)FZN_HOLDINGS_NOTES
+				                ? notes->file(notes->ctx, reply + at, len)
+				                : fzn_node_apply_object(ap, reply + at, len, &t)) {
 				case FZN_NODE_APPLY_APPLIED:
 					tally->applied++;
 					break;
@@ -309,9 +315,9 @@ static fzn_reconcile_err_t fetch(fzn_node_apply_t *ap, fzn_reconcile_ask_t ask, 
 	return FZN_RECONCILE_OK;
 }
 
-fzn_reconcile_err_t fzn_reconcile_round(fzn_node_apply_t *ap, fzn_reconcile_ask_t ask,
-                                        void *ask_ctx, uint8_t *reply, size_t reply_cap,
-                                        fzn_reconcile_tally_t *tally)
+fzn_reconcile_err_t fzn_reconcile_round(fzn_node_apply_t *ap, const fzn_reconcile_notes_t *notes,
+                                        fzn_reconcile_ask_t ask, void *ask_ctx, uint8_t *reply,
+                                        size_t reply_cap, fzn_reconcile_tally_t *tally)
 {
 	uint8_t theirs[FZN_HOLDINGS_CLASSES][FZN_HOLDINGS_ID_LEN];
 	uint32_t their_count[FZN_HOLDINGS_CLASSES];
@@ -349,6 +355,9 @@ fzn_reconcile_err_t fzn_reconcile_round(fzn_node_apply_t *ap, fzn_reconcile_ask_
 		fzn_reconcile_err_t err;
 
 		if (!listed[c] || their_count[c] == 0u)
+			continue;
+		/* NOTE CLAIMS ONLY WHERE THERE IS A NOTES STORE to file them. */
+		if (c == FZN_HOLDINGS_NOTES && (!notes || !notes->file))
 			continue;
 		if (their_count[c] == COUNT_FULL) {
 			tally->full++;
@@ -400,7 +409,7 @@ fzn_reconcile_err_t fzn_reconcile_round(fzn_node_apply_t *ap, fzn_reconcile_ask_
 			from += count;
 		}
 		tally->lacked += n_lacked;
-		err = fetch(ap, ask, ask_ctx, (uint8_t)c, n_lacked, reply, reply_cap, tally);
+		err = fetch(ap, notes, ask, ask_ctx, (uint8_t)c, n_lacked, reply, reply_cap, tally);
 		if (err != FZN_RECONCILE_OK)
 			return err;
 	}
