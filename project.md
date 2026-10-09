@@ -61292,10 +61292,11 @@ Sec 564's first stage.
   debug `reconcile pass:` line now ends with the lines lacked, filed and
   passed over.
 
-Known limit: a line two devices both wrote is found as the same line only
-among a conversation's 64 most recent, as the journal's absorb already
-finds it. Filed long after the other copy, it lists twice. Scanning the
-whole conversation per item was rejected for its cost.
+A line two devices both wrote was found as the same line only among a
+conversation's 64 most recent, as the journal's absorb found it, so one
+filed long after the other copy listed twice; scanning the whole
+conversation per item was rejected for its cost. Settled by a mark per
+line in sec 575.
 
 Measured: buckets_test 37 checks. These cover: one item held once, the
 digest the same in either order, ids paged across chunks, buckets listed
@@ -61715,3 +61716,35 @@ the banner's 90:1, which is that arrangement working. Measured: `make
 schema` passes, and so do `make test` (223 binaries), `make style`, `make
 installcheck` and `make livecheck` -- all five gates together for the
 first time since sec 565.
+
+## 575. A line written by two devices is found however far apart, 2026-10-09
+
+A line is (conversation, direction, id), and two of a user's devices can
+both write it. The store found the second copy only among the
+conversation's 64 most recent lines (`recently_indexed`, sec 528), so one
+arriving later -- reconciled from a month a device was away for (sec 565),
+or absorbed from a stream long behind -- was kept and listed twice.
+
+- **A mark per line**: a row in FZN_PERSIST_MESSAGE_INDEX keyed by a hash
+  of the conversation, direction and id, written when the line enters the
+  index. Keeping a line and appending it to the index both ask it first, a
+  lookup of one row however long the conversation; the recent look back
+  stays as well, for a store whose lines came before marks.
+- **A store from before marks** has its every line marked once, by
+  `fzn_messages_upgrade`, which hosts already run before their first pull
+  (sec 560); a flag says it is done.
+- **A rebuilt index takes its marks with it.** `index_clear` removes each
+  entry's mark before the entries, or the rebuild would find every line
+  marked and index none.
+
+Measured: messages_test 167 checks -- A writes a line and seventy more, B
+writes the same line, and after A takes B's stream it holds 71 lines, not
+72; a rebuilt index lists all 71 and the line once; and a store whose
+first line's mark and the pass's flag were taken out -- each row found
+before it was taken, so a key derived wrong could not pass the case over a
+mark still there -- is marked again by the upgrade, and B's copy is not
+kept. Four sabotage entries, and two re-anchored on code this change
+moved, all six probed caught. A third, on the same check in
+`index_append`, survived: that function's one caller, `keep_line`, makes
+the check just before, so the copy could change nothing. It is gone, and
+its entry with it.

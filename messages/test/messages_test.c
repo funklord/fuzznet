@@ -716,6 +716,104 @@ static void test_reindex_orders_by_writing(void)
 	      "and an absorb from the beginning again takes nothing in twice");
 }
 
+/* THE SAME LINE FROM TWO DEVICES, FAR APART, sec 575: A writes a line and
+ * seventy more; B writes the same line, outside the 64 a look back would
+ * reach. Taken in, it is kept once -- and a rebuilt index, its marks
+ * cleared with it, keeps it once again. */
+static void test_the_same_line_far_apart(void)
+{
+	size_t marks = 0, rows;
+	uint8_t n;
+	int all = 1;
+
+	setup();
+	all &= write_line(&A, X, FZN_MESSAGE_IN, 1u, "the line");
+	for (n = 2u; n < 72u; n++)
+		all &= write_line(&A, X, FZN_MESSAGE_OUT, n, "filler");
+	all &= write_line(&B, X, FZN_MESSAGE_IN, 1u, "the line");
+	CHECK(all, "fixture: A's line and seventy after it, then B's copy of the first");
+	rows = rows_in(&A.store, FZN_PERSIST_MESSAGE_LINE);
+	sync_a();
+	CHECK(rows == 71u && rows_in(&A.store, FZN_PERSIST_MESSAGE_LINE) == 71u,
+	      "B's copy of a line A wrote seventy lines before was kept again");
+	CHECK(fzn_messages_reindex(&A.m, &marks) == FZN_MESSAGES_OK
+	              && list(&A, X, 0u, FZN_MESSAGES_PAGE_MAX) && more,
+	      "a rebuilt index lists nothing, its marks left behind");
+	{
+		size_t total = 0, offset = 0, ones = 0, i;
+
+		/* EVERY PAGE, counting the line's copies. */
+		while (offset < 80u && list(&A, X, offset, FZN_MESSAGES_PAGE_MAX) && count) {
+			for (i = 0; i < count; i++)
+				ones += page[i].id[0] == 1u && page[i].direction == FZN_MESSAGE_IN;
+			total += count;
+			offset += count;
+			if (!more)
+				break;
+		}
+		CHECK(total == 71u && ones == 1u, "the rebuilt index does not list the line once");
+	}
+}
+
+/* A STORE FROM BEFORE MARKS, sec 575: its lines marked once, by the
+ * upgrade. Made here by taking one line's mark and the pass's own flag out
+ * of a store, their rows found as the store finds them. */
+static int index_row_of(const char *what, const uint8_t key[FZN_PUBKEY_LEN], uint8_t row[32])
+{
+	static const char DOMAIN[] = "fuzznet.message.";
+	uint8_t in[sizeof(DOMAIN) - 1u + 8u + FZN_PUBKEY_LEN + 4u];
+	size_t at = sizeof(DOMAIN) - 1u;
+
+	memset(in, 0, sizeof(in));
+	memcpy(in, DOMAIN, at);
+	memcpy(in + at, what, strlen(what));
+	memcpy(in + at + 8u, key, FZN_PUBKEY_LEN);
+	return HASH.hash(HASH.ctx, row, 32u, in, sizeof(in));
+}
+
+static void test_lines_from_before_marks(void)
+{
+	static const char DOMAIN[] = "fuzznet.message.lineid";
+	uint8_t in[sizeof(DOMAIN) - 1u + FZN_PUBKEY_LEN + 1u + FZN_MESSAGE_ID_LEN];
+	uint8_t key[FZN_PUBKEY_LEN], row[32], nobody[FZN_PUBKEY_LEN], id[FZN_MESSAGE_ID_LEN];
+	int rebuilt = 0, all = 1;
+	uint8_t n;
+
+	setup();
+	all &= write_line(&A, X, FZN_MESSAGE_IN, 1u, "the line");
+	for (n = 2u; n < 72u; n++)
+		all &= write_line(&A, X, FZN_MESSAGE_OUT, n, "filler");
+	all &= fzn_messages_upgrade(&A.m, &rebuilt) == FZN_MESSAGES_OK;
+	/* LINE 1's MARK AND THE PASS'S FLAG, taken out. */
+	id_of(id, 1u);
+	memcpy(in, DOMAIN, sizeof(DOMAIN) - 1u);
+	memcpy(in + sizeof(DOMAIN) - 1u, X, FZN_PUBKEY_LEN);
+	in[sizeof(DOMAIN) - 1u + FZN_PUBKEY_LEN] = FZN_MESSAGE_IN;
+	memcpy(in + sizeof(DOMAIN) - 1u + FZN_PUBKEY_LEN + 1u, id, FZN_MESSAGE_ID_LEN);
+	memset(nobody, 0, sizeof(nobody));
+	/* EACH FOUND BEFORE IT IS TAKEN: a key derived wrong would take nothing,
+	 * and the case would pass over a mark still there. */
+	{
+		uint8_t b[16];
+		size_t len = 0;
+
+		all &= HASH.hash(HASH.ctx, key, sizeof(key), in, sizeof(in))
+		       && index_row_of("lineid", key, row)
+		       && mem_load(&A.store, FZN_PERSIST_MESSAGE_INDEX, row, b, sizeof(b), &len)
+		       && len == 1u && mem_remove(&A.store, FZN_PERSIST_MESSAGE_INDEX, row)
+		       && index_row_of("lineids", nobody, row)
+		       && mem_load(&A.store, FZN_PERSIST_MESSAGE_INDEX, row, b, sizeof(b), &len)
+		       && len == 8u && mem_remove(&A.store, FZN_PERSIST_MESSAGE_INDEX, row);
+	}
+	CHECK(all, "fixture: a store whose first line has no mark, as before marks");
+	CHECK(fzn_messages_upgrade(&A.m, &rebuilt) == FZN_MESSAGES_OK,
+	      "the upgrade refused a store from before marks");
+	CHECK(write_line(&B, X, FZN_MESSAGE_IN, 1u, "the line"), "fixture: B's copy of the first");
+	sync_a();
+	CHECK(rows_in(&A.store, FZN_PERSIST_MESSAGE_LINE) == 71u,
+	      "a line indexed before marks was kept again from another device");
+}
+
 /* ---- trimming by the rules, sec 531 ------------------------------------------ */
 
 /* A line written on the tenth of month `epoch` (678 July 2026 .. 681
@@ -1196,6 +1294,8 @@ int main(void)
 	test_import_keeps_a_line_once();
 	test_read_state_travels();
 	test_reindex_orders_by_writing();
+	test_the_same_line_far_apart();
+	test_lines_from_before_marks();
 	test_trimming_by_age();
 	test_the_store_outlives_the_journal();
 	test_a_trimmed_month_keeps_heads_only();

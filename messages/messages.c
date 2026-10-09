@@ -840,8 +840,54 @@ static int recently_indexed(const fzn_messages_t *m, const uint8_t contact[FZN_P
 	return 0;
 }
 
-/* APPEND a line to `contact`'s index, once: a line already among its
- * recent entries, written by another device, is not appended again. */
+/* A LINE'S MARK, sec 575: one row per line indexed, keyed by its
+ * conversation, direction and id, so the same line written by another
+ * device is found at once however long ago the first copy came -- where
+ * `recently_indexed` looks back only RECENT_ENTRIES. */
+static int line_mark_row(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                         uint8_t direction, const uint8_t id[FZN_MESSAGE_ID_LEN],
+                         uint8_t row[FZN_PUBKEY_LEN])
+{
+	static const char DOMAIN[] = "fuzznet.message.lineid";
+	uint8_t in[sizeof(DOMAIN) - 1u + FZN_PUBKEY_LEN + 1u + FZN_MESSAGE_ID_LEN];
+	uint8_t key[FZN_PUBKEY_LEN];
+	size_t at = sizeof(DOMAIN) - 1u;
+
+	memcpy(in, DOMAIN, at);
+	memcpy(in + at, contact, FZN_PUBKEY_LEN);
+	in[at + FZN_PUBKEY_LEN] = direction;
+	memcpy(in + at + FZN_PUBKEY_LEN + 1u, id, FZN_MESSAGE_ID_LEN);
+	return m->hash->hash(m->hash->ctx, key, sizeof(key), in, sizeof(in))
+	       && index_row(m, "lineid", key, 0u, row);
+}
+
+static int line_marked(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                       uint8_t direction, const uint8_t id[FZN_MESSAGE_ID_LEN])
+{
+	uint8_t row[FZN_PUBKEY_LEN], b[1];
+	size_t len = 0;
+
+	return line_mark_row(m, contact, direction, id, row)
+	       && m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, b, sizeof(b), &len)
+	       && len == 1u;
+}
+
+static int line_mark(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                     uint8_t direction, const uint8_t id[FZN_MESSAGE_ID_LEN], int on)
+{
+	uint8_t row[FZN_PUBKEY_LEN], b[1] = { 1u };
+
+	if (!line_mark_row(m, contact, direction, id, row))
+		return 0;
+	if (on)
+		return m->store->save(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, b, sizeof(b));
+	return !m->store->remove || m->store->remove(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row);
+}
+
+/* APPEND a line to `contact`'s index, and mark it. Its one caller,
+ * `keep_line`, has asked whether the line is indexed already -- marked, or
+ * among the recent entries for a store from before marks -- so a copy
+ * another device wrote never reaches here. */
 static int index_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                         const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq, uint8_t direction,
                         const uint8_t id[FZN_MESSAGE_ID_LEN], uint32_t epoch, size_t size)
@@ -850,8 +896,6 @@ static int index_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKE
 	uint64_t n = count_of(m, contact);
 	size_t in_chunk = (size_t)(n % FZN_MESSAGES_INDEX_CHUNK), len = 0;
 
-	if (recently_indexed(m, contact, n, direction, id))
-		return 1;
 	if (n == 0u && !conversation_add(m, contact))
 		return 0;
 	chunk_held.valid = 0;
@@ -876,7 +920,8 @@ static int index_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKE
 	 * listing of everyone's until a reindex. */
 	return m->store->save(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, chunk,
 	                      (in_chunk + 1u) * ENTRY_LEN)
-	       && save_number(m, "count", contact, n + 1u) && all_append(m, contact, n);
+	       && save_number(m, "count", contact, n + 1u) && all_append(m, contact, n)
+	       && line_mark(m, contact, direction, id, 1);
 }
 
 /* OPEN THE ROWS WAITING FOR A KEY: `contact`'s lines of `epoch` that
@@ -943,7 +988,8 @@ static int keep_line(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_L
 	stored_t s;
 	size_t i;
 
-	if (recently_indexed(m, contact, count_of(m, contact), last->direction, last->id))
+	if (line_marked(m, contact, last->direction, last->id)
+	    || recently_indexed(m, contact, count_of(m, contact), last->direction, last->id))
 		return 1;
 	memcpy(s.contact, contact, FZN_PUBKEY_LEN);
 	memcpy(s.device, device, FZN_PUBKEY_LEN);
@@ -1005,8 +1051,16 @@ static int index_entry(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY
 static int index_clear(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN])
 {
 	uint8_t row[FZN_PUBKEY_LEN];
-	uint64_t n = count_of(m, contact), c;
+	uint64_t n = count_of(m, contact), c, i;
 
+	/* EACH ENTRY'S MARK FIRST, sec 575, or the rebuild would find every
+	 * line marked and index none. */
+	for (i = 0; i < n; i++) {
+		entry_t e;
+
+		if (!index_entry(m, contact, i, &e) || !line_mark(m, contact, e.direction, e.id, 0))
+			return 0;
+	}
 	chunk_held.valid = 0;
 	for (c = 0; c * FZN_MESSAGES_INDEX_CHUNK < n; c++)
 		if (!index_row(m, "chunk", contact, (uint32_t)c, row)
@@ -1698,6 +1752,31 @@ fzn_messages_err_t fzn_messages_reindex(const fzn_messages_t *m, size_t *marks)
  * rows are kept opened (sec 539). */
 #define LAYOUT_ROWS 2u
 
+/* EVERY LINE INDEXED BEFORE MARKS, marked, once, sec 575: a store whose
+ * lines came before marks would otherwise find an old line's other copy
+ * only among the recent entries. */
+static fzn_messages_err_t mark_lines(const fzn_messages_t *m)
+{
+	uint8_t contact[FZN_PUBKEY_LEN];
+	uint64_t n_conv, c, i, n;
+
+	if (load_number(m, "lineids", NOBODY) == 1u)
+		return FZN_MESSAGES_OK;
+	n_conv = load_number(m, "convs", NOBODY);
+	for (c = 0; c < n_conv; c++) {
+		if (!conversation_at(m, c, contact))
+			return FZN_MESSAGES_ERR_BACKEND;
+		n = count_of(m, contact);
+		for (i = 0; i < n; i++) {
+			entry_t e;
+
+			if (!index_entry(m, contact, i, &e) || !line_mark(m, contact, e.direction, e.id, 1))
+				return FZN_MESSAGES_ERR_BACKEND;
+		}
+	}
+	return save_number(m, "lineids", NOBODY, 1u) ? FZN_MESSAGES_OK : FZN_MESSAGES_ERR_BACKEND;
+}
+
 fzn_messages_err_t fzn_messages_upgrade(const fzn_messages_t *m, int *rebuilt)
 {
 	fzn_messages_err_t err;
@@ -1708,7 +1787,7 @@ fzn_messages_err_t fzn_messages_upgrade(const fzn_messages_t *m, int *rebuilt)
 	if (!ready(m))
 		return FZN_MESSAGES_ERR_MALFORMED;
 	if (load_number(m, "layout", NOBODY) >= LAYOUT_ROWS)
-		return FZN_MESSAGES_OK;
+		return mark_lines(m);
 	err = fzn_messages_reindex(m, NULL);
 	if (err != FZN_MESSAGES_OK)
 		return err;
@@ -1716,7 +1795,7 @@ fzn_messages_err_t fzn_messages_upgrade(const fzn_messages_t *m, int *rebuilt)
 		return FZN_MESSAGES_ERR_BACKEND;
 	/* A NEW STORE has nothing to rebuild, and says so. */
 	*rebuilt = load_number(m, "convs", NOBODY) > 0u;
-	return FZN_MESSAGES_OK;
+	return mark_lines(m);
 }
 
 /* ---- trimming, by the rules, sec 531 ------------------------------------- */

@@ -9782,7 +9782,7 @@ SABOTAGES = [
 	(
 		"messages-keep-once",
 		"messages/messages.c",
-		"\tif (recently_indexed(m, contact, count_of(m, contact), last->direction, last->id))\n\t\treturn 1;\n\tmemcpy(s.contact, contact, FZN_PUBKEY_LEN);",
+		"\tif (line_marked(m, contact, last->direction, last->id)\n\t    || recently_indexed(m, contact, count_of(m, contact), last->direction, last->id))\n\t\treturn 1;\n\tmemcpy(s.contact, contact, FZN_PUBKEY_LEN);",
 		"\tmemcpy(s.contact, contact, FZN_PUBKEY_LEN);",
 		"a line two devices wrote is kept twice, a row nothing indexes -- sec 536",
 	),
@@ -9810,8 +9810,8 @@ SABOTAGES = [
 	(
 		"messages-every-line-order",
 		"messages/messages.c",
-		"\t       && save_number(m, \"count\", contact, n + 1u) && all_append(m, contact, n);",
-		"\t       && save_number(m, \"count\", contact, n + 1u);",
+		"\t       && save_number(m, \"count\", contact, n + 1u) && all_append(m, contact, n)\n",
+		"\t       && save_number(m, \"count\", contact, n + 1u)\n",
 		"everyone's page lists nothing, its order never kept -- sec 536",
 	),
 	(
@@ -10473,6 +10473,34 @@ SABOTAGES = [
 		'a segment whose time is not a number reads as closed at a made-up time -- secs 483, 573',
 	),
 	(
+		'messages-a-marked-line-is-not-kept-again',
+		'messages/messages.c',
+		'\tif (line_marked(m, contact, last->direction, last->id)\n\t    || recently_indexed(',
+		'\tif (0\n\t    || recently_indexed(',
+		'a line two devices wrote, the second long after, is kept and listed twice -- sec 575',
+	),
+	(
+		'messages-each-line-indexed-is-marked',
+		'messages/messages.c',
+		'\t       && line_mark(m, contact, direction, id, 1);\n}',
+		'\t       ;\n}',
+		'no line is ever marked, and a late copy from another device lists twice -- sec 575',
+	),
+	(
+		'messages-a-cleared-index-takes-its-marks',
+		'messages/messages.c',
+		'\t\tif (!index_entry(m, contact, i, &e) || !line_mark(m, contact, e.direction, e.id, 0))',
+		'\t\tif (!index_entry(m, contact, i, &e))',
+		'a rebuilt index finds every line marked and lists none -- sec 575',
+	),
+	(
+		'messages-upgrade-marks-old-lines',
+		'messages/messages.c',
+		'\t\t\tif (!index_entry(m, contact, i, &e) || !line_mark(m, contact, e.direction, e.id, 1))',
+		'\t\t\tif (!index_entry(m, contact, i, &e))',
+		"a line indexed before marks lists twice when another device's copy arrives late -- sec 575",
+	),
+	(
 		"journal-cut-keeps-the-spine-first",
 		"node/journal.c",
 		"\tif (stream == FZN_NODE_JOURNAL_STREAM)\n\t\tfor (seq = base; seq < below; seq++)",
@@ -10779,13 +10807,6 @@ SABOTAGES = [
 		"\tif (origin != FZN_ORIGIN_SAME_USER)\n\t\treturn say(reply, reply_cap, FZN_REPLY_DENIED, \"messages need this node's own user\");",
 		"\tif (0)\n\t\treturn say(reply, reply_cap, FZN_REPLY_DENIED, \"messages need this node's own user\");",
 		"another user on the machine reads and writes the conversations -- sec 527",
-	),
-	(
-		"messages-index-once-per-line",
-		"messages/messages.c",
-		"\tif (recently_indexed(m, contact, n, direction, id))\n\t\treturn 1;",
-		"\tif (0)\n\t\treturn 1;",
-		"a line two devices both wrote is indexed twice, and the copy learned last hides the other -- sec 528",
 	),
 	(
 		"messages-page-from-the-index",
