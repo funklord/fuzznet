@@ -27,6 +27,8 @@ const char *fzn_messages_err_str(fzn_messages_err_t err)
 		return "another key is held for that conversation and month";
 	case FZN_MESSAGES_ERR_GONE:
 		return "that conversation's month was trimmed";
+	case FZN_MESSAGES_ERR_WINDOW:
+		return "a stream is held from part way, and its lines below are in no journal";
 	}
 	return "unknown";
 }
@@ -1364,6 +1366,11 @@ fzn_messages_err_t fzn_messages_reindex(const fzn_messages_t *m, size_t *marks)
 	if (!ready(m) || !m->store->remove || !m->devices
 	    || m->device_count > FZN_MESSAGES_DEVICES_MAX)
 		return FZN_MESSAGES_ERR_MALFORMED;
+	/* A STREAM HELD FROM PART WAY, and nothing is cleared: the index is the
+	 * only record of the lines below its base. sec 560. */
+	for (d = 0; d < m->device_count; d++)
+		if (fzn_node_journal_base(m->journal, m->devices[d], FZN_MESSAGE_STREAM) > 1u)
+			return FZN_MESSAGES_ERR_WINDOW;
 	if (!conversations_clear(m) || !all_clear(m))
 		return FZN_MESSAGES_ERR_BACKEND;
 	for (d = 0; d < m->device_count; d++) {

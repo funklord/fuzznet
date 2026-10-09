@@ -365,7 +365,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_cli_err_str", r_cli, 4 },
 #endif
 	{ "fzn_exchange_err_str", r_exchange, 5 },
-	{ "fzn_messages_err_str", r_messages, 9 },
+	{ "fzn_messages_err_str", r_messages, 10 },
 	{ "fzn_setting_err_str", r_setting, 5 },
 	{ "fzn_node_settings_err_str", r_node_settings, 6 },
 	{ "fzn_holdings_err_str", r_holdings, 4 },

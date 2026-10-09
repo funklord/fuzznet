@@ -552,6 +552,30 @@ static void test_two_devices(void)
 	      "forgetting the month takes both devices' keys for it on A");
 }
 
+/* A WINDOW IS NOT REBUILT FROM, sec 560: A's stream held from part way --
+ * here its base moved past the first record -- and a reindex refuses before
+ * clearing anything, both lines still listed; while the base is the start
+ * the same reindex runs. */
+static void test_no_reindex_from_a_window(void)
+{
+	size_t marks = 0;
+
+	setup();
+	CHECK(write_line(&A, X, FZN_MESSAGE_OUT, 1u, "one")
+	              && write_line(&A, X, FZN_MESSAGE_OUT, 2u, "two") && list(&A, X, 0u, 5u)
+	              && count == 2u,
+	      "fixture: A writes two lines");
+	A.journal.keep = &A.store_ops;
+	CHECK(fzn_messages_reindex(&A.m, &marks) == FZN_MESSAGES_OK && list(&A, X, 0u, 5u)
+	              && count == 2u,
+	      "a reindex over a whole journal did not run");
+	CHECK(fzn_node_journal_base_set(&A.journal, A.pub, FZN_MESSAGE_STREAM, 2u)
+	                      == FZN_NODE_JOURNAL_OK
+	              && fzn_messages_reindex(&A.m, &marks) == FZN_MESSAGES_ERR_WINDOW
+	              && list(&A, X, 0u, 5u) && count == 2u,
+	      "a reindex over a window ran, or cleared the index before refusing");
+}
+
 /* THE NEWEST MARK WINS by when it was written, not by which device's
  * stream a reindex reads first: here the older is B's, read last. */
 static void test_the_newest_mark_wins(void)
@@ -1110,6 +1134,7 @@ int main(void)
 	test_lines_list_newest_first();
 	test_a_hand_off_given_up_on_stays();
 	test_two_devices();
+	test_no_reindex_from_a_window();
 	test_the_newest_mark_wins();
 	test_one_conversation_reads_only_its_own();
 	test_import_keeps_a_line_once();

@@ -1717,28 +1717,41 @@ static void pull_journal(struct pull_target *pulls, size_t npulls, uint64_t now)
 #ifdef FZN_RECORD_STORE_FILE_ON
 /* WHAT THE JOURNAL BROUGHT, pulled or pushed, absorbed: a hub that pulls
  * from nobody absorbs what its members push. Nonzero when it went. */
-static int messages_absorb(void)
+/* ONCE, with every device followed: a store from before sec 536 is
+ * rebuilt so its lines are kept in rows. CALLED BEFORE THE FIRST PULL, sec
+ * 560: a pull can move a stream up to a peer's base and let go of the
+ * records below, and for a store from before rows those records are its
+ * lines' only copy -- rebuilt afterwards, from the window, they would be
+ * lost. Nonzero once the store is at this layout. */
+static int messages_upgrade(void)
 {
 	static int upgraded;
-	fzn_node_messages_tally_t t;
 	fzn_messages_err_t err;
 	int rebuilt = 0;
 
 	if (!messages_on)
 		return 0;
-	/* ONCE, with every device followed: a store from before sec 536 is
-	 * rebuilt so its lines are kept in rows. */
-	if (!upgraded) {
-		err = fzn_messages_upgrade(&node_messages.m, &rebuilt);
-		if (err != FZN_MESSAGES_OK) {
-			say(FZN_ENTRY_WARNING, "messages", "keeping lines in rows: %s",
-			    fzn_messages_err_str(err));
-			return 0;
-		}
-		upgraded = 1;
-		if (rebuilt)
-			say(FZN_ENTRY_INFO, "messages", "conversations rebuilt, their lines kept in rows");
+	if (upgraded)
+		return 1;
+	err = fzn_messages_upgrade(&node_messages.m, &rebuilt);
+	if (err != FZN_MESSAGES_OK) {
+		say(FZN_ENTRY_WARNING, "messages", "keeping lines in rows: %s",
+		    fzn_messages_err_str(err));
+		return 0;
 	}
+	upgraded = 1;
+	if (rebuilt)
+		say(FZN_ENTRY_INFO, "messages", "conversations rebuilt, their lines kept in rows");
+	return 1;
+}
+
+static int messages_absorb(void)
+{
+	fzn_node_messages_tally_t t;
+	fzn_messages_err_t err;
+
+	if (!messages_upgrade())
+		return 0;
 	err = fzn_node_messages_absorb(&node_messages, &t);
 	if (err != FZN_MESSAGES_OK) {
 		say(FZN_ENTRY_WARNING, "messages", "absorbing: %s", fzn_messages_err_str(err));
@@ -4210,6 +4223,7 @@ int main(int argc, char **argv)
 				 * act a round later. */
 #ifdef FZN_RECORD_STORE_FILE_ON
 				follow_estate(identity.pubkey, &state, running_roots);
+				(void)messages_upgrade();
 				pull_journal(pulls, npulls, now);
 				apply_journal();
 				reconcile_estate(pulls, npulls, now);

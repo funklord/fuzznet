@@ -10375,6 +10375,13 @@ SABOTAGES = [
 		"a peer that cut less serves no entries, and witnesses nothing -- sec 557",
 	),
 	(
+		"messages-reindex-refuses-a-window",
+		"messages/messages.c",
+		"\t\tif (fzn_node_journal_base(m->journal, m->devices[d], FZN_MESSAGE_STREAM) > 1u)\n\t\t\treturn FZN_MESSAGES_ERR_WINDOW;",
+		"\t\tif (0)\n\t\t\treturn FZN_MESSAGES_ERR_WINDOW;",
+		"a reindex clears the index and rebuilds it from a window, losing every line below the base -- sec 560",
+	),
+	(
 		"node-messages-give-as-sender",
 		"node/messages.c",
 		"\t\tif (fzn_messages_key_take(&nm->m, e, fzn_get_be32(e + FZN_PUBKEY_LEN), sender,",

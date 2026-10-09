@@ -61086,3 +61086,28 @@ no bridge.
 
 Run against a daemon that does not compare what the witness gives, phase
 c fails: no conflict is logged and C moves.
+
+## 560. A message reindex never rebuilds from a window, 2026-10-09
+
+The item sec 536 left for stage 4: `fzn_messages_reindex` clears the
+conversation index and rebuilds it from the journal, which is right only
+while the journal holds every line. Since secs 548 and 552 a device's
+stream can be held from part way, and an index rebuilt then would hold
+the window's lines alone, the rest still in their rows but unlisted.
+
+- **The reindex refuses a window**: when any listed device's message
+  stream has a base past 1, it answers the new
+  `FZN_MESSAGES_ERR_WINDOW` before clearing anything.
+- **fuzznetd upgrades before the first pull.** The reindex's one caller
+  is the once-only layout upgrade, run on the first messages round. That
+  round came after the pull, and a pull can move a stream up to a peer's
+  base and let go of this node's records below it (sec 552). For a store
+  from before sec 536 those records are its lines' only copy. The upgrade
+  now runs as soon as the streams are followed, while the local journal
+  is still whole; the absorb path keeps the same once-only flag.
+
+Measured: messages_test 149 checks. A's two lines reindex over a whole
+journal. With its stream's base moved past the first record, the
+reindex answers WINDOW, and both lines are still listed. One sabotage
+entry, probed caught. Not exercised: the daemon's new order, which only
+an old-layout store away past the window would show.

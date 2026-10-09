@@ -83,7 +83,8 @@ typedef enum fzn_messages_err {
 	FZN_MESSAGES_ERR_SEAL = -5,      /* the randomness or the seal refused */
 	FZN_MESSAGES_ERR_DEEP = -6,      /* past FZN_MESSAGES_WALK_MAX */
 	FZN_MESSAGES_ERR_EQUIVOCATION = -7, /* another key is held for that row */
-	FZN_MESSAGES_ERR_GONE = -8      /* that conversation's month was trimmed */
+	FZN_MESSAGES_ERR_GONE = -8,     /* that conversation's month was trimmed */
+	FZN_MESSAGES_ERR_WINDOW = -9    /* a stream is held from part way: no rebuild */
 } fzn_messages_err_t;
 
 const char *fzn_messages_err_str(fzn_messages_err_t err);
@@ -230,9 +231,11 @@ fzn_messages_err_t fzn_messages_absorb(const fzn_messages_t *m, uint64_t *at,
  * was taken in -- and each line's row -- from what the journal holds, every
  * device's records merged in the order they were written. What a lost or
  * doubted index is replaced with, WHILE THE JOURNAL HOLDS EVERY LINE: once
- * it is a window (sec 535 stage 4) it holds the window's lines only, and
- * the index is the one record of the rest. A trimmed month's rows are
- * rebuilt without their parts. `*marks` (may be NULL) counts marks. */
+ * a device's stream is held from part way -- cut to its window (sec 548) or
+ * moved up to a peer's base (sec 552) -- the journal holds the window's
+ * lines only and the index is the one record of the rest, so this refuses
+ * with WINDOW before clearing anything (sec 560). A trimmed month's rows
+ * are rebuilt without their parts. `*marks` (may be NULL) counts marks. */
 fzn_messages_err_t fzn_messages_reindex(const fzn_messages_t *m, size_t *marks);
 
 /* BRING A STORE TO THIS LAYOUT, sec 536: a store whose lines predate their
