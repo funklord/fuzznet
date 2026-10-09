@@ -61314,9 +61314,9 @@ fuzznetd with the conversations round switched off, phase b fails with
 an empty listing. Fifteen sabotage entries, and two older ones
 re-anchored on code this change moved; all seventeen probed caught.
 
-Not done: `make schema` stops at `wire/generated/situ.h` drifted from
-situ's runtime, which moved after the vendored copy of 2026-09-21. Both
-specs here check current; the re-vendoring is its own change.
+`make schema` stopped at `wire/generated/situ.h` drifted from situ's
+runtime, which had moved after the vendored copy of 2026-09-21; both specs
+here checked current, and the runtime was re-vendored in sec 574.
 
 ## 566. Stage 2: a default policy per kind, and the rules asked before a fetch, 2026-10-09
 
@@ -61698,3 +61698,20 @@ entries over the retired code removed; two added for the name's checks,
 each probed caught -- the suffix's only once a name with eight other
 suffix bytes was tried, every other bad name being refused first by the
 pid's place eight bytes from the end.
+
+## 574. situ's C runtime re-vendored at 9f3274a, 2026-10-09
+
+`make schema` had stopped at "wire/generated/situ.h has drifted from
+situ's runtime" since at least sec 565: situ had moved past the vendored
+pin, 6b9c1cd of 2026-09-21. Its runtime changed in situ.h alone -- two
+fixes to `required` (5739535, saturating rather than wrapping to a smaller
+answer; 74b57ea, walking a counted run rather than asking for its span)
+and a stated precondition (8b64e66). situ.c is unchanged.
+
+Both vendored files are copied from situ's committed HEAD, 9f3274a, under
+their banners, whose pin line names it; the dated measurement in the
+banner stays dated -- `make schema` prints the live ratio, 100:1 against
+the banner's 90:1, which is that arrangement working. Measured: `make
+schema` passes, and so do `make test` (223 binaries), `make style`, `make
+installcheck` and `make livecheck` -- all five gates together for the
+first time since sec 565.

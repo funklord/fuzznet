@@ -1,4 +1,4 @@
-/* Vendored from situ's runtime/c/ at 6b9c1cd, unmodified below this
+/* Vendored from situ's runtime/c/ at 9f3274a, unmodified below this
  * comment. `make schema SITU_DIR=...` re-copies both files and refuses on
  * drift, so this cannot quietly diverge.
  *
@@ -743,12 +743,55 @@ static inline uint32_t situ_advance_u32(uint32_t at, uint32_t by, uint32_t limit
 	return at + (by < room ? by : room);
 }
 
+/* `at + by`, clamped at UINT32_MAX rather than wrapping. For `required` and
+ * nothing else.
+ *
+ * `situ_advance_u32` clamps to the view, which is right wherever the question
+ * is which bytes are in the frame. `required` asks the opposite question --
+ * how many a whole message needs -- so it must be able to answer with a
+ * number larger than what has arrived, and it used a plain `+`.
+ *
+ * A plain `+` wraps. `raidcfgd` reported seven bytes declaring a `u32`
+ * length of 0xFFFFFFFF: `7 + 0xFFFFFFFF` is 6 in `uint32_t`, so `*need`
+ * came back 6, the function returned `SITU_OK`, and a framer read those
+ * seven bytes as a complete message (26.556). Saturating makes the answer
+ * UINT32_MAX, which no caller can satisfy, so the verdict is TRUNCATED --
+ * the honest reading of a length nobody can have sent.
+ */
+static inline uint32_t situ_need_u32(uint32_t at, uint32_t by)
+{
+	return by > UINT32_MAX - at ? UINT32_MAX : at + by;
+}
+
+/* The same question asked of a product. A counted run of variable-size
+ * elements reports, as its lower bound, a minimum for every element the count
+ * still promises -- `remaining * SIZE_MIN`, which is a declared count times a
+ * compile-time constant and so is exactly the multiplication a hostile count
+ * controls. Saturating it keeps the bound a bound: a product that wraps is
+ * SMALLER than the truth, which is the one direction that turns a short
+ * message into a complete one (26.557).
+ */
+static inline uint32_t situ_need_mul_u32(uint32_t count, uint32_t each)
+{
+	return each != 0u && count > UINT32_MAX / each ? UINT32_MAX : count * each;
+}
+
 /* `pad_to(n)` (decision 0043): advance `at` to the next multiple of `n`,
  * clamped to the view. The padding is `align_up(at, n) - at`; a member after
  * a pad starts on an n-byte boundary from the message base. Clamped for the
  * same reason `situ_advance_u32` is: `at` is a sum of lengths the message
  * chose, so the aligned offset may sit past a short frame, and `validate`
- * reports that rather than the accessor running off the end. */
+ * reports that rather than the accessor running off the end.
+ *
+ * PRECONDITION: `n` is positive. `at % 0` is undefined, and the guarantee
+ * comes from the front end rather than from here -- `pad_to(n)` is a
+ * statement and the parser refuses a non-positive literal, so generated code
+ * cannot produce the case. Measured across the corpus, every call passes
+ * `4u`.
+ *
+ * Stated because this header ships and a hand-written caller has nothing
+ * else to read: a precondition that is true and unwritten is
+ * indistinguishable from one nobody thought of (26.592). */
 static inline uint32_t situ_align_up_u32(uint32_t at, uint32_t n, uint32_t limit)
 {
 	const uint32_t pad = (n - (at % n)) % n;
@@ -1599,7 +1642,15 @@ static inline uint32_t situ_adler32(const uint8_t *data, uint32_t len)
  * validator asks it.
  * ------------------------------------------------------------------------ */
 
-/* Whether every nibble of `packed` below `digits` is a decimal digit. */
+/* Whether every nibble of `packed` below `digits` is a decimal digit.
+ *
+ * PRECONDITION: `digits` is at most 16, which the scalar table enforces --
+ * `bcd<digits>` is `digits * 4` bits wide and widths run to 64, so 16 is the
+ * largest the language can name. Above it this shifts a `uint64_t` by 64 or
+ * more, which is undefined. Measured: every generated call passes 1 or 2.
+ *
+ * The same bound applies to `situ_bcd_decode` below, for the same shift and
+ * from the same place (26.592). */
 static inline int situ_bcd_valid(uint64_t packed, uint32_t digits)
 {
 	uint32_t i;
