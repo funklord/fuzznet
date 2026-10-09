@@ -60468,9 +60468,9 @@ The first older kind moved onto sec 540's settings.
 
 Measured: admin_test 205 checks, a case with settings attached covering
 add, list, remove by another spelling, the older row removed, the estate's
-rule, and the move; five sabotage entries, each probed caught. Not covered
-by a test: the "a higher rank keeps the rule" answer, since the fixture's
-node is the root and nothing outranks it.
+rule, and the move; five sabotage entries, each probed caught. The "a
+higher rank keeps the rule" answer, which this fixture's root could not
+reach, is covered in sec 562.
 
 ## 542. Stage 2: the estate's k moves onto settings, 2026-10-08
 
@@ -60524,8 +60524,8 @@ between people.
 Measured: admin_test 211 checks -- off refuses, on runs a mutating verb
 and a listing as the owner's, a member below admin is refused, off again
 refuses, the hook hears only "add retention" -- and three sabotage
-entries, each probed caught. Not tested: a caller of host rank, since the
-fixture's only key with a chain is the root's.
+entries, each probed caught. A caller of host rank, which this fixture's
+root could not be, is covered in sec 562.
 
 ## 544. Stage 4 planned: what a cut journal breaks first, 2026-10-08
 
@@ -60781,8 +60781,8 @@ A grant with one byte changed is refused and leaves the digest as it
 was. Three grants planted in two orders give one digest; a row of
 another tag or a short one is passed over; the ids come back ascending;
 both setting row shapes read past their heads. Five sabotage entries,
-each probed caught. Not covered: the revocation signer offset, since the
-fixture holds no votes.
+each probed caught. The revocation signer offset, untested here for want
+of a vote, is covered in sec 562.
 
 ## 551. Stage 5, steps 2 and 3: the reconcile exchange, every round, 2026-10-09
 
@@ -61140,3 +61140,34 @@ between the first two's real times stops the cut at the second, where a
 raw reading would have passed it. apply_test 59: a setting's record
 carries the settings clock times a thousand. Two sabotage entries, each
 probed caught.
+
+## 562. Three paths the earlier records left untested, 2026-10-09
+
+Secs 541, 543 and 550 each named a path no test reached. Two of them were
+authorization, and a sabotage of either would have gone unseen until now.
+
+- **A reconciled revocation is judged under its issuer** (sec 550).
+  `fzn_node_apply_object` reads a revocation's signer from byte 66, not
+  byte 2 as for every other object. reconcile_test: the root grants M and
+  revokes it; the revocation handed alone is judged under its issuer, and
+  B, holding nothing, reconciles and holds the vote with every digest
+  A's.
+- **A remote caller of host rank is refused** (sec 543). The gate needs
+  admin rank. Host rank is what a member holds for its own host cells,
+  and the only key that can hold it toward this node is the node's own.
+  admin_test makes another node the root, under a revocation store with
+  no root set -- the node's own store pins this node as genesis and
+  would judge every chain against that -- and grants this node
+  membership. The node sets its own `remote/admin` on at host rank, and
+  its own key over the remote hop is still refused a verb. That needed
+  the root's earlier `off` withdrawn first: a clear takes only its own
+  rank's layer, and the root's `off` would otherwise have refused the
+  verb for a reason other than rank.
+- **"A higher rank keeps the rule"** (sec 541). In the same fixture this
+  node adds a retention rule at host rank, the root sets the same cell,
+  and the node's removal -- by another spelling -- clears its own layer
+  and answers that the rule stays, which it does.
+
+Measured: reconcile_test 30 checks, admin_test 217. Three sabotage
+entries, each probed caught: the revocation signer read from byte 2, the
+remote gate taking any rank, and the removal answering ok.

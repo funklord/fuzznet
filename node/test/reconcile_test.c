@@ -360,6 +360,33 @@ static void test_a_node_comes_to_its_peer(void)
 	      "over the smallest reply buffer the round did not page, re-ask and arrive");
 }
 
+/* A REVOCATION RECONCILED, sec 550's open case: its signer is its issuer,
+ * read from byte 66 rather than byte 2 as every other object's is. The root
+ * grants M membership and revokes it; B, holding nothing, reconciles, holds
+ * the vote, and comes to every digest of A's. */
+static void test_a_vote_reconciled(void)
+{
+	static node_t a, b;
+	struct peer pa = { &a, sizeof(reply), 0, 0 };
+	uint8_t root[FZN_PUBKEY_LEN], m[FZN_PUBKEY_LEN], vote[FZN_REVOCATION_LEN];
+	fzn_reconcile_tally_t t;
+
+	key(root, 0x91);
+	key(m, 0x92);
+	signing_as = 0x91;
+	CHECK(node_up(&a) && node_up(&b) && grant(&a, 0x91, 0x92, &cap)
+	              && fzn_revocation_issue(root, &cap, m, 1500u, 0u, NULL, &SIGN, vote)
+	                         == FZN_CHAIN_OK,
+	      "fixture: the root grants M, and signs its revocation");
+	CHECK(give(&a, vote, sizeof(vote)) && held(&a, FZN_HOLDINGS_VOTES) == 1u,
+	      "the root's revocation, handed alone, was not judged under its issuer");
+	CHECK(fzn_reconcile_round(&b.ap, NULL, ask, &pa, reply, sizeof(reply), &t)
+	                      == FZN_RECONCILE_OK
+	              && t.waiting == 0u && t.refused == 0u && held(&b, FZN_HOLDINGS_VOTES) == 1u
+	              && same(&a, &b),
+	      "a revocation reconciled was not judged under its issuer, or did not arrive");
+}
+
 /* A PEER THAT CHANGES WHAT IT SENDS has every object refused and nothing
  * kept; one that LEAVES AN OBJECT OUT leaves a gap the next peer fills --
  * omission repaired by reconciliation, the holder's point in sec 550. A
@@ -730,6 +757,7 @@ int main(void)
 	test_the_suite_can_tell_pass_from_fail();
 	test_a_node_comes_to_its_peer();
 	test_a_dishonest_peer();
+	test_a_vote_reconciled();
 	test_a_stream_behind_a_peers_base();
 	test_note_claims();
 	test_a_bridge_witnessed();

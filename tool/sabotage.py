@@ -10396,6 +10396,27 @@ SABOTAGES = [
 		"a setting's journal record is stamped in seconds while every other record is in milliseconds -- sec 561",
 	),
 	(
+		"apply-object-revocation-signer-is-its-issuer",
+		"node/apply.c",
+		"\t\tat = FZN_REV_OFF_ISSUER;",
+		"\t\tat = 2u;",
+		"a reconciled revocation is judged under its capability's bytes as a key, and never applies -- sec 562",
+	),
+	(
+		"admin-remote-needs-admin-rank",
+		"node/admin.c",
+		"\t               == 1\n\t       && rank >= FZN_SETTING_RANK_ADMIN;",
+		"\t               == 1;",
+		"a member with only its own host's rank runs every verb remotely -- secs 543, 562",
+	),
+	(
+		"admin-removal-says-a-higher-rank-keeps-it",
+		"node/admin.c",
+		"\t\treturn answer_text(reply, cap, FZN_REPLY_ERROR,\n\t\t                   \"a higher rank keeps the rule, which this node's clear does not reach\");",
+		"\t\treturn answer_text(reply, cap, FZN_REPLY_OK, NULL);",
+		"a removal a higher rank outlasts answers ok, and the operator believes the rule gone -- secs 541, 562",
+	),
+	(
 		"node-messages-give-as-sender",
 		"node/messages.c",
 		"\t\tif (fzn_messages_key_take(&nm->m, e, fzn_get_be32(e + FZN_PUBKEY_LEN), sender,",

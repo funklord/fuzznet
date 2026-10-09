@@ -2094,6 +2094,97 @@ int main(void)
 			                             out, sizeof(out))
 			                         == FZN_REPLY_DENIED,
 			      "with remote/admin off again, a remote verb still ran");
+			/* A CALLER OF HOST RANK, sec 562: another node the root, this
+			 * node a member under its grant, so this node's own key over
+			 * the remote hop ranks HOST for its own cells -- enough to set
+			 * them, and not an admin, so refused a remote verb. */
+			{
+				static struct node other;
+				static fzn_revocation_t none[2];
+				fzn_revocation_store_t bare;
+				fzn_revocation_store_t *was_revs = ap.revocations;
+				uint8_t hop[FZN_HOP_LEN], value[FZN_SETTING_VALUE_MAX];
+				fzn_node_apply_tally_t at;
+				fzn_setting_rank_t rank = FZN_SETTING_RANK_ROOT;
+				size_t value_len = 0;
+
+				memset(&at, 0, sizeof(at));
+				/* THE ROOT'S off WITHDRAWN first, so the host's own value is
+				 * the one in force: a clear takes only its rank's layer. */
+				CHECK(fzn_node_settings_write(&ns, FZN_SCOPE_HOST, node.id.pubkey,
+				                              (const uint8_t *)"remote/admin", 12u, 0, NULL, 0u)
+				                      == FZN_NODE_SETTINGS_OK
+				              && node_up(&other)
+				              && fzn_chain_mint(other.id.pubkey, node.id.pubkey,
+				                                &state.config.remote_capability, 0u,
+				                                FZN_NO_EXPIRY, 0, &other.sign, hop)
+				                         == FZN_CHAIN_OK,
+				      "fixture: another node's member grant to this one");
+				/* A STORE WITH NO ROOT SET, so chains are judged against
+				 * `ap.root` alone: the node's own store pins this node's
+				 * key as the genesis root. */
+				CHECK(fzn_revocation_store_init(&bare, none, 2u) == FZN_CHAIN_OK,
+				      "fixture: a revocation store with no root set");
+				ap.revocations = &bare;
+				ap.root = other.id.pubkey;
+				CHECK(fzn_node_apply_object(&ap, hop, sizeof(hop), &at) == FZN_NODE_APPLY_APPLIED
+				              && fzn_node_settings_write(&ns, FZN_SCOPE_HOST, node.id.pubkey,
+				                                         (const uint8_t *)"remote/admin", 12u, 1,
+				                                         (const uint8_t *)"on", 2u)
+				                         == FZN_NODE_SETTINGS_OK
+				              && fzn_node_settings_get(&ns, FZN_SCOPE_HOST, node.id.pubkey,
+				                                       (const uint8_t *)"remote/admin", 12u, value,
+				                                       &value_len, &rank)
+				              && value_len == 2u && memcmp(value, "on", 2u) == 0
+				              && rank == FZN_SETTING_RANK_HOST,
+				      "fixture: this node, a member, sets its own remote/admin on at host rank");
+				CHECK(remote_said(&admin, node.id.pubkey, "add retention prune * age 15d", out,
+				                  sizeof(out))
+				                      == FZN_REPLY_DENIED
+				              && !rule_in_settings(&ns, FZN_SCOPE_HOST, node.id.pubkey,
+				                                   "prune * age 15d"),
+				      "a caller of host rank ran a remote verb");
+				/* A HIGHER RANK KEEPS THE RULE, sec 541's untested answer:
+				 * this node adds a rule at its host rank, the root sets the
+				 * same cell, and this node's removal clears only its own
+				 * layer -- so it says the rule stays. */
+				{
+					uint8_t key[FZN_NODE_SETTINGS_RULE_KEY_LEN], obj[FZN_SETTING_MAX];
+					char text[FZN_RETAIN_TEXT_MAX];
+					fzn_retain_rule_t rule;
+					size_t text_len = 0, obj_len = 0;
+
+					CHECK(ask(&admin, &owner, "add retention prune * age 16d", reply,
+					          sizeof(reply), &reply_len)
+					              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+					                         == FZN_REPLY_OK
+					              && fzn_retain_parse("prune * age 16d", 15u, &rule)
+					                         == FZN_RETAIN_OK
+					              && fzn_retain_text(&rule, text, sizeof(text), &text_len)
+					                         == FZN_RETAIN_OK
+					              && fzn_node_settings_rule_key(&hash_ops, text, text_len, key)
+					              && fzn_setting_issue(other.id.pubkey, &other.sign,
+					                                   FZN_SCOPE_HOST, node.id.pubkey, 1u, key,
+					                                   sizeof(key), 1, (const uint8_t *)text,
+					                                   text_len, obj, &obj_len)
+					                         == FZN_SETTING_OK
+					              && fzn_node_apply_object(&ap, obj, obj_len, &at)
+					                         == FZN_NODE_APPLY_APPLIED,
+					      "fixture: this node's rule at host rank, and the root's on the "
+					      "same cell");
+					CHECK(ask(&admin, &owner, "remove retention prune * age 384h", reply,
+					          sizeof(reply), &reply_len)
+					              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+					                         == FZN_REPLY_ERROR
+					              && says(detail, detail_len, "a higher rank keeps the rule")
+					              && rule_in_settings(&ns, FZN_SCOPE_HOST, node.id.pubkey,
+					                                  "prune * age 16d"),
+					      "a removal a higher rank outlasts did not say the rule stays");
+				}
+				ap.root = node.id.pubkey;
+				ap.revocations = was_revs;
+				fzn_sign_monocypher_wipe(&other.signer);
+			}
 			admin.remote_ran = NULL;
 		}
 
