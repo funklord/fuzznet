@@ -61066,3 +61066,23 @@ Run against a daemon that passes no witnesses, the check fails at
 "confirmed by 0 of 0". Not staged live: a witness that disagrees. Every
 node runs one binary, so a sabotage there makes A and W tell the same
 lie, and the disagreement stays the unit test's (sec 557).
+
+## 559. A witness that disagrees, live, 2026-10-09
+
+Sec 558's open case. A witness that tells the stream otherwise is staged
+without a test hook in the daemon. Between runs, W's stored spine is
+changed on disk -- one subject byte of every kept entry of its slot-40
+rows, found by their file names -- so W, running unchanged code, serves a
+bridge that disagrees with A's, as a witness with a damaged or tampered
+store would.
+
+`tool/live_witness.py` gains a member C, joined and paired to W like B,
+which takes `x/old` in phase a and leaves. In phase c, after B's
+witnessed rejoin, W's spine is changed and W restarts. C starts and logs
+that its stream "would not move: a second peer tells the stream
+otherwise". No estate stream moves up at C, and `x/away` still reads at
+C, because reconciliation carries the state as signed objects and needs
+no bridge.
+
+Run against a daemon that does not compare what the witness gives, phase
+c fails: no conflict is logged and C moves.
