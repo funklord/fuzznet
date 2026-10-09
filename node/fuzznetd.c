@@ -1539,6 +1539,26 @@ static fzn_node_apply_outcome_t notes_file(void *ctx, const uint8_t *record, siz
 	}
 }
 
+static int messages_upgrade(void);
+
+/* A LINE RECONCILED, sec 564: filed by the messages store, waiting when
+ * its key is not here yet. */
+static fzn_node_apply_outcome_t line_file(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN],
+                                          uint32_t epoch, const uint8_t *item, size_t len)
+{
+	int waiting = 0;
+
+	switch (fzn_node_messages_file((fzn_node_messages_t *)ctx, contact, epoch, item, len,
+	                               &waiting)) {
+	case FZN_MESSAGES_OK:
+		return waiting ? FZN_NODE_APPLY_WAITING : FZN_NODE_APPLY_APPLIED;
+	case FZN_MESSAGES_ERR_BACKEND:
+		return FZN_NODE_APPLY_NOT_SAVED;
+	default:
+		return FZN_NODE_APPLY_REFUSED;
+	}
+}
+
 /* WHETHER A PULL PEER IS OF THIS NODE'S ESTATE, sec 556: `--root-at` is its
  * root by construction; a `--pull-from` peer is when the chain this node was
  * paired under starts at this estate's root or a member of its root set. A
@@ -1571,6 +1591,7 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 	static uint8_t reply[FZND_PULL_REPLY_MAX];
 	fzn_reconcile_notes_t notes = { notes_file, &node_notes };
 	size_t t, lacked = 0, applied = 0, waiting = 0, refused = 0, foreign = 0;
+	size_t lines_lacked = 0, lines_filed = 0, lines_passed = 0;
 
 	if (!node_apply.store || !node_apply.journal || !node_apply.root)
 		return;
@@ -1599,12 +1620,37 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 		applied += tally.applied;
 		waiting += tally.waiting;
 		refused += tally.refused;
+		/* THEN THE CONVERSATIONS, by bucket (sec 564): a device away past
+		 * the journal's window is handed the lines it missed. After the
+		 * classes, so a member's chain is here before its lines. */
+		if (messages_on && messages_upgrade()) {
+			fzn_reconcile_filer_t lines = { line_file, NULL, &node_messages };
+			fzn_reconcile_bucket_tally_t bt;
+
+			err = fzn_reconcile_buckets(&node_messages.buckets, FZN_BUCKETS_MESSAGES, &lines,
+			                            peer_ask, &asking, reply, sizeof(reply), &bt);
+			if (err != FZN_RECONCILE_OK) {
+				say(FZN_ENTRY_WARNING, "reconcile", "conversations from %s: %s",
+				    pulls[t].host, fzn_reconcile_err_str(err));
+				continue;
+			}
+			if (bt.applied || bt.waiting || bt.refused || bt.full)
+				say(bt.refused || bt.full ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "reconcile",
+				    "%zu line(s) from %s, %zu waiting for a key, %zu refused%s",
+				    bt.applied + bt.waiting, pulls[t].host, bt.waiting, bt.refused,
+				    bt.full ? ", too many months to list" : "");
+			lines_lacked += bt.lacked;
+			lines_filed += bt.applied + bt.waiting;
+			lines_passed += bt.passed;
+		}
 	}
 	/* EVERY PASS THAT RAN SAYS SO, at debug, as the trim's and the cut's do. */
 	say(FZN_ENTRY_DEBUG, "reconcile",
 	    "reconcile pass: %zu peer(s), %zu of another estate passed over, %zu lacked, "
-	    "%zu applied, %zu waiting, %zu refused",
-	    npulls, foreign, lacked, applied, waiting, refused);
+	    "%zu applied, %zu waiting, %zu refused; lines %zu lacked, %zu filed, %zu month(s) "
+	    "passed over",
+	    npulls, foreign, lacked, applied, waiting, refused, lines_lacked, lines_filed,
+	    lines_passed);
 }
 
 /* STREAMS THIS NODE IS BEHIND A PEER'S BASE ON, sec 552: the peer cut what
@@ -1742,6 +1788,19 @@ static int messages_upgrade(void)
 	upgraded = 1;
 	if (rebuilt)
 		say(FZN_ENTRY_INFO, "messages", "conversations rebuilt, their lines kept in rows");
+	/* AND EACH LINE'S ITEM, sec 564, from what the journal holds, before a
+	 * pull can move a stream up past it. Once per store. */
+	{
+		size_t added = 0;
+
+		err = fzn_messages_items_backfill(&node_messages.m, &added);
+		if (err != FZN_MESSAGES_OK)
+			say(FZN_ENTRY_WARNING, "messages", "keeping lines' items: %s",
+			    fzn_messages_err_str(err));
+		else if (added)
+			say(FZN_ENTRY_INFO, "messages", "%zu line(s) kept as items, to be handed on",
+			    added);
+	}
 	return 1;
 }
 

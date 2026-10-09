@@ -84,10 +84,28 @@ typedef enum fzn_messages_err {
 	FZN_MESSAGES_ERR_DEEP = -6,      /* past FZN_MESSAGES_WALK_MAX */
 	FZN_MESSAGES_ERR_EQUIVOCATION = -7, /* another key is held for that row */
 	FZN_MESSAGES_ERR_GONE = -8,     /* that conversation's month was trimmed */
-	FZN_MESSAGES_ERR_WINDOW = -9    /* a stream is held from part way: no rebuild */
+	FZN_MESSAGES_ERR_WINDOW = -9,   /* a stream is held from part way: no rebuild */
+	FZN_MESSAGES_ERR_REFUSED = -10  /* an item not a line one of the devices signed */
 } fzn_messages_err_t;
 
 const char *fzn_messages_err_str(fzn_messages_err_t err);
+
+/* WHERE A LINE'S SIGNED RECORDS ARE KEPT TO BE HANDED ON, sec 564: the
+ * caller's (`node/buckets.h`, by conversation and month). ADD takes a
+ * line's item -- see `fzn_messages_file` for its shape -- each time a line
+ * is taken, another device's copy of a line already held included, so two
+ * devices holding the same items agree; nonzero when kept, or when its
+ * month was let go there. DROP lets a trimmed month's items go. */
+typedef struct fzn_messages_items {
+	int (*add)(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch,
+	           const uint8_t *item, size_t len);
+	int (*drop)(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch);
+	void *ctx;
+} fzn_messages_items_t;
+
+/* A line's item: its parts' count, then each record as its device signed
+ * it, a 16-bit length before each. */
+#define FZN_MESSAGES_ITEM_MAX (1u + 2u * (2u + FZN_RECORD_MAX_LEN))
 
 /* Everything the store needs. All borrowed. */
 typedef struct fzn_messages {
@@ -106,6 +124,9 @@ typedef struct fzn_messages {
 	/* The devices whose lines a listing merges, this one among them. */
 	const uint8_t (*devices)[FZN_PUBKEY_LEN];
 	size_t device_count;
+	/* NULL keeps no items: lines are then handed on by the journal alone,
+	 * for its window. */
+	const fzn_messages_items_t *items;
 } fzn_messages_t;
 
 /* One line as a listing gives it. */
@@ -226,6 +247,25 @@ typedef void (*fzn_messages_seen_fn)(void *ctx, const uint8_t contact[FZN_PUBKEY
  */
 fzn_messages_err_t fzn_messages_absorb(const fzn_messages_t *m, uint64_t *at,
                                        fzn_messages_seen_fn seen, void *ctx, size_t *marks);
+
+
+/* FILE A LINE THAT ARRIVED AS AN ITEM, sec 564 -- reconciled from a peer,
+ * not read from the journal. Each record is checked as the journal would:
+ * signed by one of the devices, on FZN_MESSAGE_STREAM, a line's parts in
+ * order under one subject. Then kept as a line taken in is, and its item
+ * kept with it; no cursor moves. `contact` and `epoch` (both may be NULL)
+ * say where it belongs, and `*waiting` (may be NULL) is 1 when its key is
+ * not here: the key is remembered as wanted, and handed to the next
+ * absorb's `seen`. REFUSED for an item that is none of that, GONE for a
+ * month trimmed here. */
+fzn_messages_err_t fzn_messages_file(const fzn_messages_t *m, const uint8_t *item, size_t len,
+                                     uint8_t contact[FZN_PUBKEY_LEN], uint32_t *epoch,
+                                     int *waiting);
+
+/* THE ITEMS OF LINES TAKEN BEFORE ITEMS WERE KEPT, sec 564, from what the
+ * journal still holds of each device's stream; `*added` how many. Once:
+ * a store that has run it says so, and a second run adds nothing. */
+fzn_messages_err_t fzn_messages_items_backfill(const fzn_messages_t *m, size_t *added);
 
 /* REBUILD the indexes, line states, read positions and how far each stream
  * was taken in -- and each line's row -- from what the journal holds, every

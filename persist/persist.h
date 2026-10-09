@@ -296,13 +296,25 @@ typedef enum fzn_persist_slot {
 	 * decides where a stream's history starts. `node/journal.h` keeps it.
 	 * sec 547. */
 	FZN_PERSIST_JOURNAL_BASE = 41u,
+	/* Per (kind, subject, month), keyed by a hash of the three: how many
+	 * items of an append-only kind a node holds there, and their ids' sum,
+	 * so a peer's bucket is compared without listing it. `node/buckets.h`
+	 * keeps it. sec 564. */
+	FZN_PERSIST_BUCKET = 42u,
+	/* Per (kind, subject, month), keyed by a hash: a bucket's ids in chunks,
+	 * and the mark of a bucket this node's rules let go. sec 564. */
+	FZN_PERSIST_BUCKET_IDS = 43u,
+	/* Per (kind, item), keyed by a hash of the two: the item as its writer
+	 * signed it -- for a message line, its records, kept beside its opened
+	 * row so it can be handed on (sec 564). */
+	FZN_PERSIST_BUCKET_ITEM = 44u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 42u
+#define FZN_PERSIST_SLOT_END 45u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,

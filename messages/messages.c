@@ -29,6 +29,8 @@ const char *fzn_messages_err_str(fzn_messages_err_t err)
 		return "that conversation's month was trimmed";
 	case FZN_MESSAGES_ERR_WINDOW:
 		return "a stream is held from part way, and its lines below are in no journal";
+	case FZN_MESSAGES_ERR_REFUSED:
+		return "not a line one of the user's devices signed";
 	}
 	return "unknown";
 }
@@ -55,6 +57,10 @@ static int set_read(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LE
 static int open_waiting(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                         uint32_t epoch, const uint8_t device[FZN_PUBKEY_LEN]);
 static int let_go(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch);
+static int item_keep(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                     uint32_t epoch, const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq,
+                     uint8_t parts);
+static int waits_replay(const fzn_messages_t *m, fzn_messages_seen_fn seen, void *ctx);
 
 static int ready(const fzn_messages_t *m)
 {
@@ -422,6 +428,7 @@ fzn_messages_err_t fzn_messages_write(const fzn_messages_t *m,
 	if (took_own(m, before)
 	    && (!fzn_message_line_read(bodies[parts - 1u], body_len[parts - 1u], &last)
 	        || !keep_line(m, contact, m->issuer, own_head(m), now, &last, body, body_len, parts)
+	        || !item_keep(m, contact, epoch, m->issuer, own_head(m), (uint8_t)parts)
 	        || !set_cursor(m, m->issuer, own_head(m))))
 		return FZN_MESSAGES_ERR_BACKEND;
 	return FZN_MESSAGES_OK;
@@ -522,8 +529,12 @@ fzn_messages_err_t fzn_messages_forget_epoch(const fzn_messages_t *m,
 		    || !m->store->remove(m->store->ctx, FZN_PERSIST_CONVERSATION_KEY, row))
 			return FZN_MESSAGES_ERR_BACKEND;
 	/* AND THE ROWS' TEXT, sec 539: a row is kept opened, so destroying
-	 * keys reaches only the journal's sealed copies. */
-	return let_go(m, contact, epoch) ? FZN_MESSAGES_OK : FZN_MESSAGES_ERR_BACKEND;
+	 * keys reaches only the journal's sealed copies. Then the month's items
+	 * (sec 564), so no peer is handed what this device let go. */
+	if (!let_go(m, contact, epoch)
+	    || (m->items && m->items->drop && !m->items->drop(m->items->ctx, contact, epoch)))
+		return FZN_MESSAGES_ERR_BACKEND;
+	return FZN_MESSAGES_OK;
 }
 
 /* ---- keys between devices --------------------------------------------- */
@@ -1101,6 +1112,7 @@ static fzn_messages_err_t take_in(const fzn_messages_t *m, const uint8_t device[
 
 			if (!keep_line(m, contact, device, seq, fzn_record_issued_at(rec), &p, body,
 			               body_len, held)
+			    || (held && !item_keep(m, contact, p.epoch, device, seq, p.parts))
 			    || !set_cursor(m, device, seq))
 				return FZN_MESSAGES_ERR_BACKEND;
 		}
@@ -1133,6 +1145,8 @@ fzn_messages_err_t fzn_messages_absorb(const fzn_messages_t *m, uint64_t *at,
 
 	if (!ready(m) || !at || !m->devices || m->device_count > FZN_MESSAGES_DEVICES_MAX)
 		return FZN_MESSAGES_ERR_MALFORMED;
+	if (seen && !waits_replay(m, seen, ctx))
+		return FZN_MESSAGES_ERR_BACKEND;
 	for (d = 0; d < m->device_count; d++) {
 		to[d] = fzn_node_journal_received(m->journal, m->devices[d], FZN_MESSAGE_STREAM);
 		done[d] = start[d] = cursor_of(m, m->devices[d]);
@@ -1170,6 +1184,276 @@ fzn_messages_err_t fzn_messages_absorb(const fzn_messages_t *m, uint64_t *at,
 			return FZN_MESSAGES_ERR_BACKEND;
 	if (marks)
 		*marks = read;
+	return FZN_MESSAGES_OK;
+}
+
+/* ---- items: a line as its device signed it, sec 564 ---------------------- */
+
+/* A LINE'S ITEM from the journal: the `parts` records ending at `seq` of
+ * `device`'s stream, into `out` (FZN_MESSAGES_ITEM_MAX). */
+static int item_from_journal(const fzn_messages_t *m, const uint8_t device[FZN_PUBKEY_LEN],
+                             uint64_t seq, uint8_t parts, uint8_t *out, size_t *len)
+{
+	static uint8_t buf[FZN_RECORD_MAX_LEN];
+	fzn_record_t r;
+	size_t at = 1u;
+	uint8_t i;
+
+	if (parts < 1u || parts > 2u || seq < parts)
+		return 0;
+	out[0] = parts;
+	for (i = 0; i < parts; i++) {
+		if (!record_at(m, device, seq - parts + 1u + i, buf, sizeof(buf), &r)
+		    || r.len > FZN_RECORD_MAX_LEN)
+			return 0;
+		fzn_put_be16(out + at, (uint16_t)r.len);
+		memcpy(out + at + 2u, r.base, r.len);
+		at += 2u + r.len;
+	}
+	*len = at;
+	return 1;
+}
+
+/* KEEP A LINE'S ITEM, read back from the journal it was just taken from,
+ * where the store keeps items at all. */
+static int item_keep(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                     uint32_t epoch, const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq,
+                     uint8_t parts)
+{
+	static uint8_t item[FZN_MESSAGES_ITEM_MAX];
+	size_t len = 0;
+
+	if (!m->items || !m->items->add)
+		return 1;
+	return item_from_journal(m, device, seq, parts, item, &len)
+	       && m->items->add(m->items->ctx, contact, epoch, item, len);
+}
+
+/* KEYS WANTED FOR LINES FILED FROM ITEMS: each a conversation, a month and
+ * a device. A line read from the journal has its key noted again at every
+ * start, by the absorb that walks the stream from its base; a line filed
+ * from an item was in no stream here, so its want is kept in a row and
+ * handed to every absorb's `seen` until the key is here or the month
+ * gone. */
+#define WAIT_LEN (FZN_PUBKEY_LEN + 4u + FZN_PUBKEY_LEN)
+#define WAITS_MAX 256u
+
+static uint8_t waits[WAITS_MAX * WAIT_LEN];
+
+static int waits_load(const fzn_messages_t *m, size_t *n)
+{
+	uint8_t row[FZN_PUBKEY_LEN];
+	size_t len = 0;
+
+	*n = 0;
+	if (!index_row(m, "waits", NOBODY, 0u, row))
+		return 0;
+	if (!m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, waits, sizeof(waits),
+	                    &len))
+		return 1;
+	if (len % WAIT_LEN != 0u)
+		return 0;
+	*n = len / WAIT_LEN;
+	return 1;
+}
+
+static int waits_save(const fzn_messages_t *m, size_t n)
+{
+	uint8_t row[FZN_PUBKEY_LEN];
+
+	if (!index_row(m, "waits", NOBODY, 0u, row))
+		return 0;
+	if (n == 0u)
+		return !m->store->remove || m->store->remove(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row);
+	return m->store->save(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, waits, n * WAIT_LEN);
+}
+
+/* NOTE A WANT once. Past WAITS_MAX places it is not kept, and that line's
+ * key is asked for only until the next start. */
+static int wait_add(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                    uint32_t epoch, const uint8_t device[FZN_PUBKEY_LEN])
+{
+	uint8_t e[WAIT_LEN];
+	size_t n, i;
+
+	memcpy(e, contact, FZN_PUBKEY_LEN);
+	fzn_put_be32(e + FZN_PUBKEY_LEN, epoch);
+	memcpy(e + FZN_PUBKEY_LEN + 4u, device, FZN_PUBKEY_LEN);
+	if (!waits_load(m, &n))
+		return 0;
+	for (i = 0; i < n; i++)
+		if (memcmp(waits + i * WAIT_LEN, e, WAIT_LEN) == 0)
+			return 1;
+	if (n >= WAITS_MAX)
+		return 1;
+	memcpy(waits + n * WAIT_LEN, e, WAIT_LEN);
+	return waits_save(m, n + 1u);
+}
+
+/* EVERY WANT TO `seen`, and those whose key is here, or whose month is
+ * gone, let go. */
+static int waits_replay(const fzn_messages_t *m, fzn_messages_seen_fn seen, void *ctx)
+{
+	uint8_t key[FZN_CONVERSATION_KEY_LEN];
+	size_t n, i, kept = 0;
+
+	if (!waits_load(m, &n))
+		return 0;
+	for (i = 0; i < n; i++) {
+		const uint8_t *e = waits + i * WAIT_LEN;
+		uint32_t epoch = fzn_get_be32(e + FZN_PUBKEY_LEN);
+		int held, gone = is_gone(m, e, epoch);
+
+		held = !gone && key_of(m, e, epoch, e + FZN_PUBKEY_LEN + 4u, key);
+		memset(key, 0, sizeof(key));
+		if (!gone)
+			seen(ctx, e, epoch, e + FZN_PUBKEY_LEN + 4u, held);
+		if (!gone && !held) {
+			if (kept != i)
+				memmove(waits + kept * WAIT_LEN, e, WAIT_LEN);
+			kept++;
+		}
+	}
+	return kept == n || waits_save(m, kept);
+}
+
+static int is_device(const fzn_messages_t *m, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	size_t d;
+
+	if (memcmp(key, m->issuer, FZN_PUBKEY_LEN) == 0)
+		return 1;
+	for (d = 0; d < m->device_count; d++)
+		if (memcmp(key, m->devices[d], FZN_PUBKEY_LEN) == 0)
+			return 1;
+	return 0;
+}
+
+fzn_messages_err_t fzn_messages_file(const fzn_messages_t *m, const uint8_t *item, size_t len,
+                                     uint8_t contact_out[FZN_PUBKEY_LEN], uint32_t *epoch_out,
+                                     int *waiting)
+{
+	static uint8_t buf[STORED_MAX];
+	uint8_t key[FZN_CONVERSATION_KEY_LEN];
+	fzn_record_t rec[2];
+	fzn_message_part_t p[2];
+	const uint8_t *body[2] = { NULL, NULL };
+	size_t body_len[2] = { 0, 0 };
+	const uint8_t *device, *contact;
+	size_t at = 1u;
+	uint64_t seq;
+	uint32_t epoch;
+	uint8_t parts, i;
+	stored_t s;
+	int held;
+
+	if (waiting)
+		*waiting = 0;
+	if (!ready(m) || !item || !m->devices || m->device_count > FZN_MESSAGES_DEVICES_MAX)
+		return FZN_MESSAGES_ERR_MALFORMED;
+	if (len < 1u || len > FZN_MESSAGES_ITEM_MAX || (parts = item[0]) < 1u || parts > 2u)
+		return FZN_MESSAGES_ERR_REFUSED;
+	for (i = 0; i < parts; i++) {
+		size_t n;
+
+		if (len - at < 2u)
+			return FZN_MESSAGES_ERR_REFUSED;
+		n = fzn_get_be16(item + at);
+		at += 2u;
+		if (len - at < n || fzn_record_open(item + at, n, &rec[i]) != FZN_RECORD_OK)
+			return FZN_MESSAGES_ERR_REFUSED;
+		at += n;
+	}
+	if (at != len)
+		return FZN_MESSAGES_ERR_REFUSED;
+	device = fzn_record_issuer(rec[0]);
+	contact = fzn_record_subject(rec[0]);
+	seq = fzn_record_seq(rec[parts - 1u]);
+	/* AS THE JOURNAL WOULD HAVE IT: one of the user's devices signed every
+	 * part, on its conversations stream, one line's parts in sequence. */
+	if (!is_device(m, device) || seq < parts)
+		return FZN_MESSAGES_ERR_REFUSED;
+	for (i = 0; i < parts; i++) {
+		if (fzn_record_verify(rec[i], m->sign) != FZN_RECORD_OK
+		    || memcmp(fzn_record_issuer(rec[i]), device, FZN_PUBKEY_LEN) != 0
+		    || fzn_record_stream(rec[i]) != FZN_MESSAGE_STREAM
+		    || fzn_record_kind(rec[i]) != FZN_MESSAGE_LINE_KIND
+		    || memcmp(fzn_record_subject(rec[i]), contact, FZN_PUBKEY_LEN) != 0
+		    || fzn_record_seq(rec[i]) != seq - parts + 1u + i
+		    || !fzn_message_line_read(fzn_record_body(rec[i]), fzn_record_body_len(rec[i]), &p[i])
+		    || p[i].part != i || p[i].parts != parts || p[i].direction != p[0].direction
+		    || p[i].epoch != p[0].epoch || memcmp(p[i].id, p[0].id, FZN_MESSAGE_ID_LEN) != 0)
+			return FZN_MESSAGES_ERR_REFUSED;
+		body[i] = fzn_record_body(rec[i]);
+		body_len[i] = fzn_record_body_len(rec[i]);
+	}
+	epoch = p[0].epoch;
+	if (contact_out)
+		memcpy(contact_out, contact, FZN_PUBKEY_LEN);
+	if (epoch_out)
+		*epoch_out = epoch;
+	if (is_gone(m, contact, epoch))
+		return FZN_MESSAGES_ERR_GONE;
+	/* KEPT ALREADY under this place needs only its item. The same line
+	 * another device wrote is found as the journal's absorb finds it, among
+	 * the conversation's recent lines; one found nowhere is kept. */
+	if (!stored_load(m, device, seq, buf, &s)
+	    && !keep_line(m, contact, device, seq, fzn_record_issued_at(rec[parts - 1u]),
+	                  &p[parts - 1u], body, body_len, parts))
+		return FZN_MESSAGES_ERR_BACKEND;
+	if (m->items && m->items->add && !m->items->add(m->items->ctx, contact, epoch, item, len))
+		return FZN_MESSAGES_ERR_BACKEND;
+	held = key_of(m, contact, epoch, device, key);
+	memset(key, 0, sizeof(key));
+	if (!held && !wait_add(m, contact, epoch, device))
+		return FZN_MESSAGES_ERR_BACKEND;
+	if (waiting)
+		*waiting = !held;
+	return FZN_MESSAGES_OK;
+}
+
+fzn_messages_err_t fzn_messages_items_backfill(const fzn_messages_t *m, size_t *added)
+{
+	static uint8_t rbuf[FZN_RECORD_MAX_LEN], item[FZN_MESSAGES_ITEM_MAX];
+	size_t d, n = 0;
+
+	if (added)
+		*added = 0;
+	if (!ready(m) || !m->devices || m->device_count > FZN_MESSAGES_DEVICES_MAX)
+		return FZN_MESSAGES_ERR_MALFORMED;
+	if (!m->items || !m->items->add || load_number(m, "itemsbf", NOBODY) == 1u)
+		return FZN_MESSAGES_OK;
+	for (d = 0; d < m->device_count; d++) {
+		const uint8_t *device = m->devices[d];
+		uint64_t base = fzn_node_journal_base(m->journal, device, FZN_MESSAGE_STREAM);
+		uint64_t to = fzn_node_journal_received(m->journal, device, FZN_MESSAGE_STREAM), seq;
+
+		for (seq = base; seq <= to && seq > 0u; seq++) {
+			fzn_message_part_t p;
+			fzn_record_t r;
+			size_t len = 0;
+
+			if (!record_at(m, device, seq, rbuf, sizeof(rbuf), &r))
+				return FZN_MESSAGES_ERR_JOURNAL;
+			/* A LINE WHOLE IN THE WINDOW: its first part may sit below the
+			 * base only if the cut split it, which it never does (sec 548). */
+			if (fzn_record_kind(r) != FZN_MESSAGE_LINE_KIND
+			    || !fzn_message_line_read(fzn_record_body(r), fzn_record_body_len(r), &p)
+			    || p.part + 1u != p.parts || seq < base + p.parts - 1u)
+				continue;
+			if (is_gone(m, fzn_record_subject(r), p.epoch))
+				continue;
+			if (!item_from_journal(m, device, seq, p.parts, item, &len))
+				return FZN_MESSAGES_ERR_JOURNAL;
+			if (!m->items->add(m->items->ctx, fzn_record_subject(r), p.epoch, item, len))
+				return FZN_MESSAGES_ERR_BACKEND;
+			n++;
+		}
+	}
+	if (!save_number(m, "itemsbf", NOBODY, 1u))
+		return FZN_MESSAGES_ERR_BACKEND;
+	if (added)
+		*added = n;
 	return FZN_MESSAGES_OK;
 }
 

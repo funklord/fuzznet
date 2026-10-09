@@ -168,6 +168,7 @@
 /node/test/node_journal_test
 /node/test/apply_test
 /node/test/reconcile_test
+/node/test/buckets_test
 /record/test/ledger_test
 /record/test/sync_fuzz
 /state/test/state_test

@@ -114,6 +114,12 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "the ids of estate acts cut from the journal, so their standing is judged";
 	case FZN_PERSIST_JOURNAL_BASE:
 		return "where each journal stream starts once cut, and the id below it";
+	case FZN_PERSIST_BUCKET:
+		return "how many items of a kind are held for a subject and month, and their digest";
+	case FZN_PERSIST_BUCKET_IDS:
+		return "a bucket's item ids, or the mark of a bucket the rules let go";
+	case FZN_PERSIST_BUCKET_ITEM:
+		return "an item as its writer signed it, kept to be handed on";
 	}
 	*known = 0;
 	return "an unknown slot";

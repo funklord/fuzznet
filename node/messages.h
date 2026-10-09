@@ -53,6 +53,7 @@
 #include "../chain/authz.h"
 #include "../local/vocabulary.h"
 #include "../messages/messages.h"
+#include "buckets.h"
 
 /* `messages/keys.situ`: notes-sync's version byte, types after notes' 22. */
 #define FZN_NODE_MESSAGES_VERSION 2u
@@ -99,6 +100,11 @@ typedef struct fzn_node_messages {
 	/* SET BY A WRITE THROUGH THE VERBS, sec 528, so the daemon pushes it
 	 * now rather than at its next round; the daemon clears it. */
 	int fresh;
+	/* EACH LINE'S ITEM, by conversation and month (sec 564): kept as lines
+	 * are taken, so a device away past the journal's window is handed them
+	 * by `fzn_reconcile_buckets`. `m.items` points here. */
+	fzn_buckets_t buckets;
+	fzn_messages_items_t items;
 } fzn_node_messages_t;
 
 typedef struct fzn_node_messages_tally {
@@ -141,6 +147,14 @@ void fzn_node_messages_skip(fzn_node_messages_t *nm, const uint8_t device[FZN_PU
  * nothing may go. */
 uint64_t fzn_node_messages_cut_point(fzn_node_messages_t *nm, const uint8_t device[FZN_PUBKEY_LEN],
                                      uint64_t older_than_ms);
+
+/* A LINE RECONCILED, sec 564: an item of conversation `contact`'s month
+ * `epoch`, filed by `fzn_messages_file`. REFUSED for one that belongs to
+ * another bucket than it came from. A line whose key is not here sets
+ * `*waiting` (may be NULL), and its key is lacked and asked for. */
+fzn_messages_err_t fzn_node_messages_file(fzn_node_messages_t *nm,
+                                          const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch,
+                                          const uint8_t *item, size_t len, int *waiting);
 
 /* How a node asks a member: send `request`, fill `reply`. Nonzero on an
  * answer. */

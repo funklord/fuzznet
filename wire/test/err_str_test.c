@@ -95,6 +95,7 @@
 #include "../../node/journal.h"
 #include "../../messages/messages.h"
 #include "../../node/settings.h"
+#include "../../node/buckets.h"
 #include "../../node/holdings.h"
 #include "../../node/reconcile.h"
 #include "../../state/setting.h"
@@ -252,6 +253,7 @@ static const char *r_node_settings(int v)
 	return fzn_node_settings_err_str((fzn_node_settings_err_t)v);
 }
 static const char *r_holdings(int v) { return fzn_holdings_err_str((fzn_holdings_err_t)v); }
+static const char *r_buckets(int v) { return fzn_buckets_err_str((fzn_buckets_err_t)v); }
 static const char *r_reconcile(int v) { return fzn_reconcile_err_str((fzn_reconcile_err_t)v); }
 #ifdef FZN_RECORD_STORE_FILE_ON
 static const char *r_njournal(int v)
@@ -365,10 +367,11 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_cli_err_str", r_cli, 4 },
 #endif
 	{ "fzn_exchange_err_str", r_exchange, 5 },
-	{ "fzn_messages_err_str", r_messages, 10 },
+	{ "fzn_messages_err_str", r_messages, 11 },
 	{ "fzn_setting_err_str", r_setting, 5 },
 	{ "fzn_node_settings_err_str", r_node_settings, 6 },
 	{ "fzn_holdings_err_str", r_holdings, 4 },
+	{ "fzn_buckets_err_str", r_buckets, 6 },
 	{ "fzn_reconcile_err_str", r_reconcile, 6 },
 #ifdef FZN_RECORD_STORE_FILE_ON
 	{ "fzn_node_journal_err_str", r_njournal, 5 },

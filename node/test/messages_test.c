@@ -60,7 +60,7 @@ typedef struct row {
 	int has_subject;
 	uint8_t subject[FZN_PUBKEY_LEN];
 	size_t len;
-	uint8_t bytes[1280];
+	uint8_t bytes[1600];
 } row_t;
 
 typedef struct mem {
@@ -696,6 +696,205 @@ static void test_two_hosts_over_the_exchange(void)
 	      "a line handed over and given up on reaches the hub, not delivered, text whole");
 }
 
+/* ---- a returning device, sec 564: lines by bucket, not by journal ---------- */
+
+/* EVERY ITEM `from` holds of conversation X, filed at `to` as a round
+ * would file them: how many filed, and how many of those wait for a key. */
+static int file_all(device_t *from, device_t *to, size_t *filed, size_t *waiting)
+{
+	static fzn_bucket_t buckets[8];
+	static uint8_t ids[16][FZN_BUCKETS_ID_LEN], item[FZN_BUCKETS_ITEM_MAX];
+	size_t nb = 0, b, n, i, len;
+	uint64_t total;
+
+	*filed = *waiting = 0;
+	if (fzn_buckets_list(&from->nm.buckets, FZN_BUCKETS_MESSAGES, buckets, 8u, &nb)
+	    != FZN_BUCKETS_OK)
+		return 0;
+	for (b = 0; b < nb; b++) {
+		if (fzn_buckets_ids(&from->nm.buckets, FZN_BUCKETS_MESSAGES, buckets[b].subject,
+		                    buckets[b].month, 0u, ids, 16u, &n, &total)
+		    != FZN_BUCKETS_OK)
+			return 0;
+		for (i = 0; i < n; i++) {
+			int wait = 0;
+			fzn_messages_err_t err;
+
+			if (fzn_buckets_has(&to->nm.buckets, FZN_BUCKETS_MESSAGES, ids[i]))
+				continue;
+			if (fzn_buckets_item(&from->nm.buckets, FZN_BUCKETS_MESSAGES, ids[i], item,
+			                     sizeof(item), &len, NULL, NULL)
+			    != FZN_BUCKETS_OK)
+				return 0;
+			err = fzn_node_messages_file(&to->nm, buckets[b].subject, buckets[b].month, item,
+			                             len, &wait);
+			if (err == FZN_MESSAGES_ERR_GONE)
+				continue;
+			if (err != FZN_MESSAGES_OK)
+				return 0;
+			(*filed)++;
+			*waiting += (size_t)wait;
+		}
+	}
+	return 1;
+}
+
+/* One item of `d`'s, the first of its first bucket, into `out`. */
+static size_t first_item(device_t *d, uint8_t *out, uint8_t subject[FZN_PUBKEY_LEN],
+                         uint32_t *month)
+{
+	fzn_bucket_t k;
+	uint8_t id[1][FZN_BUCKETS_ID_LEN];
+	size_t n = 0, len = 0;
+	uint64_t total;
+
+	if (fzn_buckets_list(&d->nm.buckets, FZN_BUCKETS_MESSAGES, &k, 1u, &n) != FZN_BUCKETS_OK
+	    || n != 1u
+	    || fzn_buckets_ids(&d->nm.buckets, FZN_BUCKETS_MESSAGES, k.subject, k.month, 0u, id, 1u,
+	                       &n, &total)
+	               != FZN_BUCKETS_OK
+	    || n != 1u
+	    || fzn_buckets_item(&d->nm.buckets, FZN_BUCKETS_MESSAGES, id[0], out,
+	                        FZN_BUCKETS_ITEM_MAX, &len, subject, month)
+	               != FZN_BUCKETS_OK)
+		return 0;
+	return len;
+}
+
+static void test_a_returning_device_files_lines(void)
+{
+	static uint8_t item[FZN_BUCKETS_ITEM_MAX];
+	uint8_t id[FZN_MESSAGE_ID_LEN], subject[FZN_PUBKEY_LEN];
+	char text[FZN_MESSAGE_TEXT_MAX];
+	uint32_t month = 0;
+	size_t filed = 0, waiting = 0, len;
+	fzn_bucket_t r, m;
+	serve_t s;
+
+	setup();
+	device_up(&M, 0x44);
+	device_up(&R, 0x55);
+	host_up(&M, &R);
+	host_up(&R, &M);
+	memset(text, 'z', sizeof(text));
+	memset(id, 0x71, sizeof(id));
+	CHECK(fzn_messages_write(&R.nm.m, X, FZN_MESSAGE_OUT, id, 1u, "one", 3u) == FZN_MESSAGES_OK,
+	      "fixture: R writes a line");
+	id[0] = 0x72;
+	CHECK(fzn_messages_write(&R.nm.m, X, FZN_MESSAGE_IN, id, 2u, text, sizeof(text))
+	              == FZN_MESSAGES_OK,
+	      "fixture: R writes a line of two parts");
+	CHECK(rows_in(&R.store, FZN_PERSIST_BUCKET_ITEM) == 2u
+	              && rows_in(&R.store, FZN_PERSIST_BUCKET) == 1u,
+	      "R's two lines are not two items in one bucket");
+
+	/* M's journal holds none of R's stream: only the items reach it. */
+	CHECK(file_all(&R, &M, &filed, &waiting) && filed == 2u && waiting == 2u,
+	      "M did not file R's two lines, each waiting for R's key");
+	CHECK(fzn_buckets_list(&R.nm.buckets, FZN_BUCKETS_MESSAGES, &r, 1u, &len) == FZN_BUCKETS_OK
+	              && fzn_buckets_list(&M.nm.buckets, FZN_BUCKETS_MESSAGES, &m, 1u, &len)
+	                         == FZN_BUCKETS_OK
+	              && r.count == 2u && m.count == 2u
+	              && memcmp(r.digest, m.digest, sizeof(r.digest)) == 0,
+	      "after filing, M's bucket is not R's");
+	CHECK(!one_line_is(&M, 0x71, 0u, "one"), "a line opened before its key was here");
+	CHECK(file_all(&R, &M, &filed, &waiting) && filed == 0u,
+	      "a second pass filed again what M holds");
+
+	/* M RESTARTS before its key round: nothing in its journal names R's
+	 * month, so only the wants kept in its store can ask for the key. */
+	(void)fzn_node_messages_init(&M.nm, &M.store_ops, &M.journal, M.pub, &M.sign, &RNG, &AEAD,
+	                             &HASH, now_ms);
+	(void)fzn_node_messages_devices(&M.nm, (const uint8_t(*)[FZN_PUBKEY_LEN])R.pub, 1u);
+	CHECK(fzn_node_messages_absorb(&M.nm, &t) == FZN_MESSAGES_OK && t.lacking == 1u,
+	      "after a restart M does not lack the key its filed lines wait for");
+	s.to = &R;
+	s.from = &M;
+	s.pushed = 0;
+	memset(&t, 0, sizeof(t));
+	CHECK(fzn_node_messages_round(&M.nm, serve, &s, &t) && t.taken == 1u
+	              && one_line_is(&M, 0x71, 0u, "one"),
+	      "the key was not taken, or the filed line did not open");
+	id[0] = 0x72;
+	{
+		static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
+		size_t count = 0, i;
+		int more = 0, whole = 0;
+
+		if (fzn_messages_page(&M.nm.m, X, 0u, page, FZN_MESSAGES_PAGE_MAX, &count, &more)
+		    == FZN_MESSAGES_OK)
+			for (i = 0; i < count; i++)
+				if (page[i].id[0] == 0x72)
+					whole = page[i].readable && page[i].text_len == sizeof(text)
+					        && memcmp(page[i].text, text, sizeof(text)) == 0;
+		CHECK(whole, "the line of two parts did not open whole");
+	}
+	CHECK(fzn_node_messages_absorb(&M.nm, &t) == FZN_MESSAGES_OK && t.lacking == 0u,
+	      "a want whose key arrived is still kept");
+
+	/* WHAT IS NOT FILED: a line under another month than it came from, a
+	 * byte changed in its record, one a device not the user's signed. */
+	len = first_item(&R, item, subject, &month);
+	CHECK(len > 0u
+	              && fzn_node_messages_file(&M.nm, subject, month + 1u, item, len, NULL)
+	                         == FZN_MESSAGES_ERR_REFUSED,
+	      "a line offered under another month was filed");
+	item[len - 1u] ^= 0x01u;
+	CHECK(fzn_node_messages_file(&M.nm, subject, month, item, len, NULL)
+	              == FZN_MESSAGES_ERR_REFUSED,
+	      "a line whose signature fails was filed");
+	memset(id, 0x73, sizeof(id));
+	CHECK(fzn_messages_write(&H.nm.m, X, FZN_MESSAGE_OUT, id, 3u, "other", 5u)
+	                      == FZN_MESSAGES_OK
+	              && (len = first_item(&H, item, subject, &month)) > 0u
+	              && fzn_node_messages_file(&M.nm, subject, month, item, len, NULL)
+	                         == FZN_MESSAGES_ERR_REFUSED,
+	      "a line another user's device signed was filed");
+
+	/* A TRIMMED MONTH lets its items go and takes none back. */
+	CHECK(fzn_messages_forget_epoch(&M.nm.m, X, m.month) == FZN_MESSAGES_OK
+	              && fzn_buckets_gone(&M.nm.buckets, FZN_BUCKETS_MESSAGES, X, m.month)
+	              && rows_in(&M.store, FZN_PERSIST_BUCKET_ITEM) == 0u,
+	      "a trimmed month kept its items");
+	CHECK(file_all(&R, &M, &filed, &waiting) && filed == 0u
+	              && rows_in(&M.store, FZN_PERSIST_BUCKET_ITEM) == 0u,
+	      "a trimmed month took its items back");
+}
+
+/* LINES TAKEN BEFORE ITEMS WERE KEPT get theirs from the journal, once. */
+static void test_backfill_from_the_journal(void)
+{
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	size_t added = 9u;
+
+	setup();
+	A.nm.m.items = NULL;
+	B.nm.m.items = NULL;
+	memset(id, 0x81, sizeof(id));
+	CHECK(fzn_messages_write(&B.nm.m, X, FZN_MESSAGE_IN, id, 1u, "early", 5u) == FZN_MESSAGES_OK
+	              && fzn_messages_write(&A.nm.m, X, FZN_MESSAGE_OUT, id, 2u, "mine", 4u)
+	                         == FZN_MESSAGES_OK,
+	      "fixture: two lines written with no items kept");
+	synced(&A);
+	CHECK(fzn_node_messages_absorb(&A.nm, &t) == FZN_MESSAGES_OK
+	              && rows_in(&A.store, FZN_PERSIST_BUCKET_ITEM) == 0u,
+	      "fixture: A absorbs B's line, keeping no item");
+	A.nm.m.items = &A.nm.items;
+	CHECK(fzn_messages_items_backfill(&A.nm.m, &added) == FZN_MESSAGES_OK && added == 2u
+	              && rows_in(&A.store, FZN_PERSIST_BUCKET_ITEM) == 2u,
+	      "the backfill did not keep both lines' items");
+	CHECK(fzn_messages_items_backfill(&A.nm.m, &added) == FZN_MESSAGES_OK && added == 0u,
+	      "a second backfill ran again");
+	B.nm.m.items = &B.nm.items;
+	id[0] = 0x82;
+	CHECK(fzn_messages_write(&B.nm.m, X, FZN_MESSAGE_IN, id, 3u, "later", 5u) == FZN_MESSAGES_OK,
+	      "fixture: B writes a line with items kept");
+	synced(&A);
+	CHECK(fzn_node_messages_absorb(&A.nm, &t) == FZN_MESSAGES_OK
+	              && rows_in(&A.store, FZN_PERSIST_BUCKET_ITEM) == 3u,
+	      "a line A absorbed from the journal kept no item");
+}
+
 /* THE CUT POINT, sec 548: a line of two parts, absorbed. A cut never ends on
  * its first part -- that is read back when the last is taken in -- whether
  * the absorb stopped there or not; it goes no further than what was
@@ -769,6 +968,8 @@ int main(void)
 	test_marks_are_absorbed();
 	test_two_hosts_over_the_exchange();
 	test_a_cut_keeps_a_line_whole();
+	test_a_returning_device_files_lines();
+	test_backfill_from_the_journal();
 	if (failures) {
 		fprintf(stderr, "node messages_test: %d of %d checks failed\n", failures, checks);
 		return 1;

@@ -161,6 +161,26 @@ static int same_key(const uint8_t *a, const uint8_t *b)
 
 /* ---- the devices and their streams -------------------------------------- */
 
+/* THE STORE'S ITEMS, IN BUCKETS (sec 564): a month let go here takes
+ * none, which is what the store asked. */
+static int item_add(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch,
+                    const uint8_t *item, size_t len)
+{
+	fzn_node_messages_t *nm = (fzn_node_messages_t *)ctx;
+	fzn_buckets_err_t err = fzn_buckets_add(&nm->buckets, FZN_BUCKETS_MESSAGES, contact, epoch,
+	                                        item, len, NULL);
+
+	return err == FZN_BUCKETS_OK || err == FZN_BUCKETS_GONE;
+}
+
+static int item_drop(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch)
+{
+	fzn_node_messages_t *nm = (fzn_node_messages_t *)ctx;
+
+	return fzn_buckets_drop(&nm->buckets, FZN_BUCKETS_MESSAGES, contact, epoch)
+	       == FZN_BUCKETS_OK;
+}
+
 fzn_messages_err_t fzn_node_messages_init(fzn_node_messages_t *nm,
                                           const fzn_persist_ops_t *store,
                                           fzn_node_journal_t *journal, const uint8_t *issuer,
@@ -181,6 +201,12 @@ fzn_messages_err_t fzn_node_messages_init(fzn_node_messages_t *nm,
 	nm->m.hash = hash;
 	nm->m.now = now;
 	nm->m.devices = (const uint8_t(*)[FZN_PUBKEY_LEN])nm->devices;
+	nm->buckets.store = store;
+	nm->buckets.hash = hash;
+	nm->items.add = item_add;
+	nm->items.drop = item_drop;
+	nm->items.ctx = nm;
+	nm->m.items = &nm->items;
 	return fzn_node_messages_devices(nm, NULL, 0u) == 1u ? FZN_MESSAGES_OK
 	                                                     : FZN_MESSAGES_ERR_JOURNAL;
 }
@@ -350,6 +376,42 @@ fzn_messages_err_t fzn_node_messages_absorb(fzn_node_messages_t *nm,
 	tally->marks = marks;
 	tally->lacking = nm->n_lacks;
 	return FZN_MESSAGES_OK;
+}
+
+fzn_messages_err_t fzn_node_messages_file(fzn_node_messages_t *nm,
+                                          const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch,
+                                          const uint8_t *item, size_t len, int *waiting)
+{
+	uint8_t its_contact[FZN_PUBKEY_LEN];
+	uint32_t its_epoch = 0;
+	int wait = 0;
+	fzn_messages_err_t err;
+
+	if (waiting)
+		*waiting = 0;
+	if (!nm || !contact || !item)
+		return FZN_MESSAGES_ERR_MALFORMED;
+	/* A MONTH LET GO HERE takes nothing back, its key wanted least of all:
+	 * the bucket is the mark, whichever way the month went. */
+	if (fzn_buckets_gone(&nm->buckets, FZN_BUCKETS_MESSAGES, contact, epoch))
+		return FZN_MESSAGES_ERR_GONE;
+	err = fzn_messages_file(&nm->m, item, len, its_contact, &its_epoch, &wait);
+	/* ONE CONVERSATION'S MONTH, WHERE IT CAME FROM: an item filed under
+	 * another bucket would leave the two buckets' digests apart for good.
+	 * Checked after filing, since only the store reads an item; one that
+	 * was kept under its own bucket and offered under another is refused
+	 * here and kept there, which is where it belongs. */
+	if (err == FZN_MESSAGES_OK
+	    && (!same_key(its_contact, contact) || its_epoch != epoch))
+		return FZN_MESSAGES_ERR_REFUSED;
+	if (err == FZN_MESSAGES_OK && wait) {
+		const uint8_t *device = item + 3u + FZN_RECORD_OFF_ISSUER;
+
+		note_key(nm, nm->lacks, &nm->n_lacks, contact, epoch, device);
+		if (waiting)
+			*waiting = 1;
+	}
+	return err;
 }
 
 /* ---- keys between members ------------------------------------------------ */

@@ -1,0 +1,35 @@
+# situ capability map v1
+# schema: buckets.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct fzn_buckets_bucket size=78 repr=ValueConverted atomic=NonAtomic
+  fzn_buckets_bucket.version             offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_buckets_bucket.kind                offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_buckets_bucket.subject             offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_buckets_bucket.month               offset=AbsoluteStatic(0x22) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_buckets_bucket.count               offset=AbsoluteStatic(0x26) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_buckets_bucket.sum                 offset=AbsoluteStatic(0x2E) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+
+struct fzn_buckets_gone size=38 repr=ValueConverted atomic=NonAtomic
+  fzn_buckets_gone.version               offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_buckets_gone.kind                  offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_buckets_gone.subject               offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_buckets_gone.month                 offset=AbsoluteStatic(0x22) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+
+struct fzn_buckets_item size=42..4137 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_buckets_item.version               offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_buckets_item.kind                  offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_buckets_item.subject               offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_buckets_item.month                 offset=AbsoluteStatic(0x22) size=Fixed(4) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_buckets_item.indexed               offset=AbsoluteStatic(0x26) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_buckets_item.len                   offset=AbsoluteStatic(0x27) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_buckets_item.item                  offset=AbsoluteStatic(0x29) size=Bounded(1, 4096) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting

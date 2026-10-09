@@ -164,7 +164,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/node.c node/local.c node/remote.c node/serve.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
-             node/journal.c node/opjournal.c node/apply.c node/settings.c node/holdings.c node/reconcile.c \
+             node/journal.c node/opjournal.c node/apply.c node/settings.c node/holdings.c node/buckets.c node/reconcile.c \
              messages/line.c messages/messages.c node/messages.c \
              contact/contact.c \
              contact/group.c \
@@ -262,7 +262,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/node.h node/local.h node/remote.h node/serve.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
-             node/journal.h node/opjournal.h node/apply.h node/settings.h node/holdings.h node/reconcile.h \
+             node/journal.h node/opjournal.h node/apply.h node/settings.h node/holdings.h node/buckets.h node/reconcile.h \
              messages/line.h messages/messages.h node/messages.h \
              contact/contact.h \
              contact/group.h \
@@ -1275,7 +1275,7 @@ RECORD_STORE_FILE_SRCS := record/store_file.c
 RECORD_STORE_FILE_HDRS := record/store_file.h
 RECORD_STORE_FILE_TSRC := record/test/store_file_test.c node/test/node_journal_test.c \
                           node/test/opjournal_test.c node/test/apply_test.c \
-                          node/test/reconcile_test.c \
+                          node/test/reconcile_test.c node/test/buckets_test.c \
                           messages/test/messages_test.c node/test/messages_test.c
 
 ifdef RECORD_STORE_FILE_ON
@@ -1288,6 +1288,7 @@ TEST_BINS += $(BUILD_DIR)/node/test/node_journal_test
 TEST_BINS += $(BUILD_DIR)/node/test/opjournal_test
 TEST_BINS += $(BUILD_DIR)/node/test/apply_test
 TEST_BINS += $(BUILD_DIR)/node/test/reconcile_test
+TEST_BINS += $(BUILD_DIR)/node/test/buckets_test
 TEST_BINS += $(BUILD_DIR)/messages/test/messages_test
 TEST_BINS += $(BUILD_DIR)/node/test/messages_test
 # The same store and suite again with the hole punch compiled out, as on a
@@ -3951,7 +3952,7 @@ $(BUILD_DIR)/messages/test/messages_test: $(BUILD_DIR)/messages/test/messages_te
 # A node's conversations, sec 527: the verbs, absorbing, and keys carried
 # between three devices, a hub among them.
 $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
-                                  $(BUILD_DIR)/node/messages.o \
+                                  $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/node/buckets.o \
                                   $(BUILD_DIR)/messages/messages.o \
                                   $(BUILD_DIR)/log/retain.o \
                                   $(BUILD_DIR)/messages/line.o \
@@ -3975,6 +3976,7 @@ $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
 # What node/apply.c needs linked, and its tests with it: apply_test and
 # reconcile_test (sec 551), which applies objects through the same context.
 NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DIR)/node/holdings.o \
+                   $(BUILD_DIR)/node/buckets.o \
                    $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
                    $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
                    $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
@@ -4024,6 +4026,12 @@ $(BUILD_DIR)/node/test/reconcile_test: $(BUILD_DIR)/node/test/reconcile_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# Append-only kinds by bucket, and their exchange, sec 564.
+$(BUILD_DIR)/node/test/buckets_test: $(BUILD_DIR)/node/test/buckets_test.o \
+                                     $(BUILD_DIR)/node/reconcile.o $(NODE_APPLY_LINK)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # The node's notes, the model and the verbs over it. sec 431.
 FUZZNETD_NOTES_OBJS := $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/notes/store.o \
                        $(BUILD_DIR)/notes/view.o $(BUILD_DIR)/notes/author.o \
@@ -4061,7 +4069,7 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(FUZZNETD_NOTES_OBJS) \
               $(if $(SPOOL_FILE_ON),$(FUZZNETD_SHELF_OBJS)) \
               $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
-              $(BUILD_DIR)/node/holdings.o $(BUILD_DIR)/node/reconcile.o \
+              $(BUILD_DIR)/node/holdings.o $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/node/reconcile.o \
               $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/messages/messages.o \
               $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/log/retain.o \
@@ -4221,6 +4229,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/state/setting.o \
                                       $(BUILD_DIR)/node/settings.o \
                                       $(BUILD_DIR)/node/holdings.o \
+                                      $(BUILD_DIR)/node/buckets.o \
                                       $(BUILD_DIR)/node/reconcile.o \
                                       $(BUILD_DIR)/node/apply.o \
                                       $(BUILD_DIR)/notes/note.o \
@@ -5836,7 +5845,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               roster/roster.situ chain/root_act.situ chain/succession.situ \
               record/exchange.situ \
               notes/sync.situ notes/note.situ node/opjournal.situ messages/line.situ \
-              messages/keys.situ state/setting.situ node/reconcile.situ \
+              messages/keys.situ state/setting.situ node/reconcile.situ node/buckets.situ \
               log/entry.situ log/cause.situ log/gather.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.

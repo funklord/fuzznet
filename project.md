@@ -61190,3 +61190,130 @@ Measured: both builds 154 checks. With the zeroing removed, the punching
 build passes and the other fails at the cut. With the define kept from
 the store object, the block count fails, 56 before and 8 after. One
 sabotage entry.
+
+## 564. Planned: one reconciliation for every append-only kind, held by rules, 2026-10-09
+
+Taken up from stage 5's deferral (sec 551): a device away past the window
+lost every message line written meanwhile. Its stream moved up to the
+peer's base with no bridge, and lines are no reconcile class.
+
+**The holder's decisions, asked this session:**
+
+- **A peer hands over the writer's signed record**, never its own word for
+  the text. Each line's signed sealed record is kept beside its opened row,
+  so the device that receives it checks the writer's signature. Storage
+  roughly doubles. This is sec 539's exception for what is retransmitted
+  and reused. Rejected: re-sealing opened text, which lets one compromised
+  device rewrite history.
+- **Missed items travel by reconciliation per (subject, month)**: a digest
+  per bucket, ids only where buckets differ, then the items. Rejected:
+  answering a pull below the base from rows, which needs a (device, seq)
+  index, serves only in-order continuation, and breaks at a trimmed month.
+- **"The same mechanism should be used to synchronize all data of this
+  sort. logs, telemetry, etc."** One layer for every append-only signed
+  kind; messages are its first user.
+- **"We follow retention rules for how much to fetch."** What a node holds,
+  and so fetches, is what its retention rules keep. The rules keep sec
+  460's set semantics (every prune applies, any keep protects), which the
+  holder chose over netfilter-style first match. **Each kind gains a
+  default policy**, so everything and nothing are one line each: under
+  `keep`, an item goes only when a prune marks it and no keep protects it
+  (today's behaviour); under `drop`, it is held only when a keep covers it.
+  One policy per kind (messages, log, telemetry); whose data a rule covers
+  stays a selector (`source=`, `contact=`). Rejected: chains split into own
+  and copies.
+- **A retention capability, in the grant chain, is what lets a host be
+  served anything.** Peers hand a host items of any kind and source only if
+  it holds the capability; without it, a host is served only its own (its
+  user's messages, its own logs). Rejected: every member served everything.
+
+**The layer.** A BUCKET is (kind, subject, month): messages by contact,
+logs by source host, the month in UTC as `fzn_message_epoch_of` counts it.
+An ITEM is a signed artifact, and its id is the hash of its bytes. A bucket
+row keeps the bucket's count and the sum of its ids modulo 2^256, so adding
+an item costs one row write and the digest needs no listing. A bucket's ids
+sit in chunked rows, and an item's bytes in a row keyed by its id. A kind
+whose items are too large for a row (a log segment, up to 8 MiB) keeps them
+where it does today and lends the layer an adapter; those items travel in
+parts. A bucket a node's own rules removed is gone there, and is never
+fetched again.
+
+**The exchange** gains three message pairs in version 6, past `base`:
+buckets of a kind by page, ids of one bucket by page, and an item's bytes
+from an offset. An older peer refuses an unknown type, so the round passes
+it over.
+
+**Stages:**
+
+1. The layer and messages on it. Each row keeps its signed records, the
+   round reconciles conversations with the estate's in-estate pull peers,
+   and a received line is admitted by its writer's signature and filed by
+   the messages store's own path. Built in sec 565.
+2. A default policy per kind in the rule grammar, and the rules asked
+   before a bucket is fetched: stage 1 passes over only a month already
+   let go.
+3. The retention capability, and serving gated on it.
+4. Logs on the layer. Segments become items, the copy pull and push of secs
+   483 and 488 retire, and `--log-copy` becomes a rule.
+5. Telemetry exists only in prose (secs 5, 531); when it is built, it is a
+   kind on this layer.
+
+## 565. Stage 1: message lines by bucket, to a device away past the window, 2026-10-09
+
+Sec 564's first stage.
+
+- **`node/buckets`** holds an append-only kind by (kind, subject, month)
+  in three bulk slots: 42 the bucket's count and its ids' sum modulo 2^256,
+  43 its ids in chunks of 64 and the gone marks, 44 each item as signed,
+  keyed by its id. Layouts in `node/buckets.situ`. Taking writes the item,
+  then the id and count, then a mark on the item; taken again after a crash
+  at any of those, it is held and counted once.
+- **The exchange** gains BUCKETS, BUCKET_IDS and ITEM queries in version
+  6 (types 9 to 14). `fzn_reconcile_buckets` compares each of a peer's
+  buckets by digest, pages the ids of one that differs, and fetches each
+  lacked item in as many pieces as a reply takes. It checks each item
+  against its id and hands it to the kind's filer. A month gone here, or
+  one the filer does not want, is passed over.
+- **A line's item is its records as its device signed them.** The messages
+  store keeps one whenever a line is taken, whether written here,
+  absorbed, or another device's copy of a line already held, so two
+  devices holding the same items agree. A trimmed month drops its items.
+  `fzn_messages_items_backfill` gives lines taken before this their items,
+  once, from what the journal holds.
+- **`fzn_messages_file`** admits a line from an item as the journal would.
+  One of the user's devices must have signed every part, on the
+  conversations stream, as one line's parts in sequence. It refuses a line
+  of another month than its bucket, or of a month let go. A line whose key
+  is not here is remembered in a row of wants, since no journal will name
+  it again after a restart. Each absorb hands the wants to the key
+  exchange until the key arrives.
+- **fuzznetd** runs the conversations round after the class round, with
+  each pull peer of the estate, and backfills before the first pull. The
+  debug `reconcile pass:` line now ends with the lines lacked, filed and
+  passed over.
+
+Known limit: a line two devices both wrote is found as the same line only
+among a conversation's 64 most recent, as the journal's absorb already
+finds it. Filed long after the other copy, it lists twice. Scanning the
+whole conversation per item was rejected for its cost.
+
+Measured: buckets_test 37 checks. These cover: one item held once, the
+digest the same in either order, ids paged across chunks, buckets listed
+in order, a gone month refusing, a crash at each of the four saves and at
+a chunk's end, 71 items taken from nothing, 111 over the smallest reply
+(one item of 4096 bytes in pieces), and a lying peer, a refusing filer, a
+gone month and an unwanted one. node messages_test 75 checks. These
+cover: a device whose journal holds none of the stream files two lines,
+one of two parts, both waiting; a restart still asks for the key, and
+both open; lines under another month, with a changed byte, or signed by
+another user's device are refused; a trimmed month keeps no items and
+takes none back; and a backfill runs once. `tool/live_rejoin.py` now has
+A write a line while B is away. A's cut takes it, B moves three streams
+up, and the line reads at B, and again after B restarts. Against a
+fuzznetd with the conversations round switched off, phase b fails with
+an empty listing. Fifteen sabotage entries, and two older ones
+re-anchored on code this change moved; all seventeen probed caught.
+
+Not done: `make schema` stops at `wire/generated/situ.h` drifted from
+situ's runtime, which moved after the vendored copy of 2026-09-21. Both
+specs here check current; the re-vendoring is its own change.

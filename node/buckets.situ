@@ -1,0 +1,48 @@
+// What a node holds of an append-only kind -- message lines now, logs and
+// telemetry later -- by bucket: a kind, a subject and a month. project.md
+// sec 564. The hand-written codec is node/buckets.c; this is its checked
+// contract, in `make schema`'s list.
+//
+// An item is a signed artifact kept whole, and its id is the hash of its
+// bytes. A bucket's ids sit in chunks of 64, in the order they were taken.
+
+target buffer;
+endian big;
+
+enum fzn_buckets_kind : u8 {
+	messages = 0,   // a conversation's lines: subject a contact, items a line's records
+}
+
+// FZN_PERSIST_BUCKET, one per bucket held: how many items, and their ids'
+// sum modulo 2^256, so adding one costs a row and the digest no listing.
+struct fzn_buckets_bucket {
+	u8               version [must_eq = 1];
+	fzn_buckets_kind kind;
+	u8               subject[32];
+	u32              month;                 // (year - 1970) * 12 + month - 1, UTC
+	u64              count;
+	u8               sum[32];
+}
+
+// FZN_PERSIST_BUCKET_IDS, a bucket a node's own rules let go: never taken
+// again, nor offered.
+struct fzn_buckets_gone {
+	u8               version [must_eq = 1];
+	fzn_buckets_kind kind;
+	u8               subject[32];
+	u32              month;
+}
+
+// FZN_PERSIST_BUCKET_ITEM, one per item, keyed by its kind and id.
+// `indexed` is set once its id is in its bucket's chunk and count, so an
+// item saved before a crash is indexed by the next taking rather than
+// counted twice.
+struct fzn_buckets_item {
+	u8               version [must_eq = 1];
+	fzn_buckets_kind kind;
+	u8               subject[32];
+	u32              month;
+	u8               indexed [max = 1];
+	u16              len [min = 1, max = 4096];
+	u8               item[len];
+}

@@ -7,13 +7,16 @@ setup and phase a under `faketime` sixty-two days back, so what they write is
 older than the 60-day window when A next cuts:
 
     a  A sets x/old; B, serving with --root-at A, takes it by the journal and
-       is stopped; A then sets x/away and writes a note, which B never pulls
+       is stopped; A then sets x/away, writes a note and a message line,
+       none of which B pulls
     b  A, on the real clock, sets x/now and cuts what is older than the
        window -- x/old's, x/away's and the note's records among it. B
        starts: its pull finds both of A's streams cut below what it lacks,
        moves each up to A's base (sec 552), and reconciliation brings x/away
        and the note's claim (secs 551, 555), which no journal holds any
-       more; the note lists, its wrap key given by the wraps exchange
+       more; the note lists, its wrap key given by the wraps exchange; and
+       the line comes by its conversation's bucket (sec 564), its key
+       asked of A, and reads
     c  B restarts: its journal follows from the new bases, the pull misses
        nothing, and the settings and the note read
     d  C, a device paired to A with a plain --accept and so of an estate of
@@ -142,6 +145,27 @@ def listed(sock, tag):
 		raise failed("%s: list note top answered %r, without away-note" % (tag, reply))
 
 
+CONTACT = "5a" * 32
+LINE_ID = "02" + "00" * 15
+
+
+def line_reads(sock, tag):
+	"""The line A wrote while B was away, readable at B, within 30 s: its
+	key is asked for in the round that filed it, or the next."""
+	until = time.monotonic() + 30.0
+	while True:
+		reply = ask(sock, "list message " + CONTACT)
+		fields = reply.split(" ", 4)
+		if len(fields) == 5 and fields[0] == "ok" and fields[2] == "1":
+			parts = fields[4].split(",")
+			if len(parts) >= 9 and parts[7] == "1" and parts[8] == "away-line":
+				return
+		if time.monotonic() > until or left() < 0.1:
+			raise failed("%s: list message answered %r, without away-line readable"
+			             % (tag, reply))
+		time.sleep(0.5)
+
+
 def main(argv):
 	if len(argv) != 2:
 		print("usage: live_rejoin.py PATH_TO_FUZZNETD", file=sys.stderr)
@@ -191,6 +215,9 @@ def main(argv):
 				reply = ask(a_sock, "add note top away-note")
 				if not reply.startswith("ok"):
 					raise failed("a: add note answered %r" % reply)
+				reply = ask(a_sock, "add message %s out %s away-line" % (CONTACT, LINE_ID))
+				if not reply.startswith("ok"):
+					raise failed("a: add message answered %r" % reply)
 			finally:
 				a.stop()
 			print("livecheck: a: B took x/old by the journal and left; A set x/away under %s"
@@ -218,10 +245,11 @@ def main(argv):
 					if witnessed.groups() != ("0", "0"):
 						raise failed("b: B's estate bridge was confirmed by %s of %s; it pulls "
 						             "from A alone" % witnessed.groups())
-					if moved.group(1) != "2":
-						raise failed("b: B moved %s stream(s) up; A's estate and notes streams "
-						             "were both cut below it" % moved.group(1))
+					if moved.group(1) != "3":
+						raise failed("b: B moved %s stream(s) up; A's estate, notes and "
+						             "conversations streams were cut below it" % moved.group(1))
 					listed(b_sock, "b")
+					line_reads(b_sock, "b")
 				finally:
 					b.stop()
 				print("livecheck: b: A cut %s record(s); B moved %s stream(s) up to A's base "
@@ -237,6 +265,7 @@ def main(argv):
 					for key in ("x/old", "x/away", "x/now"):
 						expect(b_sock, "c", "get setting estate " + key, "ok root 1")
 					listed(b_sock, "c")
+					line_reads(b_sock, "c")
 				finally:
 					b.stop()
 			finally:

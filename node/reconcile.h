@@ -24,6 +24,7 @@
 #include <stdint.h>
 
 #include "apply.h"
+#include "buckets.h"
 #include "holdings.h"
 
 #define FZN_RECONCILE_VERSION 6u
@@ -36,7 +37,14 @@ typedef enum fzn_reconcile_type {
 	FZN_RECONCILE_OBJECTS_QUERY = 5,
 	FZN_RECONCILE_OBJECTS = 6,
 	FZN_RECONCILE_BASE_QUERY = 7,
-	FZN_RECONCILE_BASE = 8
+	FZN_RECONCILE_BASE = 8,
+	/* Append-only kinds by bucket, sec 564. */
+	FZN_RECONCILE_BUCKETS_QUERY = 9,
+	FZN_RECONCILE_BUCKETS = 10,
+	FZN_RECONCILE_BUCKET_IDS_QUERY = 11,
+	FZN_RECONCILE_BUCKET_IDS = 12,
+	FZN_RECONCILE_ITEM_QUERY = 13,
+	FZN_RECONCILE_ITEM = 14
 } fzn_reconcile_type_t;
 
 /* The fixed parts, from `node/reconcile.situ.map`. */
@@ -50,6 +58,13 @@ typedef enum fzn_reconcile_type {
 #define FZN_RECONCILE_OBJECT_MAX 2048u
 #define FZN_RECONCILE_BASE_QUERY_LEN 46u
 #define FZN_RECONCILE_BASE_HEAD_LEN 52u
+#define FZN_RECONCILE_BUCKETS_QUERY_LEN 7u
+#define FZN_RECONCILE_BUCKETS_HEAD_LEN 13u
+#define FZN_RECONCILE_BUCKET_LEN 76u
+#define FZN_RECONCILE_BUCKET_IDS_QUERY_LEN 43u
+#define FZN_RECONCILE_BUCKET_IDS_HEAD_LEN 49u
+#define FZN_RECONCILE_ITEM_QUERY_LEN 39u
+#define FZN_RECONCILE_ITEM_HEAD_LEN 45u
 
 /* The longest bridge of spine entries a rebase takes. */
 #define FZN_RECONCILE_BRIDGE_MAX 4096u
@@ -108,6 +123,39 @@ typedef struct fzn_reconcile_notes {
 	fzn_node_apply_outcome_t (*file)(void *ctx, const uint8_t *record, size_t len);
 	void *ctx;
 } fzn_reconcile_notes_t;
+
+/* WHERE AN APPEND-ONLY KIND'S ITEM GOES, sec 564: one item of (subject,
+ * month), judged and filed by its kind's own path -- a message line by its
+ * writer's signature and the messages store (`fzn_node_messages_file`) --
+ * answered as an object applied would be. WANTED (may be NULL) says
+ * whether this node holds a bucket at all, its retention rules asked;
+ * a bucket it does not want is neither listed nor fetched. */
+typedef struct fzn_reconcile_filer {
+	fzn_node_apply_outcome_t (*file)(void *ctx, const uint8_t subject[FZN_PUBKEY_LEN],
+	                                 uint32_t month, const uint8_t *item, size_t len);
+	int (*wanted)(void *ctx, const uint8_t subject[FZN_PUBKEY_LEN], uint32_t month);
+	void *ctx;
+} fzn_reconcile_filer_t;
+
+typedef struct fzn_reconcile_bucket_tally {
+	size_t buckets;  /* buckets whose digest differed */
+	size_t passed;   /* buckets gone here, or not wanted */
+	size_t lacked;   /* items the peer holds and this node does not */
+	size_t applied;  /* items fetched and filed */
+	size_t waiting;  /* items filed whose key, or writer, is not here yet */
+	size_t refused;  /* items judged and refused, or not their id */
+	size_t full;     /* 1 when either side has too many buckets to list */
+} fzn_reconcile_bucket_tally_t;
+
+/* ONE KIND WITH ONE PEER: its buckets compared, and where one differs, its
+ * ids paged and the items this node lacks fetched -- whole, in pieces of
+ * whatever fits a reply -- each hashed to the id it was asked by and handed
+ * to `filer`. Only adds, as a class round does. */
+fzn_reconcile_err_t fzn_reconcile_buckets(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
+                                          const fzn_reconcile_filer_t *filer,
+                                          fzn_reconcile_ask_t ask, void *ask_ctx,
+                                          uint8_t *reply, size_t reply_cap,
+                                          fzn_reconcile_bucket_tally_t *tally);
 
 /* ONE ROUND WITH ONE PEER: every class, in the order of
  * `fzn_holdings_class_t` -- grants first, so a chain is here before what it

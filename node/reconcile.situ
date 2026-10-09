@@ -18,6 +18,12 @@ enum fzn_reconcile_type : u8 {
 	objects       = 6,   // "Those I hold of them."
 	base_query    = 7,   // "Where does this stream start with you?" sec 552.
 	base          = 8,   // "There, under this id, and the spine to it."
+	buckets_query = 9,   // "Your buckets of this kind, from this one." sec 564.
+	buckets       = 10,  // "These, of this many."
+	bucket_ids_query = 11, // "That bucket's ids, from this one."
+	bucket_ids    = 12,  // "These, of this many."
+	item_query    = 13,  // "That item's bytes, from this offset."
+	item          = 14,  // "Of so many, these." 0 of 0: not held here.
 }
 
 struct fzn_reconcile_digest_query {
@@ -108,4 +114,71 @@ struct fzn_reconcile_objects {
 	u8                    class   [max = 8];
 	u16                   count;
 	fzn_reconcile_object  objects[count];
+}
+
+// ---- append-only kinds, by bucket: node/buckets.h, sec 564 ----------------
+
+struct fzn_reconcile_buckets_query {
+	u8                  version [must_eq = 6];
+	fzn_reconcile_type  type    [must_eq = buckets_query];
+	u8                  kind    [max = 0];  // node/buckets.situ's fzn_buckets_kind
+	u32                 from;               // the first bucket wanted, by position
+}
+
+// One bucket: whose, which month, how many items, digested so.
+struct fzn_reconcile_bucket {
+	u8   subject[32];
+	u32  month;
+	u64  count;
+	u8   digest[32];
+}
+
+struct fzn_reconcile_buckets {
+	u8                    version [must_eq = 6];
+	fzn_reconcile_type    type    [must_eq = buckets];
+	u8                    kind    [max = 0];
+	u32                   total;            // every bucket of the kind held
+	u32                   from;             // echoed
+	u16                   count;
+	fzn_reconcile_bucket  buckets[count];   // ascending by subject, then month
+}
+
+struct fzn_reconcile_bucket_ids_query {
+	u8                  version [must_eq = 6];
+	fzn_reconcile_type  type    [must_eq = bucket_ids_query];
+	u8                  kind    [max = 0];
+	u8                  subject[32];
+	u32                 month;
+	u32                 from;
+}
+
+struct fzn_reconcile_bucket_ids {
+	u8                  version [must_eq = 6];
+	fzn_reconcile_type  type    [must_eq = bucket_ids];
+	u8                  kind    [max = 0];
+	u8                  subject[32];
+	u32                 month;
+	u32                 total;
+	u32                 from;               // echoed
+	u16                 count;
+	fzn_reconcile_id    ids[count];         // in the order they were taken there
+}
+
+struct fzn_reconcile_item_query {
+	u8                  version [must_eq = 6];
+	fzn_reconcile_type  type    [must_eq = item_query];
+	u8                  kind    [max = 0];
+	u8                  id[32];
+	u32                 offset;
+}
+
+struct fzn_reconcile_item {
+	u8                  version [must_eq = 6];
+	fzn_reconcile_type  type    [must_eq = item];
+	u8                  kind    [max = 0];
+	u8                  id[32];
+	u32                 total   [max = 4096]; // the item's length; 0, not held
+	u32                 offset;             // echoed
+	u16                 len;
+	u8                  bytes[len];
 }

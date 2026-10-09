@@ -203,6 +203,117 @@ static size_t answer_base(fzn_node_journal_t *journal, const uint8_t *request, s
 	return at;
 }
 
+/* ---- append-only kinds, by bucket, sec 564 --------------------------------- */
+
+/* Every bucket of a kind, the answer's. Not the round's: a round lists none
+ * of its own, asking for each of the peer's in turn. */
+static fzn_bucket_t served_buckets[FZN_BUCKETS_MAX];
+
+static size_t answer_buckets(const fzn_buckets_t *b, const uint8_t *request, size_t request_len,
+                             uint8_t *reply, size_t reply_cap)
+{
+	size_t n = 0, from, count, room, i, at = FZN_RECONCILE_BUCKETS_HEAD_LEN;
+
+	if (request_len != FZN_RECONCILE_BUCKETS_QUERY_LEN || request[2] >= FZN_BUCKETS_KINDS
+	    || reply_cap < FZN_RECONCILE_BUCKETS_HEAD_LEN)
+		return 0;
+	/* TOO MANY TO LIST answers a count this cannot reach and no buckets,
+	 * so the asker counts it full rather than taking a part for the whole. */
+	switch (fzn_buckets_list(b, (fzn_buckets_kind_t)request[2], served_buckets, FZN_BUCKETS_MAX,
+	                         &n)) {
+	case FZN_BUCKETS_OK:
+		break;
+	case FZN_BUCKETS_FULL:
+		n = COUNT_FULL;
+		break;
+	default:
+		return 0;
+	}
+	from = fzn_get_be32(request + 3u);
+	count = n != COUNT_FULL && from < n ? n - from : 0u;
+	room = (reply_cap - FZN_RECONCILE_BUCKETS_HEAD_LEN) / FZN_RECONCILE_BUCKET_LEN;
+	if (count > room)
+		count = room;
+	for (i = 0; i < count; i++, at += FZN_RECONCILE_BUCKET_LEN) {
+		const fzn_bucket_t *k = &served_buckets[from + i];
+
+		memcpy(reply + at, k->subject, FZN_PUBKEY_LEN);
+		fzn_put_be32(reply + at + 32u, k->month);
+		fzn_put_be64(reply + at + 36u, k->count);
+		memcpy(reply + at + 44u, k->digest, FZN_BUCKETS_ID_LEN);
+	}
+	reply[0] = (uint8_t)FZN_RECONCILE_VERSION;
+	reply[1] = (uint8_t)FZN_RECONCILE_BUCKETS;
+	reply[2] = request[2];
+	fzn_put_be32(reply + 3u, (uint32_t)n);
+	fzn_put_be32(reply + 7u, (uint32_t)from);
+	fzn_put_be16(reply + 11u, (uint16_t)count);
+	return at;
+}
+
+static size_t answer_bucket_ids(const fzn_buckets_t *b, const uint8_t *request,
+                                size_t request_len, uint8_t *reply, size_t reply_cap)
+{
+	uint64_t total = 0;
+	size_t count = 0, room;
+	uint32_t month, from;
+
+	if (request_len != FZN_RECONCILE_BUCKET_IDS_QUERY_LEN || request[2] >= FZN_BUCKETS_KINDS
+	    || reply_cap < FZN_RECONCILE_BUCKET_IDS_HEAD_LEN)
+		return 0;
+	month = fzn_get_be32(request + 35u);
+	from = fzn_get_be32(request + 39u);
+	room = (reply_cap - FZN_RECONCILE_BUCKET_IDS_HEAD_LEN) / FZN_BUCKETS_ID_LEN;
+	if (room > 0xffffu)
+		room = 0xffffu;
+	if (fzn_buckets_ids(b, (fzn_buckets_kind_t)request[2], request + 3u, month, from,
+	                    (uint8_t(*)[FZN_BUCKETS_ID_LEN])(reply + FZN_RECONCILE_BUCKET_IDS_HEAD_LEN),
+	                    room, &count, &total)
+	            != FZN_BUCKETS_OK
+	    || total > 0xffffffffu)
+		return 0;
+	reply[0] = (uint8_t)FZN_RECONCILE_VERSION;
+	reply[1] = (uint8_t)FZN_RECONCILE_BUCKET_IDS;
+	memcpy(reply + 2u, request + 2u, 1u + FZN_PUBKEY_LEN + 4u);
+	fzn_put_be32(reply + 39u, (uint32_t)total);
+	fzn_put_be32(reply + 43u, from);
+	fzn_put_be16(reply + 47u, (uint16_t)count);
+	return FZN_RECONCILE_BUCKET_IDS_HEAD_LEN + count * FZN_BUCKETS_ID_LEN;
+}
+
+static uint8_t served_item[FZN_BUCKETS_ITEM_MAX];
+
+static size_t answer_item(const fzn_buckets_t *b, const uint8_t *request, size_t request_len,
+                          uint8_t *reply, size_t reply_cap)
+{
+	size_t len = 0, n = 0;
+	uint32_t offset;
+	fzn_buckets_err_t err;
+
+	if (request_len != FZN_RECONCILE_ITEM_QUERY_LEN || request[2] >= FZN_BUCKETS_KINDS
+	    || reply_cap < FZN_RECONCILE_ITEM_HEAD_LEN)
+		return 0;
+	offset = fzn_get_be32(request + 35u);
+	err = fzn_buckets_item(b, (fzn_buckets_kind_t)request[2], request + 3u, served_item,
+	                       sizeof(served_item), &len, NULL, NULL);
+	if (err != FZN_BUCKETS_OK && err != FZN_BUCKETS_ABSENT)
+		return 0;
+	/* NOT HELD answers 0 of 0; an offset past the end, nothing of all. */
+	if (offset < len) {
+		n = len - offset;
+		if (n > reply_cap - FZN_RECONCILE_ITEM_HEAD_LEN)
+			n = reply_cap - FZN_RECONCILE_ITEM_HEAD_LEN;
+		memcpy(reply + FZN_RECONCILE_ITEM_HEAD_LEN, served_item + offset, n);
+	}
+	reply[0] = (uint8_t)FZN_RECONCILE_VERSION;
+	reply[1] = (uint8_t)FZN_RECONCILE_ITEM;
+	memcpy(reply + 2u, request + 2u, 1u + FZN_BUCKETS_ID_LEN);
+	fzn_put_be32(reply + 35u, (uint32_t)len);
+	fzn_put_be32(reply + 39u, offset);
+	fzn_put_be16(reply + 43u, (uint16_t)n);
+	return FZN_RECONCILE_ITEM_HEAD_LEN + n;
+}
+
 size_t fzn_reconcile_answer(const fzn_persist_ops_t *store, const fzn_hash_ops_t *hash,
                             fzn_node_journal_t *journal, const uint8_t *request,
                             size_t request_len, uint8_t *reply, size_t reply_cap)
@@ -220,6 +331,16 @@ size_t fzn_reconcile_answer(const fzn_persist_ops_t *store, const fzn_hash_ops_t
 		return answer_ids(store, hash, request, request_len, reply, reply_cap);
 	if (request[1] == (uint8_t)FZN_RECONCILE_OBJECTS_QUERY)
 		return answer_objects(store, hash, request, request_len, reply, reply_cap);
+	{
+		fzn_buckets_t b = { store, hash };
+
+		if (request[1] == (uint8_t)FZN_RECONCILE_BUCKETS_QUERY)
+			return answer_buckets(&b, request, request_len, reply, reply_cap);
+		if (request[1] == (uint8_t)FZN_RECONCILE_BUCKET_IDS_QUERY)
+			return answer_bucket_ids(&b, request, request_len, reply, reply_cap);
+		if (request[1] == (uint8_t)FZN_RECONCILE_ITEM_QUERY)
+			return answer_item(&b, request, request_len, reply, reply_cap);
+	}
 	return 0;
 }
 
@@ -419,6 +540,219 @@ fzn_reconcile_err_t fzn_reconcile_round(fzn_node_apply_t *ap, const fzn_reconcil
 		if (err != FZN_RECONCILE_OK)
 			return err;
 	}
+	return FZN_RECONCILE_OK;
+}
+
+/* ---- append-only kinds, the round's half --------------------------------- */
+
+/* Buckets and ids taken from a reply before the next request reuses it. */
+#define BUCKETS_PER 32u
+#define IDS_PER 64u
+
+static uint8_t fetched_item[FZN_BUCKETS_ITEM_MAX];
+
+/* ONE ITEM BY ID, whole, in as many pieces as the replies take: its bytes
+ * into fetched_item, `*len` of them, 0 when the peer no longer holds it. */
+static fzn_reconcile_err_t fetch_item(fzn_buckets_kind_t kind,
+                                      const uint8_t id[FZN_BUCKETS_ID_LEN],
+                                      fzn_reconcile_ask_t ask, void *ask_ctx, uint8_t *reply,
+                                      size_t reply_cap, size_t *len)
+{
+	uint8_t request[FZN_RECONCILE_ITEM_QUERY_LEN];
+	size_t got = 0, total = 0, reply_len = 0, n;
+
+	*len = 0;
+	request[0] = (uint8_t)FZN_RECONCILE_VERSION;
+	request[1] = (uint8_t)FZN_RECONCILE_ITEM_QUERY;
+	request[2] = (uint8_t)kind;
+	memcpy(request + 3u, id, FZN_BUCKETS_ID_LEN);
+	do {
+		fzn_put_be32(request + 35u, (uint32_t)got);
+		if (!ask(ask_ctx, request, sizeof(request), reply, reply_cap, &reply_len))
+			return FZN_RECONCILE_ERR_NO_ANSWER;
+		if (!is(reply, reply_len, (uint8_t)FZN_RECONCILE_ITEM)
+		    || reply_len < FZN_RECONCILE_ITEM_HEAD_LEN || reply[2] != (uint8_t)kind
+		    || memcmp(reply + 3u, id, FZN_BUCKETS_ID_LEN) != 0
+		    || fzn_get_be32(reply + 39u) != got
+		    || reply_len != FZN_RECONCILE_ITEM_HEAD_LEN + (size_t)fzn_get_be16(reply + 43u))
+			return FZN_RECONCILE_ERR_SHAPE;
+		/* ONE LENGTH FOR THE WHOLE ITEM: a peer that changes it part way
+		 * is answering for another item. */
+		if (got == 0u)
+			total = fzn_get_be32(reply + 35u);
+		else if (fzn_get_be32(reply + 35u) != total)
+			return FZN_RECONCILE_ERR_SHAPE;
+		if (total == 0u)
+			return FZN_RECONCILE_OK;
+		if (total > FZN_BUCKETS_ITEM_MAX)
+			return FZN_RECONCILE_ERR_SHAPE;
+		n = fzn_get_be16(reply + 43u);
+		/* A PIECE THAT MOVES NOTHING ends it, or a peer could keep this
+		 * asking for ever. */
+		if (n == 0u || n > total - got)
+			return FZN_RECONCILE_ERR_SHAPE;
+		memcpy(fetched_item + got, reply + FZN_RECONCILE_ITEM_HEAD_LEN, n);
+		got += n;
+	} while (got < total);
+	*len = total;
+	return FZN_RECONCILE_OK;
+}
+
+/* ONE OF THE PEER'S BUCKETS that differs from this node's: its ids paged,
+ * and each this node lacks fetched, checked against its id, and filed. */
+static fzn_reconcile_err_t take_bucket(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
+                                       const fzn_reconcile_filer_t *filer, const uint8_t *subject,
+                                       uint32_t month, fzn_reconcile_ask_t ask, void *ask_ctx,
+                                       uint8_t *reply, size_t reply_cap,
+                                       fzn_reconcile_bucket_tally_t *tally)
+{
+	uint8_t request[FZN_RECONCILE_BUCKET_IDS_QUERY_LEN];
+	uint8_t ids[IDS_PER][FZN_BUCKETS_ID_LEN];
+	uint64_t from = 0, total;
+	size_t reply_len = 0, count, i;
+
+	request[0] = (uint8_t)FZN_RECONCILE_VERSION;
+	request[1] = (uint8_t)FZN_RECONCILE_BUCKET_IDS_QUERY;
+	request[2] = (uint8_t)kind;
+	memcpy(request + 3u, subject, FZN_PUBKEY_LEN);
+	fzn_put_be32(request + 35u, month);
+	do {
+		fzn_put_be32(request + 39u, (uint32_t)from);
+		if (!ask(ask_ctx, request, sizeof(request), reply, reply_cap, &reply_len))
+			return FZN_RECONCILE_ERR_NO_ANSWER;
+		if (!is(reply, reply_len, (uint8_t)FZN_RECONCILE_BUCKET_IDS)
+		    || reply_len < FZN_RECONCILE_BUCKET_IDS_HEAD_LEN
+		    || memcmp(reply + 2u, request + 2u, 1u + FZN_PUBKEY_LEN + 4u) != 0
+		    || fzn_get_be32(reply + 43u) != from
+		    || reply_len != FZN_RECONCILE_BUCKET_IDS_HEAD_LEN
+		                            + (size_t)fzn_get_be16(reply + 47u) * FZN_BUCKETS_ID_LEN)
+			return FZN_RECONCILE_ERR_SHAPE;
+		total = fzn_get_be32(reply + 39u);
+		count = fzn_get_be16(reply + 47u);
+		/* A PAGE THAT BRINGS NONE ends the listing: a bucket that shrank
+		 * since is asked again next round. */
+		if (count == 0u)
+			break;
+		if (count > IDS_PER)
+			count = IDS_PER;
+		memcpy(ids, reply + FZN_RECONCILE_BUCKET_IDS_HEAD_LEN, count * FZN_BUCKETS_ID_LEN);
+		from += count;
+		for (i = 0; i < count; i++) {
+			uint8_t id[FZN_BUCKETS_ID_LEN];
+			size_t len = 0;
+			fzn_reconcile_err_t err;
+
+			if (fzn_buckets_has(b, kind, ids[i]))
+				continue;
+			tally->lacked++;
+			err = fetch_item(kind, ids[i], ask, ask_ctx, reply, reply_cap, &len);
+			if (err != FZN_RECONCILE_OK)
+				return err;
+			if (len == 0u)
+				continue;
+			/* WHAT WAS ASKED FOR, or nothing: an item is its id's. */
+			if (!fzn_buckets_id(b->hash, fetched_item, len, id))
+				return FZN_RECONCILE_ERR_STORE;
+			if (memcmp(id, ids[i], sizeof(id)) != 0) {
+				tally->refused++;
+				continue;
+			}
+			switch (filer->file(filer->ctx, subject, month, fetched_item, len)) {
+			case FZN_NODE_APPLY_APPLIED:
+				tally->applied++;
+				break;
+			case FZN_NODE_APPLY_WAITING:
+				tally->waiting++;
+				break;
+			case FZN_NODE_APPLY_NOT_SAVED:
+				return FZN_RECONCILE_ERR_STORE;
+			case FZN_NODE_APPLY_REFUSED:
+				tally->refused++;
+				break;
+			}
+		}
+	} while (from < total);
+	return FZN_RECONCILE_OK;
+}
+
+fzn_reconcile_err_t fzn_reconcile_buckets(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
+                                          const fzn_reconcile_filer_t *filer,
+                                          fzn_reconcile_ask_t ask, void *ask_ctx,
+                                          uint8_t *reply, size_t reply_cap,
+                                          fzn_reconcile_bucket_tally_t *tally)
+{
+	uint8_t request[FZN_RECONCILE_BUCKETS_QUERY_LEN];
+	struct {
+		uint8_t subject[FZN_PUBKEY_LEN];
+		uint32_t month;
+		uint64_t count;
+		uint8_t digest[FZN_BUCKETS_ID_LEN];
+	} page[BUCKETS_PER];
+	uint64_t from = 0, total;
+	size_t reply_len = 0, count, i;
+
+	if (!b || !b->store || !b->hash || !b->hash->hash || (unsigned)kind >= FZN_BUCKETS_KINDS
+	    || !filer || !filer->file || !ask || !reply || !tally
+	    || reply_cap < FZN_RECONCILE_REPLY_MIN)
+		return FZN_RECONCILE_ERR_MALFORMED;
+	memset(tally, 0, sizeof(*tally));
+	request[0] = (uint8_t)FZN_RECONCILE_VERSION;
+	request[1] = (uint8_t)FZN_RECONCILE_BUCKETS_QUERY;
+	request[2] = (uint8_t)kind;
+	do {
+		fzn_put_be32(request + 3u, (uint32_t)from);
+		if (!ask(ask_ctx, request, sizeof(request), reply, reply_cap, &reply_len))
+			return FZN_RECONCILE_ERR_NO_ANSWER;
+		if (!is(reply, reply_len, (uint8_t)FZN_RECONCILE_BUCKETS)
+		    || reply_len < FZN_RECONCILE_BUCKETS_HEAD_LEN || reply[2] != (uint8_t)kind
+		    || fzn_get_be32(reply + 7u) != from
+		    || reply_len != FZN_RECONCILE_BUCKETS_HEAD_LEN
+		                            + (size_t)fzn_get_be16(reply + 11u) * FZN_RECONCILE_BUCKET_LEN)
+			return FZN_RECONCILE_ERR_SHAPE;
+		total = fzn_get_be32(reply + 3u);
+		if (total == COUNT_FULL) {
+			tally->full = 1;
+			return FZN_RECONCILE_OK;
+		}
+		count = fzn_get_be16(reply + 11u);
+		if (count == 0u)
+			break;
+		if (count > BUCKETS_PER)
+			count = BUCKETS_PER;
+		for (i = 0; i < count; i++) {
+			const uint8_t *e = reply + FZN_RECONCILE_BUCKETS_HEAD_LEN + i * FZN_RECONCILE_BUCKET_LEN;
+
+			memcpy(page[i].subject, e, FZN_PUBKEY_LEN);
+			page[i].month = fzn_get_be32(e + 32u);
+			page[i].count = fzn_get_be64(e + 36u);
+			memcpy(page[i].digest, e + 44u, FZN_BUCKETS_ID_LEN);
+		}
+		from += count;
+		for (i = 0; i < count; i++) {
+			fzn_bucket_t mine;
+			fzn_reconcile_err_t err;
+
+			if (page[i].count == 0u)
+				continue;
+			if (fzn_buckets_gone(b, kind, page[i].subject, page[i].month)
+			    || (filer->wanted
+			        && !filer->wanted(filer->ctx, page[i].subject, page[i].month))) {
+				tally->passed++;
+				continue;
+			}
+			if (fzn_buckets_bucket(b, kind, page[i].subject, page[i].month, &mine)
+			    != FZN_BUCKETS_OK)
+				return FZN_RECONCILE_ERR_STORE;
+			if (mine.count == page[i].count
+			    && memcmp(mine.digest, page[i].digest, FZN_BUCKETS_ID_LEN) == 0)
+				continue;
+			tally->buckets++;
+			err = take_bucket(b, kind, filer, page[i].subject, page[i].month, ask, ask_ctx,
+			                  reply, reply_cap, tally);
+			if (err != FZN_RECONCILE_OK)
+				return err;
+		}
+	} while (from < total);
 	return FZN_RECONCILE_OK;
 }
 
