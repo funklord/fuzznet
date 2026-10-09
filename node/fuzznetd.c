@@ -2213,7 +2213,7 @@ static void load_received(int family, const uint8_t self[FZN_PUBKEY_LEN],
 /* Each accepted share into its sharer's tree. sec 437. */
 static void pull_received(uint64_t now)
 {
-	size_t i;
+	size_t i, suspended = 0;
 
 	if (!notes_on)
 		return;
@@ -2225,6 +2225,13 @@ static void pull_received(uint64_t now)
 		fzn_notes_sync_tally_t tally;
 		fzn_notes_sync_err_t err;
 
+		/* A REMOVED CONTACT'S SHARE IS NOT PULLED, sec 576, the holder's of
+		 * 2026-10-09: what it shared stays (sec 478), and nothing new comes
+		 * while it is removed. Adding it back pulls on from where it was. */
+		if (running_admin && !fzn_node_admin_contact_stands(running_admin, shares_in[i].sharer)) {
+			suspended++;
+			continue;
+		}
 		if (fzn_notes_received_ops(&seam, node_notes.store.ops, node_notes.store.hash,
 		                           shares_in[i].sharer, &ops)
 		            != FZN_NOTES_OK
@@ -2268,6 +2275,10 @@ static void pull_received(uint64_t now)
 		}
 #endif
 	}
+	/* EVERY PASS SAYS SO, at debug: a share passed over reads the same as
+	 * one with nothing new, and the live check waits on this line. */
+	say(FZN_ENTRY_DEBUG, "notes/received", "received pass: %zu share(s), %zu of removed contacts "
+	                                       "passed over", nshares_in, suspended);
 }
 
 #ifdef FZN_SPOOL_FILE_ON

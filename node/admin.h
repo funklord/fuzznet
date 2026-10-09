@@ -228,6 +228,13 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
                              const fzn_peer_t *peer, const fzn_request_t *request,
                              char *reply, size_t reply_cap);
 
+/* WHETHER `key` IS A CONTACT STILL STANDING: in this node's contact list,
+ * and active on the estate's roster where there is one (secs 454, 489). A
+ * removed contact is suspended: served nothing (the remote hook), and its
+ * shares pulled no further (fuzznetd, sec 576), what was received kept. */
+int fzn_node_admin_contact_stands(const fzn_node_admin_t *admin,
+                                  const uint8_t key[FZN_PUBKEY_LEN]);
+
 /*
  * The same verbs to a REMOTE caller, as `fzn_node_state_t.on_remote`; `ctx` is
  * a `fzn_node_admin_t`. sec 381.

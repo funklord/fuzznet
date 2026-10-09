@@ -6091,8 +6091,8 @@ SABOTAGES = [
 	(
 		"admin-serves-only-active-contacts",
 		"node/admin.c",
-		"\t\tif (admin->roster\n\t\t    && fzn_node_roster_standing(admin->roster, req->sender, admin->revocations,\n",
-		"\t\tif (0 && admin->roster\n\t\t    && fzn_node_roster_standing(admin->roster, req->sender, admin->revocations,\n",
+		"\treturn !admin->roster\n\t       || fzn_node_roster_standing(admin->roster, key, admin->revocations, roster_k(admin))\n",
+		"\treturn 1 || !admin->roster\n\t       || fzn_node_roster_standing(admin->roster, key, admin->revocations, roster_k(admin))\n",
 		"a contact removed on another member of the estate is still served here on its name -- sec 489",
 	),
 	(
@@ -6266,9 +6266,9 @@ SABOTAGES = [
 	(
 		"admin-a-removed-contact-is-served-nothing",
 		"node/admin.c",
-		"\t\tif (!admin->store || fzn_contact_get(admin->store, req->sender, &still) != FZN_CONTACT_OK)\n",
-		"\t\tif (!admin->store)\n",
-		"a contact the user removed goes on fetching everything shared with it, and every change made after -- sec 454",
+		"\t    || fzn_contact_get(admin->store, key, &still) != FZN_CONTACT_OK)\n",
+		"\t    || 0)\n",
+		"a contact the user removed goes on fetching everything shared with it, and every change made after, and what it shares is still pulled -- secs 454, 576",
 	),
 	(
 		"notes-move-not-under-a-descendant",

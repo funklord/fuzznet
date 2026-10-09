@@ -1527,10 +1527,22 @@ int main(void)
 		CHECK(n && notes_shared_seen == 1,
 		      "a contact's request did not reach the notes hook as shared");
 		/* REMOVED, IT IS SUSPENDED, sec 454: refused before either hook,
-		 * and served again once added back. */
+		 * and served again once added back -- and, sec 576, its share pulled
+		 * no further, by the same predicate. */
+		{
+			uint8_t stranger[FZN_PUBKEY_LEN];
+
+			memset(stranger, 0x7e, sizeof(stranger));
+			CHECK(fzn_node_admin_contact_stands(&admin, outside.id.pubkey)
+			              && !fzn_node_admin_contact_stands(&admin, stranger)
+			              && !fzn_node_admin_contact_stands(&admin, NULL),
+			      "a standing contact does not stand, or a stranger or no key does");
+		}
 		CHECK(ask(&admin, &owner, "remove contact bobby", reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK,
 		      "fixture: bob removed as a contact");
+		CHECK(!fzn_node_admin_contact_stands(&admin, outside.id.pubkey),
+		      "a removed contact still stands");
 		notes_shared_seen = -1;
 		n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
 		CHECK(n && fzn_reply_of(out, n, &detail, &detail_len) == FZN_REPLY_DENIED
@@ -1541,6 +1553,8 @@ int main(void)
 		      "fixture: bob added back");
 		n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
 		CHECK(n && notes_shared_seen == 1, "a contact added back was not served again");
+		CHECK(fzn_node_admin_contact_stands(&admin, outside.id.pubkey),
+		      "a contact added back does not stand again");
 		/* THE CONTACTS AS THE ROSTER, sec 489. With a roster and nothing on
 		 * it, a named contact is no contact; carried onto it, it is again.
 		 * A removal on the roster -- here the root's own, which retires

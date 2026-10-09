@@ -1931,6 +1931,21 @@ static int remote_admin(const fzn_node_admin_t *admin, const uint8_t *sender)
 	       && rank >= FZN_SETTING_RANK_ADMIN;
 }
 
+int fzn_node_admin_contact_stands(const fzn_node_admin_t *admin,
+                                  const uint8_t key[FZN_PUBKEY_LEN])
+{
+	fzn_contact_t still;
+
+	if (!admin || !key || !admin->store
+	    || fzn_contact_get(admin->store, key, &still) != FZN_CONTACT_OK)
+		return 0;
+	/* AND ACTIVE ON THE ROSTER, sec 489: removed on any member of the
+	 * estate is removed here, whatever this node's name book says. */
+	return !admin->roster
+	       || fzn_node_roster_standing(admin->roster, key, admin->revocations, roster_k(admin))
+	                  == FZN_ROSTER_ACTIVE;
+}
+
 size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
                              const fzn_opened_t *req, uint8_t *reply, size_t reply_cap)
 {
@@ -1975,21 +1990,13 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 	 * asked, so a request is answered as what it was granted as. */
 	if (fzn_node_request_shared(&admin->state->config, req->capability)) {
 		size_t n = 0;
-		fzn_contact_t still;
 
 		/* A REMOVED CONTACT IS SUSPENDED AT ONCE, sec 454, as sec 394 has
 		 * the holder decide for removal: nothing is served to a key the
 		 * contact list no longer holds, though its grant and its share
 		 * rows stay -- nothing is deleted, and adding it back serves it
 		 * again. */
-		if (!admin->store || fzn_contact_get(admin->store, req->sender, &still) != FZN_CONTACT_OK)
-			return answer_text(out, reply_cap, FZN_REPLY_DENIED, "no longer a contact");
-		/* AND ACTIVE ON THE ROSTER, sec 489: removed on any member of the
-		 * estate is removed here, whatever this node's name book says. */
-		if (admin->roster
-		    && fzn_node_roster_standing(admin->roster, req->sender, admin->revocations,
-		                                roster_k(admin))
-		               != FZN_ROSTER_ACTIVE)
+		if (!fzn_node_admin_contact_stands(admin, req->sender))
 			return answer_text(out, reply_cap, FZN_REPLY_DENIED, "no longer a contact");
 		if (admin->notes_remote && req->payload)
 			n = admin->notes_remote(admin->notes_ctx, req->sender, 1, req->payload,

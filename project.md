@@ -57839,11 +57839,10 @@ reverted it before commit because it reversed the holder's decision of
 2026-10-06 (sec 478 above). Both trees keep what a removed contact shared
 until `remove received`. Two things remain:
 
-- **A removed contact is still pulled.** fuzznetd's `pull_received` asks
-  every received share each round, a suspended contact's included, so new
-  notes go on arriving from a contact the user removed. The decision keeps
-  what was shared. Whether a suspended contact is still pulled is **the
-  holder's to decide**.
+- **~~A removed contact is still pulled.~~ Settled in sec 576**: the
+  holder decided 2026-10-09 that a removed contact's shares are pulled no
+  further while it is removed, and again once it is added back. What it
+  shared stays, as before.
 - **A requirement for the sibling wire.** A delegated message whose
   contact the owning device has removed is never acked, so the delegating
   host retries for good. It needs a "cannot deliver" answer that host can
@@ -61748,3 +61747,41 @@ moved, all six probed caught. A third, on the same check in
 `index_append`, survived: that function's one caller, `keep_line`, makes
 the check just before, so the copy could change nothing. It is gone, and
 its entry with it.
+
+## 576. A removed contact's shares are pulled no further, 2026-10-09
+
+Sec 510 left one question about removed contacts for the holder: whether
+the node goes on pulling what a removed contact shared with it. fuzznetd's
+`pull_received` asked every accepted share each round, so a removed
+contact's edits and new notes kept arriving, though nothing was served to
+it any more (sec 454). The holder decided 2026-10-09: **stop pulling**.
+What was received stays (sec 478), nothing new is fetched while the
+contact is removed, and adding it back pulls on from where it stopped.
+
+- **One predicate for both directions.** `fzn_node_admin_contact_stands`
+  is sec 454's test, taken out of `fzn_node_admin_remote`: the key is in
+  the contact list, and active on the roster where one is attached (sec
+  489). Serving a share and pulling one now ask the same question, so a
+  removal on another member of the estate suspends both.
+- **Asked each pass, not when the shares are loaded.** The received rows
+  load at start and when a share is accepted or let go; removing a
+  contact does neither. The skip
+  is in `pull_received`, read from the store every round, so a removal
+  holds from the next pass and an add-back resumes it without a restart.
+  The pass's debug line names how many shares it passed over.
+
+Rejected: dropping the received rows on removal, which is what sec 478's
+decision refused -- the user would lose the sharer's card, and adding the
+contact back would not resume anything.
+
+Measured: admin_test 225 checks -- the predicate holds for a
+contact, fails for a stranger's key and for none, fails once the contact
+is removed and holds again once it is added back. `tool/live_shares.py`,
+new in `make livecheck`: S shares a note with R and R pulls it; R removes
+S, and S edits the note; restarted, R's pass holds one share, passes it
+over and pulls nothing; S added back, R's pass passes nothing over and
+the edit arrives. Broken by hand, since sabotage.py runs only `make
+test`: with the skip taken out, phase b fails at its count; with the
+share counted but still pulled, it fails at the edit having arrived. Two
+sabotage entries re-anchored on the predicate (secs 454, 489),
+each probed after the commit, since sabotage.py refuses a file with uncommitted changes.
