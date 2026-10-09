@@ -633,6 +633,22 @@ static void test_removed_and_repacked(void)
 	      "a copy B let go was taken back");
 }
 
+/* A PACKED SEGMENT'S NAME, read for its closing time: the one name a copy
+ * has, and the one this module keeps, serves or takes. */
+static void test_a_segment_s_name(void)
+{
+	CHECK(fzn_log_copy_packed_time("netcfgd.1783641600000000.42.log.zst") == 1783641600000000ull,
+	      "a segment's name did not read as its closing time");
+	CHECK(fzn_log_copy_packed_time("netcfgd.17.42.log") == 0u
+	              && fzn_log_copy_packed_time("a/b.17.42.log.zst") == 0u
+	              && fzn_log_copy_packed_time("netcfgd.1x.42.log.zst") == 0u
+	              && fzn_log_copy_packed_time("netcfgd.17.4z.log.zst") == 0u
+	              && fzn_log_copy_packed_time("netcfgd..42.log.zst") == 0u
+	              && fzn_log_copy_packed_time(".17.42.log.zst") == 0u
+	              && fzn_log_copy_packed_time(NULL) == 0u,
+	      "a name that is no packed segment's read as one");
+}
+
 int main(void)
 {
 	snprintf(top, sizeof(top), "/tmp/fzn-log-buckets-test-XXXXXX");
@@ -646,6 +662,7 @@ int main(void)
 	memset(key_b, 0xb2, sizeof(key_b));
 	memset(key_x, 0x5c, sizeof(key_x));
 
+	test_a_segment_s_name();
 	test_a_scan_takes_its_own();
 	test_pulled_and_kept_as_copies();
 	test_signed_by_its_subject_only();

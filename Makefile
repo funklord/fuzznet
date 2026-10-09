@@ -1326,7 +1326,7 @@ endif
 
 LOG_PACK_SRCS := log/pack.c log/copy.c node/log_buckets.c
 LOG_PACK_HDRS := log/pack.h log/copy.h node/log_buckets.h
-LOG_PACK_TSRC := log/test/pack_test.c log/test/copy_test.c node/test/log_buckets_test.c
+LOG_PACK_TSRC := log/test/pack_test.c node/test/log_buckets_test.c
 
 ifdef LOG_PACK_ON
 CPPFLAGS  += -DFZN_LOG_PACK_ON
@@ -1334,7 +1334,6 @@ SRCS      += $(LOG_PACK_SRCS)
 HDRS      += $(LOG_PACK_HDRS)
 TEST_SRCS += $(LOG_PACK_TSRC)
 TEST_BINS += $(BUILD_DIR)/log/test/pack_test
-TEST_BINS += $(BUILD_DIR)/log/test/copy_test
 TEST_BINS += $(BUILD_DIR)/node/test/log_buckets_test
 endif
 
@@ -2048,16 +2047,6 @@ $(BUILD_DIR)/log/test/ring_test: $(BUILD_DIR)/log/test/ring_test.o \
 
 # Packing closed segments with libzstd, in a scratch directory. sec 459.
 $(BUILD_DIR)/log/test/pack_test: $(BUILD_DIR)/log/test/pack_test.o \
-                                 $(BUILD_DIR)/log/pack.o \
-                                 $(BUILD_DIR)/log/retain.o \
-                                 $(BUILD_DIR)/log/entry.o \
-                                 $(BUILD_DIR)/log/capture.o
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $^ -o $@ $(ZSTD_LIBS)
-
-# Copies of another host's packed log, verified. sec 483.
-$(BUILD_DIR)/log/test/copy_test: $(BUILD_DIR)/log/test/copy_test.o \
-                                 $(BUILD_DIR)/log/copy.o \
                                  $(BUILD_DIR)/log/pack.o \
                                  $(BUILD_DIR)/log/retain.o \
                                  $(BUILD_DIR)/log/entry.o \

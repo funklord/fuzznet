@@ -124,9 +124,6 @@
 #define FZND_LOG_RULES_MAX 16u
 #define FZND_SAY_MAX 1024u
 
-/* Programs `--log-copy` may name, sec 486. */
-#define FZND_COPY_PROGRAMS_MAX 8u
-
 static struct {
 	/* THE RULES, OF LOGS AND OF CONVERSATIONS ALIKE, sec 531: one set, read
 	 * whether or not this build writes log files. */
@@ -147,14 +144,6 @@ static struct {
 	fzn_logger_t logger;
 	fzn_ring_t ring;
 #ifdef FZN_LOG_PACK_ON
-	/* COPIES OF THE PULL PEERS' LOGS, sec 483: `--log-copy[=PROGRAM]`,
-	 * opt-in, given once a program, sec 486. None copies nothing. */
-	const char *copy_programs[FZND_COPY_PROGRAMS_MAX];
-	size_t n_copy_programs;
-	/* AND THIS NODE'S OWN, PUSHED, sec 488: `--log-push[=PROGRAM]`, to the
-	 * pull peers that take copies of it. */
-	const char *push_programs[FZND_COPY_PROGRAMS_MAX];
-	size_t n_push_programs;
 	/* What verifies a copy's signatures. */
 	const fzn_sign_ops_t *verify;
 	/* AND ITS SIGNER, sec 482: every trailer this node packs is signed
@@ -549,8 +538,10 @@ static void log_round(void)
 	/* THE COPIES' RULES, sec 483: each copy directory planned whole by the
 	 * rules naming `copy`, every copy a source host's bytes under its
 	 * signature -- and of those, by the ones naming no source or naming
-	 * the directory's, sec 487. */
-	if (dlog.n_copy_programs) {
+	 * the directory's, sec 487. EVERY PROGRAM A COPY DIRECTORY HOLDS, sec
+	 * 573: the bucket exchange brings a host's every program, where
+	 * `--log-copy` named the few it fetched. */
+	{
 		static fzn_retain_rule_t copy_rules[FZN_RETAIN_RULES_MAX];
 		static fzn_retain_rule_t source_rules[FZN_RETAIN_RULES_MAX];
 		char copies[FZN_LOGGER_PATH_MAX + 8u];
@@ -566,7 +557,8 @@ static void log_round(void)
 			while ((e = readdir(d)) != NULL) {
 				char sub[FZN_LOGGER_PATH_MAX + 80u];
 				uint8_t source[32];
-				size_t gone = 0, p, n_source;
+				static char held[FZND_LOG_PROGRAMS_MAX][FZN_ENTRY_WORD_MAX + 1u];
+				size_t gone = 0, p, n_source, n_held = 0;
 
 				if (strlen(e->d_name) != 64u
 				    || strspn(e->d_name, "0123456789abcdef") != 64u
@@ -576,16 +568,20 @@ static void log_round(void)
 					continue;
 				n_source = fzn_retain_select_source(copy_rules, n_copy, source,
 				                                    source_rules);
-				for (p = 0; p < dlog.n_copy_programs && n_source; p++) {
-					if (fzn_logger_retain(sub, dlog.copy_programs[p], source_rules,
-					                      n_source, log_now_us(), &gone)
+				if (!n_source
+				    || fzn_logger_programs(sub, held, FZND_LOG_PROGRAMS_MAX, &n_held)
+				               != FZN_LOGGER_OK)
+					continue;
+				for (p = 0; p < n_held; p++) {
+					if (fzn_logger_retain(sub, held[p], source_rules, n_source, log_now_us(),
+					                      &gone)
 					    != FZN_LOGGER_OK)
 						say(FZN_ENTRY_WARNING, "log/copy", "the copy rules could not all "
-						    "be applied to %s of %.8s", dlog.copy_programs[p], e->d_name);
+						    "be applied to %s of %.8s", held[p], e->d_name);
 					else if (gone)
 						say(FZN_ENTRY_INFO, "log/copy",
-						    "%zu copied segment(s) of %s of %.8s removed", gone,
-						    dlog.copy_programs[p], e->d_name);
+						    "%zu copied segment(s) of %s of %.8s removed", gone, held[p],
+						    e->d_name);
 				}
 			}
 			(void)closedir(d);
@@ -606,40 +602,7 @@ static size_t logs_remote(void *ctx, const uint8_t *sender, const uint8_t *reque
 	(void)ctx;
 	if (!request || request_len < 2u || request[0] != FZN_GATHER_VERSION)
 		return 0;
-#ifdef FZN_LOG_PACK_ON
-	/* COPIES PUSHED TO THIS NODE, sec 488: taken for the programs it keeps
-	 * copies of, whatever its own log's scope, since they are the sender's
-	 * log and the sender chose to send them. */
-	if (request[1] == FZN_LOG_COPY_PUSH_QUERY || request[1] == FZN_LOG_COPY_PUSH_PART) {
-		static const char NONE[] = "denied this host keeps no log copies\n";
-		fzn_log_copy_took_note_t note;
-		size_t n;
-
-		if (!dlog.on || !sender || !dlog.hash || !dlog.verify) {
-			if (reply_cap < sizeof(NONE) - 1u)
-				return 0;
-			memcpy(reply, NONE, sizeof(NONE) - 1u);
-			return sizeof(NONE) - 1u;
-		}
-		n = fzn_log_copy_take(dlog.logger.dir, sender, dlog.copy_programs, dlog.n_copy_programs,
-		                      dlog.hash, dlog.verify, request, request_len, reply, reply_cap,
-		                      &note);
-		if (note.kept)
-			say(FZN_ENTRY_INFO, "log/copy", "%s kept, pushed by %02x%02x%02x%02x", note.name,
-			    sender[0], sender[1], sender[2], sender[3]);
-		else if (note.refused)
-			say(FZN_ENTRY_WARNING, "log/copy", "%s refused, pushed by %02x%02x%02x%02x: %s",
-			    note.name, sender[0], sender[1], sender[2], sender[3],
-			    fzn_log_copy_err_str(FZN_LOG_COPY_ERR_VERIFY));
-		return n;
-	}
-#endif
-	if ((request[1] != FZN_GATHER_QUERY && request[1] != FZN_GATHER_RING_QUERY
-#ifdef FZN_LOG_PACK_ON
-	        && request[1] != FZN_LOG_COPY_SEGMENTS_QUERY
-	        && request[1] != FZN_LOG_COPY_PART_QUERY
-#endif
-	        ))
+	if (request[1] != FZN_GATHER_QUERY && request[1] != FZN_GATHER_RING_QUERY)
 		return 0;
 	if (!dlog.on || !dlog.estate_scope) {
 		if (reply_cap < sizeof(REFUSAL) - 1u)
@@ -656,17 +619,6 @@ static size_t logs_remote(void *ctx, const uint8_t *sender, const uint8_t *reque
 		                 sender ? sender[3] : 0u);
 		return fzn_gather_ring_answer(&dlog.ring, request, request_len, reply, reply_cap);
 	}
-#ifdef FZN_LOG_PACK_ON
-	/* A COPY BEING TAKEN, sec 483: the same gate as gathering, and each
-	 * part at debug, since a copy is many of them. */
-	if (request[1] == FZN_LOG_COPY_SEGMENTS_QUERY || request[1] == FZN_LOG_COPY_PART_QUERY) {
-		(void)say_caused(FZN_ENTRY_DEBUG, "log/copy", NULL, NULL, NULL,
-		                 "the log copied by %02x%02x%02x%02x", sender ? sender[0] : 0u,
-		                 sender ? sender[1] : 0u, sender ? sender[2] : 0u,
-		                 sender ? sender[3] : 0u);
-		return fzn_log_copy_answer(dlog.logger.dir, request, request_len, reply, reply_cap);
-	}
-#endif
 	(void)say_caused(FZN_ENTRY_INFO, "log/gather", NULL, NULL, NULL,
 	                 "the log gathered by %02x%02x%02x%02x", sender ? sender[0] : 0u,
 	                 sender ? sender[1] : 0u, sender ? sender[2] : 0u, sender ? sender[3] : 0u);
@@ -1033,103 +985,6 @@ static void admit_writers(const fzn_node_state_t *state, const fzn_node_roots_t 
 		memcpy(keys[n++], pulled_members[i], FZN_PUBKEY_LEN);
 	(void)fzn_node_notes_admit_members(&node_notes, (const uint8_t (*)[FZN_PUBKEY_LEN])keys, n);
 }
-
-#ifdef FZN_LOG_PACK_ON
-/* COPIES OF THE PULL PEERS' LOGS, sec 483: each peer's packed segments of
- * the program `--log-copy` names, verified against the chain and the
- * peer's own signature before they are kept. A peer that keeps its log
- * host-private answers in words and is said, as gathering says it. */
-/* `program` added to `list` once, a word a segment name can carry, at most
- * FZND_COPY_PROGRAMS_MAX; 0, said, otherwise. secs 486, 488. */
-static int add_program(const char **list, size_t *n, const char *program, const char *flag)
-{
-	size_t k;
-
-	if (!program[0] || strchr(program, '/') || strchr(program, '.')
-	    || strlen(program) > FZN_ENTRY_WORD_MAX) {
-		fprintf(stderr, "fuzznetd: %s: a program's name, with no / or .\n", flag);
-		return 0;
-	}
-	for (k = 0; k < *n; k++)
-		if (!strcmp(list[k], program))
-			return 1;
-	if (*n >= FZND_COPY_PROGRAMS_MAX) {
-		fprintf(stderr, "fuzznetd: %s: at most %u programs\n", flag, FZND_COPY_PROGRAMS_MAX);
-		return 0;
-	}
-	list[(*n)++] = program;
-	return 1;
-}
-
-/* THIS NODE'S LOG, PUSHED, sec 488: each program `--log-push` names, to
- * each pull peer, a bounded amount a round -- the rest on the next, from
- * where the peer says it is. A peer that takes no copies of it says so, at
- * debug, since most will not. */
-#define FZND_PUSH_BUDGET (4u * 1024u * 1024u)
-
-static void push_logs(struct pull_target *pulls, size_t npulls, uint64_t now)
-{
-	size_t t;
-
-	if (!dlog.on || !dlog.n_push_programs || !dlog.has_signer)
-		return;
-	for (t = 0; t < npulls * dlog.n_push_programs; t++) {
-		struct pull_target *peer = &pulls[t / dlog.n_push_programs];
-		const char *program = dlog.push_programs[t % dlog.n_push_programs];
-		struct peer_asking asking = { &peer->caller, now, peer->host };
-		fzn_log_copy_tally_t tally;
-		fzn_log_copy_err_t err;
-
-		err = fzn_log_copy_push(peer_ask, &asking, dlog.logger.dir, program, FZND_PUSH_BUDGET,
-		                        &tally);
-		if (err == FZN_LOG_COPY_ERR_DECLINED)
-			say(FZN_ENTRY_DEBUG, "log/push", "%s takes no copies of %s", peer->host, program);
-		else if (err == FZN_LOG_COPY_ERR_VERIFY)
-			say(FZN_ENTRY_WARNING, "log/push", "%s refused %s: %s", peer->host, tally.refused,
-			    fzn_log_copy_err_str(err));
-		else if (err != FZN_LOG_COPY_OK)
-			say(FZN_ENTRY_WARNING, "log/push", "pushing %s to %s: %s", program, peer->host,
-			    fzn_log_copy_err_str(err));
-		if (tally.copied)
-			say(FZN_ENTRY_INFO, "log/push", "%zu segment(s) of %s, %zu bytes, kept by %s",
-			    tally.copied, program, tally.bytes, peer->host);
-	}
-}
-
-static void copy_logs(struct pull_target *pulls, size_t npulls, uint64_t now)
-{
-	size_t t;
-
-	if (!dlog.on || !dlog.n_copy_programs)
-		return;
-	for (t = 0; t < npulls * dlog.n_copy_programs; t++) {
-		/* EACH PEER, EACH PROGRAM, sec 486: every program a chain of its
-		 * own in the peer's copy directory. */
-		struct pull_target *peer = &pulls[t / dlog.n_copy_programs];
-		const char *program = dlog.copy_programs[t % dlog.n_copy_programs];
-		struct peer_asking asking = { &peer->caller, now, peer->host };
-		char dir[FZN_LOGGER_PATH_MAX + 80u];
-		fzn_log_copy_tally_t tally;
-		fzn_log_copy_err_t err;
-
-		if (!fzn_log_copy_dir(dlog.logger.dir, peer->node, dir, sizeof(dir)))
-			continue;
-		if (!dlog.hash || !dlog.verify)
-			return;
-		err = fzn_log_copy_pull(peer_ask, &asking, program, peer->node, dir, dlog.hash,
-		                        dlog.verify, &tally);
-		if (err == FZN_LOG_COPY_ERR_VERIFY)
-			say(FZN_ENTRY_WARNING, "log/copy", "a copy of %s from %s refused at %s: %s", program,
-			    peer->host, tally.refused, fzn_log_copy_err_str(err));
-		else if (err != FZN_LOG_COPY_OK)
-			say(FZN_ENTRY_WARNING, "log/copy", "copying %s from %s: %s", program, peer->host,
-			    fzn_log_copy_err_str(err));
-		if (tally.copied)
-			say(FZN_ENTRY_INFO, "log/copy", "%zu segment(s) of %s, %zu bytes, copied from %s",
-			    tally.copied, program, tally.bytes, peer->host);
-	}
-}
-#endif
 
 #ifdef FZN_RECORD_STORE_FILE_ON
 /* THE JOURNAL, sec 501: every key's estate stream this node follows, in
@@ -2748,10 +2603,7 @@ static void usage(const char *prog)
 	        "the state as of that entry of generation N (the newest) into a fresh\n"
 	        "store at DIR, and exits\n"
 	        "--check-log[=PROGRAM] walks a packed log's chain and its signatures;\n"
-	        "--log-copy[=PROGRAM] keeps verified copies of the pull peers' packed logs,\n"
-	        "and takes the ones members push, once a program, up to 8;\n"
-	        "--log-push[=PROGRAM] pushes this node's to the pull peers that take them\n"
-	        "(host-private by default)\n"
+	        "a host's packed logs travel by the bucket exchange, as its rules hold them\n"
 	        "       %s --fuzznet-dir=DIR --gather=PROGRAM [--since=SECONDS] [--match=TEXT]\n"
 	        "              [--node=ROOT_HEX --to HOST PORT] [--root-at HOST PORT]\n"
 	        "              [--pull-from NODE_HEX HOST PORT]...  print hosts' log lines,\n"
@@ -3030,24 +2882,15 @@ int main(int argc, char **argv)
 				fprintf(stderr, "fuzznetd: --log-scope: host-private or estate\n");
 				return 2;
 			}
-		} else if (!strcmp(argv[i], "--log-copy") || !strncmp(argv[i], "--log-copy=", 11u)) {
-#ifdef FZN_LOG_PACK_ON
-			if (!add_program(dlog.copy_programs, &dlog.n_copy_programs,
-			                 argv[i][10] == '=' ? argv[i] + 11 : "fuzznetd", "--log-copy"))
-				return 2;
-#else
-			fprintf(stderr, "fuzznetd: --log-copy: built without packing (FZN_LOG_PACK)\n");
+		} else if (!strncmp(argv[i], "--log-copy", 10u) || !strncmp(argv[i], "--log-push", 10u)) {
+			/* RETIRED, sec 573, said rather than left to read as unknown: a
+			 * host's logs travel by the bucket exchange both ways, held as its
+			 * retention rules say and served to holders of retention. */
+			fprintf(stderr, "fuzznetd: %.10s is retired: logs travel by the bucket exchange "
+			                "both ways; to hold fewer copies, `--log-rule=policy log drop` and "
+			                "keep rules naming `copy`\n",
+			        argv[i]);
 			return 2;
-#endif
-		} else if (!strcmp(argv[i], "--log-push") || !strncmp(argv[i], "--log-push=", 11u)) {
-#ifdef FZN_LOG_PACK_ON
-			if (!add_program(dlog.push_programs, &dlog.n_push_programs,
-			                 argv[i][10] == '=' ? argv[i] + 11 : "fuzznetd", "--log-push"))
-				return 2;
-#else
-			fprintf(stderr, "fuzznetd: --log-push: built without packing (FZN_LOG_PACK)\n");
-			return 2;
-#endif
 		} else if (!strcmp(argv[i], "--check-log") || !strncmp(argv[i], "--check-log=", 12u)) {
 			check_log = argv[i][11] == '=' ? argv[i] + 12 : "fuzznetd";
 		} else if (!strncmp(argv[i], "--gather=", 9u)) {
@@ -4527,9 +4370,6 @@ int main(int argc, char **argv)
 				/* NOTES, then TEXTS, secs 432 and 424: a note's text is
 				 * fetched once the note naming it has arrived. */
 				pull_notes(pulls, npulls, now, &state, running, running_roots);
-#ifdef FZN_LOG_PACK_ON
-				copy_logs(pulls, npulls, now);
-#endif
 				pull_received(now);
 #ifdef FZN_SPOOL_FILE_ON
 				fetch_texts(pulls, npulls, now);
@@ -4540,10 +4380,6 @@ int main(int argc, char **argv)
 				 * pulls, so an estate rule pulled this round applies this
 				 * round rather than the next. */
 				log_round();
-#ifdef FZN_LOG_PACK_ON
-				/* AND WHAT IT PACKED, PUSHED, sec 488. */
-				push_logs(pulls, npulls, now);
-#endif
 				next_pull = wall_clock() + FZND_PULL_EVERY;
 			}
 #ifdef FZN_SPOOL_FILE_ON

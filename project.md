@@ -61452,6 +61452,7 @@ through the gate. Five sabotage entries, each probed caught.
    agrees with peers that hold it, and answers as not held; only a month
    dropped whole is gone. Built in sec 572.
 5. Retire the copy pull and push of secs 483 and 488, and `--log-copy`.
+   Built in sec 573: stage 4 is done.
 
 ## 569. Stage 4, step 1: push beside pull for the bucket exchange, 2026-10-09
 
@@ -61660,3 +61661,37 @@ neither let go; a segment away and back is let go and restored, its id
 naming its file again; and a copy removed at B is let go there and not
 taken again. `make livecheck` passes, phase g's grant run now on A's kept
 log directory. Five sabotage entries, each probed caught.
+
+## 573. Stage 4, step 5: the copies' own pull and push retired, 2026-10-09
+
+Sec 568's last step. The bucket exchange carries logs both ways (secs
+569-572), so the transport of secs 483 and 488 goes.
+
+- **Removed**: the four pull messages and four push messages (gather's
+  types 5 to 12, left reserved in `log/gather.situ`), the puller, the
+  pusher, the receiver and the host's answer in `log/copy.c`, fuzznetd's
+  `copy_logs`, `push_logs` and their branches of the log hook, and
+  `log/test/copy_test.c`, which tested only those. `log/copy` keeps where
+  a copy lives and what a segment's name says, which the logs kind uses.
+- **`--log-copy` and `--log-push` refuse**, saying what replaced them,
+  rather than reading as unknown. What they chose is the rules' now: with
+  none, a host holding retention collects every source it is served
+  (sec 568's "keep is keep"); `--log-rule=policy log drop` with keep rules
+  naming `copy` (and `source=`) narrows it.
+- **The copy rules reach every program a copy directory holds.** They
+  were applied only to the programs `--log-copy` named; copies now come
+  for every program a host packs.
+
+**A gate missed, found here.** `make installcheck` requires every
+installed header to be included by `tool/consumer_check.c`, and
+`node/buckets.h` (sec 565) and `node/log_buckets.h` (sec 571) were not:
+the gate was red from sec 565 on, through five commits, because this
+session ran test, style, schema and livecheck at each step and not
+installcheck. Both are included now, the logs kind's refusal of a missing
+store exercised, and installcheck passes every arrangement.
+
+Measured: `make test` 223 binaries (copy_test gone), log_buckets_test 36
+checks -- a packed segment's name read for its time, and six names that
+are none refused; `make installcheck`, style and livecheck pass, and
+`make schema` stops only at sec 565's runtime drift. Seven sabotage
+entries over the retired code removed; two added for the name's checks.

@@ -136,6 +136,7 @@
 #ifdef FZN_LOG_PACK_ON
 #include <fuzznet/log/copy.h>
 #include <fuzznet/log/pack.h>
+#include <fuzznet/node/log_buckets.h>
 #endif
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include <fuzznet/record/store_file.h>
@@ -148,6 +149,7 @@
 #include <fuzznet/node/apply.h>
 #include <fuzznet/node/settings.h>
 #include <fuzznet/node/holdings.h>
+#include <fuzznet/node/buckets.h>
 #include <fuzznet/node/reconcile.h>
 #ifdef FZN_CLI_ON
 #include <fuzznet/cli/cli.h>
@@ -306,6 +308,7 @@
 #ifdef FZN_LOG_PACK_ON
 #include "log/copy.h"
 #include "log/pack.h"
+#include "node/log_buckets.h"
 #endif
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include "record/store_file.h"
@@ -318,6 +321,7 @@
 #include "node/apply.h"
 #include "node/settings.h"
 #include "node/holdings.h"
+#include "node/buckets.h"
 #include "node/reconcile.h"
 #ifdef FZN_CLI_ON
 #include "cli/cli.h"
@@ -1159,13 +1163,17 @@ int main(void)
 			    != FZN_LOG_PACK_ERR_MALFORMED)
 				FAIL(473);
 		}
-		/* A copier asked for nothing refuses (sec 483). */
+		/* A packed segment's name is read for its closing time, and a name
+		 * that is none is 0 (secs 483, 573). */
+		if (fzn_log_copy_packed_time("fuzznetd.17.42.log.zst") != 17u
+		    || fzn_log_copy_packed_time("a/b.17.42.log.zst") != 0u)
+			FAIL(480);
+		/* The logs kind refuses a store it was not given (sec 571). */
 		{
-			fzn_log_copy_tally_t tally;
+			fzn_log_buckets_t lb;
 
-			if (fzn_log_copy_pull(NULL, NULL, "x", NULL, NULL, NULL, NULL, &tally)
-			    != FZN_LOG_COPY_ERR_MALFORMED)
-				FAIL(480);
+			if (fzn_log_buckets_init(&lb, NULL, "/tmp", NULL, NULL, NULL))
+				FAIL(571);
 		}
 #endif
 		/* A received share's host is one word (sec 437). */
