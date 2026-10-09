@@ -23,6 +23,9 @@
 #define I_ITEM (I_LEN + 2u)
 /* fzn_buckets_ref, sec 570: the same head, then the size and the ref. */
 #define REF_VERSION 2u
+/* fzn_buckets_let_go, sec 572: the head alone. */
+#define LET_GO_VERSION 3u
+#define L_LEN (I_INDEXED + 1u)
 #define R_SIZE (I_INDEXED + 1u)
 #define R_LEN (R_SIZE + 8u)
 #define R_REF (R_LEN + 2u)
@@ -161,8 +164,8 @@ int fzn_buckets_gone(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
 }
 
 /* THE ROW OF `id`, read into `out` (ROW_MAX): 1 an item held in it, 2 a
- * ref to one its kind keeps (sec 570), 0 none or not this kind's; its
- * length into `*len`. */
+ * ref to one its kind keeps (sec 570), 3 one let go (sec 572), 0 none or
+ * not this kind's; its length into `*len`. */
 static int row_load(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
                     const uint8_t id[FZN_BUCKETS_ID_LEN], uint8_t *out, size_t *len)
 {
@@ -178,6 +181,8 @@ static int row_load(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
 		n = ((size_t)out[I_LEN] << 8) | out[I_LEN + 1u];
 		return n >= 1u && n <= FZN_BUCKETS_ITEM_MAX && *len == I_ITEM + n ? 1 : 0;
 	}
+	if (out[0] == LET_GO_VERSION)
+		return *len == L_LEN ? 3 : 0;
 	if (out[0] == REF_VERSION && *len >= R_REF + 1u) {
 		n = ((size_t)out[R_LEN] << 8) | out[R_LEN + 1u];
 		return n >= 1u && n <= FZN_BUCKETS_REF_MAX && *len == R_REF + n
@@ -244,9 +249,29 @@ static fzn_buckets_err_t take(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
 	if (fzn_buckets_gone(b, kind, subject, month))
 		return FZN_BUCKETS_GONE;
 	/* TAKEN AND INDEXED ALREADY: nothing to do. Saved but not indexed --
-	 * a crash between the two -- is indexed now. */
-	if (row_load(b, kind, id, held_row, &held_len) && held_row[I_INDEXED] == 1u)
+	 * a crash between the two -- is indexed now. LET GO AND TAKEN AGAIN --
+	 * its kind found the same bytes again, a file back where it was -- is
+	 * restored where it stands, its id counted already (sec 572). Only a
+	 * kind's own keeping comes here for such an id: a let-go id is held, so
+	 * nothing fetches or is pushed it. */
+	switch (row_load(b, kind, id, held_row, &held_len)) {
+	case 3:
+		if (held_row[I_INDEXED] != 1u)
+			break;
+		row_bytes[I_INDEXED] = 1u;
+		if (!item_save(b, kind, id, row_bytes, row_len))
+			return FZN_BUCKETS_BACKEND;
+		if (added)
+			*added = 1;
 		return FZN_BUCKETS_OK;
+	case 1:
+	case 2:
+		if (held_row[I_INDEXED] == 1u)
+			return FZN_BUCKETS_OK;
+		break;
+	default:
+		break;
+	}
 	held = bucket_load(b, kind, subject, month, bucket);
 	if (held < 0)
 		return FZN_BUCKETS_BACKEND;
@@ -400,7 +425,9 @@ fzn_buckets_err_t fzn_buckets_item(const fzn_buckets_t *b, fzn_buckets_kind_t ki
 		return FZN_BUCKETS_MALFORMED;
 	*len = 0;
 	what = row_load(b, kind, id, bytes, &n);
-	if (!what || bytes[I_INDEXED] != 1u)
+	/* LET GO, it is served as not held: what a node holding none of it
+	 * would answer. */
+	if (!what || what == 3 || bytes[I_INDEXED] != 1u)
 		return FZN_BUCKETS_ABSENT;
 	if (subject)
 		memcpy(subject, bytes + B_SUBJECT, FZN_PUBKEY_LEN);
@@ -434,6 +461,25 @@ fzn_buckets_err_t fzn_buckets_ref(const fzn_buckets_t *b, fzn_buckets_kind_t kin
 	memcpy(ref, bytes + R_REF, *ref_len);
 	*size = fzn_get_be64(bytes + R_SIZE);
 	return FZN_BUCKETS_OK;
+}
+
+fzn_buckets_err_t fzn_buckets_let_go(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
+                                     const uint8_t id[FZN_BUCKETS_ID_LEN])
+{
+	static uint8_t bytes[ROW_MAX];
+	size_t n = 0;
+	int what;
+
+	if (!ready(b, kind) || !id)
+		return FZN_BUCKETS_MALFORMED;
+	what = row_load(b, kind, id, bytes, &n);
+	if (!what || bytes[I_INDEXED] != 1u)
+		return FZN_BUCKETS_ABSENT;
+	if (what == 3)
+		return FZN_BUCKETS_OK;
+	/* THE HEAD KEPT, the bytes or the ref gone: its id stays counted. */
+	bytes[0] = LET_GO_VERSION;
+	return item_save(b, kind, id, bytes, L_LEN) ? FZN_BUCKETS_OK : FZN_BUCKETS_BACKEND;
 }
 
 fzn_buckets_err_t fzn_buckets_bucket(const fzn_buckets_t *b, fzn_buckets_kind_t kind,

@@ -61450,7 +61450,7 @@ through the gate. Five sabotage entries, each probed caught.
 4. Removal by segment: a log's retention removes single segments, not
    months. A removed item keeps its id in its bucket, so the digest still
    agrees with peers that hold it, and answers as not held; only a month
-   dropped whole is gone.
+   dropped whole is gone. Built in sec 572.
 5. Retire the copy pull and push of secs 483 and 488, and `--log-copy`.
 
 ## 569. Stage 4, step 1: push beside pull for the bucket exchange, 2026-10-09
@@ -61618,3 +61618,45 @@ A's; A grants B retention -- B's key read off A's copy directory -- and B
 then takes A's. Against a fuzznetd serving every log bucket to anyone,
 phase g fails at "B holds copies ... without the retention capability".
 Four sabotage entries, each probed caught.
+
+## 572. Stage 4, step 4: one item let go, its id kept, 2026-10-09
+
+Sec 568's fourth step. A log's rules remove single segments, and a
+segment repacked under entry rules keeps its name and changes its bytes;
+sec 571 left both naming files that no longer hash to their ids.
+
+- **`fzn_buckets_let_go`** turns an item's row into a tombstone
+  (`fzn_buckets_let_go` in `node/buckets.situ`, version 3 in slot 44): its
+  bytes or its ref given up, its id left in its bucket. The count and the
+  digest do not move, so a peer that holds it still agrees and nothing is
+  asked of it; it is still held, so nothing fetches or is pushed it; and it
+  is served as not held. A month let go whole is still `fzn_buckets_drop`.
+- **Taken again by its own kind, it is restored** where it stands, its id
+  counted already. Only a kind's own keeping reaches a let-go id, since a
+  fetch or a push never asks for one that is held. This exists because of
+  what the live check found: a run of A with another `--log-dir` let go
+  every segment of A's own -- correctly, their files were gone -- and, once
+  the directory was back, the scan saw each at its known length and skipped
+  it, so A served none of its own log for good. The scan now reads a file
+  whose id was let go, and its bytes the same, the taking restores it.
+- **The logs kind's scan lets go** what is gone: a segment whose length
+  moved -- repacked under its name -- has its old id let go before the new
+  is taken, and a sweep over every logs bucket lets go each item whose file
+  is missing, this host's own or a copy the copy rules removed.
+
+Known: a peer lacking an item let go here sees the bucket differ, pages
+its ids, and asks for that item every round, answered not held. The cost
+is one listing and one empty answer per such item per round, until the
+peer holds the same set or lets it go too. A repack that leaves a
+segment's length exactly as it was is not seen by the scan.
+
+Measured: buckets_test 72 checks -- an item let go keeps its bucket's
+count and digest, is held and not served, a peer lacking both takes only
+the other, and taken again by its kind it is restored with the count
+unmoved. log_buckets_test 34 -- a segment removed from disk is let go and
+July still counts it; one repacked under its name has its old id let go
+and its new taken, September counting both; B then takes the two held and
+neither let go; a segment away and back is let go and restored, its id
+naming its file again; and a copy removed at B is let go there and not
+taken again. `make livecheck` passes, phase g's grant run now on A's kept
+log directory. Five sabotage entries, each probed caught.

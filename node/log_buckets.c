@@ -176,7 +176,54 @@ static uint8_t *item_of_file(const char *path, const char *name, size_t *len)
 	return item;
 }
 
-int fzn_log_buckets_scan(fzn_log_buckets_t *lb, size_t *taken)
+/* EVERY ITEM WHOSE FILE IS GONE, let go, sec 572: a segment this host's
+ * rules removed, or a copy the copy rules did. Its id stays in its bucket,
+ * served as not held. */
+static int sweep(fzn_log_buckets_t *lb, size_t *let_go)
+{
+	static fzn_bucket_t buckets[FZN_BUCKETS_MAX];
+	size_t n = 0, k;
+	int ok = 1;
+
+	if (fzn_buckets_list(lb->b, FZN_BUCKETS_LOGS, buckets, FZN_BUCKETS_MAX, &n)
+	    != FZN_BUCKETS_OK)
+		return 0;
+	for (k = 0; k < n; k++) {
+		uint8_t ids[64][FZN_BUCKETS_ID_LEN];
+		uint64_t at = 0, total = 0;
+		size_t got = 0, i;
+
+		do {
+			if (fzn_buckets_ids(lb->b, FZN_BUCKETS_LOGS, buckets[k].subject, buckets[k].month,
+			                    at, ids, 64u, &got, &total)
+			    != FZN_BUCKETS_OK)
+				return 0;
+			for (i = 0; i < got; i++) {
+				uint8_t ref[FZN_BUCKETS_REF_MAX];
+				char path[PATH_MAX_];
+				const char *name;
+				size_t ref_len = 0, name_len = 0;
+				uint64_t size = 0;
+				struct stat st;
+
+				if (fzn_buckets_ref(lb->b, FZN_BUCKETS_LOGS, ids[i], ref, &ref_len, &size)
+				            != FZN_BUCKETS_OK
+				    || !ref_path(lb, ref, ref_len, path, &name, &name_len))
+					continue;
+				if (stat(path, &st) == 0 || errno != ENOENT)
+					continue;
+				if (fzn_buckets_let_go(lb->b, FZN_BUCKETS_LOGS, ids[i]) != FZN_BUCKETS_OK)
+					ok = 0;
+				else if (let_go)
+					(*let_go)++;
+			}
+			at += got;
+		} while (got && at < total);
+	}
+	return ok;
+}
+
+int fzn_log_buckets_scan(fzn_log_buckets_t *lb, size_t *taken, size_t *let_go)
 {
 	struct dirent *e;
 	DIR *d;
@@ -184,6 +231,8 @@ int fzn_log_buckets_scan(fzn_log_buckets_t *lb, size_t *taken)
 
 	if (taken)
 		*taken = 0;
+	if (let_go)
+		*let_go = 0;
 	if (!lb || !lb->b)
 		return 0;
 	d = opendir(lb->dir);
@@ -202,12 +251,34 @@ int fzn_log_buckets_scan(fzn_log_buckets_t *lb, size_t *taken)
 		    || snprintf(path, sizeof(path), "%s/%s", lb->dir, e->d_name) >= (int)sizeof(path)
 		    || stat(path, &st) != 0)
 			continue;
-		/* KNOWN, AT THIS LENGTH: not read again. */
+		/* KNOWN, AT THIS LENGTH: not read again. KNOWN AT ANOTHER -- the
+		 * segment repacked under its name (sec 474) -- the old id is let go
+		 * before the new is taken, so its bucket never names a file that
+		 * no longer hashes to it. sec 572. */
 		if (fzn_buckets_by_ref(lb->b, FZN_BUCKETS_LOGS, (const uint8_t *)ref, strlen(ref), id,
 		                       &held)
-		            == FZN_BUCKETS_OK
-		    && held == 1u + name_len + (uint64_t)st.st_size)
-			continue;
+		    == FZN_BUCKETS_OK) {
+			uint8_t was[FZN_BUCKETS_REF_MAX];
+			size_t was_len = 0;
+			uint64_t was_size = 0;
+			fzn_buckets_err_t gone;
+
+			/* AT THIS LENGTH AND STILL HELD: nothing new. LET GO, its file
+			 * back -- a log directory moved away and back -- it is read
+			 * again and, its bytes the same, restored by the taking below. */
+			if (held == 1u + name_len + (uint64_t)st.st_size) {
+				if (fzn_buckets_ref(lb->b, FZN_BUCKETS_LOGS, id, was, &was_len, &was_size)
+				    == FZN_BUCKETS_OK)
+					continue;
+				goto read;
+			}
+			gone = fzn_buckets_let_go(lb->b, FZN_BUCKETS_LOGS, id);
+			if (gone != FZN_BUCKETS_OK && gone != FZN_BUCKETS_ABSENT)
+				ok = 0;
+			if (let_go)
+				(*let_go)++;
+		}
+	read:
 		item = item_of_file(path, e->d_name, &len);
 		if (!item)
 			continue;
@@ -222,7 +293,7 @@ int fzn_log_buckets_scan(fzn_log_buckets_t *lb, size_t *taken)
 			(*taken)++;
 	}
 	(void)closedir(d);
-	return ok;
+	return sweep(lb, let_go) && ok;
 }
 
 /* ---- keeping another's, or this host's own come back ------------------------ */

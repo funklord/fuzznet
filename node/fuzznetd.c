@@ -1718,9 +1718,9 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 #if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
 		/* THIS HOST'S SEGMENTS TAKEN, and the rules a fetch asks, sec 571. */
 		if (logs_up()) {
-			size_t taken = 0;
+			size_t taken = 0, let_go = 0;
 
-			if (!fzn_log_buckets_scan(&node_logs, &taken))
+			if (!fzn_log_buckets_scan(&node_logs, &taken, &let_go))
 				say(FZN_ENTRY_WARNING, "log/copy", "taking this host's segments as items "
 				                                   "failed part way");
 			node_logs.own_rules = logs_own;

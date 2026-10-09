@@ -393,7 +393,7 @@ static void test_a_scan_takes_its_own(void)
 
 	fresh();
 	CHECK(a_logs(), "fixture: A's three packed segments");
-	CHECK(fzn_log_buckets_scan(&lb_a, &taken) && taken == 3u,
+	CHECK(fzn_log_buckets_scan(&lb_a, &taken, NULL) && taken == 3u,
 	      "a scan did not take A's three segments");
 	{
 		char path[300];
@@ -410,7 +410,7 @@ static void test_a_scan_takes_its_own(void)
 	              && k[0].month == fzn_message_epoch_of(JULY_2026 / 1000u) && k[0].count == 2u
 	              && k[1].month == fzn_message_epoch_of(SEPTEMBER_2026 / 1000u),
 	      "A's segments are not A's, by the month each closed in");
-	CHECK(fzn_log_buckets_scan(&lb_a, &taken) && taken == 0u,
+	CHECK(fzn_log_buckets_scan(&lb_a, &taken, NULL) && taken == 0u,
 	      "a second scan took a segment again");
 }
 
@@ -423,7 +423,7 @@ static void test_pulled_and_kept_as_copies(void)
 	size_t taken;
 
 	fresh();
-	CHECK(a_logs() && fzn_log_buckets_scan(&lb_a, &taken), "fixture: A's log, scanned");
+	CHECK(a_logs() && fzn_log_buckets_scan(&lb_a, &taken, NULL), "fixture: A's log, scanned");
 	err = pull_b(&t);
 	if (err != FZN_RECONCILE_OK || t.applied != 3u)
 		fprintf(stderr, "    %s: %zu lacked, %zu applied, %zu refused, %zu passed\n",
@@ -454,7 +454,7 @@ static void test_signed_by_its_subject_only(void)
 	memset(prev, 0, sizeof(prev));
 	CHECK(make_packed(dir_a, JULY_2026, 20000u, prev, &SIGN_X, key_x)
 	              && make_packed(dir_a, JULY_2026 + 1000u, 300u, prev, NULL, NULL)
-	              && fzn_log_buckets_scan(&lb_a, &taken) && taken == 2u,
+	              && fzn_log_buckets_scan(&lb_a, &taken, NULL) && taken == 2u,
 	      "fixture: one of A's segments signed by X, one unsigned");
 	copy_dir_of(dir_b, key_a, copies, sizeof(copies));
 	CHECK(pull_b(&t) == FZN_RECONCILE_OK && t.refused == 2u && t.applied == 0u
@@ -470,7 +470,7 @@ static void test_wanted_by_the_rules(void)
 	size_t taken;
 
 	fresh();
-	CHECK(a_logs() && fzn_log_buckets_scan(&lb_a, &taken), "fixture: A's log, scanned");
+	CHECK(a_logs() && fzn_log_buckets_scan(&lb_a, &taken, NULL), "fixture: A's log, scanned");
 	if (fzn_retain_parse("policy log drop", 15u, &rules[0]) != FZN_RETAIN_OK
 	    || fzn_retain_parse("keep * copy age 40d", 19u, &rules[1]) != FZN_RETAIN_OK)
 		CHECK(0, "fixture: the rules");
@@ -495,7 +495,7 @@ static void test_pushed(void)
 	size_t taken;
 
 	fresh();
-	CHECK(a_logs() && fzn_log_buckets_scan(&lb_a, &taken), "fixture: A's log, scanned");
+	CHECK(a_logs() && fzn_log_buckets_scan(&lb_a, &taken, NULL), "fixture: A's log, scanned");
 	CHECK(fzn_reconcile_push(&A, FZN_BUCKETS_LOGS, NULL, &filer_a, NULL, to_b, NULL, reply,
 	                         sizeof(reply), &t)
 	                      == FZN_RECONCILE_OK
@@ -519,7 +519,7 @@ static void test_its_id_and_its_month(void)
 	uint64_t size = 0, total = 0;
 
 	fresh();
-	CHECK(a_logs() && fzn_log_buckets_scan(&lb_a, &taken), "fixture: A's log, scanned");
+	CHECK(a_logs() && fzn_log_buckets_scan(&lb_a, &taken, NULL), "fixture: A's log, scanned");
 	rename_in_flight = 1;
 	copy_dir_of(dir_b, key_a, copies, sizeof(copies));
 	CHECK(pull_b(&t) == FZN_RECONCILE_OK && t.refused == 3u && t.applied == 0u
@@ -552,6 +552,87 @@ static void test_its_id_and_its_month(void)
 	}
 }
 
+/* LET GO BY THE SCAN, sec 572: a segment of A's own removed from disk, a
+ * segment repacked under its name, and a copy B's rules removed. Each
+ * id stays counted; what is gone is served as not held and never taken
+ * back. */
+static void test_removed_and_repacked(void)
+{
+	char path[400], repacked[300], copies[300], spare[160];
+	fzn_reconcile_bucket_tally_t t;
+	fzn_bucket_t k[4];
+	uint8_t prev[32];
+	size_t taken = 0, let_go = 0, n = 0;
+
+	fresh();
+	CHECK(a_logs() && fzn_log_buckets_scan(&lb_a, &taken, NULL) && taken == 3u,
+	      "fixture: A's log, scanned");
+	/* THE SMALL JULY SEGMENT GONE, by A's own rules. */
+	snprintf(path, sizeof(path), "%s/netcfgd.%llu.42.log.zst", dir_a,
+	         (unsigned long long)(JULY_2026 + 1000u));
+	CHECK(remove(path) == 0 && fzn_log_buckets_scan(&lb_a, &taken, &let_go) && taken == 0u
+	              && let_go == 1u,
+	      "a segment removed from disk was not let go");
+	CHECK(fzn_buckets_list(&A, FZN_BUCKETS_LOGS, k, 4u, &n) == FZN_BUCKETS_OK && n == 2u
+	              && k[0].count == 2u,
+	      "the segment let go left July's count");
+	/* SEPTEMBER'S REPACKED: another segment of another length under its
+	 * name, made aside and moved over it. */
+	snprintf(spare, sizeof(spare), "%s/spare", top);
+	(void)mkdir(spare, 0700);
+	memset(prev, 0, sizeof(prev));
+	snprintf(path, sizeof(path), "%s/netcfgd.%llu.42.log.zst", dir_a,
+	         (unsigned long long)SEPTEMBER_2026);
+	snprintf(repacked, sizeof(repacked), "%s/netcfgd.%llu.42.log.zst", spare,
+	         (unsigned long long)SEPTEMBER_2026);
+	CHECK(make_packed(spare, SEPTEMBER_2026, 9000u, prev, &SIGN_A, key_a)
+	              && rename(repacked, path) == 0,
+	      "fixture: September's segment repacked under its name");
+	(void)rmdir(spare);
+	CHECK(fzn_log_buckets_scan(&lb_a, &taken, &let_go) && taken == 1u && let_go == 1u,
+	      "a repacked segment's old id was not let go, or its new not taken");
+	CHECK(fzn_buckets_list(&A, FZN_BUCKETS_LOGS, k, 4u, &n) == FZN_BUCKETS_OK && n == 2u
+	              && k[1].count == 2u,
+	      "September does not count its old id and its new");
+	/* B TAKES WHAT A HOLDS, and nothing let go. */
+	copy_dir_of(dir_b, key_a, copies, sizeof(copies));
+	CHECK(pull_b(&t) == FZN_RECONCILE_OK && t.lacked == 4u && t.applied == 2u
+	              && t.refused == 0u && count_in(copies, ".log.zst") == 2u,
+	      "B did not take A's two segments held, or took one let go");
+	/* A FILE AWAY AND BACK -- a log directory moved and moved back -- is
+	 * let go while it is away and restored when it returns. */
+	snprintf(path, sizeof(path), "%s/netcfgd.%llu.42.log.zst", dir_a,
+	         (unsigned long long)JULY_2026);
+	snprintf(repacked, sizeof(repacked), "%s/away", top);
+	CHECK(rename(path, repacked) == 0 && fzn_log_buckets_scan(&lb_a, &taken, &let_go)
+	              && let_go == 1u && rename(repacked, path) == 0
+	              && fzn_log_buckets_scan(&lb_a, &taken, &let_go) && taken == 1u && let_go == 0u,
+	      "a segment away and back was not let go, or not restored");
+	{
+		char ref[300];
+		uint8_t id[FZN_BUCKETS_ID_LEN], named[FZN_BUCKETS_REF_MAX];
+		size_t named_len = 0;
+		uint64_t held = 0, size = 0;
+
+		snprintf(ref, sizeof(ref), "o/netcfgd.%llu.42.log.zst", (unsigned long long)JULY_2026);
+		CHECK(fzn_buckets_by_ref(&A, FZN_BUCKETS_LOGS, (const uint8_t *)ref, strlen(ref), id,
+		                         &held)
+		                      == FZN_BUCKETS_OK
+		              && fzn_buckets_ref(&A, FZN_BUCKETS_LOGS, id, named, &named_len, &size)
+		                         == FZN_BUCKETS_OK
+		              && named_len == strlen(ref) && memcmp(named, ref, named_len) == 0,
+		      "the segment back does not name its file again");
+	}
+	/* A COPY B'S RULES REMOVED is let go at B, and not taken again. */
+	snprintf(path, sizeof(path), "%s/netcfgd.%llu.42.log.zst", copies,
+	         (unsigned long long)JULY_2026);
+	CHECK(remove(path) == 0 && fzn_log_buckets_scan(&lb_b, NULL, &let_go) && let_go == 1u,
+	      "a copy removed at B was not let go");
+	CHECK(pull_b(&t) == FZN_RECONCILE_OK && t.applied == 0u
+	              && count_in(copies, ".log.zst") == 1u,
+	      "a copy B let go was taken back");
+}
+
 int main(void)
 {
 	snprintf(top, sizeof(top), "/tmp/fzn-log-buckets-test-XXXXXX");
@@ -571,6 +652,7 @@ int main(void)
 	test_wanted_by_the_rules();
 	test_pushed();
 	test_its_id_and_its_month();
+	test_removed_and_repacked();
 
 	fresh();
 	fzn_log_buckets_close(&lb_a);

@@ -79,9 +79,11 @@ int fzn_log_buckets_init(fzn_log_buckets_t *lb, const fzn_buckets_t *b, const ch
 void fzn_log_buckets_close(fzn_log_buckets_t *lb);
 
 /* THIS HOST'S PACKED SEGMENTS, taken into its buckets: each new one, or
- * one whose length moved, read, hashed and taken. `*taken` how many; 0 when
- * the directory would not read or a store refused. */
-int fzn_log_buckets_scan(fzn_log_buckets_t *lb, size_t *taken);
+ * one whose length moved, read, hashed and taken -- the length moved, its
+ * old id let go first. Then every item whose file is gone, this host's own
+ * or a copy, let go (sec 572). `*taken` and `*let_go` (each may be NULL)
+ * how many; 0 when the directory would not read or a store refused. */
+int fzn_log_buckets_scan(fzn_log_buckets_t *lb, size_t *taken, size_t *let_go);
 
 /* The filer the reconcile exchange takes, reads and serves this kind
  * through. */

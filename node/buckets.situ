@@ -71,3 +71,15 @@ struct fzn_buckets_byref {
 	u8               id[32];
 	u64              size [max = 67108864];
 }
+
+// FZN_PERSIST_BUCKET_ITEM again, sec 572: an item this node let go -- a log
+// segment its rules removed, or one repacked under the same name. Its id
+// stays in its bucket, so the digest still agrees with a peer that holds
+// it and nothing fetches it back; it is served as not held.
+struct fzn_buckets_let_go {
+	u8               version [must_eq = 3];
+	fzn_buckets_kind kind;
+	u8               subject[32];
+	u32              month;
+	u8               indexed [max = 1];
+}

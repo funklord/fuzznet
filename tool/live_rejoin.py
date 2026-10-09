@@ -489,7 +489,8 @@ def main(argv):
 				             % b_held)
 			b_key = holders[0]
 			pushed_segments = seg.group(3)
-			a = daemon(run, "ag-grant", a_dir, a_sock, extra=["--udp-port=" + port])
+			a = daemon(run, "ag-grant", a_dir, a_sock, extra=["--udp-port=" + port] + small,
+			           log_dir=a_logs)
 			try:
 				reply = ask(a_sock, "grant retention " + b_key)
 				if not reply.startswith("ok h"):

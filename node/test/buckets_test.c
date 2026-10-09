@@ -1058,6 +1058,56 @@ static void test_large_items_pulled_and_pushed(void)
 	      "a receiver that would not stage kept the large item");
 }
 
+/* LET GO ONE ITEM, sec 572: its id stays counted and held, the digest
+ * unchanged; it is served as not held, never taken back, and a peer
+ * lacking it fetches nothing. */
+static void test_an_item_let_go(void)
+{
+	uint8_t s1[FZN_PUBKEY_LEN], item[64], id[FZN_BUCKETS_ID_LEN], out[FZN_BUCKETS_ITEM_MAX];
+	fzn_reconcile_bucket_tally_t t;
+	fzn_bucket_t before, after;
+	size_t len, got = 0;
+
+	fresh();
+	asked.lie = 0;
+	asked.gate = NULL;
+	wanted_months_below = 0;
+	memset(refused_subject, 0xff, sizeof(refused_subject));
+	subject_of(s1, 40);
+	CHECK(add_n(&A, s1, 800u, 1u, 30u) && add_n(&A, s1, 800u, 2u, 30u),
+	      "fixture: two items at A");
+	len = item_of(item, 1u, 30u);
+	fzn_buckets_id(&HASH, item, len, id);
+	CHECK(fzn_buckets_bucket(&A, FZN_BUCKETS_MESSAGES, s1, 800u, &before) == FZN_BUCKETS_OK
+	              && fzn_buckets_let_go(&A, FZN_BUCKETS_MESSAGES, id) == FZN_BUCKETS_OK
+	              && fzn_buckets_let_go(&A, FZN_BUCKETS_MESSAGES, id) == FZN_BUCKETS_OK
+	              && fzn_buckets_bucket(&A, FZN_BUCKETS_MESSAGES, s1, 800u, &after)
+	                         == FZN_BUCKETS_OK
+	              && after.count == 2u && memcmp(before.digest, after.digest, FZN_BUCKETS_ID_LEN) == 0,
+	      "an item let go moved its bucket's count or digest");
+	CHECK(fzn_buckets_has(&A, FZN_BUCKETS_MESSAGES, id)
+	              && fzn_buckets_item(&A, FZN_BUCKETS_MESSAGES, id, out, sizeof(out), &got, NULL,
+	                                  NULL)
+	                         == FZN_BUCKETS_ABSENT,
+	      "an item let go is not held, or is still served");
+	CHECK(round_b_from_a(&t, 0u) == FZN_RECONCILE_OK && t.lacked == 2u && t.applied == 1u
+	              && !fzn_buckets_has(&B, FZN_BUCKETS_MESSAGES, id),
+	      "a peer lacking both took the item let go, or not the other");
+	/* TAKEN AGAIN BY ITS KIND -- the same bytes found again -- it is
+	 * restored where it stands, its count unmoved. */
+	CHECK(fzn_buckets_add(&A, FZN_BUCKETS_MESSAGES, s1, 800u, item, len, NULL) == FZN_BUCKETS_OK
+	              && fzn_buckets_item(&A, FZN_BUCKETS_MESSAGES, id, out, sizeof(out), &got, NULL,
+	                                  NULL)
+	                         == FZN_BUCKETS_OK
+	              && fzn_buckets_bucket(&A, FZN_BUCKETS_MESSAGES, s1, 800u, &after)
+	                         == FZN_BUCKETS_OK
+	              && after.count == 2u
+	              && memcmp(before.digest, after.digest, FZN_BUCKETS_ID_LEN) == 0,
+	      "an item let go and taken again by its kind was not restored where it stood");
+	CHECK(fzn_buckets_let_go(&A, FZN_BUCKETS_MESSAGES, s1) == FZN_BUCKETS_ABSENT,
+	      "an item never held was let go");
+}
+
 int main(void)
 {
 	test_an_item_is_held_once();
@@ -1074,6 +1124,7 @@ int main(void)
 	test_a_push_brings_a_peer_up();
 	test_what_a_push_does_not_leave();
 	test_large_items_pulled_and_pushed();
+	test_an_item_let_go();
 	printf("buckets_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;
 }

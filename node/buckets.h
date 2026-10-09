@@ -129,6 +129,14 @@ fzn_buckets_err_t fzn_buckets_item(const fzn_buckets_t *b, fzn_buckets_kind_t ki
                                    size_t cap, size_t *len, uint8_t subject[FZN_PUBKEY_LEN],
                                    uint32_t *month);
 
+/* LET ONE ITEM GO, sec 572: its bytes, or the ref naming where its kind
+ * kept them, given up, its id left in its bucket -- so the digest still
+ * agrees with a peer holding it, and nothing fetches it back -- and served
+ * as not held from now on. A month let go whole is `fzn_buckets_drop`'s.
+ * ABSENT for an item not held; let go twice is OK. */
+fzn_buckets_err_t fzn_buckets_let_go(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
+                                     const uint8_t id[FZN_BUCKETS_ID_LEN]);
+
 /* THE BUCKET (kind, subject, month), its count 0 when nothing is held. */
 fzn_buckets_err_t fzn_buckets_bucket(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
                                      const uint8_t subject[FZN_PUBKEY_LEN], uint32_t month,
