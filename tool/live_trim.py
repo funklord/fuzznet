@@ -16,6 +16,15 @@ the real clock:
     f  no command-line rule                   -> the setting trims y's month
     g  again                                  -> both stay trimmed
 
+and then, over a second store written as phase a wrote the first, the
+default policy of sec 566:
+
+    p  `policy messages drop` and `keep messages contact=Y age 1000d`
+                                              -> x's month trimmed, y's reads
+    q  `policy messages drop` and `policy messages keep`
+                                              -> keep wins, y's reads
+    r  `policy messages drop` alone           -> y's month trimmed too
+
 b, c and e are the controls, and a control means nothing unless the trim
 ran: every phase waits for the daemon's own debug line saying a trim pass
 finished, and reads that pass's rule count, before it looks at the lines.
@@ -212,6 +221,29 @@ def set_the_rule(run, tag):
 		raise failed("%s: get setting answered %r" % (tag, reply))
 
 
+def write_old(run, tag):
+	"""A line in each of two conversations, written sixty-odd days back, so
+	the line's month ended more than a day ago whatever today is, and is
+	never the current month."""
+	then = datetime.datetime.now() - datetime.timedelta(days=62)
+	fake = "@" + then.strftime("%Y-%m-%d") + " 12:00:00"
+	d = daemon(run, tag, fake=fake)
+	try:
+		for contact in (CONTACT, OTHER_CONTACT):
+			reply = ask(run.sock, "add message %s out %s an old line" % (contact, LINE_ID))
+			if reply != "ok":
+				raise failed("%s: add message answered %r" % (tag, reply))
+		written, readable, text = row(run, tag)
+	finally:
+		d.stop()
+	# THE CLOCK HAS TO HAVE BEEN FAKED, or every phase after tests a line of
+	# the current month: the capability, not faketime's name.
+	if written > (time.time() - 31 * 86400) * 1000 or readable != 1:
+		raise failed("%s: the line was written at %d ms, readable %d: faketime did not take, "
+		             "so nothing after would be old enough" % (tag, written, readable))
+	print("livecheck: %s: a line in each of two conversations written under %s" % (tag, fake))
+
+
 def main(argv):
 	if len(argv) != 2:
 		print("usage: live_trim.py PATH_TO_FUZZNETD", file=sys.stderr)
@@ -232,26 +264,7 @@ def main(argv):
 		run.sock = os.path.join(sock_dir, "s")
 		os.mkdir(run.node)
 		try:
-			# a: sixty-odd days back, so the line's month ended more than a
-			# day ago whatever today is, and is never the current month.
-			then = datetime.datetime.now() - datetime.timedelta(days=62)
-			fake = "@" + then.strftime("%Y-%m-%d") + " 12:00:00"
-			d = daemon(run, "a", fake=fake)
-			try:
-				for contact in (CONTACT, OTHER_CONTACT):
-					reply = ask(run.sock,
-					            "add message %s out %s an old line" % (contact, LINE_ID))
-					if reply != "ok":
-						raise failed("a: add message answered %r" % reply)
-				written, readable, text = row(run, "a")
-			finally:
-				d.stop()
-			# THE CLOCK HAS TO HAVE BEEN FAKED, or every phase below tests a
-			# line of the current month: the capability, not faketime's name.
-			if written > (time.time() - 31 * 86400) * 1000 or readable != 1:
-				raise failed("a: the line was written at %d ms, readable %d: faketime did "
-				             "not take, so nothing below would be old enough" % (written, readable))
-			print("livecheck: a: a line in each of two conversations written under %s" % fake)
+			write_old(run, "a")
 			phase(run, "b", (0, 0, 0), (1, 1))
 			phase(run, "c", (0, 2, 0), (1, 1),
 			      ["--log-rule=prune messages host=%s age 1d" % OTHER_HOST,
@@ -261,6 +274,15 @@ def main(argv):
 			phase(run, "e", (0, 0, 0), (0, 1), then=set_the_rule)
 			phase(run, "f", (1, 1, 1), (0, 0))
 			phase(run, "g", (1, 1, 0), (0, 0))
+			run.node = os.path.join(scratch, "node2")
+			os.mkdir(run.node)
+			write_old(run, "o")
+			phase(run, "p", (2, 2, 1), (0, 1),
+			      ["--log-rule=policy messages drop",
+			       "--log-rule=keep messages contact=%s age 1000d" % OTHER_CONTACT])
+			phase(run, "q", (2, 2, 0), (0, 1),
+			      ["--log-rule=policy messages drop", "--log-rule=policy messages keep"])
+			phase(run, "r", (1, 1, 1), (0, 0), ["--log-rule=policy messages drop"])
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

@@ -22,6 +22,10 @@ older than the 60-day window when A next cuts:
     d  C, a device paired to A with a plain --accept and so of an estate of
        its own, pulls from A: its reconcile pass counts A as another
        estate's and fetches nothing (sec 556)
+    e  E joins A's estate under `policy messages drop`: its rules would not
+       hold the old month, so its reconcile pass passes it over rather than
+       fetching it, and no line lists (sec 566). Without the policy it
+       would file the line, as B did
 
 The waits are on the daemons' own lines -- A's cut pass, B's reconcile
 pass, B's "moved up" -- and each is checked before the settings are.
@@ -55,6 +59,8 @@ RECONCILE_RE = re.compile(r"reconcile pass: (\d+) peer\(s\), (\d+) of another es
 MOVED_RE = re.compile(r"(\d+) stream\(s\) moved up to 127\.0\.0\.1's base")
 WITNESS_RE = re.compile(r"an estate stream moved up to 127\.0\.0\.1's base, its bridge "
                         r"confirmed by (\d+) other peer\(s\) of (\d+) asked")
+LINES_RE = re.compile(r"reconcile pass: .*; lines (\d+) lacked, (\d+) filed, (\d+) month\(s\) "
+                      r"passed over")
 MISSING_RE = re.compile(r"claims no longer hold what this node lacks|would not move")
 
 
@@ -297,6 +303,37 @@ def main(argv):
 				a.stop()
 			print("livecheck: d: a device paired to A, not joined, passed A over and "
 			      "fetched nothing of its estate")
+
+			# e: a member whose rules would not hold the old month does not
+			# fetch it. sec 566.
+			e_dir = os.path.join(scratch, "e")
+			e_sock = os.path.join(sock_dir, "e")
+			os.mkdir(e_dir)
+			prekey = command(run, ["--fuzznet-dir=" + e_dir, "--prekey"], None)
+			card = command(run, ["--fuzznet-dir=" + a_dir, "--pair=" + prekey, "--delegable"],
+			               None)
+			command(run, ["--fuzznet-dir=" + e_dir, "--accept=" + card, "--join"], None)
+			a = daemon(run, "a4", a_dir, a_sock, extra=["--udp-port=" + port])
+			try:
+				e = daemon(run, "e1", e_dir, e_sock,
+				           extra=["--root-at", "127.0.0.1", port,
+				                  "--log-rule=policy messages drop"])
+				try:
+					lines = e.wait_for(LINES_RE, "reconcile pass")
+					if lines.group(2) != "0" or int(lines.group(3)) < 1:
+						raise failed("e: E filed %s line(s) and passed %s month(s) over; under "
+						             "its drop policy A's old month is not to be fetched"
+						             % (lines.group(2), lines.group(3)))
+					reply = ask(e_sock, "list message " + CONTACT)
+					if not reply.startswith("ok 0 0"):
+						raise failed("e: list message answered %r, a line E's rules would "
+						             "not hold" % reply)
+				finally:
+					e.stop()
+			finally:
+				a.stop()
+			print("livecheck: e: a member under a drop policy passed %s month(s) over and "
+			      "fetched no line" % lines.group(3))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

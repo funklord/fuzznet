@@ -843,6 +843,62 @@ static void test_trimming_by_size(void)
 	      "the newest ten bytes reach into September, which stays; August goes");
 }
 
+/* A DEFAULT POLICY, sec 566: under drop only a keep rule holds a month,
+ * and keep wins over drop. */
+static void test_trimming_under_a_policy(void)
+{
+	fzn_retain_rule_t r[2];
+
+	setup();
+	CHECK(write_in(&A, 678u, X, 1u, "july") && write_in(&A, 679u, X, 2u, "august")
+	              && write_in(&A, 680u, X, 3u, "september") && write_in(&A, 681u, X, 4u, "october")
+	              && write_in(&A, 678u, Y, 5u, "y in july"),
+	      "fixture: x from July to October, y in July");
+	r[0] = rule_of("policy messages drop");
+	r[1] = rule_of("policy messages keep");
+	CHECK(trim(&A, r, 2u) && trimmed.months == 0u,
+	      "a keep policy beside a drop one trims nothing: keep wins");
+	r[1] = rule_of("keep messages age 50d");
+	CHECK(trim(&A, r, 2u) && trimmed.months == 2u && readable(&A, X, 1u) == 0
+	              && readable(&A, Y, 5u) == 0 && readable(&A, X, 2u) == 1,
+	      "under drop, a keep of 50 days holds August on, and July goes from both");
+	CHECK(trim(&A, r, 1u) && trimmed.months == 2u && readable(&A, X, 3u) == 0
+	              && readable(&A, X, 4u) == 1,
+	      "under drop alone every month goes but the current one");
+}
+
+/* WHAT A RECONCILER ASKS BEFORE FETCHING A MONTH, sec 566: whether the
+ * trim would hold it, were it here. */
+static void test_a_month_wanted(void)
+{
+	fzn_retain_rule_t r[2];
+	int wanted = -1;
+
+	setup();
+	CHECK(write_in(&A, 678u, X, 1u, "july") && write_in(&A, 679u, X, 2u, "august")
+	              && write_in(&A, 680u, X, 3u, "september") && write_in(&A, 681u, X, 4u, "october"),
+	      "fixture: x from July to October");
+#define WANTED(rules, n, epoch)                                                                    \
+	(fzn_messages_wanted(&A.m, (rules), (n), OCTOBER_2026, X, (epoch), &wanted)                \
+	         == FZN_MESSAGES_OK                                                                \
+	 ? wanted                                                                                  \
+	 : -1)
+	CHECK(WANTED(NULL, 0u, 677u) == 1, "with no rule, June is wanted");
+	r[0] = rule_of("policy messages drop");
+	CHECK(WANTED(r, 1u, 677u) == 0 && WANTED(r, 1u, 681u) == 1,
+	      "under drop alone June is not, and the current month is");
+	r[1] = rule_of("keep messages age 50d");
+	CHECK(WANTED(r, 2u, 677u) == 0 && WANTED(r, 2u, 679u) == 1,
+	      "under drop with a keep of 50 days, August is and June is not");
+	r[0] = rule_of("prune messages count 4");
+	CHECK(WANTED(r, 1u, 677u) == 0 && WANTED(r, 1u, 679u) == 1,
+	      "past the newest four lines held, June is not wanted; August, with two newer, is");
+	r[0] = rule_of("prune messages age 60d");
+	CHECK(trim(&A, r, 1u) && trimmed.months == 1u && WANTED(NULL, 0u, 678u) == 0,
+	      "a month trimmed here is not wanted, whatever the rules");
+#undef WANTED
+}
+
 /* EVERY DEVICE'S KEY FOR THE MONTH goes, and a trimmed month's lines are not
  * reported to whoever would ask for or give their keys. */
 static void test_a_trim_reaches_every_device_key(void)
@@ -1150,6 +1206,8 @@ int main(void)
 	test_a_line_waits_for_its_key();
 	test_trimming_by_count_with_a_keep();
 	test_trimming_by_size();
+	test_trimming_under_a_policy();
+	test_a_month_wanted();
 	test_the_current_month_stays();
 	test_a_trim_reaches_every_device_key();
 	test_reindex_rebuilds_from_nothing();

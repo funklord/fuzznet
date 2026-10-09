@@ -490,6 +490,106 @@ static void test_message_rules(void)
 	}
 }
 
+/* A DEFAULT POLICY PER KIND, sec 566: everything and nothing, each one
+ * line; keep wins where two disagree; under drop only a keep rule holds. */
+static void test_policies(void)
+{
+	static const char *const BAD[] = {
+		"policy messages drop age 1d",  "policy log drop netcfgd",
+		"policy log copy drop",         "policy notes drop",
+		"policy messages maybe",        "policy messages",
+		"policy log keep level=D",
+		"policy messages drop contact=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	};
+	static const char H[] = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+	const uint64_t now = 100u * DAY;
+	const fzn_retain_segment_t s[3] = { { now - (10u * DAY), 100u },
+		                            { now - (5u * DAY), 100u },
+		                            { now - (1u * DAY), 100u } };
+	fzn_retain_rule_t r[4], out[4], x;
+	uint8_t host[32], machine[FZN_ENTRY_MACHINE_LEN], other[32];
+	char line[FZN_RETAIN_TEXT_MAX], t[FZN_RETAIN_TEXT_MAX];
+	size_t i, len = 0;
+	int all = 1;
+
+	memset(host, 0xbb, sizeof(host));
+	memset(other, 0xcc, sizeof(other));
+	memset(machine, 0x0b, sizeof(machine));
+	r[0] = rule("policy messages drop");
+	r[1] = rule("policy log keep");
+	CHECK(r[0].kind == FZN_RETAIN_POLICY && r[0].data == FZN_RETAIN_MESSAGES && r[0].drop
+	              && r[1].kind == FZN_RETAIN_POLICY && r[1].data == FZN_RETAIN_LOG
+	              && !r[1].drop,
+	      "a policy reads, its kind and its default");
+	snprintf(line, sizeof(line), "policy log drop host=%s", H);
+	r[2] = rule(line);
+	CHECK(r[2].kind == FZN_RETAIN_POLICY && r[2].has_host
+	              && fzn_retain_text(&r[2], t, sizeof(t), &len) == FZN_RETAIN_OK
+	              && strcmp(t, line) == 0 && fzn_retain_parse(t, len, &x) == FZN_RETAIN_OK
+	              && memcmp(&x, &r[2], sizeof(x)) == 0,
+	      "a scoped policy writes back as it was given, and parses to itself");
+	for (i = 0; i < sizeof(BAD) / sizeof(BAD[0]); i++)
+		all = all && fzn_retain_parse(BAD[i], strlen(BAD[i]), &x) == FZN_RETAIN_ERR_MALFORMED;
+	CHECK(all, "a policy with a limit, a program, a selector or a contact, of an unknown kind "
+	           "or with no default, is refused");
+	x = rule("prune * age 1d");
+	x.drop = 1;
+	CHECK(fzn_retain_text(&x, t, sizeof(t), &len) == FZN_RETAIN_ERR_MALFORMED,
+	      "a prune rule carrying a drop is not a rule");
+
+	/* KEEP WINS, and a policy of another kind is not this kind's. */
+	CHECK(fzn_retain_policy_drops(r, 1u, FZN_RETAIN_MESSAGES)
+	              && !fzn_retain_policy_drops(r, 1u, FZN_RETAIN_LOG)
+	              && !fzn_retain_policy_drops(r, 0u, FZN_RETAIN_MESSAGES),
+	      "a drop policy drops its own kind, not another, and none is keep");
+	r[3] = rule("policy messages keep");
+	CHECK(!fzn_retain_policy_drops(r, 4u, FZN_RETAIN_MESSAGES),
+	      "where a keep policy and a drop policy meet, keep wins");
+
+	/* THE LOG UNDER DROP: everything goes but what a keep rule covers. */
+	r[0] = rule("policy log drop");
+	CHECK(strcmp(plan(s, 3u, r, 1u, now), "111") == 0,
+	      "under a drop policy alone every closed segment goes");
+	r[1] = rule("keep * age 7d");
+	CHECK(strcmp(plan(s, 3u, r, 2u, now), "100") == 0,
+	      "and a keep rule holds what it covers");
+	r[2] = rule("policy log keep");
+	CHECK(strcmp(plan(s, 3u, r, 3u, now), "000") == 0,
+	      "a keep policy beside the drop holds everything, as no policy does");
+	{
+		fzn_retain_walk_t w;
+		uint8_t marks[3];
+
+		r[1] = rule("keep * level=E age 30d");
+		CHECK(fzn_retain_marks("netcfgd", s, 3u, r, 2u, now, marks) == FZN_RETAIN_OK
+		              && marks[0] == FZN_RETAIN_MARK_PRUNED
+		              && fzn_retain_walk_init(&w, "netcfgd", r, 2u, now) == FZN_RETAIN_OK
+		              && fzn_retain_walk_entry(&w, marks[0], now - DAY, FZN_ENTRY_DEBUG, "a",
+		                                       (const uint8_t *)"x", 1u, 10u)
+		              && !fzn_retain_walk_entry(&w, marks[0], now - DAY, FZN_ENTRY_ERROR, "a",
+		                                        (const uint8_t *)"x", 1u, 10u),
+		      "under drop, an entry goes unless an entry keep rule holds it");
+	}
+
+	/* ONE POLICY PER KIND reaches the log and its copies alike; scoped,
+	 * only where it is scoped to. */
+	r[0] = rule("policy log drop");
+	r[1] = rule("prune * copy age 30d");
+	snprintf(line, sizeof(line), "policy messages drop host=%s", H);
+	r[2] = rule(line);
+	r[3] = rule("policy messages keep");
+	CHECK(fzn_retain_select_here(r, 4u, host, machine, out) == 1u
+	              && out[0].kind == FZN_RETAIN_POLICY
+	              && fzn_retain_select_copies(r, 4u, host, machine, out) == 2u
+	              && fzn_retain_select_source(out, 2u, other, out) == 2u,
+	      "a log policy is not reaching the log and every source's copies");
+	CHECK(fzn_retain_select_messages(r, 4u, host, machine, out) == 1u
+	              && !out[0].drop
+	              && fzn_retain_select_messages(r, 4u, other, machine, out) == 2u
+	              && !fzn_retain_policy_drops(out, 2u, FZN_RETAIN_MESSAGES),
+	      "a policy scoped to another host reaches only it, and keep still wins there");
+}
+
 int main(void)
 {
 	test_lines();
@@ -501,6 +601,7 @@ int main(void)
 	test_copy_rules();
 	test_source();
 	test_message_rules();
+	test_policies();
 	if (failures) {
 		fprintf(stderr, "retain_test: %d of %d checks failed\n", failures, checks);
 		return 1;

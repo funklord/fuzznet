@@ -1541,6 +1541,14 @@ static fzn_node_apply_outcome_t notes_file(void *ctx, const uint8_t *record, siz
 
 static int messages_upgrade(void);
 
+/* WHAT A CONVERSATIONS ROUND IS ASKED BY: the store, and the message
+ * rules and policies that reach this node, gathered once a pass. */
+static struct line_rules {
+	fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX];
+	size_t n;
+	uint64_t now_ms;
+} line_rules;
+
 /* A LINE RECONCILED, sec 564: filed by the messages store, waiting when
  * its key is not here yet. */
 static fzn_node_apply_outcome_t line_file(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN],
@@ -1548,8 +1556,8 @@ static fzn_node_apply_outcome_t line_file(void *ctx, const uint8_t contact[FZN_P
 {
 	int waiting = 0;
 
-	switch (fzn_node_messages_file((fzn_node_messages_t *)ctx, contact, epoch, item, len,
-	                               &waiting)) {
+	(void)ctx;
+	switch (fzn_node_messages_file(&node_messages, contact, epoch, item, len, &waiting)) {
 	case FZN_MESSAGES_OK:
 		return waiting ? FZN_NODE_APPLY_WAITING : FZN_NODE_APPLY_APPLIED;
 	case FZN_MESSAGES_ERR_BACKEND:
@@ -1557,6 +1565,21 @@ static fzn_node_apply_outcome_t line_file(void *ctx, const uint8_t contact[FZN_P
 	default:
 		return FZN_NODE_APPLY_REFUSED;
 	}
+}
+
+/* A MONTH THIS NODE WOULD HOLD, by its rules, sec 566: one it would trim
+ * is not fetched. A store that cannot answer fetches, as before rules were
+ * asked: a month fetched and trimmed costs a fetch. */
+static int line_wanted(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch)
+{
+	const struct line_rules *lr = (const struct line_rules *)ctx;
+	int wanted = 1;
+
+	return fzn_messages_wanted(&node_messages.m, lr->rules, lr->n, lr->now_ms, contact, epoch,
+	                           &wanted)
+	                       == FZN_MESSAGES_OK
+	               ? wanted
+	               : 1;
 }
 
 /* WHETHER A PULL PEER IS OF THIS NODE'S ESTATE, sec 556: `--root-at` is its
@@ -1595,6 +1618,14 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 
 	if (!node_apply.store || !node_apply.journal || !node_apply.root)
 		return;
+	if (messages_on) {
+		static fzn_retain_rule_t gathered[FZN_RETAIN_RULES_MAX];
+		size_t n = gather_rules(gathered);
+
+		line_rules.n = fzn_retain_select_messages(gathered, n, dlog.has_host ? dlog.host : NULL,
+		                                          here_machine(), line_rules.rules);
+		line_rules.now_ms = wall_ms();
+	}
 	for (t = 0; t < npulls; t++) {
 		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
 		fzn_reconcile_tally_t tally;
@@ -1624,7 +1655,7 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 		 * the journal's window is handed the lines it missed. After the
 		 * classes, so a member's chain is here before its lines. */
 		if (messages_on && messages_upgrade()) {
-			fzn_reconcile_filer_t lines = { line_file, NULL, &node_messages };
+			fzn_reconcile_filer_t lines = { line_file, line_wanted, &line_rules };
 			fzn_reconcile_bucket_tally_t bt;
 
 			err = fzn_reconcile_buckets(&node_messages.buckets, FZN_BUCKETS_MESSAGES, &lines,

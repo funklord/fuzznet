@@ -128,8 +128,9 @@ typedef struct fzn_reconcile_notes {
  * month), judged and filed by its kind's own path -- a message line by its
  * writer's signature and the messages store (`fzn_node_messages_file`) --
  * answered as an object applied would be. WANTED (may be NULL) says
- * whether this node holds a bucket at all, its retention rules asked;
- * a bucket it does not want is neither listed nor fetched. */
+ * whether this node would hold a bucket, its retention rules asked (sec
+ * 566); asked only of a bucket that differs from the peer's, and one not
+ * wanted is neither listed nor fetched. */
 typedef struct fzn_reconcile_filer {
 	fzn_node_apply_outcome_t (*file)(void *ctx, const uint8_t subject[FZN_PUBKEY_LEN],
 	                                 uint32_t month, const uint8_t *item, size_t len);

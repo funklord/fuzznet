@@ -734,9 +734,7 @@ fzn_reconcile_err_t fzn_reconcile_buckets(const fzn_buckets_t *b, fzn_buckets_ki
 
 			if (page[i].count == 0u)
 				continue;
-			if (fzn_buckets_gone(b, kind, page[i].subject, page[i].month)
-			    || (filer->wanted
-			        && !filer->wanted(filer->ctx, page[i].subject, page[i].month))) {
+			if (fzn_buckets_gone(b, kind, page[i].subject, page[i].month)) {
 				tally->passed++;
 				continue;
 			}
@@ -746,6 +744,13 @@ fzn_reconcile_err_t fzn_reconcile_buckets(const fzn_buckets_t *b, fzn_buckets_ki
 			if (mine.count == page[i].count
 			    && memcmp(mine.digest, page[i].digest, FZN_BUCKETS_ID_LEN) == 0)
 				continue;
+			/* THE RULES ARE ASKED ONLY OF A BUCKET THAT DIFFERS: asking costs
+			 * the kind a walk of what it holds, and one that agrees needs
+			 * nothing fetched either way. sec 566. */
+			if (filer->wanted && !filer->wanted(filer->ctx, page[i].subject, page[i].month)) {
+				tally->passed++;
+				continue;
+			}
 			tally->buckets++;
 			err = take_bucket(b, kind, filer, page[i].subject, page[i].month, ask, ask_ctx,
 			                  reply, reply_cap, tally);

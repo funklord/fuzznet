@@ -312,4 +312,17 @@ fzn_messages_err_t fzn_messages_trim(const fzn_messages_t *m, const fzn_retain_r
                                      size_t n_rules, uint64_t now_ms,
                                      fzn_messages_trim_tally_t *tally);
 
+/* WHETHER THIS DEVICE WOULD HOLD `contact`'S MONTH `epoch` were it here,
+ * by `rules` (message rules and policies already selected for where they
+ * reach), sec 566: what a reconciler asks before fetching a month it
+ * lacks. Not a month let go here; always the current month; otherwise
+ * kept when the month's newest line would be, counted against the lines
+ * held of later months -- an estimate that errs toward fetching, since a
+ * month fetched and then trimmed costs a fetch, and one refused that the
+ * trim would keep is lost. */
+fzn_messages_err_t fzn_messages_wanted(const fzn_messages_t *m, const fzn_retain_rule_t *rules,
+                                       size_t n_rules, uint64_t now_ms,
+                                       const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch,
+                                       int *wanted);
+
 #endif /* FZN_MESSAGES_H */

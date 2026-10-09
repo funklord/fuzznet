@@ -90,6 +90,19 @@
  * age units s, m, h, d (bare is seconds); size units K, M, G (bare is
  * bytes, powers of 1024); count takes no unit.
  *
+ * A DEFAULT POLICY PER KIND, sec 566 -- the holder's "simple to write
+ * rules to store everything and nothing":
+ *     policy log|messages keep|drop [host=NODEHEX] [machine=MACHINEHEX]
+ * Under `keep`, the default, what is above holds: an item goes when a
+ * prune rule marks it and no keep rule protects it. Under `drop`, an item
+ * is held only where a keep rule covers it, so `policy messages drop`
+ * alone holds no conversation but the current month, and `policy log
+ * drop` with `keep log * age 7d` holds a week of every log. One policy per
+ * kind: a log policy reaches this node's own log and its copies alike,
+ * whose data being a rule's selector (`copy`, `source=`). Scoped as a rule
+ * is. WHERE TWO DISAGREE, KEEP WINS, as a keep rule wins over a prune:
+ * the set semantics of sec 460 the holder kept over first-match chains.
+ *
  * The plan is pure -- no clock, no files -- and the logger's backend does
  * the removing (`fzn_logger_retain`).
  */
@@ -111,7 +124,9 @@ const char *fzn_retain_err_str(fzn_retain_err_t err);
 
 typedef enum fzn_retain_kind {
 	FZN_RETAIN_PRUNE = 1,
-	FZN_RETAIN_KEEP = 2
+	FZN_RETAIN_KEEP = 2,
+	/* A kind's default, sec 566: no program, selector or limit. */
+	FZN_RETAIN_POLICY = 3
 } fzn_retain_kind_t;
 
 typedef enum fzn_retain_limit {
@@ -160,7 +175,14 @@ typedef struct fzn_retain_rule {
 	uint8_t machine[FZN_ENTRY_MACHINE_LEN];
 	fzn_retain_limit_t limit;
 	uint64_t value;
+	/* A POLICY's: 1 drop, 0 keep. */
+	int drop;
 } fzn_retain_rule_t;
+
+/* WHETHER `data`'S DEFAULT IS DROP among `rules` (already selected for
+ * where they reach): some policy of that kind says drop and none says
+ * keep. */
+int fzn_retain_policy_drops(const fzn_retain_rule_t *rules, size_t n, fzn_retain_data_t data);
 
 /* Whether `rule` applies to the logs of the node `host` on the machine
  * `machine`: its scope names neither, or names them. sec 480. */
@@ -173,7 +195,8 @@ size_t fzn_retain_select_here(const fzn_retain_rule_t *in, size_t n, const uint8
                               const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
                               fzn_retain_rule_t *out);
 
-/* The COPY rules of `in` that reach this node, sec 483. */
+/* The COPY rules of `in` that reach this node, sec 483, and the log
+ * policies that do, which reach copies too (sec 566). */
 size_t fzn_retain_select_copies(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],
                                 const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
                                 fzn_retain_rule_t *out);

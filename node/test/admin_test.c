@@ -1329,6 +1329,17 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && detail_len == 1u && detail[0] == '0',
 		      "the rule was not removed by a third spelling of it");
+		/* A POLICY, sec 566, kept, listed and removed as a rule is. */
+		CHECK(ask(&admin, &owner, "add retention policy messages drop", reply, sizeof(reply),
+		          &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && ask(&admin, &owner, "list retention", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && says(detail, detail_len, "1 policy%20messages%20drop")
+		              && ask(&admin, &owner, "remove retention policy messages drop", reply,
+		                     sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK,
+		      "a policy was not kept, listed and removed as a rule is");
 		state.hash = was;
 	}
 

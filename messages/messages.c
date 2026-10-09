@@ -1759,12 +1759,16 @@ fzn_messages_err_t fzn_messages_trim(const fzn_messages_t *m, const fzn_retain_r
 	uint32_t current;
 	uint64_t now_us, n_conv, c;
 	size_t r;
+	int drops;
 
 	if (!ready(m) || (!rules && n_rules) || n_rules > FZN_RETAIN_RULES_MAX || !tally)
 		return FZN_MESSAGES_ERR_MALFORMED;
 	memset(tally, 0, sizeof(*tally));
 	if (!n_rules)
 		return FZN_MESSAGES_OK;
+	/* UNDER A DROP POLICY a month stays only where a keep rule covers a
+	 * line of it, sec 566. */
+	drops = fzn_retain_policy_drops(rules, n_rules, FZN_RETAIN_MESSAGES);
 	now_us = now_ms * 1000u;
 	current = fzn_message_epoch_of(now_ms);
 	n_conv = load_number(m, "convs", NOBODY);
@@ -1777,12 +1781,13 @@ fzn_messages_err_t fzn_messages_trim(const fzn_messages_t *m, const fzn_retain_r
 			return FZN_MESSAGES_ERR_BACKEND;
 		for (r = 0; r < n_rules; r++) {
 			applies[r] = rules[r].data == FZN_RETAIN_MESSAGES
+			             && rules[r].kind != FZN_RETAIN_POLICY
 			             && (!rules[r].has_contact
 			                 || memcmp(rules[r].contact, contact, FZN_PUBKEY_LEN) == 0);
 			any |= applies[r];
 			counted[r] = bytes[r] = 0u;
 		}
-		if (!any)
+		if (!any && !drops)
 			continue;
 		/* NEWEST FIRST: a line goes when a prune rule marks it and no keep
 		 * rule protects it, and a MONTH goes when every line of it goes.
@@ -1815,7 +1820,7 @@ fzn_messages_err_t fzn_messages_trim(const fzn_messages_t *m, const fzn_retain_r
 				months[n_months].stays = 0;
 				n_months++;
 			}
-			if (!pruned || kept)
+			if (kept || (!pruned && !drops))
 				months[k].stays = 1;
 		}
 		/* THE CURRENT MONTH IS NEVER TRIMMED, as a log's open file is never
@@ -1836,5 +1841,72 @@ fzn_messages_err_t fzn_messages_trim(const fzn_messages_t *m, const fzn_retain_r
 		}
 		tally->conversations += (size_t)trimmed;
 	}
+	return FZN_MESSAGES_OK;
+}
+
+fzn_messages_err_t fzn_messages_wanted(const fzn_messages_t *m, const fzn_retain_rule_t *rules,
+                                       size_t n_rules, uint64_t now_ms,
+                                       const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch,
+                                       int *wanted)
+{
+	uint64_t counted[FZN_RETAIN_RULES_MAX], bytes[FZN_RETAIN_RULES_MAX], i;
+	int applies[FZN_RETAIN_RULES_MAX], any = 0, pruned = 0, kept = 0, drops;
+	entry_t month;
+	size_t r;
+
+	if (!ready(m) || !contact || !wanted || (!rules && n_rules)
+	    || n_rules > FZN_RETAIN_RULES_MAX)
+		return FZN_MESSAGES_ERR_MALFORMED;
+	*wanted = 0;
+	if (is_gone(m, contact, epoch))
+		return FZN_MESSAGES_OK;
+	*wanted = 1;
+	drops = fzn_retain_policy_drops(rules, n_rules, FZN_RETAIN_MESSAGES);
+	/* THE CURRENT MONTH IS NEVER TRIMMED, so it is always wanted. */
+	if (epoch >= fzn_message_epoch_of(now_ms))
+		return FZN_MESSAGES_OK;
+	for (r = 0; r < n_rules; r++) {
+		applies[r] = rules[r].data == FZN_RETAIN_MESSAGES && rules[r].kind != FZN_RETAIN_POLICY
+		             && (!rules[r].has_contact
+		                 || memcmp(rules[r].contact, contact, FZN_PUBKEY_LEN) == 0);
+		any |= applies[r];
+		counted[r] = bytes[r] = 0u;
+	}
+	if (!any && !drops)
+		return FZN_MESSAGES_OK;
+	/* WHAT IS NEWER, as the trim would have counted it before the month's
+	 * newest line: the lines held of later months. Lines of the month
+	 * itself that are newer than its newest are none, and lines of later
+	 * months not held here yet are not counted, so this errs toward
+	 * fetching -- never refusing a month the trim would keep. */
+	for (i = count_of(m, contact); i > 0u; i--) {
+		entry_t e;
+
+		if (!index_entry(m, contact, i - 1u, &e))
+			return FZN_MESSAGES_ERR_BACKEND;
+		if (e.epoch <= epoch)
+			continue;
+		for (r = 0; r < n_rules; r++)
+			if (applies[r]) {
+				counted[r]++;
+				bytes[r] += e.size;
+			}
+	}
+	/* THE MONTH'S NEWEST LINE, at the month's end: it stays when any line
+	 * of the month would, and so does the month. */
+	memset(&month, 0, sizeof(month));
+	month.epoch = epoch;
+	for (r = 0; r < n_rules; r++) {
+		int within;
+
+		if (!applies[r])
+			continue;
+		within = trim_within(&rules[r], &month, counted[r], bytes[r], now_ms * 1000u);
+		if (rules[r].kind == FZN_RETAIN_PRUNE && !within)
+			pruned = 1;
+		if (rules[r].kind == FZN_RETAIN_KEEP && within)
+			kept = 1;
+	}
+	*wanted = kept || (!pruned && !drops);
 	return FZN_MESSAGES_OK;
 }

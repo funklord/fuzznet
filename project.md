@@ -61251,7 +61251,7 @@ it over.
    the messages store's own path. Built in sec 565.
 2. A default policy per kind in the rule grammar, and the rules asked
    before a bucket is fetched: stage 1 passes over only a month already
-   let go.
+   let go. Built in sec 566.
 3. The retention capability, and serving gated on it.
 4. Logs on the layer. Segments become items, the copy pull and push of secs
    483 and 488 retire, and `--log-copy` becomes a rule.
@@ -61317,3 +61317,51 @@ re-anchored on code this change moved; all seventeen probed caught.
 Not done: `make schema` stops at `wire/generated/situ.h` drifted from
 situ's runtime, which moved after the vendored copy of 2026-09-21. Both
 specs here check current; the re-vendoring is its own change.
+
+## 566. Stage 2: a default policy per kind, and the rules asked before a fetch, 2026-10-09
+
+Sec 564's second stage.
+
+- **`policy log|messages keep|drop [host=] [machine=]`** is a rule line
+  (`FZN_RETAIN_POLICY`), kept, listed, removed and set as a `retention/`
+  setting as any rule is. Under `keep`, the default, nothing changes.
+  Under `drop`, an item is held only where a keep rule covers it, so
+  "store nothing" is one line, and "store everything" is the absence of
+  one or a `keep` policy. Where two policies disagree, keep wins, as a keep
+  rule wins over a prune: the holder kept sec 460's set semantics over
+  first-match chains. A log policy reaches this node's own log and every
+  source's copies (one chain per kind, the holder's choice); a scope
+  narrows it as it narrows a rule.
+- **The log under drop**: every closed segment is marked as a prune
+  would mark it, so the plan and the entry walk need no other change. A
+  segment keep rule holds whole segments, an entry keep rule holds its
+  entries.
+- **Messages under drop**: a month stays only where a keep rule covers a
+  line of it. The current month stays whatever the rules, as before.
+- **`fzn_messages_wanted`** answers whether this device would hold a
+  conversation's month were it here. Not a month gone here; always the
+  current month; otherwise the month's newest line is judged, at the
+  month's end, against the lines held of later months. It errs toward
+  fetching: lines of later months not held yet are not counted, so a month
+  the trim would keep is never refused, and one fetched and then trimmed
+  costs a fetch.
+- **The round asks it** only of a bucket whose digest differs from the
+  peer's, after the gone check: asking walks the conversation's index.
+  fuzznetd gathers the message rules and policies that reach this node
+  once a pass.
+
+Measured: retain_test 74 checks -- parse, text and parse back; refusals of
+a policy with a limit, program, selector or contact; keep wins; the log
+under drop alone, with a segment keep, with a keep policy beside, and an
+entry keep under drop; the copies and sources a log policy reaches; a
+scoped policy. messages_test 159 -- the trim under a drop with a keep of
+50 days, drop alone, and keep beside drop; wanted for a month not held
+under no rule, drop alone, drop with a keep, a count, and a trimmed
+month. admin_test 218 -- a policy through the retention verbs.
+`tool/live_trim.py` adds three phases over a second store: drop with a
+keep for y trims x's month and not y's, keep beside drop trims nothing,
+drop alone trims y's too. `tool/live_rejoin.py` adds phase e: a member
+joining under `policy messages drop` passes A's old month over and
+files no line; against a fuzznetd that wants every month, it files one
+and the phase fails. Eleven sabotage entries, and two older ones
+re-anchored on code this change moved; all thirteen probed caught.
