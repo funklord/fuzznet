@@ -16,6 +16,9 @@ older than the 60-day window when A next cuts:
        more; the note lists, its wrap key given by the wraps exchange
     c  B restarts: its journal follows from the new bases, the pull misses
        nothing, and the settings and the note read
+    d  C, a device paired to A with a plain --accept and so of an estate of
+       its own, pulls from A: its reconcile pass counts A as another
+       estate's and fetches nothing (sec 556)
 
 The waits are on the daemons' own lines -- A's cut pass, B's reconcile
 pass, B's "moved up" -- and each is checked before the settings are.
@@ -44,8 +47,8 @@ from live_trim import ask, failed, left, stop_process  # noqa: E402
 
 CAPABILITY = ["--fuzznet-service=1", "--fuzznet-product=1"]
 CUT_RE = re.compile(r"cut pass: a window of (\d+) day\(s\), (\d+) record\(s\) cut")
-RECONCILE_RE = re.compile(r"reconcile pass: (\d+) peer\(s\), (\d+) lacked, (\d+) applied, "
-                          r"(\d+) waiting, (\d+) refused")
+RECONCILE_RE = re.compile(r"reconcile pass: (\d+) peer\(s\), (\d+) of another estate passed "
+                          r"over, (\d+) lacked, (\d+) applied, (\d+) waiting, (\d+) refused")
 MOVED_RE = re.compile(r"(\d+) stream\(s\) moved up to 127\.0\.0\.1's base")
 MISSING_RE = re.compile(r"claims no longer hold what this node lacks|would not move")
 
@@ -203,9 +206,10 @@ def main(argv):
 				try:
 					moved = b.wait_for(MOVED_RE, "move up to A's base")
 					rec = b.wait_for(RECONCILE_RE, "reconcile pass")
-					if int(rec.group(3)) < 1 or int(rec.group(5)) != 0:
-						raise failed("b: B's reconcile pass applied %s and refused %s; x/away "
-						             "is in no journal" % (rec.group(3), rec.group(5)))
+					if int(rec.group(2)) != 0 or int(rec.group(4)) < 1 or int(rec.group(6)) != 0:
+						raise failed("b: B's reconcile pass passed %s peer(s) over, applied %s "
+						             "and refused %s; x/away is in no journal"
+						             % (rec.group(2), rec.group(4), rec.group(6)))
 					for key in ("x/old", "x/away", "x/now"):
 						expect(b_sock, "b", "get setting estate " + key, "ok root 1")
 					if moved.group(1) != "2":
@@ -216,7 +220,7 @@ def main(argv):
 					b.stop()
 				print("livecheck: b: A cut %s record(s); B moved %s stream(s) up to A's base "
 				      "and reconciled %s object(s); x/old, x/away and x/now read"
-				      % (cut.group(2), moved.group(1), rec.group(3)))
+				      % (cut.group(2), moved.group(1), rec.group(4)))
 
 				# c: B restarts, from the new base, missing nothing.
 				b = daemon(run, "b3", b_dir, b_sock, extra=["--root-at", "127.0.0.1", port])
@@ -233,6 +237,31 @@ def main(argv):
 				a.stop()
 			print("livecheck: c: B restarted from the new base, missing nothing, "
 			      "the three settings read")
+
+			# d: a device paired to A, not joined, is of an estate of its
+			# own: it pulls from A and reconciles nothing with it. sec 556.
+			c_dir = os.path.join(scratch, "c")
+			c_sock = os.path.join(sock_dir, "c")
+			os.mkdir(c_dir)
+			prekey = command(run, ["--fuzznet-dir=" + c_dir, "--prekey"], None)
+			card = command(run, ["--fuzznet-dir=" + a_dir, "--pair=" + prekey], None)
+			a_node = command(run, ["--fuzznet-dir=" + c_dir, "--accept=" + card], None)
+			a = daemon(run, "a3", a_dir, a_sock, extra=["--udp-port=" + port])
+			try:
+				c = daemon(run, "c1", c_dir, c_sock,
+				           extra=["--pull-from", a_node, "127.0.0.1", port])
+				try:
+					rec = c.wait_for(RECONCILE_RE, "reconcile pass")
+					if rec.group(1) != "1" or rec.group(2) != "1" or rec.group(3) != "0":
+						raise failed("d: the paired device's reconcile pass said %s peer(s), "
+						             "%s of another estate, %s lacked; A is of another estate"
+						             % (rec.group(1), rec.group(2), rec.group(3)))
+				finally:
+					c.stop()
+			finally:
+				a.stop()
+			print("livecheck: d: a device paired to A, not joined, passed A over and "
+			      "fetched nothing of its estate")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

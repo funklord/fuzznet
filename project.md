@@ -60895,12 +60895,9 @@ rewritten here. Two stores over loopback, both with
 
 So nothing blocks the live check: it is written with a joined member.
 
-One observation from the first setup stands, and is open rather than
-fixed. A node pulling from a peer of another estate reconciles with it
-like any peer, so that estate's objects are fetched every round and wait
-for ever. It costs bandwidth, not correctness. Limiting reconciliation
-to peers of this node's estate needs the daemon to know a pull peer's
-estate, which it does not today.
+One observation from the first setup stood: a node pulling from a peer
+of another estate reconciled with it like any peer, fetching that
+estate's objects every round to wait for ever. Settled in sec 556.
 
 ## 554. Stage 5, step 5: a member away past the window rejoins, live, 2026-10-09
 
@@ -60930,9 +60927,9 @@ proved nothing about the setting.
 
 Stage 5 is built: holdings (550), reconciliation every round (551),
 streams moved up to a peer's base (552), and this. Still open: note
-claims (slot 17) are not reconciled; the subjects in a spine bridge are
-the peer's word; and a pull peer of another estate is reconciled with
-every round to no effect (sec 553).
+claims (slot 17) are not reconciled (since done, sec 555); the subjects
+in a spine bridge are the peer's word; and a pull peer of another estate
+is reconciled with every round to no effect (since settled, sec 556).
 
 ## 555. Note claims reconciled, 2026-10-09
 
@@ -60988,3 +60985,29 @@ until a wrapper given a recycled pid met a stale name. `stop_process` in
 child and lets the wrapper exit and clean up. Measured: HEAD's
 `live_cut.py` leaves two files a run, the fixed `make livecheck` none. The
 110 were removed by name, each only once its pid was checked gone.
+
+## 556. Reconciliation only with peers of this node's estate, 2026-10-09
+
+Sec 553's open observation. A device paired to a node with a plain
+`--accept` is of an estate of its own. It pulls from that node with
+`--pull-from`, and reconciliation fetched the node's estate objects every
+round -- six in the live run -- for nothing at the device to rank.
+
+fuzznetd now decides each round, from what it holds, whether a pull peer
+is of its estate (`peer_in_estate`):
+
+- a `--root-at` target is this estate's root by construction;
+- a `--pull-from` target is of it when the chain this node was paired
+  under starts at this estate's root or a member of its root set.
+
+A peer of another estate is passed over, and the pass line counts it. A
+pairing with no chain cannot be judged and is still reconciled with: to
+pass over a peer of this estate would lose state, while to include one
+of another costs a round's bytes. Nothing is taken on the peer's word,
+and the wire is unchanged.
+
+Measured: `tool/live_rejoin.py` gains phase d. A device C, paired to A
+and not joined, pulls from A, and its reconcile pass counts one peer of
+another estate and lacks nothing. Against a daemon whose check always
+answers "this estate", phase d fails at "0 of another estate, 6 lacked".
+B, joined and pulling with `--root-at`, passes nobody over.

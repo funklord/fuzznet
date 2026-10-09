@@ -1539,6 +1539,30 @@ static fzn_node_apply_outcome_t notes_file(void *ctx, const uint8_t *record, siz
 	}
 }
 
+/* WHETHER A PULL PEER IS OF THIS NODE'S ESTATE, sec 556: `--root-at` is its
+ * root by construction; a `--pull-from` peer is when the chain this node was
+ * paired under starts at this estate's root or a member of its root set. A
+ * plain `--accept` pairs a device to a node of ANOTHER estate, whose objects
+ * no judgment here ranks, so reconciling with it fetched them every round to
+ * wait for ever. Decided from what this node holds, not from what the peer
+ * says. A pairing with no chain cannot be judged and is reconciled with, as
+ * before: passing over a peer of this estate would lose state, including
+ * one of another only costs a round's bytes. */
+static int peer_in_estate(const struct pull_target *pt)
+{
+	fzn_chain_hop_t hop;
+	const uint8_t *grantor;
+
+	if (pt->is_root_at || pt->pairing.hop_count == 0u)
+		return 1;
+	if (fzn_hop_open(pt->pairing.chain[0], FZN_HOP_LEN, &hop) != FZN_CHAIN_OK)
+		return 0;
+	grantor = fzn_hop_grantor(hop);
+	return fzn_ct_memeq(grantor, node_apply.root, FZN_PUBKEY_LEN)
+	       || (node_apply.roots && node_apply.roots->ops.member
+	           && node_apply.roots->ops.member(node_apply.roots->ops.ctx, grantor));
+}
+
 /* ONE ROUND OF RECONCILIATION against every pull peer, sec 551: what the
  * journal did not bring -- cut before this node saw it -- fetched from what
  * the peer holds, every round, so a gap one peer leaves another fills. */
@@ -1546,13 +1570,18 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 {
 	static uint8_t reply[FZND_PULL_REPLY_MAX];
 	fzn_reconcile_notes_t notes = { notes_file, &node_notes };
-	size_t t, lacked = 0, applied = 0, waiting = 0, refused = 0;
+	size_t t, lacked = 0, applied = 0, waiting = 0, refused = 0, foreign = 0;
 
-	if (!node_apply.store || !node_apply.journal)
+	if (!node_apply.store || !node_apply.journal || !node_apply.root)
 		return;
 	for (t = 0; t < npulls; t++) {
 		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
 		fzn_reconcile_tally_t tally;
+
+		if (!peer_in_estate(&pulls[t])) {
+			foreign++;
+			continue;
+		}
 		fzn_reconcile_err_t err = fzn_reconcile_round(&node_apply, notes_on ? &notes : NULL,
 		                                              peer_ask, &asking, reply, sizeof(reply),
 		                                              &tally);
@@ -1573,8 +1602,9 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 	}
 	/* EVERY PASS THAT RAN SAYS SO, at debug, as the trim's and the cut's do. */
 	say(FZN_ENTRY_DEBUG, "reconcile",
-	    "reconcile pass: %zu peer(s), %zu lacked, %zu applied, %zu waiting, %zu refused",
-	    npulls, lacked, applied, waiting, refused);
+	    "reconcile pass: %zu peer(s), %zu of another estate passed over, %zu lacked, "
+	    "%zu applied, %zu waiting, %zu refused",
+	    npulls, foreign, lacked, applied, waiting, refused);
 }
 
 /* STREAMS THIS NODE IS BEHIND A PEER'S BASE ON, sec 552: the peer cut what
