@@ -1268,7 +1268,7 @@ static int journal_logged(void *ctx, const uint8_t pubkey[FZN_PUBKEY_LEN],
 	(void)kind;
 	(void)act;
 	return fzn_node_journal_append_object((fzn_node_journal_t *)ctx, pubkey, sign, record, len,
-	                                      wall_clock(), NULL)
+	                                      wall_ms(), NULL)
 	       == FZN_NODE_JOURNAL_OK;
 }
 
@@ -1829,8 +1829,8 @@ static void messages_round(struct pull_target *pulls, size_t npulls, uint64_t no
  * conversations stream cut below the first record younger than the window
  * -- `journal/window` days, 60 unset -- and no further than its own reader
  * has got: apply, the notes index, the messages store. Each keeps what it
- * read, so the journal holds only what is in transit and recent. The
- * estate stream's clock is seconds and the other two milliseconds. */
+ * read, so the journal holds only what is in transit and recent. Every
+ * stream is compared in milliseconds (sec 561). */
 static void journal_cut(uint64_t now)
 {
 	static uint64_t next_cut;
@@ -1854,7 +1854,7 @@ static void journal_cut(uint64_t now)
 
 		if (e->stream == FZN_NODE_JOURNAL_STREAM) {
 			below = fzn_node_journal_cut_point(&node_journal, e->issuer, e->stream,
-			                                   e->applied, cut_before);
+			                                   e->applied, cut_before * 1000u);
 		} else if (e->stream == FZN_NOTE_STREAM && notes_on) {
 			uint64_t indexed = 0;
 

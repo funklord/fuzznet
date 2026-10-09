@@ -542,6 +542,19 @@ static void test_settings_judged(void)
 	              == FZN_NODE_SETTINGS_OK
 	              && in_force(&ns, FZN_SCOPE_ESTATE, 0x91, "k", "v", FZN_SETTING_RANK_ROOT),
 	      "the root's own write is not in force at once");
+	/* STAMPED IN MILLISECONDS, sec 561: the record the write appended
+	 * carries the settings clock -- seconds -- times a thousand. */
+	{
+		static uint8_t buf[FZN_RECORD_MAX_LEN];
+		fzn_record_t rec;
+
+		CHECK(fzn_record_store_get(&nj.store, r, FZN_NODE_JOURNAL_STREAM,
+		                           fzn_node_journal_received(&nj, r, FZN_NODE_JOURNAL_STREAM),
+		                           buf, sizeof(buf), &rec) == FZN_RECORD_STORE_OK
+		              && fzn_record_kind(rec) == (uint32_t)FZN_OBJECT_SETTING
+		              && fzn_record_issued_at(rec) == clock_now() * 1000u,
+		      "a setting's record was not stamped in milliseconds");
+	}
 	memcpy(me.pubkey, m, FZN_PUBKEY_LEN);
 	signing_as = 0x92;
 	before = fzn_node_journal_received(&nj, m, FZN_NODE_JOURNAL_STREAM);

@@ -128,7 +128,8 @@ uint64_t fzn_node_journal_received(const fzn_node_journal_t *nj,
 /* WRITE ONE: the next record of `issuer`'s estate stream, signed by `sign`
  * (which holds `issuer`'s secret), naming the stream's head, admitted and
  * stored. The stream is followed first if it was not. Its id lands in `id`
- * (may be NULL). */
+ * (may be NULL). `now`, here and for every writer below, is milliseconds
+ * since the epoch, as `fzn_record_issued_at` says. sec 561. */
 fzn_node_journal_err_t fzn_node_journal_append(fzn_node_journal_t *nj,
                                                const uint8_t issuer[FZN_PUBKEY_LEN],
                                                const fzn_sign_ops_t *sign, uint32_t kind,
@@ -266,13 +267,14 @@ fzn_node_journal_err_t fzn_node_journal_rebase(fzn_node_journal_t *nj,
                                                size_t n_entries);
 
 /* WHERE A CUT OF `key`'S `stream` COULD END, sec 548: the first sequence from
- * the base that is past `limit`, not held, or issued at or after `older_than`
- * -- in the stream's own clock, which is not one unit across streams (sec
- * 548). Records [base, the answer) are each held and older. The base itself
- * when none is. `limit` is how far the stream's reader has got: nothing it
- * has not taken in is cut. */
+ * the base that is past `limit`, not held, or issued at or after
+ * `older_than_ms` -- milliseconds, compared with `fzn_record_issued_ms`, so a
+ * record stamped in seconds before sec 561 is judged by the same clock.
+ * Records [base, the answer) are each held and older. The base itself when
+ * none is. `limit` is how far the stream's reader has got: nothing it has
+ * not taken in is cut. */
 uint64_t fzn_node_journal_cut_point(fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN],
-                                    uint32_t stream, uint64_t limit, uint64_t older_than);
+                                    uint32_t stream, uint64_t limit, uint64_t older_than_ms);
 
 /* CUT `key`'S `stream` BELOW `below`, sec 548: the estate stream's records
  * kept in the spine first, the base moved up to `below`, then the records

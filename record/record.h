@@ -434,10 +434,31 @@ static inline const uint8_t *fzn_record_prev(fzn_record_t r)
 /* THE ISSUER'S CLOCK, AND NOT TRUSTED FOR ORDERING. Clocks disagree;
  * sequences do not. It is here because a consumer displaying a rule wants to
  * say when, and because an expiry policy needs something to compare. Ordering
- * decisions use `fzn_record_seq`. */
+ * decisions use `fzn_record_seq`.
+ *
+ * MILLISECONDS SINCE THE EPOCH, on every stream, since sec 561. Before that
+ * the estate stream was stamped in seconds while notes, conversations and
+ * the operation journal were stamped in milliseconds, and nothing here said
+ * which; such records are on disk and on the wire, and are signed, so they
+ * are read as they are -- by `fzn_record_issued_ms`, which tells the two
+ * apart. This returns the field as written. */
 static inline uint64_t fzn_record_issued_at(fzn_record_t r)
 {
 	return fzn_get_be64(r.base + FZN_RECORD_OFF_ISSUED_AT);
+}
+
+/* Below this the field can only be seconds: as milliseconds it is 1973, and
+ * as seconds it is the year 5138. sec 561. */
+#define FZN_RECORD_SECONDS_BELOW 100000000000ull
+
+/* THE ISSUER'S CLOCK IN MILLISECONDS, whichever unit the record was stamped
+ * in: a record from before sec 561's estate stream, stamped in seconds, is
+ * scaled up. What a reader compares a time against. */
+static inline uint64_t fzn_record_issued_ms(fzn_record_t r)
+{
+	uint64_t at = fzn_record_issued_at(r);
+
+	return at < FZN_RECORD_SECONDS_BELOW ? at * 1000u : at;
 }
 
 /* HOW MANY BODY BYTES. At most FZN_RECORD_BODY_MAX, and `fzn_record_open` has

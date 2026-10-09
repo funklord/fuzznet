@@ -272,8 +272,10 @@ fzn_node_settings_err_t fzn_node_settings_write(const fzn_node_settings_t *ns,
 	                      set, value, value_len, bytes, &len)
 	    != FZN_SETTING_OK)
 		return FZN_NODE_SETTINGS_MALFORMED;
+	/* THE RECORD IN MILLISECONDS, as every record is since sec 561; the
+	 * clock here is seconds, as the version and the learning time are. */
 	if (fzn_node_journal_append_object(ns->journal, ns->id->pubkey, ns->id->sign, bytes, len,
-	                                   ns->now(), NULL)
+	                                   ns->now() * 1000u, NULL)
 	    != FZN_NODE_JOURNAL_OK)
 		return FZN_NODE_SETTINGS_JOURNAL;
 	return fzn_node_settings_learn(ns, bytes, len, rank);

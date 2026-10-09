@@ -541,7 +541,7 @@ fzn_node_journal_err_t fzn_node_journal_rebase(fzn_node_journal_t *nj,
 }
 
 uint64_t fzn_node_journal_cut_point(fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN],
-                                    uint32_t stream, uint64_t limit, uint64_t older_than)
+                                    uint32_t stream, uint64_t limit, uint64_t older_than_ms)
 {
 	static uint8_t buf[FZN_RECORD_MAX_LEN];
 	uint8_t below[FZN_RECORD_ID_LEN];
@@ -558,7 +558,7 @@ uint64_t fzn_node_journal_cut_point(fzn_node_journal_t *nj, const uint8_t key[FZ
 
 		if (fzn_record_store_get(&nj->store, key, stream, seq, buf, sizeof(buf), &rec)
 		            != FZN_RECORD_STORE_OK
-		    || fzn_record_issued_at(rec) >= older_than)
+		    || fzn_record_issued_ms(rec) >= older_than_ms)
 			break;
 	}
 	return seq;

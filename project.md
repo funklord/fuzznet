@@ -60668,8 +60668,8 @@ Sec 544's last step: the journal keeps a window and lets the rest go.
 Found on the way: a record's `issued_at` is in seconds on the estate
 stream (settings and root acts stamp `wall_clock`) and in milliseconds on
 the notes, conversations and op-journal streams. The record header does
-not say which. The cut takes each stream's clock in its own unit; making
-it one unit is a wire question left open.
+not say which. The cut took each stream's clock in its own unit; one
+unit, milliseconds, was settled in sec 561.
 
 Measured: store_file_test 154 checks -- a range cut reads absent, the
 record above it holds, and the file gives blocks back. node_journal_test
@@ -61111,3 +61111,32 @@ journal. With its stream's base moved past the first record, the
 reindex answers WINDOW, and both lines are still listed. One sabotage
 entry, probed caught. Not exercised: the daemon's new order, which only
 an old-layout store away past the window would show.
+
+## 561. Record timestamps are milliseconds on every stream, 2026-10-09
+
+The inconsistency sec 548 found. A record's `issued_at` was stamped in
+seconds on the estate stream (settings, and root acts through
+`journal_logged`) and in milliseconds on the notes, conversations and
+operation-journal streams. `record/record.h` did not say which, and the
+cut had to take each stream's clock in its own unit.
+
+- **Milliseconds since the epoch, everywhere**, stated where the field
+  is read (`fzn_record_issued_at`) and where it is written
+  (`fzn_node_journal_append`). The settings write stamps its clock --
+  still seconds, as the version floor and the learning time are -- times
+  a thousand, and `journal_logged` stamps `wall_ms`.
+- **Records already stamped in seconds are signed and stay as they
+  are.** `fzn_record_issued_ms` reads either: below 10^11 the field can
+  only be seconds -- as milliseconds that is 1973, as seconds the year
+  5138 -- and is scaled up. The cut point compares every stream through
+  it, so fuzznetd passes one edge in milliseconds for all three streams.
+- **The record layout is unchanged.** A peer still on the old code reads
+  a new estate record's milliseconds as seconds far in the future and
+  never cuts it early. Old and new peers can mix safely.
+
+Measured: node_journal_test 70 checks. Five acts ten seconds apart, the
+first two stamped in seconds, compare on one clock. A window's edge
+between the first two's real times stops the cut at the second, where a
+raw reading would have passed it. apply_test 59: a setting's record
+carries the settings clock times a thousand. Two sabotage entries, each
+probed caught.

@@ -529,12 +529,18 @@ static void test_a_stream_read_from_its_base(void)
 	fzn_node_journal_close(&b);
 }
 
-/* THE CUT, sec 548. Writer Z signs five acts at 10 to 50. The cut point
- * stops at the first record as young as the window's edge and at what the
- * reader has taken; a cut below the fourth keeps the three in the spine,
+/* THE CUT, sec 548. Writer Z signs five acts ten seconds apart -- the first
+ * two stamped in seconds, as the estate stream was before sec 561, the rest
+ * in milliseconds. The cut point compares them on one clock: it stops at the
+ * first record as young as the window's edge, in milliseconds, and at what
+ * the reader has taken; a cut below the fourth keeps the three in the spine,
  * moves the base and lets them go; the acts behind it still stand, and a
  * journal opened afresh follows from the base. A cut at or under the base
  * cuts nothing; one past what is held, or with nowhere to keep, is refused. */
+/* An instant in each unit: seconds, and the same instant in milliseconds. */
+#define T_SECONDS 1700000000ull
+#define T_MS (T_SECONDS * 1000u)
+
 static void test_the_cut(void)
 {
 	static fzn_node_journal_t a, b;
@@ -553,15 +559,21 @@ static void test_the_cut(void)
 		uint8_t body = 1u;
 
 		memset(acts[i], (int)(0x81u + i), sizeof(acts[i]));
+		uint64_t at = i < 2u ? T_SECONDS + (10u * (i + 1u)) : T_MS + (10000u * (i + 1u));
+
 		ok = ok
 		     && fzn_node_journal_append(&a, z, &SIGN, (uint32_t)FZN_OBJECT_HOP, acts[i], &body,
-		                                1u, 10u * (i + 1u), ids[i]) == FZN_NODE_JOURNAL_OK;
+		                                1u, at, ids[i]) == FZN_NODE_JOURNAL_OK;
 	}
-	CHECK(ok, "fixture: Z signs five acts at 10 to 50");
-	CHECK(fzn_node_journal_cut_point(&a, z, FZN_NODE_JOURNAL_STREAM, 5u, 35u) == 4u
-	              && fzn_node_journal_cut_point(&a, z, FZN_NODE_JOURNAL_STREAM, 2u, 35u) == 3u
-	              && fzn_node_journal_cut_point(&a, z, FZN_NODE_JOURNAL_STREAM, 5u, 10u) == 1u,
+	CHECK(ok, "fixture: Z signs five acts ten seconds apart, two in seconds");
+	CHECK(fzn_node_journal_cut_point(&a, z, FZN_NODE_JOURNAL_STREAM, 5u, T_MS + 35000u) == 4u
+	              && fzn_node_journal_cut_point(&a, z, FZN_NODE_JOURNAL_STREAM, 2u, T_MS + 35000u)
+	                         == 3u
+	              && fzn_node_journal_cut_point(&a, z, FZN_NODE_JOURNAL_STREAM, 5u, T_MS + 10000u)
+	                         == 1u,
 	      "the cut point passed a young record, or what the reader has not taken");
+	CHECK(fzn_node_journal_cut_point(&a, z, FZN_NODE_JOURNAL_STREAM, 5u, T_MS + 15000u) == 2u,
+	      "a record stamped in seconds was read raw, as older than one ten seconds before it");
 	CHECK(fzn_node_journal_cut(&a, z, FZN_NODE_JOURNAL_STREAM, 4u, &n)
 	              == FZN_NODE_JOURNAL_MALFORMED,
 	      "a cut with nowhere to keep the base was made");

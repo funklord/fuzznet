@@ -10160,7 +10160,7 @@ SABOTAGES = [
 	(
 		"journal-cut-point-stops-at-the-young",
 		"node/journal.c",
-		"\t\t    || fzn_record_issued_at(rec) >= older_than)",
+		"\t\t    || fzn_record_issued_ms(rec) >= older_than_ms)",
 		"\t\t    || 0)",
 		"records inside the window are cut with the old -- sec 548",
 	),
@@ -10380,6 +10380,20 @@ SABOTAGES = [
 		"\t\tif (fzn_node_journal_base(m->journal, m->devices[d], FZN_MESSAGE_STREAM) > 1u)\n\t\t\treturn FZN_MESSAGES_ERR_WINDOW;",
 		"\t\tif (0)\n\t\t\treturn FZN_MESSAGES_ERR_WINDOW;",
 		"a reindex clears the index and rebuilds it from a window, losing every line below the base -- sec 560",
+	),
+	(
+		"record-issued-ms-scales-seconds",
+		"record/record.h",
+		"\treturn at < FZN_RECORD_SECONDS_BELOW ? at * 1000u : at;",
+		"\treturn at;",
+		"a record stamped in seconds is read as milliseconds, and looks fifty years old -- sec 561",
+	),
+	(
+		"settings-record-stamped-in-ms",
+		"node/settings.c",
+		"\t                                   ns->now() * 1000u, NULL)",
+		"\t                                   ns->now(), NULL)",
+		"a setting's journal record is stamped in seconds while every other record is in milliseconds -- sec 561",
 	),
 	(
 		"node-messages-give-as-sender",
