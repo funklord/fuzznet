@@ -107,6 +107,9 @@ size_t fzn_exchange_answer(const fzn_journal_t *journal, fzn_record_store_t *sto
 typedef int (*fzn_exchange_ask_t)(void *ctx, const uint8_t *request, size_t request_len,
                                   uint8_t *reply, size_t reply_cap, size_t *reply_len);
 
+/* How many missing streams a tally names; past it they are counted only. */
+#define FZN_EXCHANGE_MISSED_MAX 8u
+
 typedef struct fzn_exchange_tally {
 	size_t positions;   /* the peer's, read */
 	size_t requested;   /* ranges planned */
@@ -119,6 +122,12 @@ typedef struct fzn_exchange_tally {
 	 * Either way no pull from this peer brings the stream on; it wants
 	 * a state transfer. */
 	size_t missing;
+	/* WHICH: the first FZN_EXCHANGE_MISSED_MAX of them, so a caller can
+	 * ask the peer where each starts now (`node/reconcile.h`, sec 552). */
+	struct {
+		uint8_t issuer[FZN_PUBKEY_LEN];
+		uint32_t stream;
+	} missed[FZN_EXCHANGE_MISSED_MAX];
 } fzn_exchange_tally_t;
 
 /* THE TAKER: one PUSH, admitted record by record exactly as a pull admits

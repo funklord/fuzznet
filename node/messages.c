@@ -223,6 +223,18 @@ static int line_continues(fzn_node_messages_t *nm, const uint8_t device[FZN_PUBK
 	       && p.part + 1u < p.parts;
 }
 
+void fzn_node_messages_skip(fzn_node_messages_t *nm, const uint8_t device[FZN_PUBKEY_LEN],
+                            uint64_t to)
+{
+	size_t k;
+
+	if (!nm || !device)
+		return;
+	for (k = 0; k < nm->n_cursors; k++)
+		if (same_key(nm->cursors[k].key, device) && nm->cursors[k].at < to)
+			nm->cursors[k].at = to;
+}
+
 uint64_t fzn_node_messages_cut_point(fzn_node_messages_t *nm, const uint8_t device[FZN_PUBKEY_LEN],
                                      uint64_t older_than_ms)
 {

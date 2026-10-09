@@ -19,7 +19,23 @@ endian big
 target buffer
 
 enum fzn_reconcile_type : u8 unknown=error
-  digest_query=1 digest=2 ids_query=3 ids=4 objects_query=5 objects=6
+  digest_query=1 digest=2 ids_query=3 ids=4 objects_query=5 objects=6 base_query=7 base=8
+
+struct fzn_reconcile_base size=52..6291412
+  @0x0000   1         u8         version  must_eq=6
+  @0x0001   1         fzn_reconcile_type type  must_eq=base
+  @0x0002   8         u64        base  big min=1
+  @0x000a   32        u8         below  big
+  @0x002a   8         u64        from  big
+  @0x0032   2         u16        count  big
+  @0x0034   0..6291360 fzn_reconcile_spine_entry entries  sized-by=count
+
+struct fzn_reconcile_base_query size=46
+  @0x0000   1         u8         version  must_eq=6
+  @0x0001   1         fzn_reconcile_type type  must_eq=base_query
+  @0x0002   32        u8         issuer  big
+  @0x0022   4         u32        stream  big
+  @0x0026   8         u64        from  big min=1
 
 struct fzn_reconcile_class size=37
   @0x0000   1         u8         class  max=7
@@ -71,3 +87,8 @@ struct fzn_reconcile_objects_query size=36..1028
   @0x0002   1         u8         class  max=7
   @0x0003   1         u8         count  min=1 max=32
   @0x0004   32..1024  fzn_reconcile_id ids  big sized-by=count
+
+struct fzn_reconcile_spine_entry size=96
+  @0x0000   32        u8         id  big
+  @0x0020   32        u8         prev  big
+  @0x0040   32        u8         subject  big

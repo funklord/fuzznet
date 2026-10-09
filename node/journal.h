@@ -202,6 +202,9 @@ int fzn_node_journal_stands(fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY
                             const uint8_t cut[FZN_RECORD_ID_LEN],
                             const uint8_t act[FZN_SUBJECT_LEN]);
 
+/* A spine entry: a record's id, its predecessor's, and its subject. */
+#define FZN_NODE_JOURNAL_SPINE_ENTRY (FZN_RECORD_ID_LEN + FZN_RECORD_ID_LEN + FZN_SUBJECT_LEN)
+
 /* KEEP ESTATE ACT `seq` OF `key`'S STREAM IN THE SPINE, sec 546: its id,
  * predecessor and subject, read from the record, which must be held and
  * chain to what is held above it as `fzn_node_journal_stands` would check.
@@ -209,6 +212,11 @@ int fzn_node_journal_stands(fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY
 fzn_node_journal_err_t fzn_node_journal_spine_keep(fzn_node_journal_t *nj,
                                                    const uint8_t key[FZN_PUBKEY_LEN],
                                                    uint64_t seq);
+
+/* ESTATE ACT `seq` OF `key`'S STREAM AS A SPINE ENTRY, sec 552: from the
+ * record where it is held, from the spine where it was cut. 0 for neither. */
+int fzn_node_journal_spine_entry(fzn_node_journal_t *nj, const uint8_t key[FZN_PUBKEY_LEN],
+                                 uint64_t seq, uint8_t entry[FZN_NODE_JOURNAL_SPINE_ENTRY]);
 
 /* THE FIRST SEQUENCE OF `key`'S `stream` THIS JOURNAL STILL HOLDS, sec 547:
  * 1 for a stream never cut, or with no `keep`. Where a reader of the stream
@@ -226,6 +234,36 @@ uint64_t fzn_node_journal_base(const fzn_node_journal_t *nj, const uint8_t key[F
 fzn_node_journal_err_t fzn_node_journal_base_set(fzn_node_journal_t *nj,
                                                  const uint8_t key[FZN_PUBKEY_LEN],
                                                  uint32_t stream, uint64_t base);
+
+/* The base, as `fzn_node_journal_base`, and the id below it into `below`
+ * (all zero for a stream never cut): what a peer is sent, sec 552. */
+uint64_t fzn_node_journal_base_below(const fzn_node_journal_t *nj,
+                                     const uint8_t key[FZN_PUBKEY_LEN], uint32_t stream,
+                                     uint8_t below[FZN_RECORD_ID_LEN]);
+
+/*
+ * TAKE A PEER'S BASE FOR A STREAM THIS JOURNAL IS BEHIND, sec 552: the peer
+ * cut what lay between this journal's head and its base, so no pull brings
+ * it, and reconciliation (sec 551) has brought the state it carried. The
+ * journal moves up: `base`'s predecessor becomes its head, under the id
+ * `below` the peer's next record must name, everything under it applied,
+ * and the records this journal held of the stream go below its own new
+ * base as a cut takes them.
+ *
+ * THE ESTATE STREAM BRINGS ITS SPINE across the gap: `entries`, one per
+ * sequence from this journal's received + 1 to `base` - 1, ascending,
+ * chained -- each naming the one before as its predecessor, the first
+ * naming this journal's head, the last's id `below`. Checked at both ends
+ * and refused (REFUSED) otherwise; the subjects between are the peer's
+ * word, the one thing a bridge of ids cannot check. Another stream takes
+ * none. OK and nothing done for a base this journal is not behind;
+ * MALFORMED for no `keep`, a stream not followed or forked.
+ */
+fzn_node_journal_err_t fzn_node_journal_rebase(fzn_node_journal_t *nj,
+                                               const uint8_t key[FZN_PUBKEY_LEN], uint32_t stream,
+                                               uint64_t base, const uint8_t below[FZN_RECORD_ID_LEN],
+                                               const uint8_t (*entries)[FZN_NODE_JOURNAL_SPINE_ENTRY],
+                                               size_t n_entries);
 
 /* WHERE A CUT OF `key`'S `stream` COULD END, sec 548: the first sequence from
  * the base that is past `limit`, not held, or issued at or after `older_than`

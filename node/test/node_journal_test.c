@@ -336,24 +336,29 @@ static void test_the_stream_is_the_act_log(void)
 
 /* A persist store in memory, enough for the spine and the bases: a few rows
  * by subject. */
-static struct {
-	uint8_t subject[8][FZN_PUBKEY_LEN];
-	uint8_t bytes[8][1536];
-	size_t len[8];
+#define ROWS_MAX 16u
+
+typedef struct memstore {
+	uint8_t subject[ROWS_MAX][FZN_PUBKEY_LEN];
+	uint8_t bytes[ROWS_MAX][1536];
+	size_t len[ROWS_MAX];
 	size_t n;
-} mem;
+} memstore_t;
+
+/* The store a NULL context means, and a second for a second journal. */
+static memstore_t mem, mem_b;
 
 static int mem_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, uint8_t *out,
                     size_t cap, size_t *len)
 {
+	memstore_t *m = ctx ? (memstore_t *)ctx : &mem;
 	size_t i;
 
-	(void)ctx;
-	for (i = 0; i < mem.n; i++)
+	for (i = 0; i < m->n; i++)
 		if ((slot == FZN_PERSIST_JOURNAL_SPINE || slot == FZN_PERSIST_JOURNAL_BASE)
-		    && memcmp(mem.subject[i], subject, FZN_PUBKEY_LEN) == 0 && mem.len[i] <= cap) {
-			memcpy(out, mem.bytes[i], mem.len[i]);
-			*len = mem.len[i];
+		    && memcmp(m->subject[i], subject, FZN_PUBKEY_LEN) == 0 && m->len[i] <= cap) {
+			memcpy(out, m->bytes[i], m->len[i]);
+			*len = m->len[i];
 			return 1;
 		}
 	return 0;
@@ -362,22 +367,22 @@ static int mem_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, 
 static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
                     const uint8_t *bytes, size_t len)
 {
+	memstore_t *m = ctx ? (memstore_t *)ctx : &mem;
 	size_t i;
 
-	(void)ctx;
 	if ((slot != FZN_PERSIST_JOURNAL_SPINE && slot != FZN_PERSIST_JOURNAL_BASE)
-	    || len > sizeof(mem.bytes[0]))
+	    || len > sizeof(m->bytes[0]))
 		return 0;
-	for (i = 0; i < mem.n && memcmp(mem.subject[i], subject, FZN_PUBKEY_LEN) != 0; i++)
+	for (i = 0; i < m->n && memcmp(m->subject[i], subject, FZN_PUBKEY_LEN) != 0; i++)
 		;
-	if (i == mem.n) {
-		if (mem.n == 8u)
+	if (i == m->n) {
+		if (m->n == ROWS_MAX)
 			return 0;
-		mem.n++;
+		m->n++;
 	}
-	memcpy(mem.subject[i], subject, FZN_PUBKEY_LEN);
-	memcpy(mem.bytes[i], bytes, len);
-	mem.len[i] = len;
+	memcpy(m->subject[i], subject, FZN_PUBKEY_LEN);
+	memcpy(m->bytes[i], bytes, len);
+	m->len[i] = len;
 	return 1;
 }
 
@@ -597,6 +602,115 @@ static void test_the_cut(void)
 	fzn_node_journal_close(&b);
 }
 
+/* A STREAM BEHIND A PEER'S BASE, sec 552. A holds writer V's six acts; B
+ * pulls the first two, then A cuts below the fifth. B's next pull is
+ * missing the third, so B takes A's base, the id below it and A's spine
+ * for the third and fourth. A bridge broken anywhere, or of the wrong
+ * length, is refused; the whole one moves B up: its head the fourth, both
+ * pulled after it, its own two records cut and kept in its spine, every
+ * act standing under the sixth -- and a journal opened afresh at B follows
+ * from the new base. */
+static void test_a_stream_rebased(void)
+{
+	static fzn_node_journal_t a, b;
+	static const fzn_persist_ops_t KEEP_A = { mem_load, mem_save, NULL, NULL, NULL };
+	static const fzn_persist_ops_t KEEP_B = { mem_load, mem_save, NULL, NULL, &mem_b };
+	uint8_t v[FZN_PUBKEY_LEN], ids[6][FZN_RECORD_ID_LEN], acts[6][FZN_SUBJECT_LEN];
+	uint8_t below[FZN_RECORD_ID_LEN], bridge[2][FZN_NODE_JOURNAL_SPINE_ENTRY];
+	uint8_t head[FZN_RECORD_ID_LEN], reply[8192];
+	fzn_exchange_tally_t t;
+	uint64_t base;
+	size_t i, n = 0;
+	int ok = 1;
+
+	key(v, 0x5b);
+	for (i = 0; i < 6u; i++)
+		memset(acts[i], (int)(0xa1u + i), sizeof(acts[i]));
+	CHECK(fzn_node_journal_init(&a, dir_a, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_init(&b, dir_b, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK,
+	      "fixture: two journals");
+	a.keep = &KEEP_A;
+	b.keep = &KEEP_B;
+	for (i = 0; i < 2u; i++)
+		ok = ok && append(&a, 0x5b, (uint8_t)(0xa1u + i), ids[i]);
+	CHECK(ok && fzn_node_journal_follow(&b, v, NULL) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_pull(&b, ask, &a, reply, sizeof(reply), &t)
+	                         == FZN_EXCHANGE_OK
+	              && t.learned == 2u,
+	      "fixture: B pulls V's first two from A");
+	for (i = 2; i < 6u; i++)
+		ok = ok && append(&a, 0x5b, (uint8_t)(0xa1u + i), ids[i]);
+	CHECK(ok
+	              && fzn_node_journal_cut(&a, v, FZN_NODE_JOURNAL_STREAM, 5u, &n)
+	                         == FZN_NODE_JOURNAL_OK
+	              && n == 4u
+	              && fzn_node_journal_pull(&b, ask, &a, reply, sizeof(reply), &t)
+	                         == FZN_EXCHANGE_OK
+	              && t.learned == 0u && t.missing == 1u,
+	      "fixture: A writes four more and cuts below the fifth; B's pull finds it missing");
+	base = fzn_node_journal_base_below(&a, v, FZN_NODE_JOURNAL_STREAM, below);
+	CHECK(base == 5u && memcmp(below, ids[3], sizeof(below)) == 0
+	              && fzn_node_journal_spine_entry(&a, v, 3u, bridge[0])
+	              && fzn_node_journal_spine_entry(&a, v, 4u, bridge[1])
+	              && memcmp(bridge[1], ids[3], FZN_RECORD_ID_LEN) == 0,
+	      "A's base, the id below it, or its spine for the third and fourth were not served");
+	CHECK(fzn_node_journal_rebase(&b, v, FZN_NODE_JOURNAL_STREAM, base, below,
+	                              (const uint8_t(*)[FZN_NODE_JOURNAL_SPINE_ENTRY])bridge, 1u)
+	              == FZN_NODE_JOURNAL_REFUSED,
+	      "a bridge one entry short was taken");
+	bridge[0][FZN_RECORD_ID_LEN] ^= 1u;
+	CHECK(fzn_node_journal_rebase(&b, v, FZN_NODE_JOURNAL_STREAM, base, below,
+	                              (const uint8_t(*)[FZN_NODE_JOURNAL_SPINE_ENTRY])bridge, 2u)
+	              == FZN_NODE_JOURNAL_REFUSED,
+	      "a bridge not naming B's head was taken");
+	bridge[0][FZN_RECORD_ID_LEN] ^= 1u;
+	bridge[1][FZN_RECORD_ID_LEN] ^= 1u;
+	CHECK(fzn_node_journal_rebase(&b, v, FZN_NODE_JOURNAL_STREAM, base, below,
+	                              (const uint8_t(*)[FZN_NODE_JOURNAL_SPINE_ENTRY])bridge, 2u)
+	              == FZN_NODE_JOURNAL_REFUSED
+	              && fzn_node_journal_received(&b, v, FZN_NODE_JOURNAL_STREAM) == 2u,
+	      "a bridge broken in the middle was taken, or moved B");
+	bridge[1][FZN_RECORD_ID_LEN] ^= 1u;
+	below[0] ^= 1u;
+	CHECK(fzn_node_journal_rebase(&b, v, FZN_NODE_JOURNAL_STREAM, base, below,
+	                              (const uint8_t(*)[FZN_NODE_JOURNAL_SPINE_ENTRY])bridge, 2u)
+	              == FZN_NODE_JOURNAL_REFUSED,
+	      "a bridge whose top is not the id below the base was taken");
+	below[0] ^= 1u;
+	CHECK(fzn_node_journal_rebase(&b, v, FZN_NODE_JOURNAL_STREAM, base, below,
+	                              (const uint8_t(*)[FZN_NODE_JOURNAL_SPINE_ENTRY])bridge, 2u)
+	              == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_received(&b, v, FZN_NODE_JOURNAL_STREAM) == 4u
+	              && fzn_journal_pending(&b.journal, v, FZN_NODE_JOURNAL_STREAM) == 0u
+	              && fzn_node_journal_base(&b, v, FZN_NODE_JOURNAL_STREAM) == 5u
+	              && fzn_node_journal_head(&b, v, head) && memcmp(head, ids[3], sizeof(head)) == 0,
+	      "the whole bridge did not move B up to A's base");
+	CHECK(fzn_node_journal_pull(&b, ask, &a, reply, sizeof(reply), &t) == FZN_EXCHANGE_OK
+	              && t.learned == 2u && t.missing == 0u
+	              && fzn_node_journal_stands(&b, v, ids[5], acts[0])
+	              && fzn_node_journal_stands(&b, v, ids[5], acts[2])
+	              && fzn_node_journal_stands(&b, v, ids[5], acts[5]),
+	      "B did not pull on from the base, or an act behind it did not stand");
+	{
+		uint8_t buf[FZN_RECORD_MAX_LEN];
+		fzn_record_t rec;
+
+		CHECK(fzn_record_store_get(&b.store, v, FZN_NODE_JOURNAL_STREAM, 1u, buf, sizeof(buf),
+		                           &rec) == FZN_RECORD_STORE_ERR_ABSENT,
+		      "B kept the records the new base put below it");
+	}
+	fzn_node_journal_close(&b);
+	CHECK(fzn_node_journal_init(&b, dir_b, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK,
+	      "fixture: B opened afresh");
+	b.keep = &KEEP_B;
+	CHECK(fzn_node_journal_follow(&b, v, &n) == FZN_NODE_JOURNAL_OK && n == 2u
+	              && fzn_node_journal_received(&b, v, FZN_NODE_JOURNAL_STREAM) == 6u
+	              && fzn_node_journal_stands(&b, v, ids[5], acts[2]),
+	      "a journal opened afresh at B did not follow from the new base");
+	fzn_node_journal_close(&a);
+	fzn_node_journal_close(&b);
+}
+
 /* ANY STREAM, sec 512: a key's notes are its stream 0 beside its estate
  * stream. Two records appended on stream 0 chain there, leave the estate
  * stream alone, and replay into a fresh journal following stream 0. */
@@ -668,6 +782,7 @@ int main(void)
 	test_the_spine_outlives_a_cut();
 	test_a_stream_read_from_its_base();
 	test_the_cut();
+	test_a_stream_rebased();
 
 	/* EVERY FILE THE SUITE MADE, BY NAME, then the directories. */
 	stream_path(path, sizeof(path), dir_a, 0x31);
@@ -683,6 +798,10 @@ int main(void)
 	stream_path(path, sizeof(path), dir_a, 0x59);
 	(void)unlink(path);
 	stream_path(path, sizeof(path), dir_a, 0x5a);
+	(void)unlink(path);
+	stream_path(path, sizeof(path), dir_a, 0x5b);
+	(void)unlink(path);
+	stream_path(path, sizeof(path), dir_b, 0x5b);
 	(void)unlink(path);
 	stream_file(path, sizeof(path), dir_a, 0x60, 0u);
 	(void)unlink(path);

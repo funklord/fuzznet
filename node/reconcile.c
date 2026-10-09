@@ -157,13 +157,51 @@ static size_t answer_objects(const fzn_persist_ops_t *store, const fzn_hash_ops_
 	return s.at;
 }
 
+/* A STREAM'S BASE, the id below it, and its spine from `from`: as many
+ * entries as fit, stopping at the first this journal cannot give. */
+static size_t answer_base(fzn_node_journal_t *journal, const uint8_t *request, size_t request_len,
+                          uint8_t *reply, size_t reply_cap)
+{
+	uint8_t below[FZN_RECORD_ID_LEN];
+	uint64_t base, from, seq;
+	size_t at = FZN_RECONCILE_BASE_HEAD_LEN, count = 0;
+	uint32_t stream;
+
+	if (!journal || request_len != FZN_RECONCILE_BASE_QUERY_LEN
+	    || reply_cap < FZN_RECONCILE_BASE_HEAD_LEN)
+		return 0;
+	stream = fzn_get_be32(request + 34u);
+	from = fzn_get_be64(request + 38u);
+	if (from == 0u)
+		return 0;
+	base = fzn_node_journal_base_below(journal, request + 2u, stream, below);
+	if (stream == FZN_NODE_JOURNAL_STREAM)
+		for (seq = from; seq < base && count < 0xffffu
+		                 && reply_cap - at >= FZN_NODE_JOURNAL_SPINE_ENTRY;
+		     seq++) {
+			if (!fzn_node_journal_spine_entry(journal, request + 2u, seq, reply + at))
+				break;
+			at += FZN_NODE_JOURNAL_SPINE_ENTRY;
+			count++;
+		}
+	reply[0] = (uint8_t)FZN_RECONCILE_VERSION;
+	reply[1] = (uint8_t)FZN_RECONCILE_BASE;
+	fzn_put_be64(reply + 2u, base);
+	memcpy(reply + 10u, below, sizeof(below));
+	fzn_put_be64(reply + 42u, from);
+	fzn_put_be16(reply + 50u, (uint16_t)count);
+	return at;
+}
+
 size_t fzn_reconcile_answer(const fzn_persist_ops_t *store, const fzn_hash_ops_t *hash,
-                            const uint8_t *request, size_t request_len, uint8_t *reply,
-                            size_t reply_cap)
+                            fzn_node_journal_t *journal, const uint8_t *request,
+                            size_t request_len, uint8_t *reply, size_t reply_cap)
 {
 	if (!store || !hash || !hash->hash || !request || !reply || request_len < 2u
 	    || request[0] != (uint8_t)FZN_RECONCILE_VERSION)
 		return 0;
+	if (request[1] == (uint8_t)FZN_RECONCILE_BASE_QUERY)
+		return answer_base(journal, request, request_len, reply, reply_cap);
 	if (request[1] == (uint8_t)FZN_RECONCILE_DIGEST_QUERY)
 		return request_len == FZN_RECONCILE_DIGEST_QUERY_LEN
 		               ? answer_digest(store, hash, reply, reply_cap)
@@ -366,5 +404,73 @@ fzn_reconcile_err_t fzn_reconcile_round(fzn_node_apply_t *ap, fzn_reconcile_ask_
 		if (err != FZN_RECONCILE_OK)
 			return err;
 	}
+	return FZN_RECONCILE_OK;
+}
+
+/* ---- a stream behind a peer's base ------------------------------------- */
+
+static uint8_t bridge[FZN_RECONCILE_BRIDGE_MAX][FZN_NODE_JOURNAL_SPINE_ENTRY];
+
+fzn_reconcile_err_t fzn_reconcile_rebase(fzn_node_journal_t *journal, fzn_reconcile_ask_t ask,
+                                         void *ask_ctx, const uint8_t issuer[FZN_PUBKEY_LEN],
+                                         uint32_t stream, uint8_t *reply, size_t reply_cap,
+                                         uint64_t *base)
+{
+	uint8_t request[FZN_RECONCILE_BASE_QUERY_LEN], below[FZN_RECORD_ID_LEN];
+	uint64_t held, theirs = 0, want = 0;
+	size_t have = 0;
+
+	if (base)
+		*base = 0;
+	if (!journal || !ask || !issuer || !reply || reply_cap < FZN_RECONCILE_REPLY_MIN)
+		return FZN_RECONCILE_ERR_MALFORMED;
+	held = fzn_node_journal_received(journal, issuer, stream);
+	request[0] = (uint8_t)FZN_RECONCILE_VERSION;
+	request[1] = (uint8_t)FZN_RECONCILE_BASE_QUERY;
+	memcpy(request + 2u, issuer, FZN_PUBKEY_LEN);
+	fzn_put_be32(request + 34u, stream);
+	/* THE BRIDGE, A PAGE AT A TIME, from just above this journal's
+	 * position to just below the peer's base. */
+	do {
+		size_t reply_len = 0, count;
+
+		fzn_put_be64(request + 38u, held + 1u + have);
+		if (!ask(ask_ctx, request, sizeof(request), reply, reply_cap, &reply_len))
+			return FZN_RECONCILE_ERR_NO_ANSWER;
+		if (!is(reply, reply_len, (uint8_t)FZN_RECONCILE_BASE)
+		    || reply_len < FZN_RECONCILE_BASE_HEAD_LEN
+		    || fzn_get_be64(reply + 42u) != held + 1u + have
+		    || reply_len != FZN_RECONCILE_BASE_HEAD_LEN
+		                            + (size_t)fzn_get_be16(reply + 50u)
+		                                      * FZN_NODE_JOURNAL_SPINE_ENTRY)
+			return FZN_RECONCILE_ERR_SHAPE;
+		if (have == 0u) {
+			theirs = fzn_get_be64(reply + 2u);
+			memcpy(below, reply + 10u, sizeof(below));
+			/* NOT AHEAD OF THIS JOURNAL: nothing to take. */
+			if (theirs < 2u || theirs - 1u <= held)
+				return FZN_RECONCILE_OK;
+			want = stream == FZN_NODE_JOURNAL_STREAM ? theirs - 1u - held : 0u;
+			if (want > FZN_RECONCILE_BRIDGE_MAX)
+				return FZN_RECONCILE_ERR_STORE;
+		} else if (fzn_get_be64(reply + 2u) != theirs) {
+			/* THE PEER CUT AGAIN between two pages: next round. */
+			return FZN_RECONCILE_OK;
+		}
+		count = fzn_get_be16(reply + 50u);
+		if (count > want - have)
+			count = (size_t)(want - have);
+		memcpy(bridge[have], reply + FZN_RECONCILE_BASE_HEAD_LEN,
+		       count * FZN_NODE_JOURNAL_SPINE_ENTRY);
+		have += count;
+		if (count == 0u && have < want)
+			return FZN_RECONCILE_ERR_SHAPE;
+	} while (have < want);
+	if (fzn_node_journal_rebase(journal, issuer, stream, theirs, below,
+	                            (const uint8_t(*)[FZN_NODE_JOURNAL_SPINE_ENTRY])bridge, have)
+	    != FZN_NODE_JOURNAL_OK)
+		return FZN_RECONCILE_ERR_STORE;
+	if (base)
+		*base = theirs;
 	return FZN_RECONCILE_OK;
 }

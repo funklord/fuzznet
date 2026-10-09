@@ -16,6 +16,8 @@ enum fzn_reconcile_type : u8 {
 	ids           = 4,   // "These, of this many."
 	objects_query = 5,   // "These objects, by id."
 	objects       = 6,   // "Those I hold of them."
+	base_query    = 7,   // "Where does this stream start with you?" sec 552.
+	base          = 8,   // "There, under this id, and the spine to it."
 }
 
 struct fzn_reconcile_digest_query {
@@ -71,6 +73,31 @@ struct fzn_reconcile_objects_query {
 struct fzn_reconcile_object {
 	u16  len [min = 3, max = 2048];
 	u8   object[len];
+}
+
+struct fzn_reconcile_base_query {
+	u8                  version [must_eq = 6];
+	fzn_reconcile_type  type    [must_eq = base_query];
+	u8                  issuer[32];
+	u32                 stream;
+	u64                 from    [min = 1];  // the first spine entry wanted
+}
+
+// A spine entry: a record's id, its predecessor's, and its subject.
+struct fzn_reconcile_spine_entry {
+	u8  id[32];
+	u8  prev[32];
+	u8  subject[32];
+}
+
+struct fzn_reconcile_base {
+	u8                         version [must_eq = 6];
+	fzn_reconcile_type         type    [must_eq = base];
+	u64                        base    [min = 1];  // the first sequence held
+	u8                         below[32];          // the id of the record before it
+	u64                        from;               // echoed
+	u16                        count;
+	fzn_reconcile_spine_entry  entries[count];     // from `from`, ascending
 }
 
 struct fzn_reconcile_objects {

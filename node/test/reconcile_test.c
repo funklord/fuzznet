@@ -272,7 +272,8 @@ static int ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *r
 	size_t room = reply_cap < p->cap ? reply_cap : p->cap;
 
 	p->asked++;
-	*reply_len = fzn_reconcile_answer(&p->node->store, &HASH, request, request_len, reply, room);
+	*reply_len = fzn_reconcile_answer(&p->node->store, &HASH, p->node->ap.journal, request,
+	                                  request_len, reply, room);
 	if (!*reply_len)
 		return 0;
 	if (p->lie == 1 && reply[1] == FZN_RECONCILE_OBJECTS) {
@@ -392,6 +393,168 @@ static void test_a_dishonest_peer(void)
 	      "a reply buffer under the floor was accepted");
 }
 
+/* ---- a record store per journal --------------------------------------------- */
+
+#define RECORDS 80
+
+struct recs {
+	struct {
+		int used;
+		uint8_t issuer[FZN_PUBKEY_LEN];
+		uint32_t stream;
+		uint64_t seq;
+		uint8_t bytes[FZN_RECORD_MAX_LEN];
+		size_t len;
+	} r[RECORDS];
+};
+
+static int rec_put(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream, uint64_t seq,
+                   const uint8_t *bytes, size_t len)
+{
+	struct recs *s = (struct recs *)ctx;
+	size_t i;
+
+	for (i = 0; i < RECORDS && s->r[i].used; i++)
+		;
+	if (i == RECORDS || len > FZN_RECORD_MAX_LEN)
+		return 0;
+	s->r[i].used = 1;
+	memcpy(s->r[i].issuer, issuer, FZN_PUBKEY_LEN);
+	s->r[i].stream = stream;
+	s->r[i].seq = seq;
+	memcpy(s->r[i].bytes, bytes, len);
+	s->r[i].len = len;
+	return 1;
+}
+
+static int rec_get(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream, uint64_t seq,
+                   uint8_t *out, size_t out_cap, size_t *len_out, int *found_out)
+{
+	struct recs *s = (struct recs *)ctx;
+	size_t i;
+
+	*found_out = 0;
+	for (i = 0; i < RECORDS; i++)
+		if (s->r[i].used && s->r[i].stream == stream && s->r[i].seq == seq
+		    && memcmp(s->r[i].issuer, issuer, FZN_PUBKEY_LEN) == 0) {
+			*found_out = 1;
+			if (s->r[i].len > out_cap)
+				return 0;
+			memcpy(out, s->r[i].bytes, s->r[i].len);
+			*len_out = s->r[i].len;
+			return 1;
+		}
+	return 0;
+}
+
+static int rec_cut(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream, uint64_t from,
+                   uint64_t below)
+{
+	struct recs *s = (struct recs *)ctx;
+	size_t i;
+
+	for (i = 0; i < RECORDS; i++)
+		if (s->r[i].used && s->r[i].stream == stream && s->r[i].seq >= from
+		    && s->r[i].seq < below && memcmp(s->r[i].issuer, issuer, FZN_PUBKEY_LEN) == 0)
+			s->r[i].used = 0;
+	return 1;
+}
+
+static int journal_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *out,
+                       size_t out_cap, size_t *out_len)
+{
+	*out_len = fzn_node_journal_answer((fzn_node_journal_t *)ctx, request, request_len, out,
+	                                   out_cap);
+	return *out_len != 0u;
+}
+
+static int append_n(fzn_node_journal_t *nj, uint8_t writer, uint32_t stream, size_t n)
+{
+	uint8_t issuer[FZN_PUBKEY_LEN], subject[FZN_SUBJECT_LEN], body = 1u;
+	size_t i;
+
+	key(issuer, writer);
+	signing_as = writer;
+	for (i = 0; i < n; i++) {
+		memset(subject, (int)(0x30u + i), sizeof(subject));
+		if (fzn_node_journal_append_on(nj, issuer, stream, &SIGN, (uint32_t)FZN_OBJECT_HOP,
+		                               subject, &body, 1u, 1000u, NULL)
+		    != FZN_NODE_JOURNAL_OK)
+			return 0;
+	}
+	return 1;
+}
+
+/* A STREAM BEHIND A PEER'S BASE, over the exchange, sec 552. A's journal
+ * holds writer V's thirty acts and B pulls the first two; A cuts below the
+ * twenty-eighth. B's pull finds V's stream missing and names it; B asks A
+ * where it starts, pages a bridge of twenty-five spine entries over the
+ * smallest reply buffer, and moves up to A's base, pulling on from there.
+ * A notes stream, which keeps no spine, takes a base with no bridge. */
+static void test_a_stream_behind_a_peers_base(void)
+{
+	static node_t a, b;
+	static struct recs ra, rb;
+	static fzn_node_journal_t ja, jb;
+	static const fzn_record_store_ops_t OPS_A = { rec_put, rec_get, &ra, rec_cut };
+	static const fzn_record_store_ops_t OPS_B = { rec_put, rec_get, &rb, rec_cut };
+	struct peer pa = { &a, FZN_RECONCILE_REPLY_MIN, 0, 0 };
+	uint8_t v[FZN_PUBKEY_LEN];
+	fzn_exchange_tally_t t;
+	uint64_t base = 0;
+	size_t n = 0;
+
+	key(v, 0x5c);
+	CHECK(node_up(&a) && node_up(&b)
+	              && fzn_node_journal_init_store(&ja, &OPS_A, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_init_store(&jb, &OPS_B, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK,
+	      "fixture: two nodes with journals");
+	ja.keep = &a.store;
+	jb.keep = &b.store;
+	a.ap.journal = &ja;
+	b.ap.journal = &jb;
+	CHECK(append_n(&ja, 0x5c, FZN_NODE_JOURNAL_STREAM, 2u)
+	              && fzn_node_journal_follow(&jb, v, NULL) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_pull(&jb, journal_ask, &ja, reply, sizeof(reply), &t)
+	                         == FZN_EXCHANGE_OK
+	              && t.learned == 2u,
+	      "fixture: B pulls V's first two from A");
+	CHECK(append_n(&ja, 0x5c, FZN_NODE_JOURNAL_STREAM, 28u)
+	              && fzn_node_journal_cut(&ja, v, FZN_NODE_JOURNAL_STREAM, 28u, &n)
+	                         == FZN_NODE_JOURNAL_OK
+	              && n == 27u
+	              && fzn_node_journal_pull(&jb, journal_ask, &ja, reply, sizeof(reply), &t)
+	                         == FZN_EXCHANGE_OK
+	              && t.missing == 1u && memcmp(t.missed[0].issuer, v, FZN_PUBKEY_LEN) == 0
+	              && t.missed[0].stream == FZN_NODE_JOURNAL_STREAM,
+	      "B's pull past A's cut did not name V's stream missing");
+	CHECK(fzn_reconcile_rebase(&jb, ask, &pa, v, FZN_NODE_JOURNAL_STREAM, reply, sizeof(reply),
+	                           &base) == FZN_RECONCILE_OK
+	              && base == 28u && pa.asked == 2u
+	              && fzn_node_journal_received(&jb, v, FZN_NODE_JOURNAL_STREAM) == 27u,
+	      "B did not page A's bridge and move up to its base");
+	CHECK(fzn_node_journal_pull(&jb, journal_ask, &ja, reply, sizeof(reply), &t)
+	                      == FZN_EXCHANGE_OK
+	              && t.learned == 3u && t.missing == 0u,
+	      "B did not pull on from A's base");
+	pa.asked = 0;
+	CHECK(fzn_reconcile_rebase(&jb, ask, &pa, v, FZN_NODE_JOURNAL_STREAM, reply, sizeof(reply),
+	                           &base) == FZN_RECONCILE_OK
+	              && base == 0u && pa.asked == 1u,
+	      "a stream not behind the peer's base moved, or asked more than once");
+	/* A NOTES STREAM: a base, no bridge. */
+	CHECK(append_n(&ja, 0x5c, 0u, 1u)
+	              && fzn_node_journal_follow_stream(&jb, v, 0u, NULL) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_pull(&jb, journal_ask, &ja, reply, sizeof(reply), &t)
+	                         == FZN_EXCHANGE_OK
+	              && append_n(&ja, 0x5c, 0u, 3u)
+	              && fzn_node_journal_cut(&ja, v, 0u, 4u, &n) == FZN_NODE_JOURNAL_OK
+	              && fzn_reconcile_rebase(&jb, ask, &pa, v, 0u, reply, sizeof(reply), &base)
+	                         == FZN_RECONCILE_OK
+	              && base == 4u && fzn_node_journal_received(&jb, v, 0u) == 3u,
+	      "a notes stream behind A's base did not move up with no bridge");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -411,6 +574,7 @@ int main(void)
 	test_the_suite_can_tell_pass_from_fail();
 	test_a_node_comes_to_its_peer();
 	test_a_dishonest_peer();
+	test_a_stream_behind_a_peers_base();
 	if (failures) {
 		fprintf(stderr, "reconcile_test: %d of %d checks failed\n", failures, checks);
 		return 1;

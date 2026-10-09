@@ -60821,5 +60821,55 @@ next peer fills both. Four sabotage entries, each probed caught.
 
 Not exercised: fuzznetd's round and its admin hook, until step 5's live
 check; note claims (slot 17), which reconcile through the notes store's
-own path in a later step; and step 4, streams behind a peer's base, so
-a cut stream's `missing` warning still repeats every round.
+own path in a later step. Step 4, streams behind a peer's base, is built
+in sec 552.
+
+## 552. Stage 5, step 4: a stream behind a peer's base moves up to it, 2026-10-09
+
+Sec 550's fourth step. A node whose position on a stream is below a
+peer's base will never pull the records in between: the peer cut them.
+Reconciliation (sec 551) brings the state they carried. This step moves
+the journal itself up, so the stream resumes from the peer's window.
+
+- **The pull names the stream.** The exchange tally's `missed` lists the
+  first eight streams that came back empty
+  (`FZN_EXCHANGE_MISSED_MAX`), beside the existing count.
+- **BASE_QUERY and BASE** join `node/reconcile.situ` (types 7 and 8): a
+  stream's base, the id of the record below it, and, for the estate
+  stream, its spine entries from a given sequence, as many as fit.
+  `fzn_node_journal_spine_entry` serves an entry from the held record,
+  or from the spine where the record was cut.
+- **`fzn_reconcile_rebase`** pages that bridge from just above this
+  journal's position to just below the peer's base, then
+  **`fzn_node_journal_rebase`** checks it at both ends. The top entry's
+  id must be the id below the base, which the peer's signed record at
+  the base will name. Each entry must name the one before as its
+  predecessor, and the first must name this journal's head. Only the
+  subjects between are taken on the peer's word, the one thing a bridge
+  of ids cannot check. The journal then moves up as a cut does:
+  - its own held records are kept in the spine, the bridge added and the
+    base written;
+  - its own records are let go;
+  - the entry is anchored under the base with the id below as its head,
+    and everything below counted applied.
+  A notes or conversations stream takes a base and no bridge.
+- **fuzznetd** moves each missing stream up to the peer that named it,
+  then the notes or conversations cursor with it.
+
+Measured: node_journal_test 69 checks. Writer V's stream at A is cut
+below the fifth of six, and B, which pulled two, takes A's base. Bridges
+one entry short, not naming B's head, broken in the middle, or not
+reaching the id below the base are each refused, and none moves B. The
+whole bridge moves B to a head of the fourth, with nothing pending. B
+pulls the fifth and sixth, its own two records are gone, every act
+stands under the sixth, and a journal opened afresh at B follows from
+the new base. reconcile_test 17 checks, the same over the exchange. A's
+cut is named missing by B's pull, B pages a 25-entry bridge over the
+smallest reply buffer, moves to A's base and pulls on. Asking again
+moves nothing, and a notes stream moves with no bridge. Seven sabotage
+entries, each probed caught.
+
+Not exercised: fuzznetd's reaction to a missing stream, and the cursor
+moves it makes, until step 5's live check. A peer that lies about the
+subjects in a bridge is caught by nothing yet. The remedy is the one
+reconciliation uses, comparing with a second peer, and it is not built.

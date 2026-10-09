@@ -34,7 +34,9 @@ typedef enum fzn_reconcile_type {
 	FZN_RECONCILE_IDS_QUERY = 3,
 	FZN_RECONCILE_IDS = 4,
 	FZN_RECONCILE_OBJECTS_QUERY = 5,
-	FZN_RECONCILE_OBJECTS = 6
+	FZN_RECONCILE_OBJECTS = 6,
+	FZN_RECONCILE_BASE_QUERY = 7,
+	FZN_RECONCILE_BASE = 8
 } fzn_reconcile_type_t;
 
 /* The fixed parts, from `node/reconcile.situ.map`. */
@@ -46,6 +48,11 @@ typedef enum fzn_reconcile_type {
 #define FZN_RECONCILE_OBJECTS_QUERY_HEAD_LEN 4u
 #define FZN_RECONCILE_OBJECTS_HEAD_LEN 5u
 #define FZN_RECONCILE_OBJECT_MAX 2048u
+#define FZN_RECONCILE_BASE_QUERY_LEN 46u
+#define FZN_RECONCILE_BASE_HEAD_LEN 52u
+
+/* The longest bridge of spine entries a rebase takes. */
+#define FZN_RECONCILE_BRIDGE_MAX 4096u
 
 /* The most ids one OBJECTS_QUERY names. */
 #define FZN_RECONCILE_ASK_MAX 32u
@@ -68,12 +75,13 @@ typedef enum fzn_reconcile_err {
 
 const char *fzn_reconcile_err_str(fzn_reconcile_err_t err);
 
-/* THE SERVER: answer one message from what `store` holds. 0 when `request`
- * is not one of these messages, so a caller dispatching on the first byte
- * falls through. */
+/* THE SERVER: answer one message from what `store` holds, and a stream's
+ * base and spine from `journal` (NULL answers no BASE_QUERY). 0 when
+ * `request` is not one of these messages, so a caller dispatching on the
+ * first byte falls through. */
 size_t fzn_reconcile_answer(const fzn_persist_ops_t *store, const fzn_hash_ops_t *hash,
-                            const uint8_t *request, size_t request_len, uint8_t *reply,
-                            size_t reply_cap);
+                            fzn_node_journal_t *journal, const uint8_t *request,
+                            size_t request_len, uint8_t *reply, size_t reply_cap);
 
 /* How a node reaches its peer: send `request`, fill `reply`, 1 for an
  * answer. The shape every pull here takes. */
@@ -96,5 +104,20 @@ typedef struct fzn_reconcile_tally {
 fzn_reconcile_err_t fzn_reconcile_round(fzn_node_apply_t *ap, fzn_reconcile_ask_t ask,
                                         void *ask_ctx, uint8_t *reply, size_t reply_cap,
                                         fzn_reconcile_tally_t *tally);
+
+/*
+ * A STREAM THIS NODE IS BEHIND A PEER'S BASE ON, sec 552: the peer's base,
+ * the id below it, and -- for the estate stream -- its spine from this
+ * journal's received + 1 up to it, paged, handed to
+ * `fzn_node_journal_rebase`, which checks the bridge at both ends. `*base`
+ * (may be NULL) is where the stream now starts, or 0 when nothing moved:
+ * the peer is not ahead of this journal's position, or nothing was cut.
+ * STORE when the journal refused the bridge; SHAPE for a reply that is not
+ * a BASE of the stream asked about.
+ */
+fzn_reconcile_err_t fzn_reconcile_rebase(fzn_node_journal_t *journal, fzn_reconcile_ask_t ask,
+                                         void *ask_ctx, const uint8_t issuer[FZN_PUBKEY_LEN],
+                                         uint32_t stream, uint8_t *reply, size_t reply_cap,
+                                         uint64_t *base);
 
 #endif /* FZN_NODE_RECONCILE_H */

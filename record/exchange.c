@@ -137,6 +137,10 @@ static int take_records(fzn_journal_t *journal, fzn_record_store_t *store,
 	}
 	count = fzn_get_be16(reply + 2);
 	if (count == 0u) {
+		if (tally->missing < FZN_EXCHANGE_MISSED_MAX) {
+			memcpy(tally->missed[tally->missing].issuer, want->issuer, FZN_PUBKEY_LEN);
+			tally->missed[tally->missing].stream = want->stream;
+		}
 		tally->missing++;
 		return 0;
 	}
