@@ -138,6 +138,12 @@ fzn_node_settings_err_t fzn_node_settings_take_rules(const fzn_node_settings_t *
 #define FZN_NODE_SETTINGS_K_KEY "revocation/k"
 uint8_t fzn_node_settings_quorum(const fzn_node_settings_t *ns, uint8_t fallback);
 
+/* WHERE A STORED ROW'S SETTING STARTS, for a reader of slot
+ * FZN_PERSIST_SETTING that wants the signed setting and not this node's
+ * head on it (sec 550): its offset in `row`, or 0 for a row of neither
+ * shape. */
+size_t fzn_node_settings_row_setting(const uint8_t *row, size_t len);
+
 /*
  * FORGET THE CLEARS LEARNED BEFORE `older_than`, sec 549: a clear stands only
  * to stop an older set arriving late from putting its value back, and past

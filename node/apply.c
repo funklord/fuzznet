@@ -279,12 +279,11 @@ static enum outcome take_setting(fzn_node_apply_t *ap, const uint8_t *body, size
 	return err == FZN_NODE_SETTINGS_OK || err == FZN_NODE_SETTINGS_STALE ? APPLIED : REFUSED;
 }
 
-static enum outcome apply_one(fzn_node_apply_t *ap, fzn_record_t rec,
-                              fzn_node_apply_tally_t *tally)
+/* ONE OBJECT of `kind`, signed by `signer`: the journal's record issuer, or
+ * the object's own signer when it came alone (sec 550). */
+static enum outcome apply_body(fzn_node_apply_t *ap, uint32_t kind, const uint8_t *body,
+                               size_t len, const uint8_t *signer, fzn_node_apply_tally_t *tally)
 {
-	const uint8_t *body = fzn_record_body(rec), *signer = fzn_record_issuer(rec);
-	size_t len = fzn_record_body_len(rec);
-	uint32_t kind = fzn_record_kind(rec);
 	fzn_node_roots_err_t rerr;
 
 	/* THE BODY IS THE OBJECT ITS KIND NAMES, sec 502: a record whose body's
@@ -328,6 +327,60 @@ static enum outcome apply_one(fzn_node_apply_t *ap, fzn_record_t rec,
 	default:
 		return REFUSED;
 	}
+}
+
+static enum outcome apply_one(fzn_node_apply_t *ap, fzn_record_t rec,
+                              fzn_node_apply_tally_t *tally)
+{
+	return apply_body(ap, fzn_record_kind(rec), fzn_record_body(rec), fzn_record_body_len(rec),
+	                  fzn_record_issuer(rec), tally);
+}
+
+fzn_node_apply_outcome_t fzn_node_apply_object(fzn_node_apply_t *ap, const uint8_t *object,
+                                               size_t len, fzn_node_apply_tally_t *tally)
+{
+	size_t at = 2u;
+
+	if (!ap || !object || !tally || !ap->store || !ap->store->save || !ap->revocations
+	    || !ap->root || !ap->capability || !ap->sign || !ap->hash || !ap->hash->hash)
+		return FZN_NODE_APPLY_REFUSED;
+	if (len < 2u || object[0] != (uint8_t)FZN_SIGNED_VERSION)
+		return FZN_NODE_APPLY_REFUSED;
+	/* THE SIGNER IS THE OBJECT'S OWN: byte 2 of every library object but a
+	 * revocation's, whose issuer follows its capability and grantee. */
+	if (object[1] == (uint8_t)FZN_OBJECT_REVOCATION
+	    || object[1] == (uint8_t)FZN_OBJECT_WITHDRAWAL)
+		at = FZN_REV_OFF_ISSUER;
+	if (len < at + FZN_PUBKEY_LEN)
+		return FZN_NODE_APPLY_REFUSED;
+	/* A GRANT IS SIGNED BY ITS GRANTOR, checked here: in a journal the
+	 * record's signature vouched for what it carried, and a lone hop has
+	 * nothing else to -- indexed unchecked, one peer could fill the index
+	 * and every digest with hops nobody signed. */
+	if (object[1] == (uint8_t)FZN_OBJECT_HOP) {
+		fzn_chain_hop_t hop;
+		const uint8_t *msg;
+		size_t msg_len;
+
+		if (fzn_hop_open(object, len, &hop) != FZN_CHAIN_OK)
+			return FZN_NODE_APPLY_REFUSED;
+		fzn_hop_signed_bytes(hop, &msg, &msg_len);
+		if (!ap->sign->verify || !ap->sign->verify(ap->sign->ctx, fzn_hop_grantor(hop), msg,
+		                                           msg_len, fzn_hop_signature(hop)))
+			return FZN_NODE_APPLY_REFUSED;
+	}
+	switch (apply_body(ap, object[1], object, len, object + at, tally)) {
+	case APPLIED:
+		return FZN_NODE_APPLY_APPLIED;
+	case WAIT:
+		return FZN_NODE_APPLY_WAITING;
+	case NOT_SAVED:
+	case FULL:
+		return FZN_NODE_APPLY_NOT_SAVED;
+	case REFUSED:
+		break;
+	}
+	return FZN_NODE_APPLY_REFUSED;
 }
 
 fzn_node_pull_err_t fzn_node_apply_round(fzn_node_apply_t *ap, fzn_node_apply_tally_t *tally)

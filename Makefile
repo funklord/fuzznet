@@ -164,7 +164,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/node.c node/local.c node/remote.c node/serve.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
-             node/journal.c node/opjournal.c node/apply.c node/settings.c \
+             node/journal.c node/opjournal.c node/apply.c node/settings.c node/holdings.c \
              messages/line.c messages/messages.c node/messages.c \
              contact/contact.c \
              contact/group.c \
@@ -262,7 +262,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/node.h node/local.h node/remote.h node/serve.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
-             node/journal.h node/opjournal.h node/apply.h node/settings.h \
+             node/journal.h node/opjournal.h node/apply.h node/settings.h node/holdings.h \
              messages/line.h messages/messages.h node/messages.h \
              contact/contact.h \
              contact/group.h \
@@ -3949,7 +3949,7 @@ $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
 # The journal applied to the subsystems, sec 503: pair_test's set, which
 # node/revoke.o's admission pulls in, and the journal.
 $(BUILD_DIR)/node/test/apply_test: $(BUILD_DIR)/node/test/apply_test.o \
-              $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
+              $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DIR)/node/holdings.o \
               $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
@@ -4187,6 +4187,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/state/scope.o \
                                       $(BUILD_DIR)/state/setting.o \
                                       $(BUILD_DIR)/node/settings.o \
+                                      $(BUILD_DIR)/node/holdings.o \
                                       $(BUILD_DIR)/node/apply.o \
                                       $(BUILD_DIR)/notes/note.o \
                                       $(BUILD_DIR)/local/client.o \

@@ -68,6 +68,15 @@ static int row_read(const uint8_t *buf, size_t len, fzn_setting_rank_t *rank, ui
 	return (unsigned)*rank < FZN_SETTING_RANKS;
 }
 
+size_t fzn_node_settings_row_setting(const uint8_t *row, size_t len)
+{
+	fzn_setting_rank_t rank;
+	uint64_t learned;
+	size_t head = 0;
+
+	return row && row_read(row, len, &rank, &learned, &head) ? head : 0u;
+}
+
 /* Save `bytes` as `cell`'s row at `rank`, learned at `learned`. */
 static int row_save(const fzn_node_settings_t *ns, const uint8_t row[FZN_PUBKEY_LEN],
                     fzn_setting_rank_t rank, uint64_t learned, const uint8_t *bytes, size_t len)

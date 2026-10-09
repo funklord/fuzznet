@@ -102,6 +102,27 @@ typedef struct fzn_node_apply_tally {
  * store is full, the object left unmarked for the next round. */
 fzn_node_pull_err_t fzn_node_apply_round(fzn_node_apply_t *ap, fzn_node_apply_tally_t *tally);
 
+typedef enum fzn_node_apply_outcome {
+	FZN_NODE_APPLY_APPLIED = 0,
+	/* Its signer's chain is not here yet; offered again, it may apply. */
+	FZN_NODE_APPLY_WAITING = 1,
+	/* Judged and refused, or of no kind applied. */
+	FZN_NODE_APPLY_REFUSED = 2,
+	/* Admitted and not kept: the store would not, or a table is full. */
+	FZN_NODE_APPLY_NOT_SAVED = 3
+} fzn_node_apply_outcome_t;
+
+/*
+ * ONE OBJECT ALONE, sec 550: an estate object that came by reconciliation
+ * rather than in a journal record, judged exactly as one in a record is --
+ * by the same switch, under the chain of its OWN signer, read from the
+ * object (a revocation's issuer, every other kind's byte 2). A record's
+ * issuer and its object's signer are one key on every honest path, so the
+ * object needs no record around it to say who signed it.
+ */
+fzn_node_apply_outcome_t fzn_node_apply_object(fzn_node_apply_t *ap, const uint8_t *object,
+                                               size_t len, fzn_node_apply_tally_t *tally);
+
 /*
  * THE GRANT INDEX FROM THE STORE, sec 545: every grant kept in slot
  * FZN_PERSIST_GRANT added to the index, so chains are rebuilt without

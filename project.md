@@ -60724,3 +60724,62 @@ forgets nothing, the 30-day pass forgets that one clear while the cell
 still reads absent, and the restart forgets nothing more. Five sabotage
 entries, each probed caught, and sec 540's row-is-its-cell entry
 re-anchored on the new row reader.
+
+## 550. Stage 5 planned, and step 1: holdings, 2026-10-09
+
+Sec 535's stage 5 is how a node gets the estate's state once the journal
+no longer holds it (secs 544-549): a node away past the window, a new
+member, or a stream a peer has cut below.
+
+**The holder's decisions, 2026-10-09.** Asked when a catching-up node
+should accept state from admins: "We have a configuration about what every
+node is supposed to hold, it is never merely a one-shot process." So this
+is reconciliation, continuous rather than a transfer that finishes. Every
+round each node compares what it holds with each peer and fetches what it
+lacks. An object one peer leaves out is filled by any other that holds it,
+so omission is repaired rather than ruled out before finishing.
+Conversation lines are deferred: they carry no signatures, and moving them
+is a step of its own later.
+
+**What is reconciled.** Measured against the slots: nine kinds of estate
+state reach a node only through the journal, each a signed object
+verifiable alone. These are grants (slot 39), root records (13), votes
+(11), admin confirmations (15), admin retention (27), roster (28),
+successions (30), settings (38) and note claims (17). Per-node and secret
+slots are not reconciled. Note wrap keys and conversation keys already
+travel by their own exchanges.
+
+The steps:
+
+1. **Holdings**: each class as signed objects with ids and a digest, and
+   one object applied alone by the same judgment a journal record gets.
+2. **An exchange**, served to members over the remote hop: a digest per
+   class, pages of ids, and objects by id.
+3. **Reconciliation each round with each pull peer**: an equal digest
+   costs nothing; otherwise the ids this node lacks are fetched and
+   applied, and an object that waits is offered again next round.
+4. **Streams behind a peer's base** take the peer's base and spine and
+   re-anchor there, so the journal resumes from the window.
+5. **A live check** in `make livecheck`: two nodes, one away past a short
+   window, coming back to the other's state.
+
+**Step 1, built.** `node/holdings.h`: classes for the eight estate slots
+(note claims follow in step 2, through the notes store's own path). An
+object's id is the hash of its signed bytes; a class's digest hashes a
+domain, the class, the count and the ids in ascending order, so two
+nodes holding the same set agree whatever order they learned it in.
+`fzn_node_apply_object` applies one object under its own signer -- a
+revocation's issuer, every other kind's byte 2 -- through the same
+switch as a journal record. It checks a lone grant's signature before
+indexing it, since no record vouches for it. Without that check, one peer
+could fill the grant index and every digest with hops nobody signed.
+
+Measured: apply_test 58 checks. A node's grants and settings, taken out of
+the store and handed one at a time to a fresh node holding nothing,
+setting before grant, reach every class's digest in more than one pass.
+A grant with one byte changed is refused and leaves the digest as it
+was. Three grants planted in two orders give one digest; a row of
+another tag or a short one is passed over; the ids come back ascending;
+both setting row shapes read past their heads. Five sabotage entries,
+each probed caught. Not covered: the revocation signer offset, since the
+fixture holds no votes.

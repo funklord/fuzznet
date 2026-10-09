@@ -8,6 +8,7 @@
  */
 
 #include "../apply.h"
+#include "../holdings.h"
 #include "../roster.h"
 #include "../settings.h"
 #include "../succession.h"
@@ -382,6 +383,26 @@ static void count_value(void *ctx, const fzn_setting_t *s, fzn_setting_rank_t ra
 	values_seen++;
 }
 
+/* Objects taken out of a store, in the order its holdings hand them. */
+struct snap {
+	uint8_t (*objects)[1024];
+	size_t *lens;
+	size_t max, n;
+};
+
+static int snap_one(void *ctx, const uint8_t id[FZN_HOLDINGS_ID_LEN], const uint8_t *object,
+                    size_t len)
+{
+	struct snap *s = (struct snap *)ctx;
+
+	(void)id;
+	if (s->n >= s->max || len > 1024u)
+		return 0;
+	memcpy(s->objects[s->n], object, len);
+	s->lens[s->n++] = len;
+	return 1;
+}
+
 /* The settings' clock, which the clears case moves. */
 static uint64_t clock_at = 1000u;
 
@@ -711,6 +732,89 @@ static void test_settings_judged(void)
 		              && in_force(&ns, FZN_SCOPE_ESTATE, 0x91, "y", NULL, FZN_SETTING_RANK_HOST),
 		      "a chain under the admin capability that does not verify ranked as an admin's");
 	}
+	/* RECONCILED FROM NOTHING, sec 550: every object this node holds, by
+	 * class, handed one at a time to a node that holds none -- a fresh
+	 * apply context over an emptied store -- until a pass changes nothing.
+	 * Every class's digest is then the source's, order of arrival
+	 * notwithstanding; and a grant with one byte changed is refused and
+	 * changes nothing. */
+	{
+		static uint8_t objects[128][1024];
+		static size_t lens[128];
+		static struct row saved[ROWS];
+		static fzn_node_apply_t ap2;
+		static fzn_node_settings_t ns2;
+		static fzn_revocation_t rev_entries2[8];
+		static fzn_revocation_admin_t admins2[4];
+		uint8_t want[FZN_HOLDINGS_CLASSES][FZN_HOLDINGS_ID_LEN], got[FZN_HOLDINGS_ID_LEN];
+		size_t want_count[FZN_HOLDINGS_CLASSES], got_count = 0, n = 0, i, pass, c;
+		fzn_revocation_store_t revs2;
+		struct snap s = { objects, lens, 128u, 0u };
+		int ok = 1, same = 0;
+		fzn_node_apply_outcome_t forged;
+
+		/* THIS ESTATE'S STATE ONLY: the roster and succession rows an
+		 * earlier case left in the shared store are another root's. */
+		memcpy(saved, rows, sizeof(rows));
+		for (i = 0; i < ROWS; i++)
+			if (rows[i].used
+			    && (rows[i].slot == FZN_PERSIST_ROSTER || rows[i].slot == FZN_PERSIST_SUCCESSION))
+				memset(&rows[i], 0, sizeof(rows[i]));
+		for (c = 0; c < FZN_HOLDINGS_CLASSES; c++)
+			ok = ok
+			     && fzn_holdings_digest(&store, &HASH, (fzn_holdings_class_t)c, want[c],
+			                            &want_count[c]) == FZN_HOLDINGS_OK
+			     && fzn_holdings_each(&store, &HASH, (fzn_holdings_class_t)c, snap_one, &s,
+			                          NULL) == FZN_HOLDINGS_OK;
+		n = s.n;
+		CHECK(ok && n < 128u && want_count[FZN_HOLDINGS_GRANTS] >= 2u
+		              && want_count[FZN_HOLDINGS_SETTINGS] >= 4u,
+		      "fixture: this node's grants and settings, digested and taken out");
+		memset(rows, 0, sizeof(rows));
+		memset(&ap2, 0, sizeof(ap2));
+		CHECK(fzn_revocation_store_init(&revs2, rev_entries2, 8) == FZN_CHAIN_OK
+		              && fzn_revocation_store_set_quorum(&revs2, 1u, &admin_cap, admins2, 4u)
+		                         == FZN_CHAIN_OK,
+		      "fixture: a node that holds nothing");
+		ap2.journal = &nj;
+		ap2.revocations = &revs2;
+		ap2.store = &store;
+		ap2.root = r;
+		ap2.capability = &cap;
+		ap2.admin_capability = &admin_cap;
+		ap2.sign = &SIGN;
+		ap2.hash = &HASH;
+		ap2.settings = &ns2;
+		ap2.roots = ap.roots;
+		ap2.roster = ap.roster;
+		ap2.successions = ap.successions;
+		ap2.now = clock_now;
+		ns2 = ns;
+		ns2.apply = &ap2;
+		/* THE LAST FIRST, so a setting arrives before the grant that ranks
+		 * its setter, and waits for it. */
+		for (pass = 0; pass < 8u && !same; pass++) {
+			for (i = n; i-- > 0u;)
+				(void)fzn_node_apply_object(&ap2, objects[i], lens[i], &t);
+			same = 1;
+			for (c = 0; c < FZN_HOLDINGS_CLASSES; c++)
+				same = same
+				       && fzn_holdings_digest(&store, &HASH, (fzn_holdings_class_t)c, got,
+				                              &got_count) == FZN_HOLDINGS_OK
+				       && got_count == want_count[c] && memcmp(got, want[c], sizeof(got)) == 0;
+		}
+		CHECK(same && pass > 1u,
+		      "a node holding nothing did not come to every class's digest by objects alone");
+		memcpy(objects[n], objects[0], lens[0]);
+		objects[n][lens[0] - 1u] ^= 1u;
+		forged = fzn_node_apply_object(&ap2, objects[n], lens[0], &t);
+		CHECK(forged == FZN_NODE_APPLY_REFUSED
+		              && fzn_holdings_digest(&store, &HASH, FZN_HOLDINGS_GRANTS, got, &got_count)
+		                         == FZN_HOLDINGS_OK
+		              && memcmp(got, want[FZN_HOLDINGS_GRANTS], sizeof(got)) == 0,
+		      "an object with a byte changed was taken, or changed the digest");
+		memcpy(rows, saved, sizeof(rows));
+	}
 	/* A ROW UNDER ANOTHER CELL'S PLACE is not that cell's: the estate's
 	 * rule copied over the root's row for the member's cell, which then
 	 * falls to the member's own value. */
@@ -738,6 +842,99 @@ static void test_settings_judged(void)
 	fzn_node_journal_close(&nj);
 }
 
+/* Plant `n` bytes as a row of `slot` under a subject made from `seed`. */
+static void plant(fzn_persist_slot_t slot, uint8_t seed, const uint8_t *bytes, size_t n)
+{
+	uint8_t subject[FZN_PUBKEY_LEN];
+
+	memset(subject, seed, sizeof(subject));
+	(void)mem_save(NULL, slot, subject, bytes, n);
+}
+
+/* A hop-shaped object: the right version, tag and length, `fill` behind. */
+static void fake_hop(uint8_t out[FZN_HOP_LEN], uint8_t fill)
+{
+	memset(out, fill, FZN_HOP_LEN);
+	out[0] = FZN_SIGNED_VERSION;
+	out[1] = FZN_OBJECT_HOP;
+}
+
+/* HOLDINGS, sec 550: a class is the rows of its slot that hold its object.
+ * Three grants planted in one order and then in another give one digest; a
+ * row of another tag or length is passed over; a different set gives a
+ * different digest; the ids come back ascending and are found; a setting
+ * row of either shape reads past its head. */
+static void test_holdings(void)
+{
+	fzn_persist_ops_t store = { 0 };
+	uint8_t hops[3][FZN_HOP_LEN], bad[FZN_HOP_LEN], d1[FZN_HOLDINGS_ID_LEN];
+	uint8_t d2[FZN_HOLDINGS_ID_LEN], d3[FZN_HOLDINGS_ID_LEN], ids[8][FZN_HOLDINGS_ID_LEN];
+	uint8_t setting[1u + 8u + 4u], old_shape[1u + 4u];
+	size_t n1 = 0, n2 = 0, n = 0, i;
+	int ascending = 1, found = 1;
+
+	store.load = mem_load;
+	store.save = mem_save;
+	store.list = mem_list;
+	memset(rows, 0, sizeof(rows));
+	for (i = 0; i < 3u; i++)
+		fake_hop(hops[i], (uint8_t)(0x10u + i));
+	fake_hop(bad, 0x20);
+	bad[1] = FZN_OBJECT_REVOCATION;
+	for (i = 0; i < 3u; i++)
+		plant(FZN_PERSIST_GRANT, (uint8_t)(1u + i), hops[i], FZN_HOP_LEN);
+	plant(FZN_PERSIST_GRANT, 9u, bad, FZN_HOP_LEN);
+	plant(FZN_PERSIST_GRANT, 10u, hops[0], FZN_HOP_LEN - 1u);
+	CHECK(fzn_holdings_digest(&store, &HASH, FZN_HOLDINGS_GRANTS, d1, &n1) == FZN_HOLDINGS_OK
+	              && n1 == 3u,
+	      "the grants class was not the three grants alone");
+	memset(rows, 0, sizeof(rows));
+	plant(FZN_PERSIST_GRANT, 7u, hops[2], FZN_HOP_LEN);
+	plant(FZN_PERSIST_GRANT, 5u, hops[0], FZN_HOP_LEN);
+	plant(FZN_PERSIST_GRANT, 6u, hops[1], FZN_HOP_LEN);
+	CHECK(fzn_holdings_digest(&store, &HASH, FZN_HOLDINGS_GRANTS, d2, &n2) == FZN_HOLDINGS_OK
+	              && n2 == 3u && memcmp(d1, d2, sizeof(d1)) == 0,
+	      "the same grants in another order gave another digest");
+	CHECK(fzn_holdings_ids(&store, &HASH, FZN_HOLDINGS_GRANTS, ids, 8u, &n) == FZN_HOLDINGS_OK
+	              && n == 3u,
+	      "the grants' ids were not listed");
+	for (i = 1; i < n; i++)
+		ascending &= memcmp(ids[i - 1u], ids[i], FZN_HOLDINGS_ID_LEN) < 0;
+	for (i = 0; i < n; i++)
+		found &= fzn_holdings_among((const uint8_t(*)[FZN_HOLDINGS_ID_LEN])ids, n, ids[i]);
+	CHECK(ascending && found
+	              && !fzn_holdings_among((const uint8_t(*)[FZN_HOLDINGS_ID_LEN])ids, n, d1)
+	              && fzn_holdings_ids(&store, &HASH, FZN_HOLDINGS_GRANTS, ids, 2u, &n)
+	                         == FZN_HOLDINGS_FULL,
+	      "the ids were not ascending and found, or a short list was not FULL");
+	plant(FZN_PERSIST_GRANT, 8u, bad, FZN_HOP_LEN);
+	bad[1] = FZN_OBJECT_HOP;
+	plant(FZN_PERSIST_GRANT, 8u, bad, FZN_HOP_LEN);
+	CHECK(fzn_holdings_digest(&store, &HASH, FZN_HOLDINGS_GRANTS, d3, &n) == FZN_HOLDINGS_OK
+	              && n == 4u && memcmp(d3, d1, sizeof(d1)) != 0,
+	      "a fourth grant left the digest as it was");
+	/* SETTINGS: a stamped row and one of the older shape, each read past
+	 * its head; the object itself is the same four bytes. */
+	setting[0] = 0x80u | (uint8_t)FZN_SETTING_RANK_ROOT;
+	memset(setting + 1, 0, 8);
+	setting[9] = FZN_SIGNED_VERSION;
+	setting[10] = FZN_OBJECT_SETTING;
+	setting[11] = 0x41;
+	setting[12] = 0x42;
+	old_shape[0] = (uint8_t)FZN_SETTING_RANK_ROOT;
+	memcpy(old_shape + 1, setting + 9, 4);
+	plant(FZN_PERSIST_SETTING, 1u, setting, sizeof(setting));
+	CHECK(fzn_holdings_digest(&store, &HASH, FZN_HOLDINGS_SETTINGS, d1, &n1) == FZN_HOLDINGS_OK
+	              && n1 == 1u,
+	      "a stamped setting row was not read");
+	memset(rows, 0, sizeof(rows));
+	plant(FZN_PERSIST_SETTING, 1u, old_shape, sizeof(old_shape));
+	CHECK(fzn_holdings_digest(&store, &HASH, FZN_HOLDINGS_SETTINGS, d2, &n2) == FZN_HOLDINGS_OK
+	              && n2 == 1u && memcmp(d1, d2, sizeof(d1)) == 0,
+	      "a setting row of the older shape was read as another object");
+	memset(rows, 0, sizeof(rows));
+}
+
 int main(void)
 {
 	char path[512];
@@ -750,6 +947,7 @@ int main(void)
 	}
 	test_the_journal_applied();
 	test_settings_judged();
+	test_holdings();
 	/* EVERY STREAM FILE, BY NAME, then the directory. */
 	for (i = 0; i < n_used; i++) {
 		static const char DIGITS[] = "0123456789abcdef";

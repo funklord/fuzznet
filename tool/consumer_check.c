@@ -147,6 +147,7 @@
 #include <fuzznet/node/messages.h>
 #include <fuzznet/node/apply.h>
 #include <fuzznet/node/settings.h>
+#include <fuzznet/node/holdings.h>
 #ifdef FZN_CLI_ON
 #include <fuzznet/cli/cli.h>
 #endif
@@ -315,6 +316,7 @@
 #include "node/messages.h"
 #include "node/apply.h"
 #include "node/settings.h"
+#include "node/holdings.h"
 #ifdef FZN_CLI_ON
 #include "cli/cli.h"
 #endif
