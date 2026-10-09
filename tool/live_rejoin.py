@@ -26,6 +26,10 @@ older than the 60-day window when A next cuts:
        hold the old month, so its reconcile pass passes it over rather than
        fetching it, and no line lists (sec 566). Without the policy it
        would file the line, as B did
+    f  B, with A down, writes a line under the old clock, then cuts it from
+       its own journal on the real clock. A pulls from nobody, so only B's
+       push can bring it (sec 569): B's pass pushes it, and it reads at A,
+       its key given by B's own key round
 
 The waits are on the daemons' own lines -- A's cut pass, B's reconcile
 pass, B's "moved up" -- and each is checked before the settings are.
@@ -61,6 +65,7 @@ WITNESS_RE = re.compile(r"an estate stream moved up to 127\.0\.0\.1's base, its 
                         r"confirmed by (\d+) other peer\(s\) of (\d+) asked")
 LINES_RE = re.compile(r"reconcile pass: .*; lines (\d+) lacked, (\d+) filed, (\d+) month\(s\) "
                       r"passed over")
+PUSHED_RE = re.compile(r"reconcile pass: .*, (\d+) pushed")
 MISSING_RE = re.compile(r"claims no longer hold what this node lacks|would not move")
 
 
@@ -153,6 +158,8 @@ def listed(sock, tag):
 
 CONTACT = "5a" * 32
 LINE_ID = "02" + "00" * 15
+PUSHED_CONTACT = "7c" * 32
+PUSHED_ID = "03" + "00" * 15
 
 
 def line_reads(sock, tag):
@@ -169,6 +176,22 @@ def line_reads(sock, tag):
 		if time.monotonic() > until or left() < 0.1:
 			raise failed("%s: list message answered %r, without away-line readable"
 			             % (tag, reply))
+		time.sleep(0.5)
+
+
+def reads_at(sock, tag, contact, text):
+	"""`contact`'s one line, `text`, readable at `sock` within 30 s."""
+	until = time.monotonic() + 30.0
+	while True:
+		reply = ask(sock, "list message " + contact)
+		fields = reply.split(" ", 4)
+		if len(fields) == 5 and fields[0] == "ok" and fields[2] == "1":
+			parts = fields[4].split(",")
+			if len(parts) >= 9 and parts[7] == "1" and parts[8] == text:
+				return
+		if time.monotonic() > until or left() < 0.1:
+			raise failed("%s: list message answered %r, without %s readable"
+			             % (tag, reply, text))
 		time.sleep(0.5)
 
 
@@ -334,6 +357,41 @@ def main(argv):
 				a.stop()
 			print("livecheck: e: a member under a drop policy passed %s month(s) over and "
 			      "fetched no line" % lines.group(3))
+
+			# f: a line only B's push can bring to A. sec 569.
+			# A IS DOWN, so B runs with no pull peer: its round would only wait
+			# on A, and neither the write nor its own cut needs it.
+			b = daemon(run, "b4", b_dir, b_sock, fake=fake)
+			try:
+				reply = ask(b_sock, "add message %s out %s pushed-line"
+				            % (PUSHED_CONTACT, PUSHED_ID))
+				if not reply.startswith("ok"):
+					raise failed("f: add message answered %r" % reply)
+			finally:
+				b.stop()
+			b = daemon(run, "b5", b_dir, b_sock)
+			try:
+				cut = b.wait_for(CUT_RE, "B's cut pass")
+				if int(cut.group(2)) < 1:
+					raise failed("f: B's cut pass cut nothing; its old line was older than "
+					             "the window")
+			finally:
+				b.stop()
+			a = daemon(run, "a5", a_dir, a_sock, extra=["--udp-port=" + port])
+			try:
+				b = daemon(run, "b6", b_dir, b_sock, extra=["--root-at", "127.0.0.1", port])
+				try:
+					pushed = b.wait_for(PUSHED_RE, "reconcile pass")
+					if int(pushed.group(1)) < 1:
+						raise failed("f: B's pass pushed %s line(s); A lacks the line B "
+						             "wrote" % pushed.group(1))
+					reads_at(a_sock, "f", PUSHED_CONTACT, "pushed-line")
+				finally:
+					b.stop()
+			finally:
+				a.stop()
+			print("livecheck: f: B pushed %s line(s) A could not have pulled, and it reads "
+			      "at A" % pushed.group(1))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

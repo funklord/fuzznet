@@ -19,7 +19,10 @@ endian big
 target buffer
 
 enum fzn_reconcile_type : u8 unknown=error
-  digest_query=1 digest=2 ids_query=3 ids=4 objects_query=5 objects=6 base_query=7 base=8 buckets_query=9 buckets=10 bucket_ids_query=11 bucket_ids=12 item_query=13 item=14
+  digest_query=1 digest=2 ids_query=3 ids=4 objects_query=5 objects=6 base_query=7 base=8 buckets_query=9 buckets=10 bucket_ids_query=11 bucket_ids=12 item_query=13 item=14 item_put=15 item_took=16
+
+enum fzn_reconcile_took : u8 unknown=error
+  more=0 kept=1 held=2 refused=3 not_wanted=4
 
 struct fzn_reconcile_base size=52..6291412
   @0x0000   1         u8         version  must_eq=6
@@ -120,12 +123,32 @@ struct fzn_reconcile_item size=45..65580
   @0x002b   2         u16        len  big
   @0x002d   0..65535  u8         bytes  sized-by=len
 
+struct fzn_reconcile_item_put size=81..65616
+  @0x0000   1         u8         version  must_eq=6
+  @0x0001   1         fzn_reconcile_type type  must_eq=item_put
+  @0x0002   1         u8         kind  max=0
+  @0x0003   32        u8         subject  big
+  @0x0023   4         u32        month  big
+  @0x0027   32        u8         id  big
+  @0x0047   4         u32        total  big min=1 max=4096
+  @0x004b   4         u32        offset  big
+  @0x004f   2         u16        len  big
+  @0x0051   0..65535  u8         bytes  sized-by=len
+
 struct fzn_reconcile_item_query size=39
   @0x0000   1         u8         version  must_eq=6
   @0x0001   1         fzn_reconcile_type type  must_eq=item_query
   @0x0002   1         u8         kind  max=0
   @0x0003   32        u8         id  big
   @0x0023   4         u32        offset  big
+
+struct fzn_reconcile_item_took size=40
+  @0x0000   1         u8         version  must_eq=6
+  @0x0001   1         fzn_reconcile_type type  must_eq=item_took
+  @0x0002   1         u8         kind  max=0
+  @0x0003   32        u8         id  big
+  @0x0023   1         fzn_reconcile_took took
+  @0x0024   4         u32        held  big
 
 struct fzn_reconcile_object size=5..2050
   @0x0000   2         u16        len  big min=3 max=2048

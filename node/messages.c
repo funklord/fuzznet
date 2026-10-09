@@ -414,6 +414,21 @@ fzn_messages_err_t fzn_node_messages_file(fzn_node_messages_t *nm,
 	return err;
 }
 
+void fzn_node_messages_pushed(fzn_node_messages_t *nm, const uint8_t contact[FZN_PUBKEY_LEN],
+                              uint32_t epoch, const uint8_t *item, size_t len)
+{
+	uint8_t key[FZN_CONVERSATION_KEY_LEN];
+	const uint8_t *device;
+
+	if (!nm || !contact || !item || len < 3u + FZN_RECORD_OFF_ISSUER + FZN_PUBKEY_LEN)
+		return;
+	device = item + 3u + FZN_RECORD_OFF_ISSUER;
+	if (!same_key(device, nm->m.issuer) || !fzn_messages_key_get(&nm->m, contact, epoch, device, key))
+		return;
+	memset(key, 0, sizeof(key));
+	note_key(nm, nm->gives, &nm->n_gives, contact, epoch, device);
+}
+
 /* ---- keys between members ------------------------------------------------ */
 
 static void put_place(uint8_t *at, const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch)

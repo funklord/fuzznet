@@ -861,6 +861,35 @@ static void test_a_returning_device_files_lines(void)
 	      "a trimmed month took its items back");
 }
 
+/* A LINE PUSHED AND KEPT, sec 569: its key is this device's to give when
+ * this device wrote it, and another device's when it did not. */
+static void test_a_pushed_line_owes_its_key(void)
+{
+	static uint8_t item[FZN_BUCKETS_ITEM_MAX];
+	uint8_t id[FZN_MESSAGE_ID_LEN], subject[FZN_PUBKEY_LEN];
+	uint32_t month = 0;
+	size_t len;
+
+	setup();
+	device_up(&M, 0x44);
+	device_up(&R, 0x55);
+	host_up(&M, &R);
+	host_up(&R, &M);
+	memset(id, 0x91, sizeof(id));
+	CHECK(fzn_messages_write(&R.nm.m, X, FZN_MESSAGE_OUT, id, 1u, "pushed", 6u)
+	              == FZN_MESSAGES_OK
+	              && (len = first_item(&R, item, subject, &month)) > 0u,
+	      "fixture: R writes a line and holds its item");
+	R.nm.n_gives = 0;
+	fzn_node_messages_pushed(&R.nm, subject, month, item, len);
+	CHECK(R.nm.n_gives == 1u && memcmp(R.nm.gives[0].device, R.pub, FZN_PUBKEY_LEN) == 0
+	              && R.nm.gives[0].epoch == month,
+	      "R's own line pushed and kept did not owe R's key for its month");
+	M.nm.n_gives = 0;
+	fzn_node_messages_pushed(&M.nm, subject, month, item, len);
+	CHECK(M.nm.n_gives == 0u, "a line another device wrote owed this device's key");
+}
+
 /* LINES TAKEN BEFORE ITEMS WERE KEPT get theirs from the journal, once. */
 static void test_backfill_from_the_journal(void)
 {
@@ -970,6 +999,7 @@ int main(void)
 	test_a_cut_keeps_a_line_whole();
 	test_a_returning_device_files_lines();
 	test_backfill_from_the_journal();
+	test_a_pushed_line_owes_its_key();
 	if (failures) {
 		fprintf(stderr, "node messages_test: %d of %d checks failed\n", failures, checks);
 		return 1;

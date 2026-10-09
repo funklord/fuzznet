@@ -1543,19 +1543,6 @@ static int serves_bucket(void *ctx, fzn_buckets_kind_t kind, const uint8_t subje
 	return 0;
 }
 
-static size_t holdings_remote(void *ctx, const uint8_t *sender, const uint8_t *request,
-                              size_t request_len, uint8_t *reply, size_t reply_cap)
-{
-	const fzn_node_apply_t *ap = (const fzn_node_apply_t *)ctx;
-	struct serving_to to = { sender, -1 };
-	fzn_reconcile_gate_t gate = { serves_bucket, &to };
-
-	if (!sender)
-		return 0;
-	return fzn_reconcile_answer_gated(ap->store, ap->hash, ap->journal, &gate, request,
-	                                  request_len, reply, reply_cap);
-}
-
 /* A NOTE CLAIM RECONCILED, sec 555: filed as the index files one, a writer
  * not admitted yet left to be offered again. */
 static fzn_node_apply_outcome_t notes_file(void *ctx, const uint8_t *record, size_t len)
@@ -1616,6 +1603,36 @@ static int line_wanted(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN], uint32_
 	               : 1;
 }
 
+/* A LINE PUSHED AND KEPT, sec 569: its key, when this node's, given at the
+ * round's key exchange. */
+static void line_pushed(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch,
+                        const uint8_t *item, size_t len)
+{
+	fzn_node_messages_pushed((fzn_node_messages_t *)ctx, contact, epoch, item, len);
+}
+
+static size_t holdings_remote(void *ctx, const uint8_t *sender, const uint8_t *request,
+                              size_t request_len, uint8_t *reply, size_t reply_cap)
+{
+	const fzn_node_apply_t *ap = (const fzn_node_apply_t *)ctx;
+	struct serving_to to = { sender, -1 };
+	fzn_reconcile_gate_t gate = { serves_bucket, &to };
+	fzn_reconcile_filer_t lines = { line_file, line_wanted, &line_rules };
+	fzn_reconcile_server_t srv;
+
+	if (!sender)
+		return 0;
+	memset(&srv, 0, sizeof(srv));
+	srv.store = ap->store;
+	srv.hash = ap->hash;
+	srv.journal = ap->journal;
+	srv.gate = &gate;
+	/* A MEMBER'S LINES PUSHED, sec 569, filed and judged as fetched ones. */
+	srv.taker = messages_on ? &lines : NULL;
+	srv.sender = sender;
+	return fzn_reconcile_serve(&srv, request, request_len, reply, reply_cap);
+}
+
 /* WHETHER A PULL PEER IS OF THIS NODE'S ESTATE, sec 556: `--root-at` is its
  * root by construction; a `--pull-from` peer is when the chain this node was
  * paired under starts at this estate's root or a member of its root set. A
@@ -1648,7 +1665,7 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 	static uint8_t reply[FZND_PULL_REPLY_MAX];
 	fzn_reconcile_notes_t notes = { notes_file, &node_notes };
 	size_t t, lacked = 0, applied = 0, waiting = 0, refused = 0, foreign = 0;
-	size_t lines_lacked = 0, lines_filed = 0, lines_passed = 0;
+	size_t lines_lacked = 0, lines_filed = 0, lines_passed = 0, lines_pushed = 0;
 
 	if (!node_apply.store || !node_apply.journal || !node_apply.root)
 		return;
@@ -1707,15 +1724,40 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 			lines_lacked += bt.lacked;
 			lines_filed += bt.applied + bt.waiting;
 			lines_passed += bt.passed;
+			/* AND PUSHED, sec 569: what the peer lacks, for a peer that
+			 * cannot reach this node, through the gate a peer asking would
+			 * meet. When both reach each other each pull already brought it,
+			 * so this costs one listing. */
+			{
+				struct serving_to to = {
+					pulls[t].is_root_at ? node_apply.root : pulls[t].node, -1
+				};
+				fzn_reconcile_gate_t gate = { serves_bucket, &to };
+
+				fzn_reconcile_sent_t owed = { line_pushed, &node_messages };
+
+				err = fzn_reconcile_push(&node_messages.buckets, FZN_BUCKETS_MESSAGES, &gate,
+				                         &owed, peer_ask, &asking, reply, sizeof(reply), &bt);
+				if (err != FZN_RECONCILE_OK) {
+					say(FZN_ENTRY_WARNING, "reconcile", "conversations to %s: %s",
+					    pulls[t].host, fzn_reconcile_err_str(err));
+					continue;
+				}
+				if (bt.sent || bt.refused)
+					say(bt.refused ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "reconcile",
+					    "%zu line(s) pushed to %s, %zu refused there", bt.sent,
+					    pulls[t].host, bt.refused);
+				lines_pushed += bt.sent;
+			}
 		}
 	}
 	/* EVERY PASS THAT RAN SAYS SO, at debug, as the trim's and the cut's do. */
 	say(FZN_ENTRY_DEBUG, "reconcile",
 	    "reconcile pass: %zu peer(s), %zu of another estate passed over, %zu lacked, "
 	    "%zu applied, %zu waiting, %zu refused; lines %zu lacked, %zu filed, %zu month(s) "
-	    "passed over",
+	    "passed over, %zu pushed",
 	    npulls, foreign, lacked, applied, waiting, refused, lines_lacked, lines_filed,
-	    lines_passed);
+	    lines_passed, lines_pushed);
 }
 
 /* STREAMS THIS NODE IS BEHIND A PEER'S BASE ON, sec 552: the peer cut what

@@ -127,12 +127,32 @@ struct fzn_reconcile_item size=45..65580 mutate=Shifting repr=ValueConverted ato
   fzn_reconcile_item.len                 offset=AbsoluteStatic(0x2B) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
   fzn_reconcile_item.bytes               offset=AbsoluteStatic(0x2D) size=Bounded(0, 65535) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
 
+struct fzn_reconcile_item_put size=81..65616 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_reconcile_item_put.version         offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_item_put.type            offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_item_put.kind            offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_item_put.subject         offset=AbsoluteStatic(0x03) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  fzn_reconcile_item_put.month           offset=AbsoluteStatic(0x23) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_reconcile_item_put.id              offset=AbsoluteStatic(0x27) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  fzn_reconcile_item_put.total           offset=AbsoluteStatic(0x47) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_reconcile_item_put.offset          offset=AbsoluteStatic(0x4B) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_reconcile_item_put.len             offset=AbsoluteStatic(0x4F) size=Fixed(2) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_reconcile_item_put.bytes           offset=AbsoluteStatic(0x51) size=Bounded(0, 65535) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
 struct fzn_reconcile_item_query size=39 repr=ValueConverted atomic=NonAtomic
   fzn_reconcile_item_query.version       offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   fzn_reconcile_item_query.type          offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
   fzn_reconcile_item_query.kind          offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
   fzn_reconcile_item_query.id            offset=AbsoluteStatic(0x03) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
   fzn_reconcile_item_query.offset        offset=AbsoluteStatic(0x23) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+
+struct fzn_reconcile_item_took size=40 repr=ValueConverted atomic=NonAtomic
+  fzn_reconcile_item_took.version        offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_item_took.type           offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_item_took.kind           offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_item_took.id             offset=AbsoluteStatic(0x03) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  fzn_reconcile_item_took.took           offset=AbsoluteStatic(0x23) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_reconcile_item_took.held           offset=AbsoluteStatic(0x24) size=Fixed(4) align=Aligned(4) repr=ValueConverted atomic=AtomicWord
 
 struct fzn_reconcile_object size=5..2050 mutate=Shifting repr=ValueConverted
   fzn_reconcile_object.len               offset=AbsoluteStatic(0x00) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord

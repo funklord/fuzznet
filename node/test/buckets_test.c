@@ -650,6 +650,147 @@ static void test_a_gate_serves_only_what_it_may(void)
 	      "without the gate B did not take the two barred buckets' items");
 }
 
+/* ---- push, sec 569: B cannot reach A, so A sends ------------------------ */
+
+static uint8_t sender_a[FZN_PUBKEY_LEN];
+
+/* B ANSWERING A, taking what A pushes: `taking` 0 takes none; `flip` 1
+ * changes a byte of the next piece in flight; `drop` > 0 loses that many
+ * puts unanswered, as a hop broken off. */
+static struct receiving {
+	int taking, flip, drop;
+	size_t puts, bytes;
+} receiving;
+
+static int to_b(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                size_t reply_cap, size_t *reply_len)
+{
+	static uint8_t copy[FZN_RECONCILE_ITEM_PUT_HEAD_LEN + FZN_RECONCILE_PIECE_MAX];
+	fzn_reconcile_filer_t filer = { keep_it, months_wanted, (void *)&B };
+	fzn_reconcile_server_t srv;
+	size_t n;
+
+	(void)ctx;
+	memset(&srv, 0, sizeof(srv));
+	srv.store = &store_b;
+	srv.hash = &HASH;
+	srv.taker = receiving.taking ? &filer : NULL;
+	srv.sender = sender_a;
+	if (request_len >= 2u && request[1] == FZN_RECONCILE_ITEM_PUT) {
+		receiving.puts++;
+		if (request_len > FZN_RECONCILE_ITEM_PUT_HEAD_LEN)
+			receiving.bytes += request_len - FZN_RECONCILE_ITEM_PUT_HEAD_LEN;
+		/* ONLY A PIECE CARRYING BYTES is lost, so the loss lands mid-item. */
+		if (receiving.drop > 0 && request_len > FZN_RECONCILE_ITEM_PUT_HEAD_LEN) {
+			receiving.drop--;
+			/* THE PIECE ARRIVES, its answer does not. */
+			(void)fzn_reconcile_serve(&srv, request, request_len, reply, reply_cap);
+			return 0;
+		}
+		if (receiving.flip && request_len > FZN_RECONCILE_ITEM_PUT_HEAD_LEN
+		    && request_len <= sizeof(copy)) {
+			memcpy(copy, request, request_len);
+			copy[FZN_RECONCILE_ITEM_PUT_HEAD_LEN] ^= 0x01u;
+			request = copy;
+		}
+	}
+	n = fzn_reconcile_serve(&srv, request, request_len, reply, reply_cap);
+	if (!n)
+		return 0;
+	*reply_len = n;
+	return 1;
+}
+
+static fzn_reconcile_err_t push_a_to_b(fzn_reconcile_bucket_tally_t *t)
+{
+	static uint8_t reply[FZN_RECONCILE_REPLY_MIN];
+
+	return fzn_reconcile_push(&A, FZN_BUCKETS_MESSAGES, NULL, NULL, to_b, NULL, reply,
+	                          sizeof(reply), t);
+}
+
+static void test_a_push_brings_a_peer_up(void)
+{
+	uint8_t s1[FZN_PUBKEY_LEN], s2[FZN_PUBKEY_LEN];
+	fzn_reconcile_bucket_tally_t t;
+	fzn_reconcile_err_t err;
+	unsigned i;
+	int all = 1;
+
+	fresh();
+	memset(sender_a, 0xa0, sizeof(sender_a));
+	memset(refused_subject, 0xff, sizeof(refused_subject));
+	memset(&receiving, 0, sizeof(receiving));
+	receiving.taking = 1;
+	wanted_months_below = 0;
+	subject_of(s1, 20);
+	subject_of(s2, 21);
+	for (i = 0; i < 70u; i++)
+		all &= add_n(&A, s1, 770u, i, 25u);
+	all &= add_n(&A, s2, 771u, 300u, FZN_BUCKETS_ITEM_MAX) && add_n(&A, s2, 772u, 301u, 25u);
+	all &= add_n(&B, s1, 770u, 5u, 25u);
+	CHECK(all, "fixture: three buckets at A, one item of one at B");
+	err = push_a_to_b(&t);
+	if (err != FZN_RECONCILE_OK || t.sent != 71u)
+		fprintf(stderr, "    %s: %zu buckets, %zu lacked, %zu sent, %zu held, %zu refused\n",
+		        fzn_reconcile_err_str(err), t.buckets, t.lacked, t.sent, t.held, t.refused);
+	CHECK(err == FZN_RECONCILE_OK && t.buckets == 3u && t.lacked == 71u && t.sent == 71u
+	              && t.refused == 0u && same_buckets(),
+	      "a push did not bring B's buckets up to A's, the 4096-byte item in pieces");
+	receiving.puts = 0;
+	CHECK(push_a_to_b(&t) == FZN_RECONCILE_OK && t.buckets == 0u && receiving.puts == 0u,
+	      "a second push sent anything");
+}
+
+static void test_what_a_push_does_not_leave(void)
+{
+	uint8_t s1[FZN_PUBKEY_LEN], s2[FZN_PUBKEY_LEN];
+	fzn_reconcile_bucket_tally_t t;
+	fzn_bucket_t k;
+
+	fresh();
+	memset(sender_a, 0xa0, sizeof(sender_a));
+	memset(refused_subject, 0xff, sizeof(refused_subject));
+	memset(&receiving, 0, sizeof(receiving));
+	wanted_months_below = 0;
+	subject_of(s1, 22);
+	subject_of(s2, 23);
+	CHECK(add_n(&A, s1, 780u, 1u, 25u) && add_n(&A, s2, 781u, 2u, 25u)
+	              && add_n(&A, s2, 782u, 3u, FZN_BUCKETS_ITEM_MAX),
+	      "fixture: three buckets at A");
+	/* A RECEIVER TAKING NO PUSHES says not wanted, at the first piece. */
+	CHECK(push_a_to_b(&t) == FZN_RECONCILE_OK && t.passed == 3u && t.sent == 0u
+	              && receiving.puts == 3u && receiving.bytes == 0u,
+	      "a receiver taking no pushes kept something, or was sent a byte");
+	receiving.taking = 1;
+	/* A CHANGED BYTE: the whole is not its id, and nothing is kept. */
+	receiving.flip = 1;
+	CHECK(push_a_to_b(&t) == FZN_RECONCILE_OK && t.refused == 3u && t.sent == 0u
+	              && fzn_buckets_bucket(&B, FZN_BUCKETS_MESSAGES, s1, 780u, &k) == FZN_BUCKETS_OK
+	              && k.count == 0u,
+	      "a pushed item that is not its id was kept");
+	receiving.flip = 0;
+	/* GONE, OR NOT WANTED, at the first piece; the rest kept. */
+	CHECK(fzn_buckets_drop(&B, FZN_BUCKETS_MESSAGES, s1, 780u) == FZN_BUCKETS_OK,
+	      "fixture: B let 780 go");
+	wanted_months_below = 782;
+	receiving.bytes = 0;
+	CHECK(push_a_to_b(&t) == FZN_RECONCILE_OK && t.passed == 2u && t.sent == 1u
+	              && receiving.bytes == 25u,
+	      "a gone bucket and an unwanted one were sent a byte, or the third not kept");
+	wanted_months_below = 0;
+	/* BROKEN OFF after a piece, the push resumes where B holds it. */
+	receiving.drop = 1;
+	CHECK(push_a_to_b(&t) == FZN_RECONCILE_ERR_NO_ANSWER,
+	      "fixture: a push broken off after its first piece of bytes");
+	receiving.bytes = 0;
+	CHECK(push_a_to_b(&t) == FZN_RECONCILE_OK && t.sent == 1u
+	              && receiving.bytes == FZN_BUCKETS_ITEM_MAX - FZN_RECONCILE_PIECE_MAX
+	              && fzn_buckets_bucket(&B, FZN_BUCKETS_MESSAGES, s2, 782u, &k) == FZN_BUCKETS_OK
+	              && k.count == 1u,
+	      "the next push resent what B held, or did not finish the item");
+}
+
 int main(void)
 {
 	test_an_item_is_held_once();
@@ -663,6 +804,8 @@ int main(void)
 	test_pieces_over_the_smallest_reply();
 	test_what_is_not_taken();
 	test_a_gate_serves_only_what_it_may();
+	test_a_push_brings_a_peer_up();
+	test_what_a_push_does_not_leave();
 	printf("buckets_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;
 }

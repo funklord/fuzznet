@@ -156,6 +156,14 @@ fzn_messages_err_t fzn_node_messages_file(fzn_node_messages_t *nm,
                                           const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch,
                                           const uint8_t *item, size_t len, int *waiting);
 
+/* A LINE THIS NODE PUSHED, sec 569, and the peer kept: an item as
+ * `fzn_messages_file` reads it. When this device wrote it, its month's key
+ * is noted to give at the next round -- the peer holds no stream of this
+ * node's to learn the line from, and so no want of its own to ask with. A
+ * line another device wrote is that device's key to give. */
+void fzn_node_messages_pushed(fzn_node_messages_t *nm, const uint8_t contact[FZN_PUBKEY_LEN],
+                              uint32_t epoch, const uint8_t *item, size_t len);
+
 /* How a node asks a member: send `request`, fill `reply`. Nonzero on an
  * answer. */
 typedef int (*fzn_node_messages_ask_t)(void *ctx, const uint8_t *request, size_t request_len,

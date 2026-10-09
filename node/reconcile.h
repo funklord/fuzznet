@@ -44,8 +44,21 @@ typedef enum fzn_reconcile_type {
 	FZN_RECONCILE_BUCKET_IDS_QUERY = 11,
 	FZN_RECONCILE_BUCKET_IDS = 12,
 	FZN_RECONCILE_ITEM_QUERY = 13,
-	FZN_RECONCILE_ITEM = 14
+	FZN_RECONCILE_ITEM = 14,
+	/* The same items pushed, sec 569. */
+	FZN_RECONCILE_ITEM_PUT = 15,
+	FZN_RECONCILE_ITEM_TOOK = 16
 } fzn_reconcile_type_t;
+
+/* What a receiver says of a pushed item: `node/reconcile.situ`'s
+ * fzn_reconcile_took. */
+typedef enum fzn_reconcile_took {
+	FZN_RECONCILE_TOOK_MORE = 0,
+	FZN_RECONCILE_TOOK_KEPT = 1,
+	FZN_RECONCILE_TOOK_HELD = 2,
+	FZN_RECONCILE_TOOK_REFUSED = 3,
+	FZN_RECONCILE_TOOK_NOT_WANTED = 4
+} fzn_reconcile_took_t;
 
 /* The fixed parts, from `node/reconcile.situ.map`. */
 #define FZN_RECONCILE_DIGEST_QUERY_LEN 2u
@@ -65,7 +78,16 @@ typedef enum fzn_reconcile_type {
 #define FZN_RECONCILE_BUCKET_IDS_HEAD_LEN 49u
 #define FZN_RECONCILE_ITEM_QUERY_LEN 39u
 #define FZN_RECONCILE_ITEM_HEAD_LEN 45u
-
+#define FZN_RECONCILE_ITEM_PUT_HEAD_LEN 81u
+#define FZN_RECONCILE_ITEM_TOOK_LEN 40u
+/* The most bytes one pushed piece carries: a request is put back together
+ * up to 32 KiB (sec 447), and this leaves its head and envelope room. */
+#define FZN_RECONCILE_PIECE_MAX 2048u
+/* Pushes a receiver holds part of at once, one per sender and item; past
+ * it the oldest is let go and resent from its start. */
+#define FZN_RECONCILE_STAGED_MAX 8u
+/* The most ids of one bucket a pusher compares with its own. */
+#define FZN_RECONCILE_PEER_IDS_MAX 16384u
 /* The longest bridge of spine entries a rebase takes. */
 #define FZN_RECONCILE_BRIDGE_MAX 4096u
 
@@ -119,6 +141,29 @@ size_t fzn_reconcile_answer_gated(const fzn_persist_ops_t *store, const fzn_hash
                                   const uint8_t *request, size_t request_len, uint8_t *reply,
                                   size_t reply_cap);
 
+/* WHERE AN APPEND-ONLY KIND'S ITEM GOES, declared below; a server taking
+ * pushed items files them through it. */
+struct fzn_reconcile_filer;
+
+/* EVERYTHING ONE CALLER'S REQUEST IS ANSWERED FROM, sec 569: the store,
+ * the journal (NULL answers no BASE_QUERY), the gate (NULL serves every
+ * bucket), and for pushed items the kind's filer -- NULL takes none -- and
+ * the sender, whose pieces are staged apart from any other's. */
+typedef struct fzn_reconcile_server {
+	const fzn_persist_ops_t *store;
+	const fzn_hash_ops_t *hash;
+	fzn_node_journal_t *journal;
+	const fzn_reconcile_gate_t *gate;
+	const struct fzn_reconcile_filer *taker;
+	const uint8_t *sender;
+} fzn_reconcile_server_t;
+
+/* EVERY MESSAGE OF THE EXCHANGE, answered: the classes, the bases, the
+ * buckets through the gate, and a pushed item staged, checked and filed
+ * once whole. 0 for what is none of them. */
+size_t fzn_reconcile_serve(const fzn_reconcile_server_t *srv, const uint8_t *request,
+                           size_t request_len, uint8_t *reply, size_t reply_cap);
+
 /* How a node reaches its peer: send `request`, fill `reply`, 1 for an
  * answer. The shape every pull here takes. */
 typedef int (*fzn_reconcile_ask_t)(void *ctx, const uint8_t *request, size_t request_len,
@@ -157,6 +202,8 @@ typedef struct fzn_reconcile_filer {
 
 typedef struct fzn_reconcile_bucket_tally {
 	size_t buckets;  /* buckets whose digest differed */
+	size_t sent;     /* items pushed whole and kept there (push) */
+	size_t held;     /* items the peer said it held already (push) */
 	size_t passed;   /* buckets gone here, or not wanted */
 	size_t lacked;   /* items the peer holds and this node does not */
 	size_t applied;  /* items fetched and filed */
@@ -174,6 +221,29 @@ fzn_reconcile_err_t fzn_reconcile_buckets(const fzn_buckets_t *b, fzn_buckets_ki
                                           fzn_reconcile_ask_t ask, void *ask_ctx,
                                           uint8_t *reply, size_t reply_cap,
                                           fzn_reconcile_bucket_tally_t *tally);
+
+/* THE SAME KIND PUSHED, sec 569: for a peer that cannot reach this node.
+ * The peer's buckets are listed once and each of this node's compared with
+ * them; where the peer lacks a bucket or it differs, the peer's ids are
+ * paged and each item it lacks is sent in pieces, resumed from what it
+ * says it holds. `gate` (NULL for every bucket) is this node's view of
+ * what the peer may be given -- the same gate a peer asking would meet.
+ * The peer judges each item as one it fetched: tally's `sent` it kept,
+ * `held` it had, `refused`, and `passed` its rules would not hold. */
+/* WHAT A PUSHER IS TOLD OF EACH ITEM THE PEER KEPT, sec 569: what the
+ * kind owes beside it -- for a line, its month's key, which the peer has
+ * no stream of this node's to learn it from. */
+typedef struct fzn_reconcile_sent {
+	void (*kept)(void *ctx, const uint8_t subject[FZN_PUBKEY_LEN], uint32_t month,
+	             const uint8_t *item, size_t len);
+	void *ctx;
+} fzn_reconcile_sent_t;
+
+fzn_reconcile_err_t fzn_reconcile_push(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
+                                       const fzn_reconcile_gate_t *gate,
+                                       const fzn_reconcile_sent_t *sent,
+                                       fzn_reconcile_ask_t ask, void *ask_ctx, uint8_t *reply,
+                                       size_t reply_cap, fzn_reconcile_bucket_tally_t *tally);
 
 /* ONE ROUND WITH ONE PEER: every class, in the order of
  * `fzn_holdings_class_t` -- grants first, so a chain is here before what it

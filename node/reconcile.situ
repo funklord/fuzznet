@@ -24,6 +24,17 @@ enum fzn_reconcile_type : u8 {
 	bucket_ids    = 12,  // "These, of this many."
 	item_query    = 13,  // "That item's bytes, from this offset."
 	item          = 14,  // "Of so many, these." 0 of 0: not held here.
+	item_put      = 15,  // "Take this item, these bytes of it." sec 569.
+	item_took     = 16,  // "Of it I hold so much -- or kept it, or will not."
+}
+
+// What a receiver says of an item pushed to it, sec 569.
+enum fzn_reconcile_took : u8 {
+	more         = 0,   // send on from `held`
+	kept         = 1,   // whole, checked and filed
+	held         = 2,   // held already; send no more of it
+	refused      = 3,   // not its id's, or its kind's filer refused it
+	not_wanted   = 4,   // a bucket gone here, or one its rules would not hold
 }
 
 struct fzn_reconcile_digest_query {
@@ -181,4 +192,28 @@ struct fzn_reconcile_item {
 	u32                 offset;             // echoed
 	u16                 len;
 	u8                  bytes[len];
+}
+
+// ---- push, sec 569: the same items, sent rather than fetched -------------
+
+struct fzn_reconcile_item_put {
+	u8                  version [must_eq = 6];
+	fzn_reconcile_type  type    [must_eq = item_put];
+	u8                  kind    [max = 0];
+	u8                  subject[32];
+	u32                 month;
+	u8                  id[32];
+	u32                 total   [min = 1, max = 4096]; // the item's length
+	u32                 offset;             // where these bytes start
+	u16                 len;
+	u8                  bytes[len];
+}
+
+struct fzn_reconcile_item_took {
+	u8                  version [must_eq = 6];
+	fzn_reconcile_type  type    [must_eq = item_took];
+	u8                  kind    [max = 0];
+	u8                  id[32];
+	fzn_reconcile_took  took;
+	u32                 held;               // bytes held of it, for `more`
 }

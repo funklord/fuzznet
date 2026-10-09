@@ -61410,3 +61410,99 @@ verb, a key that is none is malformed, and the owner's grant is one hop
 of the retention capability to that key from this root, logged.
 `make livecheck` passes unchanged, the rejoining member's line served
 through the gate. Five sabotage entries, each probed caught.
+
+## 568. Stage 4 planned: logs on the layer, and push beside pull, 2026-10-09
+
+**The holder's decisions, asked this session:**
+
+- **"All transfer modes should maintain both a push and pull mechanism as
+  we normally will find them to be necessary in different situations."**
+  The bucket exchange gains a push direction for every kind, messages
+  included: a host that reaches a peer but cannot be reached by it offers
+  the peer what the peer lacks, and the peer judges each item exactly as
+  one it fetched. Logs' own copy pull and push (secs 483, 488) then
+  retire, the bucket exchange carrying both directions.
+- **"Yes, keep is keep."** With no log rules a host holding the retention
+  capability collects every source it is served (sec 566's one policy per
+  kind); `policy log drop` and keep rules narrow it, and `--log-copy`
+  becomes such a rule.
+
+**Steps:**
+
+1. Push: the pusher lists the peer's buckets of a kind, compares each
+   with its own, pages the peer's ids where one differs, and sends each
+   item the peer lacks in pieces. The peer stages the pieces per sender
+   and item, checks the whole against its id, and files it through the
+   kind's own filer and wanted rules; it answers how far it holds, so a
+   push broken off resumes. Messages first, where items fit one piece.
+   Built in sec 569.
+2. Large items: an item row that names where the item is rather than
+   holding it, a reader for the server's pieces, and a fetch that writes
+   pieces to a staging file rather than memory.
+3. Logs as a kind: a packed segment is an item, its subject the source
+   host, its month its closing time's. Filed by its trailer's signature
+   by the subject's key, one segment at a time: a month can arrive in
+   any order, so chain completeness becomes a check's report rather than
+   a gate. Served: this host's own segments, and the copies it holds.
+   Wanted: the log rules, copy rules, `source=` and policy.
+4. Removal by segment: a log's retention removes single segments, not
+   months. A removed item keeps its id in its bucket, so the digest still
+   agrees with peers that hold it, and answers as not held; only a month
+   dropped whole is gone.
+5. Retire the copy pull and push of secs 483 and 488, and `--log-copy`.
+
+## 569. Stage 4, step 1: push beside pull for the bucket exchange, 2026-10-09
+
+Sec 568's first step, built for every kind and used for conversations.
+
+- **Two messages, `item_put` and `item_took`** (types 15 and 16 of
+  version 6). A put carries an item's bucket, id and length and some of
+  its bytes from an offset; the answer is `more` (send on from `held`),
+  `kept`, `held` (already there), `refused`, or `not_wanted`.
+- **The pusher** (`fzn_reconcile_push`) lists the peer's buckets once,
+  walks its own beside them, and where the peer lacks a bucket or its
+  digest differs, pages the peer's ids and sends each item the peer does
+  not name. **Each item opens with an empty piece** that only asks where
+  to start: an item the peer holds, has let go or would not take costs no
+  bytes, and a push broken off resumes from what arrived. It sends through
+  this node's own gate, the one a peer asking would meet, and tells a
+  `sent` hook of each item the peer kept.
+- **The receiver** (`fzn_reconcile_serve`, which now takes the store,
+  journal, gate, filer and sender in one struct) judges an item at its
+  first piece -- held, gone, or not wanted by its rules -- before staging
+  any byte; stages pieces per sender and item, in order, up to 8 items at
+  once; and checks the whole against its id before filing it through the
+  same filer a fetched item meets. A node taking no pushes says
+  `not_wanted` rather than falling through.
+- **fuzznetd** takes pushed lines on its reconcile hook and, after pulling
+  each in-estate peer's conversations, pushes its own. When both reach
+  each other the pull already brought them, and the push costs one
+  listing. The `reconcile pass:` debug line ends with lines pushed.
+- **A pushed line owes its key.** A device that pulls learns a line's
+  month from the writer's stream and asks for its key; a peer given the
+  line by push holds no such stream. So when a peer keeps a line this
+  device wrote, this device's key for that month is noted to give at the
+  round's key exchange (`fzn_node_messages_pushed`). A line another
+  device wrote is that device's key to give: a receiver that neither pulls
+  from that device nor is pushed to by it waits for its key, as a member
+  reached only through a hub does today.
+
+Not tested, and why: the receiver's held-already answer is reached only
+by a race, since a pusher sends only what the peer's own ids lack; and
+its in-order refusal answers the same as the staged length when an empty
+first piece meets staged bytes, so a sabotage of either is not seen. Both
+stay as defences.
+
+Measured: buckets_test 54 checks -- a push brings 71 items over three
+buckets, one of 4096 bytes in pieces, and a second push sends nothing; a
+receiver taking no pushes is sent no byte; a changed byte is refused and
+nothing kept; a gone month and an unwanted one cost no byte while the
+third is kept; and a push broken off after its first piece of bytes
+resumes, sending only the 2048 bytes the receiver lacked. node
+messages_test 78 -- a line this device wrote owes its key when pushed, and
+another device's does not. `tool/live_rejoin.py` adds phase f: B, with A
+down, writes a line under the old clock and cuts it from its own journal;
+A pulls from nobody, so B's push is the only way it can arrive, and it
+reads at A, its key given by B. Against a fuzznetd that does not push,
+phase f fails at "pushed 0 line(s)". Six sabotage entries, each probed
+caught.
