@@ -39,6 +39,7 @@
 /record/test/store_test
 /qr/test/qr_test
 /record/test/store_file_test
+/record/test/store_file_nopunch_test
 /cli/test/cli_test
 /cli/test/qr_print_test
 /cli/test/log_print_test

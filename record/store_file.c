@@ -173,7 +173,9 @@ static int store_file_get(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint3
 /* CUT [from, below): each slot's length zeroed, from the top down, so every
  * one reads as absent whatever happens next; then the range's blocks given
  * back where the system punches holes. Zeroing is the cut and punching only
- * the space, so a filesystem that will not punch still cuts. */
+ * the space, so a filesystem that will not punch still cuts. A build with
+ * FZN_RECORD_STORE_FILE_NO_PUNCH is that system, which is how the suite sees
+ * the zeroing alone (sec 563). */
 static int store_file_cut(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
                           uint64_t from, uint64_t below)
 {
@@ -190,7 +192,7 @@ static int store_file_cut(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint3
 	for (seq = below - 1u; seq >= from; seq--)
 		if (pwrite(fd, zero, sizeof(zero), (off_t)((seq - 1u) * SLOT)) != (ssize_t)sizeof(zero))
 			return 0;
-#ifdef FALLOC_FL_PUNCH_HOLE
+#if defined(FALLOC_FL_PUNCH_HOLE) && !defined(FZN_RECORD_STORE_FILE_NO_PUNCH)
 	(void)fallocate(fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
 	                (off_t)((from - 1u) * SLOT), (off_t)((below - from) * SLOT));
 #endif

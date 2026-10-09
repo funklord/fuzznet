@@ -60685,10 +60685,10 @@ that reads every stream from 1, the restart fails, which is what makes
 it a check. Seven sabotage entries, each probed caught, and the two
 sec 542 entries for k re-anchored on the shared count parser.
 
-Not seen: a notes stream cut by the daemon, since the live run writes no
-note. The file store's zeroing and its hole punch each make a cut slot
-read absent, so on a filesystem that punches, no test can see the
-zeroing alone.
+The live run wrote no note, so a notes stream cut by the daemon was
+first seen in sec 555's. The file store's zeroing and its hole punch
+each make a cut slot read absent, so the suite saw the zeroing alone only
+once a build without the punch ran it (sec 563).
 
 Decision 6, a clear remembered for the window and then forgotten, is
 built in sec 549.
@@ -61171,3 +61171,22 @@ authorization, and a sabotage of either would have gone unseen until now.
 Measured: reconcile_test 30 checks, admin_test 217. Three sabotage
 entries, each probed caught: the revocation signer read from byte 2, the
 remote gate taking any rank, and the removal answering ok.
+
+## 563. The file store's cut seen without the hole punch, 2026-10-09
+
+Sec 548 said no test could see the file store's zeroing alone. A cut zeroes
+each slot's length prefix and then punches the range's blocks out. On a
+filesystem that punches, the hole reads as zero too, so a store that
+skipped the zeroing still passed. That path is the whole cut on a
+system without `FALLOC_FL_PUNCH_HOLE`, or on a filesystem that refuses it.
+
+`FZN_RECORD_STORE_FILE_NO_PUNCH` compiles the punch out. The Makefile
+builds the store and its suite again with it, as
+`store_file_nopunch_test`, and that run asserts the cut records read
+absent and that no block came back. The second assertion is what shows
+the punch really was off, so the absence is the zeroing's.
+
+Measured: both builds 154 checks. With the zeroing removed, the punching
+build passes and the other fails at the cut. With the define kept from
+the store object, the block count fails, 56 before and 8 after. One
+sabotage entry.

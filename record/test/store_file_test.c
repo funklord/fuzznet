@@ -532,7 +532,12 @@ static void test_a_stream_can_be_forgotten(void)
 
 /* A RANGE CUT, sec 548: forty records, the first thirty-nine let go. Those
  * read as absent and the fortieth as before; the blocks they held are given
- * back; and a cut from zero or of nothing is refused. */
+ * back; and a cut from zero or of nothing is refused.
+ *
+ * Built with FZN_RECORD_STORE_FILE_NO_PUNCH (sec 563), the backend cannot
+ * punch, as on a system without the call: the same records must read absent
+ * by the zeroing alone, and no block may come back -- which is what says the
+ * punch really was off, so the absence was the zeroing's. */
 static void test_a_range_can_be_cut(void)
 {
 	fzn_record_store_file_t backend;
@@ -570,9 +575,15 @@ static void test_a_range_can_be_cut(void)
 	                         == FZN_RECORD_STORE_OK,
 	      "a record cut still reads, or the one above the cut does not");
 	REQUIRE(stat(path, &after) == 0, "the stream file could not be measured again");
+#ifdef FZN_RECORD_STORE_FILE_NO_PUNCH
+	CHECK(after.st_blocks == before.st_blocks,
+	      "the build without the punch gave blocks back: %lld before, %lld after",
+	      (long long)before.st_blocks, (long long)after.st_blocks);
+#else
 	CHECK(after.st_blocks < before.st_blocks,
 	      "the cut gave no blocks back: %lld before, %lld after", (long long)before.st_blocks,
 	      (long long)after.st_blocks);
+#endif
 
 	fzn_record_store_file_close(&backend);
 	unlink_stream(ISSUER, 23u);

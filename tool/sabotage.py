@@ -10151,6 +10151,13 @@ SABOTAGES = [
 		"a cut of nothing reaches the backend and is reported as the store failing -- sec 548",
 	),
 	(
+		"store-file-cut-zeroes-each-slot",
+		"record/store_file.c",
+		"\t\tif (pwrite(fd, zero, sizeof(zero), (off_t)((seq - 1u) * SLOT)) != (ssize_t)sizeof(zero))\n\t\t\treturn 0;\n",
+		"\t\t(void)zero;\n",
+		"a system that cannot punch keeps every cut record readable; only the build without the punch sees it -- sec 563",
+	),
+	(
 		"journal-cut-keeps-the-spine-first",
 		"node/journal.c",
 		"\tif (stream == FZN_NODE_JOURNAL_STREAM)\n\t\tfor (seq = base; seq < below; seq++)",

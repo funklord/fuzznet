@@ -1290,6 +1290,12 @@ TEST_BINS += $(BUILD_DIR)/node/test/apply_test
 TEST_BINS += $(BUILD_DIR)/node/test/reconcile_test
 TEST_BINS += $(BUILD_DIR)/messages/test/messages_test
 TEST_BINS += $(BUILD_DIR)/node/test/messages_test
+# The same store and suite again with the hole punch compiled out, as on a
+# system without it: the cut is the zeroing, and only this build sees the
+# zeroing alone (sec 563).
+TEST_OBJS += $(BUILD_DIR)/record/store_file_nopunch.o \
+             $(BUILD_DIR)/record/test/store_file_nopunch_test.o
+TEST_BINS += $(BUILD_DIR)/record/test/store_file_nopunch_test
 endif
 
 CAPTURE_RUN_SRCS := log/capture_run.c
@@ -2948,6 +2954,22 @@ $(BUILD_DIR)/record/test/store_test: $(BUILD_DIR)/record/test/store_test.o \
 
 $(BUILD_DIR)/record/test/store_file_test: $(BUILD_DIR)/record/test/store_file_test.o \
                                      $(BUILD_DIR)/record/store_file.o \
+                                     $(BUILD_DIR)/record/store.o \
+                                     $(BUILD_DIR)/record/record.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/record/store_file_nopunch.o: record/store_file.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -DFZN_RECORD_STORE_FILE_NO_PUNCH -c $< -o $@
+
+$(BUILD_DIR)/record/test/store_file_nopunch_test.o: record/test/store_file_test.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(CPPFLAGS) -DFZN_RECORD_STORE_FILE_NO_PUNCH -c $< -o $@
+
+$(BUILD_DIR)/record/test/store_file_nopunch_test: $(BUILD_DIR)/record/test/store_file_nopunch_test.o \
+                                     $(BUILD_DIR)/record/store_file_nopunch.o \
                                      $(BUILD_DIR)/record/store.o \
                                      $(BUILD_DIR)/record/record.o \
                                      $(BUILD_DIR)/constant_time/constant_time.o
