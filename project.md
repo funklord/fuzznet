@@ -60871,8 +60871,8 @@ entries, each probed caught.
 
 Not exercised: fuzznetd's reaction to a missing stream, and the cursor
 moves it makes, until step 5's live check. A peer that lies about the
-subjects in a bridge is caught by nothing yet. The remedy is the one
-reconciliation uses, comparing with a second peer, and it is not built.
+subjects in a bridge was caught by nothing; comparing with a second peer
+is built in sec 557.
 
 ## 553. A device paired to a node is not in its estate; a member takes its settings, 2026-10-09
 
@@ -60928,8 +60928,9 @@ proved nothing about the setting.
 Stage 5 is built: holdings (550), reconciliation every round (551),
 streams moved up to a peer's base (552), and this. Still open: note
 claims (slot 17) are not reconciled (since done, sec 555); the subjects
-in a spine bridge are the peer's word; and a pull peer of another estate
-is reconciled with every round to no effect (since settled, sec 556).
+in a spine bridge are the peer's word (since checked against a second
+peer, sec 557); and a pull peer of another estate is reconciled with
+every round to no effect (since settled, sec 556).
 
 ## 555. Note claims reconciled, 2026-10-09
 
@@ -61011,3 +61012,38 @@ and not joined, pulls from A, and its reconcile pass counts one peer of
 another estate and lacks nothing. Against a daemon whose check always
 answers "this estate", phase d fails at "0 of another estate, 6 lacked".
 B, joined and pulling with `--root-at`, passes nobody over.
+
+## 557. A bridge's subjects checked against a second peer, 2026-10-09
+
+Sec 552's open limit. A bridge is checked at its two ends, but the
+subjects between are the one part the ids cannot vouch for, and a peer
+could change one -- making an act stand under a cut it was never in, or
+fall from one it was.
+
+- **Every other pull peer of this estate witnesses the bridge**
+  (`fzn_reconcile_witness_t`, passed to `fzn_reconcile_rebase`). Each is
+  asked for the same sequences, and every entry it gives must be the same
+  -- id, predecessor and subject. One that disagrees anywhere refuses the
+  move, with the new `FZN_RECONCILE_ERR_CONFLICT`, and the stream stays
+  where it was. One that cannot answer, or gives no entry, confirms
+  nothing.
+- **A witness answers from its records as well as its spine.** The BASE
+  answer now serves entries up to what its journal has received, not
+  only up to its base, so a peer that cut less than the one serving the
+  bridge -- or nothing -- vouches from the records themselves.
+- **fuzznetd** passes every other pull peer of this estate as a witness
+  and logs how many confirmed an estate stream's bridge, as a warning
+  when none did: a node with one pull peer still moves on that peer's
+  word, as reconciliation trusts its single peer, and says so.
+
+Measured: reconcile_test 27 checks. A holds thirty and cuts below the
+twenty-eighth, and W pulled all thirty first. A bridge from A moves B1
+with W confirming from its records. One with a subject changed meets W's
+disagreement, and B2 does not move. The same lie with no witness
+answering moves B2 unconfirmed, which is the case the witness exists
+for. `tool/live_rejoin.py` asserts B's line: confirmed by 0 of 0 asked,
+B pulling from A alone. Two sabotage entries, each probed caught.
+
+Not exercised live: a witness that is a second running daemon. That
+needs a third node joined to the estate. The comparison is the unit
+tests', and the wiring is seen live only with none to ask.

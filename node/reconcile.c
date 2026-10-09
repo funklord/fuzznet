@@ -22,6 +22,8 @@ const char *fzn_reconcile_err_str(fzn_reconcile_err_t err)
 		return "the peer answered something that is not a reconciliation message";
 	case FZN_RECONCILE_ERR_STORE:
 		return "this node's store would not list or keep";
+	case FZN_RECONCILE_ERR_CONFLICT:
+		return "a second peer tells the stream otherwise";
 	}
 	return "unknown";
 }
@@ -162,12 +164,15 @@ static size_t answer_objects(const fzn_persist_ops_t *store, const fzn_hash_ops_
 }
 
 /* A STREAM'S BASE, the id below it, and its spine from `from`: as many
- * entries as fit, stopping at the first this journal cannot give. */
+ * entries as fit, up to what this journal has received -- from the spine
+ * below its base and from the records above it, so a peer that cut less is
+ * a witness to a bridge another peer serves (sec 557) -- stopping at the
+ * first it cannot give. */
 static size_t answer_base(fzn_node_journal_t *journal, const uint8_t *request, size_t request_len,
                           uint8_t *reply, size_t reply_cap)
 {
 	uint8_t below[FZN_RECORD_ID_LEN];
-	uint64_t base, from, seq;
+	uint64_t base, from, seq, received;
 	size_t at = FZN_RECONCILE_BASE_HEAD_LEN, count = 0;
 	uint32_t stream;
 
@@ -179,8 +184,9 @@ static size_t answer_base(fzn_node_journal_t *journal, const uint8_t *request, s
 	if (from == 0u)
 		return 0;
 	base = fzn_node_journal_base_below(journal, request + 2u, stream, below);
+	received = fzn_node_journal_received(journal, request + 2u, stream);
 	if (stream == FZN_NODE_JOURNAL_STREAM)
-		for (seq = from; seq < base && count < 0xffffu
+		for (seq = from; seq <= received && count < 0xffffu
 		                 && reply_cap - at >= FZN_NODE_JOURNAL_SPINE_ENTRY;
 		     seq++) {
 			if (!fzn_node_journal_spine_entry(journal, request + 2u, seq, reply + at))
@@ -419,28 +425,30 @@ fzn_reconcile_err_t fzn_reconcile_round(fzn_node_apply_t *ap, const fzn_reconcil
 /* ---- a stream behind a peer's base ------------------------------------- */
 
 static uint8_t bridge[FZN_RECONCILE_BRIDGE_MAX][FZN_NODE_JOURNAL_SPINE_ENTRY];
+static uint8_t witnessed[FZN_RECONCILE_BRIDGE_MAX][FZN_NODE_JOURNAL_SPINE_ENTRY];
 
-fzn_reconcile_err_t fzn_reconcile_rebase(fzn_node_journal_t *journal, fzn_reconcile_ask_t ask,
-                                         void *ask_ctx, const uint8_t issuer[FZN_PUBKEY_LEN],
-                                         uint32_t stream, uint8_t *reply, size_t reply_cap,
-                                         uint64_t *base)
+/* ONE PEER'S BRIDGE for `issuer`'s `stream` from `held` + 1: its base and the
+ * id below it into `*base` and `below`, and up to `want` entries -- or, with
+ * `want` of 0, as many as reach just below its base -- into `out`, `*n` of
+ * them. A peer that runs out of entries early ends the bridge there. */
+static fzn_reconcile_err_t bridge_of(fzn_reconcile_ask_t ask, void *ask_ctx,
+                                     const uint8_t issuer[FZN_PUBKEY_LEN], uint32_t stream,
+                                     uint64_t held, uint64_t want, uint8_t *reply,
+                                     size_t reply_cap, uint64_t *base,
+                                     uint8_t below[FZN_RECORD_ID_LEN],
+                                     uint8_t (*out)[FZN_NODE_JOURNAL_SPINE_ENTRY], size_t *n)
 {
-	uint8_t request[FZN_RECONCILE_BASE_QUERY_LEN], below[FZN_RECORD_ID_LEN];
-	uint64_t held, theirs = 0, want = 0;
+	uint8_t request[FZN_RECONCILE_BASE_QUERY_LEN];
 	size_t have = 0;
+	int first = 1;
 
-	if (base)
-		*base = 0;
-	if (!journal || !ask || !issuer || !reply || reply_cap < FZN_RECONCILE_REPLY_MIN)
-		return FZN_RECONCILE_ERR_MALFORMED;
-	held = fzn_node_journal_received(journal, issuer, stream);
+	*n = 0;
+	*base = 0;
 	request[0] = (uint8_t)FZN_RECONCILE_VERSION;
 	request[1] = (uint8_t)FZN_RECONCILE_BASE_QUERY;
 	memcpy(request + 2u, issuer, FZN_PUBKEY_LEN);
 	fzn_put_be32(request + 34u, stream);
-	/* THE BRIDGE, A PAGE AT A TIME, from just above this journal's
-	 * position to just below the peer's base. */
-	do {
+	for (;;) {
 		size_t reply_len = 0, count;
 
 		fzn_put_be64(request + 38u, held + 1u + have);
@@ -453,28 +461,82 @@ fzn_reconcile_err_t fzn_reconcile_rebase(fzn_node_journal_t *journal, fzn_reconc
 		                            + (size_t)fzn_get_be16(reply + 50u)
 		                                      * FZN_NODE_JOURNAL_SPINE_ENTRY)
 			return FZN_RECONCILE_ERR_SHAPE;
-		if (have == 0u) {
-			theirs = fzn_get_be64(reply + 2u);
-			memcpy(below, reply + 10u, sizeof(below));
-			/* NOT AHEAD OF THIS JOURNAL: nothing to take. */
-			if (theirs < 2u || theirs - 1u <= held)
-				return FZN_RECONCILE_OK;
-			want = stream == FZN_NODE_JOURNAL_STREAM ? theirs - 1u - held : 0u;
+		if (first) {
+			*base = fzn_get_be64(reply + 2u);
+			memcpy(below, reply + 10u, FZN_RECORD_ID_LEN);
+			if (!want) {
+				/* THE PEER'S OWN BRIDGE: to just below its base, or
+				 * nothing for a peer not ahead of this journal. */
+				if (*base < 2u || *base - 1u <= held || stream != FZN_NODE_JOURNAL_STREAM)
+					return FZN_RECONCILE_OK;
+				want = *base - 1u - held;
+			}
 			if (want > FZN_RECONCILE_BRIDGE_MAX)
 				return FZN_RECONCILE_ERR_STORE;
-		} else if (fzn_get_be64(reply + 2u) != theirs) {
+			first = 0;
+		} else if (fzn_get_be64(reply + 2u) != *base) {
 			/* THE PEER CUT AGAIN between two pages: next round. */
+			*n = 0;
 			return FZN_RECONCILE_OK;
 		}
 		count = fzn_get_be16(reply + 50u);
 		if (count > want - have)
 			count = (size_t)(want - have);
-		memcpy(bridge[have], reply + FZN_RECONCILE_BASE_HEAD_LEN,
+		memcpy(out[have], reply + FZN_RECONCILE_BASE_HEAD_LEN,
 		       count * FZN_NODE_JOURNAL_SPINE_ENTRY);
 		have += count;
-		if (count == 0u && have < want)
-			return FZN_RECONCILE_ERR_SHAPE;
-	} while (have < want);
+		*n = have;
+		if (have >= want || count == 0u)
+			return FZN_RECONCILE_OK;
+	}
+}
+
+fzn_reconcile_err_t fzn_reconcile_rebase(fzn_node_journal_t *journal, fzn_reconcile_ask_t ask,
+                                         void *ask_ctx, const fzn_reconcile_witness_t *witnesses,
+                                         size_t n_witnesses, const uint8_t issuer[FZN_PUBKEY_LEN],
+                                         uint32_t stream, uint8_t *reply, size_t reply_cap,
+                                         uint64_t *base, size_t *confirmed)
+{
+	uint8_t below[FZN_RECORD_ID_LEN], their_below[FZN_RECORD_ID_LEN];
+	uint64_t held, theirs = 0, other = 0;
+	size_t have = 0, w;
+	fzn_reconcile_err_t err;
+
+	if (base)
+		*base = 0;
+	if (confirmed)
+		*confirmed = 0;
+	if (!journal || !ask || !issuer || !reply || reply_cap < FZN_RECONCILE_REPLY_MIN
+	    || (n_witnesses && !witnesses))
+		return FZN_RECONCILE_ERR_MALFORMED;
+	held = fzn_node_journal_received(journal, issuer, stream);
+	err = bridge_of(ask, ask_ctx, issuer, stream, held, 0u, reply, reply_cap, &theirs, below,
+	                bridge, &have);
+	if (err != FZN_RECONCILE_OK)
+		return err;
+	if (theirs < 2u || theirs - 1u <= held)
+		return FZN_RECONCILE_OK;
+	if (stream == FZN_NODE_JOURNAL_STREAM && have != theirs - 1u - held)
+		return have ? FZN_RECONCILE_ERR_SHAPE : FZN_RECONCILE_OK;
+	/* EVERY OTHER PEER OF THE ESTATE IS A WITNESS, sec 557: the subjects
+	 * are the one part of a bridge its ends do not check, so each entry a
+	 * witness can give for the same sequence must be the same -- id,
+	 * predecessor and subject. A witness that disagrees anywhere refuses
+	 * the move; one that cannot answer, or gives none, confirms nothing. */
+	for (w = 0; w < n_witnesses && have; w++) {
+		size_t got = 0, i;
+
+		if (bridge_of(witnesses[w].ask, witnesses[w].ctx, issuer, stream, held, have, reply,
+		              reply_cap, &other, their_below, witnessed, &got)
+		    != FZN_RECONCILE_OK
+		    || got == 0u)
+			continue;
+		for (i = 0; i < got; i++)
+			if (memcmp(witnessed[i], bridge[i], FZN_NODE_JOURNAL_SPINE_ENTRY) != 0)
+				return FZN_RECONCILE_ERR_CONFLICT;
+		if (confirmed)
+			(*confirmed)++;
+	}
 	if (fzn_node_journal_rebase(journal, issuer, stream, theirs, below,
 	                            (const uint8_t(*)[FZN_NODE_JOURNAL_SPINE_ENTRY])bridge, have)
 	    != FZN_NODE_JOURNAL_OK)

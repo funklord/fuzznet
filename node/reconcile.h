@@ -70,7 +70,11 @@ typedef enum fzn_reconcile_err {
 	/* The peer answered something that is not one of these messages. */
 	FZN_RECONCILE_ERR_SHAPE = -3,
 	/* This node's own store would not list or keep. */
-	FZN_RECONCILE_ERR_STORE = -4
+	FZN_RECONCILE_ERR_STORE = -4,
+	/* A witness gave a different entry for a sequence of a bridge, sec
+	 * 557: one of the two peers is not telling the stream as it was, and
+	 * nothing moved. */
+	FZN_RECONCILE_ERR_CONFLICT = -5
 } fzn_reconcile_err_t;
 
 const char *fzn_reconcile_err_str(fzn_reconcile_err_t err);
@@ -114,6 +118,12 @@ fzn_reconcile_err_t fzn_reconcile_round(fzn_node_apply_t *ap, const fzn_reconcil
                                         fzn_reconcile_ask_t ask, void *ask_ctx, uint8_t *reply,
                                         size_t reply_cap, fzn_reconcile_tally_t *tally);
 
+/* ANOTHER PEER TO ASK the same bridge of: how, and its context. */
+typedef struct fzn_reconcile_witness {
+	fzn_reconcile_ask_t ask;
+	void *ctx;
+} fzn_reconcile_witness_t;
+
 /*
  * A STREAM THIS NODE IS BEHIND A PEER'S BASE ON, sec 552: the peer's base,
  * the id below it, and -- for the estate stream -- its spine from this
@@ -121,12 +131,20 @@ fzn_reconcile_err_t fzn_reconcile_round(fzn_node_apply_t *ap, const fzn_reconcil
  * `fzn_node_journal_rebase`, which checks the bridge at both ends. `*base`
  * (may be NULL) is where the stream now starts, or 0 when nothing moved:
  * the peer is not ahead of this journal's position, or nothing was cut.
- * STORE when the journal refused the bridge; SHAPE for a reply that is not
- * a BASE of the stream asked about.
+ *
+ * THE SUBJECTS BETWEEN THE ENDS ARE CHECKED AGAINST `witnesses`, sec 557:
+ * each other peer is asked for the same sequences, from its spine or from
+ * the records it still holds, and every entry it gives must be the same.
+ * CONFLICT, and nothing moved, when one is not. `*confirmed` (may be NULL)
+ * counts the witnesses that gave at least one entry and agreed: 0 means the
+ * bridge stood on the peer's word alone. STORE when the journal refused
+ * the bridge; SHAPE for a reply that is not a BASE of the stream asked
+ * about.
  */
 fzn_reconcile_err_t fzn_reconcile_rebase(fzn_node_journal_t *journal, fzn_reconcile_ask_t ask,
-                                         void *ask_ctx, const uint8_t issuer[FZN_PUBKEY_LEN],
+                                         void *ask_ctx, const fzn_reconcile_witness_t *witnesses,
+                                         size_t n_witnesses, const uint8_t issuer[FZN_PUBKEY_LEN],
                                          uint32_t stream, uint8_t *reply, size_t reply_cap,
-                                         uint64_t *base);
+                                         uint64_t *base, size_t *confirmed);
 
 #endif /* FZN_NODE_RECONCILE_H */

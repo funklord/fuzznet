@@ -369,7 +369,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_setting_err_str", r_setting, 5 },
 	{ "fzn_node_settings_err_str", r_node_settings, 6 },
 	{ "fzn_holdings_err_str", r_holdings, 4 },
-	{ "fzn_reconcile_err_str", r_reconcile, 5 },
+	{ "fzn_reconcile_err_str", r_reconcile, 6 },
 #ifdef FZN_RECORD_STORE_FILE_ON
 	{ "fzn_node_journal_err_str", r_njournal, 5 },
 #endif

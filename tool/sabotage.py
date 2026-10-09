@@ -10361,6 +10361,20 @@ SABOTAGES = [
 		"a purge record handed over as a claim is filed as one -- sec 555",
 	),
 	(
+		"reconcile-witness-disagreement-refuses",
+		"node/reconcile.c",
+		"\t\t\tif (memcmp(witnessed[i], bridge[i], FZN_NODE_JOURNAL_SPINE_ENTRY) != 0)\n\t\t\t\treturn FZN_RECONCILE_ERR_CONFLICT;",
+		"\t\t\tif (0)\n\t\t\t\treturn FZN_RECONCILE_ERR_CONFLICT;",
+		"a bridge a second peer tells otherwise moves the stream anyway -- sec 557",
+	),
+	(
+		"reconcile-base-answer-reaches-the-records",
+		"node/reconcile.c",
+		"\t\tfor (seq = from; seq <= received && count < 0xffffu",
+		"\t\tfor (seq = from; seq < base && count < 0xffffu",
+		"a peer that cut less serves no entries, and witnesses nothing -- sec 557",
+	),
+	(
 		"node-messages-give-as-sender",
 		"node/messages.c",
 		"\t\tif (fzn_messages_key_take(&nm->m, e, fzn_get_be32(e + FZN_PUBKEY_LEN), sender,",

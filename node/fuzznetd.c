@@ -1611,19 +1611,34 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
  * this node never pulled, so each takes the peer's base -- reconciliation
  * brings the state those records carried -- and the reader of the stream is
  * moved up with it. */
-static void rebase_missed(struct pull_target *pulls, size_t t, uint64_t now,
+static void rebase_missed(struct pull_target *pulls, size_t npulls, size_t t, uint64_t now,
                           const fzn_exchange_tally_t *tally)
 {
 	static uint8_t reply[FZND_PULL_REPLY_MAX];
+	static struct peer_asking others[FZND_PULL_TARGETS_MAX];
+	static fzn_reconcile_witness_t witnesses[FZND_PULL_TARGETS_MAX];
 	struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
-	size_t i, k, moved = 0;
+	size_t i, k, moved = 0, n_witnesses = 0;
+
+	/* EVERY OTHER PULL PEER OF THIS ESTATE WITNESSES THE BRIDGE, sec 557. */
+	for (k = 0; k < npulls; k++)
+		if (k != t && peer_in_estate(&pulls[k])) {
+			others[n_witnesses].caller = &pulls[k].caller;
+			others[n_witnesses].now = now;
+			others[n_witnesses].host = pulls[k].host;
+			witnesses[n_witnesses].ask = peer_ask;
+			witnesses[n_witnesses].ctx = &others[n_witnesses];
+			n_witnesses++;
+		}
 
 	for (i = 0; i < tally->missing && i < FZN_EXCHANGE_MISSED_MAX; i++) {
 		const uint8_t *issuer = tally->missed[i].issuer;
 		uint32_t stream = tally->missed[i].stream;
 		uint64_t base = 0;
-		fzn_reconcile_err_t err = fzn_reconcile_rebase(&node_journal, peer_ask, &asking, issuer,
-		                                               stream, reply, sizeof(reply), &base);
+		size_t confirmed = 0;
+		fzn_reconcile_err_t err = fzn_reconcile_rebase(&node_journal, peer_ask, &asking,
+		                                               witnesses, n_witnesses, issuer, stream,
+		                                               reply, sizeof(reply), &base, &confirmed);
 
 		if (err != FZN_RECONCILE_OK) {
 			say(FZN_ENTRY_WARNING, "journal", "a stream behind %s's base would not move: %s",
@@ -1633,6 +1648,11 @@ static void rebase_missed(struct pull_target *pulls, size_t t, uint64_t now,
 		if (!base)
 			continue;
 		moved++;
+		if (stream == FZN_NODE_JOURNAL_STREAM)
+			say(confirmed ? FZN_ENTRY_INFO : FZN_ENTRY_WARNING, "journal",
+			    "an estate stream moved up to %s's base, its bridge confirmed by %zu other "
+			    "peer(s) of %zu asked",
+			    pulls[t].host, confirmed, n_witnesses);
 		if (stream == FZN_NOTE_STREAM)
 			for (k = 0; k < n_notes_cursors; k++)
 				if (memcmp(notes_cursors[k].key, issuer, FZN_PUBKEY_LEN) == 0
@@ -1669,7 +1689,7 @@ static void pull_journal(struct pull_target *pulls, size_t npulls, uint64_t now)
 			say(FZN_ENTRY_WARNING, "journal", "the journal from %s: %s", pulls[t].host,
 			    fzn_exchange_err_str(err));
 		else if (tally.missing)
-			rebase_missed(pulls, t, now, &tally);
+			rebase_missed(pulls, npulls, t, now, &tally);
 		else if (tally.learned || tally.refused || tally.forks)
 			say(tally.forks ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "journal",
 			    "%zu record(s) from %s, %zu refused, %zu stream(s) stopped at a fork",

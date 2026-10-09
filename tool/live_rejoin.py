@@ -50,6 +50,8 @@ CUT_RE = re.compile(r"cut pass: a window of (\d+) day\(s\), (\d+) record\(s\) cu
 RECONCILE_RE = re.compile(r"reconcile pass: (\d+) peer\(s\), (\d+) of another estate passed "
                           r"over, (\d+) lacked, (\d+) applied, (\d+) waiting, (\d+) refused")
 MOVED_RE = re.compile(r"(\d+) stream\(s\) moved up to 127\.0\.0\.1's base")
+WITNESS_RE = re.compile(r"an estate stream moved up to 127\.0\.0\.1's base, its bridge "
+                        r"confirmed by (\d+) other peer\(s\) of (\d+) asked")
 MISSING_RE = re.compile(r"claims no longer hold what this node lacks|would not move")
 
 
@@ -212,6 +214,10 @@ def main(argv):
 						             % (rec.group(2), rec.group(4), rec.group(6)))
 					for key in ("x/old", "x/away", "x/now"):
 						expect(b_sock, "b", "get setting estate " + key, "ok root 1")
+					witnessed = b.wait_for(WITNESS_RE, "the estate bridge's witness count")
+					if witnessed.groups() != ("0", "0"):
+						raise failed("b: B's estate bridge was confirmed by %s of %s; it pulls "
+						             "from A alone" % witnessed.groups())
 					if moved.group(1) != "2":
 						raise failed("b: B moved %s stream(s) up; A's estate and notes streams "
 						             "were both cut below it" % moved.group(1))

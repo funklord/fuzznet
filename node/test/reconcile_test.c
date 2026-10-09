@@ -528,8 +528,8 @@ static void test_a_stream_behind_a_peers_base(void)
 	              && t.missing == 1u && memcmp(t.missed[0].issuer, v, FZN_PUBKEY_LEN) == 0
 	              && t.missed[0].stream == FZN_NODE_JOURNAL_STREAM,
 	      "B's pull past A's cut did not name V's stream missing");
-	CHECK(fzn_reconcile_rebase(&jb, ask, &pa, v, FZN_NODE_JOURNAL_STREAM, reply, sizeof(reply),
-	                           &base) == FZN_RECONCILE_OK
+	CHECK(fzn_reconcile_rebase(&jb, ask, &pa, NULL, 0u, v, FZN_NODE_JOURNAL_STREAM, reply, sizeof(reply),
+	                           &base, NULL) == FZN_RECONCILE_OK
 	              && base == 28u && pa.asked == 2u
 	              && fzn_node_journal_received(&jb, v, FZN_NODE_JOURNAL_STREAM) == 27u,
 	      "B did not page A's bridge and move up to its base");
@@ -538,8 +538,8 @@ static void test_a_stream_behind_a_peers_base(void)
 	              && t.learned == 3u && t.missing == 0u,
 	      "B did not pull on from A's base");
 	pa.asked = 0;
-	CHECK(fzn_reconcile_rebase(&jb, ask, &pa, v, FZN_NODE_JOURNAL_STREAM, reply, sizeof(reply),
-	                           &base) == FZN_RECONCILE_OK
+	CHECK(fzn_reconcile_rebase(&jb, ask, &pa, NULL, 0u, v, FZN_NODE_JOURNAL_STREAM, reply, sizeof(reply),
+	                           &base, NULL) == FZN_RECONCILE_OK
 	              && base == 0u && pa.asked == 1u,
 	      "a stream not behind the peer's base moved, or asked more than once");
 	/* A NOTES STREAM: a base, no bridge. */
@@ -549,7 +549,7 @@ static void test_a_stream_behind_a_peers_base(void)
 	                         == FZN_EXCHANGE_OK
 	              && append_n(&ja, 0x5c, 0u, 3u)
 	              && fzn_node_journal_cut(&ja, v, 0u, 4u, &n) == FZN_NODE_JOURNAL_OK
-	              && fzn_reconcile_rebase(&jb, ask, &pa, v, 0u, reply, sizeof(reply), &base)
+	              && fzn_reconcile_rebase(&jb, ask, &pa, NULL, 0u, v, 0u, reply, sizeof(reply), &base, NULL)
 	                         == FZN_RECONCILE_OK
 	              && base == 4u && fzn_node_journal_received(&jb, v, 0u) == 3u,
 	      "a notes stream behind A's base did not move up with no bridge");
@@ -617,6 +617,100 @@ static void test_note_claims(void)
 	      "the waiting claim was not asked for again");
 }
 
+/* A peer that answers like `struct peer`'s but changes one subject of every
+ * BASE reply's fourth entry. */
+static int lying_base_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *out,
+                          size_t out_cap, size_t *out_len)
+{
+	if (!ask(ctx, request, request_len, out, out_cap, out_len))
+		return 0;
+	if (out[1] == FZN_RECONCILE_BASE && fzn_get_be16(out + 50) > 3u)
+		out[FZN_RECONCILE_BASE_HEAD_LEN + (3u * FZN_NODE_JOURNAL_SPINE_ENTRY) + 64u] ^= 1u;
+	return 1;
+}
+
+static int silent_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *out,
+                      size_t out_cap, size_t *out_len)
+{
+	(void)ctx;
+	(void)request;
+	(void)request_len;
+	(void)out;
+	(void)out_cap;
+	*out_len = 0;
+	return 0;
+}
+
+/* A BRIDGE WITNESSED, sec 557. A holds writer V's thirty and cuts below the
+ * twenty-eighth; W pulled all thirty first and keeps them. B1, at two,
+ * moves up to A's base with W confirming every entry from its records. A
+ * peer serving A's bridge with one subject changed meets W's disagreement:
+ * CONFLICT, and B2 does not move -- though without W the same bridge moves
+ * it, unconfirmed, which is what the witness is for. A witness that does
+ * not answer confirms nothing. */
+static void test_a_bridge_witnessed(void)
+{
+	static node_t a, w, b1, b2;
+	static struct recs ra, rw, rb1, rb2;
+	static fzn_node_journal_t ja, jw, jb1, jb2;
+	static const fzn_record_store_ops_t OPS_A = { rec_put, rec_get, &ra, rec_cut };
+	static const fzn_record_store_ops_t OPS_W = { rec_put, rec_get, &rw, rec_cut };
+	static const fzn_record_store_ops_t OPS_B1 = { rec_put, rec_get, &rb1, rec_cut };
+	static const fzn_record_store_ops_t OPS_B2 = { rec_put, rec_get, &rb2, rec_cut };
+	struct peer pa = { &a, sizeof(reply), 0, 0 }, pw = { &w, sizeof(reply), 0, 0 };
+	fzn_reconcile_witness_t by_w = { ask, &pw }, mute = { silent_ask, NULL };
+	uint8_t v[FZN_PUBKEY_LEN];
+	fzn_exchange_tally_t t;
+	uint64_t base = 0;
+	size_t n = 0, confirmed = 9;
+
+	key(v, 0x5d);
+	CHECK(node_up(&a) && node_up(&w) && node_up(&b1) && node_up(&b2)
+	              && fzn_node_journal_init_store(&ja, &OPS_A, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_init_store(&jw, &OPS_W, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_init_store(&jb1, &OPS_B1, &SIGN, &HASH)
+	                         == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_init_store(&jb2, &OPS_B2, &SIGN, &HASH)
+	                         == FZN_NODE_JOURNAL_OK,
+	      "fixture: four journals");
+	ja.keep = &a.store;
+	jw.keep = &w.store;
+	jb1.keep = &b1.store;
+	jb2.keep = &b2.store;
+	a.ap.journal = &ja;
+	w.ap.journal = &jw;
+	CHECK(append_n(&ja, 0x5d, FZN_NODE_JOURNAL_STREAM, 2u)
+	              && fzn_node_journal_follow(&jb1, v, NULL) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_follow(&jb2, v, NULL) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_pull(&jb1, journal_ask, &ja, reply, sizeof(reply), &t)
+	                         == FZN_EXCHANGE_OK
+	              && fzn_node_journal_pull(&jb2, journal_ask, &ja, reply, sizeof(reply), &t)
+	                         == FZN_EXCHANGE_OK
+	              && append_n(&ja, 0x5d, FZN_NODE_JOURNAL_STREAM, 28u)
+	              && fzn_node_journal_follow(&jw, v, NULL) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_pull(&jw, journal_ask, &ja, reply, sizeof(reply), &t)
+	                         == FZN_EXCHANGE_OK
+	              && t.learned == 30u
+	              && fzn_node_journal_cut(&ja, v, FZN_NODE_JOURNAL_STREAM, 28u, &n)
+	                         == FZN_NODE_JOURNAL_OK,
+	      "fixture: B1 and B2 at two, W at thirty, A cut below the twenty-eighth");
+	CHECK(fzn_reconcile_rebase(&jb1, ask, &pa, &by_w, 1u, v, FZN_NODE_JOURNAL_STREAM, reply,
+	                           sizeof(reply), &base, &confirmed) == FZN_RECONCILE_OK
+	              && base == 28u && confirmed == 1u
+	              && fzn_node_journal_received(&jb1, v, FZN_NODE_JOURNAL_STREAM) == 27u,
+	      "an honest bridge was not confirmed by the witness, or did not move B1");
+	CHECK(fzn_reconcile_rebase(&jb2, lying_base_ask, &pa, &by_w, 1u, v, FZN_NODE_JOURNAL_STREAM,
+	                           reply, sizeof(reply), &base, &confirmed)
+	                      == FZN_RECONCILE_ERR_CONFLICT
+	              && base == 0u
+	              && fzn_node_journal_received(&jb2, v, FZN_NODE_JOURNAL_STREAM) == 2u,
+	      "a bridge with a subject changed was not refused by the witness, or moved B2");
+	CHECK(fzn_reconcile_rebase(&jb2, lying_base_ask, &pa, &mute, 1u, v, FZN_NODE_JOURNAL_STREAM,
+	                           reply, sizeof(reply), &base, &confirmed) == FZN_RECONCILE_OK
+	              && base == 28u && confirmed == 0u,
+	      "with no witness answering, the same bridge did not move B2 unconfirmed");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -638,6 +732,7 @@ int main(void)
 	test_a_dishonest_peer();
 	test_a_stream_behind_a_peers_base();
 	test_note_claims();
+	test_a_bridge_witnessed();
 	if (failures) {
 		fprintf(stderr, "reconcile_test: %d of %d checks failed\n", failures, checks);
 		return 1;
