@@ -60873,3 +60873,33 @@ Not exercised: fuzznetd's reaction to a missing stream, and the cursor
 moves it makes, until step 5's live check. A peer that lies about the
 subjects in a bridge is caught by nothing yet. The remedy is the one
 reconciliation uses, comparing with a second peer, and it is not built.
+
+## 553. Stage 5, step 5 blocked: a paired device cannot rank its root node's settings, 2026-10-09
+
+Found while setting up sec 550's live check, before any of it was
+written. Reproduction, two stores over loopback, both with
+`--fuzznet-service=1 --fuzznet-product=1`:
+
+1. A: `--new-root`. B: `--prekey`. A: `--pair=PREKEY` prints a `FZN3:`
+   card; B: `--accept=CARD` pairs to A. `--join` is refused, since the
+   grant cannot be passed on.
+2. A serves with `--udp-port`, B with `--pull-from A_ID 127.0.0.1 PORT`.
+3. On A, `set setting estate x/one 1` answers `ok`. `list setting` shows
+   it at root rank, about A's own identity.
+4. B's reconciliation (sec 551) fetches two objects. The grant applies
+   and the setting waits, every round, for 75 seconds:
+   `reconcile pass: 1 peer(s), 1 lacked, 0 applied, 1 waiting`. B also
+   logs `1 member(s) from 127.0.0.1 did not prove`, its `list peer` is
+   empty, and `get setting estate x/one` answers `ok absent`.
+
+What is established: `fzn_node_apply_rank` at B returns 0 for A's key,
+no chain reaching a root. So B neither counts A as a root nor holds a
+chain for it, while A takes itself as the estate's root. This is not
+reconciliation's: the journal path judges by the same call and would
+wait the same way.
+
+What is not established: whether B's root is A's identity or the key
+`--new-root` made, and whether the identity-root pairing of sec 419 is
+meant to give B the root record that would rank A. Until a device can
+rank its root node's settings, the planned check -- a setting written at
+one node arriving at another across a cut window -- has nothing to show.
