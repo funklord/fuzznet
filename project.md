@@ -62291,7 +62291,8 @@ described.
 
 - ~~**The archive has no rules of its own**: nothing prunes a fossil.~~
   It has since sec 589.
-- **Copies are not archived**: an archive rule names no copy.
+- ~~**Copies are not archived**: an archive rule names no copy.~~ They are
+  since sec 590.
 - **Sealed kinds** wait on the holder's keys decision.
 - **Parity across hosts** is sec 537 item 4, after this works.
 
@@ -62330,3 +62331,42 @@ grew without bound.
 - Three sabotage entries: the live log leaving archived rules out, the
   archive's selection, and the parse's refusal; two older entries
   re-anchored on the line the first now shares.
+
+## 590. Copies archived to the fossil class, 2026-10-10
+
+Sec 588 archived this node's own log only. A node keeping other hosts'
+logs -- a root holding its estate's, or a member granted the retention
+capability (sec 567) -- keeps them as copies, and they grew in the live
+log's copy directory with no class to move to.
+
+- **An archive rule may name `copy`**, and a source with it:
+  `archive [log] PROGRAM|* copy [source=HOSTHEX] [host=] [machine=]
+  LIMIT N`. The copies' selection takes it with the copy rules, and the
+  live log's leaves it out, as it leaves every copy rule.
+- **fuzznetd archives each copy directory before its rules apply**, into
+  `ARCHIVE/copy/HOSTHEX/`, through the same `fzn_log_pack_archive`.
+- **An archived copy is still held**: its ref, `c/HOSTHEX/NAME`, looks in
+  the archive's `copy/HOSTHEX/` when the copy directory has it not, as an
+  own segment's looks in the archive (sec 588). So it is neither let go
+  nor taken again from its host.
+
+### Measured for sec 590
+
+- retain_test 92: an archive rule of copies, and one naming a source,
+  read and write back; the copies' selection takes both and the live
+  log's neither.
+- log_buckets_test 45: B's copy of A's segment moved under the archive's
+  `copy/AHEX/` is not let go at B's scan, and with no archive named it
+  is.
+- `tool/live_rejoin.py` phase h: B, holding two copies of A's segments
+  after phase g, restarts with `archive * copy count 0`; both move to its
+  archive's `copy/AKEY/` and its copies hold none. With the copies'
+  archive pass taken out, phase h fails.
+- One sabotage entry, the archived copy still held. Allowing `copy` on an
+  archive rule took a refusal away rather than adding a guard, so it has
+  none; the retain suite's positive cases hold it.
+
+### Not yet after sec 590
+
+- **The archive's own rules do not reach archived copies**: a rule naming
+  `archived` names no `copy`, so a copy in the fossil class stays.

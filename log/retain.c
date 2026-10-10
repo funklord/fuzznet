@@ -353,11 +353,11 @@ fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_
 	        || out->data != FZN_RETAIN_LOG || out->copy || out->has_source || out->levels
 	        || out->subsystem[0] || out->match_len))
 		return FZN_RETAIN_ERR_MALFORMED;
-	/* AN ARCHIVE RULE MOVES WHOLE SEGMENTS of this node's own log, sec 588:
-	 * no entry selector, no copy, and no other kind's data. */
+	/* AN ARCHIVE RULE MOVES WHOLE SEGMENTS, sec 588 -- this node's own, or
+	 * since sec 590 copies, a source's or all -- so no entry selector and
+	 * no other kind's data. */
 	if (out->kind == FZN_RETAIN_ARCHIVE
-	    && (out->data != FZN_RETAIN_LOG || out->copy || out->has_source || out->levels
-	        || out->subsystem[0] || out->match_len))
+	    && (out->data != FZN_RETAIN_LOG || out->levels || out->subsystem[0] || out->match_len))
 		return FZN_RETAIN_ERR_MALFORMED;
 	if (program) {
 		if (!program_ok(w[program], n[program]))
@@ -590,10 +590,10 @@ static int rule_ok(const fzn_retain_rule_t *r)
 		       && (r->has_contact == 0 || r->has_contact == 1)
 		       && (r->has_host == 0 || r->has_host == 1)
 		       && (r->has_machine == 0 || r->has_machine == 1);
-	/* AN ARCHIVE RULE: a log segment rule of this node's own log. */
+	/* AN ARCHIVE RULE: a log segment rule, of this node's own log or of
+	 * copies. */
 	if (r->kind == FZN_RETAIN_ARCHIVE
-	    && (r->data != FZN_RETAIN_LOG || r->copy || r->has_source || r->levels
-	        || r->subsystem[0] || r->match_len))
+	    && (r->data != FZN_RETAIN_LOG || r->levels || r->subsystem[0] || r->match_len))
 		return 0;
 	return r->data == FZN_RETAIN_LOG && !r->has_contact
 	       && (r->kind == FZN_RETAIN_PRUNE || r->kind == FZN_RETAIN_KEEP

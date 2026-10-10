@@ -10937,9 +10937,16 @@ SABOTAGES = [
 	(
 		"log-buckets-archived-still-held",
 		"node/log_buckets.c",
-		"\t\tif (k > 0 && (size_t)k < PATH_MAX_ && lb->archive[0] && access(path, F_OK) != 0)\n",
-		"\t\tif (0)\n",
+		"\t\tif (k > 0 && (size_t)k < PATH_MAX_ && lb->archive[0] && access(path, F_OK) != 0)\n\t\t\tk = snprintf(path, PATH_MAX_, \"%s/%s\", lb->archive, r + 2);",
+		"\t\tif (0)\n\t\t\tk = snprintf(path, PATH_MAX_, \"%s/%s\", lb->archive, r + 2);",
 		"an archived segment is let go as a file gone, and fetched back from a peer -- sec 588",
+	),
+	(
+		"log-buckets-archived-copy-still-held",
+		"node/log_buckets.c",
+		"\t\tif (k > 0 && (size_t)k < PATH_MAX_ && lb->archive[0] && access(path, F_OK) != 0)\n\t\t\tk = snprintf(path, PATH_MAX_, \"%s/copy/%s/%s\", lb->archive",
+		"\t\tif (0)\n\t\t\tk = snprintf(path, PATH_MAX_, \"%s/copy/%s/%s\", lb->archive",
+		"a copy archived is let go as a file gone, and taken again from its host -- sec 590",
 	),
 	(
 		"settings-address-port-in-range",

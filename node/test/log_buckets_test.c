@@ -662,6 +662,36 @@ static void test_archived_still_held(void)
 	lb_a.archive[0] = '\0';
 	CHECK(fzn_log_buckets_scan(&lb_a, &taken, &let_go) && let_go == 1u,
 	      "with no archive named, a segment moved away was not let go");
+
+	/* A COPY ARCHIVED, sec 590: B's copy of A's segment under the archive's
+	 * copy/AHEX/ is still held at B. */
+	{
+		char hex[65], from[600], to[600], arch_copies[400];
+		size_t i;
+
+		for (i = 0; i < 32u; i++)
+			snprintf(hex + 2u * i, 3u, "%02x", key_a[i]);
+		snprintf(arch_copies, sizeof(arch_copies), "%s/copy", archive);
+		(void)mkdir(arch_copies, 0700);
+		snprintf(arch_copies, sizeof(arch_copies), "%s/copy/%s", archive, hex);
+		(void)mkdir(arch_copies, 0700);
+		snprintf(from, sizeof(from), "%s/netcfgd.%llu.42.log.zst", copies,
+		         (unsigned long long)SEPTEMBER_2026);
+		snprintf(to, sizeof(to), "%s/netcfgd.%llu.42.log.zst", arch_copies,
+		         (unsigned long long)SEPTEMBER_2026);
+		CHECK(fzn_log_buckets_scan(&lb_b, NULL, NULL) && rename(from, to) == 0,
+		      "fixture: B's copies scanned, one archived");
+		snprintf(lb_b.archive, sizeof(lb_b.archive), "%s", archive);
+		CHECK(fzn_log_buckets_scan(&lb_b, NULL, &let_go) && let_go == 0u,
+		      "an archived copy was let go as a file gone");
+		lb_b.archive[0] = '\0';
+		CHECK(fzn_log_buckets_scan(&lb_b, NULL, &let_go) && let_go == 1u,
+		      "with no archive named, a copy moved away was not let go");
+		(void)remove(to);
+		(void)rmdir(arch_copies);
+		snprintf(arch_copies, sizeof(arch_copies), "%s/copy", archive);
+		(void)rmdir(arch_copies);
+	}
 	(void)remove(moved);
 	CHECK(rmdir(archive) == 0, "the archive held something else, or would not go");
 }

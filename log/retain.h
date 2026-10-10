@@ -84,10 +84,11 @@
  *     prune|keep [log] PROGRAM|* archived [host=] [machine=] LIMIT N
  *                                  over the archive (sec 589), whole
  *                                  segments; no policy reaches it
- *     archive [log] PROGRAM|* [host=] [machine=] LIMIT N
+ *     archive [log] PROGRAM|* [copy [source=]] [host=] [machine=] LIMIT N
  *                                  a log segment past N moved to the archive,
  *                                  the fossil class (sec 588): whole
- *                                  segments, this node's own log, no copy
+ *                                  segments, this node's own log or, with
+ *                                  `copy`, the copies (sec 590)
  * and a rule naming neither is a log rule, its second word the program, so
  * every rule written before reads as it did and keeps its text. A program
  * called `log` or `messages` is written `log PROGRAM`. A MESSAGE RULE

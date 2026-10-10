@@ -51,8 +51,9 @@ typedef struct fzn_log_buckets {
 	/* The log directory: this host's segments, and `copy/` below it. */
 	char dir[512];
 	/* WHERE THIS HOST'S ARCHIVED SEGMENTS ARE, sec 588, or empty: an own
-	 * segment moved there is still held -- read, served and counted from
-	 * there -- rather than let go as a file gone. Empty after init. */
+	 * segment moved there, or a copy moved under its `copy/HOSTHEX/` (sec
+	 * 590), is still held -- read, served and counted from there -- rather
+	 * than let go as a file gone. Empty after init. */
 	char archive[512];
 	const fzn_hash_ops_t *hash;
 	const fzn_sign_ops_t *sign;

@@ -37,6 +37,9 @@ older than the 60-day window when A next cuts:
        them as copies under B's key, while B, without the retention
        capability, takes none of A's. A then grants B the capability, read
        off that copy directory's name, and B takes A's
+    h  B restarted with `archive * copy count 0` moves its copies of A's
+       segments to its archive's copy/AKEY/, and holds none in its copies
+       (sec 590)
 
 The waits are on the daemons' own lines -- A's cut pass, B's reconcile
 pass, B's "moved up" -- and each is checked before the settings are.
@@ -74,6 +77,7 @@ LINES_RE = re.compile(r"reconcile pass: .*; lines (\d+) lacked, (\d+) filed, (\d
                       r"passed over")
 PACKED_RE = re.compile(r"segment\(s\) of \S+ packed")
 SEGMENTS_RE = re.compile(r"segments (\d+) taken, (\d+) refused, (\d+) pushed")
+COPY_ARCHIVED_RE = re.compile(r"\d+ copied segment\(s\) of \S+ of [0-9a-f]{8} archived")
 PUSHED_RE = re.compile(r"passed over, (\d+) pushed")
 MISSING_RE = re.compile(r"claims no longer hold what this node lacks|would not move")
 
@@ -505,6 +509,20 @@ def main(argv):
 				             "holds copies of %r" % (seg.group(1), b_holders))
 			print("livecheck: g: B pushed %s of its segments to A; granted retention, it took "
 			      "%s of A's" % (pushed_segments, seg.group(1)))
+
+			# h: B's copies of A archived, sec 590.
+			b = daemon(run, "bh", b_dir, b_sock,
+			           extra=["--root-at", "127.0.0.1", port] + small
+			           + ["--log-rule=archive * copy count 0"], log_dir=b_logs)
+			try:
+				b.wait_for(COPY_ARCHIVED_RE, "B's copies archived")
+			finally:
+				b.stop()
+			fossils = packed(os.path.join(b_logs, "archive", "copy", b_holders[0]))
+			if not fossils or packed(os.path.join(b_copies, b_holders[0])):
+				raise failed("h: B's archive holds %d of A's segments, and its copies %d"
+				             % (len(fossils), len(packed(os.path.join(b_copies, b_holders[0])))))
+			print("livecheck: h: B archived its %d copies of A's segments" % len(fossils))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

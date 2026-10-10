@@ -550,7 +550,7 @@ static void test_archive_rules(void)
 {
 	static const char *const BAD[] = {
 		"archive messages age 1d",  "archive history age 1d", "archive * level=E age 1d",
-		"archive * text=x age 1d",  "archive * copy age 1d",  "archive *",
+		"archive * text=x age 1d",  "archive *",
 	};
 	fzn_retain_segment_t seg[3] = { { 1u * DAY, 10u }, { 2u * DAY, 10u }, { 3u * DAY, 10u } };
 	fzn_retain_rule_t r[3], x;
@@ -571,7 +571,25 @@ static void test_archive_rules(void)
 	      "and one naming a program");
 	for (i = 0; i < sizeof(BAD) / sizeof(BAD[0]); i++)
 		all = all && fzn_retain_parse(BAD[i], strlen(BAD[i]), &x) == FZN_RETAIN_ERR_MALFORMED;
-	CHECK(all, "an archive rule of another kind's data, an entry selector or a copy was taken");
+	CHECK(all, "an archive rule of another kind's data or an entry selector was taken");
+	/* OF COPIES, sec 590: the copies' selection takes it, the live log's
+	 * does not. */
+	{
+		uint8_t host[32], machine[FZN_ENTRY_MACHINE_LEN];
+		fzn_retain_rule_t in[2], out[2];
+
+		memset(host, 0xbb, sizeof(host));
+		memset(machine, 0x0b, sizeof(machine));
+		in[0] = rule("archive * copy age 30d");
+		in[1] = rule("archive * copy source=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa "
+		             "age 30d");
+		CHECK(in[0].kind == FZN_RETAIN_ARCHIVE && in[0].copy
+		              && fzn_retain_text(&in[0], t, sizeof(t), &len) == FZN_RETAIN_OK
+		              && strcmp(t, "archive * copy age 30d") == 0 && in[1].has_source
+		              && fzn_retain_select_copies(in, 2u, host, machine, out) == 2u
+		              && fzn_retain_select_here(in, 2u, host, machine, out) == 0u,
+		      "an archive rule of copies did not read back, or was not the copies' alone");
+	}
 	x = rule("archive * age 1d");
 	x.levels = 2u;
 	CHECK(fzn_retain_marks("netcfgd", seg, 3u, &x, 1u, 4u * DAY, marks)

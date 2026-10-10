@@ -482,7 +482,28 @@ static size_t gather_rules(fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX])
  * `archive/` under the log directory. */
 static const char *log_archive;
 
+/* The archive's directory into `out`: `--log-archive=DIR`, or `archive/`
+ * under the log directory. */
+static void archive_where(char *out, size_t cap)
+{
+	if (log_archive)
+		(void)snprintf(out, cap, "%s", log_archive);
+	else
+		(void)snprintf(out, cap, "%s/archive", dlog.logger.dir);
+}
+
 #if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
+/* Whether any of `rules` archives. */
+static int has_archive_rule(const fzn_retain_rule_t *rules, size_t n)
+{
+	size_t i;
+
+	for (i = 0; i < n; i++)
+		if (rules[i].kind == FZN_RETAIN_ARCHIVE)
+			return 1;
+	return 0;
+}
+
 /* THE FOSSIL CLASS, secs 588 and 589: this node's packed segments an archive
  * rule marks moved to the archive -- before the rules over entries could
  * take them -- and then the archive's own rules applied to it. */
@@ -495,14 +516,8 @@ static void archive_round(const fzn_retain_rule_t *rules, size_t n_rules,
 	char where[600];
 	size_t pi, n_archived, n_held = 0, moved = 0;
 
-	if (log_archive)
-		(void)snprintf(where, sizeof(where), "%s", log_archive);
-	else
-		(void)snprintf(where, sizeof(where), "%s/archive", dlog.logger.dir);
-	for (pi = 0; pi < n_rules; pi++)
-		if (rules[pi].kind == FZN_RETAIN_ARCHIVE)
-			break;
-	if (pi < n_rules) {
+	archive_where(where, sizeof(where));
+	if (has_archive_rule(rules, n_rules)) {
 		for (pi = 0; pi < n_programs; pi++) {
 			if (fzn_log_pack_archive(dlog.logger.dir, programs[pi], rules, n_rules, where,
 			                         log_now_us(), &moved)
@@ -638,6 +653,28 @@ static void log_round(void)
 				               != FZN_LOGGER_OK)
 					continue;
 				for (p = 0; p < n_held; p++) {
+					/* THE FOSSIL CLASS FOR COPIES, sec 590, before their
+					 * rules: archive/copy/HOSTHEX/. */
+					if (has_archive_rule(source_rules, n_source)) {
+						char where[FZN_LOGGER_PATH_MAX + 8u], arch[FZN_LOGGER_PATH_MAX + 96u];
+						size_t moved = 0;
+
+						archive_where(where, sizeof(where));
+						(void)mkdir(where, 0700);
+						if (snprintf(arch, sizeof(arch), "%s/copy", where) < (int)sizeof(arch))
+							(void)mkdir(arch, 0700);
+						if (snprintf(arch, sizeof(arch), "%s/copy/%s", where, e->d_name)
+						            >= (int)sizeof(arch)
+						    || fzn_log_pack_archive(sub, held[p], source_rules, n_source,
+						                            arch, log_now_us(), &moved)
+						               != FZN_LOG_PACK_OK)
+							say(FZN_ENTRY_WARNING, "log/copy", "copies of %s of %.8s could not "
+							    "all be archived", held[p], e->d_name);
+						else if (moved)
+							say(FZN_ENTRY_INFO, "log/copy",
+							    "%zu copied segment(s) of %s of %.8s archived", moved, held[p],
+							    e->d_name);
+					}
 					if (fzn_logger_retain(sub, held[p], source_rules, n_source, log_now_us(),
 					                      &gone)
 					    != FZN_LOGGER_OK)

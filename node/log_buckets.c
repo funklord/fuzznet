@@ -99,6 +99,9 @@ static int ref_path(const fzn_log_buckets_t *lb, const uint8_t *ref, size_t ref_
 			return 0;
 		r[66] = '\0';
 		k = snprintf(path, PATH_MAX_, "%s/copy/%s/%s", lb->dir, r + 2, r + 67);
+		/* A COPY ARCHIVED, sec 590: archive/copy/HOSTHEX/, still held. */
+		if (k > 0 && (size_t)k < PATH_MAX_ && lb->archive[0] && access(path, F_OK) != 0)
+			k = snprintf(path, PATH_MAX_, "%s/copy/%s/%s", lb->archive, r + 2, r + 67);
 	} else {
 		return 0;
 	}
