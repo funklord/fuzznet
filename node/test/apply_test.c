@@ -654,6 +654,48 @@ static void test_settings_judged(void)
 	              && fzn_node_settings_window_days(&ns) == 36500u,
 	      "a window of 0 or past 36500 days counted, or 36500 did not");
 
+	/* A MEMBER'S ADDRESS, sec 579: its own host cell, `HOST PORT`. */
+	{
+		uint8_t member[FZN_SUBJECT_LEN];
+		char host[FZN_NODE_SETTINGS_HOST_MAX + 1u];
+		uint16_t port = 0;
+
+		key(member, 0x92);
+		CHECK(!fzn_node_settings_address(&ns, member, host, &port)
+		              && setting_by(&nj, 0x92, FZN_SCOPE_HOST, 0x92, 1u, "net/address", 1,
+		                            "fe80::1 47000")
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+		              && fzn_node_settings_address(&ns, member, host, &port)
+		              && strcmp(host, "fe80::1") == 0 && port == 47000u,
+		      "a member's address was found unset, or its own was not read");
+		CHECK(setting_by(&nj, 0x92, FZN_SCOPE_HOST, 0x92, 2u, "net/address", 1, "a.example 0")
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+		              && !fzn_node_settings_address(&ns, member, host, &port)
+		              && setting_by(&nj, 0x92, FZN_SCOPE_HOST, 0x92, 3u, "net/address", 1,
+		                            "a.example 65536")
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+		              && !fzn_node_settings_address(&ns, member, host, &port)
+		              && setting_by(&nj, 0x92, FZN_SCOPE_HOST, 0x92, 4u, "net/address", 1,
+		                            "a/b 1")
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+		              && !fzn_node_settings_address(&ns, member, host, &port)
+		              && setting_by(&nj, 0x92, FZN_SCOPE_HOST, 0x92, 5u, "net/address", 1,
+		                            "a.example")
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+		              && !fzn_node_settings_address(&ns, member, host, &port)
+		              && setting_by(&nj, 0x92, FZN_SCOPE_HOST, 0x92, 6u, "net/address", 1,
+		                            " 1")
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+		              && !fzn_node_settings_address(&ns, member, host, &port)
+		              && setting_by(&nj, 0x92, FZN_SCOPE_HOST, 0x92, 7u, "net/address", 1,
+		                            "a.example 65535")
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+		              && fzn_node_settings_address(&ns, member, host, &port)
+		              && strcmp(host, "a.example") == 0 && port == 65535u,
+		      "a port of 0 or past 65535, a host with a slash, no port or no host was read, "
+		      "or 65535 was not");
+	}
+
 	/* CLEARS FORGOTTEN, sec 549. The root sets c/x and clears it at 5000.
 	 * Until the window has passed the clear stands against a late older
 	 * set; once it has, the clear goes and the late set is taken. A set is

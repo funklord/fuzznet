@@ -391,6 +391,39 @@ unsigned fzn_node_settings_window_days(const fzn_node_settings_t *ns)
 	return days ? days : FZN_NODE_SETTINGS_WINDOW_DAYS;
 }
 
+int fzn_node_settings_address(const fzn_node_settings_t *ns, const uint8_t about[FZN_SUBJECT_LEN],
+                              char host[FZN_NODE_SETTINGS_HOST_MAX + 1u], uint16_t *port)
+{
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	size_t len = 0, space, i;
+	unsigned p;
+
+	if (!ready(ns) || !about || !host || !port
+	    || !fzn_node_settings_get(ns, FZN_SCOPE_HOST, about,
+	                              (const uint8_t *)FZN_NODE_SETTINGS_ADDRESS_KEY,
+	                              sizeof(FZN_NODE_SETTINGS_ADDRESS_KEY) - 1u, value, &len, &rank))
+		return 0;
+	for (space = 0; space < len && value[space] != ' '; space++)
+		;
+	if (space == 0u || space > FZN_NODE_SETTINGS_HOST_MAX || space == len)
+		return 0;
+	for (i = 0; i < space; i++) {
+		uint8_t c = value[i];
+
+		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+		      || c == '.' || c == '-' || c == ':'))
+			return 0;
+	}
+	p = count_of(value + space + 1u, len - space - 1u, 65535u);
+	if (!p)
+		return 0;
+	memcpy(host, value, space);
+	host[space] = '\0';
+	*port = (uint16_t)p;
+	return 1;
+}
+
 fzn_node_settings_err_t fzn_node_settings_take_rules(const fzn_node_settings_t *ns,
                                                      const uint8_t about[FZN_SUBJECT_LEN],
                                                      size_t *moved)

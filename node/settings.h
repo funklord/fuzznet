@@ -164,6 +164,18 @@ fzn_node_settings_err_t fzn_node_settings_forget_clears(const fzn_node_settings_
 #define FZN_NODE_SETTINGS_WINDOW_DAYS 60u
 unsigned fzn_node_settings_window_days(const fzn_node_settings_t *ns);
 
+/* A MEMBER'S ADDRESS AS A SETTING, sec 579: the host cell `net/address`,
+ * `HOST PORT` -- a name or an address of 1 to 253 bytes of letters, digits
+ * and `.-:`, a space, and a port from 1 to 65535 -- at whatever rank is in
+ * force, so an admin may correct a member's. 1 with the host, NUL ended,
+ * and the port; 0 when unset or not of that shape. Where a sibling is found
+ * is a location, and changes without its pairing changing (`node/pair.h`),
+ * so it is kept here rather than beside the pairing. */
+#define FZN_NODE_SETTINGS_ADDRESS_KEY "net/address"
+#define FZN_NODE_SETTINGS_HOST_MAX 253u
+int fzn_node_settings_address(const fzn_node_settings_t *ns, const uint8_t about[FZN_SUBJECT_LEN],
+                              char host[FZN_NODE_SETTINGS_HOST_MAX + 1u], uint16_t *port);
+
 /* The verbs above; 0 for a request that is not one. */
 size_t fzn_node_settings_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                                char *reply, size_t reply_cap);

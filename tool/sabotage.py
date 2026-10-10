@@ -10788,6 +10788,20 @@ SABOTAGES = [
 		"a setting's journal record is stamped in seconds while every other record is in milliseconds -- sec 561",
 	),
 	(
+		"settings-address-port-in-range",
+		"node/settings.c",
+		"\tp = count_of(value + space + 1u, len - space - 1u, 65535u);\n\tif (!p)\n\t\treturn 0;\n",
+		"\tp = count_of(value + space + 1u, len - space - 1u, 65535u);\n",
+		"a member's address with port 0 or no port at all is taken, and its siblings send to port 0 -- sec 579",
+	),
+	(
+		"settings-address-host-characters",
+		"node/settings.c",
+		"\t\t      || c == '.' || c == '-' || c == ':'))\n\t\t\treturn 0;\n",
+		"\t\t      || c == '.' || c == '-' || c == ':'))\n\t\t\tcontinue;\n",
+		"a member's address may hold any byte, and a host name with a slash or a control byte is handed to the resolver -- sec 579",
+	),
+	(
 		"apply-object-revocation-signer-is-its-issuer",
 		"node/apply.c",
 		"\t\tat = FZN_REV_OFF_ISSUER;",

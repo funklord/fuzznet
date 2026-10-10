@@ -56135,7 +56135,8 @@ expiring sooner than a peer's clock is off is refused as stale.
 - ~~**Several peers at once, and an adaptive window**: a file is fetched
   from one pull peer at a time.~~ Built in sec 494 on `spool/transfer.h`.
 - **Peers beyond the pull peers**: only hosts this node has an address for
-  are asked, as for texts.
+  are asked, as for texts. Planned in sec 579: siblings by address
+  settings and pairings carried in the estate.
 - ~~**The scrub**~~, built in sec 492; ~~**tiers**~~, built in sec 493.
 
 ### Measured for sec 491
@@ -61836,3 +61837,58 @@ checked. notebook_view_test 159: a canned reply of two refused, one
 pending, names both and adds the line; one with none pending adds
 nothing. Four sabotage entries: the tally, the reply's field, the
 notebook's line, and where its names start.
+
+## 579. Planned: siblings reach each other, by address and by pairing, 2026-10-10
+
+Sec 491 left the members' reach open: a member fetches a file only from
+the peers it has an address for, its root and its `--pull-from` peers,
+so a sibling holding a file is not asked. The holder decided 2026-10-10,
+asked against two alternatives:
+
+- **Addresses as settings.** Each member's address is a host-scoped
+  setting, carried and resolved as every setting is (sec 540). Rejected:
+  fetching through the root only, where the cost is waiting until the
+  root has gathered the file (sec 490); and the root relaying spans.
+- **Pairings carried in the estate.** An address is not enough: every
+  request is sealed under a pairing, and the node asked must hold its
+  side. Siblings hold none unless paired by hand, as `live_witness.py`
+  does. So each member publishes its prekey, and every member pairs
+  every sibling and carries the card in its stream for the sibling to
+  accept. Rejected: pairing siblings by hand; and back to the root.
+
+A card carries no secret (`node/pair.h`), and a prekey record is public
+by design, so both travel in the journal under the tags they already
+have: `FZN_OBJECT_PREKEY` (132) and `FZN_OBJECT_CARD` (142). Nothing
+new on the wire but those two record kinds in an estate stream. One
+person's machines are few, so n x (n - 1) cards is small.
+
+### Stages
+
+1. **The address**, `net/address` in a host's cell: `HOST PORT`.
+   Built here.
+2. **Prekeys carried.** A member writes its own prekey record into its
+   estate stream; applying one keeps the newest per member, signed by
+   that member.
+3. **Cards minted and accepted.** Each round a member pairs every sibling
+   whose prekey it holds and has not paired for that prekey, into the
+   running peer set as `add peer` does (sec 378), logs the grant (sec
+   508), and writes the card into its stream. A member applying a card
+   made for its own prekey accepts it, and holds a pairing to that
+   sibling.
+4. **Siblings asked.** A sibling with a pairing and an address is a peer
+   for files, beside the pull peers and the sharing contacts (sec 494).
+
+### Stage 1: the address
+
+`fzn_node_settings_address`: the host cell `net/address`, at whatever
+rank is in force, so an admin may correct a member's. `HOST PORT`: a name
+or an address of 1 to 253 bytes of letters, digits and `.-:`, a space,
+and a port from 1 to 65535; anything else reads as unset. Set with `set
+setting host net/address HOST PORT`. The address is kept as a setting and
+not beside the pairing, because `node/pair.h` already decided that a
+location changes without the credential changing and a stored address
+would be the first thing to go stale. Its consumer is stage 4.
+
+Measured: apply_test 68 checks -- unset, a member's own address read
+(an IPv6 one), and a port of 0 or 65536, a host with a slash, no port
+and no host each read as unset, 65535 read.
