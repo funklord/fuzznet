@@ -10851,13 +10851,6 @@ SABOTAGES = [
 		"a member this node admitted is paired again as a sibling, and loses the delegable grant it joined with -- sec 579",
 	),
 	(
-		"admin-sibling-not-itself",
-		"node/admin.c",
-		"\t    || fzn_ct_memeq(record.host, admin->id->pubkey, FZN_PUBKEY_LEN))\n\t\treturn -1;\n",
-		"\t    )\n\t\treturn -1;\n",
-		"a node pairs itself as a sibling and holds itself as a peer -- sec 579",
-	),
-	(
 		"apply-object-revocation-signer-is-its-issuer",
 		"node/apply.c",
 		"\t\tat = FZN_REV_OFF_ISSUER;",

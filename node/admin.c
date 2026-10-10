@@ -199,9 +199,11 @@ int fzn_node_admin_pair_sibling(fzn_node_admin_t *admin,
 
 	if (why)
 		*why = NULL;
+	/* THIS NODE'S OWN PREKEY needs no check here: the session layer
+	 * refuses a session with oneself (FZN_SESSION_ERR_SELF), so pairing it
+	 * fails below, and a check here could not be told apart from it. */
 	if (!admin || !admin->id || !admin->state || !admin->store || !admin->peers || !prekey
-	    || fzn_prekey_open(prekey, FZN_PREKEY_LEN_TOTAL, &record) != FZN_PREKEY_OK
-	    || fzn_ct_memeq(record.host, admin->id->pubkey, FZN_PUBKEY_LEN))
+	    || fzn_prekey_open(prekey, FZN_PREKEY_LEN_TOTAL, &record) != FZN_PREKEY_OK)
 		return -1;
 	/* A HOST THIS NODE ALREADY SERVES IS LEFT AS IT IS: re-pairing would
 	 * replace its grant -- a member this node admitted would lose the

@@ -61959,7 +61959,7 @@ is already a pull peer. `fetch_files` asks them beside the pull peers and
 the sharing contacts. `open_target` is the socket and caller setup the
 received shares had, shared.
 
-### Measured
+### Measured for sec 580
 
 - apply_test 77 checks: a member's own prekey kept, one it carried about
   another host refused, a stranger's waiting, an older one STALE and a
@@ -61981,12 +61981,16 @@ received shares had, shared.
   holds none. Broken by hand, which sabotage.py cannot reach: with
   `load_siblings` taken out, phase c fails; with `pair_siblings` taken
   out, phase a does.
-- Eight sabotage entries, over the carrier, the newest, the wait, the
-  delegable walk, the device, the grantor's prekey, a host served already
-  and this node itself; one older entry re-anchored, its line now
-  repeated in the sibling pairing.
+- Seven sabotage entries, each probed caught: the carrier, the newest,
+  the wait, the delegable walk, the device, the grantor's prekey, and a
+  host served already. One older entry re-anchored, its line now repeated
+  in the sibling pairing, and caught. An eighth, on refusing this node's
+  own prekey as a sibling, survived: the session layer refuses a session
+  with oneself (`FZN_SESSION_ERR_SELF`), so the pairing failed either way.
+  The check is gone, and its entry; admin_test's case stands, held by the
+  session layer.
 
-### Not yet
+### Not yet after sec 580
 
 - **The grant reaches the sibling a round late**: it is logged after the
   round's push, so pairing both ways takes some rounds -- four in the
