@@ -7,7 +7,8 @@ One store. A note is written and edited three times:
        listed by `list history`, kept by default as the holder decided
     b  restarted with `--log-rule=prune history count 1`, the round's
        history pass lets two versions go -- "history pass: 1 of 1 rule(s),
-       2 version(s) let go" -- and one is listed, the newest
+       2 version(s) let go" -- and one is listed, the newest, whose
+       fields `get history` answers (sec 583)
 
 Against a daemon that does not trim the history, phase b fails at the pass
 line; against one that keeps none, phase a does.
@@ -89,6 +90,10 @@ def main(argv):
 				kept, reply = versions(sock, "b", note)
 				if kept != 1 or ",here,v2" not in reply:
 					raise failed("b: list history answered %r, not the newest alone" % reply)
+				# THE VERSION READ, sec 583.
+				reply = ask(sock, "get history %s 0" % note)
+				if not reply.startswith("ok ") or not reply.endswith(" v2"):
+					raise failed("b: get history answered %r, not v2's fields" % reply)
 			finally:
 				d.stop()
 			print("livecheck: b: prune history count 1 let two go and kept the newest")

@@ -62022,6 +62022,7 @@ versions cannot be where history lives. A version is kept by itself.
    `keep` rules over history by age, count per note and size, trimmed
    each round. Built in sec 582.
 3. **An old version read**, its text as `get note` gives the current one.
+   Built in sec 583.
 
 ### Stage 1
 
@@ -62110,3 +62111,31 @@ Sec 581's stage 2.
   keep policy. A fourth, on the parser refusing a contact, was not
   written: `contact=` is taken only for a message rule, so the check
   added for it here could not be told from that one, and is gone.
+
+## 583. An earlier version read, 2026-10-10
+
+Sec 581's stage 3, and the last.
+
+- **`get history ID N [text [FROM] | file PATH]`**: the note's Nth
+  earlier version, counted from 0 as `list history` lists them, answered
+  as `get note` answers the current one -- its fields, or `pending` for
+  a text not here, its text a page at a time, or its text into a file.
+  `get` is split into the lookup and `answer_note`, which both use, so
+  the two cannot answer differently.
+- **An earlier version's `items` are refused**: `get_items` reads the
+  note by its id, so it would answer the current version's items as the
+  earlier one's. A checklist's earlier items are in its text, which
+  `text` gives.
+
+### Measured for sec 583
+
+- notes_test 360: the oldest version's fields are its own; a version past
+  the last is absent; its items refused; a note's earlier text reads back
+  (`3 0 one` after `one` became `two`); a version whose text is gone is
+  got as pending.
+- `tool/live_history.py`'s phase b reads the one version left with `get
+  history` and finds v2's title.
+- Two sabotage entries: the items refusal, and the version asked for
+  being the one read. None for the bound, `nth >= v.count`: an index one
+  past the last reads a zeroed row the store does not hold, and is
+  absent either way.

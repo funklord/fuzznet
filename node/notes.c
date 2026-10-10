@@ -639,28 +639,23 @@ static size_t list(const fzn_node_notes_t *n, const fzn_notes_store_t *store, in
 
 /* ---- get ----------------------------------------------------------------- */
 
-static size_t get(fzn_node_notes_t *n, const fzn_notes_store_t *store, const uint8_t *at,
-                  size_t left, char *reply, size_t cap)
+/* A NOTE'S FIELDS, TEXT OR FILE, for `get note` and `get history`: `node`
+ * read under `store`; `id` names the note, for its items, which an earlier
+ * version (`historical`) does not answer. */
+static size_t answer_note(fzn_node_notes_t *n, const fzn_notes_store_t *store,
+                          const uint8_t id[FZN_TREE_ID_LEN], const fzn_tree_node_t *node,
+                          int historical, const uint8_t *at, size_t left, char *reply,
+                          size_t cap)
 {
 	static char detail[FZN_REPLY_MAX];
 	size_t limit = fzn_reply_ok_room(cap);
-	uint8_t id[FZN_TREE_ID_LEN];
 	const uint8_t *w, *field;
-	size_t w_len, field_len, idx = 0, used, wrote = 0, from = 0, i;
-	const fzn_tree_node_t *node;
+	size_t w_len, field_len, used, wrote = 0, from = 0, i;
 	fzn_note_t note;
 	fzn_note_meta_t meta;
 	fzn_notes_err_t err;
 	int k, pending;
 
-	if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, id) || fzn_tree_is_root(id))
-		return say(reply, cap, FZN_REPLY_MALFORMED, "get note ID [text [FROM] | file PATH]");
-	err = fzn_notes_view_load(store, &view);
-	if (err != FZN_NOTES_OK)
-		return refuse(reply, cap, err);
-	node = find(n, id, &idx);
-	if (!node)
-		return refuse(reply, cap, FZN_NOTES_ERR_ABSENT);
 	err = read_note(n, store, node, &meta, &note);
 	if (err != FZN_NOTES_OK && err != FZN_NOTES_ERR_PENDING)
 		return refuse(reply, cap, err);
@@ -690,8 +685,12 @@ static size_t get(fzn_node_notes_t *n, const fzn_notes_store_t *store, const uin
 			return say(reply, cap, FZN_REPLY_ERROR, "the title does not fit a reply");
 		return answer(reply, cap, FZN_REPLY_OK, detail, used + wrote);
 	}
-	if (is_word(field, field_len, "items"))
+	if (is_word(field, field_len, "items")) {
+		if (historical)
+			return say(reply, cap, FZN_REPLY_MALFORMED,
+			           "an earlier version's items are its text");
 		return get_items(n, store, id, at, left, reply, cap);
+	}
 	if (pending)
 		return say(reply, cap, FZN_REPLY_ERROR, "the text is not here yet");
 	if (is_word(field, field_len, "text")) {
@@ -732,6 +731,26 @@ static size_t get(fzn_node_notes_t *n, const fzn_notes_store_t *store, const uin
 		return answer(reply, cap, FZN_REPLY_OK, detail, k > 0 ? (size_t)k : 0u);
 	}
 	return say(reply, cap, FZN_REPLY_MALFORMED, "no such field");
+}
+
+static size_t get(fzn_node_notes_t *n, const fzn_notes_store_t *store, const uint8_t *at,
+                  size_t left, char *reply, size_t cap)
+{
+	uint8_t id[FZN_TREE_ID_LEN];
+	const uint8_t *w;
+	size_t w_len, idx = 0;
+	const fzn_tree_node_t *node;
+	fzn_notes_err_t err;
+
+	if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, id) || fzn_tree_is_root(id))
+		return say(reply, cap, FZN_REPLY_MALFORMED, "get note ID [text [FROM] | file PATH]");
+	err = fzn_notes_view_load(store, &view);
+	if (err != FZN_NOTES_OK)
+		return refuse(reply, cap, err);
+	node = find(n, id, &idx);
+	if (!node)
+		return refuse(reply, cap, FZN_NOTES_ERR_ABSENT);
+	return answer_note(n, store, id, node, 0, at, left, reply, cap);
 }
 
 /* ---- collecting texts, sec 443 ------------------------------------------ */
@@ -864,6 +883,20 @@ static int by_time(const void *a, const void *b)
 	return memcmp(x->row, y->row, FZN_PUBKEY_LEN);
 }
 
+/* The note `id`'s earlier versions into `v`, oldest first. */
+static fzn_notes_err_t load_versions(fzn_node_notes_t *n, const uint8_t id[FZN_TREE_ID_LEN],
+                                     struct versions *v)
+{
+	fzn_notes_err_t err;
+
+	memset(v, 0, sizeof(*v));
+	v->id = id;
+	err = fzn_notes_history_each(&n->store, take_version, v);
+	if (err == FZN_NOTES_OK)
+		qsort(v->at, v->count, sizeof(v->at[0]), by_time);
+	return err;
+}
+
 /* `list history ID [FROM]`: `ok TOTAL FROM` and the note's earlier versions,
  * oldest first, each `MS,WRITER,here,TITLE` -- WRITER the first eight bytes
  * of its key in hex, the title escaped -- or `MS,WRITER,pending,` for one
@@ -889,12 +922,9 @@ static size_t history_list(fzn_node_notes_t *n, const uint8_t *at, size_t left, 
 				return say(reply, cap, FZN_REPLY_MALFORMED, "not an index");
 			from = (from * 10u) + (size_t)(w[i] - '0');
 		}
-	memset(&v, 0, sizeof(v));
-	v.id = id;
-	err = fzn_notes_history_each(&n->store, take_version, &v);
+	err = load_versions(n, id, &v);
 	if (err != FZN_NOTES_OK)
 		return refuse(reply, cap, err);
-	qsort(v.at, v.count, sizeof(v.at[0]), by_time);
 	if (from > v.count)
 		return say(reply, cap, FZN_REPLY_MALFORMED, "past the last version");
 	k = snprintf(detail, sizeof(detail), "%zu %zu", v.count, from);
@@ -935,6 +965,44 @@ static size_t history_list(fzn_node_notes_t *n, const uint8_t *at, size_t left, 
 		used += (size_t)m + wrote;
 	}
 	return answer(reply, cap, FZN_REPLY_OK, detail, used);
+}
+
+/* `get history ID N [text [FROM] | file PATH]`: the note's Nth earlier
+ * version, counted from 0 as `list history` lists them, answered as `get
+ * note` answers the current one. sec 583. */
+static size_t history_get(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *reply,
+                          size_t cap)
+{
+	static struct versions v;
+	static uint8_t bytes[FZN_RECORD_MAX_LEN];
+	static const char USAGE[] = "get history ID N [text [FROM] | file PATH]";
+	uint8_t id[FZN_TREE_ID_LEN];
+	const uint8_t *w;
+	size_t w_len, nth = 0, len = 0, i;
+	fzn_record_t rec;
+	fzn_tree_node_t node;
+	fzn_notes_err_t err;
+
+	if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, id)
+	    || !word(&at, &left, &w, &w_len))
+		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+	for (i = 0; i < w_len; i++) {
+		if (w[i] < '0' || w[i] > '9' || nth > FZN_NOTES_HISTORY_MAX)
+			return say(reply, cap, FZN_REPLY_MALFORMED, "not an index");
+		nth = (nth * 10u) + (size_t)(w[i] - '0');
+	}
+	err = load_versions(n, id, &v);
+	if (err != FZN_NOTES_OK)
+		return refuse(reply, cap, err);
+	if (nth >= v.count)
+		return refuse(reply, cap, FZN_NOTES_ERR_ABSENT);
+	err = fzn_notes_history_get(&n->store, v.at[nth].row, bytes, sizeof(bytes), &len);
+	if (err != FZN_NOTES_OK)
+		return refuse(reply, cap, err);
+	if (fzn_record_open(bytes, len, &rec) != FZN_RECORD_OK
+	    || fzn_tree_open(rec, &node) != FZN_TREE_OK)
+		return refuse(reply, cap, FZN_NOTES_ERR_SHAPE);
+	return answer_note(n, &n->store, id, &node, 1, at, left, reply, cap);
 }
 
 /* `remove text unused`: `ok REMOVED KEPT`. */
@@ -1828,11 +1896,12 @@ static size_t local_verbs(fzn_node_notes_t *n, fzn_origin_t origin,
 		return collect_texts(n, at, left, reply, reply_cap);
 	}
 	if (is_word(subject, subject_len, "history")) {
-		if (request->parsed != FZN_VERB_LIST)
+		if (request->parsed != FZN_VERB_LIST && request->parsed != FZN_VERB_GET)
 			return 0;
 		if (origin != FZN_ORIGIN_SAME_USER)
 			return say(reply, reply_cap, FZN_REPLY_DENIED, "notes need this node's own user");
-		return history_list(n, at, left, reply, reply_cap);
+		return request->parsed == FZN_VERB_LIST ? history_list(n, at, left, reply, reply_cap)
+		                                        : history_get(n, at, left, reply, reply_cap);
 	}
 	if (is_word(subject, subject_len, "item")) {
 		if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_REMOVE)

@@ -49,6 +49,11 @@
  *                                  directory into PARENT (sec 440); answers
  *                                  IMPORTED ALREADY UNDATED REFUSED PENDING
  *                                  and the refused notes' titles
+ *     list history ID [FROM]       its earlier versions, oldest first:
+ *                                  `MS,WRITER,here|pending,TITLE` (sec 581)
+ *     get history ID N [text [FROM] | file PATH]
+ *                                  the Nth of them, from 0, as `get note`
+ *                                  answers (sec 583)
  *
  * PARENT is a note's id in hex, or `top` for the top level. A listing of
  * `top` is the top level as `notes/view.h` defines it: the root's children,

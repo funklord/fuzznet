@@ -1070,6 +1070,28 @@ static void test_history(void)
 	              && fzn_node_notes_names_blob(&notes, second_root),
 	      "collection would take an earlier version's text");
 
+	/* AN EARLIER VERSION READ, sec 583, as `get note` reads the current. */
+	snprintf(line, sizeof(line), "get history %s 0", note);
+	CHECK(ask(line) == FZN_REPLY_OK && has(" blob ") && has(" first") && !has("second"),
+	      "the oldest version's fields were not its own");
+	snprintf(line, sizeof(line), "get history %s 2", note);
+	CHECK(ask(line) == FZN_REPLY_ERROR, "a version past the last was answered");
+	snprintf(line, sizeof(line), "get history %s 0 items", note);
+	CHECK(ask(line) == FZN_REPLY_MALFORMED, "an earlier version's items were answered");
+	{
+		char texted[65];
+
+		CHECK(ask("add note top texted") == FZN_REPLY_OK, "fixture: a note for its text");
+		take_id(texted);
+		snprintf(line, sizeof(line), "set note %s text one", texted);
+		CHECK(ask(line) == FZN_REPLY_OK, "fixture: its text");
+		snprintf(line, sizeof(line), "set note %s text two", texted);
+		CHECK(ask(line) == FZN_REPLY_OK, "fixture: its text changed");
+		snprintf(line, sizeof(line), "get history %s 1 text", texted);
+		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "3 0 one"),
+		      "an earlier version's text did not read back");
+	}
+
 	memset(&ref, 0, sizeof(ref));
 	memcpy(ref.root, first_root, sizeof(ref.root));
 	blob_stub_drop(&ref);
@@ -1077,6 +1099,9 @@ static void test_history(void)
 	CHECK(ask(line) == FZN_REPLY_OK && has(",pending,") && has(",here,second")
 	              && !has(",here,first"),
 	      "a version whose text is gone was not listed as pending");
+	snprintf(line, sizeof(line), "get history %s 0", note);
+	CHECK(ask(line) == FZN_REPLY_OK && has(" pending "),
+	      "a version whose text is gone was not got as pending");
 
 	snprintf(line, sizeof(line), "set note %s trash", note);
 	CHECK(ask(line) == FZN_REPLY_OK && ask("remove note trash") == FZN_REPLY_OK,

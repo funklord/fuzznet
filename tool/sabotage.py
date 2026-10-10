@@ -10795,6 +10795,20 @@ SABOTAGES = [
 		"a version whose text has not arrived is listed as here, with no title -- sec 581",
 	),
 	(
+		"node-notes-history-items-refused",
+		"node/notes.c",
+		"\t\tif (historical)\n\t\t\treturn say(reply, cap, FZN_REPLY_MALFORMED,",
+		"\t\tif (0)\n\t\t\treturn say(reply, cap, FZN_REPLY_MALFORMED,",
+		"an earlier version's items are answered with the current version's, as if they were its own -- sec 583",
+	),
+	(
+		"node-notes-history-gets-the-version-asked",
+		"node/notes.c",
+		"\terr = fzn_notes_history_get(&n->store, v.at[nth].row, bytes, sizeof(bytes), &len);\n",
+		"\terr = fzn_notes_history_get(&n->store, v.at[0].row, bytes, sizeof(bytes), &len);\n",
+		"get history answers the oldest version whichever was asked -- sec 583",
+	),
+	(
 		"notes-file-takes-only-claims",
 		"node/notes.c",
 		"\t    || fzn_record_stream(rec) != FZN_NOTE_STREAM || fzn_record_kind(rec) != FZN_NOTE_KIND)\n\t\treturn FZN_NOTES_ERR_MALFORMED;\n\treturn fzn_notes_put(",
