@@ -596,6 +596,43 @@ static void test_archive_rules(void)
 	              && marks[1] == (FZN_RETAIN_MARK_ARCHIVED | FZN_RETAIN_MARK_KEPT)
 	              && marks[0] == FZN_RETAIN_MARK_ARCHIVED,
 	      "a keep rule's segment was not marked kept beside archived");
+
+	/* THE ARCHIVE'S OWN RULES, sec 589: prune and keep of whole segments,
+	 * selected apart from the live log's, and no policy among them. */
+	{
+		static const char *const NOT[] = {
+			"archive * archived age 1d",       "prune * archived level=E age 1d",
+			"prune * copy archived age 1d",    "prune messages archived age 1d",
+			"prune history archived age 1d",   "prune * archived text=x age 1d",
+		};
+		uint8_t host[32], machine[FZN_ENTRY_MACHINE_LEN];
+		fzn_retain_rule_t in[4], out[4];
+
+		memset(host, 0xbb, sizeof(host));
+		memset(machine, 0x0b, sizeof(machine));
+		in[0] = rule("prune * archived age 1825d");
+		CHECK(in[0].archived && in[0].kind == FZN_RETAIN_PRUNE
+		              && fzn_retain_text(&in[0], t, sizeof(t), &len) == FZN_RETAIN_OK
+		              && strcmp(t, "prune * archived age 1825d") == 0,
+		      "a rule over the archive reads and writes back as it was given");
+		in[1] = rule("keep log netcfgd archived count 10");
+		CHECK(in[1].archived && strcmp(in[1].program, "netcfgd") == 0
+		              && fzn_retain_text(&in[1], t, sizeof(t), &len) == FZN_RETAIN_OK
+		              && strcmp(t, "keep netcfgd archived count 10") == 0,
+		      "and a keep naming a program");
+		for (i = 0, all = 1; i < sizeof(NOT) / sizeof(NOT[0]); i++)
+			all = all && fzn_retain_parse(NOT[i], strlen(NOT[i]), &x) == FZN_RETAIN_ERR_MALFORMED;
+		CHECK(all, "an archive rule over the archive, a selector, a copy or another kind's "
+		           "data was taken over it");
+		in[2] = rule("prune * age 1d");
+		in[3] = rule("policy log drop");
+		CHECK(fzn_retain_select_archived(in, 4u, host, machine, out) == 2u
+		              && out[0].archived && out[1].archived
+		              && fzn_retain_select_here(in, 4u, host, machine, out) == 2u
+		              && !out[0].archived && !out[1].archived,
+		      "the archive's selection did not take its rules alone, a policy among none of "
+		      "them, or the live log's took them");
+	}
 }
 
 /* A DEFAULT POLICY PER KIND, sec 566: everything and nothing, each one

@@ -8928,8 +8928,8 @@ SABOTAGES = [
 	(
 		"retain-own-log-skips-copy-rules",
 		"log/retain.c",
-		"\t\tif (in[i].data == FZN_RETAIN_LOG && !in[i].copy\n",
-		"\t\tif (in[i].data == FZN_RETAIN_LOG\n",
+		"\t\tif (in[i].data == FZN_RETAIN_LOG && !in[i].copy && !in[i].archived\n",
+		"\t\tif (in[i].data == FZN_RETAIN_LOG && !in[i].archived\n",
 		"a rule written for copies prunes this node's own log -- sec 483",
 	),
 	(
@@ -9782,8 +9782,8 @@ SABOTAGES = [
 	(
 		"retain-here-skips-message-rules",
 		"log/retain.c",
-		"\t\tif (in[i].data == FZN_RETAIN_LOG && !in[i].copy\n",
-		"\t\tif (!in[i].copy\n",
+		"\t\tif (in[i].data == FZN_RETAIN_LOG && !in[i].copy && !in[i].archived\n",
+		"\t\tif (!in[i].copy && !in[i].archived\n",
 		"a rule over conversations prunes the node's own log files -- sec 531",
 	),
 	(
@@ -10898,6 +10898,27 @@ SABOTAGES = [
 		"\t\t\t        (uint8_t)((archived ? FZN_RETAIN_MARK_ARCHIVED\n\t\t\t                            : (pruned || drops ? FZN_RETAIN_MARK_PRUNED : 0u))",
 		"\t\t\t        (uint8_t)((archived ? FZN_RETAIN_MARK_ARCHIVED : 0u)\n\t\t\t                  | (pruned || drops ? FZN_RETAIN_MARK_PRUNED : 0u)",
 		"a segment both an archive and a prune rule take is marked pruned too, and the entry walk may remove what was to be archived -- sec 588",
+	),
+	(
+		"retain-live-log-leaves-archived-rules-out",
+		"log/retain.c",
+		"\t\tif (in[i].data == FZN_RETAIN_LOG && !in[i].copy && !in[i].archived\n",
+		"\t\tif (in[i].data == FZN_RETAIN_LOG && !in[i].copy\n",
+		"a rule meant for the archive prunes the live log, a five-year fossil rule taking this week's log -- sec 589",
+	),
+	(
+		"retain-archive-selection-takes-archived-only",
+		"log/retain.c",
+		"\t\tif (in[i].data == FZN_RETAIN_LOG && in[i].archived\n",
+		"\t\tif (in[i].data == FZN_RETAIN_LOG\n",
+		"the live log's rules and its drop policy reach the archive, and empty the fossil class -- sec 589",
+	),
+	(
+		"retain-archived-parse-refuses",
+		"log/retain.c",
+		"\tif (out->archived\n\t    && ((out->kind != FZN_RETAIN_PRUNE && out->kind != FZN_RETAIN_KEEP)",
+		"\tif (0 && out->archived\n\t    && ((out->kind != FZN_RETAIN_PRUNE && out->kind != FZN_RETAIN_KEEP)",
+		"a rule over the archive naming an entry selector, a copy or another kind's data is taken -- sec 589",
 	),
 	(
 		"pack-archive-keep-holds",

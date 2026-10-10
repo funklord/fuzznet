@@ -289,6 +289,8 @@ fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_
 				return FZN_RETAIN_ERR_MALFORMED;
 		} else if (n[i] == 4u && memcmp(w[i], "copy", 4u) == 0 && !out->copy) {
 			out->copy = 1;
+		} else if (n[i] == 8u && memcmp(w[i], "archived", 8u) == 0 && !out->archived) {
+			out->archived = 1;
 		} else if (n[i] > 7u && memcmp(w[i], "source=", 7u) == 0 && !out->has_source) {
 			if (!hex_of(w[i] + 7, n[i] - 7u, out->source, sizeof(out->source)))
 				return FZN_RETAIN_ERR_MALFORMED;
@@ -343,6 +345,13 @@ fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_
 	else if (is(w[0], n[0], "archive"))
 		out->kind = FZN_RETAIN_ARCHIVE;
 	else
+		return FZN_RETAIN_ERR_MALFORMED;
+	/* A RULE OVER THE ARCHIVE, sec 589: prune or keep, of this node's own
+	 * log's whole segments. */
+	if (out->archived
+	    && ((out->kind != FZN_RETAIN_PRUNE && out->kind != FZN_RETAIN_KEEP)
+	        || out->data != FZN_RETAIN_LOG || out->copy || out->has_source || out->levels
+	        || out->subsystem[0] || out->match_len))
 		return FZN_RETAIN_ERR_MALFORMED;
 	/* AN ARCHIVE RULE MOVES WHOLE SEGMENTS of this node's own log, sec 588:
 	 * no entry selector, no copy, and no other kind's data. */
@@ -495,7 +504,7 @@ fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_
 	             : rule->kind == FZN_RETAIN_ARCHIVE ? "archive"
 	                                                : "keep",
 	             what,
-	             rule->copy ? " copy" : "", scope,
+	             rule->copy ? " copy" : rule->archived ? " archived" : "", scope,
 	             k ? " level=" : "", levels, rule->subsystem[0] ? " subsystem=" : "",
 	             rule->subsystem, match,
 	             rule->limit == FZN_RETAIN_AGE    ? "age"
@@ -563,7 +572,7 @@ static int rule_ok(const fzn_retain_rule_t *r)
 		return (r->data == FZN_RETAIN_LOG || r->data == FZN_RETAIN_MESSAGES
 		        || r->data == FZN_RETAIN_HISTORY)
 		       && (r->drop == 0 || r->drop == 1) && r->program[0] == '\0' && !r->levels
-		       && !r->subsystem[0] && !r->match_len && !r->copy && !r->has_source
+		       && !r->subsystem[0] && !r->match_len && !r->copy && !r->archived && !r->has_source
 		       && !r->has_contact && r->limit == 0 && r->value == 0u
 		       && (r->has_host == 0 || r->has_host == 1)
 		       && (r->has_machine == 0 || r->has_machine == 1);
@@ -577,7 +586,8 @@ static int rule_ok(const fzn_retain_rule_t *r)
 		       && (r->limit == FZN_RETAIN_AGE || r->limit == FZN_RETAIN_SIZE
 		           || r->limit == FZN_RETAIN_COUNT)
 		       && r->program[0] == '\0' && !r->levels && !r->subsystem[0] && !r->match_len
-		       && !r->copy && !r->has_source && (r->has_contact == 0 || r->has_contact == 1)
+		       && !r->copy && !r->archived && !r->has_source
+		       && (r->has_contact == 0 || r->has_contact == 1)
 		       && (r->has_host == 0 || r->has_host == 1)
 		       && (r->has_machine == 0 || r->has_machine == 1);
 	/* AN ARCHIVE RULE: a log segment rule of this node's own log. */
@@ -600,6 +610,10 @@ static int rule_ok(const fzn_retain_rule_t *r)
 	       && (r->has_host == 0 || r->has_host == 1)
 	       && (r->has_source == 0 || (r->has_source == 1 && r->copy == 1))
 	       && (r->copy == 0 || (r->copy == 1 && !r->levels && !r->subsystem[0] && !r->match_len))
+	       && (r->archived == 0
+	           || (r->archived == 1 && !r->copy && !r->levels && !r->subsystem[0]
+	               && !r->match_len
+	               && (r->kind == FZN_RETAIN_PRUNE || r->kind == FZN_RETAIN_KEEP)))
 	       && (r->has_machine == 0 || r->has_machine == 1);
 }
 
@@ -627,7 +641,7 @@ size_t fzn_retain_select_here(const fzn_retain_rule_t *in, size_t n, const uint8
 	if (!in || !out)
 		return 0;
 	for (i = 0; i < n; i++)
-		if (in[i].data == FZN_RETAIN_LOG && !in[i].copy
+		if (in[i].data == FZN_RETAIN_LOG && !in[i].copy && !in[i].archived
 		    && fzn_retain_reaches(&in[i], host, machine))
 			out[k++] = in[i];
 	return k;
@@ -657,6 +671,21 @@ size_t fzn_retain_select_history(const fzn_retain_rule_t *in, size_t n, const ui
 		return 0;
 	for (i = 0; i < n; i++)
 		if (in[i].data == FZN_RETAIN_HISTORY && fzn_retain_reaches(&in[i], host, machine))
+			out[k++] = in[i];
+	return k;
+}
+
+size_t fzn_retain_select_archived(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],
+                                  const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
+                                  fzn_retain_rule_t *out)
+{
+	size_t i, k = 0;
+
+	if (!in || !out)
+		return 0;
+	for (i = 0; i < n; i++)
+		if (in[i].data == FZN_RETAIN_LOG && in[i].archived
+		    && fzn_retain_reaches(&in[i], host, machine))
 			out[k++] = in[i];
 	return k;
 }

@@ -5,11 +5,14 @@
 One store, its log directory kept across runs, its segments small:
 
     a  short runs until the log holds two packed segments
-    b  a run with `--log-rule=archive * count 1`: every packed segment but
-       the newest moves to LOGDIR/archive -- "segment(s) of fuzznetd
-       archived to" -- and leaves the log directory
+    b  a run with `--log-rule=archive * count 0`: every packed segment
+       moves to LOGDIR/archive -- "segment(s) of fuzznetd archived to" --
+       and leaves the log directory
     c  `fuzznetd --log-dir=LOGDIR/archive --check-log` walks the archive
        alone, no store and no journal: its chain holds, signed by the node
+    d  a run with `prune * archived count 0` and `keep * archived count 1`:
+       the archive's own rules (sec 589) prune all but its newest fossil,
+       which still verifies alone
 
 Against a daemon that does not archive, phase b fails at its line; against
 one whose archive breaks the chain, phase c does.
@@ -36,6 +39,7 @@ from live_trim import failed, left  # noqa: E402
 
 ROUND_END_RE = re.compile(r"history pass: ")
 ARCHIVED_RE = re.compile(r"(\d+) segment\(s\) of fuzznetd archived to ")
+PRUNED_RE = re.compile(r"(\d+) archived segment\(s\) of fuzznetd pruned")
 CHECKED_RE = re.compile(r"fuzznetd's log: (\d+) packed segment\(s\), the chain holds")
 RUNS = 12
 
@@ -104,7 +108,7 @@ def main(argv):
 
 			# b: all but the newest archived.
 			d = daemon(run, "nb", store, sock,
-			           extra=small + ["--log-rule=archive * count 1"], log_dir=logs)
+			           extra=small + ["--log-rule=archive * count 0"], log_dir=logs)
 			try:
 				got = d.wait_for(ARCHIVED_RE, "segments archived")
 			finally:
@@ -124,6 +128,27 @@ def main(argv):
 				raise failed("c: --check-log on the archive answered %d: %r %r"
 				             % (r.returncode, out, r.stderr.decode(errors="replace")[:300]))
 			print("livecheck: c: the archive's %s segment(s) verified alone" % m.group(1))
+
+			# d: the archive's own rules.
+			if len(fossils) < 2:
+				raise failed("d: %d fossil(s); the phase needs two" % len(fossils))
+			d = daemon(run, "nd", store, sock,
+			           extra=small + ["--log-rule=prune * archived count 0",
+			                          "--log-rule=keep * archived count 1"], log_dir=logs)
+			try:
+				got = d.wait_for(PRUNED_RE, "the archive pruned")
+			finally:
+				d.stop()
+			left_over = packed_in(archive)
+			if int(got.group(1)) != len(fossils) - 1 or left_over != fossils[-1:]:
+				raise failed("d: %s pruned; the archive holds %r of %r"
+				             % (got.group(1), left_over, fossils))
+			r = subprocess.run([run.fuzznetd, "--log-dir=" + archive, "--check-log"]
+			                   + CAPABILITY, capture_output=True, timeout=min(20.0, left()))
+			m = CHECKED_RE.search(r.stdout.decode(errors="replace"))
+			if r.returncode != 0 or not m or m.group(1) != "1":
+				raise failed("d: --check-log on the pruned archive answered %d" % r.returncode)
+			print("livecheck: d: the archive's rules kept its newest fossil, which verifies")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

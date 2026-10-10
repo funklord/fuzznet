@@ -81,6 +81,9 @@
  *     prune|keep log PROGRAM|* ...        a log rule, as above
  *     prune|keep messages [contact=KEYHEX] [host=] [machine=] LIMIT N
  *     prune|keep history [host=] [machine=] LIMIT N   a note history rule
+ *     prune|keep [log] PROGRAM|* archived [host=] [machine=] LIMIT N
+ *                                  over the archive (sec 589), whole
+ *                                  segments; no policy reaches it
  *     archive [log] PROGRAM|* [host=] [machine=] LIMIT N
  *                                  a log segment past N moved to the archive,
  *                                  the fossil class (sec 588): whole
@@ -178,6 +181,9 @@ typedef struct fzn_retain_rule {
 	int copy;
 	int has_source;
 	uint8_t source[32];
+	/* TO THE ARCHIVE, sec 589, rather than the live log: this node's
+	 * archived segments, whole. */
+	int archived;
 	/* WHERE IT APPLIES, sec 480: one node, one machine, or both. */
 	int has_host;
 	uint8_t host[32];
@@ -213,6 +219,12 @@ size_t fzn_retain_select_copies(const fzn_retain_rule_t *in, size_t n, const uin
 
 /* The MESSAGE rules of `in` that reach this node, sec 531. */
 size_t fzn_retain_select_messages(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],
+                                  const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
+                                  fzn_retain_rule_t *out);
+
+/* The rules of `in` over this node's ARCHIVE that reach it, sec 589. No
+ * policy: a fossil stays until a rule prunes it. */
+size_t fzn_retain_select_archived(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],
                                   const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
                                   fzn_retain_rule_t *out);
 

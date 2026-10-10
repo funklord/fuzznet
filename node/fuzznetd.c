@@ -482,6 +482,63 @@ static size_t gather_rules(fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX])
  * `archive/` under the log directory. */
 static const char *log_archive;
 
+#if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
+/* THE FOSSIL CLASS, secs 588 and 589: this node's packed segments an archive
+ * rule marks moved to the archive -- before the rules over entries could
+ * take them -- and then the archive's own rules applied to it. */
+static void archive_round(const fzn_retain_rule_t *rules, size_t n_rules,
+                          const fzn_retain_rule_t *all_rules, size_t n_all,
+                          char (*programs)[FZN_ENTRY_WORD_MAX + 1u], size_t n_programs)
+{
+	static fzn_retain_rule_t archived_rules[FZN_RETAIN_RULES_MAX];
+	static char held[FZND_LOG_PROGRAMS_MAX][FZN_ENTRY_WORD_MAX + 1u];
+	char where[600];
+	size_t pi, n_archived, n_held = 0, moved = 0;
+
+	if (log_archive)
+		(void)snprintf(where, sizeof(where), "%s", log_archive);
+	else
+		(void)snprintf(where, sizeof(where), "%s/archive", dlog.logger.dir);
+	for (pi = 0; pi < n_rules; pi++)
+		if (rules[pi].kind == FZN_RETAIN_ARCHIVE)
+			break;
+	if (pi < n_rules) {
+		for (pi = 0; pi < n_programs; pi++) {
+			if (fzn_log_pack_archive(dlog.logger.dir, programs[pi], rules, n_rules, where,
+			                         log_now_us(), &moved)
+			    != FZN_LOG_PACK_OK)
+				say(FZN_ENTRY_WARNING, "log", "segments of %s could not all be archived",
+				    programs[pi]);
+			else if (moved)
+				say(FZN_ENTRY_INFO, "log", "%zu segment(s) of %s archived to %s", moved,
+				    programs[pi], where);
+		}
+	}
+	/* THE ARCHIVE'S OWN RULES, sec 589: prune and keep naming `archived`,
+	 * over every program the archive holds -- one that no longer logs
+	 * among them -- whole segments, and no policy: a fossil stays until a
+	 * rule prunes it. */
+	n_archived = fzn_retain_select_archived(all_rules, n_all, dlog.has_host ? dlog.host : NULL,
+	                                        dlog.logger.self.machine, archived_rules);
+	if (n_archived && dlog.hash
+	    && fzn_logger_programs(where, held, FZND_LOG_PROGRAMS_MAX, &n_held) == FZN_LOGGER_OK)
+		for (pi = 0; pi < n_held; pi++) {
+			size_t gone = 0, repacked = 0;
+
+			if (fzn_log_pack_retain(where, held[pi], archived_rules, n_archived, dlog.hash,
+			                        dlog.has_signer ? &dlog.signer : NULL, log_now_us(),
+			                        &gone, &repacked)
+			    != FZN_LOG_PACK_OK)
+				say(FZN_ENTRY_WARNING, "log",
+				    "the archive's rules could not all be applied to %s", held[pi]);
+			else if (gone)
+				say(FZN_ENTRY_INFO, "log", "%zu archived segment(s) of %s pruned", gone,
+				    held[pi]);
+		}
+}
+#endif
+
+
 static void log_round(void)
 {
 #ifdef FZN_LOG_FILE_ON
@@ -514,28 +571,7 @@ static void log_round(void)
 #ifdef FZN_LOG_PACK_ON
 	/* THE FOSSIL CLASS FIRST, sec 588: a packed segment an archive rule
 	 * marks is moved before the rules over entries could take it. */
-	for (pi = 0; pi < n_rules; pi++)
-		if (rules[pi].kind == FZN_RETAIN_ARCHIVE)
-			break;
-	if (pi < n_rules) {
-		char where[600];
-		size_t moved = 0;
-
-		if (log_archive)
-			(void)snprintf(where, sizeof(where), "%s", log_archive);
-		else
-			(void)snprintf(where, sizeof(where), "%s/archive", dlog.logger.dir);
-		for (pi = 0; pi < n_programs; pi++) {
-			if (fzn_log_pack_archive(dlog.logger.dir, programs[pi], rules, n_rules, where,
-			                         log_now_us(), &moved)
-			    != FZN_LOG_PACK_OK)
-				say(FZN_ENTRY_WARNING, "log", "segments of %s could not all be archived",
-				    programs[pi]);
-			else if (moved)
-				say(FZN_ENTRY_INFO, "log", "%zu segment(s) of %s archived to %s", moved,
-				    programs[pi], where);
-		}
-	}
+	archive_round(rules, n_rules, all_rules, n_all, programs, n_programs);
 	/* THE RULES OVER ENTRIES TOO, sec 474: a packed segment some of whose
 	 * lines go is repacked without them. */
 	for (pi = 0; pi < n_programs && n_rules && dlog.hash; pi++) {

@@ -62289,7 +62289,44 @@ described.
 
 ### Not yet after sec 588
 
-- **The archive has no rules of its own**: nothing prunes a fossil.
+- ~~**The archive has no rules of its own**: nothing prunes a fossil.~~
+  It has since sec 589.
 - **Copies are not archived**: an archive rule names no copy.
 - **Sealed kinds** wait on the holder's keys decision.
 - **Parity across hosts** is sec 537 item 4, after this works.
+
+## 589. The archive's own rules, 2026-10-10
+
+Sec 588 left the archive with nothing to prune it, so the fossil class
+grew without bound.
+
+- **A rule names `archived`**, as a rule over copies names `copy`:
+  `prune|keep [log] PROGRAM|* archived [host=] [machine=] age|size|count
+  N`, over this node's archived segments, whole -- prune and keep only,
+  no entry selector, not with `copy`, and only of logs.
+- **Kept apart from the live log's**: `fzn_retain_select_here` leaves an
+  archived rule out, so a five-year fossil rule never prunes this week's
+  log, and `fzn_retain_select_archived` takes those rules alone.
+- **No policy reaches the archive**: a fossil stays until a rule prunes
+  it, so `policy log drop`, which empties the live log of all but what a
+  keep holds, leaves the archive alone.
+- **fuzznetd applies them after archiving**, in `archive_round` -- the
+  archive pass of sec 588 moved out of `log_round` with it -- over every
+  program the archive holds, one that no longer logs among them, through
+  `fzn_log_pack_retain`'s whole-segment plan.
+
+### Measured for sec 589
+
+- retain_test 91: a rule over the archive reads and writes back, with and
+  without a program; an archive rule over the archive, an entry selector,
+  a copy, or messages' or history's data is refused; the archive's
+  selection takes its rules alone, no policy among them, and the live
+  log's leaves them out.
+- `tool/live_archive.py` phase d: phase b now archives every packed
+  segment, two; a run with `prune * archived count 0` and `keep *
+  archived count 1` prunes one and keeps the newest, which `--check-log`
+  still verifies alone. With the archive's selection taken out of
+  `archive_round`, phase d fails.
+- Three sabotage entries: the live log leaving archived rules out, the
+  archive's selection, and the parse's refusal; two older entries
+  re-anchored on the line the first now shares.
