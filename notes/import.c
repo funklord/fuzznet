@@ -578,13 +578,16 @@ void fzn_notes_import_refuse(void *ctx, fzn_notes_import_refusal_t why, const ui
 
 /* Whether a note with this creation time and title is held already: the
  * time from each meta, and the title only where the time agrees, read from
- * its payload. A note whose content is not here is not recognised by it. */
+ * its payload. 1 when one is, 0 when none is -- and -1 when none is but a
+ * note made at that time has content not here yet, so whether it is this
+ * one cannot be told (sec 577). */
 static int imported_before(const fzn_notes_import_run_t *run,
                            const fzn_notes_import_entry_t *e)
 {
 	static uint8_t payload[FZN_NOTE_PAYLOAD_MAX];
 	const fzn_notes_view_t *view = run->author->view;
 	size_t i;
+	int unknown = 0;
 
 	if (fzn_notes_view_load(run->author->store, run->author->view) != FZN_NOTES_OK)
 		return 0;
@@ -597,13 +600,21 @@ static int imported_before(const fzn_notes_import_run_t *run,
 		            != FZN_NOTE_OK
 		    || meta.created_at_ms != e->created_at_ms)
 			continue;
-		if (fzn_notes_read(run->author->store, run->author->open, run->author->text_ctx,
-		                   &view->nodes[i], &meta, payload, sizeof(payload), &note)
-		            == FZN_NOTES_OK
-		    && note.title_len == e->title_len && memcmp(note.title, e->title, e->title_len) == 0)
-			return 1;
+		switch (fzn_notes_read(run->author->store, run->author->open, run->author->text_ctx,
+		                       &view->nodes[i], &meta, payload, sizeof(payload), &note)) {
+		case FZN_NOTES_OK:
+			if (note.title_len == e->title_len
+			    && memcmp(note.title, e->title, e->title_len) == 0)
+				return 1;
+			break;
+		case FZN_NOTES_ERR_PENDING:
+			unknown = 1;
+			break;
+		default:
+			break;
+		}
 	}
-	return 0;
+	return unknown ? -1 : 0;
 }
 
 int fzn_notes_import_take(void *ctx, const fzn_notes_import_entry_t *e)
@@ -615,9 +626,20 @@ int fzn_notes_import_take(void *ctx, const fzn_notes_import_entry_t *e)
 
 	if (!run || !run->author || !e)
 		return 1;
-	if (e->created_at_ms && imported_before(run, e)) {
-		run->already++;
-		return 0;
+	if (e->created_at_ms) {
+		int before = imported_before(run, e);
+
+		if (before > 0) {
+			run->already++;
+			return 0;
+		}
+		/* NOT TOLD APART IS NOT NEW: a copy written now would sync to every
+		 * device as a duplicate once the content arrives. Refused and named,
+		 * so the user imports again later and loses nothing. */
+		if (before < 0) {
+			fzn_notes_import_refuse(run, FZN_NOTES_IMPORT_PENDING, e->title, e->title_len);
+			return 0;
+		}
 	}
 	memset(&note, 0, sizeof(note));
 	note.title = e->title;

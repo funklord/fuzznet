@@ -39,7 +39,8 @@
  * user editing the note; the title is added because a time alone is shared by
  * notes made in the same millisecond. A note whose source gives no creation
  * time is imported every time, and counted as undated rather than pretended
- * deduplicated.
+ * deduplicated. One whose time matches a note held here whose content has
+ * not arrived is refused as PENDING rather than guessed at (sec 577).
  */
 
 #ifndef FZN_NOTES_IMPORT_H
@@ -75,7 +76,11 @@ typedef enum fzn_notes_import_refusal {
 	FZN_NOTES_IMPORT_TOO_LONG = 2, /* a field past what any note can hold */
 	/* 3 was NO_SEAL, a text too long for inline with no seal hook: since
 	 * sec 514 every note is sealed, and an author without a seal refuses. */
-	FZN_NOTES_IMPORT_FAILED = 4    /* the store, the seal or the author refused */
+	FZN_NOTES_IMPORT_FAILED = 4,   /* the store, the seal or the author refused */
+	/* A note made at the same time is held, its content not here yet, so
+	 * whether this one is it cannot be told. Import again once it has
+	 * arrived. sec 577. */
+	FZN_NOTES_IMPORT_PENDING = 5
 } fzn_notes_import_refusal_t;
 
 /* How a refusal reaches the caller, so it can name the note. */

@@ -1505,6 +1505,54 @@ static void test_import_run(void)
 		                      == FZN_NOTES_OK
 		              && run.imported == 4u && run.already == 1u,
 		      "a note made in the same millisecond under another title is imported");
+
+		/* ---- a held note whose content is not here, sec 577 */
+		{
+			fzn_note_blob_ref_t ref;
+			size_t kept_len = 0;
+			int dropped = 0;
+
+			CHECK(fzn_notes_view_load(&store, &author_view) == FZN_NOTES_OK, "fixture: view");
+			for (i = 0; i < author_view.count && !dropped; i++)
+				if (fzn_notes_read(&store, blob_stub_open, NULL, &author_view.nodes[i], &meta,
+				                   payload, sizeof(payload), &note)
+				            == FZN_NOTES_OK
+				    && is(note.title, note.title_len, "dated")
+				    && fzn_notes_ref_of(&author_view.nodes[i], &ref)) {
+					size_t slot = (((size_t)ref.root[0] << 8) | ref.root[1]);
+
+					kept_len = blob_stub.len[slot - 1u];
+					blob_stub_drop(&ref);
+					dropped = 1;
+				}
+			CHECK(dropped, "fixture: the dated note's content dropped, as never fetched");
+			run.on_refused = note_refusal;
+			refusal_count = 0;
+			CHECK(fzn_notes_import_keep((const uint8_t *)dated, sizeof(dated) - 1u,
+			                            fzn_notes_import_take, &run, fzn_notes_import_refuse,
+			                            &run)
+			                      == FZN_NOTES_OK
+			              && run.imported == 4u && run.already == 1u && run.refused == 1u
+			              && refusal_count == 1u && refusals[0] == FZN_NOTES_IMPORT_PENDING,
+			      "a note made at a held note's time, that note's content not here, is "
+			      "refused as pending and not imported again");
+			CHECK(fzn_notes_import_keep((const uint8_t *)twin, sizeof(twin) - 1u,
+			                            fzn_notes_import_take, &run, fzn_notes_import_refuse,
+			                            &run)
+			                      == FZN_NOTES_OK
+			              && run.imported == 4u && run.already == 2u && run.refused == 1u,
+			      "the same time's other note, read and matching, is recognised all the same");
+			if (dropped)
+				blob_stub.len[(((size_t)ref.root[0] << 8) | ref.root[1]) - 1u] = kept_len;
+			CHECK(fzn_notes_import_keep((const uint8_t *)dated, sizeof(dated) - 1u,
+			                            fzn_notes_import_take, &run, fzn_notes_import_refuse,
+			                            &run)
+			                      == FZN_NOTES_OK
+			              && run.imported == 4u && run.already == 3u && run.refused == 1u,
+			      "once the content is here, importing again recognises it");
+			run.on_refused = NULL;
+			run.refused = 0;
+		}
 	}
 
 	/* ---- a long text is sealed whole, and refused when the seal fails */

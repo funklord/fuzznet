@@ -4845,15 +4845,15 @@ SABOTAGES = [
 	(
 		"import-run-dedups",
 		"notes/import.c",
-		"\tif (e->created_at_ms && imported_before(run, e)) {\n",
-		"\tif (0) {\n",
+		"\tif (e->created_at_ms) {\n\t\tint before = imported_before(run, e);\n",
+		"\tif (0) {\n\t\tint before = imported_before(run, e);\n",
 		"a second import of the same export doubles every note -- sec 429",
 	),
 	(
 		"import-run-dedup-by-title",
 		"notes/import.c",
-		"\t\t    && note.title_len == e->title_len && memcmp(note.title, e->title, e->title_len) == 0)\n",
-		"\t\t    )\n",
+		"\t\t\tif (note.title_len == e->title_len\n\t\t\t    && memcmp(note.title, e->title, e->title_len) == 0)\n",
+		"\t\t\tif (1)\n",
 		"two notes made in one millisecond are one note to a re-import, and the second is never brought across -- sec 429",
 	),
 	(
@@ -4862,6 +4862,20 @@ SABOTAGES = [
 		"\t                             e->created_at_ms, run->now_ms, id);\n",
 		"\t                             0u, run->now_ms, id);\n",
 		"an imported note's creation time is the import's, so a re-import recognises nothing -- sec 429",
+	),
+	(
+		"import-run-pending-is-refused",
+		"notes/import.c",
+		"\t\tif (before < 0) {\n",
+		"\t\tif (0) {\n",
+		"a re-import on a host still fetching a note's content takes it for a new note and writes a copy, which syncs to every device -- sec 577",
+	),
+	(
+		"import-run-pending-is-told",
+		"notes/import.c",
+		"\t\t\tunknown = 1;\n",
+		"",
+		"a held note whose content is not here reads as no match, and the entry is imported again as a duplicate -- sec 577",
 	),
 	(
 		"node-notes-own-user-only",

@@ -58208,17 +58208,14 @@ did. The shelf grows by one payload per content edit until then.
   no FAIL line, and the full harness reports it caught: without the bound,
   a title of SIZE_MAX wraps the sum and the copy faults.
 
-### Still open in stage 5
+### ~~Still open in stage 5~~ Built since
 
-- 3b: chain notes through the journal's stream 0.
-- 4: members' sync onto the journal.
-- 5: purge over shells.
-- 6: the daemon, GUI and import, including the title cache.
-- 7: the operation journal.
+Steps 3b to 7 were built in secs 517, 519, 520, 522 and 523.
 
-An import's duplicate check reads the title from the blob. A note whose blob
-is not here is therefore not recognised as imported before, and a re-import
-then brings in a second copy.
+~~An import's duplicate check reads the title from the blob. A note whose
+blob is not here is therefore not recognised as imported before, and a
+re-import then brings in a second copy.~~ Closed in sec 577: such an
+entry is refused as pending, not imported.
 
 ## 515. fuzzypickles' contacts move onto fzn_contact: what they require, 2026-10-08
 
@@ -58612,11 +58609,9 @@ The chain hook takes the record's kind as a parameter for this.
   on one note are left unresolved by `tree/`, as before, and the listing
   shows each. Nothing here changed that.
 - **A `history` verb**, now that a member holds its siblings' streams.
-- **Step 5: purge over shells.** Destroy every blob a purged note's
-  history names; the mark is done.
-- **Step 6: the daemon's verbs, the GUI and import,** including the title
-  cache sec 511 promised clients.
-- **Step 7: the operation journal.**
+  The holder deferred it in sec 522 until retention rules exist; they do
+  since sec 566, so the question of what it shows is open again.
+- ~~Steps 5, 6 and 7~~, built in secs 520, 522 and 523.
 
 ## 520. Stage 5, step 5: a purge destroys a note's key, so no shell of it unwraps, 2026-10-08
 
@@ -61785,3 +61780,37 @@ test`: with the skip taken out, phase b fails at its count; with the
 share counted but still pulled, it fails at the edit having arrived. Two
 sabotage entries re-anchored on the predicate (secs 454, 489),
 each probed after the commit, since sabotage.py refuses a file with uncommitted changes.
+
+## 577. An import does not copy a note whose content has not arrived, 2026-10-10
+
+A second import recognises what the first brought by the source's
+creation time and the title (sec 429). The title is in the note's sealed
+content, so a note whose content had not arrived yet -- its meta synced
+from another device, its blob not fetched -- could not be read. It was
+taken for a different note, and the entry was imported again. That is
+the order a user meets it in: import a Takeout on one device, then the
+same Takeout on another before the blobs follow. The copy is written,
+chained and synced, and every device holds the note twice once the
+blobs arrive.
+
+- **Three answers, not two.** `imported_before` says yes for a held note
+  whose time and title match; no when none matches; and cannot tell when
+  none matches but a note made at that time has content still pending.
+  A match anywhere wins over a pending one.
+- **Cannot tell is refused, as `FZN_NOTES_IMPORT_PENDING`**, counted and
+  named like any refusal. Importing the same file again once the content
+  is here recognises it. Guessing new would duplicate; guessing held would
+  lose a note made in the same millisecond under another title, which
+  sec 429 imports.
+
+**Open**: `add import`'s reply counts every refusal together, so the
+notebook names a pending entry as "could not be imported" without saying
+that importing again will do. Saying so needs a fifth count, and the
+reply's names follow its fourth, so every reader of the reply changes
+with it.
+
+Measured: notes_store_test 179 checks -- with the dated note's blob
+dropped, as on a host that never fetched it, importing it again is
+refused once as PENDING and imports nothing; its same-millisecond twin,
+readable, is still recognised; and with the blob back the dated note is
+recognised. With the refusal taken out, those three checks fail.
