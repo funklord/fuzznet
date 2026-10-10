@@ -837,6 +837,9 @@ static uint64_t wall_ms(void)
  * read as another's. Eight, because an estate's nodes are a household's and
  * every one costs a pull a minute. sec 401. */
 #define FZND_PULL_TARGETS_MAX 8u
+/* AND THE SIBLINGS A ROUND ADDS, sec 586: as many again, after them. */
+#define FZND_SIBLING_TARGETS_MAX 8u
+#define FZND_ROUND_TARGETS_MAX (FZND_PULL_TARGETS_MAX + FZND_SIBLING_TARGETS_MAX)
 
 #ifdef FZN_SPOOL_FILE_ON
 /* LONG NOTES' TEXTS, on the shelf under the store directory, served to any
@@ -1756,8 +1759,8 @@ static void rebase_missed(struct pull_target *pulls, size_t npulls, size_t t, ui
                           const fzn_exchange_tally_t *tally)
 {
 	static uint8_t reply[FZND_PULL_REPLY_MAX];
-	static struct peer_asking others[FZND_PULL_TARGETS_MAX];
-	static fzn_reconcile_witness_t witnesses[FZND_PULL_TARGETS_MAX];
+	static struct peer_asking others[FZND_ROUND_TARGETS_MAX];
+	static fzn_reconcile_witness_t witnesses[FZND_ROUND_TARGETS_MAX];
 	struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
 	size_t i, k, moved = 0, n_witnesses = 0;
 
@@ -2326,60 +2329,68 @@ static int open_target(struct pull_target *pt, int family, const uint8_t self[FZ
 	return 1;
 }
 
-/* THE SIBLINGS A FILE IS ASKED OF, sec 579: every member whose prekey this
- * node keeps, to which it holds a pairing (`pair_siblings`), and whose
- * address is a setting (`net/address`) -- less any that is already a pull
- * peer, which is asked as one. Rebuilt each round, before the files are
- * fetched: a sibling paired or given an address since is asked from then.
- * Empty in a build without the record store, which keeps no siblings. */
-static struct share_target siblings_out[FZN_NODE_SIBLINGS_MAX];
-static size_t nsiblings_out;
+#ifdef FZN_RECORD_STORE_FILE_ON
+/* THE SIBLINGS A ROUND ASKS, sec 586 (files alone since sec 580): every
+ * member whose prekey this node keeps, to which it holds a pairing
+ * (`pair_siblings`), and whose address is a setting (`net/address`) -- less
+ * any the command line names already, the root among them -- built into
+ * `pulls` after the `npulls` the command line gave, at most
+ * FZND_SIBLING_TARGETS_MAX. So the journal, reconciliation, notes, messages,
+ * texts and files all ask them as they ask a pull peer, and the estate
+ * keeps syncing while the root is away. Rebuilt each round: a sibling paired
+ * or given an address since is asked from then. How many were built. */
+static char sibling_hosts[FZND_SIBLING_TARGETS_MAX][FZN_NODE_SETTINGS_HOST_MAX + 1u];
+static size_t n_sibling_targets;
 
-#if defined(FZN_RECORD_STORE_FILE_ON) && defined(FZN_SPOOL_FILE_ON)
-
-static void load_siblings(const struct pull_target *pulls, size_t npulls, int family,
-                          const uint8_t self[FZN_PUBKEY_LEN], const fzn_hash_ops_t *hash,
-                          const fzn_aead_ops_t *aead, const fzn_random_ops_t *rng)
+static size_t load_siblings(struct pull_target *pulls, size_t npulls, int family,
+                            const uint8_t self[FZN_PUBKEY_LEN], const uint8_t *root,
+                            const fzn_hash_ops_t *hash, const fzn_aead_ops_t *aead,
+                            const fzn_random_ops_t *rng)
 {
 	static uint8_t hosts[FZN_NODE_SIBLINGS_MAX][FZN_PUBKEY_LEN];
-	size_t n = 0, i, t;
+	size_t n = 0, i, t, built = 0;
 
-	for (i = 0; i < nsiblings_out; i++) {
-		if (siblings_out[i].pt.fd >= 0)
-			fzn_udp_close(siblings_out[i].pt.fd);
-		fzn_wipe(&siblings_out[i].pt.pairing, sizeof(siblings_out[i].pt.pairing));
+	for (i = 0; i < n_sibling_targets; i++) {
+		if (pulls[npulls + i].fd >= 0)
+			fzn_udp_close(pulls[npulls + i].fd);
+		fzn_wipe(&pulls[npulls + i].pairing, sizeof(pulls[npulls + i].pairing));
 	}
-	nsiblings_out = 0;
+	n_sibling_targets = 0;
 	if (!node_apply.store
 	    || fzn_node_siblings_list(node_apply.store, hosts, FZN_NODE_SIBLINGS_MAX, &n)
 	               != FZN_NODE_SIBLINGS_OK)
-		return;
-	for (i = 0; i < n && nsiblings_out < FZN_NODE_SIBLINGS_MAX; i++) {
-		struct share_target *sh = &siblings_out[nsiblings_out];
+		return 0;
+	for (i = 0; i < n && built < FZND_SIBLING_TARGETS_MAX; i++) {
+		struct pull_target *pt = &pulls[npulls + built];
 		uint16_t port = 0;
 
 		if (memcmp(hosts[i], self, FZN_PUBKEY_LEN) == 0)
 			continue;
-		for (t = 0; t < npulls && memcmp(pulls[t].node, hosts[i], FZN_PUBKEY_LEN) != 0; t++)
+		for (t = 0; t < npulls
+		            && memcmp(pulls[t].is_root_at ? root : pulls[t].node, hosts[i],
+		                      FZN_PUBKEY_LEN) != 0;
+		     t++)
 			;
 		if (t < npulls)
 			continue;
-		memset(sh, 0, sizeof(*sh));
-		if (!fzn_node_settings_address(&node_settings, hosts[i], sh->host, &port))
+		memset(pt, 0, sizeof(*pt));
+		pt->fd = -1;
+		if (!fzn_node_settings_address(&node_settings, hosts[i], sibling_hosts[built], &port))
 			continue;
-		if (fzn_node_pairing_load(node_apply.store, hosts[i], &sh->pt.pairing)
-		    != FZN_PERSIST_OK)
+		if (fzn_node_pairing_load(node_apply.store, hosts[i], &pt->pairing) != FZN_PERSIST_OK)
 			continue;
-		memcpy(sh->sharer, hosts[i], FZN_PUBKEY_LEN);
-		sh->pt.host = sh->host;
-		sh->pt.port = port;
-		if (!open_target(&sh->pt, family, self, hash, aead, rng)) {
+		memcpy(pt->node, hosts[i], FZN_PUBKEY_LEN);
+		pt->host = sibling_hosts[built];
+		pt->port = port;
+		if (!open_target(pt, family, self, hash, aead, rng)) {
 			say(FZN_ENTRY_WARNING, "node/siblings", "could not reach for a sibling at %s",
-			    sh->host);
+			    sibling_hosts[built]);
 			continue;
 		}
-		nsiblings_out++;
+		built++;
 	}
+	n_sibling_targets = built;
+	return built;
 }
 #endif
 
@@ -2737,15 +2748,12 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 			return;
 		table_ready = 1;
 	}
-	/* THE PULL PEERS AND THE CONTACTS SHARING WITH THIS NODE, sec 493 --
-	 * a contact's node answers for what it made public or shared here --
-	 * and the siblings this node reaches, sec 579, each lent the fetch's
-	 * reassembly table while it runs. */
-	for (t = 0; t < npulls + nshares_in + nsiblings_out && n_peers < FZN_NODE_FILES_PEERS_MAX;
-	     t++) {
-		struct share_target *sh = t < npulls ? NULL
-		                          : t < npulls + nshares_in ? &shares_in[t - npulls]
-		                                                     : &siblings_out[t - npulls - nshares_in];
+	/* THE PULL PEERS -- the siblings a round adds among them, sec 586 --
+	 * AND THE CONTACTS SHARING WITH THIS NODE, sec 493 -- a contact's node
+	 * answers for what it made public or shared here -- each lent the
+	 * fetch's reassembly table while it runs. */
+	for (t = 0; t < npulls + nshares_in && n_peers < FZN_NODE_FILES_PEERS_MAX; t++) {
+		struct share_target *sh = t < npulls ? NULL : &shares_in[t - npulls];
 		fzn_caller_t *caller = sh ? &sh->pt.caller : &pulls[t].caller;
 
 		if (sh && sh->pt.fd < 0)
@@ -3007,7 +3015,7 @@ int main(int argc, char **argv)
 	const char *ask_line = NULL;
 	const char *to_host = NULL;
 	long to_port = -1;
-	static struct pull_target pulls[FZND_PULL_TARGETS_MAX];
+	static struct pull_target pulls[FZND_ROUND_TARGETS_MAX];
 	size_t npulls = 0;
 	fzn_revocation_store_t *running = NULL;
 	fzn_node_roots_t *running_roots = NULL;
@@ -4482,6 +4490,8 @@ int main(int argc, char **argv)
 	 * whose sender stopped part way. sec 447. */
 	if (npulls || notes_on || state.reassembly) {
 		uint64_t next_pull = 0, last_fresh_round = 0;
+		/* THE COMMAND LINE'S PEERS; a round adds the siblings after them. */
+		size_t npulls_base = npulls;
 		size_t t;
 
 		/* A PULL NEEDS A STORE TO KEEP WHAT IT LEARNS, and `--root-at`
@@ -4577,6 +4587,11 @@ int main(int argc, char **argv)
 			 * than this one does, and waiting for it would stop every pull
 			 * for as long as the clock had been wrong. sec 469. */
 			if (now >= next_pull || next_pull > now + FZND_PULL_EVERY) {
+#ifdef FZN_RECORD_STORE_FILE_ON
+				npulls = npulls_base + load_siblings(pulls, npulls_base, family,
+				                                     identity.pubkey, state.config.root,
+				                                     &hash_ops, &aead_ops, &rng_ops);
+#endif
 				round_named = say_caused(FZN_ENTRY_DEBUG, "node/round", NULL, NULL,
 				                         &round_name, "a round with %zu peer(s)", npulls);
 				/* THE ESTATE'S ACTS, sec 505: roots, votes, confirmations,
@@ -4596,6 +4611,12 @@ int main(int argc, char **argv)
 				if (pair_siblings(&identity, now))
 					for (t = 0; t < npulls; t++)
 						push_one(&pulls[t], now);
+				/* AND THE SIBLINGS AGAIN, sec 586: an address or a pairing
+				 * the journal brought this round is asked from now, by the
+				 * rest of the round, not from the next. */
+				npulls = npulls_base + load_siblings(pulls, npulls_base, family,
+				                                     identity.pubkey, state.config.root,
+				                                     &hash_ops, &aead_ops, &rng_ops);
 				messages_round(pulls, npulls, now);
 				/* THE NOTES INDEX FIRST, so the cut sees how far it has
 				 * read: a notes stream is cut no further than its cursor,
@@ -4640,10 +4661,6 @@ int main(int argc, char **argv)
 				history_trim();
 #ifdef FZN_SPOOL_FILE_ON
 				fetch_texts(pulls, npulls, now);
-#ifdef FZN_RECORD_STORE_FILE_ON
-				load_siblings(pulls, npulls, family, identity.pubkey, &hash_ops, &aead_ops,
-				              &rng_ops);
-#endif
 				fetch_files(pulls, npulls, now);
 				collect_texts();
 #endif

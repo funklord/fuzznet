@@ -17,9 +17,13 @@ with the other, and A, which has no pull peers, fetches from neither.
        from one peer, and exports the same bytes C put; A
        still holds none of it, so the peer was C
 
+    e  A is stopped. C sets one of its own host cells and restarts; B,
+       whose --root-at reaches nobody, reads C's value, which it can only
+       have taken from C, as a round's pull peer (sec 586)
+
 Against a daemon that carries no prekeys, or pairs no siblings, phase a
 fails waiting for the pairings; against one that never asks a sibling,
-phase c does.
+phase c does; against one that asks siblings for files alone, phase e.
 
 BOUNDED FROM INSIDE as live_rejoin.py is, whose daemon handling this reuses:
 one deadline, each daemon in its own process group, and every daemon
@@ -41,6 +45,7 @@ from live_trim import ask, failed  # noqa: E402
 
 TAKEN_RE = re.compile(r"(\d+) sibling\(s\) paired, (\d+) pairing\(s\) taken")
 WHOLE_RE = re.compile(r"file [0-9a-f]{8}, (\d+) bytes, whole from (\d+) peer\(s\)")
+ROUND_END_RE = re.compile(r"history pass: ")
 ROUNDS = 6
 PAYLOAD_LEN = 200000
 
@@ -88,8 +93,10 @@ def main(argv):
 		c_args = ["--udp-port=" + port_c, "--root-at", "127.0.0.1", port_a]
 		try:
 			command(run, ["--fuzznet-dir=" + dirs["a"], "--new-root"], None)
+			keys = {}
 			for who in ("b", "c"):
 				prekey = command(run, ["--fuzznet-dir=" + dirs[who], "--prekey"], None)
+				keys[who] = prekey[4:68]
 				card = command(run, ["--fuzznet-dir=" + dirs["a"], "--pair=" + prekey,
 				                     "--delegable"], None)
 				command(run, ["--fuzznet-dir=" + dirs[who], "--accept=" + card, "--join"], None)
@@ -169,6 +176,31 @@ def main(argv):
 				a.stop()
 			print("livecheck: b: with no address for C, B's fetch did not complete")
 			print("livecheck: c: with C's address set, B fetched the file whole from C alone")
+
+			# e: the root away. C sets one of its host cells and restarts; B,
+			# whose --root-at reaches nobody, takes it from C (sec 586).
+			c = daemon(run, "ce", dirs["c"], socks["c"], extra=c_args)
+			try:
+				# THE ROUND FIRST: it waits on the root, which is away, and
+				# the node answers nothing until it has gone round -- the
+				# history pass is the last of it that waits on a peer.
+				c.wait_for(ROUND_END_RE, "C's round")
+				expect(socks["c"], "c", "set setting host x/away 1", "ok")
+			finally:
+				c.stop()
+			c = daemon(run, "ce2", dirs["c"], socks["c"], extra=c_args)
+			try:
+				c.wait_for(ROUND_END_RE, "C's round")
+				b = daemon(run, "be", dirs["b"], socks["b"], extra=b_args)
+				try:
+					b.wait_for(ROUND_END_RE, "B's round")
+					expect(socks["b"], "b", "get setting host=%s x/away" % keys["c"],
+					       "ok host 1")
+				finally:
+					b.stop()
+			finally:
+				c.stop()
+			print("livecheck: e: with the root away, B took C's setting from C")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

@@ -61998,8 +61998,8 @@ received shares had, shared.
   when `pair_siblings` paired any (`push_one`, the push half of
   `pull_journal`, factored out): three rounds in the same live run. The
   harness does not assert the count, so the measurement is this one.
-- **Only files ask siblings.** Texts, notes and reconciliation still use
-  the pull peers.
+- ~~**Only files ask siblings.** Texts, notes and reconciliation still use
+  the pull peers.~~ Every step of a round asks them since sec 586.
 - **Texts were tried, and need not ask them.** Asking each sibling after
   the pull peers was built and run live: C wrote a note, and B fetched
   its text -- from A. A member pushes its texts to the root (sec 448), so
@@ -62156,3 +62156,44 @@ Sec 581's stage 3, and the last.
   being the one read. None for the bound, `nth >= v.count`: an index one
   past the last reads a zeroed row the store does not hold, and is
   absent either way.
+
+## 586. Siblings sync without the root, 2026-10-10
+
+Sec 580 asked siblings for files alone, and everything else went through
+the root: a member whose root was away stopped syncing. The holder chose
+2026-10-10, from four next steps, that siblings sync with one another
+without it.
+
+- **The siblings are a round's pull peers.** `load_siblings` builds every
+  member with a pairing and an address into the pull targets after the
+  command line's, at most eight (`FZND_SIBLING_TARGETS_MAX`, as many
+  again as the command line may name), less any it names already, the
+  root among them. The round's journal pull and push, reconciliation,
+  messages, notes, texts and files then ask them as they ask a pull
+  peer; `fetch_files` lost its separate sibling list, and the 64 sibling
+  targets it held went with it. `rebase_missed`'s witnesses are sized for
+  the round's targets, which they index.
+- **Built twice a round**: at its start, for the journal and
+  reconciliation, and again once the journal is applied, so an address
+  or a pairing that arrived in this round is asked by the rest of it. The
+  first live run built them once, at the start, and phase c timed out: B
+  learned C's address from the round's own journal pull, after the
+  targets were built.
+
+### Measured for sec 586
+
+`tool/live_siblings.py` phase e: A is stopped; C sets one of its own host
+cells and restarts; B, whose `--root-at` reaches nobody, reads C's value,
+which it can only have taken from C. A round with the root away answers
+nothing until it has gone round, the dead root's exchanges timing out one
+after another, so the phase waits for the round's history pass before it
+asks. Broken by hand, which sabotage.py cannot reach: with the round-start
+build taken out and the second kept, phases a to c pass and phase e fails
+at "ok absent" -- the journal is pulled before the second build.
+
+### Not yet after sec 586
+
+- **A round with the root away is slow**: every exchange with it waits
+  out its timeout before the siblings are asked. Asking the siblings
+  first, or skipping a peer that failed the round before, would shorten
+  it; neither is done.
