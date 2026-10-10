@@ -853,6 +853,18 @@ fzn_log_pack_err_t fzn_log_pack_retain(const char *dir, const char *program,
                                        const fzn_log_pack_signer_t *signer, uint64_t now_us,
                                        size_t *removed, size_t *repacked)
 {
+	return fzn_log_pack_retain_held(dir, program, rules, n_rules, hash, signer, now_us, NULL,
+	                                NULL, removed, repacked);
+}
+
+fzn_log_pack_err_t fzn_log_pack_retain_held(const char *dir, const char *program,
+                                            const fzn_retain_rule_t *rules, size_t n_rules,
+                                            const fzn_hash_ops_t *hash,
+                                            const fzn_log_pack_signer_t *signer,
+                                            uint64_t now_us, fzn_log_pack_may_go_t may_go,
+                                            void *may_go_ctx, size_t *removed,
+                                            size_t *repacked)
+{
 	static struct held segs[SEGMENTS_MAX];
 	static fzn_retain_segment_t sizes[SEGMENTS_MAX];
 	static uint8_t marks[SEGMENTS_MAX];
@@ -958,6 +970,9 @@ fzn_log_pack_err_t fzn_log_pack_retain(const char *dir, const char *program,
 					starts[lines++] = j;
 			all = judge(&walk, marks[i], b, body, starts, lines, drop, &dropped);
 		}
+		/* HELD BACK BY THE CALLER, sec 592: a fossil short of its replicas. */
+		if (all && may_go && !may_go(may_go_ctx, segs[i].name))
+			all = 0;
 		if (all) {
 			/* GONE ALREADY is another instance's pass, and fine. */
 			if (remove(path) != 0 && errno != ENOENT)
@@ -979,6 +994,56 @@ done:
 	(void)fcntl(fd, F_SETLK, &lk);
 	(void)close(fd);
 	return err;
+}
+
+fzn_log_pack_err_t fzn_log_pack_plan(const char *dir, const char *program,
+                                     const fzn_retain_rule_t *rules, size_t n_rules,
+                                     uint64_t now_us, char (*names)[FZN_LOG_PACK_NAME_MAX],
+                                     size_t max, size_t *count)
+{
+	static struct held segs[SEGMENTS_MAX];
+	static fzn_retain_segment_t sizes[SEGMENTS_MAX];
+	static uint8_t marks[SEGMENTS_MAX];
+	char path[PATH_MAX_];
+	struct dirent *e;
+	size_t n = 0, i;
+	DIR *d;
+
+	if (!count)
+		return FZN_LOG_PACK_ERR_MALFORMED;
+	*count = 0;
+	if (!dir || !program || !program[0] || strchr(program, '/') || (!rules && n_rules)
+	    || (!names && max))
+		return FZN_LOG_PACK_ERR_MALFORMED;
+	d = opendir(dir);
+	if (!d)
+		return errno == ENOENT ? FZN_LOG_PACK_OK : FZN_LOG_PACK_ERR_FILE;
+	while ((e = readdir(d)) != NULL && n < SEGMENTS_MAX) {
+		struct held h;
+
+		h.at = segment_at(e->d_name, program, &h.packed);
+		if (h.at == 0u || strlen(e->d_name) >= sizeof(h.name))
+			continue;
+		strcpy(h.name, e->d_name);
+		segs[n++] = h;
+	}
+	(void)closedir(d);
+	qsort(segs, n, sizeof(segs[0]), newest_first);
+	for (i = 0; i < n; i++) {
+		struct stat st;
+
+		(void)snprintf(path, sizeof(path), "%s/%s", dir, segs[i].name);
+		sizes[i].closed_us = segs[i].at;
+		sizes[i].bytes = stat(path, &st) == 0 && st.st_size > 0 ? (uint64_t)st.st_size : 0u;
+	}
+	if (fzn_retain_marks(program, sizes, n, rules, n_rules, now_us, marks) != FZN_RETAIN_OK)
+		return FZN_LOG_PACK_ERR_MALFORMED;
+	for (i = 0; i < n && *count < max; i++)
+		if (marks[i] == FZN_RETAIN_MARK_PRUNED) {
+			(void)snprintf(names[*count], FZN_LOG_PACK_NAME_MAX, "%s", segs[i].name);
+			(*count)++;
+		}
+	return FZN_LOG_PACK_OK;
 }
 
 /* ---- the fossil class, sec 588 ------------------------------------------- */

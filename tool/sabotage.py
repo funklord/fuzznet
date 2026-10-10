@@ -10935,6 +10935,27 @@ SABOTAGES = [
 		"a rule over archived copies prunes this node's own archived log -- sec 591",
 	),
 	(
+		"reconcile-peer-holds-by-its-length",
+		"node/reconcile.c",
+		"\t*held = fzn_get_be32(reply + 35u) > 0u;\n",
+		"\t*held = 1;\n",
+		"a peer that let a fossil go, or never held it, counts as holding it, and the last copy is pruned -- sec 592",
+	),
+	(
+		"pack-retain-held-back",
+		"log/pack.c",
+		"\t\tif (all && may_go && !may_go(may_go_ctx, segs[i].name))\n\t\t\tall = 0;\n",
+		"",
+		"a fossil short of its replicas is pruned whatever the count said -- sec 592",
+	),
+	(
+		"settings-replicas-bounded",
+		"node/settings.c",
+		"\tn = count_of(value, len, 16u);\n",
+		"\tn = count_of(value, len, 4096u);\n",
+		"a replica count past any estate's hosts is taken, and every fossil is held back for ever -- sec 592",
+	),
+	(
 		"pack-archive-keep-holds",
 		"log/pack.c",
 		"\t\tif (!segs[i].packed || !(marks[i] & FZN_RETAIN_MARK_ARCHIVED)\n\t\t    || (marks[i] & FZN_RETAIN_MARK_KEPT))",

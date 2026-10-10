@@ -10,7 +10,9 @@ One store, its log directory kept across runs, its segments small:
        and leaves the log directory
     c  `fuzznetd --log-dir=LOGDIR/archive --check-log` walks the archive
        alone, no store and no journal: its chain holds, signed by the node
-    d  a run with `prune * archived count 0` and `keep * archived count 1`:
+    d  `archive/replicas` set to 1 -- this node has no peer to hold its
+       fossils, and at the default of 2 none would go (sec 592) -- then a
+       run with `prune * archived count 0` and `keep * archived count 1`:
        the archive's own rules (sec 589) prune all but its newest fossil,
        which still verifies alone
 
@@ -34,7 +36,7 @@ import time
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from live_rejoin import CAPABILITY, PACKED_RE, command, daemon  # noqa: E402
+from live_rejoin import CAPABILITY, PACKED_RE, command, daemon, expect  # noqa: E402
 from live_trim import failed, left  # noqa: E402
 
 ROUND_END_RE = re.compile(r"history pass: ")
@@ -129,9 +131,16 @@ def main(argv):
 				             % (r.returncode, out, r.stderr.decode(errors="replace")[:300]))
 			print("livecheck: c: the archive's %s segment(s) verified alone" % m.group(1))
 
-			# d: the archive's own rules.
+			# d: the archive's own rules. ONE REPLICA, sec 592: this node has
+			# no peer to hold its fossils, so at the default of two none
+			# would be pruned -- the guarantee, which phase d is not about.
 			if len(fossils) < 2:
 				raise failed("d: %d fossil(s); the phase needs two" % len(fossils))
+			d = daemon(run, "nr", store, sock, extra=small, log_dir=logs)
+			try:
+				expect(sock, "d", "set setting estate archive/replicas 1", "ok")
+			finally:
+				d.stop()
 			d = daemon(run, "nd", store, sock,
 			           extra=small + ["--log-rule=prune * archived count 0",
 			                          "--log-rule=keep * archived count 1"], log_dir=logs)

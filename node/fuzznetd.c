@@ -493,6 +493,25 @@ static void archive_where(char *out, size_t cap)
 }
 
 #if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
+/* THE FOSSILS HELD BY ENOUGH HOSTS, sec 592: of this node's archived
+ * segments the archive's rules would prune, those the last round found on
+ * at least `archive/replicas` hosts, this one counted. Only these are
+ * pruned; one not counted yet stays, so the guarantee fails safe. */
+#define FZND_REPLICA_NAMES 256u
+static char replica_ok[FZND_REPLICA_NAMES][FZN_LOG_PACK_NAME_MAX];
+static size_t n_replica_ok;
+
+static int replicas_enough(void *ctx, const char *name)
+{
+	size_t i;
+
+	(void)ctx;
+	for (i = 0; i < n_replica_ok; i++)
+		if (strcmp(replica_ok[i], name) == 0)
+			return 1;
+	return 0;
+}
+
 /* Whether any of `rules` archives. */
 static int has_archive_rule(const fzn_retain_rule_t *rules, size_t n)
 {
@@ -540,9 +559,11 @@ static void archive_round(const fzn_retain_rule_t *rules, size_t n_rules,
 		for (pi = 0; pi < n_held; pi++) {
 			size_t gone = 0, repacked = 0;
 
-			if (fzn_log_pack_retain(where, held[pi], archived_rules, n_archived, dlog.hash,
-			                        dlog.has_signer ? &dlog.signer : NULL, log_now_us(),
-			                        &gone, &repacked)
+			/* NO FOSSIL BELOW ITS REPLICAS, sec 592. */
+			if (fzn_log_pack_retain_held(where, held[pi], archived_rules, n_archived,
+			                             dlog.hash, dlog.has_signer ? &dlog.signer : NULL,
+			                             log_now_us(), replicas_enough, NULL, &gone,
+			                             &repacked)
 			    != FZN_LOG_PACK_OK)
 				say(FZN_ENTRY_WARNING, "log",
 				    "the archive's rules could not all be applied to %s", held[pi]);
@@ -1703,6 +1724,7 @@ static fzn_reconcile_filer_t logs_filer;
 static int logs_ready;
 static fzn_retain_rule_t logs_own[FZN_RETAIN_RULES_MAX], logs_copy[FZN_RETAIN_RULES_MAX];
 
+
 static int logs_up(void)
 {
 	if (logs_ready)
@@ -1787,6 +1809,78 @@ static int peer_in_estate(const struct pull_target *pt)
 	       || (node_apply.roots && node_apply.roots->ops.member
 	           && node_apply.roots->ops.member(node_apply.roots->ops.ctx, grantor));
 }
+
+#if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
+/* THE ARCHIVE'S REPLICAS COUNTED, sec 592, each round after the exchange:
+ * every fossil of this node's the archive's rules would prune, asked of
+ * each peer of the estate that answered this round -- held or not, the
+ * length and no byte (`fzn_reconcile_peer_holds`) -- and those held by
+ * `archive/replicas` hosts or more, this one counted, confirmed for the
+ * log pass to prune. One a peer let go is not held. */
+static void count_replicas(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	static fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX];
+	static char held[FZND_LOG_PROGRAMS_MAX][FZN_ENTRY_WORD_MAX + 1u];
+	static char names[FZND_REPLICA_NAMES][FZN_LOG_PACK_NAME_MAX];
+	static uint8_t reply[FZND_PULL_REPLY_MAX];
+	char where[600];
+	size_t n, n_held = 0, p, i, t, n_names, weighed = 0, short_of = 0;
+	unsigned want;
+
+	n_replica_ok = 0;
+	if (!logs_ready)
+		return;
+	n = gather_rules(rules);
+	n = fzn_retain_select_archived(rules, n, dlog.has_host ? dlog.host : NULL,
+	                               dlog.logger.self.machine, rules);
+	archive_where(where, sizeof(where));
+	if (!n || fzn_logger_programs(where, held, FZND_LOG_PROGRAMS_MAX, &n_held) != FZN_LOGGER_OK)
+		return;
+	want = fzn_node_settings_replicas(&node_settings);
+	for (p = 0; p < n_held; p++) {
+		n_names = 0;
+		if (fzn_log_pack_plan(where, held[p], rules, n, log_now_us(), names, FZND_REPLICA_NAMES,
+		                      &n_names)
+		    != FZN_LOG_PACK_OK)
+			continue;
+		for (i = 0; i < n_names; i++) {
+			char ref[FZN_LOG_PACK_NAME_MAX + 3u];
+			uint8_t id[FZN_BUCKETS_ID_LEN];
+			uint64_t len = 0;
+			unsigned holders = 1;
+
+			weighed++;
+			if (snprintf(ref, sizeof(ref), "o/%s", names[i]) >= (int)sizeof(ref)
+			    || fzn_buckets_by_ref(&logs_store, FZN_BUCKETS_LOGS, (const uint8_t *)ref,
+			                          strlen(ref), id, &len)
+			               != FZN_BUCKETS_OK) {
+				short_of++;
+				continue;
+			}
+			for (t = 0; t < npulls && holders < want; t++) {
+				struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
+				int has = 0;
+
+				if (silent_peer(&pulls[t]) || !peer_in_estate(&pulls[t]))
+					continue;
+				if (fzn_reconcile_peer_holds(FZN_BUCKETS_LOGS, id, peer_ask, &asking, reply,
+				                             sizeof(reply), &has)
+				            == FZN_RECONCILE_OK
+				    && has)
+					holders++;
+			}
+			if (holders >= want && n_replica_ok < FZND_REPLICA_NAMES)
+				memcpy(replica_ok[n_replica_ok++], names[i], FZN_LOG_PACK_NAME_MAX);
+			else
+				short_of++;
+		}
+	}
+	if (weighed)
+		say(short_of ? FZN_ENTRY_INFO : FZN_ENTRY_DEBUG, "log",
+		    "replicas: %zu fossil(s) the archive's rules would prune, %zu held by fewer than "
+		    "%u host(s) and kept", weighed, short_of, want);
+}
+#endif
 
 /* ONE ROUND OF RECONCILIATION against every pull peer, sec 551: what the
  * journal did not bring -- cut before this node saw it -- fetched from what
@@ -4830,6 +4924,9 @@ int main(int argc, char **argv)
 				pull_journal(pulls, npulls, now);
 				apply_journal();
 				reconcile_estate(pulls, npulls, now);
+#if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
+				count_replicas(pulls, npulls, now);
+#endif
 				/* A GRANT JUST LOGGED, PUSHED NOW, sec 585: logged after
 				 * the round's push, it would wait a round for the next. */
 				if (pair_siblings(&identity, now))

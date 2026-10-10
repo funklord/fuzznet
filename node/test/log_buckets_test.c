@@ -696,6 +696,43 @@ static void test_archived_still_held(void)
 	CHECK(rmdir(archive) == 0, "the archive held something else, or would not go");
 }
 
+/* WHETHER A PEER HOLDS AN ITEM, sec 592: B asks A, and A's answer carries
+ * the length alone -- held, let go, or never held. */
+static void test_peer_holds(void)
+{
+	static uint8_t reply[8192];
+	uint8_t id[FZN_BUCKETS_ID_LEN], none[FZN_BUCKETS_ID_LEN];
+	char ref[300];
+	uint64_t held_len = 0;
+	size_t taken = 0;
+	int held = 9;
+
+	fresh();
+	snprintf(ref, sizeof(ref), "o/netcfgd.%llu.42.log.zst", (unsigned long long)JULY_2026);
+	CHECK(a_logs() && fzn_log_buckets_scan(&lb_a, &taken, NULL)
+	              && fzn_buckets_by_ref(&A, FZN_BUCKETS_LOGS, (const uint8_t *)ref, strlen(ref),
+	                                    id, &held_len)
+	                         == FZN_BUCKETS_OK,
+	      "fixture: A's log scanned, July's first segment's id");
+	CHECK(fzn_reconcile_peer_holds(FZN_BUCKETS_LOGS, id, to_a, NULL, reply, sizeof(reply),
+	                               &held)
+	                      == FZN_RECONCILE_OK
+	              && held == 1,
+	      "a segment A holds was not said held");
+	memset(none, 0x7d, sizeof(none));
+	CHECK(fzn_reconcile_peer_holds(FZN_BUCKETS_LOGS, none, to_a, NULL, reply, sizeof(reply),
+	                               &held)
+	                      == FZN_RECONCILE_OK
+	              && held == 0,
+	      "an item A never held was said held");
+	CHECK(fzn_buckets_let_go(&A, FZN_BUCKETS_LOGS, id) == FZN_BUCKETS_OK
+	              && fzn_reconcile_peer_holds(FZN_BUCKETS_LOGS, id, to_a, NULL, reply,
+	                                          sizeof(reply), &held)
+	                         == FZN_RECONCILE_OK
+	              && held == 0,
+	      "a segment A let go, its id still in its bucket, was said held");
+}
+
 /* A PACKED SEGMENT'S NAME, read for its closing time: the one name a copy
  * has, and the one this module keeps, serves or takes. */
 static void test_a_segment_s_name(void)
@@ -738,6 +775,7 @@ int main(void)
 	test_its_id_and_its_month();
 	test_removed_and_repacked();
 	test_archived_still_held();
+	test_peer_holds();
 
 	fresh();
 	fzn_log_buckets_close(&lb_a);

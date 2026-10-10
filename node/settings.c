@@ -391,6 +391,23 @@ unsigned fzn_node_settings_window_days(const fzn_node_settings_t *ns)
 	return days ? days : FZN_NODE_SETTINGS_WINDOW_DAYS;
 }
 
+unsigned fzn_node_settings_replicas(const fzn_node_settings_t *ns)
+{
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	size_t len = 0;
+	unsigned n;
+
+	if (!ready(ns) || !ns->estate
+	    || !fzn_node_settings_get(ns, FZN_SCOPE_ESTATE, ns->estate,
+	                              (const uint8_t *)FZN_NODE_SETTINGS_REPLICAS_KEY,
+	                              sizeof(FZN_NODE_SETTINGS_REPLICAS_KEY) - 1u, value, &len,
+	                              &rank))
+		return FZN_NODE_SETTINGS_REPLICAS;
+	n = count_of(value, len, 16u);
+	return n ? n : FZN_NODE_SETTINGS_REPLICAS;
+}
+
 int fzn_node_settings_address(const fzn_node_settings_t *ns, const uint8_t about[FZN_SUBJECT_LEN],
                               char host[FZN_NODE_SETTINGS_HOST_MAX + 1u], uint16_t *port)
 {

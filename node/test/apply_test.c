@@ -655,6 +655,19 @@ static void test_settings_judged(void)
 	              && fzn_node_settings_window_days(&ns) == 36500u,
 	      "a window of 0 or past 36500 days counted, or 36500 did not");
 
+	/* THE ARCHIVE'S REPLICAS, sec 592: 2 until set, 1 to 16 counted. */
+	CHECK(fzn_node_settings_replicas(&ns) == 2u
+	              && setting_by(&nj, 0x93, FZN_SCOPE_ESTATE, 0x91, 1u, "archive/replicas", 1, "3")
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && fzn_node_settings_replicas(&ns) == 3u
+	              && setting_by(&nj, 0x93, FZN_SCOPE_ESTATE, 0x91, 2u, "archive/replicas", 1, "17")
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && fzn_node_settings_replicas(&ns) == 2u
+	              && setting_by(&nj, 0x93, FZN_SCOPE_ESTATE, 0x91, 3u, "archive/replicas", 1, "16")
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && fzn_node_settings_replicas(&ns) == 16u,
+	      "replicas were not 2 unset, 3 set, 2 past 16, or 16 at the bound");
+
 	/* A MEMBER'S ADDRESS, sec 579: its own host cell, `HOST PORT`. */
 	{
 		uint8_t member[FZN_SUBJECT_LEN];

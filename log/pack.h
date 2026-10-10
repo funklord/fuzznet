@@ -168,6 +168,30 @@ fzn_log_pack_err_t fzn_log_pack_retain(const char *dir, const char *program,
                                        const fzn_log_pack_signer_t *signer, uint64_t now_us,
                                        size_t *removed, size_t *repacked);
 
+/* WHETHER A SEGMENT THE RULES REMOVE MAY GO, sec 592: 1 to let it go. */
+typedef int (*fzn_log_pack_may_go_t)(void *ctx, const char *name);
+
+/* `fzn_log_pack_retain` with `may_go` (NULL for every one) asked of each
+ * segment the plan removes whole, by its name; one it refuses stays. The
+ * archive's replicas are its use: a fossil held by fewer hosts than the
+ * estate asks is not pruned here. */
+fzn_log_pack_err_t fzn_log_pack_retain_held(const char *dir, const char *program,
+                                            const fzn_retain_rule_t *rules, size_t n_rules,
+                                            const fzn_hash_ops_t *hash,
+                                            const fzn_log_pack_signer_t *signer,
+                                            uint64_t now_us, fzn_log_pack_may_go_t may_go,
+                                            void *may_go_ctx, size_t *removed,
+                                            size_t *repacked);
+
+/* THE SEGMENTS THE RULES WOULD REMOVE WHOLE from `program` in `dir`, sec
+ * 592, by name into `names` (at most `max`), `*count` of them: the
+ * segment plan, nothing read and nothing removed. */
+#define FZN_LOG_PACK_NAME_MAX 256u
+fzn_log_pack_err_t fzn_log_pack_plan(const char *dir, const char *program,
+                                     const fzn_retain_rule_t *rules, size_t n_rules,
+                                     uint64_t now_us, char (*names)[FZN_LOG_PACK_NAME_MAX],
+                                     size_t max, size_t *count);
+
 /* THE FOSSIL CLASS, sec 588: every PACKED segment of `program` in `dir`
  * that an archive rule marks and no keep rule keeps (`log/retain.h`),
  * moved into the directory `archive` -- made 0700 when absent -- under its

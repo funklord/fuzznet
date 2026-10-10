@@ -41,6 +41,10 @@ older than the 60-day window when A next cuts:
        segments to its archive's copy/AKEY/, and holds none in its copies
        (sec 590); restarted with `prune * copy archived count 0` and `keep *
        copy archived count 1`, it keeps the newest there (sec 591)
+    i  B archives its own segments, which A holds as copies; with the
+       estate's `archive/replicas` at 3, `prune * archived count 0` holds
+       every fossil back, two hosts holding each; at 2 it prunes them
+       (sec 592)
 
 The waits are on the daemons' own lines -- A's cut pass, B's reconcile
 pass, B's "moved up" -- and each is checked before the settings are.
@@ -78,6 +82,10 @@ LINES_RE = re.compile(r"reconcile pass: .*; lines (\d+) lacked, (\d+) filed, (\d
                       r"passed over")
 PACKED_RE = re.compile(r"segment\(s\) of \S+ packed")
 SEGMENTS_RE = re.compile(r"segments (\d+) taken, (\d+) refused, (\d+) pushed")
+OWN_ARCHIVED_RE = re.compile(r"\d+ segment\(s\) of fuzznetd archived to ")
+OWN_PRUNED_RE = re.compile(r"\d+ archived segment\(s\) of fuzznetd pruned")
+REPLICAS_RE = re.compile(r"replicas: (\d+) fossil\(s\) the archive's rules would prune, (\d+) "
+                         r"held by fewer than (\d+) host\(s\)")
 COPY_PRUNED_RE = re.compile(r"(\d+) archived copied segment\(s\) of \S+ of [0-9a-f]{8} pruned")
 COPY_ARCHIVED_RE = re.compile(r"\d+ copied segment\(s\) of \S+ of [0-9a-f]{8} archived")
 PUSHED_RE = re.compile(r"passed over, (\d+) pushed")
@@ -541,6 +549,51 @@ def main(argv):
 				raise failed("h: %s archived copies pruned and %d left of %d"
 				             % (got.group(1), len(left_over), len(fossils)))
 			print("livecheck: h: the archive's rules for copies kept the newest of them")
+
+			# i: the archive's replicas, sec 592. A holds B's own segments as
+			# copies since phase g, so each of B's fossils has two holders.
+			def b_run(tag, rules, wait):
+				a = daemon(run, "a" + tag, a_dir, a_sock, extra=["--udp-port=" + port] + small,
+				           log_dir=a_logs)
+				try:
+					a.wait_for(SEGMENTS_RE, "A's reconcile pass")
+					b = daemon(run, "b" + tag, b_dir, b_sock,
+					           extra=["--root-at", "127.0.0.1", port] + small
+					           + ["--log-rule=" + r for r in rules], log_dir=b_logs)
+					try:
+						return b.wait_for(wait, tag)
+					finally:
+						b.stop()
+				finally:
+					a.stop()
+
+			def set_replicas(n):
+				a = daemon(run, "ai%d" % n, a_dir, a_sock, extra=["--udp-port=" + port] + small,
+				           log_dir=a_logs)
+				try:
+					expect(a_sock, "i", "set setting estate archive/replicas %d" % n, "ok")
+				finally:
+					a.stop()
+
+			own_archive = os.path.join(b_logs, "archive")
+			b_run("i1", ["archive * count 0"], OWN_ARCHIVED_RE)
+			fossils = packed(own_archive)
+			if not fossils:
+				raise failed("i: B archived none of its own segments")
+			set_replicas(3)
+			got = b_run("i2", ["prune * archived count 0"], REPLICAS_RE)
+			if got.group(1) != str(len(fossils)) or got.group(2) != got.group(1) \
+			   or got.group(3) != "3" or len(packed(own_archive)) != len(fossils):
+				raise failed("i: under three replicas B weighed %s, held back %s of %s, and "
+				             "keeps %d of %d" % (got.group(1), got.group(2), got.group(3),
+				                                 len(packed(own_archive)), len(fossils)))
+			set_replicas(2)
+			got = b_run("i3", ["prune * archived count 0"], OWN_PRUNED_RE)
+			if packed(own_archive):
+				raise failed("i: under two replicas, A holding each, B keeps %d fossil(s)"
+				             % len(packed(own_archive)))
+			print("livecheck: i: B's %d fossil(s) held back under three replicas, pruned under "
+			      "two" % len(fossils))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

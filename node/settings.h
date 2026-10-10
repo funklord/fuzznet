@@ -164,6 +164,14 @@ fzn_node_settings_err_t fzn_node_settings_forget_clears(const fzn_node_settings_
 #define FZN_NODE_SETTINGS_WINDOW_DAYS 60u
 unsigned fzn_node_settings_window_days(const fzn_node_settings_t *ns);
 
+/* HOW MANY HOSTS HOLD EACH ARCHIVED SEGMENT, sec 592: the estate cell
+ * `archive/replicas`, a count from 1 to 16 at whatever rank is in force.
+ * FZN_NODE_SETTINGS_REPLICAS otherwise, the holder's of 2026-10-10. An
+ * archived segment held by fewer is not pruned here. */
+#define FZN_NODE_SETTINGS_REPLICAS_KEY "archive/replicas"
+#define FZN_NODE_SETTINGS_REPLICAS 2u
+unsigned fzn_node_settings_replicas(const fzn_node_settings_t *ns);
+
 /* A MEMBER'S ADDRESS AS A SETTING, sec 579: the host cell `net/address`,
  * `HOST PORT` -- a name or an address of 1 to 253 bytes of letters, digits
  * and `.-:`, a space, and a port from 1 to 65535 -- at whatever rank is in

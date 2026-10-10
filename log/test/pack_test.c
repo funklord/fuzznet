@@ -660,6 +660,13 @@ static void test_signed_trailers(void)
 	(void)remove(chain_path);
 }
 
+/* The archive test's caller, letting every fossil go but the oldest. */
+static int not_the_oldest(void *ctx, const char *name)
+{
+	(void)ctx;
+	return strstr(name, "netcfgd.1000000.") == NULL;
+}
+
 /* THE FOSSIL CLASS, sec 588: packed segments an archive rule marks and no
  * keep rule keeps, moved into the archive, where they verify alone; a plain
  * segment waits to be packed. */
@@ -712,9 +719,39 @@ static void test_archive(void)
 	CHECK(fzn_log_pack_archive(top, "netcfgd", rules, 1u, "", 5000000u, &archived)
 	              == FZN_LOG_PACK_ERR_MALFORMED,
 	      "an archive of no name was taken");
+	/* THE PLAN, AND A FOSSIL HELD BACK, sec 592: every fossil the rule
+	 * removes named, none removed; then all go but the one refused. */
+	{
+		static char names[4][FZN_LOG_PACK_NAME_MAX];
+		size_t n_names = 0, gone = 0, repacked = 0;
+
+		CHECK(fzn_retain_parse("prune * count 0", 15u, &rules[0]) == FZN_RETAIN_OK
+		              && fzn_log_pack_plan(archive, "netcfgd", rules, 1u, 5000000u, names, 4u,
+		                                   &n_names)
+		                         == FZN_LOG_PACK_OK
+		              && n_names == 3u && access(fossil[0], F_OK) == 0,
+		      "the plan did not name the three fossils, or removed one");
+		CHECK(fzn_log_pack_retain_held(archive, "netcfgd", rules, 1u, &HASH, NULL, 5000000u,
+		                               not_the_oldest, NULL, &gone, &repacked)
+		                      == FZN_LOG_PACK_OK
+		              && gone == 2u && access(fossil[0], F_OK) == 0
+		              && access(fossil[1], F_OK) != 0 && access(fossil[2], F_OK) != 0,
+		      "a fossil the caller held back was removed, or the others were not");
+		snprintf(chain_path, sizeof(chain_path), "%s/netcfgd.chain", archive);
+		(void)remove(chain_path);
+		snprintf(chain_path, sizeof(chain_path), "%s/netcfgd.chain", top);
+	}
 	for (i = 0; i < 3u; i++)
 		(void)remove(fossil[i]);
 	(void)remove(path[3]);
+	/* AND THE PLAIN ONE IN THE ARCHIVE, where a run that moves it -- the
+	 * sabotage of the packed-only guard -- leaves it. */
+	{
+		char plain[260];
+
+		snprintf(plain, sizeof(plain), "%s/%s", archive, NAME[3]);
+		(void)remove(plain);
+	}
 	(void)remove(chain_path);
 	CHECK(rmdir(archive) == 0, "the archive held something else, or would not go");
 }

@@ -60243,7 +60243,8 @@ What was proposed back:
    plain copies.
 
 Taken up 2026-10-10 in sec 588, logs first; the holder left item 3, the
-keys of sealed kinds, to decide later.
+keys of sealed kinds, to decide later. Item 4 begun in sec 592 with whole
+replicas, the holder's choice over erasure coding for now.
 
 ## 538. Two notes from siblings, 2026-10-08
 
@@ -62401,3 +62402,64 @@ Sec 590 archived copies and left them with nothing to prune them.
 - Two sabotage entries, the live copies and the own archive each leaving
   the other's rules out; two older ones re-anchored on the lines they
   share.
+
+## 592. The archive's replicas: no fossil pruned below R holders, 2026-10-10
+
+Sec 537 item 4, parity across hosts. Asked 2026-10-10, the holder chose
+whole replicas first over k-of-n erasure coding, which can come later on
+the same footing.
+
+**What already replicated, measured from the code rather than assumed.**
+Each round's bucket exchange pushes every segment to every peer allowed
+to hold it (sec 569, gated by sec 567): the root, and any host granted
+the retention capability. Whole copies therefore already exist wherever
+the estate allows, and a fossil stays held at its holders when they
+archive it (secs 588, 590). Pushing more cannot raise the count past the
+hosts allowed to hold; a host granted the capability is how it is
+raised. What was missing is the guarantee: a host pruning its own
+fossil did not know, or care, whether it was the last copy.
+
+- **`archive/replicas`**, an estate cell from 1 to 16, default 2
+  (`fzn_node_settings_replicas`): how many hosts must hold a fossil
+  before its own host may prune it.
+- **`fzn_reconcile_peer_holds`** asks a peer whether it holds one item:
+  the item query at an offset past any end, so the answer is its length
+  and no byte. Not the bucket's id listing, which keeps the ids of items
+  let go (sec 572) and would count a peer that pruned its copy.
+- **Counted only where it decides something**: each round fuzznetd asks
+  `fzn_log_pack_plan` which of its own fossils the archive's rules would
+  prune, and counts only those -- this host, and each peer of the estate
+  that answered the round (sec 587), stopping at R.
+- **Held back below R**: `fzn_log_pack_retain_held`, retention with a
+  "may go" asked of each segment it would remove, prunes only the
+  fossils the last count confirmed. One never counted stays, so the
+  guarantee fails safe. A host with no peer holding its fossils keeps
+  them all at R of 2: that is the guarantee, not a fault.
+- **Said each round** the rules would prune anything: how many were
+  weighed and how many were held back short.
+
+### Measured for sec 592
+
+- apply_test 78: replicas 2 unset, 3 set, 2 for 17, 16 at the bound.
+- log_buckets_test 49: B asks A of a segment it holds (held), of an id it
+  never held (not), and of one it let go, its id still in its bucket
+  (not).
+- pack_test 67: the plan names three fossils and removes none; retention
+  held back by the caller removes two and keeps the one refused.
+- `tool/live_rejoin.py` phase i: B archives its own segments, which A
+  holds as copies since phase g; with A's estate at 3 replicas, `prune *
+  archived count 0` weighs B's fossil and holds it back; at 2 it prunes
+  it. With the hold made to always let go, phase i fails at the first.
+- `tool/live_archive.py` phase d failed the first full gate run: its node
+  has no peer, so at the default of two replicas its fossils were held
+  back -- the guarantee, met where phase d was not testing it. The phase
+  now sets one replica first, and says why.
+- Three sabotage entries: held by the length, the hold, and the bound.
+  A debris directory under /tmp, left by the earlier probe of the
+  packed-only guard, was removed and the test's cleanup now covers it.
+
+### Not yet after sec 592
+
+- **Copies' fossils are not counted**: a host's archived copies of
+  another's log are pruned by their own rules alone (sec 591).
+- **Erasure coding** stays the later step the holder named.

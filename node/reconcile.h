@@ -237,6 +237,17 @@ fzn_reconcile_err_t fzn_reconcile_buckets(const fzn_buckets_t *b, fzn_buckets_ki
                                           uint8_t *reply, size_t reply_cap,
                                           fzn_reconcile_bucket_tally_t *tally);
 
+/* WHETHER THE PEER HOLDS the item `id` of `kind`, sec 592, into `*held`:
+ * the item asked for at an offset past any item's end, so the answer
+ * carries its length and none of its bytes, and a length of 0 is the
+ * peer's "not held" -- an item it let go among them (sec 572), which its
+ * bucket's ids still list. What the peer serves this node is all it can
+ * be asked: a gate that keeps an item from this node answers 0 too. */
+fzn_reconcile_err_t fzn_reconcile_peer_holds(fzn_buckets_kind_t kind,
+                                             const uint8_t id[FZN_BUCKETS_ID_LEN],
+                                             fzn_reconcile_ask_t ask, void *ask_ctx,
+                                             uint8_t *reply, size_t reply_cap, int *held);
+
 /* THE SAME KIND PUSHED, sec 569: for a peer that cannot reach this node.
  * The peer's buckets are listed once and each of this node's compared with
  * them; where the peer lacks a bucket or it differs, the peer's ids are

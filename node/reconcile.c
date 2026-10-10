@@ -803,6 +803,38 @@ static uint8_t fetched_item[FZN_BUCKETS_ITEM_MAX];
  * STAGE and then FINISH (sec 570), its outcome in `*large` with `*len` 0; a
  * kind that takes none, or a stage that refuses, is REFUSED and asked no
  * more. */
+fzn_reconcile_err_t fzn_reconcile_peer_holds(fzn_buckets_kind_t kind,
+                                             const uint8_t id[FZN_BUCKETS_ID_LEN],
+                                             fzn_reconcile_ask_t ask, void *ask_ctx,
+                                             uint8_t *reply, size_t reply_cap, int *held)
+{
+	uint8_t request[FZN_RECONCILE_ITEM_QUERY_LEN];
+	size_t reply_len = 0;
+
+	if (!held)
+		return FZN_RECONCILE_ERR_MALFORMED;
+	*held = 0;
+	if (!id || !ask || !reply || reply_cap < FZN_RECONCILE_ITEM_HEAD_LEN
+	    || (unsigned)kind >= FZN_BUCKETS_KINDS)
+		return FZN_RECONCILE_ERR_MALFORMED;
+	request[0] = (uint8_t)FZN_RECONCILE_VERSION;
+	request[1] = (uint8_t)FZN_RECONCILE_ITEM_QUERY;
+	request[2] = (uint8_t)kind;
+	memcpy(request + 3u, id, FZN_BUCKETS_ID_LEN);
+	/* PAST ANY END: the length, and no byte. */
+	fzn_put_be32(request + 35u, 0xffffffffu);
+	if (!ask(ask_ctx, request, sizeof(request), reply, reply_cap, &reply_len))
+		return FZN_RECONCILE_ERR_NO_ANSWER;
+	if (!is(reply, reply_len, (uint8_t)FZN_RECONCILE_ITEM)
+	    || reply_len < FZN_RECONCILE_ITEM_HEAD_LEN || reply[2] != (uint8_t)kind
+	    || memcmp(reply + 3u, id, FZN_BUCKETS_ID_LEN) != 0
+	    || fzn_get_be32(reply + 39u) != 0xffffffffu
+	    || reply_len != FZN_RECONCILE_ITEM_HEAD_LEN + (size_t)fzn_get_be16(reply + 43u))
+		return FZN_RECONCILE_ERR_SHAPE;
+	*held = fzn_get_be32(reply + 35u) > 0u;
+	return FZN_RECONCILE_OK;
+}
+
 static fzn_reconcile_err_t fetch_item(fzn_buckets_kind_t kind,
                                       const uint8_t id[FZN_BUCKETS_ID_LEN],
                                       const fzn_reconcile_filer_t *filer,
