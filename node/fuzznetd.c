@@ -478,6 +478,10 @@ static size_t gather_rules(fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX])
 }
 #endif
 
+/* WHERE ARCHIVED LOG SEGMENTS GO, sec 588: `--log-archive=DIR`, or
+ * `archive/` under the log directory. */
+static const char *log_archive;
+
 static void log_round(void)
 {
 #ifdef FZN_LOG_FILE_ON
@@ -508,6 +512,30 @@ static void log_round(void)
 	n_rules = fzn_retain_select_here(rules, n_rules, dlog.has_host ? dlog.host : NULL,
 	                                 dlog.logger.self.machine, rules);
 #ifdef FZN_LOG_PACK_ON
+	/* THE FOSSIL CLASS FIRST, sec 588: a packed segment an archive rule
+	 * marks is moved before the rules over entries could take it. */
+	for (pi = 0; pi < n_rules; pi++)
+		if (rules[pi].kind == FZN_RETAIN_ARCHIVE)
+			break;
+	if (pi < n_rules) {
+		char where[600];
+		size_t moved = 0;
+
+		if (log_archive)
+			(void)snprintf(where, sizeof(where), "%s", log_archive);
+		else
+			(void)snprintf(where, sizeof(where), "%s/archive", dlog.logger.dir);
+		for (pi = 0; pi < n_programs; pi++) {
+			if (fzn_log_pack_archive(dlog.logger.dir, programs[pi], rules, n_rules, where,
+			                         log_now_us(), &moved)
+			    != FZN_LOG_PACK_OK)
+				say(FZN_ENTRY_WARNING, "log", "segments of %s could not all be archived",
+				    programs[pi]);
+			else if (moved)
+				say(FZN_ENTRY_INFO, "log", "%zu segment(s) of %s archived to %s", moved,
+				    programs[pi], where);
+		}
+	}
 	/* THE RULES OVER ENTRIES TOO, sec 474: a packed segment some of whose
 	 * lines go is repacked without them. */
 	for (pi = 0; pi < n_programs && n_rules && dlog.hash; pi++) {
@@ -1566,6 +1594,17 @@ static int logs_up(void)
 	if (!fzn_log_buckets_init(&node_logs, &logs_store, dlog.logger.dir, dlog.hash, dlog.verify,
 	                          dlog.host))
 		return 0;
+	/* THIS HOST'S ARCHIVE, sec 588: where `log_round` moves segments,
+	 * still held from there. */
+	{
+		int k = snprintf(node_logs.archive, sizeof(node_logs.archive), "%s%s",
+		                 log_archive ? log_archive : dlog.logger.dir,
+		                 log_archive ? "" : "/archive");
+
+		/* ONE THAT DOES NOT FIT IS NONE, rather than a path cut short. */
+		if (k < 0 || (size_t)k >= sizeof(node_logs.archive))
+			node_logs.archive[0] = '\0';
+	}
 	fzn_log_buckets_filer(&node_logs, &logs_filer);
 	logs_ready = 1;
 	return 1;
@@ -2922,7 +2961,8 @@ static void usage(const char *prog)
 	        "serving logs to --log-dir=DIR (default /var/log/fuzznet for root, else\n"
 	        "$XDG_STATE_HOME/fuzznet/log) at --log-level=LEVEL (info), rotating at\n"
 	        "--log-segment=BYTES, pruned by --log-rule=\"prune|keep PROG|* [level=CEWNIVDT]\n"
-	        "[subsystem=PATH] age|size|count N\" as it rotates;\n"
+	        "[subsystem=PATH] age|size|count N\" as it rotates, `archive` moving\n"
+	        "packed segments to --log-archive=DIR (LOGDIR/archive) instead;\n"
 	        "--no-log-file keeps stderr only; --log-scope=estate lets members gather it\n"
 	        "--op-journal[=BYTES] enters every write to this node's state in a journal\n"
 	        "of its own, by hash, keeping up to BYTES of written state (64 MiB), in\n"
@@ -3157,6 +3197,8 @@ int main(int argc, char **argv)
 			npulls++;
 		} else if (!strncmp(argv[i], "--log-dir=", 10u)) {
 			log_dir = argv[i] + 10;
+		} else if (!strncmp(argv[i], "--log-archive=", 14u) && argv[i][14]) {
+			log_archive = argv[i] + 14;
 		} else if (!strcmp(argv[i], "--no-log-file")) {
 			log_file = 0;
 		} else if (!strcmp(argv[i], "--op-journal")) {

@@ -340,7 +340,15 @@ fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_
 		out->kind = FZN_RETAIN_PRUNE;
 	else if (is(w[0], n[0], "keep"))
 		out->kind = FZN_RETAIN_KEEP;
+	else if (is(w[0], n[0], "archive"))
+		out->kind = FZN_RETAIN_ARCHIVE;
 	else
+		return FZN_RETAIN_ERR_MALFORMED;
+	/* AN ARCHIVE RULE MOVES WHOLE SEGMENTS of this node's own log, sec 588:
+	 * no entry selector, no copy, and no other kind's data. */
+	if (out->kind == FZN_RETAIN_ARCHIVE
+	    && (out->data != FZN_RETAIN_LOG || out->copy || out->has_source || out->levels
+	        || out->subsystem[0] || out->match_len))
 		return FZN_RETAIN_ERR_MALFORMED;
 	if (program) {
 		if (!program_ok(w[program], n[program]))
@@ -483,7 +491,10 @@ fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_
 	else
 		(void)snprintf(what, sizeof(what), "%s", rule->program);
 	n = snprintf(out, cap, "%s %s%s%s%s%s%s%s%s %s %llu%s",
-	             rule->kind == FZN_RETAIN_PRUNE ? "prune" : "keep", what,
+	             rule->kind == FZN_RETAIN_PRUNE    ? "prune"
+	             : rule->kind == FZN_RETAIN_ARCHIVE ? "archive"
+	                                                : "keep",
+	             what,
 	             rule->copy ? " copy" : "", scope,
 	             k ? " level=" : "", levels, rule->subsystem[0] ? " subsystem=" : "",
 	             rule->subsystem, match,
@@ -569,8 +580,14 @@ static int rule_ok(const fzn_retain_rule_t *r)
 		       && !r->copy && !r->has_source && (r->has_contact == 0 || r->has_contact == 1)
 		       && (r->has_host == 0 || r->has_host == 1)
 		       && (r->has_machine == 0 || r->has_machine == 1);
+	/* AN ARCHIVE RULE: a log segment rule of this node's own log. */
+	if (r->kind == FZN_RETAIN_ARCHIVE
+	    && (r->data != FZN_RETAIN_LOG || r->copy || r->has_source || r->levels
+	        || r->subsystem[0] || r->match_len))
+		return 0;
 	return r->data == FZN_RETAIN_LOG && !r->has_contact
-	       && (r->kind == FZN_RETAIN_PRUNE || r->kind == FZN_RETAIN_KEEP)
+	       && (r->kind == FZN_RETAIN_PRUNE || r->kind == FZN_RETAIN_KEEP
+	           || r->kind == FZN_RETAIN_ARCHIVE)
 	       && (r->limit == FZN_RETAIN_AGE || r->limit == FZN_RETAIN_SIZE
 	           || r->limit == FZN_RETAIN_COUNT)
 	       && memchr(r->program, '\0', sizeof(r->program)) != NULL
@@ -755,7 +772,7 @@ fzn_retain_err_t fzn_retain_marks(const char *program, const fzn_retain_segment_
 
 		for (i = 0; i < n; i++) {
 			const fzn_retain_segment_t *seg = &segments[order[i]];
-			int pruned = 0, kept = 0;
+			int pruned = 0, kept = 0, archived = 0;
 
 			for (r = 0; r < n_rules; r++) {
 				const fzn_retain_rule_t *rule = &rules[r];
@@ -767,10 +784,16 @@ fzn_retain_err_t fzn_retain_marks(const char *program, const fzn_retain_segment_
 						kept = 1;
 				} else if (rule->kind == FZN_RETAIN_PRUNE) {
 					pruned = 1;
+				} else if (rule->kind == FZN_RETAIN_ARCHIVE) {
+					archived = 1;
 				}
 			}
-			remove[order[i]] = (uint8_t)((pruned || drops ? FZN_RETAIN_MARK_PRUNED : 0u)
-			                             | (kept ? FZN_RETAIN_MARK_KEPT : 0u));
+			/* ARCHIVE WINS OVER PRUNE, sec 588: a segment both would take
+			 * is moved, not removed. */
+			remove[order[i]] =
+			        (uint8_t)((archived ? FZN_RETAIN_MARK_ARCHIVED
+			                            : (pruned || drops ? FZN_RETAIN_MARK_PRUNED : 0u))
+			                  | (kept ? FZN_RETAIN_MARK_KEPT : 0u));
 			before = (UINT64_MAX - before < seg->bytes) ? UINT64_MAX : before + seg->bytes;
 		}
 	}

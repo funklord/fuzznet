@@ -543,6 +543,61 @@ static void test_history_rules(void)
 	      "history's selection takes its rules alone, and the others leave them out");
 }
 
+/* THE FOSSIL CLASS, sec 588: an archive rule over this node's own log
+ * segments, whole; archive wins over prune, keep over both, and nothing
+ * archived is in the removal plan. */
+static void test_archive_rules(void)
+{
+	static const char *const BAD[] = {
+		"archive messages age 1d",  "archive history age 1d", "archive * level=E age 1d",
+		"archive * text=x age 1d",  "archive * copy age 1d",  "archive *",
+	};
+	fzn_retain_segment_t seg[3] = { { 1u * DAY, 10u }, { 2u * DAY, 10u }, { 3u * DAY, 10u } };
+	fzn_retain_rule_t r[3], x;
+	uint8_t marks[3], gone[3];
+	char t[FZN_RETAIN_TEXT_MAX];
+	size_t i, len = 0;
+	int all = 1;
+
+	r[0] = rule("archive * age 30d");
+	CHECK(r[0].kind == FZN_RETAIN_ARCHIVE && r[0].data == FZN_RETAIN_LOG
+	              && fzn_retain_text(&r[0], t, sizeof(t), &len) == FZN_RETAIN_OK
+	              && strcmp(t, "archive * age 30d") == 0,
+	      "an archive rule reads and writes back as it was given");
+	r[0] = rule("archive log netcfgd count 5");
+	CHECK(r[0].kind == FZN_RETAIN_ARCHIVE && strcmp(r[0].program, "netcfgd") == 0
+	              && fzn_retain_text(&r[0], t, sizeof(t), &len) == FZN_RETAIN_OK
+	              && strcmp(t, "archive netcfgd count 5") == 0,
+	      "and one naming a program");
+	for (i = 0; i < sizeof(BAD) / sizeof(BAD[0]); i++)
+		all = all && fzn_retain_parse(BAD[i], strlen(BAD[i]), &x) == FZN_RETAIN_ERR_MALFORMED;
+	CHECK(all, "an archive rule of another kind's data, an entry selector or a copy was taken");
+	x = rule("archive * age 1d");
+	x.levels = 2u;
+	CHECK(fzn_retain_marks("netcfgd", seg, 3u, &x, 1u, 4u * DAY, marks)
+	              == FZN_RETAIN_ERR_MALFORMED,
+	      "an archive rule built with an entry selector was weighed");
+
+	/* NEWEST FIRST: the third segment is the newest. */
+	r[0] = rule("archive * count 1");
+	CHECK(fzn_retain_marks("netcfgd", seg, 3u, r, 1u, 4u * DAY, marks) == FZN_RETAIN_OK
+	              && marks[0] == FZN_RETAIN_MARK_ARCHIVED && marks[1] == FZN_RETAIN_MARK_ARCHIVED
+	              && marks[2] == 0u,
+	      "archive count 1 did not mark the two older segments archived");
+	r[1] = rule("prune * count 1");
+	CHECK(fzn_retain_marks("netcfgd", seg, 3u, r, 2u, 4u * DAY, marks) == FZN_RETAIN_OK
+	              && marks[0] == FZN_RETAIN_MARK_ARCHIVED && marks[1] == FZN_RETAIN_MARK_ARCHIVED,
+	      "a segment both an archive and a prune rule take was marked pruned");
+	CHECK(fzn_retain_plan("netcfgd", seg, 3u, r, 2u, 4u * DAY, gone) == FZN_RETAIN_OK
+	              && gone[0] == 0u && gone[1] == 0u && gone[2] == 0u,
+	      "a segment marked archived is in the removal plan");
+	r[2] = rule("keep * count 2");
+	CHECK(fzn_retain_marks("netcfgd", seg, 3u, r, 3u, 4u * DAY, marks) == FZN_RETAIN_OK
+	              && marks[1] == (FZN_RETAIN_MARK_ARCHIVED | FZN_RETAIN_MARK_KEPT)
+	              && marks[0] == FZN_RETAIN_MARK_ARCHIVED,
+	      "a keep rule's segment was not marked kept beside archived");
+}
+
 /* A DEFAULT POLICY PER KIND, sec 566: everything and nothing, each one
  * line; keep wins where two disagree; under drop only a keep rule holds. */
 static void test_policies(void)
@@ -655,6 +710,7 @@ int main(void)
 	test_source();
 	test_message_rules();
 	test_history_rules();
+	test_archive_rules();
 	test_policies();
 	if (failures) {
 		fprintf(stderr, "retain_test: %d of %d checks failed\n", failures, checks);

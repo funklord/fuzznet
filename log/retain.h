@@ -81,6 +81,10 @@
  *     prune|keep log PROGRAM|* ...        a log rule, as above
  *     prune|keep messages [contact=KEYHEX] [host=] [machine=] LIMIT N
  *     prune|keep history [host=] [machine=] LIMIT N   a note history rule
+ *     archive [log] PROGRAM|* [host=] [machine=] LIMIT N
+ *                                  a log segment past N moved to the archive,
+ *                                  the fossil class (sec 588): whole
+ *                                  segments, this node's own log, no copy
  * and a rule naming neither is a log rule, its second word the program, so
  * every rule written before reads as it did and keeps its text. A program
  * called `log` or `messages` is written `log PROGRAM`. A MESSAGE RULE
@@ -127,7 +131,10 @@ typedef enum fzn_retain_kind {
 	FZN_RETAIN_PRUNE = 1,
 	FZN_RETAIN_KEEP = 2,
 	/* A kind's default, sec 566: no program, selector or limit. */
-	FZN_RETAIN_POLICY = 3
+	FZN_RETAIN_POLICY = 3,
+	/* MOVED TO THE FOSSIL CLASS, sec 588: a log segment past its limit,
+	 * packed, moved to the archive rather than removed. */
+	FZN_RETAIN_ARCHIVE = 4
 } fzn_retain_kind_t;
 
 typedef enum fzn_retain_limit {
@@ -255,6 +262,10 @@ fzn_retain_err_t fzn_retain_plan(const char *program, const fzn_retain_segment_t
  * keeps it, both or neither. */
 #define FZN_RETAIN_MARK_PRUNED 1u
 #define FZN_RETAIN_MARK_KEPT 2u
+/* An archive rule marks it, sec 588: moved to the archive when packed and
+ * not kept. Archive wins over prune -- the less destructive of the two --
+ * so a segment marked ARCHIVED is never marked PRUNED as well. */
+#define FZN_RETAIN_MARK_ARCHIVED 4u
 fzn_retain_err_t fzn_retain_marks(const char *program, const fzn_retain_segment_t *segments,
                                   size_t n, const fzn_retain_rule_t *rules, size_t n_rules,
                                   uint64_t now_us, uint8_t *marks);

@@ -60242,6 +60242,9 @@ What was proposed back:
    (sec 494) and repair at rest (sec 492), after an archive works with
    plain copies.
 
+Taken up 2026-10-10 in sec 588, logs first; the holder left item 3, the
+keys of sealed kinds, to decide later.
+
 ## 538. Two notes from siblings, 2026-10-08
 
 - **fmake builds this tree**, from fmake's session, measured in its copy:
@@ -62224,3 +62227,69 @@ baseline was built from `git archive 49b3557` with the four submodules
 copied at their pinned commits. No live check asserts a time, which a
 loaded machine would make flaky; `tool/live_siblings.py` phase e runs the
 case and passes either way.
+
+## 588. Storage classes begun: log segments archived to the fossil class, 2026-10-10
+
+Sec 537's proposal, taken up. The holder chose 2026-10-10 to start storage
+classes now, and to decide later how an archive of sealed data -- messages,
+notes -- stays openable once a trim destroys its keys: the keys carried,
+wrapped for the estate, or the data re-sealed under an archive key. Until
+then only unsealed kinds are archived, and logs come first: a packed
+segment is compressed, chained and signed already, the fossil sec 537
+described.
+
+### Stage 1: an archive rule over this node's own log
+
+- **`archive [log] PROGRAM|* [host=] [machine=] age|size|count N`**, a
+  retention rule beside prune and keep (sec 537 item 1): whole segments
+  of this node's own log, so no entry selector, no copy, and no other
+  kind's data. A keep rule protects a segment from it as from a prune,
+  and where an archive and a prune rule both take a segment, archive
+  wins -- the less destructive -- so the segment is marked
+  `FZN_RETAIN_MARK_ARCHIVED` and never `PRUNED`, and neither the removal
+  plan nor the entry walk removes it.
+- **`fzn_log_pack_archive`** moves every packed segment so marked and not
+  kept into the archive, under the chain's lock as packing and retention
+  hold it. A rename, or across filesystems a copy written beside its name,
+  synced and renamed into place before the original goes, so a fossil
+  under its name is always whole. A plain segment waits to be packed.
+- **The archive verifies alone** (sec 537 item 2): `fzn_log_pack_check`
+  walks it from its oldest segment's trailer, as it walks a pruned log,
+  so `fuzznetd --log-dir=ARCHIVE --check-log` checks it with no store and
+  no journal.
+- **fuzznetd archives before the rules over entries**, to `--log-archive=DIR`
+  or `archive/` under the log directory.
+- **An archived segment is still held.** The logs' buckets (sec 571) let
+  go an own segment whose file is gone (sec 572), and a peer holding it
+  would hand it back: archiving would thrash. `fzn_log_buckets_t` names
+  the archive, and an own segment's ref looks there when the log
+  directory has it not, so the item stays held and is served from the
+  fossil class.
+
+### Measured for sec 588
+
+- retain_test 87: an archive rule reads and writes back, with and without
+  a program; one of messages, history, an entry selector or a copy is
+  refused at the parse, and one built with a selector by hand at the
+  weighing; archive marks the segments past its limit, wins over a prune,
+  leaves the removal plan empty, and is marked kept beside a keep rule.
+- pack_test 65: three packed segments and a plain one; a keep rule holds
+  two of the three, then the rest move, and a plain segment marked is
+  not moved; the archive verifies alone, its three segments one chain.
+- log_buckets_test 42: an own segment moved to the archive is not let go,
+  and B takes it from A with the others; with no archive named, the same
+  move is let go.
+- `tool/live_archive.py`, in `make livecheck`: short runs until two
+  segments are packed; a run with `archive * count 1` moves the older
+  one; `--check-log` on the archive alone says its chain holds. With the
+  archive pass taken out of `log_round`, phase b fails.
+- Six sabotage entries: the parse's refusal, the weighing's, archive over
+  prune, keep holding, packed only, and held from the archive; one older
+  entry re-anchored on the marks it shares a line with.
+
+### Not yet after sec 588
+
+- **The archive has no rules of its own**: nothing prunes a fossil.
+- **Copies are not archived**: an archive rule names no copy.
+- **Sealed kinds** wait on the holder's keys decision.
+- **Parity across hosts** is sec 537 item 4, after this works.

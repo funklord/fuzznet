@@ -633,6 +633,39 @@ static void test_removed_and_repacked(void)
 	      "a copy B let go was taken back");
 }
 
+/* ARCHIVED, sec 588: an own segment moved into the archive is still held
+ * -- not let go, and served to a peer from there; with no archive named the
+ * same move is a file gone, let go. */
+static void test_archived_still_held(void)
+{
+	char path[400], moved[400], archive[300], copies[300];
+	fzn_reconcile_bucket_tally_t t;
+	size_t taken = 0, let_go = 9;
+
+	fresh();
+	snprintf(archive, sizeof(archive), "%s/archive", top);
+	(void)mkdir(archive, 0700);
+	snprintf(path, sizeof(path), "%s/netcfgd.%llu.42.log.zst", dir_a,
+	         (unsigned long long)JULY_2026);
+	snprintf(moved, sizeof(moved), "%s/netcfgd.%llu.42.log.zst", archive,
+	         (unsigned long long)JULY_2026);
+	CHECK(a_logs() && fzn_log_buckets_scan(&lb_a, &taken, NULL) && taken == 3u
+	              && rename(path, moved) == 0,
+	      "fixture: A's log scanned, July's first segment archived");
+	snprintf(lb_a.archive, sizeof(lb_a.archive), "%s", archive);
+	CHECK(fzn_log_buckets_scan(&lb_a, &taken, &let_go) && taken == 0u && let_go == 0u,
+	      "an archived segment was let go as a file gone");
+	copy_dir_of(dir_b, key_a, copies, sizeof(copies));
+	CHECK(pull_b(&t) == FZN_RECONCILE_OK && t.applied == 3u && t.refused == 0u
+	              && count_in(copies, ".log.zst") == 3u,
+	      "B did not take A's archived segment with the others");
+	lb_a.archive[0] = '\0';
+	CHECK(fzn_log_buckets_scan(&lb_a, &taken, &let_go) && let_go == 1u,
+	      "with no archive named, a segment moved away was not let go");
+	(void)remove(moved);
+	CHECK(rmdir(archive) == 0, "the archive held something else, or would not go");
+}
+
 /* A PACKED SEGMENT'S NAME, read for its closing time: the one name a copy
  * has, and the one this module keeps, serves or takes. */
 static void test_a_segment_s_name(void)
@@ -674,6 +707,7 @@ int main(void)
 	test_pushed();
 	test_its_id_and_its_month();
 	test_removed_and_repacked();
+	test_archived_still_held();
 
 	fresh();
 	fzn_log_buckets_close(&lb_a);

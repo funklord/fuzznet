@@ -660,6 +660,65 @@ static void test_signed_trailers(void)
 	(void)remove(chain_path);
 }
 
+/* THE FOSSIL CLASS, sec 588: packed segments an archive rule marks and no
+ * keep rule keeps, moved into the archive, where they verify alone; a plain
+ * segment waits to be packed. */
+static void test_archive(void)
+{
+	static const uint64_t SETTLE = 10u * 1000000u;
+	static const char *const NAME[4] = { "netcfgd.1000000.40.log", "netcfgd.2000000.41.log",
+		                             "netcfgd.3000000.42.log", "netcfgd.4000000.43.log" };
+	char path[4][200], zpath[4][220], fossil[3][260], archive[100], chain_path[160];
+	fzn_retain_rule_t rules[2];
+	fzn_log_pack_report_t report;
+	size_t packed = 0, archived = 9, i;
+	int ok = 1;
+
+	snprintf(archive, sizeof(archive), "%s/archive", top);
+	snprintf(chain_path, sizeof(chain_path), "%s/netcfgd.chain", top);
+	for (i = 0; i < 4u; i++) {
+		snprintf(path[i], sizeof(path[i]), "%s/%s", top, NAME[i]);
+		snprintf(zpath[i], sizeof(zpath[i]), "%s.zst", path[i]);
+	}
+	for (i = 0; i < 3u; i++) {
+		snprintf(fossil[i], sizeof(fossil[i]), "%s/%s.zst", archive, NAME[i]);
+		ok = ok && make_segment(path[i], 2000u + i)
+		     && fzn_log_pack_dir(top, "netcfgd", &HASH, NULL, (i + 1u) * 1000000u + SETTLE,
+		                         SETTLE, &packed) == FZN_LOG_PACK_OK
+		     && packed == 1u;
+	}
+	CHECK(ok && make_segment(path[3], 1000u), "fixture: three packed segments and a plain one");
+
+	CHECK(fzn_retain_parse("archive * count 1", 17u, &rules[0]) == FZN_RETAIN_OK
+	              && fzn_retain_parse("keep * count 3", 14u, &rules[1]) == FZN_RETAIN_OK
+	              && fzn_log_pack_archive(top, "netcfgd", rules, 2u, archive, 5000000u, &archived)
+	                         == FZN_LOG_PACK_OK
+	              && archived == 1u && access(fossil[0], F_OK) == 0
+	              && access(zpath[0], F_OK) != 0 && access(zpath[1], F_OK) == 0,
+	      "a keep rule did not hold the segments it covers, or the oldest was not moved");
+	CHECK(fzn_log_pack_archive(top, "netcfgd", rules, 1u, archive, 5000000u, &archived)
+	                      == FZN_LOG_PACK_OK
+	              && archived == 2u && access(fossil[1], F_OK) == 0
+	              && access(fossil[2], F_OK) == 0 && access(path[3], F_OK) == 0,
+	      "the packed segments past the limit were not moved, or the plain one was");
+	CHECK(fzn_log_pack_check(archive, "netcfgd", &HASH, &SIGN, &report) == FZN_LOG_PACK_OK
+	              && report.segments == 3u,
+	      "the archive did not verify alone, its three segments one chain");
+	CHECK(fzn_retain_parse("archive * count 0", 17u, &rules[0]) == FZN_RETAIN_OK
+	              && fzn_log_pack_archive(top, "netcfgd", rules, 1u, archive, 5000000u, &archived)
+	                         == FZN_LOG_PACK_OK
+	              && archived == 0u && access(path[3], F_OK) == 0,
+	      "a plain segment an archive rule marks was moved before it was packed");
+	CHECK(fzn_log_pack_archive(top, "netcfgd", rules, 1u, "", 5000000u, &archived)
+	              == FZN_LOG_PACK_ERR_MALFORMED,
+	      "an archive of no name was taken");
+	for (i = 0; i < 3u; i++)
+		(void)remove(fossil[i]);
+	(void)remove(path[3]);
+	(void)remove(chain_path);
+	CHECK(rmdir(archive) == 0, "the archive held something else, or would not go");
+}
+
 int main(void)
 {
 	(void)snprintf(top, sizeof(top), "/tmp/fzn-pack-test-XXXXXX");
@@ -671,6 +730,7 @@ int main(void)
 	test_a_directory();
 	test_entry_rules();
 	test_signed_trailers();
+	test_archive();
 	CHECK(rmdir(top) == 0, "the scratch directory is empty, and goes");
 
 	if (failures) {

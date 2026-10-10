@@ -168,6 +168,21 @@ fzn_log_pack_err_t fzn_log_pack_retain(const char *dir, const char *program,
                                        const fzn_log_pack_signer_t *signer, uint64_t now_us,
                                        size_t *removed, size_t *repacked);
 
+/* THE FOSSIL CLASS, sec 588: every PACKED segment of `program` in `dir`
+ * that an archive rule marks and no keep rule keeps (`log/retain.h`),
+ * moved into the directory `archive` -- made 0700 when absent -- under its
+ * own name. A packed segment is compressed, chained and signed already, so
+ * the archive verifies with `fzn_log_pack_check` and nothing else: no
+ * journal, no store. A rename, or across filesystems a copy written beside
+ * its name, synced and renamed into place before the original goes, so a
+ * fossil under its name is always whole. A plain segment marked waits
+ * until it is packed. Under the chain's lock, as packing and retention
+ * are; another instance holding it is not an error. `*archived` counts. */
+fzn_log_pack_err_t fzn_log_pack_archive(const char *dir, const char *program,
+                                        const fzn_retain_rule_t *rules, size_t n_rules,
+                                        const char *archive, uint64_t now_us,
+                                        size_t *archived);
+
 /* EVERY SETTLED SEGMENT of `program` in `dir`, oldest first: packed,
  * chained, and removed once packed. `*packed` counts them. OK with nothing
  * packed when another instance holds the chain. */

@@ -981,6 +981,136 @@ done:
 	return err;
 }
 
+/* ---- the fossil class, sec 588 ------------------------------------------- */
+
+/* `from` copied to `to` through `tmp`, synced and renamed into place. */
+static int copy_whole(const char *from, const char *tmp, const char *to)
+{
+	static uint8_t buf[65536];
+	ssize_t got;
+	int in, out, ok = 1;
+
+	in = open(from, O_RDONLY | O_CLOEXEC);
+	if (in < 0)
+		return 0;
+	out = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+	if (out < 0) {
+		(void)close(in);
+		return 0;
+	}
+	while (ok && (got = read(in, buf, sizeof(buf))) != 0) {
+		if (got < 0)
+			ok = errno == EINTR;
+		else
+			ok = write(out, buf, (size_t)got) == got;
+	}
+	ok = ok && fsync(out) == 0;
+	ok = (close(out) == 0) && ok;
+	(void)close(in);
+	if (!ok || rename(tmp, to) != 0) {
+		(void)remove(tmp);
+		return 0;
+	}
+	return 1;
+}
+
+fzn_log_pack_err_t fzn_log_pack_archive(const char *dir, const char *program,
+                                        const fzn_retain_rule_t *rules, size_t n_rules,
+                                        const char *archive, uint64_t now_us,
+                                        size_t *archived)
+{
+	static struct held segs[SEGMENTS_MAX];
+	static fzn_retain_segment_t sizes[SEGMENTS_MAX];
+	static uint8_t marks[SEGMENTS_MAX];
+	char chain_path[PATH_MAX_], path[PATH_MAX_], dest[PATH_MAX_], tmp[PATH_MAX_];
+	fzn_log_pack_err_t err = FZN_LOG_PACK_OK;
+	struct flock lk;
+	struct dirent *e;
+	size_t n = 0, i;
+	int fd, k;
+	DIR *d;
+
+	if (!dir || !program || !program[0] || strchr(program, '/') || (!rules && n_rules)
+	    || !archive || !archive[0] || !archived)
+		return FZN_LOG_PACK_ERR_MALFORMED;
+	*archived = 0;
+	k = snprintf(chain_path, sizeof(chain_path), "%s/%s.chain", dir, program);
+	if (k <= 0 || (size_t)k >= sizeof(chain_path))
+		return FZN_LOG_PACK_ERR_MALFORMED;
+	fd = open(chain_path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+	if (fd < 0)
+		return FZN_LOG_PACK_ERR_FILE;
+	memset(&lk, 0, sizeof(lk));
+	lk.l_type = F_WRLCK;
+	lk.l_whence = SEEK_SET;
+	if (fcntl(fd, F_SETLK, &lk) != 0) {
+		(void)close(fd);
+		return (errno == EACCES || errno == EAGAIN) ? FZN_LOG_PACK_OK : FZN_LOG_PACK_ERR_FILE;
+	}
+	d = opendir(dir);
+	if (!d) {
+		err = FZN_LOG_PACK_ERR_FILE;
+		goto done;
+	}
+	while ((e = readdir(d)) != NULL && n < SEGMENTS_MAX) {
+		struct held h;
+
+		h.at = segment_at(e->d_name, program, &h.packed);
+		if (h.at == 0u || strlen(e->d_name) >= sizeof(h.name))
+			continue;
+		strcpy(h.name, e->d_name);
+		segs[n++] = h;
+	}
+	(void)closedir(d);
+	qsort(segs, n, sizeof(segs[0]), newest_first);
+	for (i = 0; i < n; i++) {
+		struct stat st;
+
+		(void)snprintf(path, sizeof(path), "%s/%s", dir, segs[i].name);
+		sizes[i].closed_us = segs[i].at;
+		sizes[i].bytes = stat(path, &st) == 0 && st.st_size > 0 ? (uint64_t)st.st_size : 0u;
+	}
+	if (fzn_retain_marks(program, sizes, n, rules, n_rules, now_us, marks) != FZN_RETAIN_OK) {
+		err = FZN_LOG_PACK_ERR_MALFORMED;
+		goto done;
+	}
+	for (i = 0; i < n && err == FZN_LOG_PACK_OK; i++) {
+		if (!segs[i].packed || !(marks[i] & FZN_RETAIN_MARK_ARCHIVED)
+		    || (marks[i] & FZN_RETAIN_MARK_KEPT))
+			continue;
+		if (snprintf(path, sizeof(path), "%s/%s", dir, segs[i].name) >= (int)sizeof(path)
+		    || snprintf(dest, sizeof(dest), "%s/%s", archive, segs[i].name)
+		               >= (int)sizeof(dest)
+		    || snprintf(tmp, sizeof(tmp), "%s/%s.new", archive, segs[i].name)
+		               >= (int)sizeof(tmp)) {
+			err = FZN_LOG_PACK_ERR_MALFORMED;
+			break;
+		}
+		if (mkdir(archive, 0700) != 0 && errno != EEXIST) {
+			err = FZN_LOG_PACK_ERR_FILE;
+			break;
+		}
+		if (rename(path, dest) == 0) {
+			(*archived)++;
+			continue;
+		}
+		/* GONE ALREADY is another instance's pass, and fine. */
+		if (errno == ENOENT)
+			continue;
+		if (errno != EXDEV || !copy_whole(path, tmp, dest)
+		    || (remove(path) != 0 && errno != ENOENT)) {
+			err = FZN_LOG_PACK_ERR_FILE;
+			break;
+		}
+		(*archived)++;
+	}
+done:
+	lk.l_type = F_UNLCK;
+	(void)fcntl(fd, F_SETLK, &lk);
+	(void)close(fd);
+	return err;
+}
+
 /* ---- checking a directory's chain, sec 482 ------------------------------ */
 
 fzn_log_pack_err_t fzn_log_pack_check(const char *dir, const char *program,

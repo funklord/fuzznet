@@ -83,6 +83,10 @@ static int ref_path(const fzn_log_buckets_t *lb, const uint8_t *ref, size_t ref_
 		if (!fzn_log_copy_packed_time(r + 2))
 			return 0;
 		k = snprintf(path, PATH_MAX_, "%s/%s", lb->dir, r + 2);
+		/* ARCHIVED, sec 588: moved to the fossil class, still this
+		 * host's and still held. */
+		if (k > 0 && (size_t)k < PATH_MAX_ && lb->archive[0] && access(path, F_OK) != 0)
+			k = snprintf(path, PATH_MAX_, "%s/%s", lb->archive, r + 2);
 	} else if (ref_len > 67u && r[0] == 'c' && r[1] == '/' && r[66] == '/') {
 		size_t i;
 
