@@ -62193,7 +62193,34 @@ at "ok absent" -- the journal is pulled before the second build.
 
 ### Not yet after sec 586
 
-- **A round with the root away is slow**: every exchange with it waits
-  out its timeout before the siblings are asked. Asking the siblings
-  first, or skipping a peer that failed the round before, would shorten
-  it; neither is done.
+- ~~**A round with the root away is slow**: every exchange with it waits
+  out its timeout before the siblings are asked.~~ A peer that does not
+  answer the round's journal pull is passed over for the rest of it since
+  sec 587.
+
+## 587. A peer that does not answer is passed over for the round, 2026-10-10
+
+Sec 586's open half. With the root away, a member's round waited out a
+timeout at every step that asks a peer -- the journal pull and push,
+reconciliation, members, wrap keys, purges -- before the siblings were
+asked, and the node answered nothing locally meanwhile.
+
+- **The journal pull is the round's first exchange with each peer**, so a
+  peer that answers it nothing (`FZN_EXCHANGE_ERR_NO_ANSWER`) is marked,
+  and every later step of the round passes it over: reconciliation and
+  its bridge witnesses, the extra push, messages, members, notes, texts
+  and files.
+- **Kept by host and port in a table of the round's own**, not on the
+  target: the round rebuilds its sibling targets after the journal pull
+  (sec 586), which would clear a flag held there. Cleared when a round
+  starts, so every peer is asked again each round.
+
+### Measured for sec 587
+
+A member joined to a root that never starts, timed from its start to its
+first round's history pass: 18.7 s at 49b3557, six exchanges logged as
+unanswered; 3.3 s with this change, one, "passed over this round". The
+baseline was built from `git archive 49b3557` with the four submodules
+copied at their pinned commits. No live check asserts a time, which a
+loaded machine would make flaky; `tool/live_siblings.py` phase e runs the
+case and passes either way.

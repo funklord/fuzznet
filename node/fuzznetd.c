@@ -964,6 +964,38 @@ struct pull_target {
 	int fd;
 };
 
+/* THE PEERS THAT DID NOT ANSWER THIS ROUND, sec 587, by where they are: a
+ * peer whose journal pull goes unanswered is passed over by the rest of the
+ * round, which otherwise waited out a timeout at every step -- a root away
+ * cost a member every exchange of its round before its siblings were asked.
+ * Kept by host and port rather than on the target, since a round rebuilds
+ * its sibling targets after the pull; cleared when a round starts, so each
+ * round asks every peer again. */
+static struct {
+	const char *host;
+	long port;
+} silent[FZND_ROUND_TARGETS_MAX];
+static size_t n_silent;
+
+static int silent_peer(const struct pull_target *pt)
+{
+	size_t i;
+
+	for (i = 0; i < n_silent; i++)
+		if (silent[i].port == pt->port && strcmp(silent[i].host, pt->host) == 0)
+			return 1;
+	return 0;
+}
+
+static void silent_mark(const struct pull_target *pt)
+{
+	if (n_silent < FZND_ROUND_TARGETS_MAX && !silent_peer(pt)) {
+		silent[n_silent].host = pt->host;
+		silent[n_silent].port = pt->port;
+		n_silent++;
+	}
+}
+
 /* The members the last round's pulls proved, sec 445, kept so the writer set
  * can be rebuilt between rounds. */
 static uint8_t pulled_members[FZN_NODE_NOTES_WRITERS][FZN_PUBKEY_LEN];
@@ -1642,6 +1674,9 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
 		fzn_reconcile_tally_t tally;
 
+		if (silent_peer(&pulls[t]))
+			continue;
+
 		if (!peer_in_estate(&pulls[t])) {
 			foreign++;
 			continue;
@@ -1766,7 +1801,7 @@ static void rebase_missed(struct pull_target *pulls, size_t npulls, size_t t, ui
 
 	/* EVERY OTHER PULL PEER OF THIS ESTATE WITNESSES THE BRIDGE, sec 557. */
 	for (k = 0; k < npulls; k++)
-		if (k != t && peer_in_estate(&pulls[k])) {
+		if (k != t && peer_in_estate(&pulls[k]) && !silent_peer(&pulls[k])) {
 			others[n_witnesses].caller = &pulls[k].caller;
 			others[n_witnesses].now = now;
 			others[n_witnesses].host = pulls[k].host;
@@ -1845,9 +1880,19 @@ static void pull_journal(struct pull_target *pulls, size_t npulls, uint64_t now)
 	for (t = 0; t < npulls; t++) {
 		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
 		fzn_exchange_tally_t tally;
-		fzn_exchange_err_t err = fzn_node_journal_pull(&node_journal, peer_ask, &asking, reply,
-		                                               sizeof(reply), &tally);
+		fzn_exchange_err_t err;
 
+		if (silent_peer(&pulls[t]))
+			continue;
+		err = fzn_node_journal_pull(&node_journal, peer_ask, &asking, reply, sizeof(reply),
+		                            &tally);
+		if (err == FZN_EXCHANGE_ERR_NO_ANSWER) {
+			/* PASSED OVER FOR THE REST OF THE ROUND, sec 587. */
+			say(FZN_ENTRY_WARNING, "journal", "%s did not answer; passed over this round",
+			    pulls[t].host);
+			silent_mark(&pulls[t]);
+			continue;
+		}
 		if (err != FZN_EXCHANGE_OK)
 			say(FZN_ENTRY_WARNING, "journal", "the journal from %s: %s", pulls[t].host,
 			    fzn_exchange_err_str(err));
@@ -1976,6 +2021,8 @@ static void messages_round(struct pull_target *pulls, size_t npulls, uint64_t no
 	for (p = 0; p < npulls; p++) {
 		struct peer_asking asking = { &pulls[p].caller, now, pulls[p].host };
 
+		if (silent_peer(&pulls[p]))
+			continue;
 		memset(&t, 0, sizeof(t));
 		if (!fzn_node_messages_round(&node_messages, peer_ask, &asking, &t))
 			say(FZN_ENTRY_WARNING, "messages", "keys with %s: no answer", pulls[p].host);
@@ -2080,7 +2127,11 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 	for (t = 0; t < npulls; t++) {
 		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
 		size_t got = 0, refused = 0;
-		fzn_node_members_err_t merr = fzn_node_members_pull(
+		fzn_node_members_err_t merr;
+
+		if (silent_peer(&pulls[t]))
+			continue;
+		merr = fzn_node_members_pull(
 		        peer_ask, &asking, config->root, &config->remote_capability, now,
 		        node_notes.author.sign, revocations, members + n_members,
 		        FZN_NODE_NOTES_WRITERS - n_members, &got, &refused);
@@ -2114,6 +2165,9 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 	for (t = 0; t < npulls; t++) {
 		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
 		fzn_notes_sync_err_t err;
+
+		if (silent_peer(&pulls[t]))
+			continue;
 
 		/* THEIR WRAP KEYS, sec 520, both ways: a note this node holds the
 		 * records of is unreadable here until its wrap key arrives. */
@@ -2756,6 +2810,8 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 		struct share_target *sh = t < npulls ? NULL : &shares_in[t - npulls];
 		fzn_caller_t *caller = sh ? &sh->pt.caller : &pulls[t].caller;
 
+		if (!sh && silent_peer(&pulls[t]))
+			continue;
 		if (sh && sh->pt.fd < 0)
 			continue;
 		fp[n_peers].caller = caller;
@@ -2834,7 +2890,11 @@ static void fetch_texts(struct pull_target *pulls, size_t npulls, uint64_t now)
 	shelf.fresh = 0;
 	for (t = 0; t < npulls; t++) {
 		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
-		size_t got = fzn_node_shelf_fetch_wants(&shelf, peer_ask, &asking);
+		size_t got;
+
+		if (silent_peer(&pulls[t]))
+			continue;
+		got = fzn_node_shelf_fetch_wants(&shelf, peer_ask, &asking);
 
 		if (got)
 			say(FZN_ENTRY_INFO, "shelf/fetch", "%zu text(s) from %s", got, pulls[t].host);
@@ -4587,6 +4647,8 @@ int main(int argc, char **argv)
 			 * than this one does, and waiting for it would stop every pull
 			 * for as long as the clock had been wrong. sec 469. */
 			if (now >= next_pull || next_pull > now + FZND_PULL_EVERY) {
+				/* EVERY PEER ASKED AGAIN, sec 587. */
+				n_silent = 0;
 #ifdef FZN_RECORD_STORE_FILE_ON
 				npulls = npulls_base + load_siblings(pulls, npulls_base, family,
 				                                     identity.pubkey, state.config.root,
@@ -4610,7 +4672,8 @@ int main(int argc, char **argv)
 				 * the round's push, it would wait a round for the next. */
 				if (pair_siblings(&identity, now))
 					for (t = 0; t < npulls; t++)
-						push_one(&pulls[t], now);
+						if (!silent_peer(&pulls[t]))
+							push_one(&pulls[t], now);
 				/* AND THE SIBLINGS AGAIN, sec 586: an address or a pairing
 				 * the journal brought this round is asked from now, by the
 				 * rest of the round, not from the next. */
