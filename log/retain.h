@@ -81,9 +81,10 @@
  *     prune|keep log PROGRAM|* ...        a log rule, as above
  *     prune|keep messages [contact=KEYHEX] [host=] [machine=] LIMIT N
  *     prune|keep history [host=] [machine=] LIMIT N   a note history rule
- *     prune|keep [log] PROGRAM|* archived [host=] [machine=] LIMIT N
- *                                  over the archive (sec 589), whole
- *                                  segments; no policy reaches it
+ *     prune|keep [log] PROGRAM|* [copy [source=]] archived [host=] [machine=] LIMIT N
+ *                                  over the archive (sec 589), or its
+ *                                  copies (sec 591), whole segments; no
+ *                                  policy reaches it
  *     archive [log] PROGRAM|* [copy [source=]] [host=] [machine=] LIMIT N
  *                                  a log segment past N moved to the archive,
  *                                  the fossil class (sec 588): whole
@@ -228,6 +229,14 @@ size_t fzn_retain_select_messages(const fzn_retain_rule_t *in, size_t n, const u
 size_t fzn_retain_select_archived(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],
                                   const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
                                   fzn_retain_rule_t *out);
+
+/* The rules of `in` over this node's ARCHIVED COPIES that reach it, sec
+ * 591: naming both `archived` and `copy`. `fzn_retain_select_source` then
+ * narrows them to one source's. No policy. */
+size_t fzn_retain_select_archived_copies(const fzn_retain_rule_t *in, size_t n,
+                                         const uint8_t host[32],
+                                         const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
+                                         fzn_retain_rule_t *out);
 
 /* The HISTORY rules of `in` that reach this node, sec 581. */
 size_t fzn_retain_select_history(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],

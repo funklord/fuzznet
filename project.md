@@ -62368,5 +62368,36 @@ log's copy directory with no class to move to.
 
 ### Not yet after sec 590
 
-- **The archive's own rules do not reach archived copies**: a rule naming
-  `archived` names no `copy`, so a copy in the fossil class stays.
+- ~~**The archive's own rules do not reach archived copies**: a rule naming
+  `archived` names no `copy`, so a copy in the fossil class stays.~~ They
+  do since sec 591.
+
+## 591. Archived copies pruned by rules of their own, 2026-10-10
+
+Sec 590 archived copies and left them with nothing to prune them.
+
+- **A rule names both `copy` and `archived`**, a source with it or not:
+  `prune|keep [log] PROGRAM|* copy [source=HOSTHEX] archived [host=]
+  [machine=] LIMIT N`, written back in that order.
+- **Three selections, kept apart**: `fzn_retain_select_archived_copies`
+  takes these rules alone; the live copies' selection leaves them out, or
+  a rule of years over the fossil class would prune a host's recent log;
+  and the own archive's leaves out every copy rule. No policy reaches
+  either archive.
+- **fuzznetd applies them in `archive_round`** after the own archive's:
+  each `ARCHIVE/copy/HOSTHEX/` by the rules naming no source or its,
+  whole segments, through `fzn_log_pack_retain`.
+
+### Measured for sec 591
+
+- retain_test 93: a rule over archived copies reads and writes back, the
+  archived copies' selection takes it, and neither the live copies' nor
+  the own archive's does.
+- `tool/live_rejoin.py` phase h goes on: of B's two archived copies, `prune
+  * copy archived count 0` with `keep * copy archived count 1` keeps the
+  newer. The step needs two and fails on fewer rather than passing over
+  them. With the archived copies' selection taken out of `archive_round`,
+  it fails.
+- Two sabotage entries, the live copies and the own archive each leaving
+  the other's rules out; two older ones re-anchored on the lines they
+  share.

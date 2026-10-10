@@ -39,7 +39,8 @@ older than the 60-day window when A next cuts:
        off that copy directory's name, and B takes A's
     h  B restarted with `archive * copy count 0` moves its copies of A's
        segments to its archive's copy/AKEY/, and holds none in its copies
-       (sec 590)
+       (sec 590); restarted with `prune * copy archived count 0` and `keep *
+       copy archived count 1`, it keeps the newest there (sec 591)
 
 The waits are on the daemons' own lines -- A's cut pass, B's reconcile
 pass, B's "moved up" -- and each is checked before the settings are.
@@ -77,6 +78,7 @@ LINES_RE = re.compile(r"reconcile pass: .*; lines (\d+) lacked, (\d+) filed, (\d
                       r"passed over")
 PACKED_RE = re.compile(r"segment\(s\) of \S+ packed")
 SEGMENTS_RE = re.compile(r"segments (\d+) taken, (\d+) refused, (\d+) pushed")
+COPY_PRUNED_RE = re.compile(r"(\d+) archived copied segment\(s\) of \S+ of [0-9a-f]{8} pruned")
 COPY_ARCHIVED_RE = re.compile(r"\d+ copied segment\(s\) of \S+ of [0-9a-f]{8} archived")
 PUSHED_RE = re.compile(r"passed over, (\d+) pushed")
 MISSING_RE = re.compile(r"claims no longer hold what this node lacks|would not move")
@@ -523,6 +525,22 @@ def main(argv):
 				raise failed("h: B's archive holds %d of A's segments, and its copies %d"
 				             % (len(fossils), len(packed(os.path.join(b_copies, b_holders[0])))))
 			print("livecheck: h: B archived its %d copies of A's segments" % len(fossils))
+			# AND PRUNED THERE BY THE ARCHIVE'S RULES FOR COPIES, sec 591.
+			if len(fossils) < 2:
+				raise failed("h: %d archived cop(ies); pruning them needs two" % len(fossils))
+			b = daemon(run, "bh2", b_dir, b_sock,
+			           extra=["--root-at", "127.0.0.1", port] + small
+			           + ["--log-rule=prune * copy archived count 0",
+			              "--log-rule=keep * copy archived count 1"], log_dir=b_logs)
+			try:
+				got = b.wait_for(COPY_PRUNED_RE, "B's archived copies pruned")
+			finally:
+				b.stop()
+			left_over = packed(os.path.join(b_logs, "archive", "copy", b_holders[0]))
+			if int(got.group(1)) != len(fossils) - 1 or len(left_over) != 1:
+				raise failed("h: %s archived copies pruned and %d left of %d"
+				             % (got.group(1), len(left_over), len(fossils)))
+			print("livecheck: h: the archive's rules for copies kept the newest of them")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

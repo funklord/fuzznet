@@ -550,6 +550,53 @@ static void archive_round(const fzn_retain_rule_t *rules, size_t n_rules,
 				say(FZN_ENTRY_INFO, "log", "%zu archived segment(s) of %s pruned", gone,
 				    held[pi]);
 		}
+	/* AND ITS COPIES', sec 591: rules naming `copy archived`, each copy
+	 * directory under ARCHIVE/copy/ by the ones naming no source or its. */
+	n_archived = fzn_retain_select_archived_copies(all_rules, n_all,
+	                                               dlog.has_host ? dlog.host : NULL,
+	                                               dlog.logger.self.machine, archived_rules);
+	if (n_archived && dlog.hash) {
+		static fzn_retain_rule_t source_rules[FZN_RETAIN_RULES_MAX];
+		char copies[sizeof(where) + 8u];
+		struct dirent *e;
+		DIR *d;
+
+		if (snprintf(copies, sizeof(copies), "%s/copy", where) >= (int)sizeof(copies)
+		    || (d = opendir(copies)) == NULL)
+			return;
+		while ((e = readdir(d)) != NULL) {
+			char sub[sizeof(copies) + 80u];
+			uint8_t source[32];
+			size_t n_source, p;
+
+			if (strlen(e->d_name) != 64u || strspn(e->d_name, "0123456789abcdef") != 64u
+			    || !hex_bytes(e->d_name, source, sizeof(source))
+			    || snprintf(sub, sizeof(sub), "%s/%s", copies, e->d_name) >= (int)sizeof(sub))
+				continue;
+			n_source = fzn_retain_select_source(archived_rules, n_archived, source,
+			                                    source_rules);
+			n_held = 0;
+			if (!n_source
+			    || fzn_logger_programs(sub, held, FZND_LOG_PROGRAMS_MAX, &n_held)
+			               != FZN_LOGGER_OK)
+				continue;
+			for (p = 0; p < n_held; p++) {
+				size_t gone = 0, repacked = 0;
+
+				if (fzn_log_pack_retain(sub, held[p], source_rules, n_source, dlog.hash,
+				                        dlog.has_signer ? &dlog.signer : NULL, log_now_us(),
+				                        &gone, &repacked)
+				    != FZN_LOG_PACK_OK)
+					say(FZN_ENTRY_WARNING, "log/copy", "the archived copies' rules could not "
+					    "all be applied to %s of %.8s", held[p], e->d_name);
+				else if (gone)
+					say(FZN_ENTRY_INFO, "log/copy",
+					    "%zu archived copied segment(s) of %s of %.8s pruned", gone, held[p],
+					    e->d_name);
+			}
+		}
+		(void)closedir(d);
+	}
 }
 #endif
 

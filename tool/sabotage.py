@@ -10328,8 +10328,8 @@ SABOTAGES = [
 	(
 		'retain-copies-take-the-log-policy',
 		'log/retain.c',
-		'\t\tif (in[i].data == FZN_RETAIN_LOG\n\t\t    && (in[i].copy || in[i].kind == FZN_RETAIN_POLICY)',
-		'\t\tif (in[i].data == FZN_RETAIN_LOG\n\t\t    && (in[i].copy)',
+		'\t\tif (in[i].data == FZN_RETAIN_LOG\n\t\t    && ((in[i].copy && !in[i].archived) || in[i].kind == FZN_RETAIN_POLICY)',
+		'\t\tif (in[i].data == FZN_RETAIN_LOG\n\t\t    && ((in[i].copy && !in[i].archived))',
 		"a log policy reaches this node's own log and not the copies it keeps -- sec 566",
 	),
 	(
@@ -10909,8 +10909,8 @@ SABOTAGES = [
 	(
 		"retain-archive-selection-takes-archived-only",
 		"log/retain.c",
-		"\t\tif (in[i].data == FZN_RETAIN_LOG && in[i].archived\n",
-		"\t\tif (in[i].data == FZN_RETAIN_LOG\n",
+		"\t\tif (in[i].data == FZN_RETAIN_LOG && in[i].archived && !in[i].copy\n",
+		"\t\tif (in[i].data == FZN_RETAIN_LOG && !in[i].copy\n",
 		"the live log's rules and its drop policy reach the archive, and empty the fossil class -- sec 589",
 	),
 	(
@@ -10919,6 +10919,20 @@ SABOTAGES = [
 		"\tif (out->archived\n\t    && ((out->kind != FZN_RETAIN_PRUNE && out->kind != FZN_RETAIN_KEEP)",
 		"\tif (0 && out->archived\n\t    && ((out->kind != FZN_RETAIN_PRUNE && out->kind != FZN_RETAIN_KEEP)",
 		"a rule over the archive naming an entry selector, a copy or another kind's data is taken -- sec 589",
+	),
+	(
+		"retain-live-copies-leave-archived-rules-out",
+		"log/retain.c",
+		"\t\t    && ((in[i].copy && !in[i].archived) || in[i].kind == FZN_RETAIN_POLICY)\n",
+		"\t\t    && (in[i].copy || in[i].kind == FZN_RETAIN_POLICY)\n",
+		"a rule meant for archived copies prunes the live copies, taking a host's recent log -- sec 591",
+	),
+	(
+		"retain-own-archive-leaves-copy-rules-out",
+		"log/retain.c",
+		"\t\tif (in[i].data == FZN_RETAIN_LOG && in[i].archived && !in[i].copy\n",
+		"\t\tif (in[i].data == FZN_RETAIN_LOG && in[i].archived\n",
+		"a rule over archived copies prunes this node's own archived log -- sec 591",
 	),
 	(
 		"pack-archive-keep-holds",

@@ -620,7 +620,7 @@ static void test_archive_rules(void)
 	{
 		static const char *const NOT[] = {
 			"archive * archived age 1d",       "prune * archived level=E age 1d",
-			"prune * copy archived age 1d",    "prune messages archived age 1d",
+			"prune messages archived age 1d",
 			"prune history archived age 1d",   "prune * archived text=x age 1d",
 		};
 		uint8_t host[32], machine[FZN_ENTRY_MACHINE_LEN];
@@ -640,8 +640,23 @@ static void test_archive_rules(void)
 		      "and a keep naming a program");
 		for (i = 0, all = 1; i < sizeof(NOT) / sizeof(NOT[0]); i++)
 			all = all && fzn_retain_parse(NOT[i], strlen(NOT[i]), &x) == FZN_RETAIN_ERR_MALFORMED;
-		CHECK(all, "an archive rule over the archive, a selector, a copy or another kind's "
-		           "data was taken over it");
+		CHECK(all, "an archive rule over the archive, a selector, or another kind's data was "
+		           "taken over it");
+		/* ITS COPIES TOO, sec 591: their own selection, out of the live
+		 * copies' and the own archive's. */
+		{
+			fzn_retain_rule_t c[2], o[2];
+
+			c[0] = rule("prune * copy archived age 1825d");
+			c[1] = rule("keep * copy archived count 3");
+			CHECK(c[0].copy && c[0].archived
+			              && fzn_retain_text(&c[0], t, sizeof(t), &len) == FZN_RETAIN_OK
+			              && strcmp(t, "prune * copy archived age 1825d") == 0
+			              && fzn_retain_select_archived_copies(c, 2u, host, machine, o) == 2u
+			              && fzn_retain_select_copies(c, 2u, host, machine, o) == 0u
+			              && fzn_retain_select_archived(c, 2u, host, machine, o) == 0u,
+			      "a rule over archived copies did not read back, or was not theirs alone");
+		}
 		in[2] = rule("prune * age 1d");
 		in[3] = rule("policy log drop");
 		CHECK(fzn_retain_select_archived(in, 4u, host, machine, out) == 2u
