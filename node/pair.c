@@ -7,6 +7,7 @@
 #include "../constant_time/constant_time.h"
 
 #include "../provision/provision.h"
+#include "../session/session.h"
 
 #include <string.h>
 
@@ -194,6 +195,72 @@ fzn_node_pair_err_t fzn_node_pairing_accept(const fzn_node_identity_t *device,
 	p.hop_count = opened.hop_count;
 	memcpy(p.capability.b, opened.hop + FZN_HOP_OFF_CAPABILITY, FZN_CAP_ID_LEN);
 
+	if (fzn_node_pairing_pack(&p, blob, sizeof(blob), &len) != FZN_PERSIST_OK) {
+		fzn_wipe(&p, sizeof(p));
+		return FZN_NODE_PAIR_MALFORMED;
+	}
+	saved = store->save(store->ctx, FZN_PERSIST_PAIRED_NODE, p.node, blob, len);
+	fzn_wipe(blob, sizeof(blob));
+	if (!saved) {
+		fzn_wipe(&p, sizeof(p));
+		return FZN_NODE_PAIR_STORE;
+	}
+	*out = p;
+	fzn_wipe(&p, sizeof(p));
+	return FZN_NODE_PAIR_OK;
+}
+
+fzn_node_pair_err_t fzn_node_pairing_from_grant(const fzn_node_identity_t *device,
+                                                const uint8_t root[FZN_PUBKEY_LEN],
+                                                const uint8_t (*chain)[FZN_HOP_LEN],
+                                                size_t hop_count,
+                                                const uint8_t sponsor_prekey[FZN_PREKEY_LEN_TOTAL],
+                                                uint64_t now, const fzn_persist_ops_t *store,
+                                                fzn_node_pairing_t *out)
+{
+	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS];
+	fzn_prekey_record_t record;
+	fzn_prekey_peer_t pinned;
+	fzn_node_pairing_t p;
+	fzn_cap_id_t granted;
+	fzn_chain_t verified;
+	uint8_t blob[FZN_NODE_PAIRING_BLOB_MAX];
+	size_t len = 0, i;
+	int saved;
+
+	if (!device || !device->agree_secret || !device->sign || !device->hash || !root || !chain
+	    || hop_count == 0u || hop_count > FZN_CHAIN_MAX_HOPS || !sponsor_prekey || !store
+	    || !store->save || !out)
+		return FZN_NODE_PAIR_MALFORMED;
+	for (i = 0; i < hop_count; i++)
+		if (fzn_hop_open(chain[i], FZN_HOP_LEN, &hops[i]) != FZN_CHAIN_OK)
+			return FZN_NODE_PAIR_REFUSED;
+	/* THE WHOLE CHAIN, under the root, for what its last hop grants, ending
+	 * at this device: what a card's chain is asked (sec 377). */
+	memcpy(granted.b, chain[hop_count - 1u] + FZN_HOP_OFF_CAPABILITY, FZN_CAP_ID_LEN);
+	if (fzn_chain_verify(hops, hop_count, root, &granted, now, device->sign, NULL, NULL,
+	                     &verified)
+	            != FZN_CHAIN_OK
+	    || !fzn_ct_memeq(verified.grantee, device->pubkey, FZN_PUBKEY_LEN))
+		return FZN_NODE_PAIR_REFUSED;
+	/* THE PREKEY IS THE GRANTOR'S, as a card's envelope would have bound. */
+	if (fzn_prekey_open(sponsor_prekey, FZN_PREKEY_LEN_TOTAL, &record) != FZN_PREKEY_OK
+	    || !fzn_ct_memeq(record.host, fzn_hop_grantor(hops[hop_count - 1u]), FZN_PUBKEY_LEN))
+		return FZN_NODE_PAIR_REFUSED;
+	fzn_prekey_peer_init(&pinned);
+	if (fzn_prekey_pin(&pinned, record, device->sign, FZN_TRUST_PINNED, now) != FZN_PREKEY_OK)
+		return FZN_NODE_PAIR_REFUSED;
+	memset(&p, 0, sizeof(p));
+	if (fzn_session_establish(device->agree_secret, device->agree, device->hash, device->pubkey,
+	                          record.host, pinned.prekey, p.send_key, p.send_ckey)
+	    != FZN_SESSION_OK) {
+		fzn_wipe(&p, sizeof(p));
+		return FZN_NODE_PAIR_REFUSED;
+	}
+	memcpy(p.node, record.host, FZN_PUBKEY_LEN);
+	memcpy(p.capability.b, granted.b, FZN_CAP_ID_LEN);
+	memcpy(p.chain, chain, hop_count * FZN_HOP_LEN);
+	p.hop_count = hop_count;
 	if (fzn_node_pairing_pack(&p, blob, sizeof(blob), &len) != FZN_PERSIST_OK) {
 		fzn_wipe(&p, sizeof(p));
 		return FZN_NODE_PAIR_MALFORMED;

@@ -197,6 +197,30 @@ fzn_node_pair_err_t fzn_node_join(const fzn_node_identity_t *id, const uint8_t *
                                   const fzn_persist_ops_t *store, fzn_trust_t *trust,
                                   fzn_node_pairing_t *out);
 
+/*
+ * A PAIRING FROM A SIBLING'S GRANT, sec 579: what accepting a card does,
+ * from parts the estate already carries rather than from a card, which
+ * from a member is past a record's body.
+ *
+ * `chain` is `hop_count` hops from `root`, root first, the last a grant
+ * from the sponsor to THIS device; `sponsor_prekey` the sponsor's prekey
+ * record. Each part arrived signed on its own -- the hops by their grantors,
+ * the prekey by its host, in that host's stream -- so the envelope a card
+ * adds, binding them together, is replaced by checking that they agree:
+ * the chain verifies under `root` for the last hop's capability and ends at
+ * this device, and the prekey's host is the last hop's grantor. The session
+ * is the one a card would give, the sponsor's prekey against this device's
+ * agreement key; the pairing is saved under the sponsor, replacing any.
+ * REFUSED when the parts do not agree, with nothing saved.
+ */
+fzn_node_pair_err_t fzn_node_pairing_from_grant(const fzn_node_identity_t *device,
+                                                const uint8_t root[FZN_PUBKEY_LEN],
+                                                const uint8_t (*chain)[FZN_HOP_LEN],
+                                                size_t hop_count,
+                                                const uint8_t sponsor_prekey[FZN_PREKEY_LEN_TOTAL],
+                                                uint64_t now, const fzn_persist_ops_t *store,
+                                                fzn_node_pairing_t *out);
+
 /* Fill the credential half of a caller from a pairing: its sender (this
  * device, `self`), capability and session keys. The socket, the node's
  * address and the ops are the caller's to set; see the header on addresses. */

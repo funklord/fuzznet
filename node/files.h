@@ -387,8 +387,9 @@ fzn_node_files_err_t fzn_node_files_read_range(const fzn_node_files_t *files,
  *                            private|public SHARES [busy]`, sec 495
  *     get file ROOT check    the check at rest, now: `ok intact` or
  *                            `ok dropped N`, sec 495
- *     fetch file REF         fetch it from the pull peers and the contacts
- *                            sharing with this node, secs 491, 493
+ *     fetch file REF         fetch it from the pull peers, the contacts
+ *                            sharing with this node and the siblings it
+ *                            reaches, secs 491, 493, 579
  *     remove file ROOT       delete it here, or stop fetching it
  *     list file [FROM]       `ok TOTAL FROM ROOT,LENGTH[,public][,shared] ...`,
  *                            files arriving after the whole ones, marked

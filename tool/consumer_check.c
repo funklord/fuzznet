@@ -148,6 +148,7 @@
 #include <fuzznet/node/messages.h>
 #include <fuzznet/node/apply.h>
 #include <fuzznet/node/settings.h>
+#include <fuzznet/node/siblings.h>
 #include <fuzznet/node/holdings.h>
 #include <fuzznet/node/buckets.h>
 #include <fuzznet/node/reconcile.h>
@@ -320,6 +321,7 @@
 #include "node/messages.h"
 #include "node/apply.h"
 #include "node/settings.h"
+#include "node/siblings.h"
 #include "node/holdings.h"
 #include "node/buckets.h"
 #include "node/reconcile.h"

@@ -732,6 +732,36 @@ int main(void)
 		fzn_wipe(&pairing, sizeof(pairing));
 	}
 
+	/* ---- A SIBLING PAIRED INTO THE RUNNING NODE, sec 579: as `add peer`
+	 * pairs, from a prekey and with no card; a host already served is left
+	 * as it is, and this node's own prekey is refused. The sibling is then
+	 * removed, so the counts below are the device's alone. */
+	{
+		static struct node sibling;
+		char key[(FZN_PUBKEY_LEN * 2u) + 1u];
+		const char *why = "unset";
+
+		CHECK(fzn_node_admin_pair_sibling(&admin, device.id.prekey_record, &why) == 0
+		              && why == NULL && state.peer_count == 1u,
+		      "a host this node serves already was paired again as a sibling");
+		CHECK(fzn_node_admin_pair_sibling(&admin, node.id.prekey_record, &why) == -1
+		              && state.peer_count == 1u,
+		      "this node paired itself as a sibling");
+		CHECK(node_up(&sibling)
+		              && fzn_node_admin_pair_sibling(&admin, sibling.id.prekey_record, &why) == 1
+		              && why == NULL && state.peer_count == 2u
+		              && memcmp(state.peers[1].sender, sibling.id.pubkey, FZN_PUBKEY_LEN) == 0
+		              && state.peers[1].hop_count == 1u,
+		      "a sibling was not paired into the running node");
+		hex(sibling.id.pubkey, FZN_PUBKEY_LEN, key);
+		snprintf(line, sizeof(line), "remove peer %s", key);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && state.peer_count == 1u,
+		      "fixture: the sibling would not be removed");
+		snprintf(line, sizeof(line), "add peer %s", prekey_hex);
+	}
+
 	/* ---- LISTED, BY ANYONE THE NODE SERVES: listing changes nothing. */
 	{
 		char want[160];

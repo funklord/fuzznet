@@ -3,6 +3,7 @@
 #include "apply.h"
 #include "roots.h"
 #include "settings.h"
+#include "siblings.h"
 
 #include "../constant_time/constant_time.h"
 
@@ -37,6 +38,16 @@ int fzn_node_apply_chain(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKE
 
 		if (depth + 1u >= FZN_CHAIN_MAX_HOPS)
 			return 0;
+		/* A GRANT THAT MAY BE PASSED ON FIRST, sec 579. A member holds its
+		 * join grant, delegable, and since siblings pair one another a grant
+		 * from each sibling as well, which is not. Walking up through a
+		 * sibling's would judge the member on that sibling's standing, and a
+		 * revoked sibling would take the member's records with it. */
+		for (i = 0; i < ap->grants_used && !g; i++)
+			if (fzn_ct_memeq(ap->grants[i].grantee, at, FZN_PUBKEY_LEN)
+			    && fzn_ct_memeq(ap->grants[i].capability.b, capability->b, FZN_CAP_ID_LEN)
+			    && ap->grants[i].hop[FZN_HOP_OFF_DELEGABLE] == 1u)
+				g = &ap->grants[i];
 		for (i = 0; i < ap->grants_used && !g; i++)
 			if (fzn_ct_memeq(ap->grants[i].grantee, at, FZN_PUBKEY_LEN)
 			    && fzn_ct_memeq(ap->grants[i].capability.b, capability->b, FZN_CAP_ID_LEN))
@@ -292,6 +303,28 @@ static enum outcome take_setting(fzn_node_apply_t *ap, const uint8_t *body, size
 	return err == FZN_NODE_SETTINGS_OK || err == FZN_NODE_SETTINGS_STALE ? APPLIED : REFUSED;
 }
 
+/* A SIBLING'S PREKEY, sec 579: kept when its carrier is its host and a
+ * member -- judged as the member setting its own host cell would be, so a
+ * key with no chain yet waits, and one with a chain granting nothing is
+ * refused. An older record than the one kept is applied and changes
+ * nothing, as a journal may hand them in any order. */
+static enum outcome take_prekey(fzn_node_apply_t *ap, const uint8_t *body, size_t len,
+                                const uint8_t *signer)
+{
+	fzn_node_siblings_err_t err;
+	fzn_setting_rank_t rank;
+	int judged = fzn_node_apply_rank(ap, signer, FZN_SCOPE_HOST, signer, &rank);
+
+	if (judged == 0)
+		return WAIT;
+	if (judged < 0)
+		return REFUSED;
+	err = fzn_node_siblings_learn(ap->store, ap->sign, body, len, signer);
+	if (err == FZN_NODE_SIBLINGS_BACKEND)
+		return NOT_SAVED;
+	return err == FZN_NODE_SIBLINGS_OK || err == FZN_NODE_SIBLINGS_STALE ? APPLIED : REFUSED;
+}
+
 /* ONE OBJECT of `kind`, signed by `signer`: the journal's record issuer, or
  * the object's own signer when it came alone (sec 550). */
 static enum outcome apply_body(fzn_node_apply_t *ap, uint32_t kind, const uint8_t *body,
@@ -337,6 +370,8 @@ static enum outcome apply_body(fzn_node_apply_t *ap, uint32_t kind, const uint8_
 		return take(ap, 's', body, len, signer);
 	case FZN_OBJECT_SETTING:
 		return take_setting(ap, body, len, signer);
+	case FZN_OBJECT_PREKEY:
+		return take_prekey(ap, body, len, signer);
 	default:
 		return REFUSED;
 	}

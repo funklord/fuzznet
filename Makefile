@@ -164,7 +164,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/node.c node/local.c node/remote.c node/serve.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
-             node/journal.c node/opjournal.c node/apply.c node/settings.c node/holdings.c node/buckets.c node/reconcile.c \
+             node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/holdings.c node/buckets.c node/reconcile.c \
              messages/line.c messages/messages.c node/messages.c \
              contact/contact.c \
              contact/group.c \
@@ -262,7 +262,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/node.h node/local.h node/remote.h node/serve.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
-             node/journal.h node/opjournal.h node/apply.h node/settings.h node/holdings.h node/buckets.h node/reconcile.h \
+             node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/holdings.h node/buckets.h node/reconcile.h \
              messages/line.h messages/messages.h node/messages.h \
              contact/contact.h \
              contact/group.h \
@@ -3816,7 +3816,7 @@ $(BUILD_DIR)/node/test/pair_test.o: node/test/pair_test.c
 
 $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
-              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o \
@@ -3868,7 +3868,7 @@ $(BUILD_DIR)/node/test/admin_test.o: node/test/admin_test.c
 $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(FUZZNETD_JOURNAL_OBJS) \
               $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/local/client.o \
-              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/apply.o \
+              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/node/apply.o \
               $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/contact/contact.o \
@@ -3967,7 +3967,7 @@ $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
 # reconcile_test (sec 551), which applies objects through the same context.
 NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DIR)/node/holdings.o \
                    $(BUILD_DIR)/node/buckets.o \
-                   $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+                   $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
                    $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
                    $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
                    $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o \
@@ -4069,7 +4069,7 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(if $(SPOOL_FILE_ON),$(FUZZNETD_SHELF_OBJS)) \
               $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
               $(BUILD_DIR)/node/holdings.o $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/node/reconcile.o \
-              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/messages/messages.o \
               $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o $(BUILD_DIR)/log/cause.o \
@@ -4198,6 +4198,7 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
 
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
+                                      $(BUILD_DIR)/node/siblings.o \
                                       $(BUILD_DIR)/contact/contact.o \
                                       $(BUILD_DIR)/contact/group.o \
                                       $(BUILD_DIR)/log/rules.o \
@@ -4227,7 +4228,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                         $(BUILD_DIR)/log/copy.o) \
                                       $(BUILD_DIR)/state/scope.o \
                                       $(BUILD_DIR)/state/setting.o \
-                                      $(BUILD_DIR)/node/settings.o \
+                                      $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/siblings.o \
                                       $(BUILD_DIR)/node/holdings.o \
                                       $(BUILD_DIR)/node/buckets.o \
                                       $(BUILD_DIR)/node/reconcile.o \
@@ -5938,15 +5939,15 @@ QUIRC_DIR      ?= $(QUIRC_VENDORED)
 # THE DAEMON ITSELF, run: its message trim end to end, sec 534, the
 # journal's window cut end to end, sec 548, a member away past the window
 # rejoining two daemons over loopback, sec 554, and its bridge witnessed by a
-# third, sec 558, and a removed contact's shares pulled no further, sec
-# 576. The only target here that starts fuzznetd. A line old enough to trim can only be
+# third, sec 558, a removed contact's shares pulled no further, sec 576,
+# and siblings reaching one another, sec 579. The only target here that starts fuzznetd. A line old enough to trim can only be
 # written under an earlier clock, so `faketime` writes it, and the script
 # says SKIPPED when it is absent. It needs a fuzznetd, the record store its
 # conversations live in, and log files, because it waits on the daemon's
 # own debug line saying a trim or cut pass ran -- a build without one of
 # those has nothing to run, and says which. tool/live_trim.py,
-# tool/live_cut.py, tool/live_rejoin.py, tool/live_witness.py and
-# tool/live_shares.py bound themselves: one deadline, each daemon in its own process group, scratch
+# tool/live_cut.py, tool/live_rejoin.py, tool/live_witness.py,
+# tool/live_shares.py and tool/live_siblings.py bound themselves: one deadline, each daemon in its own process group, scratch
 # removed.
 livecheck: $(FUZZNETD)
 ifeq ($(and $(FUZZNETD),$(RECORD_STORE_FILE_ON),$(LOG_FILE_ON)),)
@@ -5958,6 +5959,7 @@ else
 	@timeout 300 python3 tool/live_rejoin.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_witness.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_shares.py $(FUZZNETD)
+	@timeout 300 python3 tool/live_siblings.py $(FUZZNETD)
 endif
 
 # ONE SHELL, BECAUSE A SKIP MUST STOP THE TARGET. Written first as separate

@@ -11,6 +11,7 @@
 #include "../holdings.h"
 #include "../roster.h"
 #include "../settings.h"
+#include "../siblings.h"
 #include "../succession.h"
 
 #include <stdio.h>
@@ -694,6 +695,82 @@ static void test_settings_judged(void)
 		              && strcmp(host, "a.example") == 0 && port == 65535u,
 		      "a port of 0 or past 65535, a host with a slash, no port or no host was read, "
 		      "or 65535 was not");
+	}
+
+	/* A SIBLING'S PREKEY, sec 579: kept when its carrier is its host and a
+	 * member; the newest per host; a stranger's waits. */
+	{
+		uint8_t member[FZN_PUBKEY_LEN], other[FZN_PUBKEY_LEN], stranger[FZN_PUBKEY_LEN];
+		uint8_t agree[FZN_PREKEY_LEN], pk[FZN_PREKEY_LEN_TOTAL], older[FZN_PREKEY_LEN_TOTAL];
+		uint8_t newer[FZN_PREKEY_LEN_TOTAL], kept[FZN_PREKEY_LEN_TOTAL];
+		uint8_t hosts[FZN_NODE_SIBLINGS_MAX][FZN_PUBKEY_LEN];
+		size_t count = 0;
+
+		key(member, 0x92);
+		key(other, 0x94);
+		key(stranger, 0x97);
+		memset(agree, 0x5e, sizeof(agree));
+		signing_as = 0x92;
+		CHECK(fzn_prekey_issue(member, agree, 2000u, &SIGN, pk) == FZN_PREKEY_OK
+		              && fzn_prekey_issue(member, agree, 1000u, &SIGN, older) == FZN_PREKEY_OK
+		              && fzn_prekey_issue(member, agree, 3000u, &SIGN, newer) == FZN_PREKEY_OK,
+		      "fixture: three of M's prekey records");
+		CHECK(fzn_node_siblings_prekey(&store, member, kept) == FZN_NODE_SIBLINGS_BACKEND
+		              && put(&nj, 0x92, pk, sizeof(pk))
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+		              && fzn_node_siblings_prekey(&store, member, kept) == FZN_NODE_SIBLINGS_OK
+		              && memcmp(kept, pk, sizeof(pk)) == 0,
+		      "a member's own prekey, carried in its stream, was not kept");
+		signing_as = 0x94;
+		CHECK(fzn_prekey_issue(other, agree, 2000u, &SIGN, kept) == FZN_PREKEY_OK
+		              && put(&nj, 0x92, kept, sizeof(kept))
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+		              && fzn_node_siblings_prekey(&store, other, kept)
+		                         == FZN_NODE_SIBLINGS_BACKEND,
+		      "a prekey a member carried about another host was kept");
+		signing_as = 0x97;
+		CHECK(fzn_prekey_issue(stranger, agree, 2000u, &SIGN, kept) == FZN_PREKEY_OK
+		              && put(&nj, 0x97, kept, sizeof(kept))
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK && t.waiting >= 1u
+		              && fzn_node_siblings_prekey(&store, stranger, kept)
+		                         == FZN_NODE_SIBLINGS_BACKEND,
+		      "a stranger's prekey did not wait for a chain");
+		CHECK(put(&nj, 0x92, older, sizeof(older))
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+		              && fzn_node_siblings_prekey(&store, member, kept) == FZN_NODE_SIBLINGS_OK
+		              && memcmp(kept, pk, sizeof(pk)) == 0
+		              && put(&nj, 0x92, newer, sizeof(newer))
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+		              && fzn_node_siblings_prekey(&store, member, kept) == FZN_NODE_SIBLINGS_OK
+		              && memcmp(kept, newer, sizeof(newer)) == 0,
+		      "an older prekey replaced the newer, or a newer one did not");
+		CHECK(fzn_node_siblings_list(&store, hosts, FZN_NODE_SIBLINGS_MAX, &count)
+		                      == FZN_NODE_SIBLINGS_OK
+		              && count == 1u && memcmp(hosts[0], member, FZN_PUBKEY_LEN) == 0,
+		      "the siblings listed were not M alone");
+	}
+
+	/* A GRANT THAT MAY BE PASSED ON IS WALKED FIRST, sec 579: K joined
+	 * through R with a delegable grant, and M, a sibling, paired K too. M's
+	 * grant is indexed first; K's chain is still R's one hop. */
+	{
+		uint8_t k[FZN_PUBKEY_LEN], chain[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+		size_t n = 0;
+
+		key(k, 0x96);
+		signing_as = 0x92;
+		CHECK(fzn_chain_mint(m, k, &cap, 100u, FZN_NO_EXPIRY, 0, &SIGN, hop) == FZN_CHAIN_OK
+		              && put(&nj, 0x92, hop, sizeof(hop))
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK,
+		      "fixture: M pairs K");
+		signing_as = 0x91;
+		CHECK(fzn_chain_mint(r, k, &cap, 100u, FZN_NO_EXPIRY, 1, &SIGN, hop) == FZN_CHAIN_OK
+		              && put(&nj, 0x91, hop, sizeof(hop))
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK,
+		      "fixture: R grants K a delegable grant, as a join is");
+		CHECK(fzn_node_apply_chain(&ap, k, &cap, chain, &n) && n == 1u
+		              && memcmp(chain[0], hop, FZN_HOP_LEN) == 0,
+		      "K's chain was walked through a sibling's grant, not its own delegable one");
 	}
 
 	/* CLEARS FORGOTTEN, sec 549. The root sets c/x and clears it at 5000.

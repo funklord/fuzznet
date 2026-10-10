@@ -228,6 +228,16 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
                              const fzn_peer_t *peer, const fzn_request_t *request,
                              char *reply, size_t reply_cap);
 
+/* PAIR A SIBLING, sec 579: the host of `prekey` (a prekey record a member of
+ * this estate carried) paired into the running node as `add peer` pairs a
+ * device -- saved, served from now, its grant logged in this node's stream
+ * -- with no card printed, since the sibling builds its side from the grant
+ * (`fzn_node_pairing_from_grant`). 1 paired; 0 when this node already serves
+ * that host, which is left as it is; -1 when it would not, with `*why`
+ * (may be NULL) saying why. This node's own prekey is -1. */
+int fzn_node_admin_pair_sibling(fzn_node_admin_t *admin,
+                                const uint8_t prekey[FZN_PREKEY_LEN_TOTAL], const char **why);
+
 /* WHETHER `key` IS A CONTACT STILL STANDING: in this node's contact list,
  * and active on the estate's roster where there is one (secs 454, 489). A
  * removed contact is suspended: served nothing (the remote hook), and its

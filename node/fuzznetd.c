@@ -55,6 +55,7 @@
 #endif
 #include "reconcile.h"
 #include "settings.h"
+#include "siblings.h"
 #endif
 #include "peer_persist.h"
 #include "notes.h"
@@ -1225,6 +1226,9 @@ static struct notes_cursor {
 } notes_cursors[NOTES_STREAMS_MAX];
 static size_t n_notes_cursors;
 
+/* The journal applied to the node's subsystems, sec 503. */
+static fzn_node_apply_t node_apply;
+
 /* FOLLOW THE ESTATE: this node's own keys, the roots that stand, the peers
  * paired to it that are no contact, and the members the last round proved.
  * Asked every round, so a member paired since is followed from its first
@@ -1250,6 +1254,16 @@ static void follow_estate(const uint8_t identity[FZN_PUBKEY_LEN], const fzn_node
 			memcpy(keys[n++], state->peers[i].sender, FZN_PUBKEY_LEN);
 	for (i = 0; i < n_pulled_members && n < FZN_NODE_JOURNAL_STREAMS_MAX; i++)
 		memcpy(keys[n++], pulled_members[i], FZN_PUBKEY_LEN);
+	/* EVERY MEMBER THE GRANTS NAME, sec 579: a member that writes no notes
+	 * is proved by none, and its stream -- its prekey among it -- reached
+	 * only the root it pushes to. The grants indexed from the estate's
+	 * streams name every key granted the member capability; following each
+	 * is what lets siblings find one another. A key followed twice is one
+	 * follow. */
+	for (i = 0; i < node_apply.grants_used && n < FZN_NODE_JOURNAL_STREAMS_MAX; i++)
+		if (memcmp(node_apply.grants[i].capability.b, state->config.remote_capability.b,
+		           FZN_CAP_ID_LEN) == 0)
+			memcpy(keys[n++], node_apply.grants[i].grantee, FZN_PUBKEY_LEN);
 	for (i = 0; i < n; i++)
 		if (fzn_node_journal_follow(&node_journal, keys[i], NULL) == FZN_NODE_JOURNAL_FULL) {
 			say(FZN_ENTRY_WARNING, "journal", "no room to follow another key's stream");
@@ -1350,7 +1364,40 @@ static void index_notes(void)
 
 /* THE JOURNAL APPLIED, sec 503: every object pulled, handed to the subsystem
  * that keeps its kind, with its signer's chain rebuilt from the grants held. */
-static fzn_node_apply_t node_apply;
+
+/* THIS HOST'S PREKEY INTO ITS ESTATE STREAM, sec 579, at every start, so each
+ * sibling can pair it: carried once, and again only when the agreement key
+ * carried is not this identity's. Not the whole record: the identity signs
+ * its record afresh at every load (`node/identity.c`), dated then, so the
+ * bytes differ at each start while the key does not. The record is public
+ * by design; what makes a sibling keep it is that this host carried it
+ * about itself. */
+static void carry_prekey(const fzn_node_identity_t *id)
+{
+	uint8_t kept[FZN_PREKEY_LEN_TOTAL];
+	fzn_prekey_record_t held, own;
+	fzn_node_siblings_err_t err;
+
+	if (fzn_node_siblings_prekey(node_apply.store, id->pubkey, kept) == FZN_NODE_SIBLINGS_OK
+	    && fzn_prekey_open(kept, sizeof(kept), &held) == FZN_PREKEY_OK
+	    && fzn_prekey_open(id->prekey_record, FZN_PREKEY_LEN_TOTAL, &own) == FZN_PREKEY_OK
+	    && memcmp(held.prekey, own.prekey, FZN_PREKEY_LEN) == 0)
+		return;
+	if (fzn_node_journal_append_object(&node_journal, id->pubkey, id->sign, id->prekey_record,
+	                                   FZN_PREKEY_LEN_TOTAL, wall_clock() * 1000u, NULL)
+	    != FZN_NODE_JOURNAL_OK) {
+		say(FZN_ENTRY_WARNING, "node/siblings",
+		    "this host's prekey is not in its estate stream: no sibling can pair it");
+		return;
+	}
+	err = fzn_node_siblings_learn(node_apply.store, id->sign, id->prekey_record,
+	                              FZN_PREKEY_LEN_TOTAL, id->pubkey);
+	if (err != FZN_NODE_SIBLINGS_OK)
+		say(FZN_ENTRY_WARNING, "node/siblings", "this host's prekey was carried and not kept: %s",
+		    fzn_node_siblings_err_str(err));
+	else
+		say(FZN_ENTRY_INFO, "node/siblings", "this host's prekey carried in its estate stream");
+}
 
 static void apply_journal(void)
 {
@@ -2149,6 +2196,187 @@ static size_t nshares_in;
 /* The running admin, whose `received_fresh` the loop reads. */
 static fzn_node_admin_t *running_admin;
 
+#ifdef FZN_RECORD_STORE_FILE_ON
+/* THE GRANT `sponsor` MADE TO `self` for `cap`, in the applied index, into
+ * `hop`: 1 found, 0 not. */
+static int grant_from(const uint8_t sponsor[FZN_PUBKEY_LEN], const uint8_t self[FZN_PUBKEY_LEN],
+                      const fzn_cap_id_t *cap, uint8_t hop[FZN_HOP_LEN])
+{
+	size_t i;
+
+	for (i = 0; i < node_apply.grants_used; i++)
+		if (memcmp(node_apply.grants[i].grantor, sponsor, FZN_PUBKEY_LEN) == 0
+		    && memcmp(node_apply.grants[i].grantee, self, FZN_PUBKEY_LEN) == 0
+		    && memcmp(node_apply.grants[i].capability.b, cap->b, FZN_CAP_ID_LEN) == 0) {
+			memcpy(hop, node_apply.grants[i].hop, FZN_HOP_LEN);
+			return 1;
+		}
+	return 0;
+}
+
+/* SIBLINGS PAIRED, sec 579, each round once the journal is applied. For
+ * every member whose prekey this node keeps, and who stands as a member
+ * now -- a removed or revoked one is not paired:
+ *
+ *   - this node pairs it, as `add peer` would, unless this node serves it
+ *     already -- the member this node admitted keeps the grant it joined
+ *     with -- and logs the grant in its stream;
+ *   - and once the member's own grant to this node has arrived, this node
+ *     builds its pairing to that member from the grant and the member's
+ *     prekey, unless it holds a pairing to it already -- the one it joined
+ *     through above all, which it grants through.
+ *
+ * Each side is the other's half: one member's grant is the pairing the
+ * other accepts, a round or two later. */
+static void pair_siblings(const fzn_node_identity_t *id, uint64_t now)
+{
+	static uint8_t hosts[FZN_NODE_SIBLINGS_MAX][FZN_PUBKEY_LEN];
+	static uint8_t chain[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	uint8_t prekey[FZN_PREKEY_LEN_TOTAL];
+	size_t n = 0, i, paired = 0, accepted = 0;
+
+	if (!running_admin || !node_apply.store || !node_apply.capability)
+		return;
+	if (fzn_node_siblings_list(node_apply.store, hosts, FZN_NODE_SIBLINGS_MAX, &n)
+	    != FZN_NODE_SIBLINGS_OK) {
+		say(FZN_ENTRY_WARNING, "node/siblings", "the siblings' prekeys would not list");
+		return;
+	}
+	for (i = 0; i < n; i++) {
+		fzn_node_pairing_t pairing;
+		fzn_setting_rank_t rank;
+		const char *why = NULL;
+		size_t hop_count = 0;
+		int r;
+
+		if (memcmp(hosts[i], id->pubkey, FZN_PUBKEY_LEN) == 0
+		    || fzn_node_apply_rank(&node_apply, hosts[i], FZN_SCOPE_HOST, hosts[i], &rank) != 1
+		    || fzn_node_siblings_prekey(node_apply.store, hosts[i], prekey)
+		               != FZN_NODE_SIBLINGS_OK)
+			continue;
+		r = fzn_node_admin_pair_sibling(running_admin, prekey, &why);
+		if (r > 0)
+			paired++;
+		else if (r < 0)
+			say(FZN_ENTRY_WARNING, "node/siblings", "a sibling was not paired: %s",
+			    why ? why : "its prekey would not open");
+		if (fzn_node_pairing_load(node_apply.store, hosts[i], &pairing) == FZN_PERSIST_OK) {
+			fzn_wipe(&pairing, sizeof(pairing));
+			continue;
+		}
+		/* ITS CHAIN, then its grant to this node: verified whole, under
+		 * the root the walk reached. */
+		if (!fzn_node_apply_chain(&node_apply, hosts[i], node_apply.capability, chain,
+		                          &hop_count)
+		    || hop_count + 1u > FZN_CHAIN_MAX_HOPS
+		    || !grant_from(hosts[i], id->pubkey, node_apply.capability, chain[hop_count]))
+			continue;
+		if (fzn_node_pairing_from_grant(id, hop_count ? chain[0] + FZN_HOP_OFF_GRANTOR : hosts[i],
+		                                (const uint8_t (*)[FZN_HOP_LEN])chain, hop_count + 1u,
+		                                prekey, now, node_apply.store, &pairing)
+		    == FZN_NODE_PAIR_OK) {
+			accepted++;
+			fzn_wipe(&pairing, sizeof(pairing));
+		} else {
+			say(FZN_ENTRY_WARNING, "node/siblings",
+			    "a sibling's grant to this node did not make a pairing");
+		}
+	}
+	if (paired || accepted)
+		say(FZN_ENTRY_INFO, "node/siblings", "%zu sibling(s) paired, %zu pairing(s) taken",
+		    paired, accepted);
+}
+#endif
+
+/* A TARGET'S SOCKET AND CALLER, for a `pt` whose host, port and pairing are
+ * set: a socket bound, the host resolved, its reassembly made, and the
+ * caller filled from the pairing. 1 ready; 0 with nothing open and the
+ * pairing wiped. */
+static int open_target(struct pull_target *pt, int family, const uint8_t self[FZN_PUBKEY_LEN],
+                       const fzn_hash_ops_t *hash, const fzn_aead_ops_t *aead,
+                       const fzn_random_ops_t *rng)
+{
+	int fd = -1;
+
+	pt->fd = -1;
+	if (fzn_udp_bind(family, NULL, 0, &fd) != FZN_UDP_OK
+	    || fzn_udp_resolve(family, pt->host, (uint16_t)pt->port, &pt->caller.node) != FZN_UDP_OK
+	    || fzn_reasm_slot_init(&pt->slot, pt->slot_buf, sizeof(pt->slot_buf)) != FZN_REASM_OK
+	    || fzn_reasm_init(&pt->table, &pt->slot, 1, 1u, 60u) != FZN_REASM_OK) {
+		if (fd >= 0)
+			fzn_udp_close(fd);
+		fzn_wipe(&pt->pairing, sizeof(pt->pairing));
+		return 0;
+	}
+	pt->fd = fd;
+	fzn_node_pairing_caller(&pt->pairing, self, &pt->caller);
+	pt->caller.fd = fd;
+	pt->caller.hash = hash;
+	pt->caller.aead = aead;
+	pt->caller.rng = rng;
+	pt->caller.reasm = &pt->table;
+	pt->caller.hops = 1u;
+	pt->caller.wrap = caller_wrap;
+	return 1;
+}
+
+/* THE SIBLINGS A FILE IS ASKED OF, sec 579: every member whose prekey this
+ * node keeps, to which it holds a pairing (`pair_siblings`), and whose
+ * address is a setting (`net/address`) -- less any that is already a pull
+ * peer, which is asked as one. Rebuilt each round, before the files are
+ * fetched: a sibling paired or given an address since is asked from then.
+ * Empty in a build without the record store, which keeps no siblings. */
+static struct share_target siblings_out[FZN_NODE_SIBLINGS_MAX];
+static size_t nsiblings_out;
+
+#if defined(FZN_RECORD_STORE_FILE_ON) && defined(FZN_SPOOL_FILE_ON)
+
+static void load_siblings(const struct pull_target *pulls, size_t npulls, int family,
+                          const uint8_t self[FZN_PUBKEY_LEN], const fzn_hash_ops_t *hash,
+                          const fzn_aead_ops_t *aead, const fzn_random_ops_t *rng)
+{
+	static uint8_t hosts[FZN_NODE_SIBLINGS_MAX][FZN_PUBKEY_LEN];
+	size_t n = 0, i, t;
+
+	for (i = 0; i < nsiblings_out; i++) {
+		if (siblings_out[i].pt.fd >= 0)
+			fzn_udp_close(siblings_out[i].pt.fd);
+		fzn_wipe(&siblings_out[i].pt.pairing, sizeof(siblings_out[i].pt.pairing));
+	}
+	nsiblings_out = 0;
+	if (!node_apply.store
+	    || fzn_node_siblings_list(node_apply.store, hosts, FZN_NODE_SIBLINGS_MAX, &n)
+	               != FZN_NODE_SIBLINGS_OK)
+		return;
+	for (i = 0; i < n && nsiblings_out < FZN_NODE_SIBLINGS_MAX; i++) {
+		struct share_target *sh = &siblings_out[nsiblings_out];
+		uint16_t port = 0;
+
+		if (memcmp(hosts[i], self, FZN_PUBKEY_LEN) == 0)
+			continue;
+		for (t = 0; t < npulls && memcmp(pulls[t].node, hosts[i], FZN_PUBKEY_LEN) != 0; t++)
+			;
+		if (t < npulls)
+			continue;
+		memset(sh, 0, sizeof(*sh));
+		if (!fzn_node_settings_address(&node_settings, hosts[i], sh->host, &port))
+			continue;
+		if (fzn_node_pairing_load(node_apply.store, hosts[i], &sh->pt.pairing)
+		    != FZN_PERSIST_OK)
+			continue;
+		memcpy(sh->sharer, hosts[i], FZN_PUBKEY_LEN);
+		sh->pt.host = sh->host;
+		sh->pt.port = port;
+		if (!open_target(&sh->pt, family, self, hash, aead, rng)) {
+			say(FZN_ENTRY_WARNING, "node/siblings", "could not reach for a sibling at %s",
+			    sh->host);
+			continue;
+		}
+		nsiblings_out++;
+	}
+}
+#endif
+
 static void load_received(int family, const uint8_t self[FZN_PUBKEY_LEN],
                           const fzn_hash_ops_t *hash, const fzn_aead_ops_t *aead,
                           const fzn_random_ops_t *rng)
@@ -2169,7 +2397,6 @@ static void load_received(int family, const uint8_t self[FZN_PUBKEY_LEN],
 	for (i = 0; i < count; i++) {
 		struct share_target *sh = &shares_in[nshares_in];
 		struct pull_target *pt = &sh->pt;
-		int fd = -1;
 
 		memset(sh, 0, sizeof(*sh));
 		pt->fd = -1;
@@ -2185,27 +2412,10 @@ static void load_received(int family, const uint8_t self[FZN_PUBKEY_LEN],
 			say(FZN_ENTRY_WARNING, "notes/received", "a share from %s holds no pairing", sh->host);
 			continue;
 		}
-		if (fzn_udp_bind(family, NULL, 0, &fd) != FZN_UDP_OK
-		    || fzn_udp_resolve(family, sh->host, rows[i].port, &pt->caller.node)
-		               != FZN_UDP_OK
-		    || fzn_reasm_slot_init(&pt->slot, pt->slot_buf, sizeof(pt->slot_buf))
-		               != FZN_REASM_OK
-		    || fzn_reasm_init(&pt->table, &pt->slot, 1, 1u, 60u) != FZN_REASM_OK) {
+		if (!open_target(pt, family, self, hash, aead, rng)) {
 			say(FZN_ENTRY_WARNING, "notes/received", "could not reach for a share at %s", sh->host);
-			if (fd >= 0)
-				fzn_udp_close(fd);
-			fzn_wipe(&pt->pairing, sizeof(pt->pairing));
 			continue;
 		}
-		pt->fd = fd;
-		fzn_node_pairing_caller(&pt->pairing, self, &pt->caller);
-		pt->caller.fd = fd;
-		pt->caller.hash = hash;
-		pt->caller.aead = aead;
-		pt->caller.rng = rng;
-		pt->caller.reasm = &pt->table;
-		pt->caller.hops = 1u;
-		pt->caller.wrap = caller_wrap;
 		nshares_in++;
 	}
 }
@@ -2495,17 +2705,22 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 	}
 	/* THE PULL PEERS AND THE CONTACTS SHARING WITH THIS NODE, sec 493 --
 	 * a contact's node answers for what it made public or shared here --
-	 * each lent the fetch's reassembly table while it runs. */
-	for (t = 0; t < npulls + nshares_in && n_peers < FZN_NODE_FILES_PEERS_MAX; t++) {
-		fzn_caller_t *caller = t < npulls ? &pulls[t].caller : &shares_in[t - npulls].pt.caller;
+	 * and the siblings this node reaches, sec 579, each lent the fetch's
+	 * reassembly table while it runs. */
+	for (t = 0; t < npulls + nshares_in + nsiblings_out && n_peers < FZN_NODE_FILES_PEERS_MAX;
+	     t++) {
+		struct share_target *sh = t < npulls ? NULL
+		                          : t < npulls + nshares_in ? &shares_in[t - npulls]
+		                                                     : &siblings_out[t - npulls - nshares_in];
+		fzn_caller_t *caller = sh ? &sh->pt.caller : &pulls[t].caller;
 
-		if (t >= npulls && shares_in[t - npulls].pt.fd < 0)
+		if (sh && sh->pt.fd < 0)
 			continue;
 		fp[n_peers].caller = caller;
 		fp[n_peers].now = now;
 		kept[n_peers] = caller->reasm;
 		caller->reasm = &table;
-		hosts[n_peers] = t < npulls ? pulls[t].host : shares_in[t - npulls].host;
+		hosts[n_peers] = sh ? sh->host : pulls[t].host;
 		peers[n_peers].send = fetch_send;
 		peers[n_peers].poll = fetch_poll;
 		peers[n_peers].ctx = &fp[n_peers];
@@ -4077,6 +4292,7 @@ int main(int argc, char **argv)
 				}
 				apply_journal();
 				retention_to_settings(&identity);
+				carry_prekey(&identity);
 				/* THE ESTATE'S k AS A ROOT SET IT, sec 542, from the start
 				 * rather than from the first round. */
 				if (running)
@@ -4341,6 +4557,7 @@ int main(int argc, char **argv)
 				pull_journal(pulls, npulls, now);
 				apply_journal();
 				reconcile_estate(pulls, npulls, now);
+				pair_siblings(&identity, now);
 				messages_round(pulls, npulls, now);
 				/* THE NOTES INDEX FIRST, so the cut sees how far it has
 				 * read: a notes stream is cut no further than its cursor,
@@ -4384,6 +4601,10 @@ int main(int argc, char **argv)
 				pull_received(now);
 #ifdef FZN_SPOOL_FILE_ON
 				fetch_texts(pulls, npulls, now);
+#ifdef FZN_RECORD_STORE_FILE_ON
+				load_siblings(pulls, npulls, family, identity.pubkey, &hash_ops, &aead_ops,
+				              &rng_ops);
+#endif
 				fetch_files(pulls, npulls, now);
 				collect_texts();
 #endif

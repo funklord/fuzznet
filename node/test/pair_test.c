@@ -915,6 +915,42 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 	              && n_peers[0].hop_count == 2u,
 	      "N does not hold D with the whole chain R -> N -> D");
 
+	/* ---- THE SAME PAIRING FROM THE GRANT, sec 579: D builds it from the
+	 * chain R -> N -> D and N's prekey, with no card, and it is the pairing
+	 * the card gave -- the session above all. Parts that disagree are
+	 * refused: a chain ending at N, another node's prekey, and D's chain
+	 * taken by another device. */
+	{
+		fzn_node_pairing_t built;
+
+		CHECK(fzn_node_pairing_from_grant(&d.id, r.id.pubkey,
+		                                  (const uint8_t (*)[FZN_HOP_LEN])n_peers[0].hop_bytes,
+		                                  2u, n.id.prekey_record, 1300u, &d.ops, &built)
+		                      == FZN_NODE_PAIR_OK
+		              && memcmp(built.node, d_pairing.node, FZN_PUBKEY_LEN) == 0
+		              && memcmp(built.send_key, d_pairing.send_key, FZN_AEAD_KEY_LEN) == 0
+		              && memcmp(built.send_ckey, d_pairing.send_ckey, FZN_COMMITMENT_KEY_LEN) == 0
+		              && memcmp(built.capability.b, d_pairing.capability.b, FZN_CAP_ID_LEN) == 0
+		              && built.hop_count == d_pairing.hop_count
+		              && memcmp(built.chain, d_pairing.chain, 2u * FZN_HOP_LEN) == 0,
+		      "the pairing D built from N's grant is not the one N's card gave");
+		CHECK(fzn_node_pairing_from_grant(&d.id, r.id.pubkey,
+		                                  (const uint8_t (*)[FZN_HOP_LEN])n_peers[0].hop_bytes,
+		                                  1u, n.id.prekey_record, 1300u, &d.ops, &built)
+		              == FZN_NODE_PAIR_REFUSED,
+		      "a chain ending at N made D a pairing");
+		CHECK(fzn_node_pairing_from_grant(&d.id, r.id.pubkey,
+		                                  (const uint8_t (*)[FZN_HOP_LEN])n_peers[0].hop_bytes,
+		                                  2u, other.id.prekey_record, 1300u, &d.ops, &built)
+		              == FZN_NODE_PAIR_REFUSED,
+		      "another node's prekey made D a pairing to N");
+		CHECK(fzn_node_pairing_from_grant(&other.id, r.id.pubkey,
+		                                  (const uint8_t (*)[FZN_HOP_LEN])n_peers[0].hop_bytes,
+		                                  2u, n.id.prekey_record, 1300u, &other.ops, &built)
+		              == FZN_NODE_PAIR_REFUSED,
+		      "D's chain made another device a pairing");
+	}
+
 	/* ---- AND N SERVES D UNDER R's ROOT, while R's revocation of D is what
 	 * stops it -- the estate's authority reaching a node it did not pair. */
 	CHECK(granted_by(&n, r.id.pubkey, &d, cap, NULL) == 1,

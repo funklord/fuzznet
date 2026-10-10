@@ -61856,11 +61856,12 @@ asked against two alternatives:
   every sibling and carries the card in its stream for the sibling to
   accept. Rejected: pairing siblings by hand; and back to the root.
 
-A card carries no secret (`node/pair.h`), and a prekey record is public
-by design, so both travel in the journal under the tags they already
-have: `FZN_OBJECT_PREKEY` (132) and `FZN_OBJECT_CARD` (142). Nothing
-new on the wire but those two record kinds in an estate stream. One
-person's machines are few, so n x (n - 1) cards is small.
+A prekey record is public by design, so it travels in the journal under
+the tag it already has, `FZN_OBJECT_PREKEY` (132). ~~The card was to
+travel the same way, as `FZN_OBJECT_CARD` (142).~~ A member's card is
+604 bytes and a record's body 512, so no card travels: sec 580 builds the
+pairing from the grant instead. One person's machines are few, so
+n x (n - 1) pairings is small.
 
 ### Stages
 
@@ -61869,12 +61870,11 @@ person's machines are few, so n x (n - 1) cards is small.
 2. **Prekeys carried.** A member writes its own prekey record into its
    estate stream; applying one keeps the newest per member, signed by
    that member.
-3. **Cards minted and accepted.** Each round a member pairs every sibling
-   whose prekey it holds and has not paired for that prekey, into the
-   running peer set as `add peer` does (sec 378), logs the grant (sec
-   508), and writes the card into its stream. A member applying a card
-   made for its own prekey accepts it, and holds a pairing to that
-   sibling.
+3. **Siblings paired.** Each round a member pairs every sibling whose
+   prekey it holds, into the running peer set as `add peer` does (sec
+   378), and logs the grant (sec 508). ~~It writes the card into its
+   stream, and the sibling accepts it.~~ The sibling builds its pairing
+   from that grant and the member's prekey (sec 580).
 4. **Siblings asked.** A sibling with a pairing and an address is a peer
    for files, beside the pull peers and the sharing contacts (sec 494).
 
@@ -61892,3 +61892,104 @@ would be the first thing to go stale. Its consumer is stage 4.
 Measured: apply_test 68 checks -- unset, a member's own address read
 (an IPv6 one), and a port of 0 or 65536, a host with a slash, no port
 and no host each read as unset, 65535 read.
+
+## 580. Siblings paired through the estate, and asked for files, 2026-10-10
+
+Sec 579's stages 2 to 4, built. A file C holds, B fetches from C, with
+neither paired to the other by hand and the root, which fetches from
+neither, holding none of it.
+
+### Stage 2: prekeys carried
+
+- **`node/siblings.{h,c}`** keeps the newest prekey record each member
+  carried, in persist slot 45, `FZN_PERSIST_SIBLING_PREKEY` (core: it
+  decides whom this node pairs), as its host signed it. A record is kept
+  only when its host is the key that carried it, and newest by its own
+  `created_at`; an older one is STALE.
+- **`fzn_node_apply_object` applies `FZN_OBJECT_PREKEY`**: its carrier
+  judged as a member setting its own host cell would be, so a key with no
+  chain yet waits and one with a chain granting nothing is refused.
+- **fuzznetd carries its own at every start**, unless the agreement key
+  kept for it is this identity's. Not the whole record: the identity
+  signs its record afresh at every load (`node/identity.c`), dated then,
+  and comparing bytes carried a new one at every start -- the first live
+  run showed it.
+- **A member follows every member the grants name.** The journal followed
+  this node, its root, its peers and the members a notes pull proved, so
+  a member that writes no notes was never followed by its siblings, and
+  its prekey reached only the root it pushes to. Every key the indexed
+  grants give the member capability is followed now.
+
+### Stage 3: siblings paired
+
+A card from a member is two hops, 604 bytes, past a record's 512, so no
+card travels. None is needed: the session a card gives is the device's
+agreement key against the sponsor's prekey, by X25519 symmetry
+(`node/provision.c`), and the sponsor's grant to the device is already
+logged in its stream (sec 508).
+
+- **The sponsor side**, `fzn_node_admin_pair_sibling`: `add peer`'s
+  pairing, from a prekey and with no card, into the running peer set,
+  the grant logged. `add_peer` and it share `pair_running`. A host this
+  node serves already is left as it is -- a member this node admitted
+  would lose the delegable grant it joined with -- and this node's own
+  prekey is refused.
+- **The sibling side**, `fzn_node_pairing_from_grant`: what accepting a
+  card does, from parts each signed on its own. The chain verifies under
+  the root for the last hop's capability and ends at this device, and the
+  prekey's host is the last hop's grantor -- the agreement a card's
+  envelope would have bound. Saved under the sponsor.
+- **fuzznetd's round**, `pair_siblings`, after the journal is applied:
+  every member whose prekey is kept and who stands now -- a removed or
+  revoked one is not paired -- is paired, and once its grant to this node
+  has arrived a pairing to it is built, unless one is held already: the
+  one this node joined through above all.
+- **A member's chain is walked through a grant it may pass on first.**
+  Sibling grants are not delegable and a join grant is, and
+  `fzn_node_apply_chain` took the first grant naming a key. Walked
+  through a sibling's, a member would be judged on that sibling's
+  standing, and a revoked sibling would take the member's records with
+  it.
+
+### Stage 4: siblings asked
+
+`load_siblings`, each round before the files are fetched: a target for
+every member with a pairing and an address (`net/address`), less any that
+is already a pull peer. `fetch_files` asks them beside the pull peers and
+the sharing contacts. `open_target` is the socket and caller setup the
+received shares had, shared.
+
+### Measured
+
+- apply_test 77 checks: a member's own prekey kept, one it carried about
+  another host refused, a stranger's waiting, an older one STALE and a
+  newer one kept, the list; and a key's chain walked through its own
+  delegable grant though a sibling's was indexed first.
+- pair_test 302: the pairing D builds from the chain R -> N -> D and N's
+  prekey is the one N's card gave D -- node, both session keys,
+  capability and chain -- and a chain ending at N, another node's prekey,
+  and D's chain taken by another device are each refused.
+- admin_test 229: a host served already left (0), this node's own prekey
+  refused (-1), a sibling paired into the running set with one hop (1).
+- persist_view_test failed the first full run on slot 45 drawn as
+  "unknown slot", which is what it walks every slot for; the view names
+  it now.
+- `tool/live_siblings.py`, in `make livecheck`: B and C, joined through A,
+  pair each other in 4 rounds; with no address for C, B's fetch does not
+  complete and A holds nothing; with C's address set, B fetches the
+  200000 bytes whole from one peer, exports the bytes C put, and A still
+  holds none. Broken by hand, which sabotage.py cannot reach: with
+  `load_siblings` taken out, phase c fails; with `pair_siblings` taken
+  out, phase a does.
+- Eight sabotage entries, over the carrier, the newest, the wait, the
+  delegable walk, the device, the grantor's prekey, a host served already
+  and this node itself; one older entry re-anchored, its line now
+  repeated in the sibling pairing.
+
+### Not yet
+
+- **The grant reaches the sibling a round late**: it is logged after the
+  round's push, so pairing both ways takes some rounds -- four in the
+  live run at one round a start.
+- **Only files ask siblings.** Texts, notes and reconciliation still use
+  the pull peers.

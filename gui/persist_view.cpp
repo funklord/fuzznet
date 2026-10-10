@@ -104,6 +104,8 @@ static QString slot_label(fzn_persist_slot_t slot)
 		return QStringLiteral("bucket ids");
 	case FZN_PERSIST_BUCKET_ITEM:
 		return QStringLiteral("bucket item");
+	case FZN_PERSIST_SIBLING_PREKEY:
+		return QStringLiteral("sibling prekey");
 	}
 	/* NO `default:` ABOVE, so a slot added to persist.h draws a -Wswitch
 	 * warning here -- once, in the build after persist.h changes, and not

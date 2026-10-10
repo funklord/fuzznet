@@ -308,13 +308,18 @@ typedef enum fzn_persist_slot {
 	 * signed it -- for a message line, its records, kept beside its opened
 	 * row so it can be handed on (sec 564). */
 	FZN_PERSIST_BUCKET_ITEM = 44u,
+	/* Per host, keyed by its key: the newest prekey record a sibling in
+	 * this node's estate carried in its stream, as it signed it, so this
+	 * node can pair it. CORE: it decides whom this node pairs.
+	 * `node/siblings.h` keeps it. sec 579. */
+	FZN_PERSIST_SIBLING_PREKEY = 45u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 45u
+#define FZN_PERSIST_SLOT_END 46u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,

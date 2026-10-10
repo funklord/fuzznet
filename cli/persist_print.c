@@ -120,6 +120,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "a bucket's item ids, or the mark of a bucket the rules let go";
 	case FZN_PERSIST_BUCKET_ITEM:
 		return "an item as its writer signed it, kept to be handed on";
+	case FZN_PERSIST_SIBLING_PREKEY:
+		return "the newest prekey a sibling in the estate carried, so it can be paired";
 	}
 	*known = 0;
 	return "an unknown slot";

@@ -102,6 +102,37 @@ static int unhex(const uint8_t *text, size_t text_len, uint8_t *out, size_t len)
 	return 1;
 }
 
+/* PAIR `record`'s host INTO THE RUNNING NODE under `authority`: paired and
+ * saved, the live peer set reloaded from the store, and the grant logged in
+ * this node's stream (sec 508). NULL on success with the card in `card`, or
+ * what went wrong. A reload that fails leaves the node serving the set it
+ * had, and says so: the device is paired and saved, and serves from the next
+ * successful reload or restart, which is worse than now and better than a
+ * half-updated table. */
+static const char *pair_running(fzn_node_admin_t *admin, fzn_prekey_record_t record,
+                                const fzn_node_authority_t *authority, uint8_t *card,
+                                size_t card_cap, size_t *card_len)
+{
+	fzn_node_pair_err_t perr;
+	size_t loaded = 0;
+	uint64_t now = admin->state->clock ? admin->state->clock() : 0u;
+
+	perr = fzn_node_pair(admin->id, admin->state->config.root,
+	                     &admin->state->config.remote_capability, authority, 0, admin->store,
+	                     record, now, now + admin->card_lifetime, card, card_cap, card_len);
+	if (perr != FZN_NODE_PAIR_OK)
+		return fzn_node_pair_err_str(perr);
+	if (fzn_node_peers_load(admin->store, admin->peers, admin->peers_cap, &loaded)
+	    != FZN_PERSIST_OK)
+		return "paired and saved, and the running peer set did not reload";
+	admin->state->peers = admin->peers;
+	admin->state->peer_count = loaded;
+	if (!log_grant(admin, record.host))
+		return "paired and saved, and the grant is not in this node's log: it would fall at "
+		       "this node's revocation";
+	return NULL;
+}
+
 static size_t add_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t hex_len,
                        char *reply, size_t cap)
 {
@@ -109,9 +140,8 @@ static size_t add_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t hex_l
 	uint8_t card[FZN_PROVISION_MAX_LEN];
 	char text[FZN_PROVISION_TEXT_MAX_LEN];
 	fzn_prekey_record_t record;
-	fzn_node_pair_err_t perr;
-	size_t card_len = 0, loaded = 0;
-	uint64_t now;
+	size_t card_len = 0;
+	const char *why;
 	static uint8_t proof[FZN_PROVISION_PROOF_MAX][FZN_PROVISION_PROOF_ITEM_LEN];
 	static fzn_node_authority_t by_identity;
 	const fzn_node_authority_t *authority = admin->authority;
@@ -146,33 +176,50 @@ static size_t add_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t hex_l
 		return answer_text(reply, cap, FZN_REPLY_ERROR,
 		                   "this node's chain is too deep for a card on one reply line; "
 		                   "pair with fuzznetd --pair");
-	now = admin->state->clock ? admin->state->clock() : 0u;
-	perr = fzn_node_pair(admin->id, admin->state->config.root,
-	                     &admin->state->config.remote_capability, authority, 0,
-	                     admin->store, record, now,
-	                     now + admin->card_lifetime, card, sizeof(card), &card_len);
-	if (perr != FZN_NODE_PAIR_OK)
-		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_pair_err_str(perr));
-
-	/* THE LIVE SET, FROM THE STORE. A reload that fails leaves the node
-	 * serving the set it had, and says so: the device is paired and saved,
-	 * and serves from the next successful reload or restart, which is
-	 * worse than now and better than a half-updated table. */
-	if (fzn_node_peers_load(admin->store, admin->peers, admin->peers_cap, &loaded)
-	    != FZN_PERSIST_OK)
-		return answer_text(reply, cap, FZN_REPLY_ERROR,
-		                   "paired and saved, and the running peer set did not reload");
-	admin->state->peers = admin->peers;
-	admin->state->peer_count = loaded;
-	if (!log_grant(admin, record.host))
-		return answer_text(reply, cap, FZN_REPLY_ERROR,
-		                   "paired and saved, and the grant is not in this node's log: it "
-		                   "would fall at this node's revocation");
+	why = pair_running(admin, record, authority, card, sizeof(card), &card_len);
+	if (why)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, why);
 
 	if (fzn_provision_text(card, card_len, text, sizeof(text)) != FZN_PROVISION_OK)
 		return answer_text(reply, cap, FZN_REPLY_ERROR,
 		                   "paired and saved, and the card would not encode");
 	return answer(reply, cap, FZN_REPLY_OK, text, strlen(text));
+}
+
+int fzn_node_admin_pair_sibling(fzn_node_admin_t *admin,
+                                const uint8_t prekey[FZN_PREKEY_LEN_TOTAL], const char **why)
+{
+	static uint8_t card[FZN_PROVISION_MAX_LEN];
+	static uint8_t proof[FZN_PROVISION_PROOF_MAX][FZN_PROVISION_PROOF_ITEM_LEN];
+	static fzn_node_authority_t by_identity;
+	const fzn_node_authority_t *authority;
+	fzn_prekey_record_t record;
+	size_t card_len = 0, i;
+	const char *err;
+
+	if (why)
+		*why = NULL;
+	if (!admin || !admin->id || !admin->state || !admin->store || !admin->peers || !prekey
+	    || fzn_prekey_open(prekey, FZN_PREKEY_LEN_TOTAL, &record) != FZN_PREKEY_OK
+	    || fzn_ct_memeq(record.host, admin->id->pubkey, FZN_PUBKEY_LEN))
+		return -1;
+	/* A HOST THIS NODE ALREADY SERVES IS LEFT AS IT IS: re-pairing would
+	 * replace its grant -- a member this node admitted would lose the
+	 * delegable grant it joined with. */
+	for (i = 0; i < admin->state->peer_count; i++)
+		if (fzn_ct_memeq(admin->state->peers[i].sender, record.host, FZN_PUBKEY_LEN))
+			return 0;
+	authority = admin->authority;
+	if (admin->roots
+	    && memcmp(admin->state->config.root, admin->id->pubkey, FZN_PUBKEY_LEN) != 0
+	    && fzn_node_roots_identity_root(admin->roots, admin->store, admin->id->pubkey, proof,
+	                                    &by_identity) == FZN_NODE_ROOTS_OK)
+		authority = &by_identity;
+	err = pair_running(admin, record, authority, card, sizeof(card), &card_len);
+	fzn_wipe(card, sizeof(card));
+	if (why)
+		*why = err;
+	return err ? -1 : 1;
 }
 
 /* Is `arg` the subject `peer`, alone or followed by a space and more? Sets
