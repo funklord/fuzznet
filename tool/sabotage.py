@@ -4878,6 +4878,20 @@ SABOTAGES = [
 		"a held note whose content is not here reads as no match, and the entry is imported again as a duplicate -- sec 577",
 	),
 	(
+		"import-run-counts-pending",
+		"notes/import.c",
+		"\t\t\trun->pending++;\n",
+		"",
+		"a pending refusal is counted with the rest, so nobody is told that importing again will bring it -- sec 578",
+	),
+	(
+		"node-notes-import-answers-pending",
+		"node/notes.c",
+		"\t             run.undated, run.refused, run.pending);\n",
+		"\t             run.undated, run.refused, (size_t)0);\n",
+		"the import reply says none of the refused are pending, and the notebook never tells the user to import again -- sec 578",
+	),
+	(
 		"node-notes-own-user-only",
 		"node/notes.c",
 		"\tif (origin != FZN_ORIGIN_SAME_USER)\n\t\treturn say(reply, reply_cap, FZN_REPLY_DENIED, \"notes need this node's own user\");\n",
@@ -5415,6 +5429,20 @@ SABOTAGES = [
 		"QStringLiteral(\"add import %1 %2\").arg(parent_id(), path)",
 		"QStringLiteral(\"add import %1 %2\").arg(QStringLiteral(\"top\"), path)",
 		"an export imported while a folder is open lands at the top -- sec 440",
+	),
+	(
+		"notebook-view-tells-pending",
+		"gui/notebook_view.cpp",
+		"\t\tif (f.value(4).toInt() > 0)\n",
+		"\t\tif (0)\n",
+		"a note refused only because its content has not arrived reads as lost, though importing again brings it -- sec 578",
+	),
+	(
+		"notebook-view-import-names-after-five",
+		"gui/notebook_view.cpp",
+		"\t\tfor (i = 5; i < f.size(); i++)\n",
+		"\t\tfor (i = 4; i < f.size(); i++)\n",
+		"the pending count is named as a refused note -- sec 578",
 	),
 	(
 		"capture-escapes-control-bytes",

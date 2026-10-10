@@ -218,6 +218,7 @@ static fzn_persist_ops_t OPS = { mem_load, mem_save, mem_list, mem_remove, NULL 
 static fzn_node_notes_t notes;
 static int quiet;            /* the node does not answer */
 static const char *received; /* the `list received` reply, or NULL for none */
+static const char *imported;  /* an `add import` reply in place of the node's, or NULL */
 static unsigned asked;
 
 /* `list contact`, as admin answers it, from the contacts in the store -- a
@@ -272,6 +273,8 @@ static size_t node_ask(void *ctx, const char *line, char *reply, size_t cap)
 	asked++;
 	if (quiet)
 		return 0;
+	if (imported && !strncmp(line, "add import ", 11u))
+		return (size_t)snprintf(reply, cap, "%s\n", imported);
 	if (!strcmp(line, "list received"))
 		return (size_t)snprintf(reply, cap, "%s\n", received ? received : "ok 0");
 	if (!strcmp(line, "list contact"))
@@ -573,6 +576,21 @@ static void test_an_export_is_imported_into_the_open_folder(void)
 	      "a second import is recognised");
 	CHECK(!w.import_file(QStringLiteral("/nonexistent.ics")) && log.last().startsWith("Nothing"),
 	      "a path that is not there is said");
+
+	/* REFUSED, AND PENDING OF THEM, sec 578: a canned reply, since a note
+	 * whose content has not arrived needs a second host. */
+	imported = "ok 1 0 0 2 1 bad%20one waiting";
+	CHECK(w.import_file(QString::fromLatin1(path)) && log.size() >= 3
+	              && log[log.size() - 2] == QStringLiteral("2 could not be imported: bad one, waiting")
+	              && log.last() == QStringLiteral("1 of them match notes whose content has not "
+	                                              "arrived here yet; import the same file again "
+	                                              "once it has."),
+	      "the refused are named, and the pending among them told to import again");
+	imported = "ok 0 0 0 1 0 bad";
+	CHECK(w.import_file(QString::fromLatin1(path))
+	              && log.last() == QStringLiteral("1 could not be imported: bad"),
+	      "with none pending, nothing more is said");
+	imported = NULL;
 	(void)unlink(path);
 }
 

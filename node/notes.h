@@ -47,8 +47,8 @@
  *     remove item ID N             remove it
  *     add import PARENT PATH       a KNotes .ics, a Keep .json or a Takeout
  *                                  directory into PARENT (sec 440); answers
- *                                  IMPORTED ALREADY UNDATED REFUSED and the
- *                                  refused notes' titles
+ *                                  IMPORTED ALREADY UNDATED REFUSED PENDING
+ *                                  and the refused notes' titles
  *
  * PARENT is a note's id in hex, or `top` for the top level. A listing of
  * `top` is the top level as `notes/view.h` defines it: the root's children,

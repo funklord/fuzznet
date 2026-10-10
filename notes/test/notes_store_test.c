@@ -1533,7 +1533,8 @@ static void test_import_run(void)
 			                            &run)
 			                      == FZN_NOTES_OK
 			              && run.imported == 4u && run.already == 1u && run.refused == 1u
-			              && refusal_count == 1u && refusals[0] == FZN_NOTES_IMPORT_PENDING,
+			              && run.pending == 1u && refusal_count == 1u
+			              && refusals[0] == FZN_NOTES_IMPORT_PENDING,
 			      "a note made at a held note's time, that note's content not here, is "
 			      "refused as pending and not imported again");
 			CHECK(fzn_notes_import_keep((const uint8_t *)twin, sizeof(twin) - 1u,
@@ -1548,7 +1549,8 @@ static void test_import_run(void)
 			                            fzn_notes_import_take, &run, fzn_notes_import_refuse,
 			                            &run)
 			                      == FZN_NOTES_OK
-			              && run.imported == 4u && run.already == 3u && run.refused == 1u,
+			              && run.imported == 4u && run.already == 3u && run.refused == 1u
+			              && run.pending == 1u,
 			      "once the content is here, importing again recognises it");
 			run.on_refused = NULL;
 			run.refused = 0;

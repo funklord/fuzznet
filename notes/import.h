@@ -123,6 +123,7 @@ typedef struct fzn_notes_import_run {
 	size_t already;  /* recognised from an earlier import, not written again */
 	size_t undated;  /* imported with no creation time to recognise them by */
 	size_t refused;  /* every refusal, whichever stage it came from */
+	size_t pending;  /* of those, PENDING: import again once content arrives */
 	/* Where refusals are named, or NULL. */
 	fzn_notes_import_refused_fn on_refused;
 	void *refused_ctx;

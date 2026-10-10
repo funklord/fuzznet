@@ -61803,14 +61803,36 @@ blobs arrive.
   lose a note made in the same millisecond under another title, which
   sec 429 imports.
 
-**Open**: `add import`'s reply counts every refusal together, so the
+~~**Open**: `add import`'s reply counts every refusal together, so the
 notebook names a pending entry as "could not be imported" without saying
-that importing again will do. Saying so needs a fifth count, and the
-reply's names follow its fourth, so every reader of the reply changes
-with it.
+that importing again will do.~~ Closed in sec 578, by a fifth count.
 
 Measured: notes_store_test 179 checks -- with the dated note's blob
 dropped, as on a host that never fetched it, importing it again is
 refused once as PENDING and imports nothing; its same-millisecond twin,
 readable, is still recognised; and with the blob back the dated note is
 recognised. With the refusal taken out, those three checks fail.
+
+## 578. The import reply counts what is pending, and the notebook says so, 2026-10-10
+
+Sec 577's open half. The notebook named a pending entry "could not be
+imported" with the rest, so a user read a note as lost that importing
+again would bring.
+
+- **`add import` answers `IMPORTED ALREADY UNDATED REFUSED PENDING`** and
+  the refused notes' titles. PENDING counts those of the refused whose
+  content has not arrived, from the run's new `pending` tally; REFUSED
+  still counts them all, so the names after it are every refusal.
+- **The notebook adds one line** when PENDING is not zero: that many match
+  notes whose content has not arrived, and importing the same file again
+  once it has will do. Its names start a field later.
+- **Every reader was in this tree**: the notebook and the two suites.
+  fuzzypickles never sends `add import`, measured by searching its tree.
+
+Measured: notes_test 321 checks -- a dated note imported, its blob
+dropped, and imported again: `0 0 0 1 1 tea`; the other import replies
+carry a PENDING of 0. notes_store_test 179, the run's pending tally
+checked. notebook_view_test 159: a canned reply of two refused, one
+pending, names both and adds the line; one with none pending adds
+nothing. Four sabotage entries: the tally, the reply's field, the
+notebook's line, and where its names start.

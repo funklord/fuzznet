@@ -637,6 +637,7 @@ int fzn_notes_import_take(void *ctx, const fzn_notes_import_entry_t *e)
 		 * device as a duplicate once the content arrives. Refused and named,
 		 * so the user imports again later and loses nothing. */
 		if (before < 0) {
+			run->pending++;
 			fzn_notes_import_refuse(run, FZN_NOTES_IMPORT_PENDING, e->title, e->title_len);
 			return 0;
 		}

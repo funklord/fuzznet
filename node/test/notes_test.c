@@ -846,7 +846,7 @@ static void test_import(void)
 	                          "BEGIN:VJOURNAL\r\nSUMMARY:second\r\nEND:VJOURNAL\r\n"
 	                          "END:VCALENDAR\r\n";
 	char dir[64], f_milk[96], f_eggs[96], f_junk[96], f_photo[96], f_big[96], f_ics[96];
-	char f_txt[96], folder[65], line[400];
+	char f_txt[96], f_tea[96], folder[65], line[400];
 	static char big[FZN_NODE_NOTES_IMPORT_FILE_MAX + 2u];
 
 	setup(0);
@@ -858,6 +858,7 @@ static void test_import(void)
 	snprintf(f_big, sizeof(f_big), "%s.big.json", dir);
 	snprintf(f_ics, sizeof(f_ics), "%s.ics", dir);
 	snprintf(f_txt, sizeof(f_txt), "%s.txt", dir);
+	snprintf(f_tea, sizeof(f_tea), "%s.tea.json", dir);
 	CHECK(mkdir(dir, 0700) == 0 && put_file(f_milk, milk, sizeof(milk) - 1u)
 	              && put_file(f_eggs, eggs, sizeof(eggs) - 1u) && put_file(f_junk, "nope", 4u)
 	              && put_file(f_photo, "\xff\xd8", 2u) && put_file(f_ics, ics, sizeof(ics) - 1u)
@@ -869,12 +870,12 @@ static void test_import(void)
 	snprintf(line, sizeof(line), "add import %s %s", folder, dir);
 	CHECK(ask_as(FZN_ORIGIN_LOCAL, line) == FZN_REPLY_DENIED,
 	      "another user may not make the node read a path");
-	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "2 0 0 1 ", 8u),
+	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "2 0 0 1 0 ", 10u),
 	      "a Takeout imports its two notes and refuses the one that will not parse");
-	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "0 2 0 1", 7u),
+	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "0 2 0 1 0", 9u),
 	      "a second import recognises both and writes nothing");
 	snprintf(line, sizeof(line), "add import %s %s", folder, f_ics);
-	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "2 0 1 0"),
+	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "2 0 1 0 0"),
 	      "a KNotes calendar imports both journals, one of them undated");
 	snprintf(line, sizeof(line), "list note %s", folder);
 	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "4 0", 3u) && has(",milk")
@@ -886,9 +887,29 @@ static void test_import(void)
 	CHECK(put_file(f_big, big, FZN_NODE_NOTES_IMPORT_FILE_MAX + 1u),
 	      "fixture: a Keep file one byte past the bound");
 	snprintf(line, sizeof(line), "add import %s %s", folder, f_big);
-	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "0 0 0 1 ", 8u)
+	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "0 0 0 1 0 ", 10u)
 	              && has("big.json"),
 	      "a file past the bound is refused and named");
+
+	/* A HELD NOTE WHOSE CONTENT HAS NOT ARRIVED, sec 578: the entry is
+	 * refused, counted PENDING, and named. */
+	{
+		static const char tea[] = "{\"title\":\"tea\",\"textContent\":\"green\","
+		                          "\"createdTimestampUsec\":1700000000555000}";
+		uint8_t root[FZN_BLOB_HASH_LEN];
+		fzn_note_blob_ref_t ref;
+
+		snprintf(line, sizeof(line), "add import %s %s", folder, f_tea);
+		CHECK(put_file(f_tea, tea, sizeof(tea) - 1u) && ask(line) == FZN_REPLY_OK
+		              && !strcmp(detail_of(), "1 0 0 0 0"),
+		      "fixture: a note imported");
+		blob_stub_last_root(root);
+		memcpy(ref.root, root, sizeof(root));
+		blob_stub_drop(&ref);
+		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "0 0 0 1 1 tea"),
+		      "imported again while its content is not here, it is refused as pending, "
+		      "counted and named");
+	}
 
 	snprintf(line, sizeof(line), "add import %s %s", folder, f_txt);
 	CHECK(ask(line) == FZN_REPLY_MALFORMED, "a file that is no export is malformed");
@@ -907,6 +928,7 @@ static void test_import(void)
 	(void)unlink(f_big);
 	(void)unlink(f_ics);
 	(void)unlink(f_txt);
+	(void)unlink(f_tea);
 	CHECK(rmdir(dir) == 0, "the scratch directory is left empty and removed");
 }
 

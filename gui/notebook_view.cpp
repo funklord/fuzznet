@@ -916,8 +916,9 @@ bool fzn_notebook_view::import_file(const QString &path)
 		say(QStringLiteral("Nothing was imported: %1").arg(detail));
 		return false;
 	}
-	/* `IMPORTED ALREADY UNDATED REFUSED NAME ...`: what did not come across
-	 * is named while the user still has the export. */
+	/* `IMPORTED ALREADY UNDATED REFUSED PENDING NAME ...`: what did not come
+	 * across is named while the user still has the export, and PENDING of
+	 * them will come across once their content is here (sec 578). */
 	f = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
 	say(QStringLiteral("Imported %1 note(s); %2 were here already.")
 	            .arg(f.value(0), f.value(1)));
@@ -925,10 +926,14 @@ bool fzn_notebook_view::import_file(const QString &path)
 		QStringList refused;
 		int i;
 
-		for (i = 4; i < f.size(); i++)
+		for (i = 5; i < f.size(); i++)
 			refused << unescape(f[i]);
 		say(QStringLiteral("%1 could not be imported: %2")
 		            .arg(f.value(3), refused.join(QStringLiteral(", "))));
+		if (f.value(4).toInt() > 0)
+			say(QStringLiteral("%1 of them match notes whose content has not arrived "
+			                   "here yet; import the same file again once it has.")
+			            .arg(f.value(4)));
 	}
 	refresh_list();
 	return true;

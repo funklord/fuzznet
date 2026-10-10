@@ -1493,7 +1493,9 @@ static void import_keep_file(fzn_notes_import_run_t *run, const char *path, cons
 /* `add import PARENT PATH`: a KNotes `.ics`, a Keep note's `.json`, or a
  * Takeout directory of them, into the folder PARENT. sec 440. The node reads
  * PATH as itself, which is why the verb needs its own user. Answers
- * `IMPORTED ALREADY UNDATED REFUSED` and the refused notes' titles. */
+ * `IMPORTED ALREADY UNDATED REFUSED PENDING` and the refused notes' titles;
+ * PENDING counts the refused that import again once their content is here
+ * (sec 578). */
 static size_t import(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *reply,
                      size_t cap)
 {
@@ -1573,8 +1575,8 @@ static size_t import(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *
 		return say(reply, cap, FZN_REPLY_MALFORMED,
 		           "a KNotes .ics, a Keep .json, or a Takeout directory");
 	}
-	k = snprintf(detail, sizeof(detail), "%zu %zu %zu %zu", run.imported, run.already,
-	             run.undated, run.refused);
+	k = snprintf(detail, sizeof(detail), "%zu %zu %zu %zu %zu", run.imported, run.already,
+	             run.undated, run.refused, run.pending);
 	if (k < 0 || (size_t)k >= limit)
 		return 0;
 	/* THE NAMES AS FAR AS THERE IS ROOM; the count above is all of them. */
