@@ -230,11 +230,14 @@ fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_
 	end = line + len;
 	while (count < 12u && next_word(&at, end, &w[count], &n[count]))
 		count++;
-	/* POLICY log|messages keep|drop [host=] [machine=], sec 566. */
+	/* POLICY log|messages|history keep|drop [host=] [machine=], secs 566,
+	 * 581. */
 	if (count >= 3u && is(w[0], n[0], "policy")) {
 		out->kind = FZN_RETAIN_POLICY;
 		if (is(w[1], n[1], "messages"))
 			out->data = FZN_RETAIN_MESSAGES;
+		else if (is(w[1], n[1], "history"))
+			out->data = FZN_RETAIN_HISTORY;
 		else if (!is(w[1], n[1], "log"))
 			return FZN_RETAIN_ERR_MALFORMED;
 		if (is(w[2], n[2], "drop"))
@@ -264,6 +267,10 @@ fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_
 	 * without one is a log rule as every rule before it was. */
 	if (count >= 2u && is(w[1], n[1], "messages")) {
 		out->data = FZN_RETAIN_MESSAGES;
+		program = 0;
+	} else if (count >= 2u && is(w[1], n[1], "history")) {
+		/* A NOTE HISTORY RULE, sec 581: a scope at most. */
+		out->data = FZN_RETAIN_HISTORY;
 		program = 0;
 	} else if (count >= 3u && is(w[1], n[1], "log")) {
 		program = 2;
@@ -316,6 +323,11 @@ fzn_retain_err_t fzn_retain_parse(const char *line, size_t len, fzn_retain_rule_
 	 * and go by the month, so nothing but a contact and a scope chooses
 	 * among them. */
 	if (out->data == FZN_RETAIN_MESSAGES
+	    && (out->copy || out->has_source || out->levels || out->subsystem[0] || out->match_len))
+		return FZN_RETAIN_ERR_MALFORMED;
+	/* A HISTORY RULE NAMES NONE: a note's versions are weighed as one list
+	 * each. A contact is refused above, `contact=` being a message rule's. */
+	if (out->data == FZN_RETAIN_HISTORY
 	    && (out->copy || out->has_source || out->levels || out->subsystem[0] || out->match_len))
 		return FZN_RETAIN_ERR_MALFORMED;
 	/* The limit and its number are the last two words: read into words of
@@ -452,7 +464,9 @@ fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_
 	 * before keeps its text and its stored row. */
 	if (rule->kind == FZN_RETAIN_POLICY) {
 		n = snprintf(out, cap, "policy %s %s%s",
-		             rule->data == FZN_RETAIN_MESSAGES ? "messages" : "log",
+		             rule->data == FZN_RETAIN_MESSAGES  ? "messages"
+		             : rule->data == FZN_RETAIN_HISTORY ? "history"
+		                                                : "log",
 		             rule->drop ? "drop" : "keep", scope);
 		if (n <= 0 || (size_t)n >= cap)
 			return FZN_RETAIN_ERR_MALFORMED;
@@ -461,7 +475,10 @@ fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_
 	}
 	if (rule->data == FZN_RETAIN_MESSAGES)
 		(void)snprintf(what, sizeof(what), "messages");
-	else if (strcmp(rule->program, "log") == 0 || strcmp(rule->program, "messages") == 0)
+	else if (rule->data == FZN_RETAIN_HISTORY)
+		(void)snprintf(what, sizeof(what), "history");
+	else if (strcmp(rule->program, "log") == 0 || strcmp(rule->program, "messages") == 0
+	         || strcmp(rule->program, "history") == 0)
 		(void)snprintf(what, sizeof(what), "log %s", rule->program);
 	else
 		(void)snprintf(what, sizeof(what), "%s", rule->program);
@@ -532,7 +549,8 @@ static int rule_ok(const fzn_retain_rule_t *r)
 {
 	/* A POLICY: a kind, keep or drop, and a scope or none. */
 	if (r->kind == FZN_RETAIN_POLICY)
-		return (r->data == FZN_RETAIN_LOG || r->data == FZN_RETAIN_MESSAGES)
+		return (r->data == FZN_RETAIN_LOG || r->data == FZN_RETAIN_MESSAGES
+		        || r->data == FZN_RETAIN_HISTORY)
 		       && (r->drop == 0 || r->drop == 1) && r->program[0] == '\0' && !r->levels
 		       && !r->subsystem[0] && !r->match_len && !r->copy && !r->has_source
 		       && !r->has_contact && r->limit == 0 && r->value == 0u
@@ -540,8 +558,10 @@ static int rule_ok(const fzn_retain_rule_t *r)
 		       && (r->has_machine == 0 || r->has_machine == 1);
 	if (r->drop)
 		return 0;
-	/* A MESSAGE RULE: no program, no log selector, a contact or none. */
-	if (r->data == FZN_RETAIN_MESSAGES)
+	/* A MESSAGE RULE: no program, no log selector, a contact or none; a
+	 * HISTORY RULE the same with no contact. */
+	if (r->data == FZN_RETAIN_MESSAGES
+	    || (r->data == FZN_RETAIN_HISTORY && !r->has_contact))
 		return (r->kind == FZN_RETAIN_PRUNE || r->kind == FZN_RETAIN_KEEP)
 		       && (r->limit == FZN_RETAIN_AGE || r->limit == FZN_RETAIN_SIZE
 		           || r->limit == FZN_RETAIN_COUNT)
@@ -606,6 +626,20 @@ size_t fzn_retain_select_messages(const fzn_retain_rule_t *in, size_t n, const u
 		return 0;
 	for (i = 0; i < n; i++)
 		if (in[i].data == FZN_RETAIN_MESSAGES && fzn_retain_reaches(&in[i], host, machine))
+			out[k++] = in[i];
+	return k;
+}
+
+size_t fzn_retain_select_history(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],
+                                 const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
+                                 fzn_retain_rule_t *out)
+{
+	size_t i, k = 0;
+
+	if (!in || !out)
+		return 0;
+	for (i = 0; i < n; i++)
+		if (in[i].data == FZN_RETAIN_HISTORY && fzn_retain_reaches(&in[i], host, machine))
 			out[k++] = in[i];
 	return k;
 }

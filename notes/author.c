@@ -2,6 +2,7 @@
 
 #include "author.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 /* Where a new last child goes when there are none: room to insert before. */
@@ -454,4 +455,134 @@ fzn_notes_err_t fzn_notes_move(const fzn_notes_author_t *author,
 	meta = h.meta;
 	meta.edited_at_ms = now_ms;
 	return write_note(author, id, parent, order, h.content_type, &meta, now_ms);
+}
+
+/* ---- history trimmed, sec 581 ----------------------------------------- */
+
+struct trim_version {
+	uint8_t id[FZN_SUBJECT_LEN];
+	uint8_t row[FZN_PUBKEY_LEN];
+	uint64_t ms;
+	uint64_t bytes;
+};
+
+static struct {
+	struct trim_version at[FZN_NOTES_HISTORY_MAX];
+	size_t count;
+} trim;
+
+static void trim_take(void *ctx, const uint8_t row[FZN_PUBKEY_LEN], fzn_record_t record)
+{
+	struct trim_version *v;
+	fzn_tree_node_t node;
+	fzn_note_blob_ref_t ref;
+	const uint8_t *at;
+	size_t len = 0;
+
+	(void)ctx;
+	if (trim.count >= FZN_NOTES_HISTORY_MAX)
+		return;
+	v = &trim.at[trim.count++];
+	memcpy(v->id, fzn_record_subject(record), FZN_SUBJECT_LEN);
+	memcpy(v->row, row, FZN_PUBKEY_LEN);
+	v->ms = fzn_record_issued_ms(record);
+	fzn_record_signed_bytes(record, &at, &len);
+	v->bytes = (uint64_t)len + FZN_SIG_LEN;
+	if (fzn_tree_open(record, &node) == FZN_TREE_OK && fzn_notes_ref_of(&node, &ref))
+		v->bytes += ref.length;
+}
+
+/* By note, then newest first. */
+static int trim_order(const void *a, const void *b)
+{
+	const struct trim_version *x = (const struct trim_version *)a;
+	const struct trim_version *y = (const struct trim_version *)b;
+	int c = memcmp(x->id, y->id, FZN_SUBJECT_LEN);
+
+	if (c)
+		return c;
+	if (x->ms != y->ms)
+		return x->ms > y->ms ? -1 : 1;
+	return memcmp(x->row, y->row, FZN_PUBKEY_LEN);
+}
+
+static int trim_within(const fzn_retain_rule_t *r, const struct trim_version *v,
+                       uint64_t counted, uint64_t bytes, uint64_t now_us)
+{
+	uint64_t at_us = v->ms * 1000u;
+
+	switch (r->limit) {
+	case FZN_RETAIN_AGE:
+		return at_us >= now_us || now_us - at_us <= r->value;
+	case FZN_RETAIN_SIZE:
+		return bytes < r->value;
+	case FZN_RETAIN_COUNT:
+		return counted < r->value;
+	}
+	return 1;
+}
+
+fzn_notes_err_t fzn_notes_history_trim(const fzn_notes_store_t *store,
+                                       const fzn_retain_rule_t *rules, size_t n_rules,
+                                       uint64_t now_ms, size_t *removed)
+{
+	uint64_t counted[FZN_RETAIN_RULES_MAX], bytes[FZN_RETAIN_RULES_MAX];
+	int applies[FZN_RETAIN_RULES_MAX], any = 0, drops = 0, keeps = 0;
+	uint64_t now_us = now_ms * 1000u;
+	fzn_notes_err_t err;
+	size_t r, i;
+
+	if (!removed)
+		return FZN_NOTES_ERR_MALFORMED;
+	*removed = 0;
+	if (!store || (!rules && n_rules) || n_rules > FZN_RETAIN_RULES_MAX)
+		return FZN_NOTES_ERR_MALFORMED;
+	/* THE POLICY, as `fzn_retain_policy_drops` reads it -- keep wins --
+	 * read here so the notes library does not link the log's retention. */
+	for (r = 0; r < n_rules; r++) {
+		applies[r] = rules[r].data == FZN_RETAIN_HISTORY && rules[r].kind != FZN_RETAIN_POLICY;
+		any |= applies[r];
+		if (rules[r].data == FZN_RETAIN_HISTORY && rules[r].kind == FZN_RETAIN_POLICY) {
+			drops |= rules[r].drop;
+			keeps |= !rules[r].drop;
+		}
+	}
+	if (keeps)
+		drops = 0;
+	if (!any && !drops)
+		return FZN_NOTES_OK;
+	trim.count = 0;
+	err = fzn_notes_history_each(store, trim_take, NULL);
+	if (err != FZN_NOTES_OK)
+		return err;
+	qsort(trim.at, trim.count, sizeof(trim.at[0]), trim_order);
+	for (i = 0; i < trim.count; i++) {
+		const struct trim_version *v = &trim.at[i];
+		int pruned = 0, kept = 0;
+
+		/* EACH NOTE ITS OWN LIST. */
+		if (i == 0 || memcmp(v->id, trim.at[i - 1u].id, FZN_SUBJECT_LEN) != 0)
+			for (r = 0; r < n_rules; r++)
+				counted[r] = bytes[r] = 0u;
+		for (r = 0; r < n_rules; r++) {
+			int within;
+
+			if (!applies[r])
+				continue;
+			within = trim_within(&rules[r], v, counted[r], bytes[r], now_us);
+			if (rules[r].kind == FZN_RETAIN_PRUNE && !within)
+				pruned = 1;
+			if (rules[r].kind == FZN_RETAIN_KEEP && within)
+				kept = 1;
+			counted[r]++;
+			bytes[r] += v->bytes;
+		}
+		if (kept || (!pruned && !drops))
+			continue;
+		err = fzn_notes_history_remove(store, v->row);
+		if (err != FZN_NOTES_OK)
+			return err;
+		(*removed)++;
+	}
+	return FZN_NOTES_OK;
 }

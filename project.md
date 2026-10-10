@@ -62020,7 +62020,7 @@ versions cannot be where history lives. A version is kept by itself.
 1. **Versions kept, listed, and taken by a purge.** Built here.
 2. **The retention kind**: `policy history keep|drop`, and `prune` and
    `keep` rules over history by age, count per note and size, trimmed
-   each round.
+   each round. Built in sec 582.
 3. **An old version read**, its text as `get note` gives the current one.
 
 ### Stage 1
@@ -62065,3 +62065,48 @@ versions cannot be where history lives. A version is kept by itself.
   fails a list while answering loads.
 - **The collect verb's refresh**: the suite calls the refresh itself,
   having no collect hook in that setup.
+
+## 582. A note's history trimmed by the rules, 2026-10-10
+
+Sec 581's stage 2.
+
+- **`history` is a retention kind** (`log/retain.h`): `policy history
+  keep|drop`, and `prune|keep history [host=] [machine=] age|size|count
+  N`, scoped as every rule is and naming no selector -- a log selector,
+  a copy or a contact is refused. `fzn_retain_select_history` picks
+  them. A log program called `history` is now written `log history`, as
+  sec 531 has it for `log` and `messages`, so a rule stored before keeps
+  its meaning.
+- **`fzn_notes_history_trim`** weighs each note's versions as one list,
+  newest first, with the set semantics every kind has (sec 460): `age`
+  by when the version was written, `count` by how many newer ones
+  precede it, `size` by the bytes of the newer ones -- each version's
+  record and its text. A version goes when a prune rule marks it and no
+  keep rule protects it, or, under `policy history drop`, when no keep
+  rule does; a keep policy beside a drop wins. It is in `notes/author.c`
+  beside the text reference it needs, and reads the policy itself, so
+  the notes library does not link the log's retention.
+- **fuzznetd trims each round**, before the texts are collected, so a
+  version let go takes its text in the same round. With no history rule
+  nothing is trimmed: kept by default, as the holder decided.
+
+### Measured for sec 582
+
+- retain_test 79: a history rule and policy read and write back; one
+  naming a log selector, a contact, or no limit is refused; a program
+  called history is a log rule written with its data word; history's
+  selection takes its rules alone, and the log's and messages' leave
+  them out.
+- notes_test 352: two notes of four versions each; no rule keeps all;
+  `prune count 3` leaves each its three newest, the oldest gone; a keep
+  rule protects what a prune would take; a keep policy beats a drop; a
+  drop policy takes what no keep rule covers; `prune age 1s` keeps a
+  version written within it and takes one older, measured from the
+  version's own time.
+- `tool/live_history.py`, in `make livecheck`: three edits keep three
+  versions; restarted with `--log-rule=prune history count 1`, the
+  round's pass lets two go and the newest is listed alone.
+- Three sabotage entries: keep wins, each note its own list, and the
+  keep policy. A fourth, on the parser refusing a contact, was not
+  written: `contact=` is taken only for a message rule, so the check
+  added for it here could not be told from that one, and is gone.

@@ -9458,6 +9458,27 @@ SABOTAGES = [
 		"a peer's gift replaces the wrap key every record of a note unwraps under -- sec 520",
 	),
 	(
+		"notes-history-trim-keep-wins",
+		"notes/author.c",
+		"\t\tif (kept || (!pruned && !drops))\n\t\t\tcontinue;\n\t\terr = fzn_notes_history_remove(",
+		"\t\tif (!pruned && !drops)\n\t\t\tcontinue;\n\t\terr = fzn_notes_history_remove(",
+		"a keep rule protects no version a prune rule takes, against the set semantics every kind has -- sec 582",
+	),
+	(
+		"notes-history-trim-each-note-its-own-list",
+		"notes/author.c",
+		"\t\tif (i == 0 || memcmp(v->id, trim.at[i - 1u].id, FZN_SUBJECT_LEN) != 0)\n",
+		"\t\tif (i == 0)\n",
+		"a count or size rule weighs every note's versions as one list, and a busy note takes another's history -- sec 582",
+	),
+	(
+		"notes-history-trim-keep-policy-wins",
+		"notes/author.c",
+		"\tif (keeps)\n\t\tdrops = 0;\n",
+		"",
+		"a drop policy beats a keep policy for history, where keep wins for every other kind -- sec 582",
+	),
+	(
 		"notes-history-kept-on-supersession",
 		"notes/store.c",
 		"\t\tif (store->history)\n\t\t\thistory_keep(store, bytes, held_len);\n",

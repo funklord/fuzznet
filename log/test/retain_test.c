@@ -490,6 +490,59 @@ static void test_message_rules(void)
 	}
 }
 
+/* A NOTE'S HISTORY, sec 581: its rules in the same grammar, a scope at most,
+ * kept apart from the log's and the messages'; a log program called
+ * history is written with its data word. */
+static void test_history_rules(void)
+{
+	static const char *const BAD[] = {
+		"prune history level=D age 1d",
+		"prune history subsystem=notes age 1d",
+		"prune history text=hi age 1d",
+		"prune history copy age 1d",
+		"prune history contact=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa age 1d",
+		"prune history",
+		"policy history maybe",
+	};
+	fzn_retain_rule_t in[4], out[4], x;
+	uint8_t host[32], machine[FZN_ENTRY_MACHINE_LEN];
+	char t[FZN_RETAIN_TEXT_MAX];
+	size_t i, len = 0;
+	int all = 1;
+
+	memset(host, 0xbb, sizeof(host));
+	memset(machine, 0x0b, sizeof(machine));
+	in[0] = rule("keep history count 20");
+	CHECK(in[0].data == FZN_RETAIN_HISTORY && in[0].kind == FZN_RETAIN_KEEP
+	              && in[0].limit == FZN_RETAIN_COUNT && in[0].value == 20u
+	              && in[0].program[0] == '\0'
+	              && fzn_retain_text(&in[0], t, sizeof(t), &len) == FZN_RETAIN_OK
+	              && strcmp(t, "keep history count 20") == 0,
+	      "a history rule reads and writes back as it was given");
+	in[1] = rule("policy history drop");
+	CHECK(in[1].data == FZN_RETAIN_HISTORY && in[1].kind == FZN_RETAIN_POLICY && in[1].drop
+	              && fzn_retain_text(&in[1], t, sizeof(t), &len) == FZN_RETAIN_OK
+	              && strcmp(t, "policy history drop") == 0
+	              && fzn_retain_policy_drops(in, 2u, FZN_RETAIN_HISTORY)
+	              && !fzn_retain_policy_drops(in, 2u, FZN_RETAIN_MESSAGES),
+	      "a history policy reads, writes back, and is history's alone");
+	for (i = 0; i < sizeof(BAD) / sizeof(BAD[0]); i++)
+		all = all && fzn_retain_parse(BAD[i], strlen(BAD[i]), &x) == FZN_RETAIN_ERR_MALFORMED;
+	CHECK(all, "a history rule naming a selector or a contact, or no limit, is refused");
+	in[2] = rule("prune log history age 1d");
+	CHECK(in[2].data == FZN_RETAIN_LOG && strcmp(in[2].program, "history") == 0
+	              && fzn_retain_text(&in[2], t, sizeof(t), &len) == FZN_RETAIN_OK
+	              && strcmp(t, "prune log history age 1d") == 0,
+	      "a program called history is a log rule, written with its data word");
+	in[3] = rule("prune messages age 1d");
+	CHECK(fzn_retain_select_history(in, 4u, host, machine, out) == 2u
+	              && out[0].data == FZN_RETAIN_HISTORY && out[1].data == FZN_RETAIN_HISTORY
+	              && fzn_retain_select_messages(in, 4u, host, machine, out) == 1u
+	              && fzn_retain_select_here(in, 4u, host, machine, out) == 1u
+	              && out[0].data == FZN_RETAIN_LOG,
+	      "history's selection takes its rules alone, and the others leave them out");
+}
+
 /* A DEFAULT POLICY PER KIND, sec 566: everything and nothing, each one
  * line; keep wins where two disagree; under drop only a keep rule holds. */
 static void test_policies(void)
@@ -601,6 +654,7 @@ int main(void)
 	test_copy_rules();
 	test_source();
 	test_message_rules();
+	test_history_rules();
 	test_policies();
 	if (failures) {
 		fprintf(stderr, "retain_test: %d of %d checks failed\n", failures, checks);

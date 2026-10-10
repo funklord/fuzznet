@@ -62,6 +62,7 @@
 #include <stdint.h>
 
 #include "view.h"
+#include "../log/retain.h"
 #include "../session/random.h"
 
 /* Seal a payload into a blob and fill its reference -- the node's shelf, in
@@ -168,5 +169,18 @@ fzn_notes_err_t fzn_notes_edit(const fzn_notes_author_t *author,
 fzn_notes_err_t fzn_notes_move(const fzn_notes_author_t *author,
                                const uint8_t id[FZN_TREE_ID_LEN],
                                const uint8_t parent[FZN_TREE_ID_LEN], uint64_t now_ms);
+
+/*
+ * A NOTE'S HISTORY TRIMMED BY THE RULES, sec 581: of `rules`, those for
+ * history (`log/retain.h`), the rest passed over. Each note's kept versions,
+ * newest first, are weighed as one list: `age` by when the version was
+ * written, `count` by how many newer ones precede it, `size` by the bytes of
+ * the newer ones -- a version's record and its text. A version goes when a
+ * prune rule marks it and no keep rule protects it, or, under `policy
+ * history drop`, when no keep rule protects it. `*removed` counts them.
+ */
+fzn_notes_err_t fzn_notes_history_trim(const fzn_notes_store_t *store,
+                                       const fzn_retain_rule_t *rules, size_t n_rules,
+                                       uint64_t now_ms, size_t *removed);
 
 #endif /* FZN_NOTES_AUTHOR_H */

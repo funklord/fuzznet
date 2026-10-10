@@ -5940,14 +5940,16 @@ QUIRC_DIR      ?= $(QUIRC_VENDORED)
 # journal's window cut end to end, sec 548, a member away past the window
 # rejoining two daemons over loopback, sec 554, and its bridge witnessed by a
 # third, sec 558, a removed contact's shares pulled no further, sec 576,
-# and siblings reaching one another, sec 579. The only target here that starts fuzznetd. A line old enough to trim can only be
+# siblings reaching one another, sec 579, and a note's history trimmed by
+# the rules, sec 582. The only target here that starts fuzznetd. A line old enough to trim can only be
 # written under an earlier clock, so `faketime` writes it, and the script
 # says SKIPPED when it is absent. It needs a fuzznetd, the record store its
 # conversations live in, and log files, because it waits on the daemon's
 # own debug line saying a trim or cut pass ran -- a build without one of
 # those has nothing to run, and says which. tool/live_trim.py,
 # tool/live_cut.py, tool/live_rejoin.py, tool/live_witness.py,
-# tool/live_shares.py and tool/live_siblings.py bound themselves: one deadline, each daemon in its own process group, scratch
+# tool/live_shares.py, tool/live_siblings.py and tool/live_history.py
+# bound themselves: one deadline, each daemon in its own process group, scratch
 # removed.
 livecheck: $(FUZZNETD)
 ifeq ($(and $(FUZZNETD),$(RECORD_STORE_FILE_ON),$(LOG_FILE_ON)),)
@@ -5960,6 +5962,7 @@ else
 	@timeout 300 python3 tool/live_witness.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_shares.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_siblings.py $(FUZZNETD)
+	@timeout 300 python3 tool/live_history.py $(FUZZNETD)
 endif
 
 # ONE SHELL, BECAUSE A SKIP MUST STOP THE TARGET. Written first as separate

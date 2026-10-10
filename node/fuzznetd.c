@@ -2491,6 +2491,33 @@ static void pull_received(uint64_t now)
 	                                       "passed over", nshares_in, suspended);
 }
 
+/* A NOTE'S HISTORY TRIMMED BY THE RULES, sec 581, each round before the
+ * texts are collected, so a version let go takes its text in the same round.
+ * Kept by default, as the holder decided: no history rule trims nothing. */
+static void history_trim(void)
+{
+	static fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX];
+	size_t gathered, n, removed = 0;
+	fzn_notes_err_t err;
+
+	if (!notes_on)
+		return;
+	gathered = gather_rules(rules);
+	n = fzn_retain_select_history(rules, gathered, dlog.has_host ? dlog.host : NULL,
+	                              here_machine(), rules);
+	err = n ? fzn_notes_history_trim(&node_notes.store, rules, n, wall_ms(), &removed)
+	        : FZN_NOTES_OK;
+	if (err != FZN_NOTES_OK) {
+		say(FZN_ENTRY_WARNING, "notes", "trimming the history by the rules: %s",
+		    fzn_notes_err_str(err));
+		return;
+	}
+	if (removed)
+		say(FZN_ENTRY_INFO, "notes", "%zu earlier version(s) let go by the rules", removed);
+	say(FZN_ENTRY_DEBUG, "notes", "history pass: %zu of %zu rule(s), %zu version(s) let go", n,
+	    gathered, removed);
+}
+
 #ifdef FZN_SPOOL_FILE_ON
 /* COLLECTING THE SHELF, sec 443: a text no note names, this node's or a
  * sharer's, goes. Run after each round's fetches, so a text just wanted is
@@ -4600,6 +4627,7 @@ int main(int argc, char **argv)
 				 * fetched once the note naming it has arrived. */
 				pull_notes(pulls, npulls, now, &state, running, running_roots);
 				pull_received(now);
+				history_trim();
 #ifdef FZN_SPOOL_FILE_ON
 				fetch_texts(pulls, npulls, now);
 #ifdef FZN_RECORD_STORE_FILE_ON

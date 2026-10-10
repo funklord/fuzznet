@@ -80,6 +80,7 @@
  * may name it:
  *     prune|keep log PROGRAM|* ...        a log rule, as above
  *     prune|keep messages [contact=KEYHEX] [host=] [machine=] LIMIT N
+ *     prune|keep history [host=] [machine=] LIMIT N   a note history rule
  * and a rule naming neither is a log rule, its second word the program, so
  * every rule written before reads as it did and keeps its text. A program
  * called `log` or `messages` is written `log PROGRAM`. A MESSAGE RULE
@@ -92,7 +93,7 @@
  *
  * A DEFAULT POLICY PER KIND, sec 566 -- the holder's "simple to write
  * rules to store everything and nothing":
- *     policy log|messages keep|drop [host=NODEHEX] [machine=MACHINEHEX]
+ *     policy log|messages|history keep|drop [host=NODEHEX] [machine=MACHINEHEX]
  * Under `keep`, the default, what is above holds: an item goes when a
  * prune rule marks it and no keep rule protects it. Under `drop`, an item
  * is held only where a keep rule covers it, so `policy messages drop`
@@ -144,7 +145,9 @@ typedef enum fzn_retain_limit {
 /* What a rule's data is, sec 531. */
 typedef enum fzn_retain_data {
 	FZN_RETAIN_LOG = 0,
-	FZN_RETAIN_MESSAGES = 1
+	FZN_RETAIN_MESSAGES = 1,
+	/* A note's earlier versions, sec 581. */
+	FZN_RETAIN_HISTORY = 2
 } fzn_retain_data_t;
 
 typedef struct fzn_retain_rule {
@@ -205,6 +208,11 @@ size_t fzn_retain_select_copies(const fzn_retain_rule_t *in, size_t n, const uin
 size_t fzn_retain_select_messages(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],
                                   const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
                                   fzn_retain_rule_t *out);
+
+/* The HISTORY rules of `in` that reach this node, sec 581. */
+size_t fzn_retain_select_history(const fzn_retain_rule_t *in, size_t n, const uint8_t host[32],
+                                 const uint8_t machine[FZN_ENTRY_MACHINE_LEN],
+                                 fzn_retain_rule_t *out);
 
 /* The rules of `in` -- copy rules, as `fzn_retain_select_copies` gives --
  * that apply to the copies of the host `source`: those naming no source,

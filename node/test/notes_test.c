@@ -10,6 +10,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "../notes.h"
+#include "../../notes/author.h"
 #include "../journal.h"
 #include "../../contact/contact.h"
 #include "../../contact/group.h"
@@ -1089,6 +1090,103 @@ static void test_history(void)
 	CHECK(ask(line) == FZN_REPLY_MALFORMED, "a history of no id was answered");
 }
 
+/* A RULE OF HISTORY'S, built as the parser would give it. */
+static fzn_retain_rule_t history_rule(fzn_retain_kind_t kind, fzn_retain_limit_t limit,
+                                      uint64_t value, int drop)
+{
+	fzn_retain_rule_t r;
+
+	memset(&r, 0, sizeof(r));
+	r.kind = kind;
+	r.data = FZN_RETAIN_HISTORY;
+	r.limit = limit;
+	r.value = value;
+	r.drop = drop;
+	return r;
+}
+
+/* How many earlier versions `note` has, by `list history`. */
+static unsigned long versions_of(const char *note)
+{
+	char line[100];
+
+	snprintf(line, sizeof(line), "list history %s", note);
+	if (ask(line) != FZN_REPLY_OK)
+		return 999ul;
+	return strtoul(detail_of(), NULL, 10);
+}
+
+/* THE HISTORY TRIMMED BY THE RULES, sec 581: each note its own list, every
+ * prune applies, a keep protects, keep wins between policies, and under a
+ * drop policy only a keep holds. */
+static void test_history_trimmed(void)
+{
+	fzn_retain_rule_t rules[3];
+	char a[65], b[65], line[200];
+	size_t removed = 9, i;
+
+	setup(0);
+	CHECK(ask("add note top a0") == FZN_REPLY_OK, "fixture: note a");
+	take_id(a);
+	CHECK(ask("add note top b0") == FZN_REPLY_OK, "fixture: note b");
+	take_id(b);
+	for (i = 1; i <= 4u; i++) {
+		snprintf(line, sizeof(line), "set note %s title a%zu", a, i);
+		CHECK(ask(line) == FZN_REPLY_OK, "fixture: an edit of a");
+		snprintf(line, sizeof(line), "set note %s title b%zu", b, i);
+		CHECK(ask(line) == FZN_REPLY_OK, "fixture: an edit of b");
+	}
+	CHECK(versions_of(a) == 4ul && versions_of(b) == 4ul, "fixture: four versions each");
+	CHECK(fzn_notes_history_trim(&notes.store, NULL, 0u, now_ms(), &removed) == FZN_NOTES_OK
+	              && removed == 0u && versions_of(a) == 4ul,
+	      "with no rule, history is kept");
+
+	rules[0] = history_rule(FZN_RETAIN_PRUNE, FZN_RETAIN_COUNT, 3u, 0);
+	CHECK(fzn_notes_history_trim(&notes.store, rules, 1u, now_ms(), &removed) == FZN_NOTES_OK
+	              && removed == 2u && versions_of(a) == 3ul && versions_of(b) == 3ul,
+	      "prune count 3 did not leave each note its three newest");
+	snprintf(line, sizeof(line), "list history %s", a);
+	CHECK(ask(line) == FZN_REPLY_OK && !has(",a0") && has(",a1") && has(",a3"),
+	      "the version let go was not the oldest");
+
+	rules[0] = history_rule(FZN_RETAIN_PRUNE, FZN_RETAIN_COUNT, 1u, 0);
+	rules[1] = history_rule(FZN_RETAIN_KEEP, FZN_RETAIN_COUNT, 2u, 0);
+	CHECK(fzn_notes_history_trim(&notes.store, rules, 2u, now_ms(), &removed) == FZN_NOTES_OK
+	              && removed == 2u && versions_of(a) == 2ul,
+	      "a keep rule did not protect what a prune would take");
+
+	rules[0] = history_rule(FZN_RETAIN_POLICY, (fzn_retain_limit_t)0, 0u, 1);
+	rules[1] = history_rule(FZN_RETAIN_POLICY, (fzn_retain_limit_t)0, 0u, 0);
+	CHECK(fzn_notes_history_trim(&notes.store, rules, 2u, now_ms(), &removed) == FZN_NOTES_OK
+	              && removed == 0u && versions_of(a) == 2ul,
+	      "a drop policy won over a keep policy");
+
+	rules[1] = history_rule(FZN_RETAIN_KEEP, FZN_RETAIN_COUNT, 1u, 0);
+	CHECK(fzn_notes_history_trim(&notes.store, rules, 2u, now_ms(), &removed) == FZN_NOTES_OK
+	              && removed == 2u && versions_of(a) == 1ul && versions_of(b) == 1ul,
+	      "under a drop policy, what no keep rule covers stayed");
+
+	/* AGE FROM WHEN EACH VERSION WAS WRITTEN, as its record says: the
+	 * time `list history` gives, whatever clock stamped it. */
+	{
+		unsigned long long written = 0;
+
+		snprintf(line, sizeof(line), "list history %s", a);
+		CHECK(ask(line) == FZN_REPLY_OK
+		              && sscanf(detail_of(), "%*u %*u %llu,", &written) == 1 && written,
+		      "fixture: the remaining version's time");
+		rules[0] = history_rule(FZN_RETAIN_PRUNE, FZN_RETAIN_AGE, 1000u * 1000u, 0);
+		CHECK(fzn_notes_history_trim(&notes.store, rules, 1u, written + 500u, &removed)
+		                      == FZN_NOTES_OK
+		              && removed == 0u
+		              && fzn_notes_history_trim(&notes.store, rules, 1u, written + 100000u,
+		                                        &removed)
+		                         == FZN_NOTES_OK
+		              && removed == 2u && versions_of(a) == 0ul,
+		      "prune age 1s took a version written within it, or kept one older");
+	}
+}
+
 static void test_collecting_texts(void)
 {
 	static char long_text[5001];
@@ -1827,6 +1925,7 @@ int main(void)
 	test_checklist();
 	test_collecting_texts();
 	test_history();
+	test_history_trimmed();
 	test_members_join_the_admitted_set();
 	test_pushing_texts();
 	test_the_journal_chain();
