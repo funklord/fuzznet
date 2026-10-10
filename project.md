@@ -61997,6 +61997,13 @@ received shares had, shared.
   live run at one round a start.
 - **Only files ask siblings.** Texts, notes and reconciliation still use
   the pull peers.
+- **Texts were tried, and need not ask them.** Asking each sibling after
+  the pull peers was built and run live: C wrote a note, and B fetched
+  its text -- from A. A member pushes its texts to the root (sec 448), so
+  the root holds every text a sibling could give, and the sibling path
+  would serve only a root lacking one, which nothing in the live run
+  produced and no harness could stage without contriving it. The change
+  was taken out rather than kept untested.
 
 ## 581. A note's history, kept by the retention rules, 2026-10-10
 
@@ -62061,7 +62068,10 @@ versions cannot be where history lives. A version is kept by itself.
 
 ### Not tested yet, and why
 
-- **The bound's let-go** needs 4096 versions in a suite's memory store.
+- ~~**The bound's let-go** needs 4096 versions in a suite's memory store.~~
+  Tested since: notes_store_test's store holds 4400 rows, and a note
+  edited to a full history and once more lets the oldest version go and
+  keeps the newest, in half a second. Two sabotage entries.
 - ~~**A history that will not read keeps everything**: no suite store
   fails a list while answering loads.~~ Tested since: notes_test's memory
   store fails slot 46's list on demand, and a text nothing names is kept

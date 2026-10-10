@@ -91,7 +91,9 @@ static uint8_t KEY_A[FZN_PUBKEY_LEN], KEY_B[FZN_PUBKEY_LEN], KEY_C[FZN_PUBKEY_LE
 
 /* ---- a persist backend over memory --------------------------------------- */
 
-#define MEM_ROWS 300u
+/* 4400 since sec 581: the history's bound is 4096 versions, and its case
+ * holds them all with the claim beside them. */
+#define MEM_ROWS 4400u
 
 struct row {
 	int used;
@@ -1593,6 +1595,71 @@ static void test_import_run(void)
 	}
 }
 
+/* THE HISTORY'S BOUND, sec 581: FZN_NOTES_HISTORY_MAX versions, the oldest
+ * let go to keep the newest. One note, edited until its history is full and
+ * once more. */
+struct seqs {
+	uint64_t low, high;
+	size_t count;
+};
+
+static void seq_span(void *ctx, const uint8_t row[FZN_PUBKEY_LEN], fzn_record_t record)
+{
+	struct seqs *q = (struct seqs *)ctx;
+
+	(void)row;
+	if (!q->count || fzn_record_seq(record) < q->low)
+		q->low = fzn_record_seq(record);
+	if (!q->count || fzn_record_seq(record) > q->high)
+		q->high = fzn_record_seq(record);
+	q->count++;
+}
+
+/* A note record at `seq`, written at a time that rises with it. */
+static int edit_at(uint64_t seq)
+{
+	uint8_t subject[FZN_SUBJECT_LEN], up[FZN_TREE_ID_LEN], body[FZN_RECORD_BODY_MAX];
+	fzn_sign_ops_t signer = { NULL, toy_sign, NULL };
+	size_t body_len = 0, len = 0;
+
+	signer.ctx = KEY_A;
+	subject_of(9, subject);
+	memset(up, 0, sizeof(up));
+	return fzn_tree_body(up, 900u, FZN_NOTE_TYPE_NOTE, (const uint8_t *)"v", 1u, body,
+	                     sizeof(body), &body_len)
+	               == FZN_TREE_OK
+	       && fzn_record_sign(KEY_A, subject, FZN_NOTE_STREAM, FZN_NOTE_KIND, seq, NULL,
+	                          1000u + seq, body, body_len, &signer, buf[0], FZN_RECORD_MAX_LEN,
+	                          &len)
+	                  == FZN_RECORD_OK
+	       && (buf_len[0] = len, put(0, NULL) == FZN_NOTES_OK);
+}
+
+static void test_history_bound(void)
+{
+	struct seqs q;
+	uint64_t seq;
+	int ok = 1;
+
+	wipe();
+	store.history = 1;
+	for (seq = 1; seq <= FZN_NOTES_HISTORY_MAX + 1u && ok; seq++)
+		ok = edit_at(seq);
+	memset(&q, 0, sizeof(q));
+	CHECK(ok && fzn_notes_history_each(&store, seq_span, &q) == FZN_NOTES_OK
+	              && q.count == FZN_NOTES_HISTORY_MAX && q.low == 1u
+	              && q.high == FZN_NOTES_HISTORY_MAX,
+	      "fixture: a history full to its bound");
+	memset(&q, 0, sizeof(q));
+	CHECK(edit_at(FZN_NOTES_HISTORY_MAX + 2u)
+	              && fzn_notes_history_each(&store, seq_span, &q) == FZN_NOTES_OK
+	              && q.count == FZN_NOTES_HISTORY_MAX && q.low == 2u
+	              && q.high == FZN_NOTES_HISTORY_MAX + 1u,
+	      "at the bound, the oldest version was not the one let go for the newest");
+	store.history = 0;
+	wipe();
+}
+
 int main(void)
 {
 	memset(KEY_A, 0xa1, sizeof(KEY_A));
@@ -1607,6 +1674,7 @@ int main(void)
 	test_the_view();
 	test_authoring();
 	test_purge();
+	test_history_bound();
 	test_import_parsing();
 	test_import_run();
 

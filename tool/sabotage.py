@@ -9479,6 +9479,20 @@ SABOTAGES = [
 		"a drop policy beats a keep policy for history, where keep wins for every other kind -- sec 582",
 	),
 	(
+		"notes-history-bound-lets-the-oldest-go",
+		"notes/store.c",
+		"\t    && count >= FZN_NOTES_HISTORY_MAX) {\n",
+		"\t    && 0) {\n",
+		"a store with no history rule grows its history without bound -- sec 581",
+	),
+	(
+		"notes-history-bound-picks-the-oldest",
+		"notes/store.c",
+		"\tif (!p->any || fzn_record_issued_ms(rec) < p->oldest_ms) {\n",
+		"\tif (!p->any || fzn_record_issued_ms(rec) > p->oldest_ms) {\n",
+		"at the bound the newest version is let go, so a full history stops recording edits -- sec 581",
+	),
+	(
 		"notes-history-kept-on-supersession",
 		"notes/store.c",
 		"\t\tif (store->history)\n\t\t\thistory_keep(store, bytes, held_len);\n",
