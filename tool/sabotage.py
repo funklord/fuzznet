@@ -10795,6 +10795,20 @@ SABOTAGES = [
 		"a version whose text has not arrived is listed as here, with no title -- sec 581",
 	),
 	(
+		"node-notes-collect-verb-reads-history",
+		"node/notes.c",
+		"\tfzn_node_notes_history_refresh(n);\n\tif (!n->collect(n->text_ctx, keep_named, n, &kept, &removed))",
+		"\tif (!n->collect(n->text_ctx, keep_named, n, &kept, &removed))",
+		"remove text unused weighs a history read by an earlier pass, and takes a version's text kept since -- sec 581",
+	),
+	(
+		"node-notes-history-unread-keeps-all",
+		"node/notes.c",
+		"\tif (history_unread)\n\t\treturn 1;\n",
+		"",
+		"a history the store would not list is taken as none, and collection removes every earlier version's text -- sec 581",
+	),
+	(
 		"node-notes-history-items-refused",
 		"node/notes.c",
 		"\t\tif (historical)\n\t\t\treturn say(reply, cap, FZN_REPLY_MALFORMED,",

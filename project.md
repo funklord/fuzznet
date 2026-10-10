@@ -62062,10 +62062,14 @@ versions cannot be where history lives. A version is kept by itself.
 ### Not tested yet, and why
 
 - **The bound's let-go** needs 4096 versions in a suite's memory store.
-- **A history that will not read keeps everything**: no suite store
-  fails a list while answering loads.
-- **The collect verb's refresh**: the suite calls the refresh itself,
-  having no collect hook in that setup.
+- ~~**A history that will not read keeps everything**: no suite store
+  fails a list while answering loads.~~ Tested since: notes_test's memory
+  store fails slot 46's list on demand, and a text nothing names is kept
+  while it does, and let go once it lists again.
+- ~~**The collect verb's refresh**: the suite calls the refresh itself,
+  having no collect hook in that setup.~~ Tested since: with the cache
+  emptied first, `remove text unused` through a collect hook keeps an
+  earlier version's text. Each has a sabotage entry.
 
 ## 582. A note's history trimmed by the rules, 2026-10-10
 

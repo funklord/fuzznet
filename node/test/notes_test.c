@@ -177,11 +177,17 @@ static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	return 1;
 }
 
+/* A slot whose list fails while set, so a store that will not list is
+ * seen; 0 for none. */
+static fzn_persist_slot_t fail_list;
+
 static int mem_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max, size_t *count)
 {
 	size_t i, n = 0;
 
 	(void)ctx;
+	if (fail_list && slot == fail_list)
+		return 0;
 	for (i = 0; i < MEM_ROWS; i++)
 		if (rows[i].used && rows[i].slot == slot && rows[i].has_subject) {
 			if (n == max)
@@ -1047,6 +1053,8 @@ static void test_history(void)
 	const char *a, *b;
 
 	setup(0);
+	/* NO HISTORY IN THE CACHE, so the verb below must read it afresh. */
+	fzn_node_notes_history_refresh(&notes);
 	CHECK(ask("add note top first") == FZN_REPLY_OK, "fixture: a note");
 	take_id(note);
 	blob_stub_last_root(first_root);
@@ -1065,10 +1073,30 @@ static void test_history(void)
 	              && !has(",third"),
 	      "two edits did not leave the two earlier versions, oldest first");
 
+	/* THE VERB READS THE HISTORY FIRST: the cache still holds none, and an
+	 * earlier version's text offered to it is kept. */
+	memcpy(offered[0], first_root, FZN_BLOB_HASH_LEN);
+	memset(offered[1], 0x11, FZN_BLOB_HASH_LEN);
+	memset(offered[2], 0x22, FZN_BLOB_HASH_LEN);
+	notes.collect = fake_collect;
+	CHECK(ask("remove text unused") == FZN_REPLY_OK && !strcmp(detail_of(), "2 1")
+	              && decisions[0] && !decisions[1] && !decisions[2],
+	      "the collect verb took an earlier version's text");
+	notes.collect = NULL;
 	fzn_node_notes_history_refresh(&notes);
 	CHECK(fzn_node_notes_names_blob(&notes, first_root)
 	              && fzn_node_notes_names_blob(&notes, second_root),
 	      "collection would take an earlier version's text");
+	/* A HISTORY THAT WILL NOT READ KEEPS EVERYTHING, as a tree that will
+	 * not read does: a root nothing names is kept while it cannot list. */
+	fail_list = FZN_PERSIST_NOTE_HISTORY;
+	fzn_node_notes_history_refresh(&notes);
+	CHECK(fzn_node_notes_names_blob(&notes, offered[1]),
+	      "with the history unread, a text was let go");
+	fail_list = (fzn_persist_slot_t)0;
+	fzn_node_notes_history_refresh(&notes);
+	CHECK(!fzn_node_notes_names_blob(&notes, offered[1]),
+	      "with the history read again, a text nothing names was kept");
 
 	/* AN EARLIER VERSION READ, sec 583, as `get note` reads the current. */
 	snprintf(line, sizeof(line), "get history %s 0", note);
