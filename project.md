@@ -61992,9 +61992,12 @@ received shares had, shared.
 
 ### Not yet after sec 580
 
-- **The grant reaches the sibling a round late**: it is logged after the
+- ~~**The grant reaches the sibling a round late**: it is logged after the
   round's push, so pairing both ways takes some rounds -- four in the
-  live run at one round a start.
+  live run at one round a start.~~ Pushed again in the same round since,
+  when `pair_siblings` paired any (`push_one`, the push half of
+  `pull_journal`, factored out): three rounds in the same live run. The
+  harness does not assert the count, so the measurement is this one.
 - **Only files ask siblings.** Texts, notes and reconciliation still use
   the pull peers.
 - **Texts were tried, and need not ask them.** Asking each sibling after

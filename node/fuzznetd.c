@@ -1813,6 +1813,25 @@ static void rebase_missed(struct pull_target *pulls, size_t npulls, size_t t, ui
 }
 
 /* ONE ROUND OF THE JOURNAL against every pull peer. */
+/* PUSHED BACK, sec 512: what this node holds of every stream `pt` follows,
+ * so a hub that pulls from nobody still hears this member. */
+static void push_one(struct pull_target *pt, uint64_t now)
+{
+	static uint8_t reply[FZND_PULL_REPLY_MAX];
+	struct peer_asking asking = { &pt->caller, now, pt->host };
+	fzn_exchange_push_tally_t pushed;
+	fzn_exchange_err_t perr = fzn_node_journal_push(&node_journal, peer_ask, &asking, reply,
+	                                                sizeof(reply), &pushed);
+
+	if (perr != FZN_EXCHANGE_OK)
+		say(FZN_ENTRY_WARNING, "journal", "pushing to %s: %s", pt->host,
+		    fzn_exchange_err_str(perr));
+	else if (pushed.taken || pushed.refused || pushed.forks)
+		say(pushed.refused || pushed.forks ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "journal",
+		    "%zu record(s) pushed to %s, %zu refused, %zu forked", pushed.taken, pt->host,
+		    pushed.refused, pushed.forks);
+}
+
 static void pull_journal(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
 	static uint8_t reply[FZND_PULL_REPLY_MAX];
@@ -1835,22 +1854,7 @@ static void pull_journal(struct pull_target *pulls, size_t npulls, uint64_t now)
 			say(tally.forks ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "journal",
 			    "%zu record(s) from %s, %zu refused, %zu stream(s) stopped at a fork",
 			    tally.learned, pulls[t].host, tally.refused, tally.forks);
-		/* AND PUSHED BACK, sec 512: what this node holds of every stream
-		 * the peer follows, so a hub that pulls from nobody still hears
-		 * this member. */
-		{
-			fzn_exchange_push_tally_t pushed;
-			fzn_exchange_err_t perr = fzn_node_journal_push(&node_journal, peer_ask, &asking,
-			                                                reply, sizeof(reply), &pushed);
-
-			if (perr != FZN_EXCHANGE_OK)
-				say(FZN_ENTRY_WARNING, "journal", "pushing to %s: %s", pulls[t].host,
-				    fzn_exchange_err_str(perr));
-			else if (pushed.taken || pushed.refused || pushed.forks)
-				say(pushed.refused || pushed.forks ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO,
-				    "journal", "%zu record(s) pushed to %s, %zu refused, %zu forked",
-				    pushed.taken, pulls[t].host, pushed.refused, pushed.forks);
-		}
+		push_one(&pulls[t], now);
 	}
 }
 #endif
@@ -2227,8 +2231,9 @@ static int grant_from(const uint8_t sponsor[FZN_PUBKEY_LEN], const uint8_t self[
  *     through above all, which it grants through.
  *
  * Each side is the other's half: one member's grant is the pairing the
- * other accepts, a round or two later. */
-static void pair_siblings(const fzn_node_identity_t *id, uint64_t now)
+ * other accepts. How many it paired: the round pushes again when any, so
+ * the grants reach the root this round and not the next. */
+static size_t pair_siblings(const fzn_node_identity_t *id, uint64_t now)
 {
 	static uint8_t hosts[FZN_NODE_SIBLINGS_MAX][FZN_PUBKEY_LEN];
 	static uint8_t chain[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
@@ -2236,11 +2241,11 @@ static void pair_siblings(const fzn_node_identity_t *id, uint64_t now)
 	size_t n = 0, i, paired = 0, accepted = 0;
 
 	if (!running_admin || !node_apply.store || !node_apply.capability)
-		return;
+		return 0;
 	if (fzn_node_siblings_list(node_apply.store, hosts, FZN_NODE_SIBLINGS_MAX, &n)
 	    != FZN_NODE_SIBLINGS_OK) {
 		say(FZN_ENTRY_WARNING, "node/siblings", "the siblings' prekeys would not list");
-		return;
+		return 0;
 	}
 	for (i = 0; i < n; i++) {
 		fzn_node_pairing_t pairing;
@@ -2285,6 +2290,7 @@ static void pair_siblings(const fzn_node_identity_t *id, uint64_t now)
 	if (paired || accepted)
 		say(FZN_ENTRY_INFO, "node/siblings", "%zu sibling(s) paired, %zu pairing(s) taken",
 		    paired, accepted);
+	return paired;
 }
 #endif
 
@@ -4585,7 +4591,11 @@ int main(int argc, char **argv)
 				pull_journal(pulls, npulls, now);
 				apply_journal();
 				reconcile_estate(pulls, npulls, now);
-				pair_siblings(&identity, now);
+				/* A GRANT JUST LOGGED, PUSHED NOW, sec 585: logged after
+				 * the round's push, it would wait a round for the next. */
+				if (pair_siblings(&identity, now))
+					for (t = 0; t < npulls; t++)
+						push_one(&pulls[t], now);
 				messages_round(pulls, npulls, now);
 				/* THE NOTES INDEX FIRST, so the cut sees how far it has
 				 * read: a notes stream is cut no further than its cursor,
