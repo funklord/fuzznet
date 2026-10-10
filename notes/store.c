@@ -107,6 +107,7 @@ fzn_notes_err_t fzn_notes_store_init(fzn_notes_store_t *store, const fzn_persist
 	store->hash = hash;
 	store->purged = NULL;
 	store->purged_ctx = NULL;
+	store->history = 0;
 	return FZN_NOTES_OK;
 }
 
@@ -157,6 +158,145 @@ fzn_notes_err_t fzn_notes_claims(const fzn_notes_store_t *store,
 	return FZN_NOTES_OK;
 }
 
+/* ---- history, sec 581 ---------------------------------------------- */
+
+static uint8_t history_rows[FZN_NOTES_HISTORY_MAX][FZN_PUBKEY_LEN];
+
+fzn_notes_err_t fzn_notes_history_each(const fzn_notes_store_t *store,
+                                       fzn_notes_history_fn fn, void *ctx)
+{
+	static uint8_t blob[NOTE_BLOB_MAX];
+	size_t count = 0, i, len;
+	fzn_record_t rec;
+
+	if (!store || !store->ops || !fn)
+		return FZN_NOTES_ERR_MALFORMED;
+	if (!store->ops->list(store->ops->ctx, FZN_PERSIST_NOTE_HISTORY, (uint8_t *)history_rows,
+	                      FZN_NOTES_HISTORY_MAX, &count))
+		return FZN_NOTES_ERR_BACKEND;
+	for (i = 0; i < count; i++) {
+		len = 0;
+		if (!store->ops->load(store->ops->ctx, FZN_PERSIST_NOTE_HISTORY, history_rows[i], blob,
+		                      sizeof(blob), &len)
+		    || len <= FZN_PERSIST_HEAD_LEN
+		    || fzn_persist_head_check(blob, len, len - FZN_PERSIST_HEAD_LEN,
+		                              FZN_PERSIST_BLOB_NOTE)
+		               != FZN_PERSIST_OK
+		    || fzn_record_open(blob + FZN_PERSIST_HEAD_LEN, len - FZN_PERSIST_HEAD_LEN, &rec)
+		               != FZN_RECORD_OK)
+			continue;
+		fn(ctx, history_rows[i], rec);
+	}
+	return FZN_NOTES_OK;
+}
+
+fzn_notes_err_t fzn_notes_history_get(const fzn_notes_store_t *store,
+                                      const uint8_t row[FZN_PUBKEY_LEN], uint8_t *out,
+                                      size_t cap, size_t *out_len)
+{
+	static uint8_t blob[NOTE_BLOB_MAX];
+	fzn_record_t rec;
+	size_t len = 0;
+
+	if (!store || !store->ops || !row || !out || !out_len)
+		return FZN_NOTES_ERR_MALFORMED;
+	if (!store->ops->load(store->ops->ctx, FZN_PERSIST_NOTE_HISTORY, row, blob, sizeof(blob),
+	                      &len))
+		return FZN_NOTES_ERR_ABSENT;
+	if (len <= FZN_PERSIST_HEAD_LEN
+	    || fzn_persist_head_check(blob, len, len - FZN_PERSIST_HEAD_LEN, FZN_PERSIST_BLOB_NOTE)
+	               != FZN_PERSIST_OK
+	    || fzn_record_open(blob + FZN_PERSIST_HEAD_LEN, len - FZN_PERSIST_HEAD_LEN, &rec)
+	               != FZN_RECORD_OK
+	    || len - FZN_PERSIST_HEAD_LEN > cap)
+		return FZN_NOTES_ERR_SHAPE;
+	memcpy(out, blob + FZN_PERSIST_HEAD_LEN, len - FZN_PERSIST_HEAD_LEN);
+	*out_len = len - FZN_PERSIST_HEAD_LEN;
+	return FZN_NOTES_OK;
+}
+
+fzn_notes_err_t fzn_notes_history_remove(const fzn_notes_store_t *store,
+                                         const uint8_t row[FZN_PUBKEY_LEN])
+{
+	if (!store || !store->ops || !row)
+		return FZN_NOTES_ERR_MALFORMED;
+	if (!store->ops->remove)
+		return FZN_NOTES_ERR_UNSUPPORTED;
+	return store->ops->remove(store->ops->ctx, FZN_PERSIST_NOTE_HISTORY, row)
+	               ? FZN_NOTES_OK
+	               : FZN_NOTES_ERR_BACKEND;
+}
+
+struct history_pick {
+	const uint8_t *id;              /* the note whose rows are wanted, or NULL */
+	uint8_t rows[FZN_NOTES_HISTORY_MAX][FZN_PUBKEY_LEN];
+	size_t count;
+	uint8_t oldest[FZN_PUBKEY_LEN];
+	uint64_t oldest_ms;
+	int any;
+};
+
+static void pick_row(void *ctx, const uint8_t row[FZN_PUBKEY_LEN], fzn_record_t rec)
+{
+	struct history_pick *p = (struct history_pick *)ctx;
+
+	if (p->id) {
+		if (memcmp(fzn_record_subject(rec), p->id, FZN_SUBJECT_LEN) == 0
+		    && p->count < FZN_NOTES_HISTORY_MAX)
+			memcpy(p->rows[p->count++], row, FZN_PUBKEY_LEN);
+		return;
+	}
+	if (!p->any || fzn_record_issued_ms(rec) < p->oldest_ms) {
+		memcpy(p->oldest, row, FZN_PUBKEY_LEN);
+		p->oldest_ms = fzn_record_issued_ms(rec);
+		p->any = 1;
+	}
+}
+
+fzn_notes_err_t fzn_notes_history_forget(const fzn_notes_store_t *store,
+                                         const uint8_t id[FZN_SUBJECT_LEN])
+{
+	static struct history_pick p;
+	fzn_notes_err_t err;
+	size_t i;
+
+	if (!store || !store->ops || !id)
+		return FZN_NOTES_ERR_MALFORMED;
+	memset(&p, 0, sizeof(p));
+	p.id = id;
+	err = fzn_notes_history_each(store, pick_row, &p);
+	for (i = 0; err == FZN_NOTES_OK && i < p.count; i++)
+		err = fzn_notes_history_remove(store, p.rows[i]);
+	return err;
+}
+
+/* KEEP `bytes`, the record a newer one supersedes, as a version: under a hash
+ * of its bytes, the oldest version let go first when FZN_NOTES_HISTORY_MAX
+ * are held. A version that cannot be kept does not stop the newer record. */
+static void history_keep(const fzn_notes_store_t *store, const uint8_t *bytes, size_t len)
+{
+	static uint8_t blob[NOTE_BLOB_MAX];
+	static struct history_pick p;
+	uint8_t row[FZN_PUBKEY_LEN];
+	size_t count = 0;
+
+	if (!store->hash->hash(store->hash->ctx, row, sizeof(row), bytes, len)
+	    || fzn_persist_head_write(blob, sizeof(blob), len, FZN_PERSIST_BLOB_NOTE)
+	               != FZN_PERSIST_OK)
+		return;
+	if (store->ops->list(store->ops->ctx, FZN_PERSIST_NOTE_HISTORY, (uint8_t *)history_rows,
+	                     FZN_NOTES_HISTORY_MAX, &count)
+	    && count >= FZN_NOTES_HISTORY_MAX) {
+		memset(&p, 0, sizeof(p));
+		if (fzn_notes_history_each(store, pick_row, &p) != FZN_NOTES_OK || !p.any
+		    || fzn_notes_history_remove(store, p.oldest) != FZN_NOTES_OK)
+			return;
+	}
+	memcpy(blob + FZN_PERSIST_HEAD_LEN, bytes, len);
+	(void)store->ops->save(store->ops->ctx, FZN_PERSIST_NOTE_HISTORY, row, blob,
+	                       FZN_PERSIST_HEAD_LEN + len);
+}
+
 fzn_notes_err_t fzn_notes_put(const fzn_notes_store_t *store, const uint8_t *record,
                               size_t record_len, fzn_notes_policy_t policy,
                               const fzn_sign_ops_t *sign, int *wrote, fzn_notes_denial_t *why)
@@ -194,6 +334,9 @@ fzn_notes_err_t fzn_notes_put(const fzn_notes_store_t *store, const uint8_t *rec
 			return FZN_NOTES_ERR_EQUIVOCATION;
 		if (fzn_record_seq(rec) <= fzn_record_seq(held_rec))
 			return FZN_NOTES_OK;
+		/* THE VERSION SUPERSEDED, KEPT, sec 581. */
+		if (store->history)
+			history_keep(store, bytes, held_len);
 	} else if (err == FZN_NOTES_ERR_ABSENT) {
 		/* A NEW CLAIM, AND THE BOUND IS CHECKED BEFORE IT IS WRITTEN. A
 		 * backend holding more than the bound fails the list, which
@@ -279,6 +422,11 @@ fzn_notes_err_t fzn_notes_mark_purged(const fzn_notes_store_t *store,
 		return FZN_NOTES_ERR_MALFORMED;
 	blob[FZN_PERSIST_HEAD_LEN] = 1u;
 	if (!store->ops->save(store->ops->ctx, FZN_PERSIST_NOTE_PURGED, id, blob, sizeof(blob)))
+		return FZN_NOTES_ERR_BACKEND;
+	/* ITS HISTORY GOES WITH IT, sec 581: a purge leaves nothing of the
+	 * note, and no version can be kept after, `fzn_notes_put` refusing a
+	 * purged note before it supersedes anything. */
+	if (fzn_notes_history_forget(store, id) != FZN_NOTES_OK)
 		return FZN_NOTES_ERR_BACKEND;
 	if (store->purged)
 		store->purged(store->purged_ctx, id);

@@ -263,6 +263,11 @@ int fzn_node_notes_shares_blob(fzn_node_notes_t *n, const uint8_t *sender,
  * its text in the blob `root`: what collecting the shelf keeps. sec 443. */
 int fzn_node_notes_names_blob(fzn_node_notes_t *n, const uint8_t root[FZN_BLOB_HASH_LEN]);
 
+/* THE TEXTS THIS NODE'S NOTE HISTORY NAMES, sec 581, read once for a
+ * collection: each collection calls this first, so a version kept, or a
+ * purge's history let go, is seen by the pass that follows. */
+void fzn_node_notes_history_refresh(fzn_node_notes_t *n);
+
 /* What one push of texts did. */
 typedef struct fzn_node_notes_text_tally {
 	size_t offered; /* texts this node's notes name and it holds whole */

@@ -182,10 +182,50 @@ typedef struct fzn_notes_store {
 	 * stream. NULL after `fzn_notes_store_init`, and for a sharer's tree. */
 	void (*purged)(void *ctx, const uint8_t id[FZN_SUBJECT_LEN]);
 	void *purged_ctx;
+	/* KEEP WHAT A NEWER RECORD SUPERSEDES, sec 581, as the note's history.
+	 * 0 after `fzn_notes_store_init`, and for a sharer's tree. */
+	int history;
 } fzn_notes_store_t;
 
 fzn_notes_err_t fzn_notes_store_init(fzn_notes_store_t *store, const fzn_persist_ops_t *ops,
                                      const fzn_hash_ops_t *hash);
+
+/*
+ * NOTE HISTORY, sec 581. A store with `history` set keeps each record a
+ * newer one by the same writer supersedes, as it was signed, in persist slot
+ * FZN_PERSIST_NOTE_HISTORY, one row per record keyed by a hash of its bytes:
+ * the old meta and the wrapped content key with it, so an old version's text
+ * opens as the current one's does. The retention rules decide how long a
+ * version stays (`log/retain.h`, kind `history`, kept by default -- the
+ * holder's of 2026-10-10); a purge takes a note's history with it.
+ *
+ * AT MOST FZN_NOTES_HISTORY_MAX versions in all. Past it the oldest version
+ * is let go to keep the newest, so a store with no rules stays bounded.
+ */
+#define FZN_NOTES_HISTORY_MAX 4096u
+
+/* One kept version: its row and its record, valid during the call. */
+typedef void (*fzn_notes_history_fn)(void *ctx, const uint8_t row[FZN_PUBKEY_LEN],
+                                     fzn_record_t record);
+
+/* Every kept version, to `fn`. A row that will not open is passed over.
+ * BACKEND when the store cannot list. */
+fzn_notes_err_t fzn_notes_history_each(const fzn_notes_store_t *store,
+                                       fzn_notes_history_fn fn, void *ctx);
+
+/* One kept version's record, as signed, into `out` (at most `cap`):
+ * ABSENT when no such row is kept, SHAPE when it will not open. */
+fzn_notes_err_t fzn_notes_history_get(const fzn_notes_store_t *store,
+                                      const uint8_t row[FZN_PUBKEY_LEN], uint8_t *out,
+                                      size_t cap, size_t *out_len);
+
+/* Let one version go. */
+fzn_notes_err_t fzn_notes_history_remove(const fzn_notes_store_t *store,
+                                         const uint8_t row[FZN_PUBKEY_LEN]);
+
+/* Let every version of the note `id` go: what a purge does. */
+fzn_notes_err_t fzn_notes_history_forget(const fzn_notes_store_t *store,
+                                         const uint8_t id[FZN_SUBJECT_LEN]);
 
 /* The 32-byte persist subject a claim is filed under. */
 fzn_notes_err_t fzn_notes_claim_key(const fzn_notes_store_t *store,

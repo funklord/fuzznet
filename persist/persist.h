@@ -313,13 +313,18 @@ typedef enum fzn_persist_slot {
 	 * node can pair it. CORE: it decides whom this node pairs.
 	 * `node/siblings.h` keeps it. sec 579. */
 	FZN_PERSIST_SIBLING_PREKEY = 45u,
+	/* Per version, keyed by a hash of its record: a note record a newer
+	 * one by the same writer superseded, as it was signed, kept as the
+	 * note's history under the retention rules. `notes/store.h` keeps it.
+	 * sec 581. */
+	FZN_PERSIST_NOTE_HISTORY = 46u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 46u
+#define FZN_PERSIST_SLOT_END 47u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,

@@ -58611,7 +58611,7 @@ The chain hook takes the record's kind as a parameter for this.
   shows each. Nothing here changed that.
 - **A `history` verb**, now that a member holds its siblings' streams.
   The holder deferred it in sec 522 until retention rules exist; they do
-  since sec 566, so the question of what it shows is open again.
+  since sec 566, and the holder decided it 2026-10-10: sec 581.
 - ~~Steps 5, 6 and 7~~, built in secs 520, 522 and 523.
 
 ## 520. Stage 5, step 5: a purge destroys a note's key, so no shell of it unwraps, 2026-10-08
@@ -58804,7 +58804,7 @@ Nothing changed here. Import has written through the author since sec
 514, so every imported note is sealed, wrapped and chained like any
 other.
 
-### No history verb yet
+### No history verb yet (decided since, sec 581)
 
 The holder decided 2026-10-08 to finish step 6 without one, and decide
 when retention rules exist (step 7). The question put was what history
@@ -61997,3 +61997,71 @@ received shares had, shared.
   live run at one round a start.
 - **Only files ask siblings.** Texts, notes and reconciliation still use
   the pull peers.
+
+## 581. A note's history, kept by the retention rules, 2026-10-10
+
+Sec 522 left the history verb until retention rules existed, because
+collection removed every superseded version's text within a round, so a
+history could say who changed a note and when but not what it said.
+They exist since sec 566. The holder decided 2026-10-10, asked against
+metadata only and no verb yet:
+
+- **Old texts, kept by retention.** A note's earlier versions are a kind
+  of their own under the retention rules, `history`.
+- **Kept by default**, as logs and messages are: every version stays
+  until a rule prunes it. Rejected: dropped by default, which shows no
+  history until a rule asks for one.
+
+The journal is a 60-day window (sec 548), so the records that named old
+versions cannot be where history lives. A version is kept by itself.
+
+### The stages of note history
+
+1. **Versions kept, listed, and taken by a purge.** Built here.
+2. **The retention kind**: `policy history keep|drop`, and `prune` and
+   `keep` rules over history by age, count per note and size, trimmed
+   each round.
+3. **An old version read**, its text as `get note` gives the current one.
+
+### Stage 1
+
+- **The version a newer record supersedes is kept**, by
+  `fzn_notes_put`, when the store's `history` is set -- this node's own
+  notes, not a sharer's tree. It is the record as it was signed, in
+  persist slot 46, `FZN_PERSIST_NOTE_HISTORY` (the store's, not the
+  core's), keyed by a hash of its bytes: its meta and wrapped content
+  key with it, so its text opens as the current one's does. No new
+  layout: the row is a claim row's.
+- **At most `FZN_NOTES_HISTORY_MAX`, 4096**, the oldest let go to keep
+  the newest, so a store with no rules stays bounded.
+- **A purge takes the note's history**, in `fzn_notes_mark_purged`.
+  Nothing can be kept after, as `fzn_notes_put` refuses a purged note
+  before it supersedes anything.
+- **Collection keeps a version's text**: `names_blob` asks the roots the
+  history names, read once per collection by
+  `fzn_node_notes_history_refresh`, since asking the history per text
+  would read every version once for every text on the shelf. A history
+  that will not read keeps everything, as a tree that will not read does.
+- **`list history ID [FROM]`**: `ok TOTAL FROM`, then the earlier
+  versions oldest first, each `MS,WRITER,here,TITLE` or
+  `MS,WRITER,pending,` for one whose text has not arrived. Paged as
+  `list note` is.
+
+### Measured for sec 581
+
+- notes_test 332: a note never edited has no history; two edits leave
+  the two earlier versions, oldest first, and not the current one;
+  collection keeps both texts; a version whose text is gone lists as
+  pending; a purge leaves no history and no text kept.
+- The purge-queue case filled the suite's 128-row memory store before
+  the queue, each edit now keeping a row: 384 rows.
+- Four sabotage entries: the version kept, the purge's forgetting, the
+  texts kept, and pending said.
+
+### Not tested yet, and why
+
+- **The bound's let-go** needs 4096 versions in a suite's memory store.
+- **A history that will not read keeps everything**: no suite store
+  fails a list while answering loads.
+- **The collect verb's refresh**: the suite calls the refresh itself,
+  having no collect hook in that setup.

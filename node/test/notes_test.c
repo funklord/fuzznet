@@ -114,7 +114,10 @@ static uint64_t now_ms(void)
 
 /* ---- a persist backend over memory -------------------------------------- */
 
-#define MEM_ROWS 128u
+/* 384 since sec 581: each edit now keeps the version it supersedes as a
+ * row of its own, and the purge-queue case edits a note past the queue's
+ * bound with every row it holds. */
+#define MEM_ROWS 384u
 
 struct row {
 	int used;
@@ -1032,6 +1035,60 @@ static int fake_collect(void *ctx, int (*keep)(void *keep_ctx, const uint8_t *ro
 	return 1;
 }
 
+/* A NOTE'S HISTORY, sec 581: what an edit supersedes is kept, listed
+ * oldest first, its text kept by collection, pending once its text is gone,
+ * and taken with the note by a purge. */
+static void test_history(void)
+{
+	uint8_t first_root[FZN_BLOB_HASH_LEN], second_root[FZN_BLOB_HASH_LEN];
+	fzn_note_blob_ref_t ref;
+	char note[65], line[200];
+	const char *a, *b;
+
+	setup(0);
+	CHECK(ask("add note top first") == FZN_REPLY_OK, "fixture: a note");
+	take_id(note);
+	blob_stub_last_root(first_root);
+	snprintf(line, sizeof(line), "list history %s", note);
+	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "0 0"),
+	      "a note never edited has a history");
+	snprintf(line, sizeof(line), "set note %s title second", note);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: an edit");
+	blob_stub_last_root(second_root);
+	snprintf(line, sizeof(line), "set note %s title third", note);
+	CHECK(ask(line) == FZN_REPLY_OK, "fixture: another");
+	snprintf(line, sizeof(line), "list history %s", note);
+	CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "2 0 ", 4u)
+	              && (a = strstr(detail_of(), ",here,first")) != NULL
+	              && (b = strstr(detail_of(), ",here,second")) != NULL && a < b
+	              && !has(",third"),
+	      "two edits did not leave the two earlier versions, oldest first");
+
+	fzn_node_notes_history_refresh(&notes);
+	CHECK(fzn_node_notes_names_blob(&notes, first_root)
+	              && fzn_node_notes_names_blob(&notes, second_root),
+	      "collection would take an earlier version's text");
+
+	memset(&ref, 0, sizeof(ref));
+	memcpy(ref.root, first_root, sizeof(ref.root));
+	blob_stub_drop(&ref);
+	snprintf(line, sizeof(line), "list history %s", note);
+	CHECK(ask(line) == FZN_REPLY_OK && has(",pending,") && has(",here,second")
+	              && !has(",here,first"),
+	      "a version whose text is gone was not listed as pending");
+
+	snprintf(line, sizeof(line), "set note %s trash", note);
+	CHECK(ask(line) == FZN_REPLY_OK && ask("remove note trash") == FZN_REPLY_OK,
+	      "fixture: the note purged");
+	snprintf(line, sizeof(line), "list history %s", note);
+	fzn_node_notes_history_refresh(&notes);
+	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "0 0")
+	              && !fzn_node_notes_names_blob(&notes, second_root),
+	      "a purge left the note's history, or its texts kept");
+	snprintf(line, sizeof(line), "list history %s", "zz");
+	CHECK(ask(line) == FZN_REPLY_MALFORMED, "a history of no id was answered");
+}
+
 static void test_collecting_texts(void)
 {
 	static char long_text[5001];
@@ -1769,6 +1826,7 @@ int main(void)
 	test_import();
 	test_checklist();
 	test_collecting_texts();
+	test_history();
 	test_members_join_the_admitted_set();
 	test_pushing_texts();
 	test_the_journal_chain();

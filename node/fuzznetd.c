@@ -2537,6 +2537,7 @@ static void collect_texts(void)
 
 	if (!shelf_on || !notes_on)
 		return;
+	fzn_node_notes_history_refresh(&node_notes);
 	if (fzn_node_shelf_collect(&shelf, keep_blob, &node_notes, &kept, &removed)
 	    != FZN_NODE_SHELF_OK)
 		say(FZN_ENTRY_ERROR, "shelf/collect", "the shelf would not all be collected");

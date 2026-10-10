@@ -465,6 +465,7 @@ int fzn_persist_slot_is_core(fzn_persist_slot_t slot)
 	case FZN_PERSIST_BUCKET:
 	case FZN_PERSIST_BUCKET_IDS:
 	case FZN_PERSIST_BUCKET_ITEM:
+	case FZN_PERSIST_NOTE_HISTORY:
 		return 0;
 	default:
 		return 1;	/* named or not: see persist.h */

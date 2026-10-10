@@ -9458,6 +9458,20 @@ SABOTAGES = [
 		"a peer's gift replaces the wrap key every record of a note unwraps under -- sec 520",
 	),
 	(
+		"notes-history-kept-on-supersession",
+		"notes/store.c",
+		"\t\tif (store->history)\n\t\t\thistory_keep(store, bytes, held_len);\n",
+		"",
+		"an edit throws away the version it replaces, and a note has no history -- sec 581",
+	),
+	(
+		"notes-history-goes-with-a-purge",
+		"notes/store.c",
+		"\tif (fzn_notes_history_forget(store, id) != FZN_NOTES_OK)\n\t\treturn FZN_NOTES_ERR_BACKEND;\n",
+		"",
+		"a purged note's earlier versions stay, texts and all, after the user asked it gone -- sec 581",
+	),
+	(
 		"notes-wrap-refuses-purged",
 		"notes/store.c",
 		"\tif (fzn_notes_purged(store, id))\n\t\treturn FZN_NOTES_ERR_PURGED;\n\terr = fzn_notes_wrap_get(store, id, held);",
@@ -10744,6 +10758,20 @@ SABOTAGES = [
 		"\t\t\t\tswitch (cls == (uint8_t)FZN_HOLDINGS_NOTES",
 		"\t\t\t\tswitch (0",
 		"a note claim is judged as an estate object and refused -- sec 555",
+	),
+	(
+		"node-notes-history-texts-kept",
+		"node/notes.c",
+		"\t\tif (memcmp(history_roots[i], root, FZN_BLOB_HASH_LEN) == 0)\n\t\t\treturn 1;\n",
+		"\t\tif (memcmp(history_roots[i], root, FZN_BLOB_HASH_LEN) == 0)\n\t\t\tbreak;\n",
+		"collection takes an earlier version's text, and the history lists a version nothing can open -- sec 581",
+	),
+	(
+		"node-notes-history-pending-said",
+		"node/notes.c",
+		"fzn_record_issuer(rec)[7], here ? \"here\" : \"pending\");",
+		"fzn_record_issuer(rec)[7], \"here\");",
+		"a version whose text has not arrived is listed as here, with no title -- sec 581",
 	),
 	(
 		"notes-file-takes-only-claims",

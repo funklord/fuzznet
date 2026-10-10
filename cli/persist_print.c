@@ -122,6 +122,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "an item as its writer signed it, kept to be handed on";
 	case FZN_PERSIST_SIBLING_PREKEY:
 		return "the newest prekey a sibling in the estate carried, so it can be paired";
+	case FZN_PERSIST_NOTE_HISTORY:
+		return "an earlier version of a note, kept as its history";
 	}
 	*known = 0;
 	return "an unknown slot";
