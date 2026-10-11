@@ -144,6 +144,7 @@
 /frame/test/freshness_test
 /chunk/test/reassembly_test
 /chunk/test/split_test
+/chunk/test/erasure_test
 /chunk/test/reassembly_fuzz
 /chain/test/chain_fuzz
 /chain/test/chain_store_fuzz

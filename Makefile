@@ -192,7 +192,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              spool/transfer.c \
              spool/scrub.c \
              chunk/reassembly.c \
-             chunk/split.c \
+             chunk/split.c chunk/erasure.c \
              tree/tree.c \
              wire/seal.c wire/relay.c \
              session/random.c session/random_linux.c session/agree.c \
@@ -288,7 +288,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              spool/scrub.h \
              spool/plan.h \
              chunk/reassembly.h \
-             chunk/split.h \
+             chunk/split.h chunk/erasure.h \
              tree/tree.h \
              wire/seal.h wire/relay.h wire/bytes.h session/aead.h \
              session/random.h session/random_system.h session/agree.h \
@@ -380,7 +380,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              session/test/session_test.c \
              blob/test/blob_fuzz.c \
              frame/test/freshness_test.c \
-             chunk/test/reassembly_test.c chunk/test/split_test.c \
+             chunk/test/reassembly_test.c chunk/test/split_test.c chunk/test/erasure_test.c \
              session/test/commitment_test.c local/test/peer_test.c \
              wire/test/generated_test.c chunk/test/agreement_test.c \
              wire/test/constants_test.c wire/test/seal_test.c \
@@ -517,6 +517,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/local/test/peer_linux_test \
              $(BUILD_DIR)/chunk/test/reassembly_test \
              $(BUILD_DIR)/chunk/test/split_test \
+             $(BUILD_DIR)/chunk/test/erasure_test \
              $(BUILD_DIR)/spool/test/message_fuzz \
              $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/chain/test/chain_fuzz \
@@ -2476,6 +2477,12 @@ $(BUILD_DIR)/chunk/test/reassembly_test: $(BUILD_DIR)/chunk/test/reassembly_test
 
 # Links BOTH halves on purpose: this binary is what holds the splitter and
 # the reassembler to the same contract.
+# The erasure codec alone, sec 594.
+$(BUILD_DIR)/chunk/test/erasure_test: $(BUILD_DIR)/chunk/test/erasure_test.o \
+                                       $(BUILD_DIR)/chunk/erasure.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/chunk/test/split_test: $(BUILD_DIR)/chunk/test/split_test.o \
                                      $(BUILD_DIR)/chunk/split.o \
                                      $(BUILD_DIR)/chunk/reassembly.o
@@ -4198,6 +4205,7 @@ $(BUILD_DIR)/wire/test/tamper_test.o: wire/test/tamper_test.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Iwire/generated -c $< -o $@
 
 $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
+                                      $(BUILD_DIR)/chunk/erasure.o \
                                       $(BUILD_DIR)/node/siblings.o \
                                       $(BUILD_DIR)/contact/contact.o \
                                       $(BUILD_DIR)/contact/group.o \

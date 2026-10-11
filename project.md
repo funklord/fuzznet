@@ -62463,7 +62463,8 @@ fossil did not know, or care, whether it was the last copy.
 - ~~**Copies' fossils are not counted**: a host's archived copies of
   another's log are pruned by their own rules alone (sec 591).~~ They are
   since sec 593.
-- **Erasure coding** stays the later step the holder named.
+- **Erasure coding** stays the later step the holder named. Begun in sec
+  594.
 
 ## 593. Archived copies counted toward the replicas too, 2026-10-11
 
@@ -62494,3 +62495,52 @@ pruned can be the last one just as an own fossil can.
   A up, through phase i's helper, moved before it.
 - No sabotage entry: the change is fuzznetd's, which sabotage.py does not
   reach, and the live control is its measurement.
+
+## 594. Erasure coding planned, and its codec, 2026-10-11
+
+Asked 2026-10-11 what came after the replicas, the holder chose erasure
+coding, 4 data pieces and 2 of parity over archived segments, with the
+whole replicas of sec 592 the fallback for an estate too small to spread
+six pieces. The keys of sealed kinds were put off again: messages and
+notes stay out of the archive.
+
+### The stages of erasure coding
+
+1. **The codec**, a pure library: k data pieces and m parity, any k of
+   which rebuild. Built here.
+2. **A piece's layout and store**: a piece as a situ schema -- its
+   segment's id and length, k, m and its index -- kept in the archive.
+3. **Placement and exchange**: which host keeps which piece, carried by
+   the bucket exchange as the segments are.
+4. **Counting and repair**: a fossil safe once k of its pieces are on
+   distinct hosts, replicas below that, and a piece lost rebuilt from
+   the others.
+
+### Stage 1: the codec
+
+`chunk/erasure.{h,c}`: Reed-Solomon over GF(2^8), the polynomial 0x11d.
+
+- **Systematic**: the data pieces are the buffer, cut into k pieces of
+  len / k rounded up, the last padded with zeros, so while they are all
+  held nothing is computed to read the buffer back.
+- **Parity from a Cauchy matrix**, 1 / (x_j + y_i) with x_j = k + j and
+  y_i = i: every k of the identity's rows and the Cauchy rows are
+  independent, so any k pieces rebuild, data or parity or both. Decoding
+  takes the first k held and inverts their rows by Gauss-Jordan.
+- **No piece is checked here**: a piece wrong in a byte rebuilds a buffer
+  wrong in bytes. The layer above holds what the segment must hash to --
+  its bucket id -- and tries another k when the rebuild does not.
+- Up to 32 pieces in all; no allocation and no I/O.
+
+### Measured for sec 594
+
+- erasure_test 10, in a tenth of a second: 4 + 2 rebuilds from every
+  four of the six pieces, at lengths 1, 3, 4, 5, 1000 and 65537; the data
+  pieces are the data; three lost is too few; a parity piece changed in a
+  byte rebuilds a different buffer; 1 + 1 is a mirror; 8 + 4 rebuilds
+  from every eight of twelve; 24 + 8 rebuilds with eight data pieces
+  lost; malformed shapes are refused.
+- err_str_test's new row; installcheck takes the header.
+- Three sabotage entries: the field's polynomial, the pivot's row swap,
+  and too few. No entry for zeroing the padding: the rebuild writes only
+  `len` bytes, so stale padding changes nothing a reader sees.

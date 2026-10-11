@@ -158,6 +158,7 @@
 #include <fuzznet/chain/revocation.h>
 #include <fuzznet/chunk/reassembly.h>
 #include <fuzznet/chunk/split.h>
+#include <fuzznet/chunk/erasure.h>
 #include <fuzznet/constant_time/constant_time.h>
 #include <fuzznet/frame/freshness.h>
 #include <fuzznet/local/peer.h>
@@ -331,6 +332,7 @@
 #include "chain/revocation.h"
 #include "chunk/reassembly.h"
 #include "chunk/split.h"
+#include "chunk/erasure.h"
 #include "constant_time/constant_time.h"
 #include "frame/freshness.h"
 #include "local/peer.h"

@@ -10984,6 +10984,27 @@ SABOTAGES = [
 		"a copy archived is let go as a file gone, and taken again from its host -- sec 590",
 	),
 	(
+		"erasure-field-polynomial",
+		"chunk/erasure.c",
+		"\t\t\tx ^= 0x11du;\n",
+		"\t\t\tx ^= 0x11bu;\n",
+		"the field's tables built on a polynomial 2 does not generate, so products and inverses are wrong -- sec 594",
+	),
+	(
+		"erasure-decode-swaps-for-a-pivot",
+		"chunk/erasure.c",
+		"\t\tif (p != c)\n\t\t\tfor (i = 0; i < k; i++) {",
+		"\t\tif (0)\n\t\t\tfor (i = 0; i < k; i++) {",
+		"a missing data piece leaves a zero on the diagonal, and the inverse is taken without the row that clears it -- sec 594",
+	),
+	(
+		"erasure-decode-needs-k",
+		"chunk/erasure.c",
+		"\tif (n < k)\n\t\treturn FZN_ERASURE_ERR_TOO_FEW;\n",
+		"",
+		"fewer pieces than k rebuild from rows never filled -- sec 594",
+	),
+	(
 		"settings-address-port-in-range",
 		"node/settings.c",
 		"\tp = count_of(value + space + 1u, len - space - 1u, 65535u);\n\tif (!p)\n\t\treturn 0;\n",
