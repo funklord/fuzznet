@@ -62510,6 +62510,7 @@ notes stay out of the archive.
    which rebuild. Built here.
 2. **A piece's layout and store**: a piece as a situ schema -- its
    segment's id and length, k, m and its index -- kept in the archive.
+   Built in sec 595.
 3. **Placement and exchange**: which host keeps which piece, carried by
    the bucket exchange as the segments are.
 4. **Counting and repair**: a fossil safe once k of its pieces are on
@@ -62544,3 +62545,50 @@ notes stay out of the archive.
 - Three sabotage entries: the field's polynomial, the pivot's row swap,
   and too few. No entry for zeroing the padding: the rebuild writes only
   `len` bytes, so stale padding changes nothing a reader sees.
+
+## 595. A piece's layout and its store, 2026-10-11
+
+The second stage of sec 594: an item cut into pieces on disk, and rebuilt
+from the pieces present.
+
+### The layout
+
+`chunk/piece.situ`, in `make schema`'s list: a 49-byte head -- version,
+the bucket kind, the item's 32-byte id, its length, k, m and the piece's
+index -- then the piece, `piece_len` bytes. The schema bounds each field;
+what it cannot say the codec checks: k + m at most 32, the index below
+k + m, and `piece_len` the item's length over k rounded up.
+
+### The store
+
+`node/pieces.{h,c}`, built with the packed logs (`LOG_PACK_ON`), since
+the archived segments are what it is for.
+
+- **Cut**: an item, its kind and id into k + m files `IDHEX.INDEX.piece`
+  in a directory made 0700, each written beside its name, synced and
+  renamed into place, so a piece under its name is always whole.
+- **Held**: the mask of the indices present, nothing read.
+- **Rebuild**: every piece present read, its head held to its name -- the
+  id, the index, the kind asked for -- and to the first piece read; then
+  every k of them, the first k first, until one rebuilds to the id under
+  `fzn_buckets_id`. A piece wrong in a byte is outvoted by trying another
+  k, which is what the m spare are for. At most 1024 sets are tried, and
+  past 20 pieces only the first k held, since the sets are then too many.
+- Errors: too few (fewer than k agreeing pieces), no match (k or more,
+  and no k rebuilding to the id), malformed, and a file that would not
+  be made or read.
+
+The pieces' directory, and which host keeps which piece, are stage 3's.
+
+### Measured for sec 595
+
+- pieces_test 10: a 4 + 2 cut writes six pieces, mask 0x3f; the rebuild
+  takes the four data pieces; with piece 1 changed in a byte the rebuild
+  comes from another four and still matches; with pieces 0 and 4 gone as
+  well no four rebuild, NO_MATCH; asked as another kind, or with three
+  pieces left, TOO_FEW; malformed cuts refused. Its scratch is removed by
+  name and none was left.
+- err_str_test's row (under `LOG_PACK_ON`, which links `node/pieces.o`);
+  installcheck takes the header; `make schema` takes the layout.
+- Two sabotage entries: the rebuild checked against the id, and the
+  head's kind held to the one asked for.

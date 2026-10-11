@@ -10984,6 +10984,20 @@ SABOTAGES = [
 		"a copy archived is let go as a file gone, and taken again from its host -- sec 590",
 	),
 	(
+		"pieces-rebuild-checked-against-the-id",
+		"node/pieces.c",
+		"\t\t    && fzn_buckets_id(hash, out, item_len, check)\n\t\t    && memcmp(check, id, FZN_BUCKETS_ID_LEN) == 0) {\n\t\t\t*len = item_len;\n\t\t\tif (used)\n\t\t\t\t*used = mask;\n\t\t\terr = FZN_PIECES_OK;\n\t\t\tbreak;",
+		"\t\t    ) {\n\t\t\t*len = item_len;\n\t\t\tif (used)\n\t\t\t\t*used = mask;\n\t\t\terr = FZN_PIECES_OK;\n\t\t\tbreak;",
+		"a piece wrong in a byte rebuilds a wrong item, and it is handed on as the archived segment -- sec 595",
+	),
+	(
+		"pieces-head-is-the-items",
+		"node/pieces.c",
+		"\tif (head[OFF_VERSION] != 1u || head[OFF_KIND] != kind\n",
+		"\tif (head[OFF_VERSION] != 1u\n",
+		"a piece of another kind of item is taken into this one's rebuild -- sec 595",
+	),
+	(
 		"erasure-field-polynomial",
 		"chunk/erasure.c",
 		"\t\t\tx ^= 0x11du;\n",

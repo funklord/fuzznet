@@ -1,0 +1,24 @@
+// One erasure-coded piece of an archived item, project.md sec 595: kept as
+// a file under ARCHIVE/pieces/, named by its item's id and its index. The
+// pieces of one item rebuild it through chunk/erasure.h, and the rebuilt
+// bytes must hash to `item_id`, which is the only check a piece needs: one
+// wrong in a byte rebuilds an item that does not. The hand-written codec is
+// node/pieces.c; this is its checked contract, in `make schema`'s list.
+//
+// What the schema cannot say and the codec checks: k + m is at most 32,
+// `index` is below k + m, and `piece_len` is item_len / k rounded up.
+
+target buffer;
+endian big;
+
+struct fzn_erasure_piece {
+	u8   version [must_eq = 1];
+	u8   kind [max = 1];                      // the bucket kind, node/buckets.situ
+	u8   item_id[32];                         // the item's bucket id
+	u64  item_len [min = 1, max = 67108864];  // a large item's bound, sec 570
+	u8   k [min = 1, max = 31];               // data pieces
+	u8   m [min = 1, max = 31];               // parity pieces
+	u8   index [max = 31];                    // this piece's, data first
+	u32  piece_len [min = 1, max = 67108864];
+	u8   piece[piece_len];
+}

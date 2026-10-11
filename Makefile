@@ -1325,9 +1325,9 @@ TEST_BINS += $(BUILD_DIR)/log/test/logger_test
 TEST_BINS += $(BUILD_DIR)/log/test/gather_test
 endif
 
-LOG_PACK_SRCS := log/pack.c log/copy.c node/log_buckets.c
-LOG_PACK_HDRS := log/pack.h log/copy.h node/log_buckets.h
-LOG_PACK_TSRC := log/test/pack_test.c node/test/log_buckets_test.c
+LOG_PACK_SRCS := log/pack.c log/copy.c node/log_buckets.c node/pieces.c
+LOG_PACK_HDRS := log/pack.h log/copy.h node/log_buckets.h node/pieces.h
+LOG_PACK_TSRC := log/test/pack_test.c node/test/log_buckets_test.c node/test/pieces_test.c
 
 ifdef LOG_PACK_ON
 CPPFLAGS  += -DFZN_LOG_PACK_ON
@@ -1336,6 +1336,7 @@ HDRS      += $(LOG_PACK_HDRS)
 TEST_SRCS += $(LOG_PACK_TSRC)
 TEST_BINS += $(BUILD_DIR)/log/test/pack_test
 TEST_BINS += $(BUILD_DIR)/node/test/log_buckets_test
+TEST_BINS += $(BUILD_DIR)/node/test/pieces_test
 endif
 
 CLAIM_FILE_SRCS := claim/claim_file.c
@@ -4030,6 +4031,13 @@ $(BUILD_DIR)/node/test/buckets_test: $(BUILD_DIR)/node/test/buckets_test.o \
 	$(CC) $(CFLAGS) $^ -o $@
 
 # A host's packed log segments as bucket items, sec 571.
+# An item as erasure-coded pieces on disk, sec 595.
+$(BUILD_DIR)/node/test/pieces_test: $(BUILD_DIR)/node/test/pieces_test.o \
+                                    $(BUILD_DIR)/node/pieces.o $(BUILD_DIR)/node/buckets.o \
+                                    $(BUILD_DIR)/chunk/erasure.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/node/test/log_buckets_test: $(BUILD_DIR)/node/test/log_buckets_test.o \
                                          $(BUILD_DIR)/node/log_buckets.o \
                                          $(BUILD_DIR)/node/reconcile.o \
@@ -4233,7 +4241,8 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o \
                                         $(BUILD_DIR)/log/gather.o) \
                                       $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o \
-                                        $(BUILD_DIR)/log/copy.o) \
+                                        $(BUILD_DIR)/log/copy.o \
+                                        $(BUILD_DIR)/node/pieces.o) \
                                       $(BUILD_DIR)/state/scope.o \
                                       $(BUILD_DIR)/state/setting.o \
                                       $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/siblings.o \
@@ -5855,7 +5864,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               record/exchange.situ \
               notes/sync.situ notes/note.situ node/opjournal.situ messages/line.situ \
               messages/keys.situ state/setting.situ node/reconcile.situ node/buckets.situ \
-              log/entry.situ log/cause.situ log/gather.situ
+              log/entry.situ log/cause.situ log/gather.situ chunk/piece.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #

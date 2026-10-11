@@ -1,0 +1,23 @@
+# situ capability map v1
+# schema: piece.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct fzn_erasure_piece size=50..67108913 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_erasure_piece.version              offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_erasure_piece.kind                 offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_erasure_piece.item_id              offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_erasure_piece.item_len             offset=AbsoluteStatic(0x22) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_erasure_piece.k                    offset=AbsoluteStatic(0x2A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_erasure_piece.m                    offset=AbsoluteStatic(0x2B) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_erasure_piece.index                offset=AbsoluteStatic(0x2C) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord
+  fzn_erasure_piece.piece_len            offset=AbsoluteStatic(0x2D) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_erasure_piece.piece                offset=AbsoluteStatic(0x31) size=Bounded(1, 67108864) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
