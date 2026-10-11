@@ -63,13 +63,39 @@ void fzn_piece_buckets_close(fzn_piece_buckets_t *pb);
 int fzn_piece_buckets_rank(const fzn_hash_ops_t *hash, const uint8_t id[FZN_BUCKETS_ID_LEN],
                            const uint8_t (*hosts)[32], size_t n, size_t *order);
 
-/* PLACE the pieces of `id` already cut into the pieces directory: piece i
- * taken into the bucket (pieces, `keepers[i]`, `month`) for i below `n`,
- * each read and hashed for its id. `*placed` counts those newly taken; 0
- * when a piece is missing or the store refused. */
+/* PLACE the pieces of `id` already cut `k` + `m` into the pieces
+ * directory: the placement recorded first, as `IDHEX.cut`
+ * (`chunk/piece.situ`'s fzn_erasure_cut), then piece i taken into the
+ * bucket (pieces, `keepers[i]`, `month`), each read and hashed for its id.
+ * `*placed` counts those newly taken; 0 when a piece is missing, the
+ * record would not be written, or the store refused. */
 int fzn_piece_buckets_place(fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKETS_ID_LEN],
-                            uint32_t month, const uint8_t (*keepers)[32], size_t n,
-                            size_t *placed);
+                            uint32_t month, unsigned k, unsigned m,
+                            const uint8_t (*keepers)[32], size_t *placed);
+
+/* THE PLACEMENT OF `id`, sec 599, as this host recorded it when it cut
+ * it: k, m and the keeper of each piece. 0 when it cut none of it, or the
+ * record is not one. */
+int fzn_piece_buckets_cut_of(const fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKETS_ID_LEN],
+                             unsigned *k, unsigned *m, uint8_t (*keepers)[32]);
+
+/* PIECE `index` OF `id`'s own id, as it was placed: what a keeper is asked
+ * for. Read from the ref it was taken under, which outlives letting it go.
+ * 0 when none was placed. */
+int fzn_piece_buckets_piece_id(const fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKETS_ID_LEN],
+                               unsigned index, uint8_t piece_id[FZN_BUCKETS_ID_LEN]);
+
+/* WHOSE ITEM the held piece `piece_id` is a piece of, from its head: the
+ * host its pieces are served to besides their keepers. 0 when not held
+ * here. */
+int fzn_piece_buckets_host(const fzn_piece_buckets_t *pb,
+                           const uint8_t piece_id[FZN_BUCKETS_ID_LEN], uint8_t host[32]);
+
+/* LET GO OF PIECE `index` OF `id` here: its file removed and its item let
+ * go, its id left in its bucket. For a piece its keeper holds. 0 on a store
+ * that refused or a file that would not go. */
+int fzn_piece_buckets_let_go(fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKETS_ID_LEN],
+                             unsigned index);
 
 /* The filer the reconcile exchange takes, reads and serves this kind
  * through. */

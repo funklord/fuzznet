@@ -62513,9 +62513,10 @@ notes stay out of the archive.
    Built in sec 595.
 3. **Placement and exchange**: which host keeps which piece, carried by
    the bucket exchange as the segments are. Built in sec 597.
-4. **Counting and repair**: a fossil safe once k of its pieces are on
-   distinct hosts, replicas below that, and a piece lost rebuilt from
-   the others.
+4. **Counting and repair**: counting built in sec 599, by a stricter
+   measure than first written here -- k + min(m, R - 1) pieces on
+   distinct hosts, not k, since k held bears no loss at all. Repair, a
+   piece lost rebuilt from the others, is still open.
 
 ### Stage 1: the codec
 
@@ -62553,9 +62554,10 @@ from the pieces present.
 
 ### The layout
 
-`chunk/piece.situ`, in `make schema`'s list: a 49-byte head -- version,
-the bucket kind, the item's 32-byte id, its length, k, m and the piece's
-index -- then the piece, `piece_len` bytes. The schema bounds each field;
+`chunk/piece.situ`, in `make schema`'s list: a head -- version, the
+bucket kind, the item's 32-byte id, its length, k, m and the piece's
+index; 49 bytes here, 81 since sec 599 added whose item it is -- then the
+piece, `piece_len` bytes. The schema bounds each field;
 what it cannot say the codec checks: k + m at most 32, the index below
 k + m, and `piece_len` the item's length over k rounded up.
 
@@ -62674,20 +62676,17 @@ shape or past 32 pieces.
   1+1 set, and 20+13, `6+` refused, 20+12 at the bound.
 - livecheck's live_rejoin phase j: with `archive/erasure` at 1+1, B cuts
   its fossils -- five in the run measured, ten pieces -- keeps both of
-  each, and A keeps the one of each placed on it, each the segment's whole item after a 49-byte
-  head.
+  each, and A keeps the one of each placed on it, each the segment's
+  whole item after the head, 49 bytes then.
 - Five sabotage entries: the keeper check, the wanted check, a piece kept
   whole, pieces made under a new archive, and the archive scanned.
 
 ### Not yet after sec 597
 
-- **Counting and repair, stage 4**: a fossil is held once k of its pieces
-  sit on distinct hosts; until then, and below it, the replicas guard it.
-  The segment's host keeps every piece it cut until then, so nothing is
-  saved yet; letting go of the whole and of the others' pieces is stage
-  4's, with a lost piece rebuilt from the rest.
-- The gate that serves a piece only to its keeper is in fuzznetd and
-  checked by the live phase alone, since `make test` runs no daemon.
+- Counting and letting go were built in sec 599; repair is open there.
+- The gate that serves a piece's bucket only to its keeper is in
+  fuzznetd and checked by the live phase alone, since `make test` runs no
+  daemon.
 
 ## 598. situ's C runtime re-vendored at b53e565, 2026-10-11
 
@@ -62704,3 +62703,71 @@ their banners, which name the pin, as sec 574 did.
 
 - `make schema SITU_DIR=../situ` passes again; `make test` and
   `make livecheck` pass against the new runtime.
+
+## 599. Erasure stage 4: pieces counted, and the wholes let go, 2026-10-11
+
+The counting half of stage 4 (sec 594): a fossil held by its pieces may
+be pruned whole, and the host that cut it keeps only its own pieces.
+
+### How many pieces hold a fossil
+
+**k + min(m, R - 1) on distinct hosts**, R the estate's `archive/replicas`.
+Sec 594 first said k, and k is too few: k held rebuilds the fossil today
+and bears no loss at all, where the R replicas a whole needs bear R - 1.
+So pieces are asked to bear the losses replicas would, capped at the m
+they can: 4 + 2 under R = 2 needs five pieces held, under R = 3 all six.
+
+### Asked of each keeper
+
+The host that cut a fossil asks each keeper, each round after the
+exchange, whether it holds its piece -- the length and no byte, as sec
+592 asks of a whole. Two things make that possible:
+
+- **The piece names whose item it is**: `chunk/piece.situ`'s head gains
+  `host[32]`, 81 bytes now. The layout changed before any build stored
+  one, so it stays version 1.
+- **One item may be served where its bucket is not**: the exchange's gate
+  gains `serves_item`, asked for an item queried by id. fuzznetd's serves
+  a piece to the host its head names, so the cutter can count -- and
+  later rebuild from -- pieces placed on others. The bucket listing is
+  unchanged: a host still pulls only the pieces placed on it.
+
+### What the cutter keeps, sec 599
+
+- **A placement record**, `IDHEX.cut` beside the pieces
+  (`chunk/piece.situ`'s `fzn_erasure_cut`): k, m and each keeper, written
+  before the pieces are taken. A let-go bucket row no longer names its
+  subject, and the cut must still be counted after its copies go.
+- **Held enough, this host's copies of the others' pieces go**: let go in
+  their bucket, their id kept so nothing fetches them back, and the file
+  removed. Each piece's id is read from the ref it was taken under, which
+  outlives letting it go.
+- **And the whole may be pruned**: the replicas pass (sec 592) confirms a
+  fossil its pieces hold as it would one with R holders.
+
+### Measured for sec 599
+
+- piece_buckets_test 42: the placement record reads back as placed, and
+  a host that placed nothing has none; the id piece 1 was placed under is
+  the one its keeper holds, and the piece says whose item it is; asked by
+  id, the keeper does not show the piece to its item's host without the
+  item gate and does with it; let go, the cutter's copy leaves the disk,
+  its id still had and served as not held, and its id still readable.
+- live_rejoin phase j, after the cut: `archive/replicas` set to 3, which
+  two hosts cannot meet with wholes, B counts its five fossils held by
+  their pieces -- 1 + min(1, 2) = 2, one on each host -- lets go of its
+  copies of A's pieces, keeping five, and under `prune * archived count 0`
+  prunes every whole. Two controls, each a hand-break run and restored:
+  the piece's item gate refusing, and B counts all five short and lets
+  none go; the replicas pass ignoring the pieces, and no whole is pruned.
+- Three sabotage entries: the item gate, the piece naming its host, and a
+  let-go piece leaving the disk; sec 567's item-gate entry re-anchored.
+
+### Not yet after sec 599
+
+- **Repair**: a keeper found not holding its piece. While the cutter
+  still holds that piece the bucket push delivers it again; once let go,
+  it must be rebuilt -- k pieces fetched from their keepers by id, which
+  the item gate now allows, then cut and placed again.
+- The count asks every keeper every round, a request per piece; a
+  fossil held long might be asked less often.

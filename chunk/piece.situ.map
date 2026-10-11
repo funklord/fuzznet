@@ -11,13 +11,26 @@
 # A struct's size is a bare number where it is fixed, `min..max` where
 # it is bounded, and `min..` where nothing bounds it.
 
-struct fzn_erasure_piece size=50..67108913 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+struct fzn_erasure_cut size=99..2019 mutate=Shifting atomic=NonAtomic
+  fzn_erasure_cut.version                offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_erasure_cut.item_id                offset=AbsoluteStatic(0x01) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  fzn_erasure_cut.k                      offset=AbsoluteStatic(0x21) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_erasure_cut.m                      offset=AbsoluteStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_erasure_cut.keepers                offset=AbsoluteStatic(0x23) size=Bounded(64, 1984) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting
+  fzn_erasure_cut.keepers[]              offset=FrameStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+  fzn_erasure_cut.keepers[].key          offset=FrameStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+
+struct fzn_erasure_keeper size=32 atomic=NonAtomic
+  fzn_erasure_keeper.key                 offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic
+
+struct fzn_erasure_piece size=82..67108945 mutate=Shifting repr=ValueConverted atomic=NonAtomic
   fzn_erasure_piece.version              offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
   fzn_erasure_piece.kind                 offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
   fzn_erasure_piece.item_id              offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
-  fzn_erasure_piece.item_len             offset=AbsoluteStatic(0x22) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
-  fzn_erasure_piece.k                    offset=AbsoluteStatic(0x2A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
-  fzn_erasure_piece.m                    offset=AbsoluteStatic(0x2B) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
-  fzn_erasure_piece.index                offset=AbsoluteStatic(0x2C) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord
-  fzn_erasure_piece.piece_len            offset=AbsoluteStatic(0x2D) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
-  fzn_erasure_piece.piece                offset=AbsoluteStatic(0x31) size=Bounded(1, 67108864) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_erasure_piece.host                 offset=AbsoluteStatic(0x22) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_erasure_piece.item_len             offset=AbsoluteStatic(0x42) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_erasure_piece.k                    offset=AbsoluteStatic(0x4A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_erasure_piece.m                    offset=AbsoluteStatic(0x4B) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_erasure_piece.index                offset=AbsoluteStatic(0x4C) size=Fixed(1) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord
+  fzn_erasure_piece.piece_len            offset=AbsoluteStatic(0x4D) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_erasure_piece.piece                offset=AbsoluteStatic(0x51) size=Bounded(1, 67108864) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting

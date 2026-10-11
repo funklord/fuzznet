@@ -6,7 +6,8 @@
 // node/pieces.c; this is its checked contract, in `make schema`'s list.
 //
 // What the schema cannot say and the codec checks: k + m is at most 32,
-// `index` is below k + m, and `piece_len` is item_len / k rounded up.
+// `index` is below k + m, and `piece_len` is item_len / k rounded up; and
+// in a cut record, that k + m is at most 32.
 
 target buffer;
 endian big;
@@ -15,10 +16,26 @@ struct fzn_erasure_piece {
 	u8   version [must_eq = 1];
 	u8   kind [max = 1];                      // the bucket kind, node/buckets.situ
 	u8   item_id[32];                         // the item's bucket id
+	u8   host[32];                            // whose item: served to it, sec 599
 	u64  item_len [min = 1, max = 67108864];  // a large item's bound, sec 570
 	u8   k [min = 1, max = 31];               // data pieces
 	u8   m [min = 1, max = 31];               // parity pieces
 	u8   index [max = 31];                    // this piece's, data first
 	u32  piece_len [min = 1, max = 67108864];
 	u8   piece[piece_len];
+}
+
+// THE PLACEMENT OF ONE ITEM'S PIECES, sec 599: kept by the host that cut
+// them, as ARCHIVE/pieces/IDHEX.cut, so it can ask each keeper for its
+// piece after letting go of its own copies of them. Keeper i keeps piece i.
+struct fzn_erasure_keeper {
+	u8   key[32];                             // a host's node key
+}
+
+struct fzn_erasure_cut {
+	u8   version [must_eq = 1];
+	u8   item_id[32];
+	u8   k [min = 1, max = 31];
+	u8   m [min = 1, max = 31];
+	fzn_erasure_keeper keepers[k + m];
 }

@@ -335,7 +335,10 @@ static size_t answer_item(const fzn_reconcile_server_t *srv, const fzn_buckets_t
 			size = 0;
 		len = (size_t)size;
 	}
-	if (err != FZN_BUCKETS_ABSENT && !served(gate, request[2], subject))
+	if (err != FZN_BUCKETS_ABSENT && !served(gate, request[2], subject)
+	    && !(gate && gate->serves_item
+	         && gate->serves_item(gate->ctx, (fzn_buckets_kind_t)request[2], subject,
+	                              request + 3u)))
 		len = 0;
 	/* NOT HELD answers 0 of 0; an offset past the end, nothing of all. */
 	if (offset < len) {

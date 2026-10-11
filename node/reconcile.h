@@ -130,6 +130,12 @@ size_t fzn_reconcile_answer(const fzn_persist_ops_t *store, const fzn_hash_ops_t
 typedef struct fzn_reconcile_gate {
 	int (*serves)(void *ctx, fzn_buckets_kind_t kind, const uint8_t subject[FZN_PUBKEY_LEN]);
 	void *ctx;
+	/* ONE ITEM ASKED BY ID, sec 599, served where its bucket is not (may
+	 * be NULL): a piece to the host whose item it is a piece of, which
+	 * counts and rebuilds its pieces from their keepers. */
+	int (*serves_item)(void *ctx, fzn_buckets_kind_t kind,
+	                   const uint8_t subject[FZN_PUBKEY_LEN],
+	                   const uint8_t id[FZN_BUCKETS_ID_LEN]);
 } fzn_reconcile_gate_t;
 
 /* `fzn_reconcile_answer`, with the buckets of append-only kinds answered

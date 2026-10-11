@@ -10405,7 +10405,11 @@ SABOTAGES = [
 	(
 		'reconcile-gate-bars-items',
 		'node/reconcile.c',
-		'\tif (err != FZN_BUCKETS_ABSENT && !served(gate, request[2], subject))\n\t\tlen = 0;\n',
+		'\tif (err != FZN_BUCKETS_ABSENT && !served(gate, request[2], subject)\n'
+		'\t    && !(gate && gate->serves_item\n'
+		'\t         && gate->serves_item(gate->ctx, (fzn_buckets_kind_t)request[2], subject,\n'
+		'\t                              request + 3u)))\n'
+		'\t\tlen = 0;\n',
 		'',
 		'a caller asking a barred item by its id is handed it -- sec 567',
 	),
@@ -10982,6 +10986,27 @@ SABOTAGES = [
 		"\t\tif (k > 0 && (size_t)k < PATH_MAX_ && lb->archive[0] && access(path, F_OK) != 0)\n\t\t\tk = snprintf(path, PATH_MAX_, \"%s/copy/%s/%s\", lb->archive",
 		"\t\tif (0)\n\t\t\tk = snprintf(path, PATH_MAX_, \"%s/copy/%s/%s\", lb->archive",
 		"a copy archived is let go as a file gone, and taken again from its host -- sec 590",
+	),
+	(
+		"reconcile-item-served-by-its-own-gate",
+		"node/reconcile.c",
+		"\tif (err != FZN_BUCKETS_ABSENT && !served(gate, request[2], subject)\n\t    && !(gate && gate->serves_item\n",
+		"\tif (err != FZN_BUCKETS_ABSENT && !served(gate, request[2], subject)\n\t    && !(0 && gate && gate->serves_item\n",
+		"a host cannot learn its pieces are held, so none is ever counted and every whole is kept -- sec 599",
+	),
+	(
+		"pieces-say-whose-item",
+		"node/pieces.c",
+		"\tmemcpy(head + OFF_HOST, host, 32u);\n",
+		"",
+		"a piece names no host, and the host whose item it is cannot be served it -- sec 599",
+	),
+	(
+		"pieces-let-go-removes-the-file",
+		"node/piece_buckets.c",
+		"\treturn remove(path) == 0 || errno == ENOENT;\n}",
+		"\treturn 1;\n}",
+		"a piece let go stays on disk, and counting saves nothing -- sec 599",
 	),
 	(
 		"pieces-kept-only-on-their-keeper",

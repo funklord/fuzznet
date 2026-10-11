@@ -1793,12 +1793,32 @@ static void line_pushed(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN], uint32
 	fzn_node_messages_pushed((fzn_node_messages_t *)ctx, contact, epoch, item, len);
 }
 
+#if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
+/* A PIECE ASKED BY ID is also served to the host whose item it is a piece
+ * of, sec 599, which counts its pieces and rebuilds from them; its head
+ * says whose. */
+static int serves_piece(void *ctx, fzn_buckets_kind_t kind, const uint8_t subject[FZN_PUBKEY_LEN],
+                        const uint8_t id[FZN_BUCKETS_ID_LEN])
+{
+	const struct serving_to *to = (const struct serving_to *)ctx;
+	uint8_t host[FZN_PUBKEY_LEN];
+
+	(void)subject;
+	return kind == FZN_BUCKETS_PIECES && pieces_ready
+	       && fzn_piece_buckets_host(&node_pieces, id, host)
+	       && memcmp(host, to->sender, FZN_PUBKEY_LEN) == 0;
+}
+#define SERVES_PIECE serves_piece
+#else
+#define SERVES_PIECE NULL
+#endif
+
 static size_t holdings_remote(void *ctx, const uint8_t *sender, const uint8_t *request,
                               size_t request_len, uint8_t *reply, size_t reply_cap)
 {
 	const fzn_node_apply_t *ap = (const fzn_node_apply_t *)ctx;
 	struct serving_to to = { sender, -1 };
-	fzn_reconcile_gate_t gate = { serves_bucket, &to };
+	fzn_reconcile_gate_t gate = { serves_bucket, &to, SERVES_PIECE };
 	fzn_reconcile_filer_t lines = { line_file, line_wanted, &line_rules, NULL, NULL, NULL };
 	fzn_reconcile_server_t srv;
 
@@ -1844,6 +1864,123 @@ static int peer_in_estate(const struct pull_target *pt)
 }
 
 #if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
+/* THE FOSSILS THEIR PIECES HOLD, sec 599: of this host's cut fossils, the
+ * ids whose pieces enough distinct hosts were found holding this round. */
+#define FZND_PIECES_COUNTED 256u
+static uint8_t pieces_ok[FZND_PIECES_COUNTED][FZN_BUCKETS_ID_LEN];
+static size_t n_pieces_ok;
+
+static int pieces_enough(const uint8_t id[FZN_BUCKETS_ID_LEN])
+{
+	size_t i;
+
+	for (i = 0; i < n_pieces_ok; i++)
+		if (memcmp(pieces_ok[i], id, FZN_BUCKETS_ID_LEN) == 0)
+			return 1;
+	return 0;
+}
+
+/* WHICH PIECES OF `id` THEIR KEEPERS HOLD, asked this round: this host's
+ * own by its file, each other's by asking that keeper -- a peer of the
+ * estate that answered -- whether it holds the piece, the length and no
+ * byte. Bit i of the result for piece i. */
+static uint32_t pieces_kept(struct pull_target *pulls, size_t npulls, uint64_t now,
+                            const uint8_t id[FZN_BUCKETS_ID_LEN], unsigned n,
+                            const uint8_t (*keepers)[FZN_PUBKEY_LEN])
+{
+	static uint8_t reply[FZND_PULL_REPLY_MAX];
+	uint32_t here = 0, kept = 0;
+	unsigned i;
+	size_t t;
+
+	(void)fzn_pieces_held(node_pieces.dir, id, &here);
+	for (i = 0; i < n; i++) {
+		uint8_t piece_id[FZN_BUCKETS_ID_LEN];
+
+		if (memcmp(keepers[i], dlog.host, FZN_PUBKEY_LEN) == 0) {
+			kept |= here & (1u << i);
+			continue;
+		}
+		if (!fzn_piece_buckets_piece_id(&node_pieces, id, i, piece_id))
+			continue;
+		for (t = 0; t < npulls; t++) {
+			struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
+			int has = 0;
+
+			if (memcmp(pulls[t].pairing.node, keepers[i], FZN_PUBKEY_LEN) != 0
+			    || silent_peer(&pulls[t]) || !peer_in_estate(&pulls[t]))
+				continue;
+			if (fzn_reconcile_peer_holds(FZN_BUCKETS_PIECES, piece_id, peer_ask, &asking,
+			                             reply, sizeof(reply), &has)
+			            == FZN_RECONCILE_OK
+			    && has)
+				kept |= 1u << i;
+			break;
+		}
+	}
+	return kept;
+}
+
+/* THIS HOST'S CUT FOSSILS COUNTED, sec 599, each round after the
+ * exchange: a fossil is held by its pieces once k + min(m, R - 1) of them
+ * sit on distinct hosts -- R `archive/replicas`, so pieces bear the losses
+ * whole replicas would -- and this host then lets go of its copies of the
+ * pieces their keepers hold. Each keeper is a distinct host by placement. */
+static void count_pieces(struct pull_target *pulls, size_t npulls, uint64_t now, unsigned want)
+{
+	static uint8_t keepers[FZN_ERASURE_PIECES_MAX][FZN_PUBKEY_LEN];
+	size_t counted = 0, short_of = 0, let_go = 0;
+	struct dirent *e;
+	DIR *d;
+
+	n_pieces_ok = 0;
+	if (!pieces_ready || !dlog.has_host || (d = opendir(node_pieces.dir)) == NULL)
+		return;
+	while ((e = readdir(d)) != NULL && counted < FZND_PIECES_COUNTED) {
+		uint8_t id[FZN_BUCKETS_ID_LEN];
+		unsigned k = 0, m = 0, need, held = 0, i;
+		uint32_t kept, here = 0;
+		char hex[65];
+
+		/* `IDHEX.cut`: the id read from the name's first 64. */
+		if (strlen(e->d_name) != 68u || strcmp(e->d_name + 64, ".cut") != 0
+		    || strspn(e->d_name, "0123456789abcdef") != 64u)
+			continue;
+		memcpy(hex, e->d_name, 64u);
+		hex[64] = '\0';
+		if (!hex_bytes(hex, id, sizeof(id))
+		    || !fzn_piece_buckets_cut_of(&node_pieces, id, &k, &m, keepers))
+			continue;
+		counted++;
+		kept = pieces_kept(pulls, npulls, now, id, k + m, (const uint8_t (*)[32])keepers);
+		for (i = 0; i < k + m; i++)
+			held += (kept >> i) & 1u;
+		need = k + (want > 1u ? (m < want - 1u ? m : want - 1u) : 0u);
+		if (held < need) {
+			short_of++;
+			continue;
+		}
+		if (n_pieces_ok < FZND_PIECES_COUNTED)
+			memcpy(pieces_ok[n_pieces_ok++], id, FZN_BUCKETS_ID_LEN);
+		/* ITS KEEPERS HOLD THEM: this host's copies go. */
+		(void)fzn_pieces_held(node_pieces.dir, id, &here);
+		for (i = 0; i < k + m; i++)
+			if (memcmp(keepers[i], dlog.host, FZN_PUBKEY_LEN) != 0
+			    && ((kept & here) >> i) & 1u) {
+				if (fzn_piece_buckets_let_go(&node_pieces, id, i))
+					let_go++;
+				else
+					say(FZN_ENTRY_WARNING, "log/copy", "a piece of %.8s would not be let go",
+					    e->d_name);
+			}
+	}
+	(void)closedir(d);
+	if (counted)
+		say(FZN_ENTRY_INFO, "log/copy",
+		    "pieces: %zu cut fossil(s), %zu held by too few hosts, %zu piece(s) let go to "
+		    "their keepers", counted, short_of, let_go);
+}
+
 /* THE FOSSILS OF ONE ARCHIVE DIRECTORY WEIGHED, sec 592: each the `rules`
  * would prune, its ref `prefix` and its name, asked of each peer of the
  * estate that answered this round -- held or not, the length and no byte
@@ -1879,6 +2016,12 @@ static void weigh(struct pull_target *pulls, size_t npulls, uint64_t now, const 
 			                          strlen(ref), id, &len)
 			               != FZN_BUCKETS_OK) {
 				(*short_of)++;
+				continue;
+			}
+			/* HELD BY ITS PIECES, sec 599: as good as `want` replicas. */
+			if (prefix[0] == 'o' && pieces_enough(id)) {
+				if (n_replica_ok < FZND_REPLICA_NAMES)
+					memcpy(replica_ok[n_replica_ok++], ref, sizeof(replica_ok[0]));
 				continue;
 			}
 			for (t = 0; t < npulls && holders < want; t++) {
@@ -1922,6 +2065,7 @@ static void count_replicas(struct pull_target *pulls, size_t npulls, uint64_t no
 	n_all = gather_rules(all);
 	archive_where(where, sizeof(where));
 	want = fzn_node_settings_replicas(&node_settings);
+	count_pieces(pulls, npulls, now, want);
 	n = fzn_retain_select_archived(all, n_all, dlog.has_host ? dlog.host : NULL,
 	                               dlog.logger.self.machine, rules);
 	if (n)
@@ -2031,8 +2175,8 @@ static void cut_fossils(struct pull_target *pulls, size_t npulls)
 		if (got != (size_t)size - 1u - name_len
 		    || !fzn_buckets_id(dlog.hash, item, (size_t)size, check)
 		    || memcmp(check, id, FZN_BUCKETS_ID_LEN) != 0
-		    || fzn_pieces_cut(node_pieces.dir, FZN_BUCKETS_LOGS, id, item, (size_t)size, k, m,
-		                      &written)
+		    || fzn_pieces_cut(node_pieces.dir, FZN_BUCKETS_LOGS, id, dlog.host, item,
+		                      (size_t)size, k, m, &written)
 		               != FZN_PIECES_OK
 		    || !fzn_piece_buckets_rank(dlog.hash, id, (const uint8_t (*)[32])hosts, n_hosts,
 		                               order)) {
@@ -2043,8 +2187,8 @@ static void cut_fossils(struct pull_target *pulls, size_t npulls)
 		free(item);
 		for (i = 0; i < k + m; i++)
 			memcpy(keepers[i], hosts[order[i]], FZN_PUBKEY_LEN);
-		if (!fzn_piece_buckets_place(&node_pieces, id, fzn_message_epoch_of(closed / 1000u),
-		                             (const uint8_t (*)[32])keepers, k + m, &placed)) {
+		if (!fzn_piece_buckets_place(&node_pieces, id, fzn_message_epoch_of(closed / 1000u), k,
+		                             m, (const uint8_t (*)[32])keepers, &placed)) {
 			say(FZN_ENTRY_WARNING, "log/copy", "the pieces of %s could not all be placed",
 			    e->d_name);
 			continue;
@@ -2160,7 +2304,7 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 				struct serving_to to = {
 					pulls[t].is_root_at ? node_apply.root : pulls[t].node, -1
 				};
-				fzn_reconcile_gate_t gate = { serves_bucket, &to };
+				fzn_reconcile_gate_t gate = { serves_bucket, &to, NULL };
 
 				fzn_reconcile_sent_t owed = { line_pushed, &node_messages };
 
@@ -2187,7 +2331,7 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 			struct serving_to to = {
 				pulls[t].is_root_at ? node_apply.root : pulls[t].node, -1
 			};
-			fzn_reconcile_gate_t gate = { serves_bucket, &to };
+			fzn_reconcile_gate_t gate = { serves_bucket, &to, NULL };
 			fzn_reconcile_bucket_tally_t lt;
 
 			err = fzn_reconcile_buckets(&logs_store, FZN_BUCKETS_LOGS, &logs_filer, peer_ask,
@@ -2211,7 +2355,7 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 		 * placed on the peer pushed, through the same gate. */
 		if (pieces_ready) {
 			struct serving_to to = { pulls[t].pairing.node, -1 };
-			fzn_reconcile_gate_t gate = { serves_bucket, &to };
+			fzn_reconcile_gate_t gate = { serves_bucket, &to, NULL };
 			fzn_reconcile_bucket_tally_t pt;
 
 			err = fzn_reconcile_buckets(&logs_store, FZN_BUCKETS_PIECES, &pieces_filer,

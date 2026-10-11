@@ -48,7 +48,9 @@ older than the 60-day window when A next cuts:
     j  B archives segments again and, with the estate's `archive/erasure`
        at 1+1, cuts each fossil into two pieces placed over its two hosts:
        A keeps one piece of each, the one placed on it, and B both until
-       they are counted (sec 597)
+       they are counted (sec 597); then, under `prune * archived count 0`,
+       B finds A holding its pieces, counts each fossil held by two hosts,
+       prunes the wholes and lets go of its copies of A's pieces (sec 599)
 
 The waits are on the daemons' own lines -- A's cut pass, B's reconcile
 pass, B's "moved up" -- and each is checked before the settings are.
@@ -93,7 +95,8 @@ REPLICAS_RE = re.compile(r"replicas: (\d+) fossil\(s\) the archive's rules would
 COPY_PRUNED_RE = re.compile(r"(\d+) archived copied segment\(s\) of \S+ of [0-9a-f]{8} pruned")
 COPY_ARCHIVED_RE = re.compile(r"\d+ copied segment\(s\) of \S+ of [0-9a-f]{8} archived")
 PUSHED_RE = re.compile(r"passed over, (\d+) pushed")
-CUT_PIECES_RE = re.compile(r"(\d+) archived segment\(s\) cut into 1 \+ 1 pieces over 2 host\(s\)")
+COUNTED_RE = re.compile(r"pieces: (\d+) cut fossil\(s\), (\d+) held by too few hosts, (\d+) "
+                        r"piece\(s\) let go")
 PIECES_RE = re.compile(r"pieces of archived segments: (\d+) taken, (\d+) pushed, (\d+) "
                        r"refused there")
 MISSING_RE = re.compile(r"claims no longer hold what this node lacks|would not move")
@@ -648,18 +651,38 @@ def main(argv):
 				              if n.endswith(".piece"))
 			# EACH A PIECE OF ONE OF B'S FOSSILS: 1 + 1 makes a piece the
 			# whole item -- the name's length, the name and the file --
-			# after a 49-byte head.
-			sizes = sorted(49 + 1 + len(n) + os.path.getsize(os.path.join(own_archive, n))
+			# after an 81-byte head.
+			sizes = sorted(81 + 1 + len(n) + os.path.getsize(os.path.join(own_archive, n))
 			               for n in fossils)
 			a_sizes = sorted(os.path.getsize(os.path.join(a_pieces, n)) for n in pieces(a_pieces))
+			# B HOLDS BOTH PIECES OF EACH until it counts them, which the same
+			# round may already have done.
 			if int(got.group(2)) != len(fossils) or a_sizes != sizes \
-			   or len(pieces(b_pieces)) != 2 * len(fossils):
+			   or not len(fossils) <= len(pieces(b_pieces)) <= 2 * len(fossils):
 				raise failed("j: B pushed %s piece(s) of %d fossil(s), %s refused; A keeps %d of "
 				             "sizes %r where %r, and B %d"
 				             % (got.group(2), len(fossils), got.group(3), len(a_sizes), a_sizes,
 				                sizes, len(pieces(b_pieces))))
 			print("livecheck: j: B cut its %d fossil(s) 1 + 1, and A keeps the piece of each "
 			      "placed on it" % len(fossils))
+			# COUNTED, sec 599. At three replicas a whole needs three holders
+			# and there are two hosts, so only the pieces can let a whole go:
+			# 1 + 1 bears 1 + min(1, 3 - 1) = 2, a piece on each host.
+			set_replicas(3)
+			got = b_run("j-count", [], COUNTED_RE)
+			if got.group(1) != str(len(fossils)) or got.group(2) != "0" \
+			   or len(pieces(b_pieces)) != len(fossils) \
+			   or len(pieces(a_pieces)) != len(fossils):
+				raise failed("j: B counted %s cut fossil(s), %s short, let go of %s piece(s), and "
+				             "keeps %d; A keeps %d; of %d fossil(s)"
+				             % (got.group(1), got.group(2), got.group(3),
+				                len(pieces(b_pieces)), len(pieces(a_pieces)), len(fossils)))
+			b_run("j-prune", ["prune * archived count 0"], OWN_PRUNED_RE)
+			if packed(own_archive):
+				raise failed("j: held by their pieces, B keeps %d whole fossil(s)"
+				             % len(packed(own_archive)))
+			print("livecheck: j: under three replicas each fossil held by its pieces on two "
+			      "hosts; B let go of A's pieces and pruned the wholes")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

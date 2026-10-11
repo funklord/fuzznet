@@ -18,13 +18,24 @@
 endian big
 target buffer
 
-struct fzn_erasure_piece size=50..67108913
+struct fzn_erasure_cut size=99..2019
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   32        u8         item_id  big
+  @0x0021   1         u8         k  min=1 max=31
+  @0x0022   1         u8         m  min=1 max=31
+  @0x0023   64..1984  fzn_erasure_keeper keepers  big sized-by=k+m
+
+struct fzn_erasure_keeper size=32
+  @0x0000   32        u8         key  big
+
+struct fzn_erasure_piece size=82..67108945
   @0x0000   1         u8         version  must_eq=1
   @0x0001   1         u8         kind  max=1
   @0x0002   32        u8         item_id  big
-  @0x0022   8         u64        item_len  big min=1 max=67108864
-  @0x002a   1         u8         k  min=1 max=31
-  @0x002b   1         u8         m  min=1 max=31
-  @0x002c   1         u8         index  max=31
-  @0x002d   4         u32        piece_len  big min=1 max=67108864
-  @0x0031   1..67108864 u8         piece  sized-by=piece_len
+  @0x0022   32        u8         host  big
+  @0x0042   8         u64        item_len  big min=1 max=67108864
+  @0x004a   1         u8         k  min=1 max=31
+  @0x004b   1         u8         m  min=1 max=31
+  @0x004c   1         u8         index  max=31
+  @0x004d   4         u32        piece_len  big min=1 max=67108864
+  @0x0051   1..67108864 u8         piece  sized-by=piece_len

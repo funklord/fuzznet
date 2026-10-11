@@ -7,6 +7,7 @@
 #include "pieces.h"
 #include "../chunk/erasure.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -131,15 +132,91 @@ static uint8_t *file_bytes(const char *path, size_t *len)
 	return out;
 }
 
-int fzn_piece_buckets_place(fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKETS_ID_LEN],
-                            uint32_t month, const uint8_t (*keepers)[32], size_t n,
-                            size_t *placed)
+/* `chunk/piece.situ`'s fzn_erasure_cut: version, id, k, m, then a key per
+ * piece. */
+#define CUT_HEAD (1u + FZN_BUCKETS_ID_LEN + 2u)
+
+static int cut_path(const fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKETS_ID_LEN],
+                    const char *tail, char path[PATH_MAX_])
 {
-	size_t i;
+	char hex[2u * FZN_BUCKETS_ID_LEN + 1u];
+	int k;
+
+	hex_of(id, FZN_BUCKETS_ID_LEN, hex);
+	k = snprintf(path, PATH_MAX_, "%s/%s.cut%s", pb->dir, hex, tail);
+	return k > 0 && (size_t)k < PATH_MAX_;
+}
+
+/* The placement written beside its name, synced and renamed into place. */
+static int write_cut(const fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKETS_ID_LEN],
+                     unsigned k, unsigned m, const uint8_t (*keepers)[32])
+{
+	uint8_t bytes[CUT_HEAD + FZN_ERASURE_PIECES_MAX * 32u];
+	char path[PATH_MAX_], tmp[PATH_MAX_];
+	size_t len = CUT_HEAD + (size_t)(k + m) * 32u, i;
+	int fd, ok;
+
+	bytes[0] = 1u;
+	memcpy(bytes + 1, id, FZN_BUCKETS_ID_LEN);
+	bytes[1u + FZN_BUCKETS_ID_LEN] = (uint8_t)k;
+	bytes[2u + FZN_BUCKETS_ID_LEN] = (uint8_t)m;
+	for (i = 0; i < k + m; i++)
+		memcpy(bytes + CUT_HEAD + i * 32u, keepers[i], 32u);
+	if (!cut_path(pb, id, "", path) || !cut_path(pb, id, ".new", tmp))
+		return 0;
+	fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+	if (fd < 0)
+		return 0;
+	ok = write(fd, bytes, len) == (ssize_t)len;
+	ok = fsync(fd) == 0 && ok;
+	ok = (close(fd) == 0) && ok;
+	if (!ok || rename(tmp, path) != 0) {
+		(void)remove(tmp);
+		return 0;
+	}
+	return 1;
+}
+
+int fzn_piece_buckets_cut_of(const fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKETS_ID_LEN],
+                             unsigned *k, unsigned *m, uint8_t (*keepers)[32])
+{
+	uint8_t bytes[CUT_HEAD + FZN_ERASURE_PIECES_MAX * 32u + 1u];
+	char path[PATH_MAX_];
+	size_t got = 0, i;
+	ssize_t r;
+	int fd;
+
+	if (!pb || !id || !k || !m || !keepers || !cut_path(pb, id, "", path))
+		return 0;
+	fd = open(path, O_RDONLY | O_CLOEXEC);
+	if (fd < 0)
+		return 0;
+	while (got < sizeof(bytes) && (r = read(fd, bytes + got, sizeof(bytes) - got)) > 0)
+		got += (size_t)r;
+	(void)close(fd);
+	/* ITS OWN SHAPE, and of this item. */
+	if (got < CUT_HEAD || bytes[0] != 1u || memcmp(bytes + 1, id, FZN_BUCKETS_ID_LEN) != 0)
+		return 0;
+	*k = bytes[1u + FZN_BUCKETS_ID_LEN];
+	*m = bytes[2u + FZN_BUCKETS_ID_LEN];
+	if (!*k || !*m || *k + *m > FZN_ERASURE_PIECES_MAX
+	    || got != CUT_HEAD + (size_t)(*k + *m) * 32u)
+		return 0;
+	for (i = 0; i < *k + *m; i++)
+		memcpy(keepers[i], bytes + CUT_HEAD + i * 32u, 32u);
+	return 1;
+}
+
+int fzn_piece_buckets_place(fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKETS_ID_LEN],
+                            uint32_t month, unsigned k, unsigned m,
+                            const uint8_t (*keepers)[32], size_t *placed)
+{
+	size_t i, n = (size_t)k + m;
 
 	if (placed)
 		*placed = 0;
-	if (!pb || !pb->b || !id || !keepers || n > FZN_ERASURE_PIECES_MAX)
+	if (!pb || !pb->b || !id || !keepers || !k || !m || n > FZN_ERASURE_PIECES_MAX
+	    || !write_cut(pb, id, k, m, keepers))
 		return 0;
 	for (i = 0; i < n; i++) {
 		char ref[FZN_BUCKETS_REF_MAX + 1u], path[PATH_MAX_];
@@ -163,6 +240,37 @@ int fzn_piece_buckets_place(fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKET
 			(*placed)++;
 	}
 	return 1;
+}
+
+int fzn_piece_buckets_piece_id(const fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKETS_ID_LEN],
+                               unsigned index, uint8_t piece_id[FZN_BUCKETS_ID_LEN])
+{
+	char ref[FZN_BUCKETS_REF_MAX + 1u], path[PATH_MAX_];
+	uint64_t size = 0;
+
+	return pb && id && piece_id && index < FZN_ERASURE_PIECES_MAX
+	       && piece_ref(pb, id, index, ref, path)
+	       && fzn_buckets_by_ref(pb->b, FZN_BUCKETS_PIECES, (const uint8_t *)ref, strlen(ref),
+	                             piece_id, &size)
+	                  == FZN_BUCKETS_OK;
+}
+
+int fzn_piece_buckets_let_go(fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKETS_ID_LEN],
+                             unsigned index)
+{
+	char ref[FZN_BUCKETS_REF_MAX + 1u], path[PATH_MAX_];
+	uint8_t piece_id[FZN_BUCKETS_ID_LEN];
+	fzn_buckets_err_t err;
+
+	if (!fzn_piece_buckets_piece_id(pb, id, index, piece_id)
+	    || !piece_ref(pb, id, index, ref, path))
+		return 0;
+	/* LET GO FIRST: a crash between leaves a file no bucket serves, which
+	 * the next let-go removes, rather than a bucket naming no file. */
+	err = fzn_buckets_let_go(pb->b, FZN_BUCKETS_PIECES, piece_id);
+	if (err != FZN_BUCKETS_OK && err != FZN_BUCKETS_ABSENT)
+		return 0;
+	return remove(path) == 0 || errno == ENOENT;
 }
 
 /* ---- reading ------------------------------------------------------------------ */
@@ -194,6 +302,34 @@ static int ref_path(const fzn_piece_buckets_t *pb, const uint8_t *ref, size_t re
 	r[66] = '\0';
 	k = snprintf(path, PATH_MAX_, "%s/%s.%u.piece", pb->dir, r + 2, index);
 	return k > 0 && (size_t)k < PATH_MAX_;
+}
+
+int fzn_piece_buckets_host(const fzn_piece_buckets_t *pb,
+                           const uint8_t piece_id[FZN_BUCKETS_ID_LEN], uint8_t host[32])
+{
+	uint8_t ref[FZN_BUCKETS_REF_MAX], head[FZN_PIECE_HEAD_LEN];
+	char path[PATH_MAX_];
+	size_t ref_len = 0;
+	uint64_t size = 0;
+	ssize_t got;
+	int fd;
+
+	if (!pb || !piece_id || !host
+	    || fzn_buckets_ref(pb->b, FZN_BUCKETS_PIECES, piece_id, ref, &ref_len, &size)
+	               != FZN_BUCKETS_OK
+	    || !ref_path(pb, ref, ref_len, path))
+		return 0;
+	fd = open(path, O_RDONLY | O_CLOEXEC);
+	if (fd < 0)
+		return 0;
+	got = read(fd, head, sizeof(head));
+	(void)close(fd);
+	if (got != (ssize_t)sizeof(head))
+		return 0;
+	/* `chunk/piece.situ`: the host after the version, the kind and the
+	 * item's id. */
+	memcpy(host, head + 2u + FZN_BUCKETS_ID_LEN, 32u);
+	return 1;
 }
 
 static int item_read(void *ctx, const uint8_t *ref, size_t ref_len, uint64_t offset,

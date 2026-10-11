@@ -16,6 +16,7 @@
 
 #include "../piece_buckets.h"
 #include "../pieces.h"
+#include "../../chunk/erasure.h"
 
 #include <dirent.h>
 #include <stdio.h>
@@ -212,7 +213,7 @@ static int serves_b(void *ctx, fzn_buckets_kind_t kind, const uint8_t subject[FZ
 	return kind == FZN_BUCKETS_PIECES && memcmp(subject, key_b, 32u) == 0;
 }
 
-static fzn_reconcile_gate_t gate_b = { serves_b, NULL };
+static fzn_reconcile_gate_t gate_b = { serves_b, NULL, NULL };
 
 /* A ANSWERING B. */
 static int to_a(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
@@ -235,17 +236,41 @@ static int to_a(void *ctx, const uint8_t *request, size_t request_len, uint8_t *
 	return 1;
 }
 
+/* B's view of what A may hold: the pieces placed on A, and -- with
+ * `by_item` -- any piece asked by id whose item is A's (sec 599). */
+static int serves_a(void *ctx, fzn_buckets_kind_t kind, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	(void)ctx;
+	return kind == FZN_BUCKETS_PIECES && memcmp(subject, key_a, 32u) == 0;
+}
+
+static int piece_of_a(void *ctx, fzn_buckets_kind_t kind, const uint8_t subject[FZN_PUBKEY_LEN],
+                      const uint8_t id[FZN_BUCKETS_ID_LEN])
+{
+	uint8_t host[32];
+
+	(void)ctx;
+	(void)subject;
+	return kind == FZN_BUCKETS_PIECES && fzn_piece_buckets_host(&pb_b, id, host)
+	       && memcmp(host, key_a, 32u) == 0;
+}
+
+static int by_item = 1;
+
 /* B ANSWERING A, taking what A pushes. */
 static int to_b(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
                 size_t cap, size_t *reply_len)
 {
+	fzn_reconcile_gate_t gate = { serves_a, NULL, NULL };
 	fzn_reconcile_server_t srv;
 	size_t n;
 
 	(void)ctx;
+	gate.serves_item = by_item ? piece_of_a : NULL;
 	memset(&srv, 0, sizeof(srv));
 	srv.store = &store_b;
 	srv.hash = &HASH;
+	srv.gate = &gate;
 	srv.takers[FZN_BUCKETS_PIECES] = &filer_b;
 	srv.sender = key_a;
 	n = fzn_reconcile_serve(&srv, request, request_len, reply, cap);
@@ -267,8 +292,9 @@ static int a_cuts(const uint8_t (*keepers)[32], size_t *placed)
 {
 	size_t written = 0;
 
-	return fzn_pieces_cut(dir_a, 1u, item_id, item, ITEM_LEN, 1u, 1u, &written) == FZN_PIECES_OK
-	       && written == 2u && fzn_piece_buckets_place(&pb_a, item_id, MONTH, keepers, 2u, placed);
+	return fzn_pieces_cut(dir_a, 1u, item_id, key_a, item, ITEM_LEN, 1u, 1u, &written) == FZN_PIECES_OK
+	       && written == 2u
+	       && fzn_piece_buckets_place(&pb_a, item_id, MONTH, 1u, 1u, keepers, placed);
 }
 
 static uint64_t count_of(const fzn_buckets_t *b, const uint8_t subject[32])
@@ -332,6 +358,16 @@ static void test_place_pull_push(void)
 	      "A did not place both pieces");
 	CHECK(count_of(&A, key_a) == 1u && count_of(&A, key_b) == 1u,
 	      "A's buckets are not one piece for A and one for B");
+	{
+		uint8_t got[FZN_ERASURE_PIECES_MAX][32];
+		unsigned k = 0, m = 0;
+
+		CHECK(fzn_piece_buckets_cut_of(&pb_a, item_id, &k, &m, got) && k == 1u && m == 1u
+		              && memcmp(got[0], key_a, 32u) == 0 && memcmp(got[1], key_b, 32u) == 0,
+		      "A's record of the placement does not read back as placed");
+		CHECK(!fzn_piece_buckets_cut_of(&pb_b, item_id, &k, &m, got),
+		      "B has a record of a placement it did not make");
+	}
 
 	/* PULLED: B takes the piece placed on it, and not A's. */
 	memset(&t, 0, sizeof(t));
@@ -373,6 +409,59 @@ static void test_place_pull_push(void)
 	      "B keeps a piece placed on A");
 }
 
+/* COUNTED AND LET GO, sec 599: A asks B for the piece placed on B by its
+ * id, which B serves A since the item is A's, and then lets go of its own
+ * copy of it. */
+static void test_counted_and_let_go(void)
+{
+	uint8_t keepers[2][32], piece_id[FZN_BUCKETS_ID_LEN], host[32];
+	fzn_reconcile_bucket_tally_t t;
+	static uint8_t reply[8192];
+	size_t placed = 0, served = 0;
+	uint32_t here = 0;
+	int has = 0;
+
+	fresh();
+	memcpy(keepers[0], key_a, 32u);
+	memcpy(keepers[1], key_b, 32u);
+	CHECK(a_cuts((const uint8_t (*)[32])keepers, &placed)
+	          && fzn_reconcile_push(&A, FZN_BUCKETS_PIECES, &gate_b, &filer_a, NULL, to_b, NULL,
+	                                reply, sizeof(reply), &t)
+	                     == FZN_RECONCILE_OK
+	          && t.sent == 1u,
+	      "fixture: A cuts and pushes B its piece");
+	CHECK(fzn_piece_buckets_piece_id(&pb_a, item_id, 1u, piece_id)
+	          && fzn_buckets_has(&B, FZN_BUCKETS_PIECES, piece_id),
+	      "the id A placed piece 1 under is not the one B holds");
+	CHECK(fzn_piece_buckets_host(&pb_b, piece_id, host) && memcmp(host, key_a, 32u) == 0,
+	      "B's piece does not say it is of A's item");
+	/* ASKED BY ID: served to A for its item, though the bucket is B's. */
+	by_item = 0;
+	CHECK(fzn_reconcile_peer_holds(FZN_BUCKETS_PIECES, piece_id, to_b, NULL, reply, sizeof(reply),
+	                               &has)
+	                  == FZN_RECONCILE_OK
+	          && !has,
+	      "fixture: without the item gate B's piece is not A's to see");
+	by_item = 1;
+	CHECK(fzn_reconcile_peer_holds(FZN_BUCKETS_PIECES, piece_id, to_b, NULL, reply, sizeof(reply),
+	                               &has)
+	                  == FZN_RECONCILE_OK
+	          && has,
+	      "B would not tell A it holds a piece of A's item");
+	/* AND A'S OWN COPY OF IT GOES, its id remembered -- still had, so not
+	 * fetched back, and served as not held. */
+	CHECK(fzn_piece_buckets_let_go(&pb_a, item_id, 1u)
+	          && fzn_pieces_held(dir_a, item_id, &here) == FZN_PIECES_OK && here == 1u
+	          && fzn_buckets_has(&A, FZN_BUCKETS_PIECES, piece_id)
+	          && fzn_buckets_item(&A, FZN_BUCKETS_PIECES, piece_id, reply, sizeof(reply),
+	                              &served, NULL, NULL)
+	                     == FZN_BUCKETS_ABSENT,
+	      "A's copy of B's piece was not let go");
+	CHECK(fzn_piece_buckets_piece_id(&pb_a, item_id, 1u, host) && memcmp(host, piece_id, 32u) == 0,
+	      "letting a piece go forgot its id");
+	CHECK(fzn_piece_buckets_let_go(&pb_a, item_id, 1u), "letting a piece go twice failed");
+}
+
 static void test_shape_refused(void)
 {
 	uint8_t bytes[FZN_PIECE_HEAD_LEN + 8u];
@@ -384,19 +473,19 @@ static void test_shape_refused(void)
 	memset(bytes, 0, sizeof(bytes));
 	bytes[0] = 1u;
 	bytes[1] = 1u;
-	bytes[41] = 16u; /* item length 16 */
-	bytes[42] = 1u;  /* k */
-	bytes[43] = 1u;  /* m */
-	bytes[48] = 8u;  /* piece_len 8, where 16 / 1 is 16 */
+	bytes[73] = 16u; /* item length 16 */
+	bytes[74] = 1u;  /* k */
+	bytes[75] = 1u;  /* m */
+	bytes[80] = 8u;  /* piece_len 8, where 16 / 1 is 16 */
 	CHECK(filer_b.file(filer_b.ctx, key_b, MONTH, bytes, sizeof(bytes)) == FZN_NODE_APPLY_REFUSED,
 	      "a piece whose length is not its item's over k was kept");
-	bytes[41] = 8u;
+	bytes[73] = 8u;
 	CHECK(filer_b.file(filer_b.ctx, key_b, MONTH, bytes, sizeof(bytes)) == FZN_NODE_APPLY_APPLIED,
 	      "a well-formed piece was not kept");
-	bytes[44] = 2u; /* index past k + m */
+	bytes[76] = 2u; /* index past k + m */
 	CHECK(filer_b.file(filer_b.ctx, key_b, MONTH, bytes, sizeof(bytes)) == FZN_NODE_APPLY_REFUSED,
 	      "a piece indexed past k + m was kept");
-	bytes[44] = 1u;
+	bytes[76] = 1u;
 	CHECK(filer_b.file(filer_b.ctx, key_b, MONTH, bytes, sizeof(bytes) - 1u)
 	          == FZN_NODE_APPLY_REFUSED,
 	      "a piece cut short was kept");
@@ -439,6 +528,7 @@ int main(void)
 
 	test_rank();
 	test_place_pull_push();
+	test_counted_and_let_go();
 	test_shape_refused();
 
 	fzn_piece_buckets_close(&pb_a);

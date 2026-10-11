@@ -588,7 +588,7 @@ static void test_a_gate_serves_only_what_it_may(void)
 {
 	static uint8_t request[FZN_RECONCILE_ITEM_QUERY_LEN], reply[8192];
 	uint8_t s1[FZN_PUBKEY_LEN], s2[FZN_PUBKEY_LEN], item[64], id[FZN_BUCKETS_ID_LEN];
-	fzn_reconcile_gate_t gate = { serves_but_barred, NULL };
+	fzn_reconcile_gate_t gate = { serves_but_barred, NULL, NULL };
 	fzn_reconcile_bucket_tally_t t;
 	fzn_bucket_t k;
 	size_t n;
