@@ -44,7 +44,7 @@ older than the 60-day window when A next cuts:
     i  B archives its own segments, which A holds as copies; with the
        estate's `archive/replicas` at 3, `prune * archived count 0` holds
        every fossil back, two hosts holding each; at 2 it prunes them
-       (sec 592)
+       (sec 592); and the same of its archived copy of A's (sec 593)
 
 The waits are on the daemons' own lines -- A's cut pass, B's reconcile
 pass, B's "moved up" -- and each is checked before the settings are.
@@ -533,25 +533,6 @@ def main(argv):
 				raise failed("h: B's archive holds %d of A's segments, and its copies %d"
 				             % (len(fossils), len(packed(os.path.join(b_copies, b_holders[0])))))
 			print("livecheck: h: B archived its %d copies of A's segments" % len(fossils))
-			# AND PRUNED THERE BY THE ARCHIVE'S RULES FOR COPIES, sec 591.
-			if len(fossils) < 2:
-				raise failed("h: %d archived cop(ies); pruning them needs two" % len(fossils))
-			b = daemon(run, "bh2", b_dir, b_sock,
-			           extra=["--root-at", "127.0.0.1", port] + small
-			           + ["--log-rule=prune * copy archived count 0",
-			              "--log-rule=keep * copy archived count 1"], log_dir=b_logs)
-			try:
-				got = b.wait_for(COPY_PRUNED_RE, "B's archived copies pruned")
-			finally:
-				b.stop()
-			left_over = packed(os.path.join(b_logs, "archive", "copy", b_holders[0]))
-			if int(got.group(1)) != len(fossils) - 1 or len(left_over) != 1:
-				raise failed("h: %s archived copies pruned and %d left of %d"
-				             % (got.group(1), len(left_over), len(fossils)))
-			print("livecheck: h: the archive's rules for copies kept the newest of them")
-
-			# i: the archive's replicas, sec 592. A holds B's own segments as
-			# copies since phase g, so each of B's fossils has two holders.
 			def b_run(tag, rules, wait):
 				a = daemon(run, "a" + tag, a_dir, a_sock, extra=["--udp-port=" + port] + small,
 				           log_dir=a_logs)
@@ -575,6 +556,22 @@ def main(argv):
 				finally:
 					a.stop()
 
+			# AND PRUNED THERE BY THE ARCHIVE'S RULES FOR COPIES, sec 591.
+			if len(fossils) < 2:
+				raise failed("h: %d archived cop(ies); pruning them needs two" % len(fossils))
+			# A UP, so it counts as a holder of its own segments: at the
+			# default of two replicas B would keep a copy no other host held
+			# (sec 593), which phase i tests and this does not.
+			got = b_run("h2", ["prune * copy archived count 0", "keep * copy archived count 1"],
+			            COPY_PRUNED_RE)
+			left_over = packed(os.path.join(b_logs, "archive", "copy", b_holders[0]))
+			if int(got.group(1)) != len(fossils) - 1 or len(left_over) != 1:
+				raise failed("h: %s archived copies pruned and %d left of %d"
+				             % (got.group(1), len(left_over), len(fossils)))
+			print("livecheck: h: the archive's rules for copies kept the newest of them")
+
+			# i: the archive's replicas, sec 592. A holds B's own segments as
+			# copies since phase g, so each of B's fossils has two holders.
 			own_archive = os.path.join(b_logs, "archive")
 			b_run("i1", ["archive * count 0"], OWN_ARCHIVED_RE)
 			fossils = packed(own_archive)
@@ -594,6 +591,23 @@ def main(argv):
 				             % len(packed(own_archive)))
 			print("livecheck: i: B's %d fossil(s) held back under three replicas, pruned under "
 			      "two" % len(fossils))
+			# AND ITS ARCHIVED COPY OF A'S, sec 593: A holds the segment itself.
+			copy_archive = os.path.join(b_logs, "archive", "copy", b_holders[0])
+			kept_copies = packed(copy_archive)
+			if not kept_copies:
+				raise failed("i: B holds no archived copy of A's from phase h")
+			set_replicas(3)
+			got = b_run("i4", ["prune * copy archived count 0"], REPLICAS_RE)
+			if got.group(2) != got.group(1) or packed(copy_archive) != kept_copies:
+				raise failed("i: under three replicas B held back %s of %s copies and keeps %r"
+				             % (got.group(2), got.group(1), packed(copy_archive)))
+			set_replicas(2)
+			b_run("i5", ["prune * copy archived count 0"], COPY_PRUNED_RE)
+			if packed(copy_archive):
+				raise failed("i: under two replicas, A holding its own, B keeps %r"
+				             % packed(copy_archive))
+			print("livecheck: i: B's archived copy held back under three replicas, pruned "
+			      "under two")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

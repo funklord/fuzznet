@@ -498,16 +498,20 @@ static void archive_where(char *out, size_t cap)
  * at least `archive/replicas` hosts, this one counted. Only these are
  * pruned; one not counted yet stays, so the guarantee fails safe. */
 #define FZND_REPLICA_NAMES 256u
-static char replica_ok[FZND_REPLICA_NAMES][FZN_LOG_PACK_NAME_MAX];
+static char replica_ok[FZND_REPLICA_NAMES][FZN_BUCKETS_REF_MAX + 1u];
 static size_t n_replica_ok;
 
+/* WHETHER `name` MAY GO: its ref, `ctx` its prefix -- `o/` for this node's
+ * own, `c/HOSTHEX/` for a copy (sec 593) -- among those confirmed. */
 static int replicas_enough(void *ctx, const char *name)
 {
+	char ref[FZN_BUCKETS_REF_MAX + 1u];
 	size_t i;
 
-	(void)ctx;
+	if (!ctx || snprintf(ref, sizeof(ref), "%s%s", (const char *)ctx, name) >= (int)sizeof(ref))
+		return 0;
 	for (i = 0; i < n_replica_ok; i++)
-		if (strcmp(replica_ok[i], name) == 0)
+		if (strcmp(replica_ok[i], ref) == 0)
 			return 1;
 	return 0;
 }
@@ -562,7 +566,7 @@ static void archive_round(const fzn_retain_rule_t *rules, size_t n_rules,
 			/* NO FOSSIL BELOW ITS REPLICAS, sec 592. */
 			if (fzn_log_pack_retain_held(where, held[pi], archived_rules, n_archived,
 			                             dlog.hash, dlog.has_signer ? &dlog.signer : NULL,
-			                             log_now_us(), replicas_enough, NULL, &gone,
+			                             log_now_us(), replicas_enough, (void *)"o/", &gone,
 			                             &repacked)
 			    != FZN_LOG_PACK_OK)
 				say(FZN_ENTRY_WARNING, "log",
@@ -603,10 +607,15 @@ static void archive_round(const fzn_retain_rule_t *rules, size_t n_rules,
 				continue;
 			for (p = 0; p < n_held; p++) {
 				size_t gone = 0, repacked = 0;
+				char prefix[72];
 
-				if (fzn_log_pack_retain(sub, held[p], source_rules, n_source, dlog.hash,
-				                        dlog.has_signer ? &dlog.signer : NULL, log_now_us(),
-				                        &gone, &repacked)
+				/* NO COPY BELOW ITS REPLICAS EITHER, sec 593. */
+				if (snprintf(prefix, sizeof(prefix), "c/%s/", e->d_name) >= (int)sizeof(prefix))
+					continue;
+				if (fzn_log_pack_retain_held(sub, held[p], source_rules, n_source, dlog.hash,
+				                             dlog.has_signer ? &dlog.signer : NULL,
+				                             log_now_us(), replicas_enough, prefix, &gone,
+				                             &repacked)
 				    != FZN_LOG_PACK_OK)
 					say(FZN_ENTRY_WARNING, "log/copy", "the archived copies' rules could not "
 					    "all be applied to %s of %.8s", held[p], e->d_name);
@@ -1811,50 +1820,41 @@ static int peer_in_estate(const struct pull_target *pt)
 }
 
 #if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
-/* THE ARCHIVE'S REPLICAS COUNTED, sec 592, each round after the exchange:
- * every fossil of this node's the archive's rules would prune, asked of
- * each peer of the estate that answered this round -- held or not, the
- * length and no byte (`fzn_reconcile_peer_holds`) -- and those held by
- * `archive/replicas` hosts or more, this one counted, confirmed for the
- * log pass to prune. One a peer let go is not held. */
-static void count_replicas(struct pull_target *pulls, size_t npulls, uint64_t now)
+/* THE FOSSILS OF ONE ARCHIVE DIRECTORY WEIGHED, sec 592: each the `rules`
+ * would prune, its ref `prefix` and its name, asked of each peer of the
+ * estate that answered this round -- held or not, the length and no byte
+ * (`fzn_reconcile_peer_holds`) -- and confirmed when `want` hosts or more
+ * hold it, this one counted. One a peer let go is not held. `*weighed` and
+ * `*short_of` count. */
+static void weigh(struct pull_target *pulls, size_t npulls, uint64_t now, const char *dir,
+                  const char *prefix, const fzn_retain_rule_t *rules, size_t n, unsigned want,
+                  size_t *weighed, size_t *short_of)
 {
-	static fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX];
 	static char held[FZND_LOG_PROGRAMS_MAX][FZN_ENTRY_WORD_MAX + 1u];
 	static char names[FZND_REPLICA_NAMES][FZN_LOG_PACK_NAME_MAX];
 	static uint8_t reply[FZND_PULL_REPLY_MAX];
-	char where[600];
-	size_t n, n_held = 0, p, i, t, n_names, weighed = 0, short_of = 0;
-	unsigned want;
+	size_t n_held = 0, p, i, t, n_names;
 
-	n_replica_ok = 0;
-	if (!logs_ready)
+	if (fzn_logger_programs(dir, held, FZND_LOG_PROGRAMS_MAX, &n_held) != FZN_LOGGER_OK)
 		return;
-	n = gather_rules(rules);
-	n = fzn_retain_select_archived(rules, n, dlog.has_host ? dlog.host : NULL,
-	                               dlog.logger.self.machine, rules);
-	archive_where(where, sizeof(where));
-	if (!n || fzn_logger_programs(where, held, FZND_LOG_PROGRAMS_MAX, &n_held) != FZN_LOGGER_OK)
-		return;
-	want = fzn_node_settings_replicas(&node_settings);
 	for (p = 0; p < n_held; p++) {
 		n_names = 0;
-		if (fzn_log_pack_plan(where, held[p], rules, n, log_now_us(), names, FZND_REPLICA_NAMES,
+		if (fzn_log_pack_plan(dir, held[p], rules, n, log_now_us(), names, FZND_REPLICA_NAMES,
 		                      &n_names)
 		    != FZN_LOG_PACK_OK)
 			continue;
 		for (i = 0; i < n_names; i++) {
-			char ref[FZN_LOG_PACK_NAME_MAX + 3u];
+			char ref[FZN_BUCKETS_REF_MAX + 1u];
 			uint8_t id[FZN_BUCKETS_ID_LEN];
 			uint64_t len = 0;
 			unsigned holders = 1;
 
-			weighed++;
-			if (snprintf(ref, sizeof(ref), "o/%s", names[i]) >= (int)sizeof(ref)
+			(*weighed)++;
+			if (snprintf(ref, sizeof(ref), "%s%s", prefix, names[i]) >= (int)sizeof(ref)
 			    || fzn_buckets_by_ref(&logs_store, FZN_BUCKETS_LOGS, (const uint8_t *)ref,
 			                          strlen(ref), id, &len)
 			               != FZN_BUCKETS_OK) {
-				short_of++;
+				(*short_of)++;
 				continue;
 			}
 			for (t = 0; t < npulls && holders < want; t++) {
@@ -1870,10 +1870,58 @@ static void count_replicas(struct pull_target *pulls, size_t npulls, uint64_t no
 					holders++;
 			}
 			if (holders >= want && n_replica_ok < FZND_REPLICA_NAMES)
-				memcpy(replica_ok[n_replica_ok++], names[i], FZN_LOG_PACK_NAME_MAX);
+				memcpy(replica_ok[n_replica_ok++], ref, sizeof(replica_ok[0]));
 			else
-				short_of++;
+				(*short_of)++;
 		}
+	}
+}
+
+/* THE ARCHIVE'S REPLICAS COUNTED, sec 592, each round after the exchange:
+ * this node's fossils its archive's rules would prune, and since sec 593
+ * its archived copies the rules over them would, each weighed, those held
+ * by `archive/replicas` hosts or more confirmed for the log pass to
+ * prune. */
+static void count_replicas(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	static fzn_retain_rule_t all[FZN_RETAIN_RULES_MAX], rules[FZN_RETAIN_RULES_MAX];
+	static fzn_retain_rule_t source_rules[FZN_RETAIN_RULES_MAX];
+	char where[600], copies[608];
+	size_t n_all, n, weighed = 0, short_of = 0;
+	unsigned want;
+	struct dirent *e;
+	DIR *d;
+
+	n_replica_ok = 0;
+	if (!logs_ready)
+		return;
+	n_all = gather_rules(all);
+	archive_where(where, sizeof(where));
+	want = fzn_node_settings_replicas(&node_settings);
+	n = fzn_retain_select_archived(all, n_all, dlog.has_host ? dlog.host : NULL,
+	                               dlog.logger.self.machine, rules);
+	if (n)
+		weigh(pulls, npulls, now, where, "o/", rules, n, want, &weighed, &short_of);
+	n = fzn_retain_select_archived_copies(all, n_all, dlog.has_host ? dlog.host : NULL,
+	                                      dlog.logger.self.machine, rules);
+	if (n && snprintf(copies, sizeof(copies), "%s/copy", where) < (int)sizeof(copies)
+	    && (d = opendir(copies)) != NULL) {
+		while ((e = readdir(d)) != NULL) {
+			char sub[sizeof(copies) + 80u], prefix[72];
+			uint8_t source[32];
+			size_t n_source;
+
+			if (strlen(e->d_name) != 64u || strspn(e->d_name, "0123456789abcdef") != 64u
+			    || !hex_bytes(e->d_name, source, sizeof(source))
+			    || snprintf(sub, sizeof(sub), "%s/%s", copies, e->d_name) >= (int)sizeof(sub))
+				continue;
+			n_source = fzn_retain_select_source(rules, n, source, source_rules);
+			if (n_source
+			    && snprintf(prefix, sizeof(prefix), "c/%s/", e->d_name) < (int)sizeof(prefix))
+				weigh(pulls, npulls, now, sub, prefix, source_rules, n_source, want,
+				      &weighed, &short_of);
+		}
+		(void)closedir(d);
 	}
 	if (weighed)
 		say(short_of ? FZN_ENTRY_INFO : FZN_ENTRY_DEBUG, "log",

@@ -62460,6 +62460,37 @@ fossil did not know, or care, whether it was the last copy.
 
 ### Not yet after sec 592
 
-- **Copies' fossils are not counted**: a host's archived copies of
-  another's log are pruned by their own rules alone (sec 591).
+- ~~**Copies' fossils are not counted**: a host's archived copies of
+  another's log are pruned by their own rules alone (sec 591).~~ They are
+  since sec 593.
 - **Erasure coding** stays the later step the holder named.
+
+## 593. Archived copies counted toward the replicas too, 2026-10-11
+
+Sec 592 held back a host's own fossils below R holders and left its
+archived copies of other hosts' logs to their rules alone -- and a copy
+pruned can be the last one just as an own fossil can.
+
+- **The confirmed set keyed by ref**: `o/NAME` for an own fossil,
+  `c/HOSTHEX/NAME` for a copy, and the "may go" asked with the prefix as
+  its context, so one predicate serves both.
+- **`weigh`**, one archive directory's fossils the rules would prune,
+  counted: `count_replicas` weighs the own archive under the archive's
+  rules and each `ARCHIVE/copy/HOSTHEX/` under that source's rules over
+  archived copies. The host whose log it is counts when it answers and
+  still holds the segment.
+- **The archived copies' prune** in `archive_round` is held as the own
+  archive's is.
+
+### Measured for sec 593
+
+- `tool/live_rejoin.py` phase i goes on: B's archived copy of A's segment,
+  A holding the segment itself, is held back at three replicas and
+  pruned at two. With the hold taken off the copies' prune, it fails at
+  three, the copy gone.
+- Phase h's prune of archived copies failed the first run: it ran with A
+  stopped, so A could not be counted and B, at the default of two, kept
+  them -- the guarantee, where phase h does not test it. It now runs with
+  A up, through phase i's helper, moved before it.
+- No sabotage entry: the change is fuzznetd's, which sabotage.py does not
+  reach, and the live control is its measurement.
