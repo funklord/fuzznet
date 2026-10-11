@@ -62688,3 +62688,19 @@ shape or past 32 pieces.
   4's, with a lost piece rebuilt from the rest.
 - The gate that serves a piece only to its keeper is in fuzznetd and
   checked by the live phase alone, since `make test` runs no daemon.
+
+## 598. situ's C runtime re-vendored at b53e565, 2026-10-11
+
+`make schema` refused once situ committed b53e565 ("write a reserved region
+as the schema states it"): `wire/generated/situ.h` had drifted from situ's
+runtime. The change is one refactor in situ.h -- the padding distance
+split out as `situ_pad_to_u32`, unsaturated for a writer, which
+`situ_align_u32` now calls -- and a comment amended for its decision
+0043: a pad aligns from the base of the struct that declares it. situ.c
+did not move. Both files are copied from situ's committed HEAD under
+their banners, which name the pin, as sec 574 did.
+
+### Measured for sec 598
+
+- `make schema SITU_DIR=../situ` passes again; `make test` and
+  `make livecheck` pass against the new runtime.
