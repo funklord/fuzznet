@@ -52,6 +52,9 @@
 #include "apply.h"
 #ifdef FZN_LOG_PACK_ON
 #include "log_buckets.h"
+#include "piece_buckets.h"
+#include "../chunk/erasure.h"
+#include "pieces.h"
 #endif
 #include "reconcile.h"
 #include "settings.h"
@@ -1648,6 +1651,10 @@ static int serves_bucket(void *ctx, fzn_buckets_kind_t kind, const uint8_t subje
 	struct serving_to *to = (struct serving_to *)ctx;
 	size_t d;
 
+	/* A PIECE goes only to the host it was placed on, sec 597, whatever
+	 * else the caller may hold. */
+	if (kind == FZN_BUCKETS_PIECES)
+		return memcmp(subject, to->sender, FZN_PUBKEY_LEN) == 0;
 	if (to->holds < 0)
 		to->holds = retention_capability
 		            && fzn_node_apply_holds(&node_apply, to->sender, retention_capability);
@@ -1732,6 +1739,13 @@ static fzn_buckets_t logs_store;
 static fzn_reconcile_filer_t logs_filer;
 static int logs_ready;
 static fzn_retain_rule_t logs_own[FZN_RETAIN_RULES_MAX], logs_copy[FZN_RETAIN_RULES_MAX];
+/* THE PIECES OF ARCHIVED SEGMENTS, sec 597: this host's fossils cut and
+ * placed one piece to a host, and the pieces placed on this one, kept
+ * under the archive's `pieces/`. Ready with the logs, when there is an
+ * archive. */
+static fzn_piece_buckets_t node_pieces;
+static fzn_reconcile_filer_t pieces_filer;
+static int pieces_ready;
 
 
 static int logs_up(void)
@@ -1757,6 +1771,15 @@ static int logs_up(void)
 			node_logs.archive[0] = '\0';
 	}
 	fzn_log_buckets_filer(&node_logs, &logs_filer);
+	if (node_logs.archive[0]) {
+		char dir[sizeof(node_logs.archive) + 8u];
+
+		if (snprintf(dir, sizeof(dir), "%s/pieces", node_logs.archive) < (int)sizeof(dir)
+		    && fzn_piece_buckets_init(&node_pieces, &logs_store, dir, dlog.hash, dlog.host)) {
+			fzn_piece_buckets_filer(&node_pieces, &pieces_filer);
+			pieces_ready = 1;
+		}
+	}
 	logs_ready = 1;
 	return 1;
 }
@@ -1790,6 +1813,7 @@ static size_t holdings_remote(void *ctx, const uint8_t *sender, const uint8_t *r
 	srv.takers[FZN_BUCKETS_MESSAGES] = messages_on ? &lines : NULL;
 #if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
 	srv.takers[FZN_BUCKETS_LOGS] = logs_up() ? &logs_filer : NULL;
+	srv.takers[FZN_BUCKETS_PIECES] = pieces_ready ? &pieces_filer : NULL;
 #endif
 	srv.sender = sender;
 	return fzn_reconcile_serve(&srv, request, request_len, reply, reply_cap);
@@ -1930,6 +1954,111 @@ static void count_replicas(struct pull_target *pulls, size_t npulls, uint64_t no
 }
 #endif
 
+#if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
+/* The most fossils one round cuts: each is read whole and coded. */
+#define FZND_CUTS_PER_ROUND 8u
+
+/* THIS HOST'S FOSSILS CUT INTO PIECES, sec 597, each once: where the estate
+ * has `archive/erasure`'s k + m hosts or more -- this one and every peer of
+ * the estate that answered this round -- each archived segment of this
+ * host's is cut, as the item the logs kind holds it as, and piece i placed
+ * on the i-th host in rendezvous order for it. Fewer hosts and none is cut:
+ * the whole replicas of sec 592 are the estate's then. */
+static void cut_fossils(struct pull_target *pulls, size_t npulls)
+{
+	static uint8_t hosts[FZN_PIECE_BUCKETS_HOSTS_MAX][FZN_PUBKEY_LEN];
+	static uint8_t keepers[FZN_ERASURE_PIECES_MAX][FZN_PUBKEY_LEN];
+	size_t order[FZN_PIECE_BUCKETS_HOSTS_MAX], n_hosts = 0, t, i, cut = 0;
+	unsigned k = 0, m = 0;
+	struct dirent *e;
+	DIR *d;
+
+	if (!pieces_ready || !node_logs.archive[0] || !dlog.has_host)
+		return;
+	fzn_node_settings_erasure(&node_settings, &k, &m);
+	memcpy(hosts[n_hosts++], dlog.host, FZN_PUBKEY_LEN);
+	for (t = 0; t < npulls && n_hosts < FZN_PIECE_BUCKETS_HOSTS_MAX; t++) {
+		/* ITS NODE KEY, the one it keeps pieces under: the pairing's, which
+		 * for `--root-at` is the root node rather than the estate's root. */
+		const uint8_t *key = pulls[t].pairing.node;
+
+		if (silent_peer(&pulls[t]) || !peer_in_estate(&pulls[t]))
+			continue;
+		for (i = 0; i < n_hosts && memcmp(hosts[i], key, FZN_PUBKEY_LEN) != 0; i++)
+			;
+		if (i == n_hosts)
+			memcpy(hosts[n_hosts++], key, FZN_PUBKEY_LEN);
+	}
+	if (n_hosts < k + m || (d = opendir(node_logs.archive)) == NULL)
+		return;
+	while ((e = readdir(d)) != NULL && cut < FZND_CUTS_PER_ROUND) {
+		uint64_t closed = fzn_log_copy_packed_time(e->d_name), size = 0, piece_size = 0;
+		char ref[FZN_BUCKETS_REF_MAX + 1u], first[FZN_BUCKETS_REF_MAX + 1u], hex[65];
+		char path[sizeof(node_logs.archive) + 260u];
+		uint8_t id[FZN_BUCKETS_ID_LEN], check[FZN_BUCKETS_ID_LEN], piece_id[FZN_BUCKETS_ID_LEN];
+		size_t name_len = strlen(e->d_name), written = 0, placed = 0, got;
+		uint8_t *item;
+		FILE *f;
+
+		if (!closed || name_len > FZN_LOG_BUCKETS_NAME_MAX
+		    || snprintf(ref, sizeof(ref), "o/%s", e->d_name) >= (int)sizeof(ref)
+		    || snprintf(path, sizeof(path), "%s/%s", node_logs.archive, e->d_name)
+		               >= (int)sizeof(path)
+		    || fzn_buckets_by_ref(&logs_store, FZN_BUCKETS_LOGS, (const uint8_t *)ref,
+		                          strlen(ref), id, &size)
+		               != FZN_BUCKETS_OK
+		    || size <= 1u + name_len || size > FZN_BUCKETS_LARGE_MAX)
+			continue;
+		/* CUT ONCE: its first piece placed is the mark. */
+		for (i = 0; i < FZN_BUCKETS_ID_LEN; i++)
+			(void)snprintf(hex + 2u * i, 3u, "%02x", id[i]);
+		if (snprintf(first, sizeof(first), "p/%s.0", hex) >= (int)sizeof(first)
+		    || fzn_buckets_by_ref(&logs_store, FZN_BUCKETS_PIECES, (const uint8_t *)first,
+		                          strlen(first), piece_id, &piece_size)
+		               == FZN_BUCKETS_OK)
+			continue;
+		/* THE ITEM AS THE LOGS KIND HOLDS IT, its name in front, checked
+		 * against its id before it is cut. */
+		item = malloc((size_t)size);
+		if (!item)
+			break;
+		item[0] = (uint8_t)name_len;
+		memcpy(item + 1, e->d_name, name_len);
+		f = fopen(path, "rb");
+		got = f ? fread(item + 1u + name_len, 1u, (size_t)size - 1u - name_len, f) : 0u;
+		if (f)
+			(void)fclose(f);
+		if (got != (size_t)size - 1u - name_len
+		    || !fzn_buckets_id(dlog.hash, item, (size_t)size, check)
+		    || memcmp(check, id, FZN_BUCKETS_ID_LEN) != 0
+		    || fzn_pieces_cut(node_pieces.dir, FZN_BUCKETS_LOGS, id, item, (size_t)size, k, m,
+		                      &written)
+		               != FZN_PIECES_OK
+		    || !fzn_piece_buckets_rank(dlog.hash, id, (const uint8_t (*)[32])hosts, n_hosts,
+		                               order)) {
+			free(item);
+			say(FZN_ENTRY_WARNING, "log/copy", "%s could not be cut into pieces", e->d_name);
+			continue;
+		}
+		free(item);
+		for (i = 0; i < k + m; i++)
+			memcpy(keepers[i], hosts[order[i]], FZN_PUBKEY_LEN);
+		if (!fzn_piece_buckets_place(&node_pieces, id, fzn_message_epoch_of(closed / 1000u),
+		                             (const uint8_t (*)[32])keepers, k + m, &placed)) {
+			say(FZN_ENTRY_WARNING, "log/copy", "the pieces of %s could not all be placed",
+			    e->d_name);
+			continue;
+		}
+		cut++;
+	}
+	(void)closedir(d);
+	if (cut)
+		say(FZN_ENTRY_INFO, "log/copy",
+		    "%zu archived segment(s) cut into %u + %u pieces over %zu host(s)", cut, k, m,
+		    n_hosts);
+}
+#endif
+
 /* ONE ROUND OF RECONCILIATION against every pull peer, sec 551: what the
  * journal did not bring -- cut before this node saw it -- fetched from what
  * the peer holds, every round, so a gap one peer leaves another fills. */
@@ -1940,6 +2069,7 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 	size_t t, lacked = 0, applied = 0, waiting = 0, refused = 0, foreign = 0;
 	size_t lines_lacked = 0, lines_filed = 0, lines_passed = 0, lines_pushed = 0;
 	size_t segments_taken = 0, segments_refused = 0, segments_pushed = 0;
+	size_t pieces_taken = 0, pieces_pushed = 0, pieces_refused = 0;
 
 	if (!node_apply.store || !node_apply.journal || !node_apply.root)
 		return;
@@ -1968,6 +2098,7 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 			node_logs.n_copy = fzn_retain_select_copies(gathered, n, dlog.host,
 			                                             here_machine(), logs_copy);
 			node_logs.now_us = wall_ms() * 1000u;
+			cut_fossils(pulls, npulls);
 		}
 #endif
 	}
@@ -2076,8 +2207,42 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 			else
 				segments_pushed += lt.sent;
 		}
+		/* AND PIECES, sec 597: those placed on this host fetched, those
+		 * placed on the peer pushed, through the same gate. */
+		if (pieces_ready) {
+			struct serving_to to = { pulls[t].pairing.node, -1 };
+			fzn_reconcile_gate_t gate = { serves_bucket, &to };
+			fzn_reconcile_bucket_tally_t pt;
+
+			err = fzn_reconcile_buckets(&logs_store, FZN_BUCKETS_PIECES, &pieces_filer,
+			                            peer_ask, &asking, reply, sizeof(reply), &pt);
+			if (err != FZN_RECONCILE_OK)
+				say(FZN_ENTRY_WARNING, "log/copy", "pieces from %s: %s", pulls[t].host,
+				    fzn_reconcile_err_str(err));
+			else
+				pieces_taken += pt.applied;
+			err = fzn_reconcile_push(&logs_store, FZN_BUCKETS_PIECES, &gate, &pieces_filer,
+			                         NULL, peer_ask, &asking, reply, sizeof(reply), &pt);
+			if (err != FZN_RECONCILE_OK)
+				say(FZN_ENTRY_WARNING, "log/copy", "pieces to %s: %s", pulls[t].host,
+				    fzn_reconcile_err_str(err));
+			else {
+				pieces_pushed += pt.sent;
+				pieces_refused += pt.refused;
+			}
+		}
 #endif
 	}
+#if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
+	if (pieces_taken || pieces_pushed || pieces_refused)
+		say(pieces_refused ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "log/copy",
+		    "pieces of archived segments: %zu taken, %zu pushed, %zu refused there",
+		    pieces_taken, pieces_pushed, pieces_refused);
+#else
+	(void)pieces_taken;
+	(void)pieces_pushed;
+	(void)pieces_refused;
+#endif
 	/* EVERY PASS THAT RAN SAYS SO, at debug, as the trim's and the cut's do. */
 	say(FZN_ENTRY_DEBUG, "reconcile",
 	    "reconcile pass: %zu peer(s), %zu of another estate passed over, %zu lacked, "

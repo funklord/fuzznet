@@ -50,7 +50,10 @@ typedef enum fzn_buckets_kind {
 	FZN_BUCKETS_MESSAGES = 0,
 	/* A host's packed log segments, its subject the source host. sec 570. */
 	FZN_BUCKETS_LOGS = 1,
-	FZN_BUCKETS_KINDS = 2
+	/* Erasure-coded pieces of archived segments, its subject the host
+	 * each was placed on to keep. sec 597. */
+	FZN_BUCKETS_PIECES = 2,
+	FZN_BUCKETS_KINDS = 3
 } fzn_buckets_kind_t;
 
 typedef enum fzn_buckets_err {

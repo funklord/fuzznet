@@ -129,6 +129,33 @@ int main(void)
 	              && fzn_pieces_cut(dir, 9u, id, item, sizeof(item), 4u, 2u, &written)
 	                         == FZN_PIECES_ERR_MALFORMED,
 	      "an empty item, too many pieces, or a kind past the last was cut");
+	CHECK(fzn_pieces_cut(dir, 2u, id, item, sizeof(item), 4u, 2u, &written)
+	              == FZN_PIECES_ERR_MALFORMED,
+	      "pieces were cut into pieces again");
+
+	/* UNDER A DIRECTORY NOT MADE YET, sec 597: a host that never archived
+	 * has no archive to keep `pieces/` in, and both are made. */
+	{
+		char nested[200], above[200], name[300];
+		unsigned at;
+
+		snprintf(above, sizeof(above), "%s/archive", dir);
+		snprintf(nested, sizeof(nested), "%s/archive/pieces", dir);
+		CHECK(fzn_pieces_cut(nested, 1u, id, item, sizeof(item), 1u, 1u, &written)
+		                  == FZN_PIECES_OK
+		          && written == 2u,
+		      "pieces were not cut under an archive not made yet");
+		for (at = 0; at < 2u; at++) {
+			char hex[65];
+
+			for (i = 0; i < 32u; i++)
+				snprintf(hex + 2u * i, 3u, "%02x", id[i]);
+			snprintf(name, sizeof(name), "%s/%s.%u.piece", nested, hex, at);
+			CHECK(remove(name) == 0, "a piece cut under a new archive is not under its name");
+		}
+		CHECK(rmdir(nested) == 0 && rmdir(above) == 0,
+		      "the archive and its pieces were not made, or held something else");
+	}
 
 	for (i = 0; i < 6u; i++) {
 		path_of(path, sizeof(path), id, (unsigned)i);

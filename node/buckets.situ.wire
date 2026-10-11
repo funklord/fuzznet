@@ -19,7 +19,7 @@ endian big
 target buffer
 
 enum fzn_buckets_kind : u8 unknown=error
-  messages=0 logs=1
+  messages=0 logs=1 pieces=2
 
 struct fzn_buckets_bucket size=78
   @0x0000   1         u8         version  must_eq=1

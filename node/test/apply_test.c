@@ -668,6 +668,35 @@ static void test_settings_judged(void)
 	              && fzn_node_settings_replicas(&ns) == 16u,
 	      "replicas were not 2 unset, 3 set, 2 past 16, or 16 at the bound");
 
+	/* HOW A FOSSIL IS CUT, sec 597: 4 + 2 until set, K+M counted, past 32
+	 * in all or not of that shape the 4 + 2 again. */
+	{
+		unsigned k = 0, parity = 0;
+
+		fzn_node_settings_erasure(&ns, &k, &parity);
+		CHECK(k == 4u && parity == 2u, "the erasure was not 4 + 2 unset");
+		CHECK(setting_by(&nj, 0x93, FZN_SCOPE_ESTATE, 0x91, 1u, "archive/erasure", 1, "1+1")
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK,
+		      "fixture: archive/erasure 1+1");
+		fzn_node_settings_erasure(&ns, &k, &parity);
+		CHECK(k == 1u && parity == 1u, "an admin's 1+1 did not count");
+		CHECK(setting_by(&nj, 0x93, FZN_SCOPE_ESTATE, 0x91, 2u, "archive/erasure", 1, "20+13")
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK,
+		      "fixture: archive/erasure 20+13");
+		fzn_node_settings_erasure(&ns, &k, &parity);
+		CHECK(k == 4u && parity == 2u, "33 pieces in all counted");
+		CHECK(setting_by(&nj, 0x93, FZN_SCOPE_ESTATE, 0x91, 3u, "archive/erasure", 1, "6+")
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK,
+		      "fixture: archive/erasure 6+");
+		fzn_node_settings_erasure(&ns, &k, &parity);
+		CHECK(k == 4u && parity == 2u, "a value with no parity counted");
+		CHECK(setting_by(&nj, 0x93, FZN_SCOPE_ESTATE, 0x91, 4u, "archive/erasure", 1, "20+12")
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK,
+		      "fixture: archive/erasure 20+12");
+		fzn_node_settings_erasure(&ns, &k, &parity);
+		CHECK(k == 20u && parity == 12u, "32 pieces in all, the bound, did not count");
+	}
+
 	/* A MEMBER'S ADDRESS, sec 579: its own host cell, `HOST PORT`. */
 	{
 		uint8_t member[FZN_SUBJECT_LEN];

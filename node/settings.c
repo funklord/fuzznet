@@ -408,6 +408,35 @@ unsigned fzn_node_settings_replicas(const fzn_node_settings_t *ns)
 	return n ? n : FZN_NODE_SETTINGS_REPLICAS;
 }
 
+void fzn_node_settings_erasure(const fzn_node_settings_t *ns, unsigned *k, unsigned *m)
+{
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	size_t len = 0, plus;
+	unsigned dk, dm;
+
+	if (!k || !m)
+		return;
+	*k = FZN_NODE_SETTINGS_ERASURE_K;
+	*m = FZN_NODE_SETTINGS_ERASURE_M;
+	if (!ready(ns) || !ns->estate
+	    || !fzn_node_settings_get(ns, FZN_SCOPE_ESTATE, ns->estate,
+	                              (const uint8_t *)FZN_NODE_SETTINGS_ERASURE_KEY,
+	                              sizeof(FZN_NODE_SETTINGS_ERASURE_KEY) - 1u, value, &len,
+	                              &rank))
+		return;
+	for (plus = 0; plus < len && value[plus] != '+'; plus++)
+		;
+	if (plus == len)
+		return;
+	dk = count_of(value, plus, 31u);
+	dm = count_of(value + plus + 1u, len - plus - 1u, 31u);
+	if (dk && dm && dk + dm <= 32u) {
+		*k = dk;
+		*m = dm;
+	}
+}
+
 int fzn_node_settings_address(const fzn_node_settings_t *ns, const uint8_t about[FZN_SUBJECT_LEN],
                               char host[FZN_NODE_SETTINGS_HOST_MAX + 1u], uint16_t *port)
 {

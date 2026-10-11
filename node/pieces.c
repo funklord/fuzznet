@@ -61,6 +61,29 @@ static int piece_path(char *out, size_t cap, const char *dir,
 	return k > 0 && (size_t)k < cap;
 }
 
+/* `dir` made 0700 where absent, and each directory above it that is: a
+ * host that never archived has no archive to make `pieces/` in. 0 on a
+ * failure, or a name too long. */
+static int make_dir(const char *dir)
+{
+	char path[PATH_MAX_];
+	size_t i, n = strlen(dir);
+
+	if (n == 0u || n >= sizeof(path))
+		return 0;
+	memcpy(path, dir, n + 1u);
+	for (i = 1; i <= n; i++) {
+		if (path[i] != '/' && path[i] != '\0')
+			continue;
+		path[i] = '\0';
+		if (mkdir(path, 0700) != 0 && errno != EEXIST)
+			return 0;
+		if (i < n)
+			path[i] = '/';
+	}
+	return 1;
+}
+
 fzn_pieces_err_t fzn_pieces_cut(const char *dir, uint8_t kind,
                                 const uint8_t id[FZN_BUCKETS_ID_LEN], const uint8_t *item,
                                 size_t len, unsigned k, unsigned m, size_t *written)
@@ -76,7 +99,7 @@ fzn_pieces_err_t fzn_pieces_cut(const char *dir, uint8_t kind,
 		return FZN_PIECES_ERR_MALFORMED;
 	*written = 0;
 	if (!dir || !dir[0] || !id || !item || len == 0u || len > LARGE_MAX || !k || !m
-	    || k + m > FZN_ERASURE_PIECES_MAX || kind >= FZN_BUCKETS_KINDS)
+	    || k + m > FZN_ERASURE_PIECES_MAX || kind > FZN_BUCKETS_LOGS)
 		return FZN_PIECES_ERR_MALFORMED;
 	pieces = malloc((size_t)(k + m) * plen);
 	if (!pieces)
@@ -85,7 +108,7 @@ fzn_pieces_err_t fzn_pieces_cut(const char *dir, uint8_t kind,
 		free(pieces);
 		return FZN_PIECES_ERR_MALFORMED;
 	}
-	if (mkdir(dir, 0700) != 0 && errno != EEXIST) {
+	if (!make_dir(dir)) {
 		free(pieces);
 		return FZN_PIECES_ERR_FILE;
 	}
@@ -145,6 +168,51 @@ fzn_pieces_err_t fzn_pieces_held(const char *dir, const uint8_t id[FZN_BUCKETS_I
 	return FZN_PIECES_OK;
 }
 
+/* WHETHER `head` IS A PIECE'S: its fields within their bounds and agreeing
+ * with one another, as `chunk/piece.situ` says and the codec needs. The
+ * kinds whose items are cut are the messages' and the logs'; a piece is
+ * not cut again. */
+static int head_ok(const uint8_t head[FZN_PIECE_HEAD_LEN])
+{
+	uint64_t len = fzn_get_be64(head + OFF_LEN);
+	unsigned k = head[OFF_K], m = head[OFF_M];
+
+	return head[OFF_VERSION] == 1u && head[OFF_KIND] <= FZN_BUCKETS_LOGS && len != 0u
+	       && len <= LARGE_MAX && k && m && k + m <= FZN_ERASURE_PIECES_MAX
+	       && head[OFF_INDEX] < k + m
+	       && fzn_get_be32(head + OFF_PIECE_LEN) == fzn_erasure_piece_len((size_t)len, k);
+}
+
+fzn_pieces_err_t fzn_pieces_keep(const char *dir, const uint8_t *bytes, size_t len,
+                                 uint8_t item_id[FZN_BUCKETS_ID_LEN], unsigned *index)
+{
+	char path[PATH_MAX_], tmp[PATH_MAX_];
+	int fd, ok;
+
+	if (!dir || !dir[0] || !bytes || !item_id || !index || len < FZN_PIECE_HEAD_LEN
+	    || !head_ok(bytes)
+	    || len - FZN_PIECE_HEAD_LEN != fzn_get_be32(bytes + OFF_PIECE_LEN))
+		return FZN_PIECES_ERR_MALFORMED;
+	memcpy(item_id, bytes + OFF_ID, FZN_BUCKETS_ID_LEN);
+	*index = bytes[OFF_INDEX];
+	if (!piece_path(path, sizeof(path), dir, item_id, *index, "")
+	    || !piece_path(tmp, sizeof(tmp), dir, item_id, *index, ".new"))
+		return FZN_PIECES_ERR_MALFORMED;
+	if (!make_dir(dir))
+		return FZN_PIECES_ERR_FILE;
+	fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+	if (fd < 0)
+		return FZN_PIECES_ERR_FILE;
+	ok = write(fd, bytes, len) == (ssize_t)len;
+	ok = fsync(fd) == 0 && ok;
+	ok = (close(fd) == 0) && ok;
+	if (!ok || rename(tmp, path) != 0) {
+		(void)remove(tmp);
+		return FZN_PIECES_ERR_FILE;
+	}
+	return FZN_PIECES_OK;
+}
+
 /* One piece's file read whole into a fresh buffer, its head checked against
  * its name and, once one is held, against the first; 0 when it does not
  * read or does not agree. */
@@ -153,8 +221,6 @@ static uint8_t *read_piece(const char *path, uint8_t kind, const uint8_t id[FZN_
 {
 	uint8_t head[FZN_PIECE_HEAD_LEN], *piece;
 	size_t plen, got = 0;
-	uint64_t len;
-	unsigned k, m;
 	ssize_t r;
 	int fd = open(path, O_RDONLY | O_CLOEXEC);
 
@@ -164,14 +230,9 @@ static uint8_t *read_piece(const char *path, uint8_t kind, const uint8_t id[FZN_
 		(void)close(fd);
 		return NULL;
 	}
-	len = fzn_get_be64(head + OFF_LEN);
-	k = head[OFF_K];
-	m = head[OFF_M];
 	plen = fzn_get_be32(head + OFF_PIECE_LEN);
-	if (head[OFF_VERSION] != 1u || head[OFF_KIND] != kind
+	if (head[OFF_KIND] != kind || !head_ok(head)
 	    || memcmp(head + OFF_ID, id, FZN_BUCKETS_ID_LEN) != 0 || head[OFF_INDEX] != index
-	    || len == 0u || len > LARGE_MAX || !k || !m || k + m > FZN_ERASURE_PIECES_MAX
-	    || index >= k + m || plen != fzn_erasure_piece_len((size_t)len, k)
 	    || (*have_first && (memcmp(head, first, OFF_INDEX) != 0
 	                        || memcmp(head + OFF_PIECE_LEN, first + OFF_PIECE_LEN, 4u) != 0))) {
 		(void)close(fd);

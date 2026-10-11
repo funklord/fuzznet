@@ -696,6 +696,33 @@ static void test_archived_still_held(void)
 	CHECK(rmdir(archive) == 0, "the archive held something else, or would not go");
 }
 
+/* ARCHIVED BEFORE ANY SCAN, sec 597: a segment packed and archived in one
+ * log pass was never in the log directory when a scan looked, and is taken
+ * from the archive -- else it is held by no bucket, so never served,
+ * counted toward the replicas, or cut into pieces. */
+static void test_archived_before_scanned(void)
+{
+	char path[400], moved[400], archive[300];
+	size_t taken = 0, let_go = 9;
+
+	fresh();
+	snprintf(archive, sizeof(archive), "%s/archive", top);
+	(void)mkdir(archive, 0700);
+	snprintf(path, sizeof(path), "%s/netcfgd.%llu.42.log.zst", dir_a,
+	         (unsigned long long)JULY_2026);
+	snprintf(moved, sizeof(moved), "%s/netcfgd.%llu.42.log.zst", archive,
+	         (unsigned long long)JULY_2026);
+	CHECK(a_logs() && rename(path, moved) == 0, "fixture: July's first segment archived unscanned");
+	snprintf(lb_a.archive, sizeof(lb_a.archive), "%s", archive);
+	CHECK(fzn_log_buckets_scan(&lb_a, &taken, &let_go) && taken == 3u && let_go == 0u,
+	      "a segment archived before a scan saw it was not taken");
+	CHECK(fzn_log_buckets_scan(&lb_a, &taken, &let_go) && taken == 0u && let_go == 0u,
+	      "an archived segment was taken again, or let go");
+	lb_a.archive[0] = '\0';
+	(void)remove(moved);
+	CHECK(rmdir(archive) == 0, "the archive held something else, or would not go");
+}
+
 /* WHETHER A PEER HOLDS AN ITEM, sec 592: B asks A, and A's answer carries
  * the length alone -- held, let go, or never held. */
 static void test_peer_holds(void)
@@ -775,6 +802,7 @@ int main(void)
 	test_its_id_and_its_month();
 	test_removed_and_repacked();
 	test_archived_still_held();
+	test_archived_before_scanned();
 	test_peer_holds();
 
 	fresh();

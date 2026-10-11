@@ -1325,9 +1325,12 @@ TEST_BINS += $(BUILD_DIR)/log/test/logger_test
 TEST_BINS += $(BUILD_DIR)/log/test/gather_test
 endif
 
-LOG_PACK_SRCS := log/pack.c log/copy.c node/log_buckets.c node/pieces.c
-LOG_PACK_HDRS := log/pack.h log/copy.h node/log_buckets.h node/pieces.h
-LOG_PACK_TSRC := log/test/pack_test.c node/test/log_buckets_test.c node/test/pieces_test.c
+LOG_PACK_SRCS := log/pack.c log/copy.c node/log_buckets.c node/pieces.c \
+                 node/piece_buckets.c
+LOG_PACK_HDRS := log/pack.h log/copy.h node/log_buckets.h node/pieces.h \
+                 node/piece_buckets.h
+LOG_PACK_TSRC := log/test/pack_test.c node/test/log_buckets_test.c node/test/pieces_test.c \
+                 node/test/piece_buckets_test.c
 
 ifdef LOG_PACK_ON
 CPPFLAGS  += -DFZN_LOG_PACK_ON
@@ -1337,6 +1340,7 @@ TEST_SRCS += $(LOG_PACK_TSRC)
 TEST_BINS += $(BUILD_DIR)/log/test/pack_test
 TEST_BINS += $(BUILD_DIR)/node/test/log_buckets_test
 TEST_BINS += $(BUILD_DIR)/node/test/pieces_test
+TEST_BINS += $(BUILD_DIR)/node/test/piece_buckets_test
 endif
 
 CLAIM_FILE_SRCS := claim/claim_file.c
@@ -4030,7 +4034,6 @@ $(BUILD_DIR)/node/test/buckets_test: $(BUILD_DIR)/node/test/buckets_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
-# A host's packed log segments as bucket items, sec 571.
 # An item as erasure-coded pieces on disk, sec 595.
 $(BUILD_DIR)/node/test/pieces_test: $(BUILD_DIR)/node/test/pieces_test.o \
                                     $(BUILD_DIR)/node/pieces.o $(BUILD_DIR)/node/buckets.o \
@@ -4038,6 +4041,16 @@ $(BUILD_DIR)/node/test/pieces_test: $(BUILD_DIR)/node/test/pieces_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# Erasure-coded pieces as bucket items, placed one to a host, sec 597.
+$(BUILD_DIR)/node/test/piece_buckets_test: $(BUILD_DIR)/node/test/piece_buckets_test.o \
+                                           $(BUILD_DIR)/node/piece_buckets.o \
+                                           $(BUILD_DIR)/node/pieces.o \
+                                           $(BUILD_DIR)/chunk/erasure.o \
+                                           $(BUILD_DIR)/node/reconcile.o $(NODE_APPLY_LINK)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# A host's packed log segments as bucket items, sec 571.
 $(BUILD_DIR)/node/test/log_buckets_test: $(BUILD_DIR)/node/test/log_buckets_test.o \
                                          $(BUILD_DIR)/node/log_buckets.o \
                                          $(BUILD_DIR)/node/reconcile.o \
@@ -4092,7 +4105,8 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o $(BUILD_DIR)/log/ring.o \
                 $(BUILD_DIR)/log/gather.o) \
               $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o $(BUILD_DIR)/log/copy.o \
-                $(BUILD_DIR)/node/log_buckets.o) \
+                $(BUILD_DIR)/node/log_buckets.o $(BUILD_DIR)/node/pieces.o \
+                $(BUILD_DIR)/node/piece_buckets.o $(BUILD_DIR)/chunk/erasure.o) \
               $(MONO_OBJS) $(FLOG_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))

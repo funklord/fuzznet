@@ -172,6 +172,16 @@ unsigned fzn_node_settings_window_days(const fzn_node_settings_t *ns);
 #define FZN_NODE_SETTINGS_REPLICAS 2u
 unsigned fzn_node_settings_replicas(const fzn_node_settings_t *ns);
 
+/* HOW AN ARCHIVED SEGMENT IS CUT, sec 597: the estate cell
+ * `archive/erasure`, `K+M` -- k data pieces and m parity, each at least 1
+ * and k + m at most 32 -- at whatever rank is in force. The holder's 4 + 2
+ * of 2026-10-11 otherwise, and on a value not of that shape. An estate of
+ * fewer than k + m hosts keeps whole replicas instead (sec 592). */
+#define FZN_NODE_SETTINGS_ERASURE_KEY "archive/erasure"
+#define FZN_NODE_SETTINGS_ERASURE_K 4u
+#define FZN_NODE_SETTINGS_ERASURE_M 2u
+void fzn_node_settings_erasure(const fzn_node_settings_t *ns, unsigned *k, unsigned *m);
+
 /* A MEMBER'S ADDRESS AS A SETTING, sec 579: the host cell `net/address`,
  * `HOST PORT` -- a name or an address of 1 to 253 bytes of letters, digits
  * and `.-:`, a space, and a port from 1 to 65535 -- at whatever rank is in

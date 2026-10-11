@@ -58,6 +58,18 @@ fzn_pieces_err_t fzn_pieces_held(const char *dir, const uint8_t id[FZN_BUCKETS_I
                                  uint32_t *mask);
 
 /*
+ * KEEP ONE PIECE, `bytes` whole as `chunk/piece.situ` lays it out, into
+ * `dir` under the name its head gives -- the item's id and its index, both
+ * into `item_id` and `*index` -- written beside it and renamed into place.
+ * MALFORMED for a head that is not a piece's: a version not 1, a kind not one
+ * whose items are cut, k + m past 32, an index past k + m, or a piece not its
+ * item's length over k. Whether it belongs to its item only the rebuild
+ * can say.
+ */
+fzn_pieces_err_t fzn_pieces_keep(const char *dir, const uint8_t *bytes, size_t len,
+                                 uint8_t item_id[FZN_BUCKETS_ID_LEN], unsigned *index);
+
+/*
  * REBUILD the item `id` of `kind` from the pieces in `dir` into `out` (room
  * for `cap`), `*len` bytes, checked against `id` under `hash`. `*used` (may
  * be NULL) is the mask of the k pieces the rebuild came from.

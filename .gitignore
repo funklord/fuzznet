@@ -172,6 +172,7 @@
 /node/test/buckets_test
 /node/test/log_buckets_test
 /node/test/pieces_test
+/node/test/piece_buckets_test
 /record/test/ledger_test
 /record/test/sync_fuzz
 /state/test/state_test

@@ -10984,6 +10984,41 @@ SABOTAGES = [
 		"a copy archived is let go as a file gone, and taken again from its host -- sec 590",
 	),
 	(
+		"pieces-kept-only-on-their-keeper",
+		"node/piece_buckets.c",
+		"\tif (memcmp(subject, pb->self, 32u) != 0)\n\t\treturn FZN_NODE_APPLY_REFUSED;\n\tswitch (fzn_pieces_keep(",
+		"\tswitch (fzn_pieces_keep(",
+		"a host keeps pieces placed on others, and the pieces no longer spread one to a host -- sec 597",
+	),
+	(
+		"pieces-wanted-only-by-their-keeper",
+		"node/piece_buckets.c",
+		"\treturn pb && memcmp(subject, pb->self, 32u) == 0;\n",
+		"\treturn pb != NULL;\n",
+		"a piece placed on another host is sent here whole only to be refused -- sec 597",
+	),
+	(
+		"pieces-kept-whole",
+		"node/pieces.c",
+		"\t    || !head_ok(bytes)\n\t    || len - FZN_PIECE_HEAD_LEN != fzn_get_be32(bytes + OFF_PIECE_LEN))\n",
+		"\t    || !head_ok(bytes))\n",
+		"a piece cut short is kept, and its rebuild reads past what it holds -- sec 597",
+	),
+	(
+		"pieces-made-under-a-new-archive",
+		"node/pieces.c",
+		"\tif (!make_dir(dir)) {\n\t\tfree(pieces);\n",
+		"\tif (mkdir(dir, 0700) != 0 && errno != EEXIST) {\n\t\tfree(pieces);\n",
+		"a host that never archived cannot keep pieces, and refuses every one placed on it -- sec 597",
+	),
+	(
+		"log-buckets-take-the-archived",
+		"node/log_buckets.c",
+		"\tif (lb->archive[0])\n\t\tok = scan_dir(lb, lb->archive, taken, let_go) && ok;\n",
+		"",
+		"a segment packed and archived in one pass is in no bucket: never served, counted or cut -- sec 597",
+	),
+	(
 		"pieces-rebuild-checked-against-the-id",
 		"node/pieces.c",
 		"\t\t    && fzn_buckets_id(hash, out, item_len, check)\n\t\t    && memcmp(check, id, FZN_BUCKETS_ID_LEN) == 0) {\n\t\t\t*len = item_len;\n\t\t\tif (used)\n\t\t\t\t*used = mask;\n\t\t\terr = FZN_PIECES_OK;\n\t\t\tbreak;",
@@ -10993,8 +11028,8 @@ SABOTAGES = [
 	(
 		"pieces-head-is-the-items",
 		"node/pieces.c",
-		"\tif (head[OFF_VERSION] != 1u || head[OFF_KIND] != kind\n",
-		"\tif (head[OFF_VERSION] != 1u\n",
+		"\tif (head[OFF_KIND] != kind || !head_ok(head)\n",
+		"\tif (!head_ok(head)\n",
 		"a piece of another kind of item is taken into this one's rebuild -- sec 595",
 	),
 	(

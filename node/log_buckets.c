@@ -230,19 +230,17 @@ static int sweep(fzn_log_buckets_t *lb, size_t *let_go)
 	return ok;
 }
 
-int fzn_log_buckets_scan(fzn_log_buckets_t *lb, size_t *taken, size_t *let_go)
+/* THIS HOST'S SEGMENTS IN `dir`, taken: the log directory, or the archive
+ * (sec 597) -- a segment packed and archived in one log pass was never in
+ * the log directory when a scan looked. 0 when the directory would not
+ * read, ENOENT aside, or a store refused. */
+static int scan_dir(fzn_log_buckets_t *lb, const char *dir, size_t *taken, size_t *let_go)
 {
 	struct dirent *e;
 	DIR *d;
 	int ok = 1;
 
-	if (taken)
-		*taken = 0;
-	if (let_go)
-		*let_go = 0;
-	if (!lb || !lb->b)
-		return 0;
-	d = opendir(lb->dir);
+	d = opendir(dir);
 	if (!d)
 		return errno == ENOENT;
 	while ((e = readdir(d)) != NULL) {
@@ -255,7 +253,7 @@ int fzn_log_buckets_scan(fzn_log_buckets_t *lb, size_t *taken, size_t *let_go)
 
 		if (!closed || name_len > FZN_LOG_BUCKETS_NAME_MAX
 		    || snprintf(ref, sizeof(ref), "o/%s", e->d_name) >= (int)sizeof(ref)
-		    || snprintf(path, sizeof(path), "%s/%s", lb->dir, e->d_name) >= (int)sizeof(path)
+		    || snprintf(path, sizeof(path), "%s/%s", dir, e->d_name) >= (int)sizeof(path)
 		    || stat(path, &st) != 0)
 			continue;
 		/* KNOWN, AT THIS LENGTH: not read again. KNOWN AT ANOTHER -- the
@@ -300,6 +298,22 @@ int fzn_log_buckets_scan(fzn_log_buckets_t *lb, size_t *taken, size_t *let_go)
 			(*taken)++;
 	}
 	(void)closedir(d);
+	return ok;
+}
+
+int fzn_log_buckets_scan(fzn_log_buckets_t *lb, size_t *taken, size_t *let_go)
+{
+	int ok;
+
+	if (taken)
+		*taken = 0;
+	if (let_go)
+		*let_go = 0;
+	if (!lb || !lb->b)
+		return 0;
+	ok = scan_dir(lb, lb->dir, taken, let_go);
+	if (lb->archive[0])
+		ok = scan_dir(lb, lb->archive, taken, let_go) && ok;
 	return sweep(lb, let_go) && ok;
 }
 

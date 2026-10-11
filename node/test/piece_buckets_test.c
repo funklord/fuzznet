@@ -1,0 +1,455 @@
+/* piece_buckets_test -- erasure-coded pieces as bucket items, sec 597:
+ * ranked over the hosts, placed one to a host, pulled and pushed only to
+ * the host each was placed on, and kept only in a piece's shape.
+ *
+ * TWO HOSTS IN ONE PROCESS, A and B, each a pieces directory and an
+ * in-memory store, the exchange asked directly. THE HASH IS A TOY, as in
+ * log_buckets_test: what is under test is the placing and the carriage.
+ *
+ * HOW IT TERMINATES: no forks, fixed loops. Its scratch is
+ * /tmp/fzn-piece-buckets-test-PID, and every file in it is removed by name
+ * -- the entries of the directories this process made -- then each
+ * directory.
+ */
+
+#define _POSIX_C_SOURCE 200809L
+
+#include "../piece_buckets.h"
+#include "../pieces.h"
+
+#include <dirent.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+static int checks, failures;
+
+#define CHECK(cond, what)                                                                        \
+	do {                                                                                     \
+		checks++;                                                                        \
+		if (!(cond)) {                                                                   \
+			failures++;                                                              \
+			fprintf(stderr, "  FAIL piece_buckets_test.c:%d: %s\n", __LINE__, what); \
+		}                                                                                \
+	} while (0)
+
+static int toy(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in, size_t in_len)
+{
+	size_t w, i;
+
+	(void)ctx;
+	for (w = 0; w < out_len; w++) {
+		uint32_t h = 2166136261u ^ (uint32_t)(w * 0x9e3779b9u);
+
+		for (i = 0; i < in_len; i++)
+			h = (h ^ in[i]) * 16777619u;
+		out[w] = (uint8_t)(h ^ (h >> 13) ^ (h >> 24));
+	}
+	return 1;
+}
+
+static const fzn_hash_ops_t HASH = { toy, NULL };
+
+/* ---- a store per host --------------------------------------------------- */
+
+#define ROWS 256
+
+struct row {
+	int used;
+	fzn_persist_slot_t slot;
+	uint8_t subject[FZN_PUBKEY_LEN];
+	uint8_t bytes[FZN_BUCKETS_ITEM_MAX + 64u];
+	size_t len;
+};
+
+struct mem {
+	struct row rows[ROWS];
+};
+
+static struct row *row_of(struct mem *m, fzn_persist_slot_t slot, const uint8_t *subject, int make)
+{
+	int i, free_one = -1;
+
+	for (i = 0; i < ROWS; i++) {
+		if (!m->rows[i].used) {
+			if (free_one < 0)
+				free_one = i;
+			continue;
+		}
+		if (m->rows[i].slot == slot && memcmp(m->rows[i].subject, subject, FZN_PUBKEY_LEN) == 0)
+			return &m->rows[i];
+	}
+	if (!make || free_one < 0)
+		return NULL;
+	m->rows[free_one].used = 1;
+	m->rows[free_one].slot = slot;
+	memcpy(m->rows[free_one].subject, subject, FZN_PUBKEY_LEN);
+	return &m->rows[free_one];
+}
+
+static int mem_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, uint8_t *out,
+                    size_t cap, size_t *len)
+{
+	struct row *r = row_of((struct mem *)ctx, slot, subject, 0);
+
+	if (!r || r->len > cap)
+		return 0;
+	memcpy(out, r->bytes, r->len);
+	*len = r->len;
+	return 1;
+}
+
+static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
+                    const uint8_t *bytes, size_t len)
+{
+	struct row *r = row_of((struct mem *)ctx, slot, subject, 1);
+
+	if (!r || len > sizeof(r->bytes))
+		return 0;
+	memcpy(r->bytes, bytes, len);
+	r->len = len;
+	return 1;
+}
+
+static int mem_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max, size_t *count)
+{
+	struct mem *m = (struct mem *)ctx;
+	size_t n = 0;
+	int i;
+
+	for (i = 0; i < ROWS; i++)
+		if (m->rows[i].used && m->rows[i].slot == slot) {
+			if (n >= max)
+				return 0;
+			memcpy(out + n * FZN_PUBKEY_LEN, m->rows[i].subject, FZN_PUBKEY_LEN);
+			n++;
+		}
+	*count = n;
+	return 1;
+}
+
+static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject)
+{
+	struct row *r = row_of((struct mem *)ctx, slot, subject, 0);
+
+	if (r)
+		memset(r, 0, sizeof(*r));
+	return 1;
+}
+
+static struct mem mem_a, mem_b;
+static fzn_persist_ops_t store_a = { mem_load, mem_save, mem_list, mem_remove, &mem_a };
+static fzn_persist_ops_t store_b = { mem_load, mem_save, mem_list, mem_remove, &mem_b };
+static const fzn_buckets_t A = { &store_a, &HASH };
+static const fzn_buckets_t B = { &store_b, &HASH };
+static fzn_piece_buckets_t pb_a, pb_b;
+static fzn_reconcile_filer_t filer_a, filer_b;
+static uint8_t key_a[32], key_b[32];
+
+/* ---- scratch ------------------------------------------------------------- */
+
+static char top[64], dir_a[128], dir_b[128];
+
+/* Every entry of `dir`, which this process made, then `dir`. */
+static void wipe(const char *dir)
+{
+	DIR *d = opendir(dir);
+	struct dirent *e;
+	char path[400];
+
+	if (!d)
+		return;
+	while ((e = readdir(d)) != NULL) {
+		if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, ".."))
+			continue;
+		snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
+		(void)remove(path);
+	}
+	(void)closedir(d);
+	(void)rmdir(dir);
+}
+
+static size_t pieces_in(const char *dir)
+{
+	DIR *d = opendir(dir);
+	struct dirent *e;
+	size_t n = 0;
+
+	if (!d)
+		return 0;
+	while ((e = readdir(d)) != NULL) {
+		size_t l = strlen(e->d_name);
+
+		if (l > 6u && strcmp(e->d_name + l - 6u, ".piece") == 0)
+			n++;
+	}
+	(void)closedir(d);
+	return n;
+}
+
+static void fresh(void)
+{
+	wipe(dir_a);
+	wipe(dir_b);
+	memset(&mem_a, 0, sizeof(mem_a));
+	memset(&mem_b, 0, sizeof(mem_b));
+	fzn_piece_buckets_close(&pb_a);
+	fzn_piece_buckets_close(&pb_b);
+	(void)fzn_piece_buckets_init(&pb_a, &A, dir_a, &HASH, key_a);
+	(void)fzn_piece_buckets_init(&pb_b, &B, dir_b, &HASH, key_b);
+	fzn_piece_buckets_filer(&pb_a, &filer_a);
+	fzn_piece_buckets_filer(&pb_b, &filer_b);
+}
+
+/* ---- the exchange, asked directly ---------------------------------------- */
+
+/* A's view of what B may hold: the pieces placed on B. */
+static int serves_b(void *ctx, fzn_buckets_kind_t kind, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	(void)ctx;
+	return kind == FZN_BUCKETS_PIECES && memcmp(subject, key_b, 32u) == 0;
+}
+
+static fzn_reconcile_gate_t gate_b = { serves_b, NULL };
+
+/* A ANSWERING B. */
+static int to_a(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                size_t cap, size_t *reply_len)
+{
+	fzn_reconcile_server_t srv;
+	size_t n;
+
+	(void)ctx;
+	memset(&srv, 0, sizeof(srv));
+	srv.store = &store_a;
+	srv.hash = &HASH;
+	srv.gate = &gate_b;
+	srv.takers[FZN_BUCKETS_PIECES] = &filer_a;
+	srv.sender = key_b;
+	n = fzn_reconcile_serve(&srv, request, request_len, reply, cap);
+	if (!n)
+		return 0;
+	*reply_len = n;
+	return 1;
+}
+
+/* B ANSWERING A, taking what A pushes. */
+static int to_b(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                size_t cap, size_t *reply_len)
+{
+	fzn_reconcile_server_t srv;
+	size_t n;
+
+	(void)ctx;
+	memset(&srv, 0, sizeof(srv));
+	srv.store = &store_b;
+	srv.hash = &HASH;
+	srv.takers[FZN_BUCKETS_PIECES] = &filer_b;
+	srv.sender = key_a;
+	n = fzn_reconcile_serve(&srv, request, request_len, reply, cap);
+	if (!n)
+		return 0;
+	*reply_len = n;
+	return 1;
+}
+
+/* ---- the item ------------------------------------------------------------ */
+
+#define ITEM_LEN 20000u
+#define MONTH 680u
+
+static uint8_t item[ITEM_LEN], item_id[FZN_BUCKETS_ID_LEN];
+
+/* A cuts the item 1 + 1 and places piece i on `keepers[i]`. */
+static int a_cuts(const uint8_t (*keepers)[32], size_t *placed)
+{
+	size_t written = 0;
+
+	return fzn_pieces_cut(dir_a, 1u, item_id, item, ITEM_LEN, 1u, 1u, &written) == FZN_PIECES_OK
+	       && written == 2u && fzn_piece_buckets_place(&pb_a, item_id, MONTH, keepers, 2u, placed);
+}
+
+static uint64_t count_of(const fzn_buckets_t *b, const uint8_t subject[32])
+{
+	fzn_bucket_t k;
+
+	if (fzn_buckets_bucket(b, FZN_BUCKETS_PIECES, subject, MONTH, &k) != FZN_BUCKETS_OK)
+		return 99u;
+	return k.count;
+}
+
+/* ---- tests ---------------------------------------------------------------- */
+
+static void test_rank(void)
+{
+	uint8_t hosts[6][32], back[6][32];
+	size_t order[6], order_back[6], i, j, seen;
+	uint8_t other[FZN_BUCKETS_ID_LEN];
+	size_t order_other[6];
+	int differs = 0;
+
+	for (i = 0; i < 6u; i++) {
+		memset(hosts[i], (int)(0x10u + i), 32u);
+		memcpy(back[5u - i], hosts[i], 32u);
+	}
+	CHECK(fzn_piece_buckets_rank(&HASH, item_id, (const uint8_t (*)[32])hosts, 6u, order)
+	          && fzn_piece_buckets_rank(&HASH, item_id, (const uint8_t (*)[32])back, 6u,
+	                                    order_back),
+	      "six hosts would not rank");
+	for (i = 0, seen = 0; i < 6u; i++)
+		for (j = 0; j < 6u; j++)
+			seen += order[j] == i;
+	CHECK(seen == 6u, "the order is not every host once");
+	/* THE SAME HOST FOR EACH PIECE, whatever order the hosts came in. */
+	for (i = 0; i < 6u; i++)
+		CHECK(memcmp(hosts[order[i]], back[order_back[i]], 32u) == 0,
+		      "the placement moved with the order the hosts were listed in");
+	/* AND ANOTHER ITEM, ANOTHER ORDER: the pieces of many items spread. */
+	memcpy(other, item_id, sizeof(other));
+	other[0] ^= 1u;
+	CHECK(fzn_piece_buckets_rank(&HASH, other, (const uint8_t (*)[32])hosts, 6u, order_other),
+	      "another item would not rank");
+	for (i = 0; i < 6u; i++)
+		differs |= order_other[i] != order[i];
+	CHECK(differs, "two items ranked the hosts alike: every first piece on one host");
+}
+
+static void test_place_pull_push(void)
+{
+	uint8_t keepers[2][32];
+	fzn_reconcile_bucket_tally_t t;
+	static uint8_t reply[8192];
+	uint8_t out[ITEM_LEN];
+	size_t placed = 0, len = 0;
+	uint32_t used = 0;
+
+	fresh();
+	memcpy(keepers[0], key_a, 32u);
+	memcpy(keepers[1], key_b, 32u);
+	CHECK(a_cuts((const uint8_t (*)[32])keepers, &placed) && placed == 2u,
+	      "A did not place both pieces");
+	CHECK(count_of(&A, key_a) == 1u && count_of(&A, key_b) == 1u,
+	      "A's buckets are not one piece for A and one for B");
+
+	/* PULLED: B takes the piece placed on it, and not A's. */
+	memset(&t, 0, sizeof(t));
+	CHECK(fzn_reconcile_buckets(&B, FZN_BUCKETS_PIECES, &filer_b, to_a, NULL, reply,
+	                            sizeof(reply), &t)
+	                  == FZN_RECONCILE_OK
+	          && t.applied == 1u,
+	      "B did not pull its piece");
+	CHECK(count_of(&B, key_b) == 1u && count_of(&B, key_a) == 0u && pieces_in(dir_b) == 1u,
+	      "B holds other than the one piece placed on it");
+	/* AND IT IS A PIECE OF THE ITEM: one of 1 + 1 rebuilds it alone. */
+	CHECK(fzn_pieces_rebuild(dir_b, 1u, item_id, &HASH, out, sizeof(out), &len, &used)
+	                  == FZN_PIECES_OK
+	          && len == ITEM_LEN && memcmp(out, item, ITEM_LEN) == 0 && used == 2u,
+	      "B's piece did not rebuild the item");
+
+	/* PUSHED through A's gate: B is given its own piece only. */
+	fresh();
+	CHECK(a_cuts((const uint8_t (*)[32])keepers, &placed), "fixture: A cuts again");
+	memset(&t, 0, sizeof(t));
+	CHECK(fzn_reconcile_push(&A, FZN_BUCKETS_PIECES, &gate_b, &filer_a, NULL, to_b, NULL,
+	                         reply, sizeof(reply), &t)
+	                  == FZN_RECONCILE_OK
+	          && t.sent == 1u,
+	      "A did not push B its piece");
+	CHECK(count_of(&B, key_b) == 1u && count_of(&B, key_a) == 0u && pieces_in(dir_b) == 1u,
+	      "B was pushed other than its own piece");
+
+	/* PUSHED UNGATED: B keeps none placed on another host. */
+	fresh();
+	CHECK(a_cuts((const uint8_t (*)[32])keepers, &placed), "fixture: A cuts a third time");
+	memset(&t, 0, sizeof(t));
+	CHECK(fzn_reconcile_push(&A, FZN_BUCKETS_PIECES, NULL, &filer_a, NULL, to_b, NULL, reply,
+	                         sizeof(reply), &t)
+	                  == FZN_RECONCILE_OK
+	          && t.sent == 1u && t.passed == 1u && t.refused == 0u,
+	      "a piece placed on A was sent to B at all, rather than passed over unwanted");
+	CHECK(count_of(&B, key_a) == 0u && pieces_in(dir_b) == 1u,
+	      "B keeps a piece placed on A");
+}
+
+static void test_shape_refused(void)
+{
+	uint8_t bytes[FZN_PIECE_HEAD_LEN + 8u];
+	char path[300];
+	size_t i;
+
+	fresh();
+	/* A PIECE'S HEAD WITH A PIECE THE WRONG LENGTH. */
+	memset(bytes, 0, sizeof(bytes));
+	bytes[0] = 1u;
+	bytes[1] = 1u;
+	bytes[41] = 16u; /* item length 16 */
+	bytes[42] = 1u;  /* k */
+	bytes[43] = 1u;  /* m */
+	bytes[48] = 8u;  /* piece_len 8, where 16 / 1 is 16 */
+	CHECK(filer_b.file(filer_b.ctx, key_b, MONTH, bytes, sizeof(bytes)) == FZN_NODE_APPLY_REFUSED,
+	      "a piece whose length is not its item's over k was kept");
+	bytes[41] = 8u;
+	CHECK(filer_b.file(filer_b.ctx, key_b, MONTH, bytes, sizeof(bytes)) == FZN_NODE_APPLY_APPLIED,
+	      "a well-formed piece was not kept");
+	bytes[44] = 2u; /* index past k + m */
+	CHECK(filer_b.file(filer_b.ctx, key_b, MONTH, bytes, sizeof(bytes)) == FZN_NODE_APPLY_REFUSED,
+	      "a piece indexed past k + m was kept");
+	bytes[44] = 1u;
+	CHECK(filer_b.file(filer_b.ctx, key_b, MONTH, bytes, sizeof(bytes) - 1u)
+	          == FZN_NODE_APPLY_REFUSED,
+	      "a piece cut short was kept");
+	CHECK(filer_b.file(filer_b.ctx, key_a, MONTH, bytes, sizeof(bytes)) == FZN_NODE_APPLY_REFUSED,
+	      "B kept a piece placed on A");
+	CHECK(pieces_in(dir_b) == 1u, "a refused piece left a file");
+	/* REFS THE KIND DOES NOT NAME ARE NOT READ. */
+	snprintf(path, sizeof(path), "p/%064u.0", 0u);
+	CHECK(filer_b.read(filer_b.ctx, (const uint8_t *)path, strlen(path), 0u, bytes, 1u),
+	      "the kept piece's ref did not read");
+	for (i = 0; i < 4u; i++) {
+		static const char *const bad[] = { "p/../../etc/passwd", "o/x", "p/0.0",
+		                                   "p/0000000000000000000000000000000000000000000000000000"
+		                                   "000000000000.00" };
+
+		CHECK(!filer_b.read(filer_b.ctx, (const uint8_t *)bad[i], strlen(bad[i]), 0u, bytes, 1u),
+		      "a ref not a piece's was read");
+	}
+}
+
+int main(void)
+{
+	size_t i;
+	uint32_t s = 99u;
+
+	snprintf(top, sizeof(top), "/tmp/fzn-piece-buckets-test-%ld", (long)getpid());
+	snprintf(dir_a, sizeof(dir_a), "%s/a", top);
+	snprintf(dir_b, sizeof(dir_b), "%s/b", top);
+	if (mkdir(top, 0700) != 0) {
+		fprintf(stderr, "piece_buckets_test: cannot make %s\n", top);
+		return 1;
+	}
+	memset(key_a, 0xaa, sizeof(key_a));
+	memset(key_b, 0xbb, sizeof(key_b));
+	for (i = 0; i < ITEM_LEN; i++) {
+		s = s * 1103515245u + 12345u;
+		item[i] = (uint8_t)(s >> 16);
+	}
+	(void)fzn_buckets_id(&HASH, item, ITEM_LEN, item_id);
+
+	test_rank();
+	test_place_pull_push();
+	test_shape_refused();
+
+	fzn_piece_buckets_close(&pb_a);
+	fzn_piece_buckets_close(&pb_b);
+	wipe(dir_a);
+	wipe(dir_b);
+	(void)rmdir(top);
+	if (failures) {
+		fprintf(stderr, "piece_buckets_test: %d of %d checks failed\n", failures, checks);
+		return 1;
+	}
+	printf("piece_buckets_test: all %d checks passed\n", checks);
+	return 0;
+}

@@ -138,6 +138,7 @@
 #include <fuzznet/log/pack.h>
 #include <fuzznet/node/log_buckets.h>
 #include <fuzznet/node/pieces.h>
+#include <fuzznet/node/piece_buckets.h>
 #endif
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include <fuzznet/record/store_file.h>
@@ -313,6 +314,7 @@
 #include "log/pack.h"
 #include "node/log_buckets.h"
 #include "node/pieces.h"
+#include "node/piece_buckets.h"
 #endif
 #ifdef FZN_RECORD_STORE_FILE_ON
 #include "record/store_file.h"

@@ -45,6 +45,10 @@ older than the 60-day window when A next cuts:
        estate's `archive/replicas` at 3, `prune * archived count 0` holds
        every fossil back, two hosts holding each; at 2 it prunes them
        (sec 592); and the same of its archived copy of A's (sec 593)
+    j  B archives segments again and, with the estate's `archive/erasure`
+       at 1+1, cuts each fossil into two pieces placed over its two hosts:
+       A keeps one piece of each, the one placed on it, and B both until
+       they are counted (sec 597)
 
 The waits are on the daemons' own lines -- A's cut pass, B's reconcile
 pass, B's "moved up" -- and each is checked before the settings are.
@@ -89,6 +93,9 @@ REPLICAS_RE = re.compile(r"replicas: (\d+) fossil\(s\) the archive's rules would
 COPY_PRUNED_RE = re.compile(r"(\d+) archived copied segment\(s\) of \S+ of [0-9a-f]{8} pruned")
 COPY_ARCHIVED_RE = re.compile(r"\d+ copied segment\(s\) of \S+ of [0-9a-f]{8} archived")
 PUSHED_RE = re.compile(r"passed over, (\d+) pushed")
+CUT_PIECES_RE = re.compile(r"(\d+) archived segment\(s\) cut into 1 \+ 1 pieces over 2 host\(s\)")
+PIECES_RE = re.compile(r"pieces of archived segments: (\d+) taken, (\d+) pushed, (\d+) "
+                       r"refused there")
 MISSING_RE = re.compile(r"claims no longer hold what this node lacks|would not move")
 
 
@@ -172,7 +179,11 @@ class daemon:
 				raise failed("%s: the daemon exited before %s:\n%s"
 				             % (self.tag, what, self.stderr()))
 			if left() < 0.1 or time.monotonic() > until:
-				raise failed("%s: no %s was logged within 30 s" % (self.tag, what))
+				# ITS LAST WORDS ON LOGS AND PIECES, which is where a phase
+				# that waits on them most often went wrong.
+				said = [l for l in self.log().splitlines() if "log/copy" in l][-6:]
+				raise failed("%s: no %s was logged within 30 s%s" % (
+					self.tag, what, "".join("\n  " + l for l in said)))
 			time.sleep(0.2)
 
 	def stop(self):
@@ -608,6 +619,47 @@ def main(argv):
 				             % packed(copy_archive))
 			print("livecheck: i: B's archived copy held back under three replicas, pruned "
 			      "under two")
+
+			# j: fossils cut into pieces, sec 597. B's own were pruned in
+			# phase i, so it logs until it has segments to archive again.
+			j_runs = 0
+			while not closed(b_logs) and not packed(b_logs):
+				j_runs += 1
+				if j_runs > 8:
+					raise failed("j: eight runs and B closed no segment")
+				b_run("j%d" % j_runs, [], SEGMENTS_RE)
+			time.sleep(11)
+			b_run("j-archive", ["archive * count 0"], OWN_ARCHIVED_RE)
+			fossils = packed(own_archive)
+			if not fossils:
+				raise failed("j: B archived none of its segments")
+			a = daemon(run, "aj", a_dir, a_sock, extra=["--udp-port=" + port] + small,
+			           log_dir=a_logs)
+			try:
+				expect(a_sock, "j", "set setting estate archive/erasure 1+1", "ok")
+			finally:
+				a.stop()
+			got = b_run("j-cut", [], PIECES_RE)
+			b_pieces = os.path.join(own_archive, "pieces")
+			a_pieces = os.path.join(a_logs, "archive", "pieces")
+
+			def pieces(d):
+				return sorted(n for n in (os.listdir(d) if os.path.isdir(d) else [])
+				              if n.endswith(".piece"))
+			# EACH A PIECE OF ONE OF B'S FOSSILS: 1 + 1 makes a piece the
+			# whole item -- the name's length, the name and the file --
+			# after a 49-byte head.
+			sizes = sorted(49 + 1 + len(n) + os.path.getsize(os.path.join(own_archive, n))
+			               for n in fossils)
+			a_sizes = sorted(os.path.getsize(os.path.join(a_pieces, n)) for n in pieces(a_pieces))
+			if int(got.group(2)) != len(fossils) or a_sizes != sizes \
+			   or len(pieces(b_pieces)) != 2 * len(fossils):
+				raise failed("j: B pushed %s piece(s) of %d fossil(s), %s refused; A keeps %d of "
+				             "sizes %r where %r, and B %d"
+				             % (got.group(2), len(fossils), got.group(3), len(a_sizes), a_sizes,
+				                sizes, len(pieces(b_pieces))))
+			print("livecheck: j: B cut its %d fossil(s) 1 + 1, and A keeps the piece of each "
+			      "placed on it" % len(fossils))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

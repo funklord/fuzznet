@@ -62512,7 +62512,7 @@ notes stay out of the archive.
    segment's id and length, k, m and its index -- kept in the archive.
    Built in sec 595.
 3. **Placement and exchange**: which host keeps which piece, carried by
-   the bucket exchange as the segments are.
+   the bucket exchange as the segments are. Built in sec 597.
 4. **Counting and repair**: a fossil safe once k of its pieces are on
    distinct hosts, replicas below that, and a piece lost rebuilt from
    the others.
@@ -62592,3 +62592,99 @@ The pieces' directory, and which host keeps which piece, are stage 3's.
   installcheck takes the header; `make schema` takes the layout.
 - Two sabotage entries: the rebuild checked against the id, and the
   head's kind held to the one asked for.
+
+## 596. A frame's sender is its key, never its address, 2026-10-11
+
+fuzzypickles wrote on 2026-10-11 (its sec 256): fzpd named the sender of
+every frame family that carries no sender key by its source address,
+taking the first contact there. A contact re-created at the same
+host:port left its old record there, and the new contact's frames were
+opened with the old key and dropped. Their requirement for the wire
+fuzznet builds: a receiver must identify any frame's sender from the frame
+and its own key store, not from where it came from -- addresses are
+shared (a re-created identity, NAT, two daemons behind one port) and they
+change (roaming).
+
+### Already so, read from the code
+
+- `wire/frame.situ`'s `fzn_head.sender[32]` is the sender's host key, in
+  the clear head of every frame, chosen after their `sender_host_pubkey`.
+- `node/serve.c` reads it with `fzn_seal_peek_sender` and selects the
+  session with `fzn_node_find_peer` by that key; the source address
+  selects nothing, and an unknown key is dropped.
+
+Nothing to change here; fuzzypickles was told so through its inbox.
+
+## 597. Erasure stage 3: pieces placed one to a host, 2026-10-11
+
+The third stage of sec 594: which host keeps which piece, carried by the
+bucket exchange.
+
+### A third bucket kind
+
+`pieces = 2` (`node/buckets.situ`; the exchange's kind bound in
+`node/reconcile.situ` widened to it). An item is one piece's file whole;
+its SUBJECT is the host the piece was placed on to keep, not the host
+whose segment it is, and its month the segment's. So a host wants exactly
+the buckets whose subject it is (`node/piece_buckets.{h,c}`), is served
+only those (the gate in fuzznetd), and a piece pushed or fetched for any
+other host is refused -- pieces spread one to a host rather than to every
+host holding the month, which is what makes them cheaper than replicas.
+
+### Cut and placed by the segment's host
+
+Each round, before the exchange, fuzznetd cuts its own fossils not cut
+yet -- at most 8 a round -- when the estate has `archive/erasure`'s k + m
+hosts or more: this one and each peer of the estate that answered. The
+item cut is the segment as the logs kind holds it (its name in front),
+checked against its id first, so a rebuild is that item. Piece i goes to
+the i-th host in rendezvous order for the segment: hosts descending by
+the hash of the segment's id and the host's key. Each piece lands on a
+distinct host, another segment ranks them otherwise, and an estate gaining
+or losing a host moves only the pieces placed on it. A host is named by
+its node key, the pairing's -- for `--root-at` the root node, not the
+estate's root key, which a first version used and every piece was refused.
+
+Fewer hosts than k + m and nothing is cut: the whole replicas of sec 592
+are the estate's then, as the holder asked. `archive/erasure` is an estate
+setting, `K+M`, the holder's 4 + 2 by default and on a value not of that
+shape or past 32 pieces.
+
+### Two faults the live phase found
+
+- **A segment packed and archived in one log pass was in no bucket**: the
+  scan read only the log directory, so it was never served, counted
+  toward the replicas, or cut. `fzn_log_buckets_scan` reads the archive
+  too now.
+- **A host that never archived refused every piece**: it had no archive
+  to make `pieces/` in. The store makes the missing parents.
+
+### Measured for sec 597
+
+- piece_buckets_test 32: six hosts rank to every host once, the same
+  host per piece whatever order they are listed in, and another item
+  otherwise; A places a 1 + 1 cut on A and B; B pulls only its own and it
+  rebuilds the item alone; pushed through A's gate B is given its own
+  only; pushed ungated, A's piece is passed over unwanted rather than sent
+  and refused; and a piece is refused cut short, past k + m, of the wrong
+  length, or for another host, and a ref not a piece's is not read.
+- pieces_test 15: pieces are not cut again, and pieces are cut under an
+  archive not made yet. log_buckets_test 53: a segment archived before
+  any scan is taken. apply_test: `archive/erasure` read at 4 + 2 unset,
+  1+1 set, and 20+13, `6+` refused, 20+12 at the bound.
+- livecheck's live_rejoin phase j: with `archive/erasure` at 1+1, B cuts
+  its fossils -- five in the run measured, ten pieces -- keeps both of
+  each, and A keeps the one of each placed on it, each the segment's whole item after a 49-byte
+  head.
+- Five sabotage entries: the keeper check, the wanted check, a piece kept
+  whole, pieces made under a new archive, and the archive scanned.
+
+### Not yet after sec 597
+
+- **Counting and repair, stage 4**: a fossil is held once k of its pieces
+  sit on distinct hosts; until then, and below it, the replicas guard it.
+  The segment's host keeps every piece it cut until then, so nothing is
+  saved yet; letting go of the whole and of the others' pieces is stage
+  4's, with a lost piece rebuilt from the rest.
+- The gate that serves a piece only to its keeper is in fuzznetd and
+  checked by the live phase alone, since `make test` runs no daemon.
