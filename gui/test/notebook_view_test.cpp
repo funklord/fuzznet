@@ -801,12 +801,16 @@ static void test_a_notes_history_is_read_and_restored(void)
 	before = w.history().size();
 	CHECK(before >= 1, "the note's earlier versions are listed");
 	{
-		QComboBox *chooser = w.findChild<QComboBox *>(QStringLiteral("history"));
+		QComboBox *days = w.findChild<QComboBox *>(QStringLiteral("history_day"));
+		QComboBox *versions = w.findChild<QComboBox *>(QStringLiteral("history"));
 
-		CHECK(chooser && chooser->count() == before + 1
-		              && chooser->itemText(0) == QStringLiteral("Current version")
-		              && chooser->itemText(1) == w.history().value(before - 1),
-		      "the chooser offers the current version, then the newest earlier one");
+		CHECK(days && versions && days->count() == 2
+		              && days->itemText(0) == QStringLiteral("Current version")
+		              && days->itemText(1).endsWith(QStringLiteral("(%1)").arg(before))
+		              && w.history().value(before - 1).startsWith(days->itemData(1).toString())
+		              && versions->count() == 0 && !versions->isEnabled(),
+		      "the day chooser offers the current version, then the one day with its count, "
+		      "and no version is listed until a day is");
 	}
 	for (i = 0; i < before && found < 0; i++)
 		if (w.view_version(i) && w.body_text() == first)
@@ -882,6 +886,62 @@ static void test_a_checklists_history_shows_its_items(void)
 	      "the current items did not come back");
 }
 
+/* BY DAY, sec 605: versions on two days are two days in the chooser,
+ * newest first, each with its count; a day picked shows its newest
+ * version, and lists that day's alone, newest first. */
+static void test_history_is_grouped_by_day(void)
+{
+	QString note;
+	int k;
+
+	setup();
+	fzn_notebook_view w(node_ask, nullptr);
+
+	CHECK(w.new_note(QStringLiteral("Diary")), "fixture: a note");
+	note = w.open_id();
+	for (k = 0; k < 2; k++) {
+		w.findChild<QPlainTextEdit *>()->setPlainText(QStringLiteral("day one, %1\n").arg(k));
+		CHECK(w.save(), "fixture: saved on the first day");
+	}
+	clock_ms += 86400000ull;
+	for (k = 0; k < 3; k++) {
+		w.findChild<QPlainTextEdit *>()->setPlainText(QStringLiteral("day two, %1\n").arg(k));
+		CHECK(w.save(), "fixture: saved on the second day");
+	}
+	CHECK(w.open_note(note), "fixture: the note reopened");
+	{
+		QComboBox *days = w.findChild<QComboBox *>(QStringLiteral("history_day"));
+		QComboBox *versions = w.findChild<QComboBox *>(QStringLiteral("history"));
+		QString first_day = days->itemData(2).toString(), second_day = days->itemData(1).toString();
+		int n1 = 0, n2 = 0, i;
+
+		for (i = 0; i < w.history().size(); i++) {
+			n1 += w.history()[i].startsWith(first_day);
+			n2 += w.history()[i].startsWith(second_day);
+		}
+		CHECK(days->count() == 3 && second_day > first_day && n1 > 0 && n2 > 0
+		              && n1 + n2 == w.history().size()
+		              && days->itemText(1).endsWith(QStringLiteral("(%1)").arg(n2))
+		              && days->itemText(2).endsWith(QStringLiteral("(%1)").arg(n1)),
+		      "two days of versions were not two days, newest first, each with its count");
+		days->setCurrentIndex(2);
+		CHECK(w.viewing() == n1 - 1 && versions->count() == n1 && versions->isEnabled()
+		              && versions->itemData(0).toInt() == n1 - 1
+		              && versions->currentIndex() == 0,
+		      "the first day picked did not show its newest version, its own listed alone");
+		versions->setCurrentIndex(versions->count() - 1);
+		CHECK(w.viewing() == 0 && days->currentIndex() == 2,
+		      "the day's oldest version picked was not shown, or moved the day");
+		w.refresh();
+		CHECK(w.viewing() == 0 && days->currentIndex() == 2 && versions->count() == n1,
+		      "a refresh moved the choosers off the version shown");
+		days->setCurrentIndex(0);
+		CHECK(w.viewing() == -1 && w.body_text() == QStringLiteral("day two, 2\n")
+		              && versions->count() == 0,
+		      "the current version did not come back");
+	}
+}
+
 int main(int argc, char **argv)
 {
 	QApplication app(argc, argv);
@@ -901,6 +961,7 @@ int main(int argc, char **argv)
 	test_a_pending_note_says_so_and_labels_show();
 	test_a_notes_history_is_read_and_restored();
 	test_a_checklists_history_shows_its_items();
+	test_history_is_grouped_by_day();
 	if (failures) {
 		fprintf(stderr, "notebook_view_test: %d of %d checks failed\n", failures, checks);
 		return 1;

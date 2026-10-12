@@ -79,6 +79,33 @@ static QString unescape(const QString &text)
 	return QString::fromUtf8(out);
 }
 
+static QDateTime version_when(const QString &item)
+{
+	return QDateTime::fromMSecsSinceEpoch(
+	        (qint64)item.section(QLatin1Char(','), 0, 0).toULongLong());
+}
+
+/* The day a version was written, local time, as the day chooser names it. */
+static QString version_day(const QString &item)
+{
+	return version_when(item).toString(QStringLiteral("yyyy-MM-dd"));
+}
+
+/* With `day`, the date leads -- the whole label, as `history()` gives it;
+ * without, the time alone, as the chooser of one day's versions shows it
+ * (sec 605). */
+static QString version_label(const QString &item, bool day)
+{
+	QString when = version_when(item).toString(day ? QStringLiteral("yyyy-MM-dd HH:mm")
+	                                               : QStringLiteral("HH:mm:ss"));
+	QString writer = item.section(QLatin1Char(','), 1, 1);
+
+	if (item.section(QLatin1Char(','), 2, 2) != QStringLiteral("here"))
+		return QStringLiteral("%1, by %2 -- not here yet").arg(when, writer);
+	return QStringLiteral("%1, by %2 -- %3")
+	        .arg(when, writer, unescape(item.section(QLatin1Char(','), 3)));
+}
+
 fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx, QWidget *parent)
         : QWidget(parent), m_ask(ask), m_ask_ctx(ask_ctx)
 {
@@ -196,6 +223,8 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	m_warning->setWordWrap(true);
 	/* THE HISTORY, sec 603: the current version first, then each earlier
 	 * one, newest first, as a person looks back. */
+	m_history_day = new QComboBox(this);
+	m_history_day->setObjectName(QStringLiteral("history_day"));
 	m_history = new QComboBox(this);
 	m_history->setObjectName(QStringLiteral("history"));
 	m_restore_version = new QPushButton(QStringLiteral("Restore this version"), this);
@@ -203,6 +232,7 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	auto *history_row = new QHBoxLayout();
 
 	history_row->addWidget(new QLabel(QStringLiteral("History"), this));
+	history_row->addWidget(m_history_day);
 	history_row->addWidget(m_history, 1);
 	history_row->addWidget(m_restore_version);
 
@@ -294,6 +324,19 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 		if (!path.isEmpty())
 			import_file(path);
 	});
+	/* A DAY PICKED SHOWS ITS NEWEST VERSION; "Current version" the note. */
+	connect(m_history_day, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+	        [this](int at) {
+		        QString day = m_history_day->itemData(at).toString();
+		        int i, newest = -1;
+
+		        if (m_updating || at < 0)
+			        return;
+		        for (i = 0; i < m_version_items.size(); i++)
+			        if (version_day(m_version_items[i]) == day)
+				        newest = i;
+		        view_version(day.isEmpty() ? -1 : newest);
+	        });
 	connect(m_history, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
 	        [this](int at) {
 		        if (!m_updating && at >= 0)
@@ -611,23 +654,9 @@ void fzn_notebook_view::refresh_note()
 
 /* `MS,WRITER,here|pending,TITLE` as a person reads it: when, by whom, and
  * the title it had. */
-static QString version_label(const QString &item)
-{
-	QDateTime when = QDateTime::fromMSecsSinceEpoch(
-	        (qint64)item.section(QLatin1Char(','), 0, 0).toULongLong());
-	QString writer = item.section(QLatin1Char(','), 1, 1);
-
-	if (item.section(QLatin1Char(','), 2, 2) != QStringLiteral("here"))
-		return QStringLiteral("%1, by %2 -- not here yet")
-		        .arg(when.toString(QStringLiteral("yyyy-MM-dd HH:mm")), writer);
-	return QStringLiteral("%1, by %2 -- %3")
-	        .arg(when.toString(QStringLiteral("yyyy-MM-dd HH:mm")), writer,
-	             unescape(item.section(QLatin1Char(','), 3)));
-}
-
 void fzn_notebook_view::refresh_history()
 {
-	QStringList versions;
+	QStringList versions, items;
 	size_t from = 0, total = 0, guard;
 	int keep = m_viewing, i;
 
@@ -643,22 +672,53 @@ void fzn_notebook_view::refresh_history()
 			total = w.value(0).toULongLong();
 			/* A TITLE MAY HOLD ESCAPED SPACES ONLY, so a word is an item. */
 			for (i = 2; i < w.size(); i++) {
-				versions << version_label(w[i]);
+				versions << version_label(w[i], true);
+				items << w[i];
 				from++;
 			}
 			if (from >= total || w.size() <= 2)
 				break;
 		}
 	m_versions = versions;
+	m_version_items = items;
 	if (keep >= versions.size())
 		keep = -1;
+	/* BY DAY, sec 605: the days newest first, each with how many versions
+	 * it holds, so a note edited all day still lists one day at a time. */
 	m_updating = true;
+	m_history_day->clear();
+	m_history_day->addItem(QStringLiteral("Current version"), QString());
+	for (i = items.size() - 1; i >= 0; i--) {
+		QString day = version_day(items[i]);
+		int at = m_history_day->findData(day), count = 1;
+
+		if (at >= 0)
+			continue;
+		for (int j = i - 1; j >= 0; j--)
+			count += version_day(items[j]) == day;
+		m_history_day->addItem(QStringLiteral("%1 (%2)").arg(day).arg(count), day);
+	}
+	m_history_day->setEnabled(!versions.isEmpty());
+	m_updating = false;
+	choose(keep);
+}
+
+/* THE CHOOSERS ON VERSION `n`, -1 the current: its day, and among that
+ * day's versions, newest first, itself. Neither change is taken for a
+ * pick. */
+void fzn_notebook_view::choose(int n)
+{
+	QString day = n >= 0 ? version_day(m_version_items.value(n)) : QString();
+	int i;
+
+	m_updating = true;
+	m_history_day->setCurrentIndex(qMax(0, m_history_day->findData(day)));
 	m_history->clear();
-	m_history->addItem(QStringLiteral("Current version"), -1);
-	for (i = versions.size() - 1; i >= 0; i--)
-		m_history->addItem(versions[i], i);
-	m_history->setCurrentIndex(keep < 0 ? 0 : m_history->findData(keep));
-	m_history->setEnabled(!versions.isEmpty());
+	for (i = m_version_items.size() - 1; n >= 0 && i >= 0; i--)
+		if (version_day(m_version_items[i]) == day)
+			m_history->addItem(version_label(m_version_items[i], false), i);
+	m_history->setCurrentIndex(n >= 0 ? m_history->findData(n) : -1);
+	m_history->setEnabled(n >= 0);
 	m_updating = false;
 }
 
@@ -726,6 +786,7 @@ bool fzn_notebook_view::view_version(int n)
 		say(QStringLiteral("That version could not be read."));
 		return false;
 	}
+	choose(n);
 	return true;
 }
 

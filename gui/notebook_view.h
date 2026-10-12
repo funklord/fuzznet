@@ -132,8 +132,9 @@ public:
 	 * current one -- a new version, so the one it replaces is kept too. */
 	bool view_version(int n);
 	bool restore_version();
-	/* The open note's earlier versions as the chooser names them, oldest
-	 * first; and which is shown, -1 for the current. */
+	/* The open note's earlier versions, each by its date and time, oldest
+	 * first; and which is shown, -1 for the current. The choosers group
+	 * them by day, newest first (sec 605). */
 	QStringList history() const { return m_versions; }
 	int viewing() const { return m_viewing; }
 
@@ -168,6 +169,7 @@ private:
 	void refresh_shares();
 	void refresh_history();
 	bool show_version(int n);
+	void choose(int n);
 	/* The items `get` names -- `get note ID`, or `get history ID N` --
 	 * as `[ ] TEXT` and `[x] TEXT` lines, every page; their ticks into
 	 * `ticks` when given. */
@@ -206,6 +208,9 @@ private:
 	 * -1 the current. Whether the one shown is a text and here, so it can
 	 * be restored. */
 	QStringList m_versions;
+	/* Each as `list history` gave it, `MS,WRITER,here|pending,TITLE`, for
+	 * its day (sec 605). */
+	QStringList m_version_items;
 	int m_viewing = -1;
 	bool m_version_text = false;
 
@@ -244,6 +249,7 @@ private:
 	QPushButton *m_unshare;
 	QLabel *m_shared_with;
 	QLabel *m_warning;
+	QComboBox *m_history_day;
 	QComboBox *m_history;
 	QPushButton *m_restore_version;
 };

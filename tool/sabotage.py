@@ -10995,6 +10995,27 @@ SABOTAGES = [
 		"a checklist's earlier version shows an empty body -- sec 604",
 	),
 	(
+		"notebook-a-days-versions-alone",
+		"gui/notebook_view.cpp",
+		"\t\tif (version_day(m_version_items[i]) == day)\n\t\t\tm_history->addItem(version_label(m_version_items[i], false), i);\n",
+		"\t\tm_history->addItem(version_label(m_version_items[i], false), i);\n",
+		"a day picked lists every version of every day -- sec 605",
+	),
+	(
+		"notebook-a-day-opens-on-its-newest",
+		"gui/notebook_view.cpp",
+		"\t\t        view_version(day.isEmpty() ? -1 : newest);\n",
+		"\t\t        view_version(day.isEmpty() ? -1 : 0);\n",
+		"a day picked shows the note's oldest version, of whatever day -- sec 605",
+	),
+	(
+		"notebook-a-days-count",
+		"gui/notebook_view.cpp",
+		"\t\t\tcount += version_day(items[j]) == day;\n",
+		"",
+		"every day says it holds one version -- sec 605",
+	),
+	(
 		"notebook-history-kept-across-a-refresh",
 		"gui/notebook_view.cpp",
 		"\tif (m_viewing >= 0 && show_version(m_viewing))\n\t\treturn;\n",

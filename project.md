@@ -62965,7 +62965,8 @@ A history row under the editor, `gui/notebook_view.{h,cpp}`: a chooser
 offering "Current version", then each earlier version newest first --
 when it was written, by which writer (the key's first eight bytes, as
 `list history` gives it), and the title it had, or "not here yet" for one
-whose text has not arrived -- and a "Restore this version" button.
+whose text has not arrived -- and a "Restore this version" button. Since
+sec 605 the versions are grouped by day, in two choosers.
 
 - **A version is read-only.** Picking one puts its title and text in the
   editor read-only, Save off, and the status line says an earlier version
@@ -63005,8 +63006,7 @@ whose text has not arrived -- and a "Restore this version" button.
 ### Not yet after sec 603
 
 - A checklist's earlier items are shown since sec 604.
-- The chooser lists every kept version, up to the store's 4096; a note
-  edited very often would want them paged or grouped by day.
+- The versions are grouped by day since sec 605.
 
 ## 604. A checklist's earlier items, 2026-10-12
 
@@ -63044,3 +63044,36 @@ and the node has no verb that sets a list's items whole.
   view showing them. Sec 583's entry guarding the refusal went with it:
   what it guarded -- an earlier version never answered with the current
   items -- is now the new node entry's to hold.
+
+## 605. A note's history grouped by day, 2026-10-12
+
+Asked 2026-10-12 what came after a checklist's earlier items, the holder
+chose grouping the history by day: one chooser listed every kept version,
+up to the store's 4096, which a note edited all day makes unusable.
+
+### Two choosers
+
+- **The day**: "Current version" first, then each day a version was
+  written on, newest first, with how many it holds -- `2026-10-12 (37)`.
+  Days are local time, as the times shown are.
+- **That day's versions**, newest first, each by its time to the second,
+  writer and title. Empty and off while the current version is shown.
+
+Picking a day shows its newest version; picking a version shows it.
+Showing a version by any route -- the choosers, `view_version`, or a
+refresh keeping the reader's place -- puts both choosers on it, and
+neither change is taken for a pick. `history()` still gives every version
+by its date and time, oldest first, for a host and a test.
+
+### Measured for sec 605
+
+- notebook_view_test 202: sec 603's case reads the day chooser now -- the
+  current version, then its one day with its count, and no version listed
+  until a day is. A new case saves on two days, the test's clock moved a
+  day between: the chooser holds both, newest first, each with its count;
+  the first day picked shows its newest version and lists its own alone,
+  newest first; its oldest picked is shown without moving the day; a
+  refresh keeps both choosers on it; "Current version" brings the note's
+  text back and empties the versions.
+- Three sabotage entries: a day's versions alone, a day opening on its
+  newest, and a day's count.
