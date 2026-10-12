@@ -62952,3 +62952,54 @@ it is.
   refused as held. A move picks the best-ranked host keeping none, so this
   needs the keeper back, ranked first, and another host gone.
 - Releases are kept for ever; they are 163 bytes each.
+
+## 603. A note's history in the notebook view, 2026-10-12
+
+Asked 2026-10-12 what came after the archive's erasure coding, the holder
+chose the history GUI offered earlier: a note's kept versions (secs
+581-583) shown in the Qt Widgets notebook view.
+
+### What the view shows
+
+A history row under the editor, `gui/notebook_view.{h,cpp}`: a chooser
+offering "Current version", then each earlier version newest first --
+when it was written, by which writer (the key's first eight bytes, as
+`list history` gives it), and the title it had, or "not here yet" for one
+whose text has not arrived -- and a "Restore this version" button.
+
+- **A version is read-only.** Picking one puts its title and text in the
+  editor read-only, Save off, and the status line says an earlier version
+  is shown. Its text comes through a file, as the current one's does
+  (`get history ID N file PATH`).
+- **The reader stays on it across a refresh.** The host refreshes on its
+  own timer (sec 439); a refresh re-reads the history and shows the same
+  version again, as a refresh keeps the reader's place in the list.
+  Opening another note, or picking "Current version", goes back to the
+  current.
+- **Restoring saves the version as the note**, title and text, through
+  the same verbs Save uses -- so it is a new version, and the text it
+  replaces is kept in turn. Only a text version that is here can be
+  restored; a folder's or a list's shows its title alone.
+- **This user's own notes only**: the node keeps no history of a
+  contact's tree, so a shared tree's chooser is empty and off.
+
+### Measured for sec 603
+
+- notebook_view_test 178, a new case over the real verbs in-process: a
+  note saved twice lists its earlier versions; the chooser offers the
+  current version and then the newest earlier one; the first text is
+  among them, shown read-only with Restore on and the status saying so; a
+  refresh keeps it on screen; restored, the current text is the
+  version's and editable, the history has grown, and the log says what
+  was restored; the current version is not restored over itself; opening
+  a note shows its current version, not one read before; a version past
+  the last is not shown.
+- Three sabotage entries: the version kept across a refresh, another note
+  opening on its current version, and a version read-only.
+
+### Not yet after sec 603
+
+- A checklist's earlier items are not shown: `get history` answers a
+  version's text and title, not its items.
+- The chooser lists every kept version, up to the store's 4096; a note
+  edited very often would want them paged or grouped by day.

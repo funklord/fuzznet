@@ -26,6 +26,7 @@ extern "C" {
 #include "../notebook_view.h"
 
 #include <QApplication>
+#include <QComboBox>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPlainTextEdit>
@@ -775,6 +776,67 @@ static void test_a_pending_note_says_so_and_labels_show(void)
 	}
 }
 
+/* A NOTE'S HISTORY, sec 603: its earlier versions listed, one read
+ * read-only and kept on screen across a refresh, and restored as the note's
+ * current text -- a new version, so the one it replaced is kept too. */
+static void test_a_notes_history_is_read_and_restored(void)
+{
+	QString first = QStringLiteral("rye, two cups\n"), second = QStringLiteral("spelt, three\n");
+	QString note;
+	QStringList log;
+	int i, found = -1, before;
+
+	setup();
+	fzn_notebook_view w(node_ask, nullptr);
+
+	w.set_log([&log](const QString &l) { log << l; });
+	CHECK(w.new_note(QStringLiteral("Bread")), "fixture: a note");
+	note = w.open_id();
+	w.findChild<QPlainTextEdit *>()->setPlainText(first);
+	CHECK(w.save(), "fixture: its first text saved");
+	w.findChild<QPlainTextEdit *>()->setPlainText(second);
+	CHECK(w.save(), "fixture: its second text saved");
+	CHECK(w.open_note(note) && w.body_text() == second && w.viewing() == -1,
+	      "the note opens on its current text");
+	before = w.history().size();
+	CHECK(before >= 1, "the note's earlier versions are listed");
+	{
+		QComboBox *chooser = w.findChild<QComboBox *>(QStringLiteral("history"));
+
+		CHECK(chooser && chooser->count() == before + 1
+		              && chooser->itemText(0) == QStringLiteral("Current version")
+		              && chooser->itemText(1) == w.history().value(before - 1),
+		      "the chooser offers the current version, then the newest earlier one");
+	}
+	for (i = 0; i < before && found < 0; i++)
+		if (w.view_version(i) && w.body_text() == first)
+			found = i;
+	CHECK(found >= 0, "the first text is among the earlier versions");
+	CHECK(w.viewing() == found && w.findChild<QPlainTextEdit *>()->isReadOnly()
+	              && w.findChild<QPushButton *>(QStringLiteral("restore_version"))
+	              && w.findChild<QPushButton *>(QStringLiteral("restore_version"))->isEnabled(),
+	      "a version is shown read-only, and can be restored");
+	CHECK(w.status().contains(QStringLiteral("earlier version")),
+	      "the status says an earlier version is shown");
+	/* A REFRESH KEEPS IT ON SCREEN. */
+	w.refresh();
+	CHECK(w.viewing() == found && w.body_text() == first,
+	      "a refresh took the reader off the version they were reading");
+	CHECK(w.restore_version(), "the version is restored");
+	CHECK(w.viewing() == -1 && w.body_text() == first
+	              && !w.findChild<QPlainTextEdit *>()->isReadOnly(),
+	      "restored, the note's current text is the version's, and editable");
+	CHECK(w.history().size() > before, "restoring kept the text it replaced as a version");
+	CHECK(log.last().startsWith(QStringLiteral("Restored the version of")),
+	      "the log is told what was restored");
+	CHECK(!w.restore_version(), "the current version is not restored over itself");
+	/* ANOTHER NOTE, AND THE CURRENT VERSION AGAIN. */
+	CHECK(w.view_version(found) && w.new_note(QStringLiteral("Other")), "fixture: another note");
+	CHECK(w.open_note(note) && w.viewing() == -1 && w.body_text() == first,
+	      "opening a note shows its current version, not one read before");
+	CHECK(!w.view_version(w.history().size()), "a version past the last is not shown");
+}
+
 int main(int argc, char **argv)
 {
 	QApplication app(argc, argv);
@@ -792,6 +854,7 @@ int main(int argc, char **argv)
 	test_pinned_first_and_the_archive_apart();
 	test_a_refresh_keeps_the_readers_place();
 	test_a_pending_note_says_so_and_labels_show();
+	test_a_notes_history_is_read_and_restored();
 	if (failures) {
 		fprintf(stderr, "notebook_view_test: %d of %d checks failed\n", failures, checks);
 		return 1;

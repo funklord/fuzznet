@@ -123,6 +123,19 @@ public:
 	/* A KNotes .ics, a Keep .json or a Takeout directory into the folder
 	 * open, sec 440; the Import button reaches it behind a file dialog. */
 	bool import_file(const QString &path);
+	/* A NOTE'S HISTORY, sec 603: its earlier versions as the node keeps
+	 * them (sec 581), the history chooser under the editor reaching these.
+	 * `n` counts from 0, the oldest first as `list history` lists them; -1
+	 * is the current version. A version is shown read-only, and the reader
+	 * stays on it across a refresh until they choose another or open
+	 * another note. Restoring saves the version shown as the note's
+	 * current one -- a new version, so the one it replaces is kept too. */
+	bool view_version(int n);
+	bool restore_version();
+	/* The open note's earlier versions as the chooser names them, oldest
+	 * first; and which is shown, -1 for the current. */
+	QStringList history() const { return m_versions; }
+	int viewing() const { return m_viewing; }
 
 	/* WHAT IS ON SCREEN, for a host and a test. */
 	QListWidget *list() const { return m_list; }
@@ -153,6 +166,8 @@ private:
 	void refresh_list();
 	void refresh_note();
 	void refresh_shares();
+	void refresh_history();
+	bool show_version(int n);
 	void set_status(const QString &text);
 	bool shared() const { return !m_tree.isEmpty(); }
 	QString parent_id() const;
@@ -183,6 +198,12 @@ private:
 	bool m_updating = false;
 	/* Whether the last request was answered, and what the list held. */
 	bool m_answered = true;
+	/* The open note's earlier versions, oldest first, and which is shown:
+	 * -1 the current. Whether the one shown is a text and here, so it can
+	 * be restored. */
+	QStringList m_versions;
+	int m_viewing = -1;
+	bool m_version_text = false;
 
 	QComboBox *m_trees;
 	QLabel *m_location;
@@ -219,6 +240,8 @@ private:
 	QPushButton *m_unshare;
 	QLabel *m_shared_with;
 	QLabel *m_warning;
+	QComboBox *m_history;
+	QPushButton *m_restore_version;
 };
 
 #endif /* FZN_GUI_NOTEBOOK_VIEW_H */

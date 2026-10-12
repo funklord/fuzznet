@@ -11,6 +11,7 @@ extern "C" {
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDateTime>
 #include <QFile>
 #include <QFileDialog>
 #include <QHBoxLayout>
@@ -193,6 +194,17 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	                                      "stays with them."),
 	                       this);
 	m_warning->setWordWrap(true);
+	/* THE HISTORY, sec 603: the current version first, then each earlier
+	 * one, newest first, as a person looks back. */
+	m_history = new QComboBox(this);
+	m_history->setObjectName(QStringLiteral("history"));
+	m_restore_version = new QPushButton(QStringLiteral("Restore this version"), this);
+	m_restore_version->setObjectName(QStringLiteral("restore_version"));
+	auto *history_row = new QHBoxLayout();
+
+	history_row->addWidget(new QLabel(QStringLiteral("History"), this));
+	history_row->addWidget(m_history, 1);
+	history_row->addWidget(m_restore_version);
 
 	top->addWidget(m_trees);
 	top->addWidget(m_up);
@@ -225,6 +237,7 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 	outer->addWidget(m_empty_bar);
 	outer->addWidget(m_title);
 	outer->addWidget(m_body, 1);
+	outer->addLayout(history_row);
 	outer->addLayout(item_row);
 	outer->addLayout(edit_row);
 	outer->addWidget(m_folder_row);
@@ -281,6 +294,12 @@ fzn_notebook_view::fzn_notebook_view(fzn_notebook_view_ask_t ask, void *ask_ctx,
 		if (!path.isEmpty())
 			import_file(path);
 	});
+	connect(m_history, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+	        [this](int at) {
+		        if (!m_updating && at >= 0)
+			        view_version(m_history->itemData(at).toInt());
+	        });
+	connect(m_restore_version, &QPushButton::clicked, this, [this]() { restore_version(); });
 	connect(m_share, &QPushButton::clicked, this,
 	        [this]() { share_with(m_share_to->currentText()); });
 	connect(m_unshare, &QPushButton::clicked, this,
@@ -466,6 +485,14 @@ void fzn_notebook_view::refresh_note()
 	bool have = !m_open.isEmpty();
 	bool pending = false;
 
+	/* A VERSION BEING READ STAYS ON SCREEN across a refresh, as the list
+	 * keeps the reader's place. */
+	refresh_history();
+	if (m_viewing >= 0 && show_version(m_viewing))
+		return;
+	m_viewing = -1;
+	m_restore_version->setEnabled(false);
+
 	m_title->clear();
 	m_body->clear();
 	m_is_list = false;
@@ -573,6 +600,151 @@ void fzn_notebook_view::refresh_note()
 	m_warning->setVisible(editing);
 }
 
+/* ---- history, sec 603 ------------------------------------------------------ */
+
+/* `MS,WRITER,here|pending,TITLE` as a person reads it: when, by whom, and
+ * the title it had. */
+static QString version_label(const QString &item)
+{
+	QDateTime when = QDateTime::fromMSecsSinceEpoch(
+	        (qint64)item.section(QLatin1Char(','), 0, 0).toULongLong());
+	QString writer = item.section(QLatin1Char(','), 1, 1);
+
+	if (item.section(QLatin1Char(','), 2, 2) != QStringLiteral("here"))
+		return QStringLiteral("%1, by %2 -- not here yet")
+		        .arg(when.toString(QStringLiteral("yyyy-MM-dd HH:mm")), writer);
+	return QStringLiteral("%1, by %2 -- %3")
+	        .arg(when.toString(QStringLiteral("yyyy-MM-dd HH:mm")), writer,
+	             unescape(item.section(QLatin1Char(','), 3)));
+}
+
+void fzn_notebook_view::refresh_history()
+{
+	QStringList versions;
+	size_t from = 0, total = 0, guard;
+	int keep = m_viewing, i;
+
+	/* THIS USER'S OWN NOTES: the node keeps no history of a contact's. */
+	if (!m_open.isEmpty() && !shared())
+		for (guard = 0; guard < 256u; guard++) {
+			QString detail;
+			QStringList w;
+
+			if (ask(QStringLiteral("list history %1 %2").arg(m_open).arg(from), &detail) != 1)
+				break;
+			w = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+			total = w.value(0).toULongLong();
+			/* A TITLE MAY HOLD ESCAPED SPACES ONLY, so a word is an item. */
+			for (i = 2; i < w.size(); i++) {
+				versions << version_label(w[i]);
+				from++;
+			}
+			if (from >= total || w.size() <= 2)
+				break;
+		}
+	m_versions = versions;
+	if (keep >= versions.size())
+		keep = -1;
+	m_updating = true;
+	m_history->clear();
+	m_history->addItem(QStringLiteral("Current version"), -1);
+	for (i = versions.size() - 1; i >= 0; i--)
+		m_history->addItem(versions[i], i);
+	m_history->setCurrentIndex(keep < 0 ? 0 : m_history->findData(keep));
+	m_history->setEnabled(!versions.isEmpty());
+	m_updating = false;
+}
+
+/* VERSION `n` IN THE EDITOR, read-only: its title, and its text where it is
+ * a text and here. 0 when the node would not give it. */
+bool fzn_notebook_view::show_version(int n)
+{
+	QString detail, get = QStringLiteral("get history %1 %2").arg(m_open).arg(n);
+	QStringList f;
+	int type;
+
+	m_version_text = false;
+	/* `TYPE FLAGS CREATED EDITED PARENT blob|pending LEN TITLE`, as `get
+	 * note` answers. */
+	if (m_open.isEmpty() || shared() || ask(get, &detail) != 1)
+		return false;
+	f = detail.split(QLatin1Char(' '));
+	type = f.value(0).toInt();
+	m_title->setText(unescape(f.mid(7).join(QLatin1Char(' '))));
+	m_body->clear();
+	if (type == FZN_NOTE_TYPE_NOTE && f.value(5) != QStringLiteral("pending")) {
+		QTemporaryFile file;
+
+		if (file.open()) {
+			QString path = file.fileName();
+
+			file.close();
+			if (ask(QStringLiteral("%1 file %2").arg(get, path), &detail) == 1) {
+				QFile in(path);
+
+				if (in.open(QIODevice::ReadOnly)) {
+					m_body->setPlainText(QString::fromUtf8(in.readAll()));
+					m_version_text = true;
+				}
+			}
+		}
+	}
+	m_viewing = n;
+	m_title->setReadOnly(true);
+	m_body->setReadOnly(true);
+	m_save->setEnabled(false);
+	m_restore_version->setEnabled(m_version_text);
+	set_status(m_version_text
+	                   ? QStringLiteral("An earlier version, read-only: %1. Restore it to make it "
+	                                    "the note again.")
+	                             .arg(m_versions.value(n))
+	                   : QStringLiteral("An earlier version, read-only: %1.")
+	                             .arg(m_versions.value(n)));
+	return true;
+}
+
+bool fzn_notebook_view::view_version(int n)
+{
+	if (n < 0) {
+		m_viewing = -1;
+		set_status(QString());
+		refresh_note();
+		return true;
+	}
+	if (n >= m_versions.size() || !show_version(n)) {
+		say(QStringLiteral("That version could not be read."));
+		return false;
+	}
+	return true;
+}
+
+bool fzn_notebook_view::restore_version()
+{
+	QString why, title = m_title->text().replace(QLatin1Char('\n'), QLatin1Char(' '));
+	QString which = m_versions.value(m_viewing);
+	QTemporaryFile file;
+
+	if (m_viewing < 0 || !m_version_text || shared() || m_open.isEmpty())
+		return false;
+	if (!file.open() || file.write(m_body->toPlainText().toUtf8()) < 0) {
+		say(QStringLiteral("The version could not be written out to restore."));
+		return false;
+	}
+	file.close();
+	if ((!title.isEmpty()
+	     && ask(QStringLiteral("set note %1 title %2").arg(m_open, title), &why) != 1)
+	    || ask(QStringLiteral("set note %1 file %2").arg(m_open, file.fileName()), &why) != 1) {
+		say(QStringLiteral("The version was not restored: %1").arg(why));
+		return false;
+	}
+	m_viewing = -1;
+	set_status(QString());
+	refresh_list();
+	refresh_note();
+	say(QStringLiteral("Restored the version of %1.").arg(which));
+	return true;
+}
+
 void fzn_notebook_view::refresh_shares()
 {
 	QString detail;
@@ -659,6 +831,7 @@ bool fzn_notebook_view::ascend()
 bool fzn_notebook_view::open_note(const QString &id)
 {
 	m_open = id;
+	m_viewing = -1;
 	refresh_note();
 	refresh_shares();
 	return !m_open.isEmpty();

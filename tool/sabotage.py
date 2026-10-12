@@ -10988,6 +10988,27 @@ SABOTAGES = [
 		"a copy archived is let go as a file gone, and taken again from its host -- sec 590",
 	),
 	(
+		"notebook-history-kept-across-a-refresh",
+		"gui/notebook_view.cpp",
+		"\tif (m_viewing >= 0 && show_version(m_viewing))\n\t\treturn;\n",
+		"",
+		"the host's refresh timer takes the reader off the version they were reading -- sec 603",
+	),
+	(
+		"notebook-another-note-shows-its-current",
+		"gui/notebook_view.cpp",
+		"\tm_open = id;\n\tm_viewing = -1;\n",
+		"\tm_open = id;\n",
+		"opening another note shows the version number read in the last, of this one -- sec 603",
+	),
+	(
+		"notebook-a-version-is-read-only",
+		"gui/notebook_view.cpp",
+		"\tm_viewing = n;\n\tm_title->setReadOnly(true);\n\tm_body->setReadOnly(true);\n",
+		"\tm_viewing = n;\n\tm_title->setReadOnly(true);\n",
+		"an earlier version can be typed into as though it were the note -- sec 603",
+	),
+	(
 		"release-signed-by-its-host",
 		"node/piece_buckets.c",
 		"\tif (memcmp(subject, pb->self, 32u) != 0 || rec[REL_INDEX] >= FZN_ERASURE_PIECES_MAX\n\t    || !pb->sign->verify(pb->sign->ctx, rec + REL_HOST, msg, release_msg(rec, msg),\n\t                         rec + REL_SIG))\n",
