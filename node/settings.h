@@ -182,6 +182,15 @@ unsigned fzn_node_settings_replicas(const fzn_node_settings_t *ns);
 #define FZN_NODE_SETTINGS_ERASURE_M 2u
 void fzn_node_settings_erasure(const fzn_node_settings_t *ns, unsigned *k, unsigned *m);
 
+/* HOW LONG A KEEPER MAY BE SILENT BEFORE IT IS GONE, sec 601: the estate
+ * cell `archive/gone`, a count and a unit -- `14d`, `36h`, `90m`, `30s` --
+ * of at most ten years, at whatever rank is in force; in seconds. A keeper
+ * not heard from for longer has its piece placed on another host. Fourteen
+ * days otherwise, and on a value not of that shape. */
+#define FZN_NODE_SETTINGS_GONE_KEY "archive/gone"
+#define FZN_NODE_SETTINGS_GONE_S (14u * 86400u)
+uint32_t fzn_node_settings_gone_s(const fzn_node_settings_t *ns);
+
 /* A MEMBER'S ADDRESS AS A SETTING, sec 579: the host cell `net/address`,
  * `HOST PORT` -- a name or an address of 1 to 253 bytes of letters, digits
  * and `.-:`, a space, and a port from 1 to 65535 -- at whatever rank is in

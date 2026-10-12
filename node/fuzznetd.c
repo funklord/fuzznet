@@ -53,6 +53,7 @@
 #ifdef FZN_LOG_PACK_ON
 #include "log_buckets.h"
 #include "piece_buckets.h"
+#include "heard.h"
 #include "../chunk/erasure.h"
 #include "pieces.h"
 #endif
@@ -1941,11 +1942,14 @@ static uint32_t pieces_kept(struct pull_target *pulls, size_t npulls, uint64_t n
 
 /* EVERY PIECE OF `id` HELD HERE AGAIN, sec 600: from the pieces here and,
  * short of k, those their keepers hold, fetched by id; the item rebuilt,
- * checked against its id, cut again and placed again as it was. 0 when too
- * few pieces could be had this round. */
+ * checked against its id, cut again and placed again -- on `cut_for`,
+ * which since sec 601 may name a new keeper for a piece whose keeper is
+ * gone; that piece's old id is let go here once the rebuild no longer
+ * needs its copy. 0 when too few pieces could be had this round. */
 static int pieces_back(struct pull_target *pulls, size_t npulls, uint64_t now,
                        const uint8_t id[FZN_BUCKETS_ID_LEN], unsigned k, unsigned m,
-                       const uint8_t (*keepers)[FZN_PUBKEY_LEN], uint32_t kept)
+                       const uint8_t (*keepers)[FZN_PUBKEY_LEN], uint32_t kept,
+                       const uint8_t (*cut_for)[FZN_PUBKEY_LEN])
 {
 	static uint8_t reply[FZND_PULL_REPLY_MAX];
 	char name[FZN_LOG_BUCKETS_NAME_MAX + 1u];
@@ -1998,12 +2002,17 @@ static int pieces_back(struct pull_target *pulls, size_t npulls, uint64_t now,
 		memcpy(name, item + 1, item[0]);
 		name[item[0]] = '\0';
 		closed = fzn_log_copy_packed_time(name);
-		ok = closed
-		     && fzn_pieces_cut(node_pieces.dir, FZN_BUCKETS_LOGS, id, dlog.host, item, len, k,
-		                       m, &written)
+		/* A PIECE MOVING TO ANOTHER KEEPER is other bytes now: its old id
+		 * goes before the new is cut over its file. */
+		for (i = 0; ok && i < k + m; i++)
+			if (memcmp(keepers[i], cut_for[i], FZN_PUBKEY_LEN) != 0)
+				ok = fzn_piece_buckets_let_go(&node_pieces, id, i);
+		ok = ok && closed
+		     && fzn_pieces_cut(node_pieces.dir, FZN_BUCKETS_LOGS, id, dlog.host, cut_for, item,
+		                       len, k, m, &written)
 		                == FZN_PIECES_OK
 		     && fzn_piece_buckets_place(&node_pieces, id, fzn_message_epoch_of(closed / 1000u), k,
-		                                m, keepers, &placed);
+		                                m, cut_for, &placed);
 	}
 	free(item);
 	return ok;
@@ -2027,7 +2036,7 @@ static size_t repair_pieces(struct pull_target *pulls, size_t npulls, uint64_t n
 	if (!missing)
 		return 0;
 	(void)fzn_pieces_held(node_pieces.dir, id, &here);
-	if ((missing & ~here) && !pieces_back(pulls, npulls, now, id, k, m, keepers, kept)) {
+	if ((missing & ~here) && !pieces_back(pulls, npulls, now, id, k, m, keepers, kept, keepers)) {
 		say(FZN_ENTRY_WARNING, "log/copy", "a fossil's lost pieces could not be rebuilt: "
 		                                   "too few of its pieces could be had");
 		return 0;
@@ -2059,6 +2068,98 @@ static size_t repair_pieces(struct pull_target *pulls, size_t npulls, uint64_t n
 	return sent;
 }
 
+/* A PIECE WHOSE KEEPER IS GONE, moved, sec 601: a keeper that did not
+ * answer and has not been heard from for `archive/gone` -- one never heard
+ * from is heard now, so silence is counted from when this host first
+ * asked -- has its piece rebuilt and placed on the best-ranked host of
+ * those that answered this round, this one among them, not keeping one of
+ * the fossil's pieces already; then pushed it. How many were moved. */
+static size_t move_gone(struct pull_target *pulls, size_t npulls, uint64_t now,
+                        const uint8_t id[FZN_BUCKETS_ID_LEN], unsigned k, unsigned m,
+                        const uint8_t (*keepers)[FZN_PUBKEY_LEN], uint32_t kept,
+                        uint32_t answered, uint64_t now_us, uint32_t gone_s)
+{
+	static uint8_t hosts[FZN_PIECE_BUCKETS_HOSTS_MAX][FZN_PUBKEY_LEN];
+	static uint8_t cut_for[FZN_ERASURE_PIECES_MAX][FZN_PUBKEY_LEN];
+	static uint8_t reply[FZND_PULL_REPLY_MAX];
+	size_t order[FZN_PIECE_BUCKETS_HOSTS_MAX], n_hosts = 0, t, j, next = 0, moved = 0;
+	uint32_t gone = 0;
+	unsigned i;
+
+	for (i = 0; i < k + m; i++) {
+		uint64_t heard = 0;
+
+		if (memcmp(keepers[i], dlog.host, FZN_PUBKEY_LEN) == 0 || ((answered >> i) & 1u))
+			continue;
+		if (fzn_heard_when(node_apply.store, keepers[i], &heard) != FZN_HEARD_OK) {
+			(void)fzn_heard_mark(node_apply.store, keepers[i], now_us);
+			continue;
+		}
+		if (now_us > heard && (now_us - heard) / 1000000u > gone_s)
+			gone |= 1u << i;
+	}
+	if (!gone)
+		return 0;
+	/* THE HOSTS IT COULD GO TO: answering, of the estate, keeping none. */
+	memcpy(hosts[n_hosts++], dlog.host, FZN_PUBKEY_LEN);
+	for (t = 0; t < npulls && n_hosts < FZN_PIECE_BUCKETS_HOSTS_MAX; t++)
+		if (!silent_peer(&pulls[t]) && peer_in_estate(&pulls[t])) {
+			for (j = 0; j < n_hosts
+			            && memcmp(hosts[j], pulls[t].pairing.node, FZN_PUBKEY_LEN) != 0;
+			     j++)
+				;
+			if (j == n_hosts)
+				memcpy(hosts[n_hosts++], pulls[t].pairing.node, FZN_PUBKEY_LEN);
+		}
+	for (j = 0; j < n_hosts; j++)
+		for (i = 0; i < k + m; i++)
+			if (memcmp(hosts[j], keepers[i], FZN_PUBKEY_LEN) == 0) {
+				memcpy(hosts[j], hosts[--n_hosts], FZN_PUBKEY_LEN);
+				j--;
+				break;
+			}
+	if (!n_hosts
+	    || !fzn_piece_buckets_rank(dlog.hash, id, (const uint8_t (*)[32])hosts, n_hosts, order))
+		return 0;
+	memcpy(cut_for, keepers, (size_t)(k + m) * FZN_PUBKEY_LEN);
+	for (i = 0; i < k + m && next < n_hosts; i++)
+		if ((gone >> i) & 1u)
+			memcpy(cut_for[i], hosts[order[next++]], FZN_PUBKEY_LEN);
+	if (!pieces_back(pulls, npulls, now, id, k, m, keepers, kept,
+	                 (const uint8_t (*)[32])cut_for)) {
+		say(FZN_ENTRY_WARNING, "log/copy", "a piece whose keeper is gone could not be moved: "
+		                                   "too few of its fossil's pieces could be had");
+		return 0;
+	}
+	/* AND PUSHED NOW to its new keeper, rather than a round later. */
+	for (i = 0; i < k + m; i++) {
+		struct pull_target *pt;
+		uint8_t piece_id[FZN_BUCKETS_ID_LEN], subject[FZN_PUBKEY_LEN], scratch[1];
+		uint32_t month = 0;
+		size_t len = 0;
+		fzn_reconcile_bucket_tally_t pushed;
+
+		if (!((gone >> i) & 1u) || memcmp(cut_for[i], keepers[i], FZN_PUBKEY_LEN) == 0)
+			continue;
+		moved++;
+		(void)fzn_heard_mark(node_apply.store, cut_for[i], now_us);
+		if (!(pt = keeper_target(pulls, npulls, cut_for[i]))
+		    || !fzn_piece_buckets_piece_id(&node_pieces, id, i, piece_id, NULL)
+		    || fzn_buckets_item(&logs_store, FZN_BUCKETS_PIECES, piece_id, scratch,
+		                        sizeof(scratch), &len, subject, &month)
+		               != FZN_BUCKETS_LARGE)
+			continue;
+		{
+			struct peer_asking asking = { &pt->caller, now, pt->host };
+
+			(void)fzn_reconcile_push_one(&logs_store, FZN_BUCKETS_PIECES, subject, month,
+			                             piece_id, &pieces_filer, peer_ask, &asking, reply,
+			                             sizeof(reply), &pushed);
+		}
+	}
+	return moved;
+}
+
 /* THIS HOST'S CUT FOSSILS COUNTED, sec 599, each round after the
  * exchange: a fossil is held by its pieces once k + min(m, R - 1) of them
  * sit on distinct hosts -- R `archive/replicas`, so pieces bear the losses
@@ -2067,12 +2168,20 @@ static size_t repair_pieces(struct pull_target *pulls, size_t npulls, uint64_t n
 static void count_pieces(struct pull_target *pulls, size_t npulls, uint64_t now, unsigned want)
 {
 	static uint8_t keepers[FZN_ERASURE_PIECES_MAX][FZN_PUBKEY_LEN];
-	size_t counted = 0, short_of = 0, let_go = 0, put_back = 0, repairs = 0;
+	size_t counted = 0, short_of = 0, let_go = 0, put_back = 0, repairs = 0, moved = 0, t;
+	uint64_t now_us = wall_ms() * 1000u;
+	uint32_t gone_s = fzn_node_settings_gone_s(&node_settings);
 	struct dirent *e;
 	DIR *d;
 
 	n_pieces_ok = 0;
-	if (!pieces_ready || !dlog.has_host || (d = opendir(node_pieces.dir)) == NULL)
+	if (!pieces_ready || !dlog.has_host)
+		return;
+	/* EVERY PEER THAT ANSWERED THIS ROUND, HEARD, sec 601. */
+	for (t = 0; t < npulls; t++)
+		if (!silent_peer(&pulls[t]) && peer_in_estate(&pulls[t]))
+			(void)fzn_heard_mark(node_apply.store, pulls[t].pairing.node, now_us);
+	if ((d = opendir(node_pieces.dir)) == NULL)
 		return;
 	while ((e = readdir(d)) != NULL && counted < FZND_PIECES_COUNTED) {
 		uint8_t id[FZN_BUCKETS_ID_LEN];
@@ -2094,11 +2203,24 @@ static void count_pieces(struct pull_target *pulls, size_t npulls, uint64_t now,
 		                   &answered);
 		for (i = 0; i < k + m; i++)
 			held += (kept >> i) & 1u;
-		/* A KEEPER THAT ANSWERED WITHOUT ITS PIECE is given it back. */
+		/* A KEEPER THAT ANSWERED WITHOUT ITS PIECE is given it back; one
+		 * gone, its piece moves. Both cost a rebuild, so they share the
+		 * round's bound. */
 		if ((answered & ~kept) && repairs < FZND_REPAIRS_PER_ROUND) {
 			repairs++;
 			put_back += repair_pieces(pulls, npulls, now, id, k, m,
 			                          (const uint8_t (*)[32])keepers, kept, answered);
+		}
+		if (repairs < FZND_REPAIRS_PER_ROUND) {
+			size_t n_moved = move_gone(pulls, npulls, now, id, k, m,
+			                           (const uint8_t (*)[32])keepers, kept, answered, now_us,
+			                           gone_s);
+
+			if (n_moved) {
+				repairs++;
+				moved += n_moved;
+				continue;
+			}
 		}
 		need = k + (want > 1u ? (m < want - 1u ? m : want - 1u) : 0u);
 		if (held < need) {
@@ -2123,7 +2245,8 @@ static void count_pieces(struct pull_target *pulls, size_t npulls, uint64_t now,
 	if (counted)
 		say(FZN_ENTRY_INFO, "log/copy",
 		    "pieces: %zu cut fossil(s), %zu held by too few hosts, %zu piece(s) let go to "
-		    "their keepers, %zu put back", counted, short_of, let_go, put_back);
+		    "their keepers, %zu put back, %zu moved off gone hosts", counted, short_of, let_go,
+		    put_back, moved);
 }
 
 /* THE FOSSILS OF ONE ARCHIVE DIRECTORY WEIGHED, sec 592: each the `rules`
@@ -2286,6 +2409,7 @@ static void cut_fossils(struct pull_target *pulls, size_t npulls)
 		char path[sizeof(node_logs.archive) + 260u];
 		uint8_t id[FZN_BUCKETS_ID_LEN], check[FZN_BUCKETS_ID_LEN], piece_id[FZN_BUCKETS_ID_LEN];
 		size_t name_len = strlen(e->d_name), written = 0, placed = 0, got;
+		int ok;
 		uint8_t *item;
 		FILE *f;
 
@@ -2317,21 +2441,24 @@ static void cut_fossils(struct pull_target *pulls, size_t npulls)
 		got = f ? fread(item + 1u + name_len, 1u, (size_t)size - 1u - name_len, f) : 0u;
 		if (f)
 			(void)fclose(f);
-		if (got != (size_t)size - 1u - name_len
-		    || !fzn_buckets_id(dlog.hash, item, (size_t)size, check)
-		    || memcmp(check, id, FZN_BUCKETS_ID_LEN) != 0
-		    || fzn_pieces_cut(node_pieces.dir, FZN_BUCKETS_LOGS, id, dlog.host, item,
-		                      (size_t)size, k, m, &written)
-		               != FZN_PIECES_OK
-		    || !fzn_piece_buckets_rank(dlog.hash, id, (const uint8_t (*)[32])hosts, n_hosts,
-		                               order)) {
-			free(item);
+		/* EACH PIECE NAMES ITS KEEPER, so the keepers come first. */
+		ok = got == (size_t)size - 1u - name_len
+		     && fzn_buckets_id(dlog.hash, item, (size_t)size, check)
+		     && memcmp(check, id, FZN_BUCKETS_ID_LEN) == 0
+		     && fzn_piece_buckets_rank(dlog.hash, id, (const uint8_t (*)[32])hosts, n_hosts,
+		                               order);
+		for (i = 0; ok && i < k + m; i++)
+			memcpy(keepers[i], hosts[order[i]], FZN_PUBKEY_LEN);
+		ok = ok
+		     && fzn_pieces_cut(node_pieces.dir, FZN_BUCKETS_LOGS, id, dlog.host,
+		                       (const uint8_t (*)[32])keepers, item, (size_t)size, k, m,
+		                       &written)
+		                == FZN_PIECES_OK;
+		free(item);
+		if (!ok) {
 			say(FZN_ENTRY_WARNING, "log/copy", "%s could not be cut into pieces", e->d_name);
 			continue;
 		}
-		free(item);
-		for (i = 0; i < k + m; i++)
-			memcpy(keepers[i], hosts[order[i]], FZN_PUBKEY_LEN);
 		if (!fzn_piece_buckets_place(&node_pieces, id, fzn_message_epoch_of(closed / 1000u), k,
 		                             m, (const uint8_t (*)[32])keepers, &placed)) {
 			say(FZN_ENTRY_WARNING, "log/copy", "the pieces of %s could not all be placed",

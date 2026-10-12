@@ -38,19 +38,21 @@ typedef enum fzn_pieces_err {
 const char *fzn_pieces_err_str(fzn_pieces_err_t err);
 
 /* A piece's head, `chunk/piece.situ`: everything before its bytes. */
-#define FZN_PIECE_HEAD_LEN 81u
+#define FZN_PIECE_HEAD_LEN 113u
 
 /*
  * CUT `item`, `len` bytes of `kind` whose id is `id` and which is `host`'s
- * (its head names it, so the host can be served its pieces), into `k` data pieces
- * and `m` parity, each written into `dir` -- made 0700 when absent -- as
+ * (its head names it, so the host can be served its pieces), into `k` data
+ * pieces and `m` parity, piece i naming `keepers[i]`, the host it is placed
+ * on -- so a piece placed again elsewhere is other bytes, and another item
+ * (sec 601). Each is written into `dir` -- made 0700 when absent -- as
  * `IDHEX.INDEX.piece`, beside its name and renamed into place, so a piece
  * under its name is always whole. `*written` counts them.
  */
 fzn_pieces_err_t fzn_pieces_cut(const char *dir, uint8_t kind,
                                 const uint8_t id[FZN_BUCKETS_ID_LEN], const uint8_t host[32],
-                                const uint8_t *item, size_t len, unsigned k, unsigned m,
-                                size_t *written);
+                                const uint8_t (*keepers)[32], const uint8_t *item, size_t len,
+                                unsigned k, unsigned m, size_t *written);
 
 /*
  * WHICH PIECES OF `id` ARE IN `dir`: bit i of `*mask` for the piece at

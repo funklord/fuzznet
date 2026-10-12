@@ -28,7 +28,7 @@ struct fzn_erasure_cut size=99..2019
 struct fzn_erasure_keeper size=32
   @0x0000   32        u8         key  big
 
-struct fzn_erasure_piece size=82..67108945
+struct fzn_erasure_piece size=114..67108977
   @0x0000   1         u8         version  must_eq=1
   @0x0001   1         u8         kind  max=1
   @0x0002   32        u8         item_id  big
@@ -37,5 +37,6 @@ struct fzn_erasure_piece size=82..67108945
   @0x004a   1         u8         k  min=1 max=31
   @0x004b   1         u8         m  min=1 max=31
   @0x004c   1         u8         index  max=31
-  @0x004d   4         u32        piece_len  big min=1 max=67108864
-  @0x0051   1..67108864 u8         piece  sized-by=piece_len
+  @0x004d   32        u8         keeper  big
+  @0x006d   4         u32        piece_len  big min=1 max=67108864
+  @0x0071   1..67108864 u8         piece  sized-by=piece_len

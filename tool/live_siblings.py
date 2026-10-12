@@ -21,6 +21,13 @@ with the other, and A, which has no pull peers, fetches from neither.
        whose --root-at reaches nobody, reads C's value, which it can only
        have taken from C, as a round's pull peer (sec 586)
 
+    f  pieces placed on a host that went away, moved (sec 601): each host
+       logs into small segments, B archives its own, and with the estate's
+       `archive/erasure` at 1+1 cuts each over the three hosts; a keeper
+       other than B is stopped, `archive/gone` set to 3s, and once it has
+       been silent that long B rebuilds each of its pieces and places it on
+       the one host keeping none, which then holds it
+
 Against a daemon that carries no prekeys, or pairs no siblings, phase a
 fails waiting for the pairings; against one that never asks a sibling,
 phase c does; against one that asks siblings for files alone, phase e.
@@ -37,10 +44,12 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from live_rejoin import RECONCILE_RE, command, daemon, expect  # noqa: E402
+from live_rejoin import (COUNTED_RE, OWN_ARCHIVED_RE, RECONCILE_RE,  # noqa: E402
+                         command, daemon, expect)
 from live_trim import ask, failed  # noqa: E402
 
 TAKEN_RE = re.compile(r"(\d+) sibling\(s\) paired, (\d+) pairing\(s\) taken")
@@ -201,6 +210,118 @@ def main(argv):
 			finally:
 				c.stop()
 			print("livecheck: e: with the root away, B took C's setting from C")
+
+			# f: pieces moved off a gone keeper, sec 601.
+			logs = {k: os.path.join(scratch, "log-" + k) for k in ("a", "b", "c")}
+			small = ["--log-segment=4096"]
+			a_args = ["--udp-port=" + port_a]
+
+			def up(who, tag, rules=()):
+				args = {"a": a_args, "b": b_args, "c": c_args}[who]
+				return daemon(run, tag, dirs[who], socks[who],
+				              extra=args + small + ["--log-rule=" + r for r in rules],
+				              log_dir=logs[who])
+
+			def b_round(tag, others, rules=(), wait=ROUND_END_RE):
+				"""B's first round with `others` up, each through its own round
+				first; the match of `wait` in B's log."""
+				ds = []
+				try:
+					for who in others:
+						ds.append(up(who, tag + who))
+						ds[-1].wait_for(ROUND_END_RE, who.upper() + "'s round")
+					b = up("b", tag + "b", rules)
+					try:
+						return b.wait_for(wait, tag)
+					finally:
+						b.stop()
+				finally:
+					for d in ds:
+						d.stop()
+
+			def packed(d):
+				return [n for n in (os.listdir(d) if os.path.isdir(d) else [])
+				        if n.endswith(".log.zst")]
+
+			def closed(d):
+				return [n for n in (os.listdir(d) if os.path.isdir(d) else [])
+				        if n.endswith(".log") and n.count(".") >= 3]
+
+			a = up("a", "af-set")
+			try:
+				a.wait_for(ROUND_END_RE, "A's round")
+				expect(socks["a"], "f", "set setting estate archive/erasure 1+1", "ok")
+			finally:
+				a.stop()
+			f_runs = 0
+			while not closed(logs["b"]) and not packed(logs["b"]):
+				f_runs += 1
+				if f_runs > 8:
+					raise failed("f: eight runs and B closed no segment")
+				b_round("f%d" % f_runs, ("a", "c"))
+			time.sleep(11)
+			b_round("f-pack", ("a", "c"), ["archive * count 0"], OWN_ARCHIVED_RE)
+			archive = os.path.join(logs["b"], "archive")
+			fossils = packed(archive)
+			if not fossils:
+				raise failed("f: B archived none of its segments")
+			# CUT, PLACED AND COUNTED: a round to cut and push, one to count.
+			b_round("f-cut", ("a", "c"))
+			b_round("f-count", ("a", "c"), wait=COUNTED_RE)
+
+			def placements():
+				"""Each of B's cut records, as (id hex, [keeper hex, ...])."""
+				d = os.path.join(archive, "pieces")
+				out = []
+				for n in sorted(os.listdir(d)):
+					if n.endswith(".cut"):
+						with open(os.path.join(d, n), "rb") as f:
+							rec = f.read()
+						k, m = rec[33], rec[34]
+						out.append((n[:64], [rec[35 + 32 * i:67 + 32 * i].hex()
+						                     for i in range(k + m)]))
+				return out
+
+			def who(key):
+				return "b" if key == keys["b"] else "c" if key == keys["c"] else "a"
+
+			before = placements()
+			if len(before) != len(fossils):
+				raise failed("f: %d fossil(s) and %d cut record(s)" % (len(fossils), len(before)))
+			# THE GONE ONE: a keeper other than B, C where it keeps any.
+			kept_by = {w for _, ks in before for w in map(who, ks)} - {"b"}
+			gone = "c" if "c" in kept_by else "a"
+			others = tuple(w for w in ("a", "c") if w != gone)
+			a = up("a", "af-gone")
+			try:
+				a.wait_for(ROUND_END_RE, "A's round")
+				expect(socks["a"], "f", "set setting estate archive/gone 3s", "ok")
+			finally:
+				a.stop()
+			# B HEARS THE SETTING with every host up, then the keeper goes.
+			b_round("f-hear", ("a", "c"))
+			time.sleep(4)
+			got = b_round("f-move", others, wait=COUNTED_RE)
+			after = placements()
+			moved = [(i, n) for (i, ks0), (_, ks1) in zip(before, after)
+			         for n, (k0, k1) in enumerate(zip(ks0, ks1)) if k0 != k1]
+			want = sum(1 for _, ks in before for k in ks if who(k) == gone)
+			if int(got.group(5)) != want or len(moved) != want or any(
+			        who(k) == gone for _, ks in after for k in ks):
+				raise failed("f: %s keeps %d piece(s); B moved %s, its records moved %d, and "
+				             "%s still keeps %d" % (gone.upper(), want, got.group(5),
+				                                    len(moved), gone.upper(),
+				                                    sum(1 for _, ks in after for k in ks
+				                                        if who(k) == gone)))
+			# AND THE NEW KEEPER HOLDS EACH, under its name.
+			for fid, n in moved:
+				keeper = who(dict(after)[fid][n])
+				path = os.path.join(logs[keeper], "archive", "pieces", "%s.%d.piece" % (fid, n))
+				if not os.path.isfile(path):
+					raise failed("f: piece %d of %.8s moved to %s, which does not hold it"
+					             % (n, fid, keeper.upper()))
+			print("livecheck: f: %s gone, B moved its %d piece(s) to the host keeping none"
+			      % (gone.upper(), want))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

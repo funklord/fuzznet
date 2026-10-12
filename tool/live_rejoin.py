@@ -100,7 +100,8 @@ COPY_PRUNED_RE = re.compile(r"(\d+) archived copied segment\(s\) of \S+ of [0-9a
 COPY_ARCHIVED_RE = re.compile(r"\d+ copied segment\(s\) of \S+ of [0-9a-f]{8} archived")
 PUSHED_RE = re.compile(r"passed over, (\d+) pushed")
 COUNTED_RE = re.compile(r"pieces: (\d+) cut fossil\(s\), (\d+) held by too few hosts, (\d+) "
-                        r"piece\(s\) let go to their keepers, (\d+) put back")
+                        r"piece\(s\) let go to their keepers, (\d+) put back, (\d+) moved off "
+                        r"gone hosts")
 PIECES_RE = re.compile(r"pieces of archived segments: (\d+) taken, (\d+) pushed, (\d+) "
                        r"refused there")
 MISSING_RE = re.compile(r"claims no longer hold what this node lacks|would not move")
@@ -655,8 +656,8 @@ def main(argv):
 				              if n.endswith(".piece"))
 			# EACH A PIECE OF ONE OF B'S FOSSILS: 1 + 1 makes a piece the
 			# whole item -- the name's length, the name and the file --
-			# after an 81-byte head.
-			sizes = sorted(81 + 1 + len(n) + os.path.getsize(os.path.join(own_archive, n))
+			# after a 113-byte head.
+			sizes = sorted(113 + 1 + len(n) + os.path.getsize(os.path.join(own_archive, n))
 			               for n in fossils)
 			a_sizes = sorted(os.path.getsize(os.path.join(a_pieces, n)) for n in pieces(a_pieces))
 			# B HOLDS BOTH PIECES OF EACH until it counts them, which the same

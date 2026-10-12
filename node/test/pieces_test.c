@@ -76,7 +76,8 @@ static int flip(const uint8_t id[FZN_BUCKETS_ID_LEN], unsigned index)
 int main(void)
 {
 	uint8_t id[FZN_BUCKETS_ID_LEN];
-	uint8_t host[32];
+	uint8_t host[32], keepers[32][32];
+	const uint8_t (*to)[32] = (const uint8_t (*)[32])keepers;
 	char path[200];
 	size_t written = 0, len = 0, i;
 	uint32_t mask = 0, used = 0;
@@ -91,8 +92,10 @@ int main(void)
 	}
 	CHECK(fzn_buckets_id(&HASH, item, sizeof(item), id), "fixture: the item's id");
 	memset(host, 0x5a, sizeof(host));
+	for (i = 0; i < 32u; i++)
+		memset(keepers[i], (int)(0x80u + i), 32u);
 
-	CHECK(fzn_pieces_cut(dir, 1u, id, host, item, sizeof(item), 4u, 2u, &written)
+	CHECK(fzn_pieces_cut(dir, 1u, id, host, to, item, sizeof(item), 4u, 2u, &written)
 	                  == FZN_PIECES_OK
 	              && written == 6u && fzn_pieces_held(dir, id, &mask) == FZN_PIECES_OK
 	              && mask == 0x3fu,
@@ -126,13 +129,14 @@ int main(void)
 	                         == FZN_PIECES_ERR_TOO_FEW,
 	      "three held rebuilt, or were not said too few");
 
-	CHECK(fzn_pieces_cut(dir, 1u, id, host, item, 0u, 4u, 2u, &written) == FZN_PIECES_ERR_MALFORMED
-	              && fzn_pieces_cut(dir, 1u, id, host, item, sizeof(item), 30u, 3u, &written)
+	CHECK(fzn_pieces_cut(dir, 1u, id, host, to, item, 0u, 4u, 2u, &written)
+	                  == FZN_PIECES_ERR_MALFORMED
+	              && fzn_pieces_cut(dir, 1u, id, host, to, item, sizeof(item), 30u, 3u, &written)
 	                         == FZN_PIECES_ERR_MALFORMED
-	              && fzn_pieces_cut(dir, 9u, id, host, item, sizeof(item), 4u, 2u, &written)
+	              && fzn_pieces_cut(dir, 9u, id, host, to, item, sizeof(item), 4u, 2u, &written)
 	                         == FZN_PIECES_ERR_MALFORMED,
 	      "an empty item, too many pieces, or a kind past the last was cut");
-	CHECK(fzn_pieces_cut(dir, 2u, id, host, item, sizeof(item), 4u, 2u, &written)
+	CHECK(fzn_pieces_cut(dir, 2u, id, host, to, item, sizeof(item), 4u, 2u, &written)
 	              == FZN_PIECES_ERR_MALFORMED,
 	      "pieces were cut into pieces again");
 
@@ -144,7 +148,8 @@ int main(void)
 
 		snprintf(above, sizeof(above), "%s/archive", dir);
 		snprintf(nested, sizeof(nested), "%s/archive/pieces", dir);
-		CHECK(fzn_pieces_cut(nested, 1u, id, host, item, sizeof(item), 1u, 1u, &written)
+		CHECK(fzn_pieces_cut(nested, 1u, id, host, to, item, sizeof(item), 1u, 1u,
+		                     &written)
 		                  == FZN_PIECES_OK
 		          && written == 2u,
 		      "pieces were not cut under an archive not made yet");

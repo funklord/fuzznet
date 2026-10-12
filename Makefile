@@ -164,7 +164,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/node.c node/local.c node/remote.c node/serve.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
-             node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/holdings.c node/buckets.c node/reconcile.c \
+             node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/heard.c node/holdings.c node/buckets.c node/reconcile.c \
              messages/line.c messages/messages.c node/messages.c \
              contact/contact.c \
              contact/group.c \
@@ -262,7 +262,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/node.h node/local.h node/remote.h node/serve.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
-             node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/holdings.h node/buckets.h node/reconcile.h \
+             node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/heard.h node/holdings.h node/buckets.h node/reconcile.h \
              messages/line.h messages/messages.h node/messages.h \
              contact/contact.h \
              contact/group.h \
@@ -388,7 +388,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              session/test/random_test.c local/test/vocabulary_test.c \
              local/test/client_test.c \
              node/test/peer_persist_test.c \
-             node/test/identity_test.c \
+             node/test/identity_test.c node/test/heard_test.c \
              local/test/vocabulary_fuzz.c local/test/admit_test.c \
              local/test/line_test.c local/test/socket_test.c \
              net/test/udp_test.c \
@@ -504,6 +504,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/local/test/client_test \
              $(BUILD_DIR)/node/test/peer_persist_test \
              $(BUILD_DIR)/node/test/identity_test \
+             $(BUILD_DIR)/node/test/heard_test \
              $(BUILD_DIR)/local/test/vocabulary_fuzz \
              $(BUILD_DIR)/local/test/admit_test \
              $(BUILD_DIR)/local/test/line_test \
@@ -3745,6 +3746,12 @@ $(BUILD_DIR)/node/test/identity_test: $(BUILD_DIR)/node/test/identity_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# When this node last heard from each host, sec 601.
+$(BUILD_DIR)/node/test/heard_test: $(BUILD_DIR)/node/test/heard_test.o \
+                                   $(BUILD_DIR)/node/heard.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/node/test/peer_persist_test: \
                                    $(BUILD_DIR)/node/test/peer_persist_test.o \
                                    $(BUILD_DIR)/node/peer_persist.o \
@@ -4107,6 +4114,7 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o $(BUILD_DIR)/log/copy.o \
                 $(BUILD_DIR)/node/log_buckets.o $(BUILD_DIR)/node/pieces.o \
                 $(BUILD_DIR)/node/piece_buckets.o $(BUILD_DIR)/chunk/erasure.o) \
+              $(BUILD_DIR)/node/heard.o \
               $(MONO_OBJS) $(FLOG_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
@@ -4260,6 +4268,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/state/scope.o \
                                       $(BUILD_DIR)/state/setting.o \
                                       $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/siblings.o \
+                                      $(BUILD_DIR)/node/heard.o \
                                       $(BUILD_DIR)/node/holdings.o \
                                       $(BUILD_DIR)/node/buckets.o \
                                       $(BUILD_DIR)/node/reconcile.o \
@@ -5878,7 +5887,8 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               record/exchange.situ \
               notes/sync.situ notes/note.situ node/opjournal.situ messages/line.situ \
               messages/keys.situ state/setting.situ node/reconcile.situ node/buckets.situ \
-              log/entry.situ log/cause.situ log/gather.situ chunk/piece.situ
+              log/entry.situ log/cause.situ log/gather.situ chunk/piece.situ \
+              node/heard.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #

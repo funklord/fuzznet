@@ -318,13 +318,17 @@ typedef enum fzn_persist_slot {
 	 * note's history under the retention rules. `notes/store.h` keeps it.
 	 * sec 581. */
 	FZN_PERSIST_NOTE_HISTORY = 46u,
+	/* Per host, keyed by its key: when this node last heard from it, so a
+	 * keeper of a piece gone silent is told from one heard a moment ago
+	 * across restarts. `node/heard.h` keeps it. sec 601. */
+	FZN_PERSIST_HOST_HEARD = 47u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 47u
+#define FZN_PERSIST_SLOT_END 48u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,

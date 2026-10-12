@@ -21,6 +21,7 @@ struct fzn_erasure_piece {
 	u8   k [min = 1, max = 31];               // data pieces
 	u8   m [min = 1, max = 31];               // parity pieces
 	u8   index [max = 31];                    // this piece's, data first
+	u8   keeper[32];                          // the host it was placed on, sec 601
 	u32  piece_len [min = 1, max = 67108864];
 	u8   piece[piece_len];
 }

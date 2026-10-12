@@ -97,6 +97,7 @@
 #include "../../node/settings.h"
 #include "../../node/buckets.h"
 #include "../../node/siblings.h"
+#include "../../node/heard.h"
 #include "../../chunk/erasure.h"
 #include "../../node/holdings.h"
 #include "../../node/reconcile.h"
@@ -257,6 +258,7 @@ static const char *r_node_settings(int v)
 static const char *r_holdings(int v) { return fzn_holdings_err_str((fzn_holdings_err_t)v); }
 static const char *r_buckets(int v) { return fzn_buckets_err_str((fzn_buckets_err_t)v); }
 static const char *r_erasure(int v) { return fzn_erasure_err_str((fzn_erasure_err_t)v); }
+static const char *r_heard(int v) { return fzn_heard_err_str((fzn_heard_err_t)v); }
 static const char *r_siblings(int v)
 {
 	return fzn_node_siblings_err_str((fzn_node_siblings_err_t)v);
@@ -380,6 +382,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_holdings_err_str", r_holdings, 4 },
 	{ "fzn_buckets_err_str", r_buckets, 7 },
 	{ "fzn_node_siblings_err_str", r_siblings, 5 },
+	{ "fzn_heard_err_str", r_heard, 4 },
 	{ "fzn_erasure_err_str", r_erasure, 3 },
 	{ "fzn_reconcile_err_str", r_reconcile, 6 },
 #ifdef FZN_RECORD_STORE_FILE_ON

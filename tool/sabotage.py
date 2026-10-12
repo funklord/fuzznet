@@ -10988,6 +10988,41 @@ SABOTAGES = [
 		"a copy archived is let go as a file gone, and taken again from its host -- sec 590",
 	),
 	(
+		"heard-never-earlier",
+		"node/heard.c",
+		"\tif (fzn_heard_when(store, host, &was) == FZN_HEARD_OK && was >= at_us)\n\t\treturn FZN_HEARD_OK;\n",
+		"",
+		"a clock stepped back makes a keeper heard long ago, and its piece moves off a host that answered -- sec 601",
+	),
+	(
+		"heard-row-is-its-version",
+		"node/heard.c",
+		"\t    || len != HEARD_LEN || row[0] != 1u)\n",
+		"\t    || len != HEARD_LEN)\n",
+		"a row of another layout is read as a time -- sec 601",
+	),
+	(
+		"pieces-kept-only-where-their-head-says",
+		"node/piece_buckets.c",
+		"\tif (memcmp(subject, pb->self, 32u) != 0 || len < FZN_PIECE_HEAD_LEN\n\t    || memcmp(item + 77u, pb->self, 32u) != 0)\n",
+		"\tif (memcmp(subject, pb->self, 32u) != 0 || len < FZN_PIECE_HEAD_LEN)\n",
+		"a piece placed on another host is kept here under this host's bucket -- sec 601",
+	),
+	(
+		"pieces-name-their-keeper",
+		"node/pieces.c",
+		"\t\tmemcpy(head + OFF_KEEPER, keepers[i], 32u);\n",
+		"",
+		"a piece names no keeper, so moving it to another is the same bytes and the same id -- sec 601",
+	),
+	(
+		"settings-gone-at-most-ten-years",
+		"node/settings.c",
+		"\tn = count_of(value, len - 1u, 315360000u / unit);\n",
+		"\tn = count_of(value, len - 1u, 315360000u);\n",
+		"archive/gone past ten years counts, and in seconds overflows -- sec 601",
+	),
+	(
 		"reconcile-a-lost-item-taken-back",
 		"node/reconcile.c",
 		"\t\tif (fzn_buckets_has(&b, (fzn_buckets_kind_t)kind, id) && !lost(&b, taker, kind, id))\n",
@@ -11032,8 +11067,8 @@ SABOTAGES = [
 	(
 		"pieces-kept-only-on-their-keeper",
 		"node/piece_buckets.c",
-		"\tif (memcmp(subject, pb->self, 32u) != 0)\n\t\treturn FZN_NODE_APPLY_REFUSED;\n\tswitch (fzn_pieces_keep(",
-		"\tswitch (fzn_pieces_keep(",
+		"\tif (memcmp(subject, pb->self, 32u) != 0 || len < FZN_PIECE_HEAD_LEN\n",
+		"\tif (len < FZN_PIECE_HEAD_LEN\n",
 		"a host keeps pieces placed on others, and the pieces no longer spread one to a host -- sec 597",
 	),
 	(

@@ -377,7 +377,11 @@ static fzn_node_apply_outcome_t keep(fzn_piece_buckets_t *pb, const uint8_t subj
 	uint8_t of[FZN_BUCKETS_ID_LEN];
 	unsigned index = 0;
 
-	if (memcmp(subject, pb->self, 32u) != 0)
+	/* PLACED ON THIS HOST, by its bucket and by its own head, sec 601:
+	 * `chunk/piece.situ` names the keeper after the version, the kind, the
+	 * item's id and host, its length, k, m and the index. */
+	if (memcmp(subject, pb->self, 32u) != 0 || len < FZN_PIECE_HEAD_LEN
+	    || memcmp(item + 77u, pb->self, 32u) != 0)
 		return FZN_NODE_APPLY_REFUSED;
 	switch (fzn_pieces_keep(pb->dir, item, len, of, &index)) {
 	case FZN_PIECES_OK:

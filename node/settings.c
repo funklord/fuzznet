@@ -437,6 +437,40 @@ void fzn_node_settings_erasure(const fzn_node_settings_t *ns, unsigned *k, unsig
 	}
 }
 
+uint32_t fzn_node_settings_gone_s(const fzn_node_settings_t *ns)
+{
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	size_t len = 0;
+	unsigned n, unit;
+
+	if (!ready(ns) || !ns->estate
+	    || !fzn_node_settings_get(ns, FZN_SCOPE_ESTATE, ns->estate,
+	                              (const uint8_t *)FZN_NODE_SETTINGS_GONE_KEY,
+	                              sizeof(FZN_NODE_SETTINGS_GONE_KEY) - 1u, value, &len, &rank)
+	    || len < 2u)
+		return FZN_NODE_SETTINGS_GONE_S;
+	switch (value[len - 1u]) {
+	case 'd':
+		unit = 86400u;
+		break;
+	case 'h':
+		unit = 3600u;
+		break;
+	case 'm':
+		unit = 60u;
+		break;
+	case 's':
+		unit = 1u;
+		break;
+	default:
+		return FZN_NODE_SETTINGS_GONE_S;
+	}
+	/* AT MOST TEN YEARS, in whichever unit: 3650 days is 315,360,000 s. */
+	n = count_of(value, len - 1u, 315360000u / unit);
+	return n ? n * unit : FZN_NODE_SETTINGS_GONE_S;
+}
+
 int fzn_node_settings_address(const fzn_node_settings_t *ns, const uint8_t about[FZN_SUBJECT_LEN],
                               char host[FZN_NODE_SETTINGS_HOST_MAX + 1u], uint16_t *port)
 {

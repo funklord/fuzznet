@@ -295,7 +295,8 @@ static int a_cuts(const uint8_t (*keepers)[32], size_t *placed)
 {
 	size_t written = 0;
 
-	return fzn_pieces_cut(dir_a, 1u, item_id, key_a, item, ITEM_LEN, 1u, 1u, &written) == FZN_PIECES_OK
+	return fzn_pieces_cut(dir_a, 1u, item_id, key_a, keepers, item, ITEM_LEN, 1u, 1u, &written)
+	               == FZN_PIECES_OK
 	       && written == 2u
 	       && fzn_piece_buckets_place(&pb_a, item_id, MONTH, 1u, 1u, keepers, placed);
 }
@@ -460,7 +461,8 @@ static void test_counted_and_let_go(void)
 	                              &served, NULL, NULL)
 	                     == FZN_BUCKETS_ABSENT,
 	      "A's copy of B's piece was not let go");
-	CHECK(fzn_piece_buckets_piece_id(&pb_a, item_id, 1u, host, NULL) && memcmp(host, piece_id, 32u) == 0,
+	CHECK(fzn_piece_buckets_piece_id(&pb_a, item_id, 1u, host, NULL)
+	          && memcmp(host, piece_id, 32u) == 0,
 	      "letting a piece go forgot its id");
 	CHECK(fzn_piece_buckets_let_go(&pb_a, item_id, 1u), "letting a piece go twice failed");
 }
@@ -567,7 +569,8 @@ static void test_shape_refused(void)
 	bytes[73] = 16u; /* item length 16 */
 	bytes[74] = 1u;  /* k */
 	bytes[75] = 1u;  /* m */
-	bytes[80] = 8u;  /* piece_len 8, where 16 / 1 is 16 */
+	memcpy(bytes + 77, key_b, 32u); /* placed on B */
+	bytes[112] = 8u; /* piece_len 8, where 16 / 1 is 16 */
 	CHECK(filer_b.file(filer_b.ctx, key_b, MONTH, bytes, sizeof(bytes)) == FZN_NODE_APPLY_REFUSED,
 	      "a piece whose length is not its item's over k was kept");
 	bytes[73] = 8u;
@@ -582,6 +585,10 @@ static void test_shape_refused(void)
 	      "a piece cut short was kept");
 	CHECK(filer_b.file(filer_b.ctx, key_a, MONTH, bytes, sizeof(bytes)) == FZN_NODE_APPLY_REFUSED,
 	      "B kept a piece placed on A");
+	memcpy(bytes + 77, key_a, 32u);
+	CHECK(filer_b.file(filer_b.ctx, key_b, MONTH, bytes, sizeof(bytes)) == FZN_NODE_APPLY_REFUSED,
+	      "B kept a piece whose head names A its keeper, its bucket B's");
+	memcpy(bytes + 77, key_b, 32u);
 	CHECK(pieces_in(dir_b) == 1u, "a refused piece left a file");
 	/* REFS THE KIND DOES NOT NAME ARE NOT READ. */
 	snprintf(path, sizeof(path), "p/%064u.0", 0u);

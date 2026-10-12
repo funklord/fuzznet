@@ -697,6 +697,30 @@ static void test_settings_judged(void)
 		CHECK(k == 20u && parity == 12u, "32 pieces in all, the bound, did not count");
 	}
 
+	/* HOW LONG A KEEPER MAY BE SILENT, sec 601: 14 days until set, a count
+	 * and a unit, at most ten years. */
+	CHECK(fzn_node_settings_gone_s(&ns) == 14u * 86400u
+	              && setting_by(&nj, 0x93, FZN_SCOPE_ESTATE, 0x91, 1u, "archive/gone", 1, "3s")
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && fzn_node_settings_gone_s(&ns) == 3u
+	              && setting_by(&nj, 0x93, FZN_SCOPE_ESTATE, 0x91, 2u, "archive/gone", 1, "36h")
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && fzn_node_settings_gone_s(&ns) == 36u * 3600u
+	              && setting_by(&nj, 0x93, FZN_SCOPE_ESTATE, 0x91, 3u, "archive/gone", 1, "3650d")
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && fzn_node_settings_gone_s(&ns) == 3650u * 86400u,
+	      "archive/gone was not 14d unset, or 3s, 36h and 3650d did not count");
+	CHECK(setting_by(&nj, 0x93, FZN_SCOPE_ESTATE, 0x91, 4u, "archive/gone", 1, "3651d")
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && fzn_node_settings_gone_s(&ns) == 14u * 86400u
+	              && setting_by(&nj, 0x93, FZN_SCOPE_ESTATE, 0x91, 5u, "archive/gone", 1, "10")
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && fzn_node_settings_gone_s(&ns) == 14u * 86400u
+	              && setting_by(&nj, 0x93, FZN_SCOPE_ESTATE, 0x91, 6u, "archive/gone", 1, "0m")
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && fzn_node_settings_gone_s(&ns) == 14u * 86400u,
+	      "past ten years, no unit, or zero counted for archive/gone");
+
 	/* A MEMBER'S ADDRESS, sec 579: its own host cell, `HOST PORT`. */
 	{
 		uint8_t member[FZN_SUBJECT_LEN];

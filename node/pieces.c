@@ -39,7 +39,8 @@ const char *fzn_pieces_err_str(fzn_pieces_err_t err)
 #define OFF_K 74u
 #define OFF_M 75u
 #define OFF_INDEX 76u
-#define OFF_PIECE_LEN 77u
+#define OFF_KEEPER 77u
+#define OFF_PIECE_LEN 109u
 #define LARGE_MAX (64u * 1024u * 1024u)
 #define PATH_MAX_ 640u
 
@@ -87,8 +88,8 @@ static int make_dir(const char *dir)
 
 fzn_pieces_err_t fzn_pieces_cut(const char *dir, uint8_t kind,
                                 const uint8_t id[FZN_BUCKETS_ID_LEN], const uint8_t host[32],
-                                const uint8_t *item, size_t len, unsigned k, unsigned m,
-                                size_t *written)
+                                const uint8_t (*keepers)[32], const uint8_t *item, size_t len,
+                                unsigned k, unsigned m, size_t *written)
 {
 	size_t plen = fzn_erasure_piece_len(len, k);
 	uint8_t head[FZN_PIECE_HEAD_LEN];
@@ -100,8 +101,8 @@ fzn_pieces_err_t fzn_pieces_cut(const char *dir, uint8_t kind,
 	if (!written)
 		return FZN_PIECES_ERR_MALFORMED;
 	*written = 0;
-	if (!dir || !dir[0] || !id || !host || !item || len == 0u || len > LARGE_MAX || !k || !m
-	    || k + m > FZN_ERASURE_PIECES_MAX || kind > FZN_BUCKETS_LOGS)
+	if (!dir || !dir[0] || !id || !host || !keepers || !item || len == 0u || len > LARGE_MAX
+	    || !k || !m || k + m > FZN_ERASURE_PIECES_MAX || kind > FZN_BUCKETS_LOGS)
 		return FZN_PIECES_ERR_MALFORMED;
 	pieces = malloc((size_t)(k + m) * plen);
 	if (!pieces)
@@ -126,6 +127,7 @@ fzn_pieces_err_t fzn_pieces_cut(const char *dir, uint8_t kind,
 		int fd, ok;
 
 		head[OFF_INDEX] = (uint8_t)i;
+		memcpy(head + OFF_KEEPER, keepers[i], 32u);
 		if (!piece_path(path, sizeof(path), dir, id, i, "")
 		    || !piece_path(tmp, sizeof(tmp), dir, id, i, ".new")) {
 			err = FZN_PIECES_ERR_MALFORMED;

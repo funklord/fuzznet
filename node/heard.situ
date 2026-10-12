@@ -1,0 +1,14 @@
+// When this node last heard from a host, project.md sec 601: one row per
+// host in FZN_PERSIST_HOST_HEARD, keyed by the host's key. A keeper of a
+// piece silent past the estate's `archive/gone` has its piece placed on
+// another host, and a restart must not make every host newly heard.
+// The hand-written codec is node/heard.c; this is its checked contract, in
+// `make schema`'s list.
+
+target buffer;
+endian big;
+
+struct fzn_heard {
+	u8   version [must_eq = 1];
+	u64  at_us;                               // microseconds since 1970, UTC
+}

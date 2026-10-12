@@ -62556,8 +62556,8 @@ from the pieces present.
 
 `chunk/piece.situ`, in `make schema`'s list: a head -- version, the
 bucket kind, the item's 32-byte id, its length, k, m and the piece's
-index; 49 bytes here, 81 since sec 599 added whose item it is -- then the
-piece, `piece_len` bytes. The schema bounds each field;
+index; 49 bytes here, 81 since sec 599 added whose item it is, 113 since
+sec 601 added its keeper -- then the piece, `piece_len` bytes. The schema bounds each field;
 what it cannot say the codec checks: k + m at most 32, the index below
 k + m, and `piece_len` the item's length over k rounded up.
 
@@ -62724,8 +62724,8 @@ exchange, whether it holds its piece -- the length and no byte, as sec
 592 asks of a whole. Two things make that possible:
 
 - **The piece names whose item it is**: `chunk/piece.situ`'s head gains
-  `host[32]`, 81 bytes now. The layout changed before any build stored
-  one, so it stays version 1.
+  `host[32]`, 81 bytes then (113 since sec 601). The layout changed
+  before any build stored one, so it stays version 1.
 - **One item may be served where its bucket is not**: the exchange's gate
   gains `serves_item`, asked for an item queried by id. fuzznetd's serves
   a piece to the host its head names, so the cutter can count -- and
@@ -62815,13 +62815,83 @@ lets the copies go again.
   its own piece (1 + 1), cuts it again and puts all five back, and the
   next count finds none short, puts none back, and leaves B its own five.
 - Three sabotage entries: a lost item taken back, an unreadable item not
-  held, and a fetched item checked against its id.
+  held, and a fetched item checked against its id. The second survived
+  its first probe -- the item gate reads the piece, so a file gone was
+  already answered as not held -- and the test asks with no gate too now
+  (50e0190, 54 checks).
 
 ### Not yet after sec 600
 
 - **The fetch half of a rebuild runs only in unit tests.** Live, 1 + 1
   rebuilds from the cutter's own piece; fetching k from others needs an
   estate of more hosts than the live check runs.
-- **A keeper gone, not answering**, is neither counted nor repaired: its
-  piece is not moved to another host. When a silent host counts as gone
-  is a question of time the estate has not settled.
+- A keeper gone, not answering, has its piece moved since sec 601.
+
+## 601. A gone keeper's piece moved to another host, 2026-10-12
+
+Asked 2026-10-12 what came after the four stages of erasure coding, the
+holder chose replacing gone keepers: a keeper silent past a set time
+counts as gone, and its piece is rebuilt and placed on another host.
+
+### When a keeper is gone
+
+- **`archive/gone`**, an estate setting: a count and a unit -- `14d`,
+  `36h`, `90m`, `30s` -- of at most ten years, 14 days by default and on
+  a value not of that shape. A unit, rather than days alone, so a live
+  check can wait seconds.
+- **When each host was last heard from** is kept across restarts, else
+  every restart made every host newly heard: `node/heard.{h,c}`, one row
+  per host in persist slot 47, `FZN_PERSIST_HOST_HEARD`, laid out as
+  `node/heard.situ`. A store slot, not a core one. Every round each peer
+  of the estate that answered is marked heard; a time never moves
+  earlier. A keeper never heard from is marked when first asked, so its
+  silence counts from then.
+- In the count (sec 599), a keeper other than this host that did not
+  answer and has been silent longer than `archive/gone` is gone.
+
+### Where its piece goes
+
+To the best-ranked, in the fossil's rendezvous order, of the hosts that
+answered this round -- this one among them -- that keep none of the
+fossil's pieces; with no such host the piece stays where it is. The
+fossil is rebuilt as a repair rebuilds it (sec 600), cut again with the
+new keeper, placed, and the piece pushed to its keeper at once rather
+than a round later. A move shares the round's bound with repairs.
+
+**A piece now names its keeper**: `chunk/piece.situ`'s head gains
+`keeper[32]` after the index, 113 bytes. A piece's id is its bytes' hash,
+and an id cannot leave the bucket of the keeper it was first taken into,
+so a piece moved must be other bytes. The old piece's id is let go here
+once the rebuild no longer needs its copy. A keeper keeps only a piece
+whose head names it, as well as its bucket. The rebuild's agreement
+check stops at the index, so pieces naming different keepers still
+agree. Still version 1: no build has stored a piece.
+
+### Measured for sec 601
+
+- heard_test 9: a host never heard from is absent; one heard reads back;
+  hearing one makes no other heard; an earlier time leaves the later and
+  a later one moves it on; the row is version 1 and the time big-endian;
+  a row of another version is no time; a refused write is BACKEND.
+- apply_test: `archive/gone` at 14 days unset; 3s, 36h and 3650d counted;
+  3651d, a count with no unit, and 0m refused.
+- piece_buckets_test 55: a piece whose head names A is refused at B
+  although its bucket is B's.
+- live_siblings phase f, 70 s: three hosts log into small segments, B
+  archives its own, and with `archive/erasure` at 1+1 cuts each over the
+  three; a keeper other than B is chosen (C where it keeps any), stopped,
+  and `archive/gone` set to 3s; four seconds on, B's round moves each of
+  its pieces to the one host keeping none, its cut records name the gone
+  host nowhere, and each new keeper holds its piece under its name. A
+  hand-break control -- the silence test lengthened by a million seconds
+  -- moved none.
+- Five sabotage entries: never heard earlier, the heard row's version, a
+  piece kept only where its head says, a piece naming its keeper, and
+  `archive/gone`'s ten years; sec 597's keeper entry re-anchored.
+
+### Not yet after sec 601
+
+- **A keeper that comes back** after its piece moved keeps the old piece,
+  which nothing counts or prunes any more.
+- The rebuild's fetch half is still only in unit tests: phase f's 1 + 1
+  rebuilds from B's own piece.
