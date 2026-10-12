@@ -87,8 +87,8 @@ def main(argv):
 
 	run.fuzznetd = os.path.abspath(argv[1])
 	run.started = []
-	port_a = str(50000 + os.getpid() % 2000)
-	port_c = str(52000 + os.getpid() % 2000)
+	port_a = str(28000 + os.getpid() % 2000)
+	port_c = str(30000 + os.getpid() % 2000)
 	with tempfile.TemporaryDirectory(prefix="fzn-live.") as scratch, \
 	     tempfile.TemporaryDirectory(prefix="fzs.", dir="/tmp") as sock_dir:
 		run.scratch = scratch

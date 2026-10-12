@@ -62822,9 +62822,8 @@ lets the copies go again.
 
 ### Not yet after sec 600
 
-- **The fetch half of a rebuild runs only in unit tests.** Live, 1 + 1
-  rebuilds from the cutter's own piece; fetching k from others needs an
-  estate of more hosts than the live check runs.
+- The fetch half of a rebuild runs live since sec 606, at 4 + 2 over six
+  hosts.
 - A keeper gone, not answering, has its piece moved since sec 601.
 
 ## 601. A gone keeper's piece moved to another host, 2026-10-12
@@ -62893,8 +62892,7 @@ agree. Still version 1: no build has stored a piece.
 
 - A keeper that comes back after its piece moved lets the old piece go
   since sec 602.
-- The rebuild's fetch half is still only in unit tests: phase f's 1 + 1
-  rebuilds from B's own piece.
+- The rebuild's fetch half runs live since sec 606.
 
 ## 602. A moved piece released at the keeper it left, 2026-10-12
 
@@ -63077,3 +63075,53 @@ by its date and time, oldest first, for a host and a test.
   text back and empties the versions.
 - Three sabotage entries: a day's versions alone, a day opening on its
   newest, and a day's count.
+
+## 606. Erasure at 4 + 2 over six hosts, live, 2026-10-12
+
+Asked 2026-10-12 what came next, the holder chose the six-host live
+check: at 1 + 1 every rebuild came from the cutter's own piece, so the
+half of a repair that fetches pieces from other keepers by id (sec 600)
+ran only in unit tests.
+
+### The check
+
+`tool/live_erasure.py`, in `make livecheck` where logs are packed. A root
+and five members, each on its own port with its address set, so every
+member reaches every other (sec 579):
+
+1. **Paired**: every host goes round in turn until each member holds a
+   pairing to each of the other four -- four cycles in the runs measured.
+2. **Cut**: B logs into small segments, archives its own, and with
+   `archive/erasure` at 4+2 cuts each fossil into six pieces over the
+   six hosts.
+3. **Counted**: a round finds each of the six holding one piece of each
+   fossil, and B, its copies of the others' let go, its own alone.
+4. **Rebuilt from five keepers**: C's piece files are removed, its rows
+   kept. B holds one piece of each where a rebuild takes four, fetches
+   three from the other keepers, rebuilds each fossil, cuts it again and
+   puts C's back. That B holds C's pieces afterwards -- let go in step 3 --
+   is the proof it rebuilt rather than pushed a copy.
+
+### What the check had to learn
+
+- **The others start together.** Started one at a time, each first round
+  met siblings not yet up and waited out a timeout for each; together,
+  their rounds are waited on after all are started, and B starts last so
+  its round meets every host.
+- **Pairings are counted in the store**, as rows of slot 8, rather than
+  from "pairing(s) taken" log lines, which a 4 KiB segment packs away
+  before they are read -- one run counted a member at one pairing where it
+  held four.
+- **Every live check's ports moved below 32768.** The four that listen
+  -- rejoin, witness, shares and siblings -- picked ports in 42000-53999,
+  and this one in 53000-59000, all inside Linux's ephemeral range
+  (32768-60999), where a daemon's own client sockets take theirs; one run
+  here failed to bind a port a moment earlier given to a client. They now
+  sit in 12000-31999, each check its own block.
+- Its own deadline, 480 s rather than the shared 240, and `timeout 600`.
+
+### Measured for sec 606
+
+- Three runs passing in a row, 129, 140 and 143 s, every daemon gone after
+  each. A hand-break control -- `pieces_back` fetching nothing -- put back
+  none: "C lost 2 piece(s); B put back 0".

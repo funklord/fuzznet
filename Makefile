@@ -5989,9 +5989,12 @@ QUIRC_DIR      ?= $(QUIRC_VENDORED)
 # own debug line saying a trim or cut pass ran -- a build without one of
 # those has nothing to run, and says which. tool/live_trim.py,
 # tool/live_cut.py, tool/live_rejoin.py, tool/live_witness.py,
-# tool/live_shares.py, tool/live_siblings.py, tool/live_history.py and
-# tool/live_archive.py bound themselves: one deadline, each daemon in its own process group, scratch
-# removed.
+# tool/live_shares.py, tool/live_siblings.py, tool/live_history.py,
+# tool/live_archive.py and tool/live_erasure.py bound themselves: one
+# deadline, each daemon in its own process group, scratch removed. Six hosts
+# going round in turn take live_erasure.py past the others' 240 s, so its own
+# deadline is 480 s and its timeout 600; it needs packed logs to cut, and says
+# it is skipped in a build without them.
 livecheck: $(FUZZNETD)
 ifeq ($(and $(FUZZNETD),$(RECORD_STORE_FILE_ON),$(LOG_FILE_ON)),)
 	@echo "livecheck: SKIPPED -- it needs fuzznetd, the record store and log files," \
@@ -6005,6 +6008,8 @@ else
 	@timeout 300 python3 tool/live_siblings.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_history.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_archive.py $(FUZZNETD)
+	@$(if $(LOG_PACK_ON),timeout 600 python3 tool/live_erasure.py $(FUZZNETD),echo \
+	  "livecheck: erasure SKIPPED -- this build does not pack logs")
 endif
 
 # ONE SHELL, BECAUSE A SKIP MUST STOP THE TARGET. Written first as separate
