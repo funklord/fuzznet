@@ -168,6 +168,10 @@ private:
 	void refresh_shares();
 	void refresh_history();
 	bool show_version(int n);
+	/* The items `get` names -- `get note ID`, or `get history ID N` --
+	 * as `[ ] TEXT` and `[x] TEXT` lines, every page; their ticks into
+	 * `ticks` when given. */
+	QStringList items_of(const QString &get, QList<bool> *ticks);
 	void set_status(const QString &text);
 	bool shared() const { return !m_tree.isEmpty(); }
 	QString parent_id() const;

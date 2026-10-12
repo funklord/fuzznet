@@ -851,6 +851,37 @@ static void test_a_notes_history_is_read_and_restored(void)
 	CHECK(!w.view_version(w.history().size()), "a version past the last is not shown");
 }
 
+/* A CHECKLIST'S EARLIER ITEMS, sec 604: shown as they were, ticks and all,
+ * and not restored. */
+static void test_a_checklists_history_shows_its_items(void)
+{
+	QStringList seen;
+	int i, found = -1;
+
+	setup();
+	fzn_notebook_view w(node_ask, nullptr);
+
+	CHECK(w.new_list(QStringLiteral("Shopping")) && w.add_item(QStringLiteral("eggs"))
+	              && w.add_item(QStringLiteral("milk")) && w.toggle_item(0),
+	      "fixture: a checklist, two items, the first ticked");
+	CHECK(w.body_text() == QStringLiteral("[x] eggs\n[ ] milk"),
+	      "fixture: the current items, the first ticked");
+	for (i = 0; i < w.history().size(); i++)
+		if (w.view_version(i)) {
+			seen << w.body_text();
+			if (w.body_text() == QStringLiteral("[ ] eggs\n[ ] milk"))
+				found = i;
+		}
+	CHECK(found >= 0, "the version before the tick did not show both items unticked");
+	CHECK(seen.contains(QStringLiteral("[ ] eggs")), "the version with one item did not show it");
+	CHECK(w.view_version(found) && w.findChild<QPlainTextEdit *>()->isReadOnly()
+	              && !w.findChild<QPushButton *>(QStringLiteral("restore_version"))->isEnabled()
+	              && !w.restore_version(),
+	      "a checklist's earlier version was offered for restoring");
+	CHECK(w.view_version(-1) && w.body_text() == QStringLiteral("[x] eggs\n[ ] milk"),
+	      "the current items did not come back");
+}
+
 int main(int argc, char **argv)
 {
 	QApplication app(argc, argv);
@@ -869,6 +900,7 @@ int main(int argc, char **argv)
 	test_a_refresh_keeps_the_readers_place();
 	test_a_pending_note_says_so_and_labels_show();
 	test_a_notes_history_is_read_and_restored();
+	test_a_checklists_history_shows_its_items();
 	if (failures) {
 		fprintf(stderr, "notebook_view_test: %d of %d checks failed\n", failures, checks);
 		return 1;

@@ -62979,7 +62979,8 @@ whose text has not arrived -- and a "Restore this version" button.
 - **Restoring saves the version as the note**, title and text, through
   the same verbs Save uses -- so it is a new version, and the text it
   replaces is kept in turn. Only a text version that is here can be
-  restored; a folder's or a list's shows its title alone.
+  restored; a folder's shows its title alone, and a list's its items
+  since sec 604.
 - **This user's own notes only**: the node keeps no history of a
   contact's tree, so a shared tree's chooser is empty and off.
 
@@ -63003,7 +63004,43 @@ whose text has not arrived -- and a "Restore this version" button.
 
 ### Not yet after sec 603
 
-- A checklist's earlier items are not shown: `get history` answers a
-  version's text and title, not its items.
+- A checklist's earlier items are shown since sec 604.
 - The chooser lists every kept version, up to the store's 4096; a note
   edited very often would want them paged or grouped by day.
+
+## 604. A checklist's earlier items, 2026-10-12
+
+The first gap sec 603 left: a checklist's earlier version showed its
+title alone, since `get history ID N items` was refused -- "an earlier
+version's items are its text".
+
+### At the node, sec 604
+
+A checklist's items are encoded in its text, so an earlier version holds
+its own: `get history ID N items [FROM]` now answers them as `get note ID
+items [FROM]` answers the current note's, a page at a time.
+`open_list` takes the version's tree node in place of looking the note up;
+one that is not a checklist is refused as `get note` refuses it.
+
+### In the view, sec 604
+
+A checklist's earlier version shows its items as `[ ]` and `[x]` lines,
+read-only, through the same paging the current items use (`items_of`,
+factored out of `refresh_note`). It is not offered for restoring:
+putting items back one verb at a time would leave a version per step,
+and the node has no verb that sets a list's items whole.
+
+### Measured for sec 604
+
+- notes_test 372: a text note's earlier version answers no items and says
+  it is not a checklist; a checklist made, given two items and its first
+  ticked keeps three earlier versions -- the one before the tick lists
+  both unticked, the one before lists one item, its items page from 1 --
+  and the current items are ticked as they were left.
+- notebook_view_test 189: among a checklist's earlier versions are both
+  items unticked and the one item alone; one is shown read-only and not
+  offered for restoring; "Current version" brings the ticked items back.
+- Two sabotage entries: the node answering the version's items, and the
+  view showing them. Sec 583's entry guarding the refusal went with it:
+  what it guarded -- an earlier version never answered with the current
+  items -- is now the new node entry's to hold.

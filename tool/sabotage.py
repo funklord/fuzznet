@@ -10827,13 +10827,6 @@ SABOTAGES = [
 		"a history the store would not list is taken as none, and collection removes every earlier version's text -- sec 581",
 	),
 	(
-		"node-notes-history-items-refused",
-		"node/notes.c",
-		"\t\tif (historical)\n\t\t\treturn say(reply, cap, FZN_REPLY_MALFORMED,",
-		"\t\tif (0)\n\t\t\treturn say(reply, cap, FZN_REPLY_MALFORMED,",
-		"an earlier version's items are answered with the current version's, as if they were its own -- sec 583",
-	),
-	(
 		"node-notes-history-gets-the-version-asked",
 		"node/notes.c",
 		"\terr = fzn_notes_history_get(&n->store, v.at[nth].row, bytes, sizeof(bytes), &len);\n",
@@ -10986,6 +10979,20 @@ SABOTAGES = [
 		"\t\tif (k > 0 && (size_t)k < PATH_MAX_ && lb->archive[0] && access(path, F_OK) != 0)\n\t\t\tk = snprintf(path, PATH_MAX_, \"%s/copy/%s/%s\", lb->archive",
 		"\t\tif (0)\n\t\t\tk = snprintf(path, PATH_MAX_, \"%s/copy/%s/%s\", lb->archive",
 		"a copy archived is let go as a file gone, and taken again from its host -- sec 590",
+	),
+	(
+		"notes-history-items-are-the-versions",
+		"node/notes.c",
+		"\t\treturn get_items(n, store, id, historical ? node : NULL, at, left, reply, cap);\n",
+		"\t\treturn get_items(n, store, id, NULL, at, left, reply, cap);\n",
+		"an earlier version of a checklist answers today's items -- sec 604",
+	),
+	(
+		"notebook-a-lists-version-shows-its-items",
+		"gui/notebook_view.cpp",
+		"\tif (type == FZN_NOTE_TYPE_LIST && f.value(5) != QStringLiteral(\"pending\"))\n\t\tm_body->setPlainText(items_of(get, nullptr).join(QLatin1Char('\\n')));\n",
+		"",
+		"a checklist's earlier version shows an empty body -- sec 604",
 	),
 	(
 		"notebook-history-kept-across-a-refresh",

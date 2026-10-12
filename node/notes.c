@@ -364,8 +364,8 @@ static void title_drop(const uint8_t root[FZN_BLOB_HASH_LEN])
 
 /* Checklists, below: `get` and `set` reach them. sec 442. */
 static size_t get_items(fzn_node_notes_t *n, const fzn_notes_store_t *store,
-                        const uint8_t id[FZN_TREE_ID_LEN], const uint8_t *at, size_t left,
-                        char *reply, size_t cap);
+                        const uint8_t id[FZN_TREE_ID_LEN], const fzn_tree_node_t *version,
+                        const uint8_t *at, size_t left, char *reply, size_t cap);
 static size_t set_item(fzn_node_notes_t *n, const uint8_t id[FZN_TREE_ID_LEN], const uint8_t *at,
                        size_t left, char *reply, size_t cap);
 
@@ -639,9 +639,10 @@ static size_t list(const fzn_node_notes_t *n, const fzn_notes_store_t *store, in
 
 /* ---- get ----------------------------------------------------------------- */
 
-/* A NOTE'S FIELDS, TEXT OR FILE, for `get note` and `get history`: `node`
- * read under `store`; `id` names the note, for its items, which an earlier
- * version (`historical`) does not answer. */
+/* A NOTE'S FIELDS, TEXT, ITEMS OR FILE, for `get note` and `get history`:
+ * `node` read under `store`; `id` names the note. An earlier version
+ * (`historical`) answers its items from its own text since sec 604, as the
+ * current one does from the note's. */
 static size_t answer_note(fzn_node_notes_t *n, const fzn_notes_store_t *store,
                           const uint8_t id[FZN_TREE_ID_LEN], const fzn_tree_node_t *node,
                           int historical, const uint8_t *at, size_t left, char *reply,
@@ -685,12 +686,8 @@ static size_t answer_note(fzn_node_notes_t *n, const fzn_notes_store_t *store,
 			return say(reply, cap, FZN_REPLY_ERROR, "the title does not fit a reply");
 		return answer(reply, cap, FZN_REPLY_OK, detail, used + wrote);
 	}
-	if (is_word(field, field_len, "items")) {
-		if (historical)
-			return say(reply, cap, FZN_REPLY_MALFORMED,
-			           "an earlier version's items are its text");
-		return get_items(n, store, id, at, left, reply, cap);
-	}
+	if (is_word(field, field_len, "items"))
+		return get_items(n, store, id, historical ? node : NULL, at, left, reply, cap);
 	if (pending)
 		return say(reply, cap, FZN_REPLY_ERROR, "the text is not here yet");
 	if (is_word(field, field_len, "text")) {
@@ -967,15 +964,16 @@ static size_t history_list(fzn_node_notes_t *n, const uint8_t *at, size_t left, 
 	return answer(reply, cap, FZN_REPLY_OK, detail, used);
 }
 
-/* `get history ID N [text [FROM] | file PATH]`: the note's Nth earlier
- * version, counted from 0 as `list history` lists them, answered as `get
- * note` answers the current one. sec 583. */
+/* `get history ID N [text [FROM] | items [FROM] | file PATH]`: the note's
+ * Nth earlier version, counted from 0 as `list history` lists them,
+ * answered as `get note` answers the current one. sec 583; items since sec
+ * 604. */
 static size_t history_get(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *reply,
                           size_t cap)
 {
 	static struct versions v;
 	static uint8_t bytes[FZN_RECORD_MAX_LEN];
-	static const char USAGE[] = "get history ID N [text [FROM] | file PATH]";
+	static const char USAGE[] = "get history ID N [text [FROM] | items [FROM] | file PATH]";
 	uint8_t id[FZN_TREE_ID_LEN];
 	const uint8_t *w;
 	size_t w_len, nth = 0, len = 0, i;
@@ -1213,21 +1211,24 @@ static fzn_note_err_t next_item(const uint8_t *bytes, size_t len, size_t *cursor
 	return fzn_note_item_next(&held, cursor, item);
 }
 
-/* The checklist `id` in `store`, with its items in `items_buf`. 0 when it
+/* The checklist `id` in `store` -- or, given, `version`, an earlier version
+ * of it (sec 604) -- with its items in `items_buf`. 0 when it
  * opened, else the reply saying why. */
 static size_t open_list(fzn_node_notes_t *n, const fzn_notes_store_t *store,
-                        const uint8_t id[FZN_TREE_ID_LEN], fzn_note_t *note, size_t *items_len,
-                        char *reply, size_t cap)
+                        const uint8_t id[FZN_TREE_ID_LEN], const fzn_tree_node_t *version,
+                        fzn_note_t *note, size_t *items_len, char *reply, size_t cap)
 {
-	const fzn_tree_node_t *node;
+	const fzn_tree_node_t *node = version;
 	fzn_note_meta_t meta;
 	size_t idx = 0;
 	fzn_notes_err_t err;
 
-	err = fzn_notes_view_load(store, &view);
-	if (err != FZN_NOTES_OK)
-		return refuse(reply, cap, err);
-	node = find(n, id, &idx);
+	if (!node) {
+		err = fzn_notes_view_load(store, &view);
+		if (err != FZN_NOTES_OK)
+			return refuse(reply, cap, err);
+		node = find(n, id, &idx);
+	}
 	if (!node)
 		return refuse(reply, cap, FZN_NOTES_ERR_ABSENT);
 	if (node->content_type != FZN_NOTE_TYPE_LIST)
@@ -1242,11 +1243,12 @@ static size_t open_list(fzn_node_notes_t *n, const fzn_notes_store_t *store,
 	return 0;
 }
 
-/* `get note ID items [FROM]`: `ok TOTAL FROM FLAGS,TEXT ...`, a page at a
- * time, each text escaped so an item stays one field. */
+/* `get note ID items [FROM]`, and `get history ID N items [FROM]` with
+ * `version`: `ok TOTAL FROM FLAGS,TEXT ...`, a page at a time, each text
+ * escaped so an item stays one field. */
 static size_t get_items(fzn_node_notes_t *n, const fzn_notes_store_t *store,
-                        const uint8_t id[FZN_TREE_ID_LEN], const uint8_t *at, size_t left,
-                        char *reply, size_t cap)
+                        const uint8_t id[FZN_TREE_ID_LEN], const fzn_tree_node_t *version,
+                        const uint8_t *at, size_t left, char *reply, size_t cap)
 {
 	static char detail[FZN_REPLY_MAX];
 	size_t limit = fzn_reply_ok_room(cap);
@@ -1263,7 +1265,7 @@ static size_t get_items(fzn_node_notes_t *n, const fzn_notes_store_t *store,
 				return say(reply, cap, FZN_REPLY_MALFORMED, "not an index");
 			from = (from * 10u) + (size_t)(w[i] - '0');
 		}
-	r = open_list(n, store, id, &note, &items_len, reply, cap);
+	r = open_list(n, store, id, version, &note, &items_len, reply, cap);
 	if (r)
 		return r;
 	while (next_item(items_buf, items_len, &cursor, &item) == FZN_NOTE_OK)
@@ -1309,7 +1311,7 @@ static size_t rewrite_items(fzn_node_notes_t *n, const uint8_t id[FZN_TREE_ID_LE
 	fzn_note_t note;
 	int found = 0;
 
-	r = open_list(n, &n->store, id, &note, &items_len, reply, cap);
+	r = open_list(n, &n->store, id, NULL, &note, &items_len, reply, cap);
 	if (r)
 		return r;
 	for (i = 0; next_item(items_buf, items_len, &cursor, &item) == FZN_NOTE_OK; i++) {
@@ -1400,7 +1402,7 @@ static size_t change_item(fzn_node_notes_t *n, int add, const uint8_t *at, size_
 	}
 	if (!left)
 		return say(reply, cap, FZN_REPLY_MALFORMED, "add item ID TEXT");
-	r = open_list(n, &n->store, id, &note, &items_len, reply, cap);
+	r = open_list(n, &n->store, id, NULL, &note, &items_len, reply, cap);
 	if (r)
 		return r;
 	while (next_item(items_buf, items_len, &cursor, &item) == FZN_NOTE_OK)

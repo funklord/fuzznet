@@ -51,7 +51,7 @@
  *                                  and the refused notes' titles
  *     list history ID [FROM]       its earlier versions, oldest first:
  *                                  `MS,WRITER,here|pending,TITLE` (sec 581)
- *     get history ID N [text [FROM] | file PATH]
+ *     get history ID N [text [FROM] | items [FROM] | file PATH]
  *                                  the Nth of them, from 0, as `get note`
  *                                  answers (sec 583)
  *

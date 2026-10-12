@@ -478,6 +478,38 @@ void fzn_notebook_view::refresh_list()
 	m_up->setEnabled(!m_path.isEmpty());
 }
 
+QStringList fzn_notebook_view::items_of(const QString &get, QList<bool> *ticks)
+{
+	QStringList lines;
+	QString detail;
+	size_t from = 0, total = 0, guard;
+
+	/* `TOTAL FROM FLAGS,TEXT ...`, every page. */
+	for (guard = 0; guard < 256u; guard++) {
+		QStringList w;
+		int i;
+
+		if (ask(QStringLiteral("%1 items %2").arg(get).arg(from), &detail) != 1)
+			break;
+		w = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+		total = w.value(0).toULongLong();
+		for (i = 2; i < w.size(); i++) {
+			bool ticked = (w[i].section(QLatin1Char(','), 0, 0).toUInt()
+			               & FZN_NOTE_ITEM_FLAG_CHECKED)
+			              != 0u;
+
+			if (ticks)
+				*ticks << ticked;
+			lines << (ticked ? QStringLiteral("[x] ") : QStringLiteral("[ ] "))
+			                 + unescape(w[i].section(QLatin1Char(','), 1));
+			from++;
+		}
+		if (from >= total || w.size() <= 2)
+			break;
+	}
+	return lines;
+}
+
 void fzn_notebook_view::refresh_note()
 {
 	QString detail;
@@ -518,32 +550,7 @@ void fzn_notebook_view::refresh_note()
 				set_status(QStringLiteral("This note's content is not here yet; it can be "
 				                          "moved, pinned or trashed, not edited."));
 			} else if (m_is_list) {
-				QStringList lines;
-				size_t from = 0, total = 0, guard;
-
-				/* `TOTAL FROM FLAGS,TEXT ...`, every page. */
-				for (guard = 0; guard < 256u; guard++) {
-					QStringList w;
-					int i;
-
-					if (ask(QStringLiteral("%1 items %2").arg(get).arg(from), &detail) != 1)
-						break;
-					w = detail.split(QLatin1Char(' '), Qt::SkipEmptyParts);
-					total = w.value(0).toULongLong();
-					for (i = 2; i < w.size(); i++) {
-						bool ticked = (w[i].section(QLatin1Char(','), 0, 0).toUInt()
-						               & FZN_NOTE_ITEM_FLAG_CHECKED)
-						              != 0u;
-
-						m_ticks << ticked;
-						lines << (ticked ? QStringLiteral("[x] ") : QStringLiteral("[ ] "))
-						                         + unescape(w[i].section(QLatin1Char(','), 1));
-						from++;
-					}
-					if (from >= total || w.size() <= 2)
-						break;
-				}
-				m_body->setPlainText(lines.join(QLatin1Char('\n')));
+				m_body->setPlainText(items_of(get, &m_ticks).join(QLatin1Char('\n')));
 			} else if (type != FZN_NOTE_TYPE_FOLDER) {
 				QTemporaryFile file;
 
@@ -672,6 +679,10 @@ bool fzn_notebook_view::show_version(int n)
 	type = f.value(0).toInt();
 	m_title->setText(unescape(f.mid(7).join(QLatin1Char(' '))));
 	m_body->clear();
+	/* A CHECKLIST'S ITEMS AS THEY WERE, sec 604: shown, and not restored --
+	 * putting them back an item at a time would leave a version per step. */
+	if (type == FZN_NOTE_TYPE_LIST && f.value(5) != QStringLiteral("pending"))
+		m_body->setPlainText(items_of(get, nullptr).join(QLatin1Char('\n')));
 	if (type == FZN_NOTE_TYPE_NOTE && f.value(5) != QStringLiteral("pending")) {
 		QTemporaryFile file;
 

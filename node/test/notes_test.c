@@ -1105,7 +1105,36 @@ static void test_history(void)
 	snprintf(line, sizeof(line), "get history %s 2", note);
 	CHECK(ask(line) == FZN_REPLY_ERROR, "a version past the last was answered");
 	snprintf(line, sizeof(line), "get history %s 0 items", note);
-	CHECK(ask(line) == FZN_REPLY_MALFORMED, "an earlier version's items were answered");
+	CHECK(ask(line) == FZN_REPLY_ERROR && has("checklist"),
+	      "a text note's earlier version answered items");
+	/* A CHECKLIST'S EARLIER ITEMS, sec 604, from that version's own text. */
+	{
+		char list[65];
+
+		CHECK(ask("add list top Shopping") == FZN_REPLY_OK, "fixture: a checklist");
+		take_id(list);
+		snprintf(line, sizeof(line), "add item %s eggs", list);
+		CHECK(ask(line) == FZN_REPLY_OK, "fixture: an item");
+		snprintf(line, sizeof(line), "add item %s milk", list);
+		CHECK(ask(line) == FZN_REPLY_OK, "fixture: another");
+		snprintf(line, sizeof(line), "set note %s item 0 check", list);
+		CHECK(ask(line) == FZN_REPLY_OK, "fixture: the first ticked");
+		snprintf(line, sizeof(line), "list history %s", list);
+		CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "3 0 ", 4u),
+		      "fixture: three earlier versions of the checklist");
+		snprintf(line, sizeof(line), "get history %s 2 items", list);
+		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "2 0 0,eggs 0,milk"),
+		      "the version before the tick did not list both items unticked");
+		snprintf(line, sizeof(line), "get history %s 1 items", list);
+		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "1 0 0,eggs"),
+		      "the version with one item did not list it");
+		snprintf(line, sizeof(line), "get history %s 2 items 1", list);
+		CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "2 1 0,milk"),
+		      "an earlier version's items did not page");
+		snprintf(line, sizeof(line), "get note %s items", list);
+		CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), "2 0 1,eggs", 10u),
+		      "the current items are not ticked as they were left");
+	}
 	{
 		char texted[65];
 
