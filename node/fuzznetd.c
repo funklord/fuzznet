@@ -1776,7 +1776,8 @@ static int logs_up(void)
 		char dir[sizeof(node_logs.archive) + 8u];
 
 		if (snprintf(dir, sizeof(dir), "%s/pieces", node_logs.archive) < (int)sizeof(dir)
-		    && fzn_piece_buckets_init(&node_pieces, &logs_store, dir, dlog.hash, dlog.host)) {
+		    && fzn_piece_buckets_init(&node_pieces, &logs_store, dir, dlog.hash, dlog.verify,
+		                              dlog.host)) {
 			fzn_piece_buckets_filer(&node_pieces, &pieces_filer);
 			pieces_ready = 1;
 		}
@@ -2081,6 +2082,7 @@ static size_t move_gone(struct pull_target *pulls, size_t npulls, uint64_t now,
 {
 	static uint8_t hosts[FZN_PIECE_BUCKETS_HOSTS_MAX][FZN_PUBKEY_LEN];
 	static uint8_t cut_for[FZN_ERASURE_PIECES_MAX][FZN_PUBKEY_LEN];
+	static uint8_t old_ids[FZN_ERASURE_PIECES_MAX][FZN_BUCKETS_ID_LEN];
 	static uint8_t reply[FZND_PULL_REPLY_MAX];
 	size_t order[FZN_PIECE_BUCKETS_HOSTS_MAX], n_hosts = 0, t, j, next = 0, moved = 0;
 	uint32_t gone = 0;
@@ -2123,8 +2125,13 @@ static size_t move_gone(struct pull_target *pulls, size_t npulls, uint64_t now,
 		return 0;
 	memcpy(cut_for, keepers, (size_t)(k + m) * FZN_PUBKEY_LEN);
 	for (i = 0; i < k + m && next < n_hosts; i++)
-		if ((gone >> i) & 1u)
+		if ((gone >> i) & 1u) {
 			memcpy(cut_for[i], hosts[order[next++]], FZN_PUBKEY_LEN);
+			/* ITS OLD ID, before the cut gives the ref a new one: what the
+			 * release names (sec 602). */
+			if (!fzn_piece_buckets_piece_id(&node_pieces, id, i, old_ids[i], NULL))
+				memset(old_ids[i], 0, FZN_BUCKETS_ID_LEN);
+		}
 	if (!pieces_back(pulls, npulls, now, id, k, m, keepers, kept,
 	                 (const uint8_t (*)[32])cut_for)) {
 		say(FZN_ENTRY_WARNING, "log/copy", "a piece whose keeper is gone could not be moved: "
@@ -2143,11 +2150,18 @@ static size_t move_gone(struct pull_target *pulls, size_t npulls, uint64_t now,
 			continue;
 		moved++;
 		(void)fzn_heard_mark(node_apply.store, cut_for[i], now_us);
-		if (!(pt = keeper_target(pulls, npulls, cut_for[i]))
-		    || !fzn_piece_buckets_piece_id(&node_pieces, id, i, piece_id, NULL)
+		if (!fzn_piece_buckets_piece_id(&node_pieces, id, i, piece_id, NULL)
 		    || fzn_buckets_item(&logs_store, FZN_BUCKETS_PIECES, piece_id, scratch,
 		                        sizeof(scratch), &len, subject, &month)
 		               != FZN_BUCKETS_LARGE)
+			continue;
+		/* THE OLD KEEPER RELEASED, should it come back, sec 602: signed,
+		 * so only this host can have it let go a piece of this host's. */
+		if (dlog.has_signer
+		    && !fzn_piece_buckets_release(&node_pieces, dlog.signer.sign, dlog.host, id, i,
+		                                  old_ids[i], keepers[i], month))
+			say(FZN_ENTRY_WARNING, "log/copy", "a moved piece's release could not be kept");
+		if (!(pt = keeper_target(pulls, npulls, cut_for[i])))
 			continue;
 		{
 			struct peer_asking asking = { &pt->caller, now, pt->host };

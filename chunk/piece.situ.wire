@@ -40,3 +40,12 @@ struct fzn_erasure_piece size=114..67108977
   @0x004d   32        u8         keeper  big
   @0x006d   4         u32        piece_len  big min=1 max=67108864
   @0x0071   1..67108864 u8         piece  sized-by=piece_len
+
+struct fzn_erasure_release size=163
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   1         u8         marker  must_eq=255
+  @0x0002   32        u8         item_id  big
+  @0x0022   32        u8         host  big
+  @0x0042   1         u8         index  max=31
+  @0x0043   32        u8         piece_id  big
+  @0x0063   64        u8         sig  big

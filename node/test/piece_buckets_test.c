@@ -149,6 +149,36 @@ static fzn_piece_buckets_t pb_a, pb_b;
 static fzn_reconcile_filer_t filer_a, filer_b;
 static uint8_t key_a[32], key_b[32];
 
+/* A TOY SIGNER, as log_buckets_test's: a signature is the toy hash of the
+ * key and the message, so it verifies under the key it was made with. */
+static int toy_sig(const uint8_t *key, const uint8_t *msg, size_t n, uint8_t sig[FZN_SIG_LEN])
+{
+	static uint8_t buf[32u + 1024u];
+
+	if (n > 1024u)
+		return 0;
+	memcpy(buf, key, 32u);
+	memcpy(buf + 32, msg, n);
+	return toy(NULL, sig, FZN_SIG_LEN, buf, 32u + n);
+}
+
+static int toy_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, size_t n)
+{
+	return toy_sig((const uint8_t *)ctx, msg, n, sig);
+}
+
+static int toy_verify(void *ctx, const uint8_t pub[FZN_PUBKEY_LEN], const uint8_t *msg, size_t n,
+                      const uint8_t sig[FZN_SIG_LEN])
+{
+	uint8_t want[FZN_SIG_LEN];
+
+	(void)ctx;
+	return toy_sig(pub, msg, n, want) && memcmp(want, sig, FZN_SIG_LEN) == 0;
+}
+
+static fzn_sign_ops_t SIGN_A = { toy_verify, toy_sign, key_a };
+static fzn_sign_ops_t SIGN_B = { toy_verify, toy_sign, key_b };
+
 /* ---- scratch ------------------------------------------------------------- */
 
 static char top[64], dir_a[128], dir_b[128];
@@ -198,8 +228,8 @@ static void fresh(void)
 	memset(&mem_b, 0, sizeof(mem_b));
 	fzn_piece_buckets_close(&pb_a);
 	fzn_piece_buckets_close(&pb_b);
-	(void)fzn_piece_buckets_init(&pb_a, &A, dir_a, &HASH, key_a);
-	(void)fzn_piece_buckets_init(&pb_b, &B, dir_b, &HASH, key_b);
+	(void)fzn_piece_buckets_init(&pb_a, &A, dir_a, &HASH, &SIGN_A, key_a);
+	(void)fzn_piece_buckets_init(&pb_b, &B, dir_b, &HASH, &SIGN_B, key_b);
 	fzn_piece_buckets_filer(&pb_a, &filer_a);
 	fzn_piece_buckets_filer(&pb_b, &filer_b);
 }
@@ -555,6 +585,86 @@ static void test_lost_and_put_back(void)
 	      "B does not hold the piece put back");
 }
 
+/* A RELEASE, made here by hand from `chunk/piece.situ` rather than by the
+ * module, so the layout has a second witness: piece `index` of `id`, the
+ * piece `piece_id`, of `host`'s item, signed with `signer`. */
+static void release_of(uint8_t rec[FZN_PIECE_RELEASE_LEN], const uint8_t host[32],
+                       unsigned index, const uint8_t piece_id[FZN_BUCKETS_ID_LEN],
+                       const fzn_sign_ops_t *signer)
+{
+	static const char label[] = "fuzznet.piece.release";
+	uint8_t msg[sizeof(label) + 99u];
+
+	rec[0] = 1u;
+	rec[1] = 255u;
+	memcpy(rec + 2, item_id, 32u);
+	memcpy(rec + 34, host, 32u);
+	rec[66] = (uint8_t)index;
+	memcpy(rec + 67, piece_id, 32u);
+	memcpy(msg, label, sizeof(label));
+	memcpy(msg + sizeof(label), rec, 99u);
+	(void)signer->sign(signer->ctx, rec + 99, msg, sizeof(msg));
+}
+
+/* RELEASED, sec 602: A releases the piece it placed on B; B lets it go and
+ * keeps the release. A release not signed by the item's host, or signed by
+ * a host the piece is not of, lets nothing go. */
+static void test_released(void)
+{
+	uint8_t keepers[2][32], piece_id[FZN_BUCKETS_ID_LEN], rec[FZN_PIECE_RELEASE_LEN];
+	fzn_reconcile_bucket_tally_t t;
+	static uint8_t reply[8192];
+	size_t placed = 0, len = 0;
+
+	fresh();
+	memcpy(keepers[0], key_a, 32u);
+	memcpy(keepers[1], key_b, 32u);
+	CHECK(a_cuts((const uint8_t (*)[32])keepers, &placed)
+	          && fzn_reconcile_push(&A, FZN_BUCKETS_PIECES, &gate_b, &filer_a, NULL, to_b, NULL,
+	                                reply, sizeof(reply), &t)
+	                     == FZN_RECONCILE_OK
+	          && t.sent == 1u && pieces_in(dir_b) == 1u
+	          && fzn_piece_buckets_piece_id(&pb_a, item_id, 1u, piece_id, NULL),
+	      "fixture: A cuts and pushes B its piece");
+	/* FORGED: signed with B's key, naming A. */
+	release_of(rec, key_a, 1u, piece_id, &SIGN_B);
+	CHECK(filer_b.file(filer_b.ctx, key_b, MONTH, rec, sizeof(rec)) == FZN_NODE_APPLY_REFUSED
+	          && pieces_in(dir_b) == 1u,
+	      "a release not signed by the host it names was taken");
+	/* SIGNED BY B, AS B: a piece of A's item is not B's to release. */
+	release_of(rec, key_b, 1u, piece_id, &SIGN_B);
+	CHECK(filer_b.file(filer_b.ctx, key_b, MONTH, rec, sizeof(rec)) == FZN_NODE_APPLY_APPLIED
+	          && pieces_in(dir_b) == 1u,
+	      "a release by a host the piece is not of let it go");
+	/* PLACED ON A: not B's to take. */
+	release_of(rec, key_a, 1u, piece_id, &SIGN_A);
+	CHECK(filer_b.file(filer_b.ctx, key_a, MONTH, rec, sizeof(rec)) == FZN_NODE_APPLY_REFUSED,
+	      "B took a release placed on A");
+	/* A'S OWN, made by the module and pushed: B lets its piece go. */
+	CHECK(fzn_piece_buckets_release(&pb_a, &SIGN_A, key_a, item_id, 1u, piece_id, key_b, MONTH)
+	          && fzn_reconcile_push(&A, FZN_BUCKETS_PIECES, &gate_b, &filer_a, NULL, to_b, NULL,
+	                                reply, sizeof(reply), &t)
+	                     == FZN_RECONCILE_OK
+	          && t.sent == 1u,
+	      "A's release of B's piece was not pushed to B");
+	CHECK(pieces_in(dir_b) == 0u
+	          && fzn_buckets_item(&B, FZN_BUCKETS_PIECES, piece_id, reply, sizeof(reply), &len,
+	                              NULL, NULL)
+	                     == FZN_BUCKETS_ABSENT,
+	      "B kept the piece A released");
+	/* THE MODULE'S BYTES ARE THE HAND-MADE ONES: the bucket B holds is
+	 * A's, item for item. */
+	release_of(rec, key_a, 1u, piece_id, &SIGN_A);
+	{
+		uint8_t rid[FZN_BUCKETS_ID_LEN];
+
+		CHECK(fzn_buckets_id(&HASH, rec, sizeof(rec), rid)
+		          && fzn_buckets_has(&A, FZN_BUCKETS_PIECES, rid)
+		          && fzn_buckets_has(&B, FZN_BUCKETS_PIECES, rid),
+		      "the module's release is not the layout's");
+	}
+}
+
 static void test_shape_refused(void)
 {
 	uint8_t bytes[FZN_PIECE_HEAD_LEN + 8u];
@@ -628,6 +738,7 @@ int main(void)
 	test_place_pull_push();
 	test_counted_and_let_go();
 	test_lost_and_put_back();
+	test_released();
 	test_shape_refused();
 
 	fzn_piece_buckets_close(&pb_a);

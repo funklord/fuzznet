@@ -62891,7 +62891,64 @@ agree. Still version 1: no build has stored a piece.
 
 ### Not yet after sec 601
 
-- **A keeper that comes back** after its piece moved keeps the old piece,
-  which nothing counts or prunes any more.
+- A keeper that comes back after its piece moved lets the old piece go
+  since sec 602.
 - The rebuild's fetch half is still only in unit tests: phase f's 1 + 1
   rebuilds from B's own piece.
+
+## 602. A moved piece released at the keeper it left, 2026-10-12
+
+The gap sec 601 left: a keeper that comes back after its piece moved kept
+the old piece, which nothing counted or pruned.
+
+### Why the keeper cannot ask
+
+Nothing the keeper could ask tells a moved piece from one in place. After
+a move the cutter lets the old id go; after an ordinary count (sec 599)
+it lets its copy go too; both answer "not held", and both ids stay listed
+in the bucket, which keeps them so digests agree. So the host that moved
+the piece has to say so.
+
+### A release
+
+`chunk/piece.situ`'s `fzn_erasure_release`, 163 bytes: version, a marker
+of 255 -- no bucket kind, which is what tells it from a piece in the same
+bucket -- the item's id and host, the piece's index, the id of the piece
+let go, and the host's signature over "fuzznet.piece.release", a NUL and
+every byte before it. The label keeps a signature over a log trailer or
+anything else the same key signs from passing for a release.
+
+When fuzznetd moves a piece (sec 601) it places a release in the old
+keeper's bucket. The old keeper, when it next takes its bucket -- pushed
+by the cutter's round or pulled -- takes the release, and if it keeps a
+piece whose bytes hash to the id released and whose head says it is of
+the signing host, lets it go: the row let go, the file removed. The
+release is kept either way, so the two buckets agree.
+
+**Signed by the item's host, and only that host's pieces**: a release is
+refused unless it verifies under the host it names, and lets go only a
+piece of that host's item. Pieces themselves are not signed (sec 597) --
+one garbage piece is outvoted at a rebuild -- but a release deletes, so
+it is.
+
+### Measured for sec 602
+
+- piece_buckets_test 62: releases made by hand from the layout, a second
+  witness to the module's bytes: one signed with B's key naming A is
+  refused and nothing goes; one B signs as B for a piece of A's item lets
+  nothing go; one placed on A is refused at B; and A's own, made by the
+  module and pushed, has B let its piece go -- the file gone, the row
+  served as not held -- and is the very item the hand-made one is.
+- live_siblings phase g: the keeper sec 601's phase stopped comes back,
+  and after B's round it holds none of the pieces moved off it. A
+  hand-break control -- no release made -- left it holding them.
+- Four sabotage entries: the signature, the host's own pieces only, the
+  label, and a release placed on this host.
+
+### Not yet after sec 602
+
+- **A piece moved back to a keeper it was released from** would be the
+  same bytes, an id that keeper has let go and so holds, and would be
+  refused as held. A move picks the best-ranked host keeping none, so this
+  needs the keeper back, ranked first, and another host gone.
+- Releases are kept for ever; they are 163 bytes each.

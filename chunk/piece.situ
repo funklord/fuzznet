@@ -40,3 +40,19 @@ struct fzn_erasure_cut {
 	u8   m [min = 1, max = 31];
 	fzn_erasure_keeper keepers[k + m];
 }
+
+// A PIECE RELEASED, sec 602: an item of the pieces kind beside the pieces,
+// placed in the bucket of a keeper whose piece was moved off it while it
+// was away (sec 601). Signed by the item's host -- over
+// "fuzznet.piece.release", a NUL and every byte before `sig` -- so only the
+// host a piece is of can have its keeper let it go. `marker` is no bucket
+// kind, which is what tells it from a piece in the same bucket.
+struct fzn_erasure_release {
+	u8   version [must_eq = 1];
+	u8   marker [must_eq = 255];
+	u8   item_id[32];
+	u8   host[32];                            // whose item, and the signer
+	u8   index [max = 31];
+	u8   piece_id[32];                        // the piece let go, by its id
+	u8   sig[64];
+}

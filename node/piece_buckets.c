@@ -31,11 +31,12 @@ static void hex_of(const uint8_t *in, size_t n, char *out)
 }
 
 int fzn_piece_buckets_init(fzn_piece_buckets_t *pb, const fzn_buckets_t *b, const char *dir,
-                           const fzn_hash_ops_t *hash, const uint8_t self[32])
+                           const fzn_hash_ops_t *hash, const fzn_sign_ops_t *sign,
+                           const uint8_t self[32])
 {
 	size_t n;
 
-	if (!pb || !b || !dir || !hash || !hash->hash || !self)
+	if (!pb || !b || !dir || !hash || !hash->hash || !sign || !sign->verify || !self)
 		return 0;
 	n = strlen(dir);
 	if (n == 0u || n >= sizeof(pb->dir))
@@ -44,6 +45,7 @@ int fzn_piece_buckets_init(fzn_piece_buckets_t *pb, const fzn_buckets_t *b, cons
 	pb->b = b;
 	memcpy(pb->dir, dir, n + 1u);
 	pb->hash = hash;
+	pb->sign = sign;
 	memcpy(pb->self, self, 32u);
 	return 1;
 }
@@ -365,6 +367,90 @@ static int item_read(void *ctx, const uint8_t *ref, size_t ref_len, uint64_t off
 	return close(fd) == 0;
 }
 
+/* ---- releasing ---------------------------------------------------------------- */
+
+/* `chunk/piece.situ`'s fzn_erasure_release: its offsets, and the label its
+ * signature is over, so a signature over a log trailer or anything else the
+ * same key signs is never one over a release. */
+#define REL_ID 2u
+#define REL_HOST 34u
+#define REL_INDEX 66u
+#define REL_PIECE 67u
+#define REL_SIG 99u
+#define REL_LABEL "fuzznet.piece.release"
+
+/* `rec`'s signed bytes, the label and its NUL first, into `msg`. */
+static size_t release_msg(const uint8_t rec[FZN_PIECE_RELEASE_LEN],
+                          uint8_t msg[sizeof(REL_LABEL) + REL_SIG])
+{
+	memcpy(msg, REL_LABEL, sizeof(REL_LABEL));
+	memcpy(msg + sizeof(REL_LABEL), rec, REL_SIG);
+	return sizeof(REL_LABEL) + REL_SIG;
+}
+
+int fzn_piece_buckets_release(fzn_piece_buckets_t *pb, const fzn_sign_ops_t *signer,
+                              const uint8_t host[32], const uint8_t id[FZN_BUCKETS_ID_LEN],
+                              unsigned index, const uint8_t piece_id[FZN_BUCKETS_ID_LEN],
+                              const uint8_t keeper[32], uint32_t month)
+{
+	uint8_t rec[FZN_PIECE_RELEASE_LEN], msg[sizeof(REL_LABEL) + REL_SIG];
+
+	if (!pb || !pb->b || !signer || !signer->sign || !host || !id || !piece_id || !keeper
+	    || index >= FZN_ERASURE_PIECES_MAX)
+		return 0;
+	rec[0] = 1u;
+	rec[1] = 255u;
+	memcpy(rec + REL_ID, id, FZN_BUCKETS_ID_LEN);
+	memcpy(rec + REL_HOST, host, 32u);
+	rec[REL_INDEX] = (uint8_t)index;
+	memcpy(rec + REL_PIECE, piece_id, FZN_BUCKETS_ID_LEN);
+	if (!signer->sign(signer->ctx, rec + REL_SIG, msg, release_msg(rec, msg)))
+		return 0;
+	return fzn_buckets_add(pb->b, FZN_BUCKETS_PIECES, keeper, month, rec, sizeof(rec), NULL)
+	       == FZN_BUCKETS_OK;
+}
+
+/* TAKE A RELEASE placed on this host: signed by the host it names, and the
+ * piece it names let go here when this host keeps it -- its file's bytes
+ * hash to the id released and its head says it is of that host. Kept as an
+ * item either way, so this host's bucket agrees with the releaser's. */
+static fzn_node_apply_outcome_t take_release(fzn_piece_buckets_t *pb, const uint8_t subject[32],
+                                             uint32_t month, const uint8_t *rec)
+{
+	uint8_t msg[sizeof(REL_LABEL) + REL_SIG], got[FZN_BUCKETS_ID_LEN];
+	char ref[FZN_BUCKETS_REF_MAX + 1u], path[PATH_MAX_];
+	uint8_t *bytes;
+	size_t len = 0;
+
+	if (memcmp(subject, pb->self, 32u) != 0 || rec[REL_INDEX] >= FZN_ERASURE_PIECES_MAX
+	    || !pb->sign->verify(pb->sign->ctx, rec + REL_HOST, msg, release_msg(rec, msg),
+	                         rec + REL_SIG))
+		return FZN_NODE_APPLY_REFUSED;
+	if (!piece_ref(pb, rec + REL_ID, rec[REL_INDEX], ref, path))
+		return FZN_NODE_APPLY_REFUSED;
+	bytes = file_bytes(path, &len);
+	if (bytes) {
+		int ours = len >= FZN_PIECE_HEAD_LEN && fzn_buckets_id(pb->hash, bytes, len, got)
+		           && memcmp(got, rec + REL_PIECE, FZN_BUCKETS_ID_LEN) == 0
+		           && memcmp(bytes + 2u + FZN_BUCKETS_ID_LEN, rec + REL_HOST, 32u) == 0;
+
+		free(bytes);
+		if (ours) {
+			fzn_buckets_err_t err = fzn_buckets_let_go(pb->b, FZN_BUCKETS_PIECES,
+			                                           rec + REL_PIECE);
+
+			if ((err != FZN_BUCKETS_OK && err != FZN_BUCKETS_ABSENT)
+			    || (remove(path) != 0 && errno != ENOENT))
+				return FZN_NODE_APPLY_NOT_SAVED;
+		}
+	}
+	return fzn_buckets_add(pb->b, FZN_BUCKETS_PIECES, subject, month, rec,
+	                       FZN_PIECE_RELEASE_LEN, NULL)
+	               == FZN_BUCKETS_OK
+	       ? FZN_NODE_APPLY_APPLIED
+	       : FZN_NODE_APPLY_NOT_SAVED;
+}
+
 /* ---- keeping ------------------------------------------------------------------ */
 
 /* KEEP `item`, a piece placed on `subject`: only one placed on this host,
@@ -408,6 +494,9 @@ static fzn_node_apply_outcome_t item_file(void *ctx, const uint8_t subject[FZN_P
 
 	if (!pb || !fzn_buckets_id(pb->hash, item, len, id))
 		return FZN_NODE_APPLY_REFUSED;
+	/* A RELEASE, by its marker, which no piece's kind is. */
+	if (len == FZN_PIECE_RELEASE_LEN && item[0] == 1u && item[1] == 255u)
+		return take_release(pb, subject, month, item);
 	return keep(pb, subject, month, item, len, id);
 }
 

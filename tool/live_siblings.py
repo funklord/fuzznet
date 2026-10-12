@@ -27,6 +27,8 @@ with the other, and A, which has no pull peers, fetches from neither.
        other than B is stopped, `archive/gone` set to 3s, and once it has
        been silent that long B rebuilds each of its pieces and places it on
        the one host keeping none, which then holds it
+    g  the gone keeper comes back: B's round pushes it the signed release
+       of each piece moved off it, and it lets those pieces go (sec 602)
 
 Against a daemon that carries no prekeys, or pairs no siblings, phase a
 fails waiting for the pairings; against one that never asks a sibling,
@@ -322,6 +324,19 @@ def main(argv):
 					             % (n, fid, keeper.upper()))
 			print("livecheck: f: %s gone, B moved its %d piece(s) to the host keeping none"
 			      % (gone.upper(), want))
+
+			# g: the gone keeper back, its moved pieces released, sec 602.
+			stale = [os.path.join(logs[gone], "archive", "pieces", "%s.%d.piece" % (fid, n))
+			         for fid, n in moved]
+			if not all(os.path.isfile(p) for p in stale):
+				raise failed("g: %s does not hold the pieces moved off it to begin with"
+				             % gone.upper())
+			b_round("g", ("a", "c"))
+			if any(os.path.isfile(p) for p in stale):
+				raise failed("g: back, %s still holds %d of the %d piece(s) moved off it"
+				             % (gone.upper(), sum(map(os.path.isfile, stale)), len(stale)))
+			print("livecheck: g: %s back, it let go of the %d piece(s) B released"
+			      % (gone.upper(), len(stale)))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

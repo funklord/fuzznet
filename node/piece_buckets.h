@@ -40,6 +40,8 @@ typedef struct fzn_piece_buckets {
 	/* The pieces directory: this host's archive's `pieces/`. */
 	char dir[512];
 	const fzn_hash_ops_t *hash;
+	/* What checks a release's signature (sec 602). */
+	const fzn_sign_ops_t *sign;
 	uint8_t self[32];
 	/* A piece being fetched or pushed here, held whole until checked. */
 	uint8_t *staging;
@@ -48,11 +50,12 @@ typedef struct fzn_piece_buckets {
 	uint8_t stage_id[FZN_BUCKETS_ID_LEN];
 } fzn_piece_buckets_t;
 
-/* Point `pb` at its store, its pieces directory and this host's key. All
- * borrowed but the directory's name, which is copied. 0 for a name that
- * does not fit. */
+/* Point `pb` at its store, its pieces directory, what verifies a
+ * signature, and this host's key. All borrowed but the directory's name,
+ * which is copied. 0 for a name that does not fit. */
 int fzn_piece_buckets_init(fzn_piece_buckets_t *pb, const fzn_buckets_t *b, const char *dir,
-                           const fzn_hash_ops_t *hash, const uint8_t self[32]);
+                           const fzn_hash_ops_t *hash, const fzn_sign_ops_t *sign,
+                           const uint8_t self[32]);
 
 /* Let go of the staging memory. */
 void fzn_piece_buckets_close(fzn_piece_buckets_t *pb);
@@ -98,8 +101,22 @@ int fzn_piece_buckets_host(const fzn_piece_buckets_t *pb,
 int fzn_piece_buckets_let_go(fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKETS_ID_LEN],
                              unsigned index);
 
+/* A RELEASE's length, `chunk/piece.situ`'s fzn_erasure_release. */
+#define FZN_PIECE_RELEASE_LEN 163u
+
+/* RELEASE PIECE `index` OF `id`, sec 602: a record naming the piece
+ * `piece_id` let go, signed by `signer` as `host` -- the host whose item it
+ * is -- placed in the bucket (pieces, `keeper`, `month`), so the keeper it
+ * was moved off lets it go when it next takes its bucket. 0 when it would
+ * not be signed or the store refused. */
+int fzn_piece_buckets_release(fzn_piece_buckets_t *pb, const fzn_sign_ops_t *signer,
+                              const uint8_t host[32], const uint8_t id[FZN_BUCKETS_ID_LEN],
+                              unsigned index, const uint8_t piece_id[FZN_BUCKETS_ID_LEN],
+                              const uint8_t keeper[32], uint32_t month);
+
 /* The filer the reconcile exchange takes, reads and serves this kind
- * through. */
+ * through. A release it takes lets go of the piece it names, when this
+ * host keeps that piece and the piece is of the host that signed it. */
 void fzn_piece_buckets_filer(fzn_piece_buckets_t *pb, fzn_reconcile_filer_t *out);
 
 #endif /* FZN_NODE_PIECE_BUCKETS_H */
