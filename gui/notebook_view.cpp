@@ -849,6 +849,7 @@ bool fzn_notebook_view::new_note(const QString &title)
 		return false;
 	}
 	m_open = id;
+	m_viewing = -1;
 	refresh_list();
 	refresh_note();
 	refresh_shares();
@@ -884,6 +885,7 @@ bool fzn_notebook_view::new_list(const QString &title)
 		return false;
 	}
 	m_open = id;
+	m_viewing = -1;
 	refresh_list();
 	refresh_note();
 	refresh_shares();

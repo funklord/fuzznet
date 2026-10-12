@@ -10997,8 +10997,8 @@ SABOTAGES = [
 	(
 		"notebook-another-note-shows-its-current",
 		"gui/notebook_view.cpp",
-		"\tm_open = id;\n\tm_viewing = -1;\n",
-		"\tm_open = id;\n",
+		"\tm_open = id;\n\tm_viewing = -1;\n\trefresh_note();\n\trefresh_shares();\n\treturn !m_open.isEmpty();\n",
+		"\tm_open = id;\n\trefresh_note();\n\trefresh_shares();\n\treturn !m_open.isEmpty();\n",
 		"opening another note shows the version number read in the last, of this one -- sec 603",
 	),
 	(

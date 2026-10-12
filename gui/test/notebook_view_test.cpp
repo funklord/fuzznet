@@ -830,10 +830,24 @@ static void test_a_notes_history_is_read_and_restored(void)
 	CHECK(log.last().startsWith(QStringLiteral("Restored the version of")),
 	      "the log is told what was restored");
 	CHECK(!w.restore_version(), "the current version is not restored over itself");
-	/* ANOTHER NOTE, AND THE CURRENT VERSION AGAIN. */
-	CHECK(w.view_version(found) && w.new_note(QStringLiteral("Other")), "fixture: another note");
-	CHECK(w.open_note(note) && w.viewing() == -1 && w.body_text() == first,
-	      "opening a note shows its current version, not one read before");
+	/* ANOTHER NOTE WITH A HISTORY OF ITS OWN, and its current version
+	 * shown on opening it -- not the version number read in the first. */
+	{
+		QString other;
+		int k;
+
+		CHECK(w.new_note(QStringLiteral("Other")) && w.viewing() == -1, "fixture: another note");
+		other = w.open_id();
+		for (k = 0; k < 3; k++) {
+			w.findChild<QPlainTextEdit *>()->setPlainText(QStringLiteral("other %1\n").arg(k));
+			CHECK(w.save(), "fixture: the other note saved");
+		}
+		CHECK(w.open_note(note) && w.view_version(0) && w.viewing() == 0,
+		      "fixture: an earlier version of the first note shown");
+		CHECK(w.open_note(other) && w.viewing() == -1
+		              && w.body_text() == QStringLiteral("other 2\n"),
+		      "opening another note showed a version of it, not its current text");
+	}
 	CHECK(!w.view_version(w.history().size()), "a version past the last is not shown");
 }
 

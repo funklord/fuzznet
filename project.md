@@ -62995,7 +62995,11 @@ whose text has not arrived -- and a "Restore this version" button.
   a note shows its current version, not one read before; a version past
   the last is not shown.
 - Three sabotage entries: the version kept across a refresh, another note
-  opening on its current version, and a version read-only.
+  opening on its current version, and a version read-only. The second
+  survived its first probe: the other note had no history, so showing a
+  version of it failed and went back to the current by accident. The case
+  gives it a history now (182 checks), and a new note or list resets the
+  version shown as opening one does.
 
 ### Not yet after sec 603
 
