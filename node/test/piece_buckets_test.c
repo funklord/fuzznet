@@ -256,6 +256,9 @@ static int piece_of_a(void *ctx, fzn_buckets_kind_t kind, const uint8_t subject[
 }
 
 static int by_item = 1;
+/* 1: B serves every bucket, so only whether it can read an item decides
+ * what it answers. */
+static int serve_all;
 
 /* B ANSWERING A, taking what A pushes. */
 static int to_b(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
@@ -270,7 +273,7 @@ static int to_b(void *ctx, const uint8_t *request, size_t request_len, uint8_t *
 	memset(&srv, 0, sizeof(srv));
 	srv.store = &store_b;
 	srv.hash = &HASH;
-	srv.gate = &gate;
+	srv.gate = serve_all ? NULL : &gate;
 	srv.takers[FZN_BUCKETS_PIECES] = &filer_b;
 	srv.sender = key_a;
 	n = fzn_reconcile_serve(&srv, request, request_len, reply, cap);
@@ -523,6 +526,16 @@ static void test_lost_and_put_back(void)
 	                  == FZN_RECONCILE_OK
 	          && !has,
 	      "B said it holds a piece whose file is gone");
+	/* AND WITH NO GATE TO SAY SO -- its bucket served outright, as a whole
+	 * segment's is -- its row alone does not make it held. */
+	serve_all = 1;
+	has = 1;
+	CHECK(fzn_reconcile_peer_holds(FZN_BUCKETS_PIECES, piece_id, to_b, NULL, reply, sizeof(reply),
+	                               &has)
+	                  == FZN_RECONCILE_OK
+	          && !has,
+	      "B's row alone made a piece whose file is gone held");
+	serve_all = 0;
 	CHECK(fzn_reconcile_fetch_one(FZN_BUCKETS_PIECES, piece_id, &HASH, got, sizeof(got), &len,
 	                              to_b, NULL, reply, sizeof(reply))
 	                  == FZN_RECONCILE_OK
