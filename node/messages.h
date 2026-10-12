@@ -135,6 +135,19 @@ size_t fzn_node_messages_devices(fzn_node_messages_t *nm, const uint8_t (*keys)[
 fzn_messages_err_t fzn_node_messages_absorb(fzn_node_messages_t *nm,
                                             fzn_node_messages_tally_t *tally);
 
+/* A HAND-OFF GIVEN UP ON, sec 607: every OUT line still HANDED_OVER in the
+ * conversation of a contact that no longer stands -- `stands` says, for the
+ * caller holds the contact list and the roster -- marked NOT_DELIVERED, so
+ * the device that handed it off reads, through the journal, that no device
+ * will send it (fuzzypickles' sec 196, recorded in sec 510). Conversations
+ * are found by their buckets, so one whose contact was removed is among
+ * them. A conversation's lines past FZN_MESSAGES_WALK_MAX are not reached.
+ * `*marked` counts. */
+fzn_messages_err_t fzn_node_messages_give_up(fzn_node_messages_t *nm,
+                                             int (*stands)(void *ctx,
+                                                           const uint8_t contact[FZN_PUBKEY_LEN]),
+                                             void *ctx, size_t *marked);
+
 /* PAST A GAP: `device`'s stream moved up to `to` under a peer's base
  * (sec 552), so its cursor is moved there too, never back. */
 void fzn_node_messages_skip(fzn_node_messages_t *nm, const uint8_t device[FZN_PUBKEY_LEN],

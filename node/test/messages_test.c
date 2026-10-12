@@ -554,6 +554,65 @@ static void test_marks_are_absorbed(void)
 	      "and an absorb with nothing new reads nothing");
 }
 
+/* A HAND-OFF GIVEN UP ON, sec 607: A's line to X, handed over, and X no
+ * longer standing; A's line to Y, handed over, Y standing; and A's line to
+ * X already delivered. Only the first is marked not delivered, once, and
+ * the mark is B's state too once carried. */
+static uint8_t Y[FZN_PUBKEY_LEN];
+
+static int y_stands(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN])
+{
+	(void)ctx;
+	return memcmp(contact, Y, FZN_PUBKEY_LEN) == 0;
+}
+
+static void test_a_hand_off_to_a_removed_contact_is_given_up(void)
+{
+	uint8_t id1[FZN_MESSAGE_ID_LEN], id2[FZN_MESSAGE_ID_LEN], id3[FZN_MESSAGE_ID_LEN];
+	size_t marked = 9;
+
+	setup();
+	memset(Y, 0x77, sizeof(Y));
+	memset(id1, 0x61, sizeof(id1));
+	memset(id2, 0x62, sizeof(id2));
+	memset(id3, 0x63, sizeof(id3));
+	CHECK(fzn_messages_write(&A.nm.m, X, FZN_MESSAGE_OUT, id1, 5u, "to x", 4u) == FZN_MESSAGES_OK
+	              && fzn_messages_mark(&A.nm.m, X, FZN_MESSAGE_OUT, id1, FZN_MESSAGE_HANDED_OVER)
+	                         == FZN_MESSAGES_OK
+	              && fzn_messages_write(&A.nm.m, X, FZN_MESSAGE_OUT, id2, 6u, "sent", 4u)
+	                         == FZN_MESSAGES_OK
+	              && fzn_messages_mark(&A.nm.m, X, FZN_MESSAGE_OUT, id2, FZN_MESSAGE_DELIVERED)
+	                         == FZN_MESSAGES_OK
+	              && fzn_messages_write(&A.nm.m, X, FZN_MESSAGE_IN, id3, 7u, "from x", 6u)
+	                         == FZN_MESSAGES_OK
+	              && fzn_messages_write(&A.nm.m, Y, FZN_MESSAGE_OUT, id3, 8u, "to y", 4u)
+	                         == FZN_MESSAGES_OK
+	              && fzn_messages_mark(&A.nm.m, Y, FZN_MESSAGE_OUT, id3, FZN_MESSAGE_HANDED_OVER)
+	                         == FZN_MESSAGES_OK,
+	      "fixture: lines to X and Y, handed over, delivered and received");
+	CHECK(fzn_node_messages_give_up(&A.nm, y_stands, NULL, &marked) == FZN_MESSAGES_OK
+	              && marked == 1u,
+	      "not one line marked: the line handed over for X, which no longer stands");
+	CHECK(fzn_messages_state(&A.nm.m, X, FZN_MESSAGE_OUT, id1) == FZN_MESSAGE_NOT_DELIVERED,
+	      "the line handed over for X is not marked not delivered");
+	CHECK(fzn_messages_state(&A.nm.m, X, FZN_MESSAGE_OUT, id2) == FZN_MESSAGE_DELIVERED
+	              && fzn_messages_state(&A.nm.m, X, FZN_MESSAGE_IN, id3) == 0u,
+	      "a delivered line, or one received, was marked");
+	CHECK(fzn_messages_state(&A.nm.m, Y, FZN_MESSAGE_OUT, id3) == FZN_MESSAGE_HANDED_OVER,
+	      "a line handed over for a contact that stands was given up on");
+	CHECK(fzn_node_messages_give_up(&A.nm, y_stands, NULL, &marked) == FZN_MESSAGES_OK
+	              && marked == 0u,
+	      "a line given up on was marked again");
+	/* THE ANSWER TRAVELS: B, which reads A's stream, holds the state too. */
+	synced(&B);
+	CHECK(fzn_node_messages_absorb(&B.nm, &t) == FZN_MESSAGES_OK
+	              && fzn_messages_state(&B.nm.m, X, FZN_MESSAGE_OUT, id1)
+	                         == FZN_MESSAGE_NOT_DELIVERED,
+	      "the not-delivered mark is not B's state once carried");
+	CHECK(fzn_node_messages_give_up(&A.nm, NULL, NULL, &marked) == FZN_MESSAGES_ERR_MALFORMED,
+	      "a pass with no way to tell who stands was run");
+}
+
 /* ---- two hosts joined only by the exchange: what fzpd will run ---------- */
 
 static device_t M, R; /* a member, and the hub it pulls from */
@@ -995,6 +1054,7 @@ int main(void)
 	test_keys_through_a_hub();
 	test_keys_cannot_be_planted();
 	test_marks_are_absorbed();
+	test_a_hand_off_to_a_removed_contact_is_given_up();
 	test_two_hosts_over_the_exchange();
 	test_a_cut_keeps_a_line_whole();
 	test_a_returning_device_files_lines();

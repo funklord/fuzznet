@@ -12,6 +12,11 @@ other's estate:
        was received is kept
     c  R adds S back and is restarted: the pass passes nothing over, and
        the edit is pulled
+    d  R writes a line to S and marks it handed over: restarted with S
+       standing, it stays handed over; S removed and R restarted, the round
+       marks it not delivered -- "1 line(s) handed over for a contact that
+       no longer stands" -- which the device that handed it off reads
+       (sec 607)
 
 Against a daemon that does not ask whether a sharer still stands, phase b
 pulls; against one that never asks again, phase c does not.
@@ -36,6 +41,9 @@ from live_trim import ask, failed  # noqa: E402
 
 PASS_RE = re.compile(r"received pass: (\d+) share\(s\), (\d+) of removed contacts passed over")
 PULLED_RE = re.compile(r"(\d+) shared note record\(s\) from 127\.0\.0\.1")
+ROUND_END_RE = re.compile(r"history pass: ")
+GIVEN_UP_RE = re.compile(r"(\d+) line\(s\) handed over for a contact that no longer stands")
+LINE_ID = "02" + "00" * 15
 # A prekey's text: version and object, a byte each, then the host's key.
 PREKEY_HOST = slice(4, 68)
 
@@ -121,6 +129,42 @@ def main(argv):
 				finally:
 					r.stop()
 				print("livecheck: c: added back, S's edit was pulled")
+
+				# d: a hand-off given up on, sec 607.
+				def state():
+					"""The state of R's one line to S, by S's key."""
+					reply = ask(socks["r"], "list message " + s_key)
+					fields = reply.split(" ", 4)
+					if len(fields) < 5 or fields[0] != "ok" or fields[2] != "1":
+						raise failed("d: list message answered %r" % reply)
+					return fields[4].split(",")[4]
+
+				r = daemon(run, "r4", dirs["r"], socks["r"])
+				try:
+					r.wait_for(ROUND_END_RE, "R's round")
+					expect(socks["r"], "r", "add message sam out %s hello" % LINE_ID, "ok")
+					expect(socks["r"], "r", "set message sam out %s handed-over" % LINE_ID, "ok")
+				finally:
+					r.stop()
+				r = daemon(run, "r5", dirs["r"], socks["r"])
+				try:
+					r.wait_for(ROUND_END_RE, "R's round")
+					if GIVEN_UP_RE.search(r.log()) or state() != "handed-over":
+						raise failed("d: with S standing, the line handed over is %s"
+						             % state())
+					expect(socks["r"], "r", "remove contact sam", "ok")
+				finally:
+					r.stop()
+				r = daemon(run, "r6", dirs["r"], socks["r"])
+				try:
+					got = r.wait_for(GIVEN_UP_RE, "the hand-off given up on")
+					if got.group(1) != "1" or state() != "not-delivered":
+						raise failed("d: S removed, %s line(s) given up on and the line is %s"
+						             % (got.group(1), state()))
+				finally:
+					r.stop()
+				print("livecheck: d: a line handed over for S, removed, was marked not "
+				      "delivered")
 			finally:
 				s.stop()
 		except failed as e:

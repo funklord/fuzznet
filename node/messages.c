@@ -249,6 +249,58 @@ static int line_continues(fzn_node_messages_t *nm, const uint8_t device[FZN_PUBK
 	       && p.part + 1u < p.parts;
 }
 
+fzn_messages_err_t fzn_node_messages_give_up(fzn_node_messages_t *nm,
+                                             int (*stands)(void *ctx,
+                                                           const uint8_t contact[FZN_PUBKEY_LEN]),
+                                             void *ctx, size_t *marked)
+{
+	static fzn_bucket_t buckets[FZN_BUCKETS_MAX];
+	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
+	size_t n = 0, b, offset, count, i;
+	fzn_messages_err_t err;
+	int more;
+
+	if (marked)
+		*marked = 0;
+	if (!nm || !stands || !marked)
+		return FZN_MESSAGES_ERR_MALFORMED;
+	/* EVERY CONVERSATION BY ITS BUCKETS, a month each, ascending by
+	 * contact: one contact's months sit together, and are walked once. */
+	if (fzn_buckets_list(&nm->buckets, FZN_BUCKETS_MESSAGES, buckets, FZN_BUCKETS_MAX, &n)
+	    != FZN_BUCKETS_OK)
+		return FZN_MESSAGES_ERR_BACKEND;
+	for (b = 0; b < n; b++) {
+		const uint8_t *contact = buckets[b].subject;
+
+		if ((b > 0 && memcmp(buckets[b - 1u].subject, contact, FZN_PUBKEY_LEN) == 0)
+		    || stands(ctx, contact))
+			continue;
+		for (offset = 0;; offset += count) {
+			count = 0;
+			more = 0;
+			err = fzn_messages_page(&nm->m, contact, offset, page, FZN_MESSAGES_PAGE_MAX,
+			                        &count, &more);
+			if (err == FZN_MESSAGES_ERR_DEEP)
+				break;
+			if (err != FZN_MESSAGES_OK)
+				return err;
+			for (i = 0; i < count; i++) {
+				if (page[i].direction != FZN_MESSAGE_OUT
+				    || page[i].state != FZN_MESSAGE_HANDED_OVER)
+					continue;
+				err = fzn_messages_mark(&nm->m, contact, FZN_MESSAGE_OUT, page[i].id,
+				                        FZN_MESSAGE_NOT_DELIVERED);
+				if (err != FZN_MESSAGES_OK)
+					return err;
+				(*marked)++;
+			}
+			if (!more || !count)
+				break;
+		}
+	}
+	return FZN_MESSAGES_OK;
+}
+
 void fzn_node_messages_skip(fzn_node_messages_t *nm, const uint8_t device[FZN_PUBKEY_LEN],
                             uint64_t to)
 {

@@ -11016,6 +11016,20 @@ SABOTAGES = [
 		"every day says it holds one version -- sec 605",
 	),
 	(
+		"messages-given-up-only-for-a-removed-contact",
+		"node/messages.c",
+		"\t\tif ((b > 0 && memcmp(buckets[b - 1u].subject, contact, FZN_PUBKEY_LEN) == 0)\n\t\t    || stands(ctx, contact))\n",
+		"\t\tif (b > 0 && memcmp(buckets[b - 1u].subject, contact, FZN_PUBKEY_LEN) == 0)\n",
+		"a line handed over for a contact who still stands is marked not delivered, and given up on -- sec 607",
+	),
+	(
+		"messages-given-up-only-while-handed-over",
+		"node/messages.c",
+		"\t\t\t\tif (page[i].direction != FZN_MESSAGE_OUT\n\t\t\t\t    || page[i].state != FZN_MESSAGE_HANDED_OVER)\n",
+		"\t\t\t\tif (page[i].direction != FZN_MESSAGE_OUT)\n",
+		"a line already delivered is marked not delivered when its contact goes -- sec 607",
+	),
+	(
 		"notebook-history-kept-across-a-refresh",
 		"gui/notebook_view.cpp",
 		"\tif (m_viewing >= 0 && show_version(m_viewing))\n\t\treturn;\n",

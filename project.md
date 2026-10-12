@@ -57847,7 +57847,8 @@ until `remove received`. Two things remain:
 - **A requirement for the sibling wire.** A delegated message whose
   contact the owning device has removed is never acked, so the delegating
   host retries for good. It needs a "cannot deliver" answer that host can
-  act on. Recorded for when that wire is built here.
+  act on. Answered in sec 607 by a not-delivered mark that travels, for a
+  contact removed; the wire itself is still fuzzypickles'.
 
 ## 511. Stage 5 decided: notes become a journal stream, content in blobs, 2026-10-07
 
@@ -58761,8 +58762,8 @@ count, and the last contact's name.
 The storage half is built in sec 526: the device that hands a message off
 keeps it as its own line, and marks it not delivered when no device could
 send it. fuzzypickles' sweep writes it once they take the module (sec 526,
-phase 3). Sec 510's sibling-wire "cannot deliver" requirement is still not
-built.
+phase 3). Sec 510's sibling-wire "cannot deliver" requirement is
+answered in sec 607.
 
 ## 522. Stage 5, step 6: the title cache, labels in the listing, and pending in the widget, 2026-10-08
 
@@ -63125,3 +63126,63 @@ member reaches every other (sec 579):
 - Three runs passing in a row, 129, 140 and 143 s, every daemon gone after
   each. A hand-break control -- `pieces_back` fetching nothing -- put back
   none: "C lost 2 piece(s); B put back 0".
+
+## 607. A hand-off for a removed contact is marked not delivered, 2026-10-12
+
+fuzzypickles' requirement from their sec 196, recorded in sec 510: a
+message delegated to the device that owns its contact, after that device
+removed the contact, is never acked, so the delegating host retries for
+good. It needs a "cannot deliver" answer it can act on.
+
+### What fuzznet does and does not carry
+
+fuzznet stores conversations and syncs them across the user's own devices
+-- lines, their marks and their keys (secs 526-531, 564-569) -- but sends
+no message to a contact, and hands none from one device to another to
+send: that transport is fuzzypickles' (their outbox and delegation), and
+moving it here is phase 3 of sec 526, on hold. So the answer cannot come
+from a delivery attempt here; none happens.
+
+The answer exists already, as the holder chose 2026-10-12: a line's
+state is its newest mark, any of the user's devices may write one, and
+marks travel by the journal. The device that hands a message off writes
+it as its own line marked `handed-over` (sec 521); a `not-delivered` mark
+written anywhere becomes that line's state on the device that handed it
+off, which then knows no device will send it.
+
+### Marked by whichever device notices
+
+What was missing is something that writes the mark.
+`fzn_node_messages_give_up` (`node/messages.h`), each fuzznetd round:
+every out line still `handed-over` in the conversation of a contact that
+no longer stands -- not in the contact list, or not active on the roster
+(`fzn_node_admin_contact_stands`, the test sec 576 uses for shares) -- is
+marked `not-delivered`, and the round pushes the mark at once.
+
+- **Conversations are found by their buckets** (sec 564), one per contact
+  and month, so a removed contact's conversation is among them though the
+  contact list no longer names it.
+- **Only a line still handed over**: one delivered, settled or already not
+  delivered is left alone, and a received line never is.
+- A conversation's lines past `FZN_MESSAGES_WALK_MAX` (4096) are not
+  reached; the walk has no index to go deeper.
+
+### Measured for sec 607
+
+- messages_test 86: A's line to X handed over, X no longer standing, is
+  marked not delivered -- one line, once; A's delivered line to X and
+  received line from X are not touched, nor its line handed over to Y,
+  who stands; and B, reading A's stream, holds the not-delivered state.
+- live_shares phase d: R writes a line to S and marks it handed over;
+  restarted with S standing it stays handed over; S removed and R
+  restarted, the round logs "1 line(s) handed over for a contact that no
+  longer stands" and the line lists as not-delivered. A hand-break
+  control -- the round not calling the pass -- logged nothing.
+- Two sabotage entries: only for a contact that no longer stands, and
+  only while handed over.
+
+### Not yet after sec 607
+
+- **The delegation wire itself** stays fuzzypickles' until phase 3: their
+  delegating host acts on the mark once it reads line states from here.
+  fuzzypickles was told by inbox.

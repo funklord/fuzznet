@@ -3154,6 +3154,35 @@ static size_t nshares_in;
 static fzn_node_admin_t *running_admin;
 
 #ifdef FZN_RECORD_STORE_FILE_ON
+static int contact_stands(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN])
+{
+	return fzn_node_admin_contact_stands((const fzn_node_admin_t *)ctx, contact);
+}
+
+/* A HAND-OFF GIVEN UP ON, sec 607, each round: a line this user's devices
+ * handed over for a contact that no longer stands -- removed, or not active
+ * on the roster -- is marked not delivered, here or on whichever device
+ * first notices, and the mark goes out at once so the device that handed
+ * it off stops waiting on it. */
+static void messages_give_up(void)
+{
+	size_t marked = 0;
+
+	if (!messages_on || !running_admin)
+		return;
+	if (fzn_node_messages_give_up(&node_messages, contact_stands, running_admin, &marked)
+	    != FZN_MESSAGES_OK)
+		say(FZN_ENTRY_WARNING, "messages", "lines handed over for contacts that no longer "
+		                                   "stand could not all be marked");
+	else if (marked) {
+		say(FZN_ENTRY_INFO, "messages", "%zu line(s) handed over for a contact that no "
+		                                "longer stands, marked not delivered", marked);
+		node_messages.fresh = 1;
+	}
+}
+#endif
+
+#ifdef FZN_RECORD_STORE_FILE_ON
 /* THE GRANT `sponsor` MADE TO `self` for `cap`, in the applied index, into
  * `hop`: 1 found, 0 not. */
 static int grant_from(const uint8_t sponsor[FZN_PUBKEY_LEN], const uint8_t self[FZN_PUBKEY_LEN],
@@ -5583,6 +5612,7 @@ int main(int argc, char **argv)
 				                                     identity.pubkey, state.config.root,
 				                                     &hash_ops, &aead_ops, &rng_ops);
 				messages_round(pulls, npulls, now);
+				messages_give_up();
 				/* THE NOTES INDEX FIRST, so the cut sees how far it has
 				 * read: a notes stream is cut no further than its cursor,
 				 * which the round's own index has not moved yet. sec 555. */
