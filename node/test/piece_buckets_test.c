@@ -430,7 +430,7 @@ static void test_counted_and_let_go(void)
 	                     == FZN_RECONCILE_OK
 	          && t.sent == 1u,
 	      "fixture: A cuts and pushes B its piece");
-	CHECK(fzn_piece_buckets_piece_id(&pb_a, item_id, 1u, piece_id)
+	CHECK(fzn_piece_buckets_piece_id(&pb_a, item_id, 1u, piece_id, NULL)
 	          && fzn_buckets_has(&B, FZN_BUCKETS_PIECES, piece_id),
 	      "the id A placed piece 1 under is not the one B holds");
 	CHECK(fzn_piece_buckets_host(&pb_b, piece_id, host) && memcmp(host, key_a, 32u) == 0,
@@ -457,9 +457,87 @@ static void test_counted_and_let_go(void)
 	                              &served, NULL, NULL)
 	                     == FZN_BUCKETS_ABSENT,
 	      "A's copy of B's piece was not let go");
-	CHECK(fzn_piece_buckets_piece_id(&pb_a, item_id, 1u, host) && memcmp(host, piece_id, 32u) == 0,
+	CHECK(fzn_piece_buckets_piece_id(&pb_a, item_id, 1u, host, NULL) && memcmp(host, piece_id, 32u) == 0,
 	      "letting a piece go forgot its id");
 	CHECK(fzn_piece_buckets_let_go(&pb_a, item_id, 1u), "letting a piece go twice failed");
+}
+
+/* LOST AND PUT BACK, sec 600: B's file of its piece goes while its row
+ * stays; B then answers it does not hold it, A fetches nothing from it,
+ * and pushed it again by id B takes it back rather than calling it held. */
+static void test_lost_and_put_back(void)
+{
+	uint8_t keepers[2][32], piece_id[FZN_BUCKETS_ID_LEN], hex[65];
+	fzn_reconcile_bucket_tally_t t;
+	static uint8_t reply[8192], got[ITEM_LEN + 200u];
+	char path[300];
+	size_t placed = 0, len = 9, i, item_len = 0;
+	uint64_t size = 0;
+	int has = 1;
+
+	fresh();
+	memcpy(keepers[0], key_a, 32u);
+	memcpy(keepers[1], key_b, 32u);
+	CHECK(a_cuts((const uint8_t (*)[32])keepers, &placed)
+	          && fzn_reconcile_push(&A, FZN_BUCKETS_PIECES, &gate_b, &filer_a, NULL, to_b, NULL,
+	                                reply, sizeof(reply), &t)
+	                     == FZN_RECONCILE_OK
+	          && t.sent == 1u
+	          && fzn_piece_buckets_piece_id(&pb_a, item_id, 1u, piece_id, &size)
+	          && size == FZN_PIECE_HEAD_LEN + ITEM_LEN,
+	      "fixture: A cuts and pushes B its piece");
+	CHECK(fzn_pieces_item_len(dir_a, item_id, &item_len) == FZN_PIECES_OK && item_len == ITEM_LEN,
+	      "a piece's head did not give its item's length");
+	/* FETCHED BY ID while B holds it: the piece's bytes, whole. */
+	CHECK(fzn_reconcile_fetch_one(FZN_BUCKETS_PIECES, piece_id, &HASH, got, sizeof(got), &len,
+	                              to_b, NULL, reply, sizeof(reply))
+	                  == FZN_RECONCILE_OK
+	          && len == size,
+	      "A could not fetch B's piece by its id");
+	CHECK(fzn_reconcile_fetch_one(FZN_BUCKETS_PIECES, piece_id, &HASH, got, (size_t)size - 1u,
+	                              &len, to_b, NULL, reply, sizeof(reply))
+	          == FZN_RECONCILE_ERR_SHAPE,
+	      "a piece longer than the room for it was fetched");
+	for (i = 0; i < 32u; i++)
+		snprintf((char *)hex + 2u * i, 3u, "%02x", item_id[i]);
+	snprintf(path, sizeof(path), "%s/%s.1.piece", dir_b, (const char *)hex);
+	/* CHANGED IN A BYTE AT B: not its id's bytes, so not fetched. */
+	{
+		FILE *f = fopen(path, "r+b");
+		int c;
+
+		CHECK(f && fseek(f, 100L, SEEK_SET) == 0 && (c = fgetc(f)) != EOF
+		              && fseek(f, 100L, SEEK_SET) == 0 && fputc(c ^ 1, f) != EOF,
+		      "fixture: a byte of B's piece changed");
+		if (f)
+			(void)fclose(f);
+	}
+	CHECK(fzn_reconcile_fetch_one(FZN_BUCKETS_PIECES, piece_id, &HASH, got, sizeof(got), &len,
+	                              to_b, NULL, reply, sizeof(reply))
+	          == FZN_RECONCILE_ERR_SHAPE,
+	      "a piece not its id's bytes was fetched");
+	/* ITS FILE GONE, ITS ROW KEPT. */
+	CHECK(remove(path) == 0, "fixture: B's piece file removed");
+	CHECK(fzn_reconcile_peer_holds(FZN_BUCKETS_PIECES, piece_id, to_b, NULL, reply, sizeof(reply),
+	                               &has)
+	                  == FZN_RECONCILE_OK
+	          && !has,
+	      "B said it holds a piece whose file is gone");
+	CHECK(fzn_reconcile_fetch_one(FZN_BUCKETS_PIECES, piece_id, &HASH, got, sizeof(got), &len,
+	                              to_b, NULL, reply, sizeof(reply))
+	                  == FZN_RECONCILE_OK
+	          && len == 0u,
+	      "a piece whose file is gone was fetched");
+	CHECK(fzn_reconcile_push_one(&A, FZN_BUCKETS_PIECES, key_b, MONTH, piece_id, &filer_a, to_b,
+	                             NULL, reply, sizeof(reply), &t)
+	                  == FZN_RECONCILE_OK
+	          && t.sent == 1u && t.held == 0u && pieces_in(dir_b) == 1u,
+	      "pushed by id, B did not take back the piece it lost");
+	CHECK(fzn_reconcile_peer_holds(FZN_BUCKETS_PIECES, piece_id, to_b, NULL, reply, sizeof(reply),
+	                               &has)
+	                  == FZN_RECONCILE_OK
+	          && has,
+	      "B does not hold the piece put back");
 }
 
 static void test_shape_refused(void)
@@ -529,6 +607,7 @@ int main(void)
 	test_rank();
 	test_place_pull_push();
 	test_counted_and_let_go();
+	test_lost_and_put_back();
 	test_shape_refused();
 
 	fzn_piece_buckets_close(&pb_a);

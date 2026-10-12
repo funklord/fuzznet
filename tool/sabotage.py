@@ -10988,6 +10988,27 @@ SABOTAGES = [
 		"a copy archived is let go as a file gone, and taken again from its host -- sec 590",
 	),
 	(
+		"reconcile-a-lost-item-taken-back",
+		"node/reconcile.c",
+		"\t\tif (fzn_buckets_has(&b, (fzn_buckets_kind_t)kind, id) && !lost(&b, taker, kind, id))\n",
+		"\t\tif (fzn_buckets_has(&b, (fzn_buckets_kind_t)kind, id))\n",
+		"a keeper that lost a piece's file refuses it back as held, and the piece is gone for good -- sec 600",
+	),
+	(
+		"reconcile-unreadable-not-held",
+		"node/reconcile.c",
+		"\t               != FZN_BUCKETS_OK\n\t\t    || !readable(kind_filer, ref, ref_len, size))\n\t\t\tsize = 0;\n",
+		"\t               != FZN_BUCKETS_OK)\n\t\t\tsize = 0;\n",
+		"a keeper whose piece's file is gone is counted holding it -- sec 600",
+	),
+	(
+		"reconcile-fetched-one-is-its-ids",
+		"node/reconcile.c",
+		"\tif (!fzn_buckets_id(hash, out, total, got_id)\n\t    || memcmp(got_id, id, FZN_BUCKETS_ID_LEN) != 0)\n\t\treturn FZN_RECONCILE_ERR_SHAPE;\n\t*len = total;\n",
+		"\t*len = total;\n",
+		"a piece changed in a byte is fetched to rebuild from, and outvotes a good one -- sec 600",
+	),
+	(
 		"reconcile-item-served-by-its-own-gate",
 		"node/reconcile.c",
 		"\tif (err != FZN_BUCKETS_ABSENT && !served(gate, request[2], subject)\n\t    && !(gate && gate->serves_item\n",

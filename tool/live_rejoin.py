@@ -51,6 +51,10 @@ older than the 60-day window when A next cuts:
        they are counted (sec 597); then, under `prune * archived count 0`,
        B finds A holding its pieces, counts each fossil held by two hosts,
        prunes the wholes and lets go of its copies of A's pieces (sec 599)
+    k  A loses the files of the pieces it keeps: asked, it answers it does
+       not hold them, and B -- whose copies of them are gone -- rebuilds
+       each fossil from its own piece, cuts it again and puts A's back
+       (sec 600)
 
 The waits are on the daemons' own lines -- A's cut pass, B's reconcile
 pass, B's "moved up" -- and each is checked before the settings are.
@@ -96,7 +100,7 @@ COPY_PRUNED_RE = re.compile(r"(\d+) archived copied segment\(s\) of \S+ of [0-9a
 COPY_ARCHIVED_RE = re.compile(r"\d+ copied segment\(s\) of \S+ of [0-9a-f]{8} archived")
 PUSHED_RE = re.compile(r"passed over, (\d+) pushed")
 COUNTED_RE = re.compile(r"pieces: (\d+) cut fossil\(s\), (\d+) held by too few hosts, (\d+) "
-                        r"piece\(s\) let go")
+                        r"piece\(s\) let go to their keepers, (\d+) put back")
 PIECES_RE = re.compile(r"pieces of archived segments: (\d+) taken, (\d+) pushed, (\d+) "
                        r"refused there")
 MISSING_RE = re.compile(r"claims no longer hold what this node lacks|would not move")
@@ -683,6 +687,22 @@ def main(argv):
 				             % len(packed(own_archive)))
 			print("livecheck: j: under three replicas each fossil held by its pieces on two "
 			      "hosts; B let go of A's pieces and pruned the wholes")
+
+			# k: pieces lost and put back, sec 600. A's files go, its rows stay.
+			for n in pieces(a_pieces):
+				os.remove(os.path.join(a_pieces, n))
+			got = b_run("k", [], COUNTED_RE)
+			if got.group(4) != str(len(fossils)) or len(pieces(a_pieces)) != len(fossils):
+				raise failed("k: A lost %d piece(s); B put back %s and A keeps %d"
+				             % (len(fossils), got.group(4), len(pieces(a_pieces))))
+			# AND COUNTED AGAIN: B's copies of A's, cut afresh, go.
+			got = b_run("k2", [], COUNTED_RE)
+			if got.group(2) != "0" or got.group(4) != "0" \
+			   or len(pieces(b_pieces)) != len(fossils):
+				raise failed("k: after the repair B counted %s short, put back %s, and keeps %d "
+				             "piece(s)" % (got.group(2), got.group(4), len(pieces(b_pieces))))
+			print("livecheck: k: A lost its %d piece(s); B rebuilt each from its own and put "
+			      "them back" % len(fossils))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

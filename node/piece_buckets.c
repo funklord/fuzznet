@@ -243,16 +243,23 @@ int fzn_piece_buckets_place(fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKET
 }
 
 int fzn_piece_buckets_piece_id(const fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKETS_ID_LEN],
-                               unsigned index, uint8_t piece_id[FZN_BUCKETS_ID_LEN])
+                               unsigned index, uint8_t piece_id[FZN_BUCKETS_ID_LEN],
+                               uint64_t *size)
 {
 	char ref[FZN_BUCKETS_REF_MAX + 1u], path[PATH_MAX_];
-	uint64_t size = 0;
+	uint64_t held = 0;
 
-	return pb && id && piece_id && index < FZN_ERASURE_PIECES_MAX
-	       && piece_ref(pb, id, index, ref, path)
-	       && fzn_buckets_by_ref(pb->b, FZN_BUCKETS_PIECES, (const uint8_t *)ref, strlen(ref),
-	                             piece_id, &size)
-	                  == FZN_BUCKETS_OK;
+	if (size)
+		*size = 0;
+	if (!pb || !id || !piece_id || index >= FZN_ERASURE_PIECES_MAX
+	    || !piece_ref(pb, id, index, ref, path)
+	    || fzn_buckets_by_ref(pb->b, FZN_BUCKETS_PIECES, (const uint8_t *)ref, strlen(ref),
+	                          piece_id, &held)
+	               != FZN_BUCKETS_OK)
+		return 0;
+	if (size)
+		*size = held;
+	return 1;
 }
 
 int fzn_piece_buckets_let_go(fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKETS_ID_LEN],
@@ -262,7 +269,7 @@ int fzn_piece_buckets_let_go(fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKE
 	uint8_t piece_id[FZN_BUCKETS_ID_LEN];
 	fzn_buckets_err_t err;
 
-	if (!fzn_piece_buckets_piece_id(pb, id, index, piece_id)
+	if (!fzn_piece_buckets_piece_id(pb, id, index, piece_id, NULL)
 	    || !piece_ref(pb, id, index, ref, path))
 		return 0;
 	/* LET GO FIRST: a crash between leaves a file no bucket serves, which

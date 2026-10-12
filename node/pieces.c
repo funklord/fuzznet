@@ -256,6 +256,38 @@ static uint8_t *read_piece(const char *path, uint8_t kind, const uint8_t id[FZN_
 	return piece;
 }
 
+fzn_pieces_err_t fzn_pieces_item_len(const char *dir, const uint8_t id[FZN_BUCKETS_ID_LEN],
+                                     size_t *len)
+{
+	uint8_t head[FZN_PIECE_HEAD_LEN];
+	char path[PATH_MAX_];
+	unsigned i;
+
+	if (!len)
+		return FZN_PIECES_ERR_MALFORMED;
+	*len = 0;
+	if (!dir || !id)
+		return FZN_PIECES_ERR_MALFORMED;
+	for (i = 0; i < FZN_ERASURE_PIECES_MAX; i++) {
+		int fd;
+		ssize_t got;
+
+		if (!piece_path(path, sizeof(path), dir, id, i, ""))
+			return FZN_PIECES_ERR_MALFORMED;
+		fd = open(path, O_RDONLY | O_CLOEXEC);
+		if (fd < 0)
+			continue;
+		got = read(fd, head, sizeof(head));
+		(void)close(fd);
+		if (got == (ssize_t)sizeof(head) && head_ok(head)
+		    && memcmp(head + OFF_ID, id, FZN_BUCKETS_ID_LEN) == 0 && head[OFF_INDEX] == i) {
+			*len = (size_t)fzn_get_be64(head + OFF_LEN);
+			return FZN_PIECES_OK;
+		}
+	}
+	return FZN_PIECES_ERR_TOO_FEW;
+}
+
 fzn_pieces_err_t fzn_pieces_rebuild(const char *dir, uint8_t kind,
                                     const uint8_t id[FZN_BUCKETS_ID_LEN],
                                     const fzn_hash_ops_t *hash, uint8_t *out, size_t cap,

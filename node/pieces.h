@@ -72,6 +72,14 @@ fzn_pieces_err_t fzn_pieces_keep(const char *dir, const uint8_t *bytes, size_t l
                                  uint8_t item_id[FZN_BUCKETS_ID_LEN], unsigned *index);
 
 /*
+ * THE LENGTH OF THE ITEM `id`, sec 600, from the head of the first of its
+ * pieces in `dir` that is a piece's: what a rebuild needs room for.
+ * TOO_FEW when none is.
+ */
+fzn_pieces_err_t fzn_pieces_item_len(const char *dir, const uint8_t id[FZN_BUCKETS_ID_LEN],
+                                     size_t *len);
+
+/*
  * REBUILD the item `id` of `kind` from the pieces in `dir` into `out` (room
  * for `cap`), `*len` bytes, checked against `id` under `hash`. `*used` (may
  * be NULL) is the mask of the k pieces the rebuild came from.

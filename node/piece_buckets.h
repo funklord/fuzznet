@@ -79,11 +79,12 @@ int fzn_piece_buckets_place(fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKET
 int fzn_piece_buckets_cut_of(const fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKETS_ID_LEN],
                              unsigned *k, unsigned *m, uint8_t (*keepers)[32]);
 
-/* PIECE `index` OF `id`'s own id, as it was placed: what a keeper is asked
- * for. Read from the ref it was taken under, which outlives letting it go.
- * 0 when none was placed. */
+/* PIECE `index` OF `id`'s own id, as it was placed, and its length into
+ * `*size` (may be NULL): what a keeper is asked for. Read from the ref it
+ * was taken under, which outlives letting it go. 0 when none was placed. */
 int fzn_piece_buckets_piece_id(const fzn_piece_buckets_t *pb, const uint8_t id[FZN_BUCKETS_ID_LEN],
-                               unsigned index, uint8_t piece_id[FZN_BUCKETS_ID_LEN]);
+                               unsigned index, uint8_t piece_id[FZN_BUCKETS_ID_LEN],
+                               uint64_t *size);
 
 /* WHOSE ITEM the held piece `piece_id` is a piece of, from its head: the
  * host its pieces are served to besides their keepers. 0 when not held

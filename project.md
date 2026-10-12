@@ -62516,7 +62516,7 @@ notes stay out of the archive.
 4. **Counting and repair**: counting built in sec 599, by a stricter
    measure than first written here -- k + min(m, R - 1) pieces on
    distinct hosts, not k, since k held bears no loss at all. Repair, a
-   piece lost rebuilt from the others, is still open.
+   piece lost rebuilt from the others, built in sec 600.
 
 ### Stage 1: the codec
 
@@ -62765,9 +62765,63 @@ exchange, whether it holds its piece -- the length and no byte, as sec
 
 ### Not yet after sec 599
 
-- **Repair**: a keeper found not holding its piece. While the cutter
-  still holds that piece the bucket push delivers it again; once let go,
-  it must be rebuilt -- k pieces fetched from their keepers by id, which
-  the item gate now allows, then cut and placed again.
+- Repair was built in sec 600.
 - The count asks every keeper every round, a request per piece; a
   fossil held long might be asked less often.
+
+## 600. Erasure stage 4: a lost piece put back, 2026-10-12
+
+The repair half of stage 4 (sec 594): a keeper found without its piece is
+given it back, rebuilt where the cutter no longer holds it.
+
+### A piece whose file is gone is not held
+
+The exchange answered for a large item from its row alone. A keeper that
+lost a piece's file but kept its row was therefore counted holding it,
+and a push of the piece was refused as held already -- so the loss could
+neither be seen nor mended. Now an item kept by its kind counts as held
+only when its kind can still read its last byte (the last, since the logs
+kind makes up the first, a segment's name):
+
+- asked by id, such an item is answered as not held;
+- pushed, it is taken again where the row has no readable bytes. One its
+  kind let go stays held, so nothing brings back what the rules removed.
+
+### Put back by id
+
+The bucket push compares digests, and a keeper that lost a file still
+counts its id, so the push passes its bucket over. The exchange gains
+`fzn_reconcile_push_one`, an item pushed by id into a named bucket, and
+`fzn_reconcile_fetch_one`, an item fetched by id whole and checked
+against it.
+
+In fuzznetd's count (sec 599), a keeper that answered and does not hold
+its piece is pushed it -- at most 8 fossils a round, as many as are cut.
+Where the cutter let its copy go, the pieces are held again first: those
+here, then those other keepers hold, fetched by id until k are here; the
+item rebuilt and checked against its id, cut again, and placed again
+under the record's keepers and the month its name gives. The next count
+lets the copies go again.
+
+### Measured for sec 600
+
+- piece_buckets_test 53: a piece's head gives its item's length; fetched
+  by id while held, a piece comes whole, is refused past the room for it
+  and when changed in a byte; with its file gone and its row kept, B says
+  it does not hold it and none is fetched, and pushed by id B takes it
+  back -- sent, not held -- and holds it again.
+- live_rejoin phase k: A's five piece files removed with its rows kept;
+  B, which let its copies of them go in phase j, rebuilds each fossil from
+  its own piece (1 + 1), cuts it again and puts all five back, and the
+  next count finds none short, puts none back, and leaves B its own five.
+- Three sabotage entries: a lost item taken back, an unreadable item not
+  held, and a fetched item checked against its id.
+
+### Not yet after sec 600
+
+- **The fetch half of a rebuild runs only in unit tests.** Live, 1 + 1
+  rebuilds from the cutter's own piece; fetching k from others needs an
+  estate of more hosts than the live check runs.
+- **A keeper gone, not answering**, is neither counted nor repaired: its
+  piece is not moved to another host. When a silent host counts as gone
+  is a question of time the estate has not settled.

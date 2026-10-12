@@ -254,6 +254,31 @@ fzn_reconcile_err_t fzn_reconcile_peer_holds(fzn_buckets_kind_t kind,
                                              fzn_reconcile_ask_t ask, void *ask_ctx,
                                              uint8_t *reply, size_t reply_cap, int *held);
 
+/* ONE ITEM FETCHED BY ID, whole, sec 600: into `out` (room for `cap`),
+ * `*len` bytes, checked to hash to `id` under `hash`; `*len` 0 when the
+ * peer does not hold it or will not serve it here. SHAPE for an answer not
+ * an item's, longer than `cap`, or not its id's bytes. For a caller that
+ * wants one item it knows by id -- a piece to rebuild from -- rather than
+ * a bucket's worth. */
+fzn_reconcile_err_t fzn_reconcile_fetch_one(fzn_buckets_kind_t kind,
+                                            const uint8_t id[FZN_BUCKETS_ID_LEN],
+                                            const fzn_hash_ops_t *hash, uint8_t *out,
+                                            size_t cap, size_t *len, fzn_reconcile_ask_t ask,
+                                            void *ask_ctx, uint8_t *reply, size_t reply_cap);
+
+/* ONE ITEM PUSHED BY ID, sec 600: `id` of `kind`, held here in the bucket
+ * (`subject`, `month`), sent as `fzn_reconcile_push` sends each item and
+ * answered into `tally` the same way. For a peer found lacking one item
+ * whose bucket it otherwise agrees on -- a keeper that lost a piece -- which
+ * a push by bucket would pass over. */
+fzn_reconcile_err_t fzn_reconcile_push_one(const fzn_buckets_t *b, fzn_buckets_kind_t kind,
+                                           const uint8_t subject[FZN_PUBKEY_LEN], uint32_t month,
+                                           const uint8_t id[FZN_BUCKETS_ID_LEN],
+                                           const fzn_reconcile_filer_t *filer,
+                                           fzn_reconcile_ask_t ask, void *ask_ctx,
+                                           uint8_t *reply, size_t reply_cap,
+                                           fzn_reconcile_bucket_tally_t *tally);
+
 /* THE SAME KIND PUSHED, sec 569: for a peer that cannot reach this node.
  * The peer's buckets are listed once and each of this node's compared with
  * them; where the peer lacks a bucket or it differs, the peer's ids are
