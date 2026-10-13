@@ -486,6 +486,24 @@ static uint64_t fixed_clock(void)
 	return 3000u;
 }
 
+/* A HANDLER THAT RELOADS THE RUNNING PEER SET while it answers, as pairing
+ * a device from inside a request does: the slot the request's peer was
+ * found in now holds another peer's session. sec 614. */
+static fzn_node_peer_t *reloading_slot;
+
+static size_t answer_reloading(void *ctx, fzn_node_remote_result_t result,
+                               const fzn_opened_t *req, uint8_t *reply, size_t reply_cap)
+{
+	size_t n = answer(ctx, result, req, reply, reply_cap);
+
+	if (reloading_slot) {
+		memset(reloading_slot->recv_key, 0x77, sizeof(reloading_slot->recv_key));
+		memset(reloading_slot->recv_ckey, 0x77, sizeof(reloading_slot->recv_ckey));
+		memset(reloading_slot->sender, 0x77, sizeof(reloading_slot->sender));
+	}
+	return n;
+}
+
 static uint16_t port_of(int fd)
 {
 	struct sockaddr_storage ss;
@@ -620,6 +638,25 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		      "the control failed: without revocations the device was not granted, so "
 		      "the refusals above prove nothing about revocation");
 		(void)fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len, 500u);
+	}
+
+	/* ---- A RELOAD WHILE ANSWERING, sec 614: the reply is sealed under the
+	 * peer the request came from, not whatever the reload left in its
+	 * slot. */
+	{
+		fzn_node_peer_t saved = peers[0];
+
+		reloading_slot = &peers[0];
+		state.on_remote = answer_reloading;
+		CHECK(fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
+		              && fzn_node_run_once(&state, 1000) == 1
+		              && fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_OK
+		              && reply_len == sizeof(PONG) && memcmp(reply, PONG, sizeof(PONG)) == 0,
+		      "a reply was sealed under the peer a reload left in the slot, not the asker's");
+		reloading_slot = NULL;
+		peers[0] = saved;
+		state.on_remote = answer;
 	}
 
 	/* ---- FUZZNET'S VERBS OVER THE REMOTE HOP, through the admin handler:
@@ -949,6 +986,26 @@ static void test_an_estate(const fzn_cap_id_t *cap)
 		                                  2u, n.id.prekey_record, 1300u, &other.ops, &built)
 		              == FZN_NODE_PAIR_REFUSED,
 		      "D's chain made another device a pairing");
+		/* DERIVED, sec 614: from N's prekey alone, the same session, for
+		 * the capability named, and no chain. */
+		CHECK(fzn_node_pairing_derive(&d.id, n.id.prekey_record, &d_pairing.capability, 1300u,
+		                              &built)
+		                      == FZN_NODE_PAIR_OK
+		              && memcmp(built.node, d_pairing.node, FZN_PUBKEY_LEN) == 0
+		              && memcmp(built.send_key, d_pairing.send_key, FZN_AEAD_KEY_LEN) == 0
+		              && memcmp(built.send_ckey, d_pairing.send_ckey, FZN_COMMITMENT_KEY_LEN) == 0
+		              && memcmp(built.capability.b, d_pairing.capability.b, FZN_CAP_ID_LEN) == 0
+		              && built.hop_count == 0u,
+		      "the pairing D derived from N's prekey is not the session N's card gave");
+		{
+			uint8_t forged[FZN_PREKEY_LEN_TOTAL];
+
+			memcpy(forged, n.id.prekey_record, sizeof(forged));
+			forged[FZN_PREKEY_OFF_PREKEY] ^= 1u;
+			CHECK(fzn_node_pairing_derive(&d.id, forged, &d_pairing.capability, 1300u, &built)
+			              == FZN_NODE_PAIR_REFUSED,
+			      "a prekey changed after signing derived a pairing");
+		}
 	}
 
 	/* ---- AND N SERVES D UNDER R's ROOT, while R's revocation of D is what

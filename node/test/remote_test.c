@@ -45,6 +45,21 @@ static const uint8_t PAYLOAD[] = { 'p', 'i', 'n', 'g' };
 /* Seal one request from the client under its session key. Returns the frame
  * length, or 0 on failure. Rebuilt before every serve, since opening decrypts
  * in place. */
+/* THE ESTATE'S ROOT SET, sec 614: it holds the estate's root, 0x77 in
+ * every byte, and nobody else. */
+static int only_estate_root(void *ctx, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	(void)ctx;
+	return key[0] == 0x77u && key[31] == 0x77u;
+}
+
+static int estate_root_counts(void *ctx, const uint8_t root[FZN_PUBKEY_LEN],
+                              const uint8_t act[FZN_REVOCATION_ID_LEN])
+{
+	(void)act;
+	return only_estate_root(ctx, root);
+}
+
 static size_t seal_request(uint8_t *frame, size_t cap, const uint8_t *client_pub,
                            const uint8_t *capb, const uint8_t *key,
                            const uint8_t *ckey, const fzn_hash_ops_t *hash,
@@ -411,6 +426,27 @@ int main(void)
 		                           &replay, 1000u, frame, frame_len, NULL)
 		           == FZN_NODE_REMOTE_GRANTED,
 		   "a contact naming the share capability is granted, against this node's key");
+		/* WITH THE ESTATE'S ROOT SET, sec 614: it names the estate's roots
+		 * and not this node, and a share chain from this node's key is
+		 * granted still -- a member that is no root shares too. */
+		{
+			static fzn_revocation_t entries[4];
+			fzn_revocation_store_t store;
+			fzn_root_ops_t roots = { only_estate_root, estate_root_counts, NULL };
+
+			ok(fzn_revocation_store_init(&store, entries, 4) == FZN_CHAIN_OK
+			           && fzn_revocation_store_set_roots(&store, &roots, &hash_ops)
+			                      == FZN_CHAIN_OK,
+			   "fixture: a revocation store with the estate's root set");
+			shares.revocations = &store;
+			frame_len = seal_request(frame, sizeof(frame), pubkey[1], share.b, key[1],
+			                         ckey[1], &hash_ops, &rng_ops, &aead_ops, 2000u);
+			ok(fzn_node_serve_datagram(&shares, &contact, &hash_ops, &aead_ops, &sign_ops[0],
+			                           &replay, 1000u, frame, frame_len, NULL)
+			           == FZN_NODE_REMOTE_GRANTED,
+			   "under the estate's root set, a share from this node's key was denied");
+			shares.revocations = NULL;
+		}
 		frame_len = seal_request(frame, sizeof(frame), pubkey[1], cap.b, key[1], ckey[1],
 		                         &hash_ops, &rng_ops, &aead_ops, 2000u);
 		ok(fzn_node_serve_datagram(&shares, &contact, &hash_ops, &aead_ops, &sign_ops[0],

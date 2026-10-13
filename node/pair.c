@@ -276,6 +276,37 @@ fzn_node_pair_err_t fzn_node_pairing_from_grant(const fzn_node_identity_t *devic
 	return FZN_NODE_PAIR_OK;
 }
 
+fzn_node_pair_err_t fzn_node_pairing_derive(const fzn_node_identity_t *device,
+                                            const uint8_t host_prekey[FZN_PREKEY_LEN_TOTAL],
+                                            const fzn_cap_id_t *capability, uint64_t now,
+                                            fzn_node_pairing_t *out)
+{
+	fzn_prekey_record_t record;
+	fzn_prekey_peer_t pinned;
+	fzn_node_pairing_t p;
+
+	if (!device || !device->agree_secret || !device->sign || !device->hash || !host_prekey
+	    || !capability || !out)
+		return FZN_NODE_PAIR_MALFORMED;
+	if (fzn_prekey_open(host_prekey, FZN_PREKEY_LEN_TOTAL, &record) != FZN_PREKEY_OK)
+		return FZN_NODE_PAIR_REFUSED;
+	fzn_prekey_peer_init(&pinned);
+	if (fzn_prekey_pin(&pinned, record, device->sign, FZN_TRUST_PINNED, now) != FZN_PREKEY_OK)
+		return FZN_NODE_PAIR_REFUSED;
+	memset(&p, 0, sizeof(p));
+	if (fzn_session_establish(device->agree_secret, device->agree, device->hash, device->pubkey,
+	                          record.host, pinned.prekey, p.send_key, p.send_ckey)
+	    != FZN_SESSION_OK) {
+		fzn_wipe(&p, sizeof(p));
+		return FZN_NODE_PAIR_REFUSED;
+	}
+	memcpy(p.node, record.host, FZN_PUBKEY_LEN);
+	memcpy(p.capability.b, capability->b, FZN_CAP_ID_LEN);
+	*out = p;
+	fzn_wipe(&p, sizeof(p));
+	return FZN_NODE_PAIR_OK;
+}
+
 /* node | capability | send_key | send_ckey | hop_count | chain, after the
  * shared head. The session keys are in the clear for the reason `persist.h`
  * gives for every secret it stores: what protects them is the backend. */

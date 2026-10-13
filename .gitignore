@@ -248,6 +248,7 @@ __pycache__/
 /node/test/heard_test
 /node/test/events_test
 /node/test/routing_test
+/node/test/contact_devices_test
 /node/test/identity_test
 /node/test/pair_test
 /node/test/admin_test

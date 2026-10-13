@@ -326,13 +326,18 @@ typedef enum fzn_persist_slot {
 	 * the newest verified, as signed -- this estate's own and each
 	 * contact's. `node/routing.h` keeps it. sec 611. */
 	FZN_PERSIST_ROUTING = 48u,
+	/* Per device, keyed by its key: a contact's device -- its prekey
+	 * record, its owner's chain to it, and where it is reached -- so this
+	 * node pairs it or delivers to it. CORE: it decides whom this node
+	 * pairs. `node/contact_devices.h` keeps it. sec 614. */
+	FZN_PERSIST_CONTACT_DEVICE = 49u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 49u
+#define FZN_PERSIST_SLOT_END 50u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,

@@ -112,6 +112,8 @@ static QString slot_label(fzn_persist_slot_t slot)
 		return QStringLiteral("host heard");
 	case FZN_PERSIST_ROUTING:
 		return QStringLiteral("routing");
+	case FZN_PERSIST_CONTACT_DEVICE:
+		return QStringLiteral("contact device");
 	}
 	/* NO `default:` ABOVE, so a slot added to persist.h draws a -Wswitch
 	 * warning here -- once, in the build after persist.h changes, and not

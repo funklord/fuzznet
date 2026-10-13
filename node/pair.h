@@ -221,6 +221,22 @@ fzn_node_pair_err_t fzn_node_pairing_from_grant(const fzn_node_identity_t *devic
                                                 uint64_t now, const fzn_persist_ops_t *store,
                                                 fzn_node_pairing_t *out);
 
+/*
+ * A PAIRING TO A CONTACT'S HOST, sec 614, derived and not kept: the session
+ * this device's agreement key makes against `host_prekey`, a prekey record
+ * whose signature holds, for `capability` -- what the host grants a
+ * contact's device when it pairs it (`fzn_node_admin_pair_contact_device`).
+ * NO CHAIN: the host holds its grant and checks it, and a device never
+ * presents one (sec 377); so there is nothing to keep that the two public
+ * records and this device's secret do not already make, and a pairing with
+ * no chain is not one `fzn_node_pairing_pack` will store. REFUSED for a
+ * record that does not verify, or one of this device's own.
+ */
+fzn_node_pair_err_t fzn_node_pairing_derive(const fzn_node_identity_t *device,
+                                            const uint8_t host_prekey[FZN_PREKEY_LEN_TOTAL],
+                                            const fzn_cap_id_t *capability, uint64_t now,
+                                            fzn_node_pairing_t *out);
+
 /* Fill the credential half of a caller from a pairing: its sender (this
  * device, `self`), capability and session keys. The socket, the node's
  * address and the ops are the caller's to set; see the header on addresses. */

@@ -74,6 +74,7 @@
 #include "pair.h"
 #include "revoke.h"
 #include "serve.h"
+#include "contact_devices.h"
 
 typedef struct fzn_node_admin {
 	/* The running node. Its `peers` and `peer_count` are replaced after a
@@ -220,11 +221,20 @@ typedef struct fzn_node_admin {
 	                         size_t reply_cap);
 	void *routing_ctx;
 	/* A LINE A CONTACT DELIVERS, sec 613: filed or refused by the hook,
-	 * which resolves the sender to its conversation and knows whether this
-	 * host keeps messages. 0 for what is not one. Contacts only. */
+	 * which knows whether this host keeps messages. `sender` is the
+	 * contact the request speaks for -- the sender, or the owner of the
+	 * contact device it is (sec 614) -- and the conversation the line is
+	 * filed under. 0 for what is not one. Contacts only. */
 	size_t (*messages_contact)(void *ctx, const uint8_t *sender, const uint8_t *request,
 	                           size_t request_len, uint8_t *reply, size_t reply_cap);
 	void *messages_contact_ctx;
+	/* A CONTACT'S OFFER OF ITS USER'S DEVICES, or its query for this
+	 * estate's hosts, sec 614: `owner` is the contact the sender speaks
+	 * for. 0 for what is not one. Contacts only; a member's query for the
+	 * contact devices kept goes to the same hook with `owner` NULL. */
+	size_t (*contact_devices)(void *ctx, const uint8_t *owner, const uint8_t *request,
+	                          size_t request_len, uint8_t *reply, size_t reply_cap);
+	void *contact_devices_ctx;
 } fzn_node_admin_t;
 
 /* Whether `key` is inside this node's estate as `admin` sees it -- itself,
@@ -251,6 +261,23 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
  * (may be NULL) saying why. This node's own prekey is -1. */
 int fzn_node_admin_pair_sibling(fzn_node_admin_t *admin,
                                 const uint8_t prekey[FZN_PREKEY_LEN_TOTAL], const char **why);
+
+/* PAIR A CONTACT'S DEVICE, sec 614: `d`, verified by the caller, paired
+ * into the running node for the share capability as `grant share` pairs a
+ * contact's node -- granted by this node's own key, saved, served from now
+ * -- with no card, since the device builds its side from this node's
+ * prekey. 1 paired; 0 when this node already serves that key, which is
+ * left as it is; -1 when it would not -- this node shares nothing, the
+ * owner is no standing contact, or the device is a member here -- with
+ * `*why` (may be NULL) saying why. */
+int fzn_node_admin_pair_contact_device(fzn_node_admin_t *admin, const fzn_contact_device_t *d,
+                                       const char **why);
+
+/* THE CONTACT `sender` SPEAKS FOR, sec 614: itself when it is a contact
+ * still standing, or the owner of the contact device kept under its key
+ * when that owner stands; into `owner`. 0 when it is neither. */
+int fzn_node_admin_contact_of(const fzn_node_admin_t *admin, const uint8_t sender[FZN_PUBKEY_LEN],
+                              uint8_t owner[FZN_PUBKEY_LEN]);
 
 /* WHETHER `key` IS A CONTACT STILL STANDING: in this node's contact list,
  * and active on the estate's roster where there is one (secs 454, 489). A

@@ -121,6 +121,7 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 	fzn_udp_addr_t from;
 	const uint8_t *sender;
 	const fzn_node_peer_t *peer;
+	fzn_node_peer_t held;
 	fzn_opened_t opened;
 	fzn_node_remote_result_t result;
 	uint64_t now;
@@ -135,6 +136,14 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 	peer = fzn_node_find_peer(state->peers, state->peer_count, sender);
 	if (!peer)
 		return;
+	/* THE PEER BY VALUE, for the whole request, its reply included: a
+	 * handler that pairs or unpairs reloads the running set in place, and
+	 * a pointer into it then names whichever peer the reload left at that
+	 * slot -- measured in sec 614, a contact's offer answered under the
+	 * session of the device it offered, which the asker could not open. A
+	 * peer copied by value is self-contained (`remote.h`). */
+	held = *peer;
+	peer = &held;
 	now = state->clock ? state->clock() : 0u;
 	result = fzn_node_serve_datagram(&state->config, peer, state->hash,
 	                                 state->aead, state->sign, state->replay,

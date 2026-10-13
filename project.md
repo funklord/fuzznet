@@ -63693,7 +63693,8 @@ round trip and nothing more.
 
 ### Not yet after sec 613
 
-- **2b-ii**, above: any device, any listed host, in the manifest's order.
+- ~~**2b-ii**, above: any device, any listed host, in the manifest's
+  order.~~ Built in sec 614.
 - **2c and 2d** as sec 610 has them: settlement, and the sweep's 60 s and
   hourly schedule. Today a line waiting is offered every round, 60 s.
 - **The offer walks the conversation** to find lines being sent, at most
@@ -63730,3 +63731,145 @@ round trip and nothing more.
   whoever wrote it, and the check that B does not offer A's line held with
   the guard gone. The fixture now gives B the key first, and asserts the
   line reads there.
+
+## 614. Step 2b-ii: any device of a user delivers to any host of a contact, 2026-10-13
+
+The second half of sec 610's step 2b, closing the gap sec 613 found: a
+pairing is one device to one host, so the holder's two answers -- any of
+my devices sends, every listed host of the contact delivers or refuses --
+needed a session for every such pair. They have one now, with no card and
+no grant crossing between the users.
+
+### Why nothing secret has to cross
+
+A session is a device's agreement key against a host's prekey, and X25519
+makes it the same from either end (`node/provision.c`). So each side
+builds its own half from the other's **public** prekey record: the host
+pairs the device as a sponsor does (`fzn_node_pair`, the share capability
+granted by its own key, as `grant share` does), and the device derives its
+half from the host's prekey (`fzn_node_pairing_derive`, new in
+`node/pair.h`: the session alone, no chain, not stored -- it is a function
+of two public records and this device's secret). What crosses is only
+whose the keys are.
+
+### `node/contact_devices`, persist slot 49
+
+An entry says a prekey record's host is a device of the user whose root is
+`owner`: the root itself with no chain, or the grantee of the root's chain
+for the **member capability**. That capability is derived from the service
+and product, so it is the same in every estate of the product and a host
+can check it of another estate; and it is that one and not any, since a
+user grants its contacts capabilities too and a contact is not a device.
+A host's entry carries its `net/address`. Kept one per device, newest
+record first, core because it decides whom a node pairs.
+
+Laid out in `node/contact_devices.situ`, with four messages in notes-sync's
+type space after delivery's 28:
+
+- **OFFER 29 / TAKEN 30**: a contact offers one of its user's devices; the
+  host keeps it when it verifies and its owner is the contact asking.
+- **QUERY 31 / LIST 32**, paged: a contact asks for this estate's hosts
+  (all with an address when the estate advertises, sec 611; this host
+  alone otherwise), or a member asks for the contact devices another
+  member kept, so what one member learned reaches the rest.
+
+### The round, in fuzznetd
+
+Each round, for each standing contact, through the first of its hosts
+that answers -- a received share's pairing first, then the hosts kept --
+this node offers every device of its estate, asks for the contact's hosts
+and its routing manifest (sec 611's `get routing`, now fetched from
+contacts too); asks each member for the contact devices it kept; pairs
+every contact device kept whose owner stands; and rebuilds its delivery
+targets: every kept host with an address, a pairing derived to each,
+ordered by contact and by its metric in that contact's manifest, 255 when
+the manifest does not list it.
+
+**Delivery** (sec 613) now walks a contact's hosts in that order: a host
+that refuses or does not answer passes the line to the next, and the
+first that holds it ends the walk. **The receiving host files the line
+under the contact the sender speaks for** -- itself, or the owner of the
+contact device kept under its key (`fzn_node_admin_contact_of`) -- so a
+conversation is the user's whichever device sent it. The contact branch
+of the remote hop admits a contact's device on its owner's standing.
+
+### Two faults found on the way, both older than this
+
+**A member that is no root could never be reached by a contact.** A share
+chain starts at the node's own key (sec 436), and once the estate keeps a
+root set (sec 406) the chain verifier takes the set as the anchor and
+ignores the root it is handed -- `WRONG_ROOT` for every contact of a
+member. Found as a member host answering no contact device; measured by
+calling the verifier with the store and without it. `grant share` on a
+member has had the same fault since sec 406. `fzn_node_decide_share` now
+gives the verifier a view of the store without the root set, so
+`share_root` anchors the chain and the store's hop revocations still
+apply.
+
+**A handler that changed the peer set sealed its reply under another
+peer's session.** `node/serve.c` held a pointer into the running peer set
+for the whole request, and pairing from inside a request reloads that set
+in place. Found as an offer of a second device timing out on some runs
+and not others: the reload put the offered device's session in the
+asker's slot, in the store's order, and the asker could not open the
+answer. Fixed twice: `serve.c` holds the peer by value for the request
+and its reply -- `remote.h` already said a copied peer is self-contained --
+and an offer only keeps the device, which the loop pairs once the answer
+is out.
+
+### Not yet after sec 614
+
+- **The contact must be added by the user's root.** A contact added under
+  a member's key stands for that device alone, as before.
+- **The first pairing is still a card**: `grant share` and `add
+  received`. Contact cards carrying the manifest and the root are sec
+  608's step 3.
+- **Revocations in the contact's estate are not seen here**: a device the
+  contact revoked keeps its entry and pairing until the contact is
+  removed. An entry is never forgotten while its owner stands.
+- **A device that re-keys is not paired again**: a peer held for its key
+  is left as it is. Neither tree re-keys yet.
+- **Every host pairs every device of every contact**: 64 peers a host.
+- **Offers go every round**, every device of the estate to every contact:
+  idempotent, and a handful of requests a round each.
+- **A contact's manifest is fetched by each member for itself**, not
+  carried between members; a member's first delivery to a contact goes in
+  the store's order until its next round holds the manifest.
+- **Delivery needs the notes store**, as sec 613 has it.
+
+### Measured for sec 614
+
+- **`node/test/contact_devices_test`, 27 checks**: an entry with an
+  address and a chain decodes to itself, a byte short or long or another
+  version does not, an address with no port or a space does not encode;
+  the owner's own record holds, another key with no chain does not, a
+  member by the owner's chain holds and one granted another capability
+  does not, a record with a chain to another key, another owner, and a
+  prekey changed after signing do not; the store keeps, replaces, refuses
+  an older record, lists, refuses a row under another key, and removes;
+  the messages: an offer taken and one refused, five of the largest
+  entries over pages each once, a list not answered, a page answering
+  another `from`, a page and a TAKEN with a trailing byte.
+- **`pair_test`, 305 checks, 3 new**: the pairing derived from N's prekey
+  is the session N's card gave, with no chain; a prekey changed after
+  signing derives none; and a reply sealed while the handler reloads the
+  peer set is opened by the asker. **Control**: with `serve.c` holding the
+  pointer, that check fails.
+- **`remote_test`, 50 checks, 2 new**: under a root set naming the
+  estate's root alone, a share chain from this node's key is granted.
+  **Control**: with the root set passed through, it is denied.
+- **`tool/live_contacts.py`, in `make livecheck`**, four daemons, two
+  users of two machines each: R2, paired by hand with nobody of S's, takes
+  S's hosts from R and delivers a line, filed under R's root and not R2's;
+  with S under `policy messages drop` and S's manifest held, R2's next
+  line is refused by S, of metric 10, and held by S2, of metric 20. Five
+  runs in a row passed once both faults were fixed; before, it failed one
+  run in two or three. **Control**: with the contact-device hook unwired,
+  R's pass asks no contact and phase a fails.
+- **Ten sabotage entries, each probed caught**: an entry's chain ending at
+  its host, no chain only for the owner, its record signed, an older
+  record stale, a row under its own key, an entry's exact length, a page
+  naming its `from`, a page's exact length, the share chain anchored at
+  this node, and the peer held by value. One older entry re-anchored --
+  the sibling pairing's "served already" loop now has a twin in the
+  contact pairing -- and caught.

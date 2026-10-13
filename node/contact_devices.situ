@@ -1,0 +1,68 @@
+// A contact's device, project.md sec 614: step 2b-ii of sec 610. The
+// hand-written codec is node/contact_devices.c; this is its checked
+// contract, in `make schema`'s list. Persist slot 49 holds one per device,
+// and the contact messages carry them.
+//
+// AN ENTRY SAYS this prekey record's host is a device of the user whose
+// root is `owner`: the root itself with no chain, or the grantee of the
+// root's chain for the member capability. Where a host is reached rides
+// along; a device that only sends carries no address and port 0.
+//
+// What the schema cannot say and the codec checks: an address is letters,
+// digits and `.-:`, and an address comes with a port or neither does.
+
+target buffer;
+endian big;
+
+struct fzn_contact_device {
+	u8   version [must_eq = 1];
+	u8   owner[32];                         // the user's root
+	u8   record[138];                       // the device's prekey record, signed
+	u8   address_len [max = 253];
+	u8   address[address_len];              // as its estate's net/address
+	u16  port;                              // 0 with no address
+	u8   hop_count [max = 8];               // the owner's chain; 0 for the owner
+	u8   hops[hop_count * 179];             // FZN_HOP_LEN each
+}
+
+// THE MESSAGES, in notes-sync's version byte and type space after
+// delivery's 28. A contact offers its user's devices and asks for this
+// estate's hosts; a member asks for the contact devices another member
+// kept, so what one learned reaches the rest.
+
+// OFFER: one entry, a device of the asker's user.
+struct fzn_contact_devices_offer {
+	u8   version [must_eq = 2];
+	u8   type [must_eq = 29];
+	u8   entry[remaining] max 1860;         // an fzn_contact_device, to the end
+}
+
+// TAKEN: whether the answerer took it.
+struct fzn_contact_devices_taken {
+	u8   version [must_eq = 2];
+	u8   type [must_eq = 30];
+	u8   taken [max = 1];
+}
+
+// QUERY: a page of what `whose` names, from the `from`th entry.
+struct fzn_contact_devices_query {
+	u8   version [must_eq = 2];
+	u8   type [must_eq = 31];
+	u8   from;
+	u8   whose [max = 1];                   // 0 this estate's hosts, 1 kept
+}
+
+// LIST: as many entries as fit, each after its length.
+struct fzn_contact_devices_list {
+	u8   version [must_eq = 2];
+	u8   type [must_eq = 32];
+	u8   from;                              // the query's, echoed
+	u8   count;
+	u8   more [max = 1];
+	fzn_contact_devices_listed entries[count];
+}
+
+struct fzn_contact_devices_listed {
+	u16  len;
+	u8   entry[len];                        // an fzn_contact_device
+}

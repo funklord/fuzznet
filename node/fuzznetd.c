@@ -2652,13 +2652,47 @@ static void routing_derive(fzn_routing_t *out)
 	out->public_relay = estate_flag(ROUTING_PUBLIC_KEY);
 }
 
+/* `get routing` ASKED OF `asking`, and the answer kept as the manifest of
+ * the user whose root is `root` when it verifies against that root and is
+ * newer than the one held: this estate's, from a member (sec 611), or a
+ * contact's, from one of its hosts (sec 614). 1 when one was taken. */
+static int routing_fetch(struct peer_asking *asking, const uint8_t root[FZN_PUBKEY_LEN],
+                         uint64_t now)
+{
+	static uint8_t reply[FZND_PULL_REPLY_MAX];
+	static uint8_t bytes[FZN_ROUTING_MAX];
+	size_t len = 0, n;
+	fzn_routing_t got;
+
+	if (!routing_hash || !routing_sign || !node_apply.store
+	    || !peer_ask(asking, (const uint8_t *)"get routing", 11u, reply, sizeof(reply), &len)
+	    || len < 4u || memcmp(reply, "ok ", 3u) != 0)
+		return 0;
+	while (len && (reply[len - 1u] == '\n' || reply[len - 1u] == '\r'))
+		len--;
+	n = (len - 3u) / 2u;
+	if ((len - 3u) % 2u || n > sizeof(bytes) || len >= sizeof(reply))
+		return 0;
+	reply[len] = '\0';
+	if (!hex_bytes((const char *)reply + 3, bytes, n)
+	    || fzn_routing_decode(bytes, n, &got) != FZN_ROUTING_OK
+	    || fzn_routing_verify(&got, routing_hash, routing_sign, root, node_apply.admin_capability,
+	                          now)
+	               != FZN_ROUTING_OK
+	    || fzn_routing_keep(node_apply.store, root, &got) != FZN_ROUTING_OK)
+		return 0;
+	say(FZN_ENTRY_INFO, "routing", "routing manifest taken from %s: generation %llu, %zu host(s)",
+	    asking->host ? asking->host : "a peer", (unsigned long long)got.generation, got.n);
+	publish("routing", NULL);
+	return 1;
+}
+
 /* THE ESTATE'S MANIFEST, each round, sec 611: signed afresh by the root or
  * an admin when what the settings say has changed, at one past the
  * generation held; taken by any other member from a peer of the estate
  * that answers, once it verifies against the estate's root. */
 static void routing_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
-	static uint8_t reply[FZND_PULL_REPLY_MAX];
 	static uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
 	static fzn_routing_t derived, held;
 	uint8_t hash[FZN_ROUTING_HASH_LEN];
@@ -2692,36 +2726,9 @@ static void routing_round(struct pull_target *pulls, size_t npulls, uint64_t now
 	/* NOT A SIGNER: the newest a peer of the estate holds. */
 	for (t = 0; t < npulls; t++) {
 		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
-		static uint8_t bytes[FZN_ROUTING_MAX];
-		size_t len = 0, n;
-		fzn_routing_t got;
-		fzn_routing_err_t err;
 
-		if (silent_peer(&pulls[t]) || !peer_in_estate(&pulls[t])
-		    || !peer_ask(&asking, (const uint8_t *)"get routing", 11u, reply, sizeof(reply),
-		                 &len)
-		    || len < 4u || memcmp(reply, "ok ", 3u) != 0)
-			continue;
-		while (len && (reply[len - 1u] == '\n' || reply[len - 1u] == '\r'))
-			len--;
-		n = (len - 3u) / 2u;
-		if ((len - 3u) % 2u || n > sizeof(bytes) || len >= sizeof(reply))
-			continue;
-		reply[len] = '\0';
-		if (!hex_bytes((const char *)reply + 3, bytes, n))
-			continue;
-		if (fzn_routing_decode(bytes, n, &got) != FZN_ROUTING_OK
-		    || fzn_routing_verify(&got, routing_hash, routing_sign, node_apply.root,
-		                          node_apply.admin_capability, now)
-		               != FZN_ROUTING_OK)
-			continue;
-		err = fzn_routing_keep(node_apply.store, node_apply.root, &got);
-		if (err == FZN_ROUTING_OK) {
-			say(FZN_ENTRY_INFO, "routing",
-			    "routing manifest taken from %s: generation %llu, %zu host(s)", pulls[t].host,
-			    (unsigned long long)got.generation, got.n);
-			publish("routing", NULL);
-		}
+		if (!silent_peer(&pulls[t]) && peer_in_estate(&pulls[t]))
+			(void)routing_fetch(&asking, node_apply.root, now);
 	}
 }
 
@@ -3837,32 +3844,418 @@ static void pull_received(uint64_t now)
 	                                       "passed over", nshares_in, suspended);
 }
 
-/* LINES DELIVERED TO CONTACTS, sec 613: every line this node wrote and has
- * not yet delivered, offered to each standing contact it holds a pairing
- * with -- the received shares' pairings, until contact pairings are carried
- * between estates. Each round, and at once after a line is written. */
+/* ---- a contact's devices, sec 614 ------------------------------------------
+ *
+ * Every device of a contact pairs every host of this user, and the other way
+ * round, with no card: each side builds its half from the other's prekey
+ * record, and what crosses is the entries saying whose the keys are
+ * (`node/contact_devices.h`). Each round, for each standing contact, this
+ * node offers its estate's devices to one of the contact's hosts, asks it
+ * for the contact's hosts and its routing manifest, and asks each member for
+ * the contact devices it kept; then pairs every contact device kept, as a
+ * host, and builds a pairing to every contact host kept, as a device. */
+
+#define FZND_CONTACT_TARGETS_MAX 32u
+
+static const fzn_node_identity_t *contact_id;
+static int contact_family;
+static const fzn_hash_ops_t *contact_hash_ops;
+static const fzn_aead_ops_t *contact_aead_ops;
+static const fzn_random_ops_t *contact_rng_ops;
+
+/* A HOST OF A CONTACT this node delivers to: the pairing derived from its
+ * prekey, the contact it is a host of, and its metric in that contact's
+ * manifest -- 255 when the manifest does not list it. */
+struct contact_target {
+	struct pull_target pt;
+	char host[FZN_CONTACT_DEVICE_ADDRESS_MAX + 1u];
+	uint8_t contact[FZN_PUBKEY_LEN];
+	unsigned metric;
+};
+
+static struct contact_target contact_targets[FZND_CONTACT_TARGETS_MAX];
+static size_t ncontact_targets;
+
+static const uint8_t *estate_owner(void)
+{
+	return node_apply.root ? node_apply.root : (contact_id ? contact_id->pubkey : NULL);
+}
+
+/* THIS ESTATE'S DEVICES AS ENTRIES: every member whose prekey is kept --
+ * this node among them -- with its chain from the root for the member
+ * capability and its `net/address`; with `hosts` set, only those with an
+ * address, and only this node unless the estate advertises (sec 611). */
+static size_t estate_devices(fzn_contact_device_t *out, size_t cap, int hosts)
+{
+	static uint8_t keys[FZN_NODE_SIBLINGS_MAX][FZN_PUBKEY_LEN];
+	const uint8_t *owner = estate_owner();
+	int advertise = estate_flag(ROUTING_ADVERTISE_KEY);
+	size_t n = 0, count = 0, i;
+
+	if (!contact_id || !owner || !node_apply.store
+	    || fzn_node_siblings_list(node_apply.store, keys, FZN_NODE_SIBLINGS_MAX, &n)
+	               != FZN_NODE_SIBLINGS_OK)
+		n = 0;
+	/* THIS NODE FIRST, from its identity when no sibling store holds it. */
+	for (i = 0; i <= n && count < cap; i++) {
+		const uint8_t *key = i == 0 ? contact_id->pubkey : keys[i - 1u];
+		fzn_contact_device_t *d = &out[count];
+		fzn_setting_rank_t rank;
+		char host[FZN_NODE_SETTINGS_HOST_MAX + 1u];
+		uint16_t port = 0;
+		size_t hop_count = 0;
+
+		if (i > 0 && memcmp(key, contact_id->pubkey, FZN_PUBKEY_LEN) == 0)
+			continue;
+		if (i > 0 && (!advertise && hosts))
+			break;
+		memset(d, 0, sizeof(*d));
+		memcpy(d->owner, owner, FZN_PUBKEY_LEN);
+		if (i == 0)
+			memcpy(d->record, contact_id->prekey_record, FZN_PREKEY_LEN_TOTAL);
+		else if (fzn_node_apply_rank(&node_apply, key, FZN_SCOPE_HOST, key, &rank) != 1
+		         || fzn_node_siblings_prekey(node_apply.store, key, d->record)
+		                    != FZN_NODE_SIBLINGS_OK)
+			continue;
+		if (memcmp(key, owner, FZN_PUBKEY_LEN) != 0
+		    && (!node_apply.capability
+		        || !fzn_node_apply_chain(&node_apply, key, node_apply.capability, d->hops,
+		                                 &hop_count)
+		        || hop_count == 0u))
+			continue;
+		d->hop_count = hop_count;
+		if (fzn_node_settings_address(&node_settings, key, host, &port)
+		    && strlen(host) <= FZN_CONTACT_DEVICE_ADDRESS_MAX) {
+			d->address_len = strlen(host);
+			memcpy(d->address, host, d->address_len + 1u);
+			d->port = port;
+		} else if (hosts) {
+			continue;
+		}
+		count++;
+	}
+	return count;
+}
+
+static fzn_contact_device_t devices_page[FZN_CONTACT_DEVICES_MAX];
+static size_t devices_page_n;
+
+static int hosts_at(void *ctx, size_t i, fzn_contact_device_t *out)
+{
+	(void)ctx;
+	if (i == 0)
+		devices_page_n = estate_devices(devices_page, FZN_CONTACT_DEVICES_MAX, 1);
+	if (i >= devices_page_n)
+		return 0;
+	*out = devices_page[i];
+	return 1;
+}
+
+static int kept_at(void *ctx, size_t i, fzn_contact_device_t *out)
+{
+	(void)ctx;
+	if (i == 0
+	    && fzn_contact_device_list(node_apply.store, devices_page, FZN_CONTACT_DEVICES_MAX,
+	                               &devices_page_n)
+	               != FZN_CONTACT_DEVICE_OK)
+		devices_page_n = 0;
+	if (i >= devices_page_n)
+		return 0;
+	*out = devices_page[i];
+	return 1;
+}
+
+/* WHETHER `d` IS ONE TO KEEP for the contact `owner` speaks as: owned by
+ * it, verifying, no key of this estate's, and kept. */
+static int keep_device(const uint8_t owner[FZN_PUBKEY_LEN], const fzn_contact_device_t *d)
+{
+	fzn_contact_device_err_t err;
+
+	if (!running_admin || memcmp(d->owner, owner, FZN_PUBKEY_LEN) != 0
+	    || !node_apply.capability || !contact_id
+	    || memcmp(fzn_contact_device_key(d), contact_id->pubkey, FZN_PUBKEY_LEN) == 0
+	    || fzn_contact_device_verify(d, contact_id->sign, node_apply.capability, wall_clock())
+	               != FZN_CONTACT_DEVICE_OK)
+		return 0;
+	err = fzn_contact_device_keep(node_apply.store, d);
+	return err == FZN_CONTACT_DEVICE_OK || err == FZN_CONTACT_DEVICE_ERR_STALE;
+}
+
+/* SET WHEN A CONTACT'S DEVICE WAS KEPT while a request was being answered:
+ * the loop pairs it once the answer is out. */
+static int contact_pair_due;
+
+/* AN OFFER FROM A CONTACT: kept, and paired by the loop afterwards. NOT
+ * PAIRED HERE: pairing reloads the running peer set in place, and the
+ * request being answered holds a pointer into it -- the reply was sealed
+ * under whichever peer the reload left at that slot, measured in sec 614
+ * as an offer answered under another device's session and timing out. */
+static int take_offered(void *ctx, const fzn_contact_device_t *d)
+{
+	if (!keep_device((const uint8_t *)ctx, d))
+		return 0;
+	contact_pair_due = 1;
+	return 1;
+}
+
+/* EVERY CONTACT DEVICE KEPT whose owner stands, paired as a host pairs a
+ * device; how many were new. */
+static size_t pair_contact_devices(void)
+{
+	static fzn_contact_device_t kept[FZN_CONTACT_DEVICES_MAX];
+	size_t n = 0, i, paired = 0;
+
+	if (!running_admin || !node_apply.store
+	    || fzn_contact_device_list(node_apply.store, kept, FZN_CONTACT_DEVICES_MAX, &n)
+	               != FZN_CONTACT_DEVICE_OK)
+		return 0;
+	for (i = 0; i < n; i++) {
+		const char *why = NULL;
+		int r;
+
+		if (!fzn_node_admin_contact_stands(running_admin, kept[i].owner))
+			continue;
+		r = fzn_node_admin_pair_contact_device(running_admin, &kept[i], &why);
+		if (r > 0)
+			paired++;
+		else if (r < 0)
+			say(FZN_ENTRY_WARNING, "contact/devices", "a contact's device was not paired: %s",
+			    why ? why : "it would not pair");
+	}
+	return paired;
+}
+
+/* A CONTACT'S OFFER OR QUERY (`owner` the contact), or a member's query for
+ * what this node kept (`owner` NULL). */
+static size_t contact_devices_remote(void *ctx, const uint8_t *owner, const uint8_t *request,
+                                     size_t request_len, uint8_t *reply, size_t reply_cap)
+{
+	size_t n;
+
+	(void)ctx;
+	if (!owner)
+		return fzn_contact_devices_query_answer(request, request_len, NULL, kept_at, NULL, reply,
+		                                        reply_cap);
+	n = fzn_contact_devices_offer_answer(request, request_len, take_offered, (void *)owner, reply,
+	                                     reply_cap);
+	return n ? n
+	         : fzn_contact_devices_query_answer(request, request_len, hosts_at, NULL, NULL,
+	                                            reply, reply_cap);
+}
+
+static int contact_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                       size_t reply_cap, size_t *reply_len)
+{
+	return peer_ask(ctx, request, request_len, reply, reply_cap, reply_len);
+}
+
+/* A HOST A CONTACT NAMED: kept when it is the contact's. One with no
+ * address that is the host asked is reached where it was asked. */
+struct hosts_taking {
+	const uint8_t *contact;
+	const uint8_t *asked;
+	const char *host;
+	uint16_t port;
+	size_t kept;
+};
+
+static void take_host(void *ctx, const fzn_contact_device_t *d)
+{
+	struct hosts_taking *ht = (struct hosts_taking *)ctx;
+	fzn_contact_device_t filled = *d;
+
+	if (!filled.port && ht->asked
+	    && memcmp(fzn_contact_device_key(d), ht->asked, FZN_PUBKEY_LEN) == 0 && ht->host
+	    && strlen(ht->host) <= FZN_CONTACT_DEVICE_ADDRESS_MAX) {
+		filled.address_len = strlen(ht->host);
+		memcpy(filled.address, ht->host, filled.address_len + 1u);
+		filled.port = ht->port;
+	}
+	if (keep_device(ht->contact, &filled))
+		ht->kept++;
+}
+
+/* WHAT A MEMBER KEPT: taken when its owner is a contact standing here. */
+static void take_kept(void *ctx, const fzn_contact_device_t *d)
+{
+	size_t *kept = (size_t *)ctx;
+
+	if (running_admin && fzn_node_admin_contact_stands(running_admin, d->owner)
+	    && keep_device(d->owner, d))
+		(*kept)++;
+}
+
+/* ONE CONTACT ASKED, through `pt`: this estate's devices offered, then its
+ * hosts and its manifest asked. 0 when it did not answer. */
+static int contact_exchange(struct pull_target *pt, const char *host, uint16_t port,
+                            const uint8_t contact[FZN_PUBKEY_LEN], uint64_t now)
+{
+	static fzn_contact_device_t own[FZN_NODE_SIBLINGS_MAX];
+	struct peer_asking asking = { &pt->caller, now, host };
+	struct hosts_taking ht = { contact, pt->pairing.node, host, port, 0 };
+	size_t n = estate_devices(own, FZN_NODE_SIBLINGS_MAX, 0), i, count = 0;
+
+	for (i = 0; i < n; i++)
+		if (fzn_contact_devices_offer(&own[i], contact_ask, &asking) < 0)
+			return 0;
+	if (!fzn_contact_devices_query(FZN_CONTACT_DEVICES_HOSTS, contact_ask, &asking, take_host,
+	                               &ht, &count))
+		return 0;
+	(void)routing_fetch(&asking, contact, now);
+	if (ht.kept)
+		say(FZN_ENTRY_DEBUG, "contact/devices", "%zu device(s) offered to %s, %zu host(s) kept",
+		    n, host, ht.kept);
+	return 1;
+}
+
+/* THE CONTACT HOSTS THIS NODE DELIVERS TO, rebuilt: each kept device with
+ * an address whose owner stands, a pairing derived from its prekey, in
+ * its contact's manifest order. */
+static void load_contact_targets(void)
+{
+	static fzn_contact_device_t kept[FZN_CONTACT_DEVICES_MAX];
+	size_t n = 0, i, j;
+
+	for (i = 0; i < ncontact_targets; i++) {
+		if (contact_targets[i].pt.fd >= 0)
+			fzn_udp_close(contact_targets[i].pt.fd);
+		fzn_wipe(&contact_targets[i].pt.pairing, sizeof(contact_targets[i].pt.pairing));
+	}
+	ncontact_targets = 0;
+	if (!running_admin || !contact_id || !running_admin->state->config.has_share
+	    || fzn_contact_device_list(node_apply.store, kept, FZN_CONTACT_DEVICES_MAX, &n)
+	               != FZN_CONTACT_DEVICE_OK)
+		return;
+	for (i = 0; i < n && ncontact_targets < FZND_CONTACT_TARGETS_MAX; i++) {
+		struct contact_target *ct = &contact_targets[ncontact_targets];
+		fzn_routing_t r;
+
+		if (!kept[i].port || !fzn_node_admin_contact_stands(running_admin, kept[i].owner))
+			continue;
+		memset(ct, 0, sizeof(*ct));
+		ct->pt.fd = -1;
+		memcpy(ct->host, kept[i].address, kept[i].address_len + 1u);
+		memcpy(ct->contact, kept[i].owner, FZN_PUBKEY_LEN);
+		ct->pt.host = ct->host;
+		ct->pt.port = kept[i].port;
+		ct->metric = 255u;
+		if (fzn_routing_load(node_apply.store, kept[i].owner, &r) == FZN_ROUTING_OK)
+			for (j = 0; j < r.n; j++)
+				if (r.entries[j].port == kept[i].port
+				    && r.entries[j].address_len == kept[i].address_len
+				    && memcmp(r.entries[j].address, kept[i].address, kept[i].address_len)
+				               == 0)
+					ct->metric = r.entries[j].metric;
+		if (fzn_node_pairing_derive(contact_id, kept[i].record,
+		                            &running_admin->state->config.share_capability, wall_clock(),
+		                            &ct->pt.pairing)
+		            != FZN_NODE_PAIR_OK
+		    || !open_target(&ct->pt, contact_family, contact_id->pubkey, contact_hash_ops,
+		                    contact_aead_ops, contact_rng_ops))
+			continue;
+		ncontact_targets++;
+	}
+	/* BY CONTACT, THEN METRIC: insertion, a handful at most. */
+	for (i = 1; i < ncontact_targets; i++)
+		for (j = i; j > 0; j--) {
+			struct contact_target *a = &contact_targets[j - 1u], *b = &contact_targets[j];
+			int c = memcmp(a->contact, b->contact, FZN_PUBKEY_LEN);
+			struct contact_target t;
+
+			if (c < 0 || (c == 0 && a->metric <= b->metric))
+				break;
+			t = *a;
+			*a = *b;
+			*b = t;
+		}
+}
+
+/* EACH ROUND: every contact asked through the first of its hosts that
+ * answers -- a received share's pairing first -- the members asked for what
+ * they kept, every contact device kept paired here, and the targets
+ * rebuilt. */
+static void contact_round(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	uint8_t done[FZND_CONTACT_TARGETS_MAX + FZN_NODE_RECEIVED_MAX][FZN_PUBKEY_LEN];
+	size_t ndone = 0, i, k, paired = 0, from_members = 0;
+
+	if (!running_admin || !contact_id || !node_apply.store)
+		return;
+	/* THE HOSTS KEPT SO FAR, so a member's first round asks the contact
+	 * through one it learned last round, or from another member. */
+	load_contact_targets();
+	for (i = 0; i < nshares_in + ncontact_targets; i++) {
+		struct pull_target *pt = i < nshares_in ? &shares_in[i].pt
+		                                        : &contact_targets[i - nshares_in].pt;
+		const uint8_t *contact = i < nshares_in ? shares_in[i].sharer
+		                                        : contact_targets[i - nshares_in].contact;
+		const char *host = i < nshares_in ? shares_in[i].host
+		                                  : contact_targets[i - nshares_in].host;
+
+		for (k = 0; k < ndone && memcmp(done[k], contact, FZN_PUBKEY_LEN) != 0; k++)
+			;
+		if (k < ndone || !fzn_node_admin_contact_stands(running_admin, contact))
+			continue;
+		if (contact_exchange(pt, host, (uint16_t)pt->port, contact, now))
+			memcpy(done[ndone++], contact, FZN_PUBKEY_LEN);
+	}
+	for (i = 0; i < npulls; i++) {
+		struct peer_asking asking = { &pulls[i].caller, now, pulls[i].host };
+		size_t count = 0;
+
+		if (!silent_peer(&pulls[i]) && peer_in_estate(&pulls[i]))
+			(void)fzn_contact_devices_query(FZN_CONTACT_DEVICES_KEPT, contact_ask, &asking,
+			                                take_kept, &from_members, &count);
+	}
+	paired = pair_contact_devices();
+	contact_pair_due = 0;
+	load_contact_targets();
+	say(FZN_ENTRY_DEBUG, "contact/devices",
+	    "contact pass: %zu contact(s) asked, %zu kept from members, %zu paired, %zu host(s) "
+	    "to deliver to",
+	    ndone, from_members, paired, ncontact_targets);
+}
+
+/* LINES DELIVERED TO CONTACTS, secs 613 and 614: every line this node wrote
+ * and has not yet delivered, offered to each standing contact through its
+ * hosts in turn -- a received share's pairing first, then the hosts kept in
+ * its manifest's order -- until one holds them. Each round, and at once
+ * after a line is written. */
 static void deliver_contacts(uint64_t now)
 {
-	size_t i;
+	uint8_t done[FZND_CONTACT_TARGETS_MAX + FZN_NODE_RECEIVED_MAX][FZN_PUBKEY_LEN];
+	size_t ndone = 0, i, k;
 
 	if (!messages_on)
 		return;
-	for (i = 0; i < nshares_in; i++) {
-		struct peer_asking asking = { &shares_in[i].pt.caller, now, shares_in[i].host };
+	for (i = 0; i < nshares_in + ncontact_targets; i++) {
+		struct pull_target *pt = i < nshares_in ? &shares_in[i].pt
+		                                        : &contact_targets[i - nshares_in].pt;
+		const uint8_t *contact = i < nshares_in ? shares_in[i].sharer
+		                                        : contact_targets[i - nshares_in].contact;
+		const char *host = i < nshares_in ? shares_in[i].host
+		                                  : contact_targets[i - nshares_in].host;
+		struct peer_asking asking = { &pt->caller, now, host };
 		fzn_node_messages_delivery_t d;
 		fzn_messages_err_t err;
 
-		if (running_admin && !fzn_node_admin_contact_stands(running_admin, shares_in[i].sharer))
+		for (k = 0; k < ndone && memcmp(done[k], contact, FZN_PUBKEY_LEN) != 0; k++)
+			;
+		if (k < ndone
+		    || (running_admin && !fzn_node_admin_contact_stands(running_admin, contact)))
 			continue;
-		err = fzn_node_messages_deliver(&node_messages, shares_in[i].sharer, peer_ask, &asking,
-		                                &d);
+		err = fzn_node_messages_deliver(&node_messages, contact, peer_ask, &asking, &d);
 		if (err != FZN_MESSAGES_OK)
-			say(FZN_ENTRY_WARNING, "messages/deliver", "delivering to %s: %s", shares_in[i].host,
+			say(FZN_ENTRY_WARNING, "messages/deliver", "delivering to %s: %s", host,
 			    fzn_messages_err_str(err));
 		else if (d.sent)
 			say(FZN_ENTRY_INFO, "messages/deliver",
 			    "%zu line(s) offered to %s: %zu delivered, %zu refused, %zu unanswered", d.sent,
-			    shares_in[i].host, d.delivered, d.refused, d.unanswered);
+			    host, d.delivered, d.refused, d.unanswered);
+		/* ALL OF THEM TAKEN, OR NONE WAITING: this contact is done. A
+		 * refusal or no answer tries its next host. */
+		if (err == FZN_MESSAGES_OK && !d.refused && !d.unanswered)
+			memcpy(done[ndone++], contact, FZN_PUBKEY_LEN);
 	}
 }
 
@@ -5717,6 +6110,7 @@ int main(int argc, char **argv)
 			/* THE ESTATE'S ROUTING MANIFEST, sec 611. */
 			admin.routing_remote = routing_remote;
 			admin.messages_contact = messages_contact;
+			admin.contact_devices = contact_devices_remote;
 			routing_self = identity.pubkey;
 			routing_sign = &sign_ops;
 			routing_hash = &hash_ops;
@@ -5934,6 +6328,14 @@ int main(int argc, char **argv)
 		}
 
 		load_received(family, identity.pubkey, &hash_ops, &aead_ops, &rng_ops);
+		/* A CONTACT'S DEVICES, sec 614: paired and delivered to as this
+		 * identity, over sockets of this family. */
+		contact_id = &identity;
+		contact_family = family;
+		contact_hash_ops = &hash_ops;
+		contact_aead_ops = &aead_ops;
+		contact_rng_ops = &rng_ops;
+		load_contact_targets();
 		say(FZN_ENTRY_NOTE, "node", "serving%s%s%s, pulling from %zu peer(s) every %us",
 		        sock_path ? " on " : "", sock_path ? sock_path : "",
 		        (udp_port >= 0) ? " udp" : "", npulls, FZND_PULL_EVERY);
@@ -6041,6 +6443,7 @@ int main(int argc, char **argv)
 				 * fetched once the note naming it has arrived. */
 				pull_notes(pulls, npulls, now, &state, running, running_roots);
 				pull_received(now);
+				contact_round(pulls, npulls, now);
 				deliver_contacts(now);
 				history_trim();
 #ifdef FZN_SPOOL_FILE_ON
@@ -6064,6 +6467,17 @@ int main(int argc, char **argv)
 #endif
 			/* A TRASH JUST EMPTIED is carried to the pull peers now, not
 			 * at the next round. sec 433. */
+			/* A CONTACT'S DEVICE JUST OFFERED is paired now, the answer
+			 * that kept it being out. sec 614. */
+			if (contact_pair_due) {
+				size_t paired;
+
+				contact_pair_due = 0;
+				paired = pair_contact_devices();
+				if (paired)
+					say(FZN_ENTRY_INFO, "contact/devices",
+					    "%zu contact device(s) paired as offered", paired);
+			}
 			/* A SHARE JUST ACCEPTED is pulled now. sec 437. */
 			if (running_admin && running_admin->received_fresh) {
 				running_admin->received_fresh = 0;

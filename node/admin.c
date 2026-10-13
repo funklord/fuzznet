@@ -1980,6 +1980,79 @@ static int remote_admin(const fzn_node_admin_t *admin, const uint8_t *sender)
 	       && rank >= FZN_SETTING_RANK_ADMIN;
 }
 
+int fzn_node_admin_pair_contact_device(fzn_node_admin_t *admin, const fzn_contact_device_t *d,
+                                       const char **why)
+{
+	static uint8_t card[FZN_PROVISION_MAX_LEN];
+	fzn_prekey_record_t record;
+	fzn_node_pair_err_t perr;
+	size_t card_len = 0, loaded = 0, i;
+	uint64_t now;
+
+	if (why)
+		*why = NULL;
+	if (!admin || !admin->id || !admin->state || !admin->store || !admin->peers || !d
+	    || fzn_prekey_open(d->record, FZN_PREKEY_LEN_TOTAL, &record) != FZN_PREKEY_OK)
+		return -1;
+	for (i = 0; i < admin->state->peer_count; i++)
+		if (fzn_ct_memeq(admin->state->peers[i].sender, record.host, FZN_PUBKEY_LEN))
+			return 0;
+	if (!admin->state->config.has_share) {
+		if (why)
+			*why = "this node shares nothing, so has no contact capability to grant";
+		return -1;
+	}
+	if (!fzn_node_admin_contact_stands(admin, d->owner)) {
+		if (why)
+			*why = "its owner is no contact standing here";
+		return -1;
+	}
+	/* A MEMBER IS PAIRED AS ONE: a contact's chain would replace its grant. */
+	if (is_member(admin, record.host)) {
+		if (why)
+			*why = "a member of this estate, not a contact's device";
+		return -1;
+	}
+	now = admin->state->clock ? admin->state->clock() : 0u;
+	perr = fzn_node_pair(admin->id, admin->id->pubkey, &admin->state->config.share_capability,
+	                     NULL, 0, admin->store, record, now, now + admin->card_lifetime, card,
+	                     sizeof(card), &card_len);
+	fzn_wipe(card, sizeof(card));
+	if (perr != FZN_NODE_PAIR_OK) {
+		if (why)
+			*why = fzn_node_pair_err_str(perr);
+		return -1;
+	}
+	if (fzn_node_peers_load(admin->store, admin->peers, admin->peers_cap, &loaded)
+	    != FZN_PERSIST_OK) {
+		if (why)
+			*why = "paired and saved, and the running peer set did not reload";
+		return -1;
+	}
+	admin->state->peers = admin->peers;
+	admin->state->peer_count = loaded;
+	return 1;
+}
+
+int fzn_node_admin_contact_of(const fzn_node_admin_t *admin, const uint8_t sender[FZN_PUBKEY_LEN],
+                              uint8_t owner[FZN_PUBKEY_LEN])
+{
+	fzn_contact_device_t d;
+
+	if (!admin || !sender || !owner)
+		return 0;
+	if (fzn_node_admin_contact_stands(admin, sender)) {
+		memcpy(owner, sender, FZN_PUBKEY_LEN);
+		return 1;
+	}
+	if (!admin->store
+	    || fzn_contact_device_get(admin->store, sender, &d) != FZN_CONTACT_DEVICE_OK
+	    || !fzn_node_admin_contact_stands(admin, d.owner))
+		return 0;
+	memcpy(owner, d.owner, FZN_PUBKEY_LEN);
+	return 1;
+}
+
 int fzn_node_admin_contact_stands(const fzn_node_admin_t *admin,
                                   const uint8_t key[FZN_PUBKEY_LEN])
 {
@@ -2045,12 +2118,21 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 		 * contact list no longer holds, though its grant and its share
 		 * rows stay -- nothing is deleted, and adding it back serves it
 		 * again. */
-		if (!fzn_node_admin_contact_stands(admin, req->sender))
+		/* OR A DEVICE OF ONE, sec 614: kept as a contact's device, its
+		 * owner standing. */
+		uint8_t owner[FZN_PUBKEY_LEN];
+
+		if (!fzn_node_admin_contact_of(admin, req->sender, owner))
 			return answer_text(out, reply_cap, FZN_REPLY_DENIED, "no longer a contact");
-		/* A LINE IT DELIVERS, sec 613. */
-		if (admin->messages_contact && req->payload)
-			n = admin->messages_contact(admin->messages_contact_ctx, req->sender,
-			                            req->payload, req->payload_len, reply, reply_cap);
+		/* ITS USER'S DEVICES, AND THIS ESTATE'S HOSTS, sec 614. */
+		if (admin->contact_devices && req->payload)
+			n = admin->contact_devices(admin->contact_devices_ctx, owner, req->payload,
+			                           req->payload_len, reply, reply_cap);
+		/* A LINE IT DELIVERS, sec 613, filed under the contact it
+		 * speaks for. */
+		if (!n && admin->messages_contact && req->payload)
+			n = admin->messages_contact(admin->messages_contact_ctx, owner, req->payload,
+			                            req->payload_len, reply, reply_cap);
 		/* WHERE THIS USER MAY BE REACHED, sec 611, when it advertises. */
 		if (!n && admin->routing_remote && req->payload)
 			n = admin->routing_remote(admin->routing_ctx, req->sender, 1, req->payload,
@@ -2069,6 +2151,16 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 		return n ? n
 		         : answer_text(out, reply_cap, FZN_REPLY_DENIED,
 		                       "a contact may only fetch what is shared with it");
+	}
+
+	/* THE CONTACT DEVICES ANOTHER MEMBER KEPT, sec 614, asked so what one
+	 * member learned reaches the rest. Contacts never reach here. */
+	if (admin->contact_devices && req->payload) {
+		size_t n = admin->contact_devices(admin->contact_devices_ctx, NULL, req->payload,
+		                                  req->payload_len, reply, reply_cap);
+
+		if (n)
+			return n;
 	}
 
 	/* A LOG GATHERED, sec 463: a member's query for this host's log,

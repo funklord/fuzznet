@@ -67,10 +67,22 @@ fzn_authz_verdict_t fzn_node_decide_share(const fzn_node_config_t *config,
                                           const fzn_revocation_store_t *revocations)
 {
 	fzn_authz_policy_t policy;
+	fzn_revocation_store_t own;
 
 	if (!config || !config->has_share || !config->serves_remote)
 		return FZN_AUTHZ_DENIED;
 	policy = fzn_authz_requires(&config->share_capability, FZN_ORIGIN_BIT(FZN_ORIGIN_REMOTE));
+	/* A SHARE CHAIN STARTS AT THIS NODE'S OWN KEY, sec 436, and the
+	 * estate's root set (sec 406) names the estate's roots: with it, the
+	 * chain verifier takes the set as the anchor and refuses every chain a
+	 * member granted -- WRONG_ROOT, measured in sec 614 on a member that is
+	 * no root. So the set is left out and `share_root` anchors the chain;
+	 * the store's revocations of hops still apply. */
+	if (revocations && revocations->roots) {
+		own = *revocations;
+		own.roots = NULL;
+		revocations = &own;
+	}
 	return fzn_authz_decide(policy, FZN_ORIGIN_REMOTE, hops, hop_count, config->share_root,
 	                        now, sign, revocations, NULL);
 }
