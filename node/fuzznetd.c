@@ -38,6 +38,8 @@
 
 #include "serve.h"
 #include "routing.h"
+#include "contact_card.h"
+#include "../contact/contact.h"
 #include "admin.h"
 #include "caller.h"
 #include "identity.h"
@@ -313,6 +315,7 @@ static void publish(const char *subject, const char *name)
  * word after the verb -- naming the item when the next word is one (hex).
  * A change one UI makes reaches the others. sec 609. */
 static size_t routing_local(const fzn_request_t *request, char *reply, size_t reply_cap);
+static size_t card_local(const fzn_request_t *request, char *reply, size_t reply_cap);
 
 static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
                            const fzn_peer_t *peer, const fzn_request_t *request, char *reply,
@@ -320,6 +323,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 {
 	size_t n = routing_local(request, reply, reply_cap);
 
+	if (!n)
+		n = card_local(request, reply, reply_cap);
 	if (n)
 		return n;
 	n = fzn_node_admin_handle(ctx, verdict, origin, peer, request, reply, reply_cap);
@@ -4308,6 +4313,63 @@ static int takes_over_line(void *ctx, const uint8_t writer[FZN_PUBKEY_LEN],
 			return 0;
 	}
 	return 1;
+}
+
+/* `get card [NAME]`, sec 617: this host's contact card -- its estate entry,
+ * the estate's manifest's first entries as seeds, and NAME if given --
+ * signed by this host, as text: `ok FZC1:...`. Seeds are dropped, last
+ * first, until the card fits a reply line. 0 for any other request. */
+static size_t card_local(const fzn_request_t *request, char *reply, size_t reply_cap)
+{
+	static fzn_contact_device_t own[1];
+	static fzn_contact_card_t card;
+	static uint8_t bytes[FZN_CONTACT_CARD_MAX];
+	static char text[FZN_CONTACT_CARD_TEXT_MAX];
+	fzn_routing_t r;
+	size_t len = 0, i, n;
+
+	if (request->parsed != FZN_VERB_GET || request->arg_len < 4u
+	    || memcmp(request->arg, "card", 4u) != 0
+	    || (request->arg_len > 4u && request->arg[4] != ' '))
+		return 0;
+	memset(&card, 0, sizeof(card));
+	if (request->arg_len > 5u) {
+		n = request->arg_len - 5u;
+		if (n > FZN_CONTACT_CARD_NAME_MAX
+		    || !fzn_contact_name_ok((const char *)request->arg + 5, n))
+			return (size_t)snprintf(reply, reply_cap, "malformed get card [NAME]\n");
+		memcpy(card.name, request->arg + 5, n);
+		card.name_len = n;
+	}
+	if (!contact_id || estate_devices(own, 1u, 0) != 1u)
+		return (size_t)snprintf(reply, reply_cap, "error this host has no estate entry yet\n");
+	card.host = own[0];
+	if (node_apply.store && node_apply.root
+	    && fzn_routing_load(node_apply.store, node_apply.root, &r) == FZN_ROUTING_OK)
+		for (i = 0; i < r.n && card.n_seeds < FZN_CONTACT_CARD_SEEDS_MAX; i++) {
+			fzn_contact_card_seed_t *seed = &card.seeds[card.n_seeds++];
+
+			memcpy(seed->address, r.entries[i].address, r.entries[i].address_len);
+			seed->address[r.entries[i].address_len] = '\0';
+			seed->address_len = r.entries[i].address_len;
+			seed->port = r.entries[i].port;
+			seed->transport = r.entries[i].transport;
+			seed->metric = r.entries[i].metric;
+		}
+	for (;;) {
+		if (fzn_contact_card_sign(&card, contact_id->sign) != FZN_CONTACT_CARD_OK
+		    || fzn_contact_card_encode(&card, bytes, sizeof(bytes), &len) != FZN_CONTACT_CARD_OK
+		    || fzn_contact_card_text(bytes, len, text, sizeof(text)) != FZN_CONTACT_CARD_OK)
+			return (size_t)snprintf(reply, reply_cap,
+			                        "error no card: this host has no address and its estate "
+			                        "no manifest entry\n");
+		if (strlen(text) + 4u <= reply_cap || card.n_seeds == 0u)
+			break;
+		card.n_seeds--;
+	}
+	if (strlen(text) + 4u > reply_cap)
+		return (size_t)snprintf(reply, reply_cap, "error the card is longer than a reply line\n");
+	return (size_t)snprintf(reply, reply_cap, "ok %s\n", text);
 }
 
 /* EACH ROUND: every contact asked through the first of its hosts that

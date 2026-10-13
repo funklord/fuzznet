@@ -155,6 +155,7 @@
 #include <fuzznet/node/events.h>
 #include <fuzznet/node/routing.h>
 #include <fuzznet/node/contact_devices.h>
+#include <fuzznet/node/contact_card.h>
 #include <fuzznet/node/holdings.h>
 #include <fuzznet/node/buckets.h>
 #include <fuzznet/node/reconcile.h>
@@ -335,6 +336,7 @@
 #include "node/events.h"
 #include "node/routing.h"
 #include "node/contact_devices.h"
+#include "node/contact_card.h"
 #include "node/holdings.h"
 #include "node/buckets.h"
 #include "node/reconcile.h"

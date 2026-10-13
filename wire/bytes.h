@@ -288,6 +288,12 @@ typedef enum fzn_signed_object {
 	 * applied. See `state/setting.h`. */
 	FZN_OBJECT_SETTING = 147u,
 
+	/* A CONTACT CARD, sec 617: a host of a user, its proof of membership
+	 * from the user's root, where it and the user's hosts are reached, and
+	 * a name -- what a stranger is handed to ask for contact. Signed by the
+	 * host it names. See `node/contact_card.h`. */
+	FZN_OBJECT_CONTACT_CARD = 148u,
+
 	/* NOT A TAG. The next number available, computed by the compiler rather
 	 * than written down, which is what makes the assertions below able to
 	 * notice a tag added without touching them.
@@ -406,7 +412,8 @@ FZN_STATIC_ASSERT(FZN_OBJECT_HOP < FZN_OBJECT_REVOCATION
                && FZN_OBJECT_ADMIN_CONFIRM < FZN_OBJECT_QUORUM_SET
                && FZN_OBJECT_QUORUM_SET < FZN_OBJECT_RETENTION_SET
                && FZN_OBJECT_RETENTION_SET < FZN_OBJECT_SUCCESSION
-               && FZN_OBJECT_SUCCESSION < FZN_OBJECT_SETTING,
+               && FZN_OBJECT_SUCCESSION < FZN_OBJECT_SETTING
+               && FZN_OBJECT_SETTING < FZN_OBJECT_CONTACT_CARD,
                "signed-object tags must be strictly increasing in the order "
                "they are declared: equal means two objects share a signature, "
                "and out of order means somebody reused a number");
@@ -421,7 +428,7 @@ FZN_STATIC_ASSERT(FZN_OBJECT_NEXT_FREE <= 256u,
  * does not name. This is what makes the chain's coverage total rather than
  * merely correct -- an enumerator appended anywhere moves the marker, and the
  * only way to satisfy this line again is to extend the chain to reach it. */
-FZN_STATIC_ASSERT(FZN_OBJECT_NEXT_FREE == FZN_OBJECT_SETTING + 1u,
+FZN_STATIC_ASSERT(FZN_OBJECT_NEXT_FREE == FZN_OBJECT_CONTACT_CARD + 1u,
                "a signed-object tag was added without extending the chain above it");
 
 #endif /* FZN_BYTES_H */

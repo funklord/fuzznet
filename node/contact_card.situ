@@ -1,0 +1,41 @@
+// A contact card, project.md sec 617: fuzzypickles' contact card brought
+// into fuzznet as step 3 of sec 608. The hand-written codec is
+// node/contact_card.c; this is its checked contract, in `make schema`'s
+// list.
+//
+// What a user hands a stranger so the stranger can ask for contact: a host
+// of the user and its proof of membership from the user's root (a contact
+// device entry, node/contact_devices.situ), up to four seeds shaped as a
+// routing manifest's entries, a name, an expiry. SIGNED BY THE HOST the
+// entry names, over every byte before the signature; the tag is the
+// signed-object tag 148, so no other object's signature can be one.
+//
+// What the schema cannot say and the codec checks: a name is a contact name
+// or empty, a seed has a port and an address of `net/address`'s letters,
+// and the host has an address or there is a seed to reach it at.
+//
+// TEXT is `FZC1:` and unpadded uppercase base32.
+
+target buffer;
+endian big;
+
+struct fzn_contact_card_seed {
+	u8   address_len [min = 1, max = 253];
+	u8   address[address_len];
+	u16  port [min = 1];
+	u8   transport;                         // a bitmask: 1 UDP
+	u8   metric;                            // lowest preferred
+}
+
+struct fzn_contact_card {
+	u8   version [must_eq = 1];
+	u8   tag [must_eq = 148];               // FZN_OBJECT_CONTACT_CARD
+	u16  host_len;
+	u8   host[host_len];                    // an fzn_contact_device
+	u8   seed_count [max = 4];
+	fzn_contact_card_seed seeds[seed_count];
+	u8   name_len [max = 32];
+	u8   name[name_len];                    // a contact name, or none
+	u64  expires_at;                        // seconds; 0 never
+	u8   sig[64];                           // by the host, over all before it
+}

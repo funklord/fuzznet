@@ -1,0 +1,37 @@
+# situ capability map v1
+# schema: contact_card.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct fzn_contact_card size=78..66677 access=Sequential mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  fzn_contact_card.version               offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_card.tag                   offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_card.host_len              offset=AbsoluteStatic(0x02) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  fzn_contact_card.host                  offset=AbsoluteStatic(0x04) size=Bounded(0, 65535) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_contact_card.seed_count            offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  fzn_contact_card.seeds                 offset=Dynamic size=Bounded(0, 1032) align=Unaligned repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable
+  fzn_contact_card.seeds[]               offset=FrameStatic(0x00) size=Bounded(6, 258) align=Aligned(8) repr=ValueConverted atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable
+  fzn_contact_card.seeds[].address_len   offset=FrameStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord address=FrameStable
+  fzn_contact_card.seeds[].address       offset=FrameStatic(0x01) size=Bounded(1, 253) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=FrameStable
+  fzn_contact_card.seeds[].port          offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  fzn_contact_card.seeds[].transport     offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  fzn_contact_card.seeds[].metric        offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  fzn_contact_card.name_len              offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  fzn_contact_card.name                  offset=Dynamic size=Bounded(0, 32) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+  fzn_contact_card.expires_at            offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  fzn_contact_card.sig                   offset=Dynamic size=Fixed(64) align=Unaligned repr=MemoryIdentical atomic=NonAtomic address=Unstable
+
+struct fzn_contact_card_seed size=6..258 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  fzn_contact_card_seed.address_len      offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_contact_card_seed.address          offset=AbsoluteStatic(0x01) size=Bounded(1, 253) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_contact_card_seed.port             offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  fzn_contact_card_seed.transport        offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  fzn_contact_card_seed.metric           offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable

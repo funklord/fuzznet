@@ -11715,6 +11715,48 @@ SABOTAGES = [
 		"\t\t\t\t        && !(page[i].state == 0u)))\n",
 		"a line to a key fuzznet does not list yet -- fuzzypickles' contacts -- is marked not delivered -- sec 616",
 	),
+	(
+		"contact-card-signed-by-its-host",
+		"node/contact_card.c",
+		"\tif (!n\n\t    || !sign->verify(sign->ctx, fzn_contact_device_key(&card->host), bytes, n, card->sig))\n\t\treturn FZN_CONTACT_CARD_ERR_REFUSED;\n",
+		"\tif (!n)\n\t\treturn FZN_CONTACT_CARD_ERR_REFUSED;\n",
+		"a card altered after signing, or signed by anybody, is taken as the host's -- sec 617",
+	),
+	(
+		"contact-card-host-entry-holds",
+		"node/contact_card.c",
+		"\tif (fzn_contact_device_verify(&card->host, sign, member, now) != FZN_CONTACT_DEVICE_OK)\n\t\treturn FZN_CONTACT_CARD_ERR_REFUSED;\n",
+		"",
+		"a card naming a host its root never made a member is taken, and a stranger poses as the user -- sec 617",
+	),
+	(
+		"contact-card-expiry",
+		"node/contact_card.c",
+		"\tif (now != 0u && card->expires_at != 0u && card->expires_at < now)\n\t\treturn FZN_CONTACT_CARD_ERR_EXPIRED;\n",
+		"",
+		"a card past its expiry is taken -- sec 617",
+	),
+	(
+		"contact-card-exact-length",
+		"node/contact_card.c",
+		"\tif (len != at + FZN_SIG_LEN || !fields_ok(out))\n",
+		"\tif (len < at + FZN_SIG_LEN || !fields_ok(out))\n",
+		"a card with trailing bytes decodes, two encodings of one card -- sec 617",
+	),
+	(
+		"contact-card-text-one-string",
+		"node/contact_card.c",
+		"\tif (body_len != (n * 8u + 4u) / 5u || (bits > 0 && (acc & ((1u << bits) - 1u)) != 0u))\n",
+		"\tif (bits > 0 && (acc & ((1u << bits) - 1u)) != 0u)\n",
+		"a character too many reads as the same card: two strings for one -- sec 617",
+	),
+	(
+		"contact-card-somewhere-to-ask",
+		"node/contact_card.c",
+		"\treturn card->host.port != 0u || card->n_seeds > 0u;\n",
+		"\treturn 1;\n",
+		"a card is handed out that nobody can ask for contact through -- sec 617",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

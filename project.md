@@ -64034,3 +64034,99 @@ sec 607's rule.
   told, giving up lines being sent, and only when the contact was removed.
   Two older entries re-anchored on the changed conditions -- sec 607's
   "only while handed over" and sec 613's "own device only" -- and caught.
+
+## 617. Step 3 planned, and 3a: the contact card, 2026-10-13
+
+Sec 608's step 3, pairing, identity and contact cards as verbs (its B6),
+designed by importing what fuzzypickles built and decided -- surveyed
+from its `project.md` and `core/src/peer_pair*`, `pairing_crypto*` and
+`control.h` -- and fitting it to what fuzznet already is.
+
+### What is imported
+
+- **The contact card** (fuzzypickles' `fzp_contact_card_t`): a host of the
+  user and its proof of membership from the user's root (their "host
+  proof"), the host's address, up to four seeds in a manifest entry's
+  shape, a display name, an expiry (0 permanent, the default), signed by
+  the host. Not pinned: first contact adopts the root.
+- **Pairing by request** (their `peer-request`, `-list`, `-approve`,
+  `-reject`): the requester verifies the card and adds its issuer at once
+  -- a card is a stronger credential than a bare prekey -- then sends a
+  request the target queues; a newer request from the same requester
+  replaces the older, the oldest is evicted when full, since the input is
+  unauthenticated; the target's user approves with a name, or rejects.
+- **The first-contact sealed box** (their `pairing_crypto`): sealed to the
+  target host's prekey from the card with an ephemeral X25519 key --
+  confidentiality only, deliberately no sender authentication by the box;
+  authenticity is the payload's own signature, checked after opening.
+- **Identity backup and reset** (their secs 110, 111): backup copies the
+  whole state to a 0700 directory and treats a partial copy as failure,
+  with no export format; reset names the identity it discards, refuses any
+  other, wipes and stops. No restore verb: restoring is copying back.
+- **Contacts keyed by the user's root**, names presentation only (their
+  sec 201, fuzznet's sec 614).
+
+### What is fuzznet's own in step 3
+
+- **No pairing response.** Their response is "purely informational",
+  fire-and-forget. Here, approval adds the requester's root as a contact
+  and keeps the request's card host as a contact device, and sec 614's
+  round does the rest: the target's host pairs the requester's devices,
+  offers its own, and the requester's side -- which kept the card's host
+  when it sent the request -- pairs them back. The first offer is the
+  answer.
+- **Text** is fuzznet's card convention, `provision/`'s: a version prefix
+  and unpadded uppercase base32, for a QR code's alphanumeric mode, in
+  place of their Base58. Camera and QR stay fuzzypickles' (sec 608 C).
+
+### Step 3's stages
+
+1. **3a, the card** -- `node/contact_card`, the verb `get card`. Built here.
+2. **3b, the sealed box** -- a primitive beside `session/`, and the UDP
+   path that admits a box from a key it has no session with, for the
+   pairing request alone.
+3. **3c, request, approve, reject** -- the queue, the verbs, approval
+   handing over to sec 614's round; `grant share` and `add received` no
+   longer needed for a first contact.
+4. **3d, identity backup and reset.**
+
+### 3a: `node/contact_card`
+
+- **Layout** (`node/contact_card.situ`): version, the signed-object tag
+  148 (`FZN_OBJECT_CONTACT_CARD`, new in `wire/bytes.h`), the host as a
+  contact device entry (sec 614: owner root, prekey record, the root's
+  chain to the host for the member capability, address), up to four seeds,
+  a name -- a contact name or none -- the expiry, and the host's
+  signature over every byte before it.
+- **What makes one hold** (`fzn_contact_card_verify`): its host entry
+  holds as a contact device does, the host signed it, and it has not
+  expired. A card must name somewhere to ask: the host's address, or a
+  seed.
+- **Text**: `FZC1:` and base32; one string per card -- lowercase, a
+  character too many, and spare bits set are each refused or read as
+  other bytes, never as the same card.
+- **`get card [NAME]`**: this host's card -- its estate entry, the first
+  entries of the estate's manifest as seeds, NAME if given -- signed by
+  this host, `ok FZC1:...`. Seeds are dropped, last first, until it fits
+  a reply line; a host with no address and an estate with no manifest has
+  none to give. A root's card with no chain is about 440 characters.
+
+### Measured for sec 617
+
+- **`node/test/contact_card_test`, 27 checks**: a signed card decodes to
+  itself and holds; a byte short or long, and another object's tag, do
+  not decode; its name or a seed changed after signing, a signature by
+  another key, and a host with no chain from its owner do not hold;
+  expiry read both ways; a name not a contact name, a seed with no port,
+  five seeds, and nowhere to ask are not signed, no name and a seed alone
+  are; text reads back to the same bytes, and a character too many,
+  lowercase, another prefix and set spare bits are refused or other bytes;
+  and at 10, 11 and 13 bytes, where a character too many adds no byte, it
+  is refused.
+- `get card` against a daemon: refused with no address, a card once
+  `net/address` is set, a name that is no contact name refused.
+- **Six sabotage entries, each probed caught.** The text's one-string
+  check **survived its first probe**: the test card's length left three
+  spare bits, so a character too many always made an extra byte and the
+  length check never decided anything. Only lengths leaving two spare bits
+  or fewer -- 0, 1 or 3 modulo 5 -- need it; the case above covers each.
