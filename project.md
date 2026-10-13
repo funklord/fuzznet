@@ -63308,12 +63308,27 @@ Each step leaves both trees working:
 7. **fuzzypickles cuts over:** its clients speak to fuzznetd, the A list
    is deleted there, and fzpd is retired.
 
-### Questions for the holder
+### Decided by the holder, 2026-10-13
 
-- Is this order right, and does fzpd go entirely -- every UI speaking to
-  fuzznetd -- rather than shrinking to a shell?
-- Groups: fuzzypickles' model (a group as its own signed principal) or
-  fuzznet's (`contact/group.h`, members and grants)?
-- Is location sampling from gpsd -- a TCP client to a local daemon --
-  network code by this rule, or a device input like the camera?
-- Sec 607's pass: keep it until delivery lands, or take it out now?
+- **The order above, as proposed.** Step 1 is event push on fuzznetd's
+  local socket.
+- **fzpd keeps whatever has value and loses what does not.** fuzzypickles
+  runs its own daemon because it may yet carry features fuzznet should
+  not; but what is being built now is the base set, features most of
+  fuzznet's users will need, and that set is fuzznet's. So fzpd is not
+  retired by decree: step 7 moves the base set out of it and keeps the
+  rest.
+- **Groups are requirement-driven, not chosen.** Other projects have
+  needed both models -- a group as its own signed principal, and members
+  with grants -- and fuzznet is a generic library with broad
+  requirements, so it may carry both. Decided at step 5, from the
+  requirements then in hand.
+- **Sec 607's pass**, left to this session to match the requirement: the
+  requirement wants a "cannot deliver" answer the delegating host can act
+  on, which is a refusal on fuzznet's own delegation wire (step 2). Until
+  then the pass is the nearest thing to it and does no harm, so it stays,
+  and step 2 replaces it with the refusal.
+
+Still open: whether location sampling from gpsd -- a TCP client to a
+local daemon -- is network code by this rule or a device input like the
+camera. It is step 6's to settle.
