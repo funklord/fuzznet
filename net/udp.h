@@ -108,6 +108,13 @@ fzn_udp_err_t fzn_udp_send(int fd, const fzn_udp_addr_t *to,
 fzn_udp_err_t fzn_udp_recv(int fd, uint8_t *buf, size_t cap, size_t *len,
                            fzn_udp_addr_t *from);
 
+/* An address back to its numeric host, NUL ended in `host` of at least 46
+ * bytes (an IPv6 address's text), and its port: what a peer saw a datagram
+ * come from (project.md sec 621). ADDR for one of neither family. */
+#define FZN_UDP_HOST_MAX 46u
+fzn_udp_err_t fzn_udp_addr_text(const fzn_udp_addr_t *addr, char host[FZN_UDP_HOST_MAX],
+                                uint16_t *port);
+
 void fzn_udp_close(int fd);
 
 #endif

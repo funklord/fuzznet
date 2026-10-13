@@ -11,6 +11,8 @@ A asks, B is asked, C asks and is turned away.
        and offers B's, which is A's answer; A writes a line to B and it is
        delivered, and B files it under A's root
     c  C asks too; B rejects it (`remove request ROOT`) and lists none
+    d  A asks where it is seen (`fetch address`); B, its one peer, says
+       127.0.0.1 (sec 621)
 
 Against a daemon that drops every box, phase a lists no request; against
 one whose approval does not hand over to the contact round, phase b
@@ -144,6 +146,20 @@ def main(argv):
 			if requests(socks["b"], "b"):
 				raise failed("c: a rejected request was still listed")
 			print("livecheck: c: C asked too, and B turned it away")
+
+			# d: where A is seen, asked of the contact it now has (sec 621).
+			expect(socks["a"], "a", "fetch address", "ok")
+			deadline = time.monotonic() + 20.0
+			seen = []
+			while time.monotonic() < deadline:
+				seen = ask(socks["a"], "get address").split()
+				if len(seen) >= 3 and seen[1] != "0":
+					break
+				time.sleep(0.2)
+			if len(seen) != 4 or seen[:3] != ["ok", "1", "1"] \
+			   or not seen[3].startswith(keys["b"][:16] + ",127.0.0.1,"):
+				raise failed("d: A's get address answered %r" % (seen,))
+			print("livecheck: d: B told A it sees A at 127.0.0.1")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

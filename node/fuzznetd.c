@@ -323,6 +323,7 @@ static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, c
                             size_t cap);
 static size_t identity_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                              size_t cap);
+static size_t address_local(const fzn_request_t *request, char *reply, size_t cap);
 
 static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
                            const fzn_peer_t *peer, const fzn_request_t *request, char *reply,
@@ -336,6 +337,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = request_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = identity_local(origin, request, reply, reply_cap);
+	if (!n)
+		n = address_local(request, reply, reply_cap);
 	if (n)
 		return n;
 	n = fzn_node_admin_handle(ctx, verdict, origin, peer, request, reply, reply_cap);
@@ -4816,6 +4819,107 @@ static size_t identity_local(fzn_origin_t origin, const fzn_request_t *request, 
 	}
 }
 
+/* ---- the address this host is seen at, sec 621 ---------------------------- */
+
+/* WHAT EACH PEER SAW, kept in memory: advisory, as fuzzypickles keeps it --
+ * a host behind a NAT that maps per destination is seen at a different
+ * port by each, and saying so is the point of keeping several. */
+#define FZND_OBSERVED_MAX 32u
+
+static struct observed {
+	uint8_t reporter[FZN_PUBKEY_LEN];
+	char host[FZN_UDP_HOST_MAX];
+	uint16_t port;
+	uint64_t at;
+} observed[FZND_OBSERVED_MAX];
+static size_t n_observed;
+static int address_due;
+
+/* ONE PEER ASKED where it sees this host; the answer kept, replacing that
+ * peer's earlier one. */
+static void ask_address(struct pull_target *pt, const char *host_name, uint64_t now)
+{
+	struct peer_asking asking = { &pt->caller, now, host_name };
+	uint8_t reply[128];
+	char host[FZN_UDP_HOST_MAX];
+	size_t len = 0, i;
+	unsigned port = 0;
+	int used = 0;
+
+	if (!peer_ask(&asking, (const uint8_t *)"get address", 11u, reply, sizeof(reply) - 1u, &len))
+		return;
+	reply[len] = '\0';
+	if (sscanf((const char *)reply, "ok %45s %u%n", host, &port, &used) != 2 || port == 0u
+	    || port > 65535u)
+		return;
+	for (i = 0; i < n_observed; i++)
+		if (memcmp(observed[i].reporter, pt->pairing.node, FZN_PUBKEY_LEN) == 0)
+			break;
+	if (i == n_observed) {
+		if (n_observed == FZND_OBSERVED_MAX)
+			return;
+		n_observed++;
+	}
+	memcpy(observed[i].reporter, pt->pairing.node, FZN_PUBKEY_LEN);
+	memcpy(observed[i].host, host, sizeof(host));
+	observed[i].port = (uint16_t)port;
+	observed[i].at = now;
+}
+
+/* EVERY PEER THIS HOST REACHES asked: the estate's pull peers and
+ * siblings, and every contact host. Asked when the user asks (`fetch
+ * address`), not each round: fuzzypickles' "asking is a button". */
+static void fetch_address(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	size_t i;
+
+	for (i = 0; i < npulls; i++)
+		if (!silent_peer(&pulls[i]))
+			ask_address(&pulls[i], pulls[i].host, now);
+	for (i = 0; i < nshares_in; i++)
+		ask_address(&shares_in[i].pt, shares_in[i].host, now);
+	for (i = 0; i < ncontact_targets; i++)
+		ask_address(&contact_targets[i].pt, contact_targets[i].host, now);
+	say(FZN_ENTRY_INFO, "net/address", "%zu peer(s) have said where they see this host",
+	    n_observed);
+}
+
+/* `fetch address` asks every peer where it sees this host, at once;
+ * `get address` answers what they said, `ok COUNT AGREE
+ * REPORTER,HOST,PORT,AT ...` -- AGREE 1 when every one saw the same, 0 when
+ * they differ, which is a NAT mapping each destination apart. Advertising
+ * one is `set setting host net/address HOST PORT`, the user's act. 0 for
+ * any other request. */
+static size_t address_local(const fzn_request_t *request, char *reply, size_t cap)
+{
+	size_t at, i, k;
+	int agree = 1;
+
+	if (!request->arg || request->arg_len != 7u || memcmp(request->arg, "address", 7u) != 0
+	    || (request->parsed != FZN_VERB_GET && request->parsed != FZN_VERB_FETCH))
+		return 0;
+	if (request->parsed == FZN_VERB_FETCH) {
+		address_due = 1;
+		return (size_t)snprintf(reply, cap, "ok\n");
+	}
+	for (i = 1; i < n_observed; i++)
+		if (observed[i].port != observed[0].port
+		    || strcmp(observed[i].host, observed[0].host) != 0)
+			agree = 0;
+	at = (size_t)snprintf(reply, cap, "ok %zu %d", n_observed, agree);
+	for (i = 0; i < n_observed && at < cap; i++) {
+		char hex[2u * FZN_PUBKEY_LEN + 1u];
+
+		hex_of(observed[i].reporter, FZN_PUBKEY_LEN, hex);
+		k = (size_t)snprintf(reply + at, cap - at, " %.16s,%s,%u,%llu", hex, observed[i].host,
+		                     (unsigned)observed[i].port, (unsigned long long)observed[i].at);
+		if (at + k >= cap)
+			break;
+		at += k;
+	}
+	return at + (size_t)snprintf(reply + at, cap - at, "\n");
+}
+
 /* EACH ROUND: every contact asked through the first of its hosts that
  * answers -- a received share's pairing first -- the members asked for what
  * they kept, every contact device kept paired here, and the targets
@@ -7131,6 +7235,11 @@ int main(int argc, char **argv)
 #endif
 			/* A TRASH JUST EMPTIED is carried to the pull peers now, not
 			 * at the next round. sec 433. */
+			/* WHERE THIS HOST IS SEEN, asked now. sec 621. */
+			if (address_due) {
+				address_due = 0;
+				fetch_address(pulls, npulls, now);
+			}
 			/* A CONTACT JUST ASKED FOR is asked now, not a round later.
 			 * sec 619. */
 			if (asked_due) {

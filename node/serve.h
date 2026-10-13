@@ -20,6 +20,7 @@
 #include "remote.h"
 #include "local.h"
 #include "events.h"
+#include "../net/udp.h"
 #include "../chunk/split.h"
 #include "../chunk/reassembly.h"
 #include "../frame/freshness.h"
@@ -85,6 +86,11 @@ typedef struct fzn_node_state {
 	 * from the user's first offer (sec 614). NULL drops every box. */
 	void (*on_box)(void *ctx, const uint8_t *box, size_t len);
 	void *on_box_ctx;
+	/* WHERE THE REQUEST BEING ANSWERED CAME FROM, sec 621: set for the
+	 * length of an `on_remote` call and NULL otherwise, so a handler can
+	 * tell a peer the address it saw -- and never decides who the peer is
+	 * by it (sec 596). */
+	const fzn_udp_addr_t *asking_from;
 	/* WHERE A REMOTE HANDLER WRITES ITS REPLY, borrowed and sized by the
 	 * consumer; NULL uses a FZN_NODE_REPLY_MAX buffer on the node's own
 	 * stack. A consumer whose answers exceed one frame supplies one here

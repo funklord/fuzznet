@@ -11904,6 +11904,13 @@ SABOTAGES = [
 		"\tif (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode))\n\t\treturn say_why(why, \"not a directory, or a link to one\");\n\treturn 1;\n",
 		"a store that is a link to another directory has that directory wiped -- sec 620",
 	),
+	(
+		"udp-addr-text-host-order",
+		"net/udp.c",
+		"\t\t*port = ntohs(in6->sin6_port);\n",
+		"\t\t*port = in6->sin6_port;\n",
+		"a peer is told it was seen at a port byte-swapped, and advertises one nobody listens on -- sec 621",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

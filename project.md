@@ -11810,7 +11810,9 @@ their tree returned a ranked list of gaps. Most are boundaries this library
 drew on purpose -- group chat is absent by design per `ratchet/ratchet.h`,
 command vocabulary is the consumer's under sec 2, replication for a
 compacted store is excluded by `record/sync.h` in writing, NAT traversal is
-declared never. **One row was marked unsure and it is the only one that
+declared never (superseded: the holder put reachability in fuzznet's order
+on 2026-10-13, sec 608, and sec 621 builds it). **One row was marked unsure
+and it is the only one that
 turned out to be a real gap.**
 
 ### What fuzznet has, and the axis it does not
@@ -64330,3 +64332,95 @@ and is not wiped, as fuzzypickles leaves its own.
 Sec 608's B6 is built: contact cards, pairing by request with the sealed
 box, and identity backup and reset. Next is **step 4, relaying and
 reachability** (B4, B5).
+
+## 621. Step 4 planned, and 4a: where a host is seen, 2026-10-13
+
+Sec 608's step 4, relaying and reachability (its B4 and B5), designed by
+importing fuzzypickles' sec 7 -- surveyed from their `project.md` and
+`core/src/relay.c`, `rendezvous.c`, `lan_discover.c`, `addr_observe.c` and
+`daemon/relay_quota.c` -- and fitting it to what fuzznet already is.
+
+### A contradiction in this document, flagged
+
+**Sec 98 (2026-09-05) lists "NAT traversal is declared never"** among the
+boundaries drawn on purpose; sec 5 calls rendezvous and relays "the next
+thing likely to move in". The holder settled it since: everything about
+using fuzznet's features is fuzznet's (sec 298, 2026-09-17), and sec 608's
+order, decided 2026-10-13, puts "relaying and reachability (B4, B5)" at
+step 4 -- rendezvous among it. Sec 98's line now says it is superseded,
+pointing here.
+
+### What step 4 imports
+
+- **Three services and three switches** (their 2026-08-06): where a host
+  is seen, introductions, relaying -- separate, so turning one on turns no
+  other on. **Friends first**: a peer known to this node is served, and
+  opening a service to strangers is a later, deliberate step, not built.
+- **Whatever answers someone it cannot yet trust** answers no more than it
+  was sent, proves the asker can receive before doing anything costly,
+  and keeps no state until then.
+- **Relaying forwards a frame already sealed for its target, unread, one
+  hop and never two** -- "the whole of the loop prevention" -- **and
+  stores nothing**: durability is the sender's, which holds a line until
+  it settles (sec 615). A quota per requester: `net.relay_enabled` off by
+  default, 100 MiB a day.
+- **Introductions**: A asks R to introduce it to B; R tells B where it
+  sees A; B sends to A, opening its own NAT's way, and A learns B's
+  address from what arrives. R forwards and forgets, and never tells A
+  where B is. It assumes NATs that keep one mapping for every
+  destination, and says so.
+- **LAN discovery**: a broadcast probe answered only by a host that knows
+  the prober's key; a broadcast does not cross a router, and nothing
+  finds a stranger off the LAN, which would need a directory.
+- **What a peer sees is advisory, and several are kept**; advertising one
+  is the user's act, writing `net/address`, never the manifest directly.
+
+### What is fuzznet's own in step 4
+
+- **Inside a session where one exists.** Here every peer is paired, and a
+  frame names its sender by key (sec 596), so a question between peers is
+  a request on the remote hop: authenticated, and answerable without
+  fuzzypickles' fixed padding, since nobody without a session is answered
+  at all. Only what must reach a key with no session here -- the probe a
+  LAN broadcast carries -- needs a datagram of its own, as the box did
+  (sec 618).
+- **Keyed by key, not address**: a relay's quota is per requester key,
+  where fuzzypickles' is per source address (sec 596).
+- **Which host to try** is sec 610's metric order with a refusal passing
+  to the next, which fuzzypickles' sec 10 left open.
+
+### Step 4's stages
+
+1. **4a, where a host is seen** -- built here.
+2. **4b, relaying** -- the forward, one hop, the quota and its settings,
+   and how the target's answer finds its way back, which fuzzypickles'
+   fire-and-forget frames never needed and a request here does.
+3. **4c, introductions.**
+4. **4d, LAN discovery.**
+
+### 4a: `get address` and `fetch address`
+
+- **Answered** in `fzn_node_admin_remote` to any peer granted, member or
+  contact: `get address` is `ok HOST PORT`, the address the request came
+  from. `node/serve.c` now holds that address in `fzn_node_state_t.
+  asking_from` for the length of the call, so a handler can say what it
+  saw, and still never decides who a peer is by it. `net/udp`'s new
+  `fzn_udp_addr_text` writes it.
+- **Asked** by `fetch address`, at once, of every peer this host reaches
+  -- pull peers, siblings, and every contact host -- fuzzypickles' "asking
+  is a button" rather than a probe each round; `get address` locally is
+  `ok COUNT AGREE REPORTER,HOST,PORT,AT ...`, AGREE 0 when the peers saw
+  different things. Kept in memory, a repeat replacing that peer's.
+- **The port seen is the asking socket's**: fuzznetd asks each peer
+  through a socket of its own, so the port is that socket's mapping, not
+  the serving port's. The host is what an address to advertise needs; a
+  port is whatever `--udp-port` is, which a NAT that preserves ports keeps.
+
+### Measured for sec 621
+
+- **`net/test/udp_test`, 56 checks, 3 new**: a v4 and a v6 address read
+  back as themselves, the port in host order; an address of no family is
+  refused.
+- **`tool/live_pairing.py` phase d**: after A and B pair, `fetch address`
+  at A has B report where it sees A, 127.0.0.1, one reporter agreeing.
+- One sabotage entry, probed caught: the port's byte order.

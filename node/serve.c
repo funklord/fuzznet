@@ -66,8 +66,10 @@ static void serve_reply(fzn_node_state_t *state, const fzn_node_peer_t *peer,
 
 	if (!state->on_remote || !reply || reply_cap == 0)
 		return;
+	state->asking_from = from;
 	reply_len = state->on_remote(state->on_remote_ctx, result, opened,
 	                             reply, reply_cap);
+	state->asking_from = NULL;
 	/* A handler claiming more than it was given wrote nothing this
 	 * loop may send -- the same refusal the local seam makes, and for
 	 * the same reason: sending `reply_cap` of it would be a different

@@ -111,6 +111,27 @@ int main(void)
 	roundtrip(AF_INET6, "::1", 64);
 	roundtrip(AF_INET6, "::1", FZN_UDP_DATAGRAM_MAX);
 
+	/* AN ADDRESS BACK TO TEXT, sec 621: both families, the port in host
+	 * order, and an address of neither family refused. */
+	{
+		fzn_udp_addr_t a;
+		char host[FZN_UDP_HOST_MAX];
+		uint16_t p = 0;
+
+		ok(fzn_udp_resolve(AF_INET, "192.0.2.7", 47001u, &a) == FZN_UDP_OK
+		           && fzn_udp_addr_text(&a, host, &p) == FZN_UDP_OK
+		           && strcmp(host, "192.0.2.7") == 0 && p == 47001u,
+		   "a v4 address read back as itself");
+		ok(fzn_udp_resolve(AF_INET6, "2001:db8::5", 258u, &a) == FZN_UDP_OK
+		           && fzn_udp_addr_text(&a, host, &p) == FZN_UDP_OK
+		           && strcmp(host, "2001:db8::5") == 0 && p == 258u,
+		   "a v6 address read back as itself, its port in host order");
+		memset(&a, 0, sizeof(a));
+		a.len = 16u;
+		ok(fzn_udp_addr_text(&a, host, &p) == FZN_UDP_ERR_ADDR,
+		   "an address of no family read as one");
+	}
+
 	/* Oversize send: one byte past the maximum is refused, not
 	 * fragmented. The exact maximum went through above, so the two
 	 * together pin the boundary. */

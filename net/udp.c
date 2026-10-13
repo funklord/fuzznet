@@ -211,3 +211,31 @@ void fzn_udp_close(int fd)
 	if (fd >= 0)
 		close(fd);
 }
+
+fzn_udp_err_t fzn_udp_addr_text(const fzn_udp_addr_t *addr, char host[FZN_UDP_HOST_MAX],
+                                uint16_t *port)
+{
+	struct sockaddr_storage ss;
+
+	if (!addr || !host || !port || addr->len > sizeof(ss))
+		return FZN_UDP_ERR_MALFORMED;
+	memset(&ss, 0, sizeof(ss));
+	memcpy(&ss, addr->storage, addr->len);
+	if (ss.ss_family == AF_INET && addr->len >= sizeof(struct sockaddr_in)) {
+		const struct sockaddr_in *in = (const struct sockaddr_in *)&ss;
+
+		if (!inet_ntop(AF_INET, &in->sin_addr, host, FZN_UDP_HOST_MAX))
+			return FZN_UDP_ERR_ADDR;
+		*port = ntohs(in->sin_port);
+		return FZN_UDP_OK;
+	}
+	if (ss.ss_family == AF_INET6 && addr->len >= sizeof(struct sockaddr_in6)) {
+		const struct sockaddr_in6 *in6 = (const struct sockaddr_in6 *)&ss;
+
+		if (!inet_ntop(AF_INET6, &in6->sin6_addr, host, FZN_UDP_HOST_MAX))
+			return FZN_UDP_ERR_ADDR;
+		*port = ntohs(in6->sin6_port);
+		return FZN_UDP_OK;
+	}
+	return FZN_UDP_ERR_ADDR;
+}
