@@ -423,8 +423,10 @@ fzn_messages_err_t fzn_node_messages_absorb(fzn_node_messages_t *nm,
 	if (err != FZN_MESSAGES_OK)
 		return err;
 	for (d = 0; d < nm->m.device_count; d++)
-		if (where[d])
+		if (where[d]) {
+			tally->read += *where[d] != at[d];
 			*where[d] = at[d];
+		}
 	tally->marks = marks;
 	tally->lacking = nm->n_lacks;
 	return FZN_MESSAGES_OK;

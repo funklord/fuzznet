@@ -435,15 +435,30 @@ def main(argv):
 				b.stop()
 			a = daemon(run, "a5", a_dir, a_sock, extra=["--udp-port=" + port])
 			try:
-				b = daemon(run, "b6", b_dir, b_sock, extra=["--root-at", "127.0.0.1", port])
+				# A SUBSCRIBER ON A, told when the pushed line lands, sec 609.
+				from live_events import subscriber
+				sub = subscriber(a_sock, "f-sub")
 				try:
-					pushed = b.wait_for(PUSHED_RE, "reconcile pass")
-					if int(pushed.group(1)) < 1:
-						raise failed("f: B's pass pushed %s line(s); A lacks the line B "
-						             "wrote" % pushed.group(1))
-					reads_at(a_sock, "f", PUSHED_CONTACT, "pushed-line")
+					if sub.first != "ok events":
+						raise failed("f: A's `get events` answered %r" % sub.first)
+					b = daemon(run, "b6", b_dir, b_sock,
+					           extra=["--root-at", "127.0.0.1", port])
+					try:
+						pushed = b.wait_for(PUSHED_RE, "reconcile pass")
+						if int(pushed.group(1)) < 1:
+							raise failed("f: B's pass pushed %s line(s); A lacks the line B "
+							             "wrote" % pushed.group(1))
+						reads_at(a_sock, "f", PUSHED_CONTACT, "pushed-line")
+					finally:
+						b.stop()
+					heard = []
+					while "event message " + PUSHED_CONTACT not in heard and len(heard) < 32:
+						heard.append(sub.line())
+					if "event message " + PUSHED_CONTACT not in heard:
+						raise failed("f: A's subscriber read %r, and not the pushed line's "
+						             "conversation" % heard)
 				finally:
-					b.stop()
+					sub.close()
 			finally:
 				a.stop()
 			print("livecheck: f: B pushed %s line(s) A could not have pulled, and it reads "

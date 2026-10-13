@@ -113,6 +113,7 @@ typedef struct fzn_node_messages_tally {
 	size_t refused;  /* keys a peer refused, another being held there */
 	size_t taken;    /* keys taken from a peer */
 	size_t lacking;  /* keys still lacked */
+	size_t read;     /* devices whose stream gained records this absorb (sec 609) */
 } fzn_node_messages_tally_t;
 
 /* Point `nm` at its store, journal and this node's key. All borrowed. */

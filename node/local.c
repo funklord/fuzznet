@@ -4,6 +4,7 @@
 
 #include <errno.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -107,6 +108,14 @@ fzn_node_serve_err_t fzn_node_serve_local(const fzn_node_config_t *config,
                                           fzn_node_local_handler_t on_local,
                                           void *ctx)
 {
+	return fzn_node_serve_local_kept(config, fd, peer, on_local, ctx, NULL);
+}
+
+fzn_node_serve_err_t fzn_node_serve_local_kept(const fzn_node_config_t *config, int fd,
+                                               const fzn_peer_t *peer,
+                                               fzn_node_local_handler_t on_local,
+                                               void *ctx, int *subscribed)
+{
 	fzn_origin_t origin;
 	fzn_authz_verdict_t verdict;
 	fzn_line_t reader;
@@ -176,6 +185,19 @@ fzn_node_serve_err_t fzn_node_serve_local(const fzn_node_config_t *config,
 	 * NOT ON A DENIAL. local.h records the divergence from `on_remote` and
 	 * why the conservative direction is the right one here. */
 	resp_len = 0;
+	if (subscribed)
+		*subscribed = 0;
+	/* A SUBSCRIPTION, sec 609: the node's own, and its own user's only. */
+	if (subscribed && verdict != FZN_AUTHZ_DENIED && origin == FZN_ORIGIN_SAME_USER
+	    && fzn_vocabulary_split(line, line_len, &request) && request.parsed == FZN_VERB_GET
+	    && request.arg_len == 6u && memcmp(request.arg, "events", 6u) == 0) {
+		static const char OK_EVENTS[] = "ok events\n";
+
+		if (write_all(fd, OK_EVENTS, sizeof(OK_EVENTS) - 1u) != 0)
+			return FZN_NODE_SERVE_IO;
+		*subscribed = 1;
+		return FZN_NODE_SERVE_OK;
+	}
 	if (on_local && verdict != FZN_AUTHZ_DENIED &&
 	    fzn_vocabulary_split(line, line_len, &request)) {
 		size_t n = on_local(ctx, verdict, origin, peer, &request,

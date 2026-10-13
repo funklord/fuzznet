@@ -27,13 +27,18 @@ const fzn_node_peer_t *fzn_node_find_peer(const fzn_node_peer_t *peers,
 
 static void serve_ready_local(fzn_node_state_t *state)
 {
-	int cfd;
+	int cfd, subscribed = 0;
 	fzn_peer_t peer;
 
 	if (fzn_socket_accept(state->listen_fd, &cfd, &peer) != FZN_SOCKET_OK)
 		return;
-	(void)fzn_node_serve_local(&state->config, cfd, &peer, state->on_local,
-	                           state->on_local_ctx);
+	/* A SUBSCRIPTION TAKEN ONLY WHILE THERE IS ROOM for it, sec 609: past
+	 * that, `get events` reaches the handler as any request does. */
+	(void)fzn_node_serve_local_kept(&state->config, cfd, &peer, state->on_local,
+	                                state->on_local_ctx,
+	                                fzn_node_events_room(state->events) ? &subscribed : NULL);
+	if (subscribed && fzn_node_events_add(state->events, cfd))
+		return;
 	(void)close(cfd);
 }
 
@@ -197,8 +202,10 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 
 int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)
 {
-	struct pollfd fds[2];
-	nfds_t nfds = 0;
+	struct pollfd fds[2u + FZN_NODE_EVENTS_MAX];
+	int subscribers[FZN_NODE_EVENTS_MAX];
+	nfds_t nfds = 0, first_sub;
+	size_t n_sub = 0, s;
 	int li = -1, ui = -1, handled = 0, r;
 
 	if (!state)
@@ -217,6 +224,17 @@ int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)
 		ui = (int)nfds;
 		nfds++;
 	}
+	/* EACH SUBSCRIBER, for hanging up or speaking out of turn. Copied, for
+	 * dropping one while walking the poll's answers moves the rest. */
+	first_sub = nfds;
+	if (state->events)
+		for (s = 0; s < state->events->n; s++) {
+			subscribers[n_sub++] = state->events->fds[s];
+			fds[nfds].fd = state->events->fds[s];
+			fds[nfds].events = POLLIN;
+			fds[nfds].revents = 0;
+			nfds++;
+		}
 	if (nfds == 0)
 		return 0;
 
@@ -224,6 +242,14 @@ int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)
 	if (r <= 0)
 		return 0;	/* a timeout or an interrupted poll; the caller loops */
 
+	/* SUBSCRIBERS FIRST: one dropped here frees its descriptor, and a
+	 * connection accepted after could be given the same number -- taken
+	 * for the one that hung up, were the order the other way. */
+	for (s = 0; s < n_sub; s++)
+		if (fds[first_sub + s].revents & (POLLIN | POLLHUP | POLLERR | POLLNVAL)) {
+			(void)fzn_node_events_ready(state->events, subscribers[s]);
+			handled++;
+		}
 	if (li >= 0 && (fds[li].revents & POLLIN)) {
 		serve_ready_local(state);
 		handled++;

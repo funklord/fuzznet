@@ -63297,7 +63297,7 @@ app's own duplicate goes.
 Each step leaves both trees working:
 
 1. **The local socket gains event push.** Everything a UI does after this
-   can move.
+   can move. Built in sec 609.
 2. **Delivery and delegation (B1-B3).** The heart of fuzzypickles, and
    what sec 607 tried to stand in for; "cannot deliver" becomes a
    refusal on fuzznet's wire.
@@ -63332,3 +63332,80 @@ Each step leaves both trees working:
 Still open: whether location sampling from gpsd -- a TCP client to a
 local daemon -- is network code by this rule or a device input like the
 camera. It is step 6's to settle.
+
+## 609. Step 1: events pushed to local subscribers, 2026-10-13
+
+Step 1 of sec 608's move: every UI needs to hear that something changed,
+and fuzznetd's local hop was one request in, one reply out. fzpd's UIs
+subscribe on their control socket and are told; fuzznetd now does the
+same, so a UI moving from fzpd loses nothing.
+
+### The subscription
+
+A local client sends `get events`. From the node's own user
+(`FZN_ORIGIN_SAME_USER`) the node answers `ok events` itself -- no handler
+sees it -- and keeps the connection open, writing it one line per change:
+
+    event SUBJECT NAME
+
+SUBJECT is the vocabulary's word for what changed; NAME the item when it
+is known, in lowercase hex, or `-` for "read the subject again". **Thin on
+purpose, as fzpd's events are**: an event says what to fetch, and the
+fetch is the authority, so a subscriber that misses one loses nothing it
+cannot read again.
+
+- **Only the node's own user.** Events tell what the user's node is
+  doing; a service-group member's `get events` reaches the handler as any
+  request, and a stranger is denied.
+- **Never blocks the node** (`node/events.{h,c}`): subscribers are
+  non-blocking, a line goes whole or the subscriber is dropped and closed
+  -- a full buffer or a hang-up -- and one that writes anything is dropped
+  too. A dropped subscriber reconnects and reads again, as after any gap.
+- **At most 8 subscribers**, fzpd's bound. Past it `get events` is not
+  taken, and the handler answers it as any request.
+- **The run loop polls subscribers**, for hanging up, before it accepts
+  a new connection: one dropped frees its descriptor, which an accept in
+  the same pass could be given.
+
+### What fuzznetd publishes
+
+- **A local change** -- a change verb (`add`, `set`, `remove`, `put`,
+  `fetch`, `grant`, `revoke`) the node answered `ok` -- publishes its
+  subject, naming the item when the verb's next word is hex. A change one
+  UI makes reaches the others.
+- **From peers**: `event message -` when conversations take in records or
+  marks, and `event message KEY` when a peer's line is filed into a
+  conversation (sec 569's push); `event note -` when notes file records or
+  purges; `event estate -` when the journal applies objects -- settings,
+  contacts, groups, grants.
+
+### Measured for sec 609
+
+- events_test 33, over socketpairs: two subscribers read two events whole
+  and in order; a subject or name a subscriber could not split -- spaces,
+  capitals, empty, a newline, too long -- is written to nobody; one that
+  hung up is dropped at the next event, one the poll reports ready is
+  dropped once; one that never reads is dropped when its buffer fills,
+  holding only whole lines, and the loop never blocks; past 8 none is
+  taken and the refused descriptor stays the caller's; close closes all.
+- local_test 39: the node's own user's `get events` is answered `ok
+  events` with the handler not called; with nowhere to keep it, or from a
+  service-group member, it is the handler's; a stranger is denied and not
+  subscribed; `get eventsx` and `list events` do not subscribe.
+- live_events, in `make livecheck`: two subscribers each read `event
+  setting -` and `event note -` in order after a setting is set and a note
+  added; one hangs up and the other is still told while the daemon still
+  answers; eight are taken and the ninth answered as a request and closed.
+- live_rejoin phase f: a subscriber on A reads the pushed line's
+  conversation by its key. A hand-break control -- the filed line not
+  published -- left it reading nothing.
+- Three sabotage entries: a whole line or none, names only hex, and the
+  node's own user only.
+
+### Not yet after sec 609
+
+- Files, pieces and log segments taken from peers publish nothing yet;
+  their subjects are added as the UIs that show them move (step 7).
+- A subscriber learns of a remote message change without the
+  conversation's name when it came through the journal rather than as a
+  filed line.

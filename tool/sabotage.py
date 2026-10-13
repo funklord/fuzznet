@@ -11016,6 +11016,27 @@ SABOTAGES = [
 		"every day says it holds one version -- sec 605",
 	),
 	(
+		"events-a-whole-line-or-none",
+		"node/events.c",
+		"\t\tif (w == (ssize_t)len) {\n",
+		"\t\tif (w > 0) {\n",
+		"a subscriber whose buffer is full is left half a line, and reads the next joined to it -- sec 609",
+	),
+	(
+		"events-names-only-hex",
+		"node/events.c",
+		"\t    || !(strcmp(name, \"-\") == 0\n\t         || word_of(name, FZN_NODE_EVENTS_NAME_MAX, \"0123456789abcdef\")))\n",
+		"\t    )\n",
+		"a name with a space or a newline in it writes a line a subscriber splits wrongly -- sec 609",
+	),
+	(
+		"local-events-own-user-only",
+		"node/local.c",
+		"\tif (subscribed && verdict != FZN_AUTHZ_DENIED && origin == FZN_ORIGIN_SAME_USER\n",
+		"\tif (subscribed && verdict != FZN_AUTHZ_DENIED\n",
+		"a service-group member subscribes and hears what the user's node does -- sec 609",
+	),
+	(
 		"messages-given-up-only-for-a-removed-contact",
 		"node/messages.c",
 		"\t\tif ((b > 0 && memcmp(buckets[b - 1u].subject, contact, FZN_PUBKEY_LEN) == 0)\n\t\t    || stands(ctx, contact))\n",

@@ -298,6 +298,62 @@ static const fzn_entry_name_t *round_cause(void)
 	return round_named ? &round_name : NULL;
 }
 
+/* THE LOCAL SUBSCRIBERS, sec 609: told `event SUBJECT NAME` when something
+ * changes, here or brought from a peer, so a UI need not poll. */
+static fzn_node_events_t node_events;
+
+static void publish(const char *subject, const char *name)
+{
+	(void)fzn_node_events_publish(&node_events, subject, name);
+}
+
+/* A LOCAL REQUEST, and its subscribers told when it changed something: a
+ * change verb the node answered `ok` publishes its subject -- the first
+ * word after the verb -- naming the item when the next word is one (hex).
+ * A change one UI makes reaches the others. sec 609. */
+static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
+                           const fzn_peer_t *peer, const fzn_request_t *request, char *reply,
+                           size_t reply_cap)
+{
+	size_t n = fzn_node_admin_handle(ctx, verdict, origin, peer, request, reply, reply_cap);
+	char subject[FZN_NODE_EVENTS_SUBJECT_MAX + 1u], name[FZN_NODE_EVENTS_NAME_MAX + 1u];
+	size_t at = 0, s = 0, k = 0;
+
+	if (n < 2u || n > reply_cap || memcmp(reply, "ok", 2u) != 0 || (n > 2u && reply[2] != ' '
+	                                                               && reply[2] != '\n'))
+		return n;
+	switch (request->parsed) {
+	case FZN_VERB_ADD:
+	case FZN_VERB_SET:
+	case FZN_VERB_REMOVE:
+	case FZN_VERB_PUT:
+	case FZN_VERB_FETCH:
+	case FZN_VERB_GRANT:
+	case FZN_VERB_REVOKE:
+		break;
+	default:
+		return n;
+	}
+	while (at < request->arg_len && request->arg[at] != ' ' && s < FZN_NODE_EVENTS_SUBJECT_MAX)
+		subject[s++] = (char)request->arg[at++];
+	subject[s] = '\0';
+	if (at < request->arg_len && request->arg[at] != ' ')
+		return n;
+	while (at < request->arg_len && request->arg[at] == ' ')
+		at++;
+	while (at < request->arg_len && request->arg[at] != ' ' && k < FZN_NODE_EVENTS_NAME_MAX)
+		name[k++] = (char)request->arg[at++];
+	name[k] = '\0';
+	/* A NAME ONLY WHEN IT IS AN ITEM'S ID: a contact named in words, or a
+	 * word cut short, is `-`, and the subscriber reads the subject again. */
+	if (k == 0u || (at < request->arg_len && request->arg[at] != ' ')
+	    || strspn(name, "0123456789abcdef") != k)
+		publish(subject, NULL);
+	else
+		publish(subject, name);
+	return n;
+}
+
 /* EVERY REQUEST A PULL OR A SHARE'S CALLER SENDS, in an envelope naming the
  * round, sec 465 -- the roots and votes pulls the library makes included,
  * which this daemon never sees. 0, sending it bare, when the round has no
@@ -1544,6 +1600,7 @@ static int journal_read(void *ctx, const uint8_t key[FZN_PUBKEY_LEN], uint64_t s
 static void index_notes(void)
 {
 	size_t i, k;
+	int changed = 0;
 
 	if (!journal_on || !notes_on)
 		return;
@@ -1576,7 +1633,11 @@ static void index_notes(void)
 			say(FZN_ENTRY_INFO, "notes/index",
 			    "%zu note record(s) filed, %zu purge(s), %zu held already%s", t.filed,
 			    t.purged, t.held, t.waiting ? ", a writer not yet admitted waits" : "");
+		if (err == FZN_NOTES_OK && (t.filed || t.purged))
+			changed = 1;
 	}
+	if (changed)
+		publish("note", NULL);
 }
 
 /* THE JOURNAL APPLIED, sec 503: every object pulled, handed to the subsystem
@@ -1632,6 +1693,10 @@ static void apply_journal(void)
 		    "%zu object(s) applied, %zu grant(s) indexed, %zu refused, %zu stream(s) waiting "
 		    "on a chain",
 		    tally.applied, tally.grants, tally.refused, tally.waiting);
+	/* THE ESTATE'S STATE CHANGED -- settings, contacts, groups, grants -- sec
+	 * 609. */
+	if (err == FZN_NODE_PULL_OK && (tally.applied || tally.grants))
+		publish("estate", NULL);
 }
 
 /* WHAT THIS NODE HOLDS OF THE ESTATE'S STATE, served to a member, sec 551. */
@@ -1707,8 +1772,16 @@ static fzn_node_apply_outcome_t line_file(void *ctx, const uint8_t contact[FZN_P
 
 	(void)ctx;
 	switch (fzn_node_messages_file(&node_messages, contact, epoch, item, len, &waiting)) {
-	case FZN_MESSAGES_OK:
+	case FZN_MESSAGES_OK: {
+		/* A LINE FILED FROM A PEER, its conversation named, sec 609. */
+		char hex[2u * FZN_PUBKEY_LEN + 1u];
+		size_t i;
+
+		for (i = 0; i < FZN_PUBKEY_LEN; i++)
+			(void)snprintf(hex + 2u * i, 3u, "%02x", contact[i]);
+		publish("message", hex);
 		return waiting ? FZN_NODE_APPLY_WAITING : FZN_NODE_APPLY_APPLIED;
+	}
 	case FZN_MESSAGES_ERR_BACKEND:
 		return FZN_NODE_APPLY_NOT_SAVED;
 	default:
@@ -2861,6 +2934,9 @@ static int messages_absorb(void)
 	}
 	if (t.marks)
 		say(FZN_ENTRY_INFO, "messages", "%zu mark(s) absorbed", t.marks);
+	/* A SUBSCRIBER TOLD CONVERSATIONS CHANGED, sec 609. */
+	if (t.read || t.marks)
+		publish("message", NULL);
 	return 1;
 }
 
@@ -5333,8 +5409,10 @@ int main(int argc, char **argv)
 					                fzn_node_roots_quorum(running_roots, (uint8_t)quorum)));
 			}
 #endif
-			state.on_local = fzn_node_admin_handle;
+			state.on_local = local_handle;
 			state.on_local_ctx = &admin;
+			fzn_node_events_init(&node_events);
+			state.events = &node_events;
 			state.on_remote = fzn_node_admin_remote;
 			state.on_remote_ctx = &admin;
 			admin.caused = on_caused;

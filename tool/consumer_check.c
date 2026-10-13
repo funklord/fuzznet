@@ -152,6 +152,7 @@
 #include <fuzznet/node/settings.h>
 #include <fuzznet/node/siblings.h>
 #include <fuzznet/node/heard.h>
+#include <fuzznet/node/events.h>
 #include <fuzznet/node/holdings.h>
 #include <fuzznet/node/buckets.h>
 #include <fuzznet/node/reconcile.h>
@@ -329,6 +330,7 @@
 #include "node/settings.h"
 #include "node/siblings.h"
 #include "node/heard.h"
+#include "node/events.h"
 #include "node/holdings.h"
 #include "node/buckets.h"
 #include "node/reconcile.h"

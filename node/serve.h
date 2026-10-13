@@ -19,6 +19,7 @@
 #include "node.h"
 #include "remote.h"
 #include "local.h"
+#include "events.h"
 #include "../chunk/split.h"
 #include "../chunk/reassembly.h"
 #include "../frame/freshness.h"
@@ -124,6 +125,11 @@ typedef struct fzn_node_state {
 	 * it is allowed to occupy a slot, so a stranger cannot fill the table
 	 * -- which is what step 8 being step 8 means. */
 	fzn_reasm_t *reassembly;
+	/* LOCAL SUBSCRIBERS, sec 609: given, a `get events` from this node's
+	 * own user is kept as a subscriber here and polled for hanging up;
+	 * NULL takes none, and `get events` reaches the handler like any
+	 * request. The consumer publishes to it (`node/events.h`). */
+	fzn_node_events_t *events;
 } fzn_node_state_t;
 
 /* The provisioned remote peer whose identity is `sender`, or NULL. Pure. */

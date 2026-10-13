@@ -74,6 +74,29 @@ static fzn_node_serve_err_t exchange_with(const fzn_node_config_t *cfg,
 	return r;
 }
 
+/* AN EXCHANGE THAT MAY SUBSCRIBE, sec 609: `subscribed` handed on (NULL
+ * serves as `fzn_node_serve_local` does), and the reply read. */
+static fzn_node_serve_err_t exchange_kept(const fzn_node_config_t *cfg, const fzn_peer_t *peer,
+                                          const char *request, fzn_node_local_handler_t on_local,
+                                          void *ctx, char *resp, size_t resp_cap,
+                                          int *subscribed)
+{
+	int sv[2];
+	fzn_node_serve_err_t r;
+	ssize_t n;
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) != 0)
+		return FZN_NODE_SERVE_IO;
+	wr(sv[0], request, strlen(request));
+	wr(sv[0], "\n", 1);
+	r = fzn_node_serve_local_kept(cfg, sv[1], peer, on_local, ctx, subscribed);
+	n = read(sv[0], resp, resp_cap - 1);
+	resp[n > 0 ? (size_t)n : 0] = '\0';
+	close(sv[0]);
+	close(sv[1]);
+	return r;
+}
+
 /* The same exchange with no handler -- the node answering for itself, which
  * is what every case written before the seam existed drives. */
 static fzn_node_serve_err_t exchange(const fzn_node_config_t *cfg,
@@ -337,6 +360,50 @@ int main(void)
 		 * wording still matches -- which is what made the change safe to
 		 * make while a consumer was mid-integration. */
 		ok(strstr(resp, "denied") != NULL, "the denial stopped saying denied");
+	}
+
+	/* A SUBSCRIPTION, sec 609: the node's own user's `get events` is the
+	 * node's to answer, and the handler never sees it. */
+	{
+		int sub = 9;
+
+		memset(&seen, 0, sizeof(seen));
+		seen.say = "handled\n";
+		mk_peer(&p, 1000, 0, 0);
+		ok(exchange_kept(&cfg, &p, "get events", record, &seen, resp, sizeof(resp), &sub)
+		           == FZN_NODE_SERVE_OK
+		           && sub == 1 && strcmp(resp, "ok events\n") == 0 && seen.calls == 0,
+		   "the node's own user's `get events` was not a subscription the node answered");
+		/* NO ROOM, or a consumer that takes none: the handler's, as any. */
+		ok(exchange_kept(&cfg, &p, "get events", record, &seen, resp, sizeof(resp), NULL)
+		           == FZN_NODE_SERVE_OK
+		           && seen.calls == 1 && strcmp(resp, "handled\n") == 0,
+		   "with nowhere to keep it, `get events` did not reach the handler");
+		/* ONLY ITS OWN USER: a service-group member's is the handler's. */
+		sub = 9;
+		mk_peer(&p, 2000, 1, 44);
+		ok(exchange_kept(&cfg, &p, "get events", record, &seen, resp, sizeof(resp), &sub)
+		           == FZN_NODE_SERVE_OK
+		           && sub == 0 && seen.calls == 2,
+		   "a service-group member subscribed, though events tell what changed");
+		/* A STRANGER: denied, and not subscribed. */
+		sub = 9;
+		mk_peer(&p, 2000, 0, 0);
+		ok(exchange_kept(&cfg, &p, "get events", record, &seen, resp, sizeof(resp), &sub)
+		           == FZN_NODE_SERVE_DENIED
+		           && sub == 0 && seen.calls == 2,
+		   "a stranger subscribed, or reached the handler");
+		/* ONLY `get events` ITSELF. */
+		sub = 9;
+		mk_peer(&p, 1000, 0, 0);
+		ok(exchange_kept(&cfg, &p, "get eventsx", record, &seen, resp, sizeof(resp), &sub)
+		           == FZN_NODE_SERVE_OK
+		           && sub == 0 && seen.calls == 3
+		           && exchange_kept(&cfg, &p, "list events", record, &seen, resp, sizeof(resp),
+		                            &sub)
+		                      == FZN_NODE_SERVE_OK
+		           && sub == 0 && seen.calls == 4,
+		   "a request that is not `get events` subscribed");
 	}
 
 	printf("local_test: %d checks, %d failure(s)\n", checks, failures);

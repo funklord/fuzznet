@@ -105,4 +105,16 @@ fzn_node_serve_err_t fzn_node_serve_local(const fzn_node_config_t *config,
                                           fzn_node_local_handler_t on_local,
                                           void *ctx);
 
+/* THE SAME, AND A SUBSCRIPTION, sec 609. Given `subscribed`, a `get events`
+ * from this node's own user (FZN_ORIGIN_SAME_USER, not denied) is answered
+ * `ok events` by the node itself -- no handler sees it -- and `*subscribed`
+ * set: the caller then keeps `fd` as an events subscriber
+ * (`node/events.h`) rather than closing it. Events tell what changed, so
+ * nobody else is told. NULL serves as `fzn_node_serve_local` does, which
+ * hands `get events` to the handler like any request. */
+fzn_node_serve_err_t fzn_node_serve_local_kept(const fzn_node_config_t *config, int fd,
+                                               const fzn_peer_t *peer,
+                                               fzn_node_local_handler_t on_local,
+                                               void *ctx, int *subscribed);
+
 #endif

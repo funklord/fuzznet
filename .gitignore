@@ -246,6 +246,7 @@ __pycache__/
 /node/test/node_test
 /node/test/peer_persist_test
 /node/test/heard_test
+/node/test/events_test
 /node/test/identity_test
 /node/test/pair_test
 /node/test/admin_test
