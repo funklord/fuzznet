@@ -41,6 +41,7 @@
 #include "contact_card.h"
 #include "contact_request.h"
 #include "../session/box.h"
+#include "state_dir.h"
 #include "../contact/contact.h"
 #include "admin.h"
 #include "caller.h"
@@ -320,6 +321,8 @@ static size_t routing_local(const fzn_request_t *request, char *reply, size_t re
 static size_t card_local(const fzn_request_t *request, char *reply, size_t reply_cap);
 static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap);
+static size_t identity_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                             size_t cap);
 
 static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
                            const fzn_peer_t *peer, const fzn_request_t *request, char *reply,
@@ -331,6 +334,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = card_local(request, reply, reply_cap);
 	if (!n)
 		n = request_local(origin, request, reply, reply_cap);
+	if (!n)
+		n = identity_local(origin, request, reply, reply_cap);
 	if (n)
 		return n;
 	n = fzn_node_admin_handle(ctx, verdict, origin, peer, request, reply, reply_cap);
@@ -4724,6 +4729,93 @@ static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, c
 	}
 }
 
+/* ---- identity backup and reset, sec 620 ------------------------------------ */
+
+/* WHERE THIS NODE'S STATE IS: the core directory, and the bulk store's when
+ * it is another (`--fuzznet-store`). */
+static const char *state_core_dir, *state_bulk_dir;
+/* SET BY A RESET: the loop wipes once more and stops. */
+static int identity_reset;
+
+/* `put backup DIR` and `remove identity KEY`, this node's own user only:
+ *
+ *   put backup DIR         every file of this node's state copied into DIR,
+ *                          an empty directory of this user's at mode 0700;
+ *                          with a bulk store apart, the core goes in
+ *                          DIR/fuzznet-dir and the store in
+ *                          DIR/fuzznet-store. `ok FILES`. Restoring is
+ *                          copying them back; there is no format.
+ *   remove identity KEY    KEY must be this node's own key: every file of
+ *                          its state wiped, and the node stops. `ok FILES`.
+ *
+ * 0 for anything else. */
+static size_t identity_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                             size_t cap)
+{
+	const uint8_t *at = request->arg, *subject, *a1 = NULL;
+	size_t left = request->arg_len, subject_len, n1 = 0, copied = 0, more = 0;
+	const char *why = NULL;
+	char path[1024];
+	int backup;
+
+	if (!at || !next_word(&at, &left, &subject, &subject_len))
+		return 0;
+	backup = request->parsed == FZN_VERB_PUT && subject_len == 6u
+	         && memcmp(subject, "backup", 6u) == 0;
+	if (!backup
+	    && !(request->parsed == FZN_VERB_REMOVE && subject_len == 8u
+	         && memcmp(subject, "identity", 8u) == 0))
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied this node's identity is its own user's\n");
+	if (!state_core_dir)
+		return (size_t)snprintf(reply, cap, "error this node keeps no state directory\n");
+	(void)next_word(&at, &left, &a1, &n1);
+	if (!a1 || n1 >= sizeof(path))
+		return (size_t)snprintf(reply, cap, backup ? "malformed put backup DIR\n"
+		                                           : "malformed remove identity KEY\n");
+	memcpy(path, a1, n1);
+	path[n1] = '\0';
+	if (backup) {
+		char core[1100], bulk[1100];
+
+		if (!fzn_state_dir_backup_ok(path, &why))
+			return (size_t)snprintf(reply, cap, "error %s\n", why);
+		if (!state_bulk_dir) {
+			if (!fzn_state_dir_copy(state_core_dir, path, &copied, &why))
+				return (size_t)snprintf(reply, cap, "error the backup is partial: %s\n",
+				                        why);
+			return (size_t)snprintf(reply, cap, "ok %zu\n", copied);
+		}
+		(void)snprintf(core, sizeof(core), "%s/fuzznet-dir", path);
+		(void)snprintf(bulk, sizeof(bulk), "%s/fuzznet-store", path);
+		if (mkdir(core, 0700) != 0 || mkdir(bulk, 0700) != 0
+		    || !fzn_state_dir_copy(state_core_dir, core, &copied, &why)
+		    || !fzn_state_dir_copy(state_bulk_dir, bulk, &more, &why))
+			return (size_t)snprintf(reply, cap, "error the backup is partial: %s\n",
+			                        why ? why : "a directory would not be made");
+		return (size_t)snprintf(reply, cap, "ok %zu\n", copied + more);
+	}
+	{
+		uint8_t key[FZN_PUBKEY_LEN];
+
+		/* THE IDENTITY NAMED, and no other: fuzzypickles' rule, so a reset
+		 * meant for one node cannot discard another's. */
+		if (!contact_id || !unhex32(a1, n1, key)
+		    || memcmp(key, contact_id->pubkey, FZN_PUBKEY_LEN) != 0)
+			return (size_t)snprintf(reply, cap,
+			                        "denied that is not this node's identity\n");
+		if (!fzn_state_dir_wipe(state_core_dir, &copied, &why)
+		    || (state_bulk_dir && !fzn_state_dir_wipe(state_bulk_dir, &more, &why)))
+			return (size_t)snprintf(reply, cap, "error the wipe stopped short: %s\n", why);
+		identity_reset = 1;
+		say(FZN_ENTRY_WARNING, "node/identity",
+		    "this node's identity reset: %zu file(s) of its state wiped, and it stops",
+		    copied + more);
+		return (size_t)snprintf(reply, cap, "ok %zu\n", copied + more);
+	}
+}
+
 /* EACH ROUND: every contact asked through the first of its hosts that
  * answers -- a received share's pairing first -- the members asked for what
  * they kept, every contact device kept paired here, and the targets
@@ -5684,6 +5776,9 @@ int main(int argc, char **argv)
 	 * peer load below gives. */
 	store_dir = cli.dir;
 	bulk_dir = cli.store ? cli.store : cli.dir;
+	state_core_dir = store_dir;
+	state_bulk_dir = (cli.store && store_dir && strcmp(cli.store, store_dir) != 0) ? cli.store
+	                                                                            : NULL;
 	if (store_dir) {
 		route.core = fzn_persist_file_init(&core_file, store_dir);
 		route.store = (bulk_dir == store_dir) ? route.core
@@ -7123,6 +7218,20 @@ int main(int argc, char **argv)
 			if (state.reassembly)
 				(void)fzn_reasm_expire(state.reassembly, wall_clock());
 			(void)fzn_node_run_once(&state, 1000);
+			/* AN IDENTITY RESET, sec 620, its answer out: wiped once more,
+			 * for what was written since, and stopped. */
+			if (identity_reset) {
+				size_t wiped = 0;
+				const char *why = NULL;
+
+				(void)fzn_state_dir_wipe(state_core_dir, &wiped, &why);
+				if (state_bulk_dir)
+					(void)fzn_state_dir_wipe(state_bulk_dir, &wiped, &why);
+				fzn_socket_close(lfd, sock_path);
+				if (ufd >= 0)
+					fzn_udp_close(ufd);
+				return 0;
+			}
 		}
 	}
 

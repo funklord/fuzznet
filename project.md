@@ -64238,7 +64238,7 @@ sent no more.
 - **No name crosses with a request** but the card's own, which `get card`
   writes only when given one; the user names the asker at approval.
 - **A request is not withdrawn** by the asker; it expires.
-- **3d, identity backup and reset**, is next.
+- ~~**3d, identity backup and reset**, is next.~~ Sec 620.
 
 ### Measured for sec 619
 
@@ -64260,3 +64260,73 @@ sent no more.
   holds A's request.
 - Ten sabotage entries, each probed caught, and sec 435's member refusal
   re-anchored on the function the verb and approval now share, and caught.
+
+## 620. Step 3d: an identity backed up, reset and restored, 2026-10-13
+
+fuzzypickles' identity backup and reset (their secs 110 and 111), the
+last of sec 608's step 3.
+
+### What step 3d imports
+
+- **Backup copies everything**, to a directory of this user's at mode
+  0700, and a partial copy is a failure. No export format, deliberately:
+  a restore is the files copied back, and a format would be one more
+  thing to get wrong for the one operation that cannot be retried.
+- **Reset names the identity it discards** and refuses any other, wipes
+  every regular file of the state, and stops; the user then makes a new
+  one. No restore verb.
+
+### `node/state_dir`
+
+- **`fzn_state_dir_backup_ok`**: a directory, not a link, owned by this
+  user, mode 0700 exactly -- the copy holds the identity's seed -- and
+  empty, so a backup overwrites nothing.
+- **`fzn_state_dir_copy`**: every regular file and directory, files made
+  anew at 0600 with O_EXCL and directories at 0700; a link or a special
+  file in the state fails the copy rather than being left out of it.
+- **`fzn_state_dir_wipe`**: every regular file, truncated then unlinked;
+  directories and links stay, and no link is followed. It is the one
+  deletion here over a computed path, so **`fzn_state_dir_wipe_ok`**
+  checks first, apart: named, not `/`, and a directory itself rather than
+  a link to one. Apart so that its test can ask it of `/` -- asked of the
+  wipe, a broken guard would take every file this user can reach.
+
+### Backup and reset verbs, this node's own user only
+
+    put backup DIR          ok FILES; with a bulk store apart
+                            (--fuzznet-store), the core in DIR/fuzznet-dir
+                            and the store in DIR/fuzznet-store
+    remove identity KEY     KEY this node's own: wiped, ok FILES, stopped
+
+**A reset wipes twice**, as fuzzypickles' does: once in the verb, and once
+more after its answer is out, for whatever was written between; then the
+loop closes its sockets and returns. The log directory is not the state's
+and is not wiped, as fuzzypickles leaves its own.
+
+### Measured for sec 620
+
+- **`node/test/state_dir_test`, 15 checks**, over real files in a scratch
+  directory it makes and removes by name, failing when anything is left:
+  a missing directory, one of 0755, a link to one and one holding a
+  backup take none, and an empty 0700 one does; the state copies whole,
+  a second copy overwrites nothing, nor does one into a directory holding
+  one file of the same name; a state holding a link does not
+  copy as though whole; the root, nothing and a link to a directory are
+  not wiped; the wipe removes every regular file and leaves the link, the
+  directory and what the link names.
+- **`tool/live_identity.py`, in `make livecheck`**: a 0755 directory
+  refused and fifteen files backed up; a reset naming another key
+  refused, and one naming the node's own wipes its store to no regular
+  file and stops the node; the backup copied back, the node has the same
+  identity and the same contact. **Control**: with the reset not
+  stopping the node, phase b fails.
+- **Eight sabotage entries, each probed caught.** Copying with O_EXCL
+  **survived its first probe**: the second copy into a backup failed at
+  the directory it would have made, so a file overwritten was never what
+  refused it. The case of one file and no directory in the way catches it.
+
+### Step 3 complete
+
+Sec 608's B6 is built: contact cards, pairing by request with the sealed
+box, and identity backup and reset. Next is **step 4, relaying and
+reachability** (B4, B5).

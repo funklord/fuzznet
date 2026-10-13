@@ -11848,6 +11848,62 @@ SABOTAGES = [
 		"\treturn bytes && len >= 2u && bytes[0] == FZN_BOX_MARK\n",
 		"a box shorter than its head and tag is read past its end -- sec 618",
 	),
+	(
+		"state-dir-backup-mode-0700",
+		"node/state_dir.c",
+		"\tif ((st.st_mode & 07777) != 0700)\n\t\treturn say_why(why, \"not mode 0700: a backup holds the identity's seed\");\n",
+		"",
+		"the identity's seed is copied into a directory others can read -- sec 620",
+	),
+	(
+		"state-dir-backup-empty",
+		"node/state_dir.c",
+		"\treturn empty ? 1 : say_why(why, \"not empty: a backup overwrites nothing\");\n",
+		"\t(void)empty;\n\treturn 1;\n",
+		"a backup is taken over another, two states mixed in one directory -- sec 620",
+	),
+	(
+		"state-dir-backup-no-link",
+		"node/state_dir.c",
+		"\tif (lstat(dir, &st) != 0)\n\t\treturn say_why(why, \"the directory does not exist\");\n",
+		"\tif (stat(dir, &st) != 0)\n\t\treturn say_why(why, \"the directory does not exist\");\n",
+		"a backup goes through a link to wherever it points -- sec 620",
+	),
+	(
+		"state-dir-copy-refuses-links",
+		"node/state_dir.c",
+		"\t\t} else {\n\t\t\tok = say_why(why, \"the state directory holds a link or a special file\");\n\t\t}\n",
+		"\t\t}\n",
+		"a state holding a link is called backed up whole, and the restore is short of it -- sec 620",
+	),
+	(
+		"state-dir-copy-overwrites-nothing",
+		"node/state_dir.c",
+		"\tout = open(to, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);\n",
+		"\tout = open(to, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600);\n",
+		"a backup overwrites what was already in its directory -- sec 620",
+	),
+	(
+		"state-dir-wipe-follows-no-link",
+		"node/state_dir.c",
+		"\t\t/* LSTAT, so a link is seen as a link and never followed. */\n\t\tif (lstat(p, &st) != 0)\n",
+		"\t\t/* LSTAT, so a link is seen as a link and never followed. */\n\t\tif (stat(p, &st) != 0)\n",
+		"a reset empties whatever a link in the state points at, outside it -- sec 620",
+	),
+	(
+		"state-dir-wipe-not-the-root",
+		"node/state_dir.c",
+		"\tif (strcmp(dir, \"/\") == 0)\n\t\treturn say_why(why, \"the filesystem's root is no state directory\");\n",
+		"",
+		"a reset of a store named `/` wipes every file the user can reach -- sec 620",
+	),
+	(
+		"state-dir-wipe-not-a-link",
+		"node/state_dir.c",
+		"\tif (lstat(dir, &st) != 0 || !S_ISDIR(st.st_mode))\n\t\treturn say_why(why, \"not a directory, or a link to one\");\n\treturn 1;\n",
+		"\tif (stat(dir, &st) != 0 || !S_ISDIR(st.st_mode))\n\t\treturn say_why(why, \"not a directory, or a link to one\");\n\treturn 1;\n",
+		"a store that is a link to another directory has that directory wiped -- sec 620",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so
