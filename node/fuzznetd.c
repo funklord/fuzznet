@@ -3689,14 +3689,24 @@ static size_t pair_siblings(const fzn_node_identity_t *id, uint64_t now)
  * set: a socket bound, the host resolved, its reassembly made, and the
  * caller filled from the pairing. 1 ready; 0 with nothing open and the
  * pairing wiped. */
+static int open_target_on(struct pull_target *pt, int fd, int family,
+                          const uint8_t self[FZN_PUBKEY_LEN], const fzn_hash_ops_t *hash,
+                          const fzn_aead_ops_t *aead, const fzn_random_ops_t *rng);
+
 static int open_target(struct pull_target *pt, int family, const uint8_t self[FZN_PUBKEY_LEN],
                        const fzn_hash_ops_t *hash, const fzn_aead_ops_t *aead,
                        const fzn_random_ops_t *rng)
 {
-	int fd = -1;
+	return open_target_on(pt, -1, family, self, hash, aead, rng);
+}
 
+/* `fd` an open socket to keep using, or -1 to bind a new one. */
+static int open_target_on(struct pull_target *pt, int fd, int family,
+                          const uint8_t self[FZN_PUBKEY_LEN], const fzn_hash_ops_t *hash,
+                          const fzn_aead_ops_t *aead, const fzn_random_ops_t *rng)
+{
 	pt->fd = -1;
-	if (fzn_udp_bind(family, NULL, 0, &fd) != FZN_UDP_OK
+	if ((fd < 0 && fzn_udp_bind(family, NULL, 0, &fd) != FZN_UDP_OK)
 	    || fzn_udp_resolve(family, pt->host, (uint16_t)pt->port, &pt->caller.node) != FZN_UDP_OK
 	    || fzn_reasm_slot_init(&pt->slot, pt->slot_buf, sizeof(pt->slot_buf)) != FZN_REASM_OK
 	    || fzn_reasm_init(&pt->table, &pt->slot, 1, 1u, 60u) != FZN_REASM_OK) {
@@ -3730,27 +3740,80 @@ static int open_target(struct pull_target *pt, int family, const uint8_t self[FZ
 static char sibling_hosts[FZND_SIBLING_TARGETS_MAX][FZN_NODE_SETTINGS_HOST_MAX + 1u];
 static size_t n_sibling_targets;
 
+/* ---- introductions, sec 623 ------------------------------------------------ */
+
+/* A SIBLING'S SOCKET, KEPT ACROSS ROUNDS: a hole a NAT opens is opened for
+ * one socket, and a sibling reached through an introduction is reached on
+ * the socket the introduction was made from. Rebuilt targets reuse it. */
+#define FZND_INTRO_MAX 16u
+/* How long an introduced address is used, seconds. */
+#define FZND_INTRO_S 600u
+
+static struct sibling_socket {
+	uint8_t key[FZN_PUBKEY_LEN];
+	int fd;
+} sibling_sockets[FZND_SIBLING_TARGETS_MAX];
+static size_t n_sibling_sockets;
+
+static struct introduced {
+	uint8_t key[FZN_PUBKEY_LEN];
+	char host[FZN_UDP_HOST_MAX];
+	uint16_t port;
+	uint64_t until;
+	int due;
+} introduced[FZND_INTRO_MAX];
+
+static struct introduced *intro_of(const uint8_t key[FZN_PUBKEY_LEN], int make)
+{
+	size_t i, free_one = FZND_INTRO_MAX;
+
+	for (i = 0; i < FZND_INTRO_MAX; i++) {
+		if (introduced[i].until || introduced[i].due) {
+			if (memcmp(introduced[i].key, key, FZN_PUBKEY_LEN) == 0)
+				return &introduced[i];
+		} else if (free_one == FZND_INTRO_MAX) {
+			free_one = i;
+		}
+	}
+	if (!make || free_one == FZND_INTRO_MAX)
+		return NULL;
+	memset(&introduced[free_one], 0, sizeof(introduced[free_one]));
+	memcpy(introduced[free_one].key, key, FZN_PUBKEY_LEN);
+	return &introduced[free_one];
+}
+
+static int sibling_fd(const uint8_t key[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	for (i = 0; i < n_sibling_sockets; i++)
+		if (memcmp(sibling_sockets[i].key, key, FZN_PUBKEY_LEN) == 0)
+			return sibling_sockets[i].fd;
+	return -1;
+}
+
 static size_t load_siblings(struct pull_target *pulls, size_t npulls, int family,
                             const uint8_t self[FZN_PUBKEY_LEN], const uint8_t *root,
                             const fzn_hash_ops_t *hash, const fzn_aead_ops_t *aead,
                             const fzn_random_ops_t *rng)
 {
 	static uint8_t hosts[FZN_NODE_SIBLINGS_MAX][FZN_PUBKEY_LEN];
-	size_t n = 0, i, t, built = 0;
+	static struct sibling_socket kept[FZND_SIBLING_TARGETS_MAX];
+	size_t n = 0, i, t, built = 0, n_kept = 0;
+	uint64_t now = wall_clock();
 
-	for (i = 0; i < n_sibling_targets; i++) {
-		if (pulls[npulls + i].fd >= 0)
-			fzn_udp_close(pulls[npulls + i].fd);
+	for (i = 0; i < n_sibling_targets; i++)
 		fzn_wipe(&pulls[npulls + i].pairing, sizeof(pulls[npulls + i].pairing));
-	}
 	n_sibling_targets = 0;
 	if (!node_apply.store
 	    || fzn_node_siblings_list(node_apply.store, hosts, FZN_NODE_SIBLINGS_MAX, &n)
 	               != FZN_NODE_SIBLINGS_OK)
-		return 0;
+		n = 0;
 	for (i = 0; i < n && built < FZND_SIBLING_TARGETS_MAX; i++) {
 		struct pull_target *pt = &pulls[npulls + built];
+		struct introduced *in = intro_of(hosts[i], 0);
 		uint16_t port = 0;
+		int fd;
 
 		if (memcmp(hosts[i], self, FZN_PUBKEY_LEN) == 0)
 			continue;
@@ -3763,22 +3826,126 @@ static size_t load_siblings(struct pull_target *pulls, size_t npulls, int family
 			continue;
 		memset(pt, 0, sizeof(*pt));
 		pt->fd = -1;
-		if (!fzn_node_settings_address(&node_settings, hosts[i], sibling_hosts[built], &port))
+		/* AN INTRODUCED ADDRESS FIRST, sec 623, while it lasts; else the
+		 * sibling's own `net/address`. */
+		if (in && in->until > now && in->port) {
+			(void)snprintf(sibling_hosts[built], sizeof(sibling_hosts[built]), "%s", in->host);
+			port = in->port;
+		} else if (!fzn_node_settings_address(&node_settings, hosts[i], sibling_hosts[built],
+		                                      &port)) {
 			continue;
+		}
 		if (fzn_node_pairing_load(node_apply.store, hosts[i], &pt->pairing) != FZN_PERSIST_OK)
 			continue;
 		memcpy(pt->node, hosts[i], FZN_PUBKEY_LEN);
 		pt->host = sibling_hosts[built];
 		pt->port = port;
-		if (!open_target(pt, family, self, hash, aead, rng)) {
+		fd = sibling_fd(hosts[i]);
+		if (!open_target_on(pt, fd, family, self, hash, aead, rng)) {
 			say(FZN_ENTRY_WARNING, "node/siblings", "could not reach for a sibling at %s",
 			    sibling_hosts[built]);
 			continue;
 		}
+		memcpy(kept[n_kept].key, hosts[i], FZN_PUBKEY_LEN);
+		kept[n_kept++].fd = pt->fd;
 		built++;
 	}
+	/* A SOCKET NO SIBLING USES NOW is closed. */
+	for (i = 0; i < n_sibling_sockets; i++) {
+		for (t = 0; t < n_kept && kept[t].fd != sibling_sockets[i].fd; t++)
+			;
+		if (t == n_kept && sibling_sockets[i].fd >= 0)
+			fzn_udp_close(sibling_sockets[i].fd);
+	}
+	memcpy(sibling_sockets, kept, n_kept * sizeof(kept[0]));
+	n_sibling_sockets = n_kept;
 	n_sibling_targets = built;
 	return built;
+}
+
+/* THE TYPES of an introduction, in notes-sync's space after the relay's 35:
+ * INTRODUCE asks a peer to introduce a sibling; NOTIFY tells that sibling
+ * where the asker asked from. Answered in words. */
+#define FZND_INTRO_VERSION 2u
+#define FZND_INTRODUCE_TYPE 37u
+#define FZND_NOTIFY_TYPE 38u
+
+/* SIBLINGS UNANSWERED LAST ROUND are due an introduction, sec 623. */
+static void intro_note_silent(struct pull_target *pulls, size_t from, size_t to)
+{
+	size_t i;
+
+	for (i = from; i < to; i++)
+		if (silent_peer(&pulls[i])) {
+			struct introduced *in = intro_of(pulls[i].node, 1);
+
+			if (in)
+				in->due = 1;
+		}
+}
+
+/* INTRODUCE each sibling due one, through the first peer that is not one
+ * and answered: asked from the sibling's own socket, so the peer sees the
+ * mapping the sibling's answer must come back to; the address it says the
+ * sibling said hello from used for this round and the next ten minutes,
+ * and a hello sent there at once, opening this host's NAT's way to it. */
+static void introduce_siblings(struct pull_target *pulls, size_t npulls_base, size_t npulls,
+                               int family, uint64_t now)
+{
+	size_t i, k;
+
+	for (i = npulls_base; i < npulls; i++) {
+		struct pull_target *pt = &pulls[i];
+		struct introduced *in = intro_of(pt->node, 0);
+		uint8_t request[2u + FZN_PUBKEY_LEN], reply[160];
+		char host[FZN_UDP_HOST_MAX];
+		unsigned port = 0;
+		size_t len = 0;
+
+		if (!in || !in->due)
+			continue;
+		for (k = 0; k < npulls_base && silent_peer(&pulls[k]); k++)
+			;
+		if (k == npulls_base)
+			return;
+		{
+			fzn_caller_t via = pulls[k].caller;
+			uint32_t msg = 0;
+
+			via.fd = pt->fd;
+			request[0] = FZND_INTRO_VERSION;
+			request[1] = FZND_INTRODUCE_TYPE;
+			memcpy(request + 2, pt->node, FZN_PUBKEY_LEN);
+			if (fzn_caller_send(&via, request, sizeof(request), now + 300u, &msg)
+			            != FZN_CALLER_OK
+			    || fzn_caller_recv(&via, msg, reply, sizeof(reply) - 1u, &len, 3000u)
+			               != FZN_CALLER_OK) {
+				say(FZN_ENTRY_DEBUG, "node/siblings", "an introduction asked of %s: no answer",
+				    pulls[k].host);
+				continue;
+			}
+			pulls[k].caller.next_msg = via.next_msg;
+		}
+		reply[len] = '\0';
+		if (sscanf((const char *)reply, "ok %45s %u", host, &port) != 2 || !port
+		    || port > 65535u) {
+			say(FZN_ENTRY_DEBUG, "node/siblings", "an introduction refused: %.120s",
+			    (const char *)reply);
+			continue;
+		}
+		in->due = 0;
+		(void)snprintf(in->host, sizeof(in->host), "%s", host);
+		in->port = (uint16_t)port;
+		in->until = now + FZND_INTRO_S;
+		/* THIS ROUND, at once: the target turned to the introduced
+		 * address, on the same socket, and a hello there. */
+		(void)snprintf((char *)sibling_hosts[i - npulls_base],
+		               sizeof(sibling_hosts[i - npulls_base]), "%s", host);
+		pt->port = (long)port;
+		if (fzn_udp_resolve(family, host, (uint16_t)port, &pt->caller.node) == FZN_UDP_OK)
+			(void)fzn_caller_hello(&pt->caller, pt->fd, now + 60u);
+		say(FZN_ENTRY_INFO, "node/siblings", "a sibling introduced at %s %u", host, port);
+	}
 }
 #endif
 
@@ -5055,6 +5222,9 @@ static int relay_charge(const uint8_t key[FZN_PUBKEY_LEN], size_t bytes, uint64_
  * from it (one hop: what a relay sends on goes with no hops left, and is
  * never sent on again), the frame inside is the asker's own, the target
  * said hello recently, and the quota allows. Answered in words. */
+static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
+                               size_t request_len, uint8_t *reply, size_t reply_cap);
+
 static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *request,
                            size_t request_len, uint8_t *reply, size_t reply_cap)
 {
@@ -5068,6 +5238,9 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 	size_t inner_len;
 
 	(void)ctx;
+	if (request_len >= 2u && request[0] == FZND_RELAY_VERSION
+	    && (request[1] == FZND_INTRODUCE_TYPE || request[1] == FZND_NOTIFY_TYPE))
+		return introduce_remote(sender, request, request_len, reply, reply_cap);
 	if (request_len < FZND_RELAY_HEAD_LEN + 1u || request[0] != FZND_RELAY_VERSION
 	    || request[1] != FZND_RELAY_TYPE)
 		return 0;
@@ -5098,6 +5271,108 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 		return RELAY_NO("the frame would not send");
 #undef RELAY_NO
 	return (size_t)snprintf((char *)reply, reply_cap, "ok\n");
+}
+
+/* AN INTRODUCTION, sec 623, fuzzypickles' rendezvous among an estate's
+ * own hosts. INTRODUCE, from a member, names a host
+ * that said hello here: answered `ok HOST PORT`, where it said hello from,
+ * and that host sent a NOTIFY from this host's serving socket -- through
+ * its NAT's open way -- naming the asker and where the asker asked from.
+ * NOTIFY, from a member, has this host say hello to that address from its
+ * serving socket, opening its own NAT's way to the asker. Both sides then
+ * reach each other on the sockets the introduction was made from. */
+static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
+                               size_t request_len, uint8_t *reply, size_t reply_cap)
+{
+	const fzn_node_state_t *st = running_admin ? running_admin->state : NULL;
+	char host[FZN_UDP_HOST_MAX];
+	uint8_t owner[FZN_PUBKEY_LEN];
+	fzn_setting_rank_t rank;
+	fzn_udp_addr_t at;
+	uint64_t when = 0, now = wall_clock();
+	uint16_t port = 0;
+	int member = fzn_node_apply_rank(&node_apply, sender, FZN_SCOPE_HOST, sender, &rank) == 1;
+
+#define INTRO_NO(text) ((size_t)snprintf((char *)reply, reply_cap, "denied %s\n", text))
+	if (!st || st->udp_fd < 0 || !contact_id || !node_apply.store)
+		return INTRO_NO("this host serves no introductions");
+	if (request[1] == FZND_INTRODUCE_TYPE) {
+		static uint8_t notify[2u + FZN_PUBKEY_LEN + 1u + FZN_UDP_HOST_MAX + 2u];
+		fzn_node_pairing_t pairing;
+		fzn_caller_t c;
+		char asker[FZN_UDP_HOST_MAX];
+		uint16_t asker_port = 0;
+		uint32_t msg = 0;
+		size_t n;
+
+		if (request_len != 2u + FZN_PUBKEY_LEN)
+			return INTRO_NO("malformed introduce");
+		/* ONE USER'S OWN HOSTS: an introduction tells where a host is, and
+		 * that is the estate's to know. */
+		if (!member)
+			return INTRO_NO("introductions only within this estate");
+		if (!fzn_node_relay_where(&relay_tables, request + 2, &at, &when)
+		    || when + FZND_RELAY_SEEN_S < now || fzn_udp_addr_text(&at, host, &port) != FZN_UDP_OK)
+			return INTRO_NO("that host has not said where it is");
+		/* THE NOTIFY, sent and not waited on: its answer comes to the
+		 * serving socket, and opens there as nothing. */
+		if (st->asking_from && fzn_udp_addr_text(st->asking_from, asker, &asker_port) == FZN_UDP_OK
+		    && fzn_node_pairing_load(node_apply.store, request + 2, &pairing) == FZN_PERSIST_OK) {
+			memset(&c, 0, sizeof(c));
+			fzn_node_pairing_caller(&pairing, contact_id->pubkey, &c);
+			c.fd = st->udp_fd;
+			c.node = at;
+			c.hash = contact_hash_ops;
+			c.aead = contact_aead_ops;
+			c.rng = contact_rng_ops;
+			c.hops = 1u;
+			n = strlen(asker);
+			notify[0] = FZND_INTRO_VERSION;
+			notify[1] = FZND_NOTIFY_TYPE;
+			memcpy(notify + 2, sender, FZN_PUBKEY_LEN);
+			notify[2u + FZN_PUBKEY_LEN] = (uint8_t)n;
+			memcpy(notify + 3u + FZN_PUBKEY_LEN, asker, n);
+			fzn_put_be16(notify + 3u + FZN_PUBKEY_LEN + n, asker_port);
+			(void)fzn_caller_send(&c, notify, 5u + FZN_PUBKEY_LEN + n, now + 60u, &msg);
+			fzn_wipe(&pairing, sizeof(pairing));
+			fzn_wipe(&c, sizeof(c));
+		}
+		return (size_t)snprintf((char *)reply, reply_cap, "ok %s %u\n", host, (unsigned)port);
+	}
+	/* NOTIFY: from a member, about a member or a standing contact. */
+	{
+		fzn_node_pairing_t pairing;
+		fzn_caller_t c;
+		const uint8_t *who = request + 2;
+		size_t n;
+
+		if (request_len < 3u + FZN_PUBKEY_LEN)
+			return INTRO_NO("malformed notify");
+		n = request[2u + FZN_PUBKEY_LEN];
+		if (n == 0u || n >= FZN_UDP_HOST_MAX || request_len != 5u + FZN_PUBKEY_LEN + n)
+			return INTRO_NO("malformed notify");
+		if (!member)
+			return INTRO_NO("only this estate introduces");
+		if (fzn_node_apply_rank(&node_apply, who, FZN_SCOPE_HOST, who, &rank) != 1
+		    && !fzn_node_admin_contact_of(running_admin, who, owner))
+			return INTRO_NO("not a host this one knows");
+		memcpy(host, request + 3u + FZN_PUBKEY_LEN, n);
+		host[n] = '\0';
+		port = fzn_get_be16(request + 3u + FZN_PUBKEY_LEN + n);
+		if (!port || fzn_node_pairing_load(node_apply.store, who, &pairing) != FZN_PERSIST_OK)
+			return INTRO_NO("no way to that host");
+		memset(&c, 0, sizeof(c));
+		fzn_node_pairing_caller(&pairing, contact_id->pubkey, &c);
+		c.hash = contact_hash_ops;
+		c.aead = contact_aead_ops;
+		c.rng = contact_rng_ops;
+		if (fzn_udp_resolve(contact_family, host, port, &c.node) == FZN_UDP_OK)
+			(void)fzn_caller_hello(&c, st->udp_fd, now + 60u);
+		fzn_wipe(&pairing, sizeof(pairing));
+		fzn_wipe(&c, sizeof(c));
+		return (size_t)snprintf((char *)reply, reply_cap, "ok\n");
+	}
+#undef INTRO_NO
 }
 
 /* A RELAYED ASK, sec 622: the request sealed for the target and handed to
@@ -7353,12 +7628,17 @@ int main(int argc, char **argv)
 			 * than this one does, and waiting for it would stop every pull
 			 * for as long as the clock had been wrong. sec 469. */
 			if (now >= next_pull || next_pull > now + FZND_PULL_EVERY) {
-				/* EVERY PEER ASKED AGAIN, sec 587. */
+				/* EVERY PEER ASKED AGAIN, sec 587 -- and a sibling that did
+				 * not answer last round introduced first, sec 623. */
+#ifdef FZN_RECORD_STORE_FILE_ON
+				intro_note_silent(pulls, npulls_base, npulls);
+#endif
 				n_silent = 0;
 #ifdef FZN_RECORD_STORE_FILE_ON
 				npulls = npulls_base + load_siblings(pulls, npulls_base, family,
 				                                     identity.pubkey, state.config.root,
 				                                     &hash_ops, &aead_ops, &rng_ops);
+				introduce_siblings(pulls, npulls_base, npulls, family, now);
 #endif
 				round_named = say_caused(FZN_ENTRY_DEBUG, "node/round", NULL, NULL,
 				                         &round_name, "a round with %zu peer(s)", npulls);

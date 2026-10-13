@@ -64516,3 +64516,67 @@ that did answer** -- one keeping no messages may still relay them.
 - Five sabotage entries, each probed caught; two of `node/caller.c`'s
   re-anchored, since `fzn_caller_seal` repeats the lines they named, and
   caught.
+
+## 623. Step 4c: a sibling reached through an introduction, 2026-10-13
+
+fuzzypickles' rendezvous (their INTRODUCE, NOTIFY and PUNCH), for one
+user's own hosts: two siblings behind NATs, neither reached at the
+address it advertises, both saying hello to a peer they share -- the
+estate's root, typically (sec 622).
+
+### How it goes
+
+1. **B's round finds sibling C silent** -- C did not answer at its
+   `net/address` -- and the next round, before C is asked again, **B asks
+   A to introduce C**: INTRODUCE, type 37, naming C, sent **from the socket
+   B asks C on**, so A sees the mapping C's answers must come back to.
+2. **A answers where C said hello from**, `ok HOST PORT`, and sends C a
+   NOTIFY, type 38, from A's serving socket -- through the way C's hellos
+   keep open -- naming B and where B asked from.
+3. **C says hello to that address** from its serving socket, opening its
+   own NAT's way to B; **B turns its target for C to the introduced
+   address**, on the same socket, says hello there, opening its own, and
+   asks C there for the rest of the round and ten minutes after.
+
+Where fuzzypickles' introducer never tells the asker where the target is,
+here it does: an introduction is among one user's own hosts, and where
+they are is the user's to know. **INTRODUCE is for members only**, and so
+needs no switch of its own; NOTIFY is taken from a member about a member
+or a standing contact. Fuzzypickles' assumption stands and is said: NATs
+that keep one mapping for every destination.
+
+### A sibling's socket is kept
+
+A hole a NAT opens is opened for one socket, and sibling targets were
+rebuilt with new sockets every round. **A sibling's socket is now kept
+across rounds**, keyed by the sibling's key, and closed only when no
+sibling uses it.
+
+### Found while measuring: a root waits on a sibling it cannot reach
+
+**A, the root, asked C at C's dead address too** -- members, wrap keys,
+purges, each waiting out its three seconds, only the journal's pull
+passing a silent peer over for the rest of the round (sec 587) -- and
+B's INTRODUCE, arriving meanwhile, went unanswered. Sec 489's "a fetch
+blocks the loop", met by an introducer. An introduction not answered
+stays due for the next round; the requests that do not yet pass a silent
+peer over are a separate fix, not made here.
+
+### Not yet after sec 623
+
+- **Unverifiable on loopback**: no NAT stands between the hosts in a
+  test, so what is shown is the introduced address used and answered;
+  that a real NAT lets the hellos through is the design's claim, not a
+  measurement.
+- **Contacts are not introduced**: a contact's hosts say hello to their
+  own estate, not to the asker's.
+- **4d, LAN discovery**, is next.
+
+### Measured for sec 623
+
+- **`tool/live_introduce.py`, in `make livecheck`**: A a root, B and C
+  joined; C advertises a port nobody listens on and says hello to A; C
+  puts a file, B asks for it, B's round finds C silent, a later round
+  introduces C through A at C's serving port, and B fetches the file
+  whole from one peer, A holding none of it. **Control**: with
+  introductions not run, B is never introduced to C.
