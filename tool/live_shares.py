@@ -179,7 +179,7 @@ def main(argv):
 				if os.path.exists("/proc/%d" % pid):
 					try:
 						with open("/proc/%d/cmdline" % pid, "rb") as f:
-							alive = f.read() != b""
+							alive = run.fuzznetd.encode() in f.read()
 					except OSError:
 						alive = False
 					if alive:
