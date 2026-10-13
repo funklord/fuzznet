@@ -2782,6 +2782,20 @@ static size_t routing_local(const fzn_request_t *request, char *reply, size_t re
 	return at;
 }
 
+/* WHETHER THIS HOST KEEPS `contact`'S LINES by the rules reaching it, sec
+ * 613: what a contact's delivery is filed or refused by, and what a
+ * member's question about a line it holds is answered by (sec 615). */
+static int keeps_here(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN])
+{
+	static fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX];
+	size_t n;
+
+	(void)ctx;
+	n = fzn_retain_select_messages(rules, gather_rules(rules), dlog.has_host ? dlog.host : NULL,
+	                               here_machine(), rules);
+	return fzn_messages_keeps(rules, n, contact);
+}
+
 /* A LINE A CONTACT DELIVERS, sec 613: filed under the sender's key -- the
  * conversation a contact's lines are filed under -- when this host keeps
  * that conversation by the rules reaching it, and refused otherwise, so
@@ -2789,18 +2803,15 @@ static size_t routing_local(const fzn_request_t *request, char *reply, size_t re
 static size_t messages_contact(void *ctx, const uint8_t *sender, const uint8_t *request,
                                size_t request_len, uint8_t *reply, size_t reply_cap)
 {
-	static fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX];
-	size_t n, len;
+	size_t len;
 	int fresh = node_messages.fresh;
 
 	(void)ctx;
 	if (!messages_on)
 		return 0;
-	n = fzn_retain_select_messages(rules, gather_rules(rules), dlog.has_host ? dlog.host : NULL,
-	                               here_machine(), rules);
 	node_messages.fresh = 0;
-	len = fzn_node_messages_contact(&node_messages, sender, fzn_messages_keeps(rules, n, sender),
-	                                request, request_len, reply, reply_cap);
+	len = fzn_node_messages_contact(&node_messages, sender, keeps_here(NULL, sender), request,
+	                                request_len, reply, reply_cap);
 	/* A LINE FILED, its conversation named, as one reconciled is (sec 609). */
 	if (node_messages.fresh) {
 		char hex[2u * FZN_PUBKEY_LEN + 1u];
@@ -4170,6 +4181,57 @@ static void load_contact_targets(void)
 		}
 }
 
+#define FZND_SETTLE_EVERY 3600u
+/* How many lines one settle pass weighs. */
+#define FZND_SETTLE_MAX 16u
+
+/* LINES SETTLED, sec 615, each round: every contact's line this node filed
+ * and has not marked settled, asked of each other member of the estate --
+ * through the pull target paired to it, a member with none never answering
+ * -- and marked once every one holds it or keeps none of that conversation. */
+static void settle_lines(struct pull_target *pulls, size_t npulls)
+{
+	static uint8_t keys[FZN_NODE_SIBLINGS_MAX][FZN_PUBKEY_LEN];
+	static fzn_node_messages_member_t members[FZN_NODE_SIBLINGS_MAX];
+	static struct peer_asking asking[FZN_NODE_SIBLINGS_MAX];
+	fzn_node_messages_settlement_t t;
+	fzn_messages_err_t err;
+	size_t n = 0, m = 0, i, k;
+
+	if (!messages_on || !contact_id || !node_apply.store
+	    || fzn_node_siblings_list(node_apply.store, keys, FZN_NODE_SIBLINGS_MAX, &n)
+	               != FZN_NODE_SIBLINGS_OK)
+		return;
+	for (i = 0; i < n; i++) {
+		fzn_setting_rank_t rank;
+
+		if (memcmp(keys[i], contact_id->pubkey, FZN_PUBKEY_LEN) == 0
+		    || fzn_node_apply_rank(&node_apply, keys[i], FZN_SCOPE_HOST, keys[i], &rank) != 1)
+			continue;
+		members[m].key = keys[i];
+		members[m].ask = NULL;
+		members[m].ctx = NULL;
+		for (k = 0; k < npulls; k++)
+			if (!silent_peer(&pulls[k])
+			    && memcmp(pulls[k].pairing.node, keys[i], FZN_PUBKEY_LEN) == 0) {
+				asking[m].caller = &pulls[k].caller;
+				asking[m].now = wall_clock();
+				asking[m].host = pulls[k].host;
+				members[m].ask = peer_ask;
+				members[m].ctx = &asking[m];
+				break;
+			}
+		m++;
+	}
+	err = fzn_node_messages_settle(&node_messages, members, m, FZND_SETTLE_MAX, &t);
+	if (err != FZN_MESSAGES_OK)
+		say(FZN_ENTRY_WARNING, "messages/settle", "settling: %s", fzn_messages_err_str(err));
+	else if (t.weighed)
+		say(FZN_ENTRY_INFO, "messages/settle",
+		    "%zu line(s) weighed over %zu member(s): %zu settled, %zu waiting", t.weighed, m,
+		    t.settled, t.waiting);
+}
+
 /* EACH ROUND: every contact asked through the first of its hosts that
  * answers -- a received share's pairing first -- the members asked for what
  * they kept, every contact device kept paired here, and the targets
@@ -4223,11 +4285,18 @@ static void contact_round(struct pull_target *pulls, size_t npulls, uint64_t now
  * after a line is written. */
 static void deliver_contacts(uint64_t now)
 {
+	static uint64_t next_settle;
 	uint8_t done[FZND_CONTACT_TARGETS_MAX + FZN_NODE_RECEIVED_MAX][FZN_PUBKEY_LEN];
 	size_t ndone = 0, i, k;
+	int settle;
 
 	if (!messages_on)
 		return;
+	/* A LINE DELIVERED AND NOT SETTLED is offered again hourly, and at
+	 * start, so the answer can say it settled (sec 615). */
+	settle = now >= next_settle || next_settle > now + FZND_SETTLE_EVERY;
+	if (settle)
+		next_settle = now + FZND_SETTLE_EVERY;
 	for (i = 0; i < nshares_in + ncontact_targets; i++) {
 		struct pull_target *pt = i < nshares_in ? &shares_in[i].pt
 		                                        : &contact_targets[i - nshares_in].pt;
@@ -4244,14 +4313,15 @@ static void deliver_contacts(uint64_t now)
 		if (k < ndone
 		    || (running_admin && !fzn_node_admin_contact_stands(running_admin, contact)))
 			continue;
-		err = fzn_node_messages_deliver(&node_messages, contact, peer_ask, &asking, &d);
+		err = fzn_node_messages_deliver(&node_messages, contact, settle, peer_ask, &asking, &d);
 		if (err != FZN_MESSAGES_OK)
 			say(FZN_ENTRY_WARNING, "messages/deliver", "delivering to %s: %s", host,
 			    fzn_messages_err_str(err));
 		else if (d.sent)
 			say(FZN_ENTRY_INFO, "messages/deliver",
-			    "%zu line(s) offered to %s: %zu delivered, %zu refused, %zu unanswered", d.sent,
-			    host, d.delivered, d.refused, d.unanswered);
+			    "%zu line(s) offered to %s: %zu delivered, %zu settled, %zu refused, %zu "
+			    "unanswered",
+			    d.sent, host, d.delivered, d.settled, d.refused, d.unanswered);
 		/* ALL OF THEM TAKEN, OR NONE WAITING: this contact is done. A
 		 * refusal or no answer tries its next host. */
 		if (err == FZN_MESSAGES_OK && !d.refused && !d.unanswered)
@@ -6037,6 +6107,7 @@ int main(int argc, char **argv)
 				                           &hash_ops, wall_ms)
 				    == FZN_MESSAGES_OK) {
 					messages_on = 1;
+					node_messages.keeps = keeps_here;
 					admin.messages_local = fzn_node_messages_local;
 					admin.messages_remote = fzn_node_messages_remote;
 					admin.messages_ctx = &node_messages;
@@ -6403,6 +6474,7 @@ int main(int argc, char **argv)
 				                                     &hash_ops, &aead_ops, &rng_ops);
 				messages_round(pulls, npulls, now);
 				messages_give_up();
+				settle_lines(pulls, npulls);
 				/* THE NOTES INDEX FIRST, so the cut sees how far it has
 				 * read: a notes stream is cut no further than its cursor,
 				 * which the round's own index has not moved yet. sec 555. */

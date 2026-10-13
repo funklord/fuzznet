@@ -647,6 +647,9 @@ static size_t answer_want(fzn_node_messages_t *nm, const uint8_t *request, size_
 	return at;
 }
 
+static size_t answer_holds(fzn_node_messages_t *nm, const uint8_t *request, size_t request_len,
+                           uint8_t *reply, size_t reply_cap);
+
 size_t fzn_node_messages_remote(void *ctx, const uint8_t *sender, const uint8_t *request,
                                 size_t request_len, uint8_t *reply, size_t reply_cap)
 {
@@ -659,13 +662,15 @@ size_t fzn_node_messages_remote(void *ctx, const uint8_t *sender, const uint8_t 
 		return answer_give(nm, sender, request, request_len, reply, reply_cap);
 	if (request[1] == FZN_NODE_MESSAGES_WANT)
 		return answer_want(nm, request, request_len, reply, reply_cap);
+	if (request[1] == FZN_NODE_MESSAGES_HOLDS)
+		return answer_holds(nm, request, request_len, reply, reply_cap);
 	return 0;
 }
 
 /* ---- delivery to a contact, sec 613 --------------------------------------- */
 
-/* ONE LINE OFFERED: 1 held, 0 refused, -1 unanswered or answered with
- * anything but this line's DELIVERED. */
+/* ONE LINE OFFERED: 2 settled, 1 held, 0 refused, -1 unanswered or
+ * answered with anything but this line's DELIVERED. */
 static int offer(const fzn_message_t *line, fzn_node_messages_ask_t ask, void *ctx)
 {
 	uint8_t request[FZN_NODE_MESSAGES_DELIVER_MAX], reply[FZN_NODE_MESSAGES_DELIVERED_LEN + 8u];
@@ -683,13 +688,19 @@ static int offer(const fzn_message_t *line, fzn_node_messages_ask_t ask, void *c
 	    || reply[1] != FZN_NODE_MESSAGES_DELIVERED
 	    || memcmp(reply + 2, line->id, FZN_MESSAGE_ID_LEN) != 0)
 		return -1;
-	if (reply[2 + FZN_MESSAGE_ID_LEN] == FZN_NODE_MESSAGES_HELD)
+	switch (reply[2 + FZN_MESSAGE_ID_LEN]) {
+	case FZN_NODE_MESSAGES_SETTLED:
+		return 2;
+	case FZN_NODE_MESSAGES_HELD:
 		return 1;
-	return reply[2 + FZN_MESSAGE_ID_LEN] == FZN_NODE_MESSAGES_REFUSED ? 0 : -1;
+	case FZN_NODE_MESSAGES_REFUSED:
+		return 0;
+	}
+	return -1;
 }
 
 fzn_messages_err_t fzn_node_messages_deliver(fzn_node_messages_t *nm,
-                                             const uint8_t contact[FZN_PUBKEY_LEN],
+                                             const uint8_t contact[FZN_PUBKEY_LEN], int settle,
                                              fzn_node_messages_ask_t ask, void *ctx,
                                              fzn_node_messages_delivery_t *tally)
 {
@@ -717,7 +728,9 @@ fzn_messages_err_t fzn_node_messages_deliver(fzn_node_messages_t *nm,
 			/* STILL BEING SENT, AND THIS DEVICE'S TO SEND: another
 			 * device's line is that device's (sec 610's open question,
 			 * which device re-offers when the writer is gone). */
-			if (page[i].direction != FZN_MESSAGE_OUT || page[i].state != 0u
+			if (page[i].direction != FZN_MESSAGE_OUT
+			    || (page[i].state != 0u
+			        && !(settle && page[i].state == FZN_MESSAGE_DELIVERED))
 			    || !page[i].readable || !same_key(page[i].device, nm->m.issuer))
 				continue;
 			tally->sent++;
@@ -730,11 +743,17 @@ fzn_messages_err_t fzn_node_messages_deliver(fzn_node_messages_t *nm,
 				tally->refused++;
 				return FZN_MESSAGES_OK;
 			}
+			/* HELD AGAIN of a line delivered already changes nothing. */
+			if (got == 1 && page[i].state == FZN_MESSAGE_DELIVERED)
+				continue;
 			err = fzn_messages_mark(&nm->m, contact, FZN_MESSAGE_OUT, page[i].id,
-			                        FZN_MESSAGE_DELIVERED);
+			                        got == 2 ? FZN_MESSAGE_SETTLED : FZN_MESSAGE_DELIVERED);
 			if (err != FZN_MESSAGES_OK)
 				return err;
-			tally->delivered++;
+			if (got == 2)
+				tally->settled++;
+			else
+				tally->delivered++;
 			nm->fresh = 1;
 		}
 		if (!more || !count)
@@ -776,8 +795,132 @@ size_t fzn_node_messages_contact(fzn_node_messages_t *nm, const uint8_t contact[
 	reply[0] = FZN_NODE_MESSAGES_VERSION;
 	reply[1] = FZN_NODE_MESSAGES_DELIVERED;
 	memcpy(reply + 2, id, FZN_MESSAGE_ID_LEN);
-	reply[2 + FZN_MESSAGE_ID_LEN] = keeps ? FZN_NODE_MESSAGES_HELD : FZN_NODE_MESSAGES_REFUSED;
+	reply[2 + FZN_MESSAGE_ID_LEN] =
+	        !keeps ? FZN_NODE_MESSAGES_REFUSED
+	        : fzn_messages_state(&nm->m, contact, FZN_MESSAGE_IN, id) == FZN_MESSAGE_SETTLED
+	                ? FZN_NODE_MESSAGES_SETTLED
+	                : FZN_NODE_MESSAGES_HELD;
 	return FZN_NODE_MESSAGES_DELIVERED_LEN;
+}
+
+/* ---- settlement, sec 615 ---------------------------------------------------- */
+
+/* A MEMBER'S HOLDS, answered: whether this host holds the item, or keeps
+ * none of that conversation's lines. */
+static size_t answer_holds(fzn_node_messages_t *nm, const uint8_t *request, size_t request_len,
+                           uint8_t *reply, size_t reply_cap)
+{
+	const uint8_t *contact = request + 2, *id = request + 2 + FZN_PUBKEY_LEN;
+
+	if (request_len != FZN_NODE_MESSAGES_HOLDS_LEN || reply_cap < FZN_NODE_MESSAGES_HOLDING_LEN)
+		return 0;
+	reply[0] = FZN_NODE_MESSAGES_VERSION;
+	reply[1] = FZN_NODE_MESSAGES_HOLDING;
+	memcpy(reply + 2, id, FZN_BUCKETS_ID_LEN);
+	reply[2 + FZN_BUCKETS_ID_LEN] =
+	        fzn_buckets_has(&nm->buckets, FZN_BUCKETS_MESSAGES, id) ? FZN_NODE_MESSAGES_HOLDS_IT
+	        : nm->keeps && !nm->keeps(nm->keeps_ctx, contact) ? FZN_NODE_MESSAGES_DECLINES
+	                                                          : FZN_NODE_MESSAGES_LACKS;
+	return FZN_NODE_MESSAGES_HOLDING_LEN;
+}
+
+/* ONE MEMBER ASKED: its answer, or -1 for none that reads. */
+static int ask_holds(const fzn_node_messages_member_t *member,
+                     const uint8_t contact[FZN_PUBKEY_LEN], const uint8_t id[FZN_BUCKETS_ID_LEN])
+{
+	uint8_t request[FZN_NODE_MESSAGES_HOLDS_LEN], reply[FZN_NODE_MESSAGES_HOLDING_LEN + 8u];
+	size_t reply_len = 0;
+
+	if (!member->ask)
+		return -1;
+	request[0] = FZN_NODE_MESSAGES_VERSION;
+	request[1] = FZN_NODE_MESSAGES_HOLDS;
+	memcpy(request + 2, contact, FZN_PUBKEY_LEN);
+	memcpy(request + 2 + FZN_PUBKEY_LEN, id, FZN_BUCKETS_ID_LEN);
+	if (!member->ask(member->ctx, request, sizeof(request), reply, sizeof(reply), &reply_len)
+	    || reply_len != FZN_NODE_MESSAGES_HOLDING_LEN || reply[0] != FZN_NODE_MESSAGES_VERSION
+	    || reply[1] != FZN_NODE_MESSAGES_HOLDING
+	    || memcmp(reply + 2, id, FZN_BUCKETS_ID_LEN) != 0
+	    || reply[2 + FZN_BUCKETS_ID_LEN] > FZN_NODE_MESSAGES_DECLINES)
+		return -1;
+	return reply[2 + FZN_BUCKETS_ID_LEN];
+}
+
+fzn_messages_err_t fzn_node_messages_settle(fzn_node_messages_t *nm,
+                                            const fzn_node_messages_member_t *members,
+                                            size_t n_members, size_t cap,
+                                            fzn_node_messages_settlement_t *tally)
+{
+	static fzn_bucket_t buckets[FZN_BUCKETS_MAX];
+	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
+	static uint8_t item[FZN_MESSAGES_ITEM_MAX];
+	size_t n = 0, b, offset, count, i, k, len;
+	fzn_messages_err_t err;
+	int more;
+
+	if (tally)
+		memset(tally, 0, sizeof(*tally));
+	if (!nm || (!members && n_members) || !tally)
+		return FZN_MESSAGES_ERR_MALFORMED;
+	if (fzn_buckets_list(&nm->buckets, FZN_BUCKETS_MESSAGES, buckets, FZN_BUCKETS_MAX, &n)
+	    != FZN_BUCKETS_OK)
+		return FZN_MESSAGES_ERR_BACKEND;
+	for (b = 0; b < n; b++) {
+		const uint8_t *contact = buckets[b].subject;
+
+		if (b > 0 && memcmp(buckets[b - 1u].subject, contact, FZN_PUBKEY_LEN) == 0)
+			continue;
+		for (offset = 0;; offset += count) {
+			count = 0;
+			more = 0;
+			err = fzn_messages_page(&nm->m, contact, offset, page, FZN_MESSAGES_PAGE_MAX,
+			                        &count, &more);
+			if (err == FZN_MESSAGES_ERR_DEEP)
+				break;
+			if (err != FZN_MESSAGES_OK)
+				return err;
+			for (i = 0; i < count; i++) {
+				uint8_t id[FZN_BUCKETS_ID_LEN];
+				int all = 1;
+
+				/* FILED HERE, NOT YET SETTLED: the host that took a
+				 * contact's line is the one that settles it. */
+				if (page[i].direction != FZN_MESSAGE_IN || page[i].state != 0u
+				    || !same_key(page[i].device, nm->m.issuer))
+					continue;
+				if (tally->weighed == cap)
+					return FZN_MESSAGES_OK;
+				tally->weighed++;
+				len = 0;
+				if (fzn_messages_line_item(&nm->m, page[i].device, page[i].seq, item,
+				                           sizeof(item), &len)
+				            != FZN_MESSAGES_OK
+				    || !fzn_buckets_id(nm->m.hash, item, len, id)) {
+					tally->waiting++;
+					continue;
+				}
+				for (k = 0; k < n_members && all; k++) {
+					int got = ask_holds(&members[k], contact, id);
+
+					all = got == FZN_NODE_MESSAGES_HOLDS_IT
+					      || got == FZN_NODE_MESSAGES_DECLINES;
+				}
+				if (!all) {
+					tally->waiting++;
+					continue;
+				}
+				err = fzn_messages_mark(&nm->m, contact, FZN_MESSAGE_IN, page[i].id,
+				                        FZN_MESSAGE_SETTLED);
+				if (err != FZN_MESSAGES_OK)
+					return err;
+				tally->settled++;
+				nm->fresh = 1;
+			}
+			if (!more || !count)
+				break;
+		}
+	}
+	return FZN_MESSAGES_OK;
 }
 
 /* ---- the verbs ------------------------------------------------------------ */

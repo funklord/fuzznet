@@ -141,6 +141,9 @@ typedef struct fzn_message {
 	/* The sender's time, and when the device wrote it. */
 	uint64_t stime;
 	uint64_t written_at;
+	/* Where the device's stream holds its last part: with `device`, the
+	 * line's place (`fzn_messages_line_item`). */
+	uint64_t seq;
 	/* 0 when its month's key is gone or not here: a shell, `text` empty. */
 	int readable;
 	char text[FZN_MESSAGE_TEXT_MAX + 1u];
@@ -324,6 +327,15 @@ fzn_messages_err_t fzn_messages_wanted(const fzn_messages_t *m, const fzn_retain
                                        size_t n_rules, uint64_t now_ms,
                                        const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch,
                                        int *wanted);
+
+/* A LINE'S ITEM, sec 615: the line `device` wrote ending at `seq` (a
+ * listing's `device` and `seq`), as its device signed it -- the bytes
+ * whose hash is its id among the messages' bucket items -- into `out`
+ * (FZN_MESSAGES_ITEM_MAX), `*len` bytes. WINDOW when its records are no
+ * longer in the journal here; MALFORMED when no such line is held. */
+fzn_messages_err_t fzn_messages_line_item(const fzn_messages_t *m,
+                                          const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq,
+                                          uint8_t *out, size_t cap, size_t *len);
 
 /* WHETHER THIS DEVICE KEEPS `contact`'S LINES AT ALL, by `rules` (already
  * selected for where they reach), sec 613: what a host asks before taking a

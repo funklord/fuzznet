@@ -63697,6 +63697,7 @@ round trip and nothing more.
   order.~~ Built in sec 614.
 - **2c and 2d** as sec 610 has them: settlement, and the sweep's 60 s and
   hourly schedule. Today a line waiting is offered every round, 60 s.
+  Settlement and its hourly re-offer are sec 615.
 - **The offer walks the conversation** to find lines being sent, at most
   FZN_MESSAGES_WALK_MAX deep, as sec 607's give-up does. A conversation
   deeper than that with a line still waiting at the bottom never sends it;
@@ -63873,3 +63874,86 @@ is out.
   this node, and the peer held by value. One older entry re-anchored --
   the sibling pairing's "served already" loop now has a twin in the
   contact pairing -- and caught.
+
+## 615. Step 2c: a line settled once every keeping device holds it, 2026-10-13
+
+Sec 610's settlement, imported from fuzzypickles' sec 9: a line is
+**settled** when the recipient's own durability policy is met -- every one
+of its devices that keeps messages holds it.
+
+### Who knows which devices keep messages
+
+Not the host that filed the line. Retention rules reach a host from the
+estate, from its own settings and from its command line (`gather_rules`),
+and the last two never leave it -- `live_contacts.py` runs S under a
+`--log-rule` nobody else can read. So settlement does not compute which
+devices keep messages; **it asks each one**, as fuzzypickles' DECLINE
+does, and each answers by its own rules.
+
+### The messages, `messages/deliver.situ`
+
+- **HOLDS 33**: a conversation and a line's item id -- the hash of the
+  line as its device signed it, which every device holding the line keeps
+  among its bucket items (sec 564).
+- **HOLDING 34**: the id, and LACKS, HOLDS or DECLINES -- it keeps none of
+  that conversation's lines (`fzn_messages_keeps` over its own rules).
+- **DELIVERED 28 gains SETTLED, 2.**
+
+### Settling, `fzn_node_messages_settle`
+
+The host that filed a contact's line settles it: each pass it weighs the
+IN lines it wrote and has not marked settled, at most 16, rebuilds each
+one's item from the journal (`fzn_messages_line_item`, new), and asks
+every other member of the estate. Once every one answers HOLDS or
+DECLINES it **marks the IN line SETTLED** -- a mark, so it reaches every
+device of the recipient by the journal, and any of them answers a
+re-offer SETTLED from then. A member that lacks it, or that this host
+cannot reach, leaves it for a later pass. A recipient with no other
+device settles a line at its first pass.
+
+fuzznetd's `settle_lines` runs it each round, asking each member through
+the pull target paired to it -- the root, a `--pull-from` peer or a
+sibling (sec 580) -- and gives the messages layer its keep test
+(`keeps_here`), the one a contact's delivery is filed or refused by.
+
+### The sender
+
+A line delivered and not settled is offered again **at start and hourly**
+(`FZND_SETTLE_EVERY`); answered SETTLED, it is marked SETTLED; answered
+HELD again, nothing is written. Sec 610's 60 s retry of a line still being
+sent is the round's cadence, as it was.
+
+### Not yet after sec 615
+
+- **A member never reachable holds settlement up for ever.** That is the
+  definition -- every keeping device holds it -- and fuzzypickles' DECLINE
+  answers the device that does not keep; one that does keep and is never
+  reached has not got the line.
+- **A line whose records left the journal window** (60 days, sec 535)
+  cannot have its item rebuilt and is not settled; settlement normally
+  comes within rounds.
+- **Which device re-offers when the writer is gone**, as sec 610 has it.
+- **2d** otherwise: the writing device gone, and sec 607's mark folded in.
+
+### Measured for sec 615
+
+- **`node/test/messages_test`, 122 checks, 14 new**: S's line delivered to
+  A; a member A cannot reach, or one keeping messages and lacking the
+  line, leaves it unsettled; re-offered before it settles it stays
+  delivered; once B holds it A marks it settled, and weighs it no more; a
+  delivered line is not offered when settlement is not due, and when due
+  is answered settled and marked so, and offered no more; a member keeping
+  none of the conversation does not hold settlement up; a recipient with
+  no other device settles at once; a device that filed none weighs none;
+  a HOLDS question a byte short or long is not answered.
+- **`tool/live_deliver.py` phase c** now also has R's restart offer the
+  first line for settlement: S, alone, had settled it, and answers so.
+- **`tool/live_contacts.py` phase c**: S and S2 each settle the line they
+  filed once the other holds it, and R2, offering both again, marks both
+  settled, in one turn of restarts. **Control**: with members never asked,
+  both stay delivered after four turns.
+- **Seven sabotage entries, each probed caught**: every member asked, a
+  decline counting, only what this host filed, re-offered only when due,
+  answered settled, the question's exact length, and held again changing
+  nothing. Sec 613's "only lines being sent" re-anchored on the new
+  condition, and caught.

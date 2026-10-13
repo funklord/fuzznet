@@ -1090,7 +1090,7 @@ static fzn_node_messages_delivery_t dv;
 
 static int deliver(contact_link_t *l)
 {
-	return fzn_node_messages_deliver(&S.nm, C.pub, to_contact, l, &dv) == FZN_MESSAGES_OK;
+	return fzn_node_messages_deliver(&S.nm, C.pub, 0, to_contact, l, &dv) == FZN_MESSAGES_OK;
 }
 
 static void test_a_line_is_delivered_to_a_contact(void)
@@ -1237,12 +1237,142 @@ static void test_another_devices_line_is_its_own_to_send(void)
 	              && round_with(&B, &A) && readable_on(&B) == 1,
 	      "fixture: A writes a line, and B holds it and can read it");
 	memcpy(S.pub, A.pub, FZN_PUBKEY_LEN); /* to_contact files under S's key */
-	CHECK(fzn_node_messages_deliver(&B.nm, C.pub, to_contact, &l, &d) == FZN_MESSAGES_OK
+	CHECK(fzn_node_messages_deliver(&B.nm, C.pub, 0, to_contact, &l, &d) == FZN_MESSAGES_OK
 	              && d.sent == 0u && l.asked == 0u,
 	      "B does not offer A's line");
-	CHECK(fzn_node_messages_deliver(&A.nm, C.pub, to_contact, &l, &d) == FZN_MESSAGES_OK
+	CHECK(fzn_node_messages_deliver(&A.nm, C.pub, 0, to_contact, &l, &d) == FZN_MESSAGES_OK
 	              && d.sent == 1u && d.delivered == 1u,
 	      "A does");
+}
+
+/* ---- settlement, sec 615 ----------------------------------------------------- */
+
+/* THE RECIPIENT'S HOST IS A, B ANOTHER OF ITS USER'S DEVICES: a line S
+ * delivers is filed at A, and A asks B whether it holds it. */
+static int to_a(void *ctx, const uint8_t *request, size_t request_len, uint8_t *out,
+                size_t out_cap, size_t *out_len)
+{
+	size_t n;
+
+	(void)ctx;
+	n = fzn_node_messages_contact(&A.nm, S.pub, 1, request, request_len, out, out_cap);
+	if (!n)
+		return 0;
+	*out_len = n;
+	return 1;
+}
+
+static int b_keeps;
+
+static int b_keeps_none(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN])
+{
+	(void)ctx;
+	(void)contact;
+	return b_keeps;
+}
+
+static fzn_node_messages_settlement_t st;
+
+static int settle_a(link_t *to_b)
+{
+	fzn_node_messages_member_t member = { B.pub, to_b ? over : NULL, to_b };
+
+	return fzn_node_messages_settle(&A.nm, &member, 1u, 16u, &st) == FZN_MESSAGES_OK;
+}
+
+static void test_a_line_settles_once_every_keeping_device_holds_it(void)
+{
+	link_t a_to_b = { &B, &A, 0 };
+	fzn_node_messages_tally_t absorbed;
+	fzn_node_messages_delivery_t d;
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	size_t found = 0;
+
+	setup();
+	device_up(&S, 0x66);
+	host_up(&S, &S);
+	b_keeps = 1;
+	B.nm.keeps = b_keeps_none;
+	memset(id, 0xa1, sizeof(id));
+	CHECK(fzn_messages_write(&S.nm.m, A.pub, FZN_MESSAGE_OUT, id, 1u, "settle me", 9u)
+	                      == FZN_MESSAGES_OK
+	              && fzn_node_messages_deliver(&S.nm, A.pub, 0, to_a, NULL, &d) == FZN_MESSAGES_OK
+	              && d.delivered == 1u
+	              && state_of_line(&S, A.pub, 0xa1, FZN_MESSAGE_OUT, &found)
+	                         == FZN_MESSAGE_DELIVERED,
+	      "fixture: S's line delivered to A");
+	CHECK(settle_a(NULL) && st.weighed == 1u && st.settled == 0u && st.waiting == 1u,
+	      "a member that cannot be reached leaves the line unsettled");
+	CHECK(settle_a(&a_to_b) && st.settled == 0u && st.waiting == 1u,
+	      "a member keeping messages and lacking the line leaves it unsettled");
+	CHECK(fzn_node_messages_deliver(&S.nm, A.pub, 1, to_a, NULL, &d) == FZN_MESSAGES_OK
+	              && d.sent == 1u && d.settled == 0u && d.delivered == 0u
+	              && state_of_line(&S, A.pub, 0xa1, FZN_MESSAGE_OUT, &found)
+	                         == FZN_MESSAGE_DELIVERED,
+	      "re-offered before it settles, it stays delivered");
+	synced(&B);
+	CHECK(fzn_node_messages_absorb(&B.nm, &absorbed) == FZN_MESSAGES_OK && settle_a(&a_to_b)
+	              && st.settled == 1u
+	              && state_of_line(&A, S.pub, 0xa1, FZN_MESSAGE_IN, &found)
+	                         == FZN_MESSAGE_SETTLED,
+	      "once B holds it, A marks it settled");
+	CHECK(settle_a(&a_to_b) && st.weighed == 0u, "a settled line is weighed no more");
+	CHECK(fzn_node_messages_deliver(&S.nm, A.pub, 0, to_a, NULL, &d) == FZN_MESSAGES_OK
+	              && d.sent == 0u,
+	      "a delivered line is not offered when settlement is not due");
+	CHECK(fzn_node_messages_deliver(&S.nm, A.pub, 1, to_a, NULL, &d) == FZN_MESSAGES_OK
+	              && d.sent == 1u && d.settled == 1u
+	              && state_of_line(&S, A.pub, 0xa1, FZN_MESSAGE_OUT, &found)
+	                         == FZN_MESSAGE_SETTLED,
+	      "re-offered when due, it is answered settled and marked so");
+	CHECK(fzn_node_messages_deliver(&S.nm, A.pub, 1, to_a, NULL, &d) == FZN_MESSAGES_OK
+	              && d.sent == 0u,
+	      "a settled line is offered no more");
+
+	/* B DECLINES: it keeps none of S's lines, so A settles without it. */
+	memset(id, 0xa2, sizeof(id));
+	b_keeps = 0;
+	CHECK(fzn_messages_write(&S.nm.m, A.pub, FZN_MESSAGE_OUT, id, 2u, "again", 5u)
+	                      == FZN_MESSAGES_OK
+	              && fzn_node_messages_deliver(&S.nm, A.pub, 0, to_a, NULL, &d) == FZN_MESSAGES_OK
+	              && d.delivered == 1u && settle_a(&a_to_b) && st.settled == 1u,
+	      "a member keeping none of the conversation does not hold settlement up");
+	b_keeps = 1;
+	B.nm.keeps = NULL;
+
+	/* NO OTHER DEVICE: settled at once. */
+	memset(id, 0xa3, sizeof(id));
+	CHECK(fzn_messages_write(&S.nm.m, A.pub, FZN_MESSAGE_OUT, id, 3u, "alone", 5u)
+	                      == FZN_MESSAGES_OK
+	              && fzn_node_messages_deliver(&S.nm, A.pub, 0, to_a, NULL, &d) == FZN_MESSAGES_OK
+	              && fzn_node_messages_settle(&A.nm, NULL, 0u, 16u, &st) == FZN_MESSAGES_OK
+	              && st.settled == 1u,
+	      "a recipient with no other device settles a line at once");
+	CHECK(fzn_node_messages_settle(&B.nm, NULL, 0u, 16u, &st) == FZN_MESSAGES_OK
+	              && st.weighed == 0u,
+	      "a device that filed none of them weighs none");
+}
+
+static void test_a_holds_question_is_exact(void)
+{
+	uint8_t req[FZN_NODE_MESSAGES_HOLDS_LEN + 1u], out[64];
+
+	setup();
+	memset(req, 0, sizeof(req));
+	req[0] = FZN_NODE_MESSAGES_VERSION;
+	req[1] = FZN_NODE_MESSAGES_HOLDS;
+	CHECK(fzn_node_messages_remote(&A.nm, B.pub, req, FZN_NODE_MESSAGES_HOLDS_LEN, out,
+	                               sizeof(out))
+	                      == FZN_NODE_MESSAGES_HOLDING_LEN
+	              && out[2 + FZN_BUCKETS_ID_LEN] == FZN_NODE_MESSAGES_LACKS,
+	      "an item not held is answered lacking");
+	CHECK(fzn_node_messages_remote(&A.nm, B.pub, req, FZN_NODE_MESSAGES_HOLDS_LEN + 1u, out,
+	                               sizeof(out))
+	                      == 0u
+	              && fzn_node_messages_remote(&A.nm, B.pub, req, FZN_NODE_MESSAGES_HOLDS_LEN - 1u,
+	                                          out, sizeof(out))
+	                         == 0u,
+	      "a question a byte long or short was answered");
 }
 
 static void test_which_hosts_keep_messages(void)
@@ -1303,6 +1433,8 @@ int main(void)
 	test_a_host_that_keeps_none_refuses();
 	test_another_devices_line_is_its_own_to_send();
 	test_which_hosts_keep_messages();
+	test_a_line_settles_once_every_keeping_device_holds_it();
+	test_a_holds_question_is_exact();
 	if (failures) {
 		fprintf(stderr, "node messages_test: %d of %d checks failed\n", failures, checks);
 		return 1;

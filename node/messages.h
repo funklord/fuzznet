@@ -70,6 +70,19 @@
 #define FZN_NODE_MESSAGES_DELIVERED_LEN (2u + FZN_MESSAGE_ID_LEN + 1u)
 #define FZN_NODE_MESSAGES_REFUSED 0u
 #define FZN_NODE_MESSAGES_HELD 1u
+/* HELD, and by every device of the recipient that keeps messages, sec
+ * 615: the line is settled. */
+#define FZN_NODE_MESSAGES_SETTLED 2u
+/* SETTLEMENT BETWEEN MEMBERS, sec 615, `messages/deliver.situ`: HOLDS asks
+ * a member whether it holds a line's item; HOLDING answers LACKS, HOLDS
+ * or DECLINES -- it keeps none of that conversation's lines. */
+#define FZN_NODE_MESSAGES_HOLDS 33u
+#define FZN_NODE_MESSAGES_HOLDING 34u
+#define FZN_NODE_MESSAGES_HOLDS_LEN (2u + FZN_PUBKEY_LEN + FZN_BUCKETS_ID_LEN)
+#define FZN_NODE_MESSAGES_HOLDING_LEN (2u + FZN_BUCKETS_ID_LEN + 1u)
+#define FZN_NODE_MESSAGES_LACKS 0u
+#define FZN_NODE_MESSAGES_HOLDS_IT 1u
+#define FZN_NODE_MESSAGES_DECLINES 2u
 #define FZN_NODE_MESSAGES_PER 8u
 #define FZN_NODE_MESSAGES_HEAD_LEN 3u
 #define FZN_NODE_MESSAGES_GIVEN_LEN 4u
@@ -114,6 +127,11 @@ typedef struct fzn_node_messages {
 	 * by `fzn_reconcile_buckets`. `m.items` points here. */
 	fzn_buckets_t buckets;
 	fzn_messages_items_t items;
+	/* WHETHER THIS HOST KEEPS `contact`'S LINES, sec 615, by its own rules
+	 * -- asked when a member asks whether it holds a line, since only this
+	 * host knows the rules that reach it. NULL keeps every conversation. */
+	int (*keeps)(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN]);
+	void *keeps_ctx;
 } fzn_node_messages_t;
 
 typedef struct fzn_node_messages_tally {
@@ -207,6 +225,7 @@ size_t fzn_node_messages_remote(void *ctx, const uint8_t *sender, const uint8_t 
 typedef struct fzn_node_messages_delivery {
 	size_t sent;      /* lines offered */
 	size_t delivered; /* answered held, and marked delivered here */
+	size_t settled;   /* answered settled, and marked settled here (sec 615) */
 	size_t refused;   /* the host keeps no messages: the rest wait for another */
 	size_t unanswered;
 } fzn_node_messages_delivery_t;
@@ -214,15 +233,17 @@ typedef struct fzn_node_messages_delivery {
 /*
  * DELIVER TO `contact`, sec 613: every OUT line of that conversation still
  * being sent -- no mark -- that THIS device wrote and can read, offered one
- * at a time through `ask`, the contact's host. A line answered HELD is
- * marked DELIVERED, which the user's other devices learn by the journal.
+ * at a time through `ask`, the contact's host; with `settle`, also every
+ * one DELIVERED and not yet settled (sec 615). A line answered HELD is
+ * marked DELIVERED, one answered SETTLED is marked SETTLED, which the
+ * user's other devices learn by the journal.
  * Stops at the first line refused, since the host refuses for every line
  * alike, and at the first unanswered, since a host that does not answer
  * one will not answer the next. Lines past FZN_MESSAGES_WALK_MAX deep are
  * not reached.
  */
 fzn_messages_err_t fzn_node_messages_deliver(fzn_node_messages_t *nm,
-                                             const uint8_t contact[FZN_PUBKEY_LEN],
+                                             const uint8_t contact[FZN_PUBKEY_LEN], int settle,
                                              fzn_node_messages_ask_t ask, void *ctx,
                                              fzn_node_messages_delivery_t *tally);
 
@@ -231,12 +252,41 @@ fzn_messages_err_t fzn_node_messages_deliver(fzn_node_messages_t *nm,
  * is the conversation the line is filed under -- the sender, as the
  * caller resolved it -- and `keeps` whether this host keeps that
  * conversation's lines (`fzn_messages_keeps`). Kept: filed as an IN line
- * unless held already, and answered HELD either way, so a re-offer is
- * idempotent on the line's id. Not kept: answered REFUSED, nothing filed.
+ * unless held already, and answered HELD either way -- SETTLED once the
+ * line is marked settled here (sec 615) -- so a re-offer is idempotent on
+ * the line's id. Not kept: answered REFUSED, nothing filed.
  */
 size_t fzn_node_messages_contact(fzn_node_messages_t *nm, const uint8_t contact[FZN_PUBKEY_LEN],
                                  int keeps, const uint8_t *request, size_t request_len,
                                  uint8_t *reply, size_t reply_cap);
+
+/* ONE MEMBER A SETTLEMENT ASKS, sec 615: its key, and how to reach it --
+ * `ask` NULL for a member this node cannot reach, which never answers. */
+typedef struct fzn_node_messages_member {
+	const uint8_t *key;
+	fzn_node_messages_ask_t ask;
+	void *ctx;
+} fzn_node_messages_member_t;
+
+typedef struct fzn_node_messages_settlement {
+	size_t weighed;  /* lines this node filed IN and not yet settled */
+	size_t settled;  /* marked settled this pass */
+	size_t waiting;  /* a member lacks it, or did not answer */
+} fzn_node_messages_settlement_t;
+
+/*
+ * SETTLE, sec 615: every IN line THIS node wrote -- a contact's line it
+ * filed -- and not yet marked settled, at most `cap` of them a pass: its
+ * item asked of each of `members` (the estate's other devices), and marked
+ * SETTLED once every one answers that it holds it or keeps none of that
+ * conversation. A member that lacks it or does not answer leaves it for a
+ * later pass. The mark reaches the user's other devices by the journal,
+ * and any of them answers a re-offer SETTLED from then.
+ */
+fzn_messages_err_t fzn_node_messages_settle(fzn_node_messages_t *nm,
+                                            const fzn_node_messages_member_t *members,
+                                            size_t n_members, size_t cap,
+                                            fzn_node_messages_settlement_t *tally);
 
 /*
  * THE VERBS, for this node's own user only; 0 for what is not one. WHO is a

@@ -1612,6 +1612,7 @@ static void fill(const fzn_messages_t *m, const stored_t *s, fzn_message_t *o)
 	o->direction = s->direction;
 	o->stime = s->stime;
 	o->written_at = s->written_at;
+	o->seq = s->seq;
 	o->state = fzn_messages_state(m, o->contact, o->direction, o->id);
 	/* KEPT OPENED or not readable here: a line waiting for its key is a
 	 * shell until the key arrives and opens its row. */
@@ -2005,4 +2006,19 @@ int fzn_messages_keeps(const fzn_retain_rule_t *rules, size_t n_rules,
 		        || memcmp(rules[r].contact, contact, FZN_PUBKEY_LEN) == 0))
 			return 1;
 	return 0;
+}
+
+fzn_messages_err_t fzn_messages_line_item(const fzn_messages_t *m,
+                                          const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq,
+                                          uint8_t *out, size_t cap, size_t *len)
+{
+	static uint8_t buf[STORED_MAX];
+	stored_t s;
+
+	if (!ready(m) || !device || !out || !len || cap < FZN_MESSAGES_ITEM_MAX)
+		return FZN_MESSAGES_ERR_MALFORMED;
+	if (!stored_load(m, device, seq, buf, &s))
+		return FZN_MESSAGES_ERR_MALFORMED;
+	return item_from_journal(m, device, seq, s.parts, out, len) ? FZN_MESSAGES_OK
+	                                                            : FZN_MESSAGES_ERR_WINDOW;
 }

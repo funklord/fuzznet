@@ -9,8 +9,10 @@ delivers under:
        IN under R's key, and R marks it delivered
     b  S restarted under `policy messages drop`: R's next line is refused,
        stays being sent, and S files nothing
-    c  S restarted with no rule, and R restarted: R's first round offers the
-       waiting line again, and S holds both
+    c  S, having no other device, settled the first line at its first pass
+       after filing it; restarted with no rule, and R restarted, R offers the
+       waiting line again and the first for settlement: one is held, the
+       other answered settled (sec 615)
 
 Against a daemon whose contact branch never reaches the messages, phase a
 is refused in words and nothing is delivered; against one that files
@@ -35,7 +37,8 @@ from live_rejoin import command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 
 OFFERED_RE = re.compile(r"(\d+) line\(s\) offered to 127\.0\.0\.1: (\d+) delivered, "
-                        r"(\d+) refused, (\d+) unanswered")
+                        r"(\d+) settled, (\d+) refused, (\d+) unanswered")
+ROUND_RE = re.compile(r"history pass: ")
 LINE_1 = "31" * 16
 LINE_2 = "32" * 16
 # A prekey's text: version and object, a byte each, then the host's key.
@@ -105,7 +108,7 @@ def main(argv):
 					       % (port_s, card_path), "ok")
 					expect(socks["r"], "r", "add message sam out %s hello%%20sam" % LINE_1, "ok")
 					got = r.wait_for(OFFERED_RE, "R's delivery")
-					if tuple(int(g) for g in got.groups()) != (1, 1, 0, 0):
+					if tuple(int(g) for g in got.groups()) != (1, 1, 0, 0, 0):
 						raise failed("a: R's delivery was %r, not one line delivered"
 						             % (got.groups(),))
 					held = lines(socks["r"], "r", s_key)
@@ -128,7 +131,7 @@ def main(argv):
 				try:
 					expect(socks["r"], "r", "add message sam out %s again" % LINE_2, "ok")
 					got = r.wait_for(OFFERED_RE, "R's offer to S")
-					if tuple(int(g) for g in got.groups()) != (1, 0, 1, 0):
+					if tuple(int(g) for g in got.groups()) != (1, 0, 0, 1, 0):
 						raise failed("b: R's offer was %r, not one line refused"
 						             % (got.groups(),))
 					held = lines(socks["r"], "r", s_key)
@@ -143,15 +146,20 @@ def main(argv):
 				s.stop()
 			print("livecheck: b: S keeping no messages refused the line, and filed nothing")
 
-			# c: S keeps them again: the waiting line goes.
+			# c: S keeps them again: the waiting line goes, and the first,
+			# settled at S -- which has no other device -- is answered so.
 			s = daemon(run, "s3", dirs["s"], socks["s"], extra=s_args)
 			try:
+				s.wait_for(ROUND_RE, "S's round")
 				r = daemon(run, "r3", dirs["r"], socks["r"])
 				try:
 					got = r.wait_for(OFFERED_RE, "R's re-offer")
-					if tuple(int(g) for g in got.groups()) != (1, 1, 0, 0):
-						raise failed("c: R's re-offer was %r, not the one waiting line "
-						             "delivered" % (got.groups(),))
+					if tuple(int(g) for g in got.groups()) != (2, 1, 1, 0, 0):
+						raise failed("c: R's re-offer was %r, not the waiting line "
+						             "delivered and the first settled" % (got.groups(),))
+					held = lines(socks["r"], "r", s_key)
+					if held.get(LINE_1, ("", "", ""))[:2] != ("out", "settled"):
+						raise failed("c: R's first line is %r" % (held,))
 					filed = lines(socks["s"], "s", r_key)
 					if sorted(filed) != sorted([LINE_1, LINE_2]):
 						raise failed("c: S holds %r" % (filed,))
@@ -159,7 +167,8 @@ def main(argv):
 					r.stop()
 			finally:
 				s.stop()
-			print("livecheck: c: the waiting line was offered again and S holds both")
+			print("livecheck: c: the waiting line was offered again and S holds both; the "
+			      "first settled")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

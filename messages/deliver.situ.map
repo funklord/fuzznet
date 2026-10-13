@@ -24,3 +24,15 @@ struct fzn_message_delivered size=19 atomic=NonAtomic
   fzn_message_delivered.type             offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
   fzn_message_delivered.id               offset=AbsoluteStatic(0x02) size=Fixed(16) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
   fzn_message_delivered.outcome          offset=AbsoluteStatic(0x12) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+
+struct fzn_message_holding size=35 atomic=NonAtomic
+  fzn_message_holding.version            offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_holding.type               offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_holding.item               offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_message_holding.answer             offset=AbsoluteStatic(0x22) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+
+struct fzn_message_holds size=66 atomic=NonAtomic
+  fzn_message_holds.version              offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_holds.type                 offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_holds.contact              offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_message_holds.item                 offset=AbsoluteStatic(0x22) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic

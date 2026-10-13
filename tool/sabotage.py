@@ -11522,9 +11522,9 @@ SABOTAGES = [
 	(
 		"messages-deliver-only-sending",
 		"node/messages.c",
-		"\t\t\tif (page[i].direction != FZN_MESSAGE_OUT || page[i].state != 0u\n\t\t\t    || !page[i].readable",
-		"\t\t\tif (page[i].direction != FZN_MESSAGE_OUT\n\t\t\t    || !page[i].readable",
-		"a delivered line is offered again every round, for ever -- sec 613",
+		"\t\t\t    || (page[i].state != 0u\n",
+		"\t\t\t    || (0\n",
+		"a delivered or settled line is offered again every round, for ever -- secs 613, 615",
 	),
 	(
 		"messages-deliver-own-device-only",
@@ -11644,6 +11644,55 @@ SABOTAGES = [
 		"\theld = *peer;\n\tpeer = &held;\n",
 		"\t(void)held;\n",
 		"a handler that reloads the peer set seals its reply under another peer's session -- sec 614",
+	),
+	(
+		"messages-settle-every-member",
+		"node/messages.c",
+		"\t\t\t\t\tall = got == FZN_NODE_MESSAGES_HOLDS_IT\n\t\t\t\t\t      || got == FZN_NODE_MESSAGES_DECLINES;\n",
+		"\t\t\t\t\tall = got != -2;\n",
+		"a line is settled while a device that keeps messages still lacks it -- sec 615",
+	),
+	(
+		"messages-settle-decline-counts",
+		"node/messages.c",
+		"\t\t\t\t\tall = got == FZN_NODE_MESSAGES_HOLDS_IT\n\t\t\t\t\t      || got == FZN_NODE_MESSAGES_DECLINES;\n",
+		"\t\t\t\t\tall = got == FZN_NODE_MESSAGES_HOLDS_IT;\n",
+		"a device that keeps no messages holds settlement up for ever -- sec 615",
+	),
+	(
+		"messages-settle-what-it-filed",
+		"node/messages.c",
+		"\t\t\t\tif (page[i].direction != FZN_MESSAGE_IN || page[i].state != 0u\n\t\t\t\t    || !same_key(page[i].device, nm->m.issuer))\n",
+		"\t\t\t\tif (page[i].direction != FZN_MESSAGE_IN || page[i].state != 0u)\n",
+		"every device of the recipient weighs every line, and asks the others about it each round -- sec 615",
+	),
+	(
+		"messages-deliver-settle-when-due",
+		"node/messages.c",
+		"\t\t\t        && !(settle && page[i].state == FZN_MESSAGE_DELIVERED))\n",
+		"\t\t\t        && !(page[i].state == FZN_MESSAGE_DELIVERED))\n",
+		"every delivered line is offered again every round, not hourly -- sec 615",
+	),
+	(
+		"messages-contact-answers-settled",
+		"node/messages.c",
+		"\t        : fzn_messages_state(&nm->m, contact, FZN_MESSAGE_IN, id) == FZN_MESSAGE_SETTLED\n",
+		"\t        : 0\n",
+		"a settled line is answered held for ever, and the sender never learns it settled -- sec 615",
+	),
+	(
+		"messages-holds-exact-length",
+		"node/messages.c",
+		"\tif (request_len != FZN_NODE_MESSAGES_HOLDS_LEN || reply_cap < FZN_NODE_MESSAGES_HOLDING_LEN)\n",
+		"\tif (request_len < FZN_NODE_MESSAGES_HOLDS_LEN || reply_cap < FZN_NODE_MESSAGES_HOLDING_LEN)\n",
+		"a question with trailing bytes is answered, two encodings of one -- sec 615",
+	),
+	(
+		"messages-held-again-changes-nothing",
+		"node/messages.c",
+		"\t\t\tif (got == 1 && page[i].state == FZN_MESSAGE_DELIVERED)\n\t\t\t\tcontinue;\n",
+		"",
+		"each settlement re-offer marks the line delivered again, a record every time -- sec 615",
 	),
 ]
 

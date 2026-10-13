@@ -7,9 +7,9 @@
 // CONTACT's: sent under the capability the contact granted, and answered on
 // the contact branch of the remote hop.
 //
-// THE LINE IS FILED UNDER ITS ID, so a re-offer is answered HELD again and
-// files nothing twice; a host that keeps no messages answers REFUSED and
-// the sender tries another.
+// THE LINE IS FILED UNDER ITS ID, so a re-offer is answered HELD again --
+// SETTLED once it is (sec 615) -- and files nothing twice; a host that
+// keeps no messages answers REFUSED and the sender tries another.
 
 target buffer;
 endian big;
@@ -29,5 +29,25 @@ struct fzn_message_delivered {
 	u8   version [must_eq = 2];
 	u8   type [must_eq = 28];
 	u8   id[16];
-	u8   outcome [max = 1];                 // 0 REFUSED, 1 HELD
+	u8   outcome [max = 2];                 // 0 REFUSED, 1 HELD, 2 SETTLED
+}
+
+// SETTLEMENT BETWEEN MEMBERS, sec 615: the host that filed a contact's
+// line asks each other device of its estate whether it holds the line's
+// item, until every one holds it or keeps none of that conversation.
+
+// HOLDS: the conversation and the item's id.
+struct fzn_message_holds {
+	u8   version [must_eq = 2];
+	u8   type [must_eq = 33];
+	u8   contact[32];
+	u8   item[32];                          // the hash of the line's item
+}
+
+// HOLDING: the id, and 0 LACKS, 1 HOLDS or 2 DECLINES.
+struct fzn_message_holding {
+	u8   version [must_eq = 2];
+	u8   type [must_eq = 34];
+	u8   item[32];
+	u8   answer [max = 2];
 }

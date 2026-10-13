@@ -30,4 +30,16 @@ struct fzn_message_delivered size=19
   @0x0000   1         u8         version  must_eq=2
   @0x0001   1         u8         type  must_eq=28
   @0x0002   16        u8         id  big
-  @0x0012   1         u8         outcome  max=1
+  @0x0012   1         u8         outcome  max=2
+
+struct fzn_message_holding size=35
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         u8         type  must_eq=34
+  @0x0002   32        u8         item  big
+  @0x0022   1         u8         answer  max=2
+
+struct fzn_message_holds size=66
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         u8         type  must_eq=33
+  @0x0002   32        u8         contact  big
+  @0x0022   32        u8         item  big

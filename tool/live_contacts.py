@@ -16,6 +16,9 @@ and S's estate advertises.
     b  S restarted under `policy messages drop`, R2 restarted with S's
        manifest now held: its next line is refused by S, the host of lower
        metric, and held by S2, which files it under R's root too
+    c  S keeps messages again: each of S and S2 settles the line it filed
+       once the other holds it, and R2, offering both again, is answered
+       settled and marks them so (sec 615)
 
 Against a daemon that carries no contact devices, R2 has no host to offer
 to and phase a waits in vain; against one that files under the sending
@@ -40,7 +43,8 @@ from live_rejoin import command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 
 OFFERED_RE = re.compile(r"(\d+) line\(s\) offered to 127\.0\.0\.1: (\d+) delivered, "
-                        r"(\d+) refused, (\d+) unanswered")
+                        r"(\d+) settled, (\d+) refused, (\d+) unanswered")
+ROUND_END_RE = re.compile(r"history pass: ")
 PASS_RE = re.compile(r"contact pass: (\d+) contact\(s\) asked, (\d+) kept from members, "
                      r"(\d+) paired, (\d+) host\(s\) to deliver to")
 LINE_1 = "41" * 16
@@ -186,7 +190,7 @@ def main(argv):
 			# order is the store's. Every offer is answered and one holds.
 			r2.wait_for(re.compile(r"line\(s\) offered to 127\.0\.0\.1: 1 delivered"),
 			            "R2's delivery")
-			if any(o[3] for o in offers(r2)):
+			if any(o[4] for o in offers(r2)):
 				raise failed("a: an offer of R2's went unanswered: %r%s"
 				             % (offers(r2), said(r2, s, s2)))
 			filed = {}
@@ -207,25 +211,42 @@ def main(argv):
 			r2 = up("r2", "r2b")
 			r2.wait_for(PASS_RE, "R2's contact pass")
 			expect(socks["r2"], "r2", "add message %s out %s again" % (keys["s"], LINE_2), "ok")
-			try:
-				r2.wait_for(re.compile(r"line\(s\) offered to 127\.0\.0\.1: 1 delivered"),
-				            "R2's delivery to S2")
-			except failed as e:
-				told = [l for l in r2.log().splitlines()
-				        if "messages/deliver" in l or "contact" in l or "routing" in l]
-				told.append("S2 list peer: %r" % ask(socks["s2"], "list peer")[:600])
-				told.append("R2 key %s, R key %s" % (keys["r2"][:16], keys["r"][:16]))
-				told.append("S2 key %s" % keys["s2"][:16])
-				raise failed("%s%s%s" % (e, "".join("\n  " + l for l in told[-12:]),
-				                         "".join("\n  s2: " + l[-180:]
-				                                 for l in s2.log().splitlines()[-25:])))
-			got = offers(r2)
-			if got[:2] != [(1, 0, 1, 0), (1, 1, 0, 0)]:
-				raise failed("b: R2's offers were %r, not refused by S then held by S2" % got)
+			r2.wait_for(re.compile(r"line\(s\) offered to 127\.0\.0\.1: 1 delivered"),
+			            "R2's delivery to S2")
+			# REFUSED BY S FIRST, whatever else R2 offered: its restart also
+			# offers the first line again for settlement (sec 615).
+			if not any(o[3] for o in offers(r2)):
+				raise failed("b: R2's offers were %r, none refused by S%s"
+				             % (offers(r2), said(r2, s, s2)))
 			filed = lines(socks["s2"], "s2", keys["r"])
 			if filed.get(LINE_2) != ("in", "-", "again"):
 				raise failed("b: S2 holds %r under R's root" % (filed,))
 			print("livecheck: b: S, keeping none, refused; S2, next by metric, held the line")
+
+			# c: settlement. Each host settles the line it filed once the
+			# other holds it; R2's next round, offering both again, is
+			# answered settled. Hosts restarted in turn, so each round pulls
+			# what the other took; a few turns at most.
+			down("s")
+			s = up("s", "s4")
+			states = {}
+			for turn in range(4):
+				for who in ("s2", "s"):
+					down(who)
+					d = up(who, "%s-c%d" % (who, turn))
+					d.wait_for(ROUND_END_RE, "%s's round" % who.upper())
+				down("r2")
+				r2 = up("r2", "r2-c%d" % turn)
+				r2.wait_for(ROUND_END_RE, "R2's round")
+				held = lines(socks["r2"], "r2", keys["s"])
+				states = {k: held.get(k, ("", "", ""))[1] for k in (LINE_1, LINE_2)}
+				if set(states.values()) == {"settled"}:
+					break
+			if set(states.values()) != {"settled"}:
+				raise failed("c: after %d turns R2's lines are %r%s"
+				             % (turn + 1, states, said(r2, started["s"], started["s2"])))
+			print("livecheck: c: both lines settled at S's estate, and R2 was told so in "
+			      "%d turn(s)" % (turn + 1))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			if os.environ.get("LIVE_DEBUG"):
