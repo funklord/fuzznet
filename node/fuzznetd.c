@@ -39,6 +39,8 @@
 #include "serve.h"
 #include "routing.h"
 #include "contact_card.h"
+#include "contact_request.h"
+#include "../session/box.h"
 #include "../contact/contact.h"
 #include "admin.h"
 #include "caller.h"
@@ -316,6 +318,8 @@ static void publish(const char *subject, const char *name)
  * A change one UI makes reaches the others. sec 609. */
 static size_t routing_local(const fzn_request_t *request, char *reply, size_t reply_cap);
 static size_t card_local(const fzn_request_t *request, char *reply, size_t reply_cap);
+static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                            size_t cap);
 
 static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
                            const fzn_peer_t *peer, const fzn_request_t *request, char *reply,
@@ -325,6 +329,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 
 	if (!n)
 		n = card_local(request, reply, reply_cap);
+	if (!n)
+		n = request_local(origin, request, reply, reply_cap);
 	if (n)
 		return n;
 	n = fzn_node_admin_handle(ctx, verdict, origin, peer, request, reply, reply_cap);
@@ -4033,6 +4039,8 @@ static int take_offered(void *ctx, const fzn_contact_device_t *d)
 	if (!keep_device((const uint8_t *)ctx, d))
 		return 0;
 	contact_pair_due = 1;
+	/* AN OFFER FROM A USER THIS ONE ASKED is the answer, sec 619. */
+	(void)fzn_contact_asked_answered(node_apply.store, (const uint8_t *)ctx);
 	return 1;
 }
 
@@ -4140,6 +4148,8 @@ static int contact_exchange(struct pull_target *pt, const char *host, uint16_t p
 	                               &ht, &count))
 		return 0;
 	(void)routing_fetch(&asking, contact, now);
+	/* A CONTACT THAT ANSWERS has answered any request to it, sec 619. */
+	(void)fzn_contact_asked_answered(node_apply.store, contact);
 	if (ht.kept)
 		say(FZN_ENTRY_DEBUG, "contact/devices", "%zu device(s) offered to %s, %zu host(s) kept",
 		    n, host, ht.kept);
@@ -4315,39 +4325,28 @@ static int takes_over_line(void *ctx, const uint8_t writer[FZN_PUBKEY_LEN],
 	return 1;
 }
 
-/* `get card [NAME]`, sec 617: this host's contact card -- its estate entry,
- * the estate's manifest's first entries as seeds, and NAME if given --
- * signed by this host, as text: `ok FZC1:...`. Seeds are dropped, last
- * first, until the card fits a reply line. 0 for any other request. */
-static size_t card_local(const fzn_request_t *request, char *reply, size_t reply_cap)
+/* THIS HOST'S CONTACT CARD, sec 617: its estate entry, the estate's
+ * manifest's first entries as seeds, and `name` (may be empty), signed by
+ * this host, encoded into `bytes` in no more than `limit` bytes -- seeds
+ * dropped, last first, until it fits. 1 built; 0 when this host has no
+ * estate entry, nowhere to be asked, or no card fits. */
+static int own_card(fzn_contact_card_t *card, const uint8_t *name, size_t name_len, size_t limit,
+                    uint8_t *bytes, size_t *len)
 {
 	static fzn_contact_device_t own[1];
-	static fzn_contact_card_t card;
-	static uint8_t bytes[FZN_CONTACT_CARD_MAX];
-	static char text[FZN_CONTACT_CARD_TEXT_MAX];
 	fzn_routing_t r;
-	size_t len = 0, i, n;
+	size_t i;
 
-	if (request->parsed != FZN_VERB_GET || request->arg_len < 4u
-	    || memcmp(request->arg, "card", 4u) != 0
-	    || (request->arg_len > 4u && request->arg[4] != ' '))
+	memset(card, 0, sizeof(*card));
+	if (name_len > FZN_CONTACT_CARD_NAME_MAX || !contact_id || estate_devices(own, 1u, 0) != 1u)
 		return 0;
-	memset(&card, 0, sizeof(card));
-	if (request->arg_len > 5u) {
-		n = request->arg_len - 5u;
-		if (n > FZN_CONTACT_CARD_NAME_MAX
-		    || !fzn_contact_name_ok((const char *)request->arg + 5, n))
-			return (size_t)snprintf(reply, reply_cap, "malformed get card [NAME]\n");
-		memcpy(card.name, request->arg + 5, n);
-		card.name_len = n;
-	}
-	if (!contact_id || estate_devices(own, 1u, 0) != 1u)
-		return (size_t)snprintf(reply, reply_cap, "error this host has no estate entry yet\n");
-	card.host = own[0];
+	memcpy(card->name, name, name_len);
+	card->name_len = name_len;
+	card->host = own[0];
 	if (node_apply.store && node_apply.root
 	    && fzn_routing_load(node_apply.store, node_apply.root, &r) == FZN_ROUTING_OK)
-		for (i = 0; i < r.n && card.n_seeds < FZN_CONTACT_CARD_SEEDS_MAX; i++) {
-			fzn_contact_card_seed_t *seed = &card.seeds[card.n_seeds++];
+		for (i = 0; i < r.n && card->n_seeds < FZN_CONTACT_CARD_SEEDS_MAX; i++) {
+			fzn_contact_card_seed_t *seed = &card->seeds[card->n_seeds++];
 
 			memcpy(seed->address, r.entries[i].address, r.entries[i].address_len);
 			seed->address[r.entries[i].address_len] = '\0';
@@ -4357,19 +4356,372 @@ static size_t card_local(const fzn_request_t *request, char *reply, size_t reply
 			seed->metric = r.entries[i].metric;
 		}
 	for (;;) {
-		if (fzn_contact_card_sign(&card, contact_id->sign) != FZN_CONTACT_CARD_OK
-		    || fzn_contact_card_encode(&card, bytes, sizeof(bytes), &len) != FZN_CONTACT_CARD_OK
-		    || fzn_contact_card_text(bytes, len, text, sizeof(text)) != FZN_CONTACT_CARD_OK)
-			return (size_t)snprintf(reply, reply_cap,
-			                        "error no card: this host has no address and its estate "
-			                        "no manifest entry\n");
-		if (strlen(text) + 4u <= reply_cap || card.n_seeds == 0u)
-			break;
-		card.n_seeds--;
+		if (fzn_contact_card_sign(card, contact_id->sign) != FZN_CONTACT_CARD_OK
+		    || fzn_contact_card_encode(card, bytes, FZN_CONTACT_CARD_MAX, len)
+		               != FZN_CONTACT_CARD_OK)
+			return 0;
+		if (*len <= limit)
+			return 1;
+		if (card->n_seeds == 0u)
+			return 0;
+		card->n_seeds--;
 	}
-	if (strlen(text) + 4u > reply_cap)
-		return (size_t)snprintf(reply, reply_cap, "error the card is longer than a reply line\n");
+}
+
+/* `get card [NAME]`, sec 617: this host's contact card as text, `ok
+ * FZC1:...`, fitting a reply line. 0 for any other request. */
+static size_t card_local(const fzn_request_t *request, char *reply, size_t reply_cap)
+{
+	static fzn_contact_card_t card;
+	static uint8_t bytes[FZN_CONTACT_CARD_MAX];
+	static char text[FZN_CONTACT_CARD_TEXT_MAX];
+	size_t len = 0, n = 0, limit;
+
+	if (request->parsed != FZN_VERB_GET || request->arg_len < 4u
+	    || memcmp(request->arg, "card", 4u) != 0
+	    || (request->arg_len > 4u && request->arg[4] != ' '))
+		return 0;
+	if (request->arg_len > 5u) {
+		n = request->arg_len - 5u;
+		if (n > FZN_CONTACT_CARD_NAME_MAX
+		    || !fzn_contact_name_ok((const char *)request->arg + 5, n))
+			return (size_t)snprintf(reply, reply_cap, "malformed get card [NAME]\n");
+	}
+	/* `ok `, the prefix, five bits a character, and the newline. */
+	limit = reply_cap > 4u + FZN_CONTACT_CARD_TEXT_PREFIX_LEN
+	                ? (reply_cap - 4u - FZN_CONTACT_CARD_TEXT_PREFIX_LEN - 1u) * 5u / 8u
+	                : 0u;
+	if (!own_card(&card, request->arg + 5, n, limit, bytes, &len)
+	    || fzn_contact_card_text(bytes, len, text, sizeof(text)) != FZN_CONTACT_CARD_OK)
+		return (size_t)snprintf(reply, reply_cap,
+		                        "error no card: this host has no address and its estate no "
+		                        "manifest entry\n");
 	return (size_t)snprintf(reply, reply_cap, "ok %s\n", text);
+}
+
+/* ---- contact requests, sec 619 ------------------------------------------ */
+
+/* A REQUEST LIVES A WEEK, fuzzypickles' default; at most this many boxes
+ * are opened a minute, since any stranger may send one and each costs an
+ * agreement and several signatures. */
+#define FZND_REQUEST_LIFE_S (7u * 86400u)
+#define FZND_BOXES_A_MINUTE 32u
+
+static int asked_due;
+
+static void hex_of(const uint8_t *b, size_t n, char *out)
+{
+	static const char H[] = "0123456789abcdef";
+	size_t i;
+
+	for (i = 0; i < n; i++) {
+		out[2u * i] = H[b[i] >> 4];
+		out[2u * i + 1u] = H[b[i] & 15u];
+	}
+	out[2u * n] = '\0';
+}
+
+/* Whether `key` is this estate's: this host, its root, or a member. */
+static int ours(const uint8_t key[FZN_PUBKEY_LEN])
+{
+	fzn_setting_rank_t rank;
+
+	return (contact_id && memcmp(key, contact_id->pubkey, FZN_PUBKEY_LEN) == 0)
+	       || (node_apply.root && memcmp(key, node_apply.root, FZN_PUBKEY_LEN) == 0)
+	       || fzn_node_apply_rank(&node_apply, key, FZN_SCOPE_HOST, key, &rank) == 1;
+}
+
+/* A BOX A STRANGER SENT, sec 619: opened, read as a contact request to
+ * this host, checked, and queued for this user to approve -- or, from a
+ * contact already standing, its card's host kept as that contact's
+ * device. Anything else is dropped without a word. */
+static void contact_box(void *ctx, const uint8_t *box, size_t len)
+{
+	static uint64_t window, opened;
+	static uint8_t plain[FZN_UDP_DATAGRAM_MAX];
+	static fzn_contact_request_t r;
+	uint64_t now = wall_clock();
+	size_t n = 0;
+	char hex[2u * FZN_PUBKEY_LEN + 1u];
+	fzn_contact_request_err_t err;
+
+	(void)ctx;
+	if (!contact_id || !running_admin || !node_apply.store || !node_apply.capability)
+		return;
+	if (now >= window + 60u || window > now) {
+		window = now;
+		opened = 0;
+	}
+	if (opened >= FZND_BOXES_A_MINUTE)
+		return;
+	opened++;
+	if (fzn_box_open(contact_id->agree_secret, contact_id->agree, contact_id->hash,
+	                 contact_aead_ops, box, len, plain, sizeof(plain), &n)
+	            != FZN_BOX_OK
+	    || fzn_contact_request_decode(plain, n, &r) != FZN_CONTACT_REQUEST_OK)
+		return;
+	err = fzn_contact_request_verify(&r, contact_id->sign, node_apply.capability,
+	                                 contact_id->pubkey, now);
+	if (err != FZN_CONTACT_REQUEST_OK) {
+		say(FZN_ENTRY_DEBUG, "contact/request", "a contact request refused: %s",
+		    fzn_contact_request_err_str(err));
+		return;
+	}
+	if (ours(r.card.host.owner))
+		return;
+	hex_of(r.card.host.owner, FZN_PUBKEY_LEN, hex);
+	if (fzn_node_admin_contact_stands(running_admin, r.card.host.owner)) {
+		if (keep_device(r.card.host.owner, &r.card.host))
+			contact_pair_due = 1;
+		return;
+	}
+	if (fzn_contact_request_keep(node_apply.store, &r, now) != FZN_CONTACT_REQUEST_OK) {
+		say(FZN_ENTRY_WARNING, "contact/request", "a contact request could not be kept");
+		return;
+	}
+	say(FZN_ENTRY_INFO, "contact/request", "a contact request from %.16s, waiting", hex);
+	publish("request", hex);
+}
+
+/* EVERY REQUEST THIS USER SENT AND NOT YET ANSWERED, sent again: sealed
+ * afresh to the asked host's prekey and sent to its address and every
+ * seed. Each round, and at once after one is made. */
+static void send_asked(void)
+{
+	static int fd = -1;
+	static fzn_contact_asked_t asked[FZN_CONTACT_ASKED_MAX];
+	static uint8_t bytes[FZN_CONTACT_REQUEST_MAX], box[FZN_UDP_DATAGRAM_MAX];
+	size_t n = 0, i, k, len = 0, box_len = 0, sent = 0;
+	uint64_t now = wall_clock();
+
+	if (!contact_id || !node_apply.store || !contact_rng_ops
+	    || fzn_contact_asked_list(node_apply.store, asked, FZN_CONTACT_ASKED_MAX, &n)
+	               != FZN_CONTACT_REQUEST_OK)
+		return;
+	for (i = 0; i < n; i++) {
+		const fzn_contact_card_t *c = &asked[i].card;
+
+		if (asked[i].answered || asked[i].request.expires_at < now
+		    || fzn_contact_request_encode(&asked[i].request, bytes, sizeof(bytes), &len)
+		               != FZN_CONTACT_REQUEST_OK
+		    || fzn_box_seal(contact_id->agree, contact_id->hash, contact_aead_ops,
+		                    contact_rng_ops, c->host.record + FZN_PREKEY_OFF_PREKEY, bytes, len,
+		                    box, sizeof(box), &box_len)
+		               != FZN_BOX_OK)
+			continue;
+		if (fd < 0 && fzn_udp_bind(contact_family, NULL, 0, &fd) != FZN_UDP_OK) {
+			fd = -1;
+			return;
+		}
+		for (k = 0; k <= c->n_seeds; k++) {
+			const char *host = k == 0 ? c->host.address : c->seeds[k - 1u].address;
+			uint16_t port = k == 0 ? c->host.port : c->seeds[k - 1u].port;
+			fzn_udp_addr_t to;
+
+			if (port && fzn_udp_resolve(contact_family, host, port, &to) == FZN_UDP_OK
+			    && fzn_udp_send(fd, &to, box, box_len) == FZN_UDP_OK)
+				sent++;
+		}
+	}
+	if (sent)
+		say(FZN_ENTRY_DEBUG, "contact/request", "%zu contact request datagram(s) sent", sent);
+}
+
+/* The next word of `*at`, `*left` bytes left. */
+static int next_word(const uint8_t **at, size_t *left, const uint8_t **w, size_t *w_len)
+{
+	while (*left && **at == ' ') {
+		(*at)++;
+		(*left)--;
+	}
+	*w = *at;
+	while (*left && **at != ' ') {
+		(*at)++;
+		(*left)--;
+	}
+	*w_len = (size_t)(*at - *w);
+	return *w_len > 0u;
+}
+
+static int unhex32(const uint8_t *w, size_t n, uint8_t out[FZN_PUBKEY_LEN])
+{
+	char hex[2u * FZN_PUBKEY_LEN + 1u];
+
+	if (n != 2u * FZN_PUBKEY_LEN)
+		return 0;
+	memcpy(hex, w, n);
+	hex[n] = '\0';
+	return hex_bytes(hex, out, FZN_PUBKEY_LEN);
+}
+
+/* `add contact NAME CARD` -- a card as text, or a path to a file holding
+ * it -- asks the user it names for contact: the card checked, its root
+ * added as NAME and its host kept, and a request carrying this host's card
+ * sent until that user's first offer answers it. */
+static size_t request_contact(const uint8_t *name, size_t name_len, const uint8_t *arg,
+                              size_t arg_len, char *reply, size_t cap)
+{
+	static char text[FZN_CONTACT_CARD_TEXT_MAX + 1u];
+	static uint8_t bytes[FZN_CONTACT_CARD_MAX], own_bytes[FZN_CONTACT_CARD_MAX];
+	static fzn_contact_card_t card;
+	static fzn_contact_asked_t a;
+	char hex[2u * FZN_PUBKEY_LEN + 1u];
+	const char *why = NULL;
+	size_t len = 0, text_len, own_len = 0;
+	uint64_t now = wall_clock();
+
+	if (arg_len >= 5u && memcmp(arg, FZN_CONTACT_CARD_TEXT_PREFIX, 5u) == 0) {
+		if (arg_len > FZN_CONTACT_CARD_TEXT_MAX)
+			return (size_t)snprintf(reply, cap, "malformed not a contact card\n");
+		memcpy(text, arg, arg_len);
+		text_len = arg_len;
+	} else {
+		char path[1024];
+		FILE *f;
+
+		if (arg_len >= sizeof(path))
+			return (size_t)snprintf(reply, cap, "malformed add contact NAME CARD|PATH\n");
+		memcpy(path, arg, arg_len);
+		path[arg_len] = '\0';
+		if ((f = fopen(path, "r")) == NULL)
+			return (size_t)snprintf(reply, cap, "error the card file would not open\n");
+		text_len = fread(text, 1, sizeof(text) - 1u, f);
+		fclose(f);
+		while (text_len && (text[text_len - 1u] == '\n' || text[text_len - 1u] == '\r'))
+			text_len--;
+	}
+	if (fzn_contact_card_from_text(text, text_len, bytes, sizeof(bytes), &len)
+	            != FZN_CONTACT_CARD_OK
+	    || fzn_contact_card_decode(bytes, len, &card) != FZN_CONTACT_CARD_OK)
+		return (size_t)snprintf(reply, cap, "malformed not a contact card\n");
+	if (!contact_id || !node_apply.capability
+	    || fzn_contact_card_verify(&card, contact_id->sign, node_apply.capability, now)
+	               != FZN_CONTACT_CARD_OK)
+		return (size_t)snprintf(reply, cap, "error the card does not hold\n");
+	if (ours(card.host.owner) || ours(fzn_contact_device_key(&card.host)))
+		return (size_t)snprintf(reply, cap, "error that card is this estate's own\n");
+	switch (fzn_node_admin_contact_add(running_admin, card.host.owner, (const char *)name,
+	                                   name_len, &why)) {
+	case 0:
+		break;
+	case -2:
+		return (size_t)snprintf(reply, cap, "malformed %s\n", why ? why : "a contact name");
+	case -3:
+		return (size_t)snprintf(reply, cap, "denied %s\n", why ? why : "no standing");
+	default:
+		return (size_t)snprintf(reply, cap, "error %s\n", why ? why : "not added");
+	}
+	(void)keep_device(card.host.owner, &card.host);
+	/* THE REQUEST, carrying this host's card; small enough, with its box,
+	 * for one datagram. */
+	memset(&a, 0, sizeof(a));
+	a.card = card;
+	if (!own_card(&a.request.card, NULL, 0, FZN_UDP_DATAGRAM_MAX - FZN_BOX_OVERHEAD - 124u,
+	              own_bytes, &own_len))
+		return (size_t)snprintf(reply, cap,
+		                        "error added, and no request sent: this host has no card\n");
+	memcpy(a.request.target, fzn_contact_device_key(&card.host), FZN_PUBKEY_LEN);
+	if (!contact_rng_ops->fill(contact_rng_ops->ctx, a.request.nonce, sizeof(a.request.nonce)))
+		return (size_t)snprintf(reply, cap, "error added, and no request sent\n");
+	a.request.expires_at = now + FZND_REQUEST_LIFE_S;
+	if (fzn_contact_request_sign(&a.request, contact_id->sign) != FZN_CONTACT_REQUEST_OK
+	    || fzn_contact_asked_keep(node_apply.store, &a) != FZN_CONTACT_REQUEST_OK)
+		return (size_t)snprintf(reply, cap, "error added, and no request kept\n");
+	contact_pair_due = 1;
+	asked_due = 1;
+	hex_of(card.host.owner, FZN_PUBKEY_LEN, hex);
+	return (size_t)snprintf(reply, cap, "ok %s\n", hex);
+}
+
+/* THE REQUEST VERBS, sec 619, this node's own user only:
+ *
+ *   add contact NAME CARD|PATH   ask for contact by a card (`FZC1:...`)
+ *   list request                 `ok COUNT ROOT,NAME,RECEIVED ...`, oldest first
+ *   grant request ROOT NAME      approve: ROOT added as NAME, its host kept
+ *   remove request ROOT          reject
+ *
+ * `add contact NAME KEY` is admin's, as before; 0 for anything not these. */
+static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                            size_t cap)
+{
+	static fzn_contact_request_held_t held[FZN_CONTACT_REQUESTS_MAX];
+	const uint8_t *at = request->arg, *subject, *a1 = NULL, *a2 = NULL;
+	size_t left = request->arg_len, subject_len, n1 = 0, n2 = 0, n = 0, i, k;
+	uint8_t root[FZN_PUBKEY_LEN];
+	int card;
+
+	if (!at || !next_word(&at, &left, &subject, &subject_len))
+		return 0;
+	(void)next_word(&at, &left, &a1, &n1);
+	(void)next_word(&at, &left, &a2, &n2);
+	card = request->parsed == FZN_VERB_ADD && subject_len == 7u
+	       && memcmp(subject, "contact", 7u) == 0 && n2 > 0u
+	       && !(n2 == 2u * FZN_PUBKEY_LEN && unhex32(a2, n2, root));
+	if (!card
+	    && !(subject_len == 7u && memcmp(subject, "request", 7u) == 0
+	         && (request->parsed == FZN_VERB_LIST || request->parsed == FZN_VERB_GRANT
+	             || request->parsed == FZN_VERB_REMOVE)))
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied contact requests need this node's own "
+		                                    "user\n");
+	if (!running_admin || !node_apply.store)
+		return (size_t)snprintf(reply, cap, "error this node keeps no contacts\n");
+	if (card)
+		return request_contact(a1, n1, a2, n2, reply, cap);
+	if (request->parsed == FZN_VERB_LIST) {
+		size_t at_out;
+
+		if (fzn_contact_request_list(node_apply.store, held, FZN_CONTACT_REQUESTS_MAX, &n)
+		    != FZN_CONTACT_REQUEST_OK)
+			return (size_t)snprintf(reply, cap, "error the requests would not list\n");
+		at_out = (size_t)snprintf(reply, cap, "ok %zu", n);
+		for (i = 0; i < n && at_out < cap; i++) {
+			char hex[2u * FZN_PUBKEY_LEN + 1u];
+			const fzn_contact_card_t *c = &held[i].request.card;
+
+			hex_of(c->host.owner, FZN_PUBKEY_LEN, hex);
+			k = (size_t)snprintf(reply + at_out, cap - at_out, " %s,%.*s,%llu", hex,
+			                     c->name_len ? (int)c->name_len : 1,
+			                     c->name_len ? c->name : "-",
+			                     (unsigned long long)held[i].received_at);
+			if (at_out + k >= cap)
+				break;
+			at_out += k;
+		}
+		return at_out + (size_t)snprintf(reply + at_out, cap - at_out, "\n");
+	}
+	if (!a1 || !unhex32(a1, n1, root))
+		return (size_t)snprintf(reply, cap, request->parsed == FZN_VERB_GRANT
+		                                            ? "malformed grant request ROOT NAME\n"
+		                                            : "malformed remove request ROOT\n");
+	if (request->parsed == FZN_VERB_REMOVE)
+		return fzn_contact_request_drop(node_apply.store, root) == FZN_CONTACT_REQUEST_OK
+		               ? (size_t)snprintf(reply, cap, "ok\n")
+		               : (size_t)snprintf(reply, cap, "absent no request from that root\n");
+	{
+		static fzn_contact_request_held_t one;
+		const char *why = NULL;
+
+		if (!a2)
+			return (size_t)snprintf(reply, cap, "malformed grant request ROOT NAME\n");
+		if (fzn_contact_request_get(node_apply.store, root, &one) != FZN_CONTACT_REQUEST_OK)
+			return (size_t)snprintf(reply, cap, "absent no request from that root\n");
+		switch (fzn_node_admin_contact_add(running_admin, root, (const char *)a2, n2, &why)) {
+		case 0:
+			break;
+		case -2:
+			return (size_t)snprintf(reply, cap, "malformed %s\n", why ? why : "a contact name");
+		case -3:
+			return (size_t)snprintf(reply, cap, "denied %s\n", why ? why : "no standing");
+		default:
+			return (size_t)snprintf(reply, cap, "error %s\n", why ? why : "not added");
+		}
+		(void)keep_device(root, &one.request.card.host);
+		(void)fzn_contact_request_drop(node_apply.store, root);
+		contact_pair_due = 1;
+		return (size_t)snprintf(reply, cap, "ok\n");
+	}
 }
 
 /* EACH ROUND: every contact asked through the first of its hosts that
@@ -6323,6 +6675,8 @@ int main(int argc, char **argv)
 			admin.routing_remote = routing_remote;
 			admin.messages_contact = messages_contact;
 			admin.contact_devices = contact_devices_remote;
+			/* A STRANGER'S CONTACT REQUEST, sec 619. */
+			state.on_box = contact_box;
 			routing_self = identity.pubkey;
 			routing_sign = &sign_ops;
 			routing_hash = &hash_ops;
@@ -6658,6 +7012,7 @@ int main(int argc, char **argv)
 				pull_notes(pulls, npulls, now, &state, running, running_roots);
 				pull_received(now);
 				contact_round(pulls, npulls, now);
+				send_asked();
 				deliver_contacts(now);
 				history_trim();
 #ifdef FZN_SPOOL_FILE_ON
@@ -6681,6 +7036,12 @@ int main(int argc, char **argv)
 #endif
 			/* A TRASH JUST EMPTIED is carried to the pull peers now, not
 			 * at the next round. sec 433. */
+			/* A CONTACT JUST ASKED FOR is asked now, not a round later.
+			 * sec 619. */
+			if (asked_due) {
+				asked_due = 0;
+				send_asked();
+			}
 			/* A CONTACT'S DEVICE JUST OFFERED is paired now, the answer
 			 * that kept it being out. sec 614. */
 			if (contact_pair_due) {

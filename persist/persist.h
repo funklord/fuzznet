@@ -331,13 +331,21 @@ typedef enum fzn_persist_slot {
 	 * node pairs it or delivers to it. CORE: it decides whom this node
 	 * pairs. `node/contact_devices.h` keeps it. sec 614. */
 	FZN_PERSIST_CONTACT_DEVICE = 49u,
+	/* Per asker, keyed by its user's root: a contact request a stranger
+	 * sent this user, waiting to be approved or rejected. Not core: lost,
+	 * the asker asks again. `node/contact_request.h` keeps it. sec 619. */
+	FZN_PERSIST_CONTACT_REQUEST = 50u,
+	/* Per user asked, keyed by its root: a contact request this user sent,
+	 * and the card it was sent on, sent again until it is answered. Not
+	 * core: lost, it is asked again. `node/contact_request.h`. sec 619. */
+	FZN_PERSIST_CONTACT_ASKED = 51u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 50u
+#define FZN_PERSIST_SLOT_END 52u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,

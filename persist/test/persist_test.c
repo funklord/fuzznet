@@ -874,7 +874,9 @@ static void test_the_route_sends_each_slot_where_the_rule_says(void)
 		                                   FZN_PERSIST_BUCKET_ITEM,
 		                                   FZN_PERSIST_NOTE_HISTORY,
 		                                   FZN_PERSIST_HOST_HEARD,
-		                                   FZN_PERSIST_ROUTING };
+		                                   FZN_PERSIST_ROUTING,
+		                                   FZN_PERSIST_CONTACT_REQUEST,
+		                                   FZN_PERSIST_CONTACT_ASKED };
 	struct counting core, bulk;
 	fzn_persist_ops_t core_ops = { count_load, count_save, count_list, NULL, &core };
 	fzn_persist_ops_t bulk_ops = { count_load, count_save, NULL, NULL, &bulk };

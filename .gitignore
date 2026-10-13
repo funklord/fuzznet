@@ -134,6 +134,7 @@
 /spool/test/spool_test
 /session/test/agree_test
 /session/test/session_test
+/session/test/box_test
 /session/test/session_kat_test
 /ratchet/test/ratchet_kat_test
 /blob/test/blob_kat_test
@@ -250,6 +251,7 @@ __pycache__/
 /node/test/routing_test
 /node/test/contact_devices_test
 /node/test/contact_card_test
+/node/test/contact_request_test
 /node/test/identity_test
 /node/test/pair_test
 /node/test/admin_test

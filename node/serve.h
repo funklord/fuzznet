@@ -78,6 +78,13 @@ typedef struct fzn_node_state {
 	                    const fzn_opened_t *req, uint8_t *reply,
 	                    size_t reply_cap);
 	void *on_remote_ctx;
+	/* A SEALED BOX FROM A KEY WITH NO SESSION HERE, sec 619: a datagram
+	 * opening with FZN_BOX_MARK (`session/box.h`), which no frame does --
+	 * a stranger's contact request. Handed over as received, and
+	 * answered with nothing: the asker learns of approval
+	 * from the user's first offer (sec 614). NULL drops every box. */
+	void (*on_box)(void *ctx, const uint8_t *box, size_t len);
+	void *on_box_ctx;
 	/* WHERE A REMOTE HANDLER WRITES ITS REPLY, borrowed and sized by the
 	 * consumer; NULL uses a FZN_NODE_REPLY_MAX buffer on the node's own
 	 * stack. A consumer whose answers exceed one frame supplies one here

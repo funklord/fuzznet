@@ -130,6 +130,10 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "a user's routing manifest: where their hosts may be reached";
 	case FZN_PERSIST_CONTACT_DEVICE:
 		return "a contact's device: whom this node pairs and delivers to";
+	case FZN_PERSIST_CONTACT_REQUEST:
+		return "a contact request a stranger sent, waiting to be approved";
+	case FZN_PERSIST_CONTACT_ASKED:
+		return "a contact request this user sent, until it is answered";
 	}
 	*known = 0;
 	return "an unknown slot";

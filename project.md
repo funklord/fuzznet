@@ -63824,9 +63824,10 @@ is out.
 
 - **The contact must be added by the user's root.** A contact added under
   a member's key stands for that device alone, as before.
-- **The first pairing is still a card**: `grant share` and `add
+- ~~**The first pairing is still a card**: `grant share` and `add
   received`. Contact cards carrying the manifest and the root are sec
-  608's step 3.
+  608's step 3.~~ A contact card and a request since sec 619, which adds a
+  contact by its root; `grant share` and `add received` remain for shares.
 - **Revocations in the contact's estate are not seen here**: a device the
   contact revoked keeps its entry and pairing until the contact is
   removed. An entry is never forgotten while its owner stands.
@@ -64130,3 +64131,132 @@ from its `project.md` and `core/src/peer_pair*`, `pairing_crypto*` and
   spare bits, so a character too many always made an extra byte and the
   length check never decided anything. Only lengths leaving two spare bits
   or fewer -- 0, 1 or 3 modulo 5 -- need it; the case above covers each.
+
+## 618. Step 3b: a sealed box to a stranger, 2026-10-13
+
+The first-contact sealed box, fuzzypickles' `pairing_crypto`, brought
+into `session/box.{h,c}`: what a stranger sends a host it has no session
+with.
+
+    mark 0xFB | version 1 | ephemeral public key [32] | text | tag [16]
+
+- **The key** is the hash of a label, the ephemeral public key, the
+  recipient's prekey and their X25519 agreement, so a box is bound to the
+  one prekey it was sealed to and cannot be re-addressed. One ephemeral
+  key per box; the nonce is zero and the key is never used twice. The
+  head is the AEAD's associated data, so every byte past the mark is
+  bound.
+- **Confidentiality only**, as fuzzypickles chose: the box says nothing
+  of who sent it. Authenticity is the payload's own signature, checked
+  after opening (sec 619).
+
+### A new datagram, and not a new frame kind
+
+A box cannot be a frame: a frame is sealed under a session, and a
+stranger has none. The frame's kinds are a closed set that only a
+decision of this tree's widens (`wire/frame.situ`, the holder's
+settlement of 2026-08-26), and a fifth kind would be a frame no other
+host's validator accepts. So the box is not a frame at all: **a frame's
+first byte is its version, 1, and a box's is 0xFB**, so one can never
+read as the other and the kind set is untouched. `node/serve.c` hands a
+datagram opening with the mark to its own handler (`fzn_node_state_t.
+on_box`) before any frame check reads it, and drops it when there is
+none; `serve.c` compares the byte and links nothing of the box.
+
+### Measured for sec 618
+
+- **`session/test/box_test`, 12 checks**, real X25519, BLAKE2b and
+  XChaCha20-Poly1305: a box opens for its key to the same text and not
+  for another; two boxes of one text share no ephemeral key; a byte
+  changed anywhere past the mark, or one short, does not open; a
+  datagram opening as a frame does, one of another version, and one
+  shorter than its overhead are not boxes; an empty box round trips; too
+  little room is refused.
+- Three sabotage entries, each probed caught: the mark, the version, and
+  the overhead.
+
+## 619. Step 3c: two strangers become contacts by a card, 2026-10-13
+
+fuzzypickles' pairing by request -- request, list, approve, reject --
+brought into fuzznet on the card (sec 617) and the box (sec 618), handing
+over to sec 614 once approved.
+
+### The request, `node/contact_request`
+
+Signed-object tag 149, laid out in `node/contact_request.situ`: the
+asker's own contact card, the ONE host it is for, a nonce, and when it
+expires; signed by the asker's card's host. **It holds as a request to
+this host** when the target is this host, the card holds, the card's
+host signed it, and it is neither expired nor claiming to last more than
+30 days -- fuzzypickles' requests live about a week, and the asker here
+asks for exactly one.
+
+**Two queues**, both not core -- lost, a request is asked again:
+
+- **Asked of this user**, persist slot 50, keyed by the asker's root: at
+  most 16; a newer request from the same root replaces the older; when
+  full, the oldest goes. The input is a stranger's and may not fill the
+  store.
+- **Asked by this user**, slot 51, keyed by the other user's root: the
+  card and the request as sent, at most 16, sent again each round until
+  answered or expired.
+
+### The verbs, this node's own user only
+
+    add contact NAME CARD|PATH   ask by a card, as text or in a file
+    list request                 ok COUNT ROOT,NAME,RECEIVED ..., oldest first
+    grant request ROOT NAME      approve
+    remove request ROOT          reject
+
+They use verbs the vocabulary has rather than new ones: the verb set is
+what authorisation rules name. `add contact NAME KEY` is admin's as
+before; a third word that is no key is a card.
+
+**Asking** checks the card, adds its root as a contact by name (now
+`fzn_node_admin_contact_add`, which the verb and approval share), keeps
+the card's host as that contact's device (sec 614), and sends a request
+carrying this host's own card -- seeds dropped until request and box fit
+one datagram -- sealed to the card host's prekey, to its address and
+every seed.
+
+**A box** that opens to a request holding at this host is queued and the
+event `request` published -- or, from a contact already standing, its
+card's host kept as that contact's device. Anything else is dropped
+without a word. At most 32 boxes are opened a minute: each costs an
+agreement and several signatures, and anybody may send one.
+
+**Approving** adds the root by name, keeps the request's card host, and
+lets the request go. Then sec 614's round does the rest, and that is why
+fuzzypickles' separate response message is not needed: this host pairs
+the asker's host and offers its devices, and the asker -- which kept this
+host when it asked -- takes the offer. **An offer, or an answered
+exchange, from a user asked is the answer**: the request is marked so and
+sent no more.
+
+### Not yet after sec 619
+
+- **No name crosses with a request** but the card's own, which `get card`
+  writes only when given one; the user names the asker at approval.
+- **A request is not withdrawn** by the asker; it expires.
+- **3d, identity backup and reset**, is next.
+
+### Measured for sec 619
+
+- **`node/test/contact_request_test`, 51 checks**: a signed request
+  decodes to itself and holds at its host, and not at another; a byte
+  short or long does not decode; changed after signing, signed by a key
+  other than its card's host, or with a card changed after the card was
+  signed, it does not hold; expired, or claiming more than the longest
+  life, it does not, and at the longest life it does. Seventeen strangers:
+  sixteen held, the first let go, oldest first; one asking again replaces
+  its own; a request dropped is gone; a row under another root is no
+  one's. Requests asked: sixteen kept and the seventeenth refused, one
+  answered reads back answered, they all list, one never sent cannot be
+  answered.
+- **`tool/live_pairing.py`, in `make livecheck`**, three users of one
+  machine each: A adds B by B's card, and B holds A's request; B approves,
+  the round pairs them, and A's line is delivered to B under A's root; C
+  asks too and B turns it away. **Control**: with boxes dropped, B never
+  holds A's request.
+- Ten sabotage entries, each probed caught, and sec 435's member refusal
+  re-anchored on the function the verb and approval now share, and caught.

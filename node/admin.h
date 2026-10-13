@@ -279,6 +279,14 @@ int fzn_node_admin_pair_contact_device(fzn_node_admin_t *admin, const fzn_contac
 int fzn_node_admin_contact_of(const fzn_node_admin_t *admin, const uint8_t sender[FZN_PUBKEY_LEN],
                               uint8_t owner[FZN_PUBKEY_LEN]);
 
+/* ADD `key` AS A CONTACT NAMED `name`, sec 617: what `add contact` does --
+ * named here, and an add on the estate's roster -- for a key that is no
+ * member. 0 added; -2 for a name that is no contact name; -3 when this
+ * node has no standing to write the roster; -1 otherwise, with `*why` (may
+ * be NULL) saying why. */
+int fzn_node_admin_contact_add(fzn_node_admin_t *admin, const uint8_t key[FZN_PUBKEY_LEN],
+                               const char *name, size_t name_len, const char **why);
+
 /* WHETHER `key` WAS A CONTACT AND WAS REMOVED, sec 616: suspended or
  * retired on the estate's roster -- not merely a key no contact holds. A
  * node with no roster knows of no removal. */

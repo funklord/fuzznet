@@ -468,6 +468,8 @@ int fzn_persist_slot_is_core(fzn_persist_slot_t slot)
 	case FZN_PERSIST_NOTE_HISTORY:
 	case FZN_PERSIST_HOST_HEARD:
 	case FZN_PERSIST_ROUTING:
+	case FZN_PERSIST_CONTACT_REQUEST:
+	case FZN_PERSIST_CONTACT_ASKED:
 		return 0;
 	default:
 		return 1;	/* named or not: see persist.h */

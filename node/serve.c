@@ -10,6 +10,7 @@
 #include "../local/socket.h"
 #include "../net/udp.h"
 #include "../wire/seal.h"
+#include "../session/box.h" /* FZN_BOX_MARK, and nothing to link */
 
 const fzn_node_peer_t *fzn_node_find_peer(const fzn_node_peer_t *peers,
                                           size_t count,
@@ -129,6 +130,13 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 	if (fzn_udp_recv(state->udp_fd, frame, sizeof(frame), &flen, &from)
 	    != FZN_UDP_OK)
 		return;
+	/* A BOX IS NO FRAME: its first byte is one no frame's version is, so
+	 * it goes to its own handler before any frame check reads it. */
+	if (flen && frame[0] == FZN_BOX_MARK) {
+		if (state->on_box)
+			state->on_box(state->on_box_ctx, frame, flen);
+		return;
+	}
 	if (fzn_seal_peek_sender(frame, flen, &sender) != FZN_SEAL_OK)
 		return;
 	/* An unprovisioned sender is dropped: no session, nothing to open

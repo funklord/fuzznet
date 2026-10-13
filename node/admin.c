@@ -973,19 +973,41 @@ static size_t add_contact(fzn_node_admin_t *admin, const uint8_t *rest, size_t r
 	uint8_t key[FZN_PUBKEY_LEN];
 	const uint8_t *name, *hex;
 	size_t name_len, hex_len;
-	fzn_contact_err_t err;
+	const char *why = NULL;
+	int r;
 
 	if (!next_word(&rest, &rest_len, &name, &name_len)
 	    || !next_word(&rest, &rest_len, &hex, &hex_len) || !unhex(hex, hex_len, key, sizeof(key)))
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "add contact NAME KEY");
-	if (is_member(admin, key))
-		return answer_text(reply, cap, FZN_REPLY_ERROR,
-		                   "a member of this estate, not a contact");
-	err = fzn_contact_add(admin->store, key, (const char *)name, name_len, admin_now_ms(admin));
-	if (err != FZN_CONTACT_OK)
-		return answer_text(reply, cap,
-		                   err == FZN_CONTACT_ERR_NAME ? FZN_REPLY_MALFORMED : FZN_REPLY_ERROR,
-		                   fzn_contact_err_str(err));
+	r = fzn_node_admin_contact_add(admin, key, (const char *)name, name_len, &why);
+	if (r == -2)
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, why);
+	if (r == -3)
+		return answer_text(reply, cap, FZN_REPLY_DENIED, why);
+	return r == 0 ? answer_text(reply, cap, FZN_REPLY_OK, NULL)
+	              : answer_text(reply, cap, FZN_REPLY_ERROR, why);
+}
+
+int fzn_node_admin_contact_add(fzn_node_admin_t *admin, const uint8_t key[FZN_PUBKEY_LEN],
+                               const char *name, size_t name_len, const char **why)
+{
+	fzn_contact_err_t err;
+
+	if (why)
+		*why = NULL;
+	if (!admin || !key || !name)
+		return -1;
+	if (is_member(admin, key)) {
+		if (why)
+			*why = "a member of this estate, not a contact";
+		return -1;
+	}
+	err = fzn_contact_add(admin->store, key, name, name_len, admin_now_ms(admin));
+	if (err != FZN_CONTACT_OK) {
+		if (why)
+			*why = fzn_contact_err_str(err);
+		return err == FZN_CONTACT_ERR_NAME ? -2 : -1;
+	}
 	/* AND THE USER'S ACT, sec 489: an add on the roster every member pulls,
 	 * unless the key is already a contact there. The name is this node's
 	 * and is kept whatever the roster answers. */
@@ -994,10 +1016,13 @@ static size_t add_contact(fzn_node_admin_t *admin, const uint8_t *rest, size_t r
 		        fzn_node_roster_write(admin->roster, admin->store, admin->id, admin->authority,
 		                              admin->rng, key, 1, admin->revocations, roster_k(admin));
 
-		if (rerr != FZN_NODE_ROSTER_OK)
-			return roster_refusal(reply, cap, rerr);
+		if (rerr != FZN_NODE_ROSTER_OK) {
+			if (why)
+				*why = fzn_node_roster_err_str(rerr);
+			return rerr == FZN_NODE_ROSTER_NO_STANDING ? -3 : -1;
+		}
 	}
-	return answer_text(reply, cap, FZN_REPLY_OK, NULL);
+	return 0;
 }
 
 /* `remove contact NAME`. What was granted to it is revoked as chains are,

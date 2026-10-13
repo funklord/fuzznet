@@ -79,6 +79,7 @@
 #include "../../ratchet/ratchet.h"
 #include "../../session/agree.h"
 #include "../../session/session.h"
+#include "../../session/box.h"
 #include "../../spool/spool.h"
 #include "../../claim/claim.h"
 #include "../../record/store.h"
@@ -101,6 +102,7 @@
 #include "../../node/routing.h"
 #include "../../node/contact_devices.h"
 #include "../../node/contact_card.h"
+#include "../../node/contact_request.h"
 #include "../../chunk/erasure.h"
 #include "../../node/holdings.h"
 #include "../../node/reconcile.h"
@@ -267,6 +269,11 @@ static const char *r_contact_device(int v)
 {
 	return fzn_contact_device_err_str((fzn_contact_device_err_t)v);
 }
+static const char *r_contact_request(int v)
+{
+	return fzn_contact_request_err_str((fzn_contact_request_err_t)v);
+}
+static const char *r_box(int v) { return fzn_box_err_str((fzn_box_err_t)v); }
 static const char *r_contact_card(int v)
 {
 	return fzn_contact_card_err_str((fzn_contact_card_err_t)v);
@@ -398,6 +405,8 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_routing_err_str", r_routing, 7 },
 	{ "fzn_contact_device_err_str", r_contact_device, 7 },
 	{ "fzn_contact_card_err_str", r_contact_card, 5 },
+	{ "fzn_box_err_str", r_box, 5 },
+	{ "fzn_contact_request_err_str", r_contact_request, 8 },
 	{ "fzn_erasure_err_str", r_erasure, 3 },
 	{ "fzn_reconcile_err_str", r_reconcile, 6 },
 #ifdef FZN_RECORD_STORE_FILE_ON

@@ -164,7 +164,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/node.c node/local.c node/remote.c node/serve.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
-             node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/heard.c node/events.c node/routing.c node/contact_devices.c node/contact_card.c node/holdings.c node/buckets.c node/reconcile.c \
+             node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/heard.c node/events.c node/routing.c node/contact_devices.c node/contact_card.c node/contact_request.c node/holdings.c node/buckets.c node/reconcile.c \
              messages/line.c messages/messages.c node/messages.c \
              contact/contact.c \
              contact/group.c \
@@ -196,7 +196,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              tree/tree.c \
              wire/seal.c wire/relay.c \
              session/random.c session/random_linux.c session/agree.c \
-             session/session.c \
+             session/session.c session/box.c \
              version/version.c \
              record/record.c record/journal.c record/sync.c record/exchange.c \
              record/ledger.c \
@@ -262,7 +262,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/node.h node/local.h node/remote.h node/serve.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
-             node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/heard.h node/events.h node/routing.h node/contact_devices.h node/contact_card.h node/holdings.h node/buckets.h node/reconcile.h \
+             node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/heard.h node/events.h node/routing.h node/contact_devices.h node/contact_card.h node/contact_request.h node/holdings.h node/buckets.h node/reconcile.h \
              messages/line.h messages/messages.h node/messages.h \
              contact/contact.h \
              contact/group.h \
@@ -292,7 +292,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              tree/tree.h \
              wire/seal.h wire/relay.h wire/bytes.h session/aead.h \
              session/random.h session/random_system.h session/agree.h \
-             session/session.h \
+             session/session.h session/box.h \
              version/version.h \
              record/record.h record/journal.h record/sync.h record/exchange.h \
              record/ledger.h \
@@ -377,7 +377,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              spool/test/transfer_fuzz.c \
              spool/test/scrub_fuzz.c \
              session/test/agree_test.c \
-             session/test/session_test.c \
+             session/test/session_test.c session/test/box_test.c \
              blob/test/blob_fuzz.c \
              frame/test/freshness_test.c \
              chunk/test/reassembly_test.c chunk/test/split_test.c chunk/test/erasure_test.c \
@@ -390,7 +390,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/peer_persist_test.c \
              node/test/identity_test.c node/test/heard_test.c node/test/events_test.c \
              node/test/routing_test.c node/test/contact_devices_test.c \
-             node/test/contact_card_test.c \
+             node/test/contact_card_test.c node/test/contact_request_test.c \
              local/test/vocabulary_fuzz.c local/test/admit_test.c \
              local/test/line_test.c local/test/socket_test.c \
              net/test/udp_test.c \
@@ -494,6 +494,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/spool/test/scrub_fuzz \
              $(BUILD_DIR)/session/test/agree_test \
              $(BUILD_DIR)/session/test/session_test \
+             $(BUILD_DIR)/session/test/box_test \
              $(BUILD_DIR)/frame/test/freshness_test \
              $(BUILD_DIR)/session/test/commitment_test \
              $(BUILD_DIR)/local/test/peer_test \
@@ -511,6 +512,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/node/test/routing_test \
              $(BUILD_DIR)/node/test/contact_devices_test \
              $(BUILD_DIR)/node/test/contact_card_test \
+             $(BUILD_DIR)/node/test/contact_request_test \
              $(BUILD_DIR)/local/test/vocabulary_fuzz \
              $(BUILD_DIR)/local/test/admit_test \
              $(BUILD_DIR)/local/test/line_test \
@@ -2557,6 +2559,19 @@ $(BUILD_DIR)/session/test/session_test: $(BUILD_DIR)/session/test/session_test.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# A sealed box to a prekey, sec 618: real X25519, BLAKE2b and the AEAD.
+$(BUILD_DIR)/session/test/box_test: $(BUILD_DIR)/session/test/box_test.o \
+                                     $(BUILD_DIR)/session/box.o $(BUILD_DIR)/session/agree.o \
+                                     $(BUILD_DIR)/session/agree_monocypher.o \
+                                     $(BUILD_DIR)/session/hash_monocypher.o \
+                                     $(BUILD_DIR)/session/aead_monocypher.o \
+                                     $(BUILD_DIR)/session/random.o \
+                                     $(BUILD_DIR)/session/random_linux.o \
+                                     $(BUILD_DIR)/monocypher.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # session/agree.c links only constant_time: the rotation discipline is
 # bookkeeping over a wiped buffer, and the arithmetic arrives through a vtable.
 $(BUILD_DIR)/session/test/agree_test: $(BUILD_DIR)/session/test/agree_test.o \
@@ -3773,6 +3788,15 @@ $(BUILD_DIR)/node/test/contact_card_test: $(BUILD_DIR)/node/test/contact_card_te
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# A contact request, sec 619.
+$(BUILD_DIR)/node/test/contact_request_test: $(BUILD_DIR)/node/test/contact_request_test.o \
+                                             $(BUILD_DIR)/node/contact_request.o \
+                                             $(BUILD_DIR)/node/contact_card.o \
+                                             $(BUILD_DIR)/node/contact_devices.o \
+                                             $(BUILD_DIR)/contact/contact.o $(NODE_SERVE_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # Local subscribers told what changed, sec 609.
 $(BUILD_DIR)/node/test/events_test: $(BUILD_DIR)/node/test/events_test.o \
                                     $(BUILD_DIR)/node/events.o
@@ -3884,6 +3908,7 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/node/received.o $(BUILD_DIR)/notes/received.o \
               $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/node/contact_card.o \
+              $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/session/box.o \
               $(BUILD_DIR)/node/members.o \
               $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
               $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o \
@@ -3933,6 +3958,7 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/node/received.o $(BUILD_DIR)/notes/received.o \
               $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/node/contact_card.o \
+              $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/session/box.o \
               $(BUILD_DIR)/node/members.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/caller.o \
@@ -4037,6 +4063,7 @@ NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DI
                    $(BUILD_DIR)/log/retain.o \
                    $(BUILD_DIR)/node/received.o $(BUILD_DIR)/notes/received.o \
               $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/node/contact_card.o \
+              $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/session/box.o \
                    $(BUILD_DIR)/node/members.o \
                    $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
                    $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o \
@@ -4152,6 +4179,7 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
                 $(BUILD_DIR)/node/piece_buckets.o $(BUILD_DIR)/chunk/erasure.o) \
               $(BUILD_DIR)/node/heard.o $(BUILD_DIR)/node/routing.o \
               $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/node/contact_card.o \
+              $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/session/box.o \
               $(MONO_OBJS) $(FLOG_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
@@ -4307,6 +4335,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/siblings.o \
                                       $(BUILD_DIR)/node/heard.o $(BUILD_DIR)/node/routing.o \
                                       $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/node/contact_card.o \
+              $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/session/box.o \
                                       $(BUILD_DIR)/node/holdings.o \
                                       $(BUILD_DIR)/node/buckets.o \
                                       $(BUILD_DIR)/node/reconcile.o \
@@ -5928,7 +5957,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               node/reconcile.situ node/buckets.situ \
               log/entry.situ log/cause.situ log/gather.situ chunk/piece.situ \
               node/heard.situ node/routing.situ node/contact_devices.situ \
-              node/contact_card.situ
+              node/contact_card.situ node/contact_request.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #
@@ -6023,7 +6052,8 @@ QUIRC_DIR      ?= $(QUIRC_VENDORED)
 # third, sec 558, a removed contact's shares pulled no further, sec 576,
 # siblings reaching one another, sec 579, a note's history trimmed by the
 # rules, sec 582, log segments archived, sec 588, a line delivered to a
-# contact, sec 613, and to any host of a contact from any device, sec 614. The only target here that starts fuzznetd. A line old enough to trim can only be
+# contact, sec 613, and to any host of a contact from any device, sec 614,
+# and two strangers paired by a card, sec 619. The only target here that starts fuzznetd. A line old enough to trim can only be
 # written under an earlier clock, so `faketime` writes it, and the script
 # says SKIPPED when it is absent. It needs a fuzznetd, the record store its
 # conversations live in, and log files, because it waits on the daemon's
@@ -6032,7 +6062,7 @@ QUIRC_DIR      ?= $(QUIRC_VENDORED)
 # tool/live_cut.py, tool/live_rejoin.py, tool/live_witness.py,
 # tool/live_shares.py, tool/live_siblings.py, tool/live_history.py,
 # tool/live_archive.py, tool/live_events.py, tool/live_deliver.py,
-# tool/live_contacts.py and tool/live_erasure.py bound
+# tool/live_contacts.py, tool/live_pairing.py and tool/live_erasure.py bound
 # themselves: one
 # deadline, each daemon in its own process group, scratch removed. Six hosts
 # going round in turn take live_erasure.py past the others' 240 s, so its own
@@ -6054,6 +6084,7 @@ else
 	@timeout 120 python3 tool/live_events.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_deliver.py $(FUZZNETD)
 	@timeout 540 python3 tool/live_contacts.py $(FUZZNETD)
+	@timeout 300 python3 tool/live_pairing.py $(FUZZNETD)
 	@$(if $(LOG_PACK_ON),timeout 600 python3 tool/live_erasure.py $(FUZZNETD),echo \
 	  "livecheck: erasure SKIPPED -- this build does not pack logs")
 endif

@@ -103,6 +103,7 @@
 #include <fuzznet/disclose/disclose.h>
 #include <fuzznet/session/agree.h>
 #include <fuzznet/session/session.h>
+#include <fuzznet/session/box.h>
 #include <fuzznet/persist/persist.h>
 #include <fuzznet/spool/spool.h>
 #include <fuzznet/spool/plan.h>
@@ -156,6 +157,7 @@
 #include <fuzznet/node/routing.h>
 #include <fuzznet/node/contact_devices.h>
 #include <fuzznet/node/contact_card.h>
+#include <fuzznet/node/contact_request.h>
 #include <fuzznet/node/holdings.h>
 #include <fuzznet/node/buckets.h>
 #include <fuzznet/node/reconcile.h>
@@ -290,6 +292,7 @@
 #include "disclose/disclose.h"
 #include "session/agree.h"
 #include "session/session.h"
+#include "session/box.h"
 #include "persist/persist.h"
 #include "spool/spool.h"
 #include "spool/plan.h"
@@ -337,6 +340,7 @@
 #include "node/routing.h"
 #include "node/contact_devices.h"
 #include "node/contact_card.h"
+#include "node/contact_request.h"
 #include "node/holdings.h"
 #include "node/buckets.h"
 #include "node/reconcile.h"

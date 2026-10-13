@@ -1,0 +1,29 @@
+# situ wire signature v2
+# schema: contact_request.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+endian big
+target buffer
+
+struct fzn_contact_request size=124..65659
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   1         u8         tag  must_eq=149
+  @0x0002   32        u8         target  big
+  @0x0022   2         u16        card_len  big
+  @0x0024   0..65535  u8         card  sized-by=card_len
+  ~         16        u8         nonce  big
+  ~         8         u64        expires_at  big
+  ~         64        u8         sig  big
