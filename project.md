@@ -63399,8 +63399,13 @@ cannot read again.
 - live_rejoin phase f: a subscriber on A reads the pushed line's
   conversation by its key. A hand-break control -- the filed line not
   published -- left it reading nothing.
-- Three sabotage entries: a whole line or none, names only hex, and the
-  node's own user only.
+- Two sabotage entries: names only hex, and the node's own user only. A
+  third, a whole line or none, survived its probe and was removed: on
+  Linux a non-blocking send of a line this short on an AF_UNIX stream
+  socket writes all of it or fails, so the test's full buffer never
+  produces a partial write for the guard to refuse. The guard stays, since
+  POSIX allows a short send; a TCP loopback test would reach it only by
+  chance, which is not a probe.
 
 ### Not yet after sec 609
 

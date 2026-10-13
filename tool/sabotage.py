@@ -11016,13 +11016,6 @@ SABOTAGES = [
 		"every day says it holds one version -- sec 605",
 	),
 	(
-		"events-a-whole-line-or-none",
-		"node/events.c",
-		"\t\tif (w == (ssize_t)len) {\n",
-		"\t\tif (w > 0) {\n",
-		"a subscriber whose buffer is full is left half a line, and reads the next joined to it -- sec 609",
-	),
-	(
 		"events-names-only-hex",
 		"node/events.c",
 		"\t    || !(strcmp(name, \"-\") == 0\n\t         || word_of(name, FZN_NODE_EVENTS_NAME_MAX, \"0123456789abcdef\")))\n",
