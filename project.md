@@ -63306,7 +63306,7 @@ Each step leaves both trees working:
    routing manifest (B8) forward into it and needs no delegation.
 3. **Pairing, identity and contact cards as verbs (B6).**
 4. **Relaying and reachability (B4, B5).**
-5. **Groups (B7)**, after the holder chooses a model.
+5. **Groups (B7)**, after the holder chooses a model -- chosen, sec 625.
 6. **The rest (B8, B9).**
 7. **fuzzypickles cuts over:** its clients speak to fuzznetd, the A list
    is deleted there, and fzpd is retired.
@@ -64653,3 +64653,77 @@ frame check reads it.
   set.
 - **Sabotage: two entries, both caught** -- the probe not handed over
   (`serve_test`), and the broadcast option not set (`udp_test`).
+
+## 625. Step 5 planned: groups, the holder's decisions, 2026-10-14
+
+Sec 608 left the group model to step 5, "from the requirements then in
+hand". What both trees already settle was read first: fuzzypickles' group
+chat (a group keypair, a roster signed by it, sender-key ratchets over a
+full pairwise mesh, at most 16 members, only the creating device able to
+change the roster, no leave) and fuzznet's `contact/group.h` (sec 471, a
+node-local set of contacts that grants name as `@GROUP`).
+
+### The holder's decisions on groups
+
+- **One model, designed to be flexible, scalable and secure; existing
+  grants do not constrain it**, there being no users yet. So there is
+  no second, local group kind kept for compatibility: a grant to a group
+  is a grant to its current members, read from the same roster a chat
+  uses.
+- **Several admin users** may change a roster, not only its creator.
+- **A member added later gets the history retention still holds**; a
+  per-group setting, an admin's to change, turns that off.
+- **A member may leave**, by an act signed by their own root; the others
+  stop sending to them at once, and the next roster drops them.
+
+### The group design
+
+- **A group is a hash-chained log of signed acts**, the shape of this
+  tree's root log (secs 403-411) rather than fuzzypickles' single blob:
+  create, add member, remove member, leave, add admin, remove admin, and
+  set a setting. Each act names the hash of the one before it and is
+  signed by a user's root key -- an admin's, or for a leave the leaving
+  member's. **The group's id is the hash of its create act**, random by
+  its nonce (sec 516), so no group key exists to be lost with a device,
+  and nothing about a group is keyed by its name.
+- **Concurrent acts**: two admins acting on the same head fork the log;
+  every host keeps the branch whose act hash is lower, and the other act's
+  author re-issues it on the kept head when it sees the fork. An act that
+  no longer applies -- removing someone already gone -- is dropped then.
+- **The admin set is guarded harder than the member set**: any admin
+  adds or removes a member; adding or removing an admin needs the votes
+  of a majority of the admins, by sec 397's k-of-n votes. One admin's
+  stolen key can then disrupt membership, which a majority can undo, but
+  cannot take the group.
+- **Keys by epoch, not by pairwise chains**: every roster change starts
+  an epoch, whose secret the acting admin seals to each member's root
+  through the delivery of step 2 -- n boxes per change, where sender keys
+  rotated n times over n (fuzzypickles' FP:949-962). Each sender's chain
+  is derived from the epoch secret and the sender's root, and ratcheted
+  per line with `ratchet/ratchet.h`, so a line is readable inside its
+  epoch and nowhere else, and **no pairwise mesh is needed**. A removal
+  or a leave starts an epoch the departed never receives. TreeKEM's
+  log-n is the rejected alternative, recorded so it is not relitigated:
+  its complexity buys nothing until groups are far beyond personal size.
+- **Members are users** (roots), never devices: a member's devices are
+  theirs to reach, through sec 614's contact devices, and stay hidden from
+  the other members, as fuzzypickles' realm rule has it.
+- **Lines stay unsigned**, fuzzypickles' deniability decision; a receiver
+  still refuses a sender who is not a current member.
+- **One verb family**, `group`, for the log, and `@GROUP` resolving to
+  the current members wherever a grant names a group. `contact/group.h`
+  and its slot go, replaced, not kept beside it.
+
+### Step 5's stages
+
+1. **5a, the group log**: the acts, their signatures and chain, the
+   fork rule, the admin votes, the roster derived, kept in a slot and
+   replicated to each member's hosts; `@GROUP` grants read from it, and
+   `contact/group.h` removed.
+2. **5b, epochs**: the secret sealed to each member, the sender chains,
+   and group lines in `messages/`, keyed by the group's id.
+3. **5c, delivery and history**: lines delivered to every member's
+   hosts by step 2's machinery, a later member's backfill, and the
+   setting that turns it off.
+4. **5d, group content**: notes and files shared to a group, their keys
+   by epoch.
