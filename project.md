@@ -63300,7 +63300,8 @@ Each step leaves both trees working:
    can move. Built in sec 609.
 2. **Delivery and delegation (B1-B3).** The heart of fuzzypickles, and
    what sec 607 tried to stand in for; "cannot deliver" becomes a
-   refusal on fuzznet's wire.
+   refusal on fuzznet's wire. Designed in sec 610, which pulls the
+   routing manifest (B8) forward into it and needs no delegation.
 3. **Pairing, identity and contact cards as verbs (B6).**
 4. **Relaying and reachability (B4, B5).**
 5. **Groups (B7)**, after the holder chooses a model.
@@ -63414,3 +63415,94 @@ cannot read again.
 - A subscriber learns of a remote message change without the
   conversation's name when it came through the journal rather than as a
   filed line.
+
+## 610. Step 2 designed: delivery to contacts, 2026-10-13
+
+Sec 608's step 2, designed by importing what fuzzypickles already decided
+and documented (the holder, 2026-10-13: "import information from there"
+rather than ask again), and fitting it to what fuzznet already is.
+
+### The holder's two answers
+
+- **Any of the user's devices delivers, as the user.** fuzzypickles pins
+  one host of the sender per contact and hands messages to it
+  (MSG_DELEGATE); fuzznet models a user as many hosts under one root, so a
+  contact accepts from any device whose chain roots at the sender's
+  identity. **There is no delegation wire**, and so no hand-off that can
+  fail: what fuzzypickles' sec 196 asked for has no case left but the one
+  sec 607 marks, a contact removed.
+- **The recipient's side is the manifest** (fuzzypickles' sec 10): "all
+  hosts deliver, but some should refuse as they aren't relays". A sender
+  tries the contact's advertised hosts in metric order, and a host that
+  neither keeps messages nor relays refuses, so the next is tried.
+
+### What is imported, and from where
+
+- **The routing manifest** (fuzzypickles sec 10, configuration.md sec
+  8.2): a user's signed list of reachable hosts, `address : port :
+  transport : metric`, lowest metric preferred; **published reachability,
+  not membership** -- an entry names no key, and a host that wants no
+  exposure is not listed and sits behind one that is. It is a
+  **deterministic projection of synced settings** -- here the estate's
+  host cells (`net/address`, sec 579, and their peers) -- so every host
+  derives the same hash and only the hash is signed, by authority to
+  manage hosts, ordered by a signed generation. Third-party relaying of a
+  manifest is the owner's opt-in (`public_relay`) and the relay's
+  (`manifest_relay_others`), both off, and a refusal never leaks.
+- **Delivered and settled** (fuzzypickles sec 9, `settle_internal.h`):
+  delivered is "the contact's host stored it and it authenticated";
+  settled is **the recipient's own durability policy met: every one of
+  its devices that keeps messages holds it**. Which devices keep messages
+  is configuration -- fuzzypickles' chat retention per host; here each
+  host's retention rules for the messages kind (sec 566's per-kind
+  policy), so a host under `policy messages drop` is not waited on, as
+  fuzzypickles' DECLINE does. The check is sec 592's: ask each device
+  whether it holds the item.
+- **The outbox** (fuzzypickles' `outbox.c`): never gives up; re-offers
+  every 60 s until delivered and every hour after until settled;
+  idempotent on the message's id, so a re-offer is answered "held" with
+  the line's state. Here the outbox is not a store of its own: it is the
+  OUT lines not yet settled, which the user's devices already share.
+- **Relaying** stays step 4 (`net.relay_enabled` and its quota): until
+  then a host that keeps no messages refuses rather than forwards.
+
+### What is fuzznet's own
+
+- **Authority is a capability** (sec 430: a contact grants nothing by
+  being one). The contact grants the sender's identity root a delegable
+  capability to deliver messages; each of the sender's devices extends it
+  under its own root, and the receiving host checks the chain roots at its
+  own estate and ends at the device that sent.
+- **Lines are already the user's on every device** (secs 526-531): the
+  sender's OUT line and its marks, and the recipient's IN line, reach
+  every device of their user by the journal, which replaces MSG_REPLICATE
+  and the manual CHAT_RELAY catch-up -- and carries sent lines, which
+  fuzzypickles never did.
+- **The answer is the reply.** A delivery is a request on the sealed
+  remote hop and its reply says held, delivered or settled -- one round
+  trip, where fuzzypickles' MSG_ACK and MSG_SETTLED were datagrams of their
+  own, and the open question in its sec 9 of acknowledging in two
+  datagrams does not arise.
+
+### Built in this order
+
+1. **2a, the manifest**: derived from the estate's host settings,
+   signed, generation-ordered; fetched by a contact from any listed host;
+   carried at pairing in the contact card.
+2. **2b, delivery**: a sending device takes an OUT line still `sending`,
+   picks the contact's hosts from the manifest, and asks each in turn; the
+   receiving host checks the capability chain, files the line IN when it
+   keeps messages and refuses otherwise, and answers.
+3. **2c, settlement**: the receiving host answers settled once every one
+   of its devices that keeps messages holds the line; the sender re-offers
+   hourly until then and marks the line settled.
+4. **2d, the sweep and its end**: the re-offer schedule, a writing device
+   gone, and sec 607's mark folded in as the one way a line stops
+   short -- its contact no longer standing.
+
+### Still open, and the holder's if it comes to it
+
+- **Which device re-offers.** The device that wrote a line holds its
+  re-offers; if it is gone, another of the user's devices could take them
+  over, since they all hold the line. Not decided by either tree --
+  fuzzypickles' outbox lives on one host.
