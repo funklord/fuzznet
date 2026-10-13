@@ -63134,16 +63134,23 @@ message delegated to the device that owns its contact, after that device
 removed the contact, is never acked, so the delegating host retries for
 good. It needs a "cannot deliver" answer it can act on.
 
-### What fuzznet does and does not carry
+### Built on a wrong premise -- corrected 2026-10-13
 
-fuzznet stores conversations and syncs them across the user's own devices
--- lines, their marks and their keys (secs 526-531, 564-569) -- but sends
-no message to a contact, and hands none from one device to another to
-send: that transport is fuzzypickles' (their outbox and delegation), and
-moving it here is phase 3 of sec 526, on hold. So the answer cannot come
-from a delivery attempt here; none happens.
+**This section first said that sending a message to a contact, and
+delegating one between a user's devices, is "fuzzypickles' transport",
+with moving it here "phase 3 of sec 526, on hold". That is wrong, and the
+holder said so on 2026-10-13: everything network- and crypto-related is
+fuzznet's (sec 298, 2026-09-17), and fuzzypickles is to end with no
+network code and little or no encryption. The "on hold" came relayed from
+fuzzypickles, not from the holder.** The delivery and delegation wire --
+outbox, acks, settlement, MSG_DELEGATE and its "cannot deliver" answer --
+is fuzznet's to build; sec 608 inventories it and proposes the order.
 
-The answer exists already, as the holder chose 2026-10-12: a line's
+What is built below stands as a stopgap until fuzznet delivers messages
+itself: it is correct about marks, and harmless, but it is not the
+answer the requirement wants, which is a refusal on fuzznet's own wire.
+
+The mechanism, as built 2026-10-12: a line's
 state is its newest mark, any of the user's devices may write one, and
 marks travel by the journal. The device that hands a message off writes
 it as its own line marked `handed-over` (sec 521); a `not-delivered` mark
@@ -63183,6 +63190,130 @@ marked `not-delivered`, and the round pushes the mark at once.
 
 ### Not yet after sec 607
 
-- **The delegation wire itself** stays fuzzypickles' until phase 3: their
-  delegating host acts on the mark once it reads line states from here.
-  fuzzypickles was told by inbox.
+- **The delegation wire itself is fuzznet's to build** (sec 608), with
+  "cannot deliver" as an answer on it; this pass is then either folded in
+  or removed. fuzzypickles' inbox message of 2026-10-12 saying otherwise
+  was corrected by another on 2026-10-13.
+
+## 608. What fuzzypickles still holds, and moving it into fuzznet, 2026-10-13
+
+**The holder's rule, restated 2026-10-13 after sec 607 got it wrong:**
+everything related to fuzznet's job is fuzznet's. fuzzypickles is to
+hold very little code once the work is done -- **no network code, and
+little or no encryption code**. This is sec 298 (2026-09-17: fuzznet
+contains everything needed to use its features, UDP transport, IO loop
+and vocabularies included) and the 2026-08-26 absorb decision (sec 5),
+which already expected "little" network code to remain there. The holder
+asked for a complete re-analysis because the opposite assumption keeps
+coming back.
+
+**Why it keeps coming back.** The rule is recorded; it was not applied.
+Sec 607 leaned on "messages phase 3 is on hold", which came relayed from
+fuzzypickles rather than from the holder, and on sec 5's struck exclusion
+list. Read sec 298 before deciding where anything network- or
+crypto-related lives.
+
+### Measured, 2026-10-13
+
+Four read-only surveys of fuzzypickles at 9bc49a3, its own code only
+(vendored monocypher, flog, iniparser, quirc, miniz, thorvg and fuzznet
+excluded), with the counts below checked again by hand:
+
+| part | size | network | crypto | uses fuzznet |
+|---|---|---|---|---|
+| `core/src` | 58 .c, ~64k lines (`core.c` 12.4k, `control_codec.c` 6.9k) | builds and parses its own peer wire; no socket calls | 24 files call monocypher directly | 11 files: `peer_seal.c` (session, seal, ratchet), `messaging.c`, `core.c`, `sched.c`, the `notes_*` and `library*` files (record, tree, sign) |
+| `daemon/` (fzpd) | 32 files, ~16k (`ipc_server.c` 8.8k) | **its own UDP socket** (`ipc_server.c` binds 0.0.0.0 and `sendto`), its own SEQPACKET control socket, push fanout, ~20 retry sweeps, relays | asks core to seal per recipient | none: 0 `fzn_` references outside `core/` |
+| `client/`, `cli/`, `common/` | ~9k (their cli/main.c 5.3k, ~107 subcommands) | clients of fzpd's control socket | `common/encoding.c` BLAKE2b checksum | none |
+| `gui/`, `tui/` | ~23.6k and ~15k | none of their own; requests hand-encoded: 129 sites in the GUI, 230 in the TUI | none | none: no fuzznet widget used |
+
+fzpd's control protocol has 48 command codes, and the same codes are its
+peer-wire datagram types: about 30 families on the wire.
+
+### What fuzzypickles still does, by what must happen to it
+
+**A. Already in fuzznet, and still run in fuzzypickles as well -- delete
+there, call here:**
+
+- the notes family, `notes_*.c`, ~3,100 lines: fuzznet's `notes/` and
+  `node/notes.h` are ports of it, and fuzzypickles still runs its own
+  (`core.c` names `fzp_notes_` 180 times);
+- `blob.c` -- `blob/`, `spool/`, `node/files.h`, `node/shelf.h`;
+- `group_ratchet.c`'s KDF -- `ratchet/ratchet.h` is its generic half;
+- `append_log.c` and its users' streams -- `log/`;
+- `config_sync.c` -- `state/setting.h`, `node/settings.h`;
+- `sibling.c` -- `node/siblings.h`;
+- `fzp_x25519`, `prekey_channel.c`, much of `identity.c`, `capability.c`
+  and `peer_pair.c` -- `session/agree*`, `prekey/`, `node/identity.h`,
+  `chain/`, `node/pair.h`;
+- `udp_address.c`, `wire.c`, `link.c`, `recv_seen.c` -- `net/udp.h`,
+  `wire/bytes.h`, `link/link.h`, `frame/freshness.h`;
+- `crypto_msg.c`: dead, still built.
+
+**B. Network or crypto fuzznet does not have yet -- to build here:**
+
+1. **Delivery to contacts:** MSG_TEXT, MSG_ACK, MSG_SETTLED, the sender's
+   outbox held until acked, the settled bit, push fanout to every
+   recipient (fuzznetd is pull-only today), and retry sweeps.
+2. **Delegation between a user's devices:** MSG_DELEGATE -- sending
+   through the device a contact knows -- with "cannot deliver" as a
+   refusal on that wire (fuzzypickles' sec 196; sec 607 is its
+   stopgap).
+3. **Catch-up:** CHAT_RELAY and MSG_REPLICATE between a user's devices
+   (partly the journal and bucket exchange already).
+4. **Relaying:** PEER_RELAY forwarding with a per-peer quota
+   (`wire/relay.h` has only the hop budget).
+5. **Reachability:** rendezvous (hole-punch introductions), LAN discovery
+   and reflexive address observation -- none here.
+6. **Pairing as verbs:** request, approve, reject; the first-contact
+   sealed box; contact cards; identity backup and reset -- fuzznetd has
+   startup flags only.
+7. **Groups:** a group as its own signed principal with a signed roster,
+   replication to a user's own hosts, content keys pinned to an epoch --
+   fuzznet's `contact/group.h` is a different model.
+8. **The routing manifest** (signed, synced to siblings and contacts) --
+   not `chain/manifest.h`, which is a revocation manifest.
+9. **Feature streams:** log relay between siblings, location frames and
+   relay, the media library's sync, sticker fetch, traffic meters and
+   link status.
+10. **The local socket:** event push, or subscription -- every UI needs
+    it, and fuzznetd's local hop is one line in, one reply out.
+
+**C. Stays in fuzzypickles:** the GUI and TUI as presentation; camera,
+QR encode and scan, distance and bearing, the nearby view; sticker pack
+editing; the `fzp:` file-reference text format; a location fix's
+encoding; the app's own config and paths.
+
+### The UIs
+
+Both UIs would speak fuzznetd's local verbs instead of fzpd's binary
+protocol: the 129 and 230 request sites rewritten against them (a typed
+client layer would keep the widgets from knowing any wire), event push
+taken from fuzznetd, and core no longer linked into them. Where fuzznet
+already ships a widget -- notebook, QR, provision, peers, config -- the
+app's own duplicate goes.
+
+### A proposed order, not yet chosen
+
+Each step leaves both trees working:
+
+1. **The local socket gains event push.** Everything a UI does after this
+   can move.
+2. **Delivery and delegation (B1-B3).** The heart of fuzzypickles, and
+   what sec 607 tried to stand in for; "cannot deliver" becomes a
+   refusal on fuzznet's wire.
+3. **Pairing, identity and contact cards as verbs (B6).**
+4. **Relaying and reachability (B4, B5).**
+5. **Groups (B7)**, after the holder chooses a model.
+6. **The rest (B8, B9).**
+7. **fuzzypickles cuts over:** its clients speak to fuzznetd, the A list
+   is deleted there, and fzpd is retired.
+
+### Questions for the holder
+
+- Is this order right, and does fzpd go entirely -- every UI speaking to
+  fuzznetd -- rather than shrinking to a shell?
+- Groups: fuzzypickles' model (a group as its own signed principal) or
+  fuzznet's (`contact/group.h`, members and grants)?
+- Is location sampling from gpsd -- a TCP client to a local daemon --
+  network code by this rule, or a device input like the camera?
+- Sec 607's pass: keep it until delivery lands, or take it out now?
