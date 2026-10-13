@@ -64827,12 +64827,11 @@ line change each, committed on its own.
 
 ### Where step 5 stands, and what is next
 
-**Folded 2026-10-14 at 95 per cent of the weekly window.** 5a is
-committed with every gate passed except the last `make livecheck` re-run,
-which was still running at the fold: the run before it failed only on the
-recycled pid above, before reaching `live_groups.py`, and
-`live_groups.py` passed alone three times. **The next session runs `make
-livecheck` first.** Then, in sec 625's order:
+**Folded 2026-10-14 at 95 per cent of the weekly window.** Every gate
+passed on 5a, `make livecheck` last, finishing after the commit -- and in
+that run C's leave lost the fork to A's admin act and was made again, so
+the re-issue path ran. **The next session probes the nine group sabotage
+entries first.** Then, in sec 625's order:
 
 - **5b, epochs**: a secret per epoch sealed to each member's root through
   step 2's delivery, sender chains derived from it and the sender's root
