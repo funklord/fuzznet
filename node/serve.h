@@ -21,6 +21,7 @@
 #include "local.h"
 #include "events.h"
 #include "../net/udp.h"
+#include "relay.h"
 #include "../chunk/split.h"
 #include "../chunk/reassembly.h"
 #include "../frame/freshness.h"
@@ -91,6 +92,14 @@ typedef struct fzn_node_state {
 	 * tell a peer the address it saw -- and never decides who the peer is
 	 * by it (sec 596). */
 	const fzn_udp_addr_t *asking_from;
+	/* AND THE HOPS IT HAD LEFT, sec 622: the frame's hop byte, outside
+	 * its seal, so a relay can refuse a frame another relay sent on. */
+	uint8_t asking_hops;
+	/* RELAYING, sec 622: when set, a frame whose sender and message id a
+	 * route names is sent on to where the route goes, unread, before any
+	 * frame check; and every granted frame's address is noted as where its
+	 * sender was seen. NULL relays nothing and notes nothing. */
+	fzn_node_relay_t *relay;
 	/* WHERE A REMOTE HANDLER WRITES ITS REPLY, borrowed and sized by the
 	 * consumer; NULL uses a FZN_NODE_REPLY_MAX buffer on the node's own
 	 * stack. A consumer whose answers exceed one frame supplies one here

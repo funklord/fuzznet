@@ -159,6 +159,7 @@
 #include <fuzznet/node/contact_card.h>
 #include <fuzznet/node/contact_request.h>
 #include <fuzznet/node/state_dir.h>
+#include <fuzznet/node/relay.h>
 #include <fuzznet/node/holdings.h>
 #include <fuzznet/node/buckets.h>
 #include <fuzznet/node/reconcile.h>
@@ -343,6 +344,7 @@
 #include "node/contact_card.h"
 #include "node/contact_request.h"
 #include "node/state_dir.h"
+#include "node/relay.h"
 #include "node/holdings.h"
 #include "node/buckets.h"
 #include "node/reconcile.h"

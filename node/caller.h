@@ -116,6 +116,21 @@ fzn_caller_err_t fzn_caller_send(fzn_caller_t *caller, const uint8_t *payload,
                                  size_t payload_len, uint64_t expires_at,
                                  uint32_t *msg);
 
+/* SEAL ONE REQUEST WITHOUT SENDING IT, sec 622: what `fzn_caller_send`
+ * would send, wrapped as it would be, as one frame into `out` (`cap`
+ * bytes), `*out_len` long, under the `msg` it reports -- for a relay to
+ * carry, so the request must fit one frame: REQUEST_TOO_LONG otherwise.
+ * The answer is read as any other, with `fzn_caller_recv`. */
+fzn_caller_err_t fzn_caller_seal(fzn_caller_t *caller, const uint8_t *payload, size_t payload_len,
+                                 uint64_t expires_at, uint32_t *msg, uint8_t *out, size_t cap,
+                                 size_t *out_len);
+
+/* A NOP, sealed and sent to the node from `fd` rather than the caller's own
+ * socket, sec 622: a host behind a NAT saying where it is from the socket
+ * it serves on, which keeps that socket's mapping open and tells the node
+ * where to send what it relays. Nothing answers it. */
+fzn_caller_err_t fzn_caller_hello(fzn_caller_t *caller, int fd, uint64_t expires_at);
+
 /* Read the whole answer to `msg`, however many datagrams it takes. */
 fzn_caller_err_t fzn_caller_recv(fzn_caller_t *caller, uint32_t msg,
                                  uint8_t *reply, size_t reply_cap,

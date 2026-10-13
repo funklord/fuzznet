@@ -15,6 +15,7 @@
  */
 
 #include "../pair.h"
+#include <poll.h>
 #include "../revoke.h"
 #include "../roots.h"
 #include "../roster.h"
@@ -657,6 +658,68 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		reloading_slot = NULL;
 		peers[0] = saved;
 		state.on_remote = answer;
+	}
+
+	/* ---- RELAYING'S HALF IN THE SERVE PATH, sec 622. */
+	{
+		static fzn_node_relay_t tbl;
+		uint8_t frame[FZN_UDP_DATAGRAM_MAX], got_frame[FZN_UDP_DATAGRAM_MAX];
+		size_t flen = 0, got_len = 0;
+		uint32_t m = 0, hello_msg;
+		fzn_udp_addr_t at, b_addr, src;
+		uint64_t when = 0;
+		int b_fd = -1;
+		struct pollfd pfd;
+
+		/* SEALED, NOT SENT: sent by hand, served and answered. */
+		CHECK(fzn_caller_seal(&caller, PING, sizeof(PING), 3500u, &m, frame, sizeof(frame),
+		                      &flen)
+		                      == FZN_CALLER_OK
+		              && fzn_udp_send(dev_fd, &node_addr, frame, flen) == FZN_UDP_OK
+		              && fzn_node_run_once(&state, 1000) == 1
+		              && fzn_caller_recv(&caller, m, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_OK
+		              && reply_len == sizeof(PONG) && memcmp(reply, PONG, sizeof(PONG)) == 0,
+		      "a frame sealed by fzn_caller_seal and sent by hand was not answered");
+
+		/* A HELLO: noted where it came from, and never answered. */
+		fzn_node_relay_init(&tbl);
+		state.relay = &tbl;
+		handler_granted = handler_denied = 0;
+		hello_msg = caller.next_msg;
+		CHECK(fzn_caller_hello(&caller, dev_fd, 3500u) == FZN_CALLER_OK
+		              && fzn_node_run_once(&state, 1000) == 1 && !handler_granted
+		              && fzn_node_relay_where(&tbl, device->id.pubkey, &at, &when) && when == 3000u
+		              && fzn_caller_recv(&caller, hello_msg, reply, sizeof(reply), &reply_len,
+		                                 300u)
+		                         != FZN_CALLER_OK,
+		      "a hello was answered, handed to the handler, or not noted");
+
+		/* A ROUTE BACK: a frame from the device under a routed message goes
+		 * to where the route says, unread, and no handler sees it. */
+		CHECK(fzn_udp_bind(AF_INET, "127.0.0.1", 0, &b_fd) == FZN_UDP_OK
+		              && fzn_udp_resolve(AF_INET, "127.0.0.1", port_of(b_fd), &b_addr)
+		                         == FZN_UDP_OK,
+		      "fixture: a third socket");
+		CHECK(fzn_caller_seal(&caller, PING, sizeof(PING), 3500u, &m, frame, sizeof(frame),
+		                      &flen)
+		              == FZN_CALLER_OK,
+		      "fixture: a frame to route");
+		fzn_node_relay_route(&tbl, device->id.pubkey, m, &b_addr, 3000u);
+		handler_granted = 0;
+		pfd.fd = b_fd;
+		pfd.events = POLLIN;
+		pfd.revents = 0;
+		CHECK(fzn_udp_send(dev_fd, &node_addr, frame, flen) == FZN_UDP_OK
+		              && fzn_node_run_once(&state, 1000) == 1 && !handler_granted
+		              && poll(&pfd, 1, 2000) == 1
+		              && fzn_udp_recv(b_fd, got_frame, sizeof(got_frame), &got_len, &src)
+		                         == FZN_UDP_OK
+		              && got_len == flen && memcmp(got_frame, frame, flen) == 0,
+		      "a routed frame was not sent on whole, or was handed to the handler");
+		if (b_fd >= 0)
+			fzn_udp_close(b_fd);
+		state.relay = NULL;
 	}
 
 	/* ---- FUZZNET'S VERBS OVER THE REMOTE HOP, through the admin handler:

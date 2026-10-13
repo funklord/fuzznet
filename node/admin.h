@@ -235,6 +235,12 @@ typedef struct fzn_node_admin {
 	size_t (*contact_devices)(void *ctx, const uint8_t *owner, const uint8_t *request,
 	                          size_t request_len, uint8_t *reply, size_t reply_cap);
 	void *contact_devices_ctx;
+	/* A FRAME TO RELAY, sec 622: forwarded or refused by the hook, which
+	 * holds the switch, the quota and where the target was seen. Asked of
+	 * any peer granted, member or contact; 0 for what is not one. */
+	size_t (*relay_remote)(void *ctx, const uint8_t *sender, const uint8_t *request,
+	                       size_t request_len, uint8_t *reply, size_t reply_cap);
+	void *relay_ctx;
 } fzn_node_admin_t;
 
 /* Whether `key` is inside this node's estate as `admin` sees it -- itself,

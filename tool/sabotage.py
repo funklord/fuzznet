@@ -915,8 +915,8 @@ SABOTAGES = [
 	(
 		"caller-reports-the-msg-it-sent",
 		"node/caller.c",
-		"\t*msg = caller->next_msg++;",
-		"\t*msg = caller->next_msg++ + 1u;",
+		"\t*msg = caller->next_msg++;\n\n\t/* ONE PLAN FOR BOTH CASES",
+		"\t*msg = caller->next_msg++ + 1u;\n\n\t/* ONE PLAN FOR BOTH CASES",
 		"the msg handed back is the one that went out on the wire. It is "
 		"the caller's only handle on its own answer, so a value that is "
 		"off by anything means recv skips the reply it is waiting for and "
@@ -5804,8 +5804,8 @@ SABOTAGES = [
 	(
 		"caller-sends-what-its-wrap-wrote",
 		"node/caller.c",
-		"\t\tif (n) {\n\t\t\tpayload = wrapped;\n\t\t\tpayload_len = n;\n\t\t}\n",
-		"\t\t(void)n;\n",
+		"\t\tif (n) {\n\t\t\tpayload = wrapped;\n\t\t\tpayload_len = n;\n\t\t}\n\t}\n\t/* PLANNED, NOT REFUSED",
+		"\t\t(void)n;\n\t}\n\t/* PLANNED, NOT REFUSED",
 		"a daemon's causes are written round a request and the request goes without them, so the roots and votes pulls are never traced -- sec 465",
 	),
 	(
@@ -11910,6 +11910,41 @@ SABOTAGES = [
 		"\t\t*port = ntohs(in6->sin6_port);\n",
 		"\t\t*port = in6->sin6_port;\n",
 		"a peer is told it was seen at a port byte-swapped, and advertises one nobody listens on -- sec 621",
+	),
+	(
+		"serve-hello-never-answered",
+		"node/serve.c",
+		"\t\tif (state->relay)\n\t\t\tfzn_node_relay_saw(state->relay, peer->sender, &from, now);\n\t\tstate->asking_hops = 0;\n\t\treturn;\n",
+		"\t\tif (state->relay)\n\t\t\tfzn_node_relay_saw(state->relay, peer->sender, &from, now);\n\t\tstate->asking_hops = 0;\n",
+		"a hello is handed to the handler and answered, and two hosts saying hello answer each other for ever -- sec 622",
+	),
+	(
+		"serve-hello-noted",
+		"node/serve.c",
+		"\t\tif (state->relay)\n\t\t\tfzn_node_relay_saw(state->relay, peer->sender, &from, now);\n",
+		"\t\t(void)from;\n",
+		"a host's hello is not noted, and nothing it is relayed ever reaches it -- sec 622",
+	),
+	(
+		"serve-routes-answers-back",
+		"node/serve.c",
+		"\t\t    && fzn_node_relay_back(state->relay, head.sender, head.msg, now, &back)) {\n",
+		"\t\t    && 0 && fzn_node_relay_back(state->relay, head.sender, head.msg, now, &back)) {\n",
+		"a relayed frame's answer is opened here and dropped, and the asker waits out every relayed request -- sec 622",
+	),
+	(
+		"relay-route-ends",
+		"node/relay.c",
+		"\t\tif (e->used && e->until > now && e->msg == msg\n",
+		"\t\tif (e->used && e->msg == msg\n",
+		"a route stands for ever, and any later frame of that sender and id is sent to the old asker -- sec 622",
+	),
+	(
+		"relay-route-names-the-message",
+		"node/relay.c",
+		"\t\tif (e->used && e->until > now && e->msg == msg\n",
+		"\t\tif (e->used && e->until > now\n",
+		"every frame of a sender is sent to an asker of one of its messages -- sec 622",
 	),
 ]
 

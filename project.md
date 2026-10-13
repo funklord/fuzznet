@@ -64424,3 +64424,95 @@ pointing here.
 - **`tool/live_pairing.py` phase d**: after A and B pair, `fetch address`
   at A has B report where it sees A, 127.0.0.1, one reporter agreeing.
 - One sabotage entry, probed caught: the port's byte order.
+
+## 622. Step 4b: a line relayed to a host behind a NAT, 2026-10-13
+
+fuzzypickles' volunteer relay (their PEER_RELAY), fitted to how fuzznet
+asks: a request here waits for its answer, where their relayed frames
+were fire-and-forget, so the answer needs a way back.
+
+### How a relayed request goes
+
+1. **A seals its request for T** (`fzn_caller_seal`: what
+   `fzn_caller_send` would send, one frame, not sent) and asks relay R, in
+   a request on their own session, to forward it -- `RELAY`, type 35 in
+   notes-sync's space: T's key, then the frame. **A sends it from the
+   socket its caller for T reads**, so whatever comes back lands there.
+2. **R forwards it, unread, from its serving socket** to where T last
+   said hello, with the frame's hop byte -- outside its seal, so writable
+   -- set to none; and notes a **route**: frames from T under that
+   frame's message id go back to where A asked from, for ten seconds.
+3. **T serves it** as any request from A (sec 614 paired them), and
+   answers to where it came from: R.
+4. **R's serving socket finds the route** before any frame check -- the
+   answer is sealed for A, and opening it here would only drop it -- and
+   sends it on, unread. A's caller for T reads it as T's answer.
+
+### Hello: where a host behind a NAT is reached
+
+R can forward only to an address that reaches T, and fuzznetd asks each
+peer through a socket of its own, which nothing serves. So **a host says
+hello every twenty seconds from its serving socket** to each peer it
+pulls from: a NOP, sealed on their session (`fzn_caller_hello`).
+`node/serve.c` notes where a hello came from and answers it nothing; only
+a hello is noted, since a host's other frames come from sockets nothing
+serves. That keeps a NAT's mapping for the serving socket open and tells
+R where T is.
+
+### What a relay refuses
+
+- **It relays nothing** unless its host cell `relay/enabled` is 1 --
+  fuzzypickles' `net.relay_enabled`, off by default.
+- **For a member or a standing contact only**, fuzzypickles' "both
+  known"; and **only a frame of the asker's own** -- its sender the asker
+  -- so nobody launders another's frames through it.
+- **One hop and never two**: a relay request that arrived with no hops
+  left is refused, and what a relay forwards goes with none. fuzzypickles'
+  "the whole of the loop prevention".
+- **A target that has not said hello in five minutes**: a NAT may have
+  let its mapping go.
+- **Past the quota**, per requester key -- theirs was per source address
+  -- `relay/quota` bytes in `relay/window` seconds, 100 MiB a day, 0
+  unlimited; 32 rows, and a full table refuses rather than evicting a
+  row whose window still runs. Nothing is stored: a relay holds no frame.
+
+### When delivery relays
+
+Under the holder's "all hosts deliver, but some should refuse as they
+aren't relays": a host of a contact that does not answer at its address
+is offered the lines again **through each other host of that contact
+that did answer** -- one keeping no messages may still relay them.
+
+### Not yet after sec 622
+
+- **Only a contact's own hosts relay for it**: a third party relaying
+  for two users that both know it -- fuzzypickles' volunteer relay in
+  full -- needs a way to choose it, and is not built.
+- **A relay's refusal is not read**: its answer comes to the target's
+  socket and is passed over, so a refused relay costs the asker a timeout.
+- **The route keys on the message id alone with the sender**: a frame
+  from T to R under the same id within ten seconds would be sent to A,
+  who cannot open it.
+
+### Measured for sec 622
+
+- **`node/test/relay_test`, 11 checks**: an answer within a route's
+  life goes back, a second frame of it too, one past it does not, nor one
+  of another message or sender; routing the pair again replaces it; a
+  full table gives the route nearest its end way, and only that one; a
+  peer's latest hello replaces its earlier, and a full table gives its
+  oldest way.
+- **`pair_test`, 310 checks, 5 new**, through the serve loop: a frame
+  sealed by `fzn_caller_seal` and sent by hand is answered; a hello is
+  noted where it came from, never handed to the handler, never answered;
+  a frame under a routed message is sent on whole to where the route
+  says, and no handler sees it.
+- **`tool/live_relay.py`, in `make livecheck`**: B1, reached and relaying
+  and keeping no messages, and B2, advertising an address nobody listens
+  on and saying hello to B1; A pairs with them by B1's card, and a line
+  from A is refused by B1, unanswered at B2's address, relayed through B1,
+  and held by B2. **Control**: with the relay hook unwired, A's line is
+  never relayed.
+- Five sabotage entries, each probed caught; two of `node/caller.c`'s
+  re-anchored, since `fzn_caller_seal` repeats the lines they named, and
+  caught.

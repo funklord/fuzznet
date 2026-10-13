@@ -3923,6 +3923,8 @@ struct contact_target {
 	char host[FZN_CONTACT_DEVICE_ADDRESS_MAX + 1u];
 	uint8_t contact[FZN_PUBKEY_LEN];
 	unsigned metric;
+	/* Unanswered at this round's delivery, sec 622: tried through a relay. */
+	int down;
 };
 
 static struct contact_target contact_targets[FZND_CONTACT_TARGETS_MAX];
@@ -4966,6 +4968,191 @@ static void contact_round(struct pull_target *pulls, size_t npulls, uint64_t now
 	    ndone, from_members, paired, ncontact_targets);
 }
 
+/* ---- relaying, sec 622 ------------------------------------------------------- */
+
+/* THE TYPES, in notes-sync's space after settlement's 34: RELAY carries a
+ * target's key and a frame sealed for it. Answered in words. */
+#define FZND_RELAY_VERSION 2u
+#define FZND_RELAY_TYPE 35u
+#define FZND_RELAY_HEAD_LEN (2u + FZN_PUBKEY_LEN)
+/* WHERE A TARGET SAID HELLO FROM is trusted this long, seconds: past it a
+ * NAT's mapping may have gone. */
+#define FZND_RELAY_SEEN_S 300u
+/* HOW OFTEN A HOST SAYS HELLO to the peers it pulls from, seconds: under
+ * the half-minute a NAT commonly keeps a quiet mapping. */
+#define FZND_HELLO_EVERY 20u
+#define FZND_RELAY_QUOTA_ROWS 32u
+
+static fzn_node_relay_t relay_tables;
+
+/* A HOST CELL OF THIS HOST'S as a number: `def` unset or not digits. */
+static uint64_t host_number(const char *key, uint64_t def)
+{
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	size_t len = 0, i;
+	uint64_t n = 0;
+
+	if (!contact_id
+	    || !fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, contact_id->pubkey,
+	                              (const uint8_t *)key, strlen(key), value, &len, &rank)
+	    || len == 0u || len > 19u)
+		return def;
+	for (i = 0; i < len; i++) {
+		if (value[i] < '0' || value[i] > '9')
+			return def;
+		n = n * 10u + (uint64_t)(value[i] - '0');
+	}
+	return n;
+}
+
+/* THE QUOTA, per requester KEY -- fuzzypickles' was per source address,
+ * and here a sender is its key (sec 596): `relay/quota` bytes, 100 MiB,
+ * in `relay/window` seconds, a day; 0 bytes is unlimited. A full table
+ * refuses rather than evicting a row whose window still runs. 1 charged. */
+static int relay_charge(const uint8_t key[FZN_PUBKEY_LEN], size_t bytes, uint64_t now)
+{
+	static struct {
+		uint8_t key[FZN_PUBKEY_LEN];
+		uint64_t start, used;
+		int set;
+	} rows[FZND_RELAY_QUOTA_ROWS];
+	uint64_t quota = host_number("relay/quota", 100u * 1024u * 1024u);
+	uint64_t window = host_number("relay/window", 86400u);
+	size_t i, free_row = FZND_RELAY_QUOTA_ROWS;
+
+	for (i = 0; i < FZND_RELAY_QUOTA_ROWS; i++) {
+		if (rows[i].set && memcmp(rows[i].key, key, FZN_PUBKEY_LEN) == 0)
+			break;
+		/* A ROW WHOSE WINDOW ENDED, or a clock set back, is free. */
+		if (free_row == FZND_RELAY_QUOTA_ROWS
+		    && (!rows[i].set || now >= rows[i].start + window || rows[i].start > now))
+			free_row = i;
+	}
+	if (i == FZND_RELAY_QUOTA_ROWS) {
+		if (free_row == FZND_RELAY_QUOTA_ROWS)
+			return 0;
+		i = free_row;
+		memcpy(rows[i].key, key, FZN_PUBKEY_LEN);
+		rows[i].start = now;
+		rows[i].used = 0;
+		rows[i].set = 1;
+	}
+	if (now >= rows[i].start + window || rows[i].start > now) {
+		rows[i].start = now;
+		rows[i].used = 0;
+	}
+	if (quota && rows[i].used + bytes > quota)
+		return 0;
+	rows[i].used += bytes;
+	return 1;
+}
+
+/* A FRAME TO RELAY, sec 622: forwarded, unread, from this host's serving
+ * socket to where its target last said hello, and the target's answers to
+ * it routed back to the asker -- when this host relays (`relay/enabled`),
+ * the asker is a member or a standing contact, the frame came straight
+ * from it (one hop: what a relay sends on goes with no hops left, and is
+ * never sent on again), the frame inside is the asker's own, the target
+ * said hello recently, and the quota allows. Answered in words. */
+static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *request,
+                           size_t request_len, uint8_t *reply, size_t reply_cap)
+{
+	static uint8_t frame[FZN_UDP_DATAGRAM_MAX];
+	const fzn_node_state_t *st = running_admin ? running_admin->state : NULL;
+	uint8_t owner[FZN_PUBKEY_LEN];
+	fzn_setting_rank_t rank;
+	fzn_peek_t head;
+	fzn_udp_addr_t to;
+	uint64_t when = 0, now = wall_clock();
+	size_t inner_len;
+
+	(void)ctx;
+	if (request_len < FZND_RELAY_HEAD_LEN + 1u || request[0] != FZND_RELAY_VERSION
+	    || request[1] != FZND_RELAY_TYPE)
+		return 0;
+	inner_len = request_len - FZND_RELAY_HEAD_LEN;
+#define RELAY_NO(text) ((size_t)snprintf((char *)reply, reply_cap, "denied %s\n", text))
+	if (!st || st->udp_fd < 0 || !st->asking_from || host_number("relay/enabled", 0) != 1u)
+		return RELAY_NO("this host relays nothing");
+	if (!fzn_node_admin_contact_of(running_admin, sender, owner)
+	    && fzn_node_apply_rank(&node_apply, sender, FZN_SCOPE_HOST, sender, &rank) != 1)
+		return RELAY_NO("relayed only for this estate and its contacts");
+	if (st->asking_hops == 0u)
+		return RELAY_NO("relayed already: one hop and never two");
+	if (inner_len > sizeof(frame)
+	    || fzn_seal_peek(request + FZND_RELAY_HEAD_LEN, inner_len, &head) != FZN_SEAL_OK
+	    || memcmp(head.sender, sender, FZN_PUBKEY_LEN) != 0)
+		return RELAY_NO("not a frame of the asker's own");
+	if (!fzn_node_relay_where(&relay_tables, request + 2, &to, &when)
+	    || when + FZND_RELAY_SEEN_S < now)
+		return RELAY_NO("that host has not said where it is");
+	if (!relay_charge(sender, inner_len, now))
+		return RELAY_NO("over this host's relay quota");
+	memcpy(frame, request + FZND_RELAY_HEAD_LEN, inner_len);
+	/* NO HOPS LEFT: outside the seal, so writable, and what refuses a
+	 * second relay. */
+	frame[1] = 0u;
+	fzn_node_relay_route(&relay_tables, request + 2, head.msg, st->asking_from, now);
+	if (fzn_udp_send(st->udp_fd, &to, frame, inner_len) != FZN_UDP_OK)
+		return RELAY_NO("the frame would not send");
+#undef RELAY_NO
+	return (size_t)snprintf((char *)reply, reply_cap, "ok\n");
+}
+
+/* A RELAYED ASK, sec 622: the request sealed for the target and handed to
+ * the relay from the target's own socket, so the target's answer, routed
+ * back by the relay, arrives where the target's caller reads it. */
+struct relaying {
+	struct pull_target *target;
+	struct pull_target *relay;
+	uint64_t now;
+};
+
+static int relay_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                     size_t reply_cap, size_t *reply_len)
+{
+	static uint8_t inner[FZN_UDP_DATAGRAM_MAX], outer[FZND_RELAY_HEAD_LEN + FZN_UDP_DATAGRAM_MAX];
+	struct relaying *r = (struct relaying *)ctx;
+	fzn_caller_t via;
+	uint32_t msg = 0, outer_msg = 0;
+	size_t inner_len = 0;
+
+	if (fzn_caller_seal(&r->target->caller, request, request_len, r->now + 300u, &msg, inner,
+	                    sizeof(inner), &inner_len)
+	    != FZN_CALLER_OK)
+		return 0;
+	outer[0] = FZND_RELAY_VERSION;
+	outer[1] = FZND_RELAY_TYPE;
+	memcpy(outer + 2, r->target->pairing.node, FZN_PUBKEY_LEN);
+	memcpy(outer + FZND_RELAY_HEAD_LEN, inner, inner_len);
+	via = r->relay->caller;
+	via.fd = r->target->caller.fd;
+	if (fzn_caller_send(&via, outer, FZND_RELAY_HEAD_LEN + inner_len, r->now + 300u, &outer_msg)
+	    != FZN_CALLER_OK)
+		return 0;
+	r->relay->caller.next_msg = via.next_msg;
+	/* THE RELAY'S OWN ANSWER comes to this socket too, under its key, and
+	 * the target's caller passes it over as not its own. */
+	return fzn_caller_recv(&r->target->caller, msg, reply, reply_cap, reply_len, 3000u)
+	       == FZN_CALLER_OK;
+}
+
+/* HELLO, sec 622, every FZND_HELLO_EVERY seconds: a NOP from the serving
+ * socket to each peer this host pulls from, so one that relays knows where
+ * this host is reached and a NAT keeps the way open. */
+static void say_hello(struct pull_target *pulls, size_t npulls, int serving_fd, uint64_t now)
+{
+	static uint64_t next;
+	size_t i;
+
+	if (serving_fd < 0 || (now < next && next <= now + FZND_HELLO_EVERY))
+		return;
+	next = now + FZND_HELLO_EVERY;
+	for (i = 0; i < npulls; i++)
+		(void)fzn_caller_hello(&pulls[i].caller, serving_fd, now + 60u);
+}
+
 /* LINES DELIVERED TO CONTACTS, secs 613 and 614: every line this node wrote
  * and has not yet delivered, offered to each standing contact through its
  * hosts in turn -- a received share's pairing first, then the hosts kept in
@@ -5014,6 +5201,40 @@ static void deliver_contacts(uint64_t now)
 		 * refusal or no answer tries its next host. */
 		if (err == FZN_MESSAGES_OK && !d.refused && !d.unanswered)
 			memcpy(done[ndone++], contact, FZN_PUBKEY_LEN);
+		if (i >= nshares_in)
+			contact_targets[i - nshares_in].down = err == FZN_MESSAGES_OK && d.unanswered;
+	}
+	/* THROUGH A RELAY, sec 622: a contact not done, its host that did not
+	 * answer asked through another of its hosts that did -- one keeping no
+	 * messages may yet relay them, which is the holder's "all hosts
+	 * deliver, but some should refuse as they aren't relays". */
+	for (i = 0; i < ncontact_targets; i++) {
+		struct contact_target *t = &contact_targets[i];
+
+		for (k = 0; k < ndone && memcmp(done[k], t->contact, FZN_PUBKEY_LEN) != 0; k++)
+			;
+		if (k < ndone || !t->down)
+			continue;
+		for (k = 0; k < ncontact_targets; k++) {
+			struct contact_target *r = &contact_targets[k];
+			struct relaying rel = { &t->pt, &r->pt, now };
+			fzn_node_messages_delivery_t d;
+
+			if (k == i || r->down || memcmp(r->contact, t->contact, FZN_PUBKEY_LEN) != 0)
+				continue;
+			if (fzn_node_messages_deliver(&node_messages, t->contact, settle, relay_ask, &rel,
+			                              &d)
+			            == FZN_MESSAGES_OK
+			    && d.sent) {
+				say(FZN_ENTRY_INFO, "messages/deliver",
+				    "%zu line(s) offered to %s through %s: %zu delivered, %zu settled, "
+				    "%zu refused, %zu unanswered",
+				    d.sent, t->host, r->host, d.delivered, d.settled, d.refused,
+				    d.unanswered);
+				if (!d.unanswered && !d.refused)
+					break;
+			}
+		}
 	}
 }
 
@@ -6874,6 +7095,9 @@ int main(int argc, char **argv)
 			admin.routing_remote = routing_remote;
 			admin.messages_contact = messages_contact;
 			admin.contact_devices = contact_devices_remote;
+			/* RELAYING, sec 622. */
+			admin.relay_remote = relay_remote;
+			state.relay = &relay_tables;
 			/* A STRANGER'S CONTACT REQUEST, sec 619. */
 			state.on_box = contact_box;
 			routing_self = identity.pubkey;
@@ -7235,6 +7459,8 @@ int main(int argc, char **argv)
 #endif
 			/* A TRASH JUST EMPTIED is carried to the pull peers now, not
 			 * at the next round. sec 433. */
+			/* HELLO to the peers it pulls from, sec 622. */
+			say_hello(pulls, npulls, state.udp_fd, now);
 			/* WHERE THIS HOST IS SEEN, asked now. sec 621. */
 			if (address_due) {
 				address_due = 0;

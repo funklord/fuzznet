@@ -164,7 +164,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/node.c node/local.c node/remote.c node/serve.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
-             node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/heard.c node/events.c node/routing.c node/contact_devices.c node/contact_card.c node/contact_request.c node/state_dir.c node/holdings.c node/buckets.c node/reconcile.c \
+             node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/heard.c node/events.c node/routing.c node/contact_devices.c node/contact_card.c node/contact_request.c node/state_dir.c node/relay.c node/holdings.c node/buckets.c node/reconcile.c \
              messages/line.c messages/messages.c node/messages.c \
              contact/contact.c \
              contact/group.c \
@@ -231,7 +231,7 @@ PROG_OBJS := $(PROG_SRCS:%.c=$(BUILD_DIR)/%.o)
 # two transports, the seal and chain stack, and the nonce source the
 # seal reaches for. No Monocypher: the crypto ops are passed in, so a
 # node with no provisioned peers links none.
-NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/local.o \
+NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/local.o \
                    $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/node.o \
                    $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/peer.o \
                    $(BUILD_DIR)/local/peer_linux.o $(BUILD_DIR)/local/line.o \
@@ -262,7 +262,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/node.h node/local.h node/remote.h node/serve.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
-             node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/heard.h node/events.h node/routing.h node/contact_devices.h node/contact_card.h node/contact_request.h node/state_dir.h node/holdings.h node/buckets.h node/reconcile.h \
+             node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/heard.h node/events.h node/routing.h node/contact_devices.h node/contact_card.h node/contact_request.h node/state_dir.h node/relay.h node/holdings.h node/buckets.h node/reconcile.h \
              messages/line.h messages/messages.h node/messages.h \
              contact/contact.h \
              contact/group.h \
@@ -391,7 +391,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/identity_test.c node/test/heard_test.c node/test/events_test.c \
              node/test/routing_test.c node/test/contact_devices_test.c \
              node/test/contact_card_test.c node/test/contact_request_test.c \
-             node/test/state_dir_test.c \
+             node/test/state_dir_test.c node/test/relay_test.c \
              local/test/vocabulary_fuzz.c local/test/admit_test.c \
              local/test/line_test.c local/test/socket_test.c \
              net/test/udp_test.c \
@@ -515,6 +515,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/node/test/contact_card_test \
              $(BUILD_DIR)/node/test/contact_request_test \
              $(BUILD_DIR)/node/test/state_dir_test \
+             $(BUILD_DIR)/node/test/relay_test \
              $(BUILD_DIR)/local/test/vocabulary_fuzz \
              $(BUILD_DIR)/local/test/admit_test \
              $(BUILD_DIR)/local/test/line_test \
@@ -3805,6 +3806,12 @@ $(BUILD_DIR)/node/test/state_dir_test: $(BUILD_DIR)/node/test/state_dir_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# Relaying's two tables, sec 622.
+$(BUILD_DIR)/node/test/relay_test: $(BUILD_DIR)/node/test/relay_test.o \
+                                   $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/net/udp.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # Local subscribers told what changed, sec 609.
 $(BUILD_DIR)/node/test/events_test: $(BUILD_DIR)/node/test/events_test.o \
                                     $(BUILD_DIR)/node/events.o
@@ -3922,7 +3929,7 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
               $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o \
               $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/peer.o \
-              $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/caller.o \
+              $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/caller.o \
               $(BUILD_DIR)/node/local.o $(BUILD_DIR)/local/socket.o \
               $(BUILD_DIR)/local/peer_linux.o $(BUILD_DIR)/local/line.o \
               $(BUILD_DIR)/local/vocabulary.o $(BUILD_DIR)/net/udp.o \
@@ -3974,7 +3981,7 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/caller.o \
               $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o \
               $(BUILD_DIR)/node/succession.o $(BUILD_DIR)/chain/succession.o \
-              $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/net/udp.o \
+              $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/net/udp.o \
               $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/peer_linux.o \
               $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
               $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
@@ -4079,7 +4086,7 @@ NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DI
                    $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
                    $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o \
                    $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/peer.o \
-                   $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/caller.o \
+                   $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/caller.o \
                    $(BUILD_DIR)/node/local.o $(BUILD_DIR)/local/socket.o \
                    $(BUILD_DIR)/local/peer_linux.o $(BUILD_DIR)/local/line.o \
                    $(BUILD_DIR)/local/vocabulary.o $(BUILD_DIR)/net/udp.o \
@@ -4204,7 +4211,7 @@ $(BUILD_DIR)/node/test/provision_test.o: node/test/provision_test.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Inode -Iwire/generated -c $< -o $@
 
 $(BUILD_DIR)/node/test/provision_test: $(BUILD_DIR)/node/test/provision_test.o \
-              $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/events.o \
+              $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/events.o \
               $(BUILD_DIR)/node/caller.o \
               $(BUILD_DIR)/node/local.o $(BUILD_DIR)/node/remote.o \
               $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/socket.o \
@@ -6066,8 +6073,8 @@ QUIRC_DIR      ?= $(QUIRC_VENDORED)
 # siblings reaching one another, sec 579, a note's history trimmed by the
 # rules, sec 582, log segments archived, sec 588, a line delivered to a
 # contact, sec 613, and to any host of a contact from any device, sec 614,
-# two strangers paired by a card, sec 619, and an identity backed up, reset
-# and restored, sec 620. The only target here that starts fuzznetd. A line old enough to trim can only be
+# two strangers paired by a card, sec 619, an identity backed up, reset
+# and restored, sec 620, and a line relayed to a host behind a NAT, sec 622. The only target here that starts fuzznetd. A line old enough to trim can only be
 # written under an earlier clock, so `faketime` writes it, and the script
 # says SKIPPED when it is absent. It needs a fuzznetd, the record store its
 # conversations live in, and log files, because it waits on the daemon's
@@ -6076,8 +6083,8 @@ QUIRC_DIR      ?= $(QUIRC_VENDORED)
 # tool/live_cut.py, tool/live_rejoin.py, tool/live_witness.py,
 # tool/live_shares.py, tool/live_siblings.py, tool/live_history.py,
 # tool/live_archive.py, tool/live_events.py, tool/live_deliver.py,
-# tool/live_contacts.py, tool/live_pairing.py, tool/live_identity.py and
-# tool/live_erasure.py bound
+# tool/live_contacts.py, tool/live_pairing.py, tool/live_identity.py,
+# tool/live_relay.py and tool/live_erasure.py bound
 # themselves: one
 # deadline, each daemon in its own process group, scratch removed. Six hosts
 # going round in turn take live_erasure.py past the others' 240 s, so its own
@@ -6101,6 +6108,7 @@ else
 	@timeout 540 python3 tool/live_contacts.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_pairing.py $(FUZZNETD)
 	@timeout 200 python3 tool/live_identity.py $(FUZZNETD)
+	@timeout 540 python3 tool/live_relay.py $(FUZZNETD)
 	@$(if $(LOG_PACK_ON),timeout 600 python3 tool/live_erasure.py $(FUZZNETD),echo \
 	  "livecheck: erasure SKIPPED -- this build does not pack logs")
 endif

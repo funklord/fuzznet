@@ -210,3 +210,71 @@ fzn_caller_err_t fzn_caller_ask(fzn_caller_t *caller, const uint8_t *payload,
 	return fzn_caller_recv(caller, msg, reply, reply_cap, reply_len,
 	                       timeout_ms);
 }
+
+fzn_caller_err_t fzn_caller_seal(fzn_caller_t *caller, const uint8_t *payload, size_t payload_len,
+                                 uint64_t expires_at, uint32_t *msg, uint8_t *out, size_t cap,
+                                 size_t *out_len)
+{
+	fzn_send_t what;
+
+	if (!caller || !caller->hash || !caller->aead || !caller->rng || !msg || !out || !out_len
+	    || (!payload && payload_len))
+		return FZN_CALLER_ERR_MALFORMED;
+	/* THE WRAP, as `fzn_caller_send` puts it round, sec 465. */
+	if (caller->wrap && payload_len) {
+		static uint8_t wrapped[1u << 17];
+		size_t n = caller->wrap(caller->wrap_ctx, payload, payload_len, wrapped,
+		                        sizeof(wrapped));
+
+		if (n > sizeof(wrapped))
+			return FZN_CALLER_ERR_MALFORMED;
+		if (n) {
+			payload = wrapped;
+			payload_len = n;
+		}
+	}
+	if (payload_len > (size_t)FZN_SPLIT_MAX_PAYLOAD)
+		return FZN_CALLER_ERR_REQUEST_TOO_LONG;
+	*msg = caller->next_msg++;
+	memset(&what, 0, sizeof(what));
+	what.sender = caller->sender;
+	what.capability = caller->capability.b;
+	what.payload = payload_len ? payload : NULL;
+	what.payload_len = payload_len;
+	what.expires_at = expires_at;
+	what.msg = *msg;
+	what.index = 0;
+	what.chunks = 1;
+	what.kind = FZN_KIND_UNIT;
+	what.hops = caller->hops;
+	if (fzn_seal_build(out, cap, out_len, &what, caller->send_key, caller->send_ckey,
+	                   caller->hash, caller->rng, caller->aead)
+	    != FZN_SEAL_OK)
+		return FZN_CALLER_ERR_SEAL;
+	return FZN_CALLER_OK;
+}
+
+fzn_caller_err_t fzn_caller_hello(fzn_caller_t *caller, int fd, uint64_t expires_at)
+{
+	uint8_t frame[FZN_UDP_DATAGRAM_MAX];
+	size_t frame_len = 0;
+	fzn_send_t what;
+
+	if (!caller || fd < 0 || !caller->hash || !caller->aead || !caller->rng)
+		return FZN_CALLER_ERR_MALFORMED;
+	memset(&what, 0, sizeof(what));
+	what.sender = caller->sender;
+	what.capability = caller->capability.b;
+	what.expires_at = expires_at;
+	what.msg = caller->next_msg++;
+	what.chunks = 1;
+	what.kind = FZN_KIND_NOP;
+	what.hops = 0;
+	if (fzn_seal_build(frame, sizeof(frame), &frame_len, &what, caller->send_key,
+	                   caller->send_ckey, caller->hash, caller->rng, caller->aead)
+	    != FZN_SEAL_OK)
+		return FZN_CALLER_ERR_SEAL;
+	return fzn_udp_send(fd, &caller->node, frame, frame_len) == FZN_UDP_OK
+	               ? FZN_CALLER_OK
+	               : FZN_CALLER_ERR_SEND;
+}

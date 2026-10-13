@@ -70,6 +70,7 @@ static void serve_reply(fzn_node_state_t *state, const fzn_node_peer_t *peer,
 	reply_len = state->on_remote(state->on_remote_ctx, result, opened,
 	                             reply, reply_cap);
 	state->asking_from = NULL;
+	state->asking_hops = 0;
 	/* A handler claiming more than it was given wrote nothing this
 	 * loop may send -- the same refusal the local seam makes, and for
 	 * the same reason: sending `reply_cap` of it would be a different
@@ -139,6 +140,20 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 			state->on_box(state->on_box_ctx, frame, flen);
 		return;
 	}
+	now = state->clock ? state->clock() : 0u;
+	/* AN ANSWER TO A FRAME THIS NODE RELAYED, sec 622: sent back, unread,
+	 * to whoever asked for the relay. Asked before any key is chosen: it
+	 * is sealed for somebody else, and opening it here would only drop it. */
+	if (state->relay) {
+		fzn_peek_t head;
+		fzn_udp_addr_t back;
+
+		if (fzn_seal_peek(frame, flen, &head) == FZN_SEAL_OK
+		    && fzn_node_relay_back(state->relay, head.sender, head.msg, now, &back)) {
+			(void)fzn_udp_send(state->udp_fd, &back, frame, flen);
+			return;
+		}
+	}
 	if (fzn_seal_peek_sender(frame, flen, &sender) != FZN_SEAL_OK)
 		return;
 	/* An unprovisioned sender is dropped: no session, nothing to open
@@ -154,10 +169,23 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 	 * peer copied by value is self-contained (`remote.h`). */
 	held = *peer;
 	peer = &held;
-	now = state->clock ? state->clock() : 0u;
 	result = fzn_node_serve_datagram(&state->config, peer, state->hash,
 	                                 state->aead, state->sign, state->replay,
 	                                 now, frame, flen, &opened);
+	/* THE HOP BYTE, outside the seal and so still as it came, for the
+	 * handler (sec 622). */
+	state->asking_hops = flen > 1u ? frame[1] : 0u;
+	/* A HELLO, sec 622: a NOP that opened says where its sender is, from
+	 * the socket it serves on -- a host behind a NAT keeping that socket's
+	 * mapping open to the node that relays for it. Noted, and never
+	 * answered: a NOP asks nothing. Only a hello is noted, since a host's
+	 * other frames come from sockets nothing serves. */
+	if (result != FZN_NODE_REMOTE_DROPPED && opened.kind == FZN_KIND_NOP) {
+		if (state->relay)
+			fzn_node_relay_saw(state->relay, peer->sender, &from, now);
+		state->asking_hops = 0;
+		return;
+	}
 	/* STEP 8. Every piece has passed steps 1 to 7 by now, which is what
 	 * makes it safe to let one occupy a slot.
 	 *

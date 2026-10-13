@@ -2165,6 +2165,16 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 		}
 	}
 
+	/* A FRAME TO RELAY, sec 622: asked of member and contact alike, so
+	 * here, before the two part. */
+	if (admin->relay_remote && req->payload) {
+		size_t n = admin->relay_remote(admin->relay_ctx, req->sender, req->payload,
+		                               req->payload_len, reply, reply_cap);
+
+		if (n)
+			return n;
+	}
+
 	/* A CONTACT, granted the share capability and nothing else, sec 436:
 	 * the notes sync messages over what is shared with it, and no verb,
 	 * no shelf, no status. Asked of the same predicate the authorisation

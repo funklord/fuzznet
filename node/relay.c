@@ -1,0 +1,101 @@
+/* Relaying's two tables: project.md sec 622, and the header. */
+#include "relay.h"
+
+#include <string.h>
+
+void fzn_node_relay_init(fzn_node_relay_t *r)
+{
+	if (r)
+		memset(r, 0, sizeof(*r));
+}
+
+void fzn_node_relay_route(fzn_node_relay_t *r, const uint8_t target[FZN_PUBKEY_LEN], uint32_t msg,
+                          const fzn_udp_addr_t *back, uint64_t now)
+{
+	size_t i, pick = FZN_NODE_RELAY_ROUTES_MAX;
+
+	if (!r || !target || !back)
+		return;
+	/* THE SAME PAIR, else an empty or ended route, else the nearest its
+	 * end. */
+	for (i = 0; i < FZN_NODE_RELAY_ROUTES_MAX && pick == FZN_NODE_RELAY_ROUTES_MAX; i++)
+		if (r->routes[i].used && r->routes[i].msg == msg
+		    && memcmp(r->routes[i].target, target, FZN_PUBKEY_LEN) == 0)
+			pick = i;
+	for (i = 0; i < FZN_NODE_RELAY_ROUTES_MAX && pick == FZN_NODE_RELAY_ROUTES_MAX; i++)
+		if (!r->routes[i].used || r->routes[i].until <= now)
+			pick = i;
+	if (pick == FZN_NODE_RELAY_ROUTES_MAX) {
+		pick = 0;
+		for (i = 1; i < FZN_NODE_RELAY_ROUTES_MAX; i++)
+			if (r->routes[i].until < r->routes[pick].until)
+				pick = i;
+	}
+	memcpy(r->routes[pick].target, target, FZN_PUBKEY_LEN);
+	r->routes[pick].msg = msg;
+	r->routes[pick].back = *back;
+	r->routes[pick].until = now + FZN_NODE_RELAY_ROUTE_S;
+	r->routes[pick].used = 1;
+}
+
+int fzn_node_relay_back(const fzn_node_relay_t *r, const uint8_t sender[FZN_PUBKEY_LEN],
+                        uint32_t msg, uint64_t now, fzn_udp_addr_t *back)
+{
+	size_t i;
+
+	if (!r || !sender || !back)
+		return 0;
+	for (i = 0; i < FZN_NODE_RELAY_ROUTES_MAX; i++) {
+		const fzn_node_relay_route_t *e = &r->routes[i];
+
+		if (e->used && e->until > now && e->msg == msg
+		    && memcmp(e->target, sender, FZN_PUBKEY_LEN) == 0) {
+			*back = e->back;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+void fzn_node_relay_saw(fzn_node_relay_t *r, const uint8_t key[FZN_PUBKEY_LEN],
+                        const fzn_udp_addr_t *at, uint64_t now)
+{
+	size_t i, pick = FZN_NODE_RELAY_SEEN_MAX;
+
+	if (!r || !key || !at)
+		return;
+	/* THE SAME KEY, else an empty slot, else the oldest. */
+	for (i = 0; i < FZN_NODE_RELAY_SEEN_MAX && pick == FZN_NODE_RELAY_SEEN_MAX; i++)
+		if (r->seen[i].used && memcmp(r->seen[i].key, key, FZN_PUBKEY_LEN) == 0)
+			pick = i;
+	for (i = 0; i < FZN_NODE_RELAY_SEEN_MAX && pick == FZN_NODE_RELAY_SEEN_MAX; i++)
+		if (!r->seen[i].used)
+			pick = i;
+	if (pick == FZN_NODE_RELAY_SEEN_MAX) {
+		pick = 0;
+		for (i = 1; i < FZN_NODE_RELAY_SEEN_MAX; i++)
+			if (r->seen[i].when < r->seen[pick].when)
+				pick = i;
+	}
+	memcpy(r->seen[pick].key, key, FZN_PUBKEY_LEN);
+	r->seen[pick].at = *at;
+	r->seen[pick].when = now;
+	r->seen[pick].used = 1;
+}
+
+int fzn_node_relay_where(const fzn_node_relay_t *r, const uint8_t key[FZN_PUBKEY_LEN],
+                         fzn_udp_addr_t *at, uint64_t *when)
+{
+	size_t i;
+
+	if (!r || !key || !at)
+		return 0;
+	for (i = 0; i < FZN_NODE_RELAY_SEEN_MAX; i++)
+		if (r->seen[i].used && memcmp(r->seen[i].key, key, FZN_PUBKEY_LEN) == 0) {
+			*at = r->seen[i].at;
+			if (when)
+				*when = r->seen[i].when;
+			return 1;
+		}
+	return 0;
+}
