@@ -61,6 +61,15 @@
 #define FZN_NODE_MESSAGES_GIVEN 24u
 #define FZN_NODE_MESSAGES_WANT 25u
 #define FZN_NODE_MESSAGES_KEYS 26u
+/* DELIVERY TO A CONTACT, sec 613, `messages/deliver.situ`: DELIVER carries
+ * one line, DELIVERED answers it HELD or REFUSED. */
+#define FZN_NODE_MESSAGES_DELIVER 27u
+#define FZN_NODE_MESSAGES_DELIVERED 28u
+#define FZN_NODE_MESSAGES_DELIVER_HEAD_LEN (2u + FZN_MESSAGE_ID_LEN + 8u + 2u)
+#define FZN_NODE_MESSAGES_DELIVER_MAX (FZN_NODE_MESSAGES_DELIVER_HEAD_LEN + FZN_MESSAGE_TEXT_MAX)
+#define FZN_NODE_MESSAGES_DELIVERED_LEN (2u + FZN_MESSAGE_ID_LEN + 1u)
+#define FZN_NODE_MESSAGES_REFUSED 0u
+#define FZN_NODE_MESSAGES_HELD 1u
 #define FZN_NODE_MESSAGES_PER 8u
 #define FZN_NODE_MESSAGES_HEAD_LEN 3u
 #define FZN_NODE_MESSAGES_GIVEN_LEN 4u
@@ -193,6 +202,41 @@ int fzn_node_messages_round(fzn_node_messages_t *nm, fzn_node_messages_ask_t ask
  * dispatching on the first bytes falls through. `sender` is the member. */
 size_t fzn_node_messages_remote(void *ctx, const uint8_t *sender, const uint8_t *request,
                                 size_t request_len, uint8_t *reply, size_t reply_cap);
+
+/* HOW A DELIVERY WENT, sec 613. */
+typedef struct fzn_node_messages_delivery {
+	size_t sent;      /* lines offered */
+	size_t delivered; /* answered held, and marked delivered here */
+	size_t refused;   /* the host keeps no messages: the rest wait for another */
+	size_t unanswered;
+} fzn_node_messages_delivery_t;
+
+/*
+ * DELIVER TO `contact`, sec 613: every OUT line of that conversation still
+ * being sent -- no mark -- that THIS device wrote and can read, offered one
+ * at a time through `ask`, the contact's host. A line answered HELD is
+ * marked DELIVERED, which the user's other devices learn by the journal.
+ * Stops at the first line refused, since the host refuses for every line
+ * alike, and at the first unanswered, since a host that does not answer
+ * one will not answer the next. Lines past FZN_MESSAGES_WALK_MAX deep are
+ * not reached.
+ */
+fzn_messages_err_t fzn_node_messages_deliver(fzn_node_messages_t *nm,
+                                             const uint8_t contact[FZN_PUBKEY_LEN],
+                                             fzn_node_messages_ask_t ask, void *ctx,
+                                             fzn_node_messages_delivery_t *tally);
+
+/*
+ * A CONTACT'S DELIVERY, answered, sec 613; 0 for anything else. `contact`
+ * is the conversation the line is filed under -- the sender, as the
+ * caller resolved it -- and `keeps` whether this host keeps that
+ * conversation's lines (`fzn_messages_keeps`). Kept: filed as an IN line
+ * unless held already, and answered HELD either way, so a re-offer is
+ * idempotent on the line's id. Not kept: answered REFUSED, nothing filed.
+ */
+size_t fzn_node_messages_contact(fzn_node_messages_t *nm, const uint8_t contact[FZN_PUBKEY_LEN],
+                                 int keeps, const uint8_t *request, size_t request_len,
+                                 uint8_t *reply, size_t reply_cap);
 
 /*
  * THE VERBS, for this node's own user only; 0 for what is not one. WHO is a

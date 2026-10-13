@@ -662,6 +662,124 @@ size_t fzn_node_messages_remote(void *ctx, const uint8_t *sender, const uint8_t 
 	return 0;
 }
 
+/* ---- delivery to a contact, sec 613 --------------------------------------- */
+
+/* ONE LINE OFFERED: 1 held, 0 refused, -1 unanswered or answered with
+ * anything but this line's DELIVERED. */
+static int offer(const fzn_message_t *line, fzn_node_messages_ask_t ask, void *ctx)
+{
+	uint8_t request[FZN_NODE_MESSAGES_DELIVER_MAX], reply[FZN_NODE_MESSAGES_DELIVERED_LEN + 8u];
+	size_t reply_len = 0;
+
+	request[0] = FZN_NODE_MESSAGES_VERSION;
+	request[1] = FZN_NODE_MESSAGES_DELIVER;
+	memcpy(request + 2, line->id, FZN_MESSAGE_ID_LEN);
+	fzn_put_be64(request + 2 + FZN_MESSAGE_ID_LEN, line->stime);
+	fzn_put_be16(request + 2 + FZN_MESSAGE_ID_LEN + 8, (uint16_t)line->text_len);
+	memcpy(request + FZN_NODE_MESSAGES_DELIVER_HEAD_LEN, line->text, line->text_len);
+	if (!ask(ctx, request, FZN_NODE_MESSAGES_DELIVER_HEAD_LEN + line->text_len, reply,
+	         sizeof(reply), &reply_len)
+	    || reply_len != FZN_NODE_MESSAGES_DELIVERED_LEN || reply[0] != FZN_NODE_MESSAGES_VERSION
+	    || reply[1] != FZN_NODE_MESSAGES_DELIVERED
+	    || memcmp(reply + 2, line->id, FZN_MESSAGE_ID_LEN) != 0)
+		return -1;
+	if (reply[2 + FZN_MESSAGE_ID_LEN] == FZN_NODE_MESSAGES_HELD)
+		return 1;
+	return reply[2 + FZN_MESSAGE_ID_LEN] == FZN_NODE_MESSAGES_REFUSED ? 0 : -1;
+}
+
+fzn_messages_err_t fzn_node_messages_deliver(fzn_node_messages_t *nm,
+                                             const uint8_t contact[FZN_PUBKEY_LEN],
+                                             fzn_node_messages_ask_t ask, void *ctx,
+                                             fzn_node_messages_delivery_t *tally)
+{
+	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
+	size_t offset, count, i;
+	fzn_messages_err_t err;
+	int more;
+
+	if (tally)
+		memset(tally, 0, sizeof(*tally));
+	if (!nm || !contact || !ask || !tally)
+		return FZN_MESSAGES_ERR_MALFORMED;
+	for (offset = 0;; offset += count) {
+		count = 0;
+		more = 0;
+		err = fzn_messages_page(&nm->m, contact, offset, page, FZN_MESSAGES_PAGE_MAX, &count,
+		                        &more);
+		if (err == FZN_MESSAGES_ERR_DEEP)
+			return FZN_MESSAGES_OK;
+		if (err != FZN_MESSAGES_OK)
+			return err;
+		for (i = 0; i < count; i++) {
+			int got;
+
+			/* STILL BEING SENT, AND THIS DEVICE'S TO SEND: another
+			 * device's line is that device's (sec 610's open question,
+			 * which device re-offers when the writer is gone). */
+			if (page[i].direction != FZN_MESSAGE_OUT || page[i].state != 0u
+			    || !page[i].readable || !same_key(page[i].device, nm->m.issuer))
+				continue;
+			tally->sent++;
+			got = offer(&page[i], ask, ctx);
+			if (got < 0) {
+				tally->unanswered++;
+				return FZN_MESSAGES_OK;
+			}
+			if (got == 0) {
+				tally->refused++;
+				return FZN_MESSAGES_OK;
+			}
+			err = fzn_messages_mark(&nm->m, contact, FZN_MESSAGE_OUT, page[i].id,
+			                        FZN_MESSAGE_DELIVERED);
+			if (err != FZN_MESSAGES_OK)
+				return err;
+			tally->delivered++;
+			nm->fresh = 1;
+		}
+		if (!more || !count)
+			return FZN_MESSAGES_OK;
+	}
+}
+
+size_t fzn_node_messages_contact(fzn_node_messages_t *nm, const uint8_t contact[FZN_PUBKEY_LEN],
+                                 int keeps, const uint8_t *request, size_t request_len,
+                                 uint8_t *reply, size_t reply_cap)
+{
+	const uint8_t *id;
+	size_t text_len;
+	int written = 0;
+
+	if (!nm || !contact || !request || !reply || request_len < 2u
+	    || request[0] != FZN_NODE_MESSAGES_VERSION || request[1] != FZN_NODE_MESSAGES_DELIVER
+	    || reply_cap < FZN_NODE_MESSAGES_DELIVERED_LEN)
+		return 0;
+	if (request_len < FZN_NODE_MESSAGES_DELIVER_HEAD_LEN)
+		return 0;
+	id = request + 2;
+	text_len = fzn_get_be16(request + 2 + FZN_MESSAGE_ID_LEN + 8);
+	/* THE TEXT IS THE REST, exactly: a length that disagrees is not a line. */
+	if (text_len > FZN_MESSAGE_TEXT_MAX
+	    || request_len != FZN_NODE_MESSAGES_DELIVER_HEAD_LEN + text_len)
+		return 0;
+	if (keeps) {
+		/* HELD ALREADY IS HELD: a re-offer files nothing twice. */
+		if (fzn_messages_import(&nm->m, contact, FZN_MESSAGE_IN, id,
+		                        fzn_get_be64(request + 2 + FZN_MESSAGE_ID_LEN),
+		                        (const char *)request + FZN_NODE_MESSAGES_DELIVER_HEAD_LEN,
+		                        text_len, &written)
+		    != FZN_MESSAGES_OK)
+			return 0;
+		if (written)
+			nm->fresh = 1;
+	}
+	reply[0] = FZN_NODE_MESSAGES_VERSION;
+	reply[1] = FZN_NODE_MESSAGES_DELIVERED;
+	memcpy(reply + 2, id, FZN_MESSAGE_ID_LEN);
+	reply[2 + FZN_MESSAGE_ID_LEN] = keeps ? FZN_NODE_MESSAGES_HELD : FZN_NODE_MESSAGES_REFUSED;
+	return FZN_NODE_MESSAGES_DELIVERED_LEN;
+}
+
 /* ---- the verbs ------------------------------------------------------------ */
 
 /* WHO: a contact's name, or a key in hex. */

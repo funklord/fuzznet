@@ -63493,7 +63493,12 @@ rather than ask again), and fitting it to what fuzznet already is.
 2. **2b, delivery**: a sending device takes an OUT line still `sending`,
    picks the contact's hosts from the manifest, and asks each in turn; the
    receiving host checks the capability chain, files the line IN when it
-   keeps messages and refuses otherwise, and answers.
+   keeps messages and refuses otherwise, and answers. **This step left out
+   the session**, which sec 613 found: a frame opens only under a pairing,
+   and one pairs one device with one host. Sec 613 splits 2b into the
+   delivery itself (2b-i, built) and contact pairings carried between
+   both estates (2b-ii), without which neither of the holder's answers
+   holds.
 3. **2c, settlement**: the receiving host answers settled once every one
    of its devices that keeps messages holds the line; the sender re-offers
    hourly until then and marks the line settled.
@@ -63595,3 +63600,133 @@ nothing else; situ.c did not move. Both files copied from situ's
 committed HEAD, ed22898, under their banners naming the pin, as secs 574
 and 598 did. `make schema`, `make test` and `make livecheck` pass against
 it.
+
+## 613. Step 2b-i: a line delivered to a contact, 2026-10-13
+
+The first half of sec 610's step 2b. A device sends an OUT line it wrote
+to its contact's host; that host files it IN when it keeps messages and
+refuses when it does not; the answer is the acknowledgement, and the
+sender marks the line delivered.
+
+### What sec 610 left out: the session
+
+Sec 610 designed the authority -- a capability from the contact, extended
+to each of the sender's devices -- and never asked how a frame gets
+opened. A request on the remote hop is sealed under a pairing (`node/pair.h`),
+and a pairing is **one device to one host**: the host holds the peer's
+session and chain, the device holds its send key. A contact's pairing
+today is the received share's (secs 436 and 437): the contact's node grants
+the share capability to one device's prekey, and that device accepts the
+card. So any other device of the sender has no session with that host, and
+no device of the sender has one with the contact's other hosts. **The two
+answers the holder gave -- any of my devices sends; all of the contact's
+listed hosts deliver -- both need sessions that do not exist yet.**
+
+fuzzypickles does not answer it either: its sessions are host to host
+(`pchain_*` per host key), a phone's message goes through the one host
+the contact paired with (MSG_DELEGATE), and its sec 10 leaves what a
+sender does with a multi-entry manifest open.
+
+So 2b splits:
+
+- **2b-i, the delivery itself**, built here over the pairing a contact
+  relation already has.
+- **2b-ii, contact pairings carried between the two estates**, sec 580's
+  sibling pairing taken across the boundary: each of the contact's hosts
+  pairs each of the sender's devices from its prekey, the grants and the
+  hosts' prekeys reach the sender's devices through any one of them and
+  then its estate's journal, and each device builds its pairings from a
+  grant (`fzn_node_pairing_from_grant`). Then a device can offer a line to
+  every listed host, in metric order, each under its own pairing. Designed
+  in detail when built, next.
+
+### The wire: `messages/deliver.situ`
+
+Notes-sync's version byte and type space, after the conversation keys:
+
+- **DELIVER, 27**: the line's id, the sender's time, a 16-bit length and
+  the text, at most 512 bytes -- 540 in all, one frame.
+- **DELIVERED, 28**: the id, and HELD or REFUSED.
+
+A delivery's text is exactly the length it states, or it is not one. An
+answer is believed only when it is DELIVERED's 19 bytes and names the
+line offered.
+
+### The sender: `fzn_node_messages_deliver`
+
+Walks the contact's conversation and offers each OUT line with **no mark**
+-- still being sent -- that **this device wrote** and can read. HELD marks
+it DELIVERED, which the user's other devices learn by the journal. The
+walk stops at the first refusal, since a host refuses every line alike,
+and at the first line unanswered, since a host that does not answer one
+will not answer the next.
+
+**Only the writer offers its line.** Another device holding it does not,
+which is sec 610's open question -- who re-offers when the writer is gone
+-- left open rather than answered by every device offering every line.
+
+fuzznetd's `deliver_contacts` runs it for every standing contact it holds a
+received share's pairing with, each round and straight after a line is
+written.
+
+### The receiving host: `fzn_node_messages_contact`
+
+On the contact branch of `fzn_node_admin_remote`, a hook ahead of the
+routing manifest and the notes: so only a contact's request reaches it,
+under the capability that contact was granted, and a removed contact is
+refused before it as anything else is (sec 454). fuzznetd's
+`messages_contact` files the line under **the sender's key** -- the
+conversation a contact's lines are filed under, until 2b-ii lets a user's
+other devices deliver as it -- and publishes the `message` event, as a line
+reconciled does (sec 609).
+
+**Whether this host keeps messages** is `fzn_messages_keeps` over the rules
+that reach it: kept unless the messages policy is drop and no keep rule
+reaches that conversation. That is fuzzypickles' DECLINE, and the shape sec
+610 imported: a host under `policy messages drop` refuses and files
+nothing, and the sender tries another -- which, until 2b-ii, means waiting
+for the next round.
+
+**Idempotent on the id**: a line held already is answered HELD and filed
+once (`fzn_messages_import`), so a re-offer after a lost answer costs a
+round trip and nothing more.
+
+### Not yet after sec 613
+
+- **2b-ii**, above: any device, any listed host, in the manifest's order.
+- **2c and 2d** as sec 610 has them: settlement, and the sweep's 60 s and
+  hourly schedule. Today a line waiting is offered every round, 60 s.
+- **The offer walks the conversation** to find lines being sent, at most
+  FZN_MESSAGES_WALK_MAX deep, as sec 607's give-up does. A conversation
+  deeper than that with a line still waiting at the bottom never sends it;
+  an index of the lines being sent would end that, and waits for a case.
+- **Delivery needs the notes store**: the received shares it takes its
+  pairings from are kept there. 2b-ii's pairings replace them.
+
+### Measured for sec 613
+
+- **`node/test/messages_test`, 108 checks, 22 new**: the line being sent
+  offered alone -- an IN line and a delivered one are not -- held, marked
+  delivered, and filed IN under the sender with its time and text; a
+  re-offer held and filed once; a text shorter or longer than its length
+  refused; a member's message on the contact branch not one. Refused: one
+  offer, nothing filed, both lines still being sent. Unanswered, an answer
+  naming another line, and one cut short: nothing marked. B holding A's
+  line does not offer it, A does. Which rules keep: none keep, a drop
+  policy keeps none, a log policy says nothing of messages, a keep rule
+  keeps its own conversation or every one, a prune rule nothing.
+- **`tool/live_deliver.py`, in `make livecheck`**, two daemons over
+  loopback: R's line to S delivered at once and filed IN at S under R; S
+  restarted under `policy messages drop` refuses R's next line, files
+  nothing, and the line stays being sent; S restarted with no rule, R's
+  first round offers it again and S holds both. **The control**: with the
+  hook unwired, phase a fails -- R's line unanswered, since S answers a
+  contact's unknown request in words.
+- **Eight sabotage entries, each probed caught**: only lines being sent,
+  only this device's, an answer naming the line, its exact length, a
+  refusal stopping the walk, a delivery's exact length, a refusal filing
+  nothing, and only a keep rule keeping. **The second survived its first
+  probe**: B could not open A's line, so the readable test passed over it
+  whoever wrote it, and the check that B does not offer A's line held with
+  the guard gone. The fixture now gives B the key first, and asserts the
+  line reads there.

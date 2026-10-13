@@ -1033,6 +1033,245 @@ static void test_a_cut_keeps_a_line_whole(void)
 	      "a record younger than the window's edge went");
 }
 
+/* ---- delivery to a contact, sec 613 ----------------------------------------- */
+
+static device_t S, C; /* a sender, and its contact's host */
+
+/* THE CONTACT'S HOST ANSWERING, as fuzznetd's contact branch does: the
+ * line filed under the sender's key when it keeps messages. `mode` 1 does
+ * not answer; 2 answers another line's id; 3 answers a length short. */
+typedef struct contact_link {
+	int keeps;
+	int mode;
+	size_t asked;
+} contact_link_t;
+
+static int to_contact(void *ctx, const uint8_t *request, size_t request_len, uint8_t *out,
+                      size_t out_cap, size_t *out_len)
+{
+	contact_link_t *l = (contact_link_t *)ctx;
+	size_t n;
+
+	l->asked++;
+	if (l->mode == 1)
+		return 0;
+	n = fzn_node_messages_contact(&C.nm, S.pub, l->keeps, request, request_len, out, out_cap);
+	if (!n)
+		return 0;
+	if (l->mode == 2)
+		out[2] ^= 0x01u;
+	if (l->mode == 3)
+		n--;
+	*out_len = n;
+	return 1;
+}
+
+static uint8_t state_of_line(device_t *d, const uint8_t contact[FZN_PUBKEY_LEN], uint8_t first,
+                             uint8_t direction, size_t *found)
+{
+	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
+	size_t count = 0, i;
+	uint8_t state = 0xffu;
+	int more = 0;
+
+	*found = 0;
+	if (fzn_messages_page(&d->nm.m, contact, 0u, page, FZN_MESSAGES_PAGE_MAX, &count, &more)
+	    != FZN_MESSAGES_OK)
+		return 0xffu;
+	for (i = 0; i < count; i++)
+		if (page[i].id[0] == first && page[i].direction == direction) {
+			(*found)++;
+			state = page[i].state;
+		}
+	return state;
+}
+
+static fzn_node_messages_delivery_t dv;
+
+static int deliver(contact_link_t *l)
+{
+	return fzn_node_messages_deliver(&S.nm, C.pub, to_contact, l, &dv) == FZN_MESSAGES_OK;
+}
+
+static void test_a_line_is_delivered_to_a_contact(void)
+{
+	contact_link_t l = { 1, 0, 0 };
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	size_t found = 0;
+	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
+	size_t count = 0;
+	int more = 0;
+
+	setup();
+	device_up(&S, 0x66);
+	device_up(&C, 0x77);
+	host_up(&S, &S);
+	host_up(&C, &C);
+
+	memset(id, 0x71, sizeof(id));
+	CHECK(fzn_messages_write(&S.nm.m, C.pub, FZN_MESSAGE_OUT, id, 7u, "hello there", 11u)
+	              == FZN_MESSAGES_OK,
+	      "fixture: the sender writes a line to its contact");
+	memset(id, 0x72, sizeof(id));
+	CHECK(fzn_messages_write(&S.nm.m, C.pub, FZN_MESSAGE_IN, id, 8u, "an earlier reply", 16u)
+	              == FZN_MESSAGES_OK,
+	      "fixture: and holds one it received");
+
+	CHECK(deliver(&l) && dv.sent == 1u && dv.delivered == 1u && l.asked == 1u
+	              && state_of_line(&S, C.pub, 0x71, FZN_MESSAGE_OUT, &found)
+	                         == FZN_MESSAGE_DELIVERED
+	              && found == 1u,
+	      "the line being sent is offered alone, held, and marked delivered");
+	CHECK(fzn_messages_page(&C.nm.m, S.pub, 0u, page, FZN_MESSAGES_PAGE_MAX, &count, &more)
+	                      == FZN_MESSAGES_OK
+	              && count == 1u && page[0].direction == FZN_MESSAGE_IN && page[0].id[0] == 0x71
+	              && page[0].stime == 7u && page[0].readable && page[0].text_len == 11u
+	              && memcmp(page[0].text, "hello there", 11u) == 0,
+	      "the contact's host files it IN under the sender, time and text whole");
+	CHECK(deliver(&l) && dv.sent == 0u && l.asked == 1u,
+	      "a delivered line is not offered again");
+
+	/* A RE-OFFER, as after a reply lost: held again, filed once. */
+	{
+		uint8_t req[FZN_NODE_MESSAGES_DELIVER_MAX], out[64];
+		size_t n;
+
+		req[0] = FZN_NODE_MESSAGES_VERSION;
+		req[1] = FZN_NODE_MESSAGES_DELIVER;
+		memset(req + 2, 0x71, FZN_MESSAGE_ID_LEN);
+		memset(req + 2 + FZN_MESSAGE_ID_LEN, 0, 8u);
+		req[2 + FZN_MESSAGE_ID_LEN + 7] = 7u;
+		req[2 + FZN_MESSAGE_ID_LEN + 8] = 0u;
+		req[2 + FZN_MESSAGE_ID_LEN + 9] = 11u;
+		memcpy(req + FZN_NODE_MESSAGES_DELIVER_HEAD_LEN, "hello there", 11u);
+		n = fzn_node_messages_contact(&C.nm, S.pub, 1, req,
+		                              FZN_NODE_MESSAGES_DELIVER_HEAD_LEN + 11u, out, sizeof(out));
+		CHECK(n == FZN_NODE_MESSAGES_DELIVERED_LEN && out[2 + FZN_MESSAGE_ID_LEN]
+		                                                     == FZN_NODE_MESSAGES_HELD
+		              && fzn_messages_page(&C.nm.m, S.pub, 0u, page, FZN_MESSAGES_PAGE_MAX,
+		                                   &count, &more)
+		                         == FZN_MESSAGES_OK
+		              && count == 1u,
+		      "a re-offer is answered held and files nothing twice");
+		CHECK(fzn_node_messages_contact(&C.nm, S.pub, 1, req,
+		                                FZN_NODE_MESSAGES_DELIVER_HEAD_LEN + 10u, out,
+		                                sizeof(out))
+		                      == 0u
+		              && fzn_node_messages_contact(&C.nm, S.pub, 1, req,
+		                                           FZN_NODE_MESSAGES_DELIVER_HEAD_LEN + 12u,
+		                                           out, sizeof(out))
+		                         == 0u,
+		      "a text shorter or longer than its length says is no delivery");
+		req[1] = FZN_NODE_MESSAGES_GIVE;
+		CHECK(fzn_node_messages_contact(&C.nm, S.pub, 1, req,
+		                                FZN_NODE_MESSAGES_DELIVER_HEAD_LEN + 11u, out,
+		                                sizeof(out))
+		              == 0u,
+		      "a member's message on the contact branch is not one");
+	}
+}
+
+static void test_a_host_that_keeps_none_refuses(void)
+{
+	contact_link_t l = { 0, 0, 0 };
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	size_t found = 0, count = 0;
+	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
+	int more = 0;
+
+	setup();
+	device_up(&S, 0x66);
+	device_up(&C, 0x77);
+	host_up(&S, &S);
+	host_up(&C, &C);
+	memset(id, 0x81, sizeof(id));
+	(void)fzn_messages_write(&S.nm.m, C.pub, FZN_MESSAGE_OUT, id, 1u, "one", 3u);
+	memset(id, 0x82, sizeof(id));
+	(void)fzn_messages_write(&S.nm.m, C.pub, FZN_MESSAGE_OUT, id, 2u, "two", 3u);
+
+	CHECK(deliver(&l) && dv.sent == 1u && dv.refused == 1u && dv.delivered == 0u
+	              && l.asked == 1u
+	              && state_of_line(&S, C.pub, 0x81, FZN_MESSAGE_OUT, &found) == 0u
+	              && state_of_line(&S, C.pub, 0x82, FZN_MESSAGE_OUT, &found) == 0u
+	              && fzn_messages_page(&C.nm.m, S.pub, 0u, page, FZN_MESSAGES_PAGE_MAX, &count,
+	                                   &more)
+	                         == FZN_MESSAGES_OK
+	              && count == 0u,
+	      "refused: one offer, nothing filed there, both lines still being sent");
+
+	l.keeps = 1;
+	l.mode = 1;
+	CHECK(deliver(&l) && dv.sent == 1u && dv.unanswered == 1u && l.asked == 2u
+	              && state_of_line(&S, C.pub, 0x81, FZN_MESSAGE_OUT, &found) == 0u,
+	      "unanswered: one offer, and the lines wait");
+	l.mode = 2;
+	CHECK(deliver(&l) && dv.unanswered == 1u && dv.delivered == 0u
+	              && state_of_line(&S, C.pub, 0x82, FZN_MESSAGE_OUT, &found) == 0u,
+	      "an answer naming another line is no answer, and marks nothing");
+	l.mode = 3;
+	CHECK(deliver(&l) && dv.unanswered == 1u && dv.delivered == 0u,
+	      "an answer cut short is no answer");
+	l.mode = 0;
+	CHECK(deliver(&l) && dv.sent == 2u && dv.delivered == 2u
+	              && state_of_line(&S, C.pub, 0x81, FZN_MESSAGE_OUT, &found)
+	                         == FZN_MESSAGE_DELIVERED
+	              && state_of_line(&S, C.pub, 0x82, FZN_MESSAGE_OUT, &found)
+	                         == FZN_MESSAGE_DELIVERED,
+	      "a host that keeps them takes both");
+}
+
+static void test_another_devices_line_is_its_own_to_send(void)
+{
+	contact_link_t l = { 1, 0, 0 };
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	fzn_node_messages_tally_t absorbed;
+	fzn_node_messages_delivery_t d;
+
+	setup();
+	device_up(&C, 0x77);
+	host_up(&C, &C);
+	memset(id, 0x91, sizeof(id));
+	CHECK(fzn_messages_write(&A.nm.m, C.pub, FZN_MESSAGE_OUT, id, 1u, "from A", 6u)
+	                      == FZN_MESSAGES_OK
+	              && (synced(&B), fzn_node_messages_absorb(&B.nm, &absorbed)) == FZN_MESSAGES_OK
+	              && round_with(&B, &A) && readable_on(&B) == 1,
+	      "fixture: A writes a line, and B holds it and can read it");
+	memcpy(S.pub, A.pub, FZN_PUBKEY_LEN); /* to_contact files under S's key */
+	CHECK(fzn_node_messages_deliver(&B.nm, C.pub, to_contact, &l, &d) == FZN_MESSAGES_OK
+	              && d.sent == 0u && l.asked == 0u,
+	      "B does not offer A's line");
+	CHECK(fzn_node_messages_deliver(&A.nm, C.pub, to_contact, &l, &d) == FZN_MESSAGES_OK
+	              && d.sent == 1u && d.delivered == 1u,
+	      "A does");
+}
+
+static void test_which_hosts_keep_messages(void)
+{
+	fzn_retain_rule_t r[2];
+	uint8_t other[FZN_PUBKEY_LEN];
+
+	memset(r, 0, sizeof(r));
+	memset(other, 0x4f, sizeof(other));
+	CHECK(fzn_messages_keeps(NULL, 0u, X), "no rule keeps");
+	r[0].kind = FZN_RETAIN_POLICY;
+	r[0].data = FZN_RETAIN_MESSAGES;
+	r[0].drop = 1;
+	CHECK(!fzn_messages_keeps(r, 1u, X), "a drop policy keeps none");
+	r[0].data = FZN_RETAIN_LOG;
+	CHECK(fzn_messages_keeps(r, 1u, X), "a log policy says nothing of messages");
+	r[0].data = FZN_RETAIN_MESSAGES;
+	r[1].kind = FZN_RETAIN_KEEP;
+	r[1].data = FZN_RETAIN_MESSAGES;
+	r[1].has_contact = 1;
+	memcpy(r[1].contact, other, FZN_PUBKEY_LEN);
+	CHECK(!fzn_messages_keeps(r, 2u, X) && fzn_messages_keeps(r, 2u, other),
+	      "under drop, a keep rule keeps its own conversation only");
+	r[1].has_contact = 0;
+	CHECK(fzn_messages_keeps(r, 2u, X), "and one naming none keeps every one");
+	r[1].kind = FZN_RETAIN_PRUNE;
+	CHECK(!fzn_messages_keeps(r, 2u, X), "a prune rule keeps nothing");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -1060,6 +1299,10 @@ int main(void)
 	test_a_returning_device_files_lines();
 	test_backfill_from_the_journal();
 	test_a_pushed_line_owes_its_key();
+	test_a_line_is_delivered_to_a_contact();
+	test_a_host_that_keeps_none_refuses();
+	test_another_devices_line_is_its_own_to_send();
+	test_which_hosts_keep_messages();
 	if (failures) {
 		fprintf(stderr, "node messages_test: %d of %d checks failed\n", failures, checks);
 		return 1;

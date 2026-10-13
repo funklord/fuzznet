@@ -1,0 +1,33 @@
+// Delivery of one line to a contact's host, project.md sec 613: the two
+// messages, as situ schemas. The hand-written codec is node/messages.c, and
+// these are its checked contract.
+//
+// They share notes-sync's version byte and type space (notes/sync.h), 27 and
+// 28, after the conversation keys' 26. Unlike the keys, these are a
+// CONTACT's: sent under the capability the contact granted, and answered on
+// the contact branch of the remote hop.
+//
+// THE LINE IS FILED UNDER ITS ID, so a re-offer is answered HELD again and
+// files nothing twice; a host that keeps no messages answers REFUSED and
+// the sender tries another.
+
+target buffer;
+endian big;
+
+// DELIVER: one line, its id, the sender's time and its text.
+struct fzn_message_deliver {
+	u8   version [must_eq = 2];
+	u8   type [must_eq = 27];
+	u8   id[16];
+	u64  stime;
+	u16  text_len [max = 512];
+	u8   text[text_len];
+}
+
+// DELIVERED: the line's id, and whether this host holds it.
+struct fzn_message_delivered {
+	u8   version [must_eq = 2];
+	u8   type [must_eq = 28];
+	u8   id[16];
+	u8   outcome [max = 1];                 // 0 REFUSED, 1 HELD
+}

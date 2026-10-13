@@ -11519,6 +11519,62 @@ SABOTAGES = [
 		"\t/* THE PARTITION",
 		"a title or labels past the bounds a listing caches overflow the cache entry every note gets -- sec 513",
 	),
+	(
+		"messages-deliver-only-sending",
+		"node/messages.c",
+		"\t\t\tif (page[i].direction != FZN_MESSAGE_OUT || page[i].state != 0u\n\t\t\t    || !page[i].readable",
+		"\t\t\tif (page[i].direction != FZN_MESSAGE_OUT\n\t\t\t    || !page[i].readable",
+		"a delivered line is offered again every round, for ever -- sec 613",
+	),
+	(
+		"messages-deliver-own-device-only",
+		"node/messages.c",
+		"\t\t\t    || !page[i].readable || !same_key(page[i].device, nm->m.issuer))\n",
+		"\t\t\t    || !page[i].readable)\n",
+		"every device of the user offers every line, and the device that wrote it is not the one that sends -- sec 613",
+	),
+	(
+		"messages-delivered-names-the-line",
+		"node/messages.c",
+		"\t    || reply[1] != FZN_NODE_MESSAGES_DELIVERED\n\t    || memcmp(reply + 2, line->id, FZN_MESSAGE_ID_LEN) != 0)\n",
+		"\t    || reply[1] != FZN_NODE_MESSAGES_DELIVERED)\n",
+		"an answer about another line marks this one delivered, and a line nobody holds is never sent -- sec 613",
+	),
+	(
+		"messages-delivered-exact-length",
+		"node/messages.c",
+		"\t    || reply_len != FZN_NODE_MESSAGES_DELIVERED_LEN || reply[0] != FZN_NODE_MESSAGES_VERSION\n",
+		"\t    || reply[0] != FZN_NODE_MESSAGES_VERSION\n",
+		"an answer cut short is read past its end and taken as held -- sec 613",
+	),
+	(
+		"messages-refused-stops",
+		"node/messages.c",
+		"\t\t\tif (got == 0) {\n\t\t\t\ttally->refused++;\n\t\t\t\treturn FZN_MESSAGES_OK;\n\t\t\t}\n",
+		"\t\t\tif (got == 0) {\n\t\t\t\ttally->refused++;\n\t\t\t\tcontinue;\n\t\t\t}\n",
+		"a host that keeps no messages is offered every line in turn, each refused -- sec 613",
+	),
+	(
+		"messages-contact-text-exact",
+		"node/messages.c",
+		"\tif (text_len > FZN_MESSAGE_TEXT_MAX\n\t    || request_len != FZN_NODE_MESSAGES_DELIVER_HEAD_LEN + text_len)\n",
+		"\tif (text_len > FZN_MESSAGE_TEXT_MAX)\n",
+		"a delivery whose length lies is filed with bytes past its end, or cut short -- sec 613",
+	),
+	(
+		"messages-contact-refused-files-nothing",
+		"node/messages.c",
+		"\tif (keeps) {\n\t\t/* HELD ALREADY IS HELD",
+		"\tif (1) {\n\t\t/* HELD ALREADY IS HELD",
+		"a host that keeps no messages files the line anyway, against its user's rules -- sec 613",
+	),
+	(
+		"messages-keeps-only-a-keep-rule",
+		"messages/messages.c",
+		"\t\tif (rules[r].data == FZN_RETAIN_MESSAGES && rules[r].kind == FZN_RETAIN_KEEP\n",
+		"\t\tif (rules[r].data == FZN_RETAIN_MESSAGES\n",
+		"under a drop policy a prune rule reads as keeping, and a host keeping nothing takes lines -- sec 613",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

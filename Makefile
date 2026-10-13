@@ -5901,7 +5901,8 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               roster/roster.situ chain/root_act.situ chain/succession.situ \
               record/exchange.situ \
               notes/sync.situ notes/note.situ node/opjournal.situ messages/line.situ \
-              messages/keys.situ state/setting.situ node/reconcile.situ node/buckets.situ \
+              messages/keys.situ messages/deliver.situ state/setting.situ \
+              node/reconcile.situ node/buckets.situ \
               log/entry.situ log/cause.situ log/gather.situ chunk/piece.situ \
               node/heard.situ node/routing.situ
 
@@ -5997,7 +5998,8 @@ QUIRC_DIR      ?= $(QUIRC_VENDORED)
 # rejoining two daemons over loopback, sec 554, and its bridge witnessed by a
 # third, sec 558, a removed contact's shares pulled no further, sec 576,
 # siblings reaching one another, sec 579, a note's history trimmed by the
-# rules, sec 582, and log segments archived, sec 588. The only target here that starts fuzznetd. A line old enough to trim can only be
+# rules, sec 582, log segments archived, sec 588, and a line delivered to a
+# contact, sec 613. The only target here that starts fuzznetd. A line old enough to trim can only be
 # written under an earlier clock, so `faketime` writes it, and the script
 # says SKIPPED when it is absent. It needs a fuzznetd, the record store its
 # conversations live in, and log files, because it waits on the daemon's
@@ -6005,7 +6007,8 @@ QUIRC_DIR      ?= $(QUIRC_VENDORED)
 # those has nothing to run, and says which. tool/live_trim.py,
 # tool/live_cut.py, tool/live_rejoin.py, tool/live_witness.py,
 # tool/live_shares.py, tool/live_siblings.py, tool/live_history.py,
-# tool/live_archive.py, tool/live_events.py and tool/live_erasure.py bound
+# tool/live_archive.py, tool/live_events.py, tool/live_deliver.py and
+# tool/live_erasure.py bound
 # themselves: one
 # deadline, each daemon in its own process group, scratch removed. Six hosts
 # going round in turn take live_erasure.py past the others' 240 s, so its own
@@ -6025,6 +6028,7 @@ else
 	@timeout 300 python3 tool/live_history.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_archive.py $(FUZZNETD)
 	@timeout 120 python3 tool/live_events.py $(FUZZNETD)
+	@timeout 300 python3 tool/live_deliver.py $(FUZZNETD)
 	@$(if $(LOG_PACK_ON),timeout 600 python3 tool/live_erasure.py $(FUZZNETD),echo \
 	  "livecheck: erasure SKIPPED -- this build does not pack logs")
 endif

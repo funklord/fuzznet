@@ -1,0 +1,33 @@
+# situ wire signature v2
+# schema: deliver.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+endian big
+target buffer
+
+struct fzn_message_deliver size=28..540
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         u8         type  must_eq=27
+  @0x0002   16        u8         id  big
+  @0x0012   8         u64        stime  big
+  @0x001a   2         u16        text_len  big max=512
+  @0x001c   0..512    u8         text  sized-by=text_len
+
+struct fzn_message_delivered size=19
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         u8         type  must_eq=28
+  @0x0002   16        u8         id  big
+  @0x0012   1         u8         outcome  max=1

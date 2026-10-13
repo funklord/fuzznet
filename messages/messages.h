@@ -325,4 +325,12 @@ fzn_messages_err_t fzn_messages_wanted(const fzn_messages_t *m, const fzn_retain
                                        const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch,
                                        int *wanted);
 
+/* WHETHER THIS DEVICE KEEPS `contact`'S LINES AT ALL, by `rules` (already
+ * selected for where they reach), sec 613: what a host asks before taking a
+ * line a contact delivers. Kept unless the messages policy is drop and no
+ * keep rule reaches that conversation -- the host fuzzypickles' DECLINE
+ * names, which a sender passes over for the next. No rule keeps. */
+int fzn_messages_keeps(const fzn_retain_rule_t *rules, size_t n_rules,
+                       const uint8_t contact[FZN_PUBKEY_LEN]);
+
 #endif /* FZN_MESSAGES_H */

@@ -219,6 +219,12 @@ typedef struct fzn_node_admin {
 	                         const uint8_t *request, size_t request_len, uint8_t *reply,
 	                         size_t reply_cap);
 	void *routing_ctx;
+	/* A LINE A CONTACT DELIVERS, sec 613: filed or refused by the hook,
+	 * which resolves the sender to its conversation and knows whether this
+	 * host keeps messages. 0 for what is not one. Contacts only. */
+	size_t (*messages_contact)(void *ctx, const uint8_t *sender, const uint8_t *request,
+	                           size_t request_len, uint8_t *reply, size_t reply_cap);
+	void *messages_contact_ctx;
 } fzn_node_admin_t;
 
 /* Whether `key` is inside this node's estate as `admin` sees it -- itself,

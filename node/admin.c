@@ -2047,8 +2047,12 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 		 * again. */
 		if (!fzn_node_admin_contact_stands(admin, req->sender))
 			return answer_text(out, reply_cap, FZN_REPLY_DENIED, "no longer a contact");
+		/* A LINE IT DELIVERS, sec 613. */
+		if (admin->messages_contact && req->payload)
+			n = admin->messages_contact(admin->messages_contact_ctx, req->sender,
+			                            req->payload, req->payload_len, reply, reply_cap);
 		/* WHERE THIS USER MAY BE REACHED, sec 611, when it advertises. */
-		if (admin->routing_remote && req->payload)
+		if (!n && admin->routing_remote && req->payload)
 			n = admin->routing_remote(admin->routing_ctx, req->sender, 1, req->payload,
 			                          req->payload_len, reply, reply_cap);
 		if (!n && admin->notes_remote && req->payload)

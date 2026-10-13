@@ -1989,3 +1989,20 @@ fzn_messages_err_t fzn_messages_wanted(const fzn_messages_t *m, const fzn_retain
 	*wanted = kept || (!pruned && !drops);
 	return FZN_MESSAGES_OK;
 }
+
+int fzn_messages_keeps(const fzn_retain_rule_t *rules, size_t n_rules,
+                       const uint8_t contact[FZN_PUBKEY_LEN])
+{
+	size_t r;
+
+	if (!contact || (!rules && n_rules))
+		return 0;
+	if (!fzn_retain_policy_drops(rules, n_rules, FZN_RETAIN_MESSAGES))
+		return 1;
+	for (r = 0; r < n_rules; r++)
+		if (rules[r].data == FZN_RETAIN_MESSAGES && rules[r].kind == FZN_RETAIN_KEEP
+		    && (!rules[r].has_contact
+		        || memcmp(rules[r].contact, contact, FZN_PUBKEY_LEN) == 0))
+			return 1;
+	return 0;
+}

@@ -1,0 +1,26 @@
+# situ capability map v1
+# schema: deliver.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct fzn_message_deliver size=28..540 mutate=Shifting repr=ValueConverted atomic=NonAtomic
+  fzn_message_deliver.version            offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_deliver.type               offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_deliver.id                 offset=AbsoluteStatic(0x02) size=Fixed(16) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_message_deliver.stime              offset=AbsoluteStatic(0x12) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_message_deliver.text_len           offset=AbsoluteStatic(0x1A) size=Fixed(2) align=Aligned(2) repr=ValueConverted atomic=AtomicWord
+  fzn_message_deliver.text               offset=AbsoluteStatic(0x1C) size=Bounded(0, 512) align=Aligned(4) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+
+struct fzn_message_delivered size=19 atomic=NonAtomic
+  fzn_message_delivered.version          offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_delivered.type             offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_message_delivered.id               offset=AbsoluteStatic(0x02) size=Fixed(16) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_message_delivered.outcome          offset=AbsoluteStatic(0x12) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord

@@ -2775,6 +2775,38 @@ static size_t routing_local(const fzn_request_t *request, char *reply, size_t re
 	return at;
 }
 
+/* A LINE A CONTACT DELIVERS, sec 613: filed under the sender's key -- the
+ * conversation a contact's lines are filed under -- when this host keeps
+ * that conversation by the rules reaching it, and refused otherwise, so
+ * the sender tries another of this user's hosts. */
+static size_t messages_contact(void *ctx, const uint8_t *sender, const uint8_t *request,
+                               size_t request_len, uint8_t *reply, size_t reply_cap)
+{
+	static fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX];
+	size_t n, len;
+	int fresh = node_messages.fresh;
+
+	(void)ctx;
+	if (!messages_on)
+		return 0;
+	n = fzn_retain_select_messages(rules, gather_rules(rules), dlog.has_host ? dlog.host : NULL,
+	                               here_machine(), rules);
+	node_messages.fresh = 0;
+	len = fzn_node_messages_contact(&node_messages, sender, fzn_messages_keeps(rules, n, sender),
+	                                request, request_len, reply, reply_cap);
+	/* A LINE FILED, its conversation named, as one reconciled is (sec 609). */
+	if (node_messages.fresh) {
+		char hex[2u * FZN_PUBKEY_LEN + 1u];
+		size_t i;
+
+		for (i = 0; i < FZN_PUBKEY_LEN; i++)
+			(void)snprintf(hex + 2u * i, 3u, "%02x", sender[i]);
+		publish("message", hex);
+	}
+	node_messages.fresh |= fresh;
+	return len;
+}
+
 /* `get routing`, from a member always and from a contact only while the
  * estate advertises -- refused otherwise as anything a contact may not ask
  * is, so a refusal says nothing it would not. sec 611. */
@@ -3803,6 +3835,35 @@ static void pull_received(uint64_t now)
 	 * one with nothing new, and the live check waits on this line. */
 	say(FZN_ENTRY_DEBUG, "notes/received", "received pass: %zu share(s), %zu of removed contacts "
 	                                       "passed over", nshares_in, suspended);
+}
+
+/* LINES DELIVERED TO CONTACTS, sec 613: every line this node wrote and has
+ * not yet delivered, offered to each standing contact it holds a pairing
+ * with -- the received shares' pairings, until contact pairings are carried
+ * between estates. Each round, and at once after a line is written. */
+static void deliver_contacts(uint64_t now)
+{
+	size_t i;
+
+	if (!messages_on)
+		return;
+	for (i = 0; i < nshares_in; i++) {
+		struct peer_asking asking = { &shares_in[i].pt.caller, now, shares_in[i].host };
+		fzn_node_messages_delivery_t d;
+		fzn_messages_err_t err;
+
+		if (running_admin && !fzn_node_admin_contact_stands(running_admin, shares_in[i].sharer))
+			continue;
+		err = fzn_node_messages_deliver(&node_messages, shares_in[i].sharer, peer_ask, &asking,
+		                                &d);
+		if (err != FZN_MESSAGES_OK)
+			say(FZN_ENTRY_WARNING, "messages/deliver", "delivering to %s: %s", shares_in[i].host,
+			    fzn_messages_err_str(err));
+		else if (d.sent)
+			say(FZN_ENTRY_INFO, "messages/deliver",
+			    "%zu line(s) offered to %s: %zu delivered, %zu refused, %zu unanswered", d.sent,
+			    shares_in[i].host, d.delivered, d.refused, d.unanswered);
+	}
 }
 
 /* A NOTE'S HISTORY TRIMMED BY THE RULES, sec 581, each round before the
@@ -5655,6 +5716,7 @@ int main(int argc, char **argv)
 			state.on_local_ctx = &admin;
 			/* THE ESTATE'S ROUTING MANIFEST, sec 611. */
 			admin.routing_remote = routing_remote;
+			admin.messages_contact = messages_contact;
 			routing_self = identity.pubkey;
 			routing_sign = &sign_ops;
 			routing_hash = &hash_ops;
@@ -5979,6 +6041,7 @@ int main(int argc, char **argv)
 				 * fetched once the note naming it has arrived. */
 				pull_notes(pulls, npulls, now, &state, running, running_roots);
 				pull_received(now);
+				deliver_contacts(now);
 				history_trim();
 #ifdef FZN_SPOOL_FILE_ON
 				fetch_texts(pulls, npulls, now);
@@ -6031,6 +6094,7 @@ int main(int argc, char **argv)
 				last_fresh_round = now;
 				pull_journal(pulls, npulls, now);
 				messages_round(pulls, npulls, now);
+				deliver_contacts(now);
 			}
 			if (journal_pushed) {
 				journal_pushed = 0;
