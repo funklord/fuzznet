@@ -1,4 +1,4 @@
-/* Vendored from situ's runtime/c/ at b53e565, unmodified below this
+/* Vendored from situ's runtime/c/ at ed22898, unmodified below this
  * comment. `make schema SITU_DIR=...` re-copies both files and refuses on
  * drift, so this cannot quietly diverge.
  *

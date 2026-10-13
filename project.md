@@ -63584,3 +63584,14 @@ root is KEY.
   sends to a contact; and the contact card's seeds with pairing (step 3).
 - **Relaying a manifest for others** (`public_relay` and the relay's own
   willingness) is carried in the document but served by nobody yet.
+
+## 612. situ's C runtime re-vendored at ed22898, 2026-10-13
+
+`make schema` refused again once situ committed past b53e565:
+`wire/generated/situ.h` had drifted from situ's runtime. situ added one
+function, `situ_format_int` -- a signed value written as text, `-` and
+never `+`, no `-0`, the field's width including the sign -- and changed
+nothing else; situ.c did not move. Both files copied from situ's
+committed HEAD, ed22898, under their banners naming the pin, as secs 574
+and 598 did. `make schema`, `make test` and `make livecheck` pass against
+it.
