@@ -852,11 +852,12 @@ static void test_the_route_sends_each_slot_where_the_rule_says(void)
 		FZN_PERSIST_ISSUED_REVOCATION,
 		FZN_PERSIST_VOTE, FZN_PERSIST_ROOT_CHANGE,
 		FZN_PERSIST_OWN_ROOT, FZN_PERSIST_ADMIN_CONFIRM, FZN_PERSIST_OWN_ADMIN,
-		FZN_PERSIST_NOTE_SHARE, FZN_PERSIST_CONTACT_GROUP, FZN_PERSIST_ROSTER,
+		FZN_PERSIST_NOTE_SHARE, FZN_PERSIST_ROSTER,
 		FZN_PERSIST_FILE_SHARE, FZN_PERSIST_SUCCESSION, FZN_PERSIST_NOTE_PURGED,
 		FZN_PERSIST_NOTE_WRAP, FZN_PERSIST_CONVERSATION_KEY, FZN_PERSIST_SETTING,
 		FZN_PERSIST_GRANT, FZN_PERSIST_JOURNAL_SPINE, FZN_PERSIST_JOURNAL_BASE,
-		FZN_PERSIST_SIBLING_PREKEY, FZN_PERSIST_CONTACT_DEVICE,
+		FZN_PERSIST_SIBLING_PREKEY, FZN_PERSIST_CONTACT_DEVICE, FZN_PERSIST_GROUP_ACT,
+		FZN_PERSIST_GROUP,
 	};
 	static const fzn_persist_slot_t BULK[] = { FZN_PERSIST_NODE_PEER,
 		                                   FZN_PERSIST_PAIRED_NODE, FZN_PERSIST_NOTE,
@@ -876,7 +877,8 @@ static void test_the_route_sends_each_slot_where_the_rule_says(void)
 		                                   FZN_PERSIST_HOST_HEARD,
 		                                   FZN_PERSIST_ROUTING,
 		                                   FZN_PERSIST_CONTACT_REQUEST,
-		                                   FZN_PERSIST_CONTACT_ASKED };
+		                                   FZN_PERSIST_CONTACT_ASKED,
+		                                   FZN_PERSIST_GROUP_LABEL };
 	struct counting core, bulk;
 	fzn_persist_ops_t core_ops = { count_load, count_save, count_list, NULL, &core };
 	fzn_persist_ops_t bulk_ops = { count_load, count_save, NULL, NULL, &bulk };

@@ -161,7 +161,7 @@ int main(int argc, char **argv)
 			if (said == FZN_PERSIST_LINE_LOADED) {
 				known++;
 				labelled += !view.rows_text().isEmpty() && !drawn_unknown;
-			} else if (s == 10u || s == 12u || s == 18u) {
+			} else if (s == 10u || s == 12u || s == 18u || s == 25u) {
 				retired_unknown += drawn_unknown;
 			} else {
 				other_unknown++;
@@ -169,8 +169,8 @@ int main(int argc, char **argv)
 		}
 		CHECK(known >= 33 && labelled == known,
 		      "a slot the printer knows is drawn as \"unknown slot\"");
-		CHECK(retired_unknown == 3 && other_unknown == 0,
-		      "the retired slots 10, 12 and 18 are not the only numbers the printer "
+		CHECK(retired_unknown == 4 && other_unknown == 0,
+		      "the retired slots 10, 12, 18 and 25 are not the only numbers the printer "
 		      "does not know, or are not drawn as unknown");
 	}
 

@@ -80,8 +80,6 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "a note a contact shared with this host";
 	case FZN_PERSIST_RECEIVED_SHARE:
 		return "a share this host accepted, and where it is pulled from";
-	case FZN_PERSIST_CONTACT_GROUP:
-		return "a group of contacts a subtree can be shared with";
 	case FZN_PERSIST_LOG_RULE:
 		return "a retention rule for this host's logs";
 	case FZN_PERSIST_ADMIN_RETENTION:
@@ -134,6 +132,12 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "a contact request a stranger sent, waiting to be approved";
 	case FZN_PERSIST_CONTACT_ASKED:
 		return "a contact request this user sent, until it is answered";
+	case FZN_PERSIST_GROUP_ACT:
+		return "one act of a group's log: who may read and change the group";
+	case FZN_PERSIST_GROUP:
+		return "a group as its log says: its members, admins and settings";
+	case FZN_PERSIST_GROUP_LABEL:
+		return "this host's name for a group";
 	}
 	*known = 0;
 	return "an unknown slot";

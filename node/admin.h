@@ -113,6 +113,8 @@ typedef struct fzn_node_admin {
 	 * mints and confirms, and `list succession` reads. NULL for none, and
 	 * the verbs then say so. */
 	struct fzn_node_successions *successions;
+	/* GROUPS, sec 626: their verbs, or NULL for a node that keeps none. */
+	const struct fzn_node_groups *groups;
 	const fzn_random_ops_t *rng;
 	/* Long notes' texts (`node/shelf.h`), or NULL: then `put`, `fetch` and
 	 * `get text` are unsupported and the remote hop answers no blob
@@ -242,6 +244,11 @@ typedef struct fzn_node_admin {
 	                       size_t request_len, uint8_t *reply, size_t reply_cap);
 	void *relay_ctx;
 } fzn_node_admin_t;
+
+/* A GROUP'S SHARES FORGOTTEN, notes and files, as `fzn_node_groups_t.forget`
+ * wants: when this host forgets the group, so that a group made again
+ * inherits nothing (sec 478). `ctx` is the admin. 1 when every row went. */
+int fzn_node_admin_group_forget(void *ctx, const uint8_t *id);
 
 /* Whether `key` is inside this node's estate as `admin` sees it -- itself,
  * a root that stands, a node paired to it -- so never a contact. sec 489

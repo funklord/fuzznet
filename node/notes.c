@@ -5,7 +5,7 @@
 #include "notes.h"
 
 #include "../contact/contact.h"
-#include "../contact/group.h"
+#include "groups.h"
 #include "../notes/received.h"
 #include "../notes/share.h"
 #include "../notes/text.h"
@@ -1536,10 +1536,8 @@ static size_t change_share(fzn_node_notes_t *n, int add, const uint8_t *at, size
 	if (!add && name_len == ID_HEX && parse_id(name, name_len, contact.key)) {
 		cerr = FZN_CONTACT_OK;
 	} else if (name_len > 1u && name[0] == '@') {
-		static fzn_group_t group;
-
-		cerr = fzn_group_find(n->store.ops, (const char *)name + 1, name_len - 1u, &group);
-		memcpy(contact.key, group.id, FZN_PUBKEY_LEN);
+		cerr = fzn_node_group_find(n->store.ops, (const char *)name + 1, name_len - 1u,
+		                           contact.key);
 	} else {
 		cerr = fzn_contact_find(n->store.ops, (const char *)name, name_len, &contact);
 	}
@@ -1594,19 +1592,19 @@ static size_t list_shares(fzn_node_notes_t *n, const uint8_t *at, size_t left, c
 		return 0;
 	used = (size_t)m;
 	for (i = from; i < count; i++) {
-		static fzn_group_t group;
 		fzn_contact_t contact;
-		char who[FZN_PUBKEY_LEN * 2u];
-		size_t who_len;
+		char who[FZN_PUBKEY_LEN * 2u], group[FZN_CONTACT_NAME_MAX + 1u];
+		size_t who_len, group_len = 0;
 
 		if (fzn_contact_get(n->store.ops, all[i].contact, &contact) == FZN_CONTACT_OK) {
 			memcpy(who, contact.name, contact.name_len);
 			who_len = contact.name_len;
-		} else if (fzn_group_get(n->store.ops, all[i].contact, &group) == FZN_CONTACT_OK) {
-			/* A GROUP'S ROW, sec 471, as it was named. */
+		} else if (fzn_node_group_name(n->store.ops, all[i].contact, group, &group_len)
+		           == FZN_CONTACT_OK) {
+			/* A GROUP'S ROW, sec 626, as this host names it. */
 			who[0] = '@';
-			memcpy(who + 1, group.name, group.name_len);
-			who_len = 1u + group.name_len;
+			memcpy(who + 1, group, group_len);
+			who_len = 1u + group_len;
 		} else {
 			hex_of(all[i].contact, FZN_PUBKEY_LEN, who);
 			who_len = sizeof(who);
@@ -1958,7 +1956,7 @@ static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender,
                          fzn_notes_sync_scope_t *scope)
 {
 	static uint8_t seeds[FZN_NOTES_SHARES_MAX][FZN_TREE_ID_LEN];
-	static uint8_t groups[FZN_GROUPS_MAX][FZN_PUBKEY_LEN];
+	static uint8_t groups[FZN_GROUPS_HELD_MAX][FZN_PUBKEY_LEN];
 	size_t seed_count = 0, n_groups = 0, g;
 
 	scope->ids = (const uint8_t (*)[FZN_TREE_ID_LEN])reach;
@@ -1969,7 +1967,7 @@ static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender,
 		return;
 	/* AND EVERY GROUP'S IT IS IN, sec 471: a group share is one row under
 	 * the group's id, so membership is read now, at the request. */
-	if (fzn_group_ids_of(n->store.ops, sender, groups, FZN_GROUPS_MAX, &n_groups)
+	if (fzn_node_group_ids_of(n->store.ops, sender, groups, FZN_GROUPS_HELD_MAX, &n_groups)
 	    == FZN_CONTACT_OK)
 		for (g = 0; g < n_groups && seed_count < FZN_NOTES_SHARES_MAX; g++) {
 			size_t more = 0;

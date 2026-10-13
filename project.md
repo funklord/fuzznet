@@ -64727,3 +64727,137 @@ node-local set of contacts that grants name as `@GROUP`).
    setting that turns it off.
 4. **5d, group content**: notes and files shared to a group, their keys
    by epoch.
+
+## 626. Step 5a: a group is its signed log, 2026-10-14
+
+Sec 625's first stage: a group as a hash-chained log of acts signed by its
+members' hosts, kept by every member's hosts, learned by asking. It
+replaces `contact/group.h` (sec 471), whose slot 25 is retired.
+
+### An act
+
+`node/group_act.h`, signed-object tag 150, laid out as
+`node/group_act.situ`: a kind -- create, add, remove, leave, admin add,
+admin remove, approve, set -- the group's id, its place in the log, the
+hash of the act before it, a subject (a user's root, a proposal's hash,
+or for create a random nonce), a setting and value, when it was made, and
+**its signer's proof**: a contact device entry (sec 614), the user's root
+and the root's chain to the signing host for the member capability. So
+any of a user's hosts acts for the user, and the act is judged as of its
+own time, so a log replayed later still reads. **The group's id is the
+hash of its create act.**
+
+### The log
+
+`node/group_log.h` derives the group -- members, admins, settings, epoch
+-- by `fzn_group_apply`, and keeps both: each act under the hash of its
+group's id and its place (slot 52, `FZN_PERSIST_GROUP_ACT`), and the
+group it derives (slot 53, `FZN_PERSIST_GROUP`), both core.
+
+- **Any admin adds or removes a member, or sets a setting.** An admin is
+  removed as a member only once removed as an admin.
+- **A member leaves by an act of their own**; the last admin may not.
+- **The admin set changes by a majority** of the admins: a proposal
+  carries once more than half have proposed or approved it, a proposal
+  made again counting as an approval, and a change of the admin set ends
+  every open proposal.
+- **A fork -- two acts at one place -- keeps the lower hash**, wherever
+  it arrives first; the other's tail goes. Settled with no coordination,
+  so every host ends on the same log.
+- **The epoch** moves with every change of membership, for step 5b.
+- **Bounds**: 256 members, 16 admins, 8 open proposals, 256 groups held.
+
+### This host's names, and the verbs
+
+`node/groups.h`. **A name is this host's** (slot 54,
+`FZN_PERSIST_GROUP_LABEL`, not core), never the log's (sec 516); a group
+learned from another host is named by its id's first 8 bytes in hex. A
+grant names a group `@NAME` as before, and membership is read from the
+log at the request, so a grant to a group reaches its current members.
+The verbs, the node's own user's: `add group NAME`, `remove group NAME`,
+`add member` and `remove member GROUP CONTACT`, `add admin` and `remove
+admin GROUP CONTACT` (a proposal, or an approval of one), `set group GROUP
+backfill 0|1`, `list group`, `get group NAME` (an admin marked `*`).
+
+**`remove group` leaves**, and forgets the group's name and shares here;
+its log stays, unlisted, because the leave is an act others learn by
+asking this host. A group nobody else is in goes whole.
+
+### A fork's loser is made again
+
+The log reports each act a fork drops (`fzn_group_log_ops_t.dropped`),
+the one it lost to first; the daemon makes its own again on the kept
+head after the sync, letting go of any the winner made moot or no longer
+allowed. **Found by the live test, not by design**: C left without A's
+newer admin act, the two acts forked at one place, and when A's hash was
+lower C's leave was dropped and nothing made it again -- half the runs.
+
+### Sync
+
+GROUP_SYNC, type 39: the asker's heads -- id, place, head hash -- of the
+groups it holds that the asked host's user is in; GROUP_ACTS, type 40,
+answers the acts the asker lacks, a group it does not list whole, which is
+how a member's host first learns a group. A head off the answerer's log
+is answered from place 1, so the asker meets the fork where it starts.
+Each round asks every sibling and one host of each contact. Answered to
+this estate's hosts, for every group, and to a contact's hosts for the
+groups its user is in.
+
+### Not yet after sec 626
+
+- **A removed member learns nothing more**, its removal included: acts
+  are served only to members. A leave is its own act, so a leaver knows.
+- **A log is served whole when heads disagree**, from place 1, bounded by
+  one reply: a fork deep in a log longer than a reply does not resolve.
+- **A left group's log is kept for good**, within the 256 held.
+- **Members who are not each other's contacts** learn acts only through
+  a host that knows both; B and C in the live test learn from A.
+- **An act's signer is proved for the member capability**, not a
+  stronger one: fuzzypickles' CAP_PEER_MANAGE has no counterpart yet.
+
+### Found while measuring: a recycled pid read as a daemon left alive
+
+Every live script ended by checking that each daemon it started is gone,
+and took any process at that pid with a command line as alive. With load
+near 150 and `kernel.pid_max` 32768 the pids wrap within a run, and
+live_siblings failed once in two runs on a pid some other process had
+been given. The check now asks whether that process is still this
+fuzznetd (its command line names the binary), in all 18 scripts, a one
+line change each, committed on its own.
+
+### Where step 5 stands, and what is next
+
+**Folded 2026-10-14 at 95 per cent of the weekly window.** 5a is
+committed with every gate passed except the last `make livecheck` re-run,
+which was still running at the fold: the run before it failed only on the
+recycled pid above, before reaching `live_groups.py`, and
+`live_groups.py` passed alone three times. **The next session runs `make
+livecheck` first.** Then, in sec 625's order:
+
+- **5b, epochs**: a secret per epoch sealed to each member's root through
+  step 2's delivery, sender chains derived from it and the sender's root
+  with `ratchet/ratchet.h`, and group lines in `messages/` keyed by the
+  group's id.
+- **5c**: lines delivered to every member's hosts, backfill to a later
+  member, the setting honoured.
+- **5d**: notes and files shared to a group, keys by epoch.
+- The open items above, of which a removed member learning its removal
+  matters most.
+
+### Measured for sec 626
+
+- **`node/test/group_log_test.c`**: the act's encoding and signature, an
+  act claimed for another user refused; who may do what; the admin set
+  by a majority of one, two and three; a fork kept by the lower hash in
+  both arrival orders, the lost tail removed and reported; a gap refused;
+  the log read back.
+- **Sabotage: nine entries** on the act, the log and the verbs; four
+  more re-anchored from the old module and four retired with it. Not yet
+  probed at the fold.
+- **`tool/live_groups.py`, in `make livecheck`**: A, a contact of B and
+  of C, makes a group of the three; B and C learn it from A, A its
+  admin; A makes B an admin; C leaves and A learns it from C.
+  **Control**: with the sync answering nothing, B and C never learn the
+  group.
+- **admin, notes, files and the notebook view** take groups from the
+  log: their tests file groups through `node/test/group_fixture.h`.

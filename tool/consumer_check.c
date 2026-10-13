@@ -158,6 +158,8 @@
 #include <fuzznet/node/contact_devices.h>
 #include <fuzznet/node/contact_card.h>
 #include <fuzznet/node/contact_request.h>
+#include <fuzznet/node/group_act.h>
+#include <fuzznet/node/group_log.h>
 #include <fuzznet/node/state_dir.h>
 #include <fuzznet/node/relay.h>
 #include <fuzznet/node/holdings.h>
@@ -228,7 +230,7 @@
 #include <fuzznet/node/received.h>
 #include <fuzznet/node/members.h>
 #include <fuzznet/contact/contact.h>
-#include <fuzznet/contact/group.h>
+#include <fuzznet/node/groups.h>
 #include <fuzznet/log/rules.h>
 #include <fuzznet/node/notes.h>
 #include <fuzznet/trust/trust.h>
@@ -343,6 +345,8 @@
 #include "node/contact_devices.h"
 #include "node/contact_card.h"
 #include "node/contact_request.h"
+#include "node/group_act.h"
+#include "node/group_log.h"
 #include "node/state_dir.h"
 #include "node/relay.h"
 #include "node/holdings.h"
@@ -406,7 +410,7 @@
 #include "node/received.h"
 #include "node/members.h"
 #include "contact/contact.h"
-#include "contact/group.h"
+#include "node/groups.h"
 #include "log/rules.h"
 #include "node/notes.h"
 #include "trust/trust.h"
@@ -1099,13 +1103,16 @@ int main(void)
 			    != 0u)
 				FAIL(466);
 		}
-		/* A group is found by a name that is a contact's (sec 471), and
-		 * made only under an id drawn for it (sec 516). */
+		/* A group is found by this host's name for it, and its log takes
+		 * nothing from a null (sec 626). */
 		{
-			fzn_group_t g;
+			uint8_t id[FZN_GROUP_ID_LEN];
+			fzn_group_offer_t did;
+			size_t dropped = 0;
 
-			if (fzn_group_find(NULL, "g", 1u, &g) != FZN_CONTACT_ERR_MALFORMED
-			    || fzn_group_add(NULL, NULL, "g", 1u, 0u) != FZN_CONTACT_ERR_MALFORMED)
+			if (fzn_node_group_find(NULL, "g", 1u, id) != FZN_CONTACT_ERR_MALFORMED
+			    || fzn_group_log_offer(NULL, NULL, 0u, &did, &dropped)
+			               != FZN_GROUP_LOG_ERR_MALFORMED)
 				FAIL(478);
 		}
 		/* A rule kept is kept in one spelling (sec 475). */

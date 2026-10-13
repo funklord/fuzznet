@@ -103,6 +103,8 @@
 #include "../../node/contact_devices.h"
 #include "../../node/contact_card.h"
 #include "../../node/contact_request.h"
+#include "../../node/group_act.h"
+#include "../../node/group_log.h"
 #include "../../chunk/erasure.h"
 #include "../../node/holdings.h"
 #include "../../node/reconcile.h"
@@ -273,6 +275,8 @@ static const char *r_contact_request(int v)
 {
 	return fzn_contact_request_err_str((fzn_contact_request_err_t)v);
 }
+static const char *r_group_act(int v) { return fzn_group_act_err_str((fzn_group_act_err_t)v); }
+static const char *r_group_log(int v) { return fzn_group_log_err_str((fzn_group_log_err_t)v); }
 static const char *r_box(int v) { return fzn_box_err_str((fzn_box_err_t)v); }
 static const char *r_contact_card(int v)
 {
@@ -407,6 +411,8 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_contact_card_err_str", r_contact_card, 5 },
 	{ "fzn_box_err_str", r_box, 5 },
 	{ "fzn_contact_request_err_str", r_contact_request, 8 },
+	{ "fzn_group_act_err_str", r_group_act, 4 },
+	{ "fzn_group_log_err_str", r_group_log, 10 },
 	{ "fzn_erasure_err_str", r_erasure, 3 },
 	{ "fzn_reconcile_err_str", r_reconcile, 6 },
 #ifdef FZN_RECORD_STORE_FILE_ON

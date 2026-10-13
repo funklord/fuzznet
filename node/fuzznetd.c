@@ -40,6 +40,7 @@
 #include "routing.h"
 #include "contact_card.h"
 #include "contact_request.h"
+#include "groups.h"
 #include "../session/box.h"
 #include "state_dir.h"
 #include "../contact/contact.h"
@@ -5171,6 +5172,281 @@ static void contact_round(struct pull_target *pulls, size_t npulls, uint64_t now
 	    ndone, from_members, paired, ncontact_targets);
 }
 
+/* ---- groups, sec 626 ------------------------------------------------------- */
+
+/* GROUP_SYNC, in notes-sync's space after the introduction's 38: the
+ * asker's head of each group it holds that the asked host's user is in --
+ * id, place and head hash -- answered with GROUP_ACTS, the acts the asker
+ * lacks, in log order. A group the asker does not list is sent whole: that
+ * is how a member's host first learns a group. */
+#define FZND_GROUP_VERSION 2u
+#define FZND_GROUP_SYNC_TYPE 39u
+#define FZND_GROUP_ACTS_TYPE 40u
+#define FZND_GROUP_ENTRY_LEN (FZN_GROUP_ID_LEN + 4u + 32u)
+/* Heads in one request: a request is one frame. */
+#define FZND_GROUP_SYNC_MAX 12u
+
+static fzn_node_groups_t node_groups;
+
+/* THIS HOST'S OWN ACTS A FORK DROPPED, made again on the kept head once the
+ * sync that dropped them is done: the log is not offered into from inside
+ * an offer. sec 626. */
+#define FZND_GROUP_REDO_MAX 16u
+static struct {
+	uint8_t kind, setting;
+	uint8_t group[FZN_GROUP_ID_LEN];
+	uint8_t subject[FZN_PUBKEY_LEN];
+	uint64_t value;
+} group_redo[FZND_GROUP_REDO_MAX];
+static size_t n_group_redo;
+
+static void group_dropped(void *ctx, const uint8_t *bytes, size_t len)
+{
+	fzn_group_act_t a;
+
+	(void)ctx;
+	if (n_group_redo == FZND_GROUP_REDO_MAX || !contact_id
+	    || fzn_group_act_decode(bytes, len, &a) != FZN_GROUP_ACT_OK
+	    || memcmp(fzn_contact_device_key(&a.signer), contact_id->pubkey, FZN_PUBKEY_LEN) != 0)
+		return;
+	group_redo[n_group_redo].kind = a.kind;
+	group_redo[n_group_redo].setting = a.setting;
+	memcpy(group_redo[n_group_redo].group, a.group, FZN_GROUP_ID_LEN);
+	memcpy(group_redo[n_group_redo].subject, a.subject, FZN_PUBKEY_LEN);
+	group_redo[n_group_redo].value = a.value;
+	n_group_redo++;
+}
+
+/* EACH DROPPED ACT MADE AGAIN, where it still means something: one made
+ * moot or no longer allowed by the act it lost to is let go. */
+static void group_redo_all(void)
+{
+	size_t i, made = 0;
+
+	for (i = 0; i < n_group_redo; i++)
+		made += fzn_node_groups_act(&node_groups, group_redo[i].kind, group_redo[i].group,
+		                            group_redo[i].subject, group_redo[i].setting,
+		                            group_redo[i].value, NULL)
+		        == FZN_GROUP_LOG_OK;
+	if (n_group_redo)
+		say(FZN_ENTRY_INFO, "node/groups", "%zu act(s) of this host's lost a fork, %zu made again",
+		    n_group_redo, made);
+	n_group_redo = 0;
+}
+
+static int groups_signer(void *ctx, fzn_contact_device_t *out)
+{
+	(void)ctx;
+	return contact_id && estate_devices(out, 1u, 0) == 1u;
+}
+
+/* WHOSE `sender` IS, as a group knows a user: this estate's own user for a
+ * member host, a contact's root for a contact's host; 0 for anyone else. */
+static int group_owner_of(const uint8_t *sender, uint8_t owner[FZN_PUBKEY_LEN], int *own)
+{
+	fzn_setting_rank_t rank;
+
+	*own = 0;
+	if (fzn_node_apply_rank(&node_apply, sender, FZN_SCOPE_HOST, sender, &rank) == 1
+	    && estate_owner()) {
+		memcpy(owner, estate_owner(), FZN_PUBKEY_LEN);
+		*own = 1;
+		return 1;
+	}
+	return running_admin && fzn_node_admin_contact_of(running_admin, sender, owner);
+}
+
+/* THE ACTS AN ASKER LACKS of group `id`, from the head it gave -- or
+ * whole -- appended to `reply` as length and bytes while they fit. */
+static size_t group_acts_from(const uint8_t *id, const uint8_t *asked, uint8_t *reply,
+                              size_t at, size_t cap, size_t *count)
+{
+	static fzn_group_t g;
+	static uint8_t act[FZN_GROUP_ACT_MAX];
+	static fzn_group_act_t a;
+	uint8_t hash[32];
+	uint32_t from = 0, s;
+	size_t n = 0;
+
+	if (fzn_group_log_get(node_apply.store, id, &g) != FZN_GROUP_LOG_OK)
+		return at;
+	if (asked) {
+		uint32_t seq = fzn_get_be32(asked + FZN_GROUP_ID_LEN);
+		const uint8_t *head = asked + FZN_GROUP_ID_LEN + 4u;
+
+		if (seq == g.seq && memcmp(head, g.head, 32u) == 0)
+			return at;
+		/* ON THIS LOG, the acts after it; off it, all but the create act,
+		 * so the asker meets the fork where it starts. */
+		from = 1u;
+		if (seq >= 1u && seq <= g.seq
+		    && fzn_group_log_act(&node_groups.log, id, seq - 1u, act, sizeof(act), &n)
+		               == FZN_GROUP_LOG_OK
+		    && fzn_group_act_decode(act, n, &a) == FZN_GROUP_ACT_OK
+		    && fzn_group_act_hash(&a, node_groups.log.hash, hash) == FZN_GROUP_ACT_OK
+		    && memcmp(hash, head, 32u) == 0)
+			from = seq;
+	}
+	for (s = from; s < g.seq; s++) {
+		if (fzn_group_log_act(&node_groups.log, id, s, act, sizeof(act), &n) != FZN_GROUP_LOG_OK
+		    || at + 2u + n > cap)
+			break;
+		fzn_put_be16(reply + at, (uint16_t)n);
+		memcpy(reply + at + 2u, act, n);
+		at += 2u + n;
+		(*count)++;
+	}
+	return at;
+}
+
+/* GROUP_SYNC ANSWERED: the acts of every group held that the asker's user
+ * is in -- every group, for this estate's own hosts. */
+static size_t group_sync_remote(const uint8_t *sender, const uint8_t *request,
+                                size_t request_len, uint8_t *reply, size_t reply_cap)
+{
+	static uint8_t ids[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+	static fzn_group_t g;
+	uint8_t owner[FZN_PUBKEY_LEN];
+	size_t n = 0, i, k, entries, at = 4u, count = 0;
+	size_t cap = reply_cap < FZND_PULL_REPLY_MAX ? reply_cap : FZND_PULL_REPLY_MAX;
+	int own;
+
+	if (request_len < 3u
+	    || request_len != 3u + (size_t)request[2] * FZND_GROUP_ENTRY_LEN || request[2] > FZND_GROUP_SYNC_MAX)
+		return (size_t)snprintf((char *)reply, reply_cap, "malformed a group sync\n");
+	if (!node_apply.store || !node_groups.log.store || !group_owner_of(sender, owner, &own))
+		return (size_t)snprintf((char *)reply, reply_cap, "denied groups only to members\n");
+	entries = request[2];
+	if (cap < 4u
+	    || fzn_group_log_list(node_apply.store, ids, FZN_GROUPS_HELD_MAX, &n) != FZN_GROUP_LOG_OK)
+		return (size_t)snprintf((char *)reply, reply_cap, "error the groups did not read\n");
+	for (i = 0; i < n; i++) {
+		const uint8_t *asked = NULL;
+
+		if (fzn_group_log_get(node_apply.store, ids[i], &g) != FZN_GROUP_LOG_OK
+		    || (!own && !fzn_group_is_member(&g, owner)))
+			continue;
+		for (k = 0; k < entries && !asked; k++)
+			if (memcmp(request + 3u + k * FZND_GROUP_ENTRY_LEN, ids[i], FZN_GROUP_ID_LEN) == 0)
+				asked = request + 3u + k * FZND_GROUP_ENTRY_LEN;
+		at = group_acts_from(ids[i], asked, reply, at, cap, &count);
+	}
+	reply[0] = FZND_GROUP_VERSION;
+	reply[1] = FZND_GROUP_ACTS_TYPE;
+	fzn_put_be16(reply + 2, (uint16_t)count);
+	return at;
+}
+
+/* A GROUP LEARNED FROM ANOTHER HOST is named here by its id's first 8
+ * bytes in hex, until its user renames it. */
+static void group_named(const uint8_t *id)
+{
+	char name[FZN_CONTACT_NAME_MAX + 1u];
+	size_t len = 0, i;
+
+	if (fzn_node_group_name(node_apply.store, id, name, &len) == FZN_CONTACT_OK)
+		return;
+	for (i = 0; i < 8u; i++)
+		(void)snprintf(name + 2u * i, 3u, "%02x", id[i]);
+	(void)fzn_node_group_rename(node_apply.store, id, name, 16u);
+}
+
+/* ASK ONE HOST of user `owner` -- this estate's own when `own` -- for the
+ * acts of the groups it and this host share, and take what comes. */
+static size_t group_sync_with(struct pull_target *pt, const char *host, const uint8_t *owner,
+                              int own, uint64_t now)
+{
+	static uint8_t ids[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+	static uint8_t reply[FZND_PULL_REPLY_MAX];
+	static fzn_group_t g;
+	uint8_t request[3u + FZND_GROUP_SYNC_MAX * FZND_GROUP_ENTRY_LEN];
+	struct peer_asking asking = { &pt->caller, now, host };
+	size_t n = 0, i = 0, taken = 0;
+
+	if (fzn_group_log_list(node_apply.store, ids, FZN_GROUPS_HELD_MAX, &n) != FZN_GROUP_LOG_OK)
+		return 0;
+	/* IN REQUESTS OF A DOZEN HEADS, and one with none when nothing is
+	 * held yet -- the asked host still sends what this user is in. */
+	do {
+		size_t entries = 0, len = 0, at, count, k;
+
+		for (; i < n && entries < FZND_GROUP_SYNC_MAX; i++) {
+			uint8_t *e = request + 3u + entries * FZND_GROUP_ENTRY_LEN;
+
+			if (fzn_group_log_get(node_apply.store, ids[i], &g) != FZN_GROUP_LOG_OK
+			    || (!own && !fzn_group_is_member(&g, owner)))
+				continue;
+			memcpy(e, g.id, FZN_GROUP_ID_LEN);
+			fzn_put_be32(e + FZN_GROUP_ID_LEN, g.seq);
+			memcpy(e + FZN_GROUP_ID_LEN + 4u, g.head, 32u);
+			entries++;
+		}
+		request[0] = FZND_GROUP_VERSION;
+		request[1] = FZND_GROUP_SYNC_TYPE;
+		request[2] = (uint8_t)entries;
+		if (!peer_ask(&asking, request, 3u + entries * FZND_GROUP_ENTRY_LEN, reply,
+		              sizeof(reply), &len)
+		    || len < 4u || reply[0] != FZND_GROUP_VERSION || reply[1] != FZND_GROUP_ACTS_TYPE)
+			return taken;
+		count = fzn_get_be16(reply + 2);
+		for (k = 0, at = 4u; k < count && at + 2u <= len; k++) {
+			size_t act_len = fzn_get_be16(reply + at);
+			fzn_group_offer_t did;
+			size_t dropped = 0;
+			fzn_group_act_t a;
+			uint8_t id[FZN_GROUP_ID_LEN];
+
+			if (at + 2u + act_len > len)
+				break;
+			if (fzn_group_log_offer(&node_groups.log, reply + at + 2u, act_len, &did, &dropped)
+			            == FZN_GROUP_LOG_OK
+			    && (did == FZN_GROUP_OFFER_TAKEN || did == FZN_GROUP_OFFER_REPLACED)) {
+				taken++;
+				if (fzn_group_act_decode(reply + at + 2u, act_len, &a) == FZN_GROUP_ACT_OK) {
+					if (a.kind == FZN_GROUP_ACT_CREATE)
+						(void)fzn_group_act_hash(&a, node_groups.log.hash, id);
+					else
+						memcpy(id, a.group, FZN_GROUP_ID_LEN);
+					group_named(id);
+				}
+				if (did == FZN_GROUP_OFFER_REPLACED)
+					say(FZN_ENTRY_INFO, "node/groups",
+					    "a group's log forked; the lower act kept, %zu act(s) dropped",
+					    dropped);
+			}
+			at += 2u + act_len;
+		}
+	} while (i < n);
+	return taken;
+}
+
+/* THE GROUPS ROUND, sec 626: every sibling, and one host of each contact
+ * who is in a group held here, asked for what it has. */
+static void group_round(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	uint8_t done[FZND_CONTACT_TARGETS_MAX][FZN_PUBKEY_LEN];
+	size_t ndone = 0, i, k, taken = 0;
+
+	if (!running_admin || !contact_id || !node_apply.store || !node_groups.log.store)
+		return;
+	for (i = 0; i < npulls; i++)
+		if (!silent_peer(&pulls[i]) && peer_in_estate(&pulls[i]))
+			taken += group_sync_with(&pulls[i], pulls[i].host, estate_owner(), 1, now);
+	for (i = 0; i < ncontact_targets; i++) {
+		struct contact_target *ct = &contact_targets[i];
+
+		for (k = 0; k < ndone && memcmp(done[k], ct->contact, FZN_PUBKEY_LEN) != 0; k++)
+			;
+		if (k < ndone || ct->down || ct->pt.fd < 0)
+			continue;
+		taken += group_sync_with(&ct->pt, ct->host, ct->contact, 0, now);
+		memcpy(done[ndone++], ct->contact, FZN_PUBKEY_LEN);
+	}
+	group_redo_all();
+	if (taken)
+		say(FZN_ENTRY_INFO, "node/groups", "group pass: %zu act(s) taken", taken);
+}
+
 /* ---- relaying, sec 622 ------------------------------------------------------- */
 
 /* THE TYPES, in notes-sync's space after settlement's 34: RELAY carries a
@@ -5271,6 +5547,9 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 	size_t inner_len;
 
 	(void)ctx;
+	if (request_len >= 2u && request[0] == FZND_GROUP_VERSION
+	    && request[1] == FZND_GROUP_SYNC_TYPE)
+		return group_sync_remote(sender, request, request_len, reply, reply_cap);
 	if (request_len >= 2u && request[0] == FZND_RELAY_VERSION
 	    && (request[1] == FZND_INTRODUCE_TYPE || request[1] == FZND_NOTIFY_TYPE))
 		return introduce_remote(sender, request, request_len, reply, reply_cap);
@@ -7531,6 +7810,20 @@ int main(int argc, char **argv)
 			state.relay = &relay_tables;
 			/* A LAN PROBE, sec 624. */
 			state.on_probe = lan_probe_heard;
+			/* GROUPS, sec 626. */
+			node_groups.log.store = node_apply.store;
+			node_groups.log.hash = &hash_ops;
+			node_groups.log.sign = &sign_ops;
+			node_groups.log.member = node_apply.capability;
+			node_groups.host_sign = &sign_ops;
+			node_groups.signer = groups_signer;
+			node_groups.rng = &rng_ops;
+			node_groups.clock = wall_clock;
+			node_groups.forget = fzn_node_admin_group_forget;
+			node_groups.forget_ctx = &admin;
+			node_groups.log.dropped = group_dropped;
+			if (node_groups.log.store && node_groups.log.member)
+				admin.groups = &node_groups;
 			/* A STRANGER'S CONTACT REQUEST, sec 619. */
 			state.on_box = contact_box;
 			routing_self = identity.pubkey;
@@ -7873,6 +8166,7 @@ int main(int argc, char **argv)
 				pull_notes(pulls, npulls, now, &state, running, running_roots);
 				pull_received(now);
 				contact_round(pulls, npulls, now);
+				group_round(pulls, npulls, now);
 				send_asked();
 				deliver_contacts(now);
 				history_trim();

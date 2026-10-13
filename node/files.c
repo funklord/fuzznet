@@ -6,7 +6,7 @@
 
 #include "../blob/levels.h"
 #include "../contact/contact.h"
-#include "../contact/group.h"
+#include "groups.h"
 #include "../constant_time/constant_time.h"
 #include "../spool/plan.h"
 #include "../spool/transfer.h"
@@ -1491,7 +1491,7 @@ int fzn_node_files_shared_with(const fzn_node_files_t *files,
                                const uint8_t sender[FZN_PUBKEY_LEN])
 {
 	static uint8_t grantees[FZN_NODE_FILES_SHARES_MAX][FZN_PUBKEY_LEN];
-	static uint8_t groups[FZN_GROUPS_MAX][FZN_PUBKEY_LEN];
+	static uint8_t groups[FZN_GROUPS_HELD_MAX][FZN_PUBKEY_LEN];
 	size_t n = 0, n_groups = 0, i, j;
 
 	if (!files || !root || !sender
@@ -1505,7 +1505,7 @@ int fzn_node_files_shared_with(const fzn_node_files_t *files,
 		    || memcmp(grantees[i], sender, FZN_PUBKEY_LEN) == 0)
 			return 1;
 	/* AND EVERY GROUP IT IS IN, read now, at the request. */
-	if (fzn_group_ids_of(files->store, sender, groups, FZN_GROUPS_MAX, &n_groups)
+	if (fzn_node_group_ids_of(files->store, sender, groups, FZN_GROUPS_HELD_MAX, &n_groups)
 	    != FZN_CONTACT_OK)
 		return 0;
 	for (i = 0; i < n; i++)
@@ -1793,13 +1793,11 @@ static size_t change_share(fzn_node_files_t *files, fzn_verb_t verb, const uint8
 		    && from_hex(word, word_len, grantee, sizeof(grantee))) {
 			/* The grantee as given. */
 		} else if (word_len > 1u && word[0] == '@') {
-			static fzn_group_t group;
-			fzn_contact_err_t cerr =
-			        fzn_group_find(files->store, (const char *)word + 1, word_len - 1u, &group);
+			fzn_contact_err_t cerr = fzn_node_group_find(
+			        files->store, (const char *)word + 1, word_len - 1u, grantee);
 
 			if (cerr != FZN_CONTACT_OK)
 				return answer(reply, cap, FZN_REPLY_ERROR, fzn_contact_err_str(cerr));
-			memcpy(grantee, group.id, sizeof(grantee));
 		} else {
 			fzn_contact_t contact;
 			fzn_contact_err_t cerr =

@@ -64,8 +64,6 @@ static QString slot_label(fzn_persist_slot_t slot)
 		return QStringLiteral("shared note");
 	case FZN_PERSIST_RECEIVED_SHARE:
 		return QStringLiteral("received share");
-	case FZN_PERSIST_CONTACT_GROUP:
-		return QStringLiteral("contact group");
 	case FZN_PERSIST_LOG_RULE:
 		return QStringLiteral("log rule");
 	case FZN_PERSIST_ADMIN_RETENTION:
@@ -118,6 +116,12 @@ static QString slot_label(fzn_persist_slot_t slot)
 		return QStringLiteral("contact request");
 	case FZN_PERSIST_CONTACT_ASKED:
 		return QStringLiteral("contact asked");
+	case FZN_PERSIST_GROUP_ACT:
+		return QStringLiteral("group act");
+	case FZN_PERSIST_GROUP:
+		return QStringLiteral("group");
+	case FZN_PERSIST_GROUP_LABEL:
+		return QStringLiteral("group label");
 	}
 	/* NO `default:` ABOVE, so a slot added to persist.h draws a -Wswitch
 	 * warning here -- once, in the build after persist.h changes, and not

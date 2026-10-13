@@ -1,0 +1,27 @@
+# situ capability map v1
+# schema: group_act.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct fzn_group_act size=186..65721 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  fzn_group_act.version                  offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_group_act.tag                      offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_group_act.kind                     offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_group_act.seq                      offset=AbsoluteStatic(0x03) size=Fixed(4) align=Aligned(1) repr=ValueConverted atomic=NonAtomic
+  fzn_group_act.group                    offset=AbsoluteStatic(0x07) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  fzn_group_act.prev                     offset=AbsoluteStatic(0x27) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  fzn_group_act.subject                  offset=AbsoluteStatic(0x47) size=Fixed(32) align=Aligned(1) repr=MemoryIdentical atomic=NonAtomic
+  fzn_group_act.setting                  offset=AbsoluteStatic(0x67) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_group_act.value                    offset=AbsoluteStatic(0x68) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_group_act.at                       offset=AbsoluteStatic(0x70) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_group_act.signer_len               offset=AbsoluteStatic(0x78) size=Fixed(2) align=Aligned(8) repr=ValueConverted atomic=AtomicWord
+  fzn_group_act.signer                   offset=AbsoluteStatic(0x7A) size=Bounded(0, 65535) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_group_act.sig                      offset=Dynamic size=Fixed(64) align=Unaligned repr=MemoryIdentical atomic=NonAtomic address=Unstable

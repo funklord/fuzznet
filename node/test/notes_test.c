@@ -13,7 +13,7 @@
 #include "../../notes/author.h"
 #include "../journal.h"
 #include "../../contact/contact.h"
-#include "../../contact/group.h"
+#include "group_fixture.h"
 #include "../../notes/received.h"
 #include "../../notes/text.h"
 #include "../../notes/test/blob_stub.h"
@@ -707,9 +707,7 @@ static void test_group_share(void)
 	memset(dave, 0xd4, sizeof(dave));
 	CHECK(fzn_contact_add(&OPS, carol, "carol", 5u, 1u) == FZN_CONTACT_OK
 	              && fzn_contact_add(&OPS, dave, "dave", 4u, 1u) == FZN_CONTACT_OK
-	              && fzn_group_add(&OPS, &RNG, "family", 6u, 1u) == FZN_CONTACT_OK
-	              && fzn_group_join(&OPS, "family", 6u, carol) == FZN_CONTACT_OK
-	              && fzn_group_find(&OPS, "family", 6u, &family) == FZN_CONTACT_OK,
+	              && group_make(&OPS, "family", 0x6fu, &family) && group_join(&OPS, &family, carol),
 	      "fixture: carol in the group family, dave in none");
 	CHECK(ask("add folder top shared") == FZN_REPLY_OK, "fixture: a folder");
 	take_id(f);
@@ -726,18 +724,15 @@ static void test_group_share(void)
 	CHECK(indexed(carol, 1) == 2, "a member is offered the folder and its note");
 	CHECK(indexed(dave, 1) == 0, "a contact in no group is offered nothing");
 
-	CHECK(fzn_group_join(&OPS, "family", 6u, dave) == FZN_CONTACT_OK
-	              && indexed(dave, 1) == 2,
+	CHECK(group_join(&OPS, &family, dave) && indexed(dave, 1) == 2,
 	      "a member added is served at once");
-	CHECK(fzn_group_leave(&OPS, "family", 6u, carol) == FZN_CONTACT_OK
-	              && indexed(carol, 1) == 0,
+	CHECK(group_leave(&OPS, &family, carol) && indexed(carol, 1) == 0,
 	      "and one who leaves is served nothing at once");
 
 	snprintf(line, sizeof(line), "add share %s carol", f);
 	CHECK(ask(line) == FZN_REPLY_OK && indexed(carol, 1) == 2,
 	      "a contact's own share and a group's are separate rows");
-	CHECK(fzn_group_remove(&OPS, "family", 6u) == FZN_CONTACT_OK
-	              && indexed(dave, 1) == 0,
+	CHECK(group_drop(&OPS, &family) && indexed(dave, 1) == 0,
 	      "a group removed reaches nobody");
 	/* BY ITS ID, sec 516: the name is gone with the group, and is no
 	 * identity to work one out from. */

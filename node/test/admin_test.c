@@ -12,7 +12,7 @@
 
 #include "../../log/cause.h"
 #include "../../notes/share.h"
-#include "../../contact/group.h"
+#include "../groups.h"
 #include "../admin.h"
 #include "../roots.h"
 #include "../journal.h"
@@ -210,6 +210,18 @@ static int node_up(struct node *n)
 static uint64_t fixed_clock(void)
 {
 	return 2000u;
+}
+
+/* THIS NODE'S PROOF as a host of its user, for a group act: it is its own
+ * root, so its prekey record and no chain. sec 626. */
+static int group_signer(void *ctx, fzn_contact_device_t *out)
+{
+	const struct node *n = ctx;
+
+	memset(out, 0, sizeof(*out));
+	memcpy(out->owner, n->id.pubkey, FZN_PUBKEY_LEN);
+	memcpy(out->record, n->id.prekey_record, FZN_PREKEY_LEN_TOTAL);
+	return 1;
 }
 
 /* ---- the node's journal, sec 508: the act log its roots keep --------- */
@@ -1295,17 +1307,35 @@ int main(void)
 		      "a removed contact was still listed");
 	}
 
-	/* ---- GROUPS OF CONTACTS, sec 471: the verbs, the node's user only. */
+	/* ---- GROUPS, sec 626: the verbs, the node's user only. The node acts
+	 * as its own user, its root its own host. */
 	{
 		const fzn_hash_ops_t *was = state.hash;
-		char key_hex[(FZN_PUBKEY_LEN * 2u) + 1u];
+		char key_hex[(FZN_PUBKEY_LEN * 2u) + 1u], owner_hex[(FZN_PUBKEY_LEN * 2u) + 1u];
+		static fzn_node_groups_t groups;
+		static fzn_cap_id_t any_member;
 		size_t k;
 
-		for (k = 0; k < FZN_PUBKEY_LEN; k++)
+		for (k = 0; k < FZN_PUBKEY_LEN; k++) {
 			snprintf(key_hex + (2u * k), 3u, "%02x", (unsigned)(0x60u + k));
+			snprintf(owner_hex + (2u * k), 3u, "%02x", node.id.pubkey[k]);
+		}
 		CHECK(ask(&admin, &owner, "add group family", reply, sizeof(reply), &reply_len)
-		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR,
-		      "a node with no hash made a group");
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) != FZN_REPLY_OK,
+		      "a node keeping no groups made one");
+		memset(&any_member, 0x4d, sizeof(any_member));
+		groups.log.store = admin.store;
+		groups.log.hash = &hash_ops;
+		groups.log.sign = &node.sign;
+		groups.log.member = &any_member;
+		groups.host_sign = &node.sign;
+		groups.signer = group_signer;
+		groups.signer_ctx = &node;
+		groups.rng = &rng_ops;
+		groups.clock = fixed_clock;
+		groups.forget = fzn_node_admin_group_forget;
+		groups.forget_ctx = &admin;
+		admin.groups = &groups;
 		state.hash = &hash_ops;
 		snprintf(line, sizeof(line), "add contact erin %s", key_hex);
 		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
@@ -1334,10 +1364,12 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && ask(&admin, &owner, "get group family", reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
-		              && detail_len == 6u && says(detail, detail_len, "1 erin")
+		              && detail_len == 1u + 1u + 1u + 64u + 5u && says(detail, detail_len, "2 *")
+		              && memcmp(detail + 3, owner_hex, 64u) == 0
+		              && memcmp(detail + 67, " erin", 5u) == 0
 		              && ask(&admin, &owner, "list group", reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
-		              && says(detail, detail_len, "1 0 family,1"),
+		              && says(detail, detail_len, "1 0 family,2"),
 		      "erin did not join, or the group did not read back with her");
 		CHECK(ask(&admin, &member, "get group family", reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_DENIED,
@@ -1351,7 +1383,6 @@ int main(void)
 		/* ITS SHARES GO WITH IT, sec 478: made again under the name, the
 		 * group inherits nothing. Another contact's share stays. */
 		{
-			static fzn_group_t family;
 			fzn_notes_store_t notes;
 			uint8_t gid[FZN_PUBKEY_LEN], other[FZN_PUBKEY_LEN], sub[FZN_TREE_ID_LEN];
 			uint8_t seen[4][FZN_TREE_ID_LEN];
@@ -1360,8 +1391,7 @@ int main(void)
 			memset(other, 0x6e, sizeof(other));
 			memset(sub, 0x51, sizeof(sub));
 			CHECK(fzn_notes_store_init(&notes, admin.store, &hash_ops) == FZN_NOTES_OK
-			              && fzn_group_find(admin.store, "family", 6u, &family) == FZN_CONTACT_OK
-			              && memcpy(gid, family.id, sizeof(gid)) != NULL
+			              && fzn_node_group_find(admin.store, "family", 6u, gid) == FZN_CONTACT_OK
 			              && fzn_notes_share_add(&notes, sub, gid, 1u) == FZN_NOTES_OK
 			              && fzn_notes_share_add(&notes, sub, other, 1u) == FZN_NOTES_OK,
 			      "fixture: a subtree shared with the group and with another contact");
@@ -1386,6 +1416,7 @@ int main(void)
 		}
 		CHECK(ask(&admin, &owner, "remove contact erin", reply, sizeof(reply), &reply_len),
 		      "fixture: erin forgotten");
+		admin.groups = NULL;
 		state.hash = was;
 	}
 

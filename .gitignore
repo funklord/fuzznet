@@ -252,6 +252,7 @@ __pycache__/
 /node/test/contact_devices_test
 /node/test/contact_card_test
 /node/test/contact_request_test
+/node/test/group_log_test
 /node/test/state_dir_test
 /node/test/relay_test
 /node/test/identity_test

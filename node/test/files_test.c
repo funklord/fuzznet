@@ -15,7 +15,7 @@
 
 #include "../files.h"
 #include "../../contact/contact.h"
-#include "../../contact/group.h"
+#include "group_fixture.h"
 
 #include <dirent.h>
 #include <fcntl.h>
@@ -908,9 +908,8 @@ int main(void)
 		                                              == FZN_NODE_FILES_OK
 		              && fzn_contact_add(&STORE, bob, "bob", 3u, 1u) == FZN_CONTACT_OK
 		              && fzn_contact_add(&STORE, carol, "carol", 5u, 1u) == FZN_CONTACT_OK
-		              && fzn_group_add(&STORE, &RNG, "fam", 3u, 1u) == FZN_CONTACT_OK
-		              && fzn_group_join(&STORE, "fam", 3u, carol) == FZN_CONTACT_OK
-		              && fzn_group_find(&STORE, "fam", 3u, &fam_group) == FZN_CONTACT_OK
+		              && group_make(&STORE, "fam", 0xfau, &fam_group)
+		              && group_join(&STORE, &fam_group, carol)
 		              && memcpy(fam, fam_group.id, sizeof(fam)) != NULL
 		              && fzn_msg_have_query_encode(t.root, q, sizeof(q), &qlen) == FZN_MSG_OK,
 		      "fixture: a file, bob, carol in the group fam, and a question for the file");

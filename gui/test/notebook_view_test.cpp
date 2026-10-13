@@ -15,7 +15,7 @@
 extern "C" {
 #include "../../node/notes.h"
 #include "../../contact/contact.h"
-#include "../../contact/group.h"
+#include "../../node/test/group_fixture.h"
 #include "../../notes/received.h"
 #include "../../notes/text.h"
 #include "../../notes/test/blob_stub.h"
@@ -248,16 +248,21 @@ static size_t list_contacts(char *reply, size_t cap)
 /* `list group`, as admin answers it. */
 static size_t list_groups(char *reply, size_t cap)
 {
-	static fzn_group_t all[FZN_GROUPS_MAX];
-	size_t count = 0, i, used;
+	static uint8_t ids[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+	static fzn_group_t held;
+	size_t count = 0, i, used, name_len = 0;
+	char name[FZN_CONTACT_NAME_MAX + 1u];
 	int n;
 
-	if (fzn_group_list(&OPS, all, FZN_GROUPS_MAX, &count) != FZN_CONTACT_OK)
+	if (fzn_group_log_list(&OPS, ids, FZN_GROUPS_HELD_MAX, &count) != FZN_GROUP_LOG_OK)
 		return 0;
 	n = snprintf(reply, cap, "ok %zu 0", count);
 	used = n > 0 ? (size_t)n : 0u;
 	for (i = 0; i < count && used < cap; i++) {
-		n = snprintf(reply + used, cap - used, " %s,%zu", all[i].name, all[i].count);
+		if (fzn_group_log_get(&OPS, ids[i], &held) != FZN_GROUP_LOG_OK
+		    || fzn_node_group_name(&OPS, ids[i], name, &name_len) != FZN_CONTACT_OK)
+			continue;
+		n = snprintf(reply + used, cap - used, " %s,%zu", name, held.n_members);
 		used += n > 0 ? (size_t)n : 0u;
 	}
 	if (used + 1u < cap)
@@ -471,10 +476,11 @@ static void test_sharing_is_warned_before_and_said_after(void)
 	              && log.last().contains(QStringLiteral("stays with them")),
 	      "unshared, and told again what stays");
 
-	/* A GROUP, sec 471: offered as `@NAME` beside the contacts. And a
+	/* A GROUP, sec 626: offered as `@NAME` beside the contacts. And a
 	 * contact the roster marks suspended, sec 489, not offered at all. */
 	memset(carol, 0x9e, sizeof(carol));
-	CHECK(fzn_group_add(&OPS, &RNG, "family", 6u, 1u) == FZN_CONTACT_OK
+	static fzn_group_t family;
+	CHECK(group_make(&OPS, "family", 0x6fu, &family)
 	              && fzn_contact_add(&OPS, carol, "gone", 4u, 1u) == FZN_CONTACT_OK,
 	      "fixture: the group family, and the suspended contact gone");
 	CHECK(w.open_note(note)

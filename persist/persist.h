@@ -223,9 +223,9 @@ typedef enum fzn_persist_slot {
 	/* Per sharer: a share this node accepted, and the address its
 	 * sharer's node is pulled from. `node/received.h` keeps it. sec 437. */
 	FZN_PERSIST_RECEIVED_SHARE = 24u,
-	/* Per group id: a group of contacts, its name and its members' keys.
-	 * `contact/group.h` keeps it. sec 471. */
-	FZN_PERSIST_CONTACT_GROUP = 25u,
+	/* 25 IS RETIRED, sec 626, and not to be reused: it held a group of
+	 * contacts (sec 471), a local list a grant could name. A group is its
+	 * signed log now, in 52 and 53, and its local name in 54. */
 	/* Per rule: a retention rule set while the node runs, filed under a
 	 * hash of its canonical text. `log/rules.h` keeps it. sec 475. */
 	FZN_PERSIST_LOG_RULE = 26u,
@@ -339,13 +339,25 @@ typedef enum fzn_persist_slot {
 	 * and the card it was sent on, sent again until it is answered. Not
 	 * core: lost, it is asked again. `node/contact_request.h`. sec 619. */
 	FZN_PERSIST_CONTACT_ASKED = 51u,
+	/* Per act, keyed by the hash of its group's id and its place: one act
+	 * of a group's log. CORE: a log rolled back is a removed member
+	 * readmitted. `node/group_log.h` keeps it. sec 626. */
+	FZN_PERSIST_GROUP_ACT = 52u,
+	/* Per group, keyed by its id: the group its log says -- members,
+	 * admins, settings, epoch -- so it is read without a replay. CORE, for
+	 * the log's reason. `node/group_log.h`. sec 626. */
+	FZN_PERSIST_GROUP = 53u,
+	/* Per group, keyed by its id: this host's name for it, `@NAME` in a
+	 * grant. A name is presentation (sec 516), never in the log. Not
+	 * core: lost, the group is still there, named by its id. sec 626. */
+	FZN_PERSIST_GROUP_LABEL = 54u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 52u
+#define FZN_PERSIST_SLOT_END 55u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,
@@ -392,7 +404,7 @@ typedef enum fzn_persist_err {
 #define FZN_PERSIST_BLOB_NOTE_SHARE 22u
 #define FZN_PERSIST_BLOB_SHARED_NOTE 23u
 #define FZN_PERSIST_BLOB_RECEIVED_SHARE 24u
-#define FZN_PERSIST_BLOB_CONTACT_GROUP 25u
+/* 25 is retired with the groups of contacts, sec 626, and not reused. */
 #define FZN_PERSIST_BLOB_LOG_RULE 26u
 /* A root's setting of one estate retention rule, in slot 13 beside the root
  * changes and the settings of k. `node/roots.c` keeps it. sec 476. */
@@ -568,10 +580,9 @@ typedef struct fzn_persist_ops {
  * streams for good, so a mark rolled back is a purged note filed again from
  * history the next time the index is fed: a deletion undone.
  *
- * CORE: CONTACT_GROUP (sec 471), named rather than left to the default.
- * Membership decides which contacts a group share reaches, so a group
- * rolled back re-admits a member removed from it -- a door, as a share row
- * is.
+ * CORE: GROUP_ACT and GROUP (sec 626), by the default. Membership decides
+ * which users a group share reaches, so a group rolled back re-admits a
+ * member removed from it -- a door, as a share row is.
  *
  * A SLOT THIS DOES NOT NAME IS CORE. A slot added later without a decision
  * about it lands where losing it costs the least, which is the guarded

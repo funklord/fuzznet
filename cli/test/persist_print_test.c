@@ -133,7 +133,6 @@ int main(void)
 			                        FZN_PERSIST_NOTE_SHARE,
 			                        FZN_PERSIST_SHARED_NOTE,
 			                        FZN_PERSIST_RECEIVED_SHARE,
-			                        FZN_PERSIST_CONTACT_GROUP,
 			                        FZN_PERSIST_LOG_RULE,
 			                        FZN_PERSIST_ADMIN_RETENTION };
 #define SLOTS (sizeof(slots) / sizeof(slots[0]))
