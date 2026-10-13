@@ -6085,7 +6085,8 @@ QUIRC_DIR      ?= $(QUIRC_VENDORED)
 # tool/live_shares.py, tool/live_siblings.py, tool/live_history.py,
 # tool/live_archive.py, tool/live_events.py, tool/live_deliver.py,
 # tool/live_contacts.py, tool/live_pairing.py, tool/live_identity.py,
-# tool/live_relay.py, tool/live_introduce.py and tool/live_erasure.py bound
+# tool/live_relay.py, tool/live_introduce.py, tool/live_lan.py and
+# tool/live_erasure.py bound
 # themselves: one
 # deadline, each daemon in its own process group, scratch removed. Six hosts
 # going round in turn take live_erasure.py past the others' 240 s, so its own
@@ -6111,6 +6112,7 @@ else
 	@timeout 200 python3 tool/live_identity.py $(FUZZNETD)
 	@timeout 540 python3 tool/live_relay.py $(FUZZNETD)
 	@timeout 540 python3 tool/live_introduce.py $(FUZZNETD)
+	@timeout 540 python3 tool/live_lan.py $(FUZZNETD)
 	@$(if $(LOG_PACK_ON),timeout 600 python3 tool/live_erasure.py $(FUZZNETD),echo \
 	  "livecheck: erasure SKIPPED -- this build does not pack logs")
 endif

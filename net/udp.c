@@ -239,3 +239,13 @@ fzn_udp_err_t fzn_udp_addr_text(const fzn_udp_addr_t *addr, char host[FZN_UDP_HO
 	}
 	return FZN_UDP_ERR_ADDR;
 }
+
+fzn_udp_err_t fzn_udp_broadcast(int fd)
+{
+	int on = 1;
+
+	if (fd < 0)
+		return FZN_UDP_ERR_MALFORMED;
+	return setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &on, sizeof(on)) == 0 ? FZN_UDP_OK
+	                                                                      : FZN_UDP_ERR_SYSTEM;
+}

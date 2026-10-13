@@ -324,6 +324,8 @@ static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, c
 static size_t identity_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                              size_t cap);
 static size_t address_local(const fzn_request_t *request, char *reply, size_t cap);
+/* `fetch lan` asked, sec 624: probes sent at the loop's next turn. */
+static int lan_due;
 
 static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
                            const fzn_peer_t *peer, const fzn_request_t *request, char *reply,
@@ -3742,6 +3744,9 @@ static size_t n_sibling_targets;
 
 /* ---- introductions, sec 623 ------------------------------------------------ */
 
+static fzn_node_relay_t relay_tables;
+#define FZND_RELAY_SEEN_S 300u
+
 /* A SIBLING'S SOCKET, KEPT ACROSS ROUNDS: a hole a NAT opens is opened for
  * one socket, and a sibling reached through an introduction is reached on
  * the socket the introduction was made from. Rebuilt targets reuse it. */
@@ -3904,6 +3909,31 @@ static void introduce_siblings(struct pull_target *pulls, size_t npulls_base, si
 
 		if (!in || !in->due)
 			continue;
+		/* A HELLO ALREADY HEARD FROM IT, sec 624 -- a LAN probe answered,
+		 * or its own hellos to this host -- needs nobody to introduce it. */
+		{
+			fzn_udp_addr_t at;
+			uint64_t when = 0;
+			char seen[FZN_UDP_HOST_MAX];
+			uint16_t seen_port = 0;
+
+			if (fzn_node_relay_where(&relay_tables, pt->node, &at, &when)
+			    && when + FZND_RELAY_SEEN_S >= now
+			    && fzn_udp_addr_text(&at, seen, &seen_port) == FZN_UDP_OK) {
+				in->due = 0;
+				(void)snprintf(in->host, sizeof(in->host), "%s", seen);
+				in->port = seen_port;
+				in->until = now + FZND_INTRO_S;
+				(void)snprintf((char *)sibling_hosts[i - npulls_base],
+				               sizeof(sibling_hosts[i - npulls_base]), "%s", seen);
+				pt->port = (long)seen_port;
+				pt->caller.node = at;
+				(void)fzn_caller_hello(&pt->caller, pt->fd, now + 60u);
+				say(FZN_ENTRY_INFO, "node/siblings", "a sibling found where it said hello, %s %u",
+				    seen, (unsigned)seen_port);
+				continue;
+			}
+		}
 		for (k = 0; k < npulls_base && silent_peer(&pulls[k]); k++)
 			;
 		if (k == npulls_base)
@@ -5064,6 +5094,12 @@ static size_t address_local(const fzn_request_t *request, char *reply, size_t ca
 	size_t at, i, k;
 	int agree = 1;
 
+	/* `fetch lan`, sec 624: probes sent at once. */
+	if (request->arg && request->arg_len == 3u && memcmp(request->arg, "lan", 3u) == 0
+	    && request->parsed == FZN_VERB_FETCH) {
+		lan_due = 1;
+		return (size_t)snprintf(reply, cap, "ok\n");
+	}
 	if (!request->arg || request->arg_len != 7u || memcmp(request->arg, "address", 7u) != 0
 	    || (request->parsed != FZN_VERB_GET && request->parsed != FZN_VERB_FETCH))
 		return 0;
@@ -5144,13 +5180,10 @@ static void contact_round(struct pull_target *pulls, size_t npulls, uint64_t now
 #define FZND_RELAY_HEAD_LEN (2u + FZN_PUBKEY_LEN)
 /* WHERE A TARGET SAID HELLO FROM is trusted this long, seconds: past it a
  * NAT's mapping may have gone. */
-#define FZND_RELAY_SEEN_S 300u
 /* HOW OFTEN A HOST SAYS HELLO to the peers it pulls from, seconds: under
  * the half-minute a NAT commonly keeps a quiet mapping. */
 #define FZND_HELLO_EVERY 20u
 #define FZND_RELAY_QUOTA_ROWS 32u
-
-static fzn_node_relay_t relay_tables;
 
 /* A HOST CELL OF THIS HOST'S as a number: `def` unset or not digits. */
 static uint64_t host_number(const char *key, uint64_t def)
@@ -5426,6 +5459,129 @@ static void say_hello(struct pull_target *pulls, size_t npulls, int serving_fd, 
 	next = now + FZND_HELLO_EVERY;
 	for (i = 0; i < npulls; i++)
 		(void)fzn_caller_hello(&pulls[i].caller, serving_fd, now + 60u);
+}
+
+/* ---- LAN discovery, sec 624 ------------------------------------------------- */
+
+#define FZND_LAN_PORTS_MAX 16u
+#define FZND_PROBES_A_MINUTE 32u
+
+
+/* A PROBE ANSWERED, sec 624: from a key this host knows -- a member, or a
+ * contact or its device -- a sealed hello from this host's serving socket
+ * to where the probe came from, which tells the prober where this host is
+ * on the LAN. No larger than the probe, and nothing kept. Anything else
+ * goes unanswered, so a stranger learns nothing of this host. */
+static void lan_probe_heard(void *ctx, const uint8_t *probe, size_t len,
+                            const fzn_udp_addr_t *from)
+{
+	static uint64_t window, answered;
+	const fzn_node_state_t *st = running_admin ? running_admin->state : NULL;
+	const uint8_t *who = probe + 2;
+	fzn_node_pairing_t pairing;
+	fzn_contact_device_t d;
+	fzn_setting_rank_t rank;
+	uint8_t owner[FZN_PUBKEY_LEN];
+	fzn_caller_t c;
+	uint64_t now = wall_clock();
+	int have;
+
+	(void)ctx;
+	if (!st || st->udp_fd < 0 || !contact_id || !node_apply.store || len != FZN_NODE_PROBE_LEN
+	    || probe[1] != 1u || memcmp(who, contact_id->pubkey, FZN_PUBKEY_LEN) == 0)
+		return;
+	if (now >= window + 60u || window > now) {
+		window = now;
+		answered = 0;
+	}
+	if (answered >= FZND_PROBES_A_MINUTE)
+		return;
+	if (fzn_node_apply_rank(&node_apply, who, FZN_SCOPE_HOST, who, &rank) != 1
+	    && !fzn_node_admin_contact_of(running_admin, who, owner))
+		return;
+	have = fzn_node_pairing_load(node_apply.store, who, &pairing) == FZN_PERSIST_OK;
+	if (!have && running_admin->state->config.has_share
+	    && fzn_contact_device_get(node_apply.store, who, &d) == FZN_CONTACT_DEVICE_OK)
+		have = fzn_node_pairing_derive(contact_id, d.record,
+		                               &running_admin->state->config.share_capability, now,
+		                               &pairing)
+		       == FZN_NODE_PAIR_OK;
+	if (!have)
+		return;
+	answered++;
+	memset(&c, 0, sizeof(c));
+	fzn_node_pairing_caller(&pairing, contact_id->pubkey, &c);
+	c.node = *from;
+	c.hash = contact_hash_ops;
+	c.aead = contact_aead_ops;
+	c.rng = contact_rng_ops;
+	(void)fzn_caller_hello(&c, st->udp_fd, now + 60u);
+	fzn_wipe(&pairing, sizeof(pairing));
+	fzn_wipe(&c, sizeof(c));
+}
+
+/* `fetch lan`, sec 624: a probe sent from the serving socket to the LAN
+ * discovery address -- this host's cell `net/discovery`, 255.255.255.255
+ * unset -- at every port a sibling or a contact's host advertises. Its
+ * answers are hellos, noted where they came from; a sibling silent at its
+ * own address is then asked there (`introduce_siblings`). */
+static void lan_probe(void)
+{
+	static uint8_t hosts[FZN_NODE_SIBLINGS_MAX][FZN_PUBKEY_LEN];
+	static fzn_contact_device_t kept[FZN_CONTACT_DEVICES_MAX];
+	const fzn_node_state_t *st = running_admin ? running_admin->state : NULL;
+	uint8_t probe[FZN_NODE_PROBE_LEN], value[FZN_SETTING_VALUE_MAX];
+	char address[FZN_UDP_HOST_MAX] = "255.255.255.255", host[FZN_NODE_SETTINGS_HOST_MAX + 1u];
+	uint16_t ports[FZND_LAN_PORTS_MAX], port;
+	fzn_setting_rank_t rank;
+	size_t n = 0, nports = 0, i, k, len = 0, sent = 0;
+
+	if (!st || st->udp_fd < 0 || !contact_id || !node_apply.store)
+		return;
+	if (fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, contact_id->pubkey,
+	                          (const uint8_t *)"net/discovery", 13u, value, &len, &rank)
+	    && len > 0u && len < sizeof(address)) {
+		memcpy(address, value, len);
+		address[len] = '\0';
+	}
+	if (fzn_node_siblings_list(node_apply.store, hosts, FZN_NODE_SIBLINGS_MAX, &n)
+	    == FZN_NODE_SIBLINGS_OK)
+		for (i = 0; i < n && nports < FZND_LAN_PORTS_MAX; i++) {
+			port = 0;
+			if (memcmp(hosts[i], contact_id->pubkey, FZN_PUBKEY_LEN) == 0
+			    || !fzn_node_settings_address(&node_settings, hosts[i], host, &port))
+				continue;
+			for (k = 0; k < nports && ports[k] != port; k++)
+				;
+			if (k == nports)
+				ports[nports++] = port;
+		}
+	n = 0;
+	if (fzn_contact_device_list(node_apply.store, kept, FZN_CONTACT_DEVICES_MAX, &n)
+	    == FZN_CONTACT_DEVICE_OK)
+		for (i = 0; i < n && nports < FZND_LAN_PORTS_MAX; i++) {
+			if (!kept[i].port)
+				continue;
+			for (k = 0; k < nports && ports[k] != kept[i].port; k++)
+				;
+			if (k == nports)
+				ports[nports++] = kept[i].port;
+		}
+	memset(probe, 0, sizeof(probe));
+	probe[0] = FZN_NODE_PROBE_MARK;
+	probe[1] = 1u;
+	memcpy(probe + 2, contact_id->pubkey, FZN_PUBKEY_LEN);
+	if (!contact_rng_ops || !contact_rng_ops->fill(contact_rng_ops->ctx, probe + 2 + FZN_PUBKEY_LEN, 8u))
+		return;
+	(void)fzn_udp_broadcast(st->udp_fd);
+	for (i = 0; i < nports; i++) {
+		fzn_udp_addr_t to;
+
+		if (fzn_udp_resolve(contact_family, address, ports[i], &to) == FZN_UDP_OK
+		    && fzn_udp_send(st->udp_fd, &to, probe, sizeof(probe)) == FZN_UDP_OK)
+			sent++;
+	}
+	say(FZN_ENTRY_INFO, "net/lan", "%zu LAN probe(s) sent to %s", sent, address);
 }
 
 /* LINES DELIVERED TO CONTACTS, secs 613 and 614: every line this node wrote
@@ -7373,6 +7529,8 @@ int main(int argc, char **argv)
 			/* RELAYING, sec 622. */
 			admin.relay_remote = relay_remote;
 			state.relay = &relay_tables;
+			/* A LAN PROBE, sec 624. */
+			state.on_probe = lan_probe_heard;
 			/* A STRANGER'S CONTACT REQUEST, sec 619. */
 			state.on_box = contact_box;
 			routing_self = identity.pubkey;
@@ -7741,6 +7899,11 @@ int main(int argc, char **argv)
 			 * at the next round. sec 433. */
 			/* HELLO to the peers it pulls from, sec 622. */
 			say_hello(pulls, npulls, state.udp_fd, now);
+			/* THE LAN PROBED, at once. sec 624. */
+			if (lan_due) {
+				lan_due = 0;
+				lan_probe();
+			}
 			/* WHERE THIS HOST IS SEEN, asked now. sec 621. */
 			if (address_due) {
 				address_due = 0;

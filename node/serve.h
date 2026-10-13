@@ -26,6 +26,13 @@
 #include "../chunk/reassembly.h"
 #include "../frame/freshness.h"
 
+/* A LAN PROBE'S FIRST BYTE, sec 624: a frame's is its version, 1, and a
+ * box's 0xFB (`session/box.h`). A probe is padded to the length of the
+ * sealed hello that answers it, so an answer is never larger than what
+ * asked for it. */
+#define FZN_NODE_PROBE_MARK 0xFCu
+#define FZN_NODE_PROBE_LEN 144u
+
 /* The reply buffer the node provides when a consumer supplies none.
  *
  * IT USED TO BE THE CEILING, and raidcfgd measured what that cost: their
@@ -87,6 +94,11 @@ typedef struct fzn_node_state {
 	 * from the user's first offer (sec 614). NULL drops every box. */
 	void (*on_box)(void *ctx, const uint8_t *box, size_t len);
 	void *on_box_ctx;
+	/* A LAN PROBE, sec 624: a datagram opening with FZN_NODE_PROBE_MARK,
+	 * which no frame and no box does, handed over with where it came from
+	 * -- a probe is answered there or not at all. NULL drops every probe. */
+	void (*on_probe)(void *ctx, const uint8_t *probe, size_t len, const fzn_udp_addr_t *from);
+	void *on_probe_ctx;
 	/* WHERE THE REQUEST BEING ANSWERED CAME FROM, sec 621: set for the
 	 * length of an `on_remote` call and NULL otherwise, so a handler can
 	 * tell a peer the address it saw -- and never decides who the peer is

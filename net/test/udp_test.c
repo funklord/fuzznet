@@ -132,6 +132,21 @@ int main(void)
 		   "an address of no family read as one");
 	}
 
+	/* BROADCAST LET, sec 624: the socket's own option turned on, so a
+	 * LAN probe to a broadcast address is not refused by the kernel. */
+	{
+		int fd = -1, on = 0;
+		socklen_t on_len = sizeof(on);
+
+		ok(fzn_udp_bind(AF_INET, "127.0.0.1", 0, &fd) == FZN_UDP_OK
+		           && fzn_udp_broadcast(fd) == FZN_UDP_OK
+		           && getsockopt(fd, SOL_SOCKET, SO_BROADCAST, &on, &on_len) == 0 && on,
+		   "a socket let broadcast cannot");
+		ok(fzn_udp_broadcast(-1) != FZN_UDP_OK, "no socket let broadcast");
+		if (fd >= 0)
+			fzn_udp_close(fd);
+	}
+
 	/* Oversize send: one byte past the maximum is refused, not
 	 * fragmented. The exact maximum went through above, so the two
 	 * together pin the boundary. */

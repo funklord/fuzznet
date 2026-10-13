@@ -11946,6 +11946,20 @@ SABOTAGES = [
 		"\t\tif (e->used && e->until > now\n",
 		"every frame of a sender is sent to an asker of one of its messages -- sec 622",
 	),
+	(
+		"serve-hands-probes-over",
+		"node/serve.c",
+		"\t\tif (state->on_probe)\n",
+		"\t\tif (0 && state->on_probe)\n",
+		"a LAN probe is dropped unread, and no host is ever found on the LAN -- sec 624",
+	),
+	(
+		"udp-broadcast-lets-it",
+		"net/udp.c",
+		"\treturn setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &on, sizeof(on)) == 0 ? FZN_UDP_OK\n",
+		"\ton = 0;\n\treturn setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &on, sizeof(on)) == 0 ? FZN_UDP_OK\n",
+		"a socket said let broadcast is not, and the kernel refuses every LAN probe to a broadcast address -- sec 624",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

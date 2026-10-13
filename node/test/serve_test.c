@@ -8,6 +8,10 @@
 
 #include "serve.h"
 #include "../local/socket.h"
+#include "../session/box.h" /* FZN_BOX_MARK */
+
+#include <arpa/inet.h>
+#include <netinet/in.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -115,10 +119,88 @@ static void test_run_once_local(void)
 	(void)rmdir(dir);
 }
 
+/* A LAN PROBE, sec 624: a datagram opening 0xFC goes to on_probe whole,
+ * with where it came from -- the one thing a probe is answered by -- and a
+ * box or a frame does not. */
+static struct {
+	int calls;
+	size_t len;
+	char host[FZN_UDP_HOST_MAX];
+	uint16_t port;
+} probed;
+
+static void probe_heard(void *ctx, const uint8_t *probe, size_t len, const fzn_udp_addr_t *from)
+{
+	(void)ctx;
+	(void)probe;
+	probed.calls++;
+	probed.len = len;
+	if (fzn_udp_addr_text(from, probed.host, &probed.port) != FZN_UDP_OK)
+		probed.host[0] = '\0';
+}
+
+static void test_run_once_probe(void)
+{
+	fzn_node_state_t state;
+	uint8_t datagram[FZN_NODE_PROBE_LEN];
+	struct sockaddr_in at;
+	socklen_t at_len = sizeof(at);
+	fzn_udp_addr_t to;
+	uint16_t port, sender_port;
+	int ufd = -1, sfd = -1;
+
+	if (fzn_udp_bind(AF_INET, "127.0.0.1", 0, &ufd) != FZN_UDP_OK
+	    || fzn_udp_bind(AF_INET, "127.0.0.1", 0, &sfd) != FZN_UDP_OK) {
+		ok(0, "the datagram sockets would not bind");
+		goto out;
+	}
+	if (getsockname(ufd, (struct sockaddr *)&at, &at_len) != 0) {
+		ok(0, "the serving socket has no name");
+		goto out;
+	}
+	port = ntohs(at.sin_port);
+	at_len = sizeof(at);
+	if (getsockname(sfd, (struct sockaddr *)&at, &at_len) != 0) {
+		ok(0, "the sending socket has no name");
+		goto out;
+	}
+	sender_port = ntohs(at.sin_port);
+	(void)fzn_udp_resolve(AF_INET, "127.0.0.1", port, &to);
+	memset(&state, 0, sizeof(state));
+	state.listen_fd = -1;
+	state.udp_fd = ufd;
+	state.on_probe = probe_heard;
+	memset(&probed, 0, sizeof(probed));
+	memset(datagram, 0, sizeof(datagram));
+	datagram[0] = FZN_NODE_PROBE_MARK;
+	datagram[1] = 1u;
+	(void)fzn_udp_send(sfd, &to, datagram, sizeof(datagram));
+	ok(fzn_node_run_once(&state, 1000) == 1, "run_once reads a probe");
+	ok(probed.calls == 1 && probed.len == FZN_NODE_PROBE_LEN,
+	   "a probe reached on_probe whole");
+	ok(strcmp(probed.host, "127.0.0.1") == 0 && probed.port == sender_port,
+	   "a probe came with the address it was sent from");
+	datagram[0] = FZN_BOX_MARK;
+	(void)fzn_udp_send(sfd, &to, datagram, sizeof(datagram));
+	(void)fzn_node_run_once(&state, 1000);
+	ok(probed.calls == 1, "a box reached on_probe");
+	datagram[0] = FZN_NODE_PROBE_MARK;
+	state.on_probe = NULL;
+	(void)fzn_udp_send(sfd, &to, datagram, sizeof(datagram));
+	(void)fzn_node_run_once(&state, 1000);
+	ok(probed.calls == 1, "a probe with no handler went somewhere");
+out:
+	if (ufd >= 0)
+		fzn_udp_close(ufd);
+	if (sfd >= 0)
+		fzn_udp_close(sfd);
+}
+
 int main(void)
 {
 	test_find_peer();
 	test_run_once_local();
+	test_run_once_probe();
 	printf("serve_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;
 }

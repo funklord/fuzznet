@@ -140,6 +140,12 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 			state->on_box(state->on_box_ctx, frame, flen);
 		return;
 	}
+	/* A LAN PROBE, sec 624, the same way. */
+	if (flen && frame[0] == FZN_NODE_PROBE_MARK) {
+		if (state->on_probe)
+			state->on_probe(state->on_probe_ctx, frame, flen, &from);
+		return;
+	}
 	now = state->clock ? state->clock() : 0u;
 	/* AN ANSWER TO A FRAME THIS NODE RELAYED, sec 622: sent back, unread,
 	 * to whoever asked for the relay. Asked before any key is chosen: it

@@ -64396,7 +64396,7 @@ pointing here.
    and how the target's answer finds its way back, which fuzzypickles'
    fire-and-forget frames never needed and a request here does.
 3. **4c, introductions.**
-4. **4d, LAN discovery.**
+4. **4d, LAN discovery** -- sec 624.
 
 ### 4a: `get address` and `fetch address`
 
@@ -64570,7 +64570,7 @@ peer over are a separate fix, not made here.
   measurement.
 - **Contacts are not introduced**: a contact's hosts say hello to their
   own estate, not to the asker's.
-- **4d, LAN discovery**, is next.
+- **4d, LAN discovery**: sec 624.
 
 ### Measured for sec 623
 
@@ -64580,3 +64580,76 @@ peer over are a separate fix, not made here.
   introduces C through A at C's serving port, and B fetches the file
   whole from one peer, A holding none of it. **Control**: with
   introductions not run, B is never introduced to C.
+
+## 624. Step 4d: a host found on the LAN, 2026-10-13
+
+fuzzypickles' LAN discovery, the last of step 4: a host whose recorded
+address is somewhere else -- a laptop carried home, a host whose
+`net/address` names the network it was on -- found by a probe on the
+network it is on now.
+
+### How a probe goes
+
+1. **`fetch lan` on host B** sends, at the loop's next turn, a probe from
+   B's serving socket to the discovery address -- B's cell
+   `net/discovery`, `255.255.255.255` unset -- at each distinct port a
+   sibling advertises in its `net/address` or a contact's host carries,
+   sixteen at most. **A port and not an address**, because the address is
+   what is wrong.
+2. **A host receiving one answers only a prober it knows** -- a member
+   of its estate, or a contact or a contact's device -- with a sealed
+   hello from its serving socket to where the probe came from, under the
+   pairing it holds, or for a contact's device the one derived from its
+   record (sec 619). A stranger gets nothing and learns nothing of the
+   host. At most 32 answers a minute.
+3. **The hello opens at B like any other** (sec 622), and B's relay
+   table notes where it came from. B's next round, finding the sibling
+   silent at its advertised address, **uses a hello heard within five
+   minutes before asking anyone to introduce it** -- so a sibling's own
+   hellos to B count too, not only a probe's answer -- and turns its
+   target there for ten minutes, as an introduction does (sec 623).
+
+### What a probe is
+
+A datagram of its own, as the box is (sec 618), since it goes to a key
+with no session there yet: first byte **0xFC**, which no frame (version
+1) and no box (0xFB) has; a version; the prober's key; an 8-byte nonce;
+and zero padding to **144 bytes, the length of the sealed hello that
+answers it**. The key is in the clear, so anyone on the path can forge a
+probe naming a known one; what that buys is a hello of the same size
+sent to the forged address, 32 a minute, which its receiver cannot open
+-- no amplification. `net/udp`'s new `fzn_udp_broadcast` lets the
+serving socket send to a broadcast address; `node/serve.c` hands a probe
+to `fzn_node_state_t.on_probe`, with where it came from, before any
+frame check reads it.
+
+### Not yet after sec 624
+
+- **A contact's host found this way is not used yet**: it is probed and
+  answers, but delivery takes a contact's address from its device record
+  and reads the seen table only for siblings.
+- **No probe is sent unasked**: `fetch lan` is the user's act, as `fetch
+  address` is (sec 621). When to probe unasked -- at start, on a network
+  change -- is open.
+- **A host is probed only at a port somebody advertises**; one serving
+  on a port nobody records is not found.
+- **Measured on loopback only**: the live test sets the discovery
+  address to `127.0.0.1`. That a LAN broadcast arrives and its answer
+  returns is the design's claim, not a measurement.
+- **Step 4 is complete with this.** Step 5, groups, waits on the
+  holder's choice of model (sec 608).
+
+### Measured for sec 624
+
+- **`tool/live_lan.py`, in `make livecheck`**: A a root, B and C joined;
+  C advertises `192.0.2.1` at the port it really serves on; A is
+  stopped, so nobody can introduce C; B, its discovery address
+  `127.0.0.1`, runs `fetch lan`, C answers with a hello, B's next round
+  finds C at C's serving port and fetches C's file whole from one peer.
+  **Control**: with `on_probe` unwired, B never finds C.
+- **`node/test/serve_test.c`**: a probe reaches `on_probe` whole with
+  the address it was sent from; a box does not reach it; with no handler
+  a probe is dropped. **`net/test/udp_test.c`**: the socket option is
+  set.
+- **Sabotage: two entries, both caught** -- the probe not handed over
+  (`serve_test`), and the broadcast option not set (`udp_test`).

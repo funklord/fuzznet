@@ -108,6 +108,9 @@ fzn_udp_err_t fzn_udp_send(int fd, const fzn_udp_addr_t *to,
 fzn_udp_err_t fzn_udp_recv(int fd, uint8_t *buf, size_t cap, size_t *len,
                            fzn_udp_addr_t *from);
 
+/* LET `fd` SEND TO A BROADCAST ADDRESS, sec 624: a LAN probe goes to one. */
+fzn_udp_err_t fzn_udp_broadcast(int fd);
+
 /* An address back to its numeric host, NUL ended in `host` of at least 46
  * bytes (an IPv6 address's text), and its port: what a peer saw a datagram
  * come from (project.md sec 621). ADDR for one of neither family. */
