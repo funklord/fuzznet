@@ -211,6 +211,14 @@ typedef struct fzn_node_admin {
 	size_t (*logs_remote)(void *ctx, const uint8_t *sender, const uint8_t *request,
 	                      size_t request_len, uint8_t *reply, size_t reply_cap);
 	void *logs_ctx;
+	/* `get routing`, sec 611: this estate's routing manifest, answered to a
+	 * member always and to a contact (`contact` 1) as the estate's
+	 * `routing/advertise` says -- the hook's to know. 0 for what is not
+	 * one. */
+	size_t (*routing_remote)(void *ctx, const uint8_t *sender, int contact,
+	                         const uint8_t *request, size_t request_len, uint8_t *reply,
+	                         size_t reply_cap);
+	void *routing_ctx;
 } fzn_node_admin_t;
 
 /* Whether `key` is inside this node's estate as `admin` sees it -- itself,

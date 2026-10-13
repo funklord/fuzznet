@@ -1,0 +1,44 @@
+// A user's routing manifest, project.md sec 611: fuzzypickles' host manifest
+// (its sec 10, blob v3) brought into fuzznet as step 2a of sec 610. Named
+// "routing" because chain/manifest.h is a revocation manifest, a different
+// thing. The hand-written codec is node/routing.c; this is its checked
+// contract, in `make schema`'s list.
+//
+// PUBLISHED REACHABILITY, NOT MEMBERSHIP: an entry names no key and confers
+// no authority, and a host that wants no exposure is simply not listed.
+//
+// THE SIGNATURE COVERS THE STATEMENT, the first 82 bytes, under the label
+// "fuzznet.routing" and a NUL; the document after it is bound by
+// `content_hash`, the hash of its bytes from `public_relay` to the last
+// entry. So every one of a user's hosts can derive the document from its own
+// copy of the estate's settings and check the statement alone.
+//
+// What the schema cannot say and the codec checks: entries are in canonical
+// order -- metric ascending, then address bytes, then port -- and no two are
+// the same address and port.
+
+target buffer;
+endian big;
+
+struct fzn_routing_entry {
+	u8   address_len [min = 1, max = 253];
+	u8   address[address_len];              // a name or an address, as net/address
+	u16  port [min = 1];
+	u8   transport;                         // a bitmask: 1 UDP
+	u8   metric;                            // lowest preferred
+}
+
+struct fzn_routing {
+	u8   version [must_eq = 1];
+	u8   derivation_version [must_eq = 1];  // how settings become the document
+	u64  generation;                        // the signer's counter: newest wins
+	u64  timestamp_ms;                      // when signed; not in the content hash
+	u8   content_hash[32];
+	u8   signer[32];                        // the estate's root, or an admin
+	u8   public_relay [max = 1];            // the owner lets a third party pass it on
+	u8   entry_count [max = 16];
+	fzn_routing_entry entries[entry_count];
+	u8   hop_count [max = 8];               // the signer's admin chain; 0 for the root
+	u8   hops[hop_count * 179];              // FZN_HOP_LEN each
+	u8   sig[64];
+}

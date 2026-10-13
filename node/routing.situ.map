@@ -1,0 +1,39 @@
+# situ capability map v1
+# schema: routing.situ
+# core:   offset size align repr atomic
+#
+# Core axes are always shown. Any other axis appears only where it has
+# been weakened below its strongest value.
+#
+# Offsets are byte values, or byte:bit where a field does not start on
+# a byte boundary. Sizes are bytes unless suffixed with `bit`.
+#
+# A struct's size is a bare number where it is fixed, `min..max` where
+# it is bounded, and `min..` where nothing bounds it.
+
+struct fzn_routing size=149..5709 access=Sequential mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  fzn_routing.version                    offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_routing.derivation_version         offset=AbsoluteStatic(0x01) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_routing.generation                 offset=AbsoluteStatic(0x02) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_routing.timestamp_ms               offset=AbsoluteStatic(0x0A) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic
+  fzn_routing.content_hash               offset=AbsoluteStatic(0x12) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_routing.signer                     offset=AbsoluteStatic(0x32) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic
+  fzn_routing.public_relay               offset=AbsoluteStatic(0x52) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord
+  fzn_routing.entry_count                offset=AbsoluteStatic(0x53) size=Fixed(1) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord
+  fzn_routing.entries                    offset=AbsoluteStatic(0x54) size=Bounded(0, 4128) align=Aligned(4) repr=MemoryIdentical atomic=NonAtomic access=Sequential mutate=Shifting
+  fzn_routing.entries[]                  offset=FrameStatic(0x00) size=Bounded(6, 258) align=Aligned(8) repr=ValueConverted atomic=NonAtomic access=Sequential mutate=Shifting address=Unstable
+  fzn_routing.entries[].address_len      offset=FrameStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_routing.entries[].address          offset=FrameStatic(0x01) size=Bounded(1, 253) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_routing.entries[].port             offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  fzn_routing.entries[].transport        offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  fzn_routing.entries[].metric           offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  fzn_routing.hop_count                  offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  fzn_routing.hops                       offset=Dynamic size=Bounded(0, 1432) align=Unaligned repr=MemoryIdentical atomic=AtomicWord mutate=Shifting address=Unstable
+  fzn_routing.sig                        offset=Dynamic size=Fixed(64) align=Unaligned repr=MemoryIdentical atomic=NonAtomic address=Unstable
+
+struct fzn_routing_entry size=6..258 mutate=Shifting address=Unstable repr=ValueConverted atomic=NonAtomic
+  fzn_routing_entry.address_len          offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord
+  fzn_routing_entry.address              offset=AbsoluteStatic(0x01) size=Bounded(1, 253) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting
+  fzn_routing_entry.port                 offset=Dynamic size=Fixed(2) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable
+  fzn_routing_entry.transport            offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable
+  fzn_routing_entry.metric               offset=Dynamic size=Fixed(1) align=Unaligned repr=MemoryIdentical atomic=AtomicWord address=Unstable

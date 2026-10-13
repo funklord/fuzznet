@@ -2047,7 +2047,11 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 		 * again. */
 		if (!fzn_node_admin_contact_stands(admin, req->sender))
 			return answer_text(out, reply_cap, FZN_REPLY_DENIED, "no longer a contact");
-		if (admin->notes_remote && req->payload)
+		/* WHERE THIS USER MAY BE REACHED, sec 611, when it advertises. */
+		if (admin->routing_remote && req->payload)
+			n = admin->routing_remote(admin->routing_ctx, req->sender, 1, req->payload,
+			                          req->payload_len, reply, reply_cap);
+		if (!n && admin->notes_remote && req->payload)
 			n = admin->notes_remote(admin->notes_ctx, req->sender, 1, req->payload,
 			                        req->payload_len, reply, reply_cap);
 		/* ITS NOTES' TEXTS, sec 438, and no other blob. */
@@ -2069,6 +2073,15 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 	if (admin->logs_remote && req->payload) {
 		size_t n = admin->logs_remote(admin->logs_ctx, req->sender, req->payload,
 		                              req->payload_len, reply, reply_cap);
+
+		if (n)
+			return n;
+	}
+
+	/* THE ESTATE'S ROUTING MANIFEST, sec 611, to a member. */
+	if (admin->routing_remote && req->payload) {
+		size_t n = admin->routing_remote(admin->routing_ctx, req->sender, 0, req->payload,
+		                                 req->payload_len, reply, reply_cap);
 
 		if (n)
 			return n;

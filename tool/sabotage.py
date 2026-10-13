@@ -5146,8 +5146,8 @@ SABOTAGES = [
 	(
 		"admin-contact-asks-as-shared",
 		"node/admin.c",
-		"req->sender, 1, req->payload,",
-		"req->sender, 0, req->payload,",
+		"admin->notes_remote(admin->notes_ctx, req->sender, 1, req->payload,",
+		"admin->notes_remote(admin->notes_ctx, req->sender, 0, req->payload,",
 		"a contact's notes request is answered as a member's, with every note -- sec 436",
 	),
 	(
@@ -11021,6 +11021,41 @@ SABOTAGES = [
 		"\t    || !(strcmp(name, \"-\") == 0\n\t         || word_of(name, FZN_NODE_EVENTS_NAME_MAX, \"0123456789abcdef\")))\n",
 		"\t    )\n",
 		"a name with a space or a newline in it writes a line a subscriber splits wrongly -- sec 609",
+	),
+	(
+		"routing-document-bound-by-its-hash",
+		"node/routing.c",
+		"\tif (!fzn_routing_content_hash(r, hash, got)\n\t    || memcmp(got, r->content_hash, FZN_ROUTING_HASH_LEN) != 0)\n\t\treturn FZN_ROUTING_ERR_REFUSED;\n",
+		"",
+		"a relay edits a user's addresses or metrics and the signature still holds -- sec 611",
+	),
+	(
+		"routing-no-chain-only-the-root",
+		"node/routing.c",
+		"\t\tif (memcmp(r->signer, root, FZN_PUBKEY_LEN) != 0)\n\t\t\treturn FZN_ROUTING_ERR_REFUSED;\n",
+		"",
+		"any key signs a user's routing manifest and is taken as the user -- sec 611",
+	),
+	(
+		"routing-chain-ends-at-the-signer",
+		"node/routing.c",
+		"\t\t            != FZN_CHAIN_OK\n\t\t    || memcmp(chain.grantee, r->signer, FZN_PUBKEY_LEN) != 0)\n",
+		"\t\t            != FZN_CHAIN_OK)\n",
+		"an admin's chain carried by a key it was not granted to signs as that admin -- sec 611",
+	),
+	(
+		"routing-one-encoding",
+		"node/routing.c",
+		"\t\tif (!e.port || (r.n > 0u && cmp(&r.entries[r.n - 1u], &e) >= 0))\n",
+		"\t\tif (!e.port)\n",
+		"one manifest has several encodings, and two hosts derive different hashes for one document -- sec 611",
+	),
+	(
+		"routing-newest-kept",
+		"node/routing.c",
+		"\tif (fzn_routing_load(store, root, &held) == FZN_ROUTING_OK && !fzn_routing_newer(r, &held))\n\t\treturn FZN_ROUTING_ERR_STALE;\n",
+		"",
+		"an older manifest replayed replaces the newer, and a user's moved hosts are lost -- sec 611",
 	),
 	(
 		"local-events-own-user-only",

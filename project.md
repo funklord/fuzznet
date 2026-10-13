@@ -63488,7 +63488,8 @@ rather than ask again), and fitting it to what fuzznet already is.
 
 1. **2a, the manifest**: derived from the estate's host settings,
    signed, generation-ordered; fetched by a contact from any listed host;
-   carried at pairing in the contact card.
+   carried at pairing in the contact card. Built in sec 611, but for the
+   card.
 2. **2b, delivery**: a sending device takes an OUT line still `sending`,
    picks the contact's hosts from the manifest, and asks each in turn; the
    receiving host checks the capability chain, files the line IN when it
@@ -63506,3 +63507,80 @@ rather than ask again), and fitting it to what fuzznet already is.
   re-offers; if it is gone, another of the user's devices could take them
   over, since they all hold the line. Not decided by either tree --
   fuzzypickles' outbox lives on one host.
+
+## 611. Step 2a: the routing manifest, 2026-10-13
+
+The first part of sec 610: fuzzypickles' host manifest (its sec 10, blob
+v3), carried into fuzznet. **Named "routing"** -- `node/routing.{h,c}`,
+`node/routing.situ`, the verb `get routing` -- because `chain/manifest.h`
+is a revocation manifest, and one word should mean one thing.
+
+### What it is, as imported
+
+- **Published reachability, not membership**: entries `address : port :
+  transport : metric`, lowest metric preferred, naming no key and
+  conferring nothing; a host that wants no exposure is not listed.
+- **The statement is signed, the document hashed**: 82 bytes -- version,
+  derivation version, generation, timestamp, content hash, signer --
+  signed under "fuzznet.routing" and a NUL; the document, `public_relay`
+  then the entries, bound by the hash. A relay can edit nothing.
+- **Signed by the estate's root, or an admin** whose chain to the root for
+  the estate's admin capability travels with the manifest
+  (fuzzypickles' CAP_HOST_MANAGE).
+- **Newest by (generation, signer)**, never by the clock; an older
+  generation is refused even when signed later.
+- **One encoding per document**: entries in canonical order -- metric, then
+  address bytes, then port -- each address and port once; a decode refuses
+  anything else, so every host deriving the same settings hashes the same
+  bytes.
+- Kept per user in persist slot 48, `FZN_PERSIST_ROUTING`, keyed by the
+  user's root: the estate's own, and each contact's.
+
+### Derived from the estate's settings
+
+fuzzypickles' "deterministic projection": every host cell `net/address`
+(sec 579) is an entry, at its host's `net/metric` -- 0 to 255, 100
+unset, so a host can go before or after the rest -- over UDP; the estate
+cell `routing/public` is `public_relay`. Each full round, a node that is
+the estate's root or holds its admin capability derives the document and,
+when its hash differs from the one held, signs the next generation, keeps
+it and publishes `event routing -` (sec 609). Any other member asks each
+answering peer of the estate `get routing` and keeps a manifest newer
+than its own once it verifies against the estate's root.
+
+`get routing` remotely: to a member always; to a contact only while the
+estate cell `routing/advertise` reads `1` (fuzzypickles'
+`manifest_advertise_outward`, off by default), and otherwise refused as
+anything a contact may not ask is, so a refusal tells nothing.
+`get routing [KEY]` locally: the generation, the signer's first eight
+bytes, `public_relay` and the entries, for this estate or the user whose
+root is KEY.
+
+### Measured for sec 611
+
+- routing_test 27: entries kept metric first, then address, then port; an
+  address and port twice, a space, an empty address, port 0, 254 bytes or
+  a seventeenth entry refused. The root's manifest verifies and decodes to
+  itself; a metric moved, `public_relay` turned off, a generation moved or
+  another user's root each refused. An admin's manifest, its chain
+  carried, verifies and decodes to itself; with no admin capability,
+  another capability, a signer the chain does not end at, or no chain at
+  all, refused. Entries swapped, cut short, a trailing byte, or an unknown
+  derivation version refused. The newest kept: an older generation signed
+  later, or the same one, is stale; a tie broken by the signer.
+- live_siblings phase h: A, the root, holds a manifest listing C at metric
+  100; C sets `net/metric 7`; A signs the next generation, and B -- a
+  member, not a signer -- takes it from a peer and holds C at metric 7. A
+  hand-break control -- `get routing` answering nothing -- left B holding
+  none.
+- Five sabotage entries: the document's hash, no chain only for the
+  root, the chain ending at the signer, one encoding, and the newest
+  kept; sec 436's contact entry re-anchored on the notes call.
+
+### Not yet after sec 611
+
+- **The contact's side**: fetching a contact's manifest, and
+  `routing/advertise` exercised, come with delivery (2b), which first
+  sends to a contact; and the contact card's seeds with pairing (step 3).
+- **Relaying a manifest for others** (`public_relay` and the relay's own
+  willingness) is carried in the document but served by nobody yet.

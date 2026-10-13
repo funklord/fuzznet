@@ -126,6 +126,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "an earlier version of a note, kept as its history";
 	case FZN_PERSIST_HOST_HEARD:
 		return "when this node last heard from a host";
+	case FZN_PERSIST_ROUTING:
+		return "a user's routing manifest: where their hosts may be reached";
 	}
 	*known = 0;
 	return "an unknown slot";

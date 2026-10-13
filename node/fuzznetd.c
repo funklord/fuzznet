@@ -37,6 +37,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "serve.h"
+#include "routing.h"
 #include "admin.h"
 #include "caller.h"
 #include "identity.h"
@@ -311,11 +312,17 @@ static void publish(const char *subject, const char *name)
  * change verb the node answered `ok` publishes its subject -- the first
  * word after the verb -- naming the item when the next word is one (hex).
  * A change one UI makes reaches the others. sec 609. */
+static size_t routing_local(const fzn_request_t *request, char *reply, size_t reply_cap);
+
 static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
                            const fzn_peer_t *peer, const fzn_request_t *request, char *reply,
                            size_t reply_cap)
 {
-	size_t n = fzn_node_admin_handle(ctx, verdict, origin, peer, request, reply, reply_cap);
+	size_t n = routing_local(request, reply, reply_cap);
+
+	if (n)
+		return n;
+	n = fzn_node_admin_handle(ctx, verdict, origin, peer, request, reply, reply_cap);
 	char subject[FZN_NODE_EVENTS_SUBJECT_MAX + 1u], name[FZN_NODE_EVENTS_NAME_MAX + 1u];
 	size_t at = 0, s = 0, k = 0;
 
@@ -2561,6 +2568,241 @@ static void cut_fossils(struct pull_target *pulls, size_t npulls)
 		    n_hosts);
 }
 #endif
+
+/* ---- the routing manifest, sec 611 ------------------------------------------ */
+
+/* This node's key and crypto, for signing the estate's manifest: set at
+ * startup, NULL until then. */
+static const uint8_t *routing_self;
+static const fzn_sign_ops_t *routing_sign;
+static const fzn_hash_ops_t *routing_hash;
+
+#define ROUTING_METRIC_KEY "net/metric"
+#define ROUTING_PUBLIC_KEY "routing/public"
+#define ROUTING_ADVERTISE_KEY "routing/advertise"
+/* An entry's metric where its host sets none: the middle, so a host can
+ * be put before or after the others. */
+#define ROUTING_METRIC_DEFAULT 100u
+
+struct routing_hosts {
+	uint8_t about[FZN_ROUTING_ENTRIES_MAX * 2u][FZN_PUBKEY_LEN];
+	size_t n;
+};
+
+static void routing_collect(void *ctx, const fzn_setting_t *s, fzn_setting_rank_t rank)
+{
+	struct routing_hosts *h = (struct routing_hosts *)ctx;
+
+	(void)rank;
+	if (s->scope == FZN_SCOPE_HOST && s->set
+	    && s->key_len == sizeof(FZN_NODE_SETTINGS_ADDRESS_KEY) - 1u
+	    && memcmp(s->key, FZN_NODE_SETTINGS_ADDRESS_KEY, s->key_len) == 0
+	    && h->n < sizeof(h->about) / sizeof(h->about[0]))
+		memcpy(h->about[h->n++], s->about, FZN_PUBKEY_LEN);
+}
+
+/* An estate cell that reads `1`. */
+static int estate_flag(const char *key)
+{
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	size_t len = 0;
+
+	return node_apply.root
+	       && fzn_node_settings_get(&node_settings, FZN_SCOPE_ESTATE, node_apply.root,
+	                                (const uint8_t *)key, strlen(key), value, &len, &rank)
+	       && len == 1u && value[0] == '1';
+}
+
+/* THE ESTATE'S MANIFEST AS ITS SETTINGS SAY, fuzzypickles' "deterministic
+ * projection": every host cell `net/address` an entry, at its `net/metric`
+ * -- 0 to 255, 100 unset -- over UDP; `routing/public` its public_relay.
+ * Every member derives the same document from the same settings. */
+static void routing_derive(fzn_routing_t *out)
+{
+	static struct routing_hosts hosts;
+	size_t i;
+
+	memset(out, 0, sizeof(*out));
+	hosts.n = 0;
+	(void)fzn_node_settings_each(&node_settings, routing_collect, &hosts);
+	for (i = 0; i < hosts.n; i++) {
+		char host[FZN_NODE_SETTINGS_HOST_MAX + 1u];
+		uint8_t value[FZN_SETTING_VALUE_MAX];
+		fzn_setting_rank_t rank;
+		size_t len = 0, k;
+		unsigned metric = ROUTING_METRIC_DEFAULT, m = 0;
+		uint16_t port = 0;
+
+		if (!fzn_node_settings_address(&node_settings, hosts.about[i], host, &port))
+			continue;
+		if (fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, hosts.about[i],
+		                          (const uint8_t *)ROUTING_METRIC_KEY,
+		                          sizeof(ROUTING_METRIC_KEY) - 1u, value, &len, &rank)
+		    && len > 0u && len <= 3u) {
+			for (k = 0; k < len && value[k] >= '0' && value[k] <= '9'; k++)
+				m = m * 10u + (unsigned)(value[k] - '0');
+			if (k == len && m <= 255u)
+				metric = m;
+		}
+		/* AN ADDRESS TWICE -- two hosts claiming one -- is listed once. */
+		(void)fzn_routing_add(out, host, strlen(host), port, FZN_ROUTING_TRANSPORT_UDP,
+		                      (uint8_t)metric);
+	}
+	out->public_relay = estate_flag(ROUTING_PUBLIC_KEY);
+}
+
+/* THE ESTATE'S MANIFEST, each round, sec 611: signed afresh by the root or
+ * an admin when what the settings say has changed, at one past the
+ * generation held; taken by any other member from a peer of the estate
+ * that answers, once it verifies against the estate's root. */
+static void routing_round(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	static uint8_t reply[FZND_PULL_REPLY_MAX];
+	static uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	static fzn_routing_t derived, held;
+	uint8_t hash[FZN_ROUTING_HASH_LEN];
+	size_t hop_count = 0, t;
+	int have;
+
+	if (!node_apply.root || !routing_self || !routing_sign || !routing_hash || !node_apply.store)
+		return;
+	have = fzn_routing_load(node_apply.store, node_apply.root, &held) == FZN_ROUTING_OK;
+	if (node_apply.admin_capability
+	    && fzn_node_apply_chain(&node_apply, routing_self, node_apply.admin_capability, hops,
+	                            &hop_count)
+	    && (hop_count || memcmp(routing_self, node_apply.root, FZN_PUBKEY_LEN) == 0)) {
+		routing_derive(&derived);
+		if (!fzn_routing_content_hash(&derived, routing_hash, hash)
+		    || (have && memcmp(hash, held.content_hash, FZN_ROUTING_HASH_LEN) == 0))
+			return;
+		if (fzn_routing_sign(&derived, routing_hash, routing_sign, routing_self,
+		                     (const uint8_t (*)[FZN_HOP_LEN])hops, hop_count,
+		                     have ? held.generation + 1u : 1u, wall_ms())
+		            != FZN_ROUTING_OK
+		    || fzn_routing_keep(node_apply.store, node_apply.root, &derived) != FZN_ROUTING_OK) {
+			say(FZN_ENTRY_WARNING, "routing", "the estate's routing manifest would not be signed");
+			return;
+		}
+		say(FZN_ENTRY_INFO, "routing", "routing manifest signed: generation %llu, %zu host(s)",
+		    (unsigned long long)derived.generation, derived.n);
+		publish("routing", NULL);
+		return;
+	}
+	/* NOT A SIGNER: the newest a peer of the estate holds. */
+	for (t = 0; t < npulls; t++) {
+		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
+		static uint8_t bytes[FZN_ROUTING_MAX];
+		size_t len = 0, n;
+		fzn_routing_t got;
+		fzn_routing_err_t err;
+
+		if (silent_peer(&pulls[t]) || !peer_in_estate(&pulls[t])
+		    || !peer_ask(&asking, (const uint8_t *)"get routing", 11u, reply, sizeof(reply),
+		                 &len)
+		    || len < 4u || memcmp(reply, "ok ", 3u) != 0)
+			continue;
+		while (len && (reply[len - 1u] == '\n' || reply[len - 1u] == '\r'))
+			len--;
+		n = (len - 3u) / 2u;
+		if ((len - 3u) % 2u || n > sizeof(bytes) || len >= sizeof(reply))
+			continue;
+		reply[len] = '\0';
+		if (!hex_bytes((const char *)reply + 3, bytes, n))
+			continue;
+		if (fzn_routing_decode(bytes, n, &got) != FZN_ROUTING_OK
+		    || fzn_routing_verify(&got, routing_hash, routing_sign, node_apply.root,
+		                          node_apply.admin_capability, now)
+		               != FZN_ROUTING_OK)
+			continue;
+		err = fzn_routing_keep(node_apply.store, node_apply.root, &got);
+		if (err == FZN_ROUTING_OK) {
+			say(FZN_ENTRY_INFO, "routing",
+			    "routing manifest taken from %s: generation %llu, %zu host(s)", pulls[t].host,
+			    (unsigned long long)got.generation, got.n);
+			publish("routing", NULL);
+		}
+	}
+}
+
+/* `get routing [KEY]`, locally: this estate's manifest, or the user's whose
+ * root is KEY, as held -- `ok GENERATION SIGNER PUBLIC ADDRESS:PORT:METRIC
+ * ...`, the signer's first eight bytes in hex, the entries in their order.
+ * 0 for any other request. */
+static size_t routing_local(const fzn_request_t *request, char *reply, size_t reply_cap)
+{
+	uint8_t key[FZN_PUBKEY_LEN];
+	char hex[65];
+	fzn_routing_t r;
+	size_t at, i;
+	int k;
+
+	if (request->parsed != FZN_VERB_GET || request->arg_len < 7u
+	    || memcmp(request->arg, "routing", 7u) != 0
+	    || (request->arg_len > 7u && request->arg[7] != ' '))
+		return 0;
+	if (request->arg_len == 7u) {
+		if (!node_apply.root)
+			return (size_t)snprintf(reply, reply_cap, "error no estate\n");
+		memcpy(key, node_apply.root, FZN_PUBKEY_LEN);
+	} else {
+		if (request->arg_len != 8u + 64u)
+			return (size_t)snprintf(reply, reply_cap, "malformed get routing [KEY]\n");
+		memcpy(hex, request->arg + 8, 64u);
+		hex[64] = '\0';
+		if (!hex_bytes(hex, key, sizeof(key)))
+			return (size_t)snprintf(reply, reply_cap, "malformed get routing [KEY]\n");
+	}
+	if (!node_apply.store || fzn_routing_load(node_apply.store, key, &r) != FZN_ROUTING_OK)
+		return (size_t)snprintf(reply, reply_cap, "absent no routing manifest held\n");
+	k = snprintf(reply, reply_cap, "ok %llu %02x%02x%02x%02x%02x%02x%02x%02x %d",
+	             (unsigned long long)r.generation, r.signer[0], r.signer[1], r.signer[2],
+	             r.signer[3], r.signer[4], r.signer[5], r.signer[6], r.signer[7],
+	             r.public_relay);
+	if (k <= 0 || (size_t)k >= reply_cap)
+		return 0;
+	at = (size_t)k;
+	for (i = 0; i < r.n; i++) {
+		k = snprintf(reply + at, reply_cap - at, " %s:%u:%u", r.entries[i].address,
+		             (unsigned)r.entries[i].port, (unsigned)r.entries[i].metric);
+		if (k <= 0 || (size_t)k >= reply_cap - at)
+			return 0;
+		at += (size_t)k;
+	}
+	if (at + 1u >= reply_cap)
+		return 0;
+	reply[at++] = '\n';
+	return at;
+}
+
+/* `get routing`, from a member always and from a contact only while the
+ * estate advertises -- refused otherwise as anything a contact may not ask
+ * is, so a refusal says nothing it would not. sec 611. */
+static size_t routing_remote(void *ctx, const uint8_t *sender, int contact,
+                             const uint8_t *request, size_t request_len, uint8_t *reply,
+                             size_t reply_cap)
+{
+	static uint8_t bytes[FZN_ROUTING_MAX];
+	fzn_routing_t r;
+	size_t len = 0, i;
+
+	(void)ctx;
+	(void)sender;
+	while (request_len && (request[request_len - 1u] == '\n' || request[request_len - 1u] == '\r'))
+		request_len--;
+	if (request_len != 11u || memcmp(request, "get routing", 11u) != 0)
+		return 0;
+	if ((contact && !estate_flag(ROUTING_ADVERTISE_KEY)) || !node_apply.root
+	    || fzn_routing_load(node_apply.store, node_apply.root, &r) != FZN_ROUTING_OK
+	    || fzn_routing_encode(&r, bytes, sizeof(bytes), &len) != FZN_ROUTING_OK
+	    || reply_cap < 3u + 2u * len + 1u)
+		return 0;
+	memcpy(reply, "ok ", 3u);
+	for (i = 0; i < len; i++)
+		(void)snprintf((char *)reply + 3u + 2u * i, 3u, "%02x", bytes[i]);
+	reply[3u + 2u * len] = '\n';
+	return 3u + 2u * len + 1u;
+}
 
 /* ONE ROUND OF RECONCILIATION against every pull peer, sec 551: what the
  * journal did not bring -- cut before this node saw it -- fetched from what
@@ -5411,6 +5653,11 @@ int main(int argc, char **argv)
 #endif
 			state.on_local = local_handle;
 			state.on_local_ctx = &admin;
+			/* THE ESTATE'S ROUTING MANIFEST, sec 611. */
+			admin.routing_remote = routing_remote;
+			routing_self = identity.pubkey;
+			routing_sign = &sign_ops;
+			routing_hash = &hash_ops;
 			fzn_node_events_init(&node_events);
 			state.events = &node_events;
 			state.on_remote = fzn_node_admin_remote;
@@ -5674,6 +5921,7 @@ int main(int argc, char **argv)
 				pull_journal(pulls, npulls, now);
 				apply_journal();
 				reconcile_estate(pulls, npulls, now);
+				routing_round(pulls, npulls, now);
 #if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
 				count_replicas(pulls, npulls, now);
 #endif

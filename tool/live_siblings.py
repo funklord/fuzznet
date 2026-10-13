@@ -29,6 +29,10 @@ with the other, and A, which has no pull peers, fetches from neither.
        the one host keeping none, which then holds it
     g  the gone keeper comes back: B's round pushes it the signed release
        of each piece moved off it, and it lets those pieces go (sec 602)
+    h  the estate's routing manifest (sec 611): A, the root, signs one
+       listing C's address at the default metric; C sets its `net/metric`
+       to 7, A signs the next generation, and B -- a member, not a signer
+       -- takes it from a peer and holds C at metric 7
 
 Against a daemon that carries no prekeys, or pairs no siblings, phase a
 fails waiting for the pairings; against one that never asks a sibling,
@@ -337,6 +341,50 @@ def main(argv):
 				             % (gone.upper(), sum(map(os.path.isfile, stale)), len(stale)))
 			print("livecheck: g: %s back, it let go of the %d piece(s) B released"
 			      % (gone.upper(), len(stale)))
+
+			# h: the routing manifest, signed by the root and taken by a
+			# member, sec 611.
+			def routing(who):
+				reply = ask(socks[who], "get routing")
+				return reply.split() if reply.startswith("ok ") else [reply]
+
+			entry_c = "127.0.0.1:%s:" % port_c
+			a = up("a", "ah1")
+			try:
+				a.wait_for(ROUND_END_RE, "A's round")
+				got = routing("a")
+				if len(got) < 5 or not got[1].isdigit() or entry_c + "100" not in got[4:]:
+					raise failed("h: A's routing manifest is %r, without C at metric 100"
+					             % (got,))
+				first = int(got[1])
+			finally:
+				a.stop()
+			c = up("c", "ch")
+			try:
+				c.wait_for(ROUND_END_RE, "C's round")
+				expect(socks["c"], "h", "set setting host net/metric 7", "ok")
+			finally:
+				c.stop()
+			# C AGAIN, so its round carries the setting to A; then A signs.
+			b_round("h2", ("a", "c"))
+			# A FIRST: its round applies C's setting and signs; then B's asks.
+			a = up("a", "ah3")
+			b = None
+			try:
+				a.wait_for(ROUND_END_RE, "A's round")
+				b = up("b", "bh3")
+				b.wait_for(ROUND_END_RE, "B's round")
+				got = routing("b")
+				if len(got) < 5 or not got[1].isdigit() or int(got[1]) <= first \
+				   or entry_c + "7" not in got[4:]:
+					raise failed("h: B holds %r, not a generation past %d with C at metric 7"
+					             % (got, first))
+			finally:
+				if b:
+					b.stop()
+				a.stop()
+			print("livecheck: h: A signed the routing manifest at generation %d, and B took "
+			      "generation %s with C's metric from a peer" % (first, got[1]))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1
