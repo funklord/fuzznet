@@ -252,6 +252,8 @@ static int line_continues(fzn_node_messages_t *nm, const uint8_t device[FZN_PUBK
 fzn_messages_err_t fzn_node_messages_give_up(fzn_node_messages_t *nm,
                                              int (*stands)(void *ctx,
                                                            const uint8_t contact[FZN_PUBKEY_LEN]),
+                                             int (*removed)(void *ctx,
+                                                            const uint8_t contact[FZN_PUBKEY_LEN]),
                                              void *ctx, size_t *marked)
 {
 	static fzn_bucket_t buckets[FZN_BUCKETS_MAX];
@@ -271,10 +273,15 @@ fzn_messages_err_t fzn_node_messages_give_up(fzn_node_messages_t *nm,
 		return FZN_MESSAGES_ERR_BACKEND;
 	for (b = 0; b < n; b++) {
 		const uint8_t *contact = buckets[b].subject;
+		int gone;
 
 		if ((b > 0 && memcmp(buckets[b - 1u].subject, contact, FZN_PUBKEY_LEN) == 0)
 		    || stands(ctx, contact))
 			continue;
+		/* A LINE STILL BEING SENT is given up only when its contact was
+		 * removed: a key never a contact may be one the caller does not
+		 * list yet, and its lines wait (sec 616). */
+		gone = removed && removed(ctx, contact);
 		for (offset = 0;; offset += count) {
 			count = 0;
 			more = 0;
@@ -286,7 +293,8 @@ fzn_messages_err_t fzn_node_messages_give_up(fzn_node_messages_t *nm,
 				return err;
 			for (i = 0; i < count; i++) {
 				if (page[i].direction != FZN_MESSAGE_OUT
-				    || page[i].state != FZN_MESSAGE_HANDED_OVER)
+				    || (page[i].state != FZN_MESSAGE_HANDED_OVER
+				        && !(page[i].state == 0u && gone)))
 					continue;
 				err = fzn_messages_mark(&nm->m, contact, FZN_MESSAGE_OUT, page[i].id,
 				                        FZN_MESSAGE_NOT_DELIVERED);
@@ -725,13 +733,17 @@ fzn_messages_err_t fzn_node_messages_deliver(fzn_node_messages_t *nm,
 		for (i = 0; i < count; i++) {
 			int got;
 
-			/* STILL BEING SENT, AND THIS DEVICE'S TO SEND: another
-			 * device's line is that device's (sec 610's open question,
-			 * which device re-offers when the writer is gone). */
+			/* STILL BEING SENT, or delivered and due for settlement. */
 			if (page[i].direction != FZN_MESSAGE_OUT
 			    || (page[i].state != 0u
 			        && !(settle && page[i].state == FZN_MESSAGE_DELIVERED))
-			    || !page[i].readable || !same_key(page[i].device, nm->m.issuer))
+			    || !page[i].readable)
+				continue;
+			/* THIS DEVICE'S, OR ONE IT TAKES OVER: the writer gone, sec
+			 * 616. */
+			if (!same_key(page[i].device, nm->m.issuer)
+			    && !(nm->takes_over
+			         && nm->takes_over(nm->takes_over_ctx, page[i].device, page[i].id)))
 				continue;
 			tally->sent++;
 			got = offer(&page[i], ask, ctx);

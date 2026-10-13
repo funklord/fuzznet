@@ -279,6 +279,12 @@ int fzn_node_admin_pair_contact_device(fzn_node_admin_t *admin, const fzn_contac
 int fzn_node_admin_contact_of(const fzn_node_admin_t *admin, const uint8_t sender[FZN_PUBKEY_LEN],
                               uint8_t owner[FZN_PUBKEY_LEN]);
 
+/* WHETHER `key` WAS A CONTACT AND WAS REMOVED, sec 616: suspended or
+ * retired on the estate's roster -- not merely a key no contact holds. A
+ * node with no roster knows of no removal. */
+int fzn_node_admin_contact_removed(const fzn_node_admin_t *admin,
+                                   const uint8_t key[FZN_PUBKEY_LEN]);
+
 /* WHETHER `key` IS A CONTACT STILL STANDING: in this node's contact list,
  * and active on the estate's roster where there is one (secs 454, 489). A
  * removed contact is suspended: served nothing (the remote hook), and its

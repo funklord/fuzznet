@@ -2262,7 +2262,7 @@ static size_t move_gone(struct pull_target *pulls, size_t npulls, uint64_t now,
 static void count_pieces(struct pull_target *pulls, size_t npulls, uint64_t now, unsigned want)
 {
 	static uint8_t keepers[FZN_ERASURE_PIECES_MAX][FZN_PUBKEY_LEN];
-	size_t counted = 0, short_of = 0, let_go = 0, put_back = 0, repairs = 0, moved = 0, t;
+	size_t counted = 0, short_of = 0, let_go = 0, put_back = 0, repairs = 0, moved = 0;
 	uint64_t now_us = wall_ms() * 1000u;
 	uint32_t gone_s = fzn_node_settings_gone_s(&node_settings);
 	struct dirent *e;
@@ -2271,10 +2271,10 @@ static void count_pieces(struct pull_target *pulls, size_t npulls, uint64_t now,
 	n_pieces_ok = 0;
 	if (!pieces_ready || !dlog.has_host)
 		return;
-	/* EVERY PEER THAT ANSWERED THIS ROUND, HEARD, sec 601. */
-	for (t = 0; t < npulls; t++)
-		if (!silent_peer(&pulls[t]) && peer_in_estate(&pulls[t]))
-			(void)fzn_heard_mark(node_apply.store, pulls[t].pairing.node, now_us);
+	/* EVERY PEER THAT ANSWERED THIS ROUND WAS HEARD, sec 601, by
+	 * `mark_heard` earlier in the round (sec 616). */
+	(void)pulls;
+	(void)npulls;
 	if ((d = opendir(node_pieces.dir)) == NULL)
 		return;
 	while ((e = readdir(d)) != NULL && counted < FZND_PIECES_COUNTED) {
@@ -2685,6 +2685,21 @@ static int routing_fetch(struct peer_asking *asking, const uint8_t root[FZN_PUBK
 	    asking->host ? asking->host : "a peer", (unsigned long long)got.generation, got.n);
 	publish("routing", NULL);
 	return 1;
+}
+
+/* EVERY PEER OF THE ESTATE THAT ANSWERED THIS ROUND, HEARD, secs 601 and
+ * 616: what a keeper of a piece, and the writer of a line, are judged gone
+ * by. Each round, whatever this build keeps. */
+static void mark_heard(struct pull_target *pulls, size_t npulls)
+{
+	uint64_t now_us = wall_ms() * 1000u;
+	size_t t;
+
+	if (!node_apply.store)
+		return;
+	for (t = 0; t < npulls; t++)
+		if (!silent_peer(&pulls[t]) && peer_in_estate(&pulls[t]))
+			(void)fzn_heard_mark(node_apply.store, pulls[t].pairing.node, now_us);
 }
 
 /* THE ESTATE'S MANIFEST, each round, sec 611: signed afresh by the root or
@@ -3527,24 +3542,31 @@ static int contact_stands(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN])
 	return fzn_node_admin_contact_stands((const fzn_node_admin_t *)ctx, contact);
 }
 
-/* A HAND-OFF GIVEN UP ON, sec 607, each round: a line this user's devices
- * handed over for a contact that no longer stands -- removed, or not active
- * on the roster -- is marked not delivered, here or on whichever device
- * first notices, and the mark goes out at once so the device that handed
- * it off stops waiting on it. */
+static int contact_removed(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN])
+{
+	return fzn_node_admin_contact_removed((const fzn_node_admin_t *)ctx, contact);
+}
+
+/* A LINE GIVEN UP ON, secs 607 and 616, each round: a line this user's
+ * devices handed over for a contact that no longer stands -- removed, or
+ * not active on the roster -- or are still sending to one removed, is
+ * marked not delivered, here or on whichever device first notices, and the mark goes
+ * out at once so every device stops waiting on it. */
 static void messages_give_up(void)
 {
 	size_t marked = 0;
 
 	if (!messages_on || !running_admin)
 		return;
-	if (fzn_node_messages_give_up(&node_messages, contact_stands, running_admin, &marked)
+	if (fzn_node_messages_give_up(&node_messages, contact_stands, contact_removed, running_admin,
+	                              &marked)
 	    != FZN_MESSAGES_OK)
-		say(FZN_ENTRY_WARNING, "messages", "lines handed over for contacts that no longer "
-		                                   "stand could not all be marked");
+		say(FZN_ENTRY_WARNING, "messages", "lines for contacts that no longer stand could not "
+		                                   "all be marked");
 	else if (marked) {
-		say(FZN_ENTRY_INFO, "messages", "%zu line(s) handed over for a contact that no "
-		                                "longer stands, marked not delivered", marked);
+		say(FZN_ENTRY_INFO, "messages", "%zu line(s) handed over or still being sent for a "
+		                                "contact that no longer stands, marked not delivered",
+		    marked);
 		node_messages.fresh = 1;
 	}
 }
@@ -4230,6 +4252,62 @@ static void settle_lines(struct pull_target *pulls, size_t npulls)
 		say(FZN_ENTRY_INFO, "messages/settle",
 		    "%zu line(s) weighed over %zu member(s): %zu settled, %zu waiting", t.weighed, m,
 		    t.settled, t.waiting);
+}
+
+/* WHETHER `key`, A DEVICE OF THIS USER, IS GONE, sec 616: no longer a
+ * member, or heard from last longer ago than `archive/gone` (sec 601). A
+ * member never heard here is not judged gone: this node cannot tell. */
+static int device_gone(const uint8_t key[FZN_PUBKEY_LEN], uint64_t now_us, uint64_t gone_us)
+{
+	fzn_setting_rank_t rank;
+	uint64_t at = 0;
+
+	if (fzn_node_apply_rank(&node_apply, key, FZN_SCOPE_HOST, key, &rank) != 1)
+		return 1;
+	return fzn_heard_when(node_apply.store, key, &at) == FZN_HEARD_OK && at + gone_us < now_us;
+}
+
+/* A DEVICE'S CLAIM ON A LINE, for choosing who takes it over: the hash of
+ * the line's id and the device's key, highest wins (rendezvous, as pieces
+ * are placed, sec 597). */
+static int claim(const uint8_t id[FZN_MESSAGE_ID_LEN], const uint8_t key[FZN_PUBKEY_LEN],
+                 uint8_t out[32])
+{
+	uint8_t in[FZN_MESSAGE_ID_LEN + FZN_PUBKEY_LEN];
+
+	memcpy(in, id, FZN_MESSAGE_ID_LEN);
+	memcpy(in + FZN_MESSAGE_ID_LEN, key, FZN_PUBKEY_LEN);
+	return contact_hash_ops && contact_hash_ops->hash(contact_hash_ops->ctx, out, 32, in, sizeof(in));
+}
+
+/* A LINE ANOTHER DEVICE WROTE, sec 616: this device sends it when its
+ * writer is gone and, of the user's devices not gone, this one's claim on
+ * it is the highest -- so one device takes it over, and every device that
+ * judges alike picks the same one. */
+static int takes_over_line(void *ctx, const uint8_t writer[FZN_PUBKEY_LEN],
+                           const uint8_t id[FZN_MESSAGE_ID_LEN])
+{
+	static uint8_t keys[FZN_NODE_SIBLINGS_MAX][FZN_PUBKEY_LEN];
+	uint64_t now_us = wall_ms() * 1000u;
+	uint64_t gone_us = (uint64_t)fzn_node_settings_gone_s(&node_settings) * 1000000u;
+	uint8_t mine[32], theirs[32];
+	size_t n = 0, i;
+
+	(void)ctx;
+	if (!contact_id || !node_apply.store || !device_gone(writer, now_us, gone_us)
+	    || !claim(id, contact_id->pubkey, mine)
+	    || fzn_node_siblings_list(node_apply.store, keys, FZN_NODE_SIBLINGS_MAX, &n)
+	               != FZN_NODE_SIBLINGS_OK)
+		return 0;
+	for (i = 0; i < n; i++) {
+		if (memcmp(keys[i], contact_id->pubkey, FZN_PUBKEY_LEN) == 0
+		    || memcmp(keys[i], writer, FZN_PUBKEY_LEN) == 0
+		    || device_gone(keys[i], now_us, gone_us))
+			continue;
+		if (!claim(id, keys[i], theirs) || memcmp(theirs, mine, 32) > 0)
+			return 0;
+	}
+	return 1;
 }
 
 /* EACH ROUND: every contact asked through the first of its hosts that
@@ -6108,6 +6186,7 @@ int main(int argc, char **argv)
 				    == FZN_MESSAGES_OK) {
 					messages_on = 1;
 					node_messages.keeps = keeps_here;
+					node_messages.takes_over = takes_over_line;
 					admin.messages_local = fzn_node_messages_local;
 					admin.messages_remote = fzn_node_messages_remote;
 					admin.messages_ctx = &node_messages;
@@ -6457,6 +6536,7 @@ int main(int argc, char **argv)
 				apply_journal();
 				reconcile_estate(pulls, npulls, now);
 				routing_round(pulls, npulls, now);
+				mark_heard(pulls, npulls);
 #if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
 				count_replicas(pulls, npulls, now);
 #endif

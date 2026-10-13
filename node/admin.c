@@ -2053,6 +2053,17 @@ int fzn_node_admin_contact_of(const fzn_node_admin_t *admin, const uint8_t sende
 	return 1;
 }
 
+int fzn_node_admin_contact_removed(const fzn_node_admin_t *admin,
+                                   const uint8_t key[FZN_PUBKEY_LEN])
+{
+	fzn_roster_state_t standing;
+
+	if (!admin || !key || !admin->roster)
+		return 0;
+	standing = fzn_node_roster_standing(admin->roster, key, admin->revocations, roster_k(admin));
+	return standing == FZN_ROSTER_SUSPENDED || standing == FZN_ROSTER_RETIRED;
+}
+
 int fzn_node_admin_contact_stands(const fzn_node_admin_t *admin,
                                   const uint8_t key[FZN_PUBKEY_LEN])
 {

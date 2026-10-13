@@ -19,6 +19,9 @@ and S's estate advertises.
     c  S keeps messages again: each of S and S2 settles the line it filed
        once the other holds it, and R2, offering both again, is answered
        settled and marks them so (sec 615)
+    d  R2, given an address so R hears it, writes a line while S's estate
+       is down, then falls silent past R's `archive/gone`: R takes the line
+       over and delivers it once S is back (sec 616)
 
 Against a daemon that carries no contact devices, R2 has no host to offer
 to and phase a waits in vain; against one that files under the sending
@@ -36,11 +39,17 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_rejoin import command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
+import live_trim  # noqa: E402
+
+# FOUR DAEMONS RESTARTED IN TURN, phases c and d most of all, take longer
+# than the 240 s the other checks are held to; still one deadline.
+live_trim.DEADLINE = time.monotonic() + 420.0
 
 OFFERED_RE = re.compile(r"(\d+) line\(s\) offered to 127\.0\.0\.1: (\d+) delivered, "
                         r"(\d+) settled, (\d+) refused, (\d+) unanswered")
@@ -49,6 +58,7 @@ PASS_RE = re.compile(r"contact pass: (\d+) contact\(s\) asked, (\d+) kept from m
                      r"(\d+) paired, (\d+) host\(s\) to deliver to")
 LINE_1 = "41" * 16
 LINE_2 = "42" * 16
+LINE_3 = "43" * 16
 PREKEY_HOST = slice(4, 68)
 
 
@@ -97,7 +107,7 @@ def main(argv):
 	run.fuzznetd = os.path.abspath(argv[1])
 	run.started = []
 	base = 10000 + (os.getpid() % 500) * 4
-	port = {"s": str(base), "s2": str(base + 1), "r": str(base + 2)}
+	port = {"s": str(base), "s2": str(base + 1), "r": str(base + 2), "r2": str(base + 3)}
 	with tempfile.TemporaryDirectory(prefix="fzn-live.") as scratch, \
 	     tempfile.TemporaryDirectory(prefix="fzs.", dir="/tmp") as sock_dir:
 		run.scratch = scratch
@@ -110,7 +120,7 @@ def main(argv):
 			"s": ["--udp-port=" + port["s"]],
 			"s2": ["--udp-port=" + port["s2"], "--root-at", "127.0.0.1", port["s"]],
 			"r": ["--udp-port=" + port["r"]],
-			"r2": ["--root-at", "127.0.0.1", port["r"]],
+			"r2": ["--udp-port=" + port["r2"], "--root-at", "127.0.0.1", port["r"]],
 		}
 		started = {}
 
@@ -161,6 +171,9 @@ def main(argv):
 			# a: R offers its devices; S2 and R2 learn from their members.
 			r = up("r", "r1")
 			expect(socks["r"], "r", "add contact sam " + keys["s"], "ok")
+			# FOR PHASE d: a device of R's silent 3 s is gone. R hears R2 only
+			# once R2 has an address, which is phase d's.
+			expect(socks["r"], "r", "set setting estate archive/gone 3s", "ok")
 			expect(socks["r"], "r", "add received sam 127.0.0.1 %s %s" % (port["s"], card_path),
 			       "ok")
 			# R2 once, so its prekey reaches R in R2's estate stream.
@@ -247,6 +260,41 @@ def main(argv):
 				             % (turn + 1, states, said(r2, started["s"], started["s2"])))
 			print("livecheck: c: both lines settled at S's estate, and R2 was told so in "
 			      "%d turn(s)" % (turn + 1))
+
+			# d: a writer gone (sec 616). R2, given an address so R hears
+			# it, writes a line while S's estate is down; R2 then falls
+			# silent past R's `archive/gone`, and R takes the line over and
+			# delivers it once S is back.
+			down("s")
+			down("s2")
+			expect(socks["r2"], "r2", "set setting host net/address 127.0.0.1 " + port["r2"],
+			       "ok")
+			expect(socks["r2"], "r2", "add message %s out %s orphaned" % (keys["s"], LINE_3),
+			       "ok")
+			r2.wait_for(re.compile(r"line\(s\) offered to 127\.0\.0\.1: 0 delivered, 0 settled, "
+			                       r"0 refused, 1 unanswered"), "R2's offer to nobody")
+			down("r2")
+			r2 = up("r2", "r2-d")
+			r2.wait_for(ROUND_END_RE, "R2's round, pushing the line to R")
+			down("r")
+			r = up("r", "r-d1")
+			r.wait_for(ROUND_END_RE, "R's round, hearing R2")
+			down("r")
+			down("r2")
+			time.sleep(4.0)
+			for who in ("s", "s2"):
+				d = up(who, "%s-d" % who)
+				d.wait_for(ROUND_END_RE, "%s's round" % who.upper())
+			r = up("r", "r-d2")
+			got = r.wait_for(re.compile(r"line\(s\) offered to 127\.0\.0\.1: 1 delivered"),
+			                 "R's delivery of R2's line")
+			filed = {}
+			for who in ("s", "s2"):
+				filed.update(lines(socks[who], who, keys["r"]))
+			if filed.get(LINE_3, ("", "", ""))[2] != "orphaned":
+				raise failed("d: S's estate holds %r%s" % (filed, said(r)))
+			print("livecheck: d: R took over the line R2 wrote and fell silent on, and "
+			      "delivered it")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			if os.environ.get("LIVE_DEBUG"):

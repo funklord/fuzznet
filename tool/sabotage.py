@@ -11074,9 +11074,9 @@ SABOTAGES = [
 	(
 		"messages-given-up-only-while-handed-over",
 		"node/messages.c",
-		"\t\t\t\tif (page[i].direction != FZN_MESSAGE_OUT\n\t\t\t\t    || page[i].state != FZN_MESSAGE_HANDED_OVER)\n",
+		"\t\t\t\tif (page[i].direction != FZN_MESSAGE_OUT\n\t\t\t\t    || (page[i].state != FZN_MESSAGE_HANDED_OVER\n\t\t\t\t        && !(page[i].state == 0u && gone)))\n",
 		"\t\t\t\tif (page[i].direction != FZN_MESSAGE_OUT)\n",
-		"a line already delivered is marked not delivered when its contact goes -- sec 607",
+		"a line already delivered is marked not delivered when its contact goes -- secs 607, 616",
 	),
 	(
 		"notebook-history-kept-across-a-refresh",
@@ -11529,9 +11529,9 @@ SABOTAGES = [
 	(
 		"messages-deliver-own-device-only",
 		"node/messages.c",
-		"\t\t\t    || !page[i].readable || !same_key(page[i].device, nm->m.issuer))\n",
-		"\t\t\t    || !page[i].readable)\n",
-		"every device of the user offers every line, and the device that wrote it is not the one that sends -- sec 613",
+		"\t\t\tif (!same_key(page[i].device, nm->m.issuer)\n\t\t\t    && !(nm->takes_over\n",
+		"\t\t\tif (0\n\t\t\t    && !(nm->takes_over\n",
+		"every device of the user offers every line, and the device that wrote it is not the one that sends -- secs 613, 616",
 	),
 	(
 		"messages-delivered-names-the-line",
@@ -11693,6 +11693,27 @@ SABOTAGES = [
 		"\t\t\tif (got == 1 && page[i].state == FZN_MESSAGE_DELIVERED)\n\t\t\t\tcontinue;\n",
 		"",
 		"each settlement re-offer marks the line delivered again, a record every time -- sec 615",
+	),
+	(
+		"messages-deliver-takes-over-only-when-told",
+		"node/messages.c",
+		"\t\t\t    && !(nm->takes_over\n\t\t\t         && nm->takes_over(nm->takes_over_ctx, page[i].device, page[i].id)))\n",
+		"\t\t\t    && !nm->takes_over)\n",
+		"every device holding a line sends it, its writer gone or not -- sec 616",
+	),
+	(
+		"messages-give-up-lines-being-sent",
+		"node/messages.c",
+		"\t\t\t\t    || (page[i].state != FZN_MESSAGE_HANDED_OVER\n\t\t\t\t        && !(page[i].state == 0u && gone)))\n",
+		"\t\t\t\t    || page[i].state != FZN_MESSAGE_HANDED_OVER)\n",
+		"a line still being sent to a removed contact is offered for ever, never marked -- sec 616",
+	),
+	(
+		"messages-give-up-sending-only-when-removed",
+		"node/messages.c",
+		"\t\t\t\t        && !(page[i].state == 0u && gone)))\n",
+		"\t\t\t\t        && !(page[i].state == 0u)))\n",
+		"a line to a key fuzznet does not list yet -- fuzzypickles' contacts -- is marked not delivered -- sec 616",
 	),
 ]
 

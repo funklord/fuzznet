@@ -132,6 +132,13 @@ typedef struct fzn_node_messages {
 	 * host knows the rules that reach it. NULL keeps every conversation. */
 	int (*keeps)(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN]);
 	void *keeps_ctx;
+	/* WHETHER THIS DEVICE SENDS A LINE ANOTHER DEVICE WROTE, sec 616: its
+	 * writer is gone, and this device is the one of the user's devices
+	 * left to take over. The caller holds the roster and when each device
+	 * was last heard from. NULL: every device sends only its own. */
+	int (*takes_over)(void *ctx, const uint8_t writer[FZN_PUBKEY_LEN],
+	                  const uint8_t id[FZN_MESSAGE_ID_LEN]);
+	void *takes_over_ctx;
 } fzn_node_messages_t;
 
 typedef struct fzn_node_messages_tally {
@@ -163,17 +170,23 @@ size_t fzn_node_messages_devices(fzn_node_messages_t *nm, const uint8_t (*keys)[
 fzn_messages_err_t fzn_node_messages_absorb(fzn_node_messages_t *nm,
                                             fzn_node_messages_tally_t *tally);
 
-/* A HAND-OFF GIVEN UP ON, sec 607: every OUT line still HANDED_OVER in the
- * conversation of a contact that no longer stands -- `stands` says, for the
- * caller holds the contact list and the roster -- marked NOT_DELIVERED, so
- * the device that handed it off reads, through the journal, that no device
- * will send it (fuzzypickles' sec 196, recorded in sec 510). Conversations
+/* A LINE GIVEN UP ON, secs 607 and 616: every OUT line still HANDED_OVER
+ * in the conversation of a contact that no longer stands, and every one
+ * still being sent -- no mark -- to a contact that was REMOVED -- `stands`
+ * and `removed` say, for the caller holds the contact list and the roster;
+ * a key that was never a contact is not removed, and its lines wait --
+ * marked NOT_DELIVERED, so every device of the user
+ * reads, through the journal, that no device will send it (fuzzypickles'
+ * sec 196, recorded in sec 510). The one way a line stops short of being
+ * delivered: the delivery itself never gives up (sec 610). Conversations
  * are found by their buckets, so one whose contact was removed is among
  * them. A conversation's lines past FZN_MESSAGES_WALK_MAX are not reached.
  * `*marked` counts. */
 fzn_messages_err_t fzn_node_messages_give_up(fzn_node_messages_t *nm,
                                              int (*stands)(void *ctx,
                                                            const uint8_t contact[FZN_PUBKEY_LEN]),
+                                             int (*removed)(void *ctx,
+                                                            const uint8_t contact[FZN_PUBKEY_LEN]),
                                              void *ctx, size_t *marked);
 
 /* PAST A GAP: `device`'s stream moved up to `to` under a peer's base
@@ -232,7 +245,8 @@ typedef struct fzn_node_messages_delivery {
 
 /*
  * DELIVER TO `contact`, sec 613: every OUT line of that conversation still
- * being sent -- no mark -- that THIS device wrote and can read, offered one
+ * being sent -- no mark -- that THIS device wrote, or takes over from a
+ * writer gone (`takes_over`, sec 616), and can read, offered one
  * at a time through `ask`, the contact's host; with `settle`, also every
  * one DELIVERED and not yet settled (sec 615). A line answered HELD is
  * marked DELIVERED, one answered SETTLED is marked SETTLED, which the

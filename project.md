@@ -63508,10 +63508,12 @@ rather than ask again), and fitting it to what fuzznet already is.
 
 ### Still open, and the holder's if it comes to it
 
-- **Which device re-offers.** The device that wrote a line holds its
+- ~~**Which device re-offers.** The device that wrote a line holds its
   re-offers; if it is gone, another of the user's devices could take them
   over, since they all hold the line. Not decided by either tree --
-  fuzzypickles' outbox lives on one host.
+  fuzzypickles' outbox lives on one host.~~ Settled in sec 616: the writer
+  while it stands and is heard; once it is gone, the one device of the
+  rest whose claim on the line is highest.
 
 ## 611. Step 2a: the routing manifest, 2026-10-13
 
@@ -63932,8 +63934,9 @@ sent is the round's cadence, as it was.
 - **A line whose records left the journal window** (60 days, sec 535)
   cannot have its item rebuilt and is not settled; settlement normally
   comes within rounds.
-- **Which device re-offers when the writer is gone**, as sec 610 has it.
-- **2d** otherwise: the writing device gone, and sec 607's mark folded in.
+- ~~**Which device re-offers when the writer is gone**, as sec 610 has
+  it.~~ ~~**2d** otherwise: the writing device gone, and sec 607's mark
+  folded in.~~ Both sec 616.
 
 ### Measured for sec 615
 
@@ -63957,3 +63960,77 @@ sent is the round's cadence, as it was.
   answered settled, the question's exact length, and held again changing
   nothing. Sec 613's "only lines being sent" re-anchored on the new
   condition, and caught.
+
+## 616. Step 2d: a line taken over from a writer gone, and given up only with its contact, 2026-10-13
+
+The last of sec 610's step 2. The sweep's schedule was already in place --
+a line being sent is offered every round, 60 s, and one delivered and not
+settled at start and hourly (secs 613, 615) -- and never gives up, as
+fuzzypickles' outbox does not. Two things were left.
+
+### A writer gone
+
+The device that wrote a line offers it, as before. **Once that device is
+gone, one other device of the user takes it over**: every device holds
+the line and, by the journal, its conversation key.
+
+- **Gone** is a device no longer a member (`fzn_node_apply_rank`), or one
+  last heard from longer ago than the estate's `archive/gone` -- sec 601's
+  measure of a keeper gone silent, fourteen days by default, used here
+  for the same question rather than a second setting asking it again. A
+  member this node never heard from is not judged gone: it cannot tell.
+- **One device takes over**: of the user's devices not gone, the one whose
+  claim on the line -- the hash of the line's id and its key -- is highest,
+  as pieces are placed (sec 597). Devices that judge alike pick the same
+  one, and a re-offer by two is still harmless, since a line is filed by
+  its id.
+- **Heard is now marked every round**, for every peer of the estate that
+  answered, by `mark_heard`. It was marked only inside the erasure pass
+  (sec 601), so a build without packed logs heard nobody.
+
+The messages layer asks fuzznetd through `fzn_node_messages_t.takes_over`,
+as it asks `keeps`; NULL keeps every device to its own lines.
+
+### The one way a line stops short
+
+`fzn_node_messages_give_up` (sec 607) now marks NOT_DELIVERED every OUT
+line **still being sent** to a contact that was **removed** -- suspended or
+retired on the roster (`fzn_node_admin_contact_removed`) -- as it marked
+hand-offs: the holder's "mark on removal", applied to fuzznet's own
+delivery. A line delivered and not settled stays delivered.
+
+**Removed, not merely unlisted.** The first version gave up on lines to any
+key that did not stand, and `live_rejoin.py` phase f caught it: B's line
+to a key that was never a contact was marked, and the mark, written that
+round, kept the journal's cut from reaching the line. The test was right
+about more than the cut: fuzzypickles writes lines for its contacts
+through `add message`, and those are not all fuzznet's contacts yet, so
+every one of them still being sent would have been marked not delivered.
+A key never a contact is not removed, and its lines wait. Hand-offs keep
+sec 607's rule.
+
+### Not yet after sec 616
+
+- **A member never heard is never judged gone**, so a line whose writer
+  was only ever reached through another host waits until that writer is
+  removed from the estate.
+- **Step 2 is otherwise complete.** Sec 608's step 3, pairing and identity
+  verbs -- a contact card carrying the user's root and manifest seeds, in
+  place of `grant share` and `add received` -- is next.
+
+### Measured for sec 616
+
+- **`node/test/messages_test`, 127 checks, 5 new**: B does not send A's
+  line while A is not gone, and taking it over delivers it and marks it;
+  give-up marks the line still being sent to X, which was removed, and
+  not the one to Y, which stands, nor the one to Z, never a contact.
+- **`tool/live_contacts.py` phase d**: R2, given an address so R hears it,
+  writes a line while S's estate is down and falls silent past R's
+  `archive/gone` of 3 s; R takes the line over and delivers it once S is
+  back. **Control**: with no take-over, R delivers nothing and phase d
+  fails.
+- **`tool/live_shares.py` phase d** waits on give-up's widened log line.
+- **Three sabotage entries, each probed caught**: taking over only when
+  told, giving up lines being sent, and only when the contact was removed.
+  Two older entries re-anchored on the changed conditions -- sec 607's
+  "only while handed over" and sec 613's "own device only" -- and caught.

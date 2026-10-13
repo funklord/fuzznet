@@ -566,13 +566,23 @@ static int y_stands(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN])
 	return memcmp(contact, Y, FZN_PUBKEY_LEN) == 0;
 }
 
+/* X WAS A CONTACT AND WAS REMOVED; nobody else was. */
+static int x_removed(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN])
+{
+	(void)ctx;
+	return memcmp(contact, X, FZN_PUBKEY_LEN) == 0;
+}
+
 static void test_a_hand_off_to_a_removed_contact_is_given_up(void)
 {
 	uint8_t id1[FZN_MESSAGE_ID_LEN], id2[FZN_MESSAGE_ID_LEN], id3[FZN_MESSAGE_ID_LEN];
+	uint8_t id4[FZN_MESSAGE_ID_LEN], Z[FZN_PUBKEY_LEN];
 	size_t marked = 9;
 
 	setup();
 	memset(Y, 0x77, sizeof(Y));
+	memset(Z, 0x5a, sizeof(Z));
+	memset(id4, 0x64, sizeof(id4));
 	memset(id1, 0x61, sizeof(id1));
 	memset(id2, 0x62, sizeof(id2));
 	memset(id3, 0x63, sizeof(id3));
@@ -588,11 +598,24 @@ static void test_a_hand_off_to_a_removed_contact_is_given_up(void)
 	              && fzn_messages_write(&A.nm.m, Y, FZN_MESSAGE_OUT, id3, 8u, "to y", 4u)
 	                         == FZN_MESSAGES_OK
 	              && fzn_messages_mark(&A.nm.m, Y, FZN_MESSAGE_OUT, id3, FZN_MESSAGE_HANDED_OVER)
+	                         == FZN_MESSAGES_OK
+	              && fzn_messages_write(&A.nm.m, X, FZN_MESSAGE_OUT, id4, 9u, "unsent", 6u)
+	                         == FZN_MESSAGES_OK
+	              && fzn_messages_write(&A.nm.m, Y, FZN_MESSAGE_OUT, id4, 10u, "unsent", 6u)
+	                         == FZN_MESSAGES_OK
+	              && fzn_messages_write(&A.nm.m, Z, FZN_MESSAGE_OUT, id4, 11u, "unsent", 6u)
 	                         == FZN_MESSAGES_OK,
-	      "fixture: lines to X and Y, handed over, delivered and received");
-	CHECK(fzn_node_messages_give_up(&A.nm, y_stands, NULL, &marked) == FZN_MESSAGES_OK
-	              && marked == 1u,
-	      "not one line marked: the line handed over for X, which no longer stands");
+	      "fixture: lines to X and Y, handed over, delivered, received and still sent");
+	CHECK(fzn_node_messages_give_up(&A.nm, y_stands, x_removed, NULL, &marked) == FZN_MESSAGES_OK
+	              && marked == 2u,
+	      "not two lines marked: the one handed over for X, which no longer stands, and the "
+	      "one still being sent to it (sec 616)");
+	CHECK(fzn_messages_state(&A.nm.m, Z, FZN_MESSAGE_OUT, id4) == 0u,
+	      "a line still being sent to a key never a contact was given up on");
+	CHECK(fzn_messages_state(&A.nm.m, X, FZN_MESSAGE_OUT, id4) == FZN_MESSAGE_NOT_DELIVERED
+	              && fzn_messages_state(&A.nm.m, Y, FZN_MESSAGE_OUT, id4) == 0u,
+	      "a line still being sent was marked for the contact that stands, or not for the one "
+	      "that does not");
 	CHECK(fzn_messages_state(&A.nm.m, X, FZN_MESSAGE_OUT, id1) == FZN_MESSAGE_NOT_DELIVERED,
 	      "the line handed over for X is not marked not delivered");
 	CHECK(fzn_messages_state(&A.nm.m, X, FZN_MESSAGE_OUT, id2) == FZN_MESSAGE_DELIVERED
@@ -600,7 +623,7 @@ static void test_a_hand_off_to_a_removed_contact_is_given_up(void)
 	      "a delivered line, or one received, was marked");
 	CHECK(fzn_messages_state(&A.nm.m, Y, FZN_MESSAGE_OUT, id3) == FZN_MESSAGE_HANDED_OVER,
 	      "a line handed over for a contact that stands was given up on");
-	CHECK(fzn_node_messages_give_up(&A.nm, y_stands, NULL, &marked) == FZN_MESSAGES_OK
+	CHECK(fzn_node_messages_give_up(&A.nm, y_stands, x_removed, NULL, &marked) == FZN_MESSAGES_OK
 	              && marked == 0u,
 	      "a line given up on was marked again");
 	/* THE ANSWER TRAVELS: B, which reads A's stream, holds the state too. */
@@ -609,7 +632,7 @@ static void test_a_hand_off_to_a_removed_contact_is_given_up(void)
 	              && fzn_messages_state(&B.nm.m, X, FZN_MESSAGE_OUT, id1)
 	                         == FZN_MESSAGE_NOT_DELIVERED,
 	      "the not-delivered mark is not B's state once carried");
-	CHECK(fzn_node_messages_give_up(&A.nm, NULL, NULL, &marked) == FZN_MESSAGES_ERR_MALFORMED,
+	CHECK(fzn_node_messages_give_up(&A.nm, NULL, NULL, NULL, &marked) == FZN_MESSAGES_ERR_MALFORMED,
 	      "a pass with no way to tell who stands was run");
 }
 
@@ -1375,6 +1398,49 @@ static void test_a_holds_question_is_exact(void)
 	      "a question a byte long or short was answered");
 }
 
+/* A WRITER GONE, sec 616: the device the caller says takes over sends it. */
+static int takes;
+
+static int b_takes_over(void *ctx, const uint8_t writer[FZN_PUBKEY_LEN],
+                        const uint8_t id[FZN_MESSAGE_ID_LEN])
+{
+	(void)ctx;
+	(void)id;
+	return takes && memcmp(writer, A.pub, FZN_PUBKEY_LEN) == 0;
+}
+
+static void test_a_line_is_taken_over_from_a_writer_gone(void)
+{
+	contact_link_t l = { 1, 0, 0 };
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	fzn_node_messages_tally_t absorbed;
+	fzn_node_messages_delivery_t d;
+	size_t found = 0;
+
+	setup();
+	device_up(&C, 0x77);
+	host_up(&C, &C);
+	memcpy(S.pub, A.pub, FZN_PUBKEY_LEN); /* to_contact files under S's key */
+	memset(id, 0x92, sizeof(id));
+	CHECK(fzn_messages_write(&A.nm.m, C.pub, FZN_MESSAGE_OUT, id, 1u, "orphan", 6u)
+	                      == FZN_MESSAGES_OK
+	              && (synced(&B), fzn_node_messages_absorb(&B.nm, &absorbed)) == FZN_MESSAGES_OK
+	              && round_with(&B, &A) && readable_on(&B) == 1,
+	      "fixture: A writes a line, and B holds it and can read it");
+	B.nm.takes_over = b_takes_over;
+	takes = 0;
+	CHECK(fzn_node_messages_deliver(&B.nm, C.pub, 0, to_contact, &l, &d) == FZN_MESSAGES_OK
+	              && d.sent == 0u,
+	      "B sent A's line while A is not gone");
+	takes = 1;
+	CHECK(fzn_node_messages_deliver(&B.nm, C.pub, 0, to_contact, &l, &d) == FZN_MESSAGES_OK
+	              && d.sent == 1u && d.delivered == 1u
+	              && state_of_line(&B, C.pub, 0x92, FZN_MESSAGE_OUT, &found)
+	                         == FZN_MESSAGE_DELIVERED,
+	      "B, taking A's line over, delivered it and marked it");
+	B.nm.takes_over = NULL;
+}
+
 static void test_which_hosts_keep_messages(void)
 {
 	fzn_retain_rule_t r[2];
@@ -1434,6 +1500,7 @@ int main(void)
 	test_another_devices_line_is_its_own_to_send();
 	test_which_hosts_keep_messages();
 	test_a_line_settles_once_every_keeping_device_holds_it();
+	test_a_line_is_taken_over_from_a_writer_gone();
 	test_a_holds_question_is_exact();
 	if (failures) {
 		fprintf(stderr, "node messages_test: %d of %d checks failed\n", failures, checks);

@@ -6025,7 +6025,7 @@ QUIRC_DIR      ?= $(QUIRC_VENDORED)
 # themselves: one
 # deadline, each daemon in its own process group, scratch removed. Six hosts
 # going round in turn take live_erasure.py past the others' 240 s, so its own
-# deadline is 480 s and its timeout 600; it needs packed logs to cut, and says
+# deadline is 480 s and its timeout 600, and live_contacts.py's 420 and 540; it needs packed logs to cut, and says
 # it is skipped in a build without them.
 livecheck: $(FUZZNETD)
 ifeq ($(and $(FUZZNETD),$(RECORD_STORE_FILE_ON),$(LOG_FILE_ON)),)
@@ -6042,7 +6042,7 @@ else
 	@timeout 300 python3 tool/live_archive.py $(FUZZNETD)
 	@timeout 120 python3 tool/live_events.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_deliver.py $(FUZZNETD)
-	@timeout 300 python3 tool/live_contacts.py $(FUZZNETD)
+	@timeout 540 python3 tool/live_contacts.py $(FUZZNETD)
 	@$(if $(LOG_PACK_ON),timeout 600 python3 tool/live_erasure.py $(FUZZNETD),echo \
 	  "livecheck: erasure SKIPPED -- this build does not pack logs")
 endif
