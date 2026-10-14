@@ -261,6 +261,15 @@ static void test_an_act_is_its_signers(void)
 	a.signer.owner[0] ^= 1u; /* claimed for another user */
 	CHECK(fzn_group_act_verify(&a, &SIGN, &member) == FZN_GROUP_ACT_ERR_REFUSED,
 	      "an act claimed for a user whose host did not sign it held");
+	/* SIGNED WHOLE by a host that is not the user's: the signature holds,
+	 * and only the proof -- the host is neither the root nor chained from
+	 * it -- tells the act is not that user's. */
+	act(&a, FZN_GROUP_ACT_CREATE, 0x11u, NULL, 0u, NULL, nonce);
+	root_of(a.signer.owner, 0x22u);
+	signing_as = 0x11u;
+	(void)fzn_group_act_sign(&a, &SIGN);
+	CHECK(fzn_group_act_verify(&a, &SIGN, &member) == FZN_GROUP_ACT_ERR_REFUSED,
+	      "an act signed by a host with no proof for the user it names held");
 }
 
 static void test_who_may_do_what(void)

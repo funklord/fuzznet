@@ -1353,6 +1353,12 @@ int main(void)
 		              && ask(&admin, &owner, "add group family", reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR,
 		      "a group was not made, or was made twice");
+		CHECK(says(detail, detail_len, "has that name"),
+		      "a group made twice was not refused for its name");
+		CHECK(ask(&admin, &owner, "list group", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && says(detail, detail_len, "1 0 family,1"),
+		      "a name already taken made a second group, left unnamed");
 		CHECK(ask(&admin, &owner, "add member family nobody", reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR,
 		      "a name that is no contact joined a group");

@@ -64830,8 +64830,8 @@ line change each, committed on its own.
 **Folded 2026-10-14 at 95 per cent of the weekly window.** Every gate
 passed on 5a, `make livecheck` last, finishing after the commit -- and in
 that run C's leave lost the fork to A's admin act and was made again, so
-the re-issue path ran. **The next session probes the nine group sabotage
-entries first.** Then, in sec 625's order:
+the re-issue path ran. The sabotage probes followed (below). **The next
+session starts 5b.** In sec 625's order:
 
 - **5b, epochs**: a secret per epoch sealed to each member's root through
   step 2's delivery, sender chains derived from it and the sender's root
@@ -64850,9 +64850,15 @@ entries first.** Then, in sec 625's order:
   by a majority of one, two and three; a fork kept by the lower hash in
   both arrival orders, the lost tail removed and reported; a gap refused;
   the log read back.
-- **Sabotage: nine entries** on the act, the log and the verbs; four
-  more re-anchored from the old module and four retired with it. Not yet
-  probed at the fold.
+- **Sabotage: nine entries** on the act, the log and the verbs, and four
+  re-anchored from the old module, four retired with it: **all thirteen
+  caught**, two only after their tests were fixed. The signer's proof
+  survived because the test forged the owner after signing, so the
+  signature refused it first; a host now signs whole an act naming a user
+  it is no host of. The name check survived because the rename refuses a
+  taken name too -- but after the group is made, and the line after the
+  check refuses a found name anyway, with the reason `ok`; the test now
+  asks for the reason.
 - **`tool/live_groups.py`, in `make livecheck`**: A, a contact of B and
   of C, makes a group of the three; B and C learn it from A, A its
   admin; A makes B an admin; C leaves and A learns it from C.
