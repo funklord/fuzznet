@@ -12051,6 +12051,27 @@ SABOTAGES = [
 		"\t\t\tif (0)\n",
 		"a host joining after the epoch began is never sealed it -- sec 627",
 	),
+	(
+		"group-line-host-is-senders",
+		"node/group_line.c",
+		"\t    || memcmp(h->owner, line->sender, FZN_PUBKEY_LEN) != 0)\n",
+		"\t    )\n",
+		"any member's host writes a current line in another member's name -- sec 628",
+	),
+	(
+		"group-line-no-epoch-ahead",
+		"node/group_line.c",
+		"\t    || line->epoch > g->epoch)\n",
+		"\t    )\n",
+		"a line claiming an epoch the group has not reached is taken, as if from a member not yet checked -- sec 628",
+	),
+	(
+		"group-line-current-needs-member",
+		"node/group_line.c",
+		"\tif (line->epoch < g->epoch)\n\t\treturn FZN_GROUP_LINE_OK;\n",
+		"\tif (line->epoch <= g->epoch)\n\t\treturn FZN_GROUP_LINE_OK;\n",
+		"a current line is taken without its sender or host being checked at all -- sec 628",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

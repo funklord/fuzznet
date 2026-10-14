@@ -1,0 +1,28 @@
+// A group line in transit, project.md sec 628: step 5b's second part, on
+// sec 627's epochs. The hand-written codec is node/group_line.c; this is
+// its checked contract, in `make schema`'s list.
+//
+// The head is in the clear and is the AEAD's associated data; the text is
+// sealed under the hash of a label, the group epoch's secret and the
+// sealing host, with a random nonce. Not signed: group lines are deniable
+// (sec 625).
+//
+// What the schema cannot say and the codec checks: the text is at most
+// 880 bytes and the line exactly its length.
+
+target buffer;
+endian big;
+
+struct fzn_group_line {
+	u8   version [must_eq = 1];
+	u8   group[32];
+	u32  epoch;                             // the group epoch, not a month
+	u8   sender[32];                        // the member who wrote it, a root
+	u8   host[32];                          // the host that sealed it
+	u8   id[16];
+	u64  stime;
+	u8   nonce[24];
+	u16  text_len;
+	u8   text[text_len];                    // sealed
+	u8   tag[16];
+}

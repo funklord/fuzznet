@@ -8,6 +8,7 @@
  * key's first byte, as group_log_test's. */
 
 #include "../groups.h"
+#include "../group_line.h"
 #include "../../session/aead_monocypher.h"
 #include "../../session/agree_monocypher.h"
 #include "../../session/hash_monocypher.h"
@@ -339,6 +340,105 @@ static void test_a_secret_drawn_on_a_lost_fork_is_let_go(void)
 	CHECK(same_secret(a, b, id, g.epoch), "B kept the wrong secret over the one committed to");
 }
 
+/* A LINE written at one member's host, read at another's, sec 628. */
+static void test_a_line_is_read_by_members_alone(void)
+{
+	struct user *a = &users[0], *b = &users[1], *c = &users[2];
+	static fzn_group_t g;
+	static fzn_group_line_t line, got;
+	uint8_t id[FZN_GROUP_ID_LEN], secret[FZN_GROUP_SECRET_LEN], bytes[FZN_GROUP_LINE_MAX];
+	size_t len = 0, i;
+	uint32_t was;
+
+	user_up(a, 0x11u);
+	user_up(b, 0x22u);
+	user_up(c, 0x33u);
+	(void)fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_CREATE, NULL, NULL, 0u, 0u, id);
+	(void)fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_ADD, id, b->device.owner, 0u, 0u, NULL);
+	(void)tend(a, id);
+	sync(a, b, id);
+	(void)tend(b, id);
+	sync(b, a, id);
+	(void)tend(a, id);
+	sync(a, b, id);
+	(void)tend(b, id);
+	(void)fzn_group_log_get(&a->ops, id, &g);
+	CHECK(fzn_node_groups_secret(&a->groups, id, g.epoch, secret) == FZN_GROUP_LOG_OK,
+	      "fixture: A holds the current epoch");
+	memcpy(line.group, id, sizeof(line.group));
+	line.epoch = g.epoch;
+	memcpy(line.sender, a->device.owner, FZN_PUBKEY_LEN);
+	memcpy(line.host, a->device.owner, FZN_PUBKEY_LEN);
+	memset(line.id, 0x0d, sizeof(line.id));
+	line.stime = 4321u;
+	memcpy(line.text, "hello family", 12u);
+	line.text_len = 12u;
+	CHECK(fzn_group_line_seal(&line, secret, &HASH, &AEAD, &RNG, bytes, sizeof(bytes), &len)
+	              == FZN_GROUP_LINE_OK,
+	      "A did not seal a line");
+	CHECK(fzn_group_line_peek(bytes, len, &got) == FZN_GROUP_LINE_OK && got.epoch == g.epoch
+	              && memcmp(got.sender, line.sender, FZN_PUBKEY_LEN) == 0 && got.text_len == 0u,
+	      "a line's clear head did not read back, or its text showed");
+	CHECK(fzn_node_groups_secret(&b->groups, id, g.epoch, secret) == FZN_GROUP_LOG_OK
+	              && fzn_group_line_open(bytes, len, secret, &HASH, &AEAD, &got)
+	                         == FZN_GROUP_LINE_OK
+	              && got.text_len == 12u && memcmp(got.text, "hello family", 12u) == 0
+	              && got.stime == 4321u,
+	      "B did not read A's line under the epoch's secret");
+	CHECK(fzn_group_line_admit(&g, &got) == FZN_GROUP_LINE_OK, "A's own line was not admitted");
+	/* EVERY BYTE BOUND. */
+	for (i = 0; i < len; i++) {
+		bytes[i] ^= 0x01u;
+		if (fzn_group_line_open(bytes, len, secret, &HASH, &AEAD, &got) == FZN_GROUP_LINE_OK) {
+			CHECK(0, "a line with a byte changed opened");
+			bytes[i] ^= 0x01u;
+			break;
+		}
+		bytes[i] ^= 0x01u;
+	}
+	CHECK(i == len, "every byte of a line is bound");
+	CHECK(fzn_group_line_open(bytes, len - 1u, secret, &HASH, &AEAD, &got)
+	              == FZN_GROUP_LINE_ERR_SHAPE,
+	      "a line a byte short read");
+	/* NAMING ANOTHER MEMBER from A's host: opens, and is not admitted. */
+	memcpy(line.sender, b->device.owner, FZN_PUBKEY_LEN);
+	(void)fzn_node_groups_secret(&a->groups, id, g.epoch, secret);
+	(void)fzn_group_line_seal(&line, secret, &HASH, &AEAD, &RNG, bytes, sizeof(bytes), &len);
+	CHECK(fzn_group_line_open(bytes, len, secret, &HASH, &AEAD, &got) == FZN_GROUP_LINE_OK
+	              && fzn_group_line_admit(&g, &got) == FZN_GROUP_LINE_ERR_STRANGER,
+	      "a line naming B, sealed by A's host, was admitted in the current epoch");
+	/* A LATER EPOCH B never got: B cannot read it. */
+	was = g.epoch;
+	(void)fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_REMOVE, id, b->device.owner, 0u, 0u, NULL);
+	(void)tend(a, id);
+	(void)fzn_group_log_get(&a->ops, id, &g);
+	memcpy(line.sender, a->device.owner, FZN_PUBKEY_LEN);
+	line.epoch = g.epoch;
+	(void)fzn_node_groups_secret(&a->groups, id, g.epoch, secret);
+	(void)fzn_group_line_seal(&line, secret, &HASH, &AEAD, &RNG, bytes, sizeof(bytes), &len);
+	(void)fzn_node_groups_secret(&b->groups, id, was, secret);
+	CHECK(g.epoch > was
+	              && fzn_group_line_open(bytes, len, secret, &HASH, &AEAD, &got)
+	                         == FZN_GROUP_LINE_ERR_OPEN,
+	      "a removed member read a line of the epoch after it left");
+	/* HISTORY: B's line of the earlier epoch is still admitted, B gone. */
+	memcpy(line.sender, b->device.owner, FZN_PUBKEY_LEN);
+	memcpy(line.host, b->device.owner, FZN_PUBKEY_LEN);
+	line.epoch = was;
+	CHECK(fzn_group_line_admit(&g, &line) == FZN_GROUP_LINE_OK,
+	      "a departed member's line of an earlier epoch was refused");
+	/* AHEAD OF THE GROUP, from a host the log does list: refused for the
+	 * epoch, not for the host. */
+	memcpy(line.sender, a->device.owner, FZN_PUBKEY_LEN);
+	memcpy(line.host, a->device.owner, FZN_PUBKEY_LEN);
+	line.epoch = g.epoch;
+	CHECK(fzn_group_line_admit(&g, &line) == FZN_GROUP_LINE_OK, "fixture: A's current line");
+	line.epoch = g.epoch + 1u;
+	CHECK(fzn_group_line_admit(&g, &line) == FZN_GROUP_LINE_ERR_STRANGER,
+	      "a line of an epoch the group has not reached was admitted");
+	(void)c;
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -359,6 +459,7 @@ int main(void)
 	test_the_suite_can_tell_pass_from_fail();
 	test_epochs_reach_members_and_no_one_else();
 	test_a_secret_drawn_on_a_lost_fork_is_let_go();
+	test_a_line_is_read_by_members_alone();
 	if (failures) {
 		fprintf(stderr, "node groups_test: %d of %d checks failed\n", failures, checks);
 		return 1;

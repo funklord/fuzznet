@@ -64953,3 +64953,58 @@ says otherwise.
 - **`tool/live_groups.py`**: phase a2, all three hosts hold one epoch's
   secret; c2, after C's leave A and B hold the new epoch's.
 - **Sabotage: eight entries, all caught.**
+
+## 628. Step 5b, part two: a group line sealed under its epoch, 2026-10-14
+
+The line as it travels between members' hosts, `node/group_line.h`, laid
+out as `node/group_line.situ`.
+
+### The line
+
+In the clear, as the AEAD's associated data: the group, the **group
+epoch** it is sealed in (a count of membership changes, not the month
+`messages/` calls an epoch), the member who wrote it, the host that
+sealed it, the line's id and when it was written. Then a random 24-byte
+nonce, the text's length and the sealed text, at most 880 bytes -- two of
+`messages/`'s parts -- and the tag.
+
+### The key
+
+**The hash of a label, the epoch's secret and the sealing host**: one key
+per host per epoch, so two hosts of one user never share a key, and a
+random nonce per line keeps a key from repeating one. Sec 625's per-line
+ratchet buys nothing while every member keeps the epoch's secret to read
+history -- anyone holding it derives every key of the epoch -- so it is
+not built; **what bounds a key is the epoch**, which every change of
+membership ends. Forward secrecy within an epoch would need hosts to
+throw the secret away, which history and backfill forbid.
+
+### Who is taken
+
+**Not signed**, sec 625's deniability: whoever holds the secret could
+seal a line naming any member. `fzn_group_line_admit` checks what can be:
+the line is the group's and of an epoch the group has reached; in the
+current epoch its sender is a member and its host one the log lists for
+that member; **an older epoch's line is history**, its sender perhaps gone
+since, so its opening under that epoch's secret is the whole check.
+
+### Not yet after sec 628
+
+- **The daemon does not send or take group lines**: 5c carries them to
+  members' hosts, files them in `messages/` under the group's id with
+  their sender -- which `messages/` has no field for yet -- and keeps
+  give-up from marking a group's lines undelivered, which it would today,
+  a group id never standing as a contact.
+- **`@GROUP` is not resolved by the message verbs.**
+
+### Measured for sec 628
+
+- **`node/test/groups_test.c`**, real crypto: a line sealed at A's host
+  opens at B's under the epoch's secret, its head readable without the
+  secret and its text not; every byte bound; one a byte short refused; a
+  line from A's host naming B opens and is not admitted; a removed member
+  cannot open a line of the epoch after it left; a departed member's line
+  of an earlier epoch is admitted; one of an epoch not reached is not.
+- **Sabotage: three entries, all caught** -- one after its test was fixed:
+  the epoch-ahead case used a host already gone from the log, so the host
+  check refused it first; it now uses a current member's listed host.

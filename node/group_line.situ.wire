@@ -1,0 +1,32 @@
+# situ wire signature v2
+# schema: group_line.situ
+#
+# What the bytes mean, and nothing about what they cost. Committed and
+# checked so that a change here is a change somebody reviews.
+#
+# One line per member: where it starts, how wide it is, and every
+# constraint a sender has to satisfy or a receiver may rely on.
+# Positions are byte offsets, or byte:bit off a boundary; `~` marks one
+# the data decides rather than the schema.
+#
+# A construct whose contract is a list rather than an extent -- a
+# variant's arms, a tlv region's grammar, an indexed region's offset
+# table, the bytes a tag covers -- states it on `name what: value`
+# lines below the members, one line per entry so that a diff names the
+# entry that moved.
+
+endian big
+target buffer
+
+struct fzn_group_line size=167..65702
+  @0x0000   1         u8         version  must_eq=1
+  @0x0001   32        u8         group  big
+  @0x0021   4         u32        epoch  big
+  @0x0025   32        u8         sender  big
+  @0x0045   32        u8         host  big
+  @0x0065   16        u8         id  big
+  @0x0075   8         u64        stime  big
+  @0x007d   24        u8         nonce  big
+  @0x0095   2         u16        text_len  big
+  @0x0097   0..65535  u8         text  sized-by=text_len
+  ~         16        u8         tag  big

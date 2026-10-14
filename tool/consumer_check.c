@@ -160,6 +160,7 @@
 #include <fuzznet/node/contact_request.h>
 #include <fuzznet/node/group_act.h>
 #include <fuzznet/node/group_log.h>
+#include <fuzznet/node/group_line.h>
 #include <fuzznet/node/state_dir.h>
 #include <fuzznet/node/relay.h>
 #include <fuzznet/node/holdings.h>
@@ -347,6 +348,7 @@
 #include "node/contact_request.h"
 #include "node/group_act.h"
 #include "node/group_log.h"
+#include "node/group_line.h"
 #include "node/state_dir.h"
 #include "node/relay.h"
 #include "node/holdings.h"
