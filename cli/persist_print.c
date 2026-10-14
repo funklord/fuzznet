@@ -140,6 +140,12 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "this host's name for a group";
 	case FZN_PERSIST_GROUP_EPOCH:
 		return "a group's secret for one epoch, opened here";
+	case FZN_PERSIST_GROUP_LINE:
+		return "one line of a group, sealed as it travelled";
+	case FZN_PERSIST_GROUP_LINE_HEAD:
+		return "how far one host's lines in a group are held here";
+	case FZN_PERSIST_GROUP_LINE_SENDER:
+		return "the member who wrote one line of a group";
 	}
 	*known = 0;
 	return "an unknown slot";

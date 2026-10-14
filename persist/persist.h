@@ -355,13 +355,23 @@ typedef enum fzn_persist_slot {
 	 * opened from a box sealed to this host. CORE: lost, the lines of that
 	 * epoch cannot be read here again. `node/groups.h`. sec 627. */
 	FZN_PERSIST_GROUP_EPOCH = 55u,
+	/* Per (group, host, place): one line of a group, sealed as it travelled.
+	 * Not core: lost, it is fetched again from a member's host.
+	 * `node/group_lines.h`. sec 629. */
+	FZN_PERSIST_GROUP_LINE = 56u,
+	/* Per (group, host): how far that host's lines are held and filed
+	 * here. Not core, for the line's reason. sec 629. */
+	FZN_PERSIST_GROUP_LINE_HEAD = 57u,
+	/* Per (group, filed id): the member who wrote that line. Not core. sec
+	 * 629. */
+	FZN_PERSIST_GROUP_LINE_SENDER = 58u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 56u
+#define FZN_PERSIST_SLOT_END 59u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,

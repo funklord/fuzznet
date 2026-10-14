@@ -164,7 +164,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/node.c node/local.c node/remote.c node/serve.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
-             node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/heard.c node/events.c node/routing.c node/contact_devices.c node/contact_card.c node/contact_request.c node/group_act.c node/group_log.c node/group_line.c node/groups.c node/state_dir.c node/relay.c node/holdings.c node/buckets.c node/reconcile.c \
+             node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/heard.c node/events.c node/routing.c node/contact_devices.c node/contact_card.c node/contact_request.c node/group_act.c node/group_log.c node/group_line.c node/group_lines.c node/groups.c node/state_dir.c node/relay.c node/holdings.c node/buckets.c node/reconcile.c \
              messages/line.c messages/messages.c node/messages.c \
              contact/contact.c \
              log/rules.c \
@@ -261,7 +261,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/node.h node/local.h node/remote.h node/serve.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
-             node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/heard.h node/events.h node/routing.h node/contact_devices.h node/contact_card.h node/contact_request.h node/group_act.h node/group_log.h node/group_line.h node/groups.h node/state_dir.h node/relay.h node/holdings.h node/buckets.h node/reconcile.h \
+             node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/heard.h node/events.h node/routing.h node/contact_devices.h node/contact_card.h node/contact_request.h node/group_act.h node/group_log.h node/group_line.h node/group_lines.h node/groups.h node/state_dir.h node/relay.h node/holdings.h node/buckets.h node/reconcile.h \
              messages/line.h messages/messages.h node/messages.h \
              contact/contact.h \
              log/rules.h \
@@ -2169,6 +2169,7 @@ $(BUILD_DIR)/node/test/files_test: $(BUILD_DIR)/node/test/files_test.o \
                                    $(BUILD_DIR)/spool/transfer.o \
                                    $(BUILD_DIR)/contact/contact.o \
                                    $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
+                                   $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
                                    $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/node/contact_devices.o \
                                    $(BUILD_DIR)/session/box.o \
                                    $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
@@ -2270,6 +2271,7 @@ $(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
                                    $(BUILD_DIR)/notes/import.o \
                                    $(BUILD_DIR)/contact/contact.o \
                                    $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
+                                   $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
                                    $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/node/contact_devices.o \
                                    $(BUILD_DIR)/session/box.o \
                                    $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
@@ -3322,6 +3324,7 @@ $(BUILD_DIR)/gui/test/notebook_view_test: $(BUILD_DIR)/gui/test/notebook_view_te
                                      $(BUILD_DIR)/notes/import.o \
                                      $(BUILD_DIR)/contact/contact.o \
                                      $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
+                                     $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
                                      $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/node/contact_devices.o \
                                      $(BUILD_DIR)/session/box.o \
                                      $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
@@ -3824,7 +3827,7 @@ $(BUILD_DIR)/node/test/group_log_test: $(BUILD_DIR)/node/test/group_log_test.o \
 # A group's epochs, sec 627: real X25519, BLAKE2b and XChaCha20-Poly1305.
 $(BUILD_DIR)/node/test/groups_test: $(BUILD_DIR)/node/test/groups_test.o \
                                     $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
-                                    $(BUILD_DIR)/node/group_line.o \
+                                    $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
                                     $(BUILD_DIR)/node/group_act.o \
                                     $(BUILD_DIR)/node/contact_devices.o \
                                     $(BUILD_DIR)/contact/contact.o $(BUILD_DIR)/session/box.o \
@@ -3952,6 +3955,7 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/contact/contact.o \
               $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o $(BUILD_DIR)/node/group_act.o \
+              $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
               $(BUILD_DIR)/log/rules.o \
               $(BUILD_DIR)/notes/share.o \
               $(BUILD_DIR)/notes/store.o \
@@ -4003,6 +4007,7 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/contact/contact.o \
               $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o $(BUILD_DIR)/node/group_act.o \
+              $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
               $(BUILD_DIR)/log/rules.o \
               $(BUILD_DIR)/notes/share.o \
               $(BUILD_DIR)/notes/store.o \
@@ -4080,6 +4085,11 @@ $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
                                   $(BUILD_DIR)/log/retain.o \
                                   $(BUILD_DIR)/messages/line.o \
                                   $(BUILD_DIR)/contact/contact.o \
+                                  $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
+                                  $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
+                                  $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/node/contact_devices.o \
+                                  $(BUILD_DIR)/session/box.o $(BUILD_DIR)/chain/chain.o \
+                                  $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
                                   $(BUILD_DIR)/persist/persist.o \
                                   $(BUILD_DIR)/trust/trust.o \
                                   $(BUILD_DIR)/session/agree.o \
@@ -4109,6 +4119,7 @@ NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DI
                    $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
                    $(BUILD_DIR)/contact/contact.o \
                    $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o $(BUILD_DIR)/node/group_act.o \
+                   $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
                    $(BUILD_DIR)/log/rules.o \
                    $(BUILD_DIR)/notes/share.o \
                    $(BUILD_DIR)/notes/store.o \
@@ -4210,6 +4221,7 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(BUILD_DIR)/node/succession.o $(BUILD_DIR)/chain/succession.o \
               $(BUILD_DIR)/contact/contact.o \
               $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o $(BUILD_DIR)/node/group_act.o \
+              $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
               $(BUILD_DIR)/log/rules.o \
               $(BUILD_DIR)/node/received.o \
               $(BUILD_DIR)/node/members.o \
@@ -4359,6 +4371,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/node/siblings.o \
                                       $(BUILD_DIR)/contact/contact.o \
                                       $(BUILD_DIR)/node/groups.o \
+                                      $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
                                       $(BUILD_DIR)/log/rules.o \
                                       $(BUILD_DIR)/node/received.o \
                                       $(BUILD_DIR)/log/capture.o \
@@ -4391,7 +4404,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/node/heard.o $(BUILD_DIR)/node/routing.o \
                                       $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/node/contact_card.o \
               $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/node/group_act.o \
-              $(BUILD_DIR)/node/group_log.o $(BUILD_DIR)/node/group_line.o \
+              $(BUILD_DIR)/node/group_log.o \
               $(BUILD_DIR)/session/box.o \
               $(BUILD_DIR)/node/state_dir.o \
                                       $(BUILD_DIR)/node/holdings.o \

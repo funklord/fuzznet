@@ -41,6 +41,7 @@
 #include "contact_card.h"
 #include "contact_request.h"
 #include "groups.h"
+#include "group_lines.h"
 #include "../session/box.h"
 #include "state_dir.h"
 #include "../contact/contact.h"
@@ -3561,7 +3562,14 @@ static fzn_node_admin_t *running_admin;
 #ifdef FZN_RECORD_STORE_FILE_ON
 static int contact_stands(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN])
 {
-	return fzn_node_admin_contact_stands((const fzn_node_admin_t *)ctx, contact);
+	static fzn_group_t held;
+
+	/* A GROUP HELD STANDS, sec 629: its conversation is keyed by its id,
+	 * which no contact list holds, and its lines go by the group's own
+	 * way rather than a contact's. */
+	return fzn_node_admin_contact_stands((const fzn_node_admin_t *)ctx, contact)
+	       || (node_apply.store
+	           && fzn_group_log_get(node_apply.store, contact, &held) == FZN_GROUP_LOG_OK);
 }
 
 static int contact_removed(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN])
@@ -5420,6 +5428,258 @@ static size_t group_sync_with(struct pull_target *pt, const char *host, const ui
 	return taken;
 }
 
+/* ---- a group's lines, sec 629 ------------------------------------------------- */
+
+/* GROUP_LINES_SYNC asks, for one group, what lies past each head the
+ * asker gives -- a sealing host and the last of its lines held; GROUP_LINES
+ * answers each line as its place and its sealed bytes, oldest first per
+ * host. A host the asker does not name is answered from its first line. */
+#define FZND_GROUP_LINES_SYNC_TYPE 41u
+#define FZND_GROUP_LINES_TYPE 42u
+#define FZND_GROUP_HEAD_LEN (FZN_PUBKEY_LEN + 4u)
+#define FZND_GROUP_HEADS_MAX 24u
+
+static fzn_group_lines_t group_lines;
+
+static size_t group_lines_remote(const uint8_t *sender, const uint8_t *request,
+                                 size_t request_len, uint8_t *reply, size_t reply_cap)
+{
+	static fzn_group_line_head_t heads[FZN_GROUP_HOSTS_MAX];
+	static fzn_group_t g;
+	static uint8_t line[FZN_GROUP_LINE_MAX];
+	uint8_t owner[FZN_PUBKEY_LEN];
+	size_t n = 0, i, k, at = 4u, count = 0, len = 0, entries;
+	size_t cap = reply_cap < FZND_PULL_REPLY_MAX ? reply_cap : FZND_PULL_REPLY_MAX;
+	int own;
+
+	if (request_len < 3u + FZN_GROUP_ID_LEN
+	    || request[2u + FZN_GROUP_ID_LEN] > FZND_GROUP_HEADS_MAX
+	    || request_len != 3u + FZN_GROUP_ID_LEN
+	                              + (size_t)request[2u + FZN_GROUP_ID_LEN] * FZND_GROUP_HEAD_LEN)
+		return (size_t)snprintf((char *)reply, reply_cap, "malformed a group lines sync\n");
+	entries = request[2u + FZN_GROUP_ID_LEN];
+	if (!group_lines.store || !group_owner_of(sender, owner, &own)
+	    || fzn_group_log_get(node_apply.store, request + 2, &g) != FZN_GROUP_LOG_OK
+	    || (!own && !fzn_group_is_member(&g, owner)))
+		return (size_t)snprintf((char *)reply, reply_cap, "denied lines only to members\n");
+	if (cap < 4u
+	    || fzn_group_lines_heads(&group_lines, g.id, heads, FZN_GROUP_HOSTS_MAX, &n)
+	               != FZN_GROUP_LINES_OK)
+		return (size_t)snprintf((char *)reply, reply_cap, "error the lines did not read\n");
+	for (i = 0; i < n; i++) {
+		uint32_t from = 0, s;
+
+		for (k = 0; k < entries; k++) {
+			const uint8_t *e = request + 3u + FZN_GROUP_ID_LEN + k * FZND_GROUP_HEAD_LEN;
+
+			if (memcmp(e, heads[i].host, FZN_PUBKEY_LEN) == 0)
+				from = fzn_get_be32(e + FZN_PUBKEY_LEN);
+		}
+		for (s = from + 1u; s <= heads[i].have; s++) {
+			if (fzn_group_lines_get(&group_lines, g.id, heads[i].host, s, line, sizeof(line), &len)
+			            != FZN_GROUP_LINES_OK
+			    || at + 6u + len > cap)
+				break;
+			fzn_put_be32(reply + at, s);
+			fzn_put_be16(reply + at + 4u, (uint16_t)len);
+			memcpy(reply + at + 6u, line, len);
+			at += 6u + len;
+			count++;
+		}
+	}
+	reply[0] = FZND_GROUP_VERSION;
+	reply[1] = FZND_GROUP_LINES_TYPE;
+	fzn_put_be16(reply + 2, (uint16_t)count);
+	return at;
+}
+
+/* ASK ONE HOST for group `g`'s lines past the heads held here. */
+static size_t group_lines_with(struct pull_target *pt, const char *host, const fzn_group_t *g,
+                               uint64_t now)
+{
+	static fzn_group_line_head_t heads[FZN_GROUP_HOSTS_MAX];
+	static uint8_t reply[FZND_PULL_REPLY_MAX];
+	uint8_t request[3u + FZN_GROUP_ID_LEN + FZND_GROUP_HEADS_MAX * FZND_GROUP_HEAD_LEN];
+	struct peer_asking asking = { &pt->caller, now, host };
+	size_t n = 0, i, len = 0, count, k, at, taken = 0, entries;
+
+	if (fzn_group_lines_heads(&group_lines, g->id, heads, FZN_GROUP_HOSTS_MAX, &n)
+	    != FZN_GROUP_LINES_OK)
+		return 0;
+	entries = n < FZND_GROUP_HEADS_MAX ? n : FZND_GROUP_HEADS_MAX;
+	request[0] = FZND_GROUP_VERSION;
+	request[1] = FZND_GROUP_LINES_SYNC_TYPE;
+	memcpy(request + 2, g->id, FZN_GROUP_ID_LEN);
+	request[2u + FZN_GROUP_ID_LEN] = (uint8_t)entries;
+	for (i = 0; i < entries; i++) {
+		uint8_t *e = request + 3u + FZN_GROUP_ID_LEN + i * FZND_GROUP_HEAD_LEN;
+
+		memcpy(e, heads[i].host, FZN_PUBKEY_LEN);
+		fzn_put_be32(e + FZN_PUBKEY_LEN, heads[i].have);
+	}
+	if (!peer_ask(&asking, request, 3u + FZN_GROUP_ID_LEN + entries * FZND_GROUP_HEAD_LEN, reply,
+	              sizeof(reply), &len)
+	    || len < 4u || reply[0] != FZND_GROUP_VERSION || reply[1] != FZND_GROUP_LINES_TYPE)
+		return 0;
+	count = fzn_get_be16(reply + 2);
+	for (k = 0, at = 4u; k < count && at + 6u <= len; k++) {
+		size_t line_len = fzn_get_be16(reply + at + 4u);
+
+		if (at + 6u + line_len > len)
+			break;
+		taken += fzn_group_lines_put(&group_lines, fzn_get_be32(reply + at), reply + at + 6u,
+		                             line_len)
+		         == FZN_GROUP_LINES_OK;
+		at += 6u + line_len;
+	}
+	return taken;
+}
+
+/* THIS HOST'S OWN UNSENT LINES in group `g` sealed, sec 629: each OUT line
+ * this device wrote to the group's conversation and has not marked, sealed
+ * under the current epoch as this host's next line, then marked
+ * delivered -- given to the group, which carries it on. */
+static size_t group_seal_own(const fzn_group_t *g, const fzn_contact_device_t *own)
+{
+	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
+	static fzn_group_line_t line;
+	static uint8_t bytes[FZN_GROUP_LINE_MAX];
+	uint8_t secret[FZN_GROUP_SECRET_LEN];
+	const uint8_t *self = fzn_contact_device_key(own);
+	fzn_group_line_head_t head;
+	size_t count = 0, i, len = 0, sealed = 0;
+	int more = 0;
+
+	if (!fzn_group_is_member(g, own->owner)
+	    || fzn_node_groups_secret(&node_groups, g->id, g->epoch, secret) != FZN_GROUP_LOG_OK
+	    || fzn_messages_page(&node_messages.m, g->id, 0u, page, FZN_MESSAGES_PAGE_MAX, &count,
+	                         &more)
+	               != FZN_MESSAGES_OK)
+		return 0;
+	/* OLDEST FIRST: the page is newest first. */
+	for (i = count; i-- > 0;) {
+		const fzn_message_t *p = &page[i];
+
+		if (p->direction != FZN_MESSAGE_OUT || p->state != 0u || !p->readable
+		    || memcmp(p->device, self, FZN_PUBKEY_LEN) != 0
+		    || fzn_group_lines_head(&group_lines, g->id, self, &head) != FZN_GROUP_LINES_OK)
+			continue;
+		memset(&line, 0, sizeof(line));
+		memcpy(line.group, g->id, FZN_GROUP_ID_LEN);
+		line.epoch = g->epoch;
+		memcpy(line.sender, own->owner, FZN_PUBKEY_LEN);
+		memcpy(line.host, self, FZN_PUBKEY_LEN);
+		memcpy(line.id, p->id, FZN_GROUP_LINE_ID_LEN);
+		line.stime = p->stime;
+		memcpy(line.text, p->text, p->text_len);
+		line.text_len = p->text_len;
+		if (fzn_group_line_seal(&line, secret, contact_hash_ops, contact_aead_ops, contact_rng_ops,
+		                        bytes, sizeof(bytes), &len)
+		            != FZN_GROUP_LINE_OK
+		    || fzn_group_lines_put(&group_lines, head.have + 1u, bytes, len) != FZN_GROUP_LINES_OK
+		    || fzn_group_lines_filed(&group_lines, g->id, self, head.have + 1u)
+		               != FZN_GROUP_LINES_OK)
+			break;
+		(void)fzn_messages_mark(&node_messages.m, g->id, FZN_MESSAGE_OUT, p->id,
+		                        FZN_MESSAGE_DELIVERED);
+		sealed++;
+	}
+	fzn_wipe(secret, sizeof(secret));
+	return sealed;
+}
+
+/* THE LINES HELD AND NOT YET FILED in group `g`, filed: opened under their
+ * epoch's secret, admitted, and written into the group's conversation as
+ * IN under their filed id with their sender kept -- unless this user wrote
+ * them, whose own devices carry them already. A line whose epoch's secret
+ * is not here yet waits for it; one that will not open or is not admitted
+ * is passed over. */
+static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
+{
+	static fzn_group_line_head_t heads[FZN_GROUP_HOSTS_MAX];
+	static uint8_t bytes[FZN_GROUP_LINE_MAX];
+	static fzn_group_line_t line;
+	uint8_t secret[FZN_GROUP_SECRET_LEN], filed_id[FZN_GROUP_LINE_ID_LEN];
+	size_t n = 0, i, len = 0, filed = 0;
+	uint32_t s;
+
+	if (fzn_group_lines_heads(&group_lines, g->id, heads, FZN_GROUP_HOSTS_MAX, &n)
+	    != FZN_GROUP_LINES_OK)
+		return 0;
+	for (i = 0; i < n; i++) {
+		for (s = heads[i].filed + 1u; s <= heads[i].have; s++) {
+			int written = 0;
+
+			if (fzn_group_lines_get(&group_lines, g->id, heads[i].host, s, bytes, sizeof(bytes),
+			                        &len)
+			            != FZN_GROUP_LINES_OK
+			    || fzn_group_line_peek(bytes, len, &line) != FZN_GROUP_LINE_OK
+			    || fzn_node_groups_secret(&node_groups, g->id, line.epoch, secret)
+			               != FZN_GROUP_LOG_OK)
+				break;
+			if (fzn_group_line_open(bytes, len, secret, contact_hash_ops, contact_aead_ops, &line)
+			            == FZN_GROUP_LINE_OK
+			    && fzn_group_line_admit(g, &line) == FZN_GROUP_LINE_OK
+			    && memcmp(line.sender, own->owner, FZN_PUBKEY_LEN) != 0
+			    && fzn_group_lines_filed_id(contact_hash_ops, line.host, line.id, filed_id)
+			    && fzn_group_lines_sender_keep(&group_lines, g->id, filed_id, line.sender)
+			               == FZN_GROUP_LINES_OK
+			    && fzn_messages_import(&node_messages.m, g->id, FZN_MESSAGE_IN, filed_id,
+			                           line.stime, (const char *)line.text, line.text_len,
+			                           &written)
+			               == FZN_MESSAGES_OK)
+				filed += written != 0;
+			if (fzn_group_lines_filed(&group_lines, g->id, heads[i].host, s)
+			    != FZN_GROUP_LINES_OK)
+				break;
+		}
+	}
+	fzn_wipe(secret, sizeof(secret));
+	fzn_wipe(&line, sizeof(line));
+	return filed;
+}
+
+/* THE LINES ROUND, sec 629, after the acts and the tending: this host's own
+ * new lines sealed; every sibling, and one host of each contact, asked for
+ * the lines past this host's heads in each group the two share; and what
+ * arrived filed. */
+static void group_lines_round(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	static uint8_t ids[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+	static fzn_group_t g;
+	static fzn_contact_device_t own;
+	uint8_t done[FZND_CONTACT_TARGETS_MAX][FZN_PUBKEY_LEN];
+	size_t n = 0, i, j, k, ndone, sealed = 0, taken = 0, filed = 0;
+
+	if (!group_lines.store || !contact_hash_ops || !contact_aead_ops || !contact_rng_ops
+	    || !groups_signer(NULL, &own)
+	    || fzn_group_log_list(node_apply.store, ids, FZN_GROUPS_HELD_MAX, &n) != FZN_GROUP_LOG_OK)
+		return;
+	for (i = 0; i < n; i++) {
+		if (fzn_group_log_get(node_apply.store, ids[i], &g) != FZN_GROUP_LOG_OK
+		    || !fzn_group_is_member(&g, own.owner))
+			continue;
+		sealed += group_seal_own(&g, &own);
+		for (j = 0; j < npulls; j++)
+			if (!silent_peer(&pulls[j]) && peer_in_estate(&pulls[j]))
+				taken += group_lines_with(&pulls[j], pulls[j].host, &g, now);
+		for (j = 0, ndone = 0; j < ncontact_targets; j++) {
+			struct contact_target *ct = &contact_targets[j];
+
+			for (k = 0; k < ndone && memcmp(done[k], ct->contact, FZN_PUBKEY_LEN) != 0; k++)
+				;
+			if (k < ndone || ct->down || ct->pt.fd < 0 || !fzn_group_is_member(&g, ct->contact))
+				continue;
+			taken += group_lines_with(&ct->pt, ct->host, &g, now);
+			memcpy(done[ndone++], ct->contact, FZN_PUBKEY_LEN);
+		}
+		filed += group_file(&g, &own);
+	}
+	if (sealed || taken || filed)
+		say(FZN_ENTRY_INFO, "node/groups", "lines pass: %zu sealed, %zu taken, %zu filed", sealed,
+		    taken, filed);
+}
+
 /* THE GROUPS ROUND, sec 626: every sibling, and one host of each contact
  * who is in a group held here, asked for what it has. */
 static void group_round(struct pull_target *pulls, size_t npulls, uint64_t now)
@@ -5458,6 +5718,7 @@ static void group_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 	}
 	if (taken)
 		say(FZN_ENTRY_INFO, "node/groups", "group pass: %zu act(s) taken", taken);
+	group_lines_round(pulls, npulls, now);
 }
 
 /* ---- relaying, sec 622 ------------------------------------------------------- */
@@ -5563,6 +5824,9 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 	if (request_len >= 2u && request[0] == FZND_GROUP_VERSION
 	    && request[1] == FZND_GROUP_SYNC_TYPE)
 		return group_sync_remote(sender, request, request_len, reply, reply_cap);
+	if (request_len >= 2u && request[0] == FZND_GROUP_VERSION
+	    && request[1] == FZND_GROUP_LINES_SYNC_TYPE)
+		return group_lines_remote(sender, request, request_len, reply, reply_cap);
 	if (request_len >= 2u && request[0] == FZND_RELAY_VERSION
 	    && (request[1] == FZND_INTRODUCE_TYPE || request[1] == FZND_NOTIFY_TYPE))
 		return introduce_remote(sender, request, request_len, reply, reply_cap);
@@ -7840,6 +8104,9 @@ int main(int argc, char **argv)
 			node_groups.agree = identity.agree;
 			node_groups.aead = &aead_ops;
 			node_groups.agree_secret = identity.agree_secret;
+			/* A GROUP'S LINES, sec 629. */
+			group_lines.store = node_apply.store;
+			group_lines.hash = &hash_ops;
 			if (node_groups.log.store && node_groups.log.member)
 				admin.groups = &node_groups;
 			/* A STRANGER'S CONTACT REQUEST, sec 619. */

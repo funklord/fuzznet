@@ -9,6 +9,7 @@
 
 #include "../groups.h"
 #include "../group_line.h"
+#include "../group_lines.h"
 #include "../../session/aead_monocypher.h"
 #include "../../session/agree_monocypher.h"
 #include "../../session/hash_monocypher.h"
@@ -439,6 +440,64 @@ static void test_a_line_is_read_by_members_alone(void)
 	(void)c;
 }
 
+/* A HOST'S LINES HELD IN ORDER, sec 629, their senders kept. */
+static void test_lines_are_held_in_order(void)
+{
+	struct user *a = &users[0];
+	static fzn_group_line_t line;
+	static fzn_group_line_head_t heads[4];
+	fzn_group_lines_t l;
+	fzn_group_line_head_t h;
+	uint8_t group[32], host[32], other[32], secret[FZN_GROUP_SECRET_LEN];
+	uint8_t one[FZN_GROUP_LINE_MAX], two[FZN_GROUP_LINE_MAX], got[FZN_GROUP_LINE_MAX];
+	uint8_t filed[FZN_GROUP_LINE_ID_LEN], filed_other[FZN_GROUP_LINE_ID_LEN], who[32];
+	size_t len1 = 0, len2 = 0, len = 0, n = 0;
+
+	user_up(a, 0x11u);
+	l.store = &a->ops;
+	l.hash = &HASH;
+	memset(group, 0x61, sizeof(group));
+	memset(host, 0x62, sizeof(host));
+	memset(other, 0x63, sizeof(other));
+	memset(secret, 0x64, sizeof(secret));
+	memcpy(line.group, group, 32u);
+	memcpy(line.host, host, 32u);
+	memcpy(line.sender, host, 32u);
+	line.epoch = 1u;
+	line.text_len = 3u;
+	memcpy(line.text, "one", 3u);
+	(void)fzn_group_line_seal(&line, secret, &HASH, &AEAD, &RNG, one, sizeof(one), &len1);
+	memcpy(line.text, "two", 3u);
+	(void)fzn_group_line_seal(&line, secret, &HASH, &AEAD, &RNG, two, sizeof(two), &len2);
+	CHECK(fzn_group_lines_head(&l, group, host, &h) == FZN_GROUP_LINES_OK && h.have == 0u,
+	      "a host with nothing held had a head");
+	CHECK(fzn_group_lines_put(&l, 2u, two, len2) == FZN_GROUP_LINES_ERR_GAP,
+	      "a line was held before the one before it");
+	CHECK(fzn_group_lines_put(&l, 1u, one, len1) == FZN_GROUP_LINES_OK
+	              && fzn_group_lines_put(&l, 1u, one, len1) == FZN_GROUP_LINES_ERR_HELD
+	              && fzn_group_lines_put(&l, 2u, two, len2) == FZN_GROUP_LINES_OK,
+	      "a host's lines were not held in order, once each");
+	CHECK(fzn_group_lines_get(&l, group, host, 2u, got, sizeof(got), &len) == FZN_GROUP_LINES_OK
+	              && len == len2 && memcmp(got, two, len) == 0
+	              && fzn_group_lines_get(&l, group, host, 3u, got, sizeof(got), &len)
+	                         == FZN_GROUP_LINES_ERR_ABSENT,
+	      "a held line did not read back, or one past the head did");
+	CHECK(fzn_group_lines_filed(&l, group, host, 3u) == FZN_GROUP_LINES_ERR_MALFORMED
+	              && fzn_group_lines_filed(&l, group, host, 1u) == FZN_GROUP_LINES_OK
+	              && fzn_group_lines_heads(&l, group, heads, 4u, &n) == FZN_GROUP_LINES_OK
+	              && n == 1u && heads[0].have == 2u && heads[0].filed == 1u,
+	      "the head did not say what is held and filed, or filed past what is held");
+	CHECK(fzn_group_lines_filed_id(&HASH, host, line.id, filed)
+	              && fzn_group_lines_filed_id(&HASH, other, line.id, filed_other)
+	              && memcmp(filed, filed_other, sizeof(filed)) != 0,
+	      "two hosts' lines of one id were filed under one id");
+	CHECK(fzn_group_lines_sender(&l, group, filed, who) == FZN_GROUP_LINES_ERR_ABSENT
+	              && fzn_group_lines_sender_keep(&l, group, filed, host) == FZN_GROUP_LINES_OK
+	              && fzn_group_lines_sender(&l, group, filed, who) == FZN_GROUP_LINES_OK
+	              && memcmp(who, host, 32u) == 0,
+	      "a line's sender was not kept");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -460,6 +519,7 @@ int main(void)
 	test_epochs_reach_members_and_no_one_else();
 	test_a_secret_drawn_on_a_lost_fork_is_let_go();
 	test_a_line_is_read_by_members_alone();
+	test_lines_are_held_in_order();
 	if (failures) {
 		fprintf(stderr, "node groups_test: %d of %d checks failed\n", failures, checks);
 		return 1;

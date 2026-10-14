@@ -8,7 +8,7 @@
 // (sec 625).
 //
 // What the schema cannot say and the codec checks: the text is at most
-// 880 bytes and the line exactly its length.
+// 512 bytes and the line exactly its length.
 
 target buffer;
 endian big;

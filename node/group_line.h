@@ -35,8 +35,8 @@
 
 #define FZN_GROUP_LINE_VERSION 1u
 #define FZN_GROUP_LINE_ID_LEN 16u
-/* The most text a line carries: two of `messages/`'s parts. */
-#define FZN_GROUP_LINE_TEXT_MAX 880u
+/* The most text a line carries: as much as `messages/` files. */
+#define FZN_GROUP_LINE_TEXT_MAX 512u
 #define FZN_GROUP_LINE_HEAD_LEN                                                             \
 	(1u + FZN_GROUP_ID_LEN + 4u + FZN_PUBKEY_LEN + FZN_PUBKEY_LEN + FZN_GROUP_LINE_ID_LEN + 8u)
 #define FZN_GROUP_LINE_MAX                                                                  \

@@ -64965,8 +64965,9 @@ In the clear, as the AEAD's associated data: the group, the **group
 epoch** it is sealed in (a count of membership changes, not the month
 `messages/` calls an epoch), the member who wrote it, the host that
 sealed it, the line's id and when it was written. Then a random 24-byte
-nonce, the text's length and the sealed text, at most 880 bytes -- two of
-`messages/`'s parts -- and the tag.
+nonce, the text's length and the sealed text, at most 512 bytes -- as
+much as `messages/` files (sec 629 corrected an 880 written first) -- and
+the tag.
 
 ### The key
 
@@ -65008,3 +65009,79 @@ since, so its opening under that epoch's secret is the whole check.
 - **Sabotage: three entries, all caught** -- one after its test was fixed:
   the epoch-ahead case used a host already gone from the log, so the host
   check refused it first; it now uses a current member's listed host.
+
+## 629. Step 5c: a group's lines carried, filed and named, 2026-10-14
+
+Group lines written, carried to every member's host and filed in its
+conversation with their sender.
+
+### Carried as the acts are
+
+A member's host may reach another only through a host they both reach:
+in `live_groups.py` B and C are not each other's contacts. So a group's
+lines spread as its acts do (sec 626), host to host, and **every member's
+host keeps every line it is given, sealed as it travelled, to pass on**
+(`node/group_lines.h`).
+
+- **Each sealing host's lines in a group are a log of their own**, from 1
+  in the order it sealed them, and held contiguously, so what a host holds
+  of another's is one number, its head.
+- **GROUP_LINES_SYNC**, type 41: a group and the asker's heads, 24 at most;
+  **GROUP_LINES**, type 42, answers what lies past each, a host not named
+  from its first line. Answered to a member's host, or this estate's own.
+- **Each round**, after the acts and the tending: this host's unsent lines
+  sealed, every sibling and one host of each member contact asked for each
+  group they share, and what arrived filed.
+
+### Written, sealed, filed
+
+- **`add message @GROUP out ID TEXT`** writes an OUT line to the group's
+  conversation, keyed by its id; the round seals each OUT line this
+  device wrote and has not marked under the current epoch as its next line,
+  and marks it delivered -- given to the group.
+- **A line held is filed** when its epoch's secret is here: opened,
+  admitted (sec 628), and written as IN under **its filed id**, the hash of
+  its sealing host and its id, so two members choosing one id never collide;
+  its sender kept beside it (slot 58), which `messages/` has no field for.
+  A line this user wrote is not filed, its own devices carrying it. One
+  waiting on its secret waits; one that will not open or is not admitted is
+  passed over.
+- **`list message @GROUP`** names a group line's conversation `@GROUP`, an
+  IN line's sender after a colon -- a contact's name, or its root's first
+  eight bytes -- which no name can hold, so the line's fields keep their
+  shape.
+- **Give-up passes a group by**: its conversation's id stands while the
+  group is held, where before it would have been read as a removed contact
+  and its handed-over lines marked not delivered.
+
+Slots 56 to 58, a line, a head and a sender, none core: a line lost is
+fetched again from any member's host. A group line's text is at most 512
+bytes, as much as `messages/` files.
+
+### Found while measuring
+
+**A host holding no line yet was refused**: the sync's length check asked
+for one byte more than a request with no heads has, so B, which had sealed
+nothing, was answered `malformed` and never received a line. Phase d of
+`live_groups.py` failed on it -- the control this phase needed, met by
+accident: with B's sync refused, B files nothing.
+
+### Not yet after sec 629
+
+- **Only the newest page of a conversation is sealed from**: an unsent
+  line older than `FZN_MESSAGES_PAGE_MAX` lines waits.
+- **A sync names 24 heads**: past that, lines already held are sent again
+  and refused as held.
+- **Lines are kept for good**, by no retention rule.
+- **A group line is delivered once given to the group**; whether each
+  member's host has it is not settled per member.
+
+### Measured for sec 629
+
+- **`node/test/groups_test.c`**: a host's lines held in order, once each,
+  a gap refused; the head saying held and filed, never filed past held;
+  two hosts' lines of one id filed under two ids; a sender kept.
+- **`tool/live_groups.py`, phase d**: A's line filed at B and C as A's
+  (`@GROUP:alice`); C's filed at B through A as C's, by C's root, B not
+  being C's contact.
+- **Sabotage: three entries, all caught.**

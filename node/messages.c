@@ -5,6 +5,8 @@
 #include "messages.h"
 
 #include "../contact/contact.h"
+#include "group_lines.h"
+#include "groups.h"
 #include "../wire/bytes.h"
 
 #include <stdio.h>
@@ -945,6 +947,10 @@ static int who(const fzn_node_messages_t *nm, const uint8_t *w, size_t w_len,
 
 	if (parse_hex(w, w_len, key, FZN_PUBKEY_LEN))
 		return 1;
+	/* `@NAME` IS A GROUP, sec 629: its conversation is keyed by its id. */
+	if (w_len > 1u && w[0] == '@')
+		return fzn_node_group_find(nm->m.store, (const char *)w + 1, w_len - 1u, key)
+		       == FZN_CONTACT_OK;
 	if (fzn_contact_find(nm->m.store, (const char *)w, w_len, &c) != FZN_CONTACT_OK)
 		return 0;
 	memcpy(key, c.key, FZN_PUBKEY_LEN);
@@ -1151,8 +1157,9 @@ static size_t list(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char
 		return refuse(reply, cap, err);
 	for (i = 0; i < count; i++) {
 		const fzn_message_t *p = &page[i];
-		char head[2u * FZN_PUBKEY_LEN + FZN_CONTACT_NAME_MAX + 2u * FZN_MESSAGE_ID_LEN + 96u];
-		size_t h = 0, wrote = 0;
+		char head[2u * FZN_PUBKEY_LEN + 3u * FZN_CONTACT_NAME_MAX + 2u * FZN_MESSAGE_ID_LEN + 96u];
+		char group[FZN_CONTACT_NAME_MAX + 1u];
+		size_t h = 0, wrote = 0, group_len = 0;
 		fzn_contact_t c;
 
 		hex_of(p->contact, FZN_PUBKEY_LEN, head);
@@ -1161,6 +1168,29 @@ static size_t list(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char
 		if (fzn_contact_get(nm->m.store, p->contact, &c) == FZN_CONTACT_OK) {
 			memcpy(head + h, c.name, c.name_len);
 			h += c.name_len;
+		} else if (fzn_node_group_name(nm->m.store, p->contact, group, &group_len)
+		           == FZN_CONTACT_OK) {
+			/* A GROUP'S LINE, sec 629: `@NAME`, and an IN line's sender
+			 * after a colon -- a contact's name, or its root's first
+			 * bytes -- which no name can hold. */
+			const fzn_group_lines_t lines = { nm->m.store, nm->m.hash };
+			uint8_t sender[FZN_PUBKEY_LEN];
+
+			head[h++] = '@';
+			memcpy(head + h, group, group_len);
+			h += group_len;
+			if (p->direction == FZN_MESSAGE_IN
+			    && fzn_group_lines_sender(&lines, p->contact, p->id, sender)
+			               == FZN_GROUP_LINES_OK) {
+				head[h++] = ':';
+				if (fzn_contact_get(nm->m.store, sender, &c) == FZN_CONTACT_OK) {
+					memcpy(head + h, c.name, c.name_len);
+					h += c.name_len;
+				} else {
+					hex_of(sender, 8u, head + h);
+					h += 16u;
+				}
+			}
 		} else {
 			head[h++] = '-';
 		}

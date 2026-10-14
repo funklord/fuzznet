@@ -12072,6 +12072,27 @@ SABOTAGES = [
 		"\tif (line->epoch <= g->epoch)\n\t\treturn FZN_GROUP_LINE_OK;\n",
 		"a current line is taken without its sender or host being checked at all -- sec 628",
 	),
+	(
+		"group-lines-contiguous",
+		"node/group_lines.c",
+		"\tif (n != h.have + 1u)\n\t\treturn FZN_GROUP_LINES_ERR_GAP;\n",
+		"",
+		"a line is held past a gap, and the head says the lines before it are held when they are not, so they are never asked for -- sec 629",
+	),
+	(
+		"group-lines-held-once",
+		"node/group_lines.c",
+		"\tif (n <= h.have)\n\t\treturn FZN_GROUP_LINES_ERR_HELD;\n",
+		"",
+		"a line held is taken again over itself, and its head moved back -- sec 629",
+	),
+	(
+		"group-lines-filed-not-past-held",
+		"node/group_lines.c",
+		"\tif (filed > h.have)\n",
+		"\tif (0)\n",
+		"a head says lines are filed that are not held, and they are never filed when they arrive -- sec 629",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

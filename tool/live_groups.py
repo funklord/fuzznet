@@ -11,6 +11,8 @@ not know each other.
     b  A makes B an admin, a majority of one; B's next round says so
     a2 each host names itself in the log, and the epoch's secret is sealed
        to all three, which each come to hold it (sec 627)
+    d  A writes a line to the group and B and C file it as A's; C writes one
+       and B, which is not C's contact, files it through A, as C's (sec 629)
     c  C leaves, by an act of its own; A learns it from C at A's next round,
        and the group there has two members
     c2 A and B hold the secret of the epoch C's leave began
@@ -168,6 +170,32 @@ def main(argv):
 				raise failed("a2: the epochs held are %r, not one epoch held by all" % (got,))
 			first_epoch = got["a"][0]
 			print("livecheck: a2: A, B and C each hold epoch %d's secret" % first_epoch)
+
+			# d: a line from A reaches B and C, and one from C reaches B through
+			# A, B and C not being contacts (sec 629).
+			def has_line(who, text, sender):
+				reply = ask(socks[who], "list message @" + names[who])
+				return any(item.split(",")[1] == "@%s:%s" % (names[who], sender)
+				           and item.endswith("," + text)
+				           for item in reply.split()[4:] if item.count(",") >= 8)
+
+			expect(socks["a"], "a", "add message @family out %s from_a" % ("a1" * 16), "ok")
+			expect(socks["c"], "c", "add message @%s out %s from_c" % (name, "c1" * 16), "ok")
+			want = (("b", "from_a", "alice"), ("c", "from_a", "alice"),
+			        ("b", "from_c", keys["c"][:16]))
+			for rnd in range(ROUNDS):
+				if all(has_line(*w) for w in want):
+					break
+				for who in ("c", "a", "b"):
+					turn(who, "%s-d%d" % (who, rnd))
+			missing = [w for w in want if not has_line(*w)]
+			if missing:
+				told = [l[-200:] for l in started["b"].log().splitlines()
+				        if any(w in l for w in ("group", "refused", "node/peer", "messages"))]
+				raise failed("d: lines not filed as (host, text, sender): %r; B lists %r%s"
+				             % (missing, ask(socks["b"], "list message @" + name),
+				                "".join("\n  " + l for l in told[-14:])))
+			print("livecheck: d: A's line reached B and C, and C's reached B through A")
 
 			# b: B made an admin, a majority of one.
 			expect(socks["a"], "a", "add admin family bob", "ok")

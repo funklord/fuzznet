@@ -471,6 +471,9 @@ int fzn_persist_slot_is_core(fzn_persist_slot_t slot)
 	case FZN_PERSIST_CONTACT_REQUEST:
 	case FZN_PERSIST_CONTACT_ASKED:
 	case FZN_PERSIST_GROUP_LABEL:
+	case FZN_PERSIST_GROUP_LINE:
+	case FZN_PERSIST_GROUP_LINE_HEAD:
+	case FZN_PERSIST_GROUP_LINE_SENDER:
 		return 0;
 	default:
 		return 1;	/* named or not: see persist.h */
