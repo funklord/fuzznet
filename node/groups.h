@@ -21,6 +21,7 @@
  *     set group GROUP backfill 0|1     an admin's
  *     list group [FROM]                ok TOTAL FROM NAME,COUNT ..., those this user is in
  *     get group NAME                   ok COUNT MEMBER ..., an admin as *NAME
+ *     get epoch GROUP                  ok EPOCH held|none, this host's secret
  */
 #ifndef FZN_NODE_GROUPS_H
 #define FZN_NODE_GROUPS_H
@@ -31,6 +32,8 @@
 #include "group_log.h"
 #include "../contact/contact.h"
 #include "../local/vocabulary.h"
+#include "../session/aead.h"
+#include "../session/agree.h"
 #include "../session/random.h"
 
 /* ---- names ---------------------------------------------------------------- */
@@ -78,6 +81,11 @@ typedef struct fzn_node_groups {
 	/* AN ACT MADE HERE, for the daemon to carry to the members' hosts. */
 	void (*acted)(void *ctx, const uint8_t id[FZN_GROUP_ID_LEN]);
 	void *acted_ctx;
+	/* SEALING AND OPENING EPOCH SECRETS, sec 627: this host's prekey
+	 * secret opens a box sealed to it. NULL agree: this host keeps none. */
+	const fzn_agree_ops_t *agree;
+	const fzn_aead_ops_t *aead;
+	const fzn_agree_secret_t *agree_secret;
 } fzn_node_groups_t;
 
 /* MAKE AN ACT on `id`'s head -- or with `id` NULL a new group, its id into
@@ -86,6 +94,29 @@ fzn_group_log_err_t fzn_node_groups_act(const fzn_node_groups_t *g, uint8_t kind
                                         const uint8_t *id, const uint8_t subject[FZN_PUBKEY_LEN],
                                         uint8_t setting, uint64_t value,
                                         uint8_t made[FZN_GROUP_ID_LEN]);
+
+/* ---- epochs, sec 627 ----------------------------------------------------- */
+
+/* EPOCH `epoch` OF GROUP `id`'s SECRET, as this host holds it: ABSENT when
+ * it was never opened here. Kept in FZN_PERSIST_GROUP_EPOCH, core. */
+fzn_group_log_err_t fzn_node_groups_secret(const fzn_node_groups_t *g,
+                                           const uint8_t id[FZN_GROUP_ID_LEN], uint32_t epoch,
+                                           uint8_t out[FZN_GROUP_SECRET_LEN]);
+
+/* THIS HOST'S DUTIES TO GROUP `id`, each act made counted into `*made`:
+ *
+ *   - a member's host not yet among the group's hosts names itself (HOST);
+ *   - a secret sealed to it and not yet opened here is opened and kept;
+ *   - the current epoch with no secret yet gets one, drawn here (KEYS);
+ *   - a host not given the current epoch is sealed it, by a host that
+ *     holds it (KEYS);
+ *   - while the group backfills, a host is given the epoch before the
+ *     oldest it holds, as far back as the group keeps (KEYS).
+ *
+ * Anything this host cannot do -- it holds no secret, it is not a member
+ * -- is left to a host that can. */
+fzn_group_log_err_t fzn_node_groups_tend(const fzn_node_groups_t *g,
+                                         const uint8_t id[FZN_GROUP_ID_LEN], size_t *made);
 
 /* THE VERBS above: 0 when the request is none of them. */
 size_t fzn_node_groups_local(const fzn_node_groups_t *g, const fzn_request_t *request,

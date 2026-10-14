@@ -22,7 +22,7 @@ const char *fzn_group_act_err_str(fzn_group_act_err_t err)
 
 static int kind_known(uint8_t kind)
 {
-	return kind >= FZN_GROUP_ACT_CREATE && kind <= FZN_GROUP_ACT_SET;
+	return kind >= FZN_GROUP_ACT_CREATE && kind <= FZN_GROUP_ACT_KEYS;
 }
 
 /* Everything the signature covers, into `out`; its length, or 0. */
@@ -30,9 +30,10 @@ static size_t body(const fzn_group_act_t *a, uint8_t *out, size_t cap)
 {
 	size_t signer_len = 0, at = 0;
 
-	if (!kind_known(a->kind) || cap < FZN_GROUP_ACT_HEAD_LEN
-	    || fzn_contact_device_encode(&a->signer, out + FZN_GROUP_ACT_HEAD_LEN,
-	                                 cap - FZN_GROUP_ACT_HEAD_LEN, &signer_len)
+	if (!kind_known(a->kind) || a->payload_len > FZN_GROUP_ACT_PAYLOAD_MAX
+	    || cap < FZN_GROUP_ACT_HEAD_LEN + a->payload_len
+	    || fzn_contact_device_encode(&a->signer, out + FZN_GROUP_ACT_HEAD_LEN + a->payload_len,
+	                                 cap - FZN_GROUP_ACT_HEAD_LEN - a->payload_len, &signer_len)
 	               != FZN_CONTACT_DEVICE_OK
 	    || signer_len > 0xffffu)
 		return 0;
@@ -52,6 +53,10 @@ static size_t body(const fzn_group_act_t *a, uint8_t *out, size_t cap)
 	at += 8u;
 	fzn_put_be64(out + at, a->at);
 	at += 8u;
+	fzn_put_be16(out + at, (uint16_t)a->payload_len);
+	at += 2u;
+	memcpy(out + at, a->payload, a->payload_len);
+	at += a->payload_len;
 	fzn_put_be16(out + at, (uint16_t)signer_len);
 	at += 2u;
 	return at + signer_len;
@@ -109,6 +114,12 @@ fzn_group_act_err_t fzn_group_act_decode(const uint8_t *bytes, size_t len, fzn_g
 	at += 8u;
 	out->at = fzn_get_be64(bytes + at);
 	at += 8u;
+	out->payload_len = fzn_get_be16(bytes + at);
+	at += 2u;
+	if (out->payload_len > FZN_GROUP_ACT_PAYLOAD_MAX || len - at < out->payload_len + 2u)
+		return FZN_GROUP_ACT_ERR_SHAPE;
+	memcpy(out->payload, bytes + at, out->payload_len);
+	at += out->payload_len;
 	signer_len = fzn_get_be16(bytes + at);
 	at += 2u;
 	/* EXACTLY ITS LENGTH: one act, one encoding, one hash. */

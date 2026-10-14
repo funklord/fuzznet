@@ -32,9 +32,12 @@
 
 #define FZN_GROUP_ACT_VERSION 1u
 #define FZN_GROUP_ID_LEN 32u
+/* AN ACT'S PAYLOAD: a KEYS act's sealed secrets, and nothing else's yet. */
+#define FZN_GROUP_ACT_PAYLOAD_MAX 4096u
 #define FZN_GROUP_ACT_HEAD_LEN                                                               \
-	(1u + 1u + 1u + 4u + FZN_GROUP_ID_LEN + 32u + FZN_PUBKEY_LEN + 1u + 8u + 8u + 2u)
-#define FZN_GROUP_ACT_MAX (FZN_GROUP_ACT_HEAD_LEN + FZN_CONTACT_DEVICE_MAX + FZN_SIG_LEN)
+	(1u + 1u + 1u + 4u + FZN_GROUP_ID_LEN + 32u + FZN_PUBKEY_LEN + 1u + 8u + 8u + 2u + 2u)
+#define FZN_GROUP_ACT_MAX                                                                    \
+	(FZN_GROUP_ACT_HEAD_LEN + FZN_GROUP_ACT_PAYLOAD_MAX + FZN_CONTACT_DEVICE_MAX + FZN_SIG_LEN)
 
 typedef enum fzn_group_act_kind {
 	/* The group made; its maker its first member and admin. Subject: a
@@ -53,7 +56,14 @@ typedef enum fzn_group_act_kind {
 	/* A proposal approved, by an admin. Subject: the proposal's hash. */
 	FZN_GROUP_ACT_APPROVE = 7u,
 	/* A setting set, by an admin: `setting` names it, `value` is it. */
-	FZN_GROUP_ACT_SET = 8u
+	FZN_GROUP_ACT_SET = 8u,
+	/* A member's host joining the group's hosts, by itself: the signer
+	 * is the host, its proof the act's own. sec 627. */
+	FZN_GROUP_ACT_HOST = 9u,
+	/* AN EPOCH'S SECRET, sealed to hosts, by a member's host: `value` the
+	 * epoch, the subject its commitment, the payload a box per host --
+	 * the host's key and the secret sealed to its prekey. sec 627. */
+	FZN_GROUP_ACT_KEYS = 10u
 } fzn_group_act_kind_t;
 
 /* SETTINGS, by number: a group's settings are few and the library's, so a
@@ -82,6 +92,8 @@ typedef struct fzn_group_act {
 	uint8_t setting;
 	uint64_t value;
 	uint64_t at; /* seconds, when its signer made it */
+	uint8_t payload[FZN_GROUP_ACT_PAYLOAD_MAX];
+	size_t payload_len;
 	fzn_contact_device_t signer;
 	uint8_t sig[FZN_SIG_LEN];
 } fzn_group_act_t;

@@ -18,7 +18,7 @@
 endian big
 target buffer
 
-struct fzn_group_act size=186..65721
+struct fzn_group_act size=188..131258
   @0x0000   1         u8         version  must_eq=1
   @0x0001   1         u8         tag  must_eq=150
   @0x0002   1         u8         kind
@@ -29,6 +29,8 @@ struct fzn_group_act size=186..65721
   @0x0067   1         u8         setting
   @0x0068   8         u64        value  big
   @0x0070   8         u64        at  big
-  @0x0078   2         u16        signer_len  big
-  @0x007a   0..65535  u8         signer  sized-by=signer_len
+  @0x0078   2         u16        payload_len  big
+  @0x007a   0..65535  u8         payload  sized-by=payload_len
+  ~         2         u16        signer_len  big
+  ~         0..65535  u8         signer  sized-by=signer_len
   ~         64        u8         sig  big

@@ -389,7 +389,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/identity_test.c node/test/heard_test.c node/test/events_test.c \
              node/test/routing_test.c node/test/contact_devices_test.c \
              node/test/contact_card_test.c node/test/contact_request_test.c \
-             node/test/group_log_test.c \
+             node/test/group_log_test.c node/test/groups_test.c \
              node/test/state_dir_test.c node/test/relay_test.c \
              local/test/vocabulary_fuzz.c local/test/admit_test.c \
              local/test/line_test.c local/test/socket_test.c \
@@ -514,6 +514,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/node/test/contact_card_test \
              $(BUILD_DIR)/node/test/contact_request_test \
              $(BUILD_DIR)/node/test/group_log_test \
+             $(BUILD_DIR)/node/test/groups_test \
              $(BUILD_DIR)/node/test/state_dir_test \
              $(BUILD_DIR)/node/test/relay_test \
              $(BUILD_DIR)/local/test/vocabulary_fuzz \
@@ -2169,6 +2170,7 @@ $(BUILD_DIR)/node/test/files_test: $(BUILD_DIR)/node/test/files_test.o \
                                    $(BUILD_DIR)/contact/contact.o \
                                    $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                    $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/node/contact_devices.o \
+                                   $(BUILD_DIR)/session/box.o \
                                    $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
                                    $(BUILD_DIR)/chain/manifest.o \
                                    $(BUILD_DIR)/persist/persist.o \
@@ -2269,6 +2271,7 @@ $(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
                                    $(BUILD_DIR)/contact/contact.o \
                                    $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                    $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/node/contact_devices.o \
+                                   $(BUILD_DIR)/session/box.o \
                                    $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
                                    $(BUILD_DIR)/chain/manifest.o \
                                    $(BUILD_DIR)/chain/service.o \
@@ -3320,6 +3323,7 @@ $(BUILD_DIR)/gui/test/notebook_view_test: $(BUILD_DIR)/gui/test/notebook_view_te
                                      $(BUILD_DIR)/contact/contact.o \
                                      $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                      $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/node/contact_devices.o \
+                                     $(BUILD_DIR)/session/box.o \
                                      $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
                                      $(BUILD_DIR)/chain/manifest.o \
                                      $(BUILD_DIR)/chain/service.o \
@@ -3814,6 +3818,20 @@ $(BUILD_DIR)/node/test/group_log_test: $(BUILD_DIR)/node/test/group_log_test.o \
                                        $(BUILD_DIR)/node/group_act.o \
                                        $(BUILD_DIR)/node/contact_devices.o \
                                        $(BUILD_DIR)/contact/contact.o $(NODE_SERVE_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# A group's epochs, sec 627: real X25519, BLAKE2b and XChaCha20-Poly1305.
+$(BUILD_DIR)/node/test/groups_test: $(BUILD_DIR)/node/test/groups_test.o \
+                                    $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
+                                    $(BUILD_DIR)/node/group_act.o \
+                                    $(BUILD_DIR)/node/contact_devices.o \
+                                    $(BUILD_DIR)/contact/contact.o $(BUILD_DIR)/session/box.o \
+                                    $(BUILD_DIR)/session/agree_monocypher.o \
+                                    $(BUILD_DIR)/session/hash_monocypher.o \
+                                    $(BUILD_DIR)/session/aead_monocypher.o \
+                                    $(BUILD_DIR)/session/random_linux.o \
+                                    $(BUILD_DIR)/monocypher.o $(NODE_SERVE_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

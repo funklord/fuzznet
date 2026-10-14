@@ -64,6 +64,130 @@ int fzn_group_is_admin(const fzn_group_t *g, const uint8_t root[FZN_PUBKEY_LEN])
 	                  < g->n_admins;
 }
 
+const fzn_group_host_t *fzn_group_host(const fzn_group_t *g, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	if (!g || !key)
+		return NULL;
+	for (i = 0; i < g->n_hosts; i++)
+		if (memcmp(g->hosts[i].key, key, FZN_PUBKEY_LEN) == 0)
+			return &g->hosts[i];
+	return NULL;
+}
+
+const uint8_t *fzn_group_commit(const fzn_group_t *g, uint32_t epoch)
+{
+	const fzn_group_commit_t *c;
+
+	if (!g || epoch == 0u)
+		return NULL;
+	c = &g->commits[epoch % FZN_GROUP_EPOCHS_KEPT];
+	return c->epoch == epoch ? c->commit : NULL;
+}
+
+int fzn_group_epoch_commit(const fzn_hash_ops_t *hash, const uint8_t id[FZN_GROUP_ID_LEN],
+                           uint32_t epoch, const uint8_t secret[FZN_GROUP_SECRET_LEN],
+                           uint8_t out[32])
+{
+	static const char label[] = "fuzznet group epoch";
+	uint8_t in[sizeof(label) - 1u + FZN_GROUP_ID_LEN + 4u + FZN_GROUP_SECRET_LEN];
+	int ok;
+
+	if (!hash || !hash->hash || !id || !secret || !out)
+		return 0;
+	memcpy(in, label, sizeof(label) - 1u);
+	memcpy(in + sizeof(label) - 1u, id, FZN_GROUP_ID_LEN);
+	fzn_put_be32(in + sizeof(label) - 1u + FZN_GROUP_ID_LEN, epoch);
+	memcpy(in + sizeof(label) - 1u + FZN_GROUP_ID_LEN + 4u, secret, FZN_GROUP_SECRET_LEN);
+	ok = hash->hash(hash->ctx, out, 32u, in, sizeof(in));
+	memset(in, 0, sizeof(in));
+	return ok;
+}
+
+/* A MEMBER'S HOSTS GO WITH THEM: removed or left, none is sealed another
+ * epoch. */
+static void drop_hosts_of(fzn_group_t *g, const uint8_t *owner)
+{
+	size_t i = 0;
+
+	while (i < g->n_hosts) {
+		if (memcmp(g->hosts[i].owner, owner, FZN_PUBKEY_LEN) != 0) {
+			i++;
+			continue;
+		}
+		memmove(&g->hosts[i], &g->hosts[i + 1u], (g->n_hosts - i - 1u) * sizeof(g->hosts[0]));
+		g->n_hosts--;
+	}
+}
+
+static fzn_group_log_err_t add_host(fzn_group_t *g, const uint8_t *owner, const uint8_t *key,
+                                    uint32_t seq)
+{
+	fzn_group_host_t *h;
+
+	if (fzn_group_host(g, key))
+		return FZN_GROUP_LOG_ERR_MOOT;
+	if (g->n_hosts == FZN_GROUP_HOSTS_MAX)
+		return FZN_GROUP_LOG_ERR_FULL;
+	h = &g->hosts[g->n_hosts++];
+	memcpy(h->owner, owner, FZN_PUBKEY_LEN);
+	memcpy(h->key, key, FZN_PUBKEY_LEN);
+	h->seq = seq;
+	h->joined_epoch = g->epoch;
+	h->keyed_epoch = 0u;
+	h->backfilled_to = g->epoch;
+	return FZN_GROUP_LOG_OK;
+}
+
+/* AN EPOCH'S SECRET SEALED TO HOSTS, sec 627. The first KEYS act for the
+ * current epoch fixes its commitment; every later one, for that epoch or a
+ * kept older one, must carry the same. Each box is for a listed host: for
+ * the current epoch one not yet given it, for an older one a host that
+ * joined after it, and only while the group backfills. */
+static fzn_group_log_err_t keys(fzn_group_t *g, const fzn_group_act_t *a)
+{
+	uint32_t e = (uint32_t)a->value;
+	const uint8_t *commit = fzn_group_commit(g, e);
+	size_t n = a->payload_len / FZN_GROUP_KEY_ENTRY_LEN, i, fresh = 0;
+	fzn_group_host_t *h;
+
+	if (!fzn_group_is_member(g, a->signer.owner)
+	    || !fzn_group_host(g, fzn_contact_device_key(&a->signer)))
+		return FZN_GROUP_LOG_ERR_DENIED;
+	if (a->value == 0u || a->value > g->epoch || n == 0u || n > FZN_GROUP_KEYS_PER_ACT
+	    || a->payload_len % FZN_GROUP_KEY_ENTRY_LEN != 0u)
+		return FZN_GROUP_LOG_ERR_MALFORMED;
+	if (commit ? memcmp(commit, a->subject, 32u) != 0 : e != g->epoch)
+		return FZN_GROUP_LOG_ERR_DENIED;
+	if (e < g->epoch && !g->backfill)
+		return FZN_GROUP_LOG_ERR_DENIED;
+	for (i = 0; i < n; i++) {
+		h = (fzn_group_host_t *)fzn_group_host(g, a->payload + i * FZN_GROUP_KEY_ENTRY_LEN);
+		if (!h)
+			return FZN_GROUP_LOG_ERR_DENIED;
+		if (e == g->epoch && h->keyed_epoch != e) {
+			h->keyed_epoch = e;
+			fresh++;
+		} else if (e < g->epoch) {
+			/* NEWEST FIRST, one epoch at a time: an epoch it holds is
+			 * moot, one skipped is refused. */
+			if (e >= h->backfilled_to)
+				return FZN_GROUP_LOG_ERR_MOOT;
+			if (e + 1u != h->backfilled_to)
+				return FZN_GROUP_LOG_ERR_DENIED;
+			h->backfilled_to = e;
+			fresh++;
+		}
+	}
+	if (!commit) {
+		g->commits[e % FZN_GROUP_EPOCHS_KEPT].epoch = e;
+		memcpy(g->commits[e % FZN_GROUP_EPOCHS_KEPT].commit, a->subject, 32u);
+		fresh++;
+	}
+	return !fresh ? FZN_GROUP_LOG_ERR_MOOT : FZN_GROUP_LOG_OK;
+}
+
 /* MORE THAN HALF of the admins: 1 of 1, 2 of 2, 2 of 3, 3 of 4. */
 static size_t majority(const fzn_group_t *g)
 {
@@ -139,6 +263,7 @@ static fzn_group_log_err_t judge(fzn_group_t *g, const fzn_group_act_t *a, const
 			g->n_proposals = 0;
 		}
 		drop_at(g->members, &g->n_members, i);
+		drop_hosts_of(g, a->subject);
 		g->epoch++;
 		return FZN_GROUP_LOG_OK;
 	case FZN_GROUP_ACT_ADMIN_ADD:
@@ -180,6 +305,12 @@ static fzn_group_log_err_t judge(fzn_group_t *g, const fzn_group_act_t *a, const
 			return FZN_GROUP_LOG_ERR_MOOT;
 		g->backfill = (uint8_t)a->value;
 		return FZN_GROUP_LOG_OK;
+	case FZN_GROUP_ACT_HOST:
+		if (!fzn_group_is_member(g, by))
+			return FZN_GROUP_LOG_ERR_DENIED;
+		return add_host(g, by, fzn_contact_device_key(&a->signer), a->seq);
+	case FZN_GROUP_ACT_KEYS:
+		return keys(g, a);
 	}
 	return FZN_GROUP_LOG_ERR_MALFORMED;
 }
@@ -205,7 +336,8 @@ fzn_group_log_err_t fzn_group_apply(fzn_group_t *g, const fzn_group_act_t *a,
 		memcpy(g->members[0], a->signer.owner, FZN_PUBKEY_LEN);
 		memcpy(g->admins[0], a->signer.owner, FZN_PUBKEY_LEN);
 		g->n_members = g->n_admins = 1u;
-		return FZN_GROUP_LOG_OK;
+		/* ITS MAKER'S HOST is its first host. */
+		return add_host(g, a->signer.owner, fzn_contact_device_key(&a->signer), 0u);
 	}
 	if (g->seq == 0u || a->seq != g->seq || memcmp(a->group, g->id, FZN_GROUP_ID_LEN) != 0
 	    || memcmp(a->prev, g->head, 32u) != 0)
@@ -222,15 +354,17 @@ fzn_group_log_err_t fzn_group_apply(fzn_group_t *g, const fzn_group_act_t *a,
 
 /* ---- the group, as the store keeps it ----------------------------------- */
 
-#define GROUP_VERSION 1u
+#define GROUP_VERSION 2u
+#define HOST_LEN (2u * FZN_PUBKEY_LEN + 4u * 4u)
 #define PROPOSAL_LEN (32u + 1u + FZN_PUBKEY_LEN + 1u + FZN_GROUP_ADMINS_MAX * FZN_PUBKEY_LEN)
 #define GROUP_BYTES_MAX                                                                    \
 	(1u + FZN_GROUP_ID_LEN + 4u + 32u + 4u + 1u + 2u + FZN_GROUP_MEMBERS_MAX * FZN_PUBKEY_LEN \
-	 + 1u + FZN_GROUP_ADMINS_MAX * FZN_PUBKEY_LEN + 1u + FZN_GROUP_PROPOSALS_MAX * PROPOSAL_LEN)
+	 + 1u + FZN_GROUP_ADMINS_MAX * FZN_PUBKEY_LEN + 1u + FZN_GROUP_PROPOSALS_MAX * PROPOSAL_LEN \
+	 + 2u + FZN_GROUP_HOSTS_MAX * HOST_LEN + 1u + FZN_GROUP_EPOCHS_KEPT * (4u + 32u))
 
 static size_t group_encode(const fzn_group_t *g, uint8_t *out)
 {
-	size_t at = 0, k;
+	size_t at = 0, k, n;
 
 	out[at++] = GROUP_VERSION;
 	memcpy(out + at, g->id, FZN_GROUP_ID_LEN);
@@ -262,6 +396,28 @@ static size_t group_encode(const fzn_group_t *g, uint8_t *out)
 		memcpy(out + at, p->approvals, p->n_approvals * FZN_PUBKEY_LEN);
 		at += p->n_approvals * FZN_PUBKEY_LEN;
 	}
+	fzn_put_be16(out + at, (uint16_t)g->n_hosts);
+	at += 2u;
+	for (k = 0; k < g->n_hosts; k++) {
+		memcpy(out + at, g->hosts[k].owner, FZN_PUBKEY_LEN);
+		memcpy(out + at + FZN_PUBKEY_LEN, g->hosts[k].key, FZN_PUBKEY_LEN);
+		fzn_put_be32(out + at + 2u * FZN_PUBKEY_LEN, g->hosts[k].seq);
+		fzn_put_be32(out + at + 2u * FZN_PUBKEY_LEN + 4u, g->hosts[k].joined_epoch);
+		fzn_put_be32(out + at + 2u * FZN_PUBKEY_LEN + 8u, g->hosts[k].keyed_epoch);
+		fzn_put_be32(out + at + 2u * FZN_PUBKEY_LEN + 12u, g->hosts[k].backfilled_to);
+		at += HOST_LEN;
+	}
+	/* ONLY THE SLOTS IN USE: a new group has one. */
+	n = 0;
+	for (k = 0; k < FZN_GROUP_EPOCHS_KEPT; k++)
+		n += g->commits[k].epoch != 0u;
+	out[at++] = (uint8_t)n;
+	for (k = 0; k < FZN_GROUP_EPOCHS_KEPT; k++)
+		if (g->commits[k].epoch) {
+			fzn_put_be32(out + at, g->commits[k].epoch);
+			memcpy(out + at + 4u, g->commits[k].commit, 32u);
+			at += 4u + 32u;
+		}
 	return at;
 }
 
@@ -322,6 +478,36 @@ static int group_decode(const uint8_t *in, size_t len, fzn_group_t *g)
 		p->n_approvals = n;
 		at += n * FZN_PUBKEY_LEN;
 	}
+	NEED(2u);
+	n = fzn_get_be16(in + at);
+	at += 2u;
+	if (n > FZN_GROUP_HOSTS_MAX)
+		return 0;
+	NEED(n * HOST_LEN + 1u);
+	for (k = 0; k < n; k++) {
+		memcpy(g->hosts[k].owner, in + at, FZN_PUBKEY_LEN);
+		memcpy(g->hosts[k].key, in + at + FZN_PUBKEY_LEN, FZN_PUBKEY_LEN);
+		g->hosts[k].seq = fzn_get_be32(in + at + 2u * FZN_PUBKEY_LEN);
+		g->hosts[k].joined_epoch = fzn_get_be32(in + at + 2u * FZN_PUBKEY_LEN + 4u);
+		g->hosts[k].keyed_epoch = fzn_get_be32(in + at + 2u * FZN_PUBKEY_LEN + 8u);
+		g->hosts[k].backfilled_to = fzn_get_be32(in + at + 2u * FZN_PUBKEY_LEN + 12u);
+		at += HOST_LEN;
+	}
+	g->n_hosts = n;
+	n = in[at++];
+	if (n > FZN_GROUP_EPOCHS_KEPT)
+		return 0;
+	NEED(n * (4u + 32u));
+	for (k = 0; k < n; k++) {
+		uint32_t e = fzn_get_be32(in + at);
+		fzn_group_commit_t *c = &g->commits[e % FZN_GROUP_EPOCHS_KEPT];
+
+		if (e == 0u || c->epoch != 0u)
+			return 0;
+		c->epoch = e;
+		memcpy(c->commit, in + at + 4u, 32u);
+		at += 4u + 32u;
+	}
 #undef NEED
 	return at == len;
 }
@@ -338,7 +524,8 @@ static fzn_group_log_err_t group_save(const fzn_persist_ops_t *store, const fzn_
 fzn_group_log_err_t fzn_group_log_put(const fzn_persist_ops_t *store, const fzn_group_t *g)
 {
 	if (!store || !store->save || !g || g->n_members > FZN_GROUP_MEMBERS_MAX
-	    || g->n_admins > FZN_GROUP_ADMINS_MAX || g->n_proposals > FZN_GROUP_PROPOSALS_MAX)
+	    || g->n_admins > FZN_GROUP_ADMINS_MAX || g->n_proposals > FZN_GROUP_PROPOSALS_MAX
+	    || g->n_hosts > FZN_GROUP_HOSTS_MAX)
 		return FZN_GROUP_LOG_ERR_MALFORMED;
 	return group_save(store, g);
 }

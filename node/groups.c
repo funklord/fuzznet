@@ -4,6 +4,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "../prekey/prekey.h"
+#include "../session/box.h"
+
 /* ---- names ---------------------------------------------------------------- */
 
 #define NAME_VERSION 1u
@@ -99,10 +102,21 @@ fzn_contact_err_t fzn_node_group_ids_of(const fzn_persist_ops_t *store,
 
 /* ---- acting --------------------------------------------------------------- */
 
+static fzn_group_log_err_t act_with(const fzn_node_groups_t *g, uint8_t kind, const uint8_t *id,
+                                    const uint8_t *subject, uint8_t setting, uint64_t value,
+                                    const uint8_t *payload, size_t payload_len, uint8_t *made);
+
 fzn_group_log_err_t fzn_node_groups_act(const fzn_node_groups_t *g, uint8_t kind,
                                         const uint8_t *id, const uint8_t subject[FZN_PUBKEY_LEN],
                                         uint8_t setting, uint64_t value,
                                         uint8_t made[FZN_GROUP_ID_LEN])
+{
+	return act_with(g, kind, id, subject, setting, value, NULL, 0u, made);
+}
+
+static fzn_group_log_err_t act_with(const fzn_node_groups_t *g, uint8_t kind, const uint8_t *id,
+                                    const uint8_t *subject, uint8_t setting, uint64_t value,
+                                    const uint8_t *payload, size_t payload_len, uint8_t *made)
 {
 	static fzn_group_act_t a;
 	static fzn_group_t held;
@@ -112,10 +126,14 @@ fzn_group_log_err_t fzn_node_groups_act(const fzn_node_groups_t *g, uint8_t kind
 	fzn_group_log_err_t err;
 
 	if (!g || !g->log.store || !g->host_sign || !g->signer || !g->clock
-	    || (!id && (!g->rng || !g->rng->fill)) || (id && !subject && kind != FZN_GROUP_ACT_SET))
+	    || (!id && (!g->rng || !g->rng->fill)) || (id && !subject && kind != FZN_GROUP_ACT_SET)
+	    || payload_len > FZN_GROUP_ACT_PAYLOAD_MAX || (payload_len && !payload))
 		return FZN_GROUP_LOG_ERR_MALFORMED;
 	memset(&a, 0, sizeof(a));
 	a.kind = kind;
+	if (payload_len)
+		memcpy(a.payload, payload, payload_len);
+	a.payload_len = payload_len;
 	if (id) {
 		err = fzn_group_log_get(g->log.store, id, &held);
 		if (err != FZN_GROUP_LOG_OK)
@@ -143,6 +161,253 @@ fzn_group_log_err_t fzn_node_groups_act(const fzn_node_groups_t *g, uint8_t kind
 		return FZN_GROUP_LOG_ERR_MALFORMED;
 	if (g->acted)
 		g->acted(g->acted_ctx, id ? id : made);
+	return FZN_GROUP_LOG_OK;
+}
+
+/* ---- epochs, sec 627 ----------------------------------------------------- */
+
+#define SECRET_VERSION 1u
+
+static int epoch_subject(const fzn_node_groups_t *g, const uint8_t *id, uint32_t epoch,
+                         uint8_t out[FZN_PUBKEY_LEN])
+{
+	uint8_t in[FZN_GROUP_ID_LEN + 4u];
+
+	memcpy(in, id, FZN_GROUP_ID_LEN);
+	in[FZN_GROUP_ID_LEN] = (uint8_t)(epoch >> 24);
+	in[FZN_GROUP_ID_LEN + 1u] = (uint8_t)(epoch >> 16);
+	in[FZN_GROUP_ID_LEN + 2u] = (uint8_t)(epoch >> 8);
+	in[FZN_GROUP_ID_LEN + 3u] = (uint8_t)epoch;
+	return g->log.hash->hash(g->log.hash->ctx, out, FZN_PUBKEY_LEN, in, sizeof(in));
+}
+
+fzn_group_log_err_t fzn_node_groups_secret(const fzn_node_groups_t *g,
+                                           const uint8_t id[FZN_GROUP_ID_LEN], uint32_t epoch,
+                                           uint8_t out[FZN_GROUP_SECRET_LEN])
+{
+	uint8_t subject[FZN_PUBKEY_LEN], bytes[1u + FZN_GROUP_SECRET_LEN];
+	size_t n = 0;
+
+	if (!g || !g->log.store || !g->log.store->load || !g->log.hash || !id || !out)
+		return FZN_GROUP_LOG_ERR_MALFORMED;
+	if (!epoch_subject(g, id, epoch, subject)
+	    || !g->log.store->load(g->log.store->ctx, FZN_PERSIST_GROUP_EPOCH, subject, bytes,
+	                           sizeof(bytes), &n))
+		return FZN_GROUP_LOG_ERR_ABSENT;
+	if (n != sizeof(bytes) || bytes[0] != SECRET_VERSION)
+		return FZN_GROUP_LOG_ERR_BACKEND;
+	memcpy(out, bytes + 1, FZN_GROUP_SECRET_LEN);
+	memset(bytes, 0, sizeof(bytes));
+	return FZN_GROUP_LOG_OK;
+}
+
+static int secret_keep(const fzn_node_groups_t *g, const uint8_t *id, uint32_t epoch,
+                       const uint8_t *secret)
+{
+	uint8_t subject[FZN_PUBKEY_LEN], bytes[1u + FZN_GROUP_SECRET_LEN];
+	int ok;
+
+	bytes[0] = SECRET_VERSION;
+	memcpy(bytes + 1, secret, FZN_GROUP_SECRET_LEN);
+	ok = epoch_subject(g, id, epoch, subject)
+	     && g->log.store->save(g->log.store->ctx, FZN_PERSIST_GROUP_EPOCH, subject, bytes,
+	                           sizeof(bytes));
+	memset(bytes, 0, sizeof(bytes));
+	return ok;
+}
+
+/* EPOCH `epoch`'s SECRET AS HELD HERE, AND THE ONE THE GROUP COMMITTED TO:
+ * a secret this host drew for an epoch whose commitment another host's
+ * act fixed -- a fork lost -- is forgotten, so this host takes the right
+ * one from its box rather than sealing the wrong one to others. */
+static int secret_of(const fzn_node_groups_t *g, const fzn_group_t *held, uint32_t epoch,
+                     uint8_t secret[FZN_GROUP_SECRET_LEN])
+{
+	uint8_t subject[FZN_PUBKEY_LEN], commit[32];
+	const uint8_t *want = fzn_group_commit(held, epoch);
+
+	if (!want || fzn_node_groups_secret(g, held->id, epoch, secret) != FZN_GROUP_LOG_OK)
+		return 0;
+	if (fzn_group_epoch_commit(g->log.hash, held->id, epoch, secret, commit)
+	    && memcmp(commit, want, 32u) == 0)
+		return 1;
+	memset(secret, 0, FZN_GROUP_SECRET_LEN);
+	if (g->log.store->remove && epoch_subject(g, held->id, epoch, subject))
+		(void)g->log.store->remove(g->log.store->ctx, FZN_PERSIST_GROUP_EPOCH, subject);
+	return 0;
+}
+
+static int secret_held(const fzn_node_groups_t *g, const fzn_group_t *held, uint32_t epoch)
+{
+	uint8_t secret[FZN_GROUP_SECRET_LEN];
+	int ok = secret_of(g, held, epoch, secret);
+
+	memset(secret, 0, sizeof(secret));
+	return ok;
+}
+
+/* THE SECRETS SEALED TO THIS HOST and not yet opened here: every KEYS act
+ * in the log read, this host's box opened, and the secret kept only when
+ * it is the one the epoch committed to. */
+static size_t take_secrets(const fzn_node_groups_t *g, const fzn_group_t *held,
+                           const uint8_t *self)
+{
+	static uint8_t bytes[FZN_GROUP_ACT_MAX];
+	static fzn_group_act_t a;
+	uint8_t secret[FZN_GROUP_SECRET_LEN], commit[32];
+	const uint8_t *want;
+	size_t n = 0, i, opened, taken = 0;
+	uint32_t s;
+
+	for (s = 0; s < held->seq; s++) {
+		if (fzn_group_log_act(&g->log, held->id, s, bytes, sizeof(bytes), &n) != FZN_GROUP_LOG_OK
+		    || fzn_group_act_decode(bytes, n, &a) != FZN_GROUP_ACT_OK
+		    || a.kind != FZN_GROUP_ACT_KEYS || a.value > 0xffffffffu)
+			continue;
+		want = fzn_group_commit(held, (uint32_t)a.value);
+		if (!want || secret_held(g, held, (uint32_t)a.value))
+			continue;
+		for (i = 0; i + FZN_GROUP_KEY_ENTRY_LEN <= a.payload_len; i += FZN_GROUP_KEY_ENTRY_LEN) {
+			if (memcmp(a.payload + i, self, FZN_PUBKEY_LEN) != 0
+			    || fzn_box_open(g->agree_secret, g->agree, g->log.hash, g->aead,
+			                    a.payload + i + FZN_PUBKEY_LEN, FZN_GROUP_KEY_BOX_LEN, secret,
+			                    sizeof(secret), &opened)
+			               != FZN_BOX_OK
+			    || opened != sizeof(secret))
+				continue;
+			if (fzn_group_epoch_commit(g->log.hash, held->id, (uint32_t)a.value, secret, commit)
+			    && memcmp(commit, want, 32u) == 0 && secret_keep(g, held->id, (uint32_t)a.value, secret))
+				taken++;
+			break;
+		}
+	}
+	memset(secret, 0, sizeof(secret));
+	return taken;
+}
+
+/* EPOCH `epoch`'s secret sealed to `n` hosts, in one KEYS act: each box to
+ * the prekey its HOST act's signer carries. */
+static fzn_group_log_err_t seal_keys(const fzn_node_groups_t *g, const fzn_group_t *held,
+                                     uint32_t epoch, const uint8_t *secret, const uint8_t *commit,
+                                     const fzn_group_host_t *const *to, size_t n)
+{
+	static uint8_t payload[FZN_GROUP_KEYS_PER_ACT * FZN_GROUP_KEY_ENTRY_LEN];
+	static uint8_t bytes[FZN_GROUP_ACT_MAX];
+	static fzn_group_act_t a;
+	size_t i, len = 0, box_len = 0;
+
+	for (i = 0; i < n && i < FZN_GROUP_KEYS_PER_ACT; i++) {
+		uint8_t *entry = payload + i * FZN_GROUP_KEY_ENTRY_LEN;
+
+		if (fzn_group_log_act(&g->log, held->id, to[i]->seq, bytes, sizeof(bytes), &len)
+		            != FZN_GROUP_LOG_OK
+		    || fzn_group_act_decode(bytes, len, &a) != FZN_GROUP_ACT_OK
+		    || memcmp(fzn_contact_device_key(&a.signer), to[i]->key, FZN_PUBKEY_LEN) != 0
+		    || fzn_box_seal(g->agree, g->log.hash, g->aead, g->rng,
+		                    a.signer.record + FZN_PREKEY_OFF_PREKEY, secret, FZN_GROUP_SECRET_LEN,
+		                    entry + FZN_PUBKEY_LEN, FZN_GROUP_KEY_BOX_LEN, &box_len)
+		               != FZN_BOX_OK
+		    || box_len != FZN_GROUP_KEY_BOX_LEN)
+			return FZN_GROUP_LOG_ERR_MALFORMED;
+		memcpy(entry, to[i]->key, FZN_PUBKEY_LEN);
+	}
+	return act_with(g, FZN_GROUP_ACT_KEYS, held->id, commit, 0u, epoch, payload,
+	                i * FZN_GROUP_KEY_ENTRY_LEN, NULL);
+}
+
+/* How many backfill acts one tend makes at most: the rest next time. */
+#define BACKFILL_PER_TEND 8u
+
+fzn_group_log_err_t fzn_node_groups_tend(const fzn_node_groups_t *g,
+                                         const uint8_t id[FZN_GROUP_ID_LEN], size_t *made)
+{
+	static fzn_group_t held;
+	static fzn_contact_device_t own;
+	static const fzn_group_host_t *to[FZN_GROUP_KEYS_PER_ACT];
+	uint8_t secret[FZN_GROUP_SECRET_LEN], commit[32];
+	const uint8_t *self;
+	fzn_group_log_err_t err;
+	size_t n, i, round;
+	uint32_t cur;
+
+	if (!g || !id || !made || !g->agree || !g->aead || !g->agree_secret || !g->rng
+	    || !g->signer)
+		return FZN_GROUP_LOG_ERR_MALFORMED;
+	*made = 0;
+	err = fzn_group_log_get(g->log.store, id, &held);
+	if (err != FZN_GROUP_LOG_OK)
+		return err;
+	if (!g->signer(g->signer_ctx, &own) || !fzn_group_is_member(&held, own.owner))
+		return FZN_GROUP_LOG_OK;
+	self = fzn_contact_device_key(&own);
+	/* NAMED AMONG ITS HOSTS. */
+	if (!fzn_group_host(&held, self)) {
+		err = fzn_node_groups_act(g, FZN_GROUP_ACT_HOST, id, own.owner, 0u, 0u, NULL);
+		if (err != FZN_GROUP_LOG_OK)
+			return err;
+		(*made)++;
+		if (fzn_group_log_get(g->log.store, id, &held) != FZN_GROUP_LOG_OK)
+			return FZN_GROUP_LOG_ERR_BACKEND;
+	}
+	(void)take_secrets(g, &held, self);
+	cur = held.epoch;
+	/* THE CURRENT EPOCH: drawn here if nobody has, else sealed to whoever
+	 * lacks it, when this host holds it. */
+	if (!fzn_group_commit(&held, cur)) {
+		if (!g->rng->fill(g->rng->ctx, secret, sizeof(secret))
+		    || !fzn_group_epoch_commit(g->log.hash, id, cur, secret, commit)
+		    || !secret_keep(g, id, cur, secret))
+			return FZN_GROUP_LOG_ERR_BACKEND;
+		for (i = 0, n = 0; i < held.n_hosts && n < FZN_GROUP_KEYS_PER_ACT; i++)
+			to[n++] = &held.hosts[i];
+		err = seal_keys(g, &held, cur, secret, commit, to, n);
+		memset(secret, 0, sizeof(secret));
+		if (err != FZN_GROUP_LOG_OK)
+			return err;
+		(*made)++;
+		if (fzn_group_log_get(g->log.store, id, &held) != FZN_GROUP_LOG_OK)
+			return FZN_GROUP_LOG_ERR_BACKEND;
+	}
+	if (secret_of(g, &held, cur, secret)) {
+		for (i = 0, n = 0; i < held.n_hosts && n < FZN_GROUP_KEYS_PER_ACT; i++)
+			if (held.hosts[i].keyed_epoch != cur)
+				to[n++] = &held.hosts[i];
+		err = n ? seal_keys(g, &held, cur, secret, fzn_group_commit(&held, cur), to, n)
+		        : FZN_GROUP_LOG_OK;
+		memset(secret, 0, sizeof(secret));
+		if (err != FZN_GROUP_LOG_OK)
+			return err;
+		if (n) {
+			(*made)++;
+			if (fzn_group_log_get(g->log.store, id, &held) != FZN_GROUP_LOG_OK)
+				return FZN_GROUP_LOG_ERR_BACKEND;
+		}
+	}
+	/* BACKFILL, newest first: the epoch before the oldest a host holds,
+	 * to every host at that same point, while this host holds it. */
+	for (round = 0; held.backfill && round < BACKFILL_PER_TEND; round++) {
+		uint32_t e = 0;
+
+		for (i = 0; i < held.n_hosts; i++) {
+			uint32_t want = held.hosts[i].backfilled_to - 1u;
+
+			if (held.hosts[i].backfilled_to > 1u && want > e && fzn_group_commit(&held, want)
+			    && secret_held(g, &held, want))
+				e = want;
+		}
+		if (!e || !secret_of(g, &held, e, secret))
+			break;
+		for (i = 0, n = 0; i < held.n_hosts && n < FZN_GROUP_KEYS_PER_ACT; i++)
+			if (held.hosts[i].backfilled_to == e + 1u)
+				to[n++] = &held.hosts[i];
+		err = seal_keys(g, &held, e, secret, fzn_group_commit(&held, e), to, n);
+		memset(secret, 0, sizeof(secret));
+		if (err != FZN_GROUP_LOG_OK)
+			return err;
+		(*made)++;
+		if (fzn_group_log_get(g->log.store, id, &held) != FZN_GROUP_LOG_OK)
+			return FZN_GROUP_LOG_ERR_BACKEND;
+	}
 	return FZN_GROUP_LOG_OK;
 }
 
@@ -407,6 +672,9 @@ size_t fzn_node_groups_local(const fzn_node_groups_t *g, const fzn_request_t *re
 		if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_REMOVE
 		    && request->parsed != FZN_VERB_GET && request->parsed != FZN_VERB_SET)
 			return 0;
+	} else if (is_word(subject, subject_len, "epoch")) {
+		if (request->parsed != FZN_VERB_GET)
+			return 0;
 	} else if (is_word(subject, subject_len, "member") || is_word(subject, subject_len, "admin")) {
 		if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_REMOVE)
 			return 0;
@@ -423,6 +691,19 @@ size_t fzn_node_groups_local(const fzn_node_groups_t *g, const fzn_request_t *re
 	cerr = fzn_node_group_find(g->log.store, (const char *)name, name_len, id);
 	if (cerr != FZN_CONTACT_OK)
 		return contact_refusal(reply, cap, cerr);
+	/* `get epoch GROUP`: `ok EPOCH held` or `ok EPOCH none` -- whether this
+	 * host holds the current epoch's secret, never the secret. */
+	if (is_word(subject, subject_len, "epoch")) {
+		static fzn_group_t held;
+		char detail[32];
+		int k;
+
+		if (fzn_group_log_get(g->log.store, id, &held) != FZN_GROUP_LOG_OK)
+			return say(reply, cap, FZN_REPLY_ERROR, "the group did not read");
+		k = snprintf(detail, sizeof(detail), "%lu %s", (unsigned long)held.epoch,
+		             g->log.hash && secret_held(g, &held, held.epoch) ? "held" : "none");
+		return answer(reply, cap, FZN_REPLY_OK, detail, k > 0 ? (size_t)k : 0u);
+	}
 	if (is_word(subject, subject_len, "group")) {
 		if (request->parsed == FZN_VERB_GET)
 			return get_group(g, id, reply, cap);

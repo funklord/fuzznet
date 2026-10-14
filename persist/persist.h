@@ -351,13 +351,17 @@ typedef enum fzn_persist_slot {
 	 * grant. A name is presentation (sec 516), never in the log. Not
 	 * core: lost, the group is still there, named by its id. sec 626. */
 	FZN_PERSIST_GROUP_LABEL = 54u,
+	/* Per (group, epoch), keyed by a hash of the two: the epoch's secret,
+	 * opened from a box sealed to this host. CORE: lost, the lines of that
+	 * epoch cannot be read here again. `node/groups.h`. sec 627. */
+	FZN_PERSIST_GROUP_EPOCH = 55u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 55u
+#define FZN_PERSIST_SLOT_END 56u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,

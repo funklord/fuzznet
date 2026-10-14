@@ -138,6 +138,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "a group as its log says: its members, admins and settings";
 	case FZN_PERSIST_GROUP_LABEL:
 		return "this host's name for a group";
+	case FZN_PERSIST_GROUP_EPOCH:
+		return "a group's secret for one epoch, opened here";
 	}
 	*known = 0;
 	return "an unknown slot";

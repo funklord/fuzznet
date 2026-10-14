@@ -64866,3 +64866,90 @@ session starts 5b.** In sec 625's order:
   group.
 - **admin, notes, files and the notebook view** take groups from the
   log: their tests file groups through `node/test/group_fixture.h`.
+
+## 627. Step 5b, part one: an epoch's secret, sealed in the log, 2026-10-14
+
+Sec 625 had each epoch's secret "sealed to each member's root through the
+delivery of step 2". **Neither half holds, read against the code.** A root
+is an Ed25519 signing key, not an agreement key, and its secret is on the
+root device alone, so nothing can be sealed to it that a member's other
+hosts could open. And step 2's delivery reaches only contacts: an admin
+need not be a contact of every member -- in `live_groups.py` B and C are
+not each other's. So the secret travels in the group's own log, to hosts.
+
+### Hosts in the log
+
+**A HOST act**, kind 9: a member's host names itself, its proof and
+prekey record being the act's own signer. The maker's host is the first.
+A member removed or left takes its hosts with it. Bounded at 512.
+
+### An epoch's secret
+
+**A KEYS act**, kind 10: the epoch in `value`, a commitment to its secret
+as the subject -- the hash of a label, the group, the epoch and the
+secret -- and a payload of up to 32 boxes, each a listed host's key and
+the secret sealed to the prekey its HOST act carried (`session/box.h`,
+sec 618). Acts carry a payload now, up to 4096 bytes; the act's layout
+changed under the same version, nothing having shipped.
+
+- **The first KEYS act for the current epoch fixes its commitment**;
+  every later one, for that epoch or a kept older one, carries the same.
+- **Its signer is a member's listed host**, and every box is for a listed
+  host.
+- **The current epoch** is sealed once to each host, MOOT after.
+- **An older epoch**, while the group backfills, goes to a host that
+  joined after it, **one epoch at a time, newest first**, so the log
+  knows exactly what each host holds (`backfilled_to`) and none is sealed
+  twice; back as far as the 64 epochs whose commitments the group keeps.
+
+### What each host does
+
+`fzn_node_groups_tend`, every round, for every group held: name itself
+if it is a member's host and not listed; open any box sealed to it,
+keeping a secret only when it matches the epoch's commitment (slot 55,
+`FZN_PERSIST_GROUP_EPOCH`, core); draw the current epoch's secret if
+nobody has; seal it to any host lacking it; backfill. **A secret held
+here that does not match the commitment is forgotten** -- one drawn on
+the losing side of a fork -- so the host takes the right one from its box
+rather than sealing the wrong one to others. `get epoch GROUP` answers
+the current epoch and whether this host holds its secret, never the
+secret.
+
+### Not yet after sec 627
+
+- **The secret is not used yet**: 5b's second part derives each sender's
+  chain from it and puts group lines in `messages/`.
+- **A host's prekey is the one its HOST act carried**: a host whose prekey
+  rotates cannot open boxes sealed after, until it names itself again,
+  which nothing does yet.
+- **Several hosts may seal the same host at once**; the first act wins and
+  the rest are moot or fork, which costs acts, not correctness.
+- **Backfill reaches 64 epochs back**, at most 8 acts a round.
+
+### Found while measuring: situ's tip regenerates the frame differently
+
+`make schema SITU_DIR=../situ` fails at `wire/generated/frame.h is stale`,
+with nothing here changed: situ's 3fff69f (2026-10-14, "do a region's
+length arithmetic wide, and clamp it once") now emits the payload-length
+reads through `situ_nonneg_u32(situ_leaf_u64(...))`. Every spec schema,
+`node/group_act.situ` among them, still checks current. **Taking the new
+generated frame code is a dependency change, not made here**: situ's own
+latest fold says its gate is red at its tip. The next session regenerates
+`wire/generated/` deliberately once situ's tip is green, or the holder
+says otherwise.
+
+### Measured for sec 627
+
+- **`node/test/group_log_test.c`**: the maker's host first; one
+  commitment per epoch; boxes only to listed hosts, by a listed host; a
+  host joining once; backfill newest first, refused when it skips or when
+  backfill is off; a removed member's hosts gone.
+- **`node/test/groups_test.c`**, real X25519, BLAKE2b and
+  XChaCha20-Poly1305 over three users' stores: the maker draws each epoch;
+  a member's host names itself, is sealed the current epoch and backfilled
+  the first, and opens both to the maker's secrets; a removed member gets
+  nothing after; with backfill off a later member gets only the current
+  epoch; a wrong secret held is let go for the committed one.
+- **`tool/live_groups.py`**: phase a2, all three hosts hold one epoch's
+  secret; c2, after C's leave A and B hold the new epoch's.
+- **Sabotage: eight entries, all caught.**

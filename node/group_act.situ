@@ -10,7 +10,7 @@
 // the hash of its create act.
 //
 // What the schema cannot say and the codec checks: the kind is one of the
-// eight, the signer is a contact device entry, and the act is exactly its
+// ten, the signer is a contact device entry, and the act is exactly its
 // length.
 
 target buffer;
@@ -19,7 +19,7 @@ endian big;
 struct fzn_group_act {
 	u8   version [must_eq = 1];
 	u8   tag [must_eq = 150];               // FZN_OBJECT_GROUP_ACT
-	u8   kind;                              // 1 create .. 8 set
+	u8   kind;                              // 1 create .. 8 set, 9 host, 10 keys
 	u32  seq;                               // its place; 0 for create
 	u8   group[32];                         // zero for create
 	u8   prev[32];                          // the act before's hash; zero for create
@@ -27,6 +27,8 @@ struct fzn_group_act {
 	u8   setting;                           // for set: 1 backfill
 	u64  value;
 	u64  at;                                // seconds, when it was made
+	u16  payload_len;                       // at most 4096
+	u8   payload[payload_len];              // a keys act's boxes; empty otherwise
 	u16  signer_len;
 	u8   signer[signer_len];                // the signer's fzn_contact_device entry
 	u8   sig[64];                           // by the signer's host

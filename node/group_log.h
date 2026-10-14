@@ -27,6 +27,14 @@
  * (FZN_PERSIST_GROUP), so a group is read without a replay. Both core: a
  * log rolled back is a removed member readmitted.
  *
+ * HOSTS AND EPOCHS, sec 627. A member's host names itself in the log (a
+ * HOST act), and a member removed or left takes its hosts with it. Every
+ * change of membership begins an epoch; the first KEYS act for it fixes
+ * the commitment to its secret, and every KEYS act seals that secret to
+ * listed hosts, each box to the prekey its HOST act carried. A later host
+ * is given older epochs one at a time, newest first, and only while the
+ * group backfills -- as far back as FZN_GROUP_EPOCHS_KEPT.
+ *
  * TWO ACTS AT ONE PLACE -- two admins acting at once on one head -- fork
  * the log. Every host keeps the one whose hash is lower, which needs no
  * coordination to agree on; the other's later acts go with it, and its
@@ -45,6 +53,17 @@
 #define FZN_GROUP_MEMBERS_MAX 256u
 #define FZN_GROUP_ADMINS_MAX 16u
 #define FZN_GROUP_PROPOSALS_MAX 8u
+/* Members' hosts a group knows, sec 627. */
+#define FZN_GROUP_HOSTS_MAX 512u
+/* Epochs whose commitment a group keeps, and so whose secret a later host
+ * can still be given: the newest this many. */
+#define FZN_GROUP_EPOCHS_KEPT 64u
+#define FZN_GROUP_SECRET_LEN 32u
+/* One host's share of a KEYS act: its key, and the secret sealed to its
+ * prekey. */
+#define FZN_GROUP_KEY_BOX_LEN (FZN_GROUP_SECRET_LEN + 50u)
+#define FZN_GROUP_KEY_ENTRY_LEN (FZN_PUBKEY_LEN + FZN_GROUP_KEY_BOX_LEN)
+#define FZN_GROUP_KEYS_PER_ACT 32u
 /* Groups one host holds. */
 #define FZN_GROUPS_HELD_MAX 256u
 
@@ -71,6 +90,25 @@ typedef struct fzn_group_proposal {
 	size_t n_approvals;
 } fzn_group_proposal_t;
 
+/* A MEMBER'S HOST, as its HOST act named it: whose it is, and which epochs
+ * it was given. */
+typedef struct fzn_group_host {
+	uint8_t owner[FZN_PUBKEY_LEN];
+	uint8_t key[FZN_PUBKEY_LEN];
+	uint32_t seq;          /* its HOST act's place, whose signer has its prekey */
+	uint32_t joined_epoch; /* the epoch it joined in */
+	uint32_t keyed_epoch;  /* the newest epoch sealed to it, 0 for none */
+	/* THE OLDEST EPOCH IT HOLDS, from joined_epoch down: a backfill gives
+	 * it the epoch before this, one at a time, newest first, so none is
+	 * sealed to it twice. */
+	uint32_t backfilled_to;
+} fzn_group_host_t;
+
+typedef struct fzn_group_commit {
+	uint32_t epoch; /* 0 for an empty slot */
+	uint8_t commit[32];
+} fzn_group_commit_t;
+
 typedef struct fzn_group {
 	uint8_t id[FZN_GROUP_ID_LEN];
 	uint32_t seq; /* acts applied: the next act's place */
@@ -83,6 +121,10 @@ typedef struct fzn_group {
 	size_t n_admins;
 	fzn_group_proposal_t proposals[FZN_GROUP_PROPOSALS_MAX];
 	size_t n_proposals;
+	fzn_group_host_t hosts[FZN_GROUP_HOSTS_MAX];
+	size_t n_hosts;
+	/* By epoch modulo FZN_GROUP_EPOCHS_KEPT. */
+	fzn_group_commit_t commits[FZN_GROUP_EPOCHS_KEPT];
 } fzn_group_t;
 
 /* APPLY `a`, whose hash is `hash`, to `g`: the act already verified. A
@@ -92,6 +134,17 @@ fzn_group_log_err_t fzn_group_apply(fzn_group_t *g, const fzn_group_act_t *a,
                                     const uint8_t hash[32]);
 
 int fzn_group_is_member(const fzn_group_t *g, const uint8_t root[FZN_PUBKEY_LEN]);
+/* The host `key`, or NULL when the group does not list it. */
+const fzn_group_host_t *fzn_group_host(const fzn_group_t *g, const uint8_t key[FZN_PUBKEY_LEN]);
+/* Epoch `epoch`'s commitment, or NULL when it has none or is not kept. */
+const uint8_t *fzn_group_commit(const fzn_group_t *g, uint32_t epoch);
+
+/* WHAT AN EPOCH'S SECRET COMMITS TO: the hash of a label, the group, the
+ * epoch and the secret, so a box opened to a secret that is not the
+ * epoch's is told from one that is. */
+int fzn_group_epoch_commit(const fzn_hash_ops_t *hash, const uint8_t id[FZN_GROUP_ID_LEN],
+                           uint32_t epoch, const uint8_t secret[FZN_GROUP_SECRET_LEN],
+                           uint8_t out[32]);
 int fzn_group_is_admin(const fzn_group_t *g, const uint8_t root[FZN_PUBKEY_LEN]);
 
 /* The tools the log needs: to hash and verify an act, and the member

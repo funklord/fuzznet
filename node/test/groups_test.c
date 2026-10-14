@@ -1,0 +1,368 @@
+/* node groups_test -- a group's epochs, sec 627: each host of a member
+ * named in the log, the current epoch's secret drawn by one host and sealed
+ * to every other, a later member backfilled newest first or not at all, a
+ * removed member given nothing after, and a secret drawn on the losing side
+ * of a fork forgotten. Three users, each its own host with its own store;
+ * the sync between them stands in as copying acts across. Real X25519,
+ * BLAKE2b and XChaCha20-Poly1305 for the boxes; stub signatures keyed by a
+ * key's first byte, as group_log_test's. */
+
+#include "../groups.h"
+#include "../../session/aead_monocypher.h"
+#include "../../session/agree_monocypher.h"
+#include "../../session/hash_monocypher.h"
+#include "../../session/random_system.h"
+
+#include <stdio.h>
+#include <string.h>
+
+static int checks, failures;
+
+#define CHECK(cond, what)                                                               \
+	do {                                                                            \
+		checks++;                                                               \
+		if (!(cond)) {                                                          \
+			failures++;                                                     \
+			fprintf(stderr, "  FAIL groups_test.c:%d: %s\n", __LINE__, what); \
+		}                                                                       \
+	} while (0)
+
+static fzn_agree_ops_t AGREE;
+static fzn_hash_ops_t HASH;
+static fzn_aead_ops_t AEAD;
+static fzn_random_ops_t RNG;
+
+static void mac(uint8_t out[FZN_SIG_LEN], uint8_t key, const uint8_t *msg, size_t len)
+{
+	uint64_t h = 0xcbf29ce484222325ull ^ key;
+	size_t i;
+
+	for (i = 0; i < len; i++)
+		h = (h ^ msg[i]) * 0x100000001b3ull;
+	for (i = 0; i < FZN_SIG_LEN; i++) {
+		h = (h ^ (uint64_t)i) * 0x100000001b3ull;
+		out[i] = (uint8_t)(h >> 56);
+	}
+}
+
+/* SIGNS AS the user whose key's first byte `ctx` points at. */
+static int stub_sign(void *ctx, uint8_t sig[FZN_SIG_LEN], const uint8_t *msg, size_t len)
+{
+	mac(sig, *(const uint8_t *)ctx, msg, len);
+	return 1;
+}
+
+static int stub_verify(void *ctx, const uint8_t pk[FZN_PUBKEY_LEN], const uint8_t *msg, size_t len,
+                       const uint8_t sig[FZN_SIG_LEN])
+{
+	uint8_t want[FZN_SIG_LEN];
+
+	(void)ctx;
+	mac(want, pk[0], msg, len);
+	return memcmp(want, sig, FZN_SIG_LEN) == 0;
+}
+
+static uint64_t fixed_clock(void)
+{
+	return 5000u;
+}
+
+/* ---- a store per host --------------------------------------------------- */
+
+#define ROWS 160u
+#define ROW_MAX 8192u
+
+struct row {
+	int used;
+	fzn_persist_slot_t slot;
+	uint8_t subject[32];
+	uint8_t bytes[ROW_MAX];
+	size_t len;
+};
+
+struct store {
+	struct row rows[ROWS];
+};
+
+static struct row *find(struct store *m, fzn_persist_slot_t slot, const uint8_t *subject)
+{
+	size_t i;
+
+	for (i = 0; i < ROWS; i++)
+		if (m->rows[i].used && m->rows[i].slot == slot
+		    && memcmp(m->rows[i].subject, subject, 32u) == 0)
+			return &m->rows[i];
+	return NULL;
+}
+
+static int mem_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, uint8_t *out,
+                    size_t cap, size_t *len)
+{
+	struct row *r = find(ctx, slot, subject);
+
+	if (!r || r->len > cap)
+		return 0;
+	memcpy(out, r->bytes, r->len);
+	*len = r->len;
+	return 1;
+}
+
+static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
+                    const uint8_t *bytes, size_t len)
+{
+	struct store *m = ctx;
+	struct row *r = find(m, slot, subject);
+	size_t i;
+
+	if (len > ROW_MAX)
+		return 0;
+	for (i = 0; !r && i < ROWS; i++)
+		if (!m->rows[i].used)
+			r = &m->rows[i];
+	if (!r)
+		return 0;
+	r->used = 1;
+	r->slot = slot;
+	memcpy(r->subject, subject, 32u);
+	memcpy(r->bytes, bytes, len);
+	r->len = len;
+	return 1;
+}
+
+static int mem_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max, size_t *count)
+{
+	struct store *m = ctx;
+	size_t i, n = 0;
+
+	for (i = 0; i < ROWS; i++)
+		if (m->rows[i].used && m->rows[i].slot == slot) {
+			if (n == max)
+				return 0;
+			memcpy(out + 32u * n++, m->rows[i].subject, 32u);
+		}
+	*count = n;
+	return 1;
+}
+
+static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject)
+{
+	struct row *r = find(ctx, slot, subject);
+
+	if (r)
+		r->used = 0;
+	return 1;
+}
+
+/* ---- a user, its one host ----------------------------------------------- */
+
+struct user {
+	uint8_t first;
+	struct store store;
+	fzn_persist_ops_t ops;
+	fzn_sign_ops_t sign;
+	fzn_agree_secret_t agree_secret;
+	fzn_contact_device_t device;
+	fzn_node_groups_t groups;
+};
+
+static fzn_cap_id_t member;
+static struct user users[3];
+
+static int signer(void *ctx, fzn_contact_device_t *out)
+{
+	*out = ((struct user *)ctx)->device;
+	return 1;
+}
+
+static void user_up(struct user *u, uint8_t first)
+{
+	uint8_t seed[FZN_AGREE_SECRET_LEN];
+
+	memset(u, 0, sizeof(*u));
+	u->first = first;
+	u->ops = (fzn_persist_ops_t){ mem_load, mem_save, mem_list, mem_remove, &u->store };
+	u->sign = (fzn_sign_ops_t){ stub_verify, stub_sign, &u->first };
+	memset(seed, first ^ 0x3cu, sizeof(seed));
+	(void)fzn_agree_secret_install(&u->agree_secret, &AGREE, seed);
+	memset(u->device.owner, first, FZN_PUBKEY_LEN);
+	(void)fzn_prekey_issue(u->device.owner, fzn_agree_secret_public(&u->agree_secret), 1000u,
+	                       &u->sign, u->device.record);
+	u->groups.log.store = &u->ops;
+	u->groups.log.hash = &HASH;
+	u->groups.log.sign = &u->sign;
+	u->groups.log.member = &member;
+	u->groups.host_sign = &u->sign;
+	u->groups.signer = signer;
+	u->groups.signer_ctx = u;
+	u->groups.rng = &RNG;
+	u->groups.clock = fixed_clock;
+	u->groups.agree = &AGREE;
+	u->groups.aead = &AEAD;
+	u->groups.agree_secret = &u->agree_secret;
+}
+
+/* EVERY ACT `from` HOLDS OF GROUP `id`, offered to `to`, in order: what a
+ * sync carries. */
+static void sync(const struct user *from, struct user *to, const uint8_t *id)
+{
+	static uint8_t bytes[FZN_GROUP_ACT_MAX];
+	static fzn_group_t g;
+	fzn_group_offer_t did;
+	size_t n = 0, dropped = 0;
+	uint32_t s;
+
+	if (fzn_group_log_get(&from->ops, id, &g) != FZN_GROUP_LOG_OK)
+		return;
+	for (s = 0; s < g.seq; s++)
+		if (fzn_group_log_act(&from->groups.log, id, s, bytes, sizeof(bytes), &n)
+		    == FZN_GROUP_LOG_OK)
+			(void)fzn_group_log_offer(&to->groups.log, bytes, n, &did, &dropped);
+}
+
+static int same_secret(struct user *a, struct user *b, const uint8_t *id, uint32_t epoch)
+{
+	uint8_t x[FZN_GROUP_SECRET_LEN], y[FZN_GROUP_SECRET_LEN];
+
+	return fzn_node_groups_secret(&a->groups, id, epoch, x) == FZN_GROUP_LOG_OK
+	       && fzn_node_groups_secret(&b->groups, id, epoch, y) == FZN_GROUP_LOG_OK
+	       && memcmp(x, y, sizeof(x)) == 0;
+}
+
+static int holds(struct user *u, const uint8_t *id, uint32_t epoch)
+{
+	uint8_t x[FZN_GROUP_SECRET_LEN];
+
+	return fzn_node_groups_secret(&u->groups, id, epoch, x) == FZN_GROUP_LOG_OK;
+}
+
+static uint32_t epoch_of(struct user *u, const uint8_t *id)
+{
+	static fzn_group_t g;
+
+	return fzn_group_log_get(&u->ops, id, &g) == FZN_GROUP_LOG_OK ? g.epoch : 0u;
+}
+
+static size_t tend(struct user *u, const uint8_t *id)
+{
+	size_t made = 0;
+
+	CHECK(fzn_node_groups_tend(&u->groups, id, &made) == FZN_GROUP_LOG_OK, "a tend failed");
+	return made;
+}
+
+/* ---- tests -------------------------------------------------------------- */
+
+static void test_epochs_reach_members_and_no_one_else(void)
+{
+	struct user *a = &users[0], *b = &users[1], *c = &users[2];
+	uint8_t id[FZN_GROUP_ID_LEN];
+
+	user_up(a, 0x11u);
+	user_up(b, 0x22u);
+	user_up(c, 0x33u);
+	CHECK(fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_CREATE, NULL, NULL, 0u, 0u, id)
+	              == FZN_GROUP_LOG_OK
+	              && tend(a, id) == 1u && holds(a, id, 1u),
+	      "the maker did not draw the first epoch's secret");
+	CHECK(tend(a, id) == 0u, "a tend with nothing to do made an act");
+	CHECK(fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_ADD, id, b->device.owner, 0u, 0u, NULL)
+	              == FZN_GROUP_LOG_OK
+	              && epoch_of(a, id) == 2u && tend(a, id) == 1u && holds(a, id, 2u),
+	      "adding a member did not start an epoch the maker drew");
+	/* B LEARNS THE GROUP, names its host; A seals it the current epoch
+	 * and backfills the first. */
+	sync(a, b, id);
+	CHECK(tend(b, id) == 1u && !holds(b, id, 2u), "B did not name its host, or held a secret");
+	sync(b, a, id);
+	CHECK(tend(a, id) == 2u, "A did not seal B the current epoch and backfill the first");
+	sync(a, b, id);
+	(void)tend(b, id);
+	CHECK(same_secret(a, b, id, 2u) && same_secret(a, b, id, 1u),
+	      "B did not open the secrets A sealed it");
+	CHECK(tend(a, id) == 0u && tend(b, id) == 0u, "a host with nothing to do made an act");
+	/* REMOVED: B is given nothing after. */
+	CHECK(fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_REMOVE, id, b->device.owner, 0u, 0u, NULL)
+	              == FZN_GROUP_LOG_OK
+	              && tend(a, id) == 1u && holds(a, id, 3u),
+	      "a removal did not start an epoch the remaining member drew");
+	sync(a, b, id);
+	(void)tend(b, id);
+	CHECK(!holds(b, id, 3u), "a removed member was given the epoch after its removal");
+	/* BACKFILL OFF: C, added later, is given the current epoch alone. */
+	CHECK(fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_SET, id, NULL, FZN_GROUP_SETTING_BACKFILL,
+	                          0u, NULL)
+	                      == FZN_GROUP_LOG_OK
+	              && fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_ADD, id, c->device.owner, 0u, 0u,
+	                                     NULL)
+	                         == FZN_GROUP_LOG_OK,
+	      "fixture: backfill off, C added");
+	(void)tend(a, id);
+	sync(a, c, id);
+	(void)tend(c, id);
+	sync(c, a, id);
+	(void)tend(a, id);
+	sync(a, c, id);
+	(void)tend(c, id);
+	CHECK(same_secret(a, c, id, 4u), "C was not given the current epoch");
+	CHECK(!holds(c, id, 3u) && !holds(c, id, 1u), "C was backfilled with backfill off");
+}
+
+static void test_a_secret_drawn_on_a_lost_fork_is_let_go(void)
+{
+	struct user *a = &users[0], *b = &users[1];
+	static fzn_group_t g;
+	uint8_t id[FZN_GROUP_ID_LEN], subject[32], in[FZN_GROUP_ID_LEN + 4u], wrong[1u + 32u];
+
+	user_up(a, 0x11u);
+	user_up(b, 0x22u);
+	(void)fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_CREATE, NULL, NULL, 0u, 0u, id);
+	(void)fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_ADD, id, b->device.owner, 0u, 0u, NULL);
+	sync(a, b, id);
+	(void)tend(b, id);
+	sync(b, a, id);
+	(void)tend(a, id);
+	sync(a, b, id);
+	/* B HOLDS A SECRET of its own for the current epoch, as if it had
+	 * drawn one and lost the fork to A's. */
+	(void)fzn_group_log_get(&b->ops, id, &g);
+	memcpy(in, id, FZN_GROUP_ID_LEN);
+	in[FZN_GROUP_ID_LEN] = (uint8_t)(g.epoch >> 24);
+	in[FZN_GROUP_ID_LEN + 1u] = (uint8_t)(g.epoch >> 16);
+	in[FZN_GROUP_ID_LEN + 2u] = (uint8_t)(g.epoch >> 8);
+	in[FZN_GROUP_ID_LEN + 3u] = (uint8_t)g.epoch;
+	(void)HASH.hash(HASH.ctx, subject, sizeof(subject), in, sizeof(in));
+	wrong[0] = 1u;
+	memset(wrong + 1, 0x99, 32u);
+	CHECK(mem_save(&b->store, FZN_PERSIST_GROUP_EPOCH, subject, wrong, sizeof(wrong)),
+	      "fixture: B holds a wrong secret");
+	(void)tend(b, id);
+	CHECK(same_secret(a, b, id, g.epoch), "B kept the wrong secret over the one committed to");
+}
+
+static void test_the_suite_can_tell_pass_from_fail(void)
+{
+	int before = failures;
+
+	CHECK(0, "deliberate");
+	CHECK(failures == before + 1, "a failure counts");
+	failures = before;
+	checks -= 1;
+}
+
+int main(void)
+{
+	fzn_agree_monocypher_init(&AGREE);
+	fzn_hash_monocypher_init(&HASH);
+	fzn_aead_monocypher_init(&AEAD);
+	fzn_random_system_init(&RNG);
+	memset(member.b, 0x44, sizeof(member.b));
+	test_the_suite_can_tell_pass_from_fail();
+	test_epochs_reach_members_and_no_one_else();
+	test_a_secret_drawn_on_a_lost_fork_is_let_go();
+	if (failures) {
+		fprintf(stderr, "node groups_test: %d of %d checks failed\n", failures, checks);
+		return 1;
+	}
+	printf("node groups_test: all %d checks passed\n", checks);
+	return 0;
+}

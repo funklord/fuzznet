@@ -9,8 +9,11 @@ not know each other.
        A at its next round -- named by its id here, its three members, A
        its admin
     b  A makes B an admin, a majority of one; B's next round says so
+    a2 each host names itself in the log, and the epoch's secret is sealed
+       to all three, which each come to hold it (sec 627)
     c  C leaves, by an act of its own; A learns it from C at A's next round,
        and the group there has two members
+    c2 A and B hold the secret of the epoch C's leave began
 
 Against a daemon that answers no group sync, phase a never learns the
 group; against one whose log takes an act made by a member who is not an
@@ -60,6 +63,15 @@ def members(sock, who, name):
 	if len(words) < 2 or words[0] != "ok":
 		raise failed("%s: get group %s answered %r" % (who, name, reply))
 	return words[2:]
+
+
+def epoch(sock, who, name):
+	"""`who`'s current epoch of group `name`, and whether it holds its secret."""
+	reply = ask(sock, "get epoch " + name)
+	words = reply.split()
+	if len(words) != 3 or words[0] != "ok" or not words[1].isdigit():
+		raise failed("%s: get epoch %s answered %r" % (who, name, reply))
+	return int(words[1]), words[2] == "held"
 
 
 def main(argv):
@@ -142,6 +154,21 @@ def main(argv):
 				raise failed("a: B's members of the group are %r, not three with A admin" % got)
 			print("livecheck: a: A made the group, and B and C learned it from A, A its admin")
 
+			# a2: each host named in the log, and the epoch's secret sealed to
+			# all three (sec 627).
+			names = {"a": "family", "b": name, "c": name}
+			for rnd in range(ROUNDS):
+				got = {who: epoch(socks[who], who, names[who]) for who in port}
+				if all(h for _, h in got.values()) and len({e for e, _ in got.values()}) == 1:
+					break
+				for who in ("a", "b", "c"):
+					turn(who, "%s-k%d" % (who, rnd))
+			got = {who: epoch(socks[who], who, names[who]) for who in port}
+			if not all(h for _, h in got.values()) or len({e for e, _ in got.values()}) != 1:
+				raise failed("a2: the epochs held are %r, not one epoch held by all" % (got,))
+			first_epoch = got["a"][0]
+			print("livecheck: a2: A, B and C each hold epoch %d's secret" % first_epoch)
+
 			# b: B made an admin, a majority of one.
 			expect(socks["a"], "a", "add admin family bob", "ok")
 			for rnd in range(ROUNDS):
@@ -180,6 +207,19 @@ def main(argv):
 			print("livecheck: c: C left, and A learned it from C%s"
 			      % (" -- the leave lost a fork to A's admin act and was made again"
 			         if redone else ""))
+
+			# c2: A and B hold the epoch C's leave began; C was never given it.
+			for rnd in range(ROUNDS):
+				got = {who: epoch(socks[who], who, names[who]) for who in ("a", "b")}
+				if all(h for _, h in got.values()) and got["a"][0] == got["b"][0] > first_epoch:
+					break
+				turn("a", "a-k2%d" % rnd)
+				turn("b", "b-k2%d" % rnd)
+			got = {who: epoch(socks[who], who, names[who]) for who in ("a", "b")}
+			if not (all(h for _, h in got.values()) and got["a"][0] == got["b"][0] > first_epoch):
+				raise failed("c2: after C left the epochs held are %r" % (got,))
+			print("livecheck: c2: A and B hold epoch %d's secret, begun by C's leave"
+			      % got["a"][0])
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

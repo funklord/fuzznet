@@ -122,6 +122,8 @@ static QString slot_label(fzn_persist_slot_t slot)
 		return QStringLiteral("group");
 	case FZN_PERSIST_GROUP_LABEL:
 		return QStringLiteral("group label");
+	case FZN_PERSIST_GROUP_EPOCH:
+		return QStringLiteral("group epoch");
 	}
 	/* NO `default:` ABOVE, so a slot added to persist.h draws a -Wswitch
 	 * warning here -- once, in the build after persist.h changes, and not

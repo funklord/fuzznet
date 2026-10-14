@@ -440,6 +440,115 @@ static void test_a_fork_keeps_the_lower_hash(void)
 	CHECK(offer(&x, &did, &dropped) == FZN_GROUP_LOG_ERR_REFUSED, "an act forged was offered in");
 }
 
+/* A KEYS ACT by user `user` for `epoch`, committing to `commit`, with a box
+ * for each of `n` hosts' keys -- the boxes are bytes here, the log does not
+ * open them. */
+static fzn_group_log_err_t keys_act(fzn_group_t *g, uint8_t user, uint32_t epoch,
+                                    const uint8_t *commit, uint8_t (*hosts)[32], size_t n)
+{
+	fzn_group_act_t a;
+	size_t i;
+
+	act(&a, FZN_GROUP_ACT_KEYS, user, g->id, g->seq, g->head, commit);
+	a.value = epoch;
+	for (i = 0; i < n; i++) {
+		memcpy(a.payload + i * FZN_GROUP_KEY_ENTRY_LEN, hosts[i], 32u);
+		memset(a.payload + i * FZN_GROUP_KEY_ENTRY_LEN + 32u, 0x5b, FZN_GROUP_KEY_BOX_LEN);
+	}
+	a.payload_len = n * FZN_GROUP_KEY_ENTRY_LEN;
+	signing_as = user;
+	(void)fzn_group_act_sign(&a, &SIGN);
+	return apply(g, &a);
+}
+
+static void test_an_epoch_is_sealed_to_listed_hosts(void)
+{
+	static fzn_group_t g;
+	fzn_group_act_t a;
+	uint8_t nonce[32], c1[32], c2[32], hosts[2][32];
+
+	root_of(hosts[0], 0x11u);
+	root_of(hosts[1], 0x22u);
+	memset(c1, 0xc1, sizeof(c1));
+	memset(c2, 0xc2, sizeof(c2));
+	memset(nonce, 0x05, sizeof(nonce));
+	act(&a, FZN_GROUP_ACT_CREATE, 0x11u, NULL, 0u, NULL, nonce);
+	(void)apply(&g, &a);
+	CHECK(g.n_hosts == 1u && fzn_group_host(&g, hosts[0]), "the maker's host was not the first");
+	CHECK(keys_act(&g, 0x11u, 1u, c1, hosts, 1u) == FZN_GROUP_LOG_OK
+	              && fzn_group_commit(&g, 1u) && memcmp(fzn_group_commit(&g, 1u), c1, 32u) == 0
+	              && fzn_group_host(&g, hosts[0])->keyed_epoch == 1u,
+	      "the first KEYS act did not fix the epoch's commitment");
+	CHECK(keys_act(&g, 0x11u, 1u, c1, hosts, 1u) == FZN_GROUP_LOG_ERR_MOOT,
+	      "a host sealed an epoch twice");
+	CHECK(keys_act(&g, 0x11u, 1u, c2, hosts, 1u) == FZN_GROUP_LOG_ERR_DENIED,
+	      "a second commitment to one epoch was taken");
+	(void)next(&g, FZN_GROUP_ACT_ADD, 0x11u, hosts[1]);
+	CHECK(keys_act(&g, 0x11u, 2u, c2, hosts, 2u) == FZN_GROUP_LOG_ERR_DENIED,
+	      "a box for a host the log does not list was taken");
+	CHECK(keys_act(&g, 0x22u, 2u, c2, hosts, 1u) == FZN_GROUP_LOG_ERR_DENIED,
+	      "a member not among the hosts sealed an epoch");
+	CHECK(next(&g, FZN_GROUP_ACT_HOST, 0x22u, hosts[1]) == FZN_GROUP_LOG_OK
+	              && fzn_group_host(&g, hosts[1])->joined_epoch == 2u
+	              && next(&g, FZN_GROUP_ACT_HOST, 0x22u, hosts[1]) == FZN_GROUP_LOG_ERR_MOOT,
+	      "a member's host did not join once");
+	CHECK(keys_act(&g, 0x11u, 2u, c2, hosts, 2u) == FZN_GROUP_LOG_OK,
+	      "the current epoch was not sealed to both hosts");
+	/* BACKFILL: the epoch before, under its own commitment. */
+	CHECK(keys_act(&g, 0x11u, 1u, c2, &hosts[1], 1u)
+	              == FZN_GROUP_LOG_ERR_DENIED,
+	      "an older epoch was sealed under another commitment");
+	CHECK(keys_act(&g, 0x11u, 1u, c1, &hosts[1], 1u) == FZN_GROUP_LOG_OK
+	              && fzn_group_host(&g, hosts[1])->backfilled_to == 1u
+	              && keys_act(&g, 0x11u, 1u, c1, &hosts[1], 1u)
+	                         == FZN_GROUP_LOG_ERR_MOOT,
+	      "a later host was not backfilled once");
+	/* REMOVED: its hosts go with it. */
+	CHECK(next(&g, FZN_GROUP_ACT_REMOVE, 0x11u, hosts[1]) == FZN_GROUP_LOG_OK
+	              && !fzn_group_host(&g, hosts[1]) && g.n_hosts == 1u,
+	      "a removed member's host stayed among the group's hosts");
+}
+
+static void test_a_backfill_goes_newest_first_and_not_when_off(void)
+{
+	static fzn_group_t g;
+	fzn_group_act_t a;
+	uint8_t nonce[32], c[4][32], hosts[2][32], third[32];
+	uint32_t e;
+
+	root_of(hosts[0], 0x11u);
+	root_of(hosts[1], 0x22u);
+	root_of(third, 0x33u);
+	memset(nonce, 0x06, sizeof(nonce));
+	act(&a, FZN_GROUP_ACT_CREATE, 0x11u, NULL, 0u, NULL, nonce);
+	(void)apply(&g, &a);
+	/* EPOCHS 1 TO 3 sealed to the maker, each ended by a change: B added,
+	 * a third added, the third removed. B's host joins in epoch 4. */
+	for (e = 1u; e <= 3u; e++) {
+		memset(c[e], (int)(0xd0u + e), 32u);
+		CHECK(keys_act(&g, 0x11u, e, c[e], hosts, 1u) == FZN_GROUP_LOG_OK,
+		      "fixture: an epoch sealed to the maker");
+		(void)next(&g, e == 3u ? FZN_GROUP_ACT_REMOVE : FZN_GROUP_ACT_ADD, 0x11u,
+		           e == 1u ? hosts[1] : third);
+	}
+	(void)next(&g, FZN_GROUP_ACT_HOST, 0x22u, hosts[1]);
+	CHECK(keys_act(&g, 0x11u, 2u, c[2], &hosts[1], 1u)
+	              == FZN_GROUP_LOG_ERR_DENIED,
+	      "a backfill skipped an epoch");
+	CHECK(g.epoch == 4u, "fixture: epoch 4");
+	CHECK(keys_act(&g, 0x11u, 3u, c[3], &hosts[1], 1u) == FZN_GROUP_LOG_OK,
+	      "the newest older epoch was not backfilled first");
+	act(&a, FZN_GROUP_ACT_SET, 0x11u, g.id, g.seq, g.head, NULL);
+	a.setting = FZN_GROUP_SETTING_BACKFILL;
+	a.value = 0u;
+	signing_as = 0x11u;
+	(void)fzn_group_act_sign(&a, &SIGN);
+	(void)apply(&g, &a);
+	CHECK(keys_act(&g, 0x11u, 2u, c[2], &hosts[1], 1u)
+	              == FZN_GROUP_LOG_ERR_DENIED,
+	      "an older epoch was sealed with backfill off");
+}
+
 static void test_the_log_reads_back(void)
 {
 	fzn_group_act_t create, a;
@@ -494,6 +603,8 @@ int main(void)
 	test_who_may_do_what();
 	test_the_admins_change_by_a_majority();
 	test_a_fork_keeps_the_lower_hash();
+	test_an_epoch_is_sealed_to_listed_hosts();
+	test_a_backfill_goes_newest_first_and_not_when_off();
 	test_the_log_reads_back();
 	if (failures) {
 		fprintf(stderr, "node group_log_test: %d of %d checks failed\n", failures, checks);

@@ -11995,6 +11995,62 @@ SABOTAGES = [
 		"\t\t    )\n",
 		"a grant to any group reaches every contact, member or not -- sec 626",
 	),
+	(
+		"group-keys-one-commitment",
+		"node/group_log.c",
+		"\tif (commit ? memcmp(commit, a->subject, 32u) != 0 : e != g->epoch)\n",
+		"\tif (commit ? 0 : e != g->epoch)\n",
+		"an epoch takes a second commitment, and hosts sealed different secrets each read their own as the group's -- sec 627",
+	),
+	(
+		"group-keys-listed-hosts",
+		"node/group_log.c",
+		"\t\tif (!h)\n\t\t\treturn FZN_GROUP_LOG_ERR_DENIED;\n",
+		"\t\tif (!h)\n\t\t\tcontinue;\n",
+		"a secret is sealed to a host the group does not list -- a removed member's -- and the log takes it -- sec 627",
+	),
+	(
+		"group-keys-by-a-host",
+		"node/group_log.c",
+		"\t    || !fzn_group_host(g, fzn_contact_device_key(&a->signer)))\n",
+		"\t    )\n",
+		"a member's host the group does not list draws an epoch's secret -- sec 627",
+	),
+	(
+		"group-backfill-in-order",
+		"node/group_log.c",
+		"\t\t\tif (e + 1u != h->backfilled_to)\n",
+		"\t\t\tif (0)\n",
+		"a backfill skips epochs, and the host marked as holding them never gets them -- sec 627",
+	),
+	(
+		"group-backfill-only-when-on",
+		"node/group_log.c",
+		"\tif (e < g->epoch && !g->backfill)\n",
+		"\tif (0)\n",
+		"a later member is given the history an admin turned backfill off for -- sec 625",
+	),
+	(
+		"group-hosts-go-with-member",
+		"node/group_log.c",
+		"\t\tdrop_hosts_of(g, a->subject);\n",
+		"",
+		"a removed member's hosts stay listed and are sealed every epoch after -- sec 627",
+	),
+	(
+		"groups-secret-checked",
+		"node/groups.c",
+		"\t    && memcmp(commit, want, 32u) == 0)\n\t\treturn 1;\n",
+		"\t    )\n\t\treturn 1;\n",
+		"a secret drawn on a lost fork is kept and sealed to others as the epoch's -- sec 627",
+	),
+	(
+		"groups-seal-to-hosts-lacking",
+		"node/groups.c",
+		"\t\t\tif (held.hosts[i].keyed_epoch != cur)\n",
+		"\t\t\tif (0)\n",
+		"a host joining after the epoch began is never sealed it -- sec 627",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

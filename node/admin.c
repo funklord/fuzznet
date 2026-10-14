@@ -1769,6 +1769,7 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 
 			if (subject_word(request, "group", &g_rest, &g_len)
 			    || subject_word(request, "member", &g_rest, &g_len)
+			    || subject_word(request, "epoch", &g_rest, &g_len)
 			    || ((request->parsed == FZN_VERB_ADD || request->parsed == FZN_VERB_REMOVE)
 			        && subject_word(request, "admin", &g_rest, &g_len)))
 				return answer_text(reply, reply_cap, FZN_REPLY_DENIED,

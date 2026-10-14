@@ -5443,6 +5443,19 @@ static void group_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 		memcpy(done[ndone++], ct->contact, FZN_PUBKEY_LEN);
 	}
 	group_redo_all();
+	/* THIS HOST'S DUTIES to every group held, sec 627: named among its
+	 * hosts, the epoch's secret drawn, sealed, backfilled, opened. */
+	{
+		static uint8_t ids[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+		size_t n = 0, made = 0, one;
+
+		if (fzn_group_log_list(node_apply.store, ids, FZN_GROUPS_HELD_MAX, &n) == FZN_GROUP_LOG_OK)
+			for (i = 0; i < n; i++)
+				if (fzn_node_groups_tend(&node_groups, ids[i], &one) == FZN_GROUP_LOG_OK)
+					made += one;
+		if (made)
+			say(FZN_ENTRY_INFO, "node/groups", "%zu group act(s) made tending", made);
+	}
 	if (taken)
 		say(FZN_ENTRY_INFO, "node/groups", "group pass: %zu act(s) taken", taken);
 }
@@ -7822,6 +7835,11 @@ int main(int argc, char **argv)
 			node_groups.forget = fzn_node_admin_group_forget;
 			node_groups.forget_ctx = &admin;
 			node_groups.log.dropped = group_dropped;
+			/* EPOCH SECRETS, sec 627: sealed to prekeys, this host's
+			 * opening its own. */
+			node_groups.agree = identity.agree;
+			node_groups.aead = &aead_ops;
+			node_groups.agree_secret = identity.agree_secret;
 			if (node_groups.log.store && node_groups.log.member)
 				admin.groups = &node_groups;
 			/* A STRANGER'S CONTACT REQUEST, sec 619. */
