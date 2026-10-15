@@ -101,8 +101,14 @@ def main(argv):
 				others = () if alone else ("a", "c", "d", "e", "f")
 				for h in others:
 					ds.append(up(h, tag))
+				# SIXTY SECONDS A FIRST ROUND, not thirty: five hosts started
+				# together each ask siblings still in their own rounds, and a
+				# single-threaded round waits on them (sec 489). Measured
+				# 2026-10-15 from their common start, phase a3's first rounds
+				# ended 15.6 s in for A and 28 to 41 s in for the rest, so a
+				# wait begun after A's could pass 30 (sec 631).
 				for h, d in zip(others, ds):
-					d.wait_for(ROUND_END_RE, h.upper() + "'s round")
+					d.wait_for(ROUND_END_RE, h.upper() + "'s round", within=60.0)
 					note(h, d)
 				b = up("b", tag, rules)
 				try:

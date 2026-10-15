@@ -176,9 +176,10 @@ class daemon:
 			text = "".join(l for l in text.splitlines(True) if mine in l)
 		return text
 
-	def wait_for(self, pattern, what):
-		"""The first match of `pattern` in this daemon's log, within 30 s."""
-		until = time.monotonic() + 30.0
+	def wait_for(self, pattern, what, within=30.0):
+		"""The first match of `pattern` in this daemon's log, within `within`
+		seconds, 30 unless a caller has measured that its wait is longer."""
+		until = time.monotonic() + within
 		while True:
 			m = pattern.search(self.log())
 			if m:
@@ -190,8 +191,8 @@ class daemon:
 				# ITS LAST WORDS ON LOGS AND PIECES, which is where a phase
 				# that waits on them most often went wrong.
 				said = [l for l in self.log().splitlines() if "log/copy" in l][-6:]
-				raise failed("%s: no %s was logged within 30 s%s" % (
-					self.tag, what, "".join("\n  " + l for l in said)))
+				raise failed("%s: no %s was logged within %d s%s" % (
+					self.tag, what, within, "".join("\n  " + l for l in said)))
 			time.sleep(0.2)
 
 	def stop(self):
