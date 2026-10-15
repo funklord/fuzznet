@@ -15,6 +15,8 @@ not know each other.
        and B, which is not C's contact, files it through A, as C's (sec 629)
     e  B shares a note with the group; C, which is not B's contact, pairs
        B's host through the group and pulls the note from B (sec 630)
+    f  B grants a file to the group; C, given its reference, fetches it
+       whole from B (sec 631)
     c  C leaves, by an act of its own; A learns it from C at A's next round,
        and the group there has two members
     c2 A and B hold the secret of the epoch C's leave began
@@ -49,6 +51,8 @@ KEPT_RE = re.compile(r"a contact request from ([0-9a-f]{16}), waiting")
 ROUND_END_RE = re.compile(r"history pass: ")
 PREKEY_HOST = slice(4, 68)
 ROUNDS = 4
+PAYLOAD_LEN = 30000
+WHOLE_RE = re.compile(r"file [0-9a-f]{8}, (\d+) bytes, whole from (\d+) peer\(s\)")
 PULLED_RE = re.compile(r"(\d+) shared note record\(s\) from 127\.0\.0\.1")
 
 
@@ -219,6 +223,29 @@ def main(argv):
 				raise failed("e: C pulled nothing B shares with the group%s"
 				             % "".join("\n  " + l for l in told[-12:]))
 			print("livecheck: e: B shared a note with the group, and C pulled it from B")
+
+			# f: B grants a file to the group; C, given its reference, fetches
+			# it whole from B (sec 631, 6b).
+			payload = os.path.join(scratch, "group-file")
+			with open(payload, "wb") as f:
+				f.write(os.urandom(PAYLOAD_LEN))
+			put = ask(socks["b"], "put file " + payload)
+			if not put.startswith("ok "):
+				raise failed("f: put file answered %r" % put)
+			ref = put.split()[1]
+			expect(socks["b"], "b", "grant file %s @%s" % (ref[:64], name), "ok")
+			expect(socks["c"], "c", "fetch file " + ref, "ok")
+			whole = None
+			for rnd in range(ROUNDS):
+				for who in ("b", "c"):
+					turn(who, "%s-f%d" % (who, rnd))
+				whole = WHOLE_RE.search(started["c"].log())
+				if whole:
+					break
+				expect(socks["c"], "c", "fetch file " + ref, "ok")
+			if not whole or whole.groups() != (str(PAYLOAD_LEN), "1"):
+				raise failed("f: C fetched %r of B's file" % (whole.groups() if whole else None,))
+			print("livecheck: f: B granted a file to the group, and C fetched it whole from B")
 
 			# b: B made an admin, a majority of one.
 			expect(socks["a"], "a", "add admin family bob", "ok")

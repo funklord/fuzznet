@@ -6710,21 +6710,34 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 	}
 	/* THE PULL PEERS -- the siblings a round adds among them, sec 586 --
 	 * AND THE CONTACTS SHARING WITH THIS NODE, sec 493 -- a contact's node
-	 * answers for what it made public or shared here -- each lent the
-	 * fetch's reassembly table while it runs. */
-	for (t = 0; t < npulls + nshares_in && n_peers < FZN_NODE_FILES_PEERS_MAX; t++) {
-		struct share_target *sh = t < npulls ? NULL : &shares_in[t - npulls];
-		fzn_caller_t *caller = sh ? &sh->pt.caller : &pulls[t].caller;
+	 * answers for what it made public or shared here -- AND, sec 631's 6b,
+	 * EVERY CONTACT'S HOST AND EVERY GROUP MEMBER'S, which answer for what
+	 * they granted this user or a group it is in: a file sent by reference
+	 * is fetched from whoever granted it. Each lent the fetch's
+	 * reassembly table while it runs. */
+	for (t = 0; t < npulls + nshares_in + ncontact_targets + ngroup_shares_in
+	            && n_peers < FZN_NODE_FILES_PEERS_MAX;
+	     t++) {
+		size_t u = t - npulls;
+		struct pull_target *pt =
+		        t < npulls                                   ? &pulls[t]
+		        : u < nshares_in                             ? &shares_in[u].pt
+		        : u - nshares_in < ncontact_targets          ? &contact_targets[u - nshares_in].pt
+		                                                     : &group_shares_in[u - nshares_in
+		                                                                        - ncontact_targets]
+		                                                                .pt;
+		fzn_caller_t *caller = &pt->caller;
 
-		if (!sh && silent_peer(&pulls[t]))
+		if (t < npulls ? silent_peer(pt) : pt->fd < 0)
 			continue;
-		if (sh && sh->pt.fd < 0)
+		if (t >= npulls + nshares_in && t < npulls + nshares_in + ncontact_targets
+		    && contact_targets[u - nshares_in].down)
 			continue;
 		fp[n_peers].caller = caller;
 		fp[n_peers].now = now;
 		kept[n_peers] = caller->reasm;
 		caller->reasm = &table;
-		hosts[n_peers] = sh ? sh->host : pulls[t].host;
+		hosts[n_peers] = pt->host;
 		peers[n_peers].send = fetch_send;
 		peers[n_peers].poll = fetch_poll;
 		peers[n_peers].ctx = &fp[n_peers];

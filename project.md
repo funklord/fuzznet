@@ -65189,6 +65189,24 @@ measured.
 -- the prior is not a measurement, which is the hazard sec 202 named and
 fuzzypickles' own `link_describe` met (`rtt 0ms, 0/3 answered`).
 
+### 6b: a file fetched from whoever granted it
+
+A reference -- root, content key, length -- opens a file whose store
+holds only ciphertext (sec 490), so what a reference needs from fuzznet
+is to fetch the sealed leaves from somebody who will serve them. **The
+serving rule stays an explicit grant**, the tiers of sec 493: a file is
+served to a contact or a group's members when its owner granted it --
+`grant file ROOT NAME|@GROUP` -- or made it public, so an app sending a
+reference grants as it sends. Serving any held root to whoever names it,
+fuzzypickles' sticker fetch, would let a contact probe whether a host
+holds a file whose root it knows; a grant says the owner meant it.
+
+**What was missing was the asking**: a wanted file was asked of this
+user's own hosts and of accepted shares alone. Now also of **every
+contact's host and every group member's** (sec 630), the first sixteen,
+so a file granted to a group reaches a member who is no contact of its
+owner.
+
 ### Not yet after sec 631
 
 - **Only `peer_ask`'s requests are measured**: pulls and introductions
@@ -65219,3 +65237,7 @@ took 12.5 s. Six hosts' rounds near half a minute is the older problem
   the prior pulled down by six answers), every request answered, bytes
   received. **Control**: with the answers not counted and not observed, the
   link reads `-,-,0,-,6,0,252,0` and the phase fails.
+- **`tool/live_groups.py`, phase f**: B puts a file and grants it to the
+  group; C, not B's contact, is given its reference and fetches it whole
+  from B. **Control**: with members' hosts left out of the fetch, C
+  fetches nothing.
