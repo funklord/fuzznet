@@ -255,6 +255,7 @@ __pycache__/
 /node/test/group_log_test
 /node/test/groups_test
 /node/test/streams_test
+/node/test/node_catalog_test
 /node/test/state_dir_test
 /node/test/relay_test
 /node/test/identity_test

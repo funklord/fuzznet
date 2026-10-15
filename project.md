@@ -65324,3 +65324,65 @@ which is the measured length rather than a cure: rounds that long are sec
   levels; B's fetch is given nothing; granted level 1, B holds A's two
   records at level 1 alone.
 - **Sabotage: four entries, all caught.**
+
+## 633. Step 6d: a user's library across its own hosts, 2026-10-15
+
+fuzzypickles' media library (their FZP_CMD_LIBRARY, 0x37: one signed claim
+per file and holding host, own devices only) on `catalog/`, whose merge
+core and ATTRIBUTE encoding the holder settled as "follow the new model"
+(sec 314). Built here is what the catalogue left to its caller: where
+assertions live, which are live, and verbs (`node/catalog.h`).
+
+### Where the catalogue lives
+
+**Each host's own journal stream 4**, signed by it, followed by this
+estate's hosts alone -- the nodes whose notes it files (sec 519) -- so a
+user's library is its own devices' and never a contact's. An ATTRIBUTE
+record (kind 0x38, `catalog/attribute.situ`'s body) asserts a value about
+the file its subject names; a RETRACT record (kind 0x138, its body the
+attribute's name) takes it back. The journal's own sync carries both;
+stream 4 is not cut, a library being state and not a log.
+
+### Which assertions are live
+
+**C5c, from the stream's own order**: for each (issuer, file, attribute)
+the record latest in its issuer's stream stands -- an ATTRIBUTE live, a
+RETRACT dead -- so no tombstone needs reconciling. The table is rebuilt
+from the journal each start, as the notes' index is.
+
+### Verbs, and who holds a file
+
+`add catalog ROOT NAME VALUE` asserts a label of a file **this host holds**
+(C5e's HOLDER: refused otherwise), each host's value kept apart (DISTINCT,
+C5b: never silently a winner); `remove catalog ROOT NAME` takes it back;
+`list catalog [ROOT]` answers `ok COUNT ROOT,NAME,VALUE,ISSUER ...`, every
+value named by its host; `get catalog ROOT` answers the hosts holding it
+-- **C8: the issuers of live HOLDER assertions are the holders**, so a
+host saying what it holds is how the library knows where a file is.
+
+### Not yet after sec 633
+
+- **A file's content key does not travel**: fuzzypickles' claim carried
+  it among the user's devices; here keys stay out of the journal, as
+  message keys do (sec 527), so a sibling sees a file listed and may fetch
+  its ciphertext, but opens it only with the reference from wherever it
+  was put. Carrying references between own devices is the open half.
+- **fuzzypickles' claims are not read**: their 54-byte body on stream 0
+  meets this at step 7, the cut-over.
+- **Labels only**: facts (a duration, C3), identifiers, the AUTHORITATIVE
+  and UNION modes, and other scopes are `catalog/`'s and not yet offered
+  as verbs.
+- **No play-while-fetching** (their secs 29, 104).
+
+### Measured for sec 633
+
+- **`node/test/node_catalog_test.c`**: the latest record of an attribute
+  standing, an older one changing nothing, a retraction taking it back
+  and a record from before it not bringing it back, another kind refused,
+  and holders read through `catalog/`.
+- **`tool/live_catalog.py`, in `make livecheck`**: one user's two hosts;
+  A names a file and B lists A's name and A holding it; B fetches and names
+  it too, and both list both names and two holders; A takes its name back
+  and B lists its own alone. **Control**: with the siblings' stream 4 not
+  followed, B never lists A's name.
+- **Sabotage: two entries, both caught.**

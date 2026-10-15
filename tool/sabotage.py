@@ -12128,6 +12128,20 @@ SABOTAGES = [
 		"\t    )\n",
 		"a grant names a level no record has, read back as a byte past the levels -- sec 632",
 	),
+	(
+		"node-catalog-latest-stands",
+		"node/catalog.c",
+		"\tif (e && e->seq >= seq)\n",
+		"\tif (0 && e && e->seq >= seq)\n",
+		"a record from earlier in an issuer's stream undoes a later one -- a retraction undone by the assertion it took back -- sec 633",
+	),
+	(
+		"node-catalog-retract-kills",
+		"node/catalog.c",
+		"\t\te->live = 0;\n",
+		"",
+		"a retraction is recorded and the assertion it takes back still stands -- sec 633",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

@@ -43,6 +43,7 @@
 #include "groups.h"
 #include "group_lines.h"
 #include "streams.h"
+#include "catalog.h"
 #include "../session/box.h"
 #include "state_dir.h"
 #include "../contact/contact.h"
@@ -331,6 +332,10 @@ static size_t address_local(const fzn_request_t *request, char *reply, size_t ca
 static size_t link_local(const fzn_request_t *request, char *reply, size_t cap);
 static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap);
+static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                            size_t cap);
+static void index_catalog(void);
+static void catalog_skip(const uint8_t *issuer, uint64_t to);
 /* `fetch lan` asked, sec 624: probes sent at the loop's next turn. */
 static int lan_due;
 
@@ -352,6 +357,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = link_local(request, reply, reply_cap);
 	if (!n)
 		n = streams_local(origin, request, reply, reply_cap);
+	if (!n)
+		n = catalog_local(origin, request, reply, reply_cap);
 	if (n)
 		return n;
 	n = fzn_node_admin_handle(ctx, verdict, origin, peer, request, reply, reply_cap);
@@ -1714,6 +1721,14 @@ static void follow_estate(const uint8_t identity[FZN_PUBKEY_LEN], const fzn_node
 		if (fzn_node_journal_follow_stream(&node_journal, notes_keys[i], FZN_NOTE_STREAM, NULL)
 		    == FZN_NODE_JOURNAL_FULL) {
 			say(FZN_ENTRY_WARNING, "journal", "no room to follow another node's notes");
+			break;
+		}
+	/* THEIR CATALOGUE, sec 633: the same nodes' stream 4, this estate's
+	 * alone -- a user's library is its own devices'. */
+	for (i = 0; i < n_notes_keys; i++)
+		if (fzn_node_journal_follow_stream(&node_journal, notes_keys[i], FZN_CATALOG_STREAM, NULL)
+		    == FZN_NODE_JOURNAL_FULL) {
+			say(FZN_ENTRY_WARNING, "journal", "no room to follow another node's catalogue");
 			break;
 		}
 	/* THEIR CONVERSATIONS, sec 527: the same nodes' stream 3. Measured
@@ -3267,6 +3282,8 @@ static void rebase_missed(struct pull_target *pulls, size_t npulls, size_t t, ui
 					notes_cursors[k].at = base - 1u;
 		if (stream == FZN_MESSAGE_STREAM && messages_on)
 			fzn_node_messages_skip(&node_messages, issuer, base - 1u);
+		if (stream == FZN_CATALOG_STREAM)
+			catalog_skip(issuer, base - 1u);
 	}
 	if (tally->missing > moved)
 		say(FZN_ENTRY_WARNING, "journal",
@@ -3579,6 +3596,7 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 	admit_writers(state, roots);
 #ifdef FZN_RECORD_STORE_FILE_ON
 	index_notes();
+	index_catalog();
 #endif
 	/* A PURGE NOT SAID, sec 519: marked here, and no follower told. */
 	{
@@ -6344,6 +6362,187 @@ static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, c
 	               : (size_t)snprintf(reply, cap, "error the grant would not keep\n");
 }
 
+/* ---- the catalogue, sec 633 ------------------------------------------------------
+ *
+ * EACH ESTATE HOST'S STREAM 4, read from where this run last left it -- from
+ * its base at start, which rebuilds the table from what the journal holds --
+ * into `node_catalog`. */
+static fzn_node_catalog_t node_catalog;
+static struct catalog_cursor {
+	uint8_t key[FZN_PUBKEY_LEN];
+	uint64_t at;
+} catalog_cursors[NOTES_STREAMS_MAX];
+static size_t n_catalog_cursors;
+
+static void catalog_skip(const uint8_t *issuer, uint64_t to)
+{
+	size_t k;
+
+	for (k = 0; k < n_catalog_cursors; k++)
+		if (memcmp(catalog_cursors[k].key, issuer, FZN_PUBKEY_LEN) == 0
+		    && catalog_cursors[k].at < to)
+			catalog_cursors[k].at = to;
+}
+
+static void index_catalog(void)
+{
+	static uint8_t bytes[FZN_RECORD_MAX_LEN];
+	size_t i, k, taken = 0;
+
+	if (!journal_on)
+		return;
+	for (i = 0; i < n_notes_keys; i++) {
+		struct catalog_cursor *c = NULL;
+		uint64_t to = fzn_node_journal_received(&node_journal, notes_keys[i], FZN_CATALOG_STREAM);
+
+		for (k = 0; k < n_catalog_cursors && !c; k++)
+			if (memcmp(catalog_cursors[k].key, notes_keys[i], FZN_PUBKEY_LEN) == 0)
+				c = &catalog_cursors[k];
+		if (!c) {
+			if (n_catalog_cursors >= NOTES_STREAMS_MAX)
+				break;
+			c = &catalog_cursors[n_catalog_cursors++];
+			memcpy(c->key, notes_keys[i], FZN_PUBKEY_LEN);
+			c->at = fzn_node_journal_base(&node_journal, notes_keys[i], FZN_CATALOG_STREAM) - 1u;
+		}
+		for (; c->at < to; c->at++) {
+			fzn_record_t rec;
+
+			if (fzn_record_store_get(&node_journal.store, notes_keys[i], FZN_CATALOG_STREAM,
+			                         c->at + 1u, bytes, sizeof(bytes), &rec)
+			    != FZN_RECORD_STORE_OK)
+				break;
+			taken += fzn_node_catalog_take(&node_catalog, fzn_record_issuer(rec),
+			                               fzn_record_subject(rec), fzn_record_seq(rec),
+			                               fzn_record_kind(rec), fzn_record_body(rec),
+			                               fzn_record_body_len(rec))
+			         == FZN_NODE_CATALOG_OK;
+		}
+	}
+	if (taken) {
+		say(FZN_ENTRY_INFO, "catalog", "%zu catalogue record(s) taken", taken);
+		publish("catalog", NULL);
+	}
+}
+
+/* THE CATALOGUE VERBS, the node's own user's, sec 633:
+ *
+ *     add catalog ROOT NAME VALUE   this host asserts NAME of a file it
+ *                                   holds: a label, every host's kept apart
+ *     remove catalog ROOT NAME      and takes it back
+ *     list catalog [ROOT]           `ok COUNT ROOT,NAME,VALUE,ISSUER ...`, the
+ *                                   live assertions, each named by its issuer
+ *     get catalog ROOT              `ok COUNT ISSUER ...`, the hosts holding it */
+static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                            size_t cap)
+{
+	static fzn_catalog_assertion_t set[FZN_NODE_CATALOG_MAX];
+	static uint8_t body[FZN_RECORD_MAX_LEN];
+	const uint8_t *at = request->arg, *subject, *w, *name = NULL, *value = NULL;
+	size_t left = request->arg_len, subject_len, w_len, name_len = 0, value_len = 0, n, i, out;
+	size_t live = 0, len = 0;
+	uint8_t root[FZN_PUBKEY_LEN];
+	int have_root = 0;
+
+	if (!at || !next_word(&at, &left, &subject, &subject_len) || subject_len != 7u
+	    || memcmp(subject, "catalog", 7u) != 0)
+		return 0;
+	if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_REMOVE
+	    && request->parsed != FZN_VERB_LIST && request->parsed != FZN_VERB_GET)
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied the catalogue needs this node's own user\n");
+	if (!journal_on || !contact_id)
+		return (size_t)snprintf(reply, cap, "error this node keeps no catalogue\n");
+	if (next_word(&at, &left, &w, &w_len)) {
+		if (w_len < 2u * FZN_PUBKEY_LEN || !unhex32(w, 2u * FZN_PUBKEY_LEN, root))
+			return (size_t)snprintf(reply, cap, "malformed name a file by its root\n");
+		have_root = 1;
+	}
+	(void)next_word(&at, &left, &name, &name_len);
+	(void)next_word(&at, &left, &value, &value_len);
+	index_catalog();
+	if (request->parsed == FZN_VERB_GET) {
+		static fzn_catalog_issuer_t who[64];
+		size_t count = 0, dropped = 0;
+
+		if (!have_root)
+			return (size_t)snprintf(reply, cap, "malformed get catalog ROOT\n");
+		n = fzn_node_catalog_assertions(&node_catalog, root, set, FZN_NODE_CATALOG_MAX);
+		if (fzn_catalog_holders(set, n, root, FZN_PUBKEY_LEN, who, 64u, &count, &dropped)
+		    != FZN_CATALOG_OK)
+			return (size_t)snprintf(reply, cap, "error the holders did not read\n");
+		out = (size_t)snprintf(reply, cap, "ok %zu", count);
+		for (i = 0; i < count && out < cap; i++) {
+			char hex[17];
+
+			hex_of(who[i].issuer, 8u, hex);
+			out += (size_t)snprintf(reply + out, cap - out, " %s", hex);
+		}
+		return out < cap ? out + (size_t)snprintf(reply + out, cap - out, "\n")
+		                 : (size_t)snprintf(reply, cap, "error too many to say\n");
+	}
+	if (request->parsed == FZN_VERB_LIST) {
+		n = fzn_node_catalog_assertions(&node_catalog, have_root ? root : NULL, set,
+		                                FZN_NODE_CATALOG_MAX);
+		for (i = 0; i < n; i++)
+			live += set[i].live != 0;
+		out = (size_t)snprintf(reply, cap, "ok %zu", live);
+		for (i = 0; i < n && out < cap; i++) {
+			char entity[2u * FZN_PUBKEY_LEN + 1u], issuer[17];
+
+			if (!set[i].live)
+				continue;
+			hex_of(set[i].entity, FZN_PUBKEY_LEN, entity);
+			hex_of(set[i].issuer, 8u, issuer);
+			out += (size_t)snprintf(reply + out, cap - out, " %s,%.*s,%.*s,%s", entity,
+			                        (int)set[i].name_len, (const char *)set[i].name,
+			                        (int)set[i].value_len, (const char *)set[i].value, issuer);
+		}
+		return out < cap ? out + (size_t)snprintf(reply + out, cap - out, "\n")
+		                 : (size_t)snprintf(reply, cap, "error the catalogue does not fit a "
+		                                               "reply; list a ROOT\n");
+	}
+	if (!have_root || !name || name_len > FZN_NODE_CATALOG_NAME_MAX
+	    || (request->parsed == FZN_VERB_ADD && !value))
+		return (size_t)snprintf(reply, cap, request->parsed == FZN_VERB_ADD
+		                                        ? "malformed add catalog ROOT NAME VALUE\n"
+		                                        : "malformed remove catalog ROOT NAME\n");
+	if (request->parsed == FZN_VERB_ADD) {
+		fzn_catalog_assertion_t a;
+		uint64_t length = 0;
+
+		/* HELD HERE, C5e's HOLDER: a host asserts what it holds. */
+		if (!files_on || fzn_node_files_held(&files, root, &length) != FZN_NODE_FILES_OK)
+			return (size_t)snprintf(reply, cap, "error that file is not held here\n");
+		memset(&a, 0, sizeof(a));
+		a.name = name;
+		a.name_len = name_len;
+		a.value = value;
+		a.value_len = value_len;
+		a.attr_class = FZN_CATALOG_LABEL;
+		a.scope = FZN_CATALOG_ESTATE;
+		a.merge = FZN_CATALOG_DISTINCT;
+		a.capability = FZN_CATALOG_CAP_HOLDER;
+		if (value_len > FZN_NODE_CATALOG_VALUE_MAX
+		    || fzn_catalog_attribute_encode(&a, body, sizeof(body), &len) != FZN_CATALOG_OK)
+			return (size_t)snprintf(reply, cap, "malformed a name or value too long\n");
+	} else {
+		memcpy(body, name, name_len);
+		len = name_len;
+	}
+	if (fzn_node_journal_append_on(&node_journal, contact_id->pubkey, FZN_CATALOG_STREAM,
+	                               contact_id->sign,
+	                               request->parsed == FZN_VERB_ADD ? FZN_CATALOG_ATTRIBUTE_KIND
+	                                                               : FZN_CATALOG_RETRACT_KIND,
+	                               root, body, len, wall_ms(), NULL)
+	    != FZN_NODE_JOURNAL_OK)
+		return (size_t)snprintf(reply, cap, "error the journal would not take it\n");
+	index_catalog();
+	journal_pushed = 1;
+	return (size_t)snprintf(reply, cap, "ok\n");
+}
+
 /* ---- relaying, sec 622 ------------------------------------------------------- */
 
 /* THE TYPES, in notes-sync's space after settlement's 34: RELAY carries a
@@ -9056,6 +9255,7 @@ int main(int argc, char **argv)
 				 * read: a notes stream is cut no further than its cursor,
 				 * which the round's own index has not moved yet. sec 555. */
 				index_notes();
+				index_catalog();
 				journal_cut(now);
 #endif
 				/* THE ESTATE'S k MAY HAVE ARRIVED WITH THEM, sec 418 -- as a
@@ -9185,6 +9385,7 @@ int main(int argc, char **argv)
 			if (journal_pushed) {
 				journal_pushed = 0;
 				index_notes();
+				index_catalog();
 				(void)messages_absorb();
 			}
 			/* A WRITE THE OPERATION JOURNAL MISSED, sec 523: made, and not
