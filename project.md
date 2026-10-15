@@ -65141,3 +65141,81 @@ their own keys and matched nothing -- are served it too.
   survived because nothing can make it false -- the log drops a member's
   hosts with its removal -- so the check and the entry went, and the
   invariant is stated where the check was.
+
+## 631. Step 6 planned, and 6a: links measured and traffic metered, 2026-10-15
+
+Sec 608's step 6 is B8 and B9. **B8, the routing manifest, is sec 611.**
+B9's streams were read in fuzzypickles before planning, and stand thus:
+
+- **Log relay** (their 0x21/0x22: a sibling's last lines, pulled, siblings
+  only): **covered and passed** by `log/gather` (sec 463), gathering from
+  several hosts (466), signed copies (482-483) and pushed copies (488),
+  scoped to members. Nothing to build.
+- **Link status and traffic meters** (their 0x39, 0x30: local queries, no
+  wire, in memory): **6a, here.**
+- **A blob fetched by reference** -- their sticker fetch: a sticker is a
+  reference, `fzp:sticker/ROOT/KEY/ID`, riding a line, and a receiver
+  fetches its art from the sender, a contact or a group member without a
+  share, each chunk sealed under the key the reference carries (their sec
+  15). The pack format and the saved collection stay theirs. **6b.**
+- **App streams**: location (their 0x25/0x26: each host's track, pulled by
+  siblings and by a contact the user lets ask, about the answering host
+  alone, degraded per contact to exact, ~1 km or ~10 km, default deny,
+  rate limited) is one consumer of a general shape -- an opaque typed
+  stream per host, addressed to own devices, contacts or groups, with a
+  per-recipient grant and a per-recipient transform. The fix's encoding,
+  the degrade function and the gpsd source stay theirs. **6c.**
+- **The media library's sync** (their 0x37: one signed claim per file and
+  host, own devices only, pushed and acked, its body holding the file's
+  key): a claim per (subject, issuer) rather than a bounded log, on
+  `record/` and `files`; with play-while-fetching, whose design is their
+  secs 29 and 104. **6d.**
+
+### 6a: what each link is doing
+
+`link/` had never run in fuzznetd -- absorbed from fuzzypickles, tested
+here and nowhere else (sec 202's own caveat). Now every request fuzznetd
+makes of a peer through `peer_ask` measures **the link to that address**,
+fuzzypickles' unit -- one transport over one address -- registered at its
+first use with a pessimistic prior (1000 ms, 250 per mille), its latency
+and loss estimated from every answer and every silence, and beside it
+**what crossed it**: requests asked and answered, bytes sent and received.
+In memory, 64 links, as theirs was; links met past that are counted, not
+measured.
+
+**`list link`**: `ok COUNT UNMEASURED` and per link
+`HOST:PORT,LATENCY,LOSS,OBSERVATIONS,AGE,ASKED,ANSWERED,SENT,RECEIVED`.
+**A link nothing was observed on shows `-` for its latency, loss and age**
+-- the prior is not a measurement, which is the hazard sec 202 named and
+fuzzypickles' own `link_describe` met (`rtt 0ms, 0/3 answered`).
+
+### Not yet after sec 631
+
+- **Only `peer_ask`'s requests are measured**: pulls and introductions
+  that call `node/caller` directly cross links the table does not see.
+- **No byte budget**: fuzzypickles' `net.budget_bytes` per window throttles,
+  which is a policy fuzznet has not been asked for; nothing here limits.
+- **`sched/` chooses nothing yet**: the snapshot that feeds it is unused,
+  delivery keeping sec 610's metric order.
+
+### Found while measuring: a group sync each round, asked of idle siblings
+
+`make livecheck` failed twice running, in `live_erasure.py`'s phase a3 --
+a host's round not done within its 30 s -- and passed once alone, which
+is what intermittent means, not evidence against it. **Timed** in a copy
+of the script: a3's rounds were already long, each host's single-threaded
+round waiting on siblings that wait on theirs, C's taking about 25 s with
+the group round removed outright; with it, sec 626's GROUP_SYNC sent to
+every sibling every round, past 30. **A host holding no group now asks its
+siblings every tenth round** -- a new device learns its user's groups
+within ten rounds, and one holding any asks every round -- and C's round
+took 12.5 s. Six hosts' rounds near half a minute is the older problem
+(sec 489's "a fetch blocks the loop"), named here and not fixed.
+
+### Measured for sec 631
+
+- **`tool/live_pairing.py`, phase e**: after A's requests to B, A's `list
+  link` shows B's address measured -- a latency (448 ms in the first run,
+  the prior pulled down by six answers), every request answered, bytes
+  received. **Control**: with the answers not counted and not observed, the
+  link reads `-,-,0,-,6,0,252,0` and the phase fails.

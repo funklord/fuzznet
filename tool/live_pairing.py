@@ -13,6 +13,8 @@ A asks, B is asked, C asks and is turned away.
     c  C asks too; B rejects it (`remove request ROOT`) and lists none
     d  A asks where it is seen (`fetch address`); B, its one peer, says
        127.0.0.1 (sec 621)
+    e  A's `list link` shows its link to B measured -- a latency, requests
+       answered, bytes received (sec 631)
 
 Against a daemon that drops every box, phase a lists no request; against
 one whose approval does not hand over to the contact round, phase b
@@ -160,6 +162,15 @@ def main(argv):
 			   or not seen[3].startswith(keys["b"][:16] + ",127.0.0.1,"):
 				raise failed("d: A's get address answered %r" % (seen,))
 			print("livecheck: d: B told A it sees A at 127.0.0.1")
+
+			# e: the link to B measured at A, sec 631.
+			links = ask(socks["a"], "list link").split()
+			to_b = [l.split(",") for l in links[3:] if l.startswith("127.0.0.1:%s," % port["b"])]
+			if len(links) < 3 or links[0] != "ok" or len(to_b) != 1 or to_b[0][1] == "-" \
+			   or int(to_b[0][3]) == 0 or int(to_b[0][6]) == 0 or int(to_b[0][8]) == 0:
+				raise failed("e: A's list link answered %r, without B measured" % (links,))
+			print("livecheck: e: A measured its link to B: %s ms, %s of %s asked answered"
+			      % (to_b[0][1], to_b[0][6], to_b[0][5]))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

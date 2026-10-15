@@ -81,6 +81,7 @@
 #endif
 #include "../local/socket.h"
 #include "../net/udp.h"
+#include "../link/link.h"
 #include "../persist/persist_file.h"
 #include "../chain/service.h"
 #include "../constant_time/constant_time.h"
@@ -326,6 +327,7 @@ static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, c
 static size_t identity_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                              size_t cap);
 static size_t address_local(const fzn_request_t *request, char *reply, size_t cap);
+static size_t link_local(const fzn_request_t *request, char *reply, size_t cap);
 /* `fetch lan` asked, sec 624: probes sent at the loop's next turn. */
 static int lan_due;
 
@@ -343,6 +345,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = identity_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = address_local(request, reply, reply_cap);
+	if (!n)
+		n = link_local(request, reply, reply_cap);
 	if (n)
 		return n;
 	n = fzn_node_admin_handle(ctx, verdict, origin, peer, request, reply, reply_cap);
@@ -1190,20 +1194,140 @@ struct peer_asking {
 	const char *host;
 };
 
+/* ---- links and traffic, sec 631 ------------------------------------------------
+ *
+ * WHAT EACH LINK IS DOING, measured where this daemon asks its peers: a link
+ * is one address, as fuzzypickles' link has it, its latency and loss the
+ * `link/` table's estimate -- a pessimistic prior that every answer and every
+ * silence moves -- and beside it what crossed it: requests asked and
+ * answered, bytes sent and received. In memory only, as fuzzypickles kept
+ * theirs: a restart begins again. Read with `list link`. */
+
+#define FZND_LINKS_MAX 64u
+/* THE PRIOR, pessimistic as `link.h` asks: a link nothing has answered on
+ * is not made to look instant. */
+#define FZND_LINK_PRIOR_MS 1000u
+#define FZND_LINK_PRIOR_LOSS 250u
+
+static fzn_link_entry_t link_entries[FZND_LINKS_MAX];
+static fzn_link_table_t link_table;
+static struct link_meter {
+	fzn_udp_addr_t at;
+	uint64_t asked, answered, sent, received;
+} link_meters[FZND_LINKS_MAX];
+static size_t n_link_meters;
+/* Links met past FZND_LINKS_MAX: not measured, and counted so `list link`
+ * says so rather than reading as everything. */
+static uint64_t links_unmeasured;
+
+static uint64_t mono_ms(void)
+{
+	struct timespec t;
+
+	if (clock_gettime(CLOCK_MONOTONIC, &t) != 0 || t.tv_sec < 0)
+		return 0;
+	return (uint64_t)t.tv_sec * 1000u + (uint64_t)t.tv_nsec / 1000000u;
+}
+
+/* THE LINK TO `at`, registered with the prior when first met; its index,
+ * or FZND_LINKS_MAX past the bound. Ids are index + 1. */
+static size_t link_of(const fzn_udp_addr_t *at)
+{
+	size_t i;
+
+	if (!link_table.entries)
+		(void)fzn_link_table_init(&link_table, link_entries, FZND_LINKS_MAX);
+	for (i = 0; i < n_link_meters; i++)
+		if (link_meters[i].at.len == at->len
+		    && memcmp(link_meters[i].at.storage, at->storage, at->len) == 0)
+			return i;
+	if (n_link_meters == FZND_LINKS_MAX
+	    || fzn_link_register(&link_table, (uint32_t)n_link_meters + 1u, 0u, FZND_LINK_PRIOR_MS,
+	                         FZND_LINK_PRIOR_LOSS, FZN_UDP_DATAGRAM_MAX)
+	               != FZN_LINK_OK) {
+		links_unmeasured++;
+		return FZND_LINKS_MAX;
+	}
+	memset(&link_meters[n_link_meters], 0, sizeof(link_meters[0]));
+	link_meters[n_link_meters].at = *at;
+	return n_link_meters++;
+}
+
+/* `list link`, sec 631: `ok COUNT UNMEASURED` and per link
+ * `HOST:PORT,LATENCY,LOSS,OBSERVATIONS,AGE,ASKED,ANSWERED,SENT,RECEIVED` --
+ * latency in ms and loss per mille as estimated, `-` for both on a link
+ * nothing has been observed on (sec 202: a prior is no measurement), age the
+ * seconds since the last observation. */
+static size_t link_local(const fzn_request_t *request, char *reply, size_t cap)
+{
+	size_t at, i;
+	uint64_t now = mono_ms();
+
+	if (request->parsed != FZN_VERB_LIST || !request->arg || request->arg_len != 4u
+	    || memcmp(request->arg, "link", 4u) != 0)
+		return 0;
+	at = (size_t)snprintf(reply, cap, "ok %zu %llu", n_link_meters,
+	                      (unsigned long long)links_unmeasured);
+	for (i = 0; i < n_link_meters && at < cap; i++) {
+		const fzn_link_entry_t *e = fzn_link_get(&link_table, (uint32_t)i + 1u);
+		const struct link_meter *m = &link_meters[i];
+		char host[FZN_UDP_HOST_MAX], lat[24], loss[24], age[24];
+		uint16_t port = 0;
+		size_t k;
+
+		if (!e || fzn_udp_addr_text(&m->at, host, &port) != FZN_UDP_OK)
+			continue;
+		if (e->observations) {
+			(void)snprintf(lat, sizeof(lat), "%lu", (unsigned long)e->latency_ms);
+			(void)snprintf(loss, sizeof(loss), "%u", (unsigned)e->loss_permille);
+			(void)snprintf(age, sizeof(age), "%llu",
+			               (unsigned long long)(now > e->last_seen ? (now - e->last_seen) / 1000u
+			                                                      : 0u));
+		} else {
+			(void)snprintf(lat, sizeof(lat), "-");
+			(void)snprintf(loss, sizeof(loss), "-");
+			(void)snprintf(age, sizeof(age), "-");
+		}
+		k = (size_t)snprintf(reply + at, cap - at, " %s:%u,%s,%s,%llu,%s,%llu,%llu,%llu,%llu", host,
+		                     (unsigned)port, lat, loss, (unsigned long long)e->observations, age,
+		                     (unsigned long long)m->asked, (unsigned long long)m->answered,
+		                     (unsigned long long)m->sent, (unsigned long long)m->received);
+		if (at + k >= cap)
+			break;
+		at += k;
+	}
+	return at + (size_t)snprintf(reply + at, cap > at ? cap - at : 0u, "\n");
+}
+
 static int peer_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
                     size_t reply_cap, size_t *reply_len)
 {
 	struct peer_asking *asking = (struct peer_asking *)ctx;
 	uint32_t msg = 0;
 	const uint8_t *detail = NULL;
-	size_t detail_len = 0, len;
+	size_t detail_len = 0, len, li = link_of(&asking->caller->node);
+	uint64_t began = mono_ms(), ended;
 
 	/* ITS ENVELOPE, if any, is the caller's `wrap`, sec 465. */
+	if (li < FZND_LINKS_MAX) {
+		link_meters[li].asked++;
+		link_meters[li].sent += request_len;
+	}
 	if (fzn_caller_send(asking->caller, request, request_len, asking->now + 300u, &msg)
 	            != FZN_CALLER_OK
 	    || fzn_caller_recv(asking->caller, msg, reply, reply_cap, reply_len, 3000u)
-	               != FZN_CALLER_OK)
+	               != FZN_CALLER_OK) {
+		if (li < FZND_LINKS_MAX)
+			(void)fzn_link_observe_loss(&link_table, (uint32_t)li + 1u, mono_ms());
 		return 0;
+	}
+	ended = mono_ms();
+	if (li < FZND_LINKS_MAX) {
+		link_meters[li].answered++;
+		link_meters[li].received += *reply_len;
+		(void)fzn_link_observe_ack(&link_table, (uint32_t)li + 1u,
+		                           ended > began ? (uint32_t)(ended - began) : 0u, ended);
+	}
 	/* A REFUSAL IN WORDS, sec 455: every binary message here opens with a
 	 * small version byte, so a reply opening with a letter is the peer's
 	 * own reply line -- a contact suspended, a capability it was not
@@ -5792,11 +5916,24 @@ static void group_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 	uint8_t done[FZND_CONTACT_TARGETS_MAX][FZN_PUBKEY_LEN];
 	size_t ndone = 0, i, k, taken = 0;
 
+	static unsigned idle_rounds;
+	static uint8_t held[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+	size_t n_held = 0;
+
 	if (!running_admin || !contact_id || !node_apply.store || !node_groups.log.store)
 		return;
-	for (i = 0; i < npulls; i++)
-		if (!silent_peer(&pulls[i]) && peer_in_estate(&pulls[i]))
-			taken += group_sync_with(&pulls[i], pulls[i].host, estate_owner(), 1, now);
+	/* A HOST HOLDING NO GROUP asks its siblings every tenth round, not
+	 * every round, sec 631: a request each sibling answers while its own
+	 * single-threaded round waits on others is not free, and measured in
+	 * `live_erasure.py` it took a six-host round past half a minute. A new
+	 * device learns its user's groups within ten rounds; one holding any
+	 * asks every round. A listing that fails counts as holding some. */
+	if (fzn_group_log_list(node_apply.store, held, FZN_GROUPS_HELD_MAX, &n_held)
+	            != FZN_GROUP_LOG_OK
+	    || n_held > 0u || idle_rounds++ % 10u == 0u)
+		for (i = 0; i < npulls; i++)
+			if (!silent_peer(&pulls[i]) && peer_in_estate(&pulls[i]))
+				taken += group_sync_with(&pulls[i], pulls[i].host, estate_owner(), 1, now);
 	for (i = 0; i < ncontact_targets; i++) {
 		struct contact_target *ct = &contact_targets[i];
 
