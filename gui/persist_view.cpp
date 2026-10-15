@@ -130,6 +130,12 @@ static QString slot_label(fzn_persist_slot_t slot)
 		return QStringLiteral("group line head");
 	case FZN_PERSIST_GROUP_LINE_SENDER:
 		return QStringLiteral("group line sender");
+	case FZN_PERSIST_STREAM_RECORD:
+		return QStringLiteral("stream record");
+	case FZN_PERSIST_STREAM_HEAD:
+		return QStringLiteral("stream head");
+	case FZN_PERSIST_STREAM_GRANT:
+		return QStringLiteral("stream grant");
 	}
 	/* NO `default:` ABOVE, so a slot added to persist.h draws a -Wswitch
 	 * warning here -- once, in the build after persist.h changes, and not

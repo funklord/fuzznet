@@ -15,6 +15,8 @@ A asks, B is asked, C asks and is turned away.
        127.0.0.1 (sec 621)
     e  A's `list link` shows its link to B measured -- a latency, requests
        answered, bytes received (sec 631)
+    f  A writes an app stream at three levels; B is given nothing until A
+       grants it level 1, and then that level of each record (sec 632)
 
 Against a daemon that drops every box, phase a lists no request; against
 one whose approval does not hand over to the contact round, phase b
@@ -171,6 +173,40 @@ def main(argv):
 				raise failed("e: A's list link answered %r, without B measured" % (links,))
 			print("livecheck: e: A measured its link to B: %s ms, %s of %s asked answered"
 			      % (to_b[0][1], to_b[0][6], to_b[0][5]))
+
+			# f: an app stream, sec 632. A writes two records at three levels;
+			# B, not granted, is given nothing; granted level 1, B holds A's
+			# records at that level alone.
+			for rec in ("aa01 bb01 cc01", "aa02 bb02 cc02"):
+				got = ask(socks["a"], "add stream location " + rec)
+				if not got.startswith("ok "):
+					raise failed("f: add stream answered %r" % got)
+
+			def held_at_b():
+				reply = ask(socks["b"], "list stream location").split()
+				if not reply or reply[0] != "ok":
+					raise failed("f: B's list stream answered %r" % reply)
+				return [r for r in reply[1:] if r.startswith(keys["a"][:16] + ",")]
+
+			def fetched():
+				before = started["b"].log().count("stream fetch:")
+				expect(socks["b"], "b", "fetch stream location alice", "ok")
+				deadline = time.monotonic() + 20.0
+				while time.monotonic() < deadline \
+				      and started["b"].log().count("stream fetch:") == before:
+					time.sleep(0.2)
+
+			fetched()
+			if held_at_b():
+				raise failed("f: B, not granted, holds %r" % held_at_b())
+			expect(socks["a"], "a", "grant stream location bob 1", "ok")
+			time.sleep(2.5)
+			fetched()
+			got = held_at_b()
+			if [r.split(",", 1)[1].split(",", 2)[0] + "," + r.rsplit(",", 1)[1] for r in got] \
+			   != ["1,bb01", "2,bb02"]:
+				raise failed("f: B holds %r of A's stream, not level 1 of both records" % got)
+			print("livecheck: f: B was given nothing of A's stream until granted, then level 1")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

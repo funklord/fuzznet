@@ -65227,8 +65227,12 @@ the group round removed outright; with it, sec 626's GROUP_SYNC sent to
 every sibling every round, past 30. **A host holding no group now asks its
 siblings every tenth round** -- a new device learns its user's groups
 within ten rounds, and one holding any asks every round -- and C's round
-took 12.5 s. Six hosts' rounds near half a minute is the older problem
-(sec 489's "a fetch blocks the loop"), named here and not fixed.
+took 12.5 s. **That one run settled less than it seemed**: the phase failed
+again under sec 632's gate, and timed again C's round took about 25 s,
+the rounds varying more than the group round accounts for. Six hosts'
+rounds near half a minute is the older problem (sec 489's "a fetch blocks
+the loop"), named here and not fixed; sec 632 says how the test meets
+it.
 
 ### Measured for sec 631
 
@@ -65241,3 +65245,82 @@ took 12.5 s. Six hosts' rounds near half a minute is the older problem
   group; C, not B's contact, is given its reference and fetches it whole
   from B. **Control**: with members' hosts left out of the fetch, C
   fetches nothing.
+
+## 632. Step 6c: app streams, location the first, 2026-10-15
+
+fuzzypickles' location frames (their 0x25/0x26, `geolocation.md`) as the
+first consumer of a general shape, `node/streams.h`: an opaque, named
+stream each host writes, read by its user's own hosts and by whoever it
+grants.
+
+### A stream's shape
+
+- **A stream is a name the application chooses** -- `location` -- and
+  each host's records in it, numbered from 1, kept the newest 1024 of
+  each (stream, host), fuzzypickles' bound, about eight hours of fixes at
+  thirty seconds. **A record is opaque**: the fix's encoding stays the
+  application's (sec 608's C list).
+- **Renditions, not a transform.** fuzzypickles degrades a fix per
+  contact when it answers -- exact, about 1 km, about 10 km. A daemon
+  cannot call an application's function, so **the application writes
+  each record at every level it offers**, level 0 the most exact, up to
+  four of 64 bytes, and **a grant names the level a reader is given**:
+  the same choice, made where the encoding lives. A reader granted a
+  level a record lacks gets its coarsest.
+- **Who reads**: this user's own hosts every level; a contact or a group's
+  members only as granted, the finest of their own grant and their
+  groups', **default deny**. **A host answers only about its own stream**,
+  never another host's it holds: a contact may ask where you are, not
+  where your other contacts are -- fuzzypickles' rule (their sec 10.1, the
+  per-peer grant over a capability).
+- **Not signed, so not the journal** (`log/test/fix_stream_test.c` showed
+  a fix fits the journal's records): a record a contact holds is no proof
+  of where anybody was, as fuzzypickles' fixes never were. Carried in the
+  session that asked.
+
+### Wire and verbs
+
+STREAM_QUERY, type 43, asks a host for its records of a stream past a
+place; STREAM_RECORDS, type 44, answers them oldest first at the reader's
+level. **One question a requester every two seconds.** Verbs, the node's
+own user's: `add stream NAME HEX [HEX ...]` (a record, a rendition a
+level: `ok SEQ`), `grant stream NAME WHO LEVEL`, `revoke stream NAME WHO`,
+`fetch stream NAME [WHO]` (asked at once of WHO's hosts -- a contact's, a
+group's members' -- or this user's own), `list stream NAME` (`ok
+ORIGIN,SEQ,AT,HEX[,HEX...] ...`, the newest sixteen held of each host).
+Slots 59 to 61: records and heads not core, telemetry being lost when
+lost; **grants core**, a grant rolled back being a reader readmitted.
+
+### Not yet after sec 632
+
+- **Pulled when asked, never pushed**: fuzzypickles' open question, live
+  position fire-and-forget beside the catch-up (their sec 12 item 4), is
+  open here too.
+- **The gpsd source and the sampling stay the application's**; sec 608
+  asked whether sampling is network code, and it is not -- it reads a
+  local daemon -- so it stays with fuzzypickles.
+- **No expiry on a grant**, fuzzypickles' choice (their sec 10.1).
+
+### Found while measuring: first rounds longer than the test waited
+
+`live_erasure.py` failed under this section's gate as under sec 631's, a
+first round of phase a3 not ended within the 30 s `wait_for` gives.
+Timed from the five hosts' common start: A's ended 15.6 s in, the other
+four's 28 to 41 s in -- each single-threaded round asking siblings still
+in their own -- so a wait begun after A's could pass 30 s however the
+daemon behaves. Nothing this section added runs in those rounds. **The
+test now waits 60 s for those first rounds** (`wait_for` takes a limit),
+which is the measured length rather than a cure: rounds that long are sec
+489's blocking loop, still open.
+
+### Measured for sec 632
+
+- **`node/test/streams_test.c`**: records kept in order and read back; a
+  record kept twice changing nothing; an older one after a newer not
+  moving the stream back; a gap skipped; the ring keeping the newest
+  1024 alone; grants given, read for their stream alone, bounded and taken
+  away; a reader given its level's rendition alone, or the coarsest.
+- **`tool/live_pairing.py`, phase f**: A writes two records at three
+  levels; B's fetch is given nothing; granted level 1, B holds A's two
+  records at level 1 alone.
+- **Sabotage: four entries, all caught.**

@@ -474,6 +474,8 @@ int fzn_persist_slot_is_core(fzn_persist_slot_t slot)
 	case FZN_PERSIST_GROUP_LINE:
 	case FZN_PERSIST_GROUP_LINE_HEAD:
 	case FZN_PERSIST_GROUP_LINE_SENDER:
+	case FZN_PERSIST_STREAM_RECORD:
+	case FZN_PERSIST_STREAM_HEAD:
 		return 0;
 	default:
 		return 1;	/* named or not: see persist.h */

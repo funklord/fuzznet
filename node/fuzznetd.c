@@ -42,6 +42,7 @@
 #include "contact_request.h"
 #include "groups.h"
 #include "group_lines.h"
+#include "streams.h"
 #include "../session/box.h"
 #include "state_dir.h"
 #include "../contact/contact.h"
@@ -328,6 +329,8 @@ static size_t identity_local(fzn_origin_t origin, const fzn_request_t *request, 
                              size_t cap);
 static size_t address_local(const fzn_request_t *request, char *reply, size_t cap);
 static size_t link_local(const fzn_request_t *request, char *reply, size_t cap);
+static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                            size_t cap);
 /* `fetch lan` asked, sec 624: probes sent at the loop's next turn. */
 static int lan_due;
 
@@ -347,6 +350,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = address_local(request, reply, reply_cap);
 	if (!n)
 		n = link_local(request, reply, reply_cap);
+	if (!n)
+		n = streams_local(origin, request, reply, reply_cap);
 	if (n)
 		return n;
 	n = fzn_node_admin_handle(ctx, verdict, origin, peer, request, reply, reply_cap);
@@ -5964,6 +5969,381 @@ static void group_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 	group_shares_round(now);
 }
 
+/* ---- app streams, sec 632 --------------------------------------------------------
+ *
+ * STREAM_QUERY, type 43, asks a host for its own records of one stream past
+ * a place; STREAM_RECORDS, type 44, answers them oldest first, each at the
+ * level the asker may read -- every level for this user's own hosts, the
+ * granted one for a contact or a group member, nothing without a grant.
+ * One question a requester every two seconds. */
+#define FZND_STREAM_QUERY_TYPE 43u
+#define FZND_STREAM_RECORDS_TYPE 44u
+#define FZND_STREAM_EVERY_S 2u
+#define FZND_STREAM_ASKERS 32u
+#define FZND_STREAM_FETCHES_MAX 8u
+
+static fzn_streams_t node_streams;
+static struct {
+	uint8_t key[FZN_PUBKEY_LEN];
+	uint64_t at;
+} stream_askers[FZND_STREAM_ASKERS];
+/* `fetch stream NAME [WHO]` asked, carried out at the loop's next turn. */
+static struct {
+	char name[FZN_STREAM_NAME_MAX + 1u];
+	size_t name_len;
+	uint8_t who[FZN_PUBKEY_LEN]; /* a contact's root, a group's id, or zero: own hosts */
+	int group;
+} stream_fetches[FZND_STREAM_FETCHES_MAX];
+static size_t n_stream_fetches;
+
+/* WHOSE `host` IS as one of this user's groups lists it (sec 630). */
+static int member_host_owner(const uint8_t *host, uint8_t owner[FZN_PUBKEY_LEN])
+{
+	static fzn_contact_device_t own;
+
+	return node_apply.store && groups_signer(NULL, &own)
+	       && fzn_node_group_host_owner(node_apply.store, own.owner, host, owner);
+}
+
+static int hexval(uint8_t c)
+{
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+	return -1;
+}
+
+/* ONE QUESTION A REQUESTER every FZND_STREAM_EVERY_S: 1 when this one may. */
+static int stream_ask_allowed(const uint8_t *key, uint64_t now)
+{
+	size_t i, oldest = 0;
+
+	for (i = 0; i < FZND_STREAM_ASKERS; i++) {
+		if (memcmp(stream_askers[i].key, key, FZN_PUBKEY_LEN) == 0) {
+			if (now < stream_askers[i].at + FZND_STREAM_EVERY_S && now >= stream_askers[i].at)
+				return 0;
+			stream_askers[i].at = now;
+			return 1;
+		}
+		if (stream_askers[i].at < stream_askers[oldest].at)
+			oldest = i;
+	}
+	memcpy(stream_askers[oldest].key, key, FZN_PUBKEY_LEN);
+	stream_askers[oldest].at = now;
+	return 1;
+}
+
+/* THE LEVEL `owner` MAY READ of stream `name`: its own grant, or the
+ * finest of the groups' it is in. -1 for none. */
+static int stream_level_of(const char *name, size_t name_len, const uint8_t *owner)
+{
+	static uint8_t groups[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+	unsigned level;
+	int best = -1;
+	size_t n = 0, i;
+
+	if (fzn_streams_granted(&node_streams, name, name_len, owner, &level) == FZN_STREAMS_OK)
+		best = (int)level;
+	if (fzn_node_group_ids_of(node_apply.store, owner, groups, FZN_GROUPS_HELD_MAX, &n)
+	    == FZN_CONTACT_OK)
+		for (i = 0; i < n; i++)
+			if (fzn_streams_granted(&node_streams, name, name_len, groups[i], &level)
+			            == FZN_STREAMS_OK
+			    && (best < 0 || (int)level < best))
+				best = (int)level;
+	return best;
+}
+
+static size_t put_record(const fzn_stream_record_t *r, uint8_t *out, size_t at, size_t cap)
+{
+	size_t k, need = 8u + 8u + 1u;
+
+	for (k = 0; k < r->levels; k++)
+		need += 1u + r->rendition_len[k];
+	if (at + need > cap)
+		return at;
+	fzn_put_be64(out + at, r->seq);
+	fzn_put_be64(out + at + 8u, r->at);
+	out[at + 16u] = (uint8_t)r->levels;
+	at += 17u;
+	for (k = 0; k < r->levels; k++) {
+		out[at++] = (uint8_t)r->rendition_len[k];
+		memcpy(out + at, r->rendition[k], r->rendition_len[k]);
+		at += r->rendition_len[k];
+	}
+	return at;
+}
+
+static size_t streams_remote(const uint8_t *sender, const uint8_t *request, size_t request_len,
+                             uint8_t *reply, size_t reply_cap)
+{
+	static fzn_stream_record_t r, given;
+	uint8_t owner[FZN_PUBKEY_LEN];
+	size_t name_len, at = 4u, count = 0;
+	size_t cap = reply_cap < FZND_PULL_REPLY_MAX ? reply_cap : FZND_PULL_REPLY_MAX;
+	const char *name;
+	uint64_t since, last, s, now = wall_clock();
+	int own, level;
+
+	if (request_len < 3u || request_len != 3u + (size_t)request[2] + 8u
+	    || !fzn_stream_name_ok((const char *)request + 3, request[2]))
+		return (size_t)snprintf((char *)reply, reply_cap, "malformed a stream query\n");
+	name = (const char *)request + 3;
+	name_len = request[2];
+	since = fzn_get_be64(request + 3u + name_len);
+	if (!contact_id || !node_streams.store
+	    || (!group_owner_of(sender, owner, &own) && !member_host_owner(sender, owner)))
+		return (size_t)snprintf((char *)reply, reply_cap, "denied streams to whom it grants\n");
+	level = own ? 0 : stream_level_of(name, name_len, owner);
+	if (level < 0)
+		return (size_t)snprintf((char *)reply, reply_cap, "denied that stream is not granted\n");
+	if (!stream_ask_allowed(sender, now))
+		return (size_t)snprintf((char *)reply, reply_cap, "denied asked too soon\n");
+	/* THIS HOST'S OWN STREAM, never another's it holds. */
+	last = fzn_streams_last(&node_streams, name, name_len, contact_id->pubkey);
+	for (s = since + 1u; s <= last && cap > at; s++) {
+		size_t before = at;
+
+		if (fzn_streams_get(&node_streams, name, name_len, contact_id->pubkey, s, &r)
+		    != FZN_STREAMS_OK)
+			continue;
+		if (!own)
+			fzn_streams_render(&r, (unsigned)level, &given);
+		at = put_record(own ? &r : &given, reply, at, cap);
+		if (at == before)
+			break;
+		count++;
+	}
+	reply[0] = FZND_GROUP_VERSION;
+	reply[1] = FZND_STREAM_RECORDS_TYPE;
+	fzn_put_be16(reply + 2, (uint16_t)count);
+	return at;
+}
+
+/* ASK ONE HOST for its records of stream `name` past those held of it. */
+static size_t stream_fetch_from(struct pull_target *pt, const char *host, const char *name,
+                                size_t name_len, uint64_t now)
+{
+	static uint8_t reply[FZND_PULL_REPLY_MAX];
+	static fzn_stream_record_t r;
+	uint8_t request[3u + FZN_STREAM_NAME_MAX + 8u];
+	struct peer_asking asking = { &pt->caller, now, host };
+	const uint8_t *origin = pt->pairing.node;
+	size_t len = 0, at, count, k, l, taken = 0;
+
+	request[0] = FZND_GROUP_VERSION;
+	request[1] = FZND_STREAM_QUERY_TYPE;
+	request[2] = (uint8_t)name_len;
+	memcpy(request + 3, name, name_len);
+	fzn_put_be64(request + 3u + name_len, fzn_streams_last(&node_streams, name, name_len, origin));
+	if (!peer_ask(&asking, request, 3u + name_len + 8u, reply, sizeof(reply), &len) || len < 4u
+	    || reply[0] != FZND_GROUP_VERSION || reply[1] != FZND_STREAM_RECORDS_TYPE)
+		return 0;
+	count = fzn_get_be16(reply + 2);
+	for (k = 0, at = 4u; k < count && at + 17u <= len; k++) {
+		memset(&r, 0, sizeof(r));
+		r.seq = fzn_get_be64(reply + at);
+		r.at = fzn_get_be64(reply + at + 8u);
+		r.levels = reply[at + 16u];
+		at += 17u;
+		if (r.levels == 0u || r.levels > FZN_STREAM_LEVELS_MAX)
+			break;
+		for (l = 0; l < r.levels; l++) {
+			if (at >= len || reply[at] > FZN_STREAM_RENDITION_MAX || len - at - 1u < reply[at])
+				return taken;
+			r.rendition_len[l] = reply[at++];
+			memcpy(r.rendition[l], reply + at, r.rendition_len[l]);
+			at += r.rendition_len[l];
+		}
+		taken += fzn_streams_keep(&node_streams, name, name_len, origin, &r) == FZN_STREAMS_OK;
+	}
+	return taken;
+}
+
+/* THE FETCHES ASKED, carried out: a contact's hosts, a group's members'
+ * hosts, or this user's own -- each asked once. */
+static void streams_fetch_due(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	static fzn_group_t g;
+	size_t f, i, taken = 0, asked = 0;
+
+	for (f = 0; f < n_stream_fetches; f++) {
+		const char *name = stream_fetches[f].name;
+		size_t name_len = stream_fetches[f].name_len;
+		static const uint8_t zero[FZN_PUBKEY_LEN];
+
+		if (memcmp(stream_fetches[f].who, zero, FZN_PUBKEY_LEN) == 0) {
+			for (i = 0; i < npulls; i++)
+				if (!silent_peer(&pulls[i]) && peer_in_estate(&pulls[i])) {
+					taken += stream_fetch_from(&pulls[i], pulls[i].host, name, name_len, now);
+					asked++;
+				}
+			continue;
+		}
+		if (stream_fetches[f].group
+		    && fzn_group_log_get(node_apply.store, stream_fetches[f].who, &g) == FZN_GROUP_LOG_OK) {
+			for (i = 0; i < ngroup_shares_in; i++)
+				if (fzn_group_is_member(&g, group_shares_in[i].sharer)
+				    && group_shares_in[i].pt.fd >= 0) {
+					taken += stream_fetch_from(&group_shares_in[i].pt, group_shares_in[i].host,
+					                           name, name_len, now);
+					asked++;
+				}
+			continue;
+		}
+		for (i = 0; i < ncontact_targets; i++)
+			if (memcmp(contact_targets[i].contact, stream_fetches[f].who, FZN_PUBKEY_LEN) == 0
+			    && contact_targets[i].pt.fd >= 0) {
+				taken += stream_fetch_from(&contact_targets[i].pt, contact_targets[i].host, name,
+				                           name_len, now);
+				asked++;
+			}
+	}
+	n_stream_fetches = 0;
+	say(FZN_ENTRY_INFO, "node/streams", "stream fetch: %zu host(s) asked, %zu record(s) taken",
+	    asked, taken);
+}
+
+/* THE STREAM VERBS, the node's own user's:
+ *
+ *     add stream NAME HEX [HEX ...]   a record of this host's, a rendition a
+ *                                     level, the most exact first: `ok SEQ`
+ *     grant stream NAME WHO LEVEL     WHO a contact or @GROUP may read LEVEL
+ *     revoke stream NAME WHO
+ *     fetch stream NAME [WHO]         asked at once of WHO's hosts, or of
+ *                                     this user's own
+ *     list stream NAME                `ok COUNT ORIGIN,SEQ,AT,HEX[,HEX...]
+ *                                     ...`, the newest 16 held of each host */
+static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                            size_t cap)
+{
+	static fzn_stream_record_t r;
+	static uint8_t heads[256][32];
+	const uint8_t *at = request->arg, *subject, *name, *w;
+	size_t left = request->arg_len, subject_len, name_len, w_len, k;
+	uint8_t who[FZN_PUBKEY_LEN];
+	int group = 0;
+
+	if (!at || !next_word(&at, &left, &subject, &subject_len) || subject_len != 6u
+	    || memcmp(subject, "stream", 6u) != 0)
+		return 0;
+	if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_GRANT
+	    && request->parsed != FZN_VERB_REVOKE && request->parsed != FZN_VERB_FETCH
+	    && request->parsed != FZN_VERB_LIST)
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied streams need this node's own user\n");
+	if (!node_streams.store || !contact_id)
+		return (size_t)snprintf(reply, cap, "error this node keeps no streams\n");
+	if (!next_word(&at, &left, &name, &name_len)
+	    || !fzn_stream_name_ok((const char *)name, name_len))
+		return (size_t)snprintf(reply, cap, "malformed name a stream, [a-z0-9_]\n");
+	if (request->parsed == FZN_VERB_ADD) {
+		memset(&r, 0, sizeof(r));
+		while (next_word(&at, &left, &w, &w_len)) {
+			if (r.levels == FZN_STREAM_LEVELS_MAX || w_len % 2u
+			    || w_len / 2u > FZN_STREAM_RENDITION_MAX)
+				return (size_t)snprintf(reply, cap, "malformed at most %u renditions of %u bytes\n",
+				                        FZN_STREAM_LEVELS_MAX, FZN_STREAM_RENDITION_MAX);
+			for (k = 0; k < w_len / 2u; k++) {
+				int hi = hexval(w[2u * k]), lo = hexval(w[2u * k + 1u]);
+
+				if (hi < 0 || lo < 0)
+					return (size_t)snprintf(reply, cap, "malformed not hex\n");
+				r.rendition[r.levels][k] = (uint8_t)(hi * 16 + lo);
+			}
+			r.rendition_len[r.levels++] = w_len / 2u;
+		}
+		if (!r.levels)
+			return (size_t)snprintf(reply, cap, "malformed add stream NAME HEX [HEX ...]\n");
+		r.seq = fzn_streams_last(&node_streams, (const char *)name, name_len, contact_id->pubkey)
+		        + 1u;
+		r.at = wall_clock();
+		if (fzn_streams_keep(&node_streams, (const char *)name, name_len, contact_id->pubkey, &r)
+		    != FZN_STREAMS_OK)
+			return (size_t)snprintf(reply, cap, "error the record would not keep\n");
+		return (size_t)snprintf(reply, cap, "ok %llu\n", (unsigned long long)r.seq);
+	}
+	if (request->parsed == FZN_VERB_LIST) {
+		size_t n = 0, out, i;
+		uint64_t last, s;
+
+		/* EVERY HOST HELD: this one's own, and each fetched from. */
+		out = (size_t)snprintf(reply, cap, "ok");
+		if (fzn_streams_origins(&node_streams, (const char *)name, name_len, heads, 256u, &n)
+		    != FZN_STREAMS_OK)
+			return (size_t)snprintf(reply, cap, "error the stream did not list\n");
+		for (i = 0; i < n; i++) {
+			const uint8_t *o = heads[i];
+			char hex[17];
+
+			last = fzn_streams_last(&node_streams, (const char *)name, name_len, o);
+			hex_of(o, 8u, hex);
+			for (s = last > 16u ? last - 15u : 1u; last && s <= last && out < cap; s++) {
+				if (fzn_streams_get(&node_streams, (const char *)name, name_len, o, s, &r)
+				    != FZN_STREAMS_OK)
+					continue;
+				out += (size_t)snprintf(reply + out, cap - out, " %s,%llu,%llu", hex,
+				                        (unsigned long long)r.seq, (unsigned long long)r.at);
+				for (k = 0; k < r.levels && out < cap; k++) {
+					char rendition[2u * FZN_STREAM_RENDITION_MAX + 1u];
+
+					hex_of(r.rendition[k], r.rendition_len[k], rendition);
+					out += (size_t)snprintf(reply + out, cap - out, ",%s",
+					                        r.rendition_len[k] ? rendition : "-");
+				}
+			}
+		}
+		if (out >= cap)
+			return (size_t)snprintf(reply, cap, "error the list does not fit a reply\n");
+		return out + (size_t)snprintf(reply + out, cap - out, "\n");
+	}
+	/* WHO: a contact's name, or @GROUP; absent for fetch, this user's own. */
+	memset(who, 0, sizeof(who));
+	if (next_word(&at, &left, &w, &w_len)) {
+		fzn_contact_t c;
+
+		if (w_len > 1u && w[0] == '@') {
+			if (fzn_node_group_find(node_apply.store, (const char *)w + 1, w_len - 1u, who)
+			    != FZN_CONTACT_OK)
+				return (size_t)snprintf(reply, cap, "error no such group\n");
+			group = 1;
+		} else if (fzn_contact_find(node_apply.store, (const char *)w, w_len, &c)
+		           == FZN_CONTACT_OK) {
+			memcpy(who, c.key, FZN_PUBKEY_LEN);
+		} else {
+			return (size_t)snprintf(reply, cap, "error no such contact\n");
+		}
+	} else if (request->parsed != FZN_VERB_FETCH) {
+		return (size_t)snprintf(reply, cap, "malformed name who\n");
+	}
+	if (request->parsed == FZN_VERB_FETCH) {
+		if (n_stream_fetches == FZND_STREAM_FETCHES_MAX)
+			return (size_t)snprintf(reply, cap, "error too many fetches waiting\n");
+		memcpy(stream_fetches[n_stream_fetches].name, name, name_len);
+		stream_fetches[n_stream_fetches].name_len = name_len;
+		memcpy(stream_fetches[n_stream_fetches].who, who, FZN_PUBKEY_LEN);
+		stream_fetches[n_stream_fetches].group = group;
+		n_stream_fetches++;
+		return (size_t)snprintf(reply, cap, "ok\n");
+	}
+	if (request->parsed == FZN_VERB_REVOKE)
+		return fzn_streams_grant(&node_streams, (const char *)name, name_len, who, -1)
+		               == FZN_STREAMS_OK
+		               ? (size_t)snprintf(reply, cap, "ok\n")
+		               : (size_t)snprintf(reply, cap, "error no such grant\n");
+	if (!next_word(&at, &left, &w, &w_len) || w_len != 1u || w[0] < '0'
+	    || w[0] >= (int)('0' + FZN_STREAM_LEVELS_MAX))
+		return (size_t)snprintf(reply, cap, "malformed grant stream NAME WHO LEVEL\n");
+	return fzn_streams_grant(&node_streams, (const char *)name, name_len, who, w[0] - '0')
+	               == FZN_STREAMS_OK
+	               ? (size_t)snprintf(reply, cap, "ok\n")
+	               : (size_t)snprintf(reply, cap, "error the grant would not keep\n");
+}
+
 /* ---- relaying, sec 622 ------------------------------------------------------- */
 
 /* THE TYPES, in notes-sync's space after settlement's 34: RELAY carries a
@@ -6070,6 +6450,9 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 	if (request_len >= 2u && request[0] == FZND_GROUP_VERSION
 	    && request[1] == FZND_GROUP_LINES_SYNC_TYPE)
 		return group_lines_remote(sender, request, request_len, reply, reply_cap);
+	if (request_len >= 2u && request[0] == FZND_GROUP_VERSION
+	    && request[1] == FZND_STREAM_QUERY_TYPE)
+		return streams_remote(sender, request, request_len, reply, reply_cap);
 	if (request_len >= 2u && request[0] == FZND_RELAY_VERSION
 	    && (request[1] == FZND_INTRODUCE_TYPE || request[1] == FZND_NOTIFY_TYPE))
 		return introduce_remote(sender, request, request_len, reply, reply_cap);
@@ -8363,6 +8746,9 @@ int main(int argc, char **argv)
 			/* A GROUP'S LINES, sec 629. */
 			group_lines.store = node_apply.store;
 			group_lines.hash = &hash_ops;
+			/* APP STREAMS, sec 632. */
+			node_streams.store = node_apply.store;
+			node_streams.hash = &hash_ops;
 			if (node_groups.log.store && node_groups.log.member)
 				admin.groups = &node_groups;
 			/* A STRANGER'S CONTACT REQUEST, sec 619. */
@@ -8739,6 +9125,9 @@ int main(int argc, char **argv)
 				lan_due = 0;
 				lan_probe();
 			}
+			/* A STREAM FETCH ASKED, at once. sec 632. */
+			if (n_stream_fetches)
+				streams_fetch_due(pulls, npulls, now);
 			/* WHERE THIS HOST IS SEEN, asked now. sec 621. */
 			if (address_due) {
 				address_due = 0;

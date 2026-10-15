@@ -12100,6 +12100,34 @@ SABOTAGES = [
 		"\t\t    && (h = fzn_group_host(&g, host)) != NULL) {\n",
 		"a group this user has left still pairs and serves its members' hosts -- sec 630",
 	),
+	(
+		"streams-keep-only-newer",
+		"node/streams.c",
+		"\tif (r->seq <= held)\n\t\treturn FZN_STREAMS_OK;\n",
+		"",
+		"an older record fetched late moves a stream back, and the newer ones are asked for again and again -- sec 632",
+	),
+	(
+		"streams-get-names-the-seq",
+		"node/streams.c",
+		"\t    || !record_decode(bytes, n, out) || out->seq != seq)\n",
+		"\t    || !record_decode(bytes, n, out))\n",
+		"a record the ring overwrote reads as the one asked for, a fix hours later given as an old one -- sec 632",
+	),
+	(
+		"streams-render-one-level",
+		"node/streams.c",
+		"\tout->levels = 1u;\n",
+		"\tout->levels = r->levels;\n",
+		"a reader granted a coarse level is given every finer rendition too -- sec 632",
+	),
+	(
+		"streams-grant-level-bound",
+		"node/streams.c",
+		"\t    || level >= (int)FZN_STREAM_LEVELS_MAX)\n",
+		"\t    )\n",
+		"a grant names a level no record has, read back as a byte past the levels -- sec 632",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

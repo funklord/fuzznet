@@ -365,13 +365,22 @@ typedef enum fzn_persist_slot {
 	/* Per (group, filed id): the member who wrote that line. Not core. sec
 	 * 629. */
 	FZN_PERSIST_GROUP_LINE_SENDER = 58u,
+	/* Per (stream, host, place in its ring): one record of an app stream,
+	 * its renditions. Not core: a stream is telemetry, and lost is lost.
+	 * `node/streams.h`. sec 632. */
+	FZN_PERSIST_STREAM_RECORD = 59u,
+	/* Per (stream, host): its last record held. Not core. sec 632. */
+	FZN_PERSIST_STREAM_HEAD = 60u,
+	/* Per (stream, grantee): the level a contact or group is granted.
+	 * CORE: a grant rolled back is a reader readmitted. sec 632. */
+	FZN_PERSIST_STREAM_GRANT = 61u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 59u
+#define FZN_PERSIST_SLOT_END 62u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,
