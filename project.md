@@ -64557,7 +64557,7 @@ sibling uses it.
 **A, the root, asked C at C's dead address too** -- members, wrap keys,
 purges, each waiting out its three seconds, only the journal's pull
 passing a silent peer over for the rest of the round (sec 587) -- and
-B's INTRODUCE, arriving meanwhile, went unanswered. Sec 489's "a fetch
+B's INTRODUCE, arriving meanwhile, went unanswered. Sec 424's "a fetch
 blocks the loop", met by an introducer. An introduction not answered
 stays due for the next round; the requests that do not yet pass a silent
 peer over are a separate fix, not made here.
@@ -65233,7 +65233,7 @@ within ten rounds, and one holding any asks every round -- and C's round
 took 12.5 s. **That one run settled less than it seemed**: the phase failed
 again under sec 632's gate, and timed again C's round took about 25 s,
 the rounds varying more than the group round accounts for. Six hosts'
-rounds near half a minute is the older problem (sec 489's "a fetch blocks
+rounds near half a minute is the older problem (sec 424's "a fetch blocks
 the loop"), named here and not fixed; sec 632 says how the test meets
 it.
 
@@ -65314,7 +65314,7 @@ in their own -- so a wait begun after A's could pass 30 s however the
 daemon behaves. Nothing this section added runs in those rounds. **The
 test now waits 60 s for those first rounds** (`wait_for` takes a limit),
 which is the measured length rather than a cure: rounds that long are sec
-489's blocking loop, still open.
+424's blocking loop, still open (sec 635).
 
 ### Measured for sec 632
 
@@ -65434,3 +65434,45 @@ decision to hold files blind.
   exports it equal to what A put. **Control**: with the references not
   asked for, B never holds it.
 - **Sabotage: one entry, caught.**
+
+## 635. A round that blocks on siblings blocking on theirs, measured, 2026-10-15
+
+Sec 424 wrote "a fetch blocks the loop, at most 3 s a request"; the note
+beside it found two nodes whose rounds start together each blocking on
+the other. This tree has met it three times since: an introduction
+unanswered while the introducer waited (sec 623), and `live_erasure.py`'s
+first rounds of five hosts started together ending 15 to 41 s in (secs
+631, 632), past the 30 s the test first waited. **Those three sections
+called it sec 489's; it is sec 424's**, sec 489 being the contact roster;
+they are corrected in place, and the commit messages that repeat it
+stand as written.
+
+### Tried and rejected: staggering the rounds
+
+The cheap guess was that hosts started together begin together, so a
+first round delayed by a random 0 to 3 s and later rounds a random 0 to
+5 s past their minute would rarely meet. **Measured, it made things
+worse**: phase a2's first rounds, 6.3 s in before, ended 16 to 35 s in
+across two runs, and one run failed. Reverted. A host waiting out its
+delay is not the one the others block on; the blocking is any round
+waiting on a host that is itself mid-request, which staggering does not
+prevent.
+
+### What would fix it
+
+**A host must answer while its own round waits.** Two shapes, neither
+small, and the choice is the holder's:
+
+- **A second thread** answering requests while the round runs. Every
+  store and every module's static buffers are then shared between two
+  threads -- the journal a sibling pushes into while the round reads it,
+  the groups' and catalogue's working buffers -- so it needs a lock
+  discipline over all of them.
+- **The round as steps the loop resumes**: each request sent, and its
+  answer awaited by the loop beside every other event, the round's state
+  kept between steps rather than on the stack. No shared state, and a
+  rewrite of every round function that asks a peer.
+
+Serving requests from inside the wait, the obvious shortcut, is
+rejected: it is the first shape without its locks -- a sibling's journal
+push filed into the store the round is reading.

@@ -103,7 +103,7 @@ def main(argv):
 					ds.append(up(h, tag))
 				# SIXTY SECONDS A FIRST ROUND, not thirty: five hosts started
 				# together each ask siblings still in their own rounds, and a
-				# single-threaded round waits on them (sec 489). Measured
+				# single-threaded round waits on them (sec 424; 635). Measured
 				# 2026-10-15 from their common start, phase a3's first rounds
 				# ended 15.6 s in for A and 28 to 41 s in for the rest, so a
 				# wait begun after A's could pass 30 (sec 631).
