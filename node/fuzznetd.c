@@ -44,6 +44,7 @@
 #include "group_lines.h"
 #include "streams.h"
 #include "catalog.h"
+#include "file_refs.h"
 #include "../session/box.h"
 #include "state_dir.h"
 #include "../contact/contact.h"
@@ -6543,6 +6544,173 @@ static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, c
 	return (size_t)snprintf(reply, cap, "ok\n");
 }
 
+/* ---- the references of the estate's files, sec 634 --------------------------------
+ *
+ * THE FILE VERBS, with every reference they see kept: a put's answer, and
+ * one a fetch or an export is given. And a ROOT where a verb wants a REF is
+ * read as the reference held for it, so a host that was told the key by a
+ * sibling needs no reference typed: `fetch file ROOT`, `get file ROOT PATH`.
+ * `get reference ROOT` answers it, `ok REF`. */
+static int unhex_n(const uint8_t *w, size_t n, uint8_t *out, size_t len)
+{
+	size_t i;
+
+	if (n != 2u * len)
+		return 0;
+	for (i = 0; i < len; i++) {
+		int hi = hexval(w[2u * i]), lo = hexval(w[2u * i + 1u]);
+
+		if (hi < 0 || lo < 0)
+			return 0;
+		out[i] = (uint8_t)(hi * 16 + lo);
+	}
+	return 1;
+}
+
+static size_t files_local_refs(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
+                               char *reply, size_t reply_cap)
+{
+	static uint8_t arg[FZN_REQUEST_MAX + 2u * FZN_NODE_FILE_REF_LEN];
+	uint8_t ref[FZN_NODE_FILE_REF_LEN], root[FZN_BLOB_HASH_LEN];
+	const uint8_t *at = request->arg, *subject, *w;
+	size_t left = request->arg_len, subject_len, w_len, n;
+	fzn_request_t req = *request;
+	char hex[2u * FZN_NODE_FILE_REF_LEN + 1u];
+
+	if (!at || !next_word(&at, &left, &subject, &subject_len))
+		return fzn_node_files_local(ctx, origin, request, reply, reply_cap);
+	/* `get reference ROOT`. */
+	if (request->parsed == FZN_VERB_GET && subject_len == 9u
+	    && memcmp(subject, "reference", 9u) == 0) {
+		if (origin != FZN_ORIGIN_SAME_USER)
+			return (size_t)snprintf(reply, reply_cap, "denied references are this user's\n");
+		if (!next_word(&at, &left, &w, &w_len) || !unhex_n(w, w_len, root, sizeof(root)))
+			return (size_t)snprintf(reply, reply_cap, "malformed get reference ROOT\n");
+		if (!fzn_node_file_ref_get(node_apply.store, root, ref))
+			return (size_t)snprintf(reply, reply_cap, "error no reference held for it\n");
+		hex_of(ref, sizeof(ref), hex);
+		return (size_t)snprintf(reply, reply_cap, "ok %s\n", hex);
+	}
+	if (subject_len != 4u || memcmp(subject, "file", 4u) != 0 || origin != FZN_ORIGIN_SAME_USER
+	    || !node_apply.store || !next_word(&at, &left, &w, &w_len))
+		return fzn_node_files_local(ctx, origin, request, reply, reply_cap);
+	/* A REFERENCE GIVEN is kept; a ROOT where one is wanted is read as the
+	 * reference held -- `get file ROOT` alone is the status, and stays. */
+	if (unhex_n(w, w_len, ref, sizeof(ref))) {
+		(void)fzn_node_file_ref_keep(node_apply.store, ref);
+	} else if ((request->parsed == FZN_VERB_FETCH || (request->parsed == FZN_VERB_GET && left > 0u))
+	           && unhex_n(w, w_len, root, sizeof(root))
+	           && fzn_node_file_ref_get(node_apply.store, root, ref)) {
+		hex_of(ref, sizeof(ref), hex);
+		n = (size_t)snprintf((char *)arg, sizeof(arg), "file %s%.*s", hex, (int)left,
+		                     (const char *)at);
+		if (n < sizeof(arg)) {
+			req.arg = arg;
+			req.arg_len = n;
+		}
+	}
+	n = fzn_node_files_local(ctx, origin, &req, reply, reply_cap);
+	/* A PUT'S ANSWER, `ok REF TIER`. */
+	if (request->parsed == FZN_VERB_PUT && n > 3u + 2u * FZN_NODE_FILE_REF_LEN
+	    && memcmp(reply, "ok ", 3u) == 0
+	    && unhex_n((const uint8_t *)reply + 3, 2u * FZN_NODE_FILE_REF_LEN, ref, sizeof(ref)))
+		(void)fzn_node_file_ref_keep(node_apply.store, ref);
+	return n;
+}
+
+/* FILE_REFS_WANT, type 45: roots whose references the asker lacks;
+ * FILE_REFS, type 46, answers those held here. To this estate's hosts
+ * alone, and asked of them alone. */
+#define FZND_FILE_REFS_WANT_TYPE 45u
+#define FZND_FILE_REFS_TYPE 46u
+#define FZND_FILE_REFS_MAX 32u
+
+static size_t file_refs_remote(const uint8_t *sender, const uint8_t *request, size_t request_len,
+                               uint8_t *reply, size_t reply_cap)
+{
+	uint8_t owner[FZN_PUBKEY_LEN], ref[FZN_NODE_FILE_REF_LEN];
+	size_t n, i, at = 3u, count = 0;
+	int own = 0;
+
+	if (request_len < 3u || request[2] > FZND_FILE_REFS_MAX
+	    || request_len != 3u + (size_t)request[2] * FZN_BLOB_HASH_LEN)
+		return (size_t)snprintf((char *)reply, reply_cap, "malformed a reference want\n");
+	if (!node_apply.store || !group_owner_of(sender, owner, &own) || !own)
+		return (size_t)snprintf((char *)reply, reply_cap,
+		                        "denied references to this estate's hosts alone\n");
+	n = request[2];
+	for (i = 0; i < n && at + FZN_NODE_FILE_REF_LEN <= reply_cap; i++)
+		if (fzn_node_file_ref_get(node_apply.store, request + 3u + i * FZN_BLOB_HASH_LEN, ref)) {
+			memcpy(reply + at, ref, FZN_NODE_FILE_REF_LEN);
+			at += FZN_NODE_FILE_REF_LEN;
+			count++;
+		}
+	reply[0] = FZND_GROUP_VERSION;
+	reply[1] = FZND_FILE_REFS_TYPE;
+	reply[2] = (uint8_t)count;
+	fzn_wipe(ref, sizeof(ref));
+	return at;
+}
+
+/* EVERY ROOT THE CATALOGUE LISTS without a reference here, asked of each
+ * sibling until one answers it. sec 634. */
+static void file_refs_round(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	static fzn_catalog_assertion_t set[FZN_NODE_CATALOG_MAX];
+	static uint8_t reply[FZND_PULL_REPLY_MAX];
+	uint8_t request[3u + FZND_FILE_REFS_MAX * FZN_BLOB_HASH_LEN], ref[FZN_NODE_FILE_REF_LEN];
+	size_t n, i, k, want = 0, taken = 0, len = 0;
+
+	if (!journal_on || !node_apply.store)
+		return;
+	n = fzn_node_catalog_assertions(&node_catalog, NULL, set, FZN_NODE_CATALOG_MAX);
+	for (i = 0; i < n && want < FZND_FILE_REFS_MAX; i++) {
+		uint8_t *slot = request + 3u + want * FZN_BLOB_HASH_LEN;
+
+		if (!set[i].live || set[i].entity_len != FZN_BLOB_HASH_LEN
+		    || fzn_node_file_ref_get(node_apply.store, set[i].entity, ref))
+			continue;
+		for (k = 0; k < want && memcmp(request + 3u + k * FZN_BLOB_HASH_LEN, set[i].entity,
+		                               FZN_BLOB_HASH_LEN) != 0;
+		     k++)
+			;
+		if (k == want) {
+			memcpy(slot, set[i].entity, FZN_BLOB_HASH_LEN);
+			want++;
+		}
+	}
+	if (!want)
+		return;
+	request[0] = FZND_GROUP_VERSION;
+	request[1] = FZND_FILE_REFS_WANT_TYPE;
+	request[2] = (uint8_t)want;
+	for (i = 0; i < npulls; i++) {
+		struct peer_asking asking = { &pulls[i].caller, now, pulls[i].host };
+
+		if (silent_peer(&pulls[i]) || !peer_in_estate(&pulls[i])
+		    || !peer_ask(&asking, request, 3u + want * FZN_BLOB_HASH_LEN, reply, sizeof(reply),
+		                 &len)
+		    || len < 3u || reply[0] != FZND_GROUP_VERSION || reply[1] != FZND_FILE_REFS_TYPE
+		    || len != 3u + (size_t)reply[2] * FZN_NODE_FILE_REF_LEN)
+			continue;
+		for (k = 0; k < reply[2]; k++) {
+			const uint8_t *r = reply + 3u + k * FZN_NODE_FILE_REF_LEN;
+			size_t j;
+
+			/* ONE ASKED FOR, and no other: an answer names nothing new. */
+			for (j = 0; j < want && memcmp(request + 3u + j * FZN_BLOB_HASH_LEN, r,
+			                               FZN_BLOB_HASH_LEN) != 0;
+			     j++)
+				;
+			if (j < want && fzn_node_file_ref_keep(node_apply.store, r))
+				taken++;
+		}
+	}
+	fzn_wipe(reply, sizeof(reply));
+	if (taken)
+		say(FZN_ENTRY_INFO, "files", "%zu file reference(s) from this estate's hosts", taken);
+}
+
 /* ---- relaying, sec 622 ------------------------------------------------------- */
 
 /* THE TYPES, in notes-sync's space after settlement's 34: RELAY carries a
@@ -6652,6 +6820,9 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 	if (request_len >= 2u && request[0] == FZND_GROUP_VERSION
 	    && request[1] == FZND_STREAM_QUERY_TYPE)
 		return streams_remote(sender, request, request_len, reply, reply_cap);
+	if (request_len >= 2u && request[0] == FZND_GROUP_VERSION
+	    && request[1] == FZND_FILE_REFS_WANT_TYPE)
+		return file_refs_remote(sender, request, request_len, reply, reply_cap);
 	if (request_len >= 2u && request[0] == FZND_RELAY_VERSION
 	    && (request[1] == FZND_INTRODUCE_TYPE || request[1] == FZND_NOTIFY_TYPE))
 		return introduce_remote(sender, request, request_len, reply, reply_cap);
@@ -8985,7 +9156,7 @@ int main(int argc, char **argv)
 				    && fzn_node_files_init(&files, shelf_dir, &hash_ops, &aead_ops,
 				                           &rng_ops)
 				               == FZN_NODE_FILES_OK) {
-					admin.files_local = fzn_node_files_local;
+					admin.files_local = files_local_refs;
 					admin.files_shared = files_shared;
 					admin.files_forget = files_forget;
 					admin.files_ctx = &files;
@@ -9294,6 +9465,7 @@ int main(int argc, char **argv)
 				pull_received(now);
 				contact_round(pulls, npulls, now);
 				group_round(pulls, npulls, now);
+				file_refs_round(pulls, npulls, now);
 				send_asked();
 				deliver_contacts(now);
 				history_trim();

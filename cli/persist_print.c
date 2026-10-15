@@ -152,6 +152,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "the last record held of one host's app stream";
 	case FZN_PERSIST_STREAM_GRANT:
 		return "the level of an app stream a contact or group may read";
+	case FZN_PERSIST_FILE_REF:
+		return "a file's reference, so this host can open it";
 	}
 	*known = 0;
 	return "an unknown slot";

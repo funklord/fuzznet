@@ -65362,11 +65362,8 @@ host saying what it holds is how the library knows where a file is.
 
 ### Not yet after sec 633
 
-- **A file's content key does not travel**: fuzzypickles' claim carried
-  it among the user's devices; here keys stay out of the journal, as
-  message keys do (sec 527), so a sibling sees a file listed and may fetch
-  its ciphertext, but opens it only with the reference from wherever it
-  was put. Carrying references between own devices is the open half.
+- **A file's content key**, open when this section was written, is
+  carried between the estate's hosts by sec 634, on the holder's decision.
 - **fuzzypickles' claims are not read**: their 54-byte body on stream 0
   meets this at step 7, the cut-over.
 - **Labels only**: facts (a duration, C3), identifiers, the AUTHORITATIVE
@@ -65386,3 +65383,51 @@ host saying what it holds is how the library knows where a file is.
   and B lists its own alone. **Control**: with the siblings' stream 4 not
   followed, B never lists A's name.
 - **Sabotage: two entries, both caught.**
+
+## 634. A file's reference held by every host of the estate, 2026-10-15
+
+**The holder's decision, 2026-10-15**: all estate members should normally
+be able to open the files they have; storage and relaying blind to a
+file's content are features not yet built. So sec 633's open half -- a
+sibling listing a file it could fetch and not open -- is closed: every
+host of the estate holding or listing a file holds its reference.
+
+### Kept, and read for a root
+
+fuzznetd now keeps every file reference it sees (`node/file_refs.h`, slot
+62, core -- a reference lost is a file this host cannot open): the one a
+`put file` answers, and one a verb is given, a fetch's or an export's.
+**A root where a verb wants a reference is read as the one held**:
+`fetch file ROOT` and `get file ROOT PATH` need no key typed; `get file
+ROOT` alone stays the status it was; `get reference ROOT` answers `ok
+REF`. **The first reference under a root stands**: a second key for one
+root is refused, so no answer can turn a file this host opens into one it
+cannot.
+
+### Carried between the estate's hosts
+
+FILE_REFS_WANT, type 45, names the roots an asker lacks references for;
+FILE_REFS, type 46, answers those held, **to this estate's hosts alone**,
+and a reference answered is taken only for a root asked. Each round a host
+asks its siblings for every root its catalogue lists without one. Carried
+on request as message keys are (sec 527), **never in the journal**: the
+journal keeps what it is given, and a key in it would outlast any later
+decision to hold files blind.
+
+### Not yet after sec 634
+
+- **Only roots the catalogue lists are asked for**: a file a sibling holds
+  and nobody named is not, though a fetch by its full reference keeps it.
+- **No host holds a file blind yet**: the decision names it a later
+  feature, and nothing here marks a host as one.
+
+### Measured for sec 634
+
+- **`node/test/file_refs_test.c`**: a reference kept and read back under
+  its root, the same again accepted, a second key under the root refused
+  and the first standing.
+- **`tool/live_catalog.py`, phase a2 and b**: B, told of A's file by the
+  catalogue, comes to hold its reference, fetches it by the root alone and
+  exports it equal to what A put. **Control**: with the references not
+  asked for, B never holds it.
+- **Sabotage: one entry, caught.**

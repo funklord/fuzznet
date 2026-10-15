@@ -374,13 +374,17 @@ typedef enum fzn_persist_slot {
 	/* Per (stream, grantee): the level a contact or group is granted.
 	 * CORE: a grant rolled back is a reader readmitted. sec 632. */
 	FZN_PERSIST_STREAM_GRANT = 61u,
+	/* Per root: a file's reference -- root, content key, length -- kept
+	 * so this estate's hosts can open the files they have. CORE: lost, the
+	 * file cannot be opened here. `node/file_refs.h`. sec 634. */
+	FZN_PERSIST_FILE_REF = 62u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 62u
+#define FZN_PERSIST_SLOT_END 63u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,

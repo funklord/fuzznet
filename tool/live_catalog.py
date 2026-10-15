@@ -6,8 +6,10 @@ with a grant it can pass on, pulling from A.
 
     a  A puts a file and names it in the catalogue; B, at its next round,
        lists A's name for it and A as the one host holding it
-    b  B fetches the file, holds it, and names it too: both hosts list the
-       two names, each by its own host, and two holders
+    a2 B holds the file's reference, carried from A (sec 634)
+    b  B fetches the file by its root alone, exports it whole and equal to
+       what A put, and names it too: both hosts list the two names, each by
+       its own host, and two holders
     c  A takes its name back: B lists B's alone, and one holder
 
 Against a daemon that does not follow its siblings' catalogue stream, B
@@ -120,15 +122,27 @@ def main(argv):
 				raise failed("a: B's holders are %r, not A alone" % holders("b", root))
 			print("livecheck: a: A named a file, and B lists A's name and A holding it")
 
-			# b: B fetches it and names it too.
-			expect(socks["b"], "b", "fetch file " + ref, "ok")
+			# a2: B comes to hold the file's reference from A, sec 634, and so
+			# fetches by the root alone and opens what it fetched.
+			until(lambda: ask(socks["b"], "get reference " + root).strip() == "ok " + ref,
+			      "a2")
+			print("livecheck: a2: B holds the file's reference, carried from A")
+
+			# b: B fetches it by its root, opens it, and names it too.
+			expect(socks["b"], "b", "fetch file " + root, "ok")
 			until(lambda: WHOLE_RE.search(started["b"].log()) is not None, "b-fetch")
+			out = os.path.join(scratch, "song-at-b")
+			expect(socks["b"], "b", "get file %s %s" % (root, out), "ok")
+			with open(payload, "rb") as f, open(out, "rb") as g:
+				if f.read() != g.read():
+					raise failed("b: the file B exported is not the file A put")
 			expect(socks["b"], "b", "add catalog %s name tune" % root, "ok")
 			both = sorted([("song", key_a[:16]), ("tune", key_b[:16])])
 			until(lambda: listed("a", root) == both and listed("b", root) == both, "b")
 			if holders("a", root) != sorted([key_a[:16], key_b[:16]]):
 				raise failed("b: A's holders are %r" % holders("a", root))
-			print("livecheck: b: B fetched and named it; both list both names, two holders")
+			print("livecheck: b: B fetched it by its root, opened it whole, and named it; both list "
+			      "both names, two holders")
 
 			# c: A takes its name back.
 			expect(socks["a"], "a", "remove catalog %s name" % root, "ok")

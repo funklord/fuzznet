@@ -12142,6 +12142,13 @@ SABOTAGES = [
 		"",
 		"a retraction is recorded and the assertion it takes back still stands -- sec 633",
 	),
+	(
+		"file-ref-first-stands",
+		"node/file_refs.c",
+		"\t\treturn memcmp(held, ref, FZN_NODE_FILE_REF_LEN) == 0;\n",
+		"\t\treturn store->save(store->ctx, FZN_PERSIST_FILE_REF, ref, ref, FZN_NODE_FILE_REF_LEN);\n",
+		"a second key under a file's root replaces the first, and a sibling's answer turns a file this host could open into one it cannot -- sec 634",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

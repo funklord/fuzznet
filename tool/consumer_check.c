@@ -164,6 +164,7 @@
 #include <fuzznet/node/group_lines.h>
 #include <fuzznet/node/streams.h>
 #include <fuzznet/node/catalog.h>
+#include <fuzznet/node/file_refs.h>
 #include <fuzznet/node/state_dir.h>
 #include <fuzznet/node/relay.h>
 #include <fuzznet/node/holdings.h>
@@ -355,6 +356,7 @@
 #include "node/group_lines.h"
 #include "node/streams.h"
 #include "node/catalog.h"
+#include "node/file_refs.h"
 #include "node/state_dir.h"
 #include "node/relay.h"
 #include "node/holdings.h"
