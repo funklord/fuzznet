@@ -5146,8 +5146,8 @@ SABOTAGES = [
 	(
 		"admin-contact-asks-as-shared",
 		"node/admin.c",
-		"admin->notes_remote(admin->notes_ctx, req->sender, 1, req->payload,",
-		"admin->notes_remote(admin->notes_ctx, req->sender, 0, req->payload,",
+		"admin->notes_remote(admin->notes_ctx, owner, 1, req->payload,",
+		"admin->notes_remote(admin->notes_ctx, owner, 0, req->payload,",
 		"a contact's notes request is answered as a member's, with every note -- sec 436",
 	),
 	(
@@ -5328,8 +5328,8 @@ SABOTAGES = [
 	(
 		"admin-contact-text-names-sender",
 		"node/admin.c",
-		"n = admin->text_shared(admin->text_shared_ctx, req->sender,",
-		"n = admin->text_shared(admin->text_shared_ctx, NULL,",
+		"n = admin->text_shared(admin->text_shared_ctx, owner, req->payload,",
+		"n = admin->text_shared(admin->text_shared_ctx, NULL, req->payload,",
 		"a contact's text request is judged against nobody's share -- sec 438",
 	),
 	(
@@ -12092,6 +12092,13 @@ SABOTAGES = [
 		"\tif (filed > h.have)\n",
 		"\tif (0)\n",
 		"a head says lines are filed that are not held, and they are never filed when they arrive -- sec 629",
+	),
+	(
+		"groups-host-owner-needs-self",
+		"node/groups.c",
+		"\t\t    && fzn_group_is_member(&g, self) && (h = fzn_group_host(&g, host)) != NULL) {\n",
+		"\t\t    && (h = fzn_group_host(&g, host)) != NULL) {\n",
+		"a group this user has left still pairs and serves its members' hosts -- sec 630",
 	),
 ]
 

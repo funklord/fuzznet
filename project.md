@@ -65085,3 +65085,59 @@ accident: with B's sync refused, B files nothing.
   (`@GROUP:alice`); C's filed at B through A as C's, by C's root, B not
   being C's contact.
 - **Sabotage: three entries, all caught.**
+
+## 630. Step 5d: members pair directly, and pull what a group is shared, 2026-10-15
+
+A grant to `@GROUP` (secs 471, 626) reached only members who were the
+sharer's contacts, fetching needing a session with the sharer. **The
+holder chose, 2026-10-15, that members pair directly**: every member's
+host gets a session with every other's, from the prekey its HOST act
+carries, as a contact's devices do (sec 614), rather than shared content
+travelling through every member's host or staying contacts-only.
+
+### Each round
+
+- **Every other member's host is paired** (`fzn_node_admin_pair_group_host`):
+  its record is its HOST act's signer, a held group must list it for its
+  member, and this user must be a member too. The grant is this node's
+  share capability, as a contact's device gets.
+- **One host of each other member is asked** for what its member shares
+  with the group, under a pairing derived from that host's prekey and at
+  the address its HOST act carries, the shares pulled into that member's
+  tree as an accepted share is (`pull_shares`, sec 437). Logged as `group
+  share pass`, so the `received pass` live checks wait on keeps its count.
+
+### Served as its member
+
+**A request from a host no contact holds but a group does** --
+`fzn_node_group_host_owner`: a host a held group lists for a member, in a
+group this user is in too -- is served **only what is shared**: notes,
+their texts and files, never a contact's devices, lines or routing. And
+**what is shared is now judged by the user a host speaks for**, its root,
+not the host's own key, for contacts as for members: a share names a user
+or a group of users, and a contact's other devices -- which asked under
+their own keys and matched nothing -- are served it too.
+
+### Not yet after sec 630
+
+- **A pairing outlives its member**: a removed member's host keeps its
+  grant, as a removed contact's does (sec 454), and is served nothing,
+  the group no longer listing it.
+- **Files shared with a group** are served to a member's host by the same
+  path, and nothing yet pulls them unasked.
+- **One host per member is asked**, the first its group lists with an
+  address.
+
+### Measured for sec 630
+
+- **`node/test/groups_test.c`**: a member's host taken as its member's,
+  in a group this user is in; an unlisted host, a user not in the group,
+  and a removed member's host not.
+- **`tool/live_groups.py`, phase e**: B shares a note with the group; C,
+  not B's contact, pairs B's host and pulls the note from B. **Control**:
+  with member hosts never paired, C pulls nothing.
+- **Sabotage: one entry and two of admin's re-anchored on the owner, all
+  caught.** A second entry, on a listed host's owner being a member,
+  survived because nothing can make it false -- the log drops a member's
+  hosts with its removal -- so the check and the entry went, and the
+  invariant is stated where the check was.

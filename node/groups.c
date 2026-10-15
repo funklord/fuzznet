@@ -100,6 +100,29 @@ fzn_contact_err_t fzn_node_group_ids_of(const fzn_persist_ops_t *store,
 	return FZN_CONTACT_OK;
 }
 
+int fzn_node_group_host_owner(const fzn_persist_ops_t *store, const uint8_t self[FZN_PUBKEY_LEN],
+                              const uint8_t host[FZN_PUBKEY_LEN], uint8_t owner[FZN_PUBKEY_LEN])
+{
+	static uint8_t held[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+	static fzn_group_t g;
+	const fzn_group_host_t *h;
+	size_t n = 0, i;
+
+	if (!store || !self || !host || !owner
+	    || fzn_group_log_list(store, held, FZN_GROUPS_HELD_MAX, &n) != FZN_GROUP_LOG_OK)
+		return 0;
+	for (i = 0; i < n; i++)
+		/* A LISTED HOST'S OWNER IS A MEMBER: the log drops a member's
+		 * hosts with its removal or leave, and lists none but a
+		 * member's (`node/group_log.h`). */
+		if (fzn_group_log_get(store, held[i], &g) == FZN_GROUP_LOG_OK
+		    && fzn_group_is_member(&g, self) && (h = fzn_group_host(&g, host)) != NULL) {
+			memcpy(owner, h->owner, FZN_PUBKEY_LEN);
+			return 1;
+		}
+	return 0;
+}
+
 /* ---- acting --------------------------------------------------------------- */
 
 static fzn_group_log_err_t act_with(const fzn_node_groups_t *g, uint8_t kind, const uint8_t *id,

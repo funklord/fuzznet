@@ -13,6 +13,8 @@ not know each other.
        to all three, which each come to hold it (sec 627)
     d  A writes a line to the group and B and C file it as A's; C writes one
        and B, which is not C's contact, files it through A, as C's (sec 629)
+    e  B shares a note with the group; C, which is not B's contact, pairs
+       B's host through the group and pulls the note from B (sec 630)
     c  C leaves, by an act of its own; A learns it from C at A's next round,
        and the group there has two members
     c2 A and B hold the secret of the epoch C's leave began
@@ -47,6 +49,7 @@ KEPT_RE = re.compile(r"a contact request from ([0-9a-f]{16}), waiting")
 ROUND_END_RE = re.compile(r"history pass: ")
 PREKEY_HOST = slice(4, 68)
 ROUNDS = 4
+PULLED_RE = re.compile(r"(\d+) shared note record\(s\) from 127\.0\.0\.1")
 
 
 def groups(sock, who):
@@ -196,6 +199,26 @@ def main(argv):
 				             % (missing, ask(socks["b"], "list message @" + name),
 				                "".join("\n  " + l for l in told[-14:])))
 			print("livecheck: d: A's line reached B and C, and C's reached B through A")
+
+			# e: B shares a note with the group; C, not B's contact, pairs B's
+			# host through the group and pulls it from B (sec 630).
+			note = ask(socks["b"], "add note top group-note")
+			if not note.startswith("ok "):
+				raise failed("e: add note answered %r" % note)
+			expect(socks["b"], "b", "add share %s @%s" % (note.split()[1], name), "ok")
+			pulled = None
+			for rnd in range(ROUNDS):
+				for who in ("b", "c"):
+					turn(who, "%s-e%d" % (who, rnd))
+				pulled = PULLED_RE.search(started["c"].log())
+				if pulled and int(pulled.group(1)) > 0:
+					break
+			if not pulled or int(pulled.group(1)) == 0:
+				told = [l[-200:] for l in started["c"].log().splitlines()
+				        if any(w in l for w in ("group", "received", "refused", "node/peer"))]
+				raise failed("e: C pulled nothing B shares with the group%s"
+				             % "".join("\n  " + l for l in told[-12:]))
+			print("livecheck: e: B shared a note with the group, and C pulled it from B")
 
 			# b: B made an admin, a majority of one.
 			expect(socks["a"], "a", "add admin family bob", "ok")

@@ -1863,9 +1863,48 @@ static int remote_admin(const fzn_node_admin_t *admin, const uint8_t *sender)
 	       && rank >= FZN_SETTING_RANK_ADMIN;
 }
 
+/* THIS USER'S ROOT, as its groups know it: the root its host acts for. */
+static int self_root(const fzn_node_admin_t *admin, uint8_t root[FZN_PUBKEY_LEN])
+{
+	static fzn_contact_device_t own;
+
+	if (!admin->groups || !admin->groups->signer
+	    || !admin->groups->signer(admin->groups->signer_ctx, &own))
+		return 0;
+	memcpy(root, own.owner, FZN_PUBKEY_LEN);
+	return 1;
+}
+
+/* WHOSE `host` IS as one of this user's groups lists it, sec 630. */
+static int group_host_owner(const fzn_node_admin_t *admin, const uint8_t *host,
+                            uint8_t owner[FZN_PUBKEY_LEN])
+{
+	uint8_t self[FZN_PUBKEY_LEN];
+
+	return admin->store && self_root(admin, self)
+	       && memcmp(self, host, FZN_PUBKEY_LEN) != 0
+	       && fzn_node_group_host_owner(admin->store, self, host, owner);
+}
+
+static int pair_device(fzn_node_admin_t *admin, const fzn_contact_device_t *d, int group,
+                       const char **why);
+
 int fzn_node_admin_pair_contact_device(fzn_node_admin_t *admin, const fzn_contact_device_t *d,
                                        const char **why)
 {
+	return pair_device(admin, d, 0, why);
+}
+
+int fzn_node_admin_pair_group_host(fzn_node_admin_t *admin, const fzn_contact_device_t *d,
+                                   const char **why)
+{
+	return pair_device(admin, d, 1, why);
+}
+
+static int pair_device(fzn_node_admin_t *admin, const fzn_contact_device_t *d, int group,
+                       const char **why)
+{
+	uint8_t owner[FZN_PUBKEY_LEN];
 	static uint8_t card[FZN_PROVISION_MAX_LEN];
 	fzn_prekey_record_t record;
 	fzn_node_pair_err_t perr;
@@ -1885,9 +1924,12 @@ int fzn_node_admin_pair_contact_device(fzn_node_admin_t *admin, const fzn_contac
 			*why = "this node shares nothing, so has no contact capability to grant";
 		return -1;
 	}
-	if (!fzn_node_admin_contact_stands(admin, d->owner)) {
+	if (group ? !group_host_owner(admin, record.host, owner)
+	                    || memcmp(owner, d->owner, FZN_PUBKEY_LEN) != 0
+	          : !fzn_node_admin_contact_stands(admin, d->owner)) {
 		if (why)
-			*why = "its owner is no contact standing here";
+			*why = group ? "no group held here lists it for its owner"
+			             : "its owner is no contact standing here";
 		return -1;
 	}
 	/* A MEMBER IS PAIRED AS ONE: a contact's chain would replace its grant. */
@@ -2047,32 +2089,39 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 		/* OR A DEVICE OF ONE, sec 614: kept as a contact's device, its
 		 * owner standing. */
 		uint8_t owner[FZN_PUBKEY_LEN];
+		int contact = fzn_node_admin_contact_of(admin, req->sender, owner);
 
-		if (!fzn_node_admin_contact_of(admin, req->sender, owner))
+		/* OR A HOST OF A MEMBER of one of this user's groups, sec 630:
+		 * served what is shared with its member, and nothing a contact's
+		 * own is. */
+		if (!contact && !group_host_owner(admin, req->sender, owner))
 			return answer_text(out, reply_cap, FZN_REPLY_DENIED, "no longer a contact");
 		/* ITS USER'S DEVICES, AND THIS ESTATE'S HOSTS, sec 614. */
-		if (admin->contact_devices && req->payload)
+		if (contact && admin->contact_devices && req->payload)
 			n = admin->contact_devices(admin->contact_devices_ctx, owner, req->payload,
 			                           req->payload_len, reply, reply_cap);
 		/* A LINE IT DELIVERS, sec 613, filed under the contact it
 		 * speaks for. */
-		if (!n && admin->messages_contact && req->payload)
+		if (!n && contact && admin->messages_contact && req->payload)
 			n = admin->messages_contact(admin->messages_contact_ctx, owner, req->payload,
 			                            req->payload_len, reply, reply_cap);
 		/* WHERE THIS USER MAY BE REACHED, sec 611, when it advertises. */
-		if (!n && admin->routing_remote && req->payload)
+		if (!n && contact && admin->routing_remote && req->payload)
 			n = admin->routing_remote(admin->routing_ctx, req->sender, 1, req->payload,
 			                          req->payload_len, reply, reply_cap);
+		/* WHAT IS SHARED, asked as the user the host speaks for, sec 630:
+		 * a share names a user, or a group of users, and any of its hosts
+		 * asks. */
 		if (!n && admin->notes_remote && req->payload)
-			n = admin->notes_remote(admin->notes_ctx, req->sender, 1, req->payload,
+			n = admin->notes_remote(admin->notes_ctx, owner, 1, req->payload,
 			                        req->payload_len, reply, reply_cap);
 		/* ITS NOTES' TEXTS, sec 438, and no other blob. */
 		if (!n && admin->text_shared && req->payload)
-			n = admin->text_shared(admin->text_shared_ctx, req->sender, req->payload,
+			n = admin->text_shared(admin->text_shared_ctx, owner, req->payload,
 			                       req->payload_len, reply, reply_cap);
 		/* THE FILES PUBLIC OR SHARED WITH IT, sec 493. */
 		if (!n && admin->files_shared && req->payload)
-			n = admin->files_shared(admin->files_ctx, req->sender, req->payload,
+			n = admin->files_shared(admin->files_ctx, owner, req->payload,
 			                        req->payload_len, reply, reply_cap);
 		return n ? n
 		         : answer_text(out, reply_cap, FZN_REPLY_DENIED,

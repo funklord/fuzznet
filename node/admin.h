@@ -286,6 +286,13 @@ int fzn_node_admin_pair_sibling(fzn_node_admin_t *admin,
 int fzn_node_admin_pair_contact_device(fzn_node_admin_t *admin, const fzn_contact_device_t *d,
                                        const char **why);
 
+/* PAIR A HOST OF A MEMBER of one of this user's groups, sec 630, as a
+ * contact's device is: its record is its group's HOST act's signer, and a
+ * held group must list it for that owner, both of them members. Answers as
+ * `fzn_node_admin_pair_contact_device`. */
+int fzn_node_admin_pair_group_host(fzn_node_admin_t *admin, const fzn_contact_device_t *d,
+                                   const char **why);
+
 /* THE CONTACT `sender` SPEAKS FOR, sec 614: itself when it is a contact
  * still standing, or the owner of the contact device kept under its key
  * when that owner stands; into `owner`. 0 when it is neither. */

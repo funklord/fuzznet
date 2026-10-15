@@ -62,6 +62,13 @@ fzn_contact_err_t fzn_node_group_ids_of(const fzn_persist_ops_t *store,
                                         uint8_t (*ids)[FZN_GROUP_ID_LEN], size_t cap,
                                         size_t *count);
 
+/* WHOSE HOST `host` IS, as a group knows: a host some group held here lists
+ * for a member, in a group `self` -- this user's root -- is a member of
+ * too. Its member's root into `owner`; 0 when no such group holds it.
+ * sec 630: what lets a member's host be served as its member. */
+int fzn_node_group_host_owner(const fzn_persist_ops_t *store, const uint8_t self[FZN_PUBKEY_LEN],
+                              const uint8_t host[FZN_PUBKEY_LEN], uint8_t owner[FZN_PUBKEY_LEN]);
+
 /* ---- acting --------------------------------------------------------------- */
 
 typedef struct fzn_node_groups {

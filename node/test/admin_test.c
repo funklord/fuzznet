@@ -508,7 +508,10 @@ static int listed(uint8_t (*keys)[FZN_PUBKEY_LEN], size_t n, const uint8_t *key)
 
 /* A contact's text hook that records who asked and answers two bytes.
  * sec 438. */
-static const uint8_t *text_shared_sender;
+/* WHO THE TEXT HOOK WAS TOLD ASKS, as bytes: the admin hands over its
+ * own copy of the user a host speaks for (sec 630). */
+static uint8_t text_shared_sender[FZN_PUBKEY_LEN];
+static int text_shared_told;
 
 static size_t text_shared_stub(void *ctx, const uint8_t *sender, const uint8_t *request,
                                size_t request_len, uint8_t *reply, size_t reply_cap)
@@ -516,7 +519,9 @@ static size_t text_shared_stub(void *ctx, const uint8_t *sender, const uint8_t *
 	(void)ctx;
 	(void)request;
 	(void)request_len;
-	text_shared_sender = sender;
+	text_shared_told = sender != NULL;
+	if (sender)
+		memcpy(text_shared_sender, sender, FZN_PUBKEY_LEN);
 	if (reply_cap < 2u)
 		return 0;
 	reply[0] = 1u;
@@ -1583,9 +1588,10 @@ int main(void)
 		      "a contact's verb was answered as a member's");
 		/* A TEXT REQUEST reaches the scoped text hook, told who asks. */
 		admin.text_shared = text_shared_stub;
-		text_shared_sender = NULL;
+		text_shared_told = 0;
 		n = fzn_node_admin_remote(&admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
-		CHECK(n == 2u && text_shared_sender == outside.id.pubkey,
+		CHECK(n == 2u && text_shared_told
+		              && memcmp(text_shared_sender, outside.id.pubkey, FZN_PUBKEY_LEN) == 0,
 		      "a contact's request did not reach the text hook with its sender");
 		admin.text_shared = NULL;
 		admin.notes_remote = notes_remote_stub;

@@ -440,6 +440,32 @@ static void test_a_line_is_read_by_members_alone(void)
 	(void)c;
 }
 
+/* WHOSE A HOST IS, sec 630: a member's, in a group this user is in. */
+static void test_a_members_host_is_its_members(void)
+{
+	struct user *a = &users[0], *b = &users[1], *c = &users[2];
+	uint8_t id[FZN_GROUP_ID_LEN], owner[FZN_PUBKEY_LEN];
+
+	user_up(a, 0x11u);
+	user_up(b, 0x22u);
+	user_up(c, 0x33u);
+	(void)fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_CREATE, NULL, NULL, 0u, 0u, id);
+	(void)fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_ADD, id, b->device.owner, 0u, 0u, NULL);
+	sync(a, b, id);
+	(void)tend(b, id);
+	sync(b, a, id);
+	CHECK(fzn_node_group_host_owner(&a->ops, a->device.owner, b->device.owner, owner)
+	              && memcmp(owner, b->device.owner, FZN_PUBKEY_LEN) == 0,
+	      "a member's host was not taken as its member's");
+	CHECK(!fzn_node_group_host_owner(&a->ops, a->device.owner, c->device.owner, owner),
+	      "a host no group lists was taken as a member's");
+	CHECK(!fzn_node_group_host_owner(&a->ops, c->device.owner, b->device.owner, owner),
+	      "a member's host was taken as such for a user not in the group");
+	(void)fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_REMOVE, id, b->device.owner, 0u, 0u, NULL);
+	CHECK(!fzn_node_group_host_owner(&a->ops, a->device.owner, b->device.owner, owner),
+	      "a removed member's host was still taken as a member's");
+}
+
 /* A HOST'S LINES HELD IN ORDER, sec 629, their senders kept. */
 static void test_lines_are_held_in_order(void)
 {
@@ -520,6 +546,7 @@ int main(void)
 	test_a_secret_drawn_on_a_lost_fork_is_let_go();
 	test_a_line_is_read_by_members_alone();
 	test_lines_are_held_in_order();
+	test_a_members_host_is_its_members();
 	if (failures) {
 		fprintf(stderr, "node groups_test: %d of %d checks failed\n", failures, checks);
 		return 1;

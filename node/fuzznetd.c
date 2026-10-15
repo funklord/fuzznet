@@ -4031,41 +4031,46 @@ static void load_received(int family, const uint8_t self[FZN_PUBKEY_LEN],
 	}
 }
 
-/* Each accepted share into its sharer's tree. sec 437. */
-static void pull_received(uint64_t now)
+/* Each share into its sharer's tree: `targets`, `n` of them, an accepted
+ * share's (`contacts`, its sharer a contact that must stand) or a group
+ * member's host (sec 630, its membership checked when it was loaded).
+ * sec 437. */
+static void pull_shares(struct share_target *targets, size_t n_targets, int contacts,
+                        uint64_t now)
 {
 	size_t i, suspended = 0;
 
 	if (!notes_on)
 		return;
-	for (i = 0; i < nshares_in; i++) {
+	for (i = 0; i < n_targets; i++) {
 		static fzn_notes_received_t seam;
 		static fzn_persist_ops_t ops;
 		fzn_notes_store_t tree;
-		struct peer_asking asking = { &shares_in[i].pt.caller, now, shares_in[i].host };
+		struct peer_asking asking = { &targets[i].pt.caller, now, targets[i].host };
 		fzn_notes_sync_tally_t tally;
 		fzn_notes_sync_err_t err;
 
 		/* A REMOVED CONTACT'S SHARE IS NOT PULLED, sec 576, the holder's of
 		 * 2026-10-09: what it shared stays (sec 478), and nothing new comes
 		 * while it is removed. Adding it back pulls on from where it was. */
-		if (running_admin && !fzn_node_admin_contact_stands(running_admin, shares_in[i].sharer)) {
+		if (contacts && running_admin
+		    && !fzn_node_admin_contact_stands(running_admin, targets[i].sharer)) {
 			suspended++;
 			continue;
 		}
 		if (fzn_notes_received_ops(&seam, node_notes.store.ops, node_notes.store.hash,
-		                           shares_in[i].sharer, &ops)
+		                           targets[i].sharer, &ops)
 		            != FZN_NOTES_OK
 		    || fzn_notes_store_init(&tree, &ops, node_notes.store.hash) != FZN_NOTES_OK)
 			continue;
 		err = fzn_notes_sync_pull_shared(&tree, node_notes.author.sign, peer_ask, &asking,
 		                                 &tally);
 		if (err != FZN_NOTES_SYNC_OK)
-			say(FZN_ENTRY_WARNING, "notes/received", "shared notes from %s: %s", shares_in[i].host,
+			say(FZN_ENTRY_WARNING, "notes/received", "shared notes from %s: %s", targets[i].host,
 			        fzn_notes_sync_err_str(err));
 		else if (tally.learned || tally.refused)
 			say(FZN_ENTRY_INFO, "notes/received", "%zu shared note record(s) from %s, %zu refused",
-			        tally.learned, shares_in[i].host, tally.refused);
+			        tally.learned, targets[i].host, tally.refused);
 		/* AND THEIR WRAP KEYS, sec 520: asked, never given. */
 		{
 			fzn_notes_wrap_tally_t wt;
@@ -4073,7 +4078,7 @@ static void pull_received(uint64_t now)
 
 			if (werr != FZN_NOTES_SYNC_OK)
 				say(FZN_ENTRY_WARNING, "notes/received", "shared wrap keys from %s: %s",
-				        shares_in[i].host, fzn_notes_sync_err_str(werr));
+				        targets[i].host, fzn_notes_sync_err_str(werr));
 		}
 #ifdef FZN_SPOOL_FILE_ON
 		/* THE SHARED NOTES' TEXTS, sec 438: each blob one of them names is
@@ -4092,14 +4097,22 @@ static void pull_received(uint64_t now)
 			got = fzn_node_shelf_fetch_wants(&shelf, peer_ask, &asking);
 			if (got)
 				say(FZN_ENTRY_INFO, "notes/received", "%zu shared text(s) from %s", got,
-				        shares_in[i].host);
+				        targets[i].host);
 		}
 #endif
 	}
 	/* EVERY PASS SAYS SO, at debug: a share passed over reads the same as
 	 * one with nothing new, and the live check waits on this line. */
-	say(FZN_ENTRY_DEBUG, "notes/received", "received pass: %zu share(s), %zu of removed contacts "
-	                                       "passed over", nshares_in, suspended);
+	if (contacts)
+		say(FZN_ENTRY_DEBUG, "notes/received", "received pass: %zu share(s), %zu of removed "
+		                                       "contacts passed over", n_targets, suspended);
+	else
+		say(FZN_ENTRY_DEBUG, "notes/received", "group share pass: %zu member(s) asked", n_targets);
+}
+
+static void pull_received(uint64_t now)
+{
+	pull_shares(shares_in, nshares_in, 1, now);
 }
 
 /* ---- a contact's devices, sec 614 ------------------------------------------
@@ -5639,6 +5652,98 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 	return filed;
 }
 
+/* ---- a group's shares, sec 630 ----------------------------------------------- */
+
+/* EVERY OTHER MEMBER'S HOSTS, paired as a contact's devices are, and asked
+ * for what their members share with the group: one host per member, the
+ * first its group lists that says where it is reached. */
+#define FZND_GROUP_SHARES_MAX 32u
+static struct share_target group_shares_in[FZND_GROUP_SHARES_MAX];
+static size_t ngroup_shares_in;
+
+/* `h`'s HOST act's signer: its record, and where it is reached. */
+static int group_host_device(const fzn_group_t *g, const fzn_group_host_t *h,
+                             fzn_contact_device_t *out)
+{
+	static uint8_t bytes[FZN_GROUP_ACT_MAX];
+	static fzn_group_act_t a;
+	size_t len = 0;
+
+	if (fzn_group_log_act(&node_groups.log, g->id, h->seq, bytes, sizeof(bytes), &len)
+	            != FZN_GROUP_LOG_OK
+	    || fzn_group_act_decode(bytes, len, &a) != FZN_GROUP_ACT_OK
+	    || memcmp(fzn_contact_device_key(&a.signer), h->key, FZN_PUBKEY_LEN) != 0)
+		return 0;
+	*out = a.signer;
+	return 1;
+}
+
+static void group_shares_round(uint64_t now)
+{
+	static uint8_t ids[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+	static fzn_group_t g;
+	static fzn_contact_device_t own, d;
+	size_t n = 0, i, k, m, paired = 0;
+	const char *why;
+
+	for (i = 0; i < ngroup_shares_in; i++) {
+		if (group_shares_in[i].pt.fd >= 0)
+			fzn_udp_close(group_shares_in[i].pt.fd);
+		fzn_wipe(&group_shares_in[i].pt.pairing, sizeof(group_shares_in[i].pt.pairing));
+	}
+	ngroup_shares_in = 0;
+	if (!running_admin || !contact_id || !running_admin->state->config.has_share
+	    || !groups_signer(NULL, &own)
+	    || fzn_group_log_list(node_apply.store, ids, FZN_GROUPS_HELD_MAX, &n) != FZN_GROUP_LOG_OK)
+		return;
+	for (i = 0; i < n; i++) {
+		if (fzn_group_log_get(node_apply.store, ids[i], &g) != FZN_GROUP_LOG_OK
+		    || !fzn_group_is_member(&g, own.owner))
+			continue;
+		for (k = 0; k < g.n_hosts; k++) {
+			const fzn_group_host_t *h = &g.hosts[k];
+			struct share_target *sh = &group_shares_in[ngroup_shares_in];
+			int r;
+
+			if (memcmp(h->owner, own.owner, FZN_PUBKEY_LEN) == 0
+			    || !fzn_group_is_member(&g, h->owner) || !group_host_device(&g, h, &d))
+				continue;
+			/* PAIRED as this host's: it asks here as its member. */
+			r = fzn_node_admin_pair_group_host(running_admin, &d, &why);
+			paired += r > 0;
+			if (r < 0)
+				say(FZN_ENTRY_DEBUG, "node/groups", "a member's host was not paired: %s",
+				    why ? why : "it would not pair");
+			/* ASKED, one host per member, one that is reached somewhere. */
+			for (m = 0; m < ngroup_shares_in
+			            && memcmp(group_shares_in[m].sharer, h->owner, FZN_PUBKEY_LEN) != 0;
+			     m++)
+				;
+			if (m < ngroup_shares_in || ngroup_shares_in == FZND_GROUP_SHARES_MAX || !d.port
+			    || !d.address_len || d.address_len > FZN_NODE_RECEIVED_HOST_MAX)
+				continue;
+			memset(sh, 0, sizeof(*sh));
+			sh->pt.fd = -1;
+			memcpy(sh->host, d.address, d.address_len);
+			sh->host[d.address_len] = '\0';
+			memcpy(sh->sharer, h->owner, FZN_PUBKEY_LEN);
+			sh->pt.host = sh->host;
+			sh->pt.port = d.port;
+			if (fzn_node_pairing_derive(contact_id, d.record,
+			                            &running_admin->state->config.share_capability, now,
+			                            &sh->pt.pairing)
+			            != FZN_NODE_PAIR_OK
+			    || !open_target(&sh->pt, contact_family, contact_id->pubkey, contact_hash_ops,
+			                    contact_aead_ops, contact_rng_ops))
+				continue;
+			ngroup_shares_in++;
+		}
+	}
+	if (paired)
+		say(FZN_ENTRY_INFO, "node/groups", "%zu member host(s) paired", paired);
+	pull_shares(group_shares_in, ngroup_shares_in, 0, now);
+}
+
 /* THE LINES ROUND, sec 629, after the acts and the tending: this host's own
  * new lines sealed; every sibling, and one host of each contact, asked for
  * the lines past this host's heads in each group the two share; and what
@@ -5719,6 +5824,7 @@ static void group_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 	if (taken)
 		say(FZN_ENTRY_INFO, "node/groups", "group pass: %zu act(s) taken", taken);
 	group_lines_round(pulls, npulls, now);
+	group_shares_round(now);
 }
 
 /* ---- relaying, sec 622 ------------------------------------------------------- */
