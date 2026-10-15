@@ -64934,9 +64934,12 @@ length arithmetic wide, and clamp it once") now emits the payload-length
 reads through `situ_nonneg_u32(situ_leaf_u64(...))`. Every spec schema,
 `node/group_act.situ` among them, still checks current. **Taking the new
 generated frame code is a dependency change, not made here**: situ's own
-latest fold says its gate is red at its tip. The next session regenerates
-`wire/generated/` deliberately once situ's tip is green, or the holder
-says otherwise.
+latest fold said its gate was red at its tip. **Taken 2026-10-15, once
+situ's tip was green** (c44c064, its fold "the gate is green and
+pushed"): `wire/generated/frame.h` regenerated -- the payload length read
+through `situ_nonneg_u32(situ_leaf_u64(...))` -- and the vendored runtime
+re-copied, gaining `situ_saturate_i64`; the other generated files were
+unchanged. `make schema SITU_DIR=../situ` passes again.
 
 ### Measured for sec 627
 

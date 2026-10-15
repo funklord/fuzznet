@@ -393,7 +393,7 @@ static inline uint8_t *situ_fzn_frame_sealed_capability_ptr(situ_fzn_frame_seale
  */
 static inline uint32_t situ_fzn_frame_sealed_payload_len(situ_fzn_frame_sealed_t gate)
 {
-	return situ_min_u32((uint32_t)(situ_get_be16(situ_base(gate.view) + 94u)),
+	return situ_min_u32((uint32_t)situ_nonneg_u32(situ_leaf_u64(situ_get_be16(situ_base(gate.view) + 94u))),
 		situ_remaining_u32(gate.view.limit, 128u));
 }
 static inline uint8_t *situ_fzn_frame_sealed_payload_ptr(situ_fzn_frame_sealed_t gate)
@@ -416,7 +416,7 @@ static inline uint8_t *situ_fzn_frame_sealed_payload_ptr(situ_fzn_frame_sealed_t
 static inline uint32_t situ_fzn_frame_tag_offset(situ_view_t view)
 {
 	uint32_t offset = 96u;
-	offset = situ_advance_u32(offset, (32u + ((uint32_t)(situ_get_be16(situ_base(view) + 94u)))), view.limit);
+	offset = situ_advance_u32(offset, (situ_nonneg_u32((int64_t)32 + (int64_t)((uint32_t)situ_nonneg_u32(situ_leaf_u64(situ_get_be16(situ_base(view) + 94u)))))), view.limit);
 
 	return offset;
 }
