@@ -165,6 +165,7 @@
 #include <fuzznet/node/streams.h>
 #include <fuzznet/node/catalog.h>
 #include <fuzznet/node/file_refs.h>
+#include <fuzznet/node/asks.h>
 #include <fuzznet/node/state_dir.h>
 #include <fuzznet/node/relay.h>
 #include <fuzznet/node/holdings.h>
@@ -357,6 +358,7 @@
 #include "node/streams.h"
 #include "node/catalog.h"
 #include "node/file_refs.h"
+#include "node/asks.h"
 #include "node/state_dir.h"
 #include "node/relay.h"
 #include "node/holdings.h"

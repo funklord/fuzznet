@@ -518,6 +518,24 @@ static uint16_t port_of(int fd)
 /* THE WHOLE POINT OF PAIRING, asserted as itself: the device, holding only
  * what it stored, asks the node, holding only what IT stored, and is
  * answered. Every value on both sides came out of a store. */
+/* THE ASKS TEST'S CLOCK AND CALLBACK, sec 636. */
+static uint64_t ask_now;
+static int answers, failures_seen;
+
+static uint64_t ask_clock(void)
+{
+	return ask_now;
+}
+
+static void on_answer(void *ctx, const uint8_t *reply, size_t len)
+{
+	(void)ctx;
+	if (reply && len == sizeof(PONG) && memcmp(reply, PONG, sizeof(PONG)) == 0)
+		answers++;
+	else if (!reply)
+		failures_seen++;
+}
+
 static void test_paired_stores_talk(struct node *node, struct node *device,
                                     const fzn_cap_id_t *cap)
 {
@@ -590,6 +608,51 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 	              && reply_len == sizeof(PONG) && memcmp(reply, PONG, sizeof(PONG)) == 0,
 	      "the device was not answered, so the two stored halves of a pairing do not "
 	      "make a working pair");
+
+	/* ---- AWAITED BY THE LOOP, sec 636: two requests out at once on one
+	 * caller, each answered to its own callback once the node has served
+	 * them, and a third, never served, failed at its deadline. */
+	{
+		static fzn_node_asks_t asks;
+		static uint8_t asks_reply[256];
+		fzn_node_state_t client;
+		int fd = -1;
+
+		memset(&client, 0, sizeof(client));
+		client.listen_fd = -1;
+		client.udp_fd = -1;
+		client.asks = &asks;
+		fzn_node_asks_init(&asks, asks_reply, sizeof(asks_reply), ask_clock);
+		answers = 0;
+		failures_seen = 0;
+		ask_now = 1000u;
+		CHECK(fzn_node_asks_send(&asks, &caller, PING, sizeof(PING), 3500u, 2000u, on_answer,
+		                         NULL)
+		              && fzn_node_asks_send(&asks, &caller, PING, sizeof(PING), 3500u, 2000u,
+		                                    on_answer, NULL)
+		              && fzn_node_asks_pending(&asks) == 2u
+		              && fzn_node_asks_fds(&asks, &fd, 1u) == 1u && fd == caller.fd,
+		      "two requests were not both awaited on the one socket");
+		(void)fzn_node_run_once(&state, 1000);
+		(void)fzn_node_run_once(&state, 1000);
+		/* THE CLIENT'S LOOP, polling what it awaits. */
+		(void)fzn_node_run_once(&client, 1000);
+		if (answers < 2)
+			(void)fzn_node_run_once(&client, 1000);
+		CHECK(answers == 2 && failures_seen == 0 && fzn_node_asks_pending(&asks) == 0u,
+		      "the two requests' answers did not reach their callbacks");
+		CHECK(fzn_node_asks_send(&asks, &caller, PING, sizeof(PING), 3500u, 2000u, on_answer,
+		                         NULL)
+		              && fzn_node_asks_expire(&asks) == 0u,
+		      "a request was failed before its deadline");
+		ask_now += 2000u;
+		CHECK(fzn_node_asks_expire(&asks) == 1u && failures_seen == 1
+		              && fzn_node_asks_pending(&asks) == 0u,
+		      "a request past its deadline was not failed to its callback");
+		/* The PING sent and never served is drained, for what follows. */
+		(void)fzn_node_run_once(&state, 200);
+		(void)fzn_caller_recv_any(&caller, &msg, reply, sizeof(reply), &reply_len, 200u);
+	}
 
 	/* ---- REVOKED: the same device, the same stored pairing, and now the
 	 * node's own authorisation refuses it. sec 380. */

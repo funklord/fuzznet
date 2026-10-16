@@ -65476,3 +65476,59 @@ small, and the choice is the holder's:
 Serving requests from inside the wait, the obvious shortcut, is
 rejected: it is the first shape without its locks -- a sibling's journal
 push filed into the store the round is reading.
+
+## 636. The resumable round, planned, and its first stage, 2026-10-16
+
+**The holder chose, 2026-10-16, the resumable round** of the two shapes
+sec 635 recorded: the round becomes steps the loop resumes, each request
+sent and its answer awaited beside every other event, the round's state
+kept between steps rather than on the stack. Chosen over a second thread,
+whose every store and module buffer would be shared and locked.
+
+### Why steps, measured
+
+A coroutine would keep the round's code as it is and still let the loop
+answer, but it needs `ucontext` or hand-written stack switching, and
+Android's libc has no `ucontext` -- fuzzypickles builds for Android. And
+any shape that answers while a round waits interleaves the two, so state
+the round keeps across a wait must not be state an answer can reach:
+**the library exchanges keep theirs in static buffers** (`record/exchange.c`'s
+`fzn_exchange_pull` holds its plan in two), the same module answering a
+peer's push. Steps put that state in a struct per exchange, which is what
+makes the interleaving safe by construction.
+
+### The size of it
+
+Measured 2026-10-16: **30 places in `fuzznetd` hand a peer request a
+synchronous `ask`**, and **15 library entry points** run multi-request
+exchanges around one: the journal's pull and push (`record/exchange.h`),
+the notes' shared pull and wrap keys (`notes/sync.h`), log gathering
+(`log/gather.h`), reconciliation's rebase, holds and buckets
+(`node/reconcile.h`), the shelf's and the files' fetches, contact devices'
+offer and query, message delivery and the messages round, members' pull,
+and the notes' text push. **A host answers while its round waits only once
+none of these waits the old way**, so the gain arrives at the end.
+
+### The resumable round's stages
+
+1. **The primitive -- built here.** `node/asks.h`: a request sent and
+   recorded with a callback for its answer; `fzn_node_run_once` polls the
+   awaited sockets beside the serving ones (`fzn_node_state_t.asks`), hands
+   each answer to its callback, and fails each request past its deadline.
+2. **The journal**: `fzn_exchange_pull` and `_push` as steps over a struct,
+   the most frequent wait.
+3. **The single-request sites** in `fuzznetd`: groups' sync and lines,
+   streams, references, addresses, introductions -- each a request and a
+   callback.
+4. **The remaining library exchanges**, one module at a time.
+5. **The round itself** a sequence the loop advances, its end what the
+   live checks wait on, so a round's "history pass" still means the
+   round's work is done.
+
+### Measured for sec 636
+
+- **`node/test/pair_test.c`**: two requests out at once on one caller,
+  each answered to its own callback once the node served them, the client
+  polling through `fzn_node_run_once`; a third, never served, not failed
+  before its deadline and failed at it.
+- **Sabotage: one entry, caught.**

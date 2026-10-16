@@ -255,10 +255,10 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 
 int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)
 {
-	struct pollfd fds[2u + FZN_NODE_EVENTS_MAX];
-	int subscribers[FZN_NODE_EVENTS_MAX];
-	nfds_t nfds = 0, first_sub;
-	size_t n_sub = 0, s;
+	struct pollfd fds[2u + FZN_NODE_EVENTS_MAX + FZN_NODE_ASKS_MAX];
+	int subscribers[FZN_NODE_EVENTS_MAX], awaited[FZN_NODE_ASKS_MAX];
+	nfds_t nfds = 0, first_sub, first_ask;
+	size_t n_sub = 0, n_ask = 0, s;
 	int li = -1, ui = -1, handled = 0, r;
 
 	if (!state)
@@ -288,12 +288,29 @@ int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)
 			fds[nfds].revents = 0;
 			nfds++;
 		}
+	/* EACH SOCKET A REQUEST AWAITS ITS ANSWER ON, sec 636. */
+	first_ask = nfds;
+	if (state->asks) {
+		n_ask = fzn_node_asks_fds(state->asks, awaited, FZN_NODE_ASKS_MAX);
+		for (s = 0; s < n_ask; s++) {
+			fds[nfds].fd = awaited[s];
+			fds[nfds].events = POLLIN;
+			fds[nfds].revents = 0;
+			nfds++;
+		}
+	}
 	if (nfds == 0)
 		return 0;
 
 	r = poll(fds, nfds, timeout_ms);
+	/* PAST ITS DEADLINE, whatever the poll said. */
+	if (state->asks)
+		handled += (int)fzn_node_asks_expire(state->asks);
 	if (r <= 0)
-		return 0;	/* a timeout or an interrupted poll; the caller loops */
+		return handled;	/* a timeout or an interrupted poll; the caller loops */
+	for (s = 0; s < n_ask; s++)
+		if (fds[first_ask + s].revents & POLLIN)
+			handled += (int)fzn_node_asks_ready(state->asks, awaited[s]);
 
 	/* SUBSCRIBERS FIRST: one dropped here frees its descriptor, and a
 	 * connection accepted after could be given the same number -- taken

@@ -12149,6 +12149,13 @@ SABOTAGES = [
 		"\t\treturn store->save(store->ctx, FZN_PERSIST_FILE_REF, ref, ref, FZN_NODE_FILE_REF_LEN);\n",
 		"a second key under a file's root replaces the first, and a sibling's answer turns a file this host could open into one it cannot -- sec 634",
 	),
+	(
+		"asks-fail-at-the-deadline",
+		"node/asks.c",
+		"\t\tif (asks->slots[i].used && asks->slots[i].deadline_ms <= now) {\n",
+		"\t\tif (asks->slots[i].used) {\n",
+		"a request is failed the moment the loop looks, and no answer is ever awaited -- sec 636",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

@@ -22,6 +22,7 @@
 #include "events.h"
 #include "../net/udp.h"
 #include "relay.h"
+#include "asks.h"
 #include "../chunk/split.h"
 #include "../chunk/reassembly.h"
 #include "../frame/freshness.h"
@@ -99,6 +100,10 @@ typedef struct fzn_node_state {
 	 * -- a probe is answered there or not at all. NULL drops every probe. */
 	void (*on_probe)(void *ctx, const uint8_t *probe, size_t len, const fzn_udp_addr_t *from);
 	void *on_probe_ctx;
+	/* REQUESTS THIS NODE AWAITS, sec 636: their sockets polled beside the
+	 * serving ones, each answer handed to its callback, each past its
+	 * deadline failed. NULL awaits nothing. */
+	fzn_node_asks_t *asks;
 	/* WHERE THE REQUEST BEING ANSWERED CAME FROM, sec 621: set for the
 	 * length of an `on_remote` call and NULL otherwise, so a handler can
 	 * tell a peer the address it saw -- and never decides who the peer is
