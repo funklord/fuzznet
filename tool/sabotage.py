@@ -12156,6 +12156,27 @@ SABOTAGES = [
 		"\t\tif (asks->slots[i].used) {\n",
 		"a request is failed the moment the loop looks, and no answer is ever awaited -- sec 636",
 	),
+	(
+		"exchange-step-pages-the-digest",
+		"record/exchange.c",
+		"\t\tif (p->n < p->total && p->n < FZN_SYNC_MAX_POSITIONS\n",
+		"\t\tif (0 && p->n < p->total && p->n < FZN_SYNC_MAX_POSITIONS\n",
+		"a pull by steps plans from the digest's first page alone, and streams listed on later pages are never fetched -- sec 636",
+	),
+	(
+		"exchange-step-pages-a-range",
+		"record/exchange.c",
+		"\t                 reply_len, &p->next, &p->left, &p->tally, &err)\n\t    && p->left) {\n",
+		"\t                 reply_len, &p->next, &p->left, &p->tally, &err)\n\t    && 0) {\n",
+		"a pull by steps takes one page of a range and moves on, leaving the rest of the range unfetched -- sec 636",
+	),
+	(
+		"exchange-step-ends-on-no-answer",
+		"record/exchange.c",
+		"\tif (!reply) {\n\t\tp->phase = PULL_DONE;\n",
+		"\tif (!reply) {\n",
+		"a pull whose request went unanswered stays open, and a late or stray answer is taken into it -- sec 636",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

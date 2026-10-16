@@ -65516,7 +65516,8 @@ none of these waits the old way**, so the gain arrives at the end.
    awaited sockets beside the serving ones (`fzn_node_state_t.asks`), hands
    each answer to its callback, and fails each request past its deadline.
 2. **The journal**: `fzn_exchange_pull` and `_push` as steps over a struct,
-   the most frequent wait.
+   the most frequent wait. **The pull is built** (*The journal's pull as
+   steps*, below); the push is next.
 3. **The single-request sites** in `fuzznetd`: groups' sync and lines,
    streams, references, addresses, introductions -- each a request and a
    callback.
@@ -65532,3 +65533,40 @@ none of these waits the old way**, so the gain arrives at the end.
   polling through `fzn_node_run_once`; a third, never served, not failed
   before its deadline and failed at it.
 - **Sabotage: one entry, caught.**
+
+### The journal's pull as steps
+
+`record/exchange.h`'s `fzn_exchange_pulling_t` holds a pull between its
+requests: the digest paged so far, the plan, the range being paged, the
+tally. `fzn_exchange_pull_begin` writes the first request, and each
+`fzn_exchange_pull_step` takes that request's answer (NULL for none) and
+writes the next, or says the pull is done. `fzn_exchange_pull` is now these
+steps driven by its `ask`, so every caller of it runs the steps unchanged;
+it keeps its one struct static, as it kept its buffers, since it blocks and
+runs one at a time. A caller that awaits answers in the loop owns a struct
+per pull.
+
+**A fault worth keeping, made and caught here.** The driver first passed
+`ask(...)` and `reply_len` as two arguments of one call. C leaves the order
+of argument evaluation unspecified, and this compiler read `reply_len`
+(still 0) before `ask` set it, so every step saw an empty answer, and
+`exchange_test` failed 12 of its 36 checks. The answer is now asked for
+first, apart from the step.
+
+- **`record/test/exchange_test.c`, `test_two_pulls_by_turns`**: two pulls
+  in flight at once, each with its own struct, against two servers at one
+  record a page. Both answers are asked for before either step runs. Each
+  learns its own writer's chain and tallies it, and neither journal gains
+  the other's writer. A step with no answer ends the pull with
+  `FZN_EXCHANGE_ERR_NO_ANSWER`, and a step after that is refused.
+- **`test_a_digest_of_several_pages`**: the server's digest answers hold
+  one position a page, its other answers are not capped. A follower of
+  both its writers plans from both pages and fetches both chains.
+- **Sabotage: three entries, all caught**, one of them only after a test
+  was added. `exchange-step-pages-the-digest`, which plans from the
+  digest's first page alone, **survived at first**: no test had a digest
+  longer than one page, either before the steps or since. The paged-digest
+  test above catches it. `exchange-step-pages-a-range` and
+  `exchange-step-ends-on-no-answer` were caught as written. The push still
+  pages its digest through `read_digest`, which has the same exposure; it
+  is probed when the push becomes steps.

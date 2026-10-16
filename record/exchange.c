@@ -232,55 +232,170 @@ static fzn_exchange_err_t read_digest(fzn_exchange_ask_t ask, void *ask_ctx, uin
 	return FZN_EXCHANGE_OK;
 }
 
+/* ---- the pull as steps, sec 636 ------------------------------------------ */
+
+enum { PULL_DIGEST = 1, PULL_RECORDS = 2, PULL_DONE = 3 };
+
+static void digest_query(const fzn_exchange_pulling_t *p, uint8_t *request, size_t *len)
+{
+	request[0] = (uint8_t)FZN_EXCHANGE_VERSION;
+	request[1] = (uint8_t)FZN_EXCHANGE_DIGEST_QUERY;
+	fzn_put_be16(request + 2, (uint16_t)p->n);
+	*len = FZN_EXCHANGE_DIGEST_QUERY_LEN;
+}
+
+static void records_query(const fzn_exchange_pulling_t *p, uint8_t *request, size_t *len)
+{
+	const fzn_sync_request_t *want = &p->plan_out[p->want];
+
+	request[0] = (uint8_t)FZN_EXCHANGE_VERSION;
+	request[1] = (uint8_t)FZN_EXCHANGE_RECORDS_QUERY;
+	memcpy(request + 2, want->issuer, FZN_PUBKEY_LEN);
+	fzn_put_be32(request + 34, want->stream);
+	fzn_put_be64(request + 38, p->next);
+	fzn_put_be16(request + 46, (uint16_t)(p->left > 0xffffu ? 0xffffu : p->left));
+	*len = FZN_EXCHANGE_RECORDS_QUERY_LEN;
+}
+
+/* THE PLAN'S NEXT REQUEST with anything to page, from `p->want` on; the
+ * pull done when none is left. */
+static void next_want(fzn_exchange_pulling_t *p, uint8_t *request, size_t *len, int *done)
+{
+	for (; p->want < p->plan.request_count; p->want++) {
+		p->next = p->plan_out[p->want].from;
+		p->left = p->plan_out[p->want].count;
+		if (p->left) {
+			records_query(p, request, len);
+			return;
+		}
+	}
+	p->phase = PULL_DONE;
+	*done = 1;
+}
+
+fzn_exchange_err_t fzn_exchange_pull_begin(fzn_exchange_pulling_t *p, fzn_journal_t *journal,
+                                           fzn_record_store_t *store, const fzn_sign_ops_t *sign,
+                                           const fzn_hash_ops_t *hash, uint64_t max_per_request,
+                                           uint8_t *request, size_t cap, size_t *request_len)
+{
+	if (!p || !journal || !store || !sign || !sign->verify || !hash || !hash->hash || !request
+	    || cap < FZN_EXCHANGE_RECORDS_QUERY_LEN || !request_len || max_per_request == 0u)
+		return FZN_EXCHANGE_ERR_MALFORMED;
+	memset(&p->tally, 0, sizeof(p->tally));
+	p->journal = journal;
+	p->store = store;
+	p->sign = sign;
+	p->hash = hash;
+	p->max_per_request = max_per_request;
+	p->phase = PULL_DIGEST;
+	p->n = p->total = p->pages = 0;
+	p->want = 0;
+	digest_query(p, request, request_len);
+	return FZN_EXCHANGE_OK;
+}
+
+fzn_exchange_err_t fzn_exchange_pull_step(fzn_exchange_pulling_t *p, const uint8_t *reply,
+                                          size_t reply_len, uint8_t *request, size_t cap,
+                                          size_t *request_len, int *done)
+{
+	fzn_exchange_err_t err = FZN_EXCHANGE_OK;
+	size_t i, count;
+
+	if (!p || !request || cap < FZN_EXCHANGE_RECORDS_QUERY_LEN || !request_len || !done
+	    || (p->phase != PULL_DIGEST && p->phase != PULL_RECORDS))
+		return FZN_EXCHANGE_ERR_MALFORMED;
+	*done = 0;
+	if (!reply) {
+		p->phase = PULL_DONE;
+		return FZN_EXCHANGE_ERR_NO_ANSWER;
+	}
+	if (p->phase == PULL_DIGEST) {
+		if (!is(reply, reply_len, (uint8_t)FZN_EXCHANGE_DIGEST)
+		    || reply_len < FZN_EXCHANGE_DIGEST_HEAD_LEN) {
+			p->phase = PULL_DONE;
+			return FZN_EXCHANGE_ERR_SHAPE;
+		}
+		p->total = fzn_get_be16(reply + 2);
+		count = fzn_get_be16(reply + 6);
+		if (fzn_get_be16(reply + 4) != p->n
+		    || reply_len != FZN_EXCHANGE_DIGEST_HEAD_LEN + (count * FZN_EXCHANGE_POSITION_LEN)
+		    || count > p->total - p->n || (count == 0u && p->n < p->total)) {
+			p->phase = PULL_DONE;
+			return FZN_EXCHANGE_ERR_SHAPE;
+		}
+		for (i = 0; i < count && p->n < FZN_SYNC_MAX_POSITIONS; i++, p->n++) {
+			const uint8_t *at = reply + FZN_EXCHANGE_DIGEST_HEAD_LEN
+			                    + (i * FZN_EXCHANGE_POSITION_LEN);
+
+			memcpy(p->theirs[p->n].issuer, at, FZN_PUBKEY_LEN);
+			p->theirs[p->n].stream = fzn_get_be32(at + 32u);
+			p->theirs[p->n].received = fzn_get_be64(at + 36u);
+		}
+		if (p->n < p->total && p->n < FZN_SYNC_MAX_POSITIONS
+		    && ++p->pages <= FZN_SYNC_MAX_POSITIONS) {
+			digest_query(p, request, request_len);
+			return FZN_EXCHANGE_OK;
+		}
+		p->tally.positions = p->n;
+		if (fzn_sync_plan_fetch(p->journal, p->theirs, p->n, p->max_per_request, p->plan_out,
+		                        FZN_SYNC_MAX_POSITIONS, &p->plan)
+		    != FZN_SYNC_OK) {
+			p->phase = PULL_DONE;
+			return FZN_EXCHANGE_ERR_MALFORMED;
+		}
+		p->tally.requested = p->plan.request_count;
+		p->phase = PULL_RECORDS;
+		p->want = 0;
+		next_want(p, request, request_len, done);
+		return FZN_EXCHANGE_OK;
+	}
+	/* RECORDS: the answer taken; the same request paged on, or the next. */
+	if (take_records(p->journal, p->store, p->sign, p->hash, &p->plan_out[p->want], reply,
+	                 reply_len, &p->next, &p->left, &p->tally, &err)
+	    && p->left) {
+		records_query(p, request, request_len);
+		return FZN_EXCHANGE_OK;
+	}
+	if (err != FZN_EXCHANGE_OK) {
+		p->phase = PULL_DONE;
+		return err;
+	}
+	p->want++;
+	next_want(p, request, request_len, done);
+	return FZN_EXCHANGE_OK;
+}
+
+/* THE PULL, the steps above driven by `ask` one request at a time. */
 fzn_exchange_err_t fzn_exchange_pull(fzn_journal_t *journal, fzn_record_store_t *store,
                                      const fzn_sign_ops_t *sign, const fzn_hash_ops_t *hash,
                                      uint64_t max_per_request, fzn_exchange_ask_t ask,
                                      void *ask_ctx, uint8_t *reply, size_t reply_cap,
                                      fzn_exchange_tally_t *tally)
 {
-	static fzn_sync_position_t theirs[FZN_SYNC_MAX_POSITIONS];
-	static fzn_sync_request_t plan_out[FZN_SYNC_MAX_POSITIONS];
+	static fzn_exchange_pulling_t p;
 	uint8_t request[FZN_EXCHANGE_RECORDS_QUERY_LEN];
-	size_t n = 0, reply_len, i;
-	fzn_sync_plan_t plan;
-	fzn_exchange_err_t err = FZN_EXCHANGE_OK;
+	size_t request_len = 0, reply_len;
+	fzn_exchange_err_t err;
+	int done = 0, answered;
 
-	if (!journal || !store || !sign || !sign->verify || !hash || !hash->hash || !ask || !reply
-	    || !tally || reply_cap < FZN_EXCHANGE_REPLY_MIN || max_per_request == 0u)
+	if (!ask || !reply || !tally || reply_cap < FZN_EXCHANGE_REPLY_MIN)
 		return FZN_EXCHANGE_ERR_MALFORMED;
 	memset(tally, 0, sizeof(*tally));
-	err = read_digest(ask, ask_ctx, reply, reply_cap, theirs, &n);
+	err = fzn_exchange_pull_begin(&p, journal, store, sign, hash, max_per_request, request,
+	                              sizeof(request), &request_len);
 	if (err != FZN_EXCHANGE_OK)
 		return err;
-	tally->positions = n;
-
-	if (fzn_sync_plan_fetch(journal, theirs, n, max_per_request, plan_out,
-	                        FZN_SYNC_MAX_POSITIONS, &plan) != FZN_SYNC_OK)
-		return FZN_EXCHANGE_ERR_MALFORMED;
-	tally->requested = plan.request_count;
-
-	for (i = 0; i < plan.request_count; i++) {
-		const fzn_sync_request_t *want = &plan_out[i];
-		uint64_t next = want->from, left = want->count;
-
-		while (left) {
-			request[0] = (uint8_t)FZN_EXCHANGE_VERSION;
-			request[1] = (uint8_t)FZN_EXCHANGE_RECORDS_QUERY;
-			memcpy(request + 2, want->issuer, FZN_PUBKEY_LEN);
-			fzn_put_be32(request + 34, want->stream);
-			fzn_put_be64(request + 38, next);
-			fzn_put_be16(request + 46, (uint16_t)(left > 0xffffu ? 0xffffu : left));
-			reply_len = 0;
-			if (!ask(ask_ctx, request, sizeof(request), reply, reply_cap, &reply_len))
-				return FZN_EXCHANGE_ERR_NO_ANSWER;
-			if (!take_records(journal, store, sign, hash, want, reply, reply_len, &next,
-			                  &left, tally, &err))
-				break;
-		}
-		if (err != FZN_EXCHANGE_OK)
-			return err;
+	while (err == FZN_EXCHANGE_OK && !done) {
+		/* ASKED FIRST, apart from the step: in one call's arguments the
+		 * order is unspecified, and `reply_len` could be read before the
+		 * answer set it. */
+		reply_len = 0;
+		answered = ask(ask_ctx, request, request_len, reply, reply_cap, &reply_len);
+		err = fzn_exchange_pull_step(&p, answered ? reply : NULL, reply_len, request,
+		                             sizeof(request), &request_len, &done);
 	}
-	return FZN_EXCHANGE_OK;
+	*tally = p.tally;
+	return err;
 }
 
 /* ---- the push, sec 512 ------------------------------------------------- */

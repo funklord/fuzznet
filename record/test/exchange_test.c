@@ -527,6 +527,105 @@ static void test_a_fork_and_a_forgery(void)
 
 /* THE SERVER'S REFUSALS: another version, a query that does not parse, and
  * a reply buffer under the floor. */
+/* A digest one position a page: the server's digest answers capped there,
+ * its other answers not. */
+static int one_position_ask(void *ctx, const uint8_t *request, size_t request_len,
+                            uint8_t *out, size_t out_cap, size_t *out_len)
+{
+	if (request_len > 1u && request[1] == (uint8_t)FZN_EXCHANGE_DIGEST_QUERY)
+		out_cap = FZN_EXCHANGE_DIGEST_HEAD_LEN + FZN_EXCHANGE_POSITION_LEN;
+	return ask(ctx, request, request_len, out, out_cap, out_len);
+}
+
+/* THE DIGEST PAGED: every page read before the plan, so a stream listed on
+ * a later page is fetched too (sec 636). */
+static void test_a_digest_of_several_pages(void)
+{
+	static struct host a, b;
+	uint8_t ids[3][FZN_RECORD_ID_LEN], w[FZN_PUBKEY_LEN], x[FZN_PUBKEY_LEN];
+	fzn_exchange_tally_t t;
+
+	host_init(&a);
+	host_init(&b);
+	key(w, 0x41);
+	key(x, 0x58);
+	CHECK(hold_chain(&a, 0x41, 3, ids) && hold_chain(&a, 0x58, 2, ids), "fixture: A holds two");
+	CHECK(fzn_journal_anchor(&b.journal, w, 1u, 0) == FZN_JOURNAL_OK
+	              && fzn_journal_anchor(&b.journal, x, 1u, 0) == FZN_JOURNAL_OK,
+	      "fixture: B follows both");
+	CHECK(fzn_exchange_pull(&b.journal, &b.store, &SIGN, &HASH, 64u, one_position_ask, &a,
+	                        reply, sizeof(reply), &t) == FZN_EXCHANGE_OK
+	              && t.positions == 2u && t.learned == 5u,
+	      "a digest of two pages did not plan from both");
+	CHECK(fzn_journal_next(&b.journal, w, 1u) == 4u && fzn_journal_next(&b.journal, x, 1u) == 3u,
+	      "a stream on a digest's second page was not fetched");
+}
+
+/* TWO PULLS IN FLIGHT AT ONCE, each its own struct, stepped by turns: what
+ * the loop does with them (sec 636), and what statics shared between them
+ * would break -- each learns its own writer and nothing of the other's. */
+static void test_two_pulls_by_turns(void)
+{
+	static struct host a, b, c, d;
+	static fzn_exchange_pulling_t pb, pc;
+	static uint8_t reply_b[8192], reply_c[8192];
+	uint8_t ids[4][FZN_RECORD_ID_LEN], w[FZN_PUBKEY_LEN], v[FZN_PUBKEY_LEN];
+	uint8_t req_b[FZN_EXCHANGE_RECORDS_QUERY_LEN], req_c[FZN_EXCHANGE_RECORDS_QUERY_LEN];
+	size_t len_b = 0, len_c = 0, got_b, got_c;
+	int done_b = 0, done_c = 0, turns = 0;
+	fzn_exchange_err_t err_b, err_c;
+
+	host_init(&a);
+	host_init(&b);
+	host_init(&c);
+	host_init(&d);
+	key(w, 0x41);
+	key(v, 0x63);
+	CHECK(hold_chain(&a, 0x41, 3, ids) && hold_chain(&d, 0x63, 4, ids), "fixture: two servers");
+	CHECK(fzn_journal_anchor(&b.journal, w, 1u, 0) == FZN_JOURNAL_OK
+	              && fzn_journal_anchor(&c.journal, v, 1u, 0) == FZN_JOURNAL_OK,
+	      "fixture: B follows W, C follows V");
+	a.reply_cap = FZN_EXCHANGE_REPLY_MIN;
+	d.reply_cap = FZN_EXCHANGE_REPLY_MIN;
+
+	err_b = fzn_exchange_pull_begin(&pb, &b.journal, &b.store, &SIGN, &HASH, 64u, req_b,
+	                                sizeof(req_b), &len_b);
+	err_c = fzn_exchange_pull_begin(&pc, &c.journal, &c.store, &SIGN, &HASH, 64u, req_c,
+	                                sizeof(req_c), &len_c);
+	while (err_b == FZN_EXCHANGE_OK && err_c == FZN_EXCHANGE_OK && (!done_b || !done_c)
+	       && ++turns < 100) {
+		/* EACH ASKED BEFORE EITHER STEPS: both answers held at once. */
+		got_b = got_c = 0;
+		if (!done_b)
+			ask(&a, req_b, len_b, reply_b, sizeof(reply_b), &got_b);
+		if (!done_c)
+			ask(&d, req_c, len_c, reply_c, sizeof(reply_c), &got_c);
+		if (!done_b)
+			err_b = fzn_exchange_pull_step(&pb, reply_b, got_b, req_b, sizeof(req_b),
+			                               &len_b, &done_b);
+		if (!done_c)
+			err_c = fzn_exchange_pull_step(&pc, reply_c, got_c, req_c, sizeof(req_c),
+			                               &len_c, &done_c);
+	}
+	CHECK(err_b == FZN_EXCHANGE_OK && err_c == FZN_EXCHANGE_OK && done_b && done_c,
+	      "two pulls by turns did not both end well");
+	CHECK(pb.tally.learned == 3u && pc.tally.learned == 4u,
+	      "a pull by turns did not tally its own writer's records");
+	CHECK(fzn_journal_next(&b.journal, w, 1u) == 4u && fzn_journal_next(&c.journal, v, 1u) == 5u,
+	      "a pull by turns did not take its own writer's chain");
+	CHECK(fzn_journal_next(&b.journal, v, 1u) == 1u && fzn_journal_next(&c.journal, w, 1u) == 1u,
+	      "one pull's records reached the other's journal");
+
+	/* NO ANSWER ends a pull, and says so. */
+	CHECK(fzn_exchange_pull_begin(&pb, &b.journal, &b.store, &SIGN, &HASH, 64u, req_b,
+	                              sizeof(req_b), &len_b) == FZN_EXCHANGE_OK
+	              && fzn_exchange_pull_step(&pb, NULL, 0, req_b, sizeof(req_b), &len_b, &done_b)
+	                         == FZN_EXCHANGE_ERR_NO_ANSWER
+	              && fzn_exchange_pull_step(&pb, reply_b, 8, req_b, sizeof(req_b), &len_b,
+	                                        &done_b) == FZN_EXCHANGE_ERR_MALFORMED,
+	      "a pull with no answer did not end, refusing a step after");
+}
+
 static void test_the_edges(void)
 {
 	static struct host a;
@@ -558,6 +657,8 @@ int main(void)
 	test_a_follower_learns_the_chain();
 	test_a_fork_and_a_forgery();
 	test_a_lying_server();
+	test_a_digest_of_several_pages();
+	test_two_pulls_by_turns();
 	test_the_edges();
 	if (failures) {
 		fprintf(stderr, "exchange_test: %d of %d checks failed\n", failures, checks);

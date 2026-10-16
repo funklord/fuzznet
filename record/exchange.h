@@ -171,4 +171,40 @@ fzn_exchange_err_t fzn_exchange_pull(fzn_journal_t *journal, fzn_record_store_t 
                                      void *ask_ctx, uint8_t *reply, size_t reply_cap,
                                      fzn_exchange_tally_t *tally);
 
+/* ---- the pull as steps, sec 636 ------------------------------------------
+ *
+ * THE SAME PULL, ITS STATE IN A STRUCT rather than on a stack or in a
+ * function's statics, so the loop can send each request, go on answering
+ * others, and resume when the answer comes: the resumable round's second
+ * stage. `fzn_exchange_pull` above is these steps driven by its `ask`.
+ *
+ * `fzn_exchange_pull_begin` writes the first request into `request`;
+ * each `fzn_exchange_pull_step` takes that request's answer -- NULL for
+ * none -- and writes the next, setting `*done` instead when the pull is
+ * over. Any error ends it. The tally is the struct's. */
+typedef struct fzn_exchange_pulling {
+	fzn_journal_t *journal;
+	fzn_record_store_t *store;
+	const fzn_sign_ops_t *sign;
+	const fzn_hash_ops_t *hash;
+	uint64_t max_per_request;
+	int phase;
+	size_t n, total, pages; /* the digest read so far */
+	fzn_sync_position_t theirs[FZN_SYNC_MAX_POSITIONS];
+	fzn_sync_request_t plan_out[FZN_SYNC_MAX_POSITIONS];
+	fzn_sync_plan_t plan;
+	size_t want;            /* the plan's request being paged */
+	uint64_t next, left;
+	fzn_exchange_tally_t tally;
+} fzn_exchange_pulling_t;
+
+fzn_exchange_err_t fzn_exchange_pull_begin(fzn_exchange_pulling_t *p, fzn_journal_t *journal,
+                                           fzn_record_store_t *store, const fzn_sign_ops_t *sign,
+                                           const fzn_hash_ops_t *hash, uint64_t max_per_request,
+                                           uint8_t *request, size_t cap, size_t *request_len);
+
+fzn_exchange_err_t fzn_exchange_pull_step(fzn_exchange_pulling_t *p, const uint8_t *reply,
+                                          size_t reply_len, uint8_t *request, size_t cap,
+                                          size_t *request_len, int *done);
+
 #endif /* FZN_EXCHANGE_H */
