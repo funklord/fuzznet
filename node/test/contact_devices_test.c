@@ -366,6 +366,35 @@ static void test_the_messages(void)
 	CHECK(fzn_contact_devices_query(FZN_CONTACT_DEVICES_HOSTS, link, NULL, take, NULL, &count)
 	              && count == 5u && taken_n == 5u,
 	      "five of the largest entries, over pages, all arrived once");
+	/* BY STEPS, sec 636: the same pages, each answer handed in; and no
+	 * answer ending it. */
+	{
+		static uint8_t page[FZN_CONTACT_DEVICES_REPLY_MAX];
+		fzn_contact_devices_querying_t q;
+		uint8_t req[FZN_CONTACT_DEVICES_QUERY_LEN];
+		size_t req_len = 0, page_len, pages = 0;
+		int ok, done = 0;
+
+		taken_n = 0;
+		ok = fzn_contact_devices_query_begin(&q, FZN_CONTACT_DEVICES_HOSTS, take, NULL, req,
+		                                     sizeof(req), &req_len);
+		while (ok && !done && pages++ < 16u) {
+			page_len = 0;
+			(void)link(NULL, req, req_len, page, sizeof(page), &page_len);
+			ok = fzn_contact_devices_query_step(&q, page, page_len, req, sizeof(req), &req_len,
+			                                    &done);
+		}
+		CHECK(ok && done && pages > 1u && q.count == 5u && taken_n == 5u,
+		      "the devices queried by steps, over pages, are not the five");
+		CHECK(fzn_contact_devices_query_begin(&q, FZN_CONTACT_DEVICES_HOSTS, take, NULL, req,
+		                                      sizeof(req), &req_len)
+		              && !fzn_contact_devices_query_step(&q, NULL, 0, req, sizeof(req),
+		                                                 &req_len, &done)
+		              && done
+		              && !fzn_contact_devices_query_step(&q, page, 8, req, sizeof(req),
+		                                                 &req_len, &done),
+		      "a devices query with no answer did not end, refusing a step after");
+	}
 	taken_n = 0;
 	CHECK(!fzn_contact_devices_query(FZN_CONTACT_DEVICES_KEPT, link, NULL, take, NULL, &count)
 	              && taken_n == 0u,

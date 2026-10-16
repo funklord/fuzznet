@@ -161,6 +161,27 @@ int fzn_contact_devices_query(int whose, fzn_contact_devices_ask_t ask, void *ct
                               void (*take)(void *ctx, const fzn_contact_device_t *d),
                               void *take_ctx, size_t *count);
 
+/* THE SAME QUERY AS STEPS, sec 636: begin writes the first page's request;
+ * each step takes its answer -- NULL for none -- handing each device to
+ * `take`, and writes the next page's or sets `*done`. 0 from a step on no
+ * answer or nonsense, which ends it, as above. `count` is the struct's. A
+ * reply may be FZN_CONTACT_DEVICES_REPLY_MAX bytes. */
+typedef struct fzn_contact_devices_querying {
+	int whose, live;
+	void (*take)(void *ctx, const fzn_contact_device_t *d);
+	void *take_ctx;
+	size_t from, count;
+} fzn_contact_devices_querying_t;
+
+int fzn_contact_devices_query_begin(fzn_contact_devices_querying_t *q, int whose,
+                                    void (*take)(void *ctx, const fzn_contact_device_t *d),
+                                    void *take_ctx, uint8_t *request, size_t cap,
+                                    size_t *request_len);
+
+int fzn_contact_devices_query_step(fzn_contact_devices_querying_t *q, const uint8_t *reply,
+                                   size_t reply_len, uint8_t *request, size_t cap,
+                                   size_t *request_len, int *done);
+
 /* A QUERY, answered: `entry_at` fills the `i`th entry of what `whose`
  * asks for, 0 past the last. As many as fit from `from`, and whether more
  * follow. 0 for anything that is not a QUERY, or `whose` this answerer will

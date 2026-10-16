@@ -11592,15 +11592,15 @@ SABOTAGES = [
 	(
 		"contact-devices-page-names-its-from",
 		"node/contact_devices.c",
-		"\t\t    || reply[2] != from || reply[4] > 1u)\n",
-		"\t\t    || reply[4] > 1u)\n",
+		"\t    || reply[2] != q->from || reply[4] > 1u)\n",
+		"\t    || reply[4] > 1u)\n",
 		"a page answering another query is taken, and entries are skipped or doubled -- sec 614",
 	),
 	(
 		"contact-devices-page-exact",
 		"node/contact_devices.c",
-		"\t\tif (at != reply_len || (reply[4] && n == 0u))\n",
-		"\t\tif (reply[4] && n == 0u)\n",
+		"\tif (at != reply_len || (reply[4] && n == 0u))\n",
+		"\tif (reply[4] && n == 0u)\n",
 		"a page with trailing bytes is taken -- sec 614",
 	),
 	(
@@ -12239,6 +12239,13 @@ SABOTAGES = [
 		"\t\tif (outcome != TEXT_WANTED) {\n\t\t\tx->at++;\n",
 		"\t\tif (1) {\n\t\t\tx->at++;\n",
 		"a text pushed by steps stops after its first span, and the peer never holds it whole -- sec 636",
+	),
+	(
+		"contact-devices-step-pages-on",
+		"node/contact_devices.c",
+		"\tif (!reply[4])\n\t\treturn 1;\n\tq->from += n;\n",
+		"\tif (1)\n\t\treturn 1;\n\tq->from += n;\n",
+		"a devices query by steps takes the first page alone, and the devices listed after it are never kept -- sec 636",
 	),
 ]
 

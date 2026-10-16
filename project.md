@@ -65670,6 +65670,37 @@ exchanges a timeout, peer after peer.
 32.1 s** -- the last cycle's slowest round, at load 190 to 228 where the
 old binary's runs were at 9 to 198.
 
+### Contacts and groups as conversations
+
+The profile's next two. **A member's kept devices**
+(`fzn_contact_devices_query_begin`/`_step`, `node/contact_devices.h`) are
+asked of every sibling at once in `ROUND_CONTACTS`, paired and said in
+`ROUND_CONTACTS_SETTLE`. **A sibling's group sync** is asked of every
+sibling at once in `ROUND_GROUPS` -- each conversation with its own copy of
+the groups held, since each pages them apart; the request and the taking of
+its answer are one helper each (`group_sync_request`, `group_acts_take`),
+shared with the in-turn sync a contact's host still gets.
+`ROUND_GROUPS_SETTLE` redoes what a fork dropped, tends, and runs the lines
+and shares passes, as the round did after its syncs.
+
+**Measured, members, notes, contacts and groups as conversations, three
+runs: 16.5, 16.5, 16.7 s** -- the last cycle's slowest round, where the old
+binary's were 28.5 to 40.7. At load 12 to 13; the old binary's run at load
+9 was its 40.7.
+
+**Found while converting: nothing tested a host learning its own user's
+groups from a sibling.** `live_groups.py`'s members are separate users,
+reached through the contacts' path; a control with the siblings' sync
+removed passed it whole. `live_catalog.py` gains **phase g**: A makes a
+group, and B, its sibling holding none, lists it with the same members at
+its next round. The same control fails it -- "g: not after 4 rounds".
+
+**Sabotage: three entries, all caught**: `contact-devices-step-pages-on`,
+new, and `contact-devices-page-names-its-from` and
+`contact-devices-page-exact`, moved with their code into the steps. The
+siblings' group sync starting at all is daemon code `make test` does not
+reach; phase g and its control above are what hold it.
+
 ### Tested, and probed
 
 - **`notes/test/notes_sync_test.c`**: a give driven by steps leaves its
@@ -65697,8 +65728,10 @@ pending.
 
 ### Open
 
-- **The contacts and groups steps** are the next by the profile, then the
-  journal's pull and push (steps since sec 636) and reconciliation.
+- **Next by the profile**: the journal's pull and push (steps since sec
+  636), then reconciliation. A contact's own exchange (`contact_exchange`)
+  and a group's lines are still asked in turn; neither runs in
+  `live_erasure.py`, which has no contacts and no groups.
 - **A request handler that asks a peer synchronously** while a
   conversation awaits the same caller would read the conversation's
   answer and drop it; the conversation then fails at its deadline. None

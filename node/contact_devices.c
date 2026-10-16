@@ -264,54 +264,105 @@ size_t fzn_contact_devices_offer_answer(const uint8_t *request, size_t request_l
 	return FZN_CONTACT_DEVICES_TAKEN_LEN;
 }
 
+/* ---- the query as steps, sec 636 ----------------------------------------- */
+
+static void devices_query(const fzn_contact_devices_querying_t *q, uint8_t *request,
+                          size_t *request_len)
+{
+	request[0] = FZN_CONTACT_DEVICES_VERSION;
+	request[1] = FZN_CONTACT_DEVICES_QUERY;
+	request[2] = (uint8_t)q->from;
+	request[3] = (uint8_t)q->whose;
+	*request_len = FZN_CONTACT_DEVICES_QUERY_LEN;
+}
+
+int fzn_contact_devices_query_begin(fzn_contact_devices_querying_t *q, int whose,
+                                    void (*take)(void *ctx, const fzn_contact_device_t *d),
+                                    void *take_ctx, uint8_t *request, size_t cap,
+                                    size_t *request_len)
+{
+	if (!q || !take || !request || cap < FZN_CONTACT_DEVICES_QUERY_LEN || !request_len
+	    || (whose != FZN_CONTACT_DEVICES_HOSTS && whose != FZN_CONTACT_DEVICES_KEPT))
+		return 0;
+	q->whose = whose;
+	q->take = take;
+	q->take_ctx = take_ctx;
+	q->from = 0;
+	q->count = 0;
+	q->live = 1;
+	devices_query(q, request, request_len);
+	return 1;
+}
+
+int fzn_contact_devices_query_step(fzn_contact_devices_querying_t *q, const uint8_t *reply,
+                                   size_t reply_len, uint8_t *request, size_t cap,
+                                   size_t *request_len, int *done)
+{
+	static fzn_contact_device_t d;
+	size_t at, k, n, len;
+
+	if (!q || !q->live || !request || cap < FZN_CONTACT_DEVICES_QUERY_LEN || !request_len
+	    || !done)
+		return 0;
+	*done = 1;
+	q->live = 0;
+	if (!reply || reply_len < FZN_CONTACT_DEVICES_LIST_HEAD_LEN
+	    || reply[0] != FZN_CONTACT_DEVICES_VERSION || reply[1] != FZN_CONTACT_DEVICES_LIST
+	    || reply[2] != q->from || reply[4] > 1u)
+		return 0;
+	n = reply[3];
+	at = FZN_CONTACT_DEVICES_LIST_HEAD_LEN;
+	for (k = 0; k < n; k++) {
+		if (reply_len < at + 2u)
+			return 0;
+		len = fzn_get_be16(reply + at);
+		at += 2u;
+		if (reply_len < at + len
+		    || fzn_contact_device_decode(reply + at, len, &d) != FZN_CONTACT_DEVICE_OK)
+			return 0;
+		at += len;
+		q->take(q->take_ctx, &d);
+		q->count++;
+	}
+	/* EXACTLY ITS ENTRIES, and a page that says more names some. */
+	if (at != reply_len || (reply[4] && n == 0u))
+		return 0;
+	if (!reply[4])
+		return 1;
+	q->from += n;
+	if (q->from > 255u)
+		return 1;
+	*done = 0;
+	q->live = 1;
+	devices_query(q, request, request_len);
+	return 1;
+}
+
 int fzn_contact_devices_query(int whose, fzn_contact_devices_ask_t ask, void *ctx,
                               void (*take)(void *ctx, const fzn_contact_device_t *d),
                               void *take_ctx, size_t *count)
 {
 	static uint8_t reply[FZN_CONTACT_DEVICES_REPLY_MAX];
-	static fzn_contact_device_t d;
+	fzn_contact_devices_querying_t q;
 	uint8_t request[FZN_CONTACT_DEVICES_QUERY_LEN];
-	size_t from = 0, reply_len, at, k, n, len;
+	size_t request_len = 0, reply_len;
+	int ok, done = 0, answered;
 
 	if (count)
 		*count = 0;
-	if (!ask || !take || !count
-	    || (whose != FZN_CONTACT_DEVICES_HOSTS && whose != FZN_CONTACT_DEVICES_KEPT))
+	if (!ask || !count)
 		return 0;
-	for (;;) {
-		request[0] = FZN_CONTACT_DEVICES_VERSION;
-		request[1] = FZN_CONTACT_DEVICES_QUERY;
-		request[2] = (uint8_t)from;
-		request[3] = (uint8_t)whose;
+	ok = fzn_contact_devices_query_begin(&q, whose, take, take_ctx, request, sizeof(request),
+	                                     &request_len);
+	while (ok && !done) {
+		/* Asked first, apart from the step: see `record/exchange.c`. */
 		reply_len = 0;
-		if (!ask(ctx, request, sizeof(request), reply, sizeof(reply), &reply_len)
-		    || reply_len < FZN_CONTACT_DEVICES_LIST_HEAD_LEN
-		    || reply[0] != FZN_CONTACT_DEVICES_VERSION || reply[1] != FZN_CONTACT_DEVICES_LIST
-		    || reply[2] != from || reply[4] > 1u)
-			return 0;
-		n = reply[3];
-		at = FZN_CONTACT_DEVICES_LIST_HEAD_LEN;
-		for (k = 0; k < n; k++) {
-			if (reply_len < at + 2u)
-				return 0;
-			len = fzn_get_be16(reply + at);
-			at += 2u;
-			if (reply_len < at + len
-			    || fzn_contact_device_decode(reply + at, len, &d) != FZN_CONTACT_DEVICE_OK)
-				return 0;
-			at += len;
-			take(take_ctx, &d);
-			(*count)++;
-		}
-		/* EXACTLY ITS ENTRIES, and a page that says more names some. */
-		if (at != reply_len || (reply[4] && n == 0u))
-			return 0;
-		if (!reply[4])
-			return 1;
-		from += n;
-		if (from > 255u)
-			return 1;
+		answered = ask(ctx, request, request_len, reply, sizeof(reply), &reply_len);
+		ok = fzn_contact_devices_query_step(&q, answered ? reply : NULL, reply_len, request,
+		                                    sizeof(request), &request_len, &done);
 	}
+	*count = q.count;
+	return ok;
 }
 
 size_t fzn_contact_devices_query_answer(const uint8_t *request, size_t request_len,

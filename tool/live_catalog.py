@@ -11,9 +11,12 @@ with a grant it can pass on, pulling from A.
        what A put, and names it too: both hosts list the two names, each by
        its own host, and two holders
     c  A takes its name back: B lists B's alone, and one holder
+    g  A makes a group; B, holding none, learns it from its sibling at its
+       next round, with the same members (sec 626)
 
 Against a daemon that does not follow its siblings' catalogue stream, B
-never lists A's name.
+never lists A's name; against one that does not sync its siblings' groups,
+B never lists A's group.
 
 BOUNDED FROM INSIDE as live_rejoin.py is, whose daemon handling this reuses:
 one deadline, each daemon in its own process group, and every daemon
@@ -83,6 +86,14 @@ def main(argv):
 				raise failed("%s: get catalog answered %r" % (who, reply))
 			return sorted(reply[2:])
 
+		def groups(who):
+			"""`who`'s groups, each as what follows its name -- B names a
+			group it learned by its id."""
+			reply = ask(socks[who], "list group").split()
+			if len(reply) < 3 or reply[0] != "ok":
+				raise failed("%s: list group answered %r" % (who, reply))
+			return sorted(w.split(",")[1:] for w in reply[3:])
+
 		def until(check, what):
 			for rnd in range(ROUNDS):
 				if check():
@@ -150,6 +161,11 @@ def main(argv):
 			if holders("b", root) != [key_b[:16]]:
 				raise failed("c: B's holders are %r, not B alone" % holders("b", root))
 			print("livecheck: c: A took its name back; B lists its own alone, one holder")
+
+			# g: a group made at A, learned by its sibling B (sec 626).
+			expect(socks["a"], "a", "add group family", "ok")
+			until(lambda: len(groups("b")) == 1 and groups("b") == groups("a"), "g")
+			print("livecheck: g: A made a group, and its sibling B learned it")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1
