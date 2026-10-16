@@ -12159,9 +12159,9 @@ SABOTAGES = [
 	(
 		"exchange-step-pages-the-digest",
 		"record/exchange.c",
-		"\t\tif (p->n < p->total && p->n < FZN_SYNC_MAX_POSITIONS\n",
-		"\t\tif (0 && p->n < p->total && p->n < FZN_SYNC_MAX_POSITIONS\n",
-		"a pull by steps plans from the digest's first page alone, and streams listed on later pages are never fetched -- sec 636",
+		"\tif (d->n < d->total && d->n < FZN_SYNC_MAX_POSITIONS\n",
+		"\tif (0 && d->n < d->total && d->n < FZN_SYNC_MAX_POSITIONS\n",
+		"a pull or a push by steps reads the digest's first page alone, and streams listed on later pages are never fetched or offered to -- sec 636",
 	),
 	(
 		"exchange-step-pages-a-range",
@@ -12176,6 +12176,20 @@ SABOTAGES = [
 		"\tif (!reply) {\n\t\tp->phase = PULL_DONE;\n",
 		"\tif (!reply) {\n",
 		"a pull whose request went unanswered stays open, and a late or stray answer is taken into it -- sec 636",
+	),
+	(
+		"exchange-push-step-stops-at-a-refusal",
+		"record/exchange.c",
+		"\tif (fzn_get_be16(reply + 6) || fzn_get_be16(reply + 8)) {\n",
+		"\tif (0) {\n",
+		"a push goes on offering a stream past a refusal or a fork, every later record refused the same way -- sec 636",
+	),
+	(
+		"exchange-push-step-ends-on-no-answer",
+		"record/exchange.c",
+		"\tif (!reply) {\n\t\tp->phase = PUSH_DONE;\n",
+		"\tif (!reply) {\n",
+		"a push whose message went unanswered stays open, and a late or stray answer is taken into it -- sec 636",
 	),
 ]
 

@@ -182,6 +182,12 @@ fzn_exchange_err_t fzn_exchange_pull(fzn_journal_t *journal, fzn_record_store_t 
  * each `fzn_exchange_pull_step` takes that request's answer -- NULL for
  * none -- and writes the next, setting `*done` instead when the pull is
  * over. Any error ends it. The tally is the struct's. */
+/* THE PEER'S DIGEST, paged in: a pull's and a push's first requests. */
+typedef struct fzn_exchange_digest {
+	size_t n, total, pages;
+	fzn_sync_position_t theirs[FZN_SYNC_MAX_POSITIONS];
+} fzn_exchange_digest_t;
+
 typedef struct fzn_exchange_pulling {
 	fzn_journal_t *journal;
 	fzn_record_store_t *store;
@@ -189,8 +195,7 @@ typedef struct fzn_exchange_pulling {
 	const fzn_hash_ops_t *hash;
 	uint64_t max_per_request;
 	int phase;
-	size_t n, total, pages; /* the digest read so far */
-	fzn_sync_position_t theirs[FZN_SYNC_MAX_POSITIONS];
+	fzn_exchange_digest_t digest;
 	fzn_sync_request_t plan_out[FZN_SYNC_MAX_POSITIONS];
 	fzn_sync_plan_t plan;
 	size_t want;            /* the plan's request being paged */
@@ -206,5 +211,33 @@ fzn_exchange_err_t fzn_exchange_pull_begin(fzn_exchange_pulling_t *p, fzn_journa
 fzn_exchange_err_t fzn_exchange_pull_step(fzn_exchange_pulling_t *p, const uint8_t *reply,
                                           size_t reply_len, uint8_t *request, size_t cap,
                                           size_t *request_len, int *done);
+
+/* ---- the push as steps, sec 636 ------------------------------------------
+ *
+ * THE SAME PUSH, its state in a struct, as the pull's is.
+ * `fzn_exchange_push_begin` writes the first request -- the digest's --
+ * into `message`; each `fzn_exchange_push_step` takes that message's answer
+ * (NULL for none) and writes the next, a digest page or a PUSH of at most
+ * `cap` bytes, setting `*done` instead when nothing is left to offer. `cap`
+ * is what the peer can answer in as well, so a caller's reply buffer of the
+ * same size carries every answer. Any error ends it. The tally is the
+ * struct's. */
+typedef struct fzn_exchange_pushing {
+	fzn_journal_t *journal;
+	fzn_record_store_t *store;
+	int phase;
+	fzn_exchange_digest_t digest;
+	size_t at;          /* the peer's position being offered to */
+	uint64_t seq, mine; /* its next record to offer, and this host's last */
+	fzn_exchange_push_tally_t tally;
+} fzn_exchange_pushing_t;
+
+fzn_exchange_err_t fzn_exchange_push_begin(fzn_exchange_pushing_t *p, fzn_journal_t *journal,
+                                           fzn_record_store_t *store, uint8_t *message,
+                                           size_t cap, size_t *message_len);
+
+fzn_exchange_err_t fzn_exchange_push_step(fzn_exchange_pushing_t *p, const uint8_t *reply,
+                                          size_t reply_len, uint8_t *message, size_t cap,
+                                          size_t *message_len, int *done);
 
 #endif /* FZN_EXCHANGE_H */

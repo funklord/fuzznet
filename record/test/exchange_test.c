@@ -527,6 +527,36 @@ static void test_a_fork_and_a_forgery(void)
 
 /* THE SERVER'S REFUSALS: another version, a query that does not parse, and
  * a reply buffer under the floor. */
+/* A FORK ENDS THE STREAM FOR THE ROUND, not only its message: A holds V's
+ * twenty, more than one floor-sized message carries, and C a different
+ * third. A's first message forks at C, and nothing after it is offered --
+ * every later record would be refused the same way. */
+static void test_a_push_stopped_at_a_fork(void)
+{
+	static struct host a, c;
+	uint8_t ids[20][FZN_RECORD_ID_LEN], buf[FZN_RECORD_MAX_LEN], other[FZN_RECORD_ID_LEN];
+	uint8_t v[FZN_PUBKEY_LEN];
+	size_t len = 0;
+	fzn_record_t r;
+	fzn_exchange_push_tally_t t;
+
+	host_init(&a);
+	host_init(&c);
+	key(v, 0x6a);
+	CHECK(hold_chain(&a, 0x6a, 20, ids) && hold_chain(&c, 0x6a, 2, ids)
+	              && make(buf, &len, 0x6a, 3, ids[1], 0x77, other)
+	              && fzn_record_open(buf, len, &r) == FZN_RECORD_OK
+	              && fzn_journal_admit_chained(&c.journal, v, 1u, 3u, fzn_record_prev(r), other)
+	                         == FZN_JOURNAL_OK
+	              && fzn_record_store_put(&c.store, r) == FZN_RECORD_STORE_OK,
+	      "fixture: A holds V's twenty, C a different third");
+	CHECK(fzn_exchange_push(&a.journal, &a.store, push_ask, &c, reply, FZN_EXCHANGE_REPLY_MIN,
+	                        &t) == FZN_EXCHANGE_OK
+	              && t.forks == 1u && t.taken == 0u && t.offered > 0u && t.offered < 17u,
+	      "a push went on offering V past the fork, or did not stop at it");
+	CHECK(fzn_journal_next(&c.journal, v, 1u) == 4u, "C took something of V past its fork");
+}
+
 /* A digest one position a page: the server's digest answers capped there,
  * its other answers not. */
 static int one_position_ask(void *ctx, const uint8_t *request, size_t request_len,
@@ -559,6 +589,51 @@ static void test_a_digest_of_several_pages(void)
 	      "a digest of two pages did not plan from both");
 	CHECK(fzn_journal_next(&b.journal, w, 1u) == 4u && fzn_journal_next(&b.journal, x, 1u) == 3u,
 	      "a stream on a digest's second page was not fetched");
+}
+
+/* THE PUSH BY ITS STEPS, against a taker whose digest comes one position a
+ * page: both its streams offered to, and a step with no answer ending it
+ * (sec 636). */
+static void test_a_push_by_steps(void)
+{
+	static struct host a, b;
+	static fzn_exchange_pushing_t ps;
+	static uint8_t message[FZN_EXCHANGE_REPLY_MIN];
+	uint8_t ids[5][FZN_RECORD_ID_LEN], w[FZN_PUBKEY_LEN], x[FZN_PUBKEY_LEN];
+	size_t len = 0, got;
+	int done = 0, turns = 0;
+	fzn_exchange_err_t err;
+
+	host_init(&a);
+	host_init(&b);
+	key(w, 0x41);
+	key(x, 0x58);
+	CHECK(hold_chain(&a, 0x41, 3, ids) && hold_chain(&a, 0x58, 2, ids)
+	              && hold_chain(&b, 0x41, 1, ids)
+	              && fzn_journal_anchor(&b.journal, x, 1u, 0) == FZN_JOURNAL_OK,
+	      "fixture: A holds W's three and X's two, B W's first and follows X");
+	err = fzn_exchange_push_begin(&ps, &a.journal, &a.store, message, sizeof(message), &len);
+	while (err == FZN_EXCHANGE_OK && !done && ++turns < 100) {
+		got = 0;
+		if (len > 1u && message[1] == (uint8_t)FZN_EXCHANGE_DIGEST_QUERY)
+			ask(&b, message, len, reply, FZN_EXCHANGE_DIGEST_HEAD_LEN + FZN_EXCHANGE_POSITION_LEN,
+			    &got);
+		else
+			push_ask(&b, message, len, reply, sizeof(message), &got);
+		err = fzn_exchange_push_step(&ps, reply, got, message, sizeof(message), &len, &done);
+	}
+	CHECK(err == FZN_EXCHANGE_OK && done && ps.tally.positions == 2u && ps.tally.offered == 4u
+	              && ps.tally.taken == 4u,
+	      "a push by steps over a digest of two pages did not offer to both");
+	CHECK(fzn_journal_next(&b.journal, w, 1u) == 4u && fzn_journal_next(&b.journal, x, 1u) == 3u,
+	      "a push by steps did not bring both of B's streams on");
+	CHECK(fzn_exchange_push_begin(&ps, &a.journal, &a.store, message, sizeof(message), &len)
+	                      == FZN_EXCHANGE_OK
+	              && fzn_exchange_push_step(&ps, NULL, 0, message, sizeof(message), &len, &done)
+	                         == FZN_EXCHANGE_ERR_NO_ANSWER
+	              && fzn_exchange_push_step(&ps, reply, 8, message, sizeof(message), &len, &done)
+	                         == FZN_EXCHANGE_ERR_MALFORMED,
+	      "a push with no answer did not end, refusing a step after");
 }
 
 /* TWO PULLS IN FLIGHT AT ONCE, each its own struct, stepped by turns: what
@@ -659,6 +734,8 @@ int main(void)
 	test_a_lying_server();
 	test_a_digest_of_several_pages();
 	test_two_pulls_by_turns();
+	test_a_push_by_steps();
+	test_a_push_stopped_at_a_fork();
 	test_the_edges();
 	if (failures) {
 		fprintf(stderr, "exchange_test: %d of %d checks failed\n", failures, checks);

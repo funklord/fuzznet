@@ -65516,8 +65516,8 @@ none of these waits the old way**, so the gain arrives at the end.
    awaited sockets beside the serving ones (`fzn_node_state_t.asks`), hands
    each answer to its callback, and fails each request past its deadline.
 2. **The journal**: `fzn_exchange_pull` and `_push` as steps over a struct,
-   the most frequent wait. **The pull is built** (*The journal's pull as
-   steps*, below); the push is next.
+   the most frequent wait. **Built**, the pull and then the push (*The
+   journal's pull as steps* and *The journal's push as steps*, below).
 3. **The single-request sites** in `fuzznetd`: groups' sync and lines,
    streams, references, addresses, introductions -- each a request and a
    callback.
@@ -65567,6 +65567,35 @@ first, apart from the step.
   digest's first page alone, **survived at first**: no test had a digest
   longer than one page, either before the steps or since. The paged-digest
   test above catches it. `exchange-step-pages-a-range` and
-  `exchange-step-ends-on-no-answer` were caught as written. The push still
-  pages its digest through `read_digest`, which has the same exposure; it
-  is probed when the push becomes steps.
+  `exchange-step-ends-on-no-answer` were caught as written.
+
+### The journal's push as steps
+
+`fzn_exchange_pushing_t` holds a push between its messages: the digest,
+the position being offered to, that position's next record and this host's
+last, and the tally. `fzn_exchange_push_begin` and `fzn_exchange_push_step`
+have the pull's shape. The message is the caller's buffer, at most `cap`
+bytes, and `cap` is also what the peer can answer in. A message not wholly
+taken still ends that stream for the round. `fzn_exchange_push` is these
+steps driven by its `ask`, asking first as the pull's driver does.
+
+**The digest's paging is one helper now**, `digest_take`, shared by pull
+and push in place of `read_digest`. So the push reads every page by the
+same code the paged-digest test holds the pull to, and the probe that
+reads only the first page now covers both.
+
+- **`test_a_push_by_steps`** drives the steps directly against a taker
+  whose digest comes one position a page. Both of its streams are offered
+  to and brought on (four records over two pages). A step with no answer
+  ends the push, and a step after that is refused.
+- **`test_a_push_stopped_at_a_fork`**: A holds twenty records of one
+  stream, more than one floor-sized message carries, and the taker holds a
+  different third. The first message forks there and nothing after it is
+  offered.
+- **Sabotage: three entries, all caught**, one only after a test was
+  added. `exchange-step-pages-the-digest` (moved to the shared helper) and
+  `exchange-push-step-ends-on-no-answer` were caught as written.
+  **`exchange-push-step-stops-at-a-refusal` survived at first**: the
+  existing fork case in `test_a_push` offers two records, and both fit in
+  one message, so nothing came after the refusal to be wrongly offered,
+  before the steps or since. The twenty-record test above catches it.
