@@ -37,6 +37,7 @@
 #include "../../session/random_system.h"
 #include "../serve.h"
 #include "../caller.h"
+#include "../talk.h"
 #include "../../net/udp.h"
 #include "../../chunk/reassembly.h"
 
@@ -515,9 +516,6 @@ static uint16_t port_of(int fd)
 	return ntohs(((struct sockaddr_in *)&ss)->sin_port);
 }
 
-/* THE WHOLE POINT OF PAIRING, asserted as itself: the device, holding only
- * what it stored, asks the node, holding only what IT stored, and is
- * answered. Every value on both sides came out of a store. */
 /* THE ASKS TEST'S CLOCK AND CALLBACK, sec 636. */
 static uint64_t ask_now;
 static int answers, failures_seen;
@@ -536,6 +534,38 @@ static void on_answer(void *ctx, const uint8_t *reply, size_t len)
 		failures_seen++;
 }
 
+/* A CONVERSATION'S STEP, sec 636: PING `want` times, each answer a PONG
+ * counted, then over; an unanswered request ends it. */
+struct pinging {
+	int want, ponged, unanswered, overs;
+};
+
+static int ping_step(void *ctx, const uint8_t *reply, size_t reply_len, uint8_t *request,
+                     size_t cap, size_t *request_len)
+{
+	struct pinging *p = ctx;
+
+	if (!reply) {
+		p->unanswered++;
+		return 0;
+	}
+	if (reply_len == sizeof(PONG) && memcmp(reply, PONG, sizeof(PONG)) == 0)
+		p->ponged++;
+	if (p->ponged >= p->want || cap < sizeof(PING))
+		return 0;
+	memcpy(request, PING, sizeof(PING));
+	*request_len = sizeof(PING);
+	return 1;
+}
+
+static void ping_over(void *ctx)
+{
+	((struct pinging *)ctx)->overs++;
+}
+
+/* THE WHOLE POINT OF PAIRING, asserted as itself: the device, holding only
+ * what it stored, asks the node, holding only what IT stored, and is
+ * answered. Every value on both sides came out of a store. */
 static void test_paired_stores_talk(struct node *node, struct node *device,
                                     const fzn_cap_id_t *cap)
 {
@@ -650,6 +680,57 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		              && fzn_node_asks_pending(&asks) == 0u,
 		      "a request past its deadline was not failed to its callback");
 		/* The PING sent and never served is drained, for what follows. */
+		(void)fzn_node_run_once(&state, 200);
+		(void)fzn_caller_recv_any(&caller, &msg, reply, sizeof(reply), &reply_len, 200u);
+	}
+
+	/* ---- CONVERSATIONS, sec 636: two at once over one caller, three
+	 * requests each, every answer carrying its own on; and one whose
+	 * answers never come, ended at its deadline. */
+	{
+		static fzn_node_asks_t asks;
+		static fzn_node_talk_t one, two, lost;
+		static uint8_t asks_reply[256], req_one[16], req_two[16], req_lost[16];
+		struct pinging p1 = { 3, 0, 0, 0 }, p2 = { 3, 0, 0, 0 }, pl = { 3, 0, 0, 0 };
+		fzn_node_state_t client;
+		int turns;
+
+		memset(&client, 0, sizeof(client));
+		client.listen_fd = -1;
+		client.udp_fd = -1;
+		client.asks = &asks;
+		fzn_node_asks_init(&asks, asks_reply, sizeof(asks_reply), ask_clock);
+		ask_now = 1000u;
+		memcpy(req_one, PING, sizeof(PING));
+		memcpy(req_two, PING, sizeof(PING));
+		CHECK(fzn_node_talk_start(&one, &asks, &caller, 3500u, 2000u, ping_step, ping_over,
+		                          &p1, req_one, sizeof(req_one), sizeof(PING))
+		              && fzn_node_talk_start(&two, &asks, &caller, 3500u, 2000u, ping_step,
+		                                     ping_over, &p2, req_two, sizeof(req_two),
+		                                     sizeof(PING))
+		              && !fzn_node_talk_start(&one, &asks, &caller, 3500u, 2000u, ping_step,
+		                                      ping_over, &p1, req_one, sizeof(req_one),
+		                                      sizeof(PING)),
+		      "two conversations did not start, or a live one started again");
+		/* THE NODE SERVES, the client's loop carries each on. */
+		for (turns = 0; turns < 20 && (p1.overs == 0 || p2.overs == 0); turns++) {
+			(void)fzn_node_run_once(&state, 200);
+			(void)fzn_node_run_once(&client, 200);
+		}
+		CHECK(p1.ponged == 3 && p2.ponged == 3 && p1.overs == 1 && p2.overs == 1
+		              && p1.unanswered == 0 && p2.unanswered == 0 && one.sent == 3u
+		              && two.sent == 3u && !one.live && !two.live
+		              && fzn_node_asks_pending(&asks) == 0u,
+		      "two conversations at once did not each carry three requests to their end");
+		memcpy(req_lost, PING, sizeof(PING));
+		CHECK(fzn_node_talk_start(&lost, &asks, &caller, 3500u, 2000u, ping_step, ping_over,
+		                          &pl, req_lost, sizeof(req_lost), sizeof(PING))
+		              && fzn_node_asks_expire(&asks) == 0u && pl.overs == 0,
+		      "an unanswered conversation was ended before its deadline");
+		ask_now += 2000u;
+		CHECK(fzn_node_asks_expire(&asks) == 1u && pl.unanswered == 1 && pl.overs == 1
+		              && !lost.live && fzn_node_asks_pending(&asks) == 0u,
+		      "an unanswered conversation was not ended once, at its deadline");
 		(void)fzn_node_run_once(&state, 200);
 		(void)fzn_caller_recv_any(&caller, &msg, reply, sizeof(reply), &reply_len, 200u);
 	}

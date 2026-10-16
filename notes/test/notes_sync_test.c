@@ -551,6 +551,41 @@ static void test_purge_conversation(void)
 	              && !fzn_notes_purge_pending(&store_a, x),
 	      "B erases x for A, and A's purge completes and erases its own copy");
 
+	/* FINISHED WHILE AWAITED, sec 636: another host's answer, awaited beside
+	 * this one, completed the purge; this answer is passed over rather than
+	 * failing on the store. */
+	{
+		static fzn_notes_purging_t g;
+		uint8_t request[FZN_NOTES_SYNC_PURGE_ACK_LEN];
+		uint8_t reply[FZN_NOTES_SYNC_LIST_HEAD_LEN + (FZN_NOTES_SYNC_PURGES_MAX * FZN_TREE_ID_LEN)];
+		uint8_t z[FZN_TREE_ID_LEN];
+		size_t request_len = 0, reply_len = 0, turns = 0;
+		int done = 0;
+		fzn_notes_sync_err_t err;
+
+		memcpy(pin.key, KEY_B, FZN_PUBKEY_LEN);
+		CHECK(write(&a, "z", z)
+		              && fzn_notes_sync_pull(&store_b, both(), &sign_b, ask, &a_for_b, &t)
+		                         == FZN_NOTES_SYNC_OK
+		              && fzn_notes_purge_add(&store_a, z, fzn_notes_asking(&pin, 1u), 9u, &complete)
+		                         == FZN_NOTES_OK,
+		      "fixture: z on both, A purging it and pinning B");
+		err = fzn_notes_sync_purges_begin(&g, &store_a, both(), KEY_B, request, sizeof(request),
+		                                  &request_len, &done);
+		CHECK(err == FZN_NOTES_SYNC_OK && !done
+		              && fzn_notes_purge_finish(&store_a, z) == FZN_NOTES_OK,
+		      "fixture: the purge asked of B, and finished meanwhile");
+		while (err == FZN_NOTES_SYNC_OK && !done && turns++ < 16u) {
+			reply_len = 0;
+			(void)ask(&b_for_a, request, request_len, reply, sizeof(reply), &reply_len);
+			err = fzn_notes_sync_purges_step(&g, reply, reply_len, request, sizeof(request),
+			                                 &request_len, &done);
+		}
+		CHECK(err == FZN_NOTES_SYNC_OK && done && g.tally.erased == 1u
+		              && g.tally.finished == 0u,
+		      "an answer to a purge finished meanwhile failed the conversation, or finished it twice");
+	}
+
 	/* ---- B's purge, pinning its partner A, taken by A's pull */
 	memcpy(pin.key, KEY_A, FZN_PUBKEY_LEN);
 	CHECK(fzn_notes_purge_add(&store_b, y, fzn_notes_asking(&pin, 1u), 9u, &complete)
@@ -1112,6 +1147,36 @@ static void test_wrap_exchange(void)
 	CHECK(fzn_notes_sync_wraps(&store_a, ask, &from_b, 1, &wt) == FZN_NOTES_SYNC_OK
 	              && wt.asked == 0u && wt.given == 1u && title_is(&store_b, two, KEY_A, "two"),
 	      "A asks B what it lacks and gives it the key");
+
+	/* BY STEPS, sec 636: the give's keys wiped from the request once it is
+	 * answered. */
+	{
+		static fzn_notes_wrapping_t w;
+		static uint8_t request[FZN_NOTES_SYNC_WRAPS_REPLY_MAX], reply[FZN_NOTES_SYNC_WRAPS_REPLY_MAX];
+		uint8_t three[FZN_TREE_ID_LEN];
+		size_t request_len = 0, reply_len, i, nonzero = 0, turns = 0;
+		int done = 0;
+		fzn_notes_sync_err_t err;
+
+		CHECK(write(&a, "three", three)
+		              && fzn_notes_sync_pull(&store_b, both(), &sign_b, ask, &from_a, &t)
+		                         == FZN_NOTES_SYNC_OK,
+		      "fixture: B holds A's third note, and not its key");
+		err = fzn_notes_sync_wraps_begin(&w, &store_a, 1, request, sizeof(request),
+		                                 &request_len, &done);
+		while (err == FZN_NOTES_SYNC_OK && !done && turns++ < 16u) {
+			reply_len = 0;
+			(void)ask(&from_b, request, request_len, reply, sizeof(reply), &reply_len);
+			err = fzn_notes_sync_wraps_step(&w, reply, reply_len, request, sizeof(request),
+			                                &request_len, &done);
+		}
+		for (i = 0; i < sizeof(request); i++)
+			nonzero += request[i] != 0u;
+		CHECK(err == FZN_NOTES_SYNC_OK && done && w.tally.given == 1u
+		              && title_is(&store_b, three, KEY_A, "three"),
+		      "a give by steps did not give B the third key");
+		CHECK(nonzero == 0u, "a give's keys were left in the request after its answer");
+	}
 
 	CHECK(give_one(&store_b, KEY_A, nowhere, 0x11) == 0u
 	              && fzn_notes_wrap_get(&store_b, nowhere, key) == FZN_NOTES_ERR_ABSENT,

@@ -231,6 +231,32 @@ fzn_notes_sync_err_t fzn_notes_sync_wraps(const fzn_notes_store_t *store,
                                           fzn_notes_sync_ask_t ask, void *ask_ctx, int give,
                                           fzn_notes_wrap_tally_t *tally);
 
+/* THE SAME ROUND AS STEPS, sec 636, its state in a struct so the loop can
+ * await each answer: `fzn_notes_sync_wraps_begin` writes the first request,
+ * or sets `*done` when there is nothing to ask; each
+ * `fzn_notes_sync_wraps_step` takes that request's answer -- NULL for none
+ * -- and writes the next or sets `*done`; its error is the step's return.
+ * `request` is the caller's, at least FZN_NOTES_SYNC_WRAPS_REPLY_MAX, and
+ * held between steps: a give's keys are written into it and wiped by the
+ * step its answer comes to. The tally is the struct's. */
+typedef struct fzn_notes_wrapping {
+	const fzn_notes_store_t *store;
+	int give, phase;
+	uint8_t lacking[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
+	size_t n_lacking, from, count; /* the page asked */
+	size_t given_n, given_len;     /* the give sent */
+	fzn_notes_wrap_tally_t tally;
+} fzn_notes_wrapping_t;
+
+fzn_notes_sync_err_t fzn_notes_sync_wraps_begin(fzn_notes_wrapping_t *w,
+                                                const fzn_notes_store_t *store, int give,
+                                                uint8_t *request, size_t cap,
+                                                size_t *request_len, int *done);
+
+fzn_notes_sync_err_t fzn_notes_sync_wraps_step(fzn_notes_wrapping_t *w, const uint8_t *reply,
+                                               size_t reply_len, uint8_t *request, size_t cap,
+                                               size_t *request_len, int *done);
+
 /* What one round of the purge conversation did. */
 typedef struct fzn_notes_purge_tally {
 	size_t asked;    /* own purges sent to the host */
@@ -255,5 +281,33 @@ fzn_notes_sync_err_t fzn_notes_sync_purges(const fzn_notes_store_t *store,
                                            const uint8_t host[FZN_PUBKEY_LEN],
                                            fzn_notes_sync_ask_t ask, void *ask_ctx,
                                            fzn_notes_purge_tally_t *tally);
+
+/* THE SAME CONVERSATION AS STEPS, sec 636, as the wrap keys' are: begin
+ * writes the first request, each step takes its answer -- NULL for none --
+ * and writes the next or sets `*done`. `request` is the caller's, at least
+ * FZN_NOTES_SYNC_PURGE_ACK_LEN; a reply may be as long as a purges list.
+ * A purge another host's answer finished while this one was awaited is
+ * passed over rather than answered again. The tally is the struct's. */
+typedef struct fzn_notes_purging {
+	const fzn_notes_store_t *store;
+	fzn_notes_policy_t policy;
+	uint8_t host[FZN_PUBKEY_LEN];
+	int phase;
+	uint8_t own[FZN_NOTES_PURGE_MAX][FZN_TREE_ID_LEN];
+	uint8_t listed[FZN_NOTES_SYNC_PURGES_MAX][FZN_TREE_ID_LEN];
+	size_t n_own, n_listed, at;
+	fzn_notes_purge_tally_t tally;
+} fzn_notes_purging_t;
+
+fzn_notes_sync_err_t fzn_notes_sync_purges_begin(fzn_notes_purging_t *g,
+                                                 const fzn_notes_store_t *store,
+                                                 fzn_notes_policy_t policy,
+                                                 const uint8_t host[FZN_PUBKEY_LEN],
+                                                 uint8_t *request, size_t cap,
+                                                 size_t *request_len, int *done);
+
+fzn_notes_sync_err_t fzn_notes_sync_purges_step(fzn_notes_purging_t *g, const uint8_t *reply,
+                                                size_t reply_len, uint8_t *request,
+                                                size_t cap, size_t *request_len, int *done);
 
 #endif /* FZN_NOTES_SYNC_H */

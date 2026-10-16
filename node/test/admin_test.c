@@ -2455,6 +2455,44 @@ int main(void)
 		CHECK(listed(got, n, m1.id.pubkey) && listed(got, n, m2.id.pubkey),
 		      "both members the root paired are admitted");
 		CHECK(!listed(got, n, m3.id.pubkey), "a contact paired for a share is not");
+		/* BY ITS STEPS, sec 636: the same pages, each answer handed in, and
+		 * an unanswered request ending the pull. */
+		{
+			static uint8_t page[16384];
+			fzn_node_members_pulling_t pull;
+			uint8_t req[FZN_NODE_MEMBERS_QUERY_LEN];
+			size_t req_len = 0, page_len, pages = 0;
+			int done = 0;
+			fzn_node_members_err_t merr;
+
+			mp.asked = 0;
+			merr = fzn_node_members_pull_begin(&pull, node.id.pubkey,
+			                                   &state.config.remote_capability, 2100u,
+			                                   &node.sign, admin.revocations, got, 64u, req,
+			                                   sizeof(req), &req_len);
+			while (merr == FZN_NODE_MEMBERS_OK && !done && pages++ < 64u) {
+				page_len = 0;
+				(void)members_ask(&mp, req, req_len, page, sizeof(page), &page_len);
+				merr = fzn_node_members_pull_step(&pull, page, page_len, req, sizeof(req),
+				                                  &req_len, &done);
+			}
+			CHECK(merr == FZN_NODE_MEMBERS_OK && done && pages > 1u && pull.count == n
+			              && listed(got, pull.count, m1.id.pubkey)
+			              && listed(got, pull.count, m2.id.pubkey),
+			      "the members pulled by steps are not the members pulled at once");
+			CHECK(fzn_node_members_pull_begin(&pull, node.id.pubkey,
+			                                  &state.config.remote_capability, 2100u,
+			                                  &node.sign, admin.revocations, got, 64u, req,
+			                                  sizeof(req), &req_len) == FZN_NODE_MEMBERS_OK
+			              && fzn_node_members_pull_step(&pull, NULL, 0, req, sizeof(req),
+			                                            &req_len, &done)
+			                         == FZN_NODE_MEMBERS_ERR_NO_ANSWER
+			              && done
+			              && fzn_node_members_pull_step(&pull, page, 8, req, sizeof(req),
+			                                            &req_len, &done)
+			                         == FZN_NODE_MEMBERS_ERR_MALFORMED,
+			      "a members pull with no answer did not end, refusing a step after");
+		}
 		{
 			static uint8_t page[16384];
 			uint8_t q[FZN_NODE_MEMBERS_QUERY_LEN] = { 2u, FZN_NODE_MEMBERS_QUERY, 0u, 0u };

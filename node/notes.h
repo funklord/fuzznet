@@ -296,6 +296,31 @@ int fzn_node_notes_release_purges(fzn_node_notes_t *n, size_t *released, size_t 
 int fzn_node_notes_push_texts(fzn_node_notes_t *n, fzn_notes_sync_ask_t ask, void *ask_ctx,
                               fzn_node_notes_text_tally_t *tally);
 
+/* THE SAME PUSH AS STEPS, sec 636: begin writes the first offer, or sets
+ * `*done` with nothing to offer; each step takes its answer -- NULL for
+ * none -- and writes the next offer or span, or sets `*done`. 0 from
+ * either on no answer or nonsense, which ends the push, as above. `request`
+ * is the caller's, FZN_NODE_NOTES_TEXT_REQUEST_MAX at least: an offer's head
+ * and a span of up to 24 KiB. The tally is the struct's. */
+#define FZN_NODE_NOTES_TEXT_REQUEST_MAX (2u + FZN_BLOB_HASH_LEN + 8u + (24u * 1024u))
+
+typedef struct fzn_node_notes_texting {
+	fzn_node_notes_t *n;
+	int phase;
+	uint8_t roots[FZN_NOTES_MAX][FZN_BLOB_HASH_LEN];
+	uint64_t lengths[FZN_NOTES_MAX];
+	size_t n_roots, at;    /* the text offered or spanned */
+	uint64_t first, count; /* its next span, and the last span's leaves */
+	fzn_node_notes_text_tally_t tally;
+} fzn_node_notes_texting_t;
+
+int fzn_node_notes_push_texts_begin(fzn_node_notes_texting_t *x, fzn_node_notes_t *n,
+                                    uint8_t *request, size_t cap, size_t *request_len, int *done);
+
+int fzn_node_notes_push_texts_step(fzn_node_notes_texting_t *x, const uint8_t *reply,
+                                   size_t reply_len, uint8_t *request, size_t cap,
+                                   size_t *request_len, int *done);
+
 /* The verbs above, for `node/admin.h`'s hook. 0 when `request` is not one. */
 size_t fzn_node_notes_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                             char *reply, size_t reply_cap);

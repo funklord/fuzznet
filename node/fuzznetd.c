@@ -37,6 +37,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "serve.h"
+#include "talk.h"
 #include "routing.h"
 #include "contact_card.h"
 #include "contact_request.h"
@@ -1312,47 +1313,70 @@ static size_t link_local(const fzn_request_t *request, char *reply, size_t cap)
 	return at + (size_t)snprintf(reply + at, cap > at ? cap - at : 0u, "\n");
 }
 
+/* A REQUEST SENT on link `li`, counted. */
+static void link_asked(size_t li, size_t request_len)
+{
+	if (li < FZND_LINKS_MAX) {
+		link_meters[li].asked++;
+		link_meters[li].sent += request_len;
+	}
+}
+
+/* ITS ANSWER, `reply_len` bytes `began` ms after it was sent; or with `lost`
+ * none. */
+static void link_answered(size_t li, uint64_t began, size_t reply_len, int lost)
+{
+	uint64_t ended = mono_ms();
+
+	if (li >= FZND_LINKS_MAX)
+		return;
+	if (lost) {
+		(void)fzn_link_observe_loss(&link_table, (uint32_t)li + 1u, ended);
+		return;
+	}
+	link_meters[li].answered++;
+	link_meters[li].received += reply_len;
+	(void)fzn_link_observe_ack(&link_table, (uint32_t)li + 1u,
+	                           ended > began ? (uint32_t)(ended - began) : 0u, ended);
+}
+
+/* A REFUSAL IN WORDS, sec 455: every binary message here opens with a small
+ * version byte, so a reply opening with a letter is the peer's own reply
+ * line -- a contact suspended, a capability it was not granted. Said as the
+ * peer said it, since the caller will only see an answer that does not
+ * parse. */
+static void said_refusal(const char *host, const uint8_t *reply, size_t reply_len)
+{
+	const uint8_t *detail = NULL;
+	size_t detail_len = 0, len = reply_len;
+
+	while (len && (reply[len - 1u] == '\n' || reply[len - 1u] == '\r'))
+		len--;
+	if (len && reply[0] >= 'a' && reply[0] <= 'z'
+	    && fzn_reply_of(reply, len, &detail, &detail_len) != FZN_REPLY_OK)
+		say(FZN_ENTRY_WARNING, "node/peer", "%s refused: %.*s", host ? host : "a peer",
+		        (int)(len > 200u ? 200u : len), (const char *)reply);
+}
+
 static int peer_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
                     size_t reply_cap, size_t *reply_len)
 {
 	struct peer_asking *asking = (struct peer_asking *)ctx;
 	uint32_t msg = 0;
-	const uint8_t *detail = NULL;
-	size_t detail_len = 0, len, li = link_of(&asking->caller->node);
-	uint64_t began = mono_ms(), ended;
+	size_t li = link_of(&asking->caller->node);
+	uint64_t began = mono_ms();
 
 	/* ITS ENVELOPE, if any, is the caller's `wrap`, sec 465. */
-	if (li < FZND_LINKS_MAX) {
-		link_meters[li].asked++;
-		link_meters[li].sent += request_len;
-	}
+	link_asked(li, request_len);
 	if (fzn_caller_send(asking->caller, request, request_len, asking->now + 300u, &msg)
 	            != FZN_CALLER_OK
 	    || fzn_caller_recv(asking->caller, msg, reply, reply_cap, reply_len, 3000u)
 	               != FZN_CALLER_OK) {
-		if (li < FZND_LINKS_MAX)
-			(void)fzn_link_observe_loss(&link_table, (uint32_t)li + 1u, mono_ms());
+		link_answered(li, began, 0, 1);
 		return 0;
 	}
-	ended = mono_ms();
-	if (li < FZND_LINKS_MAX) {
-		link_meters[li].answered++;
-		link_meters[li].received += *reply_len;
-		(void)fzn_link_observe_ack(&link_table, (uint32_t)li + 1u,
-		                           ended > began ? (uint32_t)(ended - began) : 0u, ended);
-	}
-	/* A REFUSAL IN WORDS, sec 455: every binary message here opens with a
-	 * small version byte, so a reply opening with a letter is the peer's
-	 * own reply line -- a contact suspended, a capability it was not
-	 * granted. Said as the peer said it, since the caller will only see
-	 * an answer that does not parse. */
-	len = *reply_len;
-	while (len && (reply[len - 1u] == '\n' || reply[len - 1u] == '\r'))
-		len--;
-	if (len && reply[0] >= 'a' && reply[0] <= 'z'
-	    && fzn_reply_of(reply, len, &detail, &detail_len) != FZN_REPLY_OK)
-		say(FZN_ENTRY_WARNING, "node/peer", "%s refused: %.*s", asking->host ? asking->host : "a peer",
-		        (int)(len > 200u ? 200u : len), (const char *)reply);
+	link_answered(li, began, *reply_len, 0);
+	said_refusal(asking->host, reply, *reply_len);
 	return 1;
 }
 
@@ -1367,6 +1391,24 @@ struct pull_target {
 	fzn_partial_t slot;
 	uint8_t slot_buf[FZND_PULL_REPLY_MAX];
 	int fd;
+};
+
+/* A ROUND'S STEPS, in order, sec 636: the loop runs one each pass and
+ * answers between them. 0 is no round under way. */
+enum {
+	ROUND_START = 1,
+	ROUND_JOURNAL,
+	ROUND_RECONCILE,
+	ROUND_ROUTING,
+	ROUND_GRANTS,
+	ROUND_MESSAGES,
+	ROUND_MEMBERS,
+	ROUND_NOTES,
+	ROUND_NOTES_SETTLE,
+	ROUND_CONTACTS,
+	ROUND_GROUPS,
+	ROUND_REFERENCES,
+	ROUND_END
 };
 
 /* THE PEERS THAT DID NOT ANSWER THIS ROUND, sec 587, by where they are: a
@@ -1425,6 +1467,165 @@ static void admit_writers(const fzn_node_state_t *state, const fzn_node_roots_t 
 	for (i = 0; i < n_pulled_members && n < FZN_NODE_NOTES_WRITERS; i++)
 		memcpy(keys[n++], pulled_members[i], FZN_PUBKEY_LEN);
 	(void)fzn_node_notes_admit_members(&node_notes, (const uint8_t (*)[FZN_PUBKEY_LEN])keys, n);
+}
+
+/* ---- the round's conversations, sec 636 ------------------------------------
+ *
+ * A ROUND STEP THAT ASKS EVERY PEER AT ONCE: one conversation with each
+ * (`node/talk.h`), every request awaited by the loop beside the requests it
+ * answers, and the round going on only once all are over. Where the round
+ * asked its peers one after another, each silent one cost a timeout and
+ * every host waited out the others' rounds; here a step's silent peers
+ * cost one timeout together, and this host answers while it waits.
+ *
+ * Metered as `peer_ask` meters, a link's requests and answers counted and
+ * a refusal in words said. */
+_Static_assert(FZND_PULL_REPLY_MAX >= 16384u, "a members page fits the round's answers");
+
+static fzn_node_asks_t round_asks;
+static uint8_t round_reply[FZND_PULL_REPLY_MAX];
+static size_t round_pending;
+
+
+static uint64_t round_clock_ms(void)
+{
+	return mono_ms();
+}
+
+static void round_talk_over(void *ctx)
+{
+	(void)ctx;
+	if (round_pending)
+		round_pending--;
+}
+
+/* A CONVERSATION'S METER: its link, and when its request went -- metered as
+ * `peer_ask` meters, a link's requests and answers counted and a refusal
+ * in words said. */
+struct meter {
+	size_t li;
+	const char *host;
+	uint64_t began;
+};
+
+static void meter_answer(struct meter *m, const uint8_t *reply, size_t reply_len)
+{
+	link_answered(m->li, m->began, reply_len, !reply);
+	if (reply)
+		said_refusal(m->host, reply, reply_len);
+}
+
+static void meter_asked(struct meter *m, size_t request_len)
+{
+	link_asked(m->li, request_len);
+	m->began = mono_ms();
+}
+
+struct round_talk {
+	fzn_node_talk_t talk;
+	const struct pull_target *pt;
+	struct meter m;
+	uint8_t request[FZN_NODE_MEMBERS_QUERY_LEN];
+	fzn_node_members_pulling_t members;
+	fzn_node_members_err_t merr;
+	uint8_t got[FZN_NODE_NOTES_WRITERS][FZN_PUBKEY_LEN];
+};
+static struct round_talk round_talks[FZND_ROUND_TARGETS_MAX];
+static size_t n_round_talks;
+
+/* A CONVERSATION WITH `pt` STARTED, its first request already written:
+ * awaited by the round, or, when it will not leave, counted lost. 1 when
+ * awaited. */
+static int talk_start(fzn_node_talk_t *talk, struct meter *m, const struct pull_target *pt,
+                      uint64_t now, fzn_node_talk_step_fn step, void *ctx, uint8_t *request,
+                      size_t cap, size_t len)
+{
+	m->li = link_of(&pt->caller.node);
+	m->host = pt->host;
+	meter_asked(m, len);
+	if (fzn_node_talk_start(talk, &round_asks, (fzn_caller_t *)&pt->caller, now + 300u, 3000u,
+	                        step, round_talk_over, ctx, request, cap, len)) {
+		round_pending++;
+		return 1;
+	}
+	link_answered(m->li, m->began, 0, 1);
+	return 0;
+}
+
+/* A MEMBERS PAGE'S ANSWER, or none: metered, and the pull carried on. */
+static int members_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, uint8_t *request,
+                             size_t cap, size_t *request_len)
+{
+	struct round_talk *rt = ctx;
+	int done = 0;
+
+	meter_answer(&rt->m, reply, reply_len);
+	rt->merr = fzn_node_members_pull_step(&rt->members, reply, reply_len, request, cap,
+	                                      request_len, &done);
+	if (rt->merr != FZN_NODE_MEMBERS_OK || done)
+		return 0;
+	meter_asked(&rt->m, *request_len);
+	return 1;
+}
+
+/* THE ESTATE'S MEMBERS, sec 445, asked of every peer at once: each admitted
+ * on the proof of its chain against this node's own root, so a note a
+ * member wrote and a peer relays is taken. Rebuilt every round, so a member
+ * revoked since drops out. `members_settle` takes what came. */
+static void members_start(const struct pull_target *pulls, size_t npulls, uint64_t now,
+                          const fzn_node_config_t *config,
+                          const fzn_revocation_store_t *revocations)
+{
+	size_t t, len;
+
+	n_round_talks = 0;
+	if (!notes_on)
+		return;
+	for (t = 0; t < npulls && n_round_talks < FZND_ROUND_TARGETS_MAX; t++) {
+		struct round_talk *rt = &round_talks[n_round_talks];
+
+		if (silent_peer(&pulls[t]))
+			continue;
+		rt->pt = &pulls[t];
+		len = 0;
+		if (fzn_node_members_pull_begin(&rt->members, config->root,
+		                                &config->remote_capability, now,
+		                                node_notes.author.sign, revocations, rt->got,
+		                                FZN_NODE_NOTES_WRITERS, rt->request,
+		                                sizeof(rt->request), &len)
+		    != FZN_NODE_MEMBERS_OK)
+			continue;
+		n_round_talks++;
+		rt->merr = FZN_NODE_MEMBERS_ERR_NO_ANSWER;
+		(void)talk_start(&rt->talk, &rt->m, &pulls[t], now, members_talk_step, rt,
+		                 rt->request, sizeof(rt->request), len);
+	}
+}
+
+/* WHAT THE MEMBERS' CONVERSATIONS BROUGHT, every peer's in turn, the
+ * writers admitted from them. */
+static void members_settle(const fzn_node_state_t *state, const fzn_node_roots_t *roots)
+{
+	size_t i, k, n = 0;
+
+	if (!notes_on)
+		return;
+	for (i = 0; i < n_round_talks; i++) {
+		const struct round_talk *rt = &round_talks[i];
+
+		if (rt->merr != FZN_NODE_MEMBERS_OK) {
+			say(FZN_ENTRY_WARNING, "members", "members from %s: %s", rt->pt->host,
+			    fzn_node_members_err_str(rt->merr));
+			continue;
+		}
+		if (rt->members.refused)
+			say(FZN_ENTRY_WARNING, "members", "%zu member(s) from %s did not prove",
+			    rt->members.refused, rt->pt->host);
+		for (k = 0; k < rt->members.count && n < FZN_NODE_NOTES_WRITERS; k++)
+			memcpy(pulled_members[n++], rt->got[k], FZN_PUBKEY_LEN);
+	}
+	n_pulled_members = n;
+	admit_writers(state, roots);
 }
 
 #ifdef FZN_RECORD_STORE_FILE_ON
@@ -3558,6 +3759,286 @@ static void journal_cut(uint64_t now)
 
 /* Every note each pull peer holds that this node lacks or holds older,
  * admitted as any record is. sec 432. */
+/* THE NOTES' WORK WITH EACH PEER once the estate's members are known: the
+ * texts, wrap keys and purges, sec 519. The round's own members come from
+ * its conversations (`members_start`, sec 636), and so do its exchanges with
+ * each peer (`notes_start`); between rounds, `pull_notes` asks in turn. */
+static void notes_before_peers(void)
+{
+#ifdef FZN_RECORD_STORE_FILE_ON
+	index_notes();
+	index_catalog();
+#endif
+	/* A PURGE NOT SAID, sec 519: marked here, and no follower told. */
+	{
+		static size_t untold;
+
+		if (node_notes.purges_untold != untold) {
+			untold = node_notes.purges_untold;
+			say(FZN_ENTRY_WARNING, "notes/purge",
+			    "%zu purge(s) marked here were not written to the journal", untold);
+		}
+	}
+}
+
+static void notes_after_peers(void)
+{
+	/* AND WHAT THE SILENT PIN, sec 472: a purge waiting a month on nodes
+	 * gone as long is released from them, every round. */
+	{
+		size_t released = 0, finished = 0;
+
+		if (!fzn_node_notes_release_purges(&node_notes, &released, &finished))
+			say(FZN_ENTRY_WARNING, "notes/purge", "the purges would not read");
+		else if (released)
+			say(FZN_ENTRY_INFO, "notes/purge",
+			        "%zu silent node(s) released from purges, %zu purge(s) finished",
+			        released, finished);
+	}
+#ifdef FZN_SPOOL_FILE_ON
+	/* EVERY NOTE'S CONTENT IS A BLOB, sec 514, and names what to fetch: each held is
+	 * wanted on the shelf, which answers at once for a text already here,
+	 * so the texts follow their notes in the same round. sec 432. */
+	if (shelf_on
+	    && fzn_notes_view_load(&node_notes.store, node_notes.author.view) == FZN_NOTES_OK) {
+		const fzn_notes_view_t *v = node_notes.author.view;
+		size_t i;
+
+		for (i = 0; i < v->count; i++) {
+			fzn_note_blob_ref_t ref;
+
+			if (fzn_notes_ref_of(&v->nodes[i], &ref))
+				(void)fzn_node_shelf_want(&shelf, ref.root, ref.length);
+		}
+	}
+#endif
+}
+
+static void wraps_said(const char *host, fzn_notes_sync_err_t werr, const fzn_notes_wrap_tally_t *wt)
+{
+	if (werr != FZN_NOTES_SYNC_OK)
+		say(FZN_ENTRY_WARNING, "notes/wrap", "wrap keys with %s: %s", host,
+		        fzn_notes_sync_err_str(werr));
+	else if (wt->taken || wt->refused || wt->given)
+		say(wt->refused ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "notes/wrap",
+		        "wrap keys with %s: %zu taken, %zu refused, %zu given", host, wt->taken,
+		        wt->refused, wt->given);
+}
+
+static void texts_said(const char *host, int ok, const fzn_node_notes_text_tally_t *tt)
+{
+	if (!ok)
+		say(FZN_ENTRY_WARNING, "notes/text", "texts to %s: no answer", host);
+	else if (tt->pushed || tt->refused)
+		say(FZN_ENTRY_INFO, "notes/text", "%zu text(s) to %s in %zu span(s), %zu refused",
+		        tt->pushed, host, tt->spans, tt->refused);
+}
+
+static void purges_said(const char *host, fzn_notes_sync_err_t err,
+                        const fzn_notes_purge_tally_t *pt)
+{
+	if (err != FZN_NOTES_SYNC_OK)
+		say(FZN_ENTRY_WARNING, "notes/purge", "purges with %s: %s", host,
+		        fzn_notes_sync_err_str(err));
+	else if (pt->erased || pt->finished || pt->taken || pt->refused || pt->declined)
+		say(FZN_ENTRY_INFO, "notes/purge",
+		        "purges with %s: %zu erased there, %zu finished, "
+		        "%zu taken, %zu refused, %zu declined",
+		        host, pt->erased, pt->finished, pt->taken, pt->refused, pt->declined);
+}
+
+/* ---- THE NOTES' CONVERSATIONS, sec 636: with every peer at once, its wrap
+ * keys, its texts and its purges each a conversation of its own, so a
+ * silent peer costs the step one timeout rather than one for each. Begun
+ * by `notes_start`, told by `notes_settle`. */
+_Static_assert(FZND_PULL_REPLY_MAX >= FZN_NOTES_SYNC_WRAPS_REPLY_MAX,
+               "a wrap keys answer fits the round's answers");
+_Static_assert(FZND_PULL_REPLY_MAX
+                       >= FZN_NOTES_SYNC_LIST_HEAD_LEN
+                                  + (FZN_NOTES_SYNC_PURGES_MAX * FZN_TREE_ID_LEN),
+               "a purges list fits the round's answers");
+
+struct notes_talk {
+	const struct pull_target *pt;
+	struct {
+		fzn_node_talk_t talk;
+		struct meter m;
+		uint8_t request[FZN_NOTES_SYNC_WRAPS_REPLY_MAX];
+		fzn_notes_wrapping_t state;
+		fzn_notes_sync_err_t err;
+	} wraps;
+	struct {
+		fzn_node_talk_t talk;
+		struct meter m;
+		uint8_t request[FZN_NODE_NOTES_TEXT_REQUEST_MAX];
+		fzn_node_notes_texting_t state;
+		int ok;
+	} texts;
+	struct {
+		fzn_node_talk_t talk;
+		struct meter m;
+		uint8_t request[FZN_NOTES_SYNC_PURGE_ACK_LEN];
+		fzn_notes_purging_t state;
+		fzn_notes_sync_err_t err;
+	} purges;
+};
+static struct notes_talk notes_talks[FZND_ROUND_TARGETS_MAX];
+static size_t n_notes_talks;
+
+static int wraps_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, uint8_t *request,
+                           size_t cap, size_t *request_len)
+{
+	struct notes_talk *nt = ctx;
+	int done = 0;
+
+	meter_answer(&nt->wraps.m, reply, reply_len);
+	nt->wraps.err = fzn_notes_sync_wraps_step(&nt->wraps.state, reply, reply_len, request, cap,
+	                                          request_len, &done);
+	if (nt->wraps.err != FZN_NOTES_SYNC_OK || done)
+		return 0;
+	meter_asked(&nt->wraps.m, *request_len);
+	return 1;
+}
+
+static int texts_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, uint8_t *request,
+                           size_t cap, size_t *request_len)
+{
+	struct notes_talk *nt = ctx;
+	int done = 0;
+
+	meter_answer(&nt->texts.m, reply, reply_len);
+	nt->texts.ok = fzn_node_notes_push_texts_step(&nt->texts.state, reply, reply_len, request,
+	                                              cap, request_len, &done);
+	if (!nt->texts.ok || done)
+		return 0;
+	meter_asked(&nt->texts.m, *request_len);
+	return 1;
+}
+
+static int purges_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, uint8_t *request,
+                            size_t cap, size_t *request_len)
+{
+	struct notes_talk *nt = ctx;
+	int done = 0;
+
+	meter_answer(&nt->purges.m, reply, reply_len);
+	nt->purges.err = fzn_notes_sync_purges_step(&nt->purges.state, reply, reply_len, request,
+	                                            cap, request_len, &done);
+	if (nt->purges.err != FZN_NOTES_SYNC_OK || done)
+		return 0;
+	meter_asked(&nt->purges.m, *request_len);
+	return 1;
+}
+
+/* THE NOTES' WORK WITH EVERY PEER, begun: what each exchange asks first,
+ * and a conversation for each that asks anything. */
+static void notes_start(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	size_t t, len;
+	int done;
+
+	n_notes_talks = 0;
+	if (!notes_on)
+		return;
+	notes_before_peers();
+	for (t = 0; t < npulls && n_notes_talks < FZND_ROUND_TARGETS_MAX; t++) {
+		struct notes_talk *nt = &notes_talks[n_notes_talks];
+
+		if (silent_peer(&pulls[t]))
+			continue;
+		n_notes_talks++;
+		nt->pt = &pulls[t];
+		/* THEIR WRAP KEYS, sec 520, both ways: a note this node holds the
+		 * records of is unreadable here until its wrap key arrives. */
+		len = 0;
+		done = 0;
+		nt->wraps.err = fzn_notes_sync_wraps_begin(&nt->wraps.state, &node_notes.store, 1,
+		                                           nt->wraps.request,
+		                                           sizeof(nt->wraps.request), &len, &done);
+		if (nt->wraps.err == FZN_NOTES_SYNC_OK && !done
+		    && !talk_start(&nt->wraps.talk, &nt->wraps.m, &pulls[t], now, wraps_talk_step, nt,
+		                   nt->wraps.request, sizeof(nt->wraps.request), len))
+			nt->wraps.err = FZN_NOTES_SYNC_NO_ANSWER;
+		/* THEIR TEXTS, sec 448: a pushed note whose text stayed here
+		 * would be a note nobody there could read. */
+		len = 0;
+		done = 0;
+		nt->texts.ok = fzn_node_notes_push_texts_begin(&nt->texts.state, &node_notes,
+		                                               nt->texts.request,
+		                                               sizeof(nt->texts.request), &len,
+		                                               &done);
+		if (nt->texts.ok && !done
+		    && !talk_start(&nt->texts.talk, &nt->texts.m, &pulls[t], now, texts_talk_step, nt,
+		                   nt->texts.request, sizeof(nt->texts.request), len))
+			nt->texts.ok = 0;
+		/* THE PURGE CONVERSATION, driven from this side. sec 433. */
+		len = 0;
+		done = 0;
+		nt->purges.err = fzn_notes_sync_purges_begin(
+		        &nt->purges.state, &node_notes.store, node_notes.author.policy,
+		        node_notes.pulls[t].key, nt->purges.request, sizeof(nt->purges.request), &len,
+		        &done);
+		if (nt->purges.err == FZN_NOTES_SYNC_OK && !done
+		    && !talk_start(&nt->purges.talk, &nt->purges.m, &pulls[t], now, purges_talk_step,
+		                   nt, nt->purges.request, sizeof(nt->purges.request), len))
+			nt->purges.err = FZN_NOTES_SYNC_NO_ANSWER;
+	}
+}
+
+/* WHAT THE NOTES' CONVERSATIONS DID, said peer by peer as the round in turn
+ * said it, and the work after them. */
+static void notes_settle(void)
+{
+	size_t i;
+
+	if (!notes_on)
+		return;
+	for (i = 0; i < n_notes_talks; i++) {
+		const struct notes_talk *nt = &notes_talks[i];
+
+		wraps_said(nt->pt->host, nt->wraps.err, &nt->wraps.state.tally);
+		texts_said(nt->pt->host, nt->texts.ok, &nt->texts.state.tally);
+		purges_said(nt->pt->host, nt->purges.err, &nt->purges.state.tally);
+	}
+	notes_after_peers();
+}
+
+static void notes_with_peers(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	size_t t;
+
+	if (!notes_on)
+		return;
+	notes_before_peers();
+	/* THE NOTES THEMSELVES COME IN THE JOURNAL, sec 519: pulled and pushed
+	 * with every other stream, and filed by `index_notes`. What is left to
+	 * say to each peer here is their texts and the purge conversation. */
+	for (t = 0; t < npulls; t++) {
+		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
+		fzn_notes_wrap_tally_t wt;
+		fzn_node_notes_text_tally_t tt;
+		fzn_notes_purge_tally_t pt;
+		fzn_notes_sync_err_t err;
+		int ok;
+
+		if (silent_peer(&pulls[t]))
+			continue;
+		/* THEIR WRAP KEYS, sec 520, both ways: a note this node holds the
+		 * records of is unreadable here until its wrap key arrives. */
+		err = fzn_notes_sync_wraps(&node_notes.store, peer_ask, &asking, 1, &wt);
+		wraps_said(pulls[t].host, err, &wt);
+		/* THEIR TEXTS, sec 448: a pushed note whose text stayed here
+		 * would be a note nobody there could read. */
+		ok = fzn_node_notes_push_texts(&node_notes, peer_ask, &asking, &tt);
+		texts_said(pulls[t].host, ok, &tt);
+		/* THE PURGE CONVERSATION, driven from this side. sec 433. */
+		err = fzn_notes_sync_purges(&node_notes.store, node_notes.author.policy,
+		                            node_notes.pulls[t].key, peer_ask, &asking, &pt);
+		purges_said(pulls[t].host, err, &pt);
+	}
+	notes_after_peers();
+}
+
 static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
                        const fzn_node_state_t *state,
                        const fzn_revocation_store_t *revocations,
@@ -3595,102 +4076,7 @@ static void pull_notes(struct pull_target *pulls, size_t npulls, uint64_t now,
 	}
 	n_pulled_members = n_members;
 	admit_writers(state, roots);
-#ifdef FZN_RECORD_STORE_FILE_ON
-	index_notes();
-	index_catalog();
-#endif
-	/* A PURGE NOT SAID, sec 519: marked here, and no follower told. */
-	{
-		static size_t untold;
-
-		if (node_notes.purges_untold != untold) {
-			untold = node_notes.purges_untold;
-			say(FZN_ENTRY_WARNING, "notes/purge",
-			    "%zu purge(s) marked here were not written to the journal", untold);
-		}
-	}
-	/* THE NOTES THEMSELVES COME IN THE JOURNAL, sec 519: pulled and pushed
-	 * with every other stream, and filed by `index_notes`. What is left to
-	 * say to each peer here is their texts and the purge conversation. */
-	for (t = 0; t < npulls; t++) {
-		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
-		fzn_notes_sync_err_t err;
-
-		if (silent_peer(&pulls[t]))
-			continue;
-
-		/* THEIR WRAP KEYS, sec 520, both ways: a note this node holds the
-		 * records of is unreadable here until its wrap key arrives. */
-		{
-			fzn_notes_wrap_tally_t wt;
-			fzn_notes_sync_err_t werr = fzn_notes_sync_wraps(&node_notes.store, peer_ask,
-			                                                 &asking, 1, &wt);
-
-			if (werr != FZN_NOTES_SYNC_OK)
-				say(FZN_ENTRY_WARNING, "notes/wrap", "wrap keys with %s: %s", pulls[t].host,
-				        fzn_notes_sync_err_str(werr));
-			else if (wt.taken || wt.refused || wt.given)
-				say(wt.refused ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "notes/wrap",
-				        "wrap keys with %s: %zu taken, %zu refused, %zu given", pulls[t].host,
-				        wt.taken, wt.refused, wt.given);
-		}
-		/* THEIR TEXTS, sec 448: a pushed note whose text stayed here
-		 * would be a note nobody there could read. */
-		{
-			fzn_node_notes_text_tally_t tt;
-
-			if (!fzn_node_notes_push_texts(&node_notes, peer_ask, &asking, &tt))
-				say(FZN_ENTRY_WARNING, "notes/text", "texts to %s: no answer", pulls[t].host);
-			else if (tt.pushed || tt.refused)
-				say(FZN_ENTRY_INFO, "notes/text", "%zu text(s) to %s in %zu span(s), %zu refused",
-				        tt.pushed, pulls[t].host, tt.spans, tt.refused);
-		}
-		/* THE PURGE CONVERSATION, driven from this side. sec 433. */
-		{
-			fzn_notes_purge_tally_t pt;
-
-			err = fzn_notes_sync_purges(&node_notes.store, node_notes.author.policy,
-			                            node_notes.pulls[t].key, peer_ask, &asking, &pt);
-			if (err != FZN_NOTES_SYNC_OK)
-				say(FZN_ENTRY_WARNING, "notes/purge", "purges with %s: %s", pulls[t].host,
-				        fzn_notes_sync_err_str(err));
-			else if (pt.erased || pt.finished || pt.taken || pt.refused || pt.declined)
-				say(FZN_ENTRY_INFO, "notes/purge",
-				        "purges with %s: %zu erased there, %zu finished, "
-				        "%zu taken, %zu refused, %zu declined",
-				        pulls[t].host, pt.erased, pt.finished, pt.taken, pt.refused,
-				        pt.declined);
-		}
-	}
-	/* AND WHAT THE SILENT PIN, sec 472: a purge waiting a month on nodes
-	 * gone as long is released from them, every round. */
-	{
-		size_t released = 0, finished = 0;
-
-		if (!fzn_node_notes_release_purges(&node_notes, &released, &finished))
-			say(FZN_ENTRY_WARNING, "notes/purge", "the purges would not read");
-		else if (released)
-			say(FZN_ENTRY_INFO, "notes/purge",
-			        "%zu silent node(s) released from purges, %zu purge(s) finished",
-			        released, finished);
-	}
-#ifdef FZN_SPOOL_FILE_ON
-	/* EVERY NOTE'S CONTENT IS A BLOB, sec 514, and names what to fetch: each held is
-	 * wanted on the shelf, which answers at once for a text already here,
-	 * so the texts follow their notes in the same round. sec 432. */
-	if (shelf_on
-	    && fzn_notes_view_load(&node_notes.store, node_notes.author.view) == FZN_NOTES_OK) {
-		const fzn_notes_view_t *v = node_notes.author.view;
-		size_t i;
-
-		for (i = 0; i < v->count; i++) {
-			fzn_note_blob_ref_t ref;
-
-			if (fzn_notes_ref_of(&v->nodes[i], &ref))
-				(void)fzn_node_shelf_want(&shelf, ref.root, ref.length);
-		}
-	}
-#endif
+	notes_with_peers(pulls, npulls, now);
 }
 
 /* SHARES THIS NODE ACCEPTED, as pull targets, sec 437: each sharer's node at
@@ -9270,7 +9656,8 @@ int main(int argc, char **argv)
 	 * one reassembling requests, since the loop is what expires a request
 	 * whose sender stopped part way. sec 447. */
 	if (npulls || notes_on || state.reassembly) {
-		uint64_t next_pull = 0, last_fresh_round = 0;
+		uint64_t next_pull = 0, last_fresh_round = 0, round_now = 0;
+		int round_step = 0;
 		/* THE COMMAND LINE'S PEERS; a round adds the siblings after them. */
 		size_t npulls_base = npulls;
 		size_t t;
@@ -9348,6 +9735,9 @@ int main(int argc, char **argv)
 		contact_aead_ops = &aead_ops;
 		contact_rng_ops = &rng_ops;
 		load_contact_targets();
+		/* THE ROUND'S CONVERSATIONS, awaited by the loop. sec 636. */
+		fzn_node_asks_init(&round_asks, round_reply, sizeof(round_reply), round_clock_ms);
+		state.asks = &round_asks;
 		say(FZN_ENTRY_NOTE, "node", "serving%s%s%s, pulling from %zu peer(s) every %us",
 		        sock_path ? " on " : "", sock_path ? sock_path : "",
 		        (udp_port >= 0) ? " udp" : "", npulls, FZND_PULL_EVERY);
@@ -9375,178 +9765,239 @@ int main(int argc, char **argv)
 			 * than one period away was planned by a clock that read later
 			 * than this one does, and waiting for it would stop every pull
 			 * for as long as the clock had been wrong. sec 469. */
-			if (now >= next_pull || next_pull > now + FZND_PULL_EVERY) {
-				/* EVERY PEER ASKED AGAIN, sec 587 -- and a sibling that did
-				 * not answer last round introduced first, sec 623. */
+			if (!round_step && (now >= next_pull || next_pull > now + FZND_PULL_EVERY)) {
+				round_step = ROUND_START;
+				round_now = now;
+			}
+			/* THE ROUND A STEP AT A TIME, sec 636: one step each pass of
+			 * this loop, and between steps the loop answers whoever asked
+			 * meanwhile -- a sibling mid-round no longer waits out this
+			 * host's whole round for an answer. Every step reads the
+			 * round's one clock, as the round in one piece did. */
+			/* A STEP STILL WAITING on its conversations holds the next. */
+			if (round_step && !round_pending) {
+				switch (round_step) {
+				case ROUND_START:
+					/* EVERY PEER ASKED AGAIN, sec 587 -- and a sibling that did
+					 * not answer last round introduced first, sec 623. */
 #ifdef FZN_RECORD_STORE_FILE_ON
-				intro_note_silent(pulls, npulls_base, npulls);
+					intro_note_silent(pulls, npulls_base, npulls);
 #endif
-				n_silent = 0;
+					n_silent = 0;
 #ifdef FZN_RECORD_STORE_FILE_ON
-				npulls = npulls_base + load_siblings(pulls, npulls_base, family,
-				                                     identity.pubkey, state.config.root,
-				                                     &hash_ops, &aead_ops, &rng_ops);
-				introduce_siblings(pulls, npulls_base, npulls, family, now);
+					npulls = npulls_base + load_siblings(pulls, npulls_base, family,
+					                                     identity.pubkey, state.config.root,
+					                                     &hash_ops, &aead_ops, &rng_ops);
+					introduce_siblings(pulls, npulls_base, npulls, family, round_now);
 #endif
-				round_named = say_caused(FZN_ENTRY_DEBUG, "node/round", NULL, NULL,
-				                         &round_name, "a round with %zu peer(s)", npulls);
-				/* THE ESTATE'S ACTS, sec 505: roots, votes, confirmations,
-				 * settings, contacts and successions all arrive in the
-				 * journal, pulled and applied before anything reads them.
-				 * The journal follows the members the last round's notes
-				 * proved, so a member paired since is read from its first
-				 * act a round later. */
+					round_named = say_caused(FZN_ENTRY_DEBUG, "node/round", NULL, NULL,
+					                         &round_name, "a round with %zu peer(s)", npulls);
+					break;
+				case ROUND_JOURNAL:
+					/* THE ESTATE'S ACTS, sec 505: roots, votes, confirmations,
+					 * settings, contacts and successions all arrive in the
+					 * journal, pulled and applied before anything reads them.
+					 * The journal follows the members the last round's notes
+					 * proved, so a member paired since is read from its first
+					 * act a round later. */
 #ifdef FZN_RECORD_STORE_FILE_ON
-				follow_estate(identity.pubkey, &state, running_roots);
-				(void)messages_upgrade();
-				pull_journal(pulls, npulls, now);
-				apply_journal();
-				reconcile_estate(pulls, npulls, now);
-				routing_round(pulls, npulls, now);
-				mark_heard(pulls, npulls);
+					follow_estate(identity.pubkey, &state, running_roots);
+					(void)messages_upgrade();
+					pull_journal(pulls, npulls, round_now);
+					apply_journal();
+#endif
+					break;
+				case ROUND_RECONCILE:
+#ifdef FZN_RECORD_STORE_FILE_ON
+					reconcile_estate(pulls, npulls, round_now);
+#endif
+					break;
+				case ROUND_ROUTING:
+#ifdef FZN_RECORD_STORE_FILE_ON
+					routing_round(pulls, npulls, round_now);
+					mark_heard(pulls, npulls);
 #if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
-				count_replicas(pulls, npulls, now);
+					count_replicas(pulls, npulls, round_now);
 #endif
-				/* A GRANT JUST LOGGED, PUSHED NOW, sec 585: logged after
-				 * the round's push, it would wait a round for the next. */
-				if (pair_siblings(&identity, now))
-					for (t = 0; t < npulls; t++)
-						if (!silent_peer(&pulls[t]))
-							push_one(&pulls[t], now);
-				/* AND THE SIBLINGS AGAIN, sec 586: an address or a pairing
-				 * the journal brought this round is asked from now, by the
-				 * rest of the round, not from the next. */
-				npulls = npulls_base + load_siblings(pulls, npulls_base, family,
-				                                     identity.pubkey, state.config.root,
-				                                     &hash_ops, &aead_ops, &rng_ops);
-				messages_round(pulls, npulls, now);
-				messages_give_up();
-				settle_lines(pulls, npulls);
-				/* THE NOTES INDEX FIRST, so the cut sees how far it has
-				 * read: a notes stream is cut no further than its cursor,
-				 * which the round's own index has not moved yet. sec 555. */
-				index_notes();
-				index_catalog();
-				journal_cut(now);
 #endif
-				/* THE ESTATE'S k MAY HAVE ARRIVED WITH THEM, sec 418 -- as a
-				 * root's setting since sec 542, which outranks the older
-				 * records. */
-				if (running)
-					(void)fzn_revocation_store_set_k(
-					        running,
+					break;
+				case ROUND_GRANTS:
 #ifdef FZN_RECORD_STORE_FILE_ON
-					        fzn_node_settings_quorum(
-					                &node_settings,
-					                fzn_node_roots_quorum(running_roots, (uint8_t)quorum))
+					/* A GRANT JUST LOGGED, PUSHED NOW, sec 585: logged after
+					 * the round's push, it would wait a round for the next. */
+					if (pair_siblings(&identity, round_now))
+						for (t = 0; t < npulls; t++)
+							if (!silent_peer(&pulls[t]))
+								push_one(&pulls[t], round_now);
+					/* AND THE SIBLINGS AGAIN, sec 586: an address or a pairing
+					 * the journal brought this round is asked from now, by the
+					 * rest of the round, not from the next. */
+					npulls = npulls_base + load_siblings(pulls, npulls_base, family,
+					                                     identity.pubkey, state.config.root,
+					                                     &hash_ops, &aead_ops, &rng_ops);
+#endif
+					break;
+				case ROUND_MESSAGES:
+#ifdef FZN_RECORD_STORE_FILE_ON
+					messages_round(pulls, npulls, round_now);
+					messages_give_up();
+					settle_lines(pulls, npulls);
+					/* THE NOTES INDEX FIRST, so the cut sees how far it has
+					 * read: a notes stream is cut no further than its cursor,
+					 * which the round's own index has not moved yet. sec 555. */
+					index_notes();
+					index_catalog();
+					journal_cut(round_now);
+#endif
+					/* THE ESTATE'S k MAY HAVE ARRIVED WITH THEM, sec 418 -- as a
+					 * root's setting since sec 542, which outranks the older
+					 * records. */
+					if (running)
+						(void)fzn_revocation_store_set_k(
+						        running,
+#ifdef FZN_RECORD_STORE_FILE_ON
+						        fzn_node_settings_quorum(
+						                &node_settings,
+						                fzn_node_roots_quorum(running_roots, (uint8_t)quorum))
 #else
-					        fzn_node_roots_quorum(running_roots, (uint8_t)quorum)
+						        fzn_node_roots_quorum(running_roots, (uint8_t)quorum)
 #endif
-					);
-				/* CONTACTS ADDED ON ANOTHER MEMBER, sec 489, named here so
-				 * they can be shared with and removed by name. */
-				if (roster_on && running_admin) {
-					size_t named = 0;
+						);
+					/* CONTACTS ADDED ON ANOTHER MEMBER, sec 489, named here so
+					 * they can be shared with and removed by name. */
+					if (roster_on && running_admin) {
+						size_t named = 0;
 
-					if (fzn_node_roster_name_arrivals(&node_roster, store_ops, running,
-					                                  running ? running->quorum : 0u,
-					                                  admin_member, running_admin,
-					                                  now * 1000u, &named)
-					    != FZN_NODE_ROSTER_OK)
-						say(FZN_ENTRY_WARNING, "contact/roster",
-						    "contacts that arrived would not all be named");
-					else if (named)
-						say(FZN_ENTRY_INFO, "contact/roster",
-						    "%zu contact(s) added on another member, named here", named);
+						if (fzn_node_roster_name_arrivals(&node_roster, store_ops, running,
+						                                  running ? running->quorum : 0u,
+						                                  admin_member, running_admin,
+						                                  round_now * 1000u, &named)
+						    != FZN_NODE_ROSTER_OK)
+							say(FZN_ENTRY_WARNING, "contact/roster",
+							    "contacts that arrived would not all be named");
+						else if (named)
+							say(FZN_ENTRY_INFO, "contact/roster",
+							    "%zu contact(s) added on another member, named here", named);
+					}
+					break;
+				case ROUND_MEMBERS:
+					/* THE ESTATE'S MEMBERS, asked of every peer at once, the
+					 * round waiting on their answers. sec 636. */
+					members_start(pulls, npulls, round_now, &state.config, running);
+					break;
+				case ROUND_NOTES:
+					/* NOTES, then TEXTS, secs 432 and 424: a note's text is
+					 * fetched once the note naming it has arrived. Each
+					 * peer's asked at once, the round waiting on them. */
+					members_settle(&state, running_roots);
+					notes_start(pulls, npulls, round_now);
+					break;
+				case ROUND_NOTES_SETTLE:
+					notes_settle();
+					pull_received(round_now);
+					break;
+				case ROUND_CONTACTS:
+					contact_round(pulls, npulls, round_now);
+					break;
+				case ROUND_GROUPS:
+					group_round(pulls, npulls, round_now);
+					break;
+				case ROUND_REFERENCES:
+					file_refs_round(pulls, npulls, round_now);
+					send_asked();
+					deliver_contacts(round_now);
+					break;
+				case ROUND_END:
+					/* THE ROUND'S END IN ONE STEP, from the history pass on: the
+					 * live checks take "history pass" for a round done, so what
+					 * follows it runs before anything is answered, as it did. */
+					history_trim();
+#ifdef FZN_SPOOL_FILE_ON
+					fetch_texts(pulls, npulls, round_now);
+					fetch_files(pulls, npulls, round_now);
+					collect_texts();
+#endif
+					/* THE LOG LAST, sec 476: packing and the rules after the
+					 * pulls, so an estate rule pulled this round applies this
+					 * round rather than the next. */
+					log_round();
+					next_pull = wall_clock() + FZND_PULL_EVERY;
+					break;
 				}
-				/* NOTES, then TEXTS, secs 432 and 424: a note's text is
-				 * fetched once the note naming it has arrived. */
-				pull_notes(pulls, npulls, now, &state, running, running_roots);
-				pull_received(now);
-				contact_round(pulls, npulls, now);
-				group_round(pulls, npulls, now);
-				file_refs_round(pulls, npulls, now);
-				send_asked();
-				deliver_contacts(now);
-				history_trim();
+				round_step = round_step == ROUND_END ? 0 : round_step + 1;
+			}
+			/* WHAT RUNS BETWEEN ROUNDS waits for the round to end, as it
+			 * did when the round was one piece: each asks the same peers
+			 * the round is asking, from state the round is moving. */
+			if (!round_step) {
 #ifdef FZN_SPOOL_FILE_ON
-				fetch_texts(pulls, npulls, now);
-				fetch_files(pulls, npulls, now);
-				collect_texts();
+				/* A TEXT JUST ASKED FOR is fetched now, not at the next
+				 * round. sec 424. */
+				if (shelf.fresh)
+					fetch_texts(pulls, npulls, now);
+				if (files.fresh)
+					fetch_files(pulls, npulls, now);
 #endif
-				/* THE LOG LAST, sec 476: packing and the rules after the
-				 * pulls, so an estate rule pulled this round applies this
-				 * round rather than the next. */
-				log_round();
-				next_pull = wall_clock() + FZND_PULL_EVERY;
-			}
-#ifdef FZN_SPOOL_FILE_ON
-			/* A TEXT JUST ASKED FOR is fetched now, not at the next
-			 * round. sec 424. */
-			if (shelf.fresh)
-				fetch_texts(pulls, npulls, now);
-			if (files.fresh)
-				fetch_files(pulls, npulls, now);
-#endif
-			/* A TRASH JUST EMPTIED is carried to the pull peers now, not
-			 * at the next round. sec 433. */
-			/* HELLO to the peers it pulls from, sec 622. */
-			say_hello(pulls, npulls, state.udp_fd, now);
-			/* THE LAN PROBED, at once. sec 624. */
-			if (lan_due) {
-				lan_due = 0;
-				lan_probe();
-			}
-			/* A STREAM FETCH ASKED, at once. sec 632. */
-			if (n_stream_fetches)
-				streams_fetch_due(pulls, npulls, now);
-			/* WHERE THIS HOST IS SEEN, asked now. sec 621. */
-			if (address_due) {
-				address_due = 0;
-				fetch_address(pulls, npulls, now);
-			}
-			/* A CONTACT JUST ASKED FOR is asked now, not a round later.
-			 * sec 619. */
-			if (asked_due) {
-				asked_due = 0;
-				send_asked();
-			}
-			/* A CONTACT'S DEVICE JUST OFFERED is paired now, the answer
-			 * that kept it being out. sec 614. */
-			if (contact_pair_due) {
-				size_t paired;
+				/* A TRASH JUST EMPTIED is carried to the pull peers now, not
+				 * at the next round. sec 433. */
+				/* HELLO to the peers it pulls from, sec 622. */
+				say_hello(pulls, npulls, state.udp_fd, now);
+				/* THE LAN PROBED, at once. sec 624. */
+				if (lan_due) {
+					lan_due = 0;
+					lan_probe();
+				}
+				/* A STREAM FETCH ASKED, at once. sec 632. */
+				if (n_stream_fetches)
+					streams_fetch_due(pulls, npulls, now);
+				/* WHERE THIS HOST IS SEEN, asked now. sec 621. */
+				if (address_due) {
+					address_due = 0;
+					fetch_address(pulls, npulls, now);
+				}
+				/* A CONTACT JUST ASKED FOR is asked now, not a round later.
+				 * sec 619. */
+				if (asked_due) {
+					asked_due = 0;
+					send_asked();
+				}
+				/* A CONTACT'S DEVICE JUST OFFERED is paired now, the answer
+				 * that kept it being out. sec 614. */
+				if (contact_pair_due) {
+					size_t paired;
 
-				contact_pair_due = 0;
-				paired = pair_contact_devices();
-				if (paired)
-					say(FZN_ENTRY_INFO, "contact/devices",
-					    "%zu contact device(s) paired as offered", paired);
-			}
-			/* A SHARE JUST ACCEPTED is pulled now. sec 437. */
-			if (running_admin && running_admin->received_fresh) {
-				running_admin->received_fresh = 0;
-				load_received(family, identity.pubkey, &hash_ops, &aead_ops, &rng_ops);
-				pull_received(now);
-			}
-			/* A WRITE HERE GOES OUT NOW, sec 449, a round at most every
-			 * two seconds, so a burst of edits is one round rather than
-			 * one each. */
-			if (notes_on && node_notes.fresh
-			    && (now >= last_fresh_round + 2u || last_fresh_round > now)) {
-				node_notes.fresh = 0;
-				last_fresh_round = now;
-				/* THE NOTE GOES IN THE JOURNAL, sec 519, pushed with it. */
+					contact_pair_due = 0;
+					paired = pair_contact_devices();
+					if (paired)
+						say(FZN_ENTRY_INFO, "contact/devices",
+						    "%zu contact device(s) paired as offered", paired);
+				}
+				/* A SHARE JUST ACCEPTED is pulled now. sec 437. */
+				if (running_admin && running_admin->received_fresh) {
+					running_admin->received_fresh = 0;
+					load_received(family, identity.pubkey, &hash_ops, &aead_ops, &rng_ops);
+					pull_received(now);
+				}
+				/* A WRITE HERE GOES OUT NOW, sec 449, a round at most every
+				 * two seconds, so a burst of edits is one round rather than
+				 * one each. */
+				if (notes_on && node_notes.fresh
+				    && (now >= last_fresh_round + 2u || last_fresh_round > now)) {
+					node_notes.fresh = 0;
+					last_fresh_round = now;
+					/* THE NOTE GOES IN THE JOURNAL, sec 519, pushed with it. */
 #ifdef FZN_RECORD_STORE_FILE_ON
-				pull_journal(pulls, npulls, now);
-				messages_round(pulls, npulls, now);
+					pull_journal(pulls, npulls, now);
+					messages_round(pulls, npulls, now);
 #endif
-				pull_notes(pulls, npulls, now, &state, running, running_roots);
+					pull_notes(pulls, npulls, now, &state, running, running_roots);
+				}
 			}
 #ifdef FZN_RECORD_STORE_FILE_ON
 			/* A MESSAGE WRITTEN HERE GOES AT ONCE, sec 528: the journal
 			 * pushed, then keys given and asked, rather than waiting for
 			 * the next round. The same two-second floor as notes'. */
-			if (messages_on && node_messages.fresh
+			if (!round_step && messages_on && node_messages.fresh
 			    && (now >= last_fresh_round + 2u || last_fresh_round > now)) {
 				node_messages.fresh = 0;
 				last_fresh_round = now;
@@ -9592,7 +10043,10 @@ int main(int argc, char **argv)
 			/* A REQUEST NEVER FINISHED gives its slot back. */
 			if (state.reassembly)
 				(void)fzn_reasm_expire(state.reassembly, wall_clock());
-			(void)fzn_node_run_once(&state, 1000);
+			/* MID-ROUND, between steps, only what is waiting is answered and
+			 * the next step follows at once; a step waiting on its
+			 * conversations waits here, their answers polled with the rest. */
+			(void)fzn_node_run_once(&state, round_step && !round_pending ? 0 : 1000);
 			/* AN IDENTITY RESET, sec 620, its answer out: wiped once more,
 			 * for what was written since, and stopped. */
 			if (identity_reset) {

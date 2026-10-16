@@ -65526,6 +65526,11 @@ none of these waits the old way**, so the gain arrives at the end.
    live checks wait on, so a round's "history pass" still means the
    round's work is done.
 
+**The order changed, measured**: the round as steps came first, then the
+library exchanges where the profile said a round's time goes -- sec 637.
+Converting single requests before the round could yield would have gained
+nothing, since a callback is only awaited by a loop the round returns to.
+
 ### Measured for sec 636
 
 - **`node/test/pair_test.c`**: two requests out at once on one caller,
@@ -65599,3 +65604,103 @@ reads only the first page now covers both.
   existing fork case in `test_a_push` offers two records, and both fit in
   one message, so nothing came after the refusal to be wrongly offered,
   before the steps or since. The twenty-record test above catches it.
+
+## 637. The round as steps, its members and notes asked of every peer at once, 2026-10-16
+
+Sec 636's resumable round, its fifth stage first: **the round in
+`fuzznetd` is a sequence of steps the loop runs one a pass**, answering
+whoever asked between them, and **a step may start conversations with
+every peer at once** (`node/talk.h`) and hold the round until they are
+over. The members pull and the notes' three exchanges with each peer --
+wrap keys, texts, purges -- are the first such steps.
+
+### Steps alone made rounds slower, measured
+
+Measured with `tool/live_erasure.py` phase a, five members started
+together, each host's first round's end timed from their common start
+(the live script driven by a scratch wrapper around its `daemon`, one
+line per host per cycle). **The last cycle's slowest round, old binary,
+five runs: 28.5, 37.5, 37.6, 37.6, 40.7 s. Steps alone, five runs: 49.8,
+53.3, 56.0, 97.7, 104.0 s.** Twice the steps paired the five in three
+cycles where the old took four, so answering between steps brought
+pairings in sooner -- and every peer added mid-round was one more peer
+whose silence each later step waited out, 3 s a request. Answering
+between steps removes no wait, so it was not committed alone.
+
+### Where a round's time went
+
+One run of the steps with a debug line per step, five hosts' last
+cycles summed: **the notes step 113.5 s (24.5 s at most on one host)**,
+contacts 61.2 (12.3), groups 55.4 (12.3), the journal 19.2, members
+15.7 (3.3 -- already conversations by then), reconciliation 9.2, every
+other step under 0.1. A silent peer cost each of the notes' three
+exchanges a timeout, peer after peer.
+
+### Conversations
+
+- **`node/talk.h`**: a conversation with one peer over `node/asks.h` --
+  the first request sent, each answer handed to the exchange's step, the
+  next request sent, and `over` called once at the end. An unanswered
+  request is the step called with NULL. `node/test/pair_test.c`: two
+  conversations at once over one caller, three requests each, and one
+  ended at its deadline.
+- **As steps, each with its old function now their driver**:
+  `fzn_node_members_pull_begin`/`_step` (`node/members.h`),
+  `fzn_notes_sync_wraps_begin`/`_step` and `fzn_notes_sync_purges_begin`/
+  `_step` (`notes/sync.h`), `fzn_node_notes_push_texts_begin`/`_step`
+  (`node/notes.h`). A give's wrap keys are wiped from the request buffer
+  once its answer comes or does not. A purge another host's answer
+  finished while this one was awaited is passed over, not answered again
+  -- a case only interleaving makes.
+- **In `fuzznetd`**: `ROUND_MEMBERS` starts a members conversation with
+  every peer not silent; `ROUND_NOTES` takes them (`members_settle`) and
+  starts each peer's three; `ROUND_NOTES_SETTLE` says what each did, peer
+  by peer as before. Each is metered as `peer_ask` meters
+  (`link_asked`, `link_answered`, `said_refusal`), so `list link` counts
+  them.
+- **Between rounds**, everything that ran after the round -- the fresh
+  texts and files, hellos, the LAN probe, a stream fetch, addresses,
+  contact requests and devices, a share accepted, a fresh note or
+  message -- waits for the round to end, as it did when the round was
+  one piece.
+- **"history pass" still ends a round**: the history pass and everything
+  after it are one step, so the live checks' reading of it holds.
+
+**Measured, members and notes as conversations, three runs: 28.8, 28.9,
+32.1 s** -- the last cycle's slowest round, at load 190 to 228 where the
+old binary's runs were at 9 to 198.
+
+### Tested, and probed
+
+- **`notes/test/notes_sync_test.c`**: a give driven by steps leaves its
+  request buffer all zero once answered; and a purge finished while its
+  answer was awaited -- another host's answer having completed it -- is
+  passed over, the conversation ending well, the erasure counted and
+  nothing finished twice.
+- **`node/test/admin_test.c`**: the members pulled by steps, a page of two
+  at a time, are the members pulled at once; no answer ends the pull.
+- **Sabotage: ten entries, all caught.** Seven new:
+  `talk-carries-each-answer-on`, `talk-ends-when-the-step-does`,
+  `members-step-pages-on`, `wraps-step-gives-for-a-member`,
+  `wraps-step-wipes-a-give`, `purges-step-passes-a-finished-purge`,
+  `texts-step-spans-on`. Three moved with their code into the steps and
+  re-run: `notes-sync-take-only-admitted`, `notes-sync-finish-on-complete`,
+  `members-pull-admits-only-on-proof`.
+
+### A fault worth keeping, made and caught here
+
+The step at first advanced only on a pass with nothing pending, so a step
+that started conversations stayed where it was and started them again
+once they were over; `live_catalog.py`'s B never ended its first round.
+A step advances once it has run, and the next waits for nothing to be
+pending.
+
+### Open
+
+- **The contacts and groups steps** are the next by the profile, then the
+  journal's pull and push (steps since sec 636) and reconciliation.
+- **A request handler that asks a peer synchronously** while a
+  conversation awaits the same caller would read the conversation's
+  answer and drop it; the conversation then fails at its deadline. None
+  is known to; it is the cost of answering mid-round, and goes away with
+  the last synchronous ask.

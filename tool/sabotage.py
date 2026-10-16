@@ -4992,15 +4992,15 @@ SABOTAGES = [
 	(
 		"notes-sync-take-only-admitted",
 		"notes/sync.c",
-		"\t\t\tif (!admits(policy, host) || fzn_notes_erase_note(store, id, NULL) != FZN_NOTES_OK) {\n",
-		"\t\t\tif (fzn_notes_erase_note(store, id, NULL) != FZN_NOTES_OK) {\n",
+		"\t\tif (!admits(g->policy, g->host)\n",
+		"\t\tif (0\n",
 		"a node erases notes for any host it pulls from, admitted or not -- sec 433",
 	),
 	(
 		"notes-sync-finish-on-complete",
 		"notes/sync.c",
-		"\t\tif (complete) {\n\t\t\tif (fzn_notes_purge_finish(store, p.id) != FZN_NOTES_OK)\n",
-		"\t\tif (0) {\n\t\t\tif (fzn_notes_purge_finish(store, p.id) != FZN_NOTES_OK)\n",
+		"\t\tif (complete) {\n\t\t\tif (fzn_notes_purge_finish(g->store, id) != FZN_NOTES_OK)\n",
+		"\t\tif (0) {\n\t\t\tif (fzn_notes_purge_finish(g->store, id) != FZN_NOTES_OK)\n",
 		"a purge every host consented to never finishes, and the note it emptied stays here -- sec 433",
 	),
 	(
@@ -5636,8 +5636,8 @@ SABOTAGES = [
 	(
 		"members-pull-admits-only-on-proof",
 		"node/members.c",
-		"\t\t\t\tif (!proves(key, reply + at + FZN_PUBKEY_LEN + 1u, hop_count, root,\n\t\t\t\t            capability, now, sign, revocations)\n\t\t\t\t    || *count >= cap)",
-		"\t\t\t\tif (*count >= cap)",
+		"\t\t\tif (!proves(key, reply + at + FZN_PUBKEY_LEN + 1u, hop_count, p->root,\n\t\t\t            p->capability, p->now, p->sign, p->revocations)\n\t\t\t    || p->count >= p->cap)",
+		"\t\t\tif (p->count >= p->cap)",
 		"any key a peer names is admitted as a writer -- sec 445",
 	),
 	(
@@ -12190,6 +12190,55 @@ SABOTAGES = [
 		"\tif (!reply) {\n\t\tp->phase = PUSH_DONE;\n",
 		"\tif (!reply) {\n",
 		"a push whose message went unanswered stays open, and a late or stray answer is taken into it -- sec 636",
+	),
+	(
+		"talk-carries-each-answer-on",
+		"node/talk.c",
+		"\tif (talk->live)\n\t\tgo_on(talk, reply, reply_len);\n",
+		"\tif (0)\n\t\tgo_on(talk, reply, reply_len);\n",
+		"a conversation's answers go nowhere: its first request is its last, and it never ends -- sec 636",
+	),
+	(
+		"talk-ends-when-the-step-does",
+		"node/talk.c",
+		"\tif (!talk->step(talk->ctx, reply, reply_len, talk->request, talk->cap, &len)) {\n\t\tend(talk);\n",
+		"\tif (!talk->step(talk->ctx, reply, reply_len, talk->request, talk->cap, &len)) {\n",
+		"a conversation whose exchange is over is never said to be, and a round waiting on it waits for ever -- sec 636",
+	),
+	(
+		"members-step-pages-on",
+		"node/members.c",
+		"\tif (p->from >= p->total || n == 0u || ++p->pages >= PULL_PAGES_MAX)\n",
+		"\tif (1)\n",
+		"a members pull by steps takes the first page alone, and the members listed after it are never admitted -- sec 636",
+	),
+	(
+		"wraps-step-gives-for-a-member",
+		"notes/sync.c",
+		"\tif (w->phase == WRAPS_ASKING && w->give) {\n",
+		"\tif (0) {\n",
+		"a member is never given the wrap keys it lacks, and cannot read the notes it holds -- secs 520, 636",
+	),
+	(
+		"wraps-step-wipes-a-give",
+		"notes/sync.c",
+		"\tif (w->phase == WRAPS_GIVING)\n\t\tmemset(request, 0, w->given_len);\n",
+		"\tif (w->phase == WRAPS_GIVING)\n\t\t(void)0;\n",
+		"the wrap keys a give carried stay in the request buffer after it is answered -- sec 636",
+	),
+	(
+		"purges-step-passes-a-finished-purge",
+		"notes/sync.c",
+		"\t\tif (fzn_notes_purge_get(g->store, id, &p) != FZN_NOTES_OK)\n\t\t\treturn purges_next_own(g, request, request_len, done);\n",
+		"",
+		"a purge another host's answer finished while this one was awaited is answered again, and the conversation fails on the store -- sec 636",
+	),
+	(
+		"texts-step-spans-on",
+		"node/notes.c",
+		"\t\tif (outcome != TEXT_WANTED) {\n\t\t\tx->at++;\n",
+		"\t\tif (1) {\n\t\t\tx->at++;\n",
+		"a text pushed by steps stops after its first span, and the peer never holds it whole -- sec 636",
 	),
 ]
 

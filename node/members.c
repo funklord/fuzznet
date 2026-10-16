@@ -89,6 +89,103 @@ static int proves(const uint8_t *key, const uint8_t *hops, size_t hop_count,
 	       && memcmp(verdict.grantee, key, FZN_PUBKEY_LEN) == 0;
 }
 
+/* ---- the pull as steps, sec 636 ------------------------------------------ */
+
+enum { MEMBERS_PAGING = 1, MEMBERS_DONE = 2 };
+
+static void members_query(const fzn_node_members_pulling_t *p, uint8_t *request,
+                          size_t *request_len)
+{
+	request[0] = NOTES_SYNC_VERSION;
+	request[1] = FZN_NODE_MEMBERS_QUERY;
+	fzn_put_be16(request + 2, (uint16_t)p->from);
+	*request_len = FZN_NODE_MEMBERS_QUERY_LEN;
+}
+
+fzn_node_members_err_t fzn_node_members_pull_begin(
+        fzn_node_members_pulling_t *p, const uint8_t root[FZN_PUBKEY_LEN],
+        const fzn_cap_id_t *capability, uint64_t now, const fzn_sign_ops_t *sign,
+        const fzn_revocation_store_t *revocations, uint8_t (*out)[FZN_PUBKEY_LEN], size_t cap,
+        uint8_t *request, size_t request_cap, size_t *request_len)
+{
+	if (!p || !root || !capability || !sign || !out || !request
+	    || request_cap < FZN_NODE_MEMBERS_QUERY_LEN || !request_len)
+		return FZN_NODE_MEMBERS_ERR_MALFORMED;
+	memset(p, 0, sizeof(*p));
+	p->root = root;
+	p->capability = capability;
+	p->now = now;
+	p->sign = sign;
+	p->revocations = revocations;
+	p->out = out;
+	p->cap = cap;
+	p->phase = MEMBERS_PAGING;
+	members_query(p, request, request_len);
+	return FZN_NODE_MEMBERS_OK;
+}
+
+/* THE PULL OVER, with `err`. */
+static fzn_node_members_err_t members_end(fzn_node_members_pulling_t *p, int *done,
+                                          fzn_node_members_err_t err)
+{
+	p->phase = MEMBERS_DONE;
+	*done = 1;
+	return err;
+}
+
+fzn_node_members_err_t fzn_node_members_pull_step(fzn_node_members_pulling_t *p,
+                                                  const uint8_t *reply, size_t reply_len,
+                                                  uint8_t *request, size_t request_cap,
+                                                  size_t *request_len, int *done)
+{
+	size_t n, i, at = FZN_NODE_MEMBERS_HEAD_LEN;
+
+	if (!p || p->phase != MEMBERS_PAGING || !request
+	    || request_cap < FZN_NODE_MEMBERS_QUERY_LEN || !request_len || !done)
+		return FZN_NODE_MEMBERS_ERR_MALFORMED;
+	*done = 0;
+	if (!reply)
+		return members_end(p, done, FZN_NODE_MEMBERS_ERR_NO_ANSWER);
+	if (reply_len < FZN_NODE_MEMBERS_HEAD_LEN || reply[0] != NOTES_SYNC_VERSION
+	    || reply[1] != FZN_NODE_MEMBERS_REPLY || fzn_get_be16(reply + 4) != p->from)
+		return members_end(p, done, FZN_NODE_MEMBERS_ERR_SHAPE);
+	p->total = fzn_get_be16(reply + 2);
+	n = reply[6];
+	for (i = 0; i < n; i++) {
+		const uint8_t *key = reply + at;
+		size_t hop_count, k;
+		int have = 0;
+
+		if (reply_len - at < FZN_PUBKEY_LEN + 1u)
+			return members_end(p, done, FZN_NODE_MEMBERS_ERR_SHAPE);
+		hop_count = reply[at + FZN_PUBKEY_LEN];
+		if (hop_count == 0u || hop_count > FZN_CHAIN_MAX_HOPS
+		    || reply_len - at - FZN_PUBKEY_LEN - 1u < hop_count * FZN_HOP_LEN)
+			return members_end(p, done, FZN_NODE_MEMBERS_ERR_SHAPE);
+		/* ADMITTED ONLY ON PROOF, and once. */
+		for (k = 0; k < p->count && !have; k++)
+			have = memcmp(p->out[k], key, FZN_PUBKEY_LEN) == 0;
+		if (!have) {
+			if (!proves(key, reply + at + FZN_PUBKEY_LEN + 1u, hop_count, p->root,
+			            p->capability, p->now, p->sign, p->revocations)
+			    || p->count >= p->cap)
+				p->refused++;
+			else
+				memcpy(p->out[p->count++], key, FZN_PUBKEY_LEN);
+		}
+		at += FZN_PUBKEY_LEN + 1u + (hop_count * FZN_HOP_LEN);
+	}
+	if (at != reply_len)
+		return members_end(p, done, FZN_NODE_MEMBERS_ERR_SHAPE);
+	p->from += n;
+	/* A PAGE THAT BRINGS NOTHING ends it, or a short server would be asked
+	 * the same page for ever. */
+	if (p->from >= p->total || n == 0u || ++p->pages >= PULL_PAGES_MAX)
+		return members_end(p, done, FZN_NODE_MEMBERS_OK);
+	members_query(p, request, request_len);
+	return FZN_NODE_MEMBERS_OK;
+}
+
 fzn_node_members_err_t fzn_node_members_pull(fzn_node_members_ask_t ask, void *ask_ctx,
                                              const uint8_t root[FZN_PUBKEY_LEN],
                                              const fzn_cap_id_t *capability, uint64_t now,
@@ -98,57 +195,26 @@ fzn_node_members_err_t fzn_node_members_pull(fzn_node_members_ask_t ask, void *a
                                              size_t *count, size_t *refused)
 {
 	static uint8_t reply[PULL_REPLY_MAX];
+	fzn_node_members_pulling_t p;
 	uint8_t request[FZN_NODE_MEMBERS_QUERY_LEN];
-	size_t from = 0, total = 0, pages;
+	size_t request_len = 0, reply_len;
+	fzn_node_members_err_t err;
+	int done = 0, answered;
 
-	if (!ask || !root || !capability || !sign || !out || !count || !refused)
+	if (!ask || !count || !refused)
 		return FZN_NODE_MEMBERS_ERR_MALFORMED;
 	*count = 0;
 	*refused = 0;
-	for (pages = 0; pages < PULL_PAGES_MAX; pages++) {
-		size_t reply_len = 0, n, i, at = FZN_NODE_MEMBERS_HEAD_LEN;
-
-		request[0] = NOTES_SYNC_VERSION;
-		request[1] = FZN_NODE_MEMBERS_QUERY;
-		fzn_put_be16(request + 2, (uint16_t)from);
-		if (!ask(ask_ctx, request, sizeof(request), reply, sizeof(reply), &reply_len))
-			return FZN_NODE_MEMBERS_ERR_NO_ANSWER;
-		if (reply_len < FZN_NODE_MEMBERS_HEAD_LEN || reply[0] != NOTES_SYNC_VERSION
-		    || reply[1] != FZN_NODE_MEMBERS_REPLY || fzn_get_be16(reply + 4) != from)
-			return FZN_NODE_MEMBERS_ERR_SHAPE;
-		total = fzn_get_be16(reply + 2);
-		n = reply[6];
-		for (i = 0; i < n; i++) {
-			const uint8_t *key = reply + at;
-			size_t hop_count, k;
-			int have = 0;
-
-			if (reply_len - at < FZN_PUBKEY_LEN + 1u)
-				return FZN_NODE_MEMBERS_ERR_SHAPE;
-			hop_count = reply[at + FZN_PUBKEY_LEN];
-			if (hop_count == 0u || hop_count > FZN_CHAIN_MAX_HOPS
-			    || reply_len - at - FZN_PUBKEY_LEN - 1u < hop_count * FZN_HOP_LEN)
-				return FZN_NODE_MEMBERS_ERR_SHAPE;
-			/* ADMITTED ONLY ON PROOF, and once. */
-			for (k = 0; k < *count && !have; k++)
-				have = memcmp(out[k], key, FZN_PUBKEY_LEN) == 0;
-			if (!have) {
-				if (!proves(key, reply + at + FZN_PUBKEY_LEN + 1u, hop_count, root,
-				            capability, now, sign, revocations)
-				    || *count >= cap)
-					(*refused)++;
-				else
-					memcpy(out[(*count)++], key, FZN_PUBKEY_LEN);
-			}
-			at += FZN_PUBKEY_LEN + 1u + (hop_count * FZN_HOP_LEN);
-		}
-		if (at != reply_len)
-			return FZN_NODE_MEMBERS_ERR_SHAPE;
-		from += n;
-		/* A PAGE THAT BRINGS NOTHING ends it, or a short server would be
-		 * asked the same page for ever. */
-		if (from >= total || n == 0u)
-			break;
+	err = fzn_node_members_pull_begin(&p, root, capability, now, sign, revocations, out, cap,
+	                                  request, sizeof(request), &request_len);
+	while (err == FZN_NODE_MEMBERS_OK && !done) {
+		/* Asked first, apart from the step: see `record/exchange.c`. */
+		reply_len = 0;
+		answered = ask(ask_ctx, request, request_len, reply, sizeof(reply), &reply_len);
+		err = fzn_node_members_pull_step(&p, answered ? reply : NULL, reply_len, request,
+		                                 sizeof(request), &request_len, &done);
 	}
-	return FZN_NODE_MEMBERS_OK;
+	*count = p.count;
+	*refused = p.refused;
+	return err;
 }

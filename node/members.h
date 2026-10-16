@@ -77,4 +77,36 @@ fzn_node_members_err_t fzn_node_members_pull(fzn_node_members_ask_t ask, void *a
                                              uint8_t (*out)[FZN_PUBKEY_LEN], size_t cap,
                                              size_t *count, size_t *refused);
 
+/* ---- the pull as steps, sec 636 ------------------------------------------
+ *
+ * THE SAME PULL, its state in a struct, so the loop can await each page:
+ * `fzn_node_members_pull_begin` writes the first request, and each
+ * `fzn_node_members_pull_step` takes that request's answer -- NULL for
+ * none -- and writes the next, setting `*done` instead when the pull is
+ * over; its error is the step's return. `count` and `refused` are the
+ * struct's. `fzn_node_members_pull` is these steps driven by its `ask`. The
+ * reply each step takes may be as long as a page, 16384 bytes. */
+typedef struct fzn_node_members_pulling {
+	const uint8_t *root;
+	const fzn_cap_id_t *capability;
+	uint64_t now;
+	const fzn_sign_ops_t *sign;
+	const fzn_revocation_store_t *revocations;
+	uint8_t (*out)[FZN_PUBKEY_LEN];
+	size_t cap, count, refused;
+	size_t from, total, pages;
+	int phase;
+} fzn_node_members_pulling_t;
+
+fzn_node_members_err_t fzn_node_members_pull_begin(
+        fzn_node_members_pulling_t *p, const uint8_t root[FZN_PUBKEY_LEN],
+        const fzn_cap_id_t *capability, uint64_t now, const fzn_sign_ops_t *sign,
+        const fzn_revocation_store_t *revocations, uint8_t (*out)[FZN_PUBKEY_LEN], size_t cap,
+        uint8_t *request, size_t request_cap, size_t *request_len);
+
+fzn_node_members_err_t fzn_node_members_pull_step(fzn_node_members_pulling_t *p,
+                                                  const uint8_t *reply, size_t reply_len,
+                                                  uint8_t *request, size_t request_cap,
+                                                  size_t *request_len, int *done);
+
 #endif /* FZN_NODE_MEMBERS_H */
