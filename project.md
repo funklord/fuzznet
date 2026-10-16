@@ -65617,15 +65617,32 @@ wrap keys, texts, purges -- are the first such steps.
 ### Steps alone made rounds slower, measured
 
 Measured with `tool/live_erasure.py` phase a, five members started
-together, each host's first round's end timed from their common start
-(the live script driven by a scratch wrapper around its `daemon`, one
-line per host per cycle). **The last cycle's slowest round, old binary,
-five runs: 28.5, 37.5, 37.6, 37.6, 40.7 s. Steps alone, five runs: 49.8,
-53.3, 56.0, 97.7, 104.0 s.** Twice the steps paired the five in three
-cycles where the old took four, so answering between steps brought
-pairings in sooner -- and every peer added mid-round was one more peer
-whose silence each later step waited out, 3 s a request. Answering
-between steps removes no wait, so it was not committed alone.
+together, B after their first rounds: **each host's first "history pass",
+its own pid's, read from its own logs -- packed segments too -- as seconds
+from the cycle's common start**, the live script driven by a scratch
+wrapper around its `daemon`. Of the last cycle, the slowest host, three
+runs each, the whole tree at each commit built apart, at load 0.5 to 1.2:
+
+| Daemon | Slowest first round |
+|---|---|
+| Before steps (`b134798`) | 34.8, 40.8, 46.3 s |
+| Steps alone | 52.8, 53.0, 62.0 s |
+
+Answering between steps brought pairings in mid-round, and every peer
+added mid-round was one more whose silence each later step waited out,
+3 s a request. Answering between steps removes no wait, so it was not
+committed alone.
+
+**The first measurement of this section was wrong in a way worth
+keeping.** It timed the live script's own wait for "history pass", and
+that wait (`tool/live_rejoin.py`'s `daemon.log`) read only the current
+log file. A round packs the segment it has just written, so a wait begun
+just after it missed the marker and waited out the next round, 60 s
+later: readings of 91 to 104 s were rounds that had ended near 30. The
+figures it gave first -- old 28.5 to 40.7 s, steps alone 49.8 to 104.0 s
+-- are superseded by the table; the commit messages of `8ac70b9` and
+`5272807` repeat them and stand as written. The harness now reads this
+run's packed segments too (see *Silence carried*).
 
 ### Where a round's time went
 
@@ -65666,9 +65683,9 @@ exchanges a timeout, peer after peer.
 - **"history pass" still ends a round**: the history pass and everything
   after it are one step, so the live checks' reading of it holds.
 
-**Measured, members and notes as conversations, three runs: 28.8, 28.9,
-32.1 s** -- the last cycle's slowest round, at load 190 to 228 where the
-old binary's runs were at 9 to 198.
+Measured by the live script's own wait, members and notes as
+conversations gave 28.8 to 32.1 s; that method is the one corrected above,
+and the figure is not re-measured.
 
 ### Contacts and groups as conversations
 
@@ -65683,10 +65700,8 @@ shared with the in-turn sync a contact's host still gets.
 `ROUND_GROUPS_SETTLE` redoes what a fork dropped, tends, and runs the lines
 and shares passes, as the round did after its syncs.
 
-**Measured, members, notes, contacts and groups as conversations, three
-runs: 16.5, 16.5, 16.7 s** -- the last cycle's slowest round, where the old
-binary's were 28.5 to 40.7. At load 12 to 13; the old binary's run at load
-9 was its 40.7.
+Measured by the live script's own wait, with contacts and groups too:
+16.5 to 16.7 s, by the method corrected above.
 
 **Found while converting: nothing tested a host learning its own user's
 groups from a sibling.** `live_groups.py`'s members are separate users,
@@ -65700,6 +65715,32 @@ new, and `contact-devices-page-names-its-from` and
 `contact-devices-page-exact`, moved with their code into the steps. The
 siblings' group sync starting at all is daemon code `make test` does not
 reach; phase g and its control above are what hold it.
+
+### Silence carried, as sec 587 carries it
+
+Profiled again with contacts and groups as conversations: **every
+converted step cost a timeout, about 3 s each**. The cause is B -- in
+the test, started after the others' first rounds, so for them a sibling
+that does not answer. Sec 587 passes a peer over for the rest of the
+round when its journal pull goes unanswered; but B is loaded mid-round
+(sec 586's reload after the journal), so the members pull is the first
+thing B is asked, and nothing marked it.
+
+**A peer whose conversation goes unanswered is now passed over by the
+rest of the round** (`meter_answer`, and a conversation that cannot be
+sent): sec 587's rule for the peers the journal pull never reached.
+Measured as the table above: **7.2, 7.2, 7.4 s**.
+
+**And the harness reads a run's packed segments**: `daemon.log` in
+`tool/live_rejoin.py` takes this run's own `.log.zst` segments, named by
+its pid, beside the current file -- each decompressed once, the current
+file alone without `zstd`. A live check's wait begun after a round packed
+its marker had waited out a whole round more, which against a 60 s
+`within` is a flake as well as a wrong figure.
+
+The passing over changes how long a round takes and nothing it does, so
+no test can see it gone; the table is what holds it, and a sabotage entry
+would survive by construction.
 
 ### Tested, and probed
 

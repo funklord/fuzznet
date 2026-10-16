@@ -1505,16 +1505,23 @@ static void round_talk_over(void *ctx)
  * `peer_ask` meters, a link's requests and answers counted and a refusal
  * in words said. */
 struct meter {
+	const struct pull_target *pt;
 	size_t li;
 	const char *host;
 	uint64_t began;
 };
 
+/* AN ANSWER, or none: and a peer that does not answer passed over by the
+ * rest of the round, as one whose journal pull went unanswered is (sec
+ * 587) -- a sibling loaded mid-round (sec 586) is asked first here, and
+ * every later step would otherwise wait out its silence again. */
 static void meter_answer(struct meter *m, const uint8_t *reply, size_t reply_len)
 {
 	link_answered(m->li, m->began, reply_len, !reply);
 	if (reply)
 		said_refusal(m->host, reply, reply_len);
+	else
+		silent_mark(m->pt);
 }
 
 static void meter_asked(struct meter *m, size_t request_len)
@@ -1542,6 +1549,7 @@ static int talk_start(fzn_node_talk_t *talk, struct meter *m, const struct pull_
                       uint64_t now, fzn_node_talk_step_fn step, void *ctx, uint8_t *request,
                       size_t cap, size_t len)
 {
+	m->pt = pt;
 	m->li = link_of(&pt->caller.node);
 	m->host = pt->host;
 	meter_asked(m, len);
@@ -1551,6 +1559,7 @@ static int talk_start(fzn_node_talk_t *talk, struct meter *m, const struct pull_
 		return 1;
 	}
 	link_answered(m->li, m->began, 0, 1);
+	silent_mark(pt);
 	return 0;
 }
 

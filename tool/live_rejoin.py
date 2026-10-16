@@ -132,6 +132,8 @@ class daemon:
 		# A KEPT DIRECTORY'S FILE HOLDS EARLIER RUNS' LINES: this run's are
 		# told by its pid, which every line names.
 		self.kept = bool(log_dir)
+		# THIS RUN'S PACKED SEGMENTS, decompressed once each: see `log`.
+		self.packed = {}
 		if not os.path.isdir(self.log_dir):
 			os.mkdir(self.log_dir)
 		if os.path.exists(sock):
@@ -163,11 +165,28 @@ class daemon:
 
 	def log(self):
 		"""This run's log: the current file's lines, which a kept directory's
-		earlier runs have rotated away."""
+		earlier runs have rotated away -- and this run's own packed segments,
+		named by its pid. A round packs the segment it has just written, so
+		a wait begun after it reading the current file alone missed what the
+		round said and waited out the next round instead (sec 637). Each
+		segment decompressed once; without `zstd`, the current file alone."""
 		text = ""
+		own = ".%d." % self.proc.pid
 		for name in sorted(os.listdir(self.log_dir)):
 			path = os.path.join(self.log_dir, name)
-			if not os.path.isfile(path) or not name.endswith(".log"):
+			if not os.path.isfile(path):
+				continue
+			if name.endswith(".log.zst") and own in name:
+				if name not in self.packed:
+					try:
+						self.packed[name] = subprocess.run(
+							["zstd", "-dcq", path], capture_output=True,
+							timeout=30).stdout.decode(errors="replace")
+					except (OSError, subprocess.TimeoutExpired):
+						self.packed[name] = ""
+				text += self.packed[name]
+				continue
+			if not name.endswith(".log"):
 				continue
 			with open(path, "rb") as f:
 				text += f.read(1 << 20).decode(errors="replace")
