@@ -1401,6 +1401,7 @@ enum {
 	ROUND_JOURNAL_SETTLE,
 	ROUND_RECONCILE,
 	ROUND_ROUTING,
+	ROUND_ROUTING_AFTER,
 	ROUND_GRANTS,
 	ROUND_MESSAGES,
 	ROUND_MESSAGES_AFTER,
@@ -1416,6 +1417,7 @@ enum {
 	ROUND_GROUP_LINES_SETTLE,
 	ROUND_GROUP_SHARES_SETTLE,
 	ROUND_REFERENCES,
+	ROUND_REFERENCES_SETTLE,
 	ROUND_END,
 	/* A FRESH WRITE'S STEPS, not the round's (`fresh_*_plan`). */
 	ROUND_MESSAGES_ROUND,
@@ -1436,12 +1438,12 @@ enum {
  * pulls and deliveries once asked in turn and answered nobody. */
 static const int round_plan[] = {
 	ROUND_START,    ROUND_JOURNAL,         ROUND_JOURNAL_SETTLE,  ROUND_RECONCILE,
-	ROUND_ROUTING,  ROUND_GRANTS,          ROUND_MESSAGES,        ROUND_MESSAGES_AFTER,
+	ROUND_ROUTING,  ROUND_ROUTING_AFTER,   ROUND_GRANTS,          ROUND_MESSAGES,        ROUND_MESSAGES_AFTER,
 	ROUND_MEMBERS,  ROUND_NOTES,           ROUND_NOTES_SETTLE,    ROUND_RECEIVED_IN_ROUND,
 	ROUND_RECEIVED_SETTLE_IN_ROUND,        ROUND_CONTACTS,        ROUND_CONTACTS_SETTLE,
 	ROUND_GROUPS,   ROUND_GROUPS_SETTLE,   ROUND_GROUP_LINES_SETTLE,
-	ROUND_GROUP_SHARES_SETTLE,             ROUND_REFERENCES,      ROUND_END,
-	0
+	ROUND_GROUP_SHARES_SETTLE,             ROUND_REFERENCES,      ROUND_REFERENCES_SETTLE,
+	ROUND_END,      0
 };
 /* A NOTE WRITTEN HERE: in the journal, pushed with it (sec 519), then the
  * notes' work with each peer. */
@@ -3126,19 +3128,6 @@ static int routing_take(const char *host, uint8_t *reply, size_t len,
 	return 1;
 }
 
-static int routing_fetch(struct peer_asking *asking, const uint8_t root[FZN_PUBKEY_LEN],
-                         uint64_t now)
-{
-	static uint8_t reply[FZND_PULL_REPLY_MAX];
-	size_t len = 0;
-
-	if (!routing_hash || !routing_sign || !node_apply.store
-	    || !peer_ask(asking, (const uint8_t *)"get routing", 11u, reply, sizeof(reply) - 1u,
-	                 &len))
-		return 0;
-	return routing_take(asking->host, reply, len, root, now);
-}
-
 /* EVERY PEER OF THE ESTATE THAT ANSWERED THIS ROUND, HEARD, secs 601 and
  * 616: what a keeper of a piece, and the writer of a line, are judged gone
  * by. Each round, whatever this build keeps. */
@@ -3158,12 +3147,14 @@ static void mark_heard(struct pull_target *pulls, size_t npulls)
  * an admin when what the settings say has changed, at one past the
  * generation held; taken by any other member from a peer of the estate
  * that answers, once it verifies against the estate's root. */
+static void routing_start(struct pull_target *pulls, size_t npulls, uint64_t now);
+
 static void routing_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
 	static uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
 	static fzn_routing_t derived, held;
 	uint8_t hash[FZN_ROUTING_HASH_LEN];
-	size_t hop_count = 0, t;
+	size_t hop_count = 0;
 	int have;
 
 	if (!node_apply.root || !routing_self || !routing_sign || !routing_hash || !node_apply.store)
@@ -3190,13 +3181,9 @@ static void routing_round(struct pull_target *pulls, size_t npulls, uint64_t now
 		publish("routing", NULL);
 		return;
 	}
-	/* NOT A SIGNER: the newest a peer of the estate holds. */
-	for (t = 0; t < npulls; t++) {
-		struct peer_asking asking = { &pulls[t].caller, now, pulls[t].host };
-
-		if (!silent_peer(&pulls[t]) && peer_in_estate(&pulls[t]))
-			(void)routing_fetch(&asking, node_apply.root, now);
-	}
+	/* NOT A SIGNER: the newest a peer of the estate holds, every peer
+	 * asked at once (sec 636). */
+	routing_start(pulls, npulls, now);
 }
 
 /* `get routing [KEY]`, locally: this estate's manifest, or the user's whose
@@ -7219,9 +7206,13 @@ static size_t stream_take(const char *name, size_t name_len, const uint8_t *orig
 	(FZND_ROUND_TARGETS_MAX + FZN_NODE_RECEIVED_MAX + FZND_CONTACT_TARGETS_MAX               \
 	 + FZND_GROUP_SHARES_MAX)
 #define FZND_HOST_TALKS_AT_ONCE 32u
+#define FZND_FILE_REFS_REQUEST_MAX (3u + 32u * FZN_BLOB_HASH_LEN)
+#define FZND_HOST_REQUEST_MAX                                                                 \
+	(FZND_FILE_REFS_REQUEST_MAX > 3u + FZN_STREAM_NAME_MAX + 8u ? FZND_FILE_REFS_REQUEST_MAX     \
+	                                                             : 3u + FZN_STREAM_NAME_MAX + 8u)
 _Static_assert(FZND_HOST_TALKS_AT_ONCE <= FZN_NODE_ASKS_MAX, "the host talks fit the asks table");
 
-enum { HOST_ADDRESS = 1, HOST_STREAMS = 2 };
+enum { HOST_ADDRESS = 1, HOST_STREAMS = 2, HOST_ROUTING = 3, HOST_FILE_REFS = 4 };
 
 struct host_talk {
 	fzn_node_talk_t talk;
@@ -7231,9 +7222,12 @@ struct host_talk {
 	size_t items[FZND_STREAM_FETCHES_MAX]; /* stream fetches, by place */
 	size_t n_items, at;
 	uint64_t now;
-	uint8_t request[3u + FZN_STREAM_NAME_MAX + 8u];
+	uint8_t request[FZND_HOST_REQUEST_MAX];
 };
 static struct host_talk host_talks[FZND_HOST_TALKS_MAX];
+/* THE ONE REQUEST every host is asked, for the kinds that share one. */
+static uint8_t host_shared_request[FZND_HOST_REQUEST_MAX];
+static size_t host_shared_len, file_refs_taken;
 static size_t n_host_talks, host_talks_begun, streams_asked, streams_taken, streams_begun;
 
 /* ITEM `ht->at`'s REQUEST. */
@@ -7245,10 +7239,18 @@ static size_t host_request(struct host_talk *ht)
 		memcpy(ht->request, "get address", 11u);
 		return 11u;
 	}
+	if (ht->kind == HOST_ROUTING || ht->kind == HOST_FILE_REFS) {
+		memcpy(ht->request, host_shared_request, host_shared_len);
+		return host_shared_len;
+	}
 	streams_asked++;
 	return stream_query(stream_fetches[f].name, stream_fetches[f].name_len, ht->pt->pairing.node,
 	                    ht->request);
 }
+
+static void routing_answer(const char *host, const uint8_t *reply, size_t reply_len,
+                           uint64_t now);
+static void file_refs_take(const uint8_t *reply, size_t reply_len);
 
 static int host_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, uint8_t *request,
                           size_t cap, size_t *request_len)
@@ -7262,6 +7264,10 @@ static int host_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, uin
 		return 0;
 	if (ht->kind == HOST_ADDRESS)
 		address_take(ht->pt, reply, reply_len, ht->now);
+	else if (ht->kind == HOST_ROUTING)
+		routing_answer(ht->pt->host, reply, reply_len, ht->now);
+	else if (ht->kind == HOST_FILE_REFS)
+		file_refs_take(reply, reply_len);
 	else
 		streams_taken += stream_take(stream_fetches[ht->items[ht->at]].name,
 		                             stream_fetches[ht->items[ht->at]].name_len,
@@ -7382,6 +7388,34 @@ static void streams_start(struct pull_target *pulls, size_t npulls, uint64_t now
 				host_add(&contact_targets[i].pt, HOST_STREAMS, 0, f, now);
 	}
 	host_talks_begin();
+}
+
+/* THE ESTATE'S MANIFEST asked of each peer of it at once, by a member that
+ * does not sign it (sec 611; 636). */
+static void routing_start(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	size_t t;
+
+	n_host_talks = host_talks_begun = 0;
+	memcpy(host_shared_request, "get routing", 11u);
+	host_shared_len = 11u;
+	for (t = 0; t < npulls; t++)
+		if (!silent_peer(&pulls[t]) && peer_in_estate(&pulls[t]))
+			host_add(&pulls[t], HOST_ROUTING, 1, 0, now);
+	host_talks_begin();
+}
+
+/* A `get routing` ANSWER, taken by `routing_take`: copied out,
+ * since the take writes a byte past the answer. */
+static void routing_answer(const char *host, const uint8_t *reply, size_t reply_len,
+                           uint64_t now)
+{
+	static uint8_t copy[FZND_PULL_REPLY_MAX + 1u];
+
+	if (!node_apply.root || reply_len > FZND_PULL_REPLY_MAX)
+		return;
+	memcpy(copy, reply, reply_len);
+	(void)routing_take(host, copy, reply_len, node_apply.root, now);
 }
 
 static void streams_settle(void)
@@ -7822,24 +7856,51 @@ static size_t file_refs_remote(const uint8_t *sender, const uint8_t *request, si
 
 /* EVERY ROOT THE CATALOGUE LISTS without a reference here, asked of each
  * sibling until one answers it. sec 634. */
+/* A FILE_REFS answer, each reference asked for kept: one asked for, and no
+ * other -- an answer names nothing new. */
+static void file_refs_take(const uint8_t *reply, size_t len)
+{
+	size_t k, j, want = host_shared_request[2];
+
+	if (len < 3u || reply[0] != FZND_GROUP_VERSION || reply[1] != FZND_FILE_REFS_TYPE
+	    || len != 3u + (size_t)reply[2] * FZN_NODE_FILE_REF_LEN)
+		return;
+	for (k = 0; k < reply[2]; k++) {
+		const uint8_t *r = reply + 3u + k * FZN_NODE_FILE_REF_LEN;
+
+		for (j = 0; j < want && memcmp(host_shared_request + 3u + j * FZN_BLOB_HASH_LEN, r,
+		                               FZN_BLOB_HASH_LEN) != 0;
+		     j++)
+			;
+		if (j < want && fzn_node_file_ref_keep(node_apply.store, r))
+			file_refs_taken++;
+	}
+	/* THE KEYS IN IT, wiped: the loop's buffer holds the answer. */
+	fzn_wipe(round_reply, len);
+}
+
+/* EVERY FILE THE CATALOGUE NAMES whose reference is not held here, asked of
+ * each peer of the estate at once (sec 634; 636). */
 static void file_refs_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
 	static fzn_catalog_assertion_t set[FZN_NODE_CATALOG_MAX];
-	static uint8_t reply[FZND_PULL_REPLY_MAX];
-	uint8_t request[3u + FZND_FILE_REFS_MAX * FZN_BLOB_HASH_LEN], ref[FZN_NODE_FILE_REF_LEN];
-	size_t n, i, k, want = 0, taken = 0, len = 0;
+	uint8_t ref[FZN_NODE_FILE_REF_LEN];
+	size_t n, i, k, want = 0;
 
+	n_host_talks = host_talks_begun = 0;
+	file_refs_taken = 0;
 	if (!journal_on || !node_apply.store)
 		return;
 	n = fzn_node_catalog_assertions(&node_catalog, NULL, set, FZN_NODE_CATALOG_MAX);
 	for (i = 0; i < n && want < FZND_FILE_REFS_MAX; i++) {
-		uint8_t *slot = request + 3u + want * FZN_BLOB_HASH_LEN;
+		uint8_t *slot = host_shared_request + 3u + want * FZN_BLOB_HASH_LEN;
 
 		if (!set[i].live || set[i].entity_len != FZN_BLOB_HASH_LEN
 		    || fzn_node_file_ref_get(node_apply.store, set[i].entity, ref))
 			continue;
-		for (k = 0; k < want && memcmp(request + 3u + k * FZN_BLOB_HASH_LEN, set[i].entity,
-		                               FZN_BLOB_HASH_LEN) != 0;
+		for (k = 0; k < want
+		            && memcmp(host_shared_request + 3u + k * FZN_BLOB_HASH_LEN, set[i].entity,
+		                      FZN_BLOB_HASH_LEN) != 0;
 		     k++)
 			;
 		if (k == want) {
@@ -7849,34 +7910,22 @@ static void file_refs_round(struct pull_target *pulls, size_t npulls, uint64_t n
 	}
 	if (!want)
 		return;
-	request[0] = FZND_GROUP_VERSION;
-	request[1] = FZND_FILE_REFS_WANT_TYPE;
-	request[2] = (uint8_t)want;
-	for (i = 0; i < npulls; i++) {
-		struct peer_asking asking = { &pulls[i].caller, now, pulls[i].host };
+	host_shared_request[0] = FZND_GROUP_VERSION;
+	host_shared_request[1] = FZND_FILE_REFS_WANT_TYPE;
+	host_shared_request[2] = (uint8_t)want;
+	host_shared_len = 3u + want * FZN_BLOB_HASH_LEN;
+	for (i = 0; i < npulls; i++)
+		if (!silent_peer(&pulls[i]) && peer_in_estate(&pulls[i]))
+			host_add(&pulls[i], HOST_FILE_REFS, 1, 0, now);
+	host_talks_begin();
+}
 
-		if (silent_peer(&pulls[i]) || !peer_in_estate(&pulls[i])
-		    || !peer_ask(&asking, request, 3u + want * FZN_BLOB_HASH_LEN, reply, sizeof(reply),
-		                 &len)
-		    || len < 3u || reply[0] != FZND_GROUP_VERSION || reply[1] != FZND_FILE_REFS_TYPE
-		    || len != 3u + (size_t)reply[2] * FZN_NODE_FILE_REF_LEN)
-			continue;
-		for (k = 0; k < reply[2]; k++) {
-			const uint8_t *r = reply + 3u + k * FZN_NODE_FILE_REF_LEN;
-			size_t j;
-
-			/* ONE ASKED FOR, and no other: an answer names nothing new. */
-			for (j = 0; j < want && memcmp(request + 3u + j * FZN_BLOB_HASH_LEN, r,
-			                               FZN_BLOB_HASH_LEN) != 0;
-			     j++)
-				;
-			if (j < want && fzn_node_file_ref_keep(node_apply.store, r))
-				taken++;
-		}
-	}
-	fzn_wipe(reply, sizeof(reply));
-	if (taken)
-		say(FZN_ENTRY_INFO, "files", "%zu file reference(s) from this estate's hosts", taken);
+static void file_refs_settle(void)
+{
+	if (file_refs_taken)
+		say(FZN_ENTRY_INFO, "files", "%zu file reference(s) from this estate's hosts",
+		    file_refs_taken);
+	file_refs_taken = 0;
 }
 
 /* ---- relaying, sec 622 ------------------------------------------------------- */
@@ -10762,7 +10811,12 @@ int main(int argc, char **argv)
 					break;
 				case ROUND_ROUTING:
 #ifdef FZN_RECORD_STORE_FILE_ON
+					/* The manifest of every peer at once, the round waiting. */
 					routing_round(pulls, npulls, round_now);
+#endif
+					break;
+				case ROUND_ROUTING_AFTER:
+#ifdef FZN_RECORD_STORE_FILE_ON
 					mark_heard(pulls, npulls);
 #if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
 					count_replicas(pulls, npulls, round_now);
@@ -10899,6 +10953,9 @@ int main(int argc, char **argv)
 					send_asked();
 					/* Every contact at once, the round waiting. sec 636. */
 					deliver_start(round_now);
+					break;
+				case ROUND_REFERENCES_SETTLE:
+					file_refs_settle();
 					break;
 				case ROUND_END:
 					/* THE ROUND'S END IN ONE STEP, from the history pass on: the

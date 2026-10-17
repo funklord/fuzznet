@@ -65956,6 +65956,21 @@ from S) and `live_groups.py` phase e (C pulls nothing B shares with the
 group). `node/test/notes_sync_test.c`: a shared pull with no answer ends,
 and a step after is refused.
 
+### The manifest and the file references as host conversations
+
+A member that does not sign the estate's manifest asked each peer for it,
+and every member asked each peer for the file references it lacked (secs
+611, 634), each in turn. Both are now the host conversations
+`fetch address` uses, one request shared by every peer
+(`HOST_ROUTING`, `HOST_FILE_REFS`), every peer at once.
+`ROUND_ROUTING_AFTER` marks who was heard once the manifests are in, as
+the step in one piece did after them; `ROUND_REFERENCES_SETTLE` says the
+references taken. `routing_fetch` goes; the contacts' conversation and
+this both take a manifest by `routing_take`.
+
+Controls: with the references not kept, `live_catalog.py` phase a2 fails;
+with the manifests not taken, `live_siblings.py` phase h.
+
 ### Tested, and probed
 
 - **`notes/test/notes_sync_test.c`**: a give driven by steps leaves its
@@ -65983,19 +65998,23 @@ pending.
 
 ### Open
 
-- **Still asked in turn within a step**: reconciliation, routing, the
-  grants' push, contact requests (`send_asked`), file references, the
-  shares a group's members hold, the round's own fetches of texts and
-  files, and a journal rebase (`rebase_missed`, only for a peer whose
-  streams it no longer holds). The host answers between steps but not
-  during these. None costs a profiled second in the live checks.
+- **Still asked in turn within a step**: reconciliation, the grants'
+  push, the round's own fetches of texts and files, a share's texts once
+  its sharer has answered, and a journal rebase (`rebase_missed`, only
+  for a peer whose streams it no longer holds). The host answers between
+  steps but not during these. None costs a profiled second in the live
+  checks.
 - **Still asked in turn**: a file or text asked for (`fetch_files`,
   `fetch_texts`, which already work in budgeted batches the loop answers
   between), and the texts of a share once its sharer has answered
   (`fzn_node_shelf_fetch_wants`). A contact request sent (`send_asked`)
   waits for nothing.
-- **A request handler that asks a peer synchronously** while a
-  conversation awaits the same caller would read the conversation's
-  answer and drop it; the conversation then fails at its deadline. None
-  is known to; it is the cost of answering mid-round, and goes away with
-  the last synchronous ask.
+- **~~A request handler that asks a peer synchronously~~ -- none does,
+  measured 2026-10-17.** Every function in `node/fuzznetd.c` that asks a
+  peer in turn (through `peer_ask`, `fzn_caller_recv`, or a library fetch
+  handed it) was followed back through its callers: each chain ends at
+  `main` or at a round's step, none at the local or remote handler, and
+  none is passed anywhere as a function pointer. A handler's library code
+  asks only through an `ask` handed it, and only the round's sites hand
+  one. Such a handler would read a conversation's answer and drop it, so
+  any new one wants that walk again.
