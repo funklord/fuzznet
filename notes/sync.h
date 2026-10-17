@@ -216,6 +216,43 @@ fzn_notes_sync_err_t fzn_notes_sync_pull_shared(const fzn_notes_store_t *store,
                                                 fzn_notes_sync_ask_t ask, void *ask_ctx,
                                                 fzn_notes_sync_tally_t *tally);
 
+/* EITHER PULL AS STEPS, sec 636: begin writes the first request -- the
+ * index's, or the sharer's writers' -- and each step takes its answer
+ * (NULL for none) and writes the next, a page of the index or a batch of
+ * records, or sets `*done`; its error is the step's return. `request` is
+ * the caller's, at least FZN_NOTES_SYNC_PULL_REQUEST_MAX; an answer may be
+ * FZN_NOTES_SYNC_REPLY_MAX. The tally is the struct's. */
+#define FZN_NOTES_SYNC_PULL_REQUEST_MAX                                                        \
+	(FZN_NOTES_SYNC_LIST_HEAD_LEN + (FZN_NOTES_SYNC_KEYS_MAX * FZN_PUBKEY_LEN))
+
+typedef struct fzn_notes_pulling {
+	const fzn_notes_store_t *store;
+	const fzn_sign_ops_t *sign;
+	fzn_notes_policy_t policy;
+	fzn_notes_writer_t writers[FZN_NOTES_SYNC_WRITERS_MAX]; /* a share's, the policy's */
+	int phase;
+	size_t from, total, pages;             /* the index read so far */
+	uint8_t want[FZN_NOTES_MAX][FZN_PUBKEY_LEN];
+	size_t n_want, at, batch;              /* the records asked so far */
+	fzn_notes_sync_tally_t tally;
+} fzn_notes_pulling_t;
+
+fzn_notes_sync_err_t fzn_notes_sync_pull_begin(fzn_notes_pulling_t *p,
+                                               const fzn_notes_store_t *store,
+                                               fzn_notes_policy_t policy,
+                                               const fzn_sign_ops_t *sign, uint8_t *request,
+                                               size_t cap, size_t *request_len, int *done);
+
+fzn_notes_sync_err_t fzn_notes_sync_pull_shared_begin(fzn_notes_pulling_t *p,
+                                                      const fzn_notes_store_t *store,
+                                                      const fzn_sign_ops_t *sign,
+                                                      uint8_t *request, size_t cap,
+                                                      size_t *request_len, int *done);
+
+fzn_notes_sync_err_t fzn_notes_sync_pull_step(fzn_notes_pulling_t *p, const uint8_t *reply,
+                                              size_t reply_len, uint8_t *request, size_t cap,
+                                              size_t *request_len, int *done);
+
 typedef struct fzn_notes_wrap_tally {
 	size_t asked;   /* notes this store lacked a key for, asked about */
 	size_t taken;   /* keys the peer gave that this store took */

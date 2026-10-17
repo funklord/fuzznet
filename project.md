@@ -65935,6 +65935,27 @@ fails; with stream records not kept, phase f. **The first stream control
 was itself wrong** -- it zeroed the count and still made the call that
 keeps the records, and passed; the one that removed the call fails.
 
+### A share's pull as a conversation
+
+A share pulled -- each accepted share's sharer, and each group member's
+host (secs 437, 630) -- was asked its writers, its index and its records,
+then its wrap keys, then its texts, in turn: an offline sharer cost the
+round, or a share just accepted, a timeout at each. **Each share is now
+one conversation, every sharer at once**: the notes pull as steps
+(`fzn_notes_sync_pull_begin`/`_shared_begin`/`_step`, `notes/sync.h`,
+both one-call pulls their drivers, `fetch` split into its request and its
+taking), then the wrap keys, each conversation with its own seam onto the
+sharer's tree. `ROUND_RECEIVED_IN_ROUND` and the group lines' settle
+start them; their settle steps say each as before, and ask a sharer's
+texts there, in turn -- **of a sharer that answered**: one that answered
+neither the pull nor the keys this round is not asked a third time. A
+share accepted runs `received_plan`.
+
+A control with no share pull started fails `live_shares.py` (no pull
+from S) and `live_groups.py` phase e (C pulls nothing B shares with the
+group). `node/test/notes_sync_test.c`: a shared pull with no answer ends,
+and a step after is refused.
+
 ### Tested, and probed
 
 - **`notes/test/notes_sync_test.c`**: a give driven by steps leaves its
@@ -65968,11 +65989,11 @@ pending.
   files, and a journal rebase (`rebase_missed`, only for a peer whose
   streams it no longer holds). The host answers between steps but not
   during these. None costs a profiled second in the live checks.
-- **Between rounds, still asked in turn**: a file or text asked for
-  (`fetch_files`, `fetch_texts`, which already work in budgeted batches the
-  loop answers between) and a share accepted (`pull_received`). The loop
-  does not answer while one of those waits. A contact request sent
-  (`send_asked`) waits for nothing.
+- **Still asked in turn**: a file or text asked for (`fetch_files`,
+  `fetch_texts`, which already work in budgeted batches the loop answers
+  between), and the texts of a share once its sharer has answered
+  (`fzn_node_shelf_fetch_wants`). A contact request sent (`send_asked`)
+  waits for nothing.
 - **A request handler that asks a peer synchronously** while a
   conversation awaits the same caller would read the conversation's
   answer and drop it; the conversation then fails at its deadline. None

@@ -5237,8 +5237,8 @@ SABOTAGES = [
 	(
 		"sync-writers-length-matches-count",
 		"notes/sync.c",
-		"\t    || reply_len != FZN_NOTES_SYNC_LIST_HEAD_LEN + (count * FZN_PUBKEY_LEN))\n\t\treturn FZN_NOTES_SYNC_SHAPE;\n",
-		"\t    )\n\t\treturn FZN_NOTES_SYNC_SHAPE;\n",
+		"\t\t    || reply_len != FZN_NOTES_SYNC_LIST_HEAD_LEN + (count * FZN_PUBKEY_LEN))\n\t\t\treturn pull_end(p, done, FZN_NOTES_SYNC_SHAPE);\n",
+		"\t\t    )\n\t\t\treturn pull_end(p, done, FZN_NOTES_SYNC_SHAPE);\n",
 		"a writers answer shorter than its count admits keys read past what arrived -- sec 437",
 	),
 	(

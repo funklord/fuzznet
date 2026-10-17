@@ -1407,11 +1407,14 @@ enum {
 	ROUND_MEMBERS,
 	ROUND_NOTES,
 	ROUND_NOTES_SETTLE,
+	ROUND_RECEIVED_IN_ROUND,
+	ROUND_RECEIVED_SETTLE_IN_ROUND,
 	ROUND_CONTACTS,
 	ROUND_CONTACTS_SETTLE,
 	ROUND_GROUPS,
 	ROUND_GROUPS_SETTLE,
 	ROUND_GROUP_LINES_SETTLE,
+	ROUND_GROUP_SHARES_SETTLE,
 	ROUND_REFERENCES,
 	ROUND_END,
 	/* A FRESH WRITE'S STEPS, not the round's (`fresh_*_plan`). */
@@ -1420,6 +1423,9 @@ enum {
 	/* WHAT THE USER ASKED FOR AT ONCE: `fetch stream`, `fetch address`. */
 	ROUND_STREAMS,
 	ROUND_STREAMS_SETTLE,
+	/* A SHARE ACCEPTED, pulled at once (sec 437). */
+	ROUND_RECEIVED,
+	ROUND_SHARES_SETTLE,
 	ROUND_ADDRESS,
 	ROUND_ADDRESS_SETTLE
 };
@@ -1431,9 +1437,11 @@ enum {
 static const int round_plan[] = {
 	ROUND_START,    ROUND_JOURNAL,         ROUND_JOURNAL_SETTLE,  ROUND_RECONCILE,
 	ROUND_ROUTING,  ROUND_GRANTS,          ROUND_MESSAGES,        ROUND_MESSAGES_AFTER,
-	ROUND_MEMBERS,  ROUND_NOTES,           ROUND_NOTES_SETTLE,    ROUND_CONTACTS,
-	ROUND_CONTACTS_SETTLE, ROUND_GROUPS,   ROUND_GROUPS_SETTLE,   ROUND_GROUP_LINES_SETTLE,
-	ROUND_REFERENCES, ROUND_END,           0
+	ROUND_MEMBERS,  ROUND_NOTES,           ROUND_NOTES_SETTLE,    ROUND_RECEIVED_IN_ROUND,
+	ROUND_RECEIVED_SETTLE_IN_ROUND,        ROUND_CONTACTS,        ROUND_CONTACTS_SETTLE,
+	ROUND_GROUPS,   ROUND_GROUPS_SETTLE,   ROUND_GROUP_LINES_SETTLE,
+	ROUND_GROUP_SHARES_SETTLE,             ROUND_REFERENCES,      ROUND_END,
+	0
 };
 /* A NOTE WRITTEN HERE: in the journal, pushed with it (sec 519), then the
  * notes' work with each peer. */
@@ -1448,6 +1456,7 @@ static const int fresh_messages_plan[] = {
 };
 /* A STREAM FETCH ASKED (sec 632), and WHERE THIS HOST IS SEEN (sec 621). */
 static const int streams_plan[] = { ROUND_STREAMS, ROUND_STREAMS_SETTLE, 0 };
+static const int received_plan[] = { ROUND_RECEIVED, ROUND_SHARES_SETTLE, 0 };
 static const int address_plan[] = { ROUND_ADDRESS, ROUND_ADDRESS_SETTLE, 0 };
 
 /* THE PEERS THAT DID NOT ANSWER THIS ROUND, sec 587, by where they are: a
@@ -4746,57 +4755,149 @@ static void load_received(int family, const uint8_t self[FZN_PUBKEY_LEN],
  * share's (`contacts`, its sharer a contact that must stand) or a group
  * member's host (sec 630, its membership checked when it was loaded).
  * sec 437. */
-static void pull_shares(struct share_target *targets, size_t n_targets, int contacts,
-                        uint64_t now)
-{
-	size_t i, suspended = 0;
+/* A GROUP'S MEMBERS' HOSTS ASKED FOR THEIR SHARES, sec 630. */
+#define FZND_GROUP_SHARES_MAX 32u
 
+struct share_talk {
+	fzn_node_talk_t talk;
+	struct meter m;
+	fzn_notes_received_t seam;
+	fzn_persist_ops_t ops;
+	fzn_notes_store_t tree; /* the sharer's, which its writers are admitted to */
+	int wrapping, live;
+	fzn_notes_pulling_t pull;
+	fzn_notes_wrapping_t wraps;
+	fzn_notes_sync_err_t pull_err, wraps_err;
+	uint8_t request[FZN_NOTES_SYNC_PULL_REQUEST_MAX > FZN_NOTES_SYNC_WRAPS_REPLY_MAX
+	                        ? FZN_NOTES_SYNC_PULL_REQUEST_MAX
+	                        : FZN_NOTES_SYNC_WRAPS_REPLY_MAX];
+};
+#define FZND_SHARE_TALKS_MAX                                                                  \
+	(FZN_NODE_RECEIVED_MAX > FZND_GROUP_SHARES_MAX ? FZN_NODE_RECEIVED_MAX : FZND_GROUP_SHARES_MAX)
+_Static_assert(FZND_PULL_REPLY_MAX >= FZN_NOTES_SYNC_REPLY_MAX,
+               "a notes answer fits the round's answers");
+static struct share_talk share_talks[FZND_SHARE_TALKS_MAX];
+static struct share_target *shares_now;
+static size_t n_shares_now, shares_suspended;
+static int shares_contacts, shares_begun; /* a pass to settle, begun since the last */
+
+/* A SHARE'S PULL, then AND THEIR WRAP KEYS, sec 520: asked, never given. */
+static int share_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, uint8_t *request,
+                           size_t cap, size_t *request_len)
+{
+	struct share_talk *st = ctx;
+	int done = 0;
+
+	meter_answer(&st->m, reply, reply_len);
+	if (!st->wrapping) {
+		st->pull_err = fzn_notes_sync_pull_step(&st->pull, reply, reply_len, request, cap,
+		                                        request_len, &done);
+		if (st->pull_err == FZN_NOTES_SYNC_OK && !done) {
+			meter_asked(&st->m, *request_len);
+			return 1;
+		}
+		/* WHATEVER THE PULL CAME TO, the keys: as the round in turn did. */
+		st->wrapping = 1;
+		done = 0;
+		st->wraps_err = fzn_notes_sync_wraps_begin(&st->wraps, &st->tree, 0, request, cap,
+		                                           request_len, &done);
+	} else
+		st->wraps_err = fzn_notes_sync_wraps_step(&st->wraps, reply, reply_len, request, cap,
+		                                          request_len, &done);
+	if (st->wraps_err != FZN_NOTES_SYNC_OK || done)
+		return 0;
+	meter_asked(&st->m, *request_len);
+	return 1;
+}
+
+/* EACH SHARE INTO ITS SHARER'S TREE, every sharer at once: `targets`, `n`
+ * of them, an accepted share's (`contacts`, its sharer a contact that must
+ * stand) or a group member's host (sec 630, its membership checked when it
+ * was loaded). sec 437. Said by `shares_settle`. */
+static void shares_start(struct share_target *targets, size_t n_targets, int contacts,
+                         uint64_t now)
+{
+	size_t i, len;
+	int done;
+
+	shares_now = targets;
+	n_shares_now = 0;
+	shares_suspended = 0;
+	shares_contacts = contacts;
 	if (!notes_on)
 		return;
-	for (i = 0; i < n_targets; i++) {
-		static fzn_notes_received_t seam;
-		static fzn_persist_ops_t ops;
-		fzn_notes_store_t tree;
-		struct peer_asking asking = { &targets[i].pt.caller, now, targets[i].host };
-		fzn_notes_sync_tally_t tally;
-		fzn_notes_sync_err_t err;
+	shares_begun = 1;
+	n_shares_now = n_targets < FZND_SHARE_TALKS_MAX ? n_targets : FZND_SHARE_TALKS_MAX;
+	for (i = 0; i < n_shares_now; i++) {
+		struct share_talk *st = &share_talks[i];
 
-		/* A REMOVED CONTACT'S SHARE IS NOT PULLED, sec 576, the holder's of
-		 * 2026-10-09: what it shared stays (sec 478), and nothing new comes
-		 * while it is removed. Adding it back pulls on from where it was. */
+		st->live = 0;
+		st->wrapping = 0;
+		st->pull_err = st->wraps_err = FZN_NOTES_SYNC_NO_ANSWER;
+		/* A REMOVED CONTACT'S SHARE IS NOT PULLED, sec 576, the holder's
+		 * of 2026-10-09: what it shared stays (sec 478), and nothing new
+		 * comes while it is removed. Adding it back pulls on from where it
+		 * was. */
 		if (contacts && running_admin
 		    && !fzn_node_admin_contact_stands(running_admin, targets[i].sharer)) {
-			suspended++;
+			shares_suspended++;
 			continue;
 		}
-		if (fzn_notes_received_ops(&seam, node_notes.store.ops, node_notes.store.hash,
-		                           targets[i].sharer, &ops)
+		if (fzn_notes_received_ops(&st->seam, node_notes.store.ops, node_notes.store.hash,
+		                           targets[i].sharer, &st->ops)
 		            != FZN_NOTES_OK
-		    || fzn_notes_store_init(&tree, &ops, node_notes.store.hash) != FZN_NOTES_OK)
+		    || fzn_notes_store_init(&st->tree, &st->ops, node_notes.store.hash) != FZN_NOTES_OK)
 			continue;
-		err = fzn_notes_sync_pull_shared(&tree, node_notes.author.sign, peer_ask, &asking,
-		                                 &tally);
-		if (err != FZN_NOTES_SYNC_OK)
-			say(FZN_ENTRY_WARNING, "notes/received", "shared notes from %s: %s", targets[i].host,
-			        fzn_notes_sync_err_str(err));
-		else if (tally.learned || tally.refused)
-			say(FZN_ENTRY_INFO, "notes/received", "%zu shared note record(s) from %s, %zu refused",
-			        tally.learned, targets[i].host, tally.refused);
-		/* AND THEIR WRAP KEYS, sec 520: asked, never given. */
-		{
-			fzn_notes_wrap_tally_t wt;
-			fzn_notes_sync_err_t werr = fzn_notes_sync_wraps(&tree, peer_ask, &asking, 0, &wt);
+		st->live = 1;
+		len = 0;
+		done = 0;
+		st->pull_err = fzn_notes_sync_pull_shared_begin(&st->pull, &st->tree,
+		                                                node_notes.author.sign, st->request,
+		                                                sizeof(st->request), &len, &done);
+		if (st->pull_err == FZN_NOTES_SYNC_OK)
+			(void)talk_start_over(&st->talk, &st->m, &targets[i].pt, now, share_talk_step,
+			                      round_talk_over, 0, st, st->request, sizeof(st->request),
+			                      len);
+	}
+}
 
-			if (werr != FZN_NOTES_SYNC_OK)
-				say(FZN_ENTRY_WARNING, "notes/received", "shared wrap keys from %s: %s",
-				        targets[i].host, fzn_notes_sync_err_str(werr));
-		}
+/* WHAT THE SHARES' CONVERSATIONS BROUGHT, said sharer by sharer, and their
+ * texts asked -- of a sharer that answered. */
+static void shares_settle(void)
+{
+	size_t i;
+
+	if (!notes_on || !shares_begun)
+		return;
+	shares_begun = 0;
+	for (i = 0; i < n_shares_now; i++) {
+		struct share_talk *st = &share_talks[i];
+		struct share_target *target = &shares_now[i];
+		const fzn_notes_sync_tally_t *tally = &st->pull.tally;
+
+		if (!st->live)
+			continue;
+		if (st->pull_err != FZN_NOTES_SYNC_OK)
+			say(FZN_ENTRY_WARNING, "notes/received", "shared notes from %s: %s", target->host,
+			        fzn_notes_sync_err_str(st->pull_err));
+		else if (tally->learned || tally->refused)
+			say(FZN_ENTRY_INFO, "notes/received", "%zu shared note record(s) from %s, %zu refused",
+			        tally->learned, target->host, tally->refused);
+		if (st->wraps_err != FZN_NOTES_SYNC_OK)
+			say(FZN_ENTRY_WARNING, "notes/received", "shared wrap keys from %s: %s",
+			        target->host, fzn_notes_sync_err_str(st->wraps_err));
 #ifdef FZN_SPOOL_FILE_ON
 		/* THE SHARED NOTES' TEXTS, sec 438: each blob one of them names is
 		 * wanted on the shelf and asked of the sharer, which serves a
-		 * contact the texts of what it shares and nothing else. */
-		if (shelf_on && fzn_notes_view_load(&tree, node_notes.author.view) == FZN_NOTES_OK) {
+		 * contact the texts of what it shares and nothing else -- once it
+		 * has answered this round: one that answered neither the pull nor
+		 * the keys is not asked a third time. */
+		if (shelf_on
+		    && !(st->pull_err == FZN_NOTES_SYNC_NO_ANSWER
+		         && st->wraps_err == FZN_NOTES_SYNC_NO_ANSWER)
+		    && fzn_notes_view_load(&st->tree, node_notes.author.view) == FZN_NOTES_OK) {
 			const fzn_notes_view_t *v = node_notes.author.view;
+			struct peer_asking asking = { &target->pt.caller, wall_clock(), target->host };
 			size_t k, got;
 
 			for (k = 0; k < v->count; k++) {
@@ -4808,22 +4909,23 @@ static void pull_shares(struct share_target *targets, size_t n_targets, int cont
 			got = fzn_node_shelf_fetch_wants(&shelf, peer_ask, &asking);
 			if (got)
 				say(FZN_ENTRY_INFO, "notes/received", "%zu shared text(s) from %s", got,
-				        targets[i].host);
+				        target->host);
 		}
 #endif
 	}
 	/* EVERY PASS SAYS SO, at debug: a share passed over reads the same as
 	 * one with nothing new, and the live check waits on this line. */
-	if (contacts)
+	if (shares_contacts)
 		say(FZN_ENTRY_DEBUG, "notes/received", "received pass: %zu share(s), %zu of removed "
-		                                       "contacts passed over", n_targets, suspended);
+		                                       "contacts passed over", n_shares_now, shares_suspended);
 	else
-		say(FZN_ENTRY_DEBUG, "notes/received", "group share pass: %zu member(s) asked", n_targets);
+		say(FZN_ENTRY_DEBUG, "notes/received", "group share pass: %zu member(s) asked",
+		    n_shares_now);
 }
 
 static void pull_received(uint64_t now)
 {
-	pull_shares(shares_in, nshares_in, 1, now);
+	shares_start(shares_in, nshares_in, 1, now);
 }
 
 /* ---- a contact's devices, sec 614 ------------------------------------------
@@ -6612,7 +6714,6 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 /* EVERY OTHER MEMBER'S HOSTS, paired as a contact's devices are, and asked
  * for what their members share with the group: one host per member, the
  * first its group lists that says where it is reached. */
-#define FZND_GROUP_SHARES_MAX 32u
 static struct share_target group_shares_in[FZND_GROUP_SHARES_MAX];
 static size_t ngroup_shares_in;
 
@@ -6696,7 +6797,7 @@ static void group_shares_round(uint64_t now)
 	}
 	if (paired)
 		say(FZN_ENTRY_INFO, "node/groups", "%zu member host(s) paired", paired);
-	pull_shares(group_shares_in, ngroup_shares_in, 0, now);
+	shares_start(group_shares_in, ngroup_shares_in, 0, now);
 }
 
 /* THE LINES ROUND, sec 629, after the acts and the tending: this host's own
@@ -10746,8 +10847,16 @@ int main(int argc, char **argv)
 					break;
 				case ROUND_NOTES_SETTLE:
 					notes_settle();
-					if (plan == round_plan)
-						pull_received(round_now);
+					break;
+				case ROUND_RECEIVED_IN_ROUND:
+				case ROUND_RECEIVED:
+					/* Every sharer at once, the round waiting. sec 636. */
+					pull_received(round_now);
+					break;
+				case ROUND_RECEIVED_SETTLE_IN_ROUND:
+				case ROUND_SHARES_SETTLE:
+				case ROUND_GROUP_SHARES_SETTLE:
+					shares_settle();
 					break;
 #ifdef FZN_RECORD_STORE_FILE_ON
 				case ROUND_MESSAGES_ROUND:
@@ -10871,10 +10980,13 @@ int main(int argc, char **argv)
 						    "%zu contact device(s) paired as offered", paired);
 				}
 				/* A SHARE JUST ACCEPTED is pulled now. sec 437. */
-				if (running_admin && running_admin->received_fresh) {
+				if (!round_step && running_admin && running_admin->received_fresh) {
 					running_admin->received_fresh = 0;
 					load_received(family, identity.pubkey, &hash_ops, &aead_ops, &rng_ops);
-					pull_received(now);
+					plan = received_plan;
+					plan_at = 0;
+					round_step = plan[0];
+					round_now = now;
 				}
 				/* A WRITE HERE GOES OUT NOW, sec 449, a round at most every
 				 * two seconds, so a burst of edits is one round rather than

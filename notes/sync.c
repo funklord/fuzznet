@@ -545,22 +545,24 @@ static int wanted(const fzn_notes_store_t *store, const uint8_t key[FZN_PUBKEY_L
 	return fzn_record_seq(rec) < seq;
 }
 
-static fzn_notes_sync_err_t fetch(const fzn_notes_store_t *store, fzn_notes_policy_t policy,
-                                  const fzn_sign_ops_t *sign, fzn_notes_sync_ask_t ask,
-                                  void *ask_ctx, uint8_t (*keys)[FZN_PUBKEY_LEN], size_t count,
-                                  fzn_notes_sync_tally_t *tally)
+/* A RECORDS_QUERY for `count` claims' keys, into `request`: its length. */
+static size_t fetch_request(uint8_t (*keys)[FZN_PUBKEY_LEN], size_t count, uint8_t *request)
 {
-	static uint8_t request[FZN_NOTES_SYNC_LIST_HEAD_LEN
-	                       + (FZN_NOTES_SYNC_KEYS_MAX * FZN_PUBKEY_LEN)];
-	static uint8_t reply[FZN_NOTES_SYNC_REPLY_MAX];
-	size_t reply_len = 0, at, i, n;
-
 	head(request, FZN_NOTES_SYNC_RECORDS_QUERY);
 	request[2] = (uint8_t)count;
 	memcpy(request + FZN_NOTES_SYNC_LIST_HEAD_LEN, keys, count * FZN_PUBKEY_LEN);
-	if (!ask(ask_ctx, request, FZN_NOTES_SYNC_LIST_HEAD_LEN + (count * FZN_PUBKEY_LEN), reply,
-	         sizeof(reply), &reply_len))
-		return FZN_NOTES_SYNC_NO_ANSWER;
+	return FZN_NOTES_SYNC_LIST_HEAD_LEN + (count * FZN_PUBKEY_LEN);
+}
+
+/* ITS RECORDS, put: only what was asked for, nothing this node is purging. */
+static fzn_notes_sync_err_t fetch_take(const fzn_notes_store_t *store, fzn_notes_policy_t policy,
+                                       const fzn_sign_ops_t *sign,
+                                       uint8_t (*keys)[FZN_PUBKEY_LEN], size_t count,
+                                       const uint8_t *reply, size_t reply_len,
+                                       fzn_notes_sync_tally_t *tally)
+{
+	size_t at, i, n;
+
 	if (!is_type(reply, reply_len, FZN_NOTES_SYNC_RECORDS)
 	    || reply_len < FZN_NOTES_SYNC_LIST_HEAD_LEN || reply[2] > count)
 		return FZN_NOTES_SYNC_SHAPE;
@@ -605,59 +607,215 @@ static fzn_notes_sync_err_t fetch(const fzn_notes_store_t *store, fzn_notes_poli
 	return FZN_NOTES_SYNC_OK;
 }
 
+/* ---- the pull as steps, sec 636 ------------------------------------------- */
+
+enum { PULL_WRITERS = 1, PULL_INDEX = 2, PULL_RECORDS = 3, PULL_OVER = 4 };
+
+static fzn_notes_sync_err_t pull_end(fzn_notes_pulling_t *p, int *done, fzn_notes_sync_err_t err)
+{
+	p->phase = PULL_OVER;
+	*done = 1;
+	return err;
+}
+
+static void pull_index_query(const fzn_notes_pulling_t *p, uint8_t *request, size_t *len)
+{
+	head(request, FZN_NOTES_SYNC_INDEX_QUERY);
+	fzn_put_be16(request + 2, (uint16_t)p->from);
+	*len = FZN_NOTES_SYNC_INDEX_QUERY_LEN;
+}
+
+/* THE RECORDS, a batch at a time, from `p->at` on; the end once none is
+ * left. */
+static fzn_notes_sync_err_t pull_next_batch(fzn_notes_pulling_t *p, uint8_t *request,
+                                            size_t *len, int *done)
+{
+	if (p->at >= p->n_want)
+		return pull_end(p, done, FZN_NOTES_SYNC_OK);
+	p->batch = p->n_want - p->at < FZN_NOTES_SYNC_KEYS_MAX ? p->n_want - p->at
+	                                                       : FZN_NOTES_SYNC_KEYS_MAX;
+	p->phase = PULL_RECORDS;
+	*len = fetch_request(p->want + p->at, p->batch, request);
+	return FZN_NOTES_SYNC_OK;
+}
+
+static fzn_notes_sync_err_t pull_begin(fzn_notes_pulling_t *p, const fzn_notes_store_t *store,
+                                       const fzn_sign_ops_t *sign, uint8_t *request, size_t cap,
+                                       size_t *request_len, int *done)
+{
+	if (!p || !store || !sign || !request || cap < FZN_NOTES_SYNC_PULL_REQUEST_MAX
+	    || !request_len || !done)
+		return FZN_NOTES_SYNC_MALFORMED;
+	memset(&p->tally, 0, sizeof(p->tally));
+	p->store = store;
+	p->sign = sign;
+	p->from = p->total = p->pages = p->n_want = p->at = 0;
+	*done = 0;
+	return FZN_NOTES_SYNC_OK;
+}
+
+fzn_notes_sync_err_t fzn_notes_sync_pull_begin(fzn_notes_pulling_t *p,
+                                               const fzn_notes_store_t *store,
+                                               fzn_notes_policy_t policy,
+                                               const fzn_sign_ops_t *sign, uint8_t *request,
+                                               size_t cap, size_t *request_len, int *done)
+{
+	fzn_notes_sync_err_t err = pull_begin(p, store, sign, request, cap, request_len, done);
+
+	if (err != FZN_NOTES_SYNC_OK)
+		return err;
+	p->policy = policy;
+	p->phase = PULL_INDEX;
+	pull_index_query(p, request, request_len);
+	return FZN_NOTES_SYNC_OK;
+}
+
+fzn_notes_sync_err_t fzn_notes_sync_pull_shared_begin(fzn_notes_pulling_t *p,
+                                                      const fzn_notes_store_t *store,
+                                                      const fzn_sign_ops_t *sign,
+                                                      uint8_t *request, size_t cap,
+                                                      size_t *request_len, int *done)
+{
+	fzn_notes_sync_err_t err = pull_begin(p, store, sign, request, cap, request_len, done);
+
+	if (err != FZN_NOTES_SYNC_OK)
+		return err;
+	p->phase = PULL_WRITERS;
+	head(request, FZN_NOTES_SYNC_WRITERS_QUERY);
+	*request_len = FZN_NOTES_SYNC_WRITERS_QUERY_LEN;
+	return FZN_NOTES_SYNC_OK;
+}
+
+fzn_notes_sync_err_t fzn_notes_sync_pull_step(fzn_notes_pulling_t *p, const uint8_t *reply,
+                                              size_t reply_len, uint8_t *request, size_t cap,
+                                              size_t *request_len, int *done)
+{
+	fzn_notes_sync_err_t err;
+	size_t count, i;
+
+	if (!p || p->phase < PULL_WRITERS || p->phase > PULL_RECORDS || !request
+	    || cap < FZN_NOTES_SYNC_PULL_REQUEST_MAX || !request_len || !done)
+		return FZN_NOTES_SYNC_MALFORMED;
+	*done = 0;
+	if (!reply)
+		return pull_end(p, done, FZN_NOTES_SYNC_NO_ANSWER);
+	if (p->phase == PULL_WRITERS) {
+		/* WHO WROTE WHAT IS SHARED, sec 437: the writers admitted, in the
+		 * sharer's tree alone. */
+		if (reply_len < FZN_NOTES_SYNC_LIST_HEAD_LEN
+		    || !is_type(reply, reply_len, FZN_NOTES_SYNC_WRITERS))
+			return pull_end(p, done, FZN_NOTES_SYNC_SHAPE);
+		count = reply[2];
+		if (count > FZN_NOTES_SYNC_WRITERS_MAX
+		    || reply_len != FZN_NOTES_SYNC_LIST_HEAD_LEN + (count * FZN_PUBKEY_LEN))
+			return pull_end(p, done, FZN_NOTES_SYNC_SHAPE);
+		for (i = 0; i < count; i++)
+			memcpy(p->writers[i].key,
+			       reply + FZN_NOTES_SYNC_LIST_HEAD_LEN + (i * FZN_PUBKEY_LEN), FZN_PUBKEY_LEN);
+		/* NOBODY WROTE ANYTHING SHARED: nothing to pull, and an empty
+		 * policy denies, so there is no pull to make either. */
+		if (count == 0u)
+			return pull_end(p, done, FZN_NOTES_SYNC_OK);
+		p->policy = fzn_notes_policy_writers(p->writers, count);
+		p->phase = PULL_INDEX;
+		pull_index_query(p, request, request_len);
+		return FZN_NOTES_SYNC_OK;
+	}
+	if (p->phase == PULL_INDEX) {
+		/* THE INDEX, a page at a time. At most one page a claim, and a
+		 * store this size: the bound is never the one that stops it. */
+		if (!is_type(reply, reply_len, FZN_NOTES_SYNC_INDEX)
+		    || reply_len < FZN_NOTES_SYNC_INDEX_HEAD_LEN)
+			return pull_end(p, done, FZN_NOTES_SYNC_SHAPE);
+		p->total = fzn_get_be16(reply + 2);
+		count = fzn_get_be16(reply + 6);
+		if (fzn_get_be16(reply + 4) != p->from
+		    || reply_len != FZN_NOTES_SYNC_INDEX_HEAD_LEN + (count * FZN_NOTES_SYNC_CLAIM_LEN)
+		    || count > p->total - p->from || (count == 0u && p->from < p->total))
+			return pull_end(p, done, FZN_NOTES_SYNC_SHAPE);
+		for (i = 0; i < count; i++) {
+			const uint8_t *c = reply + FZN_NOTES_SYNC_INDEX_HEAD_LEN
+			                   + (i * FZN_NOTES_SYNC_CLAIM_LEN);
+
+			if (p->n_want < FZN_NOTES_MAX
+			    && wanted(p->store, c, fzn_get_be64(c + FZN_PUBKEY_LEN)))
+				memcpy(p->want[p->n_want++], c, FZN_PUBKEY_LEN);
+		}
+		p->from += count;
+		if (p->from < p->total && ++p->pages <= FZN_NOTES_MAX) {
+			pull_index_query(p, request, request_len);
+			return FZN_NOTES_SYNC_OK;
+		}
+		p->tally.offered = p->total;
+		p->at = 0;
+		return pull_next_batch(p, request, request_len, done);
+	}
+	err = fetch_take(p->store, p->policy, p->sign, p->want + p->at, p->batch, reply, reply_len,
+	                 &p->tally);
+	if (err != FZN_NOTES_SYNC_OK)
+		return pull_end(p, done, err);
+	p->at += p->batch;
+	return pull_next_batch(p, request, request_len, done);
+}
+
+/* A PULL DRIVEN BY ITS STEPS through `ask`: the one-call forms below. */
+static fzn_notes_sync_err_t pull_drive(fzn_notes_pulling_t *p, fzn_notes_sync_err_t err,
+                                       uint8_t *request, size_t request_len, int done,
+                                       fzn_notes_sync_ask_t ask, void *ask_ctx,
+                                       fzn_notes_sync_tally_t *tally)
+{
+	static uint8_t reply[FZN_NOTES_SYNC_REPLY_MAX];
+	size_t reply_len;
+	int answered;
+
+	while (err == FZN_NOTES_SYNC_OK && !done) {
+		/* Asked first, apart from the step: see `record/exchange.c`. */
+		reply_len = 0;
+		answered = ask(ask_ctx, request, request_len, reply, sizeof(reply), &reply_len);
+		err = fzn_notes_sync_pull_step(p, answered ? reply : NULL, reply_len, request,
+		                               FZN_NOTES_SYNC_PULL_REQUEST_MAX, &request_len, &done);
+	}
+	*tally = p->tally;
+	return err;
+}
+
 fzn_notes_sync_err_t fzn_notes_sync_pull(const fzn_notes_store_t *store,
                                          fzn_notes_policy_t policy, const fzn_sign_ops_t *sign,
                                          fzn_notes_sync_ask_t ask, void *ask_ctx,
                                          fzn_notes_sync_tally_t *tally)
 {
-	static uint8_t reply[FZN_NOTES_SYNC_REPLY_MAX];
-	static uint8_t want[FZN_NOTES_MAX][FZN_PUBKEY_LEN];
-	uint8_t request[FZN_NOTES_SYNC_INDEX_QUERY_LEN];
-	size_t from = 0, total = 0, n_want = 0, pages = 0, i;
+	static fzn_notes_pulling_t p;
+	static uint8_t request[FZN_NOTES_SYNC_PULL_REQUEST_MAX];
+	size_t request_len = 0;
+	int done = 0;
 	fzn_notes_sync_err_t err;
 
 	if (!store || !sign || !ask || !tally)
 		return FZN_NOTES_SYNC_MALFORMED;
 	memset(tally, 0, sizeof(*tally));
-	/* THE INDEX, a page at a time. At most one page a claim, and a store
-	 * this size: the bound is never the one that stops it. */
-	do {
-		size_t reply_len = 0, count;
+	err = fzn_notes_sync_pull_begin(&p, store, policy, sign, request, sizeof(request),
+	                                &request_len, &done);
+	return pull_drive(&p, err, request, request_len, done, ask, ask_ctx, tally);
+}
 
-		head(request, FZN_NOTES_SYNC_INDEX_QUERY);
-		fzn_put_be16(request + 2, (uint16_t)from);
-		if (!ask(ask_ctx, request, sizeof(request), reply, sizeof(reply), &reply_len))
-			return FZN_NOTES_SYNC_NO_ANSWER;
-		if (!is_type(reply, reply_len, FZN_NOTES_SYNC_INDEX)
-		    || reply_len < FZN_NOTES_SYNC_INDEX_HEAD_LEN)
-			return FZN_NOTES_SYNC_SHAPE;
-		total = fzn_get_be16(reply + 2);
-		count = fzn_get_be16(reply + 6);
-		if (fzn_get_be16(reply + 4) != from
-		    || reply_len != FZN_NOTES_SYNC_INDEX_HEAD_LEN + (count * FZN_NOTES_SYNC_CLAIM_LEN)
-		    || count > total - from || (count == 0u && from < total))
-			return FZN_NOTES_SYNC_SHAPE;
-		for (i = 0; i < count; i++) {
-			const uint8_t *c = reply + FZN_NOTES_SYNC_INDEX_HEAD_LEN
-			                   + (i * FZN_NOTES_SYNC_CLAIM_LEN);
+/* THE RECIPIENT OF A SHARE, sec 437: the sharer's writers first. */
+fzn_notes_sync_err_t fzn_notes_sync_pull_shared(const fzn_notes_store_t *store,
+                                                const fzn_sign_ops_t *sign,
+                                                fzn_notes_sync_ask_t ask, void *ask_ctx,
+                                                fzn_notes_sync_tally_t *tally)
+{
+	static fzn_notes_pulling_t p;
+	static uint8_t request[FZN_NOTES_SYNC_PULL_REQUEST_MAX];
+	size_t request_len = 0;
+	int done = 0;
+	fzn_notes_sync_err_t err;
 
-			if (n_want < FZN_NOTES_MAX && wanted(store, c, fzn_get_be64(c + FZN_PUBKEY_LEN)))
-				memcpy(want[n_want++], c, FZN_PUBKEY_LEN);
-		}
-		from += count;
-	} while (from < total && ++pages <= FZN_NOTES_MAX);
-	tally->offered = total;
-
-	/* THE RECORDS, a batch at a time. */
-	for (i = 0; i < n_want; i += FZN_NOTES_SYNC_KEYS_MAX) {
-		size_t batch = n_want - i < FZN_NOTES_SYNC_KEYS_MAX ? n_want - i
-		                                                    : FZN_NOTES_SYNC_KEYS_MAX;
-
-		err = fetch(store, policy, sign, ask, ask_ctx, want + i, batch, tally);
-		if (err != FZN_NOTES_SYNC_OK)
-			return err;
-	}
-	return FZN_NOTES_SYNC_OK;
+	if (!store || !sign || !ask || !tally)
+		return FZN_NOTES_SYNC_MALFORMED;
+	memset(tally, 0, sizeof(*tally));
+	err = fzn_notes_sync_pull_shared_begin(&p, store, sign, request, sizeof(request),
+	                                       &request_len, &done);
+	return pull_drive(&p, err, request, request_len, done, ask, ask_ctx, tally);
 }
 
 /* ---- asking for purges, as steps (sec 636) -------------------------------- */
@@ -857,40 +1015,6 @@ fzn_notes_sync_err_t fzn_notes_sync_purges(const fzn_notes_store_t *store,
 	}
 	*tally = g.tally;
 	return err;
-}
-
-fzn_notes_sync_err_t fzn_notes_sync_pull_shared(const fzn_notes_store_t *store,
-                                                const fzn_sign_ops_t *sign,
-                                                fzn_notes_sync_ask_t ask, void *ask_ctx,
-                                                fzn_notes_sync_tally_t *tally)
-{
-	static uint8_t reply[FZN_NOTES_SYNC_REPLY_MAX];
-	static fzn_notes_writer_t writers[FZN_NOTES_SYNC_WRITERS_MAX];
-	uint8_t request[FZN_NOTES_SYNC_WRITERS_QUERY_LEN];
-	size_t reply_len = 0, count, i;
-
-	if (!store || !sign || !ask || !tally)
-		return FZN_NOTES_SYNC_MALFORMED;
-	memset(tally, 0, sizeof(*tally));
-	head(request, FZN_NOTES_SYNC_WRITERS_QUERY);
-	if (!ask(ask_ctx, request, sizeof(request), reply, sizeof(reply), &reply_len))
-		return FZN_NOTES_SYNC_NO_ANSWER;
-	if (reply_len < FZN_NOTES_SYNC_LIST_HEAD_LEN
-	    || !is_type(reply, reply_len, FZN_NOTES_SYNC_WRITERS))
-		return FZN_NOTES_SYNC_SHAPE;
-	count = reply[2];
-	if (count > FZN_NOTES_SYNC_WRITERS_MAX
-	    || reply_len != FZN_NOTES_SYNC_LIST_HEAD_LEN + (count * FZN_PUBKEY_LEN))
-		return FZN_NOTES_SYNC_SHAPE;
-	for (i = 0; i < count; i++)
-		memcpy(writers[i].key, reply + FZN_NOTES_SYNC_LIST_HEAD_LEN + (i * FZN_PUBKEY_LEN),
-		       FZN_PUBKEY_LEN);
-	/* NOBODY WROTE ANYTHING SHARED: nothing to pull, and an empty policy
-	 * denies, so there is no pull to make either. */
-	if (count == 0u)
-		return FZN_NOTES_SYNC_OK;
-	return fzn_notes_sync_pull(store, fzn_notes_policy_writers(writers, count), sign, ask,
-	                           ask_ctx, tally);
 }
 
 /* ---- the wrap puller, sec 520, as steps (sec 636) ---------------------------- */

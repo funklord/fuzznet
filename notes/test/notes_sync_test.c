@@ -992,6 +992,24 @@ static void test_received(void)
 	                      == FZN_NOTES_SYNC_OK
 	              && t.fetched == 0u,
 	      "a second pull fetches nothing");
+	/* BY STEPS, sec 636: no answer ends the pull, and a step after it is
+	 * refused. */
+	{
+		static fzn_notes_pulling_t pull;
+		static uint8_t req[FZN_NOTES_SYNC_PULL_REQUEST_MAX];
+		size_t req_len = 0;
+		int done = 0;
+
+		CHECK(fzn_notes_sync_pull_shared_begin(&pull, &from_alice, &sign_b, req, sizeof(req),
+		                                       &req_len, &done) == FZN_NOTES_SYNC_OK
+		              && !done && req_len == FZN_NOTES_SYNC_WRITERS_QUERY_LEN
+		              && fzn_notes_sync_pull_step(&pull, NULL, 0, req, sizeof(req), &req_len,
+		                                          &done) == FZN_NOTES_SYNC_NO_ANSWER
+		              && done
+		              && fzn_notes_sync_pull_step(&pull, req, 4, req, sizeof(req), &req_len,
+		                                          &done) == FZN_NOTES_SYNC_MALFORMED,
+		      "a shared pull with no answer did not end, refusing a step after");
+	}
 
 	/* EACH WRITER ONCE: A wrote two of the three, B one. */
 	{
