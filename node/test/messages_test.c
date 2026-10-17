@@ -301,12 +301,47 @@ static int over(void *ctx, const uint8_t *request, size_t request_len, uint8_t *
 
 static fzn_node_messages_tally_t t;
 
-static int round_with(device_t *from, device_t *to)
+/* THE ROUND IN ONE CALL, as a caller asking in turn makes it. */
+static int round_driven(device_t *from, device_t *to)
 {
 	link_t l = { to, from, 0 };
 
 	memset(&t, 0, sizeof(t));
 	return fzn_node_messages_round(&from->nm, over, &l, &t);
+}
+
+/* AND BY ITS STEPS, sec 636, as the loop drives it: every round below is
+ * one. After a give is answered, its keys are wiped: what of the give the
+ * next request does not overwrite is zero. */
+static size_t keys_left, gives_seen;
+
+static int round_with(device_t *from, device_t *to)
+{
+	static fzn_node_messages_rounding_t r;
+	static uint8_t req[FZN_NODE_MESSAGES_REQUEST_MAX], out[FZN_NODE_MESSAGES_REPLY_MAX];
+	link_t l = { to, from, 0 };
+	size_t req_len = 0, out_len, turns = 0, k, gave;
+	int ok, done = 0, answered;
+
+	memset(&t, 0, sizeof(t));
+	ok = fzn_node_messages_round_begin(&r, &from->nm, req, sizeof(req), &req_len, &done);
+	while (ok && !done && turns++ < 64u) {
+		gave = req[1] == FZN_NODE_MESSAGES_GIVE ? req_len : 0u;
+		out_len = 0;
+		answered = over(&l, req, req_len, out, sizeof(out), &out_len);
+		ok = fzn_node_messages_round_step(&r, answered ? out : NULL, out_len, req, sizeof(req),
+		                                  &req_len, &done);
+		if (gave) {
+			gives_seen++;
+			for (k = done ? 0u : req_len; k < gave; k++)
+				keys_left += req[k] != 0u;
+		}
+	}
+	t.given += r.tally.given;
+	t.refused += r.tally.refused;
+	t.taken += r.tally.taken;
+	t.lacking = r.tally.lacking;
+	return ok;
 }
 
 /* ---- the verbs ---------------------------------------------------------------- */
@@ -442,7 +477,7 @@ static void test_keys_travel(void)
 	CHECK(fzn_node_messages_absorb(&A.nm, &t) == FZN_MESSAGES_OK && t.lacking == 1u
 	              && readable_on(&A) == 0,
 	      "carried to A, B's line is a shell, and its key is lacked");
-	CHECK(round_with(&A, &B) && t.taken == 1u && t.lacking == 0u && readable_on(&A) == 1,
+	CHECK(round_driven(&A, &B) && t.taken == 1u && t.lacking == 0u && readable_on(&A) == 1,
 	      "A asks B, takes the key, and the line opens");
 	CHECK(round_with(&A, &B) && t.taken == 0u,
 	      "and asks no more for it");
@@ -1542,6 +1577,8 @@ int main(void)
 	test_a_line_settles_once_every_keeping_device_holds_it();
 	test_a_line_is_taken_over_from_a_writer_gone();
 	test_a_holds_question_is_exact();
+	CHECK(gives_seen > 0u && keys_left == 0u,
+	      "a give by steps left its keys in the request, or no round gave any");
 	if (failures) {
 		fprintf(stderr, "node messages_test: %d of %d checks failed\n", failures, checks);
 		return 1;

@@ -1403,6 +1403,7 @@ enum {
 	ROUND_ROUTING,
 	ROUND_GRANTS,
 	ROUND_MESSAGES,
+	ROUND_MESSAGES_AFTER,
 	ROUND_MEMBERS,
 	ROUND_NOTES,
 	ROUND_NOTES_SETTLE,
@@ -1424,10 +1425,10 @@ enum {
  * pulls and deliveries once asked in turn and answered nobody. */
 static const int round_plan[] = {
 	ROUND_START,    ROUND_JOURNAL,         ROUND_JOURNAL_SETTLE,  ROUND_RECONCILE,
-	ROUND_ROUTING,  ROUND_GRANTS,          ROUND_MESSAGES,        ROUND_MEMBERS,
-	ROUND_NOTES,    ROUND_NOTES_SETTLE,    ROUND_CONTACTS,        ROUND_CONTACTS_SETTLE,
-	ROUND_GROUPS,   ROUND_GROUPS_SETTLE,   ROUND_GROUP_LINES_SETTLE, ROUND_REFERENCES,
-	ROUND_END,      0
+	ROUND_ROUTING,  ROUND_GRANTS,          ROUND_MESSAGES,        ROUND_MESSAGES_AFTER,
+	ROUND_MEMBERS,  ROUND_NOTES,           ROUND_NOTES_SETTLE,    ROUND_CONTACTS,
+	ROUND_CONTACTS_SETTLE, ROUND_GROUPS,   ROUND_GROUPS_SETTLE,   ROUND_GROUP_LINES_SETTLE,
+	ROUND_REFERENCES, ROUND_END,           0
 };
 /* A NOTE WRITTEN HERE: in the journal, pushed with it (sec 519), then the
  * notes' work with each peer. */
@@ -3824,27 +3825,106 @@ static void messages_trim(uint64_t now)
 
 /* CONVERSATIONS, sec 527: what the journal brought absorbed, then keys
  * given to and asked of every pull peer, then the rules' trim. */
+/* ---- THE MESSAGES' KEYS WITH EACH PEER, a conversation, sec 636: one
+ * peer after another, as the round asked them -- a key one peer takes is
+ * given no more, so asking them all at once would give it to each -- each
+ * request awaited by the loop. */
+struct keys_talk {
+	fzn_node_talk_t talk;
+	struct meter m;
+	fzn_node_messages_rounding_t r;
+	struct pull_target *peers[FZND_ROUND_TARGETS_MAX];
+	size_t n, at;
+	uint64_t now;
+	uint8_t request[FZN_NODE_MESSAGES_REQUEST_MAX];
+};
+static struct keys_talk keys_talk;
+
+_Static_assert(FZND_PULL_REPLY_MAX >= FZN_NODE_MESSAGES_REPLY_MAX,
+               "a keys answer fits the round's answers");
+
+static void keys_next_peer(struct keys_talk *kt);
+
+static int keys_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, uint8_t *request,
+                          size_t cap, size_t *request_len)
+{
+	struct keys_talk *kt = ctx;
+	const char *host = kt->peers[kt->at]->host;
+	int done = 0, ok;
+
+	meter_answer(&kt->m, reply, reply_len);
+	ok = fzn_node_messages_round_step(&kt->r, reply, reply_len, request, cap, request_len,
+	                                  &done);
+	/* AN ANSWER'S KEYS, wiped once taken: the loop's buffer holds them. */
+	if (reply)
+		memset(round_reply, 0, reply_len);
+	if (!ok) {
+		say(FZN_ENTRY_WARNING, "messages", "keys with %s: no answer", host);
+		return 0;
+	}
+	if (done) {
+		const fzn_node_messages_tally_t *t = &kt->r.tally;
+
+		if (t->given || t->refused || t->taken)
+			say(t->refused ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "messages",
+			    "keys with %s: %zu given, %zu refused, %zu taken, %zu still lacked", host,
+			    t->given, t->refused, t->taken, t->lacking);
+		return 0;
+	}
+	meter_asked(&kt->m, *request_len);
+	return 1;
+}
+
+static void keys_talk_over(void *ctx)
+{
+	struct keys_talk *kt = ctx;
+
+	kt->at++;
+	keys_next_peer(kt);
+	if (round_pending)
+		round_pending--;
+}
+
+/* THE NEXT PEER's exchange begun, the round's count held for it; none left
+ * when there is nothing to give or ask. */
+static void keys_next_peer(struct keys_talk *kt)
+{
+	size_t len;
+	int done;
+
+	for (; kt->at < kt->n; kt->at++) {
+		len = 0;
+		done = 0;
+		if (!fzn_node_messages_round_begin(&kt->r, &node_messages, kt->request,
+		                                   sizeof(kt->request), &len, &done)
+		    || done)
+			return;
+		if (talk_start_over(&kt->talk, &kt->m, kt->peers[kt->at], kt->now, keys_talk_step,
+		                    keys_talk_over, 1, kt, kt->request, sizeof(kt->request), len))
+			return;
+		/* NOT SENT: wiped, and said as the round said no answer. */
+		memset(kt->request, 0, sizeof(kt->request));
+		say(FZN_ENTRY_WARNING, "messages", "keys with %s: no answer", kt->peers[kt->at]->host);
+	}
+}
+
+/* THE MESSAGES' ROUND: what came absorbed and trimmed, then the keys with
+ * each peer not silent, in turn. */
 static void messages_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
-	fzn_node_messages_tally_t t;
 	size_t p;
 
 	if (!messages_absorb())
 		return;
 	messages_trim(now);
-	for (p = 0; p < npulls; p++) {
-		struct peer_asking asking = { &pulls[p].caller, now, pulls[p].host };
-
-		if (silent_peer(&pulls[p]))
-			continue;
-		memset(&t, 0, sizeof(t));
-		if (!fzn_node_messages_round(&node_messages, peer_ask, &asking, &t))
-			say(FZN_ENTRY_WARNING, "messages", "keys with %s: no answer", pulls[p].host);
-		else if (t.given || t.refused || t.taken)
-			say(t.refused ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "messages",
-			    "keys with %s: %zu given, %zu refused, %zu taken, %zu still lacked",
-			    pulls[p].host, t.given, t.refused, t.taken, t.lacking);
-	}
+	keys_talk.n = keys_talk.at = 0;
+	keys_talk.now = now;
+	for (p = 0; p < npulls && keys_talk.n < FZND_ROUND_TARGETS_MAX; p++)
+		if (!silent_peer(&pulls[p]))
+			keys_talk.peers[keys_talk.n++] = &pulls[p];
+	/* EACH PEER'S EXCHANGE COUNTED AS IT STARTS, the next begun before the
+	 * last is released, so the round waits for the whole chain. */
+	keys_next_peer(&keys_talk);
 }
 
 /* THE JOURNAL'S WINDOW, sec 548: hourly, every followed estate, notes and
@@ -10469,7 +10549,12 @@ int main(int argc, char **argv)
 					break;
 				case ROUND_MESSAGES:
 #ifdef FZN_RECORD_STORE_FILE_ON
+					/* The keys with each peer, the round waiting. sec 636. */
 					messages_round(pulls, npulls, round_now);
+#endif
+					break;
+				case ROUND_MESSAGES_AFTER:
+#ifdef FZN_RECORD_STORE_FILE_ON
 					messages_give_up();
 					settle_lines(pulls, npulls);
 					/* THE NOTES INDEX FIRST, so the cut sees how far it has

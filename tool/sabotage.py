@@ -12247,6 +12247,20 @@ SABOTAGES = [
 		"\tif (1)\n\t\treturn 1;\n\tq->from += n;\n",
 		"a devices query by steps takes the first page alone, and the devices listed after it are never kept -- sec 636",
 	),
+	(
+		"messages-round-step-wipes-a-give",
+		"node/messages.c",
+		"\t\tmemset(request, 0, r->sent);\n",
+		"\t\t(void)0;\n",
+		"the keys a give carried stay in the request after it is answered -- sec 636",
+	),
+	(
+		"messages-round-step-gives-once",
+		"node/messages.c",
+		"\t\tr->nm->n_gives -= r->n;\n",
+		"",
+		"a key a member took is given again, to every member, every round -- secs 527, 636",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

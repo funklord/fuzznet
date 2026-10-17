@@ -65888,6 +65888,35 @@ waits** -- B's two hosts away, 3 s each -- and fails when the answer comes
 only after the delivery's end is logged. Against the daemon before this,
 the client's request timed out unanswered.
 
+### The messages' keys as a conversation
+
+The messages round -- each conversation key given to, and asked of, every
+peer (sec 527) -- ran in the round and in both fresh plans, and still
+asked in turn: the fresh message's plan blocked on it as the write once
+did. It is now one conversation going **peer after peer**, as the round
+asked them, each request awaited by the loop: a key one peer takes is
+given no more, so asking every peer at once would give it to each. A
+silent peer still costs it 3 s, while the loop answers. The library's
+round is steps (`fzn_node_messages_round_begin`/`_step`,
+`node/messages.h`), the old function their driver. A give's keys are
+wiped from the request once answered; an answer's keys are the caller's
+to wipe once taken, and the conversation wipes the loop's answer buffer.
+The round's messages step is split: `ROUND_MESSAGES` starts the keys,
+`ROUND_MESSAGES_AFTER` does what followed them.
+
+- **`node/test/messages_test.c`** drives every round of its tests by the
+  steps, and checks after each answered give that what of it the next
+  request did not overwrite is zero -- with at least one give seen. One
+  round keeps the driver.
+- **A control with the keys never exchanged fails `live_rejoin.py` phase
+  b**: B cannot read the line A wrote while it was away.
+- **Sabotage: two new entries, both caught.** `messages-round-step-gives-once`
+  -- a key a member took given again -- **hung the suite at first**: the
+  round gave the same keys for ever, as the code it replaced would have.
+  A round now makes at most a request a batch of what can be given and
+  lacked, and past that ends as failed; the probe then fails a test.
+  `messages-round-step-wipes-a-give` was caught as written.
+
 ### Tested, and probed
 
 - **`notes/test/notes_sync_test.c`**: a give driven by steps leaves its

@@ -229,6 +229,31 @@ typedef int (*fzn_node_messages_ask_t)(void *ctx, const uint8_t *request, size_t
 int fzn_node_messages_round(fzn_node_messages_t *nm, fzn_node_messages_ask_t ask, void *ctx,
                             fzn_node_messages_tally_t *tally);
 
+/* THE SAME ROUND WITH ONE MEMBER AS STEPS, sec 636: begin writes the first
+ * request, or sets `*done` with nothing to give or ask; each step takes its
+ * answer -- NULL for none -- and writes the next, or sets `*done`. 0 from
+ * either when the member would not answer, which ends it, as above.
+ * `request` is the caller's, at least FZN_NODE_MESSAGES_REQUEST_MAX, held
+ * between steps: a give's keys are written into it and wiped by the step
+ * its answer comes to. An answer's keys are the caller's to wipe once the
+ * step has taken them. The tally is the struct's. */
+typedef struct fzn_node_messages_rounding {
+	fzn_node_messages_t *nm;
+	int phase;
+	size_t n, sent;  /* the batch asked, and a give's length */
+	size_t asks;     /* requests made, bounded */
+	size_t i, total; /* the wants, from a copy of what is lacked */
+	fzn_node_message_key_t asked[FZN_NODE_MESSAGES_KEYS_MAX];
+	fzn_node_messages_tally_t tally;
+} fzn_node_messages_rounding_t;
+
+int fzn_node_messages_round_begin(fzn_node_messages_rounding_t *r, fzn_node_messages_t *nm,
+                                  uint8_t *request, size_t cap, size_t *request_len, int *done);
+
+int fzn_node_messages_round_step(fzn_node_messages_rounding_t *r, const uint8_t *reply,
+                                 size_t reply_len, uint8_t *request, size_t cap,
+                                 size_t *request_len, int *done);
+
 /* A MEMBER'S GIVE or WANT, answered; 0 for anything else, so a caller
  * dispatching on the first bytes falls through. `sender` is the member. */
 size_t fzn_node_messages_remote(void *ctx, const uint8_t *sender, const uint8_t *request,

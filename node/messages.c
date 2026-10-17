@@ -501,14 +501,10 @@ static void put_place(uint8_t *at, const uint8_t contact[FZN_PUBKEY_LEN], uint32
 	fzn_put_be32(at + FZN_PUBKEY_LEN, epoch);
 }
 
-/* ONE WANT: `n` places asked for, and each key the answer carries taken
- * only for a place among them. 0 when the member would not answer. */
-static int want_batch(fzn_node_messages_t *nm, fzn_node_messages_ask_t ask, void *ctx,
-                      const fzn_node_message_key_t *asked, size_t n,
-                      fzn_node_messages_tally_t *tally)
+/* ONE WANT's request: `n` places asked for. Its length. */
+static size_t want_request(const fzn_node_message_key_t *asked, size_t n, uint8_t *request)
 {
-	uint8_t request[FZN_NODE_MESSAGES_REQUEST_MAX], reply[FZN_NODE_MESSAGES_REPLY_MAX];
-	size_t at = FZN_NODE_MESSAGES_HEAD_LEN, reply_len, j, k;
+	size_t at = FZN_NODE_MESSAGES_HEAD_LEN, j;
 
 	request[0] = FZN_NODE_MESSAGES_VERSION;
 	request[1] = FZN_NODE_MESSAGES_WANT;
@@ -518,9 +514,17 @@ static int want_batch(fzn_node_messages_t *nm, fzn_node_messages_ask_t ask, void
 		memcpy(request + at + FZN_PUBKEY_LEN + 4u, asked[j].device, FZN_PUBKEY_LEN);
 		at += FZN_NODE_MESSAGES_ENTRY_LEN;
 	}
-	if (!ask(ctx, request, at, reply, sizeof(reply), &reply_len))
-		return 0;
-	if (reply_len < FZN_NODE_MESSAGES_HEAD_LEN || reply[0] != FZN_NODE_MESSAGES_VERSION
+	return at;
+}
+
+/* ITS ANSWER: each key it carries taken only for a place among the `n`
+ * asked. 0 when it is not one. */
+static int want_take(fzn_node_messages_t *nm, const fzn_node_message_key_t *asked, size_t n,
+                     const uint8_t *reply, size_t reply_len, fzn_node_messages_tally_t *tally)
+{
+	size_t j, k;
+
+	if (!reply || reply_len < FZN_NODE_MESSAGES_HEAD_LEN || reply[0] != FZN_NODE_MESSAGES_VERSION
 	    || reply[1] != FZN_NODE_MESSAGES_KEYS || reply[2] > n
 	    || reply_len != FZN_NODE_MESSAGES_HEAD_LEN
 	                            + (size_t)reply[2] * FZN_NODE_MESSAGES_HELD_LEN)
@@ -540,66 +544,146 @@ static int want_batch(fzn_node_messages_t *nm, fzn_node_messages_ask_t ask, void
 			tally->taken++;
 		}
 	}
-	memset(reply, 0, sizeof(reply));
 	return 1;
+}
+
+/* ONE GIVE's request: this node's own keys, the last `n` of the gives. Its
+ * length; the keys in it are the caller's to wipe. */
+static size_t give_request(fzn_node_messages_t *nm, size_t n, uint8_t *request)
+{
+	uint8_t key[FZN_CONVERSATION_KEY_LEN];
+	size_t at = FZN_NODE_MESSAGES_HEAD_LEN, i;
+
+	request[0] = FZN_NODE_MESSAGES_VERSION;
+	request[1] = FZN_NODE_MESSAGES_GIVE;
+	for (i = 0; i < n; i++) {
+		const fzn_node_message_key_t *g = &nm->gives[nm->n_gives - 1u - i];
+
+		if (!fzn_messages_key_get(&nm->m, g->contact, g->epoch, g->device, key))
+			memset(key, 0, sizeof(key));
+		put_place(request + at, g->contact, g->epoch);
+		memcpy(request + at + FZN_PUBKEY_LEN + 4u, key, sizeof(key));
+		at += FZN_PUBKEY_LEN + 4u + FZN_CONVERSATION_KEY_LEN;
+	}
+	request[2] = (uint8_t)n;
+	memset(key, 0, sizeof(key));
+	return at;
+}
+
+/* ---- the round with a member as steps, sec 636 ---------------------------- */
+
+enum { KEYS_GIVE = 1, KEYS_WANT = 2, KEYS_DONE = 3 };
+
+static int keys_end(fzn_node_messages_rounding_t *r, int *done, int ok)
+{
+	r->phase = KEYS_DONE;
+	*done = 1;
+	r->tally.lacking = r->nm->n_lacks;
+	return ok;
+}
+
+/* THE NEXT REQUEST: GIVE THIS NODE'S OWN, eight at a time -- a key the peer
+ * took, or refused for holding another, is given no more: one member
+ * holding it is enough for the rest to ask it there -- then ASK FOR WHAT
+ * THIS NODE LACKS, eight at a time, from a copy of the list, since taking
+ * a key reorders it. */
+static int keys_next(fzn_node_messages_rounding_t *r, uint8_t *request, size_t *request_len,
+                     int *done)
+{
+	fzn_node_messages_t *nm = r->nm;
+
+	/* AT MOST A REQUEST A BATCH of what can be given and lacked: a round
+	 * past it is one whose list does not shrink, and ends as failed rather
+	 * than asking for ever. */
+	if (++r->asks > 2u * (FZN_NODE_MESSAGES_KEYS_MAX / FZN_NODE_MESSAGES_PER + 1u))
+		return keys_end(r, done, 0);
+
+	if (r->phase == KEYS_GIVE && nm->n_gives) {
+		r->n = nm->n_gives < FZN_NODE_MESSAGES_PER ? nm->n_gives : FZN_NODE_MESSAGES_PER;
+		r->sent = *request_len = give_request(nm, r->n, request);
+		return 1;
+	}
+	if (r->phase == KEYS_GIVE) {
+		r->phase = KEYS_WANT;
+		r->total = nm->n_lacks;
+		memcpy(r->asked, nm->lacks, r->total * sizeof(r->asked[0]));
+		r->i = 0;
+	}
+	if (r->i < r->total) {
+		r->n = r->total - r->i < FZN_NODE_MESSAGES_PER ? r->total - r->i : FZN_NODE_MESSAGES_PER;
+		*request_len = want_request(r->asked + r->i, r->n, request);
+		return 1;
+	}
+	return keys_end(r, done, 1);
+}
+
+int fzn_node_messages_round_begin(fzn_node_messages_rounding_t *r, fzn_node_messages_t *nm,
+                                  uint8_t *request, size_t cap, size_t *request_len, int *done)
+{
+	if (!r || !nm || !request || cap < FZN_NODE_MESSAGES_REQUEST_MAX || !request_len || !done)
+		return 0;
+	memset(&r->tally, 0, sizeof(r->tally));
+	r->nm = nm;
+	r->phase = KEYS_GIVE;
+	r->sent = 0;
+	r->asks = 0;
+	*done = 0;
+	return keys_next(r, request, request_len, done);
+}
+
+int fzn_node_messages_round_step(fzn_node_messages_rounding_t *r, const uint8_t *reply,
+                                 size_t reply_len, uint8_t *request, size_t cap,
+                                 size_t *request_len, int *done)
+{
+	if (!r || (r->phase != KEYS_GIVE && r->phase != KEYS_WANT) || !request
+	    || cap < FZN_NODE_MESSAGES_REQUEST_MAX || !request_len || !done)
+		return 0;
+	*done = 0;
+	if (r->phase == KEYS_GIVE) {
+		/* A GIVE'S KEYS, wiped once it is answered or is not. */
+		memset(request, 0, r->sent);
+		if (!reply || reply_len != FZN_NODE_MESSAGES_GIVEN_LEN
+		    || reply[0] != FZN_NODE_MESSAGES_VERSION || reply[1] != FZN_NODE_MESSAGES_GIVEN
+		    || (size_t)reply[2] + reply[3] > r->n)
+			return keys_end(r, done, 0);
+		r->tally.given += reply[2];
+		r->tally.refused += reply[3];
+		r->nm->n_gives -= r->n;
+		return keys_next(r, request, request_len, done);
+	}
+	if (!want_take(r->nm, r->asked + r->i, r->n, reply, reply_len, &r->tally))
+		return keys_end(r, done, 0);
+	r->i += r->n;
+	return keys_next(r, request, request_len, done);
 }
 
 int fzn_node_messages_round(fzn_node_messages_t *nm, fzn_node_messages_ask_t ask, void *ctx,
                             fzn_node_messages_tally_t *tally)
 {
-	uint8_t request[FZN_NODE_MESSAGES_REQUEST_MAX], reply[FZN_NODE_MESSAGES_REPLY_MAX];
-	size_t reply_len, i, n;
+	static fzn_node_messages_rounding_t r;
+	static uint8_t reply[FZN_NODE_MESSAGES_REPLY_MAX];
+	uint8_t request[FZN_NODE_MESSAGES_REQUEST_MAX];
+	size_t request_len = 0, reply_len;
+	int ok, done = 0, answered;
 
 	if (!nm || !ask || !tally)
 		return 0;
-	/* GIVE THIS NODE'S OWN, eight at a time. A key the peer took, or
-	 * refused for holding another, is given no more: one member holding it
-	 * is enough for the rest to ask it there. */
-	while (nm->n_gives) {
-		uint8_t key[FZN_CONVERSATION_KEY_LEN];
-		size_t at = FZN_NODE_MESSAGES_HEAD_LEN;
-
-		n = nm->n_gives < FZN_NODE_MESSAGES_PER ? nm->n_gives : FZN_NODE_MESSAGES_PER;
-		request[0] = FZN_NODE_MESSAGES_VERSION;
-		request[1] = FZN_NODE_MESSAGES_GIVE;
-		for (i = 0; i < n; i++) {
-			const fzn_node_message_key_t *g = &nm->gives[nm->n_gives - 1u - i];
-
-			if (!fzn_messages_key_get(&nm->m, g->contact, g->epoch, g->device, key))
-				memset(key, 0, sizeof(key));
-			put_place(request + at, g->contact, g->epoch);
-			memcpy(request + at + FZN_PUBKEY_LEN + 4u, key, sizeof(key));
-			at += FZN_PUBKEY_LEN + 4u + FZN_CONVERSATION_KEY_LEN;
-		}
-		request[2] = (uint8_t)n;
-		memset(key, 0, sizeof(key));
-		if (!ask(ctx, request, at, reply, sizeof(reply), &reply_len)) {
-			memset(request, 0, sizeof(request));
-			return 0;
-		}
-		memset(request, 0, sizeof(request));
-		if (reply_len != FZN_NODE_MESSAGES_GIVEN_LEN || reply[0] != FZN_NODE_MESSAGES_VERSION
-		    || reply[1] != FZN_NODE_MESSAGES_GIVEN || (size_t)reply[2] + reply[3] > n)
-			return 0;
-		tally->given += reply[2];
-		tally->refused += reply[3];
-		nm->n_gives -= n;
+	ok = fzn_node_messages_round_begin(&r, nm, request, sizeof(request), &request_len, &done);
+	while (ok && !done) {
+		/* Asked first, apart from the step: see `record/exchange.c`. */
+		reply_len = 0;
+		answered = ask(ctx, request, request_len, reply, sizeof(reply), &reply_len);
+		ok = fzn_node_messages_round_step(&r, answered ? reply : NULL, reply_len, request,
+		                                  sizeof(request), &request_len, &done);
+		/* AN ANSWER'S KEYS, wiped once taken. */
+		memset(reply, 0, sizeof(reply));
 	}
-	/* ASK FOR WHAT THIS NODE LACKS, eight at a time, from a copy of the
-	 * list, since taking a key reorders it. */
-	{
-		static fzn_node_message_key_t asked[FZN_NODE_MESSAGES_KEYS_MAX];
-		size_t total = nm->n_lacks;
-
-		memcpy(asked, nm->lacks, total * sizeof(asked[0]));
-		for (i = 0; i < total; i += n) {
-			n = total - i < FZN_NODE_MESSAGES_PER ? total - i : FZN_NODE_MESSAGES_PER;
-			if (!want_batch(nm, ask, ctx, asked + i, n, tally))
-				return 0;
-		}
-	}
+	/* THE CALLER'S TALLY GAINS what this round did. */
+	tally->given += r.tally.given;
+	tally->refused += r.tally.refused;
+	tally->taken += r.tally.taken;
 	tally->lacking = nm->n_lacks;
-	return 1;
+	return ok;
 }
 
 static size_t answer_give(fzn_node_messages_t *nm, const uint8_t *sender, const uint8_t *request,
