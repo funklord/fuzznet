@@ -1410,6 +1410,7 @@ enum {
 	ROUND_CONTACTS_SETTLE,
 	ROUND_GROUPS,
 	ROUND_GROUPS_SETTLE,
+	ROUND_GROUP_LINES_SETTLE,
 	ROUND_REFERENCES,
 	ROUND_END
 };
@@ -6467,23 +6468,20 @@ static size_t group_lines_remote(const uint8_t *sender, const uint8_t *request,
 	return at;
 }
 
-/* ASK ONE HOST for group `g`'s lines past the heads held here. */
-static size_t group_lines_with(struct pull_target *pt, const char *host, const fzn_group_t *g,
-                               uint64_t now)
+/* GROUP_LINES_SYNC for group `id`: the heads held here, into `request`.
+ * Its length, or 0. */
+static size_t group_lines_request(const uint8_t id[FZN_GROUP_ID_LEN], uint8_t *request)
 {
 	static fzn_group_line_head_t heads[FZN_GROUP_HOSTS_MAX];
-	static uint8_t reply[FZND_PULL_REPLY_MAX];
-	uint8_t request[3u + FZN_GROUP_ID_LEN + FZND_GROUP_HEADS_MAX * FZND_GROUP_HEAD_LEN];
-	struct peer_asking asking = { &pt->caller, now, host };
-	size_t n = 0, i, len = 0, count, k, at, taken = 0, entries;
+	size_t n = 0, i, entries;
 
-	if (fzn_group_lines_heads(&group_lines, g->id, heads, FZN_GROUP_HOSTS_MAX, &n)
+	if (fzn_group_lines_heads(&group_lines, id, heads, FZN_GROUP_HOSTS_MAX, &n)
 	    != FZN_GROUP_LINES_OK)
 		return 0;
 	entries = n < FZND_GROUP_HEADS_MAX ? n : FZND_GROUP_HEADS_MAX;
 	request[0] = FZND_GROUP_VERSION;
 	request[1] = FZND_GROUP_LINES_SYNC_TYPE;
-	memcpy(request + 2, g->id, FZN_GROUP_ID_LEN);
+	memcpy(request + 2, id, FZN_GROUP_ID_LEN);
 	request[2u + FZN_GROUP_ID_LEN] = (uint8_t)entries;
 	for (i = 0; i < entries; i++) {
 		uint8_t *e = request + 3u + FZN_GROUP_ID_LEN + i * FZND_GROUP_HEAD_LEN;
@@ -6491,9 +6489,16 @@ static size_t group_lines_with(struct pull_target *pt, const char *host, const f
 		memcpy(e, heads[i].host, FZN_PUBKEY_LEN);
 		fzn_put_be32(e + FZN_PUBKEY_LEN, heads[i].have);
 	}
-	if (!peer_ask(&asking, request, 3u + FZN_GROUP_ID_LEN + entries * FZND_GROUP_HEAD_LEN, reply,
-	              sizeof(reply), &len)
-	    || len < 4u || reply[0] != FZND_GROUP_VERSION || reply[1] != FZND_GROUP_LINES_TYPE)
+	return 3u + FZN_GROUP_ID_LEN + entries * FZND_GROUP_HEAD_LEN;
+}
+
+/* A GROUP_LINES answer taken: how many lines were kept; 0 for anything
+ * else. */
+static size_t group_lines_take(const uint8_t *reply, size_t len)
+{
+	size_t count, k, at, taken = 0;
+
+	if (!reply || len < 4u || reply[0] != FZND_GROUP_VERSION || reply[1] != FZND_GROUP_LINES_TYPE)
 		return 0;
 	count = fzn_get_be16(reply + 2);
 	for (k = 0, at = 4u; k < count && at + 6u <= len; k++) {
@@ -6709,26 +6714,102 @@ static void group_shares_round(uint64_t now)
  * new lines sealed; every sibling, and one host of each contact, asked for
  * the lines past this host's heads in each group the two share; and what
  * arrived filed. */
-static void group_lines_round(struct pull_target *pulls, size_t npulls, uint64_t now)
+/* ---- A GROUP'S LINES, conversations of the round, sec 636: one with
+ * each sibling, and with each contact host chosen for a group, every peer
+ * at once and each peer's groups in turn -- so the conversations are as
+ * many as the peers, whatever the groups. */
+#define FZND_LINES_REQUEST_MAX (3u + FZN_GROUP_ID_LEN + FZND_GROUP_HEADS_MAX * FZND_GROUP_HEAD_LEN)
+
+static uint8_t lines_groups[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+static size_t n_lines_groups, lines_sealed, lines_taken;
+static int lines_on;
+
+struct lines_talk {
+	fzn_node_talk_t talk;
+	struct meter m;
+	struct pull_target *pt;
+	uint16_t groups[FZN_GROUPS_HELD_MAX]; /* places in `lines_groups` */
+	size_t n, at;
+	int silences;
+	uint8_t request[FZND_LINES_REQUEST_MAX];
+};
+static struct lines_talk lines_talks[FZND_ROUND_TARGETS_MAX + FZND_CONTACT_TARGETS_MAX];
+static size_t n_lines_talks;
+
+/* THE NEXT GROUP's request, from `lt->at` on; 0 when none is left. */
+static int lines_next(struct lines_talk *lt, uint8_t *request, size_t *len)
+{
+	for (; lt->at < lt->n; lt->at++)
+		if ((*len = group_lines_request(lines_groups[lt->groups[lt->at]], request)) != 0)
+			return 1;
+	return 0;
+}
+
+static int lines_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, uint8_t *request,
+                           size_t cap, size_t *request_len)
+{
+	struct lines_talk *lt = ctx;
+
+	(void)cap;
+	meter_answer(&lt->m, reply, reply_len);
+	if (!reply)
+		return 0;
+	lines_taken += group_lines_take(reply, reply_len);
+	lt->at++;
+	if (!lines_next(lt, request, request_len))
+		return 0;
+	meter_asked(&lt->m, *request_len);
+	return 1;
+}
+
+/* THE CONVERSATION WITH `pt`, found or made. */
+static struct lines_talk *lines_talk_for(struct pull_target *pt, int silences)
+{
+	size_t i;
+
+	for (i = 0; i < n_lines_talks; i++)
+		if (lines_talks[i].pt == pt)
+			return &lines_talks[i];
+	if (n_lines_talks == sizeof(lines_talks) / sizeof(lines_talks[0]))
+		return NULL;
+	lines_talks[n_lines_talks].pt = pt;
+	lines_talks[n_lines_talks].n = 0;
+	lines_talks[n_lines_talks].at = 0;
+	lines_talks[n_lines_talks].silences = silences;
+	return &lines_talks[n_lines_talks++];
+}
+
+/* EVERY GROUP THIS USER IS IN: its own lines sealed, then its lines asked
+ * of each sibling and of one host of each contact in it. */
+static void group_lines_start(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
 	static uint8_t ids[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
 	static fzn_group_t g;
 	static fzn_contact_device_t own;
 	uint8_t done[FZND_CONTACT_TARGETS_MAX][FZN_PUBKEY_LEN];
-	size_t n = 0, i, j, k, ndone, sealed = 0, taken = 0, filed = 0;
+	size_t n = 0, i, j, k, ndone, len;
 
+	n_lines_groups = lines_sealed = lines_taken = n_lines_talks = 0;
+	lines_on = 0;
 	if (!group_lines.store || !contact_hash_ops || !contact_aead_ops || !contact_rng_ops
 	    || !groups_signer(NULL, &own)
 	    || fzn_group_log_list(node_apply.store, ids, FZN_GROUPS_HELD_MAX, &n) != FZN_GROUP_LOG_OK)
 		return;
+	lines_on = 1;
 	for (i = 0; i < n; i++) {
+		size_t gi;
+		struct lines_talk *lt;
+
 		if (fzn_group_log_get(node_apply.store, ids[i], &g) != FZN_GROUP_LOG_OK
 		    || !fzn_group_is_member(&g, own.owner))
 			continue;
-		sealed += group_seal_own(&g, &own);
+		lines_sealed += group_seal_own(&g, &own);
+		gi = n_lines_groups;
+		memcpy(lines_groups[n_lines_groups++], g.id, FZN_GROUP_ID_LEN);
 		for (j = 0; j < npulls; j++)
-			if (!silent_peer(&pulls[j]) && peer_in_estate(&pulls[j]))
-				taken += group_lines_with(&pulls[j], pulls[j].host, &g, now);
+			if (!silent_peer(&pulls[j]) && peer_in_estate(&pulls[j])
+			    && (lt = lines_talk_for(&pulls[j], 1)) != NULL)
+				lt->groups[lt->n++] = (uint16_t)gi;
 		for (j = 0, ndone = 0; j < ncontact_targets; j++) {
 			struct contact_target *ct = &contact_targets[j];
 
@@ -6736,14 +6817,37 @@ static void group_lines_round(struct pull_target *pulls, size_t npulls, uint64_t
 				;
 			if (k < ndone || ct->down || ct->pt.fd < 0 || !fzn_group_is_member(&g, ct->contact))
 				continue;
-			taken += group_lines_with(&ct->pt, ct->host, &g, now);
+			if ((lt = lines_talk_for(&ct->pt, 0)) != NULL)
+				lt->groups[lt->n++] = (uint16_t)gi;
 			memcpy(done[ndone++], ct->contact, FZN_PUBKEY_LEN);
 		}
-		filed += group_file(&g, &own);
 	}
-	if (sealed || taken || filed)
-		say(FZN_ENTRY_INFO, "node/groups", "lines pass: %zu sealed, %zu taken, %zu filed", sealed,
-		    taken, filed);
+	for (i = 0; i < n_lines_talks; i++) {
+		struct lines_talk *lt = &lines_talks[i];
+
+		len = 0;
+		if (lines_next(lt, lt->request, &len))
+			(void)talk_start_over(&lt->talk, &lt->m, lt->pt, now, lines_talk_step,
+			                      round_talk_over, lt->silences, lt, lt->request,
+			                      sizeof(lt->request), len);
+	}
+}
+
+/* THE LINES PASS'S END: each group's lines filed, and said. */
+static void group_lines_settle(void)
+{
+	static fzn_group_t g;
+	static fzn_contact_device_t own;
+	size_t i, filed = 0;
+
+	if (!lines_on || !groups_signer(NULL, &own))
+		return;
+	for (i = 0; i < n_lines_groups; i++)
+		if (fzn_group_log_get(node_apply.store, lines_groups[i], &g) == FZN_GROUP_LOG_OK)
+			filed += group_file(&g, &own);
+	if (lines_sealed || lines_taken || filed)
+		say(FZN_ENTRY_INFO, "node/groups", "lines pass: %zu sealed, %zu taken, %zu filed",
+		    lines_sealed, lines_taken, filed);
 }
 
 /* THE GROUPS ROUND, sec 626: every sibling, and one host of each contact
@@ -6761,6 +6865,7 @@ static void group_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 
 	n_group_sync_talks = 0;
 	group_contacts_taken = 0;
+	lines_on = 0;
 	if (!running_admin || !contact_id || !node_apply.store || !node_groups.log.store)
 		return;
 	/* A HOST HOLDING NO GROUP asks its siblings every tenth round, not
@@ -6813,8 +6918,8 @@ static void group_settle(struct pull_target *pulls, size_t npulls, uint64_t now)
 	}
 	if (taken)
 		say(FZN_ENTRY_INFO, "node/groups", "group pass: %zu act(s) taken", taken);
-	group_lines_round(pulls, npulls, now);
-	group_shares_round(now);
+	/* THE LINES ASKED, the round waiting; `group_lines_settle` files them. */
+	group_lines_start(pulls, npulls, now);
 }
 
 /* ---- app streams, sec 632 --------------------------------------------------------
@@ -10603,6 +10708,10 @@ int main(int argc, char **argv)
 					break;
 				case ROUND_GROUPS_SETTLE:
 					group_settle(pulls, npulls, round_now);
+					break;
+				case ROUND_GROUP_LINES_SETTLE:
+					group_lines_settle();
+					group_shares_round(round_now);
 					break;
 				case ROUND_REFERENCES:
 					file_refs_round(pulls, npulls, round_now);

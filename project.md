@@ -65850,6 +65850,24 @@ back. The same control fails it.
   `-refused-stops`, `-deliver-settle-when-due`,
   `-held-again-changes-nothing` and `-deliver-takes-over-only-when-told`.
 
+### A group's lines as conversations
+
+`live_groups.py`'s next by the profile, up to 3.2 s a host. **One
+conversation with each peer that is asked for any group's lines** --
+every sibling, and the one host of each contact a group chose, as before
+-- every peer at once and each peer's groups in turn
+(`group_lines_start`). So the conversations are as many as the peers,
+whatever the groups; one a group and peer could pass the `asks` table's
+64, and a request that cannot be sent is counted lost. Each group's own
+lines are sealed before it is asked about, as before;
+`ROUND_GROUP_LINES_SETTLE` files them once every peer has answered, and
+then runs the members' shares pass. The request and the taking of its
+answer are `group_lines_request` and `group_lines_take`; the in-turn
+`group_lines_with` and `group_lines_round` go.
+
+A control with the round's answers not taken fails `live_groups.py`
+phase d, whose lines arrive only through it.
+
 ### Tested, and probed
 
 - **`notes/test/notes_sync_test.c`**: a give driven by steps leaves its
@@ -65877,11 +65895,12 @@ pending.
 
 ### Open
 
-- **Still asked in turn within a step**: reconciliation, routing, a
-  group's lines (up to 3.2 s a host in `live_groups.py`, the next by the
-  profile), contact requests (`send_asked`), file references, and a
-  journal rebase (`rebase_missed`, only for a peer whose streams it no
-  longer holds). The host answers between steps but not during these.
+- **Still asked in turn within a step**: reconciliation, routing, the
+  grants' push, contact requests (`send_asked`), file references, the
+  shares a group's members hold, the round's own fetches of texts and
+  files, and a journal rebase (`rebase_missed`, only for a peer whose
+  streams it no longer holds). The host answers between steps but not
+  during these. None costs a profiled second in the live checks.
 - **Between rounds everything still asks in turn**: a fresh note or
   message, a file or text asked for, a share accepted -- `pull_journal`,
   `deliver_contacts`, `fetch_files` and the rest. The loop does not
