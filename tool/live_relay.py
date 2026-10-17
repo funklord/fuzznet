@@ -12,7 +12,8 @@ host behind a NAT would -- and says hello to B1 from its serving socket.
        answer at the address it advertised; A asks B1 to relay it to B2,
        and B2 holds the line under A's root
     c  A writes a second line while B's hosts are away, so the delivery a
-       fresh write makes at once reaches nobody; once they are back, A's own
+       fresh write makes at once reaches nobody -- answering A's own client
+       while it waits for them; once they are back, A's own
        round relays it -- the round's delivery, a conversation of its own
        (sec 637), and not the one between rounds
 
@@ -161,8 +162,25 @@ def main(argv):
 			# c: a line written while B's hosts are away, relayed by A's round.
 			down("b1")
 			down("b2")
+			before = len(NOBODY_RE.findall(started["a"].log()))
 			expect(socks["a"], "a", "add message %s out %s later" % (keys["b1"], LATER), "ok")
-			started["a"].wait_for(NOBODY_RE, "A's delivery reaching nobody")
+			# ANSWERED WHILE THAT DELIVERY WAITS, sec 637: it waits out B's two
+			# hosts, 3 s each, and the loop answers meanwhile. One that answered
+			# only after would have logged the delivery's end first -- counted
+			# past phase b's own, logged by the same daemon.
+			try:
+				reply = ask(socks["a"], "list message " + keys["b1"])
+			except OSError as e:
+				raise failed("c: A did not answer while its delivery waited: %s" % e)
+			if not reply.startswith("ok ") \
+			   or len(NOBODY_RE.findall(started["a"].log())) > before:
+				raise failed("c: A answered %r only once its delivery to nobody was over"
+				             % reply[:40])
+			until = time.monotonic() + 30.0
+			while len(NOBODY_RE.findall(started["a"].log())) == before:
+				if time.monotonic() > until:
+					raise failed("c: A's delivery to nobody was not logged within 30 s")
+				time.sleep(0.2)
 			turn("b1", "b1e")
 			turn("b2", "b2e")
 			d = turn("a", "a-e")

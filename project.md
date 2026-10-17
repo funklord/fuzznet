@@ -65868,6 +65868,26 @@ answer are `group_lines_request` and `group_lines_take`; the in-turn
 A control with the round's answers not taken fails `live_groups.py`
 phase d, whose lines arrive only through it.
 
+### A write here sends at once by the round's steps
+
+A note or a message written here was sent at once by pulls and a
+delivery that asked every peer in turn (secs 449, 528), and the loop
+answered nobody -- this host's own client included -- while one waited on
+a peer away. **The loop now runs plans**: the round is one list of steps,
+and a fresh note (`fresh_notes_plan`: the journal, the messages round,
+the members and the notes' work) and a fresh message
+(`fresh_messages_plan`: the journal, the messages round, delivery) are
+two short ones of the same steps, every peer asked at once and the loop
+answering between. They do what the writes did: following the estate,
+applying the journal and pulling received shares stay the round's. The
+synchronous `pull_journal`, `pull_notes`, `deliver_contacts` and
+`relay_ask` go, nothing calling them now.
+
+**`live_relay.py` phase c asks A's own client while that delivery
+waits** -- B's two hosts away, 3 s each -- and fails when the answer comes
+only after the delivery's end is logged. Against the daemon before this,
+the client's request timed out unanswered.
+
 ### Tested, and probed
 
 - **`notes/test/notes_sync_test.c`**: a give driven by steps leaves its
@@ -65901,10 +65921,10 @@ pending.
   files, and a journal rebase (`rebase_missed`, only for a peer whose
   streams it no longer holds). The host answers between steps but not
   during these. None costs a profiled second in the live checks.
-- **Between rounds everything still asks in turn**: a fresh note or
-  message, a file or text asked for, a share accepted -- `pull_journal`,
-  `deliver_contacts`, `fetch_files` and the rest. The loop does not
-  answer while one of those waits.
+- **Between rounds, what is not a fresh write still asks in turn**: a
+  file or text asked for (`fetch_files`, `fetch_texts`), a share accepted
+  (`pull_received`), a stream fetch, an address asked, a contact request
+  sent. The loop does not answer while one of those waits.
 - **A request handler that asks a peer synchronously** while a
   conversation awaits the same caller would read the conversation's
   answer and drop it; the conversation then fails at its deadline. None
