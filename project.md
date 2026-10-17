@@ -65917,6 +65917,24 @@ The round's messages step is split: `ROUND_MESSAGES` starts the keys,
   lacked, and past that ends as failed; the probe then fails a test.
   `messages-round-step-wipes-a-give` was caught as written.
 
+### What the user asks for at once, as plans
+
+`fetch address` and `fetch stream` asked each host in turn between
+rounds. **Each is now a plan of its own** (`address_plan`,
+`streams_plan`): a conversation with every host at once, each host's
+items -- the address, or the streams asked of it -- in turn, at most 32
+awaited and the rest begun as those end, so a stream fetch over every
+contact and group member's host (up to 88) is never limited by the asks
+table. A fetch asked while one is under way is kept for the next, not
+cleared with it. `ask_address`, `fetch_address`, `stream_fetch_from` and
+`streams_fetch_due` give way to the request and taking helpers
+(`address_take`, `stream_query`, `stream_take`) and the plans' steps.
+
+Controls in `live_pairing.py`: with an address answer not kept, phase d
+fails; with stream records not kept, phase f. **The first stream control
+was itself wrong** -- it zeroed the count and still made the call that
+keeps the records, and passed; the one that removed the call fails.
+
 ### Tested, and probed
 
 - **`notes/test/notes_sync_test.c`**: a give driven by steps leaves its
@@ -65950,10 +65968,11 @@ pending.
   files, and a journal rebase (`rebase_missed`, only for a peer whose
   streams it no longer holds). The host answers between steps but not
   during these. None costs a profiled second in the live checks.
-- **Between rounds, what is not a fresh write still asks in turn**: a
-  file or text asked for (`fetch_files`, `fetch_texts`), a share accepted
-  (`pull_received`), a stream fetch, an address asked, a contact request
-  sent. The loop does not answer while one of those waits.
+- **Between rounds, still asked in turn**: a file or text asked for
+  (`fetch_files`, `fetch_texts`, which already work in budgeted batches the
+  loop answers between) and a share accepted (`pull_received`). The loop
+  does not answer while one of those waits. A contact request sent
+  (`send_asked`) waits for nothing.
 - **A request handler that asks a peer synchronously** while a
   conversation awaits the same caller would read the conversation's
   answer and drop it; the conversation then fails at its deadline. None

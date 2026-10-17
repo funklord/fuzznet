@@ -1416,7 +1416,12 @@ enum {
 	ROUND_END,
 	/* A FRESH WRITE'S STEPS, not the round's (`fresh_*_plan`). */
 	ROUND_MESSAGES_ROUND,
-	ROUND_DELIVER
+	ROUND_DELIVER,
+	/* WHAT THE USER ASKED FOR AT ONCE: `fetch stream`, `fetch address`. */
+	ROUND_STREAMS,
+	ROUND_STREAMS_SETTLE,
+	ROUND_ADDRESS,
+	ROUND_ADDRESS_SETTLE
 };
 
 /* WHAT THE LOOP RUNS, a step a pass, 0 ending it: the round; or what a
@@ -1441,6 +1446,9 @@ static const int fresh_notes_plan[] = {
 static const int fresh_messages_plan[] = {
 	ROUND_JOURNAL, ROUND_JOURNAL_SETTLE, ROUND_MESSAGES_ROUND, ROUND_DELIVER, 0
 };
+/* A STREAM FETCH ASKED (sec 632), and WHERE THIS HOST IS SEEN (sec 621). */
+static const int streams_plan[] = { ROUND_STREAMS, ROUND_STREAMS_SETTLE, 0 };
+static const int address_plan[] = { ROUND_ADDRESS, ROUND_ADDRESS_SETTLE, 0 };
 
 /* THE PEERS THAT DID NOT ANSWER THIS ROUND, sec 587, by where they are: a
  * peer whose journal pull goes unanswered is passed over by the rest of the
@@ -5730,20 +5738,20 @@ static int address_due;
 
 /* ONE PEER ASKED where it sees this host; the answer kept, replacing that
  * peer's earlier one. */
-static void ask_address(struct pull_target *pt, const char *host_name, uint64_t now)
+/* A `get address` ANSWER from `pt`: where it sees this host, kept. */
+static void address_take(const struct pull_target *pt, const uint8_t *reply, size_t reply_len,
+                         uint64_t now)
 {
-	struct peer_asking asking = { &pt->caller, now, host_name };
-	uint8_t reply[128];
-	char host[FZN_UDP_HOST_MAX];
-	size_t len = 0, i;
+	char text[128], host[FZN_UDP_HOST_MAX];
+	size_t i;
 	unsigned port = 0;
 	int used = 0;
 
-	if (!peer_ask(&asking, (const uint8_t *)"get address", 11u, reply, sizeof(reply) - 1u, &len))
+	if (reply_len >= sizeof(text))
 		return;
-	reply[len] = '\0';
-	if (sscanf((const char *)reply, "ok %45s %u%n", host, &port, &used) != 2 || port == 0u
-	    || port > 65535u)
+	memcpy(text, reply, reply_len);
+	text[reply_len] = '\0';
+	if (sscanf(text, "ok %45s %u%n", host, &port, &used) != 2 || port == 0u || port > 65535u)
 		return;
 	for (i = 0; i < n_observed; i++)
 		if (memcmp(observed[i].reporter, pt->pairing.node, FZN_PUBKEY_LEN) == 0)
@@ -5762,21 +5770,6 @@ static void ask_address(struct pull_target *pt, const char *host_name, uint64_t 
 /* EVERY PEER THIS HOST REACHES asked: the estate's pull peers and
  * siblings, and every contact host. Asked when the user asks (`fetch
  * address`), not each round: fuzzypickles' "asking is a button". */
-static void fetch_address(struct pull_target *pulls, size_t npulls, uint64_t now)
-{
-	size_t i;
-
-	for (i = 0; i < npulls; i++)
-		if (!silent_peer(&pulls[i]))
-			ask_address(&pulls[i], pulls[i].host, now);
-	for (i = 0; i < nshares_in; i++)
-		ask_address(&shares_in[i].pt, shares_in[i].host, now);
-	for (i = 0; i < ncontact_targets; i++)
-		ask_address(&contact_targets[i].pt, contact_targets[i].host, now);
-	say(FZN_ENTRY_INFO, "net/address", "%zu peer(s) have said where they see this host",
-	    n_observed);
-}
-
 /* `fetch address` asks every peer where it sees this host, at once;
  * `get address` answers what they said, `ok COUNT AGREE
  * REPORTER,HOST,PORT,AT ...` -- AGREE 1 when every one saw the same, 0 when
@@ -7073,23 +7066,28 @@ static size_t streams_remote(const uint8_t *sender, const uint8_t *request, size
 }
 
 /* ASK ONE HOST for its records of stream `name` past those held of it. */
-static size_t stream_fetch_from(struct pull_target *pt, const char *host, const char *name,
-                                size_t name_len, uint64_t now)
+/* STREAM_QUERY for stream `name` of `origin`, past what is held of it. Its
+ * length. */
+static size_t stream_query(const char *name, size_t name_len, const uint8_t *origin,
+                           uint8_t *request)
 {
-	static uint8_t reply[FZND_PULL_REPLY_MAX];
-	static fzn_stream_record_t r;
-	uint8_t request[3u + FZN_STREAM_NAME_MAX + 8u];
-	struct peer_asking asking = { &pt->caller, now, host };
-	const uint8_t *origin = pt->pairing.node;
-	size_t len = 0, at, count, k, l, taken = 0;
-
 	request[0] = FZND_GROUP_VERSION;
 	request[1] = FZND_STREAM_QUERY_TYPE;
 	request[2] = (uint8_t)name_len;
 	memcpy(request + 3, name, name_len);
 	fzn_put_be64(request + 3u + name_len, fzn_streams_last(&node_streams, name, name_len, origin));
-	if (!peer_ask(&asking, request, 3u + name_len + 8u, reply, sizeof(reply), &len) || len < 4u
-	    || reply[0] != FZND_GROUP_VERSION || reply[1] != FZND_STREAM_RECORDS_TYPE)
+	return 3u + name_len + 8u;
+}
+
+/* STREAM_RECORDS from `origin`'s host, kept: how many. */
+static size_t stream_take(const char *name, size_t name_len, const uint8_t *origin,
+                          const uint8_t *reply, size_t len)
+{
+	static fzn_stream_record_t r;
+	size_t at, count, k, l, taken = 0;
+
+	if (!reply || len < 4u || reply[0] != FZND_GROUP_VERSION
+	    || reply[1] != FZND_STREAM_RECORDS_TYPE)
 		return 0;
 	count = fzn_get_be16(reply + 2);
 	for (k = 0, at = 4u; k < count && at + 17u <= len; k++) {
@@ -7112,48 +7110,187 @@ static size_t stream_fetch_from(struct pull_target *pt, const char *host, const 
 	return taken;
 }
 
+/* ---- A HOST ASKED ITS ITEMS IN TURN, every host at once, sec 636: where
+ * it sees this host (`fetch address`), or the streams asked of it (`fetch
+ * stream`). A conversation each, at most FZND_HOST_TALKS_AT_ONCE awaited and
+ * the rest begun as those end, so the asks table is never the limit. */
+#define FZND_HOST_TALKS_MAX                                                                   \
+	(FZND_ROUND_TARGETS_MAX + FZN_NODE_RECEIVED_MAX + FZND_CONTACT_TARGETS_MAX               \
+	 + FZND_GROUP_SHARES_MAX)
+#define FZND_HOST_TALKS_AT_ONCE 32u
+_Static_assert(FZND_HOST_TALKS_AT_ONCE <= FZN_NODE_ASKS_MAX, "the host talks fit the asks table");
+
+enum { HOST_ADDRESS = 1, HOST_STREAMS = 2 };
+
+struct host_talk {
+	fzn_node_talk_t talk;
+	struct meter m;
+	struct pull_target *pt;
+	int kind, silences;
+	size_t items[FZND_STREAM_FETCHES_MAX]; /* stream fetches, by place */
+	size_t n_items, at;
+	uint64_t now;
+	uint8_t request[3u + FZN_STREAM_NAME_MAX + 8u];
+};
+static struct host_talk host_talks[FZND_HOST_TALKS_MAX];
+static size_t n_host_talks, host_talks_begun, streams_asked, streams_taken, streams_begun;
+
+/* ITEM `ht->at`'s REQUEST. */
+static size_t host_request(struct host_talk *ht)
+{
+	size_t f = ht->items[ht->at];
+
+	if (ht->kind == HOST_ADDRESS) {
+		memcpy(ht->request, "get address", 11u);
+		return 11u;
+	}
+	streams_asked++;
+	return stream_query(stream_fetches[f].name, stream_fetches[f].name_len, ht->pt->pairing.node,
+	                    ht->request);
+}
+
+static int host_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, uint8_t *request,
+                          size_t cap, size_t *request_len)
+{
+	struct host_talk *ht = ctx;
+
+	(void)request;
+	(void)cap;
+	meter_answer(&ht->m, reply, reply_len);
+	if (!reply)
+		return 0;
+	if (ht->kind == HOST_ADDRESS)
+		address_take(ht->pt, reply, reply_len, ht->now);
+	else
+		streams_taken += stream_take(stream_fetches[ht->items[ht->at]].name,
+		                             stream_fetches[ht->items[ht->at]].name_len,
+		                             ht->pt->pairing.node, reply, reply_len);
+	if (++ht->at >= ht->n_items)
+		return 0;
+	*request_len = host_request(ht);
+	meter_asked(&ht->m, *request_len);
+	return 1;
+}
+
+static void host_talks_begin(void);
+
+static void host_talk_over(void *ctx)
+{
+	(void)ctx;
+	/* THE NEXT BEGUN BEFORE THIS ONE IS RELEASED, so the step waits for all. */
+	host_talks_begin();
+	if (round_pending)
+		round_pending--;
+}
+
+/* EVERY HOST NOT YET BEGUN, while fewer than FZND_HOST_TALKS_AT_ONCE wait. */
+static void host_talks_begin(void)
+{
+	while (host_talks_begun < n_host_talks && round_pending < FZND_HOST_TALKS_AT_ONCE) {
+		struct host_talk *ht = &host_talks[host_talks_begun++];
+		size_t len = host_request(ht);
+
+		(void)talk_start_over(&ht->talk, &ht->m, ht->pt, ht->now, host_talk_step,
+		                      host_talk_over, ht->silences, ht, ht->request,
+		                      sizeof(ht->request), len);
+	}
+}
+
+/* `pt`'S CONVERSATION, found or made. */
+static struct host_talk *host_talk_for(struct pull_target *pt, int kind, int silences,
+                                       uint64_t now)
+{
+	size_t i;
+
+	for (i = 0; i < n_host_talks; i++)
+		if (host_talks[i].pt == pt)
+			return &host_talks[i];
+	if (n_host_talks == FZND_HOST_TALKS_MAX)
+		return NULL;
+	host_talks[n_host_talks].pt = pt;
+	host_talks[n_host_talks].kind = kind;
+	host_talks[n_host_talks].silences = silences;
+	host_talks[n_host_talks].n_items = 0;
+	host_talks[n_host_talks].at = 0;
+	host_talks[n_host_talks].now = now;
+	return &host_talks[n_host_talks++];
+}
+
+static void host_add(struct pull_target *pt, int kind, int silences, size_t item, uint64_t now)
+{
+	struct host_talk *ht = host_talk_for(pt, kind, silences, now);
+
+	if (ht && ht->n_items < FZND_STREAM_FETCHES_MAX)
+		ht->items[ht->n_items++] = item;
+}
+
+/* EVERY PEER THIS HOST REACHES asked where it sees this host: the estate's
+ * pull peers and siblings, and every contact host. Asked when the user asks
+ * (`fetch address`), not each round: fuzzypickles' "asking is a button". */
+static void address_start(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	size_t i;
+
+	n_host_talks = host_talks_begun = 0;
+	for (i = 0; i < npulls; i++)
+		if (!silent_peer(&pulls[i]))
+			host_add(&pulls[i], HOST_ADDRESS, 1, 0, now);
+	for (i = 0; i < nshares_in; i++)
+		host_add(&shares_in[i].pt, HOST_ADDRESS, 0, 0, now);
+	for (i = 0; i < ncontact_targets; i++)
+		host_add(&contact_targets[i].pt, HOST_ADDRESS, 0, 0, now);
+	host_talks_begin();
+}
+
+static void address_settle(void)
+{
+	say(FZN_ENTRY_INFO, "net/address", "%zu peer(s) have said where they see this host",
+	    n_observed);
+}
+
 /* THE FETCHES ASKED, carried out: a contact's hosts, a group's members'
  * hosts, or this user's own -- each asked once. */
-static void streams_fetch_due(struct pull_target *pulls, size_t npulls, uint64_t now)
+static void streams_start(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
 	static fzn_group_t g;
-	size_t f, i, taken = 0, asked = 0;
+	static const uint8_t zero[FZN_PUBKEY_LEN];
+	size_t f, i;
 
-	for (f = 0; f < n_stream_fetches; f++) {
-		const char *name = stream_fetches[f].name;
-		size_t name_len = stream_fetches[f].name_len;
-		static const uint8_t zero[FZN_PUBKEY_LEN];
-
+	n_host_talks = host_talks_begun = 0;
+	streams_asked = streams_taken = 0;
+	/* THE FETCHES ASKED SO FAR: one asked meanwhile waits for the next. */
+	streams_begun = n_stream_fetches;
+	for (f = 0; f < streams_begun; f++) {
 		if (memcmp(stream_fetches[f].who, zero, FZN_PUBKEY_LEN) == 0) {
 			for (i = 0; i < npulls; i++)
-				if (!silent_peer(&pulls[i]) && peer_in_estate(&pulls[i])) {
-					taken += stream_fetch_from(&pulls[i], pulls[i].host, name, name_len, now);
-					asked++;
-				}
+				if (!silent_peer(&pulls[i]) && peer_in_estate(&pulls[i]))
+					host_add(&pulls[i], HOST_STREAMS, 1, f, now);
 			continue;
 		}
 		if (stream_fetches[f].group
 		    && fzn_group_log_get(node_apply.store, stream_fetches[f].who, &g) == FZN_GROUP_LOG_OK) {
 			for (i = 0; i < ngroup_shares_in; i++)
 				if (fzn_group_is_member(&g, group_shares_in[i].sharer)
-				    && group_shares_in[i].pt.fd >= 0) {
-					taken += stream_fetch_from(&group_shares_in[i].pt, group_shares_in[i].host,
-					                           name, name_len, now);
-					asked++;
-				}
+				    && group_shares_in[i].pt.fd >= 0)
+					host_add(&group_shares_in[i].pt, HOST_STREAMS, 0, f, now);
 			continue;
 		}
 		for (i = 0; i < ncontact_targets; i++)
 			if (memcmp(contact_targets[i].contact, stream_fetches[f].who, FZN_PUBKEY_LEN) == 0
-			    && contact_targets[i].pt.fd >= 0) {
-				taken += stream_fetch_from(&contact_targets[i].pt, contact_targets[i].host, name,
-				                           name_len, now);
-				asked++;
-			}
+			    && contact_targets[i].pt.fd >= 0)
+				host_add(&contact_targets[i].pt, HOST_STREAMS, 0, f, now);
 	}
-	n_stream_fetches = 0;
+	host_talks_begin();
+}
+
+static void streams_settle(void)
+{
+	/* THOSE CARRIED OUT GONE, any asked meanwhile kept for the next. */
+	memmove(stream_fetches, stream_fetches + streams_begun,
+	        (n_stream_fetches - streams_begun) * sizeof(stream_fetches[0]));
+	n_stream_fetches -= streams_begun;
 	say(FZN_ENTRY_INFO, "node/streams", "stream fetch: %zu host(s) asked, %zu record(s) taken",
-	    asked, taken);
+	    streams_asked, streams_taken);
 }
 
 /* THE STREAM VERBS, the node's own user's:
@@ -10620,6 +10757,18 @@ int main(int argc, char **argv)
 					deliver_start(round_now);
 					break;
 #endif
+				case ROUND_STREAMS:
+					streams_start(pulls, npulls, round_now);
+					break;
+				case ROUND_STREAMS_SETTLE:
+					streams_settle();
+					break;
+				case ROUND_ADDRESS:
+					address_start(pulls, npulls, round_now);
+					break;
+				case ROUND_ADDRESS_SETTLE:
+					address_settle();
+					break;
 				case ROUND_CONTACTS:
 					contact_round(pulls, npulls, round_now);
 					break;
@@ -10687,13 +10836,22 @@ int main(int argc, char **argv)
 					lan_due = 0;
 					lan_probe();
 				}
-				/* A STREAM FETCH ASKED, at once. sec 632. */
-				if (n_stream_fetches)
-					streams_fetch_due(pulls, npulls, now);
-				/* WHERE THIS HOST IS SEEN, asked now. sec 621. */
-				if (address_due) {
+				/* A STREAM FETCH ASKED, at once, sec 632; WHERE THIS HOST IS
+				 * SEEN, asked now, sec 621: each a plan of its own, every host
+				 * at once and the loop answering meanwhile (sec 636). One
+				 * waits for the other's end, its flag kept. */
+				if (n_stream_fetches && !round_step) {
+					plan = streams_plan;
+					plan_at = 0;
+					round_step = plan[0];
+					round_now = now;
+				}
+				if (address_due && !round_step) {
 					address_due = 0;
-					fetch_address(pulls, npulls, now);
+					plan = address_plan;
+					plan_at = 0;
+					round_step = plan[0];
+					round_now = now;
 				}
 				/* A CONTACT JUST ASKED FOR is asked now, not a round later.
 				 * sec 619. */
