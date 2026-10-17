@@ -671,6 +671,19 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 			(void)fzn_node_run_once(&client, 1000);
 		CHECK(answers == 2 && failures_seen == 0 && fzn_node_asks_pending(&asks) == 0u,
 		      "the two requests' answers did not reach their callbacks");
+		/* SENT BY THE CALLER, AWAITED HERE: a relayed request's shape. */
+		{
+			uint32_t sent = 0;
+
+			CHECK(fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &sent) == FZN_CALLER_OK
+			              && fzn_node_asks_await(&asks, &caller, sent, 2000u, on_answer, NULL)
+			              && fzn_node_asks_pending(&asks) == 1u,
+			      "a request sent by the caller was not awaited");
+			(void)fzn_node_run_once(&state, 1000);
+			(void)fzn_node_run_once(&client, 1000);
+			CHECK(answers == 3 && failures_seen == 0 && fzn_node_asks_pending(&asks) == 0u,
+			      "the answer to a request sent by the caller did not reach its callback");
+		}
 		CHECK(fzn_node_asks_send(&asks, &caller, PING, sizeof(PING), 3500u, 2000u, on_answer,
 		                         NULL)
 		              && fzn_node_asks_expire(&asks) == 0u,

@@ -61,6 +61,13 @@ int fzn_node_asks_send(fzn_node_asks_t *asks, fzn_caller_t *caller, const uint8_
                        size_t request_len, uint64_t expires_at, unsigned timeout_ms,
                        fzn_node_answered_fn done, void *ctx);
 
+/* AWAIT THE ANSWER TO `msg`, a message the caller sent itself -- sealed
+ * for one host and handed to another to relay, sec 622 -- arriving at
+ * `caller`: `done` called with it, or with NULL `timeout_ms` from now. 0
+ * when the table is full -- `done` is then never called. */
+int fzn_node_asks_await(fzn_node_asks_t *asks, fzn_caller_t *caller, uint32_t msg,
+                        unsigned timeout_ms, fzn_node_answered_fn done, void *ctx);
+
 /* The distinct sockets awaited, into `fds`, `cap` of them: their count. */
 size_t fzn_node_asks_fds(const fzn_node_asks_t *asks, int *fds, size_t cap);
 

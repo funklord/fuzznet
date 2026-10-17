@@ -261,6 +261,34 @@ fzn_messages_err_t fzn_node_messages_deliver(fzn_node_messages_t *nm,
                                              fzn_node_messages_ask_t ask, void *ctx,
                                              fzn_node_messages_delivery_t *tally);
 
+/* THE SAME DELIVERY AS STEPS, sec 636: begin writes the first line's offer,
+ * or sets `*done` with none to offer; each step takes its answer -- NULL for
+ * none -- and writes the next offer, or sets `*done` once a line is refused
+ * or unanswered, or none is left. `request` is the caller's, at least
+ * FZN_NODE_MESSAGES_DELIVER_MAX. Its place is held between steps and its
+ * page read again each step, so it keeps no page of lines. The tally is the
+ * struct's. */
+typedef struct fzn_node_messages_delivering {
+	fzn_node_messages_t *nm;
+	uint8_t contact[FZN_PUBKEY_LEN];
+	int settle, live;
+	size_t offset, i;              /* the next line to look at */
+	uint8_t id[FZN_MESSAGE_ID_LEN]; /* the line offered, and its state then */
+	uint8_t state;
+	fzn_node_messages_delivery_t tally;
+} fzn_node_messages_delivering_t;
+
+fzn_messages_err_t fzn_node_messages_deliver_begin(fzn_node_messages_delivering_t *d,
+                                                   fzn_node_messages_t *nm,
+                                                   const uint8_t contact[FZN_PUBKEY_LEN],
+                                                   int settle, uint8_t *request, size_t cap,
+                                                   size_t *request_len, int *done);
+
+fzn_messages_err_t fzn_node_messages_deliver_step(fzn_node_messages_delivering_t *d,
+                                                  const uint8_t *reply, size_t reply_len,
+                                                  uint8_t *request, size_t cap,
+                                                  size_t *request_len, int *done);
+
 /*
  * A CONTACT'S DELIVERY, answered, sec 613; 0 for anything else. `contact`
  * is the conversation the line is filed under -- the sender, as the

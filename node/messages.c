@@ -679,24 +679,25 @@ size_t fzn_node_messages_remote(void *ctx, const uint8_t *sender, const uint8_t 
 
 /* ---- delivery to a contact, sec 613 --------------------------------------- */
 
-/* ONE LINE OFFERED: 2 settled, 1 held, 0 refused, -1 unanswered or
- * answered with anything but this line's DELIVERED. */
-static int offer(const fzn_message_t *line, fzn_node_messages_ask_t ask, void *ctx)
+/* ONE LINE'S OFFER, into `request`: its length. */
+static size_t offer_request(const fzn_message_t *line, uint8_t *request)
 {
-	uint8_t request[FZN_NODE_MESSAGES_DELIVER_MAX], reply[FZN_NODE_MESSAGES_DELIVERED_LEN + 8u];
-	size_t reply_len = 0;
-
 	request[0] = FZN_NODE_MESSAGES_VERSION;
 	request[1] = FZN_NODE_MESSAGES_DELIVER;
 	memcpy(request + 2, line->id, FZN_MESSAGE_ID_LEN);
 	fzn_put_be64(request + 2 + FZN_MESSAGE_ID_LEN, line->stime);
 	fzn_put_be16(request + 2 + FZN_MESSAGE_ID_LEN + 8, (uint16_t)line->text_len);
 	memcpy(request + FZN_NODE_MESSAGES_DELIVER_HEAD_LEN, line->text, line->text_len);
-	if (!ask(ctx, request, FZN_NODE_MESSAGES_DELIVER_HEAD_LEN + line->text_len, reply,
-	         sizeof(reply), &reply_len)
-	    || reply_len != FZN_NODE_MESSAGES_DELIVERED_LEN || reply[0] != FZN_NODE_MESSAGES_VERSION
-	    || reply[1] != FZN_NODE_MESSAGES_DELIVERED
-	    || memcmp(reply + 2, line->id, FZN_MESSAGE_ID_LEN) != 0)
+	return FZN_NODE_MESSAGES_DELIVER_HEAD_LEN + line->text_len;
+}
+
+/* ITS OUTCOME: 2 settled, 1 held, 0 refused, -1 unanswered (`reply` NULL)
+ * or answered with anything but line `id`'s DELIVERED. */
+static int offer_outcome(const uint8_t *reply, size_t reply_len, const uint8_t *id)
+{
+	if (!reply || reply_len != FZN_NODE_MESSAGES_DELIVERED_LEN
+	    || reply[0] != FZN_NODE_MESSAGES_VERSION || reply[1] != FZN_NODE_MESSAGES_DELIVERED
+	    || memcmp(reply + 2, id, FZN_MESSAGE_ID_LEN) != 0)
 		return -1;
 	switch (reply[2 + FZN_MESSAGE_ID_LEN]) {
 	case FZN_NODE_MESSAGES_SETTLED:
@@ -709,70 +710,146 @@ static int offer(const fzn_message_t *line, fzn_node_messages_ask_t ask, void *c
 	return -1;
 }
 
+/* ---- delivery as steps, sec 636 ------------------------------------------ */
+
+static fzn_messages_err_t deliver_end(fzn_node_messages_delivering_t *d, int *done,
+                                      fzn_messages_err_t err)
+{
+	d->live = 0;
+	*done = 1;
+	return err;
+}
+
+/* THE NEXT LINE TO OFFER, from `d->offset` + `d->i` on, its offer written;
+ * or the end. The page is read again each time: a line marked since moves
+ * nowhere, so the place holds. */
+static fzn_messages_err_t deliver_next(fzn_node_messages_delivering_t *d, uint8_t *request,
+                                       size_t *request_len, int *done)
+{
+	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
+	fzn_node_messages_t *nm = d->nm;
+	size_t count;
+	fzn_messages_err_t err;
+	int more;
+
+	for (;;) {
+		count = 0;
+		more = 0;
+		err = fzn_messages_page(&nm->m, d->contact, d->offset, page, FZN_MESSAGES_PAGE_MAX,
+		                        &count, &more);
+		if (err == FZN_MESSAGES_ERR_DEEP)
+			return deliver_end(d, done, FZN_MESSAGES_OK);
+		if (err != FZN_MESSAGES_OK)
+			return deliver_end(d, done, err);
+		for (; d->i < count; d->i++) {
+			const fzn_message_t *line = &page[d->i];
+
+			/* STILL BEING SENT, or delivered and due for settlement. */
+			if (line->direction != FZN_MESSAGE_OUT
+			    || (line->state != 0u
+			        && !(d->settle && line->state == FZN_MESSAGE_DELIVERED))
+			    || !line->readable)
+				continue;
+			/* THIS DEVICE'S, OR ONE IT TAKES OVER: the writer gone, sec
+			 * 616. */
+			if (!same_key(line->device, nm->m.issuer)
+			    && !(nm->takes_over
+			         && nm->takes_over(nm->takes_over_ctx, line->device, line->id)))
+				continue;
+			d->tally.sent++;
+			memcpy(d->id, line->id, FZN_MESSAGE_ID_LEN);
+			d->state = line->state;
+			*request_len = offer_request(line, request);
+			return FZN_MESSAGES_OK;
+		}
+		if (!more || !count)
+			return deliver_end(d, done, FZN_MESSAGES_OK);
+		d->offset += count;
+		d->i = 0;
+	}
+}
+
+fzn_messages_err_t fzn_node_messages_deliver_begin(fzn_node_messages_delivering_t *d,
+                                                   fzn_node_messages_t *nm,
+                                                   const uint8_t contact[FZN_PUBKEY_LEN],
+                                                   int settle, uint8_t *request, size_t cap,
+                                                   size_t *request_len, int *done)
+{
+	if (!d || !nm || !contact || !request || cap < FZN_NODE_MESSAGES_DELIVER_MAX
+	    || !request_len || !done)
+		return FZN_MESSAGES_ERR_MALFORMED;
+	memset(d, 0, sizeof(*d));
+	d->nm = nm;
+	memcpy(d->contact, contact, FZN_PUBKEY_LEN);
+	d->settle = settle;
+	d->live = 1;
+	*done = 0;
+	return deliver_next(d, request, request_len, done);
+}
+
+fzn_messages_err_t fzn_node_messages_deliver_step(fzn_node_messages_delivering_t *d,
+                                                  const uint8_t *reply, size_t reply_len,
+                                                  uint8_t *request, size_t cap,
+                                                  size_t *request_len, int *done)
+{
+	fzn_messages_err_t err;
+	int got;
+
+	if (!d || !d->live || !request || cap < FZN_NODE_MESSAGES_DELIVER_MAX || !request_len
+	    || !done)
+		return FZN_MESSAGES_ERR_MALFORMED;
+	*done = 0;
+	got = offer_outcome(reply, reply_len, d->id);
+	if (got < 0) {
+		d->tally.unanswered++;
+		return deliver_end(d, done, FZN_MESSAGES_OK);
+	}
+	if (got == 0) {
+		d->tally.refused++;
+		return deliver_end(d, done, FZN_MESSAGES_OK);
+	}
+	d->i++;
+	/* HELD AGAIN of a line delivered already changes nothing. */
+	if (got == 2 || d->state != FZN_MESSAGE_DELIVERED) {
+		err = fzn_messages_mark(&d->nm->m, d->contact, FZN_MESSAGE_OUT, d->id,
+		                        got == 2 ? FZN_MESSAGE_SETTLED : FZN_MESSAGE_DELIVERED);
+		if (err != FZN_MESSAGES_OK)
+			return deliver_end(d, done, err);
+		if (got == 2)
+			d->tally.settled++;
+		else
+			d->tally.delivered++;
+		d->nm->fresh = 1;
+	}
+	return deliver_next(d, request, request_len, done);
+}
+
 fzn_messages_err_t fzn_node_messages_deliver(fzn_node_messages_t *nm,
                                              const uint8_t contact[FZN_PUBKEY_LEN], int settle,
                                              fzn_node_messages_ask_t ask, void *ctx,
                                              fzn_node_messages_delivery_t *tally)
 {
-	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
-	size_t offset, count, i;
+	static fzn_node_messages_delivering_t d;
+	uint8_t request[FZN_NODE_MESSAGES_DELIVER_MAX], reply[FZN_NODE_MESSAGES_DELIVERED_LEN + 8u];
+	size_t request_len = 0, reply_len;
 	fzn_messages_err_t err;
-	int more;
+	int done = 0, answered;
 
 	if (tally)
 		memset(tally, 0, sizeof(*tally));
 	if (!nm || !contact || !ask || !tally)
 		return FZN_MESSAGES_ERR_MALFORMED;
-	for (offset = 0;; offset += count) {
-		count = 0;
-		more = 0;
-		err = fzn_messages_page(&nm->m, contact, offset, page, FZN_MESSAGES_PAGE_MAX, &count,
-		                        &more);
-		if (err == FZN_MESSAGES_ERR_DEEP)
-			return FZN_MESSAGES_OK;
-		if (err != FZN_MESSAGES_OK)
-			return err;
-		for (i = 0; i < count; i++) {
-			int got;
-
-			/* STILL BEING SENT, or delivered and due for settlement. */
-			if (page[i].direction != FZN_MESSAGE_OUT
-			    || (page[i].state != 0u
-			        && !(settle && page[i].state == FZN_MESSAGE_DELIVERED))
-			    || !page[i].readable)
-				continue;
-			/* THIS DEVICE'S, OR ONE IT TAKES OVER: the writer gone, sec
-			 * 616. */
-			if (!same_key(page[i].device, nm->m.issuer)
-			    && !(nm->takes_over
-			         && nm->takes_over(nm->takes_over_ctx, page[i].device, page[i].id)))
-				continue;
-			tally->sent++;
-			got = offer(&page[i], ask, ctx);
-			if (got < 0) {
-				tally->unanswered++;
-				return FZN_MESSAGES_OK;
-			}
-			if (got == 0) {
-				tally->refused++;
-				return FZN_MESSAGES_OK;
-			}
-			/* HELD AGAIN of a line delivered already changes nothing. */
-			if (got == 1 && page[i].state == FZN_MESSAGE_DELIVERED)
-				continue;
-			err = fzn_messages_mark(&nm->m, contact, FZN_MESSAGE_OUT, page[i].id,
-			                        got == 2 ? FZN_MESSAGE_SETTLED : FZN_MESSAGE_DELIVERED);
-			if (err != FZN_MESSAGES_OK)
-				return err;
-			if (got == 2)
-				tally->settled++;
-			else
-				tally->delivered++;
-			nm->fresh = 1;
-		}
-		if (!more || !count)
-			return FZN_MESSAGES_OK;
+	err = fzn_node_messages_deliver_begin(&d, nm, contact, settle, request, sizeof(request),
+	                                      &request_len, &done);
+	while (err == FZN_MESSAGES_OK && !done) {
+		/* Asked first, apart from the step: see `record/exchange.c`. */
+		reply_len = 0;
+		answered = ask(ctx, request, request_len, reply, sizeof(reply), &reply_len);
+		err = fzn_node_messages_deliver_step(&d, answered ? reply : NULL, reply_len, request,
+		                                     sizeof(request), &request_len, &done);
 	}
+	*tally = d.tally;
+	return err;
 }
 
 size_t fzn_node_messages_contact(fzn_node_messages_t *nm, const uint8_t contact[FZN_PUBKEY_LEN],

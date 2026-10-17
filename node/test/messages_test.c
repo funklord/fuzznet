@@ -1154,6 +1154,7 @@ static void test_a_line_is_delivered_to_a_contact(void)
 	CHECK(deliver(&l) && dv.sent == 0u && l.asked == 1u,
 	      "a delivered line is not offered again");
 
+
 	/* A RE-OFFER, as after a reply lost: held again, filed once. */
 	{
 		uint8_t req[FZN_NODE_MESSAGES_DELIVER_MAX], out[64];
@@ -1191,6 +1192,45 @@ static void test_a_line_is_delivered_to_a_contact(void)
 		                                sizeof(out))
 		              == 0u,
 		      "a member's message on the contact branch is not one");
+	}
+
+	/* BY STEPS, sec 636, over more lines than a page: each offered once,
+	 * held, and marked, the page read again between them. */
+	{
+		static fzn_node_messages_delivering_t d;
+		uint8_t req[FZN_NODE_MESSAGES_DELIVER_MAX], out[64];
+		size_t req_len = 0, out_len, k, turns = 0;
+		int done = 0;
+		fzn_messages_err_t err;
+
+		for (k = 0; k < FZN_MESSAGES_PAGE_MAX + 5u; k++) {
+			memset(id, 0x30, sizeof(id));
+			id[1] = (uint8_t)k;
+			CHECK(fzn_messages_write(&S.nm.m, C.pub, FZN_MESSAGE_OUT, id, 20u + k, "by steps",
+			                         8u) == FZN_MESSAGES_OK,
+			      "fixture: a page and more of lines to send");
+		}
+		err = fzn_node_messages_deliver_begin(&d, &S.nm, C.pub, 0, req, sizeof(req), &req_len,
+		                                      &done);
+		while (err == FZN_MESSAGES_OK && !done && turns++ < 64u) {
+			out_len = 0;
+			(void)to_contact(&l, req, req_len, out, sizeof(out), &out_len);
+			err = fzn_node_messages_deliver_step(&d, out, out_len, req, sizeof(req), &req_len,
+			                                     &done);
+		}
+		CHECK(err == FZN_MESSAGES_OK && done && d.tally.sent == FZN_MESSAGES_PAGE_MAX + 5u
+		              && d.tally.delivered == FZN_MESSAGES_PAGE_MAX + 5u
+		              && deliver(&l) && dv.sent == 0u,
+		      "a page and more of lines by steps were not each delivered once");
+		CHECK(fzn_node_messages_deliver_begin(&d, &S.nm, C.pub, 1, req, sizeof(req), &req_len,
+		                                      &done) == FZN_MESSAGES_OK
+		              && !done
+		              && fzn_node_messages_deliver_step(&d, NULL, 0, req, sizeof(req), &req_len,
+		                                                &done) == FZN_MESSAGES_OK
+		              && done && d.tally.unanswered == 1u
+		              && fzn_node_messages_deliver_step(&d, out, 8, req, sizeof(req), &req_len,
+		                                                &done) == FZN_MESSAGES_ERR_MALFORMED,
+		      "a delivery with no answer did not end, counting it, refusing a step after");
 	}
 }
 

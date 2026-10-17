@@ -65817,6 +65817,39 @@ writing a byte past the answer.
 `live_contacts.py` and `live_shares.py` hold it: each delivers or pulls
 through the hosts this exchange keeps.
 
+### Delivery as a conversation
+
+Delivery to contacts was the profile's next in `live_contacts.py`, up to
+9.2 s a host. **Each standing contact is now one delivery conversation**,
+every contact at once: its hosts in the order `deliver_contacts` tries
+them, the next after a refusal or no answer, each host's outcome said and
+its `down` set as before, then a host that did not answer reached through
+another of the contact's that did (sec 622). Delivery's steps
+(`fzn_node_messages_deliver_begin`/`_step`, `node/messages.h`) hold their
+place and read their page again each step, so a conversation keeps no
+page of lines; the old function is their driver. A relayed request is
+sent through one host and answered on another's caller, so `node/asks.h`
+gains `fzn_node_asks_await` -- an answer awaited for a message the caller
+sent itself -- and the conversation uses `asks` directly rather than
+`node/talk.h`; `relay_ask` keeps its sending half as `relay_send`.
+
+**A control found the relay untested in the round.** With the round's
+relay pass left out, `live_relay.py` passed whole: its line is written
+while A runs, so the delivery a fresh write makes at once, between
+rounds, relayed it. **Phase c** writes a line while B's hosts are away, so
+that delivery reaches nobody, and A's next round relays it once they are
+back. The same control fails it.
+
+- **`node/test/messages_test.c`**: a page and more of lines delivered by
+  steps, each once; no answer ends the delivery, counted.
+- **`node/test/pair_test.c`**: a request sent through the caller by hand,
+  its answer awaited, reaches its callback.
+- **Sabotage: eight entries, moved with their code into delivery's steps,
+  all caught** -- `messages-deliver-only-sending`, `-own-device-only`,
+  `-delivered-names-the-line`, `-delivered-exact-length`,
+  `-refused-stops`, `-deliver-settle-when-due`,
+  `-held-again-changes-nothing` and `-deliver-takes-over-only-when-told`.
+
 ### Tested, and probed
 
 - **`notes/test/notes_sync_test.c`**: a give driven by steps leaves its
@@ -65844,13 +65877,15 @@ pending.
 
 ### Open
 
-- **Still asked in turn within a step**: delivery to contacts
-  (`deliver_contacts`, with its relay pass), reconciliation, routing, a
-  group's lines, and a journal rebase (`rebase_missed`, only for a peer
-  whose streams it no longer holds). The host answers between steps but
-  not during these. Profiled across `live_contacts.py`, delivery's step
-  costs up to 9.2 s on a host and is the next; a group's lines, up to 3.2
-  s in `live_groups.py`.
+- **Still asked in turn within a step**: reconciliation, routing, a
+  group's lines (up to 3.2 s a host in `live_groups.py`, the next by the
+  profile), contact requests (`send_asked`), file references, and a
+  journal rebase (`rebase_missed`, only for a peer whose streams it no
+  longer holds). The host answers between steps but not during these.
+- **Between rounds everything still asks in turn**: a fresh note or
+  message, a file or text asked for, a share accepted -- `pull_journal`,
+  `deliver_contacts`, `fetch_files` and the rest. The loop does not
+  answer while one of those waits.
 - **A request handler that asks a peer synchronously** while a
   conversation awaits the same caller would read the conversation's
   answer and drop it; the conversation then fails at its deadline. None

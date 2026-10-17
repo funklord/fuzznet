@@ -11,6 +11,10 @@ host behind a NAT would -- and says hello to B1 from its serving socket.
     b  A writes a line to B: B1 refuses it, keeping none; B2 does not
        answer at the address it advertised; A asks B1 to relay it to B2,
        and B2 holds the line under A's root
+    c  A writes a second line while B's hosts are away, so the delivery a
+       fresh write makes at once reaches nobody; once they are back, A's own
+       round relays it -- the round's delivery, a conversation of its own
+       (sec 637), and not the one between rounds
 
 Against a daemon that relays nothing, phase b never delivers; against one
 whose relay sends the answer nowhere, it waits out each offer.
@@ -45,6 +49,9 @@ RELAYED_RE = re.compile(r"line\(s\) offered to 127\.0\.0\.1 through 127\.0\.0\.1
 # before them (sec 637).
 ROUND_END_RE = ROUND_DONE_RE
 LINE = "61" * 16
+LATER = "62" * 16
+NOBODY_RE = re.compile(r"line\(s\) offered to 127\.0\.0\.1: 0 delivered, 0 settled, 0 refused, "
+                       r"1 unanswered")
 PREKEY_HOST = slice(4, 68)
 
 
@@ -150,6 +157,20 @@ def main(argv):
 			if LINE not in reply:
 				raise failed("b: B2 holds %r under A's root" % reply)
 			print("livecheck: b: B1 refused the line and relayed it to B2, which holds it")
+
+			# c: a line written while B's hosts are away, relayed by A's round.
+			down("b1")
+			down("b2")
+			expect(socks["a"], "a", "add message %s out %s later" % (keys["b1"], LATER), "ok")
+			started["a"].wait_for(NOBODY_RE, "A's delivery reaching nobody")
+			turn("b1", "b1e")
+			turn("b2", "b2e")
+			d = turn("a", "a-e")
+			d.wait_for(RELAYED_RE, "A's round relaying the second line through B1")
+			reply = ask(socks["b2"], "list message " + keys["a"])
+			if LATER not in reply:
+				raise failed("c: B2 holds %r under A's root" % reply)
+			print("livecheck: c: A's own round relayed a line written while B was away")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

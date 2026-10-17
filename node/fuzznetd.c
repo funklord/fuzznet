@@ -7798,33 +7798,45 @@ struct relaying {
 	uint64_t now;
 };
 
-static int relay_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
-                     size_t reply_cap, size_t *reply_len)
+/* THE REQUEST SENT THROUGH THE RELAY: sealed for `target`, handed to
+ * `relay` from the target's own socket. `*msg` is the target's message
+ * its answer comes back under. */
+static int relay_send(struct pull_target *target, struct pull_target *relay,
+                      const uint8_t *request, size_t request_len, uint64_t now, uint32_t *msg)
 {
 	static uint8_t inner[FZN_UDP_DATAGRAM_MAX], outer[FZND_RELAY_HEAD_LEN + FZN_UDP_DATAGRAM_MAX];
-	struct relaying *r = (struct relaying *)ctx;
 	fzn_caller_t via;
-	uint32_t msg = 0, outer_msg = 0;
+	uint32_t outer_msg = 0;
 	size_t inner_len = 0;
 
-	if (fzn_caller_seal(&r->target->caller, request, request_len, r->now + 300u, &msg, inner,
+	if (fzn_caller_seal(&target->caller, request, request_len, now + 300u, msg, inner,
 	                    sizeof(inner), &inner_len)
 	    != FZN_CALLER_OK)
 		return 0;
 	outer[0] = FZND_RELAY_VERSION;
 	outer[1] = FZND_RELAY_TYPE;
-	memcpy(outer + 2, r->target->pairing.node, FZN_PUBKEY_LEN);
+	memcpy(outer + 2, target->pairing.node, FZN_PUBKEY_LEN);
 	memcpy(outer + FZND_RELAY_HEAD_LEN, inner, inner_len);
-	via = r->relay->caller;
-	via.fd = r->target->caller.fd;
-	if (fzn_caller_send(&via, outer, FZND_RELAY_HEAD_LEN + inner_len, r->now + 300u, &outer_msg)
+	via = relay->caller;
+	via.fd = target->caller.fd;
+	if (fzn_caller_send(&via, outer, FZND_RELAY_HEAD_LEN + inner_len, now + 300u, &outer_msg)
 	    != FZN_CALLER_OK)
 		return 0;
-	r->relay->caller.next_msg = via.next_msg;
+	relay->caller.next_msg = via.next_msg;
+	return 1;
+}
+
+static int relay_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
+                     size_t reply_cap, size_t *reply_len)
+{
+	struct relaying *r = (struct relaying *)ctx;
+	uint32_t msg = 0;
+
 	/* THE RELAY'S OWN ANSWER comes to this socket too, under its key, and
 	 * the target's caller passes it over as not its own. */
-	return fzn_caller_recv(&r->target->caller, msg, reply, reply_cap, reply_len, 3000u)
-	       == FZN_CALLER_OK;
+	return relay_send(r->target, r->relay, request, request_len, r->now, &msg)
+	       && fzn_caller_recv(&r->target->caller, msg, reply, reply_cap, reply_len, 3000u)
+	                  == FZN_CALLER_OK;
 }
 
 /* HELLO, sec 622, every FZND_HELLO_EVERY seconds: a NOP from the serving
@@ -7970,20 +7982,28 @@ static void lan_probe(void)
  * hosts in turn -- a received share's pairing first, then the hosts kept in
  * its manifest's order -- until one holds them. Each round, and at once
  * after a line is written. */
-static void deliver_contacts(uint64_t now)
+/* A LINE DELIVERED AND NOT SETTLED is offered again hourly, and at start,
+ * so the answer can say it settled (sec 615): 1 when this delivery is the
+ * hour's. */
+static int settle_due(uint64_t now)
 {
 	static uint64_t next_settle;
+	int settle = now >= next_settle || next_settle > now + FZND_SETTLE_EVERY;
+
+	if (settle)
+		next_settle = now + FZND_SETTLE_EVERY;
+	return settle;
+}
+
+static void deliver_contacts(uint64_t now)
+{
 	uint8_t done[FZND_CONTACT_TARGETS_MAX + FZN_NODE_RECEIVED_MAX][FZN_PUBKEY_LEN];
 	size_t ndone = 0, i, k;
 	int settle;
 
 	if (!messages_on)
 		return;
-	/* A LINE DELIVERED AND NOT SETTLED is offered again hourly, and at
-	 * start, so the answer can say it settled (sec 615). */
-	settle = now >= next_settle || next_settle > now + FZND_SETTLE_EVERY;
-	if (settle)
-		next_settle = now + FZND_SETTLE_EVERY;
+	settle = settle_due(now);
 	for (i = 0; i < nshares_in + ncontact_targets; i++) {
 		struct pull_target *pt = i < nshares_in ? &shares_in[i].pt
 		                                        : &contact_targets[i - nshares_in].pt;
@@ -8047,6 +8067,232 @@ static void deliver_contacts(uint64_t now)
 					break;
 			}
 		}
+	}
+}
+
+/* ---- DELIVERY, a conversation of the round, sec 636: one with each
+ * standing contact, every contact at once -- its hosts in turn, the next
+ * after a refusal or no answer, then through a relay each that did not
+ * answer, as `deliver_contacts` delivers in turn. Awaited on `asks`
+ * directly, since a relayed request is sent through one host's caller and
+ * answered on another's. */
+#define FZND_DELIVER_HOSTS 8u
+
+struct deliver_talk {
+	uint8_t contact[FZN_PUBKEY_LEN];
+	struct {
+		struct pull_target *pt;
+		const char *name;
+		long target; /* its place in `contact_targets`, or -1 for a sharer's */
+	} hosts[FZND_DELIVER_HOSTS];
+	size_t n_hosts, at, relay;
+	int relaying, settle;
+	uint64_t now;
+	struct meter m;
+	fzn_node_messages_delivering_t d;
+	fzn_messages_err_t err;
+	uint8_t request[FZN_NODE_MESSAGES_DELIVER_MAX];
+};
+static struct deliver_talk deliver_talks[FZND_CONTACT_TARGETS_MAX + FZN_NODE_RECEIVED_MAX];
+static size_t n_deliver_talks;
+
+static void deliver_host(struct deliver_talk *dt);
+static void deliver_relay_next(struct deliver_talk *dt);
+
+static void deliver_over(struct deliver_talk *dt)
+{
+	(void)dt;
+	if (round_pending)
+		round_pending--;
+}
+
+/* A HOST'S TURN OVER: said as `deliver_contacts` says it, and the next. */
+static void deliver_host_done(struct deliver_talk *dt)
+{
+	const fzn_node_messages_delivery_t *d = &dt->d.tally;
+
+	if (!dt->relaying) {
+		const char *host = dt->hosts[dt->at].name;
+		long ti = dt->hosts[dt->at].target;
+
+		if (dt->err != FZN_MESSAGES_OK)
+			say(FZN_ENTRY_WARNING, "messages/deliver", "delivering to %s: %s", host,
+			    fzn_messages_err_str(dt->err));
+		else if (d->sent)
+			say(FZN_ENTRY_INFO, "messages/deliver",
+			    "%zu line(s) offered to %s: %zu delivered, %zu settled, %zu refused, %zu "
+			    "unanswered",
+			    d->sent, host, d->delivered, d->settled, d->refused, d->unanswered);
+		if (ti >= 0)
+			contact_targets[ti].down = dt->err == FZN_MESSAGES_OK && d->unanswered;
+		/* ALL OF THEM TAKEN, OR NONE WAITING: this contact is done. A
+		 * refusal or no answer tries its next host. */
+		if (dt->err == FZN_MESSAGES_OK && !d->refused && !d->unanswered) {
+			deliver_over(dt);
+			return;
+		}
+		dt->at++;
+		if (dt->at < dt->n_hosts) {
+			deliver_host(dt);
+			return;
+		}
+		/* THROUGH A RELAY, sec 622: each host that did not answer asked
+		 * through another of the contact's that did. */
+		dt->relaying = 1;
+		dt->at = 0;
+		dt->relay = 0;
+		deliver_relay_next(dt);
+		return;
+	}
+	if (dt->err == FZN_MESSAGES_OK && d->sent) {
+		say(FZN_ENTRY_INFO, "messages/deliver",
+		    "%zu line(s) offered to %s through %s: %zu delivered, %zu settled, %zu refused, "
+		    "%zu unanswered",
+		    d->sent, dt->hosts[dt->at].name, dt->hosts[dt->relay].name, d->delivered,
+		    d->settled, d->refused, d->unanswered);
+		if (!d->unanswered && !d->refused) {
+			dt->at++;
+			dt->relay = 0;
+			deliver_relay_next(dt);
+			return;
+		}
+	}
+	dt->relay++;
+	deliver_relay_next(dt);
+}
+
+static void deliver_answered(void *ctx, const uint8_t *reply, size_t reply_len);
+
+/* THE REQUEST IN `dt->request` SENT, to the host or through the relay, and
+ * its answer awaited; one that cannot leave answered as none. */
+static void deliver_send(struct deliver_talk *dt, size_t len)
+{
+	struct pull_target *pt = dt->hosts[dt->at].pt;
+	uint32_t msg = 0;
+	int sent;
+
+	if (!dt->relaying) {
+		meter_asked(&dt->m, len);
+		sent = fzn_node_asks_send(&round_asks, &pt->caller, dt->request, len, dt->now + 300u,
+		                          3000u, deliver_answered, dt);
+	} else
+		sent = relay_send(pt, dt->hosts[dt->relay].pt, dt->request, len, dt->now, &msg)
+		       && fzn_node_asks_await(&round_asks, &pt->caller, msg, 3000u, deliver_answered,
+		                              dt);
+	if (!sent)
+		deliver_answered(dt, NULL, 0);
+}
+
+static void deliver_answered(void *ctx, const uint8_t *reply, size_t reply_len)
+{
+	struct deliver_talk *dt = ctx;
+	size_t len = 0;
+	int done = 0;
+
+	if (!dt->relaying)
+		meter_answer(&dt->m, reply, reply_len);
+	dt->err = fzn_node_messages_deliver_step(&dt->d, reply, reply_len, dt->request,
+	                                         sizeof(dt->request), &len, &done);
+	if (dt->err == FZN_MESSAGES_OK && !done) {
+		deliver_send(dt, len);
+		return;
+	}
+	deliver_host_done(dt);
+}
+
+/* THE DELIVERY TO `dt->hosts[dt->at]`, direct or through `dt->relay`,
+ * begun. */
+static void deliver_host(struct deliver_talk *dt)
+{
+	size_t len = 0;
+	int done = 0;
+
+	if (!dt->relaying) {
+		dt->m.pt = dt->hosts[dt->at].pt;
+		dt->m.silences = 0;
+		dt->m.li = link_of(&dt->hosts[dt->at].pt->caller.node);
+		dt->m.host = dt->hosts[dt->at].name;
+	}
+	dt->err = fzn_node_messages_deliver_begin(&dt->d, &node_messages, dt->contact, dt->settle,
+	                                          dt->request, sizeof(dt->request), &len, &done);
+	if (dt->err == FZN_MESSAGES_OK && !done) {
+		deliver_send(dt, len);
+		return;
+	}
+	deliver_host_done(dt);
+}
+
+/* THE NEXT HOST THAT DID NOT ANSWER, with the next of its contact's that
+ * did, as `deliver_contacts` pairs them; the contact over when none is
+ * left. */
+static void deliver_relay_next(struct deliver_talk *dt)
+{
+	for (; dt->at < dt->n_hosts; dt->at++, dt->relay = 0) {
+		long ti = dt->hosts[dt->at].target;
+
+		if (ti < 0 || !contact_targets[ti].down)
+			continue;
+		for (; dt->relay < dt->n_hosts; dt->relay++) {
+			long ri = dt->hosts[dt->relay].target;
+
+			if (dt->relay == dt->at || ri < 0 || contact_targets[ri].down)
+				continue;
+			deliver_host(dt);
+			return;
+		}
+	}
+	deliver_over(dt);
+}
+
+/* EVERY STANDING CONTACT DELIVERED TO, at once: its hosts in the order
+ * `deliver_contacts` tries them. */
+static void deliver_start(uint64_t now)
+{
+	size_t i, k;
+	int settle;
+
+	n_deliver_talks = 0;
+	if (!messages_on)
+		return;
+	settle = settle_due(now);
+	for (i = 0; i < nshares_in + ncontact_targets; i++) {
+		struct pull_target *pt = i < nshares_in ? &shares_in[i].pt
+		                                        : &contact_targets[i - nshares_in].pt;
+		const uint8_t *contact = i < nshares_in ? shares_in[i].sharer
+		                                        : contact_targets[i - nshares_in].contact;
+		const char *host = i < nshares_in ? shares_in[i].host
+		                                  : contact_targets[i - nshares_in].host;
+		struct deliver_talk *dt;
+
+		if (running_admin && !fzn_node_admin_contact_stands(running_admin, contact))
+			continue;
+		for (k = 0; k < n_deliver_talks
+		            && memcmp(deliver_talks[k].contact, contact, FZN_PUBKEY_LEN) != 0;
+		     k++)
+			;
+		if (k == n_deliver_talks) {
+			if (n_deliver_talks == sizeof(deliver_talks) / sizeof(deliver_talks[0]))
+				continue;
+			dt = &deliver_talks[n_deliver_talks++];
+			memcpy(dt->contact, contact, FZN_PUBKEY_LEN);
+			dt->n_hosts = 0;
+			dt->now = now;
+			dt->settle = settle;
+		}
+		dt = &deliver_talks[k];
+		if (dt->n_hosts < FZND_DELIVER_HOSTS) {
+			dt->hosts[dt->n_hosts].pt = pt;
+			dt->hosts[dt->n_hosts].name = host;
+			dt->hosts[dt->n_hosts++].target = i < nshares_in ? -1 : (long)(i - nshares_in);
+		}
+	}
+	for (k = 0; k < n_deliver_talks; k++) {
+		struct deliver_talk *dt = &deliver_talks[k];
+
+		dt->at = 0;
+		dt->relaying = 0;
+		round_pending++;
+		deliver_host(dt);
 	}
 }
 
@@ -10361,7 +10607,8 @@ int main(int argc, char **argv)
 				case ROUND_REFERENCES:
 					file_refs_round(pulls, npulls, round_now);
 					send_asked();
-					deliver_contacts(round_now);
+					/* Every contact at once, the round waiting. sec 636. */
+					deliver_start(round_now);
 					break;
 				case ROUND_END:
 					/* THE ROUND'S END IN ONE STEP, from the history pass on: the

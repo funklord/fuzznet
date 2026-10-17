@@ -14,19 +14,16 @@ void fzn_node_asks_init(fzn_node_asks_t *asks, uint8_t *reply, size_t reply_cap,
 	asks->clock_ms = clock_ms;
 }
 
-int fzn_node_asks_send(fzn_node_asks_t *asks, fzn_caller_t *caller, const uint8_t *request,
-                       size_t request_len, uint64_t expires_at, unsigned timeout_ms,
-                       fzn_node_answered_fn done, void *ctx)
+int fzn_node_asks_await(fzn_node_asks_t *asks, fzn_caller_t *caller, uint32_t msg,
+                        unsigned timeout_ms, fzn_node_answered_fn done, void *ctx)
 {
 	size_t i;
-	uint32_t msg = 0;
 
-	if (!asks || !caller || !request || !done || !asks->clock_ms || !asks->reply)
+	if (!asks || !caller || !done || !asks->clock_ms || !asks->reply)
 		return 0;
 	for (i = 0; i < FZN_NODE_ASKS_MAX && asks->slots[i].used; i++)
 		;
-	if (i == FZN_NODE_ASKS_MAX
-	    || fzn_caller_send(caller, request, request_len, expires_at, &msg) != FZN_CALLER_OK)
+	if (i == FZN_NODE_ASKS_MAX)
 		return 0;
 	asks->slots[i].caller = caller;
 	asks->slots[i].msg = msg;
@@ -35,6 +32,21 @@ int fzn_node_asks_send(fzn_node_asks_t *asks, fzn_caller_t *caller, const uint8_
 	asks->slots[i].ctx = ctx;
 	asks->slots[i].used = 1;
 	return 1;
+}
+
+int fzn_node_asks_send(fzn_node_asks_t *asks, fzn_caller_t *caller, const uint8_t *request,
+                       size_t request_len, uint64_t expires_at, unsigned timeout_ms,
+                       fzn_node_answered_fn done, void *ctx)
+{
+	uint32_t msg = 0;
+
+	/* ROOM FIRST: a request sent with nowhere to await its answer would be
+	 * answered to nobody. */
+	if (!asks || !caller || !request || !done || !asks->clock_ms || !asks->reply
+	    || fzn_node_asks_pending(asks) == FZN_NODE_ASKS_MAX
+	    || fzn_caller_send(caller, request, request_len, expires_at, &msg) != FZN_CALLER_OK)
+		return 0;
+	return fzn_node_asks_await(asks, caller, msg, timeout_ms, done, ctx);
 }
 
 size_t fzn_node_asks_fds(const fzn_node_asks_t *asks, int *fds, size_t cap)
