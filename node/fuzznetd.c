@@ -1398,6 +1398,7 @@ struct pull_target {
 enum {
 	ROUND_START = 1,
 	ROUND_JOURNAL,
+	ROUND_JOURNAL_SETTLE,
 	ROUND_RECONCILE,
 	ROUND_ROUTING,
 	ROUND_GRANTS,
@@ -3561,6 +3562,140 @@ static void pull_journal(struct pull_target *pulls, size_t npulls, uint64_t now)
 			    "%zu record(s) from %s, %zu refused, %zu stream(s) stopped at a fork",
 			    tally.learned, pulls[t].host, tally.refused, tally.forks);
 		push_one(&pulls[t], now);
+	}
+}
+#endif
+
+#ifdef FZN_RECORD_STORE_FILE_ON
+/* ---- THE JOURNAL'S CONVERSATIONS, sec 636: a pull and then a push with
+ * every peer at once, each pull and push steps (`record/exchange.h`).
+ * Pulls from two peers may plan the same records; the second to come is
+ * taken as held, so it costs only the bytes. Begun by `journal_start`,
+ * said by `journal_settle`, as `pull_journal` says them. */
+#define FZND_JOURNAL_MESSAGE_MAX                                                               \
+	(FZND_PULL_REPLY_MAX < FZN_EXCHANGE_PUSH_HEAD_LEN + 16u * (2u + FZN_RECORD_MAX_LEN)         \
+	         ? FZND_PULL_REPLY_MAX                                                             \
+	         : FZN_EXCHANGE_PUSH_HEAD_LEN + 16u * (2u + FZN_RECORD_MAX_LEN))
+_Static_assert(FZND_JOURNAL_MESSAGE_MAX >= FZN_EXCHANGE_REPLY_MIN,
+               "a journal message carries a record of the largest size");
+
+struct journal_talk {
+	fzn_node_talk_t talk;
+	struct meter m;
+	size_t t; /* the peer's place in the round's targets */
+	int pushing;
+	fzn_exchange_pulling_t pull;
+	fzn_exchange_pushing_t push;
+	fzn_exchange_err_t pull_err, push_err;
+	uint8_t message[FZND_JOURNAL_MESSAGE_MAX];
+};
+static struct journal_talk journal_talks[FZND_ROUND_TARGETS_MAX];
+static size_t n_journal_talks;
+
+/* THE PUSH, once the pull is over, as `pull_journal` pushes after it. */
+static int journal_push_begin(struct journal_talk *jt, uint8_t *request, size_t cap,
+                              size_t *request_len)
+{
+	jt->pushing = 1;
+	jt->push_err = fzn_exchange_push_begin(&jt->push, &node_journal.journal, &node_journal.store,
+	                                       request, cap, request_len);
+	if (jt->push_err != FZN_EXCHANGE_OK)
+		return 0;
+	meter_asked(&jt->m, *request_len);
+	return 1;
+}
+
+static int journal_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, uint8_t *request,
+                             size_t cap, size_t *request_len)
+{
+	struct journal_talk *jt = ctx;
+	int done = 0;
+
+	meter_answer(&jt->m, reply, reply_len);
+	if (!jt->pushing) {
+		jt->pull_err = fzn_exchange_pull_step(&jt->pull, reply, reply_len, request, cap,
+		                                      request_len, &done);
+		/* UNANSWERED: passed over for the rest of the round, sec 587, and
+		 * not pushed to. Any other end of the pull, the push. */
+		if (jt->pull_err == FZN_EXCHANGE_ERR_NO_ANSWER)
+			return 0;
+		if (jt->pull_err != FZN_EXCHANGE_OK || done)
+			return journal_push_begin(jt, request, cap, request_len);
+		meter_asked(&jt->m, *request_len);
+		return 1;
+	}
+	jt->push_err = fzn_exchange_push_step(&jt->push, reply, reply_len, request, cap, request_len,
+	                                      &done);
+	if (jt->push_err != FZN_EXCHANGE_OK || done)
+		return 0;
+	meter_asked(&jt->m, *request_len);
+	return 1;
+}
+
+static void journal_start(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	size_t t, len;
+
+	n_journal_talks = 0;
+	if (!journal_on)
+		return;
+	for (t = 0; t < npulls && n_journal_talks < FZND_ROUND_TARGETS_MAX; t++) {
+		struct journal_talk *jt = &journal_talks[n_journal_talks];
+
+		if (silent_peer(&pulls[t]))
+			continue;
+		jt->t = t;
+		jt->pushing = 0;
+		jt->push_err = FZN_EXCHANGE_OK;
+		memset(&jt->push.tally, 0, sizeof(jt->push.tally));
+		len = 0;
+		jt->pull_err = fzn_exchange_pull_begin(&jt->pull, &node_journal.journal,
+		                                       &node_journal.store, node_journal.sign,
+		                                       node_journal.hash, FZN_NODE_JOURNAL_WINDOW,
+		                                       jt->message, sizeof(jt->message), &len);
+		if (jt->pull_err != FZN_EXCHANGE_OK)
+			continue;
+		n_journal_talks++;
+		jt->pull_err = FZN_EXCHANGE_ERR_NO_ANSWER;
+		(void)talk_start(&jt->talk, &jt->m, &pulls[t], now, journal_talk_step, jt, jt->message,
+		                 sizeof(jt->message), len);
+	}
+}
+
+/* WHAT THE JOURNAL'S CONVERSATIONS BROUGHT, said peer by peer; a peer whose
+ * streams it no longer holds rebased, in turn. */
+static void journal_settle(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	size_t i;
+
+	for (i = 0; i < n_journal_talks; i++) {
+		const struct journal_talk *jt = &journal_talks[i];
+		const fzn_exchange_tally_t *tally = &jt->pull.tally;
+		const fzn_exchange_push_tally_t *pushed = &jt->push.tally;
+		const char *host = pulls[jt->t].host;
+
+		if (jt->pull_err == FZN_EXCHANGE_ERR_NO_ANSWER) {
+			/* PASSED OVER FOR THE REST OF THE ROUND, sec 587. */
+			say(FZN_ENTRY_WARNING, "journal", "%s did not answer; passed over this round",
+			    host);
+			continue;
+		}
+		if (jt->pull_err != FZN_EXCHANGE_OK)
+			say(FZN_ENTRY_WARNING, "journal", "the journal from %s: %s", host,
+			    fzn_exchange_err_str(jt->pull_err));
+		else if (tally->missing)
+			rebase_missed(pulls, npulls, jt->t, now, tally);
+		else if (tally->learned || tally->refused || tally->forks)
+			say(tally->forks ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "journal",
+			    "%zu record(s) from %s, %zu refused, %zu stream(s) stopped at a fork",
+			    tally->learned, host, tally->refused, tally->forks);
+		if (jt->push_err != FZN_EXCHANGE_OK)
+			say(FZN_ENTRY_WARNING, "journal", "pushing to %s: %s", host,
+			    fzn_exchange_err_str(jt->push_err));
+		else if (pushed->taken || pushed->refused || pushed->forks)
+			say(pushed->refused || pushed->forks ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "journal",
+			    "%zu record(s) pushed to %s, %zu refused, %zu forked", pushed->taken, host,
+			    pushed->refused, pushed->forks);
 	}
 }
 #endif
@@ -9810,7 +9945,7 @@ int main(int argc, char **argv)
 	 * one reassembling requests, since the loop is what expires a request
 	 * whose sender stopped part way. sec 447. */
 	if (npulls || notes_on || state.reassembly) {
-		uint64_t next_pull = 0, last_fresh_round = 0, round_now = 0;
+		uint64_t next_pull = 0, last_fresh_round = 0, round_now = 0, round_began_ms = 0;
 		int round_step = 0;
 		/* THE COMMAND LINE'S PEERS; a round adds the siblings after them. */
 		size_t npulls_base = npulls;
@@ -9922,6 +10057,7 @@ int main(int argc, char **argv)
 			if (!round_step && (now >= next_pull || next_pull > now + FZND_PULL_EVERY)) {
 				round_step = ROUND_START;
 				round_now = now;
+				round_began_ms = mono_ms();
 			}
 			/* THE ROUND A STEP AT A TIME, sec 636: one step each pass of
 			 * this loop, and between steps the loop answers whoever asked
@@ -9957,7 +10093,13 @@ int main(int argc, char **argv)
 #ifdef FZN_RECORD_STORE_FILE_ON
 					follow_estate(identity.pubkey, &state, running_roots);
 					(void)messages_upgrade();
-					pull_journal(pulls, npulls, round_now);
+					/* Every peer at once, the round waiting. sec 636. */
+					journal_start(pulls, npulls, round_now);
+#endif
+					break;
+				case ROUND_JOURNAL_SETTLE:
+#ifdef FZN_RECORD_STORE_FILE_ON
+					journal_settle(pulls, npulls, round_now);
 					apply_journal();
 #endif
 					break;
@@ -10082,6 +10224,11 @@ int main(int argc, char **argv)
 					 * round rather than the next. */
 					log_round();
 					next_pull = wall_clock() + FZND_PULL_EVERY;
+					/* THE ROUND'S END, said: a round answers between its
+					 * steps, so what it produced is read once this is
+					 * logged, not at a marker on the way (sec 637). */
+					say(FZN_ENTRY_DEBUG, "node/round", "a round's end, %llu ms",
+					    (unsigned long long)(mono_ms() - round_began_ms));
 					break;
 				}
 				round_step = round_step == ROUND_END ? 0 : round_step + 1;

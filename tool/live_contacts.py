@@ -43,7 +43,7 @@ import time
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from live_rejoin import command, daemon, expect  # noqa: E402
+from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 
@@ -53,7 +53,9 @@ live_trim.DEADLINE = time.monotonic() + 420.0
 
 OFFERED_RE = re.compile(r"(\d+) line\(s\) offered to 127\.0\.0\.1: (\d+) delivered, "
                         r"(\d+) settled, (\d+) refused, (\d+) unanswered")
-ROUND_END_RE = re.compile(r"history pass: ")
+# A ROUND'S OWN END, after its fetches and log pass: "history pass" comes
+# before them (sec 637).
+ROUND_END_RE = ROUND_DONE_RE
 PASS_RE = re.compile(r"contact pass: (\d+) contact\(s\) asked, (\d+) kept from members, "
                      r"(\d+) paired, (\d+) host\(s\) to deliver to")
 LINE_1 = "41" * 16

@@ -34,13 +34,15 @@ import time
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from live_rejoin import command, daemon, expect  # noqa: E402
+from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 
 live_trim.DEADLINE = time.monotonic() + 420.0
 
-ROUND_END_RE = re.compile(r"history pass: ")
+# A ROUND'S OWN END, after its fetches and log pass: "history pass" comes
+# before them (sec 637).
+ROUND_END_RE = ROUND_DONE_RE
 WHOLE_RE = re.compile(r"file [0-9a-f]{8}, (\d+) bytes, whole from (\d+) peer\(s\)")
 PREKEY_HOST = slice(4, 68)
 PAYLOAD_LEN = 20000

@@ -36,12 +36,14 @@ import tempfile
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from live_rejoin import command, daemon, expect  # noqa: E402
+from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 
 PASS_RE = re.compile(r"received pass: (\d+) share\(s\), (\d+) of removed contacts passed over")
 PULLED_RE = re.compile(r"(\d+) shared note record\(s\) from 127\.0\.0\.1")
-ROUND_END_RE = re.compile(r"history pass: ")
+# A ROUND'S OWN END, after its fetches and log pass: "history pass" comes
+# before them (sec 637).
+ROUND_END_RE = ROUND_DONE_RE
 GIVEN_UP_RE = re.compile(r"(\d+) line\(s\) handed over or still being sent for a contact "
                          r"that no longer stands")
 LINE_ID = "02" + "00" * 15

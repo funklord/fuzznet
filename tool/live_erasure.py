@@ -36,14 +36,16 @@ import time
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import live_trim  # noqa: E402
-from live_rejoin import COUNTED_RE, OWN_ARCHIVED_RE, command, daemon, expect  # noqa: E402
+from live_rejoin import ROUND_DONE_RE, COUNTED_RE, OWN_ARCHIVED_RE, command, daemon, expect  # noqa: E402
 from live_trim import failed  # noqa: E402
 
 # SIX HOSTS GOING ROUND IN TURN take longer than the 240 s the other checks
 # are held to; the bound is still one deadline over the whole run.
 live_trim.DEADLINE = time.monotonic() + 480.0
 
-ROUND_END_RE = re.compile(r"history pass: ")
+# A ROUND'S OWN END, after its fetches and log pass: "history pass" comes
+# before them (sec 637).
+ROUND_END_RE = ROUND_DONE_RE
 CUT_RE = re.compile(r"(\d+) archived segment\(s\) cut into 4 \+ 2 pieces over 6 host\(s\)")
 HOSTS = ("a", "b", "c", "d", "e", "f")
 MEMBERS = HOSTS[1:]

@@ -36,10 +36,12 @@ import time
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from live_rejoin import CAPABILITY, PACKED_RE, command, daemon, expect  # noqa: E402
+from live_rejoin import ROUND_DONE_RE, CAPABILITY, PACKED_RE, command, daemon, expect  # noqa: E402
 from live_trim import failed, left  # noqa: E402
 
-ROUND_END_RE = re.compile(r"history pass: ")
+# A ROUND'S OWN END, after its fetches and log pass: "history pass" comes
+# before them (sec 637).
+ROUND_END_RE = ROUND_DONE_RE
 ARCHIVED_RE = re.compile(r"(\d+) segment\(s\) of fuzznetd archived to ")
 PRUNED_RE = re.compile(r"(\d+) archived segment\(s\) of fuzznetd pruned")
 CHECKED_RE = re.compile(r"fuzznetd's log: (\d+) packed segment\(s\), the chain holds")

@@ -65523,8 +65523,8 @@ none of these waits the old way**, so the gain arrives at the end.
    callback.
 4. **The remaining library exchanges**, one module at a time.
 5. **The round itself** a sequence the loop advances, its end what the
-   live checks wait on, so a round's "history pass" still means the
-   round's work is done.
+   live checks wait on -- the round's own "a round's end" marker since sec
+   637, "history pass" never having meant it.
 
 **The order changed, measured**: the round as steps came first, then the
 library exchanges where the profile said a round's time goes -- sec 637.
@@ -65680,8 +65680,12 @@ exchanges a timeout, peer after peer.
   contact requests and devices, a share accepted, a fresh note or
   message -- waits for the round to end, as it did when the round was
   one piece.
-- **"history pass" still ends a round**: the history pass and everything
-  after it are one step, so the live checks' reading of it holds.
+- **~~"history pass" still ends a round~~ -- it never did**, and this
+  bullet said so wrongly: in the round's last step, as in the round in one
+  piece, the history pass comes *before* the texts' and files' fetches and
+  the log pass. A live check waiting on it could read a fetch's outcome
+  before the fetch. The round now says its own end (*A round answers
+  between its steps*, below).
 
 Measured by the live script's own wait, members and notes as
 conversations gave 28.8 to 32.1 s; that method is the one corrected above,
@@ -65742,6 +65746,58 @@ The passing over changes how long a round takes and nothing it does, so
 no test can see it gone; the table is what holds it, and a sabotage entry
 would survive by construction.
 
+### The journal as conversations
+
+The profile's last step over a second, up to 6.5 s a host:
+`ROUND_JOURNAL` now starts a pull and then a push with every peer at once,
+one conversation each, from the steps of sec 636. `ROUND_JOURNAL_SETTLE`
+says each peer's as `pull_journal` said them, rebases a peer that no
+longer holds a stream's start (in turn, as before), and applies. A pull
+left unanswered marks its peer silent and is not pushed to, as sec 587
+has it; any other end of the pull still pushes. **Pulls from two peers
+may plan the same records**: the second to arrive is admitted as held
+(`FZN_JOURNAL_ERR_DUPLICATE`), so it costs bytes and no refusal. Between
+rounds `pull_journal` still asks in turn.
+
+**Measured, three runs: 4.0, 4.0, 4.0 s**, and phase a paired the five in
+three cycles where every daemon before took four -- so the 4.0 is the
+third cycle's, the last there was.
+
+A control with the push left out (`journal_talk_step` ending at the pull)
+fails `live_catalog.py`'s phase b -- A never learns B's name, which only
+B's push carries.
+
+### A round answers between its steps, and the live checks read that
+
+Two `make livecheck` runs each failed once, differently, after the
+journal conversations, and neither failed alone. Both were the live
+checks reading a round before it had finished, which a round in one
+piece had hidden by answering nobody until its end:
+
+- **`live_rejoin.py` phase b** waited for reconciliation's witness count
+  and then asked for a note, which a later step indexes: "list note top
+  answered ... without away-note", at load 153.
+- **`live_groups.py` phase f** -- "C fetched None of B's file" -- waited
+  on "history pass", which precedes the files' fetch in the same step;
+  its next turn then restarted B under C's fetch and C under its own.
+  That order is older than the steps, so this phase had been racing all
+  along; reading packed segments promptly (*Silence carried*) made the
+  race likelier. Its failure now prints what C said of files and
+  delivery, since it has not been reproduced alone (four passes).
+
+So **the round says its own end** -- `node/round`, "a round's end, N ms",
+logged after the log pass -- and **every live check that took "history
+pass" for a round's end waits on that** instead (`ROUND_DONE_RE`, in
+`tool/live_rejoin.py`, taken by the ten scripts that waited on the old
+marker). **A check that waits on a marker inside a round and then asks
+for what a later step makes waits for that round's end** first:
+`daemon.settled(match)`, the first round's end logged after the matched
+line. Read across all 72 waits on another marker, two sites needed it
+besides `live_rejoin.py`'s phases a, b, c and e: `live_siblings.py`
+phase b, whose check that nothing was fetched would otherwise run before
+the fetch was tried. The rest ask for what their marker's own step made,
+or what the peer took while serving, or read only the log.
+
 ### Tested, and probed
 
 - **`notes/test/notes_sync_test.c`**: a give driven by steps leaves its
@@ -65769,10 +65825,12 @@ pending.
 
 ### Open
 
-- **Next by the profile**: the journal's pull and push (steps since sec
-  636), then reconciliation. A contact's own exchange (`contact_exchange`)
-  and a group's lines are still asked in turn; neither runs in
-  `live_erasure.py`, which has no contacts and no groups.
+- **Still asked in turn within a step**: reconciliation, routing, a
+  contact's own exchange (`contact_exchange`), a group's lines, and a
+  journal rebase (`rebase_missed`, only for a peer whose streams it no
+  longer holds). The host answers between steps but not during these.
+  None costs a measured second in `live_erasure.py`, which has no
+  contacts and no groups.
 - **A request handler that asks a peer synchronously** while a
   conversation awaits the same caller would read the conversation's
   answer and drop it; the conversation then fails at its deadline. None

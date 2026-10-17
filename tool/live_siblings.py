@@ -54,13 +54,15 @@ import time
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from live_rejoin import (COUNTED_RE, OWN_ARCHIVED_RE, RECONCILE_RE,  # noqa: E402
+from live_rejoin import (ROUND_DONE_RE, COUNTED_RE, OWN_ARCHIVED_RE, RECONCILE_RE,  # noqa: E402
                          command, daemon, expect)
 from live_trim import ask, failed  # noqa: E402
 
 TAKEN_RE = re.compile(r"(\d+) sibling\(s\) paired, (\d+) pairing\(s\) taken")
 WHOLE_RE = re.compile(r"file [0-9a-f]{8}, (\d+) bytes, whole from (\d+) peer\(s\)")
-ROUND_END_RE = re.compile(r"history pass: ")
+# A ROUND'S OWN END, after its fetches and log pass: "history pass" comes
+# before them (sec 637).
+ROUND_END_RE = ROUND_DONE_RE
 ROUNDS = 6
 PAYLOAD_LEN = 200000
 
@@ -149,8 +151,12 @@ def main(argv):
 					c.wait_for(RECONCILE_RE, "C's reconcile pass")
 					b = daemon(run, "bb", dirs["b"], socks["b"], extra=b_args)
 					try:
-						b.wait_for(RECONCILE_RE, "B's reconcile pass")
+						rec = b.wait_for(RECONCILE_RE, "B's reconcile pass")
 						expect(socks["b"], "b", "fetch file " + ref, "ok")
+						# ITS ROUND OVER FIRST, whose last step fetches what
+						# was asked meanwhile (sec 637): what B holds is then
+						# what an attempt with no address for C could get.
+						b.settled(rec)
 						d_round = b.log().count("reconcile pass")
 						state = held(socks["b"], "b", root)
 						if state == "whole" or WHOLE_RE.search(b.log()):

@@ -41,14 +41,16 @@ import time
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from live_rejoin import command, daemon, expect  # noqa: E402
+from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 
 live_trim.DEADLINE = time.monotonic() + 480.0
 
 KEPT_RE = re.compile(r"a contact request from ([0-9a-f]{16}), waiting")
-ROUND_END_RE = re.compile(r"history pass: ")
+# A ROUND'S OWN END, after its fetches and log pass: "history pass" comes
+# before them (sec 637).
+ROUND_END_RE = ROUND_DONE_RE
 PREKEY_HOST = slice(4, 68)
 ROUNDS = 4
 PAYLOAD_LEN = 30000
@@ -244,7 +246,12 @@ def main(argv):
 					break
 				expect(socks["c"], "c", "fetch file " + ref, "ok")
 			if not whole or whole.groups() != (str(PAYLOAD_LEN), "1"):
-				raise failed("f: C fetched %r of B's file" % (whole.groups() if whole else None,))
+				# WHAT C SAID OF FILES AND DELIVERY, since this phase has
+				# failed once in a full livecheck and not since (sec 637).
+				said = [l for l in started["c"].log().splitlines()
+				        if re.search(r"files|deliver|offered to|unanswered|relay", l)][-12:]
+				raise failed("f: C fetched %r of B's file%s" % (
+					whole.groups() if whole else None, "".join("\n  " + l for l in said)))
 			print("livecheck: f: B granted a file to the group, and C fetched it whole from B")
 
 			# b: B made an admin, a majority of one.

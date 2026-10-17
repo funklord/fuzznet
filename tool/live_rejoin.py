@@ -104,6 +104,8 @@ COUNTED_RE = re.compile(r"pieces: (\d+) cut fossil\(s\), (\d+) held by too few h
                         r"gone hosts")
 PIECES_RE = re.compile(r"pieces of archived segments: (\d+) taken, (\d+) pushed, (\d+) "
                        r"refused there")
+# A ROUND'S END, said by the round itself (sec 637): `daemon.settled`.
+ROUND_DONE_RE = re.compile(r"node/round - - a round's end, \d+ ms")
 MISSING_RE = re.compile(r"claims no longer hold what this node lacks|would not move")
 
 
@@ -214,6 +216,30 @@ class daemon:
 					self.tag, what, within, "".join("\n  " + l for l in said)))
 			time.sleep(0.2)
 
+	def settled(self, after, within=60.0):
+		"""THE END OF THE ROUND that logged `after`, a match `wait_for`
+		returned: the first "a round's end" logged after it. A round answers
+		between its steps (sec 637), so what it produces -- notes indexed,
+		lines filed, a fetch made -- is asked for once its round has ended,
+		not at a marker it logged on the way."""
+		text = after.string
+		eol = text.find("\n", after.start())
+		line = text[text.rfind("\n", 0, after.start()) + 1:eol if eol >= 0 else len(text)]
+		until = time.monotonic() + within
+		while True:
+			text = self.log()
+			at = text.find(line)
+			m = ROUND_DONE_RE.search(text, at) if at >= 0 else None
+			if m:
+				return m
+			if self.proc.poll() is not None:
+				raise failed("%s: the daemon exited before its round's end:\n%s"
+				             % (self.tag, self.stderr()))
+			if left() < 0.1 or time.monotonic() > until:
+				raise failed("%s: the round that logged %r did not end within %d s"
+				             % (self.tag, line[:80], within))
+			time.sleep(0.2)
+
 	def stop(self):
 		stop_process(self.proc, self.wrapped)
 		self.err.close()
@@ -312,7 +338,7 @@ def main(argv):
 				b = daemon(run, "b1", b_dir, b_sock, fake=fake,
 				           extra=["--root-at", "127.0.0.1", port])
 				try:
-					b.wait_for(RECONCILE_RE, "reconcile pass")
+					b.settled(b.wait_for(RECONCILE_RE, "reconcile pass"))
 					expect(b_sock, "a", "get setting estate x/old", "ok root 1")
 				finally:
 					b.stop()
@@ -353,6 +379,7 @@ def main(argv):
 					if moved.group(1) != "3":
 						raise failed("b: B moved %s stream(s) up; A's estate, notes and "
 						             "conversations streams were cut below it" % moved.group(1))
+					b.settled(witnessed)
 					listed(b_sock, "b")
 					line_reads(b_sock, "b")
 				finally:
@@ -365,6 +392,7 @@ def main(argv):
 				b = daemon(run, "b3", b_dir, b_sock, extra=["--root-at", "127.0.0.1", port])
 				try:
 					rec = b.wait_for(RECONCILE_RE, "reconcile pass")
+					b.settled(rec)
 					if MISSING_RE.search(b.log()):
 						raise failed("c: B's pull after the move still missed a stream")
 					for key in ("x/old", "x/away", "x/now"):
@@ -423,6 +451,7 @@ def main(argv):
 						raise failed("e: E filed %s line(s) and passed %s month(s) over; under "
 						             "its drop policy A's old month is not to be fetched"
 						             % (lines.group(2), lines.group(3)))
+					e.settled(lines)
 					reply = ask(e_sock, "list message " + CONTACT)
 					if not reply.startswith("ok 0 0"):
 						raise failed("e: list message answered %r, a line E's rules would "
