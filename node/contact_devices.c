@@ -224,24 +224,40 @@ _Static_assert(FZN_CONTACT_DEVICES_LIST_HEAD_LEN + 2u + FZN_CONTACT_DEVICE_MAX
                        <= FZN_CONTACT_DEVICES_REPLY_MAX,
                "the largest entry does not fit an empty page");
 
+int fzn_contact_devices_offer_request(const fzn_contact_device_t *d, uint8_t *request,
+                                      size_t cap, size_t *request_len)
+{
+	size_t len = 0;
+
+	if (!d || !request || cap < 2u || !request_len
+	    || fzn_contact_device_encode(d, request + 2, cap - 2u, &len) != FZN_CONTACT_DEVICE_OK)
+		return 0;
+	request[0] = FZN_CONTACT_DEVICES_VERSION;
+	request[1] = FZN_CONTACT_DEVICES_OFFER;
+	*request_len = 2u + len;
+	return 1;
+}
+
+int fzn_contact_devices_offer_reply(const uint8_t *reply, size_t reply_len)
+{
+	if (!reply || reply_len != FZN_CONTACT_DEVICES_TAKEN_LEN
+	    || reply[0] != FZN_CONTACT_DEVICES_VERSION || reply[1] != FZN_CONTACT_DEVICES_TAKEN
+	    || reply[2] > 1u)
+		return -1;
+	return reply[2];
+}
+
 int fzn_contact_devices_offer(const fzn_contact_device_t *d, fzn_contact_devices_ask_t ask,
                               void *ctx)
 {
-	static uint8_t request[2u + FZN_CONTACT_DEVICE_MAX];
+	static uint8_t request[FZN_CONTACT_DEVICES_OFFER_MAX];
 	uint8_t reply[FZN_CONTACT_DEVICES_TAKEN_LEN + 8u];
 	size_t len = 0, reply_len = 0;
 
-	if (!d || !ask
-	    || fzn_contact_device_encode(d, request + 2, sizeof(request) - 2u, &len)
-	               != FZN_CONTACT_DEVICE_OK)
+	if (!ask || !fzn_contact_devices_offer_request(d, request, sizeof(request), &len)
+	    || !ask(ctx, request, len, reply, sizeof(reply), &reply_len))
 		return -1;
-	request[0] = FZN_CONTACT_DEVICES_VERSION;
-	request[1] = FZN_CONTACT_DEVICES_OFFER;
-	if (!ask(ctx, request, 2u + len, reply, sizeof(reply), &reply_len)
-	    || reply_len != FZN_CONTACT_DEVICES_TAKEN_LEN || reply[0] != FZN_CONTACT_DEVICES_VERSION
-	    || reply[1] != FZN_CONTACT_DEVICES_TAKEN || reply[2] > 1u)
-		return -1;
-	return reply[2];
+	return fzn_contact_devices_offer_reply(reply, reply_len);
 }
 
 size_t fzn_contact_devices_offer_answer(const uint8_t *request, size_t request_len,

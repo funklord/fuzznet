@@ -1507,6 +1507,7 @@ static void round_talk_over(void *ctx)
  * in words said. */
 struct meter {
 	const struct pull_target *pt;
+	int silences; /* a round target, passed over once silent; a contact's host is not */
 	size_t li;
 	const char *host;
 	uint64_t began;
@@ -1521,7 +1522,7 @@ static void meter_answer(struct meter *m, const uint8_t *reply, size_t reply_len
 	link_answered(m->li, m->began, reply_len, !reply);
 	if (reply)
 		said_refusal(m->host, reply, reply_len);
-	else
+	else if (m->pt && m->silences)
 		silent_mark(m->pt);
 }
 
@@ -1544,24 +1545,35 @@ static struct round_talk round_talks[FZND_ROUND_TARGETS_MAX];
 static size_t n_round_talks;
 
 /* A CONVERSATION WITH `pt` STARTED, its first request already written:
- * awaited by the round, or, when it will not leave, counted lost. 1 when
- * awaited. */
-static int talk_start(fzn_node_talk_t *talk, struct meter *m, const struct pull_target *pt,
-                      uint64_t now, fzn_node_talk_step_fn step, void *ctx, uint8_t *request,
-                      size_t cap, size_t len)
+ * awaited by the round, `over` told when it ends, or, when it will not
+ * leave, counted lost. `silences`: `pt` is a round target, passed over
+ * once silent. 1 when awaited. */
+static int talk_start_over(fzn_node_talk_t *talk, struct meter *m, const struct pull_target *pt,
+                           uint64_t now, fzn_node_talk_step_fn step, fzn_node_talk_over_fn over,
+                           int silences, void *ctx, uint8_t *request, size_t cap, size_t len)
 {
 	m->pt = pt;
+	m->silences = silences;
 	m->li = link_of(&pt->caller.node);
 	m->host = pt->host;
 	meter_asked(m, len);
 	if (fzn_node_talk_start(talk, &round_asks, (fzn_caller_t *)&pt->caller, now + 300u, 3000u,
-	                        step, round_talk_over, ctx, request, cap, len)) {
+	                        step, over, ctx, request, cap, len)) {
 		round_pending++;
 		return 1;
 	}
 	link_answered(m->li, m->began, 0, 1);
-	silent_mark(pt);
+	if (m->silences)
+		silent_mark(pt);
 	return 0;
+}
+
+/* A ROUND TARGET'S CONVERSATION: the round told when it is over. */
+static int talk_start(fzn_node_talk_t *talk, struct meter *m, const struct pull_target *pt,
+                      uint64_t now, fzn_node_talk_step_fn step, void *ctx, uint8_t *request,
+                      size_t cap, size_t len)
+{
+	return talk_start_over(talk, m, pt, now, step, round_talk_over, 1, ctx, request, cap, len);
 }
 
 /* A MEMBERS PAGE'S ANSWER, or none: metered, and the pull carried on. */
@@ -3037,22 +3049,23 @@ static void routing_derive(fzn_routing_t *out)
  * the user whose root is `root` when it verifies against that root and is
  * newer than the one held: this estate's, from a member (sec 611), or a
  * contact's, from one of its hosts (sec 614). 1 when one was taken. */
-static int routing_fetch(struct peer_asking *asking, const uint8_t root[FZN_PUBKEY_LEN],
-                         uint64_t now)
+/* A `get routing` ANSWER from `host`, `len` bytes of `reply` (which has a
+ * byte to spare): the manifest kept when it verifies for `root`. 1 when
+ * kept. */
+static int routing_take(const char *host, uint8_t *reply, size_t len,
+                        const uint8_t root[FZN_PUBKEY_LEN], uint64_t now)
 {
-	static uint8_t reply[FZND_PULL_REPLY_MAX];
 	static uint8_t bytes[FZN_ROUTING_MAX];
-	size_t len = 0, n;
+	size_t n;
 	fzn_routing_t got;
 
-	if (!routing_hash || !routing_sign || !node_apply.store
-	    || !peer_ask(asking, (const uint8_t *)"get routing", 11u, reply, sizeof(reply), &len)
-	    || len < 4u || memcmp(reply, "ok ", 3u) != 0)
+	if (!routing_hash || !routing_sign || !node_apply.store || len < 4u
+	    || memcmp(reply, "ok ", 3u) != 0)
 		return 0;
 	while (len && (reply[len - 1u] == '\n' || reply[len - 1u] == '\r'))
 		len--;
 	n = (len - 3u) / 2u;
-	if ((len - 3u) % 2u || n > sizeof(bytes) || len >= sizeof(reply))
+	if ((len - 3u) % 2u || n > sizeof(bytes))
 		return 0;
 	reply[len] = '\0';
 	if (!hex_bytes((const char *)reply + 3, bytes, n)
@@ -3063,9 +3076,22 @@ static int routing_fetch(struct peer_asking *asking, const uint8_t root[FZN_PUBK
 	    || fzn_routing_keep(node_apply.store, root, &got) != FZN_ROUTING_OK)
 		return 0;
 	say(FZN_ENTRY_INFO, "routing", "routing manifest taken from %s: generation %llu, %zu host(s)",
-	    asking->host ? asking->host : "a peer", (unsigned long long)got.generation, got.n);
+	    host ? host : "a peer", (unsigned long long)got.generation, got.n);
 	publish("routing", NULL);
 	return 1;
+}
+
+static int routing_fetch(struct peer_asking *asking, const uint8_t root[FZN_PUBKEY_LEN],
+                         uint64_t now)
+{
+	static uint8_t reply[FZND_PULL_REPLY_MAX];
+	size_t len = 0;
+
+	if (!routing_hash || !routing_sign || !node_apply.store
+	    || !peer_ask(asking, (const uint8_t *)"get routing", 11u, reply, sizeof(reply) - 1u,
+	                 &len))
+		return 0;
+	return routing_take(asking->host, reply, len, root, now);
 }
 
 /* EVERY PEER OF THE ESTATE THAT ANSWERED THIS ROUND, HEARD, secs 601 and
@@ -4998,12 +5024,6 @@ static size_t contact_devices_remote(void *ctx, const uint8_t *owner, const uint
 	                                            reply, reply_cap);
 }
 
-static int contact_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
-                       size_t reply_cap, size_t *reply_len)
-{
-	return peer_ask(ctx, request, request_len, reply, reply_cap, reply_len);
-}
-
 /* A HOST A CONTACT NAMED: kept when it is the contact's. One with no
  * address that is the host asked is reached where it was asked. */
 struct hosts_taking {
@@ -5038,31 +5058,6 @@ static void take_kept(void *ctx, const fzn_contact_device_t *d)
 	if (running_admin && fzn_node_admin_contact_stands(running_admin, d->owner)
 	    && keep_device(d->owner, d))
 		(*kept)++;
-}
-
-/* ONE CONTACT ASKED, through `pt`: this estate's devices offered, then its
- * hosts and its manifest asked. 0 when it did not answer. */
-static int contact_exchange(struct pull_target *pt, const char *host, uint16_t port,
-                            const uint8_t contact[FZN_PUBKEY_LEN], uint64_t now)
-{
-	static fzn_contact_device_t own[FZN_NODE_SIBLINGS_MAX];
-	struct peer_asking asking = { &pt->caller, now, host };
-	struct hosts_taking ht = { contact, pt->pairing.node, host, port, 0 };
-	size_t n = estate_devices(own, FZN_NODE_SIBLINGS_MAX, 0), i, count = 0;
-
-	for (i = 0; i < n; i++)
-		if (fzn_contact_devices_offer(&own[i], contact_ask, &asking) < 0)
-			return 0;
-	if (!fzn_contact_devices_query(FZN_CONTACT_DEVICES_HOSTS, contact_ask, &asking, take_host,
-	                               &ht, &count))
-		return 0;
-	(void)routing_fetch(&asking, contact, now);
-	/* A CONTACT THAT ANSWERS has answered any request to it, sec 619. */
-	(void)fzn_contact_asked_answered(node_apply.store, contact);
-	if (ht.kept)
-		say(FZN_ENTRY_DEBUG, "contact/devices", "%zu device(s) offered to %s, %zu host(s) kept",
-		    n, host, ht.kept);
-	return 1;
 }
 
 /* THE CONTACT HOSTS THIS NODE DELIVERS TO, rebuilt: each kept device with
@@ -5859,16 +5854,160 @@ static int devices_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, 
 	return 1;
 }
 
+/* ---- A CONTACT'S EXCHANGE, a conversation of the round, sec 636: this
+ * estate's devices offered, the contact's hosts asked, its manifest
+ * fetched, as the round once asked them in turn -- with every contact at once,
+ * and through its next host when one does not answer, as the round in
+ * turn tried them. */
+#define FZND_CONTACT_HOSTS_TRIED 8u
+
+struct contact_talk {
+	fzn_node_talk_t talk;
+	struct meter m;
+	uint8_t contact[FZN_PUBKEY_LEN];
+	struct pull_target *hosts[FZND_CONTACT_HOSTS_TRIED];
+	const char *names[FZND_CONTACT_HOSTS_TRIED];
+	size_t n_hosts, at;
+	int phase, ok;
+	size_t offered;
+	fzn_contact_devices_querying_t q;
+	struct hosts_taking ht;
+	uint64_t now;
+	uint8_t request[FZN_CONTACT_DEVICES_OFFER_MAX];
+};
+enum { CONTACT_OFFER = 1, CONTACT_QUERY = 2, CONTACT_ROUTING = 3 };
+static struct contact_talk contact_talks[FZND_CONTACT_TARGETS_MAX + FZN_NODE_RECEIVED_MAX];
+static size_t n_contact_talks;
+static fzn_contact_device_t contact_own[FZN_NODE_SIBLINGS_MAX];
+static size_t n_contact_own;
+
+/* THE NEXT REQUEST of the exchange with the host at `ct->at`, from its
+ * phase on: an offer of the next own device, the hosts query, the manifest.
+ * 0 when one could not be written. */
+static int contact_next(struct contact_talk *ct, uint8_t *request, size_t cap, size_t *len)
+{
+	if (ct->phase == CONTACT_OFFER && ct->offered < n_contact_own)
+		return fzn_contact_devices_offer_request(&contact_own[ct->offered], request, cap, len);
+	if (ct->phase == CONTACT_OFFER) {
+		ct->phase = CONTACT_QUERY;
+		return fzn_contact_devices_query_begin(&ct->q, FZN_CONTACT_DEVICES_HOSTS, take_host,
+		                                       &ct->ht, request, cap, len);
+	}
+	if (cap < 11u)
+		return 0;
+	memcpy(request, "get routing", 11u);
+	*len = 11u;
+	return 1;
+}
+
+static int contact_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, uint8_t *request,
+                             size_t cap, size_t *request_len)
+{
+	static uint8_t routing_reply[FZND_PULL_REPLY_MAX + 1u];
+	struct contact_talk *ct = ctx;
+	int done = 0;
+
+	meter_answer(&ct->m, reply, reply_len);
+	if (!reply)
+		return 0;
+	if (ct->phase == CONTACT_OFFER) {
+		if (fzn_contact_devices_offer_reply(reply, reply_len) < 0)
+			return 0;
+		ct->offered++;
+	} else if (ct->phase == CONTACT_QUERY) {
+		if (!fzn_contact_devices_query_step(&ct->q, reply, reply_len, request, cap,
+		                                    request_len, &done))
+			return 0;
+		if (!done) {
+			meter_asked(&ct->m, *request_len);
+			return 1;
+		}
+		ct->phase = CONTACT_ROUTING;
+	} else {
+		/* THE MANIFEST, taken when it verifies; the exchange stands either
+		 * way, as it did when asked in turn. Copied out: the answer is the
+		 * loop's, with no byte to spare. */
+		if (reply_len <= FZND_PULL_REPLY_MAX) {
+			memcpy(routing_reply, reply, reply_len);
+			(void)routing_take(ct->names[ct->at], routing_reply, reply_len, ct->contact,
+			                   ct->now);
+		}
+		ct->ok = 1;
+		return 0;
+	}
+	if (!contact_next(ct, request, cap, request_len))
+		return 0;
+	meter_asked(&ct->m, *request_len);
+	return 1;
+}
+
+static void contact_talk_over(void *ctx);
+
+/* THE EXCHANGE THROUGH `ct->hosts[ct->at]`, begun; through the next host
+ * while one cannot be. 1 when one is awaited. */
+static int contact_talk_begin(struct contact_talk *ct)
+{
+	size_t len;
+
+	for (; ct->at < ct->n_hosts; ct->at++) {
+		struct pull_target *pt = ct->hosts[ct->at];
+
+		ct->phase = CONTACT_OFFER;
+		ct->offered = 0;
+		ct->ht.contact = ct->contact;
+		ct->ht.asked = pt->pairing.node;
+		ct->ht.host = ct->names[ct->at];
+		ct->ht.port = (uint16_t)pt->port;
+		ct->ht.kept = 0;
+		len = 0;
+		if (!contact_next(ct, ct->request, sizeof(ct->request), &len))
+			continue;
+		if (talk_start_over(&ct->talk, &ct->m, pt, ct->now, contact_talk_step,
+		                    contact_talk_over, 0, ct, ct->request, sizeof(ct->request), len))
+			return 1;
+	}
+	return 0;
+}
+
+/* ONE CONTACT'S EXCHANGE OVER: answered, said; or tried through its next
+ * host. */
+static void contact_talk_over(void *ctx)
+{
+	struct contact_talk *ct = ctx;
+
+	if (round_pending)
+		round_pending--;
+	if (ct->ok) {
+		/* A CONTACT THAT ANSWERS has answered any request to it, sec 619. */
+		(void)fzn_contact_asked_answered(node_apply.store, ct->contact);
+		if (ct->ht.kept)
+			say(FZN_ENTRY_DEBUG, "contact/devices",
+			    "%zu device(s) offered to %s, %zu host(s) kept", n_contact_own,
+			    ct->names[ct->at], ct->ht.kept);
+		contacts_asked++;
+		return;
+	}
+	ct->at++;
+	(void)contact_talk_begin(ct);
+}
+
 static void contact_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
-	uint8_t done[FZND_CONTACT_TARGETS_MAX + FZN_NODE_RECEIVED_MAX][FZN_PUBKEY_LEN];
-	size_t ndone = 0, i, k;
+	size_t i, k;
 
+	contacts_asked = 0;
+	contacts_kept = 0;
+	n_contact_talks = 0;
+	n_devices_talks = 0;
 	if (!running_admin || !contact_id || !node_apply.store)
 		return;
 	/* THE HOSTS KEPT SO FAR, so a member's first round asks the contact
 	 * through one it learned last round, or from another member. */
 	load_contact_targets();
+	/* EACH STANDING CONTACT ONCE, its hosts in the order the round tried
+	 * them: a conversation through the first, the next when it does not
+	 * answer, every contact at once (sec 636). */
+	n_contact_own = estate_devices(contact_own, FZN_NODE_SIBLINGS_MAX, 0);
 	for (i = 0; i < nshares_in + ncontact_targets; i++) {
 		struct pull_target *pt = i < nshares_in ? &shares_in[i].pt
 		                                        : &contact_targets[i - nshares_in].pt;
@@ -5876,19 +6015,34 @@ static void contact_round(struct pull_target *pulls, size_t npulls, uint64_t now
 		                                        : contact_targets[i - nshares_in].contact;
 		const char *host = i < nshares_in ? shares_in[i].host
 		                                  : contact_targets[i - nshares_in].host;
+		struct contact_talk *ct;
 
-		for (k = 0; k < ndone && memcmp(done[k], contact, FZN_PUBKEY_LEN) != 0; k++)
-			;
-		if (k < ndone || !fzn_node_admin_contact_stands(running_admin, contact))
+		if (!fzn_node_admin_contact_stands(running_admin, contact))
 			continue;
-		if (contact_exchange(pt, host, (uint16_t)pt->port, contact, now))
-			memcpy(done[ndone++], contact, FZN_PUBKEY_LEN);
+		for (k = 0; k < n_contact_talks
+		            && memcmp(contact_talks[k].contact, contact, FZN_PUBKEY_LEN) != 0;
+		     k++)
+			;
+		if (k == n_contact_talks) {
+			if (n_contact_talks
+			    == sizeof(contact_talks) / sizeof(contact_talks[0]))
+				continue;
+			ct = &contact_talks[n_contact_talks++];
+			memcpy(ct->contact, contact, FZN_PUBKEY_LEN);
+			ct->n_hosts = ct->at = 0;
+			ct->ok = 0;
+			ct->now = now;
+		}
+		ct = &contact_talks[k];
+		if (ct->n_hosts < FZND_CONTACT_HOSTS_TRIED) {
+			ct->hosts[ct->n_hosts] = pt;
+			ct->names[ct->n_hosts++] = host;
+		}
 	}
+	for (k = 0; k < n_contact_talks; k++)
+		(void)contact_talk_begin(&contact_talks[k]);
 	/* WHAT THE ESTATE'S MEMBERS KEEP, asked of every one at once, sec 636;
 	 * `contact_settle` pairs and says what came. */
-	contacts_asked = ndone;
-	contacts_kept = 0;
-	n_devices_talks = 0;
 	for (i = 0; i < npulls && n_devices_talks < FZND_ROUND_TARGETS_MAX; i++) {
 		struct devices_talk *dt = &devices_talks[n_devices_talks];
 		size_t len = 0;

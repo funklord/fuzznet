@@ -65798,6 +65798,25 @@ phase b, whose check that nothing was fetched would otherwise run before
 the fetch was tried. The rest ask for what their marker's own step made,
 or what the peer took while serving, or read only the log.
 
+### A contact's exchange as a conversation
+
+Profiled across `live_contacts.py`: the contacts step up to 9.2 s a host,
+asking each contact's hosts in turn. **Each standing contact is now one
+conversation**, started with every other at once: this estate's devices
+offered, the contact's hosts asked, its manifest fetched -- what the round
+asked in turn, now `contact_talk_step`. A host that does not answer
+passes the conversation to the contact's next, as the round tried them;
+so a contact whose three hosts are away still costs that step 9 s, but
+the loop answers meanwhile. A contact's host is not a round target, so
+its silence marks nothing (`struct meter`'s `silences`). The offer is
+split into its request and its answer in `node/contact_devices.h`, and
+`routing_fetch` into the ask and `routing_take`; the conversation copies
+a manifest out of the loop's answer buffer before taking it, the take
+writing a byte past the answer.
+
+`live_contacts.py` and `live_shares.py` hold it: each delivers or pulls
+through the hosts this exchange keeps.
+
 ### Tested, and probed
 
 - **`notes/test/notes_sync_test.c`**: a give driven by steps leaves its
@@ -65825,12 +65844,13 @@ pending.
 
 ### Open
 
-- **Still asked in turn within a step**: reconciliation, routing, a
-  contact's own exchange (`contact_exchange`), a group's lines, and a
-  journal rebase (`rebase_missed`, only for a peer whose streams it no
-  longer holds). The host answers between steps but not during these.
-  None costs a measured second in `live_erasure.py`, which has no
-  contacts and no groups.
+- **Still asked in turn within a step**: delivery to contacts
+  (`deliver_contacts`, with its relay pass), reconciliation, routing, a
+  group's lines, and a journal rebase (`rebase_missed`, only for a peer
+  whose streams it no longer holds). The host answers between steps but
+  not during these. Profiled across `live_contacts.py`, delivery's step
+  costs up to 9.2 s on a host and is the next; a group's lines, up to 3.2
+  s in `live_groups.py`.
 - **A request handler that asks a peer synchronously** while a
   conversation awaits the same caller would read the conversation's
   answer and drop it; the conversation then fails at its deadline. None

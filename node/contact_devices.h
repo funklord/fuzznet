@@ -147,6 +147,16 @@ typedef int (*fzn_contact_devices_ask_t)(void *ctx, const uint8_t *request, size
 int fzn_contact_devices_offer(const fzn_contact_device_t *d, fzn_contact_devices_ask_t ask,
                               void *ctx);
 
+/* THE OFFER'S TWO HALVES, for a caller that awaits the answer itself (sec
+ * 636): the request, in a buffer of FZN_CONTACT_DEVICES_OFFER_MAX, and its
+ * answer read as the offer above reads it. */
+#define FZN_CONTACT_DEVICES_OFFER_MAX (2u + FZN_CONTACT_DEVICE_MAX)
+
+int fzn_contact_devices_offer_request(const fzn_contact_device_t *d, uint8_t *request,
+                                      size_t cap, size_t *request_len);
+
+int fzn_contact_devices_offer_reply(const uint8_t *reply, size_t reply_len);
+
 /* AN OFFER, answered: `take` is handed the entry decoded -- not verified,
  * which is its to do -- and says whether it took it. 0 for anything that is
  * not an OFFER, so a caller dispatching on the first bytes falls through. */
