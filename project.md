@@ -65519,12 +65519,29 @@ none of these waits the old way**, so the gain arrives at the end.
    the most frequent wait. **Built**, the pull and then the push (*The
    journal's pull as steps* and *The journal's push as steps*, below).
 3. **The single-request sites** in `fuzznetd`: groups' sync and lines,
-   streams, references, addresses, introductions -- each a request and a
-   callback.
-4. **The remaining library exchanges**, one module at a time.
-5. **The round itself** a sequence the loop advances, its end what the
-   live checks wait on -- the round's own "a round's end" marker since sec
-   637, "history pass" never having meant it.
+   streams, references, addresses -- **built** (sec 637), as conversations
+   or the host conversations; introductions still ask in turn.
+4. **The remaining library exchanges**, one module at a time --
+   **built for** members, the notes' wrap keys, purges and texts, contact
+   devices, delivery, the messages' keys and a share's pull (sec 637).
+   **Left, by choice**: reconciliation's round, buckets and push
+   (`node/reconcile.h`), the shelf's and the files' fetches, and a
+   journal rebase. Reconciliation asks only peers its round's journal
+   step has just heard -- every silent one is passed over by then -- and
+   its round keeps every id of a class in module buffers, so concurrent
+   conversations would want megabytes; one chain peer after peer is the
+   shape if it is ever wanted. The files' fetch already works in batches
+   the loop answers between.
+5. **The round itself** a sequence the loop advances -- **built** (sec
+   637), and a fresh write, a stream or address fetch and a share
+   accepted are short plans of the same steps. Its end is what the live
+   checks wait on -- the round's own "a round's end" marker, "history
+   pass" never having meant it.
+
+**Where it stands, 2026-10-19**: `live_erasure.py`'s five members pair in
+three cycles, the last's slowest first round 4.1 to 4.3 s, three runs at
+load 4.5 -- where the tree before steps paired them in four, the last at
+34.8 to 46.3 s (sec 637's table).
 
 **The order changed, measured**: the round as steps came first, then the
 library exchanges where the profile said a round's time goes -- sec 637.
