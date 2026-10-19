@@ -66279,9 +66279,11 @@ stopping before it.
   group acts went to the estate's hosts and to a contact's hosts, never
   to a member's (sec 626), and a contact's devices are learned from the
   contact -- so with B gone, B2's place in the log reached C only through
-  A, and A knows B's devices only from B. **Closed for acts by sec 642**;
-  a host nobody has yet listed still reaches C only that way, so the test
-  waits for C to know B2 while B still runs.
+  A, and A knows B's devices only from B. **Closed for acts by sec 642**:
+  B2's act now reaches C from any host C knows that holds it, a member's
+  as well as a contact's. A sync pulls and never pushes, so it still needs
+  such a host up -- here B, B2's sibling -- and the test waits for C to
+  know B2 while B still runs.
 - **A host's own HOST act can lose a fork** to another member's tend act
   on the same head, and is made again on the next round -- measured, B2's
   was. Made again after B stopped, nothing carried it to A. Not a fault of
@@ -66344,6 +66346,25 @@ the server denying them, phase d fails.
 
 **What is left of the shape**: a group's notes and files (secs 630, 631),
 streams (sec 632), its acts (sec 642) and now its lines all reach every
-member's host. What still travels only through a contact is **learning a
-host exists at all** -- its HOST act reaches a member who has never paired
-any host of that user only by a common contact (sec 641).
+member's host. **What remains is that a sync pulls**: a host's HOST act
+reaches a member from any host that member already knows and that holds
+the act -- a member's or a contact's, since sec 642 -- and from nowhere
+else, nothing being pushed. *(Corrected 2026-10-19, before any reader
+acted on it: this first said the act travelled only through a common
+contact, which was true before sec 642 and not after.)*
+
+## 644. A contact's group sync a conversation of the round, 2026-10-19
+
+The groups round asked each contact's host for the group log in turn,
+the loop waiting on each answer -- `group_sync_with`, a `peer_ask` per
+dozen heads -- while siblings' and, since sec 642, members' hosts were
+conversations the loop answers between (sec 636). Sec 637's list of what
+is still asked in turn did not name it: missed, not chosen.
+
+**Built:** contacts are synced by `group_sync_start` as members' hosts
+are, every one at once; `group_sync_with` and the tally kept beside the
+conversations go, and the table of conversations holds siblings,
+contacts and members' hosts together.
+
+**Tested** by `tool/live_groups.py`, whose phases a to c learn the group
+and its acts from contacts' hosts, and `tool/live_group_hosts.py`.

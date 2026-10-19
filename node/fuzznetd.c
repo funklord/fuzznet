@@ -6793,36 +6793,11 @@ static long group_acts_take(const uint8_t *reply, size_t len)
 	return taken;
 }
 
-/* ASK ONE HOST of user `owner` -- this estate's own when `own` -- for the
- * acts of the groups it and this host share, and take what comes. */
-static size_t group_sync_with(struct pull_target *pt, const char *host, const uint8_t *owner,
-                              int own, uint64_t now)
-{
-	static uint8_t ids[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
-	static uint8_t reply[FZND_PULL_REPLY_MAX];
-	uint8_t request[3u + FZND_GROUP_SYNC_MAX * FZND_GROUP_ENTRY_LEN];
-	struct peer_asking asking = { &pt->caller, now, host };
-	size_t n = 0, i = 0, taken = 0, len, request_len;
-	long got;
-
-	if (fzn_group_log_list(node_apply.store, ids, FZN_GROUPS_HELD_MAX, &n) != FZN_GROUP_LOG_OK)
-		return 0;
-	/* IN REQUESTS OF A DOZEN HEADS, and one with none when nothing is
-	 * held yet. */
-	do {
-		request_len = group_sync_request((const uint8_t (*)[FZN_GROUP_ID_LEN])ids, n, &i,
-		                                 owner, own, request);
-		len = 0;
-		if (!peer_ask(&asking, request, request_len, reply, sizeof(reply), &len)
-		    || (got = group_acts_take(reply, len)) < 0)
-			return taken;
-		taken += (size_t)got;
-	} while (i < n);
-	return taken;
-}
-
-/* THE SAME, A CONVERSATION OF THE ROUND, sec 636: one with each sibling at
- * once, its own copy of the groups held, since each pages them apart. */
+/* ONE HOST of user `owner` -- this estate's own when `own` -- asked for the
+ * acts of the groups it and this host share, and what comes taken: a
+ * conversation of the round, sec 636, with every sibling, contact (sec 644)
+ * and member's host at once, each its own copy of the groups held, since
+ * each pages them apart. */
 struct group_sync_talk {
 	fzn_node_talk_t talk;
 	struct meter m;
@@ -6832,7 +6807,8 @@ struct group_sync_talk {
 	int own;
 	uint8_t request[3u + FZND_GROUP_SYNC_MAX * FZND_GROUP_ENTRY_LEN];
 };
-static struct group_sync_talk group_sync_talks[FZND_ROUND_TARGETS_MAX];
+static struct group_sync_talk group_sync_talks[FZND_ROUND_TARGETS_MAX + FZND_CONTACT_TARGETS_MAX
+                                              + FZND_GROUP_SHARES_MAX];
 static size_t n_group_sync_talks;
 
 static int group_sync_step(void *ctx, const uint8_t *reply, size_t reply_len, uint8_t *request,
@@ -6861,7 +6837,7 @@ static void group_sync_start(struct pull_target *pt, const uint8_t *owner, int o
 	struct group_sync_talk *gt;
 	size_t len;
 
-	if (n_group_sync_talks >= FZND_ROUND_TARGETS_MAX)
+	if (n_group_sync_talks >= sizeof(group_sync_talks) / sizeof(group_sync_talks[0]))
 		return;
 	gt = &group_sync_talks[n_group_sync_talks];
 	gt->n = gt->i = gt->taken = 0;
@@ -7346,7 +7322,6 @@ static void group_lines_settle(void)
 
 /* THE GROUPS ROUND, sec 626: every sibling, and one host of each contact
  * who is in a group held here, asked for what it has. */
-static size_t group_contacts_taken;
 
 static void group_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
@@ -7358,7 +7333,6 @@ static void group_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 	size_t n_held = 0;
 
 	n_group_sync_talks = 0;
-	group_contacts_taken = 0;
 	lines_on = 0;
 	if (!running_admin || !contact_id || !node_apply.store || !node_groups.log.store)
 		return;
@@ -7381,7 +7355,7 @@ static void group_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 			;
 		if (k < ndone || ct->down || ct->pt.fd < 0)
 			continue;
-		group_contacts_taken += group_sync_with(&ct->pt, ct->host, ct->contact, 0, now);
+		group_sync_start(&ct->pt, ct->contact, 0, now);
 		memcpy(done[ndone++], ct->contact, FZN_PUBKEY_LEN);
 	}
 	/* EVERY MEMBER'S HOST, sec 642, each a conversation of the round --
@@ -7401,7 +7375,7 @@ static void group_round(struct pull_target *pulls, size_t npulls, uint64_t now)
  * stock of, and this host's duties done. */
 static void group_settle(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
-	size_t i, taken = group_contacts_taken;
+	size_t i, taken = 0;
 
 	if (!running_admin || !contact_id || !node_apply.store || !node_groups.log.store)
 		return;
