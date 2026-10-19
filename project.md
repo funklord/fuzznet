@@ -66396,3 +66396,36 @@ clients show. Four gaps, and one question:
 **Tested**: `tool/live_contacts.py` phase a lists R's two hosts at S by
 name and at S2 by R's key; `tool/live_pairing.py` phase f answers `ok
 none` before A's grant to B and `ok 1` after it.
+
+## 646. Every local reply in the reply vocabulary, and a gate to keep it, 2026-10-19
+
+**Reported by fuzzypickles** through this tree's inbox (message
+20261019T1637Z), found by its typed calls (their sec 284, step 3b):
+fuzznetd answered `absent` in three places -- `get routing` with no
+manifest held, and `grant request` and `remove request` for a root that
+asked nothing -- and `local/vocabulary.h` has five reply words, `ok`,
+`denied`, `unsupported`, `error` and `malformed`. A reader by that table
+sees no reply at all. Their client had to be taught a sixth word; it
+follows whichever way fuzznet settles it.
+
+**Settled onto the five**: the three answer `error no ...`, as every
+other "no such" here does (`error no such contact`, `error no such
+group`). A sixth word was not added: `absent` says nothing `error` with
+its text does not, and every reader of the table would have to learn it.
+**Not changed**: the shelf's and files' `absent` (`node/shelf.c`,
+`node/files.c`), the answer to a peer's binary request, which its callers
+test for -- a wire reply, not the local socket's -- and `ok absent` in
+`node/settings.c`, which opens with `ok`. Their count of seven was of the
+word anywhere; three were replies to the local socket.
+
+**`tool/reply_gate.py`, in `make style`** beside the other source gates: every `snprintf` into `reply`
+in `node/*.c` with a literal format must open with a word
+`local/vocabulary.c`'s table spells -- 140 sites today. It failed on the
+three before they were changed, and fails on no sites or no spellings
+read. What it cannot see is in its header: a reply built by `say()` or
+`answer()`, which take the token as an enum and cannot misspell it, a
+format held in a variable, a word written by `memcpy`.
+
+**Tested** by `tool/live_pairing.py`: B answers `remove request` and
+`grant request` for a root that asked nothing `error no request from
+that root`.

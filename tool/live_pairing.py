@@ -113,6 +113,13 @@ def main(argv):
 			print("livecheck: a: A asked B by B's card, and B holds A's request")
 
 			# b: B approves; the round pairs them; a line goes.
+			# A ROOT THAT ASKED NOTHING is an error, a word the reply
+			# vocabulary has (sec 646): it said `absent`, which none read.
+			nobody = "00" * 31 + "07"
+			expect(socks["b"], "b", "remove request " + nobody,
+			       "error no request from that root")
+			expect(socks["b"], "b", "grant request %s nobody" % nobody,
+			       "error no request from that root")
 			expect(socks["b"], "b", "grant request %s alice" % keys["a"], "ok")
 			if requests(socks["b"], "b"):
 				raise failed("b: B's request was still listed once approved")

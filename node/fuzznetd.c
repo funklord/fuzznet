@@ -3239,7 +3239,7 @@ static size_t routing_local(const fzn_request_t *request, char *reply, size_t re
 			return (size_t)snprintf(reply, reply_cap, "malformed get routing [KEY]\n");
 	}
 	if (!node_apply.store || fzn_routing_load(node_apply.store, key, &r) != FZN_ROUTING_OK)
-		return (size_t)snprintf(reply, reply_cap, "absent no routing manifest held\n");
+		return (size_t)snprintf(reply, reply_cap, "error no routing manifest held\n");
 	k = snprintf(reply, reply_cap, "ok %llu %02x%02x%02x%02x%02x%02x%02x%02x %d",
 	             (unsigned long long)r.generation, r.signer[0], r.signer[1], r.signer[2],
 	             r.signer[3], r.signer[4], r.signer[5], r.signer[6], r.signer[7],
@@ -5960,7 +5960,7 @@ static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, c
 	if (request->parsed == FZN_VERB_REMOVE)
 		return fzn_contact_request_drop(node_apply.store, root) == FZN_CONTACT_REQUEST_OK
 		               ? (size_t)snprintf(reply, cap, "ok\n")
-		               : (size_t)snprintf(reply, cap, "absent no request from that root\n");
+		               : (size_t)snprintf(reply, cap, "error no request from that root\n");
 	{
 		static fzn_contact_request_held_t one;
 		const char *why = NULL;
@@ -5968,7 +5968,7 @@ static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, c
 		if (!a2)
 			return (size_t)snprintf(reply, cap, "malformed grant request ROOT NAME\n");
 		if (fzn_contact_request_get(node_apply.store, root, &one) != FZN_CONTACT_REQUEST_OK)
-			return (size_t)snprintf(reply, cap, "absent no request from that root\n");
+			return (size_t)snprintf(reply, cap, "error no request from that root\n");
 		switch (fzn_node_admin_contact_add(running_admin, root, (const char *)a2, n2, &why)) {
 		case 0:
 			break;

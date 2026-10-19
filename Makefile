@@ -5346,6 +5346,10 @@ style: $(OBJS)
 	@# status-returning functions, and a property nobody checks is one that
 	@# stops being true quietly. project.md sec 76.
 	python3 tool/status_gate.py
+	@# AND EVERY LITERAL REPLY OPENS WITH A WORD THE VOCABULARY HAS: one it
+	@# does not reads as no reply at all. fuzznetd said `absent` in three
+	@# places until fuzzypickles' client refused it. project.md sec 646.
+	python3 tool/reply_gate.py
 	@# EVERY .c IN THE TREE MUST BE IN A LIST -- the fourth instance of one
 	@# pattern and the last that was not mechanically checked. HDRS against
 	@# `install`, GEN_SRCS against `coverage`, TEST_BINS against .gitignore,
