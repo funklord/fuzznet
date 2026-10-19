@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """A group reached through a member's second host: `make livecheck`, secs
-641 and 642.
+641 to 643.
 
 Four stores over loopback. A is a contact of B and of C, as live_groups.py
 has them; B2 is a second device of B's user, joined to B's estate by verbs
@@ -15,9 +15,12 @@ has them; B2 is a second device of B's user, joined to B's estate by verbs
        B's user, pulls the note from B2 into B's user's tree
     c  A is stopped too. B2, a host of B's user, whom A made an admin,
        sets the group's backfill off; C takes the act from B2 itself
+    d  B2 writes a line to the group; C files it, as B's user's, from B2
 
 Against a daemon that syncs a group's log only with contacts' hosts and
-the estate's, phase c never takes B2's act: nobody else is up to carry it.
+the estate's, phase c never takes B2's act: nobody else is up to carry it;
+against one that asks a group's lines the same way, phase d never files
+B2's line.
 Against a daemon that asks one host per member -- the first its group
 lists, as sec 630 did -- C asks two hosts and phase a fails; and were it
 let through, phase b would never pull B2's note: B is the one asked, and B
@@ -212,6 +215,30 @@ def main(argv):
 				raise failed("c: with A and B gone, C took no act of B2's%s"
 				             % tail(started["c"], ("group",)))
 			print("livecheck: c: with A and B gone, C took B2's act from B2 itself")
+
+			# d: still with A and B gone, B2 writes a line to the group and C
+			# files it as B's user's -- asked of B2 itself (sec 643).
+			def has_line(text):
+				reply = ask(socks["c"], "list message @" + name)
+				return any(item.split(",")[1] == "@%s:%s" % (name, keys["b"][:16])
+				           and item.endswith("," + text)
+				           for item in reply.split()[4:] if item.count(",") >= 8)
+
+			expect(socks["b2"], "b2", "add message @%s out %s from_b2" % (b2_name, "d2" * 16),
+			       "ok")
+			filed = False
+			for rnd in range(ROUNDS):
+				for who in ("b2", "c"):
+					turn(who, "%s-d%d" % (who, rnd))
+				if has_line("from_b2"):
+					filed = True
+					break
+			if not filed:
+				raise failed("d: C never files B2's line; C lists %r; B2's epoch %r%s"
+				             % (ask(socks["c"], "list message @" + name).strip(),
+				                ask(socks["b2"], "get epoch " + b2_name).strip(),
+				                tail(started["c"], ("group", "lines", "refused", "denied"))))
+			print("livecheck: d: with A and B gone, C filed B2's line, as B's user's")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

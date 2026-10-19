@@ -66320,3 +66320,30 @@ phase a; with A and B stopped, B2 sets the group's backfill off for B's
 user, and C must take the act -- from B2, neither C's contact nor its
 estate's. **Controls**, each run: with the member hosts not asked, and
 with the server denying them, phase c fails.
+
+## 643. A group's lines asked of every member's host, 2026-10-19
+
+**The same gap as sec 642's, for lines** -- found by asking what else in
+the group code reaches another member only through a contact, which is
+the shape of the last two. Sec 629 asked a group's lines of the estate's
+hosts and of contacts' hosts, and answered only those: a line written on
+a member's host reached a member who is not that user's contact only
+through a contact in common.
+
+**Built:** the lines round asks every member's host the groups round
+opened (sec 642), for each group that lists the member, beside the
+siblings and contacts; GROUP_LINES_SYNC answers a member's host for a
+group listing its user, as a contact's host is answered. The table of
+lines conversations grows by `FZND_GROUP_SHARES_MAX` so member hosts are
+not crowded out by contacts.
+
+**Tested by `tool/live_group_hosts.py`, phase d**: with A and B stopped,
+B2 writes a line to the group, and C must file it as B's user's.
+**Controls**, each run: with member hosts not asked for lines, and with
+the server denying them, phase d fails.
+
+**What is left of the shape**: a group's notes and files (secs 630, 631),
+streams (sec 632), its acts (sec 642) and now its lines all reach every
+member's host. What still travels only through a contact is **learning a
+host exists at all** -- its HOST act reaches a member who has never paired
+any host of that user only by a common contact (sec 641).

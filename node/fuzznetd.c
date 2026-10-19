@@ -6907,7 +6907,10 @@ static size_t group_lines_remote(const uint8_t *sender, const uint8_t *request,
 	                              + (size_t)request[2u + FZN_GROUP_ID_LEN] * FZND_GROUP_HEAD_LEN)
 		return (size_t)snprintf((char *)reply, reply_cap, "malformed a group lines sync\n");
 	entries = request[2u + FZN_GROUP_ID_LEN];
-	if (!group_lines.store || !group_owner_of(sender, owner, &own)
+	/* A MEMBER'S HOST too, sec 643, for a group listing its user, as a
+	 * contact's host is answered. */
+	if (!group_lines.store
+	    || (!group_owner_of(sender, owner, &own) && !member_host_owner(sender, owner))
 	    || fzn_group_log_get(node_apply.store, request + 2, &g) != FZN_GROUP_LOG_OK
 	    || (!own && !fzn_group_is_member(&g, owner)))
 		return (size_t)snprintf((char *)reply, reply_cap, "denied lines only to members\n");
@@ -7212,7 +7215,8 @@ struct lines_talk {
 	int silences;
 	uint8_t request[FZND_LINES_REQUEST_MAX];
 };
-static struct lines_talk lines_talks[FZND_ROUND_TARGETS_MAX + FZND_CONTACT_TARGETS_MAX];
+static struct lines_talk lines_talks[FZND_ROUND_TARGETS_MAX + FZND_CONTACT_TARGETS_MAX
+                                     + FZND_GROUP_SHARES_MAX];
 static size_t n_lines_talks;
 
 /* THE NEXT GROUP's request, from `lt->at` on; 0 when none is left. */
@@ -7299,6 +7303,17 @@ static void group_lines_start(struct pull_target *pulls, size_t npulls, uint64_t
 			if ((lt = lines_talk_for(&ct->pt, 0)) != NULL)
 				lt->groups[lt->n++] = (uint16_t)gi;
 			memcpy(done[ndone++], ct->contact, FZN_PUBKEY_LEN);
+		}
+		/* EVERY MEMBER'S HOST the groups round opened, sec 643: a line
+		 * reached a member who is no contact only through a contact in
+		 * common, as the log's acts did before sec 642. */
+		for (j = 0; j < ngroup_shares_in; j++) {
+			struct share_target *sh = &group_shares_in[j];
+
+			if (sh->pt.fd < 0 || !fzn_group_is_member(&g, sh->sharer))
+				continue;
+			if ((lt = lines_talk_for(&sh->pt, 0)) != NULL)
+				lt->groups[lt->n++] = (uint16_t)gi;
 		}
 	}
 	for (i = 0; i < n_lines_talks; i++) {
