@@ -66608,3 +66608,21 @@ it failed at phase a on the listing's new head -- and is not counted.
 **Noted, not acted on**: this makes a fourth private copy of `%XX`
 escaping (`node/messages.c`, `node/settings.c`, `node/notes.c`, and
 `catalog_escape` here). Sharing one is its own change.
+
+## 653. `fetch address` says how many it will ask, 2026-10-20
+
+**Asked by fuzzypickles** through this tree's inbox (message
+20261020T0300Z): `fetch address` (sec 621) answered a bare `ok` and asked
+at the next round, so a client could not tell "asked three, no answer
+yet" from "nobody to ask" -- which its clients must tell apart, as sec
+639 made `fetch lan` do.
+
+**Built:** `fetch address` answers **`ok COUNT`**, the hosts the ask
+will reach -- every sibling not silent, every accepted share's, every
+contact's, as `address_start` takes them -- or **`ok 0 WHY`** when there
+are none, and then asks nobody. The round's pull targets, `main`'s own,
+are reachable from the verb through a pointer set at its start.
+
+**Tested by `tool/live_pairing.py`**: A, with no contact yet, answers `ok
+0 no ...`; with B its contact, a count of at least one. **Control**: the
+previous binary answered the first with a bare `ok`.

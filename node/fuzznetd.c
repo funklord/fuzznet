@@ -6227,6 +6227,10 @@ static struct observed {
 } observed[FZND_OBSERVED_MAX];
 static size_t n_observed;
 static int address_due;
+/* THE ROUND'S PULL TARGETS, `main`'s, so a verb can count what a round
+ * would ask. */
+static struct pull_target *loop_pulls;
+static const size_t *loop_npulls;
 
 /* ONE PEER ASKED where it sees this host; the answer kept, replacing that
  * peer's earlier one. */
@@ -6289,9 +6293,21 @@ static size_t address_local(const fzn_request_t *request, char *reply, size_t ca
 	if (!request->arg || request->arg_len != 7u || memcmp(request->arg, "address", 7u) != 0
 	    || (request->parsed != FZN_VERB_GET && request->parsed != FZN_VERB_FETCH))
 		return 0;
+	/* `fetch address`, sec 653: `ok COUNT`, the hosts the ask will reach --
+	 * every sibling not silent, every share's and every contact's, as
+	 * `address_start` takes them -- or `ok 0 WHY` with nobody to ask, so a
+	 * client tells "nobody to ask" from "asked, no answer yet", as `fetch
+	 * lan` does (sec 639). */
 	if (request->parsed == FZN_VERB_FETCH) {
+		size_t count = nshares_in + ncontact_targets;
+
+		for (i = 0; loop_pulls && loop_npulls && i < *loop_npulls; i++)
+			count += !silent_peer(&loop_pulls[i]);
+		if (!count)
+			return (size_t)snprintf(reply, cap,
+			                        "ok 0 no sibling, share or contact host to ask\n");
 		address_due = 1;
-		return (size_t)snprintf(reply, cap, "ok\n");
+		return (size_t)snprintf(reply, cap, "ok %zu\n", count);
 	}
 	for (i = 1; i < n_observed; i++)
 		if (observed[i].port != observed[0].port
@@ -9838,7 +9854,7 @@ int main(int argc, char **argv)
 	const char *to_host = NULL;
 	long to_port = -1;
 	static struct pull_target pulls[FZND_ROUND_TARGETS_MAX];
-	size_t npulls = 0;
+	static size_t npulls = 0;
 	fzn_revocation_store_t *running = NULL;
 	fzn_node_roots_t *running_roots = NULL;
 	long quorum = 2;
@@ -9866,6 +9882,8 @@ int main(int argc, char **argv)
 	int has_capability = 0;
 	int lfd = -1, ufd = -1, i;
 
+	loop_pulls = pulls;
+	loop_npulls = &npulls;
 	fzn_cli_init(&cli);
 
 	for (i = 1; i < argc; i++) {

@@ -98,6 +98,11 @@ def main(argv):
 				expect(socks[who], who, "set setting host net/address 127.0.0.1 " + port[who],
 				       "ok")
 
+			# NOBODY TO ASK YET, said so (sec 653): A has no contact or sibling.
+			got = ask(socks["a"], "fetch address").strip()
+			if not got.startswith("ok 0 no "):
+				raise failed("setup: A's fetch address with nobody to ask answered %r" % got)
+
 			# a: A asks B by B's card.
 			card = ask(socks["b"], "get card bob")
 			if not card.startswith("ok FZC1:"):
@@ -161,7 +166,10 @@ def main(argv):
 			print("livecheck: c: C asked too, and B turned it away")
 
 			# d: where A is seen, asked of the contact it now has (sec 621).
-			expect(socks["a"], "a", "fetch address", "ok")
+			# HOW MANY IT WILL ASK, sec 653: B at least.
+			got = ask(socks["a"], "fetch address").split()
+			if len(got) != 2 or got[0] != "ok" or not got[1].isdigit() or got[1] == "0":
+				raise failed("d: A's fetch address answered %r, not a count of hosts" % got)
 			deadline = time.monotonic() + 20.0
 			seen = []
 			while time.monotonic() < deadline:
