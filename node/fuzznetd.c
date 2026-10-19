@@ -5166,7 +5166,7 @@ static void shares_settle(void)
 		say(FZN_ENTRY_DEBUG, "notes/received", "received pass: %zu share(s), %zu of removed "
 		                                       "contacts passed over", n_shares_now, shares_suspended);
 	else
-		say(FZN_ENTRY_DEBUG, "notes/received", "group share pass: %zu member(s) asked",
+		say(FZN_ENTRY_DEBUG, "notes/received", "group share pass: %zu member host(s) asked",
 		    n_shares_now);
 }
 
@@ -7089,8 +7089,10 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 /* ---- a group's shares, sec 630 ----------------------------------------------- */
 
 /* EVERY OTHER MEMBER'S HOSTS, paired as a contact's devices are, and asked
- * for what their members share with the group: one host per member, the
- * first its group lists that says where it is reached. */
+ * for what their members share with the group: every host its group lists
+ * that says where it is reached, all at once, into the member's one tree.
+ * Not the first alone (sec 630 asked one): a member whose first-listed
+ * device is off shared nothing until it came back. sec 641. */
 static struct share_target group_shares_in[FZND_GROUP_SHARES_MAX];
 static size_t ngroup_shares_in;
 
@@ -7116,7 +7118,7 @@ static void group_shares_round(uint64_t now)
 	static uint8_t ids[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
 	static fzn_group_t g;
 	static fzn_contact_device_t own, d;
-	size_t n = 0, i, k, m, paired = 0;
+	size_t n = 0, i, k, paired = 0;
 	const char *why;
 
 	for (i = 0; i < ngroup_shares_in; i++) {
@@ -7147,13 +7149,9 @@ static void group_shares_round(uint64_t now)
 			if (r < 0)
 				say(FZN_ENTRY_DEBUG, "node/groups", "a member's host was not paired: %s",
 				    why ? why : "it would not pair");
-			/* ASKED, one host per member, one that is reached somewhere. */
-			for (m = 0; m < ngroup_shares_in
-			            && memcmp(group_shares_in[m].sharer, h->owner, FZN_PUBKEY_LEN) != 0;
-			     m++)
-				;
-			if (m < ngroup_shares_in || ngroup_shares_in == FZND_GROUP_SHARES_MAX || !d.port
-			    || !d.address_len || d.address_len > FZN_NODE_RECEIVED_HOST_MAX)
+			/* ASKED, every host of the member that is reached somewhere. */
+			if (ngroup_shares_in == FZND_GROUP_SHARES_MAX || !d.port || !d.address_len
+			    || d.address_len > FZN_NODE_RECEIVED_HOST_MAX)
 				continue;
 			memset(sh, 0, sizeof(*sh));
 			sh->pt.fd = -1;

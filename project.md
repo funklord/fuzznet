@@ -65128,8 +65128,8 @@ their own keys and matched nothing -- are served it too.
   the group no longer listing it.
 - **Files shared with a group** are served to a member's host by the same
   path, and nothing yet pulls them unasked.
-- **One host per member is asked**, the first its group lists with an
-  address.
+- ~~**One host per member is asked**, the first its group lists with an
+  address.~~ Every host with an address is asked since sec 641.
 
 ### Measured for sec 630
 
@@ -66248,3 +66248,41 @@ user refused. Three sabotage entries, one per branch.
 **Not after sec 640**: a tree does not record whether a note reached it
 by a direct share or a group's, so a row cannot say which; a sharer in
 several groups is named by the first held.
+
+## 641. A group's shares asked of every host of a member, 2026-10-19
+
+Sec 630 asked **one host per member** for what the member shares with a
+group: the first the group lists with an address. A member whose
+first-listed device was off shared nothing with the group until it came
+back, however many of their other devices were up -- a phone switched
+off silencing a desktop.
+
+**Built:** `group_shares_round` asks every host a group lists for a member
+that says where it is reached, all at once, each pulling into the member's
+one tree. Records kept twice change nothing, so two hosts answering the
+same note costs a duplicate transfer and no inconsistency. Bounded as
+before by `FZND_GROUP_SHARES_MAX`, 32 hosts. The pass now logs `group
+share pass: N member host(s) asked`.
+
+**Tested by `tool/live_group_hosts.py`, in `make livecheck`**: A, B and C
+as `live_groups.py` has them, and B2 a second device of B's user, joined
+by the verbs of sec 638. Phase a waits until C's share pass asks A's, B's
+and B2's hosts; phase b stops B, has B2 write and share a note with the
+group, and requires C to hold it. **Control**: with one host per member
+restored, C asks two hosts and phase a fails. Phase b's own discrimination
+-- B, the one host asked, gone -- was not run separately, the control
+stopping before it.
+
+**Found while measuring, and how the test meets it:**
+
+- **A member's host reaches another member only through contacts.** Group
+  acts go to the estate's hosts and to a contact's hosts, never to a
+  member's host (sec 626), and a contact's devices are learned from the
+  contact. So with B gone, B2's place in the log reaches C only through A,
+  and A knows B's devices only from B. The test waits for C to know B2
+  while B still runs.
+- **A host's own HOST act can lose a fork** to another member's tend act
+  on the same head, and is made again on the next round -- measured, B2's
+  was. Made again after B stopped, nothing carried it to A. Not a fault of
+  this section; the reason phase a waits on C's count rather than on a
+  round.
