@@ -12,7 +12,7 @@
  * contact's key is its user's root (sec 614). The verbs, all this node's
  * own user's:
  *
- *     add group NAME                   a group made, this user its admin
+ *     add group NAME                   a group made, this user its admin: ok ID
  *     remove group NAME                left; its name and shares forgotten
  *     add member GROUP CONTACT         an admin's
  *     remove member GROUP CONTACT      an admin's

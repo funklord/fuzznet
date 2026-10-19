@@ -66455,3 +66455,27 @@ named here by its id's first 16 hex until somebody renames it.
 group` by id answers byte for byte as by name; an id no group has, and a
 removed group's, find nothing. **Control**: with the id path off, those
 three fail. Two sabotage entries.
+
+## 648. A group's id from `add group`, and this node's own root, 2026-10-19
+
+**Reported by fuzzypickles** through this tree's inbox (message
+20261019T1716Z), from its typed group calls (their sec 284 step 3c):
+
+1. **No group id came back** from `list group` or `add group`. The first
+   was answered by sec 647, written before the message arrived; **`add
+   group NAME` now answers `ok ID`** too, so a client keys on the id from
+   the moment it makes one.
+2. **Nothing said which member is this node's own user.** `get group`
+   marks an admin `*` and lists a member no contact names by its root's
+   hex, this user among them, and no verb gave this node's root: `get
+   prekey`'s host key is the root only for a user of one host. **Built:
+   `get identity`**, `ok HOST ROOT` -- this host's key, and the root a
+   group lists it under (`estate_owner`, the same the groups code signs
+   for).
+
+**Tested**: `node/test/admin_test.c` holds `add group`'s id to the group
+its name then finds; `tool/live_groups.py` phase a finds A's `*` entry
+under the root A's `get identity` says; `tool/live_group_hosts.py`'s setup
+has B2 say B's root and a host key of its own -- the case a host key alone
+gets wrong. `live_catalog.py`, `live_groups.py` and `live_group_hosts.py`
+read `add group`'s id.

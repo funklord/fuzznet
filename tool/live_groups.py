@@ -140,7 +140,10 @@ def main(argv):
 				expect(socks[who], who, "grant request %s alice" % keys["a"], "ok")
 
 			# a: the group, made at A and learned at B and C.
-			expect(socks["a"], "a", "add group family", "ok")
+			# ITS ID ANSWERED, sec 648.
+			made = ask(socks["a"], "add group family").split()
+			if len(made) != 2 or made[0] != "ok" or len(made[1]) != 64:
+				raise failed("add group family answered %r, not ok and an id" % made)
 			expect(socks["a"], "a", "add member family bob", "ok")
 			expect(socks["a"], "a", "add member family carol", "ok")
 			if groups(socks["a"], "a") != [("family", 3)]:
@@ -163,6 +166,12 @@ def main(argv):
 			got = members(socks["b"], "b", name)
 			if "*alice" not in got or len(got) != 3:
 				raise failed("a: B's members of the group are %r, not three with A admin" % got)
+			# THIS NODE IN ITS OWN GROUP, sec 648: A's `*` entry is A's root, as
+			# `get identity` says it.
+			me = ask(socks["a"], "get identity").split()
+			if len(me) != 3 or me[0] != "ok" or "*" + me[2] not in members(socks["a"], "a", "family"):
+				raise failed("a: A's get identity answered %r, and A's members are %r"
+				             % (me, members(socks["a"], "a", "family")))
 			print("livecheck: a: A made the group, and B and C learned it from A, A its admin")
 
 			# a2: each host named in the log, and the epoch's secret sealed to

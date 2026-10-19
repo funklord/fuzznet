@@ -552,8 +552,16 @@ static size_t make_group(const fzn_node_groups_t *g, const uint8_t *name, size_t
 	if (err != FZN_GROUP_LOG_OK)
 		return log_refusal(reply, cap, err);
 	cerr = fzn_node_group_rename(g->log.store, id, (const char *)name, name_len);
-	return cerr == FZN_CONTACT_OK ? say(reply, cap, FZN_REPLY_OK, NULL)
-	                              : contact_refusal(reply, cap, cerr);
+	if (cerr != FZN_CONTACT_OK)
+		return contact_refusal(reply, cap, cerr);
+	/* ITS ID SAID, sec 648: what a client keys on from the start. */
+	{
+		char id_hex[FZN_GROUP_ID_LEN * 2u + 1u];
+
+		hex_of(id, FZN_GROUP_ID_LEN, id_hex);
+		id_hex[FZN_GROUP_ID_LEN * 2u] = '\0';
+		return say(reply, cap, FZN_REPLY_OK, id_hex);
+	}
 }
 
 /* `remove group NAME`: left, if this user is still in it, and forgotten

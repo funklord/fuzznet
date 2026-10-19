@@ -133,11 +133,22 @@ def main(argv):
 					raise failed("setup: A's add contact %s answered %r" % (name, got))
 				started[who].wait_for(KEPT_RE, "%s keeping A's request" % who.upper())
 				expect(socks[who], who, "grant request %s alice" % keys["a"], "ok")
+			# B2 SAYS ITS USER IS B's, sec 648: its host key is its own, its
+			# root B's -- the case `get prekey` cannot answer.
+			b_id = ask(socks["b"], "get identity").split()
+			b2_id = ask(socks["b2"], "get identity").split()
+			if len(b2_id) != 3 or b2_id[0] != "ok" or b2_id[2] != b_id[2] \
+			   or b2_id[1] == b2_id[2]:
+				raise failed("setup: B said %r and B2 %r, not one root and B2's own host"
+				             % (b_id, b2_id))
 			print("livecheck: setup: B2 joined B's estate, and A is B's and C's contact")
 
 			# a: the group, learned at B, B2 and C, every host named in its log
 			# -- B before B2, so B is the host a one-host pass asks.
-			expect(socks["a"], "a", "add group family", "ok")
+			# ITS ID ANSWERED, sec 648.
+			made = ask(socks["a"], "add group family").split()
+			if len(made) != 2 or made[0] != "ok" or len(made[1]) != 64:
+				raise failed("add group family answered %r, not ok and an id" % made)
 			expect(socks["a"], "a", "add member family bob", "ok")
 			expect(socks["a"], "a", "add member family carol", "ok")
 			# B AN ADMIN, a majority of one, so B2 can act for B's user in c.

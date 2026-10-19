@@ -6140,6 +6140,22 @@ static size_t identity_local(fzn_origin_t origin, const fzn_request_t *request, 
 
 	if (!at || !next_word(&at, &left, &subject, &subject_len))
 		return 0;
+	/* `get identity`, sec 648: `ok HOST ROOT` -- this host's key and its
+	 * user's, the root a group lists it under, which `get prekey`'s host
+	 * key is only for a user of one host. */
+	if (request->parsed == FZN_VERB_GET && subject_len == 8u
+	    && memcmp(subject, "identity", 8u) == 0) {
+		char host[FZN_PUBKEY_LEN * 2u + 1u], root[FZN_PUBKEY_LEN * 2u + 1u];
+
+		if (origin != FZN_ORIGIN_SAME_USER)
+			return (size_t)snprintf(reply, cap,
+			                        "denied this node's identity is its own user's\n");
+		if (!contact_id || !estate_owner())
+			return (size_t)snprintf(reply, cap, "error this node has no identity yet\n");
+		hex_of(contact_id->pubkey, FZN_PUBKEY_LEN, host);
+		hex_of(estate_owner(), FZN_PUBKEY_LEN, root);
+		return (size_t)snprintf(reply, cap, "ok %s %s\n", host, root);
+	}
 	backup = request->parsed == FZN_VERB_PUT && subject_len == 6u
 	         && memcmp(subject, "backup", 6u) == 0;
 	if (!backup

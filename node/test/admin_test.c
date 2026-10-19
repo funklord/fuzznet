@@ -1523,6 +1523,30 @@ int main(void)
 			              && fzn_notes_share_with(&notes, gid, seen, 4u, &n) == FZN_NOTES_OK
 			              && n == 0u,
 			      "a group made again under a removed one's name inherited its shares");
+			/* ITS ID ANSWERED, sec 648: the group the name now finds. */
+			{
+				uint8_t again[FZN_PUBKEY_LEN];
+				char again_hex[65];
+
+				CHECK(fzn_node_group_find(admin.store, "family", 6u, again) == FZN_CONTACT_OK,
+				      "fixture: the new family's id");
+				for (k = 0; k < sizeof(again); k++)
+					snprintf(again_hex + 2u * k, 3u, "%02x", again[k]);
+				CHECK(ask(&admin, &owner, "remove group family", reply, sizeof(reply),
+				          &reply_len)
+				              && ask(&admin, &owner, "add group family", reply, sizeof(reply),
+				                     &reply_len)
+				              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+				                         == FZN_REPLY_OK
+				              && detail_len == 64u
+				              && fzn_node_group_find(admin.store, "family", 6u, again)
+				                         == FZN_CONTACT_OK,
+				      "add group did not answer an id");
+				for (k = 0; k < sizeof(again); k++)
+					snprintf(again_hex + 2u * k, 3u, "%02x", again[k]);
+				CHECK(memcmp(detail, again_hex, 64u) == 0,
+				      "add group answered an id that is not the group's");
+			}
 			CHECK(fzn_notes_share_with(&notes, other, seen, 4u, &n) == FZN_NOTES_OK && n == 1u,
 			      "removing a group took another contact's share with it");
 			(void)fzn_notes_share_remove(&notes, sub, other);

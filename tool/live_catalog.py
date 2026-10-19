@@ -165,7 +165,10 @@ def main(argv):
 			print("livecheck: c: A took its name back; B lists its own alone, one holder")
 
 			# g: a group made at A, learned by its sibling B (sec 626).
-			expect(socks["a"], "a", "add group family", "ok")
+			# ITS ID ANSWERED, sec 648.
+			made = ask(socks["a"], "add group family").split()
+			if len(made) != 2 or made[0] != "ok" or len(made[1]) != 64:
+				raise failed("add group family answered %r, not ok and an id" % made)
 			until(lambda: len(groups("b")) == 1 and groups("b") == groups("a"), "g")
 			print("livecheck: g: A made a group, and its sibling B learned it")
 		except failed as e:
