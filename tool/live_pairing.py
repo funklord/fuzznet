@@ -201,7 +201,10 @@ def main(argv):
 			fetched()
 			if held_at_b():
 				raise failed("f: B, not granted, holds %r" % held_at_b())
+			# WHAT B MAY READ, as A answers it (sec 645): nothing, then level 1.
+			expect(socks["a"], "a", "get stream location bob", "ok none")
 			expect(socks["a"], "a", "grant stream location bob 1", "ok")
+			expect(socks["a"], "a", "get stream location bob", "ok 1")
 			time.sleep(2.5)
 			fetched()
 			got = held_at_b()

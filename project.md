@@ -66368,3 +66368,31 @@ contacts and members' hosts together.
 
 **Tested** by `tool/live_groups.py`, whose phases a to c learn the group
 and its acts from contacts' hosts, and `tool/live_group_hosts.py`.
+
+## 645. A contact's devices and what it may read, for the clients, 2026-10-19
+
+**Asked by fuzzypickles** as contacts became the first family its clients
+read from fuzznetd (their sec 284): `list contact` carries less than the
+clients show. Four gaps, and one question:
+
+- **An address, and a host key**: fuzznet keeps no address or host key on
+  a contact, which is a user; it keeps the user's **devices** (sec 614),
+  each its host key and where it says it is reached, and no verb listed
+  them. **Built: `list device CONTACT|KEY [FROM]`**, `ok TOTAL FROM
+  KEY,ADDRESS,PORT ...`, `-,0` for a device that says nowhere. It takes
+  the user's key as 64 hex as well as a name -- **measured**: S2, a
+  sibling, keeps R's devices and names nobody R, names being a host's own
+  (sec 516), so a name alone found nothing there.
+- **Location sharing and its precision**: a stream's grants (sec 632) are
+  kept per grantee and nothing answered them. **Built: `get stream NAME
+  WHO`**, `ok LEVEL` or `ok none`, WHO a contact or `@GROUP`; for location,
+  `get stream location NAME`.
+- **A contact in a state**: already a fixed set -- `list contact`'s third
+  field is `suspended`, `retired` or `absent` (sec 489), and absent from a
+  contact who stands. Nothing to build.
+- **An empty listing**: `ok 0 0` is the only one; a listing that cannot
+  read answers `error ...` and another user `denied ...`, never `ok`.
+
+**Tested**: `tool/live_contacts.py` phase a lists R's two hosts at S by
+name and at S2 by R's key; `tool/live_pairing.py` phase f answers `ok
+none` before A's grant to B and `ok 1` after it.

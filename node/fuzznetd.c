@@ -344,6 +344,8 @@ static size_t address_local(const fzn_request_t *request, char *reply, size_t ca
 static size_t link_local(const fzn_request_t *request, char *reply, size_t cap);
 static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap);
+static size_t device_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                           size_t cap);
 static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap);
 static void index_catalog(void);
@@ -379,6 +381,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = link_local(request, reply, reply_cap);
 	if (!n)
 		n = streams_local(origin, request, reply, reply_cap);
+	if (!n)
+		n = device_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = catalog_local(origin, request, reply, reply_cap);
 	if (n)
@@ -7830,12 +7834,88 @@ static void streams_settle(void)
 	    streams_asked, streams_taken);
 }
 
+/* `list device CONTACT|KEY [FROM]`, sec 645: `ok TOTAL FROM KEY,ADDRESS,PORT
+ * ...`, the contact's devices this node keeps (sec 614) -- each its host
+ * key, and where it says it is reached, `-` and 0 for nowhere -- a page at a
+ * time. The contact's own key is a user's; these are its hosts'. The node's
+ * own user only. */
+static size_t device_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                           size_t cap)
+{
+	static fzn_contact_device_t kept[FZN_CONTACT_DEVICES_MAX];
+	static size_t mine[FZN_CONTACT_DEVICES_MAX];
+	const uint8_t *at = request->arg, *subject, *w;
+	size_t left = request->arg_len, subject_len, w_len, n = 0, count = 0, from = 0, i, out;
+	fzn_contact_t c;
+
+	if (request->parsed != FZN_VERB_LIST || !at || !next_word(&at, &left, &subject, &subject_len)
+	    || subject_len != 6u || memcmp(subject, "device", 6u) != 0)
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied devices need this node's own user\n");
+	if (!next_word(&at, &left, &w, &w_len))
+		return (size_t)snprintf(reply, cap, "malformed list device CONTACT|KEY [FROM]\n");
+	/* A NAME, or THE USER'S KEY as 64 hex: names are this host's alone
+	 * (sec 516), and a sibling keeps a contact's devices it has no name
+	 * for. */
+	if (w_len == FZN_PUBKEY_LEN * 2u) {
+		for (i = 0; i < FZN_PUBKEY_LEN; i++) {
+			int hi = hexval(w[2u * i]), lo = hexval(w[2u * i + 1u]);
+
+			if (hi < 0 || lo < 0)
+				break;
+			c.key[i] = (uint8_t)(hi * 16 + lo);
+		}
+		if (i < FZN_PUBKEY_LEN)
+			return (size_t)snprintf(reply, cap, "malformed not hex\n");
+	} else if (!node_apply.store
+	           || fzn_contact_find(node_apply.store, (const char *)w, w_len, &c)
+	                      != FZN_CONTACT_OK) {
+		return (size_t)snprintf(reply, cap, "error no such contact\n");
+	}
+	if (!node_apply.store)
+		return (size_t)snprintf(reply, cap, "error this node keeps no devices\n");
+	if (next_word(&at, &left, &w, &w_len))
+		for (i = 0; i < w_len; i++) {
+			if (w[i] < '0' || w[i] > '9' || from > FZN_CONTACT_DEVICES_MAX)
+				return (size_t)snprintf(reply, cap, "malformed not an index\n");
+			from = (from * 10u) + (size_t)(w[i] - '0');
+		}
+	if (fzn_contact_device_list(node_apply.store, kept, FZN_CONTACT_DEVICES_MAX, &n)
+	    != FZN_CONTACT_DEVICE_OK)
+		return (size_t)snprintf(reply, cap, "error the devices did not read\n");
+	for (i = 0; i < n; i++)
+		if (memcmp(kept[i].owner, c.key, FZN_PUBKEY_LEN) == 0)
+			mine[count++] = i;
+	if (from > count)
+		return (size_t)snprintf(reply, cap, "malformed past the last device\n");
+	out = (size_t)snprintf(reply, cap, "ok %zu %zu", count, from);
+	for (i = from; i < count; i++) {
+		const fzn_contact_device_t *d = &kept[mine[i]];
+		char key[FZN_PUBKEY_LEN * 2u + 1u];
+		size_t need = 1u + FZN_PUBKEY_LEN * 2u + 1u + (d->address_len ? d->address_len : 1u)
+		              + 1u + 5u;
+
+		/* ROOM FOR THIS ONE AND THE NEWLINE, or the page ends here. */
+		if (out + need + 2u > cap)
+			break;
+		hex_of(fzn_contact_device_key(d), FZN_PUBKEY_LEN, key);
+		out += (size_t)snprintf(reply + out, cap - out, " %s,%.*s,%u", key,
+		                        d->address_len ? (int)d->address_len : 1,
+		                        d->address_len ? d->address : "-",
+		                        d->address_len ? (unsigned)d->port : 0u);
+	}
+	return out + (size_t)snprintf(reply + out, cap - out, "\n");
+}
+
 /* THE STREAM VERBS, the node's own user's:
  *
  *     add stream NAME HEX [HEX ...]   a record of this host's, a rendition a
  *                                     level, the most exact first: `ok SEQ`
  *     grant stream NAME WHO LEVEL     WHO a contact or @GROUP may read LEVEL
  *     revoke stream NAME WHO
+ *     get stream NAME WHO             `ok LEVEL`, or `ok none`: what WHO was
+ *                                     granted (sec 645)
  *     fetch stream NAME [WHO]         asked at once of WHO's hosts, or of
  *                                     this user's own
  *     list stream NAME                `ok COUNT ORIGIN,SEQ,AT,HEX[,HEX...]
@@ -7855,7 +7935,7 @@ static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, c
 		return 0;
 	if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_GRANT
 	    && request->parsed != FZN_VERB_REVOKE && request->parsed != FZN_VERB_FETCH
-	    && request->parsed != FZN_VERB_LIST)
+	    && request->parsed != FZN_VERB_LIST && request->parsed != FZN_VERB_GET)
 		return 0;
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return (size_t)snprintf(reply, cap, "denied streams need this node's own user\n");
@@ -7952,6 +8032,14 @@ static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, c
 		stream_fetches[n_stream_fetches].group = group;
 		n_stream_fetches++;
 		return (size_t)snprintf(reply, cap, "ok\n");
+	}
+	if (request->parsed == FZN_VERB_GET) {
+		unsigned level = 0;
+
+		return fzn_streams_granted(&node_streams, (const char *)name, name_len, who, &level)
+		               == FZN_STREAMS_OK
+		               ? (size_t)snprintf(reply, cap, "ok %u\n", level)
+		               : (size_t)snprintf(reply, cap, "ok none\n");
 	}
 	if (request->parsed == FZN_VERB_REVOKE)
 		return fzn_streams_grant(&node_streams, (const char *)name, name_len, who, -1)

@@ -197,6 +197,14 @@ def main(argv):
 			got = passes(s2)[0]
 			if got[1] < 2 or got[2] < 2:
 				raise failed("a: S2 kept %d of R's devices from S and paired %d" % got[1:3])
+			# LISTED AS KEPT, sec 645: R's two hosts under R, its user -- by
+			# name at S, and by R's key at S2, which names nobody R.
+			for who, line in (("s", "list device rory"), ("s2", "list device " + keys["r"])):
+				listed = ask(socks[who], line).split()
+				if len(listed) < 3 or listed[:3] != ["ok", "2", "0"] \
+				   or {row.split(",")[0] for row in listed[3:]} != {keys["r"], keys["r2"]}:
+					raise failed("a: %s's %s answered %r, not R's and R2's hosts"
+					             % (who.upper(), line, listed))
 			r2 = up("r2", "r2a")
 			got = r2.wait_for(PASS_RE, "R2's contact pass")
 			if int(got.group(4)) != 2:
