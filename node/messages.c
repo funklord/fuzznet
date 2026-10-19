@@ -1189,7 +1189,10 @@ static size_t add(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char 
 		char name[512];
 		FILE *f;
 
-		if (rest_left == 0u || rest_left >= sizeof(name) || memchr(rest, '\0', rest_left))
+		/* AN ABSOLUTE PATH ONLY, sec 651: a relative one is read in the
+		 * daemon's working directory, which no client sees. */
+		if (rest_left == 0u || rest_left >= sizeof(name) || memchr(rest, '\0', rest_left)
+		    || rest[0] != '/')
 			return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
 		memcpy(name, rest, rest_left);
 		name[rest_left] = '\0';
@@ -1202,6 +1205,11 @@ static size_t add(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char 
 		(void)fclose(f);
 		if (len > FZN_MESSAGE_TEXT_MAX)
 			return refuse(reply, cap, FZN_MESSAGES_ERR_TEXT);
+	} else if (memchr(at, ' ', left)) {
+		/* TEXT IS ONE ESCAPED WORD, sec 651, a space written %20: a raw
+		 * one let a text that began `file ` be read as the file form, and
+		 * a local file's contents sent in its place. */
+		return say(reply, cap, FZN_REPLY_MALFORMED, "a text's spaces are written %20");
 	} else if (!unescape(at, left, text, FZN_MESSAGE_TEXT_MAX, &len)) {
 		return say(reply, cap, FZN_REPLY_MALFORMED, "a text past 512 bytes, or a bad escape");
 	}

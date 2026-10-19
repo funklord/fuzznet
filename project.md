@@ -66543,3 +66543,28 @@ a message's file -- accept a relative path too, resolved in the daemon's
 working directory. Only an export writes plaintext, so only it is refused
 now; whether every path verb should require an absolute path is a
 convention across the verbs, not decided here.
+
+## 651. A message's text one escaped word, and its file's path absolute, 2026-10-20
+
+**Found by the lens sec 650 gave** -- one form of a verb read as another
+-- turned on `add message WHO out|in ID TEXT | file PATH` (sec 527). TEXT
+was the rest of the line, unescaped, **raw spaces allowed**; so a text
+that began with the word `file` and a space was the file form, and the
+daemon read that file -- relative paths in its own working directory --
+and **sent its contents to the contact in place of the text**. A client
+escaping its text, as fuzzypickles' does, could not reach it; one sending
+raw text could, with a message typed as `file notes.txt`.
+
+**Built:**
+
+- **TEXT is one escaped word**, a space written `%20`: a raw space is
+  `malformed`. `file PATH` is then the only form with a space after
+  `file`, and an escaped `file%20notes.txt` is a text like any other.
+- **The file form's PATH is absolute**, as an export's is since sec 650.
+
+`tool/live_cut.py` and `tool/live_trim.py` sent "an old line" with raw
+spaces, the only callers that did, and now escape it.
+
+**Tested** in `node/test/messages_test.c`: an escaped text beginning
+`file` written and listed as a text; a raw space refused; a relative
+file path refused; none of the refused written. Two sabotage entries.

@@ -418,6 +418,20 @@ static void test_the_verbs(void)
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "add message carol out " ID1 " bad%zz")
 	              && replied("malformed"),
 	      "and a bad escape");
+	/* ONE ESCAPED WORD, sec 651: a text that begins `file ` is not the file
+	 * form unless it is written so, and a file's path is absolute. */
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER,
+	           "add message carol out 05050505050505050505050505050505 file%20notes.txt")
+	              && replied("ok"),
+	      "an escaped text beginning file was not taken as a text");
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER,
+	           "add message carol out 06060606060606060606060606060606 two words")
+	              && replied("malformed"),
+	      "a raw space in a text was not refused");
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER,
+	           "add message carol out 07070707070707070707070707070707 file notes.txt")
+	              && replied("malformed"),
+	      "a file named by a relative path was read");
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "set message carol out " ID1 " lost")
 	              && replied("malformed"),
 	      "and a state that is not one");
@@ -445,8 +459,13 @@ static void test_the_verbs(void)
 	CHECK(unlink(path) == 0, "fixture: the file removed");
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "list message carol") && replied("ok 0 ")
 	              && strstr(reply, ",03030303030303030303030303030303,out,-,")
-	              && !strstr(reply, "04040404040404040404040404040404"),
-	      "the long line is listed first, and the refused one nowhere");
+	              && !strstr(reply, "04040404040404040404040404040404")
+	              && strstr(reply, ",05050505050505050505050505050505,out,-,")
+	              && strstr(reply, ",file%20notes.txt")
+	              && !strstr(reply, "06060606060606060606060606060606")
+	              && !strstr(reply, "07070707070707070707070707070707"),
+	      "the long line is listed first, the escaped file text as a text, and the refused "
+	      "ones nowhere");
 }
 
 /* ---- keys between devices ------------------------------------------------------ */

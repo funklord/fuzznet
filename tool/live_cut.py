@@ -142,7 +142,7 @@ def main(argv):
 			fake = "@" + then.strftime("%Y-%m-%d") + " 12:00:00"
 			d = daemon(run, "a", fake=fake)
 			try:
-				reply = ask(run.sock, "add message %s out %s an old line"
+				reply = ask(run.sock, "add message %s out %s an%%20old%%20line"
 				            % (live_trim.CONTACT, live_trim.LINE_ID))
 				if reply != "ok":
 					raise failed("a: add message answered %r" % reply)

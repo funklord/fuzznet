@@ -230,7 +230,7 @@ def write_old(run, tag):
 	d = daemon(run, tag, fake=fake)
 	try:
 		for contact in (CONTACT, OTHER_CONTACT):
-			reply = ask(run.sock, "add message %s out %s an old line" % (contact, LINE_ID))
+			reply = ask(run.sock, "add message %s out %s an%%20old%%20line" % (contact, LINE_ID))
 			if reply != "ok":
 				raise failed("%s: add message answered %r" % (tag, reply))
 		written, readable, text = row(run, tag)

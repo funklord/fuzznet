@@ -12296,6 +12296,20 @@ SABOTAGES = [
 		"\" %s,%zu\", name, held.n_members);",
 		"list group carries no id, so a client keys on a name -- sec 647",
 	),
+	(
+		"message-text-one-word",
+		"node/messages.c",
+		"\t} else if (memchr(at, ' ', left)) {\n",
+		"\t} else if (0 && memchr(at, ' ', left)) {\n",
+		"a text that begins `file ` is read as the file form and a local file sent in its place -- sec 651",
+	),
+	(
+		"message-file-absolute",
+		"node/messages.c",
+		"\t\t    || rest[0] != '/')\n",
+		"\t\t    || 0)\n",
+		"a message's file is read in the daemon's working directory, which no client sees -- sec 651",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

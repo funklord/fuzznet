@@ -361,6 +361,7 @@ fzn_messages_err_t fzn_node_messages_settle(fzn_node_messages_t *nm,
  * the line with %XX undone (so a newline is %0a) or `file PATH`:
  *
  *   add message WHO out|in ID [at MS] TEXT | file PATH
+ *       TEXT one escaped word, a space as %20; PATH absolute (sec 651)
  *   set message WHO out|in ID delivered|settled|handed-over|not-delivered
  *   set message WHO read ID
  *   get message WHO unread
