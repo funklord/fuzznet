@@ -12,6 +12,9 @@ client drives it -- no one-shot command, no daemon stopped by its client.
        first round reads a setting A made before B joined
     c  B started again with no `--root-at` still pulls from A, where the
        join kept it, and reads a second setting A makes
+    d  A's `list sibling` names B, paired
+    e  B's `list capability` holds member by one hop; A's `list grant` names
+       the grant it made B, standing
 
 Against a daemon whose `add join` did not start it again, phase b's round
 never reads A's setting; against one that kept no address, phase c's.
@@ -39,6 +42,8 @@ live_trim.DEADLINE = time.monotonic() + 300.0
 
 # A KEY ON THE STATUS LINE: what `add join` answers, the root's.
 KEY_LEN = 64
+# A PREKEY RECORD'S HOST KEY, in hex.
+PREKEY_HOST = slice(4, 68)
 
 
 def main(argv):
@@ -97,6 +102,7 @@ def main(argv):
 			got = ask(socks["b"], "get prekey").split()
 			if len(got) != 2 or got[0] != "ok":
 				raise failed("a: get prekey answered %r" % got)
+			key_b = got[1][PREKEY_HOST]
 			card = ask(socks["a"], "add peer %s delegable" % got[1]).split()
 			if len(card) != 2 or card[0] != "ok":
 				raise failed("a: add peer ... delegable answered %r" % card)
@@ -139,6 +145,39 @@ def main(argv):
 				             % setting("b", "x/after"))
 			print("livecheck: c: B, started with no --root-at, pulled from where the join "
 			      "kept its root")
+
+			# d: A lists B among its siblings, paired (sec 638) -- once a round of
+			# A's own has applied the prekey B's estate stream carries.
+			until = time.monotonic() + 90.0
+			while True:
+				listed = ask(socks["a"], "list sibling").split()
+				if len(listed) >= 3 and listed[0] == "ok" \
+				   and any(e.startswith(key_b + ",") and ",paired," in e for e in listed[3:]):
+					break
+				if time.monotonic() > until:
+					raise failed("d: A's list sibling answered %r, not B paired" % listed)
+				time.sleep(1.0)
+			print("livecheck: d: A lists B among its siblings, paired")
+
+			# e: B holds the member capability by A's grant, one hop; A lists
+			# the grant it made B, standing (sec 638).
+			def polled(who, line, test, what):
+				until = time.monotonic() + 90.0
+				while True:
+					got = ask(socks[who], line).split()
+					if got and got[0] == "ok" and test(got):
+						return got
+					if time.monotonic() > until:
+						raise failed("e: %s answered %r, %s" % (line, got, what))
+					time.sleep(1.0)
+
+			polled("b", "list capability", lambda g: "member,1,1,0" in g[2:],
+			       "not member held by one hop")
+			polled("a", "list grant",
+			       lambda g: any(e.startswith(key_b + ",member,") and e.endswith(",1")
+			                     for e in g[3:]),
+			       "not B's member grant, standing")
+			print("livecheck: e: B holds the member capability by A's grant, and A lists it")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

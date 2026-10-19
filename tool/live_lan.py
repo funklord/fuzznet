@@ -11,9 +11,12 @@ recorded address is somewhere else while it sits on the same LAN.
        it; B probes the LAN, its discovery address set to 127.0.0.1, at
        the port C advertises; C answers B, a sibling, with a hello from its
        serving socket; B's next round finds C where that hello came from
-       and fetches the file whole from C
+       and fetches the file whole from C. `fetch lan` answers how many
+       probes it sent, and where
+    c  B's discovery switched off, `fetch lan` sends none and says why
 
-Against a daemon that answers no probe, phase b never finds C.
+Against a daemon that answers no probe, phase b never finds C; against one
+whose `net/discovery off` still broadcasts, phase c's answer is a count.
 
 BOUNDED FROM INSIDE as live_rejoin.py is, whose daemon handling this reuses:
 one deadline, each daemon in its own process group, and every daemon
@@ -122,10 +125,16 @@ def main(argv):
 			started["b"] = daemon(run, "b-b", dirs["b"], socks["b"], extra=args["b"])
 			started["b"].wait_for(RECONCILE_RE, "B's reconcile pass")
 			expect(socks["b"], "b", "fetch file " + ref, "ok")
-			expect(socks["b"], "b", "fetch lan", "ok")
+			# THE ANSWER SAYS WHAT WAS SENT, sec 639: the probes are sent
+			# before it.
+			said = ask(socks["b"], "fetch lan").split()
+			if len(said) != 3 or said[0] != "ok" or said[2] != "127.0.0.1" \
+			   or not said[1].isdigit() or said[1] == "0":
+				raise failed("b: fetch lan answered %r, not probes sent to 127.0.0.1" % said)
 			probed = started["b"].wait_for(PROBED_RE, "B's LAN probes")
-			if probed.group(1) == "0":
-				raise failed("b: B sent no LAN probe")
+			if probed.group(1) != said[1]:
+				raise failed("b: fetch lan said %s probe(s), the log %s"
+				             % (said[1], probed.group(1)))
 			# B'S NEXT ROUND finds C: waited for here rather than by wait_for,
 			# whose limit is half a round.
 			deadline = time.monotonic() + 200.0
@@ -143,6 +152,13 @@ def main(argv):
 			if whole.groups() != (str(PAYLOAD_LEN), "1"):
 				raise failed("b: B's file was %s bytes from %s peer(s)" % whole.groups())
 			print("livecheck: b: B probed the LAN, found C, and fetched its file whole")
+
+			# c: switched off, B sends nothing and says why (sec 639).
+			expect(socks["b"], "c", "set setting host net/discovery off", "ok")
+			said = ask(socks["b"], "fetch lan").strip()
+			if not said.startswith("ok 0 - ") or "off" not in said:
+				raise failed("c: switched off, fetch lan answered %r" % said)
+			print("livecheck: c: B's discovery switched off, it sent no probe and said why")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

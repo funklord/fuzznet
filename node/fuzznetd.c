@@ -330,6 +330,14 @@ static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, c
                             size_t cap);
 static size_t identity_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                              size_t cap);
+static size_t capability_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                               size_t cap);
+static size_t grant_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                          size_t cap);
+static size_t relay_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                          size_t cap);
+static size_t sibling_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                            size_t cap);
 static size_t join_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                          size_t cap);
 static size_t address_local(const fzn_request_t *request, char *reply, size_t cap);
@@ -340,8 +348,8 @@ static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, c
                             size_t cap);
 static void index_catalog(void);
 static void catalog_skip(const uint8_t *issuer, uint64_t to);
-/* `fetch lan` asked, sec 624: probes sent at the loop's next turn. */
-static int lan_due;
+/* `fetch lan`, sec 624: its probes sent, how many, and why none. */
+static size_t lan_probe(const char **why, char *address, size_t address_cap);
 
 static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
                            const fzn_peer_t *peer, const fzn_request_t *request, char *reply,
@@ -357,6 +365,14 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = identity_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = join_local(origin, request, reply, reply_cap);
+	if (!n)
+		n = sibling_local(origin, request, reply, reply_cap);
+	if (!n)
+		n = relay_local(origin, request, reply, reply_cap);
+	if (!n)
+		n = capability_local(origin, request, reply, reply_cap);
+	if (!n)
+		n = grant_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = address_local(request, reply, reply_cap);
 	if (!n)
@@ -4588,6 +4604,246 @@ static size_t load_siblings(struct pull_target *pulls, size_t npulls, int family
 	return built;
 }
 
+/* THE CAPABILITIES THIS NODE KNOWS, by the names its verbs use. */
+static const fzn_cap_id_t *known_capability(size_t i, const char **name)
+{
+	const fzn_node_config_t *c = running_admin && running_admin->state
+	                                     ? &running_admin->state->config
+	                                     : NULL;
+
+	if (!c)
+		return NULL;
+	switch (i) {
+	case 0:
+		*name = "member";
+		return &c->remote_capability;
+	case 1:
+		*name = "admin";
+		return c->has_admin ? &c->admin_capability : NULL;
+	case 2:
+		*name = "share";
+		return c->has_share ? &c->share_capability : NULL;
+	case 3:
+		*name = "retention";
+		return c->has_retention ? &c->retention_capability : NULL;
+	}
+	return NULL;
+}
+#define KNOWN_CAPABILITIES 4u
+
+/* THE EXPIRY of chain `hops`' last hop, 0 for none or no chain. */
+static uint64_t chain_expires(uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t hop_count)
+{
+	fzn_chain_hop_t hop;
+
+	return hop_count && fzn_hop_open(hops[hop_count - 1u], FZN_HOP_LEN, &hop) == FZN_CHAIN_OK
+	               ? fzn_hop_expires_at(hop)
+	               : 0u;
+}
+
+/* `list capability`, sec 638: `ok N NAME,HOLDS,HOPS,EXPIRES ...` -- fzpd's
+ * `cap-list`: for each capability this node knows -- member, and admin,
+ * share and retention where it knows them -- whether it holds it now,
+ * verified as it is answered (a root does; any other key by a chain from a
+ * root, neither expired nor revoked: `fzn_node_apply_holds`), its chain's
+ * hops, and when its last hop expires, 0 for never. A capability it does not
+ * hold is said so, with 0 hops. */
+static size_t capability_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                               size_t cap)
+{
+	static uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	const uint8_t *self = routing_self;
+	size_t i, n = 0, at;
+
+	if (request->parsed != FZN_VERB_LIST || !request->arg || request->arg_len != 10u
+	    || memcmp(request->arg, "capability", 10u) != 0)
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied this node's capabilities are its own "
+		                                    "user's\n");
+	if (!self || !node_apply.store)
+		return (size_t)snprintf(reply, cap, "error this node holds no grants to read\n");
+	for (i = 0; i < KNOWN_CAPABILITIES; i++) {
+		const char *name;
+
+		n += known_capability(i, &name) != NULL;
+	}
+	at = (size_t)snprintf(reply, cap, "ok %zu", n);
+	for (i = 0; i < KNOWN_CAPABILITIES && at < cap; i++) {
+		const char *name = NULL;
+		const fzn_cap_id_t *c = known_capability(i, &name);
+		size_t hop_count = 0;
+		int holds;
+
+		if (!c)
+			continue;
+		holds = fzn_node_apply_holds(&node_apply, self, c);
+		if (!holds || !fzn_node_apply_chain(&node_apply, self, c, hops, &hop_count))
+			hop_count = 0;
+		at += (size_t)snprintf(reply + at, cap - at, " %s,%d,%zu,%llu", name, holds ? 1 : 0,
+		                       hop_count, (unsigned long long)chain_expires(hops, hop_count));
+	}
+	return at + (size_t)snprintf(reply + at, cap > at ? cap - at : 0u, "\n");
+}
+
+/* `list grant [FROM]`, sec 638: `ok TOTAL FROM GRANTEE,NAME,EXPIRES,STANDS
+ * ...` -- fzpd's `cap-granted`: every grant this node signed that its index
+ * holds, a page at a time; NAME the capability's, or `other`; EXPIRES 0 for
+ * never; STANDS 1 when the grantee holds the capability now -- revoked or
+ * expired, 0 -- read from the revocations as answered, never kept. */
+static size_t grant_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                          size_t cap)
+{
+	const uint8_t *self = routing_self, *arg = request->arg;
+	size_t arg_len = request->arg_len, i, total = 0, from = 0, at, k, seen = 0;
+
+	if (request->parsed != FZN_VERB_LIST || !arg || arg_len < 5u || memcmp(arg, "grant", 5u) != 0
+	    || (arg_len > 5u && arg[5] != ' '))
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied this node's grants are its own user's\n");
+	for (k = 6u; k < arg_len; k++) {
+		if (arg[k] < '0' || arg[k] > '9' || from > 100000u)
+			return (size_t)snprintf(reply, cap, "malformed list grant [FROM]\n");
+		from = from * 10u + (size_t)(arg[k] - '0');
+	}
+	if (!self)
+		return (size_t)snprintf(reply, cap, "error this node holds no grants to read\n");
+	for (i = 0; i < node_apply.grants_used; i++)
+		total += memcmp(node_apply.grants[i].grantor, self, FZN_PUBKEY_LEN) == 0;
+	at = (size_t)snprintf(reply, cap, "ok %zu %zu", total, from);
+	for (i = 0; i < node_apply.grants_used; i++) {
+		const fzn_node_grant_t *g = &node_apply.grants[i];
+		const char *name = "other";
+		fzn_chain_hop_t hop;
+		char entry[160];
+		size_t c, j;
+		int len;
+
+		if (memcmp(g->grantor, self, FZN_PUBKEY_LEN) != 0 || seen++ < from)
+			continue;
+		for (c = 0; c < KNOWN_CAPABILITIES; c++) {
+			const char *cn = NULL;
+			const fzn_cap_id_t *known = known_capability(c, &cn);
+
+			if (known && memcmp(known, &g->capability, sizeof(*known)) == 0)
+				name = cn;
+		}
+		len = snprintf(entry, sizeof(entry), " ");
+		for (j = 0; j < FZN_PUBKEY_LEN; j++)
+			len += snprintf(entry + len, sizeof(entry) - (size_t)len, "%02x", g->grantee[j]);
+		len += snprintf(entry + len, sizeof(entry) - (size_t)len, ",%s,%llu,%d", name,
+		                (unsigned long long)(fzn_hop_open(g->hop, FZN_HOP_LEN, &hop)
+		                                                     == FZN_CHAIN_OK
+		                                             ? fzn_hop_expires_at(hop)
+		                                             : 0u),
+		                fzn_node_apply_holds(&node_apply, g->grantee, &g->capability) ? 1 : 0);
+		/* A PAGE IS WHAT FITS: the next one starts at the first left out. */
+		if (len <= 0 || at + (size_t)len + 2u > cap)
+			break;
+		memcpy(reply + at, entry, (size_t)len);
+		at += (size_t)len;
+	}
+	return at + (size_t)snprintf(reply + at, cap > at ? cap - at : 0u, "\n");
+}
+
+/* `list sibling [FROM]`, sec 638: `ok TOTAL FROM KEY,WHERE,PAIRED,HEARD ...`,
+ * every other host of this estate this node knows, a page at a time --
+ * fzpd's `sibling-list`: those whose prekey the estate's stream carried,
+ * and the members paired into this node, which is how a root knows the
+ * devices that joined through it. WHERE is where it is reached, as a round
+ * reaches it (an introduced address while it lasts, else its
+ * `net/address`), or `-`; PAIRED is `paired` when either holds a pairing
+ * to the other, else `unpaired`;
+ * HEARD the seconds since it last answered, or `-` for never. This node's
+ * own user only: it names where every host of the estate is. */
+static size_t sibling_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                            size_t cap)
+{
+	static uint8_t hosts[FZN_NODE_SIBLINGS_MAX][FZN_PUBKEY_LEN];
+	const uint8_t *self = routing_self;
+	size_t n = 0, i, total = 0, from = 0, at, k;
+	uint64_t now = wall_clock(), now_us = wall_ms() * 1000u;
+	const uint8_t *arg = request->arg;
+	size_t arg_len = request->arg_len;
+
+	if (request->parsed != FZN_VERB_LIST || !arg || arg_len < 7u || memcmp(arg, "sibling", 7u) != 0
+	    || (arg_len > 7u && arg[7] != ' '))
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied where this estate's hosts are is its own "
+		                                    "user's\n");
+	for (k = 8u; k < arg_len; k++) {
+		if (arg[k] < '0' || arg[k] > '9' || from > 100000u)
+			return (size_t)snprintf(reply, cap, "malformed list sibling [FROM]\n");
+		from = from * 10u + (size_t)(arg[k] - '0');
+	}
+	if (!node_apply.store || !self
+	    || fzn_node_siblings_list(node_apply.store, hosts, FZN_NODE_SIBLINGS_MAX, &n)
+	               != FZN_NODE_SIBLINGS_OK)
+		return (size_t)snprintf(reply, cap, "error the siblings would not read\n");
+	/* AND THE MEMBERS PAIRED INTO THIS NODE, each once. */
+	if (running_admin && running_admin->state)
+		for (i = 0; i < running_admin->state->peer_count && n < FZN_NODE_SIBLINGS_MAX; i++) {
+			const fzn_node_peer_t *pe = &running_admin->state->peers[i];
+
+			if (fzn_node_peer_contact(&running_admin->state->config, pe))
+				continue;
+			for (k = 0; k < n && memcmp(hosts[k], pe->sender, FZN_PUBKEY_LEN) != 0; k++)
+				;
+			if (k == n)
+				memcpy(hosts[n++], pe->sender, FZN_PUBKEY_LEN);
+		}
+	for (i = 0; i < n; i++)
+		total += memcmp(hosts[i], self, FZN_PUBKEY_LEN) != 0;
+	at = (size_t)snprintf(reply, cap, "ok %zu %zu", total, from);
+	for (i = 0, k = 0; i < n && at < cap; i++) {
+		struct introduced *in;
+		fzn_node_pairing_t pairing;
+		char where[FZN_NODE_SETTINGS_HOST_MAX + 8u], heard[24],
+		        entry[FZN_NODE_SETTINGS_HOST_MAX + 128u];
+		uint16_t port = 0;
+		uint64_t when = 0;
+		int paired, len;
+		size_t j;
+
+		if (memcmp(hosts[i], self, FZN_PUBKEY_LEN) == 0 || k++ < from)
+			continue;
+		in = intro_of(hosts[i], 0);
+		if (in && in->until > now && in->port)
+			(void)snprintf(where, sizeof(where), "%s:%u", in->host, (unsigned)in->port);
+		else if (fzn_node_settings_address(&node_settings, hosts[i], where, &port)) {
+			size_t w = strlen(where);
+
+			(void)snprintf(where + w, sizeof(where) - w, ":%u", (unsigned)port);
+		} else
+			(void)snprintf(where, sizeof(where), "-");
+		paired = fzn_node_pairing_load(node_apply.store, hosts[i], &pairing) == FZN_PERSIST_OK;
+		fzn_wipe(&pairing, sizeof(pairing));
+		for (j = 0; !paired && running_admin && running_admin->state
+		            && j < running_admin->state->peer_count;
+		     j++)
+			paired = memcmp(running_admin->state->peers[j].sender, hosts[i], FZN_PUBKEY_LEN)
+			         == 0;
+		if (fzn_heard_when(node_apply.store, hosts[i], &when) == FZN_HEARD_OK)
+			(void)snprintf(heard, sizeof(heard), "%llu",
+			               (unsigned long long)(now_us > when ? (now_us - when) / 1000000u : 0u));
+		else
+			(void)snprintf(heard, sizeof(heard), "-");
+		len = snprintf(entry, sizeof(entry), " ");
+		for (j = 0; j < FZN_PUBKEY_LEN; j++)
+			len += snprintf(entry + len, sizeof(entry) - (size_t)len, "%02x", hosts[i][j]);
+		len += snprintf(entry + len, sizeof(entry) - (size_t)len, ",%s,%s,%s", where,
+		                paired ? "paired" : "unpaired", heard);
+		/* A PAGE IS WHAT FITS: the next one starts at the first left out. */
+		if (len <= 0 || at + (size_t)len + 2u > cap)
+			break;
+		memcpy(reply + at, entry, (size_t)len);
+		at += (size_t)len;
+	}
+	return at + (size_t)snprintf(reply + at, cap > at ? cap - at : 0u, "\n");
+}
+
 /* THE TYPES of an introduction, in notes-sync's space after the relay's 35:
  * INTRODUCE asks a peer to introduce a sibling; NOTIFY tells that sibling
  * where the asker asked from. Answered in words. */
@@ -5997,11 +6253,18 @@ static size_t address_local(const fzn_request_t *request, char *reply, size_t ca
 	size_t at, i, k;
 	int agree = 1;
 
-	/* `fetch lan`, sec 624: probes sent at once. */
+	/* `fetch lan`, sec 624: probes sent at once, and said -- `ok SENT
+	 * ADDRESS`, or `ok 0 -` and why none was, so a client need not guess
+	 * (fuzzypickles' sec 282). */
 	if (request->arg && request->arg_len == 3u && memcmp(request->arg, "lan", 3u) == 0
 	    && request->parsed == FZN_VERB_FETCH) {
-		lan_due = 1;
-		return (size_t)snprintf(reply, cap, "ok\n");
+		char address[FZN_UDP_HOST_MAX];
+		const char *why = NULL;
+		size_t sent = lan_probe(&why, address, sizeof(address));
+
+		if (!sent && why)
+			return (size_t)snprintf(reply, cap, "ok 0 - %s\n", why);
+		return (size_t)snprintf(reply, cap, "ok %zu %s\n", sent, address);
 	}
 	if (!request->arg || request->arg_len != 7u || memcmp(request->arg, "address", 7u) != 0
 	    || (request->parsed != FZN_VERB_GET && request->parsed != FZN_VERB_FETCH))
@@ -8094,13 +8357,15 @@ static uint64_t host_number(const char *key, uint64_t def)
  * and here a sender is its key (sec 596): `relay/quota` bytes, 100 MiB,
  * in `relay/window` seconds, a day; 0 bytes is unlimited. A full table
  * refuses rather than evicting a row whose window still runs. 1 charged. */
+static struct {
+	uint8_t key[FZN_PUBKEY_LEN];
+	uint64_t start, used, refused;
+	int set;
+} relay_rows[FZND_RELAY_QUOTA_ROWS];
+
 static int relay_charge(const uint8_t key[FZN_PUBKEY_LEN], size_t bytes, uint64_t now)
 {
-	static struct {
-		uint8_t key[FZN_PUBKEY_LEN];
-		uint64_t start, used;
-		int set;
-	} rows[FZND_RELAY_QUOTA_ROWS];
+#define rows relay_rows
 	uint64_t quota = host_number("relay/quota", 100u * 1024u * 1024u);
 	uint64_t window = host_number("relay/window", 86400u);
 	size_t i, free_row = FZND_RELAY_QUOTA_ROWS;
@@ -8120,16 +8385,65 @@ static int relay_charge(const uint8_t key[FZN_PUBKEY_LEN], size_t bytes, uint64_
 		memcpy(rows[i].key, key, FZN_PUBKEY_LEN);
 		rows[i].start = now;
 		rows[i].used = 0;
+		rows[i].refused = 0;
 		rows[i].set = 1;
 	}
 	if (now >= rows[i].start + window || rows[i].start > now) {
 		rows[i].start = now;
 		rows[i].used = 0;
+		rows[i].refused = 0;
 	}
-	if (quota && rows[i].used + bytes > quota)
+	if (quota && rows[i].used + bytes > quota) {
+		rows[i].refused++;
 		return 0;
+	}
 	rows[i].used += bytes;
 	return 1;
+#undef rows
+}
+
+/* `get relay`, sec 638: `ok ENABLED QUOTA WINDOW N KEY,USED,REFUSED ...` --
+ * fzpd's `relay-status`. ENABLED is `relay/enabled`; QUOTA the bytes a peer
+ * may have relayed in WINDOW seconds, 0 for no bound; then each peer whose
+ * window still runs, by its key (sec 596, a sender is its key), with the
+ * bytes relayed for it and the frames refused it over the quota. This
+ * node's own user only: it names who relays through this host, which a
+ * relay learns and must not pass on (fuzzypickles' sec 10). As many peers
+ * as fit one reply, N saying how many there are. */
+static size_t relay_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                          size_t cap)
+{
+	uint64_t quota = host_number("relay/quota", 100u * 1024u * 1024u);
+	uint64_t window = host_number("relay/window", 86400u), now = wall_clock();
+	size_t i, n = 0, at, j;
+	int k;
+
+	if (request->parsed != FZN_VERB_GET || !request->arg || request->arg_len != 5u
+	    || memcmp(request->arg, "relay", 5u) != 0)
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied who relays through this host is its own "
+		                                    "user's\n");
+	for (i = 0; i < FZND_RELAY_QUOTA_ROWS; i++)
+		n += relay_rows[i].set && now < relay_rows[i].start + window
+		     && relay_rows[i].start <= now;
+	at = (size_t)snprintf(reply, cap, "ok %u %llu %llu %zu",
+	                      host_number("relay/enabled", 0) == 1u ? 1u : 0u,
+	                      (unsigned long long)quota, (unsigned long long)window, n);
+	for (i = 0; i < FZND_RELAY_QUOTA_ROWS && at + 100u < cap; i++) {
+		if (!relay_rows[i].set || now >= relay_rows[i].start + window
+		    || relay_rows[i].start > now)
+			continue;
+		at += (size_t)snprintf(reply + at, cap - at, " ");
+		for (j = 0; j < FZN_PUBKEY_LEN; j++) {
+			k = snprintf(reply + at, cap - at, "%02x", relay_rows[i].key[j]);
+			at += k > 0 ? (size_t)k : 0u;
+		}
+		at += (size_t)snprintf(reply + at, cap - at, ",%llu,%llu",
+		                       (unsigned long long)relay_rows[i].used,
+		                       (unsigned long long)relay_rows[i].refused);
+	}
+	return at + (size_t)snprintf(reply + at, cap > at ? cap - at : 0u, "\n");
 }
 
 /* A FRAME TO RELAY, sec 622: forwarded, unread, from this host's serving
@@ -8411,10 +8725,12 @@ static void lan_probe_heard(void *ctx, const uint8_t *probe, size_t len,
 
 /* `fetch lan`, sec 624: a probe sent from the serving socket to the LAN
  * discovery address -- this host's cell `net/discovery`, 255.255.255.255
- * unset -- at every port a sibling or a contact's host advertises. Its
- * answers are hellos, noted where they came from; a sibling silent at its
- * own address is then asked there (`introduce_siblings`). */
-static void lan_probe(void)
+ * unset, and none at all when it is `off` -- at every port a sibling or a
+ * contact's host advertises. Its answers are hellos, noted where they came
+ * from; a sibling silent at its own address is then asked there
+ * (`introduce_siblings`). How many were sent, the address in `address`;
+ * with none, `*why` says why. */
+static size_t lan_probe(const char **why, char *out, size_t out_cap)
 {
 	static uint8_t hosts[FZN_NODE_SIBLINGS_MAX][FZN_PUBKEY_LEN];
 	static fzn_contact_device_t kept[FZN_CONTACT_DEVICES_MAX];
@@ -8425,14 +8741,26 @@ static void lan_probe(void)
 	fzn_setting_rank_t rank;
 	size_t n = 0, nports = 0, i, k, len = 0, sent = 0;
 
-	if (!st || st->udp_fd < 0 || !contact_id || !node_apply.store)
-		return;
+	*why = NULL;
+	if (out_cap)
+		out[0] = '\0';
+	if (!st || st->udp_fd < 0 || !contact_id || !node_apply.store) {
+		*why = "this host serves no udp socket to probe from";
+		return 0;
+	}
 	if (fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, contact_id->pubkey,
 	                          (const uint8_t *)"net/discovery", 13u, value, &len, &rank)
 	    && len > 0u && len < sizeof(address)) {
 		memcpy(address, value, len);
 		address[len] = '\0';
 	}
+	/* SWITCHED OFF: nothing broadcast at all. fzpd could not be -- an empty
+	 * address still broadcast (fuzzypickles' sec 282). */
+	if (strcmp(address, "off") == 0) {
+		*why = "LAN discovery is off (net/discovery)";
+		return 0;
+	}
+	(void)snprintf(out, out_cap, "%s", address);
 	if (fzn_node_siblings_list(node_apply.store, hosts, FZN_NODE_SIBLINGS_MAX, &n)
 	    == FZN_NODE_SIBLINGS_OK)
 		for (i = 0; i < n && nports < FZND_LAN_PORTS_MAX; i++) {
@@ -8460,8 +8788,14 @@ static void lan_probe(void)
 	probe[0] = FZN_NODE_PROBE_MARK;
 	probe[1] = 1u;
 	memcpy(probe + 2, contact_id->pubkey, FZN_PUBKEY_LEN);
-	if (!contact_rng_ops || !contact_rng_ops->fill(contact_rng_ops->ctx, probe + 2 + FZN_PUBKEY_LEN, 8u))
-		return;
+	if (!nports) {
+		*why = "no sibling or contact host advertises a port to probe";
+		return 0;
+	}
+	if (!contact_rng_ops || !contact_rng_ops->fill(contact_rng_ops->ctx, probe + 2 + FZN_PUBKEY_LEN, 8u)) {
+		*why = "the probe would not be drawn";
+		return 0;
+	}
 	(void)fzn_udp_broadcast(st->udp_fd);
 	for (i = 0; i < nports; i++) {
 		fzn_udp_addr_t to;
@@ -8471,6 +8805,9 @@ static void lan_probe(void)
 			sent++;
 	}
 	say(FZN_ENTRY_INFO, "net/lan", "%zu LAN probe(s) sent to %s", sent, address);
+	if (!sent)
+		*why = "no probe would send to that address";
+	return sent;
 }
 
 /* LINES DELIVERED TO CONTACTS, secs 613 and 614: every line this node wrote
@@ -11152,11 +11489,6 @@ int main(int argc, char **argv)
 				 * at the next round. sec 433. */
 				/* HELLO to the peers it pulls from, sec 622. */
 				say_hello(pulls, npulls, state.udp_fd, now);
-				/* THE LAN PROBED, at once. sec 624. */
-				if (lan_due) {
-					lan_due = 0;
-					lan_probe();
-				}
 				/* A STREAM FETCH ASKED, at once, sec 632; WHERE THIS HOST IS
 				 * SEEN, asked now, sec 621: each a plan of its own, every host
 				 * at once and the loop answering meanwhile (sec 636). One

@@ -66091,17 +66091,52 @@ and the status line (an exhaustive reading of every `_local` handler and
   and a device joined at runtime would want the daemon to start pulling
   from its root without a restart. **This is the one that bears on the
   cut-over**: a UI's first run does exactly this.
-- **Reports fzpd makes and fuzznetd does not**: `sibling_list` (the
-  siblings fuzznetd pairs, sec 586), `transfer_list` (fetches in flight),
-  `relay_status`, `cap_list` and `cap_granted` (grants made and held),
-  `delivery_list` (a line's delivery is its message's state, partly).
-  Each wants a `list` verb over state fuzznetd already keeps.
+- **Reports fzpd makes and fuzznetd did not**: `sibling_list`,
+  `transfer_list`, `relay_status`, `cap_list` and `cap_granted`, and
+  `delivery_list` -- **built, or found already there** (*The reports*,
+  below).
 - **fzpd's own model, replaced here**: `group_history_reconstruct` and
   `group_repair_status` (fuzzypickles' group model; sec 625 chose
   another), `blob_scrub` (fuzznetd scrubs by itself), `cap_revoke_install`
   (a revocation travels in the journal), an explicit `rendezvous` (sec
   623 introduces siblings by itself), `library_claim_on_fetch` and
   `notes_retention` (settings of fzpd's own, or `add retention`).
+
+### The reports
+
+Each a verb over state fuzznetd already keeps, this node's own user only,
+every one answered as it is asked rather than kept:
+
+- **`list sibling [FROM]`** -- `sibling_list`: `ok TOTAL FROM
+  KEY,WHERE,PAIRED,HEARD ...`, the estate's other hosts this node knows --
+  those whose prekey the estate's stream carried, **and the members
+  paired into this node**, which is how a root knows the devices that
+  joined through it (it holds no sibling prekey for them: measured, a
+  first version listing the prekeys alone gave the root an empty list).
+  WHERE as a round reaches it, PAIRED in either direction, HEARD seconds.
+- **`get relay`** -- `relay_status`: `ok ENABLED QUOTA WINDOW N
+  KEY,USED,REFUSED ...`, each peer whose window runs by its key (sec
+  596), the bytes relayed for it and the frames refused it over the quota
+  -- the quota's table moved out of `relay_charge` to be read, a refusal
+  counted beside it. As many as fit one reply, N saying how many.
+- **`list capability`** -- `cap_list`: `ok N NAME,HOLDS,HOPS,EXPIRES ...`
+  for member, and admin, share and retention where this node knows them;
+  HOLDS verified as answered (`fzn_node_apply_holds`: neither expired nor
+  revoked), the chain's hops, its last hop's expiry.
+- **`list grant [FROM]`** -- `cap_granted`: `ok TOTAL FROM
+  GRANTEE,NAME,EXPIRES,STANDS ...`, every grant this node signed that the
+  index holds, STANDS read from the revocations as answered.
+- **`transfer_list` needed nothing**: `list file` already lists what is
+  arriving, each wanted file `fetching=HELD/TOTAL` leaves (sec 495), and
+  `list link` the traffic each link carried (sec 631).
+- **`delivery_list`**: a line's delivery is its state in `list message`
+  (sec 610), so nothing is built for it either.
+
+`tool/live_join.py` phases d and e hold the sibling, capability and grant
+reports -- B listed at A, paired; B holding member by one hop; A's grant
+to B standing -- and `tool/live_relay.py` phase b the relay's, B1
+counting A's relayed frames. A control with no capability held fails
+phase e.
 
 ### An estate joined by verbs, the holder's choice
 
@@ -66153,3 +66188,27 @@ A's key, B started again in place under the same pid, and its round
 reading a setting A made before the join; then B started plainly, with no
 `--root-at`, reading one A made after. **Controls**: with no restart after
 the join, or no address kept, B never reads A's first setting.
+
+## 639. LAN discovery switched off, and `fetch lan` saying what it sent, 2026-10-19
+
+**Reported by fuzzypickles, from their client.** fzpd's LAN discovery could
+not be switched off -- an empty `net.lan_discovery_address` still broadcast
+-- and their clients show "probe sent" or "none sent", which an answer of
+bare `ok` cannot feed: the probes went at the loop's next turn, after the
+answer, and their count reached only the log. fuzznetd had the same two
+gaps in sec 624's `fetch lan`.
+
+**Built:**
+
+- **`net/discovery off`** sends no probe at all. Unset is still
+  255.255.255.255; any other value is the address probed.
+- **`fetch lan` probes at once and answers what it did**: `ok SENT ADDRESS`,
+  or `ok 0 - REASON` when none was sent -- discovery switched off, no
+  sibling or contact host advertising a port, no serving socket, a probe
+  that would not be drawn, or no send that succeeded. Sending is a handful
+  of `sendto` calls that wait on nothing, so the request handler makes them
+  itself rather than flagging the loop (`lan_due` is gone).
+
+**Tested** by `tool/live_lan.py`: phase b holds the answer to the log's
+count and address, and a new phase c switches B's discovery off and
+requires `ok 0 -` naming it.

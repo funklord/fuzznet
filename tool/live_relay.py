@@ -160,6 +160,12 @@ def main(argv):
 			if LINE not in reply:
 				raise failed("b: B2 holds %r under A's root" % reply)
 			print("livecheck: b: B1 refused the line and relayed it to B2, which holds it")
+			# AND B1 SAYS SO (sec 638): relaying, and A's frames counted.
+			got = ask(socks["b1"], "get relay").split()
+			if len(got) < 5 or got[0] != "ok" or got[1] != "1" \
+			   or not any(e.startswith(keys["a"] + ",") and int(e.split(",")[1]) > 0
+			              for e in got[5:]):
+				raise failed("b: B1's get relay answered %r, not A's frames relayed" % got)
 
 			# c: a line written while B's hosts are away, relayed by A's round.
 			down("b1")
