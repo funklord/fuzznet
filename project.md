@@ -66275,14 +66275,48 @@ stopping before it.
 
 **Found while measuring, and how the test meets it:**
 
-- **A member's host reaches another member only through contacts.** Group
-  acts go to the estate's hosts and to a contact's hosts, never to a
-  member's host (sec 626), and a contact's devices are learned from the
-  contact. So with B gone, B2's place in the log reaches C only through A,
-  and A knows B's devices only from B. The test waits for C to know B2
-  while B still runs.
+- **A member's host reached another member only through contacts** --
+  group acts went to the estate's hosts and to a contact's hosts, never
+  to a member's (sec 626), and a contact's devices are learned from the
+  contact -- so with B gone, B2's place in the log reached C only through
+  A, and A knows B's devices only from B. **Closed for acts by sec 642**;
+  a host nobody has yet listed still reaches C only that way, so the test
+  waits for C to know B2 while B still runs.
 - **A host's own HOST act can lose a fork** to another member's tend act
   on the same head, and is made again on the next round -- measured, B2's
   was. Made again after B stopped, nothing carried it to A. Not a fault of
   this section; the reason phase a waits on C's count rather than on a
   round.
+
+## 642. A group's log synced with every member's host, 2026-10-19
+
+Sec 641's test found that **a group's acts travel only to the estate's
+hosts and to contacts' hosts** (sec 626), though sec 630 pairs every
+member's host directly. So a member's host learned another member's acts
+only through a common contact, and a contact knows a user's hosts only
+from that user's: with A, the one contact, and B both down, an act B2
+made for B's user reached nobody. The holder's of 2026-10-10 -- members
+reach and sync with each other, root or not -- already answers whether
+they should; this is that, for the log.
+
+**Built:**
+
+- **Asked**: the groups round syncs with every member's host as it does
+  with a sibling, each a conversation of the round (sec 636), alongside
+  the contacts. Every host, not one per member, for sec 641's reason.
+- **Answered**: GROUP_SYNC answers a member's host a group held here
+  lists (`member_host_owner`, sec 630's test) -- **only the groups that
+  list its user**, as for a contact's host; never every group, which
+  stays the estate's own hosts'.
+- **The member hosts are built at the round's start too**
+  (`member_targets_build`), from the log as held, and again for the share
+  pass after the round's acts are taken. Left to the share pass alone, a
+  daemon just started had none when the groups round ran -- **measured**:
+  the first version took nothing in phase c, every turn in the test being
+  a fresh start.
+
+**Tested by `tool/live_group_hosts.py`, phase c**: A made B an admin in
+phase a; with A and B stopped, B2 sets the group's backfill off for B's
+user, and C must take the act -- from B2, neither C's contact nor its
+estate's. **Controls**, each run: with the member hosts not asked, and
+with the server denying them, phase c fails.

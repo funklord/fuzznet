@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""A group's shares pulled from a member's second host: `make livecheck`,
-sec 641.
+"""A group reached through a member's second host: `make livecheck`, secs
+641 and 642.
 
 Four stores over loopback. A is a contact of B and of C, as live_groups.py
 has them; B2 is a second device of B's user, joined to B's estate by verbs
@@ -13,7 +13,11 @@ has them; B2 is a second device of B's user, joined to B's estate by verbs
     b  B is stopped. B2 writes a note and shares it with the group; C,
        which learns B2's place in the log through A and lists B first for
        B's user, pulls the note from B2 into B's user's tree
+    c  A is stopped too. B2, a host of B's user, whom A made an admin,
+       sets the group's backfill off; C takes the act from B2 itself
 
+Against a daemon that syncs a group's log only with contacts' hosts and
+the estate's, phase c never takes B2's act: nobody else is up to carry it.
 Against a daemon that asks one host per member -- the first its group
 lists, as sec 630 did -- C asks two hosts and phase a fails; and were it
 let through, phase b would never pull B2's note: B is the one asked, and B
@@ -40,9 +44,10 @@ from live_trim import ask, failed  # noqa: E402
 from live_groups import KEPT_RE, PREKEY_HOST, groups, members  # noqa: E402
 import live_trim  # noqa: E402
 
-live_trim.DEADLINE = time.monotonic() + 600.0
+live_trim.DEADLINE = time.monotonic() + 800.0
 
 ROUNDS = 6
+TAKEN_RE = re.compile(r"group pass: (\d+) act\(s\) taken")
 ASKED_RE = re.compile(r"group share pass: (\d+) member host\(s\) asked")
 TITLE = "b2-note"
 
@@ -132,6 +137,8 @@ def main(argv):
 			expect(socks["a"], "a", "add group family", "ok")
 			expect(socks["a"], "a", "add member family bob", "ok")
 			expect(socks["a"], "a", "add member family carol", "ok")
+			# B AN ADMIN, a majority of one, so B2 can act for B's user in c.
+			expect(socks["a"], "a", "add admin family bob", "ok")
 			name = None
 			order = ("a", "b", "c", "b2")
 			for rnd in range(ROUNDS):
@@ -187,6 +194,24 @@ def main(argv):
 				             % (ask(socks["c"], "list sharer").strip(),
 				                tail(started["c"], ("group", "received", "refused", "node/peer"))))
 			print("livecheck: b: with B gone, C pulled B2's note from B2")
+
+			# c: A gone too; B2, for B's user an admin, sets the group's
+			# backfill off, and C takes the act -- from B2, the only host of
+			# the group still up, which is neither C's contact nor its
+			# estate's (sec 642).
+			started.pop("a").stop()
+			expect(socks["b2"], "b2", "set group %s backfill 0" % b2_name, "ok")
+			taken = None
+			for rnd in range(ROUNDS):
+				for who in ("b2", "c"):
+					turn(who, "%s-c%d" % (who, rnd))
+				taken = TAKEN_RE.search(started["c"].log())
+				if taken:
+					break
+			if not taken:
+				raise failed("c: with A and B gone, C took no act of B2's%s"
+				             % tail(started["c"], ("group",)))
+			print("livecheck: c: with A and B gone, C took B2's act from B2 itself")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1
@@ -206,7 +231,7 @@ def main(argv):
 					if alive:
 						print("livecheck: FAILED -- daemon %d outlived its phase" % pid)
 						return 1
-	print("livecheck: a group's share was pulled from a member's second host")
+	print("livecheck: a group was reached through a member's second host")
 	return 0
 
 

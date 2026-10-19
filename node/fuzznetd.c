@@ -6670,8 +6670,12 @@ static size_t group_acts_from(const uint8_t *id, const uint8_t *asked, uint8_t *
 	return at;
 }
 
+static int member_host_owner(const uint8_t *host, uint8_t owner[FZN_PUBKEY_LEN]);
+
 /* GROUP_SYNC ANSWERED: the acts of every group held that the asker's user
- * is in -- every group, for this estate's own hosts. */
+ * is in -- every group, for this estate's own hosts. The asker is a host of
+ * this estate, a contact's, or a member's host a group held here lists
+ * (sec 642): a member's other hosts are told the log as a contact's are. */
 static size_t group_sync_remote(const uint8_t *sender, const uint8_t *request,
                                 size_t request_len, uint8_t *reply, size_t reply_cap)
 {
@@ -6685,7 +6689,8 @@ static size_t group_sync_remote(const uint8_t *sender, const uint8_t *request,
 	if (request_len < 3u
 	    || request_len != 3u + (size_t)request[2] * FZND_GROUP_ENTRY_LEN || request[2] > FZND_GROUP_SYNC_MAX)
 		return (size_t)snprintf((char *)reply, reply_cap, "malformed a group sync\n");
-	if (!node_apply.store || !node_groups.log.store || !group_owner_of(sender, owner, &own))
+	if (!node_apply.store || !node_groups.log.store
+	    || (!group_owner_of(sender, owner, &own) && !member_host_owner(sender, owner)))
 		return (size_t)snprintf((char *)reply, reply_cap, "denied groups only to members\n");
 	entries = request[2];
 	if (cap < 4u
@@ -6849,8 +6854,9 @@ static int group_sync_step(void *ctx, const uint8_t *reply, size_t reply_len, ui
 	return 1;
 }
 
-/* A SIBLING'S GROUP SYNC, started. */
-static void group_sync_start(struct pull_target *pt, const uint8_t *owner, uint64_t now)
+/* A GROUP SYNC, started: with a sibling (`own`), every group held; with
+ * a member's host, those its user is in. */
+static void group_sync_start(struct pull_target *pt, const uint8_t *owner, int own, uint64_t now)
 {
 	struct group_sync_talk *gt;
 	size_t len;
@@ -6860,13 +6866,13 @@ static void group_sync_start(struct pull_target *pt, const uint8_t *owner, uint6
 	gt = &group_sync_talks[n_group_sync_talks];
 	gt->n = gt->i = gt->taken = 0;
 	gt->owner = owner;
-	gt->own = 1;
+	gt->own = own;
 	if (fzn_group_log_list(node_apply.store, gt->ids, FZN_GROUPS_HELD_MAX, &gt->n)
 	    != FZN_GROUP_LOG_OK)
 		return;
 	n_group_sync_talks++;
 	len = group_sync_request((const uint8_t (*)[FZN_GROUP_ID_LEN])gt->ids, gt->n, &gt->i, owner,
-	                         1, gt->request);
+	                         own, gt->request);
 	(void)talk_start(&gt->talk, &gt->m, pt, now, group_sync_step, gt, gt->request,
 	                 sizeof(gt->request), len);
 }
@@ -7113,7 +7119,10 @@ static int group_host_device(const fzn_group_t *g, const fzn_group_host_t *h,
 	return 1;
 }
 
-static void group_shares_round(uint64_t now)
+/* EVERY OTHER MEMBER'S HOSTS, paired and opened afresh from the log as it
+ * stands: at the groups round's start, to sync the log with (sec 642), and
+ * again for the share pass, after the round's acts are taken. */
+static void member_targets_build(uint64_t now)
 {
 	static uint8_t ids[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
 	static fzn_group_t g;
@@ -7172,6 +7181,11 @@ static void group_shares_round(uint64_t now)
 	}
 	if (paired)
 		say(FZN_ENTRY_INFO, "node/groups", "%zu member host(s) paired", paired);
+}
+
+static void group_shares_round(uint64_t now)
+{
+	member_targets_build(now);
 	shares_start(group_shares_in, ngroup_shares_in, 0, now);
 }
 
@@ -7344,7 +7358,7 @@ static void group_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 	    || n_held > 0u || idle_rounds++ % 10u == 0u)
 		for (i = 0; i < npulls; i++)
 			if (!silent_peer(&pulls[i]) && peer_in_estate(&pulls[i]))
-				group_sync_start(&pulls[i], estate_owner(), now);
+				group_sync_start(&pulls[i], estate_owner(), 1, now);
 	for (i = 0; i < ncontact_targets; i++) {
 		struct contact_target *ct = &contact_targets[i];
 
@@ -7355,6 +7369,17 @@ static void group_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 		group_contacts_taken += group_sync_with(&ct->pt, ct->host, ct->contact, 0, now);
 		memcpy(done[ndone++], ct->contact, FZN_PUBKEY_LEN);
 	}
+	/* EVERY MEMBER'S HOST, sec 642, each a conversation of the round --
+	 * opened here from the log held, not left from the last share pass,
+	 * which a daemon just started has not run: a member's host otherwise learns another
+	 * member's acts only through a contact, and a contact knows a user's
+	 * hosts only from that user's -- so with one host of a member down,
+	 * its other hosts' acts reached nobody who was not that user's
+	 * contact. Every host, not one per member, for that reason. */
+	member_targets_build(now);
+	for (i = 0; i < ngroup_shares_in; i++)
+		if (group_shares_in[i].pt.fd >= 0)
+			group_sync_start(&group_shares_in[i].pt, group_shares_in[i].sharer, 0, now);
 }
 
 /* THE GROUPS ROUND'S END, once its siblings have answered: what came taken
