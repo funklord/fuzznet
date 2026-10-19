@@ -66429,3 +66429,29 @@ format held in a variable, a word written by `memcpy`.
 **Tested** by `tool/live_pairing.py`: B answers `remove request` and
 `grant request` for a root that asked nothing `error no request from
 that root`.
+
+## 647. A group found and listed by its id, for a client keyed on ids, 2026-10-19
+
+fuzzypickles moves groups onto fuzznetd next (their sec 284). Read
+against the holder's of 2026-10-08 -- nothing that matters keys on a
+name, names being presentation and a host's own (sec 516) -- the group
+verbs fell short of it: **`list group` gave a name and a count and no
+id**, and every group verb and every `@GROUP` resolved a **name** alone. A
+client could key only on a name, and a group learned from another host is
+named here by its id's first 16 hex until somebody renames it.
+
+**Built:**
+
+- **`list group` rows end with the id**, `NAME,COUNT,ID`, ID 64 hex. A
+  reader taking the first two fields is unchanged.
+- **`fzn_node_group_find` takes the id as 64 hex** as well as a name --
+  no name can be 64 characters, names being at most 32 -- so every group
+  verb (`get group`, `add member`, `set group`, `get epoch`, ...) and every
+  `@GROUP` in a grant, a share, a stream or a line takes either. **The same
+  groups either way**: those this host names, so a group left, its name
+  forgotten, is not found by its id either.
+
+**Tested** in `node/test/admin_test.c`: the row ends with the id; `get
+group` by id answers byte for byte as by name; an id no group has, and a
+removed group's, find nothing. **Control**: with the id path off, those
+three fail. Two sabotage entries.

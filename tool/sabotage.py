@@ -12282,6 +12282,20 @@ SABOTAGES = [
 		"\t\t\tkind = \"gone\";\n",
 		"a contact's tree lists as nobody's -- sec 640",
 	),
+	(
+		"group-found-by-id",
+		"node/groups.c",
+		"\t\tby_id = i == FZN_GROUP_ID_LEN;\n",
+		"\t\tby_id = 0;\n",
+		"a client keying on a group's id finds nothing, a name being this host's alone -- sec 647",
+	),
+	(
+		"group-listed-with-id",
+		"node/groups.c",
+		"\" %s,%zu,%s\", name, held.n_members, id_hex);",
+		"\" %s,%zu\", name, held.n_members);",
+		"list group carries no id, so a client keys on a name -- sec 647",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

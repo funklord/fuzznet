@@ -1380,6 +1380,7 @@ int main(void)
 		char key_hex[(FZN_PUBKEY_LEN * 2u) + 1u], owner_hex[(FZN_PUBKEY_LEN * 2u) + 1u];
 		static fzn_node_groups_t groups;
 		static fzn_cap_id_t any_member;
+		char gone_hex[65] = "";
 		size_t k;
 
 		for (k = 0; k < FZN_PUBKEY_LEN; k++) {
@@ -1402,6 +1403,7 @@ int main(void)
 		groups.forget = fzn_node_admin_group_forget;
 		groups.forget_ctx = &admin;
 		admin.groups = &groups;
+
 		state.hash = &hash_ops;
 		snprintf(line, sizeof(line), "add contact erin %s", key_hex);
 		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
@@ -1443,6 +1445,40 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && says(detail, detail_len, "1 0 family,2"),
 		      "erin did not join, or the group did not read back with her");
+		/* BY ITS ID, sec 647: listed last on its row, and found by it as by
+		 * its name -- what a client keys on, a name being this host's. */
+		{
+			uint8_t fid[FZN_PUBKEY_LEN];
+			char fid_hex[65], by_name[FZN_REPLY_MAX], want[100];
+			size_t by_name_len = 0;
+
+			CHECK(fzn_node_group_find(admin.store, "family", 6u, fid) == FZN_CONTACT_OK,
+			      "fixture: family's id");
+			for (k = 0; k < sizeof(fid); k++)
+				snprintf(fid_hex + 2u * k, 3u, "%02x", fid[k]);
+			snprintf(want, sizeof(want), "1 0 family,2,%s", fid_hex);
+			CHECK(ask(&admin, &owner, "list group", reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+			              && detail_len == strlen(want) && memcmp(detail, want, detail_len) == 0,
+			      "list group did not end family's row with its id");
+			CHECK(ask(&admin, &owner, "get group family", reply, sizeof(reply), &reply_len)
+			              && reply_len < sizeof(by_name),
+			      "fixture: family read by name");
+			memcpy(by_name, reply, reply_len);
+			by_name_len = reply_len;
+			snprintf(line, sizeof(line), "get group %s", fid_hex);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && reply_len == by_name_len && memcmp(reply, by_name, reply_len) == 0,
+			      "family read by its id did not answer as by its name");
+			fid_hex[0] = fid_hex[0] == 'f' ? '0' : 'f';
+			snprintf(line, sizeof(line), "get group %s", fid_hex);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_ERROR,
+			      "an id no group has found one");
+			memcpy(gone_hex, fid_hex, sizeof(gone_hex));
+			gone_hex[0] = gone_hex[0] == 'f' ? '0' : 'f';
+		}
 		CHECK(ask(&admin, &member, "get group family", reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_DENIED,
 		      "another user read a group");
@@ -1475,6 +1511,12 @@ int main(void)
 			                         == FZN_REPLY_OK
 			              && says(detail, detail_len, "0 0"),
 			      "a removed group was still listed");
+			/* LEFT, ITS NAME FORGOTTEN: no more found by its id than by it. */
+			snprintf(line, sizeof(line), "get group %s", gone_hex);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_ERROR,
+			      "a removed group was found by its id");
 			CHECK(ask(&admin, &owner, "add group family", reply, sizeof(reply), &reply_len)
 			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
 			                         == FZN_REPLY_OK

@@ -19,9 +19,14 @@
  *     add admin GROUP CONTACT          a proposal, or an approval of one
  *     remove admin GROUP CONTACT       the same
  *     set group GROUP backfill 0|1     an admin's
- *     list group [FROM]                ok TOTAL FROM NAME,COUNT ..., those this user is in
+ *     list group [FROM]                ok TOTAL FROM NAME,COUNT,ID ..., those this user is in;
+ *                                      ID the group's, 64 hex (sec 647)
  *     get group NAME                   ok COUNT MEMBER ..., an admin as *NAME
  *     get epoch GROUP                  ok EPOCH held|none, this host's secret
+ *
+ * GROUP, and NAME where a group is found, is this host's name for it or
+ * its id as 64 hex, as `list group` prints it (sec 647); so is `@GROUP`
+ * wherever a grant, a share or a line names a group.
  */
 #ifndef FZN_NODE_GROUPS_H
 #define FZN_NODE_GROUPS_H
@@ -38,8 +43,9 @@
 
 /* ---- names ---------------------------------------------------------------- */
 
-/* The group this host names `name`. NAME when it is not a contact name;
- * ABSENT when no group is named so. */
+/* The group this host names `name`, or whose id `name` is as 64 hex (sec
+ * 647) -- among the groups this host names either way. NAME when it is
+ * neither a contact name nor an id; ABSENT when no group is found. */
 fzn_contact_err_t fzn_node_group_find(const fzn_persist_ops_t *store, const char *name,
                                       size_t len, uint8_t id[FZN_GROUP_ID_LEN]);
 

@@ -30,6 +30,18 @@ fzn_contact_err_t fzn_node_group_name(const fzn_persist_ops_t *store,
 	return FZN_CONTACT_OK;
 }
 
+/* A hex digit's value, or -1. */
+static int hex_digit(unsigned char c)
+{
+	if (c >= '0' && c <= '9')
+		return c - '0';
+	if (c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+	return -1;
+}
+
 fzn_contact_err_t fzn_node_group_find(const fzn_persist_ops_t *store, const char *name,
                                       size_t len, uint8_t id[FZN_GROUP_ID_LEN])
 {
@@ -37,17 +49,36 @@ fzn_contact_err_t fzn_node_group_find(const fzn_persist_ops_t *store, const char
 	char held[FZN_CONTACT_NAME_MAX + 1u];
 	size_t n = 0, i, held_len = 0;
 
+	uint8_t want[FZN_GROUP_ID_LEN];
+	int by_id = 0;
+
 	if (!store || !name || !id)
 		return FZN_CONTACT_ERR_MALFORMED;
-	if (!fzn_contact_name_ok(name, len))
+	/* THE GROUP'S ID AS 64 HEX, sec 647, which no name can be: names are
+	 * this host's, at most 32 characters, and a client keys on the id. */
+	if (len == FZN_GROUP_ID_LEN * 2u) {
+		for (i = 0; i < FZN_GROUP_ID_LEN; i++) {
+			int hi = hex_digit((unsigned char)name[2u * i]);
+			int lo = hex_digit((unsigned char)name[2u * i + 1u]);
+
+			if (hi < 0 || lo < 0)
+				break;
+			want[i] = (uint8_t)(hi * 16 + lo);
+		}
+		by_id = i == FZN_GROUP_ID_LEN;
+	}
+	if (!by_id && !fzn_contact_name_ok(name, len))
 		return FZN_CONTACT_ERR_NAME;
 	if (!store->list
 	    || !store->list(store->ctx, FZN_PERSIST_GROUP_LABEL, (uint8_t *)ids, FZN_GROUPS_HELD_MAX,
 	                    &n))
 		return FZN_CONTACT_ERR_BACKEND;
+	/* THE SAME GROUPS EITHER WAY: those this host names, so a group left,
+	 * its name forgotten, is no more found by its id than by its name. */
 	for (i = 0; i < n; i++)
-		if (fzn_node_group_name(store, ids[i], held, &held_len) == FZN_CONTACT_OK
-		    && held_len == len && memcmp(held, name, len) == 0) {
+		if (by_id ? memcmp(ids[i], want, FZN_GROUP_ID_LEN) == 0
+		          : fzn_node_group_name(store, ids[i], held, &held_len) == FZN_CONTACT_OK
+		                    && held_len == len && memcmp(held, name, len) == 0) {
 			memcpy(id, ids[i], FZN_GROUP_ID_LEN);
 			return FZN_CONTACT_OK;
 		}
@@ -613,7 +644,8 @@ static size_t list_groups(const fzn_node_groups_t *g, const uint8_t *rest, size_
 		return 0;
 	used = (size_t)n;
 	for (i = from; i < count; i++) {
-		char name[FZN_CONTACT_NAME_MAX + 1u], item[FZN_CONTACT_NAME_MAX + 16u];
+		char name[FZN_CONTACT_NAME_MAX + 1u], item[FZN_CONTACT_NAME_MAX + 16u + 65u];
+		char id_hex[FZN_GROUP_ID_LEN * 2u + 1u];
 		size_t name_len = 0;
 		int k;
 
@@ -623,7 +655,11 @@ static size_t list_groups(const fzn_node_groups_t *g, const uint8_t *rest, size_
 			hex_of(ids[i], 8u, name);
 			name[16] = '\0';
 		}
-		k = snprintf(item, sizeof(item), " %s,%zu", name, held.n_members);
+		/* ITS ID LAST, sec 647: what a client keys on, a name being this
+		 * host's alone. */
+		hex_of(ids[i], FZN_GROUP_ID_LEN, id_hex);
+		id_hex[FZN_GROUP_ID_LEN * 2u] = '\0';
+		k = snprintf(item, sizeof(item), " %s,%zu,%s", name, held.n_members, id_hex);
 		if (k < 0 || limit - used < (size_t)k)
 			break;
 		memcpy(detail + used, item, (size_t)k);
