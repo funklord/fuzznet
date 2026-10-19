@@ -31,7 +31,7 @@ import time
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from live_rejoin import RECONCILE_RE, command, daemon, expect  # noqa: E402
+from live_rejoin import ROUND_DONE_RE, RECONCILE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 
@@ -92,6 +92,9 @@ def main(argv):
 					d = daemon(run, "%s%d" % (who, rnd), dirs[who], socks[who], extra=args[who])
 					try:
 						if ref is None and who == "c":
+							# A MEMBER'S SETTING once its first round is over: it is allowed by the
+							# grant that round brings, and a round answers mid-way (sec 637).
+							d.wait_for(ROUND_DONE_RE, "C's first round")
 							expect(socks["c"], "c", "set setting host net/address 192.0.2.1 "
 							       + port["c"], "ok")
 							reply = ask(socks["c"], "put file " + payload)

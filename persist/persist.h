@@ -378,13 +378,18 @@ typedef enum fzn_persist_slot {
 	 * so this estate's hosts can open the files they have. CORE: lost, the
 	 * file cannot be opened here. `node/file_refs.h`. sec 634. */
 	FZN_PERSIST_FILE_REF = 62u,
+	/* Per root: where the root this device joined through is reached, as
+	 * `HOST PORT` -- kept by `add join` so a start with no `--root-at`
+	 * pulls from it. CORE: lost, the device reaches its estate only once
+	 * told again. sec 638. */
+	FZN_PERSIST_ROOT_AT = 63u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 63u
+#define FZN_PERSIST_SLOT_END 64u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,

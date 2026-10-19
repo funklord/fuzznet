@@ -65815,6 +65815,20 @@ phase b, whose check that nothing was fetched would otherwise run before
 the fetch was tried. The rest ask for what their marker's own step made,
 or what the peer took while serving, or read only the log.
 
+**That reading missed a second shape**, found 2026-10-19 when a full
+livecheck failed once in `live_contacts.py`: S2, a member on its first
+start, was refused its own `net/address` ("this setter may not set
+that"), and passed alone and against the daemon before. A member may set
+host settings once its grant is applied from the journal, which its
+first round does -- and a request **straight after a start, with no wait
+at all**, is answered mid-way through that round, where it was once
+answered after it. Read across every request sent within three lines of
+a start: four were a joined member's setting on a first start --
+`live_contacts.py` (S2), `live_relay.py` (B2), `live_introduce.py` and
+`live_lan.py` (C) -- and each now waits for that member's first round's
+end. The rest are a root's own, or local -- contacts, messages, notes,
+files -- and allowed at once.
+
 ### A contact's exchange as a conversation
 
 Profiled across `live_contacts.py`: the contacts step up to 9.2 s a host,
@@ -66035,3 +66049,107 @@ pending.
   asks only through an `ask` handed it, and only the round's sites hand
   one. Such a handler would read a conversation's answer and drop it, so
   any new one wants that walk again.
+
+## 638. fuzzypickles' typed calls against fuzznetd's verbs, 2026-10-19
+
+Sec 608's step 7, the cut-over, is fuzzypickles' own change. It has
+begun it with typed calls (their sec 281): one function per request,
+below both clients, whose bodies change at the cut-over while their
+signatures stay -- 67 of them at their `773fdac`. Each wants a fuzznetd
+verb behind it, and a verb that is missing is fuzznet's to build.
+
+### Typed calls and verbs, measured
+
+fuzznetd's local socket answers **95 verb and noun pairs**, `get events`
+and the status line (an exhaustive reading of every `_local` handler and
+`fzn_node_admin_handle`, 2026-10-19). Against their 67:
+
+| Their calls | fuzznetd |
+|---|---|
+| `status` | the status line |
+| `peer_list`, `peer_remove` | `list contact`, `remove contact` |
+| `peer_request_send`, `_list`, `_approve`, `_reject`, `card_show` | `add contact NAME CARD`, `list request`, `grant request`, `remove request`, `get card` |
+| `group_list`, `_show`, `_create`, `_delete`, `_add_member`, `_remove_member` | `list group`, `get group`, `add group`, `remove group`, `add member`, `remove member` |
+| `group_send`, `group_history_show`, `message_send` | `add message`, `list message` (a group's lines under its id) |
+| `blob_add`, `_status`, `_fetch`, `_export` | `put file`, `get file ROOT check`, `fetch file`, `get file REF PATH` |
+| `library_list`, `_show`, `_add`, `library_play` | `list catalog`, `get catalog`, `add catalog`, `get file REF OFFSET LENGTH PATH` |
+| `config_get`, `config_set`, `sibling_set_address` | `get setting`, `set setting` (`host=KEY net/address`) |
+| `notes_list`, `_show`, `_add`, `_edit`, `_share`, `_unshare`, `_shares`, `_empty_trash` | `list note`, `get note`, `add note`, `set note`, `add share`, `remove share`, `list share`, `remove note trash` |
+| `lan_discover`, `addr_observe` | `fetch lan`, `get address` and `fetch address` |
+| `identity_reset`, `identity_backup` | `remove identity`, `put backup` |
+| `cap_revoke`, `cap_unrevoke`, `sibling_remove` | `revoke peer`, `remove revocation` |
+
+**Three kinds have none:**
+
+- **An estate made or joined at runtime.** `identity_generate`,
+  `host_create`, `host_join_request`, `_approve`, `_install`,
+  `prekey_show` and `_generate`. A device's own key is made at first
+  start (`fzn_node_identity_boot`), but an estate is made and joined only
+  by one-shot commands: `--new-root`; `--prekey`, `--pair=PREKEY
+  [--delegable]` at the root, `--accept=CARD --join` at the device. A
+  command run against a store the daemon holds open is a second writer,
+  and a device joined at runtime would want the daemon to start pulling
+  from its root without a restart. **This is the one that bears on the
+  cut-over**: a UI's first run does exactly this.
+- **Reports fzpd makes and fuzznetd does not**: `sibling_list` (the
+  siblings fuzznetd pairs, sec 586), `transfer_list` (fetches in flight),
+  `relay_status`, `cap_list` and `cap_granted` (grants made and held),
+  `delivery_list` (a line's delivery is its message's state, partly).
+  Each wants a `list` verb over state fuzznetd already keeps.
+- **fzpd's own model, replaced here**: `group_history_reconstruct` and
+  `group_repair_status` (fuzzypickles' group model; sec 625 chose
+  another), `blob_scrub` (fuzznetd scrubs by itself), `cap_revoke_install`
+  (a revocation travels in the journal), an explicit `rendezvous` (sec
+  623 introduces siblings by itself), `library_claim_on_fetch` and
+  `notes_retention` (settings of fzpd's own, or `add retention`).
+
+### An estate joined by verbs, the holder's choice
+
+**Chosen by the holder, 2026-10-19: verbs on a running daemon**, over the
+one-shot commands with the daemon stopped -- so a UI drives first run as
+it drives everything else, nothing restarts the daemon from outside, and
+two writers never meet.
+
+**What a fresh device already is.** fuzznetd makes a device's key at its
+first start, and a device is the genesis root of its own estate until it
+joins another, so fzpd's `identity_generate` and `host_create` are a
+first start. `--new-root` is not their equivalent: it makes a recovery
+root key beside the identity (sec 409). It stays a command.
+
+**The three verbs, built:**
+
+- **`get prekey`** (`node/admin.c`): this node's prekey record, as
+  `fuzznetd --prekey` prints it, for its own user only.
+- **`add peer PREKEY delegable`**: a member's pairing, as `--pair
+  --delegable` makes it, answered as a card. Without `delegable` a device
+  cannot join by the card, as before; any other word after the record is
+  refused.
+- **`add join CARD|PATH HOST PORT`** (`node/fuzznetd.c`, `join_local`):
+  what `--accept=CARD --join` does, the anchor pinned to the root; where
+  the root is reached kept in the new core slot `FZN_PERSIST_ROOT_AT`, 63;
+  answered with the root's key. A card is longer than a request line's 512
+  bytes, so it is given in a file, as `add contact`'s may be.
+
+**Then the daemon starts again in place**: every descriptor past the
+standard three closed, its sockets so the start can bind them, and the
+same program executed with its own arguments -- the same process, its
+socket back within a second. A start that names no peer and is pinned to
+a root pulls from the address kept for it. **This was chosen over
+re-reading every store a join changes inside the running daemon**: the
+anchor, the authority, the estate pairing and every store keyed by the
+root are set once at boot, and the boot is what sets them right. **Its
+cost** is a moment without serving: a client's connection drops and it
+connects again.
+
+**And a node with nothing to pull** served by `fzn_node_run`, which never
+returns, so neither a reset nor a join it was asked for ended it -- the
+reset's stop was only in the round's loop. It now serves a pass at a
+time, ending on either.
+
+**`tool/live_join.py`**, in `make livecheck`: A a root and B a fresh
+device, both daemons, joined by these verbs alone. B's prekey from `get
+prekey`; A's card from `add peer ... delegable`; B's `add join` answering
+A's key, B started again in place under the same pid, and its round
+reading a setting A made before the join; then B started plainly, with no
+`--root-at`, reading one A made after. **Controls**: with no restart after
+the join, or no address kept, B never reads A's first setting.

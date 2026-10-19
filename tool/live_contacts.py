@@ -150,6 +150,9 @@ def main(argv):
 			# S's estate: addresses, metrics, advertised; the contact and its card.
 			s = up("s", "s1")
 			s2 = up("s2", "s2a")
+			# A MEMBER'S SETTING once its first round is over: it is allowed by the
+			# grant that round brings, and a round answers mid-way (sec 637).
+			s2.wait_for(ROUND_END_RE, "S2's first round")
 			expect(socks["s2"], "s2", "set setting host net/address 127.0.0.1 " + port["s2"],
 			       "ok")
 			expect(socks["s2"], "s2", "set setting host net/metric 20", "ok")

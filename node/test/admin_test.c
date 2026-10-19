@@ -749,6 +749,67 @@ int main(void)
 		fzn_wipe(&pairing, sizeof(pairing));
 	}
 
+	/* ---- AN ESTATE JOINED BY VERBS, sec 638: the device's prekey from
+	 * `get prekey`, and `add peer ... delegable` a card it can join by; the
+	 * card without `delegable` it cannot. */
+	{
+		static struct node joiner, plain;
+		char want[(FZN_PREKEY_LEN_TOTAL * 2u) + 4u], h[(FZN_PREKEY_LEN_TOTAL * 2u) + 1u];
+		char text[FZN_PROVISION_TEXT_MAX_LEN];
+		fzn_node_pairing_t joined;
+
+		hex(node.id.prekey_record, FZN_PREKEY_LEN_TOTAL, h);
+		snprintf(want, sizeof(want), "ok %s", h);
+		CHECK(ask(&admin, &owner, "get prekey", reply, sizeof(reply), &reply_len)
+		              && reply_len >= strlen(want) && memcmp(reply, want, strlen(want)) == 0,
+		      "get prekey did not answer this node's prekey record");
+		CHECK(ask(&admin, &member, "get prekey", reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_DENIED,
+		      "another user read this node's prekey");
+		CHECK(node_up(&joiner) && node_up(&plain), "fixture: two devices to join");
+		hex(joiner.id.prekey_record, FZN_PREKEY_LEN_TOTAL, h);
+		snprintf(line, sizeof(line), "add peer %s delegable", h);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && detail_len < sizeof(text),
+		      "add peer ... delegable did not answer a card");
+		memcpy(text, detail, detail_len);
+		text[detail_len] = '\0';
+		CHECK(fzn_provision_from_text(text, card, sizeof(card), &card_len) == FZN_PROVISION_OK
+		              && fzn_node_join(&joiner.id, card, card_len, 2100u, &joiner.ops,
+		                               &joiner.trust, &joined) == FZN_NODE_PAIR_OK
+		              && memcmp(fzn_trust_root(&joiner.trust), node.id.pubkey, FZN_PUBKEY_LEN)
+		                         == 0,
+		      "a device would not join by the card add peer ... delegable answered");
+		fzn_wipe(&joined, sizeof(joined));
+		hex(plain.id.prekey_record, FZN_PREKEY_LEN_TOTAL, h);
+		snprintf(line, sizeof(line), "add peer %s", h);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK,
+		      "fixture: a device paired without delegable");
+		memcpy(text, detail, detail_len);
+		text[detail_len] = '\0';
+		CHECK(fzn_provision_from_text(text, card, sizeof(card), &card_len) == FZN_PROVISION_OK
+		              && fzn_node_join(&plain.id, card, card_len, 2100u, &plain.ops,
+		                               &plain.trust, &joined) == FZN_NODE_PAIR_CANNOT_JOIN,
+		      "a device joined by a card that is not delegable");
+		snprintf(line, sizeof(line), "add peer %s twice", h);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_MALFORMED,
+		      "a word after the record other than delegable was taken");
+		/* THE TWO DEVICES REMOVED, so the counts below are the first's. */
+		hex(joiner.id.pubkey, FZN_PUBKEY_LEN, h);
+		snprintf(line, sizeof(line), "remove peer %s", h);
+		(void)ask(&admin, &owner, line, reply, sizeof(reply), &reply_len);
+		hex(plain.id.pubkey, FZN_PUBKEY_LEN, h);
+		snprintf(line, sizeof(line), "remove peer %s", h);
+		(void)ask(&admin, &owner, line, reply, sizeof(reply), &reply_len);
+		CHECK(state.peer_count == 1u, "fixture: the two devices would not be removed");
+		snprintf(line, sizeof(line), "add peer %s", prekey_hex);
+	}
+
 	/* ---- A SIBLING PAIRED INTO THE RUNNING NODE, sec 579: as `add peer`
 	 * pairs, from a prekey and with no card; a host already served is left
 	 * as it is, and this node's own prekey is refused. The sibling is then

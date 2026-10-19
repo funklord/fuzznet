@@ -154,6 +154,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "the level of an app stream a contact or group may read";
 	case FZN_PERSIST_FILE_REF:
 		return "a file's reference, so this host can open it";
+	case FZN_PERSIST_ROOT_AT:
+		return "where the root this device joined through is reached";
 	}
 	*known = 0;
 	return "an unknown slot";

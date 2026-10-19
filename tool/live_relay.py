@@ -114,7 +114,9 @@ def main(argv):
 			expect(socks["b1"], "b1", "set setting host net/address 127.0.0.1 " + port["b1"], "ok")
 			expect(socks["b1"], "b1", "set setting host relay/enabled 1", "ok")
 			expect(socks["b1"], "b1", "set setting estate routing/advertise 1", "ok")
-			up("b2", "b2a")
+			# A MEMBER'S SETTING once its first round is over: it is allowed by the
+			# grant that round brings, and a round answers mid-way (sec 637).
+			up("b2", "b2a").wait_for(ROUND_END_RE, "B2's first round")
 			expect(socks["b2"], "b2", "set setting host net/address 127.0.0.1 " + port["nobody"],
 			       "ok")
 			turn("b2", "b2b")

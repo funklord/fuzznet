@@ -111,15 +111,16 @@ static int unhex(const uint8_t *text, size_t text_len, uint8_t *out, size_t len)
  * successful reload or restart, which is worse than now and better than a
  * half-updated table. */
 static const char *pair_running(fzn_node_admin_t *admin, fzn_prekey_record_t record,
-                                const fzn_node_authority_t *authority, uint8_t *card,
-                                size_t card_cap, size_t *card_len)
+                                const fzn_node_authority_t *authority, int delegable,
+                                uint8_t *card, size_t card_cap, size_t *card_len)
 {
 	fzn_node_pair_err_t perr;
 	size_t loaded = 0;
 	uint64_t now = admin->state->clock ? admin->state->clock() : 0u;
 
 	perr = fzn_node_pair(admin->id, admin->state->config.root,
-	                     &admin->state->config.remote_capability, authority, 0, admin->store,
+	                     &admin->state->config.remote_capability, authority, delegable,
+	                     admin->store,
 	                     record, now, now + admin->card_lifetime, card, card_cap, card_len);
 	if (perr != FZN_NODE_PAIR_OK)
 		return fzn_node_pair_err_str(perr);
@@ -146,7 +147,24 @@ static size_t add_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t hex_l
 	static uint8_t proof[FZN_PROVISION_PROOF_MAX][FZN_PROVISION_PROOF_ITEM_LEN];
 	static fzn_node_authority_t by_identity;
 	const fzn_node_authority_t *authority = admin->authority;
+	const uint8_t *word, *rest = hex;
+	size_t word_len = 0, rest_len = hex_len;
+	int delegable = 0;
 
+	/* `delegable` AFTER THE RECORD, as `fuzznetd --pair --delegable`: a
+	 * member that may pair devices of its own, which is what a device
+	 * joining the estate needs (sec 638). */
+	if (!next_word(&rest, &rest_len, &word, &word_len))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a prekey record");
+	hex = word;
+	hex_len = word_len;
+	if (rest_len) {
+		if (!next_word(&rest, &rest_len, &word, &word_len) || rest_len || word_len != 9u
+		    || memcmp(word, "delegable", 9u) != 0)
+			return answer_text(reply, cap, FZN_REPLY_MALFORMED,
+			                   "after the record, only `delegable`");
+		delegable = 1;
+	}
 	if (!unhex(hex, hex_len, record_bytes, sizeof(record_bytes))
 	    || fzn_prekey_open(record_bytes, sizeof(record_bytes), &record) != FZN_PREKEY_OK)
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a prekey record");
@@ -177,7 +195,7 @@ static size_t add_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t hex_l
 		return answer_text(reply, cap, FZN_REPLY_ERROR,
 		                   "this node's chain is too deep for a card on one reply line; "
 		                   "pair with fuzznetd --pair");
-	why = pair_running(admin, record, authority, card, sizeof(card), &card_len);
+	why = pair_running(admin, record, authority, delegable, card, sizeof(card), &card_len);
 	if (why)
 		return answer_text(reply, cap, FZN_REPLY_ERROR, why);
 
@@ -218,7 +236,7 @@ int fzn_node_admin_pair_sibling(fzn_node_admin_t *admin,
 	    && fzn_node_roots_identity_root(admin->roots, admin->store, admin->id->pubkey, proof,
 	                                    &by_identity) == FZN_NODE_ROOTS_OK)
 		authority = &by_identity;
-	err = pair_running(admin, record, authority, card, sizeof(card), &card_len);
+	err = pair_running(admin, record, authority, 0, card, sizeof(card), &card_len);
 	fzn_wipe(card, sizeof(card));
 	if (why)
 		*why = err;
@@ -1673,6 +1691,24 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 	if (fzn_verb_mutates(request->parsed) && origin != FZN_ORIGIN_SAME_USER)
 		return answer_text(reply, reply_cap, FZN_REPLY_DENIED,
 		                   "changing this node needs its own user");
+
+	/* THIS NODE'S PREKEY RECORD, as `fuzznetd --prekey` prints it: what a
+	 * root pairs this device by when it joins the estate (sec 638). */
+	if (request->parsed == FZN_VERB_GET && request->arg && request->arg_len == 6u
+	    && memcmp(request->arg, "prekey", 6u) == 0) {
+		static const char digits[] = "0123456789abcdef";
+		char text[FZN_PREKEY_LEN_TOTAL * 2u];
+		size_t i;
+
+		if (origin != FZN_ORIGIN_SAME_USER)
+			return answer_text(reply, reply_cap, FZN_REPLY_DENIED,
+			                   "this node's prekey is its own user's to read");
+		for (i = 0; i < FZN_PREKEY_LEN_TOTAL; i++) {
+			text[2u * i] = digits[admin->id->prekey_record[i] >> 4];
+			text[2u * i + 1u] = digits[admin->id->prekey_record[i] & 0x0fu];
+		}
+		return answer(reply, reply_cap, FZN_REPLY_OK, text, sizeof(text));
+	}
 
 	if (subject_peer(request, &rest, &rest_len)) {
 		if (request->parsed == FZN_VERB_ADD && rest)

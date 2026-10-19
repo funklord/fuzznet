@@ -6195,6 +6195,7 @@ else
 	@timeout 540 python3 tool/live_lan.py $(FUZZNETD)
 	@timeout 600 python3 tool/live_groups.py $(FUZZNETD)
 	@timeout 540 python3 tool/live_catalog.py $(FUZZNETD)
+	@timeout 340 python3 tool/live_join.py $(FUZZNETD)
 	@$(if $(LOG_PACK_ON),timeout 600 python3 tool/live_erasure.py $(FUZZNETD),echo \
 	  "livecheck: erasure SKIPPED -- this build does not pack logs")
 endif

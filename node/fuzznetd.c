@@ -330,6 +330,8 @@ static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, c
                             size_t cap);
 static size_t identity_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                              size_t cap);
+static size_t join_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                         size_t cap);
 static size_t address_local(const fzn_request_t *request, char *reply, size_t cap);
 static size_t link_local(const fzn_request_t *request, char *reply, size_t cap);
 static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
@@ -353,6 +355,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = request_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = identity_local(origin, request, reply, reply_cap);
+	if (!n)
+		n = join_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = address_local(request, reply, reply_cap);
 	if (!n)
@@ -5730,6 +5734,129 @@ static const char *state_core_dir, *state_bulk_dir;
 /* SET BY A RESET: the loop wipes once more and stops. */
 static int identity_reset;
 
+/* ---- an estate joined at runtime, sec 638 ---------------------------------
+ *
+ * `add join CARD|PATH HOST PORT` does what `fuzznetd --accept=CARD --join` does
+ * -- this device joins the estate whose root signed CARD, its anchor
+ * pinned to that root -- keeps where the root is reached, answers, and
+ * then starts again in place: its sockets closed and the same program
+ * executed with the same arguments, so the boot that follows comes up
+ * joined, pulling from the root it kept, with no second writer on the
+ * store and nothing for its client to do but connect again. Re-reading
+ * every store a join changes inside the running daemon was the
+ * alternative, and every one keyed by the root is. */
+static struct {
+	const fzn_node_identity_t *id;
+	fzn_trust_t *trust;
+	const fzn_persist_ops_t *store;
+} joining;
+/* SET BY A JOIN: the loop starts the daemon again. */
+static int rejoin_due;
+static char **daemon_argv;
+
+static size_t join_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                         size_t cap)
+{
+	const uint8_t *at = request->arg, *subject, *w_card = NULL, *w_host = NULL, *w_port = NULL;
+	size_t left = request->arg_len, subject_len, n_card = 0, n_host = 0, n_port = 0;
+	uint8_t card[FZN_PROVISION_MAX_LEN];
+	char text[FZN_PROVISION_TEXT_MAX_LEN], where[FZN_UDP_HOST_MAX + 8u];
+	fzn_node_pairing_t paired;
+	fzn_node_pair_err_t perr;
+	size_t card_len = 0, i;
+	unsigned long port = 0;
+	int k;
+
+	if (request->parsed != FZN_VERB_ADD || !at || !next_word(&at, &left, &subject, &subject_len)
+	    || subject_len != 4u || memcmp(subject, "join", 4u) != 0)
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied joining an estate is this node's own "
+		                                    "user's\n");
+	if (!joining.id || !joining.trust || !joining.store)
+		return (size_t)snprintf(reply, cap, "error this node keeps no state to join with\n");
+	if (!next_word(&at, &left, &w_card, &n_card) || !next_word(&at, &left, &w_host, &n_host)
+	    || !next_word(&at, &left, &w_port, &n_port) || left || n_card >= sizeof(text)
+	    || n_host >= FZN_UDP_HOST_MAX || n_port > 5u)
+		return (size_t)snprintf(reply, cap, "malformed add join CARD|PATH HOST PORT\n");
+	for (i = 0; i < n_port; i++) {
+		if (w_port[i] < '0' || w_port[i] > '9')
+			return (size_t)snprintf(reply, cap, "malformed add join CARD HOST PORT\n");
+		port = port * 10u + (unsigned long)(w_port[i] - '0');
+	}
+	if (port == 0u || port > 65535u)
+		return (size_t)snprintf(reply, cap, "malformed the port is 1 to 65535\n");
+	/* THE CARD ITSELF, or A FILE HOLDING IT: a card is longer than a request
+	 * line's 512 bytes, as `add contact`'s is. */
+	if (n_card >= FZN_PROVISION_TEXT_PREFIX_LEN
+	    && memcmp(w_card, FZN_PROVISION_TEXT_PREFIX, FZN_PROVISION_TEXT_PREFIX_LEN) == 0) {
+		memcpy(text, w_card, n_card);
+		text[n_card] = '\0';
+	} else {
+		char path[1024];
+		size_t got;
+		FILE *f;
+
+		if (n_card >= sizeof(path))
+			return (size_t)snprintf(reply, cap, "malformed add join CARD|PATH HOST PORT\n");
+		memcpy(path, w_card, n_card);
+		path[n_card] = '\0';
+		if ((f = fopen(path, "r")) == NULL)
+			return (size_t)snprintf(reply, cap, "error the card file would not open\n");
+		got = fread(text, 1, sizeof(text) - 1u, f);
+		fclose(f);
+		while (got && (text[got - 1u] == '\n' || text[got - 1u] == '\r'))
+			got--;
+		text[got] = '\0';
+	}
+	if (fzn_provision_from_text(text, card, sizeof(card), &card_len) != FZN_PROVISION_OK)
+		return (size_t)snprintf(reply, cap, "malformed that is not a card\n");
+	perr = fzn_node_join(joining.id, card, card_len, wall_clock(), joining.store, joining.trust,
+	                     &paired);
+	fzn_wipe(&paired, sizeof(paired));
+	if (perr != FZN_NODE_PAIR_OK)
+		return (size_t)snprintf(reply, cap, "error not joined: %s\n",
+		                        fzn_node_pair_err_str(perr));
+	/* WHERE THE ROOT IS, kept under its key: what a start with no
+	 * `--root-at` pulls from. */
+	k = snprintf(where, sizeof(where), "%.*s %lu", (int)n_host, (const char *)w_host, port);
+	if (k <= 0 || (size_t)k >= sizeof(where)
+	    || !joining.store->save(joining.store->ctx, FZN_PERSIST_ROOT_AT,
+	                            fzn_trust_root(joining.trust), (const uint8_t *)where, (size_t)k))
+		return (size_t)snprintf(reply, cap, "error joined, and where the root is reached "
+		                                    "was not kept: start with --root-at\n");
+	rejoin_due = 1;
+	say(FZN_ENTRY_NOTE, "node/identity", "joined the estate rooted at %02x%02x%02x%02x, "
+	                                     "reached at %s; starting again",
+	    fzn_trust_root(joining.trust)[0], fzn_trust_root(joining.trust)[1],
+	    fzn_trust_root(joining.trust)[2], fzn_trust_root(joining.trust)[3], where);
+	k = snprintf(reply, cap, "ok ");
+	for (i = 0; i < FZN_PUBKEY_LEN && (size_t)k + 2u < cap; i++)
+		k += snprintf(reply + k, cap - (size_t)k, "%02x", fzn_trust_root(joining.trust)[i]);
+	return (size_t)k + (size_t)snprintf(reply + k, cap - (size_t)k, "\n");
+}
+
+/* STARTED AGAIN IN PLACE after a join: every descriptor past the standard
+ * three closed -- the sockets, so the new start can bind them again -- and
+ * this program executed with its own arguments. Returns only when it could
+ * not be, having said so. */
+static int start_again(int lfd, const char *sock_path)
+{
+	long fd, max = sysconf(_SC_OPEN_MAX);
+
+	fzn_socket_close(lfd, sock_path);
+	if (max < 0 || max > 65536)
+		max = 65536;
+	for (fd = 3; fd < max; fd++)
+		(void)close((int)fd);
+	if (daemon_argv) {
+		execv("/proc/self/exe", daemon_argv);
+		execvp(daemon_argv[0], daemon_argv);
+	}
+	fprintf(stderr, "fuzznetd: joined, and could not start again: start it once more\n");
+	return 1;
+}
+
 /* `put backup DIR` and `remove identity KEY`, this node's own user only:
  *
  *   put backup DIR         every file of this node's state copied into DIR,
@@ -9073,6 +9200,8 @@ static int pair_device(const fzn_node_identity_t *id, const fzn_node_config_t *c
 int main(int argc, char **argv)
 {
 	const char *sock_path = NULL;
+
+	daemon_argv = argv;
 	fzn_hash_ops_t hash_ops;
 	fzn_aead_ops_t aead_ops;
 	fzn_random_ops_t rng_ops;
@@ -10638,6 +10767,29 @@ int main(int argc, char **argv)
 	 * share it accepts is pulled on the same round. sec 437. And so does
 	 * one reassembling requests, since the loop is what expires a request
 	 * whose sender stopped part way. sec 447. */
+	/* THE ROOT THIS DEVICE JOINED THROUGH, where `add join` kept it, sec
+	 * 638: pulled from as `--root-at` would be, when the command line names
+	 * no peer. */
+	if (!npulls && booted && store_ops && fzn_trust_source_of(&trust) == FZN_TRUST_PINNED) {
+		static char kept[FZN_UDP_HOST_MAX + 8u];
+		size_t n = 0;
+		char *space;
+
+		if (store_ops->load(store_ops->ctx, FZN_PERSIST_ROOT_AT, fzn_trust_root(&trust),
+		                    (uint8_t *)kept, sizeof(kept) - 1u, &n)
+		    && n) {
+			kept[n] = '\0';
+			space = strrchr(kept, ' ');
+			if (space && space != kept) {
+				*space = '\0';
+				pulls[0].host = kept;
+				pulls[0].port = strtol(space + 1, NULL, 10);
+				pulls[0].is_root_at = 1;
+				npulls = 1;
+			}
+		}
+	}
+
 	if (npulls || notes_on || state.reassembly) {
 		uint64_t next_pull = 0, last_fresh_round = 0, round_now = 0, round_began_ms = 0;
 		int round_step = 0;
@@ -10715,6 +10867,9 @@ int main(int argc, char **argv)
 		/* A CONTACT'S DEVICES, sec 614: paired and delivered to as this
 		 * identity, over sockets of this family. */
 		contact_id = &identity;
+		joining.id = &identity;
+		joining.trust = &trust;
+		joining.store = store_ops;
 		contact_family = family;
 		contact_hash_ops = &hash_ops;
 		contact_aead_ops = &aead_ops;
@@ -11129,12 +11284,28 @@ int main(int argc, char **argv)
 					fzn_udp_close(ufd);
 				return 0;
 			}
+			/* A JOIN, its answer out: started again, joined. sec 638. */
+			if (rejoin_due)
+				return start_again(lfd, sock_path);
 		}
 	}
 
 	say(FZN_ENTRY_NOTE, "node", "serving%s%s%s", sock_path ? " on " : "",
 	        sock_path ? sock_path : "", (udp_port >= 0) ? " udp" : "");
-	fzn_node_run(&state);	/* until the process is signalled */
+	/* UNTIL THE PROCESS IS SIGNALLED, or a reset or a join ends it, sec 638:
+	 * a node with nothing to pull still serves both verbs. */
+	while (!identity_reset && !rejoin_due)
+		(void)fzn_node_run_once(&state, 1000);
+	if (rejoin_due)
+		return start_again(lfd, sock_path);
+	if (identity_reset) {
+		size_t wiped = 0;
+		const char *why = NULL;
+
+		(void)fzn_state_dir_wipe(state_core_dir, &wiped, &why);
+		if (state_bulk_dir)
+			(void)fzn_state_dir_wipe(state_bulk_dir, &wiped, &why);
+	}
 
 	/* Unreached in normal operation; named so the sockets read as closed
 	 * rather than leaked. */
