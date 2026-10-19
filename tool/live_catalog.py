@@ -80,7 +80,8 @@ def main(argv):
 			reply = ask(socks[who], "list catalog " + root).split()
 			if not reply or reply[0] != "ok":
 				raise failed("%s: list catalog answered %r" % (who, reply))
-			return sorted((e.split(",")[2], e.split(",")[3]) for e in reply[2:])
+			# `ok TOTAL FROM ROW ...` since sec 652.
+			return sorted((e.split(",")[2], e.split(",")[3]) for e in reply[3:])
 
 		def holders(who, root):
 			reply = ask(socks[who], "get catalog " + root).split()
@@ -169,6 +170,34 @@ def main(argv):
 			if not got or got[0] != "malformed" or os.path.exists("song-relative"):
 				raise failed("b: an export to a relative path answered %r" % got)
 			expect(socks["b"], "b", "add catalog %s name tune" % root, "ok")
+			# A VALUE IS ONE ESCAPED WORD, sec 652: a space and a comma kept,
+			# and shown escaped so a row is not split; two words refused, not
+			# cut. A duration is a fact, whole milliseconds.
+			base = int(ask(socks["b"], "list catalog " + root).split()[1])
+			# LOWER CASE IN, UPPER CASE OUT: the value is kept unescaped and
+			# escaped afresh, not stored as it was written.
+			expect(socks["b"], "b", "add catalog %s kind Holiday%%20Movie%%2c1" % root, "ok")
+			got = ask(socks["b"], "add catalog %s kind Holiday Movie" % root).split()
+			if not got or got[0] != "malformed":
+				raise failed("b: a two-word value answered %r" % got)
+			expect(socks["b"], "b", "add catalog %s duration 125000" % root, "ok")
+			got = ask(socks["b"], "add catalog %s duration long" % root).split()
+			if not got or got[0] != "malformed":
+				raise failed("b: a duration that is no number answered %r" % got)
+			rows = ask(socks["b"], "list catalog " + root).split()
+			if rows[:3] != ["ok", str(base + 2), "0"] \
+			   or not any(",kind,Holiday%20Movie%2C1," in r for r in rows[3:]) \
+			   or not any(",duration,125000," in r for r in rows[3:]):
+				raise failed("b: B's list catalog ROOT answered %r" % rows)
+			last = base + 1
+			paged = ask(socks["b"], "list catalog %s %d" % (root, last)).split()
+			if paged[:3] != ["ok", str(base + 2), str(last)] or len(paged) != 4:
+				raise failed("b: B's page from %d answered %r" % (last, paged))
+			got = ask(socks["b"], "list catalog %s %d" % (root, base + 3)).split()
+			if not got or got[0] != "malformed":
+				raise failed("b: a page past the last answered %r" % got)
+			for name in ("kind", "duration"):
+				expect(socks["b"], "b", "remove catalog %s %s" % (root, name), "ok")
 			both = sorted([("song", key_a[:16]), ("tune", key_b[:16])])
 			until(lambda: listed("a", root) == both and listed("b", root) == both, "b")
 			if holders("a", root) != sorted([key_a[:16], key_b[:16]]):

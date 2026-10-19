@@ -66568,3 +66568,43 @@ spaces, the only callers that did, and now escape it.
 **Tested** in `node/test/messages_test.c`: an escaped text beginning
 `file` written and listed as a text; a raw space refused; a relative
 file path refused; none of the refused written. Two sabotage entries.
+
+## 652. The catalogue's values escaped, its listing paged, a duration a fact, 2026-10-20
+
+**Reported by fuzzypickles** through this tree's inbox (message
+20261020T0030Z), building its library calls on sec 633's verbs:
+
+1. **A value was one unescaped word**: `add catalog ROOT name Holiday
+   Movie.mp4` stored "Holiday", dropped the rest and said nothing; a comma
+   in a value split `list catalog`'s rows. **Now one escaped word**, as a
+   message's text is since sec 651: `%XX` unescaped on the way in,
+   anything past it `malformed`, and the value escaped afresh on the way
+   out -- a space, a comma, a `%` and a control written `%XX`.
+2. **`list catalog` had no paging**, and answered an error once the
+   library outgrew a reply. **Now `list catalog [ROOT] [FROM]`**, `ok
+   TOTAL FROM ROOT,NAME,VALUE,ISSUER ...` as many as fit, the next page
+   asked from FROM plus those shown, as `list contact` is. The head was
+   `ok COUNT`; nobody read it but `tool/live_catalog.py`.
+3. **A duration was not offered.** C3 makes it the one FACT carried, as a
+   hint the holder's own derived value supersedes, because a person needs
+   it before choosing to fetch. **`add catalog ROOT duration MS`** asserts
+   it as a FACT, whole milliseconds or `malformed`; every other name is a
+   LABEL.
+
+**The label names fuzzypickles proposed, confirmed**: `name` for the
+file's name and `kind` for its media type -- C2's own examples of a label.
+The size comes from the file's reference, the content key from sec 634.
+
+**Tested by `tool/live_catalog.py`, phase b**: a value with a space and a
+comma, written with a lower-case escape, lists back escaped in upper case
+-- so it was kept unescaped, not stored as written; a two-word value
+refused; a duration listed and a non-number refused; a page from the
+second-last row holds one row, and one past the last is refused.
+**Controls**, each run: with the one-word check off a two-word value
+answered `ok`, and with the value stored as written the row listed
+`%2c`. A control against the previous binary as a whole proved nothing --
+it failed at phase a on the listing's new head -- and is not counted.
+
+**Noted, not acted on**: this makes a fourth private copy of `%XX`
+escaping (`node/messages.c`, `node/settings.c`, `node/notes.c`, and
+`catalog_escape` here). Sharing one is its own change.

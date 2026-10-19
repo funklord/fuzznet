@@ -8167,16 +8167,88 @@ static void index_catalog(void)
  *     list catalog [ROOT]           `ok COUNT ROOT,NAME,VALUE,ISSUER ...`, the
  *                                   live assertions, each named by its issuer
  *     get catalog ROOT              `ok COUNT ISSUER ...`, the hosts holding it */
+/* A CATALOGUE VALUE ON THE SOCKET, sec 652: one word in, %XX for a byte
+ * that is a space, a comma, a % or a control, as `add message` takes a
+ * text (secs 527, 651); escaped so on the way out, so a file name with a
+ * space or a comma is neither cut nor splits a row. */
+static int catalog_unescape(const uint8_t *in, size_t n, uint8_t *out, size_t cap, size_t *len)
+{
+	size_t i, w = 0;
+
+	for (i = 0; i < n; i++) {
+		uint8_t c = in[i];
+
+		if (c == '%') {
+			int hi, lo;
+
+			if (i + 2u >= n)
+				return 0;
+			hi = hexval(in[i + 1u]);
+			lo = hexval(in[i + 2u]);
+			if (hi < 0 || lo < 0)
+				return 0;
+			c = (uint8_t)((hi << 4) | lo);
+			i += 2u;
+		}
+		if (w >= cap)
+			return 0;
+		out[w++] = c;
+	}
+	*len = w;
+	return 1;
+}
+
+/* A WORD OF DIGITS ALONE as a count, at most a catalogue's worth. */
+static int catalog_from(const uint8_t *w, size_t n, size_t *out)
+{
+	size_t i, v = 0;
+
+	if (!n || n > 6u)
+		return 0;
+	for (i = 0; i < n; i++) {
+		if (w[i] < '0' || w[i] > '9')
+			return 0;
+		v = (v * 10u) + (size_t)(w[i] - '0');
+	}
+	*out = v;
+	return 1;
+}
+
+static size_t catalog_escape(const uint8_t *b, size_t n, char *out, size_t cap)
+{
+	static const char H[] = "0123456789ABCDEF";
+	size_t i, w = 0;
+
+	for (i = 0; i < n; i++) {
+		uint8_t c = b[i];
+
+		if (c <= 0x20u || c == '%' || c == ',' || c == 0x7fu) {
+			if (cap - w < 3u)
+				return 0;
+			out[w++] = '%';
+			out[w++] = H[c >> 4];
+			out[w++] = H[c & 15u];
+		} else {
+			if (cap - w < 1u)
+				return 0;
+			out[w++] = (char)c;
+		}
+	}
+	return w;
+}
+
 static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap)
 {
 	static fzn_catalog_assertion_t set[FZN_NODE_CATALOG_MAX];
+	static uint8_t plain[FZN_NODE_CATALOG_VALUE_MAX];
+	static char shown[3u * FZN_NODE_CATALOG_VALUE_MAX];
 	static uint8_t body[FZN_RECORD_MAX_LEN];
 	const uint8_t *at = request->arg, *subject, *w, *name = NULL, *value = NULL;
-	size_t left = request->arg_len, subject_len, w_len, name_len = 0, value_len = 0, n, i, out;
-	size_t live = 0, len = 0;
+	size_t left = request->arg_len, subject_len, w_len, name_len = 0, value_len = 0, n, i, k, out;
+	size_t live = 0, len = 0, from = 0, plain_len = 0;
 	uint8_t root[FZN_PUBKEY_LEN];
-	int have_root = 0;
+	int have_root = 0, fact = 0;
 
 	if (!at || !next_word(&at, &left, &subject, &subject_len) || subject_len != 7u
 	    || memcmp(subject, "catalog", 7u) != 0)
@@ -8189,12 +8261,26 @@ static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, c
 	if (!journal_on || !contact_id)
 		return (size_t)snprintf(reply, cap, "error this node keeps no catalogue\n");
 	if (next_word(&at, &left, &w, &w_len)) {
-		if (w_len < 2u * FZN_PUBKEY_LEN || !unhex32(w, 2u * FZN_PUBKEY_LEN, root))
+		/* A LISTING'S FROM, digits alone, sec 652: `list catalog [ROOT]
+		 * [FROM]`, a page at a time as `list contact` is. */
+		if (request->parsed == FZN_VERB_LIST && catalog_from(w, w_len, &from))
+			w = NULL;
+		else if (w_len != 2u * FZN_PUBKEY_LEN || !unhex32(w, 2u * FZN_PUBKEY_LEN, root))
 			return (size_t)snprintf(reply, cap, "malformed name a file by its root\n");
-		have_root = 1;
+		else
+			have_root = 1;
 	}
-	(void)next_word(&at, &left, &name, &name_len);
-	(void)next_word(&at, &left, &value, &value_len);
+	if (request->parsed == FZN_VERB_LIST) {
+		if (have_root && next_word(&at, &left, &w, &w_len) && !catalog_from(w, w_len, &from))
+			return (size_t)snprintf(reply, cap, "malformed list catalog [ROOT] [FROM]\n");
+	} else {
+		(void)next_word(&at, &left, &name, &name_len);
+		(void)next_word(&at, &left, &value, &value_len);
+	}
+	/* NOTHING PAST THE LAST WORD: a value is one escaped word, sec 652 --
+	 * `name Holiday Movie.mp4` kept "Holiday" and dropped the rest. */
+	if (next_word(&at, &left, &w, &w_len))
+		return (size_t)snprintf(reply, cap, "malformed a value is one word, a space %%20\n");
 	index_catalog();
 	if (request->parsed == FZN_VERB_GET) {
 		static fzn_catalog_issuer_t who[64];
@@ -8221,21 +8307,30 @@ static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, c
 		                                FZN_NODE_CATALOG_MAX);
 		for (i = 0; i < n; i++)
 			live += set[i].live != 0;
-		out = (size_t)snprintf(reply, cap, "ok %zu", live);
-		for (i = 0; i < n && out < cap; i++) {
-			char entity[2u * FZN_PUBKEY_LEN + 1u], issuer[17];
+		if (from > live)
+			return (size_t)snprintf(reply, cap, "malformed past the last assertion\n");
+		/* `ok TOTAL FROM ROOT,NAME,VALUE,ISSUER ...`, VALUE escaped, as many
+		 * as fit: the next page is asked FROM plus those shown (sec 652). */
+		out = (size_t)snprintf(reply, cap, "ok %zu %zu", live, from);
+		for (i = 0, k = 0; i < n; i++) {
+			char entity[2u * FZN_PUBKEY_LEN + 1u], issuer[17], row[600];
+			size_t shown_len;
+			int r;
 
-			if (!set[i].live)
+			if (!set[i].live || k++ < from)
 				continue;
 			hex_of(set[i].entity, FZN_PUBKEY_LEN, entity);
 			hex_of(set[i].issuer, 8u, issuer);
-			out += (size_t)snprintf(reply + out, cap - out, " %s,%.*s,%.*s,%s", entity,
-			                        (int)set[i].name_len, (const char *)set[i].name,
-			                        (int)set[i].value_len, (const char *)set[i].value, issuer);
+			shown_len = catalog_escape(set[i].value, set[i].value_len, shown, sizeof(shown));
+			r = snprintf(row, sizeof(row), " %s,%.*s,%.*s,%s", entity, (int)set[i].name_len,
+			             (const char *)set[i].name, (int)shown_len, shown, issuer);
+			/* ROOM FOR THE ROW AND THE NEWLINE, or the page ends here. */
+			if (r < 0 || (size_t)r >= sizeof(row) || out + (size_t)r + 2u > cap)
+				break;
+			memcpy(reply + out, row, (size_t)r);
+			out += (size_t)r;
 		}
-		return out < cap ? out + (size_t)snprintf(reply + out, cap - out, "\n")
-		                 : (size_t)snprintf(reply, cap, "error the catalogue does not fit a "
-		                                               "reply; list a ROOT\n");
+		return out + (size_t)snprintf(reply + out, cap - out, "\n");
 	}
 	if (!have_root || !name || name_len > FZN_NODE_CATALOG_NAME_MAX
 	    || (request->parsed == FZN_VERB_ADD && !value))
@@ -8249,16 +8344,29 @@ static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, c
 		/* HELD HERE, C5e's HOLDER: a host asserts what it holds. */
 		if (!files_on || fzn_node_files_held(&files, root, &length) != FZN_NODE_FILES_OK)
 			return (size_t)snprintf(reply, cap, "error that file is not held here\n");
+		if (!catalog_unescape(value, value_len, plain, sizeof(plain), &plain_len))
+			return (size_t)snprintf(reply, cap, "malformed a value too long, or a bad escape\n");
+		/* A DURATION IS A FACT, sec 652, carried as C3's hint: whole
+		 * milliseconds, which a holder that derives it supersedes. Every
+		 * other name is a label. */
+		fact = name_len == 8u && memcmp(name, "duration", 8u) == 0;
+		if (fact) {
+			for (k = 0; k < plain_len && plain[k] >= '0' && plain[k] <= '9'; k++)
+				;
+			if (!plain_len || plain_len > 19u || k != plain_len)
+				return (size_t)snprintf(reply, cap,
+				                        "malformed a duration is whole milliseconds\n");
+		}
 		memset(&a, 0, sizeof(a));
 		a.name = name;
 		a.name_len = name_len;
-		a.value = value;
-		a.value_len = value_len;
-		a.attr_class = FZN_CATALOG_LABEL;
+		a.value = plain;
+		a.value_len = plain_len;
+		a.attr_class = fact ? FZN_CATALOG_FACT : FZN_CATALOG_LABEL;
 		a.scope = FZN_CATALOG_ESTATE;
 		a.merge = FZN_CATALOG_DISTINCT;
 		a.capability = FZN_CATALOG_CAP_HOLDER;
-		if (value_len > FZN_NODE_CATALOG_VALUE_MAX
+		if (plain_len > FZN_NODE_CATALOG_VALUE_MAX
 		    || fzn_catalog_attribute_encode(&a, body, sizeof(body), &len) != FZN_CATALOG_OK)
 			return (size_t)snprintf(reply, cap, "malformed a name or value too long\n");
 	} else {
