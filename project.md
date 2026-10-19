@@ -64805,8 +64805,9 @@ groups its user is in.
 
 ### Not yet after sec 626
 
-- **A removed member learns nothing more**, its removal included: acts
-  are served only to members. A leave is its own act, so a leaver knows.
+- ~~**A removed member learns nothing more**, its removal included: acts
+  are served only to members.~~ It is told its removal since sec 649. A
+  leave is its own act, so a leaver knows.
 - **A log is served whole when heads disagree**, from place 1, bounded by
   one reply: a fork deep in a log longer than a reply does not resolve.
 - **A left group's log is kept for good**, within the 256 held.
@@ -66479,3 +66480,24 @@ under the root A's `get identity` says; `tool/live_group_hosts.py`'s setup
 has B2 say B's root and a host key of its own -- the case a host key alone
 gets wrong. `live_catalog.py`, `live_groups.py` and `live_group_hosts.py`
 read `add group`'s id.
+
+## 649. A removed member told its own removal, 2026-10-19
+
+Sec 626 left it open and named it the one that mattered most: **a
+removed member learned nothing more, its removal included**, acts being
+served only to members. So its host went on holding itself a member --
+listing the group, sealing lines nobody would take -- for good.
+
+**Built:** GROUP_SYNC answers a host whose user the group no longer
+lists, but whose removal its log holds, with **the acts up to and
+including the last that removed it, and none after** -- what it would
+have seen as a member, then no more (`group_removal_end`,
+`group_acts_from`'s new bound). Anyone else outside the group is still
+answered nothing. A removed member's host is no longer a member's host,
+so this reaches it through a contact or the estate, as the sync always
+has.
+
+**Tested by `tool/live_group_hosts.py`, phase e**: A, back, removes C;
+C's next rounds learn it from A, and C no longer lists the group.
+**Control**: with the removal not served, C still holds the group after
+every round and phase e fails.

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""A group reached through a member's second host: `make livecheck`, secs
-641 to 643.
+"""A group reached through a member's second host, and a member removed:
+`make livecheck`, secs 641 to 643 and 649.
 
 Four stores over loopback. A is a contact of B and of C, as live_groups.py
 has them; B2 is a second device of B's user, joined to B's estate by verbs
@@ -16,11 +16,14 @@ has them; B2 is a second device of B's user, joined to B's estate by verbs
     c  A is stopped too. B2, a host of B's user, whom A made an admin,
        sets the group's backfill off; C takes the act from B2 itself
     d  B2 writes a line to the group; C files it, as B's user's, from B2
+    e  A, back, removes C; C learns its own removal from A and no longer
+       lists the group
 
 Against a daemon that syncs a group's log only with contacts' hosts and
 the estate's, phase c never takes B2's act: nobody else is up to carry it;
 against one that asks a group's lines the same way, phase d never files
-B2's line.
+B2's line; against one that serves a removed member nothing, phase e
+never sees C learn its removal.
 Against a daemon that asks one host per member -- the first its group
 lists, as sec 630 did -- C asks two hosts and phase a fails; and were it
 let through, phase b would never pull B2's note: B is the one asked, and B
@@ -47,7 +50,7 @@ from live_trim import ask, failed  # noqa: E402
 from live_groups import KEPT_RE, PREKEY_HOST, groups, members  # noqa: E402
 import live_trim  # noqa: E402
 
-live_trim.DEADLINE = time.monotonic() + 800.0
+live_trim.DEADLINE = time.monotonic() + 1000.0
 
 ROUNDS = 6
 TAKEN_RE = re.compile(r"group pass: (\d+) act\(s\) taken")
@@ -250,6 +253,23 @@ def main(argv):
 				                ask(socks["b2"], "get epoch " + b2_name).strip(),
 				                tail(started["c"], ("group", "lines", "refused", "denied"))))
 			print("livecheck: d: with A and B gone, C filed B2's line, as B's user's")
+
+			# e: A back, removes C; C learns its own removal from A and stops
+			# holding itself a member (sec 649) -- before, a removed member
+			# was served nothing, its removal included.
+			up("a", "a-e")
+			expect(socks["a"], "a", "remove member family carol", "ok")
+			gone = False
+			for rnd in range(ROUNDS):
+				for who in ("a", "c"):
+					turn(who, "%s-e%d" % (who, rnd))
+				if not groups(socks["c"], "c"):
+					gone = True
+					break
+			if not gone:
+				raise failed("e: C, removed, still holds %r%s"
+				             % (groups(socks["c"], "c"), tail(started["c"], ("group",))))
+			print("livecheck: e: A removed C, and C learned its removal from A")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

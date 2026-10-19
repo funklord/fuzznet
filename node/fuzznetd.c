@@ -6647,10 +6647,29 @@ static int group_owner_of(const uint8_t *sender, uint8_t owner[FZN_PUBKEY_LEN], 
 	return running_admin && fzn_node_admin_contact_of(running_admin, sender, owner);
 }
 
+/* WHERE `owner`'S LAST REMOVAL from group `id` ends: one past the place of
+ * the last REMOVE act naming it, 0 when none does. sec 649. */
+static uint32_t group_removal_end(const uint8_t *id, const fzn_group_t *g, const uint8_t *owner)
+{
+	static uint8_t act[FZN_GROUP_ACT_MAX];
+	static fzn_group_act_t a;
+	uint32_t s, end = 0;
+	size_t n = 0;
+
+	for (s = 0; s < g->seq; s++)
+		if (fzn_group_log_act(&node_groups.log, id, s, act, sizeof(act), &n) == FZN_GROUP_LOG_OK
+		    && fzn_group_act_decode(act, n, &a) == FZN_GROUP_ACT_OK
+		    && a.kind == FZN_GROUP_ACT_REMOVE
+		    && memcmp(a.subject, owner, FZN_PUBKEY_LEN) == 0)
+			end = s + 1u;
+	return end;
+}
+
 /* THE ACTS AN ASKER LACKS of group `id`, from the head it gave -- or
- * whole -- appended to `reply` as length and bytes while they fit. */
+ * whole -- appended to `reply` as length and bytes while they fit; none
+ * at or past `until` when it is not 0. */
 static size_t group_acts_from(const uint8_t *id, const uint8_t *asked, uint8_t *reply,
-                              size_t at, size_t cap, size_t *count)
+                              size_t at, size_t cap, size_t *count, uint32_t until)
 {
 	static fzn_group_t g;
 	static uint8_t act[FZN_GROUP_ACT_MAX];
@@ -6678,7 +6697,7 @@ static size_t group_acts_from(const uint8_t *id, const uint8_t *asked, uint8_t *
 		    && memcmp(hash, head, 32u) == 0)
 			from = seq;
 	}
-	for (s = from; s < g.seq; s++) {
+	for (s = from; s < g.seq && (!until || s < until); s++) {
 		if (fzn_group_log_act(&node_groups.log, id, s, act, sizeof(act), &n) != FZN_GROUP_LOG_OK
 		    || at + 2u + n > cap)
 			break;
@@ -6718,14 +6737,20 @@ static size_t group_sync_remote(const uint8_t *sender, const uint8_t *request,
 		return (size_t)snprintf((char *)reply, reply_cap, "error the groups did not read\n");
 	for (i = 0; i < n; i++) {
 		const uint8_t *asked = NULL;
+		uint32_t until = 0;
 
-		if (fzn_group_log_get(node_apply.store, ids[i], &g) != FZN_GROUP_LOG_OK
-		    || (!own && !fzn_group_is_member(&g, owner)))
+		if (fzn_group_log_get(node_apply.store, ids[i], &g) != FZN_GROUP_LOG_OK)
+			continue;
+		/* A REMOVED MEMBER IS TOLD ITS REMOVAL, sec 649, and nothing after
+		 * it: the acts up to the last that removed it, so its host stops
+		 * holding itself a member. Anyone else not in the group, nothing. */
+		if (!own && !fzn_group_is_member(&g, owner)
+		    && !(until = group_removal_end(ids[i], &g, owner)))
 			continue;
 		for (k = 0; k < entries && !asked; k++)
 			if (memcmp(request + 3u + k * FZND_GROUP_ENTRY_LEN, ids[i], FZN_GROUP_ID_LEN) == 0)
 				asked = request + 3u + k * FZND_GROUP_ENTRY_LEN;
-		at = group_acts_from(ids[i], asked, reply, at, cap, &count);
+		at = group_acts_from(ids[i], asked, reply, at, cap, &count, until);
 	}
 	reply[0] = FZND_GROUP_VERSION;
 	reply[1] = FZND_GROUP_ACTS_TYPE;
