@@ -1865,9 +1865,85 @@ static size_t import(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *
 	return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)k);
 }
 
+/* `list sharer [FROM]`: `ok TOTAL FROM KEY,KIND,NAME ...`, the users whose
+ * shared trees this node holds, a page at a time. KIND is how this host
+ * knows the user: `contact` (NAME its contact name), `group` (NAME `@GROUP`,
+ * a held group listing it -- a member who shared with a group, sec 630, and
+ * is no contact here) or `gone` (NAME `-`). A tree is always a USER's: a
+ * note shared with a group lands in the sharing member's tree, so a row's
+ * key is never a group's. sec 640. */
+static size_t list_sharers(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *reply,
+                           size_t cap)
+{
+	static uint8_t sharers[FZN_NOTES_RECEIVED_ROWS][FZN_PUBKEY_LEN];
+	static char detail[FZN_REPLY_MAX];
+	size_t limit = fzn_reply_ok_room(cap);
+	size_t count = 0, from = 0, used, i;
+	const uint8_t *w;
+	size_t w_len;
+	int m;
+
+	if (word(&at, &left, &w, &w_len))
+		for (i = 0; i < w_len; i++) {
+			if (w[i] < '0' || w[i] > '9' || from > FZN_NOTES_RECEIVED_ROWS)
+				return say(reply, cap, FZN_REPLY_MALFORMED, "not an index");
+			from = (from * 10u) + (size_t)(w[i] - '0');
+		}
+	if (fzn_notes_received_sharers(n->store.ops, sharers, FZN_NOTES_RECEIVED_ROWS, &count)
+	    != FZN_NOTES_OK)
+		return say(reply, cap, FZN_REPLY_ERROR, "the shared trees would not list");
+	if (from > count)
+		return say(reply, cap, FZN_REPLY_MALFORMED, "past the last sharer");
+	m = snprintf(detail, sizeof(detail), "%zu %zu", count, from);
+	if (m < 0 || (size_t)m >= limit)
+		return 0;
+	used = (size_t)m;
+	for (i = from; i < count; i++) {
+		fzn_contact_t contact;
+		uint8_t ids[1][FZN_GROUP_ID_LEN];
+		char who[FZN_CONTACT_NAME_MAX + 2u];
+		const char *kind = "gone";
+		size_t who_len = 1u, n_ids = 0;
+
+		who[0] = '-';
+		if (fzn_contact_get(n->store.ops, sharers[i], &contact) == FZN_CONTACT_OK) {
+			kind = "contact";
+			memcpy(who, contact.name, contact.name_len);
+			who_len = contact.name_len;
+		} else if (fzn_node_group_ids_of(n->store.ops, sharers[i], ids, 1u, &n_ids)
+		                   == FZN_CONTACT_OK
+		           && n_ids) {
+			char group[FZN_CONTACT_NAME_MAX + 1u];
+			size_t group_len = 0;
+
+			kind = "group";
+			if (fzn_node_group_name(n->store.ops, ids[0], group, &group_len)
+			    == FZN_CONTACT_OK) {
+				who[0] = '@';
+				memcpy(who + 1, group, group_len);
+				who_len = 1u + group_len;
+			}
+		}
+		if (limit - used < 1u + ID_HEX + 1u + strlen(kind) + 1u + who_len)
+			break;
+		detail[used++] = ' ';
+		hex_of(sharers[i], FZN_PUBKEY_LEN, detail + used);
+		used += ID_HEX;
+		detail[used++] = ',';
+		memcpy(detail + used, kind, strlen(kind));
+		used += strlen(kind);
+		detail[used++] = ',';
+		memcpy(detail + used, who, who_len);
+		used += who_len;
+	}
+	return answer(reply, cap, FZN_REPLY_OK, detail, used);
+}
+
 /* `list shared NAME PARENT [FROM]` and `get shared NAME ID ...`: the note
  * verbs' reads, over the tree the contact NAME shared with this node. sec
- * 437. Nothing writes there but pulling. */
+ * 437. Nothing writes there but pulling. NAME may be the sharer's key, as
+ * `list sharer` prints it -- the only name a group member who is no
+ * contact here has (sec 640). */
 static size_t read_shared(fzn_node_notes_t *n, int listing, const uint8_t *at, size_t left,
                           char *reply, size_t cap)
 {
@@ -1882,7 +1958,10 @@ static size_t read_shared(fzn_node_notes_t *n, int listing, const uint8_t *at, s
 	if (!word(&at, &left, &name, &name_len))
 		return say(reply, cap, FZN_REPLY_MALFORMED,
 		           listing ? "list shared NAME PARENT [FROM]" : "get shared NAME ID ...");
-	cerr = fzn_contact_find(n->store.ops, (const char *)name, name_len, &contact);
+	if (name_len == ID_HEX && parse_id(name, name_len, contact.key))
+		cerr = FZN_CONTACT_OK;
+	else
+		cerr = fzn_contact_find(n->store.ops, (const char *)name, name_len, &contact);
 	if (cerr != FZN_CONTACT_OK)
 		return say(reply, cap,
 		           cerr == FZN_CONTACT_ERR_NAME ? FZN_REPLY_MALFORMED : FZN_REPLY_ERROR,
@@ -1935,6 +2014,14 @@ static size_t local_verbs(fzn_node_notes_t *n, fzn_origin_t origin,
 			return say(reply, reply_cap, FZN_REPLY_DENIED,
 			           "notes need this node's own user");
 		return import(n, at, left, reply, reply_cap);
+	}
+	if (is_word(subject, subject_len, "sharer")) {
+		if (request->parsed != FZN_VERB_LIST)
+			return 0;
+		if (origin != FZN_ORIGIN_SAME_USER)
+			return say(reply, reply_cap, FZN_REPLY_DENIED,
+			           "notes need this node's own user");
+		return list_sharers(n, at, left, reply, reply_cap);
 	}
 	if (is_word(subject, subject_len, "shared")) {
 		if (request->parsed != FZN_VERB_LIST && request->parsed != FZN_VERB_GET)

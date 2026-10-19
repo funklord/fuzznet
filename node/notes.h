@@ -29,8 +29,13 @@
  *     add share SUBTREE NAME       share SUBTREE with the contact NAME (sec 436)
  *     remove share SUBTREE NAME    stop
  *     list share [FROM]            what is shared, with whom
+ *     list sharer [FROM]           whose shared trees this node holds,
+ *                                  KEY,KIND,NAME: KIND contact, group (a
+ *                                  member known by a group, NAME `@GROUP`)
+ *                                  or gone, NAME `-` (sec 640)
  *     list shared NAME PARENT [FROM]
- *                                  the tree the contact NAME shared with this
+ *                                  the tree the contact NAME -- or the key
+ *                                  `list sharer` prints -- shared with this
  *                                  node (sec 437); `top` is the roots of what
  *                                  was shared, the notes whose parent this
  *                                  node does not hold

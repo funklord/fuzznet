@@ -12261,6 +12261,27 @@ SABOTAGES = [
 		"",
 		"a key a member took is given again, to every member, every round -- secs 527, 636",
 	),
+	(
+		"sharer-read-by-key",
+		"node/notes.c",
+		"\tif (name_len == ID_HEX && parse_id(name, name_len, contact.key))\n\t\tcerr = FZN_CONTACT_OK;\n\telse\n\t\tcerr = fzn_contact_find(",
+		"\tif (0)\n\t\tcerr = FZN_CONTACT_OK;\n\telse\n\t\tcerr = fzn_contact_find(",
+		"a group member who is no contact here has a tree nobody can read -- sec 640",
+	),
+	(
+		"sharer-named-by-group",
+		"node/notes.c",
+		"\t\t\tkind = \"group\";\n",
+		"\t\t\tkind = \"gone\";\n",
+		"a member known by a group lists as gone, and a client cannot say how it knows her -- sec 640",
+	),
+	(
+		"sharer-contact-first",
+		"node/notes.c",
+		"\t\t\tkind = \"contact\";\n",
+		"\t\t\tkind = \"gone\";\n",
+		"a contact's tree lists as nobody's -- sec 640",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

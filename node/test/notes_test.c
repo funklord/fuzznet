@@ -825,6 +825,64 @@ static void test_shared_reads(void)
 	CHECK(ask_as(FZN_ORIGIN_LOCAL, "list shared carol top") == FZN_REPLY_DENIED,
 	      "another user reads carol's tree");
 	CHECK(ask("set shared carol top") == FZN_REPLY_NONE, "and nothing writes it");
+
+	/* WHOSE TREES ARE HELD, sec 640: carol a contact; erin a member of a
+	 * group, sharing with it, and no contact here (sec 630); frank known
+	 * by neither. A row's key is a user's, never a group's. */
+	{
+		uint8_t erin[FZN_PUBKEY_LEN], frank[FZN_PUBKEY_LEN];
+		static fzn_group_t team;
+		fzn_notes_received_t seam_e, seam_f;
+		fzn_persist_ops_t ops_e, ops_f;
+		fzn_notes_store_t tree_e, tree_f;
+		char erin_hex[65], frank_hex[65], carol_hex[65];
+
+		memset(erin, 0xe4, sizeof(erin));
+		memset(frank, 0xf4, sizeof(frank));
+		for (i = 0; i < FZN_PUBKEY_LEN; i++) {
+			snprintf(erin_hex + (2u * i), 3u, "%02x", erin[i]);
+			snprintf(frank_hex + (2u * i), 3u, "%02x", frank[i]);
+			snprintf(carol_hex + (2u * i), 3u, "%02x", carol[i]);
+		}
+		CHECK(group_make(&OPS, "team", 0x7au, &team) && group_join(&OPS, &team, erin),
+		      "fixture: erin in the group team");
+		CHECK(fzn_notes_get(&notes.store, gid, SELF, record, sizeof(record), &len) == FZN_NOTES_OK
+		              && fzn_notes_received_ops(&seam_e, &OPS, &HASH, erin, &ops_e) == FZN_NOTES_OK
+		              && fzn_notes_store_init(&tree_e, &ops_e, &HASH) == FZN_NOTES_OK
+		              && fzn_notes_put(&tree_e, record, len, notes.author.policy, &SIGN, &wrote,
+		                               NULL) == FZN_NOTES_OK
+		              && fzn_notes_received_ops(&seam_f, &OPS, &HASH, frank, &ops_f) == FZN_NOTES_OK
+		              && fzn_notes_store_init(&tree_f, &ops_f, &HASH) == FZN_NOTES_OK
+		              && fzn_notes_put(&tree_f, record, len, notes.author.policy, &SIGN, &wrote,
+		                               NULL) == FZN_NOTES_OK,
+		      "fixture: G in erin's tree and in frank's");
+		CHECK(ask("list sharer") == FZN_REPLY_OK && !strncmp(detail_of(), "3 0 ", 4u),
+		      "three sharers' trees are held");
+		snprintf(want, sizeof(want), "%s,contact,carol", carol_hex);
+		CHECK(has(want), "carol is named a contact");
+		snprintf(want, sizeof(want), "%s,group,@team", erin_hex);
+		CHECK(has(want), "erin, no contact, is named by the group that knows her");
+		snprintf(want, sizeof(want), "%s,gone,-", frank_hex);
+		CHECK(has(want), "and frank, known by neither, by his key alone");
+		snprintf(line, sizeof(line), "list shared %s top", erin_hex);
+		snprintf(want, sizeof(want), "1 0 %s,", g);
+		CHECK(ask(line) == FZN_REPLY_OK && !strncmp(detail_of(), want, strlen(want)),
+		      "erin's tree is read by the key list sharer prints");
+		{
+			uint8_t key[FZN_NOTE_WRAP_KEY_LEN];
+
+			CHECK(fzn_notes_wrap_get(&notes.store, gid, key) == FZN_NOTES_OK
+			              && fzn_notes_wrap_put(&tree_e, gid, key) == FZN_NOTES_OK,
+			      "fixture: G's wrap key in erin's tree");
+		}
+		snprintf(line, sizeof(line), "get shared %s %s", erin_hex, g);
+		CHECK(ask(line) == FZN_REPLY_OK && has(" child"), "and its note got");
+		CHECK(ask("list sharer 3") == FZN_REPLY_OK && !strcmp(detail_of(), "3 3"),
+		      "a page from the end is empty");
+		CHECK(ask("list sharer 4") == FZN_REPLY_MALFORMED, "and one past it malformed");
+		CHECK(ask_as(FZN_ORIGIN_LOCAL, "list sharer") == FZN_REPLY_DENIED,
+		      "another user lists nobody's trees");
+	}
 }
 
 /* `add import`, sec 440: a Takeout directory, a KNotes calendar, and what

@@ -66212,3 +66212,39 @@ gaps in sec 624's `fetch lan`.
 **Tested** by `tool/live_lan.py`: phase b holds the answer to the log's
 count and address, and a new phase c switches B's discovery off and
 requires `ok 0 -` naming it.
+
+## 640. The trees shared with this user, and a member's read by its key, 2026-10-19
+
+**Asked by fuzzypickles for the cut-over**: a listing of notebooks shared
+with this user that includes group ones, each row saying which namespace
+its key is in -- fzpd's carried contact shares only and did not say, so
+neither client could open a notebook shared to a group (their sec 283).
+
+**`list share` was the wrong verb to ask of**: it lists what this node
+shares out, and its group rows were already `@GROUP` (sec 626). The
+incoming side had a real gap, wider than a label. A note shared with a
+group lands in the **sharing member's** tree (sec 630), keyed by that
+user -- and `list shared NAME` took only a contact's name, so a member who
+is no contact here, which is the case sec 630 was built for, had a tree
+this node held and no verb could reach. Nothing listed the sharers at all.
+
+**Built:**
+
+- **`list sharer [FROM]`**: `ok TOTAL FROM KEY,KIND,NAME ...`, the users
+  whose shared trees this node holds. KIND is how this host knows the user
+  -- `contact` (NAME its name), `group` (NAME `@GROUP`, a held group
+  listing it) or `gone` (NAME `-`). **A row's key is always a user's,
+  never a group's**: there is no group tree to name, so "which namespace"
+  is answered by KIND rather than by a second key space.
+- **`list shared` and `get shared` take the sharer's key** as 64 hex, as
+  `remove share` already did (sec 516), which is the only name such a
+  member has here.
+
+**Tested** in `node/test/notes_test.c`'s shared reads: a contact, a group
+member who is no contact, and a sharer known by neither, each listed with
+its kind; the member's tree listed and read by key; paging and the other
+user refused. Three sabotage entries, one per branch.
+
+**Not after sec 640**: a tree does not record whether a note reached it
+by a direct share or a group's, so a row cannot say which; a sharer in
+several groups is named by the first held.
