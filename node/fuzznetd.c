@@ -8328,10 +8328,15 @@ static size_t files_local_refs(void *ctx, fzn_origin_t origin, const fzn_request
 	    || !node_apply.store || !next_word(&at, &left, &w, &w_len))
 		return fzn_node_files_local(ctx, origin, request, reply, reply_cap);
 	/* A REFERENCE GIVEN is kept; a ROOT where one is wanted is read as the
-	 * reference held -- `get file ROOT` alone is the status, and stays. */
+	 * reference held -- `get file ROOT` alone is the status, and stays, and
+	 * so does `get file ROOT check`, the scrub (sec 492): read as `REF
+	 * check` it was an export of the plaintext to `./check`, fuzzypickles'
+	 * report, sec 650. */
 	if (unhex_n(w, w_len, ref, sizeof(ref))) {
 		(void)fzn_node_file_ref_keep(node_apply.store, ref);
-	} else if ((request->parsed == FZN_VERB_FETCH || (request->parsed == FZN_VERB_GET && left > 0u))
+	} else if ((request->parsed == FZN_VERB_FETCH
+	            || (request->parsed == FZN_VERB_GET && left > 0u
+	                && !(left == 6u && memcmp(at, " check", 6u) == 0)))
 	           && unhex_n(w, w_len, root, sizeof(root))
 	           && fzn_node_file_ref_get(node_apply.store, root, ref)) {
 		hex_of(ref, sizeof(ref), hex);

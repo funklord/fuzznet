@@ -66501,3 +66501,45 @@ has.
 C's next rounds learn it from A, and C no longer lists the group.
 **Control**: with the removal not served, C still holds the group after
 every round and phase e fails.
+
+## 650. `get file ROOT check` a check again, and no export to a relative path, 2026-10-20
+
+**Reported by fuzzypickles** through this tree's inbox (message
+20261019T2200Z), from its blob_scrub on fuzznetd: **`get file ROOT check`
+wrote the file's plaintext to `./check`** in fuzznetd's working directory
+and answered a bare `ok`, instead of running sec 492's scrub.
+
+**The cause, as they read it and confirmed here**: `files_local_refs`
+(sec 634) reads `get file ROOT REST` as `get file REF REST` whenever this
+host holds the root's reference -- meant for `get file ROOT PATH` -- and
+` check` is a rest. `node/files.c` then saw `REF check`, an export to the
+path `check`. Every file put here has its reference held, so **the scrub
+never ran through the socket, and any client asking it wrote a private
+file in plaintext wherever the daemon was started** -- for the live
+scripts, the repository root, their daemons inheriting its working
+directory.
+
+**Fixed twice over:**
+
+- **The rewrite leaves `get file ROOT check` alone**, the scrub's own form.
+- **An export refuses a relative path**: `get file REF [OFFSET LENGTH]
+  PATH` answers `malformed` unless PATH is absolute. A relative path
+  resolves in the daemon's working directory, which no client sees, and
+  it is what turned a misread verb into a stray plaintext. Every caller
+  in this tree already gave an absolute path.
+
+**Tested**: `node/test/files_test.c` refuses a relative export and finds
+no file made; `tool/live_catalog.py` phase b asks `get file ROOT check`
+of a file whose reference B holds and requires `ok intact` and no
+`check` in its working directory, then requires a relative export
+refused. **Control**, with both halves reverted: B answered `ok` and a
+20000-byte plaintext `check` was left in the repository root -- removed,
+and the test now removes any such file before it judges the answer, so a
+failure cannot leave one.
+
+**Not changed, recorded**: the other verbs that take a path -- `put
+file`, `add join`, `put backup`, `add import`, a note's text to a file,
+a message's file -- accept a relative path too, resolved in the daemon's
+working directory. Only an export writes plaintext, so only it is refused
+now; whether every path verb should require an absolute path is a
+convention across the verbs, not decided here.

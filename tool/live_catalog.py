@@ -149,6 +149,25 @@ def main(argv):
 			with open(payload, "rb") as f, open(out, "rb") as g:
 				if f.read() != g.read():
 					raise failed("b: the file B exported is not the file A put")
+			# THE SCRUB BY ITS ROOT, sec 650: a check, never an export of the
+			# plaintext to `./check` in the daemon's working directory, which
+			# is this script's -- as it was while the reference was held.
+			stray = os.path.join(os.getcwd(), "check")
+			if os.path.exists(stray):
+				raise failed("b: a file named check is already at %s" % stray)
+			said = ask(socks["b"], "get file %s check" % root).strip()
+			# THE STRAY REMOVED FIRST, whatever was answered: a failure here
+			# must not leave a plaintext in the working directory.
+			if os.path.exists(stray):
+				os.remove(stray)
+				raise failed("b: get file ROOT check exported the plaintext to %s, "
+				             "answering %r" % (stray, said))
+			if said != "ok intact":
+				raise failed("b: get file ROOT check answered %r, not ok intact" % said)
+			# AND NO EXPORT TO A RELATIVE PATH at all.
+			got = ask(socks["b"], "get file %s song-relative" % root).split()
+			if not got or got[0] != "malformed" or os.path.exists("song-relative"):
+				raise failed("b: an export to a relative path answered %r" % got)
 			expect(socks["b"], "b", "add catalog %s name tune" % root, "ok")
 			both = sorted([("song", key_a[:16]), ("tune", key_b[:16])])
 			until(lambda: listed("a", root) == both and listed("b", root) == both, "b")

@@ -2065,6 +2065,15 @@ size_t fzn_node_files_local(void *ctx, fzn_origin_t origin, const fzn_request_t 
 			fzn_wipe(&ref, sizeof(ref));
 			return answer(reply, reply_cap, FZN_REPLY_MALFORMED, "get file REF [OFFSET LENGTH] PATH");
 		}
+		/* AN ABSOLUTE PATH ONLY: a relative one lands in the daemon's
+		 * working directory, which no client sees -- how `get file ROOT
+		 * check`, misread as an export, put a plaintext at `./check`. sec
+		 * 650. */
+		if (path[0] != '/') {
+			fzn_wipe(&ref, sizeof(ref));
+			return answer(reply, reply_cap, FZN_REPLY_MALFORMED,
+			              "get file REF [OFFSET LENGTH] PATH, PATH absolute");
+		}
 		if (n_numbers == 2u) {
 			int whole = 0;
 

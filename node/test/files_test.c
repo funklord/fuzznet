@@ -596,6 +596,13 @@ int main(void)
 		              && strncmp(reply, "ok", 2) == 0 && same_files(src_path, out_path),
 		      "get file did not export what put file sealed");
 		(void)remove(out_path);
+		/* A RELATIVE PATH IS REFUSED, sec 650: it lands in the daemon's
+		 * working directory, which no client sees. */
+		(void)snprintf(line, sizeof(line), "file %s fzn-files-test-relative", ref_hex);
+		CHECK(said(&F, FZN_VERB_GET, line, reply, sizeof(reply))
+		              && strncmp(reply, "malformed", 9) == 0
+		              && access("fzn-files-test-relative", F_OK) != 0,
+		      "an export to a relative path was not refused");
 		CHECK(said(&F, FZN_VERB_LIST, "file", reply, sizeof(reply))
 		              && strncmp(reply, "ok 5 0 ", 7) == 0 && strstr(reply, ",5000") != NULL,
 		      "list file did not name the five whole blobs and their lengths");
