@@ -379,6 +379,10 @@ static void test_long_text(void)
 	snprintf(line, sizeof(line), "get note %s file %s", note, out);
 	CHECK(ask(line) == FZN_REPLY_OK && !strcmp(detail_of(), "5000"),
 	      "it is written to a file, opened from its blob");
+	/* AN ABSOLUTE PATH ONLY, sec 662. */
+	snprintf(line, sizeof(line), "get note %s file fzn-notes-test-relative", note);
+	CHECK(ask(line) == FZN_REPLY_MALFORMED && access("fzn-notes-test-relative", F_OK) != 0,
+	      "a note's text written to a relative path was not refused");
 	{
 		static uint8_t back[6000];
 

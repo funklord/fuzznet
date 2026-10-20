@@ -5851,6 +5851,10 @@ static size_t request_contact(const uint8_t *name, size_t name_len, const uint8_
 			return (size_t)snprintf(reply, cap, "malformed add contact NAME CARD|PATH\n");
 		memcpy(path, arg, arg_len);
 		path[arg_len] = '\0';
+		/* AN ABSOLUTE PATH ONLY, sec 662: a relative one is read in the daemon's
+		 * working directory, which no client sees. */
+		if (path[0] != '/')
+			return (size_t)snprintf(reply, cap, "malformed the card's path is absolute\n");
 		if ((f = fopen(path, "r")) == NULL)
 			return (size_t)snprintf(reply, cap, "error the card file would not open\n");
 		text_len = fread(text, 1, sizeof(text) - 1u, f);
@@ -6067,6 +6071,9 @@ static size_t join_local(fzn_origin_t origin, const fzn_request_t *request, char
 			return (size_t)snprintf(reply, cap, "malformed add join CARD|PATH HOST PORT\n");
 		memcpy(path, w_card, n_card);
 		path[n_card] = '\0';
+		/* AN ABSOLUTE PATH ONLY, sec 662. */
+		if (path[0] != '/')
+			return (size_t)snprintf(reply, cap, "malformed the card's path is absolute\n");
 		if ((f = fopen(path, "r")) == NULL)
 			return (size_t)snprintf(reply, cap, "error the card file would not open\n");
 		got = fread(text, 1, sizeof(text) - 1u, f);
@@ -6268,6 +6275,10 @@ static size_t identity_local(fzn_origin_t origin, const fzn_request_t *request, 
 	if (backup) {
 		char core[1100], bulk[1100];
 
+		/* AN ABSOLUTE PATH ONLY, sec 662: a backup holds the identity's seed,
+		 * and a relative one would land where the daemon was started. */
+		if (path[0] != '/')
+			return (size_t)snprintf(reply, cap, "malformed put backup DIR, DIR absolute\n");
 		if (!fzn_state_dir_backup_ok(path, &why))
 			return (size_t)snprintf(reply, cap, "error %s\n", why);
 		if (!state_bulk_dir) {

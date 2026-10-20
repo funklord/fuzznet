@@ -603,6 +603,10 @@ int main(void)
 		              && strncmp(reply, "malformed", 9) == 0
 		              && access("fzn-files-test-relative", F_OK) != 0,
 		      "an export to a relative path was not refused");
+		/* AND A PUT FROM ONE, sec 662. */
+		CHECK(said(&F, FZN_VERB_PUT, "file fzn-files-test-relative", reply, sizeof(reply))
+		              && strncmp(reply, "malformed", 9) == 0,
+		      "a put from a relative path was not refused");
 		CHECK(said(&F, FZN_VERB_LIST, "file", reply, sizeof(reply))
 		              && strncmp(reply, "ok 5 0 ", 7) == 0 && strstr(reply, ",5000") != NULL,
 		      "list file did not name the five whole blobs and their lengths");

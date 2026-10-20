@@ -1556,6 +1556,10 @@ static size_t accept_share(fzn_node_admin_t *admin, const uint8_t *rest, size_t 
 		                   fzn_contact_err_str(cerr));
 	memcpy(file, path, path_len);
 	file[path_len] = '\0';
+	/* AN ABSOLUTE PATH ONLY, sec 662: a relative one is read where the
+	 * daemon was started, which no client sees. */
+	if (file[0] != '/')
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "the card's path is absolute");
 	f = fopen(file, "rb");
 	if (!f)
 		return answer_text(reply, cap, FZN_REPLY_ERROR, "cannot read that file");

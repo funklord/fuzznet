@@ -66538,12 +66538,9 @@ refused. **Control**, with both halves reverted: B answered `ok` and a
 and the test now removes any such file before it judges the answer, so a
 failure cannot leave one.
 
-**Not changed, recorded**: the other verbs that take a path -- `put
-file`, `add join`, `put backup`, `add import`, a note's text to a file,
-a message's file -- accept a relative path too, resolved in the daemon's
-working directory. Only an export writes plaintext, so only it is refused
-now; whether every path verb should require an absolute path is a
-convention across the verbs, not decided here.
+~~**Not changed, recorded**: the other verbs that take a path accept a
+relative path too.~~ **Every one requires an absolute path since sec
+662.**
 
 ## 651. A message's text one escaped word, and its file's path absolute, 2026-10-20
 
@@ -66855,3 +66852,24 @@ this host's to owe. MORE 1 when a conversation ran past
 **Tested** in `node/test/messages_test.c`: one line written is held, set
 delivered it is owed as delivered, settled it is owed no more, and the in
 line is never counted; another user is refused. Two sabotage entries.
+
+## 662. Every verb that takes a path takes an absolute one, 2026-10-20
+
+Sec 650 refused a relative path for an export and left the rest open as a
+convention across the verbs; secs 651 and 658 refused one for a message's
+file and an admin chain's. **Settled here, the convention being this
+project's own**: every local verb that names a file or directory takes an
+absolute path, `malformed` otherwise -- `put file` (through `node/files.c`'s
+`path_arg`, which an export shares), the card of `add contact`, `add join`
+and `add received`, `put backup`'s directory, a note's text read from or
+written to a file, and `add import`'s directory. A relative path resolves
+in the daemon's working directory, which no client sees -- the hazard sec
+650 met as a plaintext at `./check` in the repository root -- and a client
+that means its own directory makes the path absolute itself, as
+fuzzypickles' does since its 1-step 3f.
+
+**Tested** in `node/test/files_test.c` (a relative put refused) and
+`node/test/notes_test.c` (a note's text to a relative path refused, no file
+made), beside the earlier refusals; every caller in this tree, live
+scripts included, already gave absolute paths, and `make test` and
+`make livecheck` pass unchanged.

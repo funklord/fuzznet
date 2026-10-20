@@ -1736,9 +1736,12 @@ static size_t refused(char *reply, size_t cap, fzn_node_files_err_t err)
 }
 
 /* `arg` as a NUL-terminated path in `out`. */
+/* A PATH ARGUMENT, absolute only, sec 662: a relative one resolves in the
+ * daemon's working directory, which no client sees -- every verb that takes
+ * a file, `put file` as well as an export (sec 650). */
 static int path_arg(const uint8_t *arg, size_t len, char out[FZN_SPOOL_FILE_PATH_MAX])
 {
-	if (len == 0u || len >= FZN_SPOOL_FILE_PATH_MAX || memchr(arg, '\0', len))
+	if (len == 0u || len >= FZN_SPOOL_FILE_PATH_MAX || memchr(arg, '\0', len) || arg[0] != '/')
 		return 0;
 	memcpy(out, arg, len);
 	out[len] = '\0';

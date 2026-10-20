@@ -421,7 +421,9 @@ static size_t read_file(const uint8_t *path, size_t path_len, uint8_t *out, size
 	char name[512];
 	FILE *f;
 
-	if (path_len == 0u || path_len >= sizeof(name) || memchr(path, '\0', path_len))
+	/* AN ABSOLUTE PATH ONLY, sec 662. */
+	if (path_len == 0u || path_len >= sizeof(name) || memchr(path, '\0', path_len)
+	    || path[0] != '/')
 		return 0;
 	memcpy(name, path, path_len);
 	name[path_len] = '\0';
@@ -712,8 +714,10 @@ static size_t answer_note(fzn_node_notes_t *n, const fzn_notes_store_t *store,
 		char name[512];
 		int fd, ok;
 
-		if (left == 0u || left >= sizeof(name) || memchr(at, '\0', left))
-			return say(reply, cap, FZN_REPLY_MALFORMED, "get note ID file PATH");
+		/* AN ABSOLUTE PATH ONLY, sec 662: a note's text written where the
+		 * daemon was started is a private note in a place nobody chose. */
+		if (left == 0u || left >= sizeof(name) || memchr(at, '\0', left) || at[0] != '/')
+			return say(reply, cap, FZN_REPLY_MALFORMED, "get note ID file PATH, PATH absolute");
 		memcpy(name, at, left);
 		name[left] = '\0';
 		/* 0600: a note is as private as the store it came from. */
@@ -1821,9 +1825,10 @@ static size_t import(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *
 		return r;
 
 	memset(&run, 0, sizeof(run));
+	/* AN ABSOLUTE PATH ONLY, sec 662. */
 	if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, run.folder) || left == 0u
-	    || left >= sizeof(path) || memchr(at, '\0', left))
-		return say(reply, cap, FZN_REPLY_MALFORMED, "add import PARENT PATH");
+	    || left >= sizeof(path) || memchr(at, '\0', left) || at[0] != '/')
+		return say(reply, cap, FZN_REPLY_MALFORMED, "add import PARENT PATH, PATH absolute");
 	memcpy(path, at, left);
 	path[left] = '\0';
 	/* INTO A FOLDER THIS NODE HOLDS, or the top: notes under an id nobody
