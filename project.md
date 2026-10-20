@@ -67087,3 +67087,27 @@ not made.
   connection to the face; reads from the shared store directly are stage
   2.
 - **One-shot commands** (`--prekey`, `--new-root`, ...) take no claim.
+
+## 668. One %XX escape, exported: `local/escape.h`, 2026-10-21
+
+**Asked by fuzzypickles** (inbox message 20261021T0200Z), toward the
+holder's "eliminate redundant code": the local grammar's `%XX` escape was
+written four times here -- `node/messages.c`, `node/notes.c`,
+`node/settings.c` and the catalogue's in `node/fuzznetd.c` (sec 652 noted
+the fourth) -- and a fifth time in fuzzypickles' `client/calls.c`, nothing
+being exported for a client.
+
+**Built: `local/escape.h`**, `fzn_escape` and `fzn_unescape`, the one
+copy: a byte up to a space, `%`, comma and DEL written `%XX` in lower
+case, read back in either case (sec 654); `fzn_escape` answers the input
+it took as far as the room allowed, a byte's whole escape or none of it.
+The four copies here are thin wrappers keeping their own callers' shapes
+-- what was taken, whether it was whole, a value whole or nothing -- over
+the one. A public header, so in the install and in `tool/consumer_check.c`.
+
+**Tested** by `local/test/escape_test.c`: the escaped bytes and the rest
+as they are, a round trip, either case, an escape cut short, a non-hex
+escape, a bound on the output, an escape at the very end, and a stop at
+the byte that did not fit -- beside the module suites, which pass
+unchanged. A first count in the test was wrong by two, and the compiler's
+bound warning said so before the check did.

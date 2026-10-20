@@ -5,6 +5,7 @@
 #include "notes.h"
 
 #include "../contact/contact.h"
+#include "../local/escape.h"
 #include "groups.h"
 #include "../notes/received.h"
 #include "../notes/share.h"
@@ -121,25 +122,7 @@ static void hex_of(const uint8_t *b, size_t n, char *out)
 /* Escape `n` bytes into `out`, at most `cap`; how many input bytes went in. */
 static size_t escape(const uint8_t *b, size_t n, char *out, size_t cap, size_t *written)
 {
-	size_t i, w = 0;
-
-	for (i = 0; i < n; i++) {
-		uint8_t c = b[i];
-
-		if (c <= 0x20u || c == '%' || c == ',' || c == 0x7fu) {
-			if (cap - w < 3u)
-				break;
-			out[w++] = '%';
-			out[w++] = HEX[c >> 4];
-			out[w++] = HEX[c & 15u];
-		} else {
-			if (cap - w < 1u)
-				break;
-			out[w++] = (char)c;
-		}
-	}
-	*written = w;
-	return i;
+	return fzn_escape(b, n, out, cap, written); /* local/escape.h, sec 668 */
 }
 
 static uint64_t now(const fzn_node_notes_t *n)

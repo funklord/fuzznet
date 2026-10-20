@@ -48,6 +48,7 @@
 #include "file_refs.h"
 #include "../claim/claim.h"
 #include "../local/client.h"
+#include "../local/escape.h"
 #ifdef FZN_CLAIM_FILE_ON
 #include "../claim/claim_file.h"
 #endif
@@ -8550,29 +8551,7 @@ static void index_catalog(void)
  * space or a comma is neither cut nor splits a row. */
 static int catalog_unescape(const uint8_t *in, size_t n, uint8_t *out, size_t cap, size_t *len)
 {
-	size_t i, w = 0;
-
-	for (i = 0; i < n; i++) {
-		uint8_t c = in[i];
-
-		if (c == '%') {
-			int hi, lo;
-
-			if (i + 2u >= n)
-				return 0;
-			hi = hexval(in[i + 1u]);
-			lo = hexval(in[i + 2u]);
-			if (hi < 0 || lo < 0)
-				return 0;
-			c = (uint8_t)((hi << 4) | lo);
-			i += 2u;
-		}
-		if (w >= cap)
-			return 0;
-		out[w++] = c;
-	}
-	*len = w;
-	return 1;
+	return fzn_unescape(in, n, out, cap, len); /* local/escape.h, sec 668 */
 }
 
 /* A WORD OF DIGITS ALONE as a count, at most a catalogue's worth. */
@@ -8593,25 +8572,10 @@ static int catalog_from(const uint8_t *w, size_t n, size_t *out)
 
 static size_t catalog_escape(const uint8_t *b, size_t n, char *out, size_t cap)
 {
-	static const char H[] = "0123456789abcdef";
-	size_t i, w = 0;
+	size_t w = 0;
 
-	for (i = 0; i < n; i++) {
-		uint8_t c = b[i];
-
-		if (c <= 0x20u || c == '%' || c == ',' || c == 0x7fu) {
-			if (cap - w < 3u)
-				return 0;
-			out[w++] = '%';
-			out[w++] = H[c >> 4];
-			out[w++] = H[c & 15u];
-		} else {
-			if (cap - w < 1u)
-				return 0;
-			out[w++] = (char)c;
-		}
-	}
-	return w;
+	/* WHOLE OR NOTHING, as before: a value cut short would read as another. */
+	return fzn_escape(b, n, out, cap, &w) == n ? w : 0u;
 }
 
 static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,

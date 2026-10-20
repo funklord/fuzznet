@@ -5,6 +5,7 @@
 #include "messages.h"
 
 #include "../contact/contact.h"
+#include "../local/escape.h"
 #include "group_lines.h"
 #include "groups.h"
 #include "../wire/bytes.h"
@@ -108,54 +109,14 @@ static void hex_of(const uint8_t *b, size_t n, char *out)
  * many input bytes went in. */
 static size_t escape(const uint8_t *b, size_t n, char *out, size_t cap, size_t *written)
 {
-	size_t i, w = 0;
-
-	for (i = 0; i < n; i++) {
-		uint8_t c = b[i];
-
-		if (c <= 0x20u || c == '%' || c == ',' || c == 0x7fu) {
-			if (cap - w < 3u)
-				break;
-			out[w++] = '%';
-			out[w++] = HEX[c >> 4];
-			out[w++] = HEX[c & 15u];
-		} else {
-			if (cap - w < 1u)
-				break;
-			out[w++] = (char)c;
-		}
-	}
-	*written = w;
-	return i;
+	return fzn_escape(b, n, out, cap, written); /* local/escape.h, sec 668 */
 }
 
 /* Undo %XX into `out`, at most `cap`: 0 for a malformed escape or a text
  * past `cap`. */
 static int unescape(const uint8_t *in, size_t n, char *out, size_t cap, size_t *len)
 {
-	size_t i, w = 0;
-
-	for (i = 0; i < n; i++) {
-		uint8_t c = in[i];
-
-		if (c == '%') {
-			int hi, lo;
-
-			if (i + 2u >= n)
-				return 0;
-			hi = nibble(in[i + 1u]);
-			lo = nibble(in[i + 2u]);
-			if (hi < 0 || lo < 0)
-				return 0;
-			c = (uint8_t)((hi << 4) | lo);
-			i += 2u;
-		}
-		if (w >= cap)
-			return 0;
-		out[w++] = (char)c;
-	}
-	*len = w;
-	return 1;
+	return fzn_unescape(in, n, (uint8_t *)out, cap, len); /* sec 668 */
 }
 
 static int same_key(const uint8_t *a, const uint8_t *b)

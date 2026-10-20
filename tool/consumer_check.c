@@ -185,6 +185,7 @@
 #include <fuzznet/local/vocabulary.h>
 #include <fuzznet/local/line.h>
 #include <fuzznet/local/socket.h>
+#include <fuzznet/local/escape.h>
 #include <fuzznet/local/client.h>
 #include <fuzznet/net/udp.h>
 #include <fuzznet/node/node.h>
@@ -379,6 +380,7 @@
 #include "local/vocabulary.h"
 #include "local/line.h"
 #include "local/socket.h"
+#include "local/escape.h"
 #include "net/udp.h"
 #include "node/node.h"
 #include "node/local.h"

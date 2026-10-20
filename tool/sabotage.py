@@ -4900,7 +4900,7 @@ SABOTAGES = [
 	),
 	(
 		"node-notes-escapes",
-		"node/notes.c",
+		"local/escape.c",
 		"\t\tif (c <= 0x20u || c == '%' || c == ',' || c == 0x7fu) {\n",
 		"\t\tif (c == '%') {\n",
 		"a title with a space, a comma or a newline breaks the listing it is in -- sec 431",
@@ -12365,6 +12365,27 @@ SABOTAGES = [
 		"\tif (n > h.have + 1u) {\n\t\terr = fzn_group_lines_trim(",
 		"\tif (0) {\n\t\terr = fzn_group_lines_trim(",
 		"a host's first line past its head is refused for good -- sec 664",
+	),
+	(
+		"escape-reads-upper-hex",
+		"local/escape.c",
+		"\tif (c >= 'A' && c <= 'F')\n\t\treturn c - 'A' + 10;\n",
+		"\tif (0)\n\t\treturn c - 'A' + 10;\n",
+		"an upper-case escape, as another escaper writes it, is refused -- secs 654, 668",
+	),
+	(
+		"escape-cut-short-refused",
+		"local/escape.c",
+		"\t\t\tif (i + 2u >= n)\n\t\t\t\treturn 0;\n",
+		"\t\t\tif (i + 2u > n)\n\t\t\t\treturn 0;\n",
+		"an escape cut short at the end reads past the input -- sec 668",
+	),
+	(
+		"escape-whole-or-none",
+		"local/escape.c",
+		"\t\t\tif (cap - w < 3u)\n\t\t\t\tbreak;\n",
+		"\t\t\tif (cap - w < 1u)\n\t\t\t\tbreak;\n",
+		"an escape cut by the room writes half of one, which reads as another byte -- sec 668",
 	),
 ]
 

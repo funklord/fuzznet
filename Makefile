@@ -157,7 +157,7 @@ GEN_OBJS  := $(GEN_SRCS:%.c=$(BUILD_DIR)/%.o)
 
 SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
-             local/line.c local/socket.c local/client.c \
+             local/line.c local/socket.c local/client.c local/escape.c \
              node/peer_persist.c \
              node/caller.c \
              net/udp.c \
@@ -254,7 +254,7 @@ NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/relay.o $(BUILD_D
                    $(BUILD_DIR)/constant_time/constant_time.o $(GEN_OBJS)
 HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h local/line.h local/socket.h \
-             local/client.h \
+             local/client.h local/escape.h \
              node/peer_persist.h \
              node/caller.h \
              net/udp.h \
@@ -384,7 +384,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              wire/test/constants_test.c wire/test/seal_test.c \
              wire/test/tamper_test.c \
              session/test/random_test.c local/test/vocabulary_test.c \
-             local/test/client_test.c \
+             local/test/client_test.c local/test/escape_test.c \
              node/test/peer_persist_test.c \
              node/test/identity_test.c node/test/heard_test.c node/test/events_test.c \
              node/test/routing_test.c node/test/contact_devices_test.c \
@@ -506,6 +506,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/session/test/random_test \
              $(BUILD_DIR)/local/test/vocabulary_test \
              $(BUILD_DIR)/local/test/client_test \
+             $(BUILD_DIR)/local/test/escape_test \
              $(BUILD_DIR)/node/test/peer_persist_test \
              $(BUILD_DIR)/node/test/identity_test \
              $(BUILD_DIR)/node/test/heard_test \
@@ -2263,7 +2264,7 @@ $(BUILD_DIR)/notes/test/notes_sync_test: $(BUILD_DIR)/notes/test/notes_sync_test
 
 # node/notes: the note verbs a node answers on its local socket. sec 431.
 $(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
-                                   $(BUILD_DIR)/node/notes.o \
+                                   $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/local/escape.o \
                                    $(FUZZNETD_JOURNAL_OBJS) \
                                    $(BUILD_DIR)/notes/store.o \
                                    $(BUILD_DIR)/notes/view.o \
@@ -3317,7 +3318,7 @@ $(BUILD_DIR)/gui/test/notebook_view_test: $(BUILD_DIR)/gui/test/notebook_view_te
                                      $(BUILD_DIR)/local/socket.o \
                                      $(BUILD_DIR)/local/line.o \
                                      $(BUILD_DIR)/local/peer_linux.o \
-                                     $(BUILD_DIR)/node/notes.o \
+                                     $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/local/escape.o \
                                      $(BUILD_DIR)/notes/store.o \
                                      $(BUILD_DIR)/notes/view.o \
                                      $(BUILD_DIR)/notes/author.o \
@@ -3969,7 +3970,7 @@ $(BUILD_DIR)/node/test/pair_test.o: node/test/pair_test.c
 
 $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
-              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o \
@@ -4025,7 +4026,7 @@ $(BUILD_DIR)/node/test/admin_test.o: node/test/admin_test.c
 $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(FUZZNETD_JOURNAL_OBJS) \
               $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/local/client.o \
-              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/node/apply.o \
+              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/node/apply.o \
               $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/contact/contact.o \
@@ -4103,7 +4104,7 @@ $(BUILD_DIR)/messages/test/messages_test: $(BUILD_DIR)/messages/test/messages_te
 # A node's conversations, sec 527: the verbs, absorbing, and keys carried
 # between three devices, a hub among them.
 $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
-                                  $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/node/buckets.o \
+                                  $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o \
                                   $(BUILD_DIR)/messages/messages.o \
                                   $(BUILD_DIR)/log/retain.o \
                                   $(BUILD_DIR)/messages/line.o \
@@ -4133,7 +4134,7 @@ $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
 # reconcile_test (sec 551), which applies objects through the same context.
 NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DIR)/node/holdings.o \
                    $(BUILD_DIR)/node/buckets.o \
-                   $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+                   $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
                    $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
                    $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
                    $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o \
@@ -4218,7 +4219,7 @@ $(BUILD_DIR)/node/test/log_buckets_test: $(BUILD_DIR)/node/test/log_buckets_test
 	$(CC) $(CFLAGS) $^ -o $@ $(ZSTD_LIBS)
 
 # The node's notes, the model and the verbs over it. sec 431.
-FUZZNETD_NOTES_OBJS := $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/notes/store.o \
+FUZZNETD_NOTES_OBJS := $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/notes/store.o \
                        $(BUILD_DIR)/notes/view.o $(BUILD_DIR)/notes/author.o \
                        $(BUILD_DIR)/notes/purge.o $(BUILD_DIR)/notes/import.o \
                        $(BUILD_DIR)/notes/sync.o \
@@ -4260,8 +4261,8 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(if $(SPOOL_FILE_ON),$(FUZZNETD_SHELF_OBJS)) \
               $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
               $(BUILD_DIR)/node/holdings.o $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/node/reconcile.o \
-              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
-              $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/messages/messages.o \
+              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+              $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/messages/messages.o \
               $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o $(BUILD_DIR)/log/cause.o \
               $(BUILD_DIR)/log/view.o \
@@ -4354,6 +4355,11 @@ $(BUILD_DIR)/local/test/client_test: $(BUILD_DIR)/local/test/client_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+$(BUILD_DIR)/local/test/escape_test: $(BUILD_DIR)/local/test/escape_test.o \
+                                     $(BUILD_DIR)/local/escape.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/local/test/vocabulary_test: $(BUILD_DIR)/local/test/vocabulary_test.o \
                                           $(BUILD_DIR)/local/vocabulary.o \
                                           $(BUILD_DIR)/local/peer.o \
@@ -4429,7 +4435,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                         $(BUILD_DIR)/node/pieces.o) \
                                       $(BUILD_DIR)/state/scope.o \
                                       $(BUILD_DIR)/state/setting.o \
-                                      $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/node/siblings.o \
+                                      $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/siblings.o \
                                       $(BUILD_DIR)/node/heard.o $(BUILD_DIR)/node/routing.o \
                                       $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/node/contact_card.o \
               $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/node/group_act.o \
