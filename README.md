@@ -24,6 +24,12 @@ would be an inventory nothing checks, and this file carried exactly that until
 binaries it held against the Makefile. Neither total is repeated here either,
 for the same reason.
 
+**`fmake` builds the daemon and its library with no Makefile, and `fmake
+test` builds and runs every test program**, from `fmake.toml`, whose every
+line says why it is there. `make` stays the build of record: its gates --
+`make style`, `make schema`, `make check`, `make livecheck` -- are not
+fmake's. Measured 2026-10-21, with fmake at 28503fc.
+
 **`make check` runs the suite twice: once plain and once under AddressSanitizer
 and UBSan.** The second pass is `make sancheck`, which builds into a separate
 directory because sanitized and plain objects are not interchangeable. It runs

@@ -470,14 +470,15 @@ static void test_every_widget_survives_a_terminal(void)
 	/* FOUR SLOTS BACK AND THE ANCHOR GONE, which is the state a person most
 	 * needs to read off this one. sec 254. */
 	{
-		static const fzn_persist_slot_t slots[5] = { FZN_PERSIST_TRUST,
+		/* NOT `slots`, which is Qt's keyword macro without QT_NO_KEYWORDS. */
+		static const fzn_persist_slot_t shown_slots[5] = { FZN_PERSIST_TRUST,
 			                                     FZN_PERSIST_OWN_PREKEY,
 			                                     FZN_PERSIST_PEER,
 			                                     FZN_PERSIST_SEND_CHAIN,
 			                                     FZN_PERSIST_RECV_CHAIN };
 
 		for (i = 0; i < 5u; i++) {
-			persist_rows[i].slot = slots[i];
+			persist_rows[i].slot = shown_slots[i];
 			persist_rows[i].err = FZN_PERSIST_OK;
 			persist_rows[i].had_stored = 1;
 		}

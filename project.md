@@ -66951,3 +66951,31 @@ daemon's part -- the walk by gone month, serving from the base, `put_from`
 on an answer's first line -- has no live check, which would want a
 group's month trimmed by a rule under a faked clock across its members'
 hosts; recorded here rather than claimed.
+
+## 665. fmake builds and tests this tree, from an `fmake.toml`, 2026-10-21
+
+**Reported by fmake's session under the other account**, through this
+tree's inbox (message 20261020T1838Z, written up as fmake's section 465):
+nobody had run fmake over fuzznet standalone, and it can build the tree
+with a twelve-line `fmake.toml`, each line found by fmake refusing
+without it. Whether to take it was left to this tree.
+
+**Measured here, in a `git archive` of HEAD and its four submodules in
+scratch, with fmake at 28503fc**, rather than taken from the report:
+
+- **`fmake` built fuzznetd and consumer_check, exit 0** -- once two
+  things the report did not meet were settled. Its `QT_NO_KEYWORDS`,
+  needed only because `gui/test/qtty_render_test.cpp` named an array
+  `slots`, which is Qt's keyword macro, broke the vendored qtty's own tray
+  tool and example at qtty's current pin, which use `signals` and
+  `slots`: **the array is renamed `shown_slots`** and the define dropped,
+  the Makefile keeping it harmlessly. And `quirc/demo`'s OpenCV demo is
+  excluded beside `qtty/test`, another project's program.
+- **`fmake test` built and ran every test program: all passed**, exit 0.
+
+**Kept: `fmake.toml`** at the root, every line commented with why it is
+there -- the excludes, qtty's include directory, the Makefile's Linux
+defaults as a static list (which loses the Makefile's POSIX probe), and
+four named targets for the three test basenames shared between
+directories. The README names `fmake` and `fmake test` beside `make`;
+`make` stays the build of record, its gates not being fmake's.

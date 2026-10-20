@@ -1,0 +1,32 @@
+# fmake's view of this tree, sec 665. `make` stays the build of record --
+# its gates (style, schema, check, livecheck) are not fmake's -- and this
+# lets `fmake` and `fmake test` build the daemon, its library and every
+# test program with no Makefile. Each line was found by fmake refusing
+# without it; the reproduction is fmake's section 465.
+
+[project]
+# qtty's own suite wants qtty's source root on its include path, and
+# quirc's OpenCV demo wants OpenCV: other projects' programs, not this
+# tree's.
+exclude = ["qtty/test", "quirc/demo"]
+# The vendored qtty's public headers, as the Makefile's -I gives them.
+include-dirs = ["qtty/include"]
+# The Makefile's defaults on Linux, each `auto` there: on where its POSIX
+# probe passes. A static list loses the probe's "off where the platform
+# lacks it", which fmake has no way to say.
+defines = ["FZN_CLI_ON", "FZN_FLOG_ON", "FZN_LOG_FILE_ON",
+           "FZN_LOG_PACK_ON", "FZN_PERSIST_FILE_ON",
+           "FZN_SPOOL_FILE_ON", "FZN_CLAIM_FILE_ON",
+           "FZN_RECORD_STORE_FILE_ON", "FZN_CAPTURE_RUN_ON"]
+
+# THREE TEST BASENAMES ARE SHARED -- messages_test, provision_test and
+# relay_test -- and fmake names a target after its root file, so one of
+# each is named here.
+[target.node_messages_test]
+root = "node/test/messages_test.c"
+[target.node_provision_test]
+root = "node/test/provision_test.c"
+[target.sim_provision_test]
+root = "sim/test/provision_test.c"
+[target.node_relay_test]
+root = "node/test/relay_test.c"
