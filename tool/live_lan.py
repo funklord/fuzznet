@@ -79,8 +79,10 @@ def main(argv):
 		started = {}
 		try:
 			command(run, ["--fuzznet-dir=" + dirs["a"], "--new-root"], None)
+			host_key = {}
 			for who in ("b", "c"):
 				prekey = command(run, ["--fuzznet-dir=" + dirs[who], "--prekey"], None)
+				host_key[who] = prekey[4:68]
 				card = command(run, ["--fuzznet-dir=" + dirs["a"], "--pair=" + prekey,
 				                     "--delegable"], None)
 				command(run, ["--fuzznet-dir=" + dirs[who], "--accept=" + card, "--join"], None)
@@ -125,6 +127,8 @@ def main(argv):
 			started["b"] = daemon(run, "b-b", dirs["b"], socks["b"], extra=args["b"])
 			started["b"].wait_for(RECONCILE_RE, "B's reconcile pass")
 			expect(socks["b"], "b", "fetch file " + ref, "ok")
+			# NOTHING HEARD BEFORE A PROBE, sec 659.
+			expect(socks["b"], "b", "get lan", "ok 0")
 			# THE ANSWER SAYS WHAT WAS SENT, sec 639: the probes are sent
 			# before it.
 			said = ask(socks["b"], "fetch lan").split()
@@ -135,6 +139,22 @@ def main(argv):
 			if probed.group(1) != said[1]:
 				raise failed("b: fetch lan said %s probe(s), the log %s"
 				             % (said[1], probed.group(1)))
+			# WHO ANSWERED, sec 659: C's hello, from its serving port on this
+			# network, its time in seconds.
+			heard = []
+			deadline = time.monotonic() + 30.0
+			while time.monotonic() < deadline:
+				heard = ask(socks["b"], "get lan").split()
+				if any(r.startswith(host_key["c"] + ",127.0.0.1," + port["c"] + ",")
+				       for r in heard[2:]):
+					break
+				time.sleep(0.5)
+			else:
+				raise failed("b: B's get lan answered %r, not C at 127.0.0.1 %s"
+				             % (heard, port["c"]))
+			row = [r for r in heard[2:] if r.startswith(host_key["c"] + ",")][0]
+			if abs(int(row.rsplit(",", 1)[1]) - time.time()) > 120:
+				raise failed("b: C's row %r has no time in seconds" % row)
 			# B'S NEXT ROUND finds C: waited for here rather than by wait_for,
 			# whose limit is half a round.
 			deadline = time.monotonic() + 200.0

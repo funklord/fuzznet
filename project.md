@@ -66777,3 +66777,27 @@ installed at all: no live script used `--set-admin`.
 `grant admin`, `grant retention` or `grant share`; no grant here takes an
 expiry. `cap_install` -- `set admin` for an admin chain; nothing for the
 rest, which arrive in the journal.
+
+## 659. `get lan`: who answered the last probe, 2026-10-20
+
+**Asked by fuzzypickles** through this tree's inbox (message
+20261020T0600Z): its clients show who answered a LAN probe ("On this
+network"), and on fuzznetd that list was always empty. Sec 624's "nothing
+kept" is the ANSWERING host's -- a stranger is answered nothing and the
+answer is not recorded -- and stays so. On the probing side an answer is a
+hello, and every hello's sender and address is already noted, in the
+relay's seen table (sec 622).
+
+**Built: `get lan`**, `ok N KEY,HOST,PORT,AT ...`, AT in seconds as `get
+address` has it: the hellos heard since the last `fetch lan` sent probes,
+from an address of the local network's -- IPv4's private ranges,
+link-local and loopback, IPv6's unique-local, link-local and loopback. A
+pull peer's hello from the wider network lands in the same table and is
+kept out by its address. Only a host this host knows answers a probe, so
+nothing here names a stranger.
+
+**Tested by `tool/live_lan.py`, phase b**: B answers `ok 0` before any
+probe; after its probe, C at 127.0.0.1 and its serving port, with a time
+within two minutes of now. **Control**: the previous binary answered
+`unsupported`. A first build wrote the empty answer as `ok 0 ` with a
+space before the newline; the exact comparison caught it.

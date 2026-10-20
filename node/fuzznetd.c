@@ -354,6 +354,8 @@ static void index_catalog(void);
 static void catalog_skip(const uint8_t *issuer, uint64_t to);
 /* `fetch lan`, sec 624: its probes sent, how many, and why none. */
 static size_t lan_probe(const char **why, char *address, size_t address_cap);
+/* WHEN THE LAST PROBES WENT, seconds, for `get lan` (sec 659). */
+static uint64_t lan_probed_at;
 
 static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
                            const fzn_peer_t *peer, const fzn_request_t *request, char *reply,
@@ -6363,6 +6365,21 @@ static void address_take(const struct pull_target *pt, const uint8_t *reply, siz
  * they differ, which is a NAT mapping each destination apart. Advertising
  * one is `set setting host net/address HOST PORT`, the user's act. 0 for
  * any other request. */
+/* AN ADDRESS OF THE LOCAL NETWORK'S, by its text: IPv4's private ranges,
+ * link-local and loopback, IPv6's unique-local, link-local and loopback.
+ * sec 659. */
+static int local_scope(const char *host)
+{
+	unsigned a = 0, b = 0;
+
+	if (sscanf(host, "%u.%u.", &a, &b) == 2)
+		return a == 10u || a == 127u || (a == 192u && b == 168u) || (a == 169u && b == 254u)
+		       || (a == 172u && b >= 16u && b <= 31u);
+	/* inet_ntop's text, in lower case. */
+	return !strcmp(host, "::1") || !strncmp(host, "fe80:", 5u) || !strncmp(host, "fc", 2u)
+	       || !strncmp(host, "fd", 2u);
+}
+
 static size_t address_local(const fzn_request_t *request, char *reply, size_t cap)
 {
 	size_t at, i, k;
@@ -6379,7 +6396,42 @@ static size_t address_local(const fzn_request_t *request, char *reply, size_t ca
 
 		if (!sent && why)
 			return (size_t)snprintf(reply, cap, "ok 0 - %s\n", why);
+		lan_probed_at = wall_clock();
 		return (size_t)snprintf(reply, cap, "ok %zu %s\n", sent, address);
+	}
+	/* `get lan`, sec 659: `ok N KEY,HOST,PORT,AT ...`, the hellos heard since
+	 * the last probe went from an address of the local network's -- the
+	 * answers a probe gets, from hosts this host knows, nobody else
+	 * answering one (sec 624). A pull peer's hello from the wider network
+	 * is in the same table, and kept out by its address. AT in seconds. */
+	if (request->arg && request->arg_len == 3u && memcmp(request->arg, "lan", 3u) == 0
+	    && request->parsed == FZN_VERB_GET) {
+		static char rows[FZN_NODE_RELAY_SEEN_MAX * 120u];
+		size_t s_i, shown = 0, used = 0;
+
+		for (s_i = 0; s_i < FZN_NODE_RELAY_SEEN_MAX; s_i++) {
+			const fzn_node_relay_seen_t *e = &relay_tables.seen[s_i];
+			char host[FZN_UDP_HOST_MAX], key[2u * FZN_PUBKEY_LEN + 1u];
+			uint16_t port = 0;
+			int r;
+
+			if (!e->used || !lan_probed_at || e->when < lan_probed_at
+			    || fzn_udp_addr_text(&e->at, host, &port) != FZN_UDP_OK || !local_scope(host))
+				continue;
+			hex_of(e->key, FZN_PUBKEY_LEN, key);
+			r = snprintf(rows + used, sizeof(rows) - used, " %s,%s,%u,%llu", key, host,
+			             (unsigned)port, (unsigned long long)e->when);
+			/* ROOM IN THE REPLY FOR THE HEAD, THE ROWS AND THE NEWLINE, or
+			 * the list ends here. */
+			if (r < 0 || used + (size_t)r >= sizeof(rows) || used + (size_t)r + 24u > cap)
+				break;
+			used += (size_t)r;
+			shown++;
+		}
+		at = (size_t)snprintf(reply, cap, "ok %zu", shown);
+		memcpy(reply + at, rows, used);
+		at += used;
+		return at + (size_t)snprintf(reply + at, cap - at, "\n");
 	}
 	if (!request->arg || request->arg_len != 7u || memcmp(request->arg, "address", 7u) != 0
 	    || (request->parsed != FZN_VERB_GET && request->parsed != FZN_VERB_FETCH))
