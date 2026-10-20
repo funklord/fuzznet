@@ -55,6 +55,22 @@ static int in_scope(const fzn_notes_sync_scope_t *scope, const uint8_t *id)
 	return 0;
 }
 
+/* `rec` within `scope`: its note in it, and the record no older than the
+ * note's floor where the scope has one -- a group share that does not
+ * catch up a later member, sec 655. */
+int fzn_notes_sync_scope_admits(const fzn_notes_sync_scope_t *scope, fzn_record_t rec)
+{
+	const uint8_t *id = fzn_record_subject(rec);
+	size_t i;
+
+	if (!scope)
+		return 1;
+	for (i = 0; i < scope->count; i++)
+		if (memcmp(scope->ids[i], id, FZN_TREE_ID_LEN) == 0)
+			return !scope->floor_ms || fzn_record_issued_ms(rec) >= scope->floor_ms[i];
+	return 0;
+}
+
 /* What this store offers: its claims, IN KEY ORDER so a page means the same
  * thing on every call, without a note pending purge, and within `scope`. */
 static size_t offered(const fzn_notes_store_t *store, const fzn_notes_sync_scope_t *scope,
@@ -73,7 +89,7 @@ static size_t offered(const fzn_notes_store_t *store, const fzn_notes_sync_scope
 		if (fzn_notes_get_key(store, keys[i], record, sizeof(record), &len) != FZN_NOTES_OK
 		    || fzn_record_open(record, len, &rec) != FZN_RECORD_OK
 		    || fzn_notes_purge_pending(store, fzn_record_subject(rec))
-		    || !in_scope(scope, fzn_record_subject(rec)))
+		    || !fzn_notes_sync_scope_admits(scope, rec))
 			continue;
 		if (n != i)
 			memcpy(keys[n], keys[i], FZN_PUBKEY_LEN);
@@ -135,7 +151,7 @@ static size_t answer_records(const fzn_notes_store_t *store,
 		if (fzn_notes_get_key(store, key, record, sizeof(record), &len) != FZN_NOTES_OK
 		    || fzn_record_open(record, len, &rec) != FZN_RECORD_OK
 		    || fzn_notes_purge_pending(store, fzn_record_subject(rec))
-		    || !in_scope(scope, fzn_record_subject(rec)))
+		    || !fzn_notes_sync_scope_admits(scope, rec))
 			continue;
 		if (cap - used < 2u + len)
 			break;

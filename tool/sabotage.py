@@ -4950,8 +4950,8 @@ SABOTAGES = [
 	(
 		"notes-sync-index-skips-pending",
 		"notes/sync.c",
-		"\t\t    || fzn_notes_purge_pending(store, fzn_record_subject(rec))\n\t\t    || !in_scope(scope, fzn_record_subject(rec)))\n\t\t\tcontinue;\n\t\tif (n != i)\n",
-		"\t\t    || !in_scope(scope, fzn_record_subject(rec)))\n\t\t\tcontinue;\n\t\tif (n != i)\n",
+		"\t\t    || fzn_notes_purge_pending(store, fzn_record_subject(rec))\n\t\t    || !fzn_notes_sync_scope_admits(scope, rec))\n\t\t\tcontinue;\n\t\tif (n != i)\n",
+		"\t\t    || !fzn_notes_sync_scope_admits(scope, rec))\n\t\t\tcontinue;\n\t\tif (n != i)\n",
 		"a sibling that has just erased a note for a purge is handed it again and keeps it -- fuzzypickles' resurrection defect, sec 432",
 	),
 	(
@@ -5076,14 +5076,14 @@ SABOTAGES = [
 	(
 		"share-index-in-scope",
 		"notes/sync.c",
-		"\t\t    || !in_scope(scope, fzn_record_subject(rec)))\n\t\t\tcontinue;\n\t\tif (n != i)",
+		"\t\t    || !fzn_notes_sync_scope_admits(scope, rec))\n\t\t\tcontinue;\n\t\tif (n != i)",
 		"\t\t    )\n\t\t\tcontinue;\n\t\tif (n != i)",
 		"a contact is offered the index of every note, shared or not -- sec 436",
 	),
 	(
 		"share-records-in-scope",
 		"notes/sync.c",
-		"\t\t    || !in_scope(scope, fzn_record_subject(rec)))\n\t\t\tcontinue;\n\t\tif (cap - used",
+		"\t\t    || !fzn_notes_sync_scope_admits(scope, rec))\n\t\t\tcontinue;\n\t\tif (cap - used",
 		"\t\t    )\n\t\t\tcontinue;\n\t\tif (cap - used",
 		"a contact asking by key is sent notes nobody shared with it -- sec 436",
 	),
@@ -5307,15 +5307,15 @@ SABOTAGES = [
 	(
 		"notes-shares-blob-in-scope",
 		"node/notes.c",
-		"\t\tif (in && fzn_notes_ref_of(",
-		"\t\tif (1 && fzn_notes_ref_of(",
+		"\t\t    && fzn_notes_sync_scope_admits(&scope, rec)\n",
+		"\t\t    && 1\n",
 		"a text is a contact's to fetch if any note anywhere has it -- sec 438",
 	),
 	(
 		"notes-shares-blob-names-the-root",
 		"node/notes.c",
-		"\t\tif (in && fzn_notes_ref_of(&view.nodes[i], &ref)\n\t\t    && memcmp(ref.root, root, FZN_BLOB_HASH_LEN) == 0)\n",
-		"\t\tif (in && fzn_notes_ref_of(&view.nodes[i], &ref))\n",
+		"\t\t    && fzn_tree_open(rec, &node) == FZN_TREE_OK && fzn_notes_ref_of(&node, &ref)\n\t\t    && memcmp(ref.root, root, FZN_BLOB_HASH_LEN) == 0)\n",
+		"\t\t    && fzn_tree_open(rec, &node) == FZN_TREE_OK && fzn_notes_ref_of(&node, &ref))\n",
 		"one shared note opens every text this node holds to the contact -- sec 438",
 	),
 	(
@@ -8501,8 +8501,8 @@ SABOTAGES = [
 	(
 		"group-scope-reads-membership",
 		"node/notes.c",
-		"\tif (fzn_node_group_ids_of(n->store.ops, sender, groups, FZN_GROUPS_HELD_MAX, &n_groups)\n\t    == FZN_CONTACT_OK)\n",
-		"\tif (0)\n",
+		"\tif (fzn_node_group_ids_of(n->store.ops, sender, groups, FZN_GROUPS_HELD_MAX, &n_groups)\n\t            == FZN_CONTACT_OK\n",
+		"\tif (0\n",
 		"a subtree shared with a group reaches none of its members -- secs 471, 626",
 	),
 	(
@@ -12316,6 +12316,27 @@ SABOTAGES = [
 		"\tconst char *h = memchr(HEX, c >= 'A' && c <= 'F' ? c + ('a' - 'A') : c, 16u);\n",
 		"\tconst char *h = memchr(HEX, c, 16u);\n",
 		"an escape in upper case is refused as a bad one -- sec 654",
+	),
+	(
+		"scope-floor-honoured",
+		"notes/sync.c",
+		"\t\t\treturn !scope->floor_ms || fzn_record_issued_ms(rec) >= scope->floor_ms[i];\n",
+		"\t\t\treturn 1;\n",
+		"a later member is served what a share held before it joined -- sec 655",
+	),
+	(
+		"share-catch-up-set",
+		"node/notes.c",
+		"\t\terr = fzn_notes_share_set_catch_up(&n->store, subtree, contact.key, (uint8_t)catch_up);\n",
+		"\t\terr = FZN_NOTES_OK;\n",
+		"add share @GROUP backfill 0 answers ok and changes nothing -- sec 655",
+	),
+	(
+		"share-catch-up-listed",
+		"node/notes.c",
+		"\t\t\twho[who_len++] = catch_up ? '1' : '0';\n",
+		"\t\t\twho[who_len++] = '1';\n",
+		"list share says a group share catches up when it does not -- sec 655",
 	),
 ]
 

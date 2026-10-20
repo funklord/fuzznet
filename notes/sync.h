@@ -145,7 +145,16 @@ size_t fzn_notes_sync_answer(const fzn_notes_store_t *store, fzn_notes_policy_t 
 typedef struct fzn_notes_sync_scope {
 	const uint8_t (*ids)[FZN_TREE_ID_LEN];
 	size_t count;
+	/* EACH NOTE'S FLOOR, beside `ids`, or NULL for none: a record issued
+	 * before its note's floor is out of scope -- what a group share that
+	 * does not catch up a later member serves it, sec 655. 0 is no floor. */
+	const uint64_t *floor_ms;
 } fzn_notes_sync_scope_t;
+
+/* WHETHER `rec` IS WITHIN `scope`: its note in it, and the record no older
+ * than the note's floor where the scope has one. NULL is every record. What
+ * the server below answers by, and what a share's texts are judged by. */
+int fzn_notes_sync_scope_admits(const fzn_notes_sync_scope_t *scope, fzn_record_t rec);
 
 /* THE SERVER FOR A SHARE: the index, the records and the writers of only
  * the notes in `scope`, and nothing else -- no purge message is answered and

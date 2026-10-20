@@ -43,10 +43,18 @@
 #define FZN_NOTES_SHARE_NAME "fuzznet.notes.share"
 #define FZN_NOTES_SHARES_MAX 64u
 
+/* WHETHER A GROUP SHARE CATCHES UP A MEMBER WHO JOINS LATER, sec 655, the
+ * holder's of 2026-10-20: per share, its default the group's own `backfill`
+ * setting. A contact's share has no later members, and keeps GROUP. */
+#define FZN_NOTES_SHARE_CATCH_UP_GROUP 0u /* as the group's backfill says */
+#define FZN_NOTES_SHARE_CATCH_UP_YES 1u
+#define FZN_NOTES_SHARE_CATCH_UP_NO 2u
+
 typedef struct fzn_notes_share {
 	uint8_t subtree[FZN_TREE_ID_LEN];
 	uint8_t contact[FZN_PUBKEY_LEN];
 	uint64_t shared_at_ms;
+	uint8_t catch_up; /* FZN_NOTES_SHARE_CATCH_UP_* */
 } fzn_notes_share_t;
 
 /* The capability a contact holds to fetch what is shared with it, for a
@@ -59,6 +67,14 @@ fzn_notes_err_t fzn_notes_share_capability(uint32_t service, uint32_t product,
 fzn_notes_err_t fzn_notes_share_add(const fzn_notes_store_t *store,
                                     const uint8_t subtree[FZN_TREE_ID_LEN],
                                     const uint8_t contact[FZN_PUBKEY_LEN], uint64_t now_ms);
+
+/* SET whether the share of `subtree` with `contact` catches up a later
+ * member, a FZN_NOTES_SHARE_CATCH_UP_* value. ABSENT when it was not
+ * shared; MALFORMED for another value. sec 655. */
+fzn_notes_err_t fzn_notes_share_set_catch_up(const fzn_notes_store_t *store,
+                                             const uint8_t subtree[FZN_TREE_ID_LEN],
+                                             const uint8_t contact[FZN_PUBKEY_LEN],
+                                             uint8_t catch_up);
 
 /* Unshare. ABSENT when it was not shared. What the contact already fetched
  * stays with it. */

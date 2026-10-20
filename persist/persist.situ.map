@@ -108,10 +108,11 @@ struct fzn_persist_blob size=2.. mutate=Shifting address=Unstable repr=ValueConv
   fzn_persist_blob.body.contact.name_len offset=AbsoluteStatic(0x02) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
   fzn_persist_blob.body.contact.name     offset=AbsoluteStatic(0x03) size=Bounded(1, 32) align=Aligned(1) repr=MemoryIdentical atomic=AtomicWord mutate=Shifting effect=EffectOnWrite
   fzn_persist_blob.body.contact.added_at offset=Dynamic size=Fixed(8) align=Unaligned repr=ValueConverted atomic=NonAtomic address=Unstable effect=EffectOnWrite
-  fzn_persist_blob.body.note_share       offset=AbsoluteStatic(0x02) size=Fixed(72) align=Aligned(2) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.note_share       offset=AbsoluteStatic(0x02) size=Fixed(73) align=Aligned(2) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_blob.body.note_share.subtree offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_blob.body.note_share.contact offset=AbsoluteStatic(0x22) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_blob.body.note_share.shared_at offset=AbsoluteStatic(0x42) size=Fixed(8) align=Aligned(2) repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+  fzn_persist_blob.body.note_share.catch_up offset=AbsoluteStatic(0x4A) size=Fixed(1) align=Aligned(2) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
   fzn_persist_blob.body.shared_note      offset=AbsoluteStatic(0x02) size=Unbounded align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic mutate=Shifting effect=EffectOnWrite
   fzn_persist_blob.body.shared_note.sharer offset=AbsoluteStatic(0x02) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_blob.body.shared_note.claim offset=AbsoluteStatic(0x22) size=Fixed(32) align=Aligned(2) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
@@ -226,10 +227,11 @@ struct fzn_persist_note_purge_body size=17..1073 mutate=Shifting repr=ValueConve
 struct fzn_persist_note_purged_body size=1 effect=EffectOnWrite
   fzn_persist_note_purged_body.version   offset=AbsoluteStatic(0x00) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
 
-struct fzn_persist_note_share_body size=72 repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
+struct fzn_persist_note_share_body size=73 repr=ValueConverted atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_note_share_body.subtree    offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_note_share_body.contact    offset=AbsoluteStatic(0x20) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_note_share_body.shared_at  offset=AbsoluteStatic(0x40) size=Fixed(8) align=Aligned(8) repr=ValueConverted atomic=AtomicWord effect=EffectOnWrite
+  fzn_persist_note_share_body.catch_up   offset=AbsoluteStatic(0x48) size=Fixed(1) align=Aligned(8) repr=MemoryIdentical atomic=AtomicWord effect=EffectOnWrite
 
 struct fzn_persist_note_wrap_body size=32 atomic=NonAtomic effect=EffectOnWrite
   fzn_persist_note_wrap_body.key         offset=AbsoluteStatic(0x00) size=Fixed(32) align=Aligned(8) repr=MemoryIdentical atomic=NonAtomic effect=EffectOnWrite

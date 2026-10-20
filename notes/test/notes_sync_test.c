@@ -819,6 +819,7 @@ static void test_share_scope(void)
 
 	/* THE CONTACT PULLS the scope of G and nothing else. */
 	scope.ids = (const uint8_t (*)[FZN_TREE_ID_LEN])reach;
+	scope.floor_ms = NULL;
 	scope.count = n;
 	CHECK(fzn_notes_sync_pull(&store_b, both(), &sign_b, ask_scoped, &from_a, &t)
 	                      == FZN_NOTES_SYNC_OK
@@ -922,6 +923,44 @@ static int ask_junk(void *ctx, const uint8_t *request, size_t request_len, uint8
 	return 1;
 }
 
+/* A FLOOR IN THE SCOPE, sec 655: a record issued before its note's floor
+ * is not served -- what a group share that does not catch up a later
+ * member gives it -- and a note with none is served whole. */
+static void test_share_scope_floor(void)
+{
+	fzn_notes_author_t a = author_on(&store_a, KEY_A, &sign_a);
+	uint8_t g[FZN_TREE_ID_LEN], h[FZN_TREE_ID_LEN];
+	static uint8_t reach[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
+	static uint64_t floors[FZN_NOTES_MAX];
+	fzn_notes_sync_scope_t scope;
+	scoped_peer_t from_a = { &store_a, &scope };
+	static uint8_t record[FZN_RECORD_MAX_LEN];
+	fzn_notes_sync_tally_t t;
+	size_t n, i, len = 0;
+
+	reset();
+	CHECK(write(&a, "child", g) && write_under(&a, g, "grandchild", h),
+	      "fixture: G above H");
+	CHECK(fzn_notes_view_load(&store_a, &view) == FZN_NOTES_OK, "fixture: A's view");
+	n = fzn_notes_share_reach(&view, (const uint8_t (*)[FZN_TREE_ID_LEN])&g, 1u, reach,
+	                          FZN_NOTES_MAX);
+	CHECK(n == 2u, "fixture: a share of G reaches G and H");
+	/* G FLOORED PAST ITS RECORD, H NOT. */
+	for (i = 0; i < n; i++)
+		floors[i] = memcmp(reach[i], g, FZN_TREE_ID_LEN) == 0 ? UINT64_MAX : 0u;
+	scope.ids = (const uint8_t (*)[FZN_TREE_ID_LEN])reach;
+	scope.count = n;
+	scope.floor_ms = floors;
+	CHECK(fzn_notes_sync_pull(&store_b, both(), &sign_b, ask_scoped, &from_a, &t)
+	                      == FZN_NOTES_SYNC_OK
+	              && t.offered == 1u && t.learned == 1u && held(&store_b) == 1u
+	              && fzn_notes_get(&store_b, h, KEY_A, record, sizeof(record), &len)
+	                         == FZN_NOTES_OK,
+	      "a floored scope served H, whose note has no floor");
+	CHECK(fzn_notes_get(&store_b, g, KEY_A, record, sizeof(record), &len) != FZN_NOTES_OK,
+	      "and not G, whose record is older than its floor");
+}
+
 static void test_received(void)
 {
 	fzn_notes_author_t a = author_on(&store_a, KEY_A, &sign_a);
@@ -949,6 +988,7 @@ static void test_received(void)
 	CHECK(fzn_notes_view_load(&store_a, &view) == FZN_NOTES_OK, "fixture: A's view");
 	memcpy(seed[0], g, FZN_TREE_ID_LEN);
 	scope.ids = (const uint8_t (*)[FZN_TREE_ID_LEN])reach;
+	scope.floor_ms = NULL;
 	scope.count = fzn_notes_share_reach(&view, (const uint8_t (*)[FZN_TREE_ID_LEN])seed, 1u,
 	                                    reach, FZN_NOTES_MAX);
 	CHECK(scope.count == 3u, "fixture: a share of G reaches G, H and B's note");
@@ -1254,6 +1294,7 @@ int main(void)
 	test_purge_conversation();
 	test_share_table();
 	test_share_scope();
+	test_share_scope_floor();
 	test_received();
 	test_partner_from_purges_query();
 	test_wrap_exchange();

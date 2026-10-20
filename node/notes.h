@@ -27,8 +27,15 @@
  *     get note ID file PATH        its whole text into a file
  *     remove note trash            empty the trash
  *     add share SUBTREE NAME       share SUBTREE with the contact NAME (sec 436)
+ *     add share SUBTREE @GROUP [backfill 0|1]
+ *                                  with a group; backfill says whether a
+ *                                  member who joins later gets what it held
+ *                                  before, the group's own setting by
+ *                                  default (sec 655); said again, it sets it
  *     remove share SUBTREE NAME    stop
- *     list share [FROM]            what is shared, with whom
+ *     list share [FROM]            what is shared, with whom: SUBTREE,NAME,
+ *                                  and for a group SUBTREE,@GROUP,BACKFILL,
+ *                                  1 or 0 as it stands (sec 655)
  *     list sharer [FROM]           whose shared trees this node holds,
  *                                  KEY,KIND,NAME: KIND contact, group (a
  *                                  member known by a group, NAME `@GROUP`)

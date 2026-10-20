@@ -66647,3 +66647,54 @@ written. One sabotage entry.
 
 **The group share catch-up the holder decided this session is sec 655**,
 renumbered from the 654 fuzzypickles was told, this fix landing first.
+
+## 655. A group note share's catch-up of a later member, per share, 2026-10-20
+
+**Two holder decisions met here.** fuzzypickles' sec 22 settled that
+whether a group note share catches up a member who joins later is decided
+per share, by the sharer, default no; this tree's of 2026-10-14 (sec 625)
+that a later member gets the history retention holds, an admin's
+per-group setting turning it off. fuzznet read a group's membership at
+the request (sec 471), so every group share caught everyone up, and
+fuzzypickles refused a share without (its sec 284 step 3i; inbox message
+20261020T0130Z). **Asked, the holder chose 2026-10-20: both -- a flag
+per share, whose default when the sharer gives none is the group's own
+`backfill` setting.**
+
+**Built:**
+
+- **The share row carries it**: `catch_up` after `shared_at`, 0 as the
+  group's setting, 1 yes, 2 no -- `persist/persist.situ`, its `.wire` and
+  `.map` regenerated against situ 55793db, which classes it an appended
+  field, compatible. A row of the old length reads as 0.
+- **`add share SUBTREE @GROUP [backfill 0|1]`**: said with the flag, or
+  again with it on a share already made, sets it; a contact's share and a
+  removal take none. **`list share`** ends a group's row with the catch-up
+  as it stands, `SUBTREE,@GROUP,1|0`.
+- **Served from the member's joining on**: a share that does not catch up
+  gives a member who joined after it was made a **floor** -- its ADD act's
+  time, or the CREATE act's for the user who made the group -- and the
+  notes it reaches are served only in records issued since. A note
+  another share reaches without a floor has none; two floored shares
+  give the lower. The floor rides in the sync scope (`floor_ms`), and
+  `fzn_notes_sync_scope_admits` is the one rule both the sync server and
+  a share's texts are judged by, so an older version's text stays with
+  the version.
+
+**What a later member sees, then**: what is written from its joining on,
+in the subtree -- a note edited since is there in its new version, one
+untouched is not -- as fuzzypickles' sec 105 words it.
+
+**Tested**: `notes/test/notes_sync_test.c` serves a floored scope H and
+not G; `node/test/notes_test.c` sets, re-sets and lists the flag, and
+refuses it for a contact and a removal; **`tool/live_group_backfill.py`,
+in `make livecheck`**: A shares S0 `backfill 0` and S1 `backfill 1`,
+adds C a second later and writes into S0; C holds S1 whole and S0's new
+note, and neither S0 nor its earlier note. **Control**: with the floor
+off, C held S0. Three sabotage entries, and six re-anchored on the code
+they guarded.
+
+**Not after sec 655**: a join time is the act's own, in whole seconds, so
+a record written within the second a member joined may fall either side;
+and a member whose joining this host cannot see in the log is taken as
+there from the start.

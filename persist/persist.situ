@@ -301,12 +301,15 @@ struct fzn_persist_contact_body {
 	u64 added_at;
 }
 
-// A subtree of notes shared with a contact: the subtree's root note, the
-// contact's key, and when it was shared. notes/share.c, sec 436.
+// A subtree of notes shared with a contact or a group: the subtree's root
+// note, the grantee's key, when it was shared, and -- for a group --
+// whether it catches up a member who joins later: 0 as the group's own
+// `backfill` setting, 1 yes, 2 no. notes/share.c, secs 436 and 655.
 struct fzn_persist_note_share_body {
 	u8  subtree[32];
 	u8  contact[32];
 	u64 shared_at;
+	u8  catch_up;
 }
 
 // A note a contact shared with this node, in that sharer's tree: the

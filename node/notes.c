@@ -1584,12 +1584,26 @@ static size_t change_share(fzn_node_notes_t *n, int add, const uint8_t *at, size
 	fzn_contact_t contact;
 	fzn_contact_err_t cerr;
 	fzn_notes_err_t err;
-	int found = 0;
+	int found = 0, catch_up = -1;
 
 	if (!word(&at, &left, &w, &w_len) || !parse_id(w, w_len, subtree)
 	    || !word(&at, &left, &name, &name_len))
 		return say(reply, cap, FZN_REPLY_MALFORMED,
-		           add ? "add share SUBTREE NAME" : "remove share SUBTREE NAME");
+		           add ? "add share SUBTREE NAME [backfill 0|1]" : "remove share SUBTREE NAME");
+	/* `backfill 0|1`, sec 655: whether a group share catches up a member
+	 * who joins later -- the holder's of 2026-10-20, per share, its
+	 * default the group's own setting. A group's alone, and an add's. */
+	if (word(&at, &left, &w, &w_len)) {
+		const uint8_t *v;
+		size_t v_len;
+
+		if (!add || !is_word(w, w_len, "backfill") || name_len < 2u || name[0] != '@'
+		    || !word(&at, &left, &v, &v_len) || v_len != 1u || (v[0] != '0' && v[0] != '1')
+		    || word(&at, &left, &w, &w_len))
+			return say(reply, cap, FZN_REPLY_MALFORMED,
+			           "add share SUBTREE @GROUP [backfill 0|1], backfill a group's alone");
+		catch_up = v[0] == '1' ? FZN_NOTES_SHARE_CATCH_UP_YES : FZN_NOTES_SHARE_CATCH_UP_NO;
+	}
 	/* NOT THE TOP: sharing the root would be sharing every note this node
 	 * will ever hold, which is not a subtree anybody chose. */
 	if (fzn_tree_is_root(subtree))
@@ -1625,10 +1639,15 @@ static size_t change_share(fzn_node_notes_t *n, int add, const uint8_t *at, size
 	if (!found)
 		return refuse(reply, cap, FZN_NOTES_ERR_ABSENT);
 	err = fzn_notes_share_add(&n->store, subtree, contact.key, now(n));
+	/* SAID AGAIN, the flag is set on the share already made, its time
+	 * kept: a later member's catch-up is decided from here on. */
+	if (err == FZN_NOTES_OK && catch_up >= 0)
+		err = fzn_notes_share_set_catch_up(&n->store, subtree, contact.key, (uint8_t)catch_up);
 	return err == FZN_NOTES_OK ? say(reply, cap, FZN_REPLY_OK, NULL) : refuse(reply, cap, err);
 }
 
-/* `list share [FROM]`: `ok TOTAL FROM SUBTREE,NAME ...`, a page at a time; a
+/* `list share [FROM]`: `ok TOTAL FROM SUBTREE,NAME ...` -- a group's
+ * `SUBTREE,@GROUP,BACKFILL` -- a page at a time; a
  * share whose contact was since forgotten names the contact's key. */
 static size_t list_shares(fzn_node_notes_t *n, const uint8_t *at, size_t left, char *reply,
                           size_t cap)
@@ -1659,7 +1678,7 @@ static size_t list_shares(fzn_node_notes_t *n, const uint8_t *at, size_t left, c
 	used = (size_t)m;
 	for (i = from; i < count; i++) {
 		fzn_contact_t contact;
-		char who[FZN_PUBKEY_LEN * 2u], group[FZN_CONTACT_NAME_MAX + 1u];
+		char who[FZN_PUBKEY_LEN * 2u + 2u], group[FZN_CONTACT_NAME_MAX + 1u];
 		size_t who_len, group_len = 0;
 
 		if (fzn_contact_get(n->store.ops, all[i].contact, &contact) == FZN_CONTACT_OK) {
@@ -1667,10 +1686,21 @@ static size_t list_shares(fzn_node_notes_t *n, const uint8_t *at, size_t left, c
 			who_len = contact.name_len;
 		} else if (fzn_node_group_name(n->store.ops, all[i].contact, group, &group_len)
 		           == FZN_CONTACT_OK) {
-			/* A GROUP'S ROW, sec 626, as this host names it. */
+			static fzn_group_t held;
+			int catch_up = all[i].catch_up == FZN_NOTES_SHARE_CATCH_UP_YES;
+
+			/* A GROUP'S ROW, sec 626, as this host names it -- and, sec 655,
+			 * whether it catches up a later member as it stands: its own
+			 * flag, or the group's backfill where it has none. */
+			if (all[i].catch_up == FZN_NOTES_SHARE_CATCH_UP_GROUP)
+				catch_up = fzn_group_log_get(n->store.ops, all[i].contact, &held)
+				                   != FZN_GROUP_LOG_OK
+				           || held.backfill;
 			who[0] = '@';
 			memcpy(who + 1, group, group_len);
 			who_len = 1u + group_len;
+			who[who_len++] = ',';
+			who[who_len++] = catch_up ? '1' : '0';
 		} else {
 			hex_of(all[i].contact, FZN_PUBKEY_LEN, who);
 			who_len = sizeof(who);
@@ -2102,37 +2132,140 @@ static size_t local_verbs(fzn_node_notes_t *n, fzn_origin_t origin,
  * shared subtree stops being served, and one moved in starts. */
 static uint8_t reach[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
 
+static uint64_t reach_floor[FZN_NOTES_MAX];
+
+/* WHEN `member` JOINED group `id`, in milliseconds: its last ADD act's own
+ * time, or the CREATE act's for the user who made it; 0 when the log says
+ * neither -- a member whose joining this host cannot see, taken as there
+ * from the start. sec 655. */
+static uint64_t joined_ms(const fzn_node_notes_t *n, const uint8_t *id, const fzn_group_t *g,
+                          const uint8_t *member)
+{
+	static uint8_t act[FZN_GROUP_ACT_MAX];
+	static fzn_group_act_t a;
+	fzn_group_log_ops_t log;
+	uint64_t at = 0;
+	uint32_t s;
+	size_t len = 0;
+
+	memset(&log, 0, sizeof(log));
+	log.store = n->store.ops;
+	log.hash = n->store.hash;
+	for (s = 0; s < g->seq; s++)
+		if (fzn_group_log_act(&log, id, s, act, sizeof(act), &len) == FZN_GROUP_LOG_OK
+		    && fzn_group_act_decode(act, len, &a) == FZN_GROUP_ACT_OK
+		    && ((a.kind == FZN_GROUP_ACT_ADD && memcmp(a.subject, member, FZN_PUBKEY_LEN) == 0)
+		        || (a.kind == FZN_GROUP_ACT_CREATE
+		            && memcmp(a.signer.owner, member, FZN_PUBKEY_LEN) == 0)))
+			at = a.at * 1000u;
+	return at;
+}
+
 /* What the subtrees shared with `sender` reach in the view now, into
  * `reach`, with `view` loaded. A STORE THAT WILL NOT READ REACHES NOTHING
- * rather than refusing: the contact then sees an empty share. */
+ * rather than refusing: the contact then sees an empty share.
+ *
+ * A GROUP SHARE THAT DOES NOT CATCH UP A LATER MEMBER, sec 655 -- its own
+ * flag, or the group's backfill where it has none -- gives a member who
+ * joined after it was made a FLOOR: the notes it reaches are served from
+ * that member's joining on. A note another share reaches without one has
+ * none; one two floored shares reach has the lower. */
 static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender,
                          fzn_notes_sync_scope_t *scope)
 {
 	static uint8_t seeds[FZN_NOTES_SHARES_MAX][FZN_TREE_ID_LEN];
+	static uint64_t seed_floor[FZN_NOTES_SHARES_MAX];
 	static uint8_t groups[FZN_GROUPS_HELD_MAX][FZN_PUBKEY_LEN];
-	size_t seed_count = 0, n_groups = 0, g;
+	static fzn_notes_share_t rows[FZN_NOTES_SHARES_MAX];
+	static uint8_t one_reach[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
+	static fzn_group_t held;
+	size_t seed_count = 0, n_groups = 0, n_rows = 0, g, r, i, k, open = 0, more;
+	int floored = 0;
 
 	scope->ids = (const uint8_t (*)[FZN_TREE_ID_LEN])reach;
 	scope->count = 0;
+	scope->floor_ms = NULL;
 	if (!sender
 	    || fzn_notes_share_with(&n->store, sender, seeds, FZN_NOTES_SHARES_MAX, &seed_count)
 	               != FZN_NOTES_OK)
 		return;
+	for (i = 0; i < seed_count; i++)
+		seed_floor[i] = 0;
 	/* AND EVERY GROUP'S IT IS IN, sec 471: a group share is one row under
 	 * the group's id, so membership is read now, at the request. */
 	if (fzn_node_group_ids_of(n->store.ops, sender, groups, FZN_GROUPS_HELD_MAX, &n_groups)
-	    == FZN_CONTACT_OK)
-		for (g = 0; g < n_groups && seed_count < FZN_NOTES_SHARES_MAX; g++) {
-			size_t more = 0;
+	            == FZN_CONTACT_OK
+	    && n_groups
+	    && fzn_notes_share_list(&n->store, rows, FZN_NOTES_SHARES_MAX, &n_rows) == FZN_NOTES_OK)
+		for (g = 0; g < n_groups; g++) {
+			uint64_t joined = 0;
+			int read = 0;
 
-			if (fzn_notes_share_with(&n->store, groups[g], seeds + seed_count,
-			                         FZN_NOTES_SHARES_MAX - seed_count, &more)
-			    == FZN_NOTES_OK)
-				seed_count += more;
+			for (r = 0; r < n_rows && seed_count < FZN_NOTES_SHARES_MAX; r++) {
+				int catch_up;
+
+				if (memcmp(rows[r].contact, groups[g], FZN_PUBKEY_LEN) != 0)
+					continue;
+				if (!read) {
+					read = 1;
+					if (fzn_group_log_get(n->store.ops, groups[g], &held) == FZN_GROUP_LOG_OK)
+						joined = joined_ms(n, groups[g], &held, sender);
+					else
+						held.backfill = 1u;
+				}
+				catch_up = rows[r].catch_up == FZN_NOTES_SHARE_CATCH_UP_YES
+				           || (rows[r].catch_up == FZN_NOTES_SHARE_CATCH_UP_GROUP
+				               && held.backfill);
+				memcpy(seeds[seed_count], rows[r].subtree, FZN_TREE_ID_LEN);
+				seed_floor[seed_count] = !catch_up && joined > rows[r].shared_at_ms ? joined : 0;
+				floored |= seed_floor[seed_count] != 0;
+				seed_count++;
+			}
 		}
-	if (seed_count && fzn_notes_view_load(&n->store, &view) == FZN_NOTES_OK)
-		scope->count = fzn_notes_share_reach(&view, (const uint8_t (*)[FZN_TREE_ID_LEN])seeds,
-		                                     seed_count, reach, FZN_NOTES_MAX);
+	if (!seed_count || fzn_notes_view_load(&n->store, &view) != FZN_NOTES_OK)
+		return;
+	/* THE SEEDS WITH NO FLOOR FIRST, together, their notes floor 0. */
+	open = 0;
+	for (i = 0; i < seed_count; i++)
+		open += seed_floor[i] == 0;
+	scope->count = 0;
+	if (open) {
+		static uint8_t open_seeds[FZN_NOTES_SHARES_MAX][FZN_TREE_ID_LEN];
+		size_t o = 0;
+
+		for (i = 0; i < seed_count; i++)
+			if (!seed_floor[i])
+				memcpy(open_seeds[o++], seeds[i], FZN_TREE_ID_LEN);
+		scope->count = fzn_notes_share_reach(&view,
+		                                     (const uint8_t (*)[FZN_TREE_ID_LEN])open_seeds, o,
+		                                     reach, FZN_NOTES_MAX);
+		for (k = 0; k < scope->count; k++)
+			reach_floor[k] = 0;
+	}
+	if (!floored)
+		return;
+	for (i = 0; i < seed_count; i++) {
+		if (!seed_floor[i])
+			continue;
+		more = fzn_notes_share_reach(&view, (const uint8_t (*)[FZN_TREE_ID_LEN])&seeds[i], 1u,
+		                             one_reach, FZN_NOTES_MAX);
+		for (k = 0; k < more; k++) {
+			size_t at;
+
+			for (at = 0; at < scope->count
+			             && memcmp(reach[at], one_reach[k], FZN_TREE_ID_LEN) != 0;
+			     at++)
+				;
+			if (at < scope->count) {
+				if (reach_floor[at] && seed_floor[i] < reach_floor[at])
+					reach_floor[at] = seed_floor[i];
+			} else if (scope->count < FZN_NOTES_MAX) {
+				memcpy(reach[scope->count], one_reach[k], FZN_TREE_ID_LEN);
+				reach_floor[scope->count++] = seed_floor[i];
+			}
+		}
+	}
+	scope->floor_ms = reach_floor;
 }
 
 static size_t answer_shared(fzn_node_notes_t *n, const uint8_t *sender, const uint8_t *request,
@@ -2236,21 +2369,31 @@ fzn_notes_err_t fzn_node_notes_index_stream(fzn_node_notes_t *n, fzn_node_notes_
 int fzn_node_notes_shares_blob(fzn_node_notes_t *n, const uint8_t *sender,
                                const uint8_t root[FZN_BLOB_HASH_LEN])
 {
+	static uint8_t claim_keys[FZN_NOTES_MAX][FZN_PUBKEY_LEN];
+	static uint8_t claim_record[FZN_RECORD_MAX_LEN];
 	fzn_notes_sync_scope_t scope;
-	size_t i, j;
+	size_t i, claims = 0;
 
 	if (!n || !sender || !root)
 		return 0;
 	shared_scope(n, sender, &scope);
 	/* EVERY CLAIM ON A NOTE IN SCOPE, whoever wrote it: what is served of a
-	 * note is every writer's record of it, so its texts are too. */
-	for (i = 0; i < view.count; i++) {
+	 * note is every writer's record of it, so its texts are too -- each
+	 * record judged as the sync server judges it, so a floor (sec 655)
+	 * keeps an older version's text as it keeps the version. */
+	if (fzn_notes_claims(&n->store, claim_keys, FZN_NOTES_MAX, &claims) != FZN_NOTES_OK)
+		return 0;
+	for (i = 0; i < claims; i++) {
 		fzn_note_blob_ref_t ref;
-		int in = 0;
+		fzn_tree_node_t node;
+		fzn_record_t rec;
+		size_t len = 0;
 
-		for (j = 0; j < scope.count && !in; j++)
-			in = memcmp(scope.ids[j], view.nodes[i].id, FZN_TREE_ID_LEN) == 0;
-		if (in && fzn_notes_ref_of(&view.nodes[i], &ref)
+		if (fzn_notes_get_key(&n->store, claim_keys[i], claim_record, sizeof(claim_record),
+		                      &len) == FZN_NOTES_OK
+		    && fzn_record_open(claim_record, len, &rec) == FZN_RECORD_OK
+		    && fzn_notes_sync_scope_admits(&scope, rec)
+		    && fzn_tree_open(rec, &node) == FZN_TREE_OK && fzn_notes_ref_of(&node, &ref)
 		    && memcmp(ref.root, root, FZN_BLOB_HASH_LEN) == 0)
 			return 1;
 	}

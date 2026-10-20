@@ -718,9 +718,27 @@ static void test_group_share(void)
 	CHECK(ask(line) == FZN_REPLY_ERROR, "a group that is not there is refused");
 	snprintf(line, sizeof(line), "add share %s @family", f);
 	CHECK(ask(line) == FZN_REPLY_OK, "the folder is shared with the group");
-	snprintf(want, sizeof(want), "1 0 %s,@family", f);
+	snprintf(want, sizeof(want), "1 0 %s,@family,1", f);
 	CHECK(ask("list share") == FZN_REPLY_OK && !strcmp(detail_of(), want),
-	      "list share names the group as it was named");
+	      "list share names the group as it was named, catching up as the group does");
+	/* PER SHARE, sec 655: set and read back, the group's own setting the
+	 * default; a contact's share and a removal take no flag. */
+	snprintf(line, sizeof(line), "add share %s @family backfill 0", f);
+	snprintf(want, sizeof(want), "1 0 %s,@family,0", f);
+	CHECK(ask(line) == FZN_REPLY_OK && ask("list share") == FZN_REPLY_OK
+	              && !strcmp(detail_of(), want),
+	      "a share said again with backfill 0 does not catch up");
+	snprintf(line, sizeof(line), "add share %s @family backfill 1", f);
+	snprintf(want, sizeof(want), "1 0 %s,@family,1", f);
+	CHECK(ask(line) == FZN_REPLY_OK && ask("list share") == FZN_REPLY_OK
+	              && !strcmp(detail_of(), want),
+	      "and with backfill 1 it does again");
+	snprintf(line, sizeof(line), "add share %s carol backfill 1", f);
+	CHECK(ask(line) == FZN_REPLY_MALFORMED, "a contact's share takes no backfill");
+	snprintf(line, sizeof(line), "add share %s @family backfill 2", f);
+	CHECK(ask(line) == FZN_REPLY_MALFORMED, "and backfill is 0 or 1");
+	snprintf(line, sizeof(line), "remove share %s @family backfill 0", f);
+	CHECK(ask(line) == FZN_REPLY_MALFORMED, "and a removal takes none");
 	CHECK(indexed(carol, 1) == 2, "a member is offered the folder and its note");
 	CHECK(indexed(dave, 1) == 0, "a contact in no group is offered nothing");
 
