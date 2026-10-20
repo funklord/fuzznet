@@ -340,6 +340,8 @@ static size_t sibling_local(fzn_origin_t origin, const fzn_request_t *request, c
                             size_t cap);
 static size_t join_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                          size_t cap);
+static size_t admin_chain_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                                size_t cap);
 static size_t address_local(const fzn_request_t *request, char *reply, size_t cap);
 static size_t link_local(const fzn_request_t *request, char *reply, size_t cap);
 static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
@@ -367,6 +369,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = identity_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = join_local(origin, request, reply, reply_cap);
+	if (!n)
+		n = admin_chain_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = sibling_local(origin, request, reply, reply_cap);
 	if (!n)
@@ -6094,6 +6098,93 @@ static size_t join_local(fzn_origin_t origin, const fzn_request_t *request, char
 	for (i = 0; i < FZN_PUBKEY_LEN && (size_t)k + 2u < cap; i++)
 		k += snprintf(reply + k, cap - (size_t)k, "%02x", fzn_trust_root(joining.trust)[i]);
 	return (size_t)k + (size_t)snprintf(reply + k, cap - (size_t)k, "\n");
+}
+
+/* `set admin CHAIN|PATH`, sec 658: the admin chain `grant admin` answered
+ * on the granting node -- its hops as hex, `h` before each as that answer
+ * writes them, or a file holding them, the chain being longer than a
+ * request line -- kept here as `fuzznetd --set-admin` keeps it, judged
+ * against the running revocations, and then the daemon starts again in
+ * place, as a join does, so the boot that follows acts with it. The
+ * holder's choice for an estate made and joined, verbs on a running
+ * daemon (sec 638), reaching the one grant that still wanted a command. */
+static size_t admin_chain_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                                size_t cap)
+{
+	static uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	static fzn_node_admin_chain_t kept;
+	static char text[4096];
+	const uint8_t *at = request->arg, *subject, *w;
+	size_t left = request->arg_len, subject_len, w_len, n = 0, len;
+	fzn_node_revoke_err_t rerr;
+	const char *p;
+
+	if (request->parsed != FZN_VERB_SET || !at || !next_word(&at, &left, &subject, &subject_len)
+	    || subject_len != 5u || memcmp(subject, "admin", 5u) != 0)
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied an admin chain is this node's own user's\n");
+	if (!running_admin || !running_admin->state || !running_admin->state->config.has_admin
+	    || !joining.id || !joining.store)
+		return (size_t)snprintf(reply, cap, "error this node keeps no admin capability\n");
+	if (!next_word(&at, &left, &w, &w_len))
+		return (size_t)snprintf(reply, cap, "malformed set admin CHAIN|PATH\n");
+	/* THE CHAIN, or A FILE HOLDING IT: a hex hop or an `h` begins a chain,
+	 * anything else names a file. The rest of the line is the chain. */
+	len = (size_t)(request->arg + request->arg_len - w);
+	if (w[0] == 'h' || (w[0] >= '0' && w[0] <= '9') || (w[0] >= 'a' && w[0] <= 'f')
+	    || (w[0] >= 'A' && w[0] <= 'F')) {
+		if (len >= sizeof(text))
+			return (size_t)snprintf(reply, cap, "malformed a chain too long\n");
+		memcpy(text, w, len);
+		text[len] = '\0';
+	} else {
+		char path[1024];
+		FILE *f;
+		size_t got;
+
+		if (w_len >= sizeof(path) || left)
+			return (size_t)snprintf(reply, cap, "malformed set admin CHAIN|PATH\n");
+		memcpy(path, w, w_len);
+		path[w_len] = '\0';
+		if (path[0] != '/')
+			return (size_t)snprintf(reply, cap, "malformed the path is absolute\n");
+		f = fopen(path, "rb");
+		if (!f)
+			return (size_t)snprintf(reply, cap, "error the chain's file would not open\n");
+		got = fread(text, 1u, sizeof(text) - 1u, f);
+		(void)fclose(f);
+		text[got] = '\0';
+	}
+	for (p = text; *p;) {
+		char item[(FZN_HOP_LEN * 2u) + 1u];
+
+		while (*p == ' ' || *p == '\n' || *p == '\r' || *p == '\t')
+			p++;
+		if (!*p)
+			break;
+		if (*p == 'h')
+			p++;
+		if (n >= FZN_CHAIN_MAX_HOPS - 1u || strlen(p) < FZN_HOP_LEN * 2u)
+			return (size_t)snprintf(reply, cap, "malformed not a chain of hops\n");
+		memcpy(item, p, FZN_HOP_LEN * 2u);
+		item[FZN_HOP_LEN * 2u] = '\0';
+		if (!hex_bytes(item, hops[n], FZN_HOP_LEN))
+			return (size_t)snprintf(reply, cap, "malformed not a chain of hops\n");
+		n++;
+		p += FZN_HOP_LEN * 2u;
+	}
+	if (!n)
+		return (size_t)snprintf(reply, cap, "malformed not a chain of hops\n");
+	rerr = fzn_node_admin_chain_set(joining.store, running_admin->revocations, joining.id,
+	                                running_admin->state->config.root,
+	                                &running_admin->state->config.admin_capability,
+	                                (const uint8_t (*)[FZN_HOP_LEN])hops, n, wall_clock(), &kept);
+	if (rerr != FZN_NODE_REVOKE_OK)
+		return (size_t)snprintf(reply, cap, "error %s\n", fzn_node_revoke_err_str(rerr));
+	say(FZN_ENTRY_INFO, "node/admin", "an admin chain of %zu hop(s) kept; starting again", n);
+	rejoin_due = 1;
+	return (size_t)snprintf(reply, cap, "ok %zu\n", n);
 }
 
 /* STARTED AGAIN IN PLACE after a join: every descriptor past the standard

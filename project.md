@@ -66745,3 +66745,35 @@ hold one, deepest first, each oldest first. Bounded by
 two rounds and B must file all 22, read a page at a time. **Control**:
 the previous binary left B without `burst00` and `burst01`, the two
 oldest -- the loss exactly as described.
+
+## 658. An admin chain kept by a verb, `set admin`, 2026-10-20
+
+**Found reading what fuzzypickles still guards** (its `client/calls.c` at
+5c0f705): `cap_grant` and `cap_install` were in no row of sec 638's
+table. fuzznet grants per capability rather than by a type argument --
+`add peer PREKEY [delegable]` the member capability, `grant admin KEY`,
+`grant retention KEY`, `grant share NAME` -- and the retention grant and
+every pairing travel in the journal, so nothing is installed by hand. **The
+admin grant was the exception**: `grant admin KEY` answers KEY's chain,
+which KEY kept with `fuzznetd --set-admin`, a command run with the daemon
+stopped -- the shape the holder chose verbs over for an estate made and
+joined (sec 638).
+
+**Built: `set admin CHAIN|PATH`**, this node's own user's: the hops as
+`grant admin` answers them, or an absolute path to a file holding them --
+two hops in hex pass a request line -- kept by
+`fzn_node_admin_chain_set` as the command keeps them, judged against the
+running revocations rather than an empty store, answered `ok HOPS`; then
+the daemon starts again in place, as `add join` does, so the boot that
+follows acts with the chain.
+
+**Tested by `tool/live_join.py`, phase f**: A grants B admin; B, holding
+no admin before, keeps the chain by `set admin PATH`, starts again under
+the same pid, and lists admin held by one hop. **Control**: the previous
+binary answered `unsupported`. It is the first live run of an admin chain
+installed at all: no live script used `--set-admin`.
+
+**fuzzypickles' calls, mapped**: `cap_grant` -- by type, `add peer`,
+`grant admin`, `grant retention` or `grant share`; no grant here takes an
+expiry. `cap_install` -- `set admin` for an admin chain; nothing for the
+rest, which arrive in the journal.

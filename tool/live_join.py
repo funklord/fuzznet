@@ -15,6 +15,8 @@ client drives it -- no one-shot command, no daemon stopped by its client.
     d  A's `list sibling` names B, paired
     e  B's `list capability` holds member by one hop; A's `list grant` names
        the grant it made B, standing
+    f  A grants B admin; B keeps the chain with `set admin PATH` and starts
+       again in place, holding admin by one hop
 
 Against a daemon whose `add join` did not start it again, phase b's round
 never reads A's setting; against one that kept no address, phase c's.
@@ -178,6 +180,33 @@ def main(argv):
 			                     for e in g[3:]),
 			       "not B's member grant, standing")
 			print("livecheck: e: B holds the member capability by A's grant, and A lists it")
+
+			# f: A grants B admin; B keeps the chain by a verb and starts again
+			# in place, holding admin by one hop (sec 658) -- what took
+			# `fuzznetd --set-admin`, the daemon stopped.
+			if any(e.startswith("admin,1,") for e in ask(socks["b"], "list capability").split()[2:]):
+				raise failed("f: B holds admin before any grant")
+			granted = ask(socks["a"], "grant admin " + key_b).split()
+			if len(granted) < 2 or granted[0] != "ok" or not granted[1].startswith("h"):
+				raise failed("f: A's grant admin answered %r" % granted[:2])
+			chain_path = os.path.join(scratch, "admin-chain")
+			with open(chain_path, "w") as f:
+				f.write(" ".join(granted[1:]) + "\n")
+			pid = started["b"].proc.pid
+			expect(socks["b"], "b", "set admin " + chain_path, "ok %d" % (len(granted) - 1))
+			deadline = time.monotonic() + 20.0
+			while time.monotonic() < deadline:
+				try:
+					if ask(socks["b"], "status").startswith("ok "):
+						break
+				except OSError:
+					pass
+				time.sleep(0.2)
+			if started["b"].proc.poll() is not None or started["b"].proc.pid != pid:
+				raise failed("f: B did not start again in place")
+			polled("b", "list capability", lambda g: any(e.startswith("admin,1,1,") for e in g[2:]),
+			       "not admin held by one hop")
+			print("livecheck: f: A granted B admin, and B kept it by a verb, started again in place")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1
