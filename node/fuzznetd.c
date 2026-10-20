@@ -46,6 +46,11 @@
 #include "streams.h"
 #include "catalog.h"
 #include "file_refs.h"
+#include "../claim/claim.h"
+#include "../local/client.h"
+#ifdef FZN_CLAIM_FILE_ON
+#include "../claim/claim_file.h"
+#endif
 #include "../session/box.h"
 #include "state_dir.h"
 #include "../contact/contact.h"
@@ -115,6 +120,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <stdarg.h>
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10159,6 +10165,160 @@ static int pair_device(const fzn_node_identity_t *id, const fzn_node_config_t *c
 	return 0;
 }
 
+/* ---- a follower, sec 666 stage 1 --------------------------------------------
+ *
+ * THE FACE IS THE PROCESS HOLDING THE CLAIM on its core directory (sec 132;
+ * `claim/`): it alone runs the remote hop, the rounds and signing. Another
+ * fuzznet daemon of the same identity started beside it is a FOLLOWER: it
+ * serves its own local socket and forwards every request to the face --
+ * whose socket the face writes into `face` in the core directory -- passing
+ * the answer back; it writes nothing to the store. Each second it tries the
+ * claim, and taking it starts again in place, to boot as the face. */
+#define FACE_FILE "face"
+
+/* THE CORE DIRECTORY THIS PROCESS IS THE FACE OF, or NULL. */
+static const char *face_dir;
+static char face_written[1100];
+
+static void face_unwrite(void)
+{
+	if (face_written[0])
+		(void)unlink(face_written);
+}
+
+static void face_write(const char *core_dir, const char *sock)
+{
+	char tmp[1110];
+	FILE *f;
+
+	(void)snprintf(face_written, sizeof(face_written), "%s/" FACE_FILE, core_dir);
+	(void)snprintf(tmp, sizeof(tmp), "%s.new", face_written);
+	if (!(f = fopen(tmp, "w"))) {
+		face_written[0] = '\0';
+		return;
+	}
+	(void)fprintf(f, "%s\n", sock);
+	if (fclose(f) != 0 || rename(tmp, face_written) != 0) {
+		(void)unlink(tmp);
+		face_written[0] = '\0';
+		return;
+	}
+	(void)atexit(face_unwrite);
+}
+
+static void face_path_of(const char *core_dir, char *out, size_t cap)
+{
+	(void)snprintf(out, cap, "%s/" FACE_FILE, core_dir);
+}
+
+static void say_to(int fd, const char *text)
+{
+	(void)!write(fd, text, strlen(text));
+}
+
+/* WHERE THE FACE SERVES, as it wrote: 1 with its socket's path in `out`. */
+static int face_socket(const char *core_dir, char *out, size_t cap)
+{
+	char path[1100];
+	FILE *f;
+	size_t n;
+
+	face_path_of(core_dir, path, sizeof(path));
+	if (!(f = fopen(path, "r")))
+		return 0;
+	n = fread(out, 1u, cap - 1u, f);
+	(void)fclose(f);
+	while (n && (out[n - 1u] == '\n' || out[n - 1u] == '\r'))
+		n--;
+	out[n] = '\0';
+	return n > 0u && out[0] == '/';
+}
+
+/* ONE REQUEST from `cfd`, forwarded and answered. A client of another user
+ * is refused here: the face judges the follower, which is this user, so a
+ * stranger forwarded would be served as this user. */
+static void follow_one(int cfd, const fzn_peer_t *peer, const char *core_dir)
+{
+	uint8_t line[FZN_REQUEST_MAX + 2u], reply[1u << 17];
+	char face[1100];
+	size_t got = 0, reply_len = 0, i;
+	int ffd = -1;
+
+	if (peer->uid != (uint32_t)getuid()) {
+		say_to(cfd, "denied a follower serves its own user alone\n");
+		return;
+	}
+	while (got < sizeof(line)) {
+		ssize_t n = read(cfd, line + got, sizeof(line) - got);
+
+		if (n <= 0)
+			return;
+		got += (size_t)n;
+		if (memchr(line, '\n', got))
+			break;
+	}
+	for (i = 0; i < got && line[i] != '\n'; i++)
+		;
+	if (i == got) {
+		say_to(cfd, "malformed a request is one line\n");
+		return;
+	}
+	if (i >= 10u && memcmp(line, "get events", 10u) == 0) {
+		say_to(cfd, "unsupported a follower forwards requests, not events: ask the face\n");
+		return;
+	}
+	if (!face_socket(core_dir, face, sizeof(face))
+	    || fzn_client_connect(face, &ffd) != FZN_CLIENT_OK) {
+		say_to(cfd, "error the face is not answering\n");
+		return;
+	}
+	/* THE LINE AS IT CAME, its newline included. */
+	if (write(ffd, line, i + 1u) != (ssize_t)(i + 1u)
+	    || fzn_client_recv(ffd, reply, sizeof(reply) - 1u, &reply_len, 30000u) != FZN_CLIENT_OK)
+		say_to(cfd, "error the face did not answer\n");
+	else {
+		reply[reply_len++] = '\n';
+		(void)!write(cfd, reply, reply_len);
+	}
+	fzn_client_close(ffd);
+}
+
+static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_t *claim)
+{
+	int lfd = -1;
+
+	if (!sock_path) {
+		fprintf(stderr, "fuzznetd: another process is this identity's face, and with no local "
+		                "socket there is nothing to follow it for\n");
+		return 1;
+	}
+	if (fzn_socket_listen(sock_path, 0777u, 16, &lfd) != FZN_SOCKET_OK) {
+		fprintf(stderr, "fuzznetd: could not listen on %s\n", sock_path);
+		return 1;
+	}
+	fprintf(stderr, "fuzznetd: following the face of %s, serving on %s\n", core_dir, sock_path);
+	for (;;) {
+		struct pollfd pfd = { lfd, POLLIN, 0 };
+		int r = poll(&pfd, 1, 1000);
+
+		if (r > 0 && (pfd.revents & POLLIN)) {
+			int cfd = -1;
+			fzn_peer_t peer;
+
+			if (fzn_socket_accept(lfd, &cfd, &peer) == FZN_SOCKET_OK) {
+				follow_one(cfd, &peer, core_dir);
+				(void)close(cfd);
+			}
+		}
+		/* THE FACE GONE, its claim released: this process starts again as
+		 * the face. */
+		if (fzn_claim_take(claim) == FZN_CLAIM_OK) {
+			fprintf(stderr, "fuzznetd: the face is gone; starting again as the face\n");
+			return start_again(lfd, sock_path);
+		}
+	}
+}
+
 int main(int argc, char **argv)
 {
 	const char *sock_path = NULL;
@@ -10235,7 +10395,7 @@ int main(int argc, char **argv)
 	int gather_short = 0;
 	uint64_t gather_since_s = 0;
 	int has_capability = 0;
-	int lfd = -1, ufd = -1, i;
+	int lfd = -1, ufd = -1, i, serving = 0;
 
 	loop_pulls = pulls;
 	loop_npulls = &npulls;
@@ -10475,9 +10635,9 @@ int main(int argc, char **argv)
 	 * `$XDG_RUNTIME_DIR/fuzznet/fuzznetd.sock` (`local/socket.h`), its
 	 * directory made this user's and 0700, where a client looks when it is
 	 * told nowhere. A one-shot command serves nothing and takes none. */
-	if (!sock_path && cli.dir && !pair_hex && !show_prekey && !new_root && !accept_text
-	    && !ask_line && !gather_program && !gather_ring && !check_log && !set_admin
-	    && !replaying) {
+	serving = cli.dir && !pair_hex && !show_prekey && !new_root && !accept_text && !ask_line
+	          && !gather_program && !gather_ring && !check_log && !set_admin && !replaying;
+	if (!sock_path && serving) {
 		static char default_sock[108]; /* sun_path's length on Linux */
 		fzn_socket_err_t serr = fzn_socket_default_path(default_sock, sizeof(default_sock));
 
@@ -10585,6 +10745,37 @@ int main(int argc, char **argv)
 	state_core_dir = store_dir;
 	state_bulk_dir = (cli.store && store_dir && strcmp(cli.store, store_dir) != 0) ? cli.store
 	                                                                            : NULL;
+	/* THE FACE OR A FOLLOWER, sec 666: a daemon that serves a store takes
+	 * the claim on its core directory before booting anything -- a follower
+	 * writes nothing -- and one that cannot take it follows the face. */
+#ifdef FZN_CLAIM_FILE_ON
+	if (serving && store_dir) {
+		static fzn_claim_file_t claim_file;
+		static fzn_claim_ops_t claim_ops;
+		static fzn_claim_t claim;
+		char claim_path[1100];
+		fzn_claim_err_t cerr;
+
+		/* NO DIRECTORY MADE HERE: a store that is not there is fatal, as
+		 * it always was, so a mistyped `--fuzznet-dir` is refused rather
+		 * than started empty. */
+		(void)snprintf(claim_path, sizeof(claim_path), "%s/claim", store_dir);
+		if (fzn_claim_file_open(&claim_file, claim_path, &claim_ops) != FZN_CLAIM_OK
+		    || fzn_claim_init(&claim, &claim_ops) != FZN_CLAIM_OK) {
+			fprintf(stderr, "fuzznetd: the claim at %s would not open -- is %s a store?\n",
+			        claim_path, store_dir);
+			return 1;
+		}
+		cerr = fzn_claim_take(&claim);
+		if (cerr == FZN_CLAIM_ERR_HELD)
+			return follower_main(sock_path, store_dir, &claim);
+		if (cerr != FZN_CLAIM_OK) {
+			fprintf(stderr, "fuzznetd: the claim at %s cannot be decided\n", claim_path);
+			return 1;
+		}
+		face_dir = store_dir;
+	}
+#endif
 	if (store_dir) {
 		route.core = fzn_persist_file_init(&core_file, store_dir);
 		route.store = (bulk_dir == store_dir) ? route.core
@@ -11262,6 +11453,10 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	state.listen_fd = lfd;
+	/* WHERE THE FACE SERVES, sec 666, for a follower to forward to: written
+	 * by the claim's holder alone, removed at its exit. */
+	if (face_dir && sock_path)
+		face_write(face_dir, sock_path);
 
 	if (udp_port >= 0) {
 		if (fzn_udp_bind(family, NULL, (uint16_t)udp_port, &ufd) !=

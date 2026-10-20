@@ -4274,6 +4274,8 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
               $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/node/contact_card.o \
               $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/session/box.o \
               $(BUILD_DIR)/node/state_dir.o \
+              $(BUILD_DIR)/local/client.o $(BUILD_DIR)/claim/claim.o \
+              $(if $(CLAIM_FILE_ON),$(BUILD_DIR)/claim/claim_file.o) \
               $(MONO_OBJS) $(FLOG_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
@@ -6203,6 +6205,7 @@ else
 	@timeout 1100 python3 tool/live_group_hosts.py $(FUZZNETD)
 	@timeout 500 python3 tool/live_group_backfill.py $(FUZZNETD)
 	@timeout 90 python3 tool/live_socket.py $(FUZZNETD)
+	@timeout 150 python3 tool/live_face.py $(FUZZNETD)
 	@$(if $(LOG_PACK_ON),timeout 600 python3 tool/live_erasure.py $(FUZZNETD),echo \
 	  "livecheck: erasure SKIPPED -- this build does not pack logs")
 endif

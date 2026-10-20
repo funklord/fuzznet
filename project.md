@@ -67034,3 +67034,56 @@ handling a task if several are running."
 **What fuzzypickles builds**: none of this. fzpd becomes a program that
 calls `fzn_daemon_main` with its extension, once stage 3 lands, and its
 duplicated core goes.
+
+## 667. Stage 1 of sec 666: one face per identity, and a follower that forwards, 2026-10-21
+
+**Built:**
+
+- **The claim, taken at start.** A daemon that serves a store takes the
+  claim (`claim/`, sec 133) on `claim` in its core directory before it
+  boots anything -- a follower must write nothing, and a first boot writes
+  the identity. Holding it, the daemon is the **face** and runs as before;
+  once listening, it writes where it serves into `face` in the core
+  directory (written by the claim's holder alone, through a rename, and
+  removed at its exit).
+- **A follower.** A daemon that cannot take the claim serves its own local
+  socket and forwards each request line to the face's, passing the
+  answer back. It refuses a client of another user -- the face would
+  judge the follower, which is this user, so a stranger forwarded would be
+  served as this user -- and refuses `get events`, a stream rather than a
+  request, pointing at the face. It writes nothing to the store.
+- **Taking over.** A follower tries the claim each second; the kernel
+  releases it when the face dies, crash included, and taking it the
+  follower starts again in place (`start_again`, sec 638) and boots as the
+  face, rewriting `face`.
+
+**Measured on the way**: the follower's replies were first written with
+hand-counted lengths; a helper writing by `strlen` replaced them before
+anything ran.
+
+**Tested by `tool/live_face.py`, in `make livecheck`**: A takes the claim
+and names its socket in `face`; B, started on A's store with a socket of
+its own, follows -- its `status` is A's, and a setting written through B
+is A's; A stopped, B takes the claim within seconds, under the same pid,
+and serves as the face, `face` naming B. **Control**: the binary from
+before this section writes no `face`, and phase a fails there. A first
+version of the test leaned on the new code making the store's directory;
+it makes it itself now, so the control could reach the face check.
+
+**A store that is not there stays fatal.** A first build made the core
+directory before taking the claim, which would have started an empty
+store at a mistyped `--fuzznet-dir`; it was taken out before this was
+pushed, and `tool/live_face.py` now checks a missing store is refused and
+not made.
+
+**Not yet, and why:**
+
+- **A face that starts again in place releases the claim for a moment**
+  -- `start_again` closes every descriptor past 2 -- so after `add join`
+  or `set admin` a waiting follower may take it and the two swap. Either
+  is a correct face; carrying the descriptor across the exec would keep
+  the role, and is not built.
+- **A follower forwards one request at a time**, each over its own
+  connection to the face; reads from the shared store directly are stage
+  2.
+- **One-shot commands** (`--prekey`, `--new-root`, ...) take no claim.
