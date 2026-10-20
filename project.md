@@ -66837,3 +66837,21 @@ location at level 1; B2, which writes the stream, serves C level 1 alone.
 **Control**: with the estate's setting not read, C held nothing of B2's
 stream. A first run, with B2 granting and B writing, was refused at the
 grant -- which is how the authority rule above was found to need saying.
+
+## 661. `get message owed`: this host's lines still owed, counted here, 2026-10-20
+
+**Asked by fuzzypickles** for its status call: fzpd's `outbox_held`, what
+its TUI shows as waiting, could come only from walking every page of
+`list message`, too slow for every refresh.
+
+**Built: `get message owed`**, `ok HELD DELIVERED MORE`: this host's own
+out lines to its contacts not yet delivered, and those delivered and not
+settled, every conversation walked in the daemon. A group's lines are
+left out -- delivered once sealed and never settled (sec 629), they would
+never leave the count -- and a line handed over or given up is no longer
+this host's to owe. MORE 1 when a conversation ran past
+`FZN_MESSAGES_WALK_MAX`, the counts then floors.
+
+**Tested** in `node/test/messages_test.c`: one line written is held, set
+delivered it is owed as delivered, settled it is owed no more, and the in
+line is never counted; another user is refused. Two sabotage entries.

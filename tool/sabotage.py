@@ -12338,6 +12338,20 @@ SABOTAGES = [
 		"\t\t\twho[who_len++] = '1';\n",
 		"list share says a group share catches up when it does not -- sec 655",
 	),
+	(
+		"owed-counts-held",
+		"node/messages.c",
+		"\t\t\t\t\theld += page[i].state == 0u;\n",
+		"\t\t\t\t\theld += 0u;\n",
+		"a line written and never delivered is not owed -- sec 661",
+	),
+	(
+		"owed-counts-delivered",
+		"node/messages.c",
+		"\t\t\t\t\tdelivered += page[i].state == FZN_MESSAGE_DELIVERED;\n",
+		"\t\t\t\t\tdelivered += page[i].state != 0u;\n",
+		"a settled line counts as still owed -- sec 661",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

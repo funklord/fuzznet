@@ -365,6 +365,9 @@ fzn_messages_err_t fzn_node_messages_settle(fzn_node_messages_t *nm,
  *   set message WHO out|in ID delivered|settled|handed-over|not-delivered
  *   set message WHO read ID
  *   get message WHO unread
+ *   get message owed            `ok HELD DELIVERED MORE`, this host's lines to
+ *                               contacts not yet delivered, and delivered
+ *                               and not settled (sec 661)
  *   list message [WHO] [FROM]
  *
  * `get message WHO unread` answers `ok COUNT MORE`, MORE 1 when the count

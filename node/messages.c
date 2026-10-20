@@ -1253,6 +1253,59 @@ static size_t set(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char 
 	return say(reply, cap, FZN_REPLY_OK, NULL);
 }
 
+/* `get message owed`, sec 661: `ok HELD DELIVERED MORE` -- this host's
+ * lines to its contacts still owed, those not yet delivered and those
+ * delivered and not settled, every conversation walked here rather than
+ * by a client page by page: fuzzypickles' `outbox_held`. A group's lines
+ * are left out, delivered once sealed and settled never (sec 629); a line
+ * handed over or given up is no longer this host's to owe. MORE 1 when a
+ * conversation was past the walk's bound, and the counts floors. */
+static size_t get_owed(fzn_node_messages_t *nm, char *reply, size_t cap)
+{
+	static fzn_bucket_t buckets[FZN_BUCKETS_MAX];
+	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
+	static fzn_group_t g;
+	size_t n = 0, b, offset, count, i, held = 0, delivered = 0;
+	char detail[64];
+	fzn_messages_err_t err;
+	int more, deep = 0, k;
+
+	if (fzn_buckets_list(&nm->buckets, FZN_BUCKETS_MESSAGES, buckets, FZN_BUCKETS_MAX, &n)
+	    != FZN_BUCKETS_OK)
+		return say(reply, cap, FZN_REPLY_ERROR, "the conversations did not list");
+	for (b = 0; b < n; b++) {
+		const uint8_t *contact = buckets[b].subject;
+
+		if ((b > 0 && memcmp(buckets[b - 1u].subject, contact, FZN_PUBKEY_LEN) == 0)
+		    || fzn_group_log_get(nm->m.store, contact, &g) == FZN_GROUP_LOG_OK)
+			continue;
+		for (offset = 0;; offset += count) {
+			count = 0;
+			more = 0;
+			err = fzn_messages_page(&nm->m, contact, offset, page, FZN_MESSAGES_PAGE_MAX,
+			                        &count, &more);
+			if (err == FZN_MESSAGES_ERR_DEEP) {
+				deep = 1;
+				break;
+			}
+			if (err != FZN_MESSAGES_OK)
+				return refuse(reply, cap, err);
+			for (i = 0; i < count; i++)
+				if (page[i].direction == FZN_MESSAGE_OUT
+				    && same_key(page[i].device, nm->m.issuer)) {
+					held += page[i].state == 0u;
+					delivered += page[i].state == FZN_MESSAGE_DELIVERED;
+				}
+			if (!more || !count)
+				break;
+		}
+	}
+	k = snprintf(detail, sizeof(detail), "%zu %zu %d", held, delivered, deep);
+	if (k < 0 || (size_t)k >= sizeof(detail))
+		return 0;
+	return answer(reply, cap, FZN_REPLY_OK, detail, (size_t)k);
+}
+
 /* `get message WHO unread`: `ok COUNT MORE`, MORE 1 when the count is a
  * floor. sec 528. */
 static size_t get(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char *reply,
@@ -1265,9 +1318,11 @@ static size_t get(fzn_node_messages_t *nm, const uint8_t *at, size_t left, char 
 	int more = 0, k;
 	fzn_messages_err_t err;
 
+	if (left == 4u && memcmp(at, "owed", 4u) == 0)
+		return get_owed(nm, reply, cap);
 	if (!word(&at, &left, &w, &w_len) || !who(nm, w, w_len, contact)
 	    || !word(&at, &left, &w, &w_len) || !is_word(w, w_len, "unread") || left)
-		return say(reply, cap, FZN_REPLY_MALFORMED, "get message WHO unread");
+		return say(reply, cap, FZN_REPLY_MALFORMED, "get message WHO unread, or owed");
 	err = fzn_messages_unread(&nm->m, contact, &count, &more);
 	if (err != FZN_MESSAGES_OK)
 		return refuse(reply, cap, err);

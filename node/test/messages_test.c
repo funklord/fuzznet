@@ -388,10 +388,15 @@ static void test_the_verbs(void)
 	              && strstr(reply, ",carol," ID1 ",out,-,")
 	              && strstr(reply, ",1,hello%20there%0a"),
 	      "carol's conversation lists both, newest first, names at the edge, text escaped");
+	/* WHAT THIS HOST STILL OWES, sec 661: its own out lines, the in one not. */
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "get message owed") && replied("ok 1 0 0"),
+	      "one line written and not delivered is held");
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "set message carol out " ID1 " delivered")
 	              && replied("ok") && verb(&A, FZN_ORIGIN_SAME_USER, "list message")
 	              && strstr(reply, ID1 ",out,delivered,"),
 	      "a line set delivered lists so");
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "get message owed") && replied("ok 0 1 0"),
+	      "and is owed as delivered, not held");
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "list message 1") && replied("ok 1 1 0 ")
 	              && strstr(reply, ID1),
 	      "and a listing from 1 starts at the second");
@@ -402,6 +407,12 @@ static void test_the_verbs(void)
 	      "a key of digits alone is WHO, not a page offset, and FROM still follows it");
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "get message carol unread") && replied("ok 1 0"),
 	      "one line in, nothing read: one unread");
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "set message carol out " ID1 " settled")
+	              && replied("ok") && verb(&A, FZN_ORIGIN_SAME_USER, "get message owed")
+	              && replied("ok 0 0 0"),
+	      "settled, it is owed no more");
+	CHECK(verb(&A, FZN_ORIGIN_LOCAL, "get message owed") && replied("denied"),
+	      "another user is not told what is owed");
 	A.nm.fresh = 0;
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "set message carol read " ID2) && replied("ok")
 	              && A.nm.fresh
