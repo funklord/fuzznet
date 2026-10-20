@@ -7710,6 +7710,52 @@ static int stream_ask_allowed(const uint8_t *key, uint64_t now)
 	return 1;
 }
 
+/* A STREAM GRANT IS THE USER'S, sec 660, the holder's of 2026-10-20 for
+ * every stream (fuzzypickles' sec 103 had it for location): kept as an
+ * estate setting, `stream/grant/` and 32 hex of a hash of the stream's name
+ * and the grantee, its value the level -- carried to every host of the
+ * estate in the journal, under the settings' authority -- not in one
+ * host's slot 61. */
+#define STREAM_GRANT_KEY_LEN (13u + 32u)
+static int stream_grant_key(const char *name, size_t name_len, const uint8_t *who,
+                            uint8_t key[STREAM_GRANT_KEY_LEN])
+{
+	uint8_t input[FZN_STREAM_NAME_MAX + 1u + FZN_PUBKEY_LEN], digest[16];
+	char hex[33];
+
+	if (!contact_hash_ops || name_len > FZN_STREAM_NAME_MAX)
+		return 0;
+	memcpy(input, name, name_len);
+	input[name_len] = '/';
+	memcpy(input + name_len + 1u, who, FZN_PUBKEY_LEN);
+	if (!contact_hash_ops->hash(contact_hash_ops->ctx, digest, sizeof(digest), input,
+	                            name_len + 1u + FZN_PUBKEY_LEN))
+		return 0;
+	hex_of(digest, sizeof(digest), hex);
+	memcpy(key, "stream/grant/", 13u);
+	memcpy(key + 13u, hex, 32u);
+	return 1;
+}
+
+/* THE LEVEL `who` IS GRANTED of `name`: the estate's setting, or a grant
+ * this host kept before sec 660 in its own slot. 1 with it in `*level`. */
+static int stream_granted(const char *name, size_t name_len, const uint8_t *who,
+                          unsigned *level)
+{
+	uint8_t key[STREAM_GRANT_KEY_LEN], value[FZN_SETTING_VALUE_MAX];
+	size_t len = 0;
+	fzn_setting_rank_t rank;
+
+	if (node_settings.store && node_settings.estate && stream_grant_key(name, name_len, who, key)
+	    && fzn_node_settings_get(&node_settings, FZN_SCOPE_ESTATE, node_settings.estate, key,
+	                             sizeof(key), value, &len, &rank)
+	    && len == 1u && value[0] >= '0' && value[0] < (uint8_t)('0' + FZN_STREAM_LEVELS_MAX)) {
+		*level = (unsigned)(value[0] - '0');
+		return 1;
+	}
+	return fzn_streams_granted(&node_streams, name, name_len, who, level) == FZN_STREAMS_OK;
+}
+
 /* THE LEVEL `owner` MAY READ of stream `name`: its own grant, or the
  * finest of the groups' it is in. -1 for none. */
 static int stream_level_of(const char *name, size_t name_len, const uint8_t *owner)
@@ -7719,13 +7765,12 @@ static int stream_level_of(const char *name, size_t name_len, const uint8_t *own
 	int best = -1;
 	size_t n = 0, i;
 
-	if (fzn_streams_granted(&node_streams, name, name_len, owner, &level) == FZN_STREAMS_OK)
+	if (stream_granted(name, name_len, owner, &level))
 		best = (int)level;
 	if (fzn_node_group_ids_of(node_apply.store, owner, groups, FZN_GROUPS_HELD_MAX, &n)
 	    == FZN_CONTACT_OK)
 		for (i = 0; i < n; i++)
-			if (fzn_streams_granted(&node_streams, name, name_len, groups[i], &level)
-			            == FZN_STREAMS_OK
+			if (stream_granted(name, name_len, groups[i], &level)
 			    && (best < 0 || (int)level < best))
 				best = (int)level;
 	return best;
@@ -8150,8 +8195,12 @@ static size_t device_local(fzn_origin_t origin, const fzn_request_t *request, ch
  *
  *     add stream NAME HEX [HEX ...]   a record of this host's, a rendition a
  *                                     level, the most exact first: `ok SEQ`
- *     grant stream NAME WHO LEVEL     WHO a contact or @GROUP may read LEVEL
- *     revoke stream NAME WHO
+ *     grant stream NAME WHO LEVEL     WHO a contact or @GROUP may read LEVEL,
+ *                                     on every host of the user's (sec 660):
+ *                                     `ok`, or `ok host` where this host may
+ *                                     not set the estate's settings, and the
+ *                                     grant is this host's alone
+ *     revoke stream NAME WHO          the same, `ok` or `ok host`
  *     get stream NAME WHO             `ok LEVEL`, or `ok none`: what WHO was
  *                                     granted (sec 645)
  *     fetch stream NAME [WHO]         asked at once of WHO's hosts, or of
@@ -8274,23 +8323,63 @@ static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, c
 	if (request->parsed == FZN_VERB_GET) {
 		unsigned level = 0;
 
-		return fzn_streams_granted(&node_streams, (const char *)name, name_len, who, &level)
-		               == FZN_STREAMS_OK
+		return stream_granted((const char *)name, name_len, who, &level)
 		               ? (size_t)snprintf(reply, cap, "ok %u\n", level)
 		               : (size_t)snprintf(reply, cap, "ok none\n");
 	}
-	if (request->parsed == FZN_VERB_REVOKE)
-		return fzn_streams_grant(&node_streams, (const char *)name, name_len, who, -1)
-		               == FZN_STREAMS_OK
-		               ? (size_t)snprintf(reply, cap, "ok\n")
-		               : (size_t)snprintf(reply, cap, "error no such grant\n");
-	if (!next_word(&at, &left, &w, &w_len) || w_len != 1u || w[0] < '0'
-	    || w[0] >= (int)('0' + FZN_STREAM_LEVELS_MAX))
-		return (size_t)snprintf(reply, cap, "malformed grant stream NAME WHO LEVEL\n");
-	return fzn_streams_grant(&node_streams, (const char *)name, name_len, who, w[0] - '0')
-	               == FZN_STREAMS_OK
-	               ? (size_t)snprintf(reply, cap, "ok\n")
-	               : (size_t)snprintf(reply, cap, "error the grant would not keep\n");
+	/* THE USER'S GRANT, sec 660: the estate's setting written -- judged as
+	 * any setting is -- and a grant this host kept before in its own slot
+	 * taken away, so it cannot outlast a revocation made anywhere. */
+	{
+		uint8_t key[STREAM_GRANT_KEY_LEN], value;
+		unsigned held = 0;
+		int had_local = fzn_streams_granted(&node_streams, (const char *)name, name_len, who,
+		                                    &held)
+		                == FZN_STREAMS_OK;
+		fzn_node_settings_err_t serr;
+
+		if (!node_settings.store || !node_settings.estate
+		    || !stream_grant_key((const char *)name, name_len, who, key))
+			return (size_t)snprintf(reply, cap, "error this node keeps no estate settings\n");
+		if (request->parsed == FZN_VERB_REVOKE) {
+			if (!stream_granted((const char *)name, name_len, who, &held))
+				return (size_t)snprintf(reply, cap, "error no such grant\n");
+			if (had_local)
+				(void)fzn_streams_grant(&node_streams, (const char *)name, name_len, who, -1);
+			serr = fzn_node_settings_write(&node_settings, FZN_SCOPE_ESTATE,
+			                               node_settings.estate, key, sizeof(key), 0, NULL, 0u);
+			/* A HOST THAT MAY NOT SET THE ESTATE'S still stops serving its own
+			 * stream, as fuzzypickles' sec 103 has it -- `ok host`, so its
+			 * client can say the others keep what they had. */
+			if (serr != FZN_NODE_SETTINGS_OK)
+				return had_local ? (size_t)snprintf(reply, cap, "ok host\n")
+				                 : (size_t)snprintf(reply, cap, "error %s\n",
+				                                    fzn_node_settings_err_str(serr));
+			journal_pushed = 1;
+			return (size_t)snprintf(reply, cap, "ok\n");
+		}
+		if (!next_word(&at, &left, &w, &w_len) || w_len != 1u || w[0] < '0'
+		    || w[0] >= (int)('0' + FZN_STREAM_LEVELS_MAX))
+			return (size_t)snprintf(reply, cap, "malformed grant stream NAME WHO LEVEL\n");
+		value = w[0];
+		serr = fzn_node_settings_write(&node_settings, FZN_SCOPE_ESTATE, node_settings.estate,
+		                               key, sizeof(key), 1, &value, 1u);
+		/* REFUSED, THIS HOST ALONE: a host with no authority over the
+		 * estate's settings grants its own stream, kept as before sec 660,
+		 * and says so -- `ok host` (fuzzypickles' sec 103). */
+		if (serr == FZN_NODE_SETTINGS_REFUSED)
+			return fzn_streams_grant(&node_streams, (const char *)name, name_len, who,
+			                         value - '0')
+			               == FZN_STREAMS_OK
+			               ? (size_t)snprintf(reply, cap, "ok host\n")
+			               : (size_t)snprintf(reply, cap, "error the grant would not keep\n");
+		if (serr != FZN_NODE_SETTINGS_OK)
+			return (size_t)snprintf(reply, cap, "error %s\n", fzn_node_settings_err_str(serr));
+		if (had_local)
+			(void)fzn_streams_grant(&node_streams, (const char *)name, name_len, who, -1);
+		journal_pushed = 1;
+		return (size_t)snprintf(reply, cap, "ok\n");
+	}
 }
 
 /* ---- the catalogue, sec 633 ------------------------------------------------------

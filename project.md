@@ -66801,3 +66801,39 @@ probe; after its probe, C at 127.0.0.1 and its serving port, with a time
 within two minutes of now. **Control**: the previous binary answered
 `unsupported`. A first build wrote the empty answer as `ok 0 ` with a
 space before the newline; the exact comparison caught it.
+
+## 660. A stream grant is the user's, carried as an estate setting, 2026-10-20
+
+**Asked by fuzzypickles** through this tree's inbox (messages
+20261020T0800Z and 20261020T0830Z): does `grant stream` reach the
+user's other devices? Sec 632 answered no -- a grant in one host's core
+slot 61, each host serving only its own stream -- so a location share
+made through a laptop changed nothing a contact could read from the phone
+that writes the stream. **The holder had decided it for location on
+2026-09-26** (fuzzypickles' sec 103: sharing a location is the user's, a
+share made or withdrawn on one device reaches the others), and **chose
+2026-10-20 that it holds for every stream**.
+
+**Built:**
+
+- **A grant is an estate setting**, `stream/grant/` and 32 hex of a hash
+  of the stream's name and the grantee, its value the level: written by
+  `grant stream` and cleared by `revoke stream` through the config
+  database (sec 535), so carried to every host of the estate in the
+  journal and judged by the settings' authority. Each host serving its
+  stream reads it. A grant a host kept in slot 61 before is still read,
+  and taken away by a grant or revocation made since, so it cannot
+  outlast one made anywhere.
+- **A host that may not set the estate's settings grants its own stream
+  alone**, answered **`ok host`** rather than `ok`, and a revocation there
+  stops its own stream serving and answers the same -- fuzzypickles' sec
+  103 rule, that a device may always stop revealing its own location but
+  cannot tell the others without the authority to.
+
+**Tested by `tool/live_group_hosts.py`, phase a3**: B2, a member with no
+authority over the estate's settings, grants and revokes its own stream
+-- `ok host` both; B, the estate's root, grants the group its user's
+location at level 1; B2, which writes the stream, serves C level 1 alone.
+**Control**: with the estate's setting not read, C held nothing of B2's
+stream. A first run, with B2 granting and B writing, was refused at the
+grant -- which is how the authority rule above was found to need saying.

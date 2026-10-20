@@ -10,6 +10,10 @@ has them; B2 is a second device of B's user, joined to B's estate by verbs
        B2 from B, so B names itself in the group's log before B2 does --
        and C's share pass comes to ask all three member hosts, A's, B's and
        B2's
+    a3 B grants the group its user's location stream at level 1; B2, which
+       writes it, serves C that level -- a stream grant being the user's
+       (sec 660), carried to B2 as an estate setting. B2, with no authority
+       over the estate's settings, grants its own stream alone: `ok host`
     b  B is stopped. B2 writes a note and shares it with the group; C,
        which learns B2's place in the log through A and lists B first for
        B's user, pulls the note from B2 into B's user's tree
@@ -140,6 +144,7 @@ def main(argv):
 			# root B's -- the case `get prekey` cannot answer.
 			b_id = ask(socks["b"], "get identity").split()
 			b2_id = ask(socks["b2"], "get identity").split()
+			b2_host = b2_id[1] if len(b2_id) == 3 else ""
 			if len(b2_id) != 3 or b2_id[0] != "ok" or b2_id[2] != b_id[2] \
 			   or b2_id[1] == b2_id[2]:
 				raise failed("setup: B said %r and B2 %r, not one root and B2's own host"
@@ -189,9 +194,42 @@ def main(argv):
 			print("livecheck: a: B, B2 and C learned the group, and C asks all three "
 			      "member hosts")
 
+			# a3: A STREAM GRANT IS THE USER'S, sec 660: B, its estate's root,
+			# grants the group B's user's location at level 1; B2, which writes
+			# the stream, serves it to C at that level -- the grant reached B2
+			# as an estate setting. B2, a member with no authority over the
+			# estate's settings, grants its own alone, and says so.
+			b2_name = groups(socks["b2"], "b2")[0][0]
+			b_name = groups(socks["b"], "b")[0][0]
+			expect(socks["b2"], "b2", "grant stream location @%s 2" % b2_name, "ok host")
+			expect(socks["b2"], "b2", "revoke stream location @%s" % b2_name, "ok host")
+			expect(socks["b"], "b", "grant stream location @%s 1" % b_name, "ok")
+			got = ask(socks["b2"], "add stream location aa01 bb01 cc01")
+			if not got.startswith("ok "):
+				raise failed("a3: B2's add stream answered %r" % got)
+			mine = []
+			for rnd in range(ROUNDS):
+				for who in ("b2", "b", "c"):
+					turn(who, "%s-s%d" % (who, rnd))
+				# THE FETCH RUNS AT THE LOOP'S NEXT TURN: waited for in C's log,
+				# C left running, as live_pairing.py waits for it.
+				before = started["c"].log().count("stream fetch:")
+				expect(socks["c"], "c", "fetch stream location @" + name, "ok")
+				deadline = time.monotonic() + 30.0
+				while time.monotonic() < deadline \
+				      and started["c"].log().count("stream fetch:") == before:
+					time.sleep(0.3)
+				listed = ask(socks["c"], "list stream location").split()
+				mine = [r for r in listed[1:] if r.startswith(b2_host[:16] + ",")]
+				if mine:
+					break
+			if [r.split(",", 1)[1].split(",", 2)[0] + "," + r.rsplit(",", 1)[1] for r in mine] \
+			   != ["1,bb01"]:
+				raise failed("a3: C holds %r of B2's stream, not level 1 by B's grant" % mine)
+			print("livecheck: a3: B granted the group its user's location, and B2 served it")
+
 			# b: B gone; B2 shares a note with the group; C pulls it from B2.
 			started.pop("b").stop()
-			b2_name = groups(socks["b2"], "b2")[0][0]
 			note = ask(socks["b2"], "add note top " + TITLE)
 			if not note.startswith("ok "):
 				raise failed("b: B2's add note answered %r" % note)
