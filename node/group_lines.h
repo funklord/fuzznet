@@ -59,6 +59,9 @@ typedef struct fzn_group_line_head {
 	uint8_t host[FZN_PUBKEY_LEN];
 	uint32_t have;
 	uint32_t filed;
+	/* THE LAST LINE TRIMMED, sec 664: lines 1 to `base` are gone here, and
+	 * a line is served and filed from `base` + 1. 0 for none. */
+	uint32_t base;
 } fzn_group_line_head_t;
 
 /* `host`'s head in `group`; one of nothing held when there is none. */
@@ -84,6 +87,22 @@ fzn_group_lines_err_t fzn_group_lines_get(const fzn_group_lines_t *l,
                                           const uint8_t group[FZN_GROUP_ID_LEN],
                                           const uint8_t host[FZN_PUBKEY_LEN], uint32_t n,
                                           uint8_t *out, size_t cap, size_t *len);
+
+/* TRIM `host`'s lines in `group` up to `upto`, sec 664: each removed, and
+ * the head's base, have and filed moved past them -- what a retention rule
+ * that trimmed their month here asks, or what a sender's own trim means
+ * for its lines here. `*removed` (may be NULL) counts lines removed. */
+fzn_group_lines_err_t fzn_group_lines_trim(const fzn_group_lines_t *l,
+                                           const uint8_t group[FZN_GROUP_ID_LEN],
+                                           const uint8_t host[FZN_PUBKEY_LEN], uint32_t upto,
+                                           size_t *removed);
+
+/* PUT the line at `n`, taking the lines before it as trimmed at their
+ * sender when it starts past this head -- for the first line of a host an
+ * answer gives, which starts past what was asked only when the sender
+ * trimmed (sec 664). HELD as `fzn_group_lines_put`. */
+fzn_group_lines_err_t fzn_group_lines_put_from(const fzn_group_lines_t *l, uint32_t n,
+                                               const uint8_t *bytes, size_t len);
 
 /* `host`'s lines in `group` filed here up to `filed`. */
 fzn_group_lines_err_t fzn_group_lines_filed(const fzn_group_lines_t *l,

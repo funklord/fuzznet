@@ -814,6 +814,12 @@ static int is_gone(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN
 	       && len == 1u;
 }
 
+int fzn_messages_month_gone(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                            uint32_t epoch)
+{
+	return m && m->store && contact && is_gone(m, contact, epoch);
+}
+
 static int set_gone(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                     uint32_t epoch)
 {

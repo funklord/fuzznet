@@ -311,6 +311,12 @@ typedef struct fzn_messages_trim_tally {
  * key for it is taken again or asked for. Its lines stay listed as shells.
  * No rule, no trim: nothing is trimmed by default.
  */
+/* WHETHER `contact`'s month `epoch` was trimmed here, by a rule (sec 531):
+ * what a store kept beside the messages -- a group's sealed lines, sec
+ * 664 -- is trimmed by. */
+int fzn_messages_month_gone(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                            uint32_t epoch);
+
 fzn_messages_err_t fzn_messages_trim(const fzn_messages_t *m, const fzn_retain_rule_t *rules,
                                      size_t n_rules, uint64_t now_ms,
                                      fzn_messages_trim_tally_t *tally);

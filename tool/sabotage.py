@@ -12352,6 +12352,20 @@ SABOTAGES = [
 		"\t\t\t\t\tdelivered += page[i].state != 0u;\n",
 		"a settled line counts as still owed -- sec 661",
 	),
+	(
+		"group-lines-trim-moves-base",
+		"node/group_lines.c",
+		"\t\th.base = upto;\n",
+		"\t\th.base = h.base;\n",
+		"a trim removes lines and leaves the base where it was -- sec 664",
+	),
+	(
+		"group-lines-put-from-trims",
+		"node/group_lines.c",
+		"\tif (n > h.have + 1u) {\n\t\terr = fzn_group_lines_trim(",
+		"\tif (0) {\n\t\terr = fzn_group_lines_trim(",
+		"a host's first line past its head is refused for good -- sec 664",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

@@ -65077,7 +65077,9 @@ accident: with B's sync refused, B files nothing.
   it was lost. Every unsent line is sealed since sec 657.
 - **A sync names 24 heads**: past that, lines already held are sent again
   and refused as held.
-- **Lines are kept for good**, by no retention rule.
+- ~~**Lines are kept for good**, by no retention rule.~~ They are trimmed
+  with their month when a message rule trims it, since sec 664; with no
+  rule, kept, nothing being trimmed by default (sec 531).
 - **A group line is delivered once given to the group**; whether each
   member's host has it is not settled per member.
 
@@ -66913,3 +66915,39 @@ as a link; **`tool/live_socket.py`, in `make livecheck`**, starts
 fuzznetd with no `--socket` and XDG_RUNTIME_DIR in scratch and asks
 `status` at the default socket -- **control**: the previous binary printed
 its usage and served none.
+
+## 664. A group's sealed lines trimmed with the month a rule trimmed, 2026-10-20
+
+Sec 629 kept a group's sealed lines -- the copies each host holds to serve
+the group's members -- for good. With no rule that is right: "definitely
+no default deletion of messages" (sec 531). **But a rule that trimmed a
+group's conversation trimmed only the readable copies**: the sealed line
+of a month the rule had pruned stayed held here and was served to any
+member asking, a later one included. A line the user pruned was kept.
+
+**Built:**
+
+- **A sealed line goes when its month is gone**: after each trim pass that
+  ran rules, every held group's hosts' lines are walked from their base
+  while the line's month -- its clear `stime` -- is GONE in the group's
+  conversation here, `fzn_messages_month_gone`, and trimmed. A month no
+  rule trimmed keeps every line.
+- **A head has a base** (`node/group_lines.h`, head version 2; a version
+  1 head reads as base 0): `fzn_group_lines_trim` removes the lines held
+  up to a point and moves base, have and filed past them. A host serves
+  and files from its base.
+- **A trim is learned from the answer**: an answer that starts a host's
+  lines past what was asked does so only because the sender trimmed, so
+  that host's first line in an answer is taken by `put_from`, trimming
+  the lines before it here; every later one is put in order as before, so
+  a gap inside an answer is still refused.
+
+**Tested** in `node/test/groups_test.c`: a trim removes lines 1 and 2 and
+moves base and filed, a trimmed line is absent and the next one taken,
+a trim below the base changes nothing, a strict put still refuses a line
+past the head while `put_from` takes it and sets the base, and a version
+1 head reads as base 0. Two sabotage entries. **Not run end to end**: the
+daemon's part -- the walk by gone month, serving from the base, `put_from`
+on an answer's first line -- has no live check, which would want a
+group's month trimmed by a rule under a faked clock across its members'
+hosts; recorded here rather than claimed.

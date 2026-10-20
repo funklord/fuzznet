@@ -524,6 +524,86 @@ static void test_lines_are_held_in_order(void)
 	      "a line's sender was not kept");
 }
 
+/* A TRIM, sec 664: lines up to a point gone and the base moved past them;
+ * a host's first line given past its head taken from there, every later
+ * one in order; a version 1 head read as base 0. */
+static void test_lines_trimmed_from_a_base(void)
+{
+	struct user *a = &users[1];
+	static fzn_group_line_t line;
+	fzn_group_lines_t l;
+	fzn_group_line_head_t h;
+	uint8_t group[32], host[32], fresh[32], secret[FZN_GROUP_SECRET_LEN];
+	static uint8_t sealed[5][FZN_GROUP_LINE_MAX];
+	uint8_t got[FZN_GROUP_LINE_MAX];
+	size_t lens[5], len = 0, removed = 9, k;
+
+	user_up(a, 0x21u);
+	l.store = &a->ops;
+	l.hash = &HASH;
+	memset(group, 0x71, sizeof(group));
+	memset(host, 0x72, sizeof(host));
+	memset(fresh, 0x73, sizeof(fresh));
+	memset(secret, 0x74, sizeof(secret));
+	memcpy(line.group, group, 32u);
+	memcpy(line.sender, host, 32u);
+	line.epoch = 1u;
+	line.text_len = 1u;
+	for (k = 0; k < 5u; k++) {
+		memcpy(line.host, k < 4u ? host : fresh, 32u);
+		line.text[0] = (uint8_t)('a' + k);
+		(void)fzn_group_line_seal(&line, secret, &HASH, &AEAD, &RNG, sealed[k],
+		                          sizeof(sealed[k]), &lens[k]);
+	}
+	for (k = 0; k < 3u; k++)
+		CHECK(fzn_group_lines_put(&l, (uint32_t)k + 1u, sealed[k], lens[k]) == FZN_GROUP_LINES_OK,
+		      "fixture: lines 1 to 3 held");
+	CHECK(fzn_group_lines_trim(&l, group, host, 2u, &removed) == FZN_GROUP_LINES_OK
+	              && removed == 2u && fzn_group_lines_head(&l, group, host, &h) == FZN_GROUP_LINES_OK
+	              && h.base == 2u && h.have == 3u && h.filed == 2u,
+	      "a trim to 2 did not remove two lines and move the base and filed past them");
+	CHECK(fzn_group_lines_get(&l, group, host, 1u, got, sizeof(got), &len)
+	                      == FZN_GROUP_LINES_ERR_ABSENT
+	              && fzn_group_lines_get(&l, group, host, 3u, got, sizeof(got), &len)
+	                         == FZN_GROUP_LINES_OK,
+	      "a trimmed line was still held, or the line past it gone");
+	CHECK(fzn_group_lines_put(&l, 4u, sealed[3], lens[3]) == FZN_GROUP_LINES_OK,
+	      "the line after the head was not taken past a trim");
+	CHECK(fzn_group_lines_trim(&l, group, host, 1u, &removed) == FZN_GROUP_LINES_OK
+	              && removed == 0u && fzn_group_lines_head(&l, group, host, &h) == FZN_GROUP_LINES_OK
+	              && h.base == 2u,
+	      "a trim below the base moved it back");
+	/* A FRESH HEAD given line 7 first: its sender trimmed 1 to 6. */
+	CHECK(fzn_group_lines_put(&l, 7u, sealed[4], lens[4]) == FZN_GROUP_LINES_ERR_GAP,
+	      "a strict put took a line past the head");
+	CHECK(fzn_group_lines_put_from(&l, 7u, sealed[4], lens[4]) == FZN_GROUP_LINES_OK
+	              && fzn_group_lines_head(&l, group, fresh, &h) == FZN_GROUP_LINES_OK
+	              && h.base == 6u && h.have == 7u,
+	      "a host's first line past its head was not taken from there");
+	/* A VERSION 1 HEAD, as stored before sec 664, reads as base 0. */
+	{
+		uint8_t subject[32], v1[1u + 32u + 32u + 4u + 4u], in[1u + 32u + 32u + 4u];
+		uint8_t other[32];
+
+		memset(other, 0x75, sizeof(other));
+		in[0] = 'h';
+		memcpy(in + 1, group, 32u);
+		memcpy(in + 33, other, 32u);
+		memset(in + 65, 0, 4u);
+		CHECK(HASH.hash(HASH.ctx, subject, 32u, in, sizeof(in)), "fixture: the head's subject");
+		v1[0] = 1u;
+		memcpy(v1 + 1, group, 32u);
+		memcpy(v1 + 33, other, 32u);
+		memset(v1 + 65, 0, 8u);
+		v1[68] = 5u;
+		v1[72] = 3u;
+		CHECK(a->ops.save(a->ops.ctx, FZN_PERSIST_GROUP_LINE_HEAD, subject, v1, sizeof(v1))
+		              && fzn_group_lines_head(&l, group, other, &h) == FZN_GROUP_LINES_OK
+		              && h.have == 5u && h.filed == 3u && h.base == 0u,
+		      "a version 1 head did not read with base 0");
+	}
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -546,6 +626,7 @@ int main(void)
 	test_a_secret_drawn_on_a_lost_fork_is_let_go();
 	test_a_line_is_read_by_members_alone();
 	test_lines_are_held_in_order();
+	test_lines_trimmed_from_a_base();
 	test_a_members_host_is_its_members();
 	if (failures) {
 		fprintf(stderr, "node groups_test: %d of %d checks failed\n", failures, checks);

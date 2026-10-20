@@ -3824,6 +3824,53 @@ static int messages_absorb(void)
 /* CONVERSATIONS TRIMMED BY THE RULES, sec 531: the rules naming `messages`
  * that reach this node, from the one set the logs' are drawn from. No rule
  * trims nothing -- there is no default deletion of messages. */
+static fzn_group_lines_t group_lines; /* sec 629, defined with its lines below */
+
+/* A GROUP'S SEALED LINES TRIMMED AS ITS CONVERSATION WAS, sec 664: each
+ * host's from its base while a line's month is gone from the group's
+ * conversation here -- a rule trimmed it -- so a line a rule pruned is not
+ * kept, nor served to a member, sealed. A month no rule trimmed keeps
+ * every line, nothing being trimmed by default (sec 531). */
+static size_t group_lines_trim_gone(void)
+{
+	static uint8_t ids[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+	static fzn_group_line_head_t heads[FZN_GROUP_HOSTS_MAX];
+	static uint8_t bytes[FZN_GROUP_LINE_MAX];
+	static fzn_group_line_t peeked;
+	size_t n = 0, i, k, nh, len, removed, total = 0;
+	uint32_t s, upto;
+
+	if (!group_lines.store || !node_messages.m.store
+	    || fzn_group_log_list(node_apply.store, ids, FZN_GROUPS_HELD_MAX, &n) != FZN_GROUP_LOG_OK)
+		return 0;
+	for (i = 0; i < n; i++) {
+		nh = 0;
+		if (fzn_group_lines_heads(&group_lines, ids[i], heads, FZN_GROUP_HOSTS_MAX, &nh)
+		    != FZN_GROUP_LINES_OK)
+			continue;
+		for (k = 0; k < nh; k++) {
+			upto = heads[k].base;
+			for (s = heads[k].base + 1u; s <= heads[k].have; s++) {
+				len = 0;
+				if (fzn_group_lines_get(&group_lines, ids[i], heads[k].host, s, bytes,
+				                        sizeof(bytes), &len)
+				            != FZN_GROUP_LINES_OK
+				    || fzn_group_line_peek(bytes, len, &peeked) != FZN_GROUP_LINE_OK
+				    || !fzn_messages_month_gone(&node_messages.m, ids[i],
+				                                fzn_message_epoch_of(peeked.stime)))
+					break;
+				upto = s;
+			}
+			removed = 0;
+			if (upto > heads[k].base
+			    && fzn_group_lines_trim(&group_lines, ids[i], heads[k].host, upto, &removed)
+			               == FZN_GROUP_LINES_OK)
+				total += removed;
+		}
+	}
+	return total;
+}
+
 static void messages_trim(uint64_t now)
 {
 	static fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX];
@@ -3849,6 +3896,14 @@ static void messages_trim(uint64_t now)
 		say(FZN_ENTRY_INFO, "messages",
 		    "%zu month(s) of %zu conversation(s) trimmed by the rules", tally.months,
 		    tally.conversations);
+	/* AND THE GROUPS' SEALED COPIES WITH THEM, sec 664. */
+	if (n) {
+		size_t sealed = group_lines_trim_gone();
+
+		if (sealed)
+			say(FZN_ENTRY_INFO, "messages", "%zu sealed group line(s) trimmed with their month",
+			    sealed);
+	}
 	/* EVERY PASS THAT RAN SAYS SO, at debug: that nothing was trimmed reads
 	 * the same as a pass that never happened, and `make livecheck` waits on
 	 * this line before believing either. */
@@ -7118,6 +7173,10 @@ static size_t group_lines_remote(const uint8_t *sender, const uint8_t *request,
 			if (memcmp(e, heads[i].host, FZN_PUBKEY_LEN) == 0)
 				from = fzn_get_be32(e + FZN_PUBKEY_LEN);
 		}
+		/* FROM THE BASE, sec 664: the lines a rule trimmed here are gone,
+		 * and an answer starting past what was asked tells the asker so. */
+		if (from < heads[i].base)
+			from = heads[i].base;
 		for (s = from + 1u; s <= heads[i].have; s++) {
 			if (fzn_group_lines_get(&group_lines, g.id, heads[i].host, s, line, sizeof(line), &len)
 			            != FZN_GROUP_LINES_OK
@@ -7164,18 +7223,31 @@ static size_t group_lines_request(const uint8_t id[FZN_GROUP_ID_LEN], uint8_t *r
  * else. */
 static size_t group_lines_take(const uint8_t *reply, size_t len)
 {
+	static fzn_group_line_t peeked;
+	uint8_t last_host[FZN_PUBKEY_LEN];
 	size_t count, k, at, taken = 0;
+	int any = 0;
 
 	if (!reply || len < 4u || reply[0] != FZND_GROUP_VERSION || reply[1] != FZND_GROUP_LINES_TYPE)
 		return 0;
 	count = fzn_get_be16(reply + 2);
 	for (k = 0, at = 4u; k < count && at + 6u <= len; k++) {
 		size_t line_len = fzn_get_be16(reply + at + 4u);
+		int first;
 
 		if (at + 6u + line_len > len)
 			break;
-		taken += fzn_group_lines_put(&group_lines, fzn_get_be32(reply + at), reply + at + 6u,
-		                             line_len)
+		/* A HOST'S FIRST LINE HERE may start past this head -- its sender
+		 * trimmed the lines before (sec 664) -- and is taken from there;
+		 * every later one in order, as ever. */
+		first = fzn_group_line_peek(reply + at + 6u, line_len, &peeked) == FZN_GROUP_LINE_OK
+		        && (!any || memcmp(last_host, peeked.host, FZN_PUBKEY_LEN) != 0);
+		if (first) {
+			memcpy(last_host, peeked.host, FZN_PUBKEY_LEN);
+			any = 1;
+		}
+		taken += (first ? fzn_group_lines_put_from : fzn_group_lines_put)(
+		                 &group_lines, fzn_get_be32(reply + at), reply + at + 6u, line_len)
 		         == FZN_GROUP_LINES_OK;
 		at += 6u + line_len;
 	}
@@ -7292,7 +7364,9 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
 	    != FZN_GROUP_LINES_OK)
 		return 0;
 	for (i = 0; i < n; i++) {
-		for (s = heads[i].filed + 1u; s <= heads[i].have; s++) {
+		/* FROM THE BASE, sec 664: none below it is held. */
+		for (s = (heads[i].filed > heads[i].base ? heads[i].filed : heads[i].base) + 1u;
+		     s <= heads[i].have; s++) {
 			int written = 0;
 
 			if (fzn_group_lines_get(&group_lines, g->id, heads[i].host, s, bytes, sizeof(bytes),
