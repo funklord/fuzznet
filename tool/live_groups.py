@@ -215,6 +215,38 @@ def main(argv):
 				                "".join("\n  " + l for l in told[-14:])))
 			print("livecheck: d: A's line reached B and C, and C's reached B through A")
 
+			# d2: MORE THAN A PAGE AT ONCE, sec 657: A writes 22 lines between
+			# two rounds; every one is sealed and reaches B, the oldest two
+			# too -- sealing read the newest page of 20 alone.
+			def texts_from(who, sender):
+				"""Every line `who` files from `sender`, a page at a time."""
+				got, at = set(), 0
+				while True:
+					words = ask(socks[who], "list message @%s %d" % (names[who], at)).split()
+					if len(words) < 4 or words[0] != "ok":
+						raise failed("d2: %s's listing answered %r" % (who, words[:4]))
+					for item in words[4:]:
+						if item.count(",") >= 8 \
+						   and item.split(",")[1] == "@%s:%s" % (names[who], sender):
+							got.add(item.rsplit(",", 1)[1])
+					if words[3] == "0" or words[2] == "0":
+						return got
+					at = int(words[1]) + int(words[2])
+
+			burst = ["burst%02d" % k for k in range(22)]
+			for k, text in enumerate(burst):
+				expect(socks["a"], "a", "add message @family out %032x %s" % (0xb0 + k, text),
+				       "ok")
+			for rnd in range(ROUNDS + 2):
+				if set(burst) <= texts_from("b", "alice"):
+					break
+				for who in ("a", "b"):
+					turn(who, "%s-d2%d" % (who, rnd))
+			missing = sorted(set(burst) - texts_from("b", "alice"))
+			if missing:
+				raise failed("d2: B never filed %r of A's 22 lines" % (missing,))
+			print("livecheck: d2: A wrote 22 lines at once, and B filed every one")
+
 			# e: B shares a note with the group; C, not B's contact, pairs B's
 			# host through the group and pulls it from B (sec 630).
 			note = ask(socks["b"], "add note top group-note")

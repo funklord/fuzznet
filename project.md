@@ -65072,8 +65072,9 @@ accident: with B's sync refused, B files nothing.
 
 ### Not yet after sec 629
 
-- **Only the newest page of a conversation is sealed from**: an unsent
-  line older than `FZN_MESSAGES_PAGE_MAX` lines waits.
+- ~~**Only the newest page of a conversation is sealed from**: an unsent
+  line older than `FZN_MESSAGES_PAGE_MAX` lines waits.~~ It did not wait:
+  it was lost. Every unsent line is sealed since sec 657.
 - **A sync names 24 heads**: past that, lines already held are sent again
   and refused as held.
 - **Lines are kept for good**, by no retention rule.
@@ -66723,3 +66724,24 @@ by its identity key (sec 409), so fuzzypickles' `identity_generate` and
 `host_create` are a first start on an empty store, as sec 638 said;
 `--new-root` makes the separate recovery key, which is no root until
 added.
+
+## 657. Every unsent group line sealed, not the newest page's alone, 2026-10-20
+
+Sec 629 recorded that only the newest page of a group's conversation --
+`FZN_MESSAGES_PAGE_MAX`, 20 lines -- is sealed from, and that an older
+unsent line "waits". **It did not wait; it was lost.** A page holds every
+member's lines, so a line of this host's with twenty filed after it, its
+own or anybody's, was off the page at the next round, and every later
+round met only sealed lines there: the line stayed unsent for good, and
+nothing said so.
+
+**Built:** `group_seal_own` walks the conversation's pages back until one
+holds a line of this host's already sealed -- past it none is unsent, a
+pass sealing all it finds, oldest first -- and then seals the pages that
+hold one, deepest first, each oldest first. Bounded by
+`FZN_MESSAGES_WALK_MAX`, as any page is.
+
+**Tested by `tool/live_groups.py`, phase d2**: A writes 22 lines between
+two rounds and B must file all 22, read a page at a time. **Control**:
+the previous binary left B without `burst00` and `burst01`, the two
+oldest -- the loss exactly as described.

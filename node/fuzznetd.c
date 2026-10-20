@@ -7032,50 +7032,88 @@ static size_t group_lines_take(const uint8_t *reply, size_t len)
  * this device wrote to the group's conversation and has not marked, sealed
  * under the current epoch as this host's next line, then marked
  * delivered -- given to the group, which carries it on. */
+/* AN UNSENT LINE OF THIS HOST'S, to be sealed. */
+static int seal_wanted(const fzn_message_t *p, const uint8_t *self)
+{
+	return p->direction == FZN_MESSAGE_OUT && p->state == 0u && p->readable
+	       && memcmp(p->device, self, FZN_PUBKEY_LEN) == 0;
+}
+
+/* EVERY UNSENT LINE OF THIS HOST'S, sealed oldest first -- not the newest
+ * page's alone (sec 657): a page holds every member's lines, so a line of
+ * this host's with twenty from others filed after it was off the page,
+ * and never sealed. Pages are walked back until one holds a line of this
+ * host's already sealed, past which none is unsent -- a pass seals all it
+ * finds, oldest first -- then sealed deepest first. */
 static size_t group_seal_own(const fzn_group_t *g, const fzn_contact_device_t *own)
 {
 	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
 	static fzn_group_line_t line;
 	static uint8_t bytes[FZN_GROUP_LINE_MAX];
+	static size_t at_pages[FZN_MESSAGES_WALK_MAX / FZN_MESSAGES_PAGE_MAX + 1u];
 	uint8_t secret[FZN_GROUP_SECRET_LEN];
 	const uint8_t *self = fzn_contact_device_key(own);
 	fzn_group_line_head_t head;
-	size_t count = 0, i, len = 0, sealed = 0;
-	int more = 0;
+	size_t count = 0, i, len = 0, sealed = 0, offset = 0, n_pages = 0, k;
+	int more = 1, done = 0;
 
 	if (!fzn_group_is_member(g, own->owner)
-	    || fzn_node_groups_secret(&node_groups, g->id, g->epoch, secret) != FZN_GROUP_LOG_OK
-	    || fzn_messages_page(&node_messages.m, g->id, 0u, page, FZN_MESSAGES_PAGE_MAX, &count,
-	                         &more)
-	               != FZN_MESSAGES_OK)
+	    || fzn_node_groups_secret(&node_groups, g->id, g->epoch, secret) != FZN_GROUP_LOG_OK)
 		return 0;
-	/* OLDEST FIRST: the page is newest first. */
-	for (i = count; i-- > 0;) {
-		const fzn_message_t *p = &page[i];
+	/* WHICH PAGES HOLD ONE. */
+	while (more && !done && n_pages < sizeof(at_pages) / sizeof(at_pages[0])) {
+		int wanted = 0;
 
-		if (p->direction != FZN_MESSAGE_OUT || p->state != 0u || !p->readable
-		    || memcmp(p->device, self, FZN_PUBKEY_LEN) != 0
-		    || fzn_group_lines_head(&group_lines, g->id, self, &head) != FZN_GROUP_LINES_OK)
-			continue;
-		memset(&line, 0, sizeof(line));
-		memcpy(line.group, g->id, FZN_GROUP_ID_LEN);
-		line.epoch = g->epoch;
-		memcpy(line.sender, own->owner, FZN_PUBKEY_LEN);
-		memcpy(line.host, self, FZN_PUBKEY_LEN);
-		memcpy(line.id, p->id, FZN_GROUP_LINE_ID_LEN);
-		line.stime = p->stime;
-		memcpy(line.text, p->text, p->text_len);
-		line.text_len = p->text_len;
-		if (fzn_group_line_seal(&line, secret, contact_hash_ops, contact_aead_ops, contact_rng_ops,
-		                        bytes, sizeof(bytes), &len)
-		            != FZN_GROUP_LINE_OK
-		    || fzn_group_lines_put(&group_lines, head.have + 1u, bytes, len) != FZN_GROUP_LINES_OK
-		    || fzn_group_lines_filed(&group_lines, g->id, self, head.have + 1u)
-		               != FZN_GROUP_LINES_OK)
+		if (fzn_messages_page(&node_messages.m, g->id, offset, page, FZN_MESSAGES_PAGE_MAX,
+		                      &count, &more)
+		    != FZN_MESSAGES_OK)
 			break;
-		(void)fzn_messages_mark(&node_messages.m, g->id, FZN_MESSAGE_OUT, p->id,
-		                        FZN_MESSAGE_DELIVERED);
-		sealed++;
+		for (i = 0; i < count; i++) {
+			wanted |= seal_wanted(&page[i], self);
+			done |= page[i].direction == FZN_MESSAGE_OUT && page[i].state != 0u
+			        && memcmp(page[i].device, self, FZN_PUBKEY_LEN) == 0;
+		}
+		if (wanted)
+			at_pages[n_pages++] = offset;
+		offset += count;
+		if (!count)
+			break;
+	}
+	/* DEEPEST FIRST, and in each OLDEST FIRST: the page is newest first. */
+	for (k = n_pages; k-- > 0;) {
+		if (fzn_messages_page(&node_messages.m, g->id, at_pages[k], page, FZN_MESSAGES_PAGE_MAX,
+		                      &count, &more)
+		    != FZN_MESSAGES_OK)
+			break;
+		for (i = count; i-- > 0;) {
+			const fzn_message_t *p = &page[i];
+
+			if (!seal_wanted(p, self)
+			    || fzn_group_lines_head(&group_lines, g->id, self, &head) != FZN_GROUP_LINES_OK)
+				continue;
+			memset(&line, 0, sizeof(line));
+			memcpy(line.group, g->id, FZN_GROUP_ID_LEN);
+			line.epoch = g->epoch;
+			memcpy(line.sender, own->owner, FZN_PUBKEY_LEN);
+			memcpy(line.host, self, FZN_PUBKEY_LEN);
+			memcpy(line.id, p->id, FZN_GROUP_LINE_ID_LEN);
+			line.stime = p->stime;
+			memcpy(line.text, p->text, p->text_len);
+			line.text_len = p->text_len;
+			if (fzn_group_line_seal(&line, secret, contact_hash_ops, contact_aead_ops,
+			                        contact_rng_ops, bytes, sizeof(bytes), &len)
+			            != FZN_GROUP_LINE_OK
+			    || fzn_group_lines_put(&group_lines, head.have + 1u, bytes, len)
+			               != FZN_GROUP_LINES_OK
+			    || fzn_group_lines_filed(&group_lines, g->id, self, head.have + 1u)
+			               != FZN_GROUP_LINES_OK) {
+				k = 0;
+				break;
+			}
+			(void)fzn_messages_mark(&node_messages.m, g->id, FZN_MESSAGE_OUT, p->id,
+			                        FZN_MESSAGE_DELIVERED);
+			sealed++;
+		}
 	}
 	fzn_wipe(secret, sizeof(secret));
 	return sealed;
