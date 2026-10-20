@@ -66626,3 +66626,24 @@ are reachable from the verb through a pointer set at its start.
 **Tested by `tool/live_pairing.py`**: A, with no contact yet, answers `ok
 0 no ...`; with B its contact, a count of at least one. **Control**: the
 previous binary answered the first with a bare `ok`.
+
+## 654. One case for `%XX`: written lower, read either, 2026-10-20
+
+**Noticed by fuzzypickles** reading sec 652: `list catalog` escaped in
+upper case (`%2C`) while every other listing here writes lower case, and
+`node/messages.c`'s and `node/settings.c`'s readers took lower case
+alone -- so a value copied from a catalogue listing into `add message`
+was refused as a bad escape. The upper case was sec 652's, nobody else's.
+
+**Fixed both ways:** the catalogue writes lower case like the rest, and
+every `%XX` reader takes either case, as a percent escape is read
+anywhere. The two readers' `nibble` also parses hex ids, which so become
+case-blind too -- harmless, ids being compared as bytes once parsed.
+
+**Tested**: `node/test/messages_test.c` takes `a%2Cb` and lists it `a%2cb`;
+`tool/live_catalog.py` now writes the comma `%2C` and requires `%2c`
+back -- still proving the value is kept unescaped rather than stored as
+written. One sabotage entry.
+
+**The group share catch-up the holder decided this session is sec 655**,
+renumbered from the 654 fuzzypickles was told, this fix landing first.

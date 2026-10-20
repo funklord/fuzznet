@@ -8232,7 +8232,7 @@ static int catalog_from(const uint8_t *w, size_t n, size_t *out)
 
 static size_t catalog_escape(const uint8_t *b, size_t n, char *out, size_t cap)
 {
-	static const char H[] = "0123456789ABCDEF";
+	static const char H[] = "0123456789abcdef";
 	size_t i, w = 0;
 
 	for (i = 0; i < n; i++) {

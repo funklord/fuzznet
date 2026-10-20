@@ -424,6 +424,11 @@ static void test_the_verbs(void)
 	           "add message carol out 05050505050505050505050505050505 file%20notes.txt")
 	              && replied("ok"),
 	      "an escaped text beginning file was not taken as a text");
+	/* EITHER CASE READ, sec 654: an escape as the catalogue once wrote it. */
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER,
+	           "add message carol out 08080808080808080808080808080808 a%2Cb")
+	              && replied("ok"),
+	      "an upper-case escape was refused");
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER,
 	           "add message carol out 06060606060606060606060606060606 two words")
 	              && replied("malformed"),
@@ -462,6 +467,7 @@ static void test_the_verbs(void)
 	              && !strstr(reply, "04040404040404040404040404040404")
 	              && strstr(reply, ",05050505050505050505050505050505,out,-,")
 	              && strstr(reply, ",file%20notes.txt")
+	              && strstr(reply, ",a%2cb")
 	              && !strstr(reply, "06060606060606060606060606060606")
 	              && !strstr(reply, "07070707070707070707070707070707"),
 	      "the long line is listed first, the escaped file text as a text, and the refused "

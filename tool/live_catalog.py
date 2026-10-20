@@ -174,9 +174,10 @@ def main(argv):
 			# and shown escaped so a row is not split; two words refused, not
 			# cut. A duration is a fact, whole milliseconds.
 			base = int(ask(socks["b"], "list catalog " + root).split()[1])
-			# LOWER CASE IN, UPPER CASE OUT: the value is kept unescaped and
-			# escaped afresh, not stored as it was written.
-			expect(socks["b"], "b", "add catalog %s kind Holiday%%20Movie%%2c1" % root, "ok")
+			# UPPER CASE IN, LOWER CASE OUT: the value is kept unescaped and
+			# escaped afresh, in the lower case every listing here writes (sec
+			# 654), not stored as it was written.
+			expect(socks["b"], "b", "add catalog %s kind Holiday%%20Movie%%2C1" % root, "ok")
 			got = ask(socks["b"], "add catalog %s kind Holiday Movie" % root).split()
 			if not got or got[0] != "malformed":
 				raise failed("b: a two-word value answered %r" % got)
@@ -186,7 +187,7 @@ def main(argv):
 				raise failed("b: a duration that is no number answered %r" % got)
 			rows = ask(socks["b"], "list catalog " + root).split()
 			if rows[:3] != ["ok", str(base + 2), "0"] \
-			   or not any(",kind,Holiday%20Movie%2C1," in r for r in rows[3:]) \
+			   or not any(",kind,Holiday%20Movie%2c1," in r for r in rows[3:]) \
 			   or not any(",duration,125000," in r for r in rows[3:]):
 				raise failed("b: B's list catalog ROOT answered %r" % rows)
 			last = base + 1

@@ -12310,6 +12310,13 @@ SABOTAGES = [
 		"\t\t    || 0)\n",
 		"a message's file is read in the daemon's working directory, which no client sees -- sec 651",
 	),
+	(
+		"escape-either-case",
+		"node/messages.c",
+		"\tconst char *h = memchr(HEX, c >= 'A' && c <= 'F' ? c + ('a' - 'A') : c, 16u);\n",
+		"\tconst char *h = memchr(HEX, c, 16u);\n",
+		"an escape in upper case is refused as a bad one -- sec 654",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

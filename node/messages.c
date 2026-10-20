@@ -71,7 +71,9 @@ static int is_word(const uint8_t *w, size_t w_len, const char *s)
 
 static int nibble(uint8_t c)
 {
-	const char *h = memchr(HEX, c, 16u);
+	/* EITHER CASE, as a %XX escape is read anywhere (sec 654): a value
+	 * written by another escaper is not refused for its case. */
+	const char *h = memchr(HEX, c >= 'A' && c <= 'F' ? c + ('a' - 'A') : c, 16u);
 
 	return h ? (int)(h - HEX) : -1;
 }
