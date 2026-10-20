@@ -66979,3 +66979,58 @@ defaults as a static list (which loses the Makefile's POSIX probe), and
 four named targets for the three test basenames shared between
 directories. The README names `fmake` and `fmake test` beside `make`;
 `make` stays the build of record, its gates not being fmake's.
+
+## 666. Several daemons of one identity, and fuzznetd's node as a library: the plan, 2026-10-21
+
+**The requirement**, the holder's of 2026-10-21 for fuzzypickles' cut-over
+(their sec 284, half two; inbox message 20261021T0100Z): "fzpd should be
+using code from fuzznetd almost exclusively at the moment, which it can
+later extend for its own functionality ... We want to eliminate
+redundant code. Though forwarding and direct reading should be part of
+fuzznet as a decision will need to be made as to which daemon is
+handling a task if several are running."
+
+**Asked, the holder chose 2026-10-21:**
+
+- **Coordination is sec 132's model, built.** The first fuzznet-based
+  process of an identity takes the claim (`claim/`, sec 133) and is the
+  **face**: the remote hop, the rounds, the sessions, signing and
+  sequence. Any other reads the shared store directly and **forwards** to
+  the face what writes or needs the network, over the face's local
+  socket, and takes the claim -- becoming the face -- when the face exits.
+- **fuzznetd's node becomes a library call**, `fzn_daemon_main`, with
+  fuzznetd's own `main` a thin wrapper, which another daemon runs with an
+  **extension** carrying three things: its own **local verbs**; a
+  reserved range of **remote request types** it answers between hosts; and
+  **journal kinds fuzznet does not process, relayed and stored opaque**, so
+  a value-add reaches the hosts that run it through hosts that do not. App
+  streams (sec 632) were not taken as a surface, being generic already.
+
+### The stages
+
+1. **The face.** fuzznetd takes the claim on its core directory at start.
+   Holding it, it runs as today, and writes where it serves (`face` in the
+   core directory, its socket's path, written and removed only by the
+   holder -- mutable, so the claim's own). Not holding it, it is a
+   **follower**: no remote hop, no rounds, no journal writes; every local
+   verb is forwarded to the face and its answer passed back. It tries the
+   claim each second, and taking it starts again in place (`start_again`,
+   sec 638) to boot as the face.
+2. **Direct reads.** A follower answers what only reads -- by
+   `fzn_verb_mutates` and a list of the verbs that ask the network --
+   from the shared store itself, with no hop, as sec 132 has it; the rest
+   forwarded still.
+3. **The library entry.** `fzn_daemon_main(argc, argv, ext)` in the
+   library, fuzznetd's `main` calling it with no extension, behaviour
+   unchanged: a move, proved by the gates and livecheck before and after.
+4. **The extension.** `ext` carries a local-verb handler (asked for a verb
+   fuzznet does not answer), a remote handler for its reserved request
+   types, and the journal kinds it processes.
+5. **What fuzznet does not process, carried.** Journal records of kinds
+   unknown to this host kept and relayed to the estate as any record is;
+   a remote request of an extension's type answered `unsupported` where
+   no extension takes it.
+
+**What fuzzypickles builds**: none of this. fzpd becomes a program that
+calls `fzn_daemon_main` with its extension, once stage 3 lands, and its
+duplicated core goes.
