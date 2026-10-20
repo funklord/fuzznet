@@ -127,6 +127,17 @@ static fzn_client_err_t write_all(int fd, const uint8_t *buf, size_t len)
 	return FZN_CLIENT_OK;
 }
 
+fzn_client_err_t fzn_client_connect_default(int *out_fd)
+{
+	char path[sizeof(((struct sockaddr_un *)0)->sun_path)];
+
+	if (!out_fd)
+		return FZN_CLIENT_ERR_MALFORMED;
+	if (fzn_socket_default_path(path, sizeof(path)) != FZN_SOCKET_OK)
+		return FZN_CLIENT_ERR_MALFORMED;
+	return fzn_client_connect(path, out_fd);
+}
+
 fzn_client_err_t fzn_client_send(int fd, const uint8_t *verb, size_t verb_len,
                                  const uint8_t *arg, size_t arg_len)
 {
@@ -186,7 +197,8 @@ fzn_client_err_t fzn_client_recv(int fd, uint8_t *reply, size_t cap,
 		return FZN_CLIENT_ERR_MALFORMED;
 	for (;;) {
 		uint8_t chunk[128];
-		ssize_t n = read(fd, chunk, sizeof(chunk));
+		ssize_t n = recv(fd, chunk, sizeof(chunk), MSG_PEEK);
+		const uint8_t *nl;
 
 		if (n < 0) {
 			if (errno == EINTR)
@@ -197,6 +209,21 @@ fzn_client_err_t fzn_client_recv(int fd, uint8_t *reply, size_t cap,
 		}
 		if (n == 0)
 			return FZN_CLIENT_ERR_IO;	/* closed with no reply */
+		/* NO FURTHER THAN THIS LINE'S END, sec 663: what follows is the next
+		 * line's -- an event close behind another on a `get events`
+		 * connection -- and stays in the socket for the next call. Read
+		 * whole, it was dropped with the reader. */
+		nl = memchr(chunk, '\n', (size_t)n);
+		if (nl)
+			n = (ssize_t)(nl - chunk) + 1;
+		n = read(fd, chunk, (size_t)n);
+		if (n < 0) {
+			if (errno == EINTR)
+				continue;
+			return FZN_CLIENT_ERR_IO;
+		}
+		if (n == 0)
+			return FZN_CLIENT_ERR_IO;
 		if (fzn_line_push(&reader, chunk, (size_t)n) != FZN_LINE_OK)
 			return FZN_CLIENT_ERR_REPLY_TOO_LONG;
 		if (fzn_line_next(&reader, &line, &line_len)) {

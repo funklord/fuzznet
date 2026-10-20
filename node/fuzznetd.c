@@ -10392,9 +10392,32 @@ int main(int argc, char **argv)
 	 * loop has always taken a listen fd of -1 (sec 381). */
 	if (!sock_path && !pair_hex && !show_prekey && !new_root && !accept_text && !ask_line
 	    && !gather_program && !gather_ring && !check_log
-	    && !set_admin && !replaying && udp_port < 0) {
+	    && !set_admin && !replaying && udp_port < 0 && !cli.dir) {
 		usage(argv[0]);
 		return 2;
+	}
+	/* THE DEFAULT SOCKET, sec 663, the holder's of 2026-10-20: a daemon that
+	 * serves a store and is told no `--socket` serves on
+	 * `$XDG_RUNTIME_DIR/fuzznet/fuzznetd.sock` (`local/socket.h`), its
+	 * directory made this user's and 0700, where a client looks when it is
+	 * told nowhere. A one-shot command serves nothing and takes none. */
+	if (!sock_path && cli.dir && !pair_hex && !show_prekey && !new_root && !accept_text
+	    && !ask_line && !gather_program && !gather_ring && !check_log && !set_admin
+	    && !replaying) {
+		static char default_sock[108]; /* sun_path's length on Linux */
+		fzn_socket_err_t serr = fzn_socket_default_path(default_sock, sizeof(default_sock));
+
+		if (serr == FZN_SOCKET_OK)
+			serr = fzn_socket_default_dir_make(default_sock);
+		if (serr != FZN_SOCKET_OK) {
+			fprintf(stderr, "fuzznetd: no --socket given, and the default socket %s cannot "
+			                "be served: %s\n", default_sock,
+			        serr == FZN_SOCKET_ERR_PATH ? "its directory is not this user's own and "
+			                                      "mode 0700, or the path is too long"
+			                                    : "its directory could not be made");
+			return 1;
+		}
+		sock_path = default_sock;
 	}
 
 	memset(&state, 0, sizeof(state));

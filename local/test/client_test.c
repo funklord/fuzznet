@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 static int checks;
@@ -195,6 +196,19 @@ int main(void)
 			       == FZN_CLIENT_ERR_TIMEOUT,
 			   "a silent daemon did not time the client out");
 
+			/* TWO LINES IN ONE WRITE, as two events close together arrive
+			 * on a `get events` connection: each read by its own call,
+			 * the second not dropped with the first's read. sec 663. */
+			(void)write(srv, "ev one\nev two\n", 14u);
+			ok(fzn_client_recv(cfd, reply, sizeof(reply), &reply_len, 2000u)
+			       == FZN_CLIENT_OK && reply_len == 6u &&
+			   memcmp(reply, "ev one", 6u) == 0,
+			   "the first of two lines was not read");
+			ok(fzn_client_recv(cfd, reply, sizeof(reply), &reply_len, 2000u)
+			       == FZN_CLIENT_OK && reply_len == 6u &&
+			   memcmp(reply, "ev two", 6u) == 0,
+			   "the second of two lines in one write was lost");
+
 			/* A reply longer than the caller allowed is refused whole: a
 			 * prefix of a reply is a different reply. */
 			(void)write(srv, "0123456789abcdef\n", 17u);
@@ -208,6 +222,52 @@ int main(void)
 				(void)close(srv);
 			fzn_socket_close(listen_fd, path);
 			(void)rmdir(dir);
+		}
+	}
+
+	/* THE DEFAULT SOCKET, sec 663: under XDG_RUNTIME_DIR, or a per-user
+	 * path under /tmp when it is unset or not absolute; its directory made
+	 * 0700, and refused when it is not this user's private one. */
+	{
+		char dir[] = "/tmp/fzn_client_xdg_XXXXXX";
+		char want[256], got[256], sub[256], fallback[64];
+		struct stat st;
+
+		if (!mkdtemp(dir)) {
+			ok(0, "a temporary directory could not be made");
+		} else {
+			setenv("XDG_RUNTIME_DIR", dir, 1);
+			snprintf(want, sizeof(want), "%s/fuzznet/fuzznetd.sock", dir);
+			ok(fzn_socket_default_path(got, sizeof(got)) == FZN_SOCKET_OK
+			       && strcmp(got, want) == 0,
+			   "the default socket is not under XDG_RUNTIME_DIR");
+			ok(fzn_socket_default_dir_make(got) == FZN_SOCKET_OK, "its directory was not made");
+			snprintf(sub, sizeof(sub), "%s/fuzznet", dir);
+			ok(stat(sub, &st) == 0 && S_ISDIR(st.st_mode) && (st.st_mode & 07777) == 0700,
+			   "the default socket's directory is not 0700");
+			ok(fzn_socket_default_dir_make(got) == FZN_SOCKET_OK,
+			   "a directory made already was refused");
+			(void)chmod(sub, 0755);
+			ok(fzn_socket_default_dir_make(got) == FZN_SOCKET_ERR_PATH,
+			   "a directory others can read was taken for the socket");
+			(void)rmdir(sub);
+			ok(symlink("/tmp", sub) == 0 && fzn_socket_default_dir_make(got) == FZN_SOCKET_ERR_PATH,
+			   "a link in the directory's place was taken for it");
+			(void)unlink(sub);
+			(void)rmdir(dir);
+			snprintf(fallback, sizeof(fallback), "/tmp/fuzznet-%lu/fuzznetd.sock",
+			         (unsigned long)geteuid());
+			unsetenv("XDG_RUNTIME_DIR");
+			ok(fzn_socket_default_path(got, sizeof(got)) == FZN_SOCKET_OK
+			       && strcmp(got, fallback) == 0,
+			   "with XDG_RUNTIME_DIR unset the default is not the per-user /tmp one");
+			setenv("XDG_RUNTIME_DIR", "relative/dir", 1);
+			ok(fzn_socket_default_path(got, sizeof(got)) == FZN_SOCKET_OK
+			       && strcmp(got, fallback) == 0,
+			   "a relative XDG_RUNTIME_DIR was taken");
+			unsetenv("XDG_RUNTIME_DIR");
+			ok(fzn_socket_default_path(got, 4u) == FZN_SOCKET_ERR_PATH,
+			   "a default too long for the buffer was not refused");
 		}
 	}
 

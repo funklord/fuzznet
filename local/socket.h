@@ -126,4 +126,19 @@ fzn_socket_err_t fzn_socket_accept(int listen_fd, int *out_fd, fzn_peer_t *out_p
  * caller's cleanup path does not need to know how far setup got. */
 void fzn_socket_close(int fd, const char *path);
 
+/* THE DEFAULT SOCKET, sec 663, the holder's of 2026-10-20: where fuzznetd
+ * serves when it is given no `--socket`, and where a client looks when it
+ * is told nowhere -- `$XDG_RUNTIME_DIR/fuzznet/fuzznetd.sock`, or, when
+ * that variable is unset or not an absolute path, `/tmp/fuzznet-UID/
+ * fuzznetd.sock` for this user's id. Into `out`, `cap` bytes; PATH when it
+ * does not fit, MALFORMED for a null. */
+#define FZN_SOCKET_DEFAULT_NAME "fuzznetd.sock"
+fzn_socket_err_t fzn_socket_default_path(char *out, size_t cap);
+
+/* THE DEFAULT SOCKET'S DIRECTORY, the one holding `path`, made mode 0700
+ * when absent -- and refused, PATH, unless it is a directory, not a link,
+ * this user's own and mode 0700: a socket in a directory somebody else can
+ * write is one somebody else can stand in for. */
+fzn_socket_err_t fzn_socket_default_dir_make(const char *path);
+
 #endif /* FZN_SOCKET_H */

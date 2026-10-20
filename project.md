@@ -66873,3 +66873,43 @@ fuzzypickles' does since its 1-step 3f.
 made), beside the earlier refusals; every caller in this tree, live
 scripts included, already gave absolute paths, and `make test` and
 `make livecheck` pass unchanged.
+
+## 663. A default socket, and a client that keeps the next line, 2026-10-20
+
+**The default socket, the holder's of 2026-10-20.** fuzznetd had none: a
+daemon served a local socket only at `--socket`, and every client had to
+be told the path -- fuzzypickles' `--node-socket` and
+`FUZZYPICKLES_NODE_SOCKET`. Asked, the holder chose the XDG runtime
+directory.
+
+- **`fzn_socket_default_path`** (`local/socket.h`):
+  `$XDG_RUNTIME_DIR/fuzznet/fuzznetd.sock`, or `/tmp/fuzznet-UID/
+  fuzznetd.sock` when that variable is unset or not an absolute path.
+  **`fzn_socket_default_dir_make`** makes its directory 0700 and refuses
+  one that is not a directory, is a link, is not this user's, or is not
+  0700 -- a socket in a directory somebody else can write is one somebody
+  else can stand in for.
+- **fuzznetd serves there** when it serves a store and is given no
+  `--socket`; a one-shot command takes none. A daemon with neither a store
+  nor a socket nor a port still prints its usage.
+- **`fzn_client_connect_default`** (`local/client.h`) connects there, so a
+  client told nowhere looks where the daemon is.
+
+Whether a client finding a socket there should switch a node that holds
+fzpd's data is fuzzypickles' cut-over question, not settled by this.
+
+**A line read whole, not the next one with it.** Reported by fuzzypickles,
+holding a `get events` subscription: `fzn_client_recv` read 128 bytes at a
+time and kept the first line, so a second event arriving close behind the
+first was read and dropped with it. It now peeks, and consumes no further
+than the line's newline: what follows stays in the socket for the next
+call.
+
+**Tested**: `local/test/client_test.c` reads two lines written at once
+with two calls -- **control**: the previous reader lost the second -- and
+holds the default path under XDG_RUNTIME_DIR, with it unset, with it
+relative, and too long, its directory made 0700 and refused at 0755 and
+as a link; **`tool/live_socket.py`, in `make livecheck`**, starts
+fuzznetd with no `--socket` and XDG_RUNTIME_DIR in scratch and asks
+`status` at the default socket -- **control**: the previous binary printed
+its usage and served none.

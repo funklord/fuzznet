@@ -97,6 +97,10 @@ fzn_client_err_t fzn_client_compose(uint8_t *out, size_t cap, size_t *out_len,
  * closes it with `fzn_client_close`. */
 fzn_client_err_t fzn_client_connect(const char *path, int *out_fd);
 
+/* The same at the default socket, `fzn_socket_default_path`'s (sec 663):
+ * where fuzznetd serves when it is told nowhere. */
+fzn_client_err_t fzn_client_connect_default(int *out_fd);
+
 /* Compose and send one request. Writes the whole line or reports IO: a
  * partial request is a line the server will read as a different one. */
 fzn_client_err_t fzn_client_send(int fd, const uint8_t *verb, size_t verb_len,

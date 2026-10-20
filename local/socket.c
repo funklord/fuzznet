@@ -13,6 +13,7 @@
 
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -207,7 +208,60 @@ void fzn_socket_close(int fd, const char *path)
 		(void)unlink(path);
 }
 
+fzn_socket_err_t fzn_socket_default_path(char *out, size_t cap)
+{
+	const char *run = getenv("XDG_RUNTIME_DIR");
+	int n;
+
+	if (!out || cap == 0u)
+		return FZN_SOCKET_ERR_MALFORMED;
+	if (run && run[0] == '/')
+		n = snprintf(out, cap, "%s/fuzznet/%s", run, FZN_SOCKET_DEFAULT_NAME);
+	else
+		n = snprintf(out, cap, "/tmp/fuzznet-%lu/%s", (unsigned long)geteuid(),
+		             FZN_SOCKET_DEFAULT_NAME);
+	if (n < 0 || (size_t)n >= cap || fzn_socket_path_ok(out) == FZN_SOCKET_ERR_PATH)
+		return FZN_SOCKET_ERR_PATH;
+	return FZN_SOCKET_OK;
+}
+
+fzn_socket_err_t fzn_socket_default_dir_make(const char *path)
+{
+	char dir[sizeof(((struct sockaddr_un *)0)->sun_path)];
+	const char *slash;
+	struct stat st;
+	size_t len;
+
+	if (!path)
+		return FZN_SOCKET_ERR_MALFORMED;
+	slash = strrchr(path, '/');
+	len = slash ? (size_t)(slash - path) : 0u;
+	if (len == 0u || len >= sizeof(dir))
+		return FZN_SOCKET_ERR_PATH;
+	memcpy(dir, path, len);
+	dir[len] = '\0';
+	if (mkdir(dir, 0700) != 0 && errno != EEXIST)
+		return FZN_SOCKET_ERR_SYSTEM;
+	if (lstat(dir, &st) != 0 || !S_ISDIR(st.st_mode) || st.st_uid != geteuid()
+	    || (st.st_mode & 07777) != 0700)
+		return FZN_SOCKET_ERR_PATH;
+	return FZN_SOCKET_OK;
+}
+
 #else
+
+fzn_socket_err_t fzn_socket_default_path(char *out, size_t cap)
+{
+	(void)out;
+	(void)cap;
+	return FZN_SOCKET_ERR_UNSUPPORTED;
+}
+
+fzn_socket_err_t fzn_socket_default_dir_make(const char *path)
+{
+	(void)path;
+	return FZN_SOCKET_ERR_UNSUPPORTED;
+}
 
 fzn_socket_err_t fzn_socket_path_ok(const char *path)
 {
