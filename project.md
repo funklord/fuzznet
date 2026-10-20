@@ -66698,3 +66698,28 @@ they guarded.
 a record written within the second a member joined may fall either side;
 and a member whose joining this host cannot see in the log is taken as
 there from the start.
+
+## 656. A later member's floor at the end of its joining's second, 2026-10-20
+
+Sec 655 left a join time in whole seconds -- an act's own `at` -- so a
+note written earlier in the second a member joined, before the joining,
+passed the floor. **The floor is now the end of that second**: a note of
+the joining's second is withheld. Sec 22's asymmetry decides the way to
+err -- a share made again catches a member up, a note handed over is not
+recalled -- and it errs the same way for a member joined in the second a
+share was made, now taken as joining after it.
+
+**Reasoned, not shown by a test.** A live phase aligned to a second's
+start, added the member and wrote a note at once, and required it
+withheld: it failed with the change and without it alike, the write
+taking more than a second at a load near 150, so the note was of a later
+second. It was dropped rather than kept as a check that could not tell
+the two apart.
+
+**Measured for sec 638, 2026-10-20**: `tool/live_join.py` with A never
+run with `--new-root` passes every phase -- A answers a card, B joins by
+verb, A lists B paired, B holds member by A's grant. A genesis root acts
+by its identity key (sec 409), so fuzzypickles' `identity_generate` and
+`host_create` are a first start on an empty store, as sec 638 said;
+`--new-root` makes the separate recovery key, which is no root until
+added.

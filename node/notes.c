@@ -2134,10 +2134,10 @@ static uint8_t reach[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
 
 static uint64_t reach_floor[FZN_NOTES_MAX];
 
-/* WHEN `member` JOINED group `id`, in milliseconds: its last ADD act's own
- * time, or the CREATE act's for the user who made it; 0 when the log says
- * neither -- a member whose joining this host cannot see, taken as there
- * from the start. sec 655. */
+/* WHEN `member` JOINED group `id`, in milliseconds, rounded up to the end
+ * of its second: its last ADD act's own time, or the CREATE act's for the
+ * user who made it; 0 when the log says neither -- a member whose joining
+ * this host cannot see, taken as there from the start. sec 655. */
 static uint64_t joined_ms(const fzn_node_notes_t *n, const uint8_t *id, const fzn_group_t *g,
                           const uint8_t *member)
 {
@@ -2157,8 +2157,12 @@ static uint64_t joined_ms(const fzn_node_notes_t *n, const uint8_t *id, const fz
 		    && ((a.kind == FZN_GROUP_ACT_ADD && memcmp(a.subject, member, FZN_PUBKEY_LEN) == 0)
 		        || (a.kind == FZN_GROUP_ACT_CREATE
 		            && memcmp(a.signer.owner, member, FZN_PUBKEY_LEN) == 0)))
-			at = a.at * 1000u;
-	return at;
+			at = a.at;
+	/* THE END OF THE SECOND IT JOINED, sec 656: an act's time is whole
+	 * seconds, and a record written earlier in that second came before the
+	 * joining. Withheld rather than handed over, sec 22's asymmetry: a
+	 * share made again catches up, and a note handed over is not recalled. */
+	return at ? (at + 1u) * 1000u : 0u;
 }
 
 /* What the subtrees shared with `sender` reach in the view now, into
