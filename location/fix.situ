@@ -1,0 +1,21 @@
+// A position fix as a situ schema, sec 676: what `location/location.h`
+// encodes and decodes by hand, its offsets the FZN_LOCATION_OFF_* macros
+// there. The fields are fuzzypickles' (their `core/src/location_internal.h`,
+// read 2026-10-21), carried over unchanged in meaning and order -- and
+// big-endian, as every layout in this tree is, where theirs was
+// little-endian: no fuzznet stream held a fix before this.
+
+target buffer;
+endian big;
+
+struct fzn_location_fix {
+	i32 lat_e7 [min = -900000000, max = 900000000];    // 0: latitude, 1e-7 degrees
+	i32 lon_e7 [min = -1800000000, max = 1800000000];  // 4: longitude, 1e-7 degrees
+	u32 utc_s;                                          // 8: seconds since the epoch
+	i16 alt_m;              // 12: metres, a measurement only with FLAG_ALT
+	u8  bearing;            // 14: 360/255 degrees a step, only with FLAG_BEARING
+	u8  acc_e;              // 15: east-west accuracy, log-scaled; 255 unknown
+	u8  acc_n;              // 16: north-south accuracy, log-scaled; 255 unknown
+	u8  acc_v;              // 17: vertical accuracy, only with FLAG_ALT
+	u8  flags [max = 7];    // 18: ALT 1, BEARING 2, COARSE 4
+}

@@ -173,6 +173,7 @@
 #include <fuzznet/node/buckets.h>
 #include <fuzznet/node/reconcile.h>
 #include <fuzznet/node/types.h>
+#include <fuzznet/location/location.h>
 #ifdef FZN_CLI_ON
 #include <fuzznet/cli/cli.h>
 #include <fuzznet/node/daemon.h>
@@ -370,6 +371,7 @@
 #include "node/buckets.h"
 #include "node/reconcile.h"
 #include "node/types.h"
+#include "location/location.h"
 #ifdef FZN_CLI_ON
 #include "cli/cli.h"
 #include "node/daemon.h"

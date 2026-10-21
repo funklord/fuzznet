@@ -12445,6 +12445,48 @@ SABOTAGES = [
 		"",
 		"sec 675: an extension writes only the consumer half, or it could put a library object in the stream unjudged by its own writer; apply_test's each-half check catches it",
 	),
+	(
+		"location-decode-range-refused",
+		"location/location.c",
+		"\tif (!in_range(out->lat_e7, out->lon_e7))\n\t\treturn 0;\n\tout->utc_s",
+		"\tout->utc_s",
+		"sec 676: a coordinate out of range comes only from a corrupt store or a hostile peer, and decoding it puts somebody on the wrong side of the planet; location_test's out-of-range decode check catches it",
+	),
+	(
+		"location-absent-altitude-zero",
+		"location/location.c",
+		"fix->has_alt ? (uint16_t)fix->alt_m : 0u",
+		"(uint16_t)fix->alt_m",
+		"sec 676: an absent field is zero, so one fix has one encoding; location_test's absent-field check catches it",
+	),
+	(
+		"location-undefined-flag-refused",
+		"location/location.c",
+		"\tif (flags & ~(FZN_LOCATION_FLAG_ALT | FZN_LOCATION_FLAG_BEARING | FZN_LOCATION_FLAG_COARSE))\n\t\treturn 0;\n",
+		"",
+		"sec 676: the schema bounds the flags at 7, so a byte with another bit is not a fix; location_test's undefined-flag check catches it",
+	),
+	(
+		"location-acc-unknown-kept",
+		"location/location.c",
+		"\treturn code > 254u ? 254u : (uint8_t)code;\n",
+		"\treturn code > 255u ? 255u : (uint8_t)code;\n",
+		"sec 676: 255 is unknown, so no real accuracy may encode to it; location_test's saturation check catches it",
+	),
+	(
+		"location-degrade-marks-coarse",
+		"location/location.c",
+		"\t\tfix->lon_e7 = -FZN_LOCATION_LON_E7_MAX;\n\tfix->is_coarse = 1;\n",
+		"\t\tfix->lon_e7 = -FZN_LOCATION_LON_E7_MAX;\n",
+		"sec 676: a degraded fix says so on the wire, or a reader takes a grid point for a measurement; location_test's grid checks catch it",
+	),
+	(
+		"location-grid-half-away",
+		"location/location.c",
+		"\tint64_t r = x >= 0 ? ((x + g / 2) / g) * g : -(((-x) + g / 2) / g) * g;\n",
+		"\tint64_t r = ((x + g / 2) / g) * g;\n",
+		"sec 676: rounding south and west toward zero biases every degraded fix one way; location_test's south-and-west check catches it",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

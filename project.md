@@ -67590,3 +67590,64 @@ is.
 follower reading the store directly, is still left as sec 669 says. What
 fzpd needs next is not more mechanism but the moves sec 672 orders:
 location, then stickers, then the rest.
+
+## 676. Location into fuzznet, step a: a fix's codec, scales and grids, 2026-10-21
+
+The first of sec 672's moves, in three steps: (a) the library, here; (b)
+verbs that write a fix's renditions into sec 632's `location` stream and
+read them back; (c) the gpsd source and its sampling, under settings.
+
+**Read first**, at fuzzypickles d02897b: their `core/src/location.c` and
+`location_internal.h`, `daemon/gpsd_source.h`, and their sec 284 step 3s.
+Two findings set the format.
+- **No fuzznet stream holds a fix.** Step 3s keeps `location_show`
+  guarded because nothing writes fixes into fuzznetd's stream.
+- **No client reads the raw bytes.** fzpd's clients reach fixes through
+  its control calls, never as stream hex.
+
+So the record is fuzznet's to define, with nothing deployed to break,
+and no question for the holder.
+
+**Built: `location/`**, `location.h` and `location.c`, no network.
+- **The fix, 19 bytes, as `location/fix.situ`**, a checked contract like
+  every hand-written layout here: latitude and longitude in 1e-7 degrees,
+  seconds since the epoch, altitude, bearing, two horizontal accuracy
+  axes and a vertical one, and a flags byte. The fields are fuzzypickles'
+  in meaning and order. **Big-endian**, where theirs was little-endian,
+  as this tree's rule has it.
+- **Two refusals theirs did not make.** A decode refuses any length but
+  19, where theirs took anything at least that long. It also refuses a
+  flag bit beyond the three defined, which the schema bounds at 7.
+- **Carried over unchanged:**
+  - coordinates out of range refused on encode and on decode;
+  - absent fields written as zero;
+  - the accuracy scale, 16 codes an octave, integer only, 255 for
+    unknown;
+  - the worse axis as the gate's one number, an unknown axis the worst;
+  - the bearing at 360/255 degrees a step, rounded both ways;
+  - the grids, 0.01 and 0.1 degree, rounded half away from zero, clamped
+    at the poles and the antimeridian, marked coarse.
+
+**Measured on the way: "within about 7%" holds only below saturation.**
+Their comment says an accuracy round-trips within about 7%. Code 254
+decodes to 61440 m, so every accuracy past that comes back as 61440. The
+first version of the test swept to 100000 m and found 38% off. Below
+saturation the worst case is under 6.25%. The header and the test now
+both say so.
+
+**Tested** by `location/test/location_test.c`:
+- the bytes big-endian at the schema's offsets, a negative altitude
+  included, and a round trip;
+- a short buffer and a wrong length refused;
+- absent fields zero, an undefined flag refused;
+- the poles and the antimeridian accepted, one past each refused,
+  encoding and decoding;
+- the accuracy scale within 7% for every metre up to saturation, and
+  saturated past it;
+- the worse axis, and the bearing;
+- each grid, half away from zero to the south and west, and the
+  antimeridian clamp.
+
+**Also:** `situc` solves `fix.situ` at 19 bytes. `location/location.h` is
+installed and included by `tool/consumer_check.c`. Six sabotage entries
+cover `location.c`.

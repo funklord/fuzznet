@@ -294,3 +294,4 @@ __pycache__/
 /.qtty-*/
 /node/test/ext_daemon
 /node/test/types_test
+/location/test/location_test

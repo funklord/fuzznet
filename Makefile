@@ -184,6 +184,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              catalog/copy.c catalog/filing.c catalog/purge.c \
              catalog/shard.c catalog/materialise.c catalog/source.c \
              catalog/index.c \
+             location/location.c \
              persist/persist.c \
              spool/spool.c \
              spool/plan.c \
@@ -281,6 +282,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              catalog/copy.h catalog/filing.h catalog/purge.h \
              catalog/shard.h catalog/materialise.h catalog/source.h \
              catalog/index.h \
+             location/location.h \
              persist/persist.h \
              spool/spool.h spool/message.h spool/transfer.h \
              spool/scrub.h \
@@ -385,7 +387,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              wire/test/tamper_test.c \
              session/test/random_test.c local/test/vocabulary_test.c \
              local/test/client_test.c local/test/escape_test.c \
-             node/test/types_test.c \
+             node/test/types_test.c location/test/location_test.c \
              node/test/peer_persist_test.c \
              node/test/identity_test.c node/test/heard_test.c node/test/events_test.c \
              node/test/routing_test.c node/test/contact_devices_test.c \
@@ -509,6 +511,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/local/test/client_test \
              $(BUILD_DIR)/local/test/escape_test \
              $(BUILD_DIR)/node/test/types_test \
+             $(BUILD_DIR)/location/test/location_test \
              $(BUILD_DIR)/node/test/peer_persist_test \
              $(BUILD_DIR)/node/test/identity_test \
              $(BUILD_DIR)/node/test/heard_test \
@@ -4384,6 +4387,12 @@ $(BUILD_DIR)/node/test/types_test: $(BUILD_DIR)/node/test/types_test.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# A position fix, sec 676.
+$(BUILD_DIR)/location/test/location_test: $(BUILD_DIR)/location/test/location_test.o \
+                                          $(BUILD_DIR)/location/location.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/local/test/vocabulary_test: $(BUILD_DIR)/local/test/vocabulary_test.o \
                                           $(BUILD_DIR)/local/vocabulary.o \
                                           $(BUILD_DIR)/local/peer.o \
@@ -6093,7 +6102,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               log/entry.situ log/cause.situ log/gather.situ chunk/piece.situ \
               node/heard.situ node/routing.situ node/contact_devices.situ \
               node/contact_card.situ node/contact_request.situ node/group_act.situ \
-              node/group_line.situ
+              node/group_line.situ location/fix.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #
