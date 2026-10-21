@@ -10134,9 +10134,9 @@ static int pair_device(const fzn_node_identity_t *id, const fzn_node_config_t *c
  * THE FACE IS THE PROCESS HOLDING THE CLAIM on its core directory (sec 132;
  * `claim/`): it alone runs the remote hop, the rounds and signing. Another
  * fuzznet daemon of the same identity started beside it is a FOLLOWER: it
- * serves its own local socket and forwards every request to the face --
- * whose socket the face writes into `face` in the core directory -- passing
- * the answer back; it writes nothing to the store. Each second it tries the
+ * serves its own local socket and passes every connection through to the
+ * face's -- whose socket the face writes into `face` in the core directory
+ * -- events included (sec 669); it writes nothing to the store. Each second it tries the
  * claim, and taking it starts again in place, to boot as the face. */
 #define FACE_FILE "face"
 
@@ -10175,9 +10175,21 @@ static void face_path_of(const char *core_dir, char *out, size_t cap)
 	(void)snprintf(out, cap, "%s/" FACE_FILE, core_dir);
 }
 
+/* A WRITE TO A PEER THAT HAS GONE is EPIPE, not SIGPIPE: a client that
+ * closes before its answer must not stop the follower, as sec 666 stage 2
+ * measured it could. */
+static ssize_t follow_send(int fd, const void *buf, size_t len)
+{
+#ifdef MSG_NOSIGNAL
+	return send(fd, buf, len, MSG_NOSIGNAL);
+#else
+	return write(fd, buf, len);
+#endif
+}
+
 static void say_to(int fd, const char *text)
 {
-	(void)!write(fd, text, strlen(text));
+	(void)follow_send(fd, text, strlen(text));
 }
 
 /* WHERE THE FACE SERVES, as it wrote: 1 with its socket's path in `out`. */
@@ -10198,57 +10210,107 @@ static int face_socket(const char *core_dir, char *out, size_t cap)
 	return n > 0u && out[0] == '/';
 }
 
-/* ONE REQUEST from `cfd`, forwarded and answered. A client of another user
- * is refused here: the face judges the follower, which is this user, so a
- * stranger forwarded would be served as this user. */
-static void follow_one(int cfd, const fzn_peer_t *peer, const char *core_dir)
+/* ONE CONNECTION PASSED THROUGH: a client's, and the follower's own to the
+ * face, the bytes copied each way as they come -- so a request is answered
+ * as the face answers it, and `get events` streams as long as either end
+ * holds it open. Each direction holds what the other end has not yet taken,
+ * and is read again only once that is written: a slow reader holds its own
+ * connection back and no other. */
+#define FOLLOW_MAX 64u
+#define FOLLOW_BUF 4096u
+
+typedef struct {
+	int fd[2];			/* 0 the client, 1 the face */
+	uint8_t buf[2][FOLLOW_BUF];	/* [d] read from fd[d], for fd[!d] */
+	size_t len[2], off[2];
+	int eof[2];			/* fd[d] said its last */
+	int shut[2];			/* fd[d]'s writing half shut */
+} follow_t;
+
+static follow_t follows[FOLLOW_MAX];
+static size_t follows_n;
+
+static void follow_drop(size_t k)
 {
-	uint8_t line[FZN_REQUEST_MAX + 2u], reply[1u << 17];
+	(void)close(follows[k].fd[0]);
+	(void)close(follows[k].fd[1]);
+	follows[k] = follows[--follows_n];
+}
+
+/* A CLIENT ACCEPTED: joined to a connection of its own to the face. A client
+ * of another user is refused here: the face judges the follower, which is
+ * this user, so a stranger passed through would be served as this user. */
+static void follow_open(int cfd, const fzn_peer_t *peer, const char *core_dir)
+{
 	char face[1100];
-	size_t got = 0, reply_len = 0, i;
 	int ffd = -1;
+	follow_t *f;
 
 	if (peer->uid != (uint32_t)getuid()) {
 		say_to(cfd, "denied a follower serves its own user alone\n");
+		(void)close(cfd);
 		return;
 	}
-	while (got < sizeof(line)) {
-		ssize_t n = read(cfd, line + got, sizeof(line) - got);
-
-		if (n <= 0)
-			return;
-		got += (size_t)n;
-		if (memchr(line, '\n', got))
-			break;
-	}
-	for (i = 0; i < got && line[i] != '\n'; i++)
-		;
-	if (i == got) {
-		say_to(cfd, "malformed a request is one line\n");
-		return;
-	}
-	if (i >= 10u && memcmp(line, "get events", 10u) == 0) {
-		say_to(cfd, "unsupported a follower forwards requests, not events: ask the face\n");
+	if (follows_n == FOLLOW_MAX) {
+		say_to(cfd, "error a follower holds as many connections as it can\n");
+		(void)close(cfd);
 		return;
 	}
 	if (!face_socket(core_dir, face, sizeof(face))
 	    || fzn_client_connect(face, &ffd) != FZN_CLIENT_OK) {
 		say_to(cfd, "error the face is not answering\n");
+		(void)close(cfd);
 		return;
 	}
-	/* THE LINE AS IT CAME, its newline included. */
-	if (write(ffd, line, i + 1u) != (ssize_t)(i + 1u)
-	    || fzn_client_recv(ffd, reply, sizeof(reply) - 1u, &reply_len, 30000u) != FZN_CLIENT_OK)
-		say_to(cfd, "error the face did not answer\n");
-	else {
-		reply[reply_len++] = '\n';
-		(void)!write(cfd, reply, reply_len);
+	(void)fcntl(cfd, F_SETFL, fcntl(cfd, F_GETFL) | O_NONBLOCK);
+	(void)fcntl(ffd, F_SETFL, fcntl(ffd, F_GETFL) | O_NONBLOCK);
+	f = &follows[follows_n++];
+	memset(f, 0, sizeof(*f));
+	f->fd[0] = cfd;
+	f->fd[1] = ffd;
+}
+
+/* ONE STEP of a connection, its descriptors' events in `ev`: 0 to keep it,
+ * -1 when it is done. */
+static int follow_step(follow_t *f, const short ev[2])
+{
+	int d;
+
+	for (d = 0; d < 2; d++) {
+		int to = !d;
+
+		if (!f->len[d] && !f->eof[d] && (ev[d] & (POLLIN | POLLHUP | POLLERR))) {
+			ssize_t n = read(f->fd[d], f->buf[d], sizeof(f->buf[d]));
+
+			if (n > 0) {
+				f->len[d] = (size_t)n;
+				f->off[d] = 0;
+			} else if (n == 0 || (errno != EAGAIN && errno != EINTR))
+				f->eof[d] = 1;
+		}
+		while (f->len[d]) {
+			ssize_t n = follow_send(f->fd[to], f->buf[d] + f->off[d], f->len[d]);
+
+			if (n < 0) {
+				if (errno == EAGAIN || errno == EINTR)
+					break;
+				return -1;	/* the other end is gone */
+			}
+			f->off[d] += (size_t)n;
+			f->len[d] -= (size_t)n;
+		}
+		/* WHAT ONE END SAID LAST, passed on as the other's end of input. */
+		if (f->eof[d] && !f->len[d] && !f->shut[to]) {
+			(void)shutdown(f->fd[to], SHUT_WR);
+			f->shut[to] = 1;
+		}
 	}
-	fzn_client_close(ffd);
+	return f->eof[0] && f->eof[1] && !f->len[0] && !f->len[1] ? -1 : 0;
 }
 
 static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_t *claim)
 {
+	static struct pollfd pfd[1u + 2u * FOLLOW_MAX];
 	int lfd = -1;
 
 	if (!sock_path) {
@@ -10262,20 +10324,49 @@ static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_
 	}
 	fprintf(stderr, "fuzznetd: following the face of %s, serving on %s\n", core_dir, sock_path);
 	for (;;) {
-		struct pollfd pfd = { lfd, POLLIN, 0 };
-		int r = poll(&pfd, 1, 1000);
+		size_t k, n = follows_n;
+		int r;
 
-		if (r > 0 && (pfd.revents & POLLIN)) {
+		pfd[0].fd = lfd;
+		pfd[0].events = POLLIN;
+		for (k = 0; k < n; k++) {
+			follow_t *f = &follows[k];
+			int d;
+
+			for (d = 0; d < 2; d++) {
+				struct pollfd *p = &pfd[1u + 2u * k + (size_t)d];
+
+				p->fd = f->fd[d];
+				p->events = 0;
+				if (!f->len[d] && !f->eof[d])
+					p->events |= POLLIN;
+				if (f->len[!d])
+					p->events |= POLLOUT;
+				/* NOTHING ASKED OF IT, so not polled: a closed end
+				 * reports POLLHUP whether asked or not, and would
+				 * spin the loop. */
+				if (!p->events)
+					p->fd = -1;
+			}
+		}
+		r = poll(pfd, 1u + 2u * n, 1000);
+		/* BACKWARD, so a connection dropped moves one already stepped. */
+		for (k = n; r > 0 && k-- > 0;) {
+			short ev[2] = { pfd[1u + 2u * k].revents, pfd[2u + 2u * k].revents };
+
+			if ((ev[0] | ev[1]) && follow_step(&follows[k], ev) < 0)
+				follow_drop(k);
+		}
+		if (r > 0 && (pfd[0].revents & POLLIN)) {
 			int cfd = -1;
 			fzn_peer_t peer;
 
-			if (fzn_socket_accept(lfd, &cfd, &peer) == FZN_SOCKET_OK) {
-				follow_one(cfd, &peer, core_dir);
-				(void)close(cfd);
-			}
+			if (fzn_socket_accept(lfd, &cfd, &peer) == FZN_SOCKET_OK)
+				follow_open(cfd, &peer, core_dir);
 		}
 		/* THE FACE GONE, its claim released: this process starts again as
-		 * the face. */
+		 * the face, its clients' connections closed with every other
+		 * descriptor. */
 		if (fzn_claim_take(claim) == FZN_CLAIM_OK) {
 			fprintf(stderr, "fuzznetd: the face is gone; starting again as the face\n");
 			return start_again(lfd, sock_path);

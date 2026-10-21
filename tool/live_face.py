@@ -8,11 +8,16 @@ One store, two fuzznetd processes on it, each with a socket of its own.
        serves into the store's `face`
     b  B, started second, cannot take it and follows: `status` asked on B's
        socket is answered by A, and a setting written through B is A's
+    b2 `get events` asked on B's socket streams A's events, and B answers
+       another client while it holds the stream (sec 669)
+    b3 thirty clients that close before their answers leave B serving
     c  A stopped, B takes the claim within seconds and starts again as the
        face, serving its own socket
 
 Against a daemon that takes no claim, B boots a second writer on A's store
-and phase b's `status` comes from B itself, not A.
+and phase b's `status` comes from B itself, not A. Against sec 667's
+follower, which refused events, phase b2 fails; against one writing to its
+clients with write(2), SIGPIPE ends B in phase b3.
 
 BOUNDED FROM INSIDE: one deadline; each daemon in its own process group,
 stopped by SIGTERM then SIGKILL, and checked gone.
@@ -131,6 +136,60 @@ def main(argv):
 			if ask(socks["a"], "get setting host x/through").split()[:1] != ["ok"]:
 				raise failed("b: A does not hold the setting written through B")
 			print("livecheck: b: B followed, its status and a setting written through it A's")
+
+			# EVENTS THROUGH B, with a request beside them: the follower holds
+			# the subscriber's connection open to the face and passes each
+			# event as it comes, while it answers another client.
+			sub = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+			sub.settimeout(10.0)
+			sub.connect(socks["b"])
+			sub.sendall(b"get events\n")
+			held = b""
+
+			def sub_line():
+				nonlocal held
+				until = time.monotonic() + 10.0
+				while b"\n" not in held:
+					if time.monotonic() > until:
+						raise failed("b2: no line on B's events within 10 s (held %r)" % held)
+					got = sub.recv(4096)
+					if not got:
+						raise failed("b2: B's events closed (held %r)" % held)
+					held += got
+				line, held = held.split(b"\n", 1)
+				return line.decode(errors="replace")
+
+			first = sub_line()
+			if first != "ok events":
+				raise failed("b2: `get events` through B answered %r" % first)
+			if not ask(socks["b"], "status").startswith("ok "):
+				raise failed("b2: B did not answer status while holding events open")
+			if ask(socks["a"], "set setting host x/evented 1") != "ok":
+				raise failed("b2: a setting written through A was refused")
+			ev = sub_line()
+			if ev != "event setting -":
+				raise failed("b2: B passed %r, not the setting's event" % ev)
+			sub.close()
+			print("livecheck: b2: events streamed through B, and B answered beside them")
+
+			# CLIENTS THAT LEAVE BEFORE THEIR ANSWER: the follower's write to
+			# each is to a closed socket, which must not stop it.
+			for _ in range(30):
+				c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+				try:
+					c.connect(socks["b"])
+					c.sendall(b"status\n")
+				except OSError as e:
+					raise failed("b3: B stopped taking clients (%s); it exited %r"
+					             % (e, b.poll()))
+				finally:
+					c.close()
+			time.sleep(1.0)
+			if b.poll() is not None:
+				raise failed("b3: B exited %r after clients left early" % b.returncode)
+			if not ask(socks["b"], "status").startswith("ok "):
+				raise failed("b3: B did not answer after clients left early")
+			print("livecheck: b3: thirty clients left before their answers, and B served on")
 
 			pid_b = b.pid
 			stop(a)

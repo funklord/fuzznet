@@ -67050,8 +67050,9 @@ duplicated core goes.
   socket and forwards each request line to the face's, passing the
   answer back. It refuses a client of another user -- the face would
   judge the follower, which is this user, so a stranger forwarded would be
-  served as this user -- and refuses `get events`, a stream rather than a
-  request, pointing at the face. It writes nothing to the store.
+  served as this user -- and ~~refuses `get events`, a stream rather than a
+  request, pointing at the face~~ (passes it through since sec 669). It
+  writes nothing to the store.
 - **Taking over.** A follower tries the claim each second; the kernel
   releases it when the face dies, crash included, and taking it the
   follower starts again in place (`start_again`, sec 638) and boots as the
@@ -67083,9 +67084,9 @@ not made.
   or `set admin` a waiting follower may take it and the two swap. Either
   is a correct face; carrying the descriptor across the exec would keep
   the role, and is not built.
-- **A follower forwards one request at a time**, each over its own
-  connection to the face; reads from the shared store directly are stage
-  2.
+- ~~**A follower forwards one request at a time**, each over its own
+  connection to the face~~ -- several connections at once since sec
+  669; reads from the shared store directly are stage 2's other half.
 - **One-shot commands** (`--prekey`, `--new-root`, ...) take no claim.
 
 ## 668. One %XX escape, exported: `local/escape.h`, 2026-10-21
@@ -67111,3 +67112,50 @@ escape, a bound on the output, an escape at the very end, and a stop at
 the byte that did not fit -- beside the module suites, which pass
 unchanged. A first count in the test was wrong by two, and the compiler's
 bound warning said so before the check did.
+
+## 669. A follower passes connections through, events included, and survives a client that leaves, 2026-10-21
+
+The first half of sec 666's stage 2, taken first because a follower that
+serves one request at a time cannot carry a stream, and both halves need
+the loop rebuilt.
+
+**Built:**
+
+- **Connections passed through, not requests forwarded.** Each client a
+  follower accepts (its own user's, as before) is joined to a connection
+  of the follower's own to the face, and bytes are copied each way as
+  they come, up to 64 such pairs at once in one `poll` loop. So a request
+  is answered exactly as the face answers it, and **`get events` streams
+  through a follower** for as long as either end holds it open -- sec
+  667's refusal is gone. Each direction holds at most 4 KiB the other end
+  has not taken and is read again only once that is written, so a slow
+  reader holds back its own connection and no other. One end's last word
+  is passed on as a half-close of the other, so a client that half-closes
+  after its request still gets its answer.
+- **A client that leaves before its answer no longer stops the
+  follower.** Sec 667's follower wrote replies with `write(2)`, and a
+  client gone by then raised SIGPIPE, whose default ends the process --
+  the same fault `node/local.c` fixed for the face long ago. **Measured**:
+  sec 667's binary exited -13 within thirty such clients. And the socket
+  is mode 0777 with the refusal of another user itself a write, so any
+  local user who connected and closed could have stopped it. Every write
+  is a `send` with `MSG_NOSIGNAL` now.
+
+**Measured on the way**: a closed end reports POLLHUP whether or not it
+was asked for, so a pair with nothing asked of one end would have spun
+the loop; such an end is left out of the poll set.
+
+**Tested by `tool/live_face.py`**, two phases added: b2 asks `get events`
+through B, gets `ok events`, has B answer `status` to another client
+while the stream is held, and reads `event setting -` for a setting
+written through A; b3 sends thirty `status` requests through B from
+clients that close at once, and B must still be serving. **Controls**:
+sec 667's binary fails b2 on its refusal, and with b2 skipped fails b3,
+B gone with -13; this code with `MSG_NOSIGNAL` swapped for `write(2)`
+fails b3 the same way. `tool/sabotage.py` drives `make test`, which does
+not run a follower, so the controls were run by hand.
+
+**Not yet**: the second half of stage 2, a follower answering reads from
+the store itself. It needs the node's state loaded by a process that
+must not write, and kept current with a face that writes it; with the
+face a local socket away, what it saves is one hop.
