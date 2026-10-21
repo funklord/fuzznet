@@ -108,7 +108,10 @@ binding needs the consumer's own Monocypher, and `monocypher-source` and
 `monocypher-include` say what of it, relative to that checkout's root; a
 backend and a subsystem each carry the define that switches them on. A
 `link` line names a backend's source and what that backend needs on the
-consumer's link line -- `log/pack.c` needs libzstd.
+consumer's link line -- `log/pack.c` needs libzstd. A `daemon` line is
+fuzznetd's node as a call, `fzn_daemon_main` in `node/daemon.h`, for a
+consumer running its own daemon of the node: it takes every backend, the
+`cli/` subsystem and the binding beside it.
 
 Nothing is checked in, because a generated list that gets committed is
 the stale copy it exists to prevent, and `make installcheck` compiles a

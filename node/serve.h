@@ -2,7 +2,8 @@
  * provisioned peers and crypto it needs. A per-user node sets listen_fd and
  * leaves udp_fd at -1; a node that also answers the network sets both and
  * fills the remote fields. Assemble a fzn_node_state_t and call fzn_node_run;
- * fuzznetd.c is the daemon that does exactly that from its arguments.
+ * daemon.c (`fzn_daemon_main`, which fuzznetd calls) does exactly that from
+ * its arguments.
  *
  * The loop body fzn_node_run_once is exposed so a test can drive one
  * poll-and-dispatch iteration over real sockets without a running daemon and

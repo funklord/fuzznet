@@ -1693,6 +1693,12 @@ MONO_NADM  := $(BUILD_DIR)/node/test/admin_test
 # And it takes fuzznet's options through cli/, the one parser the config
 # dialog also types at (sec 140), so it is built only when cli/ is. sec 376.
 FUZZNETD   := $(if $(CLI_ON),$(BUILD_DIR)/fuzznetd)
+# AND THE NODE IT RUNS IS A CALL, fzn_daemon_main (sec 670), so a consumer
+# running its own daemon takes it beside the rest: under the same two
+# conditions as fuzznetd, the binding this block is and cli/.
+DAEMON_SRCS := $(if $(CLI_ON),node/daemon.c)
+SRCS       += $(DAEMON_SRCS)
+HDRS       += $(if $(CLI_ON),node/daemon.h)
 OBJS       += $(MONO_OBJS)
 TEST_OBJS  += $(MONO_TOBJ)
 TEST_BINS  += $(MONO_BIN) $(MONO_HASH) $(MONO_AEAD) $(MONO_AGREE) $(MONO_GOLD) \
@@ -4237,7 +4243,7 @@ FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/node/files.o \
 
 # The fuzznetd daemon. Its main() is in node/, so the pattern rule resolves
 # "serve.h" without -Inode.
-$(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(NODE_SERVE_OBJS) \
+$(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(BUILD_DIR)/node/daemon.o $(NODE_SERVE_OBJS) \
               $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \
               $(BUILD_DIR)/node/identity.o $(BUILD_DIR)/node/pair.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
@@ -6965,6 +6971,7 @@ manifest:
 	@# one where the tree has sixteen went unnoticed. The sabotage census
 	@# reads them now. project.md sec 225.
 	@$(if $(CLI_ON),for c in $(CLI_SRCS); do echo "subsystem $$c FZN_CLI_ON"; done;)
+	@for c in $(DAEMON_SRCS); do echo "daemon $$c"; done
 	@$(if $(GUI_ON),for c in $(GUI_SRCS); do \
 		echo "subsystem $$c FZN_GUI_ON against $(FZN_PROBE_QT)"; done;)
 	@$(if $(SPOOL_FILE_ON),echo "backend spool/spool_file.c FZN_SPOOL_FILE_ON";)

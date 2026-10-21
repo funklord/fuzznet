@@ -67159,3 +67159,38 @@ not run a follower, so the controls were run by hand.
 the store itself. It needs the node's state loaded by a process that
 must not write, and kept current with a face that writes it; with the
 face a local socket away, what it saves is one hop.
+
+## 670. Stage 3 of sec 666: fuzznetd's node is a call, `fzn_daemon_main`, 2026-10-21
+
+**Built: a move with no change to what runs.** What was
+`node/fuzznetd.c` is `node/daemon.c`, and its `main` is
+`fzn_daemon_main(argc, argv, ext)`, declared in `node/daemon.h`.
+`node/fuzznetd.c` is now fuzznetd's `main`, three lines that call it with
+no extension. The move's whole diff against the old file is four hunks:
+a paragraph in the header comment, the include of `daemon.h`, the
+signature, and `(void)ext`. `fzn_daemon_ext_t` is declared and not
+defined, so NULL is the only extension there is until stage 4 defines it.
+
+**Once per process**, as `node/daemon.h` says. It reads its options from
+`argv` as fuzznetd's command line, keeps `argv` to start again in place
+(sec 638, and the claim takeover of sec 667, both re-exec
+`/proc/self/exe`, so a consumer's own daemon is the program that starts
+again), installs signal handlers and an `atexit`, and does not return
+while it serves.
+
+**For a consumer**: `node/daemon.c` is in `SRCS` and `node/daemon.h` in
+`HDRS` under the same two conditions as fuzznetd itself, the binding and
+`cli/`, so `make` builds it and `make install` installs the header. The
+manifest names the source with a new kind, `daemon node/daemon.c`, which
+README.md describes: it takes every backend, the `cli/` subsystem and the
+binding beside it. `tool/consumer_check.c` includes the header in both
+forms and takes `fzn_daemon_main`'s address where cli/ and the binding
+are both on, so an installcheck arm that compiles `SRCS` fails to link if
+the source drops out of the list. **Control**: `make installcheck
+DAEMON_SRCS=` fails on `undefined reference to fzn_daemon_main`. It
+passed with the first version, whose pointer was a constant known not to
+be NULL, so `-Os` folded the check and the reference away; the pointer
+is `volatile` now.
+
+**Proved by the gates and livecheck**, run against the split; it moves
+code and no test changed. fuzzypickles' fzpd can now be a call to it.

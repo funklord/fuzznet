@@ -174,6 +174,7 @@
 #include <fuzznet/node/reconcile.h>
 #ifdef FZN_CLI_ON
 #include <fuzznet/cli/cli.h>
+#include <fuzznet/node/daemon.h>
 #endif
 #include <fuzznet/chain/revocation.h>
 #include <fuzznet/chunk/reassembly.h>
@@ -369,6 +370,7 @@
 #include "node/reconcile.h"
 #ifdef FZN_CLI_ON
 #include "cli/cli.h"
+#include "node/daemon.h"
 #endif
 #include "chain/revocation.h"
 #include "chunk/reassembly.h"
@@ -3627,6 +3629,22 @@ int main(void)
 		if (mark[0] == 0u || mark[1] != 0u)
 			FAIL(24);
 	}
+
+#if defined(FZN_CLI_ON) && defined(FZN_CONSUMER_MONOCYPHER)
+	/* THE NODE AS A CALL, sec 670: taken by its address rather than run,
+	 * since running it serves for ever. The arrangements that have cli/ and
+	 * the binding compile node/daemon.c, so this fails to link where one
+	 * leaves it out; daemon.c including the header is what holds the two
+	 * to one signature. VOLATILE, because a pointer known not to be NULL
+	 * is folded away at -Os and the reference with it: measured, the arm
+	 * linked with node/daemon.c left out until it was. */
+	{
+		int (*volatile run)(int, char **, const fzn_daemon_ext_t *) = fzn_daemon_main;
+
+		if (!run)
+			FAIL(572);
+	}
+#endif
 
 #ifdef FZN_CONSUMER_MONOCYPHER
 	/* One call through each binding, which is this file's standard: enough
