@@ -55,6 +55,7 @@
 #include "../claim/claim.h"
 #include "../local/client.h"
 #include "../local/escape.h"
+#include "../location/location.h"
 #ifdef FZN_CLAIM_FILE_ON
 #include "../claim/claim_file.h"
 #endif
@@ -359,6 +360,8 @@ static size_t address_local(const fzn_request_t *request, char *reply, size_t ca
 static size_t link_local(const fzn_request_t *request, char *reply, size_t cap);
 static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap);
+static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                             size_t cap);
 static size_t device_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                            size_t cap);
 static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
@@ -400,6 +403,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = link_local(request, reply, reply_cap);
 	if (!n)
 		n = streams_local(origin, request, reply, reply_cap);
+	if (!n)
+		n = location_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = device_local(origin, request, reply, reply_cap);
 	if (!n)
@@ -8406,6 +8411,197 @@ static size_t device_local(fzn_origin_t origin, const fzn_request_t *request, ch
  *                                     this user's own
  *     list stream NAME                `ok COUNT ORIGIN,SEQ,AT,HEX[,HEX...]
  *                                     ...`, the newest 16 held of each host */
+/* ---- location, sec 676 ----------------------------------------------------
+ *
+ * A FIX IS A RECORD OF sec 632's `location` STREAM, written at its three
+ * levels -- exact, a 0.01 degree grid, a 0.1 degree one (`location/
+ * location.h`) -- so a contact granted a level is given that rendition and
+ * never a finer one, by the stream's own grants:
+ *
+ *   add location LAT LON [alt M] [bearing D] [acc E N] [vacc V] [at UTC]
+ *       a fix of this host's, LAT and LON in degrees with at most seven
+ *       places; altitude in metres, bearing in degrees, accuracy east-west
+ *       and north-south in metres (unknown when not said), vertical
+ *       accuracy only beside an altitude; UTC, seconds, now when not said.
+ *       `ok SEQ`. What a pin dropped by hand, or a platform's own location
+ *       service, hands the node; gpsd's sampling writes the same.
+ *   list location
+ *       `ok` and a row a fix held, the newest sixteen of each host -- this
+ *       one's at their finest, a contact's at the level it was given:
+ *       `HOST,SEQ,AT,LAT,LON,UTC,ALT,BEARING,ACC_E,ACC_N,ACC_V,COARSE`,
+ *       HOST its first eight bytes in hex, `-` for what the fix lacks,
+ *       accuracy in metres, COARSE 1 for a degraded fix. A record that is
+ *       no fix is left out.
+ *
+ * This node's own user only, as the stream verbs are. */
+#define FZND_LOCATION_STREAM "location"
+#define FZND_LOCATION_STREAM_LEN 8u
+
+/* A WORD as a whole number from `lo` to `hi`. */
+static int word_number(const uint8_t *w, size_t n, long long lo, long long hi, long long *out)
+{
+	long long v = 0;
+	size_t i = 0;
+	int neg = 0;
+
+	if (n && w[0] == '-') {
+		neg = 1;
+		i = 1;
+	}
+	if (i == n || n - i > 12u)
+		return 0;
+	for (; i < n; i++) {
+		if (w[i] < '0' || w[i] > '9')
+			return 0;
+		v = v * 10 + (w[i] - '0');
+	}
+	if (neg)
+		v = -v;
+	if (v < lo || v > hi)
+		return 0;
+	*out = v;
+	return 1;
+}
+
+static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                             size_t cap)
+{
+	static fzn_stream_record_t r;
+	static uint8_t heads[256][32];
+	const uint8_t *at = request->arg, *subject, *w, *v;
+	size_t left = request->arg_len, subject_len, w_len, v_len;
+
+	if (!at || !next_word(&at, &left, &subject, &subject_len) || subject_len != 8u
+	    || memcmp(subject, "location", 8u) != 0)
+		return 0;
+	if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_LIST)
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return (size_t)snprintf(reply, cap, "denied a location is this node's own user's\n");
+	if (!node_streams.store || !contact_id)
+		return (size_t)snprintf(reply, cap, "error this node keeps no streams\n");
+	if (request->parsed == FZN_VERB_ADD) {
+		fzn_location_fix_t fix;
+		long long n1, n2;
+		unsigned level;
+		int vacc_said = 0;
+
+		memset(&fix, 0, sizeof(fix));
+		fix.acc_e = fix.acc_n = (uint8_t)FZN_LOCATION_ACC_UNKNOWN;
+		if (!next_word(&at, &left, &w, &w_len)
+		    || !fzn_location_degrees_parse((const char *)w, w_len, FZN_LOCATION_LAT_E7_MAX,
+		                                   &fix.lat_e7)
+		    || !next_word(&at, &left, &w, &w_len)
+		    || !fzn_location_degrees_parse((const char *)w, w_len, FZN_LOCATION_LON_E7_MAX,
+		                                   &fix.lon_e7))
+			return (size_t)snprintf(reply, cap, "malformed add location LAT LON, in degrees\n");
+		fix.utc_s = (uint32_t)wall_clock();
+		while (next_word(&at, &left, &w, &w_len)) {
+			if (!next_word(&at, &left, &v, &v_len))
+				return (size_t)snprintf(reply, cap, "malformed %.*s without its value\n",
+				                        (int)w_len, (const char *)w);
+			if (w_len == 3u && memcmp(w, "alt", 3u) == 0
+			    && word_number(v, v_len, -32768, 32767, &n1)) {
+				fix.alt_m = (int16_t)n1;
+				fix.has_alt = 1;
+			} else if (w_len == 7u && memcmp(w, "bearing", 7u) == 0
+			           && word_number(v, v_len, 0, 359, &n1)) {
+				fix.bearing = fzn_location_bearing_encode((uint16_t)n1);
+				fix.has_bearing = 1;
+			} else if (w_len == 3u && memcmp(w, "acc", 3u) == 0
+			           && word_number(v, v_len, 0, 0xffffffffLL, &n1)
+			           && next_word(&at, &left, &v, &v_len)
+			           && word_number(v, v_len, 0, 0xffffffffLL, &n2)) {
+				fix.acc_e = fzn_location_acc_encode((uint32_t)n1);
+				fix.acc_n = fzn_location_acc_encode((uint32_t)n2);
+			} else if (w_len == 4u && memcmp(w, "vacc", 4u) == 0
+			           && word_number(v, v_len, 0, 0xffffffffLL, &n1)) {
+				fix.acc_v = fzn_location_acc_encode((uint32_t)n1);
+				vacc_said = 1;
+			} else if (w_len == 2u && memcmp(w, "at", 2u) == 0
+			           && word_number(v, v_len, 0, 0xffffffffLL, &n1)) {
+				fix.utc_s = (uint32_t)n1;
+			} else {
+				return (size_t)snprintf(reply, cap, "malformed add location LAT LON [alt M] "
+				                                    "[bearing D] [acc E N] [vacc V] [at UTC]\n");
+			}
+		}
+		if (vacc_said && !fix.has_alt)
+			return (size_t)snprintf(reply, cap, "malformed vacc is an altitude's\n");
+		/* THE THREE LEVELS, each from the exact fix. */
+		memset(&r, 0, sizeof(r));
+		for (level = 0; level < FZN_LOCATION_LEVELS; level++) {
+			fzn_location_fix_t at_level = fix;
+
+			fzn_location_degrade(&at_level, (fzn_location_level_t)level);
+			if (!fzn_location_fix_encode(&at_level, r.rendition[level], FZN_STREAM_RENDITION_MAX))
+				return (size_t)snprintf(reply, cap, "error the fix would not encode\n");
+			r.rendition_len[level] = FZN_LOCATION_FIX_LEN;
+		}
+		r.levels = FZN_LOCATION_LEVELS;
+		r.seq = fzn_streams_last(&node_streams, FZND_LOCATION_STREAM, FZND_LOCATION_STREAM_LEN,
+		                         contact_id->pubkey) + 1u;
+		r.at = wall_clock();
+		if (fzn_streams_keep(&node_streams, FZND_LOCATION_STREAM, FZND_LOCATION_STREAM_LEN,
+		                     contact_id->pubkey, &r) != FZN_STREAMS_OK)
+			return (size_t)snprintf(reply, cap, "error the fix would not keep\n");
+		return (size_t)snprintf(reply, cap, "ok %llu\n", (unsigned long long)r.seq);
+	}
+	if (left)
+		return (size_t)snprintf(reply, cap, "malformed list location\n");
+	{
+		size_t n = 0, out, i;
+		uint64_t last, s;
+
+		out = (size_t)snprintf(reply, cap, "ok");
+		if (fzn_streams_origins(&node_streams, FZND_LOCATION_STREAM, FZND_LOCATION_STREAM_LEN,
+		                        heads, 256u, &n) != FZN_STREAMS_OK)
+			return (size_t)snprintf(reply, cap, "error the stream did not list\n");
+		for (i = 0; i < n; i++) {
+			char host[17];
+
+			last = fzn_streams_last(&node_streams, FZND_LOCATION_STREAM,
+			                        FZND_LOCATION_STREAM_LEN, heads[i]);
+			hex_of(heads[i], 8u, host);
+			for (s = last > 16u ? last - 15u : 1u; last && s <= last && out < cap; s++) {
+				fzn_location_fix_t f;
+				char lat[FZN_LOCATION_DEGREES_TEXT_MAX], lon[FZN_LOCATION_DEGREES_TEXT_MAX];
+				char alt[8] = "-", bearing[8] = "-", ae[12] = "-", an[12] = "-", av[12] = "-";
+
+				if (fzn_streams_get(&node_streams, FZND_LOCATION_STREAM,
+				                    FZND_LOCATION_STREAM_LEN, heads[i], s, &r) != FZN_STREAMS_OK
+				    || !r.levels
+				    || !fzn_location_fix_decode(r.rendition[0], r.rendition_len[0], &f))
+					continue;
+				(void)fzn_location_degrees_text(f.lat_e7, lat);
+				(void)fzn_location_degrees_text(f.lon_e7, lon);
+				if (f.has_alt)
+					(void)snprintf(alt, sizeof(alt), "%d", (int)f.alt_m);
+				if (f.has_bearing)
+					(void)snprintf(bearing, sizeof(bearing), "%u",
+					               (unsigned)fzn_location_bearing_decode(f.bearing));
+				if (f.acc_e != FZN_LOCATION_ACC_UNKNOWN)
+					(void)snprintf(ae, sizeof(ae), "%lu",
+					               (unsigned long)fzn_location_acc_decode(f.acc_e));
+				if (f.acc_n != FZN_LOCATION_ACC_UNKNOWN)
+					(void)snprintf(an, sizeof(an), "%lu",
+					               (unsigned long)fzn_location_acc_decode(f.acc_n));
+				if (f.has_alt && f.acc_v != FZN_LOCATION_ACC_UNKNOWN)
+					(void)snprintf(av, sizeof(av), "%lu",
+					               (unsigned long)fzn_location_acc_decode(f.acc_v));
+				out += (size_t)snprintf(reply + out, cap - out,
+				                        " %s,%llu,%llu,%s,%s,%lu,%s,%s,%s,%s,%s,%u", host,
+				                        (unsigned long long)r.seq, (unsigned long long)r.at, lat,
+				                        lon, (unsigned long)f.utc_s, alt, bearing, ae, an, av,
+				                        (unsigned)f.is_coarse);
+			}
+		}
+		if (out >= cap)
+			return (size_t)snprintf(reply, cap, "error the list does not fit a reply\n");
+		return out + (size_t)snprintf(reply + out, cap - out, "\n");
+	}
+}
+
 static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap)
 {

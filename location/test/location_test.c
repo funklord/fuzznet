@@ -162,6 +162,47 @@ static void test_the_grids(void)
 	CHECK(g.lon_e7 == FZN_LOCATION_LON_E7_MAX, "the antimeridian was rounded past");
 }
 
+static int parses(const char *text, int32_t limit, int32_t want)
+{
+	int32_t got = 12345;
+
+	return fzn_location_degrees_parse(text, strlen(text), limit, &got) == 1 && got == want;
+}
+
+static int refuses(const char *text, int32_t limit)
+{
+	int32_t got = 12345;
+
+	return fzn_location_degrees_parse(text, strlen(text), limit, &got) == 0 && got == 12345;
+}
+
+static void test_degrees_as_text(void)
+{
+	const int32_t LAT = FZN_LOCATION_LAT_E7_MAX, LON = FZN_LOCATION_LON_E7_MAX;
+	char text[FZN_LOCATION_DEGREES_TEXT_MAX];
+
+	CHECK(parses("59.3293230", LAT, 593293230) && parses("59.329323", LAT, 593293230)
+	              && parses("-18", LON, -180000000) && parses("0", LAT, 0)
+	              && parses("-0.0000001", LAT, -1) && parses("180.0000000", LON, LON)
+	              && parses("-90", LAT, -LAT),
+	      "a coordinate in degrees did not parse exactly");
+	CHECK(refuses("", LAT) && refuses("-", LAT) && refuses(".5", LAT) && refuses("5.", LAT)
+	              && refuses("-.5", LAT) && refuses("1.2.3", LAT) && refuses("1e5", LAT)
+	              && refuses("+5", LAT) && refuses("1.00000001", LAT) && refuses(" 5", LAT),
+	      "text that is no coordinate was parsed");
+	CHECK(refuses("90.0000001", LAT) && refuses("-180.0000001", LON) && refuses("91", LAT)
+	              && refuses("99999999999", LON) && refuses("0000000000000001", LAT),
+	      "a coordinate past its limit, or too many digits, was parsed");
+	CHECK(fzn_location_degrees_text(593293230, text) == 10u && strcmp(text, "59.3293230") == 0,
+	      "59.3293230 did not print as itself");
+	CHECK(fzn_location_degrees_text(-1, text) && strcmp(text, "-0.0000001") == 0
+	              && fzn_location_degrees_text(-LON, text) && strcmp(text, "-180.0000000") == 0
+	              && fzn_location_degrees_text(0, text) && strcmp(text, "0.0000000") == 0,
+	      "a small negative, the antimeridian or zero printed wrong");
+	CHECK(fzn_location_degrees_text(-LON, text) + 1u <= FZN_LOCATION_DEGREES_TEXT_MAX,
+	      "the longest text does not fit its bound");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -178,6 +219,7 @@ int main(void)
 	test_the_ranges();
 	test_the_scales();
 	test_the_grids();
+	test_degrees_as_text();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("location_test: %d checks, %d failure(s)\n", checks, failures);

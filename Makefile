@@ -4249,7 +4249,7 @@ FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/node/files.o \
 # The fuzznetd daemon. Its main() is in node/, so the pattern rule resolves
 # "serve.h" without -Inode. FUZZNETD_LINK is everything but that main: the
 # node as a call (sec 670), which another daemon's main links too.
-FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(NODE_SERVE_OBJS) \
+FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/location/location.o $(NODE_SERVE_OBJS) \
               $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \
               $(BUILD_DIR)/node/identity.o $(BUILD_DIR)/node/pair.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \

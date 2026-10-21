@@ -109,4 +109,15 @@ int fzn_location_fix_decode(const uint8_t *in, size_t len, fzn_location_fix_t *o
  * marked coarse. EXACT, or a level not listed, leaves it untouched. */
 void fzn_location_degrade(fzn_location_fix_t *fix, fzn_location_level_t level);
 
+/* DEGREES AS TEXT, exactly, sec 676: `len` bytes of `text` -- an
+ * optional `-`, digits, and at most seven after a point -- to 1e-7
+ * degrees in `*out`, no float between; 1, or 0 for anything else or a
+ * magnitude past `limit_e7` (FZN_LOCATION_LAT_E7_MAX or _LON_E7_MAX). */
+int fzn_location_degrees_parse(const char *text, size_t len, int32_t limit_e7, int32_t *out);
+
+/* AND BACK: `e7` as `-59.3293230`, always seven places, NUL ended, into
+ * `out`, at least FZN_LOCATION_DEGREES_TEXT_MAX bytes; its length. */
+#define FZN_LOCATION_DEGREES_TEXT_MAX 14u
+size_t fzn_location_degrees_text(int32_t e7, char *out);
+
 #endif /* FZN_LOCATION_H */

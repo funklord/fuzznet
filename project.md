@@ -67651,3 +67651,54 @@ both say so.
 **Also:** `situc` solves `fix.situ` at 19 bytes. `location/location.h` is
 installed and included by `tool/consumer_check.c`. Six sabotage entries
 cover `location.c`.
+
+## 677. Location step b: a fix written at its three levels, and listed, 2026-10-21
+
+**Built:**
+- **`add location LAT LON [alt M] [bearing D] [acc E N] [vacc V] [at UTC]`**
+  writes a fix as a record of sec 632's `location` stream, this host's
+  own, at three levels: exact, the 0.01 degree grid and the 0.1 degree
+  grid (sec 676).
+  - The stream's grants then give each reader the level it was granted
+    and never a finer one. This replaces sec 632's "the application writes
+    each record at every level it offers" with the node writing them.
+  - LAT and LON are degrees with at most seven places, parsed exactly to
+    1e-7 degrees by `fzn_location_degrees_parse`, with no floating point.
+  - Accuracy is in metres and unknown when not said. A vertical accuracy
+    needs an altitude. The time is now when not said.
+  - It is what a pin dropped by hand, or a platform's own location
+    service on Android, hands the node. Step c's gpsd sampling will write
+    the same record.
+- **`list location`** answers the newest sixteen fixes of each host held,
+  decoded. This host's are at their finest, and a contact's at the level
+  it was given.
+  - The row is `HOST,SEQ,AT,LAT,LON,UTC,ALT,BEARING,ACC_E,ACC_N,ACC_V,COARSE`,
+    `-` for what the fix lacks.
+  - A record of the stream that is no fix, an app's own bytes, is left
+    out.
+- **`fzn_location_degrees_text`** prints `-59.3293230`, always seven
+  places.
+
+**Tested:**
+- `location_test` checks degrees both ways:
+  - exact values parse, a small negative included;
+  - malformed text is refused: an empty string, a bare sign, a point with
+    no digit on one side, two points, an exponent, a plus sign, an eighth
+    place, a leading space;
+  - values past their limit are refused, and so are too many digits,
+    since ten is all a coordinate has and more would overflow the
+    scaling;
+  - the texts print right.
+- `tool/live_pairing.py` phase g: A adds a fix with every field set and
+  lists it exact; B, a contact granted level 1 in phase f, fetches and
+  lists it at 59.3300000 18.0700000, marked coarse. The two app records
+  before it in the stream are left out at both.
+
+**Control**: a node writing the exact rendition alone fails phase g, B
+being shown A's exact position. That is sec 632's "a reader granted a
+level a record lacks gets its coarsest" seen from the wrong side, and it
+is why the node writes every level. Sabotage entries
+`location-degrees-limit` and `location-degrees-seven-places`.
+
+**Not yet, step c:** gpsd and its sampling, under settings, and the
+status fzpd's `location_status` asked for.

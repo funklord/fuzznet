@@ -12487,6 +12487,20 @@ SABOTAGES = [
 		"\tint64_t r = ((x + g / 2) / g) * g;\n",
 		"sec 676: rounding south and west toward zero biases every degraded fix one way; location_test's south-and-west check catches it",
 	),
+	(
+		"location-degrees-limit",
+		"location/location.c",
+		"\tif (v > limit_e7)\n\t\treturn 0;\n",
+		"",
+		"sec 677: a coordinate past 90 or 180 degrees is no position, and a fix made of it would not encode; location_test's past-its-limit check catches it",
+	),
+	(
+		"location-degrees-seven-places",
+		"location/location.c",
+		"(point && places == 7u) || ",
+		"",
+		"sec 677: an eighth place would be scaled past 1e-7 degrees into a wrong value; location_test's 1.00000001 check catches it",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

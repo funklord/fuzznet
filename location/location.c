@@ -2,6 +2,7 @@
 
 #include "../wire/bytes.h"
 
+#include <stdio.h>
 #include <string.h>
 
 _Static_assert(FZN_LOCATION_OFF_FLAGS + 1u == FZN_LOCATION_FIX_LEN,
@@ -141,6 +142,64 @@ int fzn_location_fix_decode(const uint8_t *in, size_t len, fzn_location_fix_t *o
 	out->acc_n = in[FZN_LOCATION_OFF_ACC_N];
 	out->acc_v = out->has_alt ? in[FZN_LOCATION_OFF_ACC_V] : 0u;
 	return 1;
+}
+
+/* ---- degrees as text ------------------------------------------------- */
+
+int fzn_location_degrees_parse(const char *text, size_t len, int32_t limit_e7, int32_t *out)
+{
+	size_t i = 0, digits = 0, places = 0;
+	int negative = 0, point = 0;
+	int64_t v = 0;
+
+	if (!text || !out || !len)
+		return 0;
+	if (text[0] == '-') {
+		negative = 1;
+		i = 1;
+	}
+	for (; i < len; i++) {
+		char c = text[i];
+
+		if (c == '.' && !point) {
+			point = 1;
+			continue;
+		}
+		/* TEN DIGITS AT MOST, 180.0000000's: more cannot be a
+		 * coordinate, and would overflow being scaled. */
+		if (c < '0' || c > '9' || (point && places == 7u) || digits == 10u)
+			return 0;
+		v = v * 10 + (c - '0');
+		digits++;
+		if (point)
+			places++;
+	}
+	/* A DIGIT EACH SIDE OF THE POINT, or no point. */
+	if (!digits || (point && (!places || text[len - 1u] == '.' || text[negative] == '.')))
+		return 0;
+	for (; places < 7u; places++)
+		v *= 10;
+	if (v > limit_e7)
+		return 0;
+	*out = negative ? -(int32_t)v : (int32_t)v;
+	return 1;
+}
+
+size_t fzn_location_degrees_text(int32_t e7, char *out)
+{
+	int64_t v = e7;
+	uint32_t whole, frac;
+	int n;
+
+	if (!out)
+		return 0;
+	if (v < 0)
+		v = -v;
+	whole = (uint32_t)(v / 10000000);
+	frac = (uint32_t)(v % 10000000);
+	n = snprintf(out, FZN_LOCATION_DEGREES_TEXT_MAX, "%s%u.%07u", e7 < 0 ? "-" : "",
+	             (unsigned)whole, (unsigned)frac);
+	return n > 0 ? (size_t)n : 0u;
 }
 
 /* ---- degrading -------------------------------------------------------- */

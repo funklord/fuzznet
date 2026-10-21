@@ -17,6 +17,9 @@ A asks, B is asked, C asks and is turned away.
        answered, bytes received (sec 631)
     f  A writes an app stream at three levels; B is given nothing until A
        grants it level 1, and then that level of each record (sec 632)
+    g  A adds a fix, `add location`, and lists it exact; B, granted level
+       1, fetches it and lists it on the 0.01 degree grid, marked coarse --
+       never A's exact position (sec 676)
 
 Against a daemon that drops every box, phase a lists no request; against
 one whose approval does not hand over to the contact round, phase b
@@ -227,6 +230,28 @@ def main(argv):
 			   != ["1,bb01", "2,bb02"]:
 				raise failed("f: B holds %r of A's stream, not level 1 of both records" % got)
 			print("livecheck: f: B was given nothing of A's stream until granted, then level 1")
+
+			# g: a fix, sec 676, the third record of A's `location` stream: A
+			# lists it as given, B at the level it was granted. The two app
+			# records before it are no fixes, and neither side lists them.
+			got = ask(socks["a"], "add location 59.3293230 18.0685810 alt 31 bearing 90 "
+			                      "acc 5 9 vacc 20 at 1792600000")
+			if got != "ok 3":
+				raise failed("g: add location answered %r" % got)
+			reply = ask(socks["a"], "list location").split()
+			rows = [r.split(",") for r in reply[1:]]
+			if reply[:1] != ["ok"] or len(rows) != 1 or rows[0][1] != "3" \
+			   or rows[0][3:] != ["59.3293230", "18.0685810", "1792600000", "31", "90", "5", "9",
+			                      "20", "0"]:
+				raise failed("g: A lists %r, not its fix exact" % reply)
+			time.sleep(2.5)
+			fetched()
+			reply = ask(socks["b"], "list location").split()
+			rows = [r.split(",") for r in reply[1:] if r.startswith(keys["a"][:16] + ",")]
+			if len(rows) != 1 or rows[0][3:6] != ["59.3300000", "18.0700000", "1792600000"] \
+			   or rows[0][-1] != "1":
+				raise failed("g: B lists %r of A's fixes, not one on the coarse grid" % reply)
+			print("livecheck: g: A's fix listed exact at A, and on the 0.01 degree grid at B")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1
