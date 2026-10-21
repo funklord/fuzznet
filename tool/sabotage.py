@@ -4344,9 +4344,11 @@ SABOTAGES = [
 		"provision-envelope-verified",
 		"provision/provision.c",
 		"\tif (!verifier->verify(verifier->ctx, sponsor, card.base,\n"
-		"\t                      FZN_PROVISION_BODY_LEN(card.hop_count, card.proof_count),\n"
-		"\t                      card.base + FZN_PROVISION_OFF_SIGNATURE(card.hop_count,\n"
-		"\t                                                              card.proof_count)))\n"
+		"\t                      FZN_PROVISION_BODY_LEN_AT(card.hop_count, card.proof_count,\n"
+		"\t                                                card.host_len),\n"
+		"\t                      card.base + FZN_PROVISION_OFF_SIGNATURE_AT(card.hop_count,\n"
+		"\t                                                                 card.proof_count,\n"
+		"\t                                                                 card.host_len)))\n"
 		"\t\treturn FZN_PROVISION_ERR_SIGNATURE;\n",
 		"\t(void)verifier;\n",
 		"the three objects in a card are each public, so without the envelope anybody assembles a genuine hop with their own prekey record and the device sessions with them",
@@ -12386,6 +12388,20 @@ SABOTAGES = [
 		"\t\t\tif (cap - w < 3u)\n\t\t\t\tbreak;\n",
 		"\t\t\tif (cap - w < 1u)\n\t\t\t\tbreak;\n",
 		"an escape cut by the room writes half of one, which reads as another byte -- sec 668",
+	),
+	(
+		"provision-host-shape-checked",
+		"provision/provision.c",
+		"\tif (!host_ok(bytes + FZN_PROVISION_OFF_HOST(n, p), a, port))\n\t\treturn FZN_PROVISION_ERR_SHAPE;\n",
+		"",
+		"sec 671: a card's host is read into a join's root address, so a card whose host is not a host's shape must not open; provision_test's space-in-host and port-0 checks catch it",
+	),
+	(
+		"provision-port-beside-no-host",
+		"provision/provision.c",
+		"\tif (a == 0u)\n\t\treturn port == 0u;\n",
+		"\tif (a == 0u)\n\t\treturn 1;\n",
+		"sec 671: a card says nowhere with both host_len and port 0, so one string of bytes has one meaning; provision_test's port-with-no-host check catches it",
 	),
 ]
 

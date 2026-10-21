@@ -89,6 +89,12 @@ typedef struct fzn_node_admin {
 	const fzn_persist_ops_t *store;
 	/* How long a card stays worth accepting, from when it is made. */
 	uint64_t card_lifetime;
+	/* WHERE THIS NODE IS REACHED, sec 671, or NULL: 1 with its host, NUL
+	 * ended, and port -- its own `net/address` -- for the card `add peer`
+	 * makes to carry, so the device joining with it needs nothing beside
+	 * it; 0 for none set, and the card says nowhere. */
+	int (*address)(void *ctx, char host[FZN_PROVISION_HOST_MAX + 1u], uint16_t *port);
+	void *address_ctx;
 	/* The running revocation store, the one `state->config.revocations`
 	 * points at; NULL and `revoke` is unsupported. */
 	fzn_revocation_store_t *revocations;

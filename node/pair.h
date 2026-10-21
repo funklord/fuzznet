@@ -99,6 +99,20 @@ fzn_node_pair_err_t fzn_node_pair(const fzn_node_identity_t *id,
                                   uint64_t card_expires_at, uint8_t *card, size_t card_cap,
                                   size_t *card_len);
 
+/* `fzn_node_pair`, the card saying this node is reached at `host`,
+ * `host_len` bytes, and `port` -- its own `net/address` -- so the device
+ * that joins with it needs nothing beside it; NULL, 0 and 0 for nowhere.
+ * sec 671. */
+fzn_node_pair_err_t fzn_node_pair_at(const fzn_node_identity_t *id,
+                                     const uint8_t root[FZN_PUBKEY_LEN],
+                                     const fzn_cap_id_t *cap,
+                                     const fzn_node_authority_t *authority, int delegable,
+                                     const fzn_persist_ops_t *store,
+                                     fzn_prekey_record_t device, uint64_t now,
+                                     uint64_t card_expires_at, const char *host,
+                                     size_t host_len, uint16_t port, uint8_t *card,
+                                     size_t card_cap, size_t *card_len);
+
 /* ---- the device's side ------------------------------------------------ */
 
 /*

@@ -260,10 +260,10 @@ typedef enum fzn_signed_object {
 	FZN_OBJECT_ROOT_ADD = 140u,
 	FZN_OBJECT_ROOT_REMOVE = 141u,
 
-	/* THE CARD SINCE sec 410: 138's, with the root-adds that reach the
+	/* THE CARD OF sec 410: 138's, with the root-adds that reach the
 	 * chain's first root from the estate's genesis root. A different
 	 * layout, so a different tag, as 138 was for 134. */
-	FZN_OBJECT_CARD = 142u,
+	FZN_OBJECT_CARD_V3 = 142u,	/* RETIRED 2026-10-21, sec 671: never reuse */
 
 	/* AN ADMIN'S CONFIRMATION OF ANOTHER'S ADMIN GRANT, sec 414: the hop
 	 * that granted it, named by its hash. A grant of admin by a non-root
@@ -305,6 +305,11 @@ typedef enum fzn_signed_object {
 	 * approved, a setting set -- naming the act before it, signed by a
 	 * user's host carrying its proof. See `node/group_act.h`. */
 	FZN_OBJECT_GROUP_ACT = 150u,
+
+	/* THE CARD SINCE sec 671: 142's, with where its sponsor is reached --
+	 * a host and a port, or none -- so a joining device needs nothing
+	 * carried beside it. A different layout, so a different tag. */
+	FZN_OBJECT_CARD = 151u,
 
 	/* NOT A TAG. The next number available, computed by the compiler rather
 	 * than written down, which is what makes the assertions below able to
@@ -399,6 +404,7 @@ FZN_STATIC_ASSERT(FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_HOP)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_ROOT_ACT)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_ROOT_ADD)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_ROOT_REMOVE)
+               && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_CARD_V3)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_CARD)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_ADMIN_CONFIRM)
                && FZN_OBJECT_IS_LIBRARY(FZN_OBJECT_QUORUM_SET)
@@ -419,15 +425,16 @@ FZN_STATIC_ASSERT(FZN_OBJECT_HOP < FZN_OBJECT_REVOCATION
                && FZN_OBJECT_CARD_V2 < FZN_OBJECT_ROOT_ACT
                && FZN_OBJECT_ROOT_ACT < FZN_OBJECT_ROOT_ADD
                && FZN_OBJECT_ROOT_ADD < FZN_OBJECT_ROOT_REMOVE
-               && FZN_OBJECT_ROOT_REMOVE < FZN_OBJECT_CARD
-               && FZN_OBJECT_CARD < FZN_OBJECT_ADMIN_CONFIRM
+               && FZN_OBJECT_ROOT_REMOVE < FZN_OBJECT_CARD_V3
+               && FZN_OBJECT_CARD_V3 < FZN_OBJECT_ADMIN_CONFIRM
                && FZN_OBJECT_ADMIN_CONFIRM < FZN_OBJECT_QUORUM_SET
                && FZN_OBJECT_QUORUM_SET < FZN_OBJECT_RETENTION_SET
                && FZN_OBJECT_RETENTION_SET < FZN_OBJECT_SUCCESSION
                && FZN_OBJECT_SUCCESSION < FZN_OBJECT_SETTING
                && FZN_OBJECT_SETTING < FZN_OBJECT_CONTACT_CARD
                && FZN_OBJECT_CONTACT_CARD < FZN_OBJECT_CONTACT_REQUEST
-               && FZN_OBJECT_CONTACT_REQUEST < FZN_OBJECT_GROUP_ACT,
+               && FZN_OBJECT_CONTACT_REQUEST < FZN_OBJECT_GROUP_ACT
+               && FZN_OBJECT_GROUP_ACT < FZN_OBJECT_CARD,
                "signed-object tags must be strictly increasing in the order "
                "they are declared: equal means two objects share a signature, "
                "and out of order means somebody reused a number");
@@ -442,7 +449,7 @@ FZN_STATIC_ASSERT(FZN_OBJECT_NEXT_FREE <= 256u,
  * does not name. This is what makes the chain's coverage total rather than
  * merely correct -- an enumerator appended anywhere moves the marker, and the
  * only way to satisfy this line again is to extend the chain to reach it. */
-FZN_STATIC_ASSERT(FZN_OBJECT_NEXT_FREE == FZN_OBJECT_GROUP_ACT + 1u,
+FZN_STATIC_ASSERT(FZN_OBJECT_NEXT_FREE == FZN_OBJECT_CARD + 1u,
                "a signed-object tag was added without extending the chain above it");
 
 #endif /* FZN_BYTES_H */

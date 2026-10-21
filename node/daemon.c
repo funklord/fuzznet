@@ -528,6 +528,20 @@ static void remote_ran(void *ctx, const uint8_t *sender, const uint8_t *what, si
  * judged and kept by the apply context. */
 static fzn_node_settings_t node_settings;
 
+/* WHERE THIS NODE IS REACHED, for the card `add peer` makes, sec 671: its
+ * own `net/address`, the host cell keyed by its own key. */
+_Static_assert(FZN_NODE_SETTINGS_HOST_MAX == FZN_PROVISION_HOST_MAX,
+               "an address a setting holds must fit the card");
+static int own_address(void *ctx, char host[FZN_PROVISION_HOST_MAX + 1u], uint16_t *port)
+{
+	char at[FZN_NODE_SETTINGS_HOST_MAX + 1u];
+
+	if (!fzn_node_settings_address(&node_settings, (const uint8_t *)ctx, at, port))
+		return 0;
+	memcpy(host, at, strlen(at) + 1u);
+	return 1;
+}
+
 /* RETENTION RULES AS SETTINGS, sec 540: every value in force under a key
  * `retention/...`, the estate's and this host's own, each a rule's line. */
 struct setting_rules {
@@ -6073,10 +6087,11 @@ static int identity_reset;
 
 /* ---- an estate joined at runtime, sec 638 ---------------------------------
  *
- * `add join CARD|PATH HOST PORT` does what `fuzznetd --accept=CARD --join` does
+ * `add join CARD|PATH [HOST PORT]` does what `fuzznetd --accept=CARD --join` does
  * -- this device joins the estate whose root signed CARD, its anchor
  * pinned to that root -- keeps where the root is reached, answers, and
- * then starts again in place: its sockets closed and the same program
+ * then starts again in place -- HOST PORT where it is told them, and the
+ * card's own where it is not (sec 671) -- its sockets closed and the same program
  * executed with the same arguments, so the boot that follows comes up
  * joined, pulling from the root it kept, with no second writer on the
  * store and nothing for its client to do but connect again. Re-reading
@@ -6112,16 +6127,18 @@ static size_t join_local(fzn_origin_t origin, const fzn_request_t *request, char
 		                                    "user's\n");
 	if (!joining.id || !joining.trust || !joining.store)
 		return (size_t)snprintf(reply, cap, "error this node keeps no state to join with\n");
-	if (!next_word(&at, &left, &w_card, &n_card) || !next_word(&at, &left, &w_host, &n_host)
-	    || !next_word(&at, &left, &w_port, &n_port) || left || n_card >= sizeof(text)
-	    || n_host >= FZN_UDP_HOST_MAX || n_port > 5u)
-		return (size_t)snprintf(reply, cap, "malformed add join CARD|PATH HOST PORT\n");
+	/* HOST AND PORT TOGETHER OR NEITHER: told, they win over the card's. */
+	if (!next_word(&at, &left, &w_card, &n_card) || n_card >= sizeof(text)
+	    || (left && (!next_word(&at, &left, &w_host, &n_host)
+	                 || !next_word(&at, &left, &w_port, &n_port) || left
+	                 || n_host >= FZN_UDP_HOST_MAX || n_port > 5u)))
+		return (size_t)snprintf(reply, cap, "malformed add join CARD|PATH [HOST PORT]\n");
 	for (i = 0; i < n_port; i++) {
 		if (w_port[i] < '0' || w_port[i] > '9')
-			return (size_t)snprintf(reply, cap, "malformed add join CARD HOST PORT\n");
+			return (size_t)snprintf(reply, cap, "malformed add join CARD [HOST PORT]\n");
 		port = port * 10u + (unsigned long)(w_port[i] - '0');
 	}
-	if (port == 0u || port > 65535u)
+	if (w_port && (port == 0u || port > 65535u))
 		return (size_t)snprintf(reply, cap, "malformed the port is 1 to 65535\n");
 	/* THE CARD ITSELF, or A FILE HOLDING IT: a card is longer than a request
 	 * line's 512 bytes, as `add contact`'s is. */
@@ -6135,7 +6152,7 @@ static size_t join_local(fzn_origin_t origin, const fzn_request_t *request, char
 		FILE *f;
 
 		if (n_card >= sizeof(path))
-			return (size_t)snprintf(reply, cap, "malformed add join CARD|PATH HOST PORT\n");
+			return (size_t)snprintf(reply, cap, "malformed add join CARD|PATH [HOST PORT]\n");
 		memcpy(path, w_card, n_card);
 		path[n_card] = '\0';
 		/* AN ABSOLUTE PATH ONLY, sec 662. */
@@ -6151,6 +6168,23 @@ static size_t join_local(fzn_origin_t origin, const fzn_request_t *request, char
 	}
 	if (fzn_provision_from_text(text, card, sizeof(card), &card_len) != FZN_PROVISION_OK)
 		return (size_t)snprintf(reply, cap, "malformed that is not a card\n");
+	/* NOT TOLD WHERE: the card's sponsor, where the card says it is. Read
+	 * before the join, so a card that says nowhere joins nothing. */
+	if (!w_host) {
+		fzn_provision_card_t opened;
+
+		if (fzn_provision_open(card, card_len, &opened) != FZN_PROVISION_OK)
+			return (size_t)snprintf(reply, cap, "malformed that is not a card\n");
+		if (!opened.host_len)
+			return (size_t)snprintf(reply, cap, "malformed the card says nowhere: add join "
+			                                    "CARD HOST PORT\n");
+		if (opened.host_len >= FZN_UDP_HOST_MAX)
+			return (size_t)snprintf(reply, cap, "unsupported the card's host is longer than "
+			                                    "this node reaches\n");
+		w_host = opened.host;
+		n_host = opened.host_len;
+		port = opened.port;
+	}
 	perr = fzn_node_join(joining.id, card, card_len, wall_clock(), joining.store, joining.trust,
 	                     &paired);
 	fzn_wipe(&paired, sizeof(paired));
@@ -11686,6 +11720,10 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 #endif
 #endif
 			admin.card_lifetime = FZND_CARD_LIFETIME;
+#ifdef FZN_RECORD_STORE_FILE_ON
+			admin.address = own_address;
+			admin.address_ctx = identity.pubkey;
+#endif
 			running_admin = &admin;
 			admin.revocations = &revoked;
 			admin.authority = my_authority;

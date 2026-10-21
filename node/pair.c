@@ -43,6 +43,20 @@ fzn_node_pair_err_t fzn_node_pair(const fzn_node_identity_t *id,
                                   uint64_t card_expires_at, uint8_t *card, size_t card_cap,
                                   size_t *card_len)
 {
+	return fzn_node_pair_at(id, root, cap, authority, delegable, store, device, now,
+	                        card_expires_at, NULL, 0, 0, card, card_cap, card_len);
+}
+
+fzn_node_pair_err_t fzn_node_pair_at(const fzn_node_identity_t *id,
+                                     const uint8_t root[FZN_PUBKEY_LEN],
+                                     const fzn_cap_id_t *cap,
+                                     const fzn_node_authority_t *authority, int delegable,
+                                     const fzn_persist_ops_t *store,
+                                     fzn_prekey_record_t device, uint64_t now,
+                                     uint64_t card_expires_at, const char *host,
+                                     size_t host_len, uint16_t port, uint8_t *card,
+                                     size_t card_cap, size_t *card_len)
+{
 	fzn_node_peer_t peer;
 	uint8_t hop[FZN_HOP_LEN];
 	uint8_t chain[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
@@ -143,10 +157,10 @@ fzn_node_pair_err_t fzn_node_pair(const fzn_node_identity_t *id,
 
 	/* THE CARD CARRIES THE SAME CHAIN, so the device -- or a node joining
 	 * through this one -- can check it back to the root it pins (sec 391). */
-	if (fzn_node_card_pack(id, root, (const uint8_t (*)[FZN_HOP_LEN])chain, own + 1u,
-	                       authority ? authority->proof : NULL,
-	                       authority ? authority->proof_count : 0u, card_expires_at, card,
-	                       card_cap, card_len)
+	if (fzn_node_card_pack_at(id, root, (const uint8_t (*)[FZN_HOP_LEN])chain, own + 1u,
+	                          authority ? authority->proof : NULL,
+	                          authority ? authority->proof_count : 0u, card_expires_at, host,
+	                          host_len, port, card, card_cap, card_len)
 	    != FZN_NODE_PROVISION_OK) {
 		*card_len = 0;
 		return FZN_NODE_PAIR_CARD;

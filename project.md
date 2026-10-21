@@ -66163,7 +66163,8 @@ root key beside the identity (sec 409). It stays a command.
   --delegable` makes it, answered as a card. Without `delegable` a device
   cannot join by the card, as before; any other word after the record is
   refused.
-- **`add join CARD|PATH HOST PORT`** (`node/fuzznetd.c`, `join_local`):
+- **`add join CARD|PATH HOST PORT`** (`node/fuzznetd.c`, `join_local`;
+  HOST PORT optional since sec 671, the card saying where):
   what `--accept=CARD --join` does, the anchor pinned to the root; where
   the root is reached kept in the new core slot `FZN_PERSIST_ROOT_AT`, 63;
   answered with the root's key. A card is longer than a request line's 512
@@ -67194,3 +67195,66 @@ is `volatile` now.
 
 **Proved by the gates and livecheck**, run against the split; it moves
 code and no test changed. fuzzypickles' fzpd can now be a call to it.
+
+## 671. A card says where its sponsor is, so a join needs nothing beside it, 2026-10-21
+
+**Asked by fuzzypickles** (inbox message 20261021T1027Z, their sec 284).
+Their device join maps onto sec 638's verbs one for one -- `get prekey`,
+`add peer PREKEY delegable`, `add join CARD HOST PORT` -- except for HOST
+PORT. The card says nothing about where the approver is, so the new
+device could only be told by something carried beside it. fzpd's own
+approval carried the approver's address, and its UIs move one code
+between the two devices and nothing else. A card-plus-address envelope
+would be a format between devices, which is fuzznet's to define.
+
+**Built: the card carries its sponsor's address.**
+
+- **The layout.** After `expires_at`, inside the signed body: `host_len`
+  (0 to 253), the host, and a big-endian `port`. Both are 0 for a card
+  that says nowhere, and nothing else is a card. The host takes the
+  `net/address` setting's shape: letters, digits and `.-:`, a port of 1
+  to 65535 beside it. `fzn_provision_open` refuses any other shape, so a
+  join never reads junk as an address.
+- **A new tag and prefix.** Object 151 (`FZN_OBJECT_CARD`) and text
+  prefix `FZN4:`. 142 and `FZN3:` are retired, as 138 was in sec 410: a
+  card is read only at the moment it is accepted, never from storage, so
+  retiring the old form costs only a card made by one build and read by
+  another. Reading both would have doubled the length rules, which no
+  longer pin a card's shape once the host varies. The text decoder now
+  takes the byte count its length gives and leaves which counts are
+  cards to `fzn_provision_open`. The one-hop card grows from 425 bytes to
+  428, and the longest from 2068 to 2324.
+- **Made with the address.** `fzn_provision_pack_at`,
+  `fzn_node_card_pack_at` and `fzn_node_pair_at` take a host and port;
+  the old calls are the same with nowhere. The admin gains an `address`
+  callback, which the daemon wires to its own host cell `net/address`.
+  So `add peer ... delegable` makes a card naming where this node is,
+  once it has an address set. The contact-share cards (`grant share`)
+  say nowhere, since contact cards carry addresses of their own.
+- **`add join CARD|PATH [HOST PORT]`.** HOST and PORT are now optional.
+  Given, they win over the card's. Not given, the join reaches the card's
+  sponsor where the card says it is. A card that says nowhere is refused
+  with `malformed the card says nowhere`, before anything is joined. A
+  host longer than this node's address bound (45 bytes) is `unsupported`.
+
+**Tested.** `provision/test/provision_test.c` checks the new offsets and
+sizes, and adds `test_a_card_says_where_its_sponsor_is`:
+- the host and port read back as packed;
+- every host and port byte is signed;
+- the text round-trips;
+- a space in the host, a host with port 0, a port with no host, and a
+  host past 253 bytes are refused at pack and at open;
+- a 253-byte host packs.
+
+`tool/live_join.py` phase a now has A make a card before it has an
+address; B's `add join PATH` with that card is refused and joins
+nothing. A then sets its `net/address`, and phase b joins with the next
+card alone, no HOST PORT. **Control**: the build before this section
+fails phase a, answering `malformed add join CARD|PATH HOST PORT`.
+`situc wire --check` classifies `provision/provision.situ` as "3 breaking,
+3 compatible": the tag, the signature moved and its coverage, and three
+appended fields. The contract and map were regenerated against situ
+83c9b7b; it solves the card at 428..2324 bytes, the sizes asserted by
+hand in `provision/provision.c`. Sabotage entries `provision-host-shape-checked` and
+`provision-port-beside-no-host`; `provision-envelope-verified` is
+re-anchored on the verify call that now covers the host.

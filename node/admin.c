@@ -117,11 +117,17 @@ static const char *pair_running(fzn_node_admin_t *admin, fzn_prekey_record_t rec
 	fzn_node_pair_err_t perr;
 	size_t loaded = 0;
 	uint64_t now = admin->state->clock ? admin->state->clock() : 0u;
+	char host[FZN_PROVISION_HOST_MAX + 1u];
+	uint16_t port = 0;
 
-	perr = fzn_node_pair(admin->id, admin->state->config.root,
-	                     &admin->state->config.remote_capability, authority, delegable,
-	                     admin->store,
-	                     record, now, now + admin->card_lifetime, card, card_cap, card_len);
+	if (!admin->address || !admin->address(admin->address_ctx, host, &port)) {
+		host[0] = '\0';
+		port = 0;
+	}
+	perr = fzn_node_pair_at(admin->id, admin->state->config.root,
+	                        &admin->state->config.remote_capability, authority, delegable,
+	                        admin->store, record, now, now + admin->card_lifetime, host,
+	                        strlen(host), host[0] ? port : 0u, card, card_cap, card_len);
 	if (perr != FZN_NODE_PAIR_OK)
 		return fzn_node_pair_err_str(perr);
 	if (fzn_node_peers_load(admin->store, admin->peers, admin->peers_cap, &loaded)

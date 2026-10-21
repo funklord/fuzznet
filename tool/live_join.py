@@ -6,10 +6,14 @@ run as daemons throughout, and the join is made by local verbs alone, as a
 client drives it -- no one-shot command, no daemon stopped by its client.
 
     a  B answers `get prekey` with its prekey record; A, given it with
-       `add peer RECORD delegable`, answers a card
-    b  B, given `add join PATH HOST PORT` -- the card in a file --, answers A's key and starts
-       again in place -- the same process, its socket back -- and its
-       first round reads a setting A made before B joined
+       `add peer RECORD delegable`, answers a card. A card made before A
+       has a `net/address` says nowhere, and B's `add join PATH` with it
+       is refused, joining nothing; A sets its address and the next card
+       says where A is (sec 671)
+    b  B, given `add join PATH` -- the card in a file, no HOST PORT --,
+       answers A's key and starts again in place -- the same process, its
+       socket back -- and its first round reads a setting A made before B
+       joined
     c  B started again with no `--root-at` still pulls from A, where the
        join kept it, and reads a second setting A makes
     d  A's `list sibling` names B, paired
@@ -19,7 +23,8 @@ client drives it -- no one-shot command, no daemon stopped by its client.
        again in place, holding admin by one hop
 
 Against a daemon whose `add join` did not start it again, phase b's round
-never reads A's setting; against one that kept no address, phase c's.
+never reads A's setting; against one that kept no address, phase c's;
+against one whose card says nowhere, phase b's join is refused.
 
 BOUNDED FROM INSIDE as live_rejoin.py is, whose daemon handling this reuses:
 one deadline, each daemon in its own process group, and every daemon
@@ -105,10 +110,23 @@ def main(argv):
 			if len(got) != 2 or got[0] != "ok":
 				raise failed("a: get prekey answered %r" % got)
 			key_b = got[1][PREKEY_HOST]
+			# A CARD THAT SAYS NOWHERE, made before A has an address: B's
+			# join with it and no HOST PORT is refused, and joins nothing.
 			card = ask(socks["a"], "add peer %s delegable" % got[1]).split()
 			if len(card) != 2 or card[0] != "ok":
 				raise failed("a: add peer ... delegable answered %r" % card)
-			print("livecheck: a: B said its prekey, and A answered a card for it")
+			nowhere_path = os.path.join(scratch, "card-nowhere")
+			with open(nowhere_path, "w") as f:
+				f.write(card[1] + "\n")
+			refused = ask(socks["b"], "add join %s" % nowhere_path)
+			if not refused.startswith("malformed the card says nowhere"):
+				raise failed("a: a card that says nowhere was answered %r" % refused)
+			expect(socks["a"], "a", "set setting host net/address 127.0.0.1 " + port["a"], "ok")
+			card = ask(socks["a"], "add peer %s delegable" % got[1]).split()
+			if len(card) != 2 or card[0] != "ok":
+				raise failed("a: add peer ... delegable answered %r" % card)
+			print("livecheck: a: B said its prekey, A answered a card for it, and a card "
+			      "made before A had an address joined nothing")
 
 			# b: B joins, by a verb, and starts again in place.
 			pid = started["b"].proc.pid
@@ -116,7 +134,8 @@ def main(argv):
 			card_path = os.path.join(scratch, "card")
 			with open(card_path, "w") as f:
 				f.write(card[1] + "\n")
-			joined = ask(socks["b"], "add join %s 127.0.0.1 %s" % (card_path, port["a"])).split()
+			# NO HOST PORT: the card says where A is.
+			joined = ask(socks["b"], "add join %s" % card_path).split()
 			if len(joined) != 2 or joined[0] != "ok" or len(joined[1]) != KEY_LEN:
 				raise failed("b: add join answered %r" % joined)
 			deadline = time.monotonic() + 20.0

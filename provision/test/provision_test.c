@@ -199,15 +199,17 @@ static void test_the_layout_is_what_the_header_says(void)
 	CHECK(FZN_PROVISION_OFF_PREKEY(1, 0) == 215u, "prekey is not where the table says");
 	CHECK(FZN_PROVISION_OFF_PREKEY(1, 1) == 345u, "a proof item is not 130 bytes");
 	CHECK(FZN_PROVISION_OFF_EXPIRES_AT(1, 0) == 353u, "expires_at is not where the table says");
-	CHECK(FZN_PROVISION_OFF_SIGNATURE(1, 0) == 361u, "signature is not where the table says");
-	CHECK(FZN_PROVISION_BODY_LEN(1, 0) == 361u, "the signed body changed size");
-	CHECK(FZN_PROVISION_MIN_LEN == 425u && FZN_PROVISION_MAX_LEN == 2068u,
-	      "the card's size range is not provision.situ's 425..2068");
+	CHECK(FZN_PROVISION_OFF_HOST_LEN(1, 0) == 361u, "host_len is not where the table says");
+	CHECK(FZN_PROVISION_OFF_PORT_AT(1, 0, 9) == 371u, "port is not where the table says");
+	CHECK(FZN_PROVISION_OFF_SIGNATURE(1, 0) == 364u, "signature is not where the table says");
+	CHECK(FZN_PROVISION_BODY_LEN(1, 0) == 364u, "the signed body changed size");
+	CHECK(FZN_PROVISION_MIN_LEN == 428u && FZN_PROVISION_MAX_LEN == 2324u,
+	      "the card's size range is not provision.situ's 428..2324");
 
 	REQUIRE(build(&f), "the fixture did not build");
-	CHECK(f.card_len == 425u, "pack reported %zu bytes", f.card_len);
+	CHECK(f.card_len == 428u, "pack reported %zu bytes", f.card_len);
 	CHECK(f.card[FZN_PROVISION_OFF_VERSION] == 1u, "the version byte is not 1");
-	CHECK(f.card[FZN_PROVISION_OFF_OBJECT] == 142u, "the object tag is not the card's");
+	CHECK(f.card[FZN_PROVISION_OFF_OBJECT] == 151u, "the object tag is not the card's");
 	CHECK(f.card[34] == 1u, "the hop count is not 1");
 	CHECK(memcmp(f.card + FZN_PROVISION_OFF_ROOT, f.root, FZN_PUBKEY_LEN) == 0,
 	      "the root did not land at its offset");
@@ -370,7 +372,7 @@ static void test_a_member_can_sponsor_a_card(void)
 	                           0, &OPS, card_bytes, sizeof(card_bytes), &len)
 	                == FZN_PROVISION_OK,
 	        "a member's two-hop card did not pack");
-	CHECK(len == 604u && len == FZN_PROVISION_LEN(2, 0), "a two-hop card is %zu bytes", len);
+	CHECK(len == 607u && len == FZN_PROVISION_LEN(2, 0), "a two-hop card is %zu bytes", len);
 	REQUIRE(fzn_provision_open(card_bytes, len, &card) == FZN_PROVISION_OK,
 	        "a member's card did not open");
 	CHECK(card.hop_count == 2u && memcmp(card.hop, chain[1], FZN_HOP_LEN) == 0,
@@ -380,7 +382,7 @@ static void test_a_member_can_sponsor_a_card(void)
 
 	/* ITS TEXT ROUND-TRIPS AT ITS OWN LENGTH. */
 	CHECK(fzn_provision_text(card_bytes, len, text, sizeof(text)) == FZN_PROVISION_OK
-	              && strlen(text) == FZN_PROVISION_TEXT_PREFIX_LEN + 967u
+	              && strlen(text) == FZN_PROVISION_TEXT_PREFIX_LEN + 972u
 	              && fzn_provision_from_text(text, back, sizeof(back), &back_len)
 	                         == FZN_PROVISION_OK
 	              && back_len == len && memcmp(back, card_bytes, len) == 0,
@@ -438,11 +440,14 @@ static void test_every_signed_byte_is_signed(void)
 		err = fzn_provision_open(bent, f.card_len, &card);
 		if (err != FZN_PROVISION_OK) {
 			/* Bytes 0 and 1 are the version and the tag, 34 the hop
-			 * count and 214 the proof count, which fix the length,
-			 * so a bent one is refused at the shape gate before any
-			 * key is touched. Refused is refused. */
+			 * count, 214 the proof count and 361 the host's length,
+			 * which fix the length, and 362 and 363 a port beside no
+			 * host, which must be 0: a bent one is refused at the
+			 * shape gate before any key is touched. Refused is
+			 * refused. */
 			CHECK(i < FZN_PROVISION_OFF_ROOT || i == FZN_PROVISION_OFF_HOP_COUNT
-			              || i == FZN_PROVISION_OFF_PROOF_COUNT(1),
+			              || i == FZN_PROVISION_OFF_PROOF_COUNT(1)
+			              || i >= FZN_PROVISION_OFF_HOST_LEN(1, 0),
 			      "byte %zu was refused for its shape and should not be", i);
 			continue;
 		}
@@ -569,11 +574,11 @@ static void test_the_text_round_trips(void)
 	REQUIRE(fzn_provision_text(f.card, f.card_len, text, sizeof(text)) == FZN_PROVISION_OK,
 	        "the card did not encode");
 
-	CHECK(strlen(text) == FZN_PROVISION_TEXT_PREFIX_LEN + 680u,
+	CHECK(strlen(text) == FZN_PROVISION_TEXT_PREFIX_LEN + 685u,
 	      "the text is %zu characters, wanted %u", strlen(text),
-	      (unsigned)(FZN_PROVISION_TEXT_PREFIX_LEN + 680u));
-	CHECK(FZN_PROVISION_TEXT_BODY_LEN(425u) == 680u,
-	      "680 characters is what 425 bytes of unpadded base32 comes to");
+	      (unsigned)(FZN_PROVISION_TEXT_PREFIX_LEN + 685u));
+	CHECK(FZN_PROVISION_TEXT_BODY_LEN(428u) == 685u,
+	      "685 characters is what 428 bytes of unpadded base32 comes to");
 	CHECK(strncmp(text, FZN_PROVISION_TEXT_PREFIX, FZN_PROVISION_TEXT_PREFIX_LEN) == 0,
 	      "the version prefix is missing");
 
@@ -650,10 +655,10 @@ static void test_the_text_is_canonical(void)
 	 * two things, which is not a property a signature over the bytes can
 	 * repair.
 	 *
-	 * SINCE sec 410 THE ONE-HOP CARD HAS NONE: 425 bytes is 3400 bits and
+	 * SINCE sec 410 THE ONE-HOP CARD HAD NONE: 425 bytes is 3400 bits and
 	 * 680 characters carry exactly that. So this is asked of a two-hop
-	 * card's length, 604 bytes in 967 characters, which carries three spare
-	 * bits. The decoder reads no card here -- only the prefix, a card's
+	 * card's length -- since sec 671 607 bytes in 972 characters, which
+	 * carries four spare bits. The decoder reads no card here -- only the prefix, a card's
 	 * length, the alphabet and the spare bits -- so a string of 'A's at that
 	 * length is the control, and its last character raised by one sets the
 	 * lowest spare bit. */
@@ -661,7 +666,7 @@ static void test_the_text_is_canonical(void)
 		static char padded[FZN_PROVISION_TEXT_MAX_LEN];
 		size_t chars = FZN_PROVISION_TEXT_BODY_LEN(FZN_PROVISION_LEN(2, 0));
 
-		REQUIRE(chars == 967u && (FZN_PROVISION_LEN(2, 0) * 8u) % 5u != 0u,
+		REQUIRE(chars == 972u && (FZN_PROVISION_LEN(2, 0) * 8u) % 5u != 0u,
 		        "a two-hop card no longer leaves spare bits");
 		memcpy(padded, FZN_PROVISION_TEXT_PREFIX, FZN_PROVISION_TEXT_PREFIX_LEN);
 		memset(padded + FZN_PROVISION_TEXT_PREFIX_LEN, 'A', chars);
@@ -935,6 +940,94 @@ static void test_a_proof_reaches_another_root(void)
 	      "a proof whose second add is not by the root the first added was taken");
 }
 
+/* WHERE THE SPONSOR IS, sec 671: a host and a port in the signed body,
+ * read back as packed, signed with the rest, and refused when it is not a
+ * host's shape -- the `net/address` setting's. */
+static void test_a_card_says_where_its_sponsor_is(void)
+{
+	static const char host[] = "fuzz-1.example:7";
+	fixture_t f;
+	fzn_provision_card_t card;
+	uint8_t bytes[FZN_PROVISION_MAX_LEN], back[FZN_PROVISION_MAX_LEN];
+	char text[FZN_PROVISION_TEXT_MAX_LEN], longest[FZN_PROVISION_HOST_MAX + 2u];
+	size_t len = 0, back_len = 0, a = sizeof(host) - 1u, i;
+	int accepted = 0;
+
+	REQUIRE(build(&f), "the fixture did not build");
+	signing_as = SPONSOR;
+	REQUIRE(fzn_provision_pack_at(f.root, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, NULL, 0,
+	                              f.prekey, 0, host, a, 40123u, &OPS, bytes, sizeof(bytes),
+	                              &len) == FZN_PROVISION_OK,
+	        "a card with a host did not pack");
+	CHECK(len == FZN_PROVISION_LEN_AT(1, 0, a) && len == 428u + a,
+	      "a card with a %zu-byte host is %zu bytes", a, len);
+	REQUIRE(fzn_provision_open(bytes, len, &card) == FZN_PROVISION_OK,
+	        "a card with a host did not open");
+	CHECK(card.host_len == a && memcmp(card.host, host, a) == 0 && card.port == 40123u,
+	      "the host and port did not read back as packed");
+	CHECK(fzn_provision_verify(card, &OPS, 0) == FZN_PROVISION_OK,
+	      "a card with a host did not verify");
+	CHECK(fzn_provision_open(f.card, f.card_len, &card) == FZN_PROVISION_OK
+	              && card.host_len == 0u && card.port == 0u,
+	      "a card packed with no host says somewhere");
+
+	/* THE HOST IS SIGNED: each of its bytes and the port's, changed to
+	 * another host character, fails the signature. */
+	for (i = FZN_PROVISION_OFF_HOST(1, 0); i < FZN_PROVISION_OFF_SIGNATURE_AT(1, 0, a); i++) {
+		uint8_t bent[FZN_PROVISION_MAX_LEN];
+
+		memcpy(bent, bytes, len);
+		bent[i] = bent[i] == '1' ? (uint8_t)'2' : (uint8_t)'1';
+		if (fzn_provision_open(bent, len, &card) == FZN_PROVISION_OK
+		    && fzn_provision_verify(card, &OPS, 0) == FZN_PROVISION_OK)
+			accepted++;
+	}
+	CHECK(accepted == 0, "%d bent host or port bytes were accepted", accepted);
+
+	/* ITS TEXT ROUND-TRIPS. */
+	CHECK(fzn_provision_text(bytes, len, text, sizeof(text)) == FZN_PROVISION_OK
+	              && fzn_provision_from_text(text, back, sizeof(back), &back_len)
+	                         == FZN_PROVISION_OK
+	              && back_len == len && memcmp(back, bytes, len) == 0,
+	      "a card with a host did not survive its text");
+
+	/* NOT A HOST'S SHAPE, refused at pack and at open. */
+	CHECK(fzn_provision_pack_at(f.root, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, NULL, 0,
+	                            f.prekey, 0, "a b", 3u, 1u, &OPS, back, sizeof(back),
+	                            &back_len) == FZN_PROVISION_ERR_SHAPE,
+	      "a host with a space was packed");
+	CHECK(fzn_provision_pack_at(f.root, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, NULL, 0,
+	                            f.prekey, 0, host, a, 0u, &OPS, back, sizeof(back),
+	                            &back_len) == FZN_PROVISION_ERR_SHAPE,
+	      "a host with port 0 was packed");
+	CHECK(fzn_provision_pack_at(f.root, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, NULL, 0,
+	                            f.prekey, 0, NULL, 0, 7u, &OPS, back, sizeof(back),
+	                            &back_len) == FZN_PROVISION_ERR_SHAPE,
+	      "a port with no host was packed");
+	memset(longest, 'h', sizeof(longest));
+	CHECK(fzn_provision_pack_at(f.root, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, NULL, 0,
+	                            f.prekey, 0, longest, FZN_PROVISION_HOST_MAX, 1u, &OPS, back,
+	                            sizeof(back), &back_len) == FZN_PROVISION_OK
+	              && back_len == FZN_PROVISION_LEN_AT(1, 0, FZN_PROVISION_HOST_MAX),
+	      "the longest host was refused");
+	CHECK(fzn_provision_pack_at(f.root, (const uint8_t (*)[FZN_HOP_LEN])f.hop, 1u, NULL, 0,
+	                            f.prekey, 0, longest, FZN_PROVISION_HOST_MAX + 1u, 1u, &OPS,
+	                            back, sizeof(back), &back_len) == FZN_PROVISION_ERR_SHAPE,
+	      "a host past the longest was packed");
+	{
+		uint8_t bent[FZN_PROVISION_MAX_LEN];
+
+		memcpy(bent, bytes, len);
+		bent[FZN_PROVISION_OFF_HOST(1, 0)] = (uint8_t)' ';
+		CHECK(fzn_provision_open(bent, len, &card) == FZN_PROVISION_ERR_SHAPE,
+		      "a card whose host holds a space opened");
+		memcpy(bent, bytes, len);
+		fzn_put_be16(bent + FZN_PROVISION_OFF_PORT_AT(1, 0, a), 0u);
+		CHECK(fzn_provision_open(bent, len, &card) == FZN_PROVISION_ERR_SHAPE,
+		      "a card with a host and port 0 opened");
+	}
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -961,6 +1054,7 @@ int main(void)
 	test_a_refusing_signer_is_reported();
 	test_err_str_names_every_arm();
 	test_a_proof_reaches_another_root();
+	test_a_card_says_where_its_sponsor_is();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("provision_test: %d checks, %d failure(s)\n", checks, failures);

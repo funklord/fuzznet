@@ -78,13 +78,28 @@ fzn_node_provision_err_t fzn_node_card_pack(const fzn_node_identity_t *id,
                                             size_t proof_count, uint64_t card_expires_at,
                                             uint8_t *out, size_t cap_bytes, size_t *out_len)
 {
+	return fzn_node_card_pack_at(id, root, chain, hop_count, proof, proof_count,
+	                             card_expires_at, NULL, 0, 0, out, cap_bytes, out_len);
+}
+
+fzn_node_provision_err_t fzn_node_card_pack_at(const fzn_node_identity_t *id,
+                                               const uint8_t root[FZN_PUBKEY_LEN],
+                                               const uint8_t (*chain)[FZN_HOP_LEN],
+                                               size_t hop_count,
+                                               const uint8_t (*proof)[FZN_PROVISION_PROOF_ITEM_LEN],
+                                               size_t proof_count, uint64_t card_expires_at,
+                                               const char *host, size_t host_len, uint16_t port,
+                                               uint8_t *out, size_t cap_bytes, size_t *out_len)
+{
 	if (!id || !root || !chain || !out || !out_len)
 		return FZN_NODE_PROVISION_MALFORMED;
-	/* The card carries the estate's root, the chain to the device, and this
-	 * node's prekey so the device can agree a session with it -- sealed by
-	 * this node, its sponsor. */
-	if (fzn_provision_pack(root, chain, hop_count, proof, proof_count, id->prekey_record,
-	                       card_expires_at, id->sign, out, cap_bytes, out_len)
+	/* The card carries the estate's root, the chain to the device, this
+	 * node's prekey so the device can agree a session with it, and where
+	 * this node is reached when it knows -- sealed by this node, its
+	 * sponsor. */
+	if (fzn_provision_pack_at(root, chain, hop_count, proof, proof_count, id->prekey_record,
+	                          card_expires_at, host, host_len, port, id->sign, out, cap_bytes,
+	                          out_len)
 	    != FZN_PROVISION_OK)
 		return FZN_NODE_PROVISION_CARD;
 	return FZN_NODE_PROVISION_OK;

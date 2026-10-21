@@ -93,6 +93,18 @@ fzn_node_provision_err_t fzn_node_card_pack(const fzn_node_identity_t *id,
                                             size_t proof_count, uint64_t card_expires_at,
                                             uint8_t *out, size_t cap_bytes, size_t *out_len);
 
+/* `fzn_node_card_pack`, the card saying this node is reached at `host`,
+ * `host_len` bytes, and `port` (`fzn_provision_pack_at`); NULL, 0 and 0 for
+ * nowhere. sec 671. */
+fzn_node_provision_err_t fzn_node_card_pack_at(const fzn_node_identity_t *id,
+                                               const uint8_t root[FZN_PUBKEY_LEN],
+                                               const uint8_t (*chain)[FZN_HOP_LEN],
+                                               size_t hop_count,
+                                               const uint8_t (*proof)[FZN_PROVISION_PROOF_ITEM_LEN],
+                                               size_t proof_count, uint64_t card_expires_at,
+                                               const char *host, size_t host_len, uint16_t port,
+                                               uint8_t *out, size_t cap_bytes, size_t *out_len);
+
 /* The device side: open and verify a card, check its whole chain from the
  * estate root to this device, pin the sponsor's prekey, and establish the
  * session this device seals to the sponsor with. Fills the send key and

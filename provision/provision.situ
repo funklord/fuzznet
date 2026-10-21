@@ -29,10 +29,14 @@ endian big;
 // chain starts at, each by the root the one before added. The device pins the
 // genesis root; the proof is what lets a chain start at another. A card with
 // no proof is the sec 391 card with one zero byte more.
+//
+// SINCE sec 671 the card is 151 (FZN_OBJECT_CARD) and says where its sponsor
+// is reached, after the expiry: a host of up to 253 bytes and a port, or a
+// zero host_len and a zero port for nowhere. 142 was the card of sec 410.
 struct fzn_provision_card {
 	authenticated body {
 		u8  version [must_eq = 1];    // FZN_PROVISION_OFF_VERSION   0 (FZN_SIGNED_VERSION)
-		u8  object  [must_eq = 142];  // FZN_PROVISION_OFF_OBJECT    1 (FZN_OBJECT_CARD)
+		u8  object  [must_eq = 151];  // FZN_PROVISION_OFF_OBJECT    1 (FZN_OBJECT_CARD)
 		u8  root[32];                // FZN_PROVISION_OFF_ROOT      2
 		u8  hop_count [min = 1, max = 8]; // FZN_PROVISION_OFF_HOP_COUNT 34
 		fzn_chain_hop     chain[hop_count]; // FZN_PROVISION_OFF_CHAIN 35
@@ -40,9 +44,12 @@ struct fzn_provision_card {
 		fzn_root_add      proof[proof_count]; // FZN_PROVISION_OFF_PROOF(n)
 		fzn_prekey_record prekey;    // FZN_PROVISION_OFF_PREKEY(n, p)
 		u64 expires_at;              // FZN_PROVISION_OFF_EXPIRES_AT(n, p)
+		u8  host_len [max = 253];    // FZN_PROVISION_OFF_HOST_LEN(n, p)
+		u8  host[host_len];          // FZN_PROVISION_OFF_HOST(n, p)
+		u16 port;                    // FZN_PROVISION_OFF_PORT_AT(n, p, a)
 	}
 	// No codec: Ed25519 is extern, so the caller signs and verifies. The
 	// signer is the sponsor, which the schema cannot name: it is the last
 	// hop's grantor, checked by fzn_provision_verify.
-	checksum u8 signature[64] covers(body); // FZN_PROVISION_OFF_SIGNATURE(n, p)
+	checksum u8 signature[64] covers(body); // FZN_PROVISION_OFF_SIGNATURE_AT(n, p, a)
 }

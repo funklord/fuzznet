@@ -95,7 +95,18 @@
  *                                           first grantor
  *   36+179n+130p          138   prekey      the sponsor's record
  *  174+179n+130p            8   expires_at
- *  182+179n+130p           64   signature   by the sponsor, over everything before
+ *  182+179n+130p            1   host_len    0 .. FZN_PROVISION_HOST_MAX
+ *  183+179n+130p            a   host        where the sponsor is reached
+ *  183+179n+130p+a          2   port        0 exactly when host_len is
+ *  185+179n+130p+a         64   signature   by the sponsor, over everything before
+ *
+ * WHERE THE SPONSOR IS, sec 671: the sponsor's own `net/address` as the
+ * card was made -- a name or an address of letters, digits and `.-:`, and a
+ * port -- or none, `host_len` and `port` 0, when it has none set. What a
+ * joining device needs beside the card to reach the node that admitted it,
+ * so a code moved between two devices is all a join takes. Inside the
+ * signed body so nobody between can point the device elsewhere; a location
+ * and not a grant, so `add join` may be told another.
  *
  * THE PROOF, sec 410. The device pins the estate's GENESIS root, `root`,
  * whatever root the chain starts from -- the holder's decision, so that every
@@ -104,8 +115,8 @@
  * each later one by the root the one before added, the last adding K. With no
  * proof the chain starts at `root`, which is every card before sec 410.
  *
- * The length is exact for its hop and proof counts, so a card is
- * self-delimiting: a reader slices and hands each slice to the call that owns
+ * The length is exact for its hop and proof counts and its host's length,
+ * so a card is self-delimiting: a reader slices and hands each slice to the call that owns
  * it, and `fzn_hop_open` and `fzn_prekey_open` both refuse a wrong length
  * outright. */
 #define FZN_PROVISION_OFF_VERSION    0u
@@ -124,14 +135,23 @@
 #define FZN_PROVISION_OFF_PREKEY(n, p) \
 	(FZN_PROVISION_OFF_PROOF(n) + (size_t)(p) * FZN_PROVISION_PROOF_ITEM_LEN)
 #define FZN_PROVISION_OFF_EXPIRES_AT(n, p) (FZN_PROVISION_OFF_PREKEY(n, p) + FZN_PREKEY_LEN_TOTAL)
-#define FZN_PROVISION_OFF_SIGNATURE(n, p) (FZN_PROVISION_OFF_EXPIRES_AT(n, p) + 8u)
+#define FZN_PROVISION_OFF_HOST_LEN(n, p) (FZN_PROVISION_OFF_EXPIRES_AT(n, p) + 8u)
+#define FZN_PROVISION_OFF_HOST(n, p) (FZN_PROVISION_OFF_HOST_LEN(n, p) + 1u)
+#define FZN_PROVISION_OFF_PORT_AT(n, p, a) (FZN_PROVISION_OFF_HOST(n, p) + (size_t)(a))
+#define FZN_PROVISION_OFF_SIGNATURE_AT(n, p, a) (FZN_PROVISION_OFF_PORT_AT(n, p, a) + 2u)
+/* The longest host, a DNS name's: the `net/address` setting's bound. */
+#define FZN_PROVISION_HOST_MAX 253u
 
-/* The bytes the signature covers, and the whole card, for `n` hops and `p`
- * root-adds. */
-#define FZN_PROVISION_BODY_LEN(n, p) FZN_PROVISION_OFF_SIGNATURE(n, p)
-#define FZN_PROVISION_LEN(n, p) (FZN_PROVISION_BODY_LEN(n, p) + FZN_SIG_LEN)
+/* The bytes the signature covers, and the whole card, for `n` hops, `p`
+ * root-adds and a host of `a` bytes; without `_AT`, a card with no host. */
+#define FZN_PROVISION_BODY_LEN_AT(n, p, a) FZN_PROVISION_OFF_SIGNATURE_AT(n, p, a)
+#define FZN_PROVISION_LEN_AT(n, p, a) (FZN_PROVISION_BODY_LEN_AT(n, p, a) + FZN_SIG_LEN)
+#define FZN_PROVISION_OFF_SIGNATURE(n, p) FZN_PROVISION_OFF_SIGNATURE_AT(n, p, 0)
+#define FZN_PROVISION_BODY_LEN(n, p) FZN_PROVISION_BODY_LEN_AT(n, p, 0)
+#define FZN_PROVISION_LEN(n, p) FZN_PROVISION_LEN_AT(n, p, 0)
 #define FZN_PROVISION_MIN_LEN FZN_PROVISION_LEN(1, 0)
-#define FZN_PROVISION_MAX_LEN FZN_PROVISION_LEN(FZN_CHAIN_MAX_HOPS, FZN_PROVISION_PROOF_MAX)
+#define FZN_PROVISION_MAX_LEN \
+	FZN_PROVISION_LEN_AT(FZN_CHAIN_MAX_HOPS, FZN_PROVISION_PROOF_MAX, FZN_PROVISION_HOST_MAX)
 
 /* A card as text, which is what a code actually carries.
  *
@@ -145,10 +165,10 @@
  * The prefix is a version rather than decoration: a scanner meeting a string
  * it does not understand should say so rather than base32-decoding whatever
  * it was handed into a card-shaped buffer. `FZN1:` named the one-hop card
- * signed by the root, retired in sec 391, and `FZN2:` the card with no root
- * proof, retired in sec 410; either is refused as not this card rather than
- * read as one. */
-#define FZN_PROVISION_TEXT_PREFIX "FZN3:"
+ * signed by the root, retired in sec 391, `FZN2:` the card with no root
+ * proof, retired in sec 410, and `FZN3:` the card with no address, retired
+ * in sec 671; each is refused as not this card rather than read as one. */
+#define FZN_PROVISION_TEXT_PREFIX "FZN4:"
 #define FZN_PROVISION_TEXT_PREFIX_LEN 5u
 /* The UNPADDED length of `bytes` of card: five bits per character, rounded
  * up. `((LEN + 4) / 5) * 8` would be base32's padded length and three too
@@ -197,6 +217,9 @@ typedef struct fzn_provision_card {
 	const uint8_t *hop;    /* the LAST hop, this device's own grant */
 	const uint8_t *prekey; /* FZN_PREKEY_LEN_TOTAL, the sponsor's, still to be opened */
 	uint64_t expires_at;
+	const uint8_t *host;   /* host_len bytes, not NUL ended: where the sponsor is */
+	size_t host_len;       /* 0 when the card says nowhere */
+	uint16_t port;         /* 0 exactly when host_len is */
 } fzn_provision_card_t;
 
 /* Lay out and sign a card. `chain` is `hop_count` encoded hops, root first,
@@ -207,7 +230,10 @@ typedef struct fzn_provision_card {
  * `sign` must sign as the SPONSOR -- the grantor of the last hop and the host
  * of `prekey`. This cannot be checked here, the signer taking no key by
  * design, so being wrong about it produces a card that fails to verify rather
- * than one that lies: `fzn_chain_mint`'s bargain, for its reason. */
+ * than one that lies: `fzn_chain_mint`'s bargain, for its reason.
+ *
+ * The card says nowhere for the sponsor; `fzn_provision_pack_at` says
+ * where. */
 fzn_provision_err_t fzn_provision_pack(const uint8_t root[FZN_PUBKEY_LEN],
                                        const uint8_t (*chain)[FZN_HOP_LEN], size_t hop_count,
                                        const uint8_t (*proof)[FZN_PROVISION_PROOF_ITEM_LEN],
@@ -215,6 +241,21 @@ fzn_provision_err_t fzn_provision_pack(const uint8_t root[FZN_PUBKEY_LEN],
                                        const uint8_t prekey[FZN_PREKEY_LEN_TOTAL],
                                        uint64_t expires_at, const fzn_sign_ops_t *sign,
                                        uint8_t *out, size_t out_cap, size_t *out_len);
+
+/* `fzn_provision_pack`, the sponsor reached at `host`, `host_len` bytes, and
+ * `port`: SHAPE for a host past FZN_PROVISION_HOST_MAX or of another
+ * character than a letter, a digit or `.-:`, or a port of 0 beside a host;
+ * `host_len` 0 and `port` 0 for nowhere. `out` receives
+ * FZN_PROVISION_LEN_AT(hop_count, proof_count, host_len) bytes. */
+fzn_provision_err_t fzn_provision_pack_at(const uint8_t root[FZN_PUBKEY_LEN],
+                                          const uint8_t (*chain)[FZN_HOP_LEN], size_t hop_count,
+                                          const uint8_t (*proof)[FZN_PROVISION_PROOF_ITEM_LEN],
+                                          size_t proof_count,
+                                          const uint8_t prekey[FZN_PREKEY_LEN_TOTAL],
+                                          uint64_t expires_at, const char *host,
+                                          size_t host_len, uint16_t port,
+                                          const fzn_sign_ops_t *sign, uint8_t *out,
+                                          size_t out_cap, size_t *out_len);
 
 /* Parse a card. Shape only -- this never touches a key.
  *

@@ -20,12 +20,34 @@ _Static_assert(FZN_PROVISION_OFF_PROOF_COUNT(1) == 214u, "provision layout: proo
 _Static_assert(FZN_PROVISION_OFF_PREKEY(1, 0) == 215u, "provision layout: prekey moved");
 _Static_assert(FZN_PROVISION_OFF_PREKEY(1, 1) == 345u, "provision layout: the proof is not 130");
 _Static_assert(FZN_PROVISION_OFF_EXPIRES_AT(1, 0) == 353u, "provision layout: expires_at moved");
-_Static_assert(FZN_PROVISION_OFF_SIGNATURE(1, 0) == 361u, "provision layout: signature moved");
-_Static_assert(FZN_PROVISION_MIN_LEN == 425u, "provision layout: the one-hop card changed size");
-_Static_assert(FZN_PROVISION_MAX_LEN == 2068u, "provision layout: the longest card changed size");
+_Static_assert(FZN_PROVISION_OFF_HOST_LEN(1, 0) == 361u, "provision layout: host_len moved");
+_Static_assert(FZN_PROVISION_OFF_PORT_AT(1, 0, 9) == 371u, "provision layout: port moved");
+_Static_assert(FZN_PROVISION_OFF_SIGNATURE(1, 0) == 364u, "provision layout: signature moved");
+_Static_assert(FZN_PROVISION_MIN_LEN == 428u, "provision layout: the one-hop card changed size");
+_Static_assert(FZN_PROVISION_MAX_LEN == 2324u, "provision layout: the longest card changed size");
 /* A PROOF ITEM IS A ROOT-ADD, and the two lengths are one fact. */
 _Static_assert(FZN_PROVISION_PROOF_ITEM_LEN == FZN_ROOT_ADD_LEN,
                "provision layout: a proof item is not a root-add");
+
+/* A HOST AS `net/address` HAS ONE: letters, digits and `.-:`, up to the
+ * bound, a port beside it; or nothing at all, port 0 too. */
+static int host_ok(const uint8_t *host, size_t a, uint16_t port)
+{
+	size_t i;
+
+	if (a == 0u)
+		return port == 0u;
+	if (a > FZN_PROVISION_HOST_MAX || port == 0u)
+		return 0;
+	for (i = 0; i < a; i++) {
+		uint8_t c = host[i];
+
+		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+		      || c == '.' || c == '-' || c == ':'))
+			return 0;
+	}
+	return 1;
+}
 
 fzn_provision_err_t fzn_provision_pack(const uint8_t root[FZN_PUBKEY_LEN],
                                        const uint8_t (*chain)[FZN_HOP_LEN], size_t hop_count,
@@ -35,13 +57,28 @@ fzn_provision_err_t fzn_provision_pack(const uint8_t root[FZN_PUBKEY_LEN],
                                        uint64_t expires_at, const fzn_sign_ops_t *sign,
                                        uint8_t *out, size_t out_cap, size_t *out_len)
 {
-	size_t i, n = hop_count, p = proof_count;
+	return fzn_provision_pack_at(root, chain, hop_count, proof, proof_count, prekey, expires_at,
+	                             NULL, 0, 0, sign, out, out_cap, out_len);
+}
 
-	if (!root || !chain || !prekey || !out || !out_len || (p && !proof))
+fzn_provision_err_t fzn_provision_pack_at(const uint8_t root[FZN_PUBKEY_LEN],
+                                          const uint8_t (*chain)[FZN_HOP_LEN], size_t hop_count,
+                                          const uint8_t (*proof)[FZN_PROVISION_PROOF_ITEM_LEN],
+                                          size_t proof_count,
+                                          const uint8_t prekey[FZN_PREKEY_LEN_TOTAL],
+                                          uint64_t expires_at, const char *host,
+                                          size_t host_len, uint16_t port,
+                                          const fzn_sign_ops_t *sign, uint8_t *out,
+                                          size_t out_cap, size_t *out_len)
+{
+	size_t i, n = hop_count, p = proof_count, a = host_len;
+
+	if (!root || !chain || !prekey || !out || !out_len || (p && !proof) || (a && !host))
 		return FZN_PROVISION_ERR_MALFORMED;
-	if (n == 0u || n > FZN_CHAIN_MAX_HOPS || p > FZN_PROVISION_PROOF_MAX)
+	if (n == 0u || n > FZN_CHAIN_MAX_HOPS || p > FZN_PROVISION_PROOF_MAX
+	    || !host_ok((const uint8_t *)host, a, port))
 		return FZN_PROVISION_ERR_SHAPE;
-	if (out_cap < FZN_PROVISION_LEN(n, p))
+	if (out_cap < FZN_PROVISION_LEN_AT(n, p, a))
 		return FZN_PROVISION_ERR_MALFORMED;
 	if (!sign || !sign->sign)
 		return FZN_PROVISION_ERR_SIGNER;
@@ -58,22 +95,27 @@ fzn_provision_err_t fzn_provision_pack(const uint8_t root[FZN_PUBKEY_LEN],
 		       FZN_PROVISION_PROOF_ITEM_LEN);
 	memcpy(out + FZN_PROVISION_OFF_PREKEY(n, p), prekey, FZN_PREKEY_LEN_TOTAL);
 	fzn_put_be64(out + FZN_PROVISION_OFF_EXPIRES_AT(n, p), expires_at);
+	out[FZN_PROVISION_OFF_HOST_LEN(n, p)] = (uint8_t)a;
+	if (a)
+		memcpy(out + FZN_PROVISION_OFF_HOST(n, p), host, a);
+	fzn_put_be16(out + FZN_PROVISION_OFF_PORT_AT(n, p, a), port);
 
 	/* NONZERO IS SUCCESS, which is `chain.h`'s convention for this seam and
 	 * not C's usual one for an int return. Written the other way round
 	 * first, and it would have inverted every signature in the file. */
-	if (!sign->sign(sign->ctx, out + FZN_PROVISION_OFF_SIGNATURE(n, p), out,
-	                FZN_PROVISION_BODY_LEN(n, p)))
+	if (!sign->sign(sign->ctx, out + FZN_PROVISION_OFF_SIGNATURE_AT(n, p, a), out,
+	                FZN_PROVISION_BODY_LEN_AT(n, p, a)))
 		return FZN_PROVISION_ERR_SIGNER;
 
-	*out_len = FZN_PROVISION_LEN(n, p);
+	*out_len = FZN_PROVISION_LEN_AT(n, p, a);
 	return FZN_PROVISION_OK;
 }
 
 fzn_provision_err_t fzn_provision_open(const uint8_t *bytes, size_t len,
                                        fzn_provision_card_t *out)
 {
-	size_t n, p;
+	size_t n, p, a;
+	uint16_t port;
 
 	if (!bytes || !out)
 		return FZN_PROVISION_ERR_MALFORMED;
@@ -94,7 +136,13 @@ fzn_provision_err_t fzn_provision_open(const uint8_t *bytes, size_t len,
 	if (n == 0u || n > FZN_CHAIN_MAX_HOPS || len < FZN_PROVISION_LEN(n, 0))
 		return FZN_PROVISION_ERR_SHAPE;
 	p = bytes[FZN_PROVISION_OFF_PROOF_COUNT(n)];
-	if (p > FZN_PROVISION_PROOF_MAX || len != FZN_PROVISION_LEN(n, p))
+	if (p > FZN_PROVISION_PROOF_MAX || len < FZN_PROVISION_LEN(n, p))
+		return FZN_PROVISION_ERR_SHAPE;
+	a = bytes[FZN_PROVISION_OFF_HOST_LEN(n, p)];
+	if (len != FZN_PROVISION_LEN_AT(n, p, a))
+		return FZN_PROVISION_ERR_SHAPE;
+	port = fzn_get_be16(bytes + FZN_PROVISION_OFF_PORT_AT(n, p, a));
+	if (!host_ok(bytes + FZN_PROVISION_OFF_HOST(n, p), a, port))
 		return FZN_PROVISION_ERR_SHAPE;
 
 	out->base = bytes;
@@ -107,6 +155,9 @@ fzn_provision_err_t fzn_provision_open(const uint8_t *bytes, size_t len,
 	out->proof = bytes + FZN_PROVISION_OFF_PROOF(n);
 	out->prekey = bytes + FZN_PROVISION_OFF_PREKEY(n, p);
 	out->expires_at = fzn_get_be64(bytes + FZN_PROVISION_OFF_EXPIRES_AT(n, p));
+	out->host = bytes + FZN_PROVISION_OFF_HOST(n, p);
+	out->host_len = a;
+	out->port = port;
 
 	return FZN_PROVISION_OK;
 }
@@ -187,10 +238,14 @@ fzn_provision_err_t fzn_provision_verify(fzn_provision_card_t card,
 	 * `expires_at` is inside the signed body, so checking it first would be
 	 * acting on a number an attacker can choose. Nothing in an unverified
 	 * card is a fact yet. */
+	if (card.host_len > FZN_PROVISION_HOST_MAX)
+		return FZN_PROVISION_ERR_MALFORMED;
 	if (!verifier->verify(verifier->ctx, sponsor, card.base,
-	                      FZN_PROVISION_BODY_LEN(card.hop_count, card.proof_count),
-	                      card.base + FZN_PROVISION_OFF_SIGNATURE(card.hop_count,
-	                                                              card.proof_count)))
+	                      FZN_PROVISION_BODY_LEN_AT(card.hop_count, card.proof_count,
+	                                                card.host_len),
+	                      card.base + FZN_PROVISION_OFF_SIGNATURE_AT(card.hop_count,
+	                                                                 card.proof_count,
+	                                                                 card.host_len)))
 		return FZN_PROVISION_ERR_SIGNATURE;
 
 	if (now != 0u && card.expires_at != 0u && card.expires_at < now)
@@ -271,17 +326,15 @@ fzn_provision_err_t fzn_provision_from_text(const char *text, uint8_t *out, size
 	/* THE LENGTH IS CHECKED BEFORE THE ALPHABET, so a string of no card's
 	 * length is SHAPE rather than being decoded into a short buffer and
 	 * refused later for a reason that does not name what is wrong with it.
-	 * A card's length is one per hop and proof count; its text is one length
-	 * for each. */
+	 * A card's text is the one length its bytes' count gives; which counts
+	 * are cards -- one per hop count, proof count and host length, and since
+	 * sec 671 those overlap -- is `fzn_provision_open`'s to say. */
 	body_len = strlen(text) - FZN_PROVISION_TEXT_PREFIX_LEN;
 	{
-		size_t h, q, want = 0;
+		size_t want = body_len * 5u / 8u;
 
-		for (h = 1; h <= FZN_CHAIN_MAX_HOPS && !want; h++)
-			for (q = 0; q <= FZN_PROVISION_PROOF_MAX && !want; q++)
-				if (body_len == FZN_PROVISION_TEXT_BODY_LEN(FZN_PROVISION_LEN(h, q)))
-					want = FZN_PROVISION_LEN(h, q);
-		if (!want)
+		if (want < FZN_PROVISION_MIN_LEN || want > FZN_PROVISION_MAX_LEN
+		    || FZN_PROVISION_TEXT_BODY_LEN(want) != body_len)
 			return FZN_PROVISION_ERR_SHAPE;
 		if (out_cap < want)
 			return FZN_PROVISION_ERR_MALFORMED;
