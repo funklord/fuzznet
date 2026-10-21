@@ -65303,7 +65303,7 @@ lost; **grants core**, a grant rolled back being a reader readmitted.
 - **Pulled when asked, never pushed**: fuzzypickles' open question, live
   position fire-and-forget beside the catch-up (their sec 12 item 4), is
   open here too.
-- **The gpsd source and the sampling stay the application's**; sec 608
+- ~~**The gpsd source and the sampling stay the application's**~~ -- moved into fuzznet by the holder, sec 672; sec 608
   asked whether sampling is network code, and it is not -- it reads a
   local daemon -- so it stays with fuzzypickles.
 - **No expiry on a grant**, fuzzypickles' choice (their sec 10.1).
@@ -67024,7 +67024,7 @@ handling a task if several are running."
 3. **The library entry.** `fzn_daemon_main(argc, argv, ext)` in the
    library, fuzznetd's `main` calling it with no extension, behaviour
    unchanged: a move, proved by the gates and livecheck before and after.
-4. **The extension.** `ext` carries a local-verb handler (asked for a verb
+4. **The extension** (rewritten in sec 672). `ext` carries a local-verb handler (asked for a verb
    fuzznet does not answer), a remote handler for its reserved request
    types, and the journal kinds it processes.
 5. **What fuzznet does not process, carried.** Journal records of kinds
@@ -67258,3 +67258,107 @@ appended fields. The contract and map were regenerated against situ
 hand in `provision/provision.c`. Sabotage entries `provision-host-shape-checked` and
 `provision-port-beside-no-host`; `provision-envelope-verified` is
 re-anchored on the verify call that now covers the host.
+
+## 672. Stage 4 replanned: what fzpd still serves moves into fuzznet, and the extension is how commands come in, 2026-10-21
+
+**The holder's decisions**, asked from here on fuzzypickles' three needs
+for stage 4 (their sec 284, at their eeab6e5):
+
+- **fzpd's command line is fuzznet's**: fzpd takes fuzznetd's options as
+  its own. Options only it has (`--profile`, `--config`) are declared
+  through the extension and handed over by fuzznet's one parser. Its
+  `--state-dir`, `--socket-path` and `--peer-port` go. That keeps the
+  restart in place sound, since it hands the same argv back to the same
+  program.
+- **No second socket.** In the holder's words: "stickers and location
+  should move into fuzznet so we still have nothing that's obviously
+  fuzzypickles. Make the entire commandset with that in mind and with an
+  extension mechanism that allows for commands to move from other
+  software into fuzznet later as this will be a normal flow."
+- **One remote port, the node's** `--udp-port`. This is not a new
+  decision: it follows from all network code being fuzznet's. fzpd
+  passes the number it advertised as `--udp-port`, so the estate's
+  record of it stays true.
+
+**This supersedes three records:**
+- sec 666 stage 4's premise, that fzpd's extension would carry stickers,
+  location, the settings schema and its log;
+- sec 632's "the gpsd source and the sampling stay the application's",
+  and its "the fix's encoding stays the application's";
+- fuzzypickles' sec 271, which kept sticker editing and the location
+  encoding on their side. That one is theirs to amend.
+
+### What fzpd still serves, and where each goes
+
+Read 2026-10-21 from fuzzypickles at eeab6e5, a survey of
+`daemon/ipc_server.c`, the switch in `core/src/core.c` and
+`client/calls.c`, sorted by their sec 284's own lists. The families
+already moved to fuzznetd's verbs are not repeated here.
+
+| Family | Today | In fuzznet |
+|---|---|---|
+| Stickers: save, list, forget, and the sweep that fetches referenced packs | fzpd only | a sticker module and verbs |
+| Location: show, status, gpsd sampling, the 19-byte fix, the grid degrading | partly on sec 632's streams | a location module over sec 632's stream |
+| Config: schema, instances, status | fzpd's registry | a declared settings schema |
+| Transfer: the traffic meter | guarded; nothing here | traffic accounting, fuzznet's |
+| Prekey generate | guarded | a verb |
+| Status | waits | status fields |
+| Log show | fzpd's own log | fuzznetd's log, nothing to move |
+| Guarded as replaced: chat relay, manifest, log relay, rendezvous, notes retention, library claim-on-fetch, group reconstruct | refused on a node | nothing moves; callers use the replacement |
+
+**What each move carries.**
+
+- **Stickers.**
+  - A message carries a reference, not a picture: the text
+    `fzp:sticker/ROOT/KEY/ID DESCRIPTION` in an ordinary message.
+  - A pack is a stored-only zip holding a CBOR manifest, and travels as
+    an ordinary content-addressed blob (fuzznet's already).
+  - Saving pins a pack against retention and lists it for the picker.
+  - The sweep fetches any pack a message references, asking the sender
+    first and then the members.
+- **Location.**
+  - gpsd's TPV report is read over TCP, as a backend a build may leave
+    off.
+  - The fix is 19 bytes and becomes a situ schema.
+  - It is degraded on a grid: exact, 0.01 degree, 0.1 degree.
+  - Its `location.*` settings become fuzznet settings.
+  - The node then writes each rendition of sec 632's stream itself,
+    where the application wrote them before.
+
+### The extension, made for commands that move in (stage 4, rewritten)
+
+The point is that **a command moving from an extension into fuzznet
+changes nothing for a client and nothing in stored data**:
+
+1. **Options** are declared by the extension and parsed by fuzznet's one
+   parser, as above.
+2. **Local verbs** reach the extension only when fuzznet's own handlers
+   decline them. So when fuzznet gains a verb, fuzznet answers it from
+   then on, and the extension's copy is dead code to delete. That works
+   only if the extension's verb is already spelled in fuzznet's grammar
+   and answers in its reply vocabulary (`tool/reply_gate.py`'s); the
+   extension's interface says so.
+3. **Remote request types and journal kinds have one registry, in
+   fuzznet**, including those an extension serves. A moved one keeps its
+   number, so peers on either side of the move still agree.
+4. **A kind a host does not process is kept and relayed** (stage 5), so
+   when fuzznet later learns the kind, its history is already in the
+   journal to apply.
+5. **Settings keys are declared** in the schema above, fuzznet's own and
+   an extension's, so a key keeps its name when its owner moves.
+
+**The order.**
+1. The extension (stage 4) and unknown kinds carried (stage 5).
+2. Location.
+3. Stickers.
+4. The settings schema, traffic accounting, prekey generate and status.
+
+fzpd becomes a call once its clients reach everything through fuzznet's
+verbs.
+
+**Open, the holder's, to settle when stickers are built:**
+- Whether a pack keeps fzpd's zip-and-CBOR layout, so packs already made
+  still open, or becomes a situ schema as every other layout here is.
+- Whether the reference text keeps its `fzp:` scheme, which existing
+  messages carry and which names fuzzypickles, or gains a fuzznet one
+  that also reads the old.
