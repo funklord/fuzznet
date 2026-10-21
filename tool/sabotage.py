@@ -12431,6 +12431,20 @@ SABOTAGES = [
 		"",
 		"sec 674: the range is version 2's, and another version's type space is its owner's; admin_test's other-version check catches it",
 	),
+	(
+		"apply-extension-handed",
+		"node/apply.c",
+		"\t\tif (ap->extension && kind != 0u && !FZN_OBJECT_IS_LIBRARY(kind) && kind < 256u) {\n",
+		"\t\tif (0) {\n",
+		"sec 675: a consumer-half kind is handed to the extension, or an extension's records are carried and never applied; apply_test's handed-after-a-start check catches it",
+	),
+	(
+		"journal-extension-consumer-half",
+		"node/journal.c",
+		"\t    || FZN_OBJECT_IS_LIBRARY(object[1])\n",
+		"",
+		"sec 675: an extension writes only the consumer half, or it could put a library object in the stream unjudged by its own writer; apply_test's each-half check catches it",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

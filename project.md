@@ -66981,6 +66981,20 @@ four named targets for the three test basenames shared between
 directories. The README names `fmake` and `fmake test` beside `make`;
 `make` stays the build of record, its gates not being fmake's.
 
+**fmake's answer** (inbox message 20261021T1241Z, from fmake's session on
+the other account), at fmake ad5a4ae:
+- Where a build defines `QT_NO_KEYWORDS` and a line uses `signals:`,
+  `slots:` or `emit`, fmake now names the define as the cause and
+  `Q_SIGNALS`, `Q_SLOTS` and `Q_EMIT` as the spellings that work either
+  way. That is the failure this tree met.
+- A build where every compile fails no longer blames `nm`.
+- The `quirc/demo` exclusion is the second consumer's to need it, beside
+  fuzzypickles', and is quirc's question.
+- A probe that could say the Makefile's `auto` defines is put to the
+  holder in fmake's section 482.
+
+Nothing here changes for any of it.
+
 ## 666. Several daemons of one identity, and fuzznetd's node as a library: the plan, 2026-10-21
 
 **The requirement**, the holder's of 2026-10-21 for fuzzypickles' cut-over
@@ -67487,3 +67501,92 @@ count. It does not discover types.
 
 **Not yet**: journal kinds, which are stage 5 with their carriage:
 records of a kind this host does not process, kept and relayed.
+
+## 675. Stage 5: an extension's journal kinds, carried, applied, and written, 2026-10-21
+
+**The carriage half held already, and is tested now.** The exchange
+carries records of any kind, so a record of a kind this host does not
+process is kept in its record store and served to whoever follows that
+stream. The apply round marks a kind it does not apply as done and skips
+it, without stopping the stream (`node/apply.c`). Applied positions are
+not kept across a start, so the journal replays from the beginning and
+a host whose build has since learned a kind applies that kind's whole
+history then. That is how a kind moving into fuzznet finds its records
+already in each journal (sec 672).
+
+**Built:**
+- **The consumer half of kinds, an extension's.** Object tags 1 to 127
+  (`wire/bytes.h`), which no library object uses.
+  - `fzn_node_journal_append_extension` writes one into an estate stream.
+    The object opens with `FZN_SIGNED_VERSION` and its kind, as every
+    object does.
+  - `fzn_node_journal_append_object` keeps refusing those tags, and the
+    new call refuses the library's, so neither half can write the other.
+- **An apply hook.** `fzn_node_apply_t.extension` is handed an object of
+  that half with its signer. It answers 1 for applied, 0 for refused, and
+  -1 to wait, which stops its stream for a later round as a record with
+  no chain yet does.
+- **The daemon's side.** `fzn_daemon_ext_t.apply` is wired to that
+  hook. `fzn_daemon_journal_append` lets an extension write a record
+  into this host's estate stream, signed as this host, from inside one of
+  its calls. Records are handed over again at every start, so applying
+  must be idempotent; `node/daemon.h` says so.
+
+**Tested.**
+- `node/test/apply_test.c`, in an estate stream holding an extension's
+  record and then a roster record:
+  - with no hook, the extension's record is skipped and the roster
+    record after it is applied;
+  - after a start with a hook, the record is handed over as M's, kind 5;
+  - a hook that waits stops the stream, two waiting where there was one;
+  - each half's writer refuses the other's object.
+- `node/test/node_journal_test.c`: an extension's record written at A is
+  pulled by B whole, of its kind.
+- `tool/live_ext.py` phase c: two `ext_daemon`s, B joined to A by verbs.
+  `add mark hello` at A comes to read `ok 1 hello` from `get marks` at B.
+
+**Control**: a daemon that hands its extension nothing leaves B at
+`ok 0` and fails phase c. Sabotage entries `apply-extension-handed` and
+`journal-extension-consumer-half`.
+
+**Unexplained, and left open: three failed full live gates.** Two
+full `make livecheck` runs of this build failed in `live_catalog` ("b-fetch:
+not after 4 rounds"), and a third, this binary under the previous
+commit's scripts, failed in `live_groups` ("f: C fetched None of B's
+file"). All three are a file fetch, at load averages of 160 to 175.
+
+What was ruled out:
+- **Stale objects.** All 139 objects of fuzznetd's link line match a
+  fresh compile with their debug sections stripped.
+- **Memory errors.** An AddressSanitizer build passed the whole gate with
+  no report. It runs at `-Og`, though, so it is not the same code.
+- **The scripts' order and make's environment.** Neither failing script
+  failed alone, in the gate's order from a shell, or under make alone, in
+  ten runs at load 140 to 190.
+
+Nothing this section changes runs in those daemons: they have no
+extension, so `node_apply.extension` is NULL and `apply_body`'s new
+branch is never reached.
+
+**Against that**, the previous commit's build passed four full gates
+while this one failed three of five. Its two passes alternated with two
+of the old build's, one of them at load 144. That does not separate this
+change from the machine's load, so file fetching under contention is
+where to look the next time a fetch phase fails, and this paragraph is
+what to supersede then.
+
+**Found on the way:** `live_socket`, `live_face` and `live_ext` started
+daemons with no `--log-dir`, so every live gate wrote into the user's
+own `~/.local/state/fuzznet/log`. That breaks what sec 488 records,
+that `~/.local/state/fuzznet` stays absent. Each script now gives its
+daemons a log directory in its own scratch. **Proved**: with
+`XDG_STATE_HOME` pointed at an empty scratch directory, the three leave
+it empty, where the previous commit's `live_face` writes `fuzznetd.log`
+and `fuzznetd.chain` into it. The user's directory also holds one
+daemon's lines that no script in this tree makes, so it is left where it
+is.
+
+**Sec 666's stages are all built now**, but stage 2's second half, a
+follower reading the store directly, is still left as sec 669 says. What
+fzpd needs next is not more mechanism but the moves sec 672 orders:
+location, then stickers, then the rest.

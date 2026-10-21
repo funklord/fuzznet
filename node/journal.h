@@ -160,6 +160,19 @@ fzn_node_journal_err_t fzn_node_journal_write(fzn_node_journal_t *nj,
                                               uint8_t *out, size_t cap, size_t *out_len,
                                               uint8_t id_out[FZN_RECORD_ID_LEN]);
 
+/* WRITE AN EXTENSION'S OBJECT, sec 675: `fzn_node_journal_append_object`
+ * for an object of the consumer half -- a tag of 1 to 127 (`wire/bytes.h`),
+ * opening with FZN_SIGNED_VERSION -- which no library object is: what a
+ * daemon's extension (`node/daemon.h`) writes into its host's estate
+ * stream, carried as every record is and applied by whatever host knows
+ * the kind. MALFORMED for a library tag, or a body that does not fit. */
+fzn_node_journal_err_t fzn_node_journal_append_extension(fzn_node_journal_t *nj,
+                                                         const uint8_t issuer[FZN_PUBKEY_LEN],
+                                                         const fzn_sign_ops_t *sign,
+                                                         const uint8_t *object, size_t len,
+                                                         uint64_t now,
+                                                         uint8_t id[FZN_RECORD_ID_LEN]);
+
 /* WRITE AN OBJECT: `fzn_node_journal_append` with the object's tag (its
  * second byte) as the kind, its hash as the subject, and its bytes, `len` of
  * them, as the body. MALFORMED for something that is not a signed object of

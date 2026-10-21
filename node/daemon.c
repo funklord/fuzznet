@@ -6146,6 +6146,32 @@ static size_t ext_remote(void *ctx, const uint8_t *sender, int contact, const ui
 	       : 0u;
 }
 
+int fzn_daemon_journal_append(const uint8_t *object, size_t len)
+{
+#ifdef FZN_RECORD_STORE_FILE_ON
+	const fzn_node_identity_t *id = running_admin ? running_admin->id : NULL;
+
+	if (!journal_on || !id || !object)
+		return 0;
+	if (fzn_node_journal_append_extension(&node_journal, id->pubkey, id->sign, object, len,
+	                                      wall_ms(), NULL) != FZN_NODE_JOURNAL_OK)
+		return 0;
+	return 1;
+#else
+	(void)object;
+	(void)len;
+	return 0;
+#endif
+}
+
+static int ext_apply(void *ctx, uint32_t kind, const uint8_t *body, size_t len,
+                     const uint8_t *signer)
+{
+	(void)ctx;
+	return daemon_ext && daemon_ext->apply
+	       ? daemon_ext->apply(daemon_ext->ctx, kind, body, len, signer) : 0;
+}
+
 static size_t ext_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                         char *reply, size_t cap)
 {
@@ -11782,6 +11808,10 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				admin.extension_local = ext_local;
 			if (ext && ext->remote)
 				admin.extension_remote = ext_remote;
+#ifdef FZN_RECORD_STORE_FILE_ON
+			if (ext && ext->apply)
+				node_apply.extension = ext_apply;
+#endif
 #ifdef FZN_RECORD_STORE_FILE_ON
 			admin.address = own_address;
 			admin.address_ctx = identity.pubkey;

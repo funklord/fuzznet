@@ -48,6 +48,12 @@ typedef struct fzn_daemon_option {
  *     allocates none of. A type an extension uses is listed there with its
  *     owner, so that moving into fuzznet it keeps its number. One in that
  *     range that no extension takes is answered `unsupported`.
+ *   - Journal records of the consumer half of kinds (1 to 127,
+ *     `wire/bytes.h`) reach `apply` from every host's estate stream this
+ *     node follows; `fzn_daemon_journal_append` writes them into this
+ *     host's. A host that does not know a kind keeps and serves its
+ *     records all the same, so a kind that moves into fuzznet finds its
+ *     history already in each journal.
  *
  * Every member may be NULL or 0; a NULL extension is fuzznetd. */
 typedef struct fzn_daemon_ext {
@@ -69,11 +75,27 @@ typedef struct fzn_daemon_ext {
 	 * for one it does not answer, which is then `unsupported`. */
 	size_t (*remote)(void *ctx, const uint8_t sender[FZN_PUBKEY_LEN], int contact,
 	                 const uint8_t *request, size_t request_len, uint8_t *reply, size_t cap);
+	/* A journal record of a consumer-half kind, `body` its object --
+	 * FZN_SIGNED_VERSION, then the kind, then the extension's own bytes --
+	 * written by `signer`, a host whose stream this node follows: 1
+	 * applied, 0 refused, -1 to wait for a later round. Records are handed
+	 * over again at every start, the journal replaying from the beginning,
+	 * so applying must be idempotent. */
+	int (*apply)(void *ctx, uint32_t kind, const uint8_t *body, size_t len,
+	             const uint8_t signer[FZN_PUBKEY_LEN]);
 } fzn_daemon_ext_t;
 
 /* RUN THE NODE as fuzznetd with `argc` and `argv`, and what `ext` adds,
  * NULL for nothing: the exit status, as fuzznetd's main would return it.
  * `ext` must outlive the call. */
 int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext);
+
+/* WRITE AN EXTENSION'S RECORD into this host's estate stream, signed as
+ * this host, from inside one of the extension's calls while the node
+ * serves: `object`, `len` bytes, opening with FZN_SIGNED_VERSION and a
+ * consumer-half kind. 1 written, 0 for a node keeping no journal, a kind
+ * of the library's, or a store that refused it. The node's next round
+ * applies it here and carries it to the hosts that follow this one. */
+int fzn_daemon_journal_append(const uint8_t *object, size_t len);
 
 #endif /* FZN_NODE_DAEMON_H */

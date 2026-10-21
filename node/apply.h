@@ -84,6 +84,16 @@ typedef struct fzn_node_apply {
 	const fzn_cap_id_t *admin_capability;  /* an admin's grant, or NULL */
 	const fzn_sign_ops_t *sign;
 	const fzn_hash_ops_t *hash;
+	/* AN EXTENSION'S KINDS, sec 675, or NULL: an object of the consumer
+	 * half (a tag of 1 to 127), signed by `signer`, handed over -- 1
+	 * applied, 0 refused, -1 to wait, its stream stopped there until a
+	 * later round. With none, such a record is skipped as any kind not
+	 * applied here is, still kept and still served, and a host whose
+	 * build learns the kind applies it at its next start, the journal
+	 * replaying from the beginning. */
+	int (*extension)(void *ctx, uint32_t kind, const uint8_t *body, size_t len,
+	                 const uint8_t signer[FZN_PUBKEY_LEN]);
+	void *extension_ctx;
 	fzn_node_grant_t grants[FZN_NODE_APPLY_GRANTS_MAX];
 	size_t grants_used;
 } fzn_node_apply_t;

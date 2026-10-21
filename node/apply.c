@@ -373,6 +373,12 @@ static enum outcome apply_body(fzn_node_apply_t *ap, uint32_t kind, const uint8_
 	case FZN_OBJECT_PREKEY:
 		return take_prekey(ap, body, len, signer);
 	default:
+		/* AN EXTENSION'S KIND, sec 675: the consumer half, its to judge. */
+		if (ap->extension && kind != 0u && !FZN_OBJECT_IS_LIBRARY(kind) && kind < 256u) {
+			int took = ap->extension(ap->extension_ctx, kind, body, len, signer);
+
+			return took > 0 ? APPLIED : took < 0 ? WAIT : REFUSED;
+		}
 		return REFUSED;
 	}
 }

@@ -86,7 +86,10 @@ def main(argv):
 
 		def start(who):
 			log = open(os.path.join(scratch, who + ".err"), "w")
+			# A LOG DIRECTORY EACH: told none, a daemon logs into the
+			# user's own `~/.local/state/fuzznet/log`.
 			p = subprocess.Popen([fuzznetd, "--socket=" + socks[who], "--fuzznet-dir=" + store,
+			                      "--log-dir=" + os.path.join(scratch, "log-" + who),
 			                      "--fuzznet-service=1", "--fuzznet-product=1"],
 			                     stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
 			procs.append(p)
@@ -110,6 +113,7 @@ def main(argv):
 			# its directory, and a mistyped path must not start an empty store.
 			absent = os.path.join(scratch, "absent")
 			r = subprocess.run([fuzznetd, "--socket=" + socks["a"], "--fuzznet-dir=" + absent,
+			                    "--log-dir=" + os.path.join(scratch, "log-absent"),
 			                    "--fuzznet-service=1", "--fuzznet-product=1"],
 			                   capture_output=True, timeout=20)
 			if r.returncode == 0 or os.path.exists(absent):

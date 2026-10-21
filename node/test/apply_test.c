@@ -195,6 +195,24 @@ static int put(fzn_node_journal_t *nj, uint8_t writer, const uint8_t *object, si
 	       == FZN_NODE_JOURNAL_OK;
 }
 
+/* AN EXTENSION'S HOOK, sec 675: each record it is handed counted, its
+ * signer's seed and its kind noted, and answered `hook_says`. */
+static int hook_calls, hook_says = 1;
+static uint32_t hook_kind;
+static uint8_t hook_signer;
+
+static int hook(void *ctx, uint32_t kind, const uint8_t *body, size_t len,
+                const uint8_t signer[FZN_PUBKEY_LEN])
+{
+	(void)ctx;
+	(void)body;
+	(void)len;
+	hook_calls++;
+	hook_kind = kind;
+	hook_signer = signer[0];
+	return hook_says;
+}
+
 static void test_the_journal_applied(void)
 {
 	static fzn_node_journal_t nj;
@@ -329,6 +347,70 @@ static void test_the_journal_applied(void)
 	CHECK(fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK && t.applied == 0u
 	              && t.grants == 0u && t.refused == 0u,
 	      "a second round applied something again");
+
+	/* AN EXTENSION'S KIND, sec 675: an object of the consumer half in M's
+	 * stream, and M's next record after it. */
+	{
+		static const uint8_t mark[] = { FZN_SIGNED_VERSION, 5u, 'x' };
+		uint8_t carol[FZN_PUBKEY_LEN];
+		size_t i;
+
+		key(carol, 0x80);
+		signing_as = 0x20;
+		CHECK(fzn_node_journal_append_object(&nj, m, &SIGN, mark, sizeof(mark), 1u, NULL)
+		              == FZN_NODE_JOURNAL_MALFORMED
+		              && fzn_node_journal_append_extension(&nj, m, &SIGN, hop, sizeof(hop), 1u,
+		                                                   NULL) == FZN_NODE_JOURNAL_MALFORMED,
+		      "an object of each half was written by the other half's writer");
+		CHECK(fzn_node_journal_append_extension(&nj, m, &SIGN, mark, sizeof(mark), 1u, NULL)
+		              == FZN_NODE_JOURNAL_OK
+		              && fzn_roster_issue_add(m, carol, inc, 3u, &SIGN, obj, sizeof(obj), &len)
+		                         == FZN_ROSTER_OK
+		              && put(&nj, 0x20, obj, len),
+		      "fixture: an extension's record in M's stream, and M's roster record after");
+		/* NO EXTENSION: skipped, and the stream goes on past it. */
+		/* THE STRANGER'S RECORD STILL WAITS, as above: the one waiting. */
+		CHECK(fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK && t.refused == 1u
+		              && t.applied == 1u && t.waiting == 1u
+		              && fzn_node_roster_standing(&roster, carol, &revs, 2u)
+		                         == FZN_ROSTER_ACTIVE,
+		      "an unknown kind stopped its stream, or was not skipped");
+		/* A BUILD THAT KNOWS THE KIND, started again: the journal replays
+		 * from the beginning, and the record is handed over. */
+		fzn_node_journal_close(&nj);
+		CHECK(fzn_node_journal_init(&nj, dir, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK,
+		      "fixture: the journal opened again");
+		for (i = 0; i < n_used; i++) {
+			uint8_t k[FZN_PUBKEY_LEN];
+
+			key(k, used_writers[i]);
+			(void)fzn_node_journal_follow(&nj, k, NULL);
+		}
+		ap.extension = hook;
+		hook_calls = 0;
+		hook_says = 1;
+		CHECK(fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK && hook_calls == 1
+		              && hook_kind == 5u && hook_signer == m[0] && t.waiting == 1u,
+		      "after a start, the extension's record was not handed to it, as M's");
+		/* A HOOK THAT WAITS stops the stream there: M's waits beside the
+		 * stranger's, two where there was one. */
+		fzn_node_journal_close(&nj);
+		CHECK(fzn_node_journal_init(&nj, dir, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK,
+		      "fixture: the journal opened once more");
+		for (i = 0; i < n_used; i++) {
+			uint8_t k[FZN_PUBKEY_LEN];
+
+			key(k, used_writers[i]);
+			(void)fzn_node_journal_follow(&nj, k, NULL);
+		}
+		hook_calls = 0;
+		hook_says = -1;
+		CHECK(fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK && hook_calls >= 1
+		              && t.waiting == 2u,
+		      "an extension that waits did not stop its stream");
+		ap.extension = NULL;
+		hook_says = 1;
+	}
 	fzn_node_journal_close(&nj);
 }
 

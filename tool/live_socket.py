@@ -40,7 +40,10 @@ def main(argv):
 		env = dict(os.environ, XDG_RUNTIME_DIR=run_dir)
 		sock = os.path.join(run_dir, "fuzznet", "fuzznetd.sock")
 		log = open(os.path.join(scratch, "fuzznetd.err"), "w")
-		proc = subprocess.Popen([fuzznetd, "--fuzznet-dir=" + store], env=env, stdout=log,
+		# A LOG DIRECTORY OF ITS OWN: told none, the daemon logs into the
+		# user's own `~/.local/state/fuzznet/log`.
+		proc = subprocess.Popen([fuzznetd, "--fuzznet-dir=" + store,
+		                         "--log-dir=" + os.path.join(scratch, "log")], env=env, stdout=log,
 		                        stderr=subprocess.STDOUT, start_new_session=True)
 		try:
 			while time.monotonic() < deadline and not os.path.exists(sock):

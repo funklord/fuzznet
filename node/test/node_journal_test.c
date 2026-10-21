@@ -777,6 +777,38 @@ static void test_a_second_stream(void)
 	fzn_node_journal_close(&a);
 }
 
+/* AN EXTENSION'S RECORD, sec 675: an object of the consumer half, written
+ * into an estate stream at A, carried to B as any record is, though
+ * neither knows its kind. */
+static void test_an_extension_record_carried(void)
+{
+	static fzn_node_journal_t a, b;
+	static const uint8_t mark[] = { FZN_SIGNED_VERSION, 5u, 'x', 'y' };
+	static uint8_t held[FZN_RECORD_MAX_LEN];
+	uint8_t w[FZN_PUBKEY_LEN], reply[8192];
+	fzn_exchange_tally_t t;
+	fzn_record_t rec;
+
+	key(w, 0x91);
+	signing_as = 0x91;
+	CHECK(fzn_node_journal_init(&a, dir_a, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_init(&b, dir_b, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_append_extension(&a, w, &SIGN, mark, sizeof(mark), 9u,
+	                                                   NULL) == FZN_NODE_JOURNAL_OK,
+	      "fixture: an extension's record in W's stream at A");
+	CHECK(fzn_node_journal_follow(&b, w, NULL) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_pull(&b, ask, &a, reply, sizeof(reply), &t)
+	                         == FZN_EXCHANGE_OK
+	              && t.learned == 1u
+	              && fzn_record_store_get(&b.store, w, FZN_NODE_JOURNAL_STREAM, 1u, held,
+	                                      sizeof(held), &rec) == FZN_RECORD_STORE_OK
+	              && fzn_record_kind(rec) == 5u && fzn_record_body_len(rec) == sizeof(mark)
+	              && memcmp(fzn_record_body(rec), mark, sizeof(mark)) == 0,
+	      "B did not carry the extension's record whole, of its kind");
+	fzn_node_journal_close(&a);
+	fzn_node_journal_close(&b);
+}
+
 int main(void)
 {
 	char path[512];
@@ -791,6 +823,7 @@ int main(void)
 	test_an_object_carried_whole();
 	test_the_stream_is_the_act_log();
 	test_a_second_stream();
+	test_an_extension_record_carried();
 	test_the_spine_outlives_a_cut();
 	test_a_stream_read_from_its_base();
 	test_the_cut();
@@ -818,6 +851,10 @@ int main(void)
 	stream_file(path, sizeof(path), dir_a, 0x60, 0u);
 	(void)unlink(path);
 	stream_path(path, sizeof(path), dir_b, 0x31);
+	(void)unlink(path);
+	stream_path(path, sizeof(path), dir_a, 0x91);
+	(void)unlink(path);
+	stream_path(path, sizeof(path), dir_b, 0x91);
 	(void)unlink(path);
 	CHECK(rmdir(dir_a) == 0 && rmdir(dir_b) == 0,
 	      "a scratch directory would not go: the suite left a file it did not name");
