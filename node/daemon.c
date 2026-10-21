@@ -6105,6 +6105,45 @@ static struct {
 /* SET BY A JOIN: the loop starts the daemon again. */
 static int rejoin_due;
 static char **daemon_argv;
+/* WHAT THE DAEMON CALLING THIS ADDS, sec 673 (`node/daemon.h`), or NULL. */
+static const fzn_daemon_ext_t *daemon_ext;
+
+/* AN EXTENSION'S OPTION, `arg` as typed: 1 taken, 0 not one of its, -1
+ * refused, said. */
+static int ext_option(const char *arg)
+{
+	size_t i;
+
+	if (!daemon_ext)
+		return 0;
+	for (i = 0; i < daemon_ext->n_options; i++) {
+		const fzn_daemon_option_t *o = &daemon_ext->options[i];
+		size_t len = o->name ? strlen(o->name) : 0u;
+		const char *why = NULL;
+
+		if (!len || strncmp(arg, o->name, len) != 0)
+			continue;
+		if (o->takes_value ? arg[len] != '=' : arg[len] != '\0')
+			continue;
+		if (daemon_ext->option)
+			why = daemon_ext->option(daemon_ext->ctx, o->name,
+			                         o->takes_value ? arg + len + 1u : NULL);
+		if (why) {
+			fprintf(stderr, "fuzznetd: %s: %s\n", arg, why);
+			return -1;
+		}
+		return 1;
+	}
+	return 0;
+}
+
+static size_t ext_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
+                        char *reply, size_t cap)
+{
+	(void)ctx;
+	return daemon_ext && daemon_ext->local
+	       ? daemon_ext->local(daemon_ext->ctx, origin, request, reply, cap) : 0u;
+}
 
 static size_t join_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                          size_t cap)
@@ -10079,6 +10118,16 @@ static void usage(const char *prog)
 	        "              and --short shortens what repeats from line to line\n"
 	        "%s",
 	        prog, prog, prog, prog, prog, prog, prog, FZND_PULL_EVERY, prog, fzn_cli_usage());
+	/* AND WHAT THE DAEMON CALLING THIS TAKES BESIDE, sec 673. */
+	if (daemon_ext && daemon_ext->n_options) {
+		size_t i;
+
+		fprintf(stderr, "this daemon's own options:\n");
+		for (i = 0; i < daemon_ext->n_options; i++)
+			fprintf(stderr, "  %s%s  %s\n", daemon_ext->options[i].name,
+			        daemon_ext->options[i].takes_value ? "=VALUE" : "",
+			        daemon_ext->options[i].help ? daemon_ext->options[i].help : "");
+	}
 }
 
 /* PAIR ONE DEVICE AND EXIT.
@@ -10418,7 +10467,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	const char *sock_path = NULL;
 
 	daemon_argv = argv;
-	(void)ext;	/* none is defined yet: sec 666 stage 4 */
+	daemon_ext = ext;
 	fzn_hash_ops_t hash_ops;
 	fzn_aead_ops_t aead_ops;
 	fzn_random_ops_t rng_ops;
@@ -10701,6 +10750,15 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				fprintf(stderr, "fuzznetd: %s: %s\n", argv[i],
 				        fzn_cli_err_str(cerr));
 				return 2;
+			}
+			/* THEN THE CALLING DAEMON'S, sec 673: after fuzznet's, so
+			 * an option fuzznet comes to take is fuzznet's. */
+			if (!claimed) {
+				int took = ext_option(argv[i]);
+
+				if (took < 0)
+					return 2;
+				claimed = took;
 			}
 			if (!claimed) {
 				usage(argv[0]);
@@ -11720,6 +11778,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 #endif
 #endif
 			admin.card_lifetime = FZND_CARD_LIFETIME;
+			if (ext && ext->local)
+				admin.extension_local = ext_local;
 #ifdef FZN_RECORD_STORE_FILE_ON
 			admin.address = own_address;
 			admin.address_ctx = identity.pubkey;

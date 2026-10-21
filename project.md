@@ -67362,3 +67362,62 @@ verbs.
 - Whether the reference text keeps its `fzp:` scheme, which existing
   messages carry and which names fuzzypickles, or gains a fuzznet one
   that also reads the old.
+
+## 673. Stage 4a: an extension's options and verbs, asked after fuzznet's, 2026-10-21
+
+The first half of stage 4 as sec 672 rewrote it. `fzn_daemon_ext_t`
+(`node/daemon.h`) is defined now, and `fzn_daemon_main` takes it.
+
+**Built:**
+
+- **Options.** An extension lists `fzn_daemon_option_t`s, each a name as
+  it is typed (`--profile`), whether it takes `=VALUE`, and a line of
+  help. fuzznet's one parser asks fuzznet's own options first and the
+  extension's second, so an option fuzznet comes to take is fuzznet's
+  from then on. An option the extension refuses ends the start in its
+  words. One neither side takes is refused with the usage text, which now
+  lists the extension's options too.
+- **Local verbs.** `local` is asked last in the admin's chain, after
+  every handler of fuzznet's has declined and just before `unsupported`.
+  So a verb fuzznet comes to answer is fuzznet's from then on, and the
+  extension's copy is dead code. It is reached as fuzznet's own verbs
+  are: a verb that changes the node only from its own user, and through
+  sec 543's remote admin path as well. Its answer is held to fuzznet's
+  grammar: one line, ending in a newline, opening with a word of the
+  reply vocabulary. Any other answer becomes `error the extension's
+  answer is not a reply`, so a client never reads something no fuzznet
+  verb would say. An `ok` from it is published as an event, as any
+  verb's is.
+- **The build.** `FUZZNETD_LINK` is fuzznetd's link line without its
+  main, so another daemon's main links the same node.
+  `node/test/ext_daemon` is such a daemon, built by `livecheck` and by
+  nothing else. It has options `--greeting=WORD` (with `no` refused) and
+  `--quiet`, and verbs `get greeting`, a garbled one, and two fuzznet
+  answers itself.
+
+**Tested.**
+- `node/test/admin_test.c`: the extension's verb is answered; `list
+  contact`, which the admin answers, never reaches it; an answer outside
+  the vocabulary and an answer of two lines both become `error`; what it
+  declines is `unsupported`; with no extension its verb is `unsupported`.
+- `tool/live_ext.py`, in `make livecheck`:
+  - a: `--greeting=no` is refused in the extension's words, and
+    `--nonsense` with a usage naming `--greeting=VALUE`;
+  - b: `get greeting` answers `ok howdy`; `status` and `list contact`
+    stay fuzznet's; the garbled answer becomes `error`; `get nothing` is
+    `unsupported`.
+
+**Controls**, run by hand against `live_ext.py`:
+- the admin asking the extension first fails phase b, `list contact`
+  being the extension's;
+- a daemon keeping no extension fails phase a.
+
+Sabotage entries `admin-extension-reply-vocabulary` and
+`admin-extension-one-line`.
+
+**Not yet: stage 4b**, the one registry of remote request types and
+journal kinds with a range reserved for extensions, and the extension's
+remote handler. The types are spread today: the notes sync's enum, the
+`FZND_*_TYPE` defines in `node/daemon.c`, and comments pointing between
+them under one version byte. They are to be gathered first, so that a
+reserved range can be checked rather than asserted.

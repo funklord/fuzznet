@@ -437,6 +437,34 @@ static int says(const uint8_t *detail, size_t len, const char *what)
 }
 
 /* A shelf's local hook that answers any `text` subject. sec 424. */
+/* AN EXTENSION'S VERBS, sec 673: `get mine` answered, `get garbled` and
+ * `get twice` answered outside the reply vocabulary and in two lines,
+ * `list contact` -- which the admin answers itself -- claimed too, and
+ * anything else declined. */
+static int extension_asked;
+
+static size_t extension_stub(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
+                             char *reply, size_t reply_cap)
+{
+	const char *say = NULL;
+
+	(void)ctx;
+	(void)origin;
+	extension_asked++;
+	if (request->arg_len == 4u && memcmp(request->arg, "mine", 4u) == 0)
+		say = "ok extension\n";
+	else if (request->arg_len == 7u && memcmp(request->arg, "garbled", 7u) == 0)
+		say = "garbled extension\n";
+	else if (request->arg_len == 5u && memcmp(request->arg, "twice", 5u) == 0)
+		say = "ok one\nok two\n";
+	else if (request->arg_len == 7u && memcmp(request->arg, "contact", 7u) == 0)
+		say = "ok extension\n";
+	if (!say || strlen(say) > reply_cap)
+		return 0;
+	memcpy(reply, say, strlen(say));
+	return strlen(say);
+}
+
 static size_t text_local_stub(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                               char *reply, size_t reply_cap)
 {
@@ -2094,6 +2122,35 @@ int main(void)
 	              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
 	                         == FZN_REPLY_UNSUPPORTED,
 	      "with no shelf, get text was not unsupported");
+
+	/* ---- AN EXTENSION'S VERBS, sec 673: asked last, so what the admin
+	 * answers stays the admin's; held to the reply vocabulary and one
+	 * line; and what it declines is unsupported. */
+	admin.extension_local = extension_stub;
+	CHECK(ask(&admin, &owner, "get mine", reply, sizeof(reply), &reply_len)
+	              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+	              && says(detail, detail_len, "extension"),
+	      "an extension's verb was not answered by the extension");
+	extension_asked = 0;
+	CHECK(ask(&admin, &owner, "list contact", reply, sizeof(reply), &reply_len)
+	              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+	              && !says(detail, detail_len, "extension") && extension_asked == 0,
+	      "a verb the admin answers reached the extension");
+	CHECK(ask(&admin, &owner, "get garbled", reply, sizeof(reply), &reply_len)
+	              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR,
+	      "an extension's answer outside the vocabulary was passed on");
+	CHECK(ask(&admin, &owner, "get twice", reply, sizeof(reply), &reply_len)
+	              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_ERROR,
+	      "an extension's answer of two lines was passed on");
+	CHECK(ask(&admin, &owner, "get nothing", reply, sizeof(reply), &reply_len)
+	              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+	                         == FZN_REPLY_UNSUPPORTED,
+	      "what the extension declines was not unsupported");
+	admin.extension_local = NULL;
+	CHECK(ask(&admin, &owner, "get mine", reply, sizeof(reply), &reply_len)
+	              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+	                         == FZN_REPLY_UNSUPPORTED,
+	      "with no extension, its verb was not unsupported");
 
 	/* ---- AS A ROOT BY IDENTITY, sec 419: the node is made a member of an
 	 * estate whose genesis is the device's key and which has added the

@@ -12403,6 +12403,20 @@ SABOTAGES = [
 		"\tif (a == 0u)\n\t\treturn 1;\n",
 		"sec 671: a card says nowhere with both host_len and port 0, so one string of bytes has one meaning; provision_test's port-with-no-host check catches it",
 	),
+	(
+		"admin-extension-reply-vocabulary",
+		"node/admin.c",
+		"\t\tif (n > reply_cap || (n && (reply[n - 1u] != '\\n'\n",
+		"\t\tif (n > reply_cap || (0 && (reply[n - 1u] != '\\n'\n",
+		"sec 673: an extension's verb must answer in fuzznet's reply vocabulary, or a verb moving into fuzznet would change what clients read; admin_test's garbled-answer check catches it",
+	),
+	(
+		"admin-extension-one-line",
+		"node/admin.c",
+		"\t\t                            || memchr(reply, '\\n', n - 1u) != NULL\n",
+		"",
+		"sec 673: a reply is one line, so an extension answering two would leave a client reading the second as the next answer; admin_test's two-line check catches it",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

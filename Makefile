@@ -223,7 +223,7 @@ OBJS       = $(SRCS:%.c=$(BUILD_DIR)/%.o) $(GEN_OBJS)
 # Program sources: a main(), so neither a library object nor a test.
 # fuzznetd is the first executable this project builds (sec 300); the
 # C-source census names PROG_SRCS so a program is accounted for too.
-PROG_SRCS := node/fuzznetd.c
+PROG_SRCS := node/fuzznetd.c node/test/ext_daemon.c
 PROG_OBJS := $(PROG_SRCS:%.c=$(BUILD_DIR)/%.o)
 
 # The objects fuzznetd and its runtime test both link: the node, the
@@ -4242,8 +4242,9 @@ FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/node/files.o \
                        $(BUILD_DIR)/blob/blob.o
 
 # The fuzznetd daemon. Its main() is in node/, so the pattern rule resolves
-# "serve.h" without -Inode.
-$(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(BUILD_DIR)/node/daemon.o $(NODE_SERVE_OBJS) \
+# "serve.h" without -Inode. FUZZNETD_LINK is everything but that main: the
+# node as a call (sec 670), which another daemon's main links too.
+FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(NODE_SERVE_OBJS) \
               $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \
               $(BUILD_DIR)/node/identity.o $(BUILD_DIR)/node/pair.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
@@ -4284,6 +4285,15 @@ $(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(BUILD_DIR)/node/daemon.o $
               $(BUILD_DIR)/local/client.o $(BUILD_DIR)/claim/claim.o \
               $(if $(CLAIM_FILE_ON),$(BUILD_DIR)/claim/claim_file.o) \
               $(MONO_OBJS) $(FLOG_OBJS)
+$(BUILD_DIR)/fuzznetd: $(BUILD_DIR)/node/fuzznetd.o $(FUZZNETD_LINK)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
+
+# A DAEMON WITH AN EXTENSION, sec 673: a main of its own calling
+# fzn_daemon_main with options and verbs fuzznet does not have, as fzpd
+# will. Built by `livecheck`, which runs it, and by nothing else.
+EXT_DAEMON := $(if $(FUZZNETD),$(BUILD_DIR)/node/test/ext_daemon)
+$(BUILD_DIR)/node/test/ext_daemon: $(BUILD_DIR)/node/test/ext_daemon.o $(FUZZNETD_LINK)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@ $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
 
@@ -6190,7 +6200,7 @@ QUIRC_DIR      ?= $(QUIRC_VENDORED)
 # going round in turn take live_erasure.py past the others' 240 s, so its own
 # deadline is 480 s and its timeout 600, and live_contacts.py's 420 and 540; it needs packed logs to cut, and says
 # it is skipped in a build without them.
-livecheck: $(FUZZNETD)
+livecheck: $(FUZZNETD) $(EXT_DAEMON)
 ifeq ($(and $(FUZZNETD),$(RECORD_STORE_FILE_ON),$(LOG_FILE_ON)),)
 	@echo "livecheck: SKIPPED -- it needs fuzznetd, the record store and log files," \
 	      "and this build lacks one"
@@ -6218,6 +6228,7 @@ else
 	@timeout 500 python3 tool/live_group_backfill.py $(FUZZNETD)
 	@timeout 90 python3 tool/live_socket.py $(FUZZNETD)
 	@timeout 150 python3 tool/live_face.py $(FUZZNETD)
+	@timeout 120 python3 tool/live_ext.py $(EXT_DAEMON)
 	@$(if $(LOG_PACK_ON),timeout 600 python3 tool/live_erasure.py $(FUZZNETD),echo \
 	  "livecheck: erasure SKIPPED -- this build does not pack logs")
 endif
@@ -7002,7 +7013,8 @@ MONO_CLEAN := $(MONO_SRCS:%.c=$(BUILD_DIR)/%.o) $(MONO_SRCS:%.c=$(BUILD_DIR)/%.d
               $(BUILD_DIR)/monocypher.o $(BUILD_DIR)/monocypher.d
 # The daemon, named whether or not this build made it: `clean` removes what
 # SOME build made, and the one before may have had the binding.
-PROG_CLEAN := $(PROG_OBJS) $(PROG_OBJS:.o=.d) $(BUILD_DIR)/fuzznetd
+PROG_CLEAN := $(PROG_OBJS) $(PROG_OBJS:.o=.d) $(BUILD_DIR)/fuzznetd \
+              $(BUILD_DIR)/node/test/ext_daemon
 
 clean:
 	@# THE SANITIZER TREE, which `sancheck` keeps between runs so that an

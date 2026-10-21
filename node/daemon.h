@@ -14,13 +14,53 @@
 #ifndef FZN_NODE_DAEMON_H
 #define FZN_NODE_DAEMON_H
 
-/* WHAT A DAEMON ADDS TO THE NODE: its own local verbs, remote request types
- * and journal kinds -- sec 666 stage 4, not yet defined, so NULL is the
- * only extension there is. */
-typedef struct fzn_daemon_ext fzn_daemon_ext_t;
+#include <stddef.h>
 
-/* RUN THE NODE as fuzznetd with `argc` and `argv`, `ext` NULL: the exit
- * status, as fuzznetd's main would return it. */
+#include "../chain/authz.h"
+#include "../local/vocabulary.h"
+
+/* AN OPTION A DAEMON TAKES BESIDE FUZZNET'S, sec 673: `name` as it is
+ * typed, `--profile`; with `takes_value`, given as `--profile=VALUE`, and
+ * without it, alone. `help` is its line in the usage text, or NULL. */
+typedef struct fzn_daemon_option {
+	const char *name;
+	int takes_value;
+	const char *help;
+} fzn_daemon_option_t;
+
+/* WHAT A DAEMON ADDS TO THE NODE (sec 666 stage 4, as sec 672 rewrote it):
+ * the shape of commands on their way into fuzznet, so that one moving in
+ * changes nothing for a client.
+ *
+ *   - Options are parsed by fuzznet's one parser: fuzznet's own first, so
+ *     an option fuzznet comes to take is fuzznet's from then on, and then
+ *     these. One neither takes is refused, as before.
+ *   - Local verbs reach `local` only when fuzznet's own handlers decline
+ *     them, so a verb fuzznet comes to answer is fuzznet's from then on
+ *     and the extension's copy is dead. That holds only for a verb spelled
+ *     in fuzznet's grammar -- the vocabulary's verbs, a subject, escaped
+ *     words -- answering in its reply vocabulary (`fzn_reply_t`): a reply
+ *     that is not one is answered `error` in its place.
+ *
+ * Every member may be NULL or 0; a NULL extension is fuzznetd. */
+typedef struct fzn_daemon_ext {
+	void *ctx;
+	const fzn_daemon_option_t *options;
+	size_t n_options;
+	/* One of `options` given: `value` NULL for an option that takes none.
+	 * NULL to take it, or why it is refused, which ends the start. */
+	const char *(*option)(void *ctx, const char *name, const char *value);
+	/* A local verb fuzznet's handlers declined, `origin` as fuzznet judged
+	 * the caller: the reply's length in `reply`, at most `cap`, ending in
+	 * a newline; 0 for one this extension does not answer either, which
+	 * is then `unsupported`. */
+	size_t (*local)(void *ctx, fzn_origin_t origin, const fzn_request_t *request, char *reply,
+	                size_t cap);
+} fzn_daemon_ext_t;
+
+/* RUN THE NODE as fuzznetd with `argc` and `argv`, and what `ext` adds,
+ * NULL for nothing: the exit status, as fuzznetd's main would return it.
+ * `ext` must outlive the call. */
 int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext);
 
 #endif /* FZN_NODE_DAEMON_H */

@@ -292,3 +292,4 @@ __pycache__/
 /.claude/worktrees/
 /.qtty/
 /.qtty-*/
+/node/test/ext_daemon

@@ -171,6 +171,13 @@ typedef struct fzn_node_admin {
 	size_t (*settings_local)(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
 	                         char *reply, size_t reply_cap);
 	void *settings_ctx;
+	/* AN EXTENSION'S VERBS, sec 673, or NULL: asked last, for a verb every
+	 * handler above declined -- a daemon's commands on their way into
+	 * fuzznet (`node/daemon.h`). A reply not in the reply vocabulary is
+	 * answered `error` in its place. */
+	size_t (*extension_local)(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
+	                          char *reply, size_t reply_cap);
+	void *extension_ctx;
 	/* The same settings, typed, which the retention verbs write once this
 	 * node has them (sec 541); NULL keeps the older record kinds. */
 	struct fzn_node_settings *settings;
