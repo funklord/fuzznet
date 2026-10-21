@@ -15,8 +15,10 @@
 #define FZN_NODE_DAEMON_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include "../chain/authz.h"
+#include "../chain/chain.h"
 #include "../local/vocabulary.h"
 
 /* AN OPTION A DAEMON TAKES BESIDE FUZZNET'S, sec 673: `name` as it is
@@ -41,6 +43,11 @@ typedef struct fzn_daemon_option {
  *     in fuzznet's grammar -- the vocabulary's verbs, a subject, escaped
  *     words -- answering in its reply vocabulary (`fzn_reply_t`): a reply
  *     that is not one is answered `error` in its place.
+ *   - Remote requests reach `remote` only when they are version 2's and of
+ *     a type in the extensions' range (`node/types.h`), which fuzznet
+ *     allocates none of. A type an extension uses is listed there with its
+ *     owner, so that moving into fuzznet it keeps its number. One in that
+ *     range that no extension takes is answered `unsupported`.
  *
  * Every member may be NULL or 0; a NULL extension is fuzznetd. */
 typedef struct fzn_daemon_ext {
@@ -56,6 +63,12 @@ typedef struct fzn_daemon_ext {
 	 * is then `unsupported`. */
 	size_t (*local)(void *ctx, fzn_origin_t origin, const fzn_request_t *request, char *reply,
 	                size_t cap);
+	/* A remote request of an extension's type, from `sender`, a member of
+	 * this estate or -- `contact` nonzero -- a contact granted the share
+	 * capability alone: the reply's length in `reply`, at most `cap`; 0
+	 * for one it does not answer, which is then `unsupported`. */
+	size_t (*remote)(void *ctx, const uint8_t sender[FZN_PUBKEY_LEN], int contact,
+	                 const uint8_t *request, size_t request_len, uint8_t *reply, size_t cap);
 } fzn_daemon_ext_t;
 
 /* RUN THE NODE as fuzznetd with `argc` and `argv`, and what `ext` adds,

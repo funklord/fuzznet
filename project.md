@@ -67415,9 +67415,75 @@ The first half of stage 4 as sec 672 rewrote it. `fzn_daemon_ext_t`
 Sabotage entries `admin-extension-reply-vocabulary` and
 `admin-extension-one-line`.
 
-**Not yet: stage 4b**, the one registry of remote request types and
+~~**Not yet: stage 4b**~~ (built, sec 674), the one registry of remote request types and
 journal kinds with a range reserved for extensions, and the extension's
 remote handler. The types are spread today: the notes sync's enum, the
 `FZND_*_TYPE` defines in `node/daemon.c`, and comments pointing between
 them under one version byte. They are to be gathered first, so that a
 reserved range can be checked rather than asserted.
+
+## 674. Stage 4b: one registry of remote request heads, and the extensions' range, 2026-10-21
+
+**Built: `node/types.h`**, every remote request's head in one place.
+
+- **The version bytes, 1 to 6, with their owners:** spool messages, the
+  shared space, the cause envelope, gather, the exchange and
+  reconciliation. Each is below 0x20, so none can open a verb line.
+- **Version 2's shared space, by owner:**
+  - notes sync: 1 to 10 and 15 to 22;
+  - members: 11 and 12;
+  - 13 and 14: retired in sec 519;
+  - messages: 23 to 28, 33 and 34;
+  - contact devices: 29 to 32;
+  - fuzznetd: 35 and 37 to 46;
+  - 36: never allocated, found by this census.
+
+  Until now each module chose its number with a comment pointing at the
+  one before it, and no file said which were taken. fuzznetd's eleven
+  type numbers were private `#define`s in `node/daemon.c`; they are
+  `FZN_TYPE_*` here now. **Proved**: `node/daemon.o` with its debug
+  sections stripped is byte-identical before and after the rename.
+- **The extensions' range: version 2's types 128 to 191**, of which
+  fuzznet allocates none. 192 to 255 are left free. A type an extension
+  uses is to be listed in the registry with its owner, so that moving
+  into fuzznet it keeps its number (sec 672).
+
+**Built: an extension's remote requests.** `fzn_daemon_ext_t.remote`
+(`node/daemon.h`) is handed a version-2 request of a type in the range,
+and nothing else. It is told whether the sender came as a contact
+granted the share capability alone, and decides for itself. It is asked
+before the contact branch, as sec 622's relay is. A type in the range
+that no extension takes is answered `unsupported`, which is sec 666
+stage 5's second half done early. An answer longer than the reply is
+`error`. `node/types.h` is a public header, installed and included by
+`tool/consumer_check.c`.
+
+**Tested.**
+- `node/test/types_test.c` checks:
+  - each version byte equals its owner's constant;
+  - all 43 version-2 types, by their owners' constants, are distinct;
+  - none falls in the extensions' range;
+  - neither retired type is reused.
+
+  **Controls**: setting `FZN_TYPE_FILE_REFS` to 30 fails it, naming
+  contact devices' taken; setting it to 130 fails the range check.
+- `node/test/admin_test.c`:
+  - type 128 reaches the extension, as from a member;
+  - a type it declines, and its range with no extension, are
+    `unsupported`;
+  - type 127, and type 128 under another version byte, never reach it.
+- `node/test/ext_daemon` answers type 128.
+
+  **Not run live**: driving it needs a verb that sends raw bytes to a
+  peer, and no such verb exists.
+
+Sabotage entries `admin-extension-range-floor` and
+`admin-extension-range-version`.
+
+**What the registry cannot see**: a type added in its owner's header and
+not listed in `node/types.h`. `types_test` checks the list it is given,
+and says how long it is (43), so a new type means a new row and a new
+count. It does not discover types.
+
+**Not yet**: journal kinds, which are stage 5 with their carriage:
+records of a kind this host does not process, kept and relayed.

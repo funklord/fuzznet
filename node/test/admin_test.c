@@ -465,6 +465,41 @@ static size_t extension_stub(void *ctx, fzn_origin_t origin, const fzn_request_t
 	return strlen(say);
 }
 
+/* ITS REMOTE REQUESTS, sec 674: type 128 answered with 129, whether the
+ * sender came as a contact noted; anything else declined. */
+static int extension_remote_contact = -1;
+static int extension_remote_asked;
+
+static size_t extension_remote_stub(void *ctx, const uint8_t *sender, int contact,
+                                    const uint8_t *request, size_t request_len, uint8_t *reply,
+                                    size_t reply_cap)
+{
+	(void)ctx;
+	(void)sender;
+	extension_remote_asked++;
+	extension_remote_contact = contact;
+	if (request_len < 2u || request[1] != 128u || reply_cap < 2u)
+		return 0;
+	reply[0] = request[0];
+	reply[1] = 129u;
+	return 2u;
+}
+
+/* A REMOTE REQUEST OF BYTES, `len` of them, from `sender` granted the
+ * remote capability: the reply's length. */
+static size_t remote_bytes(fzn_node_admin_t *admin, const uint8_t *sender, const uint8_t *bytes,
+                           size_t len, uint8_t *out, size_t cap)
+{
+	fzn_opened_t rq;
+
+	memset(&rq, 0, sizeof(rq));
+	rq.capability = admin->state->config.remote_capability.b;
+	rq.sender = sender;
+	rq.payload = bytes;
+	rq.payload_len = len;
+	return fzn_node_admin_remote(admin, FZN_NODE_REMOTE_GRANTED, &rq, out, cap);
+}
+
 static size_t text_local_stub(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                               char *reply, size_t reply_cap)
 {
@@ -2147,6 +2182,36 @@ int main(void)
 	                         == FZN_REPLY_UNSUPPORTED,
 	      "what the extension declines was not unsupported");
 	admin.extension_local = NULL;
+
+	/* AND ITS REMOTE TYPES, sec 674: its range alone reaches it, a member
+	 * as a member; one it declines, and any of its range with no
+	 * extension, is `unsupported`; a type below the range never reaches
+	 * it. */
+	{
+		static const uint8_t mine[] = { 2u, 128u, 7u }, declined[] = { 2u, 191u },
+		                     below[] = { 2u, 127u }, other_version[] = { 7u, 128u };
+		size_t n;
+
+		admin.extension_remote = extension_remote_stub;
+		n = remote_bytes(&admin, device.id.pubkey, mine, sizeof(mine), reply, sizeof(reply));
+		CHECK(n == 2u && reply[0] == 2u && reply[1] == 129u && extension_remote_contact == 0,
+		      "an extension's remote type was not answered by it, as from a member");
+		n = remote_bytes(&admin, device.id.pubkey, declined, sizeof(declined), reply,
+		                 sizeof(reply));
+		CHECK(n && fzn_reply_of(reply, n - 1u, &detail, &detail_len) == FZN_REPLY_UNSUPPORTED,
+		      "a type of the range the extension declines was not unsupported");
+		extension_remote_asked = 0;
+		(void)remote_bytes(&admin, device.id.pubkey, below, sizeof(below), reply,
+		                   sizeof(reply));
+		(void)remote_bytes(&admin, device.id.pubkey, other_version, sizeof(other_version),
+		                   reply, sizeof(reply));
+		CHECK(extension_remote_asked == 0,
+		      "a type outside the range, or another version's, reached the extension");
+		admin.extension_remote = NULL;
+		n = remote_bytes(&admin, device.id.pubkey, mine, sizeof(mine), reply, sizeof(reply));
+		CHECK(n && fzn_reply_of(reply, n - 1u, &detail, &detail_len) == FZN_REPLY_UNSUPPORTED,
+		      "with no extension, its type was not unsupported");
+	}
 	CHECK(ask(&admin, &owner, "get mine", reply, sizeof(reply), &reply_len)
 	              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
 	                         == FZN_REPLY_UNSUPPORTED,

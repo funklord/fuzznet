@@ -255,7 +255,7 @@ NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/relay.o $(BUILD_D
 HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h local/line.h local/socket.h \
              local/client.h local/escape.h \
-             node/peer_persist.h \
+             node/peer_persist.h node/types.h \
              node/caller.h \
              net/udp.h \
              node/node.h node/local.h node/remote.h node/serve.h \
@@ -385,6 +385,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              wire/test/tamper_test.c \
              session/test/random_test.c local/test/vocabulary_test.c \
              local/test/client_test.c local/test/escape_test.c \
+             node/test/types_test.c \
              node/test/peer_persist_test.c \
              node/test/identity_test.c node/test/heard_test.c node/test/events_test.c \
              node/test/routing_test.c node/test/contact_devices_test.c \
@@ -507,6 +508,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/local/test/vocabulary_test \
              $(BUILD_DIR)/local/test/client_test \
              $(BUILD_DIR)/local/test/escape_test \
+             $(BUILD_DIR)/node/test/types_test \
              $(BUILD_DIR)/node/test/peer_persist_test \
              $(BUILD_DIR)/node/test/identity_test \
              $(BUILD_DIR)/node/test/heard_test \
@@ -4373,6 +4375,12 @@ $(BUILD_DIR)/local/test/client_test: $(BUILD_DIR)/local/test/client_test.o \
 
 $(BUILD_DIR)/local/test/escape_test: $(BUILD_DIR)/local/test/escape_test.o \
                                      $(BUILD_DIR)/local/escape.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# The registry of remote request heads against its owners, sec 674:
+# constants only, so it links nothing but itself.
+$(BUILD_DIR)/node/test/types_test: $(BUILD_DIR)/node/test/types_test.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

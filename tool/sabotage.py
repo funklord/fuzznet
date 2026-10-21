@@ -12417,6 +12417,20 @@ SABOTAGES = [
 		"",
 		"sec 673: a reply is one line, so an extension answering two would leave a client reading the second as the next answer; admin_test's two-line check catches it",
 	),
+	(
+		"admin-extension-range-floor",
+		"node/admin.c",
+		"\t    && req->payload[1] >= FZN_TYPES_EXTENSION_FIRST\n",
+		"",
+		"sec 674: only the extensions' range reaches an extension, or it would answer fuzznet's own types; admin_test's below-the-range check catches it",
+	),
+	(
+		"admin-extension-range-version",
+		"node/admin.c",
+		"\t    && req->payload[0] == FZN_TYPES_VERSION_SHARED\n",
+		"",
+		"sec 674: the range is version 2's, and another version's type space is its owner's; admin_test's other-version check catches it",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

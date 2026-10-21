@@ -177,6 +177,12 @@ typedef struct fzn_node_admin {
 	 * answered `error` in its place. */
 	size_t (*extension_local)(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
 	                          char *reply, size_t reply_cap);
+	/* AND ITS REMOTE REQUESTS, sec 674: version 2's, of a type in
+	 * `node/types.h`'s extensions' range, and nothing else; NULL, and one
+	 * such is `unsupported`. */
+	size_t (*extension_remote)(void *ctx, const uint8_t *sender, int contact,
+	                           const uint8_t *request, size_t request_len, uint8_t *reply,
+	                           size_t reply_cap);
 	void *extension_ctx;
 	/* The same settings, typed, which the retention verbs write once this
 	 * node has them (sec 541); NULL keeps the older record kinds. */

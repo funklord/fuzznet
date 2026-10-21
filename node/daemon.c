@@ -41,6 +41,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "daemon.h"
+#include "types.h"
 #include "serve.h"
 #include "talk.h"
 #include "routing.h"
@@ -4939,8 +4940,6 @@ static size_t sibling_local(fzn_origin_t origin, const fzn_request_t *request, c
  * INTRODUCE asks a peer to introduce a sibling; NOTIFY tells that sibling
  * where the asker asked from. Answered in words. */
 #define FZND_INTRO_VERSION 2u
-#define FZND_INTRODUCE_TYPE 37u
-#define FZND_NOTIFY_TYPE 38u
 
 /* SIBLINGS UNANSWERED LAST ROUND are due an introduction, sec 623. */
 static void intro_note_silent(struct pull_target *pulls, size_t from, size_t to)
@@ -5011,7 +5010,7 @@ static void introduce_siblings(struct pull_target *pulls, size_t npulls_base, si
 
 			via.fd = pt->fd;
 			request[0] = FZND_INTRO_VERSION;
-			request[1] = FZND_INTRODUCE_TYPE;
+			request[1] = FZN_TYPE_INTRODUCE;
 			memcpy(request + 2, pt->node, FZN_PUBKEY_LEN);
 			if (fzn_caller_send(&via, request, sizeof(request), now + 300u, &msg)
 			            != FZN_CALLER_OK
@@ -6137,6 +6136,16 @@ static int ext_option(const char *arg)
 	return 0;
 }
 
+static size_t ext_remote(void *ctx, const uint8_t *sender, int contact, const uint8_t *request,
+                         size_t request_len, uint8_t *reply, size_t cap)
+{
+	(void)ctx;
+	return daemon_ext && daemon_ext->remote
+	       ? daemon_ext->remote(daemon_ext->ctx, sender, contact, request, request_len, reply,
+	                            cap)
+	       : 0u;
+}
+
 static size_t ext_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                         char *reply, size_t cap)
 {
@@ -6881,8 +6890,6 @@ static void contact_settle(void)
  * lacks, in log order. A group the asker does not list is sent whole: that
  * is how a member's host first learns a group. */
 #define FZND_GROUP_VERSION 2u
-#define FZND_GROUP_SYNC_TYPE 39u
-#define FZND_GROUP_ACTS_TYPE 40u
 #define FZND_GROUP_ENTRY_LEN (FZN_GROUP_ID_LEN + 4u + 32u)
 /* Heads in one request: a request is one frame. */
 #define FZND_GROUP_SYNC_MAX 12u
@@ -7063,7 +7070,7 @@ static size_t group_sync_remote(const uint8_t *sender, const uint8_t *request,
 		at = group_acts_from(ids[i], asked, reply, at, cap, &count, until);
 	}
 	reply[0] = FZND_GROUP_VERSION;
-	reply[1] = FZND_GROUP_ACTS_TYPE;
+	reply[1] = FZN_TYPE_GROUP_ACTS;
 	fzn_put_be16(reply + 2, (uint16_t)count);
 	return at;
 }
@@ -7104,7 +7111,7 @@ static size_t group_sync_request(const uint8_t (*ids)[FZN_GROUP_ID_LEN], size_t 
 		entries++;
 	}
 	request[0] = FZND_GROUP_VERSION;
-	request[1] = FZND_GROUP_SYNC_TYPE;
+	request[1] = FZN_TYPE_GROUP_SYNC;
 	request[2] = (uint8_t)entries;
 	return 3u + entries * FZND_GROUP_ENTRY_LEN;
 }
@@ -7116,7 +7123,7 @@ static long group_acts_take(const uint8_t *reply, size_t len)
 	size_t count, k, at;
 	long taken = 0;
 
-	if (!reply || len < 4u || reply[0] != FZND_GROUP_VERSION || reply[1] != FZND_GROUP_ACTS_TYPE)
+	if (!reply || len < 4u || reply[0] != FZND_GROUP_VERSION || reply[1] != FZN_TYPE_GROUP_ACTS)
 		return -1;
 	count = fzn_get_be16(reply + 2);
 	for (k = 0, at = 4u; k < count && at + 2u <= len; k++) {
@@ -7214,8 +7221,6 @@ static void group_sync_start(struct pull_target *pt, const uint8_t *owner, int o
  * asker gives -- a sealing host and the last of its lines held; GROUP_LINES
  * answers each line as its place and its sealed bytes, oldest first per
  * host. A host the asker does not name is answered from its first line. */
-#define FZND_GROUP_LINES_SYNC_TYPE 41u
-#define FZND_GROUP_LINES_TYPE 42u
 #define FZND_GROUP_HEAD_LEN (FZN_PUBKEY_LEN + 4u)
 #define FZND_GROUP_HEADS_MAX 24u
 
@@ -7275,7 +7280,7 @@ static size_t group_lines_remote(const uint8_t *sender, const uint8_t *request,
 		}
 	}
 	reply[0] = FZND_GROUP_VERSION;
-	reply[1] = FZND_GROUP_LINES_TYPE;
+	reply[1] = FZN_TYPE_GROUP_LINES;
 	fzn_put_be16(reply + 2, (uint16_t)count);
 	return at;
 }
@@ -7292,7 +7297,7 @@ static size_t group_lines_request(const uint8_t id[FZN_GROUP_ID_LEN], uint8_t *r
 		return 0;
 	entries = n < FZND_GROUP_HEADS_MAX ? n : FZND_GROUP_HEADS_MAX;
 	request[0] = FZND_GROUP_VERSION;
-	request[1] = FZND_GROUP_LINES_SYNC_TYPE;
+	request[1] = FZN_TYPE_GROUP_LINES_SYNC;
 	memcpy(request + 2, id, FZN_GROUP_ID_LEN);
 	request[2u + FZN_GROUP_ID_LEN] = (uint8_t)entries;
 	for (i = 0; i < entries; i++) {
@@ -7313,7 +7318,7 @@ static size_t group_lines_take(const uint8_t *reply, size_t len)
 	size_t count, k, at, taken = 0;
 	int any = 0;
 
-	if (!reply || len < 4u || reply[0] != FZND_GROUP_VERSION || reply[1] != FZND_GROUP_LINES_TYPE)
+	if (!reply || len < 4u || reply[0] != FZND_GROUP_VERSION || reply[1] != FZN_TYPE_GROUP_LINES)
 		return 0;
 	count = fzn_get_be16(reply + 2);
 	for (k = 0, at = 4u; k < count && at + 6u <= len; k++) {
@@ -7820,8 +7825,6 @@ static void group_settle(struct pull_target *pulls, size_t npulls, uint64_t now)
  * level the asker may read -- every level for this user's own hosts, the
  * granted one for a contact or a group member, nothing without a grant.
  * One question a requester every two seconds. */
-#define FZND_STREAM_QUERY_TYPE 43u
-#define FZND_STREAM_RECORDS_TYPE 44u
 #define FZND_STREAM_EVERY_S 2u
 #define FZND_STREAM_ASKERS 32u
 #define FZND_STREAM_FETCHES_MAX 8u
@@ -8007,7 +8010,7 @@ static size_t streams_remote(const uint8_t *sender, const uint8_t *request, size
 		count++;
 	}
 	reply[0] = FZND_GROUP_VERSION;
-	reply[1] = FZND_STREAM_RECORDS_TYPE;
+	reply[1] = FZN_TYPE_STREAM_RECORDS;
 	fzn_put_be16(reply + 2, (uint16_t)count);
 	return at;
 }
@@ -8019,7 +8022,7 @@ static size_t stream_query(const char *name, size_t name_len, const uint8_t *ori
                            uint8_t *request)
 {
 	request[0] = FZND_GROUP_VERSION;
-	request[1] = FZND_STREAM_QUERY_TYPE;
+	request[1] = FZN_TYPE_STREAM_QUERY;
 	request[2] = (uint8_t)name_len;
 	memcpy(request + 3, name, name_len);
 	fzn_put_be64(request + 3u + name_len, fzn_streams_last(&node_streams, name, name_len, origin));
@@ -8034,7 +8037,7 @@ static size_t stream_take(const char *name, size_t name_len, const uint8_t *orig
 	size_t at, count, k, l, taken = 0;
 
 	if (!reply || len < 4u || reply[0] != FZND_GROUP_VERSION
-	    || reply[1] != FZND_STREAM_RECORDS_TYPE)
+	    || reply[1] != FZN_TYPE_STREAM_RECORDS)
 		return 0;
 	count = fzn_get_be16(reply + 2);
 	for (k = 0, at = 4u; k < count && at + 17u <= len; k++) {
@@ -8886,8 +8889,6 @@ static size_t files_local_refs(void *ctx, fzn_origin_t origin, const fzn_request
 /* FILE_REFS_WANT, type 45: roots whose references the asker lacks;
  * FILE_REFS, type 46, answers those held here. To this estate's hosts
  * alone, and asked of them alone. */
-#define FZND_FILE_REFS_WANT_TYPE 45u
-#define FZND_FILE_REFS_TYPE 46u
 #define FZND_FILE_REFS_MAX 32u
 
 static size_t file_refs_remote(const uint8_t *sender, const uint8_t *request, size_t request_len,
@@ -8911,7 +8912,7 @@ static size_t file_refs_remote(const uint8_t *sender, const uint8_t *request, si
 			count++;
 		}
 	reply[0] = FZND_GROUP_VERSION;
-	reply[1] = FZND_FILE_REFS_TYPE;
+	reply[1] = FZN_TYPE_FILE_REFS;
 	reply[2] = (uint8_t)count;
 	fzn_wipe(ref, sizeof(ref));
 	return at;
@@ -8925,7 +8926,7 @@ static void file_refs_take(const uint8_t *reply, size_t len)
 {
 	size_t k, j, want = host_shared_request[2];
 
-	if (len < 3u || reply[0] != FZND_GROUP_VERSION || reply[1] != FZND_FILE_REFS_TYPE
+	if (len < 3u || reply[0] != FZND_GROUP_VERSION || reply[1] != FZN_TYPE_FILE_REFS
 	    || len != 3u + (size_t)reply[2] * FZN_NODE_FILE_REF_LEN)
 		return;
 	for (k = 0; k < reply[2]; k++) {
@@ -8974,7 +8975,7 @@ static void file_refs_round(struct pull_target *pulls, size_t npulls, uint64_t n
 	if (!want)
 		return;
 	host_shared_request[0] = FZND_GROUP_VERSION;
-	host_shared_request[1] = FZND_FILE_REFS_WANT_TYPE;
+	host_shared_request[1] = FZN_TYPE_FILE_REFS_WANT;
 	host_shared_request[2] = (uint8_t)want;
 	host_shared_len = 3u + want * FZN_BLOB_HASH_LEN;
 	for (i = 0; i < npulls; i++)
@@ -8996,7 +8997,6 @@ static void file_refs_settle(void)
 /* THE TYPES, in notes-sync's space after settlement's 34: RELAY carries a
  * target's key and a frame sealed for it. Answered in words. */
 #define FZND_RELAY_VERSION 2u
-#define FZND_RELAY_TYPE 35u
 #define FZND_RELAY_HEAD_LEN (2u + FZN_PUBKEY_LEN)
 /* WHERE A TARGET SAID HELLO FROM is trusted this long, seconds: past it a
  * NAT's mapping may have gone. */
@@ -9143,22 +9143,22 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 
 	(void)ctx;
 	if (request_len >= 2u && request[0] == FZND_GROUP_VERSION
-	    && request[1] == FZND_GROUP_SYNC_TYPE)
+	    && request[1] == FZN_TYPE_GROUP_SYNC)
 		return group_sync_remote(sender, request, request_len, reply, reply_cap);
 	if (request_len >= 2u && request[0] == FZND_GROUP_VERSION
-	    && request[1] == FZND_GROUP_LINES_SYNC_TYPE)
+	    && request[1] == FZN_TYPE_GROUP_LINES_SYNC)
 		return group_lines_remote(sender, request, request_len, reply, reply_cap);
 	if (request_len >= 2u && request[0] == FZND_GROUP_VERSION
-	    && request[1] == FZND_STREAM_QUERY_TYPE)
+	    && request[1] == FZN_TYPE_STREAM_QUERY)
 		return streams_remote(sender, request, request_len, reply, reply_cap);
 	if (request_len >= 2u && request[0] == FZND_GROUP_VERSION
-	    && request[1] == FZND_FILE_REFS_WANT_TYPE)
+	    && request[1] == FZN_TYPE_FILE_REFS_WANT)
 		return file_refs_remote(sender, request, request_len, reply, reply_cap);
 	if (request_len >= 2u && request[0] == FZND_RELAY_VERSION
-	    && (request[1] == FZND_INTRODUCE_TYPE || request[1] == FZND_NOTIFY_TYPE))
+	    && (request[1] == FZN_TYPE_INTRODUCE || request[1] == FZN_TYPE_NOTIFY))
 		return introduce_remote(sender, request, request_len, reply, reply_cap);
 	if (request_len < FZND_RELAY_HEAD_LEN + 1u || request[0] != FZND_RELAY_VERSION
-	    || request[1] != FZND_RELAY_TYPE)
+	    || request[1] != FZN_TYPE_RELAY)
 		return 0;
 	inner_len = request_len - FZND_RELAY_HEAD_LEN;
 #define RELAY_NO(text) ((size_t)snprintf((char *)reply, reply_cap, "denied %s\n", text))
@@ -9212,7 +9212,7 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 #define INTRO_NO(text) ((size_t)snprintf((char *)reply, reply_cap, "denied %s\n", text))
 	if (!st || st->udp_fd < 0 || !contact_id || !node_apply.store)
 		return INTRO_NO("this host serves no introductions");
-	if (request[1] == FZND_INTRODUCE_TYPE) {
+	if (request[1] == FZN_TYPE_INTRODUCE) {
 		static uint8_t notify[2u + FZN_PUBKEY_LEN + 1u + FZN_UDP_HOST_MAX + 2u];
 		fzn_node_pairing_t pairing;
 		fzn_caller_t c;
@@ -9244,7 +9244,7 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 			c.hops = 1u;
 			n = strlen(asker);
 			notify[0] = FZND_INTRO_VERSION;
-			notify[1] = FZND_NOTIFY_TYPE;
+			notify[1] = FZN_TYPE_NOTIFY;
 			memcpy(notify + 2, sender, FZN_PUBKEY_LEN);
 			notify[2u + FZN_PUBKEY_LEN] = (uint8_t)n;
 			memcpy(notify + 3u + FZN_PUBKEY_LEN, asker, n);
@@ -9310,7 +9310,7 @@ static int relay_send(struct pull_target *target, struct pull_target *relay,
 	    != FZN_CALLER_OK)
 		return 0;
 	outer[0] = FZND_RELAY_VERSION;
-	outer[1] = FZND_RELAY_TYPE;
+	outer[1] = FZN_TYPE_RELAY;
 	memcpy(outer + 2, target->pairing.node, FZN_PUBKEY_LEN);
 	memcpy(outer + FZND_RELAY_HEAD_LEN, inner, inner_len);
 	via = relay->caller;
@@ -11780,6 +11780,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			admin.card_lifetime = FZND_CARD_LIFETIME;
 			if (ext && ext->local)
 				admin.extension_local = ext_local;
+			if (ext && ext->remote)
+				admin.extension_remote = ext_remote;
 #ifdef FZN_RECORD_STORE_FILE_ON
 			admin.address = own_address;
 			admin.address_ctx = identity.pubkey;

@@ -1,6 +1,7 @@
 /* See admin.h. */
 
 #include "admin.h"
+#include "types.h"
 
 #include "peer_persist.h"
 #include "roots.h"
@@ -2136,6 +2137,29 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 
 		if (n)
 			return n;
+	}
+
+	/* AN EXTENSION'S TYPE, sec 674: version 2's range that fuzznet
+	 * allocates none of (`node/types.h`), handed to the extension and to
+	 * nothing else, member and contact alike -- whether it is a contact is
+	 * said, and the extension decides. */
+	if (req->payload && req->payload_len >= 2u
+	    && req->payload[0] == FZN_TYPES_VERSION_SHARED
+	    && req->payload[1] >= FZN_TYPES_EXTENSION_FIRST
+	    && req->payload[1] <= FZN_TYPES_EXTENSION_LAST) {
+		size_t n = admin->extension_remote
+		           ? admin->extension_remote(admin->extension_ctx, req->sender,
+		                                     fzn_node_request_shared(&admin->state->config,
+		                                                             req->capability),
+		                                     req->payload, req->payload_len, reply,
+		                                     reply_cap)
+		           : 0u;
+
+		if (n > reply_cap)
+			return answer_text(out, reply_cap, FZN_REPLY_ERROR,
+			                   "the extension's answer is longer than the reply");
+		return n ? n : answer_text(out, reply_cap, FZN_REPLY_UNSUPPORTED,
+		                           "no extension here takes that type");
 	}
 
 	/* A CONTACT, granted the share capability and nothing else, sec 436:
