@@ -295,3 +295,5 @@ __pycache__/
 /node/test/ext_daemon
 /node/test/types_test
 /location/test/location_test
+/location/test/tpv_test
+/location/test/gpsd_test

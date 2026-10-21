@@ -67702,3 +67702,82 @@ is why the node writes every level. Sabotage entries
 
 **Not yet, step c:** gpsd and its sampling, under settings, and the
 status fzpd's `location_status` asked for.
+
+## 678. Location step c: gpsd sampled by the node, under its settings, 2026-10-21
+
+The last of sec 676's three steps. Carried over from fuzzypickles'
+`daemon/gpsd_source.c` and their location settings, at their d02897b.
+
+**Built:**
+- **`location/tpv.h`**, gpsd's TPV report read into a fix, with no
+  socket.
+  - **What it reads:**
+    - a 3D fix's altitude (`altHAE`, else `alt`), and none for a 2D fix;
+    - the heading from `track`;
+    - the two horizontal axes from `epx` and `epy`, both from `eph`, one
+      from the other, or unknown;
+    - the vertical accuracy from `epv`, beside an altitude;
+    - the time from `time`, ISO 8601 UTC.
+  - **What gives nothing:** another class, a TPV still acquiring (mode
+    below 2), or one missing a coordinate.
+  - **What is refused:** no class, or a coordinate out of range.
+  - **One change from theirs: no floating point.** Their numbers went
+    through `strtod`. Here they are read as decimals and rounded half away
+    from zero at the first digit past the scale. An exponent, or a point
+    with no digit after it, is no number gpsd sends, and is refused.
+- **`location/gpsd.h`**, the client.
+  - Non-blocking throughout, a link advanced one step a poll: connect,
+    send WATCH, read reports, and keep a line split between reads.
+  - A closed gpsd is a link down that the next poll reconnects.
+  - POSIX only, so non-blocking is set by `fcntl` where theirs used Linux's
+    `SOCK_NONBLOCK`, and `MSG_NOSIGNAL` is guarded as `node/local.c`
+    guards it. Core, as `net/udp.c` is.
+- **The node samples**, its loop polling once a step, from this host's
+  cells:
+
+  - `location/enabled`: 1 to sample, off by default;
+  - `location/gpsd`: `HOST PORT`, `localhost 2947`;
+  - `location/every`: seconds between fixes kept, 30;
+  - `location/accuracy`: metres, 100, a fix whose worse axis is wider or
+    unknown being dropped.
+
+  These are fzpd's keys and defaults. A kept fix is written as `add
+  location`'s is, at its three levels; a fix with no time of its own
+  takes the clock's. A cell naming another gpsd re-aims the link, and
+  turning sampling off closes it.
+- **`get location`**: `ok ENABLED LINK EVERY ACCURACY SAMPLED DROPPED
+  LAST`, LINK being `off`, `down`, `connecting` or `watching`. This is the
+  status fzpd's `location_status` gave. A source that exists has not
+  therefore connected, and the link says which.
+
+**Tested:**
+- `location/test/tpv_test.c`: a gpsd 3.22 3D fix read whole, rounded both
+  ways, its time checked against Python's `calendar.timegm`; the axes'
+  fallbacks; a 2D fix with no altitude and no time; the lines that carry
+  nothing; and the refusals, a thirteenth month among them.
+- `location/test/gpsd_test.c`, against a stand-in gpsd on loopback:
+  - aiming connects nothing;
+  - a poll connects and sends WATCH;
+  - the newest whole report is the fix, given once;
+  - a report split between reads is read whole;
+  - a closed gpsd reads as down and is connected again;
+  - nobody listening gives no fix.
+- `tool/live_location.py`, in `make livecheck`: a stand-in gpsd sends a
+  good fix and a 500 m one in turn.
+  - a: sampling is off until set;
+  - b: aimed and enabled, the node watches, keeps the good fixes as gpsd
+    gave them (59.3293235, 18.0685815, altitude 32, accuracies 4, 9 and
+    19), and drops the poor ones;
+  - c: turned off, the link is `off` and nothing more is kept.
+
+  **Control**: with the accuracy gate removed, phase b fails, nothing
+  being dropped.
+
+Sabotage entries cover `tpv.c` and `gpsd.c`, four each.
+
+**Location's move is done but for its clients.** fzpd's `location_show`
+is `list location`, `location_status` is `get location`, sharing and
+fetching are sec 632's stream verbs, and a fix from Android's own
+location service is `add location`. Still the application's: drawing a
+map, and reading a phone's platform location API, which hands fixes to
+`add location`.

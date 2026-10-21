@@ -12501,6 +12501,62 @@ SABOTAGES = [
 		"",
 		"sec 677: an eighth place would be scaled past 1e-7 degrees into a wrong value; location_test's 1.00000001 check catches it",
 	),
+	(
+		"tpv-2d-has-no-altitude",
+		"location/tpv.c",
+		"\tif (mode >= 3 && (scaled(line, len, \"altHAE\", 0, &alt)",
+		"\tif ((scaled(line, len, \"altHAE\", 0, &alt)",
+		"sec 678: a 2D fix's altitude is no measurement, and flagging it present is the lie the flag exists to stop; tpv_test's 2D check catches it",
+	),
+	(
+		"tpv-round-half-away",
+		"location/tpv.c",
+		"\twhole += round_up;\n",
+		"",
+		"sec 678: truncating biases every fix south and west by up to 1e-7 degrees; tpv_test's rounding check catches it",
+	),
+	(
+		"tpv-no-exponent",
+		"location/tpv.c",
+		"\tif (v < end && (*v == 'e' || *v == 'E'))\n\t\treturn 0;\n",
+		"",
+		"sec 678: an exponent read as its mantissa is a wrong position; tpv_test's exponent check catches it",
+	),
+	(
+		"tpv-range-refused",
+		"location/tpv.c",
+		"\t    || lon > FZN_LOCATION_LON_E7_MAX || lon < -FZN_LOCATION_LON_E7_MAX)\n\t\treturn -1;\n",
+		"\t    || 0)\n\t\treturn -1;\n",
+		"sec 678: a longitude past 180 is no fix, and would not encode; tpv_test's out-of-range check catches it",
+	),
+	(
+		"gpsd-watch-asked",
+		"location/gpsd.c",
+		"#define WATCH \"?WATCH={\\\"enable\\\":true,\\\"json\\\":true}\\n\"\n",
+		"#define WATCH \"?WATCH={}\\n\"\n",
+		"sec 678: gpsd sends no reports until asked for JSON, so a node that asks otherwise samples nothing; gpsd_test's WATCH check catches it",
+	),
+	(
+		"gpsd-fix-given-once",
+		"location/gpsd.c",
+		"\t*out = g->latest;\n\tg->have_latest = 0;\n",
+		"\t*out = g->latest;\n",
+		"sec 678: one report given twice is a second fix kept that gpsd never sent; gpsd_test's given-twice check catches it",
+	),
+	(
+		"gpsd-split-line-kept",
+		"location/gpsd.c",
+		"\t\t\tg->buf_len -= start;\n",
+		"\t\t\tg->buf_len = 0;\n",
+		"sec 678: a report split between reads is half a line the next read completes, and dropping it loses fixes; gpsd_test's split-report check catches it",
+	),
+	(
+		"gpsd-closed-is-down",
+		"location/gpsd.c",
+		"\t\tif (r == 0) {\n\t\t\tfzn_gpsd_close(g);\n\t\t\treturn;\n\t\t}\n",
+		"\t\tif (r == 0)\n\t\t\treturn;\n",
+		"sec 678: a gpsd gone must read as down and be reconnected, or sampling stops for good; gpsd_test's closed-gpsd check catches it",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

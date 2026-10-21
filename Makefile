@@ -184,7 +184,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              catalog/copy.c catalog/filing.c catalog/purge.c \
              catalog/shard.c catalog/materialise.c catalog/source.c \
              catalog/index.c \
-             location/location.c \
+             location/location.c location/tpv.c location/gpsd.c \
              persist/persist.c \
              spool/spool.c \
              spool/plan.c \
@@ -282,7 +282,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              catalog/copy.h catalog/filing.h catalog/purge.h \
              catalog/shard.h catalog/materialise.h catalog/source.h \
              catalog/index.h \
-             location/location.h \
+             location/location.h location/tpv.h location/gpsd.h \
              persist/persist.h \
              spool/spool.h spool/message.h spool/transfer.h \
              spool/scrub.h \
@@ -388,6 +388,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              session/test/random_test.c local/test/vocabulary_test.c \
              local/test/client_test.c local/test/escape_test.c \
              node/test/types_test.c location/test/location_test.c \
+             location/test/tpv_test.c location/test/gpsd_test.c \
              node/test/peer_persist_test.c \
              node/test/identity_test.c node/test/heard_test.c node/test/events_test.c \
              node/test/routing_test.c node/test/contact_devices_test.c \
@@ -512,6 +513,8 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/local/test/escape_test \
              $(BUILD_DIR)/node/test/types_test \
              $(BUILD_DIR)/location/test/location_test \
+             $(BUILD_DIR)/location/test/tpv_test \
+             $(BUILD_DIR)/location/test/gpsd_test \
              $(BUILD_DIR)/node/test/peer_persist_test \
              $(BUILD_DIR)/node/test/identity_test \
              $(BUILD_DIR)/node/test/heard_test \
@@ -4249,7 +4252,8 @@ FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/node/files.o \
 # The fuzznetd daemon. Its main() is in node/, so the pattern rule resolves
 # "serve.h" without -Inode. FUZZNETD_LINK is everything but that main: the
 # node as a call (sec 670), which another daemon's main links too.
-FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/location/location.o $(NODE_SERVE_OBJS) \
+FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/location/location.o \
+              $(BUILD_DIR)/location/tpv.o $(BUILD_DIR)/location/gpsd.o $(NODE_SERVE_OBJS) \
               $(LINK_OBJ) $(BUILD_DIR)/sched/sched.o \
               $(BUILD_DIR)/node/identity.o $(BUILD_DIR)/node/pair.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
@@ -4390,6 +4394,19 @@ $(BUILD_DIR)/node/test/types_test: $(BUILD_DIR)/node/test/types_test.o
 # A position fix, sec 676.
 $(BUILD_DIR)/location/test/location_test: $(BUILD_DIR)/location/test/location_test.o \
                                           $(BUILD_DIR)/location/location.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# gpsd's link, against a stand-in on loopback, sec 678.
+$(BUILD_DIR)/location/test/gpsd_test: $(BUILD_DIR)/location/test/gpsd_test.o \
+                                      $(BUILD_DIR)/location/gpsd.o $(BUILD_DIR)/location/tpv.o \
+                                      $(BUILD_DIR)/location/location.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# gpsd's reports read, sec 678.
+$(BUILD_DIR)/location/test/tpv_test: $(BUILD_DIR)/location/test/tpv_test.o \
+                                     $(BUILD_DIR)/location/tpv.o $(BUILD_DIR)/location/location.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -6246,6 +6263,7 @@ else
 	@timeout 90 python3 tool/live_socket.py $(FUZZNETD)
 	@timeout 150 python3 tool/live_face.py $(FUZZNETD)
 	@timeout 120 python3 tool/live_ext.py $(EXT_DAEMON)
+	@timeout 150 python3 tool/live_location.py $(FUZZNETD)
 	@$(if $(LOG_PACK_ON),timeout 600 python3 tool/live_erasure.py $(FUZZNETD),echo \
 	  "livecheck: erasure SKIPPED -- this build does not pack logs")
 endif

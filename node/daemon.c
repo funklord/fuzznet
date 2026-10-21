@@ -56,6 +56,7 @@
 #include "../local/client.h"
 #include "../local/escape.h"
 #include "../location/location.h"
+#include "../location/gpsd.h"
 #ifdef FZN_CLAIM_FILE_ON
 #include "../claim/claim_file.h"
 #endif
@@ -8463,6 +8464,128 @@ static int word_number(const uint8_t *w, size_t n, long long lo, long long hi, l
 	return 1;
 }
 
+/* A FIX OF THIS HOST'S, KEPT at its three levels, each from the exact fix:
+ * 1 with its seq, or 0. */
+static int location_write(const fzn_location_fix_t *fix, uint64_t *seq)
+{
+	static fzn_stream_record_t w;
+	unsigned level;
+
+	if (!node_streams.store || !contact_id)
+		return 0;
+	memset(&w, 0, sizeof(w));
+	for (level = 0; level < FZN_LOCATION_LEVELS; level++) {
+		fzn_location_fix_t at_level = *fix;
+
+		fzn_location_degrade(&at_level, (fzn_location_level_t)level);
+		if (!fzn_location_fix_encode(&at_level, w.rendition[level], FZN_STREAM_RENDITION_MAX))
+			return 0;
+		w.rendition_len[level] = FZN_LOCATION_FIX_LEN;
+	}
+	w.levels = FZN_LOCATION_LEVELS;
+	w.seq = fzn_streams_last(&node_streams, FZND_LOCATION_STREAM, FZND_LOCATION_STREAM_LEN,
+	                         contact_id->pubkey) + 1u;
+	w.at = wall_clock();
+	if (fzn_streams_keep(&node_streams, FZND_LOCATION_STREAM, FZND_LOCATION_STREAM_LEN,
+	                     contact_id->pubkey, &w) != FZN_STREAMS_OK)
+		return 0;
+	if (seq)
+		*seq = w.seq;
+	return 1;
+}
+
+/* SAMPLING gpsd, sec 678: this host's cells say whether, where and how
+ * often --
+ *
+ *   location/enabled   1 to sample; off otherwise, and off by default, a
+ *                      position being the most sensitive thing kept here
+ *   location/gpsd      `HOST PORT`, `localhost 2947` when unset
+ *   location/every     seconds between fixes kept, 30 when unset, 1 to
+ *                      86400
+ *   location/accuracy  metres: a fix whose worse horizontal axis is
+ *                      wider, or unknown, is dropped; 100 when unset, 0
+ *                      for no gate
+ *
+ * -- fuzzypickles' settings and defaults, polled from the loop, never
+ * blocking. A fix with no time of its own takes the clock's. */
+static fzn_gpsd_t location_gpsd;
+static int location_aimed;
+static uint64_t location_last, location_sampled, location_dropped;
+
+static uint64_t host_number(const char *key, uint64_t def);
+
+/* A HOST CELL's text, NUL ended, into `out`: 1, or 0 when unset or long. */
+static int host_text(const char *key, char *out, size_t cap)
+{
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	size_t len = 0;
+
+	if (!contact_id
+	    || !fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, contact_id->pubkey,
+	                              (const uint8_t *)key, strlen(key), value, &len, &rank)
+	    || !len || len >= cap)
+		return 0;
+	memcpy(out, value, len);
+	out[len] = '\0';
+	return 1;
+}
+
+static void location_tick(void)
+{
+	char where[FZN_GPSD_HOST_MAX + 8u], host[FZN_GPSD_HOST_MAX + 1u];
+	uint64_t now = wall_clock(), every, accuracy;
+	fzn_location_fix_t fix;
+	unsigned long port = 2947;
+	const char *space;
+
+	if (host_number("location/enabled", 0) != 1u || !node_streams.store || !contact_id) {
+		if (location_aimed)
+			fzn_gpsd_close(&location_gpsd);
+		location_aimed = 0;
+		return;
+	}
+	if (!host_text("location/gpsd", where, sizeof(where)))
+		(void)snprintf(where, sizeof(where), "localhost 2947");
+	/* `HOST PORT`, or the default for a cell of no such shape. */
+	space = strchr(where, ' ');
+	if (space && space > where && (size_t)(space - where) <= FZN_GPSD_HOST_MAX) {
+		memcpy(host, where, (size_t)(space - where));
+		host[space - where] = '\0';
+		port = strtoul(space + 1, NULL, 10);
+	} else {
+		(void)snprintf(host, sizeof(host), "localhost");
+	}
+	/* AIMED AGAIN when the cell names somewhere else. */
+	if (!location_aimed || strcmp(host, location_gpsd.host) != 0
+	    || port != location_gpsd.port) {
+		if (location_aimed)
+			fzn_gpsd_close(&location_gpsd);
+		location_aimed = port >= 1u && port <= 65535u
+		                 && fzn_gpsd_init(&location_gpsd, host, (uint16_t)port);
+		if (!location_aimed)
+			return;
+	}
+	if (!fzn_gpsd_poll(&location_gpsd, &fix))
+		return;
+	every = host_number("location/every", 30u);
+	if (every < 1u || every > 86400u)
+		every = 30u;
+	if (location_last && now < location_last + every)
+		return;
+	accuracy = host_number("location/accuracy", 100u);
+	if (accuracy && fzn_location_worst_h_acc_m(&fix) > accuracy) {
+		location_dropped++;
+		return;
+	}
+	if (!fix.utc_s)
+		fix.utc_s = (uint32_t)now;
+	if (location_write(&fix, NULL)) {
+		location_sampled++;
+		location_last = now;
+	}
+}
+
 static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                              size_t cap)
 {
@@ -8474,16 +8597,35 @@ static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, 
 	if (!at || !next_word(&at, &left, &subject, &subject_len) || subject_len != 8u
 	    || memcmp(subject, "location", 8u) != 0)
 		return 0;
-	if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_LIST)
+	if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_LIST
+	    && request->parsed != FZN_VERB_GET)
 		return 0;
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return (size_t)snprintf(reply, cap, "denied a location is this node's own user's\n");
 	if (!node_streams.store || !contact_id)
 		return (size_t)snprintf(reply, cap, "error this node keeps no streams\n");
+	/* THE SAMPLING, sec 678: `ok ENABLED LINK EVERY ACCURACY SAMPLED DROPPED
+	 * LAST`, LINK off, down, connecting or watching, LAST the seconds of the
+	 * last fix kept from gpsd, 0 for none. */
+	if (request->parsed == FZN_VERB_GET) {
+		static const char *const LINKS[] = { "down", "connecting", "watching" };
+		int on = host_number("location/enabled", 0) == 1u;
+
+		if (left)
+			return (size_t)snprintf(reply, cap, "malformed get location\n");
+		return (size_t)snprintf(reply, cap, "ok %d %s %llu %llu %llu %llu %llu\n", on,
+		                        !on || !location_aimed ? "off"
+		                                               : LINKS[fzn_gpsd_link(&location_gpsd)],
+		                        (unsigned long long)host_number("location/every", 30u),
+		                        (unsigned long long)host_number("location/accuracy", 100u),
+		                        (unsigned long long)location_sampled,
+		                        (unsigned long long)location_dropped,
+		                        (unsigned long long)location_last);
+	}
 	if (request->parsed == FZN_VERB_ADD) {
 		fzn_location_fix_t fix;
 		long long n1, n2;
-		unsigned level;
+		uint64_t seq = 0;
 		int vacc_said = 0;
 
 		memset(&fix, 0, sizeof(fix));
@@ -8528,24 +8670,9 @@ static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, 
 		}
 		if (vacc_said && !fix.has_alt)
 			return (size_t)snprintf(reply, cap, "malformed vacc is an altitude's\n");
-		/* THE THREE LEVELS, each from the exact fix. */
-		memset(&r, 0, sizeof(r));
-		for (level = 0; level < FZN_LOCATION_LEVELS; level++) {
-			fzn_location_fix_t at_level = fix;
-
-			fzn_location_degrade(&at_level, (fzn_location_level_t)level);
-			if (!fzn_location_fix_encode(&at_level, r.rendition[level], FZN_STREAM_RENDITION_MAX))
-				return (size_t)snprintf(reply, cap, "error the fix would not encode\n");
-			r.rendition_len[level] = FZN_LOCATION_FIX_LEN;
-		}
-		r.levels = FZN_LOCATION_LEVELS;
-		r.seq = fzn_streams_last(&node_streams, FZND_LOCATION_STREAM, FZND_LOCATION_STREAM_LEN,
-		                         contact_id->pubkey) + 1u;
-		r.at = wall_clock();
-		if (fzn_streams_keep(&node_streams, FZND_LOCATION_STREAM, FZND_LOCATION_STREAM_LEN,
-		                     contact_id->pubkey, &r) != FZN_STREAMS_OK)
+		if (!location_write(&fix, &seq))
 			return (size_t)snprintf(reply, cap, "error the fix would not keep\n");
-		return (size_t)snprintf(reply, cap, "ok %llu\n", (unsigned long long)r.seq);
+		return (size_t)snprintf(reply, cap, "ok %llu\n", (unsigned long long)seq);
 	}
 	if (left)
 		return (size_t)snprintf(reply, cap, "malformed list location\n");
@@ -12830,6 +12957,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			/* A REQUEST NEVER FINISHED gives its slot back. */
 			if (state.reassembly)
 				(void)fzn_reasm_expire(state.reassembly, wall_clock());
+			/* gpsd's newest fix, when sampling is on, sec 678. */
+			location_tick();
 			/* MID-ROUND, between steps, only what is waiting is answered and
 			 * the next step follows at once; a step waiting on its
 			 * conversations waits here, their answers polled with the rest. */
@@ -12858,8 +12987,10 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	        sock_path ? sock_path : "", (udp_port >= 0) ? " udp" : "");
 	/* UNTIL THE PROCESS IS SIGNALLED, or a reset or a join ends it, sec 638:
 	 * a node with nothing to pull still serves both verbs. */
-	while (!identity_reset && !rejoin_due)
+	while (!identity_reset && !rejoin_due) {
+		location_tick();
 		(void)fzn_node_run_once(&state, 1000);
+	}
 	if (rejoin_due)
 		return start_again(lfd, sock_path);
 	if (identity_reset) {
