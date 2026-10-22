@@ -67317,7 +67317,7 @@ already moved to fuzznetd's verbs are not repeated here.
 | Transfer: the traffic meter | guarded; nothing here | traffic accounting, fuzznet's |
 | Prekey generate | guarded | a verb |
 | Status | waits | status fields |
-| Log show | fzpd's own log | fuzznetd's log, nothing to move |
+| Log show | fzpd's own log | fuzznetd's log, and a verb to read it (sec 695) |
 | Guarded as replaced: chat relay, manifest, log relay, rendezvous, notes retention, library claim-on-fetch, group reconstruct | refused on a node | nothing moves; callers use the replacement |
 
 **What each move carries.**
@@ -68966,3 +68966,85 @@ daemon's log.**
   `charge`, and `files-fetch-keeps-its-budget` to the budget's test in
   `_next`, its reason restated -- a fetch's budget is now how files take
   turns, the node answering between steps regardless.
+
+## 695. NAT on hull, its first step passing, and a log a client can read, 2026-10-22
+
+### hull, in use
+
+**hull at 4161c8a**, its segments landed and its three-machine test
+passing, as hull's session reported:
+- **one NIC per named segment** on a qemu machine, after passt's `eth0`,
+  with no address given;
+- each segment a learning L2 switch in the user's core, rootless;
+- names per user, so a run picks its own.
+
+**hull's own reading** is its `project.md` section 12, *Adopting hull for
+testing*, rewritten in place as hull moves. So this section names the
+commit it rested on, as the guidelines ask.
+
+**Tried in a hull guest here first** -- hull had not tried nftables or
+`sch_netem` in one, and was told:
+- a machine on the host's own root as its overlaid source (`dir:/`);
+- `eth1` on the segment;
+- nftables 1.1.3 making a table;
+- `sch_netem` loaded, and 10 per cent loss set on `eth1`;
+- python 3.13.
+
+KVM and vhost-vsock are open to this account.
+
+### Step 1: a member behind a NAT joins its root
+
+`tool/hull_nat.py` (`make livecheck-hull`, skipped without hull) and
+`tool/hull_node.py`, the part each machine runs. Three machines on two
+segments named for the run:
+- **the gateway**, on both segments, masquerading home out of public with
+  nftables;
+- **the root**, at 203.0.113.10:7000 on public;
+- **the member**, at 192.168.1.10 on home, routed through the gateway.
+
+The machines hand each other the prekey and the card as files in a shared
+volume, and each writes what it saw there.
+
+**Passes when** the root's estate setting reaches the member, the
+member's own host setting reaches the root, and the root's meter (sec
+685) counted the member only as the gateway's public address. The last
+is what shows the traffic crossed a NAT at all.
+
+**Measured: 3 runs of 3 pass, nothing left running.** The root's meter
+showed every family -- verbs, notes, members, contact devices, groups,
+the journal and reconciliation -- from 203.0.113.1 alone, with bytes
+both ways.
+
+**Control:** the gateway routing without masquerade fails, neither
+setting crossing, since the home network has no way back.
+
+**Found on the way, and in the test, not fuzznet:**
+- **the order of a gateway's start matters.** Forwarding turned on before
+  the NAT rules let a datagram through unmasqueraded in the gap, and the
+  root met the member's home address, one run in three. The gateway now
+  loads its rules first, says it is ready, and the member waits for that.
+- **a guest's passt** gives it a default route through `eth0`, so a home
+  machine's default is replaced to its gateway, not added.
+
+**Next, sec 692's topology:**
+- two estates, a phone-like machine behind a NAT of its own;
+- contact between them;
+- relay and introduction between machines neither of which can be
+  reached;
+- loss through `tc netem`, a restart mid-journey, an expired mapping.
+
+### A log a client can read
+
+**fuzzypickles' requirement, 2026-10-22, inside sec 689's subset:**
+fuzznetd has no local verb that reads its own log. So a client on a
+node cannot show what the node has been doing; today fzpd's log fills
+that, read from the fzpd beside the node. What their three callers use:
+- the newest entries first;
+- a page of up to 50 lines;
+- each with its time, severity, subsystem and text;
+- "nothing logged yet" as a real state.
+
+This is the acceptance for sec 689's journey 4, whose plan already says
+logs gain the verbs they lack. Sec 672's table said "Log show: fuzznetd's
+log, nothing to move", true of the log and leaving a client no way in. It
+is corrected to say a verb to read it is wanted.

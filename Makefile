@@ -1979,7 +1979,7 @@ endif
 DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(GUI_TOBJ:.o=.d) \
        $(PROG_OBJS:.o=.d)
 
-.PHONY: check runtests all test fuzz guided guided-one installcheck coverage sancheck schema qtty qrcheck livecheck livecheck-repeat fuzznetd-faults livecheck-faults style codegencheck ctcheck analyze sabotage reach hooks clean install
+.PHONY: check runtests all test fuzz guided guided-one installcheck coverage sancheck schema qtty qrcheck livecheck livecheck-repeat livecheck-hull fuzznetd-faults livecheck-faults style codegencheck ctcheck analyze sabotage reach hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -6348,6 +6348,13 @@ fuzznetd-faults:
 # daemon, so a scenario built on a fault is known to have one.
 livecheck-faults: fuzznetd-faults
 	@timeout 400 python3 tool/live_faults.py $(BUILD_DIR)/faults/fuzznetd
+
+# NAT ON HULL, sec 692 and 695: machines on segments of their own, a
+# member behind a gateway's nftables NAT joining its root. Needs hull
+# (HULL, or hull on the PATH) and /dev/kvm; skipped, saying so, without
+# hull. tool/hull_nat.py bounds every machine and the run.
+livecheck-hull: $(FUZZNETD)
+	@timeout 600 python3 tool/hull_nat.py $(FUZZNETD); rc=$$?; [ $$rc -eq 2 ] || exit $$rc
 
 # THE LIVE SCRIPTS AGAIN AND AGAIN, sec 689 step 0a: RUNS times each of
 # SCRIPTS, named as livecheck runs them (`deliver` for live_deliver.py), a
