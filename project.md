@@ -67928,3 +67928,60 @@ shared buffer, so the bytes bent were no longer the pack's. It builds
 again first now. That is also why a refused build wipes what it wrote.
 
 Nine sabotage entries cover `pack.c`.
+
+## 681. Stickers step b: packs on the node, saved as the user's settings, 2026-10-22
+
+**Built: `node/stickers.h`**, sec 679's step b.
+- **A pack is a file of the node's** (`node/files.h`), sealed and fetched
+  as any file is.
+- **A pack saved is the user's.** It is the estate cell `sticker/` plus 56
+  hex of its root, valued `REF NAME`: the file's reference, 144 hex, and
+  the pack's name escaped (`local/escape.h`), since a setting's value is
+  printable. So every host of the user has the collection, as sec 660's
+  stream grants are carried. A host that may not set the estate's
+  settings keeps it in its own host cell and answers `ok ROOT host`.
+- **Saving is not holding, and forgetting is not deleting**, as
+  fuzzypickles kept the two apart. Nothing here removes a file. Their
+  "saving pins a pack against retention" needs nothing here, because no
+  sweep removes a file of the node's: only `remove file` does.
+- **The verbs**, this node's own user's:
+
+  | Verb | Answer |
+  |---|---|
+  | `put sticker SPEC` | `ok ROOT`: the pack built from the spec at the absolute path SPEC and the files beside it, put through a working name in the files' own directory, and saved |
+  | `list sticker` | `ok N ROOT,LENGTH,NAME,HELD,SCOPE ...` |
+  | `list sticker PACK` | `ok N ID,TYPE,FLAGS,DESC ...` |
+  | `get sticker PACK ID` | the reference a message carries, `fzn:sticker/...` |
+  | `get sticker PACK ID ROLE PATH` | the rendition asked for, or the nearest, written to a new file at the absolute PATH, `ok FORMAT WIDTH HEIGHT` |
+  | `remove sticker ROOT` | `ok`: the pack forgotten, its bytes kept |
+
+  PACK is a saved pack's root, or the 144 hex of any held pack's
+  reference.
+- **Two bounds.** A spec is at most 64 KiB, and the art it names is read
+  only while the whole stays under a pack's 16 MiB. A name that escapes
+  past a setting's 256 bytes is refused rather than cut. A name of 48
+  bytes can escape to 144.
+
+**Tested** by `tool/live_stickers.py`, in `make livecheck`, one daemon
+with a spec and random art:
+- a: put and saved to the estate, listed held;
+- b: the stickers listed with their escaped descriptions; a reference
+  answered; the thumb written byte for byte; a popup the sticker lacks
+  given as its main;
+- c: a spec path above it refused at its line, and a repeated description
+  refused at building, nothing saved by either;
+- d: forgotten, listed no more, and its bytes still answered through the
+  whole reference.
+
+**Control**: a daemon with the verbs unwired fails phase a with
+`unsupported`.
+
+**What is not held by a unit test:** `node/stickers.c`'s guards, the
+absolute paths and the own-user origin, are held only by the live test.
+Its settings need a journal to write, which the module suites do not
+stand up, and the sabotage census reads `make manifest`, whose spool
+backend line names only `spool/spool_file.c`, so this file is as far
+outside the census as `node/files.c` is. The library under it,
+`sticker/pack.c`, is held by `sticker_test` and ten sabotage entries.
+
+**Not yet, step c:** the sweep fetching packs that messages name.

@@ -1388,8 +1388,8 @@ endif
 # Outside the conditional, for the reason PERSIST_FILE_SRCS is.
 # node/shelf keeps a node's note texts in spool files, so it is built only
 # with them. sec 424.
-SPOOL_FILE_SRCS := spool/spool_file.c node/shelf.c node/files.c
-SPOOL_FILE_HDRS := spool/spool_file.h node/shelf.h node/files.h
+SPOOL_FILE_SRCS := spool/spool_file.c node/shelf.c node/files.c node/stickers.c
+SPOOL_FILE_HDRS := spool/spool_file.h node/shelf.h node/files.h node/stickers.h
 SPOOL_FILE_TSRC := spool/test/spool_file_test.c node/test/shelf_test.c node/test/files_test.c
 
 ifdef SPOOL_FILE_ON
@@ -4247,6 +4247,7 @@ FUZZNETD_NOTES_OBJS := $(BUILD_DIR)/node/notes.o $(BUILD_DIR)/local/escape.o $(B
 
 # The note-text shelf fuzznetd carries where spool files are built. sec 424.
 FUZZNETD_SHELF_OBJS := $(BUILD_DIR)/node/shelf.o $(BUILD_DIR)/node/files.o \
+                       $(BUILD_DIR)/node/stickers.o $(BUILD_DIR)/sticker/pack.o \
                        $(BUILD_DIR)/blob/levels.o $(BUILD_DIR)/notes/text.o \
                        $(BUILD_DIR)/notes/note.o $(BUILD_DIR)/spool/spool_file.o \
                        $(BUILD_DIR)/spool/spool.o $(BUILD_DIR)/spool/message.o \
@@ -6274,6 +6275,7 @@ else
 	@timeout 150 python3 tool/live_face.py $(FUZZNETD)
 	@timeout 120 python3 tool/live_ext.py $(EXT_DAEMON)
 	@timeout 150 python3 tool/live_location.py $(FUZZNETD)
+	@timeout 150 python3 tool/live_stickers.py $(FUZZNETD)
 	@$(if $(LOG_PACK_ON),timeout 600 python3 tool/live_erasure.py $(FUZZNETD),echo \
 	  "livecheck: erasure SKIPPED -- this build does not pack logs")
 endif

@@ -96,6 +96,7 @@
 #ifdef FZN_SPOOL_FILE_ON
 #include "files.h"
 #include "shelf.h"
+#include "stickers.h"
 #endif
 #include "../local/socket.h"
 #include "../net/udp.h"
@@ -363,6 +364,10 @@ static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, c
                             size_t cap);
 static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                              size_t cap);
+#if defined(FZN_SPOOL_FILE_ON) && defined(FZN_RECORD_STORE_FILE_ON)
+/* THE USER'S STICKERS, sec 681: packs as files, saved as settings. */
+static fzn_node_stickers_t node_stickers;
+#endif
 static size_t device_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                            size_t cap);
 static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
@@ -406,6 +411,10 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = streams_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = location_local(origin, request, reply, reply_cap);
+#if defined(FZN_SPOOL_FILE_ON) && defined(FZN_RECORD_STORE_FILE_ON)
+	if (!n && node_stickers.files)
+		n = fzn_node_stickers_local(&node_stickers, origin, request, reply, reply_cap);
+#endif
 	if (!n)
 		n = device_local(origin, request, reply, reply_cap);
 	if (!n)
@@ -12356,6 +12365,11 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					admin.files_ctx = &files;
 					files.store = store_ops;
 					files_on = 1;
+#if defined(FZN_SPOOL_FILE_ON) && defined(FZN_RECORD_STORE_FILE_ON)
+					node_stickers.files = &files;
+					node_stickers.settings = &node_settings;
+					node_stickers.host = identity.pubkey;
+#endif
 				} else {
 					say(FZN_ENTRY_WARNING, "files", "no store for files under %s",
 					    bulk_dir);

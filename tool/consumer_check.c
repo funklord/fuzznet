@@ -123,6 +123,7 @@
 #include <fuzznet/spool/spool_file.h>
 #include <fuzznet/node/shelf.h>
 #include <fuzznet/node/files.h>
+#include <fuzznet/node/stickers.h>
 #endif
 #ifdef FZN_CLAIM_FILE_ON
 #include <fuzznet/claim/claim_file.h>
@@ -324,6 +325,7 @@
 #include "spool/spool_file.h"
 #include "node/shelf.h"
 #include "node/files.h"
+#include "node/stickers.h"
 #endif
 #ifdef FZN_CLAIM_FILE_ON
 #include "claim/claim_file.h"
