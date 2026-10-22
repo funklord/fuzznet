@@ -97,6 +97,16 @@ typedef struct fzn_caller {
 	 * (`log/cause.h`); the caller knows nothing of what is put round them. */
 	size_t (*wrap)(void *ctx, const uint8_t *in, size_t in_len, uint8_t *out, size_t out_cap);
 	void *wrap_ctx;
+	/* WHAT CROSSES, sec 685, when set: `sent` with each request as it went
+	 * out, after the wrap, and the `msg` it went under -- by
+	 * `fzn_caller_send` once it is sent and `fzn_caller_seal` once it is
+	 * sealed; `answered` with each whole answer read, its `msg` and its
+	 * length. How a daemon meters its traffic by what it was
+	 * (`node/meter.h`); the caller counts nothing itself. */
+	void (*sent)(void *ctx, const struct fzn_caller *caller, uint32_t msg,
+	             const uint8_t *payload, size_t len);
+	void (*answered)(void *ctx, const struct fzn_caller *caller, uint32_t msg, size_t len);
+	void *traffic_ctx;
 } fzn_caller_t;
 
 /* Send one request, reporting the `msg` it went out under.

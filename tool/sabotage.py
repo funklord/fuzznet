@@ -12627,6 +12627,55 @@ SABOTAGES = [
 		"\t\tif (!digits || p >= end || *p != '/')\n",
 		"sec 680: a fetch wants the pack's length, so an fzn reference of length 0 names a pack nobody can fetch; sticker_test's length-of-0 check catches it",
 	),
+	(
+		"meter-cause-looked-through",
+		"node/meter.c",
+		"\tif (payload[0] == FZN_TYPES_VERSION_CAUSE\n",
+		"\tif (0 && payload[0] == FZN_TYPES_VERSION_CAUSE\n",
+		"sec 685: the daemon wraps what it asks in a cause envelope, so a meter that does not look through it counts every asked request as other; meter_test's cause-envelope check catches it",
+	),
+	(
+		"meter-want-root-offset",
+		"node/meter.c",
+		"payload[1] == FZN_MSG_WANT ? FZN_MSG_WANT_OFF_ROOT : 0u;",
+		"payload[1] == FZN_MSG_WANT ? FZN_MSG_HAVE_OFF_ROOT : 0u;",
+		"sec 685: a file's row is keyed by the root its request names, which a WANT carries at its own offset; meter_test's WANT-root check catches it",
+	),
+	(
+		"meter-evicted-kept",
+		"node/meter.c",
+		"\t\t\tm->evicted_up[family] += r->up;\n",
+		"",
+		"sec 685: an evicted row's bytes go to the family's evicted totals so get transfer stays whole; meter_test's eviction check catches it",
+	),
+	(
+		"meter-evict-least-recent",
+		"node/meter.c",
+		"\t\t\t\tif (rows[i].last_seen < r->last_seen)\n",
+		"\t\t\t\tif (rows[i].last_seen > r->last_seen)\n",
+		"sec 685: a full table evicts its least recently active row, so a busy transfer keeps its row; meter_test's oldest-evicted check catches it",
+	),
+	(
+		"meter-totals-evicted",
+		"node/meter.c",
+		"\t\tuint64_t up = m->evicted_up[f], down = m->evicted_down[f];\n",
+		"\t\tuint64_t up = 0, down = m->evicted_down[f];\n",
+		"sec 685: get transfer's totals include evicted rows' bytes; meter_test's totals check catches it",
+	),
+	(
+		"meter-page-room",
+		"node/meter.c",
+		"\t\t\tif (!n || at + 1u + n + 1u >= cap)\n",
+		"\t\t\tif (!n || at + 1u + n + 1u >= 2u * cap)\n",
+		"sec 685: a page holds only what fits one reply; past it the reply is cut and rows are lost; meter_test's page checks catch it",
+	),
+	(
+		"meter-own-user",
+		"node/meter.c",
+		"\tif (origin != FZN_ORIGIN_SAME_USER)\n\t\treturn REPLY(\"denied traffic is this node's own user's\\n\");\n",
+		"",
+		"sec 685: who this node talks to and how much is its own user's; meter_test's other-user check catches it",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

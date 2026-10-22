@@ -109,6 +109,8 @@ fzn_caller_err_t fzn_caller_send(fzn_caller_t *caller, const uint8_t *payload,
 		    FZN_UDP_OK)
 			return FZN_CALLER_ERR_SEND;
 	}
+	if (caller->sent)
+		caller->sent(caller->traffic_ctx, caller, *msg, payload, payload_len);
 	return FZN_CALLER_OK;
 }
 
@@ -190,6 +192,8 @@ static fzn_caller_err_t receive(fzn_caller_t *caller, int any, uint32_t *msg, ui
 		*reply_len = done->bytes;
 		*msg = opened.msg;
 		fzn_reasm_release(done);
+		if (caller->answered)
+			caller->answered(caller->traffic_ctx, caller, *msg, *reply_len);
 		return FZN_CALLER_OK;
 	}
 }
@@ -251,6 +255,8 @@ fzn_caller_err_t fzn_caller_seal(fzn_caller_t *caller, const uint8_t *payload, s
 	                   caller->hash, caller->rng, caller->aead)
 	    != FZN_SEAL_OK)
 		return FZN_CALLER_ERR_SEAL;
+	if (caller->sent)
+		caller->sent(caller->traffic_ctx, caller, *msg, payload, payload_len);
 	return FZN_CALLER_OK;
 }
 

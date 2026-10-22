@@ -68108,3 +68108,74 @@ after:
 
 **Control**: the build before this section, run on the same pack,
 answers `error the list does not fit a reply`.
+
+## 685. The traffic meter: what crossed, by family and peer, 2026-10-22
+
+**Sec 672's next piece of fzpd's command set**: their transfer list
+(`daemon/traffic_meter.h`, read at their 3fbcdc2), which shows what this
+device is moving and with whom. Built as `node/meter.h`, counted by the
+daemon, and read by two verbs.
+
+**By family, not by command byte.** fzpd counted by its frame's command.
+Here a payload's family is what its head says by `node/types.h`'s
+registry:
+- verbs, notes, members, messages, contact devices, the relay,
+  introductions, groups, streams, file references, files (spool's
+  messages), the journal, reconciliation, logs, an extension's types;
+- `other` for what is none of those.
+
+A cause envelope (`log/cause.h`) is looked through, since the daemon wraps
+every request it asks in one (sec 465).
+
+**Rows are (peer, key)**, as fzpd's were:
+- The peer is the address text `HOST:PORT`.
+- The key is a file's root where its request names one (HAVE, HAVE_QUERY,
+  WANT); every other family has none, the peer being the answer.
+- One table of 64 rows a family, so a busy transfer cannot evict a
+  conversation's rows. That was fzpd's reason, and it holds here.
+- A full table evicts its least recently active row and adds the row's
+  bytes to the family's evicted totals, so a family's sums stay whole.
+- In memory only: a restart begins again.
+
+**Bytes are payload, not frames**: what was asked and answered, wrapped
+as it crossed and before sealing. The seal's overhead says nothing about
+what moved. A rate is bytes a second over the last window of five
+seconds.
+
+**Where it is counted:**
+- **Asking:** `fzn_caller_t` gains `sent` and `answered` hooks, called by
+  `fzn_caller_send`, `fzn_caller_seal` and the receive path. The caller
+  counts nothing itself; the daemon keeps a ring of 256 requests asked,
+  so an answer is counted as its request's family. An answer to nothing
+  in the ring counts as `other`.
+- **Answering:** the daemon wraps `fzn_node_admin_remote`, counting each
+  request and the reply it got. The serve library is unchanged.
+- **A relayed request counts twice**: under its own family when sealed,
+  and under `relay` when the envelope goes out. That is what crossed.
+
+**The verbs**, the node's own user's:
+- `get transfer`: `ok FAMILY,UP,DOWN ...` for each family that has moved
+  anything. The worst case of sixteen families with 20-digit counts is
+  about 930 bytes, so it is never paged.
+- `list transfer [FROM]`: `ok TOTAL FROM FAMILY,PEER,KEY,UP,DOWN,
+  RATE_UP,RATE_DOWN,FIRST,LAST ...`, paged as sec 684's listings are.
+
+**Not carried over:**
+- fzpd keyed a group's traffic by the group's name. Groups here are
+  keyed by id (sec 516) and the id is in the payload's body, not its
+  head, so a group row has no key yet.
+- fzpd's frame-byte totals.
+
+**Tested:**
+- `node/test/meter_test.c`, 29 checks:
+  - every family by its owner's constants;
+  - a WANT's root kept through a cause envelope;
+  - the table, its window rate, eviction and the cut peer;
+  - the verbs' totals, pages within one reply giving each row once, and
+    the refusals.
+- `tool/live_transfer.py`: a root and a joined device after a reconcile
+  round. Each counts the other in seven families, and the two sides
+  mirror to the byte -- reconcile 435 asked and 375 answered on one side,
+  375 and 435 on the other. Each meter was read on its own daemon, so the
+  agreement is two measurements, not one.
+- Seven sabotage entries, `meter-*`.

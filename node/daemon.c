@@ -99,6 +99,7 @@
 #include "files.h"
 #include "shelf.h"
 #include "stickers.h"
+#include "meter.h"
 #endif
 #include "../local/socket.h"
 #include "../net/udp.h"
@@ -370,6 +371,8 @@ static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, 
 /* THE USER'S STICKERS, sec 681: packs as files, saved as settings. */
 static fzn_node_stickers_t node_stickers;
 #endif
+/* WHAT CROSSES THE REMOTE HOP, sec 685: fzpd's transfer list. */
+static fzn_meter_t traffic;
 static size_t device_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                            size_t cap);
 static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
@@ -417,6 +420,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 	if (!n && node_stickers.files)
 		n = fzn_node_stickers_local(&node_stickers, origin, request, reply, reply_cap);
 #endif
+	if (!n)
+		n = fzn_meter_local(&traffic, origin, request, reply, reply_cap);
 	if (!n)
 		n = device_local(origin, request, reply, reply_cap);
 	if (!n)
@@ -1137,6 +1142,87 @@ static uint64_t wall_clock(void)
 	time_t t = time(NULL);
 
 	return (t < 0) ? 0u : (uint64_t)t;
+}
+
+/* A REQUEST THIS NODE ASKED, sec 685, until its answer is read: the
+ * answer is counted as the request's family and key, which only the
+ * request says. A ring: an answer that never comes is overwritten. */
+#define FZND_ASKED_MAX 256u
+static struct traffic_asked {
+	const fzn_caller_t *caller;
+	uint32_t msg;
+	fzn_meter_family_t family;
+	uint8_t key[FZN_METER_KEY_MAX];
+	size_t key_len;
+	int live;
+} traffic_asked[FZND_ASKED_MAX];
+static size_t traffic_asked_next;
+
+static void peer_text(const fzn_udp_addr_t *addr, char *out, size_t cap)
+{
+	char host[FZN_UDP_HOST_MAX];
+	uint16_t port = 0;
+
+	if (!addr || fzn_udp_addr_text(addr, host, &port) != FZN_UDP_OK)
+		(void)snprintf(out, cap, "?");
+	else
+		(void)snprintf(out, cap, "%s:%u", host, (unsigned)port);
+}
+
+static void caller_sent(void *ctx, const fzn_caller_t *caller, uint32_t msg,
+                        const uint8_t *payload, size_t len)
+{
+	struct traffic_asked *a = &traffic_asked[traffic_asked_next++ % FZND_ASKED_MAX];
+	char peer[FZN_METER_PEER_MAX + 1u];
+
+	(void)ctx;
+	a->caller = caller;
+	a->msg = msg;
+	a->family = fzn_meter_family_of(payload, len, a->key, &a->key_len);
+	a->live = 1;
+	peer_text(&caller->node, peer, sizeof(peer));
+	fzn_meter_count(&traffic, a->family, peer, a->key, a->key_len, len, 0u, wall_clock());
+}
+
+static void caller_answered(void *ctx, const fzn_caller_t *caller, uint32_t msg, size_t len)
+{
+	char peer[FZN_METER_PEER_MAX + 1u];
+	size_t i;
+
+	(void)ctx;
+	peer_text(&caller->node, peer, sizeof(peer));
+	for (i = 0; i < FZND_ASKED_MAX; i++)
+		if (traffic_asked[i].live && traffic_asked[i].caller == caller && traffic_asked[i].msg == msg) {
+			traffic_asked[i].live = 0;
+			fzn_meter_count(&traffic, traffic_asked[i].family, peer, traffic_asked[i].key,
+			                traffic_asked[i].key_len, 0u, len, wall_clock());
+			return;
+		}
+	/* AN ANSWER TO NOTHING ASKED HERE, or asked so long ago its entry
+	 * was overwritten: still bytes that crossed. */
+	fzn_meter_count(&traffic, FZN_METER_OTHER, peer, NULL, 0u, 0u, len, wall_clock());
+}
+
+/* EVERY REMOTE REQUEST ANSWERED, metered, sec 685: what came in and what
+ * went back, as the request's family, by where it came from. */
+static size_t metered_remote(void *ctx, fzn_node_remote_result_t result, const fzn_opened_t *req,
+                             uint8_t *reply, size_t reply_cap)
+{
+	const fzn_node_admin_t *admin = ctx;
+	size_t n = fzn_node_admin_remote(ctx, result, req, reply, reply_cap);
+	uint8_t key[FZN_METER_KEY_MAX];
+	size_t key_len = 0;
+	char peer[FZN_METER_PEER_MAX + 1u];
+
+	if (req) {
+		fzn_meter_family_t family = fzn_meter_family_of(req->payload, req->payload_len, key,
+		                                                &key_len);
+
+		peer_text(admin && admin->state ? admin->state->asking_from : NULL, peer, sizeof(peer));
+		fzn_meter_count(&traffic, family, peer, key, key_len, n <= reply_cap ? n : 0u,
+		                req->payload_len, wall_clock());
+	}
+	return n;
 }
 
 /* The wall clock in milliseconds, which a note's times are in. */
@@ -4571,6 +4657,8 @@ static int open_target_on(struct pull_target *pt, int fd, int family,
 	pt->caller.reasm = &pt->table;
 	pt->caller.hops = 1u;
 	pt->caller.wrap = caller_wrap;
+	pt->caller.sent = caller_sent;
+	pt->caller.answered = caller_answered;
 	return 1;
 }
 
@@ -12371,7 +12459,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			routing_hash = &hash_ops;
 			fzn_node_events_init(&node_events);
 			state.events = &node_events;
-			state.on_remote = fzn_node_admin_remote;
+			state.on_remote = metered_remote;
 			state.on_remote_ctx = &admin;
 			admin.caused = on_caused;
 #ifdef FZN_LOG_FILE_ON
@@ -12611,6 +12699,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			pt->caller.reasm = &pt->table;
 			pt->caller.hops = 1u;
 			pt->caller.wrap = caller_wrap;
+			pt->caller.sent = caller_sent;
+			pt->caller.answered = caller_answered;
 		}
 
 		load_received(family, identity.pubkey, &hash_ops, &aead_ops, &rng_ops);
