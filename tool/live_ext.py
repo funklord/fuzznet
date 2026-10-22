@@ -18,6 +18,10 @@ its own (`node/daemon.h`), as fzpd will call it. One store, one daemon.
        kind into A's stream, and B's extension applies it -- `get marks`
        at B comes to say `ok 1 hello` -- so a kind fuzznet itself does not
        process is carried and handed over (sec 675)
+    d  at A, the extension's declared setting is listed by `list schema`
+       and `get schema`, and `set setting` refuses a value past its
+       declaration and takes one inside it (sec 686); in phase a, an
+       extension declaring a key of fuzznet's ends the start
 
 Against a daemon that hands nothing to the extension, phase a's option is
 refused as unknown and phase b's `get greeting` is `unsupported`; against
@@ -131,6 +135,23 @@ def c_marks(daemon_path, scratch, sock_dir):
 			time.sleep(1.0)
 		print("livecheck: c: a record of the extension's kind written at A was carried to B "
 		      "and applied by B's extension")
+
+		# d: ITS SETTING DECLARED, sec 686: listed after fuzznet's, and a
+		# value its declaration refuses refused.
+		got = ask(socks["a"], "get schema ext/greeting")
+		if not got.startswith("ok ext/greeting,text,host,1,16,hello,"):
+			raise failed("d: get schema ext/greeting answered %r" % got)
+		got = ask(socks["a"], "list schema ext/")
+		if not got.startswith("ok 1 0 ext/greeting,"):
+			raise failed("d: list schema ext/ answered %r" % got)
+		got = ask(socks["a"], "set setting host ext/greeting " + "x" * 17)
+		if got != "malformed ext/greeting: text of the wrong length":
+			raise failed("d: a greeting past 16 bytes was answered %r" % got)
+		if ask(socks["a"], "set setting host ext/greeting hi") != "ok" \
+		   or ask(socks["a"], "get setting host ext/greeting") != "ok root hi":
+			raise failed("d: a greeting its declaration takes was not set")
+		print("livecheck: d: the extension's setting was listed after fuzznet's, a value "
+		      "past its declaration refused, and one inside it set")
 	finally:
 		for d in started.values():
 			d.stop()
@@ -165,8 +186,17 @@ def main(argv):
 			if r.returncode == 0 or "--greeting=VALUE" not in said:
 				raise failed("a: --nonsense was not refused with a usage naming the "
 				             "extension's options: %r" % said[-300:])
-			print("livecheck: a: the extension refused its own option in its words, and an "
-			      "unknown one was refused with a usage naming its options")
+			# A KEY FUZZNET DECLARES, claimed by the extension, sec 686.
+			env = dict(os.environ)
+			env["FZN_EXT_CLASH"] = "1"
+			r = subprocess.run(base, capture_output=True, timeout=30, env=env)
+			said = r.stderr.decode(errors="replace")
+			if r.returncode != 2 or "setting location/enabled is fuzznet's" not in said:
+				raise failed("a: an extension claiming location/enabled started, or said "
+				             "%r" % said[-300:])
+			print("livecheck: a: the extension refused its own option in its words, an "
+			      "unknown one was refused with a usage naming its options, and a "
+			      "setting of fuzznet's it claimed ended the start")
 
 			# b: its verbs, beside fuzznet's.
 			log = open(os.path.join(scratch, "daemon.err"), "w")

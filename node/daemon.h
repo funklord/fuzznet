@@ -20,6 +20,7 @@
 #include "../chain/authz.h"
 #include "../chain/chain.h"
 #include "../local/vocabulary.h"
+#include "../state/schema.h"
 
 /* AN OPTION A DAEMON TAKES BESIDE FUZZNET'S, sec 673: `name` as it is
  * typed, `--profile`; with `takes_value`, given as `--profile=VALUE`, and
@@ -83,6 +84,12 @@ typedef struct fzn_daemon_ext {
 	 * so applying must be idempotent. */
 	int (*apply)(void *ctx, uint32_t kind, const uint8_t *body, size_t len,
 	             const uint8_t signer[FZN_PUBKEY_LEN]);
+	/* THE SETTINGS IT READS, declared, sec 686: listed by `list schema`
+	 * after fuzznet's and checked by `set setting` as fuzznet's are. A key
+	 * fuzznet declares, or one declared twice, ends the start: a cell has
+	 * one owner, and keeps its key when it moves into fuzznet. */
+	const fzn_schema_entry_t *settings;
+	size_t n_settings;
 } fzn_daemon_ext_t;
 
 /* RUN THE NODE as fuzznetd with `argc` and `argv`, and what `ext` adds,

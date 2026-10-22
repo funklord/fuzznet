@@ -100,6 +100,7 @@
 #include "shelf.h"
 #include "stickers.h"
 #include "meter.h"
+#include "schema.h"
 #endif
 #include "../local/socket.h"
 #include "../net/udp.h"
@@ -373,6 +374,8 @@ static fzn_node_stickers_t node_stickers;
 #endif
 /* WHAT CROSSES THE REMOTE HOP, sec 685: fzpd's transfer list. */
 static fzn_meter_t traffic;
+/* THE SETTINGS DECLARED, sec 686: fuzznet's, and the extension's. */
+static fzn_node_schema_t node_schema;
 static size_t device_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                            size_t cap);
 static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
@@ -422,6 +425,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 #endif
 	if (!n)
 		n = fzn_meter_local(&traffic, origin, request, reply, reply_cap);
+	if (!n)
+		n = fzn_node_schema_local(&node_schema, origin, request, reply, reply_cap);
 	if (!n)
 		n = device_local(origin, request, reply, reply_cap);
 	if (!n)
@@ -3211,7 +3216,7 @@ static int estate_flag(const char *key)
 	return node_apply.root
 	       && fzn_node_settings_get(&node_settings, FZN_SCOPE_ESTATE, node_apply.root,
 	                                (const uint8_t *)key, strlen(key), value, &len, &rank)
-	       && len == 1u && value[0] == '1';
+	       && fzn_schema_flag(value, len) == 1;
 }
 
 /* THE ESTATE'S MANIFEST AS ITS SETTINGS SAY, fuzzypickles' "deterministic
@@ -8648,6 +8653,21 @@ static uint64_t location_last, location_sampled, location_dropped;
 
 static uint64_t host_number(const char *key, uint64_t def);
 
+/* A HOST CELL's flag, sec 686: 1 on, 0 off, -1 unset or neither -- `on`
+ * and `1` alike, as `state/schema.h` reads every flag. */
+static int host_flag(const char *key)
+{
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	size_t len = 0;
+
+	if (!contact_id
+	    || !fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, contact_id->pubkey,
+	                              (const uint8_t *)key, strlen(key), value, &len, &rank))
+		return -1;
+	return fzn_schema_flag(value, len);
+}
+
 /* A HOST CELL's text, NUL ended, into `out`: 1, or 0 when unset or long. */
 static int host_text(const char *key, char *out, size_t cap)
 {
@@ -8673,7 +8693,7 @@ static void location_tick(void)
 	unsigned long port = 2947;
 	const char *space;
 
-	if (host_number("location/enabled", 0) != 1u || !node_streams.store || !contact_id) {
+	if (host_flag("location/enabled") != 1 || !node_streams.store || !contact_id) {
 		if (location_aimed)
 			fzn_gpsd_close(&location_gpsd);
 		location_aimed = 0;
@@ -8743,7 +8763,7 @@ static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, 
 	 * last fix kept from gpsd, 0 for none. */
 	if (request->parsed == FZN_VERB_GET) {
 		static const char *const LINKS[] = { "down", "connecting", "watching" };
-		int on = host_number("location/enabled", 0) == 1u;
+		int on = host_flag("location/enabled") == 1;
 
 		if (left)
 			return (size_t)snprintf(reply, cap, "malformed get location\n");
@@ -9584,7 +9604,7 @@ static size_t relay_local(fzn_origin_t origin, const fzn_request_t *request, cha
 		n += relay_rows[i].set && now < relay_rows[i].start + window
 		     && relay_rows[i].start <= now;
 	at = (size_t)snprintf(reply, cap, "ok %u %llu %llu %zu",
-	                      host_number("relay/enabled", 0) == 1u ? 1u : 0u,
+	                      host_flag("relay/enabled") == 1 ? 1u : 0u,
 	                      (unsigned long long)quota, (unsigned long long)window, n);
 	for (i = 0; i < FZND_RELAY_QUOTA_ROWS && at + 100u < cap; i++) {
 		if (!relay_rows[i].set || now >= relay_rows[i].start + window
@@ -9645,7 +9665,7 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 		return 0;
 	inner_len = request_len - FZND_RELAY_HEAD_LEN;
 #define RELAY_NO(text) ((size_t)snprintf((char *)reply, reply_cap, "denied %s\n", text))
-	if (!st || st->udp_fd < 0 || !st->asking_from || host_number("relay/enabled", 0) != 1u)
+	if (!st || st->udp_fd < 0 || !st->asking_from || host_flag("relay/enabled") != 1)
 		return RELAY_NO("this host relays nothing");
 	if (!fzn_node_admin_contact_of(running_admin, sender, owner)
 	    && fzn_node_apply_rank(&node_apply, sender, FZN_SCOPE_HOST, sender, &rank) != 1)
@@ -10951,6 +10971,19 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 
 	daemon_argv = argv;
 	daemon_ext = ext;
+	if (ext && ext->n_settings) {
+		const char *refused = ext->settings ? fzn_node_schema_refused(ext->settings,
+		                                                              ext->n_settings)
+		                                    : "(no table)";
+
+		if (refused) {
+			fprintf(stderr, "fuzznetd: the extension's setting %s is fuzznet's, declared "
+			        "twice, or not a declaration\n", refused);
+			return 2;
+		}
+		node_schema.extra = ext->settings;
+		node_schema.n_extra = ext->n_settings;
+	}
 	fzn_hash_ops_t hash_ops;
 	fzn_aead_ops_t aead_ops;
 	fzn_random_ops_t rng_ops;
@@ -12378,6 +12411,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				node_settings.apply = &node_apply;
 				node_settings.estate = state.config.root;
 				node_settings.now = wall_clock;
+				node_settings.schema = &node_schema;
 				node_apply.settings = &node_settings;
 				admin.holdings_remote = holdings_remote;
 				admin.holdings_ctx = &node_apply;

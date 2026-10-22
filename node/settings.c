@@ -2,6 +2,7 @@
 
 #include "../local/escape.h"
 #include "settings.h"
+#include "schema.h"
 
 #include "apply.h"
 #include "../log/rules.h"
@@ -343,19 +344,11 @@ fzn_node_settings_err_t fzn_node_settings_forget_clears(const fzn_node_settings_
  * than `max` has, so nothing overflows on the way. */
 static unsigned count_of(const uint8_t *value, size_t len, unsigned max)
 {
-	unsigned n = 0, m;
-	size_t i, digits = 0;
+	uint64_t n = 0;
 
-	for (m = max; m; m /= 10u)
-		digits++;
-	if (len == 0u || len > digits)
-		return 0;
-	for (i = 0; i < len; i++) {
-		if (value[i] < '0' || value[i] > '9')
-			return 0;
-		n = (n * 10u) + (unsigned)(value[i] - '0');
-	}
-	return n <= max ? n : 0u;
+	/* THE DECLARATIONS' PARSER, sec 686, so a write `set setting` takes
+	 * is one this reads. */
+	return fzn_schema_count(value, len, 1u, max, &n) ? (unsigned)n : 0u;
 }
 
 uint8_t fzn_node_settings_quorum(const fzn_node_settings_t *ns, uint8_t fallback)
@@ -443,33 +436,16 @@ uint32_t fzn_node_settings_gone_s(const fzn_node_settings_t *ns)
 	uint8_t value[FZN_SETTING_VALUE_MAX];
 	fzn_setting_rank_t rank;
 	size_t len = 0;
-	unsigned n, unit;
+	uint64_t seconds = 0;
 
 	if (!ready(ns) || !ns->estate
 	    || !fzn_node_settings_get(ns, FZN_SCOPE_ESTATE, ns->estate,
 	                              (const uint8_t *)FZN_NODE_SETTINGS_GONE_KEY,
 	                              sizeof(FZN_NODE_SETTINGS_GONE_KEY) - 1u, value, &len, &rank)
-	    || len < 2u)
+	    || !fzn_schema_duration(value, len, 1u, 315360000u, &seconds))
 		return FZN_NODE_SETTINGS_GONE_S;
-	switch (value[len - 1u]) {
-	case 'd':
-		unit = 86400u;
-		break;
-	case 'h':
-		unit = 3600u;
-		break;
-	case 'm':
-		unit = 60u;
-		break;
-	case 's':
-		unit = 1u;
-		break;
-	default:
-		return FZN_NODE_SETTINGS_GONE_S;
-	}
 	/* AT MOST TEN YEARS, in whichever unit: 3650 days is 315,360,000 s. */
-	n = count_of(value, len - 1u, 315360000u / unit);
-	return n ? n * unit : FZN_NODE_SETTINGS_GONE_S;
+	return (uint32_t)seconds;
 }
 
 int fzn_node_settings_address(const fzn_node_settings_t *ns, const uint8_t about[FZN_SUBJECT_LEN],
@@ -477,32 +453,14 @@ int fzn_node_settings_address(const fzn_node_settings_t *ns, const uint8_t about
 {
 	uint8_t value[FZN_SETTING_VALUE_MAX];
 	fzn_setting_rank_t rank;
-	size_t len = 0, space, i;
-	unsigned p;
+	size_t len = 0;
 
 	if (!ready(ns) || !about || !host || !port
 	    || !fzn_node_settings_get(ns, FZN_SCOPE_HOST, about,
 	                              (const uint8_t *)FZN_NODE_SETTINGS_ADDRESS_KEY,
 	                              sizeof(FZN_NODE_SETTINGS_ADDRESS_KEY) - 1u, value, &len, &rank))
 		return 0;
-	for (space = 0; space < len && value[space] != ' '; space++)
-		;
-	if (space == 0u || space > FZN_NODE_SETTINGS_HOST_MAX || space == len)
-		return 0;
-	for (i = 0; i < space; i++) {
-		uint8_t c = value[i];
-
-		if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
-		      || c == '.' || c == '-' || c == ':'))
-			return 0;
-	}
-	p = count_of(value + space + 1u, len - space - 1u, 65535u);
-	if (!p)
-		return 0;
-	memcpy(host, value, space);
-	host[space] = '\0';
-	*port = (uint16_t)p;
-	return 1;
+	return fzn_schema_address(value, len, host, FZN_NODE_SETTINGS_HOST_MAX + 1u, port);
 }
 
 fzn_node_settings_err_t fzn_node_settings_take_rules(const fzn_node_settings_t *ns,
@@ -676,6 +634,25 @@ static size_t set_setting(const fzn_node_settings_t *ns, int set, const uint8_t 
 	}
 	if (set ? (!left || !unescape(at, left, value, sizeof(value), &value_len)) : left != 0u)
 		return say(reply, cap, FZN_REPLY_MALFORMED, USAGE);
+	/* A DECLARED KEY'S VALUE, sec 686, checked by the parser its reader
+	 * uses, and where it may stand: what a reader would ignore is refused
+	 * here rather than journaled. An undeclared key is written as before,
+	 * and a clear is never refused. */
+	if (set) {
+		const fzn_schema_entry_t *e = fzn_node_schema_find(ns->schema, key, key_len);
+		const char *why = NULL;
+		char detail[160];
+
+		if (e && !(e->scopes & (scope == FZN_SCOPE_ESTATE ? FZN_SCHEMA_ESTATE : FZN_SCHEMA_HOST))) {
+			(void)snprintf(detail, sizeof(detail), "%.*s is %s setting", (int)key_len,
+			               (const char *)key, e->scopes & FZN_SCHEMA_ESTATE ? "an estate" : "a host");
+			return say(reply, cap, FZN_REPLY_MALFORMED, detail);
+		}
+		if (e && (why = fzn_schema_check(e, value, value_len)) != NULL) {
+			(void)snprintf(detail, sizeof(detail), "%.*s: %s", (int)key_len, (const char *)key, why);
+			return say(reply, cap, FZN_REPLY_MALFORMED, detail);
+		}
+	}
 	err = fzn_node_settings_write(ns, scope, about, key, key_len, set, value, value_len);
 	if (err != FZN_NODE_SETTINGS_OK)
 		return refuse(reply, cap, err);

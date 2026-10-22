@@ -159,7 +159,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
              local/line.c local/socket.c local/client.c local/escape.c \
              node/peer_persist.c \
-             node/caller.c node/meter.c \
+             node/caller.c node/meter.c node/schema.c \
              net/udp.c \
              node/node.c node/local.c node/remote.c node/serve.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
@@ -201,7 +201,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              version/version.c \
              record/record.c record/journal.c record/sync.c record/exchange.c \
              record/ledger.c \
-             state/state.c state/scope.c state/setting.c notes/note.c notes/text.c \
+             state/state.c state/scope.c state/setting.c state/schema.c notes/note.c notes/text.c \
              notes/store.c notes/view.c notes/author.c notes/purge.c notes/import.c \
              notes/sync.c notes/share.c notes/received.c \
              trust/trust.c \
@@ -258,7 +258,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h local/line.h local/socket.h \
              local/client.h local/escape.h \
              node/peer_persist.h node/types.h \
-             node/caller.h node/meter.h \
+             node/caller.h node/meter.h node/schema.h \
              net/udp.h \
              node/node.h node/local.h node/remote.h node/serve.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
@@ -298,7 +298,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              version/version.h \
              record/record.h record/journal.h record/sync.h record/exchange.h \
              record/ledger.h \
-             state/state.h state/scope.h state/setting.h notes/note.h notes/text.h \
+             state/state.h state/scope.h state/setting.h state/schema.h notes/note.h notes/text.h \
              notes/store.h notes/view.h notes/author.h notes/purge.h notes/import.h \
              notes/sync.h notes/share.h notes/received.h \
              trust/trust.h \
@@ -389,7 +389,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              wire/test/tamper_test.c \
              session/test/random_test.c local/test/vocabulary_test.c \
              local/test/client_test.c local/test/escape_test.c \
-             node/test/types_test.c node/test/meter_test.c location/test/location_test.c \
+             node/test/types_test.c node/test/meter_test.c node/test/schema_test.c location/test/location_test.c \
              location/test/tpv_test.c location/test/gpsd_test.c \
              sticker/test/sticker_test.c \
              node/test/peer_persist_test.c \
@@ -516,6 +516,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/local/test/escape_test \
              $(BUILD_DIR)/node/test/types_test \
              $(BUILD_DIR)/node/test/meter_test \
+             $(BUILD_DIR)/node/test/schema_test \
              $(BUILD_DIR)/location/test/location_test \
              $(BUILD_DIR)/location/test/tpv_test \
              $(BUILD_DIR)/location/test/gpsd_test \
@@ -3989,7 +3990,7 @@ $(BUILD_DIR)/node/test/pair_test.o: node/test/pair_test.c
 
 $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
-              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
               $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o \
@@ -4045,7 +4046,7 @@ $(BUILD_DIR)/node/test/admin_test.o: node/test/admin_test.c
 $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(FUZZNETD_JOURNAL_OBJS) \
               $(BUILD_DIR)/node/admin.o $(BUILD_DIR)/local/client.o \
-              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/node/apply.o \
+              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/node/apply.o \
               $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/contact/contact.o \
@@ -4153,7 +4154,7 @@ $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
 # reconcile_test (sec 551), which applies objects through the same context.
 NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DIR)/node/holdings.o \
                    $(BUILD_DIR)/node/buckets.o \
-                   $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+                   $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
                    $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
                    $(BUILD_DIR)/node/roots.o $(BUILD_DIR)/chain/root_log.o \
                    $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/admin.o \
@@ -4283,7 +4284,7 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/location/location.o \
               $(if $(SPOOL_FILE_ON),$(FUZZNETD_SHELF_OBJS)) \
               $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o \
               $(BUILD_DIR)/node/holdings.o $(BUILD_DIR)/node/buckets.o $(BUILD_DIR)/node/reconcile.o \
-              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+              $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
               $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/messages/messages.o \
               $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o $(BUILD_DIR)/log/cause.o \
@@ -4424,6 +4425,14 @@ $(BUILD_DIR)/node/test/meter_test: $(BUILD_DIR)/node/test/meter_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# The settings declared, sec 686.
+$(BUILD_DIR)/node/test/schema_test: $(BUILD_DIR)/node/test/schema_test.o \
+                                    $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/state/schema.o \
+                                    $(BUILD_DIR)/state/setting.o $(BUILD_DIR)/state/scope.o \
+                                    $(BUILD_DIR)/local/escape.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # gpsd's reports read, sec 678.
 $(BUILD_DIR)/location/test/tpv_test: $(BUILD_DIR)/location/test/tpv_test.o \
                                      $(BUILD_DIR)/location/tpv.o $(BUILD_DIR)/location/location.o
@@ -4505,7 +4514,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                         $(BUILD_DIR)/node/pieces.o) \
                                       $(BUILD_DIR)/state/scope.o \
                                       $(BUILD_DIR)/state/setting.o \
-                                      $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/siblings.o \
+                                      $(BUILD_DIR)/node/settings.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/schema.o $(BUILD_DIR)/state/schema.o $(BUILD_DIR)/node/siblings.o \
                                       $(BUILD_DIR)/node/heard.o $(BUILD_DIR)/node/routing.o \
                                       $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/node/contact_card.o \
               $(BUILD_DIR)/node/contact_request.o $(BUILD_DIR)/node/group_act.o \

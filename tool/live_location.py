@@ -7,10 +7,10 @@ a poor one in turn.
 
     a  sampling is off until it is set: `get location` says `ok 0 off`
     b  `location/gpsd` aimed at the stand-in, `location/every` 1 and
-       `location/enabled` 1: the node connects and sends WATCH, its link
+       `location/enabled` on (sec 686's spelling): the node connects and sends WATCH, its link
        reads `watching`, the good fixes are kept and the 500 m ones
        dropped, and `list location` holds the good fix as gpsd gave it
-    c  `location/enabled` 0: the link reads `off`, and no fix is kept after
+    c  `location/enabled` off: the link reads `off`, and no fix is kept after
 
 Against a daemon that does not sample, phase b's link never reads
 watching; against one with no accuracy gate, nothing is dropped.
@@ -141,7 +141,7 @@ def main(argv):
 			print("livecheck: a: sampling was off until it was set")
 
 			for key, value in (("location/gpsd", "127.0.0.1 %d" % gpsd.port),
-			                   ("location/every", "1"), ("location/enabled", "1")):
+			                   ("location/every", "1"), ("location/enabled", "on")):
 				if ask(sock, "set setting host %s %s" % (key, value)) != "ok":
 					raise failed("b: set setting host %s answered otherwise" % key)
 			until = time.monotonic() + 40.0
@@ -162,7 +162,7 @@ def main(argv):
 			print("livecheck: b: the node watched gpsd, kept %s good fixes and dropped %s "
 			      "poor ones" % (got[5], got[6]))
 
-			if ask(sock, "set setting host location/enabled 0") != "ok":
+			if ask(sock, "set setting host location/enabled off") != "ok":
 				raise failed("c: turning sampling off was refused")
 			time.sleep(2.0)
 			got = status(sock)

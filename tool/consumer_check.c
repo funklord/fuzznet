@@ -202,6 +202,8 @@
 #include <fuzznet/node/provision.h>
 #include <fuzznet/node/caller.h>
 #include <fuzznet/node/meter.h>
+#include <fuzznet/node/schema.h>
+#include <fuzznet/state/schema.h>
 #include <fuzznet/node/peer_persist.h>
 #include <fuzznet/node/identity.h>
 #include <fuzznet/node/pair.h>

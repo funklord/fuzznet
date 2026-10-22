@@ -1,6 +1,7 @@
 /* See admin.h. */
 
 #include "admin.h"
+#include "../state/schema.h"
 #include "types.h"
 
 #include "peer_persist.h"
@@ -1907,7 +1908,8 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 }
 
 /* WHETHER `sender` MAY RUN THIS NODE'S VERBS REMOTELY, sec 543: only where
- * this host's setting `remote/admin` is in force as `on`, and only for a
+ * this host's setting `remote/admin` is in force as on (`on`, or `1` since
+ * sec 686), and only for a
  * sender judged an admin or a root -- as a setting's setter is judged, by
  * the same call. Off on a node without settings. */
 static int remote_admin(const fzn_node_admin_t *admin, const uint8_t *sender)
@@ -1920,7 +1922,7 @@ static int remote_admin(const fzn_node_admin_t *admin, const uint8_t *sender)
 	if (!admin->settings || !admin->settings->apply || !sender || !admin->id
 	    || !fzn_node_settings_get(admin->settings, FZN_SCOPE_HOST, admin->id->pubkey,
 	                              (const uint8_t *)KEY, sizeof(KEY) - 1u, value, &len, &rank)
-	    || len != 2u || memcmp(value, "on", 2u) != 0)
+	    || fzn_schema_flag(value, len) != 1)
 		return 0;
 	return fzn_node_apply_rank(admin->settings->apply, sender, FZN_SCOPE_HOST, admin->id->pubkey,
 	                           &rank)

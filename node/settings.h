@@ -72,6 +72,9 @@ typedef struct fzn_node_settings {
 	/* The estate's root, which an estate-scoped setting is about. */
 	const uint8_t *estate;
 	uint64_t (*now)(void);
+	/* WHAT `set setting` CHECKS a declared key against, sec 686: fuzznet's
+	 * declarations and these extra ones; NULL for fuzznet's alone. */
+	const struct fzn_node_schema *schema;
 } fzn_node_settings_t;
 
 /*

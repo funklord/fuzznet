@@ -26,6 +26,7 @@
 #include "../../wire/bytes.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static char greeting[64] = "hello";
@@ -131,11 +132,25 @@ static const fzn_daemon_option_t options[] = {
 	{ "--quiet", 0, "taken, and nothing else" },
 };
 
+/* ITS SETTINGS, sec 686: one of its own, and -- with FZN_EXT_CLASH set in
+ * the environment -- one that claims fuzznet's, which must end the start. */
+static const fzn_schema_entry_t settings[] = {
+	{ "ext/greeting", FZN_SCHEMA_TEXT, FZN_SCHEMA_HOST, 1u, 16u, "hello", "", 0u,
+	  "a greeting the extension may read", NULL },
+};
+static const fzn_schema_entry_t clashing[] = {
+	{ "location/enabled", FZN_SCHEMA_FLAG, FZN_SCHEMA_HOST, 0u, 0u, "off", "", 0u,
+	  "fuzznet's, claimed", NULL },
+};
+
 int main(int argc, char **argv)
 {
-	static const fzn_daemon_ext_t ext = {
+	static fzn_daemon_ext_t ext = {
 		NULL, options, sizeof(options) / sizeof(options[0]), option, local, remote, apply,
+		settings, sizeof(settings) / sizeof(settings[0]),
 	};
 
+	if (getenv("FZN_EXT_CLASH"))
+		ext.settings = clashing;
 	return fzn_daemon_main(argc, argv, &ext);
 }

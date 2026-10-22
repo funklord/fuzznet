@@ -67370,12 +67370,9 @@ changes nothing for a client and nothing in stored data**:
 fzpd becomes a call once its clients reach everything through fuzznet's
 verbs.
 
-**Open, the holder's, to settle when stickers are built:**
-- Whether a pack keeps fzpd's zip-and-CBOR layout, so packs already made
-  still open, or becomes a situ schema as every other layout here is.
-- Whether the reference text keeps its `fzp:` scheme, which existing
-  messages carry and which names fuzzypickles, or gains a fuzznet one
-  that also reads the old.
+**Settled by the holder, 2026-10-21** (sec 679 records both): a pack is
+a situ schema, not fzpd's zip and CBOR; references are written `fzn:` and
+`fzp:` is still read.
 
 ## 673. Stage 4a: an extension's options and verbs, asked after fuzznet's, 2026-10-21
 
@@ -68179,3 +68176,115 @@ seconds.
   375 and 435 on the other. Each meter was read on its own daemon, so the
   agreement is two measurements, not one.
 - Seven sabotage entries, `meter-*`.
+
+## 686. The settings declared, and checked when written, 2026-10-22
+
+**Sec 672's settings schema**: fzpd's registry (their `common/settings.h`
+and the `config-schema` handler in `daemon/ipc_server.c`, read at their
+b4ed30b) as fuzznet's. A client walks the declared keys rather than
+hard-coding them, and a key keeps its name when its owner moves into
+fuzznet (sec 672's point 5).
+
+**What was found first.** Every cell fuzznet reads was inventoried from
+its readers: 18 keys and 3 families, in `node/settings.c`,
+`node/daemon.c`, `node/admin.c` and `node/stickers.c`. Two faults came
+out of it:
+- **Flags were spelled three ways.** `routing/public` and
+  `routing/advertise` were on only for `1`, `remote/admin` only for
+  `on`, and `location/enabled` and `relay/enabled` for any count equal to
+  1. So `set setting host location/enabled on` was written, journaled
+  and did nothing, as `remote/admin 1` did.
+- **Nothing was checked when written.** `set setting estate
+  journal/window abc` was signed and journaled, and every reader fell
+  back to its default without a word.
+
+**Built:**
+- **`state/schema.h`**, the entry. Each entry says:
+  - a type: flag, count, duration, address, or text with an optional
+    grammar;
+  - its bounds, its default as it would be written, and its unit;
+  - where it may stand: an estate cell, a host cell, or either;
+  - flags: restart, sensitive, advanced, and verb (written by its own
+    verb).
+
+  fzpd's other three axes, what a setting is about, how far it travels
+  and what may change it, are one thing here: every node holds every cell
+  (sec 540) and a rank is judged from the setter. A key ending in `/`
+  declares a family: the key, then one word of a-z and 0-9.
+- **The parsers are the readers' too.** `node/settings.c`'s count, the
+  ten-year duration and the address now call `state/schema.c`, and every
+  flag reader calls `fzn_schema_flag`, which takes `on` and `1` as on and
+  `off` and `0` as off. So what `set setting` refuses is exactly what a
+  reader would have ignored.
+- **`node/schema.c`** holds fuzznet's declarations, each with its
+  reader's own default and bounds. Where a reader takes more than this
+  declares, the declaration is the narrower: a write may be refused that
+  the reader would have taken, never the reverse.
+- **`set setting` checks a declared key**: its value by its parser, and
+  its scope. It answers `malformed KEY: why`, or `malformed KEY is an
+  estate setting`, and writes nothing.
+  - An undeclared key is written as before, carried as stage 5 carries
+    an unknown kind.
+  - A clear is never refused.
+  - **A record another host wrote is never refused for its value**: a
+    host with older or newer declarations would otherwise diverge from
+    the estate. Its reader falls back, as before.
+- **An extension declares its own** (`fzn_daemon_ext_t.settings`), listed
+  after fuzznet's and checked as fuzznet's are. A key fuzznet declares, a
+  key inside one of its families, or one declared twice ends the start
+  (exit 2): a cell has one owner.
+- **The verbs**, any local caller's, a declaration saying nothing of
+  anybody's configuration:
+  - `list schema [PREFIX] [FROM]`: `ok TOTAL FROM KEY,TYPE,SCOPES,MIN,
+    MAX,DEFAULT,UNIT,FLAGS,SUMMARY ...`, paged as sec 684's listings.
+  - `get schema KEY`: one row, a family's instance answered as its
+    family.
+
+**A behaviour change, on purpose:** a host where somebody wrote
+`location/enabled on`, or `relay/enabled on`, `routing/public on`,
+`routing/advertise on`, or `remote/admin 1`, had that setting silently
+off; from this build it is on. Each was written meaning on, and the
+alternative was refusing the spelling the inventory showed people use.
+Location is the case to know: a host that was told `on` and never
+sampled will start.
+
+**Not carried over from fzpd:**
+- **`config-instances`.** fzpd's instanced keys were its client's
+  `[host.NAME]` profiles in its own file, which are not node settings.
+  fuzznet's families -- retention rules, sticker packs, stream grants --
+  are listed by their own verbs and by `list setting`.
+- **`config-status`**, which hosts have acknowledged a synced setting.
+  fuzznet has no acknowledgement. The equivalent is asking each member
+  which version of a cell it holds, and remote verbs are off by default
+  (sec 543), so it needs a query of its own: stage 2, not built.
+- **fzpd's keys whose behaviour is fzpd's**: `net.energy_pct`,
+  `net.cost_emphasis` and `net.budget_*` drive fuzzypickles' own
+  scheduler, and `hosts.%s.*` and `manifest.public` its client and its
+  manifest. Declaring them here would promise behaviour fuzznet does not
+  have. An extension declares what it reads, in fuzznet's grammar (slash
+  paths), so its keys keep their names when they move.
+- **fzpd's safer-direction tiebreak**: a conflict here is settled by rank
+  and version (sec 540), not by value.
+
+**Tested:**
+- `node/test/schema_test.c`, 25 checks:
+  - the parsers: flag spellings, a count's bounds and digit limit at the
+    64-bit edge, a duration's units and ten-year bound, an address's host
+    and port;
+  - a family and its edges, and overlap;
+  - fuzznet's own declarations each sound, every default taken by its
+    own check and no two overlapping;
+  - an extension's table refused for each way it can claim a cell;
+  - the verbs paged within one reply, with a prefix and a FROM.
+- `node/test/apply_test.c`: `set setting` refuses a declared key's bad
+  value by its reason and writes nothing, refuses one at the wrong scope,
+  writes an undeclared key and a clear, and holds another host's bad
+  value unrefused.
+- `tool/live_ext.py`:
+  - phase a: an extension claiming `location/enabled` ends the start;
+  - phase d: its own setting is listed after fuzznet's, a value past its
+    declaration is refused and one inside it set.
+- `tool/live_location.py` now writes `on` and `off` and samples.
+- Eight sabotage entries, `schema-*` and `settings-declared-*`. Five older
+  entries whose guards moved into `state/schema.c` were retargeted there
+  under their old ids.

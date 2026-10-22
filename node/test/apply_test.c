@@ -691,7 +691,48 @@ static void test_settings_judged(void)
 		              && replied("malformed")
 		              && said(&ns, FZN_ORIGIN_SAME_USER, "set thing x 1") == 0u,
 		      "another user, a bad key or scope, or another subject was not refused or passed");
+		/* A DECLARED KEY'S VALUE, sec 686: refused as its reader would
+		 * ignore it, and nothing written; at the wrong scope refused; an
+		 * undeclared key written as before; a clear never refused. */
+		CHECK(said(&ns, FZN_ORIGIN_SAME_USER, "set setting estate journal/window abc")
+		              && strcmp(reply, "malformed journal/window: not a count in its range\n") == 0
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "get setting estate journal/window")
+		              && strcmp(reply, "ok absent\n") == 0,
+		      "a declared key's bad value was written, or not refused by its reason");
+		CHECK(said(&ns, FZN_ORIGIN_SAME_USER, "set setting estate journal/window 36501")
+		              && replied("malformed")
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "set setting estate journal/window 30")
+		              && replied("ok") && fzn_node_settings_window_days(&ns) == 30u,
+		      "a count past its bound was taken, or one inside it refused");
+		(void)snprintf(line, sizeof(line), "set setting host=%s journal/window 30", m_hex);
+		CHECK(said(&ns, FZN_ORIGIN_SAME_USER, line)
+		              && strcmp(reply, "malformed journal/window is an estate setting\n") == 0
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "set setting estate net/address h 1")
+		              && strcmp(reply, "malformed net/address is a host setting\n") == 0,
+		      "a declared key was taken at a scope it may not stand at");
+		CHECK(said(&ns, FZN_ORIGIN_SAME_USER, "set setting estate x/undeclared any thing")
+		              && replied("ok")
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "remove setting estate journal/window")
+		              && replied("ok") && fzn_node_settings_window_days(&ns) == 60u,
+		      "an undeclared key was refused, or a clear was");
+		CHECK(said(&ns, FZN_ORIGIN_SAME_USER, "set setting estate archive/erasure 30+3")
+		              && replied("malformed archive/erasure: not K+M")
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "set setting estate archive/gone 2w")
+		              && replied("malformed archive/gone: not a duration")
+		              && said(&ns, FZN_ORIGIN_SAME_USER, "set setting estate routing/public maybe")
+		              && replied("malformed routing/public: a flag"),
+		      "a text's own grammar, a duration's unit or a flag's spelling was not checked");
 	}
+
+	/* ANOTHER HOST'S RECORD IS NEVER REFUSED FOR ITS VALUE, sec 686: held,
+	 * its reader falling back (the window's checks below), so hosts of
+	 * other declarations agree. */
+	CHECK(setting_by(&nj, 0x91, FZN_SCOPE_HOST, 0x91, clock_now() + 100u, "location/every", 1,
+	                 "abc")
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK && t.refused == 0u
+	              && in_force(&ns, FZN_SCOPE_HOST, 0x91, "location/every", "abc",
+	                          FZN_SETTING_RANK_ROOT),
+	      "another host's bad value of a declared key was refused");
 
 	/* THE ESTATE'S k, sec 542: a root's to set. An admin's value is held
 	 * at its rank and not counted; a root's is; a value that is no count
