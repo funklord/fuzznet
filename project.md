@@ -68348,3 +68348,32 @@ What remains of fzpd is fuzzypickles' to move onto these verbs.
   told, and a start time within the run; B, given no `--udp-port`,
   answers `-`.
 - One sabotage entry, `udp-local-port-byte-order`.
+
+## 688. The last admin's refused leave says the ways out, 2026-10-22
+
+**Reported by fuzzypickles** (their 052bf9d message): when an admin
+removes a group others are still in, the refusal read `denied its signer
+may not make it`. That is `fzn_group_log_err_str`'s text for every denied
+act, and their CLI and GUI pass it on verbatim, so a person had nothing
+to act on.
+
+**The rule, read rather than guessed.** The refusal is for the last
+admin, not for any admin: `judge` in `node/group_log.c` lets an admin
+leave while another admin remains, and refuses only `n_admins == 1`. And
+`remove group` forgets a group nobody else is in without a leave. So
+there are two ways out, and the report named one. Its guess that the
+members must go first is one of them, not the rule.
+
+**Built:** `remove group`, given that refusal from the log for a user
+who is the group's one admin, answers `denied the last admin may not
+leave while others are in the group: make another member an admin, or
+remove the others, first`. The rule stays in the log's judgement alone;
+the verb only words its refusal.
+
+**Tested:** `node/test/groups_test.c`:
+- a group made by the verb with a second member is refused with that
+  text;
+- once the member is made an admin, the same verb leaves.
+
+The build before this section fails the first check. One sabotage entry,
+`groups-last-admin-told-ways-out`.

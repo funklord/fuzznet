@@ -604,6 +604,52 @@ static void test_lines_trimmed_from_a_base(void)
 	}
 }
 
+static size_t verb(struct user *u, const char *line, char *reply, size_t cap)
+{
+	fzn_request_t r;
+
+	memset(reply, 0, cap);
+	if (!fzn_vocabulary_split((const uint8_t *)line, strlen(line), &r))
+		return 0;
+	return fzn_node_groups_local(&u->groups, &r, reply, cap);
+}
+
+/* THE LAST ADMIN'S LEAVE, sec 688: refused with the two ways out, and let
+ * through once another member is an admin. */
+static void test_the_last_admin_is_told_the_ways_out(void)
+{
+	struct user *a = &users[0], *b = &users[1];
+	uint8_t id[FZN_GROUP_ID_LEN];
+	char reply[1024];
+	size_t i;
+	int read = 1;
+
+	user_up(a, 0x11u);
+	user_up(b, 0x22u);
+	CHECK(verb(a, "add group fam", reply, sizeof(reply)) && strncmp(reply, "ok ", 3) == 0
+	              && strlen(reply) >= 3u + 2u * FZN_GROUP_ID_LEN,
+	      "fixture: a group made by the verb");
+	for (i = 0; i < FZN_GROUP_ID_LEN; i++) {
+		unsigned v = 0;
+
+		read &= sscanf(reply + 3u + 2u * i, "%2x", &v) == 1;
+		id[i] = (uint8_t)v;
+	}
+	CHECK(read && fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_ADD, id, b->device.owner, 0u,
+	                                  0u, NULL) == FZN_GROUP_LOG_OK,
+	      "fixture: B added");
+	CHECK(verb(a, "remove group fam", reply, sizeof(reply))
+	              && strcmp(reply, "denied the last admin may not leave while others are in the "
+	                               "group: make another member an admin, or remove the others, "
+	                               "first\n") == 0,
+	      "the last admin's leave was not refused with the ways out");
+	CHECK(fzn_node_groups_act(&a->groups, FZN_GROUP_ACT_ADMIN_ADD, id, b->device.owner, 0u, 0u,
+	                          NULL) == FZN_GROUP_LOG_OK
+	              && verb(a, "remove group fam", reply, sizeof(reply))
+	              && strcmp(reply, "ok\n") == 0,
+	      "with another admin, the leave was still refused");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -628,6 +674,7 @@ int main(void)
 	test_lines_are_held_in_order();
 	test_lines_trimmed_from_a_base();
 	test_a_members_host_is_its_members();
+	test_the_last_admin_is_told_the_ways_out();
 	if (failures) {
 		fprintf(stderr, "node groups_test: %d of %d checks failed\n", failures, checks);
 		return 1;

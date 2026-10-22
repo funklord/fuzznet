@@ -12739,6 +12739,13 @@ SABOTAGES = [
 		"\t\t*port = ((const struct sockaddr_in *)&ss)->sin_port;\n",
 		"sec 687: a port read in network order names another port, and `get node` would send a client to it; udp_test's read-back check catches it",
 	),
+	(
+		"groups-last-admin-told-ways-out",
+		"node/groups.c",
+		"\t\t    && held.n_admins == 1u)\n",
+		"\t\t    && held.n_admins == 2u)\n",
+		"sec 688: the last admin's refused leave says what to do, where the log's bare refusal left a person with nothing to act on; groups_test's last-admin check catches it",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

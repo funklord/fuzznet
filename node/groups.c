@@ -590,6 +590,14 @@ static size_t forget_group(const fzn_node_groups_t *g, const uint8_t *id, char *
 	        || (held.n_members == 1u && fzn_group_is_member(&held, self.owner));
 	if (!alone && fzn_group_is_member(&held, self.owner)) {
 		err = fzn_node_groups_act(g, FZN_GROUP_ACT_LEAVE, id, self.owner, 0u, 0u, NULL);
+		/* THE LAST ADMIN'S LEAVE, refused by the log's own judgement: said
+		 * with the two ways out, as fuzzypickles found the bare refusal
+		 * left a person with none (sec 688). */
+		if (err == FZN_GROUP_LOG_ERR_DENIED && fzn_group_is_admin(&held, self.owner)
+		    && held.n_admins == 1u)
+			return say(reply, cap, FZN_REPLY_DENIED,
+			           "the last admin may not leave while others are in the group: make "
+			           "another member an admin, or remove the others, first");
 		if (err != FZN_GROUP_LOG_OK)
 			return log_refusal(reply, cap, err);
 	}
