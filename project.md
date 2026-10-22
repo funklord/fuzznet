@@ -67781,3 +67781,68 @@ fetching are sec 632's stream verbs, and a fix from Android's own
 location service is `add location`. Still the application's: drawing a
 map, and reading a phone's platform location API, which hands fixes to
 `add location`.
+
+## 679. Stickers into fuzznet: the plan, 2026-10-22
+
+The second of sec 672's moves, read first at fuzzypickles 51e789e:
+`core/src/sticker.c` and `sticker_internal.h`, and their sec 267.
+
+**What a sticker is there:**
+- **A message carries a reference, not a picture.** It rides the ordinary
+  text field: `fzp:sticker/ROOT/KEY/ID DESCRIPTION`, ROOT and KEY being a
+  content-addressed blob's root and key. So a sticker inherits delivery,
+  acknowledgement and replication, and a client that cannot draw one
+  still shows its description.
+- **A pack is one blob**, holding a manifest and its payloads: a pack name,
+  and up to 64 stickers. Each has an id, a type, flags, a required
+  description, up to 32 keywords, up to six renditions, optional audio and
+  a text box.
+  - The types: static, animated, popup, effect, message, name, emoji.
+  - The flags: sound, big, animated.
+  - Rendition roles: thumb, inline, main, popup. Formats: lottie, apng,
+    webp, png.
+  - Their container is a stored zip holding a hand-written CBOR manifest.
+- **Viewable and saved are different states.** Every referenced pack is
+  fetched to be shown, from the sender first and then the members. Only a
+  pack the user chose is saved, which pins it against retention and lists
+  it for a picker. A registry of at most 64 refuses rather than evicting.
+- **A pack is described as text**, a spec a person writes beside the art
+  and keeps in version control: `name`, `sticker ID TYPE [FLAG...]`,
+  `description`, `keyword`, `ROLE FORMAT W H PATH`, `sound PATH`, `text
+  LIMIT X Y W H`. It is parsed, written back, and built into a pack.
+
+**The holder's decisions, 2026-10-21**, asked from here:
+- **A pack is a situ schema**: no zip and no CBOR, the manifest a checked
+  contract like every layout here. fzpd's existing packs, on test devices
+  only, do not open unless converted once.
+- **References are written `fzn:sticker/...` and `fzp:sticker/...` is
+  still read**, so stickers in messages already sent still resolve.
+
+**The layout, `sticker/pack.situ`:** a version, the pack's name, a count
+of entries, the entries, and one data area. Each entry holds:
+- id, type, flags and description;
+- keywords, each a length and its text;
+- the text box: limit, x, y, w, h;
+- audio as an offset and a length into the data area;
+- renditions, each a role, a format, a width, a height, an offset and a
+  length into the data area.
+
+There is no container: a rendition is where its bytes are. The spec's
+paths name files on disk for the import alone. The pack is plaintext
+until the files layer seals it, as every blob is.
+
+**The steps:**
+- **a. The library, `sticker/`.** The pack built and opened under the
+  situ layout, every rule fzpd's decoder had. The table of which fields
+  mean anything for which type. The spec parsed and written back. The
+  reference formatted as `fzn:` and parsed as either.
+- **b. The node.** `put sticker SPEC` builds a pack from a spec and the
+  files it names, stores it through the files layer and saves it. `list
+  sticker` and `remove sticker ROOT` are the registry. Saving pins the
+  pack, and forgetting unpins it without deleting a byte.
+- **c. The sweep.** A pack a message references, in a conversation or a
+  group, is fetched from the sender and then the members, so it is
+  viewable whether saved or not.
+
+**What stays the application's:** drawing a sticker, the picker and the
+editor's window.
