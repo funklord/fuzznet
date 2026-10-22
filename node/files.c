@@ -220,13 +220,7 @@ static int read_length(const char *path, uint64_t *length)
 static uint8_t present[FZN_SPOOL_BITMAP_LEN(FZN_SPOOL_MAX_LEAVES)];
 static uint8_t receiving[FZN_SPOOL_BITMAP_LEN(FZN_SPOOL_MAX_LEAVES)];
 
-typedef struct held {
-	fzn_spool_file_t file;
-	fzn_spool_t spool;
-	uint64_t length;
-	uint64_t leaves;
-	size_t last;
-} held_t;
+typedef fzn_node_files_open_t held_t;
 
 /* The blob `root` opened for reading, WHOLE: its sidecar, its length and
  * its tree agreeing with each other. ABSENT without opening anything when
@@ -880,62 +874,341 @@ static fzn_node_files_err_t place_data(const fzn_node_files_t *files, held_t *h,
 	return FZN_NODE_FILES_OK;
 }
 
-/* ---- several peers at once, sec 494 ------------------------------------ */
+/* ---- several peers at once, sec 494, as steps, sec 694 ------------------ */
 
-/* One request out: which peer, which message, the span, and the WANT's own
- * transfer number, all of which its DATA must match. */
-typedef struct out_req {
-	int live;
-	size_t peer;
-	uint32_t msg;
-	uint32_t transfer;
-	fzn_spool_range_t range;
-} out_req_t;
-
-/* A peer's reply to `msg`, waiting up to the deadline; 0 when none came. */
-
-/* HOW LONG A SPAN MAY BE OUT, FZN_NODE_FILES_SPAN_DEADLINE_MS, or sec 692's
- * bench's FZN_TUNE_SPAN_DEADLINE_MS in a test build: read once. */
-static unsigned long span_deadline_ms(void)
+unsigned long fzn_node_files_span_deadline_ms(void)
 {
 	static unsigned long ms;
 
+	/* FZN_NODE_FILES_SPAN_DEADLINE_MS, or sec 692's bench's in a test
+	 * build: read once. */
 	if (!ms)
 		ms = FZN_TUNE("SPAN_DEADLINE_MS", FZN_NODE_FILES_SPAN_DEADLINE_MS, 600000u);
 	return ms;
 }
 
-static int wait_for(const fzn_node_files_peer_t *peer, uint32_t msg, uint8_t *reply, size_t cap,
-                    size_t *len)
-{
-	unsigned tries;
-
-	for (tries = 0; tries < 8u; tries++) {
-		uint32_t got = 0;
-
-		if (!peer->poll(peer->ctx, reply, cap, len, &got,
-		                (unsigned)(span_deadline_ms() / 8u)))
-			continue;
-		if (got == msg)
-			return 1;
-	}
-	return 0;
-}
-
-/* Whether `transfer` still holds the span `o` was sent for: an assignment
+/* Whether the transfer still holds the span out in `slot`: an assignment
  * that expired is not delivered or failed again. */
-static int still_assigned(const fzn_transfer_t *transfer, const out_req_t *o)
+static int still_assigned(const fzn_node_files_fetching_t *f, size_t slot)
 {
 	size_t i;
 
-	for (i = 0; i < transfer->cap; i++)
-		if (transfer->assigns[i].live && transfer->assigns[i].peer == (uint32_t)o->peer
-		    && transfer->assigns[i].first == o->range.first
-		    && transfer->assigns[i].count == o->range.count)
+	for (i = 0; i < f->transfer.cap; i++)
+		if (f->transfer.assigns[i].live && f->transfer.assigns[i].peer == (uint32_t)f->out[slot].peer
+		    && f->transfer.assigns[i].first == f->out[slot].range.first
+		    && f->transfer.assigns[i].count == f->out[slot].range.count)
 			return 1;
 	return 0;
 }
 
+/* A PEER GIVEN UP ON after three failures running: for its silence, said
+ * as NO_ANSWER, or -- `silent` 0 -- for what it sent, whose reason `last`
+ * already holds. */
+static void charge(fzn_node_files_fetching_t *f, size_t peer, int silent)
+{
+	if (f->alive[peer] && ++f->failures[peer] >= 3u) {
+		f->alive[peer] = 0;
+		f->live_peers--;
+		if (silent)
+			f->last = FZN_NODE_FILES_ERR_NO_ANSWER;
+	}
+}
+
+static void drop_out(fzn_node_files_fetching_t *f, size_t slot)
+{
+	f->out[slot].live = 0;
+	f->n_out--;
+}
+
+fzn_node_files_err_t fzn_node_files_fetching_begin(fzn_node_files_fetching_t *f,
+                                                   fzn_node_files_t *files,
+                                                   const uint8_t root[FZN_BLOB_HASH_LEN],
+                                                   size_t n_peers, size_t window,
+                                                   uint64_t budget)
+{
+	char len_path[FZN_SPOOL_FILE_PATH_MAX];
+	uint64_t have = 0;
+
+	if (!f)
+		return FZN_NODE_FILES_ERR_MALFORMED;
+	memset(f, 0, sizeof(*f));
+	f->phase = 2;
+	f->h.file.fd = -1;
+	f->err = f->last = FZN_NODE_FILES_ERR_NOT_THERE;
+	if (!files || !root || n_peers > FZN_NODE_FILES_PEERS_MAX || window == 0u
+	    || window > FZN_TRANSFER_MAX_ASSIGNS)
+		return f->err = FZN_NODE_FILES_ERR_MALFORMED;
+	f->files = files;
+	memcpy(f->root, root, FZN_BLOB_HASH_LEN);
+	f->n_peers = n_peers;
+	f->window = window;
+	f->budget = budget;
+	f->next_transfer = 1;
+	if (fzn_node_files_held(files, root, &have) == FZN_NODE_FILES_OK)
+		return f->err = FZN_NODE_FILES_OK;
+	if (!path_of(files, root, ".len", len_path))
+		return f->err = FZN_NODE_FILES_ERR_MALFORMED;
+	if (!read_length(len_path, &f->h.length))
+		return f->err = FZN_NODE_FILES_ERR_ABSENT;
+	if (f->h.length == 0u || f->h.length > FZN_NODE_FILE_MAX
+	    || fzn_blob_geometry(f->h.length, &f->h.leaves, &f->h.last) != FZN_BLOB_OK
+	    || f->h.leaves > FZN_SPOOL_MAX_LEAVES)
+		return f->err = FZN_NODE_FILES_ERR_MALFORMED;
+	if (fzn_node_files_busy(files, root, 1) != FZN_NODE_FILES_OK)
+		return f->err = FZN_NODE_FILES_ERR_BUSY;
+	f->busy = 1;
+	f->phase = 0;
+	return FZN_NODE_FILES_OK;
+}
+
+/* EVERY HOLDER ANSWERED: the file opened to receive, RESUMED, so a fetch
+ * cut off part way asks only for the rest. */
+static void start_fetching(fzn_node_files_fetching_t *f)
+{
+	char path[FZN_SPOOL_FILE_PATH_MAX];
+	const fzn_spool_ops_t *ops;
+
+	f->phase = 2;
+	if (!f->live_peers) {
+		f->err = f->last;
+		return;
+	}
+	if (!path_of(f->files, f->root, "", path) || !(ops = fzn_spool_file_open(&f->h.file, path))) {
+		f->err = FZN_NODE_FILES_ERR_STORE;
+		return;
+	}
+	f->opened = 1;
+	(void)fzn_spool_file_resume(&f->h.file, f->root, f->h.leaves, receiving,
+	                            FZN_SPOOL_BITMAP_LEN(f->h.leaves));
+	if (fzn_spool_open(&f->h.spool, f->root, f->h.leaves, receiving,
+	                   FZN_SPOOL_BITMAP_LEN(f->h.leaves), ops)
+	            != FZN_SPOOL_OK
+	    || fzn_transfer_open(&f->transfer, &f->h.spool, f->assigns, f->window) != FZN_TRANSFER_OK) {
+		f->err = FZN_NODE_FILES_ERR_STORE;
+		return;
+	}
+	f->err = FZN_NODE_FILES_OK;
+	f->phase = 1;
+}
+
+int fzn_node_files_fetching_next(fzn_node_files_fetching_t *f, uint64_t now_ms, size_t *peer,
+                                 uint32_t *tag, uint8_t *request, size_t cap,
+                                 size_t *request_len)
+{
+	size_t j, k, slot;
+
+	if (!f || !peer || !tag || !request || !request_len || f->phase == 2)
+		return 0;
+	if (f->phase == 0) {
+		/* WHO HOLDS IT, WHOLE AND AT THIS SIZE: one question each. */
+		for (k = 0; k < f->n_peers; k++)
+			if (!f->asked[k]) {
+				f->asked[k] = 1;
+				if (fzn_msg_have_query_encode(f->root, request, cap, request_len)
+				    != FZN_MSG_OK) {
+					f->asked[k] = 2;
+					continue;
+				}
+				*peer = k;
+				*tag = FZN_NODE_FILES_TAG_HOLDS | (uint32_t)k;
+				return 1;
+			}
+		for (k = 0; k < f->n_peers; k++)
+			if (f->asked[k] == 1)
+				return 0;
+		start_fetching(f);
+		if (f->phase != 1)
+			return 0;
+	}
+	if (fzn_spool_complete(&f->h.spool) || !f->live_peers
+	    || ++f->steps > (f->h.leaves * 4u) + 1000u) {
+		f->phase = 2;
+		return 0;
+	}
+	/* SPANS THAT DID NOT COME: their peers charged, the spans freed. */
+	if (fzn_transfer_expire(&f->transfer, now_ms))
+		for (slot = 0; slot < FZN_TRANSFER_MAX_ASSIGNS; slot++)
+			if (f->out[slot].live && !still_assigned(f, slot)) {
+				charge(f, f->out[slot].peer, 1);
+				drop_out(f, slot);
+			}
+	if (!f->live_peers) {
+		f->phase = 2;
+		return 0;
+	}
+	/* ASK, ROUND THE PEERS, WHILE THE WINDOW HAS ROOM AND THE BUDGET IS
+	 * LEFT -- starting a peer further on each time, so a window of one
+	 * does not always go to the first. */
+	if (f->placed < f->budget)
+		for (j = 0; j < f->n_peers; j++) {
+			fzn_spool_range_t range;
+
+			k = (j + f->turn) % f->n_peers;
+			if (!f->alive[k])
+				continue;
+			if (fzn_transfer_next_want(&f->transfer, (uint32_t)k, 0, FZN_NODE_FILES_SPAN,
+			                           now_ms + fzn_node_files_span_deadline_ms(), &range)
+			    != FZN_TRANSFER_OK)
+				break;
+			for (slot = 0; slot < FZN_TRANSFER_MAX_ASSIGNS && f->out[slot].live; slot++)
+				;
+			if (slot == FZN_TRANSFER_MAX_ASSIGNS
+			    || fzn_msg_want_encode(f->next_transfer, f->cookies[k], f->root, range.first,
+			                           range.count, request, cap, request_len)
+			               != FZN_MSG_OK) {
+				(void)fzn_transfer_failed(&f->transfer, (uint32_t)k, range.first, range.count);
+				continue;
+			}
+			f->gen = (f->gen + 1u) & 0x007fffffu;
+			f->out[slot].live = 1;
+			f->out[slot].peer = k;
+			f->out[slot].gen = f->gen;
+			f->out[slot].transfer = f->next_transfer++;
+			f->out[slot].range = range;
+			f->n_out++;
+			f->turn++;
+			*peer = k;
+			*tag = (f->gen << 8) | (uint32_t)slot;
+			return 1;
+		}
+	/* NOTHING OUT AND NOTHING TO ASK: the budget is spent, or every span
+	 * left is held by peers given up on. */
+	if (!f->n_out)
+		f->phase = 2;
+	return 0;
+}
+
+void fzn_node_files_fetching_take(fzn_node_files_fetching_t *f, uint32_t tag,
+                                  const uint8_t *reply, size_t reply_len, uint64_t now_ms)
+{
+	size_t k, slot;
+
+	(void)now_ms;
+	if (!f || f->phase == 2)
+		return;
+	if (tag & FZN_NODE_FILES_TAG_HOLDS) {
+		uint8_t their_root[FZN_BLOB_HASH_LEN];
+		fzn_spool_range_t offered[1];
+		uint64_t their_leaves = 0;
+		size_t n_offered = 0;
+		fzn_msg_type_t type;
+
+		k = tag & 0xffu;
+		if (f->phase != 0 || k >= f->n_peers || f->asked[k] != 1)
+			return;
+		f->asked[k] = 2;
+		if (!reply) {
+			f->last = FZN_NODE_FILES_ERR_NO_ANSWER;
+			return;
+		}
+		if (fzn_msg_peek(reply, reply_len, &type) != FZN_MSG_OK)
+			return;
+		if (type != FZN_MSG_HAVE
+		    || fzn_msg_have_parse(reply, reply_len, their_root, &their_leaves, f->cookies[k],
+		                          offered, 1u, &n_offered)
+		               != FZN_MSG_OK
+		    || memcmp(their_root, f->root, FZN_BLOB_HASH_LEN) != 0
+		    || their_leaves != f->h.leaves) {
+			f->last = FZN_NODE_FILES_ERR_SHAPE;
+			return;
+		}
+		f->alive[k] = 1;
+		f->live_peers++;
+		f->holders++;
+		return;
+	}
+	slot = tag & 0xffu;
+	/* A LATE ANSWER, to a span since given to somebody else. */
+	if (f->phase != 1 || slot >= FZN_TRANSFER_MAX_ASSIGNS || !f->out[slot].live
+	    || f->out[slot].gen != (tag >> 8))
+		return;
+	k = f->out[slot].peer;
+	if (!still_assigned(f, slot)) {
+		drop_out(f, slot);
+		return;
+	}
+	if (!reply) {
+		(void)fzn_transfer_failed(&f->transfer, (uint32_t)k, f->out[slot].range.first,
+		                          f->out[slot].range.count);
+		drop_out(f, slot);
+		charge(f, k, 1);
+		return;
+	}
+	{
+		uint64_t before = f->placed;
+		fzn_node_files_err_t got = place_data(f->files, &f->h, reply, reply_len,
+		                                      &f->out[slot].range, f->out[slot].transfer,
+		                                      &f->placed);
+
+		if (got == FZN_NODE_FILES_OK) {
+			/* THE SPAN ASKED, OR A SMALLER ONE THE REPLY HAD ROOM FOR: the
+			 * rest is planned again, the peer not charged. */
+			if (f->placed - before == f->out[slot].range.count)
+				(void)fzn_transfer_delivered(&f->transfer, (uint32_t)k,
+				                             f->out[slot].range.first,
+				                             f->out[slot].range.count);
+			else
+				(void)fzn_transfer_failed(&f->transfer, (uint32_t)k,
+				                          f->out[slot].range.first,
+				                          f->out[slot].range.count);
+			f->failures[k] = 0;
+		} else {
+			(void)fzn_transfer_failed(&f->transfer, (uint32_t)k, f->out[slot].range.first,
+			                          f->out[slot].range.count);
+			f->last = got == FZN_NODE_FILES_ERR_SHAPE ? FZN_NODE_FILES_ERR_NOT_THERE : got;
+			charge(f, k, 0);
+		}
+		drop_out(f, slot);
+	}
+	/* A CHECKPOINT NOW AND THEN, not each span. */
+	if (++f->since_checkpoint >= 64u) {
+		f->since_checkpoint = 0;
+		if (fzn_spool_file_checkpoint(&f->h.file, &f->h.spool) != FZN_SPOOL_OK) {
+			f->err = FZN_NODE_FILES_ERR_STORE;
+			f->phase = 2;
+		}
+	}
+}
+
+int fzn_node_files_fetching_over(const fzn_node_files_fetching_t *f)
+{
+	return !f || f->phase == 2;
+}
+
+fzn_node_files_err_t fzn_node_files_fetching_end(fzn_node_files_fetching_t *f, uint64_t *placed,
+                                                 size_t *holders)
+{
+	fzn_node_files_err_t err;
+
+	if (!f)
+		return FZN_NODE_FILES_ERR_MALFORMED;
+	err = f->err;
+	if (f->opened) {
+		if (fzn_spool_file_checkpoint(&f->h.file, &f->h.spool) != FZN_SPOOL_OK
+		    && err == FZN_NODE_FILES_OK)
+			err = FZN_NODE_FILES_ERR_STORE;
+		if (err == FZN_NODE_FILES_OK) {
+			if (fzn_spool_complete(&f->h.spool))
+				err = build_tree(f->files, &f->h, f->root);
+			else
+				err = f->live_peers ? FZN_NODE_FILES_ERR_ABSENT : f->last;
+		}
+	}
+	fzn_spool_file_close(&f->h.file);
+	if (f->busy)
+		(void)fzn_node_files_busy(f->files, f->root, 0);
+	f->busy = 0;
+	f->opened = 0;
+	f->phase = 2;
+	if (placed)
+		*placed = f->placed;
+	if (holders)
+		*holders = f->holders;
+	return err;
+}
+
+/* THE BLOCKING FETCH, the steps driven by each peer's `poll`: what every
+ * caller of it ran before sec 694, unchanged for them. */
 fzn_node_files_err_t fzn_node_files_fetch_many(fzn_node_files_t *files,
                                                const uint8_t root[FZN_BLOB_HASH_LEN],
                                                const fzn_node_files_peer_t *peers, size_t n_peers,
@@ -943,246 +1216,81 @@ fzn_node_files_err_t fzn_node_files_fetch_many(fzn_node_files_t *files,
                                                uint64_t budget, uint64_t *placed,
                                                size_t *holders)
 {
+	static fzn_node_files_fetching_t f;
 	static uint8_t reply[FZN_NODE_FILES_REPLY_MAX];
-	static held_t h;
-	static fzn_transfer_assign_t assigns[FZN_TRANSFER_MAX_ASSIGNS];
-	static out_req_t out[FZN_TRANSFER_MAX_ASSIGNS];
-	uint8_t cookies[FZN_NODE_FILES_PEERS_MAX][FZN_MSG_COOKIE_LEN];
-	unsigned failures[FZN_NODE_FILES_PEERS_MAX];
-	int alive[FZN_NODE_FILES_PEERS_MAX];
-	char path[FZN_SPOOL_FILE_PATH_MAX], len_path[FZN_SPOOL_FILE_PATH_MAX];
+	static struct {
+		int live;
+		size_t peer;
+		uint32_t msg, tag;
+		uint64_t sent;
+	} pend[FZN_TRANSFER_MAX_ASSIGNS + FZN_NODE_FILES_PEERS_MAX];
 	uint8_t request[FZN_MSG_WANT_LEN];
-	fzn_transfer_t transfer;
-	const fzn_spool_ops_t *ops;
-	fzn_node_files_err_t err = FZN_NODE_FILES_ERR_NOT_THERE, last = FZN_NODE_FILES_ERR_NOT_THERE;
-	uint64_t have = 0, steps;
-	uint32_t next_transfer = 1;
-	size_t k, j, asks, live_peers = 0, n_out = 0;
-	int stop;
-	unsigned since_checkpoint = 0;
+	fzn_node_files_err_t err;
+	uint64_t deadline = fzn_node_files_span_deadline_ms(), bound;
+	size_t i, k, n_pend = 0, len;
+	uint32_t tag, msg;
 
-	if (!files || !root || !peers || !now_ms || !placed || !holders
-	    || n_peers > FZN_NODE_FILES_PEERS_MAX || window == 0u
-	    || window > FZN_TRANSFER_MAX_ASSIGNS)
+	if (!files || !root || !peers || !now_ms || !placed || !holders)
 		return FZN_NODE_FILES_ERR_MALFORMED;
 	*placed = 0;
 	*holders = 0;
-	if (fzn_node_files_held(files, root, &have) == FZN_NODE_FILES_OK)
-		return FZN_NODE_FILES_OK;
-	memset(&h, 0, sizeof(h));
-	h.file.fd = -1;
-	if (!path_of(files, root, "", path) || !path_of(files, root, ".len", len_path))
-		return FZN_NODE_FILES_ERR_MALFORMED;
-	if (!read_length(len_path, &h.length))
-		return FZN_NODE_FILES_ERR_ABSENT;
-	if (h.length == 0u || h.length > FZN_NODE_FILE_MAX
-	    || fzn_blob_geometry(h.length, &h.leaves, &h.last) != FZN_BLOB_OK
-	    || h.leaves > FZN_SPOOL_MAX_LEAVES)
-		return FZN_NODE_FILES_ERR_MALFORMED;
-	if (fzn_node_files_busy(files, root, 1) != FZN_NODE_FILES_OK)
-		return FZN_NODE_FILES_ERR_BUSY;
-
-	/* WHO HOLDS IT, WHOLE AND AT THIS SIZE: one question each. */
-	for (k = 0; k < n_peers; k++) {
-		uint8_t their_root[FZN_BLOB_HASH_LEN];
-		fzn_spool_range_t offered[1];
-		uint64_t their_leaves = 0;
-		size_t len = 0, reply_len = 0, n_offered = 0;
-		uint32_t msg = 0;
-		fzn_msg_type_t type;
-
-		alive[k] = 0;
-		failures[k] = 0;
-		if (fzn_msg_have_query_encode(root, request, sizeof(request), &len) != FZN_MSG_OK)
-			continue;
-		if (!peers[k].send(peers[k].ctx, request, len, &msg)
-		    || !wait_for(&peers[k], msg, reply, sizeof(reply), &reply_len)) {
-			last = FZN_NODE_FILES_ERR_NO_ANSWER;
-			continue;
-		}
-		if (fzn_msg_peek(reply, reply_len, &type) != FZN_MSG_OK)
-			continue;
-		if (type != FZN_MSG_HAVE
-		    || fzn_msg_have_parse(reply, reply_len, their_root, &their_leaves, cookies[k],
-		                          offered, 1u, &n_offered)
-		               != FZN_MSG_OK
-		    || memcmp(their_root, root, FZN_BLOB_HASH_LEN) != 0 || their_leaves != h.leaves) {
-			last = FZN_NODE_FILES_ERR_SHAPE;
-			continue;
-		}
-		alive[k] = 1;
-		live_peers++;
-	}
-	*holders = live_peers;
-	if (!live_peers) {
-		err = last;
-		goto done;
-	}
-
-	/* RESUMED, so a fetch cut off part way asks only for the rest. */
-	ops = fzn_spool_file_open(&h.file, path);
-	if (!ops) {
-		err = FZN_NODE_FILES_ERR_STORE;
-		goto done;
-	}
-	(void)fzn_spool_file_resume(&h.file, root, h.leaves, receiving,
-	                            FZN_SPOOL_BITMAP_LEN(h.leaves));
-	if (fzn_spool_open(&h.spool, root, h.leaves, receiving, FZN_SPOOL_BITMAP_LEN(h.leaves), ops)
-	            != FZN_SPOOL_OK
-	    || fzn_transfer_open(&transfer, &h.spool, assigns, window) != FZN_TRANSFER_OK) {
-		err = FZN_NODE_FILES_ERR_STORE;
-		goto done;
-	}
-	memset(out, 0, sizeof(out));
-	err = FZN_NODE_FILES_OK;
-
-	/* BOUNDED BY THE WORK: every step delivers, fails, or expires a span,
-	 * or asks for one, and a span is asked at most a few times a peer. */
-	for (steps = 0; steps < (h.leaves * 4u) + 1000u && live_peers; steps++) {
+	err = fzn_node_files_fetching_begin(&f, files, root, n_peers, window, budget);
+	if (err != FZN_NODE_FILES_OK || fzn_node_files_fetching_over(&f))
+		return fzn_node_files_fetching_end(&f, placed, holders) == FZN_NODE_FILES_OK
+		               && err == FZN_NODE_FILES_OK
+		               ? FZN_NODE_FILES_OK
+		               : err;
+	memset(pend, 0, sizeof(pend));
+	/* BOUNDED BY THE WORK, as the steps are: every pass sends, takes or
+	 * expires something, or the fetch is over. */
+	for (bound = 0; bound < 4u * FZN_SPOOL_MAX_LEAVES; bound++) {
 		uint64_t now = now_ms();
-		int asked = 0;
 
-		if (fzn_spool_complete(&h.spool))
-			break;
-		/* SPANS THAT DID NOT COME: their peers charged, the spans freed. */
-		if (fzn_transfer_expire(&transfer, now))
-			for (k = 0; k < FZN_TRANSFER_MAX_ASSIGNS; k++)
-				if (out[k].live && !still_assigned(&transfer, &out[k])) {
-					out[k].live = 0;
-					n_out--;
-					if (alive[out[k].peer] && ++failures[out[k].peer] >= 3u) {
-						alive[out[k].peer] = 0;
-						live_peers--;
-						last = FZN_NODE_FILES_ERR_NO_ANSWER;
-					}
-				}
-		/* ASK, ROUND THE PEERS, WHILE THE WINDOW HAS ROOM AND THE BUDGET
-		 * LEFT -- starting a peer further on each step, so a window of one
-		 * does not always go to the first. */
-		for (asks = 0, stop = 0; !stop && *placed < budget && asks < FZN_TRANSFER_MAX_ASSIGNS;) {
-			int progress = 0;
-
-			for (j = 0; j < n_peers && !stop && *placed < budget; j++) {
-				fzn_spool_range_t range;
-				size_t len = 0, slot;
-				uint32_t msg = 0;
-				fzn_transfer_err_t terr;
-
-				k = (j + (size_t)steps) % n_peers;
-				if (!alive[k])
-					continue;
-				terr = fzn_transfer_next_want(&transfer, (uint32_t)k, 0, FZN_NODE_FILES_SPAN,
-				                              now + span_deadline_ms(), &range);
-				if (terr != FZN_TRANSFER_OK) {
-					stop = 1;
-					break;
-				}
-				for (slot = 0; slot < FZN_TRANSFER_MAX_ASSIGNS && out[slot].live; slot++)
-					;
-				if (slot == FZN_TRANSFER_MAX_ASSIGNS
-				    || fzn_msg_want_encode(next_transfer, cookies[k], root, range.first,
-				                           range.count, request, sizeof(request), &len)
-				               != FZN_MSG_OK
-				    || !peers[k].send(peers[k].ctx, request, len, &msg)) {
-					(void)fzn_transfer_failed(&transfer, (uint32_t)k, range.first,
-					                          range.count);
-					continue;
-				}
-				out[slot].live = 1;
-				out[slot].peer = k;
-				out[slot].msg = msg;
-				out[slot].transfer = next_transfer++;
-				out[slot].range = range;
-				n_out++;
-				asks++;
-				asked = 1;
-				progress = 1;
+		while (fzn_node_files_fetching_next(&f, now, &k, &tag, request, sizeof(request), &len)) {
+			for (i = 0; i < sizeof(pend) / sizeof(pend[0]) && pend[i].live; i++)
+				;
+			if (i == sizeof(pend) / sizeof(pend[0]) || !peers[k].send(peers[k].ctx, request, len,
+			                                                          &msg)) {
+				fzn_node_files_fetching_take(&f, tag, NULL, 0, now);
+				continue;
 			}
-			if (!progress)
-				break;
+			pend[i].live = 1;
+			pend[i].peer = k;
+			pend[i].msg = msg;
+			pend[i].tag = tag;
+			pend[i].sent = now;
+			n_pend++;
 		}
-		if (!n_out) {
-			/* NOTHING OUT AND NOTHING ASKED: the budget is spent, or every
-			 * span left is held by peers given up on. */
-			if (!asked)
-				break;
-			continue;
-		}
+		if (fzn_node_files_fetching_over(&f) || !n_pend)
+			break;
 		/* WHAT CAME, from each peer with something out. */
 		for (k = 0; k < n_peers; k++) {
-			size_t reply_len = 0, slot;
-			uint32_t msg = 0;
+			size_t reply_len = 0;
 			int any = 0;
 
-			for (slot = 0; slot < FZN_TRANSFER_MAX_ASSIGNS; slot++)
-				if (out[slot].live && out[slot].peer == k)
-					any = 1;
-			while (any && peers[k].poll(peers[k].ctx, reply, sizeof(reply), &reply_len, &msg,
-			                            n_peers > 1u ? 20u : (unsigned)span_deadline_ms())) {
-				fzn_node_files_err_t got;
-				uint64_t before = *placed;
-
-				for (slot = 0; slot < FZN_TRANSFER_MAX_ASSIGNS; slot++)
-					if (out[slot].live && out[slot].peer == k && out[slot].msg == msg)
-						break;
-				/* A LATE ANSWER to a span since given to somebody else. */
-				if (slot == FZN_TRANSFER_MAX_ASSIGNS)
-					continue;
-				got = place_data(files, &h, reply, reply_len, &out[slot].range,
-				                 out[slot].transfer, placed);
-				out[slot].live = 0;
-				n_out--;
-				if (got == FZN_NODE_FILES_OK) {
-					/* THE SPAN ASKED, OR A SMALLER ONE THE REPLY HAD ROOM
-					 * FOR: the rest is planned again, the peer not charged. */
-					if (*placed - before == out[slot].range.count)
-						(void)fzn_transfer_delivered(&transfer, (uint32_t)k,
-						                             out[slot].range.first,
-						                             out[slot].range.count);
-					else
-						(void)fzn_transfer_failed(&transfer, (uint32_t)k,
-						                          out[slot].range.first,
-						                          out[slot].range.count);
-					failures[k] = 0;
-				} else {
-					(void)fzn_transfer_failed(&transfer, (uint32_t)k,
-					                          out[slot].range.first,
-					                          out[slot].range.count);
-					last = got == FZN_NODE_FILES_ERR_SHAPE ? FZN_NODE_FILES_ERR_NOT_THERE
-					                                       : got;
-					if (++failures[k] >= 3u) {
-						alive[k] = 0;
-						live_peers--;
-					}
+			for (i = 0; i < sizeof(pend) / sizeof(pend[0]); i++)
+				any |= pend[i].live && pend[i].peer == k;
+			if (!any || !peers[k].poll(peers[k].ctx, reply, sizeof(reply), &reply_len, &msg,
+			                           n_peers > 1u ? 20u : (unsigned)(deadline / 8u)))
+				continue;
+			for (i = 0; i < sizeof(pend) / sizeof(pend[0]); i++)
+				if (pend[i].live && pend[i].peer == k && pend[i].msg == msg) {
+					pend[i].live = 0;
+					n_pend--;
+					fzn_node_files_fetching_take(&f, pend[i].tag, reply, reply_len, now_ms());
+					break;
 				}
-				any = 0;
-				for (slot = 0; slot < FZN_TRANSFER_MAX_ASSIGNS; slot++)
-					if (out[slot].live && out[slot].peer == k)
-						any = 1;
-				/* A CHECKPOINT NOW AND THEN, not each span. */
-				if (++since_checkpoint >= 64u) {
-					since_checkpoint = 0;
-					if (fzn_spool_file_checkpoint(&h.file, &h.spool) != FZN_SPOOL_OK) {
-						err = FZN_NODE_FILES_ERR_STORE;
-						goto close;
-					}
-				}
-			}
 		}
+		/* WHAT DID NOT, past its deadline. */
+		now = now_ms();
+		for (i = 0; i < sizeof(pend) / sizeof(pend[0]); i++)
+			if (pend[i].live && now >= pend[i].sent + deadline) {
+				pend[i].live = 0;
+				n_pend--;
+				fzn_node_files_fetching_take(&f, pend[i].tag, NULL, 0, now);
+			}
 	}
-close:
-	if (fzn_spool_file_checkpoint(&h.file, &h.spool) != FZN_SPOOL_OK && err == FZN_NODE_FILES_OK)
-		err = FZN_NODE_FILES_ERR_STORE;
-	if (err == FZN_NODE_FILES_OK) {
-		if (fzn_spool_complete(&h.spool))
-			err = build_tree(files, &h, root);
-		else
-			err = live_peers ? FZN_NODE_FILES_ERR_ABSENT : last;
-	}
-done:
-	fzn_spool_file_close(&h.file);
-	(void)fzn_node_files_busy(files, root, 0);
-	return err;
+	return fzn_node_files_fetching_end(&f, placed, holders);
 }
 
 /* ONE PEER THAT ANSWERS AS IT IS ASKED: an `ask` made a peer, its reply

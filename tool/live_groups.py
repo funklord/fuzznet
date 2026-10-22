@@ -279,10 +279,19 @@ def main(argv):
 			expect(socks["b"], "b", "grant file %s @%s" % (ref[:64], name), "ok")
 			expect(socks["c"], "c", "fetch file " + ref, "ok")
 			whole = None
+			# EVERY ONE OF C'S DAEMONS THIS PHASE, searched: a fetch moves in
+			# steps (sec 694) and may end after the round's end marker, in a
+			# daemon the next turn replaces, whose successor finds the file
+			# whole and says nothing -- sec 675's unexplained failure.
+			c_runs = []
 			for rnd in range(ROUNDS):
 				for who in ("b", "c"):
 					turn(who, "%s-f%d" % (who, rnd))
-				whole = WHOLE_RE.search(started["c"].log())
+				c_runs.append(started["c"])
+				for d in c_runs:
+					whole = WHOLE_RE.search(d.log())
+					if whole:
+						break
 				if whole:
 					break
 				expect(socks["c"], "c", "fetch file " + ref, "ok")

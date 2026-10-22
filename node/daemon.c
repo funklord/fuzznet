@@ -10450,30 +10450,66 @@ _Static_assert(FZND_PULL_REPLY_MAX >= FZN_NODE_FILES_REPLY_MAX,
 #define FZND_FETCH_SLOTS FZND_FETCH_WINDOW
 #endif
 
-/* A caller as a file fetch's peer: a request sent, and the reply to any of
- * its requests taken. */
-struct fetch_peer {
-	fzn_caller_t *caller;
-	uint64_t now;
+/* THE FETCH AS STEPS, sec 694: one file at a time, its requests awaited by
+ * the loop through the round's asks (`node/asks.h`) beside every other
+ * event, so a file arriving no longer keeps the local socket waiting -- sec
+ * 693 measured 22.7 s. Each peer of a fetch is a LINK: a copy of its pull
+ * target's caller on a socket of the fetch's own, answering into the
+ * fetch's reassembly table, so nothing the round asks of the same peer
+ * meets a reply of the fetch's or the other way round. A fetch's links are
+ * opened when it begins and closed when it ends, what they still await
+ * cancelled first. */
+struct fetch_link {
+	fzn_caller_t caller;
+	int fd;
 };
 
-static int fetch_send(void *ctx, const uint8_t *request, size_t request_len, uint32_t *msg)
-{
-	struct fetch_peer *p = (struct fetch_peer *)ctx;
+static fzn_node_files_fetching_t fetching;
+static struct fetch_link fetch_links[FZN_NODE_FILES_PEERS_MAX];
+static size_t fetch_n_links;
+static int fetch_active;
+static size_t fetch_cursor;
+static uint64_t fetch_length;
 
-	return fzn_caller_send(p->caller, request, request_len, p->now + 300u, msg) == FZN_CALLER_OK;
+static void fetch_answered(void *ctx, const uint8_t *reply, size_t reply_len)
+{
+	fzn_node_files_fetching_take(&fetching, (uint32_t)(uintptr_t)ctx, reply, reply_len, wall_ms());
 }
 
-static int fetch_poll(void *ctx, uint8_t *reply, size_t reply_cap, size_t *reply_len,
-                      uint32_t *msg, unsigned timeout_ms)
+static void fetch_close_links(void)
 {
-	struct fetch_peer *p = (struct fetch_peer *)ctx;
+	size_t i;
 
-	return fzn_caller_recv_any(p->caller, msg, reply, reply_cap, reply_len,
-	                           timeout_ms ? timeout_ms : 1u)
-	       == FZN_CALLER_OK;
+	for (i = 0; i < fetch_n_links; i++) {
+		(void)fzn_node_asks_cancel(&round_asks, &fetch_links[i].caller);
+		if (fetch_links[i].fd >= 0)
+			fzn_udp_close(fetch_links[i].fd);
+		fzn_wipe(&fetch_links[i].caller, sizeof(fetch_links[i].caller));
+		fetch_links[i].fd = -1;
+	}
+	fetch_n_links = 0;
 }
 
+/* A LINK TO `pt`: its caller, on a socket of its own of `pt`'s family. */
+static int fetch_link_up(struct fetch_link *l, const struct pull_target *pt, fzn_reasm_t *table)
+{
+	const struct sockaddr *sa = (const struct sockaddr *)pt->caller.node.storage;
+	int fd = -1;
+
+	if (pt->caller.node.len < sizeof(sa->sa_family)
+	    || fzn_udp_bind(sa->sa_family == AF_INET6 ? AF_INET6 : AF_INET, NULL, 0, &fd)
+	               != FZN_UDP_OK)
+		return 0;
+	l->caller = pt->caller;
+	l->caller.fd = fd;
+	l->caller.reasm = table;
+	l->fd = fd;
+	return 1;
+}
+
+/* THE PUMP, each pass of the loop and at a round's fetch step: begins the
+ * next wanted file when none is out, sends what the fetch would ask while
+ * the asks have room, and ends it when it is over. */
 static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
 	static uint8_t roots[FZN_NODE_FILES_WANTS_MAX][FZN_BLOB_HASH_LEN];
@@ -10484,17 +10520,11 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 	static unsigned long window, leaves_a_round;
 	static fzn_reasm_t table;
 	static int table_ready;
-	fzn_node_files_peer_t peers[FZN_NODE_FILES_PEERS_MAX];
-	struct fetch_peer fp[FZN_NODE_FILES_PEERS_MAX];
-	fzn_reasm_t *kept[FZN_NODE_FILES_PEERS_MAX];
-	const char *hosts[FZN_NODE_FILES_PEERS_MAX];
-	size_t n, w, t, n_peers = 0, i;
+	uint8_t request[FZN_MSG_WANT_LEN];
+	size_t n, t, n_peers = 0, i, k, len;
+	uint32_t tag;
 
 	if (!files_on)
-		return;
-	files.fresh = 0;
-	n = fzn_node_files_wanted(&files, roots, lengths, FZN_NODE_FILES_WANTS_MAX);
-	if (!n)
 		return;
 	if (!table_ready) {
 		window = FZN_TUNE("FETCH_WINDOW", FZND_FETCH_WINDOW, FZND_FETCH_SLOTS);
@@ -10506,71 +10536,99 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 		if (fzn_reasm_init(&table, slots, FZND_FETCH_SLOTS, FZND_FETCH_SLOTS, 60u)
 		    != FZN_REASM_OK)
 			return;
+		for (i = 0; i < FZN_NODE_FILES_PEERS_MAX; i++)
+			fetch_links[i].fd = -1;
 		table_ready = 1;
 	}
-	/* THE PULL PEERS -- the siblings a round adds among them, sec 586 --
-	 * AND THE CONTACTS SHARING WITH THIS NODE, sec 493 -- a contact's node
-	 * answers for what it made public or shared here -- AND, sec 631's 6b,
-	 * EVERY CONTACT'S HOST AND EVERY GROUP MEMBER'S, which answer for what
-	 * they granted this user or a group it is in: a file sent by reference
-	 * is fetched from whoever granted it. Each lent the fetch's
-	 * reassembly table while it runs. */
-	for (t = 0; t < npulls + nshares_in + ncontact_targets + ngroup_shares_in
-	            && n_peers < FZN_NODE_FILES_PEERS_MAX;
-	     t++) {
-		size_t u = t - npulls;
-		struct pull_target *pt =
-		        t < npulls                                   ? &pulls[t]
-		        : u < nshares_in                             ? &shares_in[u].pt
-		        : u - nshares_in < ncontact_targets          ? &contact_targets[u - nshares_in].pt
-		                                                     : &group_shares_in[u - nshares_in
-		                                                                        - ncontact_targets]
-		                                                                .pt;
-		fzn_caller_t *caller = &pt->caller;
+	if (!fetch_active) {
+		if (!files.fresh)
+			return;
+		files.fresh = 0;
+		n = fzn_node_files_wanted(&files, roots, lengths, FZN_NODE_FILES_WANTS_MAX);
+		if (!n)
+			return;
+		/* THE NEXT WANTED FILE IN TURN, so a file several batches long does
+		 * not keep another waiting behind it. */
+		fetch_cursor %= n;
+		/* THE PULL PEERS -- the siblings a round adds among them, sec 586 --
+		 * AND THE CONTACTS SHARING WITH THIS NODE, sec 493 -- a contact's node
+		 * answers for what it made public or shared here -- AND, sec 631's 6b,
+		 * EVERY CONTACT'S HOST AND EVERY GROUP MEMBER'S, which answer for what
+		 * they granted this user or a group it is in: a file sent by reference
+		 * is fetched from whoever granted it. Each lent the fetch's
+		 * reassembly table while it runs. */
+		for (t = 0; t < npulls + nshares_in + ncontact_targets + ngroup_shares_in
+		            && n_peers < FZN_NODE_FILES_PEERS_MAX;
+		     t++) {
+			size_t u = t - npulls;
+			struct pull_target *pt =
+			        t < npulls                                   ? &pulls[t]
+			        : u < nshares_in                             ? &shares_in[u].pt
+			        : u - nshares_in < ncontact_targets          ? &contact_targets[u - nshares_in].pt
+			                                                     : &group_shares_in[u - nshares_in
+			                                                                        - ncontact_targets]
+			                                                                .pt;
+			fzn_caller_t *caller = &pt->caller;
 
-		if (t < npulls ? silent_peer(pt) : pt->fd < 0)
-			continue;
-		if (t >= npulls + nshares_in && t < npulls + nshares_in + ncontact_targets
-		    && contact_targets[u - nshares_in].down)
-			continue;
-		fp[n_peers].caller = caller;
-		fp[n_peers].now = now;
-		kept[n_peers] = caller->reasm;
-		caller->reasm = &table;
-		hosts[n_peers] = pt->host;
-		peers[n_peers].send = fetch_send;
-		peers[n_peers].poll = fetch_poll;
-		peers[n_peers].ctx = &fp[n_peers];
-		n_peers++;
+			if (t < npulls ? silent_peer(pt) : pt->fd < 0)
+				continue;
+			if (t >= npulls + nshares_in && t < npulls + nshares_in + ncontact_targets
+			    && contact_targets[u - nshares_in].down)
+				continue;
+			(void)caller;
+			if (fetch_link_up(&fetch_links[n_peers], pt, &table))
+				fetch_n_links = ++n_peers;
+		}
+		if (!n_peers)
+			return;
+		if (fzn_node_files_fetching_begin(&fetching, &files, roots[fetch_cursor], n_peers,
+		                                  window, leaves_a_round)
+		    != FZN_NODE_FILES_OK) {
+			fetch_close_links();
+			fetch_cursor++;
+			return;
+		}
+		fetch_length = lengths[fetch_cursor];
+		fetch_active = 1;
 	}
-	for (w = 0; w < n && w < FZN_NODE_FILES_WANTS_MAX && n_peers; w++) {
+	/* WHAT THE FETCH WOULD ASK, while the asks have room. */
+	while (fzn_node_asks_pending(&round_asks) < FZN_NODE_ASKS_MAX
+	       && fzn_node_files_fetching_next(&fetching, wall_ms(), &k, &tag, request,
+	                                       sizeof(request), &len))
+		if (k >= fetch_n_links
+		    || !fzn_node_asks_send(&round_asks, &fetch_links[k].caller, request, len, now + 300u,
+		                           (unsigned)fzn_node_files_span_deadline_ms(), fetch_answered,
+		                           (void *)(uintptr_t)tag))
+			fzn_node_files_fetching_take(&fetching, tag, NULL, 0, wall_ms());
+	if (!fzn_node_files_fetching_over(&fetching))
+		return;
+	{
 		uint64_t placed = 0;
 		size_t holders = 0;
-		fzn_node_files_err_t err =
-		        fzn_node_files_fetch_many(&files, roots[w], peers, n_peers, wall_ms,
-		                                  window, leaves_a_round, &placed,
-		                                  &holders);
+		fzn_node_files_err_t err;
+		const uint8_t *r = fetching.root;
 
+		fetch_close_links();
+		err = fzn_node_files_fetching_end(&fetching, &placed, &holders);
+		fetch_active = 0;
 		if (err == FZN_NODE_FILES_OK && placed)
 			say(FZN_ENTRY_INFO, "files", "file %02x%02x%02x%02x, %llu bytes, whole from %zu peer(s)",
-			    roots[w][0], roots[w][1], roots[w][2], roots[w][3],
-			    (unsigned long long)lengths[w], holders);
-		else if (placed) {
+			    r[0], r[1], r[2], r[3], (unsigned long long)fetch_length, holders);
+		else if (placed)
 			say(FZN_ENTRY_DEBUG, "files", "%llu leaf(s) of file %02x%02x%02x%02x from %zu peer(s)",
-			    (unsigned long long)placed, roots[w][0], roots[w][1], roots[w][2],
-			    roots[w][3], holders);
-			/* MORE AT ONCE, not at the next round: the budget is what lets
-			 * the loop answer between batches, not a rate. */
-			files.fresh = 1;
-		}
+			    (unsigned long long)placed, r[0], r[1], r[2], r[3], holders);
 		if (err != FZN_NODE_FILES_OK && err != FZN_NODE_FILES_ERR_NOT_THERE
 		    && err != FZN_NODE_FILES_ERR_ABSENT)
-			say(FZN_ENTRY_WARNING, "files", "file %02x%02x%02x%02x: %s", roots[w][0],
-			    roots[w][1], roots[w][2], roots[w][3], fzn_node_files_err_str(err));
+			say(FZN_ENTRY_WARNING, "files", "file %02x%02x%02x%02x: %s", r[0], r[1], r[2], r[3],
+			    fzn_node_files_err_str(err));
+		/* THE NEXT IN TURN, AT ONCE: a file cut off by its budget resumes
+		 * when its turn comes back, and the rest are not kept waiting for a
+		 * round. */
+		if (err != FZN_NODE_FILES_OK || placed)
+			fetch_cursor++;
+		if (placed)
+			files.fresh = 1;
 	}
-	(void)hosts;
-	for (i = 0; i < n_peers; i++)
-		fp[i].caller->reasm = kept[i];
 }
 
 /* A CONTACT'S FILE REQUEST, and a grantee forgotten: the admin's hooks.
@@ -13036,6 +13094,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					history_trim();
 #ifdef FZN_SPOOL_FILE_ON
 					fetch_texts(pulls, npulls, round_now);
+					/* EVERY WANTED FILE, each round: the pump begins the
+					 * next when none is out (sec 694). */
+					files.fresh = 1;
 					fetch_files(pulls, npulls, round_now);
 					collect_texts();
 #endif
@@ -13053,6 +13114,12 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				}
 				round_step = plan[++plan_at];
 			}
+#ifdef FZN_SPOOL_FILE_ON
+			/* A FETCH UNDER WAY moves on every pass, round or no round: its
+			 * links and its state are its own, sec 694. */
+			if (fetch_active)
+				fetch_files(pulls, npulls, now);
+#endif
 			/* WHAT RUNS BETWEEN ROUNDS waits for the round to end, as it
 			 * did when the round was one piece: each asks the same peers
 			 * the round is asking, from state the round is moving. */

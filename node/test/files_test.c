@@ -463,6 +463,79 @@ static size_t said(fzn_node_files_t *files, fzn_verb_t parsed, const char *arg, 
 	return n;
 }
 
+/* THE FETCH AS STEPS, sec 694: several spans out at once and answered in
+ * the reverse order they were asked, a stale tag ignored, an answer that
+ * never came charged and the span asked again, and the file whole at the
+ * end -- what the daemon's loop does, and the blocking driver never does. */
+static void test_the_fetch_as_steps(const fzn_node_files_t *A, const fzn_node_file_ref_t *ref)
+{
+	static fzn_node_files_t B;
+	static fzn_node_files_fetching_t f;
+	static uint8_t reply[FZN_NODE_FILES_REPLY_MAX], stale[FZN_NODE_FILES_REPLY_MAX];
+	uint8_t requests[8][FZN_MSG_WANT_LEN];
+	size_t lens[8], peer, n, i, most = 0, holders = 0, stale_len = 0, passes = 0;
+	uint32_t tags[8], stale_tag = 0;
+	uint64_t placed = 0, length = 0, before;
+	char dir_s[160], out_s[160];
+	int dropped = 0, stale_checked = 0;
+
+	(void)snprintf(dir_s, sizeof(dir_s), "%s/steps", top);
+	(void)snprintf(out_s, sizeof(out_s), "%s/steps_out", top);
+	CHECK(fzn_node_files_init(&B, dir_s, &HASH, &AEAD, &RNG) == FZN_NODE_FILES_OK
+	              && fzn_node_files_want(&B, ref->root, ref->length) == FZN_NODE_FILES_OK
+	              && fzn_node_files_fetching_begin(&f, &B, ref->root, 1u, 4u, UINT64_MAX)
+	                         == FZN_NODE_FILES_OK
+	              && !fzn_node_files_fetching_over(&f),
+	      "fixture: a stepped fetch of a file A holds, begun at B");
+	while (!fzn_node_files_fetching_over(&f) && passes++ < 10000u) {
+		for (n = 0; n < 8u && fzn_node_files_fetching_next(&f, 1000u, &peer, &tags[n], requests[n],
+		                                                   sizeof(requests[n]), &lens[n]);
+		     n++)
+			;
+		most = n > most ? n : most;
+		/* THE DROPPED SPAN'S ANSWER, LATE, once its slot is asked again:
+		 * its tag is stale, and it neither places nor takes the span now
+		 * out in that slot. */
+		if (dropped && !stale_checked && stale_len && n) {
+			size_t out_before = f.n_out;
+
+			before = f.placed;
+			fzn_node_files_fetching_take(&f, stale_tag, stale, stale_len, 1000u);
+			CHECK(f.placed == before && f.n_out == out_before
+			              && f.out[stale_tag & 0xffu].live,
+			      "a late answer to a span given up on was taken in its slot's place");
+			stale_checked = 1;
+		}
+		/* ANSWERED IN THE REVERSE ORDER ASKED. */
+		for (i = n; i-- > 0;) {
+			size_t len = fzn_node_files_answer(A, requests[i], lens[i], reply, sizeof(reply));
+
+			/* ONE NEVER ANSWERED: charged, and its span asked again. */
+			if (!dropped && !(tags[i] & FZN_NODE_FILES_TAG_HOLDS)) {
+				dropped = 1;
+				memcpy(stale, reply, len);
+				stale_len = len;
+				stale_tag = tags[i];
+				fzn_node_files_fetching_take(&f, tags[i], NULL, 0, 1000u);
+				continue;
+			}
+			fzn_node_files_fetching_take(&f, tags[i], len ? reply : NULL, len, 1000u);
+		}
+	}
+	CHECK(most >= 2u && most <= 4u, "never several spans out at once, or more than the window");
+	CHECK(dropped && stale_checked, "the dropped answer and the stale tag were not tried");
+	CHECK(fzn_node_files_fetching_end(&f, &placed, &holders) == FZN_NODE_FILES_OK
+	              && holders == 1u && placed > 0u
+	              && fzn_node_files_held(&B, ref->root, &length) == FZN_NODE_FILES_OK
+	              && length == ref->length
+	              && fzn_node_files_export(&B, ref, out_s) == FZN_NODE_FILES_OK
+	              && same_files(src_path, out_s),
+	      "a stepped fetch did not end whole, byte for byte");
+	(void)remove(out_s);
+	(void)fzn_node_files_remove(&B, ref->root);
+	CHECK(entries(dir_s) == 0u && rmdir(dir_s) == 0, "the stepped fetch's store did not empty");
+}
+
 int main(void)
 {
 	static const size_t SIZES[] = { 1u, 1024u, 1025u, (70u * 1024u) + 17u, 300u * 1024u };
@@ -1011,6 +1084,17 @@ int main(void)
 				    && memcmp(roots[i], refs[2].root, FZN_BLOB_HASH_LEN)
 				    && memcmp(roots[i], refs[3].root, FZN_BLOB_HASH_LEN))
 					(void)fzn_node_files_remove(&F, roots[i]);
+	}
+
+	/* THE FETCH AS STEPS, of a file of its own at A, removed after. */
+	{
+		fzn_node_file_ref_t stepped;
+
+		CHECK(make_source(src_path, (300u * 1024u) + 5u)
+		              && fzn_node_files_put(&F, src_path, &stepped) == FZN_NODE_FILES_OK,
+		      "fixture: A holds a file of 301 leaves for the stepped fetch");
+		test_the_fetch_as_steps(&F, &stepped);
+		(void)fzn_node_files_remove(&F, stepped.root);
 	}
 
 	/* REMOVED BY NAME, and what is left is an assertion. */

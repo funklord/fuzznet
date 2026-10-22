@@ -5981,15 +5981,15 @@ SABOTAGES = [
 	(
 		"files-silent-peer-given-up",
 		"node/files.c",
-		"\t\t\t\t\tif (alive[out[k].peer] && ++failures[out[k].peer] >= 3u) {\n",
-		"\t\t\t\t\tif (0) {\n",
+		"\tif (f->alive[peer] && ++f->failures[peer] >= 3u) {\n",
+		"\tif (0) {\n",
 		"a peer that never answers is sent spans for as long as the fetch runs, each waiting out its deadline -- sec 494",
 	),
 	(
 		"files-lying-peer-given-up",
 		"node/files.c",
-		"\t\t\t\t\tif (++failures[k] >= 3u) {\n",
-		"\t\t\t\t\tif (0) {\n",
+		"\t\t\tcharge(f, k, 0);\n",
+		"\t\t\t(void)k;\n",
 		"a peer whose spans never prove is asked again and again, and every span it is given wasted -- sec 494",
 	),
 	(
@@ -6044,9 +6044,9 @@ SABOTAGES = [
 	(
 		"files-fetch-keeps-its-budget",
 		"node/files.c",
-		"\t\tfor (asks = 0, stop = 0; !stop && *placed < budget && asks < FZN_TRANSFER_MAX_ASSIGNS;) {\n\t\t\tint progress = 0;\n\n\t\t\tfor (j = 0; j < n_peers && !stop && *placed < budget; j++) {\n",
-		"\t\tfor (asks = 0, stop = 0; !stop && asks < FZN_TRANSFER_MAX_ASSIGNS;) {\n\t\t\tint progress = 0;\n\n\t\t\tfor (j = 0; j < n_peers && !stop; j++) {\n",
-		"a fetch takes the whole file in one round however large, and the node answers nothing else meanwhile -- sec 491",
+		"\tif (f->placed < f->budget)\n\t\tfor (j = 0; j < f->n_peers; j++) {\n",
+		"\tif (1)\n\t\tfor (j = 0; j < f->n_peers; j++) {\n",
+		"a fetch takes the whole file at once however large, so another wanted file waits behind it rather than taking its turn -- sec 491, sec 694",
 	),
 	(
 		"files-wanted-ends-when-whole",
@@ -12745,6 +12745,13 @@ SABOTAGES = [
 		"\t\t    && held.n_admins == 1u)\n",
 		"\t\t    && held.n_admins == 2u)\n",
 		"sec 688: the last admin's refused leave says what to do, where the log's bare refusal left a person with nothing to act on; groups_test's last-admin check catches it",
+	),
+	(
+		"files-step-stale-generation",
+		"node/files.c",
+		"\tif (f->phase != 1 || slot >= FZN_TRANSFER_MAX_ASSIGNS || !f->out[slot].live\n\t    || f->out[slot].gen != (tag >> 8))\n",
+		"\tif (f->phase != 1 || slot >= FZN_TRANSFER_MAX_ASSIGNS || !f->out[slot].live)\n",
+		"sec 694: a span's answer that comes after the span was asked again lands in a slot reused for another; files_test's stepped fetch catches it taking the new span's place",
 	),
 ]
 

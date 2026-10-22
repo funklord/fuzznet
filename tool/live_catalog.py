@@ -144,7 +144,14 @@ def main(argv):
 
 			# b: B fetches it by its root, opens it, and names it too.
 			expect(socks["b"], "b", "fetch file " + root, "ok")
-			until(lambda: WHOLE_RE.search(started["b"].log()) is not None, "b-fetch")
+			# WHOLE BY B'S OWN ANSWER, not by a line in one daemon's log: a
+			# fetch moves in steps the loop answers between (sec 694), so it
+			# may end after the round's end marker, and the daemon that said
+			# so is replaced by the next turn, its successor finding the file
+			# already whole and saying nothing -- sec 675's unexplained
+			# failure, found in a kept run.
+			until(lambda: ask(socks["b"], "get file %s check" % root).strip() == "ok intact",
+			      "b-fetch")
 			out = os.path.join(scratch, "song-at-b")
 			expect(socks["b"], "b", "get file %s %s" % (root, out), "ok")
 			with open(payload, "rb") as f, open(out, "rb") as g:

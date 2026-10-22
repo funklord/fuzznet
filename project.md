@@ -68870,3 +68870,99 @@ caller, met in the transfer.
 
 The machine was at a load of 180 to 250 for the rest of the day, and
 numbers taken there would tune for the load.
+
+## 694. The file fetch as steps, and sec 675 explained, 2026-10-22
+
+**The holder's choice, 2026-10-22, of sec 693's two answers:** "Resumable
+steps", over smaller batches or waiting until files return to scope. For
+the loss cost the holder chose "Measure first", so nothing about resending
+changes here.
+
+### The fetch as steps, built
+
+**`node/files.h`'s fetch as steps**, sec 636's shape:
+- **The calls:** `fzn_node_files_fetching_begin`, `_next` (the next
+  request and its tag, or none now), `_take` (a tag's answer, or with none
+  its deadline passed), `_over` and `_end`. The state is a struct, never
+  the stack.
+- **A tag names a request:** a holder's "do you hold it whole", or a span,
+  its generation in the tag. So the answer to a span since asked of
+  somebody else, landing in its reused slot, is dropped.
+- **`fzn_node_files_fetch_many`** is now these steps driven by its peers'
+  blocking `poll`, so every caller and test of it runs them unchanged.
+
+**fuzznetd runs one fetch at a time through the round's asks:**
+- **Links:** each peer is a link, a copy of its pull target's caller on a
+  socket of the fetch's own, answering into the fetch's reassembly table,
+  so the round and the fetch never meet each other's replies. A fetch's
+  links open when it begins and close when it ends, what they still await
+  cancelled first.
+- **The pump:** each pass of the loop sends what the fetch would ask while
+  the asks have room. It runs **on every pass, round or no round**: the
+  rule that work between rounds waits for the round exists because such
+  work shares the round's peers and state, and the fetch now shares
+  neither.
+- **The budget a fetch is begun with**, `LEAVES_A_ROUND`, is now how
+  wanted files take turns, the next begun at once.
+
+### The stepped fetch, measured
+
+**At a load of about 200**, the machine shared, 1 to 32 MiB fetched with
+B's local socket waiting **at most 0.7 s**, where sec 693 measured about
+20 s at a like load. Throughput there was 1 to 2 MiB/s, where it had been
+0.25. It is not a tuning figure at that load.
+
+**`node/test/files_test.c`, 71 checks:**
+- the stepped fetch with up to four spans out at once, answered in the
+  reverse order asked;
+- an answer never given charged and its span asked again;
+- the late answer to a span given up on, arriving once its slot is reused,
+  neither placed nor taking the new span's place;
+- the file whole, byte for byte.
+
+**Control:** without the generation check, that case fails.
+
+### sec 675, explained
+
+The first live run of the stepped fetch failed `live_catalog`'s "b-fetch:
+not after 4 rounds", one run in three at load 193. **The repeat runner
+(sec 690) kept the run**, and B's log showed it:
+- the round's end at 18:27:49.838;
+- the file whole at 18:27:49.857, 19 ms after.
+
+`live_catalog` looks for the "whole" line in the current B's log after
+each turn, then replaces B with a new daemon, which finds the file already
+whole and never says so. **A fetch ending after the round's end marker is
+missed for good.**
+
+**That is very likely sec 675's unexplained failure as well**, by an older
+route:
+- under load a span is lost, the batch ends short, and "MORE AT ONCE"
+  finishes the file between rounds, after the round's end;
+- it failed only at loads of 160 to 175, as recorded, and never alone.
+
+The stepped fetch makes the race the ordinary case, which is how it was
+caught. Recorded as the likely cause and not as proven for the old code,
+no failed run of which was kept.
+
+**Fixed in the tests**, which read the wrong thing:
+- `tool/live_catalog.py` now asks B whether the file is whole (`get file
+  ROOT check` answering `ok intact`);
+- `tool/live_groups.py` phase f, sec 675's other failure, searches every
+  one of C's daemons of the phase for the line.
+
+**Repeated, 4 of 4 each, at a load of 207.**
+
+### The lesson, for the scenarios ahead
+
+A check that reads one daemon's log, in a script that replaces that
+daemon, can lose the line it waits for. **Ask the state, or keep every
+daemon's log.**
+
+**Sabotage:**
+- one new entry, `files-step-stale-generation`;
+- three older ones retargeted where their guards moved:
+  `files-silent-peer-given-up` and `files-lying-peer-given-up` to
+  `charge`, and `files-fetch-keeps-its-budget` to the budget's test in
+  `_next`, its reason restated -- a fetch's budget is now how files take
+  turns, the node answering between steps regardless.

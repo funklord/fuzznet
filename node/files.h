@@ -48,6 +48,7 @@
 #include "../session/random.h"
 #include "../spool/message.h"
 #include "../spool/spool_file.h"
+#include "../spool/transfer.h"
 
 /* The directory's length, leaving room for "/<64 hex>.bits" and more. */
 #define FZN_NODE_FILES_DIR_MAX (FZN_SPOOL_FILE_PATH_MAX - 80u)
@@ -341,6 +342,95 @@ fzn_node_files_err_t fzn_node_files_fetch_many(fzn_node_files_t *files,
                                                uint64_t (*now_ms)(void), size_t window,
                                                uint64_t budget, uint64_t *placed,
                                                size_t *holders);
+
+/* ---- the fetch as steps, sec 694 ---------------------------------------
+ *
+ * THE SAME FETCH, ITS STATE IN A STRUCT, so the loop sends each request,
+ * goes on answering its own clients, and hands the fetch each answer when
+ * it comes -- the holder's choice, 2026-10-22, after sec 693 measured a
+ * fetch keeping a host's local socket waiting 22.7 s. The resumable
+ * round's shape (sec 636), and `fzn_node_files_fetch_many` above is these
+ * steps driven by its peers' blocking `poll`.
+ *
+ * A REQUEST IS NAMED BY A TAG, which its answer is handed back with: a
+ * peer's "do you hold it whole" while the fetch learns who holds it, and a
+ * span asked of a holder after. A tag carries a generation, so the answer
+ * to a span since asked of somebody else is told apart and dropped.
+ *
+ *   `fzn_node_files_fetching_begin`  the file claimed: OK, or why not --
+ *                                    OK and over at once when it is held
+ *   `fzn_node_files_fetching_next`   1 with the next request to send, its
+ *                                    peer and its tag; 0 for none now --
+ *                                    the window full, the budget spent, or
+ *                                    the holders not all answered
+ *   `fzn_node_files_fetching_take`   a tag's answer, or with `reply` NULL
+ *                                    none: the deadline passed, or it could
+ *                                    not be sent
+ *   `fzn_node_files_fetching_over`   1 when nothing more will be asked
+ *   `fzn_node_files_fetching_end`    the fetch closed: OK when the file is
+ *                                    whole, as `fetch_many` answers
+ *
+ * ONE FETCH AT A TIME IN A PROCESS: what has arrived is kept in one bitmap
+ * of the module's, sized for the largest file. */
+#define FZN_NODE_FILES_TAG_HOLDS 0x80000000u
+
+typedef struct fzn_node_files_open {
+	fzn_spool_file_t file;
+	fzn_spool_t spool;
+	uint64_t length;
+	uint64_t leaves;
+	size_t last;
+} fzn_node_files_open_t;
+
+typedef struct fzn_node_files_fetching {
+	fzn_node_files_t *files;
+	uint8_t root[FZN_BLOB_HASH_LEN];
+	size_t n_peers, window;
+	uint64_t budget, placed, steps;
+	int phase; /* 0 asking who holds it, 1 fetching, 2 over */
+	int opened, busy;
+	fzn_node_files_err_t err, last;
+	fzn_node_files_open_t h;
+	fzn_transfer_t transfer;
+	fzn_transfer_assign_t assigns[FZN_TRANSFER_MAX_ASSIGNS];
+	struct {
+		int live;
+		size_t peer;
+		uint32_t transfer;
+		uint32_t gen;
+		fzn_spool_range_t range;
+	} out[FZN_TRANSFER_MAX_ASSIGNS];
+	uint8_t cookies[FZN_NODE_FILES_PEERS_MAX][FZN_MSG_COOKIE_LEN];
+	unsigned failures[FZN_NODE_FILES_PEERS_MAX];
+	int alive[FZN_NODE_FILES_PEERS_MAX];
+	int asked[FZN_NODE_FILES_PEERS_MAX];  /* 0 not, 1 out, 2 answered */
+	size_t live_peers, holders, n_out, turn;
+	uint32_t next_transfer, gen;
+	unsigned since_checkpoint;
+} fzn_node_files_fetching_t;
+
+fzn_node_files_err_t fzn_node_files_fetching_begin(fzn_node_files_fetching_t *f,
+                                                   fzn_node_files_t *files,
+                                                   const uint8_t root[FZN_BLOB_HASH_LEN],
+                                                   size_t n_peers, size_t window,
+                                                   uint64_t budget);
+
+int fzn_node_files_fetching_next(fzn_node_files_fetching_t *f, uint64_t now_ms, size_t *peer,
+                                 uint32_t *tag, uint8_t *request, size_t cap,
+                                 size_t *request_len);
+
+void fzn_node_files_fetching_take(fzn_node_files_fetching_t *f, uint32_t tag,
+                                  const uint8_t *reply, size_t reply_len, uint64_t now_ms);
+
+int fzn_node_files_fetching_over(const fzn_node_files_fetching_t *f);
+
+fzn_node_files_err_t fzn_node_files_fetching_end(fzn_node_files_fetching_t *f, uint64_t *placed,
+                                                 size_t *holders);
+
+/* How long a span may be out before it is asked of somebody else, in
+ * milliseconds: FZN_NODE_FILES_SPAN_DEADLINE_MS, or sec 692's bench's in a
+ * test build -- the deadline a stepped fetch's caller gives each request. */
+unsigned long fzn_node_files_span_deadline_ms(void);
 
 /* ---- what the clients ask of a file, sec 495 --------------------------
  *
