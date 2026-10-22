@@ -68698,3 +68698,74 @@ enough? (very soon)". Read against hull's `project.md` and netcfgd's
     shaping its loss -- said to hull rather than built round here,
     netcfgd's 10.524 rule that a session about to start a new way to run
     a guest reads hull first.
+
+## 692. Two estates behind NATs, end to end on hull, and a file transfer bench, 2026-10-22
+
+**The holder, 2026-10-22, answering sec 691:** "this is a great idea, nat
+traversal is VERY likely to keep breaking as the protocol changes. We
+should have a full end to end test with multiple nodes, And we also need
+to test throughput/profiling for the file transfer protocol knobs to get
+them right later." And then: "by multiple nodes I mean at least two
+estates with several machines in each."
+
+So sec 691's recommendation is taken: fuzznet tests NAT traversal on hull.
+The test is one of sec 689's, the reachability journey, made concrete.
+
+### The end-to-end test
+
+**The topology:**
+- **Two estates, two users, each of several machines.** A root and at
+  least two members each, as an estate is one person's machines (sec 543).
+- **Each estate on a home network of its own:** a segment its machines
+  share, so LAN discovery runs within it, behind a NAT gateway out.
+- **Some machines behind a NAT of their own as well**, as a phone on
+  mobile data is.
+- **A public segment** with nothing on it but what is reachable: the
+  upstream both estates' NATs lead to.
+
+**The journeys across it:**
+- within an estate: a device joined, settings and the journal carried,
+  members reaching each other on the LAN and away from it;
+- between estates: a contact made by card, 1:1 lines both ways, delivery
+  across each user's devices, through relay and introduction where a
+  machine cannot be reached directly;
+- each again with loss and delay on the links, a machine restarted
+  mid-journey, and a NAT's mapping expired.
+
+**What it needs of hull**, said to hull (sec 691's rule) rather than
+built here:
+- named networks;
+- several machines on one network;
+- a NAT gateway from one network to another, its kind chosen where it
+  can be (a full cone, a symmetric one);
+- loss and delay on a link;
+- a machine started from a directory holding fuzznetd and a live script,
+  its logs read back out;
+- the whole driven from a test without root.
+
+hull's readiness, and which of these it will have, are hull's to say.
+
+### The file transfer bench
+
+**Its knobs, read 2026-10-22:**
+- **The span:** 64 leaves of 1 KB, `FZN_MSG_MAX_SPAN`.
+- **The window:** its ceiling is 2 spans, `FZND_FETCH_WINDOW`. Within it
+  the window adjusts, opening by one a window of deliveries and halving on
+  a loss (sec 494). Its comment names the socket's receive buffer as the
+  bound past which replies are lost to the kernel.
+- **The span deadline:** 3000 ms, `FZN_NODE_FILES_SPAN_DEADLINE_MS`.
+- **Leaves a round:** 4096, `FZND_FILE_LEAVES_A_ROUND`, so at most 4 MB of
+  one file a round. With the round's own cadence this is likely the first
+  bound on throughput, before the network's.
+- **Three failures before a peer is dropped.**
+
+**What the bench is to give, for tuning later:**
+- each knob settable at run time in a test build (the same build as sec
+  690's faults), so a sweep needs no rebuild between points;
+- throughput by file size, the number of peers holding it, loss and delay;
+- each daemon's CPU time a megabyte, from `/proc`, and where `perf` is
+  installed, where that time goes;
+- the meter's counts (sec 685), for bytes sent against bytes kept.
+
+Files stay outside sec 689's subset, so **the bench measures and nothing
+is tuned yet**, as the holder said: "to get them right later".
