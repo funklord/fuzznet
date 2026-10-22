@@ -68548,3 +68548,64 @@ next starts, so a flaw found early reshapes what follows.
 **What counts as done for a journey:** the four bars met, the design
 questions it reached triaged, and its section written with what was
 measured.
+
+## 690. Step 0a and 0b: a repeat runner, and faults inside fuzznetd, 2026-10-22
+
+Sec 689's first two instruments.
+
+**0a, `tool/live_repeat.py`** and `make livecheck-repeat SCRIPTS="..."
+RUNS=N`:
+- **Each named live script N times**, one at a time.
+- **A failed run's scratch is kept.** Each run gets its own TMPDIR and is
+  started through a wrapper that keeps a `TemporaryDirectory` under it.
+  So a failed run's daemon logs and stores stay under REPEAT_DIR, at most
+  `--keep` of them; a passing run's are removed, and the scripts are
+  unchanged.
+- **Bounded:** livecheck's own timeout for each script, then SIGINT, so
+  the scripts' `finally` blocks stop their daemons, then SIGKILL; and a
+  sweep for any process whose command line still names the run's
+  TMPDIR.
+- **Tried:** a run stopped at 5 s kept its scratch and left nothing
+  running. A pass reported in 0 s was suspected and timed by hand:
+  `live_deliver.py` really does take 0.9 s.
+
+**0b, `fault/fault.h` and `make fuzznetd-faults`:** the whole daemon
+built again into `$(BUILD_DIR)/faults` with FZN_TEST_FAULTS. Every other
+build compiles the hooks to constants, and `nm fuzznetd` finds no
+`fzn_fault_` symbol in it. The environment drives the faults:
+- **Datagrams** (`net/udp.c`): `FZN_FAULT_LOSS`, `FZN_FAULT_DUP` and
+  `FZN_FAULT_REORDER`, as percentages of datagrams sent, from a seeded
+  generator (`FZN_FAULT_SEED`).
+- **A power cut** (`FZN_FAULT_CRASH=NAME[:N]`) at three points so far:
+  - `persist.synced`: the temporary written and synced, not yet renamed;
+  - `persist.renamed`: renamed, before the caller hears it worked;
+  - `record.body`: a record written before its length, the gap
+    `record/store_file.c` already calls safe.
+
+  It dies by SIGKILL, with no cleanup and no core.
+- **A full disk** (`FZN_FAULT_WRITE_BUDGET=B`): after B bytes, persist,
+  record and log writes fail with ENOSPC.
+
+**`tool/live_faults.py`** (`make livecheck-faults`) shows each fault
+taken:
+- a: B at 100 per cent loss reaches A with nothing, and at none 375
+  bytes cross each way;
+- b: a daemon dies by SIGKILL at `persist.synced` and serves from the
+  same store after;
+- c: a full disk is said and the setting refused (`error the journal
+  refused`).
+
+**Control:** the same script against the normal `fuzznetd` fails at a,
+as it must.
+
+**The first baseline**, the runner's first use: the 21 subset scripts
+that `make livecheck` runs, five times each against one copy of
+fuzznetd. 105 runs, all passed. The machine was quiet, its load falling
+from 120 to near 10. Sec 675's failures came at a load of 160 to 175, so
+this is no evidence about them. Repeating under load is the runner's
+next use, not this one.
+
+**Found on the way:** the first save is at start, before the daemon
+answers anything, so a crash point in the save path fires during
+start-up. The scenarios have to aim a crash point with `:N` to reach
+the save they mean.

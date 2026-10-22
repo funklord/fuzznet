@@ -5,6 +5,7 @@
 #endif
 
 #include "store_file.h"
+#include "../fault/fault.h"
 
 #include "../wire/bytes.h"
 
@@ -104,8 +105,10 @@ static int store_file_put(void *ctx, const uint8_t issuer[FZN_PUBKEY_LEN], uint3
 	/* THE RECORD FIRST, THE LENGTH SECOND. A process that dies between them
 	 * leaves a slot whose length is still zero -- absent, with rubbish
 	 * behind it that the next writer overwrites and no reader can see. */
-	if (pwrite(fd, bytes, len, at + 2) != (ssize_t)len)
+	if (!FZN_FAULT_WRITE(len + sizeof(prefix)) || pwrite(fd, bytes, len, at + 2) != (ssize_t)len)
 		return 0;
+	/* A FAULT TEST'S POWER CUT, `fault/fault.h`, in the gap above. */
+	FZN_FAULT_POINT("record.body");
 	fzn_put_be16(prefix, (uint16_t)len);
 	if (pwrite(fd, prefix, sizeof(prefix), at) != (ssize_t)sizeof(prefix))
 		return 0;

@@ -25,6 +25,7 @@
  */
 
 #include "persist_file.h"
+#include "../fault/fault.h"
 
 /* Diagnostics through flog, vendored and possibly absent. sec 209. */
 #ifdef FZN_FLOG_ON
@@ -259,7 +260,7 @@ static int file_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	 * and a failing fclose is the one that reports a write nobody had
 	 * noticed failing yet. */
 	what = "write";
-	ok = fwrite(bytes, 1u, len, f) == len;
+	ok = FZN_FAULT_WRITE(len) && fwrite(bytes, 1u, len, f) == len;
 	/* FLUSHED AND SYNCED BEFORE THE RENAME. Renaming over the target with
 	 * the new bytes still in a buffer gives a crash the chance to leave
 	 * the name pointing at an empty file -- which parses as nothing and
@@ -272,6 +273,10 @@ static int file_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 		what = "sync to disk";
 		ok = fsync(fileno(f)) == 0;
 	}
+	/* A FAULT TEST'S POWER CUT, `fault/fault.h`: the temporary whole and
+	 * synced, the target not yet moved over. */
+	if (ok)
+		FZN_FAULT_POINT("persist.synced");
 	if (fclose(f) != 0) {
 		if (ok)
 			what = "close";
@@ -298,6 +303,8 @@ static int file_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 		           path, err);
 		return 0;
 	}
+	/* AND AFTER THE MOVE, before a caller has heard it worked. */
+	FZN_FAULT_POINT("persist.renamed");
 	return 1;
 }
 

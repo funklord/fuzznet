@@ -1,6 +1,7 @@
 /* See udp.h. */
 
 #include "udp.h"
+#include "../fault/fault.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -131,20 +132,10 @@ fzn_udp_err_t fzn_udp_resolve(int family, const char *host, uint16_t port,
 	return FZN_UDP_OK;
 }
 
-fzn_udp_err_t fzn_udp_send(int fd, const fzn_udp_addr_t *to,
-                           const uint8_t *frame, size_t len)
+/* ONE DATAGRAM, as sent: the send itself, the faults below aside. */
+static fzn_udp_err_t send_one(int fd, const fzn_udp_addr_t *to, const uint8_t *frame, size_t len)
 {
 	ssize_t n;
-
-	if (fd < 0 || !to || !frame || len == 0)
-		return FZN_UDP_ERR_MALFORMED;
-	if (to->len == 0 || to->len > sizeof(to->storage))
-		return FZN_UDP_ERR_MALFORMED;
-	/* One frame per datagram, never fragmented (udp.h). A frame the seal
-	 * could not have produced is refused here rather than handed to IP
-	 * to fragment. */
-	if (len > FZN_UDP_DATAGRAM_MAX)
-		return FZN_UDP_ERR_OVERSIZED;
 
 	for (;;) {
 		n = sendto(fd, frame, len, 0,
@@ -163,6 +154,60 @@ fzn_udp_err_t fzn_udp_send(int fd, const fzn_udp_addr_t *to,
 	if ((size_t)n != len)
 		return FZN_UDP_ERR_SYSTEM;
 	return FZN_UDP_OK;
+}
+
+#ifdef FZN_TEST_FAULTS
+/* ONE DATAGRAM HELD BACK, `fault/fault.h`: sent after the next. */
+static struct {
+	int fd;
+	fzn_udp_addr_t to;
+	uint8_t frame[FZN_UDP_DATAGRAM_MAX];
+	size_t len;
+} held;
+#endif
+
+fzn_udp_err_t fzn_udp_send(int fd, const fzn_udp_addr_t *to,
+                           const uint8_t *frame, size_t len)
+{
+	fzn_udp_err_t err;
+
+	if (fd < 0 || !to || !frame || len == 0)
+		return FZN_UDP_ERR_MALFORMED;
+	if (to->len == 0 || to->len > sizeof(to->storage))
+		return FZN_UDP_ERR_MALFORMED;
+	/* One frame per datagram, never fragmented (udp.h). A frame the seal
+	 * could not have produced is refused here rather than handed to IP
+	 * to fragment. */
+	if (len > FZN_UDP_DATAGRAM_MAX)
+		return FZN_UDP_ERR_OVERSIZED;
+#ifdef FZN_TEST_FAULTS
+	switch (FZN_FAULT_DATAGRAM()) {
+	case FZN_FAULT_DROP:
+		return FZN_UDP_OK;
+	case FZN_FAULT_TWICE:
+		(void)send_one(fd, to, frame, len);
+		break;
+	case FZN_FAULT_HOLD:
+		if (!held.len) {
+			held.fd = fd;
+			held.to = *to;
+			memcpy(held.frame, frame, len);
+			held.len = len;
+			return FZN_UDP_OK;
+		}
+		break;
+	case FZN_FAULT_SEND:
+		break;
+	}
+#endif
+	err = send_one(fd, to, frame, len);
+#ifdef FZN_TEST_FAULTS
+	if (held.len) {
+		(void)send_one(held.fd, &held.to, held.frame, held.len);
+		held.len = 0;
+	}
+#endif
+	return err;
 }
 
 fzn_udp_err_t fzn_udp_recv(int fd, uint8_t *buf, size_t cap, size_t *len,

@@ -201,6 +201,7 @@
 #include <fuzznet/node/serve.h>
 #include <fuzznet/node/provision.h>
 #include <fuzznet/node/caller.h>
+#include <fuzznet/fault/fault.h>
 #include <fuzznet/node/meter.h>
 #include <fuzznet/node/schema.h>
 #include <fuzznet/state/schema.h>

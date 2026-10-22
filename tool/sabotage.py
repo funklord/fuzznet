@@ -2612,8 +2612,8 @@ SABOTAGES = [
 	(
 		"store-file-crash-order",
 		"record/store_file.c",
-		"\tif (pwrite(fd, bytes, len, at + 2) != (ssize_t)len)\n\t\treturn 0;\n\tfzn_put_be16(prefix, (uint16_t)len);\n\tif (pwrite(fd, prefix, sizeof(prefix), at) != (ssize_t)sizeof(prefix))\n\t\treturn 0;\n",
-		"\tfzn_put_be16(prefix, (uint16_t)len);\n\tif (pwrite(fd, prefix, sizeof(prefix), at) != (ssize_t)sizeof(prefix))\n\t\treturn 0;\n\tif (pwrite(fd, bytes, len, at + 2) != (ssize_t)len)\n\t\treturn 0;\n",
+		"\tif (!FZN_FAULT_WRITE(len + sizeof(prefix)) || pwrite(fd, bytes, len, at + 2) != (ssize_t)len)\n\t\treturn 0;\n\t/* A FAULT TEST'S POWER CUT, `fault/fault.h`, in the gap above. */\n\tFZN_FAULT_POINT(\"record.body\");\n\tfzn_put_be16(prefix, (uint16_t)len);\n\tif (pwrite(fd, prefix, sizeof(prefix), at) != (ssize_t)sizeof(prefix))\n\t\treturn 0;\n",
+		"\tfzn_put_be16(prefix, (uint16_t)len);\n\tif (pwrite(fd, prefix, sizeof(prefix), at) != (ssize_t)sizeof(prefix))\n\t\treturn 0;\n\tif (!FZN_FAULT_WRITE(len + sizeof(prefix)) || pwrite(fd, bytes, len, at + 2) != (ssize_t)len)\n\t\treturn 0;\n\t/* A FAULT TEST'S POWER CUT, `fault/fault.h`, in the gap above. */\n\tFZN_FAULT_POINT(\"record.body\");\n",
 		"the length is written after the record so a process that dies between them leaves the slot absent; the other order leaves a length promising bytes that were never stored",
 	),
 	(
@@ -12872,6 +12872,9 @@ def dirty_files(paths):
 # recorded.
 NO_GUARDS = {
 	"version/version.c": "three accessors returning macros; nothing to remove",
+	"fault/fault.c": "compiled out of every build `make test` makes (FZN_TEST_FAULTS, sec "
+	                 "690), so no mutation here could be caught; its faults are shown "
+	                 "taken by `make livecheck-faults` instead",
 }
 
 

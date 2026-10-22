@@ -301,3 +301,4 @@ __pycache__/
 /location/test/gpsd_test
 /sticker/test/sticker_test
 /live-repeat/
+/faults/

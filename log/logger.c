@@ -3,6 +3,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "logger.h"
+#include "../fault/fault.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -290,7 +291,7 @@ fzn_logger_err_t fzn_logger_log(fzn_logger_t *logger, fzn_entry_level_t level,
 	if (!kept)
 		return FZN_LOGGER_OK;
 	if (!current(logger) || !rotate_if_full(logger, len, e.time_us)
-	    || write(logger->fd, line_buf, len) != (ssize_t)len)
+	    || !FZN_FAULT_WRITE(len) || write(logger->fd, line_buf, len) != (ssize_t)len)
 		return FZN_LOGGER_ERR_FILE;
 	return FZN_LOGGER_OK;
 }
