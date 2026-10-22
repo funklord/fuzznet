@@ -14,6 +14,8 @@ One store, one daemon, a spec and its art in scratch.
        refused, and nothing is saved by either
     d  `remove sticker ROOT` forgets the pack and keeps its bytes: listed no
        more, and still answered through its whole reference
+    e  a pack of thirty stickers, past one reply, read a page at a time
+       (`list sticker PACK FROM`, sec 684), gives each sticker once
 
 Against a daemon with no sticker verbs, phase a is `unsupported`.
 
@@ -109,16 +111,16 @@ def main(argv):
 				raise failed("a: put sticker answered %r" % got)
 			root = got[1]
 			listed = ask(sock, "list sticker").split()
-			rows = [r.split(",") for r in listed[2:]]
-			if listed[:2] != ["ok", "1"] or len(rows) != 1 or rows[0][0] != root \
+			rows = [r.split(",") for r in listed[3:]]
+			if listed[:3] != ["ok", "1", "0"] or len(rows) != 1 or rows[0][0] != root \
 			   or rows[0][2] != "cats%20and%20their%20moods" or rows[0][3:] != ["1", "estate"]:
 				raise failed("a: list sticker answered %r" % listed)
 			print("livecheck: a: the pack was built from its spec, put, and saved to the "
 			      "estate")
 
 			got = ask(sock, "list sticker " + root).split()
-			if got[:2] != ["ok", "2"] or got[2] != "1,1,0,a%20ginger%20cat%20waving%20hello" \
-			   or got[3] != "2,2,1,the%20same%20cat%20spinning%20very%20fast":
+			if got[:3] != ["ok", "2", "0"] or got[3] != "1,1,0,a%20ginger%20cat%20waving%20hello" \
+			   or got[4] != "2,2,1,the%20same%20cat%20spinning%20very%20fast":
 				raise failed("b: list sticker ROOT answered %r" % got)
 			ref = ask(sock, "get sticker %s 1" % root)
 			if not ref.startswith("ok fzn:sticker/" + root + "/") \
@@ -152,7 +154,7 @@ def main(argv):
 			got = ask(sock, "put sticker " + bad)
 			if not got.startswith("malformed the pack would not build"):
 				raise failed("c: a repeated description was answered %r" % got)
-			if ask(sock, "list sticker").split()[:2] != ["ok", "1"]:
+			if ask(sock, "list sticker").split()[:3] != ["ok", "1", "0"]:
 				raise failed("c: a refused spec saved something")
 			print("livecheck: c: a path above the spec and a repeated description were "
 			      "refused, nothing saved")
@@ -161,12 +163,41 @@ def main(argv):
 			pack_ref = whole[1] + whole[2] + "%016x" % int(whole[3])
 			if ask(sock, "remove sticker " + root) != "ok":
 				raise failed("d: remove sticker was refused")
-			if ask(sock, "list sticker") != "ok 0":
+			if ask(sock, "list sticker") != "ok 0 0":
 				raise failed("d: a forgotten pack is still listed")
 			got = ask(sock, "list sticker " + pack_ref).split()
-			if got[:2] != ["ok", "2"]:
+			if got[:3] != ["ok", "2", "0"]:
 				raise failed("d: a forgotten pack's bytes are gone: %r" % got)
 			print("livecheck: d: the pack forgotten, and its bytes kept")
+
+			# e: A PACK PAST ONE REPLY, sec 684: thirty stickers with long
+			# descriptions, read a page at a time, each sticker once.
+			big = os.path.join(packdir, "big.spec")
+			with open(big, "w") as f:
+				f.write("name thirty cats\n")
+				for i in range(1, 31):
+					f.write("sticker %d static\ndescription cat number %d, with a "
+					        "description long enough to fill a row\n"
+					        "inline png 8 8 art/wave.png\n" % (i, i))
+			got = ask(sock, "put sticker " + big).split()
+			if len(got) != 2 or got[0] != "ok":
+				raise failed("e: the thirty-sticker pack answered %r" % got)
+			seen, start, pages = [], 0, 0
+			while True:
+				page = ask(sock, "list sticker %s %d" % (got[1], start))
+				words = page.split()
+				if words[:3] != ["ok", "30", str(start)] or len(page) > 1024:
+					raise failed("e: a page from %d answered %r" % (start, page[:120]))
+				rows = words[3:]
+				if not rows:
+					break
+				seen += [int(r.split(",")[0]) for r in rows]
+				start += len(rows)
+				pages += 1
+			if seen != list(range(1, 31)) or pages < 2:
+				raise failed("e: the pages gave %r over %d page(s)" % (seen, pages))
+			print("livecheck: e: a pack past one reply was read in %d pages, each sticker once"
+			      % pages)
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

@@ -20,13 +20,16 @@
  *   put sticker SPEC        a pack built from the spec at the absolute
  *                           path SPEC and the files it names beside it,
  *                           put, and saved. `ok ROOT`.
- *   list sticker            the saved packs: `ok N ROOT,LENGTH,NAME,HELD,
- *                           SCOPE ...`, NAME escaped (`local/escape.h`),
- *                           HELD 1 when the pack is whole here, SCOPE
- *                           `estate` or `host`.
- *   list sticker PACK       a pack's stickers: `ok N ID,TYPE,FLAGS,DESC
- *                           ...`, DESC escaped. PACK a saved pack's ROOT,
- *                           or the 144 hex of any held pack's reference.
+ *   list sticker [FROM]     the saved packs: `ok TOTAL FROM ROOT,LENGTH,
+ *                           NAME,HELD,SCOPE ...`, as many as fit one reply
+ *                           from the FROMth (sec 684), NAME escaped
+ *                           (`local/escape.h`), HELD 1 when the pack is
+ *                           whole here, SCOPE `estate` or `host`.
+ *   list sticker PACK [FROM]
+ *                           a pack's stickers, paged as above: `ok TOTAL
+ *                           FROM ID,TYPE,FLAGS,DESC ...`, DESC escaped.
+ *                           PACK a saved pack's ROOT, or the 144 hex of any
+ *                           held pack's reference.
  *   get sticker PACK ID     `ok fzn:sticker/...`, the reference a message
  *                           carries.
  *   get sticker PACK ID ROLE PATH

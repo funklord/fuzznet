@@ -68072,3 +68072,39 @@ for a line:
 reference to stand for "not here", and was answered `malformed`, since
 a length of 0 is no reference. The test asked for the wrong refusal, so
 it now names a pack that is absent at a real length.
+
+## 684. The sticker listings paged, a reply being 1024 bytes, 2026-10-22
+
+**Found while designing sec 685's traffic listing:** a local reply is at
+most FZN_REPLY_MAX, 1024 bytes (`local/vocabulary.h`, `node/local.c`). Sec
+681's `list sticker` and `list sticker PACK` wrote every row and answered
+`error the list does not fit a reply` past that.
+- **A pack of 64 stickers is about 4 KB**, and a collection of ten or so
+  packs is past 1 KB.
+- **Measured:** the build before this section answers a pack of thirty
+  stickers with that error.
+- **Why nothing caught it:** fuzzypickles' clients and every test here
+  used packs of two or three stickers.
+
+**Built: both listings page**, the shape every listing here uses (`list
+grant`, `list device`, `list catalog`): `list sticker [FROM]` and `list
+sticker PACK [FROM]` answer `ok TOTAL FROM ROW ...`, with as many rows as
+fit one reply from the FROMth. A FROM is at most ten digits and a PACK 64
+or 144 hex, so one word cannot be both. Rows are made first and paged
+after:
+- a collection up to 256 packs;
+- a row up to 320 bytes, since a description of 96 bytes escapes to as
+  many as 288.
+
+**A reply's shape changed**, from `ok N ROW ...` to `ok TOTAL FROM ROW
+...`. fuzzypickles' clients parse the old one, and are told.
+
+**Tested:**
+- `tool/live_stickers.py` reads the new shape throughout. Its new phase
+  e puts a pack of thirty stickers with long descriptions and reads it a
+  page at a time: three pages, each within 1024 bytes, each sticker once,
+  in order.
+- `tool/live_pairing.py` phase h reads the new shape.
+
+**Control**: the build before this section, run on the same pack,
+answers `error the list does not fit a reply`.

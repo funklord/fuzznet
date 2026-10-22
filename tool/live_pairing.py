@@ -285,7 +285,7 @@ def main(argv):
 			expect(socks["a"], "a", "add message bob out %s %s"
 			       % (LINE2, ref.replace("%", "%25").replace(" ", "%20")), "ok")
 			until = time.monotonic() + 150.0
-			while not ask(socks["b"], "list sticker " + whole).startswith("ok 1 "):
+			while not ask(socks["b"], "list sticker " + whole).startswith("ok 1 0 "):
 				if time.monotonic() > until:
 					raise failed("h: B never fetched the pack its line names: %r, B's "
 					             "messages %r" % (ask(socks["b"], "list sticker " + whole),
@@ -299,7 +299,7 @@ def main(argv):
 				if f.read() != art:
 					raise failed("h: the sticker B drew is not A's art")
 			# RECEIVING IS NOT SAVING; keeping is B's act, sec 683.
-			if ask(socks["b"], "list sticker") != "ok 0":
+			if ask(socks["b"], "list sticker") != "ok 0 0":
 				raise failed("h: a pack fetched for a line was saved unasked")
 			if not ask(socks["b"], "add sticker " + "00" * 64 + "%016x" % 100) \
 			       .startswith("error that pack is not here"):
@@ -308,8 +308,8 @@ def main(argv):
 			if len(got) < 2 or got[0] != "ok" or got[1] != fields[1]:
 				raise failed("h: add sticker answered %r" % got)
 			listed = ask(socks["b"], "list sticker").split()
-			if listed[:2] != ["ok", "1"] or not listed[2].startswith(fields[1] + ",") \
-			   or ",cats,1," not in listed[2]:
+			if listed[:3] != ["ok", "1", "0"] or not listed[3].startswith(fields[1] + ",") \
+			   or ",cats,1," not in listed[3]:
 				raise failed("h: B's collection is %r after keeping the pack" % listed)
 			print("livecheck: h: a line carrying a sticker made B fetch A's pack, granted as "
 			      "it went out, and draw it; fetched was not saved until B kept it")

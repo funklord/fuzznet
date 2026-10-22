@@ -380,12 +380,40 @@ static size_t put_sticker(const fzn_node_stickers_t *st, const uint8_t *w, size_
 	return save_pack(st, &ref, m.name, m.name_len, reply, cap);
 }
 
+/* THE MOST PACKS A COLLECTION LISTS: a setting each, and fzpd's registry
+ * held 64. */
+#define SAVED_MAX 256u
+/* A ROW: a description of 96 bytes escapes to as many as 288. */
+#define ROW_MAX 320u
+
 struct listing {
 	const fzn_node_stickers_t *st;
-	char *reply;
-	size_t cap, at, count;
-	int over;
+	char (*rows)[ROW_MAX];
+	size_t count, cap;
 };
+
+/* A PAGE of `rows`, `total` of them, from `from`: `ok TOTAL FROM ROW ...`
+ * with as many as fit one reply -- the shape every listing here pages in
+ * (`list grant`, `list device`, `list catalog`), since a local reply is
+ * FZN_REPLY_MAX bytes. */
+static size_t page(char (*rows)[ROW_MAX], size_t total, size_t from, char *reply, size_t cap)
+{
+	size_t at = (size_t)snprintf(reply, cap, "ok %zu %zu", total, from), i;
+
+	for (i = from; i < total; i++) {
+		size_t n = strlen(rows[i]);
+
+		/* ROOM FOR THE ROW, its space and the newline. */
+		if (at + 1u + n + 1u >= cap)
+			break;
+		reply[at++] = ' ';
+		memcpy(reply + at, rows[i], n);
+		at += n;
+	}
+	reply[at++] = '\n';
+	reply[at] = '\0';
+	return at;
+}
 
 static void list_one(void *ctx, const fzn_setting_t *s, fzn_setting_rank_t rank)
 {
@@ -395,6 +423,8 @@ static void list_one(void *ctx, const fzn_setting_t *s, fzn_setting_rank_t rank)
 	uint64_t held_len = 0;
 	int held, k;
 
+	if (l->count == l->cap)
+		return;
 	(void)rank;
 	if (!s->set || s->key_len != KEY_LEN || memcmp(s->key, KEY_PREFIX, KEY_PREFIX_LEN) != 0)
 		return;
@@ -411,65 +441,66 @@ static void list_one(void *ctx, const fzn_setting_t *s, fzn_setting_rank_t rank)
 		return;
 	held = fzn_node_files_held(l->st->files, ref.root, &held_len) == FZN_NODE_FILES_OK;
 	hex_of(ref.root, FZN_BLOB_HASH_LEN, root_hex);
-	k = snprintf(l->reply + l->at, l->cap - l->at, " %s,%llu,%s,%d,%s", root_hex,
+	k = snprintf(l->rows[l->count], ROW_MAX, "%s,%llu,%s,%d,%s", root_hex,
 	             (unsigned long long)ref.length, name, held,
 	             s->scope == FZN_SCOPE_ESTATE ? "estate" : "host");
-	if (k < 0 || (size_t)k >= l->cap - l->at) {
-		l->over = 1;
-		return;
-	}
-	l->at += (size_t)k;
-	l->count++;
+	if (k > 0 && (size_t)k < ROW_MAX)
+		l->count++;
 }
 
-static size_t list_saved(const fzn_node_stickers_t *st, char *reply, size_t cap)
+static size_t list_saved(const fzn_node_stickers_t *st, size_t from, char *reply, size_t cap)
 {
-	static char rows[16384];
+	static char rows[SAVED_MAX][ROW_MAX];
 	struct listing l;
 
 	memset(&l, 0, sizeof(l));
 	l.st = st;
-	l.reply = rows;
-	l.cap = sizeof(rows);
-	rows[0] = '\0';
+	l.rows = rows;
+	l.cap = SAVED_MAX;
 	if (fzn_node_settings_each(st->settings, list_one, &l) != FZN_NODE_SETTINGS_OK)
 		return REPLY("error the settings would not list\n");
-	if (l.over)
-		return REPLY("error the list does not fit a reply\n");
-	{
-		int k = snprintf(reply, cap, "ok %zu%s\n", l.count, rows);
-
-		if (k < 0 || (size_t)k >= cap)
-			return REPLY("error the list does not fit a reply\n");
-		return (size_t)k;
-	}
+	return page(rows, l.count, from, reply, cap);
 }
 
 static size_t list_pack(const fzn_node_stickers_t *st, const fzn_node_file_ref_t *ref,
-                        char *reply, size_t cap)
+                        size_t from, char *reply, size_t cap)
 {
 	static fzn_sticker_manifest_t m;
+	static char rows[FZN_STICKER_PER_PACK_MAX][ROW_MAX];
 	const uint8_t *data;
-	size_t data_len, i, at;
+	size_t data_len, i;
 	uint8_t *bytes = pack_of(st, ref, &m, &data, &data_len);
 
 	if (!bytes)
 		return REPLY("error that pack is not here whole, or is no pack\n");
-	at = REPLY("ok %zu", m.count);
-	for (i = 0; i < m.count && at < cap; i++) {
+	for (i = 0; i < m.count; i++) {
 		char desc[3u * FZN_STICKER_DESC_MAX + 1u];
 		size_t d = 0;
 
 		(void)fzn_escape((const uint8_t *)m.entries[i].description, m.entries[i].description_len,
 		                 desc, sizeof(desc) - 1u, &d);
 		desc[d] = '\0';
-		at += (size_t)snprintf(reply + at, cap - at, " %u,%u,%u,%s", (unsigned)m.entries[i].id,
-		                       (unsigned)m.entries[i].type, (unsigned)m.entries[i].flags, desc);
+		(void)snprintf(rows[i], ROW_MAX, "%u,%u,%u,%s", (unsigned)m.entries[i].id,
+		               (unsigned)m.entries[i].type, (unsigned)m.entries[i].flags, desc);
 	}
 	free(bytes);
-	if (at + 1u >= cap)
-		return REPLY("error the list does not fit a reply\n");
-	return at + (size_t)snprintf(reply + at, cap - at, "\n");
+	return page(rows, m.count, from, reply, cap);
+}
+
+/* A WORD AS A PAGE'S START, at most ten digits: 1, or 0. */
+static int from_of(const uint8_t *w, size_t n, size_t *from)
+{
+	size_t i;
+
+	if (!n || n > 10u)
+		return 0;
+	*from = 0;
+	for (i = 0; i < n; i++) {
+		if (w[i] < '0' || w[i] > '9')
+			return 0;
+		*from = *from * 10u + (size_t)(w[i] - '0');
+	}
+	return 1;
 }
 
 static const fzn_sticker_entry_t *entry_of(const fzn_sticker_manifest_t *m, unsigned long id)
@@ -613,13 +644,22 @@ size_t fzn_node_stickers_local(void *ctx, fzn_origin_t origin, const fzn_request
 		return REPLY("denied stickers are this node's own user's\n");
 	if (!st || !st->files || !st->settings)
 		return REPLY("error this node keeps no stickers\n");
-	if (request->parsed == FZN_VERB_LIST && !next_word(&at, &left, &w, &n))
-		return list_saved(st, reply, cap);
-	if (request->parsed == FZN_VERB_LIST && left == 0u)
-		return pack_named(st, w, n, &ref) ? list_pack(st, &ref, reply, cap)
-		                                  : REPLY("error no such pack\n");
-	if (request->parsed == FZN_VERB_LIST)
-		return REPLY("malformed list sticker [PACK]\n");
+	/* `list sticker [FROM]` and `list sticker PACK [FROM]`: a FROM is at
+	 * most ten digits, a PACK 64 or 144 hex. */
+	if (request->parsed == FZN_VERB_LIST) {
+		size_t from = 0;
+
+		if (!next_word(&at, &left, &w, &n))
+			return list_saved(st, 0, reply, cap);
+		if (n <= 10u)
+			return !left && from_of(w, n, &from) ? list_saved(st, from, reply, cap)
+			                                     : REPLY("malformed list sticker [PACK] [FROM]\n");
+		if (!pack_named(st, w, n, &ref))
+			return REPLY("error no such pack\n");
+		if (next_word(&at, &left, &w, &n) && (left || !from_of(w, n, &from)))
+			return REPLY("malformed list sticker [PACK] [FROM]\n");
+		return list_pack(st, &ref, from, reply, cap);
+	}
 	if (!next_word(&at, &left, &w, &n))
 		return REPLY("malformed %s sticker ...\n", request->parsed == FZN_VERB_PUT   ? "put"
 		                                           : request->parsed == FZN_VERB_GET ? "get"
