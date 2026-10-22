@@ -226,6 +226,65 @@ static int pack_named(const fzn_node_stickers_t *st, const uint8_t *w, size_t n,
 	return n == REF_HEX && unhex(w, n, raw) && fzn_node_file_ref_read(raw, ref);
 }
 
+/* SAVED: `REF NAME`, the name escaped, the estate's cell or this host's --
+ * `ok ROOT`, or `ok ROOT host`. */
+static size_t save_pack(const fzn_node_stickers_t *st, const fzn_node_file_ref_t *ref,
+                        const char *pack_name, size_t pack_name_len, char *reply, size_t cap)
+{
+	char root_hex[2u * FZN_BLOB_HASH_LEN + 1u], ref_hex[REF_HEX + 1u];
+	char name[3u * FZN_STICKER_NAME_MAX + 1u];
+	uint8_t key[KEY_LEN], raw[FZN_NODE_FILE_REF_LEN], value[FZN_SETTING_VALUE_MAX];
+	size_t name_len = 0, value_len;
+	fzn_node_settings_err_t serr;
+
+	fzn_node_file_ref_write(ref, raw);
+	hex_of(raw, sizeof(raw), ref_hex);
+	(void)fzn_escape((const uint8_t *)pack_name, pack_name_len, name, sizeof(name) - 1u,
+	                 &name_len);
+	name[name_len] = '\0';
+	value_len = (size_t)snprintf((char *)value, sizeof(value), "%s %s", ref_hex, name);
+	cell_key(ref->root, key);
+	hex_of(ref->root, FZN_BLOB_HASH_LEN, root_hex);
+	/* A NAME THAT ESCAPES PAST A SETTING'S VALUE is refused, never cut: a
+	 * name of 48 bytes escapes to as many as 144. */
+	if (value_len >= sizeof(value))
+		return REPLY("error the pack %s is here, and its name is too long to save escaped\n",
+		             root_hex);
+	serr = st->settings->estate
+	       ? fzn_node_settings_write(st->settings, FZN_SCOPE_ESTATE, st->settings->estate, key,
+	                                 sizeof(key), 1, value, value_len)
+	       : FZN_NODE_SETTINGS_REFUSED;
+	if (serr == FZN_NODE_SETTINGS_OK)
+		return REPLY("ok %s\n", root_hex);
+	if (serr != FZN_NODE_SETTINGS_REFUSED || !st->host
+	    || fzn_node_settings_write(st->settings, FZN_SCOPE_HOST, st->host, key, sizeof(key), 1,
+	                               value, value_len)
+	               != FZN_NODE_SETTINGS_OK)
+		return REPLY("error the pack %s is here, and would not save\n", root_hex);
+	return REPLY("ok %s host\n", root_hex);
+}
+
+/* `add sticker REF`, sec 683: a pack held here -- one a message named and
+ * the sweep fetched -- saved by its whole reference, its name read from the
+ * pack. Receiving never saves; this is the user's deliberate keep. */
+static size_t add_sticker(const fzn_node_stickers_t *st, const uint8_t *w, size_t n,
+                          char *reply, size_t cap)
+{
+	static fzn_sticker_manifest_t m;
+	uint8_t raw[FZN_NODE_FILE_REF_LEN];
+	fzn_node_file_ref_t ref;
+	const uint8_t *data;
+	size_t data_len;
+	uint8_t *bytes;
+
+	if (n != REF_HEX || !unhex(w, n, raw) || !fzn_node_file_ref_read(raw, &ref))
+		return REPLY("malformed add sticker REF, the pack's reference in 144 hex\n");
+	if (!(bytes = pack_of(st, &ref, &m, &data, &data_len)))
+		return REPLY("error that pack is not here whole, or is no pack\n");
+	free(bytes);
+	return save_pack(st, &ref, m.name, m.name_len, reply, cap);
+}
+
 static size_t put_sticker(const fzn_node_stickers_t *st, const uint8_t *w, size_t n,
                           char *reply, size_t cap)
 {
@@ -236,15 +295,12 @@ static size_t put_sticker(const fzn_node_stickers_t *st, const uint8_t *w, size_
 	static uint32_t sound_len[FZN_STICKER_PER_PACK_MAX];
 	static uint8_t *owned[FZN_STICKER_PER_PACK_MAX * (FZN_STICKER_RENDITIONS_MAX + 1u)];
 	char spec_path[1024], dir[1024], file[1024 + FZN_STICKER_PATH_MAX + 2u], err[160];
-	char scratch[FZN_NODE_FILES_DIR_MAX + 48u], root_hex[2u * FZN_BLOB_HASH_LEN + 1u];
-	char ref_hex[REF_HEX + 1u], name[3u * FZN_STICKER_NAME_MAX + 1u];
-	uint8_t key[KEY_LEN], raw[FZN_NODE_FILE_REF_LEN], value[FZN_SETTING_VALUE_MAX];
-	size_t n_owned = 0, spec_len = 0, pack_len = 0, i, r, name_len = 0, value_len;
+	char scratch[FZN_NODE_FILES_DIR_MAX + 48u];
+	size_t n_owned = 0, spec_len = 0, pack_len = 0, i, r;
 	uint64_t total = 0;
 	uint8_t *spec, *pack = NULL;
 	const char *slash, *why = NULL;
 	fzn_node_file_ref_t ref;
-	fzn_node_settings_err_t serr;
 
 	if (n >= sizeof(spec_path) || w[0] != '/')
 		return REPLY("malformed the spec's path is absolute\n");
@@ -321,31 +377,7 @@ static size_t put_sticker(const fzn_node_stickers_t *st, const uint8_t *w, size_
 		return REPLY("error the pack would not be put\n");
 	}
 	(void)unlink(scratch);
-	/* SAVED: `REF NAME`, the name escaped, the estate's cell or this
-	 * host's. */
-	fzn_node_file_ref_write(&ref, raw);
-	hex_of(raw, sizeof(raw), ref_hex);
-	(void)fzn_escape((const uint8_t *)m.name, m.name_len, name, sizeof(name) - 1u, &name_len);
-	name[name_len] = '\0';
-	value_len = (size_t)snprintf((char *)value, sizeof(value), "%s %s", ref_hex, name);
-	/* A NAME THAT ESCAPES PAST A SETTING'S VALUE is refused, never cut: a
-	 * name of 48 bytes escapes to as many as 144. */
-	if (value_len >= sizeof(value))
-		return REPLY("error the pack is put, and its name is too long to save escaped\n");
-	cell_key(ref.root, key);
-	hex_of(ref.root, FZN_BLOB_HASH_LEN, root_hex);
-	serr = st->settings->estate
-	       ? fzn_node_settings_write(st->settings, FZN_SCOPE_ESTATE, st->settings->estate, key,
-	                                 sizeof(key), 1, value, value_len)
-	       : FZN_NODE_SETTINGS_REFUSED;
-	if (serr == FZN_NODE_SETTINGS_OK)
-		return REPLY("ok %s\n", root_hex);
-	if (serr != FZN_NODE_SETTINGS_REFUSED || !st->host
-	    || fzn_node_settings_write(st->settings, FZN_SCOPE_HOST, st->host, key, sizeof(key), 1,
-	                               value, value_len)
-	               != FZN_NODE_SETTINGS_OK)
-		return REPLY("error the pack is put, %s, and would not save\n", root_hex);
-	return REPLY("ok %s host\n", root_hex);
+	return save_pack(st, &ref, m.name, m.name_len, reply, cap);
 }
 
 struct listing {
@@ -574,7 +606,8 @@ size_t fzn_node_stickers_local(void *ctx, fzn_origin_t origin, const fzn_request
 	    || memcmp(subject, "sticker", 7u) != 0)
 		return 0;
 	if (request->parsed != FZN_VERB_PUT && request->parsed != FZN_VERB_LIST
-	    && request->parsed != FZN_VERB_GET && request->parsed != FZN_VERB_REMOVE)
+	    && request->parsed != FZN_VERB_GET && request->parsed != FZN_VERB_REMOVE
+	    && request->parsed != FZN_VERB_ADD)
 		return 0;
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return REPLY("denied stickers are this node's own user's\n");
@@ -588,11 +621,14 @@ size_t fzn_node_stickers_local(void *ctx, fzn_origin_t origin, const fzn_request
 	if (request->parsed == FZN_VERB_LIST)
 		return REPLY("malformed list sticker [PACK]\n");
 	if (!next_word(&at, &left, &w, &n))
-		return REPLY("malformed %s sticker ...\n", request->parsed == FZN_VERB_PUT ? "put"
+		return REPLY("malformed %s sticker ...\n", request->parsed == FZN_VERB_PUT   ? "put"
 		                                           : request->parsed == FZN_VERB_GET ? "get"
+		                                           : request->parsed == FZN_VERB_ADD ? "add"
 		                                                                              : "remove");
 	if (request->parsed == FZN_VERB_PUT)
 		return left ? REPLY("malformed put sticker SPEC\n") : put_sticker(st, w, n, reply, cap);
+	if (request->parsed == FZN_VERB_ADD)
+		return left ? REPLY("malformed add sticker REF\n") : add_sticker(st, w, n, reply, cap);
 	if (request->parsed == FZN_VERB_REMOVE)
 		return left ? REPLY("malformed remove sticker ROOT\n")
 		            : remove_sticker(st, w, n, reply, cap);

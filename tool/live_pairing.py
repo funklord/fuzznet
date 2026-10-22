@@ -23,7 +23,8 @@ A asks, B is asked, C asks and is turned away.
     h  A puts a sticker pack and sends B a line carrying a sticker's
        reference; B's node wants the pack and fetches it from A, which
        granted it to B as the line went out, and B comes to list its
-       stickers (sec 682)
+       stickers (sec 682); fetched is not saved, until B keeps it with `add
+       sticker REF` (sec 683)
 
 Against a daemon that drops every box, phase a lists no request; against
 one whose approval does not hand over to the contact round, phase b
@@ -297,8 +298,21 @@ def main(argv):
 			with open(out, "rb") as f:
 				if f.read() != art:
 					raise failed("h: the sticker B drew is not A's art")
+			# RECEIVING IS NOT SAVING; keeping is B's act, sec 683.
+			if ask(socks["b"], "list sticker") != "ok 0":
+				raise failed("h: a pack fetched for a line was saved unasked")
+			if not ask(socks["b"], "add sticker " + "00" * 64 + "%016x" % 100) \
+			       .startswith("error that pack is not here"):
+				raise failed("h: a pack not here was kept")
+			got = ask(socks["b"], "add sticker " + whole).split()
+			if len(got) < 2 or got[0] != "ok" or got[1] != fields[1]:
+				raise failed("h: add sticker answered %r" % got)
+			listed = ask(socks["b"], "list sticker").split()
+			if listed[:2] != ["ok", "1"] or not listed[2].startswith(fields[1] + ",") \
+			   or ",cats,1," not in listed[2]:
+				raise failed("h: B's collection is %r after keeping the pack" % listed)
 			print("livecheck: h: a line carrying a sticker made B fetch A's pack, granted as "
-			      "it went out, and draw it")
+			      "it went out, and draw it; fetched was not saved until B kept it")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

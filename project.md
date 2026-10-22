@@ -68036,3 +68036,39 @@ registry, `get sticker` its reference and its draw, and the fetch sweep
 is the node's. A converter from fzpd's zip-and-CBOR packs was not built:
 the holder's answer accepted that those packs, on test devices only, do
 not open.
+
+## 683. `add sticker REF`: keeping a pack a message brought, 2026-10-22
+
+**Asked by fuzzypickles** (inbox message 20261022T0950Z, their sec 284,
+"Stickers on a node, step 1"). Both clients offer "keep the collection
+this sticker came from" on a sticker received in a message, which is
+fzpd's `sticker_save(root, key, name)`. Sec 681 saved only what `put
+sticker` built. A pack the sweep fetched (sec 682) was held and readable
+by its whole reference, but nothing could put it in the user's
+`sticker/` cells.
+
+**Built: `add sticker REF`.** A pack held here, named by the 144 hex of
+its reference, is opened, and saved with its name read from the pack,
+answered as `put sticker` is: `ok ROOT` or `ok ROOT host`. The saving is
+one function the two verbs share now, so a name too long to escape, the
+fallback to this host's own cell and the answers are the same for both.
+
+- **A malformed reference**, length 0 among them, is `malformed`.
+- **A pack not here whole, or no pack**, is `error that pack is not
+  here`.
+- **Receiving never saves**, as fuzzypickles' sec 15 has it: the sweep
+  wants and fetches, and only this verb keeps.
+
+**Tested** by `tool/live_pairing.py` phase h. After B fetched A's pack
+for a line:
+- B's collection is empty;
+- keeping a well-formed reference to a pack not here is refused;
+- `add sticker` with the pack's reference answers its root;
+- the collection then names it, `cats`, held.
+
+**Control**: with the verb not dispatched, phase h fails.
+
+**Measured on the way:** the first version of the test kept an all-zero
+reference to stand for "not here", and was answered `malformed`, since
+a length of 0 is no reference. The test asked for the wrong refusal, so
+it now names a pack that is absent at a real length.

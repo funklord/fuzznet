@@ -34,6 +34,11 @@
  *                           inline, main, popup), or the nearest it has,
  *                           written to the new file at the absolute PATH:
  *                           `ok FORMAT WIDTH HEIGHT`.
+ *   add sticker REF         a pack held here, by the 144 hex of its
+ *                           reference -- one a message named, fetched by the
+ *                           sweep -- saved, its name read from the pack:
+ *                           answered as `put sticker` is. Receiving never
+ *                           saves; this is the user's keep (sec 683).
  *   remove sticker ROOT     the pack forgotten; its bytes stay.
  */
 #ifndef FZN_NODE_STICKERS_H
