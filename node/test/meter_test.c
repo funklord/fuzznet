@@ -191,7 +191,10 @@ static size_t ask(const fzn_meter_t *m, fzn_origin_t origin, fzn_verb_t verb, co
 static void test_the_verbs(void)
 {
 	static fzn_meter_t m;
-	char reply[1024];
+	/* TWICE THE CAP ASKED WITH, so a page past it is a failed check rather
+	 * than a smashed stack. */
+	char reply[2048];
+	const size_t cap = 1024u;
 	size_t i, from = 0, seen = 0, pages = 0;
 
 	memset(&m, 0, sizeof(m));
@@ -213,8 +216,8 @@ static void test_the_verbs(void)
 		size_t n, rows = 0;
 
 		(void)snprintf(arg, sizeof(arg), "transfer %zu", from);
-		n = ask(&m, FZN_ORIGIN_SAME_USER, FZN_VERB_LIST, arg, reply, sizeof(reply));
-		CHECK(n > 0 && n < sizeof(reply) && strncmp(reply, "ok 41 ", 6) == 0,
+		n = ask(&m, FZN_ORIGIN_SAME_USER, FZN_VERB_LIST, arg, reply, cap);
+		CHECK(n > 0 && n < cap && strncmp(reply, "ok 41 ", 6) == 0,
 		      "a page is not within one reply, or does not say the total");
 		if (!n || strncmp(reply, "ok 41 ", 6) != 0)
 			return;
