@@ -69125,3 +69125,86 @@ convenience, **the holder's** to decide.
 flagged were this run's own, its qemus alive under hull's core, which
 hull's detector had filtered out of its own view. hull withdrew it, and
 confirmed from its code that a refused file starts no passt.
+
+## 697. A line from behind one NAT to a user behind another, 2026-10-22
+
+**The holder's choices, 2026-10-22, on sec 696's findings:**
+- **The NAT gap: "Both, relay fallback".** Advertise the address a host
+  is seen from, and hole-punch through an introduction extended to
+  contacts (sec 623). Fall back to relaying through any reachable host
+  the target says hello to, a contact's server among them (sec 622
+  widened across estates).
+- **Contact names: "Carry names estate-wide"**, as settings, as stream
+  grants are (sec 660), presentation only.
+
+**Built here, the relay fallback and the first half of the seen address:**
+1. **A host says hello to every contact's host** as well as to its own
+   pull peers, every FZND_HELLO_EVERY, from its serving socket. A
+   contact's reachable host -- its server -- then knows where this host
+   is and may relay to it, and the NAT's mapping towards it stays open. A
+   hello to a contact's host that cannot be reached is lost, and costs
+   nothing more.
+2. **A line goes by relay through this host's own reachable hosts** once
+   the contact's own hosts are spent: its pull targets, any of which the
+   contact's host may have said hello to. A relay still refuses unless
+   its owner turned on `relay/enabled`, and the target said hello to it
+   in the last five minutes.
+3. **An estate that advertises names its devices with no address too.**
+   This was the blocker, found by the test. `estate_devices` gave a
+   contact's QUERY of HOSTS only the hosts with a `net/address`, so a
+   device behind a NAT was never named. The contact could not open
+   anything it sent: it paired only what it was told of, and dropped
+   the relayed frames as a stranger's -- unanswered, no log on either
+   side. Now, where `routing/advertise` is on, they are named, addressless,
+   as sec 614's "every host pairs every device of every contact" meant.
+   Unadvertised, a contact still learns only the answering host, as sec
+   611 decided.
+4. **A contact's host heard saying hello is reached where it said hello
+   from**, rebuilt each contact round, over the address its device entry
+   gives, which is often a home network's. The sibling rule of sec 624,
+   met for contacts.
+5. **A relay's refusal is logged where it is decided**, as a warning on
+   `node/peer`, the sender's key prefix and the reason. The asker never
+   reads it (sec 622), so this line is the only place the reason is seen.
+
+**Measured on hull 4161c8a, `tool/hull_estates.py`**, A's root relaying
+and advertising -- both the owner's settings:
+- **every journey passed**;
+- A's phone, behind a NAT of its own, wrote B, whose two machines are
+  behind gateway B and reach nothing but out;
+- the line was at B's root 4 s after it was written, B now knowing all
+  three of A's devices.
+
+**Its path:** one try at B's root's home address `192.168.2.10`,
+unanswered, then one through A's root, delivered.
+
+**Before 3 was found**, the relay was tried 17 times a run and every one
+went unanswered, B's root answering only its own member.
+
+**One own relay a host, a round.** The first gates failed
+`live_contacts.py`'s phase d: R's round with S's estate down passed the
+test's 30 s. The kept run showed why. R spent a 3 s deadline offering
+S's lines to each of S's hosts, then on each relay, and since 2 on each of
+its own hosts as well. A contact merely away -- not behind a NAT -- would
+cost a deadline for every host of the estate. So **one of this host's own
+is tried as a relay for each unanswered host of a contact, a round**,
+which is all the NAT case needs. That phase's wait is 60 s, with its
+reason. 3 of 3 pass after it at a load of 230, and `tool/hull_estates.py`
+passed twice more after it -- five times in all since 3.
+
+**Not exercised by this run:** 4. A's root wrote B nothing, so the hello
+address was never the one used. And the first try at a home address
+costs a line a timeout every time.
+
+**Still to build, in the holder's order:**
+- the introduction extended to contacts, so most lines go direct and the
+  relay is the fallback;
+- contact names carried estate-wide;
+- the fetch a contact's host makes every round of what is not shared
+  with it, refused 60 times a run (sec 696's finding 2);
+- a delivery that tries the hello address, or the relay, before a home
+  address that the target's own NAT keeps out.
+
+These daemon paths live in `node/daemon.c`, so no unit test reaches them
+and no sabotage entry can be caught. `tool/hull_estates.py` is what holds
+them.

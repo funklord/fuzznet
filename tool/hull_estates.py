@@ -84,6 +84,12 @@ def plans():
 		{"daemon": ["--udp-port=7000"], "env": TUNE},
 		{"ask": "set setting host net/address 203.0.113.10 7000", "expect": "ok"},
 		{"ask": "set setting estate e2e/a 1", "expect": "ok"},
+		# A SERVER RELAYING, its owner's choice and off by default (sec 622):
+		# for this estate and its contacts, to a host that said hello.
+		{"ask": "set setting host relay/enabled on", "expect": "ok"},
+		# AND ADVERTISING ITS HOSTS to contacts, its owner's choice too (sec
+		# 611): a contact that does not know A's phone cannot open its line.
+		{"ask": "set setting estate routing/advertise on", "expect": "ok"},
 		{"ask": "get card alice", "expect": "ok FZC1:", "word": 1, "put": "card.alice"},
 		{"wait": "root.b", "var": "broot"},
 		{"until": "list request", "contains": "{broot}", "within": 180,
@@ -92,6 +98,12 @@ def plans():
 		 "label": "A's root approves B", "soft": True},
 		{"until": "list message {broot}", "contains": "hello%20from%20b", "within": 240,
 		 "label": "B's line at A's root", "soft": True},
+		{"ask": "list device {broot}", "label": "B's devices at A's root", "keep": True,
+		 "soft": True},
+		# WHAT A'S ROOT RELAYED, once A's phone has had time to ask it.
+		{"wait": "root.b"},
+		{"until": "get relay", "contains": "ok 1 ", "within": 5, "label": "A's root relays",
+		 "keep": True, "soft": True},
 	]
 	a_home = joiner("a_home", "203.0.113.10:7000") + [
 		{"until": "get setting estate e2e/a", "endswith": " 1", "within": 180,
@@ -126,6 +138,10 @@ def plans():
 		 "label": "B's root writes A", "soft": True},
 		{"until": "list message {aroot}", "contains": "hello%20from%20a%20phone", "within": 300,
 		 "label": "A's phone's line at B's root", "soft": True},
+		# WHICH OF A'S DEVICES B KNOWS: a line relayed from one B holds no
+		# pairing for would be dropped unread at B.
+		{"ask": "list device {aroot}", "label": "A's devices at B's root", "keep": True,
+		 "soft": True},
 	]
 	b_home = joiner("b_home", "192.168.2.10:7000") + [
 		{"until": "get setting estate e2e/b", "endswith": " 1", "within": 180,

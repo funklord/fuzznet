@@ -5489,7 +5489,12 @@ static size_t estate_devices(fzn_contact_device_t *out, size_t cap, int hosts)
 			d->address_len = strlen(host);
 			memcpy(d->address, host, d->address_len + 1u);
 			d->port = port;
-		} else if (hosts) {
+		} else if (hosts && (i == 0 || !advertise)) {
+			/* ADDRESSLESS, ADVERTISED, sec 697: a member behind a NAT has no
+			 * address, and a contact that does not know it cannot open a line
+			 * it sends, relayed or not -- sec 614's "every host pairs every
+			 * device of every contact". So an estate that advertises names
+			 * them too, reached where they say hello from. */
 			continue;
 		}
 		count++;
@@ -5662,15 +5667,32 @@ static void load_contact_targets(void)
 	for (i = 0; i < n && ncontact_targets < FZND_CONTACT_TARGETS_MAX; i++) {
 		struct contact_target *ct = &contact_targets[ncontact_targets];
 		fzn_routing_t r;
+		fzn_udp_addr_t at;
+		uint64_t when = 0;
+		char seen[FZN_UDP_HOST_MAX];
+		uint16_t seen_port = 0;
+		/* WHERE IT SAID HELLO FROM, sec 697, heard lately: the address
+		 * that reaches this host, through whatever NAT is in the way --
+		 * where its own `net/address` may be a home network's, nobody
+		 * outside it can reach. The holder's "advertise the seen address"
+		 * of 2026-10-22, met at the end that heard it. */
+		int heard = fzn_node_relay_where(&relay_tables, fzn_contact_device_key(&kept[i]), &at,
+		                                 &when)
+		            && when + FZND_RELAY_SEEN_S >= wall_clock()
+		            && fzn_udp_addr_text(&at, seen, &seen_port) == FZN_UDP_OK;
 
-		if (!kept[i].port || !fzn_node_admin_contact_stands(running_admin, kept[i].owner))
+		if ((!kept[i].port && !heard)
+		    || !fzn_node_admin_contact_stands(running_admin, kept[i].owner))
 			continue;
 		memset(ct, 0, sizeof(*ct));
 		ct->pt.fd = -1;
-		memcpy(ct->host, kept[i].address, kept[i].address_len + 1u);
+		if (heard)
+			(void)snprintf(ct->host, sizeof(ct->host), "%s", seen);
+		else
+			memcpy(ct->host, kept[i].address, kept[i].address_len + 1u);
 		memcpy(ct->contact, kept[i].owner, FZN_PUBKEY_LEN);
 		ct->pt.host = ct->host;
-		ct->pt.port = kept[i].port;
+		ct->pt.port = heard ? (long)seen_port : kept[i].port;
 		ct->metric = 255u;
 		if (fzn_routing_load(node_apply.store, kept[i].owner, &r) == FZN_ROUTING_OK)
 			for (j = 0; j < r.n; j++)
@@ -9691,7 +9713,14 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 	    || request[1] != FZN_TYPE_RELAY)
 		return 0;
 	inner_len = request_len - FZND_RELAY_HEAD_LEN;
-#define RELAY_NO(text) ((size_t)snprintf((char *)reply, reply_cap, "denied %s\n", text))
+	/* REFUSED, said here too, sec 697: the refusal goes back to the asker's
+	 * socket for its relay, which awaits an answer from the target and so
+	 * never reads it (sec 622) -- this line is the only place the reason is
+	 * seen. */
+#define RELAY_NO(text)                                                                     \
+	(say(FZN_ENTRY_WARNING, "node/peer", "a relay for %02x%02x%02x%02x refused: %s",       \
+	     sender[0], sender[1], sender[2], sender[3], text),                                 \
+	 (size_t)snprintf((char *)reply, reply_cap, "denied %s\n", text))
 	if (!st || st->udp_fd < 0 || !st->asking_from || host_flag("relay/enabled") != 1)
 		return RELAY_NO("this host relays nothing");
 	if (!fzn_node_admin_contact_of(running_admin, sender, owner)
@@ -9865,6 +9894,14 @@ static void say_hello(struct pull_target *pulls, size_t npulls, int serving_fd, 
 	next = now + FZND_HELLO_EVERY;
 	for (i = 0; i < npulls; i++)
 		(void)fzn_caller_hello(&pulls[i].caller, serving_fd, now + 60u);
+	/* AND TO EVERY CONTACT'S HOST, sec 697, the holder's choice of
+	 * 2026-10-22: a contact's reachable host -- its server -- then knows
+	 * where this host is and may relay to it, which is the only way a line
+	 * reaches a host behind a NAT from a user with none reachable of their
+	 * own. One that cannot be reached loses the hello, and nothing else. */
+	for (i = 0; i < ncontact_targets; i++)
+		if (contact_targets[i].pt.fd >= 0)
+			(void)fzn_caller_hello(&contact_targets[i].pt.caller, serving_fd, now + 60u);
 }
 
 /* ---- LAN discovery, sec 624 ------------------------------------------------- */
@@ -10048,6 +10085,9 @@ struct deliver_talk {
 	} hosts[FZND_DELIVER_HOSTS];
 	size_t n_hosts, at, relay;
 	int relaying, settle;
+	/* ONE OF THIS HOST'S OWN TRIED for the host at `at`, sec 697: each
+	 * costs a deadline when the contact is merely away, so one is enough. */
+	int own_tried;
 	uint64_t now;
 	struct meter m;
 	fzn_node_messages_delivering_t d;
@@ -10059,6 +10099,7 @@ static size_t n_deliver_talks;
 
 static void deliver_host(struct deliver_talk *dt);
 static void deliver_relay_next(struct deliver_talk *dt);
+static struct pull_target *deliver_relay_pt(const struct deliver_talk *dt, const char **name);
 
 static void deliver_over(struct deliver_talk *dt)
 {
@@ -10102,18 +10143,23 @@ static void deliver_host_done(struct deliver_talk *dt)
 		dt->relaying = 1;
 		dt->at = 0;
 		dt->relay = 0;
+		dt->own_tried = 0;
 		deliver_relay_next(dt);
 		return;
 	}
 	if (dt->err == FZN_MESSAGES_OK && d->sent) {
+		const char *through = "?";
+
+		(void)deliver_relay_pt(dt, &through);
 		say(FZN_ENTRY_INFO, "messages/deliver",
 		    "%zu line(s) offered to %s through %s: %zu delivered, %zu settled, %zu refused, "
 		    "%zu unanswered",
-		    d->sent, dt->hosts[dt->at].name, dt->hosts[dt->relay].name, d->delivered,
+		    d->sent, dt->hosts[dt->at].name, through ? through : "?", d->delivered,
 		    d->settled, d->refused, d->unanswered);
 		if (!d->unanswered && !d->refused) {
 			dt->at++;
 			dt->relay = 0;
+			dt->own_tried = 0;
 			deliver_relay_next(dt);
 			return;
 		}
@@ -10123,6 +10169,25 @@ static void deliver_host_done(struct deliver_talk *dt)
 }
 
 static void deliver_answered(void *ctx, const uint8_t *reply, size_t reply_len);
+
+/* THE RELAY `dt->relay` NAMES: one of the contact's own hosts that
+ * answered, or past them, sec 697, one of this host's own pull targets --
+ * its estate's reachable hosts, any of which the contact's host may have
+ * said hello to. NULL past both. */
+static struct pull_target *deliver_relay_pt(const struct deliver_talk *dt, const char **name)
+{
+	size_t own = dt->relay - dt->n_hosts;
+
+	if (dt->relay < dt->n_hosts) {
+		*name = dt->hosts[dt->relay].name;
+		return dt->hosts[dt->relay].pt;
+	}
+	if (loop_pulls && loop_npulls && own < *loop_npulls) {
+		*name = loop_pulls[own].host;
+		return &loop_pulls[own];
+	}
+	return NULL;
+}
 
 /* THE REQUEST IN `dt->request` SENT, to the host or through the relay, and
  * its answer awaited; one that cannot leave answered as none. */
@@ -10136,10 +10201,17 @@ static void deliver_send(struct deliver_talk *dt, size_t len)
 		meter_asked(&dt->m, len);
 		sent = fzn_node_asks_send(&round_asks, &pt->caller, dt->request, len, dt->now + 300u,
 		                          3000u, deliver_answered, dt);
-	} else
-		sent = relay_send(pt, dt->hosts[dt->relay].pt, dt->request, len, dt->now, &msg)
+	} else {
+		const char *name = NULL;
+		struct pull_target *relay = deliver_relay_pt(dt, &name);
+
+		sent = relay && relay_send(pt, relay, dt->request, len, dt->now, &msg)
 		       && fzn_node_asks_await(&round_asks, &pt->caller, msg, 3000u, deliver_answered,
 		                              dt);
+		if (!sent)
+			say(FZN_ENTRY_DEBUG, "messages/deliver", "a line to %s through %s could not leave",
+			    dt->hosts[dt->at].name, name ? name : "no relay");
+	}
 	if (!sent)
 		deliver_answered(dt, NULL, 0);
 }
@@ -10188,16 +10260,32 @@ static void deliver_host(struct deliver_talk *dt)
  * left. */
 static void deliver_relay_next(struct deliver_talk *dt)
 {
-	for (; dt->at < dt->n_hosts; dt->at++, dt->relay = 0) {
+	for (; dt->at < dt->n_hosts; dt->at++, dt->relay = 0, dt->own_tried = 0) {
 		long ti = dt->hosts[dt->at].target;
 
 		if (ti < 0 || !contact_targets[ti].down)
 			continue;
-		for (; dt->relay < dt->n_hosts; dt->relay++) {
-			long ri = dt->hosts[dt->relay].target;
+		for (; dt->relay < dt->n_hosts + (loop_npulls ? *loop_npulls : 0u); dt->relay++) {
+			if (dt->relay < dt->n_hosts) {
+				long ri = dt->hosts[dt->relay].target;
 
-			if (dt->relay == dt->at || ri < 0 || contact_targets[ri].down)
+				if (dt->relay == dt->at || ri < 0 || contact_targets[ri].down)
+					continue;
+			} else if (dt->own_tried) {
+				/* ONE OWN RELAY A HOST, sec 697: a contact merely away would
+				 * otherwise cost a deadline for every host of this estate. */
+				break;
+			} else if (silent_peer(&loop_pulls[dt->relay - dt->n_hosts])
+			           || loop_pulls[dt->relay - dt->n_hosts].fd < 0) {
+				/* THIS HOST'S OWN, sec 697: one that has gone silent here
+				 * reaches nobody for it. */
+				say(FZN_ENTRY_DEBUG, "messages/deliver", "relay %s passed over for %s: %s",
+				    loop_pulls[dt->relay - dt->n_hosts].host, dt->hosts[dt->at].name,
+				    loop_pulls[dt->relay - dt->n_hosts].fd < 0 ? "no socket" : "silent");
 				continue;
+			}
+			if (dt->relay >= dt->n_hosts)
+				dt->own_tried = 1;
 			deliver_host(dt);
 			return;
 		}
@@ -10252,6 +10340,7 @@ static void deliver_start(uint64_t now)
 
 		dt->at = 0;
 		dt->relaying = 0;
+		dt->own_tried = 0;
 		round_pending++;
 		deliver_host(dt);
 	}

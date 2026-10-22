@@ -291,7 +291,10 @@ def main(argv):
 			r2.wait_for(ROUND_END_RE, "R2's round, pushing the line to R")
 			down("r")
 			r = up("r", "r-d1")
-			r.wait_for(ROUND_END_RE, "R's round, hearing R2")
+			# 60 S, NOT 30: with S's estate down R's round spends a deadline on
+			# each of S's hosts, then on the relays it may try, its own among
+			# them since sec 697 -- measured at 28 s and climbing.
+			r.wait_for(ROUND_END_RE, "R's round, hearing R2", within=60.0)
 			down("r")
 			down("r2")
 			time.sleep(4.0)
