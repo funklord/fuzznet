@@ -240,6 +240,27 @@ fzn_udp_err_t fzn_udp_addr_text(const fzn_udp_addr_t *addr, char host[FZN_UDP_HO
 	return FZN_UDP_ERR_ADDR;
 }
 
+fzn_udp_err_t fzn_udp_local_port(int fd, uint16_t *port)
+{
+	struct sockaddr_storage ss;
+	socklen_t len = sizeof(ss);
+
+	if (fd < 0 || !port)
+		return FZN_UDP_ERR_MALFORMED;
+	memset(&ss, 0, sizeof(ss));
+	if (getsockname(fd, (struct sockaddr *)&ss, &len) != 0)
+		return FZN_UDP_ERR_SYSTEM;
+	if (ss.ss_family == AF_INET && len >= (socklen_t)sizeof(struct sockaddr_in)) {
+		*port = ntohs(((const struct sockaddr_in *)&ss)->sin_port);
+		return FZN_UDP_OK;
+	}
+	if (ss.ss_family == AF_INET6 && len >= (socklen_t)sizeof(struct sockaddr_in6)) {
+		*port = ntohs(((const struct sockaddr_in6 *)&ss)->sin6_port);
+		return FZN_UDP_OK;
+	}
+	return FZN_UDP_ERR_ADDR;
+}
+
 fzn_udp_err_t fzn_udp_broadcast(int fd)
 {
 	int on = 1;

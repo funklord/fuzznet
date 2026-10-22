@@ -12732,6 +12732,13 @@ SABOTAGES = [
 		"\t\tif (0 && e && !(e->scopes & (scope == FZN_SCOPE_ESTATE ? FZN_SCHEMA_ESTATE : FZN_SCHEMA_HOST))) {\n",
 		"sec 686: a cell at a scope its reader never reads is configuration that does nothing; apply_test's scope check catches it",
 	),
+	(
+		"udp-local-port-byte-order",
+		"net/udp.c",
+		"\t\t*port = ntohs(((const struct sockaddr_in *)&ss)->sin_port);\n",
+		"\t\t*port = ((const struct sockaddr_in *)&ss)->sin_port;\n",
+		"sec 687: a port read in network order names another port, and `get node` would send a client to it; udp_test's read-back check catches it",
+	),
 ]
 
 # Entries known to survive for a reason rather than through a gap. Listed so

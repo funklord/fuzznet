@@ -376,6 +376,30 @@ static fzn_node_stickers_t node_stickers;
 static fzn_meter_t traffic;
 /* THE SETTINGS DECLARED, sec 686: fuzznet's, and the extension's. */
 static fzn_node_schema_t node_schema;
+/* WHAT `get node` SAYS, sec 687: the socket peers reach, and when this
+ * daemon started. */
+static int node_udp_fd = -1;
+static uint64_t node_started;
+
+/* `get node`, sec 687: what a client cannot learn otherwise -- the port
+ * this node is reached on, which only it knows when the system chose it,
+ * and when it started. Word pairs, so a field added later breaks no
+ * reader. Any local caller's, as `status` is. */
+static size_t node_local(const fzn_request_t *request, char *reply, size_t cap)
+{
+	uint16_t port = 0;
+	char udp[8];
+
+	if (request->parsed != FZN_VERB_GET || !request->arg || request->arg_len != 4u
+	    || memcmp(request->arg, "node", 4u) != 0)
+		return 0;
+	if (node_udp_fd < 0 || fzn_udp_local_port(node_udp_fd, &port) != FZN_UDP_OK)
+		(void)snprintf(udp, sizeof(udp), "-");
+	else
+		(void)snprintf(udp, sizeof(udp), "%u", (unsigned)port);
+	return (size_t)snprintf(reply, cap, "ok udp %s started %llu\n", udp,
+	                        (unsigned long long)node_started);
+}
 static size_t device_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                            size_t cap);
 static size_t catalog_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
@@ -427,6 +451,8 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = fzn_meter_local(&traffic, origin, request, reply, reply_cap);
 	if (!n)
 		n = fzn_node_schema_local(&node_schema, origin, request, reply, reply_cap);
+	if (!n)
+		n = node_local(request, reply, reply_cap);
 	if (!n)
 		n = device_local(origin, request, reply, reply_cap);
 	if (!n)
@@ -10971,6 +10997,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 
 	daemon_argv = argv;
 	daemon_ext = ext;
+	node_started = wall_clock();
 	if (ext && ext->n_settings) {
 		const char *refused = ext->settings ? fzn_node_schema_refused(ext->settings,
 		                                                              ext->n_settings)
@@ -12137,6 +12164,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		}
 		state.udp_fd = ufd;
 		state.config.serves_remote = 1;
+		node_udp_fd = ufd;
 	}
 
 	/* THE PEERS A CONSUMER ALREADY PROVISIONED, if a store was named.

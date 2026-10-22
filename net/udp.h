@@ -93,6 +93,10 @@ typedef struct fzn_udp_addr {
 fzn_udp_err_t fzn_udp_bind(int family, const char *addr, uint16_t port,
                            int *out_fd);
 
+/* THE PORT `fd` IS BOUND TO, sec 687: the one asked for, or the one the
+ * system chose when port 0 was asked. ADDR for a socket of neither family. */
+fzn_udp_err_t fzn_udp_local_port(int fd, uint16_t *port);
+
 /* Resolve a NUMERIC (host, port) to an address for fzn_udp_send. No DNS. */
 fzn_udp_err_t fzn_udp_resolve(int family, const char *host, uint16_t port,
                               fzn_udp_addr_t *out);

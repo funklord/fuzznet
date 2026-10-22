@@ -147,6 +147,26 @@ int main(void)
 			fzn_udp_close(fd);
 	}
 
+	/* THE PORT BOUND, sec 687: the system's choice for port 0, and that
+	 * same port asked for again once the first socket has let it go. */
+	{
+		int fd = -1, again = -1;
+		uint16_t chosen = 0, read_back = 0;
+
+		ok(fzn_udp_bind(AF_INET, "127.0.0.1", 0, &fd) == FZN_UDP_OK
+		           && fzn_udp_local_port(fd, &chosen) == FZN_UDP_OK && chosen != 0u,
+		   "the port the system chose was not read back");
+		if (fd >= 0)
+			fzn_udp_close(fd);
+		ok(fzn_udp_bind(AF_INET, "127.0.0.1", chosen, &again) == FZN_UDP_OK
+		           && fzn_udp_local_port(again, &read_back) == FZN_UDP_OK && read_back == chosen,
+		   "a port asked for was not the one read back");
+		if (again >= 0)
+			fzn_udp_close(again);
+		ok(fzn_udp_local_port(-1, &read_back) == FZN_UDP_ERR_MALFORMED,
+		   "no socket was read for a port");
+	}
+
 	/* Oversize send: one byte past the maximum is refused, not
 	 * fragmented. The exact maximum went through above, so the two
 	 * together pin the boundary. */

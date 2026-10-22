@@ -10,6 +10,8 @@ Two stores: A a root, B a device joined to it, pulling from A.
        address B asked from
     c  `list transfer FROM` at the total answers no rows, and a FROM that
        is not a number is refused
+    d  `get node` at A answers the port it serves on and when it started
+       (sec 687); B, given no `--udp-port`, serves on none and answers `-`
 
 Against a daemon with no meter, phase a is `unsupported`; against one whose
 callers or whose answering side count nothing, phase a or b finds no
@@ -26,6 +28,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -130,6 +133,18 @@ def main(argv):
 					if not reply.startswith("malformed"):
 						raise failed("c: list transfer x answered %r" % reply)
 					print("livecheck: c: past the rows answered none, and a bad FROM refused")
+
+					# d: `get node`, sec 687: the port A was told to serve on, read
+					# back from its socket, and a start time within this run.
+					words = ask(a_sock, "get node").split()
+					if len(words) != 5 or words[:3] != ["ok", "udp", port] \
+					   or words[3] != "started" or abs(int(words[4]) - time.time()) > 600:
+						raise failed("d: get node at A answered %r" % words)
+					words = ask(b_sock, "get node").split()
+					if len(words) != 5 or words[:3] != ["ok", "udp", "-"] or words[3] != "started":
+						raise failed("d: get node at B answered %r" % words)
+					print("livecheck: d: get node gave A's port %s, B's %s, and when each "
+					      "started" % (port, words[2]))
 				finally:
 					b.stop()
 			finally:

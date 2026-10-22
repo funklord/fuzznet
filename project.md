@@ -68288,3 +68288,63 @@ sampled will start.
 - Eight sabotage entries, `schema-*` and `settings-declared-*`. Five older
   entries whose guards moved into `state/schema.c` were retargeted there
   under their old ids.
+
+## 687. Status fields and prekey generate: sec 672's last two, 2026-10-22
+
+**Read first, at fuzzypickles b4ed30b.** fzpd's client already builds its
+status on a node from fuzznet's verbs (`node_status` in their
+`client/calls.c`):
+- `get identity` gives the host and user keys;
+- `list capability` gives membership;
+- `get message owed` gives what is held;
+- `get setting host net/address` gives the port.
+
+So what was left is the fields fuzznet knows and the client cannot learn,
+not a second status.
+
+**Built: `get node`**, any local caller's as `status` is, answering `ok
+udp PORT started UNIX`:
+- **PORT** is the one the node serves peers on, read back from its socket
+  (`fzn_udp_local_port`, new in `net/udp.h`), so it is right when the
+  system chose it. `-` when the node serves on none. The client read the
+  port from `net/address`, which is where a member is reached from
+  elsewhere and is unset on a node nobody configured: the wrong source
+  for "the port I listen on".
+- **UNIX** is when this daemon started.
+- **Word pairs**, so a field added later breaks no reader.
+
+**Not answered, and why:**
+- **When the identity and the host were made**: nothing here records it.
+  The first record of a host's own stream is the nearest fact, and it is
+  a different one, so it is not offered under that name.
+- **Messages still settling**: settling weighs at most FZND_SETTLE_MAX
+  lines a round, so the round's `waiting` is a part, and a part reported
+  as the whole is the error sec 9 of fuzzypickles warns of.
+- **`old_keys`**: every key here is RFC 8032 Ed25519 (sec 390), and an
+  old fzpd key never enters a node.
+- **The delegation counters**: fzpd's hand-off to another of the user's
+  hosts, which a node does not do.
+
+**Prekey generate moves nothing.** fzpd's one caller (`ensure_prekey` in
+their `tui/main.c`) generates a prekey only when none is shown, so a card
+can be made. A node always has one, made with its identity and kept,
+since a peer pins it (`node/identity.h`), and `get prekey` reads it. So on
+a node the call is answered by `get prekey` and has nothing to generate.
+Rotating a node's prekey would break every pin. Nobody asked for that,
+and it is a design of its own if it is ever wanted.
+
+**Sec 672's list is now done**, its order's step 4 complete:
+- the settings schema (sec 686), except its stage 2, the status of a
+  synced setting;
+- traffic accounting (sec 685);
+- prekey generate and status, here.
+
+What remains of fzpd is fuzzypickles' to move onto these verbs.
+
+**Tested:**
+- `net/test/udp_test.c`: the system's port read back, the same port asked
+  for again read back as itself, and no socket refused.
+- `tool/live_transfer.py` phase d: `get node` at A gives the port it was
+  told, and a start time within the run; B, given no `--udp-port`,
+  answers `-`.
+- One sabotage entry, `udp-local-port-byte-order`.
