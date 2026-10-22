@@ -2199,6 +2199,17 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 		if (!n && contact && admin->routing_remote && req->payload)
 			n = admin->routing_remote(admin->routing_ctx, req->sender, 1, req->payload,
 			                          req->payload_len, reply, reply_cap);
+		/* A RELAY OR AN INTRODUCTION, sec 698: sec 622's relay was for "a
+		 * member or a standing contact", and a contact's request never
+		 * reached it -- nor a contact's server's NOTIFY introducing its
+		 * user's phone. Those three types alone, which the handler judges
+		 * for itself; nothing else of its is a contact's. */
+		if (!n && contact && admin->relay_remote && req->payload && req->payload_len >= 2u
+		    && req->payload[0] == 2u
+		    && (req->payload[1] == FZN_TYPE_RELAY || req->payload[1] == FZN_TYPE_INTRODUCE
+		        || req->payload[1] == FZN_TYPE_NOTIFY))
+			n = admin->relay_remote(admin->relay_ctx, req->sender, req->payload,
+			                        req->payload_len, reply, reply_cap);
 		/* WHAT IS SHARED, asked as the user the host speaks for, sec 630:
 		 * a share names a user, or a group of users, and any of its hosts
 		 * asks. */

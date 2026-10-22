@@ -53,6 +53,9 @@ ROOT = os.path.dirname(TOOL)
 ROLE_S = 600
 DEADLINE_S = 720.0
 TUNE = {"FZN_TUNE_PULL_EVERY": "5"}
+# A'S ROOT RELAYING, or -- HULL_ESTATES_RELAY=0 -- not: then A's phone's
+# line can reach B only by an introduction through A's root (sec 698).
+RELAY = "off" if os.environ.get("HULL_ESTATES_RELAY") == "0" else "on"
 LINE_B = "62" * 16
 LINE_A = "61" * 16
 
@@ -86,7 +89,7 @@ def plans():
 		{"ask": "set setting estate e2e/a 1", "expect": "ok"},
 		# A SERVER RELAYING, its owner's choice and off by default (sec 622):
 		# for this estate and its contacts, to a host that said hello.
-		{"ask": "set setting host relay/enabled on", "expect": "ok"},
+		{"ask": "set setting host relay/enabled %s" % RELAY, "expect": "ok"},
 		# AND ADVERTISING ITS HOSTS to contacts, its owner's choice too (sec
 		# 611): a contact that does not know A's phone cannot open its line.
 		{"ask": "set setting estate routing/advertise on", "expect": "ok"},
@@ -102,7 +105,8 @@ def plans():
 		 "soft": True},
 		# WHAT A'S ROOT RELAYED, once A's phone has had time to ask it.
 		{"wait": "root.b"},
-		{"until": "get relay", "contains": "ok 1 ", "within": 5, "label": "A's root relays",
+		{"until": "get relay", "contains": "ok %d " % (RELAY == "on"), "within": 5,
+		 "label": "A's root relays" if RELAY == "on" else "A's root does not relay",
 		 "keep": True, "soft": True},
 	]
 	a_home = joiner("a_home", "203.0.113.10:7000") + [
@@ -244,7 +248,7 @@ def main(argv):
 		if keep:
 			os.makedirs(keep, exist_ok=True)
 			for n in os.listdir(volume):
-				if n.endswith((".log", ".json")):
+				if n.endswith((".log", ".json", ".conntrack")):
 					shutil.copy(os.path.join(volume, n), keep)
 	bad = 0
 	for name in names:

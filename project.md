@@ -69208,3 +69208,69 @@ costs a line a timeout every time.
 These daemon paths live in `node/daemon.c`, so no unit test reaches them
 and no sabotage entry can be caught. `tool/hull_estates.py` is what holds
 them.
+
+## 698. An introduction across estates, and a test gateway that was not a home router, 2026-10-23
+
+**The holder chose "both, relay fallback" on 2026-10-22**: advertise the
+address a host is seen from (sec 697), and extend sec 623's introduction
+to contacts, so most lines go direct and a relay is the fallback.
+
+### What an introduction across estates does
+
+- **A contact's host that goes unanswered is marked due** for an
+  introduction (`introduced`, by the host's key), unless one already holds.
+- **At the next contact round the host asks one of its own pull peers to
+  introduce it**: INTRODUCE, sent from the contact target's own socket
+  and awaited for 3 s. The answer, `ok HOST PORT`, is where the contact's
+  host said hello to that peer, kept for as long as the introduction
+  holds. The asker then says hello there from the same socket.
+- **The peer sends that host a NOTIFY** naming the asker and where the
+  asker asked from. The peer pairs with a contact's host by deriving the
+  pairing from the contact device it keeps (`contact_pairing`).
+- **NOTIFY is taken from a contact's host about another host of the same
+  contact**, as well as from this estate. That is a contact's server
+  introducing its user's phone. The receiver says hello to the address it
+  names, which opens its own NAT's way.
+- **A contact target's socket is kept across the round's rebuild.** A
+  NAT's mapping belongs to a socket, and the contact targets were rebuilt
+  on fresh sockets every round, so a hole punched one round led nowhere
+  the next.
+
+**A fault found on the way: sec 622's relay for contacts was never
+reachable.** The admin library's contact path answered only what it
+named, and RELAY, INTRODUCE and NOTIFY were not among them. They are
+now, and the hook judges each for itself.
+
+### The test gateway was the fault, not the protocol
+
+With `HULL_ESTATES_RELAY=0`, A's phone's line can reach B only directly.
+3 of 5 such runs failed, though every step of the introduction was seen
+working: A's root told B where the phone was, and B said hello there
+at once. Each gateway's conntrack table, sampled while the run waited
+for stop, explains it:
+
+- **Gateway B** held an entry for the phone's own first packet to B,
+  which arrived before B's hello. B's hello was then masqueraded from
+  port 64744, not 7000, and the phone's offers to 7000 went to the
+  gateway itself.
+- **Gateway P**, in another run, the same in the other direction: B's
+  hello arrived first, and the phone's offers left from 8689 where B had
+  been told 54217.
+
+**A gateway whose own stack takes an unasked datagram** -- here, answering
+it port unreachable -- **confirms a conntrack entry for it, and the
+port-preserving masquerade then picks another port** for the other half
+of the punch. A home router's WAN side drops what it did not ask for, and
+a datagram dropped in the input chain is never confirmed. `tool/hull_node.py`'s
+gateway now does that. **5 of 5 introduction-only runs pass** with it, the
+line at B's root in 24 to 54 s, against 2 of 5 without, the same daemon. A
+relaying run passes too.
+
+**Open: a NAT that does answer an unasked datagram** fails the same way,
+and never recovers. The phone keeps offering to the address it was told
+every round, which keeps refreshing the entry that blocks it. The relay
+covers it. Re-introducing after an introduced address goes unanswered,
+from a fresh socket, would be the fix if one is met.
+
+**Seen in the log**: `introduced to ... told it is at` where an
+introduction is made, `hello to ..., introduced` where one is taken.

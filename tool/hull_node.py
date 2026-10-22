@@ -132,8 +132,24 @@ class role:
 		              json.dumps(self.seen, sort_keys=True))
 		# HELD UP until the host says stop, so every machine is up while any
 		# still waits on it.
+		# A GATEWAY'S UDP MAPPINGS, sampled while it waits, at most 500 kept:
+		# what its NAT made of a hole punched through it (sec 698).
+		mappings, tick = [], 0
 		while self.left() > 0 and not os.path.exists(os.path.join(self.volume, "stop")):
+			if self.name == "gateway" and tick % 4 == 0 and len(mappings) < 500:
+				try:
+					with open("/proc/net/nf_conntrack") as f:
+						for line in f:
+							entry = " ".join(w for w in line.split() if "=" in w)
+							if " udp " in line and entry not in mappings:
+								mappings.append(entry)
+				except OSError as e:
+					mappings = mappings or ["no conntrack table: %s" % e]
+			tick += 1
 			time.sleep(0.5)
+		if mappings:
+			self.put_file(self.opts.get("NAME", self.name) + ".conntrack",
+			              "\n".join(mappings[:500]))
 		if self.proc and self.proc.poll() is None:
 			self.proc.terminate()
 			try:
@@ -158,8 +174,17 @@ def gateway(r):
 	# THE NAT BEFORE THE FORWARDING: forwarding first let a datagram that
 	# came in the gap through unmasqueraded, and the root saw the member's
 	# home address -- one run in three, until this order.
+	# AND A HOME ROUTER'S WAN SIDE, dropping what it did not ask for, sec
+	# 698: without it the gateway's own stack took an unasked datagram --
+	# the first half of a hole punch -- and answered it port unreachable,
+	# which confirmed a conntrack entry for it, and the masquerade then gave
+	# the other half another port. Dropped here, the entry is never
+	# confirmed. 3 of 5 introductions failed so, on one gateway or the other.
 	rules = ("table ip nat {\n"
 	         " chain post { type nat hook postrouting priority 100; oifname \"eth2\" masquerade; }\n"
+	         "}\n"
+	         "table ip filter {\n"
+	         " chain wan { type filter hook input priority 0; iifname \"eth2\" ct state new drop; }\n"
 	         "}\n")
 	with open("/tmp/nat.nft", "w") as f:
 		f.write(rules)

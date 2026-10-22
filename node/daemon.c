@@ -5646,17 +5646,48 @@ static void take_kept(void *ctx, const fzn_contact_device_t *d)
 		(*kept)++;
 }
 
+/* A PAIRING TO A CONTACT'S DEVICE `key`, sec 698: the one kept, or one
+ * derived from its kept entry's prekey as a contact target's is -- a
+ * contact's device is kept as a peer to serve, not as a pairing to ask. 1
+ * with it in `out`. */
+static int contact_pairing(const uint8_t key[FZN_PUBKEY_LEN], fzn_node_pairing_t *out)
+{
+	fzn_contact_device_t d;
+
+	if (fzn_node_pairing_load(node_apply.store, key, out) == FZN_PERSIST_OK)
+		return 1;
+	return running_admin && contact_id && running_admin->state->config.has_share
+	       && fzn_contact_device_get(node_apply.store, key, &d) == FZN_CONTACT_DEVICE_OK
+	       && fzn_node_admin_contact_stands(running_admin, d.owner)
+	       && fzn_node_pairing_derive(contact_id, d.record,
+	                                  &running_admin->state->config.share_capability,
+	                                  wall_clock(), out)
+	                  == FZN_NODE_PAIR_OK;
+}
+
 /* THE CONTACT HOSTS THIS NODE DELIVERS TO, rebuilt: each kept device with
  * an address whose owner stands, a pairing derived from its prekey, in
  * its contact's manifest order. */
 static void load_contact_targets(void)
 {
 	static fzn_contact_device_t kept[FZN_CONTACT_DEVICES_MAX];
-	size_t n = 0, i, j;
+	/* EACH HOST'S SOCKET KEPT ACROSS THE REBUILD, sec 698: a NAT's mapping
+	 * belongs to a socket, so the one an introduction opened, or a hello
+	 * kept open, is lost with it -- rebuilt on a fresh socket every round,
+	 * a hole punched last round led nowhere. */
+	static struct {
+		uint8_t key[FZN_PUBKEY_LEN];
+		int fd;
+	} old[FZND_CONTACT_TARGETS_MAX];
+	size_t n = 0, i, j, n_old = 0;
 
 	for (i = 0; i < ncontact_targets; i++) {
-		if (contact_targets[i].pt.fd >= 0)
+		if (contact_targets[i].pt.fd >= 0 && n_old < FZND_CONTACT_TARGETS_MAX) {
+			memcpy(old[n_old].key, contact_targets[i].pt.pairing.node, FZN_PUBKEY_LEN);
+			old[n_old++].fd = contact_targets[i].pt.fd;
+		} else if (contact_targets[i].pt.fd >= 0) {
 			fzn_udp_close(contact_targets[i].pt.fd);
+		}
 		fzn_wipe(&contact_targets[i].pt.pairing, sizeof(contact_targets[i].pt.pairing));
 	}
 	ncontact_targets = 0;
@@ -5680,6 +5711,14 @@ static void load_contact_targets(void)
 		                                 &when)
 		            && when + FZND_RELAY_SEEN_S >= wall_clock()
 		            && fzn_udp_addr_text(&at, seen, &seen_port) == FZN_UDP_OK;
+		/* OR WHERE IT WAS INTRODUCED, sec 698, for as long as that holds. */
+		const struct introduced *in = intro_of(fzn_contact_device_key(&kept[i]), 0);
+
+		if (!heard && in && in->until > wall_clock() && in->port) {
+			(void)snprintf(seen, sizeof(seen), "%s", in->host);
+			seen_port = in->port;
+			heard = 1;
+		}
 
 		if ((!kept[i].port && !heard)
 		    || !fzn_node_admin_contact_stands(running_admin, kept[i].owner))
@@ -5701,15 +5740,35 @@ static void load_contact_targets(void)
 				    && memcmp(r.entries[j].address, kept[i].address, kept[i].address_len)
 				               == 0)
 					ct->metric = r.entries[j].metric;
-		if (fzn_node_pairing_derive(contact_id, kept[i].record,
-		                            &running_admin->state->config.share_capability, wall_clock(),
-		                            &ct->pt.pairing)
-		            != FZN_NODE_PAIR_OK
-		    || !open_target(&ct->pt, contact_family, contact_id->pubkey, contact_hash_ops,
-		                    contact_aead_ops, contact_rng_ops))
-			continue;
+		{
+			int fd = -1;
+
+			for (j = 0; j < n_old; j++)
+				if (old[j].fd >= 0
+				    && memcmp(old[j].key, fzn_contact_device_key(&kept[i]), FZN_PUBKEY_LEN) == 0) {
+					fd = old[j].fd;
+					old[j].fd = -1;
+					break;
+				}
+			if (fzn_node_pairing_derive(contact_id, kept[i].record,
+			                            &running_admin->state->config.share_capability,
+			                            wall_clock(), &ct->pt.pairing)
+			            != FZN_NODE_PAIR_OK) {
+				if (fd >= 0)
+					fzn_udp_close(fd);
+				continue;
+			}
+			if (!open_target_on(&ct->pt, fd, contact_family, contact_id->pubkey,
+			                    contact_hash_ops, contact_aead_ops, contact_rng_ops))
+				continue;
+		}
 		ncontact_targets++;
 	}
+	/* WHAT NO HOST TOOK BACK, closed: a device forgotten, or one no longer
+	 * reached. */
+	for (j = 0; j < n_old; j++)
+		if (old[j].fd >= 0)
+			fzn_udp_close(old[j].fd);
 	/* BY CONTACT, THEN METRIC: insertion, a handful at most. */
 	for (i = 1; i < ncontact_targets; i++)
 		for (j = i; j > 0; j--) {
@@ -7019,6 +7078,68 @@ static void contact_talk_over(void *ctx)
 	(void)contact_talk_begin(ct);
 }
 
+/* EACH CONTACT HOST DUE AN INTRODUCTION, sec 698, the holder's "hole
+ * punching" of 2026-10-22: asked of the first of this host's own that
+ * answered -- whoever the contact's host says hello to -- from the contact
+ * target's own socket, so the introducer sees the mapping the answer must
+ * come back to. The address it says the host said hello from is used for
+ * the next ten minutes, a hello sent there at once from that socket, while
+ * the introducer has the contact's host say hello back, opening both NATs'
+ * ways. Asked and waited on in turn, as the siblings' are (sec 623): only
+ * after a delivery went unanswered, so seldom. */
+static void introduce_contacts(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	size_t i, k;
+
+	for (i = 0; i < ncontact_targets; i++) {
+		struct contact_target *ct = &contact_targets[i];
+		struct introduced *in = intro_of(ct->pt.pairing.node, 0);
+		uint8_t request[2u + FZN_PUBKEY_LEN], reply[160];
+		char host[FZN_UDP_HOST_MAX];
+		unsigned port = 0;
+		size_t len = 0;
+		fzn_caller_t via;
+		uint32_t msg = 0;
+
+		if (!in || !in->due || ct->pt.fd < 0)
+			continue;
+		in->due = 0;
+		for (k = 0; k < npulls && (silent_peer(&pulls[k]) || pulls[k].fd < 0); k++)
+			;
+		if (k == npulls)
+			return;
+		via = pulls[k].caller;
+		via.fd = ct->pt.fd;
+		request[0] = FZND_INTRO_VERSION;
+		request[1] = FZN_TYPE_INTRODUCE;
+		memcpy(request + 2, ct->pt.pairing.node, FZN_PUBKEY_LEN);
+		if (fzn_caller_send(&via, request, sizeof(request), now + 300u, &msg) != FZN_CALLER_OK
+		    || fzn_caller_recv(&via, msg, reply, sizeof(reply) - 1u, &len, 3000u)
+		               != FZN_CALLER_OK) {
+			say(FZN_ENTRY_DEBUG, "contact/devices", "an introduction to %s asked of %s: no answer",
+			    ct->host, pulls[k].host);
+			continue;
+		}
+		pulls[k].caller.next_msg = via.next_msg;
+		reply[len] = '\0';
+		if (sscanf((const char *)reply, "ok %45s %u", host, &port) != 2 || !port
+		    || port > 65535u) {
+			say(FZN_ENTRY_DEBUG, "contact/devices", "an introduction to %s refused: %.120s",
+			    ct->host, (const char *)reply);
+			continue;
+		}
+		(void)snprintf(in->host, sizeof(in->host), "%s", host);
+		in->port = (uint16_t)port;
+		in->until = now + FZND_INTRO_S;
+		(void)snprintf(ct->host, sizeof(ct->host), "%s", host);
+		ct->pt.port = (long)port;
+		if (fzn_udp_resolve(contact_family, host, (uint16_t)port, &ct->pt.caller.node)
+		    == FZN_UDP_OK)
+			(void)fzn_caller_hello(&ct->pt.caller, ct->pt.fd, now + 60u);
+		say(FZN_ENTRY_INFO, "contact/devices", "a contact's host introduced at %s %u", host, port);
+	}
+}
+
 static void contact_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
 	size_t i, k;
@@ -7032,6 +7153,7 @@ static void contact_round(struct pull_target *pulls, size_t npulls, uint64_t now
 	/* THE HOSTS KEPT SO FAR, so a member's first round asks the contact
 	 * through one it learned last round, or from another member. */
 	load_contact_targets();
+	introduce_contacts(pulls, npulls, now);
 	/* EACH STANDING CONTACT ONCE, its hosts in the order the round tried
 	 * them: a conversation through the first, the next when it does not
 	 * answer, every contact at once (sec 636). */
@@ -9768,7 +9890,10 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 	uint16_t port = 0;
 	int member = fzn_node_apply_rank(&node_apply, sender, FZN_SCOPE_HOST, sender, &rank) == 1;
 
-#define INTRO_NO(text) ((size_t)snprintf((char *)reply, reply_cap, "denied %s\n", text))
+#define INTRO_NO(text)                                                                     \
+	(say(FZN_ENTRY_WARNING, "node/peer", "an introduction for %02x%02x%02x%02x refused: %s", \
+	     sender[0], sender[1], sender[2], sender[3], text),                                 \
+	 (size_t)snprintf((char *)reply, reply_cap, "denied %s\n", text))
 	if (!st || st->udp_fd < 0 || !contact_id || !node_apply.store)
 		return INTRO_NO("this host serves no introductions");
 	if (request[1] == FZN_TYPE_INTRODUCE) {
@@ -9792,7 +9917,7 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 		/* THE NOTIFY, sent and not waited on: its answer comes to the
 		 * serving socket, and opens there as nothing. */
 		if (st->asking_from && fzn_udp_addr_text(st->asking_from, asker, &asker_port) == FZN_UDP_OK
-		    && fzn_node_pairing_load(node_apply.store, request + 2, &pairing) == FZN_PERSIST_OK) {
+		    && contact_pairing(request + 2, &pairing)) {
 			memset(&c, 0, sizeof(c));
 			fzn_node_pairing_caller(&pairing, contact_id->pubkey, &c);
 			c.fd = st->udp_fd;
@@ -9808,7 +9933,14 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 			notify[2u + FZN_PUBKEY_LEN] = (uint8_t)n;
 			memcpy(notify + 3u + FZN_PUBKEY_LEN, asker, n);
 			fzn_put_be16(notify + 3u + FZN_PUBKEY_LEN + n, asker_port);
-			(void)fzn_caller_send(&c, notify, 5u + FZN_PUBKEY_LEN + n, now + 60u, &msg);
+			say(FZN_ENTRY_DEBUG, "node/peer",
+			    "%02x%02x%02x%02x introduced to %02x%02x%02x%02x at %s %u, told it is at %s %u%s",
+			    sender[0], sender[1], sender[2], sender[3], request[2], request[3], request[4],
+			    request[5], host, (unsigned)port, asker, (unsigned)asker_port,
+			    fzn_caller_send(&c, notify, 5u + FZN_PUBKEY_LEN + n, now + 60u, &msg)
+			                    == FZN_CALLER_OK
+			            ? ""
+			            : ", which would not send");
 			fzn_wipe(&pairing, sizeof(pairing));
 			fzn_wipe(&c, sizeof(c));
 		}
@@ -9826,15 +9958,23 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 		n = request[2u + FZN_PUBKEY_LEN];
 		if (n == 0u || n >= FZN_UDP_HOST_MAX || request_len != 5u + FZN_PUBKEY_LEN + n)
 			return INTRO_NO("malformed notify");
-		if (!member)
-			return INTRO_NO("only this estate introduces");
-		if (fzn_node_apply_rank(&node_apply, who, FZN_SCOPE_HOST, who, &rank) != 1
-		    && !fzn_node_admin_contact_of(running_admin, who, owner))
+		/* FROM THIS ESTATE, or, sec 698, from a standing contact's host about
+		 * another of that same contact's: a contact's server introducing its
+		 * user's phone, so the two may reach each other direct. */
+		if (!member) {
+			uint8_t asker_owner[FZN_PUBKEY_LEN];
+
+			if (!fzn_node_admin_contact_of(running_admin, sender, asker_owner)
+			    || !fzn_node_admin_contact_of(running_admin, who, owner)
+			    || memcmp(asker_owner, owner, FZN_PUBKEY_LEN) != 0)
+				return INTRO_NO("only this estate, or a contact about its own, introduces");
+		} else if (fzn_node_apply_rank(&node_apply, who, FZN_SCOPE_HOST, who, &rank) != 1
+		           && !fzn_node_admin_contact_of(running_admin, who, owner))
 			return INTRO_NO("not a host this one knows");
 		memcpy(host, request + 3u + FZN_PUBKEY_LEN, n);
 		host[n] = '\0';
 		port = fzn_get_be16(request + 3u + FZN_PUBKEY_LEN + n);
-		if (!port || fzn_node_pairing_load(node_apply.store, who, &pairing) != FZN_PERSIST_OK)
+		if (!port || !contact_pairing(who, &pairing))
 			return INTRO_NO("no way to that host");
 		memset(&c, 0, sizeof(c));
 		fzn_node_pairing_caller(&pairing, contact_id->pubkey, &c);
@@ -9842,7 +9982,11 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 		c.aead = contact_aead_ops;
 		c.rng = contact_rng_ops;
 		if (fzn_udp_resolve(contact_family, host, port, &c.node) == FZN_UDP_OK)
-			(void)fzn_caller_hello(&c, st->udp_fd, now + 60u);
+			say(FZN_ENTRY_DEBUG, "node/peer", "hello to %02x%02x%02x%02x at %s %u, introduced%s",
+			    who[0], who[1], who[2], who[3], host, (unsigned)port,
+			    fzn_caller_hello(&c, st->udp_fd, now + 60u) == FZN_CALLER_OK
+			            ? ""
+			            : ", which would not send");
 		fzn_wipe(&pairing, sizeof(pairing));
 		fzn_wipe(&c, sizeof(c));
 		return (size_t)snprintf((char *)reply, reply_cap, "ok\n");
@@ -10127,6 +10271,14 @@ static void deliver_host_done(struct deliver_talk *dt)
 			    d->sent, host, d->delivered, d->settled, d->refused, d->unanswered);
 		if (ti >= 0)
 			contact_targets[ti].down = dt->err == FZN_MESSAGES_OK && d->unanswered;
+		/* UNANSWERED WHERE IT IS SAID TO BE: introduced at the next contact
+		 * round, sec 698, unless an introduction already holds. */
+		if (ti >= 0 && contact_targets[ti].down) {
+			struct introduced *in = intro_of(contact_targets[ti].pt.pairing.node, 1);
+
+			if (in && in->until <= dt->now)
+				in->due = 1;
+		}
 		/* ALL OF THEM TAKEN, OR NONE WAITING: this contact is done. A
 		 * refusal or no answer tries its next host. */
 		if (dt->err == FZN_MESSAGES_OK && !d->refused && !d->unanswered) {
