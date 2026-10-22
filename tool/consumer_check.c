@@ -176,6 +176,7 @@
 #include <fuzznet/location/location.h>
 #include <fuzznet/location/tpv.h>
 #include <fuzznet/location/gpsd.h>
+#include <fuzznet/sticker/pack.h>
 #ifdef FZN_CLI_ON
 #include <fuzznet/cli/cli.h>
 #include <fuzznet/node/daemon.h>
@@ -376,6 +377,7 @@
 #include "location/location.h"
 #include "location/tpv.h"
 #include "location/gpsd.h"
+#include "sticker/pack.h"
 #ifdef FZN_CLI_ON
 #include "cli/cli.h"
 #include "node/daemon.h"

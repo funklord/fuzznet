@@ -297,3 +297,4 @@ __pycache__/
 /location/test/location_test
 /location/test/tpv_test
 /location/test/gpsd_test
+/sticker/test/sticker_test

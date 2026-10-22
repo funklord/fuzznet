@@ -185,6 +185,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              catalog/shard.c catalog/materialise.c catalog/source.c \
              catalog/index.c \
              location/location.c location/tpv.c location/gpsd.c \
+             sticker/pack.c \
              persist/persist.c \
              spool/spool.c \
              spool/plan.c \
@@ -283,6 +284,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              catalog/shard.h catalog/materialise.h catalog/source.h \
              catalog/index.h \
              location/location.h location/tpv.h location/gpsd.h \
+             sticker/pack.h \
              persist/persist.h \
              spool/spool.h spool/message.h spool/transfer.h \
              spool/scrub.h \
@@ -389,6 +391,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              local/test/client_test.c local/test/escape_test.c \
              node/test/types_test.c location/test/location_test.c \
              location/test/tpv_test.c location/test/gpsd_test.c \
+             sticker/test/sticker_test.c \
              node/test/peer_persist_test.c \
              node/test/identity_test.c node/test/heard_test.c node/test/events_test.c \
              node/test/routing_test.c node/test/contact_devices_test.c \
@@ -515,6 +518,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/location/test/location_test \
              $(BUILD_DIR)/location/test/tpv_test \
              $(BUILD_DIR)/location/test/gpsd_test \
+             $(BUILD_DIR)/sticker/test/sticker_test \
              $(BUILD_DIR)/node/test/peer_persist_test \
              $(BUILD_DIR)/node/test/identity_test \
              $(BUILD_DIR)/node/test/heard_test \
@@ -4404,6 +4408,12 @@ $(BUILD_DIR)/location/test/gpsd_test: $(BUILD_DIR)/location/test/gpsd_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# A sticker pack, its spec and a reference, sec 680.
+$(BUILD_DIR)/sticker/test/sticker_test: $(BUILD_DIR)/sticker/test/sticker_test.o \
+                                        $(BUILD_DIR)/sticker/pack.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # gpsd's reports read, sec 678.
 $(BUILD_DIR)/location/test/tpv_test: $(BUILD_DIR)/location/test/tpv_test.o \
                                      $(BUILD_DIR)/location/tpv.o $(BUILD_DIR)/location/location.o
@@ -6119,7 +6129,7 @@ SITU_SPECS := chain/hop.situ chain/revocation.situ chain/manifest.situ \
               log/entry.situ log/cause.situ log/gather.situ chunk/piece.situ \
               node/heard.situ node/routing.situ node/contact_devices.situ \
               node/contact_card.situ node/contact_request.situ node/group_act.situ \
-              node/group_line.situ location/fix.situ
+              node/group_line.situ location/fix.situ sticker/pack.situ
 
 # THE WIDGETS, RENDERED BY QTTY ONTO A CHARACTER CELL GRID. sec 158.
 #

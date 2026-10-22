@@ -1,0 +1,53 @@
+// A sticker pack as a situ schema, sec 679: the holder's choice of
+// 2026-10-21 over fuzzypickles' stored zip of a CBOR manifest. One layout,
+// no container: a rendition or a sound is an offset and a length into the
+// pack's data area, so there is no file name inside a pack to resolve or
+// to refuse. `sticker/pack.h` encodes and decodes it by hand, its rules
+// the ones fuzzypickles' decoder kept (`core/src/sticker.c`, read at their
+// 51e789e).
+
+target buffer;
+endian big;
+
+struct fzn_sticker_keyword {
+	u8 len [min = 1, max = 24];
+	u8 text[len];
+}
+
+struct fzn_sticker_rendition {
+	u8  role [min = 1, max = 4];     // thumb, inline, main, popup
+	u8  format [min = 1, max = 4];   // lottie, apng, webp, png
+	u16 width;
+	u16 height;
+	u32 offset;                      // into the pack's data area
+	u32 len [min = 1];
+}
+
+struct fzn_sticker_entry {
+	u16 id;
+	u8  type [min = 1, max = 7];     // static, animated, popup, effect, message, name, emoji
+	u16 flags [max = 7];             // sound 1, big 2, animated 4
+	u8  description_len [min = 1, max = 96];
+	u8  description[description_len];
+	u8  keyword_count [max = 32];
+	fzn_sticker_keyword keywords[keyword_count];
+	u16 text_limit;                  // 0: the sticker takes no text
+	u16 text_x;
+	u16 text_y;
+	u16 text_w;
+	u16 text_h;
+	u32 audio_offset;
+	u32 audio_len;                   // 0: no sound
+	u8  rendition_count [min = 1, max = 6];
+	fzn_sticker_rendition renditions[rendition_count];
+}
+
+struct fzn_sticker_pack {
+	u8  version [must_eq = 1];
+	u8  name_len [max = 48];
+	u8  name[name_len];
+	u8  count [min = 1, max = 64];
+	fzn_sticker_entry entries[count];
+	u32 data_len;
+	u8  data[data_len];
+}

@@ -67846,3 +67846,75 @@ until the files layer seals it, as every blob is.
 
 **What stays the application's:** drawing a sticker, the picker and the
 editor's window.
+
+## 680. Stickers step a: a pack, its spec and a reference, 2026-10-22
+
+**Built: `sticker/pack.h`**, sec 679's step a. The manifest's fields and
+the decoder's rules are fuzzypickles' (`core/src/sticker.c` at 51e789e).
+The container is `sticker/pack.situ`, the holder's choice:
+- **The layout.** A version, the pack's name, up to 64 entries, and a data
+  area that each rendition and sound indexes by offset and length. situ
+  solves an entry at 41 to 1006 bytes. A pack this builds or opens is at
+  most 16 MiB.
+- **`fzn_sticker_pack_build`** lays a manifest and the caller's bytes into
+  a pack, data in entry order, and opens what it built before answering.
+  A pack it builds is a pack it accepts, and a refused build leaves the
+  caller's buffer zeroed rather than half-written. A NULL buffer asks the
+  length.
+- **`fzn_sticker_pack_open`** keeps every rule theirs did:
+  - a known version, a known type, no unknown flag;
+  - a description of 1 to 96 bytes and keywords of 1 to 24;
+  - one to six renditions of a known role and format, each with a size;
+  - a sound flag only beside a sound, a box on a message or name sticker,
+    no big emoji;
+  - ids and descriptions distinct across the pack.
+
+  Since a container has gone, it also refuses a rendition or sound
+  outside the data area, and any byte after it.
+- **One rule stricter than theirs:** no control character in a name, a
+  description or a keyword. Their decoder took any bytes while their
+  reference refused a line break in a description, so a pack could hold a
+  sticker no message could carry.
+- **The spec**, parsed and written in their grammar unchanged:
+  - comments, a CR line ending, ids unique;
+  - each error naming its line;
+  - flags written in table order, so two saves diff nowhere;
+  - everything set written whether its kind uses it or not;
+  - a value the text cannot carry back refused, naming its sticker.
+- **One rule new:** a spec's path is a file beside it,
+  `fzn_sticker_path_ok`: relative, no `..`, no control character,
+  backslash or colon. Their spec parser took any path, checking only a
+  container's names. Here building reads these files, so a path above the
+  spec would read what it should not.
+- **The reference** is written `fzn:sticker/ROOT/KEY/ID DESCRIPTION`;
+  `fzp:sticker/...` is read too, as the holder decided.
+- **Carried over:** `fzn_sticker_field_applies`, which fields a kind has,
+  and `fzn_sticker_pick`, the role asked for or the nearest it has.
+- **Two names changed** so the C names do not collide. The name kind is
+  `FZN_STICKER_NAMED`, beside `FZN_STICKER_NAME_MAX`, and the popup role is
+  `FZN_STICKER_POPUP_ART`, beside the popup kind. The spec still spells
+  them `name` and `popup`.
+
+**Tested** by `sticker/test/sticker_test.c`, named so because
+`log/test/pack_test.c` holds the shorter name:
+- **Built and opened:** a spec with a comment and a CR-ended line, parsed,
+  built at the length asked, and opened back, each rendition and the
+  sound at their own bytes.
+- **Refusals**, each by building what breaks it: a version 2, a byte
+  short or over, a repeated id, a repeated description, a sound flag with
+  no sound, a message with no box, a big emoji, an unknown flag or type, a
+  line break in a description, a rendition with no width, and a range
+  past the data area written by hand.
+- **The spec:** written, read and written again unchanged; a leading
+  space refused, naming its sticker; a box kept across a change of kind;
+  each parse error at its line; four paths outside the directory refused.
+- **References:** `fzn:` written and read; `fzp:` read; an unknown scheme,
+  no description, a line break, a non-hex root and short fields refused.
+- **The kinds' fields and the picks.**
+
+**Measured on the way:** the first run failed the range check, and the
+fault was the test's. The refused builds before it had written into the
+shared buffer, so the bytes bent were no longer the pack's. It builds
+again first now. That is also why a refused build wipes what it wrote.
+
+Nine sabotage entries cover `pack.c`.
