@@ -20,6 +20,10 @@ A asks, B is asked, C asks and is turned away.
     g  A adds a fix, `add location`, and lists it exact; B, granted level
        1, fetches it and lists it on the 0.01 degree grid, marked coarse --
        never A's exact position (sec 676)
+    h  A puts a sticker pack and sends B a line carrying a sticker's
+       reference; B's node wants the pack and fetches it from A, which
+       granted it to B as the line went out, and B comes to list its
+       stickers (sec 682)
 
 Against a daemon that drops every box, phase a lists no request; against
 one whose approval does not hand over to the contact round, phase b
@@ -50,6 +54,7 @@ OFFERED_RE = re.compile(r"line\(s\) offered to 127\.0\.0\.1: 1 delivered")
 # before them (sec 637).
 ROUND_END_RE = ROUND_DONE_RE
 LINE = "51" * 16
+LINE2 = "52" * 16
 PREKEY_HOST = slice(4, 68)
 
 
@@ -252,6 +257,48 @@ def main(argv):
 			   or rows[0][-1] != "1":
 				raise failed("g: B lists %r of A's fixes, not one on the coarse grid" % reply)
 			print("livecheck: g: A's fix listed exact at A, and on the 0.01 degree grid at B")
+
+			# h: a sticker, sec 682. A's pack, its reference sent as a line's
+			# text (escaped, as every text is), and B fetching the pack it
+			# names from A, who granted it as the line went out.
+			packdir = os.path.join(run.scratch, "pack")
+			os.makedirs(os.path.join(packdir, "art"))
+			art = os.urandom(3000)
+			with open(os.path.join(packdir, "art", "wave.png"), "wb") as f:
+				f.write(art)
+			spec = os.path.join(packdir, "cats.spec")
+			with open(spec, "w") as f:
+				f.write("name cats\nsticker 1 static\ndescription a cat waving\n"
+				        "inline png 128 128 art/wave.png\n")
+			got = ask(socks["a"], "put sticker " + spec).split()
+			if len(got) != 2 or got[0] != "ok":
+				raise failed("h: put sticker answered %r" % got)
+			ref = ask(socks["a"], "get sticker %s 1" % got[1])
+			if not ref.startswith("ok fzn:sticker/"):
+				raise failed("h: get sticker answered %r" % ref)
+			ref = ref[3:]
+			fields = ref.split("/")
+			whole = fields[1] + fields[2] + "%016x" % int(fields[3])
+			if not ask(socks["b"], "list sticker " + whole).startswith("error"):
+				raise failed("h: B held A's pack before any line named it")
+			expect(socks["a"], "a", "add message bob out %s %s"
+			       % (LINE2, ref.replace("%", "%25").replace(" ", "%20")), "ok")
+			until = time.monotonic() + 150.0
+			while not ask(socks["b"], "list sticker " + whole).startswith("ok 1 "):
+				if time.monotonic() > until:
+					raise failed("h: B never fetched the pack its line names: %r, B's "
+					             "messages %r" % (ask(socks["b"], "list sticker " + whole),
+					                              ask(socks["b"], "list message "
+					                                  + keys["a"])[:300]))
+				time.sleep(2.0)
+			out = os.path.join(run.scratch, "wave.out")
+			if ask(socks["b"], "get sticker %s 1 inline %s" % (whole, out)) != "ok 4 128 128":
+				raise failed("h: B could not draw the sticker it fetched")
+			with open(out, "rb") as f:
+				if f.read() != art:
+					raise failed("h: the sticker B drew is not A's art")
+			print("livecheck: h: a line carrying a sticker made B fetch A's pack, granted as "
+			      "it went out, and draw it")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

@@ -6261,7 +6261,7 @@ else
 	@timeout 120 python3 tool/live_events.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_deliver.py $(FUZZNETD)
 	@timeout 540 python3 tool/live_contacts.py $(FUZZNETD)
-	@timeout 300 python3 tool/live_pairing.py $(FUZZNETD)
+	@timeout 480 python3 tool/live_pairing.py $(FUZZNETD)
 	@timeout 200 python3 tool/live_identity.py $(FUZZNETD)
 	@timeout 540 python3 tool/live_relay.py $(FUZZNETD)
 	@timeout 540 python3 tool/live_introduce.py $(FUZZNETD)

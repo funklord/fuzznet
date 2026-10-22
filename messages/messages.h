@@ -127,6 +127,14 @@ typedef struct fzn_messages {
 	/* NULL keeps no items: lines are then handed on by the journal alone,
 	 * for its window. */
 	const fzn_messages_items_t *items;
+	/* EACH LINE'S TEXT AS IT IS KEPT OPEN, sec 682: the conversation, the
+	 * direction and the plaintext, every way a line arrives -- delivered,
+	 * absorbed from a device of this user's, or opened once its month's
+	 * key came. A line kept again is told again, so what it does must be
+	 * idempotent. NULL for none. */
+	void (*on_text)(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN], uint8_t direction,
+	                const uint8_t *text, size_t len);
+	void *on_text_ctx;
 } fzn_messages_t;
 
 /* One line as a listing gives it. */

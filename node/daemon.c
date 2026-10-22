@@ -57,6 +57,8 @@
 #include "../local/escape.h"
 #include "../location/location.h"
 #include "../location/gpsd.h"
+#include "../sticker/pack.h"
+#include "../messages/line.h"
 #ifdef FZN_CLAIM_FILE_ON
 #include "../claim/claim_file.h"
 #endif
@@ -6161,6 +6163,41 @@ static size_t ext_remote(void *ctx, const uint8_t *sender, int contact, const ui
 	       : 0u;
 }
 
+#if defined(FZN_SPOOL_FILE_ON)
+/* A STICKER A LINE NAMES, sec 682: what a message carries is a reference
+ * (`sticker/pack.h`), and its pack a file of somebody's. A line come IN
+ * wants the pack, so it is fetched to be shown -- from whoever granted it
+ * this user, which the sender's node did as it sent (below), and from a
+ * member that has it; one going OUT, of this user's own, grants the pack
+ * to the contact when this host holds it, so the contact's node may fetch
+ * it -- sec 631's "an app sending a reference grants as it sends", done
+ * here once rather than in every client. An `fzp:` reference, length 0,
+ * names a pack nothing here can fetch, and is left alone. */
+static void sticker_seen(void *ctx, const uint8_t *contact, uint8_t direction,
+                         const uint8_t *text, size_t len)
+{
+	fzn_sticker_ref_t ref;
+	uint64_t held = 0;
+
+	(void)ctx;
+	if (!files_on || !fzn_sticker_ref_parse((const char *)text, len, &ref) || !ref.length)
+		return;
+	if (fzn_node_files_held(&files, ref.root, &held) == FZN_NODE_FILES_OK) {
+		if (direction == FZN_MESSAGE_OUT
+		    && fzn_node_files_share(&files, ref.root, contact, 1, wall_ms())
+		               == FZN_NODE_FILES_OK)
+			say(FZN_ENTRY_DEBUG, "sticker", "pack %02x%02x%02x%02x granted to %02x%02x%02x%02x",
+			    ref.root[0], ref.root[1], ref.root[2], ref.root[3], contact[0], contact[1],
+			    contact[2], contact[3]);
+		return;
+	}
+	if (direction == FZN_MESSAGE_IN && ref.length <= FZN_STICKER_PACK_MAX_LEN
+	    && fzn_node_files_want(&files, ref.root, ref.length) == FZN_NODE_FILES_OK)
+		say(FZN_ENTRY_DEBUG, "sticker", "pack %02x%02x%02x%02x wanted, %llu bytes", ref.root[0],
+		    ref.root[1], ref.root[2], ref.root[3], (unsigned long long)ref.length);
+}
+#endif
+
 int fzn_daemon_journal_append(const uint8_t *object, size_t len)
 {
 #ifdef FZN_RECORD_STORE_FILE_ON
@@ -12220,6 +12257,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					messages_on = 1;
 					node_messages.keeps = keeps_here;
 					node_messages.takes_over = takes_over_line;
+#if defined(FZN_SPOOL_FILE_ON)
+					node_messages.m.on_text = sticker_seen;
+#endif
 					admin.messages_local = fzn_node_messages_local;
 					admin.messages_remote = fzn_node_messages_remote;
 					admin.messages_ctx = &node_messages;

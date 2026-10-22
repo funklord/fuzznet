@@ -67985,3 +67985,54 @@ outside the census as `node/files.c` is. The library under it,
 `sticker/pack.c`, is held by `sticker_test` and ten sabotage entries.
 
 **Not yet, step c:** the sweep fetching packs that messages name.
+
+## 682. Stickers step c: a pack a line names, fetched, and granted as it goes, 2026-10-22
+
+The last of sec 679's steps. Sec 631's 6b had settled the rules this
+follows: a file is served to a contact or a group only when its owner
+granted it ("an app sending a reference grants as it sends"), and a
+wanted file is asked of every contact's host and every group member's.
+So all that step c needed was for someone to want and to grant, at the
+right moment.
+
+**Built:**
+- **`fzn_messages_t.on_text`**, called from `stored_keep`. That is the one
+  place a line's plaintext is known, however it arrived: delivered by a
+  contact, absorbed from a device of this user's, opened late once its
+  month's key came, or a group line imported. It passes the conversation,
+  the direction and the text. A line kept again is told again, and both
+  uses below are idempotent.
+- **The daemon's `sticker_seen`**, for a line whose text is a reference
+  (`fzn_sticker_ref_parse`) with a length:
+  - **coming in**, it wants the pack (`fzn_node_files_want`). The next
+    round fetches it from whoever granted it, as any wanted file is;
+  - **going out**, as this user's, it grants the pack to the conversation,
+    a contact's root or a group's id, when this host holds it. That is sec
+    631's grant done once in the node rather than in every client.
+
+  A pack held already is not wanted again. A pack past 16 MiB is not
+  wanted. An `fzp:` reference, of length 0, is left alone.
+
+**Tested** by `tool/live_pairing.py` phase h, two users who became
+contacts in phase b. A puts a pack and sends B a line whose text is a
+sticker's reference, escaped as a line's text is. B comes to list the
+pack's stickers through the whole reference, and draws the inline
+rendition byte for byte as A's art. **Controls**, one per half:
+- with the grant as the line goes out disabled, B never fetches the pack;
+- with the want as a line comes in disabled, B never fetches either.
+
+Phase h waits up to 150 s, for B's rounds, so the script's timeout in
+`make livecheck` is 480 s where it was 300.
+
+**Groups take the same path, untested live.** A group line received is
+imported into the conversations and so passes `stored_keep` with the
+group's id. A member's own group line goes out under it, and a file
+share takes a group's id as its grantee (sec 493). No live test sends a
+sticker to a group yet.
+
+**Stickers' move is done** but for their clients: `put sticker` replaces
+fzpd's sticker import, `list sticker` and `remove sticker` its saved
+registry, `get sticker` its reference and its draw, and the fetch sweep
+is the node's. A converter from fzpd's zip-and-CBOR packs was not built:
+the holder's answer accepted that those packs, on test devices only, do
+not open.
