@@ -68769,3 +68769,104 @@ hull's readiness, and which of these it will have, are hull's to say.
 
 Files stay outside sec 689's subset, so **the bench measures and nothing
 is tuned yet**, as the holder said: "to get them right later".
+
+## 693. hull's answer, and the file transfer bench's first measurements, 2026-10-22
+
+### hull's answer to sec 692
+
+From hull's session, hull at 77e26e6, recorded as it was given:
+1. **Named networks are being written, not committed.** A key gives a qemu
+   machine one NIC per named segment, up to 8, each segment a learning L2
+   switch in the user's core, rootless. Names are per user, so a test
+   picks a unique name per run.
+2. **No NAT in hull, and none planned.** A gateway is a machine with two
+   segment NICs running nftables masquerade, roughly port-restricted.
+   Full cone needs explicit rules, so the NAT's kind is the gateway
+   image's configuration, not a hull key.
+3. **Loss and delay:** `tc netem` inside a guest, once hull's commit
+   exposing the host's modules read-only lands. `sch_netem` itself is not
+   yet tried.
+4. **A plain directory: yes, today.** A pulled debian:13, built up with
+   python3, nftables, iproute2 and kmod, as the root, and fuzznet's tree as
+   a volume.
+5. **Script-driven and rootless: yes.** One `hull run -f FILE` a machine.
+   A whole multi-machine file at once is not written yet.
+
+**passt is the internet uplink only.** Whether hole punching through it
+means anything is unmeasured, and two estates behind two passts are not
+a topology the test controls. So sec 692's NATs are gateway machines
+between segments.
+
+**hull says it is ready** once its segments commit is pushed with a
+three-machine test passing, and will tell this session.
+
+### The bench
+
+`tool/bench_transfer.py`, against `make fuzznetd-faults`:
+- **The setup:** an estate of a root A, which puts a file of SIZE MiB,
+  and B, joined to it, which is handed the reference and fetches.
+- **A sweep:** sizes, by loss, by any grid of the four knobs.
+- **The knobs**, now settable in the test build as `FZN_TUNE_NAME`,
+  through `fault/fault.h`'s new `FZN_TUNE`, each read once:
+  `FETCH_WINDOW` (its slots 32 in that build, 2 in any other),
+  `LEAVES_A_ROUND`, `PULL_EVERY` and `SPAN_DEADLINE_MS`. Every other build
+  has each its constant.
+- **Each point gives:**
+  - seconds from `fetch file` to `get file ROOT check` answering `ok
+    intact`, and MiB/s;
+  - CPU seconds a MiB at each end, from `/proc`;
+  - the meter's file bytes against the length;
+  - the longest B's local socket kept a request waiting;
+  - the machine's load.
+
+### What it measured, 2026-10-22
+
+**On a quiet machine (load about 20), no loss:**
+- 1 to 32 MiB at about **18 to 24 MiB/s**;
+- **1.04 times** the file's length crossing each way;
+- **0.02 to 0.04 CPU seconds a MiB** at each end.
+
+**Bimodal at the same load.** Two runs of 8 MiB at loads of 21 and 20:
+- one took **6.5 s, B's socket waiting 6.2 s**;
+- the other took **0.4 s**.
+
+The slow run's wait is about two of the 3 s span deadline. That fits one
+span lost, even at no configured loss, costing a whole deadline, the
+window having halved to its floor. Lost where is not measured; a receive
+buffer overflowing is sec 494's own suspicion.
+
+**Loaded (load 208 to 251, the machine shared):**
+- 8 MiB at **0.25 MiB/s, B's socket waiting about 20 s**;
+- **at 5 per cent loss, 8 MiB did not finish in 600 s.**
+
+These are confounded by the load, recorded with it, and are not for
+tuning. But a transfer stopped for ten minutes by 5 per cent loss is a
+finding whatever the load.
+
+### Two findings for the subset, not only for files
+
+**A fetch runs in the daemon's main loop**, a batch of `LEAVES_A_ROUND`
+(4096 leaves, 4 MiB) at a time. Its own comment: "the budget is what lets
+the loop answer between batches". So nothing local is answered during a
+batch, and a span lost inside one keeps every local client waiting at
+least its deadline. That reached 22.7 s here. **For the subset this is a
+chat client frozen while a file arrives**, since every client speaks
+through that socket.
+- The likely answer is a fetch made resumable in steps, as sec 636 made
+  the round, so the loop answers between them. That is a design change,
+  **the holder's to triage**, not a knob to tune.
+
+**One loss costs a whole span deadline.** The window halves on a loss and
+does not resend early, so on a link with loss a transfer is paced by the
+3 s deadline, not by the network. This is sec 691's note on the request
+caller, met in the transfer.
+- Whether to resend before the deadline is a design question too, **the
+  holder's**. The bench is the instrument to answer it with numbers.
+
+**Not yet measured, and why:**
+- the knob sweeps;
+- more than one holder;
+- the CPU profile under `perf`.
+
+The machine was at a load of 180 to 250 for the rest of the day, and
+numbers taken there would tune for the load.

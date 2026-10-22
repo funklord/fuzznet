@@ -101,6 +101,7 @@
 #include "stickers.h"
 #include "meter.h"
 #include "schema.h"
+#include "../fault/fault.h"
 #endif
 #include "../local/socket.h"
 #include "../net/udp.h"
@@ -10441,6 +10442,13 @@ _Static_assert(FZND_PULL_REPLY_MAX >= FZN_NODE_FILES_REPLY_MAX,
  * receive buffer holds about a hundred datagrams, and a window past it loses
  * replies to the kernel rather than to the network. */
 #define FZND_FETCH_WINDOW 2u
+/* THE SLOTS KEPT FOR THEM: the window itself, or in a test build the most
+ * sec 692's bench may tune it to. */
+#ifdef FZN_TEST_FAULTS
+#define FZND_FETCH_SLOTS 32u
+#else
+#define FZND_FETCH_SLOTS FZND_FETCH_WINDOW
+#endif
 
 /* A caller as a file fetch's peer: a request sent, and the reply to any of
  * its requests taken. */
@@ -10470,8 +10478,10 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
 	static uint8_t roots[FZN_NODE_FILES_WANTS_MAX][FZN_BLOB_HASH_LEN];
 	static uint64_t lengths[FZN_NODE_FILES_WANTS_MAX];
-	static uint8_t slot_bufs[FZND_FETCH_WINDOW][FZND_PULL_REPLY_MAX];
-	static fzn_partial_t slots[FZND_FETCH_WINDOW];
+	static uint8_t slot_bufs[FZND_FETCH_SLOTS][FZND_PULL_REPLY_MAX];
+	static fzn_partial_t slots[FZND_FETCH_SLOTS];
+	/* THE KNOBS, constants but in sec 692's bench, read once. */
+	static unsigned long window, leaves_a_round;
 	static fzn_reasm_t table;
 	static int table_ready;
 	fzn_node_files_peer_t peers[FZN_NODE_FILES_PEERS_MAX];
@@ -10487,11 +10497,13 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 	if (!n)
 		return;
 	if (!table_ready) {
-		for (i = 0; i < FZND_FETCH_WINDOW; i++)
+		window = FZN_TUNE("FETCH_WINDOW", FZND_FETCH_WINDOW, FZND_FETCH_SLOTS);
+		leaves_a_round = FZN_TUNE("LEAVES_A_ROUND", FZND_FILE_LEAVES_A_ROUND, 1u << 22);
+		for (i = 0; i < FZND_FETCH_SLOTS; i++)
 			if (fzn_reasm_slot_init(&slots[i], slot_bufs[i], sizeof(slot_bufs[i]))
 			    != FZN_REASM_OK)
 				return;
-		if (fzn_reasm_init(&table, slots, FZND_FETCH_WINDOW, FZND_FETCH_WINDOW, 60u)
+		if (fzn_reasm_init(&table, slots, FZND_FETCH_SLOTS, FZND_FETCH_SLOTS, 60u)
 		    != FZN_REASM_OK)
 			return;
 		table_ready = 1;
@@ -10536,7 +10548,7 @@ static void fetch_files(struct pull_target *pulls, size_t npulls, uint64_t now)
 		size_t holders = 0;
 		fzn_node_files_err_t err =
 		        fzn_node_files_fetch_many(&files, roots[w], peers, n_peers, wall_ms,
-		                                  FZND_FETCH_WINDOW, FZND_FILE_LEAVES_A_ROUND, &placed,
+		                                  window, leaves_a_round, &placed,
 		                                  &holders);
 
 		if (err == FZN_NODE_FILES_OK && placed)
@@ -12692,6 +12704,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 
 	if (npulls || notes_on || state.reassembly) {
 		uint64_t next_pull = 0, last_fresh_round = 0, round_now = 0, round_began_ms = 0;
+		/* THE ROUND'S PERIOD, FZND_PULL_EVERY, or sec 692's bench's in a test
+		 * build. */
+		const uint64_t pull_every = FZN_TUNE("PULL_EVERY", FZND_PULL_EVERY, 86400u);
 		int round_step = 0;
 		const int *plan = round_plan;
 		size_t plan_at = 0;
@@ -12807,7 +12822,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			 * than one period away was planned by a clock that read later
 			 * than this one does, and waiting for it would stop every pull
 			 * for as long as the clock had been wrong. sec 469. */
-			if (!round_step && (now >= next_pull || next_pull > now + FZND_PULL_EVERY)) {
+			if (!round_step && (now >= next_pull || next_pull > now + pull_every)) {
 				plan = round_plan;
 				plan_at = 0;
 				round_step = plan[0];
@@ -13028,7 +13043,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					 * pulls, so an estate rule pulled this round applies this
 					 * round rather than the next. */
 					log_round();
-					next_pull = wall_clock() + FZND_PULL_EVERY;
+					next_pull = wall_clock() + pull_every;
 					/* THE ROUND'S END, said: a round answers between its
 					 * steps, so what it produced is read once this is
 					 * logged, not at a marker on the way (sec 637). */

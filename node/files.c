@@ -3,6 +3,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "files.h"
+#include "../fault/fault.h"
 
 #include "../blob/levels.h"
 #include "../contact/contact.h"
@@ -892,6 +893,18 @@ typedef struct out_req {
 } out_req_t;
 
 /* A peer's reply to `msg`, waiting up to the deadline; 0 when none came. */
+
+/* HOW LONG A SPAN MAY BE OUT, FZN_NODE_FILES_SPAN_DEADLINE_MS, or sec 692's
+ * bench's FZN_TUNE_SPAN_DEADLINE_MS in a test build: read once. */
+static unsigned long span_deadline_ms(void)
+{
+	static unsigned long ms;
+
+	if (!ms)
+		ms = FZN_TUNE("SPAN_DEADLINE_MS", FZN_NODE_FILES_SPAN_DEADLINE_MS, 600000u);
+	return ms;
+}
+
 static int wait_for(const fzn_node_files_peer_t *peer, uint32_t msg, uint8_t *reply, size_t cap,
                     size_t *len)
 {
@@ -901,7 +914,7 @@ static int wait_for(const fzn_node_files_peer_t *peer, uint32_t msg, uint8_t *re
 		uint32_t got = 0;
 
 		if (!peer->poll(peer->ctx, reply, cap, len, &got,
-		                FZN_NODE_FILES_SPAN_DEADLINE_MS / 8u))
+		                (unsigned)(span_deadline_ms() / 8u)))
 			continue;
 		if (got == msg)
 			return 1;
@@ -1059,7 +1072,7 @@ fzn_node_files_err_t fzn_node_files_fetch_many(fzn_node_files_t *files,
 				if (!alive[k])
 					continue;
 				terr = fzn_transfer_next_want(&transfer, (uint32_t)k, 0, FZN_NODE_FILES_SPAN,
-				                              now + FZN_NODE_FILES_SPAN_DEADLINE_MS, &range);
+				                              now + span_deadline_ms(), &range);
 				if (terr != FZN_TRANSFER_OK) {
 					stop = 1;
 					break;
@@ -1105,7 +1118,7 @@ fzn_node_files_err_t fzn_node_files_fetch_many(fzn_node_files_t *files,
 				if (out[slot].live && out[slot].peer == k)
 					any = 1;
 			while (any && peers[k].poll(peers[k].ctx, reply, sizeof(reply), &reply_len, &msg,
-			                            n_peers > 1u ? 20u : FZN_NODE_FILES_SPAN_DEADLINE_MS)) {
+			                            n_peers > 1u ? 20u : (unsigned)span_deadline_ms())) {
 				fzn_node_files_err_t got;
 				uint64_t before = *placed;
 

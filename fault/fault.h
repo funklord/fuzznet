@@ -24,6 +24,10 @@
  *
  * Each fault taken is said once on stderr, `fault: ...`, so a test can
  * tell a fault from a failure.
+ *
+ * AND THE KNOBS, sec 692's bench: `FZN_TUNE_NAME=N` sets a tuning constant
+ * for this run, within the bound its site gives, so a sweep needs no
+ * rebuild between points. Every other build has each knob its constant.
  */
 #ifndef FZN_FAULT_H
 #define FZN_FAULT_H
@@ -49,15 +53,21 @@ void fzn_fault_point(const char *name);
  * once the budget is spent. */
 int fzn_fault_write(size_t n);
 
+/* THE KNOB `name`: FZN_TUNE_<name> when it is set to 1 to `max`, else
+ * `def`. Said once on stderr when it is set. */
+unsigned long fzn_fault_tune(const char *name, unsigned long def, unsigned long max);
+
 #define FZN_FAULT_DATAGRAM() fzn_fault_datagram()
 #define FZN_FAULT_POINT(name) fzn_fault_point(name)
 #define FZN_FAULT_WRITE(n) fzn_fault_write(n)
+#define FZN_TUNE(name, def, max) fzn_fault_tune(name, def, max)
 
 #else
 
 #define FZN_FAULT_DATAGRAM() FZN_FAULT_SEND
 #define FZN_FAULT_POINT(name) ((void)0)
 #define FZN_FAULT_WRITE(n) 1
+#define FZN_TUNE(name, def, max) (def)
 
 #endif
 

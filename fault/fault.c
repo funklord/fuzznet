@@ -115,6 +115,24 @@ int fzn_fault_write(size_t n)
 	return 1;
 }
 
+unsigned long fzn_fault_tune(const char *name, unsigned long def, unsigned long max)
+{
+	char var[64];
+	const char *v;
+	unsigned long n;
+
+	if (!name || snprintf(var, sizeof(var), "FZN_TUNE_%s", name) >= (int)sizeof(var))
+		return def;
+	v = getenv(var);
+	if (!v || !*v)
+		return def;
+	n = strtoul(v, NULL, 10);
+	if (n < 1u || n > max)
+		return def;
+	(void)fprintf(stderr, "fault: %s tuned to %lu (default %lu)\n", name, n, def);
+	return n;
+}
+
 #else
 
 /* NOTHING IN ANY OTHER BUILD: ISO C wants a declaration in every unit. */
