@@ -12708,7 +12708,7 @@ SABOTAGES = [
 		"schema-ext-claims-own",
 		"node/schema.c",
 		"\t\t\tif (fzn_schema_overlap(key, fzn_node_schema_own[j].key))\n\t\t\t\treturn key;\n",
-		"",
+		"\t\t\tif (fzn_schema_overlap(key, fzn_node_schema_own[j].key))\n\t\t\t\t(void)key;\n",
 		"sec 686: a cell has one owner, so an extension declaring fuzznet's key must end the start; schema_test's extension check catches it",
 	),
 	(
