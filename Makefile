@@ -1969,7 +1969,7 @@ endif
 DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(GUI_TOBJ:.o=.d) \
        $(PROG_OBJS:.o=.d)
 
-.PHONY: check runtests all test fuzz guided guided-one installcheck coverage sancheck schema qtty qrcheck livecheck style codegencheck ctcheck analyze sabotage reach hooks clean install
+.PHONY: check runtests all test fuzz guided guided-one installcheck coverage sancheck schema qtty qrcheck livecheck livecheck-repeat style codegencheck ctcheck analyze sabotage reach hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -6298,6 +6298,17 @@ else
 	@$(if $(LOG_PACK_ON),timeout 600 python3 tool/live_erasure.py $(FUZZNETD),echo \
 	  "livecheck: erasure SKIPPED -- this build does not pack logs")
 endif
+
+# THE LIVE SCRIPTS AGAIN AND AGAIN, sec 689 step 0a: RUNS times each of
+# SCRIPTS, named as livecheck runs them (`deliver` for live_deliver.py), a
+# failure's scratch -- the daemons' logs and stores -- kept under
+# REPEAT_DIR. tool/live_repeat.py bounds each run with livecheck's own
+# timeout and kills what a stopped run left behind.
+RUNS ?= 3
+REPEAT_DIR ?= $(BUILD_DIR)/live-repeat
+livecheck-repeat: $(FUZZNETD)
+	@test -n "$(SCRIPTS)" || { echo "livecheck-repeat: name SCRIPTS, e.g. SCRIPTS=\"deliver contacts\""; exit 2; }
+	python3 tool/live_repeat.py --out $(REPEAT_DIR) --runs $(RUNS) --fuzznetd $(FUZZNETD) $(SCRIPTS)
 
 # ONE SHELL, BECAUSE A SKIP MUST STOP THE TARGET. Written first as separate
 # recipe lines with an `exit 0` in the skip, which does not skip anything:
