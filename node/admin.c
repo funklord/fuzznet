@@ -1049,6 +1049,8 @@ int fzn_node_admin_contact_add(fzn_node_admin_t *admin, const uint8_t key[FZN_PU
 			return rerr == FZN_NODE_ROSTER_NO_STANDING ? -3 : -1;
 		}
 	}
+	if (admin->contact_named)
+		admin->contact_named(admin->contact_named_ctx, key, name, name_len);
 	return 0;
 }
 
@@ -1084,6 +1086,8 @@ static size_t remove_contact(fzn_node_admin_t *admin, const uint8_t *rest, size_
 		return answer_text(reply, cap,
 		                   err == FZN_CONTACT_ERR_NAME ? FZN_REPLY_MALFORMED : FZN_REPLY_ERROR,
 		                   fzn_contact_err_str(err));
+	if (admin->contact_named)
+		admin->contact_named(admin->contact_named_ctx, c.key, NULL, 0);
 	return answer_text(reply, cap, FZN_REPLY_OK, NULL);
 }
 

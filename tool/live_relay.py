@@ -16,6 +16,9 @@ host behind a NAT would -- and says hello to B1 from its serving socket.
        while it waits for them; once they are back, A's own
        round relays it -- the round's delivery, a conversation of its own
        (sec 637), and not the one between rounds
+    d  A writes a third line: B2, reached only through B1 a moment ago,
+       is passed over rather than offered it at the address that went
+       unanswered, and the line is relayed at once (sec 699)
 
 Against a daemon that relays nothing, phase b never delivers; against one
 whose relay sends the answer nowhere, it waits out each offer.
@@ -51,6 +54,8 @@ RELAYED_RE = re.compile(r"line\(s\) offered to 127\.0\.0\.1 through 127\.0\.0\.1
 ROUND_END_RE = ROUND_DONE_RE
 LINE = "61" * 16
 LATER = "62" * 16
+FINAL = "63" * 16
+PASSED_RE = re.compile(r"127\.0\.0\.1 passed over: reached only through a relay lately")
 NOBODY_RE = re.compile(r"line\(s\) offered to 127\.0\.0\.1: 0 delivered, 0 settled, 0 refused, "
                        r"1 unanswered")
 PREKEY_HOST = slice(4, 68)
@@ -197,6 +202,25 @@ def main(argv):
 			if LATER not in reply:
 				raise failed("c: B2 holds %r under A's root" % reply)
 			print("livecheck: c: A's own round relayed a line written while B was away")
+
+			# d: the relay first, B2's own address not asked again.
+			log = d.log()
+			nobody, relayed = len(NOBODY_RE.findall(log)), len(RELAYED_RE.findall(log))
+			expect(socks["a"], "a", "add message %s out %s final" % (keys["b1"], FINAL), "ok")
+			until = time.monotonic() + 30.0
+			while len(RELAYED_RE.findall(d.log())) == relayed:
+				if time.monotonic() > until:
+					raise failed("d: A's third line was not relayed within 30 s")
+				time.sleep(0.2)
+			log = d.log()
+			if not PASSED_RE.search(log) or len(NOBODY_RE.findall(log)) != nobody:
+				raise failed("d: A offered B2 the line at its own address again: %d offer(s) "
+				             "to nobody, passed over %s"
+				             % (len(NOBODY_RE.findall(log)) - nobody, bool(PASSED_RE.search(log))))
+			if FINAL not in ask(socks["b2"], "list message " + keys["a"]):
+				raise failed("d: B2 does not hold the third line")
+			print("livecheck: d: A relayed its third line to B2 at once, not asking B2's own "
+			      "address again")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

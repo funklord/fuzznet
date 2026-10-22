@@ -43,6 +43,10 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  "contacts are told every host of the estate, not only this node (sec 614)", NULL },
 	{ "stream/grant/", FZN_SCHEMA_COUNT, ESTATE, 0u, 3u, "", "level", FZN_SCHEMA_VERB,
 	  "the level a grantee holds of a stream, by `grant stream` (sec 660)", NULL },
+	{ "contact/name/", FZN_SCHEMA_TEXT, ESTATE, 1u, 32u, "", "", FZN_SCHEMA_VERB,
+	  "a contact's name, the user's on every host, by `add contact`, which checks it (sec "
+	  "699)",
+	  NULL },
 	{ "net/address", FZN_SCHEMA_ADDRESS, HOST, 0u, 253u, "", "", 0u,
 	  "where this host is reached, HOST PORT, an admin's to correct (sec 579)", NULL },
 	{ "net/metric", FZN_SCHEMA_COUNT, HOST, 0u, 255u, "100", "", FZN_SCHEMA_ADVANCED,

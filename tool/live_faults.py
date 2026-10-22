@@ -14,6 +14,10 @@ the scenarios built on them test something:
     c  a full disk: with FZN_FAULT_WRITE_BUDGET=1 a daemon says the disk
        is full, and a setting it cannot save is refused rather than
        answered `ok`
+    d  rounds at FZN_TUNE_PULL_EVERY=2, one of the build's knobs (sec
+       693): R's contact S does not advertise, and over six of R's
+       contact passes refuses R its manifest once, saying why (sec 699)
+       -- where it was asked and refused every round
 
 Against a daemon built without faults, phase a's B is counted at 100 per
 cent loss, phase b's daemon does not die, and phase c's says nothing.
@@ -37,6 +41,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_rejoin import RECONCILE_RE, ROUND_DONE_RE, command, daemon  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 
+# A CONTACT PASS that asked S: phase d's.
+PASS_RE = re.compile(r"contact pass: [1-9]\d* contact\(s\) asked")
 FAULTS = ("FZN_FAULT_LOSS", "FZN_FAULT_CRASH", "FZN_FAULT_WRITE_BUDGET", "FZN_FAULT_SEED")
 
 
@@ -152,6 +158,60 @@ def main(argv):
 				c.stop()
 			print("livecheck: c: the disk was full, said so, and the setting was refused: %r"
 			      % reply)
+
+			# d: a contact that does not advertise, asked its manifest once.
+			s_dir, r_dir = (os.path.join(scratch, k) for k in ("s", "r"))
+			s_sock, r_sock = (os.path.join(sock_dir, k) for k in ("s", "r"))
+			s_port, r_port = str(int(port) + 1), str(int(port) + 2)
+			keys = {}
+			for k, d in (("s", s_dir), ("r", r_dir)):
+				os.mkdir(d)
+				command(run, ["--fuzznet-dir=" + d, "--new-root"], None)
+				keys[k] = command(run, ["--fuzznet-dir=" + d, "--prekey"], None)[4:68]
+			r_prekey = command(run, ["--fuzznet-dir=" + r_dir, "--prekey"], None)
+			s = daemon(run, "s1", s_dir, s_sock, extra=["--udp-port=" + s_port])
+			try:
+				for line in ("set setting host net/address 127.0.0.1 " + s_port,
+				             "add contact rory " + keys["r"]):
+					if ask(s_sock, line) != "ok":
+						raise failed("d: S's %r refused" % line)
+				share = ask(s_sock, "grant share rory " + r_prekey)
+				if not share.startswith("ok "):
+					raise failed("d: grant share answered %r" % share)
+				card_path = os.path.join(scratch, "card")
+				with open(card_path, "w") as f:
+					f.write(share.split(" ", 1)[1])
+				r = daemon(run, "r1", r_dir, r_sock, extra=["--udp-port=" + r_port])
+				try:
+					for line in ("add contact sam " + keys["s"],
+					             "add received sam 127.0.0.1 %s %s" % (s_port, card_path)):
+						if ask(r_sock, line) != "ok":
+							raise failed("d: R's %r refused" % line)
+				finally:
+					r.stop()
+				os.environ["FZN_TUNE_PULL_EVERY"] = "2"
+				try:
+					r = daemon(run, "r2", r_dir, r_sock, extra=["--udp-port=" + r_port])
+				finally:
+					del os.environ["FZN_TUNE_PULL_EVERY"]
+				try:
+					until = time.monotonic() + 90.0
+					while len(PASS_RE.findall(r.log())) < 6 and time.monotonic() < until:
+						time.sleep(0.5)
+					said = r.log()
+				finally:
+					r.stop()
+			finally:
+				s.stop()
+			passes = len(PASS_RE.findall(said))
+			plainly = said.count("does not advertise where it is reached")
+			otherwise = said.count("may only fetch what is shared")
+			if passes < 6 or plainly != 1 or otherwise:
+				raise failed("d: over %d of R's contact passes S refused its manifest %d time(s) "
+				             "saying it does not advertise and %d otherwise"
+				             % (passes, plainly, otherwise))
+			print("livecheck: d: over %d contact passes S, not advertising, refused R its "
+			      "manifest once" % passes)
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1
@@ -170,7 +230,8 @@ def main(argv):
 					if alive:
 						print("livecheck: FAILED -- daemon %d outlived its phase" % pid)
 						return 1
-	print("livecheck: the fault build lost, crashed and filled its disk on demand")
+	print("livecheck: the fault build lost, crashed and filled its disk on demand, and its "
+	      "rounds ran short")
 	return 0
 
 

@@ -12,7 +12,8 @@ and S's estate advertises.
        takes R's devices from S and pairs them; R2, which was never paired
        with anybody of S's, takes S's hosts from R. R2 writes a line to S:
        it is delivered, and S files it IN under R's root -- the user, not
-       the device that sent it
+       the device that sent it; S2 names R `rory`, as S named it, the
+       name being the user's (sec 699)
     b  S restarted under `policy messages drop`, R2 restarted with S's
        manifest now held: its next line is refused by S, the host of lower
        metric, and held by S2, which files it under R's root too
@@ -205,6 +206,10 @@ def main(argv):
 				   or {row.split(",")[0] for row in listed[3:]} != {keys["r"], keys["r2"]}:
 					raise failed("a: %s's %s answered %r, not R's and R2's hosts"
 					             % (who.upper(), line, listed))
+			# AND BY S'S NAME FOR IT, sec 699: the estate's, not one host's.
+			listed = ask(socks["s2"], "list contact").split()
+			if "rory," + keys["r"] not in listed:
+				raise failed("a: S2's list contact answered %r, not R named rory" % listed)
 			r2 = up("r2", "r2a")
 			got = r2.wait_for(PASS_RE, "R2's contact pass")
 			if int(got.group(4)) != 2:

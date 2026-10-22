@@ -3488,7 +3488,18 @@ static size_t routing_remote(void *ctx, const uint8_t *sender, int contact,
 		request_len--;
 	if (request_len != 11u || memcmp(request, "get routing", 11u) != 0)
 		return 0;
-	if ((contact && !estate_flag(ROUTING_ADVERTISE_KEY)) || !node_apply.root
+	/* A CONTACT TOLD PLAINLY, sec 699, rather than falling through to "may
+	 * only fetch what is shared": the asker holds off on this answer. */
+	if (contact && !estate_flag(ROUTING_ADVERTISE_KEY)) {
+		static const char why[] = "this user does not advertise where it is reached";
+		size_t n = 0;
+
+		return fzn_reply_compose(reply, reply_cap, &n, FZN_REPLY_DENIED, (const uint8_t *)why,
+		                         sizeof(why) - 1u) == FZN_COMPOSE_OK
+		               ? n
+		               : 0;
+	}
+	if (!node_apply.root
 	    || fzn_routing_load(node_apply.store, node_apply.root, &r) != FZN_ROUTING_OK
 	    || fzn_routing_encode(&r, bytes, sizeof(bytes), &len) != FZN_ROUTING_OK
 	    || reply_cap < 3u + 2u * len + 1u)
@@ -6963,6 +6974,44 @@ struct contact_talk {
 	uint8_t request[FZN_CONTACT_DEVICES_OFFER_MAX];
 };
 enum { CONTACT_OFFER = 1, CONTACT_QUERY = 2, CONTACT_ROUTING = 3 };
+/* A CONTACT THAT REFUSED ITS MANIFEST, not asked it again for this long,
+ * sec 699: a user that does not advertise was asked, and refused, every
+ * round. Asked again after, since advertising can be switched on. */
+#define FZND_ROUTING_QUIET_S 900u
+static struct {
+	uint8_t contact[FZN_PUBKEY_LEN];
+	uint64_t until;
+} routing_quiet[FZND_CONTACT_TARGETS_MAX];
+
+/* 1 while `contact`'s manifest is not asked. */
+static int routing_quiet_of(const uint8_t contact[FZN_PUBKEY_LEN], uint64_t now)
+{
+	size_t i;
+
+	for (i = 0; i < FZND_CONTACT_TARGETS_MAX; i++)
+		if (routing_quiet[i].until > now
+		    && memcmp(routing_quiet[i].contact, contact, FZN_PUBKEY_LEN) == 0)
+			return 1;
+	return 0;
+}
+
+/* `contact` refused: quiet until `now` + FZND_ROUTING_QUIET_S, in its own
+ * place or the one that ends first. */
+static void routing_quiet_set(const uint8_t contact[FZN_PUBKEY_LEN], uint64_t now)
+{
+	size_t i, at = 0;
+
+	for (i = 0; i < FZND_CONTACT_TARGETS_MAX; i++) {
+		if (memcmp(routing_quiet[i].contact, contact, FZN_PUBKEY_LEN) == 0) {
+			at = i;
+			break;
+		}
+		if (routing_quiet[i].until < routing_quiet[at].until)
+			at = i;
+	}
+	memcpy(routing_quiet[at].contact, contact, FZN_PUBKEY_LEN);
+	routing_quiet[at].until = now + FZND_ROUTING_QUIET_S;
+}
 static struct contact_talk contact_talks[FZND_CONTACT_TARGETS_MAX + FZN_NODE_RECEIVED_MAX];
 static size_t n_contact_talks;
 static fzn_contact_device_t contact_own[FZN_NODE_SIBLINGS_MAX];
@@ -7010,7 +7059,14 @@ static int contact_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, 
 			return 1;
 		}
 		ct->phase = CONTACT_ROUTING;
+		if (routing_quiet_of(ct->contact, ct->now)) {
+			ct->ok = 1;
+			return 0;
+		}
 	} else {
+		/* A REFUSAL, held off on: answered all the same. */
+		if (reply_len < 3u || memcmp(reply, "ok ", 3u) != 0)
+			routing_quiet_set(ct->contact, ct->now);
 		/* THE MANIFEST, taken when it verifies; the exchange stands either
 		 * way, as it did when asked in turn. Copied out: the answer is the
 		 * loop's, with no byte to spare. */
@@ -8269,6 +8325,78 @@ static int stream_granted(const char *name, size_t name_len, const uint8_t *who,
 		return 1;
 	}
 	return fzn_streams_granted(&node_streams, name, name_len, who, level) == FZN_STREAMS_OK;
+}
+
+/* A CONTACT'S NAME IS THE USER'S, sec 699, the holder's of 2026-10-22: an
+ * estate setting, `contact/name/` and the first 32 hex of the contact's
+ * key, its value the name -- as a stream grant is (sec 660), carried to
+ * every host of the estate in the journal under the settings' authority.
+ * Each host's contact list goes on naming keys, and takes the setting's
+ * name each round. A host that may not set the estate's names its contact
+ * on itself alone, as every host did before. */
+#define CONTACT_NAME_KEY_LEN (13u + 32u)
+static void contact_name_key(const uint8_t *who, uint8_t key[CONTACT_NAME_KEY_LEN])
+{
+	char hex[33];
+
+	hex_of(who, 16u, hex);
+	memcpy(key, "contact/name/", 13u);
+	memcpy(key + 13u, hex, 32u);
+}
+
+static void contact_named(void *ctx, const uint8_t key[FZN_PUBKEY_LEN], const char *name,
+                          size_t name_len)
+{
+	uint8_t cell[CONTACT_NAME_KEY_LEN];
+	fzn_node_settings_err_t serr;
+
+	(void)ctx;
+	if (!node_settings.store || !node_settings.estate)
+		return;
+	contact_name_key(key, cell);
+	serr = fzn_node_settings_write(&node_settings, FZN_SCOPE_ESTATE, node_settings.estate, cell,
+	                               sizeof(cell), name != NULL, (const uint8_t *)name,
+	                               name ? name_len : 0u);
+	if (serr == FZN_NODE_SETTINGS_OK)
+		journal_pushed = 1;
+	else
+		say(FZN_ENTRY_DEBUG, "contact/names", "a contact's name kept on this host alone: %s",
+		    fzn_node_settings_err_str(serr));
+}
+
+/* THE NAMES THE ESTATE GAVE, taken by each contact this host holds whose
+ * name here is another. A name another key holds here is left for a round
+ * that has moved that key on. */
+static void take_contact_names(void)
+{
+	static fzn_contact_t all[FZN_CONTACTS_MAX];
+	uint8_t cell[CONTACT_NAME_KEY_LEN], value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	size_t n = 0, i, len, taken = 0;
+
+	if (!node_apply.store || !node_settings.store || !node_settings.estate
+	    || fzn_contact_list(node_apply.store, all, FZN_CONTACTS_MAX, &n) != FZN_CONTACT_OK)
+		return;
+	for (i = 0; i < n; i++) {
+		fzn_contact_err_t err;
+
+		len = 0;
+		contact_name_key(all[i].key, cell);
+		if (!fzn_node_settings_get(&node_settings, FZN_SCOPE_ESTATE, node_settings.estate, cell,
+		                           sizeof(cell), value, &len, &rank)
+		    || !fzn_contact_name_ok((const char *)value, len)
+		    || (len == all[i].name_len && memcmp(value, all[i].name, len) == 0))
+			continue;
+		err = fzn_contact_add(node_apply.store, all[i].key, (const char *)value, len, wall_ms());
+		if (err == FZN_CONTACT_OK)
+			taken++;
+		else
+			say(FZN_ENTRY_DEBUG, "contact/names", "%.*s not taken for %s here: %s", (int)len,
+			    (const char *)value, all[i].name, fzn_contact_err_str(err));
+	}
+	if (taken)
+		say(FZN_ENTRY_INFO, "contact/names", "%zu contact(s) named as the estate names them",
+		    taken);
 }
 
 /* THE LEVEL `owner` MAY READ of stream `name`: its own grant, or the
@@ -10243,6 +10371,53 @@ static size_t n_deliver_talks;
 
 static void deliver_host(struct deliver_talk *dt);
 static void deliver_relay_next(struct deliver_talk *dt);
+
+/* A HOST REACHED ONLY THROUGH A RELAY, its own address unanswered, sec 699:
+ * where it is, as the round tried it, and until when it is relayed to
+ * first. Its home network's `net/address` cost each delivery a deadline
+ * before the relay that reaches it; tried directly again once the mark
+ * ends, or at once when it is found somewhere else -- a hello, an
+ * introduction. */
+#define FZND_RELAYED_S 600u
+static struct {
+	uint8_t key[FZN_PUBKEY_LEN];
+	char host[FZN_UDP_HOST_MAX];
+	long port;
+	uint64_t until;
+} relayed[FZND_CONTACT_TARGETS_MAX];
+
+/* `pt`'s place in `relayed` while it is relayed to first, else -1. */
+static long relayed_of(const struct pull_target *pt, uint64_t now)
+{
+	size_t i;
+
+	for (i = 0; i < FZND_CONTACT_TARGETS_MAX; i++)
+		if (relayed[i].until > now && relayed[i].port == pt->port
+		    && memcmp(relayed[i].key, pt->pairing.node, FZN_PUBKEY_LEN) == 0
+		    && strcmp(relayed[i].host, pt->host) == 0)
+			return (long)i;
+	return -1;
+}
+
+/* `pt` relayed to first from `now`, in its own place or the one that ends
+ * first. */
+static void relayed_set(const struct pull_target *pt, uint64_t now)
+{
+	size_t i, at = 0;
+
+	for (i = 0; i < FZND_CONTACT_TARGETS_MAX; i++) {
+		if (memcmp(relayed[i].key, pt->pairing.node, FZN_PUBKEY_LEN) == 0) {
+			at = i;
+			break;
+		}
+		if (relayed[i].until < relayed[at].until)
+			at = i;
+	}
+	memcpy(relayed[at].key, pt->pairing.node, FZN_PUBKEY_LEN);
+	(void)snprintf(relayed[at].host, sizeof(relayed[at].host), "%s", pt->host);
+	relayed[at].port = pt->port;
+	relayed[at].until = now + FZND_RELAYED_S;
+}
 static struct pull_target *deliver_relay_pt(const struct deliver_talk *dt, const char **name);
 
 static void deliver_over(struct deliver_talk *dt)
@@ -10250,6 +10425,33 @@ static void deliver_over(struct deliver_talk *dt)
 	(void)dt;
 	if (round_pending)
 		round_pending--;
+}
+
+/* CONTACT TARGET `ti` UNANSWERED WHERE IT IS SAID TO BE: introduced at the
+ * next contact round, sec 698, unless an introduction already holds. */
+static void deliver_unanswered(long ti, uint64_t now)
+{
+	struct introduced *in = intro_of(contact_targets[ti].pt.pairing.node, 1);
+
+	if (in && in->until <= now)
+		in->due = 1;
+}
+
+/* THE NEXT HOST DIRECTLY, or past the last, THROUGH A RELAY, sec 622:
+ * each host that did not answer asked through another of the contact's
+ * that did. */
+static void deliver_direct_next(struct deliver_talk *dt)
+{
+	dt->at++;
+	if (dt->at < dt->n_hosts) {
+		deliver_host(dt);
+		return;
+	}
+	dt->relaying = 1;
+	dt->at = 0;
+	dt->relay = 0;
+	dt->own_tried = 0;
+	deliver_relay_next(dt);
 }
 
 /* A HOST'S TURN OVER: said as the round in turn said it, and the next. */
@@ -10271,32 +10473,15 @@ static void deliver_host_done(struct deliver_talk *dt)
 			    d->sent, host, d->delivered, d->settled, d->refused, d->unanswered);
 		if (ti >= 0)
 			contact_targets[ti].down = dt->err == FZN_MESSAGES_OK && d->unanswered;
-		/* UNANSWERED WHERE IT IS SAID TO BE: introduced at the next contact
-		 * round, sec 698, unless an introduction already holds. */
-		if (ti >= 0 && contact_targets[ti].down) {
-			struct introduced *in = intro_of(contact_targets[ti].pt.pairing.node, 1);
-
-			if (in && in->until <= dt->now)
-				in->due = 1;
-		}
+		if (ti >= 0 && contact_targets[ti].down)
+			deliver_unanswered(ti, dt->now);
 		/* ALL OF THEM TAKEN, OR NONE WAITING: this contact is done. A
 		 * refusal or no answer tries its next host. */
 		if (dt->err == FZN_MESSAGES_OK && !d->refused && !d->unanswered) {
 			deliver_over(dt);
 			return;
 		}
-		dt->at++;
-		if (dt->at < dt->n_hosts) {
-			deliver_host(dt);
-			return;
-		}
-		/* THROUGH A RELAY, sec 622: each host that did not answer asked
-		 * through another of the contact's that did. */
-		dt->relaying = 1;
-		dt->at = 0;
-		dt->relay = 0;
-		dt->own_tried = 0;
-		deliver_relay_next(dt);
+		deliver_direct_next(dt);
 		return;
 	}
 	if (dt->err == FZN_MESSAGES_OK && d->sent) {
@@ -10309,12 +10494,21 @@ static void deliver_host_done(struct deliver_talk *dt)
 		    d->sent, dt->hosts[dt->at].name, through ? through : "?", d->delivered,
 		    d->settled, d->refused, d->unanswered);
 		if (!d->unanswered && !d->refused) {
+			if (dt->hosts[dt->at].target >= 0)
+				relayed_set(dt->hosts[dt->at].pt, dt->now);
 			dt->at++;
 			dt->relay = 0;
 			dt->own_tried = 0;
 			deliver_relay_next(dt);
 			return;
 		}
+	}
+	/* NOT REACHED THROUGH THIS ONE EITHER: asked directly next round. */
+	{
+		long q = relayed_of(dt->hosts[dt->at].pt, dt->now);
+
+		if (q >= 0)
+			relayed[q].until = 0;
 	}
 	dt->relay++;
 	deliver_relay_next(dt);
@@ -10393,6 +10587,17 @@ static void deliver_host(struct deliver_talk *dt)
 	int done = 0;
 
 	if (!dt->relaying) {
+		long ti = dt->hosts[dt->at].target;
+
+		/* RELAYED TO FIRST, sec 699: not asked where it went unanswered. */
+		if (ti >= 0 && relayed_of(dt->hosts[dt->at].pt, dt->now) >= 0) {
+			say(FZN_ENTRY_DEBUG, "messages/deliver",
+			    "%s passed over: reached only through a relay lately", dt->hosts[dt->at].name);
+			contact_targets[ti].down = 1;
+			deliver_unanswered(ti, dt->now);
+			deliver_direct_next(dt);
+			return;
+		}
 		dt->m.pt = dt->hosts[dt->at].pt;
 		dt->m.silences = 0;
 		dt->m.li = link_of(&dt->hosts[dt->at].pt->caller.node);
@@ -12798,6 +13003,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			/* RELAYING, sec 622. */
 			admin.relay_remote = relay_remote;
 			state.relay = &relay_tables;
+			/* A CONTACT'S NAME, the user's, sec 699. */
+			admin.contact_named = contact_named;
 			/* A LAN PROBE, sec 624. */
 			state.on_probe = lan_probe_heard;
 			/* GROUPS, sec 626. */
@@ -13257,6 +13464,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 							say(FZN_ENTRY_INFO, "contact/roster",
 							    "%zu contact(s) added on another member, named here", named);
 					}
+					/* AND AS THE ESTATE NAMES THEM, sec 699. */
+					take_contact_names();
 					break;
 				case ROUND_MEMBERS:
 					/* THE ESTATE'S MEMBERS, asked of every peer at once, the

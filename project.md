@@ -69196,14 +69196,14 @@ passed twice more after it -- five times in all since 3.
 address was never the one used. And the first try at a home address
 costs a line a timeout every time.
 
-**Still to build, in the holder's order:**
-- the introduction extended to contacts, so most lines go direct and the
-  relay is the fallback;
-- contact names carried estate-wide;
-- the fetch a contact's host makes every round of what is not shared
-  with it, refused 60 times a run (sec 696's finding 2);
-- a delivery that tries the hello address, or the relay, before a home
-  address that the target's own NAT keeps out.
+**Still to build, in the holder's order:** all four are built since.
+- ~~the introduction extended to contacts, so most lines go direct and
+  the relay is the fallback~~, built in sec 698;
+- ~~contact names carried estate-wide~~, built in sec 699;
+- ~~the fetch a contact's host makes every round of what is not shared
+  with it~~, which was the manifest, held off in sec 699;
+- ~~a delivery that tries the relay before a home address that the
+  target's own NAT keeps out~~, built in sec 699.
 
 These daemon paths live in `node/daemon.c`, so no unit test reaches them
 and no sabotage entry can be caught. `tool/hull_estates.py` is what holds
@@ -69274,3 +69274,76 @@ from a fresh socket, would be the fix if one is met.
 
 **Seen in the log**: `introduced to ... told it is at` where an
 introduction is made, `hello to ..., introduced` where one is taken.
+
+## 699. Contact names carried, a refused manifest held off, a relay first, 2026-10-23
+
+Three of the four follow-ups sec 697 left, in the holder's order of
+2026-10-22 ("continue with all in order"). The first, the introduction
+extended to contacts, is sec 698's.
+
+### Contact names, the user's
+
+**The holder chose 2026-10-22 that a contact's name is carried
+estate-wide, as a stream grant is (sec 660)** -- sec 696's finding 3,
+where A's phone knew B only as `c_e56e93b7` because A's root had named it
+`bob`.
+
+- **A name is an estate setting**, `contact/name/` and the first 32 hex
+  of the contact's key, its value the name. `add contact NAME KEY` -- a
+  rename too -- writes it through the config database, and `remove
+  contact` clears it, so every host of the estate has it from the journal,
+  judged by the settings' authority. Declared in the schema as a verb's
+  cell, its value checked as a contact name.
+- **Each host's contact list goes on naming keys** (sec 489) and takes
+  the estate's name each round, after naming what arrived. A name another
+  key holds here is left for a later round, and said.
+- **A host that may not set the estate's names its contact on itself
+  alone**, as every host did before, and the answer is unchanged. The
+  admin library tells the daemon through a hook, `contact_named`, once
+  its contact list has taken the name.
+
+**Tested by `tool/live_contacts.py`, phase a**: S2 lists R as `rory`, the
+name S gave it. **Control**: with the hook not wired, S2 named R
+`c_45c175bf`.
+
+### The refused request was the manifest
+
+Sec 696's finding 2 called it a fetch. It was the contact exchange's last
+step: `get routing`, which a host answers a contact only when its estate
+advertises (sec 611). B's root asked A's root every round and was refused
+every round -- 60 times a run before sec 697 set A's
+`routing/advertise`, none after.
+
+- **The answer says why**: `denied this user does not advertise where it
+  is reached`, where it fell through to "a contact may only fetch what is
+  shared with it".
+- **The asker holds off**: a contact that refused its manifest is not
+  asked again for 15 minutes, `FZND_ROUTING_QUIET_S`, its exchange
+  answered all the same. Asked again after, since advertising can be
+  switched on.
+
+**Tested by `tool/live_faults.py`, phase d**, the fault build's rounds at
+`FZN_TUNE_PULL_EVERY=2`: over six of R's contact passes, S refuses its
+manifest once. **Control**: without the hold-off, six times.
+
+### A relay first, where the address went unanswered
+
+A line to a host behind a NAT was offered at its home address every
+time, a 3 s deadline, before the relay that reaches it (sec 697's "not
+exercised"). **A host reached only through a relay, its own address
+unanswered, is relayed to first for 10 minutes**, `FZND_RELAYED_S`. The
+mark is keyed by the host's key, address and port, so a hello or an
+introduction that finds it elsewhere is tried directly at once. A relay
+that fails clears the mark, and the next round asks the host directly
+again.
+
+This is learned, not judged by the address: a private address is the
+right one from inside its own network, and loopback tests use one. The
+first delivery of a run still pays the deadline once.
+
+**Tested by `tool/live_relay.py`, phase d**: A's third line to B2 is
+relayed at once, B2 passed over, with no offer to nobody. **Control**:
+with the pass-over off, one offer to nobody, as before.
+
+The contact exchange (offer, query, manifest) still tries each host of a
+contact in turn without a relay. That costs a round a deadline and no line.

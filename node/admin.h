@@ -262,6 +262,12 @@ typedef struct fzn_node_admin {
 	size_t (*relay_remote)(void *ctx, const uint8_t *sender, const uint8_t *request,
 	                       size_t request_len, uint8_t *reply, size_t reply_cap);
 	void *relay_ctx;
+	/* A CONTACT NAMED, OR ITS NAME FORGOTTEN (`name` NULL), sec 699: told
+	 * once the contact list has taken it, so the hook can carry the name
+	 * -- the user's -- to the estate's other hosts. */
+	void (*contact_named)(void *ctx, const uint8_t key[FZN_PUBKEY_LEN], const char *name,
+	                      size_t name_len);
+	void *contact_named_ctx;
 } fzn_node_admin_t;
 
 /* A GROUP'S SHARES FORGOTTEN, notes and files, as `fzn_node_groups_t.forget`
