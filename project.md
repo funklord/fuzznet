@@ -68377,3 +68377,174 @@ the verb only words its refusal.
 
 The build before this section fails the first check. One sabotage entry,
 `groups-last-admin-told-ways-out`.
+
+## 689. A chat-and-log subset brought to full maturity first: the plan, 2026-10-22
+
+**The holder, 2026-10-22:** "This work is taking a long time, can we try
+to reach full maturity with a subset of the features such as all base
+operations needed for log/chat such as adding/removing/configuring nodes
+and their retention? and anything else required for this kind of chat
+program. This may allow us to test for serious design flaws at an
+earlier stage."
+
+**The subset**, the holder's choice when asked:
+- the estate's lifecycle: a root made, devices joined, removed and
+  revoked, recovery;
+- settings, retention and logs;
+- contacts and 1:1 messages;
+- reachability: LAN discovery, relay and NAT, the routing manifest;
+- location.
+
+Out until the subset is done: groups, notes, files and attachments,
+stickers, the catalog, and streams other than location's. **Groups were
+taken out by the holder the same day:** "group chat is complex, let's
+delay it too." Sec 688's wording fix was already built and stands.
+
+**The bar**, all four the holder chose:
+1. **A scenario suite**: whole user journeys over three or more nodes,
+   with restarts mid-operation, nodes offline and rejoining, revocation
+   while other work is in flight, clock skew and packet loss. Every run
+   green, repeated until a flake has nowhere to hide.
+2. **Fault injection**: a kill mid-write, a full disk, a corrupt or
+   partial store, and a peer that lies or replays. Each ends in a stated,
+   recoverable state.
+3. **Fuzzing and an authorization review**: every wire input in the
+   subset fuzzed, and every verb's and remote request's permission
+   checked by a test that tries the wrong caller.
+4. **Scale bounds**: every limit stated, tested at its edge, and refused
+   cleanly past it, plus measured costs at realistic sizes.
+
+**Until the subset clears the bar, nothing outside it gets new work.**
+Requests from fuzzypickles outside it are recorded, not built.
+
+### Where it stands, surveyed 2026-10-22
+
+Three read-only surveys, one per group of areas: their verbs, live
+tests, fuzz harnesses, authorization tests, fault tests and bounds, and
+this file's open items. Their findings, summarised:
+
+- **No node-level wire input is fuzzed.** The 34 harnesses cover frames,
+  chains, records, storage and sessions. None covers:
+  - members (11-12), messages (23-28, 33-34), contact devices (29-32);
+  - the relay and introductions (35-38), streams (43-44);
+  - the log gather (version 4), the journal exchange (version 5),
+    reconciliation (version 6) and the cause envelope (version 3);
+  - the contact box, the LAN probe and the routing manifest;
+  - a setting's opening, the root log, the roster, successions and votes.
+- **The remote handlers are untestable where they live.** Most sit as
+  statics in `node/daemon.c` (13k lines): relay, introduce, streams,
+  logs, contact boxes, LAN. So no unit test can
+  reach their refusals. Every "denied" they answer is untested, and no
+  sabotage entry targets one.
+- **The local verbs' authorization is uneven.** `node/admin.c`'s verbs
+  are tested against a wrong caller. Those in `node/daemon.c` are not:
+  `add join`, `add contact` by card, `grant request`, `get card`,
+  `list device`, and location's.
+- **Live coverage misses whole operations**:
+  - `revoke peer`, `remove peer`, `add`/`remove root`, `set quorum`,
+    votes, successions, recovery;
+  - `remove contact`;
+  - `add`/`remove retention` as verbs (the live tests use `--log-rule`);
+  - log gather, `--log-copy`, `--log-push` and `--log-scope`;
+  - `get routing`;
+  - read state synced across a user's hosts, and `get message owed`.
+- **No live test has a fault inside an operation.** Restarts happen only
+  between phases, every run is on loopback, and nothing loses packets.
+  `sim/test/network_test.c` has loss, duplication and reordering, but at
+  library level, not under fuzznetd.
+- **Faults are thin.** `record/test/store_file_test.c` is the only
+  disk-full test (RLIMIT_FSIZE). No kill during a pair, a join, a revoke,
+  or a pack.
+- **Most bounds are untested at their edge.** Among them:
+  - `FZN_CONTACT_DEVICES_MAX`, `FZN_MESSAGES_DEVICES_MAX`,
+    `FZN_MESSAGES_WALK_MAX`;
+  - the relay's route and seen tables, `FZN_ROUTING_ENTRIES_MAX`;
+  - `FZN_NODE_REVOCATIONS_MAX`, `FZN_NODE_SUCCESSIONS_MAX`;
+  - `FZN_BUCKETS_MAX`, `FZN_STREAM_GRANTS_MAX`.
+- **No way to repeat the live suite.** `make livecheck` runs 28 scripts
+  once, worst case 2 h 49 min. Sec 675's file-fetch failures stay
+  unexplained because nothing repeats them, and sec 631 and sec 637 were
+  found the same way, by accident.
+- **Logs have no verbs.** `FZN_VERB_LOG` is parsed and nothing handles
+  it. Logging is operated by flags alone, and a client cannot configure
+  it.
+
+### Design questions the survey surfaced
+
+These are recorded in this file as open, and each is the kind of thing
+the bar exists to force. **Triaged when its scenario reaches it**, by
+the holder where it is a decision:
+- **Sec 614:** revocations in a contact's estate are not seen. A device
+  the contact revoked keeps its entry and its pairing here until the
+  contact is removed, so it is still a device lines go to.
+- **Sec 615 and 616:** a member never reached holds settlement up for
+  ever, and a member never heard is never judged gone.
+- **Sec 613:** an offer walks at most `FZN_MESSAGES_WALK_MAX` deep, so a
+  line waiting deeper is never sent.
+- **Sec 622:**
+  - a relay's refusal is not read, so it costs a timeout;
+  - the route keys on the message id;
+  - only a contact's own hosts relay.
+- **Sec 627:** a host whose prekey rotates cannot open later boxes.
+- **Sec 655 and 656:** join time is in whole seconds, and a record in the
+  joining second may fall on either side.
+- **No retransmission under the request caller.** Every loss costs a
+  timeout and a round. The loss scenarios will measure what that costs a
+  conversation.
+
+### The order of the work
+
+Infrastructure first, because the bar cannot be measured without it.
+Then one journey at a time, each taken through all four bars before the
+next starts, so a flaw found early reshapes what follows.
+
+**Step 0, the instruments:**
+- **a. A repeat runner:** a named set of live scripts run N times, each
+  failure's logs kept, a tally at the end. First use: sec 675's fetch
+  failure, whose mechanism is shared by the subset even though files are
+  outside it.
+- **b. Faults inside fuzznetd, from a test-only build:**
+  - loss, duplication, reordering and delay at the UDP send and receive;
+  - named crash points that abort at a chosen write;
+  - a write budget that fails the store as a full disk would.
+
+  Compiled out of a normal build, so production carries none of it.
+- **c. The remote handlers moved out of `node/daemon.c`** into their own
+  modules, area by area, as stickers and the meter were built. This is
+  what lets a unit test reach their refusals and a harness reach their
+  parsers.
+- **d. A harness pattern for a node-level remote request**: a node state
+  over an in-memory store, a payload fed to the dispatcher. One harness
+  per area as each is moved.
+
+**Steps 1-5, the journeys:**
+1. **The estate:** a root, two devices joined, settings set at each
+   rank, one device revoked by k-of-n while it is writing, a succession,
+   recovery. The revoked device can do nothing after its cut.
+2. **1:1 chat:** two users of two hosts each, contact by card, lines
+   both ways, read state across the user's hosts, a contact removed
+   mid-flight, `get message owed` throughout.
+3. **Retention and logs:** rules by verb, the window cut, archive and
+   pieces, gather, pushed and pulled copies. Logs gain the verbs they
+   lack, as a client must configure them.
+4. **Reachability:**
+   - a host behind a relay, the relay's quota exhausted and its window
+     rolled over;
+   - LAN discovery, and `get routing`;
+   - the relay refusal (sec 622) answered rather than timed out.
+5. **Location:** shared at each level, the grant revoked, the daemon
+   restarted while sampling.
+
+**Each journey clears the bar in this order:**
+- **Scenarios:** under loss of 0, 5 and 20 per cent, with a restart
+  inside each operation and with clock skew, repeated by step 0a until
+  ten runs are green.
+- **Faults:** each step's crash points and a full disk.
+- **Authorization:** a table test of every verb and remote request with
+  each wrong caller.
+- **Fuzzing:** each of its wire inputs.
+- **Bounds:** each limit at and past its edge.
+
+**What counts as done for a journey:** the four bars met, the design
+questions it reached triaged, and its section written with what was
+measured.
