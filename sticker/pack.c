@@ -871,7 +871,7 @@ int fzn_sticker_ref_format(const fzn_sticker_ref_t *ref, char *out, size_t cap, 
 	size_t i;
 	int n;
 
-	if (!ref || !out || !len || ref->description_len == 0u
+	if (!ref || !out || !len || !ref->length || ref->description_len == 0u
 	    || ref->description_len > FZN_STICKER_DESC_MAX)
 		return 0;
 	for (i = 0; i < ref->description_len; i++)
@@ -885,8 +885,9 @@ int fzn_sticker_ref_format(const fzn_sticker_ref_t *ref, char *out, size_t cap, 
 		key[2u * i + 1u] = HEX[ref->key[i] & 15u];
 	}
 	root[2u * FZN_STICKER_ROOT_LEN] = key[2u * FZN_STICKER_KEY_LEN] = '\0';
-	n = snprintf(out, cap, "%s%s/%s/%u %.*s", SCHEME, root, key, (unsigned)ref->id,
-	             (int)ref->description_len, ref->description);
+	n = snprintf(out, cap, "%s%s/%s/%llu/%u %.*s", SCHEME, root, key,
+	             (unsigned long long)ref->length, (unsigned)ref->id, (int)ref->description_len,
+	             ref->description);
 	if (n < 0 || (size_t)n >= cap)
 		return 0;
 	*len = (size_t)n;
@@ -923,9 +924,12 @@ int fzn_sticker_ref_parse(const char *text, size_t len, fzn_sticker_ref_t *out)
 	const char *p, *end;
 	unsigned id = 0;
 	size_t digits = 0, desc_len, i;
+	int ours;
 
-	if (!text || !out || len <= SCHEME_LEN || len > FZN_STICKER_REF_MAX
-	    || (memcmp(text, SCHEME, SCHEME_LEN) != 0 && memcmp(text, OLD_SCHEME, SCHEME_LEN) != 0))
+	if (!text || !out || len <= SCHEME_LEN || len > FZN_STICKER_REF_MAX)
+		return 0;
+	ours = memcmp(text, SCHEME, SCHEME_LEN) == 0;
+	if (!ours && memcmp(text, OLD_SCHEME, SCHEME_LEN) != 0)
 		return 0;
 	memset(out, 0, sizeof(*out));
 	p = text + SCHEME_LEN;
@@ -933,6 +937,24 @@ int fzn_sticker_ref_parse(const char *text, size_t len, fzn_sticker_ref_t *out)
 	if (!hex_field(&p, end, out->root, FZN_STICKER_ROOT_LEN)
 	    || !hex_field(&p, end, out->key, FZN_STICKER_KEY_LEN))
 		return 0;
+	/* THE LENGTH, ours alone: at most twenty digits, past which it would
+	 * overflow, and never 0. */
+	if (ours) {
+		uint64_t length = 0;
+
+		while (p < end && *p >= '0' && *p <= '9') {
+			unsigned d = (unsigned)(*p++ - '0');
+
+			if (++digits > 20u || length > (UINT64_MAX - d) / 10u)
+				return 0;
+			length = length * 10u + d;
+		}
+		if (!digits || !length || p >= end || *p != '/')
+			return 0;
+		p++;
+		out->length = length;
+		digits = 0;
+	}
 	while (p < end && *p >= '0' && *p <= '9') {
 		/* FIVE DIGITS AT MOST, which cannot overflow. */
 		if (++digits > 5u)

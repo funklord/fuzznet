@@ -32,11 +32,14 @@
  * delivery like any line and a client that cannot draw one shows its
  * description:
  *
- *     fzn:sticker/ROOT/KEY/ID DESCRIPTION
+ *     fzn:sticker/ROOT/KEY/LENGTH/ID DESCRIPTION
  *
- * ROOT and KEY the pack's blob's (`node/files.h`), ID the sticker's. One
- * written by fuzzypickles, `fzp:sticker/...`, is read as one of these, so
- * stickers in messages already sent still resolve.
+ * ROOT, KEY and LENGTH the pack's file's reference (`node/files.h`): a
+ * fetch wants the length, which a peer's HAVE does not give. ID the
+ * sticker's. One written by fuzzypickles, `fzp:sticker/ROOT/KEY/ID ...`,
+ * is read as one of these with LENGTH 0, so a sticker in a message already
+ * sent is known for one and shows its description; its pack, a blob of
+ * fuzzypickles' own format, is not one fuzznet can fetch (sec 490).
  */
 #ifndef FZN_STICKER_PACK_H
 #define FZN_STICKER_PACK_H
@@ -193,20 +196,22 @@ int fzn_sticker_path_ok(const char *path, size_t len);
 
 #define FZN_STICKER_KEY_LEN 32u
 #define FZN_STICKER_ROOT_LEN 32u
-/* "fzn:sticker/" and two hex fields, an id of at most five digits, a space
- * and the description. */
-#define FZN_STICKER_REF_MAX (12u + 64u + 1u + 64u + 1u + 5u + 1u + FZN_STICKER_DESC_MAX)
+/* "fzn:sticker/", two hex fields, a length of at most twenty digits, an id
+ * of at most five, a space and the description. */
+#define FZN_STICKER_REF_MAX (12u + 64u + 1u + 64u + 1u + 20u + 1u + 5u + 1u + FZN_STICKER_DESC_MAX)
 
 typedef struct fzn_sticker_ref {
 	uint8_t root[FZN_STICKER_ROOT_LEN];
 	uint8_t key[FZN_STICKER_KEY_LEN];
+	uint64_t length;	/* the pack's bytes; 0 for an fzp reference */
 	uint16_t id;
 	char description[FZN_STICKER_DESC_MAX + 1u];
 	size_t description_len;
 } fzn_sticker_ref_t;
 
-/* `fzn:sticker/...` into `out`, NUL ended: 1 with `*len`, or 0 for an
- * empty description, one too long or one holding a line break. */
+/* `fzn:sticker/...` into `out`, NUL ended: 1 with `*len`, or 0 for a
+ * length of 0, an empty description, one too long or one holding a line
+ * break. */
 int fzn_sticker_ref_format(const fzn_sticker_ref_t *ref, char *out, size_t cap, size_t *len);
 
 /* `fzn:sticker/...` or fuzzypickles' `fzp:sticker/...` back: 1, or 0 for

@@ -67886,8 +67886,18 @@ The container is `sticker/pack.situ`, the holder's choice:
   backslash or colon. Their spec parser took any path, checking only a
   container's names. Here building reads these files, so a path above the
   spec would read what it should not.
-- **The reference** is written `fzn:sticker/ROOT/KEY/ID DESCRIPTION`;
-  `fzp:sticker/...` is read too, as the holder decided.
+- **The reference** is written `fzn:sticker/ROOT/KEY/LENGTH/ID
+  DESCRIPTION`, and `fzp:sticker/ROOT/KEY/ID ...` is read too, as the
+  holder decided.
+  - **The length is fuzznet's addition.** A pack is a file here, and
+    `fzn_node_files_want` takes its length, which a peer's HAVE does not
+    give: it gives a leaf count. The first commit of this section wrote no
+    length, and was corrected the same day.
+  - **An `fzp:` reference reads with length 0.** It still marks the text
+    as a sticker, whose description a client shows. But its pack is a blob
+    of fuzzypickles' own format, invalidated by sec 490 rather than
+    translated, so nothing here could fetch it anyway.
+  - **A length of 0 is refused, and so is one past 64 bits.**
 - **Carried over:** `fzn_sticker_field_applies`, which fields a kind has,
   and `fzn_sticker_pick`, the role asked for or the nearest it has.
 - **Two names changed** so the C names do not collide. The name kind is

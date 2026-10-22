@@ -12588,8 +12588,8 @@ SABOTAGES = [
 	(
 		"sticker-range-in-data",
 		"sticker/pack.c",
-		"\t\t\tif ((uint64_t)e->renditions[r].offset + e->renditions[r].len > dl)\n\t\t\t\treturn 0;\n",
-		"",
+		"\t\t\tif ((uint64_t)e->renditions[r].offset + e->renditions[r].len > dl)\n",
+		"\t\t\tif (0 && (uint64_t)e->renditions[r].offset + e->renditions[r].len > dl)\n",
 		"sec 680: a rendition past the data area reads bytes the pack does not hold; sticker_test's past-the-data check catches it",
 	),
 	(
@@ -12619,6 +12619,13 @@ SABOTAGES = [
 		"\t\t\tif (!fzn_sticker_path_ok(v, n))\n\t\t\t\treturn fail(err, err_cap, line, \"rendition path is empty, too long or not inside the spec's directory\");\n",
 		"",
 		"sec 680: an import reads the files a spec names, so a path above it reads what it should not; sticker_test's outside-the-directory check catches it",
+	),
+	(
+		"sticker-ref-length-needed",
+		"sticker/pack.c",
+		"\t\tif (!digits || !length || p >= end || *p != '/')\n",
+		"\t\tif (!digits || p >= end || *p != '/')\n",
+		"sec 680: a fetch wants the pack's length, so an fzn reference of length 0 names a pack nobody can fetch; sticker_test's length-of-0 check catches it",
 	),
 ]
 

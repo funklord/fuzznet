@@ -266,22 +266,50 @@ static void test_references(void)
 		ref.key[i] = (uint8_t)(0xf0u + (i & 15u));
 	}
 	ref.id = 65535u;
+	ref.length = 4321u;
 	memcpy(ref.description, "a cat, waving", 13u);
 	ref.description_len = 13u;
 	CHECK(fzn_sticker_ref_format(&ref, text, sizeof(text), &len)
 	              && strncmp(text, "fzn:sticker/000102", 18u) == 0 && len == strlen(text),
 	      "a reference was not written as fzn:sticker");
-	CHECK(fzn_sticker_ref_parse(text, len, &got) && got.id == 65535u
+	CHECK(strstr(text, "/4321/65535 a cat, waving") != NULL,
+	      "the length and the id are not where the reference says");
+	CHECK(fzn_sticker_ref_parse(text, len, &got) && got.id == 65535u && got.length == 4321u
 	              && memcmp(got.root, ref.root, 32u) == 0 && memcmp(got.key, ref.key, 32u) == 0
 	              && got.description_len == 13u && memcmp(got.description, "a cat, waving", 13u) == 0,
 	      "a reference did not read back");
-	/* FUZZYPICKLES' SCHEME, read as one of these. */
-	text[2] = 'p';
-	CHECK(fzn_sticker_ref_parse(text, len, &got) && got.id == 65535u,
-	      "an fzp:sticker reference was not read");
+	/* FUZZYPICKLES' SCHEME, read as one of these: no length in it, so 0. */
+	{
+		char old[FZN_STICKER_REF_MAX + 1u];
+		const char *cut = strstr(text, "/4321/");
+		size_t head = (size_t)(cut - text), n;
+
+		memcpy(old, text, head);
+		memcpy(old + head, cut + 5, len - head - 5u);
+		n = len - 5u;
+		old[2] = 'p';
+		CHECK(fzn_sticker_ref_parse(old, n, &got) && got.id == 65535u && got.length == 0u
+		              && got.description_len == 13u,
+		      "an fzp:sticker reference was not read, with no length");
+		old[2] = 'n';
+		CHECK(!fzn_sticker_ref_parse(old, n, &got), "an fzn reference with no length was read");
+	}
 	text[2] = 'q';
 	CHECK(!fzn_sticker_ref_parse(text, len, &got), "an unknown scheme was read");
 	text[2] = 'n';
+	/* A LENGTH PAST 64 BITS, or of 0. */
+	{
+		char big[FZN_STICKER_REF_MAX + 32u];
+		const char *cut = strstr(text, "/4321/");
+		size_t head = (size_t)(cut - text);
+		int n;
+
+		n = snprintf(big, sizeof(big), "%.*s/18446744073709551616/%s", (int)head, text, cut + 6);
+		CHECK(n > 0 && !fzn_sticker_ref_parse(big, (size_t)n, &got),
+		      "a length past 64 bits was read");
+		n = snprintf(big, sizeof(big), "%.*s/0/%s", (int)head, text, cut + 6);
+		CHECK(n > 0 && !fzn_sticker_ref_parse(big, (size_t)n, &got), "a length of 0 was read");
+	}
 	/* WHAT IS NO REFERENCE. */
 	CHECK(!fzn_sticker_ref_parse("fzn:sticker/", 12u, &got)
 	              && !fzn_sticker_ref_parse(text, len - 13u - 1u, &got),
@@ -300,6 +328,10 @@ static void test_references(void)
 	ref.description_len = 0;
 	CHECK(!fzn_sticker_ref_format(&ref, text, sizeof(text), &len),
 	      "a reference with no description was written");
+	ref.description_len = 13u;
+	ref.length = 0;
+	CHECK(!fzn_sticker_ref_format(&ref, text, sizeof(text), &len),
+	      "a reference with no length was written");
 }
 
 static void test_kinds_and_picks(void)
