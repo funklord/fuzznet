@@ -350,7 +350,8 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              ratchet/test/ratchet_fuzz.c session/test/session_fuzz.c \
              prekey/test/prekey_test.c prekey/test/prekey_fuzz.c \
              provision/test/provision_fuzz.c \
-             record/test/sync_fuzz.c \
+             record/test/sync_fuzz.c record/test/exchange_fuzz.c \
+             node/test/members_fuzz.c node/test/reconcile_fuzz.c \
              provision/test/provision_test.c \
              roster/test/roster_test.c \
              disclose/test/disclose_test.c \
@@ -616,6 +617,9 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/prekey/test/prekey_fuzz \
              $(BUILD_DIR)/provision/test/provision_fuzz \
              $(BUILD_DIR)/record/test/sync_fuzz \
+             $(BUILD_DIR)/record/test/exchange_fuzz \
+             $(BUILD_DIR)/node/test/members_fuzz \
+             $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/disclose/test/disclose_fuzz \
              $(BUILD_DIR)/persist/test/persist_fuzz \
              $(BUILD_DIR)/wire/test/relay_fuzz \
@@ -2635,6 +2639,18 @@ $(BUILD_DIR)/record/test/sync_fuzz: $(BUILD_DIR)/record/test/sync_fuzz.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# The journal exchange through a lying peer, sec 689's estate journey:
+# exchange_test's own modules, linked as the daemon links them.
+$(BUILD_DIR)/record/test/exchange_fuzz: $(BUILD_DIR)/record/test/exchange_fuzz.o \
+                                         $(BUILD_DIR)/record/exchange.o \
+                                         $(BUILD_DIR)/record/sync.o \
+                                         $(BUILD_DIR)/record/journal.o \
+                                         $(BUILD_DIR)/record/store.o \
+                                         $(BUILD_DIR)/record/record.o \
+                                         $(BUILD_DIR)/constant_time/constant_time.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/disclose/test/disclose_fuzz: $(BUILD_DIR)/disclose/test/disclose_fuzz.o \
                                            $(BUILD_DIR)/disclose/disclose.o \
                                            $(BUILD_DIR)/blob/blob.o \
@@ -4213,6 +4229,19 @@ $(BUILD_DIR)/node/test/reconcile_test: $(BUILD_DIR)/node/test/reconcile_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# The estate's members and its reconciliation through a lying peer, sec
+# 689's estate journey.
+$(BUILD_DIR)/node/test/members_fuzz: $(BUILD_DIR)/node/test/members_fuzz.o \
+                                     $(BUILD_DIR)/node/members.o $(BUILD_DIR)/node/remote.o \
+                                     $(NODE_APPLY_LINK)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(BUILD_DIR)/node/test/reconcile_fuzz: $(BUILD_DIR)/node/test/reconcile_fuzz.o \
+                                       $(BUILD_DIR)/node/reconcile.o $(NODE_APPLY_LINK)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # Append-only kinds by bucket, and their exchange, sec 564.
 $(BUILD_DIR)/node/test/buckets_test: $(BUILD_DIR)/node/test/buckets_test.o \
                                      $(BUILD_DIR)/node/reconcile.o $(NODE_APPLY_LINK)
@@ -4870,6 +4899,9 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/prekey/test/prekey_fuzz \
              $(BUILD_DIR)/provision/test/provision_fuzz \
              $(BUILD_DIR)/record/test/sync_fuzz \
+             $(BUILD_DIR)/record/test/exchange_fuzz \
+             $(BUILD_DIR)/node/test/members_fuzz \
+             $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/disclose/test/disclose_fuzz \
              $(BUILD_DIR)/catalog/test/attribute_fuzz \
              $(BUILD_DIR)/catalog/test/plan_fuzz \

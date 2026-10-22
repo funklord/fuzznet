@@ -68609,3 +68609,92 @@ next use, not this one.
 answers anything, so a crash point in the save path fires during
 start-up. The scenarios have to aim a crash point with `:N` to reach
 the save they mean.
+
+## 691. The estate journey's first harnesses, and hull asked about, 2026-10-22
+
+**Sec 689's estate journey, fuzzing first**: the wire inputs the survey
+found unfuzzed and already in modules a harness can reach. Each harness
+bends an honest peer's messages with even odds -- bits flipped, cut
+short, grown, a field at its extremes, a slice repeated or swapped. Each
+keeps floors on what it reached, so a run that tested nothing fails.
+
+- **`record/test/exchange_fuzz.c`: the journal exchange.** Pulls through
+  a lying server, pushes the taker reads bent, and bent requests to the
+  server. What must hold:
+  - every record the follower holds is byte for byte the genuine one;
+  - each stream is held from 1 to what its journal received, with no
+    gaps and nothing ahead;
+  - no tally learns more than there was to learn;
+  - the server's answer is within its cap and the same twice.
+
+  4000 cases pass. **Controls:** the pull's verify turned off is caught
+  at case 10, and the push taker's at case 7.
+- **`node/test/members_fuzz.c`: the estate's members.** An estate of
+  three members, a contact on the share capability, and a peer of another
+  root, its pages bent. Every key admitted must be one of the three, and
+  never more than the cap. 4000 cases pass. **Control:** the chain proof
+  turned off admits the other root's peer at case 1.
+- **`node/test/reconcile_fuzz.c`: reconciliation.** Two grants and some
+  settings at A, B reconciling from it bent. The property: after a bent
+  round, one honest round brings B to exactly A. Reconciliation never
+  takes anything away, so anything foreign B took would leave it
+  different for good. 2000 cases pass.
+
+All three are run by `make test`, and pass under ASan and UBSan.
+
+**A finding about the instrument, the reason the third harness has two
+liars.** With mutation alone, turning a setting's signature check off
+went **uncaught**:
+- An object is applied only under an id the client asked for, and the id
+  is the object's hash. So a bent object fails that check before its
+  signature is ever read.
+- **The id check is the real guard against a bent message**, and the
+  signature was untested behind it.
+- A real liar is coherent instead: it lists the id of an object of its
+  own making on an id page, and serves that object when asked.
+
+So `reconcile_fuzz` has a forging liar too, with two forgeries: the
+root's setting with a signed byte changed after signing, and a setting
+properly signed by a key the estate never granted. 462 forgeries served
+in 2000 cases, none taken. **Control:** the signature check turned off
+is caught at case 9.
+
+**The general lesson for every harness in the journeys:** where a hash or
+an id guards in front of a signature, mutation tests only the first
+guard. Each such path needs a liar that satisfies the outer guard on
+purpose.
+
+### hull, asked by the holder
+
+**The holder, 2026-10-22:** "Is there a reason for fuzznet to use hull
+for network testing like netcfgd is planning to once it is functional
+enough? (very soon)". Read against hull's `project.md` and netcfgd's
+10.524 the same day:
+
+- **Yes, for what loopback cannot show.**
+  - Every live test here is host processes at 127.0.0.1, so relay,
+    introduction and hello through NAT have never met a NAT (sec 623 and
+    624 say so). A hull qemu machine's network is its own passt, a host
+    behind a user-mode NAT by construction. Two of them, with a node on
+    the host as the rendezvous, would be the first real NAT test. Whether
+    passt treats UDP as a home router does for this is to be measured,
+    not assumed.
+  - Separate machines would also test addresses, `net/address`, routing
+    entries and IPv6 as they are used.
+  - A machine's own small disk, or a hard stop by its hypervisor, tests
+    what sec 690's in-process faults did not think to hook.
+- **No, or not yet, for the rest:**
+  - hull's networks today are `none`, `host` and passt per machine, with
+    no shared segment between machines. So LAN discovery (sec 624) needs
+    something hull does not have.
+  - Loss stays with `fuzznetd-faults`.
+  - The rest of the live suite is host processes that run in minutes.
+- **Recommended, the holder's to decide:**
+  - hull for the reachability journey's NAT and machine scenarios, once
+    hull reports itself ready (its readiness is its own, as netcfgd
+    records);
+  - the fault build kept for loss, crashes and full disks;
+  - what fuzznet would need of hull -- a segment shared by machines,
+    shaping its loss -- said to hull rather than built round here,
+    netcfgd's 10.524 rule that a session about to start a new way to run
+    a guest reads hull first.

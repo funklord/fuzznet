@@ -176,6 +176,9 @@
 /node/test/piece_buckets_test
 /record/test/ledger_test
 /record/test/sync_fuzz
+/record/test/exchange_fuzz
+/node/test/members_fuzz
+/node/test/reconcile_fuzz
 /state/test/state_test
 /state/test/scope_test
 /state/test/setting_test
