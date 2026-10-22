@@ -69048,3 +69048,80 @@ This is the acceptance for sec 689's journey 4, whose plan already says
 logs gain the verbs they lack. Sec 672's table said "Log show: fuzznetd's
 log, nothing to move", true of the log and leaving a client no way in. It
 is corrected to say a verb to read it is wanted.
+
+## 696. Two estates behind NATs on hull: what works, and the gap it found, 2026-10-22
+
+**sec 692's topology, built:** `tool/hull_estates.py`, eight qemu machines
+on hull 4161c8a, four segments named for the run.
+- **public:** estate A's root, a server reachable at 203.0.113.10:7000,
+  and the outsides of three gateways.
+- **homea**, behind gateway A: A's home machine.
+- **phone**, behind a NAT of its own: A's phone.
+- **homeb**, behind gateway B: B's root and B's member. Nothing outside
+  reaches either.
+
+**How it is built:**
+- Each machine runs `tool/hull_node.py` in a role. A node's role is a plan
+  of steps the host writes -- fuzznetd commands, files waited for, verbs
+  asked, answers waited on -- each labelled, its outcome and time
+  recorded. A failed step is soft, so one run maps every journey.
+- The fault build's `PULL_EVERY` knob is 5 s (sec 692), so a journey takes
+  seconds.
+- A machine that ends without its results stops the run, rather than
+  leaving the rest to wait out their deadlines.
+
+**Run 2026-10-22, three times; the third's table:**
+
+| Journey | Result |
+|---|---|
+| A's home machine takes A's estate setting | ok at 6.4 s |
+| A's phone, behind its own NAT, takes it | ok at 15.5 s |
+| B's member takes B's over their LAN | ok at 11.2 s |
+| B's root asks A by A's card | ok |
+| A's root holds B's request and approves it | ok at 13.7 s |
+| B's line at A's root | ok at 18.7 s |
+| B's line at A's phone | ok at 28.7 s |
+| A's phone writes B, by B's root key | accepted |
+| **A's phone's line at B's root** | **never, in 270 s** |
+
+### The findings
+
+**1. A line to a host behind a NAT goes to its private address.**
+- A's phone offered its line to `192.168.2.10`, B's root's address on B's
+  home segment, 21 times, every one unanswered.
+- That is what B's `net/address` says, and so what its device offer
+  carries. Nothing outside B's LAN can reach it.
+- Nothing used the address B was seen from: A's root met B as gateway B's
+  public address, as sec 621's `fetch address` would say.
+- No relay was tried. sec 622 relays only for a target that said hello to
+  the relay, and B says hello to its own estate's pull peers, not to a
+  contact's reachable host.
+
+So between two users neither of whom has a reachable machine of their
+own, a line goes one way only: from the one who began. **This is the
+NAT traversal gap**, and closing it is a protocol decision, **the
+holder's**.
+
+**2. A contact's host asks what it may not have, every round.** B's root
+was refused 60 times in a run:
+
+> 203.0.113.10 refused: denied a contact may only fetch what is shared with it
+
+A request wasted a round, and a warning logged each time.
+
+**3. A contact's name stays on the host that gave it.** A's root named B
+`bob` when approving it. A's phone knows B only as `c_e56e93b7`, so
+`add message bob` there is malformed and B is written to by its root key.
+Whether names should follow the user to every host is a design question.
+Names are presentation (sec 516's ruling on keys), so it is at most a
+convenience, **the holder's** to decide.
+
+**Two of the test's own first mistakes:**
+- hull's segment names are DNS labels, lowercase;
+- a machine refused by hull left the rest waiting out a ten-minute
+  deadline, until the stop above.
+
+**hull's leak report, the same evening, was not one.** The eight passts it
+flagged were this run's own, its qemus alive under hull's core, which
+hull's detector had filtered out of its own view. hull withdrew it, and
+confirmed from its code that a refused file starts no passt.
