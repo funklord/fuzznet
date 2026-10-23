@@ -93,6 +93,59 @@ struct mem_store {
 	int refuse_saves;
 };
 
+/* A STORE THAT WALKS, of more rows than `struct mem_store` holds: sec 704's
+ * case of a node holding many pairings. One slot's rows. */
+#define WALK_ROWS 64u
+static struct {
+	uint8_t subject[FZN_PUBKEY_LEN];
+	uint8_t bytes[FZN_NODE_PAIRING_BLOB_MAX];
+	size_t len;
+} walk_rows[WALK_ROWS];
+static size_t walk_used;
+
+static int walk_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, uint8_t *out,
+                     size_t cap, size_t *len)
+{
+	size_t i;
+
+	(void)ctx;
+	(void)slot;
+	for (i = 0; i < walk_used; i++)
+		if (memcmp(walk_rows[i].subject, subject, FZN_PUBKEY_LEN) == 0
+		    && walk_rows[i].len <= cap) {
+			memcpy(out, walk_rows[i].bytes, walk_rows[i].len);
+			*len = walk_rows[i].len;
+			return 1;
+		}
+	return 0;
+}
+
+static int walk_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
+                     const uint8_t *bytes, size_t len)
+{
+	(void)ctx;
+	(void)slot;
+	if (walk_used == WALK_ROWS || len > sizeof(walk_rows[0].bytes))
+		return 0;
+	memcpy(walk_rows[walk_used].subject, subject, FZN_PUBKEY_LEN);
+	memcpy(walk_rows[walk_used].bytes, bytes, len);
+	walk_rows[walk_used++].len = len;
+	return 1;
+}
+
+static int walk_each(void *ctx, fzn_persist_slot_t slot,
+                     int (*fn)(void *arg, const uint8_t subject[FZN_PUBKEY_LEN]), void *arg)
+{
+	size_t i;
+
+	(void)ctx;
+	(void)slot;
+	for (i = 0; i < walk_used; i++)
+		if (!fn(arg, walk_rows[i].subject))
+			break;
+	return 1;
+}
+
 static struct mem_entry *find(struct mem_store *m, fzn_persist_slot_t slot,
                               const uint8_t *subject, int make)
 {
@@ -3445,6 +3498,52 @@ int main(void)
 		CHECK(fzn_node_pairing_open(blob, blob_len, &back) == FZN_PERSIST_ERR_SHAPE,
 		      "a pairing whose capability disagrees with its own hop opened");
 		blob[34] ^= 0x01u;
+
+		/* THE ESTATE'S PAIRING AMONG MANY, sec 704: a node holds one to each
+		 * node it reaches, and past sixteen the search once failed, leaving a
+		 * member at its start without the pairing it acts through. Forty
+		 * that do not qualify, each the device's own pairing filed under
+		 * another node with its last hop not to be passed on, and the one
+		 * that does among them: the same pairing, its last hop one that may
+		 * be -- the search reads the hops' fields, which a pairing's own
+		 * acceptance verified. */
+		{
+			fzn_persist_ops_t many;
+			fzn_node_pairing_t decoy, estate, found;
+			uint8_t root_key[FZN_PUBKEY_LEN], dblob[FZN_NODE_PAIRING_BLOB_MAX];
+			size_t k, dlen = 0, saved = 0;
+
+			memset(&many, 0, sizeof(many));
+			many.load = walk_load;
+			many.save = walk_save;
+			many.each = walk_each;
+			walk_used = 0;
+			memcpy(root_key, kept.chain[0] + FZN_HOP_OFF_GRANTOR, FZN_PUBKEY_LEN);
+			for (k = 0; k < 40u; k++) {
+				decoy = kept;
+				decoy.node[0] ^= (uint8_t)(k + 1u);
+				decoy.node[1] ^= 0x5au;
+				decoy.chain[decoy.hop_count - 1u][FZN_HOP_OFF_DELEGABLE] = 0u;
+				saved += (size_t)(fzn_node_pairing_pack(&decoy, dblob, sizeof(dblob), &dlen)
+				                          == FZN_PERSIST_OK
+				                  && walk_save(NULL, FZN_PERSIST_PAIRED_NODE, decoy.node,
+				                               dblob, dlen));
+			}
+			estate = kept;
+			estate.chain[estate.hop_count - 1u][FZN_HOP_OFF_DELEGABLE] = 1u;
+			saved += (size_t)(fzn_node_pairing_pack(&estate, dblob, sizeof(dblob), &dlen)
+			                          == FZN_PERSIST_OK
+			                  && walk_save(NULL, FZN_PERSIST_PAIRED_NODE, estate.node, dblob,
+			                               dlen));
+			CHECK(saved == 41u
+			              && fzn_node_pairing_estate(&many, root_key, device.id.pubkey, &found)
+			                         == FZN_PERSIST_OK
+			              && memcmp(found.node, kept.node, FZN_PUBKEY_LEN) == 0,
+			      "the estate's pairing among 41 was not found");
+			fzn_wipe(&decoy, sizeof(decoy));
+			fzn_wipe(&estate, sizeof(estate));
+			fzn_wipe(&found, sizeof(found));
+		}
 
 		/* FILED UNDER ONE NODE AND NAMING ANOTHER is refused. */
 		CHECK(mem_save(&device.store, FZN_PERSIST_PAIRED_NODE, stranger.id.pubkey, blob,

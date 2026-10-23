@@ -201,39 +201,52 @@ int fzn_node_settings_get(const fzn_node_settings_t *ns, fzn_scope_t scope,
 	return 1;
 }
 
+/* ONE ROW, walked: reported when it is its cell's highest live rank, so each
+ * cell is reported once, from the row in force for it. */
+struct each_walk {
+	const fzn_node_settings_t *ns;
+	fzn_node_settings_each_fn each;
+	void *ctx;
+};
+
+static int each_walked(void *arg, const uint8_t row[FZN_PUBKEY_LEN])
+{
+	static uint8_t buf[ROW_MAX], top[ROW_MAX];
+	struct each_walk *w = arg;
+	const fzn_node_settings_t *ns = w->ns;
+	uint8_t cell[FZN_SUBJECT_LEN], again[FZN_PUBKEY_LEN];
+	fzn_setting_rank_t rank;
+	fzn_setting_t s, t;
+	uint64_t learned;
+	size_t len = 0, at = 0;
+
+	if (!ns->store->load(ns->store->ctx, FZN_PERSIST_SETTING, row, buf, sizeof(buf), &len)
+	    || !row_read(buf, len, &rank, &learned, &at)
+	    || fzn_setting_open(buf + at, len - at, ns->verify, &s) != FZN_SETTING_OK || !s.set
+	    || !fzn_setting_cell(&s, ns->hash, cell) || !row_of(ns, cell, rank, again)
+	    || memcmp(again, row, FZN_PUBKEY_LEN) != 0)
+		return 1;
+	if (in_force(ns, cell, top, &t) == (int)rank)
+		w->each(w->ctx, &s, rank);
+	return 1;
+}
+
+/* EVERY ROW WALKED, sec 704: every cell of every host and contact, each
+ * rank's -- past 1024 the walk once failed, and the routing manifest came
+ * out empty with nothing said. */
 fzn_node_settings_err_t fzn_node_settings_each(const fzn_node_settings_t *ns,
                                                fzn_node_settings_each_fn each, void *ctx)
 {
-	static uint8_t rows[FZN_NODE_SETTINGS_ROWS * FZN_PUBKEY_LEN];
-	static uint8_t buf[ROW_MAX], top[ROW_MAX];
-	size_t n = 0, i;
+	struct each_walk w;
 
-	if (!ready(ns) || !ns->store->list || !each)
+	if (!ready(ns) || (!ns->store->list && !ns->store->each) || !each)
 		return FZN_NODE_SETTINGS_MALFORMED;
-	if (!ns->store->list(ns->store->ctx, FZN_PERSIST_SETTING, rows, FZN_NODE_SETTINGS_ROWS, &n))
-		return FZN_NODE_SETTINGS_BACKEND;
-	for (i = 0; i < n; i++) {
-		uint8_t cell[FZN_SUBJECT_LEN], again[FZN_PUBKEY_LEN];
-		fzn_setting_rank_t rank;
-		fzn_setting_t s, t;
-		uint64_t learned;
-		size_t len = 0, at = 0;
-		int r;
-
-		/* EACH CELL ONCE, from the row that is in force for it: a row is
-		 * reported when it is its cell's highest live rank. */
-		if (!ns->store->load(ns->store->ctx, FZN_PERSIST_SETTING, rows + (i * FZN_PUBKEY_LEN), buf,
-		                     sizeof(buf), &len)
-		    || !row_read(buf, len, &rank, &learned, &at)
-		    || fzn_setting_open(buf + at, len - at, ns->verify, &s) != FZN_SETTING_OK
-		    || !s.set || !fzn_setting_cell(&s, ns->hash, cell) || !row_of(ns, cell, rank, again)
-		    || memcmp(again, rows + (i * FZN_PUBKEY_LEN), FZN_PUBKEY_LEN) != 0)
-			continue;
-		r = in_force(ns, cell, top, &t);
-		if (r == (int)rank)
-			each(ctx, &s, rank);
-	}
-	return FZN_NODE_SETTINGS_OK;
+	w.ns = ns;
+	w.each = each;
+	w.ctx = ctx;
+	return fzn_persist_each(ns->store, FZN_PERSIST_SETTING, each_walked, &w)
+	       ? FZN_NODE_SETTINGS_OK
+	       : FZN_NODE_SETTINGS_BACKEND;
 }
 
 fzn_node_settings_err_t fzn_node_settings_write(const fzn_node_settings_t *ns,
@@ -300,43 +313,77 @@ int fzn_node_settings_rule_key(const fzn_hash_ops_t *hash, const char *text, siz
 	return 1;
 }
 
+/* THE CLEARS ONE WALK GATHERS to act on once it is over -- a walk may not
+ * change the slot it walks -- and walks again while one comes back full. */
+#define FORGET_BATCH 256u
+struct forget_walk {
+	const fzn_node_settings_t *ns;
+	uint64_t older_than;
+	uint8_t gone[FORGET_BATCH][FZN_PUBKEY_LEN], stamp[FORGET_BATCH][FZN_PUBKEY_LEN];
+	size_t n_gone, n_stamp;
+};
+
+static int forget_walked(void *arg, const uint8_t row[FZN_PUBKEY_LEN])
+{
+	static uint8_t buf[ROW_MAX];
+	struct forget_walk *w = arg;
+	const fzn_node_settings_t *ns = w->ns;
+	fzn_setting_rank_t rank;
+	fzn_setting_t s;
+	uint64_t learned;
+	size_t len = 0, at = 0;
+
+	if (!ns->store->load(ns->store->ctx, FZN_PERSIST_SETTING, row, buf, sizeof(buf), &len)
+	    || !row_read(buf, len, &rank, &learned, &at)
+	    || fzn_setting_open(buf + at, len - at, ns->verify, &s) != FZN_SETTING_OK || s.set)
+		return 1;
+	/* A CLEAR LEARNED AT A TIME NOT KNOWN starts its window now. */
+	if (learned == 0u) {
+		if (w->n_stamp < FORGET_BATCH)
+			memcpy(w->stamp[w->n_stamp++], row, FZN_PUBKEY_LEN);
+	} else if (learned < w->older_than && w->n_gone < FORGET_BATCH) {
+		memcpy(w->gone[w->n_gone++], row, FZN_PUBKEY_LEN);
+	}
+	return w->n_gone < FORGET_BATCH || w->n_stamp < FORGET_BATCH;
+}
+
 fzn_node_settings_err_t fzn_node_settings_forget_clears(const fzn_node_settings_t *ns,
                                                         uint64_t older_than, size_t *forgot)
 {
-	static uint8_t rows[FZN_NODE_SETTINGS_ROWS * FZN_PUBKEY_LEN];
+	static struct forget_walk w;
 	static uint8_t buf[ROW_MAX];
-	size_t n = 0, i;
+	size_t i;
+	int full;
 
 	if (!forgot)
 		return FZN_NODE_SETTINGS_MALFORMED;
 	*forgot = 0;
-	if (!ready(ns) || !ns->store->list || !ns->store->remove || !ns->now)
+	if (!ready(ns) || (!ns->store->list && !ns->store->each) || !ns->store->remove || !ns->now)
 		return FZN_NODE_SETTINGS_MALFORMED;
-	if (!ns->store->list(ns->store->ctx, FZN_PERSIST_SETTING, rows, FZN_NODE_SETTINGS_ROWS, &n))
-		return FZN_NODE_SETTINGS_BACKEND;
-	for (i = 0; i < n; i++) {
-		const uint8_t *row = rows + (i * FZN_PUBKEY_LEN);
-		fzn_setting_rank_t rank;
-		fzn_setting_t s;
-		uint64_t learned;
-		size_t len = 0, at = 0;
-
-		if (!ns->store->load(ns->store->ctx, FZN_PERSIST_SETTING, row, buf, sizeof(buf), &len)
-		    || !row_read(buf, len, &rank, &learned, &at)
-		    || fzn_setting_open(buf + at, len - at, ns->verify, &s) != FZN_SETTING_OK || s.set)
-			continue;
-		/* A CLEAR LEARNED AT A TIME NOT KNOWN starts its window now. */
-		if (learned == 0u) {
-			if (!row_save(ns, row, rank, ns->now(), buf + at, len - at))
-				return FZN_NODE_SETTINGS_BACKEND;
-			continue;
-		}
-		if (learned >= older_than)
-			continue;
-		if (!ns->store->remove(ns->store->ctx, FZN_PERSIST_SETTING, row))
+	do {
+		w.ns = ns;
+		w.older_than = older_than;
+		w.n_gone = w.n_stamp = 0;
+		if (!fzn_persist_each(ns->store, FZN_PERSIST_SETTING, forget_walked, &w))
 			return FZN_NODE_SETTINGS_BACKEND;
-		(*forgot)++;
-	}
+		full = w.n_gone == FORGET_BATCH || w.n_stamp == FORGET_BATCH;
+		for (i = 0; i < w.n_stamp; i++) {
+			fzn_setting_rank_t rank;
+			uint64_t learned;
+			size_t len = 0, at = 0;
+
+			if (!ns->store->load(ns->store->ctx, FZN_PERSIST_SETTING, w.stamp[i], buf,
+			                     sizeof(buf), &len)
+			    || !row_read(buf, len, &rank, &learned, &at)
+			    || !row_save(ns, w.stamp[i], rank, ns->now(), buf + at, len - at))
+				return FZN_NODE_SETTINGS_BACKEND;
+		}
+		for (i = 0; i < w.n_gone; i++) {
+			if (!ns->store->remove(ns->store->ctx, FZN_PERSIST_SETTING, w.gone[i]))
+				return FZN_NODE_SETTINGS_BACKEND;
+			(*forgot)++;
+		}
+	} while (full);
 	return FZN_NODE_SETTINGS_OK;
 }
 
@@ -743,7 +790,7 @@ static size_t list_settings(const fzn_node_settings_t *ns, const uint8_t *at, si
 	memset(&l, 0, sizeof(l));
 	if (word(&at, &left, &w, &w_len)) {
 		for (i = 0; i < w_len; i++) {
-			if (w[i] < '0' || w[i] > '9' || l.from > FZN_NODE_SETTINGS_ROWS)
+			if (w[i] < '0' || w[i] > '9' || l.from > ((size_t)1 << 30))
 				return say(reply, cap, FZN_REPLY_MALFORMED, "list setting [FROM]");
 			l.from = (l.from * 10u) + (size_t)(w[i] - '0');
 		}

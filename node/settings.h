@@ -43,7 +43,10 @@
 #include "../persist/persist.h"
 #include "../state/setting.h"
 
-/* The most rows one walk of the settings reads: every cell at every rank. */
+/* Not a limit, sec 704: the settings are walked (`fzn_persist_each`), every
+ * cell of every host and contact at every rank, thousands of them. Kept for
+ * a caller that sized something by it; past 1024 rows the walk once failed
+ * and the routing manifest came out empty. */
 #define FZN_NODE_SETTINGS_ROWS 1024u
 
 struct fzn_node_apply;
@@ -101,8 +104,8 @@ typedef void (*fzn_node_settings_each_fn)(void *ctx, const fzn_setting_t *s,
                                           fzn_setting_rank_t rank);
 
 /*
- * EVERY VALUE IN FORCE, each once, to `each`: BACKEND when the store cannot
- * list, or holds more than FZN_NODE_SETTINGS_ROWS rows.
+ * EVERY VALUE IN FORCE, each once, to `each`, however many rows are held:
+ * BACKEND when the store cannot walk. `each` must not write a setting.
  */
 fzn_node_settings_err_t fzn_node_settings_each(const fzn_node_settings_t *ns,
                                                fzn_node_settings_each_fn each, void *ctx);

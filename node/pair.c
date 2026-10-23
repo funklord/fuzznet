@@ -469,36 +469,56 @@ fzn_persist_err_t fzn_node_pairing_load(const fzn_persist_ops_t *store,
 	return FZN_PERSIST_OK;
 }
 
+/* ONE PAIRING, walked: the one whose chain runs from the estate's root to
+ * this node and may be passed on is the estate's, and ends the walk. */
+struct estate_walk {
+	const fzn_persist_ops_t *store;
+	const uint8_t *root, *self;
+	fzn_node_pairing_t *out;
+	int found;
+};
+
+static int estate_walked(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	struct estate_walk *w = arg;
+	fzn_node_pairing_t p;
+	fzn_chain_hop_t first, last;
+
+	if (fzn_node_pairing_load(w->store, subject, &p) != FZN_PERSIST_OK)
+		return 1;
+	if (fzn_hop_open(p.chain[0], FZN_HOP_LEN, &first) == FZN_CHAIN_OK
+	    && fzn_hop_open(p.chain[p.hop_count - 1u], FZN_HOP_LEN, &last) == FZN_CHAIN_OK
+	    && memcmp(fzn_hop_grantor(first), w->root, FZN_PUBKEY_LEN) == 0
+	    && memcmp(fzn_hop_grantee(last), w->self, FZN_PUBKEY_LEN) == 0
+	    && fzn_hop_delegable(last)) {
+		*w->out = p;
+		w->found = 1;
+	}
+	fzn_wipe(&p, sizeof(p));
+	return !w->found;
+}
+
+/* EVERY PAIRING WALKED, sec 704: one a node holds to each node it reaches
+ * -- its root, and each sibling it pairs -- so an estate of more than
+ * sixteen hosts once left a member, at its start, without the pairing it
+ * acts through, with nothing said. */
 fzn_persist_err_t fzn_node_pairing_estate(const fzn_persist_ops_t *store,
                                           const uint8_t root[FZN_PUBKEY_LEN],
                                           const uint8_t self[FZN_PUBKEY_LEN],
                                           fzn_node_pairing_t *out)
 {
-	uint8_t subjects[16u * FZN_PUBKEY_LEN];
-	size_t found = 0, i;
+	struct estate_walk w;
 
-	if (!store || !store->list || !store->load || !root || !self || !out)
+	if (!store || (!store->list && !store->each) || !store->load || !root || !self || !out)
 		return FZN_PERSIST_ERR_MALFORMED;
-	if (!store->list(store->ctx, FZN_PERSIST_PAIRED_NODE, subjects, 16u, &found))
+	w.store = store;
+	w.root = root;
+	w.self = self;
+	w.out = out;
+	w.found = 0;
+	if (!fzn_persist_each(store, FZN_PERSIST_PAIRED_NODE, estate_walked, &w))
 		return FZN_PERSIST_ERR_BACKEND;
-	for (i = 0; i < found && i < 16u; i++) {
-		fzn_node_pairing_t p;
-		fzn_chain_hop_t first, last;
-
-		if (fzn_node_pairing_load(store, subjects + i * FZN_PUBKEY_LEN, &p) != FZN_PERSIST_OK)
-			continue;
-		if (fzn_hop_open(p.chain[0], FZN_HOP_LEN, &first) == FZN_CHAIN_OK
-		    && fzn_hop_open(p.chain[p.hop_count - 1u], FZN_HOP_LEN, &last) == FZN_CHAIN_OK
-		    && memcmp(fzn_hop_grantor(first), root, FZN_PUBKEY_LEN) == 0
-		    && memcmp(fzn_hop_grantee(last), self, FZN_PUBKEY_LEN) == 0
-		    && fzn_hop_delegable(last)) {
-			*out = p;
-			fzn_wipe(&p, sizeof(p));
-			return FZN_PERSIST_OK;
-		}
-		fzn_wipe(&p, sizeof(p));
-	}
-	return FZN_PERSIST_ERR_ABSENT;
+	return w.found ? FZN_PERSIST_OK : FZN_PERSIST_ERR_ABSENT;
 }
 
 void fzn_node_pairing_caller(const fzn_node_pairing_t *pairing,

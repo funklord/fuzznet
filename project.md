@@ -69792,3 +69792,30 @@ and stay.
   4's move onto the serving socket, not a larger table.
 - Every positional initialiser of `fzn_persist_ops_t` in the tree's tests
   now names `each`, so `-Wextra` stays quiet.
+
+### Pairings and settings, built, sec 704
+
+- **Pairings.** `fzn_node_pairing_estate` lists a node's pairings, one
+  to each node it reaches, to find the one rooting it. It read them into
+  a literal 16, and past that a member started without the grant it
+  pairs and votes through, with nothing said. It now walks them all and
+  stops at the one it wants. `fuzznetd` says when the read fails; absence
+  is still quiet, since a root has no estate pairing.
+  `pair_test` finds the one that qualifies among 41. **Control:** a walk
+  stopping at the first is caught.
+- **Settings.** `fzn_node_settings_each` walks the rows; it already handed
+  values to a callback, with no array to grow. `forget_clears` removes
+  and restamps rows of the slot it reads, which a walk may not do. So it
+  gathers batches of 256 in a walk, acts once the walk is over, and walks
+  again while a batch comes back full. `list setting`'s index check no
+  longer stops at 1024. `apply_test` learns 3000 values and 300 clears in
+  a store that walks: every value is walked, and all 300 clears forgotten
+  over two batches. **Control:** one batch alone forgets 256.
+- **Seen once, not explained:** the first gate run for this failed
+  `live_pairing` phase b. After B approved A and both restarted, A's line
+  to B was not offered, even after one more round each; the load was
+  about 170. Alone, it then passed 3 of 3 at a load of 80, and the whole
+  `livecheck` passed again at 192. This change touches the contact-device
+  listing and the estate-pairing search, both on that path, so it is not
+  ruled out. A non-reproduction is what "intermittent" means, not
+  evidence against it.

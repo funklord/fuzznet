@@ -1321,6 +1321,143 @@ static void test_a_capability_held(void)
 	CHECK(fzn_node_apply_holds(&ap, e, &retention), "and before 500 it does not hold it");
 }
 
+/* THE SETTINGS AT THOUSANDS, sec 704: 3000 cells set by the root and 300
+ * clears, in a store that walks. Past 1024 rows the walk once failed, the
+ * routing manifest came out empty, and clears were never forgotten again.
+ * Forgetting 300 takes two of the walk's batches of 256. */
+#define MANY_ROWS 3400u
+static struct {
+	uint8_t subject[FZN_PUBKEY_LEN];
+	uint8_t bytes[FZN_SETTING_MAX + 32u];
+	size_t len;
+	int used;
+} many_rows[MANY_ROWS];
+
+static int many_find(const uint8_t *subject, int make)
+{
+	size_t i, free_one = MANY_ROWS;
+
+	for (i = 0; i < MANY_ROWS; i++) {
+		if (!many_rows[i].used) {
+			if (free_one == MANY_ROWS)
+				free_one = i;
+			continue;
+		}
+		if (memcmp(many_rows[i].subject, subject, FZN_PUBKEY_LEN) == 0)
+			return (int)i;
+	}
+	if (!make || free_one == MANY_ROWS)
+		return -1;
+	many_rows[free_one].used = 1;
+	memcpy(many_rows[free_one].subject, subject, FZN_PUBKEY_LEN);
+	return (int)free_one;
+}
+
+static int many_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, uint8_t *out,
+                     size_t cap, size_t *len)
+{
+	int i = many_find(subject, 0);
+
+	(void)ctx;
+	(void)slot;
+	if (i < 0 || many_rows[i].len > cap)
+		return 0;
+	memcpy(out, many_rows[i].bytes, many_rows[i].len);
+	*len = many_rows[i].len;
+	return 1;
+}
+
+static int many_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
+                     const uint8_t *bytes, size_t len)
+{
+	int i;
+
+	(void)ctx;
+	(void)slot;
+	if (len > sizeof(many_rows[0].bytes))
+		return 0;
+	i = many_find(subject, 1);
+	if (i < 0)
+		return 0;
+	memcpy(many_rows[i].bytes, bytes, len);
+	many_rows[i].len = len;
+	return 1;
+}
+
+static int many_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject)
+{
+	int i = many_find(subject, 0);
+
+	(void)ctx;
+	(void)slot;
+	if (i >= 0)
+		many_rows[i].used = 0;
+	return 1;
+}
+
+static int many_each(void *ctx, fzn_persist_slot_t slot,
+                     int (*fn)(void *arg, const uint8_t subject[FZN_PUBKEY_LEN]), void *arg)
+{
+	size_t i;
+
+	(void)ctx;
+	(void)slot;
+	for (i = 0; i < MANY_ROWS; i++)
+		if (many_rows[i].used && !fn(arg, many_rows[i].subject))
+			break;
+	return 1;
+}
+
+static void test_settings_at_thousands(void)
+{
+	static fzn_node_settings_t ns;
+	fzn_persist_ops_t store;
+	uint8_t who[FZN_PUBKEY_LEN], subject[FZN_SUBJECT_LEN], obj[FZN_SETTING_MAX];
+	char k[16];
+	size_t i, len = 0, learned = 0, forgot = 0, held = 0;
+
+	memset(many_rows, 0, sizeof(many_rows));
+	memset(&store, 0, sizeof(store));
+	store.load = many_load;
+	store.save = many_save;
+	store.remove = many_remove;
+	store.each = many_each;
+	key(who, 0x91);
+	key(subject, 0x91);
+	memset(&ns, 0, sizeof(ns));
+	ns.store = &store;
+	ns.hash = &HASH;
+	ns.verify = &SIGN;
+	ns.estate = subject;
+	ns.now = clock_now;
+	clock_at = 1000u;
+	signing_as = 0x91;
+	for (i = 0; i < 3300u; i++) {
+		int set = i < 3000u;
+
+		snprintf(k, sizeof(k), "%s/%04zu", set ? "t" : "c", i);
+		if (fzn_setting_issue(who, &SIGN, FZN_SCOPE_ESTATE, subject, 1u, (const uint8_t *)k,
+		                      strlen(k), set, set ? (const uint8_t *)"v" : NULL, set ? 1u : 0u,
+		                      obj, &len) == FZN_SETTING_OK
+		    && fzn_node_settings_learn(&ns, obj, len, FZN_SETTING_RANK_ROOT)
+		               == FZN_NODE_SETTINGS_OK)
+			learned++;
+	}
+	CHECK(learned == 3300u, "fixture: 3000 settings and 300 clears learned");
+	values_seen = 0;
+	CHECK(fzn_node_settings_each(&ns, count_value, NULL) == FZN_NODE_SETTINGS_OK
+	              && values_seen == 3000u,
+	      "the settings past 1024 rows were not all walked");
+	clock_at = 5000u;
+	CHECK(fzn_node_settings_forget_clears(&ns, 2000u, &forgot) == FZN_NODE_SETTINGS_OK
+	              && forgot == 300u,
+	      "300 clears past their window were not all forgotten");
+	for (i = 0; i < MANY_ROWS; i++)
+		held += (size_t)many_rows[i].used;
+	CHECK(held == 3000u, "what is left is not the 3000 set cells");
+	clock_at = 1000u;
+}
+
 /* A GRANT IS ITS GRANTOR'S ACT, sec 700: one carried in another key's
  * stream is not indexed, however it is signed -- R's own properly signed
  * grant included, since a grant travels in its grantor's stream -- and nor
@@ -1400,6 +1537,7 @@ int main(void)
 	test_holdings();
 	test_a_capability_held();
 	test_a_grant_is_its_grantors();
+	test_settings_at_thousands();
 	/* EVERY STREAM FILE, BY NAME, then the directory. */
 	for (i = 0; i < n_used; i++) {
 		static const char DIGITS[] = "0123456789abcdef";

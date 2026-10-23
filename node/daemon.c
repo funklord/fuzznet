@@ -12360,11 +12360,19 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			fprintf(stderr, "\n");
 			/* Found by shape: joined through a member, the pairing
 			 * is filed under that member, not the root. sec 391. */
-			if (fzn_node_pairing_estate(store_ops, state.config.root, identity.pubkey,
-			                            &estate) == FZN_PERSIST_OK) {
+			fzn_persist_err_t perr = fzn_node_pairing_estate(store_ops, state.config.root,
+			                                                 identity.pubkey, &estate);
+
+			if (perr == FZN_PERSIST_OK) {
 				authority.hops = (const uint8_t (*)[FZN_HOP_LEN])estate.chain;
 				authority.hop_count = estate.hop_count;
 				my_authority = &authority;
+			} else if (perr != FZN_PERSIST_ERR_ABSENT) {
+				/* SAID, sec 704: a member that cannot read its pairings
+				 * starts without the authority it pairs and votes through,
+				 * which once happened with nothing said. */
+				fprintf(stderr, "fuzznetd: the pairings would not read (%s), so this node "
+				        "acts without its estate's grant\n", fzn_persist_err_str(perr));
 			}
 		}
 	}
