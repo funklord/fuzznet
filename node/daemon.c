@@ -139,6 +139,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <time.h>
@@ -12372,9 +12373,33 @@ static int follower_main(const char *sock_path, const char *core_dir, fzn_claim_
 	}
 }
 
+/* AS MANY DESCRIPTORS AS THE SYSTEM ALLOWS, sec 704: a socket per host this
+ * node talks to -- the contact hosts among them -- and the soft limit is
+ * often 1024 under a hard one hundreds of times that. The soft limit raised
+ * to the hard, and what it came to, for the log. */
+static rlim_t descriptors;
+
+static void raise_descriptors(void)
+{
+	struct rlimit r;
+
+	if (getrlimit(RLIMIT_NOFILE, &r) != 0)
+		return;
+	if (r.rlim_cur < r.rlim_max) {
+		rlim_t want = r.rlim_max;
+
+		r.rlim_cur = want;
+		if (setrlimit(RLIMIT_NOFILE, &r) != 0)
+			(void)getrlimit(RLIMIT_NOFILE, &r);
+	}
+	descriptors = r.rlim_cur;
+}
+
 int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 {
 	const char *sock_path = NULL;
+
+	raise_descriptors();
 
 	daemon_argv = argv;
 	daemon_ext = ext;
@@ -14229,6 +14254,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		say(FZN_ENTRY_NOTE, "node", "serving%s%s%s, pulling from %zu peer(s) every %us",
 		        sock_path ? " on " : "", sock_path ? sock_path : "",
 		        (udp_port >= 0) ? " udp" : "", npulls, FZND_PULL_EVERY);
+		say(FZN_ENTRY_INFO, "node", "%llu descriptors open to this process",
+		    (unsigned long long)descriptors);
 		for (;;) {
 			uint64_t now = wall_clock();
 

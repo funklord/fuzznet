@@ -70228,3 +70228,32 @@ and stay.
   64 they say 600, and into room they all list. It also takes 300
   grants. **Control:** ROOM read as OK is caught. The suite's link now
   carries `persist.o` and what it needs, for the walk.
+
+### Step 4, the contact hosts, measured, sec 704
+
+The plan was to move contact hosts onto the serving socket, since a
+socket each would pass the descriptor limit of 1024. Measured before
+building it:
+
+- **The limit is mostly a default.** Here the soft and hard limits are
+  both 1048576. A common default is a soft limit of 1024 under a hard one
+  of about 524288, and a process may raise its own soft limit to the
+  hard. `fuzznetd` now does so at start, and logs what it came to: under
+  a soft limit of 1024 it started with 1048576.
+- **A socket each is not the cost; the reply slot is.** A pull target
+  carries a reply slot of `FZND_PULL_REPLY_MAX`, 69143 bytes, the
+  largest reply any host may send (a files reply). So 4096 contact hosts
+  would hold about 280 MB of slots, nearly all unused at any moment.
+- **The serving socket has its own hazard.** Contact hosts' callers are
+  also used by blocking askers (a message key round's `peer_ask`, and
+  the introductions), which read the socket themselves. On a shared
+  socket they would take each other's datagrams, and the serving
+  loop's. Converting them is sec 636's work, and not yet done.
+- **So the step is now:**
+  1. the descriptor limit raised (built);
+  2. replies reassembled into slots leased per request in flight (64
+     at most, about 4.4 MB) rather than one per target;
+  3. then the contact hosts' table, and the tables sized by it, grown
+     past 32.
+  A socket per host is kept, as sec 698 needs for its NAT mapping. hull
+  is where the before-and-after is measured.
