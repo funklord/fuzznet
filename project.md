@@ -70265,10 +70265,88 @@ building it:
   message, with up to 8 replies from one host at once. A contact target
   is 2440 bytes, measured with gdb on the built daemon; with the slot
   inside it was about 71.6 KB.
-- **Stage 3 is larger than it looked:** besides the targets, nine
-  tables are sized by the 32. These are the contact, deliver, lines,
-  group-sync and host talks, the relayed and quiet lists, and two stack
-  tables. Some hold, per target, request buffers and per-group tables.
-  Growing them to thousands means making them paced pools, each talk
-  taking a place as one finishes, as the host talks already pace 32 at
-  once. That is the round's machinery, not a table.
+- **Stage 3, built:** besides the targets, nine tables were sized by the
+  32: the contact, deliver, lines, group-sync and host talks, the
+  relayed and quiet lists, and two stack tables. Measured with gdb, a
+  contact host costs about 17.8 KB across all of them, the group-sync
+  talk's 9176 bytes the most. So they grow with the hosts rather than
+  becoming pools: 1000 contact hosts cost about 18 MB.
+  - **`contact_room` grows them all together**, by half again, when
+    the round's load keeps more hosts than there is room for.
+  - **Only while no request is in flight**, since talks and asks point
+    into these tables. Otherwise that round reaches as many as fit,
+    says the rest wait, and the next round grows.
+  - **Made at start**, since the pulls' talks use the same tables with
+    no contact at all; the daemon does not serve without them.
+  - **The first room is 48** (32 and half again). Phase j of
+    `livecheck-faults` adds 60 contacts by their cards, each a host with
+    an address. The round grows the room and delivers to all 60.
+    **Control:** with growth held at the first room, the round leaves the
+    rest waiting and says so. Each host keeps its own socket.
+
+## 705. The blob leaf's property, checked: not in force, 2026-10-23
+
+fuzzypickles re-evaluated the 1 KiB blob leaf at the holder's first-hand
+request that inherited numbers be re-derived (their inbox message
+20261023T1506Z). They read one finding from these headers without running
+anything, and asked for it to be confirmed or refuted. **It is
+confirmed, from the code path.**
+
+### What the leaf was bought for
+
+`blob/blob.h` and this document (the blob design, and sec 104's second
+reason for refusing a byte-range reader) say: a sealed leaf fits one
+datagram inside IPv6's guaranteed 1280-byte path. So every datagram is
+verifiable on arrival, and the leaf size is exactly how much unverified
+data an attacker can make a host buffer.
+
+### What the code does
+
+- **A sealed leaf does not fit a datagram's payload.** A sealed leaf is
+  `FZN_BLOB_SEALED_MAX`, 1024 + 32 = 1056 bytes; a split payload is
+  `FZN_SPLIT_MAX_PAYLOAD`, 1024.
+- **A DATA carries a span, reassembled whole first.** `spool/message.h`
+  caps it at `FZN_MSG_MAX_SPAN`, 64 leaves, and its own comment says
+  "a fuzznet DATA carries a whole span and `chunk/` fragments it".
+  `place_data` in `node/files.c` parses a DATA only once the caller has
+  reassembled the whole reply. That reply lands in a slot of
+  `FZN_NODE_FILES_REPLY_MAX`, about 69 KB: 64 sealed leaves and the
+  proof.
+- **So the bound in force is the reply slot, not the leaf.** One reply
+  can make a host hold about 69 KB unverified. A file fetch keeps
+  `FZND_FETCH_WINDOW` slots for DATA, 2, so about 138 KB in flight. A
+  contact host's other replies reassemble in the 64 slots sec 704's
+  stage 2 shares among them.
+
+### The leaf stays 1 KiB
+
+fuzzypickles' first message also recommended a 16 KiB leaf, or an id made
+independent of the leaf. **They report that the holder withdrew that,
+first-hand in fuzzypickles** (their correction, 20261023T1517Z): the
+bisection model exists to avoid static chunking, a larger leaf brings
+back the task-tuned static chunk that rework removed, and forcing every
+hash to change is a security risk. The 1 KiB leaf is the finest
+verifiable unit; every transfer size above it is a runtime choice of
+subtree. Its 3.12% is the price recorded with the original choice. This
+tree does not change the leaf.
+
+### What stands: the transport
+
+- **The leaf is meant to be verified as its bytes arrive. Today a whole
+  span is held first**, as above. That is how a span travels, not what a
+  leaf is.
+- **One leaf cannot ride one datagram as framed.** 1056 sealed bytes
+  exceed the 1024-byte split payload. So verifying each leaf on arrival
+  means either a split payload that holds a sealed leaf, or a receiver
+  that verifies each leaf as soon as both of its pieces are in, holding
+  one leaf at a time. The span's proof does not give the second: it
+  proves the span's subtree only once every leaf is in. A leaf checked
+  alone needs its own path up to that subtree, siblings a DATA does not
+  carry today.
+- **Not yet decided:** which of those, and when. It changes the DATA
+  framing in both trees, so it is a cut-over question for the holder.
+  The `blob.h` comment and the blob design's paragraph state the
+  intended property; they stay, now that the leaf is kept, with this
+  section saying the transport does not yet give it.
+- **Sec 104's refusal of a byte-range reader keeps both its reasons:**
+  the bound it protects is the leaf, which stays.

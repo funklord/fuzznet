@@ -5565,6 +5565,9 @@ static void pull_received(uint64_t now)
  * the contact devices it kept; then pairs every contact device kept, as a
  * host, and builds a pairing to every contact host kept, as a device. */
 
+/* THE CONTACT HOSTS' FIRST ROOM, sec 704, not a limit: the targets and
+ * every table sized by them grow together (`contact_room`) as more hosts
+ * are kept. About 17.8 KB a host, measured across those tables. */
 #define FZND_CONTACT_TARGETS_MAX 32u
 
 static const fzn_node_identity_t *contact_id;
@@ -5585,8 +5588,13 @@ struct contact_target {
 	int down;
 };
 
-static struct contact_target contact_targets[FZND_CONTACT_TARGETS_MAX];
+static struct contact_target *contact_targets;
 static size_t ncontact_targets;
+/* How many contact hosts every table below has room for. */
+static size_t ct_cap;
+static int contact_room(size_t want);
+/* The contacts a groups pass has asked, one each, as many as the hosts. */
+static uint8_t (*lines_done)[FZN_PUBKEY_LEN], (*groups_done)[FZN_PUBKEY_LEN];
 
 static const uint8_t *estate_owner(void)
 {
@@ -5872,14 +5880,14 @@ static void load_contact_targets(void)
 	 * belongs to a socket, so the one an introduction opened, or a hello
 	 * kept open, is lost with it -- rebuilt on a fresh socket every round,
 	 * a hole punched last round led nowhere. */
-	static struct {
+	struct kept_socket {
 		uint8_t key[FZN_PUBKEY_LEN];
 		int fd;
-	} old[FZND_CONTACT_TARGETS_MAX];
+	} *old = calloc(ncontact_targets ? ncontact_targets : 1u, sizeof(*old));
 	size_t n = 0, i, j, n_old = 0;
 
 	for (i = 0; i < ncontact_targets; i++) {
-		if (contact_targets[i].pt.fd >= 0 && n_old < FZND_CONTACT_TARGETS_MAX) {
+		if (old && contact_targets[i].pt.fd >= 0) {
 			memcpy(old[n_old].key, contact_targets[i].pt.pairing.node, FZN_PUBKEY_LEN);
 			old[n_old++].fd = contact_targets[i].pt.fd;
 		} else if (contact_targets[i].pt.fd >= 0) {
@@ -5889,10 +5897,19 @@ static void load_contact_targets(void)
 	}
 	ncontact_targets = 0;
 	if (!running_admin || !contact_id || !running_admin->state->config.has_share
-	    || devices_list(&room, &n) != FZN_CONTACT_DEVICE_OK)
+	    || devices_list(&room, &n) != FZN_CONTACT_DEVICE_OK) {
+		for (j = 0; j < n_old; j++)
+			if (old[j].fd >= 0)
+				fzn_udp_close(old[j].fd);
+		free(old);
 		return;
+	}
 	kept = room.at;
-	for (i = 0; i < n && ncontact_targets < FZND_CONTACT_TARGETS_MAX; i++) {
+	/* ROOM FOR EVERY ONE KEPT, sec 704, if no request is in flight to
+	 * move from under; else this round reaches as many as there is room
+	 * for, and the next grows. */
+	(void)contact_room(n);
+	for (i = 0; i < n && ncontact_targets < ct_cap; i++) {
 		struct contact_target *ct = &contact_targets[ncontact_targets];
 		fzn_routing_t r;
 		fzn_udp_addr_t at;
@@ -5961,18 +5978,18 @@ static void load_contact_targets(void)
 		}
 		ncontact_targets++;
 	}
-	/* PAST THE HOSTS DELIVERED TO, said rather than passed over, sec 704:
-	 * each holds a socket of its own, so growing past this is the move onto
-	 * the serving socket, not a larger table. */
+	/* PAST THE ROOM THIS ROUND, said rather than passed over: the room
+	 * grows when no request is in flight. */
 	if (i < n)
 		say(FZN_ENTRY_WARNING, "contact/devices",
-		    "%zu contact host(s) kept and %u delivered to: the rest are not reached",
-		    n, (unsigned)FZND_CONTACT_TARGETS_MAX);
+		    "%zu contact host(s) kept and %zu reached this round: the rest wait for room",
+		    n, ct_cap);
 	/* WHAT NO HOST TOOK BACK, closed: a device forgotten, or one no longer
 	 * reached. */
 	for (j = 0; j < n_old; j++)
 		if (old[j].fd >= 0)
 			fzn_udp_close(old[j].fd);
+	free(old);
 	/* BY CONTACT, THEN METRIC: insertion, a handful at most. */
 	for (i = 1; i < ncontact_targets; i++)
 		for (j = i; j > 0; j--) {
@@ -7749,17 +7766,17 @@ enum { CONTACT_OFFER = 1, CONTACT_QUERY = 2, CONTACT_ROUTING = 3 };
  * sec 699: a user that does not advertise was asked, and refused, every
  * round. Asked again after, since advertising can be switched on. */
 #define FZND_ROUTING_QUIET_S 900u
-static struct {
+static struct quiet_contact {
 	uint8_t contact[FZN_PUBKEY_LEN];
 	uint64_t until;
-} routing_quiet[FZND_CONTACT_TARGETS_MAX];
+} *routing_quiet;
 
 /* 1 while `contact`'s manifest is not asked. */
 static int routing_quiet_of(const uint8_t contact[FZN_PUBKEY_LEN], uint64_t now)
 {
 	size_t i;
 
-	for (i = 0; i < FZND_CONTACT_TARGETS_MAX; i++)
+	for (i = 0; routing_quiet && i < ct_cap; i++)
 		if (routing_quiet[i].until > now
 		    && memcmp(routing_quiet[i].contact, contact, FZN_PUBKEY_LEN) == 0)
 			return 1;
@@ -7772,7 +7789,9 @@ static void routing_quiet_set(const uint8_t contact[FZN_PUBKEY_LEN], uint64_t no
 {
 	size_t i, at = 0;
 
-	for (i = 0; i < FZND_CONTACT_TARGETS_MAX; i++) {
+	if (!routing_quiet)
+		return;
+	for (i = 0; i < ct_cap; i++) {
 		if (memcmp(routing_quiet[i].contact, contact, FZN_PUBKEY_LEN) == 0) {
 			at = i;
 			break;
@@ -7783,7 +7802,7 @@ static void routing_quiet_set(const uint8_t contact[FZN_PUBKEY_LEN], uint64_t no
 	memcpy(routing_quiet[at].contact, contact, FZN_PUBKEY_LEN);
 	routing_quiet[at].until = now + FZND_ROUTING_QUIET_S;
 }
-static struct contact_talk contact_talks[FZND_CONTACT_TARGETS_MAX + FZN_NODE_RECEIVED_MAX];
+static struct contact_talk *contact_talks; /* ct_cap + FZN_NODE_RECEIVED_MAX */
 static size_t n_contact_talks;
 /* THIS USER'S OWN DEVICES, offered to each contact: as many as the
  * siblings and this node, grown before each round fills them. sec 704. */
@@ -8023,8 +8042,7 @@ static void contact_round(struct pull_target *pulls, size_t npulls, uint64_t now
 		     k++)
 			;
 		if (k == n_contact_talks) {
-			if (n_contact_talks
-			    == sizeof(contact_talks) / sizeof(contact_talks[0]))
+			if (n_contact_talks == ct_cap + FZN_NODE_RECEIVED_MAX)
 				continue;
 			ct = &contact_talks[n_contact_talks++];
 			memcpy(ct->contact, contact, FZN_PUBKEY_LEN);
@@ -8360,8 +8378,8 @@ struct group_sync_talk {
 	int own;
 	uint8_t request[3u + FZND_GROUP_SYNC_MAX * FZND_GROUP_ENTRY_LEN];
 };
-static struct group_sync_talk group_sync_talks[FZND_ROUND_TARGETS_MAX + FZND_CONTACT_TARGETS_MAX
-                                              + FZND_GROUP_SHARES_MAX];
+/* FZND_ROUND_TARGETS_MAX + ct_cap + FZND_GROUP_SHARES_MAX */
+static struct group_sync_talk *group_sync_talks;
 static size_t n_group_sync_talks;
 
 static int group_sync_step(void *ctx, const uint8_t *reply, size_t reply_len, uint8_t *request,
@@ -8390,7 +8408,7 @@ static void group_sync_start(struct pull_target *pt, const uint8_t *owner, int o
 	struct group_sync_talk *gt;
 	size_t len;
 
-	if (n_group_sync_talks >= sizeof(group_sync_talks) / sizeof(group_sync_talks[0]))
+	if (n_group_sync_talks >= FZND_ROUND_TARGETS_MAX + ct_cap + FZND_GROUP_SHARES_MAX)
 		return;
 	gt = &group_sync_talks[n_group_sync_talks];
 	gt->n = gt->i = gt->taken = 0;
@@ -8843,8 +8861,8 @@ struct lines_talk {
 	int silences;
 	uint8_t request[FZND_LINES_REQUEST_MAX];
 };
-static struct lines_talk lines_talks[FZND_ROUND_TARGETS_MAX + FZND_CONTACT_TARGETS_MAX
-                                     + FZND_GROUP_SHARES_MAX];
+/* FZND_ROUND_TARGETS_MAX + ct_cap + FZND_GROUP_SHARES_MAX */
+static struct lines_talk *lines_talks;
 static size_t n_lines_talks;
 
 /* THE NEXT GROUP's request, from `lt->at` on; 0 when none is left. */
@@ -8881,7 +8899,7 @@ static struct lines_talk *lines_talk_for(struct pull_target *pt, int silences)
 	for (i = 0; i < n_lines_talks; i++)
 		if (lines_talks[i].pt == pt)
 			return &lines_talks[i];
-	if (n_lines_talks == sizeof(lines_talks) / sizeof(lines_talks[0]))
+	if (n_lines_talks == FZND_ROUND_TARGETS_MAX + ct_cap + FZND_GROUP_SHARES_MAX)
 		return NULL;
 	lines_talks[n_lines_talks].pt = pt;
 	lines_talks[n_lines_talks].n = 0;
@@ -8897,7 +8915,7 @@ static void group_lines_start(struct pull_target *pulls, size_t npulls, uint64_t
 	static uint8_t ids[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
 	static fzn_group_t g;
 	static fzn_contact_device_t own;
-	uint8_t done[FZND_CONTACT_TARGETS_MAX][FZN_PUBKEY_LEN];
+	uint8_t (*done)[FZN_PUBKEY_LEN] = lines_done;
 	size_t n = 0, i, j, k, ndone, len;
 
 	n_lines_groups = lines_sealed = lines_taken = n_lines_talks = 0;
@@ -8977,7 +8995,7 @@ static void group_lines_settle(void)
 
 static void group_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
-	uint8_t done[FZND_CONTACT_TARGETS_MAX][FZN_PUBKEY_LEN];
+	uint8_t (*done)[FZN_PUBKEY_LEN] = groups_done;
 	size_t ndone = 0, i, k;
 
 	static unsigned idle_rounds;
@@ -9452,8 +9470,7 @@ static size_t stream_take(const char *name, size_t name_len, const uint8_t *orig
  * stream`). A conversation each, at most FZND_HOST_TALKS_AT_ONCE awaited and
  * the rest begun as those end, so the asks table is never the limit. */
 #define FZND_HOST_TALKS_MAX                                                                   \
-	(FZND_ROUND_TARGETS_MAX + FZN_NODE_RECEIVED_MAX + FZND_CONTACT_TARGETS_MAX               \
-	 + FZND_GROUP_SHARES_MAX)
+	(FZND_ROUND_TARGETS_MAX + FZN_NODE_RECEIVED_MAX + ct_cap + FZND_GROUP_SHARES_MAX)
 #define FZND_HOST_TALKS_AT_ONCE 32u
 #define FZND_FILE_REFS_REQUEST_MAX (3u + 32u * FZN_BLOB_HASH_LEN)
 #define FZND_HOST_REQUEST_MAX                                                                 \
@@ -9473,7 +9490,7 @@ struct host_talk {
 	uint64_t now;
 	uint8_t request[FZND_HOST_REQUEST_MAX];
 };
-static struct host_talk host_talks[FZND_HOST_TALKS_MAX];
+static struct host_talk *host_talks; /* FZND_HOST_TALKS_MAX */
 /* THE ONE REQUEST every host is asked, for the kinds that share one. */
 static uint8_t host_shared_request[FZND_HOST_REQUEST_MAX];
 static size_t host_shared_len, file_refs_taken;
@@ -11290,7 +11307,7 @@ struct deliver_talk {
 	fzn_messages_err_t err;
 	uint8_t request[FZN_NODE_MESSAGES_DELIVER_MAX];
 };
-static struct deliver_talk deliver_talks[FZND_CONTACT_TARGETS_MAX + FZN_NODE_RECEIVED_MAX];
+static struct deliver_talk *deliver_talks; /* ct_cap + FZN_NODE_RECEIVED_MAX */
 static size_t n_deliver_talks;
 
 static void deliver_host(struct deliver_talk *dt);
@@ -11308,14 +11325,14 @@ static struct {
 	char host[FZN_UDP_HOST_MAX];
 	long port;
 	uint64_t until;
-} relayed[FZND_CONTACT_TARGETS_MAX];
+} *relayed;
 
 /* `pt`'s place in `relayed` while it is relayed to first, else -1. */
 static long relayed_of(const struct pull_target *pt, uint64_t now)
 {
 	size_t i;
 
-	for (i = 0; i < FZND_CONTACT_TARGETS_MAX; i++)
+	for (i = 0; relayed && i < ct_cap; i++)
 		if (relayed[i].until > now && relayed[i].port == pt->port
 		    && memcmp(relayed[i].key, pt->pairing.node, FZN_PUBKEY_LEN) == 0
 		    && strcmp(relayed[i].host, pt->host) == 0)
@@ -11329,7 +11346,9 @@ static void relayed_set(const struct pull_target *pt, uint64_t now)
 {
 	size_t i, at = 0;
 
-	for (i = 0; i < FZND_CONTACT_TARGETS_MAX; i++) {
+	if (!relayed)
+		return;
+	for (i = 0; i < ct_cap; i++) {
 		if (memcmp(relayed[i].key, pt->pairing.node, FZN_PUBKEY_LEN) == 0) {
 			at = i;
 			break;
@@ -11342,6 +11361,64 @@ static void relayed_set(const struct pull_target *pt, uint64_t now)
 	relayed[at].port = pt->port;
 	relayed[at].until = now + FZND_RELAYED_S;
 }
+/* ROOM FOR `want` CONTACT HOSTS in every table sized by them, sec 704,
+ * grown by half again; what is held is kept and the rest zeroed. Only while
+ * no request is in flight: talks and asks point into these tables, and a
+ * move would leave them pointing at nothing. 1 when there is room. */
+static int heap_room(void **table, size_t *cap, size_t want, size_t size);
+
+static int grow_table(void **table, size_t old_n, size_t new_n, size_t size)
+{
+	void *grown = realloc(*table, new_n * size);
+
+	if (!grown)
+		return 0;
+	memset((uint8_t *)grown + old_n * size, 0, (new_n - old_n) * size);
+	*table = grown;
+	return 1;
+}
+
+static int contact_room(size_t want)
+{
+	size_t cap, was = ct_cap, fixed_was, fixed_now, i;
+
+	if (want < FZND_CONTACT_TARGETS_MAX)
+		want = FZND_CONTACT_TARGETS_MAX;
+	if (want <= ct_cap)
+		return 1;
+	if (fzn_node_asks_pending(&round_asks) != 0)
+		return 0;
+	cap = want + want / 2u;
+	/* EACH TABLE FROM ITS OWN LENGTH: the talks carry fixed parts besides
+	 * the contact hosts. */
+	if (!grow_table((void **)&contact_targets, was, cap, sizeof(*contact_targets))
+	    || !grow_table((void **)&routing_quiet, was, cap, sizeof(*routing_quiet))
+	    || !grow_table((void **)&relayed, was, cap, sizeof(*relayed))
+	    || !grow_table((void **)&lines_done, was, cap, sizeof(*lines_done))
+	    || !grow_table((void **)&groups_done, was, cap, sizeof(*groups_done))
+	    || !grow_table((void **)&contact_talks, was + FZN_NODE_RECEIVED_MAX,
+	                   cap + FZN_NODE_RECEIVED_MAX, sizeof(*contact_talks))
+	    || !grow_table((void **)&deliver_talks, was + FZN_NODE_RECEIVED_MAX,
+	                   cap + FZN_NODE_RECEIVED_MAX, sizeof(*deliver_talks)))
+		return 0;
+	fixed_was = FZND_ROUND_TARGETS_MAX + FZND_GROUP_SHARES_MAX;
+	fixed_now = fixed_was;
+	if (!grow_table((void **)&group_sync_talks, fixed_was + was, fixed_now + cap,
+	                sizeof(*group_sync_talks))
+	    || !grow_table((void **)&lines_talks, fixed_was + was, fixed_now + cap,
+	                   sizeof(*lines_talks))
+	    || !grow_table((void **)&host_talks, fixed_was + FZN_NODE_RECEIVED_MAX + was,
+	                   fixed_now + FZN_NODE_RECEIVED_MAX + cap, sizeof(*host_talks)))
+		return 0;
+	/* A NEW TARGET'S SOCKET is -1 until it is opened. */
+	for (i = was; i < cap; i++)
+		contact_targets[i].pt.fd = -1;
+	ct_cap = cap;
+	if (was)
+		say(FZN_ENTRY_INFO, "contact/devices", "room for %zu contact hosts", cap);
+	return 1;
+}
+
 static struct pull_target *deliver_relay_pt(const struct deliver_talk *dt, const char **name);
 
 static void deliver_over(struct deliver_talk *dt)
@@ -11601,7 +11678,7 @@ static void deliver_start(uint64_t now)
 		     k++)
 			;
 		if (k == n_deliver_talks) {
-			if (n_deliver_talks == sizeof(deliver_talks) / sizeof(deliver_talks[0]))
+			if (n_deliver_talks == ct_cap + FZN_NODE_RECEIVED_MAX)
 				continue;
 			dt = &deliver_talks[n_deliver_talks++];
 			memcpy(dt->contact, contact, FZN_PUBKEY_LEN);
@@ -14306,6 +14383,12 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		contact_hash_ops = &hash_ops;
 		contact_aead_ops = &aead_ops;
 		contact_rng_ops = &rng_ops;
+		/* THE ROUND'S TABLES, sec 704, which the pulls' talks need even with
+		 * no contact: made now, or the daemon does not serve. */
+		if (!contact_room(FZND_CONTACT_TARGETS_MAX)) {
+			say(FZN_ENTRY_ERROR, "node", "no memory for the round's tables");
+			return 1;
+		}
 		load_contact_targets();
 		/* THE ROUND'S CONVERSATIONS, awaited by the loop. sec 636. */
 		fzn_node_asks_init(&round_asks, round_reply, sizeof(round_reply), round_clock_ms);

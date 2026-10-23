@@ -38,6 +38,10 @@ the scenarios built on them test something:
     i  a root re-keys 100 devices, more than the 64 successions its own
        table held, every one answered `ok` and listed; started again, it
        loads and lists all 100 (sec 704) -- where the 65th was refused
+    j  a root adds 60 contacts by their cards, each a host with an
+       address, more than the 32 contact hosts it once reached and the 48
+       its first room holds; its round grows the room and delivers to all
+       60 (sec 704) -- where the 33rd host was never reached
 
 Against a daemon built without faults, phase a's B is counted at 100 per
 cent loss, phase b's daemon does not die, and phase c's says nothing.
@@ -391,6 +395,56 @@ def main(argv):
 				node.stop()
 			print("livecheck: i: 100 devices re-keyed and listed, and all 100 loaded again "
 			      "after a restart")
+
+			# j: more contact hosts than the round once reached.
+			cards = []
+			for n in range(60):
+				d = os.path.join(scratch, "j%d" % n)
+				sock = os.path.join(sock_dir, "j%d" % n)
+				os.mkdir(d)
+				command(run, ["--fuzznet-dir=" + d, "--new-root"], None)
+				udp = str(int(port) + 10 + n)
+				host = daemon(run, "j%d" % n, d, sock, extra=["--udp-port=" + udp])
+				try:
+					if ask(sock, "set setting host net/address 127.0.0.1 " + udp) != "ok":
+						raise failed("j: host %d would not take its address" % n)
+					card = ask(sock, "get card j%d" % n)
+					if not card.startswith("ok FZC1:"):
+						raise failed("j: get card at host %d answered %r" % (n, card))
+					cards.append(card.split(" ", 1)[1].strip())
+				finally:
+					host.stop()
+			j_dir = os.path.join(scratch, "j")
+			j_sock = os.path.join(sock_dir, "j")
+			os.mkdir(j_dir)
+			command(run, ["--fuzznet-dir=" + j_dir, "--new-root"], None)
+			os.environ["FZN_TUNE_PULL_EVERY"] = "2"
+			try:
+				j = daemon(run, "jr", j_dir, j_sock, extra=["--udp-port=" + str(int(port) + 60)])
+			finally:
+				del os.environ["FZN_TUNE_PULL_EVERY"]
+			try:
+				if ask(j_sock, "set setting host net/address 127.0.0.1 %d" % (int(port) + 60)) != "ok":
+					raise failed("j: the root would not take its address")
+				for n, card in enumerate(cards):
+					reply = ask(j_sock, "add contact j%d %s" % (n, card))
+					if not reply.startswith("ok"):
+						raise failed("j: contact %d answered %r" % (n + 1, reply))
+				until = time.monotonic() + 60.0
+				said = ""
+				while time.monotonic() < until:
+					said = j.log()
+					if re.search(r"\b60 host\(s\) to deliver to", said):
+						break
+					time.sleep(0.5)
+				if not re.search(r"\b60 host\(s\) to deliver to", said) \
+				   or not re.search(r"room for \d+ contact hosts", said):
+					raise failed("j: 60 contact hosts kept, and the round did not grow to deliver "
+					             "to all of them:\n%s" % said[-600:])
+			finally:
+				j.stop()
+			print("livecheck: j: 60 contact hosts added, and the round grew its room and "
+			      "delivered to all of them")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1
