@@ -534,6 +534,10 @@ static void test_settings_judged(void)
 	uint8_t estate[FZN_SUBJECT_LEN];
 	uint64_t before;
 
+	/* THIS ESTATE'S ROWS ALONE: the journal test before left a grant from its
+	 * own root here, whose grantor no root of this estate is, and since sec 700
+	 * a node taking these rows by objects rightly holds that one back. */
+	memset(rows, 0, sizeof(rows));
 	store.load = mem_load;
 	store.save = mem_save;
 	store.list = mem_list;
@@ -1317,6 +1321,70 @@ static void test_a_capability_held(void)
 	CHECK(fzn_node_apply_holds(&ap, e, &retention), "and before 500 it does not hold it");
 }
 
+/* A GRANT IS ITS GRANTOR'S ACT, sec 700: one carried in another key's
+ * stream is not indexed, however it is signed -- R's own properly signed
+ * grant included, since a grant travels in its grantor's stream -- and nor
+ * is one its grantor never signed. Before, the journal's record vouched for
+ * the hop it carried, and M's stream could index grants in R's name. */
+static void test_a_grant_is_its_grantors(void)
+{
+	static fzn_node_journal_t nj;
+	static fzn_revocation_t rev_entries[4];
+	static fzn_node_apply_t ap;
+	fzn_revocation_store_t revs;
+	fzn_persist_ops_t store = { 0 };
+	fzn_node_apply_tally_t t;
+	fzn_cap_id_t cap, admin;
+	uint8_t r[FZN_PUBKEY_LEN], m[FZN_PUBKEY_LEN], x[FZN_PUBKEY_LEN], y[FZN_PUBKEY_LEN];
+	uint8_t hop[FZN_HOP_LEN], hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	size_t n = 0;
+
+	store.load = mem_load;
+	store.save = mem_save;
+	store.list = mem_list;
+	memset(&cap, 0x61, sizeof(cap));
+	memset(&admin, 0x62, sizeof(admin));
+	key(r, 0x18);
+	key(m, 0x28);
+	key(x, 0x38);
+	key(y, 0x48);
+	CHECK(fzn_node_journal_init(&nj, dir, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && fzn_revocation_store_init(&revs, rev_entries, 4) == FZN_CHAIN_OK,
+	      "fixture: the journal");
+	memset(&ap, 0, sizeof(ap));
+	ap.journal = &nj;
+	ap.revocations = &revs;
+	ap.store = &store;
+	ap.root = r;
+	ap.capability = &cap;
+	ap.admin_capability = &admin;
+	ap.sign = &SIGN;
+	ap.hash = &HASH;
+
+	signing_as = 0x18;
+	CHECK(fzn_chain_mint(r, m, &cap, 100u, FZN_NO_EXPIRY, 1, &SIGN, hop) == FZN_CHAIN_OK
+	              && put(&nj, 0x18, hop, sizeof(hop)),
+	      "fixture: R's grant to M in R's stream");
+	/* R's PROPER GRANT OF X, in M's stream. */
+	signing_as = 0x18;
+	CHECK(fzn_chain_mint(r, x, &admin, 100u, FZN_NO_EXPIRY, 0, &SIGN, hop) == FZN_CHAIN_OK
+	              && put(&nj, 0x28, hop, sizeof(hop)),
+	      "fixture: R's grant of X, carried in M's stream");
+	/* A GRANT IN R's NAME that M signed. */
+	signing_as = 0x28;
+	CHECK(fzn_chain_mint(r, y, &admin, 100u, FZN_NO_EXPIRY, 0, &SIGN, hop) == FZN_CHAIN_OK
+	              && put(&nj, 0x28, hop, sizeof(hop)),
+	      "fixture: a grant in R's name signed by M, in M's stream");
+	CHECK(fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK && t.grants == 1u
+	              && t.refused == 2u,
+	      "the round indexed a grant carried in another's stream, or one its grantor never "
+	      "signed");
+	CHECK(fzn_node_apply_chain(&ap, m, &cap, hops, &n) && n == 1u
+	              && !fzn_node_apply_chain(&ap, x, &admin, hops, &n)
+	              && !fzn_node_apply_chain(&ap, y, &admin, hops, &n),
+	      "M's chain is not there, or X or Y holds one from M's stream");
+}
+
 int main(void)
 {
 	char path[512];
@@ -1331,6 +1399,7 @@ int main(void)
 	test_settings_judged();
 	test_holdings();
 	test_a_capability_held();
+	test_a_grant_is_its_grantors();
 	/* EVERY STREAM FILE, BY NAME, then the directory. */
 	for (i = 0; i < n_used; i++) {
 		static const char DIGITS[] = "0123456789abcdef";

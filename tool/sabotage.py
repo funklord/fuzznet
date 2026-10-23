@@ -10670,9 +10670,16 @@ SABOTAGES = [
 	(
 		"apply-object-hop-is-signed",
 		"node/apply.c",
-		"\tif (object[1] == (uint8_t)FZN_OBJECT_HOP) {\n\t\tfzn_chain_hop_t hop;",
-		"\tif (0) {\n\t\tfzn_chain_hop_t hop;",
-		"a lone hop nobody signed is indexed, kept and counted in every digest -- sec 550",
+		"\tif (!ap->sign->verify\n\t    || !ap->sign->verify(ap->sign->ctx, fzn_hop_grantor(hop), msg, msg_len,\n\t                         fzn_hop_signature(hop)))\n\t\treturn REFUSED;",
+		"\tif (0)\n\t\treturn REFUSED;",
+		"a hop nobody signed is indexed, kept and counted in every digest -- sec 550, 700",
+	),
+	(
+		"apply-grant-is-its-signers",
+		"node/apply.c",
+		"\tif (fzn_hop_open(body, len, &hop) != FZN_CHAIN_OK\n\t    || !fzn_ct_memeq(fzn_hop_grantor(hop), signer, FZN_PUBKEY_LEN))\n\t\treturn REFUSED;",
+		"\tif (fzn_hop_open(body, len, &hop) != FZN_CHAIN_OK)\n\t\treturn REFUSED;",
+		"a grant carried in another key's stream is indexed as its grantor's -- sec 700",
 	),
 	(
 		"settings-row-setting-past-its-head",
@@ -11286,9 +11293,30 @@ SABOTAGES = [
 	(
 		"apply-chain-walks-a-delegable-grant-first",
 		"node/apply.c",
-		"\t\t\t    && ap->grants[i].hop[FZN_HOP_OFF_DELEGABLE] == 1u)\n",
-		"\t\t\t    && 0)\n",
+		"\t\t\tif ((g->hop[FZN_HOP_OFF_DELEGABLE] == 1u) != (pass == 0u)\n",
+		"\t\t\tif (pass != 0u\n",
 		"a member's chain is walked through a sibling's grant, and a revoked sibling takes the member's records with it -- sec 579",
+	),
+	(
+		"apply-grant-waits-for-a-rooted-grantor",
+		"node/apply.c",
+		"\tif (!ever_root(ap, fzn_hop_grantor(hop))) {\n",
+		"\tif (0) {\n",
+		"a stranger's grants fill the index, and every genuine grant after them is refused -- sec 700",
+	),
+	(
+		"apply-root-record-waits-for-a-root",
+		"node/apply.c",
+		"\t\tif (!ever_root(ap, signer))\n\t\t\treturn WAIT;\n",
+		"",
+		"a stranger's root records fill the root log, and the root's own after them are refused -- sec 700",
+	),
+	(
+		"apply-chain-tries-every-grant",
+		"node/apply.c",
+		"\t\t\tif (walk_up(w, g->grantor, depth + 1u, depth_out))\n\t\t\t\treturn 1;\n",
+		"\t\t\treturn walk_up(w, g->grantor, depth + 1u, depth_out);\n",
+		"a stranger's grant naming a member hides the member's real chain, and its acts wait for ever -- sec 700",
 	),
 	(
 		"pairing-from-grant-ends-at-this-device",

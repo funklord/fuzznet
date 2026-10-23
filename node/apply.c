@@ -21,45 +21,113 @@ static int is_root(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY_LEN]
 	return ap->roots && ap->roots->ops.member && ap->roots->ops.member(ap->roots->ops.ctx, key);
 }
 
+/* EVER A ROOT HERE, sec 700: the standing a root record's signer, and a
+ * grantor, needs when the record arrives. Removed since is still standing
+ * enough: whether the act counts is the cut's question, asked when read. */
+static int ever_root(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	return fzn_ct_memeq(key, ap->root, FZN_PUBKEY_LEN)
+	       || (ap->roots && fzn_node_roots_known(ap->roots, key));
+}
+
+/* A WALK UP FROM A KEY, which tries each grant naming it until one reaches a
+ * root, sec 700. Taking the first grant found, and giving up when its grantor
+ * reached no root, let a stranger's grant naming a member -- signed by the
+ * stranger, which is all a grant needs to be indexed -- hide that member's
+ * real chain: every act of the member then waited for ever, and an admin
+ * shadowed so could no longer vote. A key found to reach no root with so
+ * many hops left is not walked again with as many or fewer, so the walk
+ * stays polynomial in the grants however many a liar adds. */
+struct chain_walk {
+	const fzn_node_apply_t *ap;
+	const fzn_cap_id_t *capability;
+	uint8_t walked[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	struct {
+		const uint8_t *key;
+		size_t left;
+	} dead[FZN_NODE_APPLY_GRANTS_MAX + 1u];
+	size_t n_dead;
+};
+
+static int dead_at(const struct chain_walk *w, const uint8_t *key, size_t left)
+{
+	size_t i;
+
+	for (i = 0; i < w->n_dead; i++)
+		if (w->dead[i].left >= left && fzn_ct_memeq(w->dead[i].key, key, FZN_PUBKEY_LEN))
+			return 1;
+	return 0;
+}
+
+static void mark_dead(struct chain_walk *w, const uint8_t *key, size_t left)
+{
+	size_t i;
+
+	for (i = 0; i < w->n_dead; i++)
+		if (fzn_ct_memeq(w->dead[i].key, key, FZN_PUBKEY_LEN)) {
+			if (w->dead[i].left < left)
+				w->dead[i].left = left;
+			return;
+		}
+	if (w->n_dead < sizeof(w->dead) / sizeof(w->dead[0])) {
+		w->dead[w->n_dead].key = key;
+		w->dead[w->n_dead++].left = left;
+	}
+}
+
+/* From `at`, `depth` hops walked: 1 with the chain in `walked` and its length
+ * in `*depth_out`. A GRANT THAT MAY BE PASSED ON FIRST, sec 579: a member
+ * holds its join grant, delegable, and since siblings pair one another a
+ * grant from each sibling as well, which is not; walking up through a
+ * sibling's would judge the member on that sibling's standing, and a revoked
+ * sibling would take the member's records with it. */
+static int walk_up(struct chain_walk *w, const uint8_t *at, size_t depth, size_t *depth_out)
+{
+	const fzn_node_apply_t *ap = w->ap;
+	size_t pass, i;
+
+	if (is_root(ap, at)) {
+		*depth_out = depth;
+		return 1;
+	}
+	/* A chain may carry FZN_CHAIN_MAX_HOPS - 1 hops when offered beside a
+	 * vote. */
+	if (depth + 1u >= FZN_CHAIN_MAX_HOPS || dead_at(w, at, FZN_CHAIN_MAX_HOPS - depth))
+		return 0;
+	for (pass = 0; pass < 2u; pass++)
+		for (i = 0; i < ap->grants_used; i++) {
+			const fzn_node_grant_t *g = &ap->grants[i];
+
+			if ((g->hop[FZN_HOP_OFF_DELEGABLE] == 1u) != (pass == 0u)
+			    || !fzn_ct_memeq(g->grantee, at, FZN_PUBKEY_LEN)
+			    || !fzn_ct_memeq(g->capability.b, w->capability->b, FZN_CAP_ID_LEN))
+				continue;
+			memcpy(w->walked[depth], g->hop, FZN_HOP_LEN);
+			if (walk_up(w, g->grantor, depth + 1u, depth_out))
+				return 1;
+		}
+	mark_dead(w, at, FZN_CHAIN_MAX_HOPS - depth);
+	return 0;
+}
+
 int fzn_node_apply_chain(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY_LEN],
                          const fzn_cap_id_t *capability,
                          uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t *hop_count)
 {
-	uint8_t walked[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
-	const uint8_t *at = key;
+	static struct chain_walk w;
 	size_t depth = 0, i;
 
 	if (!ap || !key || !capability || !hops || !hop_count)
 		return 0;
-	/* UP FROM THE SIGNER, a grant at a time, until a root granted. A chain
-	 * may carry FZN_CHAIN_MAX_HOPS - 1 hops when offered beside a vote. */
-	while (!is_root(ap, at)) {
-		const fzn_node_grant_t *g = NULL;
-
-		if (depth + 1u >= FZN_CHAIN_MAX_HOPS)
-			return 0;
-		/* A GRANT THAT MAY BE PASSED ON FIRST, sec 579. A member holds its
-		 * join grant, delegable, and since siblings pair one another a grant
-		 * from each sibling as well, which is not. Walking up through a
-		 * sibling's would judge the member on that sibling's standing, and a
-		 * revoked sibling would take the member's records with it. */
-		for (i = 0; i < ap->grants_used && !g; i++)
-			if (fzn_ct_memeq(ap->grants[i].grantee, at, FZN_PUBKEY_LEN)
-			    && fzn_ct_memeq(ap->grants[i].capability.b, capability->b, FZN_CAP_ID_LEN)
-			    && ap->grants[i].hop[FZN_HOP_OFF_DELEGABLE] == 1u)
-				g = &ap->grants[i];
-		for (i = 0; i < ap->grants_used && !g; i++)
-			if (fzn_ct_memeq(ap->grants[i].grantee, at, FZN_PUBKEY_LEN)
-			    && fzn_ct_memeq(ap->grants[i].capability.b, capability->b, FZN_CAP_ID_LEN))
-				g = &ap->grants[i];
-		if (!g)
-			return 0;
-		memcpy(walked[depth++], g->hop, FZN_HOP_LEN);
-		at = g->grantor;
-	}
+	/* UP FROM THE SIGNER, a grant at a time, until a root granted. */
+	w.ap = ap;
+	w.capability = capability;
+	w.n_dead = 0;
+	if (!walk_up(&w, key, 0, &depth))
+		return 0;
 	/* ROOT FIRST, as a chain is read. */
 	for (i = 0; i < depth; i++)
-		memcpy(hops[i], walked[depth - 1u - i], FZN_HOP_LEN);
+		memcpy(hops[i], w.walked[depth - 1u - i], FZN_HOP_LEN);
 	*hop_count = depth;
 	return 1;
 }
@@ -96,10 +164,45 @@ static int index_add(fzn_node_apply_t *ap, const uint8_t *body, size_t len)
 }
 
 static enum outcome index_grant(fzn_node_apply_t *ap, const uint8_t *body, size_t len,
-                                fzn_node_apply_tally_t *tally)
+                                const uint8_t *signer, fzn_node_apply_tally_t *tally)
 {
 	uint8_t row[FZN_PUBKEY_LEN];
-	int added = index_add(ap, body, len);
+	fzn_chain_hop_t hop;
+	const uint8_t *msg;
+	size_t msg_len;
+	int added;
+
+	/* SIGNED BY ITS GRANTOR, AND THE GRANTOR THE SIGNER, sec 700: a grant is
+	 * its grantor's act, in its grantor's stream (sec 497), so a record of
+	 * anybody else's carrying one is no grant of theirs. The journal's
+	 * record vouched only for its issuer: indexed on that, one member's
+	 * stream could carry hops in any root's name -- each failing when a
+	 * chain through it was verified, but standing in the index meanwhile. */
+	if (fzn_hop_open(body, len, &hop) != FZN_CHAIN_OK
+	    || !fzn_ct_memeq(fzn_hop_grantor(hop), signer, FZN_PUBKEY_LEN))
+		return REFUSED;
+	fzn_hop_signed_bytes(hop, &msg, &msg_len);
+	if (!ap->sign->verify
+	    || !ap->sign->verify(ap->sign->ctx, fzn_hop_grantor(hop), msg, msg_len,
+	                         fzn_hop_signature(hop)))
+		return REFUSED;
+	/* AND ITS GRANTOR STANDING, sec 700, the holder's of 2026-10-23: a root,
+	 * or itself granted from one. A grant from a key with no chain here
+	 * waits, as an act whose chain has not arrived does, rather than taking
+	 * a place in the index -- kept and judged on read, a stranger's grants
+	 * filled the index and every genuine grant after them was refused. */
+	if (!ever_root(ap, fzn_hop_grantor(hop))) {
+		uint8_t walked[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+		size_t n = 0;
+
+		if (!fzn_node_apply_chain(ap, fzn_hop_grantor(hop), fzn_hop_capability(hop), walked, &n)
+		    && !fzn_node_apply_chain(ap, fzn_hop_grantor(hop), ap->capability, walked, &n)
+		    && !(ap->admin_capability
+		         && fzn_node_apply_chain(ap, fzn_hop_grantor(hop), ap->admin_capability, walked,
+		                                 &n)))
+			return WAIT;
+	}
+	added = index_add(ap, body, len);
 
 	if (added < 0)
 		return REFUSED;
@@ -338,12 +441,20 @@ static enum outcome apply_body(fzn_node_apply_t *ap, uint32_t kind, const uint8_
 		return REFUSED;
 	switch (kind) {
 	case FZN_OBJECT_HOP:
-		return index_grant(ap, body, len, tally);
+		return index_grant(ap, body, len, signer, tally);
 	case FZN_OBJECT_ROOT_ADD:
 	case FZN_OBJECT_ROOT_REMOVE:
 	case FZN_OBJECT_QUORUM_SET:
 		if (!ap->roots)
 			return REFUSED;
+		/* ITS SIGNER'S, and ITS SIGNER EVER A ROOT, sec 700: byte 2 is each
+		 * of these records' signer. One from a key not yet a root here waits
+		 * for the add that makes it one, rather than taking one of the root
+		 * log's fixed places. */
+		if (len < 2u + FZN_PUBKEY_LEN || !fzn_ct_memeq(body + 2, signer, FZN_PUBKEY_LEN))
+			return REFUSED;
+		if (!ever_root(ap, signer))
+			return WAIT;
 		rerr = fzn_node_roots_learn(ap->roots, ap->store, body, len);
 		return rerr == FZN_NODE_ROOTS_OK ? APPLIED
 		       : rerr == FZN_NODE_ROOTS_NOT_SAVED ? NOT_SAVED
@@ -407,22 +518,9 @@ fzn_node_apply_outcome_t fzn_node_apply_object(fzn_node_apply_t *ap, const uint8
 		at = FZN_REV_OFF_ISSUER;
 	if (len < at + FZN_PUBKEY_LEN)
 		return FZN_NODE_APPLY_REFUSED;
-	/* A GRANT IS SIGNED BY ITS GRANTOR, checked here: in a journal the
-	 * record's signature vouched for what it carried, and a lone hop has
-	 * nothing else to -- indexed unchecked, one peer could fill the index
-	 * and every digest with hops nobody signed. */
-	if (object[1] == (uint8_t)FZN_OBJECT_HOP) {
-		fzn_chain_hop_t hop;
-		const uint8_t *msg;
-		size_t msg_len;
-
-		if (fzn_hop_open(object, len, &hop) != FZN_CHAIN_OK)
-			return FZN_NODE_APPLY_REFUSED;
-		fzn_hop_signed_bytes(hop, &msg, &msg_len);
-		if (!ap->sign->verify || !ap->sign->verify(ap->sign->ctx, fzn_hop_grantor(hop), msg,
-		                                           msg_len, fzn_hop_signature(hop)))
-			return FZN_NODE_APPLY_REFUSED;
-	}
+	/* A GRANT IS SIGNED BY ITS GRANTOR, checked where every grant is
+	 * indexed (`index_grant`): indexed unchecked, one peer could fill the
+	 * index and every digest with hops nobody signed. */
 	switch (apply_body(ap, object[1], object, len, object + at, tally)) {
 	case APPLIED:
 		return FZN_NODE_APPLY_APPLIED;

@@ -352,6 +352,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              provision/test/provision_fuzz.c \
              record/test/sync_fuzz.c record/test/exchange_fuzz.c \
              node/test/members_fuzz.c node/test/reconcile_fuzz.c \
+             node/test/votes_fuzz.c \
              provision/test/provision_test.c \
              roster/test/roster_test.c \
              disclose/test/disclose_test.c \
@@ -620,6 +621,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/record/test/exchange_fuzz \
              $(BUILD_DIR)/node/test/members_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
+             $(BUILD_DIR)/node/test/votes_fuzz \
              $(BUILD_DIR)/disclose/test/disclose_fuzz \
              $(BUILD_DIR)/persist/test/persist_fuzz \
              $(BUILD_DIR)/wire/test/relay_fuzz \
@@ -4242,6 +4244,11 @@ $(BUILD_DIR)/node/test/reconcile_fuzz: $(BUILD_DIR)/node/test/reconcile_fuzz.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# The estate's acts through the one door they arrive by, sec 700.
+$(BUILD_DIR)/node/test/votes_fuzz: $(BUILD_DIR)/node/test/votes_fuzz.o $(NODE_APPLY_LINK)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # Append-only kinds by bucket, and their exchange, sec 564.
 $(BUILD_DIR)/node/test/buckets_test: $(BUILD_DIR)/node/test/buckets_test.o \
                                      $(BUILD_DIR)/node/reconcile.o $(NODE_APPLY_LINK)
@@ -4902,6 +4909,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/record/test/exchange_fuzz \
              $(BUILD_DIR)/node/test/members_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
+             $(BUILD_DIR)/node/test/votes_fuzz \
              $(BUILD_DIR)/disclose/test/disclose_fuzz \
              $(BUILD_DIR)/catalog/test/attribute_fuzz \
              $(BUILD_DIR)/catalog/test/plan_fuzz \

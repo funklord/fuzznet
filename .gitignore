@@ -179,6 +179,7 @@
 /record/test/exchange_fuzz
 /node/test/members_fuzz
 /node/test/reconcile_fuzz
+/node/test/votes_fuzz
 /state/test/state_test
 /state/test/scope_test
 /state/test/setting_test

@@ -200,6 +200,13 @@ fzn_node_roots_err_t fzn_node_roots_key_create(fzn_node_roots_t *roots,
                                                const fzn_sign_seat_t *seat,
                                                const fzn_sign_ops_t *sign);
 
+/* WHETHER `key` WAS EVER A ROOT HERE: the genesis, or the subject of a
+ * root-add this node holds, whether that add still counts or not. What a
+ * root record's signer must be when it arrives, sec 700: standing judged on
+ * arrival, a cut still judged when read, so a removed root's acts from
+ * before its cut are admitted however late they come. */
+int fzn_node_roots_known(const fzn_node_roots_t *roots, const uint8_t key[FZN_PUBKEY_LEN]);
+
 /* The key this node acts as a root with, and its signer: its own root key if
  * it stands, else `identity` if that stands. 1 when there is one. */
 int fzn_node_roots_acting(const fzn_node_roots_t *roots, const uint8_t identity[FZN_PUBKEY_LEN],

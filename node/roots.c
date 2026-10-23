@@ -366,6 +366,21 @@ size_t fzn_node_roots_standing(const fzn_node_roots_t *roots, uint8_t (*out)[FZN
 	return n;
 }
 
+int fzn_node_roots_known(const fzn_node_roots_t *roots, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	if (!roots || !key)
+		return 0;
+	if (fzn_ct_memeq(roots->set.genesis, key, FZN_PUBKEY_LEN))
+		return 1;
+	for (i = 0; i < roots->set.used; i++)
+		if (roots->set.changes[i].object == (uint8_t)FZN_OBJECT_ROOT_ADD
+		    && fzn_ct_memeq(roots->set.changes[i].subject, key, FZN_PUBKEY_LEN))
+			return 1;
+	return 0;
+}
+
 int fzn_node_roots_acting(const fzn_node_roots_t *roots, const uint8_t identity[FZN_PUBKEY_LEN],
                           const fzn_sign_ops_t *identity_sign, const uint8_t **pubkey,
                           const fzn_sign_ops_t **sign)

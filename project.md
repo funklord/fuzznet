@@ -69347,3 +69347,124 @@ with the pass-over off, one offer to nobody, as before.
 
 The contact exchange (offer, query, manifest) still tries each host of a
 contact in turn without a relay. That costs a round a deadline and no line.
+
+## 700. The estate's acts fuzzed, a chain any stranger could hide, and tables anyone can fill, 2026-10-23
+
+Sec 689's estate journey, fuzzing continued: the root log, the votes, the
+confirmations, the admins' retention settings, the roster and the
+successions. All of them reach a node by one door,
+`fzn_node_apply_object` (reconciliation's, and the journal's for each
+record's body), so one harness covers them where they arrive.
+
+### `node/test/votes_fuzz.c`
+
+- **The estate:** a root R, a member M, admins A1 and A2. **Thirteen
+  genuine acts, in order:** three grants, k set to 2, a root added, the
+  root's and A1's retention rules, two votes against M, a confirmation, a
+  roster add and removal, and a succession of M.
+- **Between them, lies:** bent copies of genuine acts, and coherent
+  forgeries that satisfy every guard but standing. These are each kind
+  signed by a stranger X, or by member M where only a root or an admin may
+  act. They include settings that name the root's own as the one they
+  replace, X's grants of keys of its own, and **X's grants naming A1 and M**
+  as grantees.
+- **The property is what the node concludes:** k, the roots that stand,
+  the retention rules, M revoked, C's place on the roster, who M is now,
+  and every key's rank. Each must match a node that saw the genuine acts
+  alone, and its store must hold the same rows. The two slots that keep
+  unjudged records by design (sec 418, 545), the root log and the grant
+  index, are left out of the row comparison.
+
+2000 cases pass, with 14,436 bent copies and 14,647 forgeries of 36
+kinds, in `make test`. **Controls:** k resolved without judging its
+setters is caught at case 4, and a refused vote saved anyway at case 1.
+Two controls inside the libraries are **not reachable through this door**,
+and that is a finding about the door, not a weakness:
+- a succession's "a chainless issuer is a root";
+- an admin chain verified under any first grantor.
+
+The door rebuilds each signer's chain from the grant index before any
+admission runs, and a chain that does not reach a root never gets there.
+
+### The fault it found: a chain any stranger could hide
+
+**The walk up the grant index took the first grant naming a key and gave
+up if that grant's grantor reached no root.** A grant is indexed if its
+grantor signed it, whoever the grantor is. So X's grant "X grants A1
+admin", delegable and so walked first, hid A1's real grant from R, and
+every act of A1's waited for ever. Caught at case 2.
+
+**What that cost:** one member host, a stolen phone say, could shadow the
+admins' chains so that their votes to revoke it never counted. That is
+the opposite of what this journey has to prove.
+
+**Fixed:** the walk tries each grant naming a key until one reaches a
+root. It keeps sec 579's preference for a delegable grant first, and it
+remembers a key that reached no root with so many hops left. So a liar's
+pile of grants cannot make the walk exponential.
+
+**And a second hole beside it:** on the journal path a hop was indexed on
+the record's signature alone, so one member's stream could carry grants
+in R's name that R never signed. **A grant is now indexed only when its
+grantor signed it and is the record's signer**, as sec 497 already has
+it: a grant is its grantor's act, in its grantor's stream. Tested by
+`apply_test`'s new case: R's proper grant carried in M's stream, and a
+grant in R's name that M signed, are both refused. **Control:** with the
+check off, 2 of its checks fail.
+
+### Tables anyone could fill, and standing judged on arrival
+
+Sec 418 and 545 kept every properly signed root record and grant, and
+judged them when read. The tables are fixed:
+- 64 root changes;
+- 64 settings of k;
+- 64 retention records;
+- `FZN_NODE_APPLY_GRANTS_MAX`, 256 grants.
+
+A full table refuses, and in the journal a refused record is marked
+applied and skipped. Measured with the harness's fixture:
+- after X's own grants filled the index, R's genuine grant of A1 was not
+  kept, and A1 had no admin chain;
+- after 64 of X's root-adds, R's genuine root-add of R2 was refused, and
+  R2 never became a root.
+
+**The holder chose 2026-10-23: standing judged on arrival.**
+- **A root record** -- an add, a removal, a setting of k -- is taken
+  only from a key that was ever a root here: the genesis, or the subject
+  of a root-add held, whether that add still counts or not
+  (`fzn_node_roots_known`). Its own signer field must be the record's
+  signer. Anything else waits for the add that would make its signer a
+  root.
+- **A grant** is taken only from a root, or from a grantor with a chain
+  here. Anything else waits, as an act whose chain has not arrived
+  already does (sec 503).
+
+**A cut is still judged when read** (sec 497). So "ever a root" rather
+than "a root now": a removed root's acts from before its cut are still
+admitted, however late they arrive.
+
+Rejected:
+- evicting what does not count when a table is full, which has to judge
+  standing anyway, and what counts today may stop counting after a
+  removal;
+- a quota per signer, which bounds one liar but not several.
+
+**Tested by `votes_fuzz`'s fill-first phase:** a stranger offers 300
+grants, 100 root-adds and 100 settings of k before every genuine act, and
+the node must still conclude what the reference does. **Controls:** with
+the grant check off the phase fails, the stranger's grants crowding A1's
+retention out of the harness's store. With the root-record check off it
+fails on the roots that stand.
+
+**`apply_test` needed its holdings case fixed**, and the fix was right:
+its snapshot carried a grant left in the shared store by the journal test
+before it, from that test's root, which is no root of this estate. A node
+taking those rows now holds it back. The case clears the store first.
+
+**Residue, the holder's to weigh: a member can still fill the grant
+index.** A member is rooted, and a member may legitimately grant: it
+pairs its devices. Its grants to keys of its own pass every check here.
+Roster records (a member's to write) are the same shape, bounded by their
+own table. Closing that needs a bound per grantor, or grants by a revoked
+member let go after its cut -- each a rule of the protocol, so not made
+here.
