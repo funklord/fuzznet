@@ -21,16 +21,16 @@ int fzn_node_asks_await(fzn_node_asks_t *asks, fzn_caller_t *caller, uint32_t ms
 
 	if (!asks || !caller || !done || !asks->clock_ms || !asks->reply)
 		return 0;
-	for (i = 0; i < FZN_NODE_ASKS_MAX && asks->slots[i].used; i++)
+	for (i = 0; i < FZN_NODE_ASKS_MAX && asks->entries[i].used; i++)
 		;
 	if (i == FZN_NODE_ASKS_MAX)
 		return 0;
-	asks->slots[i].caller = caller;
-	asks->slots[i].msg = msg;
-	asks->slots[i].deadline_ms = asks->clock_ms() + timeout_ms;
-	asks->slots[i].done = done;
-	asks->slots[i].ctx = ctx;
-	asks->slots[i].used = 1;
+	asks->entries[i].caller = caller;
+	asks->entries[i].msg = msg;
+	asks->entries[i].deadline_ms = asks->clock_ms() + timeout_ms;
+	asks->entries[i].done = done;
+	asks->entries[i].ctx = ctx;
+	asks->entries[i].used = 1;
 	return 1;
 }
 
@@ -56,12 +56,12 @@ size_t fzn_node_asks_fds(const fzn_node_asks_t *asks, int *fds, size_t cap)
 	if (!asks || !fds)
 		return 0;
 	for (i = 0; i < FZN_NODE_ASKS_MAX && n < cap; i++) {
-		if (!asks->slots[i].used || asks->slots[i].caller->fd < 0)
+		if (!asks->entries[i].used || asks->entries[i].caller->fd < 0)
 			continue;
-		for (k = 0; k < n && fds[k] != asks->slots[i].caller->fd; k++)
+		for (k = 0; k < n && fds[k] != asks->entries[i].caller->fd; k++)
 			;
 		if (k == n)
-			fds[n++] = asks->slots[i].caller->fd;
+			fds[n++] = asks->entries[i].caller->fd;
 	}
 	return n;
 }
@@ -85,8 +85,8 @@ size_t fzn_node_asks_ready(fzn_node_asks_t *asks, int fd)
 	if (!asks)
 		return 0;
 	for (i = 0; i < FZN_NODE_ASKS_MAX && !caller; i++)
-		if (asks->slots[i].used && asks->slots[i].caller->fd == fd)
-			caller = asks->slots[i].caller;
+		if (asks->entries[i].used && asks->entries[i].caller->fd == fd)
+			caller = asks->entries[i].caller;
 	if (!caller)
 		return 0;
 	/* EVERY ANSWER WAITING, read without waiting for more: a datagram the
@@ -94,9 +94,9 @@ size_t fzn_node_asks_ready(fzn_node_asks_t *asks, int fd)
 	while (fzn_caller_recv_any(caller, &msg, asks->reply, asks->reply_cap, &len, 1u)
 	       == FZN_CALLER_OK) {
 		for (i = 0; i < FZN_NODE_ASKS_MAX; i++)
-			if (asks->slots[i].used && asks->slots[i].caller == caller
-			    && asks->slots[i].msg == msg) {
-				finish(&asks->slots[i], asks->reply, len);
+			if (asks->entries[i].used && asks->entries[i].caller == caller
+			    && asks->entries[i].msg == msg) {
+				finish(&asks->entries[i], asks->reply, len);
 				answered++;
 				break;
 			}
@@ -113,11 +113,11 @@ size_t fzn_node_asks_expire(fzn_node_asks_t *asks)
 		return 0;
 	now = asks->clock_ms();
 	for (i = 0; i < FZN_NODE_ASKS_MAX; i++)
-		if (asks->slots[i].used && asks->slots[i].deadline_ms <= now) {
+		if (asks->entries[i].used && asks->entries[i].deadline_ms <= now) {
 			/* ITS REPLY FORGOTTEN WITH IT, sec 708: held part way it would
 			 * keep its slot, and a caller of one slot refused the next. */
-			fzn_caller_forget(asks->slots[i].caller, asks->slots[i].msg);
-			finish(&asks->slots[i], NULL, 0);
+			fzn_caller_forget(asks->entries[i].caller, asks->entries[i].msg);
+			finish(&asks->entries[i], NULL, 0);
 			failed++;
 		}
 	return failed;
@@ -130,9 +130,9 @@ size_t fzn_node_asks_cancel(fzn_node_asks_t *asks, const fzn_caller_t *caller)
 	if (!asks)
 		return 0;
 	for (i = 0; i < FZN_NODE_ASKS_MAX; i++)
-		if (asks->slots[i].used && asks->slots[i].caller == caller) {
-			fzn_caller_forget(caller, asks->slots[i].msg);
-			finish(&asks->slots[i], NULL, 0);
+		if (asks->entries[i].used && asks->entries[i].caller == caller) {
+			fzn_caller_forget(caller, asks->entries[i].msg);
+			finish(&asks->entries[i], NULL, 0);
 			failed++;
 		}
 	return failed;
@@ -145,6 +145,6 @@ size_t fzn_node_asks_pending(const fzn_node_asks_t *asks)
 	if (!asks)
 		return 0;
 	for (i = 0; i < FZN_NODE_ASKS_MAX; i++)
-		n += asks->slots[i].used != 0;
+		n += asks->entries[i].used != 0;
 	return n;
 }

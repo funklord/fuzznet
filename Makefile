@@ -6953,6 +6953,25 @@ installcheck: $(HDRS) $(SRCS) $(OBJS) tool/consumer_check.c
 	       -Iwire/generated $(MONO_CONSUMER) tool/consumer_check.c $(SRCS) $(GEN_SRCS) \
 	       $(if $(LOG_PACK_ON),$(ZSTD_LIBS))
 	@$(BUILD_DIR)/installcheck/consumer_installed
+	@# AS A QT CONSUMER SEES THEM: Qt defines `slots`, `signals` and `emit`
+	@# as macros, so a header naming any of them breaks every Qt translation
+	@# unit that includes it after a Qt header -- raidcfgd's bridge met
+	@# `node/asks.h`'s field `slots` that way (inbox 20261023T2023Z). Each
+	@# defined empty, so a use as an identifier is a syntax error here.
+	@# The headers alone, the C ones the consumer check includes: its own
+	@# names -- it has an array `slots` -- are a consumer's, and `gui/`'s
+	@# headers are C++, read by the Qt build itself.
+	@echo "installcheck: the installed headers under Qt's keyword macros"
+	@inc=$(BUILD_DIR)/installcheck/usr/include; \
+	n=0; : > $(BUILD_DIR)/installcheck/qt_keywords.c; \
+	for h in `sed -n 's/^#include <\(fuzznet\/[^>]*\.h\)>.*/\1/p' tool/consumer_check.c | sort -u`; do \
+		echo "#include <$$h>" >> $(BUILD_DIR)/installcheck/qt_keywords.c; n=$$((n+1)); \
+	done; \
+	test $$n -gt 0 || { echo "installcheck: no headers installed to read"; exit 1; }; \
+	$(CC) $(CFLAGS) $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(CAPTURE_RUN_ON),-DFZN_CAPTURE_RUN_ON) $(if $(LOG_FILE_ON),-DFZN_LOG_FILE_ON) $(if $(LOG_PACK_ON),-DFZN_LOG_PACK_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) $(if $(CLI_ON),-DFZN_CLI_ON) -DFZN_CONSUMER_INSTALLED \
+	       '-Dslots=' '-Dsignals=' '-Demit=' -fsyntax-only \
+	       -I$$inc -Iwire/generated $(BUILD_DIR)/installcheck/qt_keywords.c \
+	&& echo "installcheck: $$n header(s) compile with slots, signals and emit defined away"
 	@echo "installcheck: against the source tree, from another directory"
 	@cd $(BUILD_DIR)/installcheck && $(CC) $(CFLAGS) \
 	       $(if $(PERSIST_FILE_ON),-DFZN_PERSIST_FILE_ON) $(if $(SPOOL_FILE_ON),-DFZN_SPOOL_FILE_ON) $(if $(CLAIM_FILE_ON),-DFZN_CLAIM_FILE_ON) $(if $(CAPTURE_RUN_ON),-DFZN_CAPTURE_RUN_ON) $(if $(LOG_FILE_ON),-DFZN_LOG_FILE_ON) $(if $(LOG_PACK_ON),-DFZN_LOG_PACK_ON) $(if $(RECORD_STORE_FILE_ON),-DFZN_RECORD_STORE_FILE_ON) $(if $(CLI_ON),-DFZN_CLI_ON) -I$(CURDIR) \

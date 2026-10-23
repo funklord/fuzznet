@@ -131,13 +131,13 @@ size_t fzn_capture_escape(const uint8_t *in, size_t len, char *out, size_t cap)
 
 /* ---- splitting into lines ------------------------------------------------ */
 
-fzn_capture_err_t fzn_capture_init(fzn_capture_t *capture, fzn_capture_emit_fn emit, void *ctx,
+fzn_capture_err_t fzn_capture_init(fzn_capture_t *capture, fzn_capture_emit_fn sink, void *ctx,
                                    fzn_capture_rule_t rule, size_t volume_max)
 {
-	if (!capture || !emit)
+	if (!capture || !sink)
 		return FZN_CAPTURE_ERR_MALFORMED;
 	memset(capture, 0, sizeof(*capture));
-	capture->emit = emit;
+	capture->sink = sink;
 	capture->ctx = ctx;
 	capture->rule = rule;
 	capture->volume_max = volume_max;
@@ -172,7 +172,7 @@ static void end_line(fzn_capture_t *c, fzn_capture_stream_t stream, int untermin
 		e.cut = p->cut;
 		e.unterminated = unterminated;
 		c->lines++;
-		c->emit(c->ctx, &e);
+		c->sink(c->ctx, &e);
 	}
 	p->len = 0;
 	p->cut = 0;

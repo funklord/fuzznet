@@ -71005,6 +71005,34 @@ build:
   which would be a finding about the local socket under loss. It is
   untested.
 
+## 716. Headers a Qt consumer can include, 2026-10-24
+
+raidcfgd's session, from the other account (inbox 20261023T2023Z):
+`node/asks.h` named a field `slots`. Qt defines `slots` as a macro that
+expands to nothing outside moc. So in a translation unit that includes a
+Qt header first, the line became `fzn_node_ask_t [64u];` and failed to
+compile. raidcfgd's bridge reaches `asks.h` through `node/admin.h` and
+`node/serve.h`. A consumer could define `QT_NO_SIGNALS_SLOTS_KEYWORDS`,
+but that switches the keywords off for its own Qt classes too, so the
+name is this tree's to change.
+
+- **Swept for Qt's three keyword macros**, `slots`, `signals` and
+  `emit`, over every header. A second was found: `log/capture.h` names a
+  field and a parameter `emit`, which Qt also defines away.
+- **Renamed:** `fzn_node_asks_t.slots` is `entries`, and
+  `fzn_capture_t.emit` and `fzn_capture_init`'s parameter are `sink`.
+  The type `fzn_capture_emit_fn` keeps its name, since a type name is
+  not one of the three.
+- **`installcheck` now compiles every public C header** (the list
+  `tool/consumer_check.c` includes, 192 of them) with all three defined
+  empty, so an identifier by any of those names is a syntax error there.
+  It compiles headers alone: a consumer's own names are its own, and the
+  consumer check has an array `slots`. `gui/`'s headers are C++ and read
+  by the Qt build.
+- **Control:** with the old field put back into a copy of `asks.h`, that
+  compile has one error; with the fix, none.
+
+
 
 
 

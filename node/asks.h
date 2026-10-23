@@ -42,7 +42,10 @@ typedef struct fzn_node_ask {
 } fzn_node_ask_t;
 
 typedef struct fzn_node_asks {
-	fzn_node_ask_t slots[FZN_NODE_ASKS_MAX];
+	/* ENTRIES, not `slots`: Qt defines `slots` as a macro, and this header
+	 * reaches a Qt consumer through `node/admin.h` (raidcfgd's bridge, inbox
+	 * 20261023T2023Z). */
+	fzn_node_ask_t entries[FZN_NODE_ASKS_MAX];
 	/* Where answers are put together: the caller's, lent for the call. */
 	uint8_t *reply;
 	size_t reply_cap;

@@ -111,7 +111,7 @@ typedef struct fzn_capture_part {
 /* One invocation's capture. Large -- two line buffers -- so a caller keeps
  * it static or on the heap rather than on a small stack. */
 typedef struct fzn_capture {
-	fzn_capture_emit_fn emit;
+	fzn_capture_emit_fn sink;
 	void *ctx;
 	fzn_capture_rule_t rule;
 	size_t volume_max; /* lines emitted at most; 0 is no bound */
@@ -122,7 +122,7 @@ typedef struct fzn_capture {
 	size_t cut_bytes;     /* bytes past the line bound, over every line */
 } fzn_capture_t;
 
-fzn_capture_err_t fzn_capture_init(fzn_capture_t *capture, fzn_capture_emit_fn emit, void *ctx,
+fzn_capture_err_t fzn_capture_init(fzn_capture_t *capture, fzn_capture_emit_fn sink, void *ctx,
                                    fzn_capture_rule_t rule, size_t volume_max);
 
 /* `len` bytes the tool wrote on `stream`, in any pieces: a line split across

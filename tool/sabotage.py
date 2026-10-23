@@ -12519,8 +12519,8 @@ SABOTAGES = [
 	(
 		"asks-fail-at-the-deadline",
 		"node/asks.c",
-		"\t\tif (asks->slots[i].used && asks->slots[i].deadline_ms <= now) {\n",
-		"\t\tif (asks->slots[i].used) {\n",
+		"\t\tif (asks->entries[i].used && asks->entries[i].deadline_ms <= now) {\n",
+		"\t\tif (asks->entries[i].used) {\n",
 		"a request is failed the moment the loop looks, and no answer is ever awaited -- sec 636",
 	),
 	(
