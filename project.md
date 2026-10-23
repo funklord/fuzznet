@@ -71084,6 +71084,39 @@ built around.
   then an hour ahead, R's `list clock` names it by its full key, the
   right way each time, and its event stream says `event clock KEY`.
 
+## 718. The estate's acts crashed at every write, 2026-10-24
+
+Sec 689's faults bar asks for "each step's crash points". The fault
+build has three: `persist.synced` (the temporary written and synced, not
+yet renamed), `persist.renamed` (renamed, before the caller hears), and
+`record.body` (a record written before its length). With
+`FZN_FAULT_CRASH=NAME:N` the daemon kills itself by SIGKILL at the Nth
+reach of that point.
+
+**`livecheck-faults` phase m sweeps them.** For each point and each N
+from 1:
+1. a fresh root starts with the fault;
+2. a crash during start is passed over, since N is still too small;
+3. otherwise three acts are made: a setting, a pairing (`add peer ...
+   delegable`), and a vote (`revoke peer`);
+4. a daemon that crashed inside them is started again without the fault.
+   It must serve, and the acts made again must stand: the setting reads,
+   the pairing's grant lists, and the vote answers, `already` when the
+   first got as far as being kept.
+
+N grows until a run passes all three acts with no reach left. The phase
+also fails if no point fell inside the acts, so a sweep that tested
+nothing cannot pass.
+
+### Measured for sec 718
+
+- **Nineteen crash points inside the acts**: 8 at `persist.synced`, 8 at
+  `persist.renamed`, 3 at `record.body`. Every one started again,
+  served, and stood. The whole of `live_faults.py` takes about a minute.
+- **Not yet:** a full disk inside each act, by `FZN_FAULT_WRITE_BUDGET`
+  swept the same way. Phase c covers one setting only.
+
+
 
 
 

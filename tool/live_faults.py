@@ -51,6 +51,9 @@ the scenarios built on them test something:
        read by `list log` (sec 714), and `list clock` names the member and
        the way its clock is off (sec 717) -- where both ends saw only
        silence
+    m  a crash at every reach of each crash point inside a setting, a
+       pairing and a vote: each daemon, started again without the fault,
+       serves, and the acts made again stand (sec 718)
 
 Against a daemon built without faults, phase a's B is counted at 100 per
 cent loss, phase b's daemon does not die, and phase c's says nothing.
@@ -582,6 +585,81 @@ def main(argv):
 				      "said in the root's log, listed by list clock and told as an event")
 			else:
 				print("livecheck: l SKIPPED -- no faketime on PATH")
+
+			# m: a crash at every write of the estate's acts (sec 718).
+			m_dev = os.path.join(scratch, "m-dev")
+			os.mkdir(m_dev)
+			m_prekey = command(run, ["--fuzznet-dir=" + m_dev, "--prekey"], None)
+			m_victim = "%064x" % 0x9d0000
+
+			def m_acts(sock):
+				"""The acts, each answered: a setting, a pairing, a vote."""
+				said = [ask(sock, "set setting estate m/x 1"),
+				        ask(sock, "add peer %s delegable" % m_prekey),
+				        ask(sock, "revoke peer " + m_victim)]
+				return said
+
+			swept = {}
+			for point in ("persist.synced", "persist.renamed", "record.body"):
+				inside = 0
+				for n in range(1, 200):
+					d = os.path.join(scratch, "m-%s-%d" % (point, n))
+					sock = os.path.join(sock_dir, "m%d" % n)
+					os.mkdir(d)
+					command(run, ["--fuzznet-dir=" + d, "--new-root"], None)
+					faulted({"FZN_FAULT_CRASH": "%s:%d" % (point, n)})
+					try:
+						node = daemon(run, "m%s%d" % (point[0], n), d, sock)
+					except failed as e:
+						if "fault: dying at" not in str(e):
+							raise
+						continue  # at start, before any act: N too small
+					finally:
+						faulted({})
+					try:
+						m_acts(sock)
+						crashed = False
+					except OSError:
+						crashed = True
+					if not crashed:
+						# AFTER EVERY ACT, ANSWERED: no write of the acts reaches
+						# this point an Nth time, so the sweep is done.
+						node.stop()
+						break
+					inside += 1
+					node.stop()
+					if os.path.exists(sock):
+						os.unlink(sock)
+					# STARTED AGAIN, NO FAULT: it serves, and every act made
+					# again stands -- whatever the crash left half written.
+					try:
+						node = daemon(run, "m%s%dr" % (point[0], n), d, sock)
+					except failed as e:
+						raise failed("m: after a crash at %s:%d the daemon would not start "
+						             "again:\n%s" % (point, n, str(e)[-400:]))
+					try:
+						again = m_acts(sock)
+						if again[0] != "ok" or not again[1].startswith("ok ") \
+						   or not again[2].startswith("ok " + m_victim):
+							raise failed("m: after a crash at %s:%d the acts made again "
+							             "answered %r" % (point, n, again))
+						if ask(sock, "get setting estate m/x") != "ok root 1":
+							raise failed("m: after a crash at %s:%d the setting does not "
+							             "read" % (point, n))
+						if not any(e.startswith(m_prekey[4:68] + ",member,")
+						           for e in ask(sock, "list grant").split()[3:]):
+							raise failed("m: after a crash at %s:%d the pairing's grant is "
+							             "not listed" % (point, n))
+					finally:
+						node.stop()
+				else:
+					raise failed("m: %s was still reached after 200 writes" % point)
+				swept[point] = inside
+			if not any(swept.values()):
+				raise failed("m: no crash point fell inside the acts: %r" % swept)
+			print("livecheck: m: a crash at every write of a setting, a pairing and a vote "
+			      "(%s), each started again and the acts made again standing"
+			      % ", ".join("%s %d" % kv for kv in swept.items()))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1
