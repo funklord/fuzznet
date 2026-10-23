@@ -134,7 +134,7 @@ static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject
 	return 1;
 }
 
-static const fzn_persist_ops_t STORE = { mem_load, mem_save, mem_list, mem_remove, NULL };
+static const fzn_persist_ops_t STORE = { mem_load, mem_save, mem_list, mem_remove, NULL, NULL };
 
 /* ---- fixtures ----------------------------------------------------------- */
 

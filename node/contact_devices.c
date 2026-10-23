@@ -22,6 +22,8 @@ const char *fzn_contact_device_err_str(fzn_contact_device_err_t err)
 		return "none kept";
 	case FZN_CONTACT_DEVICE_ERR_BACKEND:
 		return "the store refused";
+	case FZN_CONTACT_DEVICE_ERR_ROOM:
+		return "more devices kept than the caller had room for";
 	}
 	return "unknown";
 }
@@ -184,24 +186,45 @@ fzn_contact_device_err_t fzn_contact_device_get(const fzn_persist_ops_t *store,
 	return FZN_CONTACT_DEVICE_OK;
 }
 
+/* ONE DEVICE, walked: into the caller's room while there is any, and
+ * counted past it. A row that will not read is passed over, as the list
+ * always passed it over. */
+struct devices_walk {
+	const fzn_persist_ops_t *store;
+	fzn_contact_device_t *out;
+	size_t cap, n;
+};
+
+static int device_walked(void *arg, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	static fzn_contact_device_t past;
+	struct devices_walk *w = arg;
+
+	if (fzn_contact_device_get(w->store, key, w->n < w->cap ? &w->out[w->n] : &past)
+	    == FZN_CONTACT_DEVICE_OK)
+		w->n++;
+	return 1;
+}
+
 fzn_contact_device_err_t fzn_contact_device_list(const fzn_persist_ops_t *store,
                                                  fzn_contact_device_t *out, size_t cap,
                                                  size_t *count)
 {
-	static uint8_t keys[FZN_CONTACT_DEVICES_MAX][FZN_PUBKEY_LEN];
-	size_t n = 0, i;
+	struct devices_walk w;
 
 	if (!count)
 		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
 	*count = 0;
-	if (!store || !store->list || !out || cap > FZN_CONTACT_DEVICES_MAX)
+	if (!store || (!out && cap))
 		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
-	if (!store->list(store->ctx, FZN_PERSIST_CONTACT_DEVICE, (uint8_t *)keys, cap, &n))
+	w.store = store;
+	w.out = out;
+	w.cap = cap;
+	w.n = 0;
+	if (!fzn_persist_each(store, FZN_PERSIST_CONTACT_DEVICE, device_walked, &w))
 		return FZN_CONTACT_DEVICE_ERR_BACKEND;
-	for (i = 0; i < n; i++)
-		if (fzn_contact_device_get(store, keys[i], &out[*count]) == FZN_CONTACT_DEVICE_OK)
-			(*count)++;
-	return FZN_CONTACT_DEVICE_OK;
+	*count = w.n;
+	return w.n > cap ? FZN_CONTACT_DEVICE_ERR_ROOM : FZN_CONTACT_DEVICE_OK;
 }
 
 fzn_contact_device_err_t fzn_contact_device_remove(const fzn_persist_ops_t *store,

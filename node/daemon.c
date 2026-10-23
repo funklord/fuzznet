@@ -5513,31 +5513,74 @@ static size_t estate_devices(fzn_contact_device_t *out, size_t cap, int hosts)
 	return count;
 }
 
-static fzn_contact_device_t devices_page[FZN_CONTACT_DEVICES_MAX];
+/* ROOM FOR EVERY CONTACT DEVICE KEPT, sec 704: each caller its own, grown
+ * when a listing says there are more -- past 128 for all contacts together
+ * the listing once failed, and delivery to every contact stopped with
+ * nothing said. */
+struct devices_room {
+	fzn_contact_device_t *at;
+	size_t cap;
+};
+
+static int devices_grow(struct devices_room *r, size_t needed)
+{
+	fzn_contact_device_t *more;
+	size_t cap = needed <= FZN_CONTACT_DEVICES_MAX ? FZN_CONTACT_DEVICES_MAX : needed * 2u;
+
+	if (r->at && cap <= r->cap)
+		return 1;
+	more = calloc(cap, sizeof(*more));
+	if (!more) {
+		say(FZN_ENTRY_ERROR, "contact/devices", "no memory for %zu contact devices", cap);
+		return 0;
+	}
+	free(r->at);
+	r->at = more;
+	r->cap = cap;
+	return 1;
+}
+
+/* EVERY CONTACT DEVICE KEPT, into `r`, grown to hold them all. */
+static fzn_contact_device_err_t devices_list(struct devices_room *r, size_t *n)
+{
+	fzn_contact_device_err_t err;
+
+	*n = 0;
+	if (!node_apply.store || !devices_grow(r, FZN_CONTACT_DEVICES_MAX))
+		return FZN_CONTACT_DEVICE_ERR_BACKEND;
+	err = fzn_contact_device_list(node_apply.store, r->at, r->cap, n);
+	if (err == FZN_CONTACT_DEVICE_ERR_ROOM && devices_grow(r, *n))
+		err = fzn_contact_device_list(node_apply.store, r->at, r->cap, n);
+	if (err != FZN_CONTACT_DEVICE_OK)
+		say(FZN_ENTRY_WARNING, "contact/devices", "the contact devices kept did not list: %s",
+		    fzn_contact_device_err_str(err));
+	return err;
+}
+
+static struct devices_room devices_page;
 static size_t devices_page_n;
 
 static int hosts_at(void *ctx, size_t i, fzn_contact_device_t *out)
 {
 	(void)ctx;
 	if (i == 0)
-		devices_page_n = estate_devices(devices_page, FZN_CONTACT_DEVICES_MAX, 1);
+		devices_page_n = devices_grow(&devices_page, FZN_CONTACT_DEVICES_MAX)
+		                 ? estate_devices(devices_page.at, devices_page.cap, 1)
+		                 : 0u;
 	if (i >= devices_page_n)
 		return 0;
-	*out = devices_page[i];
+	*out = devices_page.at[i];
 	return 1;
 }
 
 static int kept_at(void *ctx, size_t i, fzn_contact_device_t *out)
 {
 	(void)ctx;
-	if (i == 0
-	    && fzn_contact_device_list(node_apply.store, devices_page, FZN_CONTACT_DEVICES_MAX,
-	                               &devices_page_n)
-	               != FZN_CONTACT_DEVICE_OK)
+	if (i == 0 && devices_list(&devices_page, &devices_page_n) != FZN_CONTACT_DEVICE_OK)
 		devices_page_n = 0;
 	if (i >= devices_page_n)
 		return 0;
-	*out = devices_page[i];
+	*out = devices_page.at[i];
 	return 1;
 }
 
@@ -5580,13 +5623,13 @@ static int take_offered(void *ctx, const fzn_contact_device_t *d)
  * device; how many were new. */
 static size_t pair_contact_devices(void)
 {
-	static fzn_contact_device_t kept[FZN_CONTACT_DEVICES_MAX];
+	static struct devices_room room;
+	fzn_contact_device_t *kept;
 	size_t n = 0, i, paired = 0;
 
-	if (!running_admin || !node_apply.store
-	    || fzn_contact_device_list(node_apply.store, kept, FZN_CONTACT_DEVICES_MAX, &n)
-	               != FZN_CONTACT_DEVICE_OK)
+	if (!running_admin || !node_apply.store || devices_list(&room, &n) != FZN_CONTACT_DEVICE_OK)
 		return 0;
+	kept = room.at;
 	for (i = 0; i < n; i++) {
 		const char *why = NULL;
 		int r;
@@ -5681,7 +5724,8 @@ static int contact_pairing(const uint8_t key[FZN_PUBKEY_LEN], fzn_node_pairing_t
  * its contact's manifest order. */
 static void load_contact_targets(void)
 {
-	static fzn_contact_device_t kept[FZN_CONTACT_DEVICES_MAX];
+	static struct devices_room room;
+	fzn_contact_device_t *kept;
 	/* EACH HOST'S SOCKET KEPT ACROSS THE REBUILD, sec 698: a NAT's mapping
 	 * belongs to a socket, so the one an introduction opened, or a hello
 	 * kept open, is lost with it -- rebuilt on a fresh socket every round,
@@ -5703,9 +5747,9 @@ static void load_contact_targets(void)
 	}
 	ncontact_targets = 0;
 	if (!running_admin || !contact_id || !running_admin->state->config.has_share
-	    || fzn_contact_device_list(node_apply.store, kept, FZN_CONTACT_DEVICES_MAX, &n)
-	               != FZN_CONTACT_DEVICE_OK)
+	    || devices_list(&room, &n) != FZN_CONTACT_DEVICE_OK)
 		return;
+	kept = room.at;
 	for (i = 0; i < n && ncontact_targets < FZND_CONTACT_TARGETS_MAX; i++) {
 		struct contact_target *ct = &contact_targets[ncontact_targets];
 		fzn_routing_t r;
@@ -5775,6 +5819,13 @@ static void load_contact_targets(void)
 		}
 		ncontact_targets++;
 	}
+	/* PAST THE HOSTS DELIVERED TO, said rather than passed over, sec 704:
+	 * each holds a socket of its own, so growing past this is the move onto
+	 * the serving socket, not a larger table. */
+	if (i < n)
+		say(FZN_ENTRY_WARNING, "contact/devices",
+		    "%zu contact host(s) kept and %u delivered to: the rest are not reached",
+		    n, (unsigned)FZND_CONTACT_TARGETS_MAX);
 	/* WHAT NO HOST TOOK BACK, closed: a device forgotten, or one no longer
 	 * reached. */
 	for (j = 0; j < n_old; j++)
@@ -8961,10 +9012,11 @@ static void streams_settle(void)
 static size_t device_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                            size_t cap)
 {
-	static fzn_contact_device_t kept[FZN_CONTACT_DEVICES_MAX];
-	static size_t mine[FZN_CONTACT_DEVICES_MAX];
+	static struct devices_room room;
+	fzn_contact_device_t *kept;
 	const uint8_t *at = request->arg, *subject, *w;
 	size_t left = request->arg_len, subject_len, w_len, n = 0, count = 0, from = 0, i, out;
+	size_t seen;
 	fzn_contact_t c;
 
 	if (request->parsed != FZN_VERB_LIST || !at || !next_word(&at, &left, &subject, &subject_len)
@@ -8996,25 +9048,28 @@ static size_t device_local(fzn_origin_t origin, const fzn_request_t *request, ch
 		return (size_t)snprintf(reply, cap, "error this node keeps no devices\n");
 	if (next_word(&at, &left, &w, &w_len))
 		for (i = 0; i < w_len; i++) {
-			if (w[i] < '0' || w[i] > '9' || from > FZN_CONTACT_DEVICES_MAX)
+			if (w[i] < '0' || w[i] > '9' || from > ((size_t)1 << 30))
 				return (size_t)snprintf(reply, cap, "malformed not an index\n");
 			from = (from * 10u) + (size_t)(w[i] - '0');
 		}
-	if (fzn_contact_device_list(node_apply.store, kept, FZN_CONTACT_DEVICES_MAX, &n)
-	    != FZN_CONTACT_DEVICE_OK)
+	if (devices_list(&room, &n) != FZN_CONTACT_DEVICE_OK)
 		return (size_t)snprintf(reply, cap, "error the devices did not read\n");
+	kept = room.at;
 	for (i = 0; i < n; i++)
-		if (memcmp(kept[i].owner, c.key, FZN_PUBKEY_LEN) == 0)
-			mine[count++] = i;
+		count += memcmp(kept[i].owner, c.key, FZN_PUBKEY_LEN) == 0;
 	if (from > count)
 		return (size_t)snprintf(reply, cap, "malformed past the last device\n");
 	out = (size_t)snprintf(reply, cap, "ok %zu %zu", count, from);
-	for (i = from; i < count; i++) {
-		const fzn_contact_device_t *d = &kept[mine[i]];
+	/* THE CONTACT'S OWN, from the `from`th: counted again as they are
+	 * passed, rather than indexed into a table of fixed size. */
+	for (i = 0, seen = 0; i < n; i++) {
+		const fzn_contact_device_t *d = &kept[i];
 		char key[FZN_PUBKEY_LEN * 2u + 1u];
 		size_t need = 1u + FZN_PUBKEY_LEN * 2u + 1u + (d->address_len ? d->address_len : 1u)
 		              + 1u + 5u;
 
+		if (memcmp(d->owner, c.key, FZN_PUBKEY_LEN) != 0 || seen++ < from)
+			continue;
 		/* ROOM FOR THIS ONE AND THE NEWLINE, or the page ends here. */
 		if (out + need + 2u > cap)
 			break;
@@ -10438,7 +10493,7 @@ static void lan_probe_heard(void *ctx, const uint8_t *probe, size_t len,
 static size_t lan_probe(const char **why, char *out, size_t out_cap)
 {
 	static uint8_t hosts[FZN_NODE_SIBLINGS_MAX][FZN_PUBKEY_LEN];
-	static fzn_contact_device_t kept[FZN_CONTACT_DEVICES_MAX];
+	static struct devices_room room;
 	const fzn_node_state_t *st = running_admin ? running_admin->state : NULL;
 	uint8_t probe[FZN_NODE_PROBE_LEN], value[FZN_SETTING_VALUE_MAX];
 	char address[FZN_UDP_HOST_MAX] = "255.255.255.255", host[FZN_NODE_SETTINGS_HOST_MAX + 1u];
@@ -10479,15 +10534,14 @@ static size_t lan_probe(const char **why, char *out, size_t out_cap)
 				ports[nports++] = port;
 		}
 	n = 0;
-	if (fzn_contact_device_list(node_apply.store, kept, FZN_CONTACT_DEVICES_MAX, &n)
-	    == FZN_CONTACT_DEVICE_OK)
+	if (devices_list(&room, &n) == FZN_CONTACT_DEVICE_OK)
 		for (i = 0; i < n && nports < FZND_LAN_PORTS_MAX; i++) {
-			if (!kept[i].port)
+			if (!room.at[i].port)
 				continue;
-			for (k = 0; k < nports && ports[k] != kept[i].port; k++)
+			for (k = 0; k < nports && ports[k] != room.at[i].port; k++)
 				;
 			if (k == nports)
-				ports[nports++] = kept[i].port;
+				ports[nports++] = room.at[i].port;
 		}
 	memset(probe, 0, sizeof(probe));
 	probe[0] = FZN_NODE_PROBE_MARK;

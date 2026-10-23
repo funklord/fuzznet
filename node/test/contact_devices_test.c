@@ -134,7 +134,7 @@ static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject
 	return 1;
 }
 
-static const fzn_persist_ops_t STORE = { mem_load, mem_save, mem_list, mem_remove, NULL };
+static const fzn_persist_ops_t STORE = { mem_load, mem_save, mem_list, mem_remove, NULL, NULL };
 
 /* ---- fixtures ----------------------------------------------------------- */
 
@@ -334,6 +334,103 @@ static void take(void *ctx, const fzn_contact_device_t *d)
 	taken_n++;
 }
 
+/* ---- AT THOUSANDS, sec 704 --------------------------------------------- *
+ *
+ * A store of 5000 rows that walks, past the generic fallback's room: every
+ * contact's devices together were once read into 128, and past it the
+ * listing failed and delivery to every contact stopped with nothing said. */
+#define BIG_ROWS 5000u
+static struct {
+	uint8_t subject[FZN_PUBKEY_LEN];
+	uint8_t bytes[FZN_CONTACT_DEVICE_MAX];
+	size_t len;
+} big[BIG_ROWS];
+static size_t big_used;
+
+static int big_find(const uint8_t *subject)
+{
+	size_t i;
+
+	for (i = 0; i < big_used; i++)
+		if (memcmp(big[i].subject, subject, FZN_PUBKEY_LEN) == 0)
+			return (int)i;
+	return -1;
+}
+
+static int big_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, uint8_t *out,
+                    size_t cap, size_t *len)
+{
+	int i = big_find(subject);
+
+	(void)ctx;
+	(void)slot;
+	if (i < 0 || big[i].len > cap)
+		return 0;
+	memcpy(out, big[i].bytes, big[i].len);
+	*len = big[i].len;
+	return 1;
+}
+
+static int big_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
+                    const uint8_t *bytes, size_t len)
+{
+	int i = big_find(subject);
+
+	(void)ctx;
+	(void)slot;
+	if (i < 0) {
+		if (big_used == BIG_ROWS || len > sizeof(big[0].bytes))
+			return 0;
+		i = (int)big_used++;
+		memcpy(big[i].subject, subject, FZN_PUBKEY_LEN);
+	}
+	memcpy(big[i].bytes, bytes, len);
+	big[i].len = len;
+	return 1;
+}
+
+static int big_each(void *ctx, fzn_persist_slot_t slot,
+                    int (*fn)(void *arg, const uint8_t subject[FZN_PUBKEY_LEN]), void *arg)
+{
+	size_t i;
+
+	(void)ctx;
+	(void)slot;
+	for (i = 0; i < big_used; i++)
+		if (!fn(arg, big[i].subject))
+			break;
+	return 1;
+}
+
+static void test_thousands_of_devices(void)
+{
+	static fzn_contact_device_t d, list[BIG_ROWS];
+	fzn_persist_ops_t store;
+	uint8_t host[32];
+	size_t k, kept = 0, count = 0;
+
+	memset(&store, 0, sizeof(store));
+	store.load = big_load;
+	store.save = big_save;
+	store.each = big_each;
+	big_used = 0;
+	for (k = 0; k < 4500u; k++) {
+		memcpy(host, phone, sizeof(host));
+		host[1] = (uint8_t)k;
+		host[2] = (uint8_t)(k >> 8);
+		device(&d, host, 1000u);
+		kept += fzn_contact_device_keep(&store, &d) == FZN_CONTACT_DEVICE_OK;
+	}
+	CHECK(kept == 4500u, "fixture: 4500 devices kept");
+	CHECK(fzn_contact_device_list(&store, list, FZN_CONTACT_DEVICES_MAX, &count)
+	                      == FZN_CONTACT_DEVICE_ERR_ROOM
+	              && count == 4500u,
+	      "4500 devices in room for 128 did not answer room with the count");
+	CHECK(fzn_contact_device_list(&store, list, BIG_ROWS, &count) == FZN_CONTACT_DEVICE_OK
+	              && count == 4500u,
+	      "4500 devices did not list into room for them");
+}
+
 static void test_the_messages(void)
 {
 	static fzn_contact_device_t d;
@@ -432,6 +529,7 @@ int main(void)
 	test_what_makes_one_hold();
 	test_the_store();
 	test_the_messages();
+	test_thousands_of_devices();
 	if (failures) {
 		fprintf(stderr, "node contact_devices_test: %d of %d checks failed\n", failures, checks);
 		return 1;

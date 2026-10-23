@@ -69569,6 +69569,29 @@ beside type POPUP_SOUND and serves the sound anyway, so the type is what
 to trust. Sec 704's rule applies when this is built: no pack bound below
 the store's own.
 
+**A fifth, relayed by fuzzypickles** (message 20261023T0525Z), which the
+holder decided first-hand there. It is to be confirmed with the holder
+here before it is built, as the first four were.
+- **A pack carries its own id**, manifest key 5, a u64, nonzero.
+- **Derivation:** each sticker's BLAKE2b-256 over its renditions in
+  manifest order, then its sound (the digest its own id comes from), is
+  added as a 256-bit little-endian number, modulo 2^256. The id is the
+  first 8 bytes, big-endian, of BLAKE2b-256 over that sum, and a 0
+  becomes 1. So order, names, descriptions, keywords, kinds, LINE's ids
+  and the stickers' own ids play no part: the same art is the same pack.
+- **The builder always writes it**, so a stored id is always that hash.
+  The key is additive at manifest version 1: a pack from before reads
+  back 0, and a stored 0 is refused.
+- **Not the blob root**, which is the transport hash of the file's bytes,
+  changes with a name or a description, and stays in references because
+  fetching needs it. The holder: "I never asked for a 'root' i asked for
+  an id filled in by a hash of the sticker data."
+- **A pack file is `ID.fzs`**, the id in decimal, a zip inside.
+- **Reference:** fuzzypickles 639695f (`fzp_sticker_pack_id`), on 3baf59b
+  and 334eff9. Measured there: 136 real LINE packs gave 136 distinct ids,
+  each equal to its file name and to the id recomputed from the art by a
+  check sharing no code.
+
 **When: after the mature subset clears its bar**, the holder's choice
 when asked whether this lifts sec 689's freeze. It does not. Until then
 this node refuses ids above 16 bits and packs past 64, and the client,
@@ -69745,3 +69768,27 @@ and stay.
   survived: the walk refuses such a backend itself, so the check was a
   second copy of a guard. It is removed. The walk's own refusal is
   probed instead, and caught.
+
+### Contact devices, built, sec 704
+
+- **`fzn_contact_device_list`** walks the slot and answers
+  `FZN_CONTACT_DEVICE_ERR_ROOM` with the count. `fuzznetd`'s five
+  listings each keep a room of their own on the heap, grown when told:
+  - the devices offered and kept in a contact exchange;
+  - the pairing of contacts' devices;
+  - the contact hosts delivered to;
+  - `list device`, which pages by counting again rather than through an
+    index table of fixed size;
+  - the LAN probe.
+
+  A listing that fails now says so. `contact_devices_test` keeps 4500
+  devices: room with the count into 128, whole into room for them.
+- **Not tested live:** the daemon's growth of these listings at run
+  time. Kept devices arrive only through contact exchanges, so a live
+  test past 128 needs that many contacts' devices. The helper is the
+  same shape as the peers', which phase f does test live.
+- **The contact hosts delivered to stay at 32 for now, and say so** when
+  more are kept: each holds a socket of its own, so growing them is step
+  4's move onto the serving socket, not a larger table.
+- Every positional initialiser of `fzn_persist_ops_t` in the tree's tests
+  now names `each`, so `-Wextra` stays quiet.

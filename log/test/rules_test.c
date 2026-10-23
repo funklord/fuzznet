@@ -106,7 +106,7 @@ static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject
 	return 1;
 }
 
-static const fzn_persist_ops_t OPS = { mem_load, mem_save, mem_list, mem_remove, NULL };
+static const fzn_persist_ops_t OPS = { mem_load, mem_save, mem_list, mem_remove, NULL, NULL };
 
 static int toy_hash(void *ctx, uint8_t *out, size_t out_len, const uint8_t *in, size_t in_len)
 {

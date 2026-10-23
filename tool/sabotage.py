@@ -11320,6 +11320,13 @@ SABOTAGES = [
 		"a full table reads as a refused record, and nothing gives the node room -- sec 703",
 	),
 	(
+		"contact-devices-list-says-room",
+		"node/contact_devices.c",
+		"\treturn w.n > cap ? FZN_CONTACT_DEVICE_ERR_ROOM : FZN_CONTACT_DEVICE_OK;",
+		"\treturn FZN_CONTACT_DEVICE_OK;",
+		"more contact devices kept than the caller's room reads as the whole list, and the rest are never delivered to -- sec 704",
+	),
+	(
 		"peers-load-says-room",
 		"node/peer_persist.c",
 		"\treturn w.n > cap ? FZN_PERSIST_ERR_ROOM : FZN_PERSIST_OK;",

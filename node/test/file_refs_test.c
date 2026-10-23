@@ -62,7 +62,7 @@ static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	return 0;
 }
 
-static const fzn_persist_ops_t STORE = { mem_load, mem_save, NULL, NULL, NULL };
+static const fzn_persist_ops_t STORE = { mem_load, mem_save, NULL, NULL, NULL, NULL };
 
 static void test_a_reference_kept_and_the_first_standing(void)
 {

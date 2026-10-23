@@ -124,7 +124,7 @@ static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	return 1;
 }
 
-static const fzn_persist_ops_t STORE = { mem_load, mem_save, NULL, NULL, NULL };
+static const fzn_persist_ops_t STORE = { mem_load, mem_save, NULL, NULL, NULL, NULL };
 
 static uint8_t root[32], admin[32], other[32];
 static fzn_cap_id_t admin_cap, other_cap;

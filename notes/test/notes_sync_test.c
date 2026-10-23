@@ -199,8 +199,8 @@ static int remove_unless_note(void *ctx, fzn_persist_slot_t slot, const uint8_t 
 }
 
 static struct table table_a, table_b;
-static fzn_persist_ops_t ops_a = { mem_load, mem_save, mem_list, mem_remove, &table_a };
-static fzn_persist_ops_t ops_b = { mem_load, mem_save, mem_list, mem_remove, &table_b };
+static fzn_persist_ops_t ops_a = { mem_load, mem_save, mem_list, mem_remove, &table_a, NULL };
+static fzn_persist_ops_t ops_b = { mem_load, mem_save, mem_list, mem_remove, &table_b, NULL };
 static fzn_notes_store_t store_a, store_b;
 
 /* ---- writing notes on A -------------------------------------------------- */

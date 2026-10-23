@@ -42,7 +42,10 @@
 
 #define FZN_CONTACT_DEVICE_VERSION 1u
 #define FZN_CONTACT_DEVICE_ADDRESS_MAX 253u
-/* How many a listing reads at once: a contact's devices, every contact. */
+/* THE ROOM A CALLER MAY START WITH, not a limit, sec 704: every contact's
+ * devices together, thousands for a user with hundreds of contacts. Past
+ * 128 the listing once failed, and delivery to every contact stopped with
+ * nothing said. */
 #define FZN_CONTACT_DEVICES_MAX 128u
 #define FZN_CONTACT_DEVICE_HEAD_LEN (1u + FZN_PUBKEY_LEN + FZN_PREKEY_LEN_TOTAL)
 #define FZN_CONTACT_DEVICE_MAX                                                                \
@@ -56,7 +59,8 @@ typedef enum fzn_contact_device_err {
 	FZN_CONTACT_DEVICE_ERR_REFUSED = -3,   /* its record or chain does not hold */
 	FZN_CONTACT_DEVICE_ERR_STALE = -4,     /* the one kept has a newer record */
 	FZN_CONTACT_DEVICE_ERR_ABSENT = -5,    /* none kept for that device */
-	FZN_CONTACT_DEVICE_ERR_BACKEND = -6    /* the store refused, or cannot list */
+	FZN_CONTACT_DEVICE_ERR_BACKEND = -6,   /* the store refused, or cannot list */
+	FZN_CONTACT_DEVICE_ERR_ROOM = -7       /* more kept than the caller's room */
 } fzn_contact_device_err_t;
 
 const char *fzn_contact_device_err_str(fzn_contact_device_err_t err);
@@ -101,8 +105,10 @@ fzn_contact_device_err_t fzn_contact_device_get(const fzn_persist_ops_t *store,
                                                 const uint8_t key[FZN_PUBKEY_LEN],
                                                 fzn_contact_device_t *out);
 
-/* Every device kept, `cap` of them, in the store's order. BACKEND when the store
- * will not list or holds more than `cap`. */
+/* Every device kept, in the store's order, walked (`fzn_persist_each`) into
+ * `cap`: ROOM with `*count` the number kept when that is more, so the
+ * caller can give room and list again, sec 704. BACKEND when the store will
+ * not walk. */
 fzn_contact_device_err_t fzn_contact_device_list(const fzn_persist_ops_t *store,
                                                  fzn_contact_device_t *out, size_t cap,
                                                  size_t *count);

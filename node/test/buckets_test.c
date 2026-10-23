@@ -149,8 +149,8 @@ static size_t rows_in(const struct mem *m, fzn_persist_slot_t slot)
 }
 
 static struct mem mem_a, mem_b;
-static fzn_persist_ops_t store_a = { mem_load, mem_save, mem_list, mem_remove, &mem_a };
-static fzn_persist_ops_t store_b = { mem_load, mem_save, mem_list, mem_remove, &mem_b };
+static fzn_persist_ops_t store_a = { mem_load, mem_save, mem_list, mem_remove, &mem_a, NULL };
+static fzn_persist_ops_t store_b = { mem_load, mem_save, mem_list, mem_remove, &mem_b, NULL };
 static const fzn_buckets_t A = { &store_a, &HASH };
 static const fzn_buckets_t B = { &store_b, &HASH };
 

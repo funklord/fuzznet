@@ -75,7 +75,7 @@ static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	return 1;
 }
 
-static fzn_persist_ops_t STORE = { mem_load, mem_save, NULL, NULL, NULL };
+static fzn_persist_ops_t STORE = { mem_load, mem_save, NULL, NULL, NULL, NULL };
 
 int main(void)
 {
