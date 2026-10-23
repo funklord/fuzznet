@@ -70582,8 +70582,8 @@ in the script:
 
 ### Not yet, after sec 707
 
-- **Clock skew**, which sec 689 asks of every journey. Loss is sec
-  708's; a crash inside an operation, sec 713's.
+- **Clock skew is sec 714's**, loss sec 708's, and a crash inside an
+  operation sec 713's.
 - **No verb shows a key's head**, so a cut other than the default can
   only be named from a log.
 
@@ -70749,6 +70749,8 @@ daemons with real traffic between nodes. `tool/live_fzp.py`, run by
 - **e.** carol joins alice's estate by fzp's `host-join-request`,
   `-approve` and `-install`. Her root is then alice's, and she reads a
   setting alice makes for the estate.
+- **f.** alice's `fzp log-show` leads with the entry fuzznetd's `list
+  log` (sec 711) answers newest. fuzzypickles mapped it in 1111578.
 
 ### Where it runs, and why not in a gate
 
@@ -70913,6 +70915,60 @@ loses nothing.
   fault build's crash points (`persist.synced`, `persist.renamed`,
   `record.body`). The kill here comes after the answer, not inside the
   write.
+
+## 714. The estate's journey under clock skew, and a clock said out loud, 2026-10-23
+
+`tool/live_estate.py --skew S` runs A1's clock S seconds ahead and D's S
+behind, by faketime: the pair that vote against each other in phase c.
+R and the rest keep the real clock.
+
+### What the window allows
+
+- **By design, under five minutes each way.** A request lives 300 s by
+  its sender's clock. `FZND_MAX_AHEAD` is 600, a lifetime and 300 s of
+  skew (`frame/freshness.h`).
+- **A sender behind by the lifetime or more** stamps an expiry R already
+  holds as passed, so R drops it as expired.
+- **A sender ahead by more than the skew allowed** stamps one past R's
+  horizon, so R drops it there.
+
+### Measured for sec 714
+
+- **240 s each way:** all six phases pass.
+- **300 s:** D never reads R's setting, at the edge exactly.
+- **3600 s:** A1 never reads it.
+- **And R said nothing either time.** Neither end could tell a clock
+  from a peer that was down: the sender's log read "did not answer".
+
+### A clock out of the window, said
+
+- **`node/serve.h` gains `on_stale`.** A frame that opened under a
+  peer's session, so is that peer's own and no stranger's, and was then
+  refused for its expiry is reported: expired already (its clock
+  behind) or past the horizon (its clock ahead). The reporting is
+  independent of the dropping, which is unchanged: no reply, no oracle.
+- **A replay within the window is not reported.**
+- **`fzn_seal_open` fills the frame only after its tag verifies**, and
+  clears it first, so an expiry seen on a dropped frame is the
+  authenticated peer's.
+- **fuzznetd logs a `node/clock` warning, at most once a minute each
+  way**, naming the peer and by how many seconds. The first version
+  limited both ways together, and phase l's second case was held back
+  and failed.
+- **`livecheck-faults` phase l:** a member joined offline runs 900 s
+  behind R, then an hour ahead. Each time, R's `list log 0 W` must hold
+  the warning for that direction.
+
+### Not built, after sec 714
+
+- **The sender is still not told.** A reply would be an oracle to
+  whoever holds a session, which is anyone paired, and the design drops
+  rather than answers on purpose. So the warning is the receiver's to
+  read.
+- **Whether the window should be wider** is the holder's. Phones keep
+  NTP time, but a device off-network for weeks, or with a dead RTC
+  battery, can drift past five minutes.
+
 
 
 

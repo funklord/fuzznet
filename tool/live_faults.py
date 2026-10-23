@@ -46,6 +46,9 @@ the scenarios built on them test something:
        nothing, lists member held at once, and admin straight after `set
        admin` (sec 709) -- where both waited for a pull from the root to
        bring back grants the member already kept
+    l  a member whose clock runs 900 s behind the root, then an hour ahead:
+       its requests are dropped either way, and the root's log says why,
+       read by `list log` (sec 714) -- where both ends saw only silence
 
 Against a daemon built without faults, phase a's B is counted at 100 per
 cent loss, phase b's daemon does not die, and phase c's says nothing.
@@ -59,6 +62,7 @@ Exit 0 on a pass, 1 on a failure.
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -502,6 +506,50 @@ def main(argv):
 				root.stop()
 			print("livecheck: k: a member that can pull nothing holds member and admin by the "
 			      "chains it keeps")
+
+			# l: a member's clock out of the window, said by the root (sec 714).
+			if shutil.which("faketime"):
+				l_dir, l_root = (os.path.join(scratch, w) for w in ("l", "lr"))
+				l_sock, lr_sock = (os.path.join(sock_dir, w) for w in ("l", "lr"))
+				for d in (l_dir, l_root):
+					os.mkdir(d)
+				command(run, ["--fuzznet-dir=" + l_root, "--new-root"], None)
+				l_prekey = command(run, ["--fuzznet-dir=" + l_dir, "--prekey"], None)
+				l_card = command(run, ["--fuzznet-dir=" + l_root, "--pair=" + l_prekey,
+				                       "--delegable"], None)
+				command(run, ["--fuzznet-dir=" + l_dir, "--accept=" + l_card, "--join"], None)
+				lr_port = str(int(port) + 80)
+				root = daemon(run, "lr", l_root, lr_sock, extra=["--udp-port=" + lr_port])
+				try:
+					for skew, said in (("-900s", "expired"), ("+3600s", "past this node's horizon")):
+						os.environ["FZN_TUNE_PULL_EVERY"] = "2"
+						try:
+							member = daemon(run, "l" + skew, l_dir, l_sock, fake=skew,
+							                extra=["--root-at", "127.0.0.1", lr_port])
+						finally:
+							del os.environ["FZN_TUNE_PULL_EVERY"]
+						try:
+							until = time.monotonic() + 30.0
+							warned = []
+							while time.monotonic() < until:
+								warned = [e for e in ask(lr_sock, "list log 0 W").split()[3:]
+								          if e.split(",")[2] == "node/clock"
+								          and said.replace(" ", "%20")
+								          in e]
+								if warned:
+									break
+								time.sleep(0.5)
+							if not warned:
+								raise failed("l: with the member's clock %s, the root said "
+								             "nothing of it in its log" % skew)
+						finally:
+							member.stop()
+				finally:
+					root.stop()
+				print("livecheck: l: a member's clock 900 s behind and an hour ahead, each "
+				      "said in the root's log")
+			else:
+				print("livecheck: l SKIPPED -- no faketime on PATH")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

@@ -11233,6 +11233,33 @@ static void say_hello(struct pull_target *pulls, size_t npulls, int serving_fd, 
  * to where the probe came from, which tells the prober where this host is
  * on the LAN. No larger than the probe, and nothing kept. Anything else
  * goes unanswered, so a stranger learns nothing of this host. */
+/* A PEER'S CLOCK OUT OF THE WINDOW, sec 714, said at most once a minute
+ * each way, behind and ahead, since the two say different things:
+ * its frames are dropped unanswered, and without this both ends saw only
+ * silence -- the peer "did not answer" a request this node never took. */
+static void clock_out(void *ctx, const uint8_t sender[FZN_PUBKEY_LEN], uint64_t expires_at,
+                      uint64_t now, uint64_t max_ahead)
+{
+	static uint64_t said_at[2];
+	int ahead = expires_at > now;
+
+	(void)ctx;
+	if (said_at[ahead] && now < said_at[ahead] + 60u)
+		return;
+	said_at[ahead] = now;
+	if (!ahead)
+		say(FZN_ENTRY_WARNING, "node/clock",
+		    "a request from %02x%02x%02x%02x expired %llu s before it came: its clock may run "
+		    "behind this one's by more than a request lives",
+		    sender[0], sender[1], sender[2], sender[3], (unsigned long long)(now - expires_at));
+	else
+		say(FZN_ENTRY_WARNING, "node/clock",
+		    "a request from %02x%02x%02x%02x expires %llu s past this node's horizon of %llu s: "
+		    "its clock may run ahead of this one's",
+		    sender[0], sender[1], sender[2], sender[3],
+		    (unsigned long long)(expires_at - now - max_ahead), (unsigned long long)max_ahead);
+}
+
 static void lan_probe_heard(void *ctx, const uint8_t *probe, size_t len,
                             const fzn_udp_addr_t *from)
 {
@@ -14217,6 +14244,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			admin.contact_named = contact_named;
 			/* A LAN PROBE, sec 624. */
 			state.on_probe = lan_probe_heard;
+			/* A PEER'S CLOCK OUT OF THE WINDOW, sec 714. */
+			state.on_stale = clock_out;
 			/* GROUPS, sec 626. */
 			node_groups.log.store = node_apply.store;
 			node_groups.log.hash = &hash_ops;

@@ -101,6 +101,17 @@ typedef struct fzn_node_state {
 	 * -- a probe is answered there or not at all. NULL drops every probe. */
 	void (*on_probe)(void *ctx, const uint8_t *probe, size_t len, const fzn_udp_addr_t *from);
 	void *on_probe_ctx;
+	/* A PEER'S CLOCK OFF BY MORE THAN THE WINDOW ALLOWS, sec 714: a frame
+	 * that opened under `sender`'s session -- its own, so this cannot be a
+	 * stranger's -- refused for its expiry, `expires_at` against `now`:
+	 * passed already (its clock behind) or past the window's horizon (its
+	 * clock ahead). A replay within the window is not reported. Such a
+	 * frame is dropped unanswered as before; this only says why, which
+	 * nothing did, so a device a few minutes out reached no one and both
+	 * ends saw silence. NULL says nothing. */
+	void (*on_stale)(void *ctx, const uint8_t sender[FZN_PUBKEY_LEN], uint64_t expires_at,
+	                 uint64_t now, uint64_t max_ahead);
+	void *on_stale_ctx;
 	/* REQUESTS THIS NODE AWAITS, sec 636: their sockets polled beside the
 	 * serving ones, each answer handed to its callback, each past its
 	 * deadline failed. NULL awaits nothing. */

@@ -175,9 +175,17 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 	 * peer copied by value is self-contained (`remote.h`). */
 	held = *peer;
 	peer = &held;
+	memset(&opened, 0, sizeof(opened));
 	result = fzn_node_serve_datagram(&state->config, peer, state->hash,
 	                                 state->aead, state->sign, state->replay,
 	                                 now, frame, flen, &opened);
+	/* DROPPED WITH AN EXPIRY OPENED: the seal opened, so it is the peer's
+	 * own frame, and freshness refused it. Its clock, if the expiry is
+	 * outside the window either way; a replay inside it says nothing. */
+	if (result == FZN_NODE_REMOTE_DROPPED && opened.expires_at && state->on_stale && state->replay
+	    && (opened.expires_at <= now || opened.expires_at > now + state->replay->max_ahead))
+		state->on_stale(state->on_stale_ctx, peer->sender, opened.expires_at, now,
+		                state->replay->max_ahead);
 	/* THE HOP BYTE, outside the seal and so still as it came, for the
 	 * handler (sec 622). */
 	state->asking_hops = flen > 1u ? frame[1] : 0u;

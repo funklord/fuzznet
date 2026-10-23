@@ -29,6 +29,7 @@ successor) and E (a device paired by the second root).
     f  recovery: R adds A2 as a root and is stopped for good; A2 removes R
        from the roots, pairs E, and E joins and reads what A2 sets as root
 
+`--skew S` runs A1's clock S seconds ahead and D's S behind, by faketime.
 `--loss P` runs every daemon at FZN_FAULT_LOSS=P with one seed per run;
 `--keep DIR` copies a failed run's daemon output and logs into DIR, which
 must not exist. The stores are left out.
@@ -73,8 +74,18 @@ def main(argv):
 	parser.add_argument("--loss", type=int, default=0, help="per cent of datagrams lost")
 	parser.add_argument("--within", type=float, default=900.0, help="the whole run's deadline")
 	parser.add_argument("--keep", help="on a failure, copy the run's logs into this new directory")
+	parser.add_argument("--skew", type=int, default=0,
+	                    help="seconds A1's clock runs ahead and D's behind, by faketime")
 	args = parser.parse_args(argv[1:])
 	live_trim.DEADLINE = time.monotonic() + args.within
+	# A CLOCK EACH WAY: A1 ahead and D behind, the pair that vote against
+	# each other in phase c, R and the rest on the real clock.
+	skews = {}
+	if args.skew:
+		if not shutil.which("faketime"):
+			print("livecheck: estate SKIPPED -- --skew needs faketime on PATH")
+			return 0
+		skews = {"a1": "+%ds" % args.skew, "d": "-%ds" % args.skew}
 	# A WAIT, at 20 per cent loss, may cost many rounds.
 	settle = 60.0 + 6.0 * args.loss
 
@@ -107,7 +118,7 @@ def main(argv):
 				os.environ["FZN_FAULT_LOSS"] = str(loss)
 			try:
 				started[who] = daemon(run, "%s%d" % (who, runs[who]), dirs[who], socks[who],
-				                      extra=["--udp-port=" + port[who]])
+				                      fake=skews.get(who), extra=["--udp-port=" + port[who]])
 			finally:
 				if loss is not None:
 					if was is None:

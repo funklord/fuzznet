@@ -22,6 +22,9 @@ nodes -- they pass at 100 per cent loss. This one does, run against
        carol reads a setting alice makes for the estate; fzp's cap-show at
        carol says member valid and cap-granted at alice lists carol's
        member grant, and the approval warns of nothing
+    f  alice's `fzp log-show` reads her node's own log (fuzznet sec 711,
+       fuzzypickles' 1111578): its newest entry is the one fuzznetd's
+       `list log` answers newest, as fzp prints it
 
 `--loss P` runs every daemon at FZN_FAULT_LOSS=P with one seed a run, and
 `--keep DIR` copies a failed run's daemon output into DIR. FZP names the
@@ -280,6 +283,18 @@ def main(argv):
 			      "not the member grant alice made carol")
 			print("livecheck: e: carol joined alice's estate through fzp's host-join, reads what "
 			      "alice sets for it, and fzp shows the member grant on both sides")
+
+			# f: the node's own log, through fzp.
+			shown = fzp("alice", "log-show").splitlines()
+			newest = ask(socks["alice"], "list log").split()
+			if len(newest) < 4 or newest[0] != "ok":
+				raise failed("f: alice's list log answered %r" % newest[:4])
+			_, level, subsystem = newest[3].split(",")[:3]
+			want = " %s %s] " % (level, subsystem)
+			if not shown or not any(want in line for line in shown[:3]):
+				raise failed("f: fzp log-show printed %r, not alice's newest entry %r first"
+				             % (shown[:3], newest[3][:80]))
+			print("livecheck: f: fzp log-show reads alice's node's own log, newest first")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			for name in sorted(os.listdir(scratch)):
