@@ -366,6 +366,23 @@ static void remote_ran_stub(void *ctx, const uint8_t *sender, const uint8_t *wha
 	snprintf(remote_heard, sizeof(remote_heard), "%.*s", (int)len, (const char *)what);
 }
 
+/* ROOM FOR PEERS, as fuzznetd gives it, sec 704: the admin moved onto
+ * `room_grown`, and the count asked noted. */
+static fzn_node_peer_t *room_grown;
+static size_t room_grown_cap, room_asked;
+
+static int room_stub(void *ctx, size_t needed)
+{
+	fzn_node_admin_t *a = ctx;
+
+	room_asked = needed;
+	if (needed > room_grown_cap)
+		return 0;
+	a->peers = room_grown;
+	a->peers_cap = room_grown_cap;
+	return 1;
+}
+
 /* `line` from `sender` as a member's remote request: its reply's kind. */
 static fzn_reply_t remote_said(fzn_node_admin_t *admin, const uint8_t *sender, const char *line,
                                uint8_t *out, size_t cap)
@@ -954,6 +971,39 @@ int main(void)
 		                         == 0,
 		      "the device's send key is not the running node's receive key for it");
 		fzn_wipe(&pairing, sizeof(pairing));
+	}
+
+	/* ---- MORE PEERS THAN THE ROOM, sec 704: a second device paired with
+	 * room for one, and the reload asks the hook for more rather than
+	 * failing -- past 64 a running node once answered "the running peer
+	 * set did not reload", every round, for every contact's device. */
+	{
+		static struct node second;
+		static fzn_node_peer_t grown[4];
+		char second_hex[FZN_PREKEY_LEN_TOTAL * 2u + 1u], second_line[sizeof(line)];
+
+		CHECK(node_up(&second), "fixture: a second device");
+		hex(second.id.prekey_record, FZN_PREKEY_LEN_TOTAL, second_hex);
+		snprintf(second_line, sizeof(second_line), "add peer %s", second_hex);
+		room_grown = grown;
+		room_grown_cap = 4u;
+		room_asked = 0;
+		admin.peers_cap = 1u;
+		admin.peers_room = room_stub;
+		admin.peers_room_ctx = &admin;
+		CHECK(ask(&admin, &owner, second_line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+		              && room_asked == 2u && state.peer_count == 2u && state.peers == grown,
+		      "a pairing past the peer set's room did not ask for room, or did not reload");
+		/* THE FIXTURE'S OWN ROOM BACK, with both. */
+		memcpy(peers, grown, 2u * sizeof(peers[0]));
+		admin.peers = peers;
+		admin.peers_cap = 32u;
+		admin.peers_room = NULL;
+		state.peers = peers;
+		CHECK(fzn_node_peer_remove(&node.ops, second.id.pubkey) == FZN_PERSIST_OK,
+		      "fixture: the second device forgotten");
+		state.peer_count = 1u;
 	}
 
 	/* ---- AN ESTATE JOINED BY VERBS, sec 638: the device's prekey from

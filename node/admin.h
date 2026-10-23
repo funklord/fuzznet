@@ -85,6 +85,12 @@ typedef struct fzn_node_admin {
 	 * that reads it and is why the one writer keeps its own handle. */
 	fzn_node_peer_t *peers;
 	size_t peers_cap;
+	/* ROOM FOR `needed` PEERS, sec 704, asked when a reload finds more
+	 * stored than `peers_cap`: the hook sets `peers` and `peers_cap` to
+	 * storage as large and answers 1. NULL, and such a reload fails as
+	 * any other would. */
+	int (*peers_room)(void *ctx, size_t needed);
+	void *peers_room_ctx;
 	const fzn_node_identity_t *id;
 	const fzn_persist_ops_t *store;
 	/* How long a card stays worth accepting, from when it is made. */

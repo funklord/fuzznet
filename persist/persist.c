@@ -440,6 +440,8 @@ const char *fzn_persist_err_str(fzn_persist_err_t err)
 		return "backend refused or absent";
 	case FZN_PERSIST_ERR_ABSENT:
 		return "nothing stored under that slot";
+	case FZN_PERSIST_ERR_ROOM:
+		return "more is stored than the caller has room for";
 	}
 
 	return "unknown";
@@ -515,6 +517,39 @@ static int route_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t m
 	return to && to->list ? to->list(to->ctx, slot, out, max, count) : 0;
 }
 
+static int route_each(void *ctx, fzn_persist_slot_t slot,
+                      int (*fn)(void *arg, const uint8_t subject[FZN_PUBKEY_LEN]), void *arg)
+{
+	const fzn_persist_ops_t *to = route_for(ctx, slot);
+
+	return to ? fzn_persist_each(to, slot, fn, arg) : 0;
+}
+
+/* THE FALLBACK'S ROOM, and whether a walk is in it: a walk begun from
+ * inside another's `fn` would overwrite the subjects it is handing out. */
+static uint8_t each_room[FZN_PERSIST_EACH_FALLBACK * FZN_PUBKEY_LEN];
+static int each_in_room;
+
+int fzn_persist_each(const fzn_persist_ops_t *ops, fzn_persist_slot_t slot,
+                     int (*fn)(void *arg, const uint8_t subject[FZN_PUBKEY_LEN]), void *arg)
+{
+	size_t found = 0, i;
+
+	if (!ops || !fn)
+		return 0;
+	if (ops->each)
+		return ops->each(ops->ctx, slot, fn, arg);
+	if (!ops->list || each_in_room
+	    || !ops->list(ops->ctx, slot, each_room, FZN_PERSIST_EACH_FALLBACK, &found))
+		return 0;
+	each_in_room = 1;
+	for (i = 0; i < found; i++)
+		if (!fn(arg, each_room + (i * FZN_PUBKEY_LEN)))
+			break;
+	each_in_room = 0;
+	return 1;
+}
+
 static int route_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject)
 {
 	const fzn_persist_ops_t *to = route_for(ctx, slot);
@@ -531,4 +566,5 @@ void fzn_persist_route_ops(fzn_persist_route_t *route, fzn_persist_ops_t *ops)
 	ops->list = route_list;
 	ops->remove = route_remove;
 	ops->ctx = route;
+	ops->each = route_each;
 }

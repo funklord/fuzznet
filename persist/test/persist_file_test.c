@@ -440,6 +440,98 @@ static void test_the_backend_says_which_failure_it_was(const char *scratch)
 }
 #endif
 
+/* A SLOT WALKED PAST ANY ROOM A LIST IS GIVEN, sec 704: 5000 subjects,
+ * more than FZN_PERSIST_EACH_FALLBACK, walked whole by the backend's own
+ * `each`, a walker stopping where it says, and the fallback through `list`
+ * refusing rather than walking short -- and walking a slot that fits,
+ * though not from inside another of its walks, which share its room. */
+#define WALKED 5000u
+struct walked {
+	size_t n, stop_at, nested;
+	unsigned sum;
+	const fzn_persist_ops_t *inner;
+};
+
+static int walk_one(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	struct walked *w = arg;
+
+	w->n++;
+	w->sum += (unsigned)subject[0] | ((unsigned)subject[1] << 8);
+	if (w->inner && w->n == 1u)
+		w->nested = (size_t)fzn_persist_each(w->inner, FZN_PERSIST_CONTACT, walk_one, w);
+	return !w->stop_at || w->n < w->stop_at;
+}
+
+static void walk_key(uint8_t subject[FZN_PUBKEY_LEN], size_t i)
+{
+	memset(subject, 0x5a, FZN_PUBKEY_LEN);
+	subject[0] = (uint8_t)i;
+	subject[1] = (uint8_t)(i >> 8);
+}
+
+static void test_a_slot_walked_past_any_list(void)
+{
+	static char where[320];
+	static uint8_t room[WALKED * FZN_PUBKEY_LEN];
+	fzn_persist_file_t store;
+	fzn_persist_ops_t fallback;
+	const fzn_persist_ops_t *ops;
+	struct walked w;
+	uint8_t subject[FZN_PUBKEY_LEN], byte = 1u;
+	unsigned want = 0;
+	size_t i, saved = 0, few = 0, count = 0;
+
+	snprintf(where, sizeof(where), "%s/walk", dir);
+	if (mkdir(where, 0700) != 0) {
+		expect(0, "fixture: the walk's directory");
+		return;
+	}
+	ops = fzn_persist_file_init(&store, where);
+	expect(ops != NULL && ops->each != NULL, "the file backend has no walk");
+	if (!ops)
+		goto gone;
+	for (i = 0; i < WALKED; i++) {
+		walk_key(subject, i);
+		saved += (size_t)ops->save(ops->ctx, FZN_PERSIST_PEER, subject, &byte, 1u);
+		want += (unsigned)subject[0] | ((unsigned)subject[1] << 8);
+	}
+	for (i = 0; i < 100u; i++) {
+		walk_key(subject, i);
+		few += (size_t)ops->save(ops->ctx, FZN_PERSIST_CONTACT, subject, &byte, 1u);
+	}
+	expect(saved == WALKED && few == 100u, "fixture: the subjects saved");
+	expect(!ops->list(ops->ctx, FZN_PERSIST_PEER, room, FZN_PERSIST_EACH_FALLBACK, &count),
+	       "a list given less room than the slot holds did not refuse");
+	memset(&w, 0, sizeof(w));
+	expect(fzn_persist_each(ops, FZN_PERSIST_PEER, walk_one, &w) == 1 && w.n == WALKED
+	               && w.sum == want,
+	       "the walk did not hand over every subject once");
+	memset(&w, 0, sizeof(w));
+	w.stop_at = 10u;
+	expect(fzn_persist_each(ops, FZN_PERSIST_PEER, walk_one, &w) == 1 && w.n == 10u,
+	       "a walker that stopped was walked on");
+	fallback = *ops;
+	fallback.each = NULL;
+	memset(&w, 0, sizeof(w));
+	expect(fzn_persist_each(&fallback, FZN_PERSIST_PEER, walk_one, &w) == 0 && w.n == 0u,
+	       "the fallback walked a slot past its room, or walked it short");
+	memset(&w, 0, sizeof(w));
+	w.inner = &fallback;
+	w.nested = 9u;
+	expect(fzn_persist_each(&fallback, FZN_PERSIST_CONTACT, walk_one, &w) == 1 && w.n == 100u
+	               && w.nested == 0u,
+	       "the fallback did not walk a slot that fits, or walked again inside itself");
+	for (i = 0; i < WALKED; i++) {
+		walk_key(subject, i);
+		(void)ops->remove(ops->ctx, FZN_PERSIST_PEER, subject);
+		if (i < 100u)
+			(void)ops->remove(ops->ctx, FZN_PERSIST_CONTACT, subject);
+	}
+gone:
+	expect(rmdir(where) == 0, "the walk's directory would not go: a file it did not name");
+}
+
 int main(void)
 {
 	fzn_persist_file_t store;
@@ -472,6 +564,8 @@ int main(void)
 	expect(ops != NULL, "the backend refused a directory it should accept");
 	if (!ops)
 		goto out;
+
+	test_a_slot_walked_past_any_list();
 
 	for (i = 0; i < sizeof(in); i++)
 		in[i] = (uint8_t)(i + 1u);

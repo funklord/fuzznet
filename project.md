@@ -69558,6 +69558,17 @@ and a save again rewriting it. This node already behaves so: a saved pack
 is an estate setting keyed by its root (sec 681), with no count of its
 own. The settings store's capacity is what bounds it.
 
+**Real LINE packs, reported the same day by fuzzypickles:** pop-up pack
+10075 is 9.7 MB of art, so a pack bound of 8 MiB refuses real packs;
+fuzzypickles bounds a pack by its blob store's file limit, 64 MiB, a pack
+being one blob (their f865520). A pop-up sticker has a still
+`sticker.png`, a `sticker_popup.png` APNG over the screen and, for
+POPUP_SOUND, a `sticker_sound.m4a`, and no animation; an animated one has
+the animation and a still. Pack 7269's metadata says `hasSound` false
+beside type POPUP_SOUND and serves the sound anyway, so the type is what
+to trust. Sec 704's rule applies when this is built: no pack bound below
+the store's own.
+
 **When: after the mature subset clears its bar**, the holder's choice
 when asked whether this lifts sec 689's freeze. It does not. Until then
 this node refuses ids above 16 bits and packs past 64, and the client,
@@ -69626,3 +69637,106 @@ sticker packs (sec 702). Rejected:
   daemon would not start over a store of 80.
 - **`root_log_test`:** a set of 65 is kept, refused by the view's own
   flags and by the stack's readings, and read through on the caller's.
+
+## 704. No arbitrary numbers: the subset's tables grown to thousands, the plan, 2026-10-23
+
+**The holder, 2026-10-23**, asked whether sec 703's rule held for the
+chat subset's fixed caps: "No arbitrary numbers, we grow the structs we
+need to store thousands of entries. If something truly is limited or
+doesn't need to be many we can keep it small, but very few things are
+like that." So a fixed table of user data is a defect, fixed without
+asking: caller-supplied in the library, which allocates nothing and
+answers too small with the count it needs, and sized and grown by
+`fuzznetd`. Each is tested at thousands. Anything kept small says in
+the code why it is bounded.
+
+### The inventory, read-only, sec 704
+
+An inventory of every fixed table of user data in the subset found two
+causes behind most failures.
+
+**1. A listing that refuses rather than truncates, into a module's own
+buffer.** `persist.h` has a list of more rows than `max` return 0, rightly.
+But nearly every module lists a slot into a static buffer of its own
+fixed size, and nothing bounds the writes. So the store grows, and every
+later listing fails.
+
+**2. Fixed in-memory tables**, the counts a user has at once.
+
+The worst, in the order they will be fixed:
+- **peers, 64**, members and every contact's devices: past it,
+  `fuzznetd` will not start;
+- **contact devices, 128 for all contacts together**: past it, delivery
+  and syncing to every contact stop, with no message;
+- **pairings, a literal 16** (`node/pair.c`): past it, a member node
+  starts without its authority, with no message;
+- **settings rows, 1024 for everything**: past it, the routing manifest
+  comes out empty, and clears are never pruned again, so it cannot
+  recover;
+- **contact hosts delivered to, 32**, silently;
+- **outgoing contact requests, 16 for the node's life**, since the rows
+  are never removed; incoming ones, 16, the oldest evicted silently;
+- **revocations 256**, whose load fails the daemon's start; **grants
+  256**, roster tables, successions 64, siblings 64 (8 pulled from),
+  introductions 16;
+- **messages**: own devices merged 32, which never warns past it;
+  conversation keys 64; key waits 256;
+- **reachability**: last-seen addresses 64, relay routes 64, routing
+  entries 16, LAN ports 16, relay quota rows 32, observed addresses 32;
+- **retention and logs**: rules per plan 64, log programs 32, segments
+  scanned in directory order and cut off at 256 or 1024;
+- **location**: stream heads 512 (256 per stream in the daemon), pending
+  fetches 8.
+
+Kept small, as truly few: hops in a chain; card seeds (4, the wire
+format's); removers per incarnation (4, which is the quorum's size).
+Rate caps (probe answers, boxes opened a minute) are rates, not counts,
+and stay.
+
+### The order, sec 704
+
+1. **A streaming walk of a slot**, `each` on `fzn_persist_ops_t`, added
+   after `ctx` so a consumer's positional initialiser is unchanged. The
+   file backend walks its directory, the router forwards, and
+   `fzn_persist_each` falls back to `list` for a backend without it.
+   Every module that lists a slot moves onto it. That removes cause 1
+   everywhere at once.
+2. **Peers, then contact devices, pairings and settings rows**: the
+   start-up failures and the silent stops, each on grown tables, each
+   tested at thousands.
+3. **The rest of the inventory**, area by area, as journey 2 (1:1 chat)
+   and journey 4 (reachability) reach them.
+4. **A socket per contact host does not reach thousands**: one
+   descriptor per host, past the default limit of 1024. Since sec 698
+   each socket is load-bearing, because a NAT's mapping belongs to it.
+   Moving contact hosts onto the serving socket, with replies told apart
+   by the ask layer as a relayed request already is, is its own step,
+   measured on hull before and after.
+
+### Step 1 and the peers, built, sec 704
+
+- **`fzn_persist_each`**, with `each` on `fzn_persist_ops_t` after `ctx`.
+  - The file backend walks its directory, and the router, the op journal
+    and the received-shares seam set it (the seam to NULL, walked through
+    its filtering `list`).
+  - `persist_file_test` walks 5000 subjects, sees a walker stop where it
+    says, and sees the fallback refuse a slot past its room rather than
+    walk it short, and refuse a walk nested inside its own.
+  - **Found on the way:** a struct filled field by field without being
+    zeroed calls whatever its stack held as `each`. The header now says
+    to zero it first, and a consumer building one must.
+- **`FZN_PERSIST_ERR_ROOM`**: the caller's room is smaller than what is
+  stored, with the count beside it.
+- **Peers.** `fzn_node_peers_load` walks the slot and answers ROOM with
+  the count. The admin library asks `peers_room` for more and reloads.
+  `fuzznetd` holds its peers on the heap, grown at start and when asked,
+  the running set pointed at the new block before the old is let go.
+  - `peer_persist_test`: 3002 peers, ROOM with the count into 64, whole
+    into room for them.
+  - `admin_test`: a second device paired with room for one asks for room
+    and reloads. **Control:** without the retry, it does not.
+  - `live_faults` phase f: a root pairs 80 devices and starts with all of
+    them. **Control:** with the growth at load off, it would not start.
+    The first control passed when it should have failed: the daemon's
+    first room was 128, so 80 never needed growth. A first room is now
+    exactly 64.

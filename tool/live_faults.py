@@ -22,6 +22,9 @@ the scenarios built on them test something:
        node's own tables hold, every one answered `ok`; started again, it
        loads them all and makes another (sec 703) -- where the 65th was
        refused for good, and a store holding more would not start
+    f  a root pairs 80 devices, more than the 64 peers its own room once
+       held, and starts with all of them (sec 704) -- where a store of
+       more than 64 peers kept the daemon from starting
 
 Against a daemon built without faults, phase a's B is counted at 100 per
 cent loss, phase b's daemon does not die, and phase c's says nothing.
@@ -243,6 +246,25 @@ def main(argv):
 				e.stop()
 			print("livecheck: e: 80 root changes taken, loaded again after a restart, and an "
 			      "81st")
+
+			# f: more peers than a node's first room.
+			f_dir = os.path.join(scratch, "f")
+			f_sock = os.path.join(sock_dir, "f")
+			os.mkdir(f_dir)
+			command(run, ["--fuzznet-dir=" + f_dir, "--new-root"], None)
+			for i in range(80):
+				d = os.path.join(scratch, "f%d" % i)
+				os.mkdir(d)
+				prekey = command(run, ["--fuzznet-dir=" + d, "--prekey"], None)
+				command(run, ["--fuzznet-dir=" + f_dir, "--pair=" + prekey], None)
+			f = daemon(run, "f1", f_dir, f_sock)
+			try:
+				listed = ask(f_sock, "list peer").split()
+				if len(listed) < 2 or listed[0] != "ok" or listed[1] != "80":
+					raise failed("f: a root that paired 80 devices listed %r" % listed[:3])
+			finally:
+				f.stop()
+			print("livecheck: f: 80 devices paired, and the daemon started with all of them")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

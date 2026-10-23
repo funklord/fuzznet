@@ -766,7 +766,7 @@ SABOTAGES = [
 	(
 		"node-peers-load-needs-a-list",
 		"node/peer_persist.c",
-		"\tif (!ops->list)\n\t\treturn FZN_PERSIST_ERR_BACKEND;",
+		"\tif (!ops->list && !ops->each)\n\t\treturn FZN_PERSIST_ERR_BACKEND;",
 		"\tif (0)\n\t\treturn FZN_PERSIST_ERR_BACKEND;",
 		"a backend that cannot enumerate is reported rather than read as a "
 		"store holding nobody. An empty set and `I cannot tell you` look "
@@ -778,9 +778,8 @@ SABOTAGES = [
 	(
 		"node-peers-load-checks-the-filing",
 		"node/peer_persist.c",
-		"\t\tif (memcmp(out[i].sender, subjects + (i * (size_t)FZN_PUBKEY_LEN),\n"
-		"\t\t           FZN_PUBKEY_LEN) != 0)\n\t\t\treturn FZN_PERSIST_ERR_SHAPE;",
-		"\t\tif (0)\n\t\t\treturn FZN_PERSIST_ERR_SHAPE;",
+		"\tif (memcmp(into->sender, subject, FZN_PUBKEY_LEN) != 0) {\n",
+		"\tif (0) {\n",
 		"a record filed under one identity and carrying another is refused. "
 		"Serving it means the node answers to a key its own store does not "
 		"index -- findable by nothing and removable by nothing -- and the "
@@ -11331,6 +11330,34 @@ SABOTAGES = [
 		"\t\tif (err == FZN_ROOT_LOG_ERR_FULL)\n\t\t\treturn FZN_NODE_ROOTS_FULL;\n\t\tif (err != FZN_ROOT_LOG_OK)\n\t\t\treturn FZN_NODE_ROOTS_REFUSED;\n\t}\n\tsettle(roots);",
 		"\t\tif (err != FZN_ROOT_LOG_OK)\n\t\t\treturn FZN_NODE_ROOTS_REFUSED;\n\t}\n\tsettle(roots);",
 		"a full table reads as a refused record, and nothing gives the node room -- sec 703",
+	),
+	(
+		"peers-load-says-room",
+		"node/peer_persist.c",
+		"\treturn w.n > cap ? FZN_PERSIST_ERR_ROOM : FZN_PERSIST_OK;",
+		"\treturn FZN_PERSIST_OK;",
+		"more peers stored than the caller's room reads as a whole set, and some are served nothing -- sec 704",
+	),
+	(
+		"persist-file-walks-its-slots",
+		"persist/persist_file.c",
+		"\tstore->ops.each = file_each;\n",
+		"\tstore->ops.each = NULL;\n",
+		"a file store walks a slot through a list's fixed room, and a slot past it is never read -- sec 704",
+	),
+	(
+		"persist-each-fallback-not-nested",
+		"persist/persist.c",
+		"\tif (!ops->list || each_in_room\n",
+		"\tif (!ops->list\n",
+		"a walk begun inside another's fallback overwrites the subjects it is handing out -- sec 704",
+	),
+	(
+		"admin-peers-reload-asks-for-room",
+		"node/admin.c",
+		"\tif (err == FZN_PERSIST_ERR_ROOM && admin->peers_room\n",
+		"\tif (0 && err == FZN_PERSIST_ERR_ROOM && admin->peers_room\n",
+		"a pairing past the peer set's room leaves the running node without the device -- sec 704",
 	),
 	(
 		"apply-chain-tries-every-grant",

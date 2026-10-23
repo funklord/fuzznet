@@ -53,11 +53,13 @@
 	((size_t)FZN_PERSIST_HEAD_LEN + FZN_NODE_PEER_BODY_FIXED + \
 	 ((size_t)FZN_CHAIN_MAX_HOPS * (size_t)FZN_HOP_LEN))
 
-/* The most peers `fzn_node_peers_load` will enumerate in one call, and the
- * size of the subject buffer it puts on the stack -- 64 identities is 2 KiB.
- * A store holding more fails the load rather than returning the first 64,
- * because a node serving some of its peers with nothing saying which are
- * missing is worse than one that refuses and says so. */
+/* THE ROOM A CALLER MAY START WITH, not a limit, sec 704: a node's peers are
+ * its members and every contact's devices, thousands of them for a user
+ * with hundreds of contacts. `fzn_node_peers_load` walks however many are
+ * stored and answers FZN_PERSIST_ERR_ROOM with the count when the caller's
+ * room is less -- never the first so many, because a node serving some of
+ * its peers with nothing saying which are missing is worse than one that
+ * refuses and says so. Past 64 this once kept fuzznetd from starting. */
 #define FZN_NODE_PEERS_MAX 64u
 
 /* Pack `peer` into `out`, writing the length. FZN_PERSIST_ERR_MALFORMED for a
@@ -98,8 +100,12 @@ fzn_persist_err_t fzn_node_peer_save(const fzn_persist_ops_t *ops,
  * does not have. `fzn_persist_ops_t.list` answers that, and this composes the
  * two.
  *
- * FZN_PERSIST_ERR_BACKEND when `ops->list` is NULL: a backend that cannot
- * enumerate is a real state -- a keystore addressed only by name -- and it is
+ * EVERY PEER STORED, walked (`fzn_persist_each`), into `out`'s `cap`:
+ * FZN_PERSIST_ERR_ROOM with `*count` the number stored when that is more,
+ * so the caller can give room and load again. sec 704.
+ *
+ * FZN_PERSIST_ERR_BACKEND when `ops` can neither list nor walk: a backend
+ * that cannot enumerate is a real state -- a keystore addressed only by name -- and it is
  * reported rather than turned into an empty set. An empty set and "I cannot
  * tell you" look identical to a caller and mean opposite things: the first
  * says serve nobody, the second says something is wrong with the store.

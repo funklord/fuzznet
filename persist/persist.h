@@ -406,6 +406,9 @@ typedef enum fzn_persist_err {
 	 * which is the distinction that decides whether to mint a fresh
 	 * prekey or to stop and shout. */
 	FZN_PERSIST_ERR_ABSENT,
+	/* The caller's room is smaller than what is stored: the count it would
+	 * need is given beside, and nothing was dropped to fit. sec 704. */
+	FZN_PERSIST_ERR_ROOM,
 } fzn_persist_err_t;
 
 /* The head every blob here carries: a version byte and a tag byte.
@@ -523,7 +526,32 @@ typedef struct fzn_persist_ops {
 	 * the node. */
 	int (*remove)(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject);
 	void *ctx;
+	/* EVERY SUBJECT `slot` HOLDS, handed to `fn` one at a time, with no
+	 * buffer and so no count it could run past, sec 704: `list` refuses a
+	 * slot holding more than its caller's room, rightly, and a caller's
+	 * room is a fixed number somebody chose. `fn` answers 1 to go on and
+	 * 0 to stop; it must not save to or remove from `slot` while walking
+	 * it. Returns 1 when the walk ended -- whole, or where `fn` stopped
+	 * it -- and 0 when the backend could not walk.
+	 *
+	 * OPTIONAL, and AFTER `ctx` so a backend initialised in order before
+	 * it existed is unchanged: `fzn_persist_each` falls back to `list`
+	 * for one that leaves it NULL. A caller filling this struct field by
+	 * field must zero it first, or set this too: left as whatever the
+	 * stack held, it is called. */
+	int (*each)(void *ctx, fzn_persist_slot_t slot,
+	            int (*fn)(void *arg, const uint8_t subject[FZN_PUBKEY_LEN]), void *arg);
 } fzn_persist_ops_t;
+
+/* THE SUBJECTS OF A SLOT FOR A WALKER, sec 704: `fn` per subject, through
+ * `ops->each`, or through `ops->list` into this module's room of
+ * FZN_PERSIST_EACH_FALLBACK -- a backend without `each` keeps that limit,
+ * and is told it by a failed walk, never a short one. As `each` answers;
+ * 0 too for no `list` either, and for a walk begun inside another's
+ * fallback, which shares its room. */
+#define FZN_PERSIST_EACH_FALLBACK 4096u
+int fzn_persist_each(const fzn_persist_ops_t *ops, fzn_persist_slot_t slot,
+                     int (*fn)(void *arg, const uint8_t subject[FZN_PUBKEY_LEN]), void *arg);
 
 /* ---- which slots are core, and a store that routes by it ------------- */
 

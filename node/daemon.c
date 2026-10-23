@@ -6123,6 +6123,62 @@ static void roots_room(fzn_node_roots_t *roots)
 		say(FZN_ENTRY_WARNING, "roots", "the root records' tables are full and would not grow");
 }
 
+/* ---- the peers, sec 704 ----------------------------------------------------
+ *
+ * A NODE'S PEERS ARE ITS MEMBERS AND EVERY CONTACT'S DEVICES, thousands for
+ * a user with hundreds of contacts: held here on the heap, and grown when
+ * a load finds more stored than they have room for. Past 64 this once kept
+ * the daemon from starting. */
+static fzn_node_peer_t *node_peers;
+static size_t node_peers_cap;
+static fzn_node_state_t *peers_state;
+static fzn_node_admin_t *peers_admin;
+
+/* ROOM FOR `needed`, with as many again to spare: the peers held copied
+ * across before the state is pointed at them, so a reload that then fails
+ * leaves the running set where it was rather than on freed memory. */
+static int peers_room(void *ctx, size_t needed)
+{
+	fzn_node_peer_t *more;
+	size_t cap = needed <= FZN_NODE_PEERS_MAX ? FZN_NODE_PEERS_MAX : needed * 2u, held = 0;
+
+	(void)ctx;
+	if (cap <= node_peers_cap)
+		return 1;
+	more = calloc(cap, sizeof(*more));
+	if (!more) {
+		say(FZN_ENTRY_ERROR, "node/peers", "no memory for %zu peers", cap);
+		return 0;
+	}
+	if (peers_state && peers_state->peers == node_peers)
+		held = peers_state->peer_count;
+	if (node_peers && held)
+		memcpy(more, node_peers, held * sizeof(*more));
+	if (peers_state && peers_state->peers == node_peers)
+		peers_state->peers = more;
+	free(node_peers);
+	node_peers = more;
+	node_peers_cap = cap;
+	if (peers_admin) {
+		peers_admin->peers = node_peers;
+		peers_admin->peers_cap = node_peers_cap;
+	}
+	return 1;
+}
+
+/* EVERY PEER STORED, on room grown to hold them. */
+static fzn_persist_err_t peers_load(const fzn_persist_ops_t *store, size_t *count)
+{
+	fzn_persist_err_t err;
+
+	if (!node_peers && !peers_room(NULL, FZN_NODE_PEERS_MAX))
+		return FZN_PERSIST_ERR_BACKEND;
+	err = fzn_node_peers_load(store, node_peers, node_peers_cap, count);
+	if (err == FZN_PERSIST_ERR_ROOM && peers_room(NULL, *count))
+		err = fzn_node_peers_load(store, node_peers, node_peers_cap, count);
+	return err;
+}
+
 static void hex_of(const uint8_t *b, size_t n, char *out)
 {
 	static const char H[] = "0123456789abcdef";
@@ -11358,7 +11414,7 @@ static int pair_device(const fzn_node_identity_t *id, const fzn_node_config_t *c
 	 * saved. */
 	{
 		static fzn_node_roots_t logged;
-		static fzn_node_peer_t peers[FZN_NODE_PEERS_MAX];
+		fzn_node_peer_t *peers;
 		size_t nroots = 0, npeers = 0, i;
 		int done = 0;
 
@@ -11366,8 +11422,8 @@ static int pair_device(const fzn_node_identity_t *id, const fzn_node_config_t *c
 		            == FZN_NODE_ROOTS_OK
 		    && roots_load(&logged, store, &nroots) == FZN_NODE_ROOTS_OK
 		    && journal_for(store_dir, &logged, id->sign, id->hash, store)
-		    && fzn_node_peers_load(store, peers, FZN_NODE_PEERS_MAX, &npeers)
-		               == FZN_PERSIST_OK)
+		    && peers_load(store, &npeers) == FZN_PERSIST_OK
+		    && (peers = node_peers) != NULL)
 			for (i = 0; i < npeers && !done; i++) {
 				fzn_chain_hop_t hop;
 				const uint8_t *last;
@@ -12834,7 +12890,6 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	 * deployment which has provisioned nothing yet, and it is reported
 	 * rather than refused. */
 	if (store_ops) {
-		static fzn_node_peer_t peers[FZN_NODE_PEERS_MAX];
 		static fzn_node_admin_t admin;
 		static fzn_revocation_t revoked_entries[FZN_NODE_REVOCATIONS_MAX];
 		static fzn_revocation_store_t revoked;
@@ -12939,7 +12994,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			        store_dir);
 		fzn_persist_err_t err;
 
-		err = fzn_node_peers_load(store_ops, peers, FZN_NODE_PEERS_MAX, &loaded);
+		err = peers_load(store_ops, &loaded);
 		if (err != FZN_PERSIST_OK) {
 			say(FZN_ENTRY_ERROR, "node/peers", "could not load peers from %s (%d)",
 			        bulk_dir, (int)err);
@@ -12948,8 +13003,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				fzn_udp_close(ufd);
 			return 1;
 		}
-		state.peers = peers;
+		state.peers = node_peers;
 		state.peer_count = loaded;
+		peers_state = &state;
 		say(FZN_ENTRY_INFO, "node/peers", "%zu peer(s) from %s", loaded, bulk_dir);
 
 		/* FUZZNET'S OWN VERBS, answered by the node about itself, when it
@@ -12958,8 +13014,10 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		 * which `--pair` could only do for its next start. sec 378. */
 		if (booted && has_capability) {
 			admin.state = &state;
-			admin.peers = peers;
-			admin.peers_cap = FZN_NODE_PEERS_MAX;
+			admin.peers = node_peers;
+			admin.peers_cap = node_peers_cap;
+			admin.peers_room = peers_room;
+			peers_admin = &admin;
 			admin.id = &identity;
 			admin.store = store_ops;
 			/* IDS ARE DRAWN, a group's among them (sec 516), whether or
@@ -13229,8 +13287,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				/* ADMITTED: the nodes it pulls from, as the base; the
 				 * nodes paired to it join from the live table, sec 451.
 				 * sec 433. */
-				static uint8_t writers[FZND_PULL_TARGETS_MAX + FZN_NODE_PEERS_MAX]
-				                      [FZN_PUBKEY_LEN];
+				static uint8_t writers[FZND_PULL_TARGETS_MAX][FZN_PUBKEY_LEN];
 				uint8_t pull_keys[FZND_PULL_TARGETS_MAX][FZN_PUBKEY_LEN];
 				size_t w, nw = 0;
 

@@ -251,6 +251,9 @@ fzn_persist_err_t fzn_persist_print(fzn_persist_slot_t slot, fzn_persist_err_t e
 			said = FZN_PERSIST_LINE_CORRUPT;
 			break;
 		case FZN_PERSIST_ERR_BACKEND:
+		/* MORE STORED THAN WAS ROOM TO READ, sec 704: not read whole, so
+		 * not available as far as this line can say. */
+		case FZN_PERSIST_ERR_ROOM:
 			said = FZN_PERSIST_LINE_UNAVAILABLE;
 			break;
 		case FZN_PERSIST_ERR_MALFORMED:

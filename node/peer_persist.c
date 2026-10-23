@@ -119,50 +119,68 @@ fzn_persist_err_t fzn_node_peer_save(const fzn_persist_ops_t *ops,
 	return FZN_PERSIST_OK;
 }
 
+/* ONE PEER, walked: loaded, opened, and held to the name it is filed under,
+ * into the caller's room while there is any and checked anyway past it. */
+struct peers_walk {
+	const fzn_persist_ops_t *ops;
+	fzn_node_peer_t *out;
+	size_t cap, n;
+	fzn_persist_err_t err;
+};
+
+static int peer_walked(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	static fzn_node_peer_t past;
+	static uint8_t blob[FZN_NODE_PEER_BLOB_MAX];
+	struct peers_walk *w = arg;
+	fzn_node_peer_t *into = w->n < w->cap ? &w->out[w->n] : &past;
+	size_t len = 0;
+
+	if (!w->ops->load(w->ops->ctx, FZN_PERSIST_NODE_PEER, subject, blob, sizeof(blob), &len)) {
+		w->err = FZN_PERSIST_ERR_BACKEND;
+		return 0;
+	}
+	w->err = fzn_node_peer_open(blob, len, into);
+	if (w->err != FZN_PERSIST_OK)
+		return 0;
+	/* THE FILE'S NAME AND THE BLOB'S CONTENTS MUST AGREE. A record stored
+	 * under one identity and carrying another is either a corrupted store
+	 * or a file somebody placed, and serving it would mean the node
+	 * answers to a key the store does not index -- findable by nothing,
+	 * removable by nothing. */
+	if (memcmp(into->sender, subject, FZN_PUBKEY_LEN) != 0) {
+		w->err = FZN_PERSIST_ERR_SHAPE;
+		return 0;
+	}
+	w->n++;
+	return 1;
+}
+
 fzn_persist_err_t fzn_node_peers_load(const fzn_persist_ops_t *ops,
                                       fzn_node_peer_t *out, size_t cap,
                                       size_t *count)
 {
-	uint8_t subjects[FZN_NODE_PEERS_MAX * FZN_PUBKEY_LEN];
-	uint8_t blob[FZN_NODE_PEER_BLOB_MAX];
-	size_t found = 0;
-	size_t i;
+	struct peers_walk w;
 
-	if (!ops || !ops->load || !out || !count)
+	if (!ops || !ops->load || (!out && cap) || !count)
 		return FZN_PERSIST_ERR_MALFORMED;
 	*count = 0;
 	/* REPORTED, NOT TURNED INTO AN EMPTY SET. peer_persist.h says why: an
 	 * empty set and "I cannot tell you" look identical to a caller and
 	 * mean opposite things. */
-	if (!ops->list)
+	if (!ops->list && !ops->each)
 		return FZN_PERSIST_ERR_BACKEND;
-	if (cap > FZN_NODE_PEERS_MAX)
-		cap = FZN_NODE_PEERS_MAX;
-	if (!ops->list(ops->ctx, FZN_PERSIST_NODE_PEER, subjects, cap, &found))
+	w.ops = ops;
+	w.out = out;
+	w.cap = cap;
+	w.n = 0;
+	w.err = FZN_PERSIST_OK;
+	if (!fzn_persist_each(ops, FZN_PERSIST_NODE_PEER, peer_walked, &w))
 		return FZN_PERSIST_ERR_BACKEND;
-
-	for (i = 0; i < found; i++) {
-		size_t len = 0;
-		fzn_persist_err_t err;
-
-		if (!ops->load(ops->ctx, FZN_PERSIST_NODE_PEER,
-		               subjects + (i * (size_t)FZN_PUBKEY_LEN), blob,
-		               sizeof(blob), &len))
-			return FZN_PERSIST_ERR_BACKEND;
-		err = fzn_node_peer_open(blob, len, &out[i]);
-		if (err != FZN_PERSIST_OK)
-			return err;
-		/* THE FILE'S NAME AND THE BLOB'S CONTENTS MUST AGREE. A record
-		 * stored under one identity and carrying another is either a
-		 * corrupted store or a file somebody placed, and serving it would
-		 * mean the node answers to a key the store does not index --
-		 * findable by nothing, removable by nothing. */
-		if (memcmp(out[i].sender, subjects + (i * (size_t)FZN_PUBKEY_LEN),
-		           FZN_PUBKEY_LEN) != 0)
-			return FZN_PERSIST_ERR_SHAPE;
-	}
-	*count = found;
-	return FZN_PERSIST_OK;
+	if (w.err != FZN_PERSIST_OK)
+		return w.err;
+	*count = w.n;
+	return w.n > cap ? FZN_PERSIST_ERR_ROOM : FZN_PERSIST_OK;
 }
 
 fzn_persist_err_t fzn_node_peer_remove(const fzn_persist_ops_t *ops,

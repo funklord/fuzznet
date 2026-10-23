@@ -25,6 +25,7 @@
 #include <string.h>
 
 static int log_grant(struct fzn_node_admin *admin, const uint8_t device[FZN_PUBKEY_LEN]);
+static fzn_persist_err_t reload_peers(fzn_node_admin_t *admin, size_t *loaded);
 static int next_word(const uint8_t **rest, size_t *rest_len, const uint8_t **w, size_t *w_len);
 
 /* `ok ` and the whole card text must fit one reply line, or `add peer` is a
@@ -132,7 +133,7 @@ static const char *pair_running(fzn_node_admin_t *admin, fzn_prekey_record_t rec
 	                        strlen(host), host[0] ? port : 0u, card, card_cap, card_len);
 	if (perr != FZN_NODE_PAIR_OK)
 		return fzn_node_pair_err_str(perr);
-	if (fzn_node_peers_load(admin->store, admin->peers, admin->peers_cap, &loaded)
+	if (reload_peers(admin, &loaded)
 	    != FZN_PERSIST_OK)
 		return "paired and saved, and the running peer set did not reload";
 	admin->state->peers = admin->peers;
@@ -304,7 +305,7 @@ static size_t list_peers(fzn_node_admin_t *admin, const uint8_t *from_text, size
 	int n;
 
 	for (i = 0; i < from_len; i++) {
-		if (from_text[i] < '0' || from_text[i] > '9' || from > FZN_NODE_PEERS_MAX)
+		if (from_text[i] < '0' || from_text[i] > '9' || from > total)
 			return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a peer index");
 		from = (from * 10u) + (size_t)(from_text[i] - '0');
 	}
@@ -379,7 +380,7 @@ static size_t remove_peer(fzn_node_admin_t *admin, const uint8_t *hex, size_t he
 	 * node serving a set that still holds the device, and says so -- the
 	 * one direction where carrying on quietly would keep serving somebody
 	 * the operator has just cut off. */
-	if (fzn_node_peers_load(admin->store, admin->peers, admin->peers_cap, &loaded)
+	if (reload_peers(admin, &loaded)
 	    != FZN_PERSIST_OK)
 		return answer_text(reply, cap, FZN_REPLY_ERROR,
 		                   "forgotten by the store, and the running peer set did not "
@@ -988,6 +989,19 @@ static size_t roster_refusal(char *reply, size_t cap, fzn_node_roster_err_t err)
 	                   fzn_node_roster_err_str(err));
 }
 
+/* THE RUNNING PEER SET FROM THE STORE, room asked for when there are more
+ * peers than `peers_cap`. sec 704. */
+static fzn_persist_err_t reload_peers(fzn_node_admin_t *admin, size_t *loaded)
+{
+	fzn_persist_err_t err = fzn_node_peers_load(admin->store, admin->peers, admin->peers_cap,
+	                                            loaded);
+
+	if (err == FZN_PERSIST_ERR_ROOM && admin->peers_room
+	    && admin->peers_room(admin->peers_room_ctx, *loaded))
+		err = fzn_node_peers_load(admin->store, admin->peers, admin->peers_cap, loaded);
+	return err;
+}
+
 static uint64_t admin_now_ms(const fzn_node_admin_t *admin)
 {
 	return admin->state->clock ? admin->state->clock() * 1000u : 0u;
@@ -1506,7 +1520,7 @@ static size_t grant_share(fzn_node_admin_t *admin, const uint8_t *rest, size_t r
 	                     sizeof(card), &card_len);
 	if (perr != FZN_NODE_PAIR_OK)
 		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_pair_err_str(perr));
-	if (fzn_node_peers_load(admin->store, admin->peers, admin->peers_cap, &loaded)
+	if (reload_peers(admin, &loaded)
 	    != FZN_PERSIST_OK)
 		return answer_text(reply, cap, FZN_REPLY_ERROR,
 		                   "granted and saved, and the running peer set did not reload");
@@ -2019,7 +2033,7 @@ static int pair_device(fzn_node_admin_t *admin, const fzn_contact_device_t *d, i
 			*why = fzn_node_pair_err_str(perr);
 		return -1;
 	}
-	if (fzn_node_peers_load(admin->store, admin->peers, admin->peers_cap, &loaded)
+	if (reload_peers(admin, &loaded)
 	    != FZN_PERSIST_OK) {
 		if (why)
 			*why = "paired and saved, and the running peer set did not reload";

@@ -294,14 +294,51 @@ int main(void)
 				   "a saved peer did not come back byte-for-byte");
 			}
 
-			/* A CAP SMALLER THAN THE STORE FAILS rather than returning
-			 * the first few: a node serving some of its peers with
-			 * nothing saying which are missing is worse than one that
-			 * refuses. */
-			ok(fzn_node_peers_load(ops, got, 1u, &n)
-			       == FZN_PERSIST_ERR_BACKEND && n == 0u,
+			/* A CAP SMALLER THAN THE STORE IS TOLD SO, with the count it
+			 * needs, rather than returned the first few: a node serving
+			 * some of its peers with nothing saying which are missing is
+			 * worse than one that refuses. sec 704. */
+			ok(fzn_node_peers_load(ops, got, 1u, &n) == FZN_PERSIST_ERR_ROOM
+			       && n == 2u,
 			   "a store holding more peers than the caller's array "
-			   "returned a truncated set");
+			   "returned a truncated set, or did not say how many");
+			/* AND AT THOUSANDS, sec 704: past 64 the load once failed and
+			 * the daemon would not start. */
+			{
+				static fzn_node_peer_t many[3000];
+				size_t k, saved = 0, held = 0;
+
+				for (k = 0; k < 3000u; k++) {
+					fill(&many[0], k % 3u);
+					many[0].sender[0] = 0x40u;
+					many[0].sender[1] = (uint8_t)k;
+					many[0].sender[2] = (uint8_t)(k >> 8);
+					saved += fzn_node_peer_save(ops, &many[0]) == FZN_PERSIST_OK;
+				}
+				ok(saved == 3000u, "fixture: 3000 peers saved");
+				ok(fzn_node_peers_load(ops, many, 64u, &n) == FZN_PERSIST_ERR_ROOM
+				       && n == 3002u,
+				   "3002 peers in room for 64 did not answer room with the count");
+				ok(fzn_node_peers_load(ops, many, 3002u, &n) == FZN_PERSIST_OK
+				       && n == 3002u,
+				   "3002 peers did not load into room for them");
+				for (k = 0; k < n; k++)
+					held += many[k].sender[0] == 0x40u;
+				ok(held == 3000u, "the 3000 did not all come back");
+				for (k = 0; k < 3000u; k++) {
+					uint8_t sender[FZN_PUBKEY_LEN];
+
+					memcpy(sender, many[0].sender, sizeof(sender));
+					fill(&many[0], 0);
+					memcpy(many[0].sender, sender, sizeof(sender));
+					many[0].sender[0] = 0x40u;
+					many[0].sender[1] = (uint8_t)k;
+					many[0].sender[2] = (uint8_t)(k >> 8);
+					(void)fzn_node_peer_remove(ops, many[0].sender);
+				}
+				ok(fzn_node_peers_load(ops, got, 4u, &n) == FZN_PERSIST_OK && n == 2u,
+				   "the 3000 were not removed again");
+			}
 
 			/* A STRANGER IN THE DIRECTORY IS SKIPPED. The directory is
 			 * the caller's; one unrelated file must not stop a node
@@ -386,7 +423,9 @@ int main(void)
 			{
 				fzn_persist_ops_t blind = *ops;
 
+				/* NEITHER WAY TO ENUMERATE: a walk is one, since sec 704. */
 				blind.list = NULL;
+				blind.each = NULL;
 				ok(fzn_node_peers_load(&blind, got, 4u, &n)
 				       == FZN_PERSIST_ERR_BACKEND,
 				   "a backend with no list read as a store holding nobody");

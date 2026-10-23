@@ -886,8 +886,8 @@ static void test_the_route_sends_each_slot_where_the_rule_says(void)
 		                                   FZN_PERSIST_STREAM_RECORD,
 		                                   FZN_PERSIST_STREAM_HEAD };
 	struct counting core, bulk;
-	fzn_persist_ops_t core_ops = { count_load, count_save, count_list, NULL, &core };
-	fzn_persist_ops_t bulk_ops = { count_load, count_save, NULL, NULL, &bulk };
+	fzn_persist_ops_t core_ops = { count_load, count_save, count_list, NULL, &core, NULL };
+	fzn_persist_ops_t bulk_ops = { count_load, count_save, NULL, NULL, &bulk, NULL };
 	fzn_persist_route_t route = { &core_ops, &bulk_ops };
 	fzn_persist_ops_t ops;
 	uint8_t subject[FZN_PUBKEY_LEN] = { 0 }, buf[4];

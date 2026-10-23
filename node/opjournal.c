@@ -433,6 +433,17 @@ static int oj_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max,
 	return oj->base->list && oj->base->list(oj->base->ctx, slot, out, max, count);
 }
 
+/* A WALK OF THE BASE'S SLOT, as `oj_list` asks the base: the journal keeps
+ * nothing a walk would read. Offered only over a base that walks; over one
+ * that does not, a walk falls back to `oj_list`. sec 704. */
+static int oj_each(void *ctx, fzn_persist_slot_t slot,
+                   int (*fn)(void *arg, const uint8_t subject[FZN_PUBKEY_LEN]), void *arg)
+{
+	const fzn_opjournal_t *oj = (const fzn_opjournal_t *)ctx;
+
+	return oj->base->each(oj->base->ctx, slot, fn, arg);
+}
+
 static void row_of(const uint8_t *subject, fzn_opjournal_entry_t *e)
 {
 	memset(e, 0, sizeof(*e));
@@ -496,6 +507,7 @@ void fzn_opjournal_ops(fzn_opjournal_t *oj, fzn_persist_ops_t *ops)
 	ops->list = oj_list;
 	ops->remove = oj_remove;
 	ops->ctx = oj;
+	ops->each = oj->base && oj->base->each ? oj_each : NULL;
 }
 
 /* ---- replay ------------------------------------------------------------- */

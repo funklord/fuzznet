@@ -401,6 +401,52 @@ static int file_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t ma
 	return 1;
 }
 
+/* EVERY SUBJECT A SLOT HOLDS, walked, sec 704: the names `file_list` takes,
+ * each handed to `fn` as it is read, so no count bounds a slot. */
+static int file_each(void *ctx, fzn_persist_slot_t slot,
+                     int (*fn)(void *arg, const uint8_t subject[FZN_PUBKEY_LEN]), void *arg)
+{
+	fzn_persist_file_t *store = (fzn_persist_file_t *)ctx;
+	DIR *d;
+	struct dirent *ent;
+	char prefix[4];
+	size_t prefix_len = 0;
+
+	if (!store || !fn || (unsigned)slot > FZN_PERSIST_FILE_SLOT_MAX)
+		return 0;
+	if ((unsigned)slot >= 10u)
+		prefix[prefix_len++] = (char)('0' + ((unsigned)slot / 10u));
+	prefix[prefix_len++] = (char)('0' + ((unsigned)slot % 10u));
+	prefix[prefix_len++] = '-';
+	prefix[prefix_len] = '\0';
+	d = opendir(store->dir);
+	if (!d)
+		return 0;
+	while ((ent = readdir(d)) != NULL) {
+		const char *n = ent->d_name;
+		uint8_t subject[FZN_PUBKEY_LEN];
+		unsigned i;
+		int ok = 1;
+
+		if (strlen(n) != prefix_len + 64u || memcmp(n, prefix, prefix_len) != 0)
+			continue;
+		for (i = 0; i < 32u; i++) {
+			int hi = unhex(n[prefix_len + (i * 2u)]);
+			int lo = unhex(n[prefix_len + 1u + (i * 2u)]);
+
+			if (hi < 0 || lo < 0) {
+				ok = 0;
+				break;
+			}
+			subject[i] = (uint8_t)((hi << 4) | lo);
+		}
+		if (ok && !fn(arg, subject))
+			break;
+	}
+	(void)closedir(d);
+	return 1;
+}
+
 fzn_persist_err_t fzn_persist_file_holds(const fzn_persist_file_t *store,
                                          fzn_persist_slot_t slot, const uint8_t *subject)
 {
@@ -459,5 +505,6 @@ const fzn_persist_ops_t *fzn_persist_file_init(fzn_persist_file_t *store, const 
 	store->ops.list = file_list;
 	store->ops.remove = file_remove;
 	store->ops.ctx = store;
+	store->ops.each = file_each;
 	return &store->ops;
 }
