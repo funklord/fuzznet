@@ -107,6 +107,12 @@ typedef struct fzn_caller {
 	             const uint8_t *payload, size_t len);
 	void (*answered)(void *ctx, const struct fzn_caller *caller, uint32_t msg, size_t len);
 	void *traffic_ctx;
+	/* WHO ANSWERS UNDER THIS SESSION, sec 708: the sender of the last frame
+	 * that opened under its keys, set by the caller as it reads. What
+	 * `fzn_caller_forget` needs to name a reply's partial in a reassembly
+	 * table that may be shared. */
+	uint8_t answerer[FZN_SENDER_LEN];
+	int answerer_known;
 } fzn_caller_t;
 
 /* Send one request, reporting the `msg` it went out under.
@@ -145,6 +151,13 @@ fzn_caller_err_t fzn_caller_hello(fzn_caller_t *caller, int fd, uint64_t expires
 fzn_caller_err_t fzn_caller_recv(fzn_caller_t *caller, uint32_t msg,
                                  uint8_t *reply, size_t reply_cap,
                                  size_t *reply_len, unsigned timeout_ms);
+
+/* FORGET THE ANSWER TO `msg`, given up on, sec 708: a reply held part way in
+ * this caller's reassembly table, one piece lost, is dropped rather than
+ * left to hold its slot until the table expires it. `fzn_caller_recv` does
+ * this itself when it times out; a caller that waits by other means -- the
+ * daemon's ask table -- calls it when it stops waiting. */
+void fzn_caller_forget(const fzn_caller_t *caller, uint32_t msg);
 
 /* Both, for a caller with no loop of its own.
  *

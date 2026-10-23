@@ -225,6 +225,15 @@ fzn_reasm_err_t fzn_reasm_slot_init(fzn_partial_t *slot, uint8_t *buf, size_t ca
  */
 size_t fzn_reasm_expire(fzn_reasm_t *table, uint64_t now);
 
+/* FORGET A MESSAGE GIVEN UP ON, sec 708: drop every partial not yet handed
+ * of `sender`'s message `msg`, and say how many. Both, since message ids are
+ * each sender's own count and a shared table holds many senders'. For a caller whose request
+ * went unanswered: the reply it was waiting for may be held here part way,
+ * one piece lost, and nothing resends it. Left to expire, it held its
+ * slot for the table's whole `max_hold` -- and a caller with one slot, as
+ * a pull target has, refused every reply from that peer meanwhile. */
+size_t fzn_reasm_forget(fzn_reasm_t *table, const uint8_t sender[FZN_SENDER_LEN], uint32_t msg);
+
 /* Offer one chunk.
  *
  * On the FIRST chunk of a message the slot is sized from what that chunk

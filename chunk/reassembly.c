@@ -294,6 +294,26 @@ size_t fzn_reasm_expire(fzn_reasm_t *table, uint64_t now)
 	return dropped;
 }
 
+size_t fzn_reasm_forget(fzn_reasm_t *table, const uint8_t sender[FZN_SENDER_LEN], uint32_t msg)
+{
+	size_t dropped = 0;
+
+	if (!table || !table->partials || !sender)
+		return 0;
+	/* `!slot->handed` for the reason `fzn_reasm_expire` gives: a handed
+	 * slot is the caller's until it releases it. */
+	for (size_t i = 0; i < table->capacity; i++) {
+		fzn_partial_t *slot = &table->partials[i];
+
+		if (slot->live && !slot->handed && slot->msg == msg
+		    && memcmp(slot->sender, sender, FZN_SENDER_LEN) == 0) {
+			fzn_reasm_release(slot);
+			dropped++;
+		}
+	}
+	return dropped;
+}
+
 /* The latest instant a slot may be held, saturating rather than wrapping --
  * `now + max_hold` on caller-chosen uint64s overflows, and a wrapped deadline
  * would expire a slot the moment it was taken. Named after

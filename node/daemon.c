@@ -1691,6 +1691,40 @@ static void silent_mark(const struct pull_target *pt)
 	}
 }
 
+/* A PEER'S JOURNAL WINDOW, sec 708: how many records one request of its
+ * journal pull asks for -- halved when the pull went unanswered, doubled
+ * when it was answered, from 1 to FZN_NODE_JOURNAL_WINDOW. Nothing resends
+ * a lost datagram and a reply is taken whole or not at all, so at 5 per
+ * cent loss a request for 64 records, some twenty datagrams, was answered
+ * about one time in three; a pull asks several, and once a stream held
+ * that much the estate stopped converging, every round failing alike.
+ * Kept by host and port across rounds, as `silent` is within one, with the
+ * host copied: a round rebuilds its sibling targets. */
+static struct {
+	char host[FZN_UDP_HOST_MAX + 1u];
+	long port;
+	uint32_t window;
+} journal_windows[FZND_ROUND_TARGETS_MAX];
+static size_t n_journal_windows;
+
+static uint32_t *journal_window(const struct pull_target *pt)
+{
+	size_t i;
+
+	if (strlen(pt->host) > FZN_UDP_HOST_MAX)
+		return NULL;
+	for (i = 0; i < n_journal_windows; i++)
+		if (journal_windows[i].port == pt->port && strcmp(journal_windows[i].host, pt->host) == 0)
+			return &journal_windows[i].window;
+	if (n_journal_windows == FZND_ROUND_TARGETS_MAX)
+		return NULL;
+	i = n_journal_windows++;
+	memcpy(journal_windows[i].host, pt->host, strlen(pt->host) + 1u);
+	journal_windows[i].port = pt->port;
+	journal_windows[i].window = FZN_NODE_JOURNAL_WINDOW;
+	return &journal_windows[i].window;
+}
+
 /* The members the last round's pulls proved, sec 445, kept so the writer set
  * can be rebuilt between rounds. */
 static uint8_t pulled_members[FZN_NODE_NOTES_WRITERS][FZN_PUBKEY_LEN];
@@ -3896,6 +3930,9 @@ struct journal_talk {
 	fzn_exchange_pulling_t pull;
 	fzn_exchange_pushing_t push;
 	fzn_exchange_err_t pull_err, push_err;
+	/* THE PUSH'S MESSAGE BOUND, sec 708: by the peer's journal window, so a
+	 * push is as many datagrams as a pull's request for as many records. */
+	size_t push_cap;
 	uint8_t message[FZND_JOURNAL_MESSAGE_MAX];
 };
 static struct journal_talk journal_talks[FZND_ROUND_TARGETS_MAX];
@@ -3907,7 +3944,8 @@ static int journal_push_begin(struct journal_talk *jt, uint8_t *request, size_t 
 {
 	jt->pushing = 1;
 	jt->push_err = fzn_exchange_push_begin(&jt->push, &node_journal.journal, &node_journal.store,
-	                                       request, cap, request_len);
+	                                       request, cap < jt->push_cap ? cap : jt->push_cap,
+	                                       request_len);
 	if (jt->push_err != FZN_EXCHANGE_OK)
 		return 0;
 	meter_asked(&jt->m, *request_len);
@@ -3933,7 +3971,8 @@ static int journal_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, 
 		meter_asked(&jt->m, *request_len);
 		return 1;
 	}
-	jt->push_err = fzn_exchange_push_step(&jt->push, reply, reply_len, request, cap, request_len,
+	jt->push_err = fzn_exchange_push_step(&jt->push, reply, reply_len, request,
+	                                      cap < jt->push_cap ? cap : jt->push_cap, request_len,
 	                                      &done);
 	if (jt->push_err != FZN_EXCHANGE_OK || done)
 		return 0;
@@ -3944,6 +3983,7 @@ static int journal_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, 
 static void journal_start(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
 	size_t t, len;
+	uint32_t *window;
 
 	n_journal_talks = 0;
 	if (!journal_on)
@@ -3958,9 +3998,15 @@ static void journal_start(struct pull_target *pulls, size_t npulls, uint64_t now
 		jt->push_err = FZN_EXCHANGE_OK;
 		memset(&jt->push.tally, 0, sizeof(jt->push.tally));
 		len = 0;
+		window = journal_window(&pulls[t]);
+		jt->push_cap = FZN_EXCHANGE_PUSH_HEAD_LEN
+		               + (window ? *window : FZN_NODE_JOURNAL_WINDOW) * (2u + FZN_RECORD_MAX_LEN);
+		if (jt->push_cap < FZN_EXCHANGE_REPLY_MIN)
+			jt->push_cap = FZN_EXCHANGE_REPLY_MIN;
 		jt->pull_err = fzn_exchange_pull_begin(&jt->pull, &node_journal.journal,
 		                                       &node_journal.store, node_journal.sign,
-		                                       node_journal.hash, FZN_NODE_JOURNAL_WINDOW,
+		                                       node_journal.hash,
+		                                       window ? *window : FZN_NODE_JOURNAL_WINDOW,
 		                                       jt->message, sizeof(jt->message), &len);
 		if (jt->pull_err != FZN_EXCHANGE_OK)
 			continue;
@@ -3983,6 +4029,14 @@ static void journal_settle(struct pull_target *pulls, size_t npulls, uint64_t no
 		const fzn_exchange_push_tally_t *pushed = &jt->push.tally;
 		const char *host = pulls[jt->t].host;
 
+		uint32_t *window = journal_window(&pulls[jt->t]);
+
+		/* ITS WINDOW HALVED ON SILENCE AND DOUBLED ON AN ANSWER, sec 708. */
+		if (window && jt->pull_err == FZN_EXCHANGE_ERR_NO_ANSWER && *window > 1u)
+			*window /= 2u;
+		else if (window && jt->pull_err == FZN_EXCHANGE_OK && *window < FZN_NODE_JOURNAL_WINDOW)
+			*window = *window * 2u > FZN_NODE_JOURNAL_WINDOW ? FZN_NODE_JOURNAL_WINDOW
+			                                                : *window * 2u;
 		if (jt->pull_err == FZN_EXCHANGE_ERR_NO_ANSWER) {
 			/* PASSED OVER FOR THE REST OF THE ROUND, sec 587. */
 			say(FZN_ENTRY_WARNING, "journal", "%s did not answer; passed over this round",
@@ -14051,6 +14105,25 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					else if (grants)
 						say(FZN_ENTRY_INFO, "journal", "%zu grant(s) from %s", grants,
 						    store_dir);
+				}
+				/* THIS NODE'S OWN CHAINS, sec 709: its estate pairing's and
+				 * its admin chain's hops, each verified when it was kept,
+				 * offered to the index root first. Left to the journal, a
+				 * capability this node holds read as not held until a pull
+				 * from its root brought the same grants back: at once on a
+				 * clean network, rounds later under loss. A grant held is
+				 * taken once. */
+				{
+					fzn_node_apply_tally_t own;
+					size_t h;
+
+					memset(&own, 0, sizeof(own));
+					for (h = 0; my_authority && h < estate.hop_count; h++)
+						(void)fzn_node_apply_object(&node_apply, estate.chain[h], FZN_HOP_LEN,
+						                            &own);
+					for (h = 0; h < own_admin.hop_count; h++)
+						(void)fzn_node_apply_object(&node_apply, own_admin.hops[h], FZN_HOP_LEN,
+						                            &own);
 				}
 				apply_journal();
 				retention_to_settings(&identity);

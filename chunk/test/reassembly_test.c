@@ -1574,6 +1574,41 @@ static void test_the_hold_deadline_saturates(void)
  * stranger sharing a victim's first byte learns which chunks of the victim's
  * message this host still lacks, which is the leak the sender in the match
  * exists to prevent. */
+/* A MESSAGE GIVEN UP ON IS FORGOTTEN, sec 708: at a quota of one, alice's
+ * message 1 held part way refuses her message 2 until it is forgotten.
+ * Forgetting names sender and message both -- bob's message 1 and alice's
+ * message 2 stay -- and a handed slot, the caller's, is never taken. */
+static void test_a_message_given_up_on_is_forgotten(void)
+{
+	struct fixture f;
+	fzn_partial_t *done = NULL;
+	uint8_t piece[8];
+
+	fixture_init(&f, 1);
+	fill(piece, 8, 0x30, 0);
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 0, 2, piece, 8, 0, 100, &done) == FZN_REASM_OK
+	              && fzn_reasm_accept(&f.table, f.bob, 1, 0, 2, piece, 8, 0, 100, &done)
+	                         == FZN_REASM_OK
+	              && fzn_reasm_accept(&f.table, f.alice, 2, 0, 2, piece, 8, 0, 100, &done)
+	                         == FZN_REASM_ERR_QUOTA,
+	      "fixture: alice's message 1 and bob's held part way, and alice's next refused");
+	CHECK(fzn_reasm_forget(&f.table, f.alice, 2) == 0u
+	              && fzn_reasm_held_by(&f.table, f.alice) == 1u,
+	      "a message nobody held was forgotten in place of another");
+	CHECK(fzn_reasm_forget(&f.table, f.alice, 1) == 1u
+	              && fzn_reasm_held_by(&f.table, f.alice) == 0u
+	              && fzn_reasm_held_by(&f.table, f.bob) == 1u,
+	      "alice's message 1 was not forgotten, or bob's message 1 went with it");
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 2, 0, 2, piece, 8, 0, 100, &done) == FZN_REASM_OK,
+	      "with her message forgotten, alice's next was still refused");
+	CHECK(fzn_reasm_accept(&f.table, f.bob, 1, 1, 2, piece, 8, 0, 100, &done) == FZN_REASM_OK
+	              && done && fzn_reasm_forget(&f.table, f.bob, 1) == 0u && done->live,
+	      "a handed slot was forgotten while the caller held it");
+	fzn_reasm_release(done);
+	CHECK(fzn_reasm_forget(NULL, f.alice, 2) == 0u && fzn_reasm_forget(&f.table, NULL, 2) == 0u,
+	      "a missing operand forgot something");
+}
+
 static void test_plan_want_reads_the_whole_sender(void)
 {
 	struct fixture f;
@@ -1636,6 +1671,7 @@ int main(void)
 	test_the_operands_the_first_one_hides();
 
 	test_the_hold_deadline_saturates();
+	test_a_message_given_up_on_is_forgotten();
 
 #ifdef FZN_FLOG_ON
 	/*

@@ -23,7 +23,9 @@ successor) and E (a device paired by the second root).
     e  recovery: R adds A2 as a root and is stopped for good; A2 removes R
        from the roots, pairs E, and E joins and reads what A2 sets as root
 
-`--loss P` runs every daemon at FZN_FAULT_LOSS=P with one seed per run.
+`--loss P` runs every daemon at FZN_FAULT_LOSS=P with one seed per run;
+`--keep DIR` copies a failed run's daemon output and logs into DIR, which
+must not exist. The stores are left out.
 
 Against a daemon that keeps a setting past its setter's cut, phase c's
 h/mid still reads at R.
@@ -37,6 +39,7 @@ Exit 0 on a pass, 1 on a failure.
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -62,6 +65,7 @@ def main(argv):
 	parser.add_argument("fuzznetd", help="a daemon built by make fuzznetd-faults")
 	parser.add_argument("--loss", type=int, default=0, help="per cent of datagrams lost")
 	parser.add_argument("--within", type=float, default=900.0, help="the whole run's deadline")
+	parser.add_argument("--keep", help="on a failure, copy the run's logs into this new directory")
 	args = parser.parse_args(argv[1:])
 	live_trim.DEADLINE = time.monotonic() + args.within
 	# A WAIT, at 20 per cent loss, may cost many rounds.
@@ -323,6 +327,10 @@ def main(argv):
 					print("livecheck: --- %s" % name)
 					for line in tail:
 						print("livecheck:     %s" % line)
+			if args.keep:
+				shutil.copytree(scratch, args.keep, ignore=shutil.ignore_patterns("[a-z]", "[a-z][0-9]"),
+				                symlinks=True)
+				print("livecheck: the run's logs kept in %s" % args.keep)
 			return 1
 		except subprocess.TimeoutExpired as e:
 			print("livecheck: FAILED -- a command passed its deadline: %s" % e)

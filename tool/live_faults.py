@@ -42,6 +42,10 @@ the scenarios built on them test something:
        address, more than the 32 contact hosts it once reached and the 48
        its first room holds; its round grows the room and delivers to all
        60 (sec 704) -- where the 33rd host was never reached
+    k  a member joined by its card, at 100 per cent loss so it can pull
+       nothing, lists member held at once, and admin straight after `set
+       admin` (sec 709) -- where both waited for a pull from the root to
+       bring back grants the member already kept
 
 Against a daemon built without faults, phase a's B is counted at 100 per
 cent loss, phase b's daemon does not die, and phase c's says nothing.
@@ -445,6 +449,59 @@ def main(argv):
 				j.stop()
 			print("livecheck: j: 60 contact hosts added, and the round grew its room and "
 			      "delivered to all of them")
+
+			# k: a member that can pull nothing holds what it keeps (sec 709).
+			k_dir, k_root = (os.path.join(scratch, w) for w in ("k", "kr"))
+			k_sock, kr_sock = (os.path.join(sock_dir, w) for w in ("k", "kr"))
+			for d in (k_dir, k_root):
+				os.mkdir(d)
+			command(run, ["--fuzznet-dir=" + k_root, "--new-root"], None)
+			k_prekey = command(run, ["--fuzznet-dir=" + k_dir, "--prekey"], None)
+			k_card = command(run, ["--fuzznet-dir=" + k_root, "--pair=" + k_prekey, "--delegable"],
+			                 None)
+			command(run, ["--fuzznet-dir=" + k_dir, "--accept=" + k_card, "--join"], None)
+			kr_port = str(int(port) + 70)
+			root = daemon(run, "kr", k_root, kr_sock, extra=["--udp-port=" + kr_port])
+			try:
+				faulted({"FZN_FAULT_LOSS": "100"})
+				try:
+					member = daemon(run, "k", k_dir, k_sock, extra=["--root-at", "127.0.0.1", kr_port])
+				finally:
+					faulted({})
+				try:
+					held = ask(k_sock, "list capability").split()
+					if "member,1,1,0" not in held[2:]:
+						raise failed("k: a member at total loss lists %r, not member held by "
+						             "the chain it joined with" % held)
+					granted = ask(kr_sock, "grant admin " + k_prekey[4:68]).split()
+					if len(granted) < 2 or granted[0] != "ok":
+						raise failed("k: the root's grant admin answered %r" % granted[:2])
+					chain = os.path.join(scratch, "k-admin")
+					with open(chain, "w") as f:
+						f.write(" ".join(granted[1:]) + "\n")
+					kept = ask(k_sock, "set admin " + chain)
+					if kept != "ok %d" % (len(granted) - 1):
+						raise failed("k: set admin answered %r" % kept)
+					until = time.monotonic() + 20.0
+					while True:
+						try:
+							if ask(k_sock, "status").startswith("ok "):
+								break
+						except OSError:
+							pass
+						if time.monotonic() > until:
+							raise failed("k: the member did not serve again after set admin")
+						time.sleep(0.2)
+					held = ask(k_sock, "list capability").split()
+					if not any(e.startswith("admin,1,1,") for e in held[2:]):
+						raise failed("k: at total loss, straight after set admin, the member "
+						             "lists %r, not admin held by the chain it kept" % held)
+				finally:
+					member.stop()
+			finally:
+				root.stop()
+			print("livecheck: k: a member that can pull nothing holds member and admin by the "
+			      "chains it keeps")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

@@ -1981,7 +1981,7 @@ endif
 DEPS = $(OBJS:.o=.d) $(TEST_OBJS:.o=.d) $(GUI_OBJS:.o=.d) $(GUI_TOBJ:.o=.d) \
        $(PROG_OBJS:.o=.d)
 
-.PHONY: check runtests all test fuzz guided guided-one installcheck coverage sancheck schema qtty qrcheck livecheck livecheck-repeat livecheck-hull fuzznetd-faults livecheck-faults style codegencheck ctcheck analyze sabotage reach hooks clean install
+.PHONY: check runtests all test fuzz guided guided-one installcheck coverage sancheck schema qtty qrcheck livecheck livecheck-repeat livecheck-hull fuzznetd-faults livecheck-faults livecheck-fzp style codegencheck ctcheck analyze sabotage reach hooks clean install
 
 # The default build does NOT build tests -- build-and-commit.md, and the
 # discipline it buys is paid for by the dependency rules above being right.
@@ -6361,6 +6361,14 @@ fuzznetd-faults:
 livecheck-faults: fuzznetd-faults
 	@timeout 400 python3 tool/live_faults.py $(BUILD_DIR)/faults/fuzznetd
 	@timeout 1000 python3 tool/live_estate.py $(BUILD_DIR)/faults/fuzznetd
+
+# FUZZYPICKLES' CLIENT OVER fuzznetd, sec 710: its `fzp --node-socket`
+# driving the subset across fault-build daemons. Not part of
+# livecheck-faults: it runs the fzp a sibling tree has built, whatever that
+# tree holds at the time, so a gate on it would fail on another session's
+# work in progress. FZP names the client; without one it is SKIPPED.
+livecheck-fzp: fuzznetd-faults
+	@timeout 900 python3 tool/live_fzp.py $(BUILD_DIR)/faults/fuzznetd
 
 # NAT ON HULL, sec 692 and 695: machines on segments of their own, a
 # member behind a gateway's nftables NAT joining its root. Needs hull

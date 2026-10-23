@@ -70403,6 +70403,15 @@ per cent overhead, the frame header 14.7 of it. Read from `node/files.c`,
     datagram.
 
   Not started. It waits on the holder's cut-over question.
+
+  **hull's switch now impairs links itself**, hull 6f223d9 as its session
+  reported it 2026-10-23: netem's terms per machine and direction (loss,
+  the Gilbert-Elliott model, delay and jitter, reorder, duplicate,
+  corrupt, rate, limit, mtu, down), seeded, changeable during a run, with
+  per-port counts each way. It needs no `tc` in the guest and works on
+  chroot and vm alike. Not yet: an impairment given in the spec before
+  start, and pausing a machine.
+
 - **A proposal to measure, from fuzzypickles** (inbox 20261023T1630Z),
   which the holder asked for, judged against the project's aims. Not a
   decision: the frame change is the holder's to approve once hull has
@@ -70572,11 +70581,194 @@ in the script:
 
 ### Not yet, after sec 707
 
-- **Loss, restarts inside an operation, and clock skew**, which sec 689
-  asks of every journey. The script takes `--loss`, which has not been
-  run yet.
+- **Restarts inside an operation, and clock skew**, which sec 689 asks
+  of every journey. Loss is sec 708's.
 - **No verb shows a key's head**, so a cut other than the default can
   only be named from a log.
+
+## 708. The estate's journey under loss: two faults, and a question, 2026-10-23
+
+`tool/live_estate.py --loss P` runs every daemon of sec 707's journey
+at that datagram loss, from the fault build. It failed at 5 per cent on
+two faults in how replies are received, both fixed here.
+
+### A reply that lost a piece held its peer's only slot for a minute
+
+- **A pull target reassembles into one slot**, with a quota of one a
+  sender and a hold of 60 s. A reply that lost one piece left its
+  partial there. Nothing resends, so that partial could never complete.
+- **So every later reply from that peer was refused** until the partial
+  expired, a dozen rounds at 5 s. One run at 5 per cent showed it whole:
+  R answered every one of A1's pulls for a minute, and A1 heard none.
+- **`fzn_reasm_forget`** drops a sender's partial of one message.
+  `fzn_caller_forget` calls it with the sender that last answered under
+  the caller's session, which the caller now keeps.
+  - `fzn_caller_recv` forgets when it times out.
+  - The daemon's ask table forgets as it expires or cancels an ask.
+- **Sender and message both**, since message ids are each caller's own
+  count from 0, and the contact hosts' pool holds many senders' partials.
+  A handed slot is never taken: it is the caller's until released.
+
+### A pull asked for twenty datagrams at once
+
+- **A journal pull asked for up to 64 records a request**
+  (`FZN_NODE_JOURNAL_WINDOW`), some twenty datagrams once a stream held
+  that many. Whole or nothing, such a reply arrived about one time in
+  three at 5 per cent loss. A pull needs several, so once a stream held
+  dozens of records the estate stopped converging: A2's vote never
+  reached R.
+- **Each peer now has a journal window**, halved when its pull went
+  unanswered and doubled when one was answered, from 1 to 64. It is kept
+  by host and port across rounds, as `silent` is within one.
+- **The push's message is bounded by the same window.** A push resumes
+  from the peer's digest each round, so what was taken stays taken.
+- **Records a pull took before a failed step are kept**, so a small
+  window still progresses.
+
+### Measured for sec 708
+
+- **At 5 per cent the journey passes:** three runs, of 100 s, 84 s and
+  a third before the push bound. It failed every time before the fixes.
+- **`reassembly_test`, 277 checks:** at a quota of one, a partial
+  refuses its sender's next message until forgotten. Forgetting names
+  sender and message: another sender's partial and a message nobody
+  held stay. A handed slot is not taken. **Control:** forgetting by
+  message alone fails twice.
+- **Not measured:** the caller's own forgetting has no unit test, since
+  that needs sealed replies made by hand. The live run is its evidence.
+
+### At 20 per cent: slow, not stuck, and a decision
+
+- **Every exchange's request and reply must both arrive**, about 0.64
+  at 20 per cent for one datagram each, and a round's journal needs
+  four or more. D's pull was answered in 6 rounds of 38 and its push in
+  5 of 31.
+- **A failed push still progresses**, a record or so a round, and only a
+  push that completes says so. D's writer made three records a second
+  ahead of the one the scenario waits for, so R had not caught up within
+  the 180 s the script allows. The run fails phase c.
+- **What would make it converge in time is retrying a step within the
+  round**, rather than passing the peer over at its first silence. That
+  is the "no retransmission under the request caller" sec 689 listed for
+  triage. Its options:
+  - retry a lost step two or three times before giving up the round:
+    no wire change, the cost a deadline per loss;
+  - ask again only for what is missing, which is fuzzypickles' span
+    proposal (sec 705) applied to every request, and a wire change;
+  - accept slow convergence at high loss, and hold 20 per cent to
+    "converges", not to a time.
+
+  **The holder's decision**, asked 2026-10-23. Not built.
+
+## 709. fuzzypickles' node scenario under loss, and a capability held late, 2026-10-23
+
+The holder, 2026-10-23: "help fuzzypickles with test and transition work
+too". fuzzypickles asked first for its three fuzznetd scenarios run
+against this tree's fault build, with loss. Its dcfb1d8 has every place
+that starts a fuzznetd take `FUZZNETD`, and the daemon inherits
+`FZN_FAULT_*`. They run from that tree and write only to their own
+scratch; nothing there was changed.
+
+### `node-calls-reach-fuzznetd.sh`, 30 runs
+
+- **Against a fault build of fuzzypickles' pin, cca860f**, ten seeds
+  (9001 to 9010) at each of 5, 10 and 20 per cent. A run takes 7 s.
+- **Controls:** with no loss, 188 checks pass. At 100 per cent the
+  cross-node half fails, so the loss reaches the scenario.
+- **Two failures, and nothing else:**
+  - "K's caps straight after keeping the chain", 17 runs of 30. This
+    tree's fault, below.
+  - "B's requests: none in 10 s", 4 runs. Not a fault: a contact request
+    is one sealed datagram, sent at once and again each round, and the
+    scenario's daemons run the default round of 60 s. Reported to
+    fuzzypickles with its seeds.
+
+### A member held what it kept only once its root sent it back
+
+- **`list capability`** answers from the grant index. A member's own
+  chains, the estate pairing it joined with and the admin chain it kept
+  by `set admin`, were indexed only as the same grants came back in a
+  pull from its root.
+- **So straight after `set admin`, admin read as not held.** On a clean
+  network the first pull wins the race. Under loss it took rounds.
+- **Now `fuzznetd` offers its own chains' hops to the index at start**,
+  root first, after the stored grants load. Each was verified when it
+  was kept, and a grant held is taken once.
+
+### Measured for sec 709
+
+- **The same 30 seeds on a build with the fix:** the capability failure
+  is gone from every run. The four timing failures remain, on the same
+  seeds.
+- **`livecheck-faults` phase k:** a member joined offline runs at 100
+  per cent loss, so it can pull nothing. It lists member held at once,
+  and admin straight after `set admin`.
+  - **Control:** the pin's build fails it at member.
+  - **Control:** with only the admin chain's indexing removed, it fails
+    at admin, member held.
+- **`live_join` cannot see it.** On clean loopback B's first pull wins,
+  so a check there at once passed with the fix removed. It was not kept.
+
+### fuzzypickles' other two scenarios cross no network
+
+- **`tui-on-fuzznetd.sh`** passes clean and at 5 and 20 per cent, three
+  seeds each, and also at 100 per cent.
+- **`gui/test/run-tests.sh`**, against fuzzypickles' built `gui_test`,
+  passes clean and also at 100 per cent.
+- **So loss cannot test either**: their fuzznetd half sends nothing
+  between nodes. Told to fuzzypickles, and it is why sec 710 exists.
+
+## 710. fuzzypickles' client driving the subset across nodes, under loss, 2026-10-23
+
+fuzzypickles' third request: a scenario of this tree's own that drives
+its client mapping, `fzp --node-socket` (its sec 284), over fault-build
+daemons with real traffic between nodes. `tool/live_fzp.py`, run by
+`make livecheck-fzp`:
+
+- **a.** bob shows his card, alice asks for him by it, bob approves, and
+  each lists the other.
+- **b.** Five lines each way are read in, and alice's `delivery` says
+  each delivered.
+- **c.** Three lines alice sends while bob is stopped are read once he is
+  back.
+- **d.** alice shares her location with bob, coarse. bob shows her fix
+  on the 0.01 degree grid, marked coarse, never exact.
+- **e.** carol joins alice's estate by fzp's `host-join-request`,
+  `-approve` and `-install`. Her root is then alice's, and she reads a
+  setting alice makes for the estate.
+
+### Where it runs, and why not in a gate
+
+- **It runs the `fzp` fuzzypickles' tree has built**, `FZP` or
+  `../fuzzypickles/cli/fzp`, and is SKIPPED without one.
+- **That binary is whatever that tree holds at the time**, work in
+  progress included. One run met it being rebuilt. So the scenario is a
+  target of its own, not part of `livecheck-faults`: a gate on it would
+  fail on another session's unfinished work.
+- **Ports from 40000 + pid % 10000**, each checked free, clear of
+  fuzzypickles' own (29800 to 31000). An earlier sweep of theirs, run
+  from here on their fixed ports, collided with their own run.
+
+### Measured for sec 710
+
+- **Clean:** all five phases pass.
+- **5 per cent:** two runs pass all five, in 19 s and 27 s. A third met
+  fzp being rebuilt during phase c.
+- **20 per cent:** a to d pass in all three runs. e fails in all three,
+  because fuzzypickles' client rebuilt at 20:25 from uncommitted work
+  answers `host-join-approve` with "malformed response from daemon",
+  clean too. The build of 19:25 approved the same request. Told to
+  fuzzypickles.
+- **Found in fzp's mapping, not in fuzznetd**, each checked against
+  fuzznetd's own answer, and sent to fuzzypickles' inbox:
+  - `cap-show` on a node omits member;
+  - `cap-granted` omits member grants;
+  - `host-join-approve` warns it could not confer fzpd's `store` and
+    `send`.
+- **Not yet:** restarts inside an operation, and clock skew.
+
+
+
 
 
 

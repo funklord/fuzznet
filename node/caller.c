@@ -121,7 +121,21 @@ fzn_caller_err_t fzn_caller_recv(fzn_caller_t *caller, uint32_t msg,
                                  uint8_t *reply, size_t reply_cap,
                                  size_t *reply_len, unsigned timeout_ms)
 {
-	return receive(caller, 0, &msg, reply, reply_cap, reply_len, timeout_ms);
+	fzn_caller_err_t err = receive(caller, 0, &msg, reply, reply_cap, reply_len, timeout_ms);
+
+	/* GIVEN UP ON, ITS REPLY FORGOTTEN, sec 708: one piece lost, the rest
+	 * held its slot for the table's whole hold, and the next reply from the
+	 * same node found no room. */
+	if (err == FZN_CALLER_ERR_TIMEOUT)
+		fzn_caller_forget(caller, msg);
+	return err;
+}
+
+void fzn_caller_forget(const fzn_caller_t *caller, uint32_t msg)
+{
+	/* NOTHING OPENED UNDER THIS SESSION YET, nothing of it held. */
+	if (caller && caller->reasm && caller->answerer_known)
+		(void)fzn_reasm_forget(caller->reasm, caller->answerer, msg);
 }
 
 fzn_caller_err_t fzn_caller_recv_any(fzn_caller_t *caller, uint32_t *msg, uint8_t *reply,
@@ -165,6 +179,8 @@ static fzn_caller_err_t receive(fzn_caller_t *caller, int any, uint32_t *msg, ui
 			continue;
 		/* ANOTHER QUESTION'S ANSWER: skipped by a caller waiting for one,
 		 * taken by one waiting for any of its own (sec 494). */
+		memcpy(caller->answerer, opened.sender, FZN_SENDER_LEN);
+		caller->answerer_known = 1;
 		if (!any && opened.msg != *msg)
 			continue;
 

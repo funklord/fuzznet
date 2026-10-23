@@ -114,6 +114,9 @@ size_t fzn_node_asks_expire(fzn_node_asks_t *asks)
 	now = asks->clock_ms();
 	for (i = 0; i < FZN_NODE_ASKS_MAX; i++)
 		if (asks->slots[i].used && asks->slots[i].deadline_ms <= now) {
+			/* ITS REPLY FORGOTTEN WITH IT, sec 708: held part way it would
+			 * keep its slot, and a caller of one slot refused the next. */
+			fzn_caller_forget(asks->slots[i].caller, asks->slots[i].msg);
 			finish(&asks->slots[i], NULL, 0);
 			failed++;
 		}
@@ -128,6 +131,7 @@ size_t fzn_node_asks_cancel(fzn_node_asks_t *asks, const fzn_caller_t *caller)
 		return 0;
 	for (i = 0; i < FZN_NODE_ASKS_MAX; i++)
 		if (asks->slots[i].used && asks->slots[i].caller == caller) {
+			fzn_caller_forget(caller, asks->slots[i].msg);
 			finish(&asks->slots[i], NULL, 0);
 			failed++;
 		}
