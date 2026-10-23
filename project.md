@@ -70363,3 +70363,31 @@ tree does not change the leaf.
   section saying the transport does not yet give it.
 - **Sec 104's refusal of a byte-range reader keeps both its reasons:**
   the bound it protects is the leaf, which stays.
+
+### A lost piece, read from the code
+
+fuzzypickles asked what the files path re-requests (inbox 20261023T1613Z).
+Their figures: a 64-leaf DATA span is 67 datagrams of 1216 bytes, 23.6
+per cent overhead, the frame header 14.7 of it. Read from `node/files.c`,
+`node/asks.c` and `spool/transfer.c`, not measured:
+- **The whole span is asked again.** Nothing resends a request or a
+  piece. A span missing one piece never reassembles, so after
+  `FZN_NODE_FILES_SPAN_DEADLINE_MS` (3 s) the fetch takes it as no
+  answer. Its leaves go back to the bitmap, and the next want plans them
+  again from it, up to 64 at once. The new request has a new message id,
+  so the pieces already in are not reused.
+- **Three spans lost in a row give the peer up**, as for a silent peer;
+  any span that arrives clears the count. With one holder, the fetch
+  then ends NO_ANSWER and the file waits for its next turn. What was
+  placed is kept, and the fetch resumes from it.
+- **So at 3 per cent loss a single-holder fetch barely moves.** A span
+  is lost 87 per cent of the time, by their figures, so three in a row
+  come about two times in three. At 1 per cent (49 per cent a span) it
+  comes about one time in eight. Their estimate of 7.7 sends a span at
+  3 per cent understates it: it leaves out the giving up and the 3 s
+  waits.
+- **Options for the cut-over**, beside sec 705's two: re-asking only
+  the missing pieces, and parity pieces per span (`chunk/erasure.h`
+  already does Reed-Solomon 4 + 2 for log segments). None is chosen
+  here; loss is the scenarios' to measure (sec 689).
+
