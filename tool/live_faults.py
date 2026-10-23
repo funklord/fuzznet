@@ -29,6 +29,10 @@ the scenarios built on them test something:
        hold, every one answered `ok` and listed; started again, it loads
        all 300 onto its roster, lists them and takes another (sec 704) -- where the 129th was
        answered an error and a store holding more started without them
+    h  a root revokes 300 keys, more than the 256 its revocations' tables
+       held, every one answered `ok`; started again, it loads all 300 and
+       revokes another (sec 704) -- where the 257th was refused and a store
+       holding more would not start
 
 Against a daemon built without faults, phase a's B is counted at 100 per
 cent loss, phase b's daemon does not die, and phase c's says nothing.
@@ -305,6 +309,33 @@ def main(argv):
 				g.stop()
 			print("livecheck: g: 300 contacts added and listed, listed again after a restart, "
 			      "and a 301st")
+
+			# h: more revocations than the old tables held.
+			h_dir = os.path.join(scratch, "h")
+			h_sock = os.path.join(sock_dir, "h")
+			os.mkdir(h_dir)
+			command(run, ["--fuzznet-dir=" + h_dir, "--new-root"], None)
+			h = daemon(run, "h1", h_dir, h_sock)
+			try:
+				for i in range(300):
+					reply = ask(h_sock, "revoke peer %064x" % (0x7b0000 + i))
+					if not reply.startswith("ok"):
+						raise failed("h: revocation %d answered %r" % (i + 1, reply))
+			finally:
+				h.stop()
+			h = daemon(run, "h2", h_dir, h_sock)
+			try:
+				if not re.search(r"\b300 revocation\(s\) from", h.stderr()):
+					raise failed("h: started again, it did not load all 300 revocations:\n%s"
+					             % h.stderr()[-600:])
+				reply = ask(h_sock, "revoke peer %064x" % (0x7b0000 + 300))
+				if not reply.startswith("ok"):
+					raise failed("h: after a restart over 300 revocations, the 301st answered %r"
+					             % reply)
+			finally:
+				h.stop()
+			print("livecheck: h: 300 revocations cast, all loaded again after a restart, and "
+			      "a 301st")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

@@ -243,6 +243,139 @@ static int load_confirm(const fzn_persist_ops_t *store, const uint8_t subject[FZ
                         uint8_t record[FZN_ADMIN_CONFIRM_LEN],
                         uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t *hop_count);
 
+/* ONE PASS OF THE LOAD, over a slot walked: what it judges by, and the
+ * first failure, which stops the walk. sec 704. */
+struct revocations_walk {
+	const fzn_persist_ops_t *store;
+	fzn_revocation_store_t *revocations;
+	const uint8_t *root;
+	const fzn_sign_ops_t *sign;
+	const fzn_hash_ops_t *hash;
+	const fzn_chain_hop_t *hops, *admin_hops;
+	size_t hop_count, admin_hop_count;
+	const uint8_t *self, *admin_self;
+	const fzn_cap_id_t *granted;
+	size_t total;
+	fzn_persist_err_t err;
+};
+
+/* A STORE FULL is ROOM, not a changed store: told, the caller gives it
+ * larger tables. */
+static int walk_failed(struct revocations_walk *w, fzn_chain_err_t cerr)
+{
+	w->err = cerr == FZN_CHAIN_ERR_STORE_FULL ? FZN_PERSIST_ERR_ROOM : FZN_PERSIST_ERR_SHAPE;
+	return 0;
+}
+
+static int issued_walked(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	struct revocations_walk *w = arg;
+	uint8_t record[FZN_REVOCATION_LEN];
+	fzn_revocation_record_t rec;
+	fzn_revocation_offer_t offer;
+	fzn_chain_err_t cerr;
+
+	/* FILED UNDER ONE GRANTEE AND NAMING ANOTHER is refused inside
+	 * `load_slot`, the check every load here makes. */
+	if (!load_slot(w->store, FZN_PERSIST_ISSUED_REVOCATION, subject, record)
+	    || fzn_revocation_open(record, sizeof(record), &rec) != FZN_CHAIN_OK) {
+		w->err = FZN_PERSIST_ERR_SHAPE;
+		return 0;
+	}
+	/* AN ADMIN CHAIN FIRST, sec 416: an admin's vote counts for any
+	 * grantee, and it is the chain the node votes on. */
+	if (memcmp(fzn_revocation_issuer(rec), w->root, FZN_PUBKEY_LEN) == 0)
+		offer = fzn_revocation_offer_root(rec);
+	else if (w->admin_self
+	         && memcmp(fzn_revocation_issuer(rec), w->admin_self, FZN_PUBKEY_LEN) == 0)
+		offer = fzn_revocation_offer_chain(rec, w->admin_hops, w->admin_hop_count);
+	else if (w->self && memcmp(fzn_revocation_issuer(rec), w->self, FZN_PUBKEY_LEN) == 0
+	         && memcmp(fzn_revocation_capability(rec), w->granted, sizeof(*w->granted)) == 0)
+		offer = fzn_revocation_offer_chain(rec, w->hops, w->hop_count);
+	else
+		return 1;	/* see the header */
+	cerr = fzn_revocation_admit(w->revocations, offer, w->root, w->sign, w->hash, NULL);
+	if (cerr != FZN_CHAIN_OK)
+		return walk_failed(w, cerr);
+	w->total++;
+	return 1;
+}
+
+static int vote_walked(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	static uint8_t vote_hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	struct revocations_walk *w = arg;
+	uint8_t record[FZN_REVOCATION_LEN];
+	fzn_chain_hop_t opened[FZN_CHAIN_MAX_HOPS];
+	fzn_revocation_record_t rec;
+	fzn_chain_err_t cerr;
+	size_t n = 0, h;
+
+	if (!load_vote(w->store, subject, record, vote_hops, &n)
+	    || fzn_revocation_open(record, sizeof(record), &rec) != FZN_CHAIN_OK) {
+		w->err = FZN_PERSIST_ERR_SHAPE;
+		return 0;
+	}
+	for (h = 0; h < n; h++)
+		if (fzn_hop_open(vote_hops[h], FZN_HOP_LEN, &opened[h]) != FZN_CHAIN_OK) {
+			w->err = FZN_PERSIST_ERR_SHAPE;
+			return 0;
+		}
+	/* A COPY SUPERSEDED IN ANOTHER SLOT is not a changed store: this
+	 * node's own vote comes back from a peer and is kept here, and a later
+	 * withdrawal of it lands in slot 9, which was admitted first. Refused
+	 * with the triple already held, it is skipped; refused with nothing
+	 * held, it is fatal -- unless the store is full. */
+	cerr = fzn_revocation_admit(w->revocations,
+	                            n ? fzn_revocation_offer_chain(rec, opened, n)
+	                              : fzn_revocation_offer_root(rec),
+	                            w->root, w->sign, w->hash, NULL);
+	if (cerr != FZN_CHAIN_OK) {
+		if (cerr != FZN_CHAIN_ERR_STORE_FULL
+		    && fzn_revocation_known(w->revocations, fzn_revocation_issuer(rec),
+		                            fzn_revocation_capability(rec),
+		                            fzn_revocation_grantee(rec)))
+			return 1;
+		return walk_failed(w, cerr);
+	}
+	w->total++;
+	return 1;
+}
+
+static int confirm_walked(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	static uint8_t confirm_hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	struct revocations_walk *w = arg;
+	uint8_t record[FZN_ADMIN_CONFIRM_LEN];
+	fzn_chain_hop_t opened[FZN_CHAIN_MAX_HOPS];
+	fzn_chain_err_t cerr;
+	size_t n = 0, h;
+
+	if (!load_confirm(w->store, subject, record, confirm_hops, &n)) {
+		w->err = FZN_PERSIST_ERR_SHAPE;
+		return 0;
+	}
+	for (h = 0; h < n; h++)
+		if (fzn_hop_open(confirm_hops[h], FZN_HOP_LEN, &opened[h]) != FZN_CHAIN_OK) {
+			w->err = FZN_PERSIST_ERR_SHAPE;
+			return 0;
+		}
+	cerr = fzn_revocation_confirm_admit(w->revocations, record, sizeof(record), opened, n,
+	                                    w->root, w->sign);
+	if (cerr != FZN_CHAIN_OK)
+		return walk_failed(w, cerr);
+	w->total++;
+	return 1;
+}
+
+static fzn_persist_err_t walk_slot(struct revocations_walk *w, fzn_persist_slot_t slot,
+                                   int (*fn)(void *arg, const uint8_t subject[FZN_PUBKEY_LEN]))
+{
+	if (!fzn_persist_each(w->store, slot, fn, w))
+		return FZN_PERSIST_ERR_BACKEND;
+	return w->err;
+}
+
 fzn_persist_err_t fzn_node_revocations_load(const fzn_persist_ops_t *store,
                                             fzn_revocation_store_t *revocations,
                                             const uint8_t root[FZN_PUBKEY_LEN],
@@ -251,24 +384,20 @@ fzn_persist_err_t fzn_node_revocations_load(const fzn_persist_ops_t *store,
                                             const fzn_sign_ops_t *sign,
                                             const fzn_hash_ops_t *hash, size_t *count)
 {
-	/* SLOT 9 ALONE since sec 506: slot 10 held what a member pulled from
-	 * its root with `get revocation`, and nothing has written it since the
-	 * journal took that carriage. A root's vote arrives as any vote does,
-	 * into slot 11 below. */
-	static const fzn_persist_slot_t SLOTS[1] = { FZN_PERSIST_ISSUED_REVOCATION };
-	uint8_t subjects[FZN_NODE_REVOCATIONS_MAX * FZN_PUBKEY_LEN];
 	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS], admin_hops[FZN_CHAIN_MAX_HOPS];
-	const uint8_t *self = NULL, *admin_self = NULL;
-	const fzn_cap_id_t *granted = NULL;
-	size_t total = 0, s, i;
+	struct revocations_walk w;
+	fzn_persist_err_t err;
 
 	if (!store || !store->load || !revocations || !root || !sign || !hash || !count)
 		return FZN_PERSIST_ERR_MALFORMED;
+	memset(&w, 0, sizeof(w));
 	if (authority) {
 		if (!open_authority(authority, hops))
 			return FZN_PERSIST_ERR_MALFORMED;
-		self = fzn_hop_grantee(hops[authority->hop_count - 1u]);
-		granted = fzn_hop_capability(hops[authority->hop_count - 1u]);
+		w.self = fzn_hop_grantee(hops[authority->hop_count - 1u]);
+		w.granted = fzn_hop_capability(hops[authority->hop_count - 1u]);
+		w.hops = hops;
+		w.hop_count = authority->hop_count;
 	}
 	/* THIS NODE'S ADMIN CHAIN, sec 416, used only by a store that knows the
 	 * admin capability it carries. */
@@ -277,123 +406,65 @@ fzn_persist_err_t fzn_node_revocations_load(const fzn_persist_ops_t *store,
 			return FZN_PERSIST_ERR_MALFORMED;
 		if (revocations->has_admin
 		    && memcmp(fzn_hop_capability(admin_hops[admin->hop_count - 1u]),
-		              &revocations->admin_capability, sizeof(fzn_cap_id_t)) == 0)
-			admin_self = fzn_hop_grantee(admin_hops[admin->hop_count - 1u]);
+		              &revocations->admin_capability, sizeof(fzn_cap_id_t)) == 0) {
+			w.admin_self = fzn_hop_grantee(admin_hops[admin->hop_count - 1u]);
+			w.admin_hops = admin_hops;
+			w.admin_hop_count = admin->hop_count;
+		}
 	}
 	*count = 0;
-	if (!store->list)
+	if (!store->list && !store->each)
 		return FZN_PERSIST_ERR_BACKEND;
+	w.store = store;
+	w.revocations = revocations;
+	w.root = root;
+	w.sign = sign;
+	w.hash = hash;
+	w.err = FZN_PERSIST_OK;
 
-	for (s = 0; s < sizeof(SLOTS) / sizeof(SLOTS[0]); s++) {
-		size_t found = 0;
-
-		if (!store->list(store->ctx, SLOTS[s], subjects, FZN_NODE_REVOCATIONS_MAX, &found))
-			return FZN_PERSIST_ERR_BACKEND;
-		for (i = 0; i < found; i++) {
-			uint8_t record[FZN_REVOCATION_LEN];
-			fzn_revocation_record_t rec;
-
-			/* FILED UNDER ONE GRANTEE AND NAMING ANOTHER is refused
-			 * inside `load_slot`, the check every load here makes. */
-			if (!load_slot(store, SLOTS[s], subjects + (i * (size_t)FZN_PUBKEY_LEN), record)
-			    || fzn_revocation_open(record, sizeof(record), &rec) != FZN_CHAIN_OK)
-				return FZN_PERSIST_ERR_SHAPE;
-			fzn_revocation_offer_t offer;
-
-			/* AN ADMIN CHAIN FIRST, sec 416: an admin's vote counts for
-			 * any grantee, and it is the chain the node votes on. */
-			if (memcmp(fzn_revocation_issuer(rec), root, FZN_PUBKEY_LEN) == 0)
-				offer = fzn_revocation_offer_root(rec);
-			else if (admin_self
-			         && memcmp(fzn_revocation_issuer(rec), admin_self, FZN_PUBKEY_LEN) == 0)
-				offer = fzn_revocation_offer_chain(rec, admin_hops, admin->hop_count);
-			else if (self && memcmp(fzn_revocation_issuer(rec), self, FZN_PUBKEY_LEN) == 0
-			         && memcmp(fzn_revocation_capability(rec), granted,
-			                   sizeof(*granted)) == 0)
-				offer = fzn_revocation_offer_chain(rec, hops, authority->hop_count);
-			else
-				continue;	/* see the header */
-			if (fzn_revocation_admit(revocations, offer, root, sign, hash, NULL)
-			    != FZN_CHAIN_OK)
-				return FZN_PERSIST_ERR_SHAPE;
-			total++;
-		}
-	}
-
+	/* SLOT 9 ALONE since sec 506: slot 10 held what a member pulled from
+	 * its root with `get revocation`, and nothing has written it since the
+	 * journal took that carriage. A root's vote arrives as any vote does,
+	 * into slot 11 below. WALKED, sec 704: however many are held. */
+	err = walk_slot(&w, FZN_PERSIST_ISSUED_REVOCATION, issued_walked);
 	/* THE VOTES LEARNED FROM PEERS, each with the chain it came with, and
-	 * each refused as fatally as the slot above: it was admitted once
-	 * and saved only because it was, so one that will not admit again is a
+	 * each refused as fatally as the slot above: it was admitted once and
+	 * saved only because it was, so one that will not admit again is a
 	 * store that changed underneath this node. sec 399. */
-	{
-		static uint8_t votes[FZN_NODE_REVOCATIONS_MAX * FZN_PUBKEY_LEN];
-		static uint8_t vote_hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
-		size_t found = 0, n = 0, h;
-
-		if (!store->list(store->ctx, FZN_PERSIST_VOTE, votes, FZN_NODE_REVOCATIONS_MAX,
-		                 &found))
-			return FZN_PERSIST_ERR_BACKEND;
-		for (i = 0; i < found; i++) {
-			uint8_t record[FZN_REVOCATION_LEN];
-			fzn_chain_hop_t opened[FZN_CHAIN_MAX_HOPS];
-			fzn_revocation_record_t rec;
-
-			if (!load_vote(store, votes + (i * (size_t)FZN_PUBKEY_LEN), record, vote_hops,
-			               &n)
-			    || fzn_revocation_open(record, sizeof(record), &rec) != FZN_CHAIN_OK)
-				return FZN_PERSIST_ERR_SHAPE;
-			for (h = 0; h < n; h++)
-				if (fzn_hop_open(vote_hops[h], FZN_HOP_LEN, &opened[h]) != FZN_CHAIN_OK)
-					return FZN_PERSIST_ERR_SHAPE;
-			/* A COPY SUPERSEDED IN ANOTHER SLOT is not a changed store:
-			 * this node's own vote comes back from a peer and is kept
-			 * here, and a later withdrawal of it lands in slot 9, which
-			 * was admitted above. Refused with the triple already held,
-			 * it is skipped; refused with nothing held, it is fatal. */
-			if (fzn_revocation_admit(revocations,
-			                         n ? fzn_revocation_offer_chain(rec, opened, n)
-			                           : fzn_revocation_offer_root(rec),
-			                         root, sign, hash, NULL)
-			    != FZN_CHAIN_OK) {
-				if (fzn_revocation_known(revocations, fzn_revocation_issuer(rec),
-				                         fzn_revocation_capability(rec),
-				                         fzn_revocation_grantee(rec)))
-					continue;
-				return FZN_PERSIST_ERR_SHAPE;
-			}
-			total++;
-		}
-	}
-
+	if (err == FZN_PERSIST_OK)
+		err = walk_slot(&w, FZN_PERSIST_VOTE, vote_walked);
 	/* THE CONFIRMATIONS, sec 415, as fatally as the votes -- each admitted
 	 * once and saved because it was -- and only into a store that keeps a
 	 * table for them. One that does not skips them; they stay stored, and
 	 * this node still serves them onward. */
-	if (revocations->confirms) {
-		static uint8_t rows[FZN_NODE_REVOCATIONS_MAX * FZN_PUBKEY_LEN];
-		static uint8_t confirm_hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
-		size_t found = 0, n = 0, h;
+	if (err == FZN_PERSIST_OK && revocations->confirms)
+		err = walk_slot(&w, FZN_PERSIST_ADMIN_CONFIRM, confirm_walked);
+	if (err != FZN_PERSIST_OK)
+		return err;
+	*count = w.total;
+	return FZN_PERSIST_OK;
+}
 
-		if (!store->list(store->ctx, FZN_PERSIST_ADMIN_CONFIRM, rows,
-		                 FZN_NODE_REVOCATIONS_MAX, &found))
-			return FZN_PERSIST_ERR_BACKEND;
-		for (i = 0; i < found; i++) {
-			uint8_t record[FZN_ADMIN_CONFIRM_LEN];
-			fzn_chain_hop_t opened[FZN_CHAIN_MAX_HOPS];
+/* HOW MANY ROWS A LOAD WILL READ: slot 9 and the votes, which make at most
+ * one entry each, and the confirmations. sec 704: what a caller sizes the
+ * store's tables by before loading. */
+static int row_counted(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	(void)subject;
+	(*(size_t *)arg)++;
+	return 1;
+}
 
-			if (!load_confirm(store, rows + (i * (size_t)FZN_PUBKEY_LEN), record,
-			                  confirm_hops, &n))
-				return FZN_PERSIST_ERR_SHAPE;
-			for (h = 0; h < n; h++)
-				if (fzn_hop_open(confirm_hops[h], FZN_HOP_LEN, &opened[h]) != FZN_CHAIN_OK)
-					return FZN_PERSIST_ERR_SHAPE;
-			if (fzn_revocation_confirm_admit(revocations, record, sizeof(record), opened, n,
-			                                 root, sign)
-			    != FZN_CHAIN_OK)
-				return FZN_PERSIST_ERR_SHAPE;
-			total++;
-		}
-	}
-	*count = total;
+fzn_persist_err_t fzn_node_revocations_rows(const fzn_persist_ops_t *store, size_t *entries,
+                                            size_t *confirms)
+{
+	if (!store || !entries || !confirms)
+		return FZN_PERSIST_ERR_MALFORMED;
+	*entries = *confirms = 0;
+	if (!fzn_persist_each(store, FZN_PERSIST_ISSUED_REVOCATION, row_counted, entries)
+	    || !fzn_persist_each(store, FZN_PERSIST_VOTE, row_counted, entries)
+	    || !fzn_persist_each(store, FZN_PERSIST_ADMIN_CONFIRM, row_counted, confirms))
+		return FZN_PERSIST_ERR_BACKEND;
 	return FZN_PERSIST_OK;
 }
 

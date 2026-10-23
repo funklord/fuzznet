@@ -1463,6 +1463,46 @@ static void test_hearing_it_twice_is_not_an_error(void)
 	CHECK(f.store.used == 1, "the duplicate took a second slot");
 }
 
+/* GIVEN ROOM, sec 704: a full store moved onto a larger table of the
+ * caller's takes the record it refused, and answers as before for what it
+ * held. Smaller than what is held is refused. */
+static void test_a_full_store_moves_onto_room(void)
+{
+	struct fixture f;
+	fzn_revocation_t room[8], tight[2];
+	uint8_t bytes[FZN_REVOCATION_LEN], grantee[FZN_PUBKEY_LEN];
+	fzn_revocation_record_t r;
+	fzn_cap_id_t cap;
+	uint64_t before;
+
+	fixture_init(&f);
+	capability_id(&cap, 0xc0);
+	for (uint8_t i = 0; i < 4; i++) {
+		issue(&f, bytes, &r, 0, 0xc0, (uint8_t)(10 + i));
+		(void)fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r), f.root, &f.sign,
+		                           &HASH_OPS, NULL);
+	}
+	issue(&f, bytes, &r, 0, 0xc0, 99);
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r), f.root, &f.sign,
+	                           &HASH_OPS, NULL) == FZN_CHAIN_ERR_STORE_FULL,
+	      "fixture: the store is not full at four");
+	CHECK(fzn_revocation_store_use(&f.store, tight, 2) == FZN_CHAIN_ERR_MALFORMED
+	              && f.store.entries == f.entries,
+	      "a table smaller than what is held was taken");
+	before = fzn_revocation_generation(&f.store);
+	CHECK(fzn_revocation_store_use(&f.store, room, 8) == FZN_CHAIN_OK
+	              && f.store.capacity == 8u && f.store.used == 4u
+	              && fzn_revocation_generation(&f.store) != before,
+	      "a full store would not move onto a larger table, or said nothing changed");
+	CHECK(fzn_revocation_admit(&f.store, fzn_revocation_offer_root(r), f.root, &f.sign,
+	                           &HASH_OPS, NULL) == FZN_CHAIN_OK,
+	      "the store given room refused what it refused for want of room");
+	key(grantee, 10);
+	CHECK(fzn_revocation_covers(&f.store, f.root, &cap, grantee)
+	              && (key(grantee, 99), fzn_revocation_covers(&f.store, f.root, &cap, grantee)),
+	      "what the store held, or what it took once given room, is not revoked");
+}
+
 static void test_a_full_store_refuses_and_does_not_evict(void)
 {
 	struct fixture f;
@@ -4657,6 +4697,7 @@ int main(void)
 	test_a_carrier_cannot_invent_one();
 	test_hearing_it_twice_is_not_an_error();
 	test_a_full_store_refuses_and_does_not_evict();
+	test_a_full_store_moves_onto_room();
 	test_a_full_store_refuses_a_withdrawal_for_a_new_pair();
 	test_merge_keeps_going_past_a_bad_record();
 	test_the_store_feeds_chain_verify_directly();

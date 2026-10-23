@@ -69902,3 +69902,42 @@ and stay.
 - **Not tested live:** the paging start of `list request`, and the
   eviction's warning. `live_pairing` lists requests in `livecheck`, which
   takes the first growth of the room.
+
+### Revocations, built, sec 704
+
+- **The tables were 256**: entries (every revocation, vote and withdrawal
+  the estate has cast) and admin grant confirmations. The load listed
+  each of its three slots into 256, and a store holding more would not
+  let `fuzznetd` start. A running node's 257th revocation was refused.
+- **The load walks** slots 9, 11 and the confirmations. A full store
+  answers `FZN_PERSIST_ERR_ROOM` rather than SHAPE, which says the store
+  changed underneath the node. `fzn_node_revocations_rows` counts the
+  rows a load reads, and each makes at most one entry.
+- **`fzn_revocation_store_use`** and **`..._use_confirmations`** move a
+  store onto larger tables of the caller's, keeping what it holds; a
+  table smaller than that is refused. `generation` moves, since a cache
+  may hold a pointer into the old table.
+- **`fuzznetd`** sizes both tables at start, on the heap, at twice the
+  rows stored (256 at least). In its loop it doubles either table at
+  three quarters full. A vote met by a full table already waits unmarked
+  for the next round (sec 703).
+- **Tests.** `revocation_test` fills a store of four, refuses a fifth,
+  and takes it once moved onto eight, with the first still revoked.
+  **Control:** a move that does not copy is caught. `pair_test` casts
+  1000 revocations as a root. Into 256 the load says ROOM; into a store
+  sized by the rows all 1000 come back. **Control:** ROOM read as SHAPE
+  is caught. `livecheck-faults` phase h revokes 300 keys on a running
+  root, restarts it, and requires `300 revocation(s)` at start and a
+  301st; it passes. **Controls:** with the loop's growth off, the 257th
+  revocation was refused; with the sizing at start off, the restarted
+  daemon would not start.
+- **Still 32: the admins** a revocation store keeps, the devices holding
+  the admin capability. Eight local arrays and two parameters in
+  `chain/revocation.c` are sized by the same bound
+  (`REVOCATION_ADMINS_MAX`), so growing it changes how the core judges,
+  not only a table. It is the next one here.
+- **Probes.** The thirteen sabotage entries for contacts, the roster and
+  contact requests (cc69c80, 99dc9ff) were each caught, in a scratch
+  copy of the tree so work could go on. One earlier run there reported a
+  control not caught; the controls alone were then caught, and the rerun
+  was clean. Its full output was not kept, so why is not known.

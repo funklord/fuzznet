@@ -339,6 +339,34 @@ fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_rev
 	return FZN_CHAIN_OK;
 }
 
+fzn_chain_err_t fzn_revocation_store_use(fzn_revocation_store_t *store, fzn_revocation_t *entries,
+                                         size_t capacity)
+{
+	if (!store || !entries || capacity == 0u || corrupt(store) || capacity < store->used)
+		return FZN_CHAIN_ERR_MALFORMED;
+	if (entries != store->entries && store->used)
+		memmove(entries, store->entries, store->used * sizeof(*entries));
+	store->entries = entries;
+	store->capacity = capacity;
+	store->generation++;
+	return FZN_CHAIN_OK;
+}
+
+fzn_chain_err_t fzn_revocation_store_use_confirmations(fzn_revocation_store_t *store,
+                                                       fzn_revocation_confirm_t *table,
+                                                       size_t capacity)
+{
+	if (!store || !table || capacity == 0u || !store->confirms || corrupt(store)
+	    || capacity < store->confirms_used)
+		return FZN_CHAIN_ERR_MALFORMED;
+	if (table != store->confirms && store->confirms_used)
+		memmove(table, store->confirms, store->confirms_used * sizeof(*table));
+	store->confirms = table;
+	store->confirm_capacity = capacity;
+	store->generation++;
+	return FZN_CHAIN_OK;
+}
+
 fzn_chain_err_t fzn_revocation_store_set_confirmations(fzn_revocation_store_t *store,
                                                        fzn_revocation_confirm_t *table,
                                                        size_t capacity,

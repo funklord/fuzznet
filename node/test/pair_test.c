@@ -3402,9 +3402,11 @@ static void test_a_node_pairs_as_a_root_by_identity(const fzn_cap_id_t *cap)
 /* A ROSTER OF THOUSANDS, sec 704: 3000 contacts written by the root, and a
  * node coming up to them grows its tables as the daemon does
  * (`roster_load`) and holds every one. Past 128 incarnations a contact add
- * was once refused. */
+ * was once refused. The store walks, keeps any slot, and serves the
+ * revocations' case below too. */
 #define MANY_ROWS 3100u
 static struct {
+	fzn_persist_slot_t slot;
 	uint8_t id[FZN_PUBKEY_LEN];
 	uint8_t bytes[512];
 	size_t len;
@@ -3417,10 +3419,9 @@ static int many_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	size_t i;
 
 	(void)ctx;
-	if (slot != FZN_PERSIST_ROSTER)
-		return 0;
 	for (i = 0; i < many_used; i++)
-		if (memcmp(many_rows[i].id, subject, FZN_PUBKEY_LEN) == 0 && many_rows[i].len <= cap) {
+		if (many_rows[i].slot == slot && memcmp(many_rows[i].id, subject, FZN_PUBKEY_LEN) == 0
+		    && many_rows[i].len <= cap) {
 			memcpy(out, many_rows[i].bytes, many_rows[i].len);
 			*len = many_rows[i].len;
 			return 1;
@@ -3431,10 +3432,20 @@ static int many_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 static int many_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
                      const uint8_t *bytes, size_t len)
 {
+	size_t i;
+
 	(void)ctx;
-	if (slot != FZN_PERSIST_ROSTER || many_used == MANY_ROWS
-	    || len > sizeof(many_rows[0].bytes))
+	if (len > sizeof(many_rows[0].bytes))
 		return 0;
+	for (i = 0; i < many_used; i++)
+		if (many_rows[i].slot == slot && memcmp(many_rows[i].id, subject, FZN_PUBKEY_LEN) == 0) {
+			memcpy(many_rows[i].bytes, bytes, len);
+			many_rows[i].len = len;
+			return 1;
+		}
+	if (many_used == MANY_ROWS)
+		return 0;
+	many_rows[many_used].slot = slot;
 	memcpy(many_rows[many_used].id, subject, FZN_PUBKEY_LEN);
 	memcpy(many_rows[many_used].bytes, bytes, len);
 	many_rows[many_used++].len = len;
@@ -3447,10 +3458,8 @@ static int many_each(void *ctx, fzn_persist_slot_t slot,
 	size_t i;
 
 	(void)ctx;
-	if (slot != FZN_PERSIST_ROSTER)
-		return 1;
 	for (i = 0; i < many_used; i++)
-		if (!fn(arg, many_rows[i].id))
+		if (many_rows[i].slot == slot && !fn(arg, many_rows[i].id))
 			break;
 	return 1;
 }
@@ -3543,6 +3552,51 @@ static void test_a_roster_of_thousands(const fzn_cap_id_t *cap)
 	free(grown_writers);
 	grown_entries = NULL;
 	grown_writers = NULL;
+}
+
+/* REVOCATIONS OF THOUSANDS, sec 704: 1000 cast by a root come back into a
+ * store sized by the rows, where 256 once refused the daemon its start. */
+static void test_revocations_of_thousands(const fzn_cap_id_t *cap)
+{
+	static struct node r;
+	static fzn_revocation_t first[256], *issued, *room;
+	fzn_revocation_store_t cast, small, sized;
+	fzn_persist_ops_t many = { 0 };
+	uint8_t grantee[FZN_PUBKEY_LEN];
+	size_t i, rows = 0, confirms = 0, count = 0;
+	int revoked = 1;
+
+	memset(many_rows, 0, sizeof(many_rows));
+	many_used = 0;
+	many.load = many_load;
+	many.save = many_save;
+	many.each = many_each;
+	issued = calloc(1200u, sizeof(*issued));
+	CHECK(issued && node_up(&r)
+	              && fzn_revocation_store_init(&cast, issued, 1200u) == FZN_CHAIN_OK,
+	      "fixture: the root and a store to cast into");
+	for (i = 0; i < 1000u && revoked; i++) {
+		many_subject(i, grantee);
+		revoked = fzn_node_revoke(NULL, &r.id, r.id.pubkey, NULL, cap, grantee, 3000u + i,
+		                          &cast, &many) == FZN_NODE_REVOKE_OK;
+	}
+	CHECK(revoked && cast.used == 1000u, "the root did not cast 1000 revocations");
+	/* THE CONTROL: the old table's 256 are told there is too little room. */
+	CHECK(fzn_revocation_store_init(&small, first, 256u) == FZN_CHAIN_OK
+	              && fzn_node_revocations_load(&many, &small, r.id.pubkey, NULL, NULL, &r.sign,
+	                                           &hash_ops, &count) == FZN_PERSIST_ERR_ROOM,
+	      "a load of 1000 into 256 was not told it wants room");
+	room = NULL;
+	CHECK(fzn_node_revocations_rows(&many, &rows, &confirms) == FZN_PERSIST_OK && rows == 1000u
+	              && confirms == 0u && (room = calloc(rows, sizeof(*room))) != NULL
+	              && fzn_revocation_store_init(&sized, room, rows) == FZN_CHAIN_OK
+	              && fzn_node_revocations_load(&many, &sized, r.id.pubkey, NULL, NULL, &r.sign,
+	                                           &hash_ops, &count) == FZN_PERSIST_OK
+	              && count == 1000u && (many_subject(999u, grantee), 1)
+	              && fzn_revocation_covers(&sized, r.id.pubkey, cap, grantee),
+	      "1000 revocations did not come back into a store sized by their rows");
+	free(issued);
+	free(room);
 }
 
 int main(void)
@@ -3715,6 +3769,7 @@ int main(void)
 	test_an_admin_sets_retention(&cap);
 	test_contacts_travel(&cap);
 	test_a_roster_of_thousands(&cap);
+	test_revocations_of_thousands(&cap);
 	test_a_revoked_members_contacts_to_the_line(&cap);
 	test_a_device_rekeyed(&cap);
 	test_a_node_pairs_as_a_root_by_identity(&cap);

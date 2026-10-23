@@ -535,6 +535,19 @@ struct fzn_revocation_store {
 fzn_chain_err_t fzn_revocation_store_init(fzn_revocation_store_t *store, fzn_revocation_t *entries,
                                      size_t capacity);
 
+/* LARGER TABLES OF THE CALLER'S, sec 704: the store moved onto `entries`
+ * of `capacity`, or its confirmations onto `table` of `capacity`, what is
+ * held copied over. Each must outlive the store. MALFORMED for one smaller
+ * than what is held, or for confirmations where none are kept. A store
+ * answering FZN_CHAIN_ERR_STORE_FULL is given room this way and the record
+ * offered again; its answers are unchanged, and `generation` moves, since
+ * a cache may hold a pointer into the old table. */
+fzn_chain_err_t fzn_revocation_store_use(fzn_revocation_store_t *store, fzn_revocation_t *entries,
+                                         size_t capacity);
+fzn_chain_err_t fzn_revocation_store_use_confirmations(fzn_revocation_store_t *store,
+                                                       fzn_revocation_confirm_t *table,
+                                                       size_t capacity);
+
 /*
  * k-OF-n REVOCATION. project.md secs 394 and 397, the holder's decisions of
  * 2026-09-29: every revocation needs `quorum` distinct entitled issuers, and

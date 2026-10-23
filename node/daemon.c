@@ -6174,6 +6174,82 @@ static void roots_room(fzn_node_roots_t *roots)
 		say(FZN_ENTRY_WARNING, "roots", "the root records' tables are full and would not grow");
 }
 
+/* ---- the revocations' tables, sec 704 ----------------------------------------
+ *
+ * Every revocation, vote and withdrawal the estate has ever cast, and the
+ * admin grants' confirmations: on the heap, sized at start by what is
+ * stored and grown as they fill. They were 256 each, and a store holding
+ * more would not let the daemon start. */
+#define REVOCATIONS_FIRST 256u
+static struct {
+	fzn_revocation_t *entries;
+	size_t capacity;
+	fzn_revocation_confirm_t *confirms;
+	size_t confirm_capacity;
+} revocation_heap;
+
+/* Room for `entries` and `confirms`, or the first room where that is less:
+ * before the store exists (`live` 0) only allocated; after, the store moved
+ * onto it. */
+static int revocations_grow(fzn_revocation_store_t *store, size_t entries, size_t confirms,
+                            int live)
+{
+	fzn_revocation_t *e = NULL;
+	fzn_revocation_confirm_t *c = NULL;
+
+	if (entries < REVOCATIONS_FIRST)
+		entries = REVOCATIONS_FIRST;
+	if (confirms < REVOCATIONS_FIRST)
+		confirms = REVOCATIONS_FIRST;
+	if (entries > revocation_heap.capacity && !(e = calloc(entries, sizeof(*e))))
+		return 0;
+	if (confirms > revocation_heap.confirm_capacity && !(c = calloc(confirms, sizeof(*c)))) {
+		free(e);
+		return 0;
+	}
+	if (e && live && fzn_revocation_store_use(store, e, entries) != FZN_CHAIN_OK) {
+		free(e);
+		free(c);
+		return 0;
+	}
+	if (e) {
+		free(revocation_heap.entries);
+		revocation_heap.entries = e;
+		revocation_heap.capacity = entries;
+	}
+	/* A STORE KEEPING NO CONFIRMATIONS keeps none of these: the table is
+	 * held for the start, and moved to only where it is in use. */
+	if (c && live && store->confirms
+	    && fzn_revocation_store_use_confirmations(store, c, confirms) != FZN_CHAIN_OK) {
+		free(c);
+		return 0;
+	}
+	if (c) {
+		free(revocation_heap.confirms);
+		revocation_heap.confirms = c;
+		revocation_heap.confirm_capacity = confirms;
+	}
+	return 1;
+}
+
+/* ROOM BEFORE IT IS WANTED, as the roster's: either table three quarters
+ * full is doubled. A vote met by a full table waits unmarked for the round
+ * after this. */
+static void revocations_room(fzn_revocation_store_t *store)
+{
+	int entries = 4u * store->used >= 3u * store->capacity;
+	int confirms = store->confirms && 4u * store->confirms_used >= 3u * store->confirm_capacity;
+
+	if (!entries && !confirms)
+		return;
+	if (revocations_grow(store, entries ? 2u * store->capacity : 0u,
+	                     confirms ? 2u * store->confirm_capacity : 0u, 1))
+		say(FZN_ENTRY_INFO, "revoke", "the revocations' tables grown: %zu entries, %zu "
+		    "confirmations", store->capacity, store->confirms ? store->confirm_capacity : 0u);
+	else
+		say(FZN_ENTRY_WARNING, "revoke", "the revocations' tables are full and would not grow");
+}
+
 /* ---- the roster's tables, sec 704 -------------------------------------------
  *
  * About one incarnation for each contact ever added, and a writer for each
@@ -13137,7 +13213,6 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	 * rather than refused. */
 	if (store_ops) {
 		static fzn_node_admin_t admin;
-		static fzn_revocation_t revoked_entries[FZN_NODE_REVOCATIONS_MAX];
 		static fzn_revocation_store_t revoked;
 		static fzn_node_roots_t estate_roots;
 		/* ADMINS AND THEIR CONFIRMATIONS, sec 415: the admin table at the
@@ -13145,8 +13220,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		 * is loaded, since an admin admitted before it could never be
 		 * confirmed. */
 		static fzn_revocation_admin_t admins[32];
-		static fzn_revocation_confirm_t confirms[FZN_NODE_REVOCATIONS_MAX];
-		size_t loaded = 0, nrevoked = 0, nroots = 0;
+		size_t loaded = 0, nrevoked = 0, nroots = 0, rows = 0, confirm_rows = 0;
 
 		/* THE REVOCATIONS THIS NODE ISSUED, admitted again before any
 		 * peer is served -- a node that served first and remembered
@@ -13156,8 +13230,12 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		 * root, attached before any revocation is re-admitted, so one by
 		 * a member root admits and a removed root's after its cut does
 		 * not count. With nothing stored, the pinned root alone. */
-		if (fzn_revocation_store_init(&revoked, revoked_entries,
-		                              FZN_NODE_REVOCATIONS_MAX) != FZN_CHAIN_OK
+		/* SIZED BY WHAT IS STORED, sec 704: room for every row the load
+		 * reads and as many again, on the heap and grown as it fills. */
+		if (fzn_node_revocations_rows(store_ops, &rows, &confirm_rows) != FZN_PERSIST_OK
+		    || !revocations_grow(&revoked, 2u * rows, 2u * confirm_rows, 0)
+		    || fzn_revocation_store_init(&revoked, revocation_heap.entries,
+		                                 revocation_heap.capacity) != FZN_CHAIN_OK
 		    || fzn_revocation_store_set_quorum(&revoked, (size_t)quorum,
 		                                       state.config.has_admin
 		                                               ? &state.config.admin_capability
@@ -13166,8 +13244,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		                                       state.config.has_admin ? 32u : 0u)
 		               != FZN_CHAIN_OK
 		    || (state.config.has_admin
-		        && fzn_revocation_store_set_confirmations(&revoked, confirms,
-		                                                  FZN_NODE_REVOCATIONS_MAX, &hash_ops)
+		        && fzn_revocation_store_set_confirmations(&revoked, revocation_heap.confirms,
+		                                                  revocation_heap.confirm_capacity,
+		                                                  &hash_ops)
 		                   != FZN_CHAIN_OK)
 		    || fzn_node_roots_init(&estate_roots, state.config.root, &sign_ops, &hash_ops)
 		               != FZN_NODE_ROOTS_OK
@@ -13790,6 +13869,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				roots_room(running_roots);
 			if (roster_on)
 				roster_room(&node_roster);
+			if (node_apply.revocations)
+				revocations_room(node_apply.revocations);
 			if (!round_step && (now >= next_pull || next_pull > now + pull_every)) {
 				plan = round_plan;
 				plan_at = 0;

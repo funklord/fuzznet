@@ -160,6 +160,8 @@ fzn_node_revoke_err_t fzn_node_confirm_save(const fzn_persist_ops_t *store,
  * `admin` is this node's admin chain, or NULL (sec 416): a record it issued
  * for a capability `authority` does not carry is admitted on that chain, as
  * the admin vote it was, when the store knows the admin capability. */
+/* WALKED, sec 704, however many: FZN_PERSIST_ERR_ROOM when the store's
+ * tables are too small, which `fzn_node_revocations_rows` sizes. */
 fzn_persist_err_t fzn_node_revocations_load(const fzn_persist_ops_t *store,
                                             fzn_revocation_store_t *revocations,
                                             const uint8_t root[FZN_PUBKEY_LEN],
@@ -167,6 +169,11 @@ fzn_persist_err_t fzn_node_revocations_load(const fzn_persist_ops_t *store,
                                             const fzn_node_authority_t *admin,
                                             const fzn_sign_ops_t *sign,
                                             const fzn_hash_ops_t *hash, size_t *count);
+
+/* THE ROWS A LOAD READS: `*entries` in slot 9 and the votes, each at most
+ * one entry of the store's, and `*confirms` the confirmations. */
+fzn_persist_err_t fzn_node_revocations_rows(const fzn_persist_ops_t *store, size_t *entries,
+                                            size_t *confirms);
 
 /* The revocation this node issued for `grantee`, into `record`, from slot 9.
  * 1 when one is held. */
@@ -193,9 +200,6 @@ typedef enum fzn_node_pull_err {
 } fzn_node_pull_err_t;
 
 const char *fzn_node_pull_err_str(fzn_node_pull_err_t err);
-
-/* The most revocations `fzn_node_revocations_load` enumerates in one call. */
-#define FZN_NODE_REVOCATIONS_MAX 256u
 
 /*
  * VOTES, AND HOW THEY ARE ADMITTED. sec 399, carried by the journal since

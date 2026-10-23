@@ -3560,8 +3560,8 @@ SABOTAGES = [
 	(
 		"revocations-load-skips-pre-join",
 		"node/revoke.c",
-		"\t\t\telse\n\t\t\t\tcontinue;\t/* see the header */\n",
-		"\t\t\telse\n\t\t\t\toffer = fzn_revocation_offer_root(rec);\n",
+		"\telse\n\t\treturn 1;\t/* see the header */\n",
+		"\telse\n\t\toffer = fzn_revocation_offer_root(rec);\n",
 		"a record a node issued as its own root before it joined verifies against nothing it now trusts, so admitting it fails the whole load and the node will not start -- sec 383, 384",
 	),
 	(
@@ -3581,22 +3581,22 @@ SABOTAGES = [
 	(
 		"votes-load-reads-learned-votes",
 		"node/revoke.c",
-		"\t\t\treturn FZN_PERSIST_ERR_BACKEND;\n\t\tfor (i = 0; i < found; i++) {\n\t\t\tuint8_t record[FZN_REVOCATION_LEN];\n\t\t\tfzn_chain_hop_t opened[FZN_CHAIN_MAX_HOPS];\n",
-		"\t\t\treturn FZN_PERSIST_ERR_BACKEND;\n\t\tfound = 0;\n\t\tfor (i = 0; i < found; i++) {\n\t\t\tuint8_t record[FZN_REVOCATION_LEN];\n\t\t\tfzn_chain_hop_t opened[FZN_CHAIN_MAX_HOPS];\n",
+		"\t\terr = walk_slot(&w, FZN_PERSIST_VOTE, vote_walked);\n",
+		"\t\t(void)vote_walked;\n",
 		"a restart that does not re-admit learned votes forgets every vote it did not issue, and a revocation falls short of its quorum again -- sec 399",
 	),
 	(
 		"votes-load-skips-only-the-superseded",
 		"node/revoke.c",
-		"\t\t\t\t                         fzn_revocation_grantee(rec)))\n\t\t\t\t\tcontinue;\n\t\t\t\treturn FZN_PERSIST_ERR_SHAPE;\n",
-		"\t\t\t\t                         fzn_revocation_grantee(rec)))\n\t\t\t\t\tcontinue;\n\t\t\t\tcontinue;\n",
+		"\t\t                            fzn_revocation_grantee(rec)))\n\t\t\treturn 1;\n\t\treturn walk_failed(w, cerr);\n",
+		"\t\t                            fzn_revocation_grantee(rec)))\n\t\t\treturn 1;\n\t\treturn 1;\n",
 		"a learned vote that will not admit and whose triple nothing else holds is a store changed underneath the node, not a copy to skip -- sec 399",
 	),
 	(
 		"votes-load-superseded-is-not-fatal",
 		"node/revoke.c",
-		"\t\t\t\t                         fzn_revocation_grantee(rec)))\n\t\t\t\t\tcontinue;\n",
-		"\t\t\t\t                         fzn_revocation_grantee(rec)))\n\t\t\t\t\treturn FZN_PERSIST_ERR_SHAPE;\n",
+		"\t\t                            fzn_revocation_grantee(rec)))\n\t\t\treturn 1;\n",
+		"\t\t                            fzn_revocation_grantee(rec)))\n\t\t\treturn walk_failed(w, cerr);\n",
 		"a node whose own vote came back from a peer and was then withdrawn would refuse to start -- sec 399",
 	),
 	(
@@ -3616,15 +3616,15 @@ SABOTAGES = [
 	(
 		"revocations-load-admits-own-through-chain",
 		"node/revoke.c",
-		"\t\t\telse if (self && memcmp(fzn_revocation_issuer(rec), self, FZN_PUBKEY_LEN) == 0\n",
-		"\t\t\telse if (0 && self && memcmp(fzn_revocation_issuer(rec), self, FZN_PUBKEY_LEN) == 0\n",
+		"\telse if (w->self && memcmp(",
+		"\telse if (0 && w->self && memcmp(",
 		"a member that does not re-admit its own revocations at start serves every device it cut off again after a restart -- sec 385",
 	),
 	(
 		"revocations-load-own-capability-only",
 		"node/revoke.c",
-		"\t\t\telse if (self && memcmp(fzn_revocation_issuer(rec), self, FZN_PUBKEY_LEN) == 0\n\t\t\t         && memcmp(fzn_revocation_capability(rec), granted,\n\t\t\t                   sizeof(*granted)) == 0)\n",
-		"\t\t\telse if (self && memcmp(fzn_revocation_issuer(rec), self, FZN_PUBKEY_LEN) == 0)\n",
+		"\telse if (w->self && memcmp(fzn_revocation_issuer(rec), w->self, FZN_PUBKEY_LEN) == 0\n\t         && memcmp(fzn_revocation_capability(rec), w->granted, sizeof(*w->granted)) == 0)\n",
+		"\telse if (w->self && memcmp(fzn_revocation_issuer(rec), w->self, FZN_PUBKEY_LEN) == 0)\n",
 		"a member's record for a capability its chain does not carry can never admit, and offering it fails the whole load, so the node will not start -- sec 385",
 	),
 	(
@@ -6654,8 +6654,8 @@ SABOTAGES = [
 	(
 		"node-admin-vote-reloads-on-its-chain",
 		"node/revoke.c",
-		"\t\t\telse if (admin_self\n",
-		"\t\t\telse if (0 && admin_self\n",
+		"\telse if (w->admin_self\n",
+		"\telse if (0 && w->admin_self\n",
 		"an admin's own vote not re-admitted on its chain is skipped at every restart -- sec 416",
 	),
 	(
@@ -6689,8 +6689,8 @@ SABOTAGES = [
 	(
 		"node-confirm-reloaded-at-start",
 		"node/revoke.c",
-		"\t\t\tif (fzn_revocation_confirm_admit(revocations, record, sizeof(record), opened, n,\n\t\t\t                                 root, sign)\n\t\t\t    != FZN_CHAIN_OK)\n\t\t\t\treturn FZN_PERSIST_ERR_SHAPE;\n",
-		"",
+		"\tcerr = fzn_revocation_confirm_admit(w->revocations, record, sizeof(record), opened, n,\n\t                                    w->root, w->sign);\n",
+		"\tcerr = FZN_CHAIN_OK;\n",
 		"stored confirmations not admitted at start leave every confirmed admin unconfirmed after a restart -- sec 415",
 	),
 	(
@@ -11906,6 +11906,20 @@ SABOTAGES = [
 		"\tif (!r->has_oldest || held->received_at < r->oldest_at) {\n",
 		"\tif (!r->has_oldest || held->received_at > r->oldest_at) {\n",
 		"a full queue lets the newest request go, and a stranger's flood keeps the user's own asker out -- sec 619, 704",
+	),
+	(
+		"revocations-load-says-room",
+		"node/revoke.c",
+		"\tw->err = cerr == FZN_CHAIN_ERR_STORE_FULL ? FZN_PERSIST_ERR_ROOM : FZN_PERSIST_ERR_SHAPE;\n",
+		"\tw->err = FZN_PERSIST_ERR_SHAPE;\n",
+		"a store of more revocations than the tables hold reads as a store changed underneath the node, and it will not start -- sec 704",
+	),
+	(
+		"revocation-store-use-copies",
+		"chain/revocation.c",
+		"\tif (entries != store->entries && store->used)\n\t\tmemmove(entries, store->entries, store->used * sizeof(*entries));\n",
+		"",
+		"a store moved onto a larger table forgets what it held, and every revoked device is served again -- sec 704",
 	),
 	(
 		"contact-request-expired-go-first",
