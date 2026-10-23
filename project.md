@@ -70969,6 +70969,43 @@ R and the rest keep the real clock.
   NTP time, but a device off-network for weeks, or with a dead RTC
   battery, can drift past five minutes.
 
+## 715. The estate's journey repeated: ten clean, and a push held wide, 2026-10-24
+
+Sec 689 asks each journey to be repeated by step 0a's runner until ten
+runs are green. `tool/live_repeat.py --runs 10 estate`, on the fault
+build:
+
+- **Clean: ten of ten**, in 38 to 46 s each.
+- **At 5 per cent loss** (`FZN_FAULT_LOSS=5` in the environment, so the
+  script waited as on a clean network): **four of ten failed** at first.
+  R never read A1's admin setting, or D's `h/mid`, within 60 s.
+
+### The push held the window at its widest
+
+- **A1's pushes to R failed ten times and succeeded once**, while its
+  pulls mostly succeeded.
+- **The journey window of sec 708 answered only to the pull.** An
+  answered pull doubled it, so it sat at 64. A1's push then carried
+  everything R lacked in one message of many datagrams, which at 5 per
+  cent seldom arrived whole.
+- **Now the window halves when either half of the talk goes
+  unanswered**, the pull or the push, and doubles only when both were
+  answered.
+
+### Measured for sec 715
+
+- **After the fix, at 5 per cent:** nine of ten, then ten of ten, in 88
+  to 186 s each.
+- **The one failure in those twenty is unexplained.** Run 8 of the
+  first ten ended in phase f with no FAILED line: an exception the
+  script did not catch, its traceback on stderr, which the runner does
+  not keep. The script now reports any exception where its output is
+  kept, and the next ten did not reproduce it. The suspicion is a local
+  verb unanswered for the 5 s an `ask` waits while the daemon was busy,
+  which would be a finding about the local socket under loss. It is
+  untested.
+
+
 
 
 

@@ -53,6 +53,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -395,6 +396,12 @@ def main(argv):
 			return 1
 		except subprocess.TimeoutExpired as e:
 			print("livecheck: FAILED -- a command passed its deadline: %s" % e)
+			return 1
+		except Exception:
+			# ANYTHING ELSE that ends the run is said where its output is
+			# kept: a repeat runner keeps stdout, and a traceback on stderr
+			# alone once left a failed run with no reason in it.
+			print("livecheck: FAILED -- %s" % traceback.format_exc().strip().replace("\n", " | "))
 			return 1
 		finally:
 			writing["go"] = False

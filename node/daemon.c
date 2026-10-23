@@ -4082,10 +4082,18 @@ static void journal_settle(struct pull_target *pulls, size_t npulls, uint64_t no
 
 		uint32_t *window = journal_window(&pulls[jt->t]);
 
-		/* ITS WINDOW HALVED ON SILENCE AND DOUBLED ON AN ANSWER, sec 708. */
-		if (window && jt->pull_err == FZN_EXCHANGE_ERR_NO_ANSWER && *window > 1u)
+		/* ITS WINDOW HALVED ON SILENCE AND DOUBLED ON AN ANSWER, sec 708 --
+		 * the push's as well as the pull's, sec 715: a pull answered and a
+		 * push of everything the peer lacked, many datagrams, unanswered
+		 * round after round once held the window at its widest. */
+		if (window
+		    && (jt->pull_err == FZN_EXCHANGE_ERR_NO_ANSWER
+		        || (jt->pushing && jt->push_err == FZN_EXCHANGE_ERR_NO_ANSWER))
+		    && *window > 1u)
 			*window /= 2u;
-		else if (window && jt->pull_err == FZN_EXCHANGE_OK && *window < FZN_NODE_JOURNAL_WINDOW)
+		else if (window && jt->pull_err == FZN_EXCHANGE_OK
+		         && (!jt->pushing || jt->push_err == FZN_EXCHANGE_OK)
+		         && *window < FZN_NODE_JOURNAL_WINDOW)
 			*window = *window * 2u > FZN_NODE_JOURNAL_WINDOW ? FZN_NODE_JOURNAL_WINDOW
 			                                                : *window * 2u;
 		if (jt->pull_err == FZN_EXCHANGE_ERR_NO_ANSWER) {
