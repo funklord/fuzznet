@@ -11908,6 +11908,13 @@ SABOTAGES = [
 		"a full queue lets the newest request go, and a stranger's flood keeps the user's own asker out -- sec 619, 704",
 	),
 	(
+		"messages-wants-take-a-new-row",
+		"messages/messages.c",
+		"\t\troom = rows;\n\t\tif (!save_number(m, \"waitsn\", NOBODY, rows + 1u))\n\t\t\treturn 0;\n",
+		"\t\treturn 1;\n",
+		"a want past its rows' room is never kept, and a filed line stays a shell even after a restart -- sec 704",
+	),
+	(
 		"journal-use-copies",
 		"record/journal.c",
 		"\t\tmemmove(entries, journal->entries, journal->used * sizeof(*entries));\n",

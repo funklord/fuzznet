@@ -1300,17 +1300,30 @@ static int item_keep(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_L
  * handed to every absorb's `seen` until the key is here or the month
  * gone. */
 #define WAIT_LEN (FZN_PUBKEY_LEN + 4u + FZN_PUBKEY_LEN)
-#define WAITS_MAX 256u
+/* WANTS TO A ROW, in as many rows as there are wants: row `k` of "waits",
+ * and "waitsn" how many rows. sec 704: they were one row of 256, and the
+ * 257th want was never kept -- its line a shell until its key came some
+ * other way. A row takes WAITS_ROW; one from before, up to WAITS_LEGACY,
+ * still reads whole as row 0 and takes no more. */
+#define WAITS_ROW 16u
+#define WAITS_LEGACY 256u
 
-static uint8_t waits[WAITS_MAX * WAIT_LEN];
+static uint8_t waits[WAITS_LEGACY * WAIT_LEN];
 
-static int waits_load(const fzn_messages_t *m, size_t *n)
+static uint64_t waits_rows(const fzn_messages_t *m)
+{
+	uint64_t n = load_number(m, "waitsn", NOBODY);
+
+	return n ? n : 1u;
+}
+
+static int waits_load(const fzn_messages_t *m, uint32_t k, size_t *n)
 {
 	uint8_t row[FZN_PUBKEY_LEN];
 	size_t len = 0;
 
 	*n = 0;
-	if (!index_row(m, "waits", NOBODY, 0u, row))
+	if (!index_row(m, "waits", NOBODY, k, row))
 		return 0;
 	if (!m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, waits, sizeof(waits),
 	                    &len))
@@ -1321,64 +1334,83 @@ static int waits_load(const fzn_messages_t *m, size_t *n)
 	return 1;
 }
 
-static int waits_save(const fzn_messages_t *m, size_t n)
+static int waits_save(const fzn_messages_t *m, uint32_t k, size_t n)
 {
 	uint8_t row[FZN_PUBKEY_LEN];
 
-	if (!index_row(m, "waits", NOBODY, 0u, row))
+	if (!index_row(m, "waits", NOBODY, k, row))
 		return 0;
 	if (n == 0u)
 		return !m->store->remove || m->store->remove(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row);
 	return m->store->save(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, waits, n * WAIT_LEN);
 }
 
-/* NOTE A WANT once. Past WAITS_MAX places it is not kept, and that line's
- * key is asked for only until the next start. */
+/* NOTE A WANT once, in the first row with room, or a row of its own. */
 static int wait_add(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                     uint32_t epoch, const uint8_t device[FZN_PUBKEY_LEN])
 {
 	uint8_t e[WAIT_LEN];
+	uint64_t rows = waits_rows(m), k, room = UINT64_MAX;
 	size_t n, i;
 
 	memcpy(e, contact, FZN_PUBKEY_LEN);
 	fzn_put_be32(e + FZN_PUBKEY_LEN, epoch);
 	memcpy(e + FZN_PUBKEY_LEN + 4u, device, FZN_PUBKEY_LEN);
-	if (!waits_load(m, &n))
+	for (k = 0; k < rows; k++) {
+		if (!waits_load(m, (uint32_t)k, &n))
+			return 0;
+		for (i = 0; i < n; i++)
+			if (memcmp(waits + i * WAIT_LEN, e, WAIT_LEN) == 0)
+				return 1;
+		if (n < WAITS_ROW && room == UINT64_MAX)
+			room = k;
+	}
+	if (room == UINT64_MAX) {
+		if (rows >= UINT32_MAX)
+			return 0;
+		room = rows;
+		if (!save_number(m, "waitsn", NOBODY, rows + 1u))
+			return 0;
+	}
+	if (!waits_load(m, (uint32_t)room, &n))
 		return 0;
-	for (i = 0; i < n; i++)
-		if (memcmp(waits + i * WAIT_LEN, e, WAIT_LEN) == 0)
-			return 1;
-	if (n >= WAITS_MAX)
-		return 1;
 	memcpy(waits + n * WAIT_LEN, e, WAIT_LEN);
-	return waits_save(m, n + 1u);
+	return waits_save(m, (uint32_t)room, n + 1u);
 }
 
-/* EVERY WANT TO `seen`, and those whose key is here, or whose month is
- * gone, let go. */
+/* EVERY WANT TO `seen`, row by row, and those whose key is here, or whose
+ * month is gone, let go; empty rows past the first dropped. */
 static int waits_replay(const fzn_messages_t *m, fzn_messages_seen_fn seen, void *ctx)
 {
 	uint8_t key[FZN_CONVERSATION_KEY_LEN];
-	size_t n, i, kept = 0;
+	uint64_t rows = waits_rows(m), k, last = 0;
+	size_t n, i, kept;
 
-	if (!waits_load(m, &n))
-		return 0;
-	for (i = 0; i < n; i++) {
-		const uint8_t *e = waits + i * WAIT_LEN;
-		uint32_t epoch = fzn_get_be32(e + FZN_PUBKEY_LEN);
-		int held, gone = is_gone(m, e, epoch);
+	for (k = 0; k < rows; k++) {
+		if (!waits_load(m, (uint32_t)k, &n))
+			return 0;
+		kept = 0;
+		for (i = 0; i < n; i++) {
+			const uint8_t *e = waits + i * WAIT_LEN;
+			uint32_t epoch = fzn_get_be32(e + FZN_PUBKEY_LEN);
+			int held, gone = is_gone(m, e, epoch);
 
-		held = !gone && key_of(m, e, epoch, e + FZN_PUBKEY_LEN + 4u, key);
-		memset(key, 0, sizeof(key));
-		if (!gone)
-			seen(ctx, e, epoch, e + FZN_PUBKEY_LEN + 4u, held);
-		if (!gone && !held) {
-			if (kept != i)
-				memmove(waits + kept * WAIT_LEN, e, WAIT_LEN);
-			kept++;
+			held = !gone && key_of(m, e, epoch, e + FZN_PUBKEY_LEN + 4u, key);
+			memset(key, 0, sizeof(key));
+			if (!gone)
+				seen(ctx, e, epoch, e + FZN_PUBKEY_LEN + 4u, held);
+			if (!gone && !held) {
+				if (kept != i)
+					memmove(waits + kept * WAIT_LEN, e, WAIT_LEN);
+				kept++;
+			}
 		}
+		if (kept != n && !waits_save(m, (uint32_t)k, kept))
+			return 0;
+		if (kept)
+			last = k;
 	}
-	return kept == n || waits_save(m, kept);
+	return rows <= 1u || last + 1u == rows || save_number(m, "waitsn", NOBODY, last + 1u);
 }
 
 static int is_device(const fzn_messages_t *m, const uint8_t key[FZN_PUBKEY_LEN])

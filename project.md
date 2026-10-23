@@ -70108,10 +70108,16 @@ and stay.
   bucket's 1632-byte id chunk, which read as the store refusing; they
   are 2048 now.
 - **Not tested live:** more than 32 devices needs that many members.
-- **Not yet grown:** `WAITS_MAX`, 256 wants for keys of lines filed from
-  items, held in one row. It is the next one here, with the journal's
-  followed streams: with 300 paired devices `livecheck-faults` logs "no
-  room to follow another node's notes".
+- **The wants, built since:** keys wanted for lines filed from items
+  were one row of 256 (`WAITS_MAX`). The 257th want was never kept, so
+  its line stayed a shell even after a restart. They are rows of 16 now,
+  as many as there are wants, with a count row; a row from before reads
+  whole as row 0 and takes no more. `node/test/messages_test` has R
+  write a line in each of 260 months and M file them without the keys;
+  after a restart M lacks all 260. **Control:** a full row dropping the
+  want, as before, leaves fewer. The fixture's records, rows and the
+  helper that files items had to grow to hold 260 months. The journal's
+  followed streams are *Followed streams*, below.
 
 ### Followed streams, built, sec 704
 

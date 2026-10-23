@@ -52,7 +52,7 @@ static uint64_t now_ms(void)
 
 /* ---- a persist store in memory ---------------------------------------------- */
 
-#define ROWS 512u
+#define ROWS 2048u
 
 typedef struct row {
 	int used;
@@ -153,7 +153,7 @@ static size_t rows_in(mem_t *m, fzn_persist_slot_t slot)
 /* ---- record stores: one shared, as the journal sync leaves every device,
  * and one per device, for hosts joined only by the exchange ---------------- */
 
-#define RECS 192u
+#define RECS 320u
 
 typedef struct recs {
 	struct rec {
@@ -856,13 +856,13 @@ static void test_two_hosts_over_the_exchange(void)
  * would file them: how many filed, and how many of those wait for a key. */
 static int file_all(device_t *from, device_t *to, size_t *filed, size_t *waiting)
 {
-	static fzn_bucket_t buckets[8];
+	static fzn_bucket_t buckets[512];
 	static uint8_t ids[16][FZN_BUCKETS_ID_LEN], item[FZN_BUCKETS_ITEM_MAX];
 	size_t nb = 0, b, n, i, len;
 	uint64_t total;
 
 	*filed = *waiting = 0;
-	if (fzn_buckets_list(&from->nm.buckets, FZN_BUCKETS_MESSAGES, buckets, 8u, &nb)
+	if (fzn_buckets_list(&from->nm.buckets, FZN_BUCKETS_MESSAGES, buckets, 512u, &nb)
 	    != FZN_BUCKETS_OK)
 		return 0;
 	for (b = 0; b < nb; b++) {
@@ -1594,6 +1594,41 @@ static void test_the_suite_can_tell_pass_from_fail(void)
  * wanted, and given room all 71 list; their 70 month keys overrun the own
  * 64 lacked, and given room the next absorb notes all 70 again -- where the
  * dropped were learned only at the next start. */
+/* WANTS PAST 256, sec 704: R writes one line in each of 260 months, M
+ * files them all without R's keys, and after a restart lacks all 260 --
+ * where the wants were one row of 256, and the rest never kept. */
+static void test_wants_past_one_row(void)
+{
+	static fzn_node_message_key_t lacks[512], gives[512];
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	size_t filed = 0, waiting = 0, i;
+	int wrote = 1;
+
+	setup();
+	device_up(&M, 0x46);
+	device_up(&R, 0x57);
+	host_up(&M, &R);
+	host_up(&R, &M);
+	for (i = 0; i < 260u && wrote; i++) {
+		memset(id, 0x30, sizeof(id));
+		id[0] = (uint8_t)(i >> 8);
+		id[1] = (uint8_t)i;
+		/* A MONTH APART, on the clock the device writes by. */
+		clock_ms += 2678400000u;
+		wrote = fzn_messages_write(&R.nm.m, X, FZN_MESSAGE_OUT, id, clock_ms, "w", 1u)
+		        == FZN_MESSAGES_OK;
+	}
+	CHECK(wrote, "fixture: R writes a line in each of 260 months");
+	CHECK(file_all(&R, &M, &filed, &waiting) && filed == 260u && waiting == 260u,
+	      "M did not file 260 lines, each waiting for its month's key");
+	(void)fzn_node_messages_init(&M.nm, &M.store_ops, &M.journal, M.pub, &M.sign, &RNG, &AEAD,
+	                             &HASH, now_ms);
+	(void)fzn_node_messages_use_keys(&M.nm, lacks, gives, 512u);
+	(void)fzn_node_messages_devices(&M.nm, (const uint8_t(*)[FZN_PUBKEY_LEN])R.pub, 1u);
+	CHECK(fzn_node_messages_absorb(&M.nm, &t) == FZN_MESSAGES_OK && t.lacking == 260u,
+	      "after a restart M did not lack all 260 keys its filed lines wait for");
+}
+
 static void test_seventy_devices(void)
 {
 	static device_t W;
@@ -1660,6 +1695,7 @@ int main(void)
 	test_a_line_is_taken_over_from_a_writer_gone();
 	test_a_holds_question_is_exact();
 	test_seventy_devices();
+	test_wants_past_one_row();
 	CHECK(gives_seen > 0u && keys_left == 0u,
 	      "a give by steps left its keys in the request, or no round gave any");
 	if (failures) {
