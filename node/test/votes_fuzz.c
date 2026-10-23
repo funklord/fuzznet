@@ -111,7 +111,7 @@ static void key(uint8_t out[FZN_PUBKEY_LEN], uint8_t seed)
 
 /* ---- a store per node ---------------------------------------------------- */
 
-#define ROWS 160
+#define ROWS 768
 
 struct row {
 	int used;
@@ -807,6 +807,133 @@ static int filled_first(void)
 	return 1;
 }
 
+/* EVERY CHANGE KEPT, sec 703: none is ever let go, so 200 root changes, 200
+ * settings of k and 200 retention edits by the root, each replacing the
+ * last, more than a node's own tables hold. A record not kept for want of
+ * room is offered again once the node is given larger tables, as fuzznetd
+ * gives them; at the end the last of each stands, and a node started again
+ * from the store, on such tables, concludes the same. */
+#define LIFE_CHANGES 200u
+#define LIFE_ROOM 256u
+static fzn_root_change_t life_changes[2][LIFE_ROOM];
+static uint8_t life_flags[2][FZN_ROOT_VIEW_FLAGS(LIFE_ROOM)];
+static uint8_t life_settings[2][LIFE_ROOM][FZN_QUORUM_SET_LEN];
+static uint8_t life_retention[2][LIFE_ROOM][FZN_RETENTION_SET_LEN];
+static uint8_t life_ids[2][LIFE_ROOM][FZN_ROOT_ACT_ID_LEN], life_scratch[2][2][LIFE_ROOM];
+static uint8_t life_subjects[2][3u * LIFE_ROOM * FZN_PUBKEY_LEN];
+
+static int life_room(node_t *x, int which)
+{
+	fzn_node_roots_tables_t t;
+
+	memset(&t, 0, sizeof(t));
+	t.changes = life_changes[which];
+	t.view_flags = life_flags[which];
+	t.changes_capacity = LIFE_ROOM;
+	t.settings = life_settings[which];
+	t.settings_capacity = LIFE_ROOM;
+	t.retention = life_retention[which];
+	t.retention_capacity = LIFE_ROOM;
+	t.scratch.ids = life_ids[which];
+	t.scratch.counts = life_scratch[which][0];
+	t.scratch.current = life_scratch[which][1];
+	t.scratch.capacity = LIFE_ROOM;
+	t.subjects = life_subjects[which];
+	t.subjects_capacity = 3u * LIFE_ROOM;
+	return fzn_node_roots_use(&x->roots, &t) == FZN_NODE_ROOTS_OK;
+}
+
+/* `o` given, and given again on room when it was not kept for want of it.
+ * 1 when applied. */
+static int life_give(const struct object *o, size_t *grown)
+{
+	size_t c, k, r;
+	fzn_node_apply_outcome_t got = give(&n, o->bytes, o->len);
+
+	if (got == FZN_NODE_APPLY_NOT_SAVED && fzn_node_roots_wants(&n.roots, &c, &k, &r)) {
+		if (c > LIFE_ROOM || k > LIFE_ROOM || r > LIFE_ROOM || !life_room(&n, 0))
+			return 0;
+		(*grown)++;
+		got = give(&n, o->bytes, o->len);
+	}
+	return got == FZN_NODE_APPLY_APPLIED;
+}
+
+static int every_change_kept(void)
+{
+	static struct object o, prev;
+	static node_t again;
+	char text[32], last_rule[32];
+	uint8_t last_k = 0, last_root[FZN_PUBKEY_LEN], standing[4][FZN_PUBKEY_LEN];
+	fzn_retain_rule_t rules[4], want;
+	size_t i, taken = 0, grown = 0, nrules = 0, unread = 0, loaded = 0, ns;
+
+	if (!node_up(&n))
+		return 0;
+	for (i = 0; i < LIFE_CHANGES; i++) {
+		last_k = (uint8_t)(1u + i % 5u);
+		if (!quorum_after(&o, R, last_k, i ? &prev : NULL))
+			return 0;
+		taken += (size_t)life_give(&o, &grown);
+		prev = o;
+	}
+	for (i = 0; i < LIFE_CHANGES; i++) {
+		snprintf(text, sizeof(text), "keep * age %zud", 30u + i);
+		if (!retention_after(&o, R, text, i ? &prev : NULL))
+			return 0;
+		taken += (size_t)life_give(&o, &grown);
+		prev = o;
+		memcpy(last_rule, text, sizeof(text));
+	}
+	/* A SECOND ROOT, a different key each time, added and removed: the
+	 * last one added is left standing. */
+	for (i = 0; i < LIFE_CHANGES / 2u; i++) {
+		uint8_t a[FZN_PUBKEY_LEN];
+
+		key(a, R);
+		key(last_root, R2);
+		last_root[3] = (uint8_t)i;
+		last_root[4] = (uint8_t)(i >> 8);
+		signing_as = R;
+		o.len = FZN_ROOT_ADD_LEN;
+		if (fzn_root_add_issue(a, last_root, &SIGN, o.bytes) != FZN_ROOT_LOG_OK)
+			return 0;
+		taken += (size_t)life_give(&o, &grown);
+		if (i + 1u == LIFE_CHANGES / 2u) {
+			taken++;
+			break;
+		}
+		o.len = FZN_ROOT_REMOVE_LEN;
+		if (fzn_root_remove_issue(a, last_root, NULL, &SIGN, o.bytes) != FZN_ROOT_LOG_OK)
+			return 0;
+		taken += (size_t)life_give(&o, &grown);
+	}
+	ns = fzn_node_roots_standing(&n.roots, standing, 4u);
+	if (taken != 3u * LIFE_CHANGES || grown == 0u || fzn_node_roots_quorum(&n.roots, 0u) != last_k
+	    || fzn_node_roots_retention(&n.roots, rules, 4u, &nrules, &unread) != FZN_NODE_ROOTS_OK
+	    || nrules != 1u || fzn_retain_parse(last_rule, strlen(last_rule), &want) != FZN_RETAIN_OK
+	    || memcmp(&rules[0], &want, sizeof(want)) != 0 || ns != 2u
+	    || memcmp(standing[1], last_root, FZN_PUBKEY_LEN) != 0) {
+		printf("votes_fuzz: every change kept: %zu of %u taken, grown %zu times, k %u of %u, "
+		       "%zu rules, %zu roots standing\n", taken, 3u * LIFE_CHANGES, grown,
+		       (unsigned)fzn_node_roots_quorum(&n.roots, 0u), (unsigned)last_k, nrules, ns);
+		return 0;
+	}
+	/* AND STARTED AGAIN FROM THE STORE, on tables as large. */
+	again = n;
+	if (fzn_node_roots_init(&again.roots, root_key, &SIGN, &HASH) != FZN_NODE_ROOTS_OK
+	    || !life_room(&again, 1)
+	    || fzn_node_roots_load(&again.roots, &n.store, &loaded) != FZN_NODE_ROOTS_OK
+	    || loaded != 3u * LIFE_CHANGES - 1u || fzn_node_roots_quorum(&again.roots, 0u) != last_k
+	    || fzn_node_roots_standing(&again.roots, standing, 4u) != 2u
+	    || memcmp(standing[1], last_root, FZN_PUBKEY_LEN) != 0) {
+		printf("votes_fuzz: every change kept: started again, %zu rows loaded, k %u\n", loaded,
+		       (unsigned)fzn_node_roots_quorum(&again.roots, 0u));
+		return 0;
+	}
+	return 1;
+}
+
 static unsigned long floor_of(unsigned long cases, unsigned long per)
 {
 	unsigned long f = cases / per;
@@ -874,6 +1001,10 @@ int main(int argc, char **argv)
 			printf("votes_fuzz: FAILED on case %lu\n", c + 1u);
 			return 1;
 		}
+	if (!every_change_kept()) {
+		printf("votes_fuzz: FAILED keeping every change\n");
+		return 1;
+	}
 	if (!filled_first()) {
 		printf("votes_fuzz: FAILED with the tables filled first\n");
 		return 1;

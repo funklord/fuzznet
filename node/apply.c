@@ -428,13 +428,23 @@ static enum outcome take_prekey(fzn_node_apply_t *ap, const uint8_t *body, size_
 	return err == FZN_NODE_SIBLINGS_OK || err == FZN_NODE_SIBLINGS_STALE ? APPLIED : REFUSED;
 }
 
+/* WHAT THE ROOTS' ANSWER COMES TO. A FULL TABLE LEAVES THE RECORD FOR THE
+ * NEXT ROUND, sec 703, as a full revocation store does: refused, it would
+ * be marked applied and skipped for good, the estate's change lost on this
+ * node. */
+static enum outcome roots_outcome(fzn_node_roots_err_t rerr)
+{
+	return rerr == FZN_NODE_ROOTS_OK ? APPLIED
+	       : rerr == FZN_NODE_ROOTS_NOT_SAVED ? NOT_SAVED
+	       : rerr == FZN_NODE_ROOTS_FULL ? FULL
+	                                     : REFUSED;
+}
+
 /* ONE OBJECT of `kind`, signed by `signer`: the journal's record issuer, or
  * the object's own signer when it came alone (sec 550). */
 static enum outcome apply_body(fzn_node_apply_t *ap, uint32_t kind, const uint8_t *body,
                                size_t len, const uint8_t *signer, fzn_node_apply_tally_t *tally)
 {
-	fzn_node_roots_err_t rerr;
-
 	/* THE BODY IS THE OBJECT ITS KIND NAMES, sec 502: a record whose body's
 	 * tag disagrees with its kind is refused before anything reads it. */
 	if (len < 2u || body[1] != (uint8_t)kind)
@@ -455,17 +465,11 @@ static enum outcome apply_body(fzn_node_apply_t *ap, uint32_t kind, const uint8_
 			return REFUSED;
 		if (!ever_root(ap, signer))
 			return WAIT;
-		rerr = fzn_node_roots_learn(ap->roots, ap->store, body, len);
-		return rerr == FZN_NODE_ROOTS_OK ? APPLIED
-		       : rerr == FZN_NODE_ROOTS_NOT_SAVED ? NOT_SAVED
-		                                          : REFUSED;
+		return roots_outcome(fzn_node_roots_learn(ap->roots, ap->store, body, len));
 	case FZN_OBJECT_RETENTION_SET:
 		/* A ROOT'S SETTING TO THE ROOTS, an admin's through its chain. */
 		if (ap->roots && is_root(ap, signer)) {
-			rerr = fzn_node_roots_learn(ap->roots, ap->store, body, len);
-			return rerr == FZN_NODE_ROOTS_OK ? APPLIED
-			       : rerr == FZN_NODE_ROOTS_NOT_SAVED ? NOT_SAVED
-			                                          : REFUSED;
+			return roots_outcome(fzn_node_roots_learn(ap->roots, ap->store, body, len));
 		}
 		return take(ap, 't', body, len, signer);
 	case FZN_OBJECT_REVOCATION:

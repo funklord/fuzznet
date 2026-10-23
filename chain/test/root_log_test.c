@@ -289,9 +289,39 @@ static void test_the_set_refuses(void)
 
 	key(genesis, 1);
 	act_of(a10, 10);
-	CHECK(fzn_root_set_init(&set, genesis, changes, FZN_ROOT_SET_MAX + 1u)
-	              == FZN_ROOT_LOG_ERR_MALFORMED,
-	      "a set past its bound was accepted");
+	/* A SET PAST THE VIEW'S OWN STORAGE, sec 703: kept whole, refused by a
+	 * view on its own flags and by the stack's readings -- each fails
+	 * closed rather than judging part of it -- and judged by a view on the
+	 * caller's. A chain of adds, root n adding n + 1, so the last root
+	 * stands only if every add before it is read. */
+	{
+		static fzn_root_view_t view;
+		static uint8_t flags[FZN_ROOT_VIEW_FLAGS(FZN_ROOT_SET_MAX + 1u)];
+		uint8_t last[FZN_PUBKEY_LEN];
+		size_t i, held = 0;
+
+		CHECK(fzn_root_set_init(&set, genesis, changes, FZN_ROOT_SET_MAX + 1u)
+		              == FZN_ROOT_LOG_OK,
+		      "a set larger than the view's own storage was refused");
+		for (i = 0; i <= FZN_ROOT_SET_MAX; i++) {
+			size_t len = change(add, id, 0, (uint8_t)(1u + i), (uint8_t)(2u + i), NULL);
+
+			held += fzn_root_set_admit(&set, add, len, &SIGN, &HASH) == FZN_ROOT_LOG_OK;
+		}
+		key(last, (uint8_t)(2u + FZN_ROOT_SET_MAX));
+		CHECK(held == FZN_ROOT_SET_MAX + 1u && set.used == FZN_ROOT_SET_MAX + 1u,
+		      "the set did not keep every add");
+		CHECK(fzn_root_view_init(&view, &set, NULL) == FZN_ROOT_LOG_ERR_FULL
+		              && !fzn_root_set_member(&set, NULL, last),
+		      "a set past the view's own storage was judged on it, or on the stack");
+		CHECK(fzn_root_view_init_with(&view, &set, NULL, flags, FZN_ROOT_SET_MAX + 1u)
+		              == FZN_ROOT_LOG_OK
+		              && fzn_root_view_member(&view, last)
+		              && fzn_root_view_init_with(&view, &set, NULL, flags, FZN_ROOT_SET_MAX)
+		                         == FZN_ROOT_LOG_ERR_FULL,
+		      "a view on the caller's storage did not reach the last add, or took a set "
+		      "larger than it");
+	}
 	memset(&log, 0, sizeof(log));
 	CHECK(fzn_root_set_init(&set, genesis, changes, 4) == FZN_ROOT_LOG_OK, "fixture");
 	CHECK(stands_key(&set, &log, 1) && !stands_key(&set, &log, 9),

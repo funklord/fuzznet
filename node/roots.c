@@ -44,6 +44,8 @@ const char *fzn_node_roots_err_str(fzn_node_roots_err_t err)
 		return "this node already holds a root key";
 	case FZN_NODE_ROOTS_NO_PROOF:
 		return "no root-adds this node holds reach from the estate's root to its root key";
+	case FZN_NODE_ROOTS_FULL:
+		return "a table of root records is full; the node must be given a larger one";
 	}
 	return "unknown";
 }
@@ -75,6 +77,15 @@ fzn_node_roots_err_t fzn_node_roots_init(fzn_node_roots_t *roots,
 	if (!roots || !genesis || !sign || !sign->verify || !hash || !hash->hash)
 		return FZN_NODE_ROOTS_MALFORMED;
 	memset(roots, 0, sizeof(*roots));
+	/* ITS OWN TABLES until it is given larger ones, sec 703. */
+	roots->settings = roots->settings_own;
+	roots->settings_capacity = FZN_NODE_ROOT_SETTINGS_MAX;
+	roots->retention = roots->retention_own;
+	roots->retention_capacity = FZN_NODE_ROOT_RETENTION_MAX;
+	roots->scratch.ids = roots->scratch_ids;
+	roots->scratch.counts = roots->scratch_flags[0];
+	roots->scratch.current = roots->scratch_flags[1];
+	roots->scratch.capacity = FZN_NODE_ROOT_RETENTION_MAX;
 	/* NO ACT LOG UNTIL A JOURNAL IS SET, sec 508: without one nothing a
 	 * removed root did can be shown to stand, which errs toward removal. */
 	if (fzn_root_set_init(&roots->set, genesis, roots->changes, FZN_ROOT_SET_MAX)
@@ -88,6 +99,62 @@ fzn_node_roots_err_t fzn_node_roots_init(fzn_node_roots_t *roots,
 	roots->sign = sign;
 	roots->hash = hash;
 	return FZN_NODE_ROOTS_OK;
+}
+
+static void settle(fzn_node_roots_t *roots);
+
+fzn_node_roots_err_t fzn_node_roots_use(fzn_node_roots_t *roots,
+                                        const fzn_node_roots_tables_t *t)
+{
+	size_t larger;
+
+	if (!roots || !t || !t->changes || !t->view_flags || !t->settings || !t->retention
+	    || !t->scratch.ids || !t->scratch.counts || !t->scratch.current || !t->subjects
+	    || t->changes_capacity < roots->set.used || t->changes_capacity == 0u
+	    || t->settings_capacity < roots->settings_used
+	    || t->retention_capacity < roots->retention_used)
+		return FZN_NODE_ROOTS_MALFORMED;
+	larger = t->settings_capacity > t->retention_capacity ? t->settings_capacity
+	                                                      : t->retention_capacity;
+	if (t->scratch.capacity < larger)
+		return FZN_NODE_ROOTS_MALFORMED;
+	/* WHAT IS HELD, COPIED OVER, then read from there alone. */
+	if (t->changes != roots->set.changes)
+		memmove(t->changes, roots->set.changes, roots->set.used * sizeof(*t->changes));
+	roots->set.changes = t->changes;
+	roots->set.capacity = t->changes_capacity;
+	roots->view_flags = t->view_flags;
+	roots->view_capacity = t->changes_capacity;
+	if (t->settings != roots->settings)
+		memmove(t->settings, roots->settings, roots->settings_used * sizeof(*t->settings));
+	roots->settings = t->settings;
+	roots->settings_capacity = t->settings_capacity;
+	if (t->retention != roots->retention)
+		memmove(t->retention, roots->retention, roots->retention_used * sizeof(*t->retention));
+	roots->retention = t->retention;
+	roots->retention_capacity = t->retention_capacity;
+	roots->scratch = t->scratch;
+	roots->subjects = t->subjects;
+	roots->subjects_capacity = t->subjects_capacity;
+	roots->changes_wanted = roots->settings_wanted = roots->retention_wanted = 0;
+	settle(roots);
+	return FZN_NODE_ROOTS_OK;
+}
+
+int fzn_node_roots_wants(const fzn_node_roots_t *roots, size_t *changes, size_t *settings,
+                         size_t *retention)
+{
+	if (!roots || !changes || !settings || !retention
+	    || (!roots->changes_wanted && !roots->settings_wanted && !roots->retention_wanted))
+		return 0;
+	*changes = roots->changes_wanted > roots->set.capacity ? roots->changes_wanted
+	                                                        : roots->set.capacity;
+	*settings = roots->settings_wanted > roots->settings_capacity ? roots->settings_wanted
+	                                                               : roots->settings_capacity;
+	*retention = roots->retention_wanted > roots->retention_capacity
+	             ? roots->retention_wanted
+	             : roots->retention_capacity;
+	return 1;
 }
 
 /* The blob tag and the admission a record takes, by its object byte. 0 for
@@ -122,8 +189,10 @@ static fzn_root_log_err_t admit(fzn_node_roots_t *roots, const uint8_t *bytes, s
 		for (i = 0; i < roots->settings_used; i++)
 			if (memcmp(roots->settings[i], bytes, FZN_QUORUM_SET_LEN) == 0)
 				return FZN_ROOT_LOG_OK;
-		if (roots->settings_used >= FZN_NODE_ROOT_SETTINGS_MAX)
+		if (roots->settings_used >= roots->settings_capacity) {
+			roots->settings_wanted = roots->settings_used + 1u;
 			return FZN_ROOT_LOG_ERR_FULL;
+		}
 		memcpy(roots->settings[roots->settings_used++], bytes, FZN_QUORUM_SET_LEN);
 		return FZN_ROOT_LOG_OK;
 	}
@@ -137,19 +206,30 @@ static fzn_root_log_err_t admit(fzn_node_roots_t *roots, const uint8_t *bytes, s
 		for (i = 0; i < roots->retention_used; i++)
 			if (memcmp(roots->retention[i], bytes, FZN_RETENTION_SET_LEN) == 0)
 				return FZN_ROOT_LOG_OK;
-		if (roots->retention_used >= FZN_NODE_ROOT_RETENTION_MAX)
+		if (roots->retention_used >= roots->retention_capacity) {
+			roots->retention_wanted = roots->retention_used + 1u;
 			return FZN_ROOT_LOG_ERR_FULL;
+		}
 		memcpy(roots->retention[roots->retention_used++], bytes, FZN_RETENTION_SET_LEN);
 		return FZN_ROOT_LOG_OK;
 	}
-	return fzn_root_set_admit(&roots->set, bytes, len, roots->sign, roots->hash);
+	{
+		fzn_root_log_err_t err = fzn_root_set_admit(&roots->set, bytes, len, roots->sign,
+		                                            roots->hash);
+
+		if (err == FZN_ROOT_LOG_ERR_FULL)
+			roots->changes_wanted = roots->set.used + 1u;
+		return err;
+	}
 }
 
 /* Settle the view again over what is held now. The ops point at it and
  * need no refresh. */
 static void settle(fzn_node_roots_t *roots)
 {
-	(void)fzn_root_view_init(&roots->view, &roots->set, roots->journal ? &roots->acts : NULL);
+	(void)fzn_root_view_init_with(&roots->view, &roots->set,
+	                              roots->journal ? &roots->acts : NULL, roots->view_flags,
+	                              roots->view_capacity);
 }
 
 fzn_node_roots_err_t fzn_node_roots_set_journal(fzn_node_roots_t *roots,
@@ -180,8 +260,14 @@ fzn_node_roots_err_t fzn_node_roots_learn(fzn_node_roots_t *roots,
 	tag = tag_of(bytes, len);
 	if (!tag || len > room - FZN_PERSIST_HEAD_LEN)
 		return FZN_NODE_ROOTS_REFUSED;
-	if (admit(roots, bytes, len) != FZN_ROOT_LOG_OK)
-		return FZN_NODE_ROOTS_REFUSED;
+	{
+		fzn_root_log_err_t err = admit(roots, bytes, len);
+
+		if (err == FZN_ROOT_LOG_ERR_FULL)
+			return FZN_NODE_ROOTS_FULL;
+		if (err != FZN_ROOT_LOG_OK)
+			return FZN_NODE_ROOTS_REFUSED;
+	}
 	settle(roots);
 	return fzn_node_roots_save(store, roots->hash, bytes, len);
 }
@@ -215,10 +301,11 @@ fzn_node_roots_err_t fzn_node_roots_save(const fzn_persist_ops_t *store,
 static fzn_node_roots_err_t load_slot(fzn_node_roots_t *roots, const fzn_persist_ops_t *store,
                                       fzn_persist_slot_t slot, size_t *count)
 {
-	static uint8_t subjects[CHANGES_HELD_MAX * FZN_PUBKEY_LEN];
-	size_t found = 0, i;
+	static uint8_t own[CHANGES_HELD_MAX * FZN_PUBKEY_LEN];
+	uint8_t *subjects = roots->subjects ? roots->subjects : own;
+	size_t found = 0, i, room = roots->subjects ? roots->subjects_capacity : CHANGES_HELD_MAX;
 
-	if (!store->list(store->ctx, slot, subjects, CHANGES_HELD_MAX, &found))
+	if (!store->list(store->ctx, slot, subjects, room, &found))
 		return FZN_NODE_ROOTS_STORE;
 	for (i = 0; i < found; i++) {
 		uint8_t blob[CHANGE_BLOB_MAX];
@@ -233,9 +320,18 @@ static fzn_node_roots_err_t load_slot(fzn_node_roots_t *roots, const fzn_persist
 		tag = tag_of(blob + FZN_PERSIST_HEAD_LEN, body);
 		/* A ROW THAT NAMES NO ROOT RECORD, a root-log entry of before sec
 		 * 507 among them, is a store written by something else. */
-		if (!tag || fzn_persist_head_check(blob, len, body, tag) != FZN_PERSIST_OK
-		    || admit(roots, blob + FZN_PERSIST_HEAD_LEN, body) != FZN_ROOT_LOG_OK)
+		if (!tag || fzn_persist_head_check(blob, len, body, tag) != FZN_PERSIST_OK)
 			return FZN_NODE_ROOTS_STORE;
+		{
+			fzn_root_log_err_t err = admit(roots, blob + FZN_PERSIST_HEAD_LEN, body);
+
+			/* MORE THAN ITS TABLES HOLD, sec 703: said, so the caller can
+			 * give it larger ones and load again. */
+			if (err == FZN_ROOT_LOG_ERR_FULL)
+				return FZN_NODE_ROOTS_FULL;
+			if (err != FZN_ROOT_LOG_OK)
+				return FZN_NODE_ROOTS_STORE;
+		}
 		(*count)++;
 	}
 	return FZN_NODE_ROOTS_OK;
@@ -617,10 +713,14 @@ fzn_node_roots_err_t fzn_node_roots_self_grant(fzn_node_roots_t *roots,
 
 uint8_t fzn_node_roots_quorum(const fzn_node_roots_t *roots, uint8_t fallback)
 {
+	uint8_t k = 0;
+
 	if (!roots || roots->settings_used == 0u)
 		return fallback;
-	return fzn_quorum_resolve((const uint8_t *)roots->settings, roots->settings_used,
-	                          &roots->ops, roots->hash, fallback);
+	return fzn_quorum_winner_with((const uint8_t *)roots->settings, roots->settings_used,
+	                              &roots->ops, roots->hash, &roots->scratch, &k, NULL)
+	       ? k
+	       : fallback;
 }
 
 fzn_node_roots_err_t fzn_node_roots_set_quorum(fzn_node_roots_t *roots,
@@ -641,8 +741,9 @@ fzn_node_roots_err_t fzn_node_roots_set_quorum(fzn_node_roots_t *roots,
 	/* WHAT IT REPLACES: the setting that wins now, so the change supersedes
 	 * what this root saw -- lowering k included. */
 	if (roots->settings_used
-	    && fzn_quorum_winner((const uint8_t *)roots->settings, roots->settings_used,
-	                         &roots->ops, roots->hash, &current, replaces))
+	    && fzn_quorum_winner_with((const uint8_t *)roots->settings, roots->settings_used,
+	                              &roots->ops, roots->hash, &roots->scratch, &current,
+	                              replaces))
 		follows = replaces;
 	if (fzn_quorum_set_issue(as, k, follows, sign, record) != FZN_ROOT_LOG_OK)
 		return FZN_NODE_ROOTS_REFUSED;
@@ -698,8 +799,8 @@ fzn_node_roots_err_t fzn_node_roots_retention(const fzn_node_roots_t *roots,
 	memset(&g, 0, sizeof(g));
 	g.out = out;
 	g.cap = cap;
-	if (fzn_retention_current((const uint8_t *)roots->retention, roots->retention_used,
-	                          &roots->judge, roots->hash, gather_one, &g)
+	if (fzn_retention_current_with((const uint8_t *)roots->retention, roots->retention_used,
+	                               &roots->judge, roots->hash, &roots->scratch, gather_one, &g)
 	    < 0)
 		return FZN_NODE_ROOTS_STORE;
 	/* PASSED OVER, not dropped unseen: a rule past `cap` counts with one
@@ -717,8 +818,11 @@ fzn_node_roots_err_t fzn_node_roots_retention(const fzn_node_roots_t *roots,
 static int follows_removal(const fzn_node_roots_t *roots, const char *text, size_t len,
                            uint8_t id[FZN_ROOT_ACT_ID_LEN])
 {
-	static uint8_t ids[FZN_NODE_ROOT_RETENTION_MAX][FZN_ROOT_ACT_ID_LEN];
+	uint8_t (*ids)[FZN_ROOT_ACT_ID_LEN] = roots->scratch.ids;
 	size_t i, j, k;
+
+	if (roots->retention_used > roots->scratch.capacity)
+		return 0;
 
 	for (i = 0; i < roots->retention_used; i++)
 		if (!roots->hash->hash(roots->hash->ctx, ids[i], FZN_ROOT_ACT_ID_LEN,
@@ -774,16 +878,18 @@ fzn_node_roots_err_t fzn_node_roots_set_retention(fzn_node_roots_t *roots,
 	/* IS IT CURRENT: by its canonical text, which is how it was minted. */
 	memset(&g, 0, sizeof(g));
 	g.seek = text;
-	if (fzn_retention_current((const uint8_t *)roots->retention, roots->retention_used,
-	                          &roots->judge, roots->hash, gather_one, &g)
+	if (fzn_retention_current_with((const uint8_t *)roots->retention, roots->retention_used,
+	                               &roots->judge, roots->hash, &roots->scratch, gather_one, &g)
 	    < 0)
 		return FZN_NODE_ROOTS_STORE;
 	if (add && g.found)
 		return FZN_NODE_ROOTS_HELD;
 	if (!add && !g.found)
 		return FZN_NODE_ROOTS_REFUSED;
-	if (roots->retention_used >= FZN_NODE_ROOT_RETENTION_MAX)
-		return FZN_NODE_ROOTS_REFUSED;
+	if (roots->retention_used >= roots->retention_capacity) {
+		roots->retention_wanted = roots->retention_used + 1u;
+		return FZN_NODE_ROOTS_FULL;
+	}
 	/* A REMOVAL REPLACES THE RECORD THAT CARRIES THE RULE, with no text;
 	 * an add again follows the removal it undoes. */
 	if (add && follows_removal(roots, text, len, g.id))
@@ -815,8 +921,10 @@ static fzn_root_log_err_t keep_retention(fzn_node_roots_t *roots, const uint8_t 
 	for (i = 0; i < roots->retention_used; i++)
 		if (memcmp(roots->retention[i], record, FZN_RETENTION_SET_LEN) == 0)
 			return FZN_ROOT_LOG_OK;
-	if (roots->retention_used >= FZN_NODE_ROOT_RETENTION_MAX)
+	if (roots->retention_used >= roots->retention_capacity) {
+		roots->retention_wanted = roots->retention_used + 1u;
 		return FZN_ROOT_LOG_ERR_FULL;
+	}
 	memcpy(roots->retention[roots->retention_used++], record, FZN_RETENTION_SET_LEN);
 	return FZN_ROOT_LOG_OK;
 }
@@ -843,8 +951,14 @@ static fzn_node_roots_err_t admit_admin_retention(fzn_node_roots_t *roots, const
 	                               opened, hop_count, root, roots->sign)
 	    != FZN_CHAIN_OK)
 		return FZN_NODE_ROOTS_REFUSED;
-	if (keep_retention(roots, record) != FZN_ROOT_LOG_OK)
-		return FZN_NODE_ROOTS_REFUSED;
+	{
+		fzn_root_log_err_t err = keep_retention(roots, record);
+
+		if (err == FZN_ROOT_LOG_ERR_FULL)
+			return FZN_NODE_ROOTS_FULL;
+		if (err != FZN_ROOT_LOG_OK)
+			return FZN_NODE_ROOTS_REFUSED;
+	}
 	return FZN_NODE_ROOTS_OK;
 }
 
@@ -923,23 +1037,30 @@ fzn_node_roots_err_t fzn_node_roots_load_admin_retention(fzn_node_roots_t *roots
                                                          const uint8_t root[FZN_PUBKEY_LEN],
                                                          size_t *count)
 {
-	static uint8_t subjects[FZN_NODE_ROOT_RETENTION_MAX * FZN_PUBKEY_LEN];
+	static uint8_t own[FZN_NODE_ROOT_RETENTION_MAX * FZN_PUBKEY_LEN];
 	static uint8_t hops[ADMIN_HOPS_MAX][FZN_HOP_LEN];
 	uint8_t record[FZN_RETENTION_SET_LEN];
-	size_t found = 0, i, n = 0;
+	uint8_t *subjects;
+	size_t found = 0, i, n = 0, room;
 
 	if (!roots || !store || !store->list || !root || !count)
 		return FZN_NODE_ROOTS_MALFORMED;
+	subjects = roots->subjects ? roots->subjects : own;
+	room = roots->subjects ? roots->subjects_capacity : FZN_NODE_ROOT_RETENTION_MAX;
 	*count = 0;
-	if (!store->list(store->ctx, FZN_PERSIST_ADMIN_RETENTION, subjects,
-	                 FZN_NODE_ROOT_RETENTION_MAX, &found))
+	if (!store->list(store->ctx, FZN_PERSIST_ADMIN_RETENTION, subjects, room, &found))
 		return FZN_NODE_ROOTS_STORE;
 	for (i = 0; i < found; i++) {
+		fzn_node_roots_err_t err;
+
 		if (!fzn_node_roots_admin_retention_get(store, subjects + (i * (size_t)FZN_PUBKEY_LEN),
-		                                        record, hops, &n)
-		    || admit_admin_retention(roots, record, sizeof(record),
-		                             (const uint8_t (*)[FZN_HOP_LEN])hops, n, root)
-		               != FZN_NODE_ROOTS_OK)
+		                                        record, hops, &n))
+			return FZN_NODE_ROOTS_STORE;
+		err = admit_admin_retention(roots, record, sizeof(record),
+		                            (const uint8_t (*)[FZN_HOP_LEN])hops, n, root);
+		if (err == FZN_NODE_ROOTS_FULL)
+			return err;
+		if (err != FZN_NODE_ROOTS_OK)
 			return FZN_NODE_ROOTS_STORE;
 		(*count)++;
 	}
@@ -964,8 +1085,8 @@ fzn_node_roots_err_t fzn_node_roots_set_retention_as_admin(
 		return FZN_NODE_ROOTS_MALFORMED;
 	memset(&g, 0, sizeof(g));
 	g.seek = text;
-	if (fzn_retention_current((const uint8_t *)roots->retention, roots->retention_used,
-	                          &roots->judge, roots->hash, gather_one, &g)
+	if (fzn_retention_current_with((const uint8_t *)roots->retention, roots->retention_used,
+	                               &roots->judge, roots->hash, &roots->scratch, gather_one, &g)
 	    < 0)
 		return FZN_NODE_ROOTS_STORE;
 	if (add && g.found)

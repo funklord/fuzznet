@@ -69552,7 +69552,77 @@ max = 64]`, `description_len [min = 1]`.
 reference's id is then decimal, up to 20 digits, so the `fzn:sticker`
 form changes with it.
 
+**Saved packs, reported the same day:** fuzzypickles relayed that the
+holder also removed fzpd's cap of 64 saved packs, with one pack per root
+and a save again rewriting it. This node already behaves so: a saved pack
+is an estate setting keyed by its root (sec 681), with no count of its
+own. The settings store's capacity is what bounds it.
+
 **When: after the mature subset clears its bar**, the holder's choice
 when asked whether this lifts sec 689's freeze. It does not. Until then
 this node refuses ids above 16 bits and packs past 64, and the client,
 which no longer narrows an id, will meet that refusal first.
+
+## 703. The estate's root records, kept on tables that grow, 2026-10-23
+
+Sec 689's bounds bar, the estate journey. **Measured: a node could take
+at most 64 root changes, 64 settings of k and 64 retention records in an
+estate's whole life.** None is ever let go (sec 418 keeps every record
+and judges it when read), so the 65th of each was refused. In the
+journal a refused record is marked applied and skipped, so the change
+was lost on that node for good.
+
+**Corrected the same day, after the holder was asked: the cap reached
+less than that question said.** Since sec 541 and 542, a node that keeps
+the settings database writes `set quorum` and `add retention` and
+`remove retention` as estate settings, not as root records. So on
+`fuzznetd` the k and retention tables fill only with older-format
+records that arrive. **What a running estate met was the root changes:**
+64 adds and removes of roots in its life, with no settings path around
+them. The decision covers all three tables, and building it for all
+three was right. But "after 64 retention edits the root can never change
+retention again" was true only of a node without settings.
+
+**The holder chose 2026-10-23: caller-supplied tables, grown**, as for
+sticker packs (sec 702). Rejected:
+- pruning superseded records, since what counts is judged when read, and
+  a replacer whose standing is later cut would make a dropped record
+  count again; the root log's adds and removes cannot be pruned at all;
+- larger fixed caps, still a lifetime limit.
+
+### What changed, sec 703
+
+- **`chain/root_log`:** a set takes any capacity. A view settles on
+  caller flags (`fzn_root_view_init_with`) or on its own 64, refusing a
+  larger set as FULL rather than judging part of it. The two resolvers
+  have `_with` forms on caller scratch, and the old forms keep their
+  stack and fail closed past it.
+- **`node/roots`:** the tables start as the node's own 64 each.
+  `fzn_node_roots_use` moves them onto the caller's. A full table answers
+  `FZN_NODE_ROOTS_FULL`, and `fzn_node_roots_wants` says how large each
+  must be: BUFFER_TOO_SMALL with the count needed, the holder's shape.
+- **`node/apply`, `node/revoke`:** a full roots table leaves the record
+  unmarked for the next round, as a full revocation store does. An
+  admin's retention record does the same.
+- **`fuzznetd`:** it counts the store's root-record rows before each
+  load, asking a list that refuses rather than truncates, with more room
+  until it answers. It sizes the tables to hold them, and grows a table
+  once it is three quarters full or found full, so a root's own change
+  meets a full table only if it makes a quarter of one between two loop
+  passes.
+
+### Tested, sec 703
+
+- **`votes_fuzz`, every change kept:** 200 root changes, 200 settings of
+  k and 200 retention edits by the root through `fzn_node_apply_object`,
+  the test giving room when a record is not kept for want of it. The last
+  of each stands, and a node started again from the store, on such
+  tables, loads all 599 rows and concludes the same. **Control:** with a
+  full table answered as refused, 193 of 600 were taken.
+- **`live_faults` phase e:** a root makes 80 root changes, every one
+  answered `ok`; started again, it loads them and makes an 81st.
+  **Controls:** with the loop's growth off, change 65 was refused as
+  "a table of root records is full"; with the sizing at load off, the
+  daemon would not start over a store of 80.
+- **`root_log_test`:** a set of 65 is kept, refused by the view's own
+  flags and by the stack's readings, and read through on the caller's.

@@ -3860,7 +3860,7 @@ SABOTAGES = [
 	(
 		"root-set-unsettled-takes-every-removal",
 		"chain/root_log.c",
-		"\tmemcpy(st->rem_ok, seen, sizeof(seen));\n\tgrow_members(set, acts, st);\n",
+		"\tmemcpy(st->rem_ok, st->seen, n);\n\tgrow_members(set, st->acts, st);\n",
 		"",
 		"a set that never settles, answered from whichever round came last, answers by the parity of its record count rather than toward removal -- sec 405",
 	),
@@ -3909,22 +3909,22 @@ SABOTAGES = [
 	(
 		"node-roots-learn-refuses-what-will-not-admit",
 		"node/roots.c",
-		"\tif (admit(roots, bytes, len) != FZN_ROOT_LOG_OK)\n\t\treturn FZN_NODE_ROOTS_REFUSED;\n",
-		"\t(void)admit(roots, bytes, len);\n",
+		"\t\tif (err != FZN_ROOT_LOG_OK)\n\t\t\treturn FZN_NODE_ROOTS_REFUSED;\n\t}\n\tsettle(roots);\n\treturn fzn_node_roots_save(",
+		"\t}\n\tsettle(roots);\n\treturn fzn_node_roots_save(",
 		"a node that saves a root record nobody signed makes it count at the next restart -- sec 407",
 	),
 	(
 		"node-roots-learn-settles-the-view",
 		"node/roots.c",
-		"\t\treturn FZN_NODE_ROOTS_REFUSED;\n\tsettle(roots);\n",
-		"\t\treturn FZN_NODE_ROOTS_REFUSED;\n",
+		"\t\t\treturn FZN_NODE_ROOTS_REFUSED;\n\t}\n\tsettle(roots);\n\treturn fzn_node_roots_save(",
+		"\t\t\treturn FZN_NODE_ROOTS_REFUSED;\n\t}\n\treturn fzn_node_roots_save(",
 		"a root learned and not settled into the view is not a root until the node restarts -- sec 407",
 	),
 	(
 		"node-roots-load-admits-or-fails",
 		"node/roots.c",
-		"\t\t    || admit(roots, blob + FZN_PERSIST_HEAD_LEN, body) != FZN_ROOT_LOG_OK)\n\t\t\treturn FZN_NODE_ROOTS_STORE;\n",
-		"\t\t    || (admit(roots, blob + FZN_PERSIST_HEAD_LEN, body), 0))\n\t\t\treturn FZN_NODE_ROOTS_STORE;\n",
+		"\t\t\tif (err != FZN_ROOT_LOG_OK)\n\t\t\t\treturn FZN_NODE_ROOTS_STORE;\n\t\t}\n\t\t(*count)++;",
+		"\t\t}\n\t\t(*count)++;",
 		"a stored root record that no longer verifies, skipped at start, is a changed store the node carries on over -- sec 407",
 	),
 	(
@@ -8734,15 +8734,15 @@ SABOTAGES = [
 	(
 		"node-retention-held-once",
 		"node/roots.c",
-		"\tif (add && g.found)\n\t\treturn FZN_NODE_ROOTS_HELD;\n\tif (!add && !g.found)\n\t\treturn FZN_NODE_ROOTS_REFUSED;\n\tif (roots->retention_used >= FZN_NODE_ROOT_RETENTION_MAX)\n",
-		"\tif (!add && !g.found)\n\t\treturn FZN_NODE_ROOTS_REFUSED;\n\tif (roots->retention_used >= FZN_NODE_ROOT_RETENTION_MAX)\n",
+		"\tif (add && g.found)\n\t\treturn FZN_NODE_ROOTS_HELD;\n\tif (!add && !g.found)\n\t\treturn FZN_NODE_ROOTS_REFUSED;\n\tif (roots->retention_used >= roots->retention_capacity) {\n",
+		"\tif (!add && !g.found)\n\t\treturn FZN_NODE_ROOTS_REFUSED;\n\tif (roots->retention_used >= roots->retention_capacity) {\n",
 		"a rule already the estate's is minted and logged again, spending the root's records on nothing -- sec 476",
 	),
 	(
 		"node-retention-removal-names-its-record",
 		"node/roots.c",
-		"\tif (!add && !g.found)\n\t\treturn FZN_NODE_ROOTS_REFUSED;\n\tif (roots->retention_used >= FZN_NODE_ROOT_RETENTION_MAX)\n",
-		"\tif (roots->retention_used >= FZN_NODE_ROOT_RETENTION_MAX)\n",
+		"\tif (!add && !g.found)\n\t\treturn FZN_NODE_ROOTS_REFUSED;\n\tif (roots->retention_used >= roots->retention_capacity) {\n",
+		"\tif (roots->retention_used >= roots->retention_capacity) {\n",
 		"removing a rule the estate does not have mints a record replacing nothing it can name -- sec 476",
 	),
 	(
@@ -11317,6 +11317,20 @@ SABOTAGES = [
 		"\t\tif (shared && !fzn_node_admin_contact_of(admin, req->sender, whose)\n",
 		"\t\tif (0 && !fzn_node_admin_contact_of(admin, req->sender, whose)\n",
 		"a removed contact's extension requests are still served, as a contact's -- sec 454, 701",
+	),
+	(
+		"apply-roots-full-waits-for-room",
+		"node/apply.c",
+		"\t       : rerr == FZN_NODE_ROOTS_FULL ? FULL\n",
+		"\t       : rerr == FZN_NODE_ROOTS_FULL ? REFUSED\n",
+		"a root record refused for want of room is marked applied and lost for good -- sec 703",
+	),
+	(
+		"roots-learn-says-full",
+		"node/roots.c",
+		"\t\tif (err == FZN_ROOT_LOG_ERR_FULL)\n\t\t\treturn FZN_NODE_ROOTS_FULL;\n\t\tif (err != FZN_ROOT_LOG_OK)\n\t\t\treturn FZN_NODE_ROOTS_REFUSED;\n\t}\n\tsettle(roots);",
+		"\t\tif (err != FZN_ROOT_LOG_OK)\n\t\t\treturn FZN_NODE_ROOTS_REFUSED;\n\t}\n\tsettle(roots);",
+		"a full table reads as a refused record, and nothing gives the node room -- sec 703",
 	),
 	(
 		"apply-chain-tries-every-grant",

@@ -670,6 +670,10 @@ static fzn_node_pull_err_t finish_vote(fzn_node_vote_pull_t *pull,
 		        (const uint8_t (*)[FZN_HOP_LEN])pull->hops, pull->hop_count, root);
 		if (rerr == FZN_NODE_ROOTS_NOT_SAVED)
 			return FZN_NODE_PULL_NOT_SAVED;
+		/* A FULL TABLE STOPS IT, sec 703, as a full revocation store does:
+		 * counted and skipped, the admin's record would be lost for good. */
+		if (rerr == FZN_NODE_ROOTS_FULL)
+			return FZN_NODE_PULL_REFUSED;
 		if (rerr != FZN_NODE_ROOTS_OK)
 			pull->refused++;
 		else

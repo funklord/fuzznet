@@ -63,11 +63,13 @@
 #include "../persist/persist.h"
 #include "../session/random.h"
 
-/* The most settings of k a node keeps: each is a root's deliberate act. */
+/* THE SETTINGS OF k A NODE KEEPS IN ITS OWN TABLE, and the retention
+ * records (sec 476: adds, changes and removals together). Not limits on an
+ * estate, sec 703: none of these is ever let go, so 64 was once every
+ * change an estate could make in its life. A node needing more is given
+ * tables of the caller's (`fzn_node_roots_use`), and told it needs them by
+ * FZN_NODE_ROOTS_FULL. */
 #define FZN_NODE_ROOT_SETTINGS_MAX 64u
-
-/* The most retention records a node keeps, sec 476: adds, changes and
- * removals together, each a root's deliberate act. */
 #define FZN_NODE_ROOT_RETENTION_MAX 64u
 
 typedef enum fzn_node_roots_err {
@@ -91,14 +93,21 @@ typedef enum fzn_node_roots_err {
 	FZN_NODE_ROOTS_HELD = -7,
 	/* No chain of at most FZN_PROVISION_PROOF_MAX root-adds this node holds
 	 * reaches from the estate's root to its root key. */
-	FZN_NODE_ROOTS_NO_PROOF = -8
+	FZN_NODE_ROOTS_NO_PROOF = -8,
+	/* A table is full and the record was not taken: `fzn_node_roots_wants`
+	 * says which and how large it must be. sec 703. */
+	FZN_NODE_ROOTS_FULL = -9
 } fzn_node_roots_err_t;
 
 const char *fzn_node_roots_err_str(fzn_node_roots_err_t err);
 
 typedef struct fzn_node_roots {
 	fzn_root_set_t set;
+	/* THE SET'S CHANGES ON THE NODE'S OWN TABLE until it is given one
+	 * (`fzn_node_roots_use`), and the view's flags beside them. */
 	fzn_root_change_t changes[FZN_ROOT_SET_MAX];
+	uint8_t *view_flags;
+	size_t view_capacity;
 	fzn_root_view_t view;
 	fzn_root_ops_t ops;
 	/* The log asked about any key's acts, sec 497 -- the journal's since
@@ -107,13 +116,26 @@ typedef struct fzn_node_roots {
 	fzn_act_log_ops_t acts;
 	const fzn_sign_ops_t *sign;
 	const fzn_hash_ops_t *hash;
-	/* The roots' settings of the estate's k, sec 418, each checked. */
-	uint8_t settings[FZN_NODE_ROOT_SETTINGS_MAX][FZN_QUORUM_SET_LEN];
-	size_t settings_used;
+	/* The roots' settings of the estate's k, sec 418, each checked: in
+	 * `settings_own` or the caller's table. */
+	uint8_t (*settings)[FZN_QUORUM_SET_LEN];
+	size_t settings_used, settings_capacity;
+	uint8_t settings_own[FZN_NODE_ROOT_SETTINGS_MAX][FZN_QUORUM_SET_LEN];
 	/* The retention records, sec 476 -- roots' and, since sec 479, admins'
-	 * -- each checked. */
-	uint8_t retention[FZN_NODE_ROOT_RETENTION_MAX][FZN_RETENTION_SET_LEN];
-	size_t retention_used;
+	 * -- each checked, the same way. */
+	uint8_t (*retention)[FZN_RETENTION_SET_LEN];
+	size_t retention_used, retention_capacity;
+	uint8_t retention_own[FZN_NODE_ROOT_RETENTION_MAX][FZN_RETENTION_SET_LEN];
+	/* WHAT A RESOLUTION WORKS IN, as large as the larger of the two tables
+	 * above, and where a load lists the store's rows. */
+	fzn_root_scratch_t scratch;
+	uint8_t scratch_ids[FZN_NODE_ROOT_RETENTION_MAX][FZN_ROOT_ACT_ID_LEN];
+	uint8_t scratch_flags[2][FZN_NODE_ROOT_RETENTION_MAX];
+	uint8_t *subjects;
+	size_t subjects_capacity;
+	/* A TABLE FOUND FULL, sec 703: how large each must be to take what was
+	 * refused. 0 where none was. */
+	size_t changes_wanted, settings_wanted, retention_wanted;
 	/* THE REVOCATIONS ATTACHED (`fzn_node_roots_attach`), which say which
 	 * admins stand, and the ops that judge a retention record by either:
 	 * its setter's act under the set, or its setter standing as an admin.
@@ -156,6 +178,40 @@ fzn_node_roots_err_t fzn_node_roots_init(fzn_node_roots_t *roots,
                                          const uint8_t genesis[FZN_PUBKEY_LEN],
                                          const fzn_sign_ops_t *sign,
                                          const fzn_hash_ops_t *hash);
+
+/* TABLES OF THE CALLER'S, sec 703, the holder's of 2026-10-23: no change an
+ * estate makes is ever let go, so a node that keeps them all is given room
+ * for them rather than refusing the next one for good. Each array of
+ * `capacity` entries; `view_flags` FZN_ROOT_VIEW_FLAGS(`changes_capacity`)
+ * bytes; `scratch` at least as large as the larger of `settings_capacity`
+ * and `retention_capacity`; `subjects` room for `subjects_capacity` keys of
+ * FZN_PUBKEY_LEN, every row a load lists. All must outlive `roots`. */
+typedef struct fzn_node_roots_tables {
+	fzn_root_change_t *changes;
+	uint8_t *view_flags;
+	size_t changes_capacity;
+	uint8_t (*settings)[FZN_QUORUM_SET_LEN];
+	size_t settings_capacity;
+	uint8_t (*retention)[FZN_RETENTION_SET_LEN];
+	size_t retention_capacity;
+	fzn_root_scratch_t scratch;
+	uint8_t *subjects;
+	size_t subjects_capacity;
+} fzn_node_roots_tables_t;
+
+/* `roots` moved onto `tables`, what it holds copied over and the view
+ * settled again: MALFORMED for a table smaller than what is held, or a
+ * scratch smaller than either table. What the caller held before is no
+ * longer read, and may be let go. */
+fzn_node_roots_err_t fzn_node_roots_use(fzn_node_roots_t *roots,
+                                        const fzn_node_roots_tables_t *tables);
+
+/* WHETHER A TABLE WAS FOUND FULL since `roots` was last given tables, and
+ * the size each must be: 1 with the three in `*changes`, `*settings` and
+ * `*retention` -- each the larger of its table's present size and what the
+ * refused record needed. 0 when none was. */
+int fzn_node_roots_wants(const fzn_node_roots_t *roots, size_t *changes, size_t *settings,
+                         size_t *retention);
 
 /* At start: admit every root record (slot 13) in `store`. A record that will
  * not read or admit FAILS the load, as a revocation does (sec 380). `count`

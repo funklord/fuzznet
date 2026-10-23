@@ -5986,6 +5986,143 @@ static size_t card_local(const fzn_request_t *request, char *reply, size_t reply
 
 static int asked_due;
 
+/* ---- the root records' tables, sec 703 ----------------------------------
+ *
+ * NONE IS EVER LET GO, so a node keeping every change its estate made needs
+ * room for all of them: the holder's of 2026-10-23, the tables the
+ * caller's and grown here rather than 64 each for an estate's whole life.
+ * The library allocates nothing; this does, per roots object, and lets the
+ * last tables go once the next are in use. */
+struct roots_heap {
+	const fzn_node_roots_t *roots;
+	void *block[6];
+};
+static struct roots_heap roots_heaps[8];
+
+/* `roots` ON TABLES OF THESE SIZES, each at least what it holds: 1 when in
+ * use. */
+static int roots_grow(fzn_node_roots_t *roots, size_t changes, size_t settings, size_t retention,
+                      size_t subjects)
+{
+	fzn_node_roots_tables_t t;
+	struct roots_heap *h = NULL;
+	void *block[6];
+	size_t i, larger;
+
+	if (changes < FZN_ROOT_SET_MAX)
+		changes = FZN_ROOT_SET_MAX;
+	if (settings < FZN_NODE_ROOT_SETTINGS_MAX)
+		settings = FZN_NODE_ROOT_SETTINGS_MAX;
+	if (retention < FZN_NODE_ROOT_RETENTION_MAX)
+		retention = FZN_NODE_ROOT_RETENTION_MAX;
+	larger = settings > retention ? settings : retention;
+	if (subjects < changes + settings + retention)
+		subjects = changes + settings + retention;
+	for (i = 0; i < sizeof(roots_heaps) / sizeof(roots_heaps[0]) && !h; i++)
+		if (roots_heaps[i].roots == roots || !roots_heaps[i].roots)
+			h = &roots_heaps[i];
+	if (!h)
+		return 0;
+	block[0] = calloc(changes, sizeof(fzn_root_change_t));
+	block[1] = calloc(FZN_ROOT_VIEW_FLAGS(changes), 1u);
+	block[2] = calloc(settings, FZN_QUORUM_SET_LEN);
+	block[3] = calloc(retention, FZN_RETENTION_SET_LEN);
+	block[4] = calloc(larger, FZN_ROOT_ACT_ID_LEN + 2u);
+	block[5] = calloc(subjects, FZN_PUBKEY_LEN);
+	memset(&t, 0, sizeof(t));
+	t.changes = block[0];
+	t.view_flags = block[1];
+	t.changes_capacity = changes;
+	t.settings = block[2];
+	t.settings_capacity = settings;
+	t.retention = block[3];
+	t.retention_capacity = retention;
+	if (block[4]) {
+		t.scratch.ids = block[4];
+		t.scratch.counts = (uint8_t *)block[4] + (larger * FZN_ROOT_ACT_ID_LEN);
+		t.scratch.current = t.scratch.counts + larger;
+		t.scratch.capacity = larger;
+	}
+	t.subjects = block[5];
+	t.subjects_capacity = subjects;
+	for (i = 0; i < 6u; i++)
+		if (!block[i])
+			break;
+	if (i < 6u || fzn_node_roots_use(roots, &t) != FZN_NODE_ROOTS_OK) {
+		for (i = 0; i < 6u; i++)
+			free(block[i]);
+		return 0;
+	}
+	for (i = 0; i < 6u; i++) {
+		free(h->block[i]);
+		h->block[i] = block[i];
+	}
+	h->roots = roots;
+	return 1;
+}
+
+/* HOW MANY ROWS `slot` HOLDS, asked of a list that refuses rather than
+ * truncates: tried with room for more until it answers. SIZE_MAX when it
+ * never does. */
+static size_t rows_in(const fzn_persist_ops_t *store, fzn_persist_slot_t slot)
+{
+	size_t room, found = 0;
+
+	if (!store || !store->list)
+		return SIZE_MAX;
+	for (room = 256u; room <= ((size_t)1 << 22); room *= 2u) {
+		uint8_t *buf = malloc(room * FZN_PUBKEY_LEN);
+		int ok = buf && store->list(store->ctx, slot, buf, room, &found);
+
+		free(buf);
+		if (!buf)
+			return SIZE_MAX;
+		if (ok)
+			return found;
+	}
+	return SIZE_MAX;
+}
+
+/* `fzn_node_roots_load`, on tables large enough for every row the store
+ * holds: each table may be asked to hold all of them. */
+static fzn_node_roots_err_t roots_load(fzn_node_roots_t *roots, const fzn_persist_ops_t *store,
+                                       size_t *count)
+{
+	size_t changes = rows_in(store, FZN_PERSIST_ROOT_CHANGE);
+	size_t admins = rows_in(store, FZN_PERSIST_ADMIN_RETENTION);
+
+	if (changes != SIZE_MAX && admins != SIZE_MAX
+	    && (changes > FZN_NODE_ROOT_SETTINGS_MAX || admins + changes > FZN_NODE_ROOT_RETENTION_MAX)
+	    && !roots_grow(roots, changes, changes, changes + admins, changes + admins))
+		return FZN_NODE_ROOTS_STORE;
+	return fzn_node_roots_load(roots, store, count);
+}
+
+/* A TABLE FOUND FULL SINCE LAST ASKED, OR THREE QUARTERS FULL, doubled:
+ * what was refused for want of room is taken at the next round, the
+ * journal having left it unmarked, and a root's own change made here meets
+ * a full table only if it makes a quarter of one between two passes. */
+static void roots_room(fzn_node_roots_t *roots)
+{
+	size_t changes = 0, settings = 0, retention = 0;
+
+	if (!fzn_node_roots_wants(roots, &changes, &settings, &retention)) {
+		if (4u * roots->set.used < 3u * roots->set.capacity
+		    && 4u * roots->settings_used < 3u * roots->settings_capacity
+		    && 4u * roots->retention_used < 3u * roots->retention_capacity)
+			return;
+		changes = roots->set.capacity;
+		settings = roots->settings_capacity;
+		retention = roots->retention_capacity;
+	}
+	if (roots_grow(roots, 2u * changes, 2u * settings, 2u * retention, 0u))
+		say(FZN_ENTRY_INFO, "roots", "the root records' tables grown: %zu changes, %zu "
+		    "settings of k, %zu retention records", 2u * changes, 2u * settings,
+		    2u * retention);
+	else
+		say(FZN_ENTRY_WARNING, "roots", "the root records' tables are full and would not grow");
+}
+
 static void hex_of(const uint8_t *b, size_t n, char *out)
 {
 	static const char H[] = "0123456789abcdef";
@@ -11227,7 +11364,7 @@ static int pair_device(const fzn_node_identity_t *id, const fzn_node_config_t *c
 
 		if (fzn_node_roots_init(&logged, config->root, id->sign, id->hash)
 		            == FZN_NODE_ROOTS_OK
-		    && fzn_node_roots_load(&logged, store, &nroots) == FZN_NODE_ROOTS_OK
+		    && roots_load(&logged, store, &nroots) == FZN_NODE_ROOTS_OK
 		    && journal_for(store_dir, &logged, id->sign, id->hash, store)
 		    && fzn_node_peers_load(store, peers, FZN_NODE_PEERS_MAX, &npeers)
 		               == FZN_PERSIST_OK)
@@ -12196,7 +12333,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		if (fzn_revocation_store_init(&judged, none, 1u) != FZN_CHAIN_OK
 		    || fzn_node_roots_init(&held, state.config.root, &sign_ops, &hash_ops)
 		               != FZN_NODE_ROOTS_OK
-		    || fzn_node_roots_load(&held, store_ops, &nroots) != FZN_NODE_ROOTS_OK
+		    || roots_load(&held, store_ops, &nroots) != FZN_NODE_ROOTS_OK
 		    || fzn_node_roots_attach(&held, &judged) != FZN_NODE_ROOTS_OK) {
 			fprintf(stderr, "fuzznetd: --set-admin could not restore the roots\n");
 			return 1;
@@ -12566,7 +12703,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 
 			if (fzn_node_roots_init(&pair_roots, state.config.root, &sign_ops, &hash_ops)
 			            != FZN_NODE_ROOTS_OK
-			    || fzn_node_roots_load(&pair_roots, store_ops, &nroots) != FZN_NODE_ROOTS_OK
+			    || roots_load(&pair_roots, store_ops, &nroots) != FZN_NODE_ROOTS_OK
 			    || fzn_node_roots_key_load(&pair_roots, store_ops, &root_seat,
 			                               &root_sign_ops) != FZN_NODE_ROOTS_OK) {
 				fprintf(stderr, "fuzznetd: --pair could not restore the roots in %s\n",
@@ -12733,7 +12870,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		                   != FZN_CHAIN_OK)
 		    || fzn_node_roots_init(&estate_roots, state.config.root, &sign_ops, &hash_ops)
 		               != FZN_NODE_ROOTS_OK
-		    || fzn_node_roots_load(&estate_roots, store_ops, &nroots) != FZN_NODE_ROOTS_OK
+		    || roots_load(&estate_roots, store_ops, &nroots) != FZN_NODE_ROOTS_OK
 		    || fzn_node_roots_key_load(&estate_roots, store_ops, &root_seat, &root_sign_ops)
 		               != FZN_NODE_ROOTS_OK
 		    || fzn_node_roots_attach(&estate_roots, &revoked) != FZN_NODE_ROOTS_OK
@@ -13328,6 +13465,10 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			 * than one period away was planned by a clock that read later
 			 * than this one does, and waiting for it would stop every pull
 			 * for as long as the clock had been wrong. sec 469. */
+			/* ROOM FOR THE ESTATE'S ROOT RECORDS, before the round that would
+			 * want it. sec 703. */
+			if (running_roots)
+				roots_room(running_roots);
 			if (!round_step && (now >= next_pull || next_pull > now + pull_every)) {
 				plan = round_plan;
 				plan_at = 0;

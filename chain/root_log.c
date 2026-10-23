@@ -86,14 +86,13 @@ fzn_root_log_err_t fzn_root_remove_issue(const uint8_t remover[FZN_PUBKEY_LEN],
 
 static int set_sound(const fzn_root_set_t *set)
 {
-	return set && set->changes && set->capacity <= FZN_ROOT_SET_MAX
-	       && set->used <= set->capacity;
+	return set && set->changes && set->used <= set->capacity;
 }
 
 fzn_root_log_err_t fzn_root_set_init(fzn_root_set_t *set, const uint8_t genesis[FZN_PUBKEY_LEN],
                                      fzn_root_change_t *changes, size_t capacity)
 {
-	if (!set || !genesis || !changes || capacity == 0u || capacity > FZN_ROOT_SET_MAX)
+	if (!set || !genesis || !changes || capacity == 0u)
 		return FZN_ROOT_LOG_ERR_MALFORMED;
 	memcpy(set->genesis, genesis, FZN_PUBKEY_LEN);
 	set->changes = changes;
@@ -202,7 +201,7 @@ static void grow_members(const fzn_root_set_t *set, const struct fzn_act_log_ops
 	size_t i;
 	int changed = 1;
 
-	memset(st->add_ok, 0, sizeof(st->add_ok));
+	memset(st->add_ok, 0, set->used);
 	while (changed) {
 		changed = 0;
 		for (i = 0; i < set->used; i++) {
@@ -221,30 +220,51 @@ static void grow_members(const fzn_root_set_t *set, const struct fzn_act_log_ops
 /* THE ROUNDS: fix the removals, grow membership, recompute the removals
  * from it, until they stop changing. Bounded by the records: a set that has
  * not settled in `used + 1` rounds takes every removal any round saw. */
-static void settle(const fzn_root_set_t *set, const struct fzn_act_log_ops *acts, struct settled *st)
+/* `st` ON STORAGE OF `capacity` changes: the caller's `flags`, or its own.
+ * 0 when the set holds more. */
+static int view_on(struct settled *st, const fzn_root_set_t *set,
+                   const struct fzn_act_log_ops *acts, uint8_t *flags, size_t capacity)
 {
-	uint8_t seen[FZN_ROOT_SET_MAX], next[FZN_ROOT_SET_MAX];
-	size_t round, i;
-
-	memset(st, 0, sizeof(*st));
+	if (!flags) {
+		flags = &st->own[0][0];
+		capacity = FZN_ROOT_SET_MAX;
+	}
+	if (set->used > capacity)
+		return 0;
 	st->set = set;
 	st->acts = acts;
-	memset(seen, 0, sizeof(seen));
-	for (round = 0; round <= set->used; round++) {
-		grow_members(set, acts, st);
-		memset(next, 0, sizeof(next));
-		for (i = 0; i < set->used; i++)
+	st->capacity = capacity;
+	st->add_ok = flags;
+	st->rem_ok = flags + capacity;
+	st->seen = flags + (2u * capacity);
+	st->next = flags + (3u * capacity);
+	return 1;
+}
+
+/* The flags of `set` settled into `st`, on the storage `view_on` gave it. */
+static void settle(const fzn_root_set_t *set, const struct fzn_act_log_ops *acts, struct settled *st)
+{
+	size_t round, i, n = set->used;
+
+	(void)acts;
+	memset(st->add_ok, 0, n);
+	memset(st->rem_ok, 0, n);
+	memset(st->seen, 0, n);
+	for (round = 0; round <= n; round++) {
+		grow_members(set, st->acts, st);
+		memset(st->next, 0, n);
+		for (i = 0; i < n; i++)
 			if (!is_add(&set->changes[i])
 			    && member_in(set, st, set->changes[i].signer))
-				next[i] = 1;
-		for (i = 0; i < set->used; i++)
-			seen[i] = (uint8_t)(seen[i] | next[i]);
-		if (memcmp(next, st->rem_ok, sizeof(next)) == 0)
+				st->next[i] = 1;
+		for (i = 0; i < n; i++)
+			st->seen[i] = (uint8_t)(st->seen[i] | st->next[i]);
+		if (memcmp(st->next, st->rem_ok, n) == 0)
 			return;
-		memcpy(st->rem_ok, next, sizeof(next));
+		memcpy(st->rem_ok, st->next, n);
 	}
-	memcpy(st->rem_ok, seen, sizeof(seen));
-	grow_members(set, acts, st);
+	memcpy(st->rem_ok, st->seen, n);
+	grow_members(set, st->acts, st);
 }
 
 int fzn_root_set_counts(const fzn_root_set_t *set, const struct fzn_act_log_ops *acts,
@@ -253,7 +273,7 @@ int fzn_root_set_counts(const fzn_root_set_t *set, const struct fzn_act_log_ops 
 {
 	struct settled st;
 
-	if (!set_sound(set) || !root || !act)
+	if (!set_sound(set) || !root || !act || !view_on(&st, set, acts, NULL, 0))
 		return 0;
 	settle(set, acts, &st);
 	return counts_in(set, acts, &st, root, act);
@@ -264,7 +284,7 @@ int fzn_root_set_stands(const fzn_root_set_t *set, const struct fzn_act_log_ops 
 {
 	struct settled st;
 
-	if (!set_sound(set) || !key)
+	if (!set_sound(set) || !key || !view_on(&st, set, acts, NULL, 0))
 		return 0;
 	settle(set, acts, &st);
 	return member_in(set, &st, key) && !removed_in(set, &st, key);
@@ -275,7 +295,7 @@ int fzn_root_set_member(const fzn_root_set_t *set, const struct fzn_act_log_ops 
 {
 	struct settled st;
 
-	if (!set_sound(set) || !key)
+	if (!set_sound(set) || !key || !view_on(&st, set, acts, NULL, 0))
 		return 0;
 	settle(set, acts, &st);
 	return member_in(set, &st, key);
@@ -284,8 +304,17 @@ int fzn_root_set_member(const fzn_root_set_t *set, const struct fzn_act_log_ops 
 fzn_root_log_err_t fzn_root_view_init(fzn_root_view_t *view, const fzn_root_set_t *set,
                                       const struct fzn_act_log_ops *acts)
 {
-	if (!view || !set_sound(set))
+	return fzn_root_view_init_with(view, set, acts, NULL, 0);
+}
+
+fzn_root_log_err_t fzn_root_view_init_with(fzn_root_view_t *view, const fzn_root_set_t *set,
+                                           const struct fzn_act_log_ops *acts, uint8_t *flags,
+                                           size_t capacity)
+{
+	if (!view || !set_sound(set) || (flags && capacity == 0u))
 		return FZN_ROOT_LOG_ERR_MALFORMED;
+	if (!view_on(view, set, acts, flags, capacity))
+		return FZN_ROOT_LOG_ERR_FULL;
 	settle(set, acts, view);
 	return FZN_ROOT_LOG_OK;
 }
@@ -375,11 +404,26 @@ int fzn_quorum_winner(const uint8_t *records, size_t count, const struct fzn_roo
                       uint8_t winner[FZN_ROOT_ACT_ID_LEN])
 {
 	uint8_t ids[QUORUM_SETTINGS_MAX][FZN_ROOT_ACT_ID_LEN];
-	uint8_t counts[QUORUM_SETTINGS_MAX];
+	uint8_t counts[QUORUM_SETTINGS_MAX], current[QUORUM_SETTINGS_MAX];
+	fzn_root_scratch_t scratch = { ids, counts, current, QUORUM_SETTINGS_MAX };
+
+	return fzn_quorum_winner_with(records, count, roots, hash, &scratch, k, winner);
+}
+
+int fzn_quorum_winner_with(const uint8_t *records, size_t count,
+                           const struct fzn_root_ops *roots, const fzn_hash_ops_t *hash,
+                           const fzn_root_scratch_t *scratch, uint8_t *k,
+                           uint8_t winner[FZN_ROOT_ACT_ID_LEN])
+{
+	uint8_t (*ids)[FZN_ROOT_ACT_ID_LEN];
+	uint8_t *counts;
 	size_t i, j, best = count;
 
-	if (!records || count == 0u || count > QUORUM_SETTINGS_MAX || !hash || !hash->hash || !k)
+	if (!records || count == 0u || !scratch || !scratch->ids || !scratch->counts
+	    || count > scratch->capacity || !hash || !hash->hash || !k)
 		return 0;
+	ids = scratch->ids;
+	counts = scratch->counts;
 	/* WHICH COUNT: the setter's act, under the set. */
 	for (i = 0; i < count; i++) {
 		const uint8_t *r = records + (i * FZN_QUORUM_SET_LEN);
@@ -510,10 +554,26 @@ int fzn_retention_current(const uint8_t *records, size_t count, const struct fzn
 {
 	uint8_t ids[RETENTION_RECORDS_MAX][FZN_ROOT_ACT_ID_LEN];
 	uint8_t counts[RETENTION_RECORDS_MAX], current[RETENTION_RECORDS_MAX];
+	fzn_root_scratch_t scratch = { ids, counts, current, RETENTION_RECORDS_MAX };
+
+	return fzn_retention_current_with(records, count, roots, hash, &scratch, each, ctx);
+}
+
+int fzn_retention_current_with(const uint8_t *records, size_t count,
+                               const struct fzn_root_ops *roots, const fzn_hash_ops_t *hash,
+                               const fzn_root_scratch_t *scratch, fzn_retention_each_fn each,
+                               void *ctx)
+{
+	uint8_t (*ids)[FZN_ROOT_ACT_ID_LEN];
+	uint8_t *counts, *current;
 	size_t i, j, handed = 0;
 
-	if ((!records && count) || count > RETENTION_RECORDS_MAX || !hash || !hash->hash || !each)
+	if ((!records && count) || !scratch || !scratch->ids || !scratch->counts
+	    || !scratch->current || count > scratch->capacity || !hash || !hash->hash || !each)
 		return -1;
+	ids = scratch->ids;
+	counts = scratch->counts;
+	current = scratch->current;
 	for (i = 0; i < count; i++) {
 		const uint8_t *r = records + (i * FZN_RETENTION_SET_LEN);
 

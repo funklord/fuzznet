@@ -123,8 +123,12 @@ typedef struct fzn_root_change {
 	uint8_t id[FZN_ROOT_ACT_ID_LEN];
 } fzn_root_change_t;
 
-/* The most changes a set judges: its flags live on the stack, since this
- * library allocates nothing, and an estate changes its roots rarely. */
+/* THE CHANGES JUDGED WITH STORAGE OF THE LIBRARY'S OWN: a view's inline
+ * flags, and the stack of `fzn_root_set_counts` and its kind. This library
+ * allocates nothing, so a set holding more is read through a view given the
+ * caller's storage (`fzn_root_view_init_with`). Not a limit on an estate,
+ * sec 703: 64 was once every root change an estate could make in its life,
+ * since none is ever let go. */
 #define FZN_ROOT_SET_MAX 64u
 
 typedef struct fzn_root_set {
@@ -134,7 +138,7 @@ typedef struct fzn_root_set {
 	size_t used;
 } fzn_root_set_t;
 
-/* MALFORMED for a capacity of 0 or past FZN_ROOT_SET_MAX. */
+/* MALFORMED for a capacity of 0. */
 fzn_root_log_err_t fzn_root_set_init(fzn_root_set_t *set, const uint8_t genesis[FZN_PUBKEY_LEN],
                                      fzn_root_change_t *changes, size_t capacity);
 
@@ -153,16 +157,31 @@ struct fzn_act_log_ops;
 typedef struct fzn_root_view {
 	const fzn_root_set_t *set;
 	const struct fzn_act_log_ops *acts;
-	uint8_t add_ok[FZN_ROOT_SET_MAX];
-	uint8_t rem_ok[FZN_ROOT_SET_MAX];
+	/* PER CHANGE, `capacity` of each: whether its add counts, whether its
+	 * removal counts, and two rounds' scratch -- the caller's storage, or
+	 * `own`. */
+	uint8_t *add_ok, *rem_ok, *seen, *next;
+	size_t capacity;
+	uint8_t own[4][FZN_ROOT_SET_MAX];
 } fzn_root_view_t;
+
+/* The bytes of flags `fzn_root_view_init_with` takes for `n` changes. */
+#define FZN_ROOT_VIEW_FLAGS(n) ((size_t)(n) * 4u)
 
 /* Settle `set` against `acts`, the log of every key's acts (NULL for none),
  * into `view`, which borrows both. A removal's cut is asked of `acts` --
  * a root log's (`fzn_root_log_acts`) or, since sec 506, a node's journal's.
- * MALFORMED for an unsound set. */
+ * The view's own flags: FULL for a set holding more than FZN_ROOT_SET_MAX,
+ * MALFORMED for an unsound one. */
 fzn_root_log_err_t fzn_root_view_init(fzn_root_view_t *view, const fzn_root_set_t *set,
                                       const struct fzn_act_log_ops *acts);
+
+/* The same on `flags`, FZN_ROOT_VIEW_FLAGS(`capacity`) bytes of the
+ * caller's, which must outlive the view: FULL for a set holding more than
+ * `capacity`. `flags` NULL is `fzn_root_view_init`. */
+fzn_root_log_err_t fzn_root_view_init_with(fzn_root_view_t *view, const fzn_root_set_t *set,
+                                           const struct fzn_act_log_ops *acts, uint8_t *flags,
+                                           size_t capacity);
 
 int fzn_root_view_counts(const fzn_root_view_t *view, const uint8_t root[FZN_PUBKEY_LEN],
                          const uint8_t act[FZN_ROOT_ACT_ID_LEN]);
@@ -238,6 +257,24 @@ int fzn_quorum_winner(const uint8_t *records, size_t count, const struct fzn_roo
                       const fzn_hash_ops_t *hash, uint8_t *k,
                       uint8_t winner[FZN_ROOT_ACT_ID_LEN]);
 
+/* WHAT A RESOLUTION WORKS IN, per record: its hash, whether it counts, and
+ * whether it is current -- `capacity` of each, the caller's. The functions
+ * without `_with` work on the stack and judge at most FZN_ROOT_SET_MAX
+ * records; these judge as many as the scratch holds, sec 703. */
+typedef struct fzn_root_scratch {
+	uint8_t (*ids)[FZN_ROOT_ACT_ID_LEN];
+	uint8_t *counts;
+	uint8_t *current;
+	size_t capacity;
+} fzn_root_scratch_t;
+
+/* `fzn_quorum_winner` in `scratch`: 0, as for none winning, when `count` is
+ * past its capacity. */
+int fzn_quorum_winner_with(const uint8_t *records, size_t count,
+                           const struct fzn_root_ops *roots, const fzn_hash_ops_t *hash,
+                           const fzn_root_scratch_t *scratch, uint8_t *k,
+                           uint8_t winner[FZN_ROOT_ACT_ID_LEN]);
+
 /*
  * THE ESTATE'S RETENTION RULES, SET BY A ROOT. sec 476, the holder's word of
  * 2026-10-03: setting retention is an estate-wide admin and root capability,
@@ -289,5 +326,12 @@ typedef void (*fzn_retention_each_fn)(void *ctx, const char *text, size_t len,
  * or -1 when `count` is past what one resolution judges. */
 int fzn_retention_current(const uint8_t *records, size_t count, const struct fzn_root_ops *roots,
                           const fzn_hash_ops_t *hash, fzn_retention_each_fn each, void *ctx);
+
+/* `fzn_retention_current` in `scratch`: -1 when `count` is past its
+ * capacity. */
+int fzn_retention_current_with(const uint8_t *records, size_t count,
+                               const struct fzn_root_ops *roots, const fzn_hash_ops_t *hash,
+                               const fzn_root_scratch_t *scratch, fzn_retention_each_fn each,
+                               void *ctx);
 
 #endif /* FZN_ROOT_LOG_H */

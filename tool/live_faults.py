@@ -18,6 +18,10 @@ the scenarios built on them test something:
        693): R's contact S does not advertise, and over six of R's
        contact passes refuses R its manifest once, saying why (sec 699)
        -- where it was asked and refused every round
+    e  a root makes 80 changes to its estate's roots, more than the 64 a
+       node's own tables hold, every one answered `ok`; started again, it
+       loads them all and makes another (sec 703) -- where the 65th was
+       refused for good, and a store holding more would not start
 
 Against a daemon built without faults, phase a's B is counted at 100 per
 cent loss, phase b's daemon does not die, and phase c's says nothing.
@@ -212,6 +216,33 @@ def main(argv):
 				             % (passes, plainly, otherwise))
 			print("livecheck: d: over %d contact passes S, not advertising, refused R its "
 			      "manifest once" % passes)
+
+			# e: more root changes than a node's own tables hold.
+			e_dir = os.path.join(scratch, "e")
+			e_sock = os.path.join(sock_dir, "e")
+			os.mkdir(e_dir)
+			command(run, ["--fuzznet-dir=" + e_dir, "--new-root"], None)
+			e = daemon(run, "e1", e_dir, e_sock)
+			try:
+				for i in range(40):
+					root = "%064x" % (0x5e00 + i)
+					for verb in ("add", "remove"):
+						reply = ask(e_sock, "%s root %s" % (verb, root))
+						if not reply.startswith("ok"):
+							raise failed("e: change %d, %s root, answered %r"
+							             % (2 * i + (verb == "remove") + 1, verb, reply))
+			finally:
+				e.stop()
+			e = daemon(run, "e2", e_dir, e_sock)
+			try:
+				reply = ask(e_sock, "add root %064x" % 0x5f00)
+				if not reply.startswith("ok"):
+					raise failed("e: after a restart over 80 root changes, the 81st answered %r"
+					             % reply)
+			finally:
+				e.stop()
+			print("livecheck: e: 80 root changes taken, loaded again after a restart, and an "
+			      "81st")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1
