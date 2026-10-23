@@ -69375,7 +69375,7 @@ record's body), so one harness covers them where they arrive.
   unjudged records by design (sec 418, 545), the root log and the grant
   index, are left out of the row comparison.
 
-2000 cases pass, with 14,436 bent copies and 14,647 forgeries of 36
+2000 cases pass, with 14,436 bent copies and 14,647 forgeries of 37
 kinds, in `make test`. **Controls:** k resolved without judging its
 setters is caught at case 4, and a refused vote saved anyway at case 1.
 Two controls inside the libraries are **not reachable through this door**,
@@ -69402,6 +69402,13 @@ the opposite of what this journey has to prove.
 root. It keeps sec 579's preference for a delegable grant first, and it
 remembers a key that reached no root with so many hops left. So a liar's
 pile of grants cannot make the walk exponential.
+
+**Since standing is judged on arrival (below), a stranger's grant waits
+and never reaches the index, so the sabotage probe of the backtracking
+survived** -- the harness's shadowing liars were all strangers. A
+member's grant does arrive with standing, though: "M grants A1 admin,
+delegable" is indexed, walked first, and M holds no admin chain. That
+forgery is now in the harness, and the probe is caught at case 2.
 
 **And a second hole beside it:** on the journal path a hop was indexed on
 the record's signature alone, so one member's stream could carry grants

@@ -482,6 +482,12 @@ static int the_objects(void)
 	    || !hop(F("X grants A1 admin"), X, A1, &admin_cap)
 	    || !hop_as(F("X grants M, delegable"), X, M, &cap, 1))
 		return 0;
+	/* AND M'S, which arrives with standing -- M is a member, and a member
+	 * may grant -- naming A1 as its admin, delegable: indexed since sec 700
+	 * takes a rooted grantor's grants, it is walked first, and M holds no
+	 * admin chain, so only a walk that tries the next grant finds A1's. */
+	if (!hop_as(F("M grants A1 admin, delegable"), M, A1, &admin_cap, 1))
+		return 0;
 	return 1;
 }
 
