@@ -470,7 +470,11 @@ fzn_persist_err_t fzn_node_pairing_load(const fzn_persist_ops_t *store,
 }
 
 /* ONE PAIRING, walked: the one whose chain runs from the estate's root to
- * this node and may be passed on is the estate's, and ends the walk. */
+ * this node and may be passed on is the estate's, and ends the walk. Failing
+ * it, one whose single hop its own node granted, delegable: what a root by
+ * identity pairs, its card's proof having made that node a root (sec 419),
+ * sec 707 -- where a device such a root paired started without its estate's
+ * grant, and could not pull from the root it joined through. */
 struct estate_walk {
 	const fzn_persist_ops_t *store;
 	const uint8_t *root, *self;
@@ -488,14 +492,19 @@ static int estate_walked(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
 		return 1;
 	if (fzn_hop_open(p.chain[0], FZN_HOP_LEN, &first) == FZN_CHAIN_OK
 	    && fzn_hop_open(p.chain[p.hop_count - 1u], FZN_HOP_LEN, &last) == FZN_CHAIN_OK
-	    && memcmp(fzn_hop_grantor(first), w->root, FZN_PUBKEY_LEN) == 0
 	    && memcmp(fzn_hop_grantee(last), w->self, FZN_PUBKEY_LEN) == 0
 	    && fzn_hop_delegable(last)) {
-		*w->out = p;
-		w->found = 1;
+		if (memcmp(fzn_hop_grantor(first), w->root, FZN_PUBKEY_LEN) == 0) {
+			*w->out = p;
+			w->found = 2;
+		} else if (!w->found && p.hop_count == 1u
+		           && memcmp(fzn_hop_grantor(first), p.node, FZN_PUBKEY_LEN) == 0) {
+			*w->out = p;
+			w->found = 1;
+		}
 	}
 	fzn_wipe(&p, sizeof(p));
-	return !w->found;
+	return w->found != 2;
 }
 
 /* EVERY PAIRING WALKED, sec 704: one a node holds to each node it reaches

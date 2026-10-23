@@ -628,6 +628,25 @@ static size_t confirm_succession(fzn_node_admin_t *admin, const uint8_t old[FZN_
 	return answer(reply, cap, FZN_REPLY_OK, detail, at);
 }
 
+/* WHETHER OLD'S GRANT HERE MAY BE PASSED ON, read from its pairing: a
+ * member joined the estate on such a grant (sec 638), and its successor
+ * needs the same to join in its place, sec 707. */
+static int old_delegable(const fzn_node_admin_t *admin, const uint8_t old[FZN_PUBKEY_LEN])
+{
+	fzn_chain_hop_t hop;
+	size_t i;
+
+	for (i = 0; i < admin->state->peer_count; i++) {
+		const fzn_node_peer_t *p = &admin->state->peers[i];
+
+		if (memcmp(p->sender, old, FZN_PUBKEY_LEN) != 0 || p->hop_count == 0u)
+			continue;
+		return fzn_hop_open(p->hop_bytes[p->hop_count - 1u], FZN_HOP_LEN, &hop) == FZN_CHAIN_OK
+		       && fzn_hop_delegable(hop);
+	}
+	return 0;
+}
+
 /* `add succession OLD PREKEY [CUT|none]`: RE-KEY a device. Pair the device's
  * new key from PREKEY, as `add peer` does; vote OLD revoked at the line; and
  * mint the succession OLD -> NEW at the same line. The answer is the new
@@ -665,8 +684,21 @@ static size_t add_succession(fzn_node_admin_t *admin, const uint8_t *rest, size_
 	             &drawn))
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a log entry id, nor none");
 
-	/* THE NEW KEY'S GRANT FIRST, answered with its card. */
-	len = add_peer(admin, prekey_hex, prekey_len, reply, cap);
+	/* THE NEW KEY'S GRANT FIRST, answered with its card -- one it may pass
+	 * on where OLD's could be, so a member's successor joins as OLD did. */
+	{
+		static uint8_t text[(2u * FZN_PREKEY_LEN_TOTAL) + 10u];
+
+		if (prekey_len > 2u * FZN_PREKEY_LEN_TOTAL)
+			return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a prekey record");
+		memcpy(text, prekey_hex, prekey_len);
+		len = prekey_len;
+		if (old_delegable(admin, old)) {
+			memcpy(text + len, " delegable", 10u);
+			len += 10u;
+		}
+		len = add_peer(admin, text, len, reply, cap);
+	}
 	if (fzn_reply_of((const uint8_t *)reply, len, &detail, &detail_len) != FZN_REPLY_OK)
 		return len;
 	why = vote_at(admin, old, drawn);
@@ -737,30 +769,34 @@ static size_t list_successions(fzn_node_admin_t *admin, const uint8_t *from_text
 	return answer(reply, cap, FZN_REPLY_OK, detail, at);
 }
 
-/* `add root KEY` and `remove root KEY [CUT]`: change the estate's roots as
- * this node's acting root. sec 409. */
+/* `add root KEY` and `remove root KEY [CUT|none]`: change the estate's
+ * roots as this node's acting root. sec 409. A removal keeps the removed
+ * root's acts to its CUT; with none named, to its head as held here, as a
+ * vote's line is drawn (sec 497), and with `none` keeps nothing -- where no
+ * cut at all once kept nothing, and removing a lost genesis took every grant
+ * it ever made with it, sec 707. */
+_Static_assert(FZN_ROOT_ACT_ID_LEN == FZN_REVOCATION_ID_LEN,
+               "a removal's cut is drawn as a vote's is");
 static size_t change_root(fzn_node_admin_t *admin, int remove, const uint8_t *text,
                           size_t text_len, char *reply, size_t cap)
 {
 	uint8_t subject[FZN_PUBKEY_LEN], cut[FZN_ROOT_ACT_ID_LEN];
-	const uint8_t *cut_at = NULL;
+	const uint8_t *drawn = NULL, *word = NULL, *rest = text, *key = NULL;
 	fzn_node_roots_err_t err;
-	size_t key_len = text_len;
+	size_t rest_len = text_len, key_len = 0, word_len = 0;
 
-	if (remove && text_len > FZN_PUBKEY_LEN * 2u) {
-		key_len = FZN_PUBKEY_LEN * 2u;
-		if (text[key_len] != ' '
-		    || !unhex(text + key_len + 1u, text_len - key_len - 1u, cut, sizeof(cut)))
-			return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a cut");
-		cut_at = cut;
-	}
-	if (!unhex(text, key_len, subject, sizeof(subject)))
+	if (!next_word(&rest, &rest_len, &key, &key_len)
+	    || !unhex(key, key_len, subject, sizeof(subject)))
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a root key");
+	if (rest_len && (!remove || !next_word(&rest, &rest_len, &word, &word_len) || rest_len))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a cut");
+	if (remove && !line_of(admin, subject, word, word_len, cut, &drawn))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a cut");
 	err = fzn_node_roots_change(admin->roots, admin->store, admin->id->pubkey, admin->id->sign,
-	                            remove, subject, cut_at);
+	                            remove, subject, drawn);
 	if (err != FZN_NODE_ROOTS_OK)
 		return answer_text(reply, cap, FZN_REPLY_ERROR, fzn_node_roots_err_str(err));
-	return answer(reply, cap, FZN_REPLY_OK, (const char *)text, key_len);
+	return answer(reply, cap, FZN_REPLY_OK, (const char *)key, key_len);
 }
 
 /* `remove revocation KEY`: undo this node's revocation of KEY (sec 386). The

@@ -56609,8 +56609,9 @@ next. Whether and when to build tier 2 is the holder's decision.
   built in sec 497**, with `revoke peer KEY [CUT|none]`.
 - **Re-keying as a succession with a cut** (sec 394's "successor takes
   over").
-- **Admins' votes, confirmations and settings** under their cut. They count
-  for nothing once their admin is revoked (sec 481), as roster writers did.
+- **Admins' votes and confirmations** count for nothing once their admin
+  is revoked (sec 481), cut or not. **~~Settings under their cut~~: built
+  in sec 706**, for every rank's setter.
 - **Notes going back in time**, which needs tier 2's history.
 
 ### Measured for sec 496
@@ -70402,5 +70403,181 @@ per cent overhead, the frame header 14.7 of it. Read from `node/files.c`,
     datagram.
 
   Not started. It waits on the holder's cut-over question.
+- **A proposal to measure, from fuzzypickles** (inbox 20261023T1630Z),
+  which the holder asked for, judged against the project's aims. Not a
+  decision: the frame change is the holder's to approve once hull has
+  numbers.
+  1. One sealed leaf a datagram: 1280 less 48 for IP and UDP and 144
+     for `FZN_SEAL_OVERHEAD` leaves 1088, which holds a 1056-byte
+     sealed leaf and a short header. A lost datagram is one lost leaf.
+  2. Each leaf checked on arrival against a list of leaf hashes that
+     opens the span, proved once by the span proof (64 x 32 bytes). The
+     list may hash groups of 2, 4 or 8 leaves, chosen at run time.
+  3. Only the missing leaves asked again, and `charge` counting leaves.
+  4. Parity per span later, switched on by measured loss and round trip.
+
+  For hull to decide: the default hash group, sends per span at 0.1 to
+  10 per cent loss with and without parity, and span size per link.
+- **A design for the loss and attack scenarios, from fuzzypickles**
+  (inbox 20261023T1635Z). It answers the holder's wish, relayed, for
+  "all-encompassing loss/attack scenarios" that cover the most in the
+  least time. Information only; whether to build it is the holder's.
+  - Two tiers: the seeded fault build for breadth, and a few hull
+    profiles (mobile, satellite, LoRa-like, NAT rebinding, a hostile
+    swarm).
+  - A pairwise covering array over loss and its pattern, delay,
+    duplication and reordering, MTU, bandwidth, holders, churn, size and
+    the tuning knobs: about 20 to 30 points, each reproducible by its
+    seed. Bursty loss is not in `fault/fault.h` today.
+  - One adversary a run among honest holders: garbage, a bad proof,
+    spans never finished, a lying HAVE, WANT floods, replayed DATA.
+  - Invariants as the pass: nothing unverified placed, unverified bytes
+    under a bound, no amplification, a bounded give-up, flat memory.
+
+
+## 706. Settings judged under their setter's cut, 2026-10-23
+
+Found while surveying journey 1 (sec 689), whose bar says the revoked
+device can do nothing after its cut. Sec 496 listed settings under
+their cut as still to build, and nothing built it since.
+
+### What was wrong
+
+- **A setting was judged once, when it arrived**, by its setter's rank
+  (`fzn_node_apply_rank`), and then kept.
+- **A vote arriving later changed nothing.** So a stolen device's
+  settings, made past the cut its revokers drew but applied before their
+  vote came, stood for ever. That held at every rank: a member's own host
+  cells, and an admin's anywhere.
+- **A removed root's settings likewise**, past the cut of its removal.
+
+### Built
+
+- **`fzn_node_apply_act_stands`** asks of any act what the roster asks
+  of its writers (sec 496):
+  - a root's act counts as the root set says;
+  - any other signer's stands while no hop of its chain is revoked;
+  - past a revocation, it stands only where each revoked hop's cut still
+    covers the act below it.
+- **`node/settings.c` asks it of every row it reads**, with the hash of
+  the setting as the act, which is the subject of the setting's journal
+  record. A row that no longer stands is passed over, so the rank below
+  shows through.
+- **Every reader takes this at once**: `get` and `list setting`, the
+  rank in force, the walk, and the version a write must pass. Nothing is
+  deleted, so a withdrawn vote brings the setting back. The holder asked
+  that a device found again come back whole (sec 496).
+- **No chain indexed now is not a revocation**: such a row is judged as
+  it was on arrival.
+
+### Measured for sec 706
+
+- **`apply_test`, 133 checks:** member W sets `cut/a` and then `cut/b`,
+  and both are in force. R revokes W with the cut at `cut/a`'s record.
+  `cut/a` is still in force and `cut/b` is not.
+- **Control:** with the read's judgement removed, that last check fails.
+- **Sabotage, two entries:** `settings-judged-under-the-cut` and
+  `act-stands-asks-the-cut`.
+
+### Not yet, after sec 706
+
+- **A setting past the cut that replaced another at the same rank leaves
+  that rank empty**, not the value it replaced. The row held one
+  setting, and the replaced one is gone from it. Bringing it back means
+  reading the cell's history, which the journal holds for its window
+  (sec 548). It is the "going back in time" sec 496 names for journaled
+  subsystems, and it is not built.
+- **What the revoked device itself sees**, observed in sec 707's
+  scenario. Its requests to a node that counts the vote get no reply, as
+  `node/remote.c` says, so its log reads "did not answer; passed over
+  this round", a timeout and not a refusal. Once its own node learns the
+  votes, its own writes are refused (`denied this setter may not set
+  that`). That happened in some runs; in others the phase ended
+  first.
+
+## 707. The estate's journey over daemons, and what it broke, 2026-10-23
+
+Sec 689's journey 1, as a live scenario: `tool/live_estate.py`, run by
+`make livecheck-faults` against the fault build, whose rounds are 2 s.
+Six daemons over loopback, each driven by verbs:
+
+- **a.** A1, A2 and D join R's estate by `add join`.
+- **b.** Settings at each rank: R's estate setting reads as root's
+  everywhere, A1 (made admin) sets one read as admin's at R, and D sets
+  its own host cell and is denied the estate's.
+- **c.** k of n while D writes. R sets k to 2, and D sets `h/before`.
+  - A1 votes D revoked, its cut at D's head. D sets `h/mid`, which R
+    takes: one vote is not k.
+  - A2 votes. At R, D's grant no longer stands, `h/before` reads, and
+    `h/mid` does not (sec 706). D's later `h/after` never reads.
+- **d.** R re-keys A1 as N. N joins by the card, and R lists A1
+  succeeded by N, counting.
+- **e.** Recovery. R adds A2 as a root and is stopped for good. A2
+  removes R, pairs E, and E joins and reads what A2 sets as root.
+
+`--loss P` runs every daemon at that datagram loss.
+
+### What it broke, fixed
+
+Each phase after b failed at first, on a defect in the code rather than
+in the script:
+
+- **c: settings past a cut stood (sec 706).**
+- **d: a re-keyed member's successor could not join.**
+  - `add succession` paired the new key as plain `add peer` does, not
+    delegable. Sec 499 predates sec 553, which found that a member joins
+    on a grant it can pass on.
+  - So the successor's `add join` was refused: "the grant cannot be
+    passed on".
+  - The successor now inherits OLD's delegable bit, read from OLD's
+    pairing, so it joins as OLD did. A plainly paired key's successor
+    still cannot.
+- **e: removing the genesis took the estate with it.**
+  - `remove root KEY` with no cut kept none of the removed root's acts.
+    Every grant the genesis made fell, A2's own chain among them, so A2's
+    settings fell (sec 706) and its card said nowhere. No verb shows a
+    key's head, so an operator could not name the cut.
+  - The verb now draws the cut as `revoke peer` does (sec 497): the
+    removed root's head as held here, with `none` to keep nothing.
+  - The library call is unchanged: NULL there still keeps nothing.
+- **e: a device paired by a root by identity never served.**
+  - Its pairing's chain starts at that root, not the genesis, so the
+    start-up lookup for the estate pairing (`fzn_node_pairing_estate`)
+    found none. The device ran without its grant.
+  - After `add join` it restarted pulling `--root-at` the kept address,
+    which needs a node joined through the genesis, and so exited.
+  - The lookup now takes a delegable one-hop pairing from that pairing's
+    own node when no genesis-rooted one exists. The restart pulls from
+    that root with the estate's pairing, as `--pull-from` would.
+
+### Measured for sec 707
+
+- **The scenario passes**, all five phases at no loss.
+- **Live controls**, in a scratch copy:
+  - with sec 706's judgement off, phase c fails: `h/mid` still reads at
+    R, past A1's cut;
+  - with the old removal default, phase e fails: A2's card says nowhere.
+- **`admin_test`, 290 checks:**
+  - a key paired delegable is re-keyed by a card its successor joins
+    by, and a plainly paired one by a card it cannot;
+  - a removal naming no cut keeps the root's acts to its head;
+  - `none` keeps nothing, and a word past it is refused;
+  - **Controls:** without the inherited bit, and with the old default,
+    each fails.
+- **`pair_test`, 344 checks:** E, paired delegable by a root by
+  identity, finds its estate pairing, and D, paired plainly, finds none.
+  **Control:** without the one-hop case, that fails.
+- **Sabotage, three entries**, and one retargeted where the walk's
+  return moved (`pair-estate-walks-every-pairing`).
+
+### Not yet, after sec 707
+
+- **Loss, restarts inside an operation, and clock skew**, which sec 689
+  asks of every journey. The script takes `--loss`, which has not been
+  run yet.
+- **No verb shows a key's head**, so a cut other than the default can
+  only be named from a log.
+
+
 
 

@@ -3450,6 +3450,33 @@ static void test_a_node_pairs_as_a_root_by_identity(const fzn_cap_id_t *cap)
 	              && fzn_chain_verify(&view, 1, r.id.pubkey, cap, 1400u, &m.sign, NULL, NULL,
 	                                  &verdict) == FZN_CHAIN_ERR_WRONG_ROOT,
 	      "M's roots do not verify D's chain, or the genesis pin alone took it");
+
+	/* JOINED THROUGH M, sec 707: E, paired by M delegable, finds that
+	 * pairing as its estate's, though its chain starts at M and not at R;
+	 * D, paired plainly, has none. */
+	{
+		static struct node e;
+		fzn_prekey_record_t e_rec;
+		fzn_node_pairing_t e_pairing, found;
+
+		CHECK(node_up(&e)
+		              && fzn_prekey_open(e.id.prekey_record, FZN_PREKEY_LEN_TOTAL, &e_rec)
+		                         == FZN_PREKEY_OK
+		              && fzn_node_pair(&m.id, r.id.pubkey, cap, &auth, 1, &m.ops, e_rec, 1200u,
+		                               1200u + 86400u, card, sizeof(card), &card_len)
+		                         == FZN_NODE_PAIR_OK
+		              && fzn_node_pairing_accept(&e.id, card, card_len, 1300u, &e.ops, &e_pairing)
+		                         == FZN_NODE_PAIR_OK,
+		      "fixture: M pairs E delegable, and E accepts");
+		CHECK(fzn_node_pairing_estate(&e.ops, r.id.pubkey, e.id.pubkey, &found) == FZN_PERSIST_OK
+		              && memcmp(found.node, m.id.pubkey, FZN_PUBKEY_LEN) == 0,
+		      "E, joined through a root by identity, found no estate pairing");
+		CHECK(fzn_node_pairing_estate(&d.ops, r.id.pubkey, d.id.pubkey, &found)
+		              == FZN_PERSIST_ERR_ABSENT,
+		      "D, paired plainly by M, found an estate pairing");
+		fzn_wipe(&e_pairing, sizeof(e_pairing));
+		fzn_wipe(&found, sizeof(found));
+	}
 }
 
 /* A ROSTER OF THOUSANDS, sec 704: 3000 contacts written by the root, and a

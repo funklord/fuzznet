@@ -429,6 +429,53 @@ int fzn_node_apply_rank(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY
 	return found ? -1 : 0;
 }
 
+/* AN ACT UNDER ITS SIGNER'S CUT, sec 706: what the roster asks of its
+ * writers (`roster/roster.c`), asked of any act a rank was judged for when
+ * it arrived. A root's counts as the root set says of it; any other's
+ * stands while no hop of its chain is revoked, and past a revocation only
+ * where each revoked hop's cut still covers the act below it. */
+int fzn_node_apply_act_stands(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY_LEN],
+                              fzn_setting_rank_t rank, const uint8_t act[FZN_SUBJECT_LEN])
+{
+	uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	uint8_t grantors[FZN_CHAIN_MAX_HOPS][FZN_PUBKEY_LEN], grantees[FZN_CHAIN_MAX_HOPS][FZN_PUBKEY_LEN];
+	uint8_t hop_act[FZN_CHAIN_MAX_HOPS][FZN_SUBJECT_LEN], revoked[FZN_CHAIN_MAX_HOPS];
+	const fzn_root_ops_t *set;
+	const fzn_cap_id_t *capability;
+	fzn_chain_hop_t hop;
+	size_t n = 0, i;
+
+	if (!ap || !key || !act || !ap->revocations)
+		return 1;
+	set = ap->revocations->roots;
+	if (rank == FZN_SETTING_RANK_ROOT)
+		return !set || set->counts(set->ctx, key, act);
+	capability = rank == FZN_SETTING_RANK_ADMIN ? ap->admin_capability : ap->capability;
+	/* NO CHAIN HERE NOW is no revocation: judged as it was on arrival. */
+	if (!capability || !fzn_node_apply_chain(ap, key, capability, hops, &n) || n == 0u)
+		return 1;
+	for (i = 0; i < n; i++) {
+		if (fzn_hop_open(hops[i], FZN_HOP_LEN, &hop) != FZN_CHAIN_OK
+		    || !ap->hash->hash(ap->hash->ctx, hop_act[i], FZN_SUBJECT_LEN, hops[i], FZN_HOP_LEN))
+			return 0;
+		memcpy(grantors[i], fzn_hop_grantor(hop), FZN_PUBKEY_LEN);
+		memcpy(grantees[i], fzn_hop_grantee(hop), FZN_PUBKEY_LEN);
+	}
+	if (set && !set->counts(set->ctx, grantors[0], hop_act[0]))
+		return 0;
+	fzn_revocation_covers_links(ap->revocations, (const uint8_t (*)[FZN_PUBKEY_LEN])grantors,
+	                            (const uint8_t (*)[FZN_PUBKEY_LEN])grantees, n, capability,
+	                            revoked);
+	for (i = 0; i < n; i++)
+		if (revoked[i]
+		    && !fzn_revocation_act_stands(ap->revocations,
+		                                  (const uint8_t (*)[FZN_PUBKEY_LEN])grantors,
+		                                  (const uint8_t (*)[FZN_PUBKEY_LEN])grantees, n,
+		                                  capability, i, i + 1u < n ? hop_act[i + 1u] : act))
+			return 0;
+	return 1;
+}
+
 /* A SETTING, sec 540: judged by its setter's standing, then kept at that
  * rank. Its setter must be the record's signer: no setting rides another
  * key's stream. */

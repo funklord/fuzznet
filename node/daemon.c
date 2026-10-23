@@ -14287,7 +14287,16 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				*space = '\0';
 				pulls[0].host = kept;
 				pulls[0].port = strtol(space + 1, NULL, 10);
-				pulls[0].is_root_at = 1;
+				/* JOINED THROUGH ANOTHER ROOT, sec 707: a root by identity
+				 * pairs as itself, so its device holds its pairing to that
+				 * root and pulls from it as `--pull-from` would -- where
+				 * `--root-at` refused, and the joined device never served. */
+				if (memcmp(estate.node, state.config.root, FZN_PUBKEY_LEN) != 0) {
+					memcpy(pulls[0].node, estate.node, FZN_PUBKEY_LEN);
+					pulls[0].is_root_at = 0;
+				} else {
+					pulls[0].is_root_at = 1;
+				}
 				npulls = 1;
 			}
 		}
@@ -14332,6 +14341,10 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 						fzn_udp_close(ufd);
 					return 2;
 				}
+				pt->pairing = estate;
+			} else if (my_authority && memcmp(pt->node, estate.node, FZN_PUBKEY_LEN) == 0) {
+				/* THE ROOT THIS DEVICE JOINED THROUGH, a root by identity
+				 * (sec 707): its pairing is the estate's own. */
 				pt->pairing = estate;
 			} else if (fzn_node_pairing_load(store_ops, pt->node, &pt->pairing)
 			           != FZN_PERSIST_OK) {

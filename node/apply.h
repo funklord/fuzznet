@@ -185,4 +185,14 @@ int fzn_node_apply_rank(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY
                         fzn_scope_t scope, const uint8_t about[FZN_SUBJECT_LEN],
                         fzn_setting_rank_t *rank);
 
+/*
+ * WHETHER AN ACT STILL STANDS, sec 706: `act` (the hash of an object `key`
+ * signed, judged at `rank` when it arrived) under the cut of every
+ * revocation on `key`'s chain, as the roster judges its writers. A root's
+ * act counts as the root set says; 1 also where no chain is indexed now, or
+ * no revocation store is kept, so nothing new is refused for want of one.
+ */
+int fzn_node_apply_act_stands(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY_LEN],
+                              fzn_setting_rank_t rank, const uint8_t act[FZN_SUBJECT_LEN]);
+
 #endif /* FZN_NODE_APPLY_H */

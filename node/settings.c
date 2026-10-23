@@ -114,7 +114,7 @@ static int standing(const fzn_node_settings_t *ns, const uint8_t cell[FZN_SUBJEC
                     fzn_setting_rank_t rank, uint8_t *buf, fzn_setting_t *s, size_t *obj_len,
                     size_t *head)
 {
-	uint8_t row[FZN_PUBKEY_LEN], again[FZN_SUBJECT_LEN];
+	uint8_t row[FZN_PUBKEY_LEN], again[FZN_SUBJECT_LEN], act[FZN_SUBJECT_LEN];
 	fzn_setting_rank_t filed;
 	uint64_t learned;
 	size_t len = 0, at = 0;
@@ -129,6 +129,13 @@ static int standing(const fzn_node_settings_t *ns, const uint8_t cell[FZN_SUBJEC
 	    || !row_read(buf, len, &filed, &learned, &at) || filed != rank
 	    || fzn_setting_open(buf + at, len - at, ns->verify, s) != FZN_SETTING_OK
 	    || !fzn_setting_cell(s, ns->hash, again) || memcmp(again, cell, FZN_SUBJECT_LEN) != 0)
+		return 0;
+	/* AND ITS SETTER'S ACT STILL STANDING, sec 706: kept when it arrived,
+	 * a setting a revoked setter made past its cut stands no more, and the
+	 * rank below shows through. */
+	if (ns->apply
+	    && (!ns->hash->hash(ns->hash->ctx, act, sizeof(act), buf + at, len - at)
+	        || !fzn_node_apply_act_stands(ns->apply, s->setter, rank, act)))
 		return 0;
 	if (obj_len)
 		*obj_len = len - at;

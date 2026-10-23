@@ -1165,6 +1165,40 @@ static void test_settings_judged(void)
 			      "a row copied under another cell's place answered for that cell");
 		}
 	}
+	/* UNDER THE CUT, sec 706: member W sets cut/a and then cut/b, both
+	 * kept; R revokes W with the cut at cut/a's record. cut/a still stands
+	 * and cut/b, kept before the vote arrived, stands no more. */
+	{
+		static fzn_act_log_ops_t acts;
+		uint8_t w[FZN_PUBKEY_LEN], cut[FZN_RECORD_ID_LEN], vote[FZN_REVOCATION_LEN];
+
+		key(w, 0x96);
+		fzn_node_journal_acts(&nj, &acts);
+		signing_as = 0x91;
+		CHECK(fzn_revocation_store_set_acts(&revs, &acts) == FZN_CHAIN_OK
+		              && fzn_chain_mint(r, w, &cap, 100u, FZN_NO_EXPIRY, 0, &SIGN, hop)
+		                         == FZN_CHAIN_OK
+		              && put(&nj, 0x91, hop, sizeof(hop))
+		              && setting_by(&nj, 0x96, FZN_SCOPE_HOST, 0x96, 1u, "cut/a", 1, "1")
+		              && fzn_node_journal_head(&nj, w, cut)
+		              && setting_by(&nj, 0x96, FZN_SCOPE_HOST, 0x96, 1u, "cut/b", 1, "2")
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK && t.refused == 0u,
+		      "fixture: R grants W, which sets cut/a and then cut/b");
+		CHECK(in_force(&ns, FZN_SCOPE_HOST, 0x96, "cut/a", "1", FZN_SETTING_RANK_HOST)
+		              && in_force(&ns, FZN_SCOPE_HOST, 0x96, "cut/b", "2", FZN_SETTING_RANK_HOST),
+		      "W's two settings were not in force before its revocation");
+		signing_as = 0x91;
+		CHECK(fzn_revocation_issue(r, &cap, w, 2000u, 0u, cut, &SIGN, vote) == FZN_CHAIN_OK
+		              && put(&nj, 0x91, vote, sizeof(vote))
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK && t.refused == 0u,
+		      "fixture: R revokes W with the cut at cut/a");
+		CHECK(in_force(&ns, FZN_SCOPE_HOST, 0x96, "cut/a", "1", FZN_SETTING_RANK_HOST),
+		      "W's setting before its cut stands no more");
+		CHECK(in_force(&ns, FZN_SCOPE_HOST, 0x96, "cut/b", NULL, FZN_SETTING_RANK_HOST),
+		      "W's setting past its cut, kept before the vote arrived, still stands");
+		CHECK(fzn_revocation_store_set_acts(&revs, NULL) == FZN_CHAIN_OK,
+		      "fixture: the acts taken back from the store");
+	}
 	fzn_node_journal_close(&nj);
 }
 

@@ -1352,11 +1352,58 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
 		                         == FZN_REPLY_MALFORMED,
 		      "a removal naming a cut that is not an id was taken");
-		snprintf(line, sizeof(line), "remove root %s", key);
+		snprintf(line, sizeof(line), "remove root %s none twice", key);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_MALFORMED,
+		      "a removal with a word after its cut was taken");
+		snprintf(line, sizeof(line), "add root %s none", key);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+		                         == FZN_REPLY_MALFORMED,
+		      "an add naming a cut was taken");
+		/* THE REMOVAL KEEPS THE ROOT'S ACTS TO ITS HEAD as held here, sec
+		 * 707, as a vote's line is drawn: the device, a root now, logs an
+		 * act, and the removal's cut is that act's record. */
+		{
+			static uint8_t buf[FZN_RECORD_MAX_LEN];
+			uint8_t head[FZN_ROOT_ACT_ID_LEN], act[FZN_ROOT_ADD_LEN];
+			fzn_record_t rec;
+			uint64_t at;
+
+			CHECK(fzn_root_add_issue(device.id.pubkey, node.id.pubkey, &device.sign, act)
+			                      == FZN_ROOT_LOG_OK
+			              && fzn_node_journal_append_object(&journal, device.id.pubkey,
+			                                                &device.sign, act, sizeof(act),
+			                                                2000u, NULL)
+			                         == FZN_NODE_JOURNAL_OK
+			              && fzn_node_journal_head(&journal, device.id.pubkey, head),
+			      "fixture: an act in the root's stream");
+			snprintf(line, sizeof(line), "remove root %s", key);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+			              && !fzn_root_view_stands(&roots.view, device.id.pubkey),
+			      "the node's own user could not remove a root");
+			at = acts_by(node.id.pubkey);
+			CHECK(kind_at(node.id.pubkey, at) == (uint32_t)FZN_OBJECT_ROOT_REMOVE
+			              && fzn_record_store_get(&journal.store, node.id.pubkey,
+			                                      FZN_NODE_JOURNAL_STREAM, at, buf, sizeof(buf),
+			                                      &rec) == FZN_RECORD_STORE_OK
+			              && fzn_record_body_len(rec) >= FZN_ROOT_SET_OFF_CUT + FZN_ROOT_ACT_ID_LEN
+			              && memcmp(fzn_record_body(rec) + FZN_ROOT_SET_OFF_CUT, head,
+			                        sizeof(head)) == 0,
+			      "a removal naming no cut did not keep the root's acts to its head");
+		}
+		/* `none`, sec 707: what no cut once meant, now said. */
+		snprintf(line, sizeof(line), "add root %s", key);
+		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK,
+		      "fixture: the root added again");
+		snprintf(line, sizeof(line), "remove root %s none", key);
 		CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && !fzn_root_view_stands(&roots.view, device.id.pubkey),
-		      "the node's own user could not remove a root");
+		      "a removal keeping none of the root's acts was refused");
 
 		/* ---- A LINE NAMED, MOVED AND KEPT, sec 497: a cut that is not an
 		 * id is refused; a named one moves the held vote's line and the
@@ -1460,6 +1507,54 @@ int main(void)
 			                         == FZN_REPLY_OK
 			              && detail_len == strlen(want) && memcmp(detail, want, detail_len) == 0,
 			      "confirming the held succession was not answered with both keys");
+			/* A SUCCESSOR JOINS AS ITS PREDECESSOR DID, sec 707: a key paired
+			 * delegable is re-keyed by a card its successor can join by, and
+			 * one paired plainly by a card it cannot. */
+			{
+				static struct node joined_old, plain_old, heir, plain_heir;
+				const struct {
+					struct node *old, *heir;
+					const char *how;
+					fzn_node_pair_err_t joins;
+				} cases[] = {
+					{ &joined_old, &heir, " delegable", FZN_NODE_PAIR_OK },
+					{ &plain_old, &plain_heir, "", FZN_NODE_PAIR_CANNOT_JOIN },
+				};
+				char h[(FZN_PREKEY_LEN_TOTAL * 2u) + 1u], old_key[(FZN_PUBKEY_LEN * 2u) + 1u];
+				char text[FZN_PROVISION_TEXT_MAX_LEN];
+				fzn_node_pairing_t heir_joined;
+				size_t c;
+
+				for (c = 0; c < sizeof(cases) / sizeof(cases[0]); c++) {
+					CHECK(node_up(cases[c].old) && node_up(cases[c].heir),
+					      "fixture: a key and its successor");
+					hex(cases[c].old->id.prekey_record, FZN_PREKEY_LEN_TOTAL, h);
+					snprintf(line, sizeof(line), "add peer %s%s", h, cases[c].how);
+					CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+					              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+					                         == FZN_REPLY_OK,
+					      "fixture: the key paired");
+					hex(cases[c].old->id.pubkey, FZN_PUBKEY_LEN, old_key);
+					hex(cases[c].heir->id.prekey_record, FZN_PREKEY_LEN_TOTAL, h);
+					snprintf(line, sizeof(line), "add succession %s %s", old_key, h);
+					CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+					              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+					                         == FZN_REPLY_OK
+					              && detail_len < sizeof(text),
+					      "fixture: the key re-keyed, its successor's card answered");
+					memcpy(text, detail, detail_len);
+					text[detail_len] = '\0';
+					CHECK(fzn_provision_from_text(text, card, sizeof(card), &card_len)
+					                      == FZN_PROVISION_OK
+					              && fzn_node_join(&cases[c].heir->id, card, card_len, 2100u,
+					                               &cases[c].heir->ops, &cases[c].heir->trust,
+					                               &heir_joined)
+					                         == cases[c].joins,
+					      c == 0u ? "a joined key's successor could not join in its place"
+					              : "a plainly paired key's successor joined the estate");
+					fzn_wipe(&heir_joined, sizeof(heir_joined));
+				}
+			}
 			admin.successions = NULL;
 		}
 	}

@@ -6356,9 +6356,11 @@ fuzznetd-faults:
 	$(MAKE) FAULTS=1 BUILD_DIR=$(BUILD_DIR)/faults $(BUILD_DIR)/faults/fuzznetd
 
 # THE FAULTS FIRE, sec 689 step 0b: tool/live_faults.py against the faulty
-# daemon, so a scenario built on a fault is known to have one.
+# daemon, so a scenario built on a fault is known to have one. Then the
+# estate's journey (sec 707), on rounds the fault build makes short.
 livecheck-faults: fuzznetd-faults
 	@timeout 400 python3 tool/live_faults.py $(BUILD_DIR)/faults/fuzznetd
+	@timeout 1000 python3 tool/live_estate.py $(BUILD_DIR)/faults/fuzznetd
 
 # NAT ON HULL, sec 692 and 695: machines on segments of their own, a
 # member behind a gateway's nftables NAT joining its root. Needs hull
