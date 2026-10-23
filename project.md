@@ -69236,10 +69236,17 @@ to contacts, so most lines go direct and a relay is the fallback.
   on fresh sockets every round, so a hole punched one round led nowhere
   the next.
 
-**A fault found on the way: sec 622's relay for contacts was never
-reachable.** The admin library's contact path answered only what it
-named, and RELAY, INTRODUCE and NOTIFY were not among them. They are
-now, and the hook judges each for itself.
+**Corrected 2026-10-23: the contact path was not the fault.** This entry,
+and c0b614d's message, said sec 622's relay for contacts was never
+reachable from the admin library's contact path, and c0b614d added a
+call to the relay hook there. That was wrong:
+`fzn_node_admin_remote` has asked the relay hook of every granted sender,
+member and contact alike, before the two part, since b63f26a
+(2026-10-13). So the added call repeated one that had already answered,
+and it is removed. With it gone, an introduction-only hull run still
+passes, the phone's line at B's root at 34 s. The blocker those first
+introduction-only runs met was the contact targets rebuilt on fresh
+sockets every round, fixed beside it.
 
 ### The test gateway was the fault, not the protocol
 
