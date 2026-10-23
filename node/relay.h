@@ -29,6 +29,10 @@
 #include "../chain/chain.h" /* FZN_PUBKEY_LEN */
 #include "../net/udp.h"
 
+/* THE TABLES' OWN ROOM, until the caller gives more
+ * (`fzn_node_relay_use`). Both learn from any sender, so they are bounded
+ * and evict past the bound -- but by the room given, not by 64, which a
+ * relay serving more devices than that passed every round. sec 704. */
 #define FZN_NODE_RELAY_ROUTES_MAX 64u
 #define FZN_NODE_RELAY_SEEN_MAX 64u
 /* How long a forwarded frame's answers are routed back, seconds. */
@@ -50,11 +54,20 @@ typedef struct fzn_node_relay_seen {
 } fzn_node_relay_seen_t;
 
 typedef struct fzn_node_relay {
-	fzn_node_relay_route_t routes[FZN_NODE_RELAY_ROUTES_MAX];
-	fzn_node_relay_seen_t seen[FZN_NODE_RELAY_SEEN_MAX];
+	fzn_node_relay_route_t *routes;
+	fzn_node_relay_seen_t *seen;
+	size_t routes_cap, seen_cap;
+	fzn_node_relay_route_t own_routes[FZN_NODE_RELAY_ROUTES_MAX];
+	fzn_node_relay_seen_t own_seen[FZN_NODE_RELAY_SEEN_MAX];
 } fzn_node_relay_t;
 
 void fzn_node_relay_init(fzn_node_relay_t *r);
+
+/* LARGER TABLES OF THE CALLER'S, sec 704: `routes` of `routes_cap` and
+ * `seen` of `seen_cap`, which must outlive `r`, what is held copied over. 0
+ * for room smaller than the tables' own. */
+int fzn_node_relay_use(fzn_node_relay_t *r, fzn_node_relay_route_t *routes, size_t routes_cap,
+                       fzn_node_relay_seen_t *seen, size_t seen_cap);
 
 /* ROUTE `target`'s answers to message `msg` back to `back` until `now` +
  * FZN_NODE_RELAY_ROUTE_S: replacing a route for the same pair, else an

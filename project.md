@@ -70147,3 +70147,28 @@ and stay.
   `livecheck-faults` phase f now also requires no "no room to follow".
   **Control:** with the journal's room off it fails, the restart loading
   fewer than 300 grants.
+
+### Reachability, built, sec 704
+
+- **The relay's tables were 64**: routes for a frame's answers, and where
+  each device last said hello. Both learn from any sender, so they keep
+  a bound and evict past it. But a relay serving more than 64 devices
+  forgot where the oldest were every round, and could not relay to them
+  until each said hello again. `fzn_node_relay_use` puts them on tables
+  of the caller's; `fuzznetd` gives 1024 routes and 4096 devices, and
+  `get lan` walks the whole table. `fuzznetd` had never initialised the
+  tables either, relying on static zeroes; it does now.
+- **The addresses this host is seen at**, one per peer asked, contacts
+  included, were 32. Past that a peer's answer was dropped unsaid; they
+  are on the heap now.
+- **Kept small, as truly few:** a routing statement's 16 addresses (a
+  host's own, and the wire format's bound); the LAN probe's 16 distinct
+  ports among siblings; and the 16 introductions, made only for the
+  sibling targets a round pulls from (8) and gone in ten minutes, which
+  step 4 owns with the targets' sockets.
+- **Tests.** `relay_test`: room smaller than the own is refused, the
+  move keeps a hello, and given room for 4096, 100 devices' hellos are
+  all kept. **Control:** a move that does not copy is caught. A second
+  candidate guard, the empty-slot search bounded by the own 64, survived
+  and is no guard: past 64 the eviction's oldest is an empty slot of time
+  0, so empties are found anyway.

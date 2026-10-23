@@ -4838,6 +4838,10 @@ static size_t n_sibling_targets;
 /* ---- introductions, sec 623 ------------------------------------------------ */
 
 static fzn_node_relay_t relay_tables;
+/* THE RELAY'S ROOM: a frame's answers routed back, and where each device
+ * was last seen. Any sender fills them, so they are bounded. sec 704. */
+#define FZND_RELAY_ROUTES 1024u
+#define FZND_RELAY_SEEN 4096u
 #define FZND_RELAY_SEEN_S 300u
 
 /* A SIBLING'S SOCKET, KEPT ACROSS ROUNDS: a hole a NAT opens is opened for
@@ -7512,15 +7516,15 @@ static size_t identity_local(fzn_origin_t origin, const fzn_request_t *request, 
 /* WHAT EACH PEER SAW, kept in memory: advisory, as fuzzypickles keeps it --
  * a host behind a NAT that maps per destination is seen at a different
  * port by each, and saying so is the point of keeping several. */
-#define FZND_OBSERVED_MAX 32u
-
+/* ONE PER PEER ASKED, as many as answer, on the heap: they were 32, and
+ * past that a peer's answer was dropped unsaid. sec 704. */
 static struct observed {
 	uint8_t reporter[FZN_PUBKEY_LEN];
 	char host[FZN_UDP_HOST_MAX];
 	uint16_t port;
 	uint64_t at;
-} observed[FZND_OBSERVED_MAX];
-static size_t n_observed;
+} *observed;
+static size_t n_observed, observed_cap;
 static int address_due;
 /* THE ROUND'S PULL TARGETS, `main`'s, so a verb can count what a round
  * would ask. */
@@ -7548,7 +7552,7 @@ static void address_take(const struct pull_target *pt, const uint8_t *reply, siz
 		if (memcmp(observed[i].reporter, pt->pairing.node, FZN_PUBKEY_LEN) == 0)
 			break;
 	if (i == n_observed) {
-		if (n_observed == FZND_OBSERVED_MAX)
+		if (!heap_room((void **)&observed, &observed_cap, n_observed + 1u, sizeof(*observed)))
 			return;
 		n_observed++;
 	}
@@ -7611,7 +7615,7 @@ static size_t address_local(const fzn_request_t *request, char *reply, size_t ca
 		static char rows[FZN_NODE_RELAY_SEEN_MAX * 120u];
 		size_t s_i, shown = 0, used = 0;
 
-		for (s_i = 0; s_i < FZN_NODE_RELAY_SEEN_MAX; s_i++) {
+		for (s_i = 0; relay_tables.seen && s_i < relay_tables.seen_cap; s_i++) {
 			const fzn_node_relay_seen_t *e = &relay_tables.seen[s_i];
 			char host[FZN_UDP_HOST_MAX], key[2u * FZN_PUBKEY_LEN + 1u];
 			uint16_t port = 0;
@@ -13880,7 +13884,22 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			admin.routing_remote = routing_remote;
 			admin.messages_contact = messages_contact;
 			admin.contact_devices = contact_devices_remote;
-			/* RELAYING, sec 622. */
+			/* RELAYING, sec 622, on tables of thousands (sec 704): bounded,
+			 * since any sender fills them, and past the bound the oldest go. */
+			fzn_node_relay_init(&relay_tables);
+			{
+				fzn_node_relay_route_t *routes = calloc(FZND_RELAY_ROUTES, sizeof(*routes));
+				fzn_node_relay_seen_t *seen = calloc(FZND_RELAY_SEEN, sizeof(*seen));
+
+				if (!routes || !seen
+				    || !fzn_node_relay_use(&relay_tables, routes, FZND_RELAY_ROUTES, seen,
+				                           FZND_RELAY_SEEN)) {
+					free(routes);
+					free(seen);
+					say(FZN_ENTRY_WARNING, "node/relay", "the relay's tables stay at %u",
+					    (unsigned)FZN_NODE_RELAY_SEEN_MAX);
+				}
+			}
 			admin.relay_remote = relay_remote;
 			state.relay = &relay_tables;
 			/* A CONTACT'S NAME, the user's, sec 699. */

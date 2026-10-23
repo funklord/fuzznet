@@ -101,6 +101,39 @@ static void test_where_peers_said_hello(void)
 	      "a full table did not give its oldest hello way");
 }
 
+/* GIVEN ROOM, sec 704: a relay told its tables are larger keeps what it
+ * held, and every one of 100 devices' hellos, where its own 64 let the
+ * oldest go. */
+static void test_a_relay_given_room(void)
+{
+	static fzn_node_relay_t r;
+	static fzn_node_relay_route_t routes[256];
+	static fzn_node_relay_seen_t seen[4096];
+	uint8_t key[32];
+	fzn_udp_addr_t a = addr_of("127.0.0.1", 5000u), got;
+	uint64_t when = 0;
+	size_t i, found = 0;
+
+	fzn_node_relay_init(&r);
+	memset(key, 0x77, sizeof(key));
+	fzn_node_relay_saw(&r, key, &a, 5u);
+	CHECK(!fzn_node_relay_use(&r, routes, 16u, seen, 4096u)
+	              && fzn_node_relay_use(&r, routes, 256u, seen, 4096u)
+	              && fzn_node_relay_where(&r, key, &got, &when) && when == 5u,
+	      "room smaller than the own was taken, or the move lost a hello");
+	for (i = 0; i < 100u; i++) {
+		memset(key, 0x10, sizeof(key));
+		key[0] = (uint8_t)i;
+		fzn_node_relay_saw(&r, key, &a, 100u + i);
+	}
+	for (i = 0; i < 100u; i++) {
+		memset(key, 0x10, sizeof(key));
+		key[0] = (uint8_t)i;
+		found += (size_t)fzn_node_relay_where(&r, key, &got, &when);
+	}
+	CHECK(found == 100u, "a relay given room for 4096 did not keep 100 devices' hellos");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -116,6 +149,7 @@ int main(void)
 	test_the_suite_can_tell_pass_from_fail();
 	test_routes_back();
 	test_where_peers_said_hello();
+	test_a_relay_given_room();
 	if (failures) {
 		fprintf(stderr, "node relay_test: %d of %d checks failed\n", failures, checks);
 		return 1;

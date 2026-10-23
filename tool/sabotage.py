@@ -11908,6 +11908,13 @@ SABOTAGES = [
 		"a full queue lets the newest request go, and a stranger's flood keeps the user's own asker out -- sec 619, 704",
 	),
 	(
+		"relay-use-copies",
+		"node/relay.c",
+		"\tmemcpy(seen, r->seen, r->seen_cap * sizeof(*seen));\n",
+		"",
+		"a relay given room forgets where every device said hello from, and relays to none until each says it again -- sec 704",
+	),
+	(
 		"messages-wants-take-a-new-row",
 		"messages/messages.c",
 		"\t\troom = rows;\n\t\tif (!save_number(m, \"waitsn\", NOBODY, rows + 1u))\n\t\t\treturn 0;\n",
