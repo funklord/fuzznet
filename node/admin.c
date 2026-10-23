@@ -707,7 +707,7 @@ static size_t list_successions(fzn_node_admin_t *admin, const uint8_t *from_text
 		return answer_text(reply, cap, FZN_REPLY_ERROR, "this node keeps no successions");
 	set = &admin->successions->set;
 	for (i = 0; i < from_len; i++) {
-		if (from_text[i] < '0' || from_text[i] > '9' || from > FZN_NODE_SUCCESSIONS_MAX)
+		if (from_text[i] < '0' || from_text[i] > '9' || from > (1u << 30))
 			return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a succession index");
 		from = (from * 10u) + (size_t)(from_text[i] - '0');
 	}

@@ -81,6 +81,18 @@ static int sound(const fzn_succession_set_t *set)
 	return set && set->entries && set->hash && set->hash->hash && set->used <= set->capacity;
 }
 
+fzn_chain_err_t fzn_succession_set_use(fzn_succession_set_t *set, fzn_succession_t *entries,
+                                       size_t capacity)
+{
+	if (!sound(set) || !entries || capacity == 0u || capacity < set->used)
+		return FZN_CHAIN_ERR_MALFORMED;
+	if (entries != set->entries && set->used)
+		memmove(entries, set->entries, set->used * sizeof(*entries));
+	set->entries = entries;
+	set->capacity = capacity;
+	return FZN_CHAIN_OK;
+}
+
 fzn_chain_err_t fzn_succession_admit(fzn_succession_set_t *set,
                                      fzn_revocation_store_t *revocations, const uint8_t *bytes,
                                      size_t len, const fzn_chain_hop_t *hops, size_t hop_count,

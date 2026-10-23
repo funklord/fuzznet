@@ -69987,5 +69987,37 @@ and stay.
 - **The phase read too early at first.** The socket appears before the
   grants load, so a check of the daemon's output read straight after
   start passed or failed by timing. It now asks the daemon first, which
-  answers only once the start is done. Phase g already did; phase h's
-  revocations load before the socket exists.
+  answers only once the start is done. Phase g already did. Phase h
+  did not, and this note first said it needed not, since its revocations
+  load before the socket exists. That was wrong: h failed the same way
+  at its next run, reading two lines of output, and it asks first now.
+
+### Successions, built, sec 704
+
+- **The successions were 64**, every re-key the estate has made, kept
+  for its life: "an estate that has done sixty-four has other problems".
+  Years of replaced devices reach that without any problem, and the 65th
+  re-key was refused. A store holding more read as a changed store at
+  load, and the node served on old keys.
+- **Built as the revocations were.** `fzn_succession_set_use` moves a
+  set onto a larger table of the caller's. The load walks and answers
+  ROOM for a full set, and `fzn_node_successions_rows` counts its rows.
+  Learning into a full set answers `FZN_NODE_REVOKE_FULL`, which the
+  journal round meets as a full table, and waits. `fuzznetd` sizes the
+  table at start by the rows, and grows it at three quarters full and
+  when a round stopped on it. `list succession`'s page start was capped
+  at 64 too; it now guards only against overflow.
+- **Tests.** `pair_test` has a root re-key 300 keys. On the set's own 64
+  the 65th answers FULL; given room, the rest go in and the first still
+  resolves. A fresh set is told ROOM at 64 and loads all 300 once sized
+  by the rows. **Controls:** ROOM read as SHAPE is caught; a move that
+  does not copy is caught once the first re-key is resolved too.
+  `livecheck-faults` phase i re-keys 100 devices on a running root and
+  lists all 100 after a restart. **Controls:** with the loop's growth
+  off, the 65th re-key was refused; with the sizing at start off, the
+  restarted node kept no successions.
+- **Open:** an admin re-key that meets a full set pairs the new key and
+  revokes the old, then fails at the succession. The loop's growth at
+  three quarters keeps a table from filling between two requests, but
+  the verb has no room of its own to ask for.
+- **Probes** for the grant index (da2ef42), all three, were caught.

@@ -91,34 +91,88 @@ static fzn_chain_err_t admit(fzn_node_successions_t *ns, fzn_revocation_store_t 
 	                            hop_count ? opened : NULL, hop_count, root, sign);
 }
 
+/* ONE ROW AT LOAD, walked, sec 704: read and admitted, or the walk stopped
+ * with why. */
+struct successions_walk {
+	fzn_node_successions_t *ns;
+	const fzn_persist_ops_t *store;
+	fzn_revocation_store_t *revocations;
+	const uint8_t *root;
+	const fzn_sign_ops_t *sign;
+	size_t *count;
+	fzn_persist_err_t err;
+};
+
+static int succession_walked(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	static uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	struct successions_walk *w = arg;
+	uint8_t record[FZN_SUCCESSION_LEN];
+	fzn_chain_err_t cerr;
+	size_t n = 0;
+
+	if (!fzn_node_succession_get(w->store, subject, record, hops, &n)) {
+		w->err = FZN_PERSIST_ERR_SHAPE;
+		return 0;
+	}
+	cerr = admit(w->ns, w->revocations, w->root, w->sign, record,
+	             (const uint8_t (*)[FZN_HOP_LEN])hops, n);
+	if (cerr != FZN_CHAIN_OK) {
+		w->err = cerr == FZN_CHAIN_ERR_STORE_FULL ? FZN_PERSIST_ERR_ROOM : FZN_PERSIST_ERR_SHAPE;
+		return 0;
+	}
+	(*w->count)++;
+	return 1;
+}
+
 fzn_persist_err_t fzn_node_successions_load(fzn_node_successions_t *ns,
                                             const fzn_persist_ops_t *store,
                                             fzn_revocation_store_t *revocations,
                                             const uint8_t root[FZN_PUBKEY_LEN],
                                             const fzn_sign_ops_t *sign, size_t *count)
 {
-	static uint8_t rows[FZN_NODE_SUCCESSIONS_MAX * FZN_PUBKEY_LEN];
-	static uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
-	size_t found = 0, i, n = 0;
+	struct successions_walk w;
 
 	if (!ns || !store || !store->load || !revocations || !root || !sign || !count)
 		return FZN_PERSIST_ERR_MALFORMED;
 	*count = 0;
-	if (!store->list)
+	if (!store->list && !store->each)
 		return FZN_PERSIST_ERR_BACKEND;
-	if (!store->list(store->ctx, FZN_PERSIST_SUCCESSION, rows, FZN_NODE_SUCCESSIONS_MAX, &found))
+	w.ns = ns;
+	w.store = store;
+	w.revocations = revocations;
+	w.root = root;
+	w.sign = sign;
+	w.count = count;
+	w.err = FZN_PERSIST_OK;
+	if (!fzn_persist_each(store, FZN_PERSIST_SUCCESSION, succession_walked, &w))
 		return FZN_PERSIST_ERR_BACKEND;
-	for (i = 0; i < found; i++) {
-		uint8_t record[FZN_SUCCESSION_LEN];
+	return w.err;
+}
 
-		if (!fzn_node_succession_get(store, rows + (i * (size_t)FZN_PUBKEY_LEN), record, hops,
-		                             &n)
-		    || admit(ns, revocations, root, sign, record, (const uint8_t (*)[FZN_HOP_LEN])hops,
-		             n) != FZN_CHAIN_OK)
-			return FZN_PERSIST_ERR_SHAPE;
-		(*count)++;
-	}
-	return FZN_PERSIST_OK;
+fzn_node_revoke_err_t fzn_node_successions_use(fzn_node_successions_t *ns,
+                                               fzn_succession_t *entries, size_t capacity)
+{
+	if (!ns || fzn_succession_set_use(&ns->set, entries, capacity) != FZN_CHAIN_OK)
+		return FZN_NODE_REVOKE_MALFORMED;
+	return FZN_NODE_REVOKE_OK;
+}
+
+static int row_counted(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	(void)subject;
+	(*(size_t *)arg)++;
+	return 1;
+}
+
+fzn_persist_err_t fzn_node_successions_rows(const fzn_persist_ops_t *store, size_t *rows)
+{
+	if (!store || !rows)
+		return FZN_PERSIST_ERR_MALFORMED;
+	*rows = 0;
+	return fzn_persist_each(store, FZN_PERSIST_SUCCESSION, row_counted, rows)
+	               ? FZN_PERSIST_OK
+	               : FZN_PERSIST_ERR_BACKEND;
 }
 
 fzn_node_revoke_err_t fzn_node_successions_learn(fzn_node_successions_t *ns,
@@ -132,8 +186,14 @@ fzn_node_revoke_err_t fzn_node_successions_learn(fzn_node_successions_t *ns,
 {
 	if (!ns || !store || !revocations || !root || !sign || !record || (hop_count && !hops))
 		return FZN_NODE_REVOKE_MALFORMED;
-	if (admit(ns, revocations, root, sign, record, hops, hop_count) != FZN_CHAIN_OK)
-		return FZN_NODE_REVOKE_STORE_REFUSED;
+	{
+		fzn_chain_err_t cerr = admit(ns, revocations, root, sign, record, hops, hop_count);
+
+		if (cerr == FZN_CHAIN_ERR_STORE_FULL)
+			return FZN_NODE_REVOKE_FULL;
+		if (cerr != FZN_CHAIN_OK)
+			return FZN_NODE_REVOKE_STORE_REFUSED;
+	}
 	return save(store, ns->set.hash, record, hops, hop_count) ? FZN_NODE_REVOKE_OK
 	                                                         : FZN_NODE_REVOKE_NOT_SAVED;
 }

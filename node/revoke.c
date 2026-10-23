@@ -32,6 +32,8 @@ const char *fzn_node_revoke_err_str(fzn_node_revoke_err_t err)
 		return "this node holds no revocation of that grantee to undo";
 	case FZN_NODE_REVOKE_NOT_ADMIN:
 		return "the admin chain does not verify from a root to this node, delegable";
+	case FZN_NODE_REVOKE_FULL:
+		return "a table is full";
 	}
 	return "unknown";
 }
@@ -696,6 +698,10 @@ static fzn_node_pull_err_t finish_vote(fzn_node_vote_pull_t *pull,
 		                                  pull->hop_count);
 		if (serr == FZN_NODE_REVOKE_NOT_SAVED)
 			return FZN_NODE_PULL_NOT_SAVED;
+		/* A FULL SET STOPS IT, sec 704, as a full roster does: counted and
+		 * skipped, the re-key would be lost for good. */
+		if (serr == FZN_NODE_REVOKE_FULL)
+			return FZN_NODE_PULL_REFUSED;
 		if (serr != FZN_NODE_REVOKE_OK)
 			pull->refused++;
 		else

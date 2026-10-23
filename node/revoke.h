@@ -66,7 +66,10 @@ typedef enum fzn_node_revoke_err {
 	FZN_NODE_REVOKE_NOT_REVOKED = -6,
 	/* An admin chain that does not verify for the admin capability from a
 	 * root, name this node, or end delegable. sec 416. */
-	FZN_NODE_REVOKE_NOT_ADMIN = -7
+	FZN_NODE_REVOKE_NOT_ADMIN = -7,
+	/* A table is full and the record was not taken: the successions',
+	 * sec 704, given room by `fzn_node_successions_use`. */
+	FZN_NODE_REVOKE_FULL = -8
 } fzn_node_revoke_err_t;
 
 const char *fzn_node_revoke_err_str(fzn_node_revoke_err_t err);

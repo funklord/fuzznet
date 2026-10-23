@@ -135,6 +135,13 @@ typedef struct fzn_succession_set {
 fzn_chain_err_t fzn_succession_set_init(fzn_succession_set_t *set, fzn_succession_t *entries,
                                         size_t capacity, const fzn_hash_ops_t *hash);
 
+/* A LARGER TABLE OF THE CALLER'S, sec 704: `set` moved onto `entries` of
+ * `capacity`, which must outlive it, what is held copied over. MALFORMED
+ * for one smaller than what is held. A set answering STORE_FULL is given
+ * room this way and the record offered again. */
+fzn_chain_err_t fzn_succession_set_use(fzn_succession_set_t *set, fzn_succession_t *entries,
+                                       size_t capacity);
+
 /* ADMIT A SUCCESSION: its shape, its issuer's signature, and its issuer's
  * standing to issue one -- the pinned `root` or a member of `revocations`'
  * root set with no chain, or an admin showing its admin chain in `hops`,

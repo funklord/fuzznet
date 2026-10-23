@@ -9120,8 +9120,8 @@ SABOTAGES = [
 	(
 		"node-succession-load-admits",
 		"node/succession.c",
-		"\t\t                             &n)\n\t\t    || admit(ns, revocations, root, sign, record, (const uint8_t (*)[FZN_HOP_LEN])hops,\n\t\t             n) != FZN_CHAIN_OK)\n",
-		"\t\t                             &n))\n",
+		"\tcerr = admit(w->ns, w->revocations, w->root, w->sign, record,\n\t             (const uint8_t (*)[FZN_HOP_LEN])hops, n);\n",
+		"\tcerr = FZN_CHAIN_OK;\n",
 		"successions loaded from the store and never admitted read nobody through after a restart -- sec 499",
 	),
 	(
@@ -11906,6 +11906,34 @@ SABOTAGES = [
 		"\tif (!r->has_oldest || held->received_at < r->oldest_at) {\n",
 		"\tif (!r->has_oldest || held->received_at > r->oldest_at) {\n",
 		"a full queue lets the newest request go, and a stranger's flood keeps the user's own asker out -- sec 619, 704",
+	),
+	(
+		"successions-load-says-room",
+		"node/succession.c",
+		"\t\tw->err = cerr == FZN_CHAIN_ERR_STORE_FULL ? FZN_PERSIST_ERR_ROOM : FZN_PERSIST_ERR_SHAPE;\n",
+		"\t\tw->err = FZN_PERSIST_ERR_SHAPE;\n",
+		"a store of more re-keys than the set holds reads as a changed store, and the node serves on old keys -- sec 704",
+	),
+	(
+		"succession-set-use-copies",
+		"chain/succession.c",
+		"\tif (entries != set->entries && set->used)\n\t\tmemmove(entries, set->entries, set->used * sizeof(*entries));\n",
+		"",
+		"a set moved onto room forgets the re-keys it held, and their old keys are read as themselves -- sec 704",
+	),
+	(
+		"succession-learn-says-full",
+		"node/succession.c",
+		"\t\tif (cerr == FZN_CHAIN_ERR_STORE_FULL)\n\t\t\treturn FZN_NODE_REVOKE_FULL;\n",
+		"",
+		"a re-key meeting a full set is refused as though it would not admit, and nobody grows the set -- sec 704",
+	),
+	(
+		"revoke-succession-full-waits",
+		"node/revoke.c",
+		"\t\tif (serr == FZN_NODE_REVOKE_FULL)\n\t\t\treturn FZN_NODE_PULL_REFUSED;\n",
+		"",
+		"a re-key arriving at a full set is marked applied and lost for good -- sec 704",
 	),
 	(
 		"apply-full-index-waits",

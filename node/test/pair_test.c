@@ -3600,6 +3600,80 @@ static void test_revocations_of_thousands(const fzn_cap_id_t *cap)
 	free(room);
 }
 
+/* SUCCESSIONS OF HUNDREDS, sec 704: 300 re-keys by a root, past the set's
+ * own 64, which once refused the 65th. */
+static void test_successions_of_hundreds(void)
+{
+	static struct node r;
+	static fzn_node_successions_t ns, again;
+	static fzn_node_roots_t r_roots;
+	static fzn_revocation_t rev_entries[8];
+	fzn_succession_t *room = NULL, *sized = NULL;
+	fzn_revocation_store_t revs;
+	fzn_persist_ops_t many = { 0 };
+	uint8_t old[FZN_PUBKEY_LEN], new_key[FZN_PUBKEY_LEN], now[FZN_PUBKEY_LEN];
+	size_t i, rows = 0, count = 0;
+	int issued = 1;
+
+	memset(many_rows, 0, sizeof(many_rows));
+	many_used = 0;
+	many.load = many_load;
+	many.save = many_save;
+	many.each = many_each;
+	/* NO JOURNAL HOOK: the node's journal here holds fewer records than
+	 * this case makes, and the successions' table is what is tested. */
+	CHECK(node_up(&r) && roots_of(&r_roots, r.id.pubkey, &r) == FZN_NODE_ROOTS_OK
+	              && (r_roots.logged = NULL, 1)
+	              && fzn_node_successions_init(&ns, &hash_ops) == FZN_NODE_REVOKE_OK
+	              && fzn_revocation_store_init(&revs, rev_entries, 8) == FZN_CHAIN_OK,
+	      "fixture: the root, its successions and a revocation store");
+	for (i = 0; i < FZN_NODE_SUCCESSIONS_MAX && issued; i++) {
+		many_subject(i, old);
+		many_subject(1000u + i, new_key);
+		issued = fzn_node_succession_issue(&ns, &r_roots, &many, &r.id, NULL, &revs, r.id.pubkey,
+		                                   old, new_key, NULL, NULL) == FZN_NODE_REVOKE_OK;
+	}
+	many_subject(i, old);
+	many_subject(1000u + i, new_key);
+	CHECK(issued
+	              && fzn_node_succession_issue(&ns, &r_roots, &many, &r.id, NULL, &revs, r.id.pubkey,
+	                                           old, new_key, NULL, NULL) == FZN_NODE_REVOKE_FULL,
+	      "the control: the set's own 64 took a 65th, or did not say it was full");
+	room = calloc(512u, sizeof(*room));
+	CHECK(room && fzn_node_successions_use(&ns, room, 512u) == FZN_NODE_REVOKE_OK,
+	      "the set would not move onto a table of its caller's");
+	for (; i < 300u && issued; i++) {
+		many_subject(i, old);
+		many_subject(1000u + i, new_key);
+		issued = fzn_node_succession_issue(&ns, &r_roots, &many, &r.id, NULL, &revs, r.id.pubkey,
+		                                   old, new_key, NULL, NULL) == FZN_NODE_REVOKE_OK;
+	}
+	many_subject(0u, old);
+	many_subject(1000u, new_key);
+	CHECK(issued && ns.set.used == 300u
+	              && fzn_node_successions_resolve(&ns, &revs, r.id.pubkey, old, now)
+	              && memcmp(now, new_key, FZN_PUBKEY_LEN) == 0,
+	      "given room, the root did not make 300 successions, or forgot the first");
+	CHECK(fzn_node_successions_init(&again, &hash_ops) == FZN_NODE_REVOKE_OK
+	              && fzn_node_successions_load(&again, &many, &revs, r.id.pubkey, &r.sign, &count)
+	                         == FZN_PERSIST_ERR_ROOM,
+	      "a load of 300 into 64 was not told it wants room");
+	CHECK(fzn_node_successions_init(&again, &hash_ops) == FZN_NODE_REVOKE_OK
+	              && fzn_node_successions_rows(&many, &rows) == FZN_PERSIST_OK && rows == 300u
+	              && (sized = calloc(rows, sizeof(*sized))) != NULL
+	              && fzn_node_successions_use(&again, sized, rows) == FZN_NODE_REVOKE_OK
+	              && fzn_node_successions_load(&again, &many, &revs, r.id.pubkey, &r.sign, &count)
+	                         == FZN_PERSIST_OK
+	              && count == 300u && (many_subject(299u, old), 1)
+	              && fzn_node_successions_resolve(&again, &revs, r.id.pubkey, old, now)
+	              && (many_subject(1299u, new_key), memcmp(now, new_key, FZN_PUBKEY_LEN) == 0)
+	              && (many_subject(0u, old), fzn_node_successions_resolve(&again, &revs,
+	                                                                      r.id.pubkey, old, now)),
+	      "300 successions did not come back, first and last, into a set sized by their rows");
+	free(room);
+	free(sized);
+}
+
 int main(void)
 {
 	static struct node node, device, stranger;
@@ -3771,6 +3845,7 @@ int main(void)
 	test_contacts_travel(&cap);
 	test_a_roster_of_thousands(&cap);
 	test_revocations_of_thousands(&cap);
+	test_successions_of_hundreds();
 	test_a_revoked_members_contacts_to_the_line(&cap);
 	test_a_device_rekeyed(&cap);
 	test_a_node_pairs_as_a_root_by_identity(&cap);

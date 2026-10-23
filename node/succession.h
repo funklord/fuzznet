@@ -24,8 +24,12 @@
 #include "../chain/succession.h"
 #include "../persist/persist.h"
 
-/* The most successions a node keeps. A re-key is an owner's deliberate act
- * after a theft; an estate that has done sixty-four has other problems. */
+/* THE SET'S OWN ROOM, not a limit, sec 704: every re-key the estate has
+ * made, kept for the life of the estate, so a count that only grows. A node
+ * needing more is given a table of the caller's (`fzn_node_successions_use`),
+ * told it needs one by FZN_NODE_REVOKE_FULL. It was a bound of 64, "an
+ * estate that has done sixty-four has other problems", which years of
+ * replaced devices reach without any. */
 #define FZN_NODE_SUCCESSIONS_MAX 64u
 
 typedef struct fzn_node_successions {
@@ -42,16 +46,26 @@ fzn_node_revoke_err_t fzn_node_successions_init(fzn_node_successions_t *ns,
 
 /* At start: admit every succession in slot 30 into `ns`, its issuer's chain
  * into `revocations`. One that will not read or admit FAILS the load, as a
- * vote does (sec 380). `count` is how many were admitted. */
+ * vote does (sec 380). `count` is how many were admitted. WALKED, sec 704:
+ * FZN_PERSIST_ERR_ROOM when the set is too small, which
+ * `fzn_node_successions_rows` sizes. */
 fzn_persist_err_t fzn_node_successions_load(fzn_node_successions_t *ns,
                                             const fzn_persist_ops_t *store,
                                             fzn_revocation_store_t *revocations,
                                             const uint8_t root[FZN_PUBKEY_LEN],
                                             const fzn_sign_ops_t *sign, size_t *count);
 
+/* A LARGER TABLE OF THE CALLER'S, sec 704: `entries` of `capacity`, which
+ * must outlive `ns`, what is held copied over. MALFORMED for one smaller. */
+fzn_node_revoke_err_t fzn_node_successions_use(fzn_node_successions_t *ns,
+                                               fzn_succession_t *entries, size_t capacity);
+
+/* THE ROWS A LOAD READS, each at most one entry. */
+fzn_persist_err_t fzn_node_successions_rows(const fzn_persist_ops_t *store, size_t *rows);
+
 /* LEARN ONE: admit `record` with its issuer's chain (`hop_count` hops, none
- * for a root) and save it. STORE_REFUSED for one admission refuses,
- * NOT_SAVED for one admitted and not saved. */
+ * for a root) and save it. STORE_REFUSED for one admission refuses, FULL for
+ * a set with no room (sec 704), NOT_SAVED for one admitted and not saved. */
 fzn_node_revoke_err_t fzn_node_successions_learn(fzn_node_successions_t *ns,
                                                  const fzn_persist_ops_t *store,
                                                  fzn_revocation_store_t *revocations,

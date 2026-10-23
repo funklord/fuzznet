@@ -6190,6 +6190,38 @@ static void roots_room(fzn_node_roots_t *roots)
 		say(FZN_ENTRY_WARNING, "roots", "the root records' tables are full and would not grow");
 }
 
+/* ---- the successions' table, sec 704 -----------------------------------------
+ *
+ * Every re-key the estate has made: the set's own 64, then the heap. */
+static fzn_succession_t *successions_heap;
+
+static int successions_grow(fzn_node_successions_t *ns, size_t capacity)
+{
+	fzn_succession_t *e;
+
+	if (capacity <= ns->set.capacity)
+		capacity = 2u * ns->set.capacity;
+	e = calloc(capacity, sizeof(*e));
+	if (!e || fzn_node_successions_use(ns, e, capacity) != FZN_NODE_REVOKE_OK) {
+		free(e);
+		return 0;
+	}
+	free(successions_heap);
+	successions_heap = e;
+	return 1;
+}
+
+/* ROOM BEFORE IT IS WANTED: three quarters full, doubled. */
+static void successions_room(fzn_node_successions_t *ns)
+{
+	if (4u * ns->set.used < 3u * ns->set.capacity)
+		return;
+	if (successions_grow(ns, 2u * ns->set.capacity))
+		say(FZN_ENTRY_INFO, "votes", "the successions' table grown: %zu", ns->set.capacity);
+	else
+		say(FZN_ENTRY_WARNING, "votes", "the successions' table is full and would not grow");
+}
+
 /* ---- the grant index, sec 704 -----------------------------------------------
  *
  * Every pairing and admin grant in the estate, each once: on the heap once
@@ -6373,6 +6405,8 @@ static int room_for_round(void)
 
 	if (node_apply.grants_wanted)
 		grew |= grants_grow(&node_apply, 2u * node_apply.grants_wanted);
+	if (successions_on && node_successions.set.used >= node_successions.set.capacity)
+		grew |= successions_grow(&node_successions, 2u * node_successions.set.capacity);
 	if (rs && (rs->used >= rs->capacity
 	           || (rs->confirms && rs->confirms_used >= rs->confirm_capacity)))
 		grew |= revocations_grow(rs, rs->used >= rs->capacity ? 2u * rs->capacity : 0u,
@@ -13505,11 +13539,16 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			 * through to its new key. NOT FATAL, as the roster is not: a node
 			 * that cannot hold them serves on its old keys. */
 			{
-				size_t nsucc = 0;
+				size_t nsucc = 0, succession_rows = 0;
 				fzn_persist_err_t serr = FZN_PERSIST_ERR_MALFORMED;
 
+				/* SIZED BY WHAT IS STORED, sec 704, as the revocations are. */
 				if (fzn_node_successions_init(&node_successions, &hash_ops)
-				    == FZN_NODE_REVOKE_OK)
+				            == FZN_NODE_REVOKE_OK
+				    && fzn_node_successions_rows(store_ops, &succession_rows)
+				               == FZN_PERSIST_OK
+				    && (succession_rows <= FZN_NODE_SUCCESSIONS_MAX / 2u
+				        || successions_grow(&node_successions, 2u * succession_rows)))
 					serr = fzn_node_successions_load(&node_successions, store_ops,
 					                                 &revoked, state.config.root,
 					                                 &sign_ops, &nsucc);
@@ -13963,6 +14002,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				revocations_room(node_apply.revocations);
 			if (node_apply.grants)
 				grants_room(&node_apply);
+			if (successions_on)
+				successions_room(&node_successions);
 			if (!round_step && (now >= next_pull || next_pull > now + pull_every)) {
 				plan = round_plan;
 				plan_at = 0;

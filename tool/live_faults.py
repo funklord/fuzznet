@@ -35,6 +35,9 @@ the scenarios built on them test something:
        held, every one answered `ok`; started again, it loads all 300 and
        revokes another (sec 704) -- where the 257th was refused and a store
        holding more would not start
+    i  a root re-keys 100 devices, more than the 64 successions its own
+       table held, every one answered `ok` and listed; started again, it
+       loads and lists all 100 (sec 704) -- where the 65th was refused
 
 Against a daemon built without faults, phase a's B is counted at 100 per
 cent loss, phase b's daemon does not die, and phase c's says nothing.
@@ -338,6 +341,9 @@ def main(argv):
 				h.stop()
 			h = daemon(run, "h2", h_dir, h_sock)
 			try:
+				# ASKED FIRST, as in f: the socket is there before the start
+				# is done.
+				ask(h_sock, "list peer")
 				if not re.search(r"\b300 revocation\(s\) from", h.stderr()):
 					raise failed("h: started again, it did not load all 300 revocations:\n%s"
 					             % h.stderr()[-600:])
@@ -349,6 +355,39 @@ def main(argv):
 				h.stop()
 			print("livecheck: h: 300 revocations cast, all loaded again after a restart, and "
 			      "a 301st")
+
+			# i: more re-keys than the successions' own table held.
+			i_dir = os.path.join(scratch, "i")
+			i_sock = os.path.join(sock_dir, "i")
+			os.mkdir(i_dir)
+			command(run, ["--fuzznet-dir=" + i_dir, "--new-root"], None)
+			prekeys = []
+			for n in range(100):
+				d = os.path.join(scratch, "i%d" % n)
+				os.mkdir(d)
+				prekeys.append(command(run, ["--fuzznet-dir=" + d, "--prekey"], None))
+			node = daemon(run, "i1", i_dir, i_sock)
+			try:
+				for n, prekey in enumerate(prekeys):
+					reply = ask(i_sock, "add succession %064x %s" % (0x8c0000 + n, prekey))
+					if not reply.startswith("ok"):
+						raise failed("i: re-key %d answered %r" % (n + 1, reply))
+				listed = ask(i_sock, "list succession").split()
+				if len(listed) < 2 or listed[0] != "ok" or listed[1] != "100":
+					raise failed("i: a root that re-keyed 100 devices listed %r" % listed[:3])
+			finally:
+				node.stop()
+			node = daemon(run, "i2", i_dir, i_sock)
+			try:
+				listed = ask(i_sock, "list succession").split()
+				if len(listed) < 2 or listed[0] != "ok" or listed[1] != "100" \
+				   or not re.search(r"\b100 succession\(s\) from", node.stderr()):
+					raise failed("i: started again, it listed %r:\n%s"
+					             % (listed[:3], node.stderr()[-600:]))
+			finally:
+				node.stop()
+			print("livecheck: i: 100 devices re-keyed and listed, and all 100 loaded again "
+			      "after a restart")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1
