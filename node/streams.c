@@ -20,6 +20,8 @@ const char *fzn_streams_err_str(fzn_streams_err_t err)
 		return "too many grants";
 	case FZN_STREAMS_ERR_BACKEND:
 		return "the store refused";
+	case FZN_STREAMS_ERR_ROOM:
+		return "more are held than the room given";
 	}
 	return "unknown";
 }
@@ -123,27 +125,51 @@ uint64_t fzn_streams_last(const fzn_streams_t *s, const char *name, size_t name_
 	return fzn_get_be64(bytes);
 }
 
+/* EVERY HEAD, walked, sec 704: those of `name` kept, as many as fit, and
+ * all counted. It listed 512 heads of every stream into a fixed table. */
+struct origins_walk {
+	const fzn_streams_t *s;
+	const char *name;
+	size_t name_len;
+	uint8_t (*out)[32];
+	size_t cap, n;
+};
+
+static int origin_walked(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	struct origins_walk *w = arg;
+	uint8_t bytes[HEAD_MAX];
+	size_t len = 0;
+
+	if (w->s->store->load(w->s->store->ctx, FZN_PERSIST_STREAM_HEAD, subject, bytes,
+	                      sizeof(bytes), &len)
+	    && len == 8u + 32u + 1u + w->name_len && bytes[40] == w->name_len
+	    && memcmp(bytes + 41, w->name, w->name_len) == 0) {
+		if (w->n < w->cap)
+			memcpy(w->out[w->n], bytes + 8, 32u);
+		w->n++;
+	}
+	return 1;
+}
+
 fzn_streams_err_t fzn_streams_origins(const fzn_streams_t *s, const char *name, size_t name_len,
                                       uint8_t (*out)[32], size_t cap, size_t *count)
 {
-	static uint8_t subjects[FZN_STREAM_HEADS_MAX][32];
-	uint8_t bytes[HEAD_MAX];
-	size_t n = 0, i, len = 0;
+	struct origins_walk w;
 
-	if (!usable(s) || !fzn_stream_name_ok(name, name_len) || !out || !count)
+	if (!usable(s) || !fzn_stream_name_ok(name, name_len) || (!out && cap) || !count)
 		return FZN_STREAMS_ERR_MALFORMED;
 	*count = 0;
-	if (!s->store->list
-	    || !s->store->list(s->store->ctx, FZN_PERSIST_STREAM_HEAD, (uint8_t *)subjects,
-	                       FZN_STREAM_HEADS_MAX, &n))
+	w.s = s;
+	w.name = name;
+	w.name_len = name_len;
+	w.out = out;
+	w.cap = cap;
+	w.n = 0;
+	if (!fzn_persist_each(s->store, FZN_PERSIST_STREAM_HEAD, origin_walked, &w))
 		return FZN_STREAMS_ERR_BACKEND;
-	for (i = 0; i < n && *count < cap; i++)
-		if (s->store->load(s->store->ctx, FZN_PERSIST_STREAM_HEAD, subjects[i], bytes,
-		                   sizeof(bytes), &len)
-		    && len == 8u + 32u + 1u + name_len && bytes[40] == name_len
-		    && memcmp(bytes + 41, name, name_len) == 0)
-			memcpy(out[(*count)++], bytes + 8, 32u);
-	return FZN_STREAMS_OK;
+	*count = w.n;
+	return w.n > cap ? FZN_STREAMS_ERR_ROOM : FZN_STREAMS_OK;
 }
 
 fzn_streams_err_t fzn_streams_keep(const fzn_streams_t *s, const char *name, size_t name_len,
@@ -200,10 +226,8 @@ fzn_streams_err_t fzn_streams_get(const fzn_streams_t *s, const char *name, size
 fzn_streams_err_t fzn_streams_grant(const fzn_streams_t *s, const char *name, size_t name_len,
                                     const uint8_t grantee[32], int level)
 {
-	static uint8_t subjects[FZN_STREAM_GRANTS_MAX + 1u][32];
 	uint8_t subject[32], bytes[1];
 	unsigned held;
-	size_t n = 0;
 
 	if (!usable(s) || !fzn_stream_name_ok(name, name_len) || !grantee
 	    || level >= (int)FZN_STREAM_LEVELS_MAX)
@@ -218,14 +242,8 @@ fzn_streams_err_t fzn_streams_grant(const fzn_streams_t *s, const char *name, si
 		               ? FZN_STREAMS_OK
 		               : FZN_STREAMS_ERR_BACKEND;
 	}
-	if (fzn_streams_granted(s, name, name_len, grantee, &held) != FZN_STREAMS_OK) {
-		if (!s->store->list
-		    || !s->store->list(s->store->ctx, FZN_PERSIST_STREAM_GRANT, (uint8_t *)subjects,
-		                       FZN_STREAM_GRANTS_MAX + 1u, &n))
-			return FZN_STREAMS_ERR_BACKEND;
-		if (n >= FZN_STREAM_GRANTS_MAX)
-			return FZN_STREAMS_ERR_FULL;
-	}
+	/* AS MANY GRANTS AS THE USER MAKES, sec 704: they were 256, across every
+	 * stream. */
 	bytes[0] = (uint8_t)level;
 	return s->store->save(s->store->ctx, FZN_PERSIST_STREAM_GRANT, subject, bytes, sizeof(bytes))
 	               ? FZN_STREAMS_OK

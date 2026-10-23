@@ -70202,6 +70202,29 @@ and stay.
   the pack scan, four checks fail; on the retention scan, one; with 1024
   on the logger's, one. A failing control run leaves its scratch behind,
   as these suites always have; it was removed by name.
-- **Not yet grown:** retention rules, 16 a node keeps and 64 a plan
-  weighs. Their per-rule state is in stack tables in the plan and the
-  entry walk, and in the messages module's trimming.
+- **Kept small, as few by nature: retention rules**, 16 a node keeps and
+  64 a plan weighs. They are policy the user writes, not data that
+  accumulates. Past the bounds they are said rather than cut silently: a
+  node's 17th rule is refused FULL to whoever adds it, and a pass that
+  passes rules over logs how many. Their per-rule state is in stack
+  tables in the plan, the entry walk and the messages module's trimming,
+  so growing them is a change to all three.
+
+### App streams, built, sec 704
+
+- **The heads of every stream were listed into 512**, and the daemon's
+  `list location` and `list stream` read 256 hosts. Past those, hosts
+  whose records were held here were never listed. `fzn_streams_origins`
+  walks the heads now and answers `FZN_STREAMS_ERR_ROOM` with the count,
+  and both verbs list into room that grows.
+- **Grants were 256 across every stream**, past which a grant was
+  refused FULL. They are the user's own acts, so there is no bound now;
+  FULL is no longer answered.
+- **Kept small, as truly few:** the 8 stream fetches a user's verbs queue
+  for the loop's next turn, drained there; and the 32 askers the
+  once-in-two-seconds limit remembers, which is a rate rather than a
+  count.
+- **Tests.** `streams_test` keeps 600 hosts' records of one stream: into
+  64 they say 600, and into room they all list. It also takes 300
+  grants. **Control:** ROOM read as OK is caught. The suite's link now
+  carries `persist.o` and what it needs, for the walk.

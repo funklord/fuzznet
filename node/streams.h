@@ -43,18 +43,15 @@
 #define FZN_STREAM_LEVELS_MAX 4u
 #define FZN_STREAM_RENDITION_MAX 64u
 #define FZN_STREAM_KEEP 1024u
-/* Heads held, every stream's every host. */
-#define FZN_STREAM_HEADS_MAX 512u
-/* Grants kept, across every stream. */
-#define FZN_STREAM_GRANTS_MAX 256u
 
 typedef enum fzn_streams_err {
 	FZN_STREAMS_OK = 0,
 	FZN_STREAMS_ERR_MALFORMED = -1, /* a null, a name or record out of range */
 	FZN_STREAMS_ERR_ABSENT = -2,    /* no such record or grant */
 	FZN_STREAMS_ERR_DENIED = -3,    /* no grant for that reader */
-	FZN_STREAMS_ERR_FULL = -4,      /* FZN_STREAM_GRANTS_MAX held */
-	FZN_STREAMS_ERR_BACKEND = -5    /* the store refused, or cannot list */
+	FZN_STREAMS_ERR_FULL = -4,      /* no longer answered, sec 704; kept for its value */
+	FZN_STREAMS_ERR_BACKEND = -5,   /* the store refused, or cannot list */
+	FZN_STREAMS_ERR_ROOM = -6       /* more than `cap`: `*count` says how many */
 } fzn_streams_err_t;
 
 const char *fzn_streams_err_str(fzn_streams_err_t err);
@@ -86,7 +83,8 @@ fzn_streams_err_t fzn_streams_keep(const fzn_streams_t *s, const char *name, siz
 uint64_t fzn_streams_last(const fzn_streams_t *s, const char *name, size_t name_len,
                           const uint8_t origin[32]);
 
-/* Every host whose records of `name` are held here, `cap` of them. */
+/* Every host whose records of `name` are held here, walked into `cap`:
+ * ROOM with `*count` the number held when there are more. sec 704. */
 fzn_streams_err_t fzn_streams_origins(const fzn_streams_t *s, const char *name, size_t name_len,
                                       uint8_t (*out)[32], size_t cap, size_t *count);
 

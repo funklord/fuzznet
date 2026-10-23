@@ -3890,7 +3890,10 @@ $(BUILD_DIR)/node/test/groups_test: $(BUILD_DIR)/node/test/groups_test.o \
 
 # App streams, sec 632.
 $(BUILD_DIR)/node/test/streams_test: $(BUILD_DIR)/node/test/streams_test.o \
-                                     $(BUILD_DIR)/node/streams.o
+                                     $(BUILD_DIR)/node/streams.o $(BUILD_DIR)/persist/persist.o \
+                                     $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/session/agree.o \
+                                     $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/ratchet/ratchet.o \
+                                     $(BUILD_DIR)/constant_time/constant_time.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

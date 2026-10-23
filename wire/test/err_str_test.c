@@ -432,7 +432,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_group_log_err_str", r_group_log, 10 },
 	{ "fzn_group_line_err_str", r_group_line, 6 },
 	{ "fzn_group_lines_err_str", r_group_lines, 6 },
-	{ "fzn_streams_err_str", r_streams, 6 },
+	{ "fzn_streams_err_str", r_streams, 7 },
 	{ "fzn_node_catalog_err_str", r_node_catalog, 4 },
 	{ "fzn_erasure_err_str", r_erasure, 3 },
 	{ "fzn_reconcile_err_str", r_reconcile, 6 },

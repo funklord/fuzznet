@@ -225,6 +225,40 @@ static void test_grants_and_levels(void)
 	      "a record with fewer levels did not give its coarsest");
 }
 
+/* HUNDREDS, sec 704: 600 hosts' records of one stream listed -- told how
+ * many into 64, all into room for them -- where 512 heads of every stream
+ * were listed into a fixed table; and 300 grants, past the 256 once held. */
+static void test_hundreds(void)
+{
+	static uint8_t origins[600][32];
+	fzn_stream_record_t r;
+	uint8_t who[32];
+	size_t i, n = 0;
+	int kept = 1, granted = 1;
+
+	memset(rows, 0, sizeof(rows));
+	for (i = 0; i < 600u && kept; i++) {
+		memset(who, 0x40, sizeof(who));
+		who[0] = (uint8_t)(i >> 8);
+		who[1] = (uint8_t)i;
+		record(&r, 1u, 1u);
+		kept = fzn_streams_keep(&S, "location", 8u, who, &r) == FZN_STREAMS_OK;
+	}
+	CHECK(kept, "fixture: 600 hosts' records of one stream");
+	CHECK(fzn_streams_origins(&S, "location", 8u, origins, 64u, &n) == FZN_STREAMS_ERR_ROOM
+	              && n == 600u
+	              && fzn_streams_origins(&S, "location", 8u, origins, 600u, &n) == FZN_STREAMS_OK
+	              && n == 600u,
+	      "600 hosts did not say how many into 64, or all list into room for them");
+	for (i = 0; i < 300u && granted; i++) {
+		memset(who, 0x60, sizeof(who));
+		who[0] = (uint8_t)(i >> 8);
+		who[1] = (uint8_t)i;
+		granted = fzn_streams_grant(&S, "location", 8u, who, 1) == FZN_STREAMS_OK;
+	}
+	CHECK(granted, "300 grants of one stream were not all kept");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -240,6 +274,7 @@ int main(void)
 	test_the_suite_can_tell_pass_from_fail();
 	test_records_kept_in_order();
 	test_grants_and_levels();
+	test_hundreds();
 	if (failures) {
 		fprintf(stderr, "node streams_test: %d of %d checks failed\n", failures, checks);
 		return 1;

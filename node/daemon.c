@@ -9019,6 +9019,31 @@ static struct {
 } stream_fetches[FZND_STREAM_FETCHES_MAX];
 static size_t n_stream_fetches;
 
+/* EVERY HOST WHOSE RECORDS OF `name` ARE HELD, into room that grows, sec 704:
+ * it was 256. */
+static fzn_streams_err_t stream_origins(struct key_room *r, const char *name, size_t name_len,
+                                        uint8_t (**out)[FZN_PUBKEY_LEN], size_t *n)
+{
+	fzn_streams_err_t err = FZN_STREAMS_ERR_ROOM;
+	size_t tries;
+
+	for (tries = 0; tries < 4u && err == FZN_STREAMS_ERR_ROOM; tries++) {
+		err = fzn_streams_origins(&node_streams, name, name_len, r->keys, r->cap, n);
+		if (err == FZN_STREAMS_ERR_ROOM) {
+			size_t want = *n + *n / 4u + 64u;
+			uint8_t (*grown)[FZN_PUBKEY_LEN] = calloc(want, sizeof(*grown));
+
+			if (!grown)
+				return FZN_STREAMS_ERR_BACKEND;
+			free(r->keys);
+			r->keys = grown;
+			r->cap = want;
+		}
+	}
+	*out = r->keys;
+	return err;
+}
+
 /* WHOSE `host` IS as one of this user's groups lists it (sec 630). */
 static int member_host_owner(const uint8_t *host, uint8_t owner[FZN_PUBKEY_LEN])
 {
@@ -9880,7 +9905,8 @@ static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, 
                              size_t cap)
 {
 	static fzn_stream_record_t r;
-	static uint8_t heads[256][32];
+	static struct key_room heads_room;
+	uint8_t (*heads)[FZN_PUBKEY_LEN] = NULL;
 	const uint8_t *at = request->arg, *subject, *w, *v;
 	size_t left = request->arg_len, subject_len, w_len, v_len;
 
@@ -9971,8 +9997,8 @@ static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, 
 		uint64_t last, s;
 
 		out = (size_t)snprintf(reply, cap, "ok");
-		if (fzn_streams_origins(&node_streams, FZND_LOCATION_STREAM, FZND_LOCATION_STREAM_LEN,
-		                        heads, 256u, &n) != FZN_STREAMS_OK)
+		if (stream_origins(&heads_room, FZND_LOCATION_STREAM, FZND_LOCATION_STREAM_LEN, &heads,
+		                   &n) != FZN_STREAMS_OK)
 			return (size_t)snprintf(reply, cap, "error the stream did not list\n");
 		for (i = 0; i < n; i++) {
 			char host[17];
@@ -10023,7 +10049,8 @@ static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, c
                             size_t cap)
 {
 	static fzn_stream_record_t r;
-	static uint8_t heads[256][32];
+	static struct key_room heads_room;
+	uint8_t (*heads)[FZN_PUBKEY_LEN] = NULL;
 	const uint8_t *at = request->arg, *subject, *name, *w;
 	size_t left = request->arg_len, subject_len, name_len, w_len, k;
 	uint8_t who[FZN_PUBKEY_LEN];
@@ -10075,7 +10102,7 @@ static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, c
 
 		/* EVERY HOST HELD: this one's own, and each fetched from. */
 		out = (size_t)snprintf(reply, cap, "ok");
-		if (fzn_streams_origins(&node_streams, (const char *)name, name_len, heads, 256u, &n)
+		if (stream_origins(&heads_room, (const char *)name, name_len, &heads, &n)
 		    != FZN_STREAMS_OK)
 			return (size_t)snprintf(reply, cap, "error the stream did not list\n");
 		for (i = 0; i < n; i++) {

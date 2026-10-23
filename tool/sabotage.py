@@ -11908,6 +11908,13 @@ SABOTAGES = [
 		"a full queue lets the newest request go, and a stranger's flood keeps the user's own asker out -- sec 619, 704",
 	),
 	(
+		"streams-origins-says-room",
+		"node/streams.c",
+		"\treturn w.n > cap ? FZN_STREAMS_ERR_ROOM : FZN_STREAMS_OK;\n",
+		"\treturn FZN_STREAMS_OK;\n",
+		"more hosts' records than the room read as all of them, and the rest are never listed -- sec 704",
+	),
+	(
 		"logger-retain-reads-every-segment",
 		"log/logger.c",
 		"\twhile ((e = readdir(d)) != NULL) {\n\t\tuint64_t at = segment_closed(e->d_name, program);\n",
