@@ -99,6 +99,7 @@
 #include "files.h"
 #include "shelf.h"
 #include "stickers.h"
+#include "clocks.h"
 #include "log_list.h"
 #include "meter.h"
 #include "schema.h"
@@ -416,6 +417,10 @@ static uint64_t lan_probed_at;
 
 static void own_acts_applied(const fzn_node_admin_t *admin, const char *reply, size_t n);
 
+static uint64_t wall_clock(void);
+/* PEERS WHOSE CLOCKS DISAGREE, sec 717: a row a peer, grown on the heap. */
+static fzn_node_clocks_t node_clocks;
+
 /* THIS DAEMON'S FLIGHT RECORDER, or NULL: kept only with a log file. */
 static const fzn_ring_t *own_ring(void)
 {
@@ -472,6 +477,9 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 	 * log file. */
 	if (!n)
 		n = fzn_node_log_list_local(own_ring(), origin, request, reply, reply_cap);
+	/* `list clock`, sec 717. */
+	if (!n)
+		n = fzn_node_clocks_local(&node_clocks, origin, request, wall_clock(), reply, reply_cap);
 	if (!n)
 		n = device_local(origin, request, reply, reply_cap);
 	if (!n)
@@ -11250,8 +11258,34 @@ static void clock_out(void *ctx, const uint8_t sender[FZN_PUBKEY_LEN], uint64_t 
 {
 	static uint64_t said_at[2];
 	int ahead = expires_at > now;
+	uint64_t by = ahead ? expires_at - now - max_ahead : now - expires_at;
+	fzn_node_clocks_err_t cerr;
 
 	(void)ctx;
+	/* THE ROW FIRST, sec 717, every time: the log line below is limited,
+	 * the row a client reads is not. Grown on ROOM, by doubling. */
+	cerr = fzn_node_clocks_note(&node_clocks, sender, ahead, by, now);
+	if (cerr == FZN_NODE_CLOCKS_ROOM) {
+		size_t cap = node_clocks.cap ? 2u * node_clocks.cap : 16u;
+		fzn_node_clock_t *grown = malloc(cap * sizeof(*grown));
+
+		if (grown) {
+			fzn_node_clock_t *was = node_clocks.cap ? node_clocks.rows : NULL;
+
+			if (fzn_node_clocks_use(&node_clocks, grown, cap)) {
+				free(was);
+				cerr = fzn_node_clocks_note(&node_clocks, sender, ahead, by, now);
+			} else {
+				free(grown);
+			}
+		}
+	}
+	if (cerr == FZN_NODE_CLOCKS_NEW) {
+		char hex[2u * FZN_PUBKEY_LEN + 1u];
+
+		hex_of(sender, FZN_PUBKEY_LEN, hex);
+		publish("clock", hex);
+	}
 	if (said_at[ahead] && now < said_at[ahead] + 60u)
 		return;
 	said_at[ahead] = now;

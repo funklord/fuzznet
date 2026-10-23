@@ -300,6 +300,7 @@ __pycache__/
 /node/test/types_test
 /node/test/meter_test
 /node/test/log_list_test
+/node/test/clocks_test
 /node/test/schema_test
 /location/test/location_test
 /location/test/tpv_test

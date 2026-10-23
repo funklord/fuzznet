@@ -71032,6 +71032,59 @@ name is this tree's to change.
 - **Control:** with the old field put back into a copy of `asks.h`, that
   compile has one error; with the fix, none.
 
+## 717. `list clock`: peers whose clocks disagree, for a client to show, 2026-10-24
+
+fuzzypickles' requirement (inbox 20261023T2309Z): sec 714's `node/clock`
+log line reaches its log-show, but the person it helps will not open a
+log. It wants a notice in its GUI and TUI, on both ends, since either
+clock may be the wrong one. Parsing the log sentence would break the
+first time it was improved, so the requirement was stated rather than
+built around.
+
+### Built for sec 717
+
+- **`node/clocks.c`: one row a peer** whose frames, its own (they opened
+  under its session), were refused for their expiry. Each row holds:
+  - its key, in full;
+  - its direction, `behind` (its frames arrive already expired) or
+    `ahead` (they arrive past the horizon);
+  - by how many seconds, as last measured;
+  - when last seen, by this node's clock.
+- **Forgetting:** a row not seen for 600 s, two request lifetimes, is
+  forgotten, so a client drops its notice when the row is gone.
+- **`list clock [FROM]`** answers `ok TOTAL FROM KEY,DIR,SECONDS,AT ...`,
+  paged as `list contact` is, to the node's own user alone.
+- **Event:** a `clock` event naming the peer when its row is new or has
+  turned, so `get events` reaches the TUI as it happens.
+- **Every refusal writes the row.** sec 714's log line is limited to
+  once a minute each way; the row is not.
+- **The table is the caller's, grown by fuzznetd on ROOM** by doubling,
+  so it holds as many peers as have drifted.
+
+### Not built, after sec 717
+
+- **The device whose clock is wrong learns nothing from here.** Its
+  frames are dropped unanswered by design: a reply would be an oracle to
+  anyone holding a session. So the notice is shown on the side that can
+  see it. Whether a node should ever answer a stale frame, sealed and
+  saying only "your clock", is the holder's; it would trade some of that
+  denial for the case that matters most, the person whose device is
+  wrong.
+
+### Measured for sec 717
+
+- **`clocks_test`, 16 checks:**
+  - a row new, refreshed, and turned;
+  - ROOM, and a move onto a larger table keeping the row;
+  - rows past their keeping forgotten;
+  - every row once over pages, with the key in full;
+  - the refusals.
+- **Control:** with forgetting switched off, two checks fail.
+- **`livecheck-faults` phase l:** with the member's clock 900 s behind,
+  then an hour ahead, R's `list clock` names it by its full key, the
+  right way each time, and its event stream says `event clock KEY`.
+
+
 
 
 

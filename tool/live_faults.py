@@ -48,7 +48,9 @@ the scenarios built on them test something:
        bring back grants the member already kept
     l  a member whose clock runs 900 s behind the root, then an hour ahead:
        its requests are dropped either way, and the root's log says why,
-       read by `list log` (sec 714) -- where both ends saw only silence
+       read by `list log` (sec 714), and `list clock` names the member and
+       the way its clock is off (sec 717) -- where both ends saw only
+       silence
 
 Against a daemon built without faults, phase a's B is counted at 100 per
 cent loss, phase b's daemon does not die, and phase c's says nothing.
@@ -72,6 +74,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_rejoin import RECONCILE_RE, ROUND_DONE_RE, command, daemon  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
+from live_events import subscriber  # noqa: E402
 
 # A CONTACT PASS that asked S: phase d's.
 PASS_RE = re.compile(r"contact pass: [1-9]\d* contact\(s\) asked")
@@ -520,8 +523,10 @@ def main(argv):
 				command(run, ["--fuzznet-dir=" + l_dir, "--accept=" + l_card, "--join"], None)
 				lr_port = str(int(port) + 80)
 				root = daemon(run, "lr", l_root, lr_sock, extra=["--udp-port=" + lr_port])
+				told = subscriber(lr_sock, "l events")
 				try:
-					for skew, said in (("-900s", "expired"), ("+3600s", "past this node's horizon")):
+					for skew, said, way in (("-900s", "expired", "behind"),
+					                        ("+3600s", "past this node's horizon", "ahead")):
 						os.environ["FZN_TUNE_PULL_EVERY"] = "2"
 						try:
 							member = daemon(run, "l" + skew, l_dir, l_sock, fake=skew,
@@ -542,12 +547,39 @@ def main(argv):
 							if not warned:
 								raise failed("l: with the member's clock %s, the root said "
 								             "nothing of it in its log" % skew)
+							# AND A ROW A CLIENT READS, sec 717: the member by its
+							# full key, the way its clock is off.
+							rows = ask(lr_sock, "list clock").split()
+							if not any(r.startswith(l_prekey[4:68] + "," + way + ",")
+							           for r in rows[3:]):
+								raise failed("l: with the member's clock %s, list clock "
+								             "answered %r" % (skew, rows))
+							# AND TOLD AS IT HAPPENED: a new row, or a row turned,
+							# is a `clock` event naming the member.
+							heard = []
+							until = time.monotonic() + 20.0
+							while time.monotonic() < until:
+								try:
+									line = told.line()
+								except failed:
+									continue
+								if line is None:
+									break
+								heard.append(line)
+								if line == "event clock " + l_prekey[4:68]:
+									break
+							else:
+								line = None
+							if line != "event clock " + l_prekey[4:68]:
+								raise failed("l: with the member's clock %s, no clock event "
+								             "came: %r" % (skew, heard[-4:]))
 						finally:
 							member.stop()
 				finally:
+					told.close()
 					root.stop()
 				print("livecheck: l: a member's clock 900 s behind and an hour ahead, each "
-				      "said in the root's log")
+				      "said in the root's log, listed by list clock and told as an event")
 			else:
 				print("livecheck: l SKIPPED -- no faketime on PATH")
 		except failed as e:

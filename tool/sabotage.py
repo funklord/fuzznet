@@ -12048,6 +12048,20 @@ SABOTAGES = [
 		"an index moved onto room forgets the grants it held, and the chains through them -- sec 704",
 	),
 	(
+		"clocks-forget-past-keeping",
+		"node/clocks.c",
+		"\t\tif (c->rows[i].at + FZN_NODE_CLOCKS_KEEP_S > now) {",
+		"\t\tif (1 || c->rows[i].at + FZN_NODE_CLOCKS_KEEP_S > now) {",
+		"a peer whose clock agrees again is still listed as disagreeing, for ever -- sec 717",
+	),
+	(
+		"clocks-own-user-alone",
+		"node/clocks.c",
+		"\tif (origin != FZN_ORIGIN_SAME_USER)\n\t\treturn REPLY(\"denied clocks are this node's own user's\\n\");",
+		"\tif (0 && origin != FZN_ORIGIN_SAME_USER)\n\t\treturn REPLY(\"denied clocks are this node's own user's\\n\");",
+		"another local user reads which peers' clocks disagree -- sec 717",
+	),
+	(
 		"log-list-own-user-alone",
 		"node/log_list.c",
 		"\tif (origin != FZN_ORIGIN_SAME_USER)\n\t\treturn REPLY(\"denied this node's log is its own user's\\n\");",
