@@ -1678,9 +1678,14 @@ static void test_an_index_of_thousands(void)
 	store.each = many_each;
 	memset(&cap, 0x61, sizeof(cap));
 	key(r, 0x1c);
+	/* THE JOURNAL ON ROOM OF THE CALLER'S, sec 704, as fuzznetd moves it:
+	 * a round reading the journal's own table would see nothing here. */
+	static fzn_journal_entry_t moved[512];
+
 	CHECK(fzn_node_journal_init(&nj, dir, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && fzn_node_journal_use(&nj, moved, 512u) == FZN_NODE_JOURNAL_OK
 	              && fzn_revocation_store_init(&revs, rev_entries, 4) == FZN_CHAIN_OK,
-	      "fixture: the journal");
+	      "fixture: the journal, moved onto room of the caller's");
 	memset(&ap, 0, sizeof(ap));
 	ap.journal = &nj;
 	ap.revocations = &revs;

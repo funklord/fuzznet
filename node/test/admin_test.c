@@ -309,9 +309,9 @@ static uint64_t acts_by(const uint8_t key[FZN_PUBKEY_LEN])
 	size_t e;
 
 	for (e = 0; e < journal.journal.used; e++)
-		if (journal.entries[e].stream == FZN_NODE_JOURNAL_STREAM
-		    && memcmp(journal.entries[e].issuer, key, FZN_PUBKEY_LEN) == 0)
-			return journal.entries[e].received;
+		if (journal.journal.entries[e].stream == FZN_NODE_JOURNAL_STREAM
+		    && memcmp(journal.journal.entries[e].issuer, key, FZN_PUBKEY_LEN) == 0)
+			return journal.journal.entries[e].received;
 	return 0;
 }
 

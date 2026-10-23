@@ -282,7 +282,10 @@ def main(argv):
 				# ASKED FIRST: the socket is there before the grants load,
 				# and an answer comes only once the start is done.
 				ask(f_sock, "list peer")
-				if not re.search(r"\b300 grant\(s\) from", f.stderr()):
+				# AND EVERY STREAM FOLLOWED: past 256 the journal had no room
+				# for 300 devices' notes and conversations.
+				if not re.search(r"\b300 grant\(s\) from", f.stderr()) \
+				   or "no room to follow" in f.stderr():
 					raise failed("f: started again, it did not load all 300 grants:\n%s"
 					             % f.stderr()[-600:])
 			finally:

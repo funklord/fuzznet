@@ -70112,3 +70112,32 @@ and stay.
   items, held in one row. It is the next one here, with the journal's
   followed streams: with 300 paired devices `livecheck-faults` logs "no
   room to follow another node's notes".
+
+### Followed streams, built, sec 704
+
+- **A node followed 256 streams**, in a table embedded in its journal:
+  every key of the estate on each stream it keeps (estate, notes,
+  catalogue, conversations). With 300 devices paired, a root wanted
+  about 1200, and logged "no room to follow another node's notes" and
+  the same for the catalogue and conversations; those streams went
+  unfollowed. The daemon's lists of keys to follow were sized from the
+  same bound: 256 keys, and 128 nodes' notes and catalogue cursors.
+- **`fzn_journal_use`** (and `fzn_node_journal_use`) move a journal onto
+  larger entries of the caller's, keeping every stream it follows.
+  `fuzznetd` gives it room for four streams a key before following, and
+  builds its key lists and both cursor tables on the heap, sized from
+  what it is about to add.
+- **Found while building it:** the journal round read the embedded
+  table (`ap->journal->entries`) rather than the journal's pointer.
+  Moved, the round saw stale copies and applied nothing: a 300-device
+  root indexed no grants at all, which phase f's check of 300 grants
+  caught at once. It reads the pointer now, and so do the tests that
+  looked at the embedded table.
+- **Tests.** `journal_test` moves a full journal of three onto eight:
+  smaller room is refused, the first issuer's place is kept, and a
+  fourth is taken. `apply_test`'s index of 1000 grants now runs on a
+  journal moved onto room of the caller's. **Control:** the round
+  reading the embedded table fails three checks there.
+  `livecheck-faults` phase f now also requires no "no room to follow".
+  **Control:** with the journal's room off it fails, the restart loading
+  fewer than 300 grants.

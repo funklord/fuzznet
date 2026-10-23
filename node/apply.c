@@ -603,7 +603,7 @@ fzn_node_pull_err_t fzn_node_apply_round(fzn_node_apply_t *ap, fzn_node_apply_ta
 		progress = 0;
 		tally->waiting = 0;
 		for (e = 0; e < ap->journal->journal.used; e++) {
-			fzn_journal_entry_t *entry = &ap->journal->entries[e];
+			fzn_journal_entry_t *entry = &ap->journal->journal.entries[e];
 			uint64_t seq;
 
 			if (entry->stream != FZN_NODE_JOURNAL_STREAM)

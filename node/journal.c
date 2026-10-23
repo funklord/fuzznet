@@ -23,6 +23,14 @@ const char *fzn_node_journal_err_str(fzn_node_journal_err_t err)
 	return "unknown";
 }
 
+fzn_node_journal_err_t fzn_node_journal_use(fzn_node_journal_t *nj, fzn_journal_entry_t *entries,
+                                           size_t capacity)
+{
+	if (!nj || fzn_journal_use(&nj->journal, entries, capacity) != FZN_JOURNAL_OK)
+		return FZN_NODE_JOURNAL_MALFORMED;
+	return FZN_NODE_JOURNAL_OK;
+}
+
 fzn_node_journal_err_t fzn_node_journal_init_store(fzn_node_journal_t *nj,
                                                    const fzn_record_store_ops_t *ops,
                                                    const fzn_sign_ops_t *sign,
@@ -137,9 +145,9 @@ static fzn_journal_entry_t *entry_of(const fzn_node_journal_t *nj,
 	size_t i;
 
 	for (i = 0; i < nj->journal.used; i++)
-		if (nj->entries[i].stream == stream
-		    && fzn_ct_memeq(nj->entries[i].issuer, key, FZN_PUBKEY_LEN))
-			return (fzn_journal_entry_t *)&nj->entries[i];
+		if (nj->journal.entries[i].stream == stream
+		    && fzn_ct_memeq(nj->journal.entries[i].issuer, key, FZN_PUBKEY_LEN))
+			return &nj->journal.entries[i];
 	return NULL;
 }
 

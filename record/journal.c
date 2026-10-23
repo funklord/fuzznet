@@ -60,6 +60,21 @@ fzn_journal_err_t fzn_journal_init(fzn_journal_t *journal, fzn_journal_entry_t *
 	return FZN_JOURNAL_OK;
 }
 
+fzn_journal_err_t fzn_journal_use(fzn_journal_t *journal, fzn_journal_entry_t *entries,
+                                   size_t capacity)
+{
+	if (!journal || !entries || capacity == 0u || capacity < journal->used
+	    || journal->used > journal->capacity)
+		return FZN_JOURNAL_ERR_MALFORMED;
+	if (entries != journal->entries) {
+		memset(entries + journal->used, 0, (capacity - journal->used) * sizeof(*entries));
+		memmove(entries, journal->entries, journal->used * sizeof(*entries));
+	}
+	journal->entries = entries;
+	journal->capacity = capacity;
+	return FZN_JOURNAL_OK;
+}
+
 /* Shared by admit and anchor: the guard every entry point needs, since both
  * read `used` and a corrupt one would run the scan past the array. */
 static int usable(const fzn_journal_t *journal, const uint8_t *issuer)

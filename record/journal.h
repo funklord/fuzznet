@@ -130,6 +130,12 @@ void fzn_journal_set_log(fzn_journal_t *journal, struct flog_t *log);
 fzn_journal_err_t fzn_journal_init(fzn_journal_t *journal, fzn_journal_entry_t *entries,
                                     size_t capacity);
 
+/* LARGER ENTRIES OF THE CALLER'S, sec 704: the journal moved onto `entries`
+ * of `capacity`, which must outlive it, what it follows copied over.
+ * MALFORMED for room smaller than what it follows. */
+fzn_journal_err_t fzn_journal_use(fzn_journal_t *journal, fzn_journal_entry_t *entries,
+                                   size_t capacity);
+
 /* Offer a record's position. Advances `received` by exactly one on success.
  *
  * ADMITTING DOES NOT ADOPT. A stream this journal is not already following is

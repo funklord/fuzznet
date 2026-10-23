@@ -2122,14 +2122,58 @@ static size_t journal_remote(void *ctx, const uint8_t *request, size_t request_l
  * the last round proved -- the keys that write notes, where roots are keys
  * that write acts. Each one's notes stream is followed, and its records fed
  * into the index from a cursor kept for it here. */
-#define NOTES_STREAMS_MAX (FZN_NODE_JOURNAL_STREAMS_MAX / 2u)
-static uint8_t notes_keys[NOTES_STREAMS_MAX][FZN_PUBKEY_LEN];
-static size_t n_notes_keys;
+/* ALL ON THE HEAP, sec 704: as many as the estate has, where they were
+ * half the journal's 256. */
+static uint8_t (*notes_keys)[FZN_PUBKEY_LEN];
+static size_t n_notes_keys, notes_keys_cap;
 static struct notes_cursor {
 	uint8_t key[FZN_PUBKEY_LEN];
 	uint64_t at;
-} notes_cursors[NOTES_STREAMS_MAX];
-static size_t n_notes_cursors;
+} *notes_cursors;
+static size_t n_notes_cursors, notes_cursors_cap;
+
+/* ROOM FOR `want` of `size` bytes in `*table`, of `*cap`, grown by half
+ * again; what is held is kept. 0 when the heap would not. */
+static int heap_room(void **table, size_t *cap, size_t want, size_t size)
+{
+	void *grown;
+
+	if (want <= *cap)
+		return 1;
+	want += want / 2u + 16u;
+	grown = realloc(*table, want * size);
+	if (!grown)
+		return 0;
+	memset((uint8_t *)grown + (*cap * size), 0, (want - *cap) * size);
+	*table = grown;
+	*cap = want;
+	return 1;
+}
+
+/* THE JOURNAL'S ROOM, sec 704: `want` streams followed, on the heap once
+ * the journal's own fill. */
+static fzn_journal_entry_t *journal_heap;
+static size_t journal_heap_cap;
+
+static int journal_room(size_t want)
+{
+	fzn_journal_entry_t *grown;
+	size_t cap;
+
+	if (want <= node_journal.journal.capacity)
+		return 1;
+	cap = want + want / 2u + 64u;
+	grown = calloc(cap, sizeof(*grown));
+	if (!grown || fzn_node_journal_use(&node_journal, grown, cap) != FZN_NODE_JOURNAL_OK) {
+		free(grown);
+		return 0;
+	}
+	free(journal_heap);
+	journal_heap = grown;
+	journal_heap_cap = cap;
+	say(FZN_ENTRY_INFO, "journal", "room to follow %zu streams", cap);
+	return 1;
+}
 
 /* The journal applied to the node's subsystems, sec 503. */
 static fzn_node_apply_t node_apply;
@@ -2142,22 +2186,35 @@ static fzn_node_apply_t node_apply;
 static void follow_estate(const uint8_t identity[FZN_PUBKEY_LEN], const fzn_node_state_t *state,
                           const fzn_node_roots_t *roots)
 {
-	static uint8_t keys[FZN_NODE_JOURNAL_STREAMS_MAX][FZN_PUBKEY_LEN];
-	size_t n = 0, i;
+	static uint8_t (*keys)[FZN_PUBKEY_LEN];
+	static size_t keys_cap;
+	size_t n = 0, i, bound;
 
 	if (!journal_on)
 		return;
+	/* ROOM FOR EVERY ONE BELOW, sec 704: this node, the root, the root key,
+	 * every root that stands, the peers, the members proved and the
+	 * grantees. Then the journal's room, four streams a key. */
+	bound = 3u + (roots ? roots->set.used + 1u : 0u) + state->peer_count + n_pulled_members
+	        + node_apply.grants_used;
+	if (!heap_room((void **)&keys, &keys_cap, bound, sizeof(*keys))
+	    || !heap_room((void **)&notes_keys, &notes_keys_cap, bound, sizeof(*notes_keys))) {
+		say(FZN_ENTRY_WARNING, "journal", "no memory to list the estate's %zu keys", bound);
+		return;
+	}
+	if (!journal_room(node_journal.journal.used + 4u * bound))
+		say(FZN_ENTRY_WARNING, "journal", "no memory to follow the estate's %zu keys", bound);
 	memcpy(keys[n++], identity, FZN_PUBKEY_LEN);
 	memcpy(keys[n++], state->config.root, FZN_PUBKEY_LEN);
 	if (roots) {
 		if (roots->key_held)
 			memcpy(keys[n++], roots->key, FZN_PUBKEY_LEN);
-		n += fzn_node_roots_standing(roots, keys + n, FZN_NODE_JOURNAL_STREAMS_MAX / 2u - n);
+		n += fzn_node_roots_standing(roots, keys + n, keys_cap - n);
 	}
-	for (i = 0; i < state->peer_count && n < FZN_NODE_JOURNAL_STREAMS_MAX; i++)
+	for (i = 0; i < state->peer_count && n < keys_cap; i++)
 		if (!fzn_node_peer_contact(&state->config, &state->peers[i]))
 			memcpy(keys[n++], state->peers[i].sender, FZN_PUBKEY_LEN);
-	for (i = 0; i < n_pulled_members && n < FZN_NODE_JOURNAL_STREAMS_MAX; i++)
+	for (i = 0; i < n_pulled_members && n < keys_cap; i++)
 		memcpy(keys[n++], pulled_members[i], FZN_PUBKEY_LEN);
 	/* EVERY MEMBER THE GRANTS NAME, sec 579: a member that writes no notes
 	 * is proved by none, and its stream -- its prekey among it -- reached
@@ -2165,7 +2222,7 @@ static void follow_estate(const uint8_t identity[FZN_PUBKEY_LEN], const fzn_node
 	 * streams name every key granted the member capability; following each
 	 * is what lets siblings find one another. A key followed twice is one
 	 * follow. */
-	for (i = 0; i < node_apply.grants_used && n < FZN_NODE_JOURNAL_STREAMS_MAX; i++)
+	for (i = 0; i < node_apply.grants_used && n < keys_cap; i++)
 		if (memcmp(node_apply.grants[i].capability.b, state->config.remote_capability.b,
 		           FZN_CAP_ID_LEN) == 0)
 			memcpy(keys[n++], node_apply.grants[i].grantee, FZN_PUBKEY_LEN);
@@ -2178,10 +2235,10 @@ static void follow_estate(const uint8_t identity[FZN_PUBKEY_LEN], const fzn_node
 	n_notes_keys = 0;
 	memcpy(notes_keys[n_notes_keys++], identity, FZN_PUBKEY_LEN);
 	memcpy(notes_keys[n_notes_keys++], state->config.root, FZN_PUBKEY_LEN);
-	for (i = 0; i < state->peer_count && n_notes_keys < NOTES_STREAMS_MAX; i++)
+	for (i = 0; i < state->peer_count && n_notes_keys < notes_keys_cap; i++)
 		if (!fzn_node_peer_contact(&state->config, &state->peers[i]))
 			memcpy(notes_keys[n_notes_keys++], state->peers[i].sender, FZN_PUBKEY_LEN);
-	for (i = 0; i < n_pulled_members && n_notes_keys < NOTES_STREAMS_MAX; i++)
+	for (i = 0; i < n_pulled_members && n_notes_keys < notes_keys_cap; i++)
 		memcpy(notes_keys[n_notes_keys++], pulled_members[i], FZN_PUBKEY_LEN);
 	for (i = 0; i < n_notes_keys; i++)
 		if (fzn_node_journal_follow_stream(&node_journal, notes_keys[i], FZN_NOTE_STREAM, NULL)
@@ -2256,7 +2313,8 @@ static void index_notes(void)
 			if (memcmp(notes_cursors[k].key, notes_keys[i], FZN_PUBKEY_LEN) == 0)
 				c = &notes_cursors[k];
 		if (!c) {
-			if (n_notes_cursors >= NOTES_STREAMS_MAX)
+			if (!heap_room((void **)&notes_cursors, &notes_cursors_cap, n_notes_cursors + 1u,
+			               sizeof(*notes_cursors)))
 				break;
 			c = &notes_cursors[n_notes_cursors++];
 			memcpy(c->key, notes_keys[i], FZN_PUBKEY_LEN);
@@ -4230,7 +4288,7 @@ static void journal_cut(uint64_t now)
 		return;
 	cut_before = now - span;
 	for (i = 0; i < node_journal.journal.used; i++) {
-		const fzn_journal_entry_t *e = &node_journal.entries[i];
+		const fzn_journal_entry_t *e = &node_journal.journal.entries[i];
 		uint64_t below;
 		size_t n = 0;
 		fzn_node_journal_err_t err;
@@ -10141,8 +10199,8 @@ static fzn_node_catalog_t node_catalog;
 static struct catalog_cursor {
 	uint8_t key[FZN_PUBKEY_LEN];
 	uint64_t at;
-} catalog_cursors[NOTES_STREAMS_MAX];
-static size_t n_catalog_cursors;
+} *catalog_cursors;
+static size_t n_catalog_cursors, catalog_cursors_cap;
 
 static void catalog_skip(const uint8_t *issuer, uint64_t to)
 {
@@ -10169,7 +10227,8 @@ static void index_catalog(void)
 			if (memcmp(catalog_cursors[k].key, notes_keys[i], FZN_PUBKEY_LEN) == 0)
 				c = &catalog_cursors[k];
 		if (!c) {
-			if (n_catalog_cursors >= NOTES_STREAMS_MAX)
+			if (!heap_room((void **)&catalog_cursors, &catalog_cursors_cap,
+			               n_catalog_cursors + 1u, sizeof(*catalog_cursors)))
 				break;
 			c = &catalog_cursors[n_catalog_cursors++];
 			memcpy(c->key, notes_keys[i], FZN_PUBKEY_LEN);

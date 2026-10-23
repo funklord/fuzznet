@@ -209,6 +209,30 @@ int main(void)
 	expect_err(fzn_journal_anchor(&j, dave, 0, 7), FZN_JOURNAL_ERR_FULL,
 	           "anchoring a fourth issuer");
 
+	/* GIVEN ROOM, sec 704: moved onto a larger table of the caller's, a
+	 * full journal keeps every stream it followed and takes the fourth.
+	 * Room smaller than what it follows is refused. A journal of its own,
+	 * so the checks below see the one above as it was. */
+	{
+		fzn_journal_t g;
+		fzn_journal_entry_t ge[3], tight[2], room[8];
+
+		fzn_journal_init(&g, ge, 3);
+		expect(fzn_journal_anchor(&g, alice, 0, 0) == FZN_JOURNAL_OK
+		               && fzn_journal_admit(&g, alice, 0, 1) == FZN_JOURNAL_OK
+		               && fzn_journal_anchor(&g, bob, 0, 0) == FZN_JOURNAL_OK
+		               && fzn_journal_anchor(&g, carol, 0, 0) == FZN_JOURNAL_OK
+		               && fzn_journal_anchor(&g, dave, 0, 7) == FZN_JOURNAL_ERR_FULL,
+		       "fixture: a journal of three, full");
+		expect_err(fzn_journal_use(&g, tight, 2), FZN_JOURNAL_ERR_MALFORMED,
+		           "room smaller than the three followed");
+		expect_err(fzn_journal_use(&g, room, 8), FZN_JOURNAL_OK, "a larger table");
+		expect(fzn_journal_next(&g, alice, 0) == 2, "the move lost where the first issuer stood");
+		expect_err(fzn_journal_anchor(&g, dave, 0, 7), FZN_JOURNAL_OK,
+		           "the fourth issuer, once there is room");
+		expect(fzn_journal_next(&g, dave, 0) == 8, "the fourth issuer from its anchor");
+	}
+
 	/* FOLLOWING AN ISSUER BEFORE HEARING FROM IT. A fresh journal, so the
 	 * full-journal refusal above does not get in the way. */
 	{

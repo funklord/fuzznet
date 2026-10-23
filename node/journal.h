@@ -84,6 +84,11 @@ typedef struct fzn_node_journal {
 /* OVER ANY RECORD STORE, `ops`, which must outlive it: memory for a suite,
  * the file store for a daemon. sec 504: a journal needs a store, not a disk.
  * `sign` verifies what is replayed and pulled; `hash` names records. */
+/* LARGER ENTRIES OF THE CALLER'S, sec 704, what is followed copied over;
+ * they must outlive `nj`. MALFORMED for room smaller than that. */
+fzn_node_journal_err_t fzn_node_journal_use(fzn_node_journal_t *nj, fzn_journal_entry_t *entries,
+                                           size_t capacity);
+
 fzn_node_journal_err_t fzn_node_journal_init_store(fzn_node_journal_t *nj,
                                                    const fzn_record_store_ops_t *ops,
                                                    const fzn_sign_ops_t *sign,

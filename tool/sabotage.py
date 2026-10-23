@@ -11908,6 +11908,20 @@ SABOTAGES = [
 		"a full queue lets the newest request go, and a stranger's flood keeps the user's own asker out -- sec 619, 704",
 	),
 	(
+		"journal-use-copies",
+		"record/journal.c",
+		"\t\tmemmove(entries, journal->entries, journal->used * sizeof(*entries));\n",
+		"",
+		"a journal moved onto room forgets every stream it followed, and takes their records again from nothing -- sec 704",
+	),
+	(
+		"apply-reads-the-moved-journal",
+		"node/apply.c",
+		"\t\t\tfzn_journal_entry_t *entry = &ap->journal->journal.entries[e];\n",
+		"\t\t\tfzn_journal_entry_t *entry = &ap->journal->entries[e];\n",
+		"a round reads the journal's own table after the journal moved, and applies nothing -- sec 704",
+	),
+	(
 		"node-messages-devices-wanted",
 		"node/messages.c",
 		"\tif (n + 1u > nm->devices_cap)\n\t\tnm->devices_wanted = n + 1u;\n",

@@ -414,8 +414,8 @@ static uint64_t received_of(const struct node *n, const uint8_t key[FZN_PUBKEY_L
 	size_t e;
 
 	for (e = 0; e < n->journal.journal.used; e++)
-		if (memcmp(n->journal.entries[e].issuer, key, FZN_PUBKEY_LEN) == 0)
-			return n->journal.entries[e].received;
+		if (memcmp(n->journal.journal.entries[e].issuer, key, FZN_PUBKEY_LEN) == 0)
+			return n->journal.journal.entries[e].received;
 	return 0;
 }
 
@@ -438,7 +438,7 @@ static uint64_t journal_total(const struct node *n)
 	size_t e;
 
 	for (e = 0; e < n->journal.journal.used; e++)
-		total += n->journal.entries[e].received;
+		total += n->journal.journal.entries[e].received;
 	return total;
 }
 
@@ -490,7 +490,7 @@ static int carry(struct node *from, struct node *into, fzn_node_apply_t *ap,
 	size_t e;
 
 	for (e = 0; e < from->journal.journal.used; e++)
-		if (fzn_node_journal_follow(&into->journal, from->journal.entries[e].issuer, NULL)
+		if (fzn_node_journal_follow(&into->journal, from->journal.journal.entries[e].issuer, NULL)
 		    != FZN_NODE_JOURNAL_OK)
 			return 0;
 	if (fzn_node_journal_pull(&into->journal, journal_ask, &from->journal, reply, sizeof(reply),
@@ -1600,7 +1600,7 @@ static int carried_over_hop(struct node *root, struct node *member, const fzn_ca
 	asking.state = &state;
 
 	for (e = 0; e < root->journal.journal.used; e++)
-		if (fzn_node_journal_follow(&member->journal, root->journal.entries[e].issuer, NULL)
+		if (fzn_node_journal_follow(&member->journal, root->journal.journal.entries[e].issuer, NULL)
 		    != FZN_NODE_JOURNAL_OK)
 			goto done;
 	if (fzn_node_journal_pull(&member->journal, hop_ask, &asking, reply, sizeof(reply), xt)
@@ -1776,7 +1776,7 @@ static void test_votes_travel(const fzn_cap_id_t *cap)
 		apply_to(&z_ap, &z_revs, r.id.pubkey, cap);
 		CHECK(!carry(&n, &z, &z_ap, &t), "a round that met a full store reported success");
 		for (e = 0; e < z.journal.journal.used; e++)
-			if (z.journal.entries[e].applied < z.journal.entries[e].received)
+			if (z.journal.journal.entries[e].applied < z.journal.journal.entries[e].received)
 				short_of++;
 		CHECK(short_of == 1u, "the vote a full store had no room for was marked applied");
 	}
