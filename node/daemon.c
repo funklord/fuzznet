@@ -414,6 +414,8 @@ static size_t lan_probe(const char **why, char *address, size_t address_cap);
 /* WHEN THE LAST PROBES WENT, seconds, for `get lan` (sec 659). */
 static uint64_t lan_probed_at;
 
+static void own_acts_applied(const fzn_node_admin_t *admin, const char *reply, size_t n);
+
 /* THIS DAEMON'S FLIGHT RECORDER, or NULL: kept only with a log file. */
 static const fzn_ring_t *own_ring(void)
 {
@@ -477,6 +479,7 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 	if (n)
 		return n;
 	n = fzn_node_admin_handle(ctx, verdict, origin, peer, request, reply, reply_cap);
+	own_acts_applied((const fzn_node_admin_t *)ctx, reply, n);
 	char subject[FZN_NODE_EVENTS_SUBJECT_MAX + 1u], name[FZN_NODE_EVENTS_NAME_MAX + 1u];
 	size_t at = 0, s = 0, k = 0;
 
@@ -2435,6 +2438,39 @@ static void carry_prekey(const fzn_node_identity_t *id)
 static int room_for_round(void);
 /* The estate's root records the round grows, once there are some. */
 static fzn_node_roots_t *round_roots;
+
+/* THIS NODE'S OWN GRANTS, INDEXED AS MADE, sec 712: a verb answered `ok`
+ * that left grants in this node's own stream not yet applied -- what an
+ * `add peer` or a `grant admin` minted -- has them indexed now. They were
+ * indexed at the next round's settling, so a root that had just paired a
+ * device listed no grant to it for a round, 60 s by default. Grants alone:
+ * a vote or a root change is in force here the moment its verb runs, and
+ * applying it early saved it a second time beside the copy it was issued
+ * as. The round still applies every record; a grant held is taken once. */
+static void own_acts_applied(const fzn_node_admin_t *admin, const char *reply, size_t n)
+{
+	static uint8_t buf[FZN_RECORD_MAX_LEN];
+	fzn_node_apply_tally_t tally;
+	uint64_t next, pending, seq;
+	fzn_record_t rec;
+
+	if (n < 2u || memcmp(reply, "ok", 2u) != 0 || !admin || !admin->id || !node_apply.journal)
+		return;
+	pending = fzn_journal_pending(&node_journal.journal, admin->id->pubkey,
+	                              FZN_NODE_JOURNAL_STREAM);
+	next = fzn_journal_next(&node_journal.journal, admin->id->pubkey, FZN_NODE_JOURNAL_STREAM);
+	if (!pending || pending >= next)
+		return;
+	memset(&tally, 0, sizeof(tally));
+	for (seq = next - pending; seq < next; seq++)
+		if (fzn_record_store_get(&node_journal.store, admin->id->pubkey, FZN_NODE_JOURNAL_STREAM,
+		                         seq, buf, sizeof(buf), &rec)
+		            == FZN_RECORD_STORE_OK
+		    && fzn_record_body_len(rec) >= 2u
+		    && fzn_record_body(rec)[1] == (uint8_t)FZN_OBJECT_HOP)
+			(void)fzn_node_apply_object(&node_apply, fzn_record_body(rec),
+			                            fzn_record_body_len(rec), &tally);
+}
 
 static void apply_journal(void)
 {

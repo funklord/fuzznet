@@ -6,7 +6,8 @@ run as daemons throughout, and the join is made by local verbs alone, as a
 client drives it -- no one-shot command, no daemon stopped by its client.
 
     a  B answers `get prekey` with its prekey record; A, given it with
-       `add peer RECORD delegable`, answers a card. A card made before A
+       `add peer RECORD delegable`, answers a card and lists the grant at
+       once (sec 712). A card made before A
        has a `net/address` says nowhere, and B's `add join PATH` with it
        is refused, joining nothing; A sets its address and the next card
        says where A is (sec 671)
@@ -127,6 +128,11 @@ def main(argv):
 			card = ask(socks["a"], "add peer %s delegable" % got[1]).split()
 			if len(card) != 2 or card[0] != "ok":
 				raise failed("a: add peer ... delegable answered %r" % card)
+			# AT ONCE, sec 712: the grant A just minted is in A's own listing,
+			# where it waited for A's next round to apply A's own stream.
+			granted = ask(socks["a"], "list grant").split()
+			if not any(e.startswith(key_b + ",member,") and e.endswith(",1") for e in granted[3:]):
+				raise failed("a: straight after add peer, A's list grant answered %r" % granted)
 			print("livecheck: a: B said its prekey, A answered a card for it, and a card "
 			      "made before A had an address joined nothing")
 

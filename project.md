@@ -70660,6 +70660,18 @@ two faults in how replies are received, both fixed here.
     "converges", not to a time.
 
   **The holder's decision**, asked 2026-10-23. Not built.
+- **A second measurement, from fuzzypickles' sweep at 7ffe6b7** (its
+  report, 2026-10-23). In its node scenario, a joined member's first
+  journal pull from its root took more than 80 s on four of thirty
+  points: seed 9005 at 5, 10 and 20 per cent, and 9004 at 20. With a
+  wait of four rounds all four pass, the whole scenario taking 199 to
+  268 s. So at 5 per cent that pull's reply was lost at least twice in a
+  row, each loss costing a 60 s round. The same seeds fail on every
+  build, so they reproduce:
+
+      FZN_FAULT_LOSS=5 FZN_FAULT_SEED=9005 FUZZNETD=<fault build> \
+          bash test/e2e/node-calls-reach-fuzznetd.sh    # "transfers on K"
+
 
 ## 709. fuzzypickles' node scenario under loss, and a capability held late, 2026-10-23
 
@@ -70755,13 +70767,22 @@ daemons with real traffic between nodes. `tool/live_fzp.py`, run by
 - **Clean:** all five phases pass.
 - **5 per cent:** two runs pass all five, in 19 s and 27 s. A third met
   fzp being rebuilt during phase c.
-- **20 per cent:** a to d pass in all three runs. e fails in all three,
-  because fuzzypickles' client rebuilt at 20:25 from uncommitted work
-  answers `host-join-approve` with "malformed response from daemon",
-  clean too. The build of 19:25 approved the same request. Told to
-  fuzzypickles.
+- **20 per cent:** a to d passed in all three runs. e failed in all
+  three, because fuzzypickles' client rebuilt at 20:25 from uncommitted
+  work answered `host-join-approve` with "malformed response from
+  daemon", clean too. That build was its capability fix caught half
+  done.
+- **At fuzzypickles' 1963da8**, its capability fix 0441ca0 in, phase e
+  also holds fzp's own view: carol's `cap-show` says member valid,
+  alice's `cap-granted` lists carol's member grant, and the approval
+  warns of nothing. All five phases pass in three runs each at 5 per
+  cent (10 to 27 s) and 20 per cent (49 to 116 s).
+- **Phase d's poll asks `location-fetch` repeatedly.** At 20 per cent a
+  node still busy with earlier fetches refuses more ("too many fetches
+  waiting", its bound of sec 704), and the poll takes that as "wait".
 - **Found in fzp's mapping, not in fuzznetd**, each checked against
-  fuzznetd's own answer, and sent to fuzzypickles' inbox:
+  fuzznetd's own answer, sent to fuzzypickles' inbox, and fixed there in
+  0441ca0 (phase e now checks all three):
   - `cap-show` on a node omits member;
   - `cap-granted` omits member grants;
   - `host-join-approve` warns it could not confer fzpd's `store` and
@@ -70826,8 +70847,53 @@ transfer` is:
   - the refusals.
 - **Control:** a page written oldest first fails four checks.
 - **`live_join` phase g:** a running daemon's `list log` reads its own
-  entries newest first, with no debug at the default level, and with
-  its rounds at D.
+  entries newest first, with no debug at the default level, and more at
+  D, debug among them.
+
+## 712. A node's own acts applied as it makes them, 2026-10-23
+
+fuzzypickles found it testing its capability fix: right after a join,
+`list grant` on the approving root answered `ok 0 0`. Measured here:
+after `add peer PREKEY delegable`, the root's `list grant` named the new
+grant only 59.6 s later, at its next round.
+
+- **The same class as sec 709**, from the other side. A grant a node
+  mints is an act in its own journal stream, and the grant index takes
+  it when a round applies that stream. Until then the node did not list
+  what it had just done.
+- **Now a verb the admin handler answers `ok` that leaves grants in the
+  node's own stream not yet applied has them indexed at once**: what
+  `add peer`, `grant admin` and a succession's pairing mint. The round
+  still applies every record, and a grant held is taken once.
+- **Grants alone, and why.** The first version applied the whole of the
+  node's own stream at once. The gates found two faults in it:
+  - `livecheck-faults` phase h loaded 600 revocations after casting 300.
+    A vote is saved as issued when `revoke peer` mints it, and applying
+    it early saved it a second time as learned.
+  - `live_events` read an extra `event estate -` before the verb's own
+    event.
+
+  A vote, a root change or a setting is in force here the moment its
+  verb runs. Only the grant index waited.
+- **The double save is older than this, and open.** A round's own apply
+  saves the node's own vote as learned too. Measured on the fault build
+  with 2 s rounds: three `revoke peer`, a few rounds, a restart, and the
+  start says `6 revocation(s)`. Phase h passed only because it restarts
+  before a round. **The two copies fold into one entry**: admitting a
+  record already held is success (`chain/revocation.c`, "already known
+  is success"). So the cost is a second row on disk, its time at load, a
+  start-up count that names rows as revocations, and a table sized at
+  twice the rows, four times what it needs. Not fixed: it is storage,
+  not standing.
+
+
+### Measured for sec 712
+
+- **The grant listed at once** after `add peer`, where it took 59.6 s.
+- **`live_join` phase a** now requires A's `list grant` to name B's
+  member grant straight after `add peer ... delegable`.
+  **Control:** the build of fuzzypickles' pin fails it with `ok 0 0`.
+
 
 
 

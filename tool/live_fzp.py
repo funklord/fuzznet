@@ -19,7 +19,9 @@ nodes -- they pass at 100 per cent loss. This one does, run against
     e  carol, a fresh node, asks to join alice's estate by fzp's
        host-join-request; alice approves it and carol installs the approval.
        carol's root is then alice's, as fuzznetd's `get identity` says, and
-       carol reads a setting alice makes for the estate
+       carol reads a setting alice makes for the estate; fzp's cap-show at
+       carol says member valid and cap-granted at alice lists carol's
+       member grant, and the approval warns of nothing
 
 `--loss P` runs every daemon at FZN_FAULT_LOSS=P with one seed a run, and
 `--keep DIR` copies a failed run's daemon output into DIR. FZP names the
@@ -116,9 +118,10 @@ def main(argv):
 			                      extra=["--udp-port=%d" % port[who]])
 			return started[who]
 
-		def fzp(who, *words):
+		def fzp(who, *words, err=None, busy_ok=False):
 			"""`fzp WORDS --node-socket` at `who`'s daemon: its output, or a
-			failure naming the command when it exits non-zero."""
+			failure naming the command when it exits non-zero; its stderr
+			into the list `err` when one is given."""
 			# NOT RUNNABLE is said, not raised: the client is a sibling tree's
 			# build, and one being rebuilt is briefly not there to run.
 			try:
@@ -128,9 +131,15 @@ def main(argv):
 			except OSError as e:
 				raise failed("%s: fzp %s would not run (%s) -- is %s being rebuilt?"
 				             % (who, words[0], e, fzp_path))
+			# A NODE STILL BUSY WITH EARLIER ASKS refuses another, by its own
+			# bound (sec 704's fetch slots): for a poll, that is "wait".
+			if p.returncode != 0 and busy_ok and "too many fetches waiting" in p.stdout + p.stderr:
+				return ""
 			if p.returncode != 0:
 				raise failed("%s: fzp %s exited %d: %s" % (who, words[0], p.returncode,
 				                                           (p.stdout + p.stderr).strip()[-300:]))
+			if err is not None:
+				err.append(p.stderr)
 			return p.stdout
 
 		def until(who, words, test, what):
@@ -208,7 +217,7 @@ def main(argv):
 			def fetched(out):
 				if "+59.3300000 +18.0700000" in out:
 					return True
-				fzp("bob", "location-fetch", "--name", "alice")
+				fzp("bob", "location-fetch", "--name", "alice", busy_ok=True)
 				return False
 
 			shown = until("bob", ["location-show", "--origin", "alice"], fetched,
@@ -234,9 +243,12 @@ def main(argv):
 
 			request = blob(fzp("carol", "host-join-request", "--name", "carol", "--address",
 			                   "127.0.0.1:%d" % port["carol"]), "join request blob (hex)")
+			warned = []
 			approval = blob(fzp("alice", "host-join-approve", "--request-blob", request,
-			                    "--address", "127.0.0.1:%d" % port["alice"]),
+			                    "--address", "127.0.0.1:%d" % port["alice"], err=warned),
 			                "join approval blob (hex)")
+			if "warning" in "".join(warned):
+				raise failed("e: alice's host-join-approve warned: %r" % "".join(warned)[-300:])
 			fzp("carol", "host-join-install", "--approval-blob", approval)
 			give_up = time.monotonic() + 30.0
 			while True:
@@ -257,8 +269,17 @@ def main(argv):
 				if time.monotonic() > give_up:
 					raise failed("e: carol never read alice's estate setting")
 				time.sleep(0.5)
-			print("livecheck: e: carol joined alice's estate through fzp's host-join, and reads "
-			      "what alice sets for it")
+			# AND fzp SAYS SO, fuzzypickles' 0441ca0: carol holds member, and
+			# alice lists the grant she made carol.
+			carol_host = ask(socks["carol"], "get identity").split()[1]
+			until("carol", ["cap-show"],
+			      lambda o: any(line.split()[:2] == ["member", "valid"] for line in o.splitlines()
+			                    if line.strip()),
+			      "not member valid")
+			until("alice", ["cap-granted"], lambda o: carol_host in o and "member" in o,
+			      "not the member grant alice made carol")
+			print("livecheck: e: carol joined alice's estate through fzp's host-join, reads what "
+			      "alice sets for it, and fzp shows the member grant on both sides")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			for name in sorted(os.listdir(scratch)):
