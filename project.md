@@ -71113,8 +71113,19 @@ nothing cannot pass.
 - **Nineteen crash points inside the acts**: 8 at `persist.synced`, 8 at
   `persist.renamed`, 3 at `record.body`. Every one started again,
   served, and stood. The whole of `live_faults.py` takes about a minute.
-- **Not yet:** a full disk inside each act, by `FZN_FAULT_WRITE_BUDGET`
-  swept the same way. Phase c covers one setting only.
+- **A full disk, phase n**: `FZN_FAULT_WRITE_BUDGET` swept from 0 in
+  steps of 250 bytes, making the same acts at each depth.
+  - Each act must be refused or answered `ok`, and the daemon must keep
+    serving.
+  - Started again with room, every act answered `ok` must be there
+    before anything is made again: the setting reads, the grant lists,
+    and the vote answers `already`.
+  - Then the acts made again must all stand.
+- **Measured:** 21 depths fell inside the acts. At each, every act was
+  refused or kept, and none was answered `ok` and lost.
+- **Not measured:** whether the refusals name a full disk. The sweep
+  asks only that nothing answered `ok` is lost.
+
 
 
 

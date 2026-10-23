@@ -54,6 +54,9 @@ the scenarios built on them test something:
     m  a crash at every reach of each crash point inside a setting, a
        pairing and a vote: each daemon, started again without the fault,
        serves, and the acts made again stand (sec 718)
+    n  a full disk at every depth of the same acts, by a write budget in
+       steps of 250 bytes: each act refused or kept, and none answered ok
+       that a restart with room does not find (sec 718)
 
 Against a daemon built without faults, phase a's B is counted at 100 per
 cent loss, phase b's daemon does not die, and phase c's says nothing.
@@ -660,6 +663,60 @@ def main(argv):
 			print("livecheck: m: a crash at every write of a setting, a pairing and a vote "
 			      "(%s), each started again and the acts made again standing"
 			      % ", ".join("%s %d" % kv for kv in swept.items()))
+
+			# n: a full disk at every depth of the same acts (sec 718): what
+			# was answered ok is kept.
+			refused_any = 0
+			for budget in range(0, 400000, 250):
+				d = os.path.join(scratch, "n-%d" % budget)
+				sock = os.path.join(sock_dir, "n%d" % (budget // 250))
+				os.mkdir(d)
+				command(run, ["--fuzznet-dir=" + d, "--new-root"], None)
+				faulted({"FZN_FAULT_WRITE_BUDGET": str(budget)})
+				try:
+					node = daemon(run, "n%d" % budget, d, sock)
+				except failed:
+					continue  # full before it could serve: a smaller disk than any act
+				finally:
+					faulted({})
+				try:
+					said = m_acts(sock)
+					if not ask(sock, "status").startswith("ok "):
+						raise failed("n: at a budget of %d the daemon stopped serving" % budget)
+				finally:
+					node.stop()
+				kept = [w.startswith("ok") for w in said]
+				if all(kept):
+					break  # past the acts: the disk was large enough
+				refused_any += 1
+				if os.path.exists(sock):
+					os.unlink(sock)
+				# STARTED AGAIN WITH ROOM: an act answered ok is there before
+				# anything is made again.
+				node = daemon(run, "n%dr" % budget, d, sock)
+				try:
+					if kept[0] and ask(sock, "get setting estate m/x") != "ok root 1":
+						raise failed("n: at a budget of %d the setting was answered ok and "
+						             "is not kept" % budget)
+					if kept[1] and not any(e.startswith(m_prekey[4:68] + ",member,")
+					                       for e in ask(sock, "list grant").split()[3:]):
+						raise failed("n: at a budget of %d the pairing was answered ok and "
+						             "its grant is not kept" % budget)
+					if kept[2] and "already" not in ask(sock, "revoke peer " + m_victim):
+						raise failed("n: at a budget of %d the vote was answered ok and is "
+						             "not kept" % budget)
+					again = m_acts(sock)
+					if not all(w.startswith("ok") for w in again):
+						raise failed("n: at a budget of %d, with room again, the acts "
+						             "answered %r" % (budget, again))
+				finally:
+					node.stop()
+			else:
+				raise failed("n: the acts were still refused at the largest budget")
+			if not refused_any:
+				raise failed("n: no budget fell inside the acts")
+			print("livecheck: n: a full disk at %d depths of the same acts: each refused or "
+			      "kept, never answered ok and lost" % refused_any)
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1
