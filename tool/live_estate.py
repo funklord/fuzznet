@@ -20,7 +20,13 @@ successor) and E (a device paired by the second root).
     d  a succession: R re-keys A1 as N, N joins by the card R answers, and
        R lists A1 succeeded by N, counting, and N holding the member
        capability
-    e  recovery: R adds A2 as a root and is stopped for good; A2 removes R
+    e  a vote through a crash: R grants N admin, as a re-keyed admin needs
+       (sec 499), and D2 joins. A2, started at total loss so it can send
+       nothing, votes D2 revoked and is killed by SIGKILL; N votes. Started
+       again, A2 pushes the vote it cast before it died, and at R D2's
+       grant stands no more -- k of 2 reached by a vote that crossed a
+       crash
+    f  recovery: R adds A2 as a root and is stopped for good; A2 removes R
        from the roots, pairs E, and E joins and reads what A2 sets as root
 
 `--loss P` runs every daemon at FZN_FAULT_LOSS=P with one seed per run;
@@ -40,6 +46,7 @@ Exit 0 on a pass, 1 on a failure.
 import argparse
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -57,7 +64,7 @@ PREKEY_HOST = slice(4, 68)
 KEY_LEN = 64
 # ROUNDS OF TWO SECONDS, the fault build's knob (sec 693).
 ROUND_S = "2"
-WHO = ("r", "a1", "a2", "d", "n", "e")
+WHO = ("r", "a1", "a2", "d", "n", "d2", "e")
 
 
 def main(argv):
@@ -91,11 +98,32 @@ def main(argv):
 		keys = {}
 		runs = {k: 0 for k in WHO}
 
-		def up(who):
+		def up(who, loss=None):
+			"""`who` started, at `loss` per cent rather than the run's when
+			given."""
 			runs[who] += 1
-			started[who] = daemon(run, "%s%d" % (who, runs[who]), dirs[who], socks[who],
-			                      extra=["--udp-port=" + port[who]])
+			was = os.environ.get("FZN_FAULT_LOSS")
+			if loss is not None:
+				os.environ["FZN_FAULT_LOSS"] = str(loss)
+			try:
+				started[who] = daemon(run, "%s%d" % (who, runs[who]), dirs[who], socks[who],
+				                      extra=["--udp-port=" + port[who]])
+			finally:
+				if loss is not None:
+					if was is None:
+						os.environ.pop("FZN_FAULT_LOSS", None)
+					else:
+						os.environ["FZN_FAULT_LOSS"] = was
 			return started[who]
+
+		def killed(who):
+			"""`who` killed by SIGKILL, no cleanup, as a power cut would."""
+			d = started.pop(who)
+			try:
+				os.killpg(d.proc.pid, signal.SIGKILL)
+			except ProcessLookupError:
+				pass
+			d.proc.wait(timeout=10)
 
 		def said(who, line):
 			return ask(socks[who], line).strip()
@@ -301,7 +329,29 @@ def main(argv):
 			print("livecheck: d: R re-keyed A1 as N, which joined, and A1's grant stands "
 			      "no more")
 
-			# e: recovery through a second root.
+			# e: a vote cast, then a crash before it could be sent.
+			admin("n")
+			join("d2", "r")
+			member("d2")
+			started.pop("a2").stop()
+			up("a2", loss=100)
+			vote = said("a2", "revoke peer " + keys["d2"]).split()
+			if len(vote) != 4 or vote[:3] != ["ok", keys["d2"], "keeping"]:
+				raise failed("e: A2's vote at total loss answered %r" % vote)
+			killed("a2")
+			vote = said("n", "revoke peer " + keys["d2"]).split()
+			if len(vote) != 4 or vote[:3] != ["ok", keys["d2"], "keeping"]:
+				raise failed("e: N's vote answered %r" % vote)
+			if grant_stands("r", keys["d2"]) is not True:
+				raise failed("e: R's grant to D2 fell with N's vote alone, one of two")
+			up("a2")
+			polled("r", "list grant", lambda g: grant_stands("r", keys["d2"]) is False,
+			       "with D2's grant standing: A2's vote, cast before it was killed, never "
+			       "arrived")
+			print("livecheck: e: A2 voted at total loss and was killed; started again, its vote "
+			      "reached R and, with N's, revoked D2")
+
+			# f: recovery through a second root.
 			expect(socks["r"], "r", "add root " + keys["a2"], "ok " + keys["a2"])
 			expect(socks["a2"], "a2", "set setting host net/address 127.0.0.1 " + port["a2"],
 			       "ok")
@@ -315,7 +365,7 @@ def main(argv):
 			expect(socks["a2"], "a2", "set setting estate e/after 1", "ok")
 			polled("e", "get setting estate e/after", lambda g: g == "ok root 1",
 			       "not A2's setting at the root's rank")
-			print("livecheck: e: R added A2 as a root and was stopped; A2 removed R, paired "
+			print("livecheck: f: R added A2 as a root and was stopped; A2 removed R, paired "
 			      "E, and E reads A2 as its root")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)

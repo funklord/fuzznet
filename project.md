@@ -70582,8 +70582,8 @@ in the script:
 
 ### Not yet, after sec 707
 
-- **Restarts inside an operation, and clock skew**, which sec 689 asks
-  of every journey. Loss is sec 708's.
+- **Clock skew**, which sec 689 asks of every journey. Loss is sec
+  708's; a crash inside an operation, sec 713's.
 - **No verb shows a key's head**, so a cut other than the default can
   only be named from a log.
 
@@ -70885,6 +70885,35 @@ grant only 59.6 s later, at its next round.
   start-up count that names rows as revocations, and a table sized at
   twice the rows, four times what it needs. Not fixed: it is storage,
   not standing.
+
+## 713. The estate's journey: a vote that crosses a crash, 2026-10-23
+
+Sec 689 asks each journey for a restart inside an operation. The vote is
+the estate's sharpest case. An admin that casts one and dies before
+sending it must still have it count once it is back.
+
+`tool/live_estate.py` phase e, before recovery (now f):
+- **R grants N admin.** N is A1's successor from phase d, and a re-keyed
+  admin needs a fresh `grant admin` (sec 499). D2 joins R.
+- **A2 is started again at total loss**, so it can send nothing, votes
+  D2 revoked, and is killed by SIGKILL.
+- **N votes.** At R, D2's grant still stands: one vote of k = 2. That
+  shows A2's vote had not arrived.
+- **A2 is started again.** It pushes the vote it cast before it died,
+  and at R D2's grant stands no more.
+
+The vote is in A2's journal before `revoke peer` answers, so the crash
+loses nothing.
+
+### Measured for sec 713
+
+- **Clean:** all six phases pass.
+- **5 per cent:** two runs pass, in 186 s and 68 s.
+- **Not measured:** a crash at a chosen write inside the vote, by the
+  fault build's crash points (`persist.synced`, `persist.renamed`,
+  `record.body`). The kill here comes after the answer, not inside the
+  write.
+
 
 
 ### Measured for sec 712
