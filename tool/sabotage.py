@@ -12048,6 +12048,20 @@ SABOTAGES = [
 		"an index moved onto room forgets the grants it held, and the chains through them -- sec 704",
 	),
 	(
+		"revoke-admins-full-refused",
+		"node/revoke.c",
+		"\tif (err == FZN_CHAIN_ERR_STORE_FULL && !admins_full(revocations, err))\n\t\treturn FZN_NODE_PULL_REFUSED;\n\tif (err != FZN_CHAIN_OK || !holds_exactly(",
+		"\tif (err == FZN_CHAIN_ERR_STORE_FULL)\n\t\treturn FZN_NODE_PULL_REFUSED;\n\tif (err != FZN_CHAIN_OK || !holds_exactly(",
+		"an admin's vote past the admins' table waits on room that never comes, and holds its stream for ever -- sec 704",
+	),
+	(
+		"revocations-load-passes-admins-full",
+		"node/revoke.c",
+		"\tif (admins_full(w->revocations, cerr))\n\t\treturn 1;\n",
+		"",
+		"a store holding more admins' votes than the admins' table will not let the daemon start -- sec 704",
+	),
+	(
 		"revocations-load-says-room",
 		"node/revoke.c",
 		"\tw->err = cerr == FZN_CHAIN_ERR_STORE_FULL ? FZN_PERSIST_ERR_ROOM : FZN_PERSIST_ERR_SHAPE;\n",

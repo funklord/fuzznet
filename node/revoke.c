@@ -261,10 +261,26 @@ struct revocations_walk {
 	fzn_persist_err_t err;
 };
 
+/* FULL FOR WANT OF AN ADMIN'S PLACE, sec 704: the entries and the
+ * confirmations have room, so it is the admins' table, which the core
+ * bounds and no caller grows. The record is refused rather than waited on:
+ * waited on, it would hold every later record of its stream for ever. A
+ * person's admin devices are few, so this is rare, and it is counted. */
+static int admins_full(const fzn_revocation_store_t *rs, fzn_chain_err_t cerr)
+{
+	return cerr == FZN_CHAIN_ERR_STORE_FULL && rs->used < rs->capacity
+	       && (!rs->confirms || rs->confirms_used < rs->confirm_capacity)
+	       && rs->admins_used >= rs->admin_capacity;
+}
+
 /* A STORE FULL is ROOM, not a changed store: told, the caller gives it
  * larger tables. */
 static int walk_failed(struct revocations_walk *w, fzn_chain_err_t cerr)
 {
+	/* AN ADMIN PAST THE ADMINS' TABLE is passed over, as a vote that will
+	 * not admit is, rather than refusing to start. */
+	if (admins_full(w->revocations, cerr))
+		return 1;
 	w->err = cerr == FZN_CHAIN_ERR_STORE_FULL ? FZN_PERSIST_ERR_ROOM : FZN_PERSIST_ERR_SHAPE;
 	return 0;
 }
@@ -768,7 +784,7 @@ static fzn_node_pull_err_t finish_vote(fzn_node_vote_pull_t *pull,
 		pull->confirming = 0;
 		err = fzn_revocation_confirm_admit(revocations, pull->confirm, FZN_ADMIN_CONFIRM_LEN,
 		                                   opened, pull->hop_count, root, sign);
-		if (err == FZN_CHAIN_ERR_STORE_FULL)
+		if (err == FZN_CHAIN_ERR_STORE_FULL && !admins_full(revocations, err))
 			return FZN_NODE_PULL_REFUSED;
 		if (err != FZN_CHAIN_OK) {
 			pull->refused++;
@@ -787,7 +803,7 @@ static fzn_node_pull_err_t finish_vote(fzn_node_vote_pull_t *pull,
 	                                   ? fzn_revocation_offer_chain(rec, opened, pull->hop_count)
 	                                   : fzn_revocation_offer_root(rec),
 	                           root, sign, hash, NULL);
-	if (err == FZN_CHAIN_ERR_STORE_FULL)
+	if (err == FZN_CHAIN_ERR_STORE_FULL && !admins_full(revocations, err))
 		return FZN_NODE_PULL_REFUSED;
 	if (err != FZN_CHAIN_OK || !holds_exactly(revocations, hash, pull->record, rec)) {
 		pull->refused++;

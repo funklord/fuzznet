@@ -69931,11 +69931,24 @@ and stay.
   301st; it passes. **Controls:** with the loop's growth off, the 257th
   revocation was refused; with the sizing at start off, the restarted
   daemon would not start.
-- **Still 32: the admins** a revocation store keeps, the devices holding
-  the admin capability. Eight local arrays and two parameters in
-  `chain/revocation.c` are sized by the same bound
-  (`REVOCATION_ADMINS_MAX`), so growing it changes how the core judges,
-  not only a table. It is the next one here.
+- **Kept at 32, as few by nature: the admins** a revocation store keeps,
+  the devices a person makes admins of their own estate. Eight local
+  arrays and two parameters in `chain/revocation.c` are sized by the
+  same bound (`REVOCATION_ADMINS_MAX`). They are per-judgement scratch,
+  and judging can recurse, so keeping that state on the admins'
+  entries instead would not be safe.
+  - **What was wrong past it was the stall, fixed since:** a 33rd
+    admin's vote answered FULL, which the journal round waits on. No
+    caller grows the admins' table, so the round waited for ever, and
+    held every later record of that admin's stream with it.
+  - **Now refused and counted:** revoke.c tells a full admins' table
+    (entries and confirmations still with room) from a full store. The
+    vote is refused and counted, and a load passes it over instead of
+    refusing to start.
+  - **Tests:** `pair_test` gives U room for one admin. B's vote takes
+    it, C's is refused, and the round goes on; a store holding both
+    votes starts in room for one. **Controls:** each half removed is
+    caught.
 - **Probes, and a scratch tree that ran nothing.** The probes for
   contacts, the roster and contact requests (cc69c80, 99dc9ff) ran in a
   scratch copy of the tree so work could go on. This said all thirteen

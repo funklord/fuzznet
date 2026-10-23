@@ -2681,6 +2681,58 @@ static void test_admins_at_the_node(const fzn_cap_id_t *cap)
 	                                           &hash_ops, &count) == FZN_PERSIST_OK
 	              && count == 1u && fresh.admins_used == 1u,
 	      "B's vote was not admitted again on its admin chain at start");
+
+	/* AN ADMIN PAST THE ADMINS' TABLE, sec 704: U keeps room for one. C's
+	 * vote, after B's took the place, is refused and counted, and the round
+	 * goes on -- where it waited on room that never came, and held every
+	 * later record of C's stream with it. */
+	{
+		static struct node u;
+		static fzn_node_apply_t u_ap;
+		static fzn_revocation_t u_e[8];
+		static fzn_revocation_admin_t u_ad[1];
+		static fzn_revocation_confirm_t u_cf[8];
+		static fzn_revocation_store_t u_revs;
+
+		CHECK(node_up(&u) && fzn_revocation_store_init(&u_revs, u_e, 8) == FZN_CHAIN_OK
+		              && fzn_revocation_store_set_quorum(&u_revs, 2u, &adm, u_ad, 1u)
+		                         == FZN_CHAIN_OK
+		              && fzn_revocation_store_set_confirmations(&u_revs, u_cf, 8u, &hash_ops)
+		                         == FZN_CHAIN_OK
+		              && fzn_node_revoke(&c_roots, &c.id, r.id.pubkey,
+		                                 fzn_node_admin_chain_view(&c_chain), cap, d.id.pubkey,
+		                                 1500u, &c_revs, &c.ops)
+		                         == FZN_NODE_REVOKE_OK,
+		      "fixture: U with room for one admin, and C's vote");
+		apply_to(&u_ap, &u_revs, r.id.pubkey, cap);
+		u_ap.admin_capability = &adm;
+		CHECK(carry(&r, &u, &u_ap, &tally) && carry(&a, &u, &u_ap, &tally)
+		              && carry(&b, &u, &u_ap, &tally) && u_revs.admins_used == 1u,
+		      "fixture: B's vote takes U's one admin place");
+		CHECK(carry(&c, &u, &u_ap, &tally) && tally.refused >= 1u && u_revs.admins_used == 1u,
+		      "C's vote past the admins' table held the round, or was taken");
+
+		/* AND AT START: T holds both admins' votes, and a store with room
+		 * for one starts with one rather than refusing to start. */
+		{
+			static fzn_revocation_t one_e[8];
+			static fzn_revocation_admin_t one_ad[1];
+			static fzn_revocation_confirm_t one_cf[8];
+			static fzn_revocation_store_t one;
+
+			CHECK(carry(&c, &t, &t_ap, &tally) && t_revs.admins_used == 2u
+			              && fzn_revocation_store_init(&one, one_e, 8) == FZN_CHAIN_OK
+			              && fzn_revocation_store_set_quorum(&one, 2u, &adm, one_ad, 1u)
+			                         == FZN_CHAIN_OK
+			              && fzn_revocation_store_set_confirmations(&one, one_cf, 8u, &hash_ops)
+			                         == FZN_CHAIN_OK
+			              && fzn_node_revocations_load(&t.ops, &one, r.id.pubkey, NULL, NULL,
+			                                           &t.sign, &hash_ops, &count)
+			                         == FZN_PERSIST_OK
+			              && one.admins_used == 1u,
+			      "a store holding two admins' votes would not start with room for one");
+		}
+	}
 }
 
 /* ---- contacts as the user's roster, sec 489 --------------------------- */
