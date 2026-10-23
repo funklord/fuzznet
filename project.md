@@ -69482,3 +69482,77 @@ Roster records (a member's to write) are the same shape, bounded by their
 own table. Closing that needs a bound per grantor, or grants by a revoked
 member let go after its cut -- each a rule of the protocol, so not made
 here.
+
+## 701. Which hooks a remote caller reaches, as a table, and a removed contact's extension, 2026-10-23
+
+Sec 689's authorization bar for the estate journey: every remote request
+tried with each wrong caller. The local verbs are judged coarsely and
+already tested: only this node's own user by default, then rank per verb
+in the admin library, which `admin_test` covers. The finer question is
+the remote one: which kind of sender reaches which hook. The handlers
+behind the hooks mostly sit in `node/daemon.c`, where no test reaches
+them, but `fzn_node_admin_remote` decides who reaches each hook, and
+that is testable.
+
+### The table, in `admin_test`
+
+Every remote hook is stubbed to record that it was asked and to answer
+nothing, so the dispatch goes on and the record is everything the caller
+could reach. A generic message and an extension-typed one are sent from:
+- **a member**, which reaches every member hook (the devices members
+  keep, logs, routing, the shelf, the journal, reconciliation, notes,
+  messages) and none of a contact's own: a line filed under the contact,
+  and texts and files shared with it;
+- **a standing contact**, which reaches every contact hook and no member
+  hook, and the extension for its types alone;
+- **the same contact removed**, which reaches the relay hook alone;
+- **the contact added back**, which reaches every contact hook again.
+
+**The relay hook is asked of every sender before members and contacts
+part** (sec 622), and more is behind it than relaying: group sync,
+stream queries and file references. Each of those judges standing for
+itself. `streams_remote`, for one, admits a contact through
+`fzn_node_admin_contact_of`, which requires it to stand. So a removed
+contact reads no location.
+
+### The fault the table found
+
+**A removed contact's extension request still reached the extension,
+told it came from a contact.** The extension is told only "a contact"
+(the share capability), so it cannot tell a removed one. Every other
+contact hook sits behind the standing check of sec 454. **Fixed:** a
+share-capability caller reaches the extension only while it stands as a
+contact, or is a group member's host, and is otherwise denied as "no
+longer a contact". **Control:** before the fix, that row of the table
+failed, and only that row.
+
+## 702. The sticker format without arbitrary caps, decided and deferred, 2026-10-23
+
+**Relayed by fuzzypickles** through this tree's inbox (message
+20261023T0112Z), and **confirmed by the holder first-hand the same day**.
+The holder had asked "who decided this? It seems arbitrary", and it was:
+the 64-per-pack cap and the 16-bit id arrived in fuzzypickles' first
+format on 2026-08-03 as fixed array sizes, with no reason recorded.
+`sticker/pack.situ` carries the same caps: `u16 id`, `count [min = 1,
+max = 64]`, `description_len [min = 1]`.
+
+**The decisions, for fuzznet's sticker module too:**
+1. **Ids are at least 64 bits, from the sticker's unchanging data.** A
+   u64, nonzero, unique in its pack. A spec may give one; otherwise it is
+   the first 8 bytes, big-endian, of BLAKE2b-256 over each rendition's
+   bytes in manifest order, then the sound's. A derived 0 becomes 1.
+2. **A pack records LINE's ids** where it came from LINE: a pack-level
+   `line_package` and a per-sticker `line_id`, u64 each, 0 for none.
+3. **No cap of 64.** The manifest points at the caller's storage, and a
+   read that finds more stickers than the capacity answers
+   BUFFER_TOO_SMALL with the count it needs, never truncated.
+4. **Description and pack name are optional.**
+
+**The reference implementation is fuzzypickles' e35540f and 140d719.** A
+reference's id is then decimal, up to 20 digits, so the `fzn:sticker`
+form changes with it.
+
+**When: after the mature subset clears its bar**, the holder's choice
+when asked whether this lifts sec 689's freeze. It does not. Until then
+this node refuses ids above 16 bits and packs past 64, and the client,
+which no longer narrows an id, will meet that refusal first.

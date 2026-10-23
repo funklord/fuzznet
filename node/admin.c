@@ -2153,13 +2153,20 @@ size_t fzn_node_admin_remote(void *ctx, fzn_node_remote_result_t result,
 	    && req->payload[0] == FZN_TYPES_VERSION_SHARED
 	    && req->payload[1] >= FZN_TYPES_EXTENSION_FIRST
 	    && req->payload[1] <= FZN_TYPES_EXTENSION_LAST) {
-		size_t n = admin->extension_remote
-		           ? admin->extension_remote(admin->extension_ctx, req->sender,
-		                                     fzn_node_request_shared(&admin->state->config,
-		                                                             req->capability),
-		                                     req->payload, req->payload_len, reply,
-		                                     reply_cap)
-		           : 0u;
+		int shared = fzn_node_request_shared(&admin->state->config, req->capability);
+		uint8_t whose[FZN_PUBKEY_LEN];
+		size_t n;
+
+		/* A CONTACT ONLY WHILE IT STANDS, sec 454 and 700: the extension is
+		 * told "a contact" and nothing more, so it cannot tell a removed
+		 * one, which every other contact hook refuses. */
+		if (shared && !fzn_node_admin_contact_of(admin, req->sender, whose)
+		    && !group_host_owner(admin, req->sender, whose))
+			return answer_text(out, reply_cap, FZN_REPLY_DENIED, "no longer a contact");
+		n = admin->extension_remote
+		    ? admin->extension_remote(admin->extension_ctx, req->sender, shared, req->payload,
+		                              req->payload_len, reply, reply_cap)
+		    : 0u;
 
 		if (n > reply_cap)
 			return answer_text(out, reply_cap, FZN_REPLY_ERROR,

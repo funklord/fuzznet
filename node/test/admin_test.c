@@ -20,6 +20,7 @@
 #include "../settings.h"
 #include "../../log/rules.h"
 #include "../roster.h"
+#include "../types.h"
 #include "../succession.h"
 #include "../identity.h"
 #include "../peer_persist.h"
@@ -483,6 +484,149 @@ static size_t extension_remote_stub(void *ctx, const uint8_t *sender, int contac
 	reply[0] = request[0];
 	reply[1] = 129u;
 	return 2u;
+}
+
+/* ---- which hooks a remote caller reaches, sec 700 ------------------------ */
+
+/* EVERY REMOTE HOOK, a bit each, set when it is asked; each answers nothing,
+ * so the dispatch goes on to the next and the bits say every hook the
+ * caller could reach. */
+enum {
+	R_RELAY = 1, R_EXTENSION = 2, R_CONTACT_DEVICES = 4, R_MESSAGES_CONTACT = 8,
+	R_ROUTING = 16, R_NOTES = 32, R_TEXT_SHARED = 64, R_FILES_SHARED = 128, R_LOGS = 256,
+	R_TEXT = 512, R_JOURNAL = 1024, R_HOLDINGS = 2048, R_MESSAGES = 4096
+};
+/* WHAT ONLY A MEMBER MAY REACH: a contact asking any of these is a leak. */
+#define R_MEMBER_ONLY (R_LOGS | R_TEXT | R_JOURNAL | R_HOLDINGS | R_MESSAGES)
+static unsigned reached_hooks;
+
+static size_t r_relay(void *c, const uint8_t *s, const uint8_t *q, size_t l, uint8_t *o, size_t n)
+{
+	(void)c, (void)s, (void)q, (void)l, (void)o, (void)n;
+	reached_hooks |= R_RELAY;
+	return 0;
+}
+
+static size_t r_extension(void *c, const uint8_t *s, int k, const uint8_t *q, size_t l,
+                          uint8_t *o, size_t n)
+{
+	(void)c, (void)s, (void)k, (void)q, (void)l, (void)o, (void)n;
+	reached_hooks |= R_EXTENSION;
+	return 0;
+}
+
+static size_t r_owner_contact_devices(void *c, const uint8_t *w, const uint8_t *q, size_t l,
+                                      uint8_t *o, size_t n)
+{
+	(void)c, (void)w, (void)q, (void)l, (void)o, (void)n;
+	reached_hooks |= R_CONTACT_DEVICES;
+	return 0;
+}
+
+static size_t r_messages_contact(void *c, const uint8_t *w, const uint8_t *q, size_t l,
+                                 uint8_t *o, size_t n)
+{
+	(void)c, (void)w, (void)q, (void)l, (void)o, (void)n;
+	reached_hooks |= R_MESSAGES_CONTACT;
+	return 0;
+}
+
+static size_t r_routing(void *c, const uint8_t *s, int k, const uint8_t *q, size_t l, uint8_t *o,
+                        size_t n)
+{
+	(void)c, (void)s, (void)k, (void)q, (void)l, (void)o, (void)n;
+	reached_hooks |= R_ROUTING;
+	return 0;
+}
+
+static size_t r_notes(void *c, const uint8_t *s, int k, const uint8_t *q, size_t l, uint8_t *o,
+                      size_t n)
+{
+	(void)c, (void)s, (void)k, (void)q, (void)l, (void)o, (void)n;
+	reached_hooks |= R_NOTES;
+	return 0;
+}
+
+static size_t r_text_shared(void *c, const uint8_t *s, const uint8_t *q, size_t l, uint8_t *o,
+                            size_t n)
+{
+	(void)c, (void)s, (void)q, (void)l, (void)o, (void)n;
+	reached_hooks |= R_TEXT_SHARED;
+	return 0;
+}
+
+static size_t r_files_shared(void *c, const uint8_t *s, const uint8_t *q, size_t l, uint8_t *o,
+                             size_t n)
+{
+	(void)c, (void)s, (void)q, (void)l, (void)o, (void)n;
+	reached_hooks |= R_FILES_SHARED;
+	return 0;
+}
+
+static size_t r_logs(void *c, const uint8_t *s, const uint8_t *q, size_t l, uint8_t *o, size_t n)
+{
+	(void)c, (void)s, (void)q, (void)l, (void)o, (void)n;
+	reached_hooks |= R_LOGS;
+	return 0;
+}
+
+static size_t r_text(void *c, const uint8_t *q, size_t l, uint8_t *o, size_t n)
+{
+	(void)c, (void)q, (void)l, (void)o, (void)n;
+	reached_hooks |= R_TEXT;
+	return 0;
+}
+
+static size_t r_journal(void *c, const uint8_t *q, size_t l, uint8_t *o, size_t n)
+{
+	(void)c, (void)q, (void)l, (void)o, (void)n;
+	reached_hooks |= R_JOURNAL;
+	return 0;
+}
+
+static size_t r_holdings(void *c, const uint8_t *s, const uint8_t *q, size_t l, uint8_t *o,
+                         size_t n)
+{
+	(void)c, (void)s, (void)q, (void)l, (void)o, (void)n;
+	reached_hooks |= R_HOLDINGS;
+	return 0;
+}
+
+static size_t r_messages(void *c, const uint8_t *s, const uint8_t *q, size_t l, uint8_t *o,
+                         size_t n)
+{
+	(void)c, (void)s, (void)q, (void)l, (void)o, (void)n;
+	reached_hooks |= R_MESSAGES;
+	return 0;
+}
+
+/* THE HOOKS `req` REACHES with `payload`, every one of `admin`'s stubbed
+ * for the call and put back after. */
+static unsigned hooks_reached(fzn_node_admin_t *admin, fzn_opened_t req, const uint8_t *payload,
+                              size_t len)
+{
+	fzn_node_admin_t kept = *admin;
+	uint8_t out[512];
+
+	admin->relay_remote = r_relay;
+	admin->extension_remote = r_extension;
+	admin->contact_devices = r_owner_contact_devices;
+	admin->messages_contact = r_messages_contact;
+	admin->routing_remote = r_routing;
+	admin->notes_remote = r_notes;
+	admin->text_shared = r_text_shared;
+	admin->files_shared = r_files_shared;
+	admin->logs_remote = r_logs;
+	admin->text_remote = r_text;
+	admin->journal_remote = r_journal;
+	admin->holdings_remote = r_holdings;
+	admin->messages_remote = r_messages;
+	reached_hooks = 0;
+	req.payload = payload;
+	req.payload_len = len;
+	(void)fzn_node_admin_remote(admin, FZN_NODE_REMOTE_GRANTED, &req, out, sizeof(out));
+	*admin = kept;
+	return reached_hooks;
 }
 
 /* A REMOTE REQUEST OF BYTES, `len` of them, from `sender` granted the
@@ -1801,6 +1945,45 @@ int main(void)
 			              && !fzn_node_admin_contact_stands(&admin, NULL),
 			      "a standing contact does not stand, or a stranger or no key does");
 		}
+		/* THE HOOKS IT REACHES, standing, removed and added back, sec 700:
+		 * every contact hook and no member's while it stands; once removed,
+		 * the relay alone -- asked of every sender before the two part,
+		 * and each message behind it judges standing for itself -- and no
+		 * extension, which is told only "a contact" and cannot tell a
+		 * removed one. */
+		{
+			static const uint8_t generic[] = { 2u, 0x7eu, 0u, 0u };
+			static const uint8_t extension[] = { FZN_TYPES_VERSION_SHARED,
+			                                     FZN_TYPES_EXTENSION_FIRST, 0u, 0u };
+			const unsigned contact_hooks = R_RELAY | R_CONTACT_DEVICES | R_MESSAGES_CONTACT
+			                               | R_ROUTING | R_NOTES | R_TEXT_SHARED
+			                               | R_FILES_SHARED;
+			unsigned got = hooks_reached(&admin, req, generic, sizeof(generic));
+
+			CHECK(got == contact_hooks,
+			      "a standing contact did not reach every contact hook, or reached a "
+			      "member's");
+			got = hooks_reached(&admin, req, extension, sizeof(extension));
+			CHECK(got == (R_RELAY | R_EXTENSION),
+			      "a standing contact's extension request did not reach the extension alone");
+			CHECK(ask(&admin, &owner, "remove contact bobby", reply, sizeof(reply),
+			          &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK,
+			      "fixture: bob removed as a contact, for the table");
+			got = hooks_reached(&admin, req, generic, sizeof(generic));
+			CHECK(got == R_RELAY, "a removed contact reached a hook past the relay");
+			got = hooks_reached(&admin, req, extension, sizeof(extension));
+			CHECK(got == R_RELAY,
+			      "a removed contact's extension request reached the extension, as a "
+			      "contact");
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK
+			              && hooks_reached(&admin, req, generic, sizeof(generic))
+			                         == contact_hooks,
+			      "a contact added back did not reach the contact hooks again");
+		}
 		CHECK(ask(&admin, &owner, "remove contact bobby", reply, sizeof(reply), &reply_len)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK,
 		      "fixture: bob removed as a contact");
@@ -2211,6 +2394,22 @@ int main(void)
 		n = remote_bytes(&admin, device.id.pubkey, mine, sizeof(mine), reply, sizeof(reply));
 		CHECK(n && fzn_reply_of(reply, n - 1u, &detail, &detail_len) == FZN_REPLY_UNSUPPORTED,
 		      "with no extension, its type was not unsupported");
+	}
+	/* AND A MEMBER'S ROW OF THE TABLE, sec 700: every member hook, and none
+	 * a contact's own -- a line filed under the contact it speaks for,
+	 * what is shared with it, a text or a file shared with it. */
+	{
+		static const uint8_t generic[] = { 2u, 0x7eu, 0u, 0u };
+		fzn_opened_t rq;
+		unsigned got;
+
+		memset(&rq, 0, sizeof(rq));
+		rq.capability = admin.state->config.remote_capability.b;
+		rq.sender = device.id.pubkey;
+		got = hooks_reached(&admin, rq, generic, sizeof(generic));
+		CHECK(got == (R_RELAY | R_CONTACT_DEVICES | R_LOGS | R_ROUTING | R_TEXT | R_JOURNAL
+		              | R_HOLDINGS | R_NOTES | R_MESSAGES),
+		      "a member did not reach every member hook, or reached a contact's own");
 	}
 	CHECK(ask(&admin, &owner, "get mine", reply, sizeof(reply), &reply_len)
 	              && fzn_reply_of(reply, reply_len, &detail, &detail_len)

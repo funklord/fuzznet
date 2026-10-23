@@ -11312,6 +11312,13 @@ SABOTAGES = [
 		"a stranger's root records fill the root log, and the root's own after them are refused -- sec 700",
 	),
 	(
+		"admin-extension-only-a-standing-contact",
+		"node/admin.c",
+		"\t\tif (shared && !fzn_node_admin_contact_of(admin, req->sender, whose)\n",
+		"\t\tif (0 && !fzn_node_admin_contact_of(admin, req->sender, whose)\n",
+		"a removed contact's extension requests are still served, as a contact's -- sec 454, 701",
+	),
+	(
 		"apply-chain-tries-every-grant",
 		"node/apply.c",
 		"\t\t\tif (walk_up(w, g->grantor, depth + 1u, depth_out))\n\t\t\t\treturn 1;\n",
