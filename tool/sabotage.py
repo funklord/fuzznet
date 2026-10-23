@@ -764,18 +764,6 @@ SABOTAGES = [
 		"substring. sec 365",
 	),
 	(
-		"node-peers-load-needs-a-list",
-		"node/peer_persist.c",
-		"\tif (!ops->list && !ops->each)\n\t\treturn FZN_PERSIST_ERR_BACKEND;",
-		"\tif (0)\n\t\treturn FZN_PERSIST_ERR_BACKEND;",
-		"a backend that cannot enumerate is reported rather than read as a "
-		"store holding nobody. An empty set and `I cannot tell you` look "
-		"identical to a caller and mean opposite things -- serve nobody, "
-		"against something is wrong with the store. Removing it also "
-		"dereferences a NULL op, so the suite dies rather than failing an "
-		"assertion; both are the guard speaking. sec 367",
-	),
-	(
 		"node-peers-load-checks-the-filing",
 		"node/peer_persist.c",
 		"\tif (memcmp(into->sender, subject, FZN_PUBKEY_LEN) != 0) {\n",
@@ -11344,6 +11332,13 @@ SABOTAGES = [
 		"\tstore->ops.each = file_each;\n",
 		"\tstore->ops.each = NULL;\n",
 		"a file store walks a slot through a list's fixed room, and a slot past it is never read -- sec 704",
+	),
+	(
+		"persist-each-refuses-a-blind-backend",
+		"persist/persist.c",
+		"\tif (!ops->list || each_in_room\n",
+		"\tif (each_in_room\n",
+		"a backend that can neither walk nor list reads as a store holding nobody, rather than as one that cannot say -- sec 367, 704",
 	),
 	(
 		"persist-each-fallback-not-nested",

@@ -165,16 +165,15 @@ fzn_persist_err_t fzn_node_peers_load(const fzn_persist_ops_t *ops,
 	if (!ops || !ops->load || (!out && cap) || !count)
 		return FZN_PERSIST_ERR_MALFORMED;
 	*count = 0;
-	/* REPORTED, NOT TURNED INTO AN EMPTY SET. peer_persist.h says why: an
-	 * empty set and "I cannot tell you" look identical to a caller and
-	 * mean opposite things. */
-	if (!ops->list && !ops->each)
-		return FZN_PERSIST_ERR_BACKEND;
 	w.ops = ops;
 	w.out = out;
 	w.cap = cap;
 	w.n = 0;
 	w.err = FZN_PERSIST_OK;
+	/* REPORTED, NOT TURNED INTO AN EMPTY SET: a backend that can neither
+	 * list nor walk is refused by the walk itself. peer_persist.h says why:
+	 * an empty set and "I cannot tell you" look identical to a caller and
+	 * mean opposite things. */
 	if (!fzn_persist_each(ops, FZN_PERSIST_NODE_PEER, peer_walked, &w))
 		return FZN_PERSIST_ERR_BACKEND;
 	if (w.err != FZN_PERSIST_OK)

@@ -69740,3 +69740,8 @@ and stay.
     The first control passed when it should have failed: the daemon's
     first room was 128, so 80 never needed growth. A first room is now
     exactly 64.
+- **Sabotage probes:** five of the six new and moved ones were caught.
+  The sixth, the peers load's own "neither list nor walk" check,
+  survived: the walk refuses such a backend itself, so the check was a
+  second copy of a guard. It is removed. The walk's own refusal is
+  probed instead, and caught.
