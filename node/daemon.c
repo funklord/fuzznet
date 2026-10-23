@@ -6376,9 +6376,19 @@ static void contact_box(void *ctx, const uint8_t *box, size_t len)
 			contact_pair_due = 1;
 		return;
 	}
-	if (fzn_contact_request_keep(node_apply.store, &r, now) != FZN_CONTACT_REQUEST_OK) {
-		say(FZN_ENTRY_WARNING, "contact/request", "a contact request could not be kept");
-		return;
+	{
+		size_t evicted = 0;
+
+		if (fzn_contact_request_keep(node_apply.store, &r, now, &evicted)
+		    != FZN_CONTACT_REQUEST_OK) {
+			say(FZN_ENTRY_WARNING, "contact/request", "a contact request could not be kept");
+			return;
+		}
+		/* SAID, sec 704: the oldest unanswered request let go for room. */
+		if (evicted)
+			say(FZN_ENTRY_WARNING, "contact/request",
+			    "%zu unanswered contact request(s) let go: %u are held at most", evicted,
+			    (unsigned)FZN_CONTACT_REQUESTS_MAX);
 	}
 	say(FZN_ENTRY_INFO, "contact/request", "a contact request from %.16s, waiting", hex);
 	publish("request", hex);
@@ -6387,45 +6397,62 @@ static void contact_box(void *ctx, const uint8_t *box, size_t len)
 /* EVERY REQUEST THIS USER SENT AND NOT YET ANSWERED, sent again: sealed
  * afresh to the asked host's prekey and sent to its address and every
  * seed. Each round, and at once after one is made. */
+struct sending_asked {
+	int *fd;
+	uint64_t now;
+	size_t sent;
+	int failed;
+};
+
+static int send_one_asked(void *ctx, const fzn_contact_asked_t *asked)
+{
+	static uint8_t bytes[FZN_CONTACT_REQUEST_MAX], box[FZN_UDP_DATAGRAM_MAX];
+	struct sending_asked *sa = ctx;
+	const fzn_contact_card_t *c = &asked->card;
+	size_t k, len = 0, box_len = 0;
+
+	if (asked->answered || asked->request.expires_at < sa->now
+	    || fzn_contact_request_encode(&asked->request, bytes, sizeof(bytes), &len)
+	               != FZN_CONTACT_REQUEST_OK
+	    || fzn_box_seal(contact_id->agree, contact_id->hash, contact_aead_ops, contact_rng_ops,
+	                    c->host.record + FZN_PREKEY_OFF_PREKEY, bytes, len, box, sizeof(box),
+	                    &box_len)
+	               != FZN_BOX_OK)
+		return 1;
+	if (*sa->fd < 0 && fzn_udp_bind(contact_family, NULL, 0, sa->fd) != FZN_UDP_OK) {
+		*sa->fd = -1;
+		sa->failed = 1;
+		return 0;
+	}
+	for (k = 0; k <= c->n_seeds; k++) {
+		const char *host = k == 0 ? c->host.address : c->seeds[k - 1u].address;
+		uint16_t port = k == 0 ? c->host.port : c->seeds[k - 1u].port;
+		fzn_udp_addr_t to;
+
+		if (port && fzn_udp_resolve(contact_family, host, port, &to) == FZN_UDP_OK
+		    && fzn_udp_send(*sa->fd, &to, box, box_len) == FZN_UDP_OK)
+			sa->sent++;
+	}
+	return 1;
+}
+
 static void send_asked(void)
 {
 	static int fd = -1;
-	static fzn_contact_asked_t asked[FZN_CONTACT_ASKED_MAX];
-	static uint8_t bytes[FZN_CONTACT_REQUEST_MAX], box[FZN_UDP_DATAGRAM_MAX];
-	size_t n = 0, i, k, len = 0, box_len = 0, sent = 0;
-	uint64_t now = wall_clock();
+	struct sending_asked sa;
 
-	if (!contact_id || !node_apply.store || !contact_rng_ops
-	    || fzn_contact_asked_list(node_apply.store, asked, FZN_CONTACT_ASKED_MAX, &n)
-	               != FZN_CONTACT_REQUEST_OK)
+	if (!contact_id || !node_apply.store || !contact_rng_ops)
 		return;
-	for (i = 0; i < n; i++) {
-		const fzn_contact_card_t *c = &asked[i].card;
-
-		if (asked[i].answered || asked[i].request.expires_at < now
-		    || fzn_contact_request_encode(&asked[i].request, bytes, sizeof(bytes), &len)
-		               != FZN_CONTACT_REQUEST_OK
-		    || fzn_box_seal(contact_id->agree, contact_id->hash, contact_aead_ops,
-		                    contact_rng_ops, c->host.record + FZN_PREKEY_OFF_PREKEY, bytes, len,
-		                    box, sizeof(box), &box_len)
-		               != FZN_BOX_OK)
-			continue;
-		if (fd < 0 && fzn_udp_bind(contact_family, NULL, 0, &fd) != FZN_UDP_OK) {
-			fd = -1;
-			return;
-		}
-		for (k = 0; k <= c->n_seeds; k++) {
-			const char *host = k == 0 ? c->host.address : c->seeds[k - 1u].address;
-			uint16_t port = k == 0 ? c->host.port : c->seeds[k - 1u].port;
-			fzn_udp_addr_t to;
-
-			if (port && fzn_udp_resolve(contact_family, host, port, &to) == FZN_UDP_OK
-			    && fzn_udp_send(fd, &to, box, box_len) == FZN_UDP_OK)
-				sent++;
-		}
-	}
-	if (sent)
-		say(FZN_ENTRY_DEBUG, "contact/request", "%zu contact request datagram(s) sent", sent);
+	sa.fd = &fd;
+	sa.now = wall_clock();
+	sa.sent = 0;
+	sa.failed = 0;
+	/* WALKED, sec 704: every request sent, however many. */
+	if (fzn_contact_asked_each(node_apply.store, send_one_asked, &sa) != FZN_CONTACT_REQUEST_OK)
+		say(FZN_ENTRY_WARNING, "contact/request", "the contact requests sent would not read");
+	if (sa.sent)
+		say(FZN_ENTRY_DEBUG, "contact/request", "%zu contact request datagram(s) sent",
+		    sa.sent);
 }
 
 /* The next word of `*at`, `*left` bytes left. */
@@ -6549,7 +6576,8 @@ static size_t request_contact(const uint8_t *name, size_t name_len, const uint8_
 static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap)
 {
-	static fzn_contact_request_held_t held[FZN_CONTACT_REQUESTS_MAX];
+	static fzn_contact_request_held_t *held;
+	static size_t held_cap;
 	const uint8_t *at = request->arg, *subject, *a1 = NULL, *a2 = NULL;
 	size_t left = request->arg_len, subject_len, n1 = 0, n2 = 0, n = 0, i, k;
 	uint8_t root[FZN_PUBKEY_LEN];
@@ -6575,13 +6603,34 @@ static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, c
 	if (card)
 		return request_contact(a1, n1, a2, n2, reply, cap);
 	if (request->parsed == FZN_VERB_LIST) {
-		size_t at_out;
+		size_t at_out, from = 0, tries;
+		fzn_contact_request_err_t lerr = FZN_CONTACT_REQUEST_ERR_ROOM;
 
-		if (fzn_contact_request_list(node_apply.store, held, FZN_CONTACT_REQUESTS_MAX, &n)
-		    != FZN_CONTACT_REQUEST_OK)
+		/* `list request [FROM]`: a page from the FROMth, oldest first. */
+		for (k = 0; k < n1; k++) {
+			if (a1[k] < '0' || a1[k] > '9' || from > (1u << 30))
+				return (size_t)snprintf(reply, cap, "malformed list request [FROM]\n");
+			from = (from * 10u) + (size_t)(a1[k] - '0');
+		}
+		/* IN ROOM GROWN AS THEY ARE, sec 704: told how many, given that and
+		 * a little more, and listed again. */
+		for (tries = 0; tries < 4u && lerr == FZN_CONTACT_REQUEST_ERR_ROOM; tries++) {
+			lerr = fzn_contact_request_list(node_apply.store, held, held_cap, &n);
+			if (lerr == FZN_CONTACT_REQUEST_ERR_ROOM) {
+				size_t want = n + (n / 4u) + 16u;
+				fzn_contact_request_held_t *grown = calloc(want, sizeof(*grown));
+
+				if (!grown)
+					break;
+				free(held);
+				held = grown;
+				held_cap = want;
+			}
+		}
+		if (lerr != FZN_CONTACT_REQUEST_OK)
 			return (size_t)snprintf(reply, cap, "error the requests would not list\n");
 		at_out = (size_t)snprintf(reply, cap, "ok %zu", n);
-		for (i = 0; i < n && at_out < cap; i++) {
+		for (i = from; i < n && at_out < cap; i++) {
 			char hex[2u * FZN_PUBKEY_LEN + 1u];
 			const fzn_contact_card_t *c = &held[i].request.card;
 

@@ -15,11 +15,12 @@
  *   - ASKED OF THIS USER, persist slot FZN_PERSIST_CONTACT_REQUEST, keyed
  *     by the asker's root: what the user approves or rejects. At most
  *     FZN_CONTACT_REQUESTS_MAX; a newer request from the same root replaces
- *     the older, and when full the oldest is let go -- the input is a
- *     stranger's, so it may not fill the store (fuzzypickles' rule).
+ *     the older, and when full the expired go, then the oldest -- the input
+ *     is a stranger's, so it may not fill the store (fuzzypickles' rule).
  *   - ASKED BY THIS USER, persist slot FZN_PERSIST_CONTACT_ASKED, keyed by
  *     the other user's root: the request sent, and the card it was sent
- *     on, so it is sent again until it is answered or expires. The answer
+ *     on, so it is sent again until it is answered or expires. These are
+ *     the user's own acts, and as many are kept as it makes (sec 704). The answer
  *     is the other user's first offer of its devices (sec 614), not a
  *     message of its own.
  */
@@ -37,10 +38,11 @@
 #define FZN_CONTACT_REQUEST_MAX                                                          \
 	(2u + FZN_PUBKEY_LEN + 2u + FZN_CONTACT_CARD_MAX + FZN_CONTACT_REQUEST_NONCE_LEN + 8u \
 	 + FZN_SIG_LEN)
-/* Requests held at once, of strangers. */
-#define FZN_CONTACT_REQUESTS_MAX 16u
-/* Requests this user has outstanding. */
-#define FZN_CONTACT_ASKED_MAX 16u
+/* REQUESTS HELD AT ONCE, OF STRANGERS: a bound, since anybody can make a
+ * root and ask, and thousands, since a user whose card is widely seen is
+ * asked by many (sec 704). It was 16, and the 17th let the oldest go
+ * unsaid. */
+#define FZN_CONTACT_REQUESTS_MAX 4096u
 /* The furthest ahead a request may say it expires, in seconds: fuzzypickles'
  * default lifetime is about a week, and one claiming more is held no
  * longer. */
@@ -54,7 +56,8 @@ typedef enum fzn_contact_request_err {
 	FZN_CONTACT_REQUEST_ERR_NOT_HERE = -4,  /* for another host */
 	FZN_CONTACT_REQUEST_ERR_EXPIRED = -5,   /* past its expiry, or too far ahead */
 	FZN_CONTACT_REQUEST_ERR_ABSENT = -6,    /* none held */
-	FZN_CONTACT_REQUEST_ERR_BACKEND = -7    /* the store refused, or cannot list */
+	FZN_CONTACT_REQUEST_ERR_BACKEND = -7,   /* the store refused, or cannot list */
+	FZN_CONTACT_REQUEST_ERR_ROOM = -8       /* more held than `cap`, `*count` of them */
 } fzn_contact_request_err_t;
 
 const char *fzn_contact_request_err_str(fzn_contact_request_err_t err);
@@ -94,16 +97,25 @@ typedef struct fzn_contact_request_held {
 } fzn_contact_request_held_t;
 
 /* KEEP `r`, verified, received at `now`: replacing one from the same root,
- * and letting the oldest go when FZN_CONTACT_REQUESTS_MAX are held. */
+ * and when FZN_CONTACT_REQUESTS_MAX are held letting the expired go, then
+ * the oldest; `*evicted` (or NULL) counts those unexpired let go. */
 fzn_contact_request_err_t fzn_contact_request_keep(const fzn_persist_ops_t *store,
-                                                   const fzn_contact_request_t *r, uint64_t now);
+                                                   const fzn_contact_request_t *r, uint64_t now,
+                                                   size_t *evicted);
 
 /* The request held from the user whose root is `root`. */
 fzn_contact_request_err_t fzn_contact_request_get(const fzn_persist_ops_t *store,
                                                   const uint8_t root[FZN_PUBKEY_LEN],
                                                   fzn_contact_request_held_t *out);
 
-/* Every request held, oldest first, `cap` of them. */
+/* Every request held to `fn`, walked; `fn` answers 0 to stop. */
+fzn_contact_request_err_t fzn_contact_request_each(const fzn_persist_ops_t *store,
+                                                   int (*fn)(void *ctx,
+                                                             const fzn_contact_request_held_t *held),
+                                                   void *ctx);
+
+/* Every request held, oldest first, into `cap`: ROOM with `*count` the
+ * number held when there are more. */
 fzn_contact_request_err_t fzn_contact_request_list(const fzn_persist_ops_t *store,
                                                    fzn_contact_request_held_t *out, size_t cap,
                                                    size_t *count);
@@ -121,7 +133,7 @@ typedef struct fzn_contact_asked {
 } fzn_contact_asked_t;
 
 /* KEEP a request sent on `card`, keyed by the card's root, replacing one
- * held for it. FULL is BACKEND past FZN_CONTACT_ASKED_MAX. */
+ * held for it. */
 fzn_contact_request_err_t fzn_contact_asked_keep(const fzn_persist_ops_t *store,
                                                  const fzn_contact_asked_t *a);
 
@@ -129,6 +141,13 @@ fzn_contact_request_err_t fzn_contact_asked_get(const fzn_persist_ops_t *store,
                                                 const uint8_t root[FZN_PUBKEY_LEN],
                                                 fzn_contact_asked_t *out);
 
+/* Every request this user sent to `fn`, walked; `fn` answers 0 to stop. */
+fzn_contact_request_err_t fzn_contact_asked_each(const fzn_persist_ops_t *store,
+                                                 int (*fn)(void *ctx,
+                                                           const fzn_contact_asked_t *asked),
+                                                 void *ctx);
+
+/* Into `cap`: ROOM with `*count` the number sent when there are more. */
 fzn_contact_request_err_t fzn_contact_asked_list(const fzn_persist_ops_t *store,
                                                  fzn_contact_asked_t *out, size_t cap,
                                                  size_t *count);

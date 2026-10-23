@@ -5,6 +5,7 @@
 #include "../contact_request.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int checks, failures;
@@ -218,28 +219,27 @@ static void test_a_request_holds_for_its_host(void)
 static void test_the_queue_of_strangers(void)
 {
 	static fzn_contact_request_t r;
-	static fzn_contact_request_held_t held[FZN_CONTACT_REQUESTS_MAX + 1u];
+	static fzn_contact_request_held_t held[32];
 	uint8_t root[32];
 	size_t n = 0, i;
 
 	memset(rows, 0, sizeof(rows));
-	for (i = 0; i <= FZN_CONTACT_REQUESTS_MAX; i++) {
+	for (i = 0; i < 20u; i++) {
 		request_from(&r, (uint8_t)(0x40u + i), 9000u);
-		CHECK(fzn_contact_request_keep(&STORE, &r, 100u + i) == FZN_CONTACT_REQUEST_OK,
+		CHECK(fzn_contact_request_keep(&STORE, &r, 100u + i, NULL) == FZN_CONTACT_REQUEST_OK,
 		      "a request was not kept");
 	}
-	CHECK(fzn_contact_request_list(&STORE, held, FZN_CONTACT_REQUESTS_MAX + 1u, &n)
-	                      == FZN_CONTACT_REQUEST_OK
-	              && n == FZN_CONTACT_REQUESTS_MAX
-	              && held[0].request.card.host.owner[0] == 0x41u
-	              && held[n - 1u].request.card.host.owner[0]
-	                         == (uint8_t)(0x40u + FZN_CONTACT_REQUESTS_MAX),
-	      "past the most held, the oldest was not the one let go, oldest first");
+	CHECK(fzn_contact_request_list(&STORE, held, 32u, &n) == FZN_CONTACT_REQUEST_OK
+	              && n == 20u && held[0].request.card.host.owner[0] == 0x40u
+	              && held[n - 1u].request.card.host.owner[0] == 0x53u,
+	      "the requests held did not list whole, oldest first");
+	CHECK(fzn_contact_request_list(&STORE, held, 10u, &n) == FZN_CONTACT_REQUEST_ERR_ROOM
+	              && n == 20u,
+	      "a listing into less room than is held did not say how many");
 	request_from(&r, 0x45, 9000u);
-	CHECK(fzn_contact_request_keep(&STORE, &r, 500u) == FZN_CONTACT_REQUEST_OK
-	              && fzn_contact_request_list(&STORE, held, FZN_CONTACT_REQUESTS_MAX + 1u, &n)
-	                         == FZN_CONTACT_REQUEST_OK
-	              && n == FZN_CONTACT_REQUESTS_MAX && held[0].request.card.host.owner[0] == 0x41u
+	CHECK(fzn_contact_request_keep(&STORE, &r, 500u, NULL) == FZN_CONTACT_REQUEST_OK
+	              && fzn_contact_request_list(&STORE, held, 32u, &n) == FZN_CONTACT_REQUEST_OK
+	              && n == 20u && held[0].request.card.host.owner[0] == 0x40u
 	              && held[n - 1u].request.card.host.owner[0] == 0x45u
 	              && held[n - 1u].received_at == 500u,
 	      "a newer request from one asker did not replace its older, or evicted another");
@@ -253,20 +253,209 @@ static void test_the_queue_of_strangers(void)
 			rows[i].subject[0] ^= 1u;
 			break;
 		}
-	CHECK(fzn_contact_request_list(&STORE, held, FZN_CONTACT_REQUESTS_MAX + 1u, &n)
-	                      == FZN_CONTACT_REQUEST_OK
-	              && n == FZN_CONTACT_REQUESTS_MAX - 2u,
+	CHECK(fzn_contact_request_list(&STORE, held, 32u, &n) == FZN_CONTACT_REQUEST_OK && n == 18u,
 	      "a request filed under another root read as that root's");
+}
+
+/* ---- thousands, sec 704 ------------------------------------------------- */
+
+/* A STORE OF MANY, indexed by a root's first two bytes, the rest 0x33:
+ * what `request_numbered` makes. One table per slot, rows allocated as
+ * saved. */
+#define MANY 65536u
+static struct many_row {
+	uint8_t bytes[ROW_MAX];
+	size_t len;
+} *many[2][MANY];
+
+static int many_at(fzn_persist_slot_t slot, const uint8_t *subject, size_t *table, size_t *at)
+{
+	size_t i;
+
+	if (slot != FZN_PERSIST_CONTACT_REQUEST && slot != FZN_PERSIST_CONTACT_ASKED)
+		return 0;
+	for (i = 2; i < 32u; i++)
+		if (subject[i] != 0x33u)
+			return 0;
+	*table = slot == FZN_PERSIST_CONTACT_REQUEST ? 0u : 1u;
+	*at = ((size_t)subject[0] << 8) | subject[1];
+	return 1;
+}
+
+static int many_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, uint8_t *out,
+                     size_t cap, size_t *len)
+{
+	size_t t, at;
+
+	(void)ctx;
+	if (!many_at(slot, subject, &t, &at) || !many[t][at] || many[t][at]->len > cap)
+		return 0;
+	memcpy(out, many[t][at]->bytes, many[t][at]->len);
+	*len = many[t][at]->len;
+	return 1;
+}
+
+static int many_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
+                     const uint8_t *bytes, size_t len)
+{
+	size_t t, at;
+
+	(void)ctx;
+	if (len > ROW_MAX || !many_at(slot, subject, &t, &at))
+		return 0;
+	if (!many[t][at] && !(many[t][at] = malloc(sizeof(*many[t][at]))))
+		return 0;
+	memcpy(many[t][at]->bytes, bytes, len);
+	many[t][at]->len = len;
+	return 1;
+}
+
+static int many_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject)
+{
+	size_t t, at;
+
+	(void)ctx;
+	if (many_at(slot, subject, &t, &at)) {
+		free(many[t][at]);
+		many[t][at] = NULL;
+	}
+	return 1;
+}
+
+static int many_each(void *ctx, fzn_persist_slot_t slot,
+                     int (*fn)(void *arg, const uint8_t subject[FZN_PUBKEY_LEN]), void *arg)
+{
+	uint8_t subject[32];
+	size_t t, at;
+
+	(void)ctx;
+	memset(subject, 0x33, sizeof(subject));
+	if (!many_at(slot, subject, &t, &at))
+		return 1;
+	for (at = 0; at < MANY; at++)
+		if (many[t][at]) {
+			subject[0] = (uint8_t)(at >> 8);
+			subject[1] = (uint8_t)at;
+			if (!fn(arg, subject))
+				break;
+		}
+	return 1;
+}
+
+static void many_free(void)
+{
+	size_t t, at;
+
+	for (t = 0; t < 2u; t++)
+		for (at = 0; at < MANY; at++) {
+			free(many[t][at]);
+			many[t][at] = NULL;
+		}
+}
+
+/* As `request_from`, from the user whose root is numbered `n`. */
+static void request_numbered(fzn_contact_request_t *r, size_t n, uint64_t expires_at)
+{
+	uint8_t root[32], agree[FZN_PREKEY_LEN];
+
+	memset(r, 0, sizeof(*r));
+	memset(root, 0x33, sizeof(root));
+	root[0] = (uint8_t)(n >> 8);
+	root[1] = (uint8_t)n;
+	memcpy(r->card.host.owner, root, 32u);
+	memset(agree, 0x5a, sizeof(agree));
+	signing_as = 0x33;
+	(void)fzn_prekey_issue(root, agree, 1000u, &SIGN, r->card.host.record);
+	memcpy(r->card.host.address, "10.0.0.9", 8u);
+	r->card.host.address_len = 8u;
+	r->card.host.port = 47009u;
+	(void)fzn_contact_card_sign(&r->card, &SIGN);
+	memcpy(r->target, target, 32u);
+	r->expires_at = expires_at;
+	(void)fzn_contact_request_sign(r, &SIGN);
+}
+
+static int counted(void *ctx, const fzn_contact_asked_t *asked)
+{
+	(void)asked;
+	(*(size_t *)ctx)++;
+	return 1;
+}
+
+static void test_thousands(void)
+{
+	static fzn_contact_request_t r;
+	static fzn_contact_request_held_t probe;
+	static fzn_contact_asked_t a, few[16];
+	fzn_contact_request_held_t *held;
+	fzn_persist_ops_t store = { 0 };
+	uint8_t root[32];
+	size_t i, n = 0, evicted = 9, walked = 0;
+	int kept = 1;
+
+	store.load = many_load;
+	store.save = many_save;
+	store.remove = many_remove;
+	store.each = many_each;
+	/* STRANGERS TO THE BOUND, the sixth expiring early: not the oldest, so
+	 * letting the oldest go would not pass for letting the expired. */
+	for (i = 0; i < FZN_CONTACT_REQUESTS_MAX && kept; i++) {
+		request_numbered(&r, i, i == 5u ? 1500u : 9000u);
+		kept = fzn_contact_request_keep(&store, &r, 1000u + i, &evicted)
+		               == FZN_CONTACT_REQUEST_OK
+		       && evicted == 0;
+	}
+	CHECK(kept, "a request under the bound was not kept, or let another go");
+	/* ONE MORE: the expired goes, and nobody unanswered. */
+	request_numbered(&r, i, 9000u);
+	memset(root, 0x33, sizeof(root));
+	root[0] = 0;
+	root[1] = 5;
+	CHECK(fzn_contact_request_keep(&store, &r, 6000u, &evicted) == FZN_CONTACT_REQUEST_OK
+	              && evicted == 0
+	              && fzn_contact_request_get(&store, root, &probe) == FZN_CONTACT_REQUEST_ERR_ABSENT,
+	      "at the bound, the expired request was not the one let go");
+	/* AND ANOTHER: the oldest goes, and is counted. */
+	request_numbered(&r, i + 1u, 9000u);
+	root[1] = 0;
+	CHECK(fzn_contact_request_keep(&store, &r, 6001u, &evicted) == FZN_CONTACT_REQUEST_OK
+	              && evicted == 1u
+	              && fzn_contact_request_get(&store, root, &probe) == FZN_CONTACT_REQUEST_ERR_ABSENT,
+	      "at the bound with none expired, the oldest was not let go and counted");
+	held = calloc(FZN_CONTACT_REQUESTS_MAX, sizeof(*held));
+	CHECK(held && fzn_contact_request_list(&store, held, 16u, &n) == FZN_CONTACT_REQUEST_ERR_ROOM
+	              && n == FZN_CONTACT_REQUESTS_MAX
+	              && fzn_contact_request_list(&store, held, FZN_CONTACT_REQUESTS_MAX, &n)
+	                         == FZN_CONTACT_REQUEST_OK
+	              && n == FZN_CONTACT_REQUESTS_MAX && held[0].request.card.host.owner[1] == 1u
+	              && held[n - 1u].received_at == 6001u,
+	      "the requests at the bound did not list whole, oldest first");
+	free(held);
+
+	/* THE USER'S OWN, 3000 of them: no bound. */
+	for (i = 0, kept = 1; i < 3000u && kept; i++) {
+		request_numbered(&a.request, 0, 9000u);
+		request_numbered(&r, i, 9000u);
+		a.card = r.card;
+		a.answered = 0;
+		kept = fzn_contact_asked_keep(&store, &a) == FZN_CONTACT_REQUEST_OK;
+	}
+	CHECK(kept && fzn_contact_asked_each(&store, counted, &walked) == FZN_CONTACT_REQUEST_OK
+	              && walked == 3000u
+	              && fzn_contact_asked_list(&store, few, 16u, &n) == FZN_CONTACT_REQUEST_ERR_ROOM
+	              && n == 3000u,
+	      "3000 requests asked were not all kept, walked and counted");
+	many_free();
 }
 
 static void test_the_requests_asked(void)
 {
-	static fzn_contact_asked_t a, back[FZN_CONTACT_ASKED_MAX + 1u];
+	static fzn_contact_asked_t a, back[24];
 	uint8_t root[32];
 	size_t n = 0, i;
 
 	memset(rows, 0, sizeof(rows));
-	for (i = 0; i < FZN_CONTACT_ASKED_MAX; i++) {
+	for (i = 0; i < 20u; i++) {
 		request_from(&a.request, 0x30, 9000u);
 		memset(&a.card, 0, sizeof(a.card));
 		{
@@ -279,14 +468,6 @@ static void test_the_requests_asked(void)
 		CHECK(fzn_contact_asked_keep(&STORE, &a) == FZN_CONTACT_REQUEST_OK,
 		      "a request asked was not kept");
 	}
-	{
-		fzn_contact_request_t other;
-
-		request_from(&other, 0x6f, 9000u);
-		a.card = other.card;
-	}
-	CHECK(fzn_contact_asked_keep(&STORE, &a) == FZN_CONTACT_REQUEST_ERR_BACKEND,
-	      "past the most outstanding, another was asked");
 	memset(root, 0x70, sizeof(root));
 	CHECK(fzn_contact_asked_get(&STORE, root, &back[0]) == FZN_CONTACT_REQUEST_OK
 	              && !back[0].answered
@@ -295,9 +476,7 @@ static void test_the_requests_asked(void)
 	              && back[0].answered
 	              && memcmp(back[0].card.host.owner, root, 32u) == 0,
 	      "a request answered did not read back answered");
-	CHECK(fzn_contact_asked_list(&STORE, back, FZN_CONTACT_ASKED_MAX + 1u, &n)
-	                      == FZN_CONTACT_REQUEST_OK
-	              && n == FZN_CONTACT_ASKED_MAX,
+	CHECK(fzn_contact_asked_list(&STORE, back, 24u, &n) == FZN_CONTACT_REQUEST_OK && n == 20u,
 	      "the requests asked did not all list");
 	memset(root, 0x6f, sizeof(root));
 	CHECK(fzn_contact_asked_answered(&STORE, root) == FZN_CONTACT_REQUEST_ERR_ABSENT,
@@ -323,6 +502,7 @@ int main(void)
 	test_a_request_holds_for_its_host();
 	test_the_queue_of_strangers();
 	test_the_requests_asked();
+	test_thousands();
 	if (failures) {
 		fprintf(stderr, "node contact_request_test: %d of %d checks failed\n", failures, checks);
 		return 1;

@@ -11903,9 +11903,30 @@ SABOTAGES = [
 	(
 		"contact-request-evict-the-oldest",
 		"node/contact_request.c",
-		"\t\t\t                   held[i].request.card.host.owner))\n",
-		"\t\t\t                   held[n - 1u - i].request.card.host.owner))\n",
-		"a full queue lets the newest request go, and a stranger's flood keeps the user's own asker out -- sec 619",
+		"\tif (!r->has_oldest || held->received_at < r->oldest_at) {\n",
+		"\tif (!r->has_oldest || held->received_at > r->oldest_at) {\n",
+		"a full queue lets the newest request go, and a stranger's flood keeps the user's own asker out -- sec 619, 704",
+	),
+	(
+		"contact-request-expired-go-first",
+		"node/contact_request.c",
+		"\tif (held->request.expires_at < r->now) {\n",
+		"\tif (0 && held->request.expires_at < r->now) {\n",
+		"a full queue lets an unanswered request go while expired ones are kept -- sec 704",
+	),
+	(
+		"contact-request-eviction-counted",
+		"node/contact_request.c",
+		"\t\t\t\t(*evicted)++;\n",
+		"\t\t\t\t(void)0;\n",
+		"an unanswered request let go for room goes unsaid -- sec 704",
+	),
+	(
+		"contact-request-bound-held",
+		"node/contact_request.c",
+		"\t\t\tif (room.held < FZN_CONTACT_REQUESTS_MAX || !room.has_oldest)\n",
+		"\t\t\tif (1)\n",
+		"strangers' requests fill the store without bound -- sec 619, 704",
 	),
 	(
 		"contact-request-replaces-its-askers",
@@ -11920,13 +11941,6 @@ SABOTAGES = [
 		"\t    || fzn_contact_request_decode(bytes + 8, len - 8u, &out->request)\n\t               != FZN_CONTACT_REQUEST_OK\n\t    /* FILED UNDER ITS ASKER'S ROOT, or a row nobody kept. */\n\t    || memcmp(out->request.card.host.owner, root, FZN_PUBKEY_LEN) != 0)\n",
 		"\t    || fzn_contact_request_decode(bytes + 8, len - 8u, &out->request)\n\t               != FZN_CONTACT_REQUEST_OK)\n",
 		"a request filed under one root is approved as another -- sec 619",
-	),
-	(
-		"contact-asked-bounded",
-		"node/contact_request.c",
-		"\t        || n >= FZN_CONTACT_ASKED_MAX))\n",
-		"\t        || 0))\n",
-		"requests asked grow without bound, each sent every round -- sec 619",
 	),
 	(
 		"box-is-a-box",

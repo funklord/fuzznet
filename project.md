@@ -69870,3 +69870,35 @@ and stay.
   upgrade's, which this build does not write.
 - `name_arrivals` no longer skips a contact add that answers FULL, which
   is no longer answered; any failure is a store failure.
+
+### Contact requests, built, sec 704
+
+- **Asked by this user** were capped at 16 for the node's life: a row is
+  kept after it is answered, so the 17th request the user ever sent was
+  refused. These are the user's own acts, so they now have no bound.
+  `fzn_contact_asked_each` walks the slot, and `fuzznetd` sends by
+  walking it rather than through a table of 16.
+  `fzn_contact_asked_list` answers `FZN_CONTACT_REQUEST_ERR_ROOM` with
+  the count.
+- **Asked of this user** keep a bound, since anybody can make a root
+  and ask, and the input is a stranger's (fuzzypickles' rule, sec 619).
+  But it was 16, and the 17th let the oldest go with nothing said, while
+  a user whose card is widely seen is asked by many.
+  `FZN_CONTACT_REQUESTS_MAX` is 4096 now.
+  - **The expired go first** at the bound, then the oldest.
+  - **An unexpired request let go is counted**, and `fuzznetd` logs a
+    warning naming the bound.
+  - **The queue walks.** `fzn_contact_request_list` answers ROOM with the
+    count, and `list request` lists into room on the heap, grown when
+    told. It takes an optional start, `list request FROM`, with the reply
+    unchanged otherwise.
+- **Tests.** `contact_request_test` fills a store that walks to the
+  bound, with the sixth request expiring early so that letting the
+  oldest go cannot pass for letting the expired go. The next request
+  removes the expired one and counts none; the one after removes the
+  oldest and counts it; the 4096 list whole, oldest first. It also keeps
+  3000 asked and walks them. **Controls:** expiry ignored, the eviction
+  uncounted, and the bound removed are each caught.
+- **Not tested live:** the paging start of `list request`, and the
+  eviction's warning. `live_pairing` lists requests in `livecheck`, which
+  takes the first growth of the room.

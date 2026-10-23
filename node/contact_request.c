@@ -1,6 +1,7 @@
 /* A contact request: project.md sec 619, and the header. */
 #include "contact_request.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "../wire/bytes.h"
@@ -24,6 +25,8 @@ const char *fzn_contact_request_err_str(fzn_contact_request_err_t err)
 		return "none held";
 	case FZN_CONTACT_REQUEST_ERR_BACKEND:
 		return "the store refused";
+	case FZN_CONTACT_REQUEST_ERR_ROOM:
+		return "more are held than the room given";
 	}
 	return "unknown";
 }
@@ -154,59 +157,161 @@ fzn_contact_request_err_t fzn_contact_request_get(const fzn_persist_ops_t *store
 	return FZN_CONTACT_REQUEST_OK;
 }
 
+/* EVERY HELD REQUEST to `fn`, walked: a row that does not read is
+ * skipped. sec 704. */
+struct request_walk {
+	const fzn_persist_ops_t *store;
+	int (*fn)(void *ctx, const fzn_contact_request_held_t *held);
+	void *ctx;
+};
+
+static int request_walked(void *arg, const uint8_t root[FZN_PUBKEY_LEN])
+{
+	static fzn_contact_request_held_t held;
+	struct request_walk *w = arg;
+
+	if (fzn_contact_request_get(w->store, root, &held) != FZN_CONTACT_REQUEST_OK)
+		return 1;
+	return w->fn(w->ctx, &held);
+}
+
+fzn_contact_request_err_t fzn_contact_request_each(const fzn_persist_ops_t *store,
+                                                   int (*fn)(void *ctx,
+                                                             const fzn_contact_request_held_t *held),
+                                                   void *ctx)
+{
+	struct request_walk w;
+
+	if (!store || !store->load || !fn)
+		return FZN_CONTACT_REQUEST_ERR_MALFORMED;
+	w.store = store;
+	w.fn = fn;
+	w.ctx = ctx;
+	return fzn_persist_each(store, FZN_PERSIST_CONTACT_REQUEST, request_walked, &w)
+	               ? FZN_CONTACT_REQUEST_OK
+	               : FZN_CONTACT_REQUEST_ERR_BACKEND;
+}
+
+struct request_into {
+	fzn_contact_request_held_t *out;
+	size_t cap, n;
+};
+
+static int request_into(void *ctx, const fzn_contact_request_held_t *held)
+{
+	struct request_into *in = ctx;
+
+	if (in->n < in->cap)
+		in->out[in->n] = *held;
+	in->n++;
+	return 1;
+}
+
+static int oldest_first(const void *a, const void *b)
+{
+	const fzn_contact_request_held_t *x = a, *y = b;
+
+	return x->received_at < y->received_at ? -1 : x->received_at > y->received_at;
+}
+
 fzn_contact_request_err_t fzn_contact_request_list(const fzn_persist_ops_t *store,
                                                    fzn_contact_request_held_t *out, size_t cap,
                                                    size_t *count)
 {
-	static uint8_t keys[FZN_CONTACT_REQUESTS_MAX + 1u][FZN_PUBKEY_LEN];
-	size_t n = 0, i, j;
+	struct request_into in;
+	fzn_contact_request_err_t err;
 
 	if (!count)
 		return FZN_CONTACT_REQUEST_ERR_MALFORMED;
 	*count = 0;
-	if (!store || !store->list || !out || cap > FZN_CONTACT_REQUESTS_MAX + 1u)
+	if (!store || (!out && cap))
 		return FZN_CONTACT_REQUEST_ERR_MALFORMED;
-	if (!store->list(store->ctx, FZN_PERSIST_CONTACT_REQUEST, (uint8_t *)keys,
-	                 FZN_CONTACT_REQUESTS_MAX + 1u, &n))
-		return FZN_CONTACT_REQUEST_ERR_BACKEND;
-	for (i = 0; i < n && *count < cap; i++)
-		if (fzn_contact_request_get(store, keys[i], &out[*count]) == FZN_CONTACT_REQUEST_OK)
-			(*count)++;
-	/* OLDEST FIRST: insertion, sixteen at most. */
-	for (i = 1; i < *count; i++)
-		for (j = i; j > 0 && out[j - 1u].received_at > out[j].received_at; j--) {
-			fzn_contact_request_held_t t = out[j - 1u];
-
-			out[j - 1u] = out[j];
-			out[j] = t;
-		}
+	in.out = out;
+	in.cap = cap;
+	in.n = 0;
+	err = fzn_contact_request_each(store, request_into, &in);
+	if (err != FZN_CONTACT_REQUEST_OK)
+		return err;
+	*count = in.n;
+	if (in.n > cap)
+		return FZN_CONTACT_REQUEST_ERR_ROOM;
+	if (in.n > 1u)
+		qsort(out, in.n, sizeof(*out), oldest_first);
 	return FZN_CONTACT_REQUEST_OK;
 }
 
+/* WHAT A KEEP LEARNS IN ONE WALK: how many are held, the oldest, and up to
+ * EXPIRED_BATCH of those past their expiry -- removed once the walk is
+ * over, since a walker may not remove from the slot it walks. */
+#define EXPIRED_BATCH 64u
+
+struct request_room {
+	uint64_t now;
+	size_t held, expired;
+	uint8_t gone[EXPIRED_BATCH][FZN_PUBKEY_LEN];
+	int has_oldest;
+	uint64_t oldest_at;
+	uint8_t oldest[FZN_PUBKEY_LEN];
+};
+
+static int request_counted(void *ctx, const fzn_contact_request_held_t *held)
+{
+	struct request_room *r = ctx;
+
+	r->held++;
+	if (held->request.expires_at < r->now) {
+		if (r->expired < EXPIRED_BATCH)
+			memcpy(r->gone[r->expired++], held->request.card.host.owner, FZN_PUBKEY_LEN);
+		return 1;
+	}
+	if (!r->has_oldest || held->received_at < r->oldest_at) {
+		r->has_oldest = 1;
+		r->oldest_at = held->received_at;
+		memcpy(r->oldest, held->request.card.host.owner, FZN_PUBKEY_LEN);
+	}
+	return 1;
+}
+
 fzn_contact_request_err_t fzn_contact_request_keep(const fzn_persist_ops_t *store,
-                                                   const fzn_contact_request_t *r, uint64_t now)
+                                                   const fzn_contact_request_t *r, uint64_t now,
+                                                   size_t *evicted)
 {
 	static uint8_t bytes[HELD_MAX];
-	static fzn_contact_request_held_t held[FZN_CONTACT_REQUESTS_MAX + 1u];
+	static struct request_room room;
 	fzn_contact_request_held_t same;
-	size_t len = 0, n = 0, i;
+	fzn_contact_request_err_t err;
+	size_t len = 0, i;
 
+	if (evicted)
+		*evicted = 0;
 	if (!store || !store->save || !store->remove || !r)
 		return FZN_CONTACT_REQUEST_ERR_MALFORMED;
 	if (fzn_contact_request_encode(r, bytes + 8, sizeof(bytes) - 8u, &len)
 	    != FZN_CONTACT_REQUEST_OK)
 		return FZN_CONTACT_REQUEST_ERR_MALFORMED;
 	fzn_put_be64(bytes, now);
-	/* ROOM FOR A NEW ONE: the oldest goes when full, unless this one only
-	 * replaces its asker's earlier request. */
+	/* ROOM FOR A NEW ONE, unless it only replaces its asker's earlier
+	 * request: the expired go first, then the oldest while full. */
 	if (fzn_contact_request_get(store, r->card.host.owner, &same) != FZN_CONTACT_REQUEST_OK) {
-		if (fzn_contact_request_list(store, held, FZN_CONTACT_REQUESTS_MAX + 1u, &n)
-		    != FZN_CONTACT_REQUEST_OK)
-			return FZN_CONTACT_REQUEST_ERR_BACKEND;
-		for (i = 0; n - i >= FZN_CONTACT_REQUESTS_MAX; i++)
-			if (!store->remove(store->ctx, FZN_PERSIST_CONTACT_REQUEST,
-			                   held[i].request.card.host.owner))
+		for (;;) {
+			memset(&room, 0, sizeof(room));
+			room.now = now;
+			err = fzn_contact_request_each(store, request_counted, &room);
+			if (err != FZN_CONTACT_REQUEST_OK)
+				return err;
+			for (i = 0; i < room.expired; i++)
+				if (!store->remove(store->ctx, FZN_PERSIST_CONTACT_REQUEST, room.gone[i]))
+					return FZN_CONTACT_REQUEST_ERR_BACKEND;
+			room.held -= room.expired;
+			if (room.expired == EXPIRED_BATCH)
+				continue;
+			if (room.held < FZN_CONTACT_REQUESTS_MAX || !room.has_oldest)
+				break;
+			if (!store->remove(store->ctx, FZN_PERSIST_CONTACT_REQUEST, room.oldest))
 				return FZN_CONTACT_REQUEST_ERR_BACKEND;
+			if (evicted)
+				(*evicted)++;
+		}
 	}
 	return store->save(store->ctx, FZN_PERSIST_CONTACT_REQUEST, r->card.host.owner, bytes,
 	                   8u + len)
@@ -260,11 +365,9 @@ fzn_contact_request_err_t fzn_contact_asked_keep(const fzn_persist_ops_t *store,
                                                  const fzn_contact_asked_t *a)
 {
 	static uint8_t bytes[ASKED_MAX];
-	static uint8_t keys[FZN_CONTACT_ASKED_MAX + 1u][FZN_PUBKEY_LEN];
-	fzn_contact_asked_t held;
-	size_t card_len = 0, req_len = 0, n = 0;
+	size_t card_len = 0, req_len = 0;
 
-	if (!store || !store->save || !store->list || !a)
+	if (!store || !store->save || !a)
 		return FZN_CONTACT_REQUEST_ERR_MALFORMED;
 	if (fzn_contact_card_encode(&a->card, bytes + 3, sizeof(bytes) - 3u, &card_len)
 	            != FZN_CONTACT_CARD_OK
@@ -274,36 +377,81 @@ fzn_contact_request_err_t fzn_contact_asked_keep(const fzn_persist_ops_t *store,
 		return FZN_CONTACT_REQUEST_ERR_MALFORMED;
 	bytes[0] = a->answered ? 1u : 0u;
 	fzn_put_be16(bytes + 1, (uint16_t)card_len);
-	if (fzn_contact_asked_get(store, a->card.host.owner, &held) != FZN_CONTACT_REQUEST_OK
-	    && (!store->list(store->ctx, FZN_PERSIST_CONTACT_ASKED, (uint8_t *)keys,
-	                     FZN_CONTACT_ASKED_MAX + 1u, &n)
-	        || n >= FZN_CONTACT_ASKED_MAX))
-		return FZN_CONTACT_REQUEST_ERR_BACKEND;
 	return store->save(store->ctx, FZN_PERSIST_CONTACT_ASKED, a->card.host.owner, bytes,
 	                   3u + card_len + req_len)
 	               ? FZN_CONTACT_REQUEST_OK
 	               : FZN_CONTACT_REQUEST_ERR_BACKEND;
 }
 
+/* EVERY REQUEST THIS USER SENT to `fn`, walked. sec 704. */
+struct asked_walk {
+	const fzn_persist_ops_t *store;
+	int (*fn)(void *ctx, const fzn_contact_asked_t *asked);
+	void *ctx;
+};
+
+static int asked_walked(void *arg, const uint8_t root[FZN_PUBKEY_LEN])
+{
+	static fzn_contact_asked_t asked;
+	struct asked_walk *w = arg;
+
+	if (fzn_contact_asked_get(w->store, root, &asked) != FZN_CONTACT_REQUEST_OK)
+		return 1;
+	return w->fn(w->ctx, &asked);
+}
+
+fzn_contact_request_err_t fzn_contact_asked_each(const fzn_persist_ops_t *store,
+                                                 int (*fn)(void *ctx,
+                                                           const fzn_contact_asked_t *asked),
+                                                 void *ctx)
+{
+	struct asked_walk w;
+
+	if (!store || !store->load || !fn)
+		return FZN_CONTACT_REQUEST_ERR_MALFORMED;
+	w.store = store;
+	w.fn = fn;
+	w.ctx = ctx;
+	return fzn_persist_each(store, FZN_PERSIST_CONTACT_ASKED, asked_walked, &w)
+	               ? FZN_CONTACT_REQUEST_OK
+	               : FZN_CONTACT_REQUEST_ERR_BACKEND;
+}
+
+struct asked_into {
+	fzn_contact_asked_t *out;
+	size_t cap, n;
+};
+
+static int asked_into(void *ctx, const fzn_contact_asked_t *asked)
+{
+	struct asked_into *in = ctx;
+
+	if (in->n < in->cap)
+		in->out[in->n] = *asked;
+	in->n++;
+	return 1;
+}
+
 fzn_contact_request_err_t fzn_contact_asked_list(const fzn_persist_ops_t *store,
                                                  fzn_contact_asked_t *out, size_t cap,
                                                  size_t *count)
 {
-	static uint8_t keys[FZN_CONTACT_ASKED_MAX + 1u][FZN_PUBKEY_LEN];
-	size_t n = 0, i;
+	struct asked_into in;
+	fzn_contact_request_err_t err;
 
 	if (!count)
 		return FZN_CONTACT_REQUEST_ERR_MALFORMED;
 	*count = 0;
-	if (!store || !store->list || !out)
+	if (!store || (!out && cap))
 		return FZN_CONTACT_REQUEST_ERR_MALFORMED;
-	if (!store->list(store->ctx, FZN_PERSIST_CONTACT_ASKED, (uint8_t *)keys,
-	                 FZN_CONTACT_ASKED_MAX + 1u, &n))
-		return FZN_CONTACT_REQUEST_ERR_BACKEND;
-	for (i = 0; i < n && *count < cap; i++)
-		if (fzn_contact_asked_get(store, keys[i], &out[*count]) == FZN_CONTACT_REQUEST_OK)
-			(*count)++;
-	return FZN_CONTACT_REQUEST_OK;
+	in.out = out;
+	in.cap = cap;
+	in.n = 0;
+	err = fzn_contact_asked_each(store, asked_into, &in);
+	if (err != FZN_CONTACT_REQUEST_OK)
+		return err;
+	*count = in.n;
+	return in.n > cap ? FZN_CONTACT_REQUEST_ERR_ROOM : FZN_CONTACT_REQUEST_OK;
 }
 
 fzn_contact_request_err_t fzn_contact_asked_answered(const fzn_persist_ops_t *store,
