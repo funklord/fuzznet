@@ -1276,6 +1276,51 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	checks -= 1;
 }
 
+/* FORTY-ONE DEVICES, sec 704: past the core's own working room of 32 a
+ * merge is refused; given room of the caller's, every device's line is
+ * taken in, oldest first across them. They were 32 for every listing. */
+static void test_forty_one_devices(void)
+{
+	static device_t W;
+	static uint8_t keys[41][FZN_PUBKEY_LEN];
+	static fzn_messages_work_t work[64];
+	static uint64_t work_at[64], at[41];
+	size_t i, marks = 0;
+	int wrote = 1;
+
+	setup();
+	memcpy(keys[0], A.pub, FZN_PUBKEY_LEN);
+	for (i = 0; i < 40u && wrote; i++) {
+		device_up(&W, (uint8_t)(0x40u + i), 1u);
+		W.m.devices = (const uint8_t(*)[FZN_PUBKEY_LEN])W.pub;
+		memcpy(keys[i + 1u], W.pub, FZN_PUBKEY_LEN);
+		clock_ms += 1000u;
+		wrote = write_line(&W, X, FZN_MESSAGE_IN, (uint8_t)(10u + i), "w");
+	}
+	CHECK(wrote, "fixture: forty devices' lines");
+	(void)fzn_node_journal_init_store(&A.journal, &rops, &A.sign, &HASH);
+	for (i = 0; i < 41u; i++)
+		(void)fzn_node_journal_follow_stream(&A.journal, keys[i], FZN_MESSAGE_STREAM, NULL);
+	A.m.devices = (const uint8_t(*)[FZN_PUBKEY_LEN])keys;
+	A.m.device_count = 41u;
+	CHECK(fzn_messages_absorb(&A.m, at, NULL, NULL, &marks) == FZN_MESSAGES_ERR_MALFORMED,
+	      "the control: the core's own room of 32 merged 41 devices");
+	A.m.work = work;
+	A.m.work_at = work_at;
+	A.m.work_cap = 64u;
+	memset(at, 0, sizeof(at));
+	CHECK(fzn_messages_absorb(&A.m, at, NULL, NULL, &marks) == FZN_MESSAGES_OK
+	              && list(&A, X, 0u, 20u) && count == 20u && more
+	              && page[0].id[0] == 49u && page[19].id[0] == 30u
+	              && list(&A, X, 40u, 5u) && count == 0u,
+	      "given room, 41 devices did not merge, newest first");
+	CHECK(list(&A, X, 20u, 20u) && count == 20u && page[19].id[0] == 10u,
+	      "the first device's line was not taken in");
+	A.m.work = NULL;
+	A.m.work_at = NULL;
+	A.m.work_cap = 0u;
+}
+
 int main(void)
 {
 	fzn_aead_monocypher_init(&AEAD);
@@ -1312,6 +1357,7 @@ int main(void)
 	test_a_trim_reaches_every_device_key();
 	test_reindex_rebuilds_from_nothing();
 	test_a_month_forgotten_leaves_shells();
+	test_forty_one_devices();
 	if (failures) {
 		fprintf(stderr, "messages_test: %d of %d checks failed\n", failures, checks);
 		return 1;

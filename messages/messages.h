@@ -65,8 +65,19 @@
 #include "../persist/persist.h"
 #include "../session/random.h"
 
-/* The most devices a listing merges: this one and the user's others. */
+/* THE CORE'S OWN ROOM for merging devices, not a limit: this one and the
+ * user's others, as many as the caller gives working room for (`work`
+ * below). sec 704: it was a bound of 32, past which every listing and every
+ * absorb was refused. */
 #define FZN_MESSAGES_DEVICES_MAX 32u
+
+/* WHAT AN ABSORB KEEPS PER DEVICE while it merges them: how far the
+ * device's stream is held, where it was absorbed to, and when its next
+ * record was issued. The caller's, one per device. */
+typedef struct fzn_messages_work {
+	uint64_t to, done, start, issued;
+	int loaded;
+} fzn_messages_work_t;
 /* The most lines a page holds, and the deepest a listing walks: offset and
  * page together. A deeper page is refused, not cut short. */
 #define FZN_MESSAGES_PAGE_MAX 20u
@@ -124,6 +135,12 @@ typedef struct fzn_messages {
 	/* The devices whose lines a listing merges, this one among them. */
 	const uint8_t (*devices)[FZN_PUBKEY_LEN];
 	size_t device_count;
+	/* WORKING ROOM for as many devices, sec 704: `work` and `work_at`,
+	 * `work_cap` of each, the caller's. NULL for the core's own
+	 * FZN_MESSAGES_DEVICES_MAX. */
+	fzn_messages_work_t *work;
+	uint64_t *work_at;
+	size_t work_cap;
 	/* NULL keeps no items: lines are then handed on by the journal alone,
 	 * for its window. */
 	const fzn_messages_items_t *items;

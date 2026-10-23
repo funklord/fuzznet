@@ -165,7 +165,19 @@ fzn_messages_err_t fzn_node_messages_init(fzn_node_messages_t *nm,
 	nm->m.aead = aead;
 	nm->m.hash = hash;
 	nm->m.now = now;
+	/* THE OWN ROOM FIRST, sec 704. */
+	nm->devices = nm->own_devices;
+	nm->cursors = nm->own_cursors;
+	nm->at = nm->own_at;
+	nm->work = nm->own_work;
+	nm->devices_cap = FZN_MESSAGES_DEVICES_MAX;
+	nm->lacks = nm->own_lacks;
+	nm->gives = nm->own_gives;
+	nm->keys_cap = FZN_NODE_MESSAGES_KEYS_MAX;
 	nm->m.devices = (const uint8_t(*)[FZN_PUBKEY_LEN])nm->devices;
+	nm->m.work = nm->work;
+	nm->m.work_at = nm->at;
+	nm->m.work_cap = nm->devices_cap;
 	nm->buckets.store = store;
 	nm->buckets.hash = hash;
 	nm->items.add = item_add;
@@ -176,6 +188,55 @@ fzn_messages_err_t fzn_node_messages_init(fzn_node_messages_t *nm,
 	                                                     : FZN_MESSAGES_ERR_JOURNAL;
 }
 
+int fzn_node_messages_use_devices(fzn_node_messages_t *nm, uint8_t (*devices)[FZN_PUBKEY_LEN],
+                                  fzn_node_message_cursor_t *cursors, uint64_t *at,
+                                  fzn_messages_work_t *work, size_t cap)
+{
+	if (!nm || !devices || !cursors || !at || !work || cap < nm->m.device_count
+	    || cap < nm->n_cursors || cap == 0u)
+		return 0;
+	memmove(devices, nm->devices, nm->m.device_count * sizeof(*devices));
+	memmove(cursors, nm->cursors, nm->n_cursors * sizeof(*cursors));
+	nm->devices = devices;
+	nm->cursors = cursors;
+	nm->at = at;
+	nm->work = work;
+	nm->devices_cap = cap;
+	nm->devices_wanted = 0;
+	nm->m.devices = (const uint8_t(*)[FZN_PUBKEY_LEN])devices;
+	nm->m.work = work;
+	nm->m.work_at = at;
+	nm->m.work_cap = cap;
+	return 1;
+}
+
+int fzn_node_messages_use_keys(fzn_node_messages_t *nm, fzn_node_message_key_t *lacks,
+                               fzn_node_message_key_t *gives, size_t cap)
+{
+	if (!nm || !lacks || !gives || cap < nm->n_lacks || cap < nm->n_gives || cap == 0u)
+		return 0;
+	memmove(lacks, nm->lacks, nm->n_lacks * sizeof(*lacks));
+	memmove(gives, nm->gives, nm->n_gives * sizeof(*gives));
+	nm->lacks = lacks;
+	nm->gives = gives;
+	nm->keys_cap = cap;
+	nm->keys_wanted = 0;
+	/* KEYS DROPPED FOR WANT OF ROOM are noted again only by an absorb from
+	 * each stream's base, which a start makes: so the cursors go back
+	 * there, and the next absorb notes every key as a start would. Taking a
+	 * line in again is what a start does already. */
+	if (nm->dropped) {
+		size_t k;
+
+		for (k = 0; k < nm->n_cursors; k++)
+			nm->cursors[k].at = fzn_node_journal_base(nm->m.journal, nm->cursors[k].key,
+			                                          FZN_MESSAGE_STREAM)
+			                    - 1u;
+		nm->dropped = 0;
+	}
+	return 1;
+}
+
 size_t fzn_node_messages_devices(fzn_node_messages_t *nm, const uint8_t (*keys)[FZN_PUBKEY_LEN],
                                  size_t n)
 {
@@ -183,7 +244,10 @@ size_t fzn_node_messages_devices(fzn_node_messages_t *nm, const uint8_t (*keys)[
 
 	if (!nm || (!keys && n))
 		return 0;
-	for (i = 0; i <= n && count < FZN_MESSAGES_DEVICES_MAX; i++) {
+	/* MORE THAN THE ROOM, sec 704: said, for the caller to give it. */
+	if (n + 1u > nm->devices_cap)
+		nm->devices_wanted = n + 1u;
+	for (i = 0; i <= n && count < nm->devices_cap; i++) {
 		const uint8_t *key = i == 0u ? nm->m.issuer : keys[i - 1u];
 		int listed = 0;
 
@@ -322,8 +386,10 @@ static void note_key(fzn_node_messages_t *nm, fzn_node_message_key_t *list, size
 	for (i = 0; i < *n; i++)
 		if (key_place_is(&list[i], contact, epoch, device))
 			return;
-	if (*n >= FZN_NODE_MESSAGES_KEYS_MAX) {
+	if (*n >= nm->keys_cap) {
 		nm->dropped++;
+		if (nm->keys_wanted < *n + 1u)
+			nm->keys_wanted = *n + 1u;
 		return;
 	}
 	memcpy(list[*n].contact, contact, FZN_PUBKEY_LEN);
@@ -362,44 +428,56 @@ static void seen(void *ctx, const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoc
 	}
 }
 
+/* WHERE `device` WAS LAST ABSORBED TO, or -- `make` -- a cursor made at its
+ * base. NULL with no room, `devices_wanted` then set. */
+static uint64_t *cursor_at(fzn_node_messages_t *nm, const uint8_t device[FZN_PUBKEY_LEN], int make)
+{
+	size_t k;
+
+	for (k = 0; k < nm->n_cursors; k++)
+		if (same_key(nm->cursors[k].key, device))
+			return &nm->cursors[k].at;
+	if (!make)
+		return NULL;
+	if (nm->n_cursors >= nm->devices_cap) {
+		if (nm->devices_wanted < nm->n_cursors + 1u)
+			nm->devices_wanted = nm->n_cursors + 1u;
+		return NULL;
+	}
+	memcpy(nm->cursors[nm->n_cursors].key, device, FZN_PUBKEY_LEN);
+	nm->cursors[nm->n_cursors].at =
+	        fzn_node_journal_base(nm->m.journal, device, FZN_MESSAGE_STREAM) - 1u;
+	return &nm->cursors[nm->n_cursors++].at;
+}
+
 fzn_messages_err_t fzn_node_messages_absorb(fzn_node_messages_t *nm,
                                             fzn_node_messages_tally_t *tally)
 {
-	size_t d, k;
+	size_t d, marks = 0;
+	fzn_messages_err_t err;
 
 	if (!nm || !tally)
 		return FZN_MESSAGES_ERR_MALFORMED;
-	uint64_t at[FZN_MESSAGES_DEVICES_MAX];
-	uint64_t *where[FZN_MESSAGES_DEVICES_MAX];
-	size_t marks = 0;
-	fzn_messages_err_t err;
-
 	memset(tally, 0, sizeof(*tally));
 	/* EACH DEVICE FROM WHERE THIS RUN LAST READ IT, from its base at start
 	 * (sec 547): what was taken in before is not taken in again, but its
 	 * keys are noted again. */
 	for (d = 0; d < nm->m.device_count; d++) {
-		where[d] = NULL;
-		for (k = 0; k < nm->n_cursors && !where[d]; k++)
-			if (same_key(nm->cursors[k].key, nm->devices[d]))
-				where[d] = &nm->cursors[k].at;
-		if (!where[d] && nm->n_cursors < FZN_MESSAGES_DEVICES_MAX) {
-			memcpy(nm->cursors[nm->n_cursors].key, nm->devices[d], FZN_PUBKEY_LEN);
-			nm->cursors[nm->n_cursors].at =
-			        fzn_node_journal_base(nm->m.journal, nm->devices[d], FZN_MESSAGE_STREAM)
-			        - 1u;
-			where[d] = &nm->cursors[nm->n_cursors++].at;
-		}
-		at[d] = where[d] ? *where[d] : 0u;
+		const uint64_t *was = cursor_at(nm, nm->devices[d], 1);
+
+		nm->at[d] = was ? *was : 0u;
 	}
-	err = fzn_messages_absorb(&nm->m, at, seen, nm, &marks);
+	err = fzn_messages_absorb(&nm->m, nm->at, seen, nm, &marks);
 	if (err != FZN_MESSAGES_OK)
 		return err;
-	for (d = 0; d < nm->m.device_count; d++)
-		if (where[d]) {
-			tally->read += *where[d] != at[d];
-			*where[d] = at[d];
+	for (d = 0; d < nm->m.device_count; d++) {
+		uint64_t *was = cursor_at(nm, nm->devices[d], 0);
+
+		if (was) {
+			tally->read += *was != nm->at[d];
+			*was = nm->at[d];
 		}
+	}
 	tally->marks = marks;
 	tally->lacking = nm->n_lacks;
 	return FZN_MESSAGES_OK;
@@ -568,7 +646,11 @@ static int keys_next(fzn_node_messages_rounding_t *r, uint8_t *request, size_t *
 	}
 	if (r->phase == KEYS_GIVE) {
 		r->phase = KEYS_WANT;
-		r->total = nm->n_lacks;
+		/* THE FIRST FZN_NODE_MESSAGES_KEYS_MAX LACKED, sec 704: those
+		 * answered are lacked no more, and the rest come in the rounds
+		 * after. */
+		r->total = nm->n_lacks < FZN_NODE_MESSAGES_KEYS_MAX ? nm->n_lacks
+		                                                     : FZN_NODE_MESSAGES_KEYS_MAX;
 		memcpy(r->asked, nm->lacks, r->total * sizeof(r->asked[0]));
 		r->i = 0;
 	}

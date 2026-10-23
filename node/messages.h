@@ -93,8 +93,12 @@
 #define FZN_NODE_MESSAGES_REPLY_MAX                                                            \
 	(FZN_NODE_MESSAGES_HEAD_LEN + FZN_NODE_MESSAGES_PER * FZN_NODE_MESSAGES_HELD_LEN)
 
-/* The keys remembered between absorbs: lacked, and this node's own to give.
- * Past these, the rest are learned again at the next start. */
+/* THE KEYS REMEMBERED BETWEEN ABSORBS, lacked and this node's own to give:
+ * the struct's own room until the caller gives more
+ * (`fzn_node_messages_use_keys`), told by `keys_wanted`. Past it they were
+ * learned again only at the next start, and a line whose key was dropped
+ * stayed unreadable until then. sec 704. Also the most a keys round asks
+ * for at once: the rest are asked in the rounds after. */
 #define FZN_NODE_MESSAGES_KEYS_MAX 64u
 
 /* One conversation key's place: whose lines, which month, which device. */
@@ -104,19 +108,28 @@ typedef struct fzn_node_message_key {
 	uint8_t device[FZN_PUBKEY_LEN];
 } fzn_node_message_key_t;
 
+/* Where a device's stream was last absorbed to. */
+typedef struct fzn_node_message_cursor {
+	uint8_t key[FZN_PUBKEY_LEN];
+	uint64_t at;
+} fzn_node_message_cursor_t;
+
 typedef struct fzn_node_messages {
 	fzn_messages_t m;
-	uint8_t devices[FZN_MESSAGES_DEVICES_MAX][FZN_PUBKEY_LEN];
-	/* Where each device's stream was last absorbed to. */
-	struct {
-		uint8_t key[FZN_PUBKEY_LEN];
-		uint64_t at;
-	} cursors[FZN_MESSAGES_DEVICES_MAX];
-	size_t n_cursors;
-	fzn_node_message_key_t lacks[FZN_NODE_MESSAGES_KEYS_MAX];
-	size_t n_lacks;
-	fzn_node_message_key_t gives[FZN_NODE_MESSAGES_KEYS_MAX];
-	size_t n_gives;
+	/* THE DEVICES, sec 704: this node and the user's others, each with a
+	 * cursor, an absorb's position and the core's working room -- four
+	 * tables of `devices_cap`, the struct's own until the caller gives
+	 * more (`fzn_node_messages_use_devices`). `devices_wanted` is how many
+	 * a listing or a cursor found no room for, 0 when none did. They were
+	 * 32, and the 33rd device was left out of every listing unsaid. */
+	uint8_t (*devices)[FZN_PUBKEY_LEN];
+	fzn_node_message_cursor_t *cursors;
+	uint64_t *at;
+	fzn_messages_work_t *work;
+	size_t devices_cap, n_cursors, devices_wanted;
+	/* THE KEYS, lacked and to give: `keys_cap` each. */
+	fzn_node_message_key_t *lacks, *gives;
+	size_t keys_cap, n_lacks, n_gives, keys_wanted;
 	/* Keys noted past the room above. */
 	size_t dropped;
 	/* SET BY A WRITE THROUGH THE VERBS, sec 528, so the daemon pushes it
@@ -139,6 +152,13 @@ typedef struct fzn_node_messages {
 	int (*takes_over)(void *ctx, const uint8_t writer[FZN_PUBKEY_LEN],
 	                  const uint8_t id[FZN_MESSAGE_ID_LEN]);
 	void *takes_over_ctx;
+	/* THE OWN ROOM the tables above start on. */
+	uint8_t own_devices[FZN_MESSAGES_DEVICES_MAX][FZN_PUBKEY_LEN];
+	fzn_node_message_cursor_t own_cursors[FZN_MESSAGES_DEVICES_MAX];
+	uint64_t own_at[FZN_MESSAGES_DEVICES_MAX];
+	fzn_messages_work_t own_work[FZN_MESSAGES_DEVICES_MAX];
+	fzn_node_message_key_t own_lacks[FZN_NODE_MESSAGES_KEYS_MAX];
+	fzn_node_message_key_t own_gives[FZN_NODE_MESSAGES_KEYS_MAX];
 } fzn_node_messages_t;
 
 typedef struct fzn_node_messages_tally {
@@ -159,10 +179,20 @@ fzn_messages_err_t fzn_node_messages_init(fzn_node_messages_t *nm,
                                           const fzn_aead_ops_t *aead,
                                           const fzn_hash_ops_t *hash, uint64_t (*now)(void));
 
+/* LARGER TABLES OF THE CALLER'S, sec 704, what is held copied over; each
+ * must outlive `nm`. For the devices: `devices`, `cursors`, `at` and `work`,
+ * `cap` of each. For the keys: `lacks` and `gives`, `cap` of each. 0 for
+ * room smaller than what is held. */
+int fzn_node_messages_use_devices(fzn_node_messages_t *nm, uint8_t (*devices)[FZN_PUBKEY_LEN],
+                                  fzn_node_message_cursor_t *cursors, uint64_t *at,
+                                  fzn_messages_work_t *work, size_t cap);
+int fzn_node_messages_use_keys(fzn_node_messages_t *nm, fzn_node_message_key_t *lacks,
+                               fzn_node_message_key_t *gives, size_t cap);
+
 /* THE DEVICES: this node first, then `keys` (`n` of them) not already
  * listed, each one's FZN_MESSAGE_STREAM followed in the journal. How many
- * are listed; a device past FZN_MESSAGES_DEVICES_MAX, or one the journal
- * has no room to follow, is left out. */
+ * are listed; one past `devices_cap` is left out and `devices_wanted` set,
+ * and one the journal has no room to follow is left out. */
 size_t fzn_node_messages_devices(fzn_node_messages_t *nm, const uint8_t (*keys)[FZN_PUBKEY_LEN],
                                  size_t n);
 

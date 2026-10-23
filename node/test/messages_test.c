@@ -52,7 +52,7 @@ static uint64_t now_ms(void)
 
 /* ---- a persist store in memory ---------------------------------------------- */
 
-#define ROWS 256u
+#define ROWS 512u
 
 typedef struct row {
 	int used;
@@ -60,7 +60,8 @@ typedef struct row {
 	int has_subject;
 	uint8_t subject[FZN_PUBKEY_LEN];
 	size_t len;
-	uint8_t bytes[1600];
+	/* A bucket's id chunk is 1632 bytes. */
+	uint8_t bytes[2048];
 } row_t;
 
 typedef struct mem {
@@ -152,7 +153,7 @@ static size_t rows_in(mem_t *m, fzn_persist_slot_t slot)
 /* ---- record stores: one shared, as the journal sync leaves every device,
  * and one per device, for hosts joined only by the exchange ---------------- */
 
-#define RECS 64u
+#define RECS 192u
 
 typedef struct recs {
 	struct rec {
@@ -1589,6 +1590,51 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 	checks -= 1;
 }
 
+/* SEVENTY DEVICES, sec 704: listed into the struct's own 32 the rest are
+ * wanted, and given room all 71 list; their 70 month keys overrun the own
+ * 64 lacked, and given room the next absorb notes all 70 again -- where the
+ * dropped were learned only at the next start. */
+static void test_seventy_devices(void)
+{
+	static device_t W;
+	static uint8_t keys[70][FZN_PUBKEY_LEN];
+	static uint8_t room_devices[128][FZN_PUBKEY_LEN];
+	static fzn_node_message_cursor_t room_cursors[128];
+	static uint64_t room_at[128];
+	static fzn_messages_work_t room_work[128];
+	static fzn_node_message_key_t room_lacks[128], room_gives[128];
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	size_t i;
+	int wrote = 1;
+
+	setup();
+	for (i = 0; i < 70u && wrote; i++) {
+		device_up(&W, (uint8_t)(0x80u + i));
+		memcpy(keys[i], W.pub, FZN_PUBKEY_LEN);
+		memset(id, (int)(0x40u + i), sizeof(id));
+		wrote = fzn_messages_write(&W.nm.m, X, FZN_MESSAGE_IN, id, 10u + i, "w", 1u)
+		        == FZN_MESSAGES_OK;
+	}
+	CHECK(wrote, "fixture: seventy devices' lines");
+	(void)fzn_node_journal_init_store(&A.journal, &rops, &A.sign, &HASH);
+	CHECK(fzn_node_messages_devices(&A.nm, (const uint8_t(*)[FZN_PUBKEY_LEN])keys, 70u) == 32u
+	              && A.nm.devices_wanted == 71u,
+	      "the control: the own 32 listed more, or did not say how many were wanted");
+	CHECK(fzn_node_messages_use_devices(&A.nm, room_devices, room_cursors, room_at, room_work,
+	                                    128u)
+	              && fzn_node_messages_devices(&A.nm, (const uint8_t(*)[FZN_PUBKEY_LEN])keys,
+	                                           70u)
+	                         == 71u
+	              && A.nm.devices_wanted == 0u,
+	      "given room, the 71 devices did not all list");
+	CHECK(fzn_node_messages_absorb(&A.nm, &t) == FZN_MESSAGES_OK && t.lacking == 64u
+	              && A.nm.keys_wanted == 65u && A.nm.dropped == 6u,
+	      "the 70 keys did not overrun the own 64, saying so");
+	CHECK(fzn_node_messages_use_keys(&A.nm, room_lacks, room_gives, 128u)
+	              && fzn_node_messages_absorb(&A.nm, &t) == FZN_MESSAGES_OK && t.lacking == 70u,
+	      "given room, the next absorb did not note the six dropped keys again");
+}
+
 int main(void)
 {
 	fzn_aead_monocypher_init(&AEAD);
@@ -1613,6 +1659,7 @@ int main(void)
 	test_a_line_settles_once_every_keeping_device_holds_it();
 	test_a_line_is_taken_over_from_a_writer_gone();
 	test_a_holds_question_is_exact();
+	test_seventy_devices();
 	CHECK(gives_seen > 0u && keys_left == 0u,
 	      "a give by steps left its keys in the request, or no round gave any");
 	if (failures) {

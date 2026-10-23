@@ -1526,6 +1526,68 @@ static void test_a_grant_is_its_grantors(void)
 /* A ROSTER TABLE FULL, sec 704: the root's second contact meets a table of
  * one and the round stops with it unmarked; given room, the next round
  * takes it. Refused, it would be marked applied and lost for good. */
+/* A SUCCESSION SET FULL, sec 704, as the roster above: the root's second
+ * re-key meets a set of one and the round stops with it unmarked; given
+ * room, the next round takes it. Refused, it was marked applied and lost. */
+static void test_a_full_succession_set_waits(void)
+{
+	static fzn_node_journal_t nj;
+	static fzn_node_successions_t ns;
+	static fzn_revocation_t rev_entries[4];
+	static fzn_node_apply_t ap;
+	static fzn_succession_t one[1], room[8];
+	fzn_revocation_store_t revs;
+	fzn_persist_ops_t store = { 0 };
+	fzn_node_apply_tally_t t;
+	fzn_cap_id_t cap;
+	uint8_t r[FZN_PUBKEY_LEN], d[FZN_PUBKEY_LEN], d2[FZN_PUBKEY_LEN], e[FZN_PUBKEY_LEN];
+	uint8_t e2[FZN_PUBKEY_LEN], now[FZN_PUBKEY_LEN], succ[FZN_SUCCESSION_LEN];
+
+	memset(rows, 0, sizeof(rows));
+	store.load = mem_load;
+	store.save = mem_save;
+	store.list = mem_list;
+	memset(&cap, 0x61, sizeof(cap));
+	key(r, 0x1b);
+	key(d, 0x6b);
+	key(d2, 0x7b);
+	key(e, 0x8b);
+	key(e2, 0x9b);
+	CHECK(fzn_node_journal_init(&nj, dir, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && fzn_revocation_store_init(&revs, rev_entries, 4) == FZN_CHAIN_OK
+	              && fzn_node_successions_init(&ns, &HASH) == FZN_NODE_REVOKE_OK
+	              && fzn_node_successions_use(&ns, one, 1u) == FZN_NODE_REVOKE_OK,
+	      "fixture: the journal, and a succession set of one");
+	memset(&ap, 0, sizeof(ap));
+	ap.journal = &nj;
+	ap.revocations = &revs;
+	ap.successions = &ns;
+	ap.store = &store;
+	ap.root = r;
+	ap.capability = &cap;
+	ap.sign = &SIGN;
+	ap.hash = &HASH;
+	signing_as = 0x1b;
+	CHECK(fzn_succession_issue(r, d, d2, NULL, &SIGN, succ) == FZN_CHAIN_OK
+	              && put(&nj, 0x1b, succ, sizeof(succ))
+	              && fzn_succession_issue(r, e, e2, NULL, &SIGN, succ) == FZN_CHAIN_OK
+	              && put(&nj, 0x1b, succ, sizeof(succ)),
+	      "fixture: R's two re-keys in R's stream");
+	/* RESOLVED is what a key reads as: itself where nothing succeeds it. */
+	CHECK(fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_REFUSED
+	              && fzn_node_successions_resolve(&ns, &revs, r, d, now)
+	              && memcmp(now, d2, FZN_PUBKEY_LEN) == 0
+	              && fzn_node_successions_resolve(&ns, &revs, r, e, now)
+	              && memcmp(now, e2, FZN_PUBKEY_LEN) != 0,
+	      "a re-key meeting a full set was not held back");
+	CHECK(fzn_node_successions_use(&ns, room, 8u) == FZN_NODE_REVOKE_OK
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && fzn_node_successions_resolve(&ns, &revs, r, e, now)
+	              && memcmp(now, e2, FZN_PUBKEY_LEN) == 0,
+	      "the re-key held back for room was not taken once the set had it");
+	fzn_node_journal_close(&nj);
+}
+
 static void test_a_full_roster_waits(void)
 {
 	static fzn_node_journal_t nj;
@@ -1713,6 +1775,7 @@ int main(void)
 	test_a_grant_is_its_grantors();
 	test_settings_at_thousands();
 	test_a_full_roster_waits();
+	test_a_full_succession_set_waits();
 	test_an_index_of_thousands();
 	test_siblings_of_hundreds();
 	/* EVERY STREAM FILE, BY NAME, then the directory. */

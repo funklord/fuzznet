@@ -11490,8 +11490,8 @@ SABOTAGES = [
 	(
 		"node-messages-cursor-kept",
 		"node/messages.c",
-		"\t\t\tif (same_key(nm->cursors[k].key, nm->devices[d]))",
-		"\t\t\tif (0)",
+		"\t\tif (same_key(nm->cursors[k].key, device))\n\t\t\treturn &nm->cursors[k].at;\n\tif (!make)",
+		"\t\tif (0)\n\t\t\treturn &nm->cursors[k].at;\n\tif (!make)",
 		"every absorb reads every stream from the beginning again -- sec 527",
 	),
 	(
@@ -11518,8 +11518,8 @@ SABOTAGES = [
 	(
 		"messages-absorb-oldest-first",
 		"messages/messages.c",
-		"\t\t\t    || fzn_record_issued_at(heads[d]) < fzn_record_issued_at(heads[best]))",
-		"\t\t\t    || 0)",
+		"\t\t\tif (best == m->device_count || w[d].issued < w[best].issued)",
+		"\t\t\tif (best == m->device_count)",
 		"streams are taken in device by device, so a rebuilt conversation is out of order -- sec 528",
 	),
 	(
@@ -11906,6 +11906,34 @@ SABOTAGES = [
 		"\tif (!r->has_oldest || held->received_at < r->oldest_at) {\n",
 		"\tif (!r->has_oldest || held->received_at > r->oldest_at) {\n",
 		"a full queue lets the newest request go, and a stranger's flood keeps the user's own asker out -- sec 619, 704",
+	),
+	(
+		"node-messages-devices-wanted",
+		"node/messages.c",
+		"\tif (n + 1u > nm->devices_cap)\n\t\tnm->devices_wanted = n + 1u;\n",
+		"",
+		"a device past the messages' room is left out of every listing unsaid, and nobody gives it room -- sec 704",
+	),
+	(
+		"node-messages-keys-renoted",
+		"node/messages.c",
+		"\tif (nm->dropped) {\n",
+		"\tif (0 && nm->dropped) {\n",
+		"keys dropped for want of room stay dropped once there is room, and their lines unreadable until a restart -- sec 704",
+	),
+	(
+		"node-messages-keys-wanted",
+		"node/messages.c",
+		"\t\tif (nm->keys_wanted < *n + 1u)\n\t\t\tnm->keys_wanted = *n + 1u;\n",
+		"",
+		"a key past the keys' room is dropped unsaid, and nobody gives it room -- sec 704",
+	),
+	(
+		"messages-absorb-room-held",
+		"messages/messages.c",
+		"\tif (!ready(m) || !at || !m->devices || m->device_count > cap)\n",
+		"\tif (!ready(m) || !at || !m->devices)\n",
+		"an absorb of more devices than its working room writes past it -- sec 704",
 	),
 	(
 		"siblings-list-says-room",

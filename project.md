@@ -70062,6 +70062,53 @@ and stay.
   64, told 300, and into room for all. **Control:** ROOM read as BACKEND
   is caught. **Not tested live:** an estate of more than 64 machines
   needs that many members, which no live test starts.
-- **The 22 probes run again** (see *Revocations*): still running in the
-  repaired scratch copy when this was committed; their verdicts replace
-  this line.
+- **The 22 probes run again** (see *Revocations*), in the repaired
+  scratch copy: 21 caught, each by a named check in a suite.
+  `revoke-succession-full-waits` survived: nothing tested a re-key
+  meeting a full set from the journal, and the first, void run had read
+  it CAUGHT. `apply_test` now holds a root's second re-key back at a set
+  of one and takes it once given room; the probe's mutation fails both
+  checks.
+
+### Messages, built, sec 704
+
+- **The user's devices were merged 32 at a time.** The core's absorb
+  kept a record buffer, a head and three cursors per device in tables of
+  32, and every other entry point refused a list longer than that. The
+  node layer listed the 33rd device nowhere and said nothing; its
+  cursors were 32 too. `fuzznetd` warns "not every node's conversations
+  are followed" when that happens.
+- **The core** keeps, per device, only when its next record was issued,
+  and reads again the one it takes, so one record's room serves however
+  many devices. Its per-device working state is the caller's
+  (`fzn_messages_t.work`, `work_at`, `work_cap`), its own 32 otherwise.
+  The other entry points no longer bound the count at all.
+- **The node layer** keeps devices, cursors, absorb positions and the
+  core's working room in four tables of the caller's
+  (`fzn_node_messages_use_devices`), starting on its own 32, and says
+  `devices_wanted` when a listing or a cursor finds them full.
+  `fuzznetd` gives room before each listing.
+- **The keys** lacked and to give were 64 each, past which a key was
+  dropped and "learned again at the next start". So a line whose key
+  was dropped stayed unreadable until a restart. They are tables of the
+  caller's now (`fzn_node_messages_use_keys`), and `keys_wanted` says
+  when one fills. When room is given after a drop, every cursor goes back
+  to its stream's base, so the next absorb notes every key as a start
+  would. `fuzznetd` grows them in its loop, at three quarters full or
+  when one filled. A keys round still asks for 64 at once; the rest are
+  asked in the rounds after, as answered ones drop out.
+- **Tests.** `messages/test/messages_test` merges 41 devices. The core's
+  own 32 refuse it, and given room all 40 lines come in, newest first,
+  with the first device's line among them. `node/test/messages_test`
+  lists 70 devices: the own 32 say 71 are wanted, and given room all
+  list. Their 70 keys overrun the own 64, dropping 6. Given room, the
+  next absorb lacks all 70. **Controls:** the merge ordered newest first
+  fails four checks; room given without the cursors' reset leaves the 6
+  dropped. The node fixture's rows were 1600 bytes, smaller than a
+  bucket's 1632-byte id chunk, which read as the store refusing; they
+  are 2048 now.
+- **Not tested live:** more than 32 devices needs that many members.
+- **Not yet grown:** `WAITS_MAX`, 256 wants for keys of lines filed from
+  items, held in one row. It is the next one here, with the journal's
+  followed streams: with 300 paired devices `livecheck-faults` logs "no
+  room to follow another node's notes".

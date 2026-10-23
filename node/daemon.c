@@ -1902,6 +1902,7 @@ static int journal_on;
  * carried by the journal; keys carried member to member each round. */
 static fzn_node_messages_t node_messages;
 static int messages_on;
+static int messages_devices_room(fzn_node_messages_t *nm, size_t want);
 
 /* THE OPERATION JOURNAL, secs 523 and 524: switchable, off unless asked
  * for. Every write to this node's persistent state, entered by hash on its
@@ -2209,10 +2210,12 @@ static void follow_estate(const uint8_t identity[FZN_PUBKEY_LEN], const fzn_node
 				;
 			distinct += j == i;
 		}
+		/* ROOM FOR EVERY ONE, sec 704, before they are listed. */
+		(void)messages_devices_room(&node_messages, n_notes_keys + 1u);
 		if (fzn_node_messages_devices(&node_messages,
 		                              (const uint8_t(*)[FZN_PUBKEY_LEN])notes_keys,
 		                              n_notes_keys)
-		    < (distinct < FZN_MESSAGES_DEVICES_MAX ? distinct : FZN_MESSAGES_DEVICES_MAX))
+		    < (distinct < node_messages.devices_cap ? distinct : node_messages.devices_cap))
 			say(FZN_ENTRY_WARNING, "messages",
 			    "not every node's conversations are followed");
 	}
@@ -6247,6 +6250,77 @@ static void roots_room(fzn_node_roots_t *roots)
 		    2u * retention);
 	else
 		say(FZN_ENTRY_WARNING, "roots", "the root records' tables are full and would not grow");
+}
+
+/* ---- the messages' tables, sec 704 -------------------------------------------
+ *
+ * The user's devices whose conversations are merged, each with a cursor
+ * and working room, and the keys lacked and to give: on the heap once the
+ * struct's own fill. */
+static struct {
+	uint8_t (*devices)[FZN_PUBKEY_LEN];
+	fzn_node_message_cursor_t *cursors;
+	uint64_t *at;
+	fzn_messages_work_t *work;
+	fzn_node_message_key_t *lacks, *gives;
+} messages_heap;
+
+static int messages_devices_room(fzn_node_messages_t *nm, size_t want)
+{
+	uint8_t (*d)[FZN_PUBKEY_LEN];
+	fzn_node_message_cursor_t *c;
+	uint64_t *a;
+	fzn_messages_work_t *w;
+
+	if (nm->devices_wanted > want)
+		want = nm->devices_wanted;
+	if (want <= nm->devices_cap)
+		return 1;
+	want += want / 2u;
+	d = calloc(want, sizeof(*d));
+	c = calloc(want, sizeof(*c));
+	a = calloc(want, sizeof(*a));
+	w = calloc(want, sizeof(*w));
+	if (!d || !c || !a || !w || !fzn_node_messages_use_devices(nm, d, c, a, w, want)) {
+		free(d);
+		free(c);
+		free(a);
+		free(w);
+		return 0;
+	}
+	free(messages_heap.devices);
+	free(messages_heap.cursors);
+	free(messages_heap.at);
+	free(messages_heap.work);
+	messages_heap.devices = d;
+	messages_heap.cursors = c;
+	messages_heap.at = a;
+	messages_heap.work = w;
+	return 1;
+}
+
+/* THE KEYS' ROOM, when a key found it full or it is three quarters so. */
+static void messages_keys_room(fzn_node_messages_t *nm)
+{
+	size_t used = nm->n_lacks > nm->n_gives ? nm->n_lacks : nm->n_gives, want;
+	fzn_node_message_key_t *l, *g;
+
+	if (!nm->keys_wanted && 4u * used < 3u * nm->keys_cap)
+		return;
+	want = 2u * (nm->keys_wanted > nm->keys_cap ? nm->keys_wanted : nm->keys_cap);
+	l = calloc(want, sizeof(*l));
+	g = calloc(want, sizeof(*g));
+	if (!l || !g || !fzn_node_messages_use_keys(nm, l, g, want)) {
+		free(l);
+		free(g);
+		say(FZN_ENTRY_WARNING, "messages", "the conversation keys' tables would not grow");
+		return;
+	}
+	free(messages_heap.lacks);
+	free(messages_heap.gives);
+	messages_heap.lacks = l;
+	messages_heap.gives = g;
+	say(FZN_ENTRY_INFO, "messages", "the conversation keys' tables grown: %zu", want);
 }
 
 /* ---- the successions' table, sec 704 -----------------------------------------
@@ -14086,6 +14160,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				grants_room(&node_apply);
 			if (successions_on)
 				successions_room(&node_successions);
+			if (messages_on)
+				messages_keys_room(&node_messages);
 			if (!round_step && (now >= next_pull || next_pull > now + pull_every)) {
 				plan = round_plan;
 				plan_at = 0;

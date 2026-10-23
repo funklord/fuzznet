@@ -518,8 +518,7 @@ fzn_messages_err_t fzn_messages_forget_epoch(const fzn_messages_t *m,
 	uint8_t row[FZN_PUBKEY_LEN];
 	size_t d;
 
-	if (!ready(m) || !contact || !m->store->remove || !m->devices
-	    || m->device_count > FZN_MESSAGES_DEVICES_MAX)
+	if (!ready(m) || !contact || !m->store->remove || !m->devices)
 		return FZN_MESSAGES_ERR_MALFORMED;
 	/* EVERY DEVICE'S KEY FOR THE MONTH, this one's whether or not it is
 	 * listed among them. */
@@ -1197,52 +1196,55 @@ static fzn_messages_err_t take_in(const fzn_messages_t *m, const uint8_t device[
 fzn_messages_err_t fzn_messages_absorb(const fzn_messages_t *m, uint64_t *at,
                                        fzn_messages_seen_fn seen, void *ctx, size_t *marks)
 {
-	static uint8_t bufs[FZN_MESSAGES_DEVICES_MAX][FZN_RECORD_MAX_LEN];
-	fzn_record_t heads[FZN_MESSAGES_DEVICES_MAX];
-	uint64_t to[FZN_MESSAGES_DEVICES_MAX], done[FZN_MESSAGES_DEVICES_MAX];
-	uint64_t start[FZN_MESSAGES_DEVICES_MAX];
-	int loaded[FZN_MESSAGES_DEVICES_MAX];
+	static fzn_messages_work_t own[FZN_MESSAGES_DEVICES_MAX];
+	static uint8_t buf[FZN_RECORD_MAX_LEN];
+	fzn_messages_work_t *w = m && m->work ? m->work : own;
+	size_t cap = m && m->work ? m->work_cap : FZN_MESSAGES_DEVICES_MAX;
+	fzn_record_t head;
 	size_t d, read = 0;
 	fzn_messages_err_t err;
 
-	if (!ready(m) || !at || !m->devices || m->device_count > FZN_MESSAGES_DEVICES_MAX)
+	if (!ready(m) || !at || !m->devices || m->device_count > cap)
 		return FZN_MESSAGES_ERR_MALFORMED;
 	if (seen && !waits_replay(m, seen, ctx))
 		return FZN_MESSAGES_ERR_BACKEND;
 	for (d = 0; d < m->device_count; d++) {
-		to[d] = fzn_node_journal_received(m->journal, m->devices[d], FZN_MESSAGE_STREAM);
-		done[d] = start[d] = cursor_of(m, m->devices[d]);
-		loaded[d] = 0;
+		w[d].to = fzn_node_journal_received(m->journal, m->devices[d], FZN_MESSAGE_STREAM);
+		w[d].done = w[d].start = cursor_of(m, m->devices[d]);
+		w[d].loaded = 0;
 	}
 	/* OLDEST FIRST ACROSS THE DEVICES, so a conversation's index follows
-	 * the order its lines were written in as far as this store has them. */
+	 * the order its lines were written in as far as this store has them.
+	 * Each device's next record is read once for when it was issued, and
+	 * the one taken read again: one record's room, not one per device. */
 	for (;;) {
 		size_t best = m->device_count;
 		uint64_t seq;
 
 		for (d = 0; d < m->device_count; d++) {
-			if (at[d] >= to[d])
+			if (at[d] >= w[d].to)
 				continue;
-			if (!loaded[d]) {
-				if (!record_at(m, m->devices[d], at[d] + 1u, bufs[d], sizeof(bufs[d]),
-				               &heads[d]))
+			if (!w[d].loaded) {
+				if (!record_at(m, m->devices[d], at[d] + 1u, buf, sizeof(buf), &head))
 					return FZN_MESSAGES_ERR_JOURNAL;
-				loaded[d] = 1;
+				w[d].issued = fzn_record_issued_at(head);
+				w[d].loaded = 1;
 			}
-			if (best == m->device_count
-			    || fzn_record_issued_at(heads[d]) < fzn_record_issued_at(heads[best]))
+			if (best == m->device_count || w[d].issued < w[best].issued)
 				best = d;
 		}
 		if (best == m->device_count)
 			break;
 		seq = ++at[best];
-		loaded[best] = 0;
-		err = take_in(m, m->devices[best], seq, heads[best], &done[best], seen, ctx, &read);
+		w[best].loaded = 0;
+		if (!record_at(m, m->devices[best], seq, buf, sizeof(buf), &head))
+			return FZN_MESSAGES_ERR_JOURNAL;
+		err = take_in(m, m->devices[best], seq, head, &w[best].done, seen, ctx, &read);
 		if (err != FZN_MESSAGES_OK)
 			return err;
 	}
 	for (d = 0; d < m->device_count; d++)
-		if (done[d] != start[d] && !set_cursor(m, m->devices[d], done[d]))
+		if (w[d].done != w[d].start && !set_cursor(m, m->devices[d], w[d].done))
 			return FZN_MESSAGES_ERR_BACKEND;
 	if (marks)
 		*marks = read;
@@ -1411,7 +1413,7 @@ fzn_messages_err_t fzn_messages_file(const fzn_messages_t *m, const uint8_t *ite
 
 	if (waiting)
 		*waiting = 0;
-	if (!ready(m) || !item || !m->devices || m->device_count > FZN_MESSAGES_DEVICES_MAX)
+	if (!ready(m) || !item || !m->devices)
 		return FZN_MESSAGES_ERR_MALFORMED;
 	if (len < 1u || len > FZN_MESSAGES_ITEM_MAX || (parts = item[0]) < 1u || parts > 2u)
 		return FZN_MESSAGES_ERR_REFUSED;
@@ -1481,7 +1483,7 @@ fzn_messages_err_t fzn_messages_items_backfill(const fzn_messages_t *m, size_t *
 
 	if (added)
 		*added = 0;
-	if (!ready(m) || !m->devices || m->device_count > FZN_MESSAGES_DEVICES_MAX)
+	if (!ready(m) || !m->devices)
 		return FZN_MESSAGES_ERR_MALFORMED;
 	if (!m->items || !m->items->add || load_number(m, "itemsbf", NOBODY) == 1u)
 		return FZN_MESSAGES_OK;
@@ -1669,7 +1671,7 @@ fzn_messages_err_t fzn_messages_page(const fzn_messages_t *m, const uint8_t *con
 	size_t n_seen = 0, skipped = 0;
 
 	if (!ready(m) || !out || !count || !more || !m->devices || m->device_count == 0u
-	    || m->device_count > FZN_MESSAGES_DEVICES_MAX || cap > FZN_MESSAGES_PAGE_MAX)
+	    || cap > FZN_MESSAGES_PAGE_MAX)
 		return FZN_MESSAGES_ERR_MALFORMED;
 	if (offset > FZN_MESSAGES_WALK_MAX - cap)
 		return FZN_MESSAGES_ERR_DEEP;
@@ -1707,11 +1709,12 @@ fzn_messages_err_t fzn_messages_page(const fzn_messages_t *m, const uint8_t *con
 fzn_messages_err_t fzn_messages_reindex(const fzn_messages_t *m, size_t *marks)
 {
 	static uint8_t buf[FZN_RECORD_MAX_LEN];
-	uint64_t at[FZN_MESSAGES_DEVICES_MAX];
+	static uint64_t own_at[FZN_MESSAGES_DEVICES_MAX];
+	uint64_t *at = m && m->work_at ? m->work_at : own_at;
 	size_t d;
 
 	if (!ready(m) || !m->store->remove || !m->devices
-	    || m->device_count > FZN_MESSAGES_DEVICES_MAX)
+	    || m->device_count > (m->work_at ? m->work_cap : FZN_MESSAGES_DEVICES_MAX))
 		return FZN_MESSAGES_ERR_MALFORMED;
 	/* A STREAM HELD FROM PART WAY, and nothing is cleared: the index is the
 	 * only record of the lines below its base. sec 560. */
