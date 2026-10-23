@@ -9,8 +9,13 @@
  *
  * KEY the peer's, in full; DIR `behind` when its frames arrive already
  * expired (its clock behind this one's, or this one ahead) and `ahead` when
- * they arrive past this node's horizon; SECONDS by how much, as last
- * measured; AT when last seen, in seconds since the epoch by this node's
+ * they arrive past this node's horizon; SECONDS how far outside the window
+ * the frame landed, as last measured -- for `behind`, how long it had
+ * already expired when it came, which is the clocks' disagreement less the
+ * request's life; for `ahead`, how far past the horizon, the disagreement
+ * less the skew the horizon allows. A lower bound on the disagreement, not
+ * the disagreement: the life is the sender's choice, which this node does
+ * not know. AT when last seen, in seconds since the epoch by this node's
  * clock. A row not seen for FZN_NODE_CLOCKS_KEEP_S is forgotten, so a
  * client drops its notice when the row is gone. Paged by FROM, as `list
  * contact` is. The node's own user's alone.
@@ -41,7 +46,7 @@
 typedef struct fzn_node_clock {
 	uint8_t peer[FZN_PUBKEY_LEN];
 	int ahead;        /* 1: its frames past the horizon; 0: already expired */
-	uint64_t seconds; /* by how much, as last measured */
+	uint64_t seconds; /* how far outside the window, a lower bound on the skew */
 	uint64_t at;      /* when last seen, this node's clock, seconds */
 } fzn_node_clock_t;
 

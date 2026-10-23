@@ -71048,7 +71048,13 @@ built around.
   - its key, in full;
   - its direction, `behind` (its frames arrive already expired) or
     `ahead` (they arrive past the horizon);
-  - by how many seconds, as last measured;
+  - how far outside the window its frame landed, as last measured: for
+    `behind`, how long it had already expired when it came, the clocks'
+    disagreement less the request's life; for `ahead`, how far past the
+    horizon. A lower bound on the disagreement, not the disagreement: a
+    clock 900 s behind reads 600 with fuzznetd's 300 s life, and the life
+    is the sender's to choose, so this node cannot know it. fuzzypickles
+    pointed this out;
   - when last seen, by this node's clock.
 - **Forgetting:** a row not seen for 600 s, two request lifetimes, is
   forgotten, so a client drops its notice when the row is gone.
