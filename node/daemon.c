@@ -2316,14 +2316,30 @@ static void carry_prekey(const fzn_node_identity_t *id)
 		say(FZN_ENTRY_INFO, "node/siblings", "this host's prekey carried in its estate stream");
 }
 
+static int room_for_round(void);
+/* The estate's root records the round grows, once there are some. */
+static fzn_node_roots_t *round_roots;
+
 static void apply_journal(void)
 {
-	fzn_node_apply_tally_t tally;
+	fzn_node_apply_tally_t tally, one;
 	fzn_node_pull_err_t err;
+	size_t tries;
 
 	if (!journal_on || !node_apply.journal)
 		return;
-	err = fzn_node_apply_round(&node_apply, &tally);
+	/* A ROUND STOPPED FOR ROOM is given it and taken again, a few times at
+	 * most: each try at least doubles the table it stopped on. sec 704. */
+	memset(&tally, 0, sizeof(tally));
+	for (tries = 0;; tries++) {
+		err = fzn_node_apply_round(&node_apply, &one);
+		tally.applied += one.applied;
+		tally.grants += one.grants;
+		tally.refused += one.refused;
+		tally.waiting = one.waiting;
+		if (err != FZN_NODE_PULL_REFUSED || tries == 8u || !room_for_round())
+			break;
+	}
 	if (err != FZN_NODE_PULL_OK)
 		say(FZN_ENTRY_WARNING, "journal", "applying the journal: %s",
 		    fzn_node_pull_err_str(err));
@@ -6174,6 +6190,42 @@ static void roots_room(fzn_node_roots_t *roots)
 		say(FZN_ENTRY_WARNING, "roots", "the root records' tables are full and would not grow");
 }
 
+/* ---- the grant index, sec 704 -----------------------------------------------
+ *
+ * Every pairing and admin grant in the estate, each once: on the heap once
+ * the apply context's own 256 fill. A grant met by a full index waits,
+ * unmarked, for the round after this grows it. */
+static fzn_node_grant_t *grants_heap;
+
+static int grants_grow(fzn_node_apply_t *ap, size_t capacity)
+{
+	fzn_node_grant_t *g;
+
+	if (capacity <= ap->grants_cap)
+		capacity = 2u * (ap->grants_cap ? ap->grants_cap : FZN_NODE_APPLY_GRANTS_MAX);
+	g = calloc(capacity, sizeof(*g));
+	if (!g || !fzn_node_apply_use_grants(ap, g, capacity)) {
+		free(g);
+		return 0;
+	}
+	free(grants_heap);
+	grants_heap = g;
+	return 1;
+}
+
+/* ROOM BEFORE IT IS WANTED, as the roster's: three quarters full, or
+ * found full, doubled. */
+static void grants_room(fzn_node_apply_t *ap)
+{
+	if (!ap->grants_wanted && 4u * ap->grants_used < 3u * ap->grants_cap)
+		return;
+	if (grants_grow(ap, 2u * (ap->grants_wanted > ap->grants_cap ? ap->grants_wanted
+	                                                             : ap->grants_cap)))
+		say(FZN_ENTRY_INFO, "journal", "the grant index grown: %zu grants", ap->grants_cap);
+	else
+		say(FZN_ENTRY_WARNING, "journal", "the grant index is full and would not grow");
+}
+
 /* ---- the revocations' tables, sec 704 ----------------------------------------
  *
  * Every revocation, vote and withdrawal the estate has ever cast, and the
@@ -6307,6 +6359,32 @@ static int roster_room_now(void *ctx, fzn_node_roster_t *nr)
 	(void)ctx;
 	return fzn_node_roster_wants(nr, &entries, &writers)
 	       && roster_grow(nr, 2u * entries, 2u * writers);
+}
+
+/* ROOM FOR A ROUND THAT STOPPED, sec 704: whichever table a record found
+ * full -- the grant index, the revocations', the roster's, the root
+ * records' -- doubled, so the round can be taken again at once rather than
+ * the record wait for the next. 1 when one grew. */
+static int room_for_round(void)
+{
+	fzn_revocation_store_t *rs = node_apply.revocations;
+	size_t a = 0, b = 0, c = 0;
+	int grew = 0;
+
+	if (node_apply.grants_wanted)
+		grew |= grants_grow(&node_apply, 2u * node_apply.grants_wanted);
+	if (rs && (rs->used >= rs->capacity
+	           || (rs->confirms && rs->confirms_used >= rs->confirm_capacity)))
+		grew |= revocations_grow(rs, rs->used >= rs->capacity ? 2u * rs->capacity : 0u,
+		                         rs->confirms && rs->confirms_used >= rs->confirm_capacity
+		                                 ? 2u * rs->confirm_capacity
+		                                 : 0u,
+		                         1);
+	if (roster_on && fzn_node_roster_wants(&node_roster, &a, &b))
+		grew |= roster_room_now(NULL, &node_roster);
+	if (round_roots && fzn_node_roots_wants(round_roots, &a, &b, &c))
+		grew |= roots_grow(round_roots, 2u * a, 2u * b, 2u * c, 0u);
+	return grew;
 }
 
 /* ROOM BEFORE IT IS WANTED: a table three quarters full, or found full,
@@ -13292,6 +13370,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		state.config.revocations = &revoked;
 		running = &revoked;
 		running_roots = &estate_roots;
+		round_roots = &estate_roots;
 		dlog.roots = running_roots;
 #ifdef FZN_RECORD_STORE_FILE_ON
 		/* THE JOURNAL, sec 501, in `records/` under the core directory:
@@ -13508,7 +13587,18 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				{
 					size_t grants = 0;
 
-					if (!fzn_node_apply_load_grants(&node_apply, &grants))
+					int got = fzn_node_apply_load_grants(&node_apply, &grants);
+
+					/* MORE THAN THE INDEX HOLDS, sec 704: grown, and loaded
+					 * again; a grant held is taken once. */
+					while (!got && node_apply.grants_wanted
+					       && grants_grow(&node_apply, 2u * node_apply.grants_wanted))
+						got = fzn_node_apply_load_grants(&node_apply, &grants);
+					/* ALL HELD, not what the last pass added: a load taken
+					 * again over a grown index adds only what the first
+					 * could not hold. */
+					grants = node_apply.grants_used;
+					if (!got)
 						say(FZN_ENTRY_WARNING, "journal",
 						    "the grants kept in %s would not load; chains rebuild from "
 						    "the journal alone",
@@ -13871,6 +13961,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				roster_room(&node_roster);
 			if (node_apply.revocations)
 				revocations_room(node_apply.revocations);
+			if (node_apply.grants)
+				grants_room(&node_apply);
 			if (!round_step && (now >= next_pull || next_pull > now + pull_every)) {
 				plan = round_plan;
 				plan_at = 0;

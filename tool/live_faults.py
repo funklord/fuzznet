@@ -22,9 +22,11 @@ the scenarios built on them test something:
        node's own tables hold, every one answered `ok`; started again, it
        loads them all and makes another (sec 703) -- where the 65th was
        refused for good, and a store holding more would not start
-    f  a root pairs 80 devices, more than the 64 peers its own room once
-       held, and starts with all of them (sec 704) -- where a store of
-       more than 64 peers kept the daemon from starting
+    f  a root pairs 300 devices, more than the 64 peers its own room once
+       held and the 256 grants its index held, and starts with all of
+       them; started again, it loads all 300 grants (sec 704) -- where a
+       store of more than 64 peers kept the daemon from starting, and the
+       257th grant was lost
     g  a root adds 300 contacts, more than the 128 its roster's own tables
        hold, every one answered `ok` and listed; started again, it loads
        all 300 onto its roster, lists them and takes another (sec 704) -- where the 129th was
@@ -260,7 +262,7 @@ def main(argv):
 			f_sock = os.path.join(sock_dir, "f")
 			os.mkdir(f_dir)
 			command(run, ["--fuzznet-dir=" + f_dir, "--new-root"], None)
-			for i in range(80):
+			for i in range(300):
 				d = os.path.join(scratch, "f%d" % i)
 				os.mkdir(d)
 				prekey = command(run, ["--fuzznet-dir=" + d, "--prekey"], None)
@@ -268,11 +270,22 @@ def main(argv):
 			f = daemon(run, "f1", f_dir, f_sock)
 			try:
 				listed = ask(f_sock, "list peer").split()
-				if len(listed) < 2 or listed[0] != "ok" or listed[1] != "80":
-					raise failed("f: a root that paired 80 devices listed %r" % listed[:3])
+				if len(listed) < 2 or listed[0] != "ok" or listed[1] != "300":
+					raise failed("f: a root that paired 300 devices listed %r" % listed[:3])
 			finally:
 				f.stop()
-			print("livecheck: f: 80 devices paired, and the daemon started with all of them")
+			f = daemon(run, "f2", f_dir, f_sock)
+			try:
+				# ASKED FIRST: the socket is there before the grants load,
+				# and an answer comes only once the start is done.
+				ask(f_sock, "list peer")
+				if not re.search(r"\b300 grant\(s\) from", f.stderr()):
+					raise failed("f: started again, it did not load all 300 grants:\n%s"
+					             % f.stderr()[-600:])
+			finally:
+				f.stop()
+			print("livecheck: f: 300 devices paired, the daemon started with all of them, and "
+			      "loaded all 300 grants again")
 
 			# g: more contacts than the roster's own tables hold.
 			g_dir = os.path.join(scratch, "g")

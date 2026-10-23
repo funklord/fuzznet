@@ -471,10 +471,11 @@ static int apply_at(struct node *into, fzn_node_apply_t *ap, fzn_node_apply_tall
 	ap->store = &into->ops;
 	ap->sign = &into->sign;
 	ap->hash = &hash_ops;
-	memcpy(ap->grants, into->grants, sizeof(into->grants));
+	/* THE NODE'S OWN INDEX, as the daemon's one context has. */
+	ap->grants = into->grants;
+	ap->grants_cap = FZN_NODE_APPLY_GRANTS_MAX;
 	ap->grants_used = into->grants_used;
 	ok = fzn_node_apply_round(ap, t) == FZN_NODE_PULL_OK;
-	memcpy(into->grants, ap->grants, sizeof(into->grants));
 	into->grants_used = ap->grants_used;
 	return ok;
 }

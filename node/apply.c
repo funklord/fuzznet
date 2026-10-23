@@ -37,24 +37,26 @@ static int ever_root(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKEY_LE
  * real chain: every act of the member then waited for ever, and an admin
  * shadowed so could no longer vote. A key found to reach no root with so
  * many hops left is not walked again with as many or fewer, so the walk
- * stays polynomial in the grants however many a liar adds. */
+ * stays polynomial in the grants however many a liar adds.
+ *
+ * THE MEMO IS KEPT ON THE GRANTS, sec 704, each naming the key as its
+ * grantee and marked with the walk: a key no grant names is walked at no
+ * depth, so it needs none, and the memo is as large as the index however
+ * large that grows. It was a table of its own, bounded as the index was. */
 struct chain_walk {
 	const fzn_node_apply_t *ap;
 	const fzn_cap_id_t *capability;
 	uint8_t walked[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
-	struct {
-		const uint8_t *key;
-		size_t left;
-	} dead[FZN_NODE_APPLY_GRANTS_MAX + 1u];
-	size_t n_dead;
+	uint32_t walk;
 };
 
 static int dead_at(const struct chain_walk *w, const uint8_t *key, size_t left)
 {
 	size_t i;
 
-	for (i = 0; i < w->n_dead; i++)
-		if (w->dead[i].left >= left && fzn_ct_memeq(w->dead[i].key, key, FZN_PUBKEY_LEN))
+	for (i = 0; i < w->ap->grants_used; i++)
+		if (w->ap->grants[i].dead_walk == w->walk && w->ap->grants[i].dead_left >= left
+		    && fzn_ct_memeq(w->ap->grants[i].grantee, key, FZN_PUBKEY_LEN))
 			return 1;
 	return 0;
 }
@@ -63,15 +65,14 @@ static void mark_dead(struct chain_walk *w, const uint8_t *key, size_t left)
 {
 	size_t i;
 
-	for (i = 0; i < w->n_dead; i++)
-		if (fzn_ct_memeq(w->dead[i].key, key, FZN_PUBKEY_LEN)) {
-			if (w->dead[i].left < left)
-				w->dead[i].left = left;
-			return;
-		}
-	if (w->n_dead < sizeof(w->dead) / sizeof(w->dead[0])) {
-		w->dead[w->n_dead].key = key;
-		w->dead[w->n_dead++].left = left;
+	for (i = 0; i < w->ap->grants_used; i++) {
+		fzn_node_grant_t *g = &w->ap->grants[i];
+
+		if (!fzn_ct_memeq(g->grantee, key, FZN_PUBKEY_LEN))
+			continue;
+		if (g->dead_walk != w->walk || g->dead_left < left)
+			g->dead_left = left;
+		g->dead_walk = w->walk;
 	}
 }
 
@@ -115,14 +116,18 @@ int fzn_node_apply_chain(const fzn_node_apply_t *ap, const uint8_t key[FZN_PUBKE
                          uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t *hop_count)
 {
 	static struct chain_walk w;
+	static uint32_t walks;
 	size_t depth = 0, i;
 
 	if (!ap || !key || !capability || !hops || !hop_count)
 		return 0;
-	/* UP FROM THE SIGNER, a grant at a time, until a root granted. */
+	/* UP FROM THE SIGNER, a grant at a time, until a root granted. A walk
+	 * of its own number, never 0, which a fresh grant holds. */
 	w.ap = ap;
 	w.capability = capability;
-	w.n_dead = 0;
+	if (++walks == 0u)
+		walks = 1u;
+	w.walk = walks;
 	if (!walk_up(&w, key, 0, &depth))
 		return 0;
 	/* ROOT FIRST, as a chain is read. */
@@ -138,8 +143,30 @@ static int grant_row(const fzn_node_apply_t *ap, const uint8_t *hop, uint8_t row
 	return ap->hash->hash(ap->hash->ctx, row, FZN_PUBKEY_LEN, hop, FZN_HOP_LEN);
 }
 
+/* THE INDEX'S ROOM: its own until it is given more. */
+static void index_room(fzn_node_apply_t *ap)
+{
+	if (!ap->grants) {
+		ap->grants = ap->grants_own;
+		ap->grants_cap = FZN_NODE_APPLY_GRANTS_MAX;
+	}
+}
+
+int fzn_node_apply_use_grants(fzn_node_apply_t *ap, fzn_node_grant_t *grants, size_t capacity)
+{
+	if (!ap || !grants || capacity == 0u || capacity < ap->grants_used)
+		return 0;
+	index_room(ap);
+	if (grants != ap->grants && ap->grants_used)
+		memmove(grants, ap->grants, ap->grants_used * sizeof(*grants));
+	ap->grants = grants;
+	ap->grants_cap = capacity;
+	ap->grants_wanted = 0;
+	return 1;
+}
+
 /* Add `body` (a hop) to the in-memory index: 1 added, 0 held already, -1
- * not a hop or no room. */
+ * not a hop, -2 no room. */
 static int index_add(fzn_node_apply_t *ap, const uint8_t *body, size_t len)
 {
 	fzn_chain_hop_t hop;
@@ -148,14 +175,19 @@ static int index_add(fzn_node_apply_t *ap, const uint8_t *body, size_t len)
 
 	if (len != FZN_HOP_LEN || fzn_hop_open(body, len, &hop) != FZN_CHAIN_OK)
 		return -1;
+	index_room(ap);
 	for (i = 0; i < ap->grants_used; i++)
 		if (memcmp(ap->grants[i].hop, body, FZN_HOP_LEN) == 0)
 			return 0;
-	/* A FULL INDEX REFUSES rather than evicting: a grant forgotten is a
-	 * chain nothing can rebuild, and every vote under it would wait. */
-	if (ap->grants_used >= FZN_NODE_APPLY_GRANTS_MAX)
-		return -1;
+	/* A FULL INDEX WAITS FOR ROOM rather than evicting or refusing: a grant
+	 * forgotten is a chain nothing can rebuild, and every vote under it
+	 * would wait; refused, it was marked applied and lost. sec 704. */
+	if (ap->grants_used >= ap->grants_cap) {
+		ap->grants_wanted = ap->grants_used + 1u;
+		return -2;
+	}
 	g = &ap->grants[ap->grants_used++];
+	memset(g, 0, sizeof(*g));
 	memcpy(g->hop, body, FZN_HOP_LEN);
 	memcpy(g->grantor, fzn_hop_grantor(hop), FZN_PUBKEY_LEN);
 	memcpy(g->grantee, fzn_hop_grantee(hop), FZN_PUBKEY_LEN);
@@ -204,6 +236,8 @@ static enum outcome index_grant(fzn_node_apply_t *ap, const uint8_t *body, size_
 	}
 	added = index_add(ap, body, len);
 
+	if (added == -2)
+		return FULL;
 	if (added < 0)
 		return REFUSED;
 	/* KEPT AS WELL AS INDEXED, sec 545, so the chain outlives the journal
@@ -220,34 +254,50 @@ static enum outcome index_grant(fzn_node_apply_t *ap, const uint8_t *body, size_
 	return APPLIED;
 }
 
+/* ONE GRANT ROW AT LOAD: what it says it is, under its own place -- a hop
+ * filed under another's hash is not that grant. sec 545, walked since 704. */
+struct grants_walk {
+	fzn_node_apply_t *ap;
+	size_t *loaded;
+	int failed;
+};
+
+static int grant_walked(void *arg, const uint8_t row[FZN_PUBKEY_LEN])
+{
+	struct grants_walk *w = arg;
+	uint8_t hop[FZN_HOP_LEN], again[FZN_PUBKEY_LEN];
+	size_t len = 0;
+	int added;
+
+	if (!w->ap->store->load(w->ap->store->ctx, FZN_PERSIST_GRANT, row, hop, sizeof(hop), &len)
+	    || len != FZN_HOP_LEN || !grant_row(w->ap, hop, again)
+	    || memcmp(again, row, FZN_PUBKEY_LEN) != 0) {
+		w->failed = 1;
+		return 0;
+	}
+	added = index_add(w->ap, hop, len);
+	if (added < 0) {
+		w->failed = 1;
+		return 0;
+	}
+	*w->loaded += (size_t)added;
+	return 1;
+}
+
 int fzn_node_apply_load_grants(fzn_node_apply_t *ap, size_t *loaded)
 {
-	static uint8_t rows[FZN_NODE_APPLY_GRANTS_MAX * FZN_PUBKEY_LEN];
-	uint8_t hop[FZN_HOP_LEN], again[FZN_PUBKEY_LEN];
-	size_t n = 0, i, len = 0;
-	int added;
+	struct grants_walk w;
 
 	if (!loaded)
 		return 0;
 	*loaded = 0;
-	if (!ap || !ap->store || !ap->store->list || !ap->store->load || !ap->hash || !ap->hash->hash
-	    || !ap->store->list(ap->store->ctx, FZN_PERSIST_GRANT, rows, FZN_NODE_APPLY_GRANTS_MAX,
-	                        &n))
+	if (!ap || !ap->store || (!ap->store->list && !ap->store->each) || !ap->store->load
+	    || !ap->hash || !ap->hash->hash)
 		return 0;
-	for (i = 0; i < n; i++) {
-		/* WHAT IT SAYS IT IS, under its own place: a hop filed under
-		 * another's hash is not that grant. */
-		if (!ap->store->load(ap->store->ctx, FZN_PERSIST_GRANT, rows + (i * FZN_PUBKEY_LEN), hop,
-		                     sizeof(hop), &len)
-		    || len != FZN_HOP_LEN || !grant_row(ap, hop, again)
-		    || memcmp(again, rows + (i * FZN_PUBKEY_LEN), FZN_PUBKEY_LEN) != 0)
-			return 0;
-		added = index_add(ap, hop, len);
-		if (added < 0)
-			return 0;
-		*loaded += (size_t)added;
-	}
-	return 1;
+	w.ap = ap;
+	w.loaded = loaded;
+	w.failed = 0;
+	return fzn_persist_each(ap->store, FZN_PERSIST_GRANT, grant_walked, &w) && !w.failed;
 }
 
 /* An object through the vote stream's admission, under `signer`'s chain --

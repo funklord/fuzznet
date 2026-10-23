@@ -15,6 +15,7 @@
 #include "../succession.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -1587,6 +1588,78 @@ static void test_a_full_roster_waits(void)
 	fzn_node_journal_close(&nj);
 }
 
+/* AN INDEX OF THOUSANDS, sec 704: a root grants 1000 members in its
+ * stream. On the context's own 256 the round stops at the 257th, unmarked,
+ * and says how large the index must be; given room, the next round takes
+ * the rest, and a fresh context loads all 1000 from the store once it has
+ * room. Before, the 257th grant was refused, marked applied and lost. */
+static void test_an_index_of_thousands(void)
+{
+	static fzn_node_journal_t nj;
+	static fzn_revocation_t rev_entries[4];
+	static fzn_node_apply_t ap, fresh;
+	static fzn_node_grant_t *room, *again;
+	fzn_revocation_store_t revs;
+	fzn_persist_ops_t store;
+	fzn_node_apply_tally_t t;
+	fzn_cap_id_t cap;
+	uint8_t r[FZN_PUBKEY_LEN], member[FZN_PUBKEY_LEN], hop[FZN_HOP_LEN];
+	uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	size_t i, n = 0, loaded = 0;
+	int minted = 1;
+
+	memset(many_rows, 0, sizeof(many_rows));
+	memset(&store, 0, sizeof(store));
+	store.load = many_load;
+	store.save = many_save;
+	store.remove = many_remove;
+	store.each = many_each;
+	memset(&cap, 0x61, sizeof(cap));
+	key(r, 0x1c);
+	CHECK(fzn_node_journal_init(&nj, dir, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && fzn_revocation_store_init(&revs, rev_entries, 4) == FZN_CHAIN_OK,
+	      "fixture: the journal");
+	memset(&ap, 0, sizeof(ap));
+	ap.journal = &nj;
+	ap.revocations = &revs;
+	ap.store = &store;
+	ap.root = r;
+	ap.capability = &cap;
+	ap.sign = &SIGN;
+	ap.hash = &HASH;
+	signing_as = 0x1c;
+	for (i = 0; i < 1000u && minted; i++) {
+		key(member, 0x2c);
+		member[1] = (uint8_t)(i >> 8);
+		member[2] = (uint8_t)i;
+		minted = fzn_chain_mint(r, member, &cap, 100u, FZN_NO_EXPIRY, 0, &SIGN, hop)
+		                 == FZN_CHAIN_OK
+		         && put(&nj, 0x1c, hop, sizeof(hop));
+	}
+	CHECK(minted, "fixture: R's 1000 grants in R's stream");
+	CHECK(fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_REFUSED && ap.grants_used == 256u
+	              && ap.grants_wanted == 257u,
+	      "the 257th grant did not stop the round for room, saying how much");
+	room = calloc(2048u, sizeof(*room));
+	CHECK(room && fzn_node_apply_use_grants(&ap, room, 2048u)
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK && ap.grants_used == 1000u
+	              && fzn_node_apply_chain(&ap, member, &cap, hops, &n) && n == 1u
+	              && memcmp(hops[0], hop, FZN_HOP_LEN) == 0
+	              && (member[1] = member[2] = 0, fzn_node_apply_chain(&ap, member, &cap, hops, &n)),
+	      "given room, the round did not take the other 744 grants, or lost the first");
+	memset(&fresh, 0, sizeof(fresh));
+	fresh.store = &store;
+	fresh.hash = &HASH;
+	again = calloc(2048u, sizeof(*again));
+	CHECK(!fzn_node_apply_load_grants(&fresh, &loaded) && fresh.grants_wanted == 257u
+	              && again && fzn_node_apply_use_grants(&fresh, again, 2048u)
+	              && fzn_node_apply_load_grants(&fresh, &loaded) && fresh.grants_used == 1000u,
+	      "a fresh context did not ask for room for 1000 kept grants, or not load them in it");
+	fzn_node_journal_close(&nj);
+	free(room);
+	free(again);
+}
+
 int main(void)
 {
 	char path[512];
@@ -1604,6 +1677,7 @@ int main(void)
 	test_a_grant_is_its_grantors();
 	test_settings_at_thousands();
 	test_a_full_roster_waits();
+	test_an_index_of_thousands();
 	/* EVERY STREAM FILE, BY NAME, then the directory. */
 	for (i = 0; i < n_used; i++) {
 		static const char DIGITS[] = "0123456789abcdef";

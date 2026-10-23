@@ -48,8 +48,11 @@
 #include "revoke.h"
 #include "../state/setting.h"
 
-/* The most grants the index holds: every pairing and admin grant in the
- * estate, each once. */
+/* THE INDEX'S OWN ROOM, not a limit, sec 704: every pairing and admin
+ * grant in the estate, each once, held here until the caller gives it
+ * more (`fzn_node_apply_use_grants`), told it needs more by a round that
+ * stops on a full index. Past 256 a grant was once refused and lost, and
+ * every act under it waited for ever. */
 #define FZN_NODE_APPLY_GRANTS_MAX 256u
 
 /* The most passes over the streams one round makes. Each pass applies
@@ -62,6 +65,10 @@ typedef struct fzn_node_grant {
 	uint8_t grantor[FZN_PUBKEY_LEN];
 	uint8_t grantee[FZN_PUBKEY_LEN];
 	fzn_cap_id_t capability;
+	/* THE CHAIN WALK'S OWN: that the grantee reached no root with
+	 * `dead_left` hops left, in walk `dead_walk`. sec 700, 704. */
+	uint32_t dead_walk;
+	size_t dead_left;
 } fzn_node_grant_t;
 
 struct fzn_node_roots;
@@ -94,8 +101,12 @@ typedef struct fzn_node_apply {
 	int (*extension)(void *ctx, uint32_t kind, const uint8_t *body, size_t len,
 	                 const uint8_t signer[FZN_PUBKEY_LEN]);
 	void *extension_ctx;
-	fzn_node_grant_t grants[FZN_NODE_APPLY_GRANTS_MAX];
-	size_t grants_used;
+	/* THE GRANT INDEX: `grants_own` until the caller gives it a larger
+	 * table; NULL reads as that. `grants_wanted` is how large it must be
+	 * when a grant found it full, 0 otherwise. */
+	fzn_node_grant_t *grants;
+	size_t grants_cap, grants_used, grants_wanted;
+	fzn_node_grant_t grants_own[FZN_NODE_APPLY_GRANTS_MAX];
 } fzn_node_apply_t;
 
 typedef struct fzn_node_apply_tally {
@@ -109,7 +120,8 @@ typedef struct fzn_node_apply_tally {
  * one makes no progress. MALFORMED for a context missing its journal, store,
  * revocations, root, capability, signer or hash; NOT_SAVED when a subsystem
  * admitted an object and could not keep it; REFUSED when the revocation
- * store is full, the object left unmarked for the next round. */
+ * store or the grant index is full, the object left unmarked for the next
+ * round. */
 fzn_node_pull_err_t fzn_node_apply_round(fzn_node_apply_t *ap, fzn_node_apply_tally_t *tally);
 
 typedef enum fzn_node_apply_outcome {
@@ -138,10 +150,15 @@ fzn_node_apply_outcome_t fzn_node_apply_object(fzn_node_apply_t *ap, const uint8
  * FZN_PERSIST_GRANT added to the index, so chains are rebuilt without
  * replaying a journal that may have been cut. Called before the first
  * round. 1 with `*loaded` counting the grants added; 0 when the store
- * cannot list, holds more than FZN_NODE_APPLY_GRANTS_MAX, or a row is not a
- * grant -- refused rather than half loaded.
+ * cannot walk, a row is not a grant, or the index is full -- `grants_wanted`
+ * then set, and the load taken again once it is given room.
  */
 int fzn_node_apply_load_grants(fzn_node_apply_t *ap, size_t *loaded);
+
+/* A LARGER INDEX OF THE CALLER'S, sec 704: `grants` of `capacity`, which
+ * must outlive `ap`, what is held copied over. 0 for one smaller than what
+ * is held. */
+int fzn_node_apply_use_grants(fzn_node_apply_t *ap, fzn_node_grant_t *grants, size_t capacity);
 
 /* A SIGNER'S CHAIN for `capability`, from the index: the grants walked up
  * from `key` to a root, root first, into `hops`. 1 with `*hop_count` set --

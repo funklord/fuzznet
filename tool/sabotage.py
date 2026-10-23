@@ -10072,8 +10072,8 @@ SABOTAGES = [
 	(
 		"apply-grant-row-is-its-hop",
 		"node/apply.c",
-		"\t\t    || len != FZN_HOP_LEN || !grant_row(ap, hop, again)\n\t\t    || memcmp(again, rows + (i * FZN_PUBKEY_LEN), FZN_PUBKEY_LEN) != 0)",
-		"\t\t    || len != FZN_HOP_LEN)",
+		"\t    || len != FZN_HOP_LEN || !grant_row(w->ap, hop, again)\n\t    || memcmp(again, row, FZN_PUBKEY_LEN) != 0) {",
+		"\t    || len != FZN_HOP_LEN) {",
 		"a hop filed under another's place is loaded as a grant -- sec 545",
 	),
 	(
@@ -11906,6 +11906,20 @@ SABOTAGES = [
 		"\tif (!r->has_oldest || held->received_at < r->oldest_at) {\n",
 		"\tif (!r->has_oldest || held->received_at > r->oldest_at) {\n",
 		"a full queue lets the newest request go, and a stranger's flood keeps the user's own asker out -- sec 619, 704",
+	),
+	(
+		"apply-full-index-waits",
+		"node/apply.c",
+		"\t\tap->grants_wanted = ap->grants_used + 1u;\n\t\treturn -2;\n",
+		"\t\tap->grants_wanted = ap->grants_used + 1u;\n\t\treturn -1;\n",
+		"a grant meeting a full index is refused, marked applied and lost, and every act under it waits for ever -- sec 704",
+	),
+	(
+		"apply-use-grants-copies",
+		"node/apply.c",
+		"\tif (grants != ap->grants && ap->grants_used)\n\t\tmemmove(grants, ap->grants, ap->grants_used * sizeof(*grants));\n",
+		"",
+		"an index moved onto room forgets the grants it held, and the chains through them -- sec 704",
 	),
 	(
 		"revocations-load-says-room",

@@ -69941,3 +69941,51 @@ and stay.
   copy of the tree so work could go on. One earlier run there reported a
   control not caught; the controls alone were then caught, and the rerun
   was clean. Its full output was not kept, so why is not known.
+
+### Grants, built, sec 704
+
+- **The grant index held 256**, every pairing and admin grant in the
+  estate. The 257th was refused, which marks it applied, so it was lost:
+  every act under it waited for ever. The load listed the grant slot into
+  256 and refused to load at all past it.
+- **A full index now waits.** The round stops with the grant unmarked,
+  as for a full revocation store, and `grants_wanted` says how large the
+  index must be. `fzn_node_apply_use_grants` moves the index onto a
+  larger table of the caller's. The context's own 256 is the first room;
+  `grants` is a pointer onto it until then.
+- **The load walks the slot**, and says `grants_wanted` when the index
+  fills, to be taken again once it has room.
+- **The chain walk's memo** (sec 700), which kept a walk polynomial
+  however many grants a liar adds, was a table of its own sized like the
+  index. It is now kept on the grants, as large as the index is.
+  **Untested, before and since:** nothing measures the walk's cost, so a
+  memo that stopped working would pass every test.
+- **`fuzznetd`** grows the index at load until it fits, and in its loop
+  at three quarters full or when a grant found it full.
+- **A round stopped for room is taken again at once.** The first live
+  run found the gap. The round stopped at the 257th grant, the loop grew
+  the index, and the other 44 waited for the next round. The daemon was
+  stopped before that round, so only 256 grants were ever kept, and the
+  restart loaded 256. `apply_journal` now grows whichever table the
+  round stopped on (grant index, revocations, roster, root records) and
+  goes again, eight times at most. Each try at least doubles a table.
+- **Its counts were each one pass's.** A load taken again over a grown
+  index counted only what that pass added: 44 of 300. A round taken
+  again likewise reported only its last try. The start line now gives
+  what the index holds, and the round's report sums its tries.
+- **Tests.** `apply_test` has a root grant 1000 members in its stream.
+  On the own 256 the round stops at the 257th; given room, it takes the
+  rest and keeps the first; a fresh context asks for room for the 1000
+  kept and then loads them. **Controls:** a full index refusing is
+  caught, and so is a move that does not copy, once the first member's
+  chain is checked too (the last alone missed it). `pair_test` points
+  each context at its node's index rather than copying a fixed array in
+  and out. `livecheck-faults` phase f now pairs 300 devices, not 80, and
+  requires the restarted daemon to load `300 grant(s)`; it passes.
+  **Controls:** with the index's growth off, and with only the round's
+  retry off, the restart loaded 256 grants each time.
+- **The phase read too early at first.** The socket appears before the
+  grants load, so a check of the daemon's output read straight after
+  start passed or failed by timing. It now asks the daemon first, which
+  answers only once the start is done. Phase g already did; phase h's
+  revocations load before the socket exists.
