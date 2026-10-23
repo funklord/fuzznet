@@ -1582,7 +1582,12 @@ struct pull_target {
 	fzn_caller_t caller;
 	fzn_reasm_t table;
 	fzn_partial_t slot;
-	uint8_t slot_buf[FZND_PULL_REPLY_MAX];
+	/* ITS REPLY SLOT, sec 704: one of the fixed tables' own -- the pulls',
+	 * the shares' -- or NULL for a contact host, whose replies reassemble
+	 * in the slots shared by every contact host's requests in flight. A
+	 * slot is the largest reply a host may send, 69 KB, and one each was
+	 * most of what a contact host cost. */
+	uint8_t *slot_buf;
 	int fd;
 };
 
@@ -4794,16 +4799,25 @@ static int open_target(struct pull_target *pt, int family, const uint8_t self[FZ
 	return open_target_on(pt, -1, family, self, hash, aead, rng);
 }
 
+/* Where a target's replies reassemble, sec 704: below, beside the tables. */
+static uint8_t *slot_of(const struct pull_target *pt);
+static fzn_reasm_t *contact_table(void);
+
 /* `fd` an open socket to keep using, or -1 to bind a new one. */
 static int open_target_on(struct pull_target *pt, int fd, int family,
                           const uint8_t self[FZN_PUBKEY_LEN], const fzn_hash_ops_t *hash,
                           const fzn_aead_ops_t *aead, const fzn_random_ops_t *rng)
 {
+	fzn_reasm_t *table;
+
 	pt->fd = -1;
-	if ((fd < 0 && fzn_udp_bind(family, NULL, 0, &fd) != FZN_UDP_OK)
+	pt->slot_buf = slot_of(pt);
+	table = pt->slot_buf ? &pt->table : contact_table();
+	if (!table || (fd < 0 && fzn_udp_bind(family, NULL, 0, &fd) != FZN_UDP_OK)
 	    || fzn_udp_resolve(family, pt->host, (uint16_t)pt->port, &pt->caller.node) != FZN_UDP_OK
-	    || fzn_reasm_slot_init(&pt->slot, pt->slot_buf, sizeof(pt->slot_buf)) != FZN_REASM_OK
-	    || fzn_reasm_init(&pt->table, &pt->slot, 1, 1u, 60u) != FZN_REASM_OK) {
+	    || (pt->slot_buf
+	        && (fzn_reasm_slot_init(&pt->slot, pt->slot_buf, FZND_PULL_REPLY_MAX) != FZN_REASM_OK
+	            || fzn_reasm_init(&pt->table, &pt->slot, 1, 1u, 60u) != FZN_REASM_OK))) {
 		if (fd >= 0)
 			fzn_udp_close(fd);
 		fzn_wipe(&pt->pairing, sizeof(pt->pairing));
@@ -4815,7 +4829,7 @@ static int open_target_on(struct pull_target *pt, int fd, int family,
 	pt->caller.hash = hash;
 	pt->caller.aead = aead;
 	pt->caller.rng = rng;
-	pt->caller.reasm = &pt->table;
+	pt->caller.reasm = table;
 	pt->caller.hops = 1u;
 	pt->caller.wrap = caller_wrap;
 	pt->caller.sent = caller_sent;
@@ -8673,6 +8687,50 @@ static size_t group_file(const fzn_group_t *g, const fzn_contact_device_t *own)
  * Not the first alone (sec 630 asked one): a member whose first-listed
  * device is off shared nothing until it came back. sec 641. */
 static struct share_target group_shares_in[FZND_GROUP_SHARES_MAX];
+
+/* THE FIXED TABLES' SLOTS, beside them, as they were inside each target;
+ * and THE CONTACT HOSTS' POOL, keyed as reassembly always is by sender and
+ * message: room for as many replies as may be in flight. */
+static uint8_t pull_slot_bufs[FZND_ROUND_TARGETS_MAX][FZND_PULL_REPLY_MAX];
+static uint8_t share_slot_bufs[FZN_NODE_RECEIVED_MAX][FZND_PULL_REPLY_MAX];
+static uint8_t group_share_slot_bufs[FZND_GROUP_SHARES_MAX][FZND_PULL_REPLY_MAX];
+#define FZND_CONTACT_REPLY_SLOTS FZN_NODE_ASKS_MAX
+static fzn_reasm_t contact_reasm;
+static fzn_partial_t contact_slots[FZND_CONTACT_REPLY_SLOTS];
+static uint8_t contact_slot_bufs[FZND_CONTACT_REPLY_SLOTS][FZND_PULL_REPLY_MAX];
+static int contact_reasm_up;
+
+static uint8_t *slot_of(const struct pull_target *pt)
+{
+	if (loop_pulls && pt >= loop_pulls && pt < loop_pulls + FZND_ROUND_TARGETS_MAX)
+		return pull_slot_bufs[pt - loop_pulls];
+	if (pt >= &shares_in[0].pt && pt <= &shares_in[FZN_NODE_RECEIVED_MAX - 1u].pt)
+		return share_slot_bufs[(const struct share_target *)(const void *)pt - shares_in];
+	if (pt >= &group_shares_in[0].pt && pt <= &group_shares_in[FZND_GROUP_SHARES_MAX - 1u].pt)
+		return group_share_slot_bufs[(const struct share_target *)(const void *)pt
+		                             - group_shares_in];
+	return NULL;
+}
+
+/* The contact hosts' shared table, made once. */
+static fzn_reasm_t *contact_table(void)
+{
+	size_t i;
+
+	if (!contact_reasm_up) {
+		for (i = 0; i < FZND_CONTACT_REPLY_SLOTS; i++)
+			if (fzn_reasm_slot_init(&contact_slots[i], contact_slot_bufs[i],
+			                        sizeof(contact_slot_bufs[i]))
+			    != FZN_REASM_OK)
+				return NULL;
+		if (fzn_reasm_init(&contact_reasm, contact_slots, FZND_CONTACT_REPLY_SLOTS, 8u, 60u)
+		    != FZN_REASM_OK)
+			return NULL;
+		contact_reasm_up = 1;
+	}
+	return &contact_reasm;
+}
+
 static size_t ngroup_shares_in;
 
 /* `h`'s HOST act's signer: its record, and where it is reached. */
@@ -14207,11 +14265,12 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					fzn_udp_close(ufd);
 				return 2;
 			}
-			if (pt->port < 0 || pt->port > 65535
+			pt->slot_buf = slot_of(pt);
+			if (pt->port < 0 || pt->port > 65535 || !pt->slot_buf
 			    || fzn_udp_bind(family, NULL, 0, &fd) != FZN_UDP_OK
 			    || fzn_udp_resolve(family, pt->host, (uint16_t)pt->port, &pt->caller.node)
 			               != FZN_UDP_OK
-			    || fzn_reasm_slot_init(&pt->slot, pt->slot_buf, sizeof(pt->slot_buf))
+			    || fzn_reasm_slot_init(&pt->slot, pt->slot_buf, FZND_PULL_REPLY_MAX)
 			               != FZN_REASM_OK
 			    || fzn_reasm_init(&pt->table, &pt->slot, 1, 1u, 60u) != FZN_REASM_OK) {
 				say(FZN_ENTRY_ERROR, "node", "could not reach for the peer at %s",

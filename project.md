@@ -70257,3 +70257,18 @@ building it:
      past 32.
   A socket per host is kept, as sec 698 needs for its NAT mapping. hull
   is where the before-and-after is measured.
+- **Stage 2, built:** a pull target's reply slot is a pointer now. The
+  fixed tables (the round's pulls, the shares, the group shares) keep a
+  slot each beside them, as they had inside each target. A contact host
+  has none: its caller reassembles in one table of 64 shared slots, the
+  ask table's bound, keyed as reassembly always is by sender and
+  message, with up to 8 replies from one host at once. A contact target
+  is 2440 bytes, measured with gdb on the built daemon; with the slot
+  inside it was about 71.6 KB.
+- **Stage 3 is larger than it looked:** besides the targets, nine
+  tables are sized by the 32. These are the contact, deliver, lines,
+  group-sync and host talks, the relayed and quiet lists, and two stack
+  tables. Some hold, per target, request buffers and per-group tables.
+  Growing them to thousands means making them paced pools, each talk
+  taking a place as one finishes, as the host talks already pace 32 at
+  once. That is the round's machinery, not a table.
