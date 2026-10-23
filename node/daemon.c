@@ -6174,6 +6174,86 @@ static void roots_room(fzn_node_roots_t *roots)
 		say(FZN_ENTRY_WARNING, "roots", "the root records' tables are full and would not grow");
 }
 
+/* ---- the roster's tables, sec 704 -------------------------------------------
+ *
+ * About one incarnation for each contact ever added, and a writer for each
+ * member that adds them: grown here as they fill, as the root records' are
+ * (sec 703). Past 128 a contact add was once refused, which kept a user
+ * below about 128 contacts. */
+struct roster_heap {
+	fzn_roster_entry_t *entries;
+	fzn_roster_writer_t *writers;
+};
+static struct roster_heap roster_heap;
+
+static int roster_grow(fzn_node_roster_t *nr, size_t entries, size_t writers)
+{
+	fzn_roster_entry_t *e;
+	fzn_roster_writer_t *w;
+
+	if (entries < nr->roster.capacity)
+		entries = nr->roster.capacity;
+	if (writers < nr->roster.writer_capacity)
+		writers = nr->roster.writer_capacity;
+	e = calloc(entries, sizeof(*e));
+	w = calloc(writers, sizeof(*w));
+	if (!e || !w || fzn_node_roster_use(nr, e, entries, w, writers) != FZN_NODE_ROSTER_OK) {
+		free(e);
+		free(w);
+		return 0;
+	}
+	free(roster_heap.entries);
+	free(roster_heap.writers);
+	roster_heap.entries = e;
+	roster_heap.writers = w;
+	return 1;
+}
+
+/* `fzn_node_roster_load`, given room and loaded again whenever a table
+ * fills: admission is idempotent, so what was taken before is taken once. */
+static fzn_node_roster_err_t roster_load(fzn_node_roster_t *nr, const fzn_persist_ops_t *store,
+                                         size_t *count)
+{
+	fzn_node_roster_err_t err = fzn_node_roster_load(nr, store, count);
+	size_t entries = 0, writers = 0;
+
+	while (err == FZN_NODE_ROSTER_FULL && fzn_node_roster_wants(nr, &entries, &writers)
+	       && roster_grow(nr, 2u * entries, 2u * writers))
+		err = fzn_node_roster_load(nr, store, count);
+	return err;
+}
+
+/* The admin's hook: room for a write that found a table full. */
+static int roster_room_now(void *ctx, fzn_node_roster_t *nr)
+{
+	size_t entries = 0, writers = 0;
+
+	(void)ctx;
+	return fzn_node_roster_wants(nr, &entries, &writers)
+	       && roster_grow(nr, 2u * entries, 2u * writers);
+}
+
+/* ROOM BEFORE IT IS WANTED: a table three quarters full, or found full,
+ * doubled -- a contact's record the journal left unmarked for want of room
+ * is taken at the next round. */
+static void roster_room(fzn_node_roster_t *nr)
+{
+	size_t entries = 0, writers = 0;
+
+	if (!fzn_node_roster_wants(nr, &entries, &writers)) {
+		if (4u * nr->roster.used < 3u * nr->roster.capacity
+		    && 4u * nr->roster.writers_used < 3u * nr->roster.writer_capacity)
+			return;
+		entries = nr->roster.capacity;
+		writers = nr->roster.writer_capacity;
+	}
+	if (roster_grow(nr, 2u * entries, 2u * writers))
+		say(FZN_ENTRY_INFO, "contact/roster", "the roster's tables grown: %zu incarnations, "
+		    "%zu writers", nr->roster.capacity, nr->roster.writer_capacity);
+	else
+		say(FZN_ENTRY_WARNING, "contact/roster", "the roster's tables are full and would not grow");
+}
+
 /* ---- the peers, sec 704 ----------------------------------------------------
  *
  * A NODE'S PEERS ARE ITS MEMBERS AND EVERY CONTACT'S DEVICES, thousands for
@@ -8608,19 +8688,74 @@ static void contact_named(void *ctx, const uint8_t key[FZN_PUBKEY_LEN], const ch
 		    fzn_node_settings_err_str(serr));
 }
 
+/* ROOM FOR EVERY CONTACT, sec 704: grown when a listing says there are
+ * more. One for `list contact`, through the admin's hook, and one for the
+ * names taken each round. */
+struct contacts_room {
+	fzn_contact_t *at;
+	size_t cap;
+};
+static struct contacts_room listed_contacts;
+static fzn_node_admin_t *contacts_admin;
+
+static int contacts_grow(struct contacts_room *r, size_t needed)
+{
+	fzn_contact_t *more;
+	size_t cap = needed <= FZN_CONTACTS_MAX ? FZN_CONTACTS_MAX : needed * 2u;
+
+	if (r->at && cap <= r->cap)
+		return 1;
+	more = calloc(cap, sizeof(*more));
+	if (!more) {
+		say(FZN_ENTRY_ERROR, "contact", "no memory for %zu contacts", cap);
+		return 0;
+	}
+	free(r->at);
+	r->at = more;
+	r->cap = cap;
+	return 1;
+}
+
+static int contacts_room(void *ctx, size_t needed)
+{
+	(void)ctx;
+	if (!contacts_grow(&listed_contacts, needed) || !contacts_admin)
+		return 0;
+	contacts_admin->contacts = listed_contacts.at;
+	contacts_admin->contacts_cap = listed_contacts.cap;
+	return 1;
+}
+
+/* EVERY CONTACT, into `r` grown to hold them. */
+static fzn_contact_err_t contacts_list(struct contacts_room *r, size_t *n)
+{
+	fzn_contact_err_t err;
+
+	*n = 0;
+	if (!node_apply.store || !contacts_grow(r, FZN_CONTACTS_MAX))
+		return FZN_CONTACT_ERR_BACKEND;
+	err = fzn_contact_list(node_apply.store, r->at, r->cap, n);
+	if (err == FZN_CONTACT_ERR_ROOM && contacts_grow(r, *n))
+		err = fzn_contact_list(node_apply.store, r->at, r->cap, n);
+	return err;
+}
+
 /* THE NAMES THE ESTATE GAVE, taken by each contact this host holds whose
  * name here is another. A name another key holds here is left for a round
  * that has moved that key on. */
 static void take_contact_names(void)
 {
-	static fzn_contact_t all[FZN_CONTACTS_MAX];
+	static struct contacts_room room;
+	fzn_contact_t *all;
 	uint8_t cell[CONTACT_NAME_KEY_LEN], value[FZN_SETTING_VALUE_MAX];
 	fzn_setting_rank_t rank;
 	size_t n = 0, i, len, taken = 0;
 
+	/* LISTED, NOT WALKED: renaming writes the contacts' own slot. */
 	if (!node_apply.store || !node_settings.store || !node_settings.estate
-	    || fzn_contact_list(node_apply.store, all, FZN_CONTACTS_MAX, &n) != FZN_CONTACT_OK)
+	    || contacts_list(&room, &n) != FZN_CONTACT_OK)
 		return;
+	all = room.at;
 	for (i = 0; i < n; i++) {
 		fzn_contact_err_t err;
 
@@ -13080,6 +13215,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			admin.peers_cap = node_peers_cap;
 			admin.peers_room = peers_room;
 			peers_admin = &admin;
+			admin.contacts_room = contacts_room;
+			contacts_admin = &admin;
+			admin.roster_room = roster_room_now;
 			admin.id = &identity;
 			admin.store = store_ops;
 			/* IDS ARE DRAWN, a group's among them (sec 516), whether or
@@ -13127,10 +13265,23 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				node_roster.wrote = fzn_node_admin_log_roster;
 				node_roster.wrote_ctx = &admin;
 				if (rerr == FZN_NODE_ROSTER_OK)
-					rerr = fzn_node_roster_load(&node_roster, store_ops, &nroster);
-				if (rerr == FZN_NODE_ROSTER_OK)
-					rerr = fzn_node_roster_carry_names(&node_roster, store_ops, &identity,
-					                                   my_authority, &rng_ops, &carried);
+					rerr = roster_load(&node_roster, store_ops, &nroster);
+				/* CARRIED ONLY ONTO A WHOLE ROSTER: over a load cut short, a
+				 * contact whose record was not read would be written a second
+				 * incarnation. A table filled by the carrying is grown and the
+				 * carrying taken up again; what was carried is held, and
+				 * skipped. */
+				if (rerr == FZN_NODE_ROSTER_OK) {
+					size_t more = 0;
+
+					do {
+						rerr = fzn_node_roster_carry_names(&node_roster, store_ops,
+						                                   &identity, my_authority,
+						                                   &rng_ops, &more);
+						carried += more;
+					} while (rerr == FZN_NODE_ROSTER_FULL
+					         && roster_room_now(NULL, &node_roster));
+				}
 				if (rerr == FZN_NODE_ROSTER_OK || rerr == FZN_NODE_ROSTER_NO_STANDING) {
 					admin.roster = &node_roster;
 					roster_on = 1;
@@ -13588,6 +13739,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			 * want it. sec 703. */
 			if (running_roots)
 				roots_room(running_roots);
+			if (roster_on)
+				roster_room(&node_roster);
 			if (!round_step && (now >= next_pull || next_pull > now + pull_every)) {
 				plan = round_plan;
 				plan_at = 0;

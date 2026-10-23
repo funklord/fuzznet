@@ -69819,3 +69819,54 @@ and stay.
   listing and the estate-pairing search, both on that path, so it is not
   ruled out. A non-reproduction is what "intermittent" means, not
   evidence against it.
+
+### Contacts and the roster, built, sec 704
+
+- **Contacts.** A node held at most 64 (`FZN_CONTACTS_MAX`): the 65th add
+  was refused FULL, and every listing read a literal 64. The inventory
+  above missed it, since it read the tables a user has at once and this
+  was a count enforced at the add. `fzn_contact_each` walks the slot;
+  `find` and `add` walk with no cap, and FULL is no longer answered.
+  `fzn_contact_list` answers `FZN_CONTACT_ERR_ROOM` with the count. `list
+  contact` asks the daemon for room through a `contacts_room` hook and
+  lists again. `contact_test` keeps 3000; `admin_test` lists 66 through
+  the hook. **Control:** with the hook unasked, the listing fails.
+- **The roster's tables** (128 incarnations, 32 writers) are the node's
+  own to start with. A record meeting a full table answers
+  `FZN_NODE_ROSTER_FULL`, and `fzn_node_roster_wants` says how large it
+  must be; the removers per incarnation stay few and still refuse.
+  `fzn_node_roster_use` moves the roster onto the caller's tables.
+  - **At load** the daemon grows them and loads again; admission is
+    idempotent. The carrying of old contacts at start grows them too, so
+    a full table no longer switches the roster off.
+  - **In the loop** they are doubled at three quarters full, as the
+    root records' are.
+  - **An admin add or removal** that finds a table full asks the
+    `roster_room` hook and writes again. Before, past 128 the add
+    answered an error with the name kept here and the roster without it.
+  - **From the journal**, a full table stops the round with the record
+    unmarked, as for roots (sec 703); refused, it would have been marked
+    applied and lost.
+- **Tests.** `pair_test` writes 3000 contacts as a root and loads them
+  into a fresh roster that grows by doubling; **control:** on its own
+  tables the 129th is FULL, and a load that skips FULL is caught.
+  `apply_test` holds a contact back at a roster of one and takes it once
+  there is room; **control:** with revoke's FULL read as a refusal, both
+  checks fail. `admin_test` adds to a roster exactly full; **control:**
+  the hook unasked is caught. `livecheck-faults` phase g adds 300
+  contacts to a running root, lists them, restarts it and lists them
+  again; it passes.
+- **Phase g's first control passed when it should have failed.** With
+  the growth at load off, a daemon over 300 records answered every
+  check: the load stopped FULL, the roster was switched off, and the
+  contacts listed from their own slot. The phase now also requires the
+  daemon's start line to say `300 roster record(s)` and no contact to
+  be listed `,absent`.
+- **And the second control found a fault.** With the load stopped at
+  128, the carrying of old contacts grew the tables and wrote the 172
+  unread contacts a second incarnation each. The carrying now runs only
+  onto a roster loaded whole. The carrying's own grow-and-continue is
+  not tested live: a store of contacts with no roster records is an
+  upgrade's, which this build does not write.
+- `name_arrivals` no longer skips a contact add that answers FULL, which
+  is no longer answered; any failure is a store failure.

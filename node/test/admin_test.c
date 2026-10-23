@@ -66,10 +66,11 @@ struct mem_entry {
 	size_t len;
 };
 
-/* 128 rows: every pairing logs its grant since sec 497, and the seventeen
- * paired below took a row each from cases that had sized this at 64. */
+/* 256 rows: every pairing logs its grant since sec 497, the seventeen
+ * paired below took a row each from cases that had sized this at 64, and
+ * sec 704's case lists more contacts than the admin's own room. */
 struct mem_store {
-	struct mem_entry e[128];
+	struct mem_entry e[256];
 	unsigned saves;
 };
 
@@ -364,6 +365,39 @@ static void remote_ran_stub(void *ctx, const uint8_t *sender, const uint8_t *wha
 	(void)ctx;
 	(void)sender;
 	snprintf(remote_heard, sizeof(remote_heard), "%.*s", (int)len, (const char *)what);
+}
+
+/* ROOM FOR CONTACTS, likewise: `list contact` moved onto `contacts_grown`. */
+static fzn_contact_t *contacts_grown;
+static size_t contacts_grown_cap, contacts_asked;
+
+static int contacts_stub(void *ctx, size_t needed)
+{
+	fzn_node_admin_t *a = ctx;
+
+	contacts_asked = needed;
+	if (needed > contacts_grown_cap)
+		return 0;
+	a->contacts = contacts_grown;
+	a->contacts_cap = contacts_grown_cap;
+	return 1;
+}
+
+/* ROOM FOR THE ROSTER, sec 704: a roster found full moved onto
+ * `roster_wide`. */
+static fzn_roster_entry_t roster_wide[128];
+static fzn_roster_writer_t roster_wide_writers[16];
+static size_t roster_asked;
+
+static int roster_stub(void *ctx, fzn_node_roster_t *nr)
+{
+	size_t entries = 0, writers = 0;
+
+	(void)ctx;
+	roster_asked++;
+	return fzn_node_roster_wants(nr, &entries, &writers) && entries <= 128u && writers <= 16u
+	       && fzn_node_roster_use(nr, roster_wide, 128u, roster_wide_writers, 16u)
+	                  == FZN_NODE_ROSTER_OK;
 }
 
 /* ROOM FOR PEERS, as fuzznetd gives it, sec 704: the admin moved onto
@@ -1628,6 +1662,45 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && says(detail, detail_len, "0 0"),
 		      "a removed contact was still listed");
+		/* MORE CONTACTS THAN THE ADMIN'S OWN ROOM, sec 704: listed whole once
+		 * the hook gives room, and refused aloud without one -- never a page
+		 * of the first 64. */
+		{
+			static fzn_contact_t grown[80];
+			uint8_t ck[FZN_PUBKEY_LEN];
+			char name[8];
+			size_t i, added = 0;
+
+			for (i = 0; i < 66u; i++) {
+				memset(ck, 0x2c, sizeof(ck));
+				ck[1] = (uint8_t)i;
+				snprintf(name, sizeof(name), "m%02zu", i);
+				added += fzn_contact_add(admin.store, ck, name, strlen(name), 1u)
+				         == FZN_CONTACT_OK;
+			}
+			CHECK(added == 66u, "fixture: 66 contacts");
+			CHECK(ask(&admin, &owner, "list contact", reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_ERROR,
+			      "66 contacts with no room for them listed as a page of some");
+			contacts_grown = grown;
+			contacts_grown_cap = 80u;
+			contacts_asked = 0;
+			admin.contacts_room = contacts_stub;
+			admin.contacts_room_ctx = &admin;
+			CHECK(ask(&admin, &owner, "list contact", reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+			              && says(detail, detail_len, "66 0") && contacts_asked == 66u,
+			      "66 contacts did not list once the hook gave room");
+			admin.contacts_room = NULL;
+			admin.contacts = NULL;
+			admin.contacts_cap = 0;
+			for (i = 0; i < 66u; i++) {
+				memset(ck, 0x2c, sizeof(ck));
+				ck[1] = (uint8_t)i;
+				(void)fzn_contact_remove(admin.store, ck);
+			}
+		}
 	}
 
 	/* ---- GROUPS, sec 626: the verbs, the node's user only. The node acts
@@ -2110,6 +2183,36 @@ int main(void)
 			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
 			              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK,
 			      "fixture: bob added back on the roster");
+			/* A ROSTER FULL TO THE LAST ENTRY, sec 704: the add asks for
+			 * room and is written in it, rather than answered an error
+			 * with the name kept and the roster without it. */
+			{
+				static fzn_roster_entry_t tight[64];
+				static fzn_roster_writer_t tight_writers[8];
+				uint8_t carla[FZN_PUBKEY_LEN];
+				char carla_line[(FZN_PUBKEY_LEN * 2u) + 32u];
+				size_t b;
+
+				memset(carla, 0x77, sizeof(carla));
+				snprintf(carla_line, sizeof(carla_line), "add contact carla ");
+				for (b = 0; b < FZN_PUBKEY_LEN; b++)
+					snprintf(carla_line + strlen(carla_line), 3, "%02x", carla[b]);
+				CHECK(ro.roster.used <= 64u && ro.roster.writers_used <= 8u
+				              && fzn_node_roster_use(&ro, tight, ro.roster.used, tight_writers,
+				                                     ro.roster.writers_used)
+				                         == FZN_NODE_ROSTER_OK,
+				      "fixture: the roster's tables exactly full");
+				admin.roster_room = roster_stub;
+				roster_asked = 0;
+				CHECK(ask(&admin, &owner, carla_line, reply, sizeof(reply), &reply_len)
+				              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+				                         == FZN_REPLY_OK
+				              && roster_asked == 1u
+				              && fzn_node_roster_standing(&ro, carla, admin.revocations, 0u)
+				                         == FZN_ROSTER_ACTIVE,
+				      "a contact added to a full roster was not written once it had room");
+				admin.roster_room = NULL;
+			}
 		}
 		req.capability = state.config.remote_capability.b;
 		notes_shared_seen = -1;

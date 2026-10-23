@@ -46,6 +46,7 @@
 #include <sys/socket.h>
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int failures;
@@ -3398,6 +3399,152 @@ static void test_a_node_pairs_as_a_root_by_identity(const fzn_cap_id_t *cap)
 	      "M's roots do not verify D's chain, or the genesis pin alone took it");
 }
 
+/* A ROSTER OF THOUSANDS, sec 704: 3000 contacts written by the root, and a
+ * node coming up to them grows its tables as the daemon does
+ * (`roster_load`) and holds every one. Past 128 incarnations a contact add
+ * was once refused. */
+#define MANY_ROWS 3100u
+static struct {
+	uint8_t id[FZN_PUBKEY_LEN];
+	uint8_t bytes[512];
+	size_t len;
+} many_rows[MANY_ROWS];
+static size_t many_used;
+
+static int many_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, uint8_t *out,
+                     size_t cap, size_t *len)
+{
+	size_t i;
+
+	(void)ctx;
+	if (slot != FZN_PERSIST_ROSTER)
+		return 0;
+	for (i = 0; i < many_used; i++)
+		if (memcmp(many_rows[i].id, subject, FZN_PUBKEY_LEN) == 0 && many_rows[i].len <= cap) {
+			memcpy(out, many_rows[i].bytes, many_rows[i].len);
+			*len = many_rows[i].len;
+			return 1;
+		}
+	return 0;
+}
+
+static int many_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
+                     const uint8_t *bytes, size_t len)
+{
+	(void)ctx;
+	if (slot != FZN_PERSIST_ROSTER || many_used == MANY_ROWS
+	    || len > sizeof(many_rows[0].bytes))
+		return 0;
+	memcpy(many_rows[many_used].id, subject, FZN_PUBKEY_LEN);
+	memcpy(many_rows[many_used].bytes, bytes, len);
+	many_rows[many_used++].len = len;
+	return 1;
+}
+
+static int many_each(void *ctx, fzn_persist_slot_t slot,
+                     int (*fn)(void *arg, const uint8_t subject[FZN_PUBKEY_LEN]), void *arg)
+{
+	size_t i;
+
+	(void)ctx;
+	if (slot != FZN_PERSIST_ROSTER)
+		return 1;
+	for (i = 0; i < many_used; i++)
+		if (!fn(arg, many_rows[i].id))
+			break;
+	return 1;
+}
+
+static void many_subject(size_t i, uint8_t subject[FZN_PUBKEY_LEN])
+{
+	memset(subject, 0x5a, FZN_PUBKEY_LEN);
+	subject[0] = (uint8_t)(i >> 8);
+	subject[1] = (uint8_t)i;
+}
+
+static void test_a_roster_of_thousands(const fzn_cap_id_t *cap)
+{
+	static struct node r;
+	static fzn_node_roster_t writer, reader;
+	static fzn_roster_entry_t big[4096], *grown_entries;
+	static fzn_roster_writer_t big_writers[64], *grown_writers;
+	fzn_persist_ops_t many = { 0 };
+	uint8_t subject[FZN_PUBKEY_LEN];
+	size_t i, count = 0, entries = 0, writers = 0, grows = 0;
+	fzn_node_roster_err_t err;
+	int written = 1;
+
+	many.ctx = NULL;
+	many.load = many_load;
+	many.save = many_save;
+	many.each = many_each;
+	CHECK(node_up(&r)
+	              && fzn_node_roster_init(&writer, r.id.pubkey, cap, &r.sign, NULL, &hash_ops)
+	                         == FZN_NODE_ROSTER_OK,
+	      "fixture: the root and its roster");
+
+	/* THE CONTROL: on its own tables the root's 129th add is not taken. */
+	for (i = 0; i < FZN_NODE_ROSTER_ENTRIES && written; i++) {
+		many_subject(i, subject);
+		written = fzn_node_roster_write(&writer, &many, &r.id, NULL, &rng_ops, subject, 1,
+		                                NULL, 1u) == FZN_NODE_ROSTER_OK;
+	}
+	many_subject(i, subject);
+	CHECK(written
+	              && fzn_node_roster_write(&writer, &many, &r.id, NULL, &rng_ops, subject, 1, NULL,
+	                                       1u) == FZN_NODE_ROSTER_FULL
+	              && many_used == FZN_NODE_ROSTER_ENTRIES
+	              && fzn_node_roster_wants(&writer, &entries, &writers)
+	              && entries == FZN_NODE_ROSTER_ENTRIES + 1u,
+	      "the control: the root's own tables took more than they hold, or said nothing");
+
+	/* GIVEN ROOM, it takes 3000. */
+	CHECK(fzn_node_roster_use(&writer, big, 4096u, big_writers, 64u) == FZN_NODE_ROSTER_OK
+	              && !fzn_node_roster_wants(&writer, &entries, &writers),
+	      "the root's roster would not take tables of its caller's");
+	for (; i < 3000u && written; i++) {
+		many_subject(i, subject);
+		written = fzn_node_roster_write(&writer, &many, &r.id, NULL, &rng_ops, subject, 1,
+		                                NULL, 1u) == FZN_NODE_ROSTER_OK;
+	}
+	CHECK(written && many_used == 3000u && writer.roster.used == 3000u,
+	      "the root did not write 3000 contacts on tables given room");
+
+	/* A NODE COMING UP TO THEM grows by doubling until it holds them all. */
+	CHECK(fzn_node_roster_init(&reader, r.id.pubkey, cap, &r.sign, NULL, &hash_ops)
+	              == FZN_NODE_ROSTER_OK,
+	      "fixture: the reader's roster");
+	err = fzn_node_roster_load(&reader, &many, &count);
+	while (err == FZN_NODE_ROSTER_FULL && fzn_node_roster_wants(&reader, &entries, &writers)
+	       && grows < 8u) {
+		fzn_roster_entry_t *e = calloc(2u * entries, sizeof(*e));
+		fzn_roster_writer_t *w = calloc(2u * writers, sizeof(*w));
+
+		if (!e || !w
+		    || fzn_node_roster_use(&reader, e, 2u * entries, w, 2u * writers)
+		               != FZN_NODE_ROSTER_OK) {
+			free(e);
+			free(w);
+			break;
+		}
+		free(grown_entries);
+		free(grown_writers);
+		grown_entries = e;
+		grown_writers = w;
+		grows++;
+		err = fzn_node_roster_load(&reader, &many, &count);
+	}
+	many_subject(2999u, subject);
+	CHECK(err == FZN_NODE_ROSTER_OK && count == 3000u && reader.roster.used == 3000u
+	              && grows >= 1u
+	              && fzn_node_roster_standing(&reader, subject, NULL, 1u) == FZN_ROSTER_ACTIVE,
+	      "a node coming up to 3000 contacts did not grow to hold them all");
+	free(grown_entries);
+	free(grown_writers);
+	grown_entries = NULL;
+	grown_writers = NULL;
+}
+
 int main(void)
 {
 	static struct node node, device, stranger;
@@ -3567,6 +3714,7 @@ int main(void)
 	test_the_estates_k_travels();
 	test_an_admin_sets_retention(&cap);
 	test_contacts_travel(&cap);
+	test_a_roster_of_thousands(&cap);
 	test_a_revoked_members_contacts_to_the_line(&cap);
 	test_a_device_rekeyed(&cap);
 	test_a_node_pairs_as_a_root_by_identity(&cap);

@@ -76,6 +76,8 @@
 #include "serve.h"
 #include "contact_devices.h"
 
+struct fzn_contact;
+
 typedef struct fzn_node_admin {
 	/* The running node. Its `peers` and `peer_count` are replaced after a
 	 * pairing; its config supplies the root and the capability granted. */
@@ -91,6 +93,20 @@ typedef struct fzn_node_admin {
 	 * any other would. */
 	int (*peers_room)(void *ctx, size_t needed);
 	void *peers_room_ctx;
+	/* ROOM FOR `list contact`, sec 704: a sorted page needs every contact
+	 * at once. NULL, and the admin keeps FZN_CONTACTS_MAX of its own; the
+	 * hook, asked for `needed`, sets `contacts` and `contacts_cap` to
+	 * storage as large and answers 1. */
+	struct fzn_contact *contacts;
+	size_t contacts_cap;
+	int (*contacts_room)(void *ctx, size_t needed);
+	void *contacts_room_ctx;
+	/* ROOM FOR THE ROSTER, sec 704: a contact's add or removal that found
+	 * a roster table full asks once, and is written again when the hook
+	 * has given `nr` larger tables (`fzn_node_roster_use`) and answers 1.
+	 * NULL, and the write is refused as full. */
+	int (*roster_room)(void *ctx, struct fzn_node_roster *nr);
+	void *roster_room_ctx;
 	const fzn_node_identity_t *id;
 	const fzn_persist_ops_t *store;
 	/* How long a card stays worth accepting, from when it is made. */

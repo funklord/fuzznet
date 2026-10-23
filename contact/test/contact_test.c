@@ -20,7 +20,7 @@ static void check_at(int ok, int line, const char *what)
 
 #define CHECK(cond, what) check_at((cond) ? 1 : 0, __LINE__, what)
 
-#define MEM_ROWS 80u
+#define MEM_ROWS 3100u
 
 struct row {
 	int used;
@@ -114,7 +114,7 @@ static void key_of(uint8_t k, uint8_t out[FZN_PUBKEY_LEN])
 
 int main(void)
 {
-	static fzn_contact_t all[FZN_CONTACTS_MAX + 4u];
+	static fzn_contact_t all[3100];
 	uint8_t a[FZN_PUBKEY_LEN], b[FZN_PUBKEY_LEN], c[FZN_PUBKEY_LEN];
 	fzn_contact_t got;
 	size_t n = 0, i;
@@ -169,23 +169,31 @@ int main(void)
 	CHECK(fzn_contact_remove(&OPS, b) == FZN_CONTACT_ERR_ABSENT,
 	      "and removing him again says there is none");
 
-	/* ---- the bound */
-	for (i = 0; i < FZN_CONTACTS_MAX && ok; i++) {
+	/* ---- NO BOUND, sec 704: 3000 contacts, more than a caller's first
+	 * room; a list into less answers room with the count rather than the
+	 * first so many, and into enough lists them all in name order. Past 64
+	 * a contact was once refused, and a list of more stopped short. */
+	for (i = 0; i < 3000u && ok; i++) {
 		uint8_t k[FZN_PUBKEY_LEN];
 		char name[8];
 
 		memset(k, 0, sizeof(k));
 		k[0] = 1u;
 		k[1] = (uint8_t)i;
-		snprintf(name, sizeof(name), "n%02zu", i);
-		ok = fzn_contact_add(&OPS, k, name, strlen(name), 1u) == FZN_CONTACT_OK
-		     || i >= FZN_CONTACTS_MAX - 2u;
+		k[2] = (uint8_t)(i >> 8);
+		snprintf(name, sizeof(name), "n%04zu", i);
+		ok = fzn_contact_add(&OPS, k, name, strlen(name), 1u) == FZN_CONTACT_OK;
 	}
-	CHECK(fzn_contact_list(&OPS, all, FZN_CONTACTS_MAX, &n) == FZN_CONTACT_OK
-	              && n == FZN_CONTACTS_MAX,
-	      "the list fills to its bound");
-	CHECK(fzn_contact_add(&OPS, b, "bob", 3u, 1u) == FZN_CONTACT_ERR_FULL,
-	      "and a contact past it is refused");
+	CHECK(ok, "3000 contacts were not all added");
+	CHECK(fzn_contact_list(&OPS, all, FZN_CONTACTS_MAX, &n) == FZN_CONTACT_ERR_ROOM
+	              && n > 3000u,
+	      "a list of more contacts than its room did not answer room with the count");
+	CHECK(fzn_contact_list(&OPS, all, sizeof(all) / sizeof(all[0]), &n) == FZN_CONTACT_OK
+	              && n > 3000u && strcmp(all[0].name, all[1].name) < 0
+	              && strcmp(all[n - 2u].name, all[n - 1u].name) < 0,
+	      "the contacts did not list whole, in name order");
+	CHECK(fzn_contact_add(&OPS, b, "bob", 3u, 1u) == FZN_CONTACT_OK,
+	      "a contact past 3000 was refused");
 	CHECK(fzn_contact_add(&OPS, a, "aaron_r", 7u, 1u) == FZN_CONTACT_OK,
 	      "though renaming one held still works");
 

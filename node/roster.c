@@ -32,6 +32,8 @@ const char *fzn_node_roster_err_str(fzn_node_roster_err_t err)
 		return "the contact records would not read";
 	case FZN_NODE_ROSTER_NOT_LOGGED:
 		return "written, and not in this root's log: it would fall at this root's removal";
+	case FZN_NODE_ROSTER_FULL:
+		return "a table of the roster is full; the node must be given a larger one";
 	}
 	return "unknown";
 }
@@ -87,11 +89,27 @@ static fzn_node_roster_err_t admit(fzn_node_roster_t *nr, const uint8_t *record,
 	for (i = 0; i < hop_count; i++)
 		if (fzn_hop_open(hops[i], FZN_HOP_LEN, &opened[i]) != FZN_CHAIN_OK)
 			return FZN_NODE_ROSTER_REFUSED;
-	if (fzn_roster_open(record, record_len, &rec) != FZN_ROSTER_OK
-	    || fzn_roster_admit(&nr->roster, rec, opened, hop_count, &nr->authority)
-	               != FZN_ROSTER_OK)
+	if (fzn_roster_open(record, record_len, &rec) != FZN_ROSTER_OK)
 		return FZN_NODE_ROSTER_REFUSED;
-	return FZN_NODE_ROSTER_OK;
+	switch (fzn_roster_admit(&nr->roster, rec, opened, hop_count, &nr->authority)) {
+	case FZN_ROSTER_OK:
+		return FZN_NODE_ROSTER_OK;
+	case FZN_ROSTER_ERR_FULL:
+		/* WHICH TABLE, sec 704: a full one is given room, and the record
+		 * taken then; a third FULL, an incarnation's removers, is the
+		 * quorum's size and truly few. */
+		if (nr->roster.used >= nr->roster.capacity) {
+			nr->entries_wanted = nr->roster.used + 1u;
+			return FZN_NODE_ROSTER_FULL;
+		}
+		if (nr->roster.writers_used >= nr->roster.writer_capacity) {
+			nr->writers_wanted = nr->roster.writers_used + 1u;
+			return FZN_NODE_ROSTER_FULL;
+		}
+		return FZN_NODE_ROSTER_REFUSED;
+	default:
+		return FZN_NODE_ROSTER_REFUSED;
+	}
 }
 
 static fzn_node_roster_err_t save(const fzn_persist_ops_t *store, const fzn_hash_ops_t *hash,
@@ -142,27 +160,83 @@ int fzn_node_roster_get(const fzn_persist_ops_t *store, const uint8_t id[FZN_PUB
 	return 1;
 }
 
+/* ONE RECORD, walked at load: admitted, or skipped when it will not admit --
+ * one written under a root this node has since left, say -- but a table
+ * found full stops the load, so the caller can give room and load again. */
+struct roster_walk {
+	fzn_node_roster_t *nr;
+	const fzn_persist_ops_t *store;
+	size_t *count;
+	fzn_node_roster_err_t err;
+};
+
+static int roster_walked(void *arg, const uint8_t id[FZN_PUBKEY_LEN])
+{
+	static uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	struct roster_walk *w = arg;
+	uint8_t record[FZN_ROSTER_MIN_LEN];
+	size_t n = 0;
+	fzn_node_roster_err_t err;
+
+	if (!fzn_node_roster_get(w->store, id, record, hops, &n)) {
+		w->err = FZN_NODE_ROSTER_STORE;
+		return 0;
+	}
+	err = admit(w->nr, record, sizeof(record), (const uint8_t (*)[FZN_HOP_LEN])hops, n);
+	if (err == FZN_NODE_ROSTER_FULL) {
+		w->err = err;
+		return 0;
+	}
+	if (err == FZN_NODE_ROSTER_OK)
+		(*w->count)++;
+	return 1;
+}
+
 fzn_node_roster_err_t fzn_node_roster_load(fzn_node_roster_t *nr,
                                            const fzn_persist_ops_t *store, size_t *count)
 {
-	static uint8_t ids[FZN_NODE_ROSTER_RECORDS * FZN_PUBKEY_LEN];
-	static uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
-	uint8_t record[FZN_ROSTER_MIN_LEN];
-	size_t found = 0, i, n = 0;
+	struct roster_walk w;
 
-	if (!nr || !store || !store->list || !count)
+	if (!nr || !store || (!store->list && !store->each) || !count)
 		return FZN_NODE_ROSTER_MALFORMED;
 	*count = 0;
-	if (!store->list(store->ctx, FZN_PERSIST_ROSTER, ids, FZN_NODE_ROSTER_RECORDS, &found))
+	w.nr = nr;
+	w.store = store;
+	w.count = count;
+	w.err = FZN_NODE_ROSTER_OK;
+	if (!fzn_persist_each(store, FZN_PERSIST_ROSTER, roster_walked, &w))
 		return FZN_NODE_ROSTER_STORE;
-	for (i = 0; i < found; i++) {
-		if (!fzn_node_roster_get(store, ids + (i * (size_t)FZN_PUBKEY_LEN), record, hops, &n))
-			return FZN_NODE_ROSTER_STORE;
-		if (admit(nr, record, sizeof(record), (const uint8_t (*)[FZN_HOP_LEN])hops, n)
-		    == FZN_NODE_ROSTER_OK)
-			(*count)++;
-	}
+	return w.err;
+}
+
+fzn_node_roster_err_t fzn_node_roster_use(fzn_node_roster_t *nr, fzn_roster_entry_t *entries,
+                                          size_t capacity, fzn_roster_writer_t *writers,
+                                          size_t writer_capacity)
+{
+	if (!nr || !entries || !writers || capacity < nr->roster.used || capacity == 0u
+	    || writer_capacity < nr->roster.writers_used || writer_capacity == 0u)
+		return FZN_NODE_ROSTER_MALFORMED;
+	if (entries != nr->roster.entries)
+		memmove(entries, nr->roster.entries, nr->roster.used * sizeof(*entries));
+	if (writers != nr->roster.writers)
+		memmove(writers, nr->roster.writers, nr->roster.writers_used * sizeof(*writers));
+	nr->roster.entries = entries;
+	nr->roster.capacity = capacity;
+	nr->roster.writers = writers;
+	nr->roster.writer_capacity = writer_capacity;
+	nr->entries_wanted = nr->writers_wanted = 0;
 	return FZN_NODE_ROSTER_OK;
+}
+
+int fzn_node_roster_wants(const fzn_node_roster_t *nr, size_t *entries, size_t *writers)
+{
+	if (!nr || !entries || !writers || (!nr->entries_wanted && !nr->writers_wanted))
+		return 0;
+	*entries = nr->entries_wanted > nr->roster.capacity ? nr->entries_wanted
+	                                                     : nr->roster.capacity;
+	*writers = nr->writers_wanted > nr->roster.writer_capacity ? nr->writers_wanted
+	                                                            : nr->roster.writer_capacity;
+	return 1;
 }
 
 fzn_node_roster_err_t fzn_node_roster_learn(fzn_node_roster_t *nr,
@@ -187,7 +261,7 @@ static int held(const fzn_node_roster_t *nr, const uint8_t subject[FZN_PUBKEY_LE
 	size_t i;
 
 	for (i = 0; i < nr->roster.used; i++)
-		if (memcmp(nr->entries[i].subject, subject, FZN_PUBKEY_LEN) == 0)
+		if (memcmp(nr->roster.entries[i].subject, subject, FZN_PUBKEY_LEN) == 0)
 			return 1;
 	return 0;
 }
@@ -206,7 +280,7 @@ static int removable(const fzn_node_roster_t *nr, const uint8_t subject[FZN_PUBK
 	if (fzn_roster_active(&nr->roster, subject, revocations, k, incarnation))
 		return 1;
 	for (i = 0; i < nr->roster.used; i++) {
-		const fzn_roster_entry_t *e = &nr->entries[i];
+		const fzn_roster_entry_t *e = &nr->roster.entries[i];
 		int mine = 0;
 
 		if (memcmp(e->subject, subject, FZN_PUBKEY_LEN) != 0
@@ -316,9 +390,9 @@ fzn_roster_state_t fzn_node_roster_standing(const fzn_node_roster_t *nr,
 	for (i = 0; i < nr->roster.used; i++) {
 		fzn_roster_state_t s;
 
-		if (memcmp(nr->entries[i].subject, subject, FZN_PUBKEY_LEN) != 0)
+		if (memcmp(nr->roster.entries[i].subject, subject, FZN_PUBKEY_LEN) != 0)
 			continue;
-		s = fzn_roster_state(&nr->roster, subject, nr->entries[i].incarnation, revocations, k);
+		s = fzn_roster_state(&nr->roster, subject, nr->roster.entries[i].incarnation, revocations, k);
 		if (s == FZN_ROSTER_RETIRED || (s == FZN_ROSTER_SUSPENDED && best == FZN_ROSTER_ABSENT))
 			best = s;
 	}
@@ -334,10 +408,10 @@ size_t fzn_node_roster_subjects(const fzn_node_roster_t *nr, uint8_t (*out)[FZN_
 		return 0;
 	for (i = 0; i < nr->roster.used && n < cap; i++) {
 		for (j = 0; j < n; j++)
-			if (memcmp(out[j], nr->entries[i].subject, FZN_PUBKEY_LEN) == 0)
+			if (memcmp(out[j], nr->roster.entries[i].subject, FZN_PUBKEY_LEN) == 0)
 				break;
 		if (j == n)
-			memcpy(out[n++], nr->entries[i].subject, FZN_PUBKEY_LEN);
+			memcpy(out[n++], nr->roster.entries[i].subject, FZN_PUBKEY_LEN);
 	}
 	return n;
 }
@@ -351,24 +425,25 @@ fzn_node_roster_err_t fzn_node_roster_name_arrivals(const fzn_node_roster_t *nr,
                                                     void *member_ctx, uint64_t now_ms,
                                                     size_t *named)
 {
-	static uint8_t subjects[FZN_NODE_ROSTER_ENTRIES][FZN_PUBKEY_LEN];
 	static const char HEX[] = "0123456789abcdef";
-	size_t n, i;
+	size_t i;
 
 	if (!nr || !store || !named)
 		return FZN_NODE_ROSTER_MALFORMED;
 	*named = 0;
-	n = fzn_node_roster_subjects(nr, subjects, FZN_NODE_ROSTER_ENTRIES);
-	for (i = 0; i < n; i++) {
+	/* EVERY INCARNATION'S SUBJECT, sec 704, with no table of its own: one met
+	 * twice is a contact by the second time, and passed over. */
+	for (i = 0; i < nr->roster.used; i++) {
+		const uint8_t *subject = nr->roster.entries[i].subject;
 		fzn_contact_t c;
 		fzn_contact_err_t cerr;
 		char name[FZN_CONTACT_NAME_MAX + 1u];
 		size_t digits, d;
 
-		if (fzn_node_roster_standing(nr, subjects[i], revocations, k) != FZN_ROSTER_ACTIVE
-		    || (member && member(member_ctx, subjects[i])))
+		if (fzn_node_roster_standing(nr, subject, revocations, k) != FZN_ROSTER_ACTIVE
+		    || (member && member(member_ctx, subject)))
 			continue;
-		cerr = fzn_contact_get(store, subjects[i], &c);
+		cerr = fzn_contact_get(store, subject, &c);
 		if (cerr == FZN_CONTACT_OK)
 			continue;
 		if (cerr != FZN_CONTACT_ERR_ABSENT)
@@ -379,18 +454,43 @@ fzn_node_roster_err_t fzn_node_roster_name_arrivals(const fzn_node_roster_t *nr,
 			name[0] = 'c';
 			name[1] = '_';
 			for (d = 0; d < digits; d++)
-				name[2u + d] = HEX[(subjects[i][d / 2u] >> ((d % 2u) ? 0 : 4)) & 15u];
+				name[2u + d] = HEX[(subject[d / 2u] >> ((d % 2u) ? 0 : 4)) & 15u];
 			name[2u + digits] = '\0';
-			cerr = fzn_contact_add(store, subjects[i], name, 2u + digits, now_ms);
+			cerr = fzn_contact_add(store, subject, name, 2u + digits, now_ms);
 			if (cerr != FZN_CONTACT_ERR_TAKEN)
 				break;
 		}
-		if (cerr == FZN_CONTACT_OK)
-			(*named)++;
-		else if (cerr != FZN_CONTACT_ERR_FULL)
+		if (cerr != FZN_CONTACT_OK)
 			return FZN_NODE_ROSTER_STORE;
+		(*named)++;
 	}
 	return FZN_NODE_ROSTER_OK;
+}
+
+/* ONE CONTACT CARRIED onto the roster, unless it is held there already; a
+ * write that fails stops the walk with its error. */
+struct carrying {
+	fzn_node_roster_t *nr;
+	const fzn_persist_ops_t *store;
+	const fzn_node_identity_t *id;
+	const fzn_node_authority_t *authority;
+	const fzn_random_ops_t *rng;
+	size_t *written;
+	fzn_node_roster_err_t err;
+};
+
+static int carry_one(void *ctx, const fzn_contact_t *contact)
+{
+	struct carrying *c = ctx;
+
+	if (held(c->nr, contact->key))
+		return 1;
+	c->err = fzn_node_roster_write(c->nr, c->store, c->id, c->authority, c->rng, contact->key, 1,
+	                               NULL, 0);
+	if (c->err != FZN_NODE_ROSTER_OK)
+		return 0;
+	(*c->written)++;
+	return 1;
 }
 
 fzn_node_roster_err_t fzn_node_roster_carry_names(fzn_node_roster_t *nr,
@@ -400,22 +500,21 @@ fzn_node_roster_err_t fzn_node_roster_carry_names(fzn_node_roster_t *nr,
                                                   const fzn_random_ops_t *rng,
                                                   size_t *written)
 {
-	static fzn_contact_t all[FZN_CONTACTS_MAX];
-	size_t count = 0, i;
-	fzn_node_roster_err_t err;
+	struct carrying c;
 
 	if (!nr || !store || !written)
 		return FZN_NODE_ROSTER_MALFORMED;
 	*written = 0;
-	if (fzn_contact_list(store, all, FZN_CONTACTS_MAX, &count) != FZN_CONTACT_OK)
+	c.nr = nr;
+	c.store = store;
+	c.id = id;
+	c.authority = authority;
+	c.rng = rng;
+	c.written = written;
+	c.err = FZN_NODE_ROSTER_OK;
+	/* WALKED, sec 704, however many contacts: the writes go to the roster's
+	 * slot, not the contacts' being walked. */
+	if (fzn_contact_each(store, carry_one, &c) != FZN_CONTACT_OK)
 		return FZN_NODE_ROSTER_STORE;
-	for (i = 0; i < count; i++) {
-		if (held(nr, all[i].key))
-			continue;
-		err = fzn_node_roster_write(nr, store, id, authority, rng, all[i].key, 1, NULL, 0);
-		if (err != FZN_NODE_ROSTER_OK)
-			return err;
-		(*written)++;
-	}
-	return FZN_NODE_ROSTER_OK;
+	return c.err;
 }

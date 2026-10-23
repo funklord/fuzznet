@@ -29,6 +29,8 @@ const char *fzn_contact_err_str(fzn_contact_err_t err)
 		return "the store refused";
 	case FZN_CONTACT_ERR_SHAPE:
 		return "a contact entry will not read";
+	case FZN_CONTACT_ERR_ROOM:
+		return "more contacts held than the caller had room for";
 	}
 	return "unknown";
 }
@@ -82,85 +84,174 @@ static int name_order(const void *a, const void *b)
 	return strcmp(x->name, y->name);
 }
 
+/* ONE ROW, walked into a contact for `fn`: a row that will not read is
+ * passed over, as the list always passed it over. */
+struct contacts_walk {
+	const fzn_persist_ops_t *store;
+	int (*fn)(void *ctx, const fzn_contact_t *c);
+	void *ctx;
+};
+
+static int contact_walked(void *arg, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	struct contacts_walk *w = arg;
+	fzn_contact_t c;
+
+	if (fzn_contact_get(w->store, key, &c) != FZN_CONTACT_OK)
+		return 1;
+	return w->fn(w->ctx, &c);
+}
+
+fzn_contact_err_t fzn_contact_each(const fzn_persist_ops_t *store,
+                                   int (*fn)(void *ctx, const fzn_contact_t *c), void *ctx)
+{
+	struct contacts_walk w;
+
+	if (!store || !fn)
+		return FZN_CONTACT_ERR_MALFORMED;
+	w.store = store;
+	w.fn = fn;
+	w.ctx = ctx;
+	return fzn_persist_each(store, FZN_PERSIST_CONTACT, contact_walked, &w)
+	       ? FZN_CONTACT_OK
+	       : FZN_CONTACT_ERR_BACKEND;
+}
+
+/* INTO THE CALLER'S ROOM while there is any, and counted past it. */
+struct contacts_into {
+	fzn_contact_t *out;
+	size_t cap, n;
+};
+
+static int contact_into(void *ctx, const fzn_contact_t *c)
+{
+	struct contacts_into *in = ctx;
+
+	if (in->n < in->cap)
+		in->out[in->n] = *c;
+	in->n++;
+	return 1;
+}
+
 fzn_contact_err_t fzn_contact_list(const fzn_persist_ops_t *store, fzn_contact_t *out,
                                    size_t cap, size_t *count)
 {
-	static uint8_t keys[FZN_CONTACTS_MAX][FZN_PUBKEY_LEN];
-	size_t held = 0, i, n = 0;
+	struct contacts_into in;
+	fzn_contact_err_t err;
 
-	if (!store || !store->list || !out || !count)
+	if (!store || (!out && cap) || !count)
 		return FZN_CONTACT_ERR_MALFORMED;
 	*count = 0;
-	if (!store->list(store->ctx, FZN_PERSIST_CONTACT, (uint8_t *)keys, FZN_CONTACTS_MAX, &held))
-		return FZN_CONTACT_ERR_BACKEND;
-	for (i = 0; i < held && n < cap; i++)
-		if (fzn_contact_get(store, keys[i], &out[n]) == FZN_CONTACT_OK)
-			n++;
-	qsort(out, n, sizeof(out[0]), name_order);
-	*count = n;
+	in.out = out;
+	in.cap = cap;
+	in.n = 0;
+	err = fzn_contact_each(store, contact_into, &in);
+	if (err != FZN_CONTACT_OK)
+		return err;
+	*count = in.n;
+	if (in.n > cap)
+		return FZN_CONTACT_ERR_ROOM;
+	qsort(out, in.n, sizeof(out[0]), name_order);
 	return FZN_CONTACT_OK;
+}
+
+/* THE ONE NAMED, found as the walk passes it. */
+struct contacts_named {
+	const char *name;
+	size_t len;
+	fzn_contact_t *out;
+	int found;
+};
+
+static int contact_named(void *ctx, const fzn_contact_t *c)
+{
+	struct contacts_named *f = ctx;
+
+	if (c->name_len == f->len && memcmp(c->name, f->name, f->len) == 0) {
+		*f->out = *c;
+		f->found = 1;
+		return 0;
+	}
+	return 1;
 }
 
 fzn_contact_err_t fzn_contact_find(const fzn_persist_ops_t *store, const char *name,
                                    size_t name_len, fzn_contact_t *out)
 {
-	static fzn_contact_t all[FZN_CONTACTS_MAX];
-	size_t count = 0, i;
+	struct contacts_named f;
 	fzn_contact_err_t err;
 
 	if (!store || !name || !out)
 		return FZN_CONTACT_ERR_MALFORMED;
 	if (!fzn_contact_name_ok(name, name_len))
 		return FZN_CONTACT_ERR_NAME;
-	err = fzn_contact_list(store, all, FZN_CONTACTS_MAX, &count);
+	f.name = name;
+	f.len = name_len;
+	f.out = out;
+	f.found = 0;
+	err = fzn_contact_each(store, contact_named, &f);
 	if (err != FZN_CONTACT_OK)
 		return err;
-	for (i = 0; i < count; i++)
-		if (all[i].name_len == name_len && memcmp(all[i].name, name, name_len) == 0) {
-			*out = all[i];
-			return FZN_CONTACT_OK;
-		}
-	return FZN_CONTACT_ERR_ABSENT;
+	return f.found ? FZN_CONTACT_OK : FZN_CONTACT_ERR_ABSENT;
+}
+
+/* WHAT AN ADD MUST KNOW of the contacts held: whether this key is one, and
+ * when it was added; whether another key has the name. */
+struct contacts_adding {
+	const uint8_t *key;
+	const char *name;
+	size_t len;
+	int held, taken;
+	uint64_t added;
+};
+
+static int contact_adding(void *ctx, const fzn_contact_t *c)
+{
+	struct contacts_adding *a = ctx;
+
+	if (memcmp(c->key, a->key, FZN_PUBKEY_LEN) == 0) {
+		a->held = 1;
+		a->added = c->added_at_ms;
+		return 1;
+	}
+	/* ONE NAME, ONE KEY: a name is how a person picks a contact, and two
+	 * keys under one name is a choice made for them. */
+	if (c->name_len == a->len && memcmp(c->name, a->name, a->len) == 0) {
+		a->taken = 1;
+		return 0;
+	}
+	return 1;
 }
 
 fzn_contact_err_t fzn_contact_add(const fzn_persist_ops_t *store,
                                   const uint8_t key[FZN_PUBKEY_LEN], const char *name,
                                   size_t name_len, uint64_t now_ms)
 {
-	static fzn_contact_t all[FZN_CONTACTS_MAX];
+	struct contacts_adding a;
 	uint8_t blob[BLOB_MAX];
 	uint8_t *body = blob + FZN_PERSIST_HEAD_LEN;
-	uint64_t added = now_ms;
-	size_t count = 0, i;
-	int held = 0;
 	fzn_contact_err_t err;
 
 	if (!store || !store->save || !key || !name)
 		return FZN_CONTACT_ERR_MALFORMED;
 	if (!fzn_contact_name_ok(name, name_len))
 		return FZN_CONTACT_ERR_NAME;
-	err = fzn_contact_list(store, all, FZN_CONTACTS_MAX, &count);
+	a.key = key;
+	a.name = name;
+	a.len = name_len;
+	a.held = a.taken = 0;
+	a.added = now_ms;
+	err = fzn_contact_each(store, contact_adding, &a);
 	if (err != FZN_CONTACT_OK)
 		return err;
-	for (i = 0; i < count; i++) {
-		if (memcmp(all[i].key, key, FZN_PUBKEY_LEN) == 0) {
-			held = 1;
-			added = all[i].added_at_ms;
-			continue;
-		}
-		/* ONE NAME, ONE KEY: a name is how a person picks a contact, and
-		 * two keys under one name is a choice made for them. */
-		if (all[i].name_len == name_len && memcmp(all[i].name, name, name_len) == 0)
-			return FZN_CONTACT_ERR_TAKEN;
-	}
-	if (!held && count >= FZN_CONTACTS_MAX)
-		return FZN_CONTACT_ERR_FULL;
+	if (a.taken)
+		return FZN_CONTACT_ERR_TAKEN;
 	if (fzn_persist_head_write(blob, sizeof(blob), BODY_LEN(name_len), FZN_PERSIST_BLOB_CONTACT)
 	    != FZN_PERSIST_OK)
 		return FZN_CONTACT_ERR_MALFORMED;
 	body[0] = (uint8_t)name_len;
 	memcpy(body + 1, name, name_len);
-	fzn_put_be64(body + 1 + name_len, added);
+	fzn_put_be64(body + 1 + name_len, a.added);
 	if (!store->save(store->ctx, FZN_PERSIST_CONTACT, key, blob,
 	                 FZN_PERSIST_HEAD_LEN + BODY_LEN(name_len)))
 		return FZN_CONTACT_ERR_BACKEND;

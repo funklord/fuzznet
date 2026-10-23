@@ -25,6 +25,10 @@ the scenarios built on them test something:
     f  a root pairs 80 devices, more than the 64 peers its own room once
        held, and starts with all of them (sec 704) -- where a store of
        more than 64 peers kept the daemon from starting
+    g  a root adds 300 contacts, more than the 128 its roster's own tables
+       hold, every one answered `ok` and listed; started again, it loads
+       all 300 onto its roster, lists them and takes another (sec 704) -- where the 129th was
+       answered an error and a store holding more started without them
 
 Against a daemon built without faults, phase a's B is counted at 100 per
 cent loss, phase b's daemon does not die, and phase c's says nothing.
@@ -265,6 +269,42 @@ def main(argv):
 			finally:
 				f.stop()
 			print("livecheck: f: 80 devices paired, and the daemon started with all of them")
+
+			# g: more contacts than the roster's own tables hold.
+			g_dir = os.path.join(scratch, "g")
+			g_sock = os.path.join(sock_dir, "g")
+			os.mkdir(g_dir)
+			command(run, ["--fuzznet-dir=" + g_dir, "--new-root"], None)
+			g = daemon(run, "g1", g_dir, g_sock)
+			try:
+				for i in range(300):
+					reply = ask(g_sock, "add contact g%d %064x" % (i, 0x6a0000 + i))
+					if not reply.startswith("ok"):
+						raise failed("g: contact %d answered %r" % (i + 1, reply))
+				listed = ask(g_sock, "list contact").split()
+				if len(listed) < 2 or listed[0] != "ok" or listed[1] != "300":
+					raise failed("g: a root that added 300 contacts listed %r" % listed[:3])
+			finally:
+				g.stop()
+			g = daemon(run, "g2", g_dir, g_sock)
+			try:
+				listed = ask(g_sock, "list contact").split()
+				if len(listed) < 2 or listed[0] != "ok" or listed[1] != "300":
+					raise failed("g: started again over 300 contacts, it listed %r" % listed[:3])
+				# THE ROSTER, not only the names: a node that could not load
+				# it starts with the roster off and lists the names anyway.
+				if not re.search(r"\b300 roster record\(s\)", g.stderr()) \
+				   or any(w.endswith(",absent") for w in listed):
+					raise failed("g: started again, it did not hold all 300 on its roster:\n%s"
+					             % g.stderr()[-600:])
+				reply = ask(g_sock, "add contact g300 %064x" % (0x6a0000 + 300))
+				if not reply.startswith("ok"):
+					raise failed("g: after a restart over 300 contacts, the 301st answered %r"
+					             % reply)
+			finally:
+				g.stop()
+			print("livecheck: g: 300 contacts added and listed, listed again after a restart, "
+			      "and a 301st")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

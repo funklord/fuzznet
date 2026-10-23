@@ -648,6 +648,10 @@ static fzn_node_pull_err_t finish_vote(fzn_node_vote_pull_t *pull,
 		                             pull->hop_count);
 		if (rerr == FZN_NODE_ROSTER_NOT_SAVED)
 			return FZN_NODE_PULL_NOT_SAVED;
+		/* A FULL TABLE STOPS IT, sec 704, as a full roots table does: counted
+		 * and skipped, the contact's record would be lost for good. */
+		if (rerr == FZN_NODE_ROSTER_FULL)
+			return FZN_NODE_PULL_REFUSED;
 		if (rerr != FZN_NODE_ROSTER_OK)
 			pull->refused++;
 		else

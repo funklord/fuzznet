@@ -27,6 +27,9 @@
 #include "../persist/persist.h"
 
 #define FZN_CONTACT_NAME_MAX 32u
+/* THE ROOM A CALLER MAY START WITH, not a limit, sec 704: a user's contacts
+ * are walked however many they are. Past 64 a contact was once refused as
+ * FULL, and a listing of more stopped short. */
 #define FZN_CONTACTS_MAX 64u
 
 typedef enum fzn_contact_err {
@@ -35,9 +38,10 @@ typedef enum fzn_contact_err {
 	FZN_CONTACT_ERR_NAME = -2,      /* a name not of [A-Za-z0-9_], or not 1 to 32 */
 	FZN_CONTACT_ERR_TAKEN = -3,     /* the name is another key's */
 	FZN_CONTACT_ERR_ABSENT = -4,    /* no such contact */
-	FZN_CONTACT_ERR_FULL = -5,      /* FZN_CONTACTS_MAX are held */
+	FZN_CONTACT_ERR_FULL = -5,      /* no longer answered, sec 704; kept for its value */
 	FZN_CONTACT_ERR_BACKEND = -6,   /* the store refused, or cannot list */
-	FZN_CONTACT_ERR_SHAPE = -7      /* a held entry will not read */
+	FZN_CONTACT_ERR_SHAPE = -7,     /* a held entry will not read */
+	FZN_CONTACT_ERR_ROOM = -8       /* more held than the caller's room */
 } fzn_contact_err_t;
 
 const char *fzn_contact_err_str(fzn_contact_err_t err);
@@ -53,7 +57,7 @@ typedef struct fzn_contact {
 int fzn_contact_name_ok(const char *name, size_t len);
 
 /* Add `key` as `name`, or rename it when it is held. TAKEN when another key
- * has the name; FULL past FZN_CONTACTS_MAX. A rename keeps when it was added. */
+ * has the name. A rename keeps when it was added. */
 fzn_contact_err_t fzn_contact_add(const fzn_persist_ops_t *store,
                                   const uint8_t key[FZN_PUBKEY_LEN], const char *name,
                                   size_t name_len, uint64_t now_ms);
@@ -70,8 +74,16 @@ fzn_contact_err_t fzn_contact_find(const fzn_persist_ops_t *store, const char *n
 fzn_contact_err_t fzn_contact_remove(const fzn_persist_ops_t *store,
                                      const uint8_t key[FZN_PUBKEY_LEN]);
 
-/* Every contact, `cap` of them, in name order. */
+/* Every contact, in name order, into `cap`: ROOM with `*count` the number
+ * held when that is more, so the caller can give room and list again --
+ * never the first so many. sec 704. */
 fzn_contact_err_t fzn_contact_list(const fzn_persist_ops_t *store, fzn_contact_t *out,
                                    size_t cap, size_t *count);
+
+/* EVERY CONTACT, to `fn` one at a time, in the store's order and with no
+ * room to run past; `fn` answers 1 to go on. It must not add or remove a
+ * contact while walking. BACKEND when the store cannot walk. sec 704. */
+fzn_contact_err_t fzn_contact_each(const fzn_persist_ops_t *store,
+                                   int (*fn)(void *ctx, const fzn_contact_t *c), void *ctx);
 
 #endif /* FZN_CONTACT_H */

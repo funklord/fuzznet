@@ -1522,6 +1522,71 @@ static void test_a_grant_is_its_grantors(void)
 	      "M's chain is not there, or X or Y holds one from M's stream");
 }
 
+/* A ROSTER TABLE FULL, sec 704: the root's second contact meets a table of
+ * one and the round stops with it unmarked; given room, the next round
+ * takes it. Refused, it would be marked applied and lost for good. */
+static void test_a_full_roster_waits(void)
+{
+	static fzn_node_journal_t nj;
+	static fzn_node_roster_t roster;
+	static fzn_revocation_t rev_entries[4];
+	static fzn_node_apply_t ap;
+	static fzn_roster_entry_t one[1], room[8];
+	static fzn_roster_writer_t writer[1], writers[4];
+	fzn_revocation_store_t revs;
+	fzn_persist_ops_t store = { 0 };
+	fzn_node_apply_tally_t t;
+	fzn_cap_id_t cap;
+	uint8_t r[FZN_PUBKEY_LEN], carol[FZN_PUBKEY_LEN], dave[FZN_PUBKEY_LEN];
+	uint8_t obj[FZN_ROSTER_MAX_LEN], inc[FZN_ROSTER_INCARNATION_LEN];
+	size_t len = 0, entries = 0, wanted_writers = 0;
+
+	memset(rows, 0, sizeof(rows));
+	store.load = mem_load;
+	store.save = mem_save;
+	store.list = mem_list;
+	memset(&cap, 0x61, sizeof(cap));
+	key(r, 0x1a);
+	key(carol, 0x4a);
+	key(dave, 0x5a);
+	memset(inc, 0x0d, sizeof(inc));
+	CHECK(fzn_node_journal_init(&nj, dir, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && fzn_revocation_store_init(&revs, rev_entries, 4) == FZN_CHAIN_OK
+	              && fzn_node_roster_init(&roster, r, &cap, &SIGN, NULL, &HASH)
+	                         == FZN_NODE_ROSTER_OK
+	              && fzn_node_roster_use(&roster, one, 1u, writer, 1u) == FZN_NODE_ROSTER_OK,
+	      "fixture: the journal, and a roster of one");
+	memset(&ap, 0, sizeof(ap));
+	ap.journal = &nj;
+	ap.revocations = &revs;
+	ap.roster = &roster;
+	ap.store = &store;
+	ap.root = r;
+	ap.capability = &cap;
+	ap.sign = &SIGN;
+	ap.hash = &HASH;
+
+	signing_as = 0x1a;
+	CHECK(fzn_roster_issue_add(r, carol, inc, 1u, &SIGN, obj, sizeof(obj), &len)
+	              == FZN_ROSTER_OK
+	              && put(&nj, 0x1a, obj, len)
+	              && (inc[0] = 0x0c, 1)
+	              && fzn_roster_issue_add(r, dave, inc, 2u, &SIGN, obj, sizeof(obj), &len)
+	                         == FZN_ROSTER_OK
+	              && put(&nj, 0x1a, obj, len),
+	      "fixture: R's two contacts in R's stream");
+	CHECK(fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_REFUSED
+	              && fzn_node_roster_standing(&roster, carol, &revs, 1u) == FZN_ROSTER_ACTIVE
+	              && fzn_node_roster_standing(&roster, dave, &revs, 1u) == FZN_ROSTER_ABSENT
+	              && fzn_node_roster_wants(&roster, &entries, &wanted_writers) && entries == 2u,
+	      "a contact meeting a full roster was not held back, or the roster did not say so");
+	CHECK(fzn_node_roster_use(&roster, room, 8u, writers, 4u) == FZN_NODE_ROSTER_OK
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK && t.applied == 1u
+	              && fzn_node_roster_standing(&roster, dave, &revs, 1u) == FZN_ROSTER_ACTIVE,
+	      "the contact held back for room was not taken once the roster had it");
+	fzn_node_journal_close(&nj);
+}
+
 int main(void)
 {
 	char path[512];
@@ -1538,6 +1603,7 @@ int main(void)
 	test_a_capability_held();
 	test_a_grant_is_its_grantors();
 	test_settings_at_thousands();
+	test_a_full_roster_waits();
 	/* EVERY STREAM FILE, BY NAME, then the directory. */
 	for (i = 0; i < n_used; i++) {
 		static const char DIGITS[] = "0123456789abcdef";

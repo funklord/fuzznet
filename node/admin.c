@@ -980,6 +980,22 @@ static size_t roster_k(const fzn_node_admin_t *admin)
 	return admin->revocations ? admin->revocations->quorum : 0u;
 }
 
+/* THIS NODE'S ACT ON THE ROSTER, written again once the roster has room
+ * when a table was found full. sec 704. */
+static fzn_node_roster_err_t roster_act(fzn_node_admin_t *admin, const uint8_t *key, int add)
+{
+	fzn_node_roster_err_t err =
+	        fzn_node_roster_write(admin->roster, admin->store, admin->id, admin->authority,
+	                              admin->rng, key, add, admin->revocations, roster_k(admin));
+
+	if (err == FZN_NODE_ROSTER_FULL && admin->roster_room
+	    && admin->roster_room(admin->roster_room_ctx, admin->roster))
+		err = fzn_node_roster_write(admin->roster, admin->store, admin->id, admin->authority,
+		                            admin->rng, key, add, admin->revocations,
+		                            roster_k(admin));
+	return err;
+}
+
 /* THE CONTACT AS THE ROSTER SAYS, sec 489: this node's act on it, and the
  * words for a refusal. */
 static size_t roster_refusal(char *reply, size_t cap, fzn_node_roster_err_t err)
@@ -1053,9 +1069,7 @@ int fzn_node_admin_contact_add(fzn_node_admin_t *admin, const uint8_t key[FZN_PU
 	 * unless the key is already a contact there. The name is this node's
 	 * and is kept whatever the roster answers. */
 	if (admin->roster) {
-		fzn_node_roster_err_t rerr =
-		        fzn_node_roster_write(admin->roster, admin->store, admin->id, admin->authority,
-		                              admin->rng, key, 1, admin->revocations, roster_k(admin));
+		fzn_node_roster_err_t rerr = roster_act(admin, key, 1);
 
 		if (rerr != FZN_NODE_ROSTER_OK) {
 			if (why)
@@ -1086,10 +1100,7 @@ static size_t remove_contact(fzn_node_admin_t *admin, const uint8_t *rest, size_
 	 * suspends the contact there as here. One already not active here --
 	 * removed on another member -- needs none, and its name goes. */
 	if (err == FZN_CONTACT_OK && admin->roster) {
-		fzn_node_roster_err_t rerr =
-		        fzn_node_roster_write(admin->roster, admin->store, admin->id, admin->authority,
-		                              admin->rng, c.key, 0, admin->revocations,
-		                              roster_k(admin));
+		fzn_node_roster_err_t rerr = roster_act(admin, c.key, 0);
 
 		if (rerr != FZN_NODE_ROSTER_OK && rerr != FZN_NODE_ROSTER_ABSENT)
 			return roster_refusal(reply, cap, rerr);
@@ -1109,21 +1120,31 @@ static size_t remove_contact(fzn_node_admin_t *admin, const uint8_t *rest, size_
 static size_t list_contacts(fzn_node_admin_t *admin, const uint8_t *rest, size_t rest_len,
                             char *reply, size_t cap)
 {
-	static fzn_contact_t all[FZN_CONTACTS_MAX];
+	static fzn_contact_t own[FZN_CONTACTS_MAX];
 	static char detail[FZN_REPLY_MAX];
+	fzn_contact_t *all = admin->contacts ? admin->contacts : own;
+	size_t room = admin->contacts ? admin->contacts_cap : FZN_CONTACTS_MAX;
 	size_t limit = fzn_reply_ok_room(cap);
 	size_t count = 0, from = 0, used, i, k;
+	fzn_contact_err_t cerr;
 	const uint8_t *w;
 	size_t w_len;
 	int n;
 
 	if (next_word(&rest, &rest_len, &w, &w_len))
 		for (i = 0; i < w_len; i++) {
-			if (w[i] < '0' || w[i] > '9' || from > FZN_CONTACTS_MAX)
+			if (w[i] < '0' || w[i] > '9' || from > ((size_t)1 << 30))
 				return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not an index");
 			from = (from * 10u) + (size_t)(w[i] - '0');
 		}
-	if (fzn_contact_list(admin->store, all, FZN_CONTACTS_MAX, &count) != FZN_CONTACT_OK)
+	cerr = fzn_contact_list(admin->store, all, room, &count);
+	/* MORE THAN THE ROOM, sec 704: room asked for, and listed again. */
+	if (cerr == FZN_CONTACT_ERR_ROOM && admin->contacts_room
+	    && admin->contacts_room(admin->contacts_room_ctx, count)) {
+		all = admin->contacts;
+		cerr = fzn_contact_list(admin->store, all, admin->contacts_cap, &count);
+	}
+	if (cerr != FZN_CONTACT_OK)
 		return answer_text(reply, cap, FZN_REPLY_ERROR, "the contacts did not read");
 	if (from > count)
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "past the last contact");

@@ -49,15 +49,14 @@
 #include "../roster/roster.h"
 #include "../session/random.h"
 
-/* Incarnations a node holds: two for each of FZN_CONTACTS_MAX contacts, for
- * a contact removed and added again. */
+/* THE ROSTER'S OWN TABLES, not limits, sec 704: incarnations (about one
+ * for each contact ever added) and writers (the estate's members that write
+ * contacts). A node needing more is given tables of the caller's
+ * (`fzn_node_roster_use`), told it needs them by FZN_NODE_ROSTER_FULL.
+ * Records are walked at load, however many. Past 128 incarnations a contact
+ * add was once refused, which kept a user below about 128 contacts. */
 #define FZN_NODE_ROSTER_ENTRIES 128u
-/* Writers: the estate's members that write contacts, each chain once. */
 #define FZN_NODE_ROSTER_WRITERS 32u
-/* Records a node keeps: a slot is listed up to FZN_NODE_REVOCATIONS_MAX,
- * which this matches -- an add and a removal or two for each of
- * FZN_CONTACTS_MAX contacts, with room for re-adds. */
-#define FZN_NODE_ROSTER_RECORDS 256u
 
 typedef enum fzn_node_roster_err {
 	FZN_NODE_ROSTER_OK = 0,
@@ -76,15 +75,22 @@ typedef enum fzn_node_roster_err {
 	FZN_NODE_ROSTER_STORE = -6,
 	/* In force and saved, and not in this root's log: it would fall at the
 	 * root's removal (sec 413). */
-	FZN_NODE_ROSTER_NOT_LOGGED = -7
+	FZN_NODE_ROSTER_NOT_LOGGED = -7,
+	/* A table is full and the record was not taken: `fzn_node_roster_wants`
+	 * says which and how large it must be. sec 704. */
+	FZN_NODE_ROSTER_FULL = -8
 } fzn_node_roster_err_t;
 
 const char *fzn_node_roster_err_str(fzn_node_roster_err_t err);
 
 typedef struct fzn_node_roster {
+	/* ITS TABLES are `roster.entries` and `roster.writers`: these two, the
+	 * node's own, until it is given larger ones. */
 	fzn_roster_t roster;
 	fzn_roster_entry_t entries[FZN_NODE_ROSTER_ENTRIES];
 	fzn_roster_writer_t writers[FZN_NODE_ROSTER_WRITERS];
+	/* A TABLE FOUND FULL: how large each must be. 0 where none was. */
+	size_t entries_wanted, writers_wanted;
 	uint8_t root[FZN_PUBKEY_LEN];
 	fzn_cap_id_t capability;
 	fzn_roster_authority_t authority;
@@ -109,6 +115,17 @@ fzn_node_roster_err_t fzn_node_roster_init(fzn_node_roster_t *nr,
                                            const fzn_sign_ops_t *sign,
                                            const fzn_root_ops_t *roots,
                                            const fzn_hash_ops_t *hash);
+
+/* TABLES OF THE CALLER'S, sec 704: `entries` and `writers`, of `capacity`
+ * and `writer_capacity`, which must outlive `nr`, what is held copied over.
+ * MALFORMED for either smaller than what is held. */
+fzn_node_roster_err_t fzn_node_roster_use(fzn_node_roster_t *nr, fzn_roster_entry_t *entries,
+                                          size_t capacity, fzn_roster_writer_t *writers,
+                                          size_t writer_capacity);
+
+/* WHETHER A TABLE WAS FOUND FULL since `nr` was last given tables: 1 with
+ * the size each must be. */
+int fzn_node_roster_wants(const fzn_node_roster_t *nr, size_t *entries, size_t *writers);
 
 /* At start: every record slot 28 holds, admitted with its chain. A record
  * that will not admit is skipped and not counted -- one written under a root
