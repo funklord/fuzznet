@@ -756,6 +756,52 @@ static void test_archive(void)
 	CHECK(rmdir(archive) == 0, "the archive held something else, or would not go");
 }
 
+/* THREE HUNDRED SEGMENTS, sec 704: packed in one pass, the chain checked
+ * whole, and a count rule keeping exactly the newest ten. Each pass read
+ * the first 256 the directory listed, in no order: past that the chain
+ * read as broken and the count ranked a subset. */
+static void test_three_hundred_segments(void)
+{
+	static const uint64_t SETTLE = 10u * 1000000u;
+	char dir[128], path[200], chain_path[160];
+	fzn_retain_rule_t rule;
+	fzn_log_pack_report_t report;
+	size_t packed = 0, removed = 0, repacked = 0, i, left = 0;
+	int made = 1;
+
+	snprintf(dir, sizeof(dir), "%s/many", top);
+	CHECK(mkdir(dir, 0700) == 0, "fixture: a directory of its own");
+	for (i = 0; i < 300u && made; i++) {
+		snprintf(path, sizeof(path), "%s/netcfgd.%zu.%zu.log", dir, 1000000u + i * 1000u, i);
+		made = make_segment(path, 200u) != 0u;
+	}
+	CHECK(made, "fixture: 300 segments");
+	CHECK(fzn_log_pack_dir(dir, "netcfgd", &HASH, NULL, 9000000u + SETTLE, SETTLE, &packed)
+	                      == FZN_LOG_PACK_OK
+	              && packed == 300u,
+	      "the 300 settled segments were not all packed in one pass");
+	CHECK(fzn_log_pack_check(dir, "netcfgd", &HASH, &SIGN, &report) == FZN_LOG_PACK_OK
+	              && report.segments == 300u,
+	      "the chain over 300 segments did not hold whole");
+	CHECK(fzn_retain_parse("prune * count 10", 16u, &rule) == FZN_RETAIN_OK
+	              && fzn_log_pack_retain(dir, "netcfgd", &rule, 1u, &HASH, NULL, 9000000u,
+	                                     &removed, &repacked)
+	                         == FZN_LOG_PACK_OK
+	              && removed == 290u,
+	      "a count rule over 300 segments did not prune all but ten");
+	for (i = 0; i < 300u; i++) {
+		snprintf(path, sizeof(path), "%s/netcfgd.%zu.%zu.log.zst", dir, 1000000u + i * 1000u, i);
+		if (exists(path)) {
+			left += i >= 290u;
+			(void)remove(path);
+		}
+	}
+	CHECK(left == 10u, "the ten kept are not the newest ten");
+	snprintf(chain_path, sizeof(chain_path), "%s/netcfgd.chain", dir);
+	(void)remove(chain_path);
+	CHECK(rmdir(dir) == 0, "the directory of 300 did not empty");
+}
+
 int main(void)
 {
 	(void)snprintf(top, sizeof(top), "/tmp/fzn-pack-test-XXXXXX");
@@ -768,6 +814,7 @@ int main(void)
 	test_entry_rules();
 	test_signed_trailers();
 	test_archive();
+	test_three_hundred_segments();
 	CHECK(rmdir(top) == 0, "the scratch directory is empty, and goes");
 
 	if (failures) {

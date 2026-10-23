@@ -306,8 +306,40 @@ void fzn_logger_close(fzn_logger_t *logger)
 
 /* ---- retention ----------------------------------------------------------- */
 
-/* Segments one pass plans over; past it the oldest wait for the next. */
-#define RETAIN_MAX 1024u
+/* EVERY SEGMENT, read into room that grows, sec 704: a pass took the
+ * first 1024 the directory listed, in no order, so with more the oldest
+ * could escape every pass and count rules ranked a subset. */
+struct retaining {
+	char (*names)[256];
+	fzn_retain_segment_t *segs;
+	uint8_t *gone;
+	size_t cap;
+};
+
+static int retaining_room(struct retaining *r, size_t want)
+{
+	char (*names)[256];
+	fzn_retain_segment_t *segs;
+	uint8_t *gone;
+	size_t cap;
+
+	if (want <= r->cap)
+		return 1;
+	cap = want + want / 2u + 64u;
+	names = realloc(r->names, cap * sizeof(*names));
+	if (names)
+		r->names = names;
+	segs = realloc(r->segs, cap * sizeof(*segs));
+	if (segs)
+		r->segs = segs;
+	gone = realloc(r->gone, cap * sizeof(*gone));
+	if (gone)
+		r->gone = gone;
+	if (!names || !segs || !gone)
+		return 0;
+	r->cap = cap;
+	return 1;
+}
 
 /* `PROGRAM.TIME.PID.log`, packed or not: its closing time, or 0. */
 static uint64_t segment_closed(const char *name, const char *program)
@@ -409,10 +441,9 @@ fzn_logger_err_t fzn_logger_retain(const char *dir, const char *program,
                                    const fzn_retain_rule_t *rules, size_t n_rules,
                                    uint64_t now_us, size_t *removed)
 {
-	static char names[RETAIN_MAX][256];
-	static fzn_retain_segment_t segs[RETAIN_MAX];
-	static uint8_t gone[RETAIN_MAX];
+	struct retaining r = { NULL, NULL, NULL, 0 };
 	char path[FZN_LOGGER_PATH_MAX];
+	fzn_logger_err_t err = FZN_LOGGER_OK;
 	struct dirent *e;
 	size_t n = 0, i;
 	DIR *d;
@@ -423,33 +454,42 @@ fzn_logger_err_t fzn_logger_retain(const char *dir, const char *program,
 	d = opendir(dir);
 	if (!d)
 		return FZN_LOGGER_ERR_FILE;
-	while ((e = readdir(d)) != NULL && n < RETAIN_MAX) {
+	while ((e = readdir(d)) != NULL) {
 		uint64_t at = segment_closed(e->d_name, program);
 		struct stat st;
 		int k;
 
-		if (at == 0u || strlen(e->d_name) >= sizeof(names[0]))
+		if (at == 0u || strlen(e->d_name) >= sizeof(r.names[0]))
 			continue;
 		k = snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
 		if (k <= 0 || (size_t)k >= sizeof(path) || stat(path, &st) != 0)
 			continue;
-		strcpy(names[n], e->d_name);
-		segs[n].closed_us = at;
-		segs[n].bytes = st.st_size > 0 ? (uint64_t)st.st_size : 0u;
+		if (!retaining_room(&r, n + 1u)) {
+			err = FZN_LOGGER_ERR_FILE;
+			break;
+		}
+		strcpy(r.names[n], e->d_name);
+		r.segs[n].closed_us = at;
+		r.segs[n].bytes = st.st_size > 0 ? (uint64_t)st.st_size : 0u;
 		n++;
 	}
 	(void)closedir(d);
-	if (fzn_retain_plan(program, segs, n, rules, n_rules, now_us, gone) != FZN_RETAIN_OK)
-		return FZN_LOGGER_ERR_MALFORMED;
-	for (i = 0; i < n; i++) {
-		if (!gone[i])
+	if (err == FZN_LOGGER_OK && n && fzn_retain_plan(program, r.segs, n, rules, n_rules, now_us,
+	                                                 r.gone) != FZN_RETAIN_OK)
+		err = FZN_LOGGER_ERR_MALFORMED;
+	for (i = 0; err == FZN_LOGGER_OK && i < n; i++) {
+		if (!r.gone[i])
 			continue;
-		if (snprintf(path, sizeof(path), "%s/%.255s", dir, names[i]) >= (int)sizeof(path))
-			return FZN_LOGGER_ERR_MALFORMED;
+		if (snprintf(path, sizeof(path), "%s/%.255s", dir, r.names[i]) >= (int)sizeof(path))
+			err = FZN_LOGGER_ERR_MALFORMED;
 		/* GONE ALREADY is another instance's pass, and fine. */
-		if (remove(path) != 0 && errno != ENOENT)
-			return FZN_LOGGER_ERR_FILE;
-		(*removed)++;
+		else if (remove(path) != 0 && errno != ENOENT)
+			err = FZN_LOGGER_ERR_FILE;
+		else
+			(*removed)++;
 	}
-	return FZN_LOGGER_OK;
+	free(r.names);
+	free(r.segs);
+	free(r.gone);
+	return err;
 }

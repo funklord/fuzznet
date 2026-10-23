@@ -70172,3 +70172,36 @@ and stay.
   candidate guard, the empty-slot search bounded by the own 64, survived
   and is no guard: past 64 the eviction's oldest is an empty slot of time
   0, so empties are found anyway.
+
+### Log segments, built, sec 704
+
+- **Every pass over a program's segments read the first N the directory
+  listed, in no order**: 1024 for the logger's retention, 256 for each
+  of the pack passes (packing, retention of packed segments, planning,
+  archiving and checking the chain). So past those counts:
+  - the oldest could escape every retention pass;
+  - count and size rules ranked a subset and kept the wrong segments;
+  - packing chained them out of time order;
+  - the chain check read a whole chain as broken.
+  The plan itself refused more than 4096 segments, a bound the caps kept
+  it from meeting; lifting the caps alone would have stopped retention
+  outright past 4096.
+  The logger's own comment said "the oldest wait for the next", which
+  `readdir` does not promise.
+- **Every pass reads every segment** now, into room on the heap. The
+  plan ranks them with `qsort` over a table as long as the list; it was
+  an insertion sort into a static 4096. The three passes over packed
+  segments share one scan (`held_scan`). Packing and the check keep a
+  buffer each, grown across calls, since both return from many places.
+  `log/pack.c` already allocated (`read_all`, the entry walk), so this
+  is not the library's first heap use.
+- **Tests.** `pack_test` makes 300 segments in a directory of its own:
+  one pass packs all 300, the chain checks whole, and "prune * count 10"
+  leaves exactly the newest ten. `logger_test` does the same for
+  retention over 1100 segments. **Controls:** with a cap of 256 back on
+  the pack scan, four checks fail; on the retention scan, one; with 1024
+  on the logger's, one. A failing control run leaves its scratch behind,
+  as these suites always have; it was removed by name.
+- **Not yet grown:** retention rules, 16 a node keeps and 64 a plan
+  weighs. Their per-rule state is in stack tables in the plan and the
+  entry walk, and in the messages module's trimming.

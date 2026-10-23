@@ -17,7 +17,6 @@
 
 #define PATH_MAX_ 512u
 /* Segments one pass packs at most; the rest wait for the next. */
-#define SEGMENTS_MAX 256u
 
 static const char HEX[] = "0123456789abcdef";
 
@@ -532,7 +531,10 @@ fzn_log_pack_err_t fzn_log_pack_dir(const char *dir, const char *program,
                                     const fzn_log_pack_signer_t *signer, uint64_t now_us,
                                     uint64_t settle_us, size_t *packed)
 {
-	static struct segment segs[SEGMENTS_MAX];
+	/* EVERY SEGMENT DUE PACKING, sec 704, in room kept and grown across
+	 * calls: oldest first, so the chain runs in time order however many. */
+	static struct segment *segs;
+	static size_t segs_cap;
 	char chain_path[PATH_MAX_], from[PATH_MAX_], to[PATH_MAX_], tmp[PATH_MAX_];
 	uint8_t prev[FZN_LOG_PACK_HASH_LEN], next[FZN_LOG_PACK_HASH_LEN];
 	fzn_log_pack_err_t err = FZN_LOG_PACK_OK;
@@ -568,7 +570,7 @@ fzn_log_pack_err_t fzn_log_pack_dir(const char *dir, const char *program,
 		err = FZN_LOG_PACK_ERR_FILE;
 		goto done;
 	}
-	while ((e = readdir(d)) != NULL && n < SEGMENTS_MAX) {
+	while ((e = readdir(d)) != NULL) {
 		uint64_t at = closed_at(e->d_name, program);
 
 		if (at == 0u || strlen(e->d_name) >= sizeof(segs[0].name))
@@ -580,12 +582,26 @@ fzn_log_pack_err_t fzn_log_pack_dir(const char *dir, const char *program,
 		 * sec 470. */
 		if (at <= now_us + settle_us && (now_us < at || now_us - at < settle_us))
 			continue;
+		if (n == segs_cap) {
+			size_t cap = segs_cap ? 2u * segs_cap : 64u;
+			struct segment *grown = realloc(segs, cap * sizeof(*grown));
+
+			if (!grown) {
+				err = FZN_LOG_PACK_ERR_FILE;
+				break;
+			}
+			segs = grown;
+			segs_cap = cap;
+		}
 		segs[n].at = at;
 		strcpy(segs[n].name, e->d_name);
 		n++;
 	}
 	(void)closedir(d);
-	qsort(segs, n, sizeof(segs[0]), by_time);
+	if (err != FZN_LOG_PACK_OK)
+		goto done;
+	if (n)
+		qsort(segs, n, sizeof(segs[0]), by_time);
 	for (i = 0; i < n; i++) {
 		if (snprintf(from, sizeof(from), "%s/%s", dir, segs[i].name) >= (int)sizeof(from)
 		    || snprintf(to, sizeof(to), "%s/%s.zst", dir, segs[i].name) >= (int)sizeof(to)
@@ -762,6 +778,87 @@ static int newest_first(const void *a, const void *b)
 	return -strcmp(x->name, y->name);
 }
 
+/* EVERY SEGMENT OF `program` IN `dir`, newest first, with its size and the
+ * marks `rules` give it at `now_us`: on the heap, as many as there are.
+ * sec 704: a pass read the first 256 the directory listed, in no order, so
+ * with more the oldest could escape every pass, and the rules ranked a
+ * subset. FILE when the directory will not open (errno says why) or the
+ * heap would not; MALFORMED when the rules will not plan. */
+struct held_list {
+	struct held *segs;
+	fzn_retain_segment_t *sizes;
+	uint8_t *marks;
+	size_t n;
+};
+
+static void held_free(struct held_list *l)
+{
+	free(l->segs);
+	free(l->sizes);
+	free(l->marks);
+	memset(l, 0, sizeof(*l));
+}
+
+static fzn_log_pack_err_t held_scan(const char *dir, const char *program,
+                                    const fzn_retain_rule_t *rules, size_t n_rules,
+                                    uint64_t now_us, struct held_list *l)
+{
+	char path[PATH_MAX_];
+	struct dirent *e;
+	size_t cap = 0, i;
+	DIR *d;
+
+	memset(l, 0, sizeof(*l));
+	d = opendir(dir);
+	if (!d)
+		return FZN_LOG_PACK_ERR_FILE;
+	while ((e = readdir(d)) != NULL) {
+		struct held h;
+
+		h.at = segment_at(e->d_name, program, &h.packed);
+		if (h.at == 0u || strlen(e->d_name) >= sizeof(h.name))
+			continue;
+		if (l->n == cap) {
+			struct held *grown;
+
+			cap = cap ? 2u * cap : 64u;
+			grown = realloc(l->segs, cap * sizeof(*grown));
+			if (!grown) {
+				(void)closedir(d);
+				held_free(l);
+				errno = ENOMEM;
+				return FZN_LOG_PACK_ERR_FILE;
+			}
+			l->segs = grown;
+		}
+		strcpy(h.name, e->d_name);
+		l->segs[l->n++] = h;
+	}
+	(void)closedir(d);
+	if (l->n)
+		qsort(l->segs, l->n, sizeof(l->segs[0]), newest_first);
+	l->sizes = malloc((l->n ? l->n : 1u) * sizeof(*l->sizes));
+	l->marks = malloc(l->n ? l->n : 1u);
+	if (!l->sizes || !l->marks) {
+		held_free(l);
+		errno = ENOMEM;
+		return FZN_LOG_PACK_ERR_FILE;
+	}
+	for (i = 0; i < l->n; i++) {
+		struct stat st;
+
+		(void)snprintf(path, sizeof(path), "%s/%s", dir, l->segs[i].name);
+		l->sizes[i].closed_us = l->segs[i].at;
+		l->sizes[i].bytes = stat(path, &st) == 0 && st.st_size > 0 ? (uint64_t)st.st_size : 0u;
+	}
+	if (fzn_retain_marks(program, l->sizes, l->n, rules, n_rules, now_us, l->marks)
+	    != FZN_RETAIN_OK) {
+		held_free(l);
+		return FZN_LOG_PACK_ERR_MALFORMED;
+	}
+	return FZN_LOG_PACK_OK;
+}
+
 /* One segment's lines judged, newest first; `drop[i]` per line. 1 when
  * every line goes. Headers go only with the whole. */
 static int judge(fzn_retain_walk_t *walk, uint8_t mark, const uint8_t *b, size_t n,
@@ -865,17 +962,13 @@ fzn_log_pack_err_t fzn_log_pack_retain_held(const char *dir, const char *program
                                             void *may_go_ctx, size_t *removed,
                                             size_t *repacked)
 {
-	static struct held segs[SEGMENTS_MAX];
-	static fzn_retain_segment_t sizes[SEGMENTS_MAX];
-	static uint8_t marks[SEGMENTS_MAX];
 	static fzn_retain_walk_t walk;
+	struct held_list l = { NULL, NULL, NULL, 0 };
 	char chain_path[PATH_MAX_], path[PATH_MAX_], tmp[PATH_MAX_];
 	fzn_log_pack_err_t err = FZN_LOG_PACK_OK;
 	struct flock lk;
-	struct dirent *e;
-	size_t n = 0, i;
+	size_t i;
 	int fd, k, entries;
-	DIR *d;
 
 	if (!dir || !program || !program[0] || strchr(program, '/') || (!rules && n_rules) || !hash
 	    || !hash->hash || !removed || !repacked)
@@ -895,56 +988,31 @@ fzn_log_pack_err_t fzn_log_pack_retain_held(const char *dir, const char *program
 		(void)close(fd);
 		return (errno == EACCES || errno == EAGAIN) ? FZN_LOG_PACK_OK : FZN_LOG_PACK_ERR_FILE;
 	}
-	d = opendir(dir);
-	if (!d) {
-		err = FZN_LOG_PACK_ERR_FILE;
+	err = held_scan(dir, program, rules, n_rules, now_us, &l);
+	if (err != FZN_LOG_PACK_OK)
 		goto done;
-	}
-	while ((e = readdir(d)) != NULL && n < SEGMENTS_MAX) {
-		struct held h;
-		struct stat st;
-
-		h.at = segment_at(e->d_name, program, &h.packed);
-		if (h.at == 0u || strlen(e->d_name) >= sizeof(h.name)
-		    || snprintf(path, sizeof(path), "%s/%s", dir, e->d_name) >= (int)sizeof(path)
-		    || stat(path, &st) != 0)
-			continue;
-		strcpy(h.name, e->d_name);
-		segs[n] = h;
-		n++;
-	}
-	(void)closedir(d);
-	qsort(segs, n, sizeof(segs[0]), newest_first);
-	for (i = 0; i < n; i++) {
-		struct stat st;
-
-		(void)snprintf(path, sizeof(path), "%s/%s", dir, segs[i].name);
-		sizes[i].closed_us = segs[i].at;
-		sizes[i].bytes = stat(path, &st) == 0 && st.st_size > 0 ? (uint64_t)st.st_size : 0u;
-	}
-	if (fzn_retain_marks(program, sizes, n, rules, n_rules, now_us, marks) != FZN_RETAIN_OK
-	    || fzn_retain_walk_init(&walk, program, rules, n_rules, now_us) != FZN_RETAIN_OK) {
+	if (fzn_retain_walk_init(&walk, program, rules, n_rules, now_us) != FZN_RETAIN_OK) {
 		err = FZN_LOG_PACK_ERR_MALFORMED;
 		goto done;
 	}
 	entries = fzn_retain_reads_entries(program, rules, n_rules);
-	for (i = 0; i < n && err == FZN_LOG_PACK_OK; i++) {
+	for (i = 0; i < l.n && err == FZN_LOG_PACK_OK; i++) {
 		uint8_t *b = NULL, *drop = NULL;
 		size_t *starts = NULL, len = 0, body, lines = 0, dropped = 0, j;
 		trailer_t tr;
 		int all, readable;
 
-		if (snprintf(path, sizeof(path), "%s/%s", dir, segs[i].name) >= (int)sizeof(path)
-		    || snprintf(tmp, sizeof(tmp), "%s/%s.new", dir, segs[i].name) >= (int)sizeof(tmp)) {
+		if (snprintf(path, sizeof(path), "%s/%s", dir, l.segs[i].name) >= (int)sizeof(path)
+		    || snprintf(tmp, sizeof(tmp), "%s/%s.new", dir, l.segs[i].name) >= (int)sizeof(tmp)) {
 			err = FZN_LOG_PACK_ERR_MALFORMED;
 			break;
 		}
 		/* NO ENTRY RULE: the whole-segment plan, unread. */
-		readable = entries && read_all(path, segs[i].packed, &b, &len);
+		readable = entries && read_all(path, l.segs[i].packed, &b, &len);
 		body = len;
 		/* A PACKED ONE IS READ ONLY WHOLE AND SOUND: its trailer the last
 		 * line, the chain over the rest from its own prev. */
-		if (readable && segs[i].packed) {
+		if (readable && l.segs[i].packed) {
 			uint8_t check[FZN_LOG_PACK_HASH_LEN];
 
 			for (body = len ? len - 1u : 0u; body > 0u && b[body - 1u] != '\n'; body--)
@@ -963,15 +1031,15 @@ fzn_log_pack_err_t fzn_log_pack_retain_held(const char *dir, const char *program
 			readable = starts && drop;
 		}
 		if (!readable) {
-			all = marks[i] == FZN_RETAIN_MARK_PRUNED;
+			all = l.marks[i] == FZN_RETAIN_MARK_PRUNED;
 		} else {
 			for (j = 0, lines = 0; j < body; j++)
 				if (j == 0u || b[j - 1u] == '\n')
 					starts[lines++] = j;
-			all = judge(&walk, marks[i], b, body, starts, lines, drop, &dropped);
+			all = judge(&walk, l.marks[i], b, body, starts, lines, drop, &dropped);
 		}
 		/* HELD BACK BY THE CALLER, sec 592: a fossil short of its replicas. */
-		if (all && may_go && !may_go(may_go_ctx, segs[i].name))
+		if (all && may_go && !may_go(may_go_ctx, l.segs[i].name))
 			all = 0;
 		if (all) {
 			/* GONE ALREADY is another instance's pass, and fine. */
@@ -979,7 +1047,7 @@ fzn_log_pack_err_t fzn_log_pack_retain_held(const char *dir, const char *program
 				err = FZN_LOG_PACK_ERR_FILE;
 			else
 				(*removed)++;
-		} else if (readable && dropped && segs[i].packed) {
+		} else if (readable && dropped && l.segs[i].packed) {
 			err = repack(path, tmp, b, len, body, starts, lines, drop, dropped, &tr, hash,
 			             signer);
 			if (err == FZN_LOG_PACK_OK)
@@ -990,6 +1058,7 @@ fzn_log_pack_err_t fzn_log_pack_retain_held(const char *dir, const char *program
 		free(drop);
 	}
 done:
+	held_free(&l);
 	lk.l_type = F_UNLCK;
 	(void)fcntl(fd, F_SETLK, &lk);
 	(void)close(fd);
@@ -1001,13 +1070,9 @@ fzn_log_pack_err_t fzn_log_pack_plan(const char *dir, const char *program,
                                      uint64_t now_us, char (*names)[FZN_LOG_PACK_NAME_MAX],
                                      size_t max, size_t *count)
 {
-	static struct held segs[SEGMENTS_MAX];
-	static fzn_retain_segment_t sizes[SEGMENTS_MAX];
-	static uint8_t marks[SEGMENTS_MAX];
-	char path[PATH_MAX_];
-	struct dirent *e;
-	size_t n = 0, i;
-	DIR *d;
+	struct held_list l;
+	fzn_log_pack_err_t err;
+	size_t i;
 
 	if (!count)
 		return FZN_LOG_PACK_ERR_MALFORMED;
@@ -1015,34 +1080,15 @@ fzn_log_pack_err_t fzn_log_pack_plan(const char *dir, const char *program,
 	if (!dir || !program || !program[0] || strchr(program, '/') || (!rules && n_rules)
 	    || (!names && max))
 		return FZN_LOG_PACK_ERR_MALFORMED;
-	d = opendir(dir);
-	if (!d)
-		return errno == ENOENT ? FZN_LOG_PACK_OK : FZN_LOG_PACK_ERR_FILE;
-	while ((e = readdir(d)) != NULL && n < SEGMENTS_MAX) {
-		struct held h;
-
-		h.at = segment_at(e->d_name, program, &h.packed);
-		if (h.at == 0u || strlen(e->d_name) >= sizeof(h.name))
-			continue;
-		strcpy(h.name, e->d_name);
-		segs[n++] = h;
-	}
-	(void)closedir(d);
-	qsort(segs, n, sizeof(segs[0]), newest_first);
-	for (i = 0; i < n; i++) {
-		struct stat st;
-
-		(void)snprintf(path, sizeof(path), "%s/%s", dir, segs[i].name);
-		sizes[i].closed_us = segs[i].at;
-		sizes[i].bytes = stat(path, &st) == 0 && st.st_size > 0 ? (uint64_t)st.st_size : 0u;
-	}
-	if (fzn_retain_marks(program, sizes, n, rules, n_rules, now_us, marks) != FZN_RETAIN_OK)
-		return FZN_LOG_PACK_ERR_MALFORMED;
-	for (i = 0; i < n && *count < max; i++)
-		if (marks[i] == FZN_RETAIN_MARK_PRUNED) {
-			(void)snprintf(names[*count], FZN_LOG_PACK_NAME_MAX, "%s", segs[i].name);
+	err = held_scan(dir, program, rules, n_rules, now_us, &l);
+	if (err != FZN_LOG_PACK_OK)
+		return err == FZN_LOG_PACK_ERR_FILE && errno == ENOENT ? FZN_LOG_PACK_OK : err;
+	for (i = 0; i < l.n && *count < max; i++)
+		if (l.marks[i] == FZN_RETAIN_MARK_PRUNED) {
+			(void)snprintf(names[*count], FZN_LOG_PACK_NAME_MAX, "%s", l.segs[i].name);
 			(*count)++;
 		}
+	held_free(&l);
 	return FZN_LOG_PACK_OK;
 }
 
@@ -1084,16 +1130,12 @@ fzn_log_pack_err_t fzn_log_pack_archive(const char *dir, const char *program,
                                         const char *archive, uint64_t now_us,
                                         size_t *archived)
 {
-	static struct held segs[SEGMENTS_MAX];
-	static fzn_retain_segment_t sizes[SEGMENTS_MAX];
-	static uint8_t marks[SEGMENTS_MAX];
+	struct held_list l = { NULL, NULL, NULL, 0 };
 	char chain_path[PATH_MAX_], path[PATH_MAX_], dest[PATH_MAX_], tmp[PATH_MAX_];
 	fzn_log_pack_err_t err = FZN_LOG_PACK_OK;
 	struct flock lk;
-	struct dirent *e;
-	size_t n = 0, i;
+	size_t i;
 	int fd, k;
-	DIR *d;
 
 	if (!dir || !program || !program[0] || strchr(program, '/') || (!rules && n_rules)
 	    || !archive || !archive[0] || !archived)
@@ -1112,41 +1154,17 @@ fzn_log_pack_err_t fzn_log_pack_archive(const char *dir, const char *program,
 		(void)close(fd);
 		return (errno == EACCES || errno == EAGAIN) ? FZN_LOG_PACK_OK : FZN_LOG_PACK_ERR_FILE;
 	}
-	d = opendir(dir);
-	if (!d) {
-		err = FZN_LOG_PACK_ERR_FILE;
+	err = held_scan(dir, program, rules, n_rules, now_us, &l);
+	if (err != FZN_LOG_PACK_OK)
 		goto done;
-	}
-	while ((e = readdir(d)) != NULL && n < SEGMENTS_MAX) {
-		struct held h;
-
-		h.at = segment_at(e->d_name, program, &h.packed);
-		if (h.at == 0u || strlen(e->d_name) >= sizeof(h.name))
+	for (i = 0; i < l.n && err == FZN_LOG_PACK_OK; i++) {
+		if (!l.segs[i].packed || !(l.marks[i] & FZN_RETAIN_MARK_ARCHIVED)
+		    || (l.marks[i] & FZN_RETAIN_MARK_KEPT))
 			continue;
-		strcpy(h.name, e->d_name);
-		segs[n++] = h;
-	}
-	(void)closedir(d);
-	qsort(segs, n, sizeof(segs[0]), newest_first);
-	for (i = 0; i < n; i++) {
-		struct stat st;
-
-		(void)snprintf(path, sizeof(path), "%s/%s", dir, segs[i].name);
-		sizes[i].closed_us = segs[i].at;
-		sizes[i].bytes = stat(path, &st) == 0 && st.st_size > 0 ? (uint64_t)st.st_size : 0u;
-	}
-	if (fzn_retain_marks(program, sizes, n, rules, n_rules, now_us, marks) != FZN_RETAIN_OK) {
-		err = FZN_LOG_PACK_ERR_MALFORMED;
-		goto done;
-	}
-	for (i = 0; i < n && err == FZN_LOG_PACK_OK; i++) {
-		if (!segs[i].packed || !(marks[i] & FZN_RETAIN_MARK_ARCHIVED)
-		    || (marks[i] & FZN_RETAIN_MARK_KEPT))
-			continue;
-		if (snprintf(path, sizeof(path), "%s/%s", dir, segs[i].name) >= (int)sizeof(path)
-		    || snprintf(dest, sizeof(dest), "%s/%s", archive, segs[i].name)
+		if (snprintf(path, sizeof(path), "%s/%s", dir, l.segs[i].name) >= (int)sizeof(path)
+		    || snprintf(dest, sizeof(dest), "%s/%s", archive, l.segs[i].name)
 		               >= (int)sizeof(dest)
-		    || snprintf(tmp, sizeof(tmp), "%s/%s.new", archive, segs[i].name)
+		    || snprintf(tmp, sizeof(tmp), "%s/%s.new", archive, l.segs[i].name)
 		               >= (int)sizeof(tmp)) {
 			err = FZN_LOG_PACK_ERR_MALFORMED;
 			break;
@@ -1170,6 +1188,7 @@ fzn_log_pack_err_t fzn_log_pack_archive(const char *dir, const char *program,
 		(*archived)++;
 	}
 done:
+	held_free(&l);
 	lk.l_type = F_UNLCK;
 	(void)fcntl(fd, F_SETLK, &lk);
 	(void)close(fd);
@@ -1182,7 +1201,10 @@ fzn_log_pack_err_t fzn_log_pack_check(const char *dir, const char *program,
                                       const fzn_hash_ops_t *hash, const fzn_sign_ops_t *sign,
                                       fzn_log_pack_report_t *report)
 {
-	static struct held segs[SEGMENTS_MAX];
+	/* EVERY PACKED SEGMENT, sec 704: in room kept and grown across calls.
+	 * Over a subset of the first 256 listed, a whole chain read as broken. */
+	static struct held *segs;
+	static size_t segs_cap;
 	static trailer_t tr;
 	char path[PATH_MAX_];
 	uint8_t prev[FZN_LOG_PACK_HASH_LEN], next[FZN_LOG_PACK_HASH_LEN];
@@ -1197,18 +1219,30 @@ fzn_log_pack_err_t fzn_log_pack_check(const char *dir, const char *program,
 	d = opendir(dir);
 	if (!d)
 		return FZN_LOG_PACK_ERR_FILE;
-	while ((e = readdir(d)) != NULL && n < SEGMENTS_MAX) {
+	while ((e = readdir(d)) != NULL) {
 		struct held h;
 
 		h.at = segment_at(e->d_name, program, &h.packed);
 		if (h.at == 0u || !h.packed || strlen(e->d_name) >= sizeof(h.name))
 			continue;
+		if (n == segs_cap) {
+			size_t cap = segs_cap ? 2u * segs_cap : 64u;
+			struct held *grown = realloc(segs, cap * sizeof(*grown));
+
+			if (!grown) {
+				(void)closedir(d);
+				return FZN_LOG_PACK_ERR_FILE;
+			}
+			segs = grown;
+			segs_cap = cap;
+		}
 		strcpy(h.name, e->d_name);
 		segs[n++] = h;
 	}
 	(void)closedir(d);
 	/* OLDEST FIRST: the order the chain runs. */
-	qsort(segs, n, sizeof(segs[0]), newest_first);
+	if (n)
+		qsort(segs, n, sizeof(segs[0]), newest_first);
 	for (i = 0; i < n / 2u; i++) {
 		struct held t = segs[i];
 

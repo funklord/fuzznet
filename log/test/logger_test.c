@@ -316,6 +316,32 @@ int main(void)
 		}
 	}
 
+	/* ---- past 1024 segments, sec 704: the newest ten of 1100 kept, where a
+	 * pass read the first 1024 listed, in no order, and ranked those. */
+	{
+		fzn_retain_rule_t rules[1];
+		size_t k, removed = 0, left = 0;
+		int made = 1;
+
+		for (k = 0; k < 1100u && made; k++) {
+			(void)snprintf(path, sizeof(path), "%s/many.%zu.%zu.log", dir, 1000u + k, k);
+			made = write_file(path, "x\n");
+		}
+		CHECK(made && fzn_retain_parse("prune many count 10", 19u, &rules[0]) == FZN_RETAIN_OK,
+		      "fixture: 1100 closed segments");
+		CHECK(fzn_logger_retain(dir, "many", rules, 1u, 5000u, &removed) == FZN_LOGGER_OK
+		              && removed == 1090u,
+		      "a count rule over 1100 segments did not prune all but ten");
+		for (k = 0; k < 1100u; k++) {
+			(void)snprintf(path, sizeof(path), "%s/many.%zu.%zu.log", dir, 1000u + k, k);
+			if (access(path, F_OK) == 0) {
+				left += k >= 1090u;
+				(void)remove(path);
+			}
+		}
+		CHECK(left == 10u, "the ten kept of 1100 are not the newest ten");
+	}
+
 	/* ---- the programs logging into a directory, sec 486 */
 	{
 		static const char *const FILES[] = { "zed.log",          "alpha.1000.1.log.zst",

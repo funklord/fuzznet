@@ -5891,8 +5891,8 @@ SABOTAGES = [
 	(
 		"retain-ranks-newest-first",
 		"log/retain.c",
-		"\t\t\tif (s[p].closed_us > s[k].closed_us\n",
-		"\t\t\tif (s[p].closed_us < s[k].closed_us\n",
+		"\t\treturn x->closed_us > y->closed_us ? -1 : 1;\n",
+		"\t\treturn x->closed_us < y->closed_us ? -1 : 1;\n",
 		"a count or size limit counts from the oldest segment, and prunes the newest -- sec 460",
 	),
 	(
@@ -8616,7 +8616,7 @@ SABOTAGES = [
 	(
 		"pack-retain-plain-waits",
 		"log/pack.c",
-		"\t\t} else if (readable && dropped && segs[i].packed) {\n",
+		"\t\t} else if (readable && dropped && l.segs[i].packed) {\n",
 		"\t\t} else if (readable && dropped) {\n",
 		"a segment not yet packed is packed under a version-2 trailer out of turn, chaining from a prev it never had -- sec 474",
 	),
@@ -10902,7 +10902,7 @@ SABOTAGES = [
 	(
 		"pack-retain-held-back",
 		"log/pack.c",
-		"\t\tif (all && may_go && !may_go(may_go_ctx, segs[i].name))\n\t\t\tall = 0;\n",
+		"\t\tif (all && may_go && !may_go(may_go_ctx, l.segs[i].name))\n\t\t\tall = 0;\n",
 		"",
 		"a fossil short of its replicas is pruned whatever the count said -- sec 592",
 	),
@@ -10916,15 +10916,15 @@ SABOTAGES = [
 	(
 		"pack-archive-keep-holds",
 		"log/pack.c",
-		"\t\tif (!segs[i].packed || !(marks[i] & FZN_RETAIN_MARK_ARCHIVED)\n\t\t    || (marks[i] & FZN_RETAIN_MARK_KEPT))",
-		"\t\tif (!segs[i].packed || !(marks[i] & FZN_RETAIN_MARK_ARCHIVED))",
+		"\t\tif (!l.segs[i].packed || !(l.marks[i] & FZN_RETAIN_MARK_ARCHIVED)\n\t\t    || (l.marks[i] & FZN_RETAIN_MARK_KEPT))",
+		"\t\tif (!l.segs[i].packed || !(l.marks[i] & FZN_RETAIN_MARK_ARCHIVED))",
 		"a segment a keep rule covers is archived out of the live log anyway -- sec 588",
 	),
 	(
 		"pack-archive-packed-only",
 		"log/pack.c",
-		"\t\tif (!segs[i].packed || !(marks[i] & FZN_RETAIN_MARK_ARCHIVED)\n",
-		"\t\tif (!(marks[i] & FZN_RETAIN_MARK_ARCHIVED)\n",
+		"\t\tif (!l.segs[i].packed || !(l.marks[i] & FZN_RETAIN_MARK_ARCHIVED)\n",
+		"\t\tif (!(l.marks[i] & FZN_RETAIN_MARK_ARCHIVED)\n",
 		"a plain segment is archived before it is packed, so the archive holds a fossil with no trailer to verify -- sec 588",
 	),
 	(
@@ -11906,6 +11906,34 @@ SABOTAGES = [
 		"\tif (!r->has_oldest || held->received_at < r->oldest_at) {\n",
 		"\tif (!r->has_oldest || held->received_at > r->oldest_at) {\n",
 		"a full queue lets the newest request go, and a stranger's flood keeps the user's own asker out -- sec 619, 704",
+	),
+	(
+		"logger-retain-reads-every-segment",
+		"log/logger.c",
+		"\twhile ((e = readdir(d)) != NULL) {\n\t\tuint64_t at = segment_closed(e->d_name, program);\n",
+		"\twhile ((e = readdir(d)) != NULL && n < 1024u) {\n\t\tuint64_t at = segment_closed(e->d_name, program);\n",
+		"a retention pass ranks the first 1024 segments listed, in no order, and the oldest escape it -- sec 704",
+	),
+	(
+		"pack-dir-reads-every-segment",
+		"log/pack.c",
+		"\twhile ((e = readdir(d)) != NULL) {\n\t\tuint64_t at = closed_at(e->d_name, program);\n",
+		"\twhile ((e = readdir(d)) != NULL && n < 256u) {\n\t\tuint64_t at = closed_at(e->d_name, program);\n",
+		"a packing pass takes the first 256 segments listed, in no order, and the chain runs out of time order -- sec 704",
+	),
+	(
+		"pack-retain-reads-every-segment",
+		"log/pack.c",
+		"\twhile ((e = readdir(d)) != NULL) {\n\t\tstruct held h;\n\n\t\th.at = segment_at(e->d_name, program, &h.packed);\n\t\tif (h.at == 0u || strlen(e->d_name) >= sizeof(h.name))\n",
+		"\twhile ((e = readdir(d)) != NULL && l->n < 256u) {\n\t\tstruct held h;\n\n\t\th.at = segment_at(e->d_name, program, &h.packed);\n\t\tif (h.at == 0u || strlen(e->d_name) >= sizeof(h.name))\n",
+		"a packed-segment pass ranks the first 256 listed, and a count rule keeps the wrong ones -- sec 704",
+	),
+	(
+		"pack-check-reads-every-segment",
+		"log/pack.c",
+		"\twhile ((e = readdir(d)) != NULL) {\n\t\tstruct held h;\n\n\t\th.at = segment_at(e->d_name, program, &h.packed);\n\t\tif (h.at == 0u || !h.packed",
+		"\twhile ((e = readdir(d)) != NULL && n < 256u) {\n\t\tstruct held h;\n\n\t\th.at = segment_at(e->d_name, program, &h.packed);\n\t\tif (h.at == 0u || !h.packed",
+		"a chain check over the first 256 packed segments listed reads a whole chain as broken -- sec 704",
 	),
 	(
 		"relay-use-copies",

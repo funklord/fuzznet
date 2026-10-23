@@ -2,11 +2,10 @@
 
 #include "retain.h"
 
+#include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-
-/* Segments one plan ranks; past it a plan refuses rather than guesses. */
-#define PLAN_MAX 4096u
 
 const char *fzn_retain_err_str(fzn_retain_err_t err)
 {
@@ -523,28 +522,36 @@ fzn_retain_err_t fzn_retain_text(const fzn_retain_rule_t *rule, char *out, size_
 
 /* ---- the plan ------------------------------------------------------------ */
 
-/* Newest first: by closing time, ties by index so the order is total. */
-static void rank(const fzn_retain_segment_t *s, size_t n, size_t *order)
+/* NEWEST FIRST: by closing time, ties by index so the order is total. On
+ * the heap, as many as there are segments: sec 704. A plan of more than
+ * 4096 was refused, and retention stopped while the disk filled. */
+struct ranked {
+	uint64_t closed_us;
+	size_t index;
+};
+
+static int newest_first(const void *a, const void *b)
 {
-	size_t i, j;
+	const struct ranked *x = a, *y = b;
 
-	for (i = 0; i < n; i++)
-		order[i] = i;
-	/* INSERTION SORT, bounded by PLAN_MAX: a qsort comparator cannot see
-	 * the segments without a global. */
-	for (i = 1; i < n; i++) {
-		size_t k = order[i];
+	if (x->closed_us != y->closed_us)
+		return x->closed_us > y->closed_us ? -1 : 1;
+	return x->index < y->index ? -1 : x->index > y->index;
+}
 
-		for (j = i; j > 0u; j--) {
-			size_t p = order[j - 1u];
+static struct ranked *rank(const fzn_retain_segment_t *s, size_t n)
+{
+	struct ranked *order = malloc((n ? n : 1u) * sizeof(*order));
+	size_t i;
 
-			if (s[p].closed_us > s[k].closed_us
-			    || (s[p].closed_us == s[k].closed_us && p < k))
-				break;
-			order[j] = p;
-		}
-		order[j] = k;
+	if (!order)
+		return NULL;
+	for (i = 0; i < n; i++) {
+		order[i].closed_us = s[i].closed_us;
+		order[i].index = i;
 	}
+	qsort(order, n, sizeof(*order), newest_first);
+	return order;
 }
 
 /* Whether segment `seg`, at `place` newest-first with `before` bytes newer
@@ -797,18 +804,21 @@ fzn_retain_err_t fzn_retain_marks(const char *program, const fzn_retain_segment_
                                   size_t n, const fzn_retain_rule_t *rules, size_t n_rules,
                                   uint64_t now_us, uint8_t *marks)
 {
-	static size_t order[PLAN_MAX];
+	struct ranked *order;
 	size_t i, r;
 	uint8_t *remove = marks;
 
-	if (!program || (!segments && n) || (!rules && n_rules) || (!marks && n) || n > PLAN_MAX
+	if (!program || (!segments && n) || (!rules && n_rules) || (!marks && n)
+	    || n > SIZE_MAX / sizeof(*order)
 	    || n_rules > FZN_RETAIN_RULES_MAX || !program_ok(program, strlen(program))
 	    || strcmp(program, "*") == 0)
 		return FZN_RETAIN_ERR_MALFORMED;
 	for (r = 0; r < n_rules; r++)
 		if (!rule_ok(&rules[r]))
 			return FZN_RETAIN_ERR_MALFORMED;
-	rank(segments, n, order);
+	order = rank(segments, n);
+	if (!order)
+		return FZN_RETAIN_ERR_MALFORMED;
 	for (i = 0; i < n; i++)
 		remove[i] = 0;
 	{
@@ -819,7 +829,7 @@ fzn_retain_err_t fzn_retain_marks(const char *program, const fzn_retain_segment_
 		uint64_t before = 0;
 
 		for (i = 0; i < n; i++) {
-			const fzn_retain_segment_t *seg = &segments[order[i]];
+			const fzn_retain_segment_t *seg = &segments[order[i].index];
 			int pruned = 0, kept = 0, archived = 0;
 
 			for (r = 0; r < n_rules; r++) {
@@ -838,13 +848,14 @@ fzn_retain_err_t fzn_retain_marks(const char *program, const fzn_retain_segment_
 			}
 			/* ARCHIVE WINS OVER PRUNE, sec 588: a segment both would take
 			 * is moved, not removed. */
-			remove[order[i]] =
+			remove[order[i].index] =
 			        (uint8_t)((archived ? FZN_RETAIN_MARK_ARCHIVED
 			                            : (pruned || drops ? FZN_RETAIN_MARK_PRUNED : 0u))
 			                  | (kept ? FZN_RETAIN_MARK_KEPT : 0u));
 			before = (UINT64_MAX - before < seg->bytes) ? UINT64_MAX : before + seg->bytes;
 		}
 	}
+	free(order);
 	return FZN_RETAIN_OK;
 }
 
