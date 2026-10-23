@@ -70390,4 +70390,17 @@ per cent overhead, the frame header 14.7 of it. Read from `node/files.c`,
   the missing pieces, and parity pieces per span (`chunk/erasure.h`
   already does Reed-Solomon 4 + 2 for log segments). None is chosen
   here; loss is the scenarios' to measure (sec 689).
+- **To be calibrated on hull, later.** The holder's word, as fuzzypickles
+  reports it (inbox 20261023T1614Z): "We should calibrate these values
+  later using hull with fake broken networks and attackers." hull has
+  qemu segments, nftables gateways and `tc netem` in its guests (sec
+  692); an attacker is one more VM. To measure:
+  - sends per span against datagram loss;
+  - the unverified bytes a receiver holds when a peer serves garbage or
+    floods it with half-finished spans;
+  - throughput for each span option, against fzpd's one leaf per
+    datagram.
+
+  Not started. It waits on the holder's cut-over question.
+
 
