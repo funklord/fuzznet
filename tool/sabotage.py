@@ -12048,6 +12048,27 @@ SABOTAGES = [
 		"an index moved onto room forgets the grants it held, and the chains through them -- sec 704",
 	),
 	(
+		"log-list-own-user-alone",
+		"node/log_list.c",
+		"\tif (origin != FZN_ORIGIN_SAME_USER)\n\t\treturn REPLY(\"denied this node's log is its own user's\\n\");",
+		"\tif (0 && origin != FZN_ORIGIN_SAME_USER)\n\t\treturn REPLY(\"denied this node's log is its own user's\\n\");",
+		"another local user reads everything the node has logged -- sec 711",
+	),
+	(
+		"log-list-level-filters",
+		"node/log_list.c",
+		"\tif (e->level < FZN_ENTRY_CRITICAL || e->level > w->level)\n\t\treturn;\n\tif (w->seen",
+		"\tif (e->level < FZN_ENTRY_CRITICAL)\n\t\treturn;\n\tif (w->seen",
+		"a page at info holds the debug entries its count left out -- sec 711",
+	),
+	(
+		"log-list-newest-first",
+		"node/log_list.c",
+		"\t\tconst struct kept *k = &kept[i - 1u];",
+		"\t\tconst struct kept *k = &kept[walk.n_kept - i];",
+		"a page is written oldest first, so a client reading the newest reads the oldest -- sec 711",
+	),
+	(
 		"succession-heir-inherits-delegable",
 		"node/admin.c",
 		"\t\tif (old_delegable(admin, old)) {",

@@ -21,6 +21,8 @@ client drives it -- no one-shot command, no daemon stopped by its client.
        the grant it made B, standing
     f  A grants B admin; B keeps the chain with `set admin PATH` and starts
        again in place, holding admin by one hop
+    g  A's `list log` reads what A logged, newest first: at its default
+       level no debug entry, and at D more, debug among them (sec 711)
 
 Against a daemon whose `add join` did not start it again, phase b's round
 never reads A's setting; against one that kept no address, phase c's;
@@ -226,6 +228,24 @@ def main(argv):
 			polled("b", "list capability", lambda g: any(e.startswith("admin,1,1,") for e in g[2:]),
 			       "not admin held by one hop")
 			print("livecheck: f: A granted B admin, and B kept it by a verb, started again in place")
+
+			# g: A's own log, read by a verb (sec 711).
+			got = ask(socks["a"], "list log").split()
+			if len(got) < 4 or got[0] != "ok" or int(got[1]) < 1 or got[2] != "0":
+				raise failed("g: A's list log answered %r" % got[:4])
+			if any(e.split(",")[1] in ("D", "T") for e in got[3:]):
+				raise failed("g: list log at its default level holds debug: %r" % got[3:6])
+			times = [int(e.split(",")[0]) for e in got[3:]]
+			if times != sorted(times, reverse=True):
+				raise failed("g: A's log entries are not newest first: %r" % times[:6])
+			at_info = int(got[1])
+			got = ask(socks["a"], "list log 0 D").split()
+			if len(got) < 4 or int(got[1]) <= at_info \
+			   or not any(e.split(",")[1] == "D" for e in got[3:]):
+				raise failed("g: at D, A's log holds no more than at I, or no debug: %r"
+				             % got[:6])
+			print("livecheck: g: A's list log reads its own entries newest first, debug at D "
+			      "alone")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

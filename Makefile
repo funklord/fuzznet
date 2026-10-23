@@ -165,7 +165,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              local/peer.c local/peer_linux.c local/vocabulary.c \
              local/line.c local/socket.c local/client.c local/escape.c \
              node/peer_persist.c \
-             node/caller.c node/meter.c node/schema.c \
+             node/caller.c node/meter.c node/schema.c node/log_list.c \
              net/udp.c fault/fault.c \
              node/node.c node/local.c node/remote.c node/serve.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
@@ -264,7 +264,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              local/peer.h local/vocabulary.h local/line.h local/socket.h \
              local/client.h local/escape.h \
              node/peer_persist.h node/types.h \
-             node/caller.h node/meter.h node/schema.h \
+             node/caller.h node/meter.h node/schema.h node/log_list.h \
              net/udp.h fault/fault.h \
              node/node.h node/local.h node/remote.h node/serve.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
@@ -398,6 +398,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              session/test/random_test.c local/test/vocabulary_test.c \
              local/test/client_test.c local/test/escape_test.c \
              node/test/types_test.c node/test/meter_test.c node/test/schema_test.c location/test/location_test.c \
+             node/test/log_list_test.c \
              location/test/tpv_test.c location/test/gpsd_test.c \
              sticker/test/sticker_test.c \
              node/test/peer_persist_test.c \
@@ -524,6 +525,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/local/test/escape_test \
              $(BUILD_DIR)/node/test/types_test \
              $(BUILD_DIR)/node/test/meter_test \
+             $(BUILD_DIR)/node/test/log_list_test \
              $(BUILD_DIR)/node/test/schema_test \
              $(BUILD_DIR)/location/test/location_test \
              $(BUILD_DIR)/location/test/tpv_test \
@@ -4334,7 +4336,8 @@ FUZZNETD_LINK = $(BUILD_DIR)/node/daemon.o $(BUILD_DIR)/location/location.o \
               $(BUILD_DIR)/messages/line.o $(BUILD_DIR)/log/retain.o \
               $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o $(BUILD_DIR)/log/cause.o \
               $(BUILD_DIR)/node/meter.o $(BUILD_DIR)/fault/fault.o \
-              $(BUILD_DIR)/log/view.o \
+              $(BUILD_DIR)/log/view.o $(BUILD_DIR)/node/log_list.o \
+              $(if $(LOG_FILE_ON),,$(BUILD_DIR)/log/ring.o) \
               $(if $(LOG_FILE_ON),$(BUILD_DIR)/log/logger.o $(BUILD_DIR)/log/ring.o \
                 $(BUILD_DIR)/log/gather.o) \
               $(if $(LOG_PACK_ON),$(BUILD_DIR)/log/pack.o $(BUILD_DIR)/log/copy.o \
@@ -4467,6 +4470,14 @@ $(BUILD_DIR)/sticker/test/sticker_test: $(BUILD_DIR)/sticker/test/sticker_test.o
 $(BUILD_DIR)/node/test/meter_test: $(BUILD_DIR)/node/test/meter_test.o \
                                    $(BUILD_DIR)/node/meter.o $(BUILD_DIR)/log/cause.o \
                                    $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+# `list log`, a daemon's flight recorder read newest first, sec 711.
+$(BUILD_DIR)/node/test/log_list_test: $(BUILD_DIR)/node/test/log_list_test.o \
+                                      $(BUILD_DIR)/node/log_list.o $(BUILD_DIR)/log/ring.o \
+                                      $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
+                                      $(BUILD_DIR)/local/escape.o
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 

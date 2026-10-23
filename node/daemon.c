@@ -99,6 +99,7 @@
 #include "files.h"
 #include "shelf.h"
 #include "stickers.h"
+#include "log_list.h"
 #include "meter.h"
 #include "schema.h"
 #include "../fault/fault.h"
@@ -413,6 +414,16 @@ static size_t lan_probe(const char **why, char *address, size_t address_cap);
 /* WHEN THE LAST PROBES WENT, seconds, for `get lan` (sec 659). */
 static uint64_t lan_probed_at;
 
+/* THIS DAEMON'S FLIGHT RECORDER, or NULL: kept only with a log file. */
+static const fzn_ring_t *own_ring(void)
+{
+#ifdef FZN_LOG_FILE_ON
+	return dlog.on ? &dlog.ring : NULL;
+#else
+	return NULL;
+#endif
+}
+
 static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t origin,
                            const fzn_peer_t *peer, const fzn_request_t *request, char *reply,
                            size_t reply_cap)
@@ -455,6 +466,10 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 		n = fzn_node_schema_local(&node_schema, origin, request, reply, reply_cap);
 	if (!n)
 		n = node_local(request, reply, reply_cap);
+	/* `list log`, sec 711: this daemon's flight recorder, kept only with a
+	 * log file. */
+	if (!n)
+		n = fzn_node_log_list_local(own_ring(), origin, request, reply, reply_cap);
 	if (!n)
 		n = device_local(origin, request, reply, reply_cap);
 	if (!n)

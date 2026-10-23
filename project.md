@@ -68468,7 +68468,8 @@ this file's open items. Their findings, summarised:
   found the same way, by accident.
 - **Logs have no verbs.** `FZN_VERB_LOG` is parsed and nothing handles
   it. Logging is operated by flags alone, and a client cannot configure
-  it.
+  it. **Reading it: `list log`, sec 711.** Configuring it by verb is
+  still open.
 
 ### Design questions the survey surfaced
 
@@ -70766,6 +70767,68 @@ daemons with real traffic between nodes. `tool/live_fzp.py`, run by
   - `host-join-approve` warns it could not confer fzpd's `store` and
     `send`.
 - **Not yet:** restarts inside an operation, and clock skew.
+
+## 711. `list log`: a node's own log, read by a verb, 2026-10-23
+
+Sec 689 found "logs have no verbs": `FZN_VERB_LOG` was parsed and nothing
+read a node's log. fuzzypickles' client needs one. Every log pane there
+reads the fzpd beside the node, which stops being possible at the
+cut-over. Its requirement, sent 2026-10-22, is what this meets:
+- newest first;
+- a page of up to 50;
+- each entry's time, severity, subsystem and text;
+- "nothing logged yet" as a state.
+
+### The verb
+
+`list log [FROM] [LEVEL]`, the node's own user's alone, as `list
+transfer` is:
+
+    ok TOTAL FROM TIME,L,SUBSYSTEM,CUT,TEXT ...
+
+- **TOTAL** is the entries held at LEVEL or more severe. FROM counts
+  back from the newest, so a client pages from FROM plus what it was
+  given, as `list contact` pages.
+- **Each entry** is its time in microseconds, its level's letter as the
+  classic line writes it, its subsystem, 1 when its text was cut, and
+  the text %XX-escaped.
+- **LEVEL** is a letter too, I by default: the ring keeps debug too, and
+  a client showing activity wants it out.
+- **`ok 0 0` is "nothing logged yet".**
+- **Paging:** a reply is at most 1024 bytes, so a page holds what fits.
+  A client wanting 50 asks again from FROM until it has them, as it
+  pages contacts.
+- **A text is cut to fit one reply, and says so**, so one long entry
+  cannot stall the paging.
+
+### What it reads, and what it does not
+
+- **The daemon's flight recorder** (`log/ring.h`): every entry this
+  process made, debug included, in 256 KiB with the oldest evicted. So
+  it reads what this daemon said since it started, as far back as the
+  ring reaches, not the files of earlier runs.
+- **Only with a log file.** The ring is filled by the logger, so a
+  daemon run with `--no-log-file` answers "error this node keeps no log
+  to read". fuzzypickles' scenarios run that way and would see this.
+- **`node/log_list.c`**, a module of its own, as `node/meter.c` is,
+  so a unit test reaches it.
+
+### Measured for sec 711
+
+- **`log_list_test`, 17 checks:**
+  - an empty ring is `ok 0 0`;
+  - five entries of three levels read newest first at the default
+    level, from an offset, and at D and at E, with a space and a comma
+    escaped;
+  - 300 entries read once each over pages, newest first, each page
+    within a reply;
+  - a 4000-byte text cut and said so, and the page after it moves on;
+  - the refusals.
+- **Control:** a page written oldest first fails four checks.
+- **`live_join` phase g:** a running daemon's `list log` reads its own
+  entries newest first, with no debug at the default level, and with
+  its rounds at D.
+
 
 
 
