@@ -43,12 +43,15 @@ typedef enum fzn_node_siblings_err {
 	/* A record no newer than the one kept for its host. */
 	FZN_NODE_SIBLINGS_STALE = -3,
 	/* The store would not read, write or list. */
-	FZN_NODE_SIBLINGS_BACKEND = -4
+	FZN_NODE_SIBLINGS_BACKEND = -4,
+	/* More hosts kept than `cap`: `*count` says how many. sec 704. */
+	FZN_NODE_SIBLINGS_ROOM = -5
 } fzn_node_siblings_err_t;
 
 const char *fzn_node_siblings_err_str(fzn_node_siblings_err_t err);
 
-/* How many siblings' prekeys `fzn_node_siblings_list` reads at once. */
+/* A FIRST ROOM for `fzn_node_siblings_list`, not a limit: the estate's own
+ * machines and its automation, as many as the user has. sec 704. */
 #define FZN_NODE_SIBLINGS_MAX 64u
 
 /*
@@ -68,8 +71,10 @@ fzn_node_siblings_err_t fzn_node_siblings_prekey(const fzn_persist_ops_t *store,
                                                  const uint8_t host[FZN_PUBKEY_LEN],
                                                  uint8_t out[FZN_PREKEY_LEN_TOTAL]);
 
-/* Every host whose prekey is kept, into `hosts` (at most `cap`): BACKEND when
- * the store will not list, or holds more than `cap`. */
+/* Every host whose prekey is kept, walked into `hosts`: BACKEND when the
+ * store will not, ROOM with `*count` the number kept when more than `cap`
+ * are. It was BACKEND past `cap`, and every caller read a 65th sibling as a
+ * store that would not list. */
 fzn_node_siblings_err_t fzn_node_siblings_list(const fzn_persist_ops_t *store,
                                                uint8_t (*hosts)[FZN_PUBKEY_LEN], size_t cap,
                                                size_t *count);

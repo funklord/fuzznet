@@ -11908,6 +11908,13 @@ SABOTAGES = [
 		"a full queue lets the newest request go, and a stranger's flood keeps the user's own asker out -- sec 619, 704",
 	),
 	(
+		"siblings-list-says-room",
+		"node/siblings.c",
+		"\treturn in.n > cap ? FZN_NODE_SIBLINGS_ROOM : FZN_NODE_SIBLINGS_OK;\n",
+		"\treturn in.n > cap ? FZN_NODE_SIBLINGS_BACKEND : FZN_NODE_SIBLINGS_OK;\n",
+		"a 65th sibling reads as a store that would not list, and pairing, pulling and settling over the estate's machines stop -- sec 704",
+	),
+	(
 		"successions-load-says-room",
 		"node/succession.c",
 		"\t\tw->err = cerr == FZN_CHAIN_ERR_STORE_FULL ? FZN_PERSIST_ERR_ROOM : FZN_PERSIST_ERR_SHAPE;\n",
@@ -13450,8 +13457,23 @@ def main(argv):
 			          if "error:" in ln and "static assertion" not in ln]
 			named = [ln for ln in out.splitlines()
 			         if "FAIL" in ln and "deliberate" not in ln]
+			# A SUITE THAT NEVER RAN fails `make test` as a caught guard
+			# does. Measured 2026-10-23 in a scratch copy: a test binary's
+			# link was killed half-way, make kept the empty file as
+			# current, and every probe after it -- 22 of them -- exited
+			# non-zero at `Permission denied` and read CAUGHT, with no
+			# check named. The controls could not see it: they fail too.
+			# So the shell saying it could not run a program is its own
+			# verdict, and a control that meets it is not caught.
+			unrun = [ln for ln in out.splitlines()
+			         if ln.startswith("/bin/sh") and ("Permission denied" in ln
+			                                          or "not found" in ln
+			                                          or "No such file" in ln)]
 			if run.returncode == 0:
 				verdict, detail = "SURVIVED", ""
+			elif unrun:
+				verdict = "NOT-RUN"
+				detail = unrun[0].strip()[-70:]
 			elif asserts:
 				verdict = "CAUGHT"
 				detail = asserts[0].split("failed:", 1)[-1].strip()[:70]

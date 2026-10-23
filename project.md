@@ -69936,11 +69936,27 @@ and stay.
   `chain/revocation.c` are sized by the same bound
   (`REVOCATION_ADMINS_MAX`), so growing it changes how the core judges,
   not only a table. It is the next one here.
-- **Probes.** The thirteen sabotage entries for contacts, the roster and
-  contact requests (cc69c80, 99dc9ff) were each caught, in a scratch
-  copy of the tree so work could go on. One earlier run there reported a
-  control not caught; the controls alone were then caught, and the rerun
-  was clean. Its full output was not kept, so why is not known.
+- **Probes, and a scratch tree that ran nothing.** The probes for
+  contacts, the roster and contact requests (cc69c80, 99dc9ff) ran in a
+  scratch copy of the tree so work could go on. This said all thirteen
+  were caught. Eight were: those whose report names a failing check in
+  the module's own suite (four contact entries, four contact-request
+  entries). The other five read CAUGHT with no check named, and so did
+  every probe there after them, for revocations, grants and successions:
+  22 in all.
+  - **Why:** `make test` there stopped at a test binary left empty
+    when I stopped the first probe run in that copy. Its link was killed
+    half-way, make kept the empty file as current, and the shell's
+    `Permission denied` exits non-zero exactly as a caught guard does.
+  - **The controls could not see it.** They failed the same way, and
+    `CONTROL-delegable` even named a real failure, from a suite that
+    runs before the broken one.
+  - **Since:** `tool/sabotage.py` reads the shell saying it could not
+    run a program as NOT-RUN, which a control may not be, so a tree like
+    that one now refuses the whole run. The empty file is removed, and the
+    22 are being run again; their verdicts are recorded under *Siblings*.
+  - **Still unexplained:** the first run there reported a control not
+    caught before any of this, and its full output was not kept.
 
 ### Grants, built, sec 704
 
@@ -70020,4 +70036,32 @@ and stay.
   revokes the old, then fails at the succession. The loop's growth at
   three quarters keeps a table from filling between two requests, but
   the verb has no room of its own to ask for.
-- **Probes** for the grant index (da2ef42), all three, were caught.
+- **Probes** for the grant index (da2ef42) ran nothing: see *Probes,
+  and a scratch tree that ran nothing* under *Revocations*.
+
+### Siblings, built, sec 704
+
+- **The estate's machines were listed into 64**: its own devices and its
+  automation, at seven sites in `fuzznetd`. Past 64 the list answered
+  BACKEND, so a 65th sibling read as a store that would not list. Pairing
+  the siblings, pulling from them, `list sibling`, the devices offered to
+  contacts, settling message lines, taking a gone device's lines over and
+  the LAN probe all stopped together. `settle_lines` sized two more
+  tables by the same bound, and the devices offered to every contact
+  were cut at 64 without a word.
+- **`fzn_node_siblings_list` walks** and answers `FZN_NODE_SIBLINGS_ROOM`
+  with the count. Each of the seven sites keeps a room of its own, grown
+  when told, since one listing may run inside another; `list sibling`
+  asks for spare room for the members it appends. `settle_lines` takes
+  its tables from the heap per call, and the devices offered to contacts
+  are sized by the siblings before each round.
+- **Kept small: the 8 siblings a round pulls from** (and the 8 other
+  pull targets). Each holds a socket, so growing them is step 4's move
+  onto the serving socket, with the contact hosts.
+- **Tests.** `apply_test` keeps 300 siblings' prekeys and lists them into
+  64, told 300, and into room for all. **Control:** ROOM read as BACKEND
+  is caught. **Not tested live:** an estate of more than 64 machines
+  needs that many members, which no live test starts.
+- **The 22 probes run again** (see *Revocations*): still running in the
+  repaired scratch copy when this was committed; their verdicts replace
+  this line.

@@ -4601,6 +4601,45 @@ static int grant_from(const uint8_t sponsor[FZN_PUBKEY_LEN], const uint8_t self[
 	return 0;
 }
 
+
+/* ---- the siblings, listed into room that grows, sec 704 ------------------
+ *
+ * The estate's own machines and its automation, as many as the user has.
+ * Each listing keeps a room of its own, since one may run inside another;
+ * `spare` asks for room past the listing for what a caller appends. They
+ * were 64, and a 65th sibling read as a store that would not list. */
+struct key_room {
+	uint8_t (*keys)[FZN_PUBKEY_LEN];
+	size_t cap;
+};
+
+static fzn_node_siblings_err_t siblings_list(struct key_room *r, uint8_t (**keys)[FZN_PUBKEY_LEN],
+                                             size_t *n, size_t spare)
+{
+	fzn_node_siblings_err_t err = FZN_NODE_SIBLINGS_ROOM;
+	size_t tries;
+
+	*n = 0;
+	for (tries = 0; tries < 4u && err == FZN_NODE_SIBLINGS_ROOM; tries++) {
+		err = fzn_node_siblings_list(node_apply.store, r->keys,
+		                             r->cap > spare ? r->cap - spare : 0u, n);
+		if (err == FZN_NODE_SIBLINGS_ROOM || (err == FZN_NODE_SIBLINGS_OK && !r->keys)) {
+			size_t want = *n + (*n / 4u) + spare + FZN_NODE_SIBLINGS_MAX;
+			uint8_t (*grown)[FZN_PUBKEY_LEN] = calloc(want, sizeof(*grown));
+
+			if (!grown)
+				return FZN_NODE_SIBLINGS_BACKEND;
+			free(r->keys);
+			r->keys = grown;
+			r->cap = want;
+			if (err == FZN_NODE_SIBLINGS_OK)
+				err = FZN_NODE_SIBLINGS_ROOM;
+		}
+	}
+	*keys = r->keys;
+	return err;
+}
+
 /* SIBLINGS PAIRED, sec 579, each round once the journal is applied. For
  * every member whose prekey this node keeps, and who stands as a member
  * now -- a removed or revoked one is not paired:
@@ -4618,14 +4657,15 @@ static int grant_from(const uint8_t sponsor[FZN_PUBKEY_LEN], const uint8_t self[
  * the grants reach the root this round and not the next. */
 static size_t pair_siblings(const fzn_node_identity_t *id, uint64_t now)
 {
-	static uint8_t hosts[FZN_NODE_SIBLINGS_MAX][FZN_PUBKEY_LEN];
+	static struct key_room hosts_room;
+	uint8_t (*hosts)[FZN_PUBKEY_LEN] = NULL;
 	static uint8_t chain[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
 	uint8_t prekey[FZN_PREKEY_LEN_TOTAL];
 	size_t n = 0, i, paired = 0, accepted = 0;
 
 	if (!running_admin || !node_apply.store || !node_apply.capability)
 		return 0;
-	if (fzn_node_siblings_list(node_apply.store, hosts, FZN_NODE_SIBLINGS_MAX, &n)
+	if (siblings_list(&hosts_room, &hosts, &n, 0u)
 	    != FZN_NODE_SIBLINGS_OK) {
 		say(FZN_ENTRY_WARNING, "node/siblings", "the siblings' prekeys would not list");
 		return 0;
@@ -4794,7 +4834,8 @@ static size_t load_siblings(struct pull_target *pulls, size_t npulls, int family
                             const fzn_hash_ops_t *hash, const fzn_aead_ops_t *aead,
                             const fzn_random_ops_t *rng)
 {
-	static uint8_t hosts[FZN_NODE_SIBLINGS_MAX][FZN_PUBKEY_LEN];
+	static struct key_room hosts_room;
+	uint8_t (*hosts)[FZN_PUBKEY_LEN] = NULL;
 	static struct sibling_socket kept[FZND_SIBLING_TARGETS_MAX];
 	size_t n = 0, i, t, built = 0, n_kept = 0;
 	uint64_t now = wall_clock();
@@ -4803,7 +4844,7 @@ static size_t load_siblings(struct pull_target *pulls, size_t npulls, int family
 		fzn_wipe(&pulls[npulls + i].pairing, sizeof(pulls[npulls + i].pairing));
 	n_sibling_targets = 0;
 	if (!node_apply.store
-	    || fzn_node_siblings_list(node_apply.store, hosts, FZN_NODE_SIBLINGS_MAX, &n)
+	    || siblings_list(&hosts_room, &hosts, &n, 0u)
 	               != FZN_NODE_SIBLINGS_OK)
 		n = 0;
 	for (i = 0; i < n && built < FZND_SIBLING_TARGETS_MAX; i++) {
@@ -5016,7 +5057,8 @@ static size_t grant_local(fzn_origin_t origin, const fzn_request_t *request, cha
 static size_t sibling_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap)
 {
-	static uint8_t hosts[FZN_NODE_SIBLINGS_MAX][FZN_PUBKEY_LEN];
+	static struct key_room hosts_room;
+	uint8_t (*hosts)[FZN_PUBKEY_LEN] = NULL;
 	const uint8_t *self = routing_self;
 	size_t n = 0, i, total = 0, from = 0, at, k;
 	uint64_t now = wall_clock(), now_us = wall_ms() * 1000u;
@@ -5035,12 +5077,15 @@ static size_t sibling_local(fzn_origin_t origin, const fzn_request_t *request, c
 		from = from * 10u + (size_t)(arg[k] - '0');
 	}
 	if (!node_apply.store || !self
-	    || fzn_node_siblings_list(node_apply.store, hosts, FZN_NODE_SIBLINGS_MAX, &n)
+	    || siblings_list(&hosts_room, &hosts, &n,
+	                     running_admin && running_admin->state
+	                             ? running_admin->state->peer_count
+	                             : 0u)
 	               != FZN_NODE_SIBLINGS_OK)
 		return (size_t)snprintf(reply, cap, "error the siblings would not read\n");
 	/* AND THE MEMBERS PAIRED INTO THIS NODE, each once. */
 	if (running_admin && running_admin->state)
-		for (i = 0; i < running_admin->state->peer_count && n < FZN_NODE_SIBLINGS_MAX; i++) {
+		for (i = 0; i < running_admin->state->peer_count && n < hosts_room.cap; i++) {
 			const fzn_node_peer_t *pe = &running_admin->state->peers[i];
 
 			if (fzn_node_peer_contact(&running_admin->state->config, pe))
@@ -5474,13 +5519,14 @@ static const uint8_t *estate_owner(void)
  * address, and only this node unless the estate advertises (sec 611). */
 static size_t estate_devices(fzn_contact_device_t *out, size_t cap, int hosts)
 {
-	static uint8_t keys[FZN_NODE_SIBLINGS_MAX][FZN_PUBKEY_LEN];
+	static struct key_room keys_room;
+	uint8_t (*keys)[FZN_PUBKEY_LEN] = NULL;
 	const uint8_t *owner = estate_owner();
 	int advertise = estate_flag(ROUTING_ADVERTISE_KEY);
 	size_t n = 0, count = 0, i;
 
 	if (!contact_id || !owner || !node_apply.store
-	    || fzn_node_siblings_list(node_apply.store, keys, FZN_NODE_SIBLINGS_MAX, &n)
+	    || siblings_list(&keys_room, &keys, &n, 0u)
 	               != FZN_NODE_SIBLINGS_OK)
 		n = 0;
 	/* THIS NODE FIRST, from its identity when no sibling store holds it. */
@@ -5872,17 +5918,27 @@ static void load_contact_targets(void)
  * -- and marked once every one holds it or keeps none of that conversation. */
 static void settle_lines(struct pull_target *pulls, size_t npulls)
 {
-	static uint8_t keys[FZN_NODE_SIBLINGS_MAX][FZN_PUBKEY_LEN];
-	static fzn_node_messages_member_t members[FZN_NODE_SIBLINGS_MAX];
-	static struct peer_asking asking[FZN_NODE_SIBLINGS_MAX];
+	static struct key_room keys_room;
+	uint8_t (*keys)[FZN_PUBKEY_LEN] = NULL;
+	/* AS MANY AS THE SIBLINGS, sec 704: on the heap, the call's own. */
+	fzn_node_messages_member_t *members;
+	struct peer_asking *asking;
 	fzn_node_messages_settlement_t t;
 	fzn_messages_err_t err;
 	size_t n = 0, m = 0, i, k;
 
 	if (!messages_on || !contact_id || !node_apply.store
-	    || fzn_node_siblings_list(node_apply.store, keys, FZN_NODE_SIBLINGS_MAX, &n)
+	    || siblings_list(&keys_room, &keys, &n, 0u)
 	               != FZN_NODE_SIBLINGS_OK)
 		return;
+	members = calloc(n ? n : 1u, sizeof(*members));
+	asking = calloc(n ? n : 1u, sizeof(*asking));
+	if (!members || !asking) {
+		free(members);
+		free(asking);
+		say(FZN_ENTRY_WARNING, "messages/settle", "no memory to settle over %zu member(s)", n);
+		return;
+	}
 	for (i = 0; i < n; i++) {
 		fzn_setting_rank_t rank;
 
@@ -5911,6 +5967,8 @@ static void settle_lines(struct pull_target *pulls, size_t npulls)
 		say(FZN_ENTRY_INFO, "messages/settle",
 		    "%zu line(s) weighed over %zu member(s): %zu settled, %zu waiting", t.weighed, m,
 		    t.settled, t.waiting);
+	free(members);
+	free(asking);
 }
 
 /* WHETHER `key`, A DEVICE OF THIS USER, IS GONE, sec 616: no longer a
@@ -5946,7 +6004,8 @@ static int claim(const uint8_t id[FZN_MESSAGE_ID_LEN], const uint8_t key[FZN_PUB
 static int takes_over_line(void *ctx, const uint8_t writer[FZN_PUBKEY_LEN],
                            const uint8_t id[FZN_MESSAGE_ID_LEN])
 {
-	static uint8_t keys[FZN_NODE_SIBLINGS_MAX][FZN_PUBKEY_LEN];
+	static struct key_room keys_room;
+	uint8_t (*keys)[FZN_PUBKEY_LEN] = NULL;
 	uint64_t now_us = wall_ms() * 1000u;
 	uint64_t gone_us = (uint64_t)fzn_node_settings_gone_s(&node_settings) * 1000000u;
 	uint8_t mine[32], theirs[32];
@@ -5955,7 +6014,7 @@ static int takes_over_line(void *ctx, const uint8_t writer[FZN_PUBKEY_LEN],
 	(void)ctx;
 	if (!contact_id || !node_apply.store || !device_gone(writer, now_us, gone_us)
 	    || !claim(id, contact_id->pubkey, mine)
-	    || fzn_node_siblings_list(node_apply.store, keys, FZN_NODE_SIBLINGS_MAX, &n)
+	    || siblings_list(&keys_room, &keys, &n, 0u)
 	               != FZN_NODE_SIBLINGS_OK)
 		return 0;
 	for (i = 0; i < n; i++) {
@@ -7575,8 +7634,30 @@ static void routing_quiet_set(const uint8_t contact[FZN_PUBKEY_LEN], uint64_t no
 }
 static struct contact_talk contact_talks[FZND_CONTACT_TARGETS_MAX + FZN_NODE_RECEIVED_MAX];
 static size_t n_contact_talks;
-static fzn_contact_device_t contact_own[FZN_NODE_SIBLINGS_MAX];
-static size_t n_contact_own;
+/* THIS USER'S OWN DEVICES, offered to each contact: as many as the
+ * siblings and this node, grown before each round fills them. sec 704. */
+static fzn_contact_device_t *contact_own;
+static size_t n_contact_own, contact_own_cap;
+
+static size_t own_devices(void)
+{
+	static struct key_room counting;
+	uint8_t (*keys)[FZN_PUBKEY_LEN] = NULL;
+	size_t n = 0;
+
+	if (siblings_list(&counting, &keys, &n, 0u) != FZN_NODE_SIBLINGS_OK)
+		n = 0;
+	if (n + 1u > contact_own_cap) {
+		fzn_contact_device_t *grown = calloc(n + 1u + (n / 4u), sizeof(*grown));
+
+		if (grown) {
+			free(contact_own);
+			contact_own = grown;
+			contact_own_cap = n + 1u + (n / 4u);
+		}
+	}
+	return contact_own ? estate_devices(contact_own, contact_own_cap, 0) : 0u;
+}
 
 /* THE NEXT REQUEST of the exchange with the host at `ct->at`, from its
  * phase on: an offer of the next own device, the hosts query, the manifest.
@@ -7774,7 +7855,7 @@ static void contact_round(struct pull_target *pulls, size_t npulls, uint64_t now
 	/* EACH STANDING CONTACT ONCE, its hosts in the order the round tried
 	 * them: a conversation through the first, the next when it does not
 	 * answer, every contact at once (sec 636). */
-	n_contact_own = estate_devices(contact_own, FZN_NODE_SIBLINGS_MAX, 0);
+	n_contact_own = own_devices();
 	for (i = 0; i < nshares_in + ncontact_targets; i++) {
 		struct pull_target *pt = i < nshares_in ? &shares_in[i].pt
 		                                        : &contact_targets[i - nshares_in].pt;
@@ -10864,7 +10945,8 @@ static void lan_probe_heard(void *ctx, const uint8_t *probe, size_t len,
  * with none, `*why` says why. */
 static size_t lan_probe(const char **why, char *out, size_t out_cap)
 {
-	static uint8_t hosts[FZN_NODE_SIBLINGS_MAX][FZN_PUBKEY_LEN];
+	static struct key_room hosts_room;
+	uint8_t (*hosts)[FZN_PUBKEY_LEN] = NULL;
 	static struct devices_room room;
 	const fzn_node_state_t *st = running_admin ? running_admin->state : NULL;
 	uint8_t probe[FZN_NODE_PROBE_LEN], value[FZN_SETTING_VALUE_MAX];
@@ -10893,7 +10975,7 @@ static size_t lan_probe(const char **why, char *out, size_t out_cap)
 		return 0;
 	}
 	(void)snprintf(out, out_cap, "%s", address);
-	if (fzn_node_siblings_list(node_apply.store, hosts, FZN_NODE_SIBLINGS_MAX, &n)
+	if (siblings_list(&hosts_room, &hosts, &n, 0u)
 	    == FZN_NODE_SIBLINGS_OK)
 		for (i = 0; i < n && nports < FZND_LAN_PORTS_MAX; i++) {
 			port = 0;

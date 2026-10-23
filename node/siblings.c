@@ -17,6 +17,8 @@ const char *fzn_node_siblings_err_str(fzn_node_siblings_err_t err)
 		return "a newer prekey is kept for that host";
 	case FZN_NODE_SIBLINGS_BACKEND:
 		return "the store would not";
+	case FZN_NODE_SIBLINGS_ROOM:
+		return "more siblings are kept than the room given";
 	}
 	return "unknown";
 }
@@ -71,16 +73,38 @@ fzn_node_siblings_err_t fzn_node_siblings_prekey(const fzn_persist_ops_t *store,
 	return FZN_NODE_SIBLINGS_OK;
 }
 
+/* WALKED, sec 704: every host counted, as many as fit kept. */
+struct siblings_into {
+	uint8_t (*hosts)[FZN_PUBKEY_LEN];
+	size_t cap, n;
+};
+
+static int sibling_into(void *arg, const uint8_t host[FZN_PUBKEY_LEN])
+{
+	struct siblings_into *in = arg;
+
+	if (in->n < in->cap)
+		memcpy(in->hosts[in->n], host, FZN_PUBKEY_LEN);
+	in->n++;
+	return 1;
+}
+
 fzn_node_siblings_err_t fzn_node_siblings_list(const fzn_persist_ops_t *store,
                                                uint8_t (*hosts)[FZN_PUBKEY_LEN], size_t cap,
                                                size_t *count)
 {
+	struct siblings_into in;
+
 	if (!count)
 		return FZN_NODE_SIBLINGS_MALFORMED;
 	*count = 0;
-	if (!store || !store->list || !hosts)
+	if (!store || (!store->list && !store->each) || (!hosts && cap))
 		return FZN_NODE_SIBLINGS_MALFORMED;
-	return store->list(store->ctx, FZN_PERSIST_SIBLING_PREKEY, (uint8_t *)hosts, cap, count)
-	               ? FZN_NODE_SIBLINGS_OK
-	               : FZN_NODE_SIBLINGS_BACKEND;
+	in.hosts = hosts;
+	in.cap = cap;
+	in.n = 0;
+	if (!fzn_persist_each(store, FZN_PERSIST_SIBLING_PREKEY, sibling_into, &in))
+		return FZN_NODE_SIBLINGS_BACKEND;
+	*count = in.n;
+	return in.n > cap ? FZN_NODE_SIBLINGS_ROOM : FZN_NODE_SIBLINGS_OK;
 }

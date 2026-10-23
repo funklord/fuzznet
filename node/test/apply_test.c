@@ -1660,6 +1660,42 @@ static void test_an_index_of_thousands(void)
 	free(again);
 }
 
+/* SIBLINGS OF HUNDREDS, sec 704: 300 of the estate's machines' prekeys
+ * kept, listed into 64 -- told how many, where a 65th once read as a store
+ * that would not list -- and into room for them all. */
+static void test_siblings_of_hundreds(void)
+{
+	static uint8_t hosts[300][FZN_PUBKEY_LEN];
+	fzn_persist_ops_t store;
+	uint8_t member[FZN_PUBKEY_LEN], agree[FZN_PREKEY_LEN], pk[FZN_PREKEY_LEN_TOTAL];
+	size_t i, count = 0;
+	int kept = 1;
+
+	memset(many_rows, 0, sizeof(many_rows));
+	memset(&store, 0, sizeof(store));
+	store.load = many_load;
+	store.save = many_save;
+	store.remove = many_remove;
+	store.each = many_each;
+	memset(agree, 0x42, sizeof(agree));
+	signing_as = 0x2d;
+	for (i = 0; i < 300u && kept; i++) {
+		key(member, 0x2d);
+		member[1] = (uint8_t)(i >> 8);
+		member[2] = (uint8_t)i;
+		kept = fzn_prekey_issue(member, agree, 2000u, &SIGN, pk) == FZN_PREKEY_OK
+		       && fzn_node_siblings_learn(&store, &SIGN, pk, sizeof(pk), member)
+		                  == FZN_NODE_SIBLINGS_OK;
+	}
+	CHECK(kept, "fixture: 300 siblings' prekeys kept");
+	CHECK(fzn_node_siblings_list(&store, hosts, FZN_NODE_SIBLINGS_MAX, &count)
+	                      == FZN_NODE_SIBLINGS_ROOM
+	              && count == 300u
+	              && fzn_node_siblings_list(&store, hosts, 300u, &count) == FZN_NODE_SIBLINGS_OK
+	              && count == 300u,
+	      "300 siblings into 64 did not say how many, or did not all list into room");
+}
+
 int main(void)
 {
 	char path[512];
@@ -1678,6 +1714,7 @@ int main(void)
 	test_settings_at_thousands();
 	test_a_full_roster_waits();
 	test_an_index_of_thousands();
+	test_siblings_of_hundreds();
 	/* EVERY STREAM FILE, BY NAME, then the directory. */
 	for (i = 0; i < n_used; i++) {
 		static const char DIGITS[] = "0123456789abcdef";
