@@ -95,6 +95,10 @@ size_t fzn_node_clocks_local(fzn_node_clocks_t *c, fzn_origin_t origin,
 #define FZN_NODE_TIME_NONCE_LEN 16u
 #define FZN_NODE_TIME_ASK_LEN (2u + FZN_NODE_TIME_NONCE_LEN)
 #define FZN_NODE_TIME_ANSWER_LEN (2u + FZN_NODE_TIME_NONCE_LEN + 8u)
+/* The farthest apart two clocks may be and still be measured: about 73
+ * million years, far past any clock in use and a quarter of the signed
+ * range, so that offsets add without overflowing. */
+#define FZN_NODE_TIME_SPAN_MS ((uint64_t)INT64_MAX / 4u)
 
 /* Whether `payload` is a time ask. */
 int fzn_node_time_is_ask(const uint8_t *payload, size_t len);
@@ -127,6 +131,7 @@ typedef struct fzn_node_offset {
 	uint64_t rtt_ms[FZN_NODE_OFFSET_SAMPLES];
 	size_t n, next;     /* samples held, and where the next goes */
 	uint64_t at;        /* when last sampled, this node's clock, seconds */
+	int estate;         /* 1: a device of this node's own estate, counted in its time */
 } fzn_node_offset_t;
 
 typedef struct fzn_node_offsets {
@@ -139,11 +144,13 @@ void fzn_node_offsets_init(fzn_node_offsets_t *o, fzn_node_offset_t *rows, size_
 /* Move `o` onto `rows`, keeping what it holds; 0 when `cap` is too small. */
 int fzn_node_offsets_use(fzn_node_offsets_t *o, fzn_node_offset_t *rows, size_t cap);
 
-/* A SAMPLE of `peer`'s offset at `now` (seconds). Rows not sampled since
- * `now - FZN_NODE_CLOCKS_KEEP_S` are forgotten first. OK, NEW for a peer
- * not held before, ROOM to grow and note again. */
+/* A SAMPLE of `peer`'s offset at `now` (seconds); `estate` 1 for a device of
+ * this node's own estate, whose clock estate time is made of, 0 for any
+ * other peer -- a contact's never moves it (sec 719). Rows not sampled
+ * since `now - FZN_NODE_CLOCKS_KEEP_S` are forgotten first. OK, NEW for a
+ * peer not held before, ROOM to grow and note again. */
 fzn_node_clocks_err_t fzn_node_offsets_note(fzn_node_offsets_t *o,
-                                            const uint8_t peer[FZN_PUBKEY_LEN],
+                                            const uint8_t peer[FZN_PUBKEY_LEN], int estate,
                                             int64_t offset_ms, uint64_t rtt_ms, uint64_t now);
 
 /* `peer`'s filtered offset and its round trip: 1 when it has one, 0 when
@@ -160,5 +167,37 @@ uint64_t fzn_node_offsets_at(const fzn_node_offsets_t *o, const uint8_t peer[FZN
 size_t fzn_node_offsets_local(fzn_node_offsets_t *o, fzn_origin_t origin,
                               const fzn_request_t *request, uint64_t now, char *reply,
                               size_t cap);
+
+/* ---- estate time, sec 719 stage 2 --------------------------------------- */
+
+/* THE HOLDER'S THRESHOLD, 2026-10-24: a node's clock is wrong when it is
+ * more than a minute from its estate's, measured against at least two
+ * other devices -- one other alone cannot say which of the two is wrong. A
+ * minute is where hellos begin to fail (sec 719's survey). */
+#define FZN_NODE_CLOCK_WRONG_MS 60000
+#define FZN_NODE_CLOCK_DEVICES_MIN 2u
+
+typedef enum fzn_node_clock_state {
+	FZN_NODE_CLOCK_UNSURE = 0, /* fewer than FZN_NODE_CLOCK_DEVICES_MIN others measured */
+	FZN_NODE_CLOCK_RIGHT = 1,  /* within the threshold of its estate's time */
+	FZN_NODE_CLOCK_WRONG = 2   /* past it: this node's own clock is the one off */
+} fzn_node_clock_state_t;
+
+/* THIS NODE'S OFFSET TO ITS ESTATE at `now`: the median of its own clock,
+ * counted as one at zero, and each estate device's offset sampled within
+ * FZN_NODE_CLOCKS_KEEP_S. `*offset_ms` the estate's time less this node's;
+ * `*devices` the other devices it rests on. A contact counts for nothing. */
+fzn_node_clock_state_t fzn_node_clock_estate(const fzn_node_offsets_t *o, uint64_t now,
+                                             int64_t *offset_ms, size_t *devices);
+
+/* The state's word: `unsure`, `right` or `wrong`. */
+const char *fzn_node_clock_state_str(fzn_node_clock_state_t state);
+
+/* `get clock` -> `ok OFFSET_MS DEVICES STATE`: this node's offset to its
+ * estate (the estate's time less this node's, signed), the other devices it
+ * rests on, and whether this node's own clock is `right`, `wrong` or
+ * `unsure`. 0 for another request. */
+size_t fzn_node_clock_local(const fzn_node_offsets_t *o, fzn_origin_t origin,
+                            const fzn_request_t *request, uint64_t now, char *reply, size_t cap);
 
 #endif /* FZN_NODE_CLOCKS_H */

@@ -482,10 +482,12 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 	/* `list clock`, sec 717. */
 	if (!n)
 		n = fzn_node_clocks_local(&node_clocks, origin, request, wall_clock(), reply, reply_cap);
-	/* `list offset`, sec 719. */
+	/* `list offset` and `get clock`, sec 719. */
 	if (!n)
 		n = fzn_node_offsets_local(&node_offsets, origin, request, wall_clock(), reply,
 		                           reply_cap);
+	if (!n)
+		n = fzn_node_clock_local(&node_offsets, origin, request, wall_clock(), reply, reply_cap);
 	if (!n)
 		n = device_local(origin, request, reply, reply_cap);
 	if (!n)
@@ -4052,11 +4054,37 @@ static int journal_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, 
  * the answer to it. */
 #define TIME_ASK_EVERY 60u
 static struct {
-	int used;
+	int used, estate;
 	uint8_t peer[FZN_PUBKEY_LEN];
 	uint8_t nonce[FZN_NODE_TIME_NONCE_LEN];
 	uint64_t sent_ms;
 } time_asks[FZN_NODE_ASKS_MAX];
+
+/* THIS NODE'S OWN CLOCK AGAINST ITS ESTATE'S, sec 719 stage 2, judged after
+ * every sample: a change -- wrong, right again, or sure at last -- is an
+ * event and a line, so the device whose clock is off can say so. */
+static fzn_node_clock_state_t clock_state;
+
+static void clock_judged(void)
+{
+	size_t devices = 0;
+	int64_t offset = 0;
+	fzn_node_clock_state_t now = fzn_node_clock_estate(&node_offsets, wall_clock(), &offset,
+	                                                   &devices);
+
+	if (now == clock_state)
+		return;
+	clock_state = now;
+	if (now == FZN_NODE_CLOCK_WRONG)
+		say(FZN_ENTRY_WARNING, "node/clock",
+		    "this device's clock is %lld ms %s its estate's, measured against %zu device(s)",
+		    (long long)(offset < 0 ? -offset : offset), offset > 0 ? "behind" : "ahead of",
+		    devices);
+	else
+		say(FZN_ENTRY_NOTE, "node/clock", "this device's clock is %s against its estate's",
+		    fzn_node_clock_state_str(now));
+	publish("clock", "self");
+}
 
 static void time_answered(void *ctx, const uint8_t *reply, size_t reply_len)
 {
@@ -4071,7 +4099,8 @@ static void time_answered(void *ctx, const uint8_t *reply, size_t reply_len)
 	if (!reply || !fzn_node_time_take(reply, reply_len, time_asks[i].nonce,
 	                                  time_asks[i].sent_ms, wall_ms(), &offset, &rtt))
 		return;
-	err = fzn_node_offsets_note(&node_offsets, time_asks[i].peer, offset, rtt, wall_clock());
+	err = fzn_node_offsets_note(&node_offsets, time_asks[i].peer, time_asks[i].estate, offset,
+	                            rtt, wall_clock());
 	if (err == FZN_NODE_CLOCKS_ROOM) {
 		size_t cap = node_offsets.cap ? 2u * node_offsets.cap : 16u;
 		fzn_node_offset_t *grown = malloc(cap * sizeof(*grown));
@@ -4079,12 +4108,13 @@ static void time_answered(void *ctx, const uint8_t *reply, size_t reply_len)
 
 		if (grown && fzn_node_offsets_use(&node_offsets, grown, cap)) {
 			free(was);
-			(void)fzn_node_offsets_note(&node_offsets, time_asks[i].peer, offset, rtt,
-			                            wall_clock());
+			(void)fzn_node_offsets_note(&node_offsets, time_asks[i].peer, time_asks[i].estate,
+			                            offset, rtt, wall_clock());
 		} else {
 			free(grown);
 		}
 	}
+	clock_judged();
 }
 
 static void time_ask_targets(struct pull_target *pulls, size_t npulls, uint64_t now)
@@ -4108,6 +4138,7 @@ static void time_ask_targets(struct pull_target *pulls, size_t npulls, uint64_t 
 		    || !(len = fzn_node_time_ask(time_asks[i].nonce, ask, sizeof(ask))))
 			continue;
 		memcpy(time_asks[i].peer, peer, FZN_PUBKEY_LEN);
+		time_asks[i].estate = peer_in_estate(&pulls[t]);
 		time_asks[i].sent_ms = wall_ms();
 		time_asks[i].used = 1;
 		if (!fzn_node_asks_send(&round_asks, &pulls[t].caller, ask, len, now + 300u, 3000u,

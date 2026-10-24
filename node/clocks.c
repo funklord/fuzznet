@@ -194,6 +194,11 @@ int fzn_node_time_take(const uint8_t *answer, size_t len,
 	 * round trip each way is the assumption, and half the round trip the
 	 * error bound. */
 	mid = sent_ms + (got_ms - sent_ms) / 2u;
+	/* A TIME NO CLOCK KEEPS is refused: past FZN_NODE_TIME_SPAN_MS either
+	 * way the offset would not fit a signed sum of two, which the median of
+	 * an even vote takes. A peer answering UINT64_MAX is lying, not slow. */
+	if ((theirs >= mid ? theirs - mid : mid - theirs) > FZN_NODE_TIME_SPAN_MS)
+		return 0;
 	*rtt_ms = got_ms - sent_ms;
 	*offset_ms = theirs >= mid ? (int64_t)(theirs - mid) : -(int64_t)(mid - theirs);
 	return 1;
@@ -233,7 +238,7 @@ static void offsets_forget_old(fzn_node_offsets_t *o, uint64_t now)
 }
 
 fzn_node_clocks_err_t fzn_node_offsets_note(fzn_node_offsets_t *o,
-                                            const uint8_t peer[FZN_PUBKEY_LEN],
+                                            const uint8_t peer[FZN_PUBKEY_LEN], int estate,
                                             int64_t offset_ms, uint64_t rtt_ms, uint64_t now)
 {
 	fzn_node_offset_t *r = NULL;
@@ -260,6 +265,7 @@ fzn_node_clocks_err_t fzn_node_offsets_note(fzn_node_offsets_t *o,
 	if (r->n < FZN_NODE_OFFSET_SAMPLES)
 		r->n++;
 	r->at = now;
+	r->estate = estate != 0;
 	return made;
 }
 
@@ -355,4 +361,111 @@ size_t fzn_node_offsets_local(fzn_node_offsets_t *o, fzn_origin_t origin,
 		out += (size_t)snprintf(reply + out, cap - out, " %s", row);
 	}
 	return out + (size_t)snprintf(reply + out, cap - out, "\n");
+}
+
+/* ---- estate time, sec 719 stage 2 --------------------------------------- */
+
+/* THE ESTATE'S VOTES: this node's zero, then each estate device's filtered
+ * offset sampled within the keeping. `i` 0 is this node. */
+static int vote(const fzn_node_offsets_t *o, uint64_t now, size_t i, int64_t *v)
+{
+	const fzn_node_offset_t *r;
+
+	if (i == 0u) {
+		*v = 0;
+		return 1;
+	}
+	r = &o->rows[i - 1u];
+	if (!r->estate || !r->n || r->at + FZN_NODE_CLOCKS_KEEP_S <= now)
+		return 0;
+	*v = r->offset_ms[best_sample(r)];
+	return 1;
+}
+
+/* THE K-TH SMALLEST VOTE, by counting: an estate's devices are few, so a
+ * pass a candidate costs nothing worth a buffer. */
+static int64_t kth_vote(const fzn_node_offsets_t *o, uint64_t now, size_t votes, size_t k)
+{
+	size_t i, j, below, at_or_below;
+	int64_t v, w;
+
+	for (i = 0; i <= o->used; i++) {
+		if (!vote(o, now, i, &v))
+			continue;
+		below = at_or_below = 0;
+		for (j = 0; j <= o->used; j++)
+			if (vote(o, now, j, &w)) {
+				below += w < v;
+				at_or_below += w <= v;
+			}
+		if (below <= k && k < at_or_below)
+			return v;
+	}
+	(void)votes;
+	return 0;
+}
+
+fzn_node_clock_state_t fzn_node_clock_estate(const fzn_node_offsets_t *o, uint64_t now,
+                                             int64_t *offset_ms, size_t *devices)
+{
+	size_t i, votes = 0;
+	int64_t v, median;
+
+	if (offset_ms)
+		*offset_ms = 0;
+	if (devices)
+		*devices = 0;
+	if (!o)
+		return FZN_NODE_CLOCK_UNSURE;
+	for (i = 0; i <= o->used; i++)
+		votes += (size_t)vote(o, now, i, &v);
+	/* THE MEDIAN, the mean of the middle two of an even count. */
+	if (votes % 2u)
+		median = kth_vote(o, now, votes, votes / 2u);
+	else
+		median = (kth_vote(o, now, votes, votes / 2u - 1u) + kth_vote(o, now, votes, votes / 2u))
+		         / 2;
+	if (offset_ms)
+		*offset_ms = median;
+	if (devices)
+		*devices = votes - 1u;
+	if (votes - 1u < FZN_NODE_CLOCK_DEVICES_MIN)
+		return FZN_NODE_CLOCK_UNSURE;
+	return median > FZN_NODE_CLOCK_WRONG_MS || median < -FZN_NODE_CLOCK_WRONG_MS
+	               ? FZN_NODE_CLOCK_WRONG
+	               : FZN_NODE_CLOCK_RIGHT;
+}
+
+const char *fzn_node_clock_state_str(fzn_node_clock_state_t state)
+{
+	switch (state) {
+	case FZN_NODE_CLOCK_RIGHT:
+		return "right";
+	case FZN_NODE_CLOCK_WRONG:
+		return "wrong";
+	case FZN_NODE_CLOCK_UNSURE:
+		break;
+	}
+	return "unsure";
+}
+
+size_t fzn_node_clock_local(const fzn_node_offsets_t *o, fzn_origin_t origin,
+                            const fzn_request_t *request, uint64_t now, char *reply, size_t cap)
+{
+	const uint8_t *at = request ? request->arg : NULL, *w;
+	size_t left = request ? request->arg_len : 0u, n, devices = 0;
+	fzn_node_clock_state_t state;
+	int64_t offset = 0;
+
+	if (!at || request->parsed != FZN_VERB_GET || !next_word(&at, &left, &w, &n) || n != 5u
+	    || memcmp(w, "clock", 5u) != 0)
+		return 0;
+	if (!reply || cap < 2u)
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return REPLY("denied clocks are this node's own user's\n");
+	if (next_word(&at, &left, &w, &n))
+		return REPLY("malformed get clock\n");
+	state = fzn_node_clock_estate(o, now, &offset, &devices);
+	return REPLY("ok %lld %zu %s\n", (long long)offset, devices, fzn_node_clock_state_str(state));
 }
