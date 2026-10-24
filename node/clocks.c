@@ -444,9 +444,9 @@ const char *fzn_node_clock_state_str(fzn_node_clock_state_t state)
 	case FZN_NODE_CLOCK_WRONG:
 		return "wrong";
 	case FZN_NODE_CLOCK_UNSURE:
-		break;
+		return "unsure";
 	}
-	return "unsure";
+	return "unknown";
 }
 
 size_t fzn_node_clock_local(const fzn_node_offsets_t *o, fzn_origin_t origin,

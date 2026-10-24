@@ -6,8 +6,12 @@ makes short. Six stores over loopback, every one a daemon driven by verbs:
 R the estate's root, A1 and A2 its admins, D a device, then N (A1's
 successor) and E (a device paired by the second root).
 
-    a  A1, A2 and D join R's estate by `add join`, each holding the member
-       capability by R's grant
+    a  D, A1 and A2 join R's estate by `add join`, each holding the member
+       capability by R's grant. D, measuring R alone, is unsure of its
+       clock; once A1 and A2 join, `get clock` at D, A1 and R answers
+       their offsets to the estate's median against three devices, and D
+       hears its own clock event as its state turns (sec 719). At --skew
+       past a minute, D's clock and A1's are wrong and R's right
     b  settings at each rank: R's estate setting read as root's on every
        device; A1, made admin, sets one read as admin's at R; D sets its own
        host cell, read as host's at R, and is denied the estate's
@@ -48,6 +52,7 @@ import argparse
 import os
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -58,6 +63,7 @@ import traceback
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
+from live_events import subscriber  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 
@@ -138,7 +144,10 @@ def main(argv):
 			d.proc.wait(timeout=10)
 
 		def said(who, line):
-			return ask(socks[who], line).strip()
+			try:
+				return ask(socks[who], line).strip()
+			except socket.timeout:
+				raise failed("%s: %s went unanswered on its socket" % (who, line))
 
 		def polled(who, line, test, what, within=None):
 			"""`who`'s answer to `line` once `test` takes it, polled: a round's
@@ -195,6 +204,9 @@ def main(argv):
 		def member(who):
 			polled(who, "list capability", lambda g: "member,1,1,0" in g.split()[2:],
 			       "not member held by one hop")
+			# WHERE IT IS, as any device says: its siblings pair with it by
+			# this, and measure its clock (sec 719).
+			expect(socks[who], who, "set setting host net/address 127.0.0.1 " + port[who], "ok")
 
 		def grant_stands(who, key):
 			"""Whether `who` lists a grant it made `key` as standing, by the
@@ -248,12 +260,56 @@ def main(argv):
 			# A ROOT'S RECORD FIRST: k is a root's to set once it has one.
 			expect(socks["r"], "r", "set setting estate x/start 1", "ok")
 
-			# a: three devices join.
-			root = None
-			for who in ("a1", "a2", "d"):
-				root = join(who, "r")
-				member(who)
-			print("livecheck: a: A1, A2 and D joined R's estate by verbs")
+			# a: three devices join, D first: holding R alone it cannot say
+			# whose clock is wrong, and is unsure until A1 and A2 join.
+			root = join("d", "r")
+			member("d")
+			clock_d = said("d", "get clock").split()
+			if len(clock_d) != 4 or clock_d[3] != "unsure":
+				raise failed("a: D, measuring R alone, answered get clock %r" % clock_d)
+			told = subscriber(socks["d"], "d events")
+			try:
+				for who in ("a1", "a2"):
+					join(who, "r")
+					member(who)
+				# ESTATE TIME, sec 719 stage 2: at --skew past a minute D sees
+				# R and A2 S ahead and A1 2S ahead, so the median of its four
+				# votes is S and its own clock wrong; A1's likewise, at -S;
+				# R's is the estate's median. Without skew all three agree.
+				off = args.skew * 1000
+				wrong = args.skew * 1000 > 60000
+				want = {"d": (off, "wrong" if wrong else "right"),
+				        "a1": (-off, "wrong" if wrong else "right"),
+				        "r": (0, "right")}
+				for who, (at, state) in want.items():
+					try:
+						polled(who, "get clock",
+						       lambda g, at=at, state=state: len(g.split()) == 4
+						       and g.split()[3] == state and g.split()[2] == "3"
+						       and abs(int(g.split()[1]) - at) <= 5000,
+						       "not %s at about %d ms against three devices" % (state, at))
+					except failed as e:
+						raise failed("a: %s; its list offset %r" % (e, said(who, "list offset")))
+				# AND TOLD AS IT CHANGED: unsure to right or wrong is a clock
+				# event for this node itself.
+				heard = []
+				until = time.monotonic() + 20.0
+				while time.monotonic() < until:
+					try:
+						line = told.line()
+					except failed:
+						continue
+					if line is None or line == "event clock -":
+						break
+					heard.append(line)
+				else:
+					line = None
+				if line != "event clock -":
+					raise failed("a: D's clock turned and no clock event came: %r" % heard[-4:])
+			finally:
+				told.close()
+			print("livecheck: a: A1, A2 and D joined R's estate by verbs; D's clock %s, as "
+			      "A1's, and R's right" % ("wrong" if wrong else "right"))
 
 			# b: settings at each rank.
 			expect(socks["r"], "r", "set setting estate b/root 1", "ok")

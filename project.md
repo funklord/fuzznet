@@ -71399,6 +71399,74 @@ The three questions as they were put:
 - **Sabotage, three entries**, two seen caught by hand, and two older
   ones retargeted where the lines moved.
 
+### Stage 2 built: estate time and `get clock`
+
+- **Estate time is a median of votes** (`fzn_node_clock_estate`,
+  `node/clocks.c`). This node's own clock is one vote, at zero. Each
+  estate device's filtered offset, sampled within 600 s, is another. For
+  an even count it is the mean of the middle two.
+- **A contact never votes.** Its offset is kept only to stamp requests
+  to that contact (stage 3). A row's `estate` flag is set from the pull
+  target's grant chain, the test `peer_in_estate` already makes for
+  reconciliation.
+- **The state:**
+  - `unsure` when fewer than two other devices are measured;
+  - `wrong` when the median is more than 60000 ms either way;
+  - `right` otherwise.
+
+  Exactly a minute is right.
+- **`get clock`** answers `ok OFFSET_MS DEVICES STATE`. OFFSET_MS is the
+  estate's time less this node's, signed, so a node behind reads
+  positive. It is the node's own user's alone.
+- **Told:** a change of state is logged as `node/clock`, a warning for
+  `wrong` and a note otherwise. It is published as `event clock -`; `-`
+  names no peer, where sec 717's rows are named by their key. The first
+  try published `self`, which the events layer drops for not being hex,
+  and the live check caught it.
+- **A time no clock keeps is refused** by `fzn_node_time_take`: an answer
+  more than `FZN_NODE_TIME_SPAN_MS` (a quarter of the signed range) from
+  this node's clock. The median adds two offsets, and a peer answering
+  `UINT64_MAX` would overflow the sum.
+
+### Measured for stage 2
+
+- **`clocks_test`, 44 checks:**
+  - unsure with one device, and the mean of two;
+  - wrong at the median, either way;
+  - a contact's offset not moving the median;
+  - five devices at their median;
+  - exactly a minute right, a millisecond more wrong;
+  - samples past keeping dropped;
+  - the span refused at the edge and past it;
+  - `get clock`'s reply and refusals.
+
+  Two of my first expectations were wrong, not the code: a median of
+  five votes I had worked out as 5 where it is 10, and an even vote whose
+  middle two meant exactly 60000.
+- **Live, `live_estate` phase a.** D joins first and, measuring R alone,
+  answers `unsure`. Once A1 and A2 join, `get clock` at D, A1 and R
+  answers against three devices each, and D hears `event clock -`:
+  - with no skew, all three are `right` within 5 s of zero;
+  - at `--skew 90` (A1 ahead, D behind), D is `wrong` at about +90000 ms,
+    A1 at about -90000 ms, and R `right` at the median.
+
+  All six phases pass both ways.
+- **Not yet at 900 s.** The plan's live test put one device 900 s
+  behind. At that skew D measures R only, `ok 450000 1 unsure`, because
+  the other devices' pairing with D is refused for its clock. Only stage
+  3, requests stamped in the receiver's terms, lets them pair. 90 s is
+  past the threshold and inside a request's life.
+- **Each device now says where it is.** The script set an address for R
+  alone, so the devices could reach R but not each other, and nothing
+  could measure a sibling. With every device's address set, the run
+  found sec 720.
+- **Sabotage, five entries, all seen caught:**
+  - a contact counted;
+  - a stale device counted;
+  - one device enough;
+  - the threshold one way only;
+  - the span unchecked.
+
 
 
 

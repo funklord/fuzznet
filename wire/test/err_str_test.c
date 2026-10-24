@@ -139,6 +139,7 @@
 #include "../../log/retain.h"
 #include "../../log/cause.h"
 #include "../../node/members.h"
+#include "../../node/clocks.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -336,6 +337,10 @@ static const char *r_facet(int v) { return fzn_facet_err_str((fzn_facet_err_t)v)
  * an arm no test reads is text nobody has checked. */
 static const char *r_admit_step(int v) { return fzn_admit_step_str((fzn_admit_step_t)v); }
 static const char *r_admit_vocab(int v) { return fzn_admit_vocab_str((fzn_admit_vocab_t)v); }
+static const char *r_clock_state(int v)
+{
+	return fzn_node_clock_state_str((fzn_node_clock_state_t)v);
+}
 static const char *r_catalogue(int v) { return fzn_catalog_err_str((fzn_catalog_err_t)v); }
 static const char *r_cat_retain(int v)
 {
@@ -463,6 +468,7 @@ static const struct subject SUBJECTS[] = {
 	{ "fzn_catalog_retention_str", r_cat_retain, 3 },
 	{ "fzn_admit_step_str", r_admit_step, 9 },
 	{ "fzn_admit_vocab_str", r_admit_vocab, 8 },
+	{ "fzn_node_clock_state_str", r_clock_state, 3 },
 };
 
 static void check_subject(const struct subject *s)

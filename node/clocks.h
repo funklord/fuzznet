@@ -190,7 +190,8 @@ typedef enum fzn_node_clock_state {
 fzn_node_clock_state_t fzn_node_clock_estate(const fzn_node_offsets_t *o, uint64_t now,
                                              int64_t *offset_ms, size_t *devices);
 
-/* The state's word: `unsure`, `right` or `wrong`. */
+/* The state's word: `unsure`, `right` or `wrong`; `unknown` for a value
+ * that is none of them. */
 const char *fzn_node_clock_state_str(fzn_node_clock_state_t state);
 
 /* `get clock` -> `ok OFFSET_MS DEVICES STATE`: this node's offset to its

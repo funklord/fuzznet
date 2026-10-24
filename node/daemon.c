@@ -4104,7 +4104,8 @@ static void clock_judged(void)
 	else
 		say(FZN_ENTRY_NOTE, "node/clock", "this device's clock is %s against its estate's",
 		    fzn_node_clock_state_str(now));
-	publish("clock", "self");
+	/* THIS NODE'S OWN, `-`: a peer's row is named by its key (sec 717). */
+	publish("clock", NULL);
 }
 
 static void time_answered(void *ctx, const uint8_t *reply, size_t reply_len)
