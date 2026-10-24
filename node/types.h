@@ -41,7 +41,7 @@
  *   13, 14          retired in sec 519, never reused
  *   23..28, 33, 34  `node/messages.h`
  *   29..32          `node/contact_devices.h`
- *   35, 37..46      fuzznetd's own, here
+ *   35, 37..48      fuzznetd's own, here
  *   36              never allocated
  *
  * fuzznetd's own were `#define`s inside `node/daemon.c`; they live here,
@@ -57,6 +57,11 @@
 #define FZN_TYPE_STREAM_RECORDS 44u
 #define FZN_TYPE_FILE_REFS_WANT 45u
 #define FZN_TYPE_FILE_REFS 46u
+/* A PEER'S CLOCK ASKED, and answered, sec 719 (`node/clocks.h`): the one
+ * request a node answers whatever its expiry says, so that two clocks
+ * already too far apart for anything else can still be measured. */
+#define FZN_TYPE_TIME_ASK 47u
+#define FZN_TYPE_TIME 48u
 
 /* THE EXTENSIONS' RANGE, sec 674: version 2's types 128 to 191, which
  * fuzznet allocates none of. A daemon's extension answers requests of

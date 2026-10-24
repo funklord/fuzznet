@@ -5,6 +5,24 @@
 #include <string.h>
 
 #include "../frame/freshness.h"
+#include "clocks.h"
+#include "../log/cause.h"
+
+/* WHETHER THE REQUEST IS A TIME ASK, through the cause envelope a daemon
+ * puts round every request it sends (`log/cause.h`, sec 465) as the admin
+ * handler looks through it later. */
+static int time_ask(const fzn_opened_t *opened)
+{
+	fzn_entry_name_t cause, origin;
+	const uint8_t *in = NULL;
+	size_t in_len = 0;
+
+	if (fzn_node_time_is_ask(opened->payload, opened->payload_len))
+		return 1;
+	return fzn_cause_unwrap(opened->payload, opened->payload_len, &cause, &origin, &in, &in_len)
+	               == FZN_CAUSE_OK
+	       && fzn_node_time_is_ask(in, in_len);
+}
 
 fzn_node_remote_result_t fzn_node_serve_datagram(const fzn_node_config_t *config,
                                                  const fzn_node_peer_t *peer,
@@ -46,8 +64,13 @@ fzn_node_remote_result_t fzn_node_serve_datagram(const fzn_node_config_t *config
 	 * the window's horizon, and a nonce already seen is refused. The admit
 	 * records the nonce only if it passes, so a forgery -- which never
 	 * opened the seal above -- spends no slot. */
-	if (fzn_replay_admit(replay, opened->nonce, opened->expires_at,
-	                     FZN_EXPIRY_REQUIRED, now) != FZN_FRESH_OK)
+	/* EXCEPT A TIME ASK, sec 719: answered whatever its expiry, since its
+	 * whole use is between clocks already too far apart for the window,
+	 * and kept out of the window, since answering changes nothing a replay
+	 * could repeat. It is authorised below as every request is. */
+	if (!time_ask(opened)
+	    && fzn_replay_admit(replay, opened->nonce, opened->expires_at, FZN_EXPIRY_REQUIRED, now)
+	               != FZN_FRESH_OK)
 		return FZN_NODE_REMOTE_DROPPED;
 
 	/* Open the peer's owned hop bytes into views the decision reads. The

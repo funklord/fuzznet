@@ -9,6 +9,8 @@
  * authenticate-then-authorise is exercised on every arm. */
 
 #include "remote.h"
+#include "../clocks.h"
+#include "../../log/cause.h"
 
 #include "../chunk/split.h"
 #include "../net/udp.h"
@@ -60,11 +62,11 @@ static int estate_root_counts(void *ctx, const uint8_t root[FZN_PUBKEY_LEN],
 	return only_estate_root(ctx, root);
 }
 
-static size_t seal_request(uint8_t *frame, size_t cap, const uint8_t *client_pub,
+static size_t seal_payload(uint8_t *frame, size_t cap, const uint8_t *client_pub,
                            const uint8_t *capb, const uint8_t *key,
                            const uint8_t *ckey, const fzn_hash_ops_t *hash,
                            const fzn_random_ops_t *rng, const fzn_aead_ops_t *aead,
-                           uint64_t expires)
+                           uint64_t expires, const uint8_t *payload, size_t payload_len)
 {
 	fzn_send_t what;
 	size_t len = 0;
@@ -72,8 +74,8 @@ static size_t seal_request(uint8_t *frame, size_t cap, const uint8_t *client_pub
 	memset(&what, 0, sizeof(what));
 	what.sender = client_pub;
 	what.capability = capb;
-	what.payload = PAYLOAD;
-	what.payload_len = sizeof(PAYLOAD);
+	what.payload = payload;
+	what.payload_len = payload_len;
 	what.expires_at = expires;
 	what.msg = 7u;
 	what.index = 0u;
@@ -83,6 +85,16 @@ static size_t seal_request(uint8_t *frame, size_t cap, const uint8_t *client_pub
 	    != FZN_SEAL_OK)
 		return 0;
 	return len;
+}
+
+static size_t seal_request(uint8_t *frame, size_t cap, const uint8_t *client_pub,
+                           const uint8_t *capb, const uint8_t *key,
+                           const uint8_t *ckey, const fzn_hash_ops_t *hash,
+                           const fzn_random_ops_t *rng, const fzn_aead_ops_t *aead,
+                           uint64_t expires)
+{
+	return seal_payload(frame, cap, client_pub, capb, key, ckey, hash, rng, aead, expires,
+	                    PAYLOAD, sizeof(PAYLOAD));
 }
 
 static void seed_bytes(uint8_t out[32], uint8_t v)
@@ -394,6 +406,58 @@ int main(void)
 	                           &sign_ops[0], &replay, 1000u, frame_copy,
 	                           frame_len, NULL) == FZN_NODE_REMOTE_DROPPED,
 	   "the same frame replayed is dropped");
+
+	/* A TIME ASK, sec 719: answered whatever its expiry -- stale, past the
+	 * horizon, replayed, or inside a cause envelope -- where any other
+	 * request so stale is dropped. */
+	{
+		uint8_t nonce[FZN_NODE_TIME_NONCE_LEN], ask[FZN_NODE_TIME_ASK_LEN];
+		uint8_t wrapped[256], copy[512];
+		fzn_entry_name_t cause;
+		size_t ask_len, wrapped_len = 0;
+
+		memset(nonce, 0x3c, sizeof(nonce));
+		ask_len = fzn_node_time_ask(nonce, ask, sizeof(ask));
+		frame_len = seal_payload(frame, sizeof(frame), pubkey[1], cap.b, key[1], ckey[1],
+		                         &hash_ops, &rng_ops, &aead_ops, 2000u, ask, ask_len);
+		memcpy(copy, frame, frame_len);
+		ok(fzn_node_serve_datagram(&config, &peer, &hash_ops, &aead_ops, &sign_ops[0],
+		                           &replay, 3000u, frame, frame_len, NULL)
+		           == FZN_NODE_REMOTE_GRANTED,
+		   "a time ask served after its expiry is answered");
+		ok(fzn_node_serve_datagram(&config, &peer, &hash_ops, &aead_ops, &sign_ops[0],
+		                           &replay, 3000u, copy, frame_len, NULL)
+		           == FZN_NODE_REMOTE_GRANTED,
+		   "a time ask replayed is answered again, spending nothing");
+		frame_len = seal_payload(frame, sizeof(frame), pubkey[1], cap.b, key[1], ckey[1],
+		                         &hash_ops, &rng_ops, &aead_ops, 1000000u, ask, ask_len);
+		ok(fzn_node_serve_datagram(&config, &peer, &hash_ops, &aead_ops, &sign_ops[0],
+		                           &replay, 1000u, frame, frame_len, NULL)
+		           == FZN_NODE_REMOTE_GRANTED,
+		   "a time ask past the horizon is answered");
+		memset(&cause, 0, sizeof(cause));
+		strcpy(cause.user, "funk");
+		strcpy(cause.program, "fuzznetd");
+		cause.pid = 1u;
+		cause.position = 1u;
+		ok(fzn_cause_wrap(&cause, &cause, ask, ask_len, wrapped, sizeof(wrapped),
+		                  &wrapped_len) == FZN_CAUSE_OK,
+		   "fixture: a time ask in a cause envelope");
+		frame_len = seal_payload(frame, sizeof(frame), pubkey[1], cap.b, key[1], ckey[1],
+		                         &hash_ops, &rng_ops, &aead_ops, 2000u, wrapped, wrapped_len);
+		ok(fzn_node_serve_datagram(&config, &peer, &hash_ops, &aead_ops, &sign_ops[0],
+		                           &replay, 3000u, frame, frame_len, NULL)
+		           == FZN_NODE_REMOTE_GRANTED,
+		   "a time ask inside a cause envelope, stale, is not answered");
+		/* THE INNER TYPE BYTE bent: a request of another type, so stale. */
+		wrapped[wrapped_len - ask_len + 1u] ^= 1u;
+		frame_len = seal_payload(frame, sizeof(frame), pubkey[1], cap.b, key[1], ckey[1],
+		                         &hash_ops, &rng_ops, &aead_ops, 2000u, wrapped, wrapped_len);
+		ok(fzn_node_serve_datagram(&config, &peer, &hash_ops, &aead_ops, &sign_ops[0],
+		                           &replay, 3000u, frame, frame_len, NULL)
+		           == FZN_NODE_REMOTE_DROPPED,
+		   "a stale envelope holding another type was answered as a time ask");
+	}
 
 	/* A SHARE, sec 436: the node grants the share capability from its own
 	 * key, on a node whose estate root is somebody else. A request naming

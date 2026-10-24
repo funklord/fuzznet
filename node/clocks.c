@@ -1,4 +1,5 @@
 #include "clocks.h"
+#include "types.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -136,6 +137,219 @@ size_t fzn_node_clocks_local(fzn_node_clocks_t *c, fzn_origin_t origin,
 		             ",%s,%llu,%llu", c->rows[i].ahead ? "ahead" : "behind",
 		             (unsigned long long)c->rows[i].seconds,
 		             (unsigned long long)c->rows[i].at);
+		if (m < 0 || out + 1u + 2u * FZN_PUBKEY_LEN + (size_t)m + 1u >= cap)
+			break;
+		out += (size_t)snprintf(reply + out, cap - out, " %s", row);
+	}
+	return out + (size_t)snprintf(reply + out, cap - out, "\n");
+}
+
+/* ---- the time probe and offsets per peer, sec 719 stage 1 -------------- */
+
+int fzn_node_time_is_ask(const uint8_t *payload, size_t len)
+{
+	return payload && len == FZN_NODE_TIME_ASK_LEN && payload[0] == FZN_TYPES_VERSION_SHARED
+	       && payload[1] == FZN_TYPE_TIME_ASK;
+}
+
+size_t fzn_node_time_ask(const uint8_t nonce[FZN_NODE_TIME_NONCE_LEN], uint8_t *out, size_t cap)
+{
+	if (!nonce || !out || cap < FZN_NODE_TIME_ASK_LEN)
+		return 0;
+	out[0] = FZN_TYPES_VERSION_SHARED;
+	out[1] = FZN_TYPE_TIME_ASK;
+	memcpy(out + 2, nonce, FZN_NODE_TIME_NONCE_LEN);
+	return FZN_NODE_TIME_ASK_LEN;
+}
+
+size_t fzn_node_time_answer(const uint8_t *ask, size_t ask_len, uint64_t now_ms, uint8_t *out,
+                            size_t cap)
+{
+	size_t i;
+
+	if (!fzn_node_time_is_ask(ask, ask_len) || !out || cap < FZN_NODE_TIME_ANSWER_LEN)
+		return 0;
+	out[0] = FZN_TYPES_VERSION_SHARED;
+	out[1] = FZN_TYPE_TIME;
+	memcpy(out + 2, ask + 2, FZN_NODE_TIME_NONCE_LEN);
+	for (i = 0; i < 8u; i++)
+		out[2u + FZN_NODE_TIME_NONCE_LEN + i] = (uint8_t)(now_ms >> (56u - 8u * i));
+	return FZN_NODE_TIME_ANSWER_LEN;
+}
+
+int fzn_node_time_take(const uint8_t *answer, size_t len,
+                       const uint8_t nonce[FZN_NODE_TIME_NONCE_LEN], uint64_t sent_ms,
+                       uint64_t got_ms, int64_t *offset_ms, uint64_t *rtt_ms)
+{
+	uint64_t theirs = 0, mid;
+	size_t i;
+
+	if (!answer || len != FZN_NODE_TIME_ANSWER_LEN || !nonce || !offset_ms || !rtt_ms
+	    || answer[0] != FZN_TYPES_VERSION_SHARED || answer[1] != FZN_TYPE_TIME
+	    || memcmp(answer + 2, nonce, FZN_NODE_TIME_NONCE_LEN) != 0 || got_ms < sent_ms)
+		return 0;
+	for (i = 0; i < 8u; i++)
+		theirs = (theirs << 8) | answer[2u + FZN_NODE_TIME_NONCE_LEN + i];
+	/* THE MIDPOINT, the moment the answer was most likely made: half the
+	 * round trip each way is the assumption, and half the round trip the
+	 * error bound. */
+	mid = sent_ms + (got_ms - sent_ms) / 2u;
+	*rtt_ms = got_ms - sent_ms;
+	*offset_ms = theirs >= mid ? (int64_t)(theirs - mid) : -(int64_t)(mid - theirs);
+	return 1;
+}
+
+void fzn_node_offsets_init(fzn_node_offsets_t *o, fzn_node_offset_t *rows, size_t cap)
+{
+	if (!o)
+		return;
+	o->rows = rows;
+	o->used = 0;
+	o->cap = rows ? cap : 0u;
+}
+
+int fzn_node_offsets_use(fzn_node_offsets_t *o, fzn_node_offset_t *rows, size_t cap)
+{
+	if (!o || !rows || cap < o->used)
+		return 0;
+	if (o->used && rows != o->rows)
+		memmove(rows, o->rows, o->used * sizeof(*rows));
+	o->rows = rows;
+	o->cap = cap;
+	return 1;
+}
+
+static void offsets_forget_old(fzn_node_offsets_t *o, uint64_t now)
+{
+	size_t i, kept = 0;
+
+	for (i = 0; i < o->used; i++)
+		if (o->rows[i].at + FZN_NODE_CLOCKS_KEEP_S > now) {
+			if (kept != i)
+				o->rows[kept] = o->rows[i];
+			kept++;
+		}
+	o->used = kept;
+}
+
+fzn_node_clocks_err_t fzn_node_offsets_note(fzn_node_offsets_t *o,
+                                            const uint8_t peer[FZN_PUBKEY_LEN],
+                                            int64_t offset_ms, uint64_t rtt_ms, uint64_t now)
+{
+	fzn_node_offset_t *r = NULL;
+	fzn_node_clocks_err_t made = FZN_NODE_CLOCKS_OK;
+	size_t i;
+
+	if (!o || !peer || (!o->rows && o->cap))
+		return FZN_NODE_CLOCKS_MALFORMED;
+	offsets_forget_old(o, now);
+	for (i = 0; i < o->used && !r; i++)
+		if (memcmp(o->rows[i].peer, peer, FZN_PUBKEY_LEN) == 0)
+			r = &o->rows[i];
+	if (!r) {
+		if (o->used == o->cap)
+			return FZN_NODE_CLOCKS_ROOM;
+		r = &o->rows[o->used++];
+		memset(r, 0, sizeof(*r));
+		memcpy(r->peer, peer, FZN_PUBKEY_LEN);
+		made = FZN_NODE_CLOCKS_NEW;
+	}
+	r->offset_ms[r->next] = offset_ms;
+	r->rtt_ms[r->next] = rtt_ms;
+	r->next = (r->next + 1u) % FZN_NODE_OFFSET_SAMPLES;
+	if (r->n < FZN_NODE_OFFSET_SAMPLES)
+		r->n++;
+	r->at = now;
+	return made;
+}
+
+static const fzn_node_offset_t *offset_row(const fzn_node_offsets_t *o,
+                                           const uint8_t peer[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	if (!o || !peer)
+		return NULL;
+	for (i = 0; i < o->used; i++)
+		if (memcmp(o->rows[i].peer, peer, FZN_PUBKEY_LEN) == 0)
+			return &o->rows[i];
+	return NULL;
+}
+
+/* THE FILTER: the sample with the least round trip, the newest of equals,
+ * since a clock drifts. Walked newest first: the window is circular, so an
+ * array index says nothing of age. */
+static size_t best_sample(const fzn_node_offset_t *r)
+{
+	size_t k, i, best = (r->next + FZN_NODE_OFFSET_SAMPLES - 1u) % FZN_NODE_OFFSET_SAMPLES;
+
+	for (k = 1; k < r->n; k++) {
+		i = (r->next + FZN_NODE_OFFSET_SAMPLES - 1u - k) % FZN_NODE_OFFSET_SAMPLES;
+		if (r->rtt_ms[i] < r->rtt_ms[best])
+			best = i;
+	}
+	return best;
+}
+
+int fzn_node_offsets_of(const fzn_node_offsets_t *o, const uint8_t peer[FZN_PUBKEY_LEN],
+                        int64_t *offset_ms, uint64_t *rtt_ms)
+{
+	const fzn_node_offset_t *r = offset_row(o, peer);
+	size_t b;
+
+	if (!r || !r->n)
+		return 0;
+	b = best_sample(r);
+	if (offset_ms)
+		*offset_ms = r->offset_ms[b];
+	if (rtt_ms)
+		*rtt_ms = r->rtt_ms[b];
+	return 1;
+}
+
+uint64_t fzn_node_offsets_at(const fzn_node_offsets_t *o, const uint8_t peer[FZN_PUBKEY_LEN])
+{
+	const fzn_node_offset_t *r = offset_row(o, peer);
+
+	return r ? r->at : 0u;
+}
+
+size_t fzn_node_offsets_local(fzn_node_offsets_t *o, fzn_origin_t origin,
+                              const fzn_request_t *request, uint64_t now, char *reply,
+                              size_t cap)
+{
+	static const char HEX[] = "0123456789abcdef";
+	const uint8_t *at = request ? request->arg : NULL, *w;
+	size_t left = request ? request->arg_len : 0u, n, from = 0, out, i, k;
+
+	if (!at || request->parsed != FZN_VERB_LIST || !next_word(&at, &left, &w, &n) || n != 6u
+	    || memcmp(w, "offset", 6u) != 0)
+		return 0;
+	if (!reply || cap < 2u)
+		return 0;
+	if (origin != FZN_ORIGIN_SAME_USER)
+		return REPLY("denied clocks are this node's own user's\n");
+	if (next_word(&at, &left, &w, &n) && (left || !from_of(w, n, &from)))
+		return REPLY("malformed list offset [FROM]\n");
+	if (!o)
+		return REPLY("error this node keeps no offsets\n");
+	offsets_forget_old(o, now);
+	if (from > o->used)
+		from = o->used;
+	out = (size_t)snprintf(reply, cap, "ok %zu %zu", o->used, from);
+	for (i = from; i < o->used; i++) {
+		const fzn_node_offset_t *r = &o->rows[i];
+		char row[2u * FZN_PUBKEY_LEN + 72u];
+		size_t b = best_sample(r);
+		int m;
+
+		for (k = 0; k < FZN_PUBKEY_LEN; k++) {
+			row[2u * k] = HEX[r->peer[k] >> 4];
+			row[2u * k + 1u] = HEX[r->peer[k] & 15u];
+		}
+		m = snprintf(row + 2u * FZN_PUBKEY_LEN, sizeof(row) - 2u * FZN_PUBKEY_LEN,
+		             ",%lld,%llu,%llu", (long long)r->offset_ms[b],
+		             (unsigned long long)r->rtt_ms[b], (unsigned long long)r->at);
 		if (m < 0 || out + 1u + 2u * FZN_PUBKEY_LEN + (size_t)m + 1u >= cap)
 			break;
 		out += (size_t)snprintf(reply + out, cap - out, " %s", row);

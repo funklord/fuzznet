@@ -8472,8 +8472,8 @@ SABOTAGES = [
 	(
 		"node-remote-admits-through-the-replay-window",
 		"node/remote.c",
-		"FZN_EXPIRY_REQUIRED, now) != FZN_FRESH_OK",
-		"FZN_EXPIRY_REQUIRED, now) == FZN_FRESH_OK",
+		"FZN_EXPIRY_REQUIRED, now)\n\t               != FZN_FRESH_OK)",
+		"FZN_EXPIRY_REQUIRED, now)\n\t               == FZN_FRESH_OK)",
 		"the authenticated frame's nonce is admitted into the replay window, "
 		"and a nonce already seen -- or a stale or no-expiry command -- is "
 		"dropped. Flipping the test drops every fresh frame and admits every "
@@ -12048,6 +12048,27 @@ SABOTAGES = [
 		"an index moved onto room forgets the grants it held, and the chains through them -- sec 704",
 	),
 	(
+		"time-ask-answered-at-any-clock",
+		"node/remote.c",
+		"\tif (!time_ask(opened)\n",
+		"\tif (1\n",
+		"a time ask from a clock out of the window is dropped, so two clocks too far apart are never measured -- sec 719",
+	),
+	(
+		"time-answer-ties-to-its-nonce",
+		"node/clocks.c",
+		"\t    || memcmp(answer + 2, nonce, FZN_NODE_TIME_NONCE_LEN) != 0 || got_ms < sent_ms)",
+		"\t    || got_ms < sent_ms)",
+		"an answer to another ask is taken as this one's, and a stale or replayed answer moves the offset -- sec 719",
+	),
+	(
+		"offset-filter-least-round-trip",
+		"node/clocks.c",
+		"\t\tif (r->rtt_ms[i] < r->rtt_ms[best])\n\t\t\tbest = i;",
+		"\t\tif (r->rtt_ms[i] > r->rtt_ms[best])\n\t\t\tbest = i;",
+		"the offset is taken from the sample with the most round trip, the least bounded -- sec 719",
+	),
+	(
 		"clocks-forget-past-keeping",
 		"node/clocks.c",
 		"\t\tif (c->rows[i].at + FZN_NODE_CLOCKS_KEEP_S > now) {",
@@ -12057,8 +12078,8 @@ SABOTAGES = [
 	(
 		"clocks-own-user-alone",
 		"node/clocks.c",
-		"\tif (origin != FZN_ORIGIN_SAME_USER)\n\t\treturn REPLY(\"denied clocks are this node's own user's\\n\");",
-		"\tif (0 && origin != FZN_ORIGIN_SAME_USER)\n\t\treturn REPLY(\"denied clocks are this node's own user's\\n\");",
+		"\tif (origin != FZN_ORIGIN_SAME_USER)\n\t\treturn REPLY(\"denied clocks are this node's own user's\\n\");\n\tif (next_word(&at, &left, &w, &n) && (left || !from_of(w, n, &from)))\n\t\treturn REPLY(\"malformed list clock",
+		"\tif (0 && origin != FZN_ORIGIN_SAME_USER)\n\t\treturn REPLY(\"denied clocks are this node's own user's\\n\");\n\tif (next_word(&at, &left, &w, &n) && (left || !from_of(w, n, &from)))\n\t\treturn REPLY(\"malformed list clock",
 		"another local user reads which peers' clocks disagree -- sec 717",
 	),
 	(

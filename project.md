@@ -71330,7 +71330,15 @@ fuzznetd does not take.
    marks. Each comes with the scenario that shows its fault today and
    then passes.
 
-### For the holder
+### Decided by the holder, 2026-10-24
+
+"correct, 60s threshold ok, contacts yes, build it":
+- **A node corrects its own view** by its estate offset, at steps 4 and 5.
+- **"Your clock is wrong" at more than 60 s** from the median of at least
+  two other devices.
+- **A contact's offset stamps requests to that contact.**
+
+The three questions as they were put:
 
 - **Whether a node corrects its own view by its estate offset**, at
   steps 4 and 5, or only reports it and leaves correction to the user.
@@ -71343,6 +71351,54 @@ fuzznetd does not take.
 - **Whether a contact's offset may stamp requests to that contact** (step
   4). Proposed yes: it is the contact's own claim about its own clock,
   used only to reach that contact.
+
+### Stage 1 built: the time probe and offsets per peer, sec 719
+
+- **Types 47 and 48** (`node/types.h`):
+  - the ask is `2 | 47 | nonce[16]`;
+  - the answer is `2 | 48 | nonce[16] | time_ms`.
+
+  The codec is in `node/clocks.c`.
+- **Answered whatever its expiry** (`node/remote.c`): a time ask that
+  opened under a peer's session skips the freshness and replay check and
+  spends no slot in the window. It is authorised as every request is. The
+  check looks through the cause envelope a daemon puts round its
+  requests; the first live try missed it there, and a member 900 s behind
+  measured nothing.
+- **fuzznetd answers** any peer granted, member or contact, at most 50 a
+  second in all, since a replayed ask is answered again.
+- **Asks:** each pull target not sampled in the last 60 s is asked
+  through the round's ask table, as the journal talks begin.
+- **The offset** is the peer's time less the midpoint of send and
+  receive. NTP's clock filter keeps, of a peer's last eight samples, the
+  one with the least round trip, the newest of equals. The first version
+  broke ties by array index, which in a circular window says nothing of
+  age, and the test caught it.
+- **`list offset [FROM]`** answers `ok TOTAL FROM KEY,OFFSET_MS,RTT_MS,AT
+  ...`: every peer sampled, its offset signed (its clock less this
+  one's), that sample's round trip, and when last sampled. A peer not
+  sampled for 600 s is forgotten. `list clock` keeps its contract,
+  disagreements only, since fuzzypickles shows each row as a notice.
+
+### Measured for stage 1
+
+- **`clocks_test`, 30 checks:**
+  - the probe's round trip, both signs;
+  - an answer to another nonce, or of another type, refused;
+  - the filter, the window's turn and the newest of equals;
+  - ROOM and growth;
+  - `list offset` and its refusals.
+- **`remote_test`, 56 checks:** a time ask answered stale, replayed, past
+  the horizon, and inside a cause envelope. A stale envelope holding
+  another type is dropped. **Control:** without the exemption, the four
+  fail.
+- **Live, `livecheck-faults` phase l:** a member 900 s behind its root
+  measures the root at +899999 ms, and one an hour ahead at -3599999 ms,
+  each within its round trip, though nothing else of either gets
+  through. Required within 5 s.
+- **Sabotage, three entries**, two seen caught by hand, and two older
+  ones retargeted where the lines moved.
+
 
 
 

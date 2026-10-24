@@ -240,6 +240,8 @@ PROG_OBJS := $(PROG_SRCS:%.c=$(BUILD_DIR)/%.o)
 # node with no provisioned peers links none.
 NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/talk.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/local.o \
                    $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/node.o \
+                   $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o \
+                   $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
                    $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/peer.o \
                    $(BUILD_DIR)/local/peer_linux.o $(BUILD_DIR)/local/line.o \
                    $(BUILD_DIR)/local/vocabulary.o \
@@ -3978,7 +3980,7 @@ $(BUILD_DIR)/node/test/remote_test.o: node/test/remote_test.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Inode -Iwire/generated -c $< -o $@
 
 $(BUILD_DIR)/node/test/remote_test: $(BUILD_DIR)/node/test/remote_test.o \
-              $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/node.o \
+              $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o $(BUILD_DIR)/node/node.o \
               $(BUILD_DIR)/chunk/split.o $(BUILD_DIR)/chunk/reassembly.o \
               $(BUILD_DIR)/local/peer.o $(BUILD_DIR)/chain/authz.o \
               $(BUILD_DIR)/frame/freshness.o \
@@ -4041,7 +4043,7 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/node/state_dir.o \
               $(BUILD_DIR)/node/members.o \
               $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
-              $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o \
+              $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o \
               $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/peer.o \
               $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/talk.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/caller.o \
               $(BUILD_DIR)/node/local.o $(BUILD_DIR)/local/socket.o \
@@ -4100,7 +4102,7 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/peer_linux.o \
               $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
               $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
-              $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o \
+              $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o \
               $(BUILD_DIR)/node/node.o $(BUILD_DIR)/node/local.o \
               $(BUILD_DIR)/local/peer.o $(BUILD_DIR)/local/line.o \
               $(BUILD_DIR)/local/vocabulary.o $(BUILD_DIR)/version/version.o \
@@ -4206,6 +4208,8 @@ NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DI
                    $(BUILD_DIR)/node/members.o \
                    $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
                    $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o \
+                   $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o \
+                   $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
                    $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/peer.o \
                    $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/caller.o \
                    $(BUILD_DIR)/node/local.o $(BUILD_DIR)/local/socket.o \
@@ -4240,7 +4244,7 @@ $(BUILD_DIR)/node/test/reconcile_test: $(BUILD_DIR)/node/test/reconcile_test.o \
 # The estate's members and its reconciliation through a lying peer, sec
 # 689's estate journey.
 $(BUILD_DIR)/node/test/members_fuzz: $(BUILD_DIR)/node/test/members_fuzz.o \
-                                     $(BUILD_DIR)/node/members.o $(BUILD_DIR)/node/remote.o \
+                                     $(BUILD_DIR)/node/members.o $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
                                      $(NODE_APPLY_LINK)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -4373,7 +4377,7 @@ $(BUILD_DIR)/node/test/provision_test.o: node/test/provision_test.c
 $(BUILD_DIR)/node/test/provision_test: $(BUILD_DIR)/node/test/provision_test.o \
               $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o \
               $(BUILD_DIR)/node/caller.o \
-              $(BUILD_DIR)/node/local.o $(BUILD_DIR)/node/remote.o \
+              $(BUILD_DIR)/node/local.o $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/socket.o \
               $(BUILD_DIR)/local/peer.o $(BUILD_DIR)/local/peer_linux.o \
               $(BUILD_DIR)/local/line.o $(BUILD_DIR)/local/vocabulary.o \
@@ -4556,7 +4560,7 @@ $(BUILD_DIR)/wire/test/err_str_test: $(BUILD_DIR)/wire/test/err_str_test.o \
                                       $(BUILD_DIR)/log/retain.o \
                                       $(BUILD_DIR)/log/cause.o \
                                       $(BUILD_DIR)/node/members.o \
-                                      $(BUILD_DIR)/node/remote.o \
+                                      $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o \
                                       $(BUILD_DIR)/node/node.o \
                                       $(BUILD_DIR)/notes/store.o \
                                       $(BUILD_DIR)/notes/sync.o \

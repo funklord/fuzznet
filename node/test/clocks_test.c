@@ -140,6 +140,94 @@ static void test_the_verb(void)
 	      "rows past their keeping are still listed");
 }
 
+/* THE PROBE, sec 719: an ask and its answer round trip; an answer to
+ * another nonce, or bent, is not taken; the offset is the peer's time less
+ * the midpoint, either sign. */
+static void test_the_probe(void)
+{
+	uint8_t nonce[FZN_NODE_TIME_NONCE_LEN], other[FZN_NODE_TIME_NONCE_LEN];
+	uint8_t ask[FZN_NODE_TIME_ASK_LEN], answer[FZN_NODE_TIME_ANSWER_LEN];
+	int64_t offset = 0;
+	uint64_t rtt = 0;
+	size_t a, n;
+
+	memset(nonce, 0x5c, sizeof(nonce));
+	memset(other, 0x5d, sizeof(other));
+	a = fzn_node_time_ask(nonce, ask, sizeof(ask));
+	CHECK(a == FZN_NODE_TIME_ASK_LEN && fzn_node_time_is_ask(ask, a)
+	              && !fzn_node_time_is_ask(ask, a - 1u),
+	      "an ask is not one, or one cut short still is");
+	n = fzn_node_time_answer(ask, a, 1000900000u, answer, sizeof(answer));
+	CHECK(n == FZN_NODE_TIME_ANSWER_LEN
+	              && fzn_node_time_take(answer, n, nonce, 1000000000u, 1000000020u, &offset, &rtt)
+	              && offset == 899990 && rtt == 20u,
+	      "a peer 900 s ahead, asked at 0 and answered at 20 ms, is not +899990 with 20");
+	CHECK(fzn_node_time_take(answer, n, nonce, 1001800000u, 1001800010u, &offset, &rtt)
+	              && offset == -900005 && rtt == 10u,
+	      "a peer behind is not a negative offset");
+	CHECK(!fzn_node_time_take(answer, n, other, 1000000000u, 1000000020u, &offset, &rtt),
+	      "an answer to another nonce was taken");
+	answer[1] ^= 1u;
+	CHECK(!fzn_node_time_take(answer, n, nonce, 1000000000u, 1000000020u, &offset, &rtt),
+	      "an answer of another type was taken");
+	CHECK(!fzn_node_time_take(answer, n, nonce, 20u, 10u, &offset, &rtt)
+	              && fzn_node_time_answer(ask, a - 1u, 1u, answer, sizeof(answer)) == 0
+	              && fzn_node_time_answer(ask, a, 1u, answer, n - 1u) == 0,
+	      "a reply before its ask, a bad ask, or no room was answered");
+}
+
+/* OFFSETS: the filter takes the least round trip; rows forgotten; ROOM and
+ * grown; `list offset` paged, signed, with the refusals. */
+static void test_the_offsets(void)
+{
+	static fzn_node_offset_t small[1], big[64];
+	fzn_node_offsets_t o;
+	uint8_t a[FZN_PUBKEY_LEN], b[FZN_PUBKEY_LEN];
+	int64_t off = 0;
+	uint64_t rtt = 0;
+	char want[200];
+	size_t i;
+	fzn_request_t req;
+
+	key(a, 0xa1);
+	key(b, 0xb2);
+	fzn_node_offsets_init(&o, small, 1);
+	CHECK(!fzn_node_offsets_of(&o, a, &off, &rtt) && fzn_node_offsets_at(&o, a) == 0u,
+	      "a peer never sampled has an offset");
+	CHECK(fzn_node_offsets_note(&o, a, 5000, 40, 100) == FZN_NODE_CLOCKS_NEW
+	              && fzn_node_offsets_note(&o, a, 4990, 4, 101) == FZN_NODE_CLOCKS_OK
+	              && fzn_node_offsets_note(&o, a, 7000, 90, 102) == FZN_NODE_CLOCKS_OK
+	              && fzn_node_offsets_of(&o, a, &off, &rtt) && off == 4990 && rtt == 4u
+	              && fzn_node_offsets_at(&o, a) == 102u,
+	      "the filter did not keep the sample of least round trip");
+	for (i = 0; i < FZN_NODE_OFFSET_SAMPLES; i++)
+		(void)fzn_node_offsets_note(&o, a, 6000 + (int64_t)i, 50, 103);
+	CHECK(fzn_node_offsets_of(&o, a, &off, &rtt) && off == 6007 && rtt == 50u,
+	      "samples past the window were not let go, or of equals not the newest kept");
+	CHECK(fzn_node_offsets_note(&o, b, -2000, 3, 104) == FZN_NODE_CLOCKS_ROOM,
+	      "a second peer in a table of one was not ROOM");
+	CHECK(fzn_node_offsets_use(&o, big, 64)
+	              && fzn_node_offsets_note(&o, b, -2000, 3, 104) == FZN_NODE_CLOCKS_NEW,
+	      "grown, the second peer was not taken");
+	memset(&req, 0, sizeof(req));
+	req.parsed = FZN_VERB_LIST;
+	req.arg = (const uint8_t *)"offset";
+	req.arg_len = 6u;
+	snprintf(want, sizeof(want), "ok 2 0 %s,6007,50,103 %s,-2000,3,104\n",
+	         "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+	         "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2");
+	CHECK(fzn_node_offsets_local(&o, FZN_ORIGIN_SAME_USER, &req, 105, reply, sizeof(reply)) > 0
+	              && strcmp(reply, want) == 0,
+	      "list offset is not each peer, its offset signed, its round trip and when");
+	CHECK(fzn_node_offsets_local(&o, FZN_ORIGIN_LOCAL, &req, 105, reply, sizeof(reply)) > 0
+	              && strncmp(reply, "denied", 6u) == 0,
+	      "another local user read the offsets");
+	CHECK(fzn_node_offsets_local(&o, FZN_ORIGIN_SAME_USER, &req, 103 + FZN_NODE_CLOCKS_KEEP_S,
+	                             reply, sizeof(reply)) > 0
+	              && strncmp(reply, "ok 1 0 b2", 9u) == 0,
+	      "a peer not sampled within the keeping is still listed");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -154,6 +242,8 @@ int main(void)
 {
 	test_the_rows();
 	test_the_verb();
+	test_the_probe();
+	test_the_offsets();
 	test_the_suite_can_tell_pass_from_fail();
 
 	printf("clocks_test: %d checks, %d failure(s)\n", checks, failures);

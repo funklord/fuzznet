@@ -49,8 +49,9 @@ the scenarios built on them test something:
     l  a member whose clock runs 900 s behind the root, then an hour ahead:
        its requests are dropped either way, and the root's log says why,
        read by `list log` (sec 714), and `list clock` names the member and
-       the way its clock is off (sec 717) -- where both ends saw only
-       silence
+       the way its clock is off (sec 717), and the member measures the
+       root's clock by a time ask to within 5 s (sec 719) -- where both ends
+       saw only silence
     m  a crash at every reach of each crash point inside a setting, a
        pairing and a vote: each daemon, started again without the fault,
        serves, and the acts made again stand (sec 718)
@@ -531,8 +532,9 @@ def main(argv):
 				root = daemon(run, "lr", l_root, lr_sock, extra=["--udp-port=" + lr_port])
 				told = subscriber(lr_sock, "l events")
 				try:
-					for skew, said, way in (("-900s", "expired", "behind"),
-					                        ("+3600s", "past this node's horizon", "ahead")):
+					for skew, said, way, root_off in (("-900s", "expired", "behind", 900000),
+					                                  ("+3600s", "past this node's horizon",
+					                                   "ahead", -3600000)):
 						os.environ["FZN_TUNE_PULL_EVERY"] = "2"
 						try:
 							member = daemon(run, "l" + skew, l_dir, l_sock, fake=skew,
@@ -579,13 +581,29 @@ def main(argv):
 							if line != "event clock " + l_prekey[4:68]:
 								raise failed("l: with the member's clock %s, no clock event "
 								             "came: %r" % (skew, heard[-4:]))
+							# AND THE MEMBER MEASURES THE ROOT'S CLOCK (sec 719): its
+							# time ask is answered though nothing else of its is.
+							until = time.monotonic() + 30.0
+							measured = None
+							while time.monotonic() < until and measured is None:
+								for r in ask(l_sock, "list offset").split()[3:]:
+									f = r.split(",")
+									if len(f) == 4:
+										measured = int(f[1])
+								if measured is None:
+									time.sleep(0.5)
+							if measured is None or abs(measured - root_off) > 5000:
+								raise failed("l: with the member's clock %s, it measured the "
+								             "root's offset as %r, not about %d ms"
+								             % (skew, measured, root_off))
 						finally:
 							member.stop()
 				finally:
 					told.close()
 					root.stop()
 				print("livecheck: l: a member's clock 900 s behind and an hour ahead, each "
-				      "said in the root's log, listed by list clock and told as an event")
+				      "said in the root's log, listed by list clock, told as an event, and "
+				      "measured by the member's own time ask")
 			else:
 				print("livecheck: l SKIPPED -- no faketime on PATH")
 

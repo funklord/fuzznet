@@ -420,6 +420,8 @@ static void own_acts_applied(const fzn_node_admin_t *admin, const char *reply, s
 static uint64_t wall_clock(void);
 /* PEERS WHOSE CLOCKS DISAGREE, sec 717: a row a peer, grown on the heap. */
 static fzn_node_clocks_t node_clocks;
+/* PEERS' OFFSETS, sec 719, defined with the asking below. */
+static fzn_node_offsets_t node_offsets;
 
 /* THIS DAEMON'S FLIGHT RECORDER, or NULL: kept only with a log file. */
 static const fzn_ring_t *own_ring(void)
@@ -480,6 +482,10 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 	/* `list clock`, sec 717. */
 	if (!n)
 		n = fzn_node_clocks_local(&node_clocks, origin, request, wall_clock(), reply, reply_cap);
+	/* `list offset`, sec 719. */
+	if (!n)
+		n = fzn_node_offsets_local(&node_offsets, origin, request, wall_clock(), reply,
+		                           reply_cap);
 	if (!n)
 		n = device_local(origin, request, reply, reply_cap);
 	if (!n)
@@ -4039,6 +4045,77 @@ static int journal_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, 
 	return 1;
 }
 
+/* PEERS' CLOCKS ASKED, sec 719 stage 1: each pull target not sampled in
+ * the last TIME_ASK_EVERY seconds is asked its clock through the round's
+ * ask table, and the answer kept as a sample of its offset. An ask in
+ * flight is remembered here, by the table's own bound, its nonce what ties
+ * the answer to it. */
+#define TIME_ASK_EVERY 60u
+static struct {
+	int used;
+	uint8_t peer[FZN_PUBKEY_LEN];
+	uint8_t nonce[FZN_NODE_TIME_NONCE_LEN];
+	uint64_t sent_ms;
+} time_asks[FZN_NODE_ASKS_MAX];
+
+static void time_answered(void *ctx, const uint8_t *reply, size_t reply_len)
+{
+	size_t i = (size_t)(uintptr_t)ctx;
+	int64_t offset = 0;
+	uint64_t rtt = 0;
+	fzn_node_clocks_err_t err;
+
+	if (i >= FZN_NODE_ASKS_MAX || !time_asks[i].used)
+		return;
+	time_asks[i].used = 0;
+	if (!reply || !fzn_node_time_take(reply, reply_len, time_asks[i].nonce,
+	                                  time_asks[i].sent_ms, wall_ms(), &offset, &rtt))
+		return;
+	err = fzn_node_offsets_note(&node_offsets, time_asks[i].peer, offset, rtt, wall_clock());
+	if (err == FZN_NODE_CLOCKS_ROOM) {
+		size_t cap = node_offsets.cap ? 2u * node_offsets.cap : 16u;
+		fzn_node_offset_t *grown = malloc(cap * sizeof(*grown));
+		fzn_node_offset_t *was = node_offsets.cap ? node_offsets.rows : NULL;
+
+		if (grown && fzn_node_offsets_use(&node_offsets, grown, cap)) {
+			free(was);
+			(void)fzn_node_offsets_note(&node_offsets, time_asks[i].peer, offset, rtt,
+			                            wall_clock());
+		} else {
+			free(grown);
+		}
+	}
+}
+
+static void time_ask_targets(struct pull_target *pulls, size_t npulls, uint64_t now)
+{
+	size_t t, i, len;
+	uint8_t ask[FZN_NODE_TIME_ASK_LEN];
+
+	for (t = 0; t < npulls; t++) {
+		const uint8_t *peer = pulls[t].pairing.node;
+		const fzn_random_ops_t *rng = pulls[t].caller.rng;
+
+		if (fzn_node_asks_pending(&round_asks) >= FZN_NODE_ASKS_MAX || !rng)
+			return;
+		if (fzn_node_offsets_at(&node_offsets, peer) + TIME_ASK_EVERY > now)
+			continue;
+		for (i = 0; i < FZN_NODE_ASKS_MAX && time_asks[i].used; i++)
+			;
+		if (i == FZN_NODE_ASKS_MAX)
+			return;
+		if (!rng->fill(rng->ctx, time_asks[i].nonce, sizeof(time_asks[i].nonce))
+		    || !(len = fzn_node_time_ask(time_asks[i].nonce, ask, sizeof(ask))))
+			continue;
+		memcpy(time_asks[i].peer, peer, FZN_PUBKEY_LEN);
+		time_asks[i].sent_ms = wall_ms();
+		time_asks[i].used = 1;
+		if (!fzn_node_asks_send(&round_asks, &pulls[t].caller, ask, len, now + 300u, 3000u,
+		                        time_answered, (void *)(uintptr_t)i))
+			time_asks[i].used = 0;
+	}
+}
+
 static void journal_start(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
 	size_t t, len;
@@ -4074,6 +4151,8 @@ static void journal_start(struct pull_target *pulls, size_t npulls, uint64_t now
 		(void)talk_start(&jt->talk, &jt->m, &pulls[t], now, journal_talk_step, jt, jt->message,
 		                 sizeof(jt->message), len);
 	}
+	/* AND THEIR CLOCKS, sec 719, beside the talks. */
+	time_ask_targets(pulls, npulls, now);
 }
 
 /* WHAT THE JOURNAL'S CONVERSATIONS BROUGHT, said peer by peer; a peer whose
@@ -10993,6 +11072,9 @@ static size_t relay_local(fzn_origin_t origin, const fzn_request_t *request, cha
 static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
                                size_t request_len, uint8_t *reply, size_t reply_cap);
 
+/* TIME ANSWERS, sec 719: an estate's peers ask about once a minute each. */
+#define TIME_ANSWERS_A_SECOND 50u
+
 static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *request,
                            size_t request_len, uint8_t *reply, size_t reply_cap)
 {
@@ -11006,6 +11088,20 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 	size_t inner_len;
 
 	(void)ctx;
+	/* A TIME ASK, sec 719: this node's clock, to any peer granted -- member
+	 * or contact -- at most TIME_ANSWERS_A_SECOND in all, since the ask is
+	 * answered whatever its expiry and so could be replayed. */
+	if (fzn_node_time_is_ask(request, request_len)) {
+		static uint64_t second, answered;
+
+		if (now != second) {
+			second = now;
+			answered = 0;
+		}
+		if (++answered > TIME_ANSWERS_A_SECOND)
+			return 0;
+		return fzn_node_time_answer(request, request_len, wall_ms(), reply, reply_cap);
+	}
 	if (request_len >= 2u && request[0] == FZND_GROUP_VERSION
 	    && request[1] == FZN_TYPE_GROUP_SYNC)
 		return group_sync_remote(sender, request, request_len, reply, reply_cap);
