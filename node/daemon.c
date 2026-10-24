@@ -1312,24 +1312,20 @@ static uint64_t wall_ms(void)
  * never what freshness judges by, which stays this node's own (stage 3
  * stamps requests in the receiver's terms instead).
  *
- * STRICTLY INCREASING, as a hybrid logical clock is: a correction that
- * steps back -- a device ahead learning it -- would make its next write
- * lose to its last, so a value at or below the last given is the last
- * plus one. A device that was ahead then crawls a millisecond a stamp
- * until its estate catches up, rather than writing into its own past. */
+ * IT MAY STEP BACK, when a device ahead learns it, and each consumer keeps
+ * its own order where it needs one: a setting's version is one past every
+ * version held for its cell already. A floor here, never below the last
+ * stamp given, was tried and carried an outlier's error forward -- a
+ * setting written before the device had measured its estate held every
+ * later stamp 900 s ahead, so a later write by an on-time device still
+ * lost (sec 721). */
 static uint64_t estate_ms(void)
 {
-	static uint64_t last;
-	uint64_t raw = wall_ms(), t;
+	uint64_t raw = wall_ms();
 
 	if (estate_offset_ms >= 0)
-		t = raw + (uint64_t)estate_offset_ms;
-	else
-		t = raw > (uint64_t)-estate_offset_ms ? raw - (uint64_t)-estate_offset_ms : 0u;
-	if (t <= last)
-		t = last + 1u;
-	last = t;
-	return t;
+		return raw + (uint64_t)estate_offset_ms;
+	return raw > (uint64_t)-estate_offset_ms ? raw - (uint64_t)-estate_offset_ms : 0u;
 }
 
 /* Estate time in seconds, for the consumers that stamp in seconds. */

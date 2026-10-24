@@ -71511,11 +71511,14 @@ The three questions as they were put:
   estate's median, kept by `clock_judged` after every sample rather than
   taken at each stamp, since the median walks every row. The offset is 0
   while unsure. `estate_clock` is the same in seconds.
-- **It is strictly increasing**, as a hybrid logical clock is. A value at
-  or below the last one given becomes the last plus 1 ms. Without that, a
-  device that learns it was ahead would step back, and its next write
-  would lose to its last. Such a device crawls a millisecond a stamp
-  until its estate catches up, rather than writing into its own past.
+- **It may step back** when a device that was ahead learns it. Each
+  consumer keeps its own order where it needs one: a setting's version
+  is already one past every version held for its cell.
+  - **A floor was tried and dropped** (sec 721): never below the last
+    stamp given plus 1 ms, as a hybrid logical clock does. It carried an
+    outlier's error forward. A1 wrote a setting after a restart, before
+    it had measured again, and the floor then held every later stamp of
+    A1's 900 s ahead. Phase b's race failed 2 runs in 4.
 - **What stays on the raw clock:** the time probe and offsets, or the
   median would feed back into itself, and freshness, which stage 3
   already stamps in the receiver's terms.
