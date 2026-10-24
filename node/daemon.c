@@ -418,6 +418,9 @@ static uint64_t lan_probed_at;
 static void own_acts_applied(const fzn_node_admin_t *admin, const char *reply, size_t n);
 
 static uint64_t wall_clock(void);
+/* THIS NODE'S OFFSET TO ITS ESTATE, sec 719 stage 4: what `estate_ms` adds
+ * to this node's own clock; 0 while unsure. Set by `clock_judged`. */
+static int64_t estate_offset_ms;
 /* PEERS WHOSE CLOCKS DISAGREE, sec 717: a row a peer, grown on the heap. */
 static fzn_node_clocks_t node_clocks;
 /* PEERS' OFFSETS, sec 719, defined with the asking below. */
@@ -1301,6 +1304,38 @@ static uint64_t wall_ms(void)
 	if (timespec_get(&ts, TIME_UTC) != TIME_UTC || ts.tv_sec < 0)
 		return 0u;
 	return ((uint64_t)ts.tv_sec * 1000u) + ((uint64_t)ts.tv_nsec / 1000000u);
+}
+
+/* ESTATE TIME, sec 719 stage 4: this node's clock corrected by its offset
+ * to its estate's median, for every stamp another device compares --
+ * setting versions, record times, group acts. Never the system clock, and
+ * never what freshness judges by, which stays this node's own (stage 3
+ * stamps requests in the receiver's terms instead).
+ *
+ * STRICTLY INCREASING, as a hybrid logical clock is: a correction that
+ * steps back -- a device ahead learning it -- would make its next write
+ * lose to its last, so a value at or below the last given is the last
+ * plus one. A device that was ahead then crawls a millisecond a stamp
+ * until its estate catches up, rather than writing into its own past. */
+static uint64_t estate_ms(void)
+{
+	static uint64_t last;
+	uint64_t raw = wall_ms(), t;
+
+	if (estate_offset_ms >= 0)
+		t = raw + (uint64_t)estate_offset_ms;
+	else
+		t = raw > (uint64_t)-estate_offset_ms ? raw - (uint64_t)-estate_offset_ms : 0u;
+	if (t <= last)
+		t = last + 1u;
+	last = t;
+	return t;
+}
+
+/* Estate time in seconds, for the consumers that stamp in seconds. */
+static uint64_t estate_clock(void)
+{
+	return estate_ms() / 1000u;
 }
 
 /* A LIFETIME PLUS A SKEW, which is what freshness.h asks for and the term it
@@ -4093,6 +4128,9 @@ static void clock_judged(void)
 	fzn_node_clock_state_t now = fzn_node_clock_estate(&node_offsets, wall_clock(), &offset,
 	                                                   &devices);
 
+	/* THE CORRECTION `estate_ms` MAKES, kept here rather than taken at each
+	 * stamp: the median walks every row. None while unsure. */
+	estate_offset_ms = now == FZN_NODE_CLOCK_UNSURE ? 0 : offset;
 	if (now == clock_state)
 		return;
 	clock_state = now;
@@ -14381,7 +14419,10 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				node_settings.id = &identity;
 				node_settings.apply = &node_apply;
 				node_settings.estate = state.config.root;
-				node_settings.now = wall_clock;
+				/* A VERSION IS ITS SETTER'S CLOCK, and within a rank the
+				 * higher wins: estate time, sec 719 stage 4, so a fast
+				 * device's earlier write no longer beats a later one. */
+				node_settings.now = estate_clock;
 				node_settings.schema = &node_schema;
 				node_apply.settings = &node_settings;
 				admin.holdings_remote = holdings_remote;

@@ -329,6 +329,23 @@ def main(argv):
 				raise failed("b: D's estate setting was answered %r" % denied)
 			print("livecheck: b: R set as root, A1 as admin, D its own host cell; D was "
 			      "denied the estate's")
+			# THE LATER OF TWO ADMINS' WRITES, sec 719 stage 4: A1, ahead by the
+			# skew, sets b/race; A2, on time, sets it after. Within a rank the
+			# higher version wins, and a version is its setter's clock, so a
+			# fast clock's earlier write won until the version was estate time.
+			# A1 restarted in place for `set admin`, so it measures again first.
+			if wrong:
+				polled("a1", "get clock", lambda g: g.split()[3:] == ["wrong"],
+				       "not wrong again after its restart")
+			expect(socks["a1"], "a1", "set setting estate b/race 1", "ok")
+			polled("r", "get setting estate b/race", lambda g: g == "ok admin 1",
+			       "not A1's first write")
+			time.sleep(1.1)
+			expect(socks["a2"], "a2", "set setting estate b/race 2", "ok")
+			polled("r", "get setting estate b/race", lambda g: g == "ok admin 2",
+			       "not A2's later write: an earlier one by a faster clock still wins")
+			print("livecheck: b: A2's write after A1's won at R, A1's clock %s"
+			      % ("%d s ahead" % args.skew if args.skew else "on time"))
 
 			# c: k of n while D writes.
 			expect(socks["r"], "r", "set quorum 2", "ok 2")

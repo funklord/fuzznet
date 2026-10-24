@@ -71505,6 +71505,59 @@ The three questions as they were put:
   D measures R alone, `ok 1800000 1 unsure`.
 - **Sabotage, one entry:** the stamp dropped.
 
+### Stage 4 begun: estate time, and setting versions on it
+
+- **`estate_ms`** (fuzznetd) is this node's clock plus its offset to its
+  estate's median, kept by `clock_judged` after every sample rather than
+  taken at each stamp, since the median walks every row. The offset is 0
+  while unsure. `estate_clock` is the same in seconds.
+- **It is strictly increasing**, as a hybrid logical clock is. A value at
+  or below the last one given becomes the last plus 1 ms. Without that, a
+  device that learns it was ahead would step back, and its next write
+  would lose to its last. Such a device crawls a millisecond a stamp
+  until its estate catches up, rather than writing into its own past.
+- **What stays on the raw clock:** the time probe and offsets, or the
+  median would feed back into itself, and freshness, which stage 3
+  already stamps in the receiver's terms.
+- **First consumer: setting versions** (`node_settings.now`). A version
+  is its setter's clock, and within a rank the higher wins, so a fast
+  device's earlier write beat a later one by up to its skew.
+
+### Measured for stage 4's first step
+
+- **Live, `live_estate` phase b.** A1, ahead by the skew, sets
+  `b/race 1`. A2, on time, sets `b/race 2` after R has taken A1's write.
+  R must end at `admin 2`.
+  - **Before the change, at `--skew 900`:** R kept `admin 1`. A2's later
+    write lost.
+  - **After:** A2's write wins at 900 s, and with no skew.
+- **Phase f fails under skew, and not because of this change.** A/B on
+  the script as it stood at cb32746, four runs a side at `--skew 900`:
+  - this binary failed 3 of 4;
+  - the same binary with settings on the raw clock failed 2 of 4.
+
+  The symptoms are the same on both sides:
+  - E reads A2's `e/after` at admin rank, not root;
+  - or E holds member by two hops, not one.
+
+  Both say that A2, having just removed R, does not stand as a root at
+  that moment: it writes as an admin, and grants through its admin
+  chain. With no skew, phase f has passed every run since sec 715,
+  which saw it fail once in twenty at 5% loss with no reason given. This
+  is likely that failure, which skew makes frequent. **Open, and next.**
+- **Estate time is slow to settle. Found by fuzzypickles 2026-10-25,
+  measured in their `node-calls-reach-fuzznetd` at d0d561f.** Three
+  devices on loopback took about 250 s for each to measure two others,
+  about four 60 s rounds. A peer is asked for its time only at a round's
+  journal step, and only once it is a pull target, and siblings take a
+  round or two to pair. The fix is to ask a target as soon as it opens.
+  **Open, after phase f.**
+  - Their repro: three fuzznetd on 30887-30889, two joins whose requests
+    carry the joiner's address (`joinreq HOST:PORT`), then K restarted
+    under `faketime -900s`, polling `get clock` every 5 s.
+  - Without the addresses, J measured no one, and K measured J alone
+    (`ok 450000 1 unsure`).
+
 
 
 
