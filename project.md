@@ -71135,6 +71135,192 @@ nothing cannot pass.
 - **Not measured:** whether the refusals name a full disk. The sweep
   asks only that nothing answered `ok` is lost.
 
+## 719. A clock subsystem: the plan, 2026-10-24
+
+**The holder, 2026-10-24**, asking whether fuzznet has "a clock
+subsystem to properly propagate skew", and on hearing it does not: "yes,
+write it up as a plan, seems clock is very important for the perfection
+of a subset of vital sync operations. So work on this is less complexity
+in other areas."
+
+### What there is today
+
+- **No clock subsystem.** Each node stamps with its own wall clock and
+  trusts it. Nothing estimates, corrects or propagates skew.
+- **A tolerance:** a request lives 300 s by its sender's clock, and the
+  receiver accepts expiries up to `FZND_MAX_AHEAD`, 600 s, ahead of its
+  own.
+- **Detection on the receiving side alone** (secs 714, 717): a peer's own
+  frame refused for its time is logged, listed by `list clock`, and an
+  event. The device whose clock is wrong learns nothing.
+
+### Where two clocks must agree, surveyed
+
+A read-only survey of every wall-clock use, at 1a9dcd1, cited
+`file:line`. "Behind" is the stamping node's clock behind the judging
+node's.
+
+- **Hellos fail first, at about one minute.** A hello (NOP) and a NOTIFY
+  live 60 s. A host more than a minute behind its relay stops being
+  "seen" (`fzn_node_relay_saw`, `node/serve.c`), so relaying and
+  introductions to a host behind a NAT fail well before requests do.
+- **Requests and replies, at five minutes** (sec 714). Past it the peer
+  looks down, both ways.
+- **Settings, at any skew** (`node/settings.c`, sec 549). A version is
+  the setter's clock, and within a rank the higher wins. Two admins
+  writing concurrently: the faster clock wins, even over a write made
+  later in real time, by up to the skew.
+- **A joined member's notes floor, at any skew** (`node/notes.c`, secs
+  655-656). Three clocks meet there: the adder's, the sharer's and each
+  note writer's. With no tolerance between them:
+  - **an adder behind** gives the new member notes from before the join
+    despite `backfill 0`, or the whole history once the skew passes
+    the time since the share;
+  - **an adder ahead** withholds notes written after the join, which are
+    not sent again.
+
+  The first is a privacy fault, not a timing one.
+- **Read marks and delivery state across the user's own devices, at any
+  skew** (`messages/messages.c`). The newest `issued_at` wins, so a slow
+  phone's reads are ignored elsewhere, and a fast one's stick.
+- **Lines from the user's own devices are merged by `issued_at`,** so a
+  device off by d files its lines d out of place.
+- **The journal's 60-day cut, the message and log trims by month, and
+  note history** each judge a writer's stamp against the local clock.
+  Negligible at a day against 60 days or a month; it matters only near a
+  boundary. One record stamped in the future holds a stream's cut.
+- **A pairing card lives a day.** A joiner a day ahead refuses a fresh
+  one.
+- **Hop expiry is dormant in fuzznetd**, every hop it mints being
+  `FZN_NO_EXPIRY`, but a consumer minting expiring hops meets the skew in
+  full.
+- **Log gather windows, and its merge by each host's timestamps,** shift
+  by the skew.
+- **Display-only stamps** (a line's `stime`, a fix's time, a note's
+  `edited_at`) are wrong by the skew, harmlessly.
+
+Ordering by sequence (the journal), by generation (the routing
+manifest) and by identity (revocations) needs no clock and is unaffected.
+So are monotonic deadlines. **No reply carries the responder's clock
+today.** Replies are sealed with no expiry, and only a request shows its
+sender's (`expires_at - 300`). The LAN probe's answer, a hello stamped
+`now + 60`, is the one place a responder's clock could be read now, and
+nothing reads it.
+
+### The design of the clock subsystem
+
+**1. A time probe, exempt from freshness.** Once two clocks are out of
+the window no exchange succeeds, so the first step must work regardless:
+- a sealed request of its own type, carrying a nonce, accepted with any
+  expiry;
+- answered with the responder's wall time in milliseconds and the nonce
+  echoed.
+
+It changes no state, so a replay achieves nothing and it spends no slot
+in the replay window. It is answered only to a peer with a session, and
+rate-limited per peer like the LAN probe. A requester's clock is already
+visible to every responder; this makes the responder's visible to the
+requester, a paired peer.
+
+**2. Offsets per peer.** From each probe: the offset is the responder's
+time minus the midpoint of send and receive, good to half the round
+trip. Keep the sample with the least round trip among the last few, as
+NTP's clock filter does, since a short round trip bounds the error
+best. Kept in the `node/clocks.c` table of sec 717, which gains the
+offset, its round trip and when sampled, for every peer probed and not
+only those refused. `list clock` reports them all.
+
+**3. Estate time.**
+- **The node's offset to its estate** is the median over the estate's
+  own devices (its roots and members, never contacts) of their offsets,
+  this node counting itself as one at zero.
+- **"Your clock is wrong" becomes something a node can know.** A node
+  whose own clock is the outlier, its median past a threshold with
+  enough devices agreeing, can say so to its own user:
+  - **`get clock`** answers this node's offset to its estate, how many
+    devices it rests on, and how sure it is;
+  - **an event** when that changes;
+  - **a log line.**
+
+  This is the notice sec 717 could not give, shown on the device that
+  needs fixing.
+- **An estate of one has nothing to compare.** It says so.
+
+**4. Requests stamped in the receiver's terms.** With an offset to a
+peer, a request's expiry is its own life on the peer's clock, so it
+arrives fresh at any skew and the window can stay tight. It is the same
+field with the same meaning to the receiver. Only the sender's choice
+of value changes, so no receiver changes and nothing breaks on the wire.
+With no offset yet, it is stamped as today.
+
+**5. One estate time, for the consumers that compare clocks.**
+`fzn_node_clock_now()` gives this node's clock corrected by its estate
+offset while that is sure, and its own clock otherwise. The consumers
+above move onto it one at a time, each with a test, each dropping its
+own tolerance:
+- setting versions;
+- record `issued_at`, which is signed, so a correction takes effect for
+  records stamped from then on;
+- the read-mark and delivery-state rule;
+- the notes join floor;
+- hellos;
+- the journal and month cuts;
+- the card lifetime.
+
+That is where the holder's "less complexity in other areas" comes from:
+one correction in one place, in place of a tolerance in each.
+
+**Never the system clock.** A node corrects its own view and tells its
+user; setting the host's clock is the host's business and a privilege
+fuzznetd does not take.
+
+### What a liar can do
+
+- **A contact's clock never moves estate time.** It is another person's
+  device, so it counts for stamping requests to that contact (step 4)
+  and nothing else.
+- **One of the user's own devices lying, or a stolen one,** moves the
+  median only with a majority of the estate. A correction is bounded by
+  the sureness rule; a node never moves by an offset fewer than half its
+  estate supports.
+- **The probe reveals a node's time to a paired peer.** Every request
+  already reveals the requester's, so nothing new is exposed to anyone
+  without a session.
+
+### Stages, each taken through the bar of sec 689
+
+1. **The probe, and offsets per peer.**
+   - `list clock` gains every peer's offset.
+   - Tests: the clock filter, and the probe's refusal of a stranger.
+   - Live: under faketime the measured offsets match the skew set,
+     within the round trip.
+2. **Estate time, `get clock`, and the "your clock" notice.**
+   - Live: of three devices, one 900 s behind learns it is the outlier.
+     The other two learn they are not, and fuzzypickles can show it on
+     the right device.
+3. **Requests stamped by the peer's offset.** Live: the estate journey
+   passes at an hour of skew, where it fails today (sec 714).
+4. **The consumers moved onto `fzn_node_clock_now()`, one commit each**,
+   starting with the faults the survey found: the notes join floor (a
+   privacy fault), hellos (the one-minute failure), settings and read
+   marks. Each comes with the scenario that shows its fault today and
+   then passes.
+
+### For the holder
+
+- **Whether a node corrects its own view by its estate offset**, at
+  steps 4 and 5, or only reports it and leaves correction to the user.
+  The recommendation: correct, since a correction needs no privilege and
+  every consumer gains, while reporting alone leaves the faults above in
+  place until a person acts.
+- **The threshold for "your clock is wrong":** proposed, more than 60 s
+  from the median of at least two other devices. 60 s is where hellos
+  start failing.
+- **Whether a contact's offset may stamp requests to that contact** (step
+  4). Proposed yes: it is the contact's own claim about its own clock,
+  used only to reach that contact.
+
+
 
 
 
