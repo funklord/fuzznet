@@ -71554,8 +71554,14 @@ The three questions as they were put:
   devices on loopback took about 250 s for each to measure two others,
   about four 60 s rounds. A peer is asked for its time only at a round's
   journal step, and only once it is a pull target, and siblings take a
-  round or two to pair. The fix is to ask a target as soon as it opens.
-  **Open, after phase f.**
+  round or two to pair.
+  - **Shortened in sec 721:** a sibling found during a round is now asked
+    for its time in that round, straight after the reload that finds it,
+    not at the next round's journal step. In `live_estate` phase a at
+    `--skew 900` (2 s rounds), the three clocks settled 12 s after A2
+    joined in 2 runs of 2, against 25 s and 45 s before.
+  - **Not done:** asking a target the moment it opens, outside any round.
+    What remains is the rounds sibling pairing itself takes.
   - Their repro: three fuzznetd on 30887-30889, two joins whose requests
     carry the joiner's address (`joinreq HOST:PORT`), then K restarted
     under `faketime -900s`, polling `get clock` every 5 s.
@@ -71701,10 +71707,19 @@ But it never fired in four runs.
   on the old silent `none`.
 - **Sabotage, two entries:** each refusal dropped.
 
+**And said in the log since:** `roots_watched` (fuzznetd), at each
+round's end, says `node/roots`:
+- how many roots stand, and whether this node is one, whenever that
+  changes;
+- a warning when this node stops standing as a root: "this node stands
+  as a root no more ... it writes at a lower rank from now".
+
+The fault was found only by instrumenting the journal, and this line
+would have shown it at once. `live_estate` phase f requires A2's log to
+say it is among the roots after removing R, and never that it stands as
+one no more.
+
 **Open:**
-- **fuzznetd logs nothing when its root set changes.** This was found by
-  instrumenting the journal, where a log line on a root added, removed
-  or cut would have shown it at once.
 - **One faketime pair leaked per failed skewed run** in the A/B, five
   pairs between 23:46 and 00:05. None leaked in the passing runs since.
   Cause unknown, and the orphans were removed by name.

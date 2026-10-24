@@ -281,6 +281,7 @@ def main(argv):
 				want = {"d": (off, "wrong" if wrong else "right"),
 				        "a1": (-off, "wrong" if wrong else "right"),
 				        "r": (0, "right")}
+				settling = time.monotonic()
 				for who, (at, state) in want.items():
 					try:
 						polled(who, "get clock",
@@ -309,7 +310,8 @@ def main(argv):
 			finally:
 				told.close()
 			print("livecheck: a: A1, A2 and D joined R's estate by verbs; D's clock %s, as "
-			      "A1's, and R's right" % ("wrong" if wrong else "right"))
+			      "A1's, and R's right, %.0f s after A2 joined"
+			      % ("wrong" if wrong else "right", time.monotonic() - settling))
 
 			# b: settings at each rank.
 			expect(socks["r"], "r", "set setting estate b/root 1", "ok")
@@ -451,6 +453,18 @@ def main(argv):
 			polled("a2", "remove root " + root,
 			       lambda g: g == "ok " + root or (refused.append(g) and False),
 			       "not removed: R's stream never caught up at A2")
+			# AND SAID IN A2'S LOG (sec 721): standing among the roots once R
+			# is removed, at its next round's end, and never told it stands
+			# as one no more -- the warning the cut that took its own add
+			# would have raised.
+			def roots_lines():
+				return [e for e in said("a2", "list log 0 N").split()[3:]
+				        if e.split(",")[2:3] == ["node/roots"]]
+			polled("a2", "status", lambda g: any("among%20them" in e for e in roots_lines()),
+			       "no node/roots line saying A2 is among the roots")
+			lost = [e for e in roots_lines() if "no%20more" in e]
+			if lost:
+				raise failed("f: A2 was told it stands as a root no more: %r" % lost[:1])
 			join("e", "a2")
 			member("e")
 			expect(socks["a2"], "a2", "set setting estate e/after 1", "ok")

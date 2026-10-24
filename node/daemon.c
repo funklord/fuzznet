@@ -2506,6 +2506,59 @@ static void carry_prekey(const fzn_node_identity_t *id)
 static int room_for_round(void);
 /* The estate's root records the round grows, once there are some. */
 static fzn_node_roots_t *round_roots;
+/* This node's identity, defined with the contacts below. */
+static const fzn_node_identity_t *contact_id;
+
+/* THE ROOTS THAT STAND, SAID WHEN THEY CHANGE, sec 721: how many, and
+ * whether this node is one -- a node that stops standing as a root is
+ * warned of, since everything it writes after is at a lower rank. Sec 721's
+ * fault, a removal that took this node's own add with it, showed only
+ * after the journal was instrumented; this line would have said it.
+ * Compared by count and a sum of each key's first eight bytes, which is
+ * enough to tell a change for a log. */
+static void roots_watched(void)
+{
+	static int known, was_self;
+	static size_t was_n, cap;
+	static uint64_t was_sum;
+	static uint8_t (*keys)[FZN_PUBKEY_LEN];
+	uint64_t sum = 0;
+	size_t n, i;
+	int self;
+
+	if (!round_roots)
+		return;
+	for (;;) {
+		n = fzn_node_roots_standing(round_roots, keys, cap);
+		if (n < cap)
+			break;
+		{
+			size_t want = cap ? cap * 2u : 16u;
+			uint8_t (*grown)[FZN_PUBKEY_LEN] = realloc(keys, want * sizeof(*keys));
+
+			if (!grown)
+				return;
+			keys = grown;
+			cap = want;
+		}
+	}
+	for (i = 0; i < n; i++)
+		sum += fzn_get_be64(keys[i]);
+	self = contact_id && fzn_root_view_stands(&round_roots->view, contact_id->pubkey);
+	if (known && n == was_n && sum == was_sum && self == was_self)
+		return;
+	if (known && was_self && !self)
+		say(FZN_ENTRY_WARNING, "node/roots",
+		    "this node stands as a root no more: %zu root(s) stand, and it writes at a lower "
+		    "rank from now", n);
+	else
+		say(known ? FZN_ENTRY_NOTE : FZN_ENTRY_INFO, "node/roots", "%zu root(s) stand, %s", n,
+		    self ? "this node among them" : "this node not one");
+	known = 1;
+	was_n = n;
+	was_sum = sum;
+	was_self = self;
+}
 
 /* THIS NODE'S OWN GRANTS, INDEXED AS MADE, sec 712: a verb answered `ok`
  * that left grants in this node's own stream not yet applied -- what an
@@ -14964,6 +15017,11 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					npulls = npulls_base + load_siblings(pulls, npulls_base, family,
 					                                     identity.pubkey, state.config.root,
 					                                     &hash_ops, &aead_ops, &rng_ops);
+					/* AND THEIR CLOCKS, sec 719: a sibling found this round is
+					 * measured in it, not a round later -- three devices took
+					 * about four rounds to measure each other (sec 721). Those
+					 * sampled already are passed over. */
+					time_ask_targets(pulls, npulls, round_now);
 #endif
 					break;
 				case ROUND_MESSAGES:
@@ -15090,6 +15148,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 					/* THE ROUND'S END IN ONE STEP, from the history pass on: the
 					 * live checks take "history pass" for a round done, so what
 					 * follows it runs before anything is answered, as it did. */
+					roots_watched();
 					history_trim();
 #ifdef FZN_SPOOL_FILE_ON
 					fetch_texts(pulls, npulls, round_now);
