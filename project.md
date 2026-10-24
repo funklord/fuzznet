@@ -70751,6 +70751,9 @@ daemons with real traffic between nodes. `tool/live_fzp.py`, run by
   setting alice makes for the estate.
 - **f.** alice's `fzp log-show` leads with the entry fuzznetd's `list
   log` (sec 711) answers newest. fuzzypickles mapped it in 1111578.
+- **g.** carol, started again 900 s behind, is named by alice's `fzp
+  clock-show`, by her full key, behind (sec 717). fuzzypickles showed it
+  in a0163b4, in the Qt client's notice and the TUI's status line too.
 
 ### Where it runs, and why not in a gate
 

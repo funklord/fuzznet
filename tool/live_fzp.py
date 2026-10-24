@@ -25,6 +25,9 @@ nodes -- they pass at 100 per cent loss. This one does, run against
     f  alice's `fzp log-show` reads her node's own log (fuzznet sec 711,
        fuzzypickles' 1111578): its newest entry is the one fuzznetd's
        `list log` answers newest, as fzp prints it
+    g  carol started again 900 s behind: alice's `fzp clock-show` names
+       her by her full key, behind (fuzznet sec 717, fuzzypickles'
+       a0163b4)
 
 `--loss P` runs every daemon at FZN_FAULT_LOSS=P with one seed a run, and
 `--keep DIR` copies a failed run's daemon output into DIR. FZP names the
@@ -115,10 +118,10 @@ def main(argv):
 		started = {}
 		runs = {k: 0 for k in WHO}
 
-		def up(who):
+		def up(who, fake=None):
 			runs[who] += 1
 			started[who] = daemon(run, "%s%d" % (who, runs[who]), dirs[who], socks[who],
-			                      extra=["--udp-port=%d" % port[who]])
+			                      fake=fake, extra=["--udp-port=%d" % port[who]])
 			return started[who]
 
 		def fzp(who, *words, err=None, busy_ok=False):
@@ -295,6 +298,20 @@ def main(argv):
 				raise failed("f: fzp log-show printed %r, not alice's newest entry %r first"
 				             % (shown[:3], newest[3][:80]))
 			print("livecheck: f: fzp log-show reads alice's node's own log, newest first")
+
+			# g: a clock out of the window, through fzp (fuzznet sec 717,
+			# fuzzypickles' a0163b4).
+			if shutil.which("faketime"):
+				carol_host = ask(socks["carol"], "get identity").split()[1]
+				started.pop("carol").stop()
+				up("carol", fake="-900s")
+				until("alice", ["clock-show"],
+				      lambda o: any(line.split()[:2] == [carol_host, "behind"]
+				                    for line in o.splitlines() if line.strip()),
+				      "not carol behind, whose clock runs 900 s behind")
+				print("livecheck: g: carol's clock 900 s behind, shown by alice's fzp clock-show")
+			else:
+				print("livecheck: g SKIPPED -- no faketime on PATH")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			for name in sorted(os.listdir(scratch)):
