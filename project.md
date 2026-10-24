@@ -69594,7 +69594,31 @@ here before it is built, as the first four were.
   each equal to its file name and to the id recomputed from the art by a
   check sharing no code.
 
-**When: after the mature subset clears its bar**, the holder's choice
+**A sixth, relayed by fuzzypickles** (message 20261024T1931Z), decided
+first-hand by the holder there, on LINE's custom-text stickers: their
+text "should have been prompted from the user during input instead",
+since "That text is ephemeral at best." To be confirmed here before it
+is built, as the fifth is.
+- **A MESSAGE or NAME sticker's words are the sender's**, asked for at
+  send time and carried by the one message that sends it, never stored
+  in the pack.
+- **fuzzypickles' reference form**, its 3a88a4f and 23a775f:
+  `fzp:sticker/ROOT/KEY/ID[:TEXT][ DESCRIPTION]`.
+  - The text is `%XX`-escaped for every byte outside `A-Z a-z 0-9 -._~`,
+    in upper-case hex and one spelling, so what parses formats back.
+  - It is well-formed UTF-8, with no control character.
+  - It is at most what the message leaves, divided by three for the
+    escape: 84 bytes in a 512-byte message.
+- **The pack's text box gains a fill, 0xRRGGBBAA** (manifest key 14),
+  painted under the words, so LINE's placeholder asterisks are covered.
+  The box is in the main rendition's pixels.
+- **On a node now:** this tree's `fzn:` reference (`sticker/pack.h`) has
+  no place for words, so fuzzypickles' clients send such a sticker
+  without them on a fuzznetd node. When the sticker format is taken here,
+  the reference gains the same optional text.
+
+**When: after the mature subset clears its bar**
+, the holder's choice
 when asked whether this lifts sec 689's freeze. It does not. Until then
 this node refuses ids above 16 bits and packs past 64, and the client,
 which no longer narrows an id, will meet that refusal first.
