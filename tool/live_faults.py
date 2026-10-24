@@ -264,8 +264,10 @@ def main(argv):
 			try:
 				for i in range(40):
 					root = "%064x" % (0x5e00 + i)
-					for verb in ("add", "remove"):
-						reply = ask(e_sock, "%s root %s" % (verb, root))
+					# `none` SAID, sec 721: these keys never act, so no head of
+					# theirs is held, and a removal with no cut is refused.
+					for verb, cut in (("add", ""), ("remove", " none")):
+						reply = ask(e_sock, "%s root %s%s" % (verb, root, cut))
 						if not reply.startswith("ok"):
 							raise failed("e: change %d, %s root, answered %r"
 							             % (2 * i + (verb == "remove") + 1, verb, reply))

@@ -444,14 +444,20 @@ def main(argv):
 			       "as A2 acting")
 			polled("a2", "set quorum 2", lambda g: g == "ok 2", "not as a root")
 			started.pop("r").stop()
-			expect(socks["a2"], "a2", "remove root " + root, "ok " + root)
+			# ASKED AGAIN WHILE REFUSED, as the refusal says to (sec 721): A2 may
+			# count R's add of it before its journal holds the record, and a
+			# cut at the head held would drop that add and A2's standing.
+			refused = []
+			polled("a2", "remove root " + root,
+			       lambda g: g == "ok " + root or (refused.append(g) and False),
+			       "not removed: R's stream never caught up at A2")
 			join("e", "a2")
 			member("e")
 			expect(socks["a2"], "a2", "set setting estate e/after 1", "ok")
 			polled("e", "get setting estate e/after", lambda g: g == "ok root 1",
 			       "not A2's setting at the root's rank")
-			print("livecheck: f: R added A2 as a root and was stopped; A2 removed R, paired "
-			      "E, and E reads A2 as its root")
+			print("livecheck: f: R added A2 as a root and was stopped; A2 removed R (%d "
+			      "refusal(s) first), paired E, and E reads A2 as its root" % len(refused))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			# EACH DAEMON'S LAST WORDS, since the scratch goes with the run.

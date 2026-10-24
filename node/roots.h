@@ -309,6 +309,15 @@ fzn_node_roots_err_t fzn_node_roots_log_act(fzn_node_roots_t *roots,
                                             const fzn_sign_ops_t *sign, uint8_t kind,
                                             const uint8_t *record, size_t len);
 
+/* WHETHER A REMOVAL OF `root` AT `cut` KEEPS EVERY CHANGE TO THE SET THAT
+ * `root` MADE AND THAT COUNTS HERE NOW, sec 721. The set can count an act
+ * its journal does not yet hold in `root`'s stream -- reconciliation
+ * applies a root's add as an object -- and a cut drawn at the head held
+ * would then fall below it: removing the root that added this node took
+ * the add with it. 1 when every such change stands at or below `cut`. */
+int fzn_node_roots_cut_keeps(const fzn_node_roots_t *roots, const uint8_t root[FZN_PUBKEY_LEN],
+                             const uint8_t cut[FZN_ROOT_ACT_ID_LEN]);
+
 /* Add `subject` as a root, or with `remove` remove it at `cut` (NULL for
  * none of its acts standing), as this node's acting root: mint the change,
  * learn it, and log it. NOT_ROOT when this node stands as no root. */

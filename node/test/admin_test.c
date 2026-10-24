@@ -1379,6 +1379,34 @@ int main(void)
 			                         == FZN_NODE_JOURNAL_OK
 			              && fzn_node_journal_head(&journal, device.id.pubkey, head),
 			      "fixture: an act in the root's stream");
+			/* A CUT THAT WOULD DROP A COUNTED ACT, sec 721: the device adds a
+			 * root the set learns as an object, its record not yet in the
+			 * device's stream. The head held is below it, so a removal with
+			 * no cut is refused and the device stands; once the record is
+			 * held, the removal is taken. */
+			{
+				uint8_t third[FZN_PUBKEY_LEN], add[FZN_ROOT_ADD_LEN];
+
+				memset(third, 0x5b, sizeof(third));
+				CHECK(fzn_root_add_issue(device.id.pubkey, third, &device.sign, add)
+				                      == FZN_ROOT_LOG_OK
+				              && fzn_node_roots_learn(&roots, &node.ops, add, sizeof(add))
+				                         == FZN_NODE_ROOTS_OK
+				              && fzn_root_view_stands(&roots.view, third),
+				      "fixture: an add the set counts and the stream does not hold");
+				snprintf(line, sizeof(line), "remove root %s", key);
+				CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+				              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+				                         == FZN_REPLY_ERROR
+				              && fzn_root_view_stands(&roots.view, device.id.pubkey),
+				      "a removal cut below an act this node counts was taken");
+				CHECK(fzn_node_journal_append_object(&journal, device.id.pubkey,
+				                                     &device.sign, add, sizeof(add), 2001u,
+				                                     NULL)
+				                      == FZN_NODE_JOURNAL_OK
+				              && fzn_node_journal_head(&journal, device.id.pubkey, head),
+				      "fixture: the add's record held at last");
+			}
 			snprintf(line, sizeof(line), "remove root %s", key);
 			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
 			              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
@@ -1404,6 +1432,34 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && !fzn_root_view_stands(&roots.view, device.id.pubkey),
 		      "a removal keeping none of the root's acts was refused");
+		/* NO CUT NAMED AND NONE TO DRAW, sec 721: a root none of whose acts
+		 * this node holds is refused removal without a cut, and stands;
+		 * `none` then removes it. Taken as `none`, the removal once took the
+		 * add that made this node a root with it. */
+		{
+			uint8_t stranger[FZN_PUBKEY_LEN];
+			char stranger_hex[(FZN_PUBKEY_LEN * 2u) + 1u];
+
+			memset(stranger, 0x6a, sizeof(stranger));
+			hex(stranger, sizeof(stranger), stranger_hex);
+			snprintf(line, sizeof(line), "add root %s", stranger_hex);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK,
+			      "fixture: a root none of whose acts are held");
+			snprintf(line, sizeof(line), "remove root %s", stranger_hex);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_ERROR
+			              && fzn_root_view_stands(&roots.view, stranger),
+			      "a removal with no cut to draw was taken as none");
+			snprintf(line, sizeof(line), "remove root %s none", stranger_hex);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_OK
+			              && !fzn_root_view_stands(&roots.view, stranger),
+			      "a removal saying none was refused");
+		}
 
 		/* ---- A LINE NAMED, MOVED AND KEPT, sec 497: a cut that is not an
 		 * id is refused; a named one moves the held vote's line and the

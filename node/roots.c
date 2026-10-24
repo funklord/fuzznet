@@ -547,6 +547,25 @@ int fzn_node_roots_head(const fzn_node_roots_t *roots, const uint8_t key[FZN_PUB
 	return roots->journal && fzn_node_journal_head(roots->journal, key, id);
 }
 
+int fzn_node_roots_cut_keeps(const fzn_node_roots_t *roots, const uint8_t root[FZN_PUBKEY_LEN],
+                             const uint8_t cut[FZN_ROOT_ACT_ID_LEN])
+{
+	size_t i;
+
+	if (!roots || !root || !cut || !roots->journal)
+		return 0;
+	for (i = 0; i < roots->set.used; i++) {
+		const fzn_root_change_t *c = &roots->set.changes[i];
+
+		if (!fzn_ct_memeq(c->signer, root, FZN_PUBKEY_LEN)
+		    || !fzn_root_view_counts(&roots->view, root, c->id))
+			continue;
+		if (!fzn_node_journal_stands(roots->journal, root, cut, c->id))
+			return 0;
+	}
+	return 1;
+}
+
 fzn_node_roots_err_t fzn_node_roots_change(fzn_node_roots_t *roots,
                                            const fzn_persist_ops_t *store,
                                            const uint8_t identity[FZN_PUBKEY_LEN],

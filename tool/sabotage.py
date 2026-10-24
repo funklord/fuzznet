@@ -12083,6 +12083,20 @@ SABOTAGES = [
 		"another local user reads which peers' clocks disagree -- sec 717",
 	),
 	(
+		"remove-root-keeps-counted-acts",
+		"node/admin.c",
+		"\tif (remove && !word && drawn && !fzn_node_roots_cut_keeps(admin->roots, subject, drawn))",
+		"\tif (0 && remove && !word && drawn && !fzn_node_roots_cut_keeps(admin->roots, subject, drawn))",
+		"removing a root cuts below the add that made this node one -- sec 721",
+	),
+	(
+		"remove-root-no-cut-not-none",
+		"node/admin.c",
+		"\tif (remove && !word && !drawn)\n",
+		"\tif (0 && remove && !word && !drawn)\n",
+		"a removal with no head to cut at keeps none of the root's acts -- sec 721",
+	),
+	(
 		"caller-stamps-in-their-terms",
 		"node/caller.c",
 		"\tint64_t s = caller->clock_offset_ms / 1000;\n",

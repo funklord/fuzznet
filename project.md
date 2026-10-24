@@ -71547,7 +71547,8 @@ The three questions as they were put:
   that moment: it writes as an admin, and grants through its admin
   chain. With no skew, phase f has passed every run since sec 715,
   which saw it fail once in twenty at 5% loss with no reason given. This
-  is likely that failure, which skew makes frequent. **Open, and next.**
+  is likely that failure, which skew makes frequent. **Found and fixed
+  in sec 721**: a removal's cut fell below the add that made A2 a root.
 - **Estate time is slow to settle. Found by fuzzypickles 2026-10-25,
   measured in their `node-calls-reach-fuzznetd` at d0d561f.** Three
   devices on loopback took about 250 s for each to measure two others,
@@ -71642,3 +71643,68 @@ anything, so there is nothing to answer.
 pull target's caller, so a wait cannot share a socket or a message id
 with one. Only round steps reload the pull table, `load_siblings` at
 the round's start and after its journal.
+
+## 721. Removing a root cut below the act that made this node one, 2026-10-25
+
+**Found under skew, in `live_estate` phase f**, which failed 3 runs in 4
+at `--skew 900`, and as often with sec 719's stage 4 backed out. A2 is
+added as a root by R. R is stopped, A2 removes R, and straight after,
+A2 writes as an admin, not a root: E reads `e/after` at admin rank, or
+holds member by two hops. This is likely sec 715's unexplained phase f
+failure at 5% loss.
+
+**The mechanism, measured.** With `fzn_node_journal_stands` instrumented,
+the failing run's A2 shows R's add of A2 (act `8a94`) at record 16 of
+R's stream, above the removal's cut at record 15.
+- The removal named no cut, so `remove root` drew one at R's head as A2
+  held it.
+- But A2's root set already counted the add: reconciliation applies a
+  root's add as an object, before the journal holds its record.
+- So the cut kept R's acts to 15. The add at 16 fell, and with it A2's
+  standing.
+
+Skew makes A2's pulls from R lag, so the window opens more often.
+
+**What did not cause it:** the head missing outright. A first fix
+refused a removal with no cut and no head to draw one at. That fix
+stands, and is right, since such a removal was quietly taken as `none`.
+But it never fired in four runs.
+
+**Built:**
+- **`fzn_node_roots_cut_keeps`** (`node/roots.h`) checks that every change
+  to the set made by the root being removed, and counting here now,
+  stands at or below the cut.
+- **`remove root KEY` with no cut refuses** when the head held would drop
+  one:
+
+      the cut at that root's head as held here would drop an act of its
+      this node counts: ask again after a round, or name a cut
+
+  It also refuses when it holds no head at all: "name a cut, or none". A
+  named cut, and `none`, are the user's own line, and are taken as said.
+
+**Measured:**
+- **`admin_test`, 296 checks.** A root none of whose acts are held is
+  refused removal without a cut, still stands, and goes with `none`. A
+  device's add the set learned as an object, its record not in the
+  device's stream, makes a removal with no cut refused. Once the record
+  is held, the removal is taken.
+- **Live, `live_estate` phase f** now asks the removal again while it is
+  refused, as the refusal says, and reports how many refusals came
+  first. 5 runs, all passing: 4 at `--skew 900`, one of them after 4
+  refusals while A2's stream caught up from the other members, and one
+  clean. **The gates' own run, with no skew, met 4 refusals too**, so
+  the race was never skew's alone. Skew only made it fail more often.
+- **`live_faults` phase e** makes 80 root changes on keys that never act.
+  Its removals now say `none`, since with no head of theirs held, a
+  removal without a cut is refused. It was the one caller found relying
+  on the old silent `none`.
+- **Sabotage, two entries:** each refusal dropped.
+
+**Open:**
+- **fuzznetd logs nothing when its root set changes.** This was found by
+  instrumenting the journal, where a log line on a root added, removed
+  or cut would have shown it at once.
+- **One faketime pair leaked per failed skewed run** in the A/B, five
+  pairs between 23:46 and 00:05. None leaked in the passing runs since.
+  Cause unknown, and the orphans were removed by name.

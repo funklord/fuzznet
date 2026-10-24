@@ -792,6 +792,24 @@ static size_t change_root(fzn_node_admin_t *admin, int remove, const uint8_t *te
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a cut");
 	if (remove && !line_of(admin, subject, word, word_len, cut, &drawn))
 		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "not a cut");
+	/* NO CUT NAMED AND NONE TO DRAW -- the root's head not held here, or its
+	 * stream forked -- is refused, not taken as `none`. Taken as `none`, a
+	 * removal kept none of the root's acts, among them the very add that
+	 * made this node a root: live_estate's phase f lost A2's standing that
+	 * way, A2 writing as an admin straight after (sec 721). `none` says so
+	 * when it is meant. */
+	if (remove && !word && !drawn)
+		return answer_text(reply, cap, FZN_REPLY_ERROR,
+		                   "this node holds no head of that root's acts to cut at: "
+		                   "name a cut, or none");
+	/* AND A HEAD THAT FALLS BELOW AN ACT THIS NODE COUNTS is refused too:
+	 * the set took the act as an object before the journal held its record
+	 * (sec 721). A round brings the record, and the removal can be asked
+	 * again; a named cut is the user's own line and is taken as said. */
+	if (remove && !word && drawn && !fzn_node_roots_cut_keeps(admin->roots, subject, drawn))
+		return answer_text(reply, cap, FZN_REPLY_ERROR,
+		                   "the cut at that root's head as held here would drop an act of "
+		                   "its this node counts: ask again after a round, or name a cut");
 	err = fzn_node_roots_change(admin->roots, admin->store, admin->id->pubkey, admin->id->sign,
 	                            remove, subject, drawn);
 	if (err != FZN_NODE_ROOTS_OK)
