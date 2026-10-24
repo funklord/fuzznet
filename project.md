@@ -71416,11 +71416,67 @@ The three questions as they were put:
   member grant straight after `add peer ... delegable`.
   **Control:** the build of fuzzypickles' pin fails it with `ok 0 0`.
 
+## 720. Estate devices deadlocked in reconciliation, answered while waiting, 2026-10-24
 
+**Found by sec 719's live check**, once each estate device had its own
+address and the siblings reached each other.
 
+**The fault:** in a clean run of `live_estate`, A1 did not answer
+`get clock` on its socket within 5 s.
 
+**What the logs showed:**
+- All four daemons began a round at 20:33:52.488, on the shared 2 s
+  round timer.
+- All four entered reconciliation and asked each other in turn.
+- Every one logged "the peer did not answer" at 55.588 and again at
+  58.660.
 
+**The mechanism:** reconciliation is one of sec 637's steps still asked
+in turn. Its request waited in `fzn_caller_recv` on the caller's own
+socket, and the node's socket went unserved meanwhile. Two hosts asking
+each other at once therefore each waited out the other's 3 s. On a shared
+timer every device did so together, every round. Each local client went
+6 s unanswered, and nothing was reconciled.
 
+**Why the old reasoning did not hold:** sec 637 left reconciliation in
+turn because it asks only peers the journal step has just heard. That
+is true, and it is no defence: a peer that answered a moment ago is
+itself now waiting.
 
+**Built:** `fzn_node_wait_answering` (`node/serve.h`). It waits for a
+request's own socket and meanwhile serves every datagram the node's
+socket receives. fuzznetd's `recv_answering` waits through it until the
+first piece of an answer comes, then reads the rest as before.
 
+**What it covers:** every site that asks through `peer_ask`, which
+includes reconciliation, and both introductions, the siblings' and the
+contacts'.
 
+**Safe because the two sides keep apart:**
+- A peer's request is answered from buffers of its own:
+  `node/reconcile.c`'s `served_*` against the asker's `ids_buf` and
+  `lacked`.
+- No remote handler asks a peer itself (measured 2026-10-17, sec 637).
+
+**Local clients are still not served while a step waits.** Their verbs
+change what the waiting step may hold, so a client still waits out one
+genuinely silent peer.
+
+**Measured:**
+- **`serve_test`, 18 checks.** A wait serves two probes the node's
+  socket receives and ends at its deadline. It ends when its own socket
+  has a datagram, and leaves that datagram unread.
+- **Live control.** With the wait off (`answering` left NULL),
+  `live_estate` with every device's address fails on a socket timeout
+  in phase b. With it on, all six phases pass, clean and at 90 s of skew.
+- **Sabotage, one entry:** the serve left out.
+
+**Not covered:** the one wait left on `fzn_caller_recv` directly is the
+one-shot ask in `fzn_daemon_main`. It runs before the loop serves
+anything, so there is nothing to answer.
+
+**Reentrancy:** a handler sends only on the node's own socket
+(`relay_remote`'s `fzn_udp_send` on `udp_fd`). It never sends through a
+pull target's caller, so a wait cannot share a socket or a message id
+with one. Only round steps reload the pull table, `load_siblings` at
+the round's start and after its journal.

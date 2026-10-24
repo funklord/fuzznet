@@ -1,9 +1,12 @@
 /* See serve.h. */
 
+#define _POSIX_C_SOURCE 200809L /* clock_gettime */
+
 #include "serve.h"
 
 #include <poll.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "local.h"
@@ -337,6 +340,50 @@ int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)
 		handled++;
 	}
 	return handled;
+}
+
+static uint64_t since_boot_ms(void)
+{
+	struct timespec ts;
+
+	if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+		return 0;
+	return (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
+}
+
+int fzn_node_wait_answering(fzn_node_state_t *state, int fd, unsigned timeout_ms)
+{
+	uint64_t until = since_boot_ms() + timeout_ms;
+
+	if (fd < 0)
+		return 0;
+	for (;;) {
+		struct pollfd fds[2];
+		nfds_t nfds = 1;
+		uint64_t now = since_boot_ms();
+		int r;
+
+		if (now >= until)
+			return 0;
+		fds[0].fd = fd;
+		fds[0].events = POLLIN;
+		fds[0].revents = 0;
+		if (state && state->udp_fd >= 0) {
+			fds[1].fd = state->udp_fd;
+			fds[1].events = POLLIN;
+			fds[1].revents = 0;
+			nfds = 2;
+		}
+		r = poll(fds, nfds, (int)(until - now));
+		if (r < 0)
+			continue; /* interrupted: the deadline still bounds it */
+		if (r == 0)
+			return 0;
+		if (fds[0].revents & (POLLIN | POLLERR | POLLHUP))
+			return 1;
+		if (nfds == 2 && (fds[1].revents & POLLIN))
+			serve_ready_datagram(state);
+	}
 }
 
 void fzn_node_run(fzn_node_state_t *state)

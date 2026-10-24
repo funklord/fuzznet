@@ -1585,6 +1585,28 @@ static void said_refusal(const char *host, const uint8_t *reply, size_t reply_le
 		        (int)(len > 200u ? 200u : len), (const char *)reply);
 }
 
+/* THE NODE BEING SERVED, once the loop is about to serve it: a request
+ * asked in turn answers its peers' while it waits (sec 720). */
+static fzn_node_state_t *answering;
+
+/* THE ANSWER TO `msg`, within 3 s, peers answered until its first piece
+ * comes, sec 720: two hosts asking each other in turn at once each waited
+ * out the other's three seconds. The rest of a reply of several frames is
+ * read as before, its pieces close behind each other. */
+static fzn_caller_err_t recv_answering(fzn_caller_t *caller, uint32_t msg, uint8_t *reply,
+                                       size_t reply_cap, size_t *reply_len)
+{
+	uint64_t began = mono_ms(), spent;
+
+	if (answering && !fzn_node_wait_answering(answering, caller->fd, 3000u)) {
+		fzn_caller_forget(caller, msg);
+		return FZN_CALLER_ERR_TIMEOUT;
+	}
+	spent = mono_ms() - began;
+	return fzn_caller_recv(caller, msg, reply, reply_cap, reply_len,
+	                       spent < 3000u ? 3000u - (unsigned)spent : 1u);
+}
+
 static int peer_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
                     size_t reply_cap, size_t *reply_len)
 {
@@ -1597,8 +1619,7 @@ static int peer_ask(void *ctx, const uint8_t *request, size_t request_len, uint8
 	link_asked(li, request_len);
 	if (fzn_caller_send(asking->caller, request, request_len, asking->now + 300u, &msg)
 	            != FZN_CALLER_OK
-	    || fzn_caller_recv(asking->caller, msg, reply, reply_cap, reply_len, 3000u)
-	               != FZN_CALLER_OK) {
+	    || recv_answering(asking->caller, msg, reply, reply_cap, reply_len) != FZN_CALLER_OK) {
 		link_answered(li, began, 0, 1);
 		return 0;
 	}
@@ -5534,7 +5555,7 @@ static void introduce_siblings(struct pull_target *pulls, size_t npulls_base, si
 			memcpy(request + 2, pt->node, FZN_PUBKEY_LEN);
 			if (fzn_caller_send(&via, request, sizeof(request), now + 300u, &msg)
 			            != FZN_CALLER_OK
-			    || fzn_caller_recv(&via, msg, reply, sizeof(reply) - 1u, &len, 3000u)
+			    || recv_answering(&via, msg, reply, sizeof(reply) - 1u, &len)
 			               != FZN_CALLER_OK) {
 				say(FZN_ENTRY_DEBUG, "node/siblings", "an introduction asked of %s: no answer",
 				    pulls[k].host);
@@ -8213,8 +8234,7 @@ static void introduce_contacts(struct pull_target *pulls, size_t npulls, uint64_
 		request[1] = FZN_TYPE_INTRODUCE;
 		memcpy(request + 2, ct->pt.pairing.node, FZN_PUBKEY_LEN);
 		if (fzn_caller_send(&via, request, sizeof(request), now + 300u, &msg) != FZN_CALLER_OK
-		    || fzn_caller_recv(&via, msg, reply, sizeof(reply) - 1u, &len, 3000u)
-		               != FZN_CALLER_OK) {
+		    || recv_answering(&via, msg, reply, sizeof(reply) - 1u, &len) != FZN_CALLER_OK) {
 			say(FZN_ENTRY_DEBUG, "contact/devices", "an introduction to %s asked of %s: no answer",
 			    ct->host, pulls[k].host);
 			continue;
@@ -14728,6 +14748,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		/* THE ROUND'S CONVERSATIONS, awaited by the loop. sec 636. */
 		fzn_node_asks_init(&round_asks, round_reply, sizeof(round_reply), round_clock_ms);
 		state.asks = &round_asks;
+		/* AND A REQUEST ASKED IN TURN ANSWERS PEERS WHILE IT WAITS, sec
+		 * 720: the node whole by now, as the loop is about to serve it. */
+		answering = &state;
 		say(FZN_ENTRY_NOTE, "node", "serving%s%s%s, pulling from %zu peer(s) every %us",
 		        sock_path ? " on " : "", sock_path ? sock_path : "",
 		        (udp_port >= 0) ? " udp" : "", npulls, FZND_PULL_EVERY);

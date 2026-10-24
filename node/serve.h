@@ -193,6 +193,19 @@ const fzn_node_peer_t *fzn_node_find_peer(const fzn_node_peer_t *peers,
  * and serves it. Returns the number of descriptors served, 0 on a timeout. */
 int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms);
 
+/* A WAIT THAT ANSWERS PEERS: until `fd` is readable, or `timeout_ms` has
+ * passed, serve each datagram the node's own socket receives. 1 when `fd`
+ * is readable, 0 at the deadline.
+ *
+ * For a request asked in turn -- one the round sends and waits on before
+ * it goes on (reconciliation's, among others: sec 637's residue). Without
+ * it two hosts asking each other at once each waited out the other's
+ * timeout, and on a shared round timer every device of an estate did so
+ * together, every round (sec 720). Local clients are not served here:
+ * their verbs change what the waiting step may be holding, where a peer's
+ * requests are answered from buffers of their own. */
+int fzn_node_wait_answering(fzn_node_state_t *state, int fd, unsigned timeout_ms);
+
 /* Run the node until the process is signalled -- the daemon body. It calls
  * fzn_node_run_once forever with no timeout; nothing here stops it, which is
  * what a daemon is, so a caller that needs to stop drives run_once itself. */

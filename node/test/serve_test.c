@@ -196,11 +196,70 @@ out:
 		fzn_udp_close(sfd);
 }
 
+/* A port bound on loopback, its fd and the address to send to it. */
+static int bound(int *fd, fzn_udp_addr_t *to)
+{
+	struct sockaddr_in at;
+	socklen_t at_len = sizeof(at);
+
+	if (fzn_udp_bind(AF_INET, "127.0.0.1", 0, fd) != FZN_UDP_OK)
+		return 0;
+	if (getsockname(*fd, (struct sockaddr *)&at, &at_len) != 0)
+		return 0;
+	return fzn_udp_resolve(AF_INET, "127.0.0.1", ntohs(at.sin_port), to) == FZN_UDP_OK;
+}
+
+/* A WAIT THAT ANSWERS PEERS, sec 720: while a request asked in turn waits on
+ * its own socket, what the node's socket receives is served -- two hosts
+ * asking each other at once each waited out the other's timeout before --
+ * and the wait ends when its own socket has something. */
+static void test_wait_answering(void)
+{
+	fzn_node_state_t state;
+	uint8_t datagram[FZN_NODE_PROBE_LEN], got[64];
+	fzn_udp_addr_t to_node, to_asker, to_sender;
+	size_t got_len = 0;
+	int ufd = -1, wfd = -1, sfd = -1;
+
+	if (!bound(&ufd, &to_node) || !bound(&wfd, &to_asker) || !bound(&sfd, &to_sender)) {
+		ok(0, "the datagram sockets would not bind");
+		goto out;
+	}
+	memset(&state, 0, sizeof(state));
+	state.listen_fd = -1;
+	state.udp_fd = ufd;
+	state.on_probe = probe_heard;
+	memset(&probed, 0, sizeof(probed));
+	memset(datagram, 0, sizeof(datagram));
+	datagram[0] = FZN_NODE_PROBE_MARK;
+	datagram[1] = 1u;
+	ok(fzn_node_wait_answering(&state, wfd, 50u) == 0, "a wait with nothing came was not 0");
+	(void)fzn_udp_send(sfd, &to_node, datagram, sizeof(datagram));
+	(void)fzn_udp_send(sfd, &to_node, datagram, sizeof(datagram));
+	ok(fzn_node_wait_answering(&state, wfd, 300u) == 0 && probed.calls == 2,
+	   "what the node's socket received while a request waited was not served");
+	(void)fzn_udp_send(sfd, &to_asker, (const uint8_t *)"answer", 6u);
+	ok(fzn_node_wait_answering(&state, wfd, 3000u) == 1,
+	   "the wait did not end when its own socket had something");
+	ok(fzn_udp_recv(wfd, got, sizeof(got), &got_len, NULL) == FZN_UDP_OK && got_len == 6u
+	           && memcmp(got, "answer", 6u) == 0,
+	   "the wait took what came to its own socket");
+	ok(fzn_node_wait_answering(&state, -1, 10u) == 0, "a wait on no socket was not 0");
+out:
+	if (ufd >= 0)
+		fzn_udp_close(ufd);
+	if (wfd >= 0)
+		fzn_udp_close(wfd);
+	if (sfd >= 0)
+		fzn_udp_close(sfd);
+}
+
 int main(void)
 {
 	test_find_peer();
 	test_run_once_local();
 	test_run_once_probe();
+	test_wait_answering();
 	printf("serve_test: %d checks, %d failure(s)\n", checks, failures);
 	return failures ? 1 : 0;
 }

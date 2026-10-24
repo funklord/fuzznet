@@ -12083,6 +12083,13 @@ SABOTAGES = [
 		"another local user reads which peers' clocks disagree -- sec 717",
 	),
 	(
+		"wait-answering-serves-peers",
+		"node/serve.c",
+		"\t\tif (nfds == 2 && (fds[1].revents & POLLIN))\n\t\t\tserve_ready_datagram(state);",
+		"\t\tif (nfds == 2 && (fds[1].revents & POLLIN))\n\t\t\t(void)state;",
+		"two hosts asking each other in turn each wait out the other's timeout -- sec 720",
+	),
+	(
 		"clock-estate-counts-contacts-not",
 		"node/clocks.c",
 		"\tif (!r->estate || !r->n || r->at + FZN_NODE_CLOCKS_KEEP_S <= now)",
