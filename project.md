@@ -71451,11 +71451,11 @@ The three questions as they were put:
     A1 at about -90000 ms, and R `right` at the median.
 
   All six phases pass both ways.
-- **Not yet at 900 s.** The plan's live test put one device 900 s
-  behind. At that skew D measures R only, `ok 450000 1 unsure`, because
-  the other devices' pairing with D is refused for its clock. Only stage
-  3, requests stamped in the receiver's terms, lets them pair. 90 s is
-  past the threshold and inside a request's life.
+- **At 900 s once stage 3 was built.** The plan's live test put one
+  device 900 s behind. Before stage 3, D at that skew measured R only,
+  `ok 450000 1 unsure`, because the other devices' pairing with D was
+  refused for its clock. With requests stamped in the receiver's terms
+  it passes at 900 s and at an hour (*Stage 3 built*, below).
 - **Each device now says where it is.** The script set an address for R
   alone, so the devices could reach R but not each other, and nothing
   could measure a sibling. With every device's address set, the run
@@ -71466,6 +71466,44 @@ The three questions as they were put:
   - one device enough;
   - the threshold one way only;
   - the span unchecked.
+
+### Stage 3 built: requests stamped in the receiver's terms
+
+- **`fzn_caller_t.clock_offset_ms`** (`node/caller.h`) holds the node's
+  clock less the caller's. `fzn_caller_send`, `_seal` and `_hello` move
+  every expiry they seal by its whole seconds. The result is held inside
+  the range: below 1 is 1, and past the top is the top. 0 stamps by the
+  caller's own clock, as before.
+- **fuzznetd's `stamp_offset`** sets it from the measured offset:
+  - in `open_target_on`, for every sibling, contact host and share host
+    a round opens;
+  - again for each pull target and contact host at the journal's start,
+    each round;
+  - and on the three contact callers made in handlers (two introduction
+    notifies and a probe's answer).
+- **Contacts are measured now too** (`time_ask_contacts`). Each contact
+  host not found down is asked for its time as the pull targets are, and
+  its offset never votes in estate time. Contacts stamping requests to
+  them is the holder's decision of 2026-10-24.
+- **Why one place serves:** every request fuzznetd sends leaves through a
+  caller, so the expiry is the one value a peer's freshness and replay
+  window judge. Hellos are stamped the same way, and they were the
+  one-minute failure of sec 714.
+
+### Measured for stage 3
+
+- **`pair_test`, 347 checks**, against a node whose clock reads 3000:
+  - an expiry of 2500 by the caller's clock, stamped for a node 1000 s
+    ahead, is answered;
+  - 3500, stamped for a node 1000 s behind, is dropped;
+  - an offset past the expiry still seals, held at 1.
+- **Live, `live_estate`:** all six phases pass at `--skew 900` and at
+  `--skew 3600`, where sec 714 found the journey failing. Phase a's clock
+  check now runs at the plan's 900 s: D and A1 are `wrong` at about
+  +-900 s, and R is `right`.
+- **Control:** with the stamp held at 0, `--skew 3600` fails in phase a.
+  D measures R alone, `ok 1800000 1 unsure`.
+- **Sabotage, one entry:** the stamp dropped.
 
 
 

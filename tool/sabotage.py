@@ -12083,6 +12083,13 @@ SABOTAGES = [
 		"another local user reads which peers' clocks disagree -- sec 717",
 	),
 	(
+		"caller-stamps-in-their-terms",
+		"node/caller.c",
+		"\tint64_t s = caller->clock_offset_ms / 1000;\n",
+		"\tint64_t s = 0 * caller->clock_offset_ms;\n",
+		"a request to a peer whose clock is off expires by the wrong clock -- sec 719 stage 3",
+	),
+	(
 		"wait-answering-serves-peers",
 		"node/serve.c",
 		"\t\tif (nfds == 2 && (fds[1].revents & POLLIN))\n\t\t\tserve_ready_datagram(state);",

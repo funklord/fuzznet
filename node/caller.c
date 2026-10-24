@@ -32,6 +32,20 @@ const char *fzn_caller_err_str(fzn_caller_err_t err)
 	return "unknown";
 }
 
+/* `expires_at`, by this caller's clock, in the node's terms: moved by the
+ * whole seconds of `clock_offset_ms`, held inside the range rather than
+ * wrapped -- an expiry moved below 1 is 1, long past, and one moved past
+ * the top is the top. */
+static uint64_t in_their_terms(const fzn_caller_t *caller, uint64_t expires_at)
+{
+	int64_t s = caller->clock_offset_ms / 1000;
+
+	if (s >= 0)
+		return expires_at > UINT64_MAX - (uint64_t)s ? UINT64_MAX : expires_at + (uint64_t)s;
+	/* -s cannot overflow: a quotient by 1000 is far from INT64_MIN. */
+	return expires_at > (uint64_t)-s ? expires_at - (uint64_t)-s : 1u;
+}
+
 fzn_caller_err_t fzn_caller_send(fzn_caller_t *caller, const uint8_t *payload,
                                  size_t payload_len, uint64_t expires_at,
                                  uint32_t *msg)
@@ -92,7 +106,7 @@ fzn_caller_err_t fzn_caller_send(fzn_caller_t *caller, const uint8_t *payload,
 		what.capability = caller->capability.b;
 		what.payload = payload_len ? payload + off : NULL;
 		what.payload_len = payload_len ? len : 0u;
-		what.expires_at = expires_at;
+		what.expires_at = in_their_terms(caller, expires_at);
 		what.msg = *msg;
 		what.index = i;
 		what.chunks = plan.chunks;
@@ -261,7 +275,7 @@ fzn_caller_err_t fzn_caller_seal(fzn_caller_t *caller, const uint8_t *payload, s
 	what.capability = caller->capability.b;
 	what.payload = payload_len ? payload : NULL;
 	what.payload_len = payload_len;
-	what.expires_at = expires_at;
+	what.expires_at = in_their_terms(caller, expires_at);
 	what.msg = *msg;
 	what.index = 0;
 	what.chunks = 1;
@@ -287,7 +301,7 @@ fzn_caller_err_t fzn_caller_hello(fzn_caller_t *caller, int fd, uint64_t expires
 	memset(&what, 0, sizeof(what));
 	what.sender = caller->sender;
 	what.capability = caller->capability.b;
-	what.expires_at = expires_at;
+	what.expires_at = in_their_terms(caller, expires_at);
 	what.msg = caller->next_msg++;
 	what.chunks = 1;
 	what.kind = FZN_KIND_NOP;

@@ -90,6 +90,14 @@ typedef struct fzn_caller {
 	uint32_t next_msg;
 	/* The hop budget a request states, as `fzn_send_t.hops`. */
 	uint8_t hops;
+	/* THE NODE'S CLOCK LESS THIS ONE'S, in milliseconds, sec 719 stage 3:
+	 * every expiry this caller seals is stamped in the node's terms, so a
+	 * request lives its whole life by the clock that judges it, whichever
+	 * of the two is wrong. 0, the default, stamps by this caller's clock.
+	 * Measured by the time probe (`node/clocks.h`) and set by whoever owns
+	 * the caller; the node's own claim about its own clock, used only to
+	 * reach that node. */
+	int64_t clock_offset_ms;
 	/* EVERY PAYLOAD THROUGH THIS FIRST, sec 465, when set: `wrap` writes
 	 * the payload to send into `out` and returns its length, or 0 to send
 	 * it as it is. It is how a daemon puts its log causes round requests

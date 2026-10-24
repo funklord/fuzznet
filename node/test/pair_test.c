@@ -894,6 +894,32 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		              && reply_len == sizeof(PONG) && memcmp(reply, PONG, sizeof(PONG)) == 0,
 		      "a frame sealed by fzn_caller_seal and sent by hand was not answered");
 
+		/* STAMPED IN THE NODE'S TERMS, sec 719 stage 3: the node's clock
+		 * reads 3000. An expiry of 2500 by the caller's, a node 1000 s
+		 * ahead of it, is 3500 by the node's and answered; 3500 by the
+		 * caller's, a node 1000 s behind, is 2500 by the node's and
+		 * dropped -- either way the clock that judges it is the one it
+		 * was stamped for. */
+		caller.clock_offset_ms = 1000000;
+		CHECK(fzn_caller_send(&caller, PING, sizeof(PING), 2500u, &m) == FZN_CALLER_OK
+		              && fzn_node_run_once(&state, 1000) == 1
+		              && fzn_caller_recv(&caller, m, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_OK
+		              && reply_len == sizeof(PONG),
+		      "a request stamped for a node 1000 s ahead was not fresh by the node's clock");
+		caller.clock_offset_ms = -1000000;
+		CHECK(fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &m) == FZN_CALLER_OK
+		              && fzn_node_run_once(&state, 1000) == 1
+		              && fzn_caller_recv(&caller, m, reply, sizeof(reply), &reply_len, 300u)
+		                         != FZN_CALLER_OK,
+		      "a request stamped for a node 1000 s behind was answered, its expiry unmoved");
+		caller.clock_offset_ms = -999999999999;
+		CHECK(fzn_caller_seal(&caller, PING, sizeof(PING), 3500u, &m, frame, sizeof(frame),
+		                      &flen)
+		              == FZN_CALLER_OK,
+		      "an offset past the expiry did not seal, held at 1");
+		caller.clock_offset_ms = 0;
+
 		/* A HELLO: noted where it came from, and never answered. */
 		fzn_node_relay_init(&tbl);
 		state.relay = &tbl;

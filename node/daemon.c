@@ -4139,34 +4139,64 @@ static void time_answered(void *ctx, const uint8_t *reply, size_t reply_len)
 	clock_judged();
 }
 
+/* A CALLER STAMPED IN ITS NODE'S TERMS, sec 719 stage 3: `peer`'s measured
+ * offset, or 0 for none, so every expiry it seals is judged by the clock
+ * it was stamped for. A contact's too -- its own claim about its own
+ * clock, used only to reach it (the holder, 2026-10-24). */
+static void stamp_offset(fzn_caller_t *caller, const uint8_t peer[FZN_PUBKEY_LEN])
+{
+	int64_t offset = 0;
+	uint64_t rtt = 0;
+
+	if (!fzn_node_offsets_of(&node_offsets, peer, &offset, &rtt))
+		offset = 0;
+	caller->clock_offset_ms = offset;
+}
+
+static void time_ask_contacts(uint64_t now);
+
+/* `pt` stamped, and its clock asked if not sampled in TIME_ASK_EVERY; 0
+ * once the ask table is full, 1 otherwise. */
+static int time_ask_one(struct pull_target *pt, int estate, uint64_t now)
+{
+	const uint8_t *peer = pt->pairing.node;
+	const fzn_random_ops_t *rng = pt->caller.rng;
+	uint8_t ask[FZN_NODE_TIME_ASK_LEN];
+	size_t i, len;
+
+	stamp_offset(&pt->caller, peer);
+	if (fzn_node_asks_pending(&round_asks) >= FZN_NODE_ASKS_MAX)
+		return 0;
+	if (!rng || pt->fd < 0 || fzn_node_offsets_at(&node_offsets, peer) + TIME_ASK_EVERY > now)
+		return 1;
+	for (i = 0; i < FZN_NODE_ASKS_MAX && time_asks[i].used; i++)
+		;
+	if (i == FZN_NODE_ASKS_MAX)
+		return 0;
+	if (!rng->fill(rng->ctx, time_asks[i].nonce, sizeof(time_asks[i].nonce))
+	    || !(len = fzn_node_time_ask(time_asks[i].nonce, ask, sizeof(ask))))
+		return 1;
+	memcpy(time_asks[i].peer, peer, FZN_PUBKEY_LEN);
+	time_asks[i].estate = estate;
+	time_asks[i].sent_ms = wall_ms();
+	time_asks[i].used = 1;
+	if (!fzn_node_asks_send(&round_asks, &pt->caller, ask, len, now + 300u, 3000u, time_answered,
+	                        (void *)(uintptr_t)i))
+		time_asks[i].used = 0;
+	return 1;
+}
+
+/* EVERY PEER THIS ROUND TALKS TO, stamped and asked: the pull targets, and
+ * each contact host not found down (stage 3: a contact's offset stamps the
+ * requests that reach it, and never moves estate time). */
 static void time_ask_targets(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
-	size_t t, i, len;
-	uint8_t ask[FZN_NODE_TIME_ASK_LEN];
+	size_t t;
 
-	for (t = 0; t < npulls; t++) {
-		const uint8_t *peer = pulls[t].pairing.node;
-		const fzn_random_ops_t *rng = pulls[t].caller.rng;
-
-		if (fzn_node_asks_pending(&round_asks) >= FZN_NODE_ASKS_MAX || !rng)
+	for (t = 0; t < npulls; t++)
+		if (!time_ask_one(&pulls[t], peer_in_estate(&pulls[t]), now))
 			return;
-		if (fzn_node_offsets_at(&node_offsets, peer) + TIME_ASK_EVERY > now)
-			continue;
-		for (i = 0; i < FZN_NODE_ASKS_MAX && time_asks[i].used; i++)
-			;
-		if (i == FZN_NODE_ASKS_MAX)
-			return;
-		if (!rng->fill(rng->ctx, time_asks[i].nonce, sizeof(time_asks[i].nonce))
-		    || !(len = fzn_node_time_ask(time_asks[i].nonce, ask, sizeof(ask))))
-			continue;
-		memcpy(time_asks[i].peer, peer, FZN_PUBKEY_LEN);
-		time_asks[i].estate = peer_in_estate(&pulls[t]);
-		time_asks[i].sent_ms = wall_ms();
-		time_asks[i].used = 1;
-		if (!fzn_node_asks_send(&round_asks, &pulls[t].caller, ask, len, now + 300u, 3000u,
-		                        time_answered, (void *)(uintptr_t)i))
-			time_asks[i].used = 0;
-	}
+	time_ask_contacts(now);
 }
 
 static void journal_start(struct pull_target *pulls, size_t npulls, uint64_t now)
@@ -5087,6 +5117,7 @@ static int open_target_on(struct pull_target *pt, int fd, int family,
 	pt->caller.wrap = caller_wrap;
 	pt->caller.sent = caller_sent;
 	pt->caller.answered = caller_answered;
+	stamp_offset(&pt->caller, pt->pairing.node);
 	return 1;
 }
 
@@ -5848,6 +5879,17 @@ static size_t ct_cap;
 static int contact_room(size_t want);
 /* The contacts a groups pass has asked, one each, as many as the hosts. */
 static uint8_t (*lines_done)[FZN_PUBKEY_LEN], (*groups_done)[FZN_PUBKEY_LEN];
+
+/* EACH CONTACT HOST NOT FOUND DOWN, stamped and asked as the pull targets
+ * are (`time_ask_targets`). */
+static void time_ask_contacts(uint64_t now)
+{
+	size_t t;
+
+	for (t = 0; t < ncontact_targets; t++)
+		if (!contact_targets[t].down && !time_ask_one(&contact_targets[t].pt, 0, now))
+			return;
+}
 
 static const uint8_t *estate_owner(void)
 {
@@ -11258,6 +11300,7 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 		    && contact_pairing(request + 2, &pairing)) {
 			memset(&c, 0, sizeof(c));
 			fzn_node_pairing_caller(&pairing, contact_id->pubkey, &c);
+			stamp_offset(&c, pairing.node);
 			c.fd = st->udp_fd;
 			c.node = at;
 			c.hash = contact_hash_ops;
@@ -11316,6 +11359,7 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 			return INTRO_NO("no way to that host");
 		memset(&c, 0, sizeof(c));
 		fzn_node_pairing_caller(&pairing, contact_id->pubkey, &c);
+		stamp_offset(&c, pairing.node);
 		c.hash = contact_hash_ops;
 		c.aead = contact_aead_ops;
 		c.rng = contact_rng_ops;
@@ -11489,6 +11533,7 @@ static void lan_probe_heard(void *ctx, const uint8_t *probe, size_t len,
 	answered++;
 	memset(&c, 0, sizeof(c));
 	fzn_node_pairing_caller(&pairing, contact_id->pubkey, &c);
+	stamp_offset(&c, pairing.node);
 	c.node = *from;
 	c.hash = contact_hash_ops;
 	c.aead = contact_aead_ops;
