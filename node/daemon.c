@@ -14429,9 +14429,13 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				admin.journal_ctx = &node_journal;
 				/* CONVERSATIONS, sec 527, before the estate is followed, so
 				 * its nodes' stream 3 is followed with the rest. */
+				/* A LINE'S TIME AND EVERY MARK'S, merged and compared across
+				 * the user's devices by the newest: estate time, sec 719
+				 * stage 4, so a device whose clock is off neither files lines
+				 * out of place nor loses a later read mark (sec 723). */
 				if (fzn_node_messages_init(&node_messages, store_ops, &node_journal,
 				                           identity.pubkey, &sign_ops, &rng_ops, &aead_ops,
-				                           &hash_ops, wall_ms)
+				                           &hash_ops, estate_ms)
 				    == FZN_MESSAGES_OK) {
 					messages_on = 1;
 					node_messages.keeps = keeps_here;

@@ -71765,3 +71765,90 @@ runs of 2.
 against nothing in this one. Two estates' times agree only as far as
 each estate's median is right. The holder's decision keeps a contact's
 offset to stamping requests, and it never corrects this node's clock.
+
+## 723. Read marks and a conversation's lines on estate time, 2026-10-25
+
+Sec 719 stage 4, its third consumer.
+- A read mark and a delivery mark are the user's own devices' too, and
+  the newest stamp wins (`messages/messages.c`, `set_read`).
+- A mark made later on a device whose clock is behind lost to an
+  earlier one from an on-time device, so the conversation stayed unread
+  where it had been read.
+
+**Shown first, `tool/live_group_skew.py` phase d.** C sends two lines,
+each once both A and B hold the one before. B, on time, marks the first
+read; 2 s later A, 900 s behind, marks the second.
+- **Against a build with the messages clock raw**, both runs failed at A
+  with `ok 1 0`: A's later mark lost.
+- **With it on estate time**, 3 runs of 3 passed. The messages clock
+  stamps a line's time, a read mark and a delivery mark.
+
+**What the test learned on the way, not a clock fault.**
+- **A conversation's order is the order its lines are filed in, not
+  their send times** (`index_append`). A listing walks that order newest
+  first, and unread stops at the read position in it.
+- The first version sent the two lines 13 ms apart, and they were filed
+  either way round. Where d1 was filed after d2, "read up to d1" read
+  everything, and unread was 0 at both devices.
+- The listing agreed with the count, so the count was right and the test
+  was wrong. It now sends one line at a time.
+
+**Checked, since estate time may step back** (sec 721): what a stamp that
+goes back can break, now that settings, notes and messages all take it.
+- **The journal** asks nothing of `issued_at` being in order: no record
+  or journal check compares it with the one before. So a correcting
+  device's next record is taken.
+- **A note's current version** is the tree's, by structure. `tree/` and
+  `notes/view.c` compare no times, so an edit stamped back still stands.
+- **What can rank wrongly:** the history trim (`notes/author.c`, newest
+  first by record time) may order two of one note's versions, written
+  either side of a correction, wrongly by up to the step, and keep the
+  wrong one past a rule's count. Bounded by the step, and only near it.
+- **Read and delivery marks** compare stamps, as settings do, and a mark
+  made after the correction loses to one of its own device's made before
+  it by up to the step. Settings avoid that by being one past every
+  version held (`node/settings.c`). Marks have no such rule. **Open:** a
+  mark could be made one past the held one in the same way.
+
+**Open, whose call:** that a receiver may show two lines sent close
+together in the other order. Ordering by send time (STIME) would make the
+sender's clock decide an order other devices must agree on. Sec 719's
+survey counts STIME as display only. Raised, not decided.
+
+## 724. Has a setting reached my other devices? Asked, costed, not built, 2026-10-25
+
+**Asked by fuzzypickles** (message of 2026-10-25), as the last client call
+still "not yet" on a node: `config_status`. For one estate setting, it
+wants the version in force here, and for each of the user's other
+devices the highest version that device is known to hold. Never heard
+from reads as 0, so a silent device counts as behind, not as current.
+Their proposed shape, ours to change:
+
+    list setting-holders KEY  ->  ok VERSION KEY,HELD,AT ...
+
+KEY is a device's host key, HELD its version (0 unknown), AT when this
+node learned it. Contacts never appear, and host-scoped keys need
+nothing.
+
+**What a node knows today:** every journal push begins by reading the
+taker's DIGEST (`record/exchange.h`), its received position on each
+stream it follows, the setter's among them. The node uses it to choose
+what to push and then lets it go.
+
+**What it would take:**
+- keep each sibling's last digest per stream and when it came, a table
+  growing with siblings times streams;
+- map the setting in force for a cell to its record's sequence in its
+  setter's stream, kept in the settings row or found once;
+- the verb, its refusals, a unit test, and a live check of three devices
+  with one stopped while a setting changes.
+
+HELD can be exact for "holds the version in force": the device's
+position on the setter's stream covers that record or not. An older
+version a behind device holds is not knowable without a history, so it
+reads 0. Behind still means held < local, which is what the clients
+show.
+
+**Not built: sec 689's freeze.** This is new work, not hardening, and
+whether it fits before the subset clears is the holder's call. A half
+day or so, estimated, not measured.

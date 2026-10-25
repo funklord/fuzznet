@@ -12,12 +12,19 @@ measures its own clock wrong against two; and C, a contact, another user's.
        S0, which A then holds
     c  A adds C to the group, and then writes a second note into S0. C
        holds A's second note, and not B's, written before C joined
+    d  C sends two lines. B, on time, marks the first read; then A marks
+       the second. Both read the conversation as read through: the later
+       mark wins although its device's clock is behind
 
 A later member's floor is the time of the act that added it, stamped by the
 adder's clock, and each note's time is its writer's. With A's acts on A's own
 clock, the floor sat 900 s early, B's earlier note passed it, and C read what
 was written before it joined -- a privacy fault, not a timing one. On estate
 time the adder's clock is corrected, and the note is withheld.
+
+The user's read marks are its devices' too, and the newest stamp wins. A
+mark made later on A, stamped by a clock 900 s behind, lost to B's earlier
+one, and the conversation stayed unread where it had been read.
 
 BOUNDED FROM INSIDE as live_estate.py is: one deadline, each daemon in its own
 process group, and every daemon checked gone.
@@ -181,6 +188,34 @@ def main(argv):
 				             "joined: %r" % got)
 			print("livecheck: c: C holds A's note written after it joined, and not B's "
 			      "from before")
+
+			# d: read marks across the user's devices, the later one A's.
+			# ONE AT A TIME: a conversation's order is the order its lines
+			# are filed in, and two sent 13 ms apart were filed either way,
+			# so the second goes once both devices hold the first.
+			lines = ("d1" * 16, "d2" * 16)
+			for i, line in enumerate(lines):
+				expect(socks["c"], "c", "add message alice out %s line%d" % (line, i), "ok")
+				for who in ("a", "b"):
+					polled(who, "get message carol unread",
+					       lambda g, n=str(i + 1): g.split()[1:2] == [n],
+					       "not C's line%d unread" % i)
+			expect(socks["b"], "b", "set message carol read " + lines[0], "ok")
+			for who in ("a", "b"):
+				try:
+					polled(who, "get message carol unread",
+					       lambda g: g.split()[1:2] == ["1"], "not B's mark of the first line")
+				except failed as e:
+					raise failed("%s; A lists %r, B lists %r"
+					             % (e, said("a", "list message carol"),
+					                said("b", "list message carol")))
+			time.sleep(2.0)
+			expect(socks["a"], "a", "set message carol read " + lines[1], "ok")
+			for who in ("a", "b"):
+				polled(who, "get message carol unread", lambda g: g.split()[1:2] == ["0"],
+				       "not A's later mark of the second: an earlier one by an on-time "
+				       "clock still wins")
+			print("livecheck: d: A's mark, made after B's, won on both, its clock 900 s behind")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			for name in sorted(os.listdir(scratch)):
