@@ -16,6 +16,10 @@ root, with A2 joined to it; B1, a root, with B2 joined to it.
        for A1
     d  nothing owed: every host's `get message owed` comes to `ok 0 0 0`,
        no line held undelivered and none delivered unsettled
+    e  a contact removed: A1 removes B, and A2 lists B suspended, the
+       roster being the user's (sec 489); B2 then writes a line, and no
+       host of A's holds it after six rounds. B, never told it was
+       removed, keeps the line, owed
 
 `--skew S` runs A2's clock S seconds behind and B1's S ahead, by faketime.
 `--loss P` runs every daemon at FZN_FAULT_LOSS=P with one seed per run.
@@ -225,6 +229,30 @@ def main(argv):
 				polled(who, "get message owed", lambda g: g.split()[1:3] == ["0", "0"],
 				       "still owing lines")
 			print("livecheck: d: no host owes a line, held or unsettled")
+
+			# e: B removed by A; nothing of B's after reaches A.
+			expect(socks["a1"], "a1", "remove contact " + NAME["b"], "ok")
+			# NOT ACTIVE at A2: B marked suspended or retired, or gone from the
+			# listing with the name A1 forgot.
+			def b_inactive(g):
+				rows = [r for r in g.split()[3:] if keys["b"] in r]
+				return not rows or all(r.endswith((",suspended", ",retired", ",absent"))
+				                       for r in rows)
+			polled("a2", "list contact", b_inactive, "with B still active")
+			after = "e1" * 16
+			expect(socks["b2"], "b2", "add message %s out %s after%%20removal"
+			       % (keys["a"], after), "ok")
+			time.sleep(6 * int(ROUND_S) + 2.0)
+			for who in ("a1", "a2"):
+				got = said(who, "list message " + keys["b"])
+				if after in got:
+					raise failed("e: %s holds B2's line written after A removed B: %r"
+					             % (who, got))
+			owed = said("b2", "get message owed").split()
+			if owed[1:2] != ["1"]:
+				raise failed("e: B2's line to A, removed, is not held as owed: %r" % owed)
+			print("livecheck: e: A removed B, A2 lists B suspended, and B2's later line "
+			      "reached no host of A's; B2 holds it owed")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			if args.keep:

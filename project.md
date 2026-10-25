@@ -72378,5 +72378,12 @@ runs every daemon at that loss.
   B1's read mark. Whether the mark did not reach B2 within the settle
   time under that load, or the order differed, is not found. Open.
 
-Not yet in the scenario: a contact removed mid-flight, and a restart
-inside an operation.
+- **Phase e, a contact removed:** A1 removes B, and A2 lists B as not
+  active, the roster being the user's (sec 489). B2 then writes a line,
+  and no host of A's holds it after six rounds. B, never told it was
+  removed ("a contact never learns it was removed", sec 489), keeps the
+  line, owed. That is the design: a removed contact's owed lines stay
+  owed at its end.
+  - Passing 1 of 1 so far.
+
+Not yet in the scenario: a restart inside an operation.
