@@ -354,7 +354,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              provision/test/provision_fuzz.c \
              record/test/sync_fuzz.c record/test/exchange_fuzz.c \
              node/test/members_fuzz.c node/test/reconcile_fuzz.c \
-             node/test/delivery_fuzz.c \
+             node/test/delivery_fuzz.c messages/test/line_fuzz.c \
              node/test/votes_fuzz.c \
              provision/test/provision_test.c \
              roster/test/roster_test.c \
@@ -627,6 +627,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/record/test/exchange_fuzz \
              $(BUILD_DIR)/node/test/members_fuzz \
              $(BUILD_DIR)/node/test/delivery_fuzz \
+             $(BUILD_DIR)/messages/test/line_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
              $(BUILD_DIR)/disclose/test/disclose_fuzz \
@@ -4243,6 +4244,12 @@ $(BUILD_DIR)/node/test/reconcile_test: $(BUILD_DIR)/node/test/reconcile_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# A conversation's record bodies bent, sec 689's 1:1 chat journey.
+$(BUILD_DIR)/messages/test/line_fuzz: $(BUILD_DIR)/messages/test/line_fuzz.o \
+                                      $(BUILD_DIR)/messages/line.o $(MONO_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # A contact's delivery through a lying contact, sec 689's 1:1 chat journey.
 $(BUILD_DIR)/node/test/delivery_fuzz: $(BUILD_DIR)/node/test/delivery_fuzz.o \
                                   $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o \
@@ -4961,6 +4968,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/record/test/exchange_fuzz \
              $(BUILD_DIR)/node/test/members_fuzz \
              $(BUILD_DIR)/node/test/delivery_fuzz \
+             $(BUILD_DIR)/messages/test/line_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
              $(BUILD_DIR)/disclose/test/disclose_fuzz \

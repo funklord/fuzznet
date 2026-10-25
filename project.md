@@ -72413,8 +72413,29 @@ sabotages in `tool/sabotage.py` are each caught by it:
 - the text read one byte early;
 - the reply not echoing the id.
 
-Still to fuzz in this journey: the line, keys and settlement codecs, and
-the key exchange.
+**Second harness: a conversation's record bodies** (`messages/test/line_fuzz.c`).
+These are a line's parts, a mark on a line and a read position. Another
+of the user's devices signs each, so a lost device or a bug in one writes
+them. Four properties:
+- each round-trips;
+- a part opens under no other contact and no other key;
+- a bent part either fails to read or fails to open;
+- a mark or a position that reads writes back as the same bytes, and a
+  part that reads has exactly the tiling `line.h` states.
+
+At 4000 cases: 539 texts of two parts, 3535 bent parts read, and 1765
+bent marks read. Five sabotages are caught:
+- the sender time left out of the additional data;
+- the contact left out of it;
+- the first of two parts not required to be full;
+- a position's length taken as a floor;
+- a mark's state left without a top.
+
+The first is caught twice in 4000 cases, the stime being 8 of a body's
+bytes. The seed is fixed, so that is stable.
+
+Still to fuzz in this journey: the keys and settlement codecs, and the
+key exchange.
 
 ## 732. A build without packing builds again, 2026-10-25
 
