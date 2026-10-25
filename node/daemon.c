@@ -202,6 +202,12 @@ static struct {
 	/* Whether members may gather this host's log, sec 463: host-private
 	 * unless `--log-scope=estate`, as sec 428 has the holder decide. */
 	int estate_scope;
+	/* WHAT THE FLAGS SAID, sec 735: what a host cell left unset falls back
+	 * to, so removing `log/level` restores `--log-level`. */
+	fzn_entry_level_t flag_keep;
+	uint64_t flag_segment;
+	int flag_estate;
+	uint64_t settings_at_us;
 #endif
 } dlog;
 
@@ -10343,6 +10349,48 @@ static int host_text(const char *key, char *out, size_t cap)
 	return 1;
 }
 
+#ifdef FZN_LOG_FILE_ON
+/* THE LOG CONFIGURED BY VERB, sec 735: `log/level`, `log/segment` and
+ * `log/scope`, host cells over what the flags said, so a client sets them
+ * with `set setting host`. Read at most once a second; a change is said in
+ * the log, at its own new level. */
+static void log_settings_tick(void)
+{
+	char v[24];
+	uint64_t now = log_now_us(), segment = 0;
+	fzn_entry_level_t keep;
+	int estate, l;
+
+	if (!dlog.on || (now >= dlog.settings_at_us && now - dlog.settings_at_us < 1000000u))
+		return;
+	dlog.settings_at_us = now;
+	l = host_text("log/level", v, sizeof(v))
+	            ? fzn_node_schema_log_level((const uint8_t *)v, strlen(v))
+	            : 0;
+	keep = l ? (fzn_entry_level_t)l : dlog.flag_keep;
+	if (!host_text("log/segment", v, sizeof(v))
+	    || !fzn_schema_count((const uint8_t *)v, strlen(v), 4096u, 1099511627776u, &segment))
+		segment = dlog.flag_segment;
+	estate = !host_text("log/scope", v, sizeof(v)) ? dlog.flag_estate
+	         : !strcmp(v, "estate")               ? 1
+	         : !strcmp(v, "host-private")         ? 0
+	                                              : dlog.flag_estate;
+	if (keep != dlog.logger.keep) {
+		dlog.logger.keep = keep;
+		say(FZN_ENTRY_NOTE, "log", "logging at level %c", fzn_entry_level_letter(keep));
+	}
+	if (segment != dlog.logger.segment_max) {
+		dlog.logger.segment_max = segment;
+		say(FZN_ENTRY_NOTE, "log", "rotating at %llu bytes", (unsigned long long)segment);
+	}
+	if (estate != dlog.estate_scope) {
+		dlog.estate_scope = estate;
+		say(FZN_ENTRY_NOTE, "log", "this host's log is %s",
+		    estate ? "the estate's to gather" : "host-private");
+	}
+}
+#endif
+
 static void location_tick(void)
 {
 	char where[FZN_GPSD_HOST_MAX + 8u], host[FZN_GPSD_HOST_MAX + 1u];
@@ -13262,19 +13310,13 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			}
 			gather_since_s = (uint64_t)v;
 		} else if (!strncmp(argv[i], "--log-level=", 12u)) {
-			static const char *const NAMES[] = { "critical", "error", "warning", "note",
-				                             "info", "verbose", "debug", "trace" };
+			/* THE NAMES `log/level` TAKES, sec 735. */
 			const char *v = argv[i] + 12;
-			int found = 0, l;
+			int l = fzn_node_schema_log_level((const uint8_t *)v, strlen(v));
 
-			for (l = 1; l <= 8; l++)
-				if (!strcmp(v, NAMES[l - 1])
-				    || (v[0] && !v[1]
-				        && v[0] == fzn_entry_level_letter((fzn_entry_level_t)l))) {
-					log_keep = (fzn_entry_level_t)l;
-					found = 1;
-				}
-			if (!found) {
+			if (l)
+				log_keep = (fzn_entry_level_t)l;
+			else {
 				fprintf(stderr, "fuzznetd: --log-level: one of critical, error, warning, "
 				                "note, info, verbose, debug, trace, or its letter\n");
 				return 2;
@@ -14166,6 +14208,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 
 			dlog.on = 1;
 			dlog.estate_scope = log_estate;
+			dlog.flag_keep = log_keep;
+			dlog.flag_segment = dlog.logger.segment_max;
+			dlog.flag_estate = log_estate;
 			dlog.hash = &hash_ops;
 #ifdef FZN_LOG_PACK_ON
 			dlog.verify = &sign_ops;
@@ -15361,6 +15406,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				(void)fzn_reasm_expire(state.reassembly, wall_clock());
 			/* gpsd's newest fix, when sampling is on, sec 678. */
 			location_tick();
+#ifdef FZN_LOG_FILE_ON
+			log_settings_tick();
+#endif
 			/* MID-ROUND, between steps, only what is waiting is answered and
 			 * the next step follows at once; a step waiting on its
 			 * conversations waits here, their answers polled with the rest. */
@@ -15391,6 +15439,9 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 	 * a node with nothing to pull still serves both verbs. */
 	while (!identity_reset && !rejoin_due) {
 		location_tick();
+#ifdef FZN_LOG_FILE_ON
+		log_settings_tick();
+#endif
 		(void)fzn_node_run_once(&state, 1000);
 	}
 	if (rejoin_due)

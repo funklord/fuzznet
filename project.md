@@ -72615,3 +72615,49 @@ With sec 731's fuzz and sec 733's faults, journey 2 has a first pass at
 every part of the bar. Still open: the loss intermittent recorded in sec
 731 (phase c at 5% loss), the remote halves under a crash (sec 733), and the two untested
 rooms above.
+
+## 735. A host's log configured by verb, and gathered by a member, 2026-10-25
+
+Journey 3 of sec 689 (retention and logs) opens with its first item:
+"logs gain the verbs they lack, as a client must configure them". The
+rules had verbs already (`add retention`, sec 475). The rest of a host's
+logging was set by flags alone, so a client could not change a running
+host's log.
+
+**Three host settings, declared in the schema** (`node/schema.c`):
+- **`log/level`:** the least severe level the log file keeps, by name
+  (critical to trace) or by letter. One parser,
+  `fzn_node_schema_log_level`, now reads both this and `--log-level`.
+- **`log/segment`:** the size a segment is rotated at, 4096 bytes to 1 TiB.
+- **`log/scope`:** `host-private` or `estate`, whether the estate's
+  members may gather this host's log. It is marked sensitive. Unset, it
+  is host-private, the default sec 428 had the holder decide.
+
+Each falls back to its flag when unset, so removing the setting restores
+the flag's value. The daemon applies them at most once a second, beside
+location's tick, and logs each change at the new level.
+
+**Left as flags, deliberately: `--log-dir` and `--log-archive`.** A path
+set by verb, and so by a remote admin under `remote/admin`, would let one
+choose where this host writes. `--log-copy` and `--log-push` were retired
+before this.
+
+**`tool/live_logs.py`, in `livecheck-faults`:** a root A, and B joined to
+its estate.
+- a: `log/level info` stops the debug lines A's `--log-level=debug`
+  wrote, and removing the setting brings them back;
+- b: B, stopped, gathers A's log by its estate pairing, and is refused
+  while A's log is host-private;
+- c: after `log/scope estate`, the same gather takes A's lines;
+- d: `log/segment 4096` rotates A's log into closed segments within
+  seconds, against the 8 MiB default.
+
+It is the first live test of a gather: the sec 689 survey listed log
+gather as uncovered.
+
+**Found, not changed:** a host-private refusal reaches the gatherer as
+"the host answered with something else". The host's reason, "this host's
+log is host-private", is lost at `log/gather.c`'s reply check. Also, a
+gather is a one-shot command over a member's store, where sec 638 made
+the estate's verbs work on a running daemon. Whether a running host
+should gather by verb is the next question for this journey.

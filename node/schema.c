@@ -19,6 +19,41 @@ static const char *erasure_check(const uint8_t *value, size_t len)
 	return NULL;
 }
 
+/* THE LOG'S LEVELS BY NAME, most severe first, as `--log-level` takes them:
+ * a name, or the letter a log line carries. */
+static const char *const LOG_LEVELS[] = { "critical", "error",   "warning", "note",
+	                                  "info",     "verbose", "debug",   "trace" };
+static const char LOG_LETTERS[] = "CEWNIVDT";
+
+int fzn_node_schema_log_level(const uint8_t *value, size_t len)
+{
+	int l;
+
+	if (!value)
+		return 0;
+	for (l = 0; l < 8; l++)
+		if ((len == strlen(LOG_LEVELS[l]) && memcmp(value, LOG_LEVELS[l], len) == 0)
+		    || (len == 1u && value[0] == (uint8_t)LOG_LETTERS[l]))
+			return l + 1;
+	return 0;
+}
+
+static const char *log_level_check(const uint8_t *value, size_t len)
+{
+	return fzn_node_schema_log_level(value, len)
+	               ? NULL
+	               : "one of critical, error, warning, note, info, verbose, debug, trace, "
+	                 "or its letter";
+}
+
+static const char *log_scope_check(const uint8_t *value, size_t len)
+{
+	return (len == 12u && memcmp(value, "host-private", 12u) == 0)
+	                       || (len == 6u && memcmp(value, "estate", 6u) == 0)
+	               ? NULL
+	               : "host-private or estate";
+}
+
 #define ESTATE FZN_SCHEMA_ESTATE
 #define HOST FZN_SCHEMA_HOST
 
@@ -63,6 +98,17 @@ const fzn_schema_entry_t fzn_node_schema_own[] = {
 	  "the least time between fixes kept (sec 678)", NULL },
 	{ "location/accuracy", FZN_SCHEMA_COUNT, HOST, 0u, 1000000u, "100", "metres", 0u,
 	  "a fix less certain than this is dropped; 0 keeps every fix (sec 678)", NULL },
+	{ "log/level", FZN_SCHEMA_TEXT, HOST, 1u, 8u, "", "", 0u,
+	  "the least severe level this host's log file keeps, critical to trace; unset, "
+	  "`--log-level`'s, info by default (sec 735)",
+	  log_level_check },
+	{ "log/segment", FZN_SCHEMA_COUNT, HOST, 4096u, 1099511627776u, "", "bytes",
+	  FZN_SCHEMA_ADVANCED,
+	  "the size a log segment is rotated at; unset, `--log-segment`'s (sec 735)", NULL },
+	{ "log/scope", FZN_SCHEMA_TEXT, HOST, 6u, 12u, "", "", FZN_SCHEMA_SENSITIVE,
+	  "host-private, or estate to let the estate's members gather this host's log; unset, "
+	  "`--log-scope`'s, host-private by default (sec 735)",
+	  log_scope_check },
 	{ "relay/enabled", FZN_SCHEMA_FLAG, HOST, 0u, 0u, "off", "", 0u,
 	  "this host relays frames for others (sec 622)", NULL },
 	{ "relay/quota", FZN_SCHEMA_COUNT, HOST, 0u, 1000000000000000000u, "104857600", "bytes",

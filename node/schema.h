@@ -51,6 +51,10 @@ const fzn_schema_entry_t *fzn_node_schema_find(const fzn_node_schema_t *schema, 
  * earlier one of them declares; else the first offending key. */
 const char *fzn_node_schema_refused(const fzn_schema_entry_t *extra, size_t n);
 
+/* A LOG LEVEL BY NAME OR LETTER, as `log/level` and `--log-level` take it:
+ * 1 (critical) to 8 (trace), or 0 for neither. */
+int fzn_node_schema_log_level(const uint8_t *value, size_t len);
+
 /* The verbs above; 0 for a request that is not one. */
 size_t fzn_node_schema_local(void *ctx, fzn_origin_t origin, const fzn_request_t *request,
                              char *reply, size_t cap);

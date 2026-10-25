@@ -6462,6 +6462,7 @@ livecheck-faults: fuzznetd-faults
 	@timeout 900 python3 tool/live_faults.py $(BUILD_DIR)/faults/fuzznetd
 	@timeout 1000 python3 tool/live_estate.py $(BUILD_DIR)/faults/fuzznetd
 	@timeout 700 python3 tool/live_group_skew.py $(BUILD_DIR)/faults/fuzznetd
+	@timeout 500 python3 tool/live_logs.py $(BUILD_DIR)/faults/fuzznetd
 
 # FUZZYPICKLES' CLIENT OVER fuzznetd, sec 710: its `fzp --node-socket`
 # driving the subset across fault-build daemons. Not part of

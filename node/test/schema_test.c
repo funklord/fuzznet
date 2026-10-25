@@ -121,6 +121,29 @@ static void test_fuzznets_declarations(void)
 	              && fzn_schema_check(fzn_node_schema_find(NULL, B("archive/erasure")), B("31+1"))
 	                         == NULL,
 	      "the erasure's K+M is not checked as its reader reads it");
+	/* THE LOG'S CELLS, sec 735, as `--log-level` and `--log-scope` read
+	 * them: names and letters, and nothing else. */
+	CHECK(fzn_node_schema_log_level(B("critical")) == 1 && fzn_node_schema_log_level(B("T")) == 8
+	              && fzn_node_schema_log_level(B("info")) == 5
+	              && fzn_node_schema_log_level(B("i")) == 0
+	              && fzn_node_schema_log_level(B("infos")) == 0
+	              && fzn_node_schema_log_level(B("")) == 0,
+	      "a log level's name or letter is read wrongly");
+	CHECK(fzn_schema_check(fzn_node_schema_find(NULL, B("log/level")), B("debug")) == NULL
+	              && fzn_schema_check(fzn_node_schema_find(NULL, B("log/level")), B("loud"))
+	                         != NULL
+	              && fzn_schema_check(fzn_node_schema_find(NULL, B("log/scope")), B("estate"))
+	                         == NULL
+	              && fzn_schema_check(fzn_node_schema_find(NULL, B("log/scope")),
+	                                  B("host-private"))
+	                         == NULL
+	              && fzn_schema_check(fzn_node_schema_find(NULL, B("log/scope")), B("public"))
+	                         != NULL
+	              && fzn_schema_check(fzn_node_schema_find(NULL, B("log/segment")), B("4096"))
+	                         == NULL
+	              && fzn_schema_check(fzn_node_schema_find(NULL, B("log/segment")), B("4095"))
+	                         != NULL,
+	      "a log cell takes a value its reader would not, or refuses one it would");
 }
 
 static const fzn_schema_entry_t EXTRA[] = {
