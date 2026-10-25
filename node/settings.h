@@ -81,6 +81,19 @@ typedef struct fzn_node_settings {
 } fzn_node_settings_t;
 
 /*
+ * WHETHER EVERY SETTING `setter` MADE, AS HELD HERE, STANDS UNDER A LINE,
+ * sec 730: `stands` answers for each one's act (the hash of the setting as
+ * signed). 1 when all do, or `setter` made none; 0 when one does not, or
+ * the walk failed. What a vote's line drawn at the head this node holds is
+ * checked against: a setting taken from reconciliation before its record
+ * reached this node's journal sits past that head.
+ */
+int fzn_node_settings_setter_within(const fzn_node_settings_t *ns,
+                                    const uint8_t setter[FZN_PUBKEY_LEN],
+                                    int (*stands)(void *ctx, const uint8_t act[FZN_SUBJECT_LEN]),
+                                    void *ctx);
+
+/*
  * A SETTING SET ASIDE, sec 728: one stating a rank its setter is not yet
  * known here to hold, kept until it is, so the setter's stream goes on
  * past it rather than waiting on a standing that may never come -- a

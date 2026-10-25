@@ -209,6 +209,18 @@ def main(argv):
 			back_in_place(who, pid, "the join")
 			return joined[1]
 
+		def voted(who, key):
+			"""`who`'s vote against `key`, asked again while refused for a line
+			that would drop a setting it holds (sec 730): a voter may hold one
+			of `key`'s settings from reconciliation before its journal holds
+			the record, and a line at the head held would drop it."""
+			until = time.monotonic() + settle
+			while True:
+				vote = said(who, "revoke peer " + key).split()
+				if vote[:1] != ["error"] or time.monotonic() > until:
+					return vote
+				time.sleep(0.5)
+
 		def member(who):
 			polled(who, "list capability", lambda g: "member,1,1,0" in g.split()[2:],
 			       "not member held by one hop")
@@ -369,7 +381,7 @@ def main(argv):
 			writing["go"] = True
 			pen = threading.Thread(target=writer, daemon=True)
 			pen.start()
-			vote = said("a1", "revoke peer " + keys["d"]).split()
+			vote = voted("a1", keys["d"])
 			if len(vote) != 4 or vote[:3] != ["ok", keys["d"], "keeping"] or vote[3] == "nothing":
 				raise failed("c: A1's vote answered %r, not a cut at D's head" % vote)
 			# ONE VOTE IS NOT K: D's next setting is still taken at R.
@@ -378,7 +390,7 @@ def main(argv):
 			       "not D's h/mid, one vote short of k")
 			if grant_stands("r", keys["d"]) is not True:
 				raise failed("c: R's grant to D stands no more after one vote of two")
-			vote = said("a2", "revoke peer " + keys["d"]).split()
+			vote = voted("a2", keys["d"])
 			if len(vote) != 4 or vote[:3] != ["ok", keys["d"], "keeping"]:
 				raise failed("c: A2's vote answered %r" % vote)
 			polled("r", "list grant", lambda g: grant_stands("r", keys["d"]) is False,
@@ -430,11 +442,11 @@ def main(argv):
 			member("d2")
 			started.pop("a2").stop()
 			up("a2", loss=100)
-			vote = said("a2", "revoke peer " + keys["d2"]).split()
+			vote = voted("a2", keys["d2"])
 			if len(vote) != 4 or vote[:3] != ["ok", keys["d2"], "keeping"]:
 				raise failed("e: A2's vote at total loss answered %r" % vote)
 			killed("a2")
-			vote = said("n", "revoke peer " + keys["d2"]).split()
+			vote = voted("n", keys["d2"])
 			if len(vote) != 4 or vote[:3] != ["ok", keys["d2"], "keeping"]:
 				raise failed("e: N's vote answered %r" % vote)
 			if grant_stands("r", keys["d2"]) is not True:

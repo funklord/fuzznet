@@ -11518,8 +11518,8 @@ SABOTAGES = [
 	(
 		"messages-absorb-oldest-first",
 		"messages/messages.c",
-		"\t\t\tif (best == m->device_count || w[d].issued < w[best].issued)",
-		"\t\t\tif (best == m->device_count)",
+		"\t\t\tif (best == m->device_count || w[d].issued < w[best].issued\n",
+		"\t\t\tif (best == m->device_count || 0\n",
 		"streams are taken in device by device, so a rebuilt conversation is out of order -- sec 528",
 	),
 	(
@@ -12109,6 +12109,27 @@ SABOTAGES = [
 		"\tint64_t s = caller->clock_offset_ms / 1000;\n",
 		"\tint64_t s = 0 * caller->clock_offset_ms;\n",
 		"a request to a peer whose clock is off expires by the wrong clock -- sec 719 stage 3",
+	),
+	(
+		"messages-written-order",
+		"messages/messages.c",
+		"\tif (p == n || !placed)\n",
+		"\tif (1 || p == n || !placed)\n",
+		"a conversation is in the order each host learned it, and a read mark means another line on each -- sec 725",
+	),
+	(
+		"messages-alls-follow-insert",
+		"messages/messages.c",
+		"\t\tif (!all_entry(m, moves[k], c, &i) || !all_place(m, moves[k], i + 1u))\n",
+		"\t\tif (0 && (!all_entry(m, moves[k], c, &i) || !all_place(m, moves[k], i + 1u)))\n",
+		"everyone's listing names the wrong line after an insertion -- sec 725",
+	),
+	(
+		"vote-line-keeps-held-settings",
+		"node/admin.c",
+		"\telse if (!named && admin->settings && admin->roots && admin->roots->journal\n",
+		"\telse if (0 && !named && admin->settings && admin->roots && admin->roots->journal\n",
+		"a vote's line at the head held drops a setting this node holds of the peer's -- sec 730",
 	),
 	(
 		"setting-stated-rank-parked",

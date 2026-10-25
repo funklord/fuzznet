@@ -72276,3 +72276,50 @@ for.
 - **netcfgd's proposed line**, a library for how a value reaches a node
   and how nodes agree it did, with meaning left to the consumer, fits
   what fuzznet's settings already are.
+
+## 730. A vote's line that would drop a setting the voter holds, refused, 2026-10-25
+
+**The vote's version of sec 721,** found by sec 728's runs: two in 20 at
+5% loss failed phase c. D's `h/before`, written before either vote, read
+`ok absent` at R once D's grant fell.
+
+**The mechanism.** `revoke peer KEY` with no line named draws one at
+KEY's head as the voter's journal holds it (`revoke_peer`,
+`node/admin.c`). A voter holding one of D's settings from reconciliation,
+before its journal held the record, drew the line below it, so the vote
+took the setting with D's later acts. With no head of D's held at all,
+the vote went out with no line, quietly `none`, as `remove root` did
+before sec 721.
+
+**Built:**
+- **`fzn_node_settings_setter_within`** (`node/settings.h`) asks, for
+  every setting a key made as this node holds it, whether that setting's
+  act stands at or below a line.
+- **`revoke peer KEY` with no line refuses** when the line it would draw
+  drops one: "a line at that peer's head as held here would drop a
+  setting of its this node holds: ask again after a round, or name a
+  line".
+  - **No head and no setting held** is still voted with no line. A
+    device that never wrote, a lost phone that never synced, has
+    nothing for a line to keep, and refusing it would make it
+    unrevokable.
+  - **A live vote already held answers `already`** as before, with no
+    line drawn.
+  - **A named line, and `none`, are taken as said.**
+- **What it covers is settings,** the acts a member makes that arrive by
+  reconciliation. A member's grants and prekey records are not checked.
+
+**Measured:**
+- **`admin_test`, 299 checks:** a fresh key's setting learned, its record
+  in no journal, makes `revoke peer` refused. Once the record is held,
+  the vote is taken.
+- **`live_estate`'s votes now ask again while refused,** as phase f's
+  removal does.
+- **Sabotage, one entry.**
+- **Live, `live_estate` at 5% loss, 10 runs, 9 passing**, at a load of
+  about 4.
+  - **No phase c failure,** where 2 in 20 had failed before the fix.
+  - **The one failure is a local client unanswered past 5 s**, A2's
+    `set quorum 2` in phase f. A2's log shows no gap over 3.1 s, every
+    wait in it now serving local clients, so its place is not found.
+    Open, for instrumenting.

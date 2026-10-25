@@ -7,6 +7,7 @@
 #include "apply.h"
 #include "../log/rules.h"
 #include "../wire/bytes.h"
+#include "../constant_time/constant_time.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -143,6 +144,59 @@ static int standing(const fzn_node_settings_t *ns, const uint8_t cell[FZN_SUBJEC
 	if (head)
 		*head = at;
 	return 1;
+}
+
+/* ---- a setter's settings under a line, sec 730 ----------------------------- */
+
+struct within_walk {
+	const fzn_node_settings_t *ns;
+	const uint8_t *setter;
+	int (*stands)(void *ctx, const uint8_t act[FZN_SUBJECT_LEN]);
+	void *ctx;
+	int outside;
+};
+
+static int within_walked(void *arg, const uint8_t row[FZN_PUBKEY_LEN])
+{
+	static uint8_t buf[ROW_MAX];
+	struct within_walk *w = arg;
+	uint8_t act[FZN_SUBJECT_LEN];
+	fzn_setting_rank_t rank;
+	fzn_setting_t s;
+	uint64_t learned;
+	size_t len = 0, at = 0;
+
+	if (!w->ns->store->load(w->ns->store->ctx, FZN_PERSIST_SETTING, row, buf, sizeof(buf), &len)
+	    || !row_read(buf, len, &rank, &learned, &at)
+	    || fzn_setting_open(buf + at, len - at, w->ns->verify, &s) != FZN_SETTING_OK
+	    || !fzn_ct_memeq(s.setter, w->setter, FZN_PUBKEY_LEN))
+		return 1;
+	if (!w->ns->hash->hash(w->ns->hash->ctx, act, sizeof(act), buf + at, len - at)
+	    || !w->stands(w->ctx, act)) {
+		w->outside = 1;
+		return 0;
+	}
+	return 1;
+}
+
+int fzn_node_settings_setter_within(const fzn_node_settings_t *ns,
+                                    const uint8_t setter[FZN_PUBKEY_LEN],
+                                    int (*stands)(void *ctx, const uint8_t act[FZN_SUBJECT_LEN]),
+                                    void *ctx)
+{
+	struct within_walk w;
+
+	if (!ready(ns) || !setter || !stands)
+		return 0;
+	memset(&w, 0, sizeof(w));
+	w.ns = ns;
+	w.setter = setter;
+	w.stands = stands;
+	w.ctx = ctx;
+	/* A WALK STOPPED BY AN ACT OUTSIDE, or one that failed: either is 0. */
+	if (!fzn_persist_each(ns->store, FZN_PERSIST_SETTING, within_walked, &w))
+		return 0;
+	return !w.outside;
 }
 
 /* ---- settings set aside, sec 728 ---------------------------------------- */

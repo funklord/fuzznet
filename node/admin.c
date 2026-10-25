@@ -425,6 +425,22 @@ static int acts_as_root(fzn_node_admin_t *admin)
  * where it is, so asking again never widens it to whatever a thief has
  * logged since. A CUT, or `none`, moves the line of a vote already cast. */
 
+/* WHETHER AN ACT STANDS AT OR BELOW A LINE in a key's stream, as this node's
+ * journal holds it: what `fzn_node_settings_setter_within` asks of a vote's
+ * line (sec 730). No line keeps nothing. */
+struct line_of_key {
+	struct fzn_node_journal *journal;
+	const uint8_t *key;
+	const uint8_t *line;
+};
+
+static int act_within_line(void *ctx, const uint8_t act[FZN_SUBJECT_LEN])
+{
+	const struct line_of_key *l = ctx;
+
+	return l->line && fzn_node_journal_stands(l->journal, l->key, l->line, act);
+}
+
 static size_t revoke_peer(fzn_node_admin_t *admin, const uint8_t *rest, size_t rest_len,
                           char *reply, size_t cap)
 {
@@ -459,6 +475,20 @@ static size_t revoke_peer(fzn_node_admin_t *admin, const uint8_t *rest, size_t r
 	    && fzn_revocation_open(held, sizeof(held), &rec) == FZN_CHAIN_OK
 	    && !fzn_revocation_is_withdrawal(rec))
 		rerr = FZN_NODE_REVOKE_ALREADY;
+	/* A LINE DRAWN HERE THAT WOULD DROP WHAT THIS NODE HOLDS of the peer's,
+	 * sec 730, as sec 721 found for a root's removal: a setting taken from
+	 * reconciliation before its record reached this node's journal sits
+	 * past the head held, so the vote would take it with the peer's later
+	 * acts. A peer with no head here and no setting held -- a device that
+	 * never wrote -- is voted with no line, which drops nothing. A named
+	 * line, and `none`, are taken as said. */
+	else if (!named && admin->settings && admin->roots && admin->roots->journal
+	         && !fzn_node_settings_setter_within(
+	                 admin->settings, grantee, act_within_line,
+	                 &(struct line_of_key){ admin->roots->journal, grantee, drawn }))
+		return answer_text(reply, cap, FZN_REPLY_ERROR,
+		                   "a line at that peer's head as held here would drop a setting of "
+		                   "its this node holds: ask again after a round, or name a line");
 	else
 		rerr = fzn_node_revoke_at(admin->roots, admin->id, admin->state->config.root,
 		                          voting_authority(admin),

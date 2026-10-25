@@ -3104,6 +3104,41 @@ int main(void)
 			admin.remote_ran = NULL;
 		}
 
+		/* A VOTE'S LINE THAT WOULD DROP A HELD SETTING, sec 730: P's setting
+		 * learned from reconciliation, its record not in this node's
+		 * journal, so no head of P's is held; `revoke peer P` with no line
+		 * is refused, as `remove root` was (sec 721). Once the record is
+		 * held, the line at P's head keeps it, and the vote is taken. */
+		{
+			static struct node peer;
+			uint8_t obj[FZN_SETTING_MAX];
+			char peer_hex[(FZN_PUBKEY_LEN * 2u) + 1u];
+			size_t len = 0;
+
+			CHECK(node_up(&peer)
+			              && fzn_setting_issue_ranked(peer.id.pubkey, &peer.sign, FZN_SCOPE_HOST,
+			                                          peer.id.pubkey, 1u,
+			                                          (const uint8_t *)"line/p", 6u, 1,
+			                                          (const uint8_t *)"1", 1u,
+			                                          FZN_SETTING_RANK_HOST, obj, &len)
+			                         == FZN_SETTING_OK
+			              && fzn_node_settings_learn(&ns, obj, len, FZN_SETTING_RANK_HOST)
+			                         == FZN_NODE_SETTINGS_OK,
+			      "fixture: a setting of P's held, its record in no journal here");
+			hex(peer.id.pubkey, FZN_PUBKEY_LEN, peer_hex);
+			snprintf(line, sizeof(line), "revoke peer %s", peer_hex);
+			CHECK(ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len)
+			                         == FZN_REPLY_ERROR,
+			      "a vote whose line would drop a setting held here was cast");
+			CHECK(fzn_node_journal_append_object(&journal, peer.id.pubkey, &peer.sign, obj, len,
+			                                     2000u, NULL)
+			                      == FZN_NODE_JOURNAL_OK
+			              && ask(&admin, &owner, line, reply, sizeof(reply), &reply_len)
+			              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK,
+			      "a vote whose line at the peer's head keeps its settings was refused");
+		}
+
 		/* AND THE OLDER ROWS MOVED: a rule left in slot 26 becomes this
 		 * host's setting, and leaves the slot. */
 		{
