@@ -16,6 +16,9 @@ root, with A2 joined to it; B1, a root, with B2 joined to it.
        for A1
     d  nothing owed: every host's `get message owed` comes to `ok 0 0 0`,
        no line held undelivered and none delivered unsettled
+    d2 a host killed while a line is in flight: A2 is killed by SIGKILL, as
+       a power cut would, B1 writes a line to A, and A2 started again
+       holds it; B1 owes nothing once A has it
     e  a contact removed: A1 removes B, and A2 lists B suspended, the
        roster being the user's (sec 489); B2 then writes a line, and no
        host of A's holds it after six rounds. B, never told it was
@@ -33,6 +36,7 @@ Exit 0 on a pass, 1 on a failure.
 import argparse
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -148,6 +152,24 @@ def main(argv):
 			       "not member held by one hop")
 			expect(socks[who], who, "set setting host net/address 127.0.0.1 " + port[who], "ok")
 
+		def killed(who):
+			"""`who` killed by SIGKILL, no cleanup; under faketime the daemon
+			itself, so the wrapper reaps it and clears its files."""
+			d = started.pop(who)
+			kids = []
+			if d.wrapped:
+				try:
+					with open("/proc/%d/task/%d/children" % (d.proc.pid, d.proc.pid)) as f:
+						kids = [int(k) for k in f.read().split()]
+				except OSError:
+					kids = []
+			for pid in kids or [d.proc.pid]:
+				try:
+					os.kill(pid, signal.SIGKILL)
+				except ProcessLookupError:
+					pass
+			d.proc.wait(timeout=10)
+
 		def other(who):
 			return "b" if who[0] == "a" else "a"
 
@@ -229,6 +251,21 @@ def main(argv):
 				polled(who, "get message owed", lambda g: g.split()[1:3] == ["0", "0"],
 				       "still owing lines")
 			print("livecheck: d: no host owes a line, held or unsettled")
+
+			# d2: A2 killed with a line on its way; started again, it has it.
+			killed("a2")
+			late = "d2" * 16
+			expect(socks["b1"], "b1", "add message %s out %s while%%20a2%%20down"
+			       % (keys["a"], late), "ok")
+			time.sleep(2 * int(ROUND_S))
+			up("a2")
+			for who in ("a1", "a2"):
+				polled(who, "list message " + keys["b"], lambda g: late in g,
+				       "without B1's line written while A2 was down")
+			polled("b1", "get message owed", lambda g: g.split()[1:3] == ["0", "0"],
+			       "still owing the line once A has it")
+			print("livecheck: d2: A2 killed while B1's line was on its way; started again, "
+			      "both of A's hosts hold it, and B1 owes nothing")
 
 			# e: B removed by A; nothing of B's after reaches A.
 			expect(socks["a1"], "a1", "remove contact " + NAME["b"], "ok")

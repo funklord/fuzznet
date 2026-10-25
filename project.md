@@ -72386,7 +72386,15 @@ runs every daemon at that loss.
   owed at its end.
   - Passing 1 of 1 so far.
 
-Not yet in the scenario: a restart inside an operation.
+- **Phase d2, a host killed while a line is in flight:** A2 is killed
+  with SIGKILL, as a power cut would. B1 then writes a line to A, and A2
+  is started again. Both of A's hosts hold the line, and B1 owes nothing.
+- **The full scenario, a to e with d2, ten runs each:** clean 10, 5%
+  loss 10, `--skew 900` 10. The load was about 400, most of it from
+  another account's work.
+
+Not yet in the scenario: a restart inside an operation other than
+delivery.
 
 **The fuzz bar, first harness: a contact's delivery** (`node/test/delivery_fuzz.c`).
 The delivery is the one input in this journey written wholly by the other
