@@ -355,7 +355,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              record/test/sync_fuzz.c record/test/exchange_fuzz.c \
              node/test/members_fuzz.c node/test/reconcile_fuzz.c \
              node/test/delivery_fuzz.c messages/test/line_fuzz.c \
-             node/test/keys_fuzz.c \
+             node/test/keys_fuzz.c node/test/card_fuzz.c \
              node/test/votes_fuzz.c \
              provision/test/provision_test.c \
              roster/test/roster_test.c \
@@ -629,6 +629,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/node/test/members_fuzz \
              $(BUILD_DIR)/node/test/delivery_fuzz \
              $(BUILD_DIR)/node/test/keys_fuzz \
+             $(BUILD_DIR)/node/test/card_fuzz \
              $(BUILD_DIR)/messages/test/line_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
@@ -3865,6 +3866,15 @@ $(BUILD_DIR)/node/test/contact_card_test: $(BUILD_DIR)/node/test/contact_card_te
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# A contact's card and request bent, sec 689's 1:1 chat journey.
+$(BUILD_DIR)/node/test/card_fuzz: $(BUILD_DIR)/node/test/card_fuzz.o \
+                                  $(BUILD_DIR)/node/contact_request.o \
+                                  $(BUILD_DIR)/node/contact_card.o \
+                                  $(BUILD_DIR)/node/contact_devices.o \
+                                  $(BUILD_DIR)/contact/contact.o $(NODE_SERVE_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # A contact request, sec 619.
 $(BUILD_DIR)/node/test/contact_request_test: $(BUILD_DIR)/node/test/contact_request_test.o \
                                              $(BUILD_DIR)/node/contact_request.o \
@@ -4998,6 +5008,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/node/test/members_fuzz \
              $(BUILD_DIR)/node/test/delivery_fuzz \
              $(BUILD_DIR)/node/test/keys_fuzz \
+             $(BUILD_DIR)/node/test/card_fuzz \
              $(BUILD_DIR)/messages/test/line_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \

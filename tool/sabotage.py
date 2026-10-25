@@ -10315,6 +10315,13 @@ SABOTAGES = [
 		"a GIVE of more entries than a batch holds is taken; keys_fuzz's property 4 -- sec 731",
 	),
 	(
+		'node-contact-card-text-uppercase',
+		'node/contact_card.c',
+		"\tif (c >= '2' && c <= '7')\n\t\treturn 26 + (c - '2');\n",
+		"\tif (c >= '2' && c <= '7')\n\t\treturn 26 + (c - '2');\n\tif (c >= 'a' && c <= 'z')\n\t\treturn c - 'a';\n",
+		"a card's text read in lowercase too, so two strings name one card; card_fuzz's property 2 -- sec 731",
+	),
+	(
 		'messages-absorb-replays-waits',
 		'messages/messages.c',
 		'\tif (seen && !waits_replay(m, seen, ctx))',

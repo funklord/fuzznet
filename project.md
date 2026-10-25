@@ -72464,8 +72464,26 @@ an unknown one. Each is denied, and the conversation and what is owed
 are unchanged. Removing the origin check fails that table, and two older
 checks.
 
-Still to fuzz in this journey: a contact's card and request, the key
-exchange of the journey's first step.
+**Fourth harness: a contact's card and request** (`node/test/card_fuzz.c`).
+These are written by a stranger. It makes and signs cards and requests
+with varied hosts, seeds, names and expiries, using `contact_request_test`'s
+keyed stub signature, then bends the bytes and the text. Four properties:
+- each round-trips and holds;
+- bytes that decode encode back as themselves, and text that reads is
+  the text of its bytes;
+- bent bytes that hold are the bytes signed;
+- a request holds at no target it does not name.
+
+At 3000 cases: 1344 bent cards and 1512 bent requests decoded, and 1070
+bent texts read. Six sabotages are caught. Five already had entries,
+caught by the unit tests. The new one is lowercase base32 accepted,
+which a QR reader or a person might produce.
+
+**Journey 2's fuzz bar is met for its wire inputs:** delivery, the line's
+bodies, keys between members, and a card and request. Settlement's HOLDS
+is checked for its shape in `keys_fuzz`. The prekey and session layers
+under the key exchange had their own harnesses already. Still open in
+this journey: faults and bounds.
 
 ## 732. A build without packing builds again, 2026-10-25
 
