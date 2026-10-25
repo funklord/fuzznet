@@ -72667,3 +72667,51 @@ check fails with the recognition removed; phase b requires it.
 sec 638 made the estate's verbs work on a running daemon. Whether a
 running host should gather by verb is the next question for this
 journey.
+
+## 736. Journey 3's scripts repeated: a clean baseline, 2026-10-25
+
+Sec 689's scenario bar for retention and logs, first measure. The
+journey's live scripts were run ten times each with `tool/live_repeat.py`
+against the normal `fuzznetd`, at a load falling from about 120 to 10:
+- `trim` 10 of 10, 1.3 s each;
+- `history` 10 of 10, 0.3 s each;
+- `archive` 10 of 10, 11.9 s each;
+- `erasure` 10 of 10, 37.3 s each.
+
+The short times were suspected and checked by hand: each run prints
+every phase, and none skips.
+
+**Not yet measured: loss, restarts inside an operation, and skew.** These
+four scripts take the normal daemon and have no `--loss` or `--skew`,
+which `live_chat.py` has. Of the four, only erasure places and fetches
+pieces across hosts, so it took the fault build and `--loss` (below).
+Archive, trim and history each work within one host, where loss means
+nothing, so for them only a restart inside an operation applies.
+`live_logs.py` (sec 735) runs on the fault build already.
+
+**Erasure under loss, measured** (`live_erasure.py --loss P` against the
+fault build, `--keep DIR` to keep a failed run). Six hosts, 4+2 pieces:
+
+| loss | cycles for five members to pair | then |
+|---|---|---|
+| 0 | 3 | passes, 38 s |
+| 5% | 7, 8, 7 | B's cut not logged within 30 s twice; once B held all 30 pieces and A, C and E none |
+| 20% | 24 | B's cut not logged within 30 s |
+
+**Why: one lost datagram passes a peer over for a whole round.** The
+caller does not resend. An ask that loses its request or a piece of its
+reply waits out its 3 s and fails, and the round goes on without that
+peer (sec 726's one wait a round). Joining siblings takes several asks
+in sequence, each a round's chance to lose one, so the cycles grow
+faster than the loss. It is sec 693's "one loss costs a whole span
+deadline", met in the estate's own rounds and not only in a transfer.
+For the resend question the holder chose "measure first" (sec 694), and
+these are the measurements.
+
+**A test fault, found and fixed first.** Every daemon in a run took one
+`FZN_FAULT_SEED`, so a restart lost the same datagrams as the run
+before. The one host whose first request was lost lost it every cycle
+and never paired, 0 of 4 over six cycles at 5%. `live_erasure.py` now
+seeds each start apart. `live_chat.py` and `live_estate.py` also take one
+seed a run, but their daemons restart less, and they passed at 5% (secs
+707, 731).

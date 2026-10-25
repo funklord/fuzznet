@@ -23,11 +23,15 @@ BOUNDED FROM INSIDE as live_rejoin.py is, whose daemon handling this reuses:
 one deadline -- 480 s here, six hosts going round in turn -- each daemon in
 its own process group, and every daemon checked gone.
 
+`--loss P` runs every daemon at FZN_FAULT_LOSS=P, against the fault build's
+daemon (sec 736).
+
 Exit 0 on a pass, 1 on a failure.
 """
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -53,9 +57,28 @@ CYCLES = 6
 
 
 def main(argv):
-	if len(argv) != 2:
-		print("usage: live_erasure.py PATH_TO_FUZZNETD", file=sys.stderr)
+	# `--loss P`, sec 736: every daemon at FZN_FAULT_LOSS=P, one seed per
+	# run, so PATH must be `make fuzznetd-faults`' daemon.
+	# `--keep DIR`: a failed run's stores and logs copied there.
+	loss, keep = 0, None
+	rest = argv[2:]
+	argv = argv[:2]
+	while len(rest) >= 2 and rest[0] in ("--loss", "--keep"):
+		if rest[0] == "--loss" and rest[1].isdigit():
+			loss = int(rest[1])
+		elif rest[0] == "--keep":
+			keep = rest[1]
+		else:
+			break
+		rest = rest[2:]
+	if len(argv) != 2 or rest:
+		print("usage: live_erasure.py PATH_TO_FUZZNETD [--loss PER_CENT] [--keep DIR]",
+		      file=sys.stderr)
 		return 2
+	if loss:
+		os.environ["FZN_FAULT_LOSS"] = str(loss)
+		os.environ["FZN_FAULT_SEED"] = str(os.getpid())
+		live_trim.DEADLINE += 30.0 * loss
 
 	class run:
 		pass
@@ -89,6 +112,11 @@ def main(argv):
 			return sum(1 for n in os.listdir(dirs[h]) if n.startswith("8-"))
 
 		def up(h, tag, rules=()):
+			# A SEED A START, sec 736: one seed for the whole run made every
+			# restart lose the same datagrams, so the one host whose first
+			# request was lost lost it every cycle and never paired.
+			if loss:
+				os.environ["FZN_FAULT_SEED"] = str(os.getpid() * 1000 + len(run.started))
 			return daemon(run, tag + h, dirs[h], socks[h],
 			              extra=args[h] + ["--log-rule=" + r for r in rules], log_dir=logs[h])
 
@@ -157,14 +185,18 @@ def main(argv):
 			# a: every member paired to every other: four pairings more than
 			# its own to the root, which joining gave it.
 			joined = {h: pairings(h) for h in MEMBERS}
-			for cycle in range(CYCLES):
+			# UNDER LOSS, AS MANY AS IT TAKES up to 30, and said: one lost
+			# datagram passes a peer over for the round, so the cycles
+			# needed are the measure of that cost (sec 736).
+			cycles = CYCLES if not loss else 30
+			for cycle in range(cycles):
 				round_all("a%d" % cycle)
 				have = {h: pairings(h) - joined[h] for h in MEMBERS}
 				if all(n >= len(MEMBERS) - 1 for n in have.values()):
 					break
 			if not all(n >= len(MEMBERS) - 1 for n in have.values()):
 				raise failed("a: after %d cycles the members held %r pairing(s) to siblings, "
-				             "each wanting %d" % (CYCLES, have, len(MEMBERS) - 1))
+				             "each wanting %d" % (cycles, have, len(MEMBERS) - 1))
 			print("livecheck: a: five members paired with one another in %d cycle(s)"
 			      % (cycle + 1))
 
@@ -221,6 +253,9 @@ def main(argv):
 			      "rebuilt each fossil and put them back" % len(lost))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
+			if keep:
+				shutil.copytree(scratch, keep, symlinks=True)
+				print("livecheck: the run's stores and logs kept in %s" % keep)
 			return 1
 		except subprocess.TimeoutExpired as e:
 			print("livecheck: FAILED -- a command passed its deadline: %s" % e)
