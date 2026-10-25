@@ -44,8 +44,9 @@ static uint64_t cursor_of(const fzn_messages_t *m, const uint8_t device[FZN_PUBK
 static int set_cursor(const fzn_messages_t *m, const uint8_t device[FZN_PUBKEY_LEN],
                       uint64_t seq);
 static int index_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
-                        const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq, uint8_t direction,
-                        const uint8_t id[FZN_MESSAGE_ID_LEN], uint32_t epoch, size_t size);
+                        const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq, uint64_t written_at,
+                        uint8_t direction, const uint8_t id[FZN_MESSAGE_ID_LEN], uint32_t epoch,
+                        size_t size);
 static int is_gone(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                    uint32_t epoch);
 static int keep_line(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
@@ -923,7 +924,7 @@ static int line_mark(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_L
  * `keep_line`, has asked whether the line is indexed already -- marked, or
  * among the recent entries for a store from before marks -- so a copy
  * another device wrote never reaches here. */
-static int index_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+static int index_at_end(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                         const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq, uint8_t direction,
                         const uint8_t id[FZN_MESSAGE_ID_LEN], uint32_t epoch, size_t size)
 {
@@ -957,6 +958,159 @@ static int index_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKE
 	                      (in_chunk + 1u) * ENTRY_LEN)
 	       && save_number(m, "count", contact, n + 1u) && all_append(m, contact, n)
 	       && line_mark(m, contact, direction, id, 1);
+}
+/* ---- a conversation in the order it was written, sec 725 ----------------- */
+
+/* An entry's bytes as stored, and put back: `i` below the count, or at it
+ * for the slot past the end. The chunk cache is let go on a write. */
+static int entry_bytes(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN], uint64_t i,
+                       uint8_t out[ENTRY_LEN])
+{
+	uint8_t row[FZN_PUBKEY_LEN], chunk[CHUNK_BYTES];
+	size_t k = (size_t)(i % FZN_MESSAGES_INDEX_CHUNK), len = 0;
+
+	if (i / FZN_MESSAGES_INDEX_CHUNK > UINT32_MAX
+	    || !index_row(m, "chunk", contact, (uint32_t)(i / FZN_MESSAGES_INDEX_CHUNK), row)
+	    || !m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, chunk, sizeof(chunk),
+	                       &len)
+	    || (k + 1u) * ENTRY_LEN > len)
+		return 0;
+	memcpy(out, chunk + k * ENTRY_LEN, ENTRY_LEN);
+	return 1;
+}
+
+static int entry_put(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN], uint64_t i,
+                     const uint8_t bytes[ENTRY_LEN])
+{
+	uint8_t row[FZN_PUBKEY_LEN], chunk[CHUNK_BYTES];
+	size_t k = (size_t)(i % FZN_MESSAGES_INDEX_CHUNK), len = 0;
+
+	chunk_held.valid = 0;
+	if (i / FZN_MESSAGES_INDEX_CHUNK > UINT32_MAX
+	    || !index_row(m, "chunk", contact, (uint32_t)(i / FZN_MESSAGES_INDEX_CHUNK), row))
+		return 0;
+	if (!m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, chunk, sizeof(chunk),
+	                    &len))
+		len = 0;
+	if (k * ENTRY_LEN > len)
+		return 0;
+	memcpy(chunk + k * ENTRY_LEN, bytes, ENTRY_LEN);
+	if ((k + 1u) * ENTRY_LEN > len)
+		len = (k + 1u) * ENTRY_LEN;
+	return m->store->save(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, chunk, len);
+}
+
+/* Entry `k` of every line's order given place `i` in its conversation. */
+static int all_place(const fzn_messages_t *m, uint64_t k, uint64_t i)
+{
+	uint8_t row[FZN_PUBKEY_LEN], chunk[ALL_CHUNK_BYTES];
+	size_t at = (size_t)(k % FZN_MESSAGES_INDEX_CHUNK) * ALL_ENTRY_LEN, len = 0;
+
+	all_held.valid = 0;
+	if (k / FZN_MESSAGES_INDEX_CHUNK > UINT32_MAX
+	    || !index_row(m, "allchnk", NOBODY, (uint32_t)(k / FZN_MESSAGES_INDEX_CHUNK), row)
+	    || !m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, chunk, sizeof(chunk),
+	                       &len)
+	    || at + ALL_ENTRY_LEN > len)
+		return 0;
+	fzn_put_be64(chunk + at + FZN_PUBKEY_LEN, i);
+	return m->store->save(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, chunk, len);
+}
+
+/* WHERE A LINE WRITTEN AT `written` BY `device` AS `seq` GOES, ordered by
+ * (when written, the writing device's key, its sequence) -- the same on
+ * every host, since each is the line's record's own. Before entry `a`,
+ * `b` its key; 1 when the line goes before. */
+static int written_before(uint64_t written, const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq,
+                          uint64_t b_written, const uint8_t b_device[FZN_PUBKEY_LEN],
+                          uint64_t b_seq)
+{
+	int c;
+
+	if (written != b_written)
+		return written < b_written;
+	c = memcmp(device, b_device, FZN_PUBKEY_LEN);
+	if (c != 0)
+		return c < 0;
+	return seq < b_seq;
+}
+
+/* How far back of every line's order to look for a conversation's entries
+ * an insertion moves; past it, the line is appended, as before sec 725. */
+#define ALL_SCAN_MAX 4096u
+
+/* A LINE PUT IN ITS WRITTEN PLACE, sec 725, the holder's decision: every
+ * host orders a conversation by when each line was written, ties by the
+ * writing device's key and its sequence, so a read mark -- which names a
+ * line -- means the same everywhere. Each store learned lines in its own
+ * order, and two lines sent 13 ms apart were filed either way round, so
+ * "read through X" read everything on one host and almost nothing on
+ * another. Looked for over the conversation's last RECENT_ENTRIES; a line
+ * written before all of those, or whose move would reach entries of every
+ * line's order past ALL_SCAN_MAX back, is appended, as it was before. */
+static int index_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                        const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq, uint64_t written_at,
+                        uint8_t direction, const uint8_t id[FZN_MESSAGE_ID_LEN], uint32_t epoch,
+                        size_t size)
+{
+	static uint8_t buf[STORED_MAX];
+	static uint64_t moves[RECENT_ENTRIES];
+	uint64_t n = count_of(m, contact), p, j, total, k, i;
+	uint8_t e_bytes[ENTRY_LEN], c[FZN_PUBKEY_LEN];
+	size_t found = 0;
+	int placed;
+	entry_t e;
+	stored_t s;
+
+	if (n == 0u)
+		return index_at_end(m, contact, device, seq, direction, id, epoch, size);
+	/* ITS PLACE, back from the end while the entry there was written after.
+	 * Stopping at an entry written before it places it; reaching the start
+	 * places it first; running out of the window places it nowhere. */
+	p = n;
+	placed = 0;
+	for (j = n; j > 0u; j--) {
+		if (n - j >= RECENT_ENTRIES)
+			break;
+		if (!index_entry(m, contact, j - 1u, &e) || !stored_load(m, e.device, e.seq, buf, &s)
+		    || !written_before(written_at, device, seq, s.written_at, e.device, e.seq)) {
+			placed = 1;
+			break;
+		}
+		p = j - 1u;
+	}
+	if (j == 0u)
+		placed = 1;
+	if (p == n || !placed)
+		return index_at_end(m, contact, device, seq, direction, id, epoch, size);
+	/* THE ENTRIES OF EVERY LINE'S ORDER IT MOVES, found before anything
+	 * moves: each of this conversation's entries from `p` on is one place
+	 * later after it. */
+	total = load_number(m, "alls", NOBODY);
+	for (k = total; k > 0u && total - k < ALL_SCAN_MAX && found < n - p; k--)
+		if (all_entry(m, k - 1u, c, &i) && memcmp(c, contact, FZN_PUBKEY_LEN) == 0 && i >= p)
+			moves[found++] = k - 1u;
+	if (found < n - p)
+		return index_at_end(m, contact, device, seq, direction, id, epoch, size);
+	/* THE SHIFT, from the end down, then the line in its place, then the
+	 * count. A crash part way leaves an entry twice, which the next reindex
+	 * sets right; the count is written last, so nothing is lost. */
+	for (j = n; j > p; j--)
+		if (!entry_bytes(m, contact, j - 1u, e_bytes) || !entry_put(m, contact, j, e_bytes))
+			return 0;
+	memcpy(e_bytes, device, FZN_PUBKEY_LEN);
+	fzn_put_be64(e_bytes + ENTRY_SEQ, seq);
+	e_bytes[ENTRY_DIRECTION] = direction;
+	memcpy(e_bytes + ENTRY_ID, id, FZN_MESSAGE_ID_LEN);
+	fzn_put_be32(e_bytes + ENTRY_EPOCH, epoch);
+	e_bytes[ENTRY_SIZE] = (uint8_t)(size >> 8);
+	e_bytes[ENTRY_SIZE + 1u] = (uint8_t)size;
+	if (!entry_put(m, contact, p, e_bytes) || !save_number(m, "count", contact, n + 1u))
+		return 0;
+	for (k = 0; k < found; k++)
+		if (!all_entry(m, moves[k], c, &i) || !all_place(m, moves[k], i + 1u))
+			return 0;
+	return all_append(m, contact, p) && line_mark(m, contact, direction, id, 1);
 }
 
 /* OPEN THE ROWS WAITING FOR A KEY: `contact`'s lines of `epoch` that
@@ -1046,7 +1200,8 @@ static int keep_line(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_L
 	/* THE ROW, OPENED WHEN ITS KEY IS HERE, THEN THE ENTRY: an entry never
 	 * names a line nothing keeps. */
 	return stored_keep(m, &s)
-	       && index_append(m, contact, device, seq, last->direction, last->id, last->epoch,
+	       && index_append(m, contact, device, seq, written_at, last->direction, last->id,
+	                       last->epoch,
 	                       last->text_len + (last->parts == 2u ? FZN_MESSAGE_PART_MAX : 0u));
 }
 
@@ -1272,7 +1427,12 @@ fzn_messages_err_t fzn_messages_absorb(const fzn_messages_t *m, uint64_t *at,
 				w[d].issued = fzn_record_issued_at(head);
 				w[d].loaded = 1;
 			}
-			if (best == m->device_count || w[d].issued < w[best].issued)
+			/* TIES BY THE WRITING DEVICE'S KEY, sec 725, as an insertion
+			 * orders them: the first in this host's own device list was
+			 * the tie-break, and that list differs from host to host. */
+			if (best == m->device_count || w[d].issued < w[best].issued
+			    || (w[d].issued == w[best].issued
+			        && memcmp(m->devices[d], m->devices[best], FZN_PUBKEY_LEN) < 0))
 				best = d;
 		}
 		if (best == m->device_count)

@@ -552,6 +552,40 @@ static void test_two_devices(void)
 	      "forgetting the month takes both devices' keys for it on A");
 }
 
+/* A CONVERSATION IN THE ORDER IT WAS WRITTEN, sec 725: B writes line 2,
+ * then A writes line 1. A indexes its own line at once and learns B's
+ * after, so in the order learned B's earlier line was A's newest; in the
+ * order written it is the older, as on every host. A read mark through the
+ * newest then leaves nothing unread. */
+static void test_written_order_not_learned(void)
+{
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	size_t unread = 99u;
+	int beyond = 1;
+
+	setup();
+	CHECK(write_line(&B, X, FZN_MESSAGE_IN, 2u, "written first, at b")
+	              && write_line(&A, X, FZN_MESSAGE_IN, 1u, "written after, at a"),
+	      "fixture: B's line written, then A's");
+	sync_a();
+	keys_b_to_a();
+	CHECK(list(&A, X, 0u, 5u) && count == 2u && page[0].id[0] == 1u && page[1].id[0] == 2u,
+	      "A lists the line it learned last as the newest, not the one written last");
+	/* AND EVERY LINE'S ORDER STILL NAMES THEM: the insertion moved A's own
+	 * line one place on in its conversation, and the entry naming it went
+	 * with it, so everyone's listing holds both lines, each once. */
+	CHECK(list(&A, NULL, 0u, 5u) && count == 2u
+	              && ((page[0].id[0] == 1u && page[1].id[0] == 2u)
+	                  || (page[0].id[0] == 2u && page[1].id[0] == 1u))
+	              && page[0].readable && page[1].readable,
+	      "everyone's listing lost or doubled a line its conversation's insertion moved");
+	id_of(id, 1u);
+	CHECK(fzn_messages_read_up_to(&A.m, X, id) == FZN_MESSAGES_OK
+	              && fzn_messages_unread(&A.m, X, &unread, &beyond) == FZN_MESSAGES_OK
+	              && unread == 0u,
+	      "read through the newest line written, a line is still unread");
+}
+
 /* A WINDOW IS NOT REBUILT FROM, sec 560: A's stream held from part way --
  * here its base moved past the first record -- and a reindex refuses before
  * clearing anything, both lines still listed; while the base is the start
@@ -943,9 +977,14 @@ static void test_the_current_month_stays(void)
 {
 	fzn_retain_rule_t r;
 
+	/* TWO OF OCTOBER'S, the first past the count. A conversation is in the
+	 * order it was written (sec 725), so the line past the count is the one
+	 * written first -- once this was September's line written later, which
+	 * written order now places first, past the count, and trims. */
 	setup();
-	CHECK(write_in(&A, 681u, X, 4u, "october") && write_in(&A, 680u, X, 3u, "september, after"),
-	      "fixture: October's line written, then September's");
+	CHECK(write_in(&A, 681u, X, 4u, "october") && write_line(&A, X, FZN_MESSAGE_OUT, 3u,
+	                                                         "october, after"),
+	      "fixture: two of October's lines written, one after the other");
 	clock_ms = OCTOBER_2026;
 	r = rule_of("prune messages count 1");
 	CHECK(trim(&A, &r, 1u) && trimmed.months == 0u && readable(&A, X, 4u) == 1
@@ -1359,6 +1398,7 @@ int main(void)
 	test_lines_list_newest_first();
 	test_a_hand_off_given_up_on_stays();
 	test_two_devices();
+	test_written_order_not_learned();
 	test_no_reindex_from_a_window();
 	test_the_newest_mark_wins();
 	test_a_mark_after_the_clock_steps_back();

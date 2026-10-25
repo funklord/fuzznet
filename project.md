@@ -71937,6 +71937,44 @@ order on every host. The options rejected:
 **Still in arrival order:** the listing of everyone's lines across
 conversations (alls). Nothing compares it between hosts.
 
+### Built for sec 725, differently from the plan in two places
+
+- **No format change.** The plan gave every index entry its line's
+  written time, a format change with a rebuild on upgrade. But a rebuild
+  refuses once the journal window has cut a stream, since the index is
+  then the only record of the lines below the base. So an insertion
+  reads each compared line's written time from its row (`stored_load`),
+  usually one load, against the last entry.
+- **Every line's order keeps its positions and has them moved.** An entry
+  of "alls" names a line by its conversation and its place there. An
+  insertion at place p therefore moves the alls entries naming that
+  conversation's places from p on by one. They are found first, walking
+  back at most `ALL_SCAN_MAX` (4096) of alls, before anything moves. If
+  they are not all found, the line is appended as before.
+- **`index_append`** puts a line in its place by (when written, the
+  writing device's key, its sequence), looking back over the
+  conversation's last `RECENT_ENTRIES` (64). A line written before all
+  of those is appended, as before.
+  - **The shift runs from the end down, then the line, then the count,**
+    so a crash part way leaves an entry twice, which a reindex sets
+    right, and loses nothing.
+- **The rebuild's merge breaks ties by the device's key** where it took
+  the first in this host's own device list, which differs by host. This
+  one is not covered by a test, for want of a fixture with two devices'
+  records in one millisecond.
+- **Measured, `messages_test`, 179 checks:**
+  - B's line written first and A's after, A learning B's last: A lists
+    A's as the newest, and a read mark through it leaves nothing unread;
+  - everyone's listing holds both lines once.
+
+  With the insertion off, the first two fail. With the alls move off,
+  the third fails.
+- **`test_the_current_month_stays` reshaped.** It wrote October's line,
+  then September's, and leaned on September's being newest, as it was
+  in arrival order. In written order it is older and past the count, so
+  the test now uses two of October's lines.
+- **Sabotage, two entries.**
+
 ## 726. A dead peer costs one wait a round, not one a step, 2026-10-25
 
 **Found re-measuring journey 1 for the bar** (sec 689: ten runs green),
