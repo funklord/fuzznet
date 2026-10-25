@@ -69625,6 +69625,19 @@ is built, as the fifth is.
     converter takes the ink from the asterisks and the fill from the
     background around them. Since its aa297f3 the fill replaces the
     box's pixels rather than painting over them.
+- **And a turn for the box, 0..359 degrees clockwise** (manifest key 16).
+  Added by fuzzypickles 2026-10-25, its b8127c8. A requirement to carry,
+  like the ink.
+  - The box is turned about its own centre. X, Y, W and H are the box
+    before turning, so the centre is the same either way.
+  - It is written only when set, and over 359 is malformed. A reader
+    without it skips the key and draws the box level.
+  - In the spec it is an optional eighth word,
+    `text LIMIT X Y W H FILL INK ANGLE`, with `00000000` for a fill or
+    ink left unset.
+  - Why: LINE sets many placeholders on a slant. fuzzypickles' converter
+    finds 184 of 208 boxes right on the holder's six custom packs, 33 of
+    them turned.
 - **On a node now:** this tree's `fzn:` reference (`sticker/pack.h`) has
   no place for words, so fuzzypickles' clients send such a sticker
   without them on a fuzznetd node. When the sticker format is taken here,
@@ -71870,3 +71883,223 @@ show.
 **Not built: sec 689's freeze.** This is new work, not hardening, and
 whether it fits before the subset clears is the holder's call. A half
 day or so, estimated, not measured.
+
+## 725. A conversation in the order it was written, on every host: decided, the plan, 2026-10-25
+
+**Found by journey 2's scenario** (`tool/live_chat.py`, sec 689): two
+users of two hosts each, a line from each host. B1 marked B's
+conversation read through its newest line, and B2 still had 2 unread.
+The two hosts listed the lines in different orders, newest first:
+
+    B1  b2 a2 b1 a1
+    B2  a2 b1 a1 b2
+
+**The mechanism.** A conversation is ordered as each store learned its
+lines (`index_append`), so B2's own line, written there first, was its
+oldest, and the same line arrived at B1 last. A read mark names a line,
+so "read through b2" meant everything at B1 and almost nothing at B2.
+Sec 536 recorded the two orders and judged the gap small: "in normal
+running, a conversation is in the order this store learned of its
+lines; that differs only for a line that reached this store late." Read
+state across a user's hosts makes it large.
+
+**Decided by the holder, 2026-10-25, asked: "As written."** Every host
+orders a conversation's lines by when each was written. That is the
+writer's stamp, estate time for the user's own devices (sec 723) and the
+contact's own clock for theirs, with ties broken the same way
+everywhere. It is the order a rebuild already gives, and it makes one
+order on every host. The options rejected:
+- **as learned, with "read through X" made to mean every line written
+  no later than X:** read state agrees, but the order shown still
+  differs by host;
+- **as learned, unchanged.**
+
+**The plan:**
+1. **An index entry gains its line's written time** (`ENTRY_WRITTEN`).
+   It is a format change, so a store of the old shape is rebuilt once
+   through `fzn_messages_upgrade`.
+2. **An entry of every line's order ("alls") names its line by device
+   and sequence**, not by its place in its conversation. An insertion
+   into a conversation then moves nothing that alls refers to.
+3. **`index_append` becomes an ordered insert** by (written time, the
+   writing device's key, its sequence), looking back over at most the
+   conversation's last `RECENT_ENTRIES`. A line later than that is
+   appended, and said in the log.
+4. **The rebuild's merge breaks ties the same way.** Today it takes the
+   first device in this host's own device list, which differs by host.
+5. **Tests:**
+   - `messages_test`: two stores learning the same lines in opposite
+     orders list them alike, and a read mark reads alike;
+   - an old-shape store rebuilt;
+   - the tie-break;
+   - `live_chat.py` phase c passing.
+
+**Still in arrival order:** the listing of everyone's lines across
+conversations (alls). Nothing compares it between hosts.
+
+## 726. A dead peer costs one wait a round, not one a step, 2026-10-25
+
+**Found re-measuring journey 1 for the bar** (sec 689: ten runs green),
+`live_estate --skew 900`, ten runs:
+- 6 of 10 passed after secs 719-723;
+- all four failures were in phase f, after R is stopped;
+- three of them were A2's own socket unanswered past a client's 5 s,
+  during `remove root`.
+
+**What blocked, read from A2's log.** R, stopped and not yet judged
+silent, cost a 3 s wait at each in-turn step of a round, back to back:
+- **Introductions:** each silent sibling, R and the revoked devices, was
+  introduced in turn through the first base pull not yet silent. That
+  was R itself, so each waited 3 s.
+- **`peer_ask`, the in-turn ask** that reconciliation and other steps use,
+  never marked a peer silent when it failed. A round conversation's
+  silence (`meter_answer`) does, so the round's later conversations pass
+  such a peer over, but the in-turn steps asked it again each time.
+
+**Built:**
+- **`peer_asking` carries its round target.** A failed `peer_ask` marks
+  it silent for the rest of the round, and an in-turn ask to a peer
+  already silent returns at once. Set wherever a pull target is in
+  scope, with NULL for the one-shot ask before the loop.
+- **An introduction left unanswered ends the round's introductions.**
+  The sibling loop starts the next round after the one that failed, so
+  a sibling that never can be introduced does not hold up the rest.
+  Contacts clear `due` before asking, so they need no rotation.
+
+**Measured, ten runs at `--skew 900` each:**
+- after the introduction bound alone, still 6 of 10;
+- after both, 9 of 10. The one failure was a local ask past 5 s at a
+  load of about 170, where the log shows no gap over 4 s outside a
+  conversation's wait.
+
+**Open:** the bar's ten green, to be run again at a lower load. And sec
+720's limit stands: local clients are still not served during an in-turn
+wait, so one 3 s wait on a loaded machine can still pass a 5 s client.
+
+## 727. Local clients answered during a wait, and a wait strays cannot stretch, 2026-10-25
+
+**Journey 1 for the bar, re-measured at a quiet load** (5 to 7) after sec
+726:
+- clean, 9 of 10;
+- `--skew 900`, 4 of 10;
+- 5% loss, 0 of 10, every failure a local client unanswered past 5 s.
+
+**This was not a regression from today's commits.** A scratch worktree
+built the fault daemon at earlier commits, each run against today's
+script at 5% loss, 4 runs each:
+- **d75f2f2:** 0 of 4, local clients unanswered;
+- **d3b5400**, before 66ebab7 and its wait that serves peers: 2 of 4
+  unanswered. The other two met the clock event's `self` bug, fixed since.
+
+So what changed is the scenario. Since d75f2f2 every device publishes its
+address, so siblings reach each other, and their in-turn exchanges
+multiply. Under loss those waits follow one another, and sec 720's limit
+dominates: local clients were not served during an in-turn wait. Sec
+715's runs passed at 5% loss because devices could not reach each other
+then.
+
+**Built, three fixes:**
+- **A wait strays cannot stretch** (`node/caller.c`). `fzn_caller_recv`
+  set `SO_RCVTIMEO` once per datagram, and a frame that was not its
+  answer restarted it. That covered a late answer to another question
+  on the same socket, and anyone's packet to the port. A 3 s wait was
+  measured at 5.1 s. The wait is now a deadline that only a piece of the
+  awaited reply extends. `pair_test`, 350 checks: a child sends a stray
+  every 300 ms for 3 s, and a 1 s wait ends before 1.8 s. With the old
+  timeout put back, it fails.
+- **Local clients served during a wait, where the step says so**
+  (`fzn_node_wait_answering`'s `local`, fuzznetd's `answering_local`).
+  - **Reconciliation, which includes the log copies, and both
+    introductions** opt in.
+    - Their state is in buffers of their own (`node/reconcile.c`'s
+      module statics) and in the pull and contact tables, which no local
+      handler reloads (measured: only round steps and start-up call
+      `load_siblings` or `load_contact_targets`).
+    - No local verb restarts the daemon inline, since `start_again` is
+      reached by loop-level flags.
+    - A local write between two of reconciliation's asks behaves as
+      between steps: a bucket computed before the ask may be a moment
+      stale, and the next round corrects it.
+  - **The notes share pass does not opt in.** It holds the author's view
+    across its asks, and a local notes verb reloads that view.
+  - `serve_test`, 22 checks: a local client is answered during a wait
+    that says `local`, and not otherwise.
+- **The journey's phase f removes R before stopping it.**
+  - Stopped first, R sometimes died with its record of adding A2
+    shared with nobody. Then no removal could keep A2 a root: a cut at
+    the head drops the add, and `none` keeps nothing.
+  - The refusal of sec 721 said so, correctly, and the run timed out
+    asking again. That case is a limit, recorded below, not a flake.
+  - live_estate's ports also moved off `1024 + pid % 19 * 8`, which
+    two runs side by side shared about one time in 19.
+
+**Measured after, ten runs each:**
+- `--skew 900`, 10 of 10 at load about 4;
+- 5% loss, 9 of 10 at load 160 to 205, while hull's qemu suite ran
+  beside it.
+- **The one failure is new:** E, joined through A2 after R's removal,
+  reads A2's `e/after` at admin rank, while A2's own log says it stands
+  among the roots. It is taken up next.
+
+**Open:**
+- **A root lost before its add of you reached anyone** cannot be removed
+  without losing your own standing. The refusal says to ask again after
+  a round or name a cut, and neither helps when the record is gone.
+  Whether a removal should be able to keep acts this node counts but
+  holds no record of is a design question for the holder.
+- **Clean's one failure** was "the daemon exited before listening", on
+  the old port scheme.
+- **`live_faults` phase h loaded 302 revocations where 300 were cast**,
+  once, in the gates' run of 2026-10-25. It was a lone node with no
+  peers, and passed run again alone. Unexplained: nothing in sec 727's
+  changes reaches a node with no peer to wait on. Kept open, to be
+  counted if it recurs.
+
+## 728. A setting ranked by what its receiver knows on arrival, 2026-10-25
+
+**Found by journey 1 at 5% loss**, sec 727's one failure. E joined through
+A2 after A2 had removed R, and read A2's `e/after` at admin rank, while
+A2's own log said it stands among the roots.
+
+**The mechanism, read in the code.** `take_setting` (`node/apply.c`)
+ranks an arriving setting by its setter's standing as this node judges
+it then (`fzn_node_apply_rank`). The setting itself (`state/setting.situ`)
+carries no rank. E held A2's admin chain and not yet R's add of A2, so it
+filed the setting at admin rank. Nothing re-ranks a held row when the
+root set changes later, so it stays there.
+
+**The writer and the reader disagree.** A2 judged itself a root and wrote
+at root rank (`node/settings.c`, judged before it is written). E judged
+A2 an admin, and both are right by what each held.
+
+**Options, for the holder:**
+1. **The setter states its rank in the signed setting.** A receiver that
+   cannot yet confirm the setter held it waits, as a record with no chain
+   waits now. This is a wire change to `state/setting.situ`, through
+   situ.
+2. **Re-rank held rows when the root set changes.** A setting written
+   before its setter became a root must stay at the lower rank, so this
+   needs an order between the setting's record and the act that raised
+   its setter, two streams apart. Estate time makes the order possible,
+   but it is intricate.
+3. **Leave it:** a node that learns of a root late reads that root's
+   settings a rank low, until the setting is written again.
+
+Measured once in 10 runs at 5% loss.
+
+**Decided by the holder, 2026-10-25, asked: option 1, "setter states
+rank."**
+- The signed setting carries the rank its setter wrote at.
+- A receiver that cannot yet confirm the setter held that standing waits
+  for it, as a record with no chain waits now.
+- Writer and reader then always agree.
+
+**The plan:**
+- The rank is an appended field of `state/setting.situ`, taken through
+  situ, so it is additive.
+- A setting of the old shape, with no rank, is judged on arrival as now.
+- A stated rank the setter is not yet known to hold makes the record
+  WAIT, and it is taken once the standing arrives.
+- A rank shown never to have been held is refused.
+- Tests: E's case as a unit (an add arriving after the setting), and
+  `live_estate` phase f at 5% loss repeated.

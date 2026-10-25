@@ -170,7 +170,8 @@ void fzn_caller_forget(const fzn_caller_t *caller, uint32_t msg);
 /* Both, for a caller with no loop of its own.
  *
  * Seals `payload` as one frame, sends it, and receives until the reply
- * completes or `timeout_ms` passes with nothing arriving. A reply of one
+ * completes or `timeout_ms` passes with no piece of it arriving; a
+ * datagram that is not one moves nothing (sec 726). A reply of one
  * frame and a reply of twenty are the same call.
  *
  * A FRAME THAT DOES NOT OPEN, OR CARRIES ANOTHER `msg`, IS SKIPPED RATHER

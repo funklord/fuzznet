@@ -351,17 +351,17 @@ static uint64_t since_boot_ms(void)
 	return (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
 }
 
-int fzn_node_wait_answering(fzn_node_state_t *state, int fd, unsigned timeout_ms)
+int fzn_node_wait_answering(fzn_node_state_t *state, int fd, unsigned timeout_ms, int local)
 {
 	uint64_t until = since_boot_ms() + timeout_ms;
 
 	if (fd < 0)
 		return 0;
 	for (;;) {
-		struct pollfd fds[2];
+		struct pollfd fds[3];
 		nfds_t nfds = 1;
+		int ui = -1, li = -1, r;
 		uint64_t now = since_boot_ms();
-		int r;
 
 		if (now >= until)
 			return 0;
@@ -369,10 +369,16 @@ int fzn_node_wait_answering(fzn_node_state_t *state, int fd, unsigned timeout_ms
 		fds[0].events = POLLIN;
 		fds[0].revents = 0;
 		if (state && state->udp_fd >= 0) {
-			fds[1].fd = state->udp_fd;
-			fds[1].events = POLLIN;
-			fds[1].revents = 0;
-			nfds = 2;
+			fds[nfds].fd = state->udp_fd;
+			fds[nfds].events = POLLIN;
+			fds[nfds].revents = 0;
+			ui = (int)nfds++;
+		}
+		if (local && state && state->listen_fd >= 0) {
+			fds[nfds].fd = state->listen_fd;
+			fds[nfds].events = POLLIN;
+			fds[nfds].revents = 0;
+			li = (int)nfds++;
 		}
 		r = poll(fds, nfds, (int)(until - now));
 		if (r < 0)
@@ -381,8 +387,10 @@ int fzn_node_wait_answering(fzn_node_state_t *state, int fd, unsigned timeout_ms
 			return 0;
 		if (fds[0].revents & (POLLIN | POLLERR | POLLHUP))
 			return 1;
-		if (nfds == 2 && (fds[1].revents & POLLIN))
+		if (ui >= 0 && (fds[ui].revents & POLLIN))
 			serve_ready_datagram(state);
+		if (li >= 0 && (fds[li].revents & POLLIN))
+			serve_ready_local(state);
 	}
 }
 

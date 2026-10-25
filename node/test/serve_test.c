@@ -50,6 +50,8 @@ static int connect_to(const char *path)
 	return fd;
 }
 
+static int bound(int *fd, fzn_udp_addr_t *to);
+
 static void test_find_peer(void)
 {
 	fzn_node_peer_t peers[2];
@@ -109,6 +111,36 @@ static void test_run_once_local(void)
 		ok(n > 0 && strstr(resp, "served") && strstr(resp, "origin 1"),
 		   "the node's own user is served through the loop");
 		(void)close(cfd);
+	}
+
+	/* AND DURING A WAIT, sec 727: a local client is served while a request
+	 * asked in turn waits, when the wait says `local`, and not otherwise. */
+	{
+		int wfd = -1;
+		fzn_udp_addr_t to_asker;
+
+		if (bound(&wfd, &to_asker)) {
+			cfd = connect_to(path);
+			if (cfd >= 0) {
+				(void)write(cfd, "hello\n", 6);
+				ok(fzn_node_wait_answering(&state, wfd, 200u, 0) == 0,
+				   "a wait with nothing came was not 0");
+				ok(recv(cfd, resp, sizeof(resp) - 1, MSG_DONTWAIT) < 0,
+				   "a wait not saying local served a local client");
+				ok(fzn_node_wait_answering(&state, wfd, 300u, 1) == 0,
+				   "a local wait with nothing came was not 0");
+				n = read(cfd, resp, sizeof(resp) - 1);
+				resp[n > 0 ? (size_t)n : 0] = '\0';
+				ok(n > 0 && strstr(resp, "served"),
+				   "a local client waited out a wait saying local");
+				(void)close(cfd);
+			} else {
+				ok(0, "a client did not connect for the wait");
+			}
+			fzn_udp_close(wfd);
+		} else {
+			ok(0, "the waiting socket would not bind");
+		}
 	}
 
 	/* An idle iteration returns 0 rather than blocking. */
@@ -233,18 +265,18 @@ static void test_wait_answering(void)
 	memset(datagram, 0, sizeof(datagram));
 	datagram[0] = FZN_NODE_PROBE_MARK;
 	datagram[1] = 1u;
-	ok(fzn_node_wait_answering(&state, wfd, 50u) == 0, "a wait with nothing came was not 0");
+	ok(fzn_node_wait_answering(&state, wfd, 50u, 0) == 0, "a wait with nothing came was not 0");
 	(void)fzn_udp_send(sfd, &to_node, datagram, sizeof(datagram));
 	(void)fzn_udp_send(sfd, &to_node, datagram, sizeof(datagram));
-	ok(fzn_node_wait_answering(&state, wfd, 300u) == 0 && probed.calls == 2,
+	ok(fzn_node_wait_answering(&state, wfd, 300u, 0) == 0 && probed.calls == 2,
 	   "what the node's socket received while a request waited was not served");
 	(void)fzn_udp_send(sfd, &to_asker, (const uint8_t *)"answer", 6u);
-	ok(fzn_node_wait_answering(&state, wfd, 3000u) == 1,
+	ok(fzn_node_wait_answering(&state, wfd, 3000u, 0) == 1,
 	   "the wait did not end when its own socket had something");
 	ok(fzn_udp_recv(wfd, got, sizeof(got), &got_len, NULL) == FZN_UDP_OK && got_len == 6u
 	           && memcmp(got, "answer", 6u) == 0,
 	   "the wait took what came to its own socket");
-	ok(fzn_node_wait_answering(&state, -1, 10u) == 0, "a wait on no socket was not 0");
+	ok(fzn_node_wait_answering(&state, -1, 10u, 0) == 0, "a wait on no socket was not 0");
 out:
 	if (ufd >= 0)
 		fzn_udp_close(ufd);

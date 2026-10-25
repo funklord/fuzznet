@@ -14,6 +14,12 @@
  * store, so the fixture is built the way a real node builds itself.
  */
 
+#define _POSIX_C_SOURCE 200809L /* fork, nanosleep, clock_gettime */
+
+#include <sys/wait.h>
+#include <time.h>
+#include <unistd.h>
+
 #include "../pair.h"
 #include <poll.h>
 #include "../revoke.h"
@@ -919,6 +925,48 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		              == FZN_CALLER_OK,
 		      "an offset past the expiry did not seal, held at 1");
 		caller.clock_offset_ms = 0;
+
+		/* A WAIT THAT STRAYS DO NOT STRETCH, sec 726: a child sends the
+		 * caller's socket a datagram every 300 ms for 3 s, none of them
+		 * an answer, while the caller waits 1 s for one. The socket's own
+		 * timeout restarted with each, and the wait ran as long as they
+		 * came. */
+		{
+			fzn_udp_addr_t dev_addr;
+			struct timespec t0, t1;
+			pid_t child;
+			long elapsed_ms;
+			int status = 0;
+
+			CHECK(fzn_udp_resolve(AF_INET, "127.0.0.1", port_of(dev_fd), &dev_addr)
+			              == FZN_UDP_OK,
+			      "fixture: the caller's own address");
+			child = fork();
+			if (child == 0) {
+				int fd = -1, i;
+				struct timespec gap = { 0, 300000000L };
+				const uint8_t stray[8] = { 1, 2, 3, 4, 5, 6, 7, 8 };
+
+				if (fzn_udp_bind(AF_INET, "127.0.0.1", 0, &fd) == FZN_UDP_OK)
+					for (i = 0; i < 10; i++) {
+						(void)fzn_udp_send(fd, &dev_addr, stray, sizeof(stray));
+						(void)nanosleep(&gap, NULL);
+					}
+				_exit(0);
+			}
+			(void)clock_gettime(CLOCK_MONOTONIC, &t0);
+			CHECK(child > 0
+			              && fzn_caller_recv(&caller, caller.next_msg + 1000u, reply,
+			                                 sizeof(reply), &reply_len, 1000u)
+			                         == FZN_CALLER_ERR_TIMEOUT,
+			      "a wait among strays did not time out");
+			(void)clock_gettime(CLOCK_MONOTONIC, &t1);
+			elapsed_ms = (long)(t1.tv_sec - t0.tv_sec) * 1000L
+			             + (t1.tv_nsec - t0.tv_nsec) / 1000000L;
+			CHECK(elapsed_ms < 1800L, "strays stretched a 1 s wait past 1.8 s");
+			if (child > 0)
+				(void)waitpid(child, &status, 0);
+		}
 
 		/* A HELLO: noted where it came from, and never answered. */
 		fzn_node_relay_init(&tbl);

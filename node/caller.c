@@ -1,11 +1,35 @@
 /* See caller.h. */
 
+#define _POSIX_C_SOURCE 200809L /* clock_gettime */
+
 #include "caller.h"
 
 #include <errno.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <time.h>
+
+static uint64_t since_boot_ms(void)
+{
+	struct timespec ts;
+
+	if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+		return 0;
+	return (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
+}
+
+/* The socket's receive timeout set to `ms`, at least one. */
+static void wait_at_most(int fd, uint64_t ms)
+{
+	struct timeval tv;
+
+	if (ms == 0u)
+		ms = 1u;
+	tv.tv_sec = (time_t)(ms / 1000u);
+	tv.tv_usec = (suseconds_t)((ms % 1000u) * 1000u);
+	(void)setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+}
 
 const char *fzn_caller_err_str(fzn_caller_err_t err)
 {
@@ -163,16 +187,19 @@ fzn_caller_err_t fzn_caller_recv_any(fzn_caller_t *caller, uint32_t *msg, uint8_
 static fzn_caller_err_t receive(fzn_caller_t *caller, int any, uint32_t *msg, uint8_t *reply,
                                 size_t reply_cap, size_t *reply_len, unsigned timeout_ms)
 {
-	struct timeval tv;
+	/* THE WAIT IS A DEADLINE THAT ONLY PROGRESS MOVES, sec 726: a piece
+	 * of the awaited reply gives it `timeout_ms` again, and nothing else
+	 * does. The socket's own timeout restarted with every datagram, so a
+	 * late answer to another question on the same socket, or anyone's
+	 * packet to it, kept a caller waiting well past its timeout -- 5.1 s
+	 * on a 3 s wait, measured, with a client unanswered meanwhile. */
+	uint64_t until = 0;
 
 	if (!caller || caller->fd < 0 || !caller->hash || !caller->aead ||
 	    !caller->reasm || !reply || reply_cap == 0 || !reply_len)
 		return FZN_CALLER_ERR_MALFORMED;
-	if (timeout_ms) {
-		tv.tv_sec = (time_t)(timeout_ms / 1000u);
-		tv.tv_usec = (suseconds_t)((timeout_ms % 1000u) * 1000u);
-		(void)setsockopt(caller->fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-	}
+	if (timeout_ms)
+		until = since_boot_ms() + timeout_ms;
 
 	for (;;) {
 		uint8_t in[FZN_UDP_DATAGRAM_MAX];
@@ -180,6 +207,13 @@ static fzn_caller_err_t receive(fzn_caller_t *caller, int any, uint32_t *msg, ui
 		fzn_opened_t opened;
 		fzn_partial_t *done = NULL;
 
+		if (timeout_ms) {
+			uint64_t now = since_boot_ms();
+
+			if (now >= until)
+				return FZN_CALLER_ERR_TIMEOUT;
+			wait_at_most(caller->fd, until - now);
+		}
 		if (fzn_udp_recv(caller->fd, in, sizeof(in), &in_len, NULL) !=
 		    FZN_UDP_OK)
 			return FZN_CALLER_ERR_TIMEOUT;
@@ -208,8 +242,13 @@ static fzn_caller_err_t receive(fzn_caller_t *caller, int any, uint32_t *msg, ui
 		                     opened.payload_len, opened.expires_at, 0u,
 		                     &done) != FZN_REASM_OK)
 			return FZN_CALLER_ERR_REASSEMBLY;
-		if (!done)
+		if (!done) {
+			/* PROGRESS: a piece of the awaited reply, so the rest is
+			 * waited for as long again. */
+			if (timeout_ms)
+				until = since_boot_ms() + timeout_ms;
 			continue;
+		}
 
 		if (done->bytes > reply_cap) {
 			/* A prefix of a reply is a different reply. The slot is

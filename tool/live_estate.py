@@ -30,8 +30,9 @@ successor) and E (a device paired by the second root).
        again, A2 pushes the vote it cast before it died, and at R D2's
        grant stands no more -- k of 2 reached by a vote that crossed a
        crash
-    f  recovery: R adds A2 as a root and is stopped for good; A2 removes R
-       from the roots, pairs E, and E joins and reads what A2 sets as root
+    f  recovery: R adds A2 as a root; A2 removes R from the roots, and R is
+       stopped for good; A2 pairs E, and E joins and reads what A2 sets as
+       root
 
 `--skew S` runs A1's clock S seconds ahead and D's S behind, by faketime.
 `--loss P` runs every daemon at FZN_FAULT_LOSS=P with one seed per run;
@@ -101,7 +102,9 @@ def main(argv):
 
 	run.fuzznetd = os.path.abspath(args.fuzznetd)
 	run.started = []
-	base = 1024 + (os.getpid() % 19) * 8
+	# PORTS PER RUN from the pid: 19 slots once, so two runs side by side
+	# met about one time in 19 and the second daemon could not bind.
+	base = 43000 + (os.getpid() % 600) * 8
 	port = {k: str(base + i) for i, k in enumerate(WHO)}
 	os.environ["FZN_TUNE_PULL_EVERY"] = ROUND_S
 	if args.loss:
@@ -445,14 +448,17 @@ def main(argv):
 			polled("a2", "set setting estate e/as-root 1", lambda g: g == "ok",
 			       "as A2 acting")
 			polled("a2", "set quorum 2", lambda g: g == "ok 2", "not as a root")
-			started.pop("r").stop()
-			# ASKED AGAIN WHILE REFUSED, as the refusal says to (sec 721): A2 may
-			# count R's add of it before its journal holds the record, and a
-			# cut at the head held would drop that add and A2's standing.
+			# REMOVED, THEN SWITCHED OFF FOR GOOD. Asked again while refused, as
+			# the refusal says to (sec 721): A2 may count R's add of it before
+			# its journal holds the record, and a cut at the head held would
+			# drop that add and A2's standing. R stays up until the removal is
+			# taken: stopped first, it sometimes died with that record shared
+			# with nobody, and then no removal could keep A2 a root (sec 726).
 			refused = []
 			polled("a2", "remove root " + root,
 			       lambda g: g == "ok " + root or (refused.append(g) and False),
 			       "not removed: R's stream never caught up at A2")
+			started.pop("r").stop()
 			# AND SAID IN A2'S LOG (sec 721): standing among the roots once R
 			# is removed, at its next round's end, and never told it stands
 			# as one no more -- the warning the cut that took its own add
@@ -470,8 +476,9 @@ def main(argv):
 			expect(socks["a2"], "a2", "set setting estate e/after 1", "ok")
 			polled("e", "get setting estate e/after", lambda g: g == "ok root 1",
 			       "not A2's setting at the root's rank")
-			print("livecheck: f: R added A2 as a root and was stopped; A2 removed R (%d "
-			      "refusal(s) first), paired E, and E reads A2 as its root" % len(refused))
+			print("livecheck: f: R added A2 as a root; A2 removed R (%d "
+			      "refusal(s) first) and R was stopped, paired E, and E reads A2 as its root"
+			      % len(refused))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			# EACH DAEMON'S LAST WORDS, since the scratch goes with the run.

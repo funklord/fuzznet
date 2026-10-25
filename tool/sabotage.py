@@ -12111,10 +12111,24 @@ SABOTAGES = [
 		"a request to a peer whose clock is off expires by the wrong clock -- sec 719 stage 3",
 	),
 	(
+		"wait-answering-serves-local",
+		"node/serve.c",
+		"\t\tif (li >= 0 && (fds[li].revents & POLLIN))\n\t\t\tserve_ready_local(state);",
+		"\t\tif (li >= 0 && (fds[li].revents & POLLIN))\n\t\t\t(void)state;",
+		"a local client waits out every in-turn wait, past its own timeout -- sec 727",
+	),
+	(
+		"caller-deadline-not-stretched",
+		"node/caller.c",
+		"\t\t\twait_at_most(caller->fd, until - now);",
+		"\t\t\twait_at_most(caller->fd, timeout_ms);\n\t\t\tuntil = now + 60000u;",
+		"a stray datagram restarts a caller's wait, and anyone keeps it waiting -- sec 727",
+	),
+	(
 		"wait-answering-serves-peers",
 		"node/serve.c",
-		"\t\tif (nfds == 2 && (fds[1].revents & POLLIN))\n\t\t\tserve_ready_datagram(state);",
-		"\t\tif (nfds == 2 && (fds[1].revents & POLLIN))\n\t\t\t(void)state;",
+		"\t\tif (ui >= 0 && (fds[ui].revents & POLLIN))\n\t\t\tserve_ready_datagram(state);",
+		"\t\tif (ui >= 0 && (fds[ui].revents & POLLIN))\n\t\t\t(void)state;",
 		"two hosts asking each other in turn each wait out the other's timeout -- sec 720",
 	),
 	(
