@@ -72570,3 +72570,48 @@ line filed in by the verb, and inside key carriage between members.
 Both file through the same `fzn_messages_write`, which the sweep and the
 test cover, but the remote halves are not crashed. Journey 2's bounds
 bar is next.
+
+## 734. Journey 2's bounds, at and past each edge, 2026-10-25
+
+Sec 689's bounds bar for the 1:1 chat journey: each limit at its edge
+and one past it. Most were already tested, and one was added.
+
+**Tested before this pass:**
+- **A line's text, `FZN_MESSAGE_TEXT_MAX` (512):** two parts at 512 and
+  none at 513 (`messages/test/messages_test.c`). The verb refuses 513 as
+  "a text past 512 bytes", and `delivery_fuzz` bends a delivery's length
+  past it.
+- **A walk, `FZN_MESSAGES_WALK_MAX` (4096):** a page that far back is
+  refused as too deep rather than cut short. Only that side is tested.
+- **Strangers' requests, `FZN_CONTACT_REQUESTS_MAX` (4096):** kept to the
+  bound, then the expired one let go, then the oldest
+  (`contact_request_test`, `test_thousands`).
+- **The user's devices past the starting room of 32:** 41 devices
+  (`test_forty_one_devices`).
+- **Keys lacked past `FZN_NODE_MESSAGES_KEYS_MAX` (64):** 65 wanted, and
+  the room grown (`node/test/messages_test.c`, sec 704).
+- **Contacts and their hosts past their old tables:** 300 contacts and
+  60 contact hosts (`live_faults.py` phases g and j).
+
+**Added: the window a line is placed within** (sec 725's
+`RECENT_ENTRIES`, 64). `test_the_written_order_window` writes B's line
+first, then A's 64 or 65, and takes B's in. With 64 it is placed
+oldest; with 65 it is appended, as before the written order. Either
+way it is listed once. Moving the window to 63 or 65 fails it.
+
+**Recorded, not changed:**
+- **A request line holds 512 bytes in all** (`FZN_REQUEST_MAX`), so a
+  text of 512 cannot be written in one line: it goes by `add message
+  ... file PATH`. A line too long is answered a bare `denied`, which
+  `local/vocabulary.h` already describes.
+- **Every line's order, scanned back `ALL_SCAN_MAX` (4096) entries for an
+  insertion's moves**, appends past it. Untested: reaching it needs 4096
+  lines in a store the unit tests' memory store does not hold.
+- **A contact's devices past the starting room of 128**
+  (`FZN_CONTACT_DEVICES_MAX`), which the daemon grows. No test yet holds
+  more than 128.
+
+With sec 731's fuzz and sec 733's faults, journey 2 has a first pass at
+every part of the bar. Still open: the loss intermittent recorded in sec
+731 (phase c at 5% loss), the remote halves under a crash (sec 733), and the two untested
+rooms above.

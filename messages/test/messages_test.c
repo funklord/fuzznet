@@ -594,6 +594,47 @@ static void test_written_order_not_learned(void)
 	      "read through the newest line written, a line is still unread");
 }
 
+/* THE WINDOW AN INSERTION LOOKS BACK OVER, at and past its edge, sec 725's
+ * bound for journey 2's bounds bar: a line written before every one of a
+ * conversation's last RECENT_ENTRIES is not placed among them but appended,
+ * as before the written order, and still listed once. A line written
+ * before exactly RECENT_ENTRIES is placed before them all, the oldest. */
+static void test_the_written_order_window(void)
+{
+	size_t i, at_newest = 0, at_oldest = 0, seen = 0, total = 0;
+	int placed;
+	uint8_t n;
+
+	for (placed = 0; placed < 2; placed++) {
+		setup();
+		/* B's line first, so it is written before everything after. */
+		CHECK(write_line(&B, X, FZN_MESSAGE_IN, 200u, "written first, at b"),
+		      "fixture: B's line");
+		/* Then A's own: the window's 64, or one more. */
+		for (n = 1; n <= (placed ? 64u : 65u); n++)
+			if (!write_line(&A, X, FZN_MESSAGE_OUT, n, "a"))
+				break;
+		CHECK(n == (placed ? 65u : 66u), "fixture: A's lines");
+		sync_a();
+		keys_b_to_a();
+		at_newest = 0;
+		seen = 0;
+		if (list(&A, X, 0u, 1u) && count == 1u)
+			at_newest = page[0].id[0] == 200u;
+		for (i = 0; list(&A, X, i, 1u) && count == 1u; i++) {
+			seen += page[0].id[0] == 200u;
+			at_oldest = page[0].id[0] == 200u;
+		}
+		total = i;
+		if (placed)
+			CHECK(at_oldest && seen == 1u && total == 65u,
+			      "a line written before the window's 64 was not placed oldest, once");
+		else
+			CHECK(at_newest && seen == 1u && total == 66u,
+			      "a line written before the whole window was not appended, once");
+	}
+}
+
 /* A LINE CUT AT EVERY SAVE, sec 733: a power cut after the line's record and
  * before any of the saves that index it, then a restart. The next line is
  * taken, and once taken in, every line is listed once. An append once
@@ -1485,6 +1526,7 @@ int main(void)
 	test_two_devices();
 	test_written_order_not_learned();
 	test_a_line_cut_at_every_save();
+	test_the_written_order_window();
 	test_no_reindex_from_a_window();
 	test_the_newest_mark_wins();
 	test_a_mark_after_the_clock_steps_back();
