@@ -14579,7 +14579,11 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			node_groups.host_sign = &sign_ops;
 			node_groups.signer = groups_signer;
 			node_groups.rng = &rng_ops;
-			node_groups.clock = wall_clock;
+			/* A GROUP ACT'S TIME IS A LATER MEMBER'S FLOOR, judged against
+			 * each note's writer's clock: estate time, sec 719 stage 4, so
+			 * an adder whose clock is behind no longer hands a new member
+			 * what was written before it joined (sec 722). */
+			node_groups.clock = estate_clock;
 			node_groups.forget = fzn_node_admin_group_forget;
 			node_groups.forget_ctx = &admin;
 			node_groups.log.dropped = group_dropped;
@@ -14673,7 +14677,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				                        &rng_ops, identity.pubkey,
 				                        (const uint8_t (*)[FZN_PUBKEY_LEN])writers, nw,
 				                        (const uint8_t (*)[FZN_PUBKEY_LEN])pull_keys, npulls,
-				                        wall_ms)
+				                        estate_ms)
 				    == FZN_NOTES_OK) {
 					admit_writers(&state, running_roots);
 #ifdef FZN_SPOOL_FILE_ON

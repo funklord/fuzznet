@@ -71720,6 +71720,48 @@ say it is among the roots after removing R, and never that it stands as
 one no more.
 
 **Open:**
-- **One faketime pair leaked per failed skewed run** in the A/B, five
-  pairs between 23:46 and 00:05. None leaked in the passing runs since.
-  Cause unknown, and the orphans were removed by name.
+- **faketime pairs left in `/dev/shm`**, five between 23:46 and 00:05,
+  first read as one leak per failed skewed run of mine. That reading does
+  not hold. fuzzypickles runs faketime daemons on this machine too (a K
+  at `-900s` was live at 01:53), and the names carry only a pid. So the
+  source of a dead pair cannot be told from the pair. The orphans, owners
+  dead, were removed by name, and a live pair was left alone.
+
+## 722. A later member's floor on estate time, 2026-10-25
+
+Sec 719 stage 4, its second consumer, and the privacy fault its survey
+named.
+
+**The floor and its two clocks:**
+- A later member's floor (secs 655-656) is the time of the group ADD act
+  that added it, stamped by the adder's clock (`node_groups.clock`).
+- Each note's time is its writer's (`node_notes.now_ms`).
+- So an adder behind gave the new member notes from before its joining,
+  by up to the skew, despite `backfill 0`.
+
+**Shown first, `tool/live_group_skew.py`, in `livecheck-faults`:**
+- A shares and adds, its clock 900 s behind. B and X are devices of A's
+  estate, on time, so A measures its own clock wrong against two. C is a
+  contact.
+- A shares S0 `backfill 0`, and B writes a note into it.
+- A adds C to the group, then writes a second note.
+- **Against the daemon before this change**, C held B's note, written
+  before C joined.
+
+**Built:** both clocks are estate time, `node_groups.clock = estate_clock`
+and the notes' `estate_ms`. That covers a note's create, edit and move
+times, a share's time, and the purge and partner ages.
+- The note and share times are compared on other devices.
+- A partner's seen time is stamped and judged by this node alone, so
+  both sides move together. A stamp left in the future when estate
+  time steps back is clamped to now (sec 470).
+
+A device not yet sure of its estate stamps as before.
+
+**Measured:** with the change, C holds A's later note and not B's, in 2
+runs of 2.
+
+**What it does not reach:** an adder in another user's estate, measured
+against nothing in this one. Two estates' times agree only as far as
+each estate's median is right. The holder's decision keeps a contact's
+offset to stamping requests, and it never corrects this node's clock.

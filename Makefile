@@ -6378,10 +6378,12 @@ fuzznetd-faults:
 
 # THE FAULTS FIRE, sec 689 step 0b: tool/live_faults.py against the faulty
 # daemon, so a scenario built on a fault is known to have one. Then the
-# estate's journey (sec 707), on rounds the fault build makes short.
+# estate's journey (sec 707), on rounds the fault build makes short, and a
+# later member's floor with the adder's clock 900 s behind (sec 722).
 livecheck-faults: fuzznetd-faults
 	@timeout 400 python3 tool/live_faults.py $(BUILD_DIR)/faults/fuzznetd
 	@timeout 1000 python3 tool/live_estate.py $(BUILD_DIR)/faults/fuzznetd
+	@timeout 700 python3 tool/live_group_skew.py $(BUILD_DIR)/faults/fuzznetd
 
 # FUZZYPICKLES' CLIENT OVER fuzznetd, sec 710: its `fzp --node-socket`
 # driving the subset across fault-build daemons. Not part of
