@@ -54,6 +54,7 @@ static int keep_line(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_L
                      const size_t body_len[2], size_t held);
 static int set_read(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                     const uint8_t id[FZN_MESSAGE_ID_LEN], uint64_t at);
+static uint64_t read_at(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN]);
 static int open_waiting(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                         uint32_t epoch, const uint8_t device[FZN_PUBKEY_LEN]);
 static int let_go(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN], uint32_t epoch);
@@ -140,6 +141,33 @@ static int set_state(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_L
 	bytes[0] = state;
 	fzn_put_be64(bytes + 1u, at);
 	return m->store->save(m->store->ctx, FZN_PERSIST_MESSAGE_STATE, row, bytes, sizeof(bytes));
+}
+
+/* THE STAMP A CONVERSATION'S HELD STATE ROW CARRIES for that line, 0 for
+ * none: what a mark made here must pass (`past_held`). */
+static uint64_t state_at(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                         uint8_t direction, const uint8_t id[FZN_MESSAGE_ID_LEN])
+{
+	uint8_t row[FZN_PUBKEY_LEN], held[STATE_LEN];
+	size_t len = 0;
+
+	if (!state_row(m, contact, direction, id, row)
+	    || !m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_STATE, row, held, sizeof(held),
+	                       &len)
+	    || len != STATE_LEN)
+		return 0;
+	return fzn_get_be64(held + 1u);
+}
+
+/* A MARK MADE HERE, ONE PAST THE ONE HELD when the clock is not, as a
+ * setting's version is one past every version held for its cell
+ * (`node/settings.c`): the newest stamp wins, and the clock may step back
+ * -- estate time does, when a device that was ahead learns it (sec 719
+ * stage 4) -- so a later mark of this device's own must not lose to its
+ * earlier one. */
+static uint64_t past_held(uint64_t now, uint64_t held)
+{
+	return held >= now && held < UINT64_MAX ? held + 1u : now;
 }
 
 uint8_t fzn_messages_state(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
@@ -467,7 +495,7 @@ fzn_messages_err_t fzn_messages_read_up_to(const fzn_messages_t *m,
 
 	if (!ready(m) || !contact || !id || !fzn_message_position_write(id, body))
 		return FZN_MESSAGES_ERR_MALFORMED;
-	now = m->now();
+	now = past_held(m->now(), read_at(m, contact));
 	before = own_head(m);
 	/* THE RECORD FIRST, as a mark's: the row is derived from it. */
 	if (fzn_node_journal_append_on(m->journal, m->issuer, FZN_MESSAGE_STREAM, m->sign,
@@ -496,7 +524,7 @@ fzn_messages_err_t fzn_messages_mark(const fzn_messages_t *m,
 	memcpy(mark.id, id, FZN_MESSAGE_ID_LEN);
 	if (!fzn_message_mark_write(&mark, body))
 		return FZN_MESSAGES_ERR_MALFORMED;
-	now = m->now();
+	now = past_held(m->now(), state_at(m, contact, direction, id));
 	before = own_head(m);
 	/* THE RECORD FIRST: the state row is derived from it, and a row with no
 	 * record behind it would not survive a reindex. */
@@ -1079,6 +1107,20 @@ static int index_clear(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY
 
 /* SET A CONVERSATION'S READ POSITION when it is at least as new as the one
  * held. */
+/* The stamp the held read row carries, 0 for none. */
+static uint64_t read_at(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN])
+{
+	uint8_t row[FZN_PUBKEY_LEN], held[READ_ROW_LEN];
+	size_t len = 0;
+
+	if (!index_row(m, "read", contact, 0u, row)
+	    || !m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, held, sizeof(held),
+	                       &len)
+	    || len != READ_ROW_LEN)
+		return 0;
+	return fzn_get_be64(held + FZN_MESSAGE_ID_LEN);
+}
+
 static int set_read(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
                     const uint8_t id[FZN_MESSAGE_ID_LEN], uint64_t at)
 {

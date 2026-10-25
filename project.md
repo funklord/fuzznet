@@ -69612,6 +69612,19 @@ is built, as the fifth is.
 - **The pack's text box gains a fill, 0xRRGGBBAA** (manifest key 14),
   painted under the words, so LINE's placeholder asterisks are covered.
   The box is in the main rendition's pixels.
+- **And an ink for the words, 0xRRGGBBAA** (manifest key 15, after the
+  fill's 14). Added by fuzzypickles 2026-10-25, its 5cdef2a. A requirement
+  to carry, not a decision of the holder's.
+  - 0 means the client chooses: black, or white on a dark fill.
+  - It is written only when set, and a reader without it skips the
+    unknown field, so it is additive.
+  - In the spec it is an optional seventh word,
+    `text LIMIT X Y W H FILL INK`. Given alone, it rides a fill of
+    `00000000`, which is none.
+  - Why: LINE draws a name in its placeholder's colour. fuzzypickles'
+    converter takes the ink from the asterisks and the fill from the
+    background around them. Since its aa297f3 the fill replaces the
+    box's pixels rather than painting over them.
 - **On a node now:** this tree's `fzn:` reference (`sticker/pack.h`) has
   no place for words, so fuzzypickles' clients send such a sticker
   without them on a fuzznetd node. When the sticker format is taken here,
@@ -71804,11 +71817,16 @@ goes back can break, now that settings, notes and messages all take it.
   first by record time) may order two of one note's versions, written
   either side of a correction, wrongly by up to the step, and keep the
   wrong one past a rule's count. Bounded by the step, and only near it.
-- **Read and delivery marks** compare stamps, as settings do, and a mark
-  made after the correction loses to one of its own device's made before
-  it by up to the step. Settings avoid that by being one past every
-  version held (`node/settings.c`). Marks have no such rule. **Open:** a
-  mark could be made one past the held one in the same way.
+- **Read and delivery marks** compare stamps, as settings do. A mark
+  made after the correction lost to its own device's made before it, by
+  up to the step.
+  - **Now one past the held mark**, as a setting's version is one past
+    every version held (`node/settings.c`): `past_held`
+    (`messages/messages.c`).
+  - `messages_test`, 175 checks: with the clock stepped back 900 s, a
+    read mark and a delivery mark made after both stand. With the rule
+    taken out, both fail.
+  - Sabotage, one entry.
 
 **Open, whose call:** that a receiver may show two lines sent close
 together in the other order. Ordering by send time (STIME) would make the

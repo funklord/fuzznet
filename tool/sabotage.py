@@ -12083,6 +12083,13 @@ SABOTAGES = [
 		"another local user reads which peers' clocks disagree -- sec 717",
 	),
 	(
+		"messages-mark-past-held",
+		"messages/messages.c",
+		"\treturn held >= now && held < UINT64_MAX ? held + 1u : now;",
+		"\treturn (void)held, now;",
+		"a mark made after estate time steps back loses to its own device's earlier one -- sec 723",
+	),
+	(
 		"remove-root-keeps-counted-acts",
 		"node/admin.c",
 		"\tif (remove && !word && drawn && !fzn_node_roots_cut_keeps(admin->roots, subject, drawn))",

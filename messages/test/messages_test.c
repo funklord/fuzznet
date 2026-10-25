@@ -593,6 +593,32 @@ static void test_the_newest_mark_wins(void)
 	      "A's later mark is the state, though B's stream is read after A's");
 }
 
+/* A MARK AFTER THE CLOCK STEPS BACK, sec 723: estate time steps back when a
+ * device that was ahead learns it, and a later mark of the device's own
+ * must still be the state -- one past the held stamp, as a setting's
+ * version is one past every version held. */
+static void test_a_mark_after_the_clock_steps_back(void)
+{
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+
+	setup();
+	CHECK(write_line(&A, X, FZN_MESSAGE_IN, 1u, "one") && write_line(&A, X, FZN_MESSAGE_IN, 2u, "two")
+	              && write_line(&A, X, FZN_MESSAGE_OUT, 3u, "mine"),
+	      "fixture: two lines in, one out");
+	id_of(id, 1u);
+	CHECK(fzn_messages_read_up_to(&A.m, X, id) == FZN_MESSAGES_OK
+	              && mark(&A, X, FZN_MESSAGE_OUT, 3u, FZN_MESSAGE_DELIVERED),
+	      "fixture: read to the first, and the line out delivered");
+	clock_ms -= 900000u;
+	id_of(id, 2u);
+	CHECK(fzn_messages_read_up_to(&A.m, X, id) == FZN_MESSAGES_OK
+	              && fzn_messages_read_position(&A.m, X, id) && id[0] == 2u,
+	      "a read mark made after the clock stepped back lost to the device's own earlier one");
+	CHECK(mark(&A, X, FZN_MESSAGE_OUT, 3u, FZN_MESSAGE_SETTLED)
+	              && list(&A, X, 0u, 5u) && page[0].state == FZN_MESSAGE_SETTLED,
+	      "a delivery mark made after the clock stepped back lost to the device's own earlier one");
+}
+
 /* FROM THE STORE ALONE, sec 536: a page of x's lines, and a page of
  * everyone's, read no journal record at all -- the rows and the index are
  * enough. */
@@ -1335,6 +1361,7 @@ int main(void)
 	test_two_devices();
 	test_no_reindex_from_a_window();
 	test_the_newest_mark_wins();
+	test_a_mark_after_the_clock_steps_back();
 	test_one_conversation_reads_only_its_own();
 	test_import_keeps_a_line_once();
 	test_read_state_travels();
