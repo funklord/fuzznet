@@ -72434,8 +72434,38 @@ bent marks read. Five sabotages are caught:
 The first is caught twice in 4000 cases, the stime being 8 of a body's
 bytes. The seed is fixed, so that is stable.
 
-Still to fuzz in this journey: the keys and settlement codecs, and the
-key exchange.
+**Third harness: keys carried between the user's devices** (`node/test/keys_fuzz.c`).
+It drives `fzn_node_messages_remote` with GIVE, WANT and HOLDS from the
+user's two other devices, whole or bent, and keeps a model of the keys
+held. Places come from a small pool, so gifts collide. Four properties:
+- a GIVE files each key under its sender, and only where none is held;
+- every place seen holds, under each device, the model's key or none;
+- a WANT answers exactly the asked places held, each with its key;
+- a request the layout does not admit is answered with nothing.
+
+At 3000 cases: 1159 keys taken, 1534 refused for a key held, 476 WANTs
+answered with a key, and 450 bent requests admitted. Five sabotages are
+caught:
+- a gift filed under this host rather than the giver;
+- the first-held rule removed from `fzn_messages_key_take`;
+- a WANT's length taken as a floor;
+- a WANT answered for keys not held;
+- a GIVE of more than a batch taken.
+
+The last survived at first, since no bent GIVE grew to agree with a count
+past eight. A bend now does that.
+
+**The authorization bar.** Sec 701's table already sends every remote
+hook each kind of sender. A member reaches the messages hook (GIVE,
+WANT, HOLDS) and a standing contact reaches delivery; a removed one
+reaches neither. For the local verbs, `messages_test` now sends every
+messages verb from each origin but the user's own: local, remote, 0 and
+an unknown one. Each is denied, and the conversation and what is owed
+are unchanged. Removing the origin check fails that table, and two older
+checks.
+
+Still to fuzz in this journey: a contact's card and request, the key
+exchange of the journey's first step.
 
 ## 732. A build without packing builds again, 2026-10-25
 

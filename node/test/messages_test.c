@@ -486,6 +486,48 @@ static void test_the_verbs(void)
 	      "ones nowhere");
 }
 
+/* THE VERBS NEED THIS NODE'S OWN USER, sec 689's authorization bar for the
+ * 1:1 chat journey: every messages verb from each other origin is denied,
+ * and none of them changes what the user reads. */
+static void test_the_verbs_need_the_user(void)
+{
+	static const char *const verbs[] = {
+		"add message carol out " ID2 " not%20from%20the%20user",
+		"set message carol out " ID1 " delivered",
+		"set message carol read " ID1,
+		"list message carol",
+		"list message",
+		"get message owed",
+		"get message carol unread",
+	};
+	static const fzn_origin_t origins[] = { FZN_ORIGIN_LOCAL, FZN_ORIGIN_REMOTE,
+		                                (fzn_origin_t)0, (fzn_origin_t)99 };
+	char before[sizeof(reply)], owed[sizeof(reply)];
+	size_t v, o;
+	int denied = 1;
+
+	setup();
+	CHECK(fzn_contact_add(&A.store_ops, X, "carol", 5u, 1u) == FZN_CONTACT_OK,
+	      "fixture: carol is a contact");
+	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "add message carol out " ID1 " hello") && replied("ok"),
+	      "fixture: a line to carol");
+	(void)verb(&A, FZN_ORIGIN_SAME_USER, "list message carol");
+	memcpy(before, reply, sizeof(before));
+	(void)verb(&A, FZN_ORIGIN_SAME_USER, "get message owed");
+	memcpy(owed, reply, sizeof(owed));
+	for (v = 0; v < sizeof(verbs) / sizeof(verbs[0]); v++)
+		for (o = 0; o < sizeof(origins) / sizeof(origins[0]); o++)
+			if (!verb(&A, origins[o], verbs[v]) || !replied("denied ")) {
+				fprintf(stderr, "    %s, origin %d: %s\n", verbs[v], (int)origins[o], reply);
+				denied = 0;
+			}
+	CHECK(denied, "every messages verb from another origin is denied");
+	(void)verb(&A, FZN_ORIGIN_SAME_USER, "list message carol");
+	CHECK(strcmp(reply, before) == 0, "the conversation is as it was");
+	(void)verb(&A, FZN_ORIGIN_SAME_USER, "get message owed");
+	CHECK(strcmp(reply, owed) == 0, "what is owed is as it was");
+}
+
 /* ---- keys between devices ------------------------------------------------------ */
 
 static int readable_on(device_t *d)
@@ -1677,6 +1719,7 @@ int main(void)
 	memset(X, 0x58, sizeof(X));
 	test_the_suite_can_tell_pass_from_fail();
 	test_the_verbs();
+	test_the_verbs_need_the_user();
 	test_keys_travel();
 	test_keys_through_a_hub();
 	test_keys_cannot_be_planted();

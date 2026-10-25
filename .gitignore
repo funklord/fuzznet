@@ -178,6 +178,7 @@
 /record/test/sync_fuzz
 /record/test/exchange_fuzz
 /node/test/delivery_fuzz
+/node/test/keys_fuzz
 /node/test/members_fuzz
 /node/test/reconcile_fuzz
 /node/test/votes_fuzz

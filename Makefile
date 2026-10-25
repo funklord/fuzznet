@@ -355,6 +355,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              record/test/sync_fuzz.c record/test/exchange_fuzz.c \
              node/test/members_fuzz.c node/test/reconcile_fuzz.c \
              node/test/delivery_fuzz.c messages/test/line_fuzz.c \
+             node/test/keys_fuzz.c \
              node/test/votes_fuzz.c \
              provision/test/provision_test.c \
              roster/test/roster_test.c \
@@ -627,6 +628,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/record/test/exchange_fuzz \
              $(BUILD_DIR)/node/test/members_fuzz \
              $(BUILD_DIR)/node/test/delivery_fuzz \
+             $(BUILD_DIR)/node/test/keys_fuzz \
              $(BUILD_DIR)/messages/test/line_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
@@ -4250,6 +4252,33 @@ $(BUILD_DIR)/messages/test/line_fuzz: $(BUILD_DIR)/messages/test/line_fuzz.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# Keys carried between the user's devices through a lying member, sec
+# 689's 1:1 chat journey.
+$(BUILD_DIR)/node/test/keys_fuzz: $(BUILD_DIR)/node/test/keys_fuzz.o \
+                                  $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o \
+                                  $(BUILD_DIR)/messages/messages.o \
+                                  $(BUILD_DIR)/log/retain.o \
+                                  $(BUILD_DIR)/messages/line.o \
+                                  $(BUILD_DIR)/contact/contact.o \
+                                  $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
+                                  $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
+                                  $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/node/contact_devices.o \
+                                  $(BUILD_DIR)/session/box.o $(BUILD_DIR)/chain/chain.o \
+                                  $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
+                                  $(BUILD_DIR)/persist/persist.o \
+                                  $(BUILD_DIR)/trust/trust.o \
+                                  $(BUILD_DIR)/session/agree.o \
+                                  $(BUILD_DIR)/prekey/prekey.o \
+                                  $(BUILD_DIR)/ratchet/ratchet.o \
+                                  $(BUILD_DIR)/local/vocabulary.o \
+                                  $(BUILD_DIR)/local/peer.o \
+                                  $(BUILD_DIR)/session/random.o \
+                                  $(FUZZNETD_JOURNAL_OBJS) \
+                                  $(BUILD_DIR)/record/record.o \
+                                  $(BUILD_DIR)/constant_time/constant_time.o $(MONO_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 # A contact's delivery through a lying contact, sec 689's 1:1 chat journey.
 $(BUILD_DIR)/node/test/delivery_fuzz: $(BUILD_DIR)/node/test/delivery_fuzz.o \
                                   $(BUILD_DIR)/node/messages.o $(BUILD_DIR)/local/escape.o $(BUILD_DIR)/node/buckets.o \
@@ -4968,6 +4997,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/record/test/exchange_fuzz \
              $(BUILD_DIR)/node/test/members_fuzz \
              $(BUILD_DIR)/node/test/delivery_fuzz \
+             $(BUILD_DIR)/node/test/keys_fuzz \
              $(BUILD_DIR)/messages/test/line_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
