@@ -9,6 +9,7 @@
 #include "../wire/bytes.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static const char HEX[] = "0123456789abcdef";
@@ -142,6 +143,164 @@ static int standing(const fzn_node_settings_t *ns, const uint8_t cell[FZN_SUBJEC
 	if (head)
 		*head = at;
 	return 1;
+}
+
+/* ---- settings set aside, sec 728 ---------------------------------------- */
+
+/* A PARKED ROW: this byte, then the setting as its setter signed it. Its
+ * first byte is no rank, so every reader of a setting row passes it over
+ * (`row_read` takes only a rank below FZN_SETTING_RANKS), the walks and
+ * the holdings reconciliation serves from among them. */
+#define ROW_PARKED 0x40u
+/* AND HOW MANY ARE PARKED, a row of its own, so a round with none parked
+ * walks nothing. */
+#define ROW_PARKED_COUNT 0x41u
+
+static int parked_row(const fzn_node_settings_t *ns, const uint8_t *bytes, size_t len,
+                      uint8_t row[FZN_PUBKEY_LEN])
+{
+	static const char DOMAIN[] = "fuzznet.setting.parked";
+	static uint8_t in[sizeof(DOMAIN) - 1u + FZN_SETTING_MAX];
+
+	if (len > FZN_SETTING_MAX)
+		return 0;
+	memcpy(in, DOMAIN, sizeof(DOMAIN) - 1u);
+	memcpy(in + sizeof(DOMAIN) - 1u, bytes, len);
+	return ns->hash->hash(ns->hash->ctx, row, FZN_PUBKEY_LEN, in, sizeof(DOMAIN) - 1u + len);
+}
+
+static int parked_count_row(const fzn_node_settings_t *ns, uint8_t row[FZN_PUBKEY_LEN])
+{
+	static const char DOMAIN[] = "fuzznet.setting.parked.count";
+
+	return ns->hash->hash(ns->hash->ctx, row, FZN_PUBKEY_LEN, (const uint8_t *)DOMAIN,
+	                      sizeof(DOMAIN) - 1u);
+}
+
+static uint64_t parked_count(const fzn_node_settings_t *ns)
+{
+	uint8_t row[FZN_PUBKEY_LEN], buf[9];
+	size_t len = 0;
+
+	if (!parked_count_row(ns, row)
+	    || !ns->store->load(ns->store->ctx, FZN_PERSIST_SETTING, row, buf, sizeof(buf), &len)
+	    || len != sizeof(buf) || buf[0] != ROW_PARKED_COUNT)
+		return 0;
+	return fzn_get_be64(buf + 1u);
+}
+
+static int parked_count_save(const fzn_node_settings_t *ns, uint64_t n)
+{
+	uint8_t row[FZN_PUBKEY_LEN], buf[9];
+
+	buf[0] = ROW_PARKED_COUNT;
+	fzn_put_be64(buf + 1u, n);
+	return parked_count_row(ns, row)
+	       && ns->store->save(ns->store->ctx, FZN_PERSIST_SETTING, row, buf, sizeof(buf));
+}
+
+fzn_node_settings_err_t fzn_node_settings_park(const fzn_node_settings_t *ns,
+                                               const uint8_t *bytes, size_t len)
+{
+	static uint8_t out[1u + FZN_SETTING_MAX];
+	uint8_t row[FZN_PUBKEY_LEN];
+	size_t held = 0;
+
+	if (!ready(ns) || !bytes || !len || len > FZN_SETTING_MAX)
+		return FZN_NODE_SETTINGS_MALFORMED;
+	if (!parked_row(ns, bytes, len, row))
+		return FZN_NODE_SETTINGS_BACKEND;
+	/* ONCE: the same setting arriving again parks nothing more. */
+	if (ns->store->load(ns->store->ctx, FZN_PERSIST_SETTING, row, out, sizeof(out), &held)
+	    && held == 1u + len && out[0] == ROW_PARKED)
+		return FZN_NODE_SETTINGS_OK;
+	out[0] = ROW_PARKED;
+	memcpy(out + 1u, bytes, len);
+	return ns->store->save(ns->store->ctx, FZN_PERSIST_SETTING, row, out, 1u + len)
+	               && parked_count_save(ns, parked_count(ns) + 1u)
+	               ? FZN_NODE_SETTINGS_OK
+	               : FZN_NODE_SETTINGS_BACKEND;
+}
+
+struct parked_walk {
+	const fzn_node_settings_t *ns;
+	uint8_t (*rows)[FZN_PUBKEY_LEN];
+	size_t n, cap;
+	int out_of_room;
+};
+
+static int parked_walked(void *arg, const uint8_t row[FZN_PUBKEY_LEN])
+{
+	static uint8_t buf[1u + FZN_SETTING_MAX];
+	struct parked_walk *w = arg;
+	size_t len = 0;
+
+	if (!w->ns->store->load(w->ns->store->ctx, FZN_PERSIST_SETTING, row, buf, sizeof(buf), &len)
+	    || len < 2u || buf[0] != ROW_PARKED)
+		return 1;
+	if (w->n == w->cap) {
+		size_t want = w->cap ? w->cap * 2u : 16u;
+		uint8_t (*grown)[FZN_PUBKEY_LEN] = realloc(w->rows, want * sizeof(*w->rows));
+
+		if (!grown) {
+			w->out_of_room = 1;
+			return 0;
+		}
+		w->rows = grown;
+		w->cap = want;
+	}
+	memcpy(w->rows[w->n++], row, FZN_PUBKEY_LEN);
+	return 1;
+}
+
+fzn_node_settings_err_t fzn_node_settings_unpark(const fzn_node_settings_t *ns,
+                                                 fzn_node_settings_judge_fn judge, void *ctx,
+                                                 size_t *taken)
+{
+	static uint8_t buf[1u + FZN_SETTING_MAX];
+	struct parked_walk w;
+	size_t i, removed = 0;
+	fzn_node_settings_err_t err = FZN_NODE_SETTINGS_OK;
+
+	if (taken)
+		*taken = 0;
+	if (!ready(ns) || !judge || !ns->store->remove)
+		return FZN_NODE_SETTINGS_MALFORMED;
+	if (parked_count(ns) == 0u)
+		return FZN_NODE_SETTINGS_OK;
+	memset(&w, 0, sizeof(w));
+	w.ns = ns;
+	/* THE ROWS FIRST, judged after: a judgement learns a setting, which
+	 * writes this very slot, and no walk is asked to survive that. */
+	if (!fzn_persist_each(ns->store, FZN_PERSIST_SETTING, parked_walked, &w) || w.out_of_room) {
+		free(w.rows);
+		return FZN_NODE_SETTINGS_BACKEND;
+	}
+	for (i = 0; i < w.n; i++) {
+		size_t len = 0;
+		int verdict;
+
+		if (!ns->store->load(ns->store->ctx, FZN_PERSIST_SETTING, w.rows[i], buf, sizeof(buf),
+		                     &len)
+		    || len < 2u || buf[0] != ROW_PARKED)
+			continue;
+		verdict = judge(ctx, buf + 1u, len - 1u);
+		if (verdict == 0)
+			continue;
+		if (!ns->store->remove(ns->store->ctx, FZN_PERSIST_SETTING, w.rows[i])) {
+			err = FZN_NODE_SETTINGS_BACKEND;
+			continue;
+		}
+		removed++;
+		if (verdict > 0 && taken)
+			(*taken)++;
+	}
+	free(w.rows);
+	/* THE COUNT AS THE WALK FOUND IT, less what went: a count gone astray
+	 * -- a crash between a row and its count -- is set right here. */
+	if (!parked_count_save(ns, (uint64_t)(w.n - removed)))
+		err = FZN_NODE_SETTINGS_BACKEND;
+	return err;
 }
 
 fzn_node_settings_err_t fzn_node_settings_learn(const fzn_node_settings_t *ns,
@@ -290,8 +449,11 @@ fzn_node_settings_err_t fzn_node_settings_write(const fzn_node_settings_t *ns,
 	}
 	if (version == 0u)
 		version = 1u;
-	if (fzn_setting_issue(ns->id->pubkey, ns->id->sign, scope, about, version, key, key_len,
-	                      set, value, value_len, bytes, &len)
+	/* THE RANK STATED, sec 728, as judged here: every node then files the
+	 * setting where its writer did, once it can confirm the writer's
+	 * standing. */
+	if (fzn_setting_issue_ranked(ns->id->pubkey, ns->id->sign, scope, about, version, key,
+	                             key_len, set, value, value_len, rank, bytes, &len)
 	    != FZN_SETTING_OK)
 		return FZN_NODE_SETTINGS_MALFORMED;
 	/* THE RECORD IN MILLISECONDS, as every record is since sec 561; the

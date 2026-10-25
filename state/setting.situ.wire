@@ -18,10 +18,13 @@
 endian big
 target buffer
 
+enum fzn_setting_rank : u8 unknown=error
+  host=0 admin=1 root=2
+
 enum fzn_setting_scope : u8 unknown=error
   host=1 estate=3
 
-struct fzn_setting size=144..463
+struct fzn_setting size=145..464
   @0x0000   1         u8         version  must_eq=1
   @0x0001   1         u8         object  must_eq=147
   @0x0002   32        u8         setter  big
@@ -33,4 +36,5 @@ struct fzn_setting size=144..463
   ~         1         u8         op  max=1
   ~         2         u16        value_len  big max=256
   ~         0..256    u8         value  sized-by=value_len
+  ~         1         fzn_setting_rank rank
   ~         64        u8         signature  big

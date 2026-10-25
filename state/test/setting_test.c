@@ -123,6 +123,47 @@ static void test_the_object(void)
 	      "a clear of a one-byte key is not the shortest setting, or does not open");
 }
 
+/* A RANK ITS SETTER STATES, sec 728: signed with the rest, a byte after the
+ * value; the shape before it, with none, still opens, stating -1. */
+static void test_a_rank_stated(void)
+{
+	static uint8_t ranked[FZN_SETTING_MAX], plain[FZN_SETTING_MAX], bad[FZN_SETTING_MAX];
+	uint8_t who[FZN_PUBKEY_LEN], subject[FZN_SUBJECT_LEN];
+	size_t ranked_len = 0, plain_len = 0;
+	fzn_setting_t s;
+
+	key(who, 0x10);
+	key(subject, 0x10);
+	signing_as = 0x10;
+	CHECK(fzn_setting_issue_ranked(who, &SIGN, FZN_SCOPE_ESTATE, subject, 3u,
+	                               (const uint8_t *)"e/after", 7u, 1, (const uint8_t *)"1", 1u,
+	                               FZN_SETTING_RANK_ROOT, ranked, &ranked_len)
+	              == FZN_SETTING_OK
+	              && fzn_setting_open(ranked, ranked_len, &SIGN, &s) == FZN_SETTING_OK
+	              && s.rank == (int)FZN_SETTING_RANK_ROOT && s.value_len == 1u,
+	      "a setting stating root rank did not open to it");
+	CHECK(fzn_setting_issue(who, &SIGN, FZN_SCOPE_ESTATE, subject, 3u,
+	                        (const uint8_t *)"e/after", 7u, 1, (const uint8_t *)"1", 1u, plain,
+	                        &plain_len)
+	              == FZN_SETTING_OK
+	              && plain_len + 1u == ranked_len
+	              && fzn_setting_open(plain, plain_len, &SIGN, &s) == FZN_SETTING_OK
+	              && s.rank == -1,
+	      "the shape stating no rank is not a byte shorter, or does not open to -1");
+	memcpy(bad, ranked, ranked_len);
+	bad[ranked_len - (size_t)FZN_SIG_LEN - 1u] = (uint8_t)FZN_SETTING_RANK_ADMIN;
+	CHECK(fzn_setting_open(bad, ranked_len, &SIGN, &s) == FZN_SETTING_ERR_SIGNATURE,
+	      "a rank changed under the signature was not refused");
+	bad[ranked_len - (size_t)FZN_SIG_LEN - 1u] = (uint8_t)FZN_SETTING_RANKS;
+	CHECK(fzn_setting_open(bad, ranked_len, &SIGN, &s) == FZN_SETTING_ERR_SHAPE,
+	      "a rank past the last opened");
+	CHECK(fzn_setting_issue_ranked(who, &SIGN, FZN_SCOPE_ESTATE, subject, 3u,
+	                               (const uint8_t *)"k", 1u, 1, (const uint8_t *)"v", 1u,
+	                               (fzn_setting_rank_t)FZN_SETTING_RANKS, ranked, &ranked_len)
+	              == FZN_SETTING_ERR_MALFORMED,
+	      "a rank past the last was issued");
+}
+
 static void test_what_is_refused(void)
 {
 	uint8_t who[FZN_PUBKEY_LEN], subject[FZN_SUBJECT_LEN], bad[FZN_SETTING_MAX];
@@ -172,9 +213,13 @@ static void test_what_is_refused(void)
 	      "another object's tag was opened as a setting");
 	memcpy(bad, obj, len);
 	bad[len] = 0u;
-	CHECK(fzn_setting_open(bad, len + 1u, &SIGN, &s) == FZN_SETTING_ERR_SHAPE
+	bad[len + 1u] = 0u;
+	/* ONE BYTE PAST is the length of the shape stating a rank (sec 728),
+	 * so it is read as that and its signature fails; TWO PAST is no shape. */
+	CHECK(fzn_setting_open(bad, len + 1u, &SIGN, &s) != FZN_SETTING_OK
+	              && fzn_setting_open(bad, len + 2u, &SIGN, &s) == FZN_SETTING_ERR_SHAPE
 	              && fzn_setting_open(obj, len - 1u, &SIGN, &s) == FZN_SETTING_ERR_SHAPE,
-	      "a byte past the signature, or one short, was not refused as shape");
+	      "bytes past the signature, or one short, were not refused");
 	memcpy(bad, obj, len);
 	bad[FZN_SETTING_OFF_KEY_LEN]++;
 	CHECK(fzn_setting_open(bad, len, &SIGN, &s) == FZN_SETTING_ERR_SHAPE,
@@ -240,6 +285,7 @@ int main(void)
 {
 	test_the_object();
 	test_what_is_refused();
+	test_a_rank_stated();
 	test_the_cell();
 	test_which_stands();
 	if (failures) {

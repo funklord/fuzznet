@@ -9918,8 +9918,8 @@ SABOTAGES = [
 	(
 		"setting-lengths-account",
 		"state/setting.c",
-		"\tif (len != at + 3u + value_len + (size_t)FZN_SIG_LEN || (bytes[at] == 0u && value_len)",
-		"\tif (len < at + 3u + value_len + (size_t)FZN_SIG_LEN || (bytes[at] == 0u && value_len)",
+		"\tif ((!ranked && len != at + 3u + value_len + (size_t)FZN_SIG_LEN)",
+		"\tif ((!ranked && len < at + 3u + value_len + (size_t)FZN_SIG_LEN)",
 		"a setting with bytes past its signature is opened -- sec 540",
 	),
 	(
@@ -12109,6 +12109,27 @@ SABOTAGES = [
 		"\tint64_t s = caller->clock_offset_ms / 1000;\n",
 		"\tint64_t s = 0 * caller->clock_offset_ms;\n",
 		"a request to a peer whose clock is off expires by the wrong clock -- sec 719 stage 3",
+	),
+	(
+		"setting-stated-rank-parked",
+		"node/apply.c",
+		"\t\tif (!stated_holds(ap, signer, stated, rank)) {\n",
+		"\t\tif (0 && !stated_holds(ap, signer, stated, rank)) {\n",
+		"a setting stating a rank its setter is not known to hold is filed at it -- sec 728",
+	),
+	(
+		"setting-parked-retried",
+		"node/apply.c",
+		"\t\tif (fzn_node_settings_unpark(ap->settings, unpark_judged, ap, &taken)",
+		"\t\tif (0 && fzn_node_settings_unpark(ap->settings, unpark_judged, ap, &taken)",
+		"a parked setting is never taken once its setter's standing arrives -- sec 728",
+	),
+	(
+		"setting-stated-rank-kept",
+		"node/apply.c",
+		"\t\trank = stated;\n",
+		"\t\t(void)stated;\n",
+		"a setting is filed at what its receiver knew, not the rank its setter stated -- sec 728",
 	),
 	(
 		"wait-answering-serves-local",

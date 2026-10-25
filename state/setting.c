@@ -61,12 +61,12 @@ static int scope_served(fzn_scope_t scope)
 	return scope == FZN_SCOPE_HOST || scope == FZN_SCOPE_ESTATE;
 }
 
-fzn_setting_err_t fzn_setting_issue(const uint8_t setter[FZN_PUBKEY_LEN],
-                                    const fzn_sign_ops_t *sign, fzn_scope_t scope,
-                                    const uint8_t about[FZN_SUBJECT_LEN], uint64_t version,
-                                    const uint8_t *key, size_t key_len, int set,
-                                    const uint8_t *value, size_t value_len, uint8_t *out,
-                                    size_t *out_len)
+/* Both shapes: `rank` -1 writes none, as before sec 728. */
+static fzn_setting_err_t issue(const uint8_t setter[FZN_PUBKEY_LEN], const fzn_sign_ops_t *sign,
+                               fzn_scope_t scope, const uint8_t about[FZN_SUBJECT_LEN],
+                               uint64_t version, const uint8_t *key, size_t key_len, int set,
+                               const uint8_t *value, size_t value_len, int rank, uint8_t *out,
+                               size_t *out_len)
 {
 	size_t at;
 
@@ -74,7 +74,8 @@ fzn_setting_err_t fzn_setting_issue(const uint8_t setter[FZN_PUBKEY_LEN],
 		return FZN_SETTING_ERR_MALFORMED;
 	*out_len = 0;
 	if (!setter || !sign || !sign->sign || !about || !out || !fzn_setting_key_ok(key, key_len)
-	    || (set != 0 && set != 1) || (!set && value_len) || !value_ok(value, value_len))
+	    || (set != 0 && set != 1) || (!set && value_len) || !value_ok(value, value_len)
+	    || rank < -1 || rank >= (int)FZN_SETTING_RANKS)
 		return FZN_SETTING_ERR_MALFORMED;
 	if (!scope_served(scope))
 		return FZN_SETTING_ERR_SCOPE;
@@ -93,16 +94,47 @@ fzn_setting_err_t fzn_setting_issue(const uint8_t setter[FZN_PUBKEY_LEN],
 	if (value_len)
 		memcpy(out + at, value, value_len);
 	at += value_len;
+	if (rank >= 0)
+		out[at++] = (uint8_t)rank;
 	if (!sign->sign(sign->ctx, out + at, out, at))
 		return FZN_SETTING_ERR_SIGNATURE;
 	*out_len = at + (size_t)FZN_SIG_LEN;
 	return FZN_SETTING_OK;
 }
 
+fzn_setting_err_t fzn_setting_issue(const uint8_t setter[FZN_PUBKEY_LEN],
+                                    const fzn_sign_ops_t *sign, fzn_scope_t scope,
+                                    const uint8_t about[FZN_SUBJECT_LEN], uint64_t version,
+                                    const uint8_t *key, size_t key_len, int set,
+                                    const uint8_t *value, size_t value_len, uint8_t *out,
+                                    size_t *out_len)
+{
+	return issue(setter, sign, scope, about, version, key, key_len, set, value, value_len, -1,
+	             out, out_len);
+}
+
+fzn_setting_err_t fzn_setting_issue_ranked(const uint8_t setter[FZN_PUBKEY_LEN],
+                                           const fzn_sign_ops_t *sign, fzn_scope_t scope,
+                                           const uint8_t about[FZN_SUBJECT_LEN],
+                                           uint64_t version, const uint8_t *key, size_t key_len,
+                                           int set, const uint8_t *value, size_t value_len,
+                                           fzn_setting_rank_t rank, uint8_t *out,
+                                           size_t *out_len)
+{
+	if ((unsigned)rank >= FZN_SETTING_RANKS) {
+		if (out_len)
+			*out_len = 0;
+		return FZN_SETTING_ERR_MALFORMED;
+	}
+	return issue(setter, sign, scope, about, version, key, key_len, set, value, value_len,
+	             (int)rank, out, out_len);
+}
+
 fzn_setting_err_t fzn_setting_open(const uint8_t *bytes, size_t len, const fzn_sign_ops_t *sign,
                                    fzn_setting_t *out)
 {
 	size_t at, key_len, value_len;
+	int ranked;
 
 	if (!bytes || !sign || !sign->verify || !out)
 		return FZN_SETTING_ERR_MALFORMED;
@@ -117,8 +149,13 @@ fzn_setting_err_t fzn_setting_open(const uint8_t *bytes, size_t len, const fzn_s
 	    || len < at + 3u + (size_t)FZN_SIG_LEN || bytes[at] > 1u)
 		return FZN_SETTING_ERR_SHAPE;
 	value_len = fzn_get_be16(bytes + at + 1u);
-	if (len != at + 3u + value_len + (size_t)FZN_SIG_LEN || (bytes[at] == 0u && value_len)
-	    || !value_ok(bytes + at + 3u, value_len))
+	/* TWO SHAPES, told by their length: the value then the signature, or
+	 * the value, the rank its setter states, then the signature (sec 728).
+	 * The rank is signed with the rest. */
+	ranked = len == at + 3u + value_len + 1u + (size_t)FZN_SIG_LEN;
+	if ((!ranked && len != at + 3u + value_len + (size_t)FZN_SIG_LEN)
+	    || (bytes[at] == 0u && value_len) || !value_ok(bytes + at + 3u, value_len)
+	    || (ranked && bytes[at + 3u + value_len] >= FZN_SETTING_RANKS))
 		return FZN_SETTING_ERR_SHAPE;
 	if (!scope_served((fzn_scope_t)bytes[FZN_SETTING_OFF_SCOPE]))
 		return FZN_SETTING_ERR_SCOPE;
@@ -134,6 +171,7 @@ fzn_setting_err_t fzn_setting_open(const uint8_t *bytes, size_t len, const fzn_s
 	out->set = bytes[at];
 	out->value = bytes + at + 3u;
 	out->value_len = value_len;
+	out->rank = ranked ? (int)bytes[at + 3u + value_len] : -1;
 	return FZN_SETTING_OK;
 }
 

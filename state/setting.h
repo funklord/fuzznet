@@ -52,8 +52,11 @@
 #define FZN_SETTING_OFF_KEY (FZN_SETTING_OFF_KEY_LEN + 1u)
 /* The shortest object, a clear of a one-byte key, and the longest. */
 #define FZN_SETTING_MIN (FZN_SETTING_OFF_KEY + 1u + 1u + 2u + (size_t)FZN_SIG_LEN)
+/* One more for the rank its setter states (sec 728), after the value and
+ * before the signature. A setting without it, the shape before sec 728, is
+ * a byte shorter and still opens. */
 #define FZN_SETTING_MAX (FZN_SETTING_OFF_KEY + FZN_SETTING_KEY_MAX + 1u + 2u \
-                         + FZN_SETTING_VALUE_MAX + (size_t)FZN_SIG_LEN)
+                         + FZN_SETTING_VALUE_MAX + 1u + (size_t)FZN_SIG_LEN)
 
 /* A setter's standing, judged where a setting is applied. Higher wins. */
 typedef enum fzn_setting_rank {
@@ -85,6 +88,10 @@ typedef struct fzn_setting {
 	int set;          /* 1: `value` is the cell's; 0: a clear */
 	const uint8_t *value;
 	size_t value_len;
+	/* THE RANK ITS SETTER STATES (an fzn_setting_rank_t), or -1 for a
+	 * setting of the shape before sec 728, which states none. A claim, not
+	 * a standing: the node applying it confirms the setter held it. */
+	int rank;
 } fzn_setting_t;
 
 /* Whether `key`, `len` bytes, is a key: 1 to FZN_SETTING_KEY_MAX of a-z, 0-9
@@ -104,7 +111,21 @@ fzn_setting_err_t fzn_setting_issue(const uint8_t setter[FZN_PUBKEY_LEN],
                                     const uint8_t *value, size_t value_len, uint8_t *out,
                                     size_t *out_len);
 
-/* OPEN `bytes`: its shape and its setter's signature, into `out`. */
+/* THE SAME, STATING THE RANK THE SETTER WRITES AT, sec 728: `rank` an
+ * fzn_setting_rank_t, signed with the rest, so a node applying the setting
+ * files it there once it confirms the setter held that standing -- and
+ * waits until it can, rather than filing it at whatever it knew of the
+ * setter on arrival. MALFORMED for a rank out of range. */
+fzn_setting_err_t fzn_setting_issue_ranked(const uint8_t setter[FZN_PUBKEY_LEN],
+                                           const fzn_sign_ops_t *sign, fzn_scope_t scope,
+                                           const uint8_t about[FZN_SUBJECT_LEN],
+                                           uint64_t version, const uint8_t *key, size_t key_len,
+                                           int set, const uint8_t *value, size_t value_len,
+                                           fzn_setting_rank_t rank, uint8_t *out,
+                                           size_t *out_len);
+
+/* OPEN `bytes`: its shape and its setter's signature, into `out`. Both
+ * shapes open: with a stated rank, and without (`out->rank` -1). */
 fzn_setting_err_t fzn_setting_open(const uint8_t *bytes, size_t len, const fzn_sign_ops_t *sign,
                                    fzn_setting_t *out);
 

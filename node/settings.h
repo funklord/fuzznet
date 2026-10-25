@@ -81,6 +81,28 @@ typedef struct fzn_node_settings {
 } fzn_node_settings_t;
 
 /*
+ * A SETTING SET ASIDE, sec 728: one stating a rank its setter is not yet
+ * known here to hold, kept until it is, so the setter's stream goes on
+ * past it rather than waiting on a standing that may never come -- a
+ * device that was its own root before it joined states root on what it
+ * wrote then. Kept in the settings' slot under a row no reader of a setting
+ * takes for one. OK, or BACKEND.
+ */
+fzn_node_settings_err_t fzn_node_settings_park(const fzn_node_settings_t *ns,
+                                               const uint8_t *bytes, size_t len);
+
+/* A PARKED SETTING JUDGED AGAIN: 1 when it was taken and its row may go,
+ * -1 when it never can be and its row may go, 0 to keep it. */
+typedef int (*fzn_node_settings_judge_fn)(void *ctx, const uint8_t *bytes, size_t len);
+
+/* Every parked setting handed to `judge`, and the rows it is done with
+ * removed. `*taken` (may be NULL) counts the ones taken. A walk is skipped
+ * while nothing is parked. OK, or BACKEND. */
+fzn_node_settings_err_t fzn_node_settings_unpark(const fzn_node_settings_t *ns,
+                                                 fzn_node_settings_judge_fn judge, void *ctx,
+                                                 size_t *taken);
+
+/*
  * KEEP `bytes` (a setting, `len` bytes) at `rank`, already judged: OK when it
  * now stands at that rank or is the very setting standing, STALE when the one
  * standing supersedes it, REFUSED for bytes that do not open.

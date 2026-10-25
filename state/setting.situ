@@ -3,12 +3,23 @@
 // project.md sec 540.
 //
 // A signed object, tag 147, carried as a record of its setter's estate
-// stream. Its setter's rank -- root, admin, the host itself -- is not in it:
-// it is judged where the setting is applied (node/apply.c), so no setter can
-// claim one.
+// stream. Its setter states the rank it writes at -- root, admin, the host
+// itself -- signed with the rest (sec 728). It is a claim and not a
+// standing: the node applying it confirms the setter held that rank, and
+// waits until it can (node/apply.c), so a setter can claim nothing it does
+// not hold, and writer and reader agree on a setting's rank. Before sec 728
+// it stated none and was ranked by what its receiver knew on arrival; that
+// shape is a byte shorter, with no `rank`, and state/setting.c still opens
+// it.
 
 target buffer;
 endian big;
+
+enum fzn_setting_rank : u8 {
+	host  = 0,	// the host itself, for its own host cells
+	admin = 1,
+	root  = 2,
+}
 
 enum fzn_setting_scope : u8 {
 	host   = 1,	// about one host: `about` is its key
@@ -27,5 +38,6 @@ struct fzn_setting {
 	u8                 op [max = 1];                 //    1 sets the value below, 0 clears
 	u16                value_len [max = 256];        //    0 for a clear
 	u8                 value[value_len];             //    printable ASCII
+	fzn_setting_rank   rank;                         //    as its setter writes, sec 728
 	u8                 signature[64];                //    the setter's, over all before it
 }

@@ -157,7 +157,12 @@ def main(argv):
 			end may already be logged by a run started again in place."""
 			until = time.monotonic() + (within or settle)
 			while True:
-				got = said(who, line)
+				# A SOCKET NOT THERE YET, after a start again in place, is a
+				# node not answering yet, not a failure of the run.
+				try:
+					got = said(who, line)
+				except (FileNotFoundError, ConnectionRefusedError) as e:
+					got = "<%s>" % type(e).__name__
 				if test(got):
 					return got
 				if time.monotonic() > until:

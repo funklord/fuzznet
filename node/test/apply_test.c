@@ -432,6 +432,24 @@ static int setting_by(fzn_node_journal_t *nj, uint8_t setter, fzn_scope_t scope,
 	       && put(nj, setter, obj, len);
 }
 
+/* The same, stating `rank` (sec 728), in `scope`. */
+static int ranked_by(fzn_node_journal_t *nj, uint8_t setter, fzn_scope_t scope, uint8_t about,
+                     uint64_t version, const char *k, const char *value,
+                     fzn_setting_rank_t rank)
+{
+	uint8_t who[FZN_PUBKEY_LEN], subject[FZN_SUBJECT_LEN], obj[FZN_SETTING_MAX];
+	size_t len = 0;
+
+	key(who, setter);
+	key(subject, about);
+	signing_as = setter;
+	return fzn_setting_issue_ranked(who, &SIGN, scope, subject, version,
+	                                (const uint8_t *)k, strlen(k), 1, (const uint8_t *)value,
+	                                strlen(value), rank, obj, &len)
+	               == FZN_SETTING_OK
+	       && put(nj, setter, obj, len);
+}
+
 static int in_force(const fzn_node_settings_t *ns, fzn_scope_t scope, uint8_t about,
                     const char *k, const char *want, fzn_setting_rank_t want_rank)
 {
@@ -1198,6 +1216,62 @@ static void test_settings_judged(void)
 		      "W's setting past its cut, kept before the vote arrived, still stands");
 		CHECK(fzn_revocation_store_set_acts(&revs, NULL) == FZN_CHAIN_OK,
 		      "fixture: the acts taken back from the store");
+	}
+
+	/* A RANK ITS SETTER STATES, sec 728: filed there once this node can
+	 * confirm the setter held it, and parked until then -- never filed at
+	 * what this node knew of the setter on arrival, never refused for it,
+	 * and never holding the setter's stream.
+	 * - S, a member, states admin on the estate's cell: parked, and once R
+	 *   makes S an admin, taken at admin.
+	 * - T, an admin, states root on the estate's cell, which no root set
+	 *   says T ever was: parked; and T's next setting, behind it in T's
+	 *   stream, is taken -- a device that was its own root before it
+	 *   joined stopped its stream that way.
+	 * - U, a member that was its own root before it joined, states root on
+	 *   its own host cell: filed at the host's own rank, which is all its
+	 *   own cell needs. */
+	{
+		uint8_t s_key[FZN_PUBKEY_LEN], t_key[FZN_PUBKEY_LEN], u_key[FZN_PUBKEY_LEN];
+
+		key(s_key, 0xa6);
+		key(t_key, 0xa7);
+		key(u_key, 0xa8);
+		signing_as = 0x91;
+		CHECK(fzn_chain_mint(r, s_key, &cap, 100u, FZN_NO_EXPIRY, 0, &SIGN, hop) == FZN_CHAIN_OK
+		              && put(&nj, 0x91, hop, sizeof(hop))
+		              && fzn_chain_mint(r, t_key, &admin_cap, 100u, FZN_NO_EXPIRY, 0, &SIGN, hop)
+		                         == FZN_CHAIN_OK
+		              && put(&nj, 0x91, hop, sizeof(hop))
+		              && fzn_chain_mint(r, u_key, &cap, 100u, FZN_NO_EXPIRY, 0, &SIGN, hop)
+		                         == FZN_CHAIN_OK
+		              && put(&nj, 0x91, hop, sizeof(hop))
+		              && ranked_by(&nj, 0xa6, FZN_SCOPE_ESTATE, 0x91, 1u, "rank/s", "1",
+		                           FZN_SETTING_RANK_ADMIN)
+		              && ranked_by(&nj, 0xa7, FZN_SCOPE_ESTATE, 0x91, 1u, "rank/u", "1",
+		                           FZN_SETTING_RANK_ROOT)
+		              && ranked_by(&nj, 0xa7, FZN_SCOPE_HOST, 0xa7, 2u, "rank/v", "1",
+		                           FZN_SETTING_RANK_HOST)
+		              && ranked_by(&nj, 0xa8, FZN_SCOPE_HOST, 0xa8, 1u, "rank/w", "1",
+		                           FZN_SETTING_RANK_ROOT)
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK,
+		      "fixture: S stating admin, T root and then host, U root on its own cell");
+		CHECK(in_force(&ns, FZN_SCOPE_ESTATE, 0x91, "rank/s", NULL, FZN_SETTING_RANK_HOST),
+		      "a member's setting stating admin was taken before the member was one");
+		CHECK(in_force(&ns, FZN_SCOPE_ESTATE, 0x91, "rank/u", NULL, FZN_SETTING_RANK_HOST),
+		      "a setting stating a root's rank, by no root, was taken");
+		CHECK(in_force(&ns, FZN_SCOPE_HOST, 0xa7, "rank/v", "1", FZN_SETTING_RANK_HOST),
+		      "a setting behind one stating a rank never held was held up by it");
+		CHECK(in_force(&ns, FZN_SCOPE_HOST, 0xa8, "rank/w", "1", FZN_SETTING_RANK_HOST),
+		      "a former root's setting on its own host cell was not filed at the host's rank");
+		signing_as = 0x91;
+		CHECK(fzn_chain_mint(r, s_key, &admin_cap, 100u, FZN_NO_EXPIRY, 0, &SIGN, hop)
+		                      == FZN_CHAIN_OK
+		              && put(&nj, 0x91, hop, sizeof(hop))
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+		              && in_force(&ns, FZN_SCOPE_ESTATE, 0x91, "rank/s", "1",
+		                          FZN_SETTING_RANK_ADMIN),
+		      "the setting stating admin was not taken at admin once its setter was one");
 	}
 	fzn_node_journal_close(&nj);
 }

@@ -72103,3 +72103,138 @@ rank."**
 - A rank shown never to have been held is refused.
 - Tests: E's case as a unit (an add arriving after the setting), and
   `live_estate` phase f at 5% loss repeated.
+
+### Built for sec 728: the rank stated and confirmed
+
+- **The setting states its setter's rank.**
+  - A byte after the value and before the signature, so it is signed
+    with the rest (`fzn_setting_issue_ranked`, `state/setting.h`). The
+    old issuer still writes the shape before it.
+  - `fzn_setting_open` tells the two shapes apart by length. One stating
+    a rank opens with `rank` set, and one stating none with -1.
+- **A wire break, as situ classes it.** `state/setting.situ` gains `rank`
+  before `signature`, the `.wire` and `.map` regenerated against situ
+  bb79c61, and `situc wire --check` calls it breaking. A node before
+  this change refuses a setting stating a rank, since its length is one
+  more than the old shape allows. Settings already in journals keep
+  their shape and still open.
+- **The writer states what it judged** (`node/settings.c`): the rank
+  `fzn_node_apply_rank` gave it, as before.
+- **The receiver confirms it** (`take_setting` and `stated_holds`,
+  `node/apply.c`):
+  - **a stated root** is taken if the setter ever stood as a root
+    (`ever_root`); whether this act still counts is its cut's question at
+    read, as for root records (sec 700);
+  - **a stated admin** is taken if the setter is an admin now, or this
+    node holds its admin chain, revoked or not; a revocation is the
+    read's to weigh;
+  - **the host's own rank** always;
+  - **a stated rank below what the setter holds now** is filed at the
+    stated rank: it was written before its setter rose.
+  - **A setting of the old shape** is ranked on arrival, as before.
+- **What cannot be confirmed yet is PARKED, not waited on**
+  (`fzn_node_settings_park` and `_unpark`, `node/settings.c`).
+  - **The first build waited**, as a record with no chain waits. A
+    waiting record holds its setter's whole stream, and the gates found
+    the case where the standing never comes. B2 in `live_group_hosts` was
+    its own estate's root before it joined B's estate (sec 638), so what
+    it wrote then states root. Its stream stopped behind those records
+    at B and at B2 itself, and C never learned B2's place among the
+    group's hosts. It failed every run, at a load of 2.
+  - **A parked setting is kept in the settings' slot** under a row no
+    reader of a setting takes for one (its first byte is no rank), with a
+    count row so a round with none parked walks nothing. The setter's
+    stream goes on past it.
+  - **It is judged again at the end of every apply round**, once that
+    round's standings are in, and taken at its stated rank when they
+    confirm it. It is dropped only if it does not open. A setter judged
+    to have no standing for the cell is exactly what a claim ahead of its
+    grant looks like, and the first version of the retry dropped those,
+    the very case parking was for.
+  - **A claim beyond the cell's standing is parked, not refused.** An
+    admin's estate setting arriving before its admin chain was refused
+    outright before this ("a member with no standing for this cell is
+    refused"). That is E's case one rank down, and it is now parked when
+    it states a rank above the host's.
+- **The setter's own host cell needs only the host's own standing.** A
+    stated rank there that cannot be confirmed is filed at what the
+    setter holds. A device that was its own root wrote its address at
+    root rank, and parked, that address never reached the estate's other
+    hosts or its contacts. E's case is an estate setting, so it still
+    parks.
+- **The cost:** a member's false claims stay parked, a row each, bounded
+  by what that member writes, which its stream already is.
+- **The schema's own comment said the opposite**: "its setter's rank is
+  not in it ... so no setter can claim one". That reason still holds,
+  since a stated rank is taken only once confirmed. The comment now says
+  so.
+
+### Measured for sec 728
+
+- **`setting_test`, 25 checks:**
+  - a setting stating root opens to it;
+  - the old shape is a byte shorter and opens to -1;
+  - a rank changed under the signature is refused, and one past the last
+    is malformed;
+  - one byte past an old object is read as the ranked shape and its
+    signature fails, and two past is no shape. The old check of one byte
+    past held only by luck of a signature byte.
+- **`apply_test`, 139 checks:**
+  - a member stating admin on the estate's cell is parked, and taken at
+    admin once the root makes it an admin;
+  - an admin stating root on the estate's cell, by no root set, is
+    parked, and its next setting, behind it in its stream, is taken;
+  - a member stating root on its own host cell is filed at the host's
+    rank.
+- **`live_group_hosts`**, which failed every run with the first build,
+  passes 2 of 2.
+- **Sabotage, three entries** (the park, the retry, the stated rank kept),
+  plus `setting-lengths-account` retargeted onto the guard as it now
+  reads.
+- **Live, `live_estate` at 5% loss, 20 runs, 18 passing, with the first
+  build, the one that waited.** E's case did not recur. Against the build without the change, 10 runs gave 9
+  passing.
+- **The two failures of the 20 are phase c.** D's `h/before`, written
+  before either vote, read `ok absent` at R once D's grant fell, and none
+  came in the 10 without the change. Too few to call a cause.
+  - **The mechanism that fits needs no stated rank.** A vote's line with
+    no cut named is drawn at D's head as the voter holds it
+    (`revoke_peer`, `node/admin.c`), as `remove root` drew its cut before
+    sec 721. A voter that counts D's `h/before` from reconciliation, its
+    record not yet in the voter's journal, draws the line below it.
+  - **And `revoke_peer`, holding no head of D, votes with no line**:
+    quietly `none`, the case sec 721 refused for roots.
+  - **Open, and next:** the same two refusals for a vote.
+- **The run's traceback** at `admin("a1")`, on both builds, was the
+  harness. After `set admin` restarts a daemon in place, `status` was
+  answered by the old process before it exec'd, and the next ask met no
+  socket. `polled` now takes a missing or refused socket as a node not
+  answering yet.
+
+## 729. Whether netcfgd's planning and deployment belong in fuzznet: answered with what fuzznet has, 2026-10-25
+
+**Asked of netcfgd by the holder, relayed by netcfgd** (this tree's inbox
+20261025T1453Z): "should parts of the network planning and running of
+deployment tasks become a generic part of fuzznet? As other projects may
+need to distribute and propagate internal/external settings and commands
+in very much the same way?" The decision is the holder's, in a
+cross-project pass. netcfgd signalled it to claude-guidelines' list and
+asked fuzznet only which of its four pieces fuzznet already has a model
+for.
+
+**Answered in netcfgd's inbox, 20261025T1455Z**, measured at 87df072:
+- **The scope vocabulary is here.** `state/scope.h`, sec 420, d2f5de3,
+  was built for netcfgd, narrowest at zero. Its header expects netcfgd's
+  own enum to go. netcfgd's note describes a parallel
+  `c/include/ncfg/scope.h`. The registry gate over an unclassified key is
+  a consumer's table check.
+- **Standing computed, not stored:** fuzznet does it for its own
+  settings at read (secs 540, 700, 728). What a consumer did with a
+  value is not fuzznet's.
+- **"Settled":** defined for messages (sec 615), and costed for settings
+  as sec 724, not built.
+- **Commit-confirm with a revert window, and command propagation:**
+  fuzznet has neither.
+- **netcfgd's proposed line**, a library for how a value reaches a node
+  and how nodes agree it did, with meaning left to the consumer, fits
+  what fuzznet's settings already are.

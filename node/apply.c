@@ -476,6 +476,30 @@ int fzn_node_apply_act_stands(const fzn_node_apply_t *ap, const uint8_t key[FZN_
 	return 1;
 }
 
+/* WHETHER `signer` HELD THE RANK ITS SETTING STATES, as far as this node can
+ * tell now, `judged` being what it holds today, sec 728:
+ * - root: ever standing as one -- whether this act still counts is its
+ *   cut's question, asked when read (sec 700);
+ * - admin: an admin today, or one whose admin chain this node holds,
+ *   revoked or not -- a revocation is the read's to weigh, by its cut;
+ * - the host's own: always, since a judged setting is at least that.
+ * A stated rank below what the setter holds now was written before it
+ * rose, and is taken as stated. */
+static int stated_holds(const fzn_node_apply_t *ap, const uint8_t *signer,
+                        fzn_setting_rank_t stated, fzn_setting_rank_t judged)
+{
+	uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	size_t n = 0;
+
+	if (stated == FZN_SETTING_RANK_ROOT)
+		return ever_root(ap, signer);
+	if (stated == FZN_SETTING_RANK_ADMIN)
+		return judged >= FZN_SETTING_RANK_ADMIN
+		       || (ap->admin_capability
+		           && fzn_node_apply_chain(ap, signer, ap->admin_capability, hops, &n) && n);
+	return 1;
+}
+
 /* A SETTING, sec 540: judged by its setter's standing, then kept at that
  * rank. Its setter must be the record's signer: no setting rides another
  * key's stream. */
@@ -493,8 +517,43 @@ static enum outcome take_setting(fzn_node_apply_t *ap, const uint8_t *body, size
 	judged = fzn_node_apply_rank(ap, signer, s.scope, s.about, &rank);
 	if (judged == 0)
 		return WAIT;
+	/* A CELL BEYOND WHAT THIS NODE KNOWS OF ITS SETTER, stating a rank that
+	 * would reach it, is parked rather than refused (sec 728): an admin's
+	 * estate setting arriving before its admin chain was otherwise lost
+	 * for good -- E's case one rank down. Judged again each round. */
 	if (judged < 0)
-		return REFUSED;
+		return s.rank > (int)FZN_SETTING_RANK_HOST
+		               ? fzn_node_settings_park(ap->settings, body, len) == FZN_NODE_SETTINGS_OK
+		                         ? APPLIED
+		                         : NOT_SAVED
+		               : REFUSED;
+	/* THE RANK ITS SETTER STATES, sec 728, taken once this node confirms
+	 * the setter held it (`stated_holds`). One claimed beyond what this
+	 * node knows is PARKED, not waited on and not filed at what this node
+	 * knew on arrival: a root's add arriving after left a setting a rank
+	 * low for good, and a wait held the setter's whole stream for a
+	 * standing that may never come -- a device that was its own root
+	 * before it joined states root on what it wrote then, and its every
+	 * later record stopped behind it. A parked setting is judged again
+	 * each round (`fzn_node_apply_round`). */
+	if (s.rank >= 0) {
+		fzn_setting_rank_t stated = (fzn_setting_rank_t)s.rank;
+
+		/* ITS OWN HOST CELL needs no more than the host's own standing,
+		 * which `judged` already found: a device that was its own root
+		 * before it joined wrote its address at root rank, and parked, the
+		 * address never reached the estate's other hosts or its contacts. */
+		if (!stated_holds(ap, signer, stated, rank)) {
+			if (s.scope == FZN_SCOPE_HOST && fzn_ct_memeq(s.about, signer, FZN_PUBKEY_LEN))
+				stated = rank;
+			else
+				return fzn_node_settings_park(ap->settings, body, len)
+				               == FZN_NODE_SETTINGS_OK
+				               ? APPLIED
+				               : NOT_SAVED;
+		}
+		rank = stated;
+	}
 	err = fzn_node_settings_learn(ap->settings, body, len, rank);
 	if (err == FZN_NODE_SETTINGS_BACKEND)
 		return NOT_SAVED;
@@ -636,6 +695,31 @@ fzn_node_apply_outcome_t fzn_node_apply_object(fzn_node_apply_t *ap, const uint8
 	return FZN_NODE_APPLY_REFUSED;
 }
 
+/* A PARKED SETTING JUDGED AGAIN, sec 728: taken at its stated rank once its
+ * setter's standing has arrived; dropped when it does not open; kept
+ * otherwise -- a setter judged to have no standing for the cell is what a
+ * claim beyond what this node knows looks like until the grant arrives, so
+ * that is kept too. The first version dropped it, and threw away the very
+ * case it was parked for at the first round. */
+static int unpark_judged(void *ctx, const uint8_t *bytes, size_t len)
+{
+	fzn_node_apply_t *ap = ctx;
+	fzn_setting_rank_t rank;
+	fzn_setting_t s;
+	fzn_node_settings_err_t err;
+	int judged;
+
+	if (fzn_setting_open(bytes, len, ap->sign, &s) != FZN_SETTING_OK || s.rank < 0)
+		return -1;
+	judged = fzn_node_apply_rank(ap, s.setter, s.scope, s.about, &rank);
+	if (judged <= 0 || !stated_holds(ap, s.setter, (fzn_setting_rank_t)s.rank, rank))
+		return 0;
+	err = fzn_node_settings_learn(ap->settings, bytes, len, (fzn_setting_rank_t)s.rank);
+	if (err == FZN_NODE_SETTINGS_BACKEND)
+		return 0;
+	return 1;
+}
+
 fzn_node_pull_err_t fzn_node_apply_round(fzn_node_apply_t *ap, fzn_node_apply_tally_t *tally)
 {
 	static uint8_t buf[FZN_RECORD_MAX_LEN];
@@ -684,6 +768,17 @@ fzn_node_pull_err_t fzn_node_apply_round(fzn_node_apply_t *ap, fzn_node_apply_ta
 				progress = 1;
 			}
 		}
+	}
+	/* AND WHAT WAS PARKED, sec 728, judged again once this round's
+	 * standings are in: a root's add arriving after the setting it raised
+	 * is what takes the setting at its stated rank. */
+	if (ap->settings) {
+		size_t taken = 0;
+
+		if (fzn_node_settings_unpark(ap->settings, unpark_judged, ap, &taken)
+		    == FZN_NODE_SETTINGS_BACKEND)
+			return FZN_NODE_PULL_NOT_SAVED;
+		tally->applied += taken;
 	}
 	return FZN_NODE_PULL_OK;
 }
