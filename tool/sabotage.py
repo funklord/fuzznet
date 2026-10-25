@@ -10224,6 +10224,27 @@ SABOTAGES = [
 		"a trimmed month's line is filed again and its key asked for -- sec 564",
 	),
 	(
+		'node-messages-delivery-length-exact',
+		'node/messages.c',
+		'\t    || request_len != FZN_NODE_MESSAGES_DELIVER_HEAD_LEN + text_len)',
+		'\t    || request_len < FZN_NODE_MESSAGES_DELIVER_HEAD_LEN + text_len)',
+		"a contact's delivery with bytes past its text is filed as a line; delivery_fuzz's property 2 -- sec 731",
+	),
+	(
+		'node-messages-delivery-text-where-it-is',
+		'node/messages.c',
+		'(const char *)request + FZN_NODE_MESSAGES_DELIVER_HEAD_LEN,',
+		'(const char *)request + FZN_NODE_MESSAGES_DELIVER_HEAD_LEN - 1,',
+		"a delivered line is filed with a byte of its header for text; delivery_fuzz's property 1 -- sec 731",
+	),
+	(
+		'node-messages-delivered-echoes-the-id',
+		'node/messages.c',
+		'\tmemcpy(reply + 2, id, FZN_MESSAGE_ID_LEN);\n\treply[2 + FZN_MESSAGE_ID_LEN] =',
+		'\tmemset(reply + 2, 0, FZN_MESSAGE_ID_LEN);\n\treply[2 + FZN_MESSAGE_ID_LEN] =',
+		"a delivery is answered for no line, so its sender never learns it was held; delivery_fuzz's property 1 -- sec 731",
+	),
+	(
 		'messages-absorb-replays-waits',
 		'messages/messages.c',
 		'\tif (seen && !waits_replay(m, seen, ctx))',

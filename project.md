@@ -72388,6 +72388,26 @@ runs every daemon at that loss.
 
 Not yet in the scenario: a restart inside an operation.
 
+**The fuzz bar, first harness: a contact's delivery** (`node/test/delivery_fuzz.c`).
+The delivery is the one input in this journey written wholly by the other
+user's host. Each case builds a well-formed delivery, and half of them
+are then bent. Four properties:
+- a well-formed delivery is filed IN under its contact with exactly its
+  text, and answered held for its id;
+- a bent one files only what its bytes say, or nothing;
+- nothing is ever filed under another contact;
+- the same bytes again file nothing more.
+
+The run has floors: bent deliveries both filed and refused. At 3000
+cases it filed 1452 whole, filed 465 bent and refused 897. Three
+sabotages in `tool/sabotage.py` are each caught by it:
+- a length taken as a floor rather than exact;
+- the text read one byte early;
+- the reply not echoing the id.
+
+Still to fuzz in this journey: the line, keys and settlement codecs, and
+the key exchange.
+
 ## 732. A build without packing builds again, 2026-10-25
 
 **Reported by netcfgd** through the inbox (2026-10-25 16:58 UTC), found
