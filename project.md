@@ -72506,3 +72506,67 @@ second whole build on every `make test` costs minutes. Open: whether a
 configuration check is worth that, or whether a consumer finding it is
 enough. netcfgd no longer turns packing off. It adds `-lzstd` when `nm`
 shows that one of the objects it links needs it.
+
+## 733. A conversation cut between an entry and its count, and journey 2's faults, 2026-10-25
+
+Sec 689's faults bar for the 1:1 chat journey, built as `live_faults.py`
+phases o and p on the model of sec 718's m and n.
+
+**The acts.** The host's address is set, a contact is added by card, a
+line out of two parts is written (512 bytes, by `file PATH`, since a
+request line holds 512 bytes in all), a line in is filed as a delivery
+files it, and the line in is marked read.
+- **o, a crash at every write:** each reach of `persist.synced`,
+  `persist.renamed` and `record.body` inside the acts. The daemon is
+  started again and the acts made again, as a client that heard no answer
+  would. Every act must be answered, each line listed once and whole,
+  and the conversation read.
+- **p, a full disk:** a write budget in steps of 250 bytes. Each act is
+  refused or kept. An act answered `ok` must be there after a restart,
+  with no line listed twice. Then the acts made again must stand.
+
+**What it found: a cut between an index entry and its count stopped the
+conversation for good.** A crash at `persist.synced:29`, inside the line
+in's indexing, left the conversation's index chunk one entry longer than
+its count. Every absorb after it said "absorbing: the store refused".
+Every line written after it answered `ok`, and was never listed.
+- **The cause** is in `messages/messages.c`. An append saves the chunk
+  with the new entry and then the count. Its comment said a crash
+  between the two "leaves an entry the count does not reach, which the
+  next append writes over". But the next append required the chunk to
+  hold exactly the count's entries, so it refused the longer one.
+- **The same shape at three sites:** a conversation's index
+  (`index_at_end`), every line's order (`all_append`), and the list of
+  conversations (`conversation_add`). Each now takes a chunk holding at
+  least the count's entries, and the save writes over the stale one.
+- `node/buckets.c` has the same append and was already right: it reads
+  with a floor, not an exact length.
+
+**The test, `test_a_line_cut_at_every_save`** in
+`messages/test/messages_test.c`, gives the store a budget of saves. A
+line is cut at each save in turn, in a conversation already held and in
+a new one. The store is then started again, and another line written
+and taken in. Every line must be listed once where its record was
+written. A cut at the month's key, which is kept before anything is
+sealed, leaves no record and no line. Before the fix the test failed
+at a cut after the index chunk, after every line's order, and after
+the list of conversations. Three sabotage entries restore each exact
+length, and the test catches each alone.
+
+**Measured, with the fix:**
+- o: 81 crash points inside the acts (37 at `persist.synced`, 37 at
+  `persist.renamed`, 7 at `record.body`); each started again, and every
+  line was listed once;
+- p: 48 and 49 depths inside the acts, in two runs; each act was
+  refused or kept, none answered `ok` was lost, and no line was filed
+  twice.
+
+The whole of `live_faults.py` now takes about two minutes at a load of
+250. It has its own deadline of 600 s, and `livecheck-faults` allows it
+900.
+
+**Not covered:** a crash inside a delivery from a contact, as against a
+line filed in by the verb, and inside key carriage between members.
+Both file through the same `fzn_messages_write`, which the sweep and the
+test cover, but the remote halves are not crashed. Journey 2's bounds
+bar is next.

@@ -718,10 +718,12 @@ static int conversation_add(const fzn_messages_t *m, const uint8_t contact[FZN_P
 
 	if (!index_row(m, "convchnk", NOBODY, (uint32_t)(n / CONVERSATIONS_CHUNK), row))
 		return 0;
+	/* AT LEAST THE COUNT'S ENTRIES, and past them a stale one from a save
+	 * the count never followed, written over now (sec 733). */
 	if (in_chunk
 	    && (!m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, chunk, sizeof(chunk),
 	                        &len)
-	        || len != in_chunk * FZN_PUBKEY_LEN))
+	        || len < in_chunk * FZN_PUBKEY_LEN))
 		return 0;
 	memcpy(chunk + in_chunk * FZN_PUBKEY_LEN, contact, FZN_PUBKEY_LEN);
 	return m->store->save(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, chunk,
@@ -780,10 +782,11 @@ static int all_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_
 	if (n / FZN_MESSAGES_INDEX_CHUNK > UINT32_MAX
 	    || !index_row(m, "allchnk", NOBODY, (uint32_t)(n / FZN_MESSAGES_INDEX_CHUNK), row))
 		return 0;
+	/* At least the count's entries, as `conversation_add`'s (sec 733). */
 	if (in_chunk
 	    && (!m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, chunk, sizeof(chunk),
 	                        &len)
-	        || len != in_chunk * ALL_ENTRY_LEN))
+	        || len < in_chunk * ALL_ENTRY_LEN))
 		return 0;
 	memcpy(chunk + in_chunk * ALL_ENTRY_LEN, contact, FZN_PUBKEY_LEN);
 	fzn_put_be64(chunk + in_chunk * ALL_ENTRY_LEN + FZN_PUBKEY_LEN, i);
@@ -938,10 +941,13 @@ static int index_at_end(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKE
 	if (n / FZN_MESSAGES_INDEX_CHUNK > UINT32_MAX
 	    || !index_row(m, "chunk", contact, (uint32_t)(n / FZN_MESSAGES_INDEX_CHUNK), row))
 		return 0;
+	/* AT LEAST THE COUNT'S ENTRIES: a crash between the entry and the count
+	 * below leaves the chunk one longer, and an exact length here refused
+	 * every append to the conversation after it (sec 733). */
 	if (in_chunk
 	    && (!m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, chunk, sizeof(chunk),
 	                        &len)
-	        || len != in_chunk * ENTRY_LEN))
+	        || len < in_chunk * ENTRY_LEN))
 		return 0;
 	memcpy(chunk + in_chunk * ENTRY_LEN, device, FZN_PUBKEY_LEN);
 	fzn_put_be64(chunk + in_chunk * ENTRY_LEN + ENTRY_SEQ, seq);

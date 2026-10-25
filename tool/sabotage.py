@@ -10315,6 +10315,27 @@ SABOTAGES = [
 		"a GIVE of more entries than a batch holds is taken; keys_fuzz's property 4 -- sec 731",
 	),
 	(
+		'messages-index-append-past-a-cut',
+		'messages/messages.c',
+		'\t        || len < in_chunk * ENTRY_LEN))\n',
+		'\t        || len != in_chunk * ENTRY_LEN))\n',
+		'a conversation whose index entry was saved and its count not stops taking lines for good; test_a_line_cut_at_every_save -- sec 733',
+	),
+	(
+		'messages-alls-append-past-a-cut',
+		'messages/messages.c',
+		'\t        || len < in_chunk * ALL_ENTRY_LEN))\n',
+		'\t        || len != in_chunk * ALL_ENTRY_LEN))\n',
+		"every line's order, its entry saved and its count not, stops taking lines for good; test_a_line_cut_at_every_save -- sec 733",
+	),
+	(
+		'messages-conversations-append-past-a-cut',
+		'messages/messages.c',
+		'\t        || len < in_chunk * FZN_PUBKEY_LEN))\n',
+		'\t        || len != in_chunk * FZN_PUBKEY_LEN))\n',
+		'the list of conversations, its entry saved and its count not, refuses every new conversation; test_a_line_cut_at_every_save -- sec 733',
+	),
+	(
 		'node-contact-card-text-uppercase',
 		'node/contact_card.c',
 		"\tif (c >= '2' && c <= '7')\n\t\treturn 26 + (c - '2');\n",

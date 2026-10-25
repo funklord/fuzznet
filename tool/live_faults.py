@@ -58,6 +58,14 @@ the scenarios built on them test something:
     n  a full disk at every depth of the same acts, by a write budget in
        steps of 250 bytes: each act refused or kept, and none answered ok
        that a restart with room does not find (sec 718)
+    o  a crash at every reach of each crash point inside a conversation's
+       acts: a contact added by card, a line out of two parts, a line in
+       as a delivery files it, and a read mark. Started again, the acts
+       made again are answered, and every line is listed once, whole, and
+       read (sec 733) -- where a cut between a line's index entry and its
+       count stopped its conversation taking lines for good
+    p  a full disk at every depth of the same acts: each refused or kept,
+       none answered ok that a restart does not find, no line twice
 
 Against a daemon built without faults, phase a's B is counted at 100 per
 cent loss, phase b's daemon does not die, and phase c's says nothing.
@@ -81,6 +89,11 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_rejoin import RECONCILE_RE, ROUND_DONE_RE, command, daemon  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
+import live_trim  # noqa: E402
+
+# ONE DEADLINE FOR THE WHOLE RUN, its own: phases o and p (sec 733) doubled
+# the run to about two minutes at a load of 250, past half live_trim's 240 s.
+live_trim.DEADLINE = time.monotonic() + 600.0
 from live_events import subscriber  # noqa: E402
 
 # A CONTACT PASS that asked S: phase d's.
@@ -737,6 +750,171 @@ def main(argv):
 				raise failed("n: no budget fell inside the acts")
 			print("livecheck: n: a full disk at %d depths of the same acts: each refused or "
 			      "kept, never answered ok and lost" % refused_any)
+
+			# o: a crash at every write of a conversation's acts (sec 733): a
+			# contact added by card, a line out of two parts, a line in as a
+			# delivery files it, and a read mark. Made again after the
+			# crash, as a client that heard no answer would, each line is
+			# listed once, whole, and read.
+			o_port = 44000 + (os.getpid() % 500) * 8
+			o_c = os.path.join(scratch, "o-c")
+			os.mkdir(o_c)
+			command(run, ["--fuzznet-dir=" + o_c, "--new-root"], None)
+			o_c_sock = os.path.join(sock_dir, "oc")
+			carol = daemon(run, "oc", o_c, o_c_sock, extra=["--udp-port=%d" % o_port])
+			try:
+				if ask(o_c_sock, "set setting host net/address 127.0.0.1 %d" % o_port) != "ok":
+					raise failed("o: C's address was not set")
+				card = ask(o_c_sock, "get card carol")
+				if not card.startswith("ok FZC1:"):
+					raise failed("o: C's get card answered %r" % card)
+				card = card.split(" ", 1)[1]
+				o_out, o_in = "%032x" % 0x0a1, "%032x" % 0x0a2
+				# THE LONGEST TEXT, by file: a request line holds 512 bytes in
+				# all, so a text of 512 cannot be written in one.
+				o_long = "x" * 512
+				o_long_path = os.path.join(scratch, "o-long")
+				with open(o_long_path, "w") as f:
+					f.write(o_long)
+
+				def o_acts(sock):
+					"""The acts, each answered. The host's address is set first,
+					so the contact added can be sent this host's request."""
+					return [ask(sock, "set setting host net/address 127.0.0.1 %d" % (o_port + 1)),
+					        ask(sock, "add contact carol " + card),
+					        ask(sock, "add message carol out %s file %s" % (o_out, o_long_path)),
+					        ask(sock, "add message carol in %s at 12345 hi" % o_in),
+					        ask(sock, "set message carol read " + o_in)]
+
+				def o_answered(said):
+					"""Every act answered as made with room: the contact by its key."""
+					return said[0] == "ok" and said[1].startswith("ok ") and said[2:] == ["ok"] * 3
+
+				def o_stands(sock, where):
+					"""Each line listed once, whole, and the conversation read."""
+					listed = ask(sock, "list message carol")
+					for line_id, text in ((o_out, o_long), (o_in, "hi")):
+						if listed.count("," + line_id + ",") != 1:
+							raise failed("o: %s line %s listed %d times: %r"
+							             % (where, line_id, listed.count("," + line_id + ","),
+							                listed[:300]))
+						if ",%s," % line_id not in listed or not any(
+						        e.split(",")[-1] == text for e in listed.split()[4:]
+						        if "," + line_id + "," in e):
+							raise failed("o: %s line %s is not whole" % (where, line_id))
+					unread = ask(sock, "get message carol unread")
+					if unread.split()[1:2] != ["0"]:
+						raise failed("o: %s the read mark does not stand: %r" % (where, unread))
+
+				o_swept = {}
+				for point in ("persist.synced", "persist.renamed", "record.body"):
+					inside = 0
+					for n in range(1, 400):
+						d = os.path.join(scratch, "o-%s-%d" % (point, n))
+						sock = os.path.join(sock_dir, "o%d" % n)
+						os.mkdir(d)
+						command(run, ["--fuzznet-dir=" + d, "--new-root"], None)
+						faulted({"FZN_FAULT_CRASH": "%s:%d" % (point, n)})
+						try:
+							node = daemon(run, "o%s%d" % (point[0], n), d, sock,
+							              extra=["--udp-port=%d" % (o_port + 1)])
+						except failed as e:
+							if "fault: dying at" not in str(e):
+								raise
+							continue  # at start, before any act: N too small
+						finally:
+							faulted({})
+						try:
+							o_acts(sock)
+							crashed = False
+						except OSError:
+							crashed = True
+						if not crashed:
+							node.stop()
+							break
+						inside += 1
+						node.stop()
+						try:
+							node = daemon(run, "o%s%dr" % (point[0], n), d, sock,
+							              extra=["--udp-port=%d" % (o_port + 1)])
+						except failed as e:
+							raise failed("o: after a crash at %s:%d the daemon would not start "
+							             "again:\n%s" % (point, n, str(e)[-400:]))
+						try:
+							again = o_acts(sock)
+							if not o_answered(again):
+								raise failed("o: after a crash at %s:%d the acts made again "
+								             "answered %r" % (point, n, again))
+							o_stands(sock, "after a crash at %s:%d," % (point, n))
+						finally:
+							node.stop()
+					else:
+						raise failed("o: %s was still reached after 400 writes" % point)
+					o_swept[point] = inside
+				if not any(o_swept.values()):
+					raise failed("o: no crash point fell inside the acts: %r" % o_swept)
+				print("livecheck: o: a crash at every write of a contact added, two lines and a "
+				      "read mark (%s), each started again, the acts made again, every line "
+				      "listed once" % ", ".join("%s %d" % kv for kv in o_swept.items()))
+
+				# p: a full disk at every depth of the same acts (sec 733): what
+				# was answered ok is kept, and nothing is filed twice.
+				o_refused = 0
+				for budget in range(0, 400000, 250):
+					d = os.path.join(scratch, "p-%d" % budget)
+					sock = os.path.join(sock_dir, "p%d" % (budget // 250))
+					os.mkdir(d)
+					command(run, ["--fuzznet-dir=" + d, "--new-root"], None)
+					faulted({"FZN_FAULT_WRITE_BUDGET": str(budget)})
+					try:
+						node = daemon(run, "p%d" % budget, d, sock,
+						              extra=["--udp-port=%d" % (o_port + 1)])
+					except failed:
+						continue  # full before it could serve
+					finally:
+						faulted({})
+					try:
+						said = o_acts(sock)
+						if not ask(sock, "status").startswith("ok "):
+							raise failed("p: at a budget of %d the daemon stopped serving"
+							             % budget)
+					finally:
+						node.stop()
+					kept = [w.startswith("ok") for w in said]
+					if o_answered(said):
+						break
+					o_refused += 1
+					node = daemon(run, "p%dr" % budget, d, sock,
+					              extra=["--udp-port=%d" % (o_port + 1)])
+					try:
+						listed = ask(sock, "list message carol")
+						if kept[2] and listed.count("," + o_out + ",") != 1:
+							raise failed("p: at a budget of %d the line out was answered ok "
+							             "and is listed %d times"
+							             % (budget, listed.count("," + o_out + ",")))
+						if kept[3] and listed.count("," + o_in + ",") != 1:
+							raise failed("p: at a budget of %d the line in was answered ok "
+							             "and is listed %d times"
+							             % (budget, listed.count("," + o_in + ",")))
+						if kept[4] and ask(sock, "get message carol unread").split()[1:2] != ["0"]:
+							raise failed("p: at a budget of %d the read mark was answered ok "
+							             "and is not kept" % budget)
+						again = o_acts(sock)
+						if not o_answered(again):
+							raise failed("p: at a budget of %d, with room again, the acts "
+							             "answered %r" % (budget, again))
+						o_stands(sock, "at a budget of %d, with room again," % budget)
+					finally:
+						node.stop()
+				else:
+					raise failed("p: the acts were still refused at the largest budget")
+				if not o_refused:
+					raise failed("p: no budget fell inside the acts")
+				print("livecheck: p: a full disk at %d depths of a conversation's acts: each "
+				      "refused or kept, never answered ok and lost, no line filed twice"
+				      % o_refused)
+			finally:
+				carol.stop()
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

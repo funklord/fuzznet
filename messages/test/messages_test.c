@@ -92,6 +92,10 @@ static int mem_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, 
 	return 1;
 }
 
+/* SAVES LEFT BEFORE A POWER CUT, or -1 for none: the cut save and every one
+ * after it do not land, as a crash between two would leave them. */
+static long saves_left = -1;
+
 static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
                     const uint8_t *bytes, size_t len)
 {
@@ -99,6 +103,10 @@ static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	row_t *r = find(m, slot, subject);
 	size_t i;
 
+	if (saves_left == 0)
+		return 0;
+	if (saves_left > 0)
+		saves_left--;
 	if (len > sizeof(r->bytes))
 		return 0;
 	for (i = 0; !r && i < ROWS; i++)
@@ -584,6 +592,83 @@ static void test_written_order_not_learned(void)
 	              && fzn_messages_unread(&A.m, X, &unread, &beyond) == FZN_MESSAGES_OK
 	              && unread == 0u,
 	      "read through the newest line written, a line is still unread");
+}
+
+/* A LINE CUT AT EVERY SAVE, sec 733: a power cut after the line's record and
+ * before any of the saves that index it, then a restart. The next line is
+ * taken, and once taken in, every line is listed once. An append once
+ * refused any chunk longer than its count, so a cut between an entry and
+ * its count stopped the conversation for good. Cut in a conversation
+ * already held, and in a new one, whose first line adds it to the list of
+ * conversations. */
+static int cut_at(long k, const uint8_t *contact, int *cut)
+{
+	static mem_t kept;
+	uint64_t at[1];
+	int n1 = 0, n2 = 0, n3 = 0;
+	size_t i, recorded;
+
+	setup();
+	if (!write_line(&A, X, FZN_MESSAGE_OUT, 1u, "before"))
+		return 0;
+	recorded = n_recs;
+	saves_left = k;
+	*cut = !write_line(&A, contact, FZN_MESSAGE_OUT, 2u, "cut");
+	saves_left = -1;
+	if (!*cut)
+		return 1;
+	/* LISTED ONCE WHERE ITS RECORD WAS WRITTEN: a cut at the month's key,
+	 * kept before anything is sealed, leaves no record and no line. */
+	recorded = n_recs != recorded;
+	/* STARTED AGAIN: the store as the cut left it, all else fresh. */
+	memcpy(&kept, &A.store, sizeof(kept));
+	device_up(&A, 0x11, 1u);
+	memcpy(&A.store, &kept, sizeof(kept));
+	if (!write_line(&A, contact, FZN_MESSAGE_OUT, 3u, "after")) {
+		fprintf(stderr, "    cut at save %ld: the next line was refused\n", k);
+		return 0;
+	}
+	at[0] = 0u;
+	if (fzn_messages_absorb(&A.m, at, NULL, NULL, NULL) != FZN_MESSAGES_OK) {
+		fprintf(stderr, "    cut at save %ld: the lines would not be taken in\n", k);
+		return 0;
+	}
+	if (!list(&A, X, 0u, 8u))
+		return 0;
+	for (i = 0; i < count; i++)
+		n1 += page[i].id[0] == 1u;
+	if (contact != X && !list(&A, contact, 0u, 8u))
+		return 0;
+	for (i = 0; i < count; i++) {
+		n2 += page[i].id[0] == 2u;
+		n3 += page[i].id[0] == 3u;
+	}
+	if (n1 != 1 || n2 != (int)recorded || n3 != 1) {
+		fprintf(stderr, "    cut at save %ld: listed %d, %d and %d times\n", k, n1, n2, n3);
+		return 0;
+	}
+	return 1;
+}
+
+static void test_a_line_cut_at_every_save(void)
+{
+	const uint8_t *contacts[2] = { X, Y };
+	int cuts[2] = { 0, 0 }, ends[2] = { 0, 0 }, all_ok = 1, cut = 0;
+	size_t c;
+	long k;
+
+	for (c = 0; c < 2u; c++)
+		for (k = 0; k < 64; k++) {
+			all_ok &= cut_at(k, contacts[c], &cut);
+			if (!cut) {
+				ends[c] = 1;
+				break;
+			}
+			cuts[c]++;
+		}
+	CHECK(cuts[0] && cuts[1] && ends[0] && ends[1],
+	      "fixture: a line's saves were cut, and a budget passed them all, in each conversation");
+	CHECK(all_ok, "a line cut at a save stopped the conversation, or was listed other than once");
 }
 
 /* A WINDOW IS NOT REBUILT FROM, sec 560: A's stream held from part way --
@@ -1399,6 +1484,7 @@ int main(void)
 	test_a_hand_off_given_up_on_stays();
 	test_two_devices();
 	test_written_order_not_learned();
+	test_a_line_cut_at_every_save();
 	test_no_reindex_from_a_window();
 	test_the_newest_mark_wins();
 	test_a_mark_after_the_clock_steps_back();

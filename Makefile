@@ -6459,7 +6459,7 @@ fuzznetd-faults:
 # estate's journey (sec 707), on rounds the fault build makes short, and a
 # later member's floor with the adder's clock 900 s behind (sec 722).
 livecheck-faults: fuzznetd-faults
-	@timeout 400 python3 tool/live_faults.py $(BUILD_DIR)/faults/fuzznetd
+	@timeout 900 python3 tool/live_faults.py $(BUILD_DIR)/faults/fuzznetd
 	@timeout 1000 python3 tool/live_estate.py $(BUILD_DIR)/faults/fuzznetd
 	@timeout 700 python3 tool/live_group_skew.py $(BUILD_DIR)/faults/fuzznetd
 
