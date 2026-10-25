@@ -50,9 +50,15 @@ static int host(void *ctx, const uint8_t *request, size_t request_len, uint8_t *
                 size_t cap, size_t *reply_len)
 {
 	(void)ctx;
+	/* 1, A REPLY THAT IS NO PAGE; 2, A HOST'S REFUSAL, as a host-private
+	 * log is answered (sec 735). */
 	if (answer_garbage) {
-		memcpy(reply, "denied no", 9u);
-		*reply_len = 9u;
+		static const char NOT_A_PAGE[] = "ok and nothing";
+		static const char REFUSAL[] = "denied this host's log is host-private\n";
+		const char *say = answer_garbage == 2 ? REFUSAL : NOT_A_PAGE;
+
+		*reply_len = strlen(say);
+		memcpy(reply, say, *reply_len);
 		return 1;
 	}
 	*reply_len = fzn_gather_answer(top, request, request_len, reply,
@@ -304,6 +310,9 @@ int main(void)
 	q = query(0u, UINT64_MAX, "");
 	CHECK(fzn_gather_fetch(host, NULL, &q, 64u, note, NULL, &lines) == FZN_GATHER_ERR_REFUSED,
 	      "a reply that is not a page is refused");
+	answer_garbage = 2;
+	CHECK(fzn_gather_fetch(host, NULL, &q, 64u, note, NULL, &lines) == FZN_GATHER_ERR_DENIED,
+	      "a host's refusal is not told apart from a reply that is not a page");
 	answer_garbage = 0;
 	reply_cap = 60u;
 	n_seen = 0;

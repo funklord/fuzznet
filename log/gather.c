@@ -32,8 +32,18 @@ const char *fzn_gather_err_str(fzn_gather_err_t err)
 		return "the host answered with something else";
 	case FZN_GATHER_ERR_FILE:
 		return "the log directory would not read";
+	case FZN_GATHER_ERR_DENIED:
+		return "the host denied it: its log is not this node's to gather";
 	}
 	return "unknown";
+}
+
+/* A HOST'S REFUSAL, sec 735: a reply of text opening `denied `, as a host
+ * whose log is host-private answers. Told apart from a reply that is not
+ * a page, so the gatherer is not left guessing why. */
+static int denied(const uint8_t *reply, size_t len)
+{
+	return len >= 7u && memcmp(reply, "denied ", 7u) == 0;
 }
 
 static int word_ok(const char *w, size_t max)
@@ -392,6 +402,8 @@ fzn_gather_err_t fzn_gather_fetch(fzn_gather_ask_t ask, void *ask_ctx,
 			return FZN_GATHER_ERR_MALFORMED;
 		if (!ask(ask_ctx, request, req_len, reply, sizeof(reply), &reply_len))
 			return FZN_GATHER_ERR_NO_ANSWER;
+		if (denied(reply, reply_len))
+			return FZN_GATHER_ERR_DENIED;
 		if (reply_len < FZN_GATHER_LINES_HEAD || reply[0] != FZN_GATHER_VERSION
 		    || reply[1] != FZN_GATHER_LINES || reply[2] > 1u)
 			return FZN_GATHER_ERR_REFUSED;
@@ -502,6 +514,8 @@ fzn_gather_err_t fzn_gather_ring_fetch(fzn_gather_ask_t ask, void *ask_ctx, size
 		fzn_put_be64(request + 3, after);
 		if (!ask(ask_ctx, request, sizeof(request), reply, sizeof(reply), &reply_len))
 			return FZN_GATHER_ERR_NO_ANSWER;
+		if (denied(reply, reply_len))
+			return FZN_GATHER_ERR_DENIED;
 		if (reply_len < FZN_GATHER_RING_HEAD || reply[0] != FZN_GATHER_VERSION
 		    || reply[1] != FZN_GATHER_RING || reply[2] > 1u)
 			return FZN_GATHER_ERR_REFUSED;

@@ -53,7 +53,8 @@ typedef enum fzn_gather_err {
 	FZN_GATHER_ERR_MALFORMED = -1, /* a null, a message that is not one */
 	FZN_GATHER_ERR_NO_ANSWER = -2, /* the host did not answer */
 	FZN_GATHER_ERR_REFUSED = -3,   /* it answered with something else */
-	FZN_GATHER_ERR_FILE = -4       /* the log directory would not read */
+	FZN_GATHER_ERR_FILE = -4,      /* the log directory would not read */
+	FZN_GATHER_ERR_DENIED = -5     /* it said `denied`: not the asker's to read, sec 735 */
 } fzn_gather_err_t;
 
 const char *fzn_gather_err_str(fzn_gather_err_t err);

@@ -72655,9 +72655,15 @@ its estate.
 It is the first live test of a gather: the sec 689 survey listed log
 gather as uncovered.
 
-**Found, not changed:** a host-private refusal reaches the gatherer as
-"the host answered with something else". The host's reason, "this host's
-log is host-private", is lost at `log/gather.c`'s reply check. Also, a
-gather is a one-shot command over a member's store, where sec 638 made
-the estate's verbs work on a running daemon. Whether a running host
-should gather by verb is the next question for this journey.
+**A refusal said as one.** A host-private host answers a gather with a
+line of text opening `denied`, and `log/gather.c` took any reply that
+was not a page as "the host answered with something else", so the
+gatherer was not told why. `FZN_GATHER_ERR_DENIED` is now told apart,
+for lines and for the ring, and the gatherer prints "the host denied it:
+its log is not this node's to gather". `gather_test` checks it, and the
+check fails with the recognition removed; phase b requires it.
+
+**Open:** a gather is a one-shot command over a member's store, where
+sec 638 made the estate's verbs work on a running daemon. Whether a
+running host should gather by verb is the next question for this
+journey.

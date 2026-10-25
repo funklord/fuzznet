@@ -10315,6 +10315,13 @@ SABOTAGES = [
 		"a GIVE of more entries than a batch holds is taken; keys_fuzz's property 4 -- sec 731",
 	),
 	(
+		'log-gather-says-denied',
+		'log/gather.c',
+		'\treturn len >= 7u && memcmp(reply, "denied ", 7u) == 0;\n',
+		'\treturn 0 && len >= 7u && memcmp(reply, "denied ", 7u) == 0;\n',
+		"a host's refusal to be gathered reads as a reply that is no page, and the gatherer is not told why -- sec 735",
+	),
+	(
 		'messages-index-append-past-a-cut',
 		'messages/messages.c',
 		'\t        || len < in_chunk * ENTRY_LEN))\n',

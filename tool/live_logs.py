@@ -145,9 +145,9 @@ def main(argv):
 			# b: a member's gather, refused while A's log is host-private.
 			started.pop("b").stop()
 			rc, out, err = gather()
-			if rc == 0 or out.strip():
-				raise failed("b: gathered A's host-private log: rc %d, %r, %r"
-				             % (rc, out[:200], err[-200:]))
+			if rc == 0 or out.strip() or "denied" not in err:
+				raise failed("b: gathered A's host-private log, or was not told it was "
+				             "denied: rc %d, %r, %r" % (rc, out[:200], err[-200:]))
 			print("livecheck: b: B's gather of A's host-private log was refused")
 
 			# c: the estate's to gather, by verb.
