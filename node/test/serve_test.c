@@ -13,6 +13,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -129,7 +130,13 @@ static void test_run_once_local(void)
 				   "a wait not saying local served a local client");
 				ok(fzn_node_wait_answering(&state, wfd, 300u, 1) == 0,
 				   "a local wait with nothing came was not 0");
-				n = read(cfd, resp, sizeof(resp) - 1);
+				/* BOUNDED: a wait that served nobody leaves nothing to read,
+				 * and a plain read would hang the suite rather than fail. */
+				{
+					struct pollfd pfd = { cfd, POLLIN, 0 };
+
+					n = poll(&pfd, 1, 1000) == 1 ? read(cfd, resp, sizeof(resp) - 1) : -1;
+				}
 				resp[n > 0 ? (size_t)n : 0] = '\0';
 				ok(n > 0 && strstr(resp, "served"),
 				   "a local client waited out a wait saying local");
