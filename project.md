@@ -71884,6 +71884,10 @@ show.
 whether it fits before the subset clears is the holder's call. A half
 day or so, estimated, not measured.
 
+**A second asker, 2026-10-25: netcfgd**, its project.md 10.567, after sec
+729's answer. It will use this and not define a second "settled", so two
+consumers now wait on it.
+
 ## 725. A conversation in the order it was written, on every host: decided, the plan, 2026-10-25
 
 **Found by journey 2's scenario** (`tool/live_chat.py`, sec 689): two
@@ -72323,3 +72327,56 @@ before sec 721.
     `set quorum 2` in phase f. A2's log shows no gap over 3.1 s, every
     wait in it now serving local clients, so its place is not found.
     Open, for instrumenting.
+
+## 731. Journey 2, 1:1 chat: the scenario, 2026-10-25
+
+Sec 689's second journey. **`tool/live_chat.py`**, on the fault build,
+four stores over loopback, two users of two hosts each: A1, a root, with
+A2 joined to it, and B1, a root, with B2 joined to it.
+- **a** A2 and B2 join their users' estates. A1 adds B by B1's card, and
+  B1 grants the request, so every host of each holds the other as a
+  contact.
+- **b** Lines both ways, from every host. All four hold all four lines,
+  and each writer's line ends delivered or settled.
+- **c** Read state across the user's hosts. B1 marks B's conversation
+  read through its newest line, and B2 reads it read too. A2 does the
+  same for A1.
+- **d** Nothing owed. Every host's `get message owed` comes to
+  `ok 0 0 0`.
+
+`--skew S` runs A2's clock S seconds behind and B1's S ahead; `--loss P`
+runs every daemon at that loss.
+
+**What it found, in order:**
+- **Phase c: a conversation ordered as each host learned it,** so a read
+  mark meant different lines on B1 and B2. The holder decided "as
+  written", built as sec 725 (758e0bb).
+- **Phase d: a delivered line is offered again for settlement hourly**
+  (`FZND_SETTLE_EVERY`). That is by design, and past any scenario's
+  patience. `SETTLE_EVERY` is now a fault-build knob, as `PULL_EVERY`
+  is, and the scenario sets it to 4 s. The normal build keeps the hour.
+
+- **At 900 s of skew no line crossed between the users, 0 runs of 10.**
+  Each host had measured only its own sibling's clock, and none the
+  other user's hosts.
+  - `time_ask_contacts` passed over a contact host marked down, and a
+    host is marked down when a delivery to it goes unanswered. Under
+    skew every delivery is unanswered until the offset is known, so
+    every contact host went down, was never measured, and stayed down.
+    That is a loop in sec 719's stage 3, which added contact asks.
+  - Down hosts are asked now too, still at most once per 60 s each. The
+    probe works at any skew, which is what a down host needs.
+  - Found by having the scenario print every host's `list offset` and
+    `list clock` at a phase b failure. `--keep DIR` also keeps a failed
+    run's logs.
+
+**Measured, ten runs each:**
+- before the contact ask: clean 10, 5% loss 10, `--skew 900` 0;
+- after: `--skew 900` 10, clean 10, 5% loss 9, the last at a load of
+  about 178.
+- **The loss failure** is phase c: B2 still had one line unread after
+  B1's read mark. Whether the mark did not reach B2 within the settle
+  time under that load, or the order differed, is not found. Open.
+
+Not yet in the scenario: a contact removed mid-flight, and a restart
+inside an operation.

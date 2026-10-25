@@ -44,6 +44,7 @@ import live_trim  # noqa: E402
 
 # ROUNDS OF TWO SECONDS, the fault build's knob (sec 693).
 ROUND_S = "2"
+SETTLE_S = "4"
 WHO = ("a1", "a2", "b1", "b2")
 NAME = {"a": "alice", "b": "bob"}
 # A LINE EACH HOST WRITES, its id 32 hex digits naming the writer.
@@ -56,6 +57,7 @@ def main(argv):
 	parser.add_argument("--loss", type=int, default=0, help="per cent of datagrams lost")
 	parser.add_argument("--skew", type=int, default=0,
 	                    help="seconds A2's clock runs behind and B1's ahead, by faketime")
+	parser.add_argument("--keep", help="a directory, not yet there, to keep a failed run's logs in")
 	args = parser.parse_args(argv[1:])
 	skews = {}
 	if args.skew:
@@ -74,6 +76,9 @@ def main(argv):
 	base = 42000 + (os.getpid() % 500) * 8
 	port = {k: str(base + i) for i, k in enumerate(WHO)}
 	os.environ["FZN_TUNE_PULL_EVERY"] = ROUND_S
+	# A DELIVERED LINE OFFERED AGAIN FOR SETTLEMENT every few seconds rather
+	# than hourly, so phase d measures settlement rather than the hour.
+	os.environ["FZN_TUNE_SETTLE_EVERY"] = SETTLE_S
 	if args.loss:
 		os.environ["FZN_FAULT_LOSS"] = str(args.loss)
 		os.environ["FZN_FAULT_SEED"] = str(os.getpid())
@@ -179,8 +184,12 @@ def main(argv):
 				expect(socks[who], who, "add message %s out %s from%%20%s"
 				       % (keys[other(who)], LINE[who], who), "ok")
 			for who in WHO:
-				polled(who, "list message " + keys[other(who)],
-				       lambda g: all(LINE[w] in g for w in WHO), "without all four lines")
+				try:
+					polled(who, "list message " + keys[other(who)],
+					       lambda g: all(LINE[w] in g for w in WHO), "without all four lines")
+				except failed as e:
+					seen = {w: (said(w, "list offset"), said(w, "list clock")) for w in WHO}
+					raise failed("%s; offsets and clocks: %r" % (e, seen))
 			for who in WHO:
 				got = held(who)
 				state = got.get(LINE[who])
@@ -218,6 +227,10 @@ def main(argv):
 			print("livecheck: d: no host owes a line, held or unsettled")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
+			if args.keep:
+				shutil.copytree(scratch, args.keep, symlinks=True,
+				                ignore=shutil.ignore_patterns("a1", "a2", "b1", "b2"))
+				print("livecheck: the run's logs kept in %s" % args.keep)
 			for name in sorted(os.listdir(scratch)):
 				if name.endswith(".err"):
 					with open(os.path.join(scratch, name), errors="replace") as f:

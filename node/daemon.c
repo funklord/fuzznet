@@ -5997,14 +5997,19 @@ static int contact_room(size_t want);
 /* The contacts a groups pass has asked, one each, as many as the hosts. */
 static uint8_t (*lines_done)[FZN_PUBKEY_LEN], (*groups_done)[FZN_PUBKEY_LEN];
 
-/* EACH CONTACT HOST NOT FOUND DOWN, stamped and asked as the pull targets
- * are (`time_ask_targets`). */
+/* EACH CONTACT HOST, stamped and asked as the pull targets are
+ * (`time_ask_targets`) -- down ones too, sec 731. A host is marked down when
+ * a delivery to it goes unanswered, and under skew every delivery is
+ * unanswered until its offset is known, so passing over the down ones left
+ * every contact host unmeasured and down for good: journey 2 at 900 s of
+ * skew delivered nothing, 0 runs of 10. The probe works at any skew, which
+ * is what a down host needs; TIME_ASK_EVERY still bounds it. */
 static void time_ask_contacts(uint64_t now)
 {
 	size_t t;
 
 	for (t = 0; t < ncontact_targets; t++)
-		if (!contact_targets[t].down && !time_ask_one(&contact_targets[t].pt, 0, now))
+		if (!time_ask_one(&contact_targets[t].pt, 0, now))
 			return;
 }
 
@@ -11761,10 +11766,14 @@ static size_t lan_probe(const char **why, char *out, size_t out_cap)
 static int settle_due(uint64_t now)
 {
 	static uint64_t next_settle;
-	int settle = now >= next_settle || next_settle > now + FZND_SETTLE_EVERY;
+	/* A KNOB IN THE FAULT BUILD, sec 689's bench (`fault/fault.h`): an hour
+	 * is past any scenario's patience, so journey 2's measures settlement
+	 * on a short one. The normal build keeps the hour. */
+	const uint64_t every = FZN_TUNE("SETTLE_EVERY", FZND_SETTLE_EVERY, 86400u);
+	int settle = now >= next_settle || next_settle > now + every;
 
 	if (settle)
-		next_settle = now + FZND_SETTLE_EVERY;
+		next_settle = now + every;
 	return settle;
 }
 
