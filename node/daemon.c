@@ -78,10 +78,10 @@
 #include "opjournal.h"
 #include "messages.h"
 #include "apply.h"
+#include "heard.h"
 #ifdef FZN_LOG_PACK_ON
 #include "log_buckets.h"
 #include "piece_buckets.h"
-#include "heard.h"
 #include "../chunk/erasure.h"
 #include "pieces.h"
 #endif
@@ -739,6 +739,7 @@ static size_t gather_rules(fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX])
  * `archive/` under the log directory. */
 static const char *log_archive;
 
+#ifdef FZN_LOG_PACK_ON
 /* The archive's directory into `out`: `--log-archive=DIR`, or `archive/`
  * under the log directory. */
 static void archive_where(char *out, size_t cap)
@@ -748,6 +749,7 @@ static void archive_where(char *out, size_t cap)
 	else
 		(void)snprintf(out, cap, "%s/archive", dlog.logger.dir);
 }
+#endif
 
 #if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
 /* THE FOSSILS HELD BY ENOUGH HOSTS, sec 592: of this node's archived

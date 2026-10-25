@@ -72387,3 +72387,25 @@ runs every daemon at that loss.
   - Passing 1 of 1 so far.
 
 Not yet in the scenario: a restart inside an operation.
+
+## 732. A build without packing builds again, 2026-10-25
+
+**Reported by netcfgd** through the inbox (2026-10-25 16:58 UTC), found
+while it moved its vendored pin from 97719d9 to 0f33b17:
+`make FZN_LOG_PACK=0 all` failed in `node/daemon.c` on `FZN_HEARD_OK`
+undeclared, at the hosts listing and at `device_gone`.
+
+- **`heard.h` was included inside the `FZN_LOG_PACK_ON` guard**, but the
+  module is not packing's. Sec 601 brought it in for moving a gone
+  keeper's piece, and then the hosts listing and judging a member gone
+  (`archive/gone`) used it too. The include now sits with `apply.h`
+  under `FZN_RECORD_STORE_FILE_ON`, which the store it reads needs.
+- **`archive_where`** is used only by packing, and a build without
+  packing warned that it was unused. It is under the guard now.
+- Both builds, with packing and without, are clean of warnings.
+
+**No gate builds without packing**, which is how this was missed. A
+second whole build on every `make test` costs minutes. Open: whether a
+configuration check is worth that, or whether a consumer finding it is
+enough. netcfgd no longer turns packing off. It adds `-lzstd` when `nm`
+shows that one of the objects it links needs it.
