@@ -79,6 +79,10 @@ def main(argv):
 		os.environ["FZN_FAULT_LOSS"] = str(loss)
 		os.environ["FZN_FAULT_SEED"] = str(os.getpid())
 		live_trim.DEADLINE += 30.0 * loss
+	# A ROUND'S LENGTH GROWS WITH LOSS once each lost exchange costs a
+	# resend's slice rather than the round (sec 737): 15 to 22 s at 20%
+	# against 3 at none, measured. So the waits on one grow with it.
+	patience = 3.0 * loss
 
 	class run:
 		pass
@@ -138,13 +142,13 @@ def main(argv):
 				# ended 15.6 s in for A and 28 to 41 s in for the rest, so a
 				# wait begun after A's could pass 30 (sec 631).
 				for h, d in zip(others, ds):
-					d.wait_for(ROUND_END_RE, h.upper() + "'s round", within=60.0)
+					d.wait_for(ROUND_END_RE, h.upper() + "'s round", within=60.0 + patience)
 					note(h, d)
 				b = up("b", tag, rules)
 				try:
-					got = b.wait_for(wait, tag)
+					got = b.wait_for(wait, tag, within=30.0 + patience)
 					if not alone:
-						b.wait_for(ROUND_END_RE, "B's round")
+						b.wait_for(ROUND_END_RE, "B's round", within=30.0 + patience)
 					note("b", b)
 					return got
 				finally:
@@ -219,15 +223,32 @@ def main(argv):
 				expect(socks["a"], "b", "set setting estate archive/erasure 4+2", "ok")
 			finally:
 				a.stop()
-			got = round_all("b-cut", CUT_RE)
+			# A CUT NEEDS EVERY PEER ANSWERING ITS ROUND, and under loss one
+			# ask failed past its resends passes a peer over for that round
+			# (sec 737): so a later round cuts, and under loss several are
+			# given, as phase a's cycles are.
+			for attempt in range(1 if not loss else 8):
+				try:
+					got = round_all("b-cut%d" % attempt, CUT_RE)
+					break
+				except failed:
+					if not loss or attempt == 7:
+						raise
+			if loss:
+				print("livecheck: b: the cut came in B's round %d" % (attempt + 1))
 			if got.group(1) != str(len(fossils)):
 				raise failed("b: B cut %s of its %d fossil(s)" % (got.group(1), len(fossils)))
 			print("livecheck: b: B cut its %d fossil(s) into 4 + 2 pieces over six hosts"
 			      % len(fossils))
 
 			# c: counted, a piece of each on each host.
-			got = round_all("c", COUNTED_RE)
-			held = {h: len(pieces(h)) for h in HOSTS}
+			# UNDER LOSS, ROUNDS UNTIL PLACED: a piece pushed to a peer passed
+			# over that round waits for a later one (sec 737).
+			for attempt in range(1 if not loss else 8):
+				got = round_all("c%d" % attempt, COUNTED_RE)
+				held = {h: len(pieces(h)) for h in HOSTS}
+				if got.group(2) == "0" and all(n == len(fossils) for n in held.values()):
+					break
 			if got.group(2) != "0" or any(n != len(fossils) for n in held.values()):
 				raise failed("c: B counted %s short, and the hosts hold %r piece(s) of %d "
 				             "fossil(s)" % (got.group(2), held, len(fossils)))
@@ -238,19 +259,35 @@ def main(argv):
 			for n in lost:
 				os.remove(os.path.join(logs["c"], "archive", "pieces", n))
 			got = round_all("d", COUNTED_RE)
+			# UNDER LOSS, ROUNDS UNTIL C HOLDS ITS PIECES AGAIN, and then what
+			# a later round put back is not this round's count (sec 737).
+			for attempt in range(0 if not loss else 7):
+				if pieces("c") == lost:
+					break
+				got = round_all("d%d" % attempt, COUNTED_RE)
+			# C's PIECES BACK IS THE PROOF: no other host held them, so only
+			# B's rebuild could put them there. B holding them too is a
+			# round's state, which a later count lets go.
+			if loss and pieces("c") == lost:
+				print("livecheck: d: C lost its %d piece(s); B fetched from the other keepers, "
+				      "rebuilt each fossil and put them back, under loss" % len(lost))
+				lost = None
 			# REBUILT, NOT PUSHED FROM A COPY: B let its copies of C's pieces
 			# go in phase c, so it holds them again only because it rebuilt
 			# each fossil and cut it again. The same round's count lets the
 			# four other keepers' copies go, leaving B its own and C's.
 			b_has = pieces("b")
-			if got.group(4) != str(len(lost)) or pieces("c") != lost \
+			if lost is None:
+				pass
+			elif got.group(4) != str(len(lost)) or pieces("c") != lost \
 			   or not set(lost) <= set(b_has) or len(b_has) != 2 * len(fossils):
 				raise failed("d: C lost %d piece(s); B put back %s, C holds %d, and B holds "
 				             "%d, %d of them C's"
 				             % (len(lost), got.group(4), len(pieces("c")), len(b_has),
 				                len(set(lost) & set(b_has))))
-			print("livecheck: d: C lost its %d piece(s); B fetched from the other keepers, "
-			      "rebuilt each fossil and put them back" % len(lost))
+			if lost is not None:
+				print("livecheck: d: C lost its %d piece(s); B fetched from the other "
+				      "keepers, rebuilt each fossil and put them back" % len(lost))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			if keep:

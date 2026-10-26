@@ -72815,21 +72815,40 @@ At 20% the remaining failure is past pairing, at the cut. It is not
 explained yet: either the script's fixed 30 s is too short at that loss,
 or the cut's own asks still lose a round. Open, and next.
 
-**At 20%, the cut round, looked at** (one run kept, `--keep`): five
-members paired in 4 cycles. In B's cut round three of its five journal
-pulls still ended "did not answer; passed over this round", after their
-resends, and the members' pull failed too. The round took 13 s, and the
-cut did not come within the script's one round. If every piece lost were
-independent, four sends of a request and its reply should rarely all
-fail. So something keeps a resend from completing what the first send
-left, and it is not found. Candidates, not checked:
-- a reply of many pieces, its partial not completed across attempts;
-- the server answering a resend before its first reply is kept;
-- the slice timing on a loaded machine.
+**At 20%, the cut round** (one run kept, `--keep`): five members paired
+in 4 cycles, and B's cut did not come in the script's one round. That
+looked like resends not completing, and was not. It is explained below:
+the asks resent, the rounds grew long, and the cut needs every peer
+answering a round.
 
-**Caveat for consumers moving their pin (not yet told):** a host with
+**Caveat for consumers moving their pin** (fuzzypickles told through its
+inbox, message 20261026T1245Z): a host with
 this change resends, and a host without it keeps no replies, so in an
 estate of mixed versions a resent write can run twice on the older host.
 Most remote handlers already take a repeat as held ("held already is
 held", a vote answered `already`). The audit the holder's choice named
 was skipped by keeping replies, and it still applies to the mixed case.
+
+**The 20% failures were the script's, once resends went in.** A debug
+line, "message N unanswered after K resend(s)", showed that every ask
+that still failed had resent three times. There were 1 to 4 such asks a
+host over a whole run. What remained:
+- **A round grows long under loss**, 15 to 22 s at 20% against 3, since
+  each lost exchange costs a 600 ms slice where it used to cost the
+  round. The script's round waits now grow with the loss (3 s per
+  per cent).
+- **A cut needs every peer answering its round** (`cut_fossils`
+  counts only peers not passed over), and so does placing every piece.
+  At 20% one peer in five is often passed over in a round. That is the
+  daemon's design: it cuts and places in a later round. Under loss the
+  script gives phases b, c and d up to eight rounds each, as phase a has
+  its cycles. The clean run keeps its one-round checks.
+
+**Measured, the whole journey under loss** (`live_erasure.py --loss`,
+the daemon at 2f1da86 plus the debug line): clean 1 of 1 in 41 s; 5% 2
+of 2; 20% 4 of 5, in 465 to 632 s. The fifth failed on the script's own
+phase d condition, which wanted B to still hold C's rebuilt pieces after
+a later count let them go. Under loss the proof is now C holding its
+pieces again, which only B's rebuild can do. The three runs after that
+fix all passed. Journey 3's erasure meets the loss bar at 0, 5 and 20 per
+cent, short of ten runs each.

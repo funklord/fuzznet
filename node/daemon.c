@@ -1680,6 +1680,9 @@ static fzn_caller_err_t recv_answering(fzn_caller_t *caller, uint32_t msg,
 			break;
 		resends++;
 	}
+	/* SAID, so a lossy run shows whether the resends went (sec 737). */
+	say(FZN_ENTRY_DEBUG, "node/round", "message %lu unanswered after %u resend(s)",
+	    (unsigned long)msg, resends);
 	fzn_caller_forget(caller, msg);
 	return FZN_CALLER_ERR_TIMEOUT;
 }
