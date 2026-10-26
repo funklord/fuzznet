@@ -72880,6 +72880,13 @@ members hold and R refuses by design: background, not phase e's fault.
 A vote (class 2) refusal would be hidden behind it, since only the last
 refusal of a pass is kept, so the vote is still unexplained. Next: log
 every refusal class a pass saw, then check whether N's vote counts at R
-under 20%. N is A1's successor, and admin was granted to it in phase e. A vote that a 5% run carries and a 20% run refuses
+under 20%. N is A1's successor, and admin was granted to it in phase e.
+Also seen in R's log through phase e: two or three pull peers "did not
+answer" in every round, a steady pattern rather than loss. They are most
+likely the stopped hosts, the revoked D and A1, succeeded by N. A vote's
+application leaves no log line at R, so whether A2's vote applied, and
+whether N's counts, is to be asked of R's state (`list revocation`)
+inside the script at the failure, not read from logs. `--keep` keeps
+logs and not stores. A vote that a 5% run carries and a 20% run refuses
 would be a fault in admission, not in the transport. Sec 721's cut keeps
 and sec 730's vote line are candidates to read first.
