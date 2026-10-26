@@ -72996,3 +72996,12 @@ a test):
 - The test first: an apply_test case where a member's vote arrives
   before its admin grant. It must count once the grant arrives, and it
   is refused today.
+
+**Confirmed by a test, `test_a_vote_before_its_admin_grant`**
+(`node/test/apply_test.c`): R grants M and X membership, M votes X's
+grant away, and R makes M an admin only after. The vote never counts.
+The control passes: the same vote cast after the grant counts at once.
+The case is compiled out (`#if 0`) until the fix, so the suite stays
+green while saying what is wrong. The fix is the next work: park such a
+vote in the store, and judge it again each apply round, as sec 728
+parks settings.

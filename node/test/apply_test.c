@@ -537,6 +537,95 @@ static int replied(const char *start)
 	return strncmp(reply, start, strlen(start)) == 0;
 }
 
+/* OFF UNTIL VOTES ARE PARKED, sec 737: it fails today at its fourth check,
+ * which is the fault it records, and the control passes. Switched on with
+ * the fix, which parks a vote refused for want of an admin chain and judges
+ * it again each round, kept in the store as sec 728's settings are. */
+#if 0
+/* A VOTE BEFORE ITS VOTER'S ADMIN GRANT, sec 737: M, a member, votes X's
+ * grant away, and R's grant of admin to M arrives only after. The vote is
+ * refused while M stands as a member alone -- a member's vote does not
+ * count -- and must count once M stands as an admin. It was judged once and
+ * confirmed: in the estate journey at 20% loss the successor's vote, cast
+ * before its admin grant reached the root, never counted. */
+static void test_a_vote_before_its_admin_grant(void)
+{
+	static fzn_node_journal_t nj;
+	static fzn_revocation_t rev_entries[8];
+	static fzn_revocation_admin_t admins[4];
+	static fzn_node_apply_t ap;
+	fzn_revocation_store_t revs;
+	fzn_persist_ops_t store = { 0 };
+	fzn_node_apply_tally_t t;
+	fzn_cap_id_t cap, admin_cap;
+	uint8_t r[FZN_PUBKEY_LEN], m[FZN_PUBKEY_LEN], x[FZN_PUBKEY_LEN], hop[FZN_HOP_LEN];
+	uint8_t vote[FZN_REVOCATION_LEN];
+
+	memset(rows, 0, sizeof(rows));
+	store.load = mem_load;
+	store.save = mem_save;
+	store.list = mem_list;
+	memset(&cap, 0x61, sizeof(cap));
+	memset(&admin_cap, 0x62, sizeof(admin_cap));
+	key(r, 0xa1);
+	key(m, 0xa2);
+	key(x, 0xa3);
+	CHECK(fzn_node_journal_init(&nj, dir, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && fzn_revocation_store_init(&revs, rev_entries, 8) == FZN_CHAIN_OK
+	              && fzn_revocation_store_set_quorum(&revs, 1u, &admin_cap, admins, 4u)
+	                         == FZN_CHAIN_OK,
+	      "fixture: a journal, and a revocation store that knows the admin capability");
+	memset(&ap, 0, sizeof(ap));
+	ap.journal = &nj;
+	ap.revocations = &revs;
+	ap.store = &store;
+	ap.root = r;
+	ap.capability = &cap;
+	ap.admin_capability = &admin_cap;
+	ap.sign = &SIGN;
+	ap.hash = &HASH;
+	ap.now = clock_now;
+	signing_as = 0xa1;
+	CHECK(fzn_chain_mint(r, m, &cap, 100u, FZN_NO_EXPIRY, 0, &SIGN, hop) == FZN_CHAIN_OK
+	              && put(&nj, 0xa1, hop, sizeof(hop))
+	              && fzn_chain_mint(r, x, &cap, 100u, FZN_NO_EXPIRY, 0, &SIGN, hop)
+	                         == FZN_CHAIN_OK
+	              && put(&nj, 0xa1, hop, sizeof(hop))
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK,
+	      "fixture: R's grants to M and X, members");
+	signing_as = 0xa2;
+	CHECK(fzn_revocation_issue(m, &cap, x, 110u, 0u, NULL, &SIGN, vote) == FZN_CHAIN_OK
+	              && put(&nj, 0xa2, vote, sizeof(vote))
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && !fzn_revocation_known(&revs, m, &cap, x),
+	      "a member's vote counted before it stood as an admin");
+	signing_as = 0xa1;
+	CHECK(fzn_chain_mint(r, m, &admin_cap, 120u, FZN_NO_EXPIRY, 0, &SIGN, hop) == FZN_CHAIN_OK
+	              && put(&nj, 0xa1, hop, sizeof(hop))
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK,
+	      "fixture: R makes M an admin, after M's vote");
+	CHECK(fzn_revocation_known(&revs, m, &cap, x),
+	      "a vote cast before its voter's admin grant did not count once the grant arrived");
+	/* CONTROL: the admin grant first, and the same vote counts at once. */
+	{
+		uint8_t y[FZN_PUBKEY_LEN];
+
+		key(y, 0xa4);
+		signing_as = 0xa1;
+		CHECK(fzn_chain_mint(r, y, &cap, 130u, FZN_NO_EXPIRY, 0, &SIGN, hop) == FZN_CHAIN_OK
+		              && put(&nj, 0xa1, hop, sizeof(hop))
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK,
+		      "fixture: R's grant to Y, a member");
+		signing_as = 0xa2;
+		CHECK(fzn_revocation_issue(m, &cap, y, 140u, 0u, NULL, &SIGN, vote) == FZN_CHAIN_OK
+		              && put(&nj, 0xa2, vote, sizeof(vote))
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+		              && fzn_revocation_known(&revs, m, &cap, y),
+		      "control: an admin's vote cast after its grant did not count");
+	}
+}
+#endif
+
 static void test_settings_judged(void)
 {
 	static fzn_node_journal_t nj;
@@ -1891,6 +1980,9 @@ int main(void)
 	test_a_full_succession_set_waits();
 	test_an_index_of_thousands();
 	test_siblings_of_hundreds();
+#if 0
+	test_a_vote_before_its_admin_grant();
+#endif
 	/* EVERY STREAM FILE, BY NAME, then the directory. */
 	for (i = 0; i < n_used; i++) {
 		static const char DIGITS[] = "0123456789abcdef";
