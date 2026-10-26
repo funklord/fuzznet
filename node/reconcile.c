@@ -29,6 +29,19 @@ const char *fzn_reconcile_err_str(fzn_reconcile_err_t err)
 	return "unknown";
 }
 
+/* THE OBJECT REFUSED, noted in `tally` for its caller to say. */
+static void note_refused(fzn_reconcile_tally_t *tally, uint8_t cls, const uint8_t *object,
+                         size_t len)
+{
+	tally->refused_class = cls ? cls : 0xffu;
+	if (len >= FZN_RECORD_OFF_SEQ) {
+		memcpy(tally->refused_issuer, object + FZN_RECORD_OFF_ISSUER,
+		       sizeof(tally->refused_issuer));
+		tally->refused_stream = fzn_get_be32(object + FZN_RECORD_OFF_STREAM);
+		tally->refused_kind = fzn_get_be32(object + FZN_RECORD_OFF_KIND);
+	}
+}
+
 static int is(const uint8_t *m, size_t len, uint8_t type)
 {
 	return m && len >= 2u && m[0] == (uint8_t)FZN_RECONCILE_VERSION && m[1] == type;
@@ -692,6 +705,7 @@ static fzn_reconcile_err_t fetch(fzn_node_apply_t *ap, const fzn_reconcile_notes
 					return FZN_RECONCILE_ERR_STORE;
 				case FZN_NODE_APPLY_REFUSED:
 					tally->refused++;
+					note_refused(tally, cls, reply + at, len);
 					break;
 				}
 			}

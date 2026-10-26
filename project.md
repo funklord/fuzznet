@@ -72870,7 +72870,16 @@ and 3 kept failing at e (`--keep`).
   object it is, from which peer (every peer is 127.0.0.1) or why it was
   refused.
 
-So the next step is to make the refusal say its reason, at debug, in
-the reconcile pass. A vote that a 5% run carries and a 20% run refuses
+**Made to say which, and it was not the vote.** The reconcile tally now
+keeps the last object a pass refused: its class, and its issuer, stream
+and kind where it is a record. `fuzznetd` logs it at debug with the
+peer's port. In a failing run the repeated refusal is class 7
+(settings), offered by two peers. Its stream and kind read as no record.
+That is most likely D's settings written after its phase c cut, which
+members hold and R refuses by design: background, not phase e's fault.
+A vote (class 2) refusal would be hidden behind it, since only the last
+refusal of a pass is kept, so the vote is still unexplained. Next: log
+every refusal class a pass saw, then check whether N's vote counts at R
+under 20%. N is A1's successor, and admin was granted to it in phase e. A vote that a 5% run carries and a 20% run refuses
 would be a fault in admission, not in the transport. Sec 721's cut keeps
 and sec 730's vote line are candidates to read first.

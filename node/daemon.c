@@ -3922,6 +3922,16 @@ static void reconcile_estate(struct pull_target *pulls, size_t npulls, uint64_t 
 			say(tally.refused || tally.full ? FZN_ENTRY_WARNING : FZN_ENTRY_INFO, "reconcile",
 			    "%zu object(s) from %s, %zu refused, %zu class(es) too large to list",
 			    tally.applied, pulls[t].host, tally.refused, tally.full);
+		/* WHICH, sec 737: a refusal repeated every round said nothing of
+		 * what it refused. */
+		if (tally.refused_class)
+			say(FZN_ENTRY_DEBUG, "reconcile",
+			    "refused from %s port %ld: class %u, issuer %02x%02x%02x%02x, stream %lu, kind "
+			    "%#lx",
+			    pulls[t].host, pulls[t].port, (unsigned)tally.refused_class,
+			    tally.refused_issuer[0], tally.refused_issuer[1], tally.refused_issuer[2],
+			    tally.refused_issuer[3], (unsigned long)tally.refused_stream,
+			    (unsigned long)tally.refused_kind);
 		lacked += tally.lacked;
 		applied += tally.applied;
 		waiting += tally.waiting;

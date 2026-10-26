@@ -184,6 +184,13 @@ typedef struct fzn_reconcile_tally {
 	size_t waiting;  /* objects whose signer's chain is not here yet */
 	size_t refused;  /* objects judged and refused, or not of their class */
 	size_t full;     /* classes too large to list, here or there */
+	/* THE LAST OBJECT REFUSED, sec 737, so a caller can say which: its
+	 * class, and where it is a record its issuer's first bytes, stream and
+	 * kind. `refused_class` 0 when none was. */
+	uint8_t refused_class;
+	uint8_t refused_issuer[4];
+	uint32_t refused_stream;
+	uint32_t refused_kind;
 } fzn_reconcile_tally_t;
 
 /* WHERE A NOTE CLAIM GOES, sec 555: one note record, filed by the notes
