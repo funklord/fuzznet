@@ -72913,3 +72913,28 @@ earlier in this session on the clean scenario, so it predates resending
 and is its own open item. Phase e's lost vote did not recur in these
 three, so `list vote` has not yet seen it. Over all 20% runs so far the
 estate passes 3 of 11.
+
+**Found with `list vote`: the vote that never arrives is N's, not A2's.**
+In four runs at 20%, all failing at phase e:
+
+| node | votes on D2 it holds |
+|---|---|
+| R | A2's |
+| A2 | its own |
+| N | its own |
+
+So A2's vote, cast at total loss before its kill, is carried fine after
+the restart. N's vote never leaves N.
+- N, re-keyed from A1 in phase d and made admin in phase e, starts
+  again in place once its admin chain is kept.
+- After that its log has pulls ("15 record(s) from 127.0.0.1") but no
+  push line at all.
+- R's reconcile meanwhile lacks only the one class 7 setting each round
+  and no vote.
+
+**Leading question (not yet checked):** whether R follows N's stream. A
+push offers only the streams the peer follows, and N is a successor
+whose stream R may never have been told to follow. Then the vote would
+travel only by reconcile, which at 5% happened to reach it and at 20%
+does not. Next: ask R's journal what it follows, and read where a
+succession should make R follow the new key.
