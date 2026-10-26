@@ -72887,6 +72887,15 @@ likely the stopped hosts, the revoked D and A1, succeeded by N. A vote's
 application leaves no log line at R, so whether A2's vote applied, and
 whether N's counts, is to be asked of R's state (`list revocation`)
 inside the script at the failure, not read from logs. `--keep` keeps
-logs and not stores. A vote that a 5% run carries and a 20% run refuses
+logs and not stores.
+
+**Asked at the failure** (phase e now asks both voters again when it
+fails): A2 and N each answer `ok D2 already keeping nothing`. So both
+still hold their votes, and the fault is in carrying them to R or in R
+counting them. At the failure R lists three admin grants and D2's member
+grant still standing. Which admin is which, and whether R holds either
+vote, cannot be read: no verb lists the votes a node holds. That verb
+(`list vote`, or the votes on a key) is what this needs next. It would
+also be the client's way to show a k-of-n revocation in progress. A vote that a 5% run carries and a 20% run refuses
 would be a fault in admission, not in the transport. Sec 721's cut keeps
 and sec 730's vote line are candidates to read first.

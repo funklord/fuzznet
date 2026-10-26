@@ -452,9 +452,17 @@ def main(argv):
 			if grant_stands("r", keys["d2"]) is not True:
 				raise failed("e: R's grant to D2 fell with N's vote alone, one of two")
 			up("a2")
-			polled("r", "list grant", lambda g: grant_stands("r", keys["d2"]) is False,
-			       "with D2's grant standing: A2's vote, cast before it was killed, never "
-			       "arrived")
+			try:
+				polled("r", "list grant", lambda g: grant_stands("r", keys["d2"]) is False,
+				       "with D2's grant standing: A2's vote, cast before it was killed, never "
+				       "arrived")
+			except failed as e:
+				# WHICH VOTE IS MISSING, sec 737: each issuer asked again answers
+				# `already` when it still holds its own, so the fault is in
+				# carrying or counting rather than in the vote kept.
+				raise failed("%s; A2 again: %r, N again: %r"
+				             % (e, " ".join(voted("a2", keys["d2"])),
+				                " ".join(voted("n", keys["d2"]))))
 			print("livecheck: e: A2 voted at total loss and was killed; started again, its vote "
 			      "reached R and, with N's, revoked D2")
 
