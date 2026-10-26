@@ -72974,3 +72974,25 @@ not the cause, and the change was taken out. Still open, in order:
 - whether N's journal pushes to R once R lists that stream;
 - why 5% carries the vote and 20% does not, which points at something
   done once rather than every round.
+
+**The probable cause, read in `node/apply.c`'s `take`** (not yet shown by
+a test):
+- For a signer that is not a root, `take` tries the member chain, then
+  the admin chain. N is a member, so its member chain is found and
+  tried. But a member's vote does not count against D2, and N's admin
+  chain, granted in phase e, has not reached R yet under loss.
+- `take` then returns REFUSED (`tried ? REFUSED : WAIT`). The vote is
+  confirmed as judged and is never judged again once N's admin grant
+  arrives.
+- At 5% the grant usually lands first. At 20% the vote often does. A2's
+  vote, cast by an admin of long standing, is never in this position.
+
+**The fix wanted, not built:**
+- WAIT is wrong: it stops the signer's whole stream, so a member who is
+  never made admin and votes would stall its stream for good.
+- The shape is sec 728's for settings: park a vote refused for want of
+  an admin chain, and judge the parked votes again at the end of each
+  apply round, once that round's grants are in.
+- The test first: an apply_test case where a member's vote arrives
+  before its admin grant. It must count once the grant arrives, and it
+  is refused today.
