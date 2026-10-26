@@ -72899,3 +72899,17 @@ vote, cannot be read: no verb lists the votes a node holds. That verb
 also be the client's way to show a k-of-n revocation in progress. A vote that a 5% run carries and a 20% run refuses
 would be a fault in admission, not in the transport. Sec 721's cut keeps
 and sec 730's vote line are candidates to read first.
+
+**`list vote KEY`, built** (`node/admin.c`): the votes this node holds
+against KEY, as `ok K N ISSUER,standing|withdrawn ...`, with K the
+estate's k. `admin_test` checks it on the node's own vote, standing, and
+on a key nobody voted on, which lists none. Phase e's failure now asks R,
+A2 and N for it.
+
+**Three more runs at 20%, with `list vote` ready:** 2 passed. The third
+failed elsewhere: `get setting estate e/after` answered `ok absent` where
+A2's setting at the root's rank was wanted. The same check failed
+earlier in this session on the clean scenario, so it predates resending
+and is its own open item. Phase e's lost vote did not recur in these
+three, so `list vote` has not yet seen it. Over all 20% runs so far the
+estate passes 3 of 11.

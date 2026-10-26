@@ -1301,6 +1301,34 @@ int main(void)
 		              && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
 		              && detail_len == strlen(want) && memcmp(detail, want, detail_len) == 0,
 		      "revoking again was not answered as already revoked");
+		/* THE VOTES HELD, sec 737: the node's own, standing, and k. */
+		{
+			char node_hex[(FZN_PUBKEY_LEN * 2u) + 1u], vote_line[200], said[600];
+			unsigned long k = 0, n = 99;
+
+			hex(node.id.pubkey, FZN_PUBKEY_LEN, node_hex);
+			snprintf(vote_line, sizeof(vote_line), "list vote %s", key);
+			said[0] = '\0';
+			if (ask(&admin, &owner, vote_line, reply, sizeof(reply), &reply_len)
+			    && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+			    && detail_len < sizeof(said)) {
+				memcpy(said, detail, detail_len);
+				said[detail_len] = '\0';
+			}
+			CHECK(sscanf(said, "%lu %lu", &k, &n) == 2 && k >= 1u && n == 1u
+			              && strstr(said, node_hex) && strstr(said, ",standing"),
+			      "list vote did not name the node's own standing vote");
+			snprintf(vote_line, sizeof(vote_line), "list vote %s", node_hex);
+			said[0] = '\0';
+			if (ask(&admin, &owner, vote_line, reply, sizeof(reply), &reply_len)
+			    && fzn_reply_of(reply, reply_len, &detail, &detail_len) == FZN_REPLY_OK
+			    && detail_len < sizeof(said)) {
+				memcpy(said, detail, detail_len);
+				said[detail_len] = '\0';
+			}
+			CHECK(sscanf(said, "%lu %lu", &k, &n) == 2 && n == 0u,
+			      "list vote named a vote against a key nobody voted on");
+		}
 
 		/* ---- AND UNDONE: by the owner only, once, and revocable again
 		 * afterwards -- the re-revocation superseding the one undone. sec 386. */

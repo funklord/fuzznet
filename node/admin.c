@@ -756,6 +756,51 @@ static size_t add_succession(fzn_node_admin_t *admin, const uint8_t *rest, size_
 
 /* `list succession [FROM]`: `ok TOTAL FROM OLD>NEW,STATE ...`, paged as
  * `list peer` is. STATE is `counting`, or `waiting` for confirmations. */
+/* THE VOTES THIS NODE HOLDS AGAINST A KEY, sec 737: `list vote KEY` answers
+ * `ok K N ISSUER,STATE ...`, K the estate's k and N the votes held, each
+ * its issuer and `standing` or `withdrawn`. A k-of-n revocation in progress
+ * could not be seen anywhere: two voters each holding their vote and a
+ * grant still standing at the root said nothing of which vote it lacked. */
+static size_t list_votes(fzn_node_admin_t *admin, const uint8_t *rest, size_t rest_len,
+                         char *reply, size_t cap)
+{
+	static char detail[FZN_REPLY_MAX];
+	size_t limit = fzn_reply_ok_room(cap), at, i, n = 0, k;
+	const fzn_revocation_store_t *store = admin->revocations;
+	uint8_t key[FZN_PUBKEY_LEN];
+	const uint8_t *hex = NULL;
+	size_t hex_len = 0;
+	int w;
+
+	if (!store)
+		return answer_text(reply, cap, FZN_REPLY_ERROR, "this node keeps no revocations");
+	if (!next_word(&rest, &rest_len, &hex, &hex_len) || rest_len
+	    || !unhex(hex, hex_len, key, sizeof(key)))
+		return answer_text(reply, cap, FZN_REPLY_MALFORMED, "list vote KEY");
+	for (i = 0; i < store->used; i++)
+		n += memcmp(store->entries[i].grantee, key, FZN_PUBKEY_LEN) == 0;
+	k = store->quorum ? store->quorum : 1u;
+	w = snprintf(detail, sizeof(detail), "%zu %zu", k, n);
+	if (w < 0 || (size_t)w >= sizeof(detail))
+		return 0;
+	at = (size_t)w;
+	for (i = 0; i < store->used; i++) {
+		const fzn_revocation_t *e = &store->entries[i];
+		const char *state = e->withdrawn ? ",withdrawn" : ",standing";
+
+		if (memcmp(e->grantee, key, FZN_PUBKEY_LEN) != 0)
+			continue;
+		if (at + 1u + (FZN_PUBKEY_LEN * 2u) + strlen(state) > limit)
+			break;
+		detail[at++] = ' ';
+		put_hex(detail + at, e->issuer, FZN_PUBKEY_LEN);
+		at += FZN_PUBKEY_LEN * 2u;
+		memcpy(detail + at, state, strlen(state));
+		at += strlen(state);
+	}
+	return answer(reply, cap, FZN_REPLY_OK, detail, at);
+}
+
 static size_t list_successions(fzn_node_admin_t *admin, const uint8_t *from_text,
                                size_t from_len, char *reply, size_t cap)
 {
@@ -1881,6 +1926,9 @@ size_t fzn_node_admin_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_
 	if (request->parsed == FZN_VERB_LIST
 	    && subject_word(request, "succession", &rest, &rest_len))
 		return list_successions(admin, rest, rest_len, reply, reply_cap);
+	if (request->parsed == FZN_VERB_LIST && subject_word(request, "vote", &rest, &rest_len)
+	    && rest)
+		return list_votes(admin, rest, rest_len, reply, reply_cap);
 	/* ADMINS, sec 416: only on a node whose config names the capability. */
 	if (admin->state->config.has_admin && request->parsed == FZN_VERB_GRANT
 	    && subject_word(request, "admin", &rest, &rest_len) && rest)

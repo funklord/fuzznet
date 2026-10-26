@@ -22,6 +22,9 @@
  *                       it, and it is saved. Any key, not only a current
  *                       peer -- a grant outlives the peer record it came
  *                       with. `ok KEY`, and `ok KEY already` when it was.
+ *     list vote KEY     the votes this node holds against KEY, sec 737:
+ *                       `ok K N ISSUER,standing|withdrawn ...`, K the
+ *                       estate's k.
  *     remove revocation KEY
  *                       undo this node's revocation of KEY: the withdrawal is
  *                       minted, admitted and saved in the revocation's place

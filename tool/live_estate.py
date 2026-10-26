@@ -460,9 +460,14 @@ def main(argv):
 				# WHICH VOTE IS MISSING, sec 737: each issuer asked again answers
 				# `already` when it still holds its own, so the fault is in
 				# carrying or counting rather than in the vote kept.
-				raise failed("%s; A2 again: %r, N again: %r"
+				raise failed("%s; A2 again: %r, N again: %r; votes on D2 at R %r, at A2 %r, "
+				             "at N %r; A2 is %s, N is %s"
 				             % (e, " ".join(voted("a2", keys["d2"])),
-				                " ".join(voted("n", keys["d2"]))))
+				                " ".join(voted("n", keys["d2"])),
+				                said("r", "list vote " + keys["d2"]),
+				                said("a2", "list vote " + keys["d2"]),
+				                said("n", "list vote " + keys["d2"]),
+				                keys["a2"][:8], keys["n"][:8]))
 			print("livecheck: e: A2 voted at total loss and was killed; started again, its vote "
 			      "reached R and, with N's, revoked D2")
 
