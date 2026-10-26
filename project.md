@@ -72814,3 +72814,22 @@ paired in 8 to 13 cycles at 5% loss, and not at all in 30 at 20%.
 At 20% the remaining failure is past pairing, at the cut. It is not
 explained yet: either the script's fixed 30 s is too short at that loss,
 or the cut's own asks still lose a round. Open, and next.
+
+**At 20%, the cut round, looked at** (one run kept, `--keep`): five
+members paired in 4 cycles. In B's cut round three of its five journal
+pulls still ended "did not answer; passed over this round", after their
+resends, and the members' pull failed too. The round took 13 s, and the
+cut did not come within the script's one round. If every piece lost were
+independent, four sends of a request and its reply should rarely all
+fail. So something keeps a resend from completing what the first send
+left, and it is not found. Candidates, not checked:
+- a reply of many pieces, its partial not completed across attempts;
+- the server answering a resend before its first reply is kept;
+- the slice timing on a loaded machine.
+
+**Caveat for consumers moving their pin (not yet told):** a host with
+this change resends, and a host without it keeps no replies, so in an
+estate of mixed versions a resent write can run twice on the older host.
+Most remote handlers already take a repeat as held ("held already is
+held", a vote answered `already`). The audit the holder's choice named
+was skipped by keeping replies, and it still applies to the mixed case.
