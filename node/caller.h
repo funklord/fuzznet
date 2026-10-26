@@ -190,6 +190,27 @@ void fzn_caller_forget(const fzn_caller_t *caller, uint32_t msg);
 fzn_caller_err_t fzn_caller_recv_any(fzn_caller_t *caller, uint32_t *msg, uint8_t *reply,
                                      size_t reply_cap, size_t *reply_len, unsigned timeout_ms);
 
+/* SEND MESSAGE `msg` AGAIN, sec 737: the same request, sealed under a fresh
+ * nonce, for a caller waiting on it in slices of its own. */
+fzn_caller_err_t fzn_caller_resend(fzn_caller_t *caller, const uint8_t *payload,
+                                   size_t payload_len, uint64_t expires_at, uint32_t msg);
+
+/* WAIT FOR `msg` AS `fzn_caller_recv` does, but keep what has arrived of it
+ * on a timeout: a caller resending waits in slices, and a reply's pieces
+ * from before a resend complete it as well as those after. The caller that
+ * gives up calls `fzn_caller_forget`. */
+fzn_caller_err_t fzn_caller_recv_for(fzn_caller_t *caller, uint32_t msg, uint8_t *reply,
+                                     size_t reply_cap, size_t *reply_len, unsigned timeout_ms);
+
+/* THE REQUEST AND ITS REPLY, sent and waited for -- RESENT, sec 737, when
+ * FZN_CALLER_RESEND_MS pass with no piece of the reply, at most
+ * FZN_CALLER_RESENDS times and never past `timeout_ms`. Each resend is the
+ * same message under a fresh nonce; a node keeping its replies answers it
+ * without running it twice. A `timeout_ms` of 0 waits once, as
+ * `fzn_caller_recv` does. */
+#define FZN_CALLER_RESEND_MS 600u
+#define FZN_CALLER_RESENDS 3u
+
 fzn_caller_err_t fzn_caller_ask(fzn_caller_t *caller, const uint8_t *payload,
                                 size_t payload_len, uint64_t expires_at,
                                 uint8_t *reply, size_t reply_cap,

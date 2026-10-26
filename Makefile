@@ -167,7 +167,7 @@ SRCS      := constant_time/constant_time.c session/commitment.c \
              node/peer_persist.c \
              node/caller.c node/meter.c node/schema.c node/log_list.c node/clocks.c \
              net/udp.c fault/fault.c \
-             node/node.c node/local.c node/remote.c node/serve.c \
+             node/node.c node/local.c node/remote.c node/serve.c node/replies.c \
              node/provision.c node/identity.c node/pair.c node/admin.c \
              node/revoke.c node/roots.c node/roster.c node/succession.c node/notes.c \
              node/journal.c node/opjournal.c node/apply.c node/settings.c node/siblings.c node/heard.c node/events.c node/routing.c node/contact_devices.c node/contact_card.c node/contact_request.c node/group_act.c node/group_log.c node/group_line.c node/group_lines.c node/groups.c node/streams.c node/catalog.c node/file_refs.c node/asks.c node/talk.c node/state_dir.c node/relay.c node/holdings.c node/buckets.c node/reconcile.c \
@@ -238,7 +238,7 @@ PROG_OBJS := $(PROG_SRCS:%.c=$(BUILD_DIR)/%.o)
 # two transports, the seal and chain stack, and the nonce source the
 # seal reaches for. No Monocypher: the crypto ops are passed in, so a
 # node with no provisioned peers links none.
-NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/talk.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/local.o \
+NODE_SERVE_OBJS := $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/talk.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/local.o \
                    $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/node.o \
                    $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o \
                    $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
@@ -268,7 +268,7 @@ HDRS      := constant_time/constant_time.h session/commitment.h \
              node/peer_persist.h node/types.h \
              node/caller.h node/meter.h node/schema.h node/log_list.h node/clocks.h \
              net/udp.h fault/fault.h \
-             node/node.h node/local.h node/remote.h node/serve.h \
+             node/node.h node/local.h node/remote.h node/serve.h node/replies.h \
              node/provision.h node/identity.h node/pair.h node/admin.h \
              node/revoke.h node/roots.h node/roster.h node/succession.h node/notes.h \
              node/journal.h node/opjournal.h node/apply.h node/settings.h node/siblings.h node/heard.h node/events.h node/routing.h node/contact_devices.h node/contact_card.h node/contact_request.h node/group_act.h node/group_log.h node/group_line.h node/group_lines.h node/groups.h node/streams.h node/catalog.h node/file_refs.h node/asks.h node/talk.h node/state_dir.h node/relay.h node/holdings.h node/buckets.h node/reconcile.h \
@@ -416,7 +416,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              local/test/line_test.c local/test/socket_test.c \
              net/test/udp_test.c \
              node/test/node_test.c node/test/local_test.c \
-             node/test/serve_test.c \
+             node/test/serve_test.c node/test/replies_test.c \
              local/test/peer_fuzz.c local/test/peer_linux_test.c \
              spool/test/message_fuzz.c \
              chunk/test/reassembly_fuzz.c chain/test/chain_fuzz.c \
@@ -559,6 +559,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/node/test/node_test \
              $(BUILD_DIR)/node/test/local_test \
              $(BUILD_DIR)/node/test/serve_test \
+             $(BUILD_DIR)/node/test/replies_test \
              $(BUILD_DIR)/chunk/test/agreement_test \
              $(BUILD_DIR)/local/test/peer_fuzz \
              $(BUILD_DIR)/local/test/peer_linux_test \
@@ -4025,6 +4026,12 @@ $(BUILD_DIR)/node/test/serve_test: $(BUILD_DIR)/node/test/serve_test.o \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# The replies a node keeps for a resent request, sec 737.
+$(BUILD_DIR)/node/test/replies_test: $(BUILD_DIR)/node/test/replies_test.o \
+                                     $(BUILD_DIR)/node/replies.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 
 # Pairing under real primitives: two nodes built by node/identity, the
 # pairing, the card accepted, and the node's own authorisation check over the
@@ -4060,7 +4067,7 @@ $(BUILD_DIR)/node/test/pair_test: $(BUILD_DIR)/node/test/pair_test.o \
               $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
               $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o \
               $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/peer.o \
-              $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/talk.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/caller.o \
+              $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/talk.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/caller.o \
               $(BUILD_DIR)/node/local.o $(BUILD_DIR)/local/socket.o \
               $(BUILD_DIR)/local/peer_linux.o $(BUILD_DIR)/local/line.o \
               $(BUILD_DIR)/local/vocabulary.o $(BUILD_DIR)/net/udp.o \
@@ -4113,7 +4120,7 @@ $(BUILD_DIR)/node/test/admin_test: $(BUILD_DIR)/node/test/admin_test.o \
               $(BUILD_DIR)/node/revoke.o $(BUILD_DIR)/node/caller.o \
               $(BUILD_DIR)/node/roster.o $(BUILD_DIR)/roster/roster.o \
               $(BUILD_DIR)/node/succession.o $(BUILD_DIR)/chain/succession.o \
-              $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/net/udp.o \
+              $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/net/udp.o \
               $(BUILD_DIR)/local/socket.o $(BUILD_DIR)/local/peer_linux.o \
               $(BUILD_DIR)/node/pair.o $(BUILD_DIR)/node/identity.o \
               $(BUILD_DIR)/node/peer_persist.o $(BUILD_DIR)/persist/persist.o \
@@ -4226,7 +4233,7 @@ NODE_APPLY_LINK := $(FUZZNETD_JOURNAL_OBJS) $(BUILD_DIR)/node/apply.o $(BUILD_DI
                    $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o \
                    $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
                    $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/peer.o \
-                   $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/caller.o \
+                   $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o $(BUILD_DIR)/node/caller.o \
                    $(BUILD_DIR)/node/local.o $(BUILD_DIR)/local/socket.o \
                    $(BUILD_DIR)/local/peer_linux.o $(BUILD_DIR)/local/line.o \
                    $(BUILD_DIR)/local/vocabulary.o $(BUILD_DIR)/net/udp.o \
@@ -4449,7 +4456,7 @@ $(BUILD_DIR)/node/test/provision_test.o: node/test/provision_test.c
 	$(CC) $(CFLAGS) $(CPPFLAGS) -Inode -Iwire/generated -c $< -o $@
 
 $(BUILD_DIR)/node/test/provision_test: $(BUILD_DIR)/node/test/provision_test.o \
-              $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o \
+              $(BUILD_DIR)/node/provision.o $(BUILD_DIR)/node/serve.o $(BUILD_DIR)/node/replies.o $(BUILD_DIR)/node/relay.o $(BUILD_DIR)/node/asks.o $(BUILD_DIR)/node/events.o \
               $(BUILD_DIR)/node/caller.o \
               $(BUILD_DIR)/node/local.o $(BUILD_DIR)/node/remote.o $(BUILD_DIR)/node/clocks.o $(BUILD_DIR)/log/cause.o $(BUILD_DIR)/log/entry.o $(BUILD_DIR)/log/capture.o \
               $(BUILD_DIR)/node/node.o $(BUILD_DIR)/local/socket.o \

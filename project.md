@@ -72715,3 +72715,102 @@ and never paired, 0 of 4 over six cycles at 5%. `live_erasure.py` now
 seeds each start apart. `live_chat.py` and `live_estate.py` also take one
 seed a run, but their daemons restart less, and they passed at 5% (secs
 707, 731).
+
+## 737. A request resent within its wait: the holder's decision, and the plan, 2026-10-26
+
+**The holder's choice, 2026-10-26, on sec 736's measurements:** "Resend
+within the wait". The caller sends a request again after a short time
+with no progress, a few times within the existing 3 s deadline. Sec
+694's "measure first" is closed by this.
+
+**What a resend must not do is run a request twice.** A handler that
+writes, such as a GIVE of keys, a vote or a pairing, would act twice.
+Auditing every handler for that is the large half the decision named.
+The plan avoids the audit:
+
+1. **The server keeps the replies it sent.** A request whose sender,
+   message number and bytes match one answered within the last few
+   seconds is answered with the kept reply, and its handler is not run.
+   - The bytes are in the key, by hash, because a new caller numbers its
+     messages from 0. A host started again would otherwise be answered
+     its last run's reply to a different request.
+   - Kept replies are bounded in total bytes, and expire a little past
+     the caller's wait.
+2. **The caller resends.** `fzn_caller_ask` waits for progress in slices.
+   When a slice passes with no piece of the reply, it seals the same
+   request again under the same message number and sends it. That
+   happens at most a few times, inside the caller's deadline.
+   - A new seal has a new nonce, so the replay window
+     (`frame/freshness.c`, keyed on the nonce) takes it.
+   - The reply pieces that arrive twice are byte-identical, which
+     reassembly takes (`chunk/reassembly.h`).
+3. **Measured again** with `live_erasure.py --loss`, against sec 736's
+   cycle counts.
+
+**Not in this first stage:** callers that send and then wait on several
+conversations at once (the round's steps, sec 636) do not go through
+`fzn_caller_ask`, and do not resend yet.
+
+### Built for sec 737
+
+- **`node/replies.c`, the replies kept.** Entries are found by sender,
+  message number and a hash of the request. Each is kept
+  `FZN_NODE_REPLIES_TTL_S` (6 s), longer than the caller's 3 s wait. They
+  are bounded in entries and bytes, the oldest let go first, and a clock
+  stepped back lets go what it cannot place. `fuzznetd` keeps 256
+  replies, 4 MiB at most. `serve_reply` answers a kept reply through the
+  same sealing as a new one (`send_reply`), and keeps each reply it makes.
+- **`fzn_caller_ask` resends.** It waits in slices of
+  `FZN_CALLER_RESEND_MS` (600 ms). A slice with no piece of the reply
+  seals the same message again and sends it, at most `FZN_CALLER_RESENDS`
+  (3) times, never past the deadline. A timeout forgets the partial, as
+  `fzn_caller_recv` does.
+- **Tests:**
+  - `replies_test`, 10 checks: found by all three keys and by nothing
+    less, expired past its time and before it, bounded in entries and in
+    bytes.
+  - `pair_test`: a request sealed again under its message number is
+    answered with the kept reply, and its handler runs once. A new
+    message of the same bytes runs it. The control, a node keeping no
+    replies, runs the resend twice.
+  - `pair_test`: a child serving the node swallows the first datagram.
+    The ask is answered after one resend, at least 550 ms and under
+    2.5 s in. With `FZN_CALLER_RESENDS` at 0, both checks fail.
+
+### The daemon's own waits resend too
+
+**`fzn_caller_ask` alone changed nothing measurable.** The daemon never
+calls it. A peer is asked by `peer_ask` and waited for in
+`recv_answering`, which answers other peers meanwhile (sec 720). The
+round's own requests (time asks, deliveries, fetches) are awaited by the
+loop through `node/asks.c`. After the first stage, five members still
+paired in 8 to 13 cycles at 5% loss, and not at all in 30 at 20%.
+- **`recv_answering` resends.** It waits in slices of
+  `FZN_CALLER_RESEND_MS` and seals the same message again on a slice
+  with no answer, through two new caller calls: `fzn_caller_resend`, and
+  `fzn_caller_recv_for`, a wait that keeps a reply's partial between
+  slices. Pulls and both kinds of introduction pass their request in.
+  With this alone: 6 and 8 cycles at 5%, and 30 at 20%.
+- **`node/asks.c` resends.** `fzn_node_asks_send` keeps a copy of the
+  request in its entry, and the expiry pass the loop runs every turn
+  sends it again once a slice passes unanswered, while time is left. An
+  ask only awaited there (a relayed request) has no copy and is not
+  resent. A `pair_test` case drops an ask's request at the node, moves
+  the clock a slice on, and has the resend served and answered. With the
+  resend switched off, it fails.
+- **Sabotage:** `node-asks-resend` is caught by `pair_test`.
+  `fuzznetd-recv-answering-resends` is caught by no unit test, since the
+  wait is static in `node/daemon.c`, and is recorded so. The live
+  `--loss` runs are its only check.
+
+**Measured with both** (`live_erasure.py --loss`, six hosts at 4+2):
+
+| loss | cycles to pair, before | after | the whole run, after |
+|---|---|---|---|
+| 0 | 3 | 3 | passes |
+| 5% | 7, 8, 7 | 3, 4, 4, 3 | passes, 4 of 4 |
+| 20% | 24 | 5, 7 | B's cut not logged within the script's 30 s, 2 of 2 |
+
+At 20% the remaining failure is past pairing, at the cut. It is not
+explained yet: either the script's fixed 30 s is too short at that loss,
+or the cut's own asks still lose a round. Open, and next.

@@ -199,6 +199,7 @@
 #include <fuzznet/node/local.h>
 #include <fuzznet/node/remote.h>
 #include <fuzznet/node/serve.h>
+#include <fuzznet/node/replies.h>
 #include <fuzznet/node/provision.h>
 #include <fuzznet/node/caller.h>
 #include <fuzznet/fault/fault.h>
@@ -406,6 +407,7 @@
 #include "node/local.h"
 #include "node/remote.h"
 #include "node/serve.h"
+#include "node/replies.h"
 #include "node/provision.h"
 #include "node/roots.h"
 #include "node/roster.h"

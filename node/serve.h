@@ -21,6 +21,7 @@
 #include "remote.h"
 #include "local.h"
 #include "events.h"
+#include "replies.h"
 #include "../net/udp.h"
 #include "relay.h"
 #include "asks.h"
@@ -176,6 +177,10 @@ typedef struct fzn_node_state {
 	 * it is allowed to occupy a slot, so a stranger cannot fill the table
 	 * -- which is what step 8 being step 8 means. */
 	fzn_reasm_t *reassembly;
+	/* THE REPLIES SENT, kept a few seconds, sec 737: given, a request
+	 * resent -- the same sender, message and bytes -- is answered with the
+	 * kept reply and its handler is not run again. NULL keeps none. */
+	fzn_node_replies_t *replies;
 	/* LOCAL SUBSCRIBERS, sec 609: given, a `get events` from this node's
 	 * own user is kept as a subscriber here and polled for hanging up;
 	 * NULL takes none, and `get events` reaches the handler like any

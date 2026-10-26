@@ -1,6 +1,7 @@
 /* Requests awaited by the loop: project.md sec 636, and the header. */
 #include "asks.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 void fzn_node_asks_init(fzn_node_asks_t *asks, uint8_t *reply, size_t reply_cap,
@@ -30,8 +31,23 @@ int fzn_node_asks_await(fzn_node_asks_t *asks, fzn_caller_t *caller, uint32_t ms
 	asks->entries[i].deadline_ms = asks->clock_ms() + timeout_ms;
 	asks->entries[i].done = done;
 	asks->entries[i].ctx = ctx;
+	asks->entries[i].request = NULL;
+	asks->entries[i].request_len = 0;
+	asks->entries[i].resends = 0;
 	asks->entries[i].used = 1;
 	return 1;
+}
+
+/* The entry awaiting `msg` on `caller`, or NULL. */
+static fzn_node_ask_t *entry_of(fzn_node_asks_t *asks, const fzn_caller_t *caller, uint32_t msg)
+{
+	size_t i;
+
+	for (i = 0; i < FZN_NODE_ASKS_MAX; i++)
+		if (asks->entries[i].used && asks->entries[i].caller == caller
+		    && asks->entries[i].msg == msg)
+			return &asks->entries[i];
+	return NULL;
 }
 
 int fzn_node_asks_send(fzn_node_asks_t *asks, fzn_caller_t *caller, const uint8_t *request,
@@ -44,9 +60,22 @@ int fzn_node_asks_send(fzn_node_asks_t *asks, fzn_caller_t *caller, const uint8_
 	 * answered to nobody. */
 	if (!asks || !caller || !request || !done || !asks->clock_ms || !asks->reply
 	    || fzn_node_asks_pending(asks) == FZN_NODE_ASKS_MAX
-	    || fzn_caller_send(caller, request, request_len, expires_at, &msg) != FZN_CALLER_OK)
+	    || fzn_caller_send(caller, request, request_len, expires_at, &msg) != FZN_CALLER_OK
+	    || !fzn_node_asks_await(asks, caller, msg, timeout_ms, done, ctx))
 		return 0;
-	return fzn_node_asks_await(asks, caller, msg, timeout_ms, done, ctx);
+	/* KEPT TO SEND AGAIN, sec 737. Without the memory it is awaited all
+	 * the same, only not resent. */
+	{
+		fzn_node_ask_t *e = entry_of(asks, caller, msg);
+
+		if (e && request_len && (e->request = malloc(request_len)) != NULL) {
+			memcpy(e->request, request, request_len);
+			e->request_len = request_len;
+			e->expires_at = expires_at;
+			e->resend_at_ms = asks->clock_ms() + FZN_CALLER_RESEND_MS;
+		}
+	}
+	return 1;
 }
 
 size_t fzn_node_asks_fds(const fzn_node_asks_t *asks, int *fds, size_t cap)
@@ -72,6 +101,8 @@ static void finish(fzn_node_ask_t *slot, const uint8_t *reply, size_t len)
 	fzn_node_answered_fn done = slot->done;
 	void *ctx = slot->ctx;
 
+	free(slot->request);
+	slot->request = NULL;
 	slot->used = 0;
 	done(ctx, reply, len);
 }
@@ -112,6 +143,19 @@ size_t fzn_node_asks_expire(fzn_node_asks_t *asks)
 	if (!asks || !asks->clock_ms)
 		return 0;
 	now = asks->clock_ms();
+	/* UNANSWERED A SLICE, sent again, sec 737: the same message under a
+	 * fresh nonce, while there is time left for an answer to it. */
+	for (i = 0; i < FZN_NODE_ASKS_MAX; i++) {
+		fzn_node_ask_t *e = &asks->entries[i];
+
+		if (e->used && e->request && e->resends < FZN_CALLER_RESENDS && now >= e->resend_at_ms
+		    && now + FZN_CALLER_RESEND_MS / 2u < e->deadline_ms) {
+			(void)fzn_caller_resend(e->caller, e->request, e->request_len, e->expires_at,
+			                        e->msg);
+			e->resends++;
+			e->resend_at_ms = now + FZN_CALLER_RESEND_MS;
+		}
+	}
 	for (i = 0; i < FZN_NODE_ASKS_MAX; i++)
 		if (asks->entries[i].used && asks->entries[i].deadline_ms <= now) {
 			/* ITS REPLY FORGOTTEN WITH IT, sec 708: held part way it would

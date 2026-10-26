@@ -54,10 +54,51 @@ static void serve_ready_local(fzn_node_state_t *state)
  * the reply's bound, its sealing and its chunking to drift apart -- which is
  * the argument sec 362 already makes one layer down about sealing a
  * one-piece reply through the same plan as a twenty-piece one. */
+/* SEAL AND SEND `reply` back to where the datagram came from, under the
+ * peer's session, in as many pieces as it takes. */
+static void send_reply(fzn_node_state_t *state, const fzn_node_peer_t *peer,
+                       const fzn_udp_addr_t *from, const fzn_opened_t *opened,
+                       const uint8_t *reply, size_t reply_len)
+{
+	uint8_t reply_frame[FZN_UDP_DATAGRAM_MAX];
+	size_t reply_frame_len;
+	fzn_split_t plan;
+	uint16_t i;
+
+	if (reply_len == 0u || !state->rng)
+		return;
+	/* ONE PLAN FOR BOTH CASES. A reply that fits in a frame
+	 * plans as one piece, so there is no short path here to
+	 * disagree with the long one -- which is where a
+	 * single-frame reply and a first chunk would come to be
+	 * sealed differently. `fzn_split_plan` refuses a reply
+	 * larger than a receiver will reassemble, so a plan that
+	 * plans is a reply that can arrive. */
+	if (fzn_split_plan(reply_len, FZN_SPLIT_MAX_PAYLOAD, &plan) != FZN_SPLIT_OK)
+		return;
+	for (i = 0; i < plan.chunks; i++) {
+		size_t off = 0, len = 0;
+
+		if (fzn_split_at(&plan, i, &off, &len) != FZN_SPLIT_OK)
+			return;
+		if (fzn_node_seal_reply_chunk(peer, state->node_pubkey, reply + off, len,
+		                              opened->msg, i, plan.chunks, 0u, state->hash,
+		                              state->rng, state->aead, reply_frame,
+		                              sizeof(reply_frame), &reply_frame_len)
+		    != 0)
+			return;
+		/* Best effort per piece, as the single frame was:
+		 * this is a datagram protocol and a lost piece is
+		 * the retransmission layer's problem, not a reason
+		 * to abandon the pieces that would have arrived. */
+		(void)fzn_udp_send(state->udp_fd, from, reply_frame, reply_frame_len);
+	}
+}
+
 static void serve_reply(fzn_node_state_t *state, const fzn_node_peer_t *peer,
                         const fzn_udp_addr_t *from,
                         fzn_node_remote_result_t result,
-                        const fzn_opened_t *opened)
+                        const fzn_opened_t *opened, uint64_t now)
 {
 	uint8_t own[FZN_NODE_REPLY_MAX];
 	/* The consumer's buffer where it supplied one, the node's own
@@ -66,9 +107,20 @@ static void serve_reply(fzn_node_state_t *state, const fzn_node_peer_t *peer,
 	uint8_t *reply = state->reply ? state->reply : own;
 	size_t reply_cap = state->reply ? state->reply_cap : sizeof(own);
 	size_t reply_len;
+	const uint8_t *kept;
 
 	if (!state->on_remote || !reply || reply_cap == 0)
 		return;
+	/* A REQUEST RESENT, sec 737: answered as it was the first time, its
+	 * handler not run again. */
+	if (state->replies
+	    && (kept = fzn_node_replies_find(state->replies, opened->sender, opened->msg,
+	                                     opened->payload, opened->payload_len, now,
+	                                     &reply_len))
+	               != NULL) {
+		send_reply(state, peer, from, opened, kept, reply_len);
+		return;
+	}
 	state->asking_from = from;
 	reply_len = state->on_remote(state->on_remote_ctx, result, opened,
 	                             reply, reply_cap);
@@ -80,45 +132,10 @@ static void serve_reply(fzn_node_state_t *state, const fzn_node_peer_t *peer,
 	 * reply rather than a shorter one. */
 	if (reply_len > reply_cap)
 		reply_len = 0;
-	/* Seal the handler's reply under the peer session and send it back
-	 * to where the datagram came from. */
-	if (reply_len > 0 && state->rng) {
-		uint8_t reply_frame[FZN_UDP_DATAGRAM_MAX];
-		size_t reply_frame_len;
-		fzn_split_t plan;
-		uint16_t i;
-
-		/* ONE PLAN FOR BOTH CASES. A reply that fits in a frame
-		 * plans as one piece, so there is no short path here to
-		 * disagree with the long one -- which is where a
-		 * single-frame reply and a first chunk would come to be
-		 * sealed differently. `fzn_split_plan` refuses a reply
-		 * larger than a receiver will reassemble, so a plan that
-		 * plans is a reply that can arrive. */
-		if (fzn_split_plan(reply_len, FZN_SPLIT_MAX_PAYLOAD, &plan)
-		    != FZN_SPLIT_OK)
-			return;
-		for (i = 0; i < plan.chunks; i++) {
-			size_t off = 0, len = 0;
-
-			if (fzn_split_at(&plan, i, &off, &len) != FZN_SPLIT_OK)
-				return;
-			if (fzn_node_seal_reply_chunk(peer, state->node_pubkey,
-			                              reply + off, len,
-			                              opened->msg, i, plan.chunks,
-			                              0u, state->hash, state->rng,
-			                              state->aead, reply_frame,
-			                              sizeof(reply_frame),
-			                              &reply_frame_len) != 0)
-				return;
-			/* Best effort per piece, as the single frame was:
-			 * this is a datagram protocol and a lost piece is
-			 * the retransmission layer's problem, not a reason
-			 * to abandon the pieces that would have arrived. */
-			(void)fzn_udp_send(state->udp_fd, from,
-			                   reply_frame, reply_frame_len);
-		}
-	}
+	if (reply_len > 0 && state->replies)
+		fzn_node_replies_keep(state->replies, opened->sender, opened->msg, opened->payload,
+		                      opened->payload_len, now, reply, reply_len);
+	send_reply(state, peer, from, opened, reply, reply_len);
 }
 
 static void serve_ready_datagram(fzn_node_state_t *state)
@@ -247,7 +264,7 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 			opened.payload = done->buf;
 			opened.payload_len = done->bytes;
 		}
-		serve_reply(state, peer, &from, result, &opened);
+		serve_reply(state, peer, &from, result, &opened, now);
 		if (done)
 			fzn_reasm_release(done);
 		return;
@@ -261,7 +278,7 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 	 * NOT run is for -- nothing else in the suite would have noticed a
 	 * handler being called too often. */
 	if (result != FZN_NODE_REMOTE_DROPPED)
-		serve_reply(state, peer, &from, result, &opened);
+		serve_reply(state, peer, &from, result, &opened, now);
 }
 
 int fzn_node_run_once(fzn_node_state_t *state, int timeout_ms)

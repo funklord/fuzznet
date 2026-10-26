@@ -528,6 +528,8 @@ static fzn_authz_verdict_t node_decides(const struct node *n, const fzn_cap_id_t
 static const uint8_t PING[] = { 'p', 'i', 'n', 'g' };
 static const uint8_t PONG[] = { 'p', 'o', 'n', 'g' };
 static int handler_granted;
+/* How many times `answer` answered: a resend run twice shows here. */
+static int handler_runs;
 static int handler_denied;
 
 static size_t answer(void *ctx, fzn_node_remote_result_t result, const fzn_opened_t *req,
@@ -540,6 +542,7 @@ static size_t answer(void *ctx, fzn_node_remote_result_t result, const fzn_opene
 	if (result != FZN_NODE_REMOTE_GRANTED || reply_cap < sizeof(PONG))
 		return 0;
 	handler_granted = 1;
+	handler_runs++;
 	memcpy(reply, PONG, sizeof(PONG));
 	return sizeof(PONG);
 }
@@ -756,6 +759,35 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		/* The PING sent and never served is drained, for what follows. */
 		(void)fzn_node_run_once(&state, 200);
 		(void)fzn_caller_recv_any(&caller, &msg, reply, sizeof(reply), &reply_len, 200u);
+
+		/* RESENT WITHIN THE WAIT, sec 737: the request lost on its way --
+		 * read off the node's socket and dropped -- is sent again by the
+		 * expiry pass once FZN_CALLER_RESEND_MS pass, and the resend is
+		 * served and answered before the deadline. */
+		{
+			uint8_t lost[FZN_UDP_DATAGRAM_MAX];
+			size_t lost_len = 0;
+			struct pollfd pl = { state.udp_fd, POLLIN, 0 };
+
+			answers = 0;
+			failures_seen = 0;
+			CHECK(fzn_node_asks_send(&asks, &caller, PING, sizeof(PING), 3500u, 2000u,
+			                         on_answer, NULL)
+			              && poll(&pl, 1, 1000) == 1
+			              && fzn_udp_recv(state.udp_fd, lost, sizeof(lost), &lost_len, NULL)
+			                         == FZN_UDP_OK,
+			      "fixture: an ask sent, and its request lost");
+			ask_now += FZN_CALLER_RESEND_MS - 100u;
+			(void)fzn_node_asks_expire(&asks);
+			pl.revents = 0;
+			CHECK(poll(&pl, 1, 200) == 0, "an ask was resent before its slice had passed");
+			ask_now += 200u;
+			CHECK(fzn_node_asks_expire(&asks) == 0u, "an ask was failed at its resend");
+			(void)fzn_node_run_once(&state, 1000);
+			(void)fzn_node_run_once(&client, 1000);
+			CHECK(answers == 1 && failures_seen == 0 && fzn_node_asks_pending(&asks) == 0u,
+			      "an ask whose request was lost was not resent and answered");
+		}
 	}
 
 	/* ---- CONVERSATIONS, sec 636: two at once over one caller, three
@@ -964,6 +996,95 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 			elapsed_ms = (long)(t1.tv_sec - t0.tv_sec) * 1000L
 			             + (t1.tv_nsec - t0.tv_nsec) / 1000000L;
 			CHECK(elapsed_ms < 1800L, "strays stretched a 1 s wait past 1.8 s");
+			if (child > 0)
+				(void)waitpid(child, &status, 0);
+		}
+
+		/* A REQUEST RESENT, ANSWERED ONCE, sec 737: the same message sealed
+		 * again under a fresh nonce, as a caller resends one whose answer
+		 * it did not hear. A node keeping its replies handler_runs it and does
+		 * not run its handler again; a node keeping none runs it twice. */
+		{
+			static fzn_node_reply_kept_t kept[8];
+			static fzn_node_replies_t replies;
+			uint32_t again;
+			int ran;
+
+			CHECK(fzn_node_replies_init(&replies, kept, 8u, 4096u, FZN_NODE_REPLIES_TTL_S,
+			                            &hash_ops),
+			      "fixture: the replies kept");
+			state.replies = &replies;
+			handler_runs = 0;
+			CHECK(fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &m) == FZN_CALLER_OK
+			              && fzn_node_run_once(&state, 1000) == 1
+			              && fzn_caller_recv(&caller, m, reply, sizeof(reply), &reply_len, 2000u)
+			                         == FZN_CALLER_OK,
+			      "fixture: a request answered");
+			again = caller.next_msg;
+			caller.next_msg = m;
+			CHECK(fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &m) == FZN_CALLER_OK
+			              && fzn_node_run_once(&state, 1000) == 1
+			              && fzn_caller_recv(&caller, m, reply, sizeof(reply), &reply_len, 2000u)
+			                         == FZN_CALLER_OK
+			              && reply_len == sizeof(PONG) && memcmp(reply, PONG, sizeof(PONG)) == 0,
+			      "a resent request was not answered with its kept reply");
+			CHECK(handler_runs == 1, "a resent request ran its handler again");
+			caller.next_msg = again;
+			/* A NEW MESSAGE IS NOT A RESEND, though its bytes are the same. */
+			CHECK(fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &m) == FZN_CALLER_OK
+			              && fzn_node_run_once(&state, 1000) == 1
+			              && fzn_caller_recv(&caller, m, reply, sizeof(reply), &reply_len, 2000u)
+			                         == FZN_CALLER_OK
+			              && handler_runs == 2,
+			      "a new message of the same bytes was taken for a resend");
+			/* CONTROL: no replies kept, and the same resend runs twice. */
+			state.replies = NULL;
+			ran = handler_runs;
+			again = caller.next_msg;
+			caller.next_msg = m;
+			(void)fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &m);
+			(void)fzn_node_run_once(&state, 1000);
+			(void)fzn_caller_recv(&caller, m, reply, sizeof(reply), &reply_len, 2000u);
+			CHECK(handler_runs == ran + 1, "control: a node keeping no replies ran a resend once");
+			caller.next_msg = again;
+			fzn_node_replies_free(&replies);
+		}
+
+		/* A LOST REQUEST RESENT WITHIN THE WAIT, sec 737: a child serves the
+		 * node, but swallows the first datagram it gets. The caller's ask,
+		 * hearing nothing for FZN_CALLER_RESEND_MS, sends it again, and is
+		 * answered before its 3 s are up -- where one lost datagram used to
+		 * cost the whole wait. */
+		{
+			struct timespec t0, t1;
+			pid_t child;
+			long elapsed_ms;
+			int status = 0;
+			fzn_caller_err_t asked;
+
+			child = fork();
+			if (child == 0) {
+				uint8_t drop[FZN_UDP_DATAGRAM_MAX];
+				size_t drop_len = 0;
+				struct pollfd p = { state.udp_fd, POLLIN, 0 };
+
+				if (poll(&p, 1, 3000) == 1)
+					(void)fzn_udp_recv(state.udp_fd, drop, sizeof(drop), &drop_len, NULL);
+				(void)fzn_node_run_once(&state, 3000);
+				_exit(0);
+			}
+			(void)clock_gettime(CLOCK_MONOTONIC, &t0);
+			asked = child > 0 ? fzn_caller_ask(&caller, PING, sizeof(PING), 3500u, reply,
+			                                   sizeof(reply), &reply_len, 3000u)
+			                  : FZN_CALLER_ERR_SEND;
+			(void)clock_gettime(CLOCK_MONOTONIC, &t1);
+			elapsed_ms = (long)(t1.tv_sec - t0.tv_sec) * 1000L
+			             + (t1.tv_nsec - t0.tv_nsec) / 1000000L;
+			CHECK(asked == FZN_CALLER_OK && reply_len == sizeof(PONG)
+			              && memcmp(reply, PONG, sizeof(PONG)) == 0,
+			      "an ask whose first request was lost was not answered within its wait");
+			CHECK(elapsed_ms >= (long)FZN_CALLER_RESEND_MS - 50L && elapsed_ms < 2500L,
+			      "the answer came before a resend could have been sent, or near the deadline");
 			if (child > 0)
 				(void)waitpid(child, &status, 0);
 		}

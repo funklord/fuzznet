@@ -609,8 +609,8 @@ SABOTAGES = [
 	(
 		"node-loop-sends-every-piece",
 		"node/serve.c",
-		"\t\tfor (i = 0; i < plan.chunks; i++) {",
-		"\t\tfor (i = 0; i < 1u; i++) {",
+		"\tfor (i = 0; i < plan.chunks; i++) {\n\t\tsize_t off = 0, len = 0;\n\n\t\tif (fzn_split_at(&plan, i, &off, &len) != FZN_SPLIT_OK)\n\t\t\treturn;\n\t\tif (fzn_node_seal_reply_chunk(",
+		"\tfor (i = 0; i < 1u; i++) {\n\t\tsize_t off = 0, len = 0;\n\n\t\tif (fzn_split_at(&plan, i, &off, &len) != FZN_SPLIT_OK)\n\t\t\treturn;\n\t\tif (fzn_node_seal_reply_chunk(",
 		"every piece the plan names is sent. Sending only the first leaves "
 		"a receiver holding one chunk of four for ever -- the message never "
 		"completes, so the symptom is a reply that silently never arrives "
@@ -820,8 +820,8 @@ SABOTAGES = [
 		"node-hands-no-dropped-frame-up",
 		"node/serve.c",
 		"\tif (result != FZN_NODE_REMOTE_DROPPED)\n"
-		"\t\tserve_reply(state, peer, &from, result, &opened);",
-		"\tserve_reply(state, peer, &from, result, &opened);",
+		"\t\tserve_reply(state, peer, &from, result, &opened, now);",
+		"\tserve_reply(state, peer, &from, result, &opened, now);",
 		"a frame that never authenticated reaches no handler. This guard "
 		"was LOST for one build while `serve_reply` was being extracted: "
 		"the call replaced an `if (result != DROPPED && state->on_remote)` "
@@ -902,8 +902,8 @@ SABOTAGES = [
 	(
 		"caller-reports-the-msg-it-sent",
 		"node/caller.c",
-		"\t*msg = caller->next_msg++;\n\n\t/* ONE PLAN FOR BOTH CASES",
-		"\t*msg = caller->next_msg++ + 1u;\n\n\t/* ONE PLAN FOR BOTH CASES",
+		"\t*msg = caller->next_msg++;\n\treturn send_as(",
+		"\t*msg = caller->next_msg++ + 1u;\n\treturn send_as(",
 		"the msg handed back is the one that went out on the wire. It is "
 		"the caller's only handle on its own answer, so a value that is "
 		"off by anything means recv skips the reply it is waiting for and "
@@ -10320,6 +10320,55 @@ SABOTAGES = [
 		'\treturn len >= 7u && memcmp(reply, "denied ", 7u) == 0;\n',
 		'\treturn 0 && len >= 7u && memcmp(reply, "denied ", 7u) == 0;\n',
 		"a host's refusal to be gathered reads as a reply that is no page, and the gatherer is not told why -- sec 735",
+	),
+	(
+		'node-replies-match-the-bytes',
+		'node/replies.c',
+		'\t\t    && memcmp(k->digest, digest, sizeof(digest)) == 0) {\n',
+		'\t\t    ) {\n',
+		"a request of other bytes under a kept message number is answered another request's reply; replies_test -- sec 737",
+	),
+	(
+		'node-replies-expire',
+		'node/replies.c',
+		'\twhile (r->n && (now < r->kept[0].at || now - r->kept[0].at > r->ttl_s))\n',
+		'\twhile (0 && r->n && (now < r->kept[0].at || now - r->kept[0].at > r->ttl_s))\n',
+		'a kept reply answers a request long after, a host started again answered from its last run; replies_test -- sec 737',
+	),
+	(
+		'node-replies-bounded-in-bytes',
+		'node/replies.c',
+		'\t    || reply_len > r->bytes_max)\n\t\treturn;\n',
+		'\t    )\n\t\treturn;\n',
+		'a reply larger than the whole bound is kept, past what the node set aside; replies_test -- sec 737',
+	),
+	(
+		'node-serve-answers-a-resend-once',
+		'node/serve.c',
+		'\tif (state->replies\n\t    && (kept = fzn_node_replies_find(',
+		'\tif (0 && state->replies\n\t    && (kept = fzn_node_replies_find(',
+		'a resent request runs its handler again, a write acted on twice; pair_test -- sec 737',
+	),
+	(
+		'node-caller-resends',
+		'node/caller.c',
+		'\t\terr = send_as(caller, payload, payload_len, expires_at, msg);\n\t\tif (err != FZN_CALLER_OK)\n\t\t\treturn err;\n\t\tresends++;\n',
+		'\t\terr = FZN_CALLER_OK;\n\t\tif (err != FZN_CALLER_OK)\n\t\t\treturn err;\n\t\tresends++;\n',
+		'a lost request is never sent again, and one lost datagram costs the whole wait; pair_test -- sec 737',
+	),
+	(
+		'node-asks-resend',
+		'node/asks.c',
+		'\t\tif (e->used && e->request && e->resends < FZN_CALLER_RESENDS && now >= e->resend_at_ms\n',
+		'\t\tif (0 && e->used && e->request && e->resends < FZN_CALLER_RESENDS && now >= e->resend_at_ms\n',
+		"an ask the loop awaits is never sent again, and a round's lost request costs its whole wait; pair_test -- sec 737",
+	),
+	(
+		'fuzznetd-recv-answering-resends',
+		'node/daemon.c',
+		'\t\tif (fzn_caller_resend(caller, request, request_len, expires_at, msg) != FZN_CALLER_OK)\n\t\t\tbreak;\n\t\tresends++;\n',
+		'\t\tbreak;\n\t\tresends++;\n',
+		"a peer's lost request is never resent, and the peer is passed over for the round; live_erasure --loss only, no unit test reaches it -- sec 737",
 	),
 	(
 		'messages-index-append-past-a-cut',

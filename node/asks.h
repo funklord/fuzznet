@@ -39,6 +39,15 @@ typedef struct fzn_node_ask {
 	fzn_node_answered_fn done;
 	void *ctx;
 	int used;
+	/* RESENT WITHIN THE WAIT, sec 737: a copy of what `fzn_node_asks_send`
+	 * sent, sent again by `fzn_node_asks_expire` each FZN_CALLER_RESEND_MS
+	 * the ask stays unanswered, FZN_CALLER_RESENDS times at most. NULL for
+	 * an ask only awaited here, whose request is its sender's to resend. */
+	uint8_t *request;
+	size_t request_len;
+	uint64_t expires_at;
+	uint64_t resend_at_ms;
+	unsigned resends;
 } fzn_node_ask_t;
 
 typedef struct fzn_node_asks {

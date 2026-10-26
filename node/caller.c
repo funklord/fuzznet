@@ -70,9 +70,29 @@ static uint64_t in_their_terms(const fzn_caller_t *caller, uint64_t expires_at)
 	return expires_at > (uint64_t)-s ? expires_at - (uint64_t)-s : 1u;
 }
 
+static fzn_caller_err_t send_as(fzn_caller_t *caller, const uint8_t *payload, size_t payload_len,
+                                uint64_t expires_at, uint32_t msg);
+
+fzn_caller_err_t fzn_caller_resend(fzn_caller_t *caller, const uint8_t *payload,
+                                   size_t payload_len, uint64_t expires_at, uint32_t msg)
+{
+	return send_as(caller, payload, payload_len, expires_at, msg);
+}
+
 fzn_caller_err_t fzn_caller_send(fzn_caller_t *caller, const uint8_t *payload,
                                  size_t payload_len, uint64_t expires_at,
                                  uint32_t *msg)
+{
+	if (!caller || !msg)
+		return FZN_CALLER_ERR_MALFORMED;
+	*msg = caller->next_msg++;
+	return send_as(caller, payload, payload_len, expires_at, *msg);
+}
+
+/* THE REQUEST `msg`, sealed and sent: the first time, or again (sec 737),
+ * each time under a fresh nonce. */
+static fzn_caller_err_t send_as(fzn_caller_t *caller, const uint8_t *payload, size_t payload_len,
+                                uint64_t expires_at, uint32_t msg)
 {
 	uint8_t frame[FZN_UDP_DATAGRAM_MAX];
 	size_t frame_len = 0;
@@ -81,7 +101,7 @@ fzn_caller_err_t fzn_caller_send(fzn_caller_t *caller, const uint8_t *payload,
 	uint16_t i;
 
 	if (!caller || caller->fd < 0 || !caller->hash || !caller->aead ||
-	    !caller->rng || !msg)
+	    !caller->rng)
 		return FZN_CALLER_ERR_MALFORMED;
 	if (!payload && payload_len)
 		return FZN_CALLER_ERR_MALFORMED;
@@ -112,8 +132,6 @@ fzn_caller_err_t fzn_caller_send(fzn_caller_t *caller, const uint8_t *payload,
 	                   (size_t)FZN_SPLIT_MAX_PAYLOAD, &plan) != FZN_SPLIT_OK)
 		return FZN_CALLER_ERR_REQUEST_TOO_LONG;
 
-	*msg = caller->next_msg++;
-
 	/* ONE PLAN FOR BOTH CASES, as `node/serve.c` does for a reply: a
 	 * request that fits plans as one piece and goes through the same loop,
 	 * so there is no second sealing site to drift from the first. A
@@ -131,7 +149,7 @@ fzn_caller_err_t fzn_caller_send(fzn_caller_t *caller, const uint8_t *payload,
 		what.payload = payload_len ? payload + off : NULL;
 		what.payload_len = payload_len ? len : 0u;
 		what.expires_at = in_their_terms(caller, expires_at);
-		what.msg = *msg;
+		what.msg = msg;
 		what.index = i;
 		what.chunks = plan.chunks;
 		/* DERIVED FROM THE COUNT, never passed -- the same rule
@@ -148,7 +166,7 @@ fzn_caller_err_t fzn_caller_send(fzn_caller_t *caller, const uint8_t *payload,
 			return FZN_CALLER_ERR_SEND;
 	}
 	if (caller->sent)
-		caller->sent(caller->traffic_ctx, caller, *msg, payload, payload_len);
+		caller->sent(caller->traffic_ctx, caller, msg, payload, payload_len);
 	return FZN_CALLER_OK;
 }
 
@@ -167,6 +185,12 @@ fzn_caller_err_t fzn_caller_recv(fzn_caller_t *caller, uint32_t msg,
 	if (err == FZN_CALLER_ERR_TIMEOUT)
 		fzn_caller_forget(caller, msg);
 	return err;
+}
+
+fzn_caller_err_t fzn_caller_recv_for(fzn_caller_t *caller, uint32_t msg, uint8_t *reply,
+                                     size_t reply_cap, size_t *reply_len, unsigned timeout_ms)
+{
+	return receive(caller, 0, &msg, reply, reply_cap, reply_len, timeout_ms);
 }
 
 void fzn_caller_forget(const fzn_caller_t *caller, uint32_t msg)
@@ -275,13 +299,45 @@ fzn_caller_err_t fzn_caller_ask(fzn_caller_t *caller, const uint8_t *payload,
 	uint32_t msg = 0;
 	fzn_caller_err_t err;
 
+	uint64_t until;
+	unsigned resends = 0;
+
 	/* A CALL RATHER THAN A COPY, so the two cannot come to disagree about
 	 * what a request looks like or which replies belong to it. */
 	err = fzn_caller_send(caller, payload, payload_len, expires_at, &msg);
-	if (err != FZN_CALLER_OK)
-		return err;
-	return fzn_caller_recv(caller, msg, reply, reply_cap, reply_len,
-	                       timeout_ms);
+	if (err != FZN_CALLER_OK || !timeout_ms)
+		return err != FZN_CALLER_OK ? err
+		                            : fzn_caller_recv(caller, msg, reply, reply_cap, reply_len,
+		                                              timeout_ms);
+	/* RESENT WITHIN THE WAIT, sec 737, the holder's choice: a slice with
+	 * no piece of the reply sends the request again, the same message
+	 * under a fresh nonce, a few times before the deadline. One lost
+	 * datagram passed a peer over for its whole round before (sec 736).
+	 * A node keeping its replies answers a resend without running it
+	 * again (`node/replies.h`). */
+	until = since_boot_ms() + timeout_ms;
+	for (;;) {
+		uint64_t now = since_boot_ms(), left = now < until ? until - now : 0u;
+		unsigned slice;
+
+		if (!left)
+			break;
+		slice = resends < FZN_CALLER_RESENDS && left > FZN_CALLER_RESEND_MS
+		                ? FZN_CALLER_RESEND_MS
+		                : (unsigned)left;
+		err = receive(caller, 0, &msg, reply, reply_cap, reply_len, slice);
+		if (err != FZN_CALLER_ERR_TIMEOUT)
+			return err;
+		if (resends >= FZN_CALLER_RESENDS || since_boot_ms() >= until)
+			break;
+		err = send_as(caller, payload, payload_len, expires_at, msg);
+		if (err != FZN_CALLER_OK)
+			return err;
+		resends++;
+	}
+	/* GIVEN UP ON, ITS REPLY FORGOTTEN, as `fzn_caller_recv` does. */
+	fzn_caller_forget(caller, msg);
+	return FZN_CALLER_ERR_TIMEOUT;
 }
 
 fzn_caller_err_t fzn_caller_seal(fzn_caller_t *caller, const uint8_t *payload, size_t payload_len,

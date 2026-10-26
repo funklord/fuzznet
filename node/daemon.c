@@ -1643,19 +1643,45 @@ static int answering_local;
 /* THE ANSWER TO `msg`, within 3 s, peers answered until its first piece
  * comes, sec 720: two hosts asking each other in turn at once each waited
  * out the other's three seconds. The rest of a reply of several frames is
- * read as before, its pieces close behind each other. */
-static fzn_caller_err_t recv_answering(fzn_caller_t *caller, uint32_t msg, uint8_t *reply,
-                                       size_t reply_cap, size_t *reply_len)
+ * read as before, its pieces close behind each other.
+ *
+ * RESENT WITHIN THE WAIT, sec 737: a slice of FZN_CALLER_RESEND_MS with no
+ * piece of the reply sends the request again, at most FZN_CALLER_RESENDS
+ * times. One lost datagram passed the peer over for the round before. */
+static fzn_caller_err_t recv_answering(fzn_caller_t *caller, uint32_t msg,
+                                       const uint8_t *request, size_t request_len,
+                                       uint64_t expires_at, uint8_t *reply, size_t reply_cap,
+                                       size_t *reply_len)
 {
-	uint64_t began = mono_ms(), spent;
+	uint64_t began = mono_ms();
+	unsigned resends = 0;
 
-	if (answering && !fzn_node_wait_answering(answering, caller->fd, 3000u, answering_local)) {
-		fzn_caller_forget(caller, msg);
-		return FZN_CALLER_ERR_TIMEOUT;
+	for (;;) {
+		uint64_t spent = mono_ms() - began;
+		unsigned left = spent < 3000u ? 3000u - (unsigned)spent : 0u, slice;
+		fzn_caller_err_t err = FZN_CALLER_ERR_TIMEOUT;
+
+		if (!left)
+			break;
+		slice = resends < FZN_CALLER_RESENDS && left > FZN_CALLER_RESEND_MS
+		                ? FZN_CALLER_RESEND_MS
+		                : left;
+		if (!answering || fzn_node_wait_answering(answering, caller->fd, slice, answering_local)) {
+			spent = mono_ms() - began;
+			left = spent < 3000u ? 3000u - (unsigned)spent : 1u;
+			err = fzn_caller_recv_for(caller, msg, reply, reply_cap, reply_len,
+			                          answering && left > slice ? slice : left);
+			if (err != FZN_CALLER_ERR_TIMEOUT)
+				return err;
+		}
+		if (resends >= FZN_CALLER_RESENDS || mono_ms() - began >= 3000u)
+			break;
+		if (fzn_caller_resend(caller, request, request_len, expires_at, msg) != FZN_CALLER_OK)
+			break;
+		resends++;
 	}
-	spent = mono_ms() - began;
-	return fzn_caller_recv(caller, msg, reply, reply_cap, reply_len,
-	                       spent < 3000u ? 3000u - (unsigned)spent : 1u);
+	fzn_caller_forget(caller, msg);
+	return FZN_CALLER_ERR_TIMEOUT;
 }
 
 static int peer_ask(void *ctx, const uint8_t *request, size_t request_len, uint8_t *reply,
@@ -1672,7 +1698,9 @@ static int peer_ask(void *ctx, const uint8_t *request, size_t request_len, uint8
 	link_asked(li, request_len);
 	if (fzn_caller_send(asking->caller, request, request_len, asking->now + 300u, &msg)
 	            != FZN_CALLER_OK
-	    || recv_answering(asking->caller, msg, reply, reply_cap, reply_len) != FZN_CALLER_OK) {
+	    || recv_answering(asking->caller, msg, request, request_len, asking->now + 300u, reply,
+	                      reply_cap, reply_len)
+	               != FZN_CALLER_OK) {
 		link_answered(li, began, 0, 1);
 		if (asking->pt)
 			silent_mark(asking->pt);
@@ -5705,7 +5733,8 @@ static void introduce_siblings(struct pull_target *pulls, size_t npulls_base, si
 			memcpy(request + 2, pt->node, FZN_PUBKEY_LEN);
 			if (fzn_caller_send(&via, request, sizeof(request), now + 300u, &msg)
 			            != FZN_CALLER_OK
-			    || recv_answering(&via, msg, reply, sizeof(reply) - 1u, &len)
+			    || recv_answering(&via, msg, request, sizeof(request), now + 300u, reply,
+			                      sizeof(reply) - 1u, &len)
 			               != FZN_CALLER_OK) {
 				/* ONE UNANSWERED A ROUND, then no more this round: each waits
 				 * three seconds in turn, local clients unserved, and an
@@ -8407,7 +8436,9 @@ static void introduce_contacts(struct pull_target *pulls, size_t npulls, uint64_
 		request[1] = FZN_TYPE_INTRODUCE;
 		memcpy(request + 2, ct->pt.pairing.node, FZN_PUBKEY_LEN);
 		if (fzn_caller_send(&via, request, sizeof(request), now + 300u, &msg) != FZN_CALLER_OK
-		    || recv_answering(&via, msg, reply, sizeof(reply) - 1u, &len) != FZN_CALLER_OK) {
+		    || recv_answering(&via, msg, request, sizeof(request), now + 300u, reply,
+		                      sizeof(reply) - 1u, &len)
+		               != FZN_CALLER_OK) {
 			/* ONE UNANSWERED A ROUND, as the siblings' (sec 726). */
 			say(FZN_ENTRY_DEBUG, "contact/devices", "an introduction to %s asked of %s: no answer",
 			    ct->host, pulls[k].host);
@@ -14839,6 +14870,18 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 		else
 			say(FZN_ENTRY_WARNING, "node", "no request reassembly; requests past one frame "
 			                "are dropped");
+	}
+	/* THE REPLIES SENT, kept FZN_NODE_REPLIES_TTL_S, sec 737: a request its
+	 * caller resent is answered again without being run again. 256 of them
+	 * and 4 MiB at most, the oldest let go first; one let go costs only a
+	 * handler run twice, as before. */
+	{
+		static fzn_node_reply_kept_t kept[256];
+		static fzn_node_replies_t replies;
+
+		if (fzn_node_replies_init(&replies, kept, sizeof(kept) / sizeof(kept[0]),
+		                          4u * 1024u * 1024u, FZN_NODE_REPLIES_TTL_S, &hash_ops))
+			state.replies = &replies;
 	}
 
 	/* A NODE KEEPING NOTES LOOPS TOO, with no estate peer to pull: a
