@@ -72959,3 +72959,18 @@ only with its own pull peers. Next, in this order:
 - whether R's journal follows N's key;
 - where `revoke peer` writes the vote: the estate stream, or the
   revocation store alone.
+
+**Tried: every successor's stream followed.** A vote is put in its
+voter's journal through its act log (`node/revoke.c`,
+`fzn_node_roots_log_signed`), so it reaches R only on a stream R follows.
+R's follow list names peers, proved members and member grantees, and a
+successor holds its standing by the succession, not by a grant.
+The experiment made `follow_estate` also follow every succession's new
+key. **It is refuted:** 1 of 4 runs at 20% passed, and in the three
+failures R still held A2's vote alone. So R not following N's stream is
+not the cause, and the change was taken out. Still open, in order:
+- whether N's vote is in its journal at all: N's act log versus its
+  journal stream;
+- whether N's journal pushes to R once R lists that stream;
+- why 5% carries the vote and 20% does not, which points at something
+  done once rather than every round.
