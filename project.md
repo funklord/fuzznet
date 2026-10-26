@@ -73005,3 +73005,26 @@ The case is compiled out (`#if 0`) until the fix, so the suite stays
 green while saying what is wrong. The fix is the next work: park such a
 vote in the store, and judge it again each apply round, as sec 728
 parks settings.
+
+**Fixed: a vote refused for want of an admin chain is parked**
+(`node/apply.c`, `take`). When a signer that is not a root has a member
+chain that does not carry the vote, and no admin chain yet, the vote is
+parked with sec 728's settings and judged again at each round's end
+(`unpark_judged` dispatches on the object's kind). The park is in the
+store, so it survives a restart. It is taken once the voter's chain
+counts, and kept while it does not; WAIT is not used, which would stop
+the voter's stream. `test_a_vote_before_its_admin_grant` passes, and
+with the park switched off it fails again.
+
+**Live at 20% it did not help: 0 of 4**, each still failing at phase e
+with D2's grant standing. So the parked vote is a real fault, shown by
+the unit test, but not the live one, or not the whole of it. The next
+session should start with `list vote` at the failure on this build.
+
+**Left uncommitted, at the weekly stop (98%):**
+- the park in `node/apply.c` (`take`, `unpark_judged`, `judging_parked`);
+- the case enabled in `node/test/apply_test.c`;
+- a sabotage entry, `node-apply-parks-a-vote-before-its-admin`.
+
+`apply_test` passes with them, and `make style` passes. The full suite
+was not run. Run `make test` before committing them.
