@@ -72852,3 +72852,12 @@ a later count let them go. Under loss the proof is now C holding its
 pieces again, which only B's rebuild can do. The three runs after that
 fix all passed. Journey 3's erasure meets the loss bar at 0, 5 and 20 per
 cent, short of ten runs each.
+
+**Journeys 1 and 2 at 20%, first runs with resends** (neither had been
+run at 20% before): `live_chat.py --loss 20` 3 of 3, in 97 to 121 s.
+`live_estate.py --loss 20` 0 of 2, both at phase e. A2 voted at total
+loss, was killed, and was started again at 20%. Its vote did not reach R
+within the wait, so D2's grant still stood. Phases a to d passed both
+times. Not yet explained. The vote is kept at A2 and should travel by
+R's pull or A2's push, and which of those resends is what to check
+first.
