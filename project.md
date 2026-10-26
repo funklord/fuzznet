@@ -72938,3 +72938,24 @@ whose stream R may never have been told to follow. Then the vote would
 travel only by reconcile, which at 5% happened to reach it and at 20%
 does not. Next: ask R's journal what it follows, and read where a
 succession should make R follow the new key.
+
+**N's side, read** (run 13 kept):
+- Each of N's rounds has one peer, R.
+- Its reconcile lacks nothing.
+- After 15:21:20 it logs no journal line, neither records from R nor
+  anything pushed. A push with nothing to send logs nothing, so N found
+  nothing to offer R for any stream R's digest lists.
+
+R follows its peers, the members proved, and every grantee of the member
+capability (`node/daemon.c`, the key list before `fzn_node_journal_follow`).
+So the two candidates are:
+- R does not follow N's stream: N, a successor, joined by a succession
+  card and may be in none of those lists;
+- or the vote is not in a stream N pushes.
+
+At 5% the vote reached R anyway, probably by reconcile, which R runs
+only with its own pull peers. Next, in this order:
+- `list vote` on R at 5% says how it arrived there;
+- whether R's journal follows N's key;
+- where `revoke peer` writes the vote: the estate stream, or the
+  revocation store alone.
