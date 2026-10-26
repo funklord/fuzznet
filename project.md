@@ -72858,6 +72858,19 @@ run at 20% before): `live_chat.py --loss 20` 3 of 3, in 97 to 121 s.
 `live_estate.py --loss 20` 0 of 2, both at phase e. A2 voted at total
 loss, was killed, and was started again at 20%. Its vote did not reach R
 within the wait, so D2's grant still stood. Phases a to d passed both
-times. Not yet explained. The vote is kept at A2 and should travel by
-R's pull or A2's push, and which of those resends is what to check
-first.
+times. Phases a to d passed each time. Over five more runs, 1 passed
+and 3 kept failing at e (`--keep`).
+
+**What a kept failure shows (not yet explained):**
+- A2, started again at 20%, pushes 1 and 6 records to R in its first
+  round, 0 refused, so the journal half travels.
+- R then reconciles every round with "1 lacked, 0 applied, 1 refused":
+  it lacks one object, fetches it, and refuses it, round after round.
+- That object is most likely A2's vote, but the log does not say which
+  object it is, from which peer (every peer is 127.0.0.1) or why it was
+  refused.
+
+So the next step is to make the refusal say its reason, at debug, in
+the reconcile pass. A vote that a 5% run carries and a 20% run refuses
+would be a fault in admission, not in the transport. Sec 721's cut keeps
+and sec 730's vote line are candidates to read first.
