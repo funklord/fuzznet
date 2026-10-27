@@ -68,11 +68,21 @@ static void fill(uint8_t *b, size_t n)
 }
 
 /* Bend `b`, `len` bytes of `cap`, and return its new length. Never returns
- * the bytes unchanged: a bend that would is a flip instead. */
+ * the bytes unchanged: a bend that would is a flip instead. The flips are
+ * checked against a copy, since a flip can cancel the one before it -- the
+ * last flip at bit 7 of a byte an earlier flip had already turned there.
+ * Unchecked, that and the shift below together left 9 cases in 200000
+ * unbent, which opened as they should and failed as "a bent part opened":
+ * either fix alone left 6 or 2 of them. */
 static size_t bend(uint8_t *b, size_t len, size_t cap)
 {
+	static uint8_t was[FZN_RECORD_BODY_MAX + 16u];
 	size_t k, i, j;
 	uint8_t t;
+
+	if (len > sizeof(was))
+		return len;
+	memcpy(was, b, len);
 
 	switch (next() % 5u) {
 	case 1:
@@ -89,9 +99,12 @@ static size_t bend(uint8_t *b, size_t len, size_t cap)
 	case 3:
 		if (len >= 8u) {
 			i = next() % (len - 4u);
-			for (j = 0; j < 4u && b[i + j] == b[i + j + 4u]; j++)
+			/* WITHIN `len`: with `i` as far as len - 5, `i + j + 4` ran
+			 * up to two bytes past it, and a difference found only
+			 * there let a memmove that changed nothing pass for a bend. */
+			for (j = 0; j < 4u && i + j + 4u < len && b[i + j] == b[i + j + 4u]; j++)
 				;
-			if (j < 4u) {
+			if (j < 4u && i + j + 4u < len) {
 				memmove(b + i + 4u, b + i, len - i - 4u);
 				return len;
 			}
@@ -115,7 +128,9 @@ static size_t bend(uint8_t *b, size_t len, size_t cap)
 	for (k = 1u + next() % 4u; k > 0u && len; k--)
 		b[next() % len] ^= (uint8_t)(1u << (next() % 8u));
 	if (len)
-		b[next() % len] ^= 0x80u; /* at least one bit, even if two flips cancel */
+		b[next() % len] ^= 0x80u;
+	if (len && memcmp(b, was, len) == 0)
+		b[next() % len] ^= 0x01u;
 	return len;
 }
 

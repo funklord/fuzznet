@@ -73260,15 +73260,17 @@ refused by design; chasing it found a real fault beside it** (chased
   reproduced from `f2602df`, the tree before the day's work, exported
   and built apart. They stop `make fuzz` and `make sancheck` at
   themselves, so what follows each was run by hand.
+  All three were the tests' own, and are fixed:
   - `messages/test/line_fuzz`: "a bent part opened", 9 of 200000 cases,
-    the same cases at `f2602df`.
-  - `node/test/peer_persist_test` under ASan: a global-buffer-overflow,
-    `fzn_node_peer_open` (`node/peer_persist.c:86`) writing 1536 bytes
-    just past the test's 3000-entry `many` array, from
-    `fzn_node_peers_load`.
-  - `node/test/apply_test` under UBSan: `put`'s `used_writers[8]`
-    indexed at 8, more distinct writers than the helper has room for.
-  Not fixed.
+    the same cases at `f2602df`. Each was a part `bend` left unchanged,
+    which opens as it should. There were two causes. The slice shift
+    compared bytes past `len`, so a no-op `memmove` passed for a bend.
+    And the last bit flip could cancel an earlier one. Either fix alone
+    left 6 or 2 of the 9.
+  - `node/test/peer_persist_test` under ASan: `fzn_node_peers_load`
+    honours its cap, and the test passed 3002 for an array of 3000.
+  - `node/test/apply_test` under UBSan: `put`'s `used_writers[8]`, with
+    a ninth writer in the suite. It holds 256 now, every `uint8_t`.
 
 **Fixed beside it: a sibling's caller numbered from 0 every round.**
 - `load_siblings` (`node/daemon.c`) clears a sibling's target each round
