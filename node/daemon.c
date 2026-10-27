@@ -4204,11 +4204,14 @@ static void journal_unanswered(const struct journal_talk *jt)
 	say(FZN_ENTRY_DEBUG, "journal",
 	    "%s from %s unanswered since the talk began: %lu request(s) sent, %lu datagram(s) "
 	    "read, %lu not opened, %lu another's, %lu piece(s) taken, %lu refused by "
-	    "reassembly, the last %s, %lu late",
+	    "reassembly, the last %s (message %lu, piece %u of %u, %zu byte(s); next %lu), %lu "
+	    "late",
 	    jt->pushing ? "a push" : "a pull", jt->m.host, c->sends - jt->sends,
 	    c->heard - jt->heard, c->unopened - jt->unopened, c->elsewhere - jt->elsewhere,
 	    c->pieces - jt->pieces, c->refused - jt->refused,
 	    c->refused - jt->refused ? fzn_reasm_err_str((fzn_reasm_err_t)c->refused_err) : "none",
+	    (unsigned long)c->refused_msg, (unsigned)c->refused_index + 1u,
+	    (unsigned)c->refused_chunks, c->refused_len, (unsigned long)c->next_msg,
 	    c->late - jt->late);
 }
 

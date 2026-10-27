@@ -335,6 +335,10 @@ static fzn_caller_err_t receive(fzn_caller_t *caller, int any, uint32_t *msg, ui
 		if (rerr != FZN_REASM_OK) {
 			caller->refused++;
 			caller->refused_err = (int)rerr;
+			caller->refused_msg = opened.msg;
+			caller->refused_index = opened.index;
+			caller->refused_chunks = opened.chunks;
+			caller->refused_len = opened.payload_len;
 			return FZN_CALLER_ERR_REASSEMBLY;
 		}
 		caller->pieces++;

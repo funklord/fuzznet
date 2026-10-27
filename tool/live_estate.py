@@ -37,7 +37,8 @@ successor) and E (a device paired by the second root).
 `--skew S` runs A1's clock S seconds ahead and D's S behind, by faketime.
 `--loss P` runs every daemon at FZN_FAULT_LOSS=P with one seed per run;
 `--keep DIR` copies a failed run's daemon output and logs into DIR, which
-must not exist. The stores are left out.
+must not exist, and `--keep-passed` a passing run's as well. The stores
+are left out.
 
 Against a daemon that keeps a setting past its setter's cut, phase c's
 h/mid still reads at R.
@@ -88,6 +89,8 @@ def main(argv):
 	parser.add_argument("--loss", type=int, default=0, help="per cent of datagrams lost")
 	parser.add_argument("--within", type=float, default=900.0, help="the whole run's deadline")
 	parser.add_argument("--keep", help="on a failure, copy the run's logs into this new directory")
+	parser.add_argument("--keep-passed", action="store_true",
+	                    help="with --keep, copy them on a pass as well")
 	parser.add_argument("--skew", type=int, default=0,
 	                    help="seconds A1's clock runs ahead and D's behind, by faketime")
 	args = parser.parse_args(argv[1:])
@@ -564,6 +567,12 @@ def main(argv):
 			print("livecheck: f: R added A2 as a root; A2 removed R (%d "
 			      "refusal(s) first) and R was stopped, paired E, and E reads A2 as its root"
 			      % len(refused))
+			# A PASS'S LOGS TOO, when asked: what a debug line says of traffic
+			# that went wrong and recovered is in runs that pass.
+			if args.keep and args.keep_passed:
+				shutil.copytree(scratch, args.keep,
+				                ignore=shutil.ignore_patterns("[a-z]", "[a-z][0-9]"), symlinks=True)
+				print("livecheck: the run's logs kept in %s" % args.keep)
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			# EACH DAEMON'S LAST WORDS, since the scratch goes with the run.

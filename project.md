@@ -73208,10 +73208,38 @@ max_hold`, and a stuck partial now ages out in 60 s.
 - Not decided: what a succession does to the root's pull peers, above.
   These fixes make it less pressing without settling it.
 
-Also seen and not chased: D2 refused once for "the chunk
-disagrees with the first" (a message number reused with a different
-plan), and A2's pushes refused for "the message exceeds what a slot
-holds".
+Also seen and not chased: A2's pushes refused for "the message exceeds
+what a slot holds".
+
+**"The chunk disagrees with the first": a sibling target's caller
+numbers from 0 every round** (chased 2026-10-27 on the holder's word):
+- **Common, not rare.** In four runs at 20% with both fixes, all of
+  which passed, it appeared 14 times, at A2, D, D2, N and R. Logs kept
+  with the new `--keep-passed` of `tool/live_estate.py`.
+- **Not R answering one message twice.** The caller now keeps the last
+  refused piece (`refused_msg`, `_index`, `_chunks`, `_len`), and
+  `journal_unanswered` says it with the caller's `next_msg`. D2 refused
+  message 1, piece 2 of 2, 40 bytes. R had answered D2's message 1 once,
+  47 s earlier, with 26 bytes in one piece.
+- **The refusing caller is new.** Its `next_msg` was 2. In N's log, the
+  round target to R counts 4, 8, 11 ... 88 across the run, while a
+  second caller's restarts every round or so (3, 4, 2, 3). R answered
+  N's message 0 twice, to two ports.
+- **The cause, in `load_siblings`** (`node/daemon.c`): each round it
+  clears a sibling's target and builds its caller again, reusing the
+  sibling's kept socket (`sibling_fd`) and its stored pairing. So
+  `next_msg` and the forgotten ring are back at 0 every round, under the
+  same keys on the same socket. A late piece of last round's reply then
+  opens and lands on this round's message of the same number.
+- **Its worse case is silent.** Where the late piece's plan differs,
+  reassembly refuses it, and that is this refusal. Where it matches, a
+  late one-piece reply to last round's message N completes at once and
+  is taken as the answer to this round's message N, a different
+  request. Nothing logs that.
+
+**Not fixed; the fix proposed:** carry a sibling's `next_msg` and its
+forgotten ring across rounds along with its socket. Its numbers then
+never repeat on that session, and a late piece is dropped as late.
 
 **Committed 2026-10-27, after a full `make test`:** the park in
 `node/apply.c` (`take`, `unpark_judged`, `judging_parked`), the case

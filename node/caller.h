@@ -136,6 +136,10 @@ typedef struct fzn_caller {
 	 * them. */
 	unsigned long sends, heard, unopened, elsewhere, pieces, refused, late;
 	int refused_err;
+	/* AND THE LAST PIECE REFUSED: its message, index, count and length. */
+	uint32_t refused_msg;
+	uint16_t refused_index, refused_chunks;
+	size_t refused_len;
 	/* THE MESSAGES GIVEN UP ON, sec 737, the last FZN_CALLER_FORGOTTEN of
 	 * them, by `fzn_caller_forget`: a piece of one arriving after is
 	 * dropped, so a reply's half that comes late, its partner lost, never
