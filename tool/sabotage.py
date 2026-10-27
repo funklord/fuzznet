@@ -10364,6 +10364,14 @@ SABOTAGES = [
 		"an ask the loop awaits is never sent again, and a round's lost request costs its whole wait; pair_test -- sec 737",
 	),
 	(
+		'fuzznetd-contact-numbered-on',
+		'node/daemon.c',
+		"\t\t\t\tfzn_caller_carry(&ct->pt.caller, numbering);\n",
+		"\t\t\t\t(void)numbering;\n",
+		"a contact target's caller, built again each round on the same keys, numbers on from "
+		"last round's; no unit test reaches it, and no live test has contacts at loss -- sec 737",
+	),
+	(
 		'caller-takes-no-hello-for-an-answer',
 		'node/caller.c',
 		"\t\tif (opened.kind == FZN_KIND_NOP || !no_capability(opened.capability)) {\n",

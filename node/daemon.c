@@ -6404,15 +6404,21 @@ static void load_contact_targets(void)
 	 * belongs to a socket, so the one an introduction opened, or a hello
 	 * kept open, is lost with it -- rebuilt on a fresh socket every round,
 	 * a hole punched last round led nowhere. */
+	/* A SOCKET KEPT, and the numbering of the caller on it, sec 737: the
+	 * pairing is derived again with the same keys, so built from 0 a late
+	 * piece of last round's reply would land on this round's message of
+	 * its number. Only the numbering, through `fzn_caller_carry`. */
 	struct kept_socket {
 		uint8_t key[FZN_PUBKEY_LEN];
 		int fd;
+		fzn_caller_t numbering;
 	} *old = calloc(ncontact_targets ? ncontact_targets : 1u, sizeof(*old));
 	size_t n = 0, i, j, n_old = 0;
 
 	for (i = 0; i < ncontact_targets; i++) {
 		if (old && contact_targets[i].pt.fd >= 0) {
 			memcpy(old[n_old].key, contact_targets[i].pt.pairing.node, FZN_PUBKEY_LEN);
+			fzn_caller_carry(&old[n_old].numbering, &contact_targets[i].pt.caller);
 			old[n_old++].fd = contact_targets[i].pt.fd;
 		} else if (contact_targets[i].pt.fd >= 0) {
 			fzn_udp_close(contact_targets[i].pt.fd);
@@ -6479,6 +6485,7 @@ static void load_contact_targets(void)
 				               == 0)
 					ct->metric = r.entries[j].metric;
 		{
+			const fzn_caller_t *numbering = NULL;
 			int fd = -1;
 
 			for (j = 0; j < n_old; j++)
@@ -6486,6 +6493,7 @@ static void load_contact_targets(void)
 				    && memcmp(old[j].key, fzn_contact_device_key(&kept[i]), FZN_PUBKEY_LEN) == 0) {
 					fd = old[j].fd;
 					old[j].fd = -1;
+					numbering = &old[j].numbering;
 					break;
 				}
 			if (fzn_node_pairing_derive(contact_id, kept[i].record,
@@ -6499,6 +6507,8 @@ static void load_contact_targets(void)
 			if (!open_target_on(&ct->pt, fd, contact_family, contact_id->pubkey,
 			                    contact_hash_ops, contact_aead_ops, contact_rng_ops))
 				continue;
+			if (numbering)
+				fzn_caller_carry(&ct->pt.caller, numbering);
 		}
 		ncontact_targets++;
 	}
