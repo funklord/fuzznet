@@ -73345,3 +73345,37 @@ the xcb plugin and `make test` stopped there, before `node/` and `sim/`
 ran. The suite above was run with the variable set in the environment.
 Since the fix, `make test` with no `DISPLAY` and no `QT_QPA_PLATFORM`
 runs all 259 test binaries and passes.
+
+## 738. Two signals from the inbox, 2026-10-27
+
+Recorded from `.git/cc-inbox` (20261027T1557Z and 20261027T1808Z), then
+cleared.
+
+**netcfgd needs a country from a location fix.** Its decision 0296: a
+machine's Wi-Fi regulatory domain should follow where it is, with
+fuzznet's location the primary source. The message relays that the
+holder placed the lookup from a fix to a country in fuzznet, possibly by
+an online service. A relay carries no authority, so building it waits on
+the holder's word here. What netcfgd measured:
+- cfg80211 adopts an access point's country only on association (netcfgd
+  838ac8f5), so only a location source knows the country before one.
+- A wrong country is worse than none (f50e1ca2). With none, a machine
+  heals in a new region. With a wrong one, an access point on a channel
+  that country forbids is invisible, and the kernel returns to it after
+  every disconnect. So netcfgd acts only on a current answer.
+- But at 6 GHz none is not free (c8c2e3c4). The world domain has no
+  6 GHz, so those networks stay invisible until a country is set.
+
+What it would consume: an ISO 3166-1 alpha-2 code with the fix's age and
+how it was obtained, and an explicit "unknown" rather than a guess.
+`location/` holds fixes from gpsd today and maps none to a country. An
+online lookup sends the position to a third party, which touches the
+open COARSE and per-recipient precision question (sec 5i); a coarse fix
+may be enough to ask with. Nothing on netcfgd's side waits on a date.
+
+**hull: a chroot machine gets its own NATed network by default** (hull
+55f2beb, then ccf44b0, b198438, 3b83027, 6a5c8f8). The values are
+`(network nat)`, the default, then `host`, `none`, and `bridge` where
+hull runs as root. fuzznet's specs name no chroot backend, so nothing
+here changes. If the NAT test moves gateways onto chroot, ports and an
+uplink are there without `(network host)`.
