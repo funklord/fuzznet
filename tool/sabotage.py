@@ -12411,8 +12411,8 @@ SABOTAGES = [
 	(
 		"caller-stamps-in-their-terms",
 		"node/caller.c",
-		"\tint64_t s = caller->clock_offset_ms / 1000;\n",
-		"\tint64_t s = 0 * caller->clock_offset_ms;\n",
+		"static uint64_t in_their_terms(const fzn_caller_t *caller, uint64_t expires_at)\n{\n\tint64_t s = caller->clock_offset_ms / 1000;\n",
+		"static uint64_t in_their_terms(const fzn_caller_t *caller, uint64_t expires_at)\n{\n\tint64_t s = 0 * caller->clock_offset_ms;\n",
 		"a request to a peer whose clock is off expires by the wrong clock -- sec 719 stage 3",
 	),
 	(
