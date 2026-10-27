@@ -101,6 +101,11 @@ typedef struct fzn_partial {
 	size_t buf_capacity;
 	size_t chunk_size; /* every chunk but the last is exactly this */
 	size_t bytes;      /* held so far */
+	/* A LAST PIECE PARKED, project.md sec 737: one that came before any
+	 * other, held at the end of `buf` while `chunk_size` is 0 (the stride
+	 * not yet known), and moved to its place when a piece that is not the
+	 * last sets the stride. Its length; 0 when none is parked. */
+	size_t parked;
 	uint8_t seen[FZN_REASM_MAX_CHUNKS / 8u];
 	int live;
 	/* Set when the message completed and this slot was handed to a caller

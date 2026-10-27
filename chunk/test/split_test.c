@@ -207,14 +207,15 @@ static void test_round_trip_out_of_order(void)
 {
 	const size_t sizes[] = { 9, 65, 100, 1000 };
 
-	/* Reversed is the hard direction: the LAST piece arrives first, and
-	 * reassembly refuses to let a short piece set the stride. A splitter
-	 * that made the last piece the same length as the rest would pass the
-	 * in-order test and fail here, which is why both exist. */
+	/* Reversed is the hard direction: the LAST piece arrives first, and a
+	 * short piece cannot set the stride. Reassembly parks it until a piece
+	 * that is not the last does (project.md sec 737), so the whole message
+	 * still comes back -- where until then this asserted the opposite, a
+	 * reversed round trip refused at its first piece. */
 	for (size_t i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++)
-		CHECK(round_trip(sizes[i], 8, 1) == 0,
-		      "a reversed round trip succeeded at %zu bytes -- reassembly is "
-		      "supposed to refuse a last-chunk-first arrival",
+		CHECK(round_trip(sizes[i], 8, 1) == 1,
+		      "a reversed round trip failed at %zu bytes: a last piece first was not "
+		      "parked and placed",
 		      sizes[i]);
 }
 

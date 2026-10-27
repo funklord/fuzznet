@@ -73228,14 +73228,47 @@ refused by design; chasing it found a real fault beside it** (chased
   usually recovers it. It was blamed on a reused message number first,
   because D2's refused piece was no reply of R's to that message. It was
   a sibling's reply, last piece first.
-- **The comment above that check contradicts it:** "a first-arriving
-  last chunk of a multi-chunk message simply reserves the maximum",
-  while the code and its inner comment refuse. Not changed.
-- **Whether to place a last-first piece is the holder's.** Every piece
-  but the last is `FZN_SPLIT_MAX_PAYLOAD` in this library's own plan,
-  so it could be placed at `(chunks - 1)` times that. It would save a
-  resend under loss. The rule's reason is that a sender would choose
-  the stride, and that sender has been authenticated by then.
+- **Parked since, on the holder's word the same day; nothing guessed.**
+  Placing it at `(chunks - 1)` times `FZN_SPLIT_MAX_PAYLOAD` was the
+  first idea, and it would be a guess: the stride is the sender's
+  `max_payload`, up to that, and `tool/consumer_check.c` plans with 8.
+  Instead a last piece that comes first is parked at the end of the
+  slot's buffer (`fzn_partial_t`'s `parked`) with `chunk_size` 0, and
+  counted as arrived, so `fzn_reasm_plan_want` does not ask for it
+  again. A repeat of it must be byte-identical. The first piece that is
+  not the last sets the stride and must be no shorter than the parked
+  piece. It is held to the bound an in-order arrival is, so both orders
+  take exactly the same messages. Then the parked piece is moved to its
+  place. The rule's reason (no stride chosen by a short last piece)
+  stands, and the comment that contradicted the refusal is rewritten.
+- **Two tests asserted the refusal and now assert the opposite:**
+  `split_test`'s reversed round trip, which completes now, and
+  `agreement_test`'s "permanent" divergence between `frame.situ` and the
+  reassembler on `index 3 of 4`, which is gone. `roundtrip_fuzz`
+  predicts that every order completes and floors its count of orders
+  that begin with the last piece. `reassembly_fuzz` allows a zero stride
+  only while one piece is parked. Each of the five guards switched off
+  fails a test (sabotage `reasm-parks-a-last-piece-first` and four
+  more). A first draft bounded the stride by what fits beside the parked
+  piece. Reading `reassembly_fuzz`'s sizing invariant, not running it,
+  showed that this lets a last-first order take a message an in-order
+  one refuses, so the bound is now the in-order one.
+- **Checked beyond the suite:** all 42 fuzzers at 200000 cases, and the
+  suite under AddressSanitizer and UBSan (`make sancheck`). Four estate
+  journeys at 20% loss passed, at a load near 170.
+- **Three failures found doing it, all older than this work.** Each was
+  reproduced from `f2602df`, the tree before the day's work, exported
+  and built apart. They stop `make fuzz` and `make sancheck` at
+  themselves, so what follows each was run by hand.
+  - `messages/test/line_fuzz`: "a bent part opened", 9 of 200000 cases,
+    the same cases at `f2602df`.
+  - `node/test/peer_persist_test` under ASan: a global-buffer-overflow,
+    `fzn_node_peer_open` (`node/peer_persist.c:86`) writing 1536 bytes
+    just past the test's 3000-entry `many` array, from
+    `fzn_node_peers_load`.
+  - `node/test/apply_test` under UBSan: `put`'s `used_writers[8]`
+    indexed at 8, more distinct writers than the helper has room for.
+  Not fixed.
 
 **Fixed beside it: a sibling's caller numbered from 0 every round.**
 - `load_siblings` (`node/daemon.c`) clears a sibling's target each round

@@ -819,21 +819,85 @@ static void test_a_message_this_table_does_not_hold_is_absent(void)
 	              == FZN_REASM_ERR_MALFORMED, "a null output was accepted");
 }
 
-static void test_last_chunk_first_is_refused(void)
+static void test_last_chunk_first_is_parked(void)
 {
 	struct fixture f;
 	fzn_partial_t *done = NULL;
-	uint8_t piece[3];
+	fzn_reasm_range_t got[8];
+	size_t n = 0;
+	uint8_t piece[31];
 
-	/* The last chunk may be short, so it cannot set the stride. Guessing
-	 * would let whoever sends the final piece first choose how much is
-	 * held. */
+	/* PARKED, NOT REFUSED, sec 737. The last chunk may be short, so it
+	 * cannot set the stride -- guessing would let whoever sends the final
+	 * piece first choose it -- and under loss the first piece is often the
+	 * one lost. So it waits at the end of the buffer, and the first piece
+	 * that is not the last sets the stride and places it. */
 	fixture_init(&f, 2);
 	fill(piece, 3, 0x90, 2);
-	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 2, 3, piece, 3, 0, 100, &done) ==
-	              FZN_REASM_ERR_MISMATCH,
-	      "a last-chunk-first arrival set the stride");
-	CHECK(f.partials[0].live == 0, "it took a slot anyway");
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 2, 3, piece, 3, 0, 100, &done) == FZN_REASM_OK
+	              && !done && f.partials[0].live,
+	      "a last-chunk-first arrival was not parked");
+	CHECK(fzn_reasm_plan_want(&f.table, f.alice, 1, 100, got, 8, &n) == FZN_REASM_OK,
+	      "a parked message reported no plan");
+	{
+		static const uint16_t WANT[] = { 0, 2 };
+
+		CHECK(ranges_are(got, n, WANT, 1), "the parked last piece was asked for again");
+	}
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 2, 3, piece, 3, 0, 100, &done) == FZN_REASM_OK,
+	      "a byte-identical repeat of the parked piece was refused");
+	piece[0] ^= 1u;
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 2, 3, piece, 3, 0, 100, &done)
+	              == FZN_REASM_ERR_CONFLICT,
+	      "a differing repeat rewrote the parked piece");
+	fill(piece, 8, 0x90, 0);
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 0, 3, piece, 8, 0, 100, &done) == FZN_REASM_OK
+	              && !done,
+	      "the piece setting the stride was refused, or completed early");
+	fill(piece, 8, 0x90, 1);
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 1, 1, 3, piece, 8, 0, 100, &done) == FZN_REASM_OK
+	              && done && done->bytes == 19u,
+	      "the message did not complete with its parked piece, 19 bytes");
+	if (done) {
+		uint8_t want[19];
+
+		fill(want, 8, 0x90, 0);
+		fill(want + 8, 8, 0x90, 1);
+		fill(want + 16, 3, 0x90, 2);
+		CHECK(memcmp(done->buf, want, sizeof(want)) == 0,
+		      "the parked piece was not moved to its place");
+		fzn_reasm_release(done);
+	}
+
+	/* A STRIDE SHORTER THAN THE PARKED PIECE is a last piece longer than
+	 * the rest, which no plan makes. */
+	fill(piece, 5, 0xa0, 1);
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 2, 1, 2, piece, 5, 0, 100, &done) == FZN_REASM_OK,
+	      "fixture: a second last piece would not park");
+	fill(piece, 3, 0xa0, 0);
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 2, 0, 2, piece, 3, 0, 100, &done)
+	              == FZN_REASM_ERR_MISMATCH,
+	      "a stride shorter than the parked last piece was taken");
+
+	/* NOR A STRIDE PAST THE BOUND AN IN-ORDER ARRIVAL IS HELD TO: 64 bytes
+	 * in three pieces is a stride of 21 at most, whatever the last. 22
+	 * would still fit beside a last of 3, and is refused all the same, so
+	 * both orders take the same messages. */
+	fill(piece, 3, 0xb0, 2);
+	CHECK(fzn_reasm_accept(&f.table, f.bob, 3, 2, 3, piece, 3, 0, 100, &done) == FZN_REASM_OK,
+	      "fixture: bob's last piece would not park");
+	fill(piece, 22, 0xb0, 0);
+	CHECK(fzn_reasm_accept(&f.table, f.bob, 3, 0, 3, piece, 22, 0, 100, &done)
+	              == FZN_REASM_ERR_TOO_LARGE,
+	      "a stride past what an in-order arrival is held to was taken");
+
+	/* AND A LAST PIECE TOO LONG FOR ANY STRIDE still takes no slot. */
+	fixture_init(&f, 2);
+	fill(piece, 30, 0xc0, 2);
+	CHECK(fzn_reasm_accept(&f.table, f.alice, 4, 2, 3, piece, 30, 0, 100, &done)
+	              == FZN_REASM_ERR_TOO_LARGE
+	              && !f.partials[0].live,
+	      "a last piece longer than a stride could be was parked");
 }
 
 static void test_release_clears_the_arrived_set(void)
@@ -1653,7 +1717,7 @@ int main(void)
 	test_a_receiver_can_name_what_it_lacks();
 	test_a_message_this_table_does_not_hold_is_absent();
 	test_plan_want_reads_the_whole_sender();
-	test_last_chunk_first_is_refused();
+	test_last_chunk_first_is_parked();
 	test_release_clears_the_arrived_set();
 	test_the_offset_guard_is_reachable();
 	test_a_completed_slot_is_handed_only_once();

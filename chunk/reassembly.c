@@ -366,16 +366,15 @@ static fzn_reasm_err_t admit_first(fzn_reasm_t *table, const uint8_t *sender, ui
 
 	/* Sized up front from what this chunk claims. A chunk that is not the
 	 * last sets the stride; one that IS the last cannot, since it may be
-	 * short -- so the worst case is assumed and checked against the
-	 * buffer, and a first-arriving last chunk of a multi-chunk message
-	 * simply reserves the maximum. */
-	if (chunks > 1 && index + 1u == chunks) {
-		/* Last chunk first: stride unknown, so nothing may be placed
-		 * yet. Refuse rather than guess -- guessing would let the
-		 * stride be chosen by whoever sends the final piece first. */
-		return FZN_REASM_ERR_MISMATCH;
-	}
-	slot->chunk_size = payload_len;
+	 * short. Last chunk first, then, the stride stays unknown (0) and is
+	 * not guessed -- guessing would let the stride be chosen by whoever
+	 * sends the final piece first. The piece is parked at the end of the
+	 * buffer instead, and placed when a piece that is not the last sets
+	 * the stride (`fzn_reasm_accept`, sec 737). It was refused until then,
+	 * and under loss the first piece is often the one lost: the last one
+	 * was thrown away and a resend had to bring both again. The bound below
+	 * holds for it as for a stride, since the last piece is never longer. */
+	slot->chunk_size = (chunks > 1 && index + 1u == chunks) ? 0u : payload_len;
 
 	/* THE SIZE IS CHECKED BY DIVISION, and the multiplication it replaces
 	 * is gone rather than merely unused.
@@ -410,6 +409,7 @@ static fzn_reasm_err_t admit_first(fzn_reasm_t *table, const uint8_t *sender, ui
 	slot->arrived = 0;
 	slot->expires_at = expires_at;
 	slot->bytes = 0;
+	slot->parked = 0;
 	memset(slot->seen, 0, sizeof(slot->seen));
 	slot->live = 1;
 
@@ -488,11 +488,14 @@ fzn_reasm_err_t fzn_reasm_accept(fzn_reasm_t *table, const uint8_t sender[FZN_SE
 			return FZN_REASM_ERR_MISMATCH;
 
 		/* Every chunk but the last is exactly the stride; the last may
-		 * be shorter but never longer. */
+		 * be shorter but never longer. With the stride not yet known (a
+		 * last piece parked) there is nothing to hold a piece's length
+		 * to here; below holds it. */
 		if (index + 1u == slot->chunks) {
-			if (payload_len == 0 || payload_len > slot->chunk_size)
+			if (payload_len == 0
+			    || (slot->chunk_size && payload_len > slot->chunk_size))
 				return FZN_REASM_ERR_MISMATCH;
-		} else if (payload_len != slot->chunk_size) {
+		} else if (slot->chunk_size && payload_len != slot->chunk_size) {
 			return FZN_REASM_ERR_MISMATCH;
 		}
 	}
@@ -520,6 +523,41 @@ fzn_reasm_err_t fzn_reasm_accept(fzn_reasm_t *table, const uint8_t sender[FZN_SE
 	 * is a branch no input can take; this one takes a corrupt argument, and
 	 * a bounds check immediately before a memcpy is the last place to trade
 	 * a demonstrable branch for a proof that lives elsewhere. */
+	/* THE STRIDE NOT YET KNOWN, a last piece parked or arriving to be,
+	 * sec 737. The last piece waits at the end of the buffer; the first
+	 * piece that is not the last sets the stride, and the parked piece is
+	 * moved to its place before anything is placed below it. */
+	if (slot->chunk_size == 0u) {
+		size_t at = slot->buf_capacity - slot->parked;
+
+		if (index + 1u == slot->chunks) {
+			if (!slot->parked) {
+				memcpy(slot->buf + slot->buf_capacity - payload_len, payload, payload_len);
+				slot->parked = payload_len;
+				seen_set(slot, index);
+				slot->arrived++;
+				slot->bytes += payload_len;
+				return FZN_REASM_OK;
+			}
+			/* A repeat while parked: byte-identical, or a rewrite. */
+			if (payload_len != slot->parked || memcmp(slot->buf + at, payload, payload_len) != 0)
+				return FZN_REASM_ERR_CONFLICT;
+			return FZN_REASM_OK;
+		}
+		/* A stride shorter than the last piece claims a last piece
+		 * longer than the rest, which no plan makes. And the stride is
+		 * held to the bound an in-order arrival is, by the same division,
+		 * so the two orders take exactly the same messages: with the
+		 * parked piece no longer than the stride, the whole then fits. */
+		if (payload_len == 0 || payload_len < slot->parked)
+			return FZN_REASM_ERR_MISMATCH;
+		if (payload_len > slot->buf_capacity / (size_t)slot->chunks)
+			return FZN_REASM_ERR_TOO_LARGE;
+		slot->chunk_size = payload_len;
+		memmove(slot->buf + offset_of(slot, (uint16_t)(slot->chunks - 1u)), slot->buf + at,
+		        slot->parked);
+	}
+
 	offset = offset_of(slot, index);
 	if (offset > slot->buf_capacity || payload_len > slot->buf_capacity - offset)
 		return FZN_REASM_ERR_TOO_LARGE;

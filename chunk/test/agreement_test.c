@@ -283,31 +283,26 @@ static void shapes(void)
 		fprintf(stderr, "  FAIL agreement_test.c: index 4 of 4 was accepted by one of the two\n");
 	}
 
-	/* THE SECOND DELIBERATE DIVERGENCE, found by this test failing on its
-	 * first run rather than by anybody reasoning about it.
-	 *
-	 * `index 3 of 4` is a legal frame and the schema says so. As a FIRST
-	 * arrival the reassembler refuses it, because the last piece may be
-	 * short and so cannot set the stride -- guessing would let whoever
-	 * sends the final chunk first decide how much is held.
-	 *
-	 * That is a rule about an arrival SEQUENCE, and a schema describes one
-	 * message rather than a conversation, so there is nowhere in
-	 * `frame.situ` for it to live. The divergence is therefore permanent
-	 * and correct, and asserting it is the only way it stays visible. */
+	/* A LAST PIECE FIRST, AGREED SINCE sec 737: `index 3 of 4` is a legal
+	 * frame and the schema says so. The reassembler refused it as a FIRST
+	 * arrival -- the last piece may be short, so it cannot set the stride
+	 * -- and this asserted that divergence as permanent, since the rule is
+	 * about an arrival sequence and `frame.situ` describes one message.
+	 * Now the piece is parked until a piece that is not the last sets the
+	 * stride, which keeps the rule (nothing is guessed) and ends the
+	 * divergence, so both accept it. */
 	checks++;
 	if (!schema_accepts_shape(3, 4)) {
 		failures++;
 		fprintf(stderr, "  FAIL agreement_test.c: the schema refuses index 3 of 4, which is a legal frame\n");
 	}
 	checks++;
-	if (code_accepts_shape(3, 4)) {
+	if (!code_accepts_shape(3, 4)) {
 		failures++;
-		fprintf(stderr, "  FAIL agreement_test.c: the reassembler accepted a last-chunk-first arrival\n");
+		fprintf(stderr, "  FAIL agreement_test.c: the reassembler refused a last-chunk-first arrival, which it parks\n");
 	}
 
-	/* And a non-last index of the same message is accepted by both, so the
-	 * refusal above is about position rather than about the frame. */
+	/* And a non-last index of the same message is accepted by both. */
 	checks++;
 	if (!schema_accepts_shape(2, 4) || !code_accepts_shape(2, 4)) {
 		failures++;

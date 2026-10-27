@@ -10364,6 +10364,48 @@ SABOTAGES = [
 		"an ask the loop awaits is never sent again, and a round's lost request costs its whole wait; pair_test -- sec 737",
 	),
 	(
+		'reasm-parks-a-last-piece-first',
+		'chunk/reassembly.c',
+		"\tslot->chunk_size = (chunks > 1 && index + 1u == chunks) ? 0u : payload_len;\n",
+		"\tif (chunks > 1 && index + 1u == chunks)\n\t\treturn FZN_REASM_ERR_MISMATCH;\n\tslot->chunk_size = payload_len;\n",
+		"a last piece arriving first is parked until a piece that is not the last sets the stride; "
+		"refused, a message whose first piece is lost waits on a resend; reassembly_test, "
+		"split_test, agreement_test, roundtrip_fuzz -- sec 737",
+	),
+	(
+		'reasm-stride-not-shorter-than-parked',
+		'chunk/reassembly.c',
+		"\t\tif (payload_len == 0 || payload_len < slot->parked)\n",
+		"\t\tif (payload_len == 0)\n",
+		"a stride shorter than the parked last piece is refused, a last piece longer than the "
+		"rest; reassembly_test -- sec 737",
+	),
+	(
+		'reasm-parked-stride-bounded-as-in-order',
+		'chunk/reassembly.c',
+		"\t\tif (payload_len > slot->buf_capacity / (size_t)slot->chunks)\n",
+		"\t\tif (0)\n",
+		"a stride set after a parked piece is held to the bound an in-order arrival is, so both "
+		"orders take the same messages; reassembly_test -- sec 737",
+	),
+	(
+		'reasm-parked-piece-not-rewritten',
+		'chunk/reassembly.c',
+		"\t\t\tif (payload_len != slot->parked || memcmp(slot->buf + at, payload, payload_len) != 0)\n",
+		"\t\t\tif (payload_len != slot->parked)\n",
+		"a repeat of a parked last piece must be byte-identical; a differing one is a rewrite "
+		"and refused; reassembly_test -- sec 737",
+	),
+	(
+		'reasm-parked-piece-moved-to-its-place',
+		'chunk/reassembly.c',
+		"\t\tmemmove(slot->buf + offset_of(slot, (uint16_t)(slot->chunks - 1u)), slot->buf + at,\n",
+		"\t\tmemmove(slot->buf + at, slot->buf + at,\n",
+		"the parked last piece is moved to its place once the stride is known; left at the end "
+		"of the buffer the message completes with the wrong bytes; reassembly_test, "
+		"roundtrip_fuzz -- sec 737",
+	),
+	(
 		'caller-carry-numbers-on',
 		'node/caller.c',
 		"\tto->next_msg = from->next_msg;\n",

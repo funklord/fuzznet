@@ -138,10 +138,19 @@ static const char *invariants(const struct arena *a, const fzn_reasm_t *table)
 			return "a live slot claims zero chunks";
 		if (slot->arrived > slot->chunks)
 			return "more pieces arrived than the message claims";
-		if (slot->chunk_size == 0)
-			return "a live slot has a zero stride";
-		if (slot->chunk_size * slot->chunks > slot->buf_capacity)
+		/* A ZERO STRIDE ONLY WHILE A LAST PIECE IS PARKED, sec 737: then
+		 * that piece is all that has arrived, and it is held to the bound a
+		 * stride is. */
+		if (slot->chunk_size == 0) {
+			if (!slot->parked)
+				return "a live slot has a zero stride and nothing parked";
+			if (slot->arrived != 1u || slot->bytes != slot->parked)
+				return "a slot with its stride unknown holds more than its parked piece";
+			if (slot->parked > slot->buf_capacity / slot->chunks)
+				return "a parked piece is longer than any stride could be";
+		} else if (slot->chunk_size * slot->chunks > slot->buf_capacity) {
 			return "a slot was sized past its buffer";
+		}
 	}
 
 	if (live > table->capacity)

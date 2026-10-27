@@ -6,21 +6,17 @@
  * with ten hand-picked sizes and two payload limits, which is the thinnest
  * evidence in the tree for the strongest coupling in it.
  *
- * MODEL-BASED, and the model is a prediction rather than a re-derivation.
- * It is not enough to feed pieces in and check that bytes come back,
- * because reassembly legitimately REFUSES some orders: a last chunk may be
- * short, so it cannot set the stride, and an arrival that begins with it is
- * turned away rather than guessed at. A harness that treated every refusal
- * as failure would be wrong, and one that treated every refusal as fine
- * would notice nothing. So this predicts, from the permutation alone,
- * exactly which runs must complete:
- *
- *   a message completes if and only if the FIRST piece offered is not the
- *   last index of a multi-piece message
- *
- * and then holds the outcome to that in both directions -- a completion
- * that should not have happened is as much a failure as a refusal that
- * should not have.
+ * MODEL-BASED, and the model is a prediction rather than a re-derivation:
+ * every order completes. A last chunk may be short, so it cannot set the
+ * stride, and an arrival that begins with it is parked rather than guessed
+ * at, and placed once a piece that is not the last sets the stride
+ * (project.md sec 737). Until then such an arrival was refused, and this
+ * predicted a message completes if and only if the first piece offered is
+ * not the last of a multi-piece one -- held both ways, a completion that
+ * should not have happened as much a failure as a refusal. Now a run that
+ * does not complete is the failure, in whatever order its pieces came, and
+ * the orders that begin with the last piece are counted so the parked path
+ * is known to have run.
  *
  * On completion the reassembled bytes must equal the original exactly. That
  * is the property the two modules exist to preserve between them, and it is
@@ -79,7 +75,7 @@ struct arena {
 struct coverage {
 	unsigned long planned;
 	unsigned long completed;
-	unsigned long refused_first_last;
+	unsigned long parked_first_last;
 	unsigned long multi_piece;
 };
 
@@ -103,7 +99,6 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 	uint16_t order[FZN_REASM_MAX_CHUNKS];
 	uint8_t sender[FZN_SENDER_LEN];
 	size_t total, max_payload;
-	int expect_complete;
 
 	if (len < 4)
 		return 0;
@@ -146,10 +141,10 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		order[j] = t;
 	}
 
-	/* The prediction, from the permutation alone. */
-	expect_complete = (plan.chunks == 1) || (order[0] + 1u != plan.chunks);
-	if (!expect_complete)
-		cov->refused_first_last++;
+	/* THE PARKED PATH, counted: a multi-piece message offered last piece
+	 * first. */
+	if (plan.chunks > 1 && order[0] + 1u == plan.chunks)
+		cov->parked_first_last++;
 
 	for (uint16_t k = 0; k < plan.chunks; k++) {
 		size_t offset, plen;
@@ -168,13 +163,9 @@ static int fuzz_one(const uint8_t *data, size_t len, struct coverage *cov)
 		}
 	}
 
-	if (expect_complete && !done) {
+	if (!done) {
 		printf("  MODEL: %zu bytes in %u pieces did not complete (first offered %u)\n",
 		       total, plan.chunks, order[0]);
-		return 1;
-	}
-	if (!expect_complete && done) {
-		printf("  MODEL: completed although the last piece was offered first\n");
 		return 1;
 	}
 
@@ -265,25 +256,26 @@ int main(int argc, char **argv)
 		}
 	}
 
-	/* Multi-piece messages and the refused-order case must both occur. A
+	/* Multi-piece messages and the parked order must both occur. A
 	 * run of single-piece messages would round-trip perfectly and test
 	 * none of the stride arithmetic this file is about. */
-	/* `refused_first_last` was floored at one, which a single lucky case
-	 * satisfies. Observed 1794 in 20000, so a fraction floor leaves ample
-	 * margin and actually notices the path going away. `planned` was
-	 * counted and not floored at all. */
+	/* `parked_first_last` (`refused_first_last` until sec 737) was once
+	 * floored at one, which a single lucky case satisfies. Observed 1794
+	 * in 20000, so a fraction floor leaves ample margin and actually
+	 * notices the path going away. `planned` was counted and not floored
+	 * at all. */
 	if (cov.completed < floor_of(cases, 200u) || cov.multi_piece < floor_of(cases, 200u) ||
-	    cov.refused_first_last < floor_of(cases, 200u) || cov.planned < floor_of(cases, 200u)) {
+	    cov.parked_first_last < floor_of(cases, 200u) || cov.planned < floor_of(cases, 200u)) {
 		printf("roundtrip_fuzz: REACHED TOO LITTLE -- %lu planned, %lu completed, "
-		       "%lu multi-piece, %lu refused-order in %lu cases.\n",
-		       cov.planned, cov.completed, cov.multi_piece, cov.refused_first_last,
+		       "%lu multi-piece, %lu parked-order in %lu cases.\n",
+		       cov.planned, cov.completed, cov.multi_piece, cov.parked_first_last,
 		       cases);
 		return 1;
 	}
 
 	printf("roundtrip_fuzz: %lu cases, %lu planned, %lu completed, %lu multi-piece, "
-	       "%lu refused-order, bytes identical throughout\n",
-	       cases, cov.planned, cov.completed, cov.multi_piece, cov.refused_first_last);
+	       "%lu parked-order, bytes identical throughout\n",
+	       cases, cov.planned, cov.completed, cov.multi_piece, cov.parked_first_last);
 	return 0;
 }
 #endif
