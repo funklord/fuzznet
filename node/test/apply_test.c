@@ -177,7 +177,10 @@ static void key(uint8_t out[FZN_PUBKEY_LEN], uint8_t seed)
 }
 
 static char dir[128];
-static uint8_t used_writers[8];
+/* EVERY WRITER THERE CAN BE, a `uint8_t`: eight once, and a ninth
+ * distinct writer wrote past it (UBSan, `make sancheck`) and went
+ * uncleaned at the end. */
+static uint8_t used_writers[256];
 static size_t n_used;
 
 /* `writer` appends `object` to its estate stream in `nj`. */
