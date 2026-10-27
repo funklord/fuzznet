@@ -19,6 +19,19 @@ static uint64_t since_boot_ms(void)
 	return (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
 }
 
+/* Whether a frame carries no capability, as an answer does. */
+static int no_capability(const uint8_t *capability)
+{
+	size_t i;
+
+	if (!capability)
+		return 1;
+	for (i = 0; i < FZN_CAP_ID_LEN; i++)
+		if (capability[i])
+			return 0;
+	return 1;
+}
+
 /* Wall-clock seconds, at least 1, so a clock that reads nothing is not
  * the 0 that never expires a partial. */
 static uint64_t wall_s(void)
@@ -310,6 +323,20 @@ static fzn_caller_err_t receive(fzn_caller_t *caller, int any, uint32_t *msg, ui
 		if (fzn_seal_open(in, in_len, caller->send_key, caller->send_ckey,
 		                  caller->hash, caller->aead, &opened) != FZN_SEAL_OK) {
 			caller->unopened++;
+			continue;
+		}
+		/* NO ANSWER AT ALL, sec 737: a hello (a NOP frame) or the peer's
+		 * own request. The session key is one key both ways, so either
+		 * opens here when it reaches this socket -- a peer that learned
+		 * this caller's address from where it said hello sends both to it.
+		 * An answer is sealed by `fzn_node_seal_reply_chunk` as data under
+		 * no capability, and a request carries its caller's. Taken, a
+		 * hello's empty payload was refused by reassembly and ended a
+		 * blocking wait, and a request under the awaited number would
+		 * have been its answer. Checked before `answerer` is set, which
+		 * names whoever answers. */
+		if (opened.kind == FZN_KIND_NOP || !no_capability(opened.capability)) {
+			caller->unasked++;
 			continue;
 		}
 		/* ANOTHER QUESTION'S ANSWER: skipped by a caller waiting for one,

@@ -879,6 +879,56 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		caller.next_msg = again.next_msg;
 	}
 
+	/* ---- NO ANSWER IS TAKEN FOR ONE, sec 737: the session key is one key
+	 * both ways, so a hello or a request the peer sends to this caller's
+	 * socket opens here. A copy of the caller, sending from the node's
+	 * socket to the device's, makes both. A hello must not end the wait,
+	 * and a request under the awaited number must not be its answer. */
+	{
+		static const uint8_t ASKED[4] = { 'a', 's', 'k', '!' };
+		fzn_udp_addr_t dev_addr;
+		fzn_caller_t echo;
+		unsigned long unasked;
+		uint32_t theirs = 0;
+
+		CHECK(fzn_udp_resolve(AF_INET, "127.0.0.1", port_of(dev_fd), &dev_addr) == FZN_UDP_OK,
+		      "fixture: the device's address would not resolve");
+		echo = caller;
+		echo.fd = node_fd;
+		echo.node = dev_addr;
+		unasked = caller.unasked;
+		CHECK(fzn_caller_hello(&echo, node_fd, 3500u) == FZN_CALLER_OK
+		              && fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
+		              && fzn_node_run_once(&state, 1000) == 1
+		              && fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_OK
+		              && reply_len == sizeof(PONG) && caller.unasked == unasked + 1u,
+		      "a hello reaching the caller ended its wait, or was taken for an answer");
+		/* AND ONE UNDER NO CAPABILITY, as an answer is: only its kind says
+		 * it is no answer. */
+		memset(&echo.capability, 0, sizeof(echo.capability));
+		unasked = caller.unasked;
+		CHECK(fzn_caller_hello(&echo, node_fd, 3500u) == FZN_CALLER_OK
+		              && fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
+		              && fzn_node_run_once(&state, 1000) == 1
+		              && fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_OK
+		              && reply_len == sizeof(PONG) && caller.unasked == unasked + 1u,
+		      "a hello under no capability ended the caller's wait");
+		echo.capability = caller.capability;
+
+		echo.next_msg = caller.next_msg;
+		unasked = caller.unasked;
+		CHECK(fzn_caller_send(&echo, ASKED, sizeof(ASKED), 3500u, &theirs) == FZN_CALLER_OK
+		              && fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
+		              && theirs == msg && fzn_node_run_once(&state, 1000) == 1
+		              && fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_OK
+		              && reply_len == sizeof(PONG) && memcmp(reply, PONG, sizeof(PONG)) == 0
+		              && caller.unasked == unasked + 1u,
+		      "the peer's own request under the awaited number was taken as its answer");
+	}
+
 	/* ---- AWAITED BY THE LOOP, sec 636: two requests out at once on one
 	 * caller, each answered to its own callback once the node has served
 	 * them, and a third, never served, failed at its deadline. */

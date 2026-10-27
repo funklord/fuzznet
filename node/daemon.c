@@ -4172,7 +4172,7 @@ struct journal_talk {
 	size_t push_cap;
 	/* THE CALLER'S COUNTS WHEN THE TALK BEGAN, sec 737, for
 	 * `journal_unanswered`. */
-	unsigned long sends, heard, unopened, elsewhere, pieces, refused, late;
+	unsigned long sends, heard, unopened, unasked, elsewhere, pieces, refused, late;
 	uint8_t message[FZND_JOURNAL_MESSAGE_MAX];
 };
 static struct journal_talk journal_talks[FZND_ROUND_TARGETS_MAX];
@@ -4203,11 +4203,12 @@ static void journal_unanswered(const struct journal_talk *jt)
 
 	say(FZN_ENTRY_DEBUG, "journal",
 	    "%s from %s unanswered since the talk began: %lu request(s) sent, %lu datagram(s) "
-	    "read, %lu not opened, %lu another's, %lu piece(s) taken, %lu refused by "
+	    "read, %lu not opened, %lu no answer, %lu another's, %lu piece(s) taken, %lu refused by "
 	    "reassembly, the last %s (message %lu, piece %u of %u, %zu byte(s); next %lu), %lu "
 	    "late",
 	    jt->pushing ? "a push" : "a pull", jt->m.host, c->sends - jt->sends,
-	    c->heard - jt->heard, c->unopened - jt->unopened, c->elsewhere - jt->elsewhere,
+	    c->heard - jt->heard, c->unopened - jt->unopened, c->unasked - jt->unasked,
+	    c->elsewhere - jt->elsewhere,
 	    c->pieces - jt->pieces, c->refused - jt->refused,
 	    c->refused - jt->refused ? fzn_reasm_err_str((fzn_reasm_err_t)c->refused_err) : "none",
 	    (unsigned long)c->refused_msg, (unsigned)c->refused_index + 1u,
@@ -4414,6 +4415,7 @@ static void journal_start(struct pull_target *pulls, size_t npulls, uint64_t now
 		jt->sends = pulls[t].caller.sends;
 		jt->heard = pulls[t].caller.heard;
 		jt->unopened = pulls[t].caller.unopened;
+		jt->unasked = pulls[t].caller.unasked;
 		jt->elsewhere = pulls[t].caller.elsewhere;
 		jt->pieces = pulls[t].caller.pieces;
 		jt->refused = pulls[t].caller.refused;

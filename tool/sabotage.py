@@ -10364,6 +10364,22 @@ SABOTAGES = [
 		"an ask the loop awaits is never sent again, and a round's lost request costs its whole wait; pair_test -- sec 737",
 	),
 	(
+		'caller-takes-no-hello-for-an-answer',
+		'node/caller.c',
+		"\t\tif (opened.kind == FZN_KIND_NOP || !no_capability(opened.capability)) {\n",
+		"\t\tif (0 || !no_capability(opened.capability)) {\n",
+		"a hello reaching a caller is no answer; taken, its empty payload is refused by "
+		"reassembly and ends a blocking wait; pair_test -- sec 737",
+	),
+	(
+		'caller-takes-no-request-for-an-answer',
+		'node/caller.c',
+		"\t\tif (opened.kind == FZN_KIND_NOP || !no_capability(opened.capability)) {\n",
+		"\t\tif (opened.kind == FZN_KIND_NOP || 0) {\n",
+		"the peer's own request reaching a caller is no answer; taken, one under the awaited "
+		"number is that wait's answer; pair_test -- sec 737",
+	),
+	(
 		'reasm-parks-a-last-piece-first',
 		'chunk/reassembly.c',
 		"\tslot->chunk_size = (chunks > 1 && index + 1u == chunks) ? 0u : payload_len;\n",

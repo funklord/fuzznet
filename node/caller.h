@@ -128,13 +128,14 @@ typedef struct fzn_caller {
 	int answerer_known;
 	/* WHAT THIS CALLER SENT AND HEARD, counted up and never reset, sec
 	 * 737: requests sent (a resend is one more), datagrams read, those
-	 * that did not open under this session, those that opened as another
+	 * that did not open under this session, those that opened as no answer
+	 * (a hello, or the peer's own request), those that opened as another
 	 * question's answer while one was awaited, the pieces taken into
 	 * reassembly, those reassembly refused, with the last refusal's code,
 	 * and the pieces of a message given up on, dropped before it. A daemon
 	 * says the difference across a wait that failed; nothing here reads
 	 * them. */
-	unsigned long sends, heard, unopened, elsewhere, pieces, refused, late;
+	unsigned long sends, heard, unopened, unasked, elsewhere, pieces, refused, late;
 	int refused_err;
 	/* AND THE LAST PIECE REFUSED: its message, index, count and length. */
 	uint32_t refused_msg;
