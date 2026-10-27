@@ -305,7 +305,10 @@ int main(void)
 			/* AND AT THOUSANDS, sec 704: past 64 the load once failed and
 			 * the daemon would not start. */
 			{
-				static fzn_node_peer_t many[3000];
+				/* ROOM FOR ALL 3002, the two above and these 3000: it is
+				 * loaded with a cap of 3002, and an array of 3000 was
+				 * written past by the load (ASan, `make sancheck`). */
+				static fzn_node_peer_t many[3002];
 				size_t k, saved = 0, held = 0;
 
 				for (k = 0; k < 3000u; k++) {
