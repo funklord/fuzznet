@@ -10364,6 +10364,22 @@ SABOTAGES = [
 		"an ask the loop awaits is never sent again, and a round's lost request costs its whole wait; pair_test -- sec 737",
 	),
 	(
+		'caller-carry-numbers-on',
+		'node/caller.c',
+		"\tto->next_msg = from->next_msg;\n",
+		"\t(void)from->next_msg;\n",
+		"a caller built again and carried numbers on from the old one; from 0, a late reply to "
+		"the old caller's message takes the place of the new one's answer; pair_test -- sec 737",
+	),
+	(
+		'fuzznetd-sibling-numbered-on',
+		'node/daemon.c',
+		"\t\t\t\tfzn_caller_carry(&pt->caller, &carried[t].numbering);\n",
+		"\t\t\t\t(void)carried[t].numbering;\n",
+		"a sibling's caller, built again each round, numbers on from last round's; "
+		"live_estate --loss --keep-passed only, by its refusals, no unit test reaches it -- sec 737",
+	),
+	(
 		'caller-drops-a-late-piece',
 		'node/caller.c',
 		"\t\tif (forgotten(caller, opened.msg, 0)) {\n",

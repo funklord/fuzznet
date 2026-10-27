@@ -5388,11 +5388,22 @@ static size_t load_siblings(struct pull_target *pulls, size_t npulls, int family
 	static struct key_room hosts_room;
 	uint8_t (*hosts)[FZN_PUBKEY_LEN] = NULL;
 	static struct sibling_socket kept[FZND_SIBLING_TARGETS_MAX];
-	size_t n = 0, i, t, built = 0, n_kept = 0;
+	/* LAST ROUND'S NUMBERING, sec 737, by sibling: only that, through
+	 * `fzn_caller_carry`, so no key is copied here. */
+	static struct {
+		uint8_t key[FZN_PUBKEY_LEN];
+		fzn_caller_t numbering;
+	} carried[FZND_SIBLING_TARGETS_MAX];
+	size_t n = 0, i, t, built = 0, n_kept = 0, n_carried = 0;
 	uint64_t now = wall_clock();
 
-	for (i = 0; i < n_sibling_targets; i++)
+	for (i = 0; i < n_sibling_targets; i++) {
+		memcpy(carried[n_carried].key, pulls[npulls + i].node, FZN_PUBKEY_LEN);
+		memset(&carried[n_carried].numbering, 0, sizeof(carried[n_carried].numbering));
+		fzn_caller_carry(&carried[n_carried].numbering, &pulls[npulls + i].caller);
+		n_carried++;
 		fzn_wipe(&pulls[npulls + i].pairing, sizeof(pulls[npulls + i].pairing));
+	}
 	n_sibling_targets = 0;
 	if (!node_apply.store
 	    || siblings_list(&hosts_room, &hosts, &n, 0u)
@@ -5435,6 +5446,15 @@ static size_t load_siblings(struct pull_target *pulls, size_t npulls, int family
 			    sibling_hosts[built]);
 			continue;
 		}
+		/* NUMBERED ON FROM LAST ROUND, sec 737: built again on the same
+		 * pairing, and usually the same socket, its caller would number
+		 * from 0, and a late piece of last round's reply would land on
+		 * this round's message of the same number. */
+		for (t = 0; t < n_carried; t++)
+			if (memcmp(carried[t].key, hosts[i], FZN_PUBKEY_LEN) == 0) {
+				fzn_caller_carry(&pt->caller, &carried[t].numbering);
+				break;
+			}
 		memcpy(kept[n_kept].key, hosts[i], FZN_PUBKEY_LEN);
 		kept[n_kept++].fd = pt->fd;
 		built++;

@@ -808,6 +808,77 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		      "a message given up on and then waited for again was dropped as late");
 	}
 
+	/* ---- A CALLER BUILT AGAIN NUMBERS ON, sec 737: a sibling's target is
+	 * built again each round from its pairing, on the same socket. Built
+	 * from 0, a late one-piece reply to the old caller's message 0 is
+	 * taken as the answer to the new caller's message 0 -- a different
+	 * request -- and that is the control. Carried, the new caller numbers
+	 * on, and a late piece of a message the old one gave up on is dropped
+	 * as late. */
+	{
+		static const uint8_t STALE[5] = { 's', 't', 'a', 'l', 'e' };
+		uint8_t frame[FZN_UDP_DATAGRAM_MAX];
+		size_t flen = 0;
+		fzn_udp_addr_t dev_addr;
+		fzn_caller_t again;
+		uint32_t given_up, got = 0;
+
+		CHECK(fzn_udp_resolve(AF_INET, "127.0.0.1", port_of(dev_fd), &dev_addr) == FZN_UDP_OK,
+		      "fixture: the device's address would not resolve");
+		memset(&again, 0, sizeof(again));
+		fzn_node_pairing_caller(&pairing, device->id.pubkey, &again);
+		again.fd = dev_fd;
+		again.node = node_addr;
+		again.hash = &hash_ops;
+		again.aead = &aead;
+		again.rng = &rng_ops;
+		again.reasm = &table;
+		again.hops = 1u;
+		CHECK(again.next_msg == 0u
+		              && fzn_node_seal_reply_chunk(&peers[0], node->id.pubkey, STALE, sizeof(STALE),
+		                                           0u, 0u, 1u, 0u, &hash_ops, &rng_ops, &aead,
+		                                           frame, sizeof(frame), &flen)
+		                         == 0
+		              && fzn_udp_send(node_fd, &dev_addr, frame, flen) == FZN_UDP_OK
+		              && fzn_caller_send(&again, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
+		              && msg == 0u && fzn_node_run_once(&state, 1000) == 1
+		              && fzn_caller_recv(&again, msg, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_OK
+		              && reply_len == sizeof(STALE) && memcmp(reply, STALE, sizeof(STALE)) == 0,
+		      "control: a caller built again from 0 did not take a late reply to the old "
+		      "message 0 as its own message 0's answer");
+		/* The node's own answer to it, still on the socket, read away. */
+		(void)fzn_caller_recv(&again, msg, reply, sizeof(reply), &reply_len, 500u);
+
+		given_up = caller.next_msg++;
+		fzn_caller_forget(&caller, given_up);
+		memset(&again, 0, sizeof(again));
+		fzn_node_pairing_caller(&pairing, device->id.pubkey, &again);
+		again.fd = dev_fd;
+		again.node = node_addr;
+		again.hash = &hash_ops;
+		again.aead = &aead;
+		again.rng = &rng_ops;
+		again.reasm = &table;
+		again.hops = 1u;
+		fzn_caller_carry(&again, &caller);
+		CHECK(again.next_msg == caller.next_msg
+		              && fzn_node_seal_reply_chunk(&peers[0], node->id.pubkey, STALE, sizeof(STALE),
+		                                           given_up, 0u, 1u, 0u, &hash_ops, &rng_ops,
+		                                           &aead, frame, sizeof(frame), &flen)
+		                         == 0
+		              && fzn_udp_send(node_fd, &dev_addr, frame, flen) == FZN_UDP_OK
+		              && fzn_caller_send(&again, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
+		              && msg == caller.next_msg && fzn_node_run_once(&state, 1000) == 1
+		              && fzn_caller_recv_any(&again, &got, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_OK
+		              && got == msg && reply_len == sizeof(PONG)
+		              && memcmp(reply, PONG, sizeof(PONG)) == 0 && again.late == 1u,
+		      "a caller built again and carried did not number on, or took a late piece of a "
+		      "message given up on");
+		caller.next_msg = again.next_msg;
+	}
+
 	/* ---- AWAITED BY THE LOOP, sec 636: two requests out at once on one
 	 * caller, each answered to its own callback once the node has served
 	 * them, and a third, never served, failed at its deadline. */

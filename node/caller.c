@@ -246,6 +246,16 @@ void fzn_caller_forget(fzn_caller_t *caller, uint32_t msg)
 		(void)fzn_reasm_forget(caller->reasm, caller->answerer, msg);
 }
 
+void fzn_caller_carry(fzn_caller_t *to, const fzn_caller_t *from)
+{
+	if (!to || !from || to == from)
+		return;
+	to->next_msg = from->next_msg;
+	memcpy(to->forgotten, from->forgotten, sizeof(to->forgotten));
+	to->forgotten_used = from->forgotten_used;
+	to->forgotten_next = from->forgotten_next;
+}
+
 fzn_caller_err_t fzn_caller_recv_any(fzn_caller_t *caller, uint32_t *msg, uint8_t *reply,
                                      size_t reply_cap, size_t *reply_len, unsigned timeout_ms)
 {

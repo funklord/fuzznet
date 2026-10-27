@@ -195,6 +195,16 @@ fzn_caller_err_t fzn_caller_recv(fzn_caller_t *caller, uint32_t msg,
  * waiting. */
 void fzn_caller_forget(fzn_caller_t *caller, uint32_t msg);
 
+/* CARRY A CALLER'S NUMBERING ONTO ONE BUILT AGAIN, sec 737: `to`'s next
+ * message number and the messages given up on, from `from`, a caller on
+ * the same session. Built again from its pairing, a caller numbers from 0,
+ * and under the same keys a late piece of an old reply opens and lands on
+ * the new message of its number -- refused where the plans differ, and
+ * taken as the answer to a different request where they match. Carried,
+ * no number repeats on the session and a late piece is dropped as late.
+ * Nothing else is carried: keys, socket and counts are `to`'s own. */
+void fzn_caller_carry(fzn_caller_t *to, const fzn_caller_t *from);
+
 /* Both, for a caller with no loop of its own.
  *
  * Seals `payload` as one frame, sends it, and receives until the reply

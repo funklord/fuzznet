@@ -73211,35 +73211,57 @@ max_hold`, and a stuck partial now ages out in 60 s.
 Also seen and not chased: A2's pushes refused for "the message exceeds
 what a slot holds".
 
-**"The chunk disagrees with the first": a sibling target's caller
-numbers from 0 every round** (chased 2026-10-27 on the holder's word):
-- **Common, not rare.** In four runs at 20% with both fixes, all of
-  which passed, it appeared 14 times, at A2, D, D2, N and R. Logs kept
-  with the new `--keep-passed` of `tool/live_estate.py`.
-- **Not R answering one message twice.** The caller now keeps the last
-  refused piece (`refused_msg`, `_index`, `_chunks`, `_len`), and
-  `journal_unanswered` says it with the caller's `next_msg`. D2 refused
-  message 1, piece 2 of 2, 40 bytes. R had answered D2's message 1 once,
-  47 s earlier, with 26 bytes in one piece.
-- **The refusing caller is new.** Its `next_msg` was 2. In N's log, the
-  round target to R counts 4, 8, 11 ... 88 across the run, while a
-  second caller's restarts every round or so (3, 4, 2, 3). R answered
-  N's message 0 twice, to two ports.
-- **The cause, in `load_siblings`** (`node/daemon.c`): each round it
-  clears a sibling's target and builds its caller again, reusing the
-  sibling's kept socket (`sibling_fd`) and its stored pairing. So
-  `next_msg` and the forgotten ring are back at 0 every round, under the
-  same keys on the same socket. A late piece of last round's reply then
-  opens and lands on this round's message of the same number.
-- **Its worse case is silent.** Where the late piece's plan differs,
-  reassembly refuses it, and that is this refusal. Where it matches, a
-  late one-piece reply to last round's message N completes at once and
-  is taken as the answer to this round's message N, a different
-  request. Nothing logs that.
+**"The chunk disagrees with the first" is a last piece arriving first,
+refused by design; chasing it found a real fault beside it** (chased
+2026-10-27 on the holder's word):
+- **Common.** Four runs at 20% with the first two fixes, all passing,
+  showed it 14 times, at A2, D, D2, N and R. Logs kept with the new
+  `--keep-passed` of `tool/live_estate.py`.
+- **What it is.** The caller now keeps the last refused piece
+  (`refused_msg`, `_index`, `_chunks`, `_len`), and
+  `journal_unanswered` says it with the caller's `next_msg`. Every
+  instance is piece 2 of 2, a short last piece such as 40 bytes of a
+  1064-byte reply. `admit_first` in `chunk/reassembly.c` refuses a last
+  piece that comes before any other, since a short last piece cannot
+  set the stride ("refuse rather than guess"). At 20% the first piece is
+  often the one lost. The resend's kept reply sends both again, which
+  usually recovers it. It was blamed on a reused message number first,
+  because D2's refused piece was no reply of R's to that message. It was
+  a sibling's reply, last piece first.
+- **The comment above that check contradicts it:** "a first-arriving
+  last chunk of a multi-chunk message simply reserves the maximum",
+  while the code and its inner comment refuse. Not changed.
+- **Whether to place a last-first piece is the holder's.** Every piece
+  but the last is `FZN_SPLIT_MAX_PAYLOAD` in this library's own plan,
+  so it could be placed at `(chunks - 1)` times that. It would save a
+  resend under loss. The rule's reason is that a sender would choose
+  the stride, and that sender has been authenticated by then.
 
-**Not fixed; the fix proposed:** carry a sibling's `next_msg` and its
-forgotten ring across rounds along with its socket. Its numbers then
-never repeat on that session, and a late piece is dropped as late.
+**Fixed beside it: a sibling's caller numbered from 0 every round.**
+- `load_siblings` (`node/daemon.c`) clears a sibling's target each round
+  and builds its caller again from the stored pairing, on the kept
+  socket. So `next_msg` and the forgotten ring went back to 0 under the
+  same keys. In N's log a second caller's `next_msg` read 3, 4, 2, 3 in
+  turn while the round target's rose to 88.
+- **Its worse case was silent:** a late one-piece reply to last round's
+  message N, taken as the answer to this round's message N, a different
+  request.
+- **The fix:** `fzn_caller_carry(to, from)` (`node/caller.c`) copies a
+  caller's numbering and forgotten ring, and nothing else, onto one
+  built again on the same session. `load_siblings` saves each sibling's
+  numbering by key before clearing its target and carries it onto the
+  caller built for that key.
+- `pair_test` rebuilds the device's caller from its pairing on the same
+  socket. The control, built from 0, takes a late one-piece reply to
+  message 0 as its own message 0's answer. Carried, it numbers on, drops
+  a late piece of a message given up on, and is answered. Sabotage:
+  `caller-carry-numbers-on`, caught by `pair_test`, and
+  `fuzznetd-sibling-numbered-on`, which no unit test reaches.
+- Four runs at 20% after it: 4 passed. N's sibling callers number on.
+  The last-first refusals stayed (15 against 14), as they should.
+- Contact targets (`node/daemon.c`, the rebuild that reuses an old fd)
+  have the same shape. Their pairing is derived again with the clock,
+  so whether a late piece still opens there is unmeasured.
 
 **Committed 2026-10-27, after a full `make test`:** the park in
 `node/apply.c` (`take`, `unpark_judged`, `judging_parked`), the case
