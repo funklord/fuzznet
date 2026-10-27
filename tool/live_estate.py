@@ -76,6 +76,10 @@ ROUND_S = "2"
 WHO = ("r", "a1", "a2", "d", "n", "d2", "e")
 # THE ACT STREAM'S NUMBER, `FZN_NODE_JOURNAL_STREAM` in `node/journal.h`.
 JOURNAL_STREAM = 1
+# ONE RECORD'S SLOT IN A STREAM'S FILE, `FZN_RECORD_STORE_FILE_SLOT` in
+# `record/store_file.h`: a two-byte length, then up to FZN_RECORD_MAX_LEN.
+# Record seq N is at (N - 1) * SLOT, and a length of 0 is a slot not held.
+SLOT = 702
 
 
 def main(argv):
@@ -252,19 +256,51 @@ def main(argv):
 			       lambda g: any(e.startswith("admin,1,1,") for e in g.split()[2:]),
 			       "not admin held by one hop")
 
-		def journal_holds(who, voter, key):
-			"""Whether `who`'s copy of `voter`'s act stream holds `voter`'s vote
-			against `key`, read off the disk, since no verb lists a stream:
-			a revocation carries its grantee and then its issuer
-			(`FZN_REV_OFF_GRANTEE`, `FZN_REV_OFF_ISSUER`), and the stream's
-			file is `record/store_file.c`'s. None when there is no file."""
+		def stream_held(who, voter):
+			"""`who`'s copy of `voter`'s act stream, read off the disk since no
+			verb lists a stream: {seq: record bytes}, from the file
+			`record/store_file.c` writes. None when there is no file."""
 			path = os.path.join(dirs[who], "records",
 			                    "%s-%08x.rec" % (keys[voter], JOURNAL_STREAM))
 			try:
 				with open(path, "rb") as f:
-					return bytes.fromhex(key + keys[voter]) in f.read()
+					data = f.read()
 			except FileNotFoundError:
 				return None
+			held = {}
+			for at in range(0, len(data) - 1, SLOT):
+				n = int.from_bytes(data[at:at + 2], "big")
+				if n:
+					held[at // SLOT + 1] = data[at + 2:at + 2 + n]
+			return held
+
+		def reach(voter, key):
+			"""How far R's copy of `voter`'s act stream reaches against the
+			voter's own, and where the vote against `key` is in each: a
+			revocation carries its grantee and then its issuer
+			(`FZN_REV_OFF_GRANTEE`, `FZN_REV_OFF_ISSUER`)."""
+			vote = bytes.fromhex(key + keys[voter])
+
+			def said_of(held):
+				if held is None:
+					return "no file"
+				if not held:
+					return "none held"
+				seqs = sorted(held)
+				gaps = [s for s in range(1, seqs[-1] + 1) if s not in held]
+				at = [s for s in seqs if vote in held[s]]
+				return "%d record(s) to seq %d%s, the vote %s" % (
+				        len(seqs), seqs[-1], ", lacking %r" % gaps[:8] if gaps else "",
+				        "at seq %d" % at[0] if at else "absent")
+
+			own = stream_held(voter, voter)
+			at_r = stream_held("r", voter)
+			differ = []
+			if own and at_r:
+				differ = [s for s in sorted(at_r) if s in own and own[s] != at_r[s]]
+			return "at %s %s; at R %s%s" % (
+			        voter.upper(), said_of(own), said_of(at_r),
+			        "; R's differs at seq %r" % differ[:8] if differ else "")
 
 		writing = {"go": False, "n": 0, "error": None, "denied": False}
 
@@ -476,21 +512,17 @@ def main(argv):
 				# WHICH VOTE IS MISSING, sec 737: each issuer asked again answers
 				# `already` when it still holds its own, so the fault is in
 				# carrying or counting rather than in the vote kept.
-				# AND WHETHER EACH VOTE IS IN ITS VOTER'S JOURNAL, and in R's
-				# copy of that stream: A2's, which arrives, is the control.
+				# AND HOW FAR R'S COPY OF EACH VOTER'S STREAM REACHES, and where
+				# the vote is in it: A2's, which arrives, is the control.
 				raise failed("%s; A2 again: %r, N again: %r; votes on D2 at R %r, at A2 %r, "
-				             "at N %r; A2 is %s, N is %s; in A2's stream at A2 %s, at R %s; "
-				             "in N's stream at N %s, at R %s"
+				             "at N %r; A2 is %s, N is %s; A2's stream: %s; N's stream: %s"
 				             % (e, " ".join(voted("a2", keys["d2"])),
 				                " ".join(voted("n", keys["d2"])),
 				                said("r", "list vote " + keys["d2"]),
 				                said("a2", "list vote " + keys["d2"]),
 				                said("n", "list vote " + keys["d2"]),
 				                keys["a2"][:8], keys["n"][:8],
-				                journal_holds("a2", "a2", keys["d2"]),
-				                journal_holds("r", "a2", keys["d2"]),
-				                journal_holds("n", "n", keys["d2"]),
-				                journal_holds("r", "n", keys["d2"])))
+				                reach("a2", keys["d2"]), reach("n", keys["d2"])))
 			print("livecheck: e: A2 voted at total loss and was killed; started again, its vote "
 			      "reached R and, with N's, revoked D2")
 
