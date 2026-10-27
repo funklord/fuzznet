@@ -5331,11 +5331,18 @@ ctcheck:
 # First run 2026-08-20: zero findings from either, over the library and the
 # tests. Recorded in project.md as a result rather than a habit -- what makes
 # it worth anything is that it had never been run at all.
+#
+# AT -O0, NOT -Os, measured 2026-10-27 with gcc 14.2: a three-line control
+# that leaks a malloc on one path draws -Wanalyzer-malloc-leak at -O0 and
+# nothing at -Os, the level this target built at until then. So the zero
+# of 2026-08-20 was taken by an analyser that could not see that much, and
+# says less than it seems to. This is no build anybody ships, so -Os, the
+# rule for those, does not bind it.
 analyze:
 	@if $(CC) -fanalyzer -x c /dev/null -o /dev/null -c 2>/dev/null; then \
 		echo "analyze: gcc -fanalyzer over the library and the tests"; \
 		$(MAKE) --no-print-directory test BUILD_DIR=$(BUILD_DIR)-analyze \
-		        CFLAGS="-Os -g -fanalyzer" 2>&1 | grep -E "Wanalyzer" || true; \
+		        CFLAGS="-O0 -g -fanalyzer" 2>&1 | grep -E "Wanalyzer" || true; \
 	else \
 		echo "analyze: this compiler has no -fanalyzer, so it was SKIPPED"; \
 	fi
