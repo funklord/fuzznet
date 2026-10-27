@@ -73018,8 +73018,33 @@ with the park switched off it fails again.
 
 **Live at 20% it did not help: 0 of 4**, each still failing at phase e
 with D2's grant standing. So the parked vote is a real fault, shown by
-the unit test, but not the live one, or not the whole of it. The next
-session should start with `list vote` at the failure on this build.
+the unit test, but not the live one, or not the whole of it.
+
+**`list vote` at the failure, on this build (2026-10-27, 4 runs at 20%
+side by side):** 2 failed at phase e and 2 passed it, failing later at
+`get setting estate e/after`, the open item above. In both failures:
+
+| node | votes on D2 it holds |
+|---|---|
+| R | A2's |
+| A2 | its own |
+| N | its own |
+
+So nothing changed: A2's vote reaches R and N's still never does.
+
+**The park cannot be what N's vote needs at R.** R minted N's admin
+grant itself, by `grant admin`, and `own_acts_applied`
+(`node/daemon.c`, sec 712) indexes a grant a verb mints at once. So
+from the moment N votes, R already holds N's admin chain, and `take`
+would not refuse N's vote there for want of one. The park fixes a real
+case, the voter's grant arriving from another admin, but not this one.
+
+This agrees with N's side read earlier: no push line after its admin
+restart, and R's reconcile lacking no vote. **The vote does not leave
+N**, and that is where to look next:
+- whether `revoke peer` at N puts the vote in N's journal stream once
+  N has restarted in place for `set admin`;
+- whether N, a successor, pushes that stream to R at all.
 
 **Committed 2026-10-27, after a full `make test`:** the park in
 `node/apply.c` (`take`, `unpark_judged`, `judging_parked`), the case
