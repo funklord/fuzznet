@@ -70,6 +70,11 @@ const char *fzn_caller_err_str(fzn_caller_err_t err);
 /* Everything one caller needs to talk to one node. Caller-owned, as
  * everything here is; `reasm` in particular is the caller's table and its
  * slots, so this allocates nothing. */
+/* HOW MANY MESSAGES GIVEN UP ON A CALLER REMEMBERS, sec 737: a piece of
+ * one of them arriving late is dropped before reassembly rather than
+ * taking a slot. One older than these is left to the table's hold. */
+#define FZN_CALLER_FORGOTTEN 16u
+
 typedef struct fzn_caller {
 	int fd;                  /* a bound UDP socket */
 	fzn_udp_addr_t node;     /* where the node is */
@@ -125,11 +130,19 @@ typedef struct fzn_caller {
 	 * 737: requests sent (a resend is one more), datagrams read, those
 	 * that did not open under this session, those that opened as another
 	 * question's answer while one was awaited, the pieces taken into
-	 * reassembly, and those reassembly refused, with the last refusal's
-	 * code. A daemon says the difference across a wait that failed;
-	 * nothing here reads them. */
-	unsigned long sends, heard, unopened, elsewhere, pieces, refused;
+	 * reassembly, those reassembly refused, with the last refusal's code,
+	 * and the pieces of a message given up on, dropped before it. A daemon
+	 * says the difference across a wait that failed; nothing here reads
+	 * them. */
+	unsigned long sends, heard, unopened, elsewhere, pieces, refused, late;
 	int refused_err;
+	/* THE MESSAGES GIVEN UP ON, sec 737, the last FZN_CALLER_FORGOTTEN of
+	 * them, by `fzn_caller_forget`: a piece of one arriving after is
+	 * dropped, so a reply's half that comes late, its partner lost, never
+	 * holds a slot no ask will release. Sending a message again, or
+	 * waiting for it again, takes it off. */
+	uint32_t forgotten[FZN_CALLER_FORGOTTEN];
+	unsigned forgotten_used, forgotten_next;
 } fzn_caller_t;
 
 /* Send one request, reporting the `msg` it went out under.
@@ -171,10 +184,12 @@ fzn_caller_err_t fzn_caller_recv(fzn_caller_t *caller, uint32_t msg,
 
 /* FORGET THE ANSWER TO `msg`, given up on, sec 708: a reply held part way in
  * this caller's reassembly table, one piece lost, is dropped rather than
- * left to hold its slot until the table expires it. `fzn_caller_recv` does
- * this itself when it times out; a caller that waits by other means -- the
- * daemon's ask table -- calls it when it stops waiting. */
-void fzn_caller_forget(const fzn_caller_t *caller, uint32_t msg);
+ * left to hold its slot until the table expires it. And remembered, sec
+ * 737, so a piece of it arriving later is dropped before reassembly too.
+ * `fzn_caller_recv` does this itself when it times out; a caller that waits
+ * by other means -- the daemon's ask table -- calls it when it stops
+ * waiting. */
+void fzn_caller_forget(fzn_caller_t *caller, uint32_t msg);
 
 /* Both, for a caller with no loop of its own.
  *

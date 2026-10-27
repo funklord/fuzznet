@@ -175,7 +175,7 @@ size_t fzn_node_asks_cancel(fzn_node_asks_t *asks, const fzn_caller_t *caller)
 		return 0;
 	for (i = 0; i < FZN_NODE_ASKS_MAX; i++)
 		if (asks->entries[i].used && asks->entries[i].caller == caller) {
-			fzn_caller_forget(caller, asks->entries[i].msg);
+			fzn_caller_forget(asks->entries[i].caller, asks->entries[i].msg);
 			finish(&asks->entries[i], NULL, 0);
 			failed++;
 		}

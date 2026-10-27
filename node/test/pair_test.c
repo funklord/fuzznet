@@ -737,6 +737,77 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		      "refused: the caller's reassembly is not told the time");
 	}
 
+	/* ---- A LATE PIECE OF A MESSAGE GIVEN UP ON IS DROPPED, sec 737: the
+	 * half of a two-piece reply that comes after its ask was forgotten,
+	 * its partner lost, never takes the node's one slot here. The control
+	 * first: a stray piece of a message not given up on is still taken,
+	 * holds the slot, and the next reply is refused -- so what the second
+	 * case drops is what would otherwise have held it. Sealed as the node
+	 * seals a reply, under its peer record for the device. */
+	{
+		static const uint8_t HALF[8] = { 'l', 'a', 't', 'e', 'h', 'a', 'l', 'f' };
+		uint8_t frame[FZN_UDP_DATAGRAM_MAX];
+		size_t flen = 0;
+		fzn_udp_addr_t dev_addr;
+		uint32_t stray, got = 0;
+		unsigned long pieces, late;
+
+		CHECK(fzn_udp_resolve(AF_INET, "127.0.0.1", port_of(dev_fd), &dev_addr) == FZN_UDP_OK,
+		      "fixture: the device's address would not resolve");
+		stray = caller.next_msg++;
+		pieces = caller.pieces;
+		CHECK(fzn_node_seal_reply_chunk(&peers[0], node->id.pubkey, HALF, sizeof(HALF), stray,
+		                                0u, 2u, 0u, &hash_ops, &rng_ops, &aead, frame,
+		                                sizeof(frame), &flen)
+		                      == 0
+		              && fzn_udp_send(node_fd, &dev_addr, frame, flen) == FZN_UDP_OK
+		              && fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
+		              && fzn_node_run_once(&state, 1000) == 1
+		              && fzn_caller_recv_any(&caller, &got, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_ERR_REASSEMBLY
+		              && caller.pieces == pieces + 1u,
+		      "control: a stray piece of a message not given up on did not take the node's one "
+		      "slot here");
+		fzn_caller_forget(&caller, stray);
+
+		stray = caller.next_msg++;
+		fzn_caller_forget(&caller, stray);
+		late = caller.late;
+		CHECK(fzn_node_seal_reply_chunk(&peers[0], node->id.pubkey, HALF, sizeof(HALF), stray,
+		                                0u, 2u, 0u, &hash_ops, &rng_ops, &aead, frame,
+		                                sizeof(frame), &flen)
+		                      == 0
+		              && fzn_udp_send(node_fd, &dev_addr, frame, flen) == FZN_UDP_OK
+		              && fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
+		              && fzn_node_run_once(&state, 1000) == 1
+		              && fzn_caller_recv_any(&caller, &got, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_OK
+		              && got == msg && reply_len == sizeof(PONG) && caller.late == late + 1u,
+		      "a late piece of a message given up on took the node's one slot here, and the "
+		      "next reply was refused");
+
+		/* AND NOT DROPPED ONCE AWAITED AGAIN: a message given up on and
+		 * sent again under its number is answered to a loop's wait, and
+		 * one given up on and then waited for again is answered too. */
+		stray = caller.next_msg++;
+		fzn_caller_forget(&caller, stray);
+		CHECK(fzn_caller_resend(&caller, PING, sizeof(PING), 3500u, stray) == FZN_CALLER_OK
+		              && fzn_node_run_once(&state, 1000) == 1
+		              && fzn_caller_recv_any(&caller, &got, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_OK
+		              && got == stray && reply_len == sizeof(PONG),
+		      "a message given up on and sent again was dropped as late");
+		stray = caller.next_msg++;
+		CHECK(fzn_caller_resend(&caller, PING, sizeof(PING), 3500u, stray) == FZN_CALLER_OK,
+		      "fixture: a request under a number of its own would not send");
+		fzn_caller_forget(&caller, stray);
+		CHECK(fzn_node_run_once(&state, 1000) == 1
+		              && fzn_caller_recv(&caller, stray, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_OK
+		              && reply_len == sizeof(PONG),
+		      "a message given up on and then waited for again was dropped as late");
+	}
+
 	/* ---- AWAITED BY THE LOOP, sec 636: two requests out at once on one
 	 * caller, each answered to its own callback once the node has served
 	 * them, and a third, never served, failed at its deadline. */

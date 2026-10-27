@@ -10364,6 +10364,31 @@ SABOTAGES = [
 		"an ask the loop awaits is never sent again, and a round's lost request costs its whole wait; pair_test -- sec 737",
 	),
 	(
+		'caller-drops-a-late-piece',
+		'node/caller.c',
+		"\t\tif (forgotten(caller, opened.msg, 0)) {\n",
+		"\t\tif (0 && forgotten(caller, opened.msg, 0)) {\n",
+		"a late piece of a message given up on is dropped before reassembly; taken, it holds "
+		"a one-slot table's slot and the next reply from that peer is refused; pair_test -- "
+		"sec 737",
+	),
+	(
+		'caller-sent-again-is-awaited-again',
+		'node/caller.c',
+		"\t(void)forgotten(caller, msg, 1);\n",
+		"\t(void)(0 && forgotten(caller, msg, 1));\n",
+		"a message given up on and sent again is awaited again; left forgotten, its answer to "
+		"a loop's wait is dropped as late; pair_test -- sec 737",
+	),
+	(
+		'caller-waited-again-is-awaited-again',
+		'node/caller.c',
+		"\tif (!any)\n\t\t(void)forgotten(caller, *msg, 1);\n",
+		"\tif (0 && !any)\n\t\t(void)forgotten(caller, *msg, 1);\n",
+		"a message given up on and waited for again is awaited again; left forgotten, its "
+		"answer is dropped as late; pair_test -- sec 737",
+	),
+	(
 		'caller-reasm-told-the-time',
 		'node/caller.c',
 		"\t\t                        opened.expires_at, in_their_terms(caller, wall_s()),\n",

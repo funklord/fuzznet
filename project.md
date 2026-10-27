@@ -73186,10 +73186,27 @@ max_hold`, and a stuck partial now ages out in 60 s.
 - Four runs at 20% after it: 3 passed the whole journey, and the fourth
   never reached phase e (N could not bind its UDP port, a clash between
   runs side by side). Before it, 1 of 8 passed that day.
-- Not done: the second fix, releasing a partial that is no awaited
-  message's, so a stuck slot costs nothing rather than up to 60 s.
-  Nor a decision on succession and the root's pull peers above, which
-  this fix makes less pressing without settling.
+- **And the second fix, the same day, also the holder's:** a late piece
+  never takes the slot. `fzn_caller_forget` now also remembers the
+  message, the last `FZN_CALLER_FORGOTTEN` (16) of them. `receive` drops
+  a piece of a remembered message before reassembly and counts it
+  `late`. Sending a message again, or `fzn_caller_recv` waiting for it
+  again, takes it off. One older than the ring is left to the 60 s
+  hold. `fzn_caller_forget` takes a non-const caller for it. No
+  consumer in fuzzypickles, netcfgd, raidcfgd or ossacli calls it.
+- `pair_test` seals a piece of a two-piece reply under the node's peer
+  record and sends it to the caller. The control, a stray piece of a
+  message not given up on, is still taken and refuses the next reply.
+  One of a message given up on is dropped as late, and the next reply
+  is answered. Two more cases: a message given up on is answered once
+  sent again (`recv_any`, the ask table's way) and once waited for
+  again (`fzn_caller_recv`). Each of the three guards, switched off,
+  fails its own case. Sabotage: `caller-drops-a-late-piece`,
+  `caller-sent-again-is-awaited-again`,
+  `caller-waited-again-is-awaited-again`.
+- Four runs at 20% with both fixes: 4 passed the whole journey.
+- Not decided: what a succession does to the root's pull peers, above.
+  These fixes make it less pressing without settling it.
 
 Also seen and not chased: D2 refused once for "the chunk
 disagrees with the first" (a message number reused with a different
