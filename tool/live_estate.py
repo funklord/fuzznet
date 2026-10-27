@@ -74,6 +74,8 @@ KEY_LEN = 64
 # ROUNDS OF TWO SECONDS, the fault build's knob (sec 693).
 ROUND_S = "2"
 WHO = ("r", "a1", "a2", "d", "n", "d2", "e")
+# THE ACT STREAM'S NUMBER, `FZN_NODE_JOURNAL_STREAM` in `node/journal.h`.
+JOURNAL_STREAM = 1
 
 
 def main(argv):
@@ -249,6 +251,20 @@ def main(argv):
 			polled(who, "list capability",
 			       lambda g: any(e.startswith("admin,1,1,") for e in g.split()[2:]),
 			       "not admin held by one hop")
+
+		def journal_holds(who, voter, key):
+			"""Whether `who`'s copy of `voter`'s act stream holds `voter`'s vote
+			against `key`, read off the disk, since no verb lists a stream:
+			a revocation carries its grantee and then its issuer
+			(`FZN_REV_OFF_GRANTEE`, `FZN_REV_OFF_ISSUER`), and the stream's
+			file is `record/store_file.c`'s. None when there is no file."""
+			path = os.path.join(dirs[who], "records",
+			                    "%s-%08x.rec" % (keys[voter], JOURNAL_STREAM))
+			try:
+				with open(path, "rb") as f:
+					return bytes.fromhex(key + keys[voter]) in f.read()
+			except FileNotFoundError:
+				return None
 
 		writing = {"go": False, "n": 0, "error": None, "denied": False}
 
@@ -460,14 +476,21 @@ def main(argv):
 				# WHICH VOTE IS MISSING, sec 737: each issuer asked again answers
 				# `already` when it still holds its own, so the fault is in
 				# carrying or counting rather than in the vote kept.
+				# AND WHETHER EACH VOTE IS IN ITS VOTER'S JOURNAL, and in R's
+				# copy of that stream: A2's, which arrives, is the control.
 				raise failed("%s; A2 again: %r, N again: %r; votes on D2 at R %r, at A2 %r, "
-				             "at N %r; A2 is %s, N is %s"
+				             "at N %r; A2 is %s, N is %s; in A2's stream at A2 %s, at R %s; "
+				             "in N's stream at N %s, at R %s"
 				             % (e, " ".join(voted("a2", keys["d2"])),
 				                " ".join(voted("n", keys["d2"])),
 				                said("r", "list vote " + keys["d2"]),
 				                said("a2", "list vote " + keys["d2"]),
 				                said("n", "list vote " + keys["d2"]),
-				                keys["a2"][:8], keys["n"][:8]))
+				                keys["a2"][:8], keys["n"][:8],
+				                journal_holds("a2", "a2", keys["d2"]),
+				                journal_holds("r", "a2", keys["d2"]),
+				                journal_holds("n", "n", keys["d2"]),
+				                journal_holds("r", "n", keys["d2"])))
 			print("livecheck: e: A2 voted at total loss and was killed; started again, its vote "
 			      "reached R and, with N's, revoked D2")
 

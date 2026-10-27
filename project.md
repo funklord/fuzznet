@@ -73041,10 +73041,29 @@ case, the voter's grant arriving from another admin, but not this one.
 
 This agrees with N's side read earlier: no push line after its admin
 restart, and R's reconcile lacking no vote. **The vote does not leave
-N**, and that is where to look next:
-- whether `revoke peer` at N puts the vote in N's journal stream once
-  N has restarted in place for `set admin`;
-- whether N, a successor, pushes that stream to R at all.
+N.**
+
+**N's vote is in N's journal; R's copy of N's stream lacks it.** Phase
+e's failure now also reads each voter's act stream off the disk
+(`journal_holds` in `tool/live_estate.py`, since no verb lists a
+stream): the file `records/<voter>-00000001.rec` in a node's store, and
+whether it holds the 64 bytes of a revocation's grantee then issuer.
+Four runs at 20%: 1 passed the whole journey, 1 failed at `e/after`, and
+2 failed at phase e, both reading
+
+| vote on D2 | at its voter | in R's copy of the voter's stream |
+|---|---|---|
+| A2's, the control | held | held |
+| N's | held | the file exists, the vote is not in it |
+
+So `revoke peer` at N, after its restart in place for `set admin`, does
+log the vote into N's own stream. R follows that stream and holds part
+of it, but not the vote. What is left is the carriage of N's stream to
+R past some point. Next:
+- how far R's copy of N's stream reaches against N's, by slot count,
+  and whether the vote is the first record R lacks;
+- why R's reconcile, which lacks nothing, does not see N's stream as
+  behind: whether its digest lists N's stream at all.
 
 **Committed 2026-10-27, after a full `make test`:** the park in
 `node/apply.c` (`take`, `unpark_judged`, `judging_parked`), the case
