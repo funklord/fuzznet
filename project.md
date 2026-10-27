@@ -73102,8 +73102,42 @@ R already followed N, and a follow does not pull.
 root's pull peers. The obvious change is that `add succession` puts N
 where A1 was, since A1 stops answering at its succession, and that is a
 change to how a successor joins rather than a fix to a bug in one
-place. Unmeasured: why nearly every exchange from N to R fails at 20%
-when R answers it. If it is more than loss, it matters on its own.
+place.
+
+**Why N's exchanges with R fail: narrowed, not explained**
+(2026-10-27, from the twelve runs kept that day; the holder chose to
+chase this before changing how a succession is pulled):
+- **The real gate is an address, not the pairing.** `add succession`
+  already pairs N through `add_peer`. R pulls each round from
+  `load_siblings`: members whose prekey it keeps and for whom it holds
+  an address, introduced (sec 623) or the member's own `net/address`
+  setting. N's setting travels in N's stream, so R cannot pull from N
+  until one of N's pushes has landed. "Put N where A1 was" could only
+  mean R carrying A1's address to N, which is right for a re-key of one
+  device and wrong in this script, where N runs on its own port.
+- **It is not N alone.** Journal exchanges passed over against those
+  attempted, per host, over all kept runs: N 92 to 95% in nine of nine,
+  D2 94 to 98% in seven of nine, E 94 to 100% in three of three. The
+  hosts joined in phase a sit near 50 to 65%, much of it to stopped
+  peers.
+- **The shape is one success, then none.** N and D2, whose only peer is
+  R, get one exchange through in the round they pair with their
+  siblings, and then are passed over every round to the end, 30 or more
+  in a row. At 20% loss a datagram that is not the pattern, so
+  something changes after the first exchange.
+- **R says nothing of it.** R logs `answering` for N's request in each
+  round, the same millisecond N starts it, and no warning or error
+  naming N. A journal pull is a round talk (`talk_start`), not
+  `fzn_caller_ask`, so R's one `answering` a round says nothing about
+  resends.
+- **Ruled out: the loss generator.** `fault/fault.c` is a xorshift64
+  drawn once per datagram at send, so the same datagram is not dropped
+  each round.
+
+Next: say which step of a failed journal talk stalled, at N (requests
+sent and resent, reply pieces arrived of how many) and at R (reply sent,
+pieces), since neither side logs it now. Then whether the stall is in N's
+pull or in R's answer to it.
 
 **Committed 2026-10-27, after a full `make test`:** the park in
 `node/apply.c` (`take`, `unpark_judged`, `judging_parked`), the case
