@@ -73069,14 +73069,41 @@ log the vote, at seq 3 of N's stream. Not one of N's records has reached
 R by the time phase e gives up, the two before the vote included. A
 vote that comes late in a stream R does carry is not the problem: **R
 never takes N's stream at all**, and at 5% the vote reaches R by
-another way, most likely the reconcile. Next:
-- whether R's digest, or its push offer to N, lists N's stream: R
-  follows peers, proved members and member grantees, and N is all of
-  those only once it has joined, so check when R's follow list is built
-  against when N joins;
-- the experiment that refuted "R does not follow N" (an extra follow of
-  every successor's new key) changed the follow list without reading
-  it, so it does not settle this.
+another way, most likely the reconcile.
+
+**R follows N's stream; it never pulls from N, and N's push rarely
+gets through.** Read from run 10's kept logs, 2026-10-27:
+- **The follow list is not the gap.** `follow_estate` is rebuilt at
+  every round's `ROUND_JOURNAL`, from R's peers, proved members and the
+  member grantees its grants name, and R's `list grant` shows a member
+  grant to N. R's empty file for N's stream is itself the trace of the
+  follow: `fzn_node_journal_follow_stream` reads the stream's first
+  record from the store, and that read creates the file.
+- **N is not among R's pull peers.** R's rounds go from 1 peer (A1) at
+  14:48:48 to 3 (A2, D) at 14:48:57, then to 4 at 14:51:14, when D2
+  joins in phase e. N first reaches R at 14:50:38 and the count does
+  not move. A1, D and N joined differently: A1, A2, D and D2 by `add
+  peer`, N by the card `add succession` answers. Two of R's four pulls
+  a round go to A1 and D, both stopped, and are the two "did not
+  answer" lines in every round.
+- **So N's stream reaches R only by N's push.** N has one peer, R. Its
+  first journal exchange after its last start, at 14:50:43, took 14
+  records and then failed to push. Every exchange after that, 35 rounds
+  to 14:53:38, ended "did not answer; passed over this round", while R
+  logged `answering 1c611b66` in each. A2 fails as many exchanges (35)
+  but needs none: R pulls A2's stream itself.
+
+That explains 5% against 20%: N's push lands once N gets an exchange
+through, which at 5% is soon and at 20% may not happen within the wait.
+It also explains why "follow every successor's key" changed nothing:
+R already followed N, and a follow does not pull.
+
+**Not decided, and the holder's:** what a succession should do to the
+root's pull peers. The obvious change is that `add succession` puts N
+where A1 was, since A1 stops answering at its succession, and that is a
+change to how a successor joins rather than a fix to a bug in one
+place. Unmeasured: why nearly every exchange from N to R fails at 20%
+when R answers it. If it is more than loss, it matters on its own.
 
 **Committed 2026-10-27, after a full `make test`:** the park in
 `node/apply.c` (`take`, `unpark_judged`, `judging_parked`), the case
