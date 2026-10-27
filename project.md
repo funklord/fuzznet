@@ -73021,10 +73021,16 @@ with D2's grant standing. So the parked vote is a real fault, shown by
 the unit test, but not the live one, or not the whole of it. The next
 session should start with `list vote` at the failure on this build.
 
-**Left uncommitted, at the weekly stop (98%):**
-- the park in `node/apply.c` (`take`, `unpark_judged`, `judging_parked`);
-- the case enabled in `node/test/apply_test.c`;
-- a sabotage entry, `node-apply-parks-a-vote-before-its-admin`.
+**Committed 2026-10-27, after a full `make test`:** the park in
+`node/apply.c` (`take`, `unpark_judged`, `judging_parked`), the case
+switched on in `node/test/apply_test.c`, and the sabotage entry
+`node-apply-parks-a-vote-before-its-admin`. Every test binary passed,
+`apply_test` with 146 checks, and `make style` passes. The live failure
+at 20% is still open, as above.
 
-`apply_test` passes with them, and `make style` passes. The full suite
-was not run. Run `make test` before committing them.
+**Three GUI tests need a display**: `notebook_view_test`,
+`entries_view_test` and `retention_view_test` do not set
+`QT_QPA_PLATFORM=offscreen` as the other view tests do in their `main`.
+In a session with no `DISPLAY`, `notebook_view_test` aborts on the xcb
+plugin and `make test` stops there, before `node/` and `sim/` are run.
+The suite above was run with the variable set in the environment.

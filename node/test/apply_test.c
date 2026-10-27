@@ -537,11 +537,6 @@ static int replied(const char *start)
 	return strncmp(reply, start, strlen(start)) == 0;
 }
 
-/* OFF UNTIL VOTES ARE PARKED, sec 737: it fails today at its fourth check,
- * which is the fault it records, and the control passes. Switched on with
- * the fix, which parks a vote refused for want of an admin chain and judges
- * it again each round, kept in the store as sec 728's settings are. */
-#if 0
 /* A VOTE BEFORE ITS VOTER'S ADMIN GRANT, sec 737: M, a member, votes X's
  * grant away, and R's grant of admin to M arrives only after. The vote is
  * refused while M stands as a member alone -- a member's vote does not
@@ -554,6 +549,7 @@ static void test_a_vote_before_its_admin_grant(void)
 	static fzn_revocation_t rev_entries[8];
 	static fzn_revocation_admin_t admins[4];
 	static fzn_node_apply_t ap;
+	static fzn_node_settings_t ns;
 	fzn_revocation_store_t revs;
 	fzn_persist_ops_t store = { 0 };
 	fzn_node_apply_tally_t t;
@@ -565,6 +561,7 @@ static void test_a_vote_before_its_admin_grant(void)
 	store.load = mem_load;
 	store.save = mem_save;
 	store.list = mem_list;
+	store.remove = mem_remove;
 	memset(&cap, 0x61, sizeof(cap));
 	memset(&admin_cap, 0x62, sizeof(admin_cap));
 	key(r, 0xa1);
@@ -585,6 +582,14 @@ static void test_a_vote_before_its_admin_grant(void)
 	ap.sign = &SIGN;
 	ap.hash = &HASH;
 	ap.now = clock_now;
+	/* WHERE A REFUSED VOTE IS PARKED: the settings' store, as sec 728's. */
+	memset(&ns, 0, sizeof(ns));
+	ns.store = &store;
+	ns.hash = &HASH;
+	ns.verify = &SIGN;
+	ns.apply = &ap;
+	ns.estate = r;
+	ap.settings = &ns;
 	signing_as = 0xa1;
 	CHECK(fzn_chain_mint(r, m, &cap, 100u, FZN_NO_EXPIRY, 0, &SIGN, hop) == FZN_CHAIN_OK
 	              && put(&nj, 0xa1, hop, sizeof(hop))
@@ -624,7 +629,6 @@ static void test_a_vote_before_its_admin_grant(void)
 		      "control: an admin's vote cast after its grant did not count");
 	}
 }
-#endif
 
 static void test_settings_judged(void)
 {
@@ -1980,9 +1984,7 @@ int main(void)
 	test_a_full_succession_set_waits();
 	test_an_index_of_thousands();
 	test_siblings_of_hundreds();
-#if 0
 	test_a_vote_before_its_admin_grant();
-#endif
 	/* EVERY STREAM FILE, BY NAME, then the directory. */
 	for (i = 0; i < n_used; i++) {
 		static const char DIGITS[] = "0123456789abcdef";

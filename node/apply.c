@@ -300,6 +300,10 @@ int fzn_node_apply_load_grants(fzn_node_apply_t *ap, size_t *loaded)
 	return fzn_persist_each(ap->store, FZN_PERSIST_GRANT, grant_walked, &w) && !w.failed;
 }
 
+/* Set while parked objects are judged again, so one refused again is not
+ * parked a second time. */
+static int judging_parked;
+
 /* An object through the vote stream's admission, under `signer`'s chain --
  * as a member, then as an admin -- or none for a root. */
 static enum outcome take(fzn_node_apply_t *ap, char item, const uint8_t *body, size_t len,
@@ -309,6 +313,7 @@ static enum outcome take(fzn_node_apply_t *ap, char item, const uint8_t *body, s
 	uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
 	const fzn_cap_id_t *caps[2];
 	size_t n = 0, c, tried = 0;
+	int admin_absent = 0;
 	fzn_node_pull_err_t err;
 
 	memset(&pull, 0, sizeof(pull));
@@ -327,8 +332,11 @@ static enum outcome take(fzn_node_apply_t *ap, char item, const uint8_t *body, s
 	caps[0] = ap->capability;
 	caps[1] = ap->admin_capability;
 	for (c = 0; c < 2u; c++) {
-		if (!caps[c] || !fzn_node_apply_chain(ap, signer, caps[c], hops, &n))
+		if (!caps[c] || !fzn_node_apply_chain(ap, signer, caps[c], hops, &n)) {
+			if (c == 1u && caps[c])
+				admin_absent = 1;
 			continue;
+		}
 		tried++;
 		pull.learned = 0;
 		err = fzn_node_votes_take(&pull, item, body, len, (const uint8_t (*)[FZN_HOP_LEN])hops,
@@ -340,6 +348,14 @@ static enum outcome take(fzn_node_apply_t *ap, char item, const uint8_t *body, s
 		if (pull.learned)
 			return APPLIED;
 	}
+	/* A VOTE REFUSED FOR WANT OF AN ADMIN CHAIN IS PARKED, sec 737: the
+	 * grant that makes its voter an admin may come later, and a vote judged
+	 * once and confirmed never counted then -- the estate journey's lost
+	 * vote at 20% loss. Kept with sec 728's parked settings and judged
+	 * again at each round's end; WAIT instead would stop the voter's whole
+	 * stream on a member who is never made admin. */
+	if (tried && admin_absent && (item == 'r') && ap->settings && !judging_parked)
+		(void)fzn_node_settings_park(ap->settings, body, len);
 	/* NO CHAIN YET: a grant in another stream may still arrive. */
 	return tried ? REFUSED : WAIT;
 }
@@ -708,6 +724,19 @@ static int unpark_judged(void *ctx, const uint8_t *bytes, size_t len)
 	fzn_setting_t s;
 	fzn_node_settings_err_t err;
 	int judged;
+
+	/* A PARKED VOTE, sec 737: taken now its voter's chain counts, kept
+	 * while it does not. */
+	if (len > FZN_REV_OFF_ISSUER + FZN_PUBKEY_LEN
+	    && (bytes[1] == (uint8_t)FZN_OBJECT_REVOCATION
+	        || bytes[1] == (uint8_t)FZN_OBJECT_WITHDRAWAL)) {
+		enum outcome out;
+
+		judging_parked = 1;
+		out = take(ap, 'r', bytes, len, bytes + FZN_REV_OFF_ISSUER);
+		judging_parked = 0;
+		return out == APPLIED ? 1 : 0;
+	}
 
 	if (fzn_setting_open(bytes, len, ap->sign, &s) != FZN_SETTING_OK || s.rank < 0)
 		return -1;

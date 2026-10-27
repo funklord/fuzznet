@@ -10364,6 +10364,13 @@ SABOTAGES = [
 		"an ask the loop awaits is never sent again, and a round's lost request costs its whole wait; pair_test -- sec 737",
 	),
 	(
+		'node-apply-parks-a-vote-before-its-admin',
+		'node/apply.c',
+		"\tif (tried && admin_absent && (item == 'r') && ap->settings && !judging_parked)\n",
+		"\tif (0 && tried && admin_absent && (item == 'r') && ap->settings && !judging_parked)\n",
+		"a vote cast before its voter's admin grant is refused once and never counts; apply_test -- sec 737",
+	),
+	(
 		'fuzznetd-recv-answering-resends',
 		'node/daemon.c',
 		'\t\tif (fzn_caller_resend(caller, request, request_len, expires_at, msg) != FZN_CALLER_OK)\n\t\t\tbreak;\n\t\tresends++;\n',
