@@ -73134,10 +73134,50 @@ chase this before changing how a succession is pulled):
   drawn once per datagram at send, so the same datagram is not dropped
   each round.
 
-Next: say which step of a failed journal talk stalled, at N (requests
-sent and resent, reply pieces arrived of how many) and at R (reply sent,
-pieces), since neither side logs it now. Then whether the stall is in N's
-pull or in R's answer to it.
+**Found: N's caller refuses every reply R sends, for a slot it never
+gets back.** Two debug lines say it now (2026-10-27):
+- **N, on a journal talk step unanswered** (`journal_unanswered`): what
+  the peer's caller sent and heard since the talk began. The caller
+  counts requests sent, datagrams read, those not opened, another
+  message's, pieces taken and refusals by reassembly with the last code
+  (`fzn_caller_t`'s `sends` ... `refused_err`). The socket is the
+  round's for that peer, so its other asks are in the counts too.
+- **R, each reply sent** (`reply_sent`, through the new `on_replied`
+  hook in `node/serve.h`): to whom, which message, bytes, pieces sent
+  of planned, and whether a kept reply answered a resend. Under
+  `FZN_FAULT_LOSS` a dropped datagram counts as sent.
+
+Eight runs at 20%: 2 failed at phase a on D's clock, 5 at phase e, 1
+passed. In the phase e failures R replied to N every round, mostly 26
+bytes in one piece or 1108 in two, fresh and kept alike. N's failed
+pulls read 4 to 9 datagrams each, every one opened under its session,
+none another message's, **and none taken**: reassembly refused all of
+them, the last code each time `FZN_REASM_ERR_QUOTA`, "sender is at its
+slot quota". D2 shows the same in one run.
+
+**The mechanism, read from the code:**
+- A round target's table is one slot, one per sender
+  (`fzn_reasm_init(..., 1, 1u, 60u)`, four sites in `node/daemon.c`).
+- `receive` in `node/caller.c` passes `now` as 0 to
+  `fzn_reasm_accept`. So `fzn_reasm_expire(table, 0)` reclaims nothing,
+  and a slot's 60 s hold never runs out.
+- A partial is let go only by completing or by `fzn_caller_forget`
+  naming its message when that ask expires. A piece that arrives after
+  its ask was forgotten, its partner lost, takes the slot as a new
+  partial that nothing names again.
+- From then on R holds that sender's one slot and every reply from R,
+  one piece or two, is refused at quota. One success, then none, as the
+  logs showed.
+
+That is a fault in its own right, with the lost vote a consequence: a
+caller's link to its peer can die for good after one unlucky reply.
+**Not fixed yet.** The obvious fix is a real `now` in the caller's
+`fzn_reasm_accept`, in the units `expires_at` uses, so a stuck partial
+ages out in 60 s. Releasing a partial that is not the awaited message's
+is another. Also seen and not chased: D2 refused once for "the chunk
+disagrees with the first" (a message number reused with a different
+plan), and A2's pushes refused for "the message exceeds what a slot
+holds".
 
 **Committed 2026-10-27, after a full `make test`:** the park in
 `node/apply.c` (`take`, `unpark_judged`, `judging_parked`), the case

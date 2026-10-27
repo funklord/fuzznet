@@ -121,6 +121,15 @@ typedef struct fzn_caller {
 	 * table that may be shared. */
 	uint8_t answerer[FZN_SENDER_LEN];
 	int answerer_known;
+	/* WHAT THIS CALLER SENT AND HEARD, counted up and never reset, sec
+	 * 737: requests sent (a resend is one more), datagrams read, those
+	 * that did not open under this session, those that opened as another
+	 * question's answer while one was awaited, the pieces taken into
+	 * reassembly, and those reassembly refused, with the last refusal's
+	 * code. A daemon says the difference across a wait that failed;
+	 * nothing here reads them. */
+	unsigned long sends, heard, unopened, elsewhere, pieces, refused;
+	int refused_err;
 } fzn_caller_t;
 
 /* Send one request, reporting the `msg` it went out under.

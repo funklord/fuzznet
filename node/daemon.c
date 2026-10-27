@@ -4170,6 +4170,9 @@ struct journal_talk {
 	/* THE PUSH'S MESSAGE BOUND, sec 708: by the peer's journal window, so a
 	 * push is as many datagrams as a pull's request for as many records. */
 	size_t push_cap;
+	/* THE CALLER'S COUNTS WHEN THE TALK BEGAN, sec 737, for
+	 * `journal_unanswered`. */
+	unsigned long sends, heard, unopened, elsewhere, pieces, refused;
 	uint8_t message[FZND_JOURNAL_MESSAGE_MAX];
 };
 static struct journal_talk journal_talks[FZND_ROUND_TARGETS_MAX];
@@ -4189,6 +4192,25 @@ static int journal_push_begin(struct journal_talk *jt, uint8_t *request, size_t 
 	return 1;
 }
 
+/* WHAT THE PEER'S CALLER HEARD while a step of the talk went unanswered,
+ * sec 737, against its counts when the talk began: an answer lost, one
+ * that would not open, and one short of pieces read differently. The
+ * socket is the round's for that peer, so its other asks are in these
+ * counts too. At debug. */
+static void journal_unanswered(const struct journal_talk *jt)
+{
+	const fzn_caller_t *c = &jt->m.pt->caller;
+
+	say(FZN_ENTRY_DEBUG, "journal",
+	    "%s from %s unanswered since the talk began: %lu request(s) sent, %lu datagram(s) "
+	    "read, %lu not opened, %lu another's, %lu piece(s) taken, %lu refused by "
+	    "reassembly, the last %s",
+	    jt->pushing ? "a push" : "a pull", jt->m.host, c->sends - jt->sends,
+	    c->heard - jt->heard, c->unopened - jt->unopened, c->elsewhere - jt->elsewhere,
+	    c->pieces - jt->pieces, c->refused - jt->refused,
+	    c->refused - jt->refused ? fzn_reasm_err_str((fzn_reasm_err_t)c->refused_err) : "none");
+}
+
 static int journal_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, uint8_t *request,
                              size_t cap, size_t *request_len)
 {
@@ -4196,6 +4218,8 @@ static int journal_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, 
 	int done = 0;
 
 	meter_answer(&jt->m, reply, reply_len);
+	if (!reply)
+		journal_unanswered(jt);
 	if (!jt->pushing) {
 		jt->pull_err = fzn_exchange_pull_step(&jt->pull, reply, reply_len, request, cap,
 		                                      request_len, &done);
@@ -4383,6 +4407,12 @@ static void journal_start(struct pull_target *pulls, size_t npulls, uint64_t now
 			continue;
 		n_journal_talks++;
 		jt->pull_err = FZN_EXCHANGE_ERR_NO_ANSWER;
+		jt->sends = pulls[t].caller.sends;
+		jt->heard = pulls[t].caller.heard;
+		jt->unopened = pulls[t].caller.unopened;
+		jt->elsewhere = pulls[t].caller.elsewhere;
+		jt->pieces = pulls[t].caller.pieces;
+		jt->refused = pulls[t].caller.refused;
 		(void)talk_start(&jt->talk, &jt->m, &pulls[t], now, journal_talk_step, jt, jt->message,
 		                 sizeof(jt->message), len);
 	}
@@ -11660,6 +11690,23 @@ static void say_hello(struct pull_target *pulls, size_t npulls, int serving_fd, 
  * to where the probe came from, which tells the prober where this host is
  * on the LAN. No larger than the probe, and nothing kept. Anything else
  * goes unanswered, so a stranger learns nothing of this host. */
+/* A REPLY SENT, sec 737: to whom, which message, how large and in how
+ * many pieces, and whether a kept one answered a resend -- so a request
+ * this node answered and an answer that never arrived can be told apart.
+ * At debug: one line a reply. */
+static void reply_sent(void *ctx, const fzn_opened_t *req, size_t len, unsigned pieces,
+                       unsigned planned, int kept, const fzn_udp_addr_t *to)
+{
+	char where[FZN_METER_PEER_MAX + 1u];
+
+	(void)ctx;
+	peer_text(to, where, sizeof(where));
+	say(FZN_ENTRY_DEBUG, "node/remote",
+	    "replied %02x%02x%02x%02x message %lu, %zu byte(s) in %u of %u piece(s)%s, to %s",
+	    req->sender[0], req->sender[1], req->sender[2], req->sender[3],
+	    (unsigned long)req->msg, len, pieces, planned, kept ? ", kept" : "", where);
+}
+
 /* A PEER'S CLOCK OUT OF THE WINDOW, sec 714, said at most once a minute
  * each way, behind and ahead, since the two say different things:
  * its frames are dropped unanswered, and without this both ends saw only
@@ -14708,6 +14755,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			state.on_probe = lan_probe_heard;
 			/* A PEER'S CLOCK OUT OF THE WINDOW, sec 714. */
 			state.on_stale = clock_out;
+			/* EACH REPLY SENT, at debug, sec 737. */
+			state.on_replied = reply_sent;
 			/* GROUPS, sec 626. */
 			node_groups.log.store = node_apply.store;
 			node_groups.log.hash = &hash_ops;

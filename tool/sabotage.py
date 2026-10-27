@@ -609,8 +609,8 @@ SABOTAGES = [
 	(
 		"node-loop-sends-every-piece",
 		"node/serve.c",
-		"\tfor (i = 0; i < plan.chunks; i++) {\n\t\tsize_t off = 0, len = 0;\n\n\t\tif (fzn_split_at(&plan, i, &off, &len) != FZN_SPLIT_OK)\n\t\t\treturn;\n\t\tif (fzn_node_seal_reply_chunk(",
-		"\tfor (i = 0; i < 1u; i++) {\n\t\tsize_t off = 0, len = 0;\n\n\t\tif (fzn_split_at(&plan, i, &off, &len) != FZN_SPLIT_OK)\n\t\t\treturn;\n\t\tif (fzn_node_seal_reply_chunk(",
+		"\tfor (i = 0; i < plan.chunks; i++) {\n\t\tsize_t off = 0, len = 0;\n\n\t\tif (fzn_split_at(&plan, i, &off, &len) != FZN_SPLIT_OK)\n\t\t\tbreak;\n\t\tif (fzn_node_seal_reply_chunk(",
+		"\tfor (i = 0; i < 1u; i++) {\n\t\tsize_t off = 0, len = 0;\n\n\t\tif (fzn_split_at(&plan, i, &off, &len) != FZN_SPLIT_OK)\n\t\t\tbreak;\n\t\tif (fzn_node_seal_reply_chunk(",
 		"every piece the plan names is sent. Sending only the first leaves "
 		"a receiver holding one chunk of four for ever -- the message never "
 		"completes, so the symptom is a reply that silently never arrives "
@@ -855,8 +855,8 @@ SABOTAGES = [
 	(
 		"caller-skips-another-msgs-reply",
 		"node/caller.c",
-		"\t\tif (!any && opened.msg != *msg)\n\t\t\tcontinue;",
-		"\t\tif (0)\n\t\t\tcontinue;",
+		"\t\tif (!any && opened.msg != *msg) {\n\t\t\tcaller->elsewhere++;\n\t\t\tcontinue;",
+		"\t\tif (0) {\n\t\t\tcaller->elsewhere++;\n\t\t\tcontinue;",
 		"a reply carrying another `msg` is skipped, not returned as the "
 		"answer to this question. The socket can hold a late reply to an "
 		"earlier ask. The fixture has to LEAVE one there -- the first "

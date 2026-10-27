@@ -55,15 +55,17 @@ static void serve_ready_local(fzn_node_state_t *state)
  * the argument sec 362 already makes one layer down about sealing a
  * one-piece reply through the same plan as a twenty-piece one. */
 /* SEAL AND SEND `reply` back to where the datagram came from, under the
- * peer's session, in as many pieces as it takes. */
+ * peer's session, in as many pieces as it takes; `on_replied` told how
+ * many went. */
 static void send_reply(fzn_node_state_t *state, const fzn_node_peer_t *peer,
                        const fzn_udp_addr_t *from, const fzn_opened_t *opened,
-                       const uint8_t *reply, size_t reply_len)
+                       const uint8_t *reply, size_t reply_len, int kept)
 {
 	uint8_t reply_frame[FZN_UDP_DATAGRAM_MAX];
 	size_t reply_frame_len;
 	fzn_split_t plan;
 	uint16_t i;
+	unsigned sent = 0;
 
 	if (reply_len == 0u || !state->rng)
 		return;
@@ -80,19 +82,23 @@ static void send_reply(fzn_node_state_t *state, const fzn_node_peer_t *peer,
 		size_t off = 0, len = 0;
 
 		if (fzn_split_at(&plan, i, &off, &len) != FZN_SPLIT_OK)
-			return;
+			break;
 		if (fzn_node_seal_reply_chunk(peer, state->node_pubkey, reply + off, len,
 		                              opened->msg, i, plan.chunks, 0u, state->hash,
 		                              state->rng, state->aead, reply_frame,
 		                              sizeof(reply_frame), &reply_frame_len)
 		    != 0)
-			return;
+			break;
 		/* Best effort per piece, as the single frame was:
 		 * this is a datagram protocol and a lost piece is
 		 * the retransmission layer's problem, not a reason
 		 * to abandon the pieces that would have arrived. */
-		(void)fzn_udp_send(state->udp_fd, from, reply_frame, reply_frame_len);
+		if (fzn_udp_send(state->udp_fd, from, reply_frame, reply_frame_len) == FZN_UDP_OK)
+			sent++;
 	}
+	if (state->on_replied)
+		state->on_replied(state->on_replied_ctx, opened, reply_len, sent, plan.chunks, kept,
+		                  from);
 }
 
 static void serve_reply(fzn_node_state_t *state, const fzn_node_peer_t *peer,
@@ -118,7 +124,7 @@ static void serve_reply(fzn_node_state_t *state, const fzn_node_peer_t *peer,
 	                                     opened->payload, opened->payload_len, now,
 	                                     &reply_len))
 	               != NULL) {
-		send_reply(state, peer, from, opened, kept, reply_len);
+		send_reply(state, peer, from, opened, kept, reply_len, 1);
 		return;
 	}
 	state->asking_from = from;
@@ -135,7 +141,7 @@ static void serve_reply(fzn_node_state_t *state, const fzn_node_peer_t *peer,
 	if (reply_len > 0 && state->replies)
 		fzn_node_replies_keep(state->replies, opened->sender, opened->msg, opened->payload,
 		                      opened->payload_len, now, reply, reply_len);
-	send_reply(state, peer, from, opened, reply, reply_len);
+	send_reply(state, peer, from, opened, reply, reply_len, 0);
 }
 
 static void serve_ready_datagram(fzn_node_state_t *state)

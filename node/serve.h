@@ -181,6 +181,14 @@ typedef struct fzn_node_state {
 	 * resent -- the same sender, message and bytes -- is answered with the
 	 * kept reply and its handler is not run again. NULL keeps none. */
 	fzn_node_replies_t *replies;
+	/* A REPLY SENT, sec 737: to `req`'s sender, `len` bytes in `pieces`
+	 * of the `planned` (fewer when a piece would not seal or send), kept
+	 * when it was a kept reply answering a resend, to `to`. Said so a
+	 * request answered and an answer never arriving can be told apart.
+	 * NULL says nothing. */
+	void (*on_replied)(void *ctx, const fzn_opened_t *req, size_t len, unsigned pieces,
+	                   unsigned planned, int kept, const fzn_udp_addr_t *to);
+	void *on_replied_ctx;
 	/* LOCAL SUBSCRIBERS, sec 609: given, a `get events` from this node's
 	 * own user is kept as a subscriber here and polled for hanging up;
 	 * NULL takes none, and `get events` reaches the handler like any

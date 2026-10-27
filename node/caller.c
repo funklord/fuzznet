@@ -165,6 +165,7 @@ static fzn_caller_err_t send_as(fzn_caller_t *caller, const uint8_t *payload, si
 		    FZN_UDP_OK)
 			return FZN_CALLER_ERR_SEND;
 	}
+	caller->sends++;
 	if (caller->sent)
 		caller->sent(caller->traffic_ctx, caller, msg, payload, payload_len);
 	return FZN_CALLER_OK;
@@ -230,6 +231,7 @@ static fzn_caller_err_t receive(fzn_caller_t *caller, int any, uint32_t *msg, ui
 		size_t in_len = 0;
 		fzn_opened_t opened;
 		fzn_partial_t *done = NULL;
+		fzn_reasm_err_t rerr;
 
 		if (timeout_ms) {
 			uint64_t now = since_boot_ms();
@@ -241,31 +243,40 @@ static fzn_caller_err_t receive(fzn_caller_t *caller, int any, uint32_t *msg, ui
 		if (fzn_udp_recv(caller->fd, in, sizeof(in), &in_len, NULL) !=
 		    FZN_UDP_OK)
 			return FZN_CALLER_ERR_TIMEOUT;
+		caller->heard++;
 		/* SKIPPED, NOT FATAL. This socket can receive a late reply to an
 		 * earlier question, a retransmission, or a stranger's datagram.
 		 * Failing on the first would let anyone able to send a packet to
 		 * this port turn every request into an error; the timeout is
 		 * what bounds the wait instead. */
 		if (fzn_seal_open(in, in_len, caller->send_key, caller->send_ckey,
-		                  caller->hash, caller->aead, &opened) != FZN_SEAL_OK)
+		                  caller->hash, caller->aead, &opened) != FZN_SEAL_OK) {
+			caller->unopened++;
 			continue;
+		}
 		/* ANOTHER QUESTION'S ANSWER: skipped by a caller waiting for one,
 		 * taken by one waiting for any of its own (sec 494). */
 		memcpy(caller->answerer, opened.sender, FZN_SENDER_LEN);
 		caller->answerer_known = 1;
-		if (!any && opened.msg != *msg)
+		if (!any && opened.msg != *msg) {
+			caller->elsewhere++;
 			continue;
+		}
 
 		/* ONE PIECE STILL GOES THROUGH REASSEMBLY. A reply of one frame
 		 * could be copied straight out, and that second path is where a
 		 * single-frame answer and a first chunk would come to be handled
 		 * differently -- the same argument `node/serve.c` makes for
 		 * planning every reply, including the ones that fit. */
-		if (fzn_reasm_accept(caller->reasm, opened.sender, opened.msg,
-		                     opened.index, opened.chunks, opened.payload,
-		                     opened.payload_len, opened.expires_at, 0u,
-		                     &done) != FZN_REASM_OK)
+		rerr = fzn_reasm_accept(caller->reasm, opened.sender, opened.msg, opened.index,
+		                        opened.chunks, opened.payload, opened.payload_len,
+		                        opened.expires_at, 0u, &done);
+		if (rerr != FZN_REASM_OK) {
+			caller->refused++;
+			caller->refused_err = (int)rerr;
 			return FZN_CALLER_ERR_REASSEMBLY;
+		}
+		caller->pieces++;
 		if (!done) {
 			/* PROGRESS: a piece of the awaited reply, so the rest is
 			 * waited for as long again. */
