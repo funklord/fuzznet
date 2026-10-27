@@ -70,10 +70,12 @@ const char *fzn_caller_err_str(fzn_caller_err_t err);
 /* Everything one caller needs to talk to one node. Caller-owned, as
  * everything here is; `reasm` in particular is the caller's table and its
  * slots, so this allocates nothing. */
-/* HOW MANY MESSAGES GIVEN UP ON A CALLER REMEMBERS, sec 737: a piece of
- * one of them arriving late is dropped before reassembly rather than
- * taking a slot. One older than these is left to the table's hold. */
-#define FZN_CALLER_FORGOTTEN 16u
+/* HOW MANY SETTLED MESSAGES A CALLER REMEMBERS, sec 737 -- given up on or
+ * answered: a piece of one of them arriving late is dropped before
+ * reassembly rather than taking a slot. One older than these is left to
+ * the table's hold. 64, since a round sends several messages a peer and a
+ * kept reply's pieces come back for a few seconds after. */
+#define FZN_CALLER_FORGOTTEN 64u
 
 typedef struct fzn_caller {
 	int fd;                  /* a bound UDP socket */
@@ -141,11 +143,12 @@ typedef struct fzn_caller {
 	uint32_t refused_msg;
 	uint16_t refused_index, refused_chunks;
 	size_t refused_len;
-	/* THE MESSAGES GIVEN UP ON, sec 737, the last FZN_CALLER_FORGOTTEN of
-	 * them, by `fzn_caller_forget`: a piece of one arriving after is
-	 * dropped, so a reply's half that comes late, its partner lost, never
-	 * holds a slot no ask will release. Sending a message again, or
-	 * waiting for it again, takes it off. */
+	/* THE MESSAGES SETTLED, sec 737, the last FZN_CALLER_FORGOTTEN of them:
+	 * given up on, by `fzn_caller_forget`, or answered, as a reply
+	 * completes. A piece of one arriving after is dropped, so a reply's
+	 * half that comes late -- its partner lost, or the answer already
+	 * taken -- never holds a slot no ask will release. Sending a message
+	 * again, or waiting for it again, takes it off. */
 	uint32_t forgotten[FZN_CALLER_FORGOTTEN];
 	unsigned forgotten_used, forgotten_next;
 } fzn_caller_t;

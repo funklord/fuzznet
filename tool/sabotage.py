@@ -10446,6 +10446,14 @@ SABOTAGES = [
 		"live_estate --loss --keep-passed only, by its refusals, no unit test reaches it -- sec 737",
 	),
 	(
+		'caller-settles-an-answered-message',
+		'node/caller.c',
+		"\t\tsettle(caller, opened.msg);\n",
+		"\t\t(void)opened.msg;\n",
+		"a message answered is settled, so a late piece of a kept reply sent again is dropped; "
+		"taken, it starts a partial that holds a one-slot table's slot; pair_test -- sec 737",
+	),
+	(
 		'caller-drops-a-late-piece',
 		'node/caller.c',
 		"\t\tif (forgotten(caller, opened.msg, 0)) {\n",

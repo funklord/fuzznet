@@ -806,6 +806,28 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		                         == FZN_CALLER_OK
 		              && reply_len == sizeof(PONG),
 		      "a message given up on and then waited for again was dropped as late");
+
+		/* AND ONE ANSWERED ALREADY: a resend's kept reply sends every piece
+		 * again, and one arriving after the answer must not start a partial
+		 * that holds the node's one slot here. */
+		CHECK(fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
+		              && fzn_node_run_once(&state, 1000) == 1
+		              && fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_OK,
+		      "fixture: a message would not be answered");
+		stray = msg;
+		late = caller.late;
+		CHECK(fzn_node_seal_reply_chunk(&peers[0], node->id.pubkey, HALF, sizeof(HALF), stray,
+		                                0u, 2u, 0u, &hash_ops, &rng_ops, &aead, frame,
+		                                sizeof(frame), &flen)
+		                      == 0
+		              && fzn_udp_send(node_fd, &dev_addr, frame, flen) == FZN_UDP_OK
+		              && fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
+		              && fzn_node_run_once(&state, 1000) == 1
+		              && fzn_caller_recv_any(&caller, &got, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_OK
+		              && got == msg && reply_len == sizeof(PONG) && caller.late == late + 1u,
+		      "a late piece of a message answered already took the node's one slot here");
 	}
 
 	/* ---- A CALLER BUILT AGAIN NUMBERS ON, sec 737: a sibling's target is

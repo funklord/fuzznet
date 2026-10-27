@@ -240,20 +240,27 @@ static int forgotten(fzn_caller_t *caller, uint32_t msg, int drop)
 	return 0;
 }
 
+/* `msg` SETTLED, sec 737 -- given up on or answered -- and remembered, so
+ * a piece of it arriving after is dropped rather than taking a slot. */
+static void settle(fzn_caller_t *caller, uint32_t msg)
+{
+	if (forgotten(caller, msg, 0))
+		return;
+	if (caller->forgotten_used < FZN_CALLER_FORGOTTEN) {
+		caller->forgotten[caller->forgotten_used++] = msg;
+	} else {
+		caller->forgotten[caller->forgotten_next] = msg;
+		caller->forgotten_next = (caller->forgotten_next + 1u) % FZN_CALLER_FORGOTTEN;
+	}
+}
+
 void fzn_caller_forget(fzn_caller_t *caller, uint32_t msg)
 {
 	if (!caller)
 		return;
 	/* REMEMBERED FIRST, sec 737, whether or not anything of it is held:
 	 * the piece that would take the slot is the one still to come. */
-	if (!forgotten(caller, msg, 0)) {
-		if (caller->forgotten_used < FZN_CALLER_FORGOTTEN) {
-			caller->forgotten[caller->forgotten_used++] = msg;
-		} else {
-			caller->forgotten[caller->forgotten_next] = msg;
-			caller->forgotten_next = (caller->forgotten_next + 1u) % FZN_CALLER_FORGOTTEN;
-		}
-	}
+	settle(caller, msg);
 	/* NOTHING OPENED UNDER THIS SESSION YET, nothing of it held. */
 	if (caller->reasm && caller->answerer_known)
 		(void)fzn_reasm_forget(caller->reasm, caller->answerer, msg);
@@ -398,6 +405,11 @@ static fzn_caller_err_t receive(fzn_caller_t *caller, int any, uint32_t *msg, ui
 		*reply_len = done->bytes;
 		*msg = opened.msg;
 		fzn_reasm_release(done);
+		/* ANSWERED, SO SETTLED, sec 737: a resend's kept reply sends every
+		 * piece again, and one arriving after the answer would start a
+		 * partial nothing finishes or forgets, holding a one-slot table's
+		 * slot for its whole hold. */
+		settle(caller, opened.msg);
 		if (caller->answered)
 			caller->answered(caller->traffic_ctx, caller, *msg, *reply_len);
 		return FZN_CALLER_OK;
