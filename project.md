@@ -73272,6 +73272,38 @@ refused by design; chasing it found a real fault beside it** (chased
   - `node/test/apply_test` under UBSan: `put`'s `used_writers[8]`, with
     a ninth writer in the suite. It holds 256 now, every `uint8_t`.
 
+**Three more faults in the same family, the same evening** (a `/go` run):
+- **A hello or a peer's request was taken as an answer** (`db10f9f`).
+  The session key is one key both ways, so either opens at a caller's
+  socket once a peer has learned that address from where it said hello.
+  A hello's empty payload was refused by reassembly as too large, "the
+  message exceeds what a slot holds", 95 to 119 times in four runs at
+  20%, and it ended a blocking wait. A request under the awaited number
+  would have been the answer. The caller now drops a NOP frame, and one
+  under a capability (an answer carries none), as `unasked`. After it
+  there were 0 refusals of that kind, and 2316 frames dropped.
+- **A contact target's caller numbered from 0 each round** (`a0c2a62`),
+  as a sibling's had: rebuilt in `load_contact_targets` on its kept
+  socket, with keys derived again to the same values. It carries its
+  numbering now. No test runs contacts at loss.
+- **A late piece of a message already answered held the slot**
+  (`559675a`). A resend's kept reply sends every piece again, and one
+  arriving after the answer started a partial nothing finishes or
+  forgets: 307 quota refusals in four runs, and `e/after` absent once
+  more (run 46), E's pulls refused round after round. A message is
+  settled when answered as well as when given up on, in a ring of 64.
+  After it there were 2 and 3 quota refusals per four runs, and 36 late
+  pieces dropped.
+- **Eight runs at 20% after all of it: 7 passed.** The eighth timed out
+  on A2's local socket ("set quorum 2 went unanswered"). The script asks
+  with 5 s (`live_trim.ask`), and A2's rounds ran to 15 s at a load near
+  130. Seen once in 32 runs since the fixes. Whether a daemon should
+  answer its local socket within a round at loss is a responsiveness
+  question, open.
+- **The phase a clock failure** (D's `get clock` not "right") came in 4
+  of 20 runs before the fixes and 0 of 32 since. That is taken as the
+  same cause by its rate, not traced.
+
 **Fixed beside it: a sibling's caller numbered from 0 every round.**
 - `load_siblings` (`node/daemon.c`) clears a sibling's target each round
   and builds its caller again from the stored pairing, on the kept
