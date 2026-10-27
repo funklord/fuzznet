@@ -227,6 +227,8 @@ static size_t node_ask(void *ctx, const char *line, char *reply, size_t cap)
 
 int main(int argc, char **argv)
 {
+	qputenv("QT_QPA_PLATFORM", "offscreen");
+
 	QApplication app(argc, argv);
 
 	{

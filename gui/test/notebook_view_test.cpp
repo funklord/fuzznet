@@ -950,6 +950,8 @@ static void test_history_is_grouped_by_day(void)
 
 int main(int argc, char **argv)
 {
+	qputenv("QT_QPA_PLATFORM", "offscreen");
+
 	QApplication app(argc, argv);
 
 	memset(SELF, 0x51, sizeof(SELF));

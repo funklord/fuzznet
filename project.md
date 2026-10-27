@@ -73028,9 +73028,11 @@ switched on in `node/test/apply_test.c`, and the sabotage entry
 `apply_test` with 146 checks, and `make style` passes. The live failure
 at 20% is still open, as above.
 
-**Three GUI tests need a display**: `notebook_view_test`,
-`entries_view_test` and `retention_view_test` do not set
-`QT_QPA_PLATFORM=offscreen` as the other view tests do in their `main`.
-In a session with no `DISPLAY`, `notebook_view_test` aborts on the xcb
-plugin and `make test` stops there, before `node/` and `sim/` are run.
-The suite above was run with the variable set in the environment.
+**Three GUI tests needed a display, and set offscreen now**:
+`notebook_view_test`, `entries_view_test` and `retention_view_test` did
+not set `QT_QPA_PLATFORM=offscreen` in their `main` as the other view
+tests do. In a session with no `DISPLAY`, `notebook_view_test` aborted on
+the xcb plugin and `make test` stopped there, before `node/` and `sim/`
+ran. The suite above was run with the variable set in the environment.
+Since the fix, `make test` with no `DISPLAY` and no `QT_QPA_PLATFORM`
+runs all 259 test binaries and passes.

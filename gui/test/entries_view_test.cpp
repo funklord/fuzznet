@@ -75,6 +75,8 @@ static int silent(void *, const uint8_t *, size_t, uint8_t *, size_t, size_t *)
 
 int main(int argc, char **argv)
 {
+	qputenv("QT_QPA_PLATFORM", "offscreen");
+
 	QApplication app(argc, argv);
 	char path[128];
 
