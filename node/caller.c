@@ -92,6 +92,19 @@ static uint64_t in_their_terms(const fzn_caller_t *caller, uint64_t expires_at)
 	return expires_at > (uint64_t)-s ? expires_at - (uint64_t)-s : 1u;
 }
 
+/* The other way, sec 737: an expiry the node stamped, in this caller's
+ * terms, held in range the same way. 0, no expiry, stays 0. */
+static uint64_t in_our_terms(const fzn_caller_t *caller, uint64_t expires_at)
+{
+	int64_t s = caller->clock_offset_ms / 1000;
+
+	if (expires_at == 0u)
+		return 0u;
+	if (s >= 0)
+		return expires_at > (uint64_t)s ? expires_at - (uint64_t)s : 1u;
+	return expires_at > UINT64_MAX - (uint64_t)-s ? UINT64_MAX : expires_at + (uint64_t)-s;
+}
+
 static fzn_caller_err_t send_as(fzn_caller_t *caller, const uint8_t *payload, size_t payload_len,
                                 uint64_t expires_at, uint32_t msg);
 static int forgotten(fzn_caller_t *caller, uint32_t msg, int drop);
@@ -366,16 +379,21 @@ static fzn_caller_err_t receive(fzn_caller_t *caller, int any, uint32_t *msg, ui
 		 * single-frame answer and a first chunk would come to be handled
 		 * differently -- the same argument `node/serve.c` makes for
 		 * planning every reply, including the ones that fit. */
-		/* THE TIME, NOT 0, sec 737: in the answerer's terms, as an expiry
-		 * this caller stamps is, and in seconds, as frames' expiries are.
+		/* THE TIME, NOT 0, sec 737, in seconds as frames' expiries are.
 		 * With 0 nothing in the table ever expired, so a partial left by a
 		 * piece that came after its ask was forgotten held its sender's
 		 * slot for good, and a one-slot table refused that peer's every
-		 * reply after it. */
+		 * reply after it.
+		 *
+		 * THIS NODE'S CLOCK, NOT THE ANSWERER'S, and the frame's expiry
+		 * moved into it instead. A table can be shared by callers whose
+		 * peers' clocks differ -- the contact hosts' table, the fetch
+		 * links' -- and its sweep and its deadlines take one `now`, so in
+		 * each caller's own peer's terms one that is 60 s ahead released
+		 * another's partials (review, 2026-10-28). */
 		rerr = fzn_reasm_accept(caller->reasm, opened.sender, opened.msg, opened.index,
 		                        opened.chunks, opened.payload, opened.payload_len,
-		                        opened.expires_at, in_their_terms(caller, wall_s()),
-		                        &done);
+		                        in_our_terms(caller, opened.expires_at), wall_s(), &done);
 		if (rerr != FZN_REASM_OK) {
 			caller->refused++;
 			caller->refused_err = (int)rerr;

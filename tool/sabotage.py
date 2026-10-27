@@ -10481,8 +10481,8 @@ SABOTAGES = [
 	(
 		'caller-reasm-told-the-time',
 		'node/caller.c',
-		"\t\t                        opened.expires_at, in_their_terms(caller, wall_s()),\n",
-		"\t\t                        opened.expires_at, 0u + 0 * wall_s(),\n",
+		"\t\t                        in_our_terms(caller, opened.expires_at), wall_s(), &done);\n",
+		"\t\t                        in_our_terms(caller, opened.expires_at), 0u * wall_s(), &done);\n",
 		"a partial left in a caller's one-slot table ages out; told 0 as the time it never "
 		"does, and every later reply from that peer is refused at quota; pair_test -- sec 737",
 	),

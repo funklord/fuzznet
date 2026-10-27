@@ -951,6 +951,64 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		      "the peer's own request under the awaited number was taken as its answer");
 	}
 
+	/* ---- ONE CLOCK FOR A SHARED TABLE, sec 737: two callers on one table,
+	 * the second's peer 120 s ahead. The first holds half a reply; the
+	 * second takes an answer, and its sweep runs at its `now`. In its own
+	 * peer's terms that was past the first's 60 s hold, and released the
+	 * partial, so the reply never completed (review, 2026-10-28). */
+	{
+		static const uint8_t FIRST[8] = { 'f', 'i', 'r', 's', 't', 'h', 'a', 'f' };
+		static const uint8_t SECOND[3] = { 'e', 'n', 'd' };
+		uint8_t frame[FZN_UDP_DATAGRAM_MAX];
+		size_t flen = 0;
+		fzn_udp_addr_t dev_addr;
+		fzn_caller_t ahead;
+		uint32_t held, got = 0;
+		/* A TABLE TWO CALLERS SHARE, two slots and two a sender, as the
+		 * contact hosts' and the fetch links' are. */
+		static fzn_partial_t two[2];
+		static uint8_t two_buf[2][2048];
+		fzn_reasm_t shared;
+		fzn_reasm_t *was = caller.reasm;
+
+		CHECK(fzn_udp_resolve(AF_INET, "127.0.0.1", port_of(dev_fd), &dev_addr) == FZN_UDP_OK
+		              && fzn_reasm_slot_init(&two[0], two_buf[0], sizeof(two_buf[0])) == FZN_REASM_OK
+		              && fzn_reasm_slot_init(&two[1], two_buf[1], sizeof(two_buf[1])) == FZN_REASM_OK
+		              && fzn_reasm_init(&shared, two, 2, 2u, 60u) == FZN_REASM_OK,
+		      "fixture: the device's address, or a shared table");
+		caller.reasm = &shared;
+		held = caller.next_msg++;
+		CHECK(fzn_node_seal_reply_chunk(&peers[0], node->id.pubkey, FIRST, sizeof(FIRST), held,
+		                                0u, 2u, 0u, &hash_ops, &rng_ops, &aead, frame,
+		                                sizeof(frame), &flen)
+		                      == 0
+		              && fzn_udp_send(node_fd, &dev_addr, frame, flen) == FZN_UDP_OK
+		              && fzn_caller_recv_any(&caller, &got, reply, sizeof(reply), &reply_len, 300u)
+		                         == FZN_CALLER_ERR_TIMEOUT,
+		      "fixture: half a reply would not be held");
+		/* SENT IN THE NODE'S TERMS, READ BY A CALLER WHOSE PEER IS AHEAD:
+		 * only the reading side's clock touches the table. */
+		CHECK(fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
+		              && fzn_node_run_once(&state, 1000) == 1,
+		      "fixture: the node did not serve the request");
+		ahead = caller;
+		ahead.clock_offset_ms = 120000;
+		CHECK(fzn_caller_recv(&ahead, msg, reply, sizeof(reply), &reply_len, 2000u)
+		              == FZN_CALLER_OK,
+		      "fixture: the caller whose peer is ahead was not answered");
+		CHECK(fzn_node_seal_reply_chunk(&peers[0], node->id.pubkey, SECOND, sizeof(SECOND), held,
+		                                1u, 2u, 0u, &hash_ops, &rng_ops, &aead, frame,
+		                                sizeof(frame), &flen)
+		                      == 0
+		              && fzn_udp_send(node_fd, &dev_addr, frame, flen) == FZN_UDP_OK
+		              && fzn_caller_recv_any(&caller, &got, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_OK
+		              && got == held && reply_len == sizeof(FIRST) + sizeof(SECOND),
+		      "another caller on the table, its peer 120 s ahead, released this caller's half "
+		      "a reply");
+		caller.reasm = was;
+	}
+
 	/* ---- AWAITED BY THE LOOP, sec 636: two requests out at once on one
 	 * caller, each answered to its own callback once the node has served
 	 * them, and a third, never served, failed at its deadline. */
