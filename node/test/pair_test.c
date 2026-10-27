@@ -703,6 +703,40 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 	      "the device was not answered, so the two stored halves of a pairing do not "
 	      "make a working pair");
 
+	/* ---- A PARTIAL LEFT IN A ONE-SLOT TABLE AGES OUT, sec 737: a piece of
+	 * a reply that came after its ask was forgotten, its partner lost,
+	 * holds the node's one slot here. The caller passed 0 as the time, so
+	 * nothing in its table expired and every later reply from the node was
+	 * refused at quota for good. The control first: a partial held now
+	 * does refuse the next reply, so the plant is what the second case
+	 * removes. */
+	{
+		static const uint8_t PIECE[1] = { 'x' };
+		fzn_partial_t *held = NULL;
+		uint64_t t = (uint64_t)time(NULL);
+
+		CHECK(fzn_reasm_accept(&table, caller.answerer, 999999u, 0u, 2u, PIECE, sizeof(PIECE),
+		                       0u, t, &held)
+		                      == FZN_REASM_OK
+		              && fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
+		              && fzn_node_run_once(&state, 1000) == 1
+		              && fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_ERR_REASSEMBLY,
+		      "control: a partial held now did not take the node's one slot here");
+		CHECK(fzn_reasm_forget(&table, caller.answerer, 999999u) == 1u,
+		      "control: the partial planted was not there to forget");
+		CHECK(fzn_reasm_accept(&table, caller.answerer, 999999u, 0u, 2u, PIECE, sizeof(PIECE),
+		                       0u, t - 120u, &held)
+		                      == FZN_REASM_OK
+		              && fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
+		              && fzn_node_run_once(&state, 1000) == 1
+		              && fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_OK
+		              && reply_len == sizeof(PONG),
+		      "a partial past its hold kept the node's one slot here, and its reply was "
+		      "refused: the caller's reassembly is not told the time");
+	}
+
 	/* ---- AWAITED BY THE LOOP, sec 636: two requests out at once on one
 	 * caller, each answered to its own callback once the node has served
 	 * them, and a third, never served, failed at its deadline. */

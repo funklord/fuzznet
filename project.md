@@ -73171,10 +73171,27 @@ slot quota". D2 shows the same in one run.
 
 That is a fault in its own right, with the lost vote a consequence: a
 caller's link to its peer can die for good after one unlucky reply.
-**Not fixed yet.** The obvious fix is a real `now` in the caller's
-`fzn_reasm_accept`, in the units `expires_at` uses, so a stuck partial
-ages out in 60 s. Releasing a partial that is not the awaited message's
-is another. Also seen and not chased: D2 refused once for "the chunk
+
+**Fixed, 2026-10-27, on the holder's choice of the first fix:** the
+caller passes the time to `fzn_reasm_accept`, in wall seconds moved
+into the answerer's terms by `in_their_terms`, as the expiries it stamps
+are. A reply is sealed with no expiry, so its slot is held to `now +
+max_hold`, and a stuck partial now ages out in 60 s.
+- `pair_test` plants a partial in the caller's one-slot table. The
+  control, a partial held now, refuses the next reply. One past its
+  hold is swept, and the reply is answered. With the time back at 0
+  the second fails, and 19 later checks in the same fixture fail behind
+  it, which is the live symptom made deterministic. Sabotage:
+  `caller-reasm-told-the-time`.
+- Four runs at 20% after it: 3 passed the whole journey, and the fourth
+  never reached phase e (N could not bind its UDP port, a clash between
+  runs side by side). Before it, 1 of 8 passed that day.
+- Not done: the second fix, releasing a partial that is no awaited
+  message's, so a stuck slot costs nothing rather than up to 60 s.
+  Nor a decision on succession and the root's pull peers above, which
+  this fix makes less pressing without settling.
+
+Also seen and not chased: D2 refused once for "the chunk
 disagrees with the first" (a message number reused with a different
 plan), and A2's pushes refused for "the message exceeds what a slot
 holds".

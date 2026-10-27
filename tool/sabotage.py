@@ -10364,6 +10364,14 @@ SABOTAGES = [
 		"an ask the loop awaits is never sent again, and a round's lost request costs its whole wait; pair_test -- sec 737",
 	),
 	(
+		'caller-reasm-told-the-time',
+		'node/caller.c',
+		"\t\t                        opened.expires_at, in_their_terms(caller, wall_s()),\n",
+		"\t\t                        opened.expires_at, 0u + 0 * wall_s(),\n",
+		"a partial left in a caller's one-slot table ages out; told 0 as the time it never "
+		"does, and every later reply from that peer is refused at quota; pair_test -- sec 737",
+	),
+	(
 		'node-apply-parks-a-vote-before-its-admin',
 		'node/apply.c',
 		"\tif (tried && admin_absent && (item == 'r') && ap->settings && !judging_parked)\n",

@@ -19,6 +19,15 @@ static uint64_t since_boot_ms(void)
 	return (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
 }
 
+/* Wall-clock seconds, at least 1, so a clock that reads nothing is not
+ * the 0 that never expires a partial. */
+static uint64_t wall_s(void)
+{
+	time_t t = time(NULL);
+
+	return t > 0 ? (uint64_t)t : 1u;
+}
+
 /* The socket's receive timeout set to `ms`, at least one. */
 static void wait_at_most(int fd, uint64_t ms)
 {
@@ -268,9 +277,16 @@ static fzn_caller_err_t receive(fzn_caller_t *caller, int any, uint32_t *msg, ui
 		 * single-frame answer and a first chunk would come to be handled
 		 * differently -- the same argument `node/serve.c` makes for
 		 * planning every reply, including the ones that fit. */
+		/* THE TIME, NOT 0, sec 737: in the answerer's terms, as an expiry
+		 * this caller stamps is, and in seconds, as frames' expiries are.
+		 * With 0 nothing in the table ever expired, so a partial left by a
+		 * piece that came after its ask was forgotten held its sender's
+		 * slot for good, and a one-slot table refused that peer's every
+		 * reply after it. */
 		rerr = fzn_reasm_accept(caller->reasm, opened.sender, opened.msg, opened.index,
 		                        opened.chunks, opened.payload, opened.payload_len,
-		                        opened.expires_at, 0u, &done);
+		                        opened.expires_at, in_their_terms(caller, wall_s()),
+		                        &done);
 		if (rerr != FZN_REASM_OK) {
 			caller->refused++;
 			caller->refused_err = (int)rerr;
