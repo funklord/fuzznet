@@ -5028,7 +5028,18 @@ The first run there stopped at a 2.5 hour ceiling with 480 objects and
 that week (`chunk/reassembly.c`, `chunk/split.c`, `node/caller.c`,
 `node/serve.c`, `node/asks.c`) were analysed whole, also with none, the
 control drawing one beside them. cppcheck's half did not run, being
-after the ceiling.
+after the ceiling, and was run on its own the same night (cppcheck
+2.17.1, the target's flags over the 193 sources). A one-past-the-end
+control drew `arrayIndexOutOfBounds`. Over the library it drew three
+findings, all false:
+- `node/local.c:192`, `line` and `line_len` "uninitialized", assuming
+  `while (!have_line)` false on entry. `have_line` starts at 0, and the
+  loop leaves only once `fzn_line_next` has set both.
+- `node/revoke.c:1083`, `views` (`legacyUninitvar`). It is passed only
+  when `n` is nonzero, in the branch whose loop fills `views[0..n-1]`.
+
+Its log lacks the exit line its wrapper should have written, so that it
+read every source is likely rather than shown.
 
 **No header here carries an `extern "C"` guard, and two of the three
 consumers are C++** (2026-08-20). fuzzypickles is Qt, raidcfgd is forty `.cpp`
