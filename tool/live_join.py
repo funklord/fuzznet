@@ -266,6 +266,10 @@ def main(argv):
 					try:
 						with open("/proc/%d/cmdline" % pid, "rb") as f:
 							alive = run.fuzznetd.encode() in f.read()
+						# STILL OUR CHILD, sec 741: a reaped daemon's pid, handed to
+						# another run's daemon of the same binary, is not this run's.
+						with open("/proc/%d/stat" % pid) as f:
+							alive = alive and int(f.read().rsplit(")", 1)[1].split()[1]) == os.getpid()
 					except OSError:
 						alive = False
 					if alive:

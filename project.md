@@ -73502,7 +73502,8 @@ phase d and all 10 passed it. The rebuild is not what fails.
   longer wait, would pass over fewer peers at a cost in round length at
   every loss rate. Sec 737 chose the current figures.
 
-**A daemon went silent for two minutes, unexplained.** In one run A
+**A daemon went silent for two minutes; sec 741 has the likely cause.**
+In one run A
 logged its last reply at 10:24:37.86, after its pulls had passed three
 peers over, the last one refused by reassembly "at its slot quota". It
 then logged nothing, replies included, until the script stopped it at
@@ -73513,3 +73514,66 @@ and a `gdb` backtrace written as `stuck-PID.txt` beside its log, so a
 run kept with `--keep` holds them. Not seen in the 4 runs after it,
 which predate the capture.
 `tool/live_erasure.py` takes `--keep-passed`, as `live_estate.py` does.
+
+## 741. A late piece of an answered request holds its sender's only slot, 2026-10-28
+
+Twenty-four runs of `tool/live_erasure.py` at 20% loss, three at a
+time: 21 passed, none timed out a wait (so no `stuck-PID.txt`), two
+failed phase c, and one failed falsely.
+
+**The false failure was a recycled pid.** Every live script ended by
+failing on any pid it had started that was still alive and running its
+binary. `kernel.pid_max` is 32768 here, so a daemon reaped minutes
+earlier gave its pid to another run's daemon of the same binary. The
+check now also requires the pid's parent to be the script itself, which
+a real survivor is, since it has not been reaped. That is the same four
+lines in each of the 30 scripts, with a positive and negative control
+(own child true, a grandchild and init false).
+
+**Phase c failed because B could not send A anything of two pieces or
+more.** In one run A held none of its five pieces after eight rounds.
+In each of B's rounds, every daemon of A's answered B up to about
+message 12, which was B's push of its logs. It then logged nothing
+more, and B passed A over before the pieces exchange. A restart of A
+and B from the kept stores reproduced it: never at no loss, three times
+in four at 20%. A build with a line printed on each request piece
+(`node/serve.c`, not committed) showed the mechanism:
+
+    took msg 14 piece 1 of 2
+    took msg 14 piece 0 of 2, whole
+    took msg 14 piece 1 of 2
+    refused msg 16 piece 1 of 2: -3
+    refused msg 16 piece 0 of 2: -3
+
+Message 14 completed, was answered, and its slot was released. A piece
+of B's resend of it, already in flight, then arrived and opened a new
+partial for message 14, which nothing will complete. The daemon's
+request table allows each sender one partial, held 60 s
+(`FZND_REQUEST_SLOTS` 4, per sender 1). So every piece of every chunked
+request from B is refused with `FZN_REASM_ERR_QUOTA` until that partial
+expires. Single-datagram requests still pass. Refusals are logged
+nowhere, so the receiver shows only silence. That matches the
+two-minute silence of sec 740, which was refused "at its slot quota" on
+the reply side. That case is not reproduced, so it is the likely cause,
+not a proven one.
+
+Under loss, a resend arriving after its answer is routine (sec 737
+resends at 600 ms). So the chance of this rises with the loss rate and
+with how many requests a round sends in pieces.
+
+**Not fixed: the choice is the holder's.** Options, with costs:
+
+- *Answer a piece of an already-answered request from the kept reply*
+  (sec 737's cache), never opening a partial for it. The cache matches
+  on a digest of the whole request, which one piece cannot give, so
+  the entry would also be matched on sender, message number and the
+  frame's expiry. The cost: a resend of k pieces draws up to k copies
+  of the reply. Recommended.
+- *A sender's newer message replaces its own held partial at the
+  quota.* The bound is unchanged, but two concurrent chunked requests
+  from one sender would then evict each other.
+- *A quota of 2 and a hold near the caller's 3 s wait.* A mitigation
+  only: message 16 began within a second of 14, inside any hold.
+
+Separately, a refused piece could be logged at debug level. This
+failure would then have shown at the receiver in its first run.
