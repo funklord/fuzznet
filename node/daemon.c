@@ -3011,15 +3011,18 @@ static int pieces_back(struct pull_target *pulls, size_t npulls, uint64_t now,
 	static uint8_t reply[FZND_PULL_REPLY_MAX];
 	char name[FZN_LOG_BUCKETS_NAME_MAX + 1u];
 	uint32_t here = 0;
-	unsigned i, local = 0;
+	unsigned i, local = 0, held_here, asked = 0, holding = 0;
 	size_t item_len = 0, len = 0, written = 0, placed = 0;
 	uint64_t closed;
 	uint8_t *item;
 	int ok;
 
 	(void)fzn_pieces_held(node_pieces.dir, id, &here);
-	for (i = 0; i < k + m; i++)
+	for (i = 0; i < k + m; i++) {
 		local += (here >> i) & 1u;
+		holding += (kept & ~here) >> i & 1u;
+	}
+	held_here = local;
 	for (i = 0; i < k + m && local < k; i++) {
 		struct pull_target *pt;
 		uint8_t piece_id[FZN_BUCKETS_ID_LEN], of[FZN_BUCKETS_ID_LEN], *bytes;
@@ -3030,6 +3033,7 @@ static int pieces_back(struct pull_target *pulls, size_t npulls, uint64_t now,
 		    || !fzn_piece_buckets_piece_id(&node_pieces, id, i, piece_id, &size)
 		    || size == 0u || size > FZN_BUCKETS_LARGE_MAX || (bytes = malloc((size_t)size)) == NULL)
 			continue;
+		asked++;
 		{
 			struct peer_asking asking = { &pt->caller, now, pt->host, pt };
 
@@ -3045,6 +3049,13 @@ static int pieces_back(struct pull_target *pulls, size_t npulls, uint64_t now,
 		if (ok)
 			local++;
 	}
+	/* HOW FAR IT GOT, for a rebuild that waits on a later round: what was
+	 * here, and of the keepers holding the rest, how many were asked and
+	 * how many answered with their piece (sec 740). */
+	if (local < k)
+		say(FZN_ENTRY_DEBUG, "log/copy", "a rebuild had %u of the %u pieces it needs: %u here, "
+		                                 "%u fetched of %u asked, %u keeper(s) holding",
+		    local, k, held_here, local - held_here, asked, holding);
 	if (local < k || fzn_pieces_item_len(node_pieces.dir, id, &item_len) != FZN_PIECES_OK
 	    || (item = malloc(item_len)) == NULL)
 		return 0;

@@ -73466,3 +73466,50 @@ plain log holds only a summary line ("N put back"); the rounds are in
 its packed log segments, not read. Phase d has failed under loss before,
 on the script's own condition (sec 737), which was fixed. This one is
 not explained.
+
+## 740. Erasure's phase d under loss: the rebuild works, the round loses peers, 2026-10-28
+
+**Chased from sec 739's one failure in four, where B put back none of
+C's pieces in eight rounds.** Of 12 runs at 20% loss today, 10 reached
+phase d and all 10 passed it. The rebuild is not what fails.
+- **Measured with a new debug line** in `pieces_back`: a rebuild that
+  comes up short says how many pieces were here, how many keepers held
+  the rest, and how many were asked and fetched. Every fetch asked for
+  arrived (1 of 1, 2 of 2). A rebuild fell short only because too few
+  keepers had answered that round: 1 or 2 holding, where 4 + 2 with C's
+  piece gone needs 3.
+- **A peer is passed over for the whole round when one exchange fails
+  every try** (sec 737). A try is the request out and the reply back;
+  `fzn_caller_ask` and the round's asks give a message four tries in a
+  3 s wait, at 600 ms slices, and a slice in which part of a reply
+  arrived sends nothing. At 20% loss each way one exchange fails about
+  1.7% of the time, and a peer has some twenty in a round, so about 30%
+  of peers are passed over in any round. B's logs agree: one or two of
+  five most rounds, with every peer idle (none was in its own round).
+- **Shown in one round:** D logged B's message 1 and message 0's
+  second try, and nothing more. B read 2 datagrams of what D sent, its
+  last try was lost, and B passed D over 3 s into the round. In the same
+  round a second peer failed its logs exchange, so its pieces were not
+  asked either. With C's piece gone, B had 3 of the 4 a rebuild needs.
+- **So phase d needs C and at least three other keepers to answer in
+  one round**, and the script's eight rounds are usually enough: about
+  half the rounds qualify. Earlier phase d failures were most likely
+  eight bad rounds in a row, or a hung peer (below).
+- **Phase c fails the same way**, once in the 12: every host held
+  its piece, but C did not answer B's count in the rounds that counted,
+  so B never let its copies of C's pieces go.
+- **Not changed, a trade to decide:** more tries per message, or a
+  longer wait, would pass over fewer peers at a cost in round length at
+  every loss rate. Sec 737 chose the current figures.
+
+**A daemon went silent for two minutes, unexplained.** In one run A
+logged its last reply at 10:24:37.86, after its pulls had passed three
+peers over, the last one refused by reassembly "at its slot quota". It
+then logged nothing, replies included, until the script stopped it at
+the 120 s wait. The others passed A over meanwhile. Nothing survived to
+tell a hang from a stall. `daemon.wait_for` in `tool/live_rejoin.py`
+now records, on a timed-out wait, the daemon's state, its wait channel,
+and a `gdb` backtrace written as `stuck-PID.txt` beside its log, so a
+run kept with `--keep` holds them. Not seen in the 4 runs after it,
+which predate the capture.
+`tool/live_erasure.py` takes `--keep-passed`, as `live_estate.py` does.

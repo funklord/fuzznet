@@ -212,9 +212,35 @@ class daemon:
 				# ITS LAST WORDS ON LOGS AND PIECES, which is where a phase
 				# that waits on them most often went wrong.
 				said = [l for l in self.log().splitlines() if "log/copy" in l][-6:]
-				raise failed("%s: no %s was logged within %d s%s" % (
-					self.tag, what, within, "".join("\n  " + l for l in said)))
+				raise failed("%s: no %s was logged within %d s%s%s" % (
+					self.tag, what, within, "".join("\n  " + l for l in said),
+					self.stuck()))
 			time.sleep(0.2)
+
+	def stuck(self):
+		"""WHAT A DAEMON THAT SAID NOTHING WAS DOING, sec 740: its state
+		and wait channel, and a backtrace written beside its log, so a run
+		kept with `--keep` holds it. A daemon that logged nothing for two
+		minutes while its peers passed it over could not be told hung from
+		slow once it was stopped. gdb detaches at the end of its batch and
+		is held to 30 s; without gdb, the state alone."""
+		try:
+			with open("/proc/%d/stat" % self.proc.pid) as f:
+				state = f.read().rsplit(")", 1)[1].split()[0]
+			with open("/proc/%d/wchan" % self.proc.pid) as f:
+				wchan = f.read().strip() or "-"
+		except (OSError, IndexError):
+			return ""
+		path = os.path.join(self.log_dir, "stuck-%d.txt" % self.proc.pid)
+		try:
+			with open(path, "wb") as out:
+				subprocess.run(["gdb", "-nx", "--batch", "-p", str(self.proc.pid),
+				                "-ex", "thread apply all bt"], stdout=out,
+				               stderr=subprocess.STDOUT, timeout=30)
+		except (OSError, subprocess.TimeoutExpired):
+			path = None
+		return "\n  state %s, waiting in %s%s" % (
+			state, wchan, ", backtrace in " + path if path else "")
 
 	def settled(self, after, within=60.0):
 		"""THE END OF THE ROUND that logged `after`, a match `wait_for`

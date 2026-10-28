@@ -24,7 +24,9 @@ one deadline -- 480 s here, six hosts going round in turn -- each daemon in
 its own process group, and every daemon checked gone.
 
 `--loss P` runs every daemon at FZN_FAULT_LOSS=P, against the fault build's
-daemon (sec 736).
+daemon (sec 736). `--keep DIR` copies a failed run's stores and logs there,
+and `--keep-passed` a passing run's as well, so a phase's rounds can be read
+when it passes slowly.
 
 Exit 0 on a pass, 1 on a failure.
 """
@@ -60,10 +62,16 @@ def main(argv):
 	# `--loss P`, sec 736: every daemon at FZN_FAULT_LOSS=P, one seed per
 	# run, so PATH must be `make fuzznetd-faults`' daemon.
 	# `--keep DIR`: a failed run's stores and logs copied there.
-	loss, keep = 0, None
+	loss, keep, keep_passed = 0, None, False
 	rest = argv[2:]
 	argv = argv[:2]
-	while len(rest) >= 2 and rest[0] in ("--loss", "--keep"):
+	while rest and rest[0] in ("--loss", "--keep", "--keep-passed"):
+		if rest[0] == "--keep-passed":
+			keep_passed = True
+			rest = rest[1:]
+			continue
+		if len(rest) < 2:
+			break
 		if rest[0] == "--loss" and rest[1].isdigit():
 			loss = int(rest[1])
 		elif rest[0] == "--keep":
@@ -71,9 +79,9 @@ def main(argv):
 		else:
 			break
 		rest = rest[2:]
-	if len(argv) != 2 or rest:
-		print("usage: live_erasure.py PATH_TO_FUZZNETD [--loss PER_CENT] [--keep DIR]",
-		      file=sys.stderr)
+	if len(argv) != 2 or rest or (keep_passed and not keep):
+		print("usage: live_erasure.py PATH_TO_FUZZNETD [--loss PER_CENT] [--keep DIR "
+		      "[--keep-passed]]", file=sys.stderr)
 		return 2
 	if loss:
 		os.environ["FZN_FAULT_LOSS"] = str(loss)
@@ -288,6 +296,9 @@ def main(argv):
 			if lost is not None:
 				print("livecheck: d: C lost its %d piece(s); B fetched from the other "
 				      "keepers, rebuilt each fossil and put them back" % len(lost))
+			if keep and keep_passed:
+				shutil.copytree(scratch, keep, symlinks=True)
+				print("livecheck: the run's stores and logs kept in %s" % keep)
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			if keep:
