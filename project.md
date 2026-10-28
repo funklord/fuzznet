@@ -73391,3 +73391,43 @@ may be enough to ask with. Nothing on netcfgd's side waits on a date.
 hull runs as root. fuzznet's specs name no chroot backend, so nothing
 here changes. If the NAT test moves gateways onto chroot, ports and an
 uplink are there without `(network host)`.
+
+## 739. The loss bar after the caller fixes, and a read position that does not travel, 2026-10-28
+
+**Measured** (`./faults/fuzznetd` at `bb212b0`, four runs side by side a
+batch):
+
+| journey | 0% | 5% | 20% |
+|---|---|---|---|
+| 1, estate (`live_estate.py`) | 4 of 4 | 4 of 4 | 8 of 8 |
+| 2, 1:1 chat (`live_chat.py`) | | | 3 of 4 |
+| 3, erasure (`live_erasure.py`) | | | 3 of 4 |
+
+With the eight estate runs of the evening before, the estate journey has
+passed 15 of 16 at 20% since the slot fixes. The one failure was a local
+socket timeout under load (sec 737). That is still short of ten runs at
+each level for journeys 2 and 3.
+
+**Journey 2's failure is a contract the store cannot keep under loss.**
+B1 and B2, one user's two devices, list A's two lines in different
+orders: B1 `a2a2, a1a1, b2b2, b1b1`, B2 `a1a1, a2a2, b2b2, b1b1`, newest
+first. B1 reads through `a2a2`, and B2 still counts `a1a1` unread.
+- `messages/messages.h` orders a conversation "in the order this store
+  learned of them" (sec 528). It also says, on the holder's word of
+  2026-10-08, that a read position travels, so that "reading on one
+  device clears unread on every other".
+- A read position is a line id, and unread means the lines after it in
+  this store's order. When loss lets two devices learn two lines in
+  opposite orders, the same position means different things on each.
+- **Not changed, and the holder's:** either the order or what a read
+  position means has to move. For instance, unread could be judged
+  against the position's line's `stime`, or the order kept by `stime`
+  and id rather than by arrival. Both are settled decisions in this
+  tree. Seen once in 4 runs at 20%; earlier runs at 20% passed 3 of 3.
+
+**Journey 3's failure was in phase d:** C lost its 3 pieces, and after
+the eight rounds the script allows under loss B had put back none. B's
+plain log holds only a summary line ("N put back"); the rounds are in
+its packed log segments, not read. Phase d has failed under loss before,
+on the script's own condition (sec 737), which was fixed. This one is
+not explained.
