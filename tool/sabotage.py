@@ -882,7 +882,7 @@ SABOTAGES = [
 	(
 		"caller-refuses-a-reply-past-the-buffer",
 		"node/caller.c",
-		"\t\tif (done->bytes > reply_cap) {",
+		"\t\tif (whole_len > reply_cap) {",
 		"\t\tif (0) {",
 		"a reply larger than the caller's buffer is refused whole rather "
 		"than copied as far as it fits. A prefix of a reply is a different "

@@ -1480,6 +1480,7 @@ struct peer_asking {
 };
 static int silent_peer(const struct pull_target *pt);
 static void silent_mark(const struct pull_target *pt);
+static void silent_heard(const struct pull_target *pt);
 
 /* ---- links and traffic, sec 631 ------------------------------------------------
  *
@@ -1710,6 +1711,8 @@ static int peer_ask(void *ctx, const uint8_t *request, size_t request_len, uint8
 		return 0;
 	}
 	link_answered(li, began, *reply_len, 0);
+	if (asking->pt)
+		silent_heard(asking->pt);
 	said_refusal(asking->host, reply, *reply_len);
 	return 1;
 }
@@ -1804,32 +1807,104 @@ static const int address_plan[] = { ROUND_ADDRESS, ROUND_ADDRESS_SETTLE, 0 };
  * peer whose journal pull goes unanswered is passed over by the rest of the
  * round, which otherwise waited out a timeout at every step -- a root away
  * cost a member every exchange of its round before its siblings were asked.
- * Kept by host and port rather than on the target, since a round rebuilds
- * its sibling targets after the pull; cleared when a round starts, so each
- * round asks every peer again. */
+ * Kept by host and port rather than on the target, with the host copied,
+ * since a round rebuilds its sibling targets after the pull; its misses
+ * cleared when a round starts, so each round asks every peer again.
+ *
+ * TWO MISSES IN A ROW FOR A PEER THAT HAS ANSWERED, sec 742. At 20 per
+ * cent loss an ask goes unanswered through all its resends about one time
+ * in sixty, and a round asks a peer dozens of times: one miss passed a
+ * live peer over for the rest of its round in three restarts of six. A
+ * peer that has answered nothing this round or the last is still passed
+ * over at its first miss, so a peer that is down costs what it did; one
+ * gone down since the last round costs one 3 s wait more, once. The last
+ * round counts because a round's first ask lost was a miss before any
+ * answer, and passed the peer over just the same. */
 static struct {
-	const char *host;
+	char host[FZN_UDP_HOST_MAX + 1u];
 	long port;
+	int heard;
+	int heard_before;
+	unsigned misses;
 } silent[FZND_ROUND_TARGETS_MAX];
 static size_t n_silent;
 
-static int silent_peer(const struct pull_target *pt)
+static size_t silent_find(const struct pull_target *pt)
 {
 	size_t i;
 
 	for (i = 0; i < n_silent; i++)
 		if (silent[i].port == pt->port && strcmp(silent[i].host, pt->host) == 0)
-			return 1;
-	return 0;
+			return i;
+	return n_silent;
+}
+
+static int silent_peer(const struct pull_target *pt)
+{
+	size_t i = silent_find(pt);
+
+	return i < n_silent
+	       && silent[i].misses >= (silent[i].heard || silent[i].heard_before ? 2u : 1u);
+}
+
+/* The row of the peer at `host` and `port`, made when it has none;
+ * FZND_ROUND_TARGETS_MAX when the table is full. */
+static size_t silent_row(const char *host, long port)
+{
+	size_t i;
+
+	for (i = 0; i < n_silent; i++)
+		if (silent[i].port == port && strcmp(silent[i].host, host) == 0)
+			return i;
+	if (n_silent == FZND_ROUND_TARGETS_MAX || strlen(host) >= sizeof(silent[0].host))
+		return FZND_ROUND_TARGETS_MAX;
+	memset(&silent[i], 0, sizeof(silent[i]));
+	strcpy(silent[i].host, host);
+	silent[i].port = port;
+	n_silent++;
+	return i;
 }
 
 static void silent_mark(const struct pull_target *pt)
 {
-	if (n_silent < FZND_ROUND_TARGETS_MAX && !silent_peer(pt)) {
-		silent[n_silent].host = pt->host;
-		silent[n_silent].port = pt->port;
-		n_silent++;
+	size_t i = silent_row(pt->host, pt->port);
+
+	if (i < FZND_ROUND_TARGETS_MAX)
+		silent[i].misses++;
+}
+
+/* A ROUND BEGUN: every peer asked again, and whether each answered in the
+ * round now over kept, sec 742. */
+static void silent_round_start(void)
+{
+	size_t i, kept = 0;
+
+	for (i = 0; i < n_silent; i++)
+		if (silent[i].heard) {
+			silent[kept] = silent[i];
+			silent[kept].heard_before = 1;
+			silent[kept].heard = 0;
+			silent[kept].misses = 0;
+			kept++;
+		}
+	n_silent = kept;
+}
+
+/* AN ANSWER from the peer at `host` and `port`, sec 742: its misses start
+ * again from none. */
+static void silent_heard_at(const char *host, long port)
+{
+	size_t i = silent_row(host, port);
+
+	if (i < FZND_ROUND_TARGETS_MAX) {
+		silent[i].heard = 1;
+		silent[i].misses = 0;
 	}
+}
+
+static void silent_heard(const struct pull_target *pt)
+{
+	silent_heard_at(pt->host, pt->port);
 }
 
 /* A PEER'S JOURNAL WINDOW, sec 708: how many records one request of its
@@ -1940,9 +2015,11 @@ struct meter {
 static void meter_answer(struct meter *m, const uint8_t *reply, size_t reply_len)
 {
 	link_answered(m->li, m->began, reply_len, !reply);
-	if (reply)
+	if (reply) {
+		if (m->pt && m->silences)
+			silent_heard(m->pt);
 		said_refusal(m->host, reply, reply_len);
-	else if (m->pt && m->silences)
+	} else if (m->pt && m->silences)
 		silent_mark(m->pt);
 }
 
@@ -4268,6 +4345,11 @@ static struct {
 	uint8_t peer[FZN_PUBKEY_LEN];
 	uint8_t nonce[FZN_NODE_TIME_NONCE_LEN];
 	uint64_t sent_ms;
+	/* A ROUND TARGET'S, where it is, so its answer counts as heard (sec
+	 * 742); a contact host's is not one. */
+	int target;
+	char host[FZN_UDP_HOST_MAX + 1u];
+	long port;
 } time_asks[FZN_NODE_ASKS_MAX];
 
 /* THIS NODE'S OWN CLOCK AGAINST ITS ESTATE'S, sec 719 stage 2, judged after
@@ -4313,6 +4395,8 @@ static void time_answered(void *ctx, const uint8_t *reply, size_t reply_len)
 	if (!reply || !fzn_node_time_take(reply, reply_len, time_asks[i].nonce,
 	                                  time_asks[i].sent_ms, wall_ms(), &offset, &rtt))
 		return;
+	if (time_asks[i].target)
+		silent_heard_at(time_asks[i].host, time_asks[i].port);
 	err = fzn_node_offsets_note(&node_offsets, time_asks[i].peer, time_asks[i].estate, offset,
 	                            rtt, wall_clock());
 	if (err == FZN_NODE_CLOCKS_ROOM) {
@@ -4349,7 +4433,7 @@ static void time_ask_contacts(uint64_t now);
 
 /* `pt` stamped, and its clock asked if not sampled in TIME_ASK_EVERY; 0
  * once the ask table is full, 1 otherwise. */
-static int time_ask_one(struct pull_target *pt, int estate, uint64_t now)
+static int time_ask_one(struct pull_target *pt, int estate, int target, uint64_t now)
 {
 	const uint8_t *peer = pt->pairing.node;
 	const fzn_random_ops_t *rng = pt->caller.rng;
@@ -4371,6 +4455,11 @@ static int time_ask_one(struct pull_target *pt, int estate, uint64_t now)
 	memcpy(time_asks[i].peer, peer, FZN_PUBKEY_LEN);
 	time_asks[i].estate = estate;
 	time_asks[i].sent_ms = wall_ms();
+	time_asks[i].target = target && strlen(pt->host) < sizeof(time_asks[i].host);
+	if (time_asks[i].target) {
+		strcpy(time_asks[i].host, pt->host);
+		time_asks[i].port = pt->port;
+	}
 	time_asks[i].used = 1;
 	if (!fzn_node_asks_send(&round_asks, &pt->caller, ask, len, now + 300u, 3000u, time_answered,
 	                        (void *)(uintptr_t)i))
@@ -4386,7 +4475,7 @@ static void time_ask_targets(struct pull_target *pulls, size_t npulls, uint64_t 
 	size_t t;
 
 	for (t = 0; t < npulls; t++)
-		if (!time_ask_one(&pulls[t], peer_in_estate(&pulls[t]), now))
+		if (!time_ask_one(&pulls[t], peer_in_estate(&pulls[t]), 1, now))
 			return;
 	time_ask_contacts(now);
 }
@@ -4467,9 +4556,11 @@ static void journal_settle(struct pull_target *pulls, size_t npulls, uint64_t no
 			*window = *window * 2u > FZN_NODE_JOURNAL_WINDOW ? FZN_NODE_JOURNAL_WINDOW
 			                                                : *window * 2u;
 		if (jt->pull_err == FZN_EXCHANGE_ERR_NO_ANSWER) {
-			/* PASSED OVER FOR THE REST OF THE ROUND, sec 587. */
-			say(FZN_ENTRY_WARNING, "journal", "%s did not answer; passed over this round",
-			    host);
+			/* PASSED OVER FOR THE REST OF THE ROUND, sec 587 -- or asked
+			 * again, having answered this round or the last, sec 742. */
+			say(FZN_ENTRY_WARNING, "journal", "%s did not answer; %s", host,
+			    silent_peer(&pulls[jt->t]) ? "passed over this round"
+			                               : "asked again, having answered lately");
 			continue;
 		}
 		if (jt->pull_err != FZN_EXCHANGE_OK)
@@ -6127,7 +6218,7 @@ static void time_ask_contacts(uint64_t now)
 	size_t t;
 
 	for (t = 0; t < ncontact_targets; t++)
-		if (!time_ask_one(&contact_targets[t].pt, 0, now))
+		if (!time_ask_one(&contact_targets[t].pt, 0, 0, now))
 			return;
 }
 
@@ -15222,7 +15313,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 #ifdef FZN_RECORD_STORE_FILE_ON
 					intro_note_silent(pulls, npulls_base, npulls);
 #endif
-					n_silent = 0;
+					silent_round_start();
 #ifdef FZN_RECORD_STORE_FILE_ON
 					npulls = npulls_base + load_siblings(pulls, npulls_base, family,
 					                                     identity.pubkey, state.config.root,

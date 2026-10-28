@@ -73593,5 +73593,60 @@ before. B still passed A over in three of those six, each time after
 one ask went unanswered through all three resends: at 20% loss on each
 send that is about 1.7% an ask, and a round asks A dozens of times.
 That is sec 740's other half, a peer lost to the round for one lost
-ask, and is open. Three full journeys at 20% loss after the fix all
+ask, fixed in sec 742. Three full journeys at 20% loss after the fix all
 passed, phases c and d included; three is not enough to give a rate.
+
+## 742. One lost ask no longer costs a live peer its round, 2026-10-29
+
+Sec 741's restarts of A and B at 20% loss still had B pass A over for
+the rest of a round in three of six. Two causes, both fixed.
+
+**The round's silence table passed a peer over at its first miss**
+(sec 587, widened to in-turn asks in sec 726). That was built for a
+peer that is down, which costs a 3 s wait at every step it is asked.
+But at 20% loss an ask goes unanswered through all three resends
+about one time in sixty, and a round asks a peer dozens of times. Now
+a peer that has answered this round or the last is passed over only
+at its second miss in a row (`silent_peer` in `node/daemon.c`); any
+answer clears its misses. A peer that has answered neither is still
+passed over at its first miss, so a peer that is down costs what it
+did. One gone down since the last round costs one 3 s wait more, once.
+The last round counts because a round's first ask, lost, was a miss
+before any answer and passed the peer over just the same: measured in
+one restart of six before that was added. Every answer from a round
+target counts as heard, the clock ask's (sec 719) too: it goes through
+the ask table rather than the meter, and in a restart its answer was
+the only one before a lost journal pull, which then passed A over. The
+journal's warning says which it was: "passed over this round", or
+"asked again, having answered lately".
+
+**A one-piece reply was refused behind another message's partial.** A
+round target's caller has a reply table of one slot (sec 704), and two
+asks of a round can be in flight on it. In one restart, B's journal
+pull (message 0) and another ask (message 1) went 0.3 ms apart. Message
+0's reply came in two pieces and one was lost; message 1's 26-byte
+reply, and its resend's kept copy, were then refused at the sender's
+quota. Now a reply of one piece skips the table
+(`node/caller.c`), as a request of one frame already does at the node
+(`node/serve.c`, step 8). It went through the table before so the two
+paths could not differ, and the measured failure outweighs that.
+
+Open: two replies of several pieces each, in flight on one target,
+still contend for its one slot. A second slot per target would cost
+`FZND_PULL_REPLY_MAX` each. That is not measured to happen yet.
+
+Verified: `node/test/pair_test.c` plants a partial in the caller's
+one-slot table and gets a one-piece reply through it; with the bypass
+disabled that check fails. Both paths share one tail, so the sabotage
+entries on it still name one site each; the reply-past-the-buffer
+entry follows its guard there. The earlier one-slot cases (sec 737)
+now answer with a two-piece reply sent by hand, since a one-piece reply
+no longer shows a held slot, and they keep their controls. The silence
+rule has no unit test, being static in the daemon. Its evidence is
+live: restarting A and B from sec 741's kept stores at 20% loss, six
+times, B never passed A over, where it did in about half before; five
+of six pushed the pieces, and the sixth lost the pieces ask itself, a
+step that fails for its round and is asked again the next. Then, at a
+load of 19 to 42 from other work, two estate journeys at `--skew 900`,
+whose phase f stops R (sec 726's case of a peer down), and three
+erasure journeys at 20% loss: all five passed.

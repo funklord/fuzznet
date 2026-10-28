@@ -580,6 +580,33 @@ static uint16_t port_of(int fd)
 	return ntohs(((struct sockaddr_in *)&ss)->sin_port);
 }
 
+/* A REPLY IN TWO PIECES to a new message of `caller`'s, `*msg`, sent from
+ * the node's socket as the node seals one: 16 bytes whole. A reply of one
+ * piece skips the caller's table (sec 742), so the cases that show a held
+ * slot refusing the next reply need one that takes a slot. */
+static int reply_in_two(const fzn_node_peer_t *peer, const uint8_t node_pubkey[FZN_PUBKEY_LEN],
+                        const fzn_aead_ops_t *aead, int node_fd, fzn_caller_t *caller,
+                        uint32_t *msg)
+{
+	static const uint8_t HALVES[16] = { 'f', 'i', 'r', 's', 't', 'h', 'a', 'l',
+	                                    'l', 'a', 's', 't', 'h', 'a', 'l', 'f' };
+	uint8_t frame[FZN_UDP_DATAGRAM_MAX];
+	size_t flen = 0;
+	fzn_udp_addr_t to;
+	uint16_t i;
+
+	if (fzn_udp_resolve(AF_INET, "127.0.0.1", port_of(caller->fd), &to) != FZN_UDP_OK)
+		return 0;
+	*msg = caller->next_msg++;
+	for (i = 0; i < 2u; i++)
+		if (fzn_node_seal_reply_chunk(peer, node_pubkey, HALVES + 8u * i, 8u, *msg, i, 2u, 0u,
+		                              &hash_ops, &rng_ops, aead, frame, sizeof(frame), &flen)
+		            != 0
+		    || fzn_udp_send(node_fd, &to, frame, flen) != FZN_UDP_OK)
+			return 0;
+	return 1;
+}
+
 /* THE ASKS TEST'S CLOCK AND CALLBACK, sec 636. */
 static uint64_t ask_now;
 static int answers, failures_seen;
@@ -718,23 +745,51 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		CHECK(fzn_reasm_accept(&table, caller.answerer, 999999u, 0u, 2u, PIECE, sizeof(PIECE),
 		                       0u, t, &held)
 		                      == FZN_REASM_OK
-		              && fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
-		              && fzn_node_run_once(&state, 1000) == 1
+		              && reply_in_two(&peers[0], node->id.pubkey, &aead, node_fd, &caller, &msg)
 		              && fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len, 2000u)
 		                         == FZN_CALLER_ERR_REASSEMBLY,
 		      "control: a partial held now did not take the node's one slot here");
+		fzn_caller_forget(&caller, msg);
+		{
+			uint32_t got = 0;
+
+			/* Its second piece, dropped as late. */
+			(void)fzn_caller_recv_any(&caller, &got, reply, sizeof(reply), &reply_len, 200u);
+		}
 		CHECK(fzn_reasm_forget(&table, caller.answerer, 999999u) == 1u,
 		      "control: the partial planted was not there to forget");
 		CHECK(fzn_reasm_accept(&table, caller.answerer, 999999u, 0u, 2u, PIECE, sizeof(PIECE),
 		                       0u, t - 120u, &held)
 		                      == FZN_REASM_OK
+		              && reply_in_two(&peers[0], node->id.pubkey, &aead, node_fd, &caller, &msg)
+		              && fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len, 2000u)
+		                         == FZN_CALLER_OK
+		              && reply_len == 16u,
+		      "a partial past its hold kept the node's one slot here, and its reply was "
+		      "refused: the caller's reassembly is not told the time");
+	}
+
+	/* ---- A REPLY OF ONE PIECE PASSES ANOTHER'S PARTIAL, sec 742: a round
+	 * target's caller has one slot, and two asks of a round may be in
+	 * flight on it. While one's reply of two pieces was short a piece,
+	 * the other's reply of one was refused at quota, and the peer was
+	 * passed over for the round. The control is the case above: a reply
+	 * that takes a slot is refused behind a held partial. */
+	{
+		static const uint8_t PIECE[1] = { 'x' };
+		fzn_partial_t *held = NULL;
+
+		CHECK(fzn_reasm_accept(&table, caller.answerer, 999998u, 0u, 2u, PIECE, sizeof(PIECE),
+		                       0u, (uint64_t)time(NULL), &held)
+		                      == FZN_REASM_OK
 		              && fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
 		              && fzn_node_run_once(&state, 1000) == 1
 		              && fzn_caller_recv(&caller, msg, reply, sizeof(reply), &reply_len, 2000u)
 		                         == FZN_CALLER_OK
-		              && reply_len == sizeof(PONG),
-		      "a partial past its hold kept the node's one slot here, and its reply was "
-		      "refused: the caller's reassembly is not told the time");
+		              && reply_len == sizeof(PONG) && memcmp(reply, PONG, sizeof(PONG)) == 0,
+		      "a reply of one piece was refused behind another message's partial");
+		CHECK(fzn_reasm_forget(&table, caller.answerer, 999998u) == 1u,
+		      "fixture: the partial planted was not there to forget");
 	}
 
 	/* ---- A LATE PIECE OF A MESSAGE GIVEN UP ON IS DROPPED, sec 737: the
@@ -761,14 +816,17 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		                                sizeof(frame), &flen)
 		                      == 0
 		              && fzn_udp_send(node_fd, &dev_addr, frame, flen) == FZN_UDP_OK
-		              && fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
-		              && fzn_node_run_once(&state, 1000) == 1
+		              && reply_in_two(&peers[0], node->id.pubkey, &aead, node_fd, &caller, &msg)
 		              && fzn_caller_recv_any(&caller, &got, reply, sizeof(reply), &reply_len, 2000u)
 		                         == FZN_CALLER_ERR_REASSEMBLY
 		              && caller.pieces == pieces + 1u,
 		      "control: a stray piece of a message not given up on did not take the node's one "
 		      "slot here");
 		fzn_caller_forget(&caller, stray);
+		fzn_caller_forget(&caller, msg);
+		/* The control reply's second piece, dropped as late here so the
+		 * count below sees only its own. */
+		(void)fzn_caller_recv_any(&caller, &got, reply, sizeof(reply), &reply_len, 200u);
 
 		stray = caller.next_msg++;
 		fzn_caller_forget(&caller, stray);
@@ -778,11 +836,10 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		                                sizeof(frame), &flen)
 		                      == 0
 		              && fzn_udp_send(node_fd, &dev_addr, frame, flen) == FZN_UDP_OK
-		              && fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
-		              && fzn_node_run_once(&state, 1000) == 1
+		              && reply_in_two(&peers[0], node->id.pubkey, &aead, node_fd, &caller, &msg)
 		              && fzn_caller_recv_any(&caller, &got, reply, sizeof(reply), &reply_len, 2000u)
 		                         == FZN_CALLER_OK
-		              && got == msg && reply_len == sizeof(PONG) && caller.late == late + 1u,
+		              && got == msg && reply_len == 16u && caller.late == late + 1u,
 		      "a late piece of a message given up on took the node's one slot here, and the "
 		      "next reply was refused");
 
@@ -822,11 +879,10 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		                                sizeof(frame), &flen)
 		                      == 0
 		              && fzn_udp_send(node_fd, &dev_addr, frame, flen) == FZN_UDP_OK
-		              && fzn_caller_send(&caller, PING, sizeof(PING), 3500u, &msg) == FZN_CALLER_OK
-		              && fzn_node_run_once(&state, 1000) == 1
+		              && reply_in_two(&peers[0], node->id.pubkey, &aead, node_fd, &caller, &msg)
 		              && fzn_caller_recv_any(&caller, &got, reply, sizeof(reply), &reply_len, 2000u)
 		                         == FZN_CALLER_OK
-		              && got == msg && reply_len == sizeof(PONG) && caller.late == late + 1u,
+		              && got == msg && reply_len == 16u && caller.late == late + 1u,
 		      "a late piece of a message answered already took the node's one slot here");
 	}
 

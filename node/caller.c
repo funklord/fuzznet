@@ -323,6 +323,8 @@ static fzn_caller_err_t receive(fzn_caller_t *caller, int any, uint32_t *msg, ui
 		fzn_opened_t opened;
 		fzn_partial_t *done = NULL;
 		fzn_reasm_err_t rerr;
+		const uint8_t *whole;
+		size_t whole_len;
 
 		if (timeout_ms) {
 			uint64_t now = since_boot_ms();
@@ -374,11 +376,21 @@ static fzn_caller_err_t receive(fzn_caller_t *caller, int any, uint32_t *msg, ui
 			continue;
 		}
 
-		/* ONE PIECE STILL GOES THROUGH REASSEMBLY. A reply of one frame
-		 * could be copied straight out, and that second path is where a
-		 * single-frame answer and a first chunk would come to be handled
-		 * differently -- the same argument `node/serve.c` makes for
-		 * planning every reply, including the ones that fit. */
+		/* A REPLY OF ONE PIECE SKIPS THE TABLE, sec 742, as a request of
+		 * one frame does at the node (`node/serve.c`, step 8). It went
+		 * through reassembly once, so the two paths could not differ --
+		 * and a round target's table has one slot, so while another
+		 * message's reply was short a piece, this one was refused at
+		 * the sender's quota, every resend of it alike. Measured at 20
+		 * per cent loss: a 26-byte answer refused twice behind a 2-piece
+		 * one that had lost a piece, and the peer passed over for the
+		 * round. An empty one still goes to the table, which refuses it. */
+		if (opened.chunks == 1u && opened.index == 0u && opened.payload_len) {
+			whole = opened.payload;
+			whole_len = opened.payload_len;
+			caller->pieces++;
+			goto answered;
+		}
 		/* THE TIME, NOT 0, sec 737, in seconds as frames' expiries are.
 		 * With 0 nothing in the table ever expired, so a partial left by a
 		 * piece that came after its ask was forgotten held its sender's
@@ -412,17 +424,22 @@ static fzn_caller_err_t receive(fzn_caller_t *caller, int any, uint32_t *msg, ui
 			continue;
 		}
 
-		if (done->bytes > reply_cap) {
+		whole = done->buf;
+		whole_len = done->bytes;
+	answered:
+		if (whole_len > reply_cap) {
 			/* A prefix of a reply is a different reply. The slot is
 			 * released either way, or a refused answer would hold it
 			 * until the table expired it. */
-			fzn_reasm_release(done);
+			if (done)
+				fzn_reasm_release(done);
 			return FZN_CALLER_ERR_REPLY_TOO_LONG;
 		}
-		memcpy(reply, done->buf, done->bytes);
-		*reply_len = done->bytes;
+		memcpy(reply, whole, whole_len);
+		*reply_len = whole_len;
 		*msg = opened.msg;
-		fzn_reasm_release(done);
+		if (done)
+			fzn_reasm_release(done);
 		/* ANSWERED, SO SETTLED, sec 737: a resend's kept reply sends every
 		 * piece again, and one arriving after the answer would start a
 		 * partial nothing finishes or forgets, holding a one-slot table's
