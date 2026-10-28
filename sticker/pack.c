@@ -530,11 +530,14 @@ int fzn_sticker_spec_parse(const char *text, size_t len, fzn_sticker_manifest_t 
                            size_t err_cap)
 {
 	fzn_sticker_entry_t *cur = NULL;
-	const char *p = text, *text_end = text + len;
+	const char *p = text, *text_end;
 	size_t line = 0;
 
+	/* THE END AFTER THE CHECK: `text + len` on a null `text` is arithmetic
+	 * on a null pointer, undefined however large `len` (cppcheck). */
 	if (!text || !out)
 		return 0;
+	text_end = text + len;
 	if (err && err_cap)
 		err[0] = '\0';
 	memset(out, 0, sizeof(*out));

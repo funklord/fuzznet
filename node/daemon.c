@@ -6674,7 +6674,10 @@ static int own_card(fzn_contact_card_t *card, const uint8_t *name, size_t name_l
 	memset(card, 0, sizeof(*card));
 	if (name_len > FZN_CONTACT_CARD_NAME_MAX || !contact_id || estate_devices(own, 1u, 0) != 1u)
 		return 0;
-	memcpy(card->name, name, name_len);
+	/* NO NAME IS NULL AND 0, from the box's own card: a copy from a null
+	 * pointer is undefined even of nothing (cppcheck). */
+	if (name_len)
+		memcpy(card->name, name, name_len);
 	card->name_len = name_len;
 	card->host = own[0];
 	if (node_apply.store && node_apply.root

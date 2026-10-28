@@ -222,6 +222,17 @@ static int spec_refused(const char *spec, const char *want)
 
 static void test_what_a_spec_refuses(void)
 {
+	/* NO TEXT IS REFUSED. Its end, `text + len`, was once reckoned before
+	 * the check, arithmetic on a null pointer that cppcheck named. gcc's
+	 * UBSan did not report that order here, so this holds the refusal,
+	 * not the fix. */
+	{
+		static fzn_sticker_manifest_t none;
+		char why[64];
+
+		CHECK(!fzn_sticker_spec_parse(NULL, 5u, &none, why, sizeof(why)),
+		      "a spec with no text was taken");
+	}
 	CHECK(spec_refused("sticker 1 static\n", "line 1: the pack has no name")
 	              || spec_refused("sticker 1 static\n", "no name"),
 	      "a spec with no name was taken");
