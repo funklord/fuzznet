@@ -5018,6 +5018,18 @@ What it does cover, it covers well: the array write was named with its index on
 the first run. **The target has been seen to fire**, which is what separates it
 from a check nobody has watched fail.
 
+**And at -Os, the level it built at, gcc's analyser could not see a leak**
+(2026-10-28, gcc 14.2). A three-line control leaking a malloc on one path
+draws `-Wanalyzer-malloc-leak` at `-O0` and nothing at `-Os`, so both
+`-fanalyzer` misses in the table above may owe something to the level as
+well as to translation units. The target builds at `-O0` since `9ce40b4`.
+The first run there stopped at a 2.5 hour ceiling with 480 objects and
+212 of 259 test binaries built, and drew no finding. The files changed
+that week (`chunk/reassembly.c`, `chunk/split.c`, `node/caller.c`,
+`node/serve.c`, `node/asks.c`) were analysed whole, also with none, the
+control drawing one beside them. cppcheck's half did not run, being
+after the ceiling.
+
 **No header here carries an `extern "C"` guard, and two of the three
 consumers are C++** (2026-08-20). fuzzypickles is Qt, raidcfgd is forty `.cpp`
 files, and both will include these headers from C++ while compiling the
