@@ -5030,16 +5030,40 @@ that week (`chunk/reassembly.c`, `chunk/split.c`, `node/caller.c`,
 control drawing one beside them. cppcheck's half did not run, being
 after the ceiling, and was run on its own the same night (cppcheck
 2.17.1, the target's flags over the 193 sources). A one-past-the-end
-control drew `arrayIndexOutOfBounds`. Over the library it drew three
-findings, all false:
-- `node/local.c:192`, `line` and `line_len` "uninitialized", assuming
-  `while (!have_line)` false on entry. `have_line` starts at 0, and the
-  loop leaves only once `fzn_line_next` has set both.
-- `node/revoke.c:1083`, `views` (`legacyUninitvar`). It is passed only
-  when `n` is nonzero, in the branch whose loop fills `views[0..n-1]`.
+control drew `arrayIndexOutOfBounds`.
 
-Its log lacks the exit line its wrapper should have written, so that it
-read every source is likely rather than shown.
+**It drew 15 findings over the library. Two were real, one is worth
+closing, and twelve are false.** The first record of this run, in
+`23f833d`, said three, all false: it was written from a partial log
+that a watcher had taken for the end. Corrected here.
+- **Real, undefined behaviour:**
+  - `sticker/pack.c:533`: `text + len` was reckoned before
+    `fzn_sticker_spec_parse` refused a null `text`, which is arithmetic
+    on a null pointer. It is reckoned after the check now.
+    `sticker_test` holds the refusal. gcc's UBSan did not report the old
+    order, so no test sees the arithmetic.
+  - `node/daemon.c:6677`: `own_card` copied `name_len` bytes from
+    `name`, and the box's card passes `NULL, 0`. A `memcpy` from a null
+    pointer is undefined even of nothing. It copies only a nonzero
+    length now. No test reaches it.
+- **Closed:** `messages/messages.c:380`: `stored_keep` left the
+  caller's `s->text` pointing at its own wiped stack buffer. No caller
+  reads it after, today. It is cleared now.
+- **False:**
+  - `node/local.c:192`, twice: the loop must run and sets both.
+  - `node/revoke.c:1083`: `views` is passed only where it is filled.
+  - `messages/messages.c:1694`: `parts` is 1 or 2, so `p[0]` is read.
+  - `chain/revocation.c:1064`: `admin_ok` is set for every admin.
+  - `prekey/prekey.c:226`, twice: `peer` is checked at the top, and the
+    log macro checks it again.
+  - `spool/spool.c:165`, `spool/scrub.c:161`: `count` is refused at 0,
+    so the hashes are filled.
+  - `cli/log_print.c:195`: `window[0]` is read only when `got` counts
+    it filled.
+  - `node/stickers.c:334`: `bytes` is assigned in the condition that
+    guards its `free`.
+  - `cli/sweep_print.c:45`: a null `plan` is "nothing captured", and
+    `render` returns before reading it.
 
 **No header here carries an `extern "C"` guard, and two of the three
 consumers are C++** (2026-08-20). fuzzypickles is Qt, raidcfgd is forty `.cpp`
