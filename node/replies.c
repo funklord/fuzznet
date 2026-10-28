@@ -58,9 +58,30 @@ const uint8_t *fzn_node_replies_find(fzn_node_replies_t *r, const uint8_t sender
 	return NULL;
 }
 
+const uint8_t *fzn_node_replies_find_piece(fzn_node_replies_t *r, const uint8_t sender[32],
+                                           uint32_t msg, uint64_t expires_at, uint64_t now,
+                                           size_t *len)
+{
+	size_t i;
+
+	if (!r || !r->kept || !sender || !expires_at || !len)
+		return NULL;
+	expire(r, now);
+	for (i = r->n; i > 0u; i--) {
+		const fzn_node_reply_kept_t *k = &r->kept[i - 1u];
+
+		if (k->msg == msg && k->expires_at == expires_at
+		    && memcmp(k->sender, sender, sizeof(k->sender)) == 0) {
+			*len = k->len;
+			return k->bytes;
+		}
+	}
+	return NULL;
+}
+
 void fzn_node_replies_keep(fzn_node_replies_t *r, const uint8_t sender[32], uint32_t msg,
-                           const uint8_t *request, size_t request_len, uint64_t now,
-                           const uint8_t *reply, size_t reply_len)
+                           uint64_t expires_at, const uint8_t *request, size_t request_len,
+                           uint64_t now, const uint8_t *reply, size_t reply_len)
 {
 	fzn_node_reply_kept_t *k;
 	uint8_t *copy;
@@ -82,6 +103,7 @@ void fzn_node_replies_keep(fzn_node_replies_t *r, const uint8_t sender[32], uint
 	memcpy(copy, reply, reply_len);
 	memcpy(k->sender, sender, sizeof(k->sender));
 	k->msg = msg;
+	k->expires_at = expires_at;
 	k->at = now;
 	k->len = reply_len;
 	k->bytes = copy;

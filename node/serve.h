@@ -189,6 +189,13 @@ typedef struct fzn_node_state {
 	void (*on_replied)(void *ctx, const fzn_opened_t *req, size_t len, unsigned pieces,
 	                   unsigned planned, int kept, const fzn_udp_addr_t *to);
 	void *on_replied_ctx;
+	/* A PIECE REASSEMBLY REFUSED, sec 741, with why: `piece` as it opened,
+	 * from `from`. Said so a sender over its quota is seen at the node it
+	 * cannot reach; otherwise both ends saw only silence. NULL says
+	 * nothing. */
+	void (*on_refused)(void *ctx, const fzn_opened_t *piece, fzn_reasm_err_t err,
+	                   const fzn_udp_addr_t *from);
+	void *on_refused_ctx;
 	/* LOCAL SUBSCRIBERS, sec 609: given, a `get events` from this node's
 	 * own user is kept as a subscriber here and polled for hanging up;
 	 * NULL takes none, and `get events` reaches the handler like any

@@ -11758,6 +11758,22 @@ static void reply_sent(void *ctx, const fzn_opened_t *req, size_t len, unsigned 
 	    (unsigned long)req->msg, len, pieces, planned, kept ? ", kept" : "", where);
 }
 
+/* A PIECE REASSEMBLY REFUSED, at debug, sec 741: a sender over its slot
+ * quota was a node gone silent, seen from both ends. */
+static void piece_refused(void *ctx, const fzn_opened_t *piece, fzn_reasm_err_t err,
+                          const fzn_udp_addr_t *from)
+{
+	char where[FZN_METER_PEER_MAX + 1u];
+
+	(void)ctx;
+	peer_text(from, where, sizeof(where));
+	say(FZN_ENTRY_DEBUG, "node/remote",
+	    "refused %02x%02x%02x%02x message %lu piece %u of %u: %s, from %s",
+	    piece->sender[0], piece->sender[1], piece->sender[2], piece->sender[3],
+	    (unsigned long)piece->msg, (unsigned)piece->index, (unsigned)piece->chunks,
+	    fzn_reasm_err_str(err), where);
+}
+
 /* A PEER'S CLOCK OUT OF THE WINDOW, sec 714, said at most once a minute
  * each way, behind and ahead, since the two say different things:
  * its frames are dropped unanswered, and without this both ends saw only
@@ -14808,6 +14824,8 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 			state.on_stale = clock_out;
 			/* EACH REPLY SENT, at debug, sec 737. */
 			state.on_replied = reply_sent;
+			/* EACH PIECE REFUSED, at debug, sec 741. */
+			state.on_refused = piece_refused;
 			/* GROUPS, sec 626. */
 			node_groups.log.store = node_apply.store;
 			node_groups.log.hash = &hash_ops;

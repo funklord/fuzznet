@@ -73561,19 +73561,37 @@ Under loss, a resend arriving after its answer is routine (sec 737
 resends at 600 ms). So the chance of this rises with the loss rate and
 with how many requests a round sends in pieces.
 
-**Not fixed: the choice is the holder's.** Options, with costs:
+**Fixed by the first of three options, the holder's choice.** A piece
+of a request already answered is answered from sec 737's kept replies
+and never opens a partial (`node/serve.c`). One piece cannot give the
+digest of the whole request the cache matches on, so a kept reply now
+also records the request's expiry and is found for a piece by sender,
+message number and expiry (`fzn_node_replies_find_piece`). A resend
+keeps its expiry; a host started again stamps a later one, so an
+expiry of 0 matches nothing. Only piece 0 is answered and the others
+are dropped, so a resend draws one copy of the reply rather than one a
+piece, and it needs one piece through rather than all of them.
 
-- *Answer a piece of an already-answered request from the kept reply*
-  (sec 737's cache), never opening a partial for it. The cache matches
-  on a digest of the whole request, which one piece cannot give, so
-  the entry would also be matched on sender, message number and the
-  frame's expiry. The cost: a resend of k pieces draws up to k copies
-  of the reply. Recommended.
-- *A sender's newer message replaces its own held partial at the
-  quota.* The bound is unchanged, but two concurrent chunked requests
-  from one sender would then evict each other.
-- *A quota of 2 and a hold near the caller's 3 s wait.* A mitigation
-  only: message 16 began within a second of 14, inside any hold.
+Rejected: a sender's newer message replacing its own held partial at
+the quota (two chunked requests in flight from one sender would evict
+each other), and a quota of 2 with a hold near the caller's 3 s wait (a
+mitigation only: message 16 began within a second of 14).
 
-Separately, a refused piece could be logged at debug level. This
-failure would then have shown at the receiver in its first run.
+**A refused piece is now said**, at debug, as `refused <sender> message
+N piece i of k: <reason>` under `node/remote`, through `on_refused` in
+`node/serve.h`. A sender over its quota was silence at both ends.
+
+Verified: `node/test/provision_test.c` sends a chunked request, then a
+resend of which two pieces arrive and one is lost, then a new chunked
+request, on a table of one slot per sender. With kept replies the
+first piece is answered once and the next request is handled; the
+control, keeping none, shows the slot held and all three pieces of the
+next request refused. Disabling the lookup in `node/serve.c` failed the
+two checks. The restart of A and B at 20% loss ran six times after the
+fix with no refused piece at A, where it failed three times in four
+before. B still passed A over in three of those six, each time after
+one ask went unanswered through all three resends: at 20% loss on each
+send that is about 1.7% an ask, and a round asks A dozens of times.
+That is sec 740's other half, a peer lost to the round for one lost
+ask, and is open. Three full journeys at 20% loss after the fix all
+passed, phases c and d included; three is not enough to give a rate.

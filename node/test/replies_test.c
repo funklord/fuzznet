@@ -54,7 +54,7 @@ int main(void)
 	      "a bound of no bytes was taken, or a sound one refused");
 
 	/* FOUND BY ALL THREE, and by nothing less. */
-	fzn_node_replies_keep(&r, a, 7u, B("ping"), 100u, B("pong"));
+	fzn_node_replies_keep(&r, a, 7u, 0u, B("ping"), 100u, B("pong"));
 	got = fzn_node_replies_find(&r, a, 7u, B("ping"), 101u, &len);
 	CHECK(got && len == 4u && memcmp(got, "pong", 4u) == 0, "a kept reply was not found");
 	CHECK(!fzn_node_replies_find(&r, b, 7u, B("ping"), 101u, &len)
@@ -62,30 +62,43 @@ int main(void)
 	              && !fzn_node_replies_find(&r, a, 7u, B("pinG"), 101u, &len),
 	      "another sender, message or request was answered with this one's reply");
 
+	/* A PIECE FOUND BY SENDER, MESSAGE AND EXPIRY, sec 741, and by nothing
+	 * less: a host started again stamps another expiry, and an expiry of
+	 * 0 tells no request from another. */
+	fzn_node_replies_keep(&r, b, 9u, 2000u, B("whole"), 100u, B("done"));
+	got = fzn_node_replies_find_piece(&r, b, 9u, 2000u, 102u, &len);
+	CHECK(got && len == 4u && memcmp(got, "done", 4u) == 0,
+	      "a piece of an answered request did not find its reply");
+	CHECK(!fzn_node_replies_find_piece(&r, a, 9u, 2000u, 102u, &len)
+	              && !fzn_node_replies_find_piece(&r, b, 8u, 2000u, 102u, &len)
+	              && !fzn_node_replies_find_piece(&r, b, 9u, 2001u, 102u, &len)
+	              && !fzn_node_replies_find_piece(&r, a, 7u, 0u, 102u, &len),
+	      "a piece was answered with another request's reply, or by an expiry of 0");
+
 	/* EXPIRED past its time, and before its time too: a clock stepped back
 	 * keeps nothing it cannot place. */
 	CHECK(fzn_node_replies_find(&r, a, 7u, B("ping"), 106u, &len)
 	              && !fzn_node_replies_find(&r, a, 7u, B("ping"), 107u, &len) && r.n == 0u,
 	      "a reply was found past its time, or not let go");
-	fzn_node_replies_keep(&r, a, 7u, B("ping"), 100u, B("pong"));
+	fzn_node_replies_keep(&r, a, 7u, 0u, B("ping"), 100u, B("pong"));
 	CHECK(!fzn_node_replies_find(&r, a, 7u, B("ping"), 99u, &len) && r.n == 0u,
 	      "a reply kept in a later second was found by an earlier clock");
 
 	/* BOUNDED IN ENTRIES: four, then the oldest goes. */
 	for (i = 0; i < 5; i++)
-		fzn_node_replies_keep(&r, a, (uint32_t)i, B("ping"), 200u, B("pong"));
+		fzn_node_replies_keep(&r, a, (uint32_t)i, 0u, B("ping"), 200u, B("pong"));
 	CHECK(r.n == 4u && !fzn_node_replies_find(&r, a, 0u, B("ping"), 200u, &len)
 	              && fzn_node_replies_find(&r, a, 4u, B("ping"), 200u, &len),
 	      "past four entries the oldest was not the one let go");
 
 	/* BOUNDED IN BYTES: 64 in all, so a 40-byte reply lets older ones go,
 	 * and one larger than the whole bound is not kept. */
-	fzn_node_replies_keep(&r, b, 1u, B("big"), 200u,
+	fzn_node_replies_keep(&r, b, 1u, 0u, B("big"), 200u,
 	                      B("0123456789012345678901234567890123456789"));
 	CHECK(r.bytes <= 64u && fzn_node_replies_find(&r, b, 1u, B("big"), 200u, &len)
 	              && len == 40u,
 	      "a reply past the byte bound was not made room for");
-	fzn_node_replies_keep(&r, b, 2u, B("huge"), 200u,
+	fzn_node_replies_keep(&r, b, 2u, 0u, B("huge"), 200u,
 	                      B("01234567890123456789012345678901234567890123456789012345678901234"));
 	CHECK(!fzn_node_replies_find(&r, b, 2u, B("huge"), 200u, &len) && r.bytes <= 64u,
 	      "a reply larger than the whole bound was kept");

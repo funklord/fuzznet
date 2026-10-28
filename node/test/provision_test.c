@@ -148,6 +148,40 @@ static size_t on_remote_measure(void *ctx, fzn_node_remote_result_t result,
 	return 0;
 }
 
+/* As above, and answers, so the reply is kept (sec 741). */
+static size_t on_remote_ack(void *ctx, fzn_node_remote_result_t result, const fzn_opened_t *req,
+                            uint8_t *reply, size_t reply_cap)
+{
+	(void)on_remote_measure(ctx, result, req, reply, reply_cap);
+	if (reply_cap < 2u)
+		return 0;
+	memcpy(reply, "ok", 2u);
+	return 2u;
+}
+
+static int replied_kept, pieces_refused;
+
+static void count_replied(void *ctx, const fzn_opened_t *req, size_t len, unsigned pieces,
+                          unsigned planned, int kept, const fzn_udp_addr_t *to)
+{
+	(void)ctx;
+	(void)req;
+	(void)len;
+	(void)pieces;
+	(void)planned;
+	(void)to;
+	replied_kept += kept;
+}
+
+static void count_refused(void *ctx, const fzn_opened_t *piece, fzn_reasm_err_t err,
+                          const fzn_udp_addr_t *from)
+{
+	(void)ctx;
+	(void)piece;
+	(void)from;
+	pieces_refused += err == FZN_REASM_ERR_QUOTA;
+}
+
 static uint64_t test_now(void)
 {
 	return 1000u;
@@ -708,6 +742,87 @@ int main(void)
 			   observed.req_last == big_req[sizeof(big_req) - 1u],
 			   "the reassembled request does not begin and end with the "
 			   "bytes that were sent");
+		}
+
+		/* A LATE PIECE OF A REQUEST ANSWERED ALREADY, sec 741. A resend
+		 * of an answered request reaches the node in part, the rest lost:
+		 * reassembled, the part opened a partial nothing finished, and on
+		 * a table of one slot per sender every chunked request its sender
+		 * sent next was refused, for the whole hold. Measured live at 20
+		 * per cent loss. Kept replies answer the first piece and drop the
+		 * others; the control, keeping none, shows the slot held. */
+		{
+			static uint8_t late_req[2600];
+			static fzn_node_reply_kept_t kept[8];
+			static fzn_node_replies_t replies;
+			static uint8_t lbuf[2][8192];
+			uint8_t lost[FZN_UDP_DATAGRAM_MAX];
+			fzn_reasm_t ltable;
+			fzn_partial_t lslots[2];
+			fzn_udp_addr_t whence;
+			size_t k, lost_len;
+			int pass;
+
+			for (k = 0; k < sizeof(late_req); k++)
+				late_req[k] = (uint8_t)(k * 3u + 1u);
+			ok(fzn_node_replies_init(&replies, kept, 8u, 4096u, FZN_NODE_REPLIES_TTL_S,
+			                         &hash_ops),
+			   "fixture: the replies kept");
+			state.on_remote = on_remote_ack;
+			state.on_replied = count_replied;
+			state.on_refused = count_refused;
+			for (pass = 0; pass < 2; pass++) {
+				ok(fzn_reasm_slot_init(&lslots[0], lbuf[0], sizeof(lbuf[0]))
+				               == FZN_REASM_OK
+				       && fzn_reasm_slot_init(&lslots[1], lbuf[1], sizeof(lbuf[1]))
+				                  == FZN_REASM_OK
+				       && fzn_reasm_init(&ltable, lslots, 2, 1u, 60u) == FZN_REASM_OK,
+				   "fixture: a table of one slot per sender");
+				state.reassembly = &ltable;
+				state.replies = pass == 0 ? &replies : NULL;
+				observed.called = 0;
+				replied_kept = 0;
+				pieces_refused = 0;
+				ok(fzn_caller_send(&caller, late_req, sizeof(late_req), 2000u, &asked)
+				       == FZN_CALLER_OK,
+				   "fixture: the chunked request would not send");
+				for (k = 0; k < 3u; k++)
+					(void)fzn_node_run_once(&state, 1000);
+				ok(observed.called == 1, "fixture: the chunked request was not answered");
+				/* The resend: two pieces reach the node, the third is
+				 * lost. */
+				ok(fzn_caller_resend(&caller, late_req, sizeof(late_req), 2000u, asked)
+				               == FZN_CALLER_OK
+				       && fzn_node_run_once(&state, 1000) == 1
+				       && fzn_node_run_once(&state, 1000) == 1
+				       && fzn_udp_recv(state.udp_fd, lost, sizeof(lost), &lost_len, &whence)
+				                  == FZN_UDP_OK,
+				   "fixture: the resend's pieces did not arrive");
+				/* A new chunked request from the same sender. */
+				ok(fzn_caller_send(&caller, late_req, sizeof(late_req), 2000u, &asked)
+				       == FZN_CALLER_OK,
+				   "fixture: the next chunked request would not send");
+				for (k = 0; k < 3u; k++)
+					(void)fzn_node_run_once(&state, 1000);
+				if (pass == 0) {
+					ok(replied_kept == 1,
+					   "a resend's first piece was not answered with the kept reply, "
+					   "or its others were too");
+					ok(observed.called == 2 && pieces_refused == 0,
+					   "a late piece of an answered request held its sender's slot: "
+					   "the next chunked request was refused");
+				} else {
+					ok(observed.called == 1 && pieces_refused == 3
+					       && fzn_reasm_held_by(&ltable, caller.sender) == 1,
+					   "control: keeping no replies, a late piece did not hold the "
+					   "slot, so the case above shows nothing");
+				}
+			}
+			fzn_node_replies_free(&replies);
+			state.replies = NULL;
+			state.reassembly = NULL;
+			state.on_replied = NULL;
+			state.on_refused = NULL;
 		}
 
 		/* A DENIED CHUNKED REQUEST. Two guards meet here and neither

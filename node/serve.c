@@ -139,8 +139,8 @@ static void serve_reply(fzn_node_state_t *state, const fzn_node_peer_t *peer,
 	if (reply_len > reply_cap)
 		reply_len = 0;
 	if (reply_len > 0 && state->replies)
-		fzn_node_replies_keep(state->replies, opened->sender, opened->msg, opened->payload,
-		                      opened->payload_len, now, reply, reply_len);
+		fzn_node_replies_keep(state->replies, opened->sender, opened->msg, opened->expires_at,
+		                      opened->payload, opened->payload_len, now, reply, reply_len);
 	send_reply(state, peer, from, opened, reply, reply_len, 0);
 }
 
@@ -255,12 +255,37 @@ static void serve_ready_datagram(fzn_node_state_t *state)
 			if (opened.index != 0u)
 				return;
 		} else {
-			if (fzn_reasm_accept(state->reassembly, opened.sender,
-			                     opened.msg, opened.index, opened.chunks,
-			                     opened.payload, opened.payload_len,
-			                     opened.expires_at, now, &done)
-			    != FZN_REASM_OK)
+			const uint8_t *kept;
+			size_t kept_len;
+			fzn_reasm_err_t rerr;
+
+			/* A PIECE OF A REQUEST ANSWERED ALREADY, sec 741: a resend's,
+			 * or one late from the first sending. Reassembled, a late one
+			 * opened a partial nothing finished, and its sender's one
+			 * slot was held for the whole hold: every chunked request it
+			 * sent next was refused. The first piece is answered with
+			 * the kept reply, once per sending rather than once a piece;
+			 * the others are dropped. */
+			if (state->replies
+			    && (kept = fzn_node_replies_find_piece(state->replies, opened.sender,
+			                                           opened.msg, opened.expires_at,
+			                                           now, &kept_len))
+			               != NULL) {
+				if (opened.index == 0u)
+					send_reply(state, peer, &from, &opened, kept, kept_len, 1);
 				return;
+			}
+			rerr = fzn_reasm_accept(state->reassembly, opened.sender, opened.msg,
+			                        opened.index, opened.chunks, opened.payload,
+			                        opened.payload_len, opened.expires_at, now, &done);
+			if (rerr != FZN_REASM_OK) {
+				/* SAID, sec 741: a refused piece was silence at both
+				 * ends, and a sender over its quota looked like a node
+				 * that had stopped answering. */
+				if (state->on_refused)
+					state->on_refused(state->on_refused_ctx, &opened, rerr, &from);
+				return;
+			}
 			if (!done)
 				return;	/* accepted, not yet whole */
 			/* The handler sees the WHOLE message: the same head the

@@ -9,6 +9,12 @@
  * afresh numbers its messages from 0: a host started again would
  * otherwise be answered its last run's reply to a different request.
  *
+ * A PIECE OF A REQUEST ANSWERED ALREADY, sec 741, is known by its sender,
+ * its message number and its expiry, a piece carrying no bytes of the
+ * whole to hash: a resend keeps its expiry, and a host started again
+ * stamps a later one. Without it a late piece opened a partial nothing
+ * finished, holding its sender's one reassembly slot for the hold.
+ *
  * BOUNDED IN ENTRIES AND IN BYTES, the oldest let go first. Letting one
  * go loses nothing but the saving: a resend of it runs its handler.
  */
@@ -29,6 +35,7 @@
 typedef struct fzn_node_reply_kept {
 	uint8_t sender[32];
 	uint32_t msg;
+	uint64_t expires_at;
 	uint8_t digest[FZN_NODE_REPLIES_DIGEST_LEN];
 	uint64_t at;
 	size_t len;
@@ -56,11 +63,18 @@ const uint8_t *fzn_node_replies_find(fzn_node_replies_t *r, const uint8_t sender
                                      uint32_t msg, const uint8_t *request, size_t request_len,
                                      uint64_t now, size_t *len);
 
-/* KEEP `reply` for this request, at `now`. Quietly not, when it is larger
- * than the whole bound or memory is short. */
+/* THE REPLY KEPT for a request of which a piece came, by sender, message
+ * and expiry, sec 741; NULL as above, and for an expiry of 0, which tells
+ * no request from another. */
+const uint8_t *fzn_node_replies_find_piece(fzn_node_replies_t *r, const uint8_t sender[32],
+                                           uint32_t msg, uint64_t expires_at, uint64_t now,
+                                           size_t *len);
+
+/* KEEP `reply` for this request, which expires at `expires_at`, at `now`.
+ * Quietly not, when it is larger than the whole bound or memory is short. */
 void fzn_node_replies_keep(fzn_node_replies_t *r, const uint8_t sender[32], uint32_t msg,
-                           const uint8_t *request, size_t request_len, uint64_t now,
-                           const uint8_t *reply, size_t reply_len);
+                           uint64_t expires_at, const uint8_t *request, size_t request_len,
+                           uint64_t now, const uint8_t *reply, size_t reply_len);
 
 /* Every reply let go. */
 void fzn_node_replies_free(fzn_node_replies_t *r);
