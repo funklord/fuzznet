@@ -401,10 +401,13 @@ static void test_the_verbs(void)
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "list message 1") && replied("ok 1 1 0 ")
 	              && strstr(reply, ID1),
 	      "and a listing from 1 starts at the second");
-	/* X's hex is all decimal digits, which a FROM is too. */
+	/* X's hex is all decimal digits, which a FROM is too. Its own
+	 * conversation is in the order written (secs 725, 744), where the in
+	 * line, stamped 12345, is the older though it was filed second;
+	 * everyone's listing stays in the order learned. */
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER,
 	           "list message 5858585858585858585858585858585858585858585858585858585858585858 1")
-	              && replied("ok 1 1 0 ") && strstr(reply, ",carol," ID1 ","),
+	              && replied("ok 1 1 0 ") && strstr(reply, ",carol," ID2 ","),
 	      "a key of digits alone is WHO, not a page offset, and FROM still follows it");
 	CHECK(verb(&A, FZN_ORIGIN_SAME_USER, "get message carol unread") && replied("ok 1 0"),
 	      "one line in, nothing read: one unread");

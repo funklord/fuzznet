@@ -594,6 +594,51 @@ static void test_written_order_not_learned(void)
 	      "read through the newest line written, a line is still unread");
 }
 
+/* B's view of A's records, as sync_a gives A B's. */
+static void sync_b(void)
+{
+	uint64_t at[2] = { 0u, 0u };
+
+	(void)fzn_node_journal_init_store(&B.journal, &rops, &B.sign, &HASH);
+	(void)fzn_node_journal_follow_stream(&B.journal, B.pub, FZN_MESSAGE_STREAM, NULL);
+	(void)fzn_node_journal_follow_stream(&B.journal, A.pub, FZN_MESSAGE_STREAM, NULL);
+	B.m.devices = (const uint8_t(*)[FZN_PUBKEY_LEN])devices;
+	B.m.device_count = 2u;
+	(void)fzn_messages_absorb(&B.m, at, NULL, NULL, NULL);
+}
+
+/* Contact X's line `n`, sent at `stime`, filed on `d` as a delivery is. */
+static int file_line(device_t *d, uint8_t n, uint64_t stime)
+{
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+
+	id_of(id, n);
+	return fzn_messages_write(&d->m, X, FZN_MESSAGE_IN, id, stime, "from x", 6u)
+	       == FZN_MESSAGES_OK;
+}
+
+/* ONE ORDER WHERE TWO DEVICES FILED A CONTACT'S LINES IN OPPOSITE ORDERS,
+ * sec 744: X sends line 1, then line 2; A files 2 before 1 and B files 1
+ * before 2, each under its own place and time, as two hosts given the same
+ * deliveries in different orders do. Each then learns the other's copies,
+ * kept once. Ordered by each copy's own filing, A listed 1 newest and B
+ * 2 -- journal 2's read position meaning two things (sec 739). By the
+ * time X wrote them, both list 2 newest. */
+static void test_filed_apart_listed_alike(void)
+{
+	setup();
+	CHECK(file_line(&A, 2u, OCTOBER_2026 + 200u) && file_line(&B, 1u, OCTOBER_2026 + 100u)
+	              && file_line(&A, 1u, OCTOBER_2026 + 100u)
+	              && file_line(&B, 2u, OCTOBER_2026 + 200u),
+	      "fixture: A files 2 then 1, B files 1 then 2");
+	sync_a();
+	sync_b();
+	CHECK(list(&A, X, 0u, 5u) && count == 2u && page[0].id[0] == 2u && page[1].id[0] == 1u,
+	      "A lists X's lines in the order A filed them, not the order X wrote them");
+	CHECK(list(&B, X, 0u, 5u) && count == 2u && page[0].id[0] == 2u && page[1].id[0] == 1u,
+	      "B lists X's lines in the order B filed them, not the order X wrote them");
+}
+
 /* THE WINDOW AN INSERTION LOOKS BACK OVER, at and past its edge, sec 725's
  * bound for journey 2's bounds bar: a line written before every one of a
  * conversation's last RECENT_ENTRIES is not placed among them but appended,
@@ -1525,6 +1570,7 @@ int main(void)
 	test_a_hand_off_given_up_on_stays();
 	test_two_devices();
 	test_written_order_not_learned();
+	test_filed_apart_listed_alike();
 	test_a_line_cut_at_every_save();
 	test_the_written_order_window();
 	test_no_reindex_from_a_window();

@@ -44,7 +44,7 @@ static uint64_t cursor_of(const fzn_messages_t *m, const uint8_t device[FZN_PUBK
 static int set_cursor(const fzn_messages_t *m, const uint8_t device[FZN_PUBKEY_LEN],
                       uint64_t seq);
 static int index_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
-                        const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq, uint64_t written_at,
+                        const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq, uint64_t stime,
                         uint8_t direction, const uint8_t id[FZN_MESSAGE_ID_LEN], uint32_t epoch,
                         size_t size);
 static int is_gone(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
@@ -693,9 +693,13 @@ static uint64_t count_of(const fzn_messages_t *m, const uint8_t contact[FZN_PUBK
 	return load_number(m, "count", contact);
 }
 
-/* ONE CHUNK OF ONE INDEX, held, since a listing reads its entries in turn. */
+/* ONE CHUNK OF ONE INDEX, held, since a listing reads its entries in turn.
+ * Of one store, sec 744: two in a process -- two devices in a test -- took
+ * each other's entries, keyed by contact and chunk alone, and a listing of
+ * one named the other's lines. */
 static struct {
 	int valid;
+	const fzn_persist_ops_t *store;
 	uint8_t contact[FZN_PUBKEY_LEN];
 	uint32_t chunk;
 	size_t len;
@@ -1029,22 +1033,26 @@ static int all_place(const fzn_messages_t *m, uint64_t k, uint64_t i)
 	return m->store->save(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, chunk, len);
 }
 
-/* WHERE A LINE WRITTEN AT `written` BY `device` AS `seq` GOES, ordered by
- * (when written, the writing device's key, its sequence) -- the same on
- * every host, since each is the line's record's own. Before entry `a`,
- * `b` its key; 1 when the line goes before. */
-static int written_before(uint64_t written, const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq,
-                          uint64_t b_written, const uint8_t b_device[FZN_PUBKEY_LEN],
-                          uint64_t b_seq)
+/* WHERE A LINE ITS WRITER STAMPED `stime` GOES, ordered by (that stamp,
+ * its direction, its id): what the line itself carries, so the same on
+ * every host. 1 when it goes before the line `b`.
+ *
+ * NOT ITS RECORD'S, sec 744. That was (when the record was written, the
+ * recording device's key, its sequence), and a contact's line is recorded
+ * by whichever of the user's hosts it reached: two hosts that took the
+ * same two lines in opposite orders each ordered them as they had filed
+ * them, the other's copy of each kept once and not placed again. */
+static int written_before(uint64_t stime, uint8_t direction, const uint8_t id[FZN_MESSAGE_ID_LEN],
+                          const stored_t *b)
 {
 	int c;
 
-	if (written != b_written)
-		return written < b_written;
-	c = memcmp(device, b_device, FZN_PUBKEY_LEN);
-	if (c != 0)
-		return c < 0;
-	return seq < b_seq;
+	if (stime != b->stime)
+		return stime < b->stime;
+	if (direction != b->direction)
+		return direction < b->direction;
+	c = memcmp(id, b->id, FZN_MESSAGE_ID_LEN);
+	return c < 0;
 }
 
 /* How far back of every line's order to look for a conversation's entries
@@ -1052,16 +1060,16 @@ static int written_before(uint64_t written, const uint8_t device[FZN_PUBKEY_LEN]
 #define ALL_SCAN_MAX 4096u
 
 /* A LINE PUT IN ITS WRITTEN PLACE, sec 725, the holder's decision: every
- * host orders a conversation by when each line was written, ties by the
- * writing device's key and its sequence, so a read mark -- which names a
- * line -- means the same everywhere. Each store learned lines in its own
+ * host orders a conversation by when each line was written, its writer's
+ * stamp, ties by its direction and id (`written_before`), so a read mark
+ * -- which names a line -- means the same everywhere. Each store learned lines in its own
  * order, and two lines sent 13 ms apart were filed either way round, so
  * "read through X" read everything on one host and almost nothing on
  * another. Looked for over the conversation's last RECENT_ENTRIES; a line
  * written before all of those, or whose move would reach entries of every
  * line's order past ALL_SCAN_MAX back, is appended, as it was before. */
 static int index_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
-                        const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq, uint64_t written_at,
+                        const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq, uint64_t stime,
                         uint8_t direction, const uint8_t id[FZN_MESSAGE_ID_LEN], uint32_t epoch,
                         size_t size)
 {
@@ -1085,7 +1093,7 @@ static int index_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKE
 		if (n - j >= RECENT_ENTRIES)
 			break;
 		if (!index_entry(m, contact, j - 1u, &e) || !stored_load(m, e.device, e.seq, buf, &s)
-		    || !written_before(written_at, device, seq, s.written_at, e.device, e.seq)) {
+		    || !written_before(stime, direction, id, &s)) {
 			placed = 1;
 			break;
 		}
@@ -1212,7 +1220,7 @@ static int keep_line(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_L
 	/* THE ROW, OPENED WHEN ITS KEY IS HERE, THEN THE ENTRY: an entry never
 	 * names a line nothing keeps. */
 	return stored_keep(m, &s)
-	       && index_append(m, contact, device, seq, written_at, last->direction, last->id,
+	       && index_append(m, contact, device, seq, last->stime, last->direction, last->id,
 	                       last->epoch,
 	                       last->text_len + (last->parts == 2u ? FZN_MESSAGE_PART_MAX : 0u));
 }
@@ -1224,7 +1232,7 @@ static int index_entry(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY
 	uint32_t c = (uint32_t)(i / FZN_MESSAGES_INDEX_CHUNK);
 	size_t k = (size_t)(i % FZN_MESSAGES_INDEX_CHUNK);
 
-	if (!chunk_held.valid || chunk_held.chunk != c
+	if (!chunk_held.valid || chunk_held.store != m->store || chunk_held.chunk != c
 	    || memcmp(chunk_held.contact, contact, FZN_PUBKEY_LEN) != 0) {
 		uint8_t row[FZN_PUBKEY_LEN];
 
@@ -1233,6 +1241,7 @@ static int index_entry(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY
 		    || !m->store->load(m->store->ctx, FZN_PERSIST_MESSAGE_INDEX, row, chunk_held.bytes,
 		                       sizeof(chunk_held.bytes), &chunk_held.len))
 			return 0;
+		chunk_held.store = m->store;
 		memcpy(chunk_held.contact, contact, FZN_PUBKEY_LEN);
 		chunk_held.chunk = c;
 		chunk_held.valid = 1;

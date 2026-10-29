@@ -73454,8 +73454,10 @@ first. B1 reads through `a2a2`, and B2 still counts `a1a1` unread.
 - A read position is a line id, and unread means the lines after it in
   this store's order. When loss lets two devices learn two lines in
   opposite orders, the same position means different things on each.
-- **Not changed, and the holder's:** either the order or what a read
-  position means has to move. For instance, unread could be judged
+- **Decided already, in sec 725, and fixed in sec 744:** the order is
+  the writer's stamp; the build compared each host's own filing time.
+  As first written here: either the order or what a read position
+  means has to move. For instance, unread could be judged
   against the position's line's `stime`, or the order kept by `stime`
   and id rather than by arrival. Both are settled decisions in this
   tree. Seen once in 4 runs at 20%; earlier runs at 20% passed 3 of 3.
@@ -73678,3 +73680,51 @@ Open, the same drift in four more, each also inside that range:
 moving them means narrowing someone's block or stacking pid slots more
 tightly. `live_fzp.py` listens from 40000 too, but checks each port free
 before using it, which is the other answer.
+
+## 744. A contact's lines in its writer's order on every host, as sec 725 decided, 2026-10-29
+
+Sec 739 found B1 and B2, one user's two devices, listing A's two lines
+in different orders under loss, so a read position meant a different
+thing on each, and recorded it as the holder's to decide. **It was
+already decided**: sec 725, "as written", the writer's stamp, estate
+time for the user's own devices and the contact's own clock for
+theirs. The build did not order by that.
+
+**The mechanism.** `index_append` placed a line by its record's
+(written time, recording device's key, sequence). A contact's line is
+recorded by whichever of the user's hosts it reached, each at its own
+time, and another host's copy of the same line is kept once and not
+placed again. So two hosts that took the same two deliveries in
+opposite orders each listed them as they had filed them. Now a line is
+placed by what it carries itself, the same everywhere: its writer's
+stamp (`stime`), then its direction, then its id (`written_before`).
+An outgoing line's stamp is the messages clock, estate time (sec 723),
+unless the client gives `at N`.
+
+**And a cache shared across stores.** `index_entry` held one index
+chunk in a process-wide static keyed by contact and chunk number, not
+by store, so a second `fzn_messages_t` in a process read the first's
+entries. The daemon holds one, so it is latent there; any consumer or
+test holding two meets it. It found itself: the new test's second
+listing came back empty. The chunk is now keyed by store as well.
+
+**Verified.** `messages_test`'s `test_filed_apart_listed_alike`: A files
+X's lines 2 then 1, B files 1 then 2, each takes in the other's. Before
+the fix A listed 1 newest; after, both list 2. Without the store key, B
+listed nothing. Two sabotage entries, one on each guard.
+
+**What stays as it was.** A line written before all of a conversation's
+last `RECENT_ENTRIES` (64) is appended, as sec 725 built. The rebuild
+takes the records in in written order and places each line the same
+way, so a rebuilt index agrees. Ordering by a stamp a contact chooses
+means a contact can place its own line anywhere in that window; sec 725
+accepted that with "the contact's own clock for theirs".
+
+**What a consumer sees change.** One conversation's listing, where a
+line's stamp and its arrival disagree; everyone's listing across
+conversations stays in the order learned, as sec 725 left it.
+`node/test/messages_test.c` wrote an in line stamped `at 12345` after
+an out line stamped now and expected the in line newest in carol's
+conversation; it now expects the out line, and its check of everyone's
+listing is unchanged. fuzzypickles, which vendors this tree pinned,
+meets the same change when it next takes it.

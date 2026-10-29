@@ -12430,6 +12430,22 @@ SABOTAGES = [
 		"everyone's listing names the wrong line after an insertion -- sec 725",
 	),
 	(
+		"messages-order-by-the-writers-stamp",
+		"messages/messages.c",
+		"\tif (stime != b->stime)\n\t\treturn stime < b->stime;\n",
+		"\treturn 0;\n\tif (stime != b->stime)\n\t\treturn stime < b->stime;\n",
+		"two hosts that filed a contact's lines in opposite orders list them in those orders, "
+		"and a read position means a different thing on each; messages_test -- sec 744",
+	),
+	(
+		"messages-held-chunk-is-one-stores",
+		"messages/messages.c",
+		"chunk_held.store != m->store || ",
+		"",
+		"a listing of one store reads another's index chunk, held for the same contact, and "
+		"lists nothing of its own; messages_test -- sec 744",
+	),
+	(
 		"vote-line-keeps-held-settings",
 		"node/admin.c",
 		"\telse if (!named && admin->settings && admin->roots && admin->roots->journal\n",
