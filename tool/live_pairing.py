@@ -28,6 +28,9 @@ A asks, B is asked, C asks and is turned away.
        stickers (sec 682); fetched is not saved, until B keeps it with `add
        sticker REF` (sec 683)
 
+`--skew S` runs A S seconds ahead and B S behind, by faketime (sec 767):
+the asker and the asked 2S apart.
+
 Against a daemon that drops every box, phase a lists no request; against
 one whose approval does not hand over to the contact round, phase b
 delivers nothing.
@@ -41,6 +44,7 @@ Exit 0 on a pass, 1 on a failure.
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -50,9 +54,37 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
+import live_trim  # noqa: E402
+
+# EVERY WAIT GROWS WITH THE LOSS, sec 767, as journey 4's scripts' do (sec
+# 756): a contact request's box and a round's asks are sent again each
+# round, and at 20 per cent a wait sized for no loss ended before the
+# round that would have carried them.
+LOSS = int(os.environ.get("FZN_FAULT_LOSS", "0") or 0)
+
+
+def within(base):
+	"""A wait of `base` seconds at no loss, six more a point of loss."""
+	return base + 6.0 * LOSS
+
+
+# A ROUND, 60 s: a lost request box is sent again the round after.
+ROUND_S = 60.0
+
+
+def a_round_more(base):
+	"""`within(base)`, and under any loss a round more."""
+	return within(base) + (ROUND_S + 5.0 if LOSS else 0.0)
+
+
+live_trim.DEADLINE = time.monotonic() + 240.0 + 40.0 * LOSS
 
 KEPT_RE = re.compile(r"a contact request from ([0-9a-f]{16}), waiting")
-OFFERED_RE = re.compile(r"line\(s\) offered to 127\.0\.0\.1: 1 delivered")
+# DELIVERED, OR SETTLED (sec 767): an offer whose answer was lost is made
+# again, and B, holding the line already, answers SETTLED -- held by every
+# device of B's -- which is more than delivered, not less.
+OFFERED_RE = re.compile(r"line\(s\) offered to 127\.0\.0\.1: "
+                        r"(1 delivered|0 delivered, 1 settled)")
 # A ROUND'S OWN END, after its fetches and log pass: "history pass" comes
 # before them (sec 637).
 ROUND_END_RE = ROUND_DONE_RE
@@ -71,9 +103,19 @@ def requests(sock, who):
 
 
 def main(argv):
-	if len(argv) != 2:
-		print("usage: live_pairing.py PATH_TO_FUZZNETD", file=sys.stderr)
+	skew = 0
+	if len(argv) == 4 and argv[2] == "--skew" and argv[3].isdigit():
+		skew = int(argv[3])
+	elif len(argv) != 2:
+		print("usage: live_pairing.py PATH_TO_FUZZNETD [--skew S]", file=sys.stderr)
 		return 2
+	skews = {}
+	if skew:
+		if not shutil.which("faketime"):
+			print("livecheck: pairing SKIPPED -- --skew needs faketime on PATH")
+			return 0
+		skews = {"a": "+%ds" % skew, "b": "-%ds" % skew}
+		print("livecheck: setup: A runs %d s ahead and B %d s behind" % (skew, skew))
 
 	class run:
 		pass
@@ -90,7 +132,7 @@ def main(argv):
 		started = {}
 
 		def up(who, tag):
-			started[who] = daemon(run, tag, dirs[who], socks[who],
+			started[who] = daemon(run, tag, dirs[who], socks[who], fake=skews.get(who),
 			                      extra=["--udp-port=" + port[who]])
 			return started[who]
 
@@ -101,9 +143,9 @@ def main(argv):
 			keys = {}
 			for who in port:
 				os.mkdir(dirs[who])
-				command(run, ["--fuzznet-dir=" + dirs[who], "--new-root"], None)
+				command(run, ["--fuzznet-dir=" + dirs[who], "--new-root"], skews.get(who))
 				keys[who] = command(run, ["--fuzznet-dir=" + dirs[who], "--prekey"],
-				                    None)[PREKEY_HOST]
+				                    skews.get(who))[PREKEY_HOST]
 			for who in port:
 				up(who, who + "1")
 				expect(socks[who], who, "set setting host net/address 127.0.0.1 " + port[who],
@@ -122,7 +164,7 @@ def main(argv):
 			got = ask(socks["a"], "add contact bob " + card)
 			if got.strip() != "ok " + keys["b"]:
 				raise failed("a: add contact by card answered %r" % got)
-			started["b"].wait_for(KEPT_RE, "B keeping A's request")
+			started["b"].wait_for(KEPT_RE, "B keeping A's request", a_round_more(30.0))
 			held = requests(socks["b"], "b")
 			if held != [(keys["a"], "-")]:
 				raise failed("a: B's requests are %r, not A's alone" % (held,))
@@ -145,14 +187,21 @@ def main(argv):
 				d.wait_for(ROUND_END_RE, "%s's round" % who.upper())
 			expect(socks["a"], "a", "add message bob out %s hello%%20bob" % LINE, "ok")
 			try:
-				started["a"].wait_for(OFFERED_RE, "A's delivery to B")
+				started["a"].wait_for(OFFERED_RE, "A's delivery to B", within(30.0))
 			except failed:
-				# A ROUND MORE at each, the pairing taking one to settle.
-				for who in ("b", "a"):
-					down(who)
-					d = up(who, who + "3")
-					d.wait_for(ROUND_END_RE, "%s's round" % who.upper())
-				started["a"].wait_for(OFFERED_RE, "A's delivery to B")
+				# A ROUND MORE at each, the pairing taking one to settle; and
+				# under loss, more (sec 767).
+				for extra in range(1 + LOSS // 5):
+					for who in ("b", "a"):
+						down(who)
+						d = up(who, "%s3-%d" % (who, extra))
+						d.wait_for(ROUND_END_RE, "%s's round" % who.upper(), within(30.0))
+					try:
+						started["a"].wait_for(OFFERED_RE, "A's delivery to B", within(30.0))
+						break
+					except failed:
+						if extra == LOSS // 5:
+							raise
 			reply = ask(socks["b"], "list message " + keys["a"])
 			if LINE not in reply or "hello%20bob" not in reply:
 				raise failed("b: B holds %r under A's root" % reply)
@@ -163,7 +212,7 @@ def main(argv):
 			got = ask(socks["c"], "add contact bob " + card)
 			if not got.startswith("ok "):
 				raise failed("c: C's add contact answered %r" % got)
-			deadline = time.monotonic() + 20.0
+			deadline = time.monotonic() + a_round_more(20.0)
 			while time.monotonic() < deadline:
 				held = requests(socks["b"], "b")
 				if held:
@@ -181,12 +230,21 @@ def main(argv):
 			got = ask(socks["a"], "fetch address").split()
 			if len(got) != 2 or got[0] != "ok" or not got[1].isdigit() or got[1] == "0":
 				raise failed("d: A's fetch address answered %r, not a count of hosts" % got)
-			deadline = time.monotonic() + 20.0
+			# ASKED AGAIN when nothing came within 10 s, three asks at most
+			# (sec 767): one ask and its resends are lost together at 20 per
+			# cent now and then, and a user asks again.
+			deadline = time.monotonic() + within(20.0)
+			again = time.monotonic() + 10.0
+			asks = 1
 			seen = []
 			while time.monotonic() < deadline:
 				seen = ask(socks["a"], "get address").split()
 				if len(seen) >= 3 and seen[1] != "0":
 					break
+				if time.monotonic() > again and asks < 3:
+					ask(socks["a"], "fetch address")
+					asks += 1
+					again = time.monotonic() + 10.0
 				time.sleep(0.2)
 			if len(seen) != 4 or seen[:3] != ["ok", "1", "1"] \
 			   or not seen[3].startswith(keys["b"][:16] + ",127.0.0.1,"):
@@ -216,13 +274,26 @@ def main(argv):
 					raise failed("f: B's list stream answered %r" % reply)
 				return [r for r in reply[1:] if r.startswith(keys["a"][:16] + ",")]
 
-			def fetched():
+			def fetch_once():
 				before = started["b"].log().count("stream fetch:")
 				expect(socks["b"], "b", "fetch stream location alice", "ok")
-				deadline = time.monotonic() + 20.0
+				deadline = time.monotonic() + within(20.0)
 				while time.monotonic() < deadline \
 				      and started["b"].log().count("stream fetch:") == before:
 					time.sleep(0.2)
+
+			# FETCHED AGAIN UNTIL `held` IS TRUE, sec 767: at 20 per cent a
+			# fetch's answer and its resends are lost together now and then
+			# ("1 host(s) asked, 0 record(s) taken"), and a user fetches
+			# again. With nothing to wait for -- a grant not yet given, one
+			# revoked -- it fetches as often as it would have tried, so an
+			# absence is shown by as many answers as a presence.
+			def fetched(held=None):
+				tries = 1 + LOSS // 5
+				for i in range(tries if held is None else 3 * tries):
+					fetch_once()
+					if held is not None and held():
+						return
 
 			fetched()
 			if held_at_b():
@@ -232,7 +303,7 @@ def main(argv):
 			expect(socks["a"], "a", "grant stream location bob 1", "ok")
 			expect(socks["a"], "a", "get stream location bob", "ok 1")
 			time.sleep(2.5)
-			fetched()
+			fetched(lambda: len(held_at_b()) == 2)
 			got = held_at_b()
 			if [r.split(",", 1)[1].split(",", 2)[0] + "," + r.rsplit(",", 1)[1] for r in got] \
 			   != ["1,bb01", "2,bb02"]:
@@ -253,7 +324,8 @@ def main(argv):
 			                      "20", "0"]:
 				raise failed("g: A lists %r, not its fix exact" % reply)
 			time.sleep(2.5)
-			fetched()
+			fetched(lambda: any(r.startswith(keys["a"][:16] + ",")
+			                    for r in ask(socks["b"], "list location").split()[1:]))
 			reply = ask(socks["b"], "list location").split()
 			rows = [r.split(",") for r in reply[1:] if r.startswith(keys["a"][:16] + ",")]
 			if len(rows) != 1 or rows[0][3:6] != ["59.3300000", "18.0700000", "1792600000"] \
@@ -270,12 +342,12 @@ def main(argv):
 				return [r.split(",") for r in reply[1:]
 				        if r.startswith(keys["a"][:16] + ",") and r.split(",")[1] == seq]
 
-			def add_fix(seq):
+			def add_fix(seq, held=True):
 				got = ask(socks["a"], "add location 59.3293230 18.0685810 at 1792600%03d" % seq)
 				if got != "ok %d" % seq:
 					raise failed("g2: add location answered %r, not record %d" % (got, seq))
 				time.sleep(2.5)
-				fetched()
+				fetched((lambda: b_fix(str(seq))) if held else None)
 				return b_fix(str(seq))
 
 			expect(socks["a"], "a", "grant stream location bob 0", "ok")
@@ -289,7 +361,7 @@ def main(argv):
 				             "degree grid" % rows)
 			expect(socks["a"], "a", "revoke stream location bob", "ok")
 			expect(socks["a"], "a", "get stream location bob", "ok none")
-			rows = add_fix(6)
+			rows = add_fix(6, held=False)
 			if rows:
 				raise failed("g2: revoked, B still holds A's record 6: %r" % rows)
 			print("livecheck: g2: B listed A's fixes exact at level 0, on the 0.1 degree grid at "

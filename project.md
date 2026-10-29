@@ -74590,7 +74590,68 @@ and g), and `live_location` sampled gpsd on one node. Added:
   before are still listed, and it connects, sends WATCH and keeps the
   next.
 
-Both pass; neither found a fault. **Not yet:** journey 5's scenarios under
-loss and skew, with `live_pairing` taught to give its single-shot steps
-more than one chance as journey 4's scripts were (sec 756), and its
-fault, authorization, fuzzing and bounds bars.
+Both pass; neither found a fault. Journey 5 under loss and skew is sec
+767; its fault, authorization, fuzzing and bounds bars are not yet read.
+
+## 767. Journey 5 under loss and skew, 2026-10-29
+
+`live_pairing` carries journey 5 (a card, a request, an approval, a
+fix shared at each level), and it was written for no loss: every wait
+sized for one exchange, every step tried once. Taught the way journey
+4's scripts were (sec 756):
+
+- **Every wait grows with `FZN_FAULT_LOSS`**, six seconds a point, and
+  a step that rides a round (a request's box, the approval's offer)
+  waits a round more under any loss: a lost box is sent again the
+  round after, not sooner.
+- **A step a user would repeat is repeated.** `fetch address` is asked
+  again after 10 s with no answer, three asks at most; a stream fetch
+  is made again until B holds what it was granted. Measured at 20 per
+  cent before the change: one run in three failed in phase d (`get
+  address` still `ok 0 1`) and one in three in phase g (`stream fetch:
+  1 host(s) asked, 0 record(s) taken`) -- an ask and its resends lost
+  together, which a person meets as "try again".
+- **An absence is shown by as many answers as a presence.** Before the
+  grant and after the revoke there is nothing to wait for, so the
+  fetch is made as often as it would have been tried (`1 + LOSS // 5`),
+  and B holding nothing then means nothing was given, not that the
+  answer was lost.
+- **`--skew S`** runs A S seconds ahead and B S behind by faketime, as
+  `live_relay` does (sec 757), and the script says so in its output.
+
+Measured with `faults/fuzznetd`: at 20 per cent loss, 5 of 5 runs pass
+(67 to 127 s); at a 900 s skew each way, 3 of 3, then 2 of 2 and one run
+read whole; with no loss, as before. A third single try showed up only in
+a 20 per cent run that stopped at its timeout: A's first offer of its
+line reached B and the answer was lost, and the offer made again was
+answered SETTLED -- B held it already, by every device -- where the
+script waited for `1 delivered` alone. Settled is more than delivered
+(`node/messages.h`), so the script takes either now; B's `list message`
+after it is what checks the line.
+
+Neither loss nor skew found a fault in the daemon: both failures were
+the script's single tries.
+
+## 768. Who sent a frame is its key, never its address -- met, 2026-10-29
+
+fuzzypickles relayed a rule the holder set in its conversation:
+everything received that is not anonymous by design is attributed to
+the estate, user and host that sent it, never to the address it came
+from. fzpd had matched a datagram's source address to the addresses on
+file and dropped what matched none, so behind a port-rewriting NAT a
+group member never joined (their record: "Who sent a frame is its key,
+never its address (2026-10-29)").
+
+Read against `node/serve.c`, fuzznet already works this way. A frame's
+sender is the public key in its sealed header (`fzn_seal_peek_sender`),
+looked up among the provisioned peers, and the frame is opened under
+that peer's session; an unknown key is dropped whatever its address.
+The address is used only after a frame has opened, and only to say
+where to reach its sender: a hello notes it for relaying
+(`fzn_node_relay_saw`), and an answer goes back to it. The two frames
+read before any key are anonymous by design: a box (a contact request
+sealed to a prekey, which says nothing of its sender: the payload's
+own signature does, checked after opening -- `session/box.h`) and a LAN probe, whose stated
+key is an unsigned hint that decides only whom to send a sealed hello
+to (sec 758). Nothing to change; fzpd's network code moving here (sec
+608) brings it onto this path.
