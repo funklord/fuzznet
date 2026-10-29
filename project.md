@@ -74443,7 +74443,8 @@ was read for a full disk instead:
   round's taking its place.
 Live coverage beside the reading: `live_faults`' phase o crashes at every
 write inside `add contact` by card, which keeps the contact's device, and
-phase m sweeps the settings writes `routing/advertise` is among.
+phase m sweeps a setting's writes -- the path `routing/advertise` takes,
+though not that setting itself.
 
 **One defect, found by the reading:** a derived manifest that would not
 be kept was said as "would not be signed", sending whoever read it to the
