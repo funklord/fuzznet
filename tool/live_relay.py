@@ -36,6 +36,7 @@ Exit 0 on a pass, 1 on a failure.
 
 import os
 import re
+import socket
 import subprocess
 import sys
 import tempfile
@@ -47,7 +48,8 @@ from live_rejoin import ROUND_DONE_RE, command, daemon, expect  # noqa: E402
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 
-live_trim.DEADLINE = time.monotonic() + 420.0
+LOSS = int(os.environ.get("FZN_FAULT_LOSS", "0") or 0)
+live_trim.DEADLINE = time.monotonic() + 420.0 + 20.0 * LOSS
 
 PASS_RE = re.compile(r"contact pass: (\d+) contact\(s\) asked, (\d+) kept from members, "
                      r"(\d+) paired, (\d+) host\(s\) to deliver to")
@@ -67,6 +69,19 @@ NOBODY_RE = re.compile(r"line\(s\) offered to 127\.0\.0\.1: 0 delivered, 0 settl
 PREKEY_HOST = slice(4, 68)
 
 
+def free(port):
+	"""Whether UDP `port` can be bound now, on every address as the daemon
+	binds it: live_chat.py's check (sec 743)."""
+	s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+	try:
+		s.bind(("", port))
+		return True
+	except OSError:
+		return False
+	finally:
+		s.close()
+
+
 def main(argv):
 	if len(argv) != 2:
 		print("usage: live_relay.py PATH_TO_FUZZNETD", file=sys.stderr)
@@ -77,7 +92,17 @@ def main(argv):
 
 	run.fuzznetd = os.path.abspath(argv[1])
 	run.started = []
-	base = 6000 + (os.getpid() % 500) * 4
+	# A SLOT ALL FREE, from the pid's on, as live_chat.py takes its own (sec
+	# 743): one run in three at 20 per cent loss, sec 756, met B1's port held
+	# and its daemon could not bind.
+	base = None
+	for t in range(500):
+		at = 6000 + ((os.getpid() + t) % 500) * 4
+		if all(free(at + i) for i in range(4)):
+			base = at
+			break
+	if base is None:
+		raise SystemExit("livecheck: FAILED -- no slot of four free ports in 6000-7999")
 	port = {"a": str(base), "b1": str(base + 1), "b2": str(base + 2), "nobody": str(base + 3)}
 	with tempfile.TemporaryDirectory(prefix="fzn-live.") as scratch, \
 	     tempfile.TemporaryDirectory(prefix="fzs.", dir="/tmp") as sock_dir:
@@ -202,17 +227,17 @@ def main(argv):
 				time.sleep(0.2)
 			turn("b1", "b1e")
 			turn("b2", "b2e")
-			# AS MANY AS FOUR OF A'S ROUNDS, the loss bar (sec 689): started
+			# AS MANY AS FOUR OF A'S ROUNDS, and half the loss more (sec 756): started
 			# again, B2 says hello to B1 once and then every 20 s, and a hello
 			# lost leaves B1 refusing -- "that host has not said where it is",
 			# answered to A now (sec 754) -- until the next.
-			for rnd in range(4):
+			for rnd in range(4 + LOSS // 2):
 				d = turn("a", "a-e%d" % rnd)
 				try:
 					d.wait_for(RELAYED_RE, "A's round relaying the second line through B1")
 					break
 				except failed:
-					if rnd == 3:
+					if rnd == 3 + LOSS // 2:
 						raise
 					turn("b2", "b2e%d" % rnd)
 			reply = ask(socks["b2"], "list message " + keys["a"])
@@ -224,10 +249,16 @@ def main(argv):
 			log = d.log()
 			nobody, relayed = len(NOBODY_RE.findall(log)), len(RELAYED_RE.findall(log))
 			expect(socks["a"], "a", "add message %s out %s final" % (keys["b1"], FINAL), "ok")
-			until = time.monotonic() + 30.0
+			# UNDER LOSS, A'S OWN ROUNDS AFTER (sec 756): the fresh delivery's
+			# relayed attempt and its resends can all be lost at 20 per cent,
+			# and A's next round, the same daemon, relays what it left. What
+			# phase d holds is that B2's own address is not asked again,
+			# whichever relays it.
+			until = time.monotonic() + 30.0 + 4.0 * LOSS
 			while len(RELAYED_RE.findall(d.log())) == relayed:
 				if time.monotonic() > until:
-					raise failed("d: A's third line was not relayed within 30 s")
+					raise failed("d: A's third line was not relayed within %d s"
+					             % (30 + 4 * LOSS))
 				time.sleep(0.2)
 			log = d.log()
 			if not PASSED_RE.search(log) or len(NOBODY_RE.findall(log)) != nobody:
