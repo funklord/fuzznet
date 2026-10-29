@@ -73652,4 +73652,6 @@ whose phase f stops R (sec 726's case of a peer down), and three
 erasure journeys at 20% loss: all five passed. Then ten more erasure
 journeys at 20% loss, three at a time at a load of about 33: ten of
 ten passed, where 21 of 24 had before sec 741 (two of the three
-failures this fault's, one a recycled pid).
+failures this fault's, one a recycled pid). And ten chat journeys
+(`tool/live_chat.py --loss 20`), three at a time at a load of about 6:
+ten of ten, where sec 739 had three of four.
