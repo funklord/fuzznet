@@ -73829,9 +73829,21 @@ budgets of 250 and 500 before it.
 - a crash between an insertion's line and its moves of everyone's
   listing leaves that listing naming shifted places, as sec 725's
   order already did. No phase lists everyone's lines after a crash.
+- **the same lens over the other trims.** The notes history trim is one
+  removal per version, with no pair to come apart. The group lines'
+  trim (`node/group_lines.c`) saves the new base first, so a head never
+  names a line it would not find, then removes the rows below it. A
+  crash or a failed removal between leaves those rows on disk below the
+  base, and the next trim starts from the new base, so their text is
+  never erased, against what a retention rule promises. Fixing it wants
+  a swept-to mark in the head, a format change; not made here.
 
 `live_faults.py` now takes 180 to 330 s at a load of about 30, against
 its own deadline of 600 s.
 
-Still open for journey 3's fault bar: archive and history under a crash
-and a full disk, and erasure's pieces.
+Read rather than swept: archiving a log segment (`fzn_log_pack_archive`)
+is one rename, or across devices a synced copy renamed into place and
+then the source removed, so a crash leaves the segment whole in one
+place or both, and the next pass's rename settles it. The history trim
+is one removal a version. Still open for journey 3's fault bar:
+erasure's pieces under a crash and a full disk.
