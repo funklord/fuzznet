@@ -23,6 +23,12 @@ host behind a NAT would -- and says hello to B1 from its serving socket.
        refused, and A hears why from B1 at once rather than waiting out
        B2's answer (sec 754); B1's window set to a second, it rolls over
        and A's round relays the line
+    f  with `--restart` only: B1 killed by SIGKILL as A's fifth line goes
+       through it; started again, B2's next hello tells it where B2 is, and
+       A's rounds relay the line, which B2 lists once. It fails as it
+       stands, and is kept as the reproduction (sec 757)
+
+`--skew S` runs B1 S seconds ahead and B2 S behind, by faketime (sec 757).
 
 Against a daemon that relays nothing, phase b never delivers; against one
 whose relay sends the answer nowhere, it waits out each offer.
@@ -37,6 +43,7 @@ Exit 0 on a pass, 1 on a failure.
 import os
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -63,11 +70,16 @@ LINE = "61" * 16
 LATER = "62" * 16
 FINAL = "63" * 16
 FOURTH = "64" * 16
+FIFTH = "65" * 16
 QUOTA_RE = re.compile(r"the relay to 127\.0\.0\.1 refused: over this host's relay quota")
 PASSED_RE = re.compile(r"127\.0\.0\.1 passed over: reached only through a relay lately")
 NOBODY_RE = re.compile(r"line\(s\) offered to 127\.0\.0\.1: 0 delivered, 0 settled, 0 refused, "
                        r"1 unanswered")
 PREKEY_HOST = slice(4, 68)
+
+
+class _done(Exception):
+	"""The phases asked for are over."""
 
 
 def free(port):
@@ -86,11 +98,16 @@ def free(port):
 def main(argv):
 	# `--skew S`, sec 757: B1, the relay, S seconds ahead and B2, the host it
 	# relays to, S behind, by faketime -- every clock of the three apart.
+	# `--restart`, sec 757: phase f, the relay killed mid-delivery, which
+	# fails as it stands and is kept as its reproduction rather than run by
+	# `make livecheck`.
+	restart = "--restart" in argv[2:]
+	argv = [a for a in argv if a != "--restart"]
 	skew = 0
 	if len(argv) == 4 and argv[2] == "--skew" and argv[3].isdigit():
 		skew = int(argv[3])
 	elif len(argv) != 2:
-		print("usage: live_relay.py PATH_TO_FUZZNETD [--skew S]", file=sys.stderr)
+		print("usage: live_relay.py PATH_TO_FUZZNETD [--skew S] [--restart]", file=sys.stderr)
 		return 2
 	skews = {}
 	if skew:
@@ -136,6 +153,15 @@ def main(argv):
 
 		def down(who):
 			started.pop(who).stop()
+
+		def killed(who):
+			"""`who` killed by SIGKILL, no cleanup, as a power cut would."""
+			d = started.pop(who)
+			try:
+				os.killpg(d.proc.pid, signal.SIGKILL)
+			except ProcessLookupError:
+				pass
+			d.proc.wait(timeout=10)
 
 		def turn(who, tag):
 			if who in started:
@@ -317,6 +343,37 @@ def main(argv):
 			if FOURTH not in ask(socks["b2"], "list message " + keys["a"]):
 				raise failed("e: B2 does not hold the fourth line after B1's window rolled over")
 			print("livecheck: e: B1's window rolled over and the fourth line was relayed")
+
+			# f: the relay killed with a line on its way through it (sec 757,
+			# sec 689's restart inside an operation): A writes its fifth line
+			# and B1 dies by SIGKILL at once, its tables of where B2 was seen
+			# gone with it. Started again, B2's next hello tells it, and A's
+			# rounds relay the line, which B2 then holds once.
+			if not restart:
+				raise _done
+			expect(socks["b1"], "b1", "set setting host relay/quota 0", "ok")
+			expect(socks["a"], "a", "add message %s out %s killed" % (keys["b1"], FIFTH), "ok")
+			killed("b1")
+			up("b1", "b1f").wait_for(ROUND_END_RE, "B1's round after its kill")
+			got_it = False
+			for rnd in range(4 + LOSS // 2):
+				turn("b2", "b2-f%d" % rnd)
+				turn("a", "a-f%d" % rnd)
+				listed = ask(socks["b2"], "list message " + keys["a"])
+				if FIFTH in listed:
+					got_it = True
+					break
+			if not got_it:
+				raise failed("f: B2 does not hold the fifth line after B1 was killed and started "
+				             "again\n  B2 lists %r\n  A lists %r"
+				             % (listed[:400], ask(socks["a"], "list message " + keys["b1"])[:400]))
+			if listed.count("," + FIFTH + ",") != 1:
+				raise failed("f: B2 lists the fifth line %d times: %r"
+				             % (listed.count("," + FIFTH + ","), listed[:300]))
+			print("livecheck: f: B1 killed with A's fifth line on its way; started again, the "
+			      "line reached B2 once")
+		except _done:
+			pass
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

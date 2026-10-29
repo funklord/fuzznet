@@ -74329,3 +74329,20 @@ three pass at no loss; `live_estate` and `live_chat` still pass at 900 s,
 once each, since `restamp_peer` reaches every caller. `make test` and
 `make style` green. The clock changes are held by these live runs, not by
 `make test`.
+
+**Open, journey 4's restart inside an operation: the relay killed
+mid-delivery.** `live_relay --restart` adds phase f: B1 killed by SIGKILL
+as A's fifth line goes through it, started again, then up to four rounds
+of B2 and A. **It fails as it stands**, and is kept behind the flag as the
+reproduction rather than run by `make livecheck`. What is known:
+- A's fifth line stays undelivered, state `-` in A's listing, through
+  all four rounds; B2 never lists it.
+- In the last round A's relayed offer of it ended 7 ms after it began
+  and counted nothing -- 0 delivered, 0 settled, 0 refused, 0 unanswered
+  for one line sent -- which `deliver_answered` should not be able to
+  produce; B2's log shows it answering A's messages at that moment.
+- **Not** the relayed time ask a delivery now sends as it starts:
+  disabled, phase f fails the same way.
+Not yet built: the same phase for `live_introduce` (the introducer
+killed mid-introduction) and `live_lan` (the probed host killed between
+its answer and the fetch).
