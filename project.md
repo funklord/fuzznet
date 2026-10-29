@@ -73861,3 +73861,28 @@ then the source removed, so a crash leaves the segment whole in one
 place or both, and the next pass's rename settles it. The history trim
 is one removal a version. Still open for journey 3's fault bar:
 erasure's pieces under a crash and a full disk.
+
+## 747. The estate journey at 0% and 5% loss, and a roots line read at the wrong level, 2026-10-29
+
+Sec 739 had the estate journey at four of four at 0% and 5% loss.
+After secs 741 to 746, three runs at a time at a load of 10 to 35:
+- 0%: 10 of 10;
+- 5%: 8 of 10, then 9 of 10 after the fix below.
+
+**One failure was the test's.** Phase f asks A2's log, by `list log 0
+N`, for a `node/roots` line saying it stands among the roots. The
+daemon says that line at info the first time a process says it and at
+notice when the set changes. A2, started again after R's removal had
+landed, said "1 root(s) stand, this node among them" once, at info, so
+a read at notice never found it. `live_estate.py` now reads at info and
+pages from the newest until the total, at most 64 pages.
+
+**The other two were one cause, the item parked since sec 737's
+run:** "a2: status went unanswered on its socket". In the kept log,
+two in-turn waits ran back to back without answering local clients: a
+sibling's pairing, 3.3 s, then a journal push waiting out its 3 s for
+an answer lost to loss. That passes a client's 5 s. Sec 727 serves
+local clients during a wait only in steps that hold nothing a local
+verb touches, so widening it is a pass over each step, not a fix in
+passing. It is now the estate journey's only failure at 5% loss, 2
+runs in 20.

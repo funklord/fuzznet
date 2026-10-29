@@ -551,9 +551,20 @@ def main(argv):
 			# is removed, at its next round's end, and never told it stands
 			# as one no more -- the warning the cut that took its own add
 			# would have raised.
+			# AT INFO, PAGED, sec 747: a process's first roots line is said at
+			# info, a change at notice. A2 started again after R's removal
+			# had landed said "1 root(s) stand, this node among them" once,
+			# at info, and a read at notice never found it.
 			def roots_lines():
-				return [e for e in said("a2", "list log 0 N").split()[3:]
-				        if e.split(",")[2:3] == ["node/roots"]]
+				found, at = [], 0
+				for _ in range(64):
+					got = said("a2", "list log %d I" % at).split()
+					entries = got[3:]
+					found += [e for e in entries if e.split(",")[2:3] == ["node/roots"]]
+					at += len(entries)
+					if not entries or len(got) < 3 or at >= int(got[1]):
+						break
+				return found
 			polled("a2", "status", lambda g: any("among%20them" in e for e in roots_lines()),
 			       "no node/roots line saying A2 is among the roots")
 			lost = [e for e in roots_lines() if "no%20more" in e]
