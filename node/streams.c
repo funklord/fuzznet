@@ -374,3 +374,51 @@ fzn_streams_err_t fzn_streams_take(const fzn_streams_t *s, const char *name, siz
 	}
 	return FZN_STREAMS_OK;
 }
+
+size_t fzn_streams_query_encode(const char *name, size_t name_len, uint64_t since, uint8_t *out,
+                                size_t cap)
+{
+	if (!name || !out || !fzn_stream_name_ok(name, name_len) || cap < 1u + name_len + 8u)
+		return 0;
+	out[0] = (uint8_t)name_len;
+	memcpy(out + 1, name, name_len);
+	fzn_put_be64(out + 1u + name_len, since);
+	return 1u + name_len + 8u;
+}
+
+int fzn_streams_query_decode(const uint8_t *in, size_t len, const char **name, size_t *name_len,
+                             uint64_t *since)
+{
+	if (!in || !name || !name_len || !since || len < 1u || len != 1u + (size_t)in[0] + 8u
+	    || !fzn_stream_name_ok((const char *)in + 1, in[0]))
+		return 0;
+	*name = (const char *)in + 1;
+	*name_len = in[0];
+	*since = fzn_get_be64(in + 1u + in[0]);
+	return 1;
+}
+
+size_t fzn_streams_record_put(const fzn_stream_record_t *r, uint8_t *out, size_t at, size_t cap)
+{
+	size_t k, need = 8u + 8u + 1u;
+
+	if (!r || !out || r->levels == 0u || r->levels > FZN_STREAM_LEVELS_MAX)
+		return at;
+	for (k = 0; k < r->levels; k++) {
+		if (r->rendition_len[k] > FZN_STREAM_RENDITION_MAX)
+			return at;
+		need += 1u + r->rendition_len[k];
+	}
+	if (at > cap || cap - at < need)
+		return at;
+	fzn_put_be64(out + at, r->seq);
+	fzn_put_be64(out + at + 8u, r->at);
+	out[at + 16u] = (uint8_t)r->levels;
+	at += 17u;
+	for (k = 0; k < r->levels; k++) {
+		out[at++] = (uint8_t)r->rendition_len[k];
+		memcpy(out + at, r->rendition[k], r->rendition_len[k]);
+		at += r->rendition_len[k];
+	}
+	return at;
+}

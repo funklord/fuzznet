@@ -14,6 +14,9 @@ a poor one in turn.
        fixes kept before are still listed, and it watches gpsd again and
        keeps the next (sec 766)
     c  `location/enabled` off: the link reads `off`, and no fix is kept after
+    d  twenty fixes held, past what one reply holds: bare `list location`
+       says so and names the page, and `list location FROM` pages the
+       newest sixteen, each once, in order (sec 770)
 
 Against a daemon that does not sample, phase b's link never reads
 watching; against one with no accuracy gate, nothing is dropped.
@@ -201,6 +204,36 @@ def main(argv):
 				raise failed("c: after it was turned off, get location said %r then %r"
 				             % (got, later))
 			print("livecheck: c: turned off, the node let gpsd go and kept nothing more")
+
+			# d: PAST ONE REPLY (sec 770): the 13th fix of one host's no
+			# longer fitted `list location`, and the list answered an error.
+			last = 0
+			while last < 20:
+				got = ask(sock, "add location 59.3293230 18.0685810 alt 31 bearing 90 acc 5 9 "
+				                "vacc 20 at %d" % (1792600000 + last))
+				if not got.startswith("ok "):
+					raise failed("d: add location answered %r" % got)
+				last = int(got.split()[1])
+			bare = ask(sock, "list location")
+			if bare != "error the list does not fit a reply: list location 0 pages it":
+				raise failed("d: a list past one reply answered %r" % bare[:120])
+			rows, pages = [], 0
+			while True:
+				page = ask(sock, "list location %d" % len(rows)).split()
+				if page[:1] != ["ok"] or int(page[2]) != len(rows) or int(page[1]) != 16:
+					raise failed("d: list location %d answered %r" % (len(rows), page[:3]))
+				pages += 1
+				rows += page[3:]
+				if not page[3:] or len(rows) >= 16:
+					break
+			seqs = [int(r.split(",")[1]) for r in rows]
+			if seqs != list(range(last - 15, last + 1)) or pages < 2:
+				raise failed("d: the pages listed %r in %d page(s), not the newest sixteen of "
+				             "%d" % (seqs, pages, last))
+			if not ask(sock, "list location x").startswith("malformed "):
+				raise failed("d: list location x was not refused")
+			print("livecheck: d: %d fixes held: the bare list said it does not fit, and %d "
+			      "pages listed the newest sixteen once each" % (last, pages))
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

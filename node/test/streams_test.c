@@ -361,6 +361,71 @@ static void test_take_stops_at_the_first_not_kept(void)
 	      "a record of no levels");
 }
 
+/* EACH LIMIT AT ITS EDGE, sec 770: a name of 32 and of 33, four levels
+ * of 64 bytes and a fifth or a 65th -- each taken at it, refused past. */
+static void test_bounds(void)
+{
+	static const uint8_t host[32] = { 0x73 };
+	char name[FZN_STREAM_NAME_MAX + 1u];
+	uint8_t q[FZN_STREAM_QUERY_MAX + 8u], answer[2u * (17u + 5u * 66u)];
+	const char *got;
+	size_t got_len, at, taken;
+	uint64_t since, stopped;
+	fzn_stream_record_t r, held;
+	size_t k;
+
+	memset(rows, 0, sizeof(rows));
+	memset(name, 'a', sizeof(name));
+	CHECK(fzn_streams_query_encode(name, FZN_STREAM_NAME_MAX, 7u, q, sizeof(q))
+	          == FZN_STREAM_QUERY_MAX
+	          && fzn_streams_query_decode(q, FZN_STREAM_QUERY_MAX, &got, &got_len, &since)
+	          && got_len == FZN_STREAM_NAME_MAX && since == 7u,
+	      "a name of 32 is asked and read");
+	CHECK(fzn_streams_query_encode(name, FZN_STREAM_NAME_MAX + 1u, 7u, q, sizeof(q)) == 0,
+	      "a name of 33 is not asked");
+	q[0] = (uint8_t)(FZN_STREAM_NAME_MAX + 1u);
+	memset(q + 1, 'a', FZN_STREAM_NAME_MAX + 1u);
+	CHECK(!fzn_streams_query_decode(q, FZN_STREAM_QUERY_MAX + 1u, &got, &got_len, &since),
+	      "a query naming 33 is not read");
+	CHECK(fzn_streams_query_encode(name, 0u, 7u, q, sizeof(q)) == 0, "an empty name");
+
+	memset(&r, 0, sizeof(r));
+	r.seq = 1u;
+	r.levels = FZN_STREAM_LEVELS_MAX;
+	for (k = 0; k < r.levels; k++) {
+		r.rendition_len[k] = FZN_STREAM_RENDITION_MAX;
+		memset(r.rendition[k], (int)(0x40 + k), FZN_STREAM_RENDITION_MAX);
+	}
+	at = fzn_streams_record_put(&r, answer, 0, sizeof(answer));
+	CHECK(at == 17u + FZN_STREAM_LEVELS_MAX * (1u + FZN_STREAM_RENDITION_MAX)
+	          && fzn_streams_take(&S, "app", 3u, host, answer, at, 1u, &taken, &stopped)
+	                 == FZN_STREAMS_OK
+	          && fzn_streams_get(&S, "app", 3u, host, 1u, &held) == FZN_STREAMS_OK
+	          && held.levels == FZN_STREAM_LEVELS_MAX
+	          && held.rendition_len[3] == FZN_STREAM_RENDITION_MAX,
+	      "four levels of 64 bytes are put, taken and kept");
+	CHECK(fzn_streams_record_put(&r, answer, 0, at - 1u) == 0, "a record past its room");
+	answer[16] = (uint8_t)(FZN_STREAM_LEVELS_MAX + 1u);
+	CHECK(fzn_streams_take(&S, "app", 3u, host, answer, at, 1u, &taken, &stopped)
+	          == FZN_STREAMS_ERR_MALFORMED,
+	      "a fifth level is not taken");
+	answer[16] = (uint8_t)FZN_STREAM_LEVELS_MAX;
+	answer[17] = (uint8_t)(FZN_STREAM_RENDITION_MAX + 1u);
+	CHECK(fzn_streams_take(&S, "app", 3u, host, answer, at, 1u, &taken, &stopped)
+	          == FZN_STREAMS_ERR_MALFORMED,
+	      "a rendition of 65 is not taken");
+	r.seq = 2u;
+	r.levels = FZN_STREAM_LEVELS_MAX + 1u;
+	CHECK(fzn_streams_keep(&S, "app", 3u, host, &r) == FZN_STREAMS_ERR_MALFORMED
+	          && fzn_streams_record_put(&r, answer, 0, sizeof(answer)) == 0,
+	      "a fifth level is neither kept nor put");
+	r.levels = 1u;
+	r.rendition_len[0] = FZN_STREAM_RENDITION_MAX + 1u;
+	CHECK(fzn_streams_keep(&S, "app", 3u, host, &r) == FZN_STREAMS_ERR_MALFORMED
+	          && fzn_streams_record_put(&r, answer, 0, sizeof(answer)) == 0,
+	      "a rendition of 65 is neither kept nor put");
+}
+
 /* WHO MAY ASK, sec 769: a stream query tried with each kind of caller. */
 static void test_who_may_ask(void)
 {
@@ -410,6 +475,7 @@ int main(void)
 	test_hundreds();
 	test_next_survives_a_lost_head();
 	test_take_stops_at_the_first_not_kept();
+	test_bounds();
 	test_who_may_ask();
 	if (failures) {
 		fprintf(stderr, "node streams_test: %d of %d checks failed\n", failures, checks);

@@ -74591,7 +74591,8 @@ and g), and `live_location` sampled gpsd on one node. Added:
   next.
 
 Both pass; neither found a fault. Journey 5 under loss and skew is sec
-767, its fault and authorization bars sec 769.
+767, its fault and authorization bars sec 769, its fuzzing and bounds
+bars sec 770.
 
 ## 767. Journey 5 under loss and skew, 2026-10-29
 
@@ -74734,3 +74735,76 @@ The stream and location verbs answer the node's own user alone
 `test_who_may_ask` tries each kind of asker and each origin; six
 sabotage entries break the judgments, the take's stop and the ring's
 reading. No hole was found in who may ask: the move makes it testable.
+
+## 770. Journey 5's fuzzing and bounds bars, 2026-10-30
+
+### Fuzzing
+
+`node/test/location_fuzz.c` takes journey 5's wire inputs, each made
+whole and then bent: a stream query, a stream's answer
+(`fzn_streams_take`, sec 769), a fix's bytes, and a line of gpsd's
+TPV. The query's codec and the answer's record writer moved out of
+fuzznetd into `node/streams.c` (`fzn_streams_query_encode` and
+`_decode`, `fzn_streams_record_put`) so it could reach them. Its claims
+are in its header: one encoding a query; a whole answer taken whole and
+a bent one keeping nothing its bytes do not hold; a fix in range, one
+encoding, and degraded to any level still in range, marked, and
+unmoved by degrading again; a TPV line read only to a fix in range.
+
+**One defect, on its first run: a fix had 2^40 encodings.** The
+encoder writes an absent altitude, bearing and vertical accuracy as
+zero -- `location.h` says so, "so two fixes that mean the same are the
+same bytes" -- and the decoder passed over whatever stood there. So a
+fix decoded from any of those strings and encoded back as another; 235
+of 3000 cases. The decoder now refuses bytes no encoder makes, and
+`fix.situ` says it. No store is affected: every fix kept was written
+by the encoder. `location_test` checks each of the four bytes.
+
+### Bounds
+
+| Limit | At its edge | Past it |
+|---|---|---|
+| a stream name, 32 | asked and read | not asked, not read |
+| levels, 4; a rendition, 64 bytes | put, taken, kept | malformed, kept nowhere |
+| the ring, 1024 records a host | the oldest overwritten | a reader further behind skips what no one holds |
+| one answer | about 900 fixes in 69 KB, a default build's reply | the next fetch asks from the head |
+| fetches waiting, 8 | queued | `error too many fetches waiting` |
+| askers' rate, one a 2 s, 32 remembered | answered | `denied asked too soon` |
+| `list location`, newest 16 a host | listed | was `error the list does not fit` |
+
+**One defect, measured: `list location` failed at the 13th fix.** The
+local reply is 1024 bytes, a fix's row about 82, and the bare verb lists
+the newest sixteen of every host -- so one host past twelve fixes, six
+minutes of gpsd at the default 30 s, could not list even its own. No
+live test kept more than twelve. Both lists now take `[FROM]` and
+answer `ok TOTAL FROM ROW ...`, a page at a time, as every list verb
+here pages (sec 704); without it they answer as before while it fits,
+and past it say `error the list does not fit a reply: list location 0
+pages it`. The same held for `list stream NAME`, where two records of
+four full renditions passed a reply; its comment's `ok COUNT` was never
+what it answered, and now says what it does. **The bare form is kept
+for fuzzypickles**, whose `node_location_show` reads `ok` and rows and
+would read a TOTAL as a broken row: told in its inbox to ask `list
+location 0` and page, as its `list device carol 0` already does.
+`live_location` phase d holds twenty fixes and pages them.
+
+**Costs measured**, at a load of 15: a host's first fix, which reads the
+ring for its highest seq (sec 769), 9 ms against 1 ms for the next; a
+page of `list location`, 0.5 ms.
+
+**Two limits found that are not journey 5's to change:**
+- **A request line past 512 bytes is answered `denied`** by
+  `node/local.c`, before any verb sees it -- so `add stream` with four
+  full renditions, 512 hex characters, is refused as though for want
+  of permission. Deliberate there ("answer a denial so the client is
+  not left waiting"), and a reply word every client reads; `malformed`
+  would say why. A fetched record of that size is taken as any other.
+- **A host in more than 256 groups lists none of them.**
+  `fzn_node_group_ids_of` reads every group held into
+  FZN_GROUPS_HELD_MAX, and past it the store's listing fails whole, so
+  a stream granted to a group reads as granted to nobody. The table is
+  used at 31 sites across the group layer; growing it is that layer's
+  change, as sec 704 grew the others.
+
+Two sabotage entries: the fix decoder's absent-is-zero check, and the
+query's exact length.

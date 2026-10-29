@@ -17,5 +17,6 @@ struct fzn_location_fix {
 	u8  acc_e;              // 15: east-west accuracy, log-scaled; 255 unknown
 	u8  acc_n;              // 16: north-south accuracy, log-scaled; 255 unknown
 	u8  acc_v;              // 17: vertical accuracy, only with FLAG_ALT
-	u8  flags [max = 7];    // 18: ALT 1, BEARING 2, COARSE 4
+	u8  flags [max = 7];    // 18: ALT 1, BEARING 2, COARSE 4; a field its flag
+	                        // leaves out is zero, or the bytes are no fix
 }

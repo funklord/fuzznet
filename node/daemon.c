@@ -10155,26 +10155,6 @@ static int stream_level_of(const char *name, size_t name_len, const uint8_t *own
 	return best;
 }
 
-static size_t put_record(const fzn_stream_record_t *r, uint8_t *out, size_t at, size_t cap)
-{
-	size_t k, need = 8u + 8u + 1u;
-
-	for (k = 0; k < r->levels; k++)
-		need += 1u + r->rendition_len[k];
-	if (at + need > cap)
-		return at;
-	fzn_put_be64(out + at, r->seq);
-	fzn_put_be64(out + at + 8u, r->at);
-	out[at + 16u] = (uint8_t)r->levels;
-	at += 17u;
-	for (k = 0; k < r->levels; k++) {
-		out[at++] = (uint8_t)r->rendition_len[k];
-		memcpy(out + at, r->rendition[k], r->rendition_len[k]);
-		at += r->rendition_len[k];
-	}
-	return at;
-}
-
 static size_t streams_remote(const uint8_t *sender, const uint8_t *request, size_t request_len,
                              uint8_t *reply, size_t reply_cap)
 {
@@ -10188,12 +10168,9 @@ static size_t streams_remote(const uint8_t *sender, const uint8_t *request, size
 	unsigned level;
 	int own, whole;
 
-	if (request_len < 3u || request_len != 3u + (size_t)request[2] + 8u
-	    || !fzn_stream_name_ok((const char *)request + 3, request[2]))
+	if (request_len < 2u
+	    || !fzn_streams_query_decode(request + 2, request_len - 2u, &name, &name_len, &since))
 		return (size_t)snprintf((char *)reply, reply_cap, "malformed a stream query\n");
-	name = (const char *)request + 3;
-	name_len = request[2];
-	since = fzn_get_be64(request + 3u + name_len);
 	if (!contact_id || !node_streams.store)
 		return (size_t)snprintf((char *)reply, reply_cap, "error this node keeps no streams\n");
 	/* WHO ASKS, judged in `node/streams.c` (sec 769). */
@@ -10220,7 +10197,7 @@ static size_t streams_remote(const uint8_t *sender, const uint8_t *request, size
 			continue;
 		if (!whole)
 			fzn_streams_render(&r, level, &given);
-		at = put_record(whole ? &r : &given, reply, at, cap);
+		at = fzn_streams_record_put(whole ? &r : &given, reply, at, cap);
 		if (at == before)
 			break;
 		count++;
@@ -10239,10 +10216,9 @@ static size_t stream_query(const char *name, size_t name_len, const uint8_t *ori
 {
 	request[0] = FZND_GROUP_VERSION;
 	request[1] = FZN_TYPE_STREAM_QUERY;
-	request[2] = (uint8_t)name_len;
-	memcpy(request + 3, name, name_len);
-	fzn_put_be64(request + 3u + name_len, fzn_streams_last(&node_streams, name, name_len, origin));
-	return 3u + name_len + 8u;
+	return 2u + fzn_streams_query_encode(name, name_len,
+	                                     fzn_streams_last(&node_streams, name, name_len, origin),
+	                                     request + 2, FZN_STREAM_QUERY_MAX);
 }
 
 /* STREAM_RECORDS from `origin`'s host, kept: how many. */
@@ -10589,8 +10565,10 @@ static size_t device_local(fzn_origin_t origin, const fzn_request_t *request, ch
  *                                     granted (sec 645)
  *     fetch stream NAME [WHO]         asked at once of WHO's hosts, or of
  *                                     this user's own
- *     list stream NAME                `ok COUNT ORIGIN,SEQ,AT,HEX[,HEX...]
- *                                     ...`, the newest 16 held of each host */
+ *     list stream NAME [FROM]         `ok ORIGIN,SEQ,AT,HEX[,HEX...] ...`,
+ *                                     the newest 16 held of each host; with
+ *                                     FROM, `ok TOTAL FROM` and a page from
+ *                                     row FROM (sec 770) */
 /* ---- location, sec 676 ----------------------------------------------------
  *
  * A FIX IS A RECORD OF sec 632's `location` STREAM, written at its three
@@ -10605,8 +10583,10 @@ static size_t device_local(fzn_origin_t origin, const fzn_request_t *request, ch
  *       accuracy only beside an altitude; UTC, seconds, now when not said.
  *       `ok SEQ`. What a pin dropped by hand, or a platform's own location
  *       service, hands the node; gpsd's sampling writes the same.
- *   list location
- *       `ok` and a row a fix held, the newest sixteen of each host -- this
+ *   list location [FROM]
+ *       `ok` and a row a fix held -- with FROM, `ok TOTAL FROM` and a page
+ *       of them from row FROM, as every list verb pages (sec 770); without,
+ *       an error once they do not fit -- the newest sixteen of each host -- this
  *       one's at their finest, a contact's at the level it was given:
  *       `HOST,SEQ,AT,LAT,LON,UTC,ALT,BEARING,ACC_E,ACC_N,ACC_V,COARSE`,
  *       HOST its first eight bytes in hex, `-` for what the fix lacks,
@@ -10822,10 +10802,46 @@ static void location_tick(void)
 	}
 }
 
+/* ONE ROW OF `list location`, ` HOST,SEQ,...`, for `origin`'s record
+ * `seq` into `row`: its length, 0 for a record that is no fix -- and with
+ * `row` NULL, 1 for one that is, so a listing can count before it writes. */
+static size_t location_row(const uint8_t *origin, uint64_t seq, char *row, size_t cap)
+{
+	static fzn_stream_record_t r;
+	fzn_location_fix_t f;
+	char host[17], lat[FZN_LOCATION_DEGREES_TEXT_MAX], lon[FZN_LOCATION_DEGREES_TEXT_MAX];
+	char alt[8] = "-", bearing[8] = "-", ae[12] = "-", an[12] = "-", av[12] = "-";
+	int n;
+
+	if (fzn_streams_get(&node_streams, FZND_LOCATION_STREAM, FZND_LOCATION_STREAM_LEN, origin,
+	                    seq, &r) != FZN_STREAMS_OK
+	    || !r.levels || !fzn_location_fix_decode(r.rendition[0], r.rendition_len[0], &f))
+		return 0;
+	if (!row)
+		return 1;
+	hex_of(origin, 8u, host);
+	(void)fzn_location_degrees_text(f.lat_e7, lat);
+	(void)fzn_location_degrees_text(f.lon_e7, lon);
+	if (f.has_alt)
+		(void)snprintf(alt, sizeof(alt), "%d", (int)f.alt_m);
+	if (f.has_bearing)
+		(void)snprintf(bearing, sizeof(bearing), "%u",
+		               (unsigned)fzn_location_bearing_decode(f.bearing));
+	if (f.acc_e != FZN_LOCATION_ACC_UNKNOWN)
+		(void)snprintf(ae, sizeof(ae), "%lu", (unsigned long)fzn_location_acc_decode(f.acc_e));
+	if (f.acc_n != FZN_LOCATION_ACC_UNKNOWN)
+		(void)snprintf(an, sizeof(an), "%lu", (unsigned long)fzn_location_acc_decode(f.acc_n));
+	if (f.has_alt && f.acc_v != FZN_LOCATION_ACC_UNKNOWN)
+		(void)snprintf(av, sizeof(av), "%lu", (unsigned long)fzn_location_acc_decode(f.acc_v));
+	n = snprintf(row, cap, " %s,%llu,%llu,%s,%s,%lu,%s,%s,%s,%s,%s,%u", host,
+	             (unsigned long long)r.seq, (unsigned long long)r.at, lat, lon,
+	             (unsigned long)f.utc_s, alt, bearing, ae, an, av, (unsigned)f.is_coarse);
+	return n > 0 && (size_t)n < cap ? (size_t)n : 0u;
+}
+
 static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                              size_t cap)
 {
-	static fzn_stream_record_t r;
 	static struct key_room heads_room;
 	uint8_t (*heads)[FZN_PUBKEY_LEN] = NULL;
 	const uint8_t *at = request->arg, *subject, *w, *v;
@@ -10911,59 +10927,81 @@ static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, 
 			return (size_t)snprintf(reply, cap, "error the fix would not keep\n");
 		return (size_t)snprintf(reply, cap, "ok %llu\n", (unsigned long long)seq);
 	}
-	if (left)
-		return (size_t)snprintf(reply, cap, "malformed list location\n");
+	/* `list location [FROM]`, sec 770: with FROM, a page -- `ok TOTAL FROM
+	 * ROW ...`, as every list verb pages (sec 704) -- and without, `ok ROW
+	 * ...` as before, which the 13th fix of one host's no longer fit. */
 	{
-		size_t n = 0, out, i;
+		size_t n = 0, out, i, total = 0, index = 0, rlen;
 		uint64_t last, s;
+		long long from = -1;
+		const uint8_t *fw;
+		size_t fw_len;
+		char row[160];
 
-		out = (size_t)snprintf(reply, cap, "ok");
+		if (next_word(&at, &left, &fw, &fw_len)
+		    && (left || !word_number(fw, fw_len, 0, 1000000000, &from)))
+			return (size_t)snprintf(reply, cap, "malformed list location [FROM]\n");
 		if (stream_origins(&heads_room, FZND_LOCATION_STREAM, FZND_LOCATION_STREAM_LEN, &heads,
 		                   &n) != FZN_STREAMS_OK)
 			return (size_t)snprintf(reply, cap, "error the stream did not list\n");
-		for (i = 0; i < n; i++) {
-			char host[17];
-
+		/* COUNTED FIRST, for the head a page leads with. */
+		for (i = 0; from >= 0 && i < n; i++) {
 			last = fzn_streams_last(&node_streams, FZND_LOCATION_STREAM,
 			                        FZND_LOCATION_STREAM_LEN, heads[i]);
-			hex_of(heads[i], 8u, host);
-			for (s = last > 16u ? last - 15u : 1u; last && s <= last && out < cap; s++) {
-				fzn_location_fix_t f;
-				char lat[FZN_LOCATION_DEGREES_TEXT_MAX], lon[FZN_LOCATION_DEGREES_TEXT_MAX];
-				char alt[8] = "-", bearing[8] = "-", ae[12] = "-", an[12] = "-", av[12] = "-";
-
-				if (fzn_streams_get(&node_streams, FZND_LOCATION_STREAM,
-				                    FZND_LOCATION_STREAM_LEN, heads[i], s, &r) != FZN_STREAMS_OK
-				    || !r.levels
-				    || !fzn_location_fix_decode(r.rendition[0], r.rendition_len[0], &f))
+			for (s = last > 16u ? last - 15u : 1u; last && s <= last; s++)
+				total += location_row(heads[i], s, NULL, 0u) > 0u;
+		}
+		out = from >= 0 ? (size_t)snprintf(reply, cap, "ok %zu %lld", total, from)
+		                : (size_t)snprintf(reply, cap, "ok");
+		for (i = 0; i < n; i++) {
+			last = fzn_streams_last(&node_streams, FZND_LOCATION_STREAM,
+			                        FZND_LOCATION_STREAM_LEN, heads[i]);
+			for (s = last > 16u ? last - 15u : 1u; last && s <= last; s++) {
+				if (!(rlen = location_row(heads[i], s, row, sizeof(row))))
 					continue;
-				(void)fzn_location_degrees_text(f.lat_e7, lat);
-				(void)fzn_location_degrees_text(f.lon_e7, lon);
-				if (f.has_alt)
-					(void)snprintf(alt, sizeof(alt), "%d", (int)f.alt_m);
-				if (f.has_bearing)
-					(void)snprintf(bearing, sizeof(bearing), "%u",
-					               (unsigned)fzn_location_bearing_decode(f.bearing));
-				if (f.acc_e != FZN_LOCATION_ACC_UNKNOWN)
-					(void)snprintf(ae, sizeof(ae), "%lu",
-					               (unsigned long)fzn_location_acc_decode(f.acc_e));
-				if (f.acc_n != FZN_LOCATION_ACC_UNKNOWN)
-					(void)snprintf(an, sizeof(an), "%lu",
-					               (unsigned long)fzn_location_acc_decode(f.acc_n));
-				if (f.has_alt && f.acc_v != FZN_LOCATION_ACC_UNKNOWN)
-					(void)snprintf(av, sizeof(av), "%lu",
-					               (unsigned long)fzn_location_acc_decode(f.acc_v));
-				out += (size_t)snprintf(reply + out, cap - out,
-				                        " %s,%llu,%llu,%s,%s,%lu,%s,%s,%s,%s,%s,%u", host,
-				                        (unsigned long long)r.seq, (unsigned long long)r.at, lat,
-				                        lon, (unsigned long)f.utc_s, alt, bearing, ae, an, av,
-				                        (unsigned)f.is_coarse);
+				if (from >= 0 && index++ < (size_t)from)
+					continue;
+				/* ROOM FOR THE ROW AND THE LINE'S END. */
+				if (out + rlen + 1u >= cap) {
+					if (from >= 0)
+						return out + (size_t)snprintf(reply + out, cap - out, "\n");
+					return (size_t)snprintf(reply, cap,
+					                        "error the list does not fit a reply: "
+					                        "list location 0 pages it\n");
+				}
+				memcpy(reply + out, row, rlen);
+				out += rlen;
 			}
 		}
-		if (out >= cap)
-			return (size_t)snprintf(reply, cap, "error the list does not fit a reply\n");
 		return out + (size_t)snprintf(reply + out, cap - out, "\n");
 	}
+}
+
+/* ONE ROW OF `list stream`, ` HOST,SEQ,AT,HEX[,HEX...]`, `-` for an empty
+ * rendition: its length, 0 for no record -- and with `row` NULL, 1 for
+ * one. A record's longest fits STREAM_ROW_MAX. */
+#define STREAM_ROW_MAX                                                                        \
+	(1u + 16u + 2u * 21u + FZN_STREAM_LEVELS_MAX * (1u + 2u * FZN_STREAM_RENDITION_MAX) + 1u)
+static size_t stream_row(const char *name, size_t name_len, const uint8_t *origin, uint64_t seq,
+                         char *row, size_t cap)
+{
+	static fzn_stream_record_t r;
+	char hex[17], rendition[2u * FZN_STREAM_RENDITION_MAX + 1u];
+	size_t out, k;
+
+	if (fzn_streams_get(&node_streams, name, name_len, origin, seq, &r) != FZN_STREAMS_OK)
+		return 0;
+	if (!row)
+		return 1;
+	hex_of(origin, 8u, hex);
+	out = (size_t)snprintf(row, cap, " %s,%llu,%llu", hex, (unsigned long long)r.seq,
+	                       (unsigned long long)r.at);
+	for (k = 0; k < r.levels && out < cap; k++) {
+		hex_of(r.rendition[k], r.rendition_len[k], rendition);
+		out += (size_t)snprintf(row + out, cap - out, ",%s",
+		                        r.rendition_len[k] ? rendition : "-");
+	}
+	return out < cap ? out : 0u;
 }
 
 static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
@@ -11017,37 +11055,46 @@ static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, c
 		return (size_t)snprintf(reply, cap, "ok %llu\n", (unsigned long long)r.seq);
 	}
 	if (request->parsed == FZN_VERB_LIST) {
-		size_t n = 0, out, i;
+		size_t n = 0, out, i, total = 0, index = 0, rlen;
 		uint64_t last, s;
+		long long from = -1;
+		static char row[STREAM_ROW_MAX];
 
+		/* `list stream NAME [FROM]`, sec 770, paged as `list location` is:
+		 * two records of four full renditions passed a reply. */
+		if (next_word(&at, &left, &w, &w_len)
+		    && (left || !word_number(w, w_len, 0, 1000000000, &from)))
+			return (size_t)snprintf(reply, cap, "malformed list stream NAME [FROM]\n");
 		/* EVERY HOST HELD: this one's own, and each fetched from. */
-		out = (size_t)snprintf(reply, cap, "ok");
 		if (stream_origins(&heads_room, (const char *)name, name_len, &heads, &n)
 		    != FZN_STREAMS_OK)
 			return (size_t)snprintf(reply, cap, "error the stream did not list\n");
+		for (i = 0; from >= 0 && i < n; i++) {
+			last = fzn_streams_last(&node_streams, (const char *)name, name_len, heads[i]);
+			for (s = last > 16u ? last - 15u : 1u; last && s <= last; s++)
+				total += stream_row((const char *)name, name_len, heads[i], s, NULL, 0u) > 0u;
+		}
+		out = from >= 0 ? (size_t)snprintf(reply, cap, "ok %zu %lld", total, from)
+		                : (size_t)snprintf(reply, cap, "ok");
 		for (i = 0; i < n; i++) {
-			const uint8_t *o = heads[i];
-			char hex[17];
-
-			last = fzn_streams_last(&node_streams, (const char *)name, name_len, o);
-			hex_of(o, 8u, hex);
-			for (s = last > 16u ? last - 15u : 1u; last && s <= last && out < cap; s++) {
-				if (fzn_streams_get(&node_streams, (const char *)name, name_len, o, s, &r)
-				    != FZN_STREAMS_OK)
+			last = fzn_streams_last(&node_streams, (const char *)name, name_len, heads[i]);
+			for (s = last > 16u ? last - 15u : 1u; last && s <= last; s++) {
+				if (!(rlen = stream_row((const char *)name, name_len, heads[i], s, row,
+				                        sizeof(row))))
 					continue;
-				out += (size_t)snprintf(reply + out, cap - out, " %s,%llu,%llu", hex,
-				                        (unsigned long long)r.seq, (unsigned long long)r.at);
-				for (k = 0; k < r.levels && out < cap; k++) {
-					char rendition[2u * FZN_STREAM_RENDITION_MAX + 1u];
-
-					hex_of(r.rendition[k], r.rendition_len[k], rendition);
-					out += (size_t)snprintf(reply + out, cap - out, ",%s",
-					                        r.rendition_len[k] ? rendition : "-");
+				if (from >= 0 && index++ < (size_t)from)
+					continue;
+				if (out + rlen + 1u >= cap) {
+					if (from >= 0)
+						return out + (size_t)snprintf(reply + out, cap - out, "\n");
+					return (size_t)snprintf(reply, cap,
+					                        "error the list does not fit a reply: "
+					                        "list stream NAME 0 pages it\n");
 				}
+				memcpy(reply + out, row, rlen);
+				out += rlen;
 			}
 		}
-		if (out >= cap)
-			return (size_t)snprintf(reply, cap, "error the list does not fit a reply\n");
 		return out + (size_t)snprintf(reply + out, cap - out, "\n");
 	}
 	/* WHO: a contact's name, or @GROUP; absent for fetch, this user's own. */

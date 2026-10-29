@@ -84,6 +84,22 @@ fzn_streams_err_t fzn_streams_keep(const fzn_streams_t *s, const char *name, siz
 uint64_t fzn_streams_last(const fzn_streams_t *s, const char *name, size_t name_len,
                           const uint8_t origin[32]);
 
+/* A STREAM QUERY'S BODY, after its version and type: the name's length,
+ * the name, and the last seq held of the asked host's records, 8 bytes
+ * big-endian. ENCODE into `out`: its length, 0 for a name out of range
+ * or no room. DECODE `len` bytes: 1 with `*name` pointing into `in`, 0
+ * for bytes that are not exactly one query of a name a stream may have. */
+#define FZN_STREAM_QUERY_MAX (1u + FZN_STREAM_NAME_MAX + 8u)
+size_t fzn_streams_query_encode(const char *name, size_t name_len, uint64_t since, uint8_t *out,
+                                size_t cap);
+int fzn_streams_query_decode(const uint8_t *in, size_t len, const char **name, size_t *name_len,
+                             uint64_t *since);
+
+/* ONE RECORD as a host answers it, at `at` of `out`: the `at` past it, or
+ * `at` itself when it does not fit in `cap` -- the shape
+ * `fzn_streams_take` reads. */
+size_t fzn_streams_record_put(const fzn_stream_record_t *r, uint8_t *out, size_t at, size_t cap);
+
 /* RECORDS AS A HOST ANSWERED THEM -- `count` of them, each its seq and
  * time (8 bytes each, big-endian), its level count, and each level a
  * length byte and that many bytes -- kept as `origin`'s, the host that

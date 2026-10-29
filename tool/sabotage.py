@@ -10939,6 +10939,20 @@ SABOTAGES = [
 		"a head lost restarts the owner's numbering at 1 -- sec 769",
 	),
 	(
+		"location-fix-absent-is-zero",
+		'location/location.c',
+		"\tif ((!out->has_alt\n",
+		"\tif (0 && (!out->has_alt\n",
+		"a fix decodes from bytes no encoder makes, one fix any of 2^40 strings -- sec 770",
+	),
+	(
+		"streams-query-exact-length",
+		'node/streams.c',
+		"\tif (!in || !name || !name_len || !since || len < 1u || len != 1u + (size_t)in[0] + 8u\n",
+		"\tif (!in || !name || !name_len || !since || len < 1u || len < 1u + (size_t)in[0] + 8u\n",
+		"a stream query with bytes past its end is read as one -- sec 770",
+	),
+	(
 		'node-asks-its-own-resend',
 		'node/asks.c',
 		'\t\t\tif (e->again)\n\t\t\t\te->again(e->again_ctx);',

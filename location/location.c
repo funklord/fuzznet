@@ -135,6 +135,14 @@ int fzn_location_fix_decode(const uint8_t *in, size_t len, fzn_location_fix_t *o
 	out->utc_s = fzn_get_be32(in + FZN_LOCATION_OFF_UTC);
 	out->has_alt = (flags & FZN_LOCATION_FLAG_ALT) ? 1u : 0u;
 	out->has_bearing = (flags & FZN_LOCATION_FLAG_BEARING) ? 1u : 0u;
+	/* ABSENT IS ZERO HERE TOO, sec 770: the encoder writes an absent field
+	 * as zero, and a decoder that passed over whatever stood there let one
+	 * fix be any of 2^40 strings -- location_fuzz's first run. Bytes that
+	 * are no encoder's are no fix. */
+	if ((!out->has_alt
+	     && (fzn_get_be16(in + FZN_LOCATION_OFF_ALT) || in[FZN_LOCATION_OFF_ACC_V]))
+	    || (!out->has_bearing && in[FZN_LOCATION_OFF_BEARING]))
+		return 0;
 	out->is_coarse = (flags & FZN_LOCATION_FLAG_COARSE) ? 1u : 0u;
 	out->alt_m = out->has_alt ? to_i16(fzn_get_be16(in + FZN_LOCATION_OFF_ALT)) : 0;
 	out->bearing = out->has_bearing ? in[FZN_LOCATION_OFF_BEARING] : 0u;

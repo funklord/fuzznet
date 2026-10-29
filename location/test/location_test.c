@@ -68,6 +68,21 @@ static void test_the_bytes(void)
 	CHECK(fzn_location_fix_encode(&f, b, sizeof(b)) == 1 && b[12] == 0 && b[13] == 0
 	              && b[14] == 0 && b[17] == 0 && b[18] == 0,
 	      "an absent field left bytes behind");
+	/* AND ABSENT MUST BE ZERO, sec 770: a field its flag leaves out, written
+	 * other than 0, is bytes no encoder makes. */
+	{
+		static const size_t AT[] = { 12u, 13u, 14u, 17u };
+		size_t k;
+
+		for (k = 0; k < sizeof(AT) / sizeof(AT[0]); k++) {
+			b[AT[k]] = 1u;
+			CHECK(fzn_location_fix_decode(b, FZN_LOCATION_FIX_LEN, &back) == 0,
+			      "an absent field written other than 0 was decoded");
+			b[AT[k]] = 0u;
+		}
+		CHECK(fzn_location_fix_decode(b, FZN_LOCATION_FIX_LEN, &back) == 1,
+		      "fixture: the fix with absent fields zero decodes");
+	}
 	/* A FLAG NOBODY DEFINED is not a fix. */
 	b[18] = 0x08;
 	CHECK(fzn_location_fix_decode(b, FZN_LOCATION_FIX_LEN, &back) == 0,

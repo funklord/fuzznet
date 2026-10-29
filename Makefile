@@ -358,7 +358,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/keys_fuzz.c node/test/card_fuzz.c \
              node/test/votes_fuzz.c \
              node/test/pieces_fuzz.c \
-             node/test/reachability_fuzz.c \
+             node/test/reachability_fuzz.c node/test/location_fuzz.c \
              provision/test/provision_test.c \
              roster/test/roster_test.c \
              disclose/test/disclose_test.c \
@@ -638,6 +638,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/node/test/votes_fuzz \
              $(BUILD_DIR)/node/test/pieces_fuzz \
              $(BUILD_DIR)/node/test/reachability_fuzz \
+             $(BUILD_DIR)/node/test/location_fuzz \
              $(BUILD_DIR)/disclose/test/disclose_fuzz \
              $(BUILD_DIR)/persist/test/persist_fuzz \
              $(BUILD_DIR)/wire/test/relay_fuzz \
@@ -3863,6 +3864,17 @@ $(BUILD_DIR)/node/test/reachability_fuzz: $(BUILD_DIR)/node/test/reachability_fu
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+# A stream's query and answer, a fix and a gpsd line from a lying peer: sec
+# 689's journey 5, location (sec 770).
+$(BUILD_DIR)/node/test/location_fuzz: $(BUILD_DIR)/node/test/location_fuzz.o \
+                                      $(BUILD_DIR)/node/streams.o $(BUILD_DIR)/persist/persist.o \
+                                      $(BUILD_DIR)/trust/trust.o $(BUILD_DIR)/session/agree.o \
+                                      $(BUILD_DIR)/prekey/prekey.o $(BUILD_DIR)/ratchet/ratchet.o \
+                                      $(BUILD_DIR)/constant_time/constant_time.o \
+                                      $(BUILD_DIR)/location/location.o $(BUILD_DIR)/location/tpv.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/node/test/routing_test: $(BUILD_DIR)/node/test/routing_test.o \
                                      $(BUILD_DIR)/node/routing.o $(NODE_SERVE_OBJS)
 	@mkdir -p $(dir $@)
@@ -5046,6 +5058,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
              $(BUILD_DIR)/node/test/pieces_fuzz \
              $(BUILD_DIR)/node/test/reachability_fuzz \
+             $(BUILD_DIR)/node/test/location_fuzz \
              $(BUILD_DIR)/disclose/test/disclose_fuzz \
              $(BUILD_DIR)/catalog/test/attribute_fuzz \
              $(BUILD_DIR)/catalog/test/plan_fuzz \
