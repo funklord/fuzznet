@@ -164,6 +164,23 @@ static void test_canonical_entries(void)
 	CHECK(r.n == FZN_ROUTING_ENTRIES_MAX
 	              && fzn_routing_add(&r, "h.example", 9u, 99u, 1u, 1u) == FZN_ROUTING_ERR_MALFORMED,
 	      "an entry past the bound was taken");
+
+	/* OFFERED PAST THE BOUND, sec 765: the best kept. Sixteen at metric 1
+	 * on ports 100 to 115; one at 0 puts out the worst, port 115; one at
+	 * 200 is refused full; the same address and port again, malformed. */
+	CHECK(fzn_routing_offer(&r, "h.example", 9u, 99u, 1u, 0u) == FZN_ROUTING_OK
+	              && r.n == FZN_ROUTING_ENTRIES_MAX && r.entries[0].port == 99u
+	              && r.entries[0].metric == 0u
+	              && r.entries[FZN_ROUTING_ENTRIES_MAX - 1u].port == 114u,
+	      "a better entry offered to a full manifest did not put out the worst");
+	CHECK(fzn_routing_offer(&r, "h.example", 9u, 98u, 1u, 200u) == FZN_ROUTING_ERR_FULL
+	              && r.n == FZN_ROUTING_ENTRIES_MAX,
+	      "a worse entry offered to a full manifest was not refused full");
+	CHECK(fzn_routing_offer(&r, "h.example", 9u, 99u, 1u, 10u) == FZN_ROUTING_ERR_MALFORMED,
+	      "an address and port offered twice to a full manifest was taken");
+	memset(&r, 0, sizeof(r));
+	CHECK(fzn_routing_offer(&r, "h.example", 9u, 7u, 1u, 1u) == FZN_ROUTING_OK && r.n == 1u,
+	      "an entry offered with room was not added");
 }
 
 static void test_signed_and_checked(void)

@@ -25,6 +25,8 @@ const char *fzn_routing_err_str(fzn_routing_err_t err)
 		return "none kept";
 	case FZN_ROUTING_ERR_BACKEND:
 		return "the store refused";
+	case FZN_ROUTING_ERR_FULL:
+		return "full, of entries no worse";
 	}
 	return "unknown";
 }
@@ -88,6 +90,33 @@ fzn_routing_err_t fzn_routing_add(fzn_routing_t *r, const char *address, size_t 
 	r->entries[at] = e;
 	r->n++;
 	return FZN_ROUTING_OK;
+}
+
+fzn_routing_err_t fzn_routing_offer(fzn_routing_t *r, const char *address, size_t address_len,
+                                    uint16_t port, uint8_t transport, uint8_t metric)
+{
+	fzn_routing_entry_t e;
+	size_t i;
+
+	if (!r || r->n > FZN_ROUTING_ENTRIES_MAX || !address_ok(address, address_len) || !port)
+		return FZN_ROUTING_ERR_MALFORMED;
+	if (r->n < FZN_ROUTING_ENTRIES_MAX)
+		return fzn_routing_add(r, address, address_len, port, transport, metric);
+	for (i = 0; i < r->n; i++)
+		if (r->entries[i].port == port && r->entries[i].address_len == address_len
+		    && memcmp(r->entries[i].address, address, address_len) == 0)
+			return FZN_ROUTING_ERR_MALFORMED;
+	memset(&e, 0, sizeof(e));
+	memcpy(e.address, address, address_len);
+	e.address_len = address_len;
+	e.port = port;
+	e.transport = transport;
+	e.metric = metric;
+	/* THE WORST IS THE LAST: the entries are kept in canonical order. */
+	if (cmp(&e, &r->entries[r->n - 1u]) >= 0)
+		return FZN_ROUTING_ERR_FULL;
+	r->n--;
+	return fzn_routing_add(r, address, address_len, port, transport, metric);
 }
 
 /* The document's bytes, `public_relay` to the last entry, into `out`. */

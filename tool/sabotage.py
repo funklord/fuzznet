@@ -10890,6 +10890,13 @@ SABOTAGES = [
 		"another user on this machine is told who this host hears on its network and where it is reached -- sec 762",
 	),
 	(
+		"routing-offer-keeps-the-best",
+		'node/routing.c',
+		"\tif (cmp(&e, &r->entries[r->n - 1u]) >= 0)\n\t\treturn FZN_ROUTING_ERR_FULL;",
+		"\tif (1)\n\t\treturn FZN_ROUTING_ERR_FULL;",
+		"a user with more reachable hosts than a manifest holds publishes the first listed, not its best -- sec 765",
+	),
+	(
 		'node-asks-its-own-resend',
 		'node/asks.c',
 		'\t\t\tif (e->again)\n\t\t\t\te->again(e->again_ctx);',

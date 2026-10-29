@@ -3703,9 +3703,11 @@ static const fzn_hash_ops_t *routing_hash;
  * be put before or after the others. */
 #define ROUTING_METRIC_DEFAULT 100u
 
+/* EVERY HOST WITH AN ADDRESS, grown as the estate does, sec 765: it held
+ * 32, and the 33rd on were never weighed for the manifest at all. */
 struct routing_hosts {
-	uint8_t about[FZN_ROUTING_ENTRIES_MAX * 2u][FZN_PUBKEY_LEN];
-	size_t n;
+	uint8_t (*about)[FZN_PUBKEY_LEN];
+	size_t n, cap;
 };
 
 static void routing_collect(void *ctx, const fzn_setting_t *s, fzn_setting_rank_t rank)
@@ -3715,9 +3717,18 @@ static void routing_collect(void *ctx, const fzn_setting_t *s, fzn_setting_rank_
 	(void)rank;
 	if (s->scope == FZN_SCOPE_HOST && s->set
 	    && s->key_len == sizeof(FZN_NODE_SETTINGS_ADDRESS_KEY) - 1u
-	    && memcmp(s->key, FZN_NODE_SETTINGS_ADDRESS_KEY, s->key_len) == 0
-	    && h->n < sizeof(h->about) / sizeof(h->about[0]))
+	    && memcmp(s->key, FZN_NODE_SETTINGS_ADDRESS_KEY, s->key_len) == 0) {
+		if (h->n == h->cap) {
+			size_t cap = h->cap ? 2u * h->cap : 2u * FZN_ROUTING_ENTRIES_MAX;
+			uint8_t (*more)[FZN_PUBKEY_LEN] = realloc(h->about, cap * sizeof(*more));
+
+			if (!more)
+				return;
+			h->about = more;
+			h->cap = cap;
+		}
 		memcpy(h->about[h->n++], s->about, FZN_PUBKEY_LEN);
+	}
 }
 
 /* An estate cell that reads `1`. */
@@ -3740,7 +3751,7 @@ static int estate_flag(const char *key)
 static void routing_derive(fzn_routing_t *out)
 {
 	static struct routing_hosts hosts;
-	size_t i;
+	size_t i, left_out = 0;
 
 	memset(out, 0, sizeof(*out));
 	hosts.n = 0;
@@ -3764,11 +3775,33 @@ static void routing_derive(fzn_routing_t *out)
 			if (k == len && m <= 255u)
 				metric = m;
 		}
-		/* AN ADDRESS TWICE -- two hosts claiming one -- is listed once. */
-		(void)fzn_routing_add(out, host, strlen(host), port, FZN_ROUTING_TRANSPORT_UDP,
-		                      (uint8_t)metric);
+		/* AN ADDRESS TWICE -- two hosts claiming one -- is listed once. PAST
+		 * THE MANIFEST'S ROOM, the best kept, sec 765: the hosts were added
+		 * in the order listed and the seventeenth on dropped unsaid, the
+		 * lowest metrics among them. */
+		{
+			int full = out->n == FZN_ROUTING_ENTRIES_MAX;
+			fzn_routing_err_t err = fzn_routing_offer(out, host, strlen(host), port,
+			                                          FZN_ROUTING_TRANSPORT_UDP,
+			                                          (uint8_t)metric);
+
+			/* REFUSED, or another put out for it. */
+			left_out += err == FZN_ROUTING_ERR_FULL || (full && err == FZN_ROUTING_OK);
+		}
 	}
 	out->public_relay = estate_flag(ROUTING_PUBLIC_KEY);
+	/* SAID WHEN IT CHANGES, so a manifest short of hosts is seen. */
+	{
+		static size_t said;
+
+		if (left_out != said) {
+			said = left_out;
+			if (left_out)
+				say(FZN_ENTRY_WARNING, "routing",
+				    "%zu reachable host(s) past the manifest's %u left out, the highest "
+				    "metrics", left_out, (unsigned)FZN_ROUTING_ENTRIES_MAX);
+		}
+	}
 }
 
 /* `get routing` ASKED OF `asking`, and the answer kept as the manifest of
@@ -12094,6 +12127,7 @@ static void say_hello(struct pull_target *pulls, size_t npulls, int serving_fd, 
 
 /* ---- LAN discovery, sec 624 ------------------------------------------------- */
 
+/* The port list's first room; it doubles past it (sec 765). */
 #define FZND_LAN_PORTS_MAX 16u
 #define FZND_PROBES_A_MINUTE 32u
 
@@ -12258,6 +12292,25 @@ static void lan_probe_heard(void *ctx, const uint8_t *probe, size_t len,
  * from; a sibling silent at its own address is then asked there
  * (`introduce_siblings`). How many were sent, the address in `address`;
  * with none, `*why` says why. */
+/* ROOM FOR `need` PORTS in `*ports`, grown by doubling; 0 out of memory,
+ * when the ports listed so far are probed and the rest are not. */
+static int lan_port_room(uint16_t **ports, size_t *cap, size_t need)
+{
+	size_t room = *cap ? *cap : FZND_LAN_PORTS_MAX;
+	uint16_t *more;
+
+	if (*ports && need <= *cap)
+		return 1;
+	while (room < need)
+		room *= 2u;
+	more = realloc(*ports, room * sizeof(*more));
+	if (!more)
+		return 0;
+	*ports = more;
+	*cap = room;
+	return 1;
+}
+
 static size_t lan_probe(const char **why, char *out, size_t out_cap)
 {
 	static struct key_room hosts_room;
@@ -12266,7 +12319,12 @@ static size_t lan_probe(const char **why, char *out, size_t out_cap)
 	const fzn_node_state_t *st = running_admin ? running_admin->state : NULL;
 	uint8_t probe[FZN_NODE_PROBE_LEN], value[FZN_SETTING_VALUE_MAX];
 	char address[FZN_UDP_HOST_MAX] = "255.255.255.255", host[FZN_NODE_SETTINGS_HOST_MAX + 1u];
-	uint16_t ports[FZND_LAN_PORTS_MAX], port;
+	/* EVERY PORT A SIBLING OR A CONTACT'S HOST ADVERTISES, grown as they
+	 * are, sec 765: sixteen once, and a contact's device on a seventeenth
+	 * port was never probed. */
+	static uint16_t *ports;
+	static size_t ports_cap;
+	uint16_t port;
 	fzn_setting_rank_t rank;
 	size_t n = 0, nports = 0, i, k, len = 0, sent = 0;
 
@@ -12292,24 +12350,24 @@ static size_t lan_probe(const char **why, char *out, size_t out_cap)
 	(void)snprintf(out, out_cap, "%s", address);
 	if (siblings_list(&hosts_room, &hosts, &n, 0u)
 	    == FZN_NODE_SIBLINGS_OK)
-		for (i = 0; i < n && nports < FZND_LAN_PORTS_MAX; i++) {
+		for (i = 0; i < n; i++) {
 			port = 0;
 			if (memcmp(hosts[i], contact_id->pubkey, FZN_PUBKEY_LEN) == 0
 			    || !fzn_node_settings_address(&node_settings, hosts[i], host, &port))
 				continue;
 			for (k = 0; k < nports && ports[k] != port; k++)
 				;
-			if (k == nports)
+			if (k == nports && lan_port_room(&ports, &ports_cap, nports + 1u))
 				ports[nports++] = port;
 		}
 	n = 0;
 	if (devices_list(&room, &n) == FZN_CONTACT_DEVICE_OK)
-		for (i = 0; i < n && nports < FZND_LAN_PORTS_MAX; i++) {
+		for (i = 0; i < n; i++) {
 			if (!room.at[i].port)
 				continue;
 			for (k = 0; k < nports && ports[k] != room.at[i].port; k++)
 				;
-			if (k == nports)
+			if (k == nports && lan_port_room(&ports, &ports_cap, nports + 1u))
 				ports[nports++] = room.at[i].port;
 		}
 	memset(probe, 0, sizeof(probe));

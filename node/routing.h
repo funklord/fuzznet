@@ -49,7 +49,8 @@ typedef enum fzn_routing_err {
 	FZN_ROUTING_ERR_REFUSED = -3,   /* its hash, chain or signature does not hold */
 	FZN_ROUTING_ERR_STALE = -4,     /* no newer than the one kept */
 	FZN_ROUTING_ERR_ABSENT = -5,    /* none kept for that user */
-	FZN_ROUTING_ERR_BACKEND = -6    /* the store refused */
+	FZN_ROUTING_ERR_BACKEND = -6,   /* the store refused */
+	FZN_ROUTING_ERR_FULL = -7       /* full, of entries no worse than this one */
 } fzn_routing_err_t;
 
 const char *fzn_routing_err_str(fzn_routing_err_t err);
@@ -81,6 +82,15 @@ typedef struct fzn_routing {
  * port twice, or past FZN_ROUTING_ENTRIES_MAX. */
 fzn_routing_err_t fzn_routing_add(fzn_routing_t *r, const char *address, size_t address_len,
                                   uint16_t port, uint8_t transport, uint8_t metric);
+
+/* OFFER AN ENTRY, sec 765: as `fzn_routing_add` while there is room; when
+ * the document holds FZN_ROUTING_ENTRIES_MAX already, the entry takes the
+ * place of the worst -- the last in canonical order, the highest metric --
+ * when it comes before it, and is refused FULL when it does not. So a user
+ * with more reachable hosts than a manifest holds publishes its best
+ * rather than the first it happened to list. MALFORMED as `add`. */
+fzn_routing_err_t fzn_routing_offer(fzn_routing_t *r, const char *address, size_t address_len,
+                                    uint16_t port, uint8_t transport, uint8_t metric);
 
 /* THE DOCUMENT'S HASH, from `public_relay` to the last entry, into `out`. */
 int fzn_routing_content_hash(const fzn_routing_t *r, const fzn_hash_ops_t *hash,

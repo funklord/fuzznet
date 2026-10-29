@@ -74541,3 +74541,34 @@ estate's `net/address`, a change to the entry's format, and is not made.
 Measured at 3000 cases: 414 bent manifests decoded and 1048 refused, none
 verified; 569 bent devices decoded and 965 refused, 3 held with only the
 address moved; 106 bent time answers taken, each from its own bytes.
+
+## 765. Journey 4's bounds bar: what fills, what was left out unsaid, 2026-10-29
+
+Sec 689's bounds bar: each limit stated, tested at its edge, and refused
+cleanly past it. Reachability's limits, read one by one:
+
+- **The routing manifest's 16 entries** (`FZN_ROUTING_ENTRIES_MAX`) are
+  its wire format's (`node/routing.situ`, `entry_count [max = 16]`), and
+  so stay; `routing_test` already held the edge. **What was wrong was the
+  daemon at it:** `routing_derive` added a user's hosts in the order the
+  settings listed them and ignored the add that failed, so the
+  seventeenth on dropped unsaid -- the lowest metrics among them -- and its
+  candidate list held only 32, so the thirty-third on were never weighed.
+  `fzn_routing_offer` now keeps the best: past 16, an entry before the
+  worst in canonical order takes its place, and one no better is refused
+  `FZN_ROUTING_ERR_FULL`. The candidates grow with the estate, and the
+  count left out is said, once each time it changes. `routing_test` holds
+  the edge -- a better entry displaces the worst, a worse one is refused
+  full, a duplicate stays malformed -- with a sabotage entry.
+- **The LAN probe's 16 ports** were a fixed table: a contact's device on
+  a seventeenth distinct port was never probed. Now grown, every port a
+  sibling or a contact's host advertises.
+- **The relay's quota rows** grow (sec 753); its routes and sightings are
+  the caller's room since sec 704.
+- **Sixteen introductions** can never fill: a round adds at most eight
+  siblings (`FZND_SIBLING_TARGETS_MAX`, sec 401's household), and only a
+  sibling is introduced.
+- **Rates, kept on purpose:** 50 time answers a second, since an ask is
+  answered whatever its expiry and could be replayed; 32 LAN probes
+  answered a minute, since any host on the network may send one; a relay
+  route held 10 s. Each bounds what a stranger or a replay can cost.
