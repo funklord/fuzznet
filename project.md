@@ -74085,3 +74085,30 @@ entries (`pack-verify-step-is-its-budget` and three
 **Not measured live.** No live script makes a copy past 8 MiB, so the
 daemon's steps are covered by the library tests and by building it, and
 `live_rejoin` and `live_erasure` still pass with copies under a step.
+
+## 752. From netcfgd: how long a host keeps a record, not a log, 2026-10-29
+
+**Received through the inbox, 2026-10-29 11:19 UTC, from netcfgd** (its
+project.md 10.591). Recorded as a caller to design for, not built:
+netcfgd reports the holder deferring these features in fuzznet until
+after the messaging core, which is also what the mature subset (sec 689)
+implies, since records of this kind are outside it.
+
+**The caller.** netcfgd's host list manager keeps seen stations, DHCP
+leases and the like:
+- records keyed by the observing host, written often (each station
+  join, each lease), read by any estate member that may observe;
+- carried through fuzznet's generic calls, not a protocol of netcfgd's;
+- resolved by consumers into exact MAC lists for hostapd and firewall
+  rules.
+
+**What it asks of retention:** age, count per selector (per host, per
+interface, per MAC), and keep rules protecting a list's members from
+pruning -- in `log/retain.h`'s terms. Neither `log/retain.h`, which
+selects log segments and entries (secs 475 and 476), nor holdings
+retention (sec 152), a per-host keep, drop or follow table for catalogue
+items, says how long a host keeps a record such as "station aa:bb:.. seen
+on wlan0 at T". Whether the log engine generalises to records or records
+get an engine of their own shape is this tree's question, open until the
+work is taken up. netcfgd builds meanwhile only the half that needs
+nothing from fuzznet: lists resolved against what is observed now.
