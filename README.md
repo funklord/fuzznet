@@ -1,12 +1,77 @@
 # fuzznet
 
-The authenticated datagram protocol shared by `fuzzypickles`, `netcfgd` and
-`raidcfgd`, so that three projects do not write the same envelope, signing,
-session and chunking three times.
+When one person's computers -- a laptop, a phone, a home server, a router --
+have to talk to each other and to other people's, every program tends to
+bring its own answers to the same hard questions. How does a message prove
+who sent it? How does it survive a network that drops and reorders packets?
+How does a stolen device stop being trusted, everywhere, at once? How is a
+machine behind a home router reached at all? Each of those is easy to get
+subtly wrong, and every mistake is a security hole. fuzznet answers them
+once: a C library, and a daemon built from it, that carries signed and
+encrypted messages between devices over UDP, splits and reassembles large
+ones, resends what is lost, and decides on every single request whether its
+sender may ask it -- by a chain of grants that can be revoked, so a lost
+device is something you cut off rather than a password you change on every
+machine.
 
-A C library, using Monocypher, linked by **unprivileged** processes. It carries
-messages; it does not know what they mean. Each consuming project keeps its own
-command vocabulary and its own semantics.
+On top of that transport it carries what such programs keep rebuilding. An
+**estate**: one person's devices, joined by scanning a card, with roots and
+admins whose agreement -- k of n -- can revoke a device or move it to a new
+key, and settings carried to every device and ranked by who set them.
+**Contacts** in other people's estates, with one-to-one conversations whose
+lines are encrypted per conversation and month, delivered to whichever of
+the contact's hosts answers, and read state shared across your own devices.
+**Logs** written as structured entries, kept by retention rules, packed into
+signed hash chains, and copied or erasure-coded onto other devices, so one
+lost disk loses nothing. And **reachability** for hosts behind NAT: hellos,
+introductions, relays through your own or a contact's hosts, and discovery
+on the local network. It never interprets an application's messages --
+`fuzzypickles`, `netcfgd` and `raidcfgd` each keep their own vocabulary and
+link fuzznet instead of writing their own envelope, signing, session and
+chunking. The processes that link it run **unprivileged**.
+
+The parts exist separately elsewhere. Signal and Matrix encrypt
+conversations, but route them through servers somebody has to run --
+Signal's own, or a homeserver. WireGuard and Tailscale connect devices at
+the level of addresses and ports, and leave every service behind the tunnel
+to decide for itself who may ask it what. Syncthing and SSH trust devices by
+a list of keys kept on each machine, so removing a stolen one means editing
+every other. Logs usually go to one collector, with rsyslog or journald's
+remote upload, and live in one place. fuzznet does these things differently,
+each one in the code today:
+
+- **No server of anyone's.** Devices talk directly; where a NAT is in the
+  way, through an introduction that opens a path between them, or a relay on
+  one of your own or a contact's hosts, which charges each requester against
+  a quota and tells the asker when it refuses.
+- **Revocation that reaches everywhere.** A revocation is a signed record
+  carried to every device in the estate. With k set to two, two devices
+  with standing cut off a third while it is still writing, and what it signs
+  after the cut stands nowhere -- the estate journey's scenario tests
+  exactly that.
+- **Authorization per request, not per tunnel.** Every message names the
+  capability it exercises, checked at the receiving end against a chain of
+  grants back to the estate's root. Grants do not expire; commands do.
+- **Built for a lossy network.** Messages are split into frames, reassembled
+  under a quota per sender, and resent within the wait. The estate journey
+  is run at 5 per cent packet loss, the chat and log journeys at 20, and the
+  estate and chat journeys with clocks fifteen minutes apart, ten runs and
+  more at a time.
+- **Logs as signed, replicated data.** Each host's segments are
+  hash-chained and signed by that host, kept or pruned by rules -- age,
+  size, count, by program, host, level or text -- gathered from any member
+  on request, and copied or cut into erasure-coded pieces held by other
+  devices, which rebuild a lost segment from any k of them.
+- **A library first.** Signing, hashing, encryption and entropy are each a
+  seam the consumer fills; nothing in the library calls a primitive itself.
+  It is silent unless handed a logger. The daemon is one call,
+  `fzn_daemon_main`, which a project can run as its own.
+- **Tested by breaking it.** Fuzz harnesses for its parsers and wire inputs
+  run with every `make test`; a sabotage harness removes each guard in turn
+  and requires some test to fail; `make check` runs the suite again under
+  AddressSanitizer and UBSan; and a fault build crashes the daemon at every
+  write and fills its disk at every depth, to show nothing it answered is
+  lost.
 
 **Status: every module in the design is built.** `project.md` is the design and
 the source of truth; §11 lists the modules, §8 is the scope decision that
