@@ -74251,11 +74251,6 @@ Sabotage entries `node-asks-its-own-resend` and
 `caller-seal-as-keeps-its-message`; `node-asks-resend` and
 `caller-sent-again-is-awaited-again` follow the code.
 
-**Open, journey 4 at 20 per cent:**
-- relay's phase d wants the third line relayed by the fresh delivery
-  within 30 s; with resends one such attempt still fails about one time in
-  eight, and the round after relays it.
-
 **And then `live_introduce` and `live_lan`, which share a shape.** At 20
 per cent introduce passed 1 of 3 and lan 1 of 3. A's log answered every
 pull C's reached it with; C's rounds lost theirs, since a round's journal
@@ -74270,3 +74265,20 @@ for no loss, so a run at loss passes `--timeout`.
 
 **Measured,** three runs each at 20 per cent: introduce 3 of 3, lan 3 of 3;
 both pass at no loss.
+
+**And relay's own phases, then a fault under them.** Phase c gave A four
+rounds and phase d the fresh delivery 30 s, figures for no loss; both now
+grow with `FZN_FAULT_LOSS` as introduce's do, and the script takes its four
+ports from a slot it finds free, as `live_chat.py` does, after a run lost to
+B1's port held. Then phase d failed on its own property: A asked B2 at its
+dead address again. A's log had relayed two lines with one delivered and
+one unanswered, and **the mark that B2 is reached only through a relay was
+set only when every line came through** -- so under loss the delivery that
+proved the relay left no mark. It is now set when any line is delivered
+or settled through the relay. **Measured after:** relay passes at no loss
+and 3 of 3 at 20 per cent.
+
+**Journey 4's scenario bar at 20 per cent, after this section:** relay,
+lan and introduce 3 of 3 each. Not yet run: with clocks skewed, and with a
+restart inside each operation. Then its faults, authorization, fuzzing and
+bounds bars.

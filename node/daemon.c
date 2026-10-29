@@ -12395,9 +12395,13 @@ static void deliver_host_done(struct deliver_talk *dt)
 		    "%zu unanswered",
 		    d->sent, dt->hosts[dt->at].name, through ? through : "?", d->delivered,
 		    d->settled, d->refused, d->unanswered);
+		/* REACHED THROUGH IT, sec 756, by any line: one that came through
+		 * proves the relay is the way, though another was lost -- marked
+		 * only when every line came, a lossy delivery left the host asked
+		 * at its dead address again. */
+		if ((d->delivered || d->settled) && dt->hosts[dt->at].target >= 0)
+			relayed_set(dt->hosts[dt->at].pt, dt->now);
 		if (!d->unanswered && !d->refused) {
-			if (dt->hosts[dt->at].target >= 0)
-				relayed_set(dt->hosts[dt->at].pt, dt->now);
 			dt->at++;
 			dt->relay = 0;
 			dt->own_tried = 0;
