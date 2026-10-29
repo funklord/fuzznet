@@ -73945,3 +73945,44 @@ after takes nothing. It found no fault. The piece files themselves are
 written temporary, fsync, rename, and carry no fault point, so the fault
 build cannot crash or fill the disk inside them; a crash leaves at most
 a `.new` per piece, written over when that piece is written again.
+
+## 749. A piece's head wrong in one byte no longer turns its item's whole pieces away, 2026-10-29
+
+Journey 3's fuzzing bar (sec 689) for a piece a peer hands over:
+`node/test/pieces_fuzz.c`, in `make test`. Each case keeps every whole
+piece of an item but one into a directory, then that one bent with even
+odds. A whole piece must be kept under its own name byte for byte. A
+bent one must be refused, leaving the directory as it was, or kept under
+the name its head gives, and nothing else changed. A rebuild answering
+OK must answer the item. With k whole pieces present the rebuild must
+answer OK, and `fzn_pieces_item_len` at least the item's length.
+
+**It found the rebuild refusing with k whole pieces present**, 12 times
+in 2000 cases. `read_piece` held every piece to the head of the first one
+read. A bent piece at index 0 whose head still passed `head_ok` led, and
+the whole pieces, disagreeing with it, were turned away: too few, or no
+set rebuilding. The bytes it takes need not be a liar's. The host field,
+34 to 65, is part of the agreement and no shape check reads it, so one
+bit rotted there in piece 0 lost an item that m more pieces were cut to
+keep. `pieces_test` now flips one host byte in piece 0 and requires the
+other five to rebuild; it fails on the old rebuild.
+
+**The rebuild now lets each distinct head lead in turn** (`same_cut`,
+`rebuild_led`). The first lead is the first piece read, so pieces that
+agree are read once. A lead whose item does not fit the room is passed
+over rather than ending the rebuild, and the nearest miss is said: no
+set rebuilding, then too large, then too few.
+
+**`fzn_pieces_item_len` had the same shape**: the first readable head
+sized the daemon's buffer for every lead. It now answers the largest
+length a valid head gives, bounded as every head is by the 64 MiB
+`head_ok` allows, the bound a fetched piece already has. Its property
+needed a bend of its own -- the item's length lowered as far as its
+piece length allows -- since no random bend made a valid shorter head;
+with it, first-wins fails the harness.
+
+Sabotage entries `pieces-each-head-leads-a-rebuild` and
+`pieces-item-len-is-the-largest`;
+`pieces-rebuild-checked-against-the-id` moved to the mask walk's new
+tail. Measured: 2000 cases, 500 bent pieces kept, 508 refused, 1000
+rebuilds beside a bent one, no failure.

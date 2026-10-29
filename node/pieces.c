@@ -281,59 +281,45 @@ fzn_pieces_err_t fzn_pieces_item_len(const char *dir, const uint8_t id[FZN_BUCKE
 			continue;
 		got = read(fd, head, sizeof(head));
 		(void)close(fd);
+		/* THE LARGEST any piece's head says, sec 748: a head bent in the
+		 * first piece read would otherwise size the room for every other,
+		 * and the rebuild skips a lead whose item will not fit. */
 		if (got == (ssize_t)sizeof(head) && head_ok(head)
-		    && memcmp(head + OFF_ID, id, FZN_BUCKETS_ID_LEN) == 0 && head[OFF_INDEX] == i) {
+		    && memcmp(head + OFF_ID, id, FZN_BUCKETS_ID_LEN) == 0 && head[OFF_INDEX] == i
+		    && (size_t)fzn_get_be64(head + OFF_LEN) > *len)
 			*len = (size_t)fzn_get_be64(head + OFF_LEN);
-			return FZN_PIECES_OK;
-		}
 	}
-	return FZN_PIECES_ERR_TOO_FEW;
+	return *len ? FZN_PIECES_OK : FZN_PIECES_ERR_TOO_FEW;
 }
 
-fzn_pieces_err_t fzn_pieces_rebuild(const char *dir, uint8_t kind,
+/* WHETHER TWO HEADS DESCRIBE ONE CUT: all but the index, the keeper and the
+ * piece itself, as `read_piece` holds a piece to its lead. */
+static int same_cut(const uint8_t *a, const uint8_t *b)
+{
+	return memcmp(a, b, OFF_INDEX) == 0 && memcmp(a + OFF_PIECE_LEN, b + OFF_PIECE_LEN, 4u) == 0;
+}
+
+/* ONE LEAD'S REBUILD: every k of the pieces `held` that agree with `first`,
+ * the first k first, until one rebuilds to the id. */
+static fzn_pieces_err_t rebuild_led(uint8_t *const held[FZN_ERASURE_PIECES_MAX],
+                                    const uint8_t first[FZN_PIECE_HEAD_LEN], unsigned n_held,
                                     const uint8_t id[FZN_BUCKETS_ID_LEN],
                                     const fzn_hash_ops_t *hash, uint8_t *out, size_t cap,
                                     size_t *len, uint32_t *used)
 {
-	uint8_t *held[FZN_ERASURE_PIECES_MAX] = { 0 };
 	const uint8_t *chosen[FZN_ERASURE_PIECES_MAX];
-	uint8_t first[FZN_PIECE_HEAD_LEN], check[FZN_BUCKETS_ID_LEN];
-	char path[PATH_MAX_];
-	unsigned i, k = 0, m = 0, n_held = 0;
+	uint8_t check[FZN_BUCKETS_ID_LEN];
+	unsigned i, k = first[OFF_K], m = first[OFF_M];
 	uint32_t mask, tries = 0;
-	size_t item_len = 0;
-	int have_first = 0;
-	fzn_pieces_err_t err = FZN_PIECES_ERR_NO_MATCH;
+	size_t item_len = (size_t)fzn_get_be64(first + OFF_LEN);
 
-	if (len)
-		*len = 0;
-	if (used)
-		*used = 0;
-	if (!dir || !id || !hash || !out || !len)
+	if (n_held < k)
+		return FZN_PIECES_ERR_TOO_FEW;
+	if (item_len > cap)
 		return FZN_PIECES_ERR_MALFORMED;
-	for (i = 0; i < FZN_ERASURE_PIECES_MAX; i++) {
-		if (!piece_path(path, sizeof(path), dir, id, i, ""))
-			return FZN_PIECES_ERR_MALFORMED;
-		held[i] = read_piece(path, kind, id, i, first, &have_first);
-		n_held += held[i] != NULL;
-	}
-	if (have_first) {
-		k = first[OFF_K];
-		m = first[OFF_M];
-		item_len = (size_t)fzn_get_be64(first + OFF_LEN);
-	}
-	if (!have_first || n_held < k) {
-		err = FZN_PIECES_ERR_TOO_FEW;
-		goto done;
-	}
-	if (item_len > cap) {
-		err = FZN_PIECES_ERR_MALFORMED;
-		goto done;
-	}
-	/* EVERY k OF THE PIECES HELD, the first k first, until one rebuilds to
-	 * the id: a set of k is a mask of k bits among those held. Past 20
-	 * pieces the masks are too many to walk, and the first k held are the
-	 * one set tried. */
+	/* A set of k is a mask of k bits among those held. Past 20 pieces the
+	 * masks are too many to walk, and the first k held are the one set
+	 * tried. */
 	if (k + m > 20u) {
 		for (mask = 0, i = 0, tries = 0; i < k + m && tries < k; i++)
 			if (held[i]) {
@@ -348,9 +334,9 @@ fzn_pieces_err_t fzn_pieces_rebuild(const char *dir, uint8_t kind,
 			*len = item_len;
 			if (used)
 				*used = mask;
-			err = FZN_PIECES_OK;
+			return FZN_PIECES_OK;
 		}
-		goto done;
+		return FZN_PIECES_ERR_NO_MATCH;
 	}
 	for (mask = 0; mask < (1u << (k + m)) && tries < 1024u; mask++) {
 		unsigned bits = 0;
@@ -369,12 +355,71 @@ fzn_pieces_err_t fzn_pieces_rebuild(const char *dir, uint8_t kind,
 			*len = item_len;
 			if (used)
 				*used = mask;
-			err = FZN_PIECES_OK;
-			break;
+			return FZN_PIECES_OK;
 		}
 	}
-done:
-	for (i = 0; i < FZN_ERASURE_PIECES_MAX; i++)
-		free(held[i]);
+	return FZN_PIECES_ERR_NO_MATCH;
+}
+
+fzn_pieces_err_t fzn_pieces_rebuild(const char *dir, uint8_t kind,
+                                    const uint8_t id[FZN_BUCKETS_ID_LEN],
+                                    const fzn_hash_ops_t *hash, uint8_t *out, size_t cap,
+                                    size_t *len, uint32_t *used)
+{
+	static uint8_t led[FZN_ERASURE_PIECES_MAX][FZN_PIECE_HEAD_LEN];
+	uint8_t *held[FZN_ERASURE_PIECES_MAX] = { 0 };
+	uint8_t first[FZN_PIECE_HEAD_LEN];
+	char path[PATH_MAX_];
+	unsigned lead, i, j, n_led = 0, n_held;
+	int have_first, path_ok = 1;
+	fzn_pieces_err_t err = FZN_PIECES_ERR_TOO_FEW, e;
+
+	if (len)
+		*len = 0;
+	if (used)
+		*used = 0;
+	if (!dir || !id || !hash || !out || !len)
+		return FZN_PIECES_ERR_MALFORMED;
+	/* EACH CUT THE PIECES DESCRIBE LEADS IN TURN, sec 748: a piece is held
+	 * to the head of the one that leads, and a head bent in a byte -- the
+	 * host's, say, which no shape check reads -- led every rebuild when the
+	 * first piece read was the lead, and k whole pieces then disagreed with
+	 * it. The first lead is the first piece read, so a store whose pieces
+	 * agree reads them once. */
+	for (lead = 0; lead < FZN_ERASURE_PIECES_MAX && err != FZN_PIECES_OK; lead++) {
+		have_first = 0;
+		if (!piece_path(path, sizeof(path), dir, id, lead, ""))
+			return FZN_PIECES_ERR_MALFORMED;
+		held[lead] = read_piece(path, kind, id, lead, first, &have_first);
+		if (!held[lead])
+			continue;
+		for (j = 0; j < n_led && !same_cut(led[j], first); j++)
+			;
+		if (j < n_led) {
+			free(held[lead]);
+			held[lead] = NULL;
+			continue;
+		}
+		memcpy(led[n_led++], first, sizeof(first));
+		n_held = 1;
+		for (i = lead + 1u; i < FZN_ERASURE_PIECES_MAX && path_ok; i++) {
+			path_ok = piece_path(path, sizeof(path), dir, id, i, "");
+			held[i] = path_ok ? read_piece(path, kind, id, i, first, &have_first) : NULL;
+			n_held += held[i] != NULL;
+		}
+		e = path_ok ? rebuild_led(held, first, n_held, id, hash, out, cap, len, used)
+		            : FZN_PIECES_ERR_MALFORMED;
+		for (i = 0; i < FZN_ERASURE_PIECES_MAX; i++) {
+			free(held[i]);
+			held[i] = NULL;
+		}
+		if (!path_ok)
+			return e;
+		/* THE NEAREST MISS IS SAID: no k rebuilding outranks too large,
+		 * which outranks too few. */
+		if (e == FZN_PIECES_OK || e == FZN_PIECES_ERR_NO_MATCH
+		    || (e == FZN_PIECES_ERR_MALFORMED && err == FZN_PIECES_ERR_TOO_FEW))
+			err = e;
+	}
 	return err;
 }

@@ -56,7 +56,8 @@ static void path_of(char *out, size_t cap, const uint8_t id[FZN_BUCKETS_ID_LEN],
 }
 
 /* One byte of piece `index` flipped, past its head. */
-static int flip(const uint8_t id[FZN_BUCKETS_ID_LEN], unsigned index)
+/* Byte `at` of piece `index` of `id`, flipped in place. */
+static int flip_at(const uint8_t id[FZN_BUCKETS_ID_LEN], unsigned index, long at)
 {
 	char path[200];
 	FILE *f;
@@ -64,13 +65,18 @@ static int flip(const uint8_t id[FZN_BUCKETS_ID_LEN], unsigned index)
 
 	path_of(path, sizeof(path), id, index);
 	f = fopen(path, "r+b");
-	if (!f || fseek(f, (long)FZN_PIECE_HEAD_LEN + 7L, SEEK_SET) != 0 || (c = fgetc(f)) == EOF
-	    || fseek(f, (long)FZN_PIECE_HEAD_LEN + 7L, SEEK_SET) != 0 || fputc(c ^ 0x21, f) == EOF) {
+	if (!f || fseek(f, at, SEEK_SET) != 0 || (c = fgetc(f)) == EOF
+	    || fseek(f, at, SEEK_SET) != 0 || fputc(c ^ 0x21, f) == EOF) {
 		if (f)
 			(void)fclose(f);
 		return 0;
 	}
 	return fclose(f) == 0;
+}
+
+static int flip(const uint8_t id[FZN_BUCKETS_ID_LEN], unsigned index)
+{
+	return flip_at(id, index, (long)FZN_PIECE_HEAD_LEN + 7L);
 }
 
 int main(void)
@@ -104,6 +110,17 @@ int main(void)
 	                      == FZN_PIECES_OK
 	              && len == sizeof(item) && memcmp(back, item, len) == 0 && used == 0x0fu,
 	      "all six held, the item was not rebuilt from the four data pieces");
+
+	/* THE FIRST PIECE'S HEAD WRONG IN ITS HOST, sec 748, which no shape
+	 * check reads: the other five agree, and four of them rebuild it. Every
+	 * rebuild once took the first piece read as the head the rest must
+	 * match, and refused. Put back after. */
+	CHECK(flip_at(id, 0u, 34L + 3L)
+	              && fzn_pieces_rebuild(dir, 1u, id, &HASH, back, sizeof(back), &len, &used)
+	                         == FZN_PIECES_OK
+	              && len == sizeof(item) && memcmp(back, item, len) == 0 && !(used & 0x01u)
+	              && flip_at(id, 0u, 34L + 3L),
+	      "with piece 0's host wrong, the other five did not rebuild the item");
 
 	/* A DATA PIECE WRONG: another four rebuild it. */
 	CHECK(flip(id, 1u)

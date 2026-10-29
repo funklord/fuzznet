@@ -183,6 +183,7 @@
 /node/test/members_fuzz
 /node/test/reconcile_fuzz
 /node/test/votes_fuzz
+/node/test/pieces_fuzz
 /state/test/state_test
 /state/test/scope_test
 /state/test/setting_test

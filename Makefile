@@ -357,6 +357,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/delivery_fuzz.c messages/test/line_fuzz.c \
              node/test/keys_fuzz.c node/test/card_fuzz.c \
              node/test/votes_fuzz.c \
+             node/test/pieces_fuzz.c \
              provision/test/provision_test.c \
              roster/test/roster_test.c \
              disclose/test/disclose_test.c \
@@ -634,6 +635,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/messages/test/line_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
+             $(BUILD_DIR)/node/test/pieces_fuzz \
              $(BUILD_DIR)/disclose/test/disclose_fuzz \
              $(BUILD_DIR)/persist/test/persist_fuzz \
              $(BUILD_DIR)/wire/test/relay_fuzz \
@@ -4354,6 +4356,15 @@ $(BUILD_DIR)/node/test/pieces_test: $(BUILD_DIR)/node/test/pieces_test.o \
 	$(CC) $(CFLAGS) $^ -o $@
 
 # Erasure-coded pieces as bucket items, placed one to a host, sec 597.
+# A piece a lying peer hands over, and the rebuild that reads it: sec 689's
+# journey 3, retention and logs.
+$(BUILD_DIR)/node/test/pieces_fuzz: $(BUILD_DIR)/node/test/pieces_fuzz.o \
+                                    $(BUILD_DIR)/node/pieces.o $(BUILD_DIR)/chunk/erasure.o \
+                                    $(BUILD_DIR)/node/buckets.o \
+                                    $(BUILD_DIR)/session/hash_monocypher.o $(BUILD_DIR)/monocypher.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/node/test/piece_buckets_test: $(BUILD_DIR)/node/test/piece_buckets_test.o \
                                            $(BUILD_DIR)/node/piece_buckets.o \
                                            $(BUILD_DIR)/node/pieces.o \
@@ -5019,6 +5030,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/messages/test/line_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
+             $(BUILD_DIR)/node/test/pieces_fuzz \
              $(BUILD_DIR)/disclose/test/disclose_fuzz \
              $(BUILD_DIR)/catalog/test/attribute_fuzz \
              $(BUILD_DIR)/catalog/test/plan_fuzz \

@@ -7,7 +7,9 @@
  * length, k, m and the piece's index, then the piece.
  *
  * REBUILT AND CHECKED HERE. Every piece present is read and its head held
- * to its name and to the others'; any k rebuild the item, and the rebuild
+ * to its name and to the others' -- each distinct head leading in turn, so
+ * a head wrong in a byte does not turn the rest away (sec 748); any k
+ * rebuild the item, and the rebuild
  * is kept only when it hashes to the item's id (`fzn_buckets_id`). A piece
  * wrong in a byte rebuilds an item that does not, so other k are tried,
  * which is what having m more than k is for.
@@ -74,9 +76,9 @@ fzn_pieces_err_t fzn_pieces_keep(const char *dir, const uint8_t *bytes, size_t l
                                  uint8_t item_id[FZN_BUCKETS_ID_LEN], unsigned *index);
 
 /*
- * THE LENGTH OF THE ITEM `id`, sec 600, from the head of the first of its
- * pieces in `dir` that is a piece's: what a rebuild needs room for.
- * TOO_FEW when none is.
+ * THE LENGTH OF THE ITEM `id`, sec 600, the largest the heads of its pieces
+ * in `dir` that are a piece's give (sec 748): what a rebuild needs room
+ * for, whichever head leads it. TOO_FEW when none is.
  */
 fzn_pieces_err_t fzn_pieces_item_len(const char *dir, const uint8_t id[FZN_BUCKETS_ID_LEN],
                                      size_t *len);

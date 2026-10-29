@@ -10827,6 +10827,22 @@ SABOTAGES = [
 		'a segment whose time is not a number reads as closed at a made-up time -- secs 483, 573',
 	),
 	(
+		'pieces-each-head-leads-a-rebuild',
+		'node/pieces.c',
+		'\t\t\terr = e;\n\t}\n\treturn err;\n}',
+		'\t\t\terr = e;\n\t\tbreak;\n\t}\n\treturn err;\n}',
+		'a head wrong in a byte in the first piece read turns k whole pieces away, and the '
+		'item is not rebuilt -- sec 748',
+	),
+	(
+		'pieces-item-len-is-the-largest',
+		'node/pieces.c',
+		'\t\t    && (size_t)fzn_get_be64(head + OFF_LEN) > *len)',
+		'\t\t    && !*len)',
+		'a first piece whose head says a shorter item sizes the rebuild too small for the '
+		'rest -- sec 748',
+	),
+	(
 		'messages-an-import-sees-its-own-unindexed-lines',
 		'messages/messages.c',
 		'\t    || written_unindexed(m, contact, direction, id))',
@@ -11516,8 +11532,8 @@ SABOTAGES = [
 	(
 		"pieces-rebuild-checked-against-the-id",
 		"node/pieces.c",
-		"\t\t    && fzn_buckets_id(hash, out, item_len, check)\n\t\t    && memcmp(check, id, FZN_BUCKETS_ID_LEN) == 0) {\n\t\t\t*len = item_len;\n\t\t\tif (used)\n\t\t\t\t*used = mask;\n\t\t\terr = FZN_PIECES_OK;\n\t\t\tbreak;",
-		"\t\t    ) {\n\t\t\t*len = item_len;\n\t\t\tif (used)\n\t\t\t\t*used = mask;\n\t\t\terr = FZN_PIECES_OK;\n\t\t\tbreak;",
+		"\t\t    && fzn_buckets_id(hash, out, item_len, check)\n\t\t    && memcmp(check, id, FZN_BUCKETS_ID_LEN) == 0) {\n\t\t\t*len = item_len;\n\t\t\tif (used)\n\t\t\t\t*used = mask;\n\t\t\treturn FZN_PIECES_OK;\n\t\t}\n\t}\n\treturn FZN_PIECES_ERR_NO_MATCH;",
+		"\t\t    ) {\n\t\t\t*len = item_len;\n\t\t\tif (used)\n\t\t\t\t*used = mask;\n\t\t\treturn FZN_PIECES_OK;\n\t\t}\n\t}\n\treturn FZN_PIECES_ERR_NO_MATCH;",
 		"a piece wrong in a byte rebuilds a wrong item, and it is handed on as the archived segment -- sec 595",
 	),
 	(
