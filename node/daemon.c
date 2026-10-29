@@ -3842,9 +3842,16 @@ static void routing_round(struct pull_target *pulls, size_t npulls, uint64_t now
 		if (fzn_routing_sign(&derived, routing_hash, routing_sign, routing_self,
 		                     (const uint8_t (*)[FZN_HOP_LEN])hops, hop_count,
 		                     have ? held.generation + 1u : 1u, wall_ms())
-		            != FZN_ROUTING_OK
-		    || fzn_routing_keep(node_apply.store, node_apply.root, &derived) != FZN_ROUTING_OK) {
+		    != FZN_ROUTING_OK) {
 			say(FZN_ENTRY_WARNING, "routing", "the estate's routing manifest would not be signed");
+			return;
+		}
+		/* NOT KEPT IS NOT UNSIGNED, sec 761: a full disk was said as a
+		 * signing failure. Derived and signed again next round, its
+		 * generation unmoved, since the one held did not change. */
+		if (fzn_routing_keep(node_apply.store, node_apply.root, &derived) != FZN_ROUTING_OK) {
+			say(FZN_ENTRY_WARNING, "routing",
+			    "the estate's routing manifest was signed and would not be kept");
 			return;
 		}
 		say(FZN_ENTRY_INFO, "routing", "routing manifest signed: generation %llu, %zu host(s)",

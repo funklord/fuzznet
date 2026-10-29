@@ -74411,3 +74411,41 @@ of skew. Neither found a fault.
 introduce under 20 per cent loss, under 900 s of skew, and with a restart
 inside each operation. Its fault, authorization, fuzzing and bounds bars
 are next.
+
+## 761. Journey 4's fault bar: what it writes, read; and a full disk said as unsigned, 2026-10-29
+
+Sec 689's fault bar asks for each step's crash points and a full disk.
+**Reachability keeps almost nothing on disk.** The relay's routes and
+where peers were seen, the quota rows (sec 753), introductions, what a
+LAN probe heard, the relayed mark (sec 699) and clock offsets (sec 757)
+are all in memory, and the restart inside each operation -- the relay,
+the introducer and the probed host each killed by SIGKILL mid-operation
+(secs 759, 760) -- is the fault bar for those.
+
+**What it writes, three rows, each one save:**
+- a contact's device, kept from an offer or a contact pass
+  (`fzn_contact_device_keep`, slot CONTACT_DEVICE);
+- the routing manifest, derived and signed by a signer or taken from a
+  peer (`fzn_routing_keep`, slot ROUTING);
+- when a host was last heard from (`fzn_heard_mark`, slot HOST_HEARD).
+
+**Read rather than swept**, as sec 746 read the trims that were one
+write. A persist save goes to a file beside its name and is renamed
+over it, so a crash leaves the old row or the new, never part of one; a
+cut at every save over a single save tests nothing. Each failure path
+was read for a full disk instead:
+- a device that will not be kept is answered as not taken, and its
+  sender offers it again;
+- a manifest that will not be kept is derived, signed and kept again next
+  round, its generation unmoved since the one held did not change, and
+  one taken from a peer is asked again;
+- a heard mark is written each round, its failure ignored, the next
+  round's taking its place.
+Live coverage beside the reading: `live_faults`' phase o crashes at every
+write inside `add contact` by card, which keeps the contact's device, and
+phase m sweeps the settings writes `routing/advertise` is among.
+
+**One defect, found by the reading:** a derived manifest that would not
+be kept was said as "would not be signed", sending whoever read it to the
+signer for a full disk. Now the two are said apart: "signed and would
+not be kept".
