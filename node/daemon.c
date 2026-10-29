@@ -4397,6 +4397,9 @@ static struct {
 	int target;
 	char host[FZN_UDP_HOST_MAX + 1u];
 	long port;
+	/* ASKED THROUGH A RELAY, sec 757: the host it was sealed for, whose
+	 * caller takes the relay's word. NULL for an ask sent direct. */
+	struct pull_target *via;
 } time_asks[FZN_NODE_ASKS_MAX];
 
 /* THIS NODE'S OWN CLOCK AGAINST ITS ESTATE'S, sec 719 stage 2, judged after
@@ -4429,6 +4432,8 @@ static void clock_judged(void)
 	publish("clock", NULL);
 }
 
+static void restamp_peer(const uint8_t peer[FZN_PUBKEY_LEN]);
+
 static void time_answered(void *ctx, const uint8_t *reply, size_t reply_len)
 {
 	size_t i = (size_t)(uintptr_t)ctx;
@@ -4459,6 +4464,11 @@ static void time_answered(void *ctx, const uint8_t *reply, size_t reply_len)
 			free(grown);
 		}
 	}
+	/* AND EVERY CALLER TO IT STAMPED NOW, sec 757, so a request already
+	 * awaited is resent in that peer's terms: on a host just started, the
+	 * round's first requests went at offset 0 beside this ask, and a peer
+	 * 900 s away refused each resend as expired as it had the first. */
+	restamp_peer(time_asks[i].peer);
 	clock_judged();
 }
 
@@ -4507,6 +4517,7 @@ static int time_ask_one(struct pull_target *pt, int estate, int target, uint64_t
 		strcpy(time_asks[i].host, pt->host);
 		time_asks[i].port = pt->port;
 	}
+	time_asks[i].via = NULL;
 	time_asks[i].used = 1;
 	if (!fzn_node_asks_send(&round_asks, &pt->caller, ask, len, now + 300u, 3000u, time_answered,
 	                        (void *)(uintptr_t)i))
@@ -6274,12 +6285,14 @@ static uint8_t (*lines_done)[FZN_PUBKEY_LEN], (*groups_done)[FZN_PUBKEY_LEN];
  * every contact host unmeasured and down for good: journey 2 at 900 s of
  * skew delivered nothing, 0 runs of 10. The probe works at any skew, which
  * is what a down host needs; TIME_ASK_EVERY still bounds it. */
+static int time_ask_relayed(size_t t, uint64_t now);
+
 static void time_ask_contacts(uint64_t now)
 {
 	size_t t;
 
 	for (t = 0; t < ncontact_targets; t++)
-		if (!time_ask_one(&contact_targets[t].pt, 0, 0, now))
+		if (!time_ask_one(&contact_targets[t].pt, 0, 0, now) || !time_ask_relayed(t, now))
 			return;
 }
 
@@ -8262,6 +8275,20 @@ static int address_due;
  * would ask. */
 static struct pull_target *loop_pulls;
 static const size_t *loop_npulls;
+
+/* EVERY CALLER TO `peer`, the round's and the contact hosts', stamped by
+ * its measured offset (sec 757): what `time_answered` calls. */
+static void restamp_peer(const uint8_t peer[FZN_PUBKEY_LEN])
+{
+	size_t i;
+
+	for (i = 0; loop_pulls && loop_npulls && i < *loop_npulls; i++)
+		if (memcmp(loop_pulls[i].pairing.node, peer, FZN_PUBKEY_LEN) == 0)
+			stamp_offset(&loop_pulls[i].caller, peer);
+	for (i = 0; i < ncontact_targets; i++)
+		if (memcmp(contact_targets[i].pt.pairing.node, peer, FZN_PUBKEY_LEN) == 0)
+			stamp_offset(&contact_targets[i].pt.caller, peer);
+}
 
 /* ONE PEER ASKED where it sees this host; the answer kept, replacing that
  * peer's earlier one. */
@@ -11902,6 +11929,84 @@ static int relay_send(struct pull_target *target, struct pull_target *relay,
 	return relay_carry(target, relay, request, request_len, now, 0, msg);
 }
 
+static long relayed_of(const struct pull_target *pt, uint64_t now);
+
+/* A CLOCK ASKED THROUGH A RELAY, its answer taken: the relay's `ok` waited
+ * past, under the same message, and its refusal the end of it. */
+static void relayed_time_answered(void *ctx, const uint8_t *reply, size_t reply_len)
+{
+	size_t i = (size_t)(uintptr_t)ctx;
+	struct pull_target *pt;
+
+	if (i >= FZN_NODE_ASKS_MAX || !time_asks[i].used)
+		return;
+	pt = time_asks[i].via;
+	if (pt)
+		pt->caller.via_set = 0;
+	if (pt && reply && reply_len == 3u && memcmp(reply, "ok\n", 3u) == 0) {
+		if (!fzn_node_asks_await(&round_asks, &pt->caller, pt->caller.as_msg, 3000u,
+		                         relayed_time_answered, ctx))
+			time_asks[i].used = 0;
+		return;
+	}
+	if (reply && reply_len >= 7u && memcmp(reply, "denied ", 7u) == 0) {
+		time_asks[i].used = 0;
+		return;
+	}
+	time_answered(ctx, reply, reply_len);
+}
+
+/* CONTACT HOST `t`'S CLOCK THROUGH A RELAY, sec 757, when it is down or
+ * reached only through one: a host whose own address goes unanswered is
+ * never measured by the direct ask, so a request sealed for it is stamped
+ * by this host's clock, and at 900 s of skew the relayed line was refused
+ * as expiring past the host's horizon. Asked through another of the same
+ * contact's hosts that is up, as a line would be relayed; 0 once the ask
+ * table is full, 1 otherwise. */
+static int time_ask_relayed(size_t t, uint64_t now)
+{
+	struct pull_target *pt = &contact_targets[t].pt, *relay = NULL;
+	const uint8_t *peer = pt->pairing.node;
+	const fzn_random_ops_t *rng = pt->caller.rng;
+	uint8_t ask[FZN_NODE_TIME_ASK_LEN];
+	uint32_t msg = 0;
+	size_t i, k, len;
+
+	if (!rng || pt->fd < 0 || (!contact_targets[t].down && relayed_of(pt, now) < 0)
+	    || fzn_node_offsets_at(&node_offsets, peer) + TIME_ASK_EVERY > now)
+		return 1;
+	for (k = 0; k < ncontact_targets && !relay; k++)
+		if (k != t && !contact_targets[k].down && contact_targets[k].pt.fd >= 0
+		    && memcmp(contact_targets[k].contact, contact_targets[t].contact,
+		              FZN_PUBKEY_LEN) == 0
+		    && relayed_of(&contact_targets[k].pt, now) < 0)
+			relay = &contact_targets[k].pt;
+	if (!relay)
+		return 1;
+	if (fzn_node_asks_pending(&round_asks) >= FZN_NODE_ASKS_MAX)
+		return 0;
+	for (i = 0; i < FZN_NODE_ASKS_MAX && time_asks[i].used; i++)
+		;
+	if (i == FZN_NODE_ASKS_MAX)
+		return 0;
+	if (!rng->fill(rng->ctx, time_asks[i].nonce, sizeof(time_asks[i].nonce))
+	    || !(len = fzn_node_time_ask(time_asks[i].nonce, ask, sizeof(ask))))
+		return 1;
+	memcpy(time_asks[i].peer, peer, FZN_PUBKEY_LEN);
+	time_asks[i].estate = 0;
+	time_asks[i].sent_ms = wall_ms();
+	time_asks[i].target = 0;
+	time_asks[i].via = pt;
+	time_asks[i].used = 1;
+	if (!relay_carry(pt, relay, ask, len, now, 0, &msg)
+	    || !fzn_node_asks_await(&round_asks, &pt->caller, msg, 3000u, relayed_time_answered,
+	                            (void *)(uintptr_t)i)) {
+		pt->caller.via_set = 0;
+		time_asks[i].used = 0;
+	}
+	return 1;
+}
+
 /* HELLO, sec 622, every FZND_HELLO_EVERY seconds: a NOP from the serving
  * socket to each peer this host pulls from, so one that relays knows where
  * this host is reached and a NAT keeps the way open. */
@@ -12476,6 +12581,12 @@ static void deliver_send(struct deliver_talk *dt, size_t len)
 
 		dt->request_len = len;
 		dt->oks = 0;
+		/* ITS CLOCK ASKED THROUGH THE RELAY TOO, sec 757, when not known:
+		 * the answer restamps this host's caller, and the resend below goes
+		 * in its terms -- at 900 s of skew the first send was refused as
+		 * past the host's horizon, and the line waited a round. */
+		if (dt->hosts[dt->at].target >= 0)
+			(void)time_ask_relayed((size_t)dt->hosts[dt->at].target, dt->now);
 		sent = relay && relay_send(pt, relay, dt->request, len, dt->now, &msg)
 		       && fzn_node_asks_await_again(&round_asks, &pt->caller, msg, 3000u,
 		                                    deliver_answered, dt, deliver_relay_again, dt);

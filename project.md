@@ -74282,3 +74282,50 @@ and 3 of 3 at 20 per cent.
 lan and introduce 3 of 3 each. Not yet run: with clocks skewed, and with a
 restart inside each operation. Then its faults, authorization, fuzzing and
 bounds bars.
+
+## 757. Journey 4 at 900 s of skew: a clock learnt mid-round, and one learnt through a relay, 2026-10-29
+
+Sec 689's scenario bar asks each journey under clock skew. `live_relay`,
+`live_lan` and `live_introduce` gain `--skew S` as `live_chat.py` has it:
+in relay B1, the relay, runs S ahead and B2, the host it relays to, S
+behind, A on the real clock; in lan and introduce B ahead and C behind,
+A, the root, real. `live_repeat.py` gains `--args`, handed to every script
+after the daemon, so a repeat can carry `--skew`.
+
+**First: a clock measured mid-round restamped nothing.** At 900 s relay
+failed in phase a, B2 never pairing: B1 refused each of B2's journal pulls
+as "expired 1500 s before it came". The time ask goes out beside a round's
+first requests, and its answer was kept as the peer's offset -- but the
+callers already awaiting answers kept the stamp they were sealed with, and
+their resends, sealed again 600 ms apart within the wait, carried it too.
+Offsets live in memory, so a daemon just started -- a phone, every time
+-- lost its first round to a skewed peer. `time_answered` now restamps
+every caller to that peer (`restamp_peer`), the round's and the contact
+hosts', so a resend within the same wait goes in the peer's terms.
+
+**Then: a host reached only through a relay was never measured.** Phase b
+failed with B2 refusing A's relayed line as "expires 597 s past this
+node's horizon": A's time ask goes to B2's own address, which is dead, so
+A sealed the inner frame by its own clock. A contact host that is down,
+or reached only through a relay, now has its clock asked through a relay
+too -- another of the same contact's hosts that is up (`time_ask_relayed`),
+its `ok` waited past as a relayed line's is (sec 754) -- and a relayed
+delivery asks it as it starts, when unmeasured, so the delivery's own
+resend (sec 756) goes restamped. Relay then passed at 900 s.
+
+**LAN discovery is parked, for a wire decision.** At 900 s lan fails: C
+answers B's probe with a hello stamped by C's clock, and B refuses it as
+expired 1740 s before it came. A probe is a small unsealed frame -- a
+mark, a version, the prober's key -- carrying nothing of the prober's
+clock, and C has no measured offset for B, whose own address is not one C
+pulls from. The fix that fits is a probe that carries its sender's clock,
+so the answer is stamped in the prober's terms; that is a change to the
+probe's format, and a daemon from before it would ignore the new probe, so
+it is the holder's to make. Accepting an expired hello is not: its expiry
+is what stops a replay redirecting the prober.
+
+**Measured after:** at 900 s, relay 3 of 3 and introduce 3 of 3; all
+three pass at no loss; `live_estate` and `live_chat` still pass at 900 s,
+once each, since `restamp_peer` reaches every caller. `make test` and
+`make style` green. The clock changes are held by these live runs, not by
+`make test`.
