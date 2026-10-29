@@ -462,6 +462,51 @@ static void test_signed_by_its_subject_only(void)
 	      "a segment not signed by its host was kept, or left half written");
 }
 
+/* A COPY WITHIN WHAT ITS HOST COULD WRITE, sec 750: under a floor of 4096
+ * bytes, a segment of 40000 is past 4096 plus a line and a trailer, and B
+ * refuses it, leaving nothing; told A rotates at 65536, B takes it. A
+ * stated size past what a setting holds is held to that. */
+static uint64_t stated;
+
+static uint64_t segment_of_a(void *ctx, const uint8_t subject[32])
+{
+	(void)ctx;
+	return memcmp(subject, key_a, 32u) == 0 ? stated : 0u;
+}
+
+static void test_a_copy_within_its_hosts_segment(void)
+{
+	char copies[300];
+	fzn_reconcile_bucket_tally_t t;
+	uint8_t prev[32];
+	size_t taken;
+
+	fresh();
+	memset(prev, 0, sizeof(prev));
+	CHECK(make_packed(dir_a, JULY_2026, 40000u, prev, &SIGN_A, key_a)
+	              && fzn_log_buckets_scan(&lb_a, &taken, NULL) && taken == 1u,
+	      "fixture: one of A's segments, 40000 bytes");
+	copy_dir_of(dir_b, key_a, copies, sizeof(copies));
+	lb_b.copy_floor = 4096u;
+	lb_b.segment_of = segment_of_a;
+	stated = 0u;
+	CHECK(fzn_log_buckets_copy_max(&lb_b, key_a)
+	              == 4096u + FZN_ENTRY_LINE_MAX + FZN_LOG_PACK_TRAILER_MAX,
+	      "with nothing stated, a copy's bound is not the floor and a line and a trailer");
+	CHECK(pull_b(&t) == FZN_RECONCILE_OK && t.refused == 1u && t.applied == 0u
+	              && count_in(copies, ".log.zst") == 0u && count_in(copies, ".new") == 0u,
+	      "a copy past its host's bound was kept, or left half written");
+	stated = 65536u;
+	CHECK(pull_b(&t) == FZN_RECONCILE_OK && t.applied == 1u && count_in(copies, ".log.zst") == 1u,
+	      "a copy within the size its host states was refused");
+	stated = UINT64_MAX;
+	CHECK(fzn_log_buckets_copy_max(&lb_b, key_a)
+	              == FZN_LOG_BUCKETS_STATED_MAX + FZN_ENTRY_LINE_MAX + FZN_LOG_PACK_TRAILER_MAX,
+	      "a stated size past a setting's bound was not held to it");
+	lb_b.segment_of = NULL;
+	lb_b.copy_floor = FZN_LOG_BUCKETS_COPY_FLOOR;
+}
+
 /* FETCHED ONLY WHERE THE RULES WOULD HOLD IT. */
 static void test_wanted_by_the_rules(void)
 {
@@ -797,6 +842,7 @@ int main(void)
 	test_a_scan_takes_its_own();
 	test_pulled_and_kept_as_copies();
 	test_signed_by_its_subject_only();
+	test_a_copy_within_its_hosts_segment();
 	test_wanted_by_the_rules();
 	test_pushed();
 	test_its_id_and_its_month();

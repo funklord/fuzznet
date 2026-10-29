@@ -42,6 +42,8 @@
 #include "buckets.h"
 #include "reconcile.h"
 #include "../log/retain.h"
+#include "../log/entry.h"
+#include "../log/pack.h"
 
 /* The longest segment name an item carries. */
 #define FZN_LOG_BUCKETS_NAME_MAX 200u
@@ -66,6 +68,14 @@ typedef struct fzn_log_buckets {
 	const fzn_retain_rule_t *copy_rules;
 	size_t n_copy;
 	uint64_t now_us;
+	/* HOW FAR A COPY MAY UNPACK, sec 750: a copy of `subject`'s is checked
+	 * within the larger of `segment_of`'s answer -- the size `subject`
+	 * rotates its log at, 0 when not known -- and `copy_floor`, plus a line
+	 * and a trailer (`fzn_log_buckets_copy_max`). NULL asks nothing; init
+	 * sets the floor to FZN_LOG_BUCKETS_COPY_FLOOR. */
+	uint64_t (*segment_of)(void *ctx, const uint8_t subject[32]);
+	void *segment_ctx;
+	uint64_t copy_floor;
 	/* A segment being fetched or pushed here, held whole until checked. */
 	uint8_t *staging;
 	size_t staging_cap, staged;
@@ -79,6 +89,22 @@ typedef struct fzn_log_buckets {
 int fzn_log_buckets_init(fzn_log_buckets_t *lb, const fzn_buckets_t *b, const char *dir,
                          const fzn_hash_ops_t *hash, const fzn_sign_ops_t *sign,
                          const uint8_t self[32]);
+
+/* THE FLOOR OF A COPY'S BOUND, sec 750: as far as this host reads its own
+ * segments whole for retention. It covers the default segment size, one
+ * set by a flag no other host can see, and segments rotated larger before
+ * a setting shrank, all up to 64 MiB. */
+#define FZN_LOG_BUCKETS_COPY_FLOOR FZN_LOG_PACK_RETAIN_READ_MAX
+
+/* THE LARGEST SEGMENT SIZE A HOST MAY STATE: `log/segment`'s bound in
+ * `node/schema.c`, 1 TiB. */
+#define FZN_LOG_BUCKETS_STATED_MAX 1099511627776ull
+
+/* HOW FAR A COPY OF `subject`'s MAY UNPACK: the larger of its stated
+ * segment size and the floor, plus one line -- a segment rotates before a
+ * line that would take it past its size, unless it is empty -- and a
+ * trailer. */
+uint64_t fzn_log_buckets_copy_max(const fzn_log_buckets_t *lb, const uint8_t subject[32]);
 
 /* Let go of the staging memory. */
 void fzn_log_buckets_close(fzn_log_buckets_t *lb);

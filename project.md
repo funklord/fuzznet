@@ -73998,15 +73998,46 @@ answering the same cursor is bounded by `pages_max` only (4096 in
 fuzznetd), where the ring fetch stops on an empty page; a liar costs
 round trips, not memory.
 
-**Open, journey 3's bounds bar: a pushed log copy's unpacked size.**
-`verify_core` streams a copy in chunks, so its memory is bounded, but
-nothing bounds how far it unpacks: a member's copy of up to
-`FZN_BUCKETS_LARGE_MAX` (64 MiB) packed may inflate to far more, all
-hashed on the loop. `read_all` stops at `FZN_LOG_PACK_RETAIN_READ_MAX`;
-`verify_core` has no such stop, and a flat one would refuse what
-`log/segment` allows, up to 1 TiB. The bound that fits is the subject
-host's own `log/segment` plus a line, which receivers hold as a carried
-host setting, with care for segments written before the setting shrank;
-and a large honest copy also wants verifying in steps, as the round
-does. Senders are the user's own members, so the case is a compromised
-member before its cut. Not built: a design pass of its own.
+**Journey 3's bounds bar: a pushed log copy's unpacked size**, found
+unbounded here -- `verify_core` streamed a copy in chunks but hashed it to
+its end, however far it unpacked -- is bounded in sec 750.
+
+## 750. A log copy checked within what its host could have written, 2026-10-29
+
+Sec 749 found a member's log copy, at most 64 MiB packed, unpacking
+without limit in `verify_core`, all of it hashed on the loop. Built:
+
+- **`fzn_log_pack_verify_signed_within`** takes `unpacked_max` and stops
+  with `FZN_LOG_PACK_ERR_TOO_LARGE` as soon as the stream passes it,
+  trailer included. The unbounded calls are it at `UINT64_MAX`.
+- **`node/log_buckets.c`'s `keep`** checks a copy of `subject`'s within
+  `fzn_log_buckets_copy_max`: the larger of the size `subject` rotates
+  at and a floor, plus `FZN_ENTRY_LINE_MAX` and
+  `FZN_LOG_PACK_TRAILER_MAX`. A segment rotates before a line that would
+  take it past its size unless it is empty, so one line is the most it
+  overshoots.
+- **The size `subject` rotates at** is the caller's hook, `segment_of`.
+  fuzznetd answers it from `subject`'s `log/segment` host cell, 0 when
+  there is none, and a stated size is held to the setting's 1 TiB.
+- **The floor is 64 MiB**, `FZN_LOG_PACK_RETAIN_READ_MAX`: as far as a
+  host reads its own segments whole for retention. It covers what the
+  setting cannot say: the 8 MiB default, a `--log-segment` flag no other
+  host sees, and segments rotated larger before the setting shrank, each
+  up to 64 MiB.
+
+**Options rejected.** A flat cap refuses what `log/segment` allows. A
+ratio of unpacked to packed refuses an honest log of one line repeated,
+which compresses far past any ratio worth fixing. The size zstd may put
+in a frame's head is the sender's to state, and a liar states small.
+
+**Measured.** `pack_test`: a signed segment verifies within its own
+unpacked length and is too large a byte less; 4 MiB of one byte, packed
+into under 4 KiB, is stopped at a bound of 1 MiB. `log_buckets_test`:
+under a floor of 4096, a copy of 40000 is refused and leaves nothing in
+`copy/`; with `segment_of` saying 65536 it is taken. Four sabotage
+entries, `pack-verify-stops-past-its-bound` and three
+`log-buckets-*`. `err_str_test` pins seven pack codes.
+
+**Still open:** a large honest copy -- a host rotating at hundreds of
+MiB -- is still verified in one call on the loop. Verifying in steps,
+as the round runs (sec 636), is its own change.

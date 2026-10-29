@@ -49,7 +49,21 @@ int fzn_log_buckets_init(fzn_log_buckets_t *lb, const fzn_buckets_t *b, const ch
 	lb->hash = hash;
 	lb->sign = sign;
 	memcpy(lb->self, self, 32u);
+	lb->copy_floor = FZN_LOG_BUCKETS_COPY_FLOOR;
 	return 1;
+}
+
+uint64_t fzn_log_buckets_copy_max(const fzn_log_buckets_t *lb, const uint8_t subject[32])
+{
+	/* A STATED SIZE PAST WHAT A SETTING HOLDS is held to it, so the sum
+	 * cannot wrap. */
+	uint64_t stated = lb && lb->segment_of && subject ? lb->segment_of(lb->segment_ctx, subject)
+	                                                  : 0u,
+	         floor = lb ? lb->copy_floor : FZN_LOG_BUCKETS_COPY_FLOOR;
+
+	if (stated > FZN_LOG_BUCKETS_STATED_MAX)
+		stated = FZN_LOG_BUCKETS_STATED_MAX;
+	return (stated > floor ? stated : floor) + FZN_ENTRY_LINE_MAX + FZN_LOG_PACK_TRAILER_MAX;
 }
 
 void fzn_log_buckets_close(fzn_log_buckets_t *lb)
@@ -362,11 +376,14 @@ static fzn_node_apply_outcome_t keep(fzn_log_buckets_t *lb, const uint8_t subjec
 		return FZN_NODE_APPLY_NOT_SAVED;
 	}
 	(void)fclose(f);
-	/* SIGNED BY ITS SUBJECT, from the prev its own trailer names. NO
+	/* SIGNED BY ITS SUBJECT, from the prev its own trailer names, and no
+	 * larger unpacked than its subject could have written (sec 750). NO
 	 * SIGNER UNTIL ONE IS READ: an unsigned trailer writes none. */
 	memset(key, 0, sizeof(key));
 	if (fzn_log_pack_trailer_prev(tmp, prev) != FZN_LOG_PACK_OK
-	    || fzn_log_pack_verify_signed(tmp, prev, lb->hash, lb->sign, next, &is_signed, key)
+	    || fzn_log_pack_verify_signed_within(tmp, prev, lb->hash, lb->sign,
+	                                         fzn_log_buckets_copy_max(lb, subject), next,
+	                                         &is_signed, key)
 	               != FZN_LOG_PACK_OK
 	    || !is_signed || memcmp(key, subject, 32u) != 0) {
 		(void)remove(tmp);

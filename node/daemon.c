@@ -2882,6 +2882,25 @@ static fzn_reconcile_filer_t pieces_filer;
 static int pieces_ready;
 
 
+/* THE SIZE `subject` ROTATES ITS LOG AT, as its `log/segment` host cell
+ * says, or 0 when it says nothing (sec 750): a copy of its segments is
+ * checked within it, or within the floor when larger. */
+static uint64_t log_segment_of(void *ctx, const uint8_t subject[32])
+{
+	static const char key[] = "log/segment";
+	uint8_t value[FZN_SETTING_VALUE_MAX];
+	fzn_setting_rank_t rank;
+	uint64_t segment = 0;
+	size_t len = 0;
+
+	(void)ctx;
+	if (!fzn_node_settings_get(&node_settings, FZN_SCOPE_HOST, subject, (const uint8_t *)key,
+	                           sizeof(key) - 1u, value, &len, &rank)
+	    || !fzn_schema_count(value, len, 4096u, FZN_LOG_BUCKETS_STATED_MAX, &segment))
+		return 0;
+	return segment;
+}
+
 static int logs_up(void)
 {
 	if (logs_ready)
@@ -2893,6 +2912,7 @@ static int logs_up(void)
 	if (!fzn_log_buckets_init(&node_logs, &logs_store, dlog.logger.dir, dlog.hash, dlog.verify,
 	                          dlog.host))
 		return 0;
+	node_logs.segment_of = log_segment_of;
 	/* THIS HOST'S ARCHIVE, sec 588: where `log_round` moves segments,
 	 * still held from there. */
 	{

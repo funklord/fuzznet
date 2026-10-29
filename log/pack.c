@@ -40,6 +40,8 @@ const char *fzn_log_pack_err_str(fzn_log_pack_err_t err)
 		return "the trailer is missing or does not verify";
 	case FZN_LOG_PACK_ERR_SIGNATURE:
 		return "a trailer's signature would not sign, or does not hold";
+	case FZN_LOG_PACK_ERR_TOO_LARGE:
+		return "a packed segment unpacks past its bound";
 	}
 	return "unknown";
 }
@@ -202,7 +204,7 @@ done:
 /* ---- trailers ---------------------------------------------------------- */
 
 /* The longest trailer: version 2 with every field at its widest. */
-#define TRAILER_MAX 576u
+#define TRAILER_MAX FZN_LOG_PACK_TRAILER_MAX
 
 typedef struct trailer {
 	uint8_t prev[FZN_LOG_PACK_HASH_LEN];
@@ -314,6 +316,7 @@ static const uint8_t *carried(const trailer_t *t)
  * trailer follows them, so they cannot be the trailer. */
 static fzn_log_pack_err_t verify_core(const char *zst_path,
                                       const uint8_t *prev, const fzn_hash_ops_t *hash,
+                                      uint64_t unpacked_max,
                                       uint8_t hash_out[FZN_LOG_PACK_HASH_LEN], trailer_t *tr_out);
 
 fzn_log_pack_err_t fzn_log_pack_verify(const char *zst_path,
@@ -325,7 +328,7 @@ fzn_log_pack_err_t fzn_log_pack_verify(const char *zst_path,
 
 	if (!prev)
 		return FZN_LOG_PACK_ERR_MALFORMED;
-	return verify_core(zst_path, prev, hash, hash_out, &tr);
+	return verify_core(zst_path, prev, hash, UINT64_MAX, hash_out, &tr);
 }
 
 /* A trailer's signature over its line. */
@@ -348,13 +351,26 @@ fzn_log_pack_err_t fzn_log_pack_verify_signed(const char *zst_path,
                                               int *is_signed,
                                               uint8_t signer_out[FZN_LOG_PACK_HASH_LEN])
 {
+	return fzn_log_pack_verify_signed_within(zst_path, prev, hash, sign, UINT64_MAX, hash_out,
+	                                         is_signed, signer_out);
+}
+
+fzn_log_pack_err_t fzn_log_pack_verify_signed_within(const char *zst_path,
+                                                     const uint8_t prev[FZN_LOG_PACK_HASH_LEN],
+                                                     const fzn_hash_ops_t *hash,
+                                                     const fzn_sign_ops_t *sign,
+                                                     uint64_t unpacked_max,
+                                                     uint8_t hash_out[FZN_LOG_PACK_HASH_LEN],
+                                                     int *is_signed,
+                                                     uint8_t signer_out[FZN_LOG_PACK_HASH_LEN])
+{
 	static trailer_t tr;
 	fzn_log_pack_err_t err;
 
 	if (!sign || !is_signed)
 		return FZN_LOG_PACK_ERR_MALFORMED;
 	*is_signed = 0;
-	err = verify_core(zst_path, prev, hash, hash_out, &tr);
+	err = verify_core(zst_path, prev, hash, unpacked_max, hash_out, &tr);
 	if (err != FZN_LOG_PACK_OK)
 		return err;
 	if (!tr.has_sig)
@@ -372,6 +388,7 @@ fzn_log_pack_err_t fzn_log_pack_verify_signed(const char *zst_path,
 /* The chain check, and the trailer it read into `tr_out`. */
 static fzn_log_pack_err_t verify_core(const char *zst_path,
                                       const uint8_t *prev_in, const fzn_hash_ops_t *hash,
+                                      uint64_t unpacked_max,
                                       uint8_t hash_out[FZN_LOG_PACK_HASH_LEN], trailer_t *tr_out)
 {
 	static uint8_t inbuf[1u << 16], outbuf[1u << 16];
@@ -381,6 +398,7 @@ static fzn_log_pack_err_t verify_core(const char *zst_path,
 	ZSTD_DCtx *dc = NULL;
 	FILE *in = NULL;
 	size_t have = 0, n, last = 1, start;
+	uint64_t unpacked = 0;
 	int folded = 0;
 	trailer_t tr;
 	const uint8_t *prev = prev_in;
@@ -404,6 +422,12 @@ static fzn_log_pack_err_t verify_core(const char *zst_path,
 			last = ZSTD_decompressStream(dc, &dst, &src);
 			if (ZSTD_isError(last))
 				goto done;
+			/* PAST ITS BOUND, stopped here, before more is hashed. */
+			unpacked += dst.pos;
+			if (unpacked > unpacked_max) {
+				err = FZN_LOG_PACK_ERR_TOO_LARGE;
+				goto done;
+			}
 			while (off < dst.pos) {
 				size_t take = dst.pos - off;
 

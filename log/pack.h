@@ -85,7 +85,8 @@ typedef enum fzn_log_pack_err {
 	FZN_LOG_PACK_ERR_FILE = -2,      /* a file would not read, write or rename */
 	FZN_LOG_PACK_ERR_ZSTD = -3,      /* zstd refused, or the packed bytes are not a frame */
 	FZN_LOG_PACK_ERR_CHAIN = -4,     /* the trailer is missing or does not verify */
-	FZN_LOG_PACK_ERR_SIGNATURE = -5  /* a signature would not sign, or does not hold */
+	FZN_LOG_PACK_ERR_SIGNATURE = -5, /* a signature would not sign, or does not hold */
+	FZN_LOG_PACK_ERR_TOO_LARGE = -6  /* it unpacks past the bound it was checked within */
 } fzn_log_pack_err_t;
 
 const char *fzn_log_pack_err_str(fzn_log_pack_err_t err);
@@ -124,6 +125,23 @@ fzn_log_pack_err_t fzn_log_pack_verify_signed(const char *zst_path,
                                               uint8_t hash_out[FZN_LOG_PACK_HASH_LEN],
                                               int *is_signed,
                                               uint8_t signer_out[FZN_LOG_PACK_HASH_LEN]);
+
+/* THE LONGEST TRAILER LINE a packed segment ends in, its newline included. */
+#define FZN_LOG_PACK_TRAILER_MAX 576u
+
+/* As `fzn_log_pack_verify_signed`, refused TOO_LARGE as soon as the segment
+ * unpacks past `unpacked_max` bytes, its trailer included (sec 750): a
+ * copy from another host is checked within what its host could have
+ * written, so a small frame that unpacks without end is stopped early
+ * rather than hashed on. */
+fzn_log_pack_err_t fzn_log_pack_verify_signed_within(const char *zst_path,
+                                                     const uint8_t prev[FZN_LOG_PACK_HASH_LEN],
+                                                     const fzn_hash_ops_t *hash,
+                                                     const fzn_sign_ops_t *sign,
+                                                     uint64_t unpacked_max,
+                                                     uint8_t hash_out[FZN_LOG_PACK_HASH_LEN],
+                                                     int *is_signed,
+                                                     uint8_t signer_out[FZN_LOG_PACK_HASH_LEN]);
 
 /* The prev a packed segment's own trailer names: where a chain held from
  * this segment on starts, for one whose older segments are not here. */

@@ -596,6 +596,38 @@ static void test_signed_trailers(void)
 	      "the unsigned one verifies unsigned, the signed one signed by its key");
 	CHECK(fzn_log_pack_verify(zb, h, &HASH, other) == FZN_LOG_PACK_OK,
 	      "a reader that does not check signatures still reads a signed trailer");
+	/* WITHIN A BOUND, sec 750: the segment as unpacked, trailer and all,
+	 * verifies within its own length, and a byte less is too large. A
+	 * frame that unpacks far past its bound is stopped as too large. */
+	{
+		static uint8_t flood[4u << 20], z[1u << 16];
+		size_t zn;
+		FILE *f;
+
+		n = unzstd(zb, back, sizeof(back) - 1u);
+		CHECK(n > 4000u
+		              && fzn_log_pack_verify_signed_within(zb, h, &HASH, &SIGN, n, other,
+		                                                   &is_signed, key)
+		                         == FZN_LOG_PACK_OK
+		              && is_signed
+		              && fzn_log_pack_verify_signed_within(zb, h, &HASH, &SIGN, n - 1u, other,
+		                                                   &is_signed, key)
+		                         == FZN_LOG_PACK_ERR_TOO_LARGE,
+		      "a segment did not verify within its unpacked length, or did within a byte less");
+		memset(flood, 'a', sizeof(flood));
+		zn = ZSTD_compress(z, sizeof(z), flood, sizeof(flood), 19);
+		f = fopen(zc, "wb");
+		CHECK(!ZSTD_isError(zn) && zn < 4096u && f && fwrite(z, 1u, zn, f) == zn
+		              && fclose(f) == 0,
+		      "fixture: 4 MiB packed into a few hundred bytes");
+		CHECK(fzn_log_pack_verify_signed_within(zc, h, &HASH, &SIGN, 1u << 20, other, &is_signed,
+		                                        key)
+		                      == FZN_LOG_PACK_ERR_TOO_LARGE
+		              && fzn_log_pack_verify_signed(zc, h, &HASH, &SIGN, other, &is_signed, key)
+		                         == FZN_LOG_PACK_ERR_CHAIN,
+		      "a flood was not stopped as too large, or unbounded read as anything but no trailer");
+		(void)remove(zc);
+	}
 	CHECK(fzn_log_pack_check(top, "netcfgd", &HASH, &SIGN, &report) == FZN_LOG_PACK_OK
 	              && report.segments == 2u && report.signed_count == 1u && !report.signers_differ
 	              && memcmp(report.signer, toy_key, 32u) == 0,
