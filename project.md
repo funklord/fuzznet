@@ -74210,3 +74210,51 @@ each with what merging would remove.
   have a table of their own.
 - **Carriage.** The journal, bucket reconcile (sec 565) and stream
   queries each move records between hosts by a different mechanism.
+
+## 756. Journey 4 under loss: a relayed request resent, and the scripts that probed once, 2026-10-29
+
+Sec 689's scenario bar for reachability: `live_relay`, `live_lan` and
+`live_introduce` repeated on the fault build at 5 and 20 per cent loss.
+**First measured:** at 5%, relay 2 of 3 and lan 2 of 3, introduce 3 of
+3; at 20%, relay 0 of 3, lan 2 of 3, introduce 1 of 3.
+
+**Two failures were the scripts'.** Each gave a single-shot UDP event one
+chance. `live_relay`'s phase c gave A one round after B2 restarted, and
+B2 says hello to B1 once and then every 20 s: a lost hello left B1
+refusing, "that host has not said where it is" -- answered to A now, sec
+754 -- until the next. `live_lan`'s phase b sent one `fetch lan`, and a
+lost probe or hello left `get lan` empty for its whole wait. Phase c now
+gives A as many as four rounds, as phase e does, and phase b probes again
+when nothing is heard within 10 s, three probes at most, as a user would.
+
+**One was fuzznet's: a relayed request was sent once.** A direct request
+is resent within its wait (sec 737), but a relayed one was only awaited,
+since the asks table resends by sealing again for the target's own
+address. It crosses four hops -- A to the relay, the relay to the target,
+and back -- so at 20 per cent loss it came back about two times in five.
+Built:
+- `fzn_caller_seal_as`: a request sealed under a message given, so a
+  resend is the same message and its answer the one awaited.
+- `fzn_node_asks_await_again`: an ask with a resend of its own, called
+  in place of the caller's at the same slices and as often.
+- fuzznetd's relayed delivery resends through the same relay under the
+  same inner and outer messages, re-arming the relay's answer (sec 754).
+  Each resend has the relay say `ok` again, and each `ok` waits afresh,
+  so no more oks are taken than sends -- a target that never answers
+  ends the wait rather than holding it for ever.
+
+**Measured after,** three runs each: relay 3 of 3 at 5% and 2 of 3 at 20%,
+where it was 2 and 0. `pair_test`: an ask's own resend is called once each
+slice has passed, never before, and at most FZN_CALLER_RESENDS times; a
+request sealed again opens as the message given without moving the next.
+Sabotage entries `node-asks-its-own-resend` and
+`caller-seal-as-keeps-its-message`; `node-asks-resend` and
+`caller-sent-again-is-awaited-again` follow the code.
+
+**Open, journey 4 at 20 per cent:**
+- relay's phase d wants the third line relayed by the fresh delivery
+  within 30 s; with resends one such attempt still fails about one time in
+  eight, and the round after relays it.
+- `live_introduce` passed 1 of 3: once a pairing was not taken at C within
+  six rounds, once B never had the file whole. Not yet read.
+- `live_lan` passed 2 of 3 before the probe change; not run since at 20.

@@ -11852,28 +11852,40 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
  * back by the relay, arrives where the target's caller reads it -- under
  * `*msg`. The relay's own answer comes to that socket too, under its key,
  * and the target's caller passes it over as not its own. */
-static int relay_send(struct pull_target *target, struct pull_target *relay,
-                      const uint8_t *request, size_t request_len, uint64_t now, uint32_t *msg)
+/* `again`: the request sent before, sealed and carried again under the
+ * message it went as and the relay's message it went in (sec 756), as a
+ * resend within the wait is. */
+static int relay_carry(struct pull_target *target, struct pull_target *relay,
+                       const uint8_t *request, size_t request_len, uint64_t now, int again,
+                       uint32_t *msg)
 {
 	static uint8_t inner[FZN_UDP_DATAGRAM_MAX], outer[FZND_RELAY_HEAD_LEN + FZN_UDP_DATAGRAM_MAX];
 	fzn_caller_t via;
-	uint32_t outer_msg = 0;
+	uint32_t outer_msg = again ? target->caller.via_msg : 0u;
 	size_t inner_len = 0;
 
-	if (fzn_caller_seal(&target->caller, request, request_len, now + 300u, msg, inner,
-	                    sizeof(inner), &inner_len)
+	if ((again ? fzn_caller_seal_as(&target->caller, request, request_len, now + 300u,
+	                                target->caller.as_msg, inner, sizeof(inner), &inner_len)
+	           : fzn_caller_seal(&target->caller, request, request_len, now + 300u, msg, inner,
+	                             sizeof(inner), &inner_len))
 	    != FZN_CALLER_OK)
 		return 0;
+	if (again)
+		*msg = target->caller.as_msg;
 	outer[0] = FZND_RELAY_VERSION;
 	outer[1] = FZN_TYPE_RELAY;
 	memcpy(outer + 2, target->pairing.node, FZN_PUBKEY_LEN);
 	memcpy(outer + FZND_RELAY_HEAD_LEN, inner, inner_len);
 	via = relay->caller;
 	via.fd = target->caller.fd;
-	if (fzn_caller_send(&via, outer, FZND_RELAY_HEAD_LEN + inner_len, now + 300u, &outer_msg)
+	if ((again ? fzn_caller_resend(&via, outer, FZND_RELAY_HEAD_LEN + inner_len, now + 300u,
+	                               outer_msg)
+	           : fzn_caller_send(&via, outer, FZND_RELAY_HEAD_LEN + inner_len, now + 300u,
+	                             &outer_msg))
 	    != FZN_CALLER_OK)
 		return 0;
-	relay->caller.next_msg = via.next_msg;
+	if (!again)
+		relay->caller.next_msg = via.next_msg;
 	/* THE RELAY'S OWN ANSWER TAKEN TOO, sec 754: its refusal comes to this
 	 * socket under its session, as the answer to the outer message. */
 	target->caller.via_set = 1;
@@ -11882,6 +11894,12 @@ static int relay_send(struct pull_target *target, struct pull_target *relay,
 	target->caller.via_msg = outer_msg;
 	target->caller.as_msg = *msg;
 	return 1;
+}
+
+static int relay_send(struct pull_target *target, struct pull_target *relay,
+                      const uint8_t *request, size_t request_len, uint64_t now, uint32_t *msg)
+{
+	return relay_carry(target, relay, request, request_len, now, 0, msg);
 }
 
 /* HELLO, sec 622, every FZND_HELLO_EVERY seconds: a NOP from the serving
@@ -12187,6 +12205,8 @@ struct deliver_talk {
 	fzn_node_messages_delivering_t d;
 	fzn_messages_err_t err;
 	uint8_t request[FZN_NODE_MESSAGES_DELIVER_MAX];
+	size_t request_len; /* what a relayed send carries, for its resend */
+	unsigned oks;       /* the relay's oks for it, each starting a wait (sec 756) */
 };
 static struct deliver_talk *deliver_talks; /* ct_cap + FZN_NODE_RECEIVED_MAX */
 static size_t n_deliver_talks;
@@ -12417,6 +12437,23 @@ static struct pull_target *deliver_relay_pt(const struct deliver_talk *dt, const
 	return NULL;
 }
 
+/* A RELAYED REQUEST SENT AGAIN, sec 756: through the same relay, under
+ * the same messages, and the relay's answer taken again. A relayed request
+ * crosses four hops, and was sent once where a direct one is resent within
+ * its wait: at 20 per cent loss it reached the target and came back about
+ * two times in five. */
+static void deliver_relay_again(void *ctx)
+{
+	struct deliver_talk *dt = ctx;
+	struct pull_target *pt = dt->hosts[dt->at].pt;
+	const char *name = NULL;
+	struct pull_target *relay = deliver_relay_pt(dt, &name);
+	uint32_t msg = 0;
+
+	if (relay)
+		(void)relay_carry(pt, relay, dt->request, dt->request_len, dt->now, 1, &msg);
+}
+
 /* THE REQUEST IN `dt->request` SENT, to the host or through the relay, and
  * its answer awaited; one that cannot leave answered as none. */
 static void deliver_send(struct deliver_talk *dt, size_t len)
@@ -12433,9 +12470,11 @@ static void deliver_send(struct deliver_talk *dt, size_t len)
 		const char *name = NULL;
 		struct pull_target *relay = deliver_relay_pt(dt, &name);
 
+		dt->request_len = len;
+		dt->oks = 0;
 		sent = relay && relay_send(pt, relay, dt->request, len, dt->now, &msg)
-		       && fzn_node_asks_await(&round_asks, &pt->caller, msg, 3000u, deliver_answered,
-		                              dt);
+		       && fzn_node_asks_await_again(&round_asks, &pt->caller, msg, 3000u,
+		                                    deliver_answered, dt, deliver_relay_again, dt);
 		if (!sent)
 			say(FZN_ENTRY_DEBUG, "messages/deliver", "a line to %s through %s could not leave",
 			    dt->hosts[dt->at].name, name ? name : "no relay");
@@ -12461,9 +12500,17 @@ static void deliver_answered(void *ctx, const uint8_t *reply, size_t reply_len)
 		pt->caller.via_set = 0;
 		/* THE RELAY FORWARDED IT: its `ok` is not the target's answer,
 		 * which is awaited again under the same message. */
+		/* NO MORE OKS THAN SENDS: each resend has the relay say ok again,
+		 * and each ok waiting afresh would never end for a target that
+		 * does not answer. */
+		if (reply && reply_len == 3u && memcmp(reply, "ok\n", 3u) == 0
+		    && ++dt->oks > FZN_CALLER_RESENDS + 1u) {
+			deliver_answered(dt, NULL, 0);
+			return;
+		}
 		if (reply && reply_len == 3u && memcmp(reply, "ok\n", 3u) == 0) {
-			if (!fzn_node_asks_await(&round_asks, &pt->caller, pt->caller.as_msg, 3000u,
-			                         deliver_answered, dt))
+			if (!fzn_node_asks_await_again(&round_asks, &pt->caller, pt->caller.as_msg, 3000u,
+			                               deliver_answered, dt, deliver_relay_again, dt))
 				deliver_answered(dt, NULL, 0);
 			return;
 		}

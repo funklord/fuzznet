@@ -10359,8 +10359,8 @@ SABOTAGES = [
 	(
 		'node-asks-resend',
 		'node/asks.c',
-		'\t\tif (e->used && e->request && e->resends < FZN_CALLER_RESENDS && now >= e->resend_at_ms\n',
-		'\t\tif (0 && e->used && e->request && e->resends < FZN_CALLER_RESENDS && now >= e->resend_at_ms\n',
+		'\t\tif (e->used && (e->request || e->again) && e->resends < FZN_CALLER_RESENDS\n',
+		'\t\tif (0 && e->used && (e->request || e->again) && e->resends < FZN_CALLER_RESENDS\n',
 		"an ask the loop awaits is never sent again, and a round's lost request costs its whole wait; pair_test -- sec 737",
 	),
 	(
@@ -10465,8 +10465,8 @@ SABOTAGES = [
 	(
 		'caller-sent-again-is-awaited-again',
 		'node/caller.c',
-		"\t(void)forgotten(caller, msg, 1);\n",
-		"\t(void)(0 && forgotten(caller, msg, 1));\n",
+		"\t/* ASKED AGAIN, so awaited again, sec 737. */\n\t(void)forgotten(caller, msg, 1);\n",
+		"\t/* ASKED AGAIN, so awaited again, sec 737. */\n\t(void)(0 && forgotten(caller, msg, 1));\n",
 		"a message given up on and sent again is awaited again; left forgotten, its answer to "
 		"a loop's wait is dropped as late; pair_test -- sec 737",
 	),
@@ -10825,6 +10825,22 @@ SABOTAGES = [
 		"\t\tif (*t < '0' || *t > '9' || v > (UINT64_MAX - 9u) / 10u)",
 		'\t\tif (v > (UINT64_MAX - 9u) / 10u)',
 		'a segment whose time is not a number reads as closed at a made-up time -- secs 483, 573',
+	),
+	(
+		'node-asks-its-own-resend',
+		'node/asks.c',
+		'\t\t\tif (e->again)\n\t\t\t\te->again(e->again_ctx);',
+		'\t\t\tif (0)\n\t\t\t\te->again(e->again_ctx);',
+		'a relayed request is never sent again, and one lost hop of four costs its whole wait '
+		'-- sec 756',
+	),
+	(
+		'caller-seal-as-keeps-its-message',
+		'node/caller.c',
+		'\tif (!given)\n\t\t*msg = caller->next_msg++;',
+		'\t*msg = caller->next_msg++;',
+		'a relayed resend goes as a new message, and its answer is no answer to the wait -- '
+		'sec 756',
 	),
 	(
 		'caller-takes-the-relays-answer',

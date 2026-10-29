@@ -194,6 +194,14 @@ fzn_caller_err_t fzn_caller_seal(fzn_caller_t *caller, const uint8_t *payload, s
                                  uint64_t expires_at, uint32_t *msg, uint8_t *out, size_t cap,
                                  size_t *out_len);
 
+/* AS `fzn_caller_seal`, UNDER `msg`, sec 756: a relayed request sealed
+ * again under the message it went as the first time, so a relay can carry
+ * it again and its answer is the one already awaited -- the relayed form of
+ * `fzn_caller_resend`. */
+fzn_caller_err_t fzn_caller_seal_as(fzn_caller_t *caller, const uint8_t *payload,
+                                    size_t payload_len, uint64_t expires_at, uint32_t msg,
+                                    uint8_t *out, size_t cap, size_t *out_len);
+
 /* A NOP, sealed and sent to the node from `fd` rather than the caller's own
  * socket, sec 622: a host behind a NAT saying where it is from the socket
  * it serves on, which keeps that socket's mapping open and tells the node

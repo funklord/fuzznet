@@ -520,9 +520,34 @@ fzn_caller_err_t fzn_caller_ask(fzn_caller_t *caller, const uint8_t *payload,
 	return FZN_CALLER_ERR_TIMEOUT;
 }
 
+static fzn_caller_err_t seal_one(fzn_caller_t *caller, const uint8_t *payload,
+                                 size_t payload_len, uint64_t expires_at, int given,
+                                 uint32_t *msg, uint8_t *out, size_t cap, size_t *out_len);
+
 fzn_caller_err_t fzn_caller_seal(fzn_caller_t *caller, const uint8_t *payload, size_t payload_len,
                                  uint64_t expires_at, uint32_t *msg, uint8_t *out, size_t cap,
                                  size_t *out_len)
+{
+	return seal_one(caller, payload, payload_len, expires_at, 0, msg, out, cap, out_len);
+}
+
+fzn_caller_err_t fzn_caller_seal_as(fzn_caller_t *caller, const uint8_t *payload,
+                                    size_t payload_len, uint64_t expires_at, uint32_t msg,
+                                    uint8_t *out, size_t cap, size_t *out_len)
+{
+	fzn_caller_err_t err = seal_one(caller, payload, payload_len, expires_at, 1, &msg, out, cap,
+	                                out_len);
+
+	/* SEALED AGAIN, so awaited again, as a resend is (sec 737). */
+	if (err == FZN_CALLER_OK)
+		(void)forgotten(caller, msg, 1);
+	return err;
+}
+
+/* One request sealed, under the next message or -- `given` -- `*msg`. */
+static fzn_caller_err_t seal_one(fzn_caller_t *caller, const uint8_t *payload,
+                                 size_t payload_len, uint64_t expires_at, int given,
+                                 uint32_t *msg, uint8_t *out, size_t cap, size_t *out_len)
 {
 	fzn_send_t what;
 
@@ -544,7 +569,8 @@ fzn_caller_err_t fzn_caller_seal(fzn_caller_t *caller, const uint8_t *payload, s
 	}
 	if (payload_len > (size_t)FZN_SPLIT_MAX_PAYLOAD)
 		return FZN_CALLER_ERR_REQUEST_TOO_LONG;
-	*msg = caller->next_msg++;
+	if (!given)
+		*msg = caller->next_msg++;
 	memset(&what, 0, sizeof(what));
 	what.sender = caller->sender;
 	what.capability = caller->capability.b;

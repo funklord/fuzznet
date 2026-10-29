@@ -34,7 +34,28 @@ int fzn_node_asks_await(fzn_node_asks_t *asks, fzn_caller_t *caller, uint32_t ms
 	asks->entries[i].request = NULL;
 	asks->entries[i].request_len = 0;
 	asks->entries[i].resends = 0;
+	asks->entries[i].again = NULL;
+	asks->entries[i].again_ctx = NULL;
 	asks->entries[i].used = 1;
+	return 1;
+}
+
+int fzn_node_asks_await_again(fzn_node_asks_t *asks, fzn_caller_t *caller, uint32_t msg,
+                              unsigned timeout_ms, fzn_node_answered_fn done, void *ctx,
+                              void (*again)(void *again_ctx), void *again_ctx)
+{
+	size_t i;
+
+	if (!again || !fzn_node_asks_await(asks, caller, msg, timeout_ms, done, ctx))
+		return 0;
+	for (i = 0; i < FZN_NODE_ASKS_MAX; i++)
+		if (asks->entries[i].used && asks->entries[i].caller == caller
+		    && asks->entries[i].msg == msg && !asks->entries[i].again) {
+			asks->entries[i].again = again;
+			asks->entries[i].again_ctx = again_ctx;
+			asks->entries[i].resend_at_ms = asks->clock_ms() + FZN_CALLER_RESEND_MS;
+			break;
+		}
 	return 1;
 }
 
@@ -148,10 +169,13 @@ size_t fzn_node_asks_expire(fzn_node_asks_t *asks)
 	for (i = 0; i < FZN_NODE_ASKS_MAX; i++) {
 		fzn_node_ask_t *e = &asks->entries[i];
 
-		if (e->used && e->request && e->resends < FZN_CALLER_RESENDS && now >= e->resend_at_ms
-		    && now + FZN_CALLER_RESEND_MS / 2u < e->deadline_ms) {
-			(void)fzn_caller_resend(e->caller, e->request, e->request_len, e->expires_at,
-			                        e->msg);
+		if (e->used && (e->request || e->again) && e->resends < FZN_CALLER_RESENDS
+		    && now >= e->resend_at_ms && now + FZN_CALLER_RESEND_MS / 2u < e->deadline_ms) {
+			if (e->again)
+				e->again(e->again_ctx);
+			else
+				(void)fzn_caller_resend(e->caller, e->request, e->request_len,
+				                        e->expires_at, e->msg);
 			e->resends++;
 			e->resend_at_ms = now + FZN_CALLER_RESEND_MS;
 		}

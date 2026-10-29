@@ -625,6 +625,15 @@ static void on_answer(void *ctx, const uint8_t *reply, size_t len)
 		failures_seen++;
 }
 
+/* An ask's own resend, sec 756: counted. */
+static unsigned agains;
+
+static void count_again(void *ctx)
+{
+	(void)ctx;
+	agains++;
+}
+
 /* A CONVERSATION'S STEP, sec 636: PING `want` times, each answer a PONG
  * counted, then over; an unanswered request ends it. */
 struct pinging {
@@ -934,6 +943,23 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 			      "a relay's frame opened with no relayed message awaited");
 		}
 
+		/* SEALED AGAIN UNDER ITS MESSAGE, sec 756: what a relayed resend
+		 * carries opens under the caller's session as the message given,
+		 * and the next message is not moved. */
+		{
+			fzn_opened_t opened;
+			uint32_t next = caller.next_msg;
+
+			CHECK(fzn_caller_seal_as(&caller, PING, sizeof(PING), 3500u, 31337u, frame,
+			                         sizeof(frame), &flen)
+			                      == FZN_CALLER_OK
+			              && fzn_seal_open(frame, flen, caller.send_key, caller.send_ckey,
+			                               caller.hash, caller.aead, &opened)
+			                         == FZN_SEAL_OK
+			              && opened.msg == 31337u && caller.next_msg == next,
+			      "a request sealed again did not open as the message given, or moved the next");
+		}
+
 		/* AND ONE ANSWERED ALREADY: a resend's kept reply sends every piece
 		 * again, and one arriving after the answer must not start a partial
 		 * that holds the node's one slot here. */
@@ -1219,6 +1245,34 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 			(void)fzn_node_run_once(&client, 1000);
 			CHECK(answers == 1 && failures_seen == 0 && fzn_node_asks_pending(&asks) == 0u,
 			      "an ask whose request was lost was not resent and answered");
+		}
+
+		/* RESENT BY ITS ASKER, sec 756: an ask awaited with a resend of its
+		 * own has it called once each slice has passed, never before, and
+		 * no more than FZN_CALLER_RESENDS times -- then failed at its
+		 * deadline, as any ask is. */
+		{
+			unsigned k;
+
+			agains = 0;
+			failures_seen = 0;
+			CHECK(fzn_node_asks_await_again(&asks, &caller, 4242424u, 3000u, on_answer, NULL,
+			                                count_again, NULL),
+			      "fixture: an ask awaited with a resend of its own");
+			ask_now += FZN_CALLER_RESEND_MS - 100u;
+			(void)fzn_node_asks_expire(&asks);
+			CHECK(agains == 0u, "an ask's own resend was called before its slice had passed");
+			ask_now += 200u;
+			(void)fzn_node_asks_expire(&asks);
+			CHECK(agains == 1u, "an ask's own resend was not called once its slice had passed");
+			for (k = 0; k < 8u; k++) {
+				ask_now += FZN_CALLER_RESEND_MS;
+				(void)fzn_node_asks_expire(&asks);
+			}
+			CHECK(agains == FZN_CALLER_RESENDS && failures_seen == 1
+			              && fzn_node_asks_pending(&asks) == 0u,
+			      "an ask's own resend was called past FZN_CALLER_RESENDS, or the ask outlived "
+			      "its deadline");
 		}
 	}
 

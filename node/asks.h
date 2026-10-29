@@ -48,6 +48,12 @@ typedef struct fzn_node_ask {
 	uint64_t expires_at;
 	uint64_t resend_at_ms;
 	unsigned resends;
+	/* RESENT BY ITS ASKER, sec 756, when set: called in place of the
+	 * caller's own resend, at the same times and as often -- a request
+	 * carried by a relay is sent again through the relay, which only its
+	 * asker can do. */
+	void (*again)(void *ctx);
+	void *again_ctx;
 } fzn_node_ask_t;
 
 typedef struct fzn_node_asks {
@@ -80,6 +86,12 @@ int fzn_node_asks_send(fzn_node_asks_t *asks, fzn_caller_t *caller, const uint8_
 int fzn_node_asks_await(fzn_node_asks_t *asks, fzn_caller_t *caller, uint32_t msg,
                         unsigned timeout_ms, fzn_node_answered_fn done, void *ctx);
 
+/* AS `fzn_node_asks_await`, RESENT by `again(again_ctx)` each
+ * FZN_CALLER_RESEND_MS it stays unanswered, FZN_CALLER_RESENDS times at
+ * most, as a request this table sent is (sec 756). */
+int fzn_node_asks_await_again(fzn_node_asks_t *asks, fzn_caller_t *caller, uint32_t msg,
+                              unsigned timeout_ms, fzn_node_answered_fn done, void *ctx,
+                              void (*again)(void *again_ctx), void *again_ctx);
 /* The distinct sockets awaited, into `fds`, `cap` of them: their count. */
 size_t fzn_node_asks_fds(const fzn_node_asks_t *asks, int *fds, size_t cap);
 
