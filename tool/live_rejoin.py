@@ -132,8 +132,12 @@ class daemon:
 		# closed are packed by the next.
 		self.log_dir = log_dir or os.path.join(run.scratch, "log-" + tag)
 		# A KEPT DIRECTORY'S FILE HOLDS EARLIER RUNS' LINES: this run's are
-		# told by its pid, which every line names.
-		self.kept = bool(log_dir)
+		# told by its pid, which every line names. AND SO DOES ONE LEFT BY AN
+		# EARLIER DAEMON OF THE SAME TAG, sec 759: live_relay's phases e and f
+		# both named theirs `a-f0`, f's wait for a round's end matched e's
+		# line in the same file, and each of f's daemons stopped before its
+		# round had delivered -- a fault read for an hour as the daemon's.
+		self.kept = bool(log_dir) or os.path.isdir(self.log_dir)
 		# THIS RUN'S PACKED SEGMENTS, decompressed once each: see `log`.
 		self.packed = {}
 		if not os.path.isdir(self.log_dir):

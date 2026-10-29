@@ -74324,22 +74324,12 @@ once each, since `restamp_peer` reaches every caller. `make test` and
 `make style` green. The clock changes are held by these live runs, not by
 `make test`.
 
-**Open, journey 4's restart inside an operation: the relay killed
-mid-delivery.** `live_relay --restart` adds phase f: B1 killed by SIGKILL
-as A's fifth line goes through it, started again, then up to four rounds
-of B2 and A. **It fails as it stands**, and is kept behind the flag as the
-reproduction rather than run by `make livecheck`. What is known:
-- A's fifth line stays undelivered, state `-` in A's listing, through
-  all four rounds; B2 never lists it.
-- In the last round A's relayed offer of it ended 7 ms after it began
-  and counted nothing -- 0 delivered, 0 settled, 0 refused, 0 unanswered
-  for one line sent -- which `deliver_answered` should not be able to
-  produce; B2's log shows it answering A's messages at that moment.
-- **Not** the relayed time ask a delivery now sends as it starts:
-  disabled, phase f fails the same way.
-Not yet built: the same phase for `live_introduce` (the introducer
-killed mid-introduction) and `live_lan` (the probed host killed between
-its answer and the fetch).
+**Journey 4's restart inside an operation: the relay killed
+mid-delivery** (`live_relay` phase f). It failed when written, and was
+kept behind a flag while unexplained; sec 759 found it was the script's,
+and it now runs by default. Not yet built: the same phase for
+`live_introduce` (the introducer killed mid-introduction) and `live_lan`
+(the probed host killed between its answer and the fetch).
 
 ## 758. A LAN probe that carries its sender's clock, version 2, 2026-10-29
 
@@ -74369,3 +74359,32 @@ phase b2 sends C a raw version 1 probe under B's key from a socket of the
 script's own and requires an answer, and one of version 3 and requires
 none. With version 1 refused in the daemon, b2 fails, which is its
 control. No loss, `live_lan` passes.
+
+## 759. The relay restart fault was the test reading another daemon's log, 2026-10-29
+
+Sec 757 left `live_relay`'s phase f failing and unexplained: A's fifth
+line never reached B2 after B1 was killed, and one relayed offer seemed to
+end in 7 ms counting nothing at all. **Traced: neither was the daemon.**
+
+**The tags collided.** Phase e's loop names its daemons `a-f%d` and
+`b2-f%d`, and so did phase f's. The log helper (`tool/live_rejoin.py`'s
+`daemon`) keeps a daemon's log in `log-TAG/`, so f's daemons wrote into
+e's files, and `turn`'s wait for "a round's end" matched e's line at once.
+Each of A's phase f daemons was stopped within 100 to 200 ms, before its
+contact pass delivered -- B1's log showed A's processes asking one thing
+and going. The "7 ms, counting nothing" offer was a line of e's, read as
+f's. Laid side by side by time, the three daemons' logs told it; each one
+read alone had looked like the daemon's fault.
+
+**Fixed twice.** Phase f's daemons are tagged `a-g%d`, `b2-g%d` and
+`b1g`. And the helper now filters by pid whenever the log directory was
+already there, as it did only for a directory a caller asked to keep: a
+reused tag reads its own lines. With f's old, colliding tags put back,
+phase f passes on the helper's fix alone, which is its control.
+
+**What phase f shows, now that it runs:** B1, killed by SIGKILL as A's
+fifth line goes through it, comes back knowing nothing of where B2 is; it
+refuses the relay ("that host has not said where it is"), and A hears it
+(sec 754); B2's next start says hello; A's next round relays the line,
+and B2 lists it once. `--restart` is gone and phase f runs in `make
+livecheck`.
