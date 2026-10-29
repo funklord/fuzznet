@@ -73654,4 +73654,8 @@ journeys at 20% loss, three at a time at a load of about 33: ten of
 ten passed, where 21 of 24 had before sec 741 (two of the three
 failures this fault's, one a recycled pid). And ten chat journeys
 (`tool/live_chat.py --loss 20`), three at a time at a load of about 6:
-ten of ten, where sec 739 had three of four.
+ten of ten, where sec 739 had three of four. And ten estate journeys
+(`tool/live_estate.py --loss 20`), three at a time at a load of about
+8: ten of ten, where sec 739 had eight of eight. So sec 689's first
+two journeys, and erasure (sec 606), each stand at ten of ten at 20%
+loss.
