@@ -686,8 +686,9 @@ static void test_the_written_order_window(void)
  * refused any chunk longer than its count, so a cut between an entry and
  * its count stopped the conversation for good. Cut in a conversation
  * already held, and in a new one, whose first line adds it to the list of
- * conversations. */
-static int cut_at(long k, const uint8_t *contact, int *cut)
+ * conversations; and, `earlier`, with the cut line stamped before the one
+ * held, so it is put in its place rather than appended (sec 746). */
+static int cut_at(long k, const uint8_t *contact, int earlier, int *cut)
 {
 	static mem_t kept;
 	uint64_t at[1];
@@ -699,7 +700,16 @@ static int cut_at(long k, const uint8_t *contact, int *cut)
 		return 0;
 	recorded = n_recs;
 	saves_left = k;
-	*cut = !write_line(&A, contact, FZN_MESSAGE_OUT, 2u, "cut");
+	if (earlier) {
+		uint8_t id[FZN_MESSAGE_ID_LEN];
+
+		id_of(id, 2u);
+		*cut = fzn_messages_write(&A.m, contact, FZN_MESSAGE_OUT, id, OCTOBER_2026 - 1000u,
+		                          "cut", 3u)
+		       != FZN_MESSAGES_OK;
+	} else {
+		*cut = !write_line(&A, contact, FZN_MESSAGE_OUT, 2u, "cut");
+	}
 	saves_left = -1;
 	if (!*cut)
 		return 1;
@@ -738,22 +748,23 @@ static int cut_at(long k, const uint8_t *contact, int *cut)
 
 static void test_a_line_cut_at_every_save(void)
 {
-	const uint8_t *contacts[2] = { X, Y };
-	int cuts[2] = { 0, 0 }, ends[2] = { 0, 0 }, all_ok = 1, cut = 0;
+	const uint8_t *contacts[3] = { X, Y, X };
+	int cuts[3] = { 0, 0, 0 }, ends[3] = { 0, 0, 0 }, all_ok = 1, cut = 0;
 	size_t c;
 	long k;
 
-	for (c = 0; c < 2u; c++)
+	for (c = 0; c < 3u; c++)
 		for (k = 0; k < 64; k++) {
-			all_ok &= cut_at(k, contacts[c], &cut);
+			all_ok &= cut_at(k, contacts[c], c == 2u, &cut);
 			if (!cut) {
 				ends[c] = 1;
 				break;
 			}
 			cuts[c]++;
 		}
-	CHECK(cuts[0] && cuts[1] && ends[0] && ends[1],
-	      "fixture: a line's saves were cut, and a budget passed them all, in each conversation");
+	CHECK(cuts[0] && cuts[1] && cuts[2] && ends[0] && ends[1] && ends[2],
+	      "fixture: a line's saves were cut, and a budget passed them all, in each conversation "
+	      "and put in its place");
 	CHECK(all_ok, "a line cut at a save stopped the conversation, or was listed other than once");
 }
 
@@ -1355,6 +1366,35 @@ static void test_a_trimmed_month_keeps_heads_only(void)
 	      "July is listed as a shell with its times, from its head alone");
 }
 
+/* A TRIM CUT BETWEEN A ROW'S REMOVAL AND ITS HEAD, sec 746: the removal
+ * lands and the head's save does not, as a power cut between them would.
+ * Started again and trimmed again, July is listed as a shell, its head made
+ * again from its record. It was listed nowhere: an entry whose row is gone
+ * is skipped, and the pass passed it over too. */
+static void test_a_trim_cut_after_the_removal(void)
+{
+	static mem_t kept;
+	fzn_retain_rule_t r = rule_of("prune messages age 60d");
+	int cut;
+
+	setup();
+	CHECK(write_in(&A, 678u, X, 1u, "july") && write_in(&A, 679u, X, 2u, "august"),
+	      "fixture: a line in July, one in August");
+	saves_left = 0;
+	cut = !trim(&A, &r, 1u);
+	saves_left = -1;
+	CHECK(cut && !rows_hold(&A, "july"),
+	      "fixture: the trim cut at its first save, July's row removed");
+	memcpy(&kept, &A.store, sizeof(kept));
+	device_up(&A, 0x11, 1u);
+	memcpy(&A.store, &kept, sizeof(kept));
+	CHECK(trim(&A, &r, 1u), "started again, the trim would not run");
+	CHECK(list(&A, X, 0u, 5u) && count == 2u && is_line(0, 2u, FZN_MESSAGE_OUT, "august")
+	              && !page[1].readable && page[1].id[0] == 1u && page[1].stime != 0u
+	              && page[1].written_at != 0u && !rows_hold(&A, "july"),
+	      "a line whose trim was cut after its row's removal is listed nowhere, or with text");
+}
+
 static void test_a_line_two_devices_wrote_is_kept_once(void)
 {
 	size_t heads = 9;
@@ -1585,6 +1625,7 @@ int main(void)
 	test_trimming_by_age();
 	test_the_store_outlives_the_journal();
 	test_a_trimmed_month_keeps_heads_only();
+	test_a_trim_cut_after_the_removal();
 	test_a_line_two_devices_wrote_is_kept_once();
 	test_an_older_store_is_rebuilt_once();
 	test_a_row_must_be_its_own_line();

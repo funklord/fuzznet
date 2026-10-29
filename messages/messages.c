@@ -1112,12 +1112,21 @@ static int index_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKE
 			moves[found++] = k - 1u;
 	if (found < n - p)
 		return index_at_end(m, contact, device, seq, direction, id, epoch, size);
-	/* THE SHIFT, from the end down, then the line in its place, then the
-	 * count. A crash part way leaves an entry twice, which the next reindex
-	 * sets right; the count is written last, so nothing is lost. */
+	/* THE SHIFT, from the end down, then the count, then the line in its
+	 * place. A crash part way leaves an entry twice, which a listing shows
+	 * once and the next reindex sets right, and loses nothing.
+	 *
+	 * THE COUNT BEFORE THE LINE, sec 746. With the line put first, a crash
+	 * before the count left the entry at `p` -- moved, but its new place
+	 * past the count -- written over, and that line was listed nowhere:
+	 * its mark says it is kept, so a retry does not index it again. Found by
+	 * live_faults' phase o once its in line, stamped earlier, was put in
+	 * its place rather than appended (sec 744). */
 	for (j = n; j > p; j--)
 		if (!entry_bytes(m, contact, j - 1u, e_bytes) || !entry_put(m, contact, j, e_bytes))
 			return 0;
+	if (!save_number(m, "count", contact, n + 1u))
+		return 0;
 	memcpy(e_bytes, device, FZN_PUBKEY_LEN);
 	fzn_put_be64(e_bytes + ENTRY_SEQ, seq);
 	e_bytes[ENTRY_DIRECTION] = direction;
@@ -1125,7 +1134,7 @@ static int index_append(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKE
 	fzn_put_be32(e_bytes + ENTRY_EPOCH, epoch);
 	e_bytes[ENTRY_SIZE] = (uint8_t)(size >> 8);
 	e_bytes[ENTRY_SIZE + 1u] = (uint8_t)size;
-	if (!entry_put(m, contact, p, e_bytes) || !save_number(m, "count", contact, n + 1u))
+	if (!entry_put(m, contact, p, e_bytes))
 		return 0;
 	for (k = 0; k < found; k++)
 		if (!all_entry(m, moves[k], c, &i) || !all_place(m, moves[k], i + 1u))
@@ -1156,6 +1165,36 @@ static int open_waiting(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKE
 	return 1;
 }
 
+/* `e`'s head, from its line's last record: no text and no parts, as a
+ * trimmed month's line is kept. 1 when made, or when there is nothing to
+ * make it from -- a journal that no longer holds the record. */
+static int head_again(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                      const entry_t *e)
+{
+	static uint8_t rbuf[FZN_RECORD_MAX_LEN];
+	fzn_message_part_t p;
+	fzn_record_t rec;
+	stored_t s;
+
+	if (!record_at(m, e->device, e->seq, rbuf, sizeof(rbuf), &rec)
+	    || fzn_record_kind(rec) != FZN_MESSAGE_LINE_KIND
+	    || !fzn_message_line_read(fzn_record_body(rec), fzn_record_body_len(rec), &p)
+	    || p.part + 1u != p.parts || p.direction != e->direction
+	    || memcmp(p.id, e->id, FZN_MESSAGE_ID_LEN) != 0)
+		return 1;
+	memset(&s, 0, sizeof(s));
+	memcpy(s.contact, contact, FZN_PUBKEY_LEN);
+	memcpy(s.device, e->device, FZN_PUBKEY_LEN);
+	s.seq = e->seq;
+	s.written_at = fzn_record_issued_at(rec);
+	s.stime = p.stime;
+	s.direction = p.direction;
+	memcpy(s.id, p.id, FZN_MESSAGE_ID_LEN);
+	s.epoch = p.epoch;
+	s.parts = p.parts;
+	return stored_save(m, &s);
+}
+
 /* LET GO OF A MONTH'S TEXT: each of `contact`'s rows of `epoch` keeps its
  * head and holds neither text nor sealed parts. Removed, then the head
  * saved: a removal is what erases a row's history from an operation journal
@@ -1171,8 +1210,17 @@ static int let_go(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN]
 	for (i = count_of(m, contact); i > 0u; i--) {
 		if (!index_entry(m, contact, i - 1u, &e))
 			return 0;
-		if (e.epoch != epoch || !stored_load(m, e.device, e.seq, buf, &s)
-		    || (!s.opened && s.held == 0u))
+		if (e.epoch != epoch)
+			continue;
+		/* A HEAD LOST TO A CUT between the removal below and its save, sec
+		 * 746: made again from its record, as a trimmed month's line is
+		 * kept. The entry stood with no row, and a listing skips one. */
+		if (!stored_load(m, e.device, e.seq, buf, &s)) {
+			if (!head_again(m, contact, &e))
+				return 0;
+			continue;
+		}
+		if (!s.opened && s.held == 0u)
 			continue;
 		s.opened = 0u;
 		s.text_len = 0;

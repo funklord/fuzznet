@@ -73775,3 +73775,63 @@ after a second listing.
 Still open for this journey's scenario bar: a restart inside an
 operation for archive, trim and history, which work within one host,
 and skew for erasure.
+
+## 746. Journey 3's trim crashed and filled, and three ways a line went missing, 2026-10-29
+
+Journey 3's fault bar, first part: `tool/live_faults.py` gains phases q
+and r. One store holds a line in each of two conversations, written 62
+days back under faketime, and is copied for each try. A daemon with a
+rule pruning one contact's month runs its trim pass:
+- q: crashed at every reach of `persist.synced`, `persist.renamed` and
+  `record.body` inside the pass, then started again with the rule;
+- r: at every write budget, 250 bytes apart, until the pass completes,
+  then started again with room.
+
+Started again, the pass must trim that month, the other line must
+still read, and each must be listed once. Both now pass: 12 crash
+points, 8 depths. Phase o, re-run with them, found the first of three
+faults.
+
+**1. An insertion's crash window, sec 725's.** `index_append` moved the
+entries after a line's place up by one, then wrote the line at its
+place, then saved the count. A crash before the count left the entry at
+that place overwritten while its moved copy stood past the count, so
+the moved line was listed nowhere, and its mark said it was kept, so
+nothing indexed it again. Phase o met it once sec 744 made its in line,
+stamped 12345, go before the out line rather than after it. The count
+is now saved straight after the shift and before the line. A crash
+between them leaves an entry twice, which a listing and the unread
+count each show once. `test_a_line_cut_at_every_save` gains a third
+case, the cut line stamped before the one held; it failed at save 3
+before the change.
+
+**2. A trimmed line's head lost to a cut.** `let_go` removes a line's
+row and then saves its head. The order is deliberate, since a removal
+erases the text from an operation journal (sec 523), and a crash
+between the two left the index entry with no row. A listing skips such
+an entry, and the pass run again skipped it too. Now the pass makes the
+head again from the line's record (`head_again`), as a trimmed month's
+line is kept. `test_a_trim_cut_after_the_removal` cuts the trim after
+the removal, starts again and trims again; it failed before.
+
+**3. The journal cut took that record.** Under a full disk the trim
+failed after a removal, and the journal's window cut then ran. The line
+was 62 days old, past the 60-day window, so its record went and the
+head could not be made again: listed nowhere for good. The daemon now
+leaves the conversations' stream uncut until a trim runs whole
+(`messages_trim_unfinished`), and says so at debug. Phase r failed at
+budgets of 250 and 500 before it.
+
+**Lesser, recorded rather than fixed:**
+- a later insertion past an entry left twice finds one fewer entry in
+  everyone's listing than its move needs, and appends instead: listed,
+  in the wrong place, until a reindex;
+- a crash between an insertion's line and its moves of everyone's
+  listing leaves that listing naming shifted places, as sec 725's
+  order already did. No phase lists everyone's lines after a crash.
+
+`live_faults.py` now takes 180 to 330 s at a load of about 30, against
+its own deadline of 600 s.
+
+Still open for journey 3's fault bar: archive and history under a crash
+and a full disk, and erasure's pieces.

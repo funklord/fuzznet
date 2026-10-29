@@ -4701,6 +4701,13 @@ static size_t group_lines_trim_gone(void)
 	return total;
 }
 
+/* A TRIM LEFT PART WAY, sec 746: until one runs whole, the conversations'
+ * stream is not cut. A trim removes a line's row before it saves its head,
+ * and a head lost between the two -- a full disk -- is made again from the
+ * line's record at the next pass; a cut in between took the record, and the
+ * line was listed nowhere for good. */
+static int messages_trim_unfinished;
+
 static void messages_trim(uint64_t now)
 {
 	static fzn_retain_rule_t rules[FZN_RETAIN_RULES_MAX];
@@ -4717,6 +4724,7 @@ static void messages_trim(uint64_t now)
 	                               here_machine(), rules);
 	memset(&tally, 0, sizeof(tally));
 	err = n ? fzn_messages_trim(&node_messages.m, rules, n, wall_ms(), &tally) : FZN_MESSAGES_OK;
+	messages_trim_unfinished = err != FZN_MESSAGES_OK;
 	if (err != FZN_MESSAGES_OK) {
 		say(FZN_ENTRY_WARNING, "messages", "trimming by the rules: %s",
 		    fzn_messages_err_str(err));
@@ -4885,6 +4893,11 @@ static void journal_cut(uint64_t now)
 			below = fzn_node_journal_cut_point(&node_journal, e->issuer, e->stream, indexed,
 			                                   cut_before * 1000u);
 		} else if (e->stream == FZN_MESSAGE_STREAM && messages_on) {
+			if (messages_trim_unfinished) {
+				say(FZN_ENTRY_DEBUG, "journal",
+				    "a conversations stream not cut: the last trim did not finish");
+				continue;
+			}
 			below = fzn_node_messages_cut_point(&node_messages, e->issuer,
 			                                    cut_before * 1000u);
 		} else {

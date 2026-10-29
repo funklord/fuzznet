@@ -66,6 +66,14 @@ the scenarios built on them test something:
        count stopped its conversation taking lines for good
     p  a full disk at every depth of the same acts: each refused or kept,
        none answered ok that a restart does not find, no line twice
+    q  a crash at every reach of each crash point inside a trim pass,
+       journey 3's: a store with a line in each of two conversations
+       written sixty-odd days back, under faketime, and a rule pruning
+       one contact's. Started again with the rule, the pass trims that
+       month, the other's line still reads, and each is listed once
+       (sec 746)
+    r  a full disk at every depth of the same pass: with room again, the
+       same
 
 Against a daemon built without faults, phase a's B is counted at 100 per
 cent loss, phase b's daemon does not die, and phase c's says nothing.
@@ -106,6 +114,115 @@ def faulted(env):
 	for k in FAULTS:
 		os.environ.pop(k, None)
 	os.environ.update(env)
+
+
+def trim_faults(run, scratch, sock_dir):
+	"""Phases q and r: journey 3's trim pass, at every crash point and at
+	every depth of a full disk. One store is written old, under faketime,
+	and copied for each try, so every try trims the same month."""
+	if not shutil.which("faketime"):
+		print("livecheck: q, r: no faketime on PATH, so they were SKIPPED")
+		return
+
+	class q:
+		pass
+
+	q.fuzznetd = run.fuzznetd
+	q.started = run.started
+	q.scratch = scratch
+	q.sock = os.path.join(sock_dir, "q")
+	template = os.path.join(scratch, "q-old")
+	q.node = template
+	os.mkdir(template)
+	live_trim.write_old(q, "q-old")
+	rule = ["--log-rule=prune messages contact=%s age 1d" % live_trim.CONTACT]
+
+	def stands(where, tag):
+		"""The rule's month trimmed, the other's line read, each listed once."""
+		pass_said = None
+		node = live_trim.daemon(q, tag + "-again", extra=rule)
+		try:
+			pass_said = node.trim_pass()
+			trimmed = live_trim.row(q, where, live_trim.CONTACT)[1]
+			kept = live_trim.row(q, where, live_trim.OTHER_CONTACT)[1]
+		finally:
+			node.stop()
+		if pass_said[:2] != (1, 1) or (trimmed, kept) != (0, 1):
+			raise failed("%s: started again, the pass said %r and the lines read %d and %d; "
+			             "expected the rule applied, 0 and 1" % ((where, pass_said, trimmed, kept)))
+
+	def fresh(name):
+		q.node = os.path.join(scratch, name)
+		shutil.copytree(template, q.node)
+
+	swept = {}
+	for point in ("persist.synced", "persist.renamed", "record.body"):
+		inside = 0
+		for n in range(1, 400):
+			tag = "q-%s-%d" % (point, n)
+			fresh(tag)
+			faulted({"FZN_FAULT_CRASH": "%s:%d" % (point, n)})
+			try:
+				node = live_trim.daemon(q, tag, extra=rule)
+			except failed as e:
+				if "fault: dying at" not in str(e):
+					raise
+				continue  # at start, before the pass: N too small
+			finally:
+				faulted({})
+			try:
+				node.trim_pass()
+				crashed = node.proc.poll() is not None
+			except failed as e:
+				if "exited before a trim pass" not in str(e):
+					raise
+				crashed = True
+			finally:
+				node.stop()
+			if not crashed:
+				break
+			inside += 1
+			stands("q: after a crash at %s:%d" % (point, n), tag)
+		else:
+			raise failed("q: %s was still reached after 400 writes" % point)
+		swept[point] = inside
+	if not any(swept.values()):
+		raise failed("q: no crash point fell inside a trim pass: %r" % swept)
+	print("livecheck: q: a crash at every write of a trim pass (%s), each started again: "
+	      "the month trimmed, the other line read, each listed once"
+	      % ", ".join("%s %d" % kv for kv in swept.items()))
+
+	short = 0
+	for budget in range(0, 400000, 250):
+		tag = "r-%d" % budget
+		fresh(tag)
+		faulted({"FZN_FAULT_WRITE_BUDGET": str(budget)})
+		try:
+			node = live_trim.daemon(q, tag, extra=rule)
+		except failed:
+			continue  # full before it could serve
+		finally:
+			faulted({})
+		try:
+			try:
+				node.trim_pass()
+				done = live_trim.row(q, tag, live_trim.CONTACT)[1] == 0
+			except failed:
+				done = False
+			if node.proc.poll() is not None or not ask(q.sock, "status").startswith("ok "):
+				raise failed("r: at a budget of %d the daemon stopped serving" % budget)
+		finally:
+			node.stop()
+		if done:
+			break
+		short += 1
+		stands("r: at a budget of %d, with room again," % budget, tag)
+	else:
+		raise failed("r: the pass was still short of room at the largest budget")
+	if not short:
+		raise failed("r: no budget fell inside a trim pass")
+	print("livecheck: r: a full disk at %d depths of a trim pass: with room again, the month "
+	      "trimmed, the other line read, each listed once" % short)
 
 
 def reconcile_from(sock, tag):
@@ -915,6 +1032,9 @@ def main(argv):
 				      % o_refused)
 			finally:
 				carol.stop()
+
+			# q and r: a trim pass crashed, and then short of disk (sec 746).
+			trim_faults(run, scratch, sock_dir)
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1
