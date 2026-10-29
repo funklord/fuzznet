@@ -73659,3 +73659,22 @@ ten of ten, where sec 739 had three of four. And ten estate journeys
 8: ten of ten, where sec 739 had eight of eight. So sec 689's first
 two journeys, and erasure (sec 606), each stand at ten of ten at 20%
 loss.
+
+## 743. live_chat's ports back below the ephemeral range, 2026-10-29
+
+Sec 606 moved every live check's ports below 32768, each into its own
+block, after a run failed to bind a port a moment earlier given to a
+daemon's own client socket: Linux hands those out from 32768 to 60999.
+`tool/live_chat.py`, written later, picked 42000 to 45999 again. It
+now takes 31010 + (pid % 235) * 4, four ports a run, in the one gap
+left: above fuzzypickles' own 29800 to 31000, which `live_fzp.py`
+keeps clear of, and below `live_group_hosts.py`'s 32000. One run at no
+loss passed on it.
+
+Open, the same drift in four more, each also inside that range:
+`live_estate.py` (43000 up), `live_logs.py` (42000 up),
+`live_group_skew.py` (41000 up), and `live_faults.py`'s second store
+(44000 up). Below 32768 the blocks from 1024 to 32732 are all taken, so
+moving them means narrowing someone's block or stacking pid slots more
+tightly. `live_fzp.py` listens from 40000 too, but checks each port free
+before using it, which is the other answer.

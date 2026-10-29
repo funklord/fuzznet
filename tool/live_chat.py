@@ -81,7 +81,12 @@ def main(argv):
 
 	run.fuzznetd = os.path.abspath(args.fuzznetd)
 	run.started = []
-	base = 42000 + (os.getpid() % 500) * 8
+	# BELOW THE EPHEMERAL RANGE (32768 up), where a daemon's own client
+	# sockets take their ports and could take one of these between runs,
+	# as live_erasure.py's are (sec 606); in the gap the other live
+	# scripts leave, above fuzzypickles' own (29800 to 31000, which
+	# live_fzp.py keeps clear of) and below live_group_hosts.py's (32000).
+	base = 31010 + (os.getpid() % 235) * 4
 	port = {k: str(base + i) for i, k in enumerate(WHO)}
 	os.environ["FZN_TUNE_PULL_EVERY"] = ROUND_S
 	# A DELIVERED LINE OFFERED AGAIN FOR SETTLEMENT every few seconds rather
