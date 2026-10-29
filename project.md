@@ -72423,7 +72423,9 @@ runs every daemon at that loss.
   about 178.
 - **The loss failure** is phase c: B2 still had one line unread after
   B1's read mark. Whether the mark did not reach B2 within the settle
-  time under that load, or the order differed, is not found. Open.
+  time under that load, or the order differed, was not found. The same
+  symptom was traced in sec 739 to the order differing, fixed in sec
+  744; this instance was not traced, so that is the likely cause.
 
 - **Phase e, a contact removed:** A1 removes B, and A2 lists B as not
   active, the roster being the user's (sec 489). B2 then writes a line,
@@ -73750,3 +73752,26 @@ things on two hosts, did not recur. Of the bar's restart inside each
 operation, the script has one: phase d2, a host killed with a line in
 flight. Contact by card and a contact's removal are not restarted
 inside.
+
+## 745. Journey 3's erasure at every loss, and a log read as a round packs it, 2026-10-29
+
+Sec 736 left erasure's scenario bar measured at 20% loss only (ten of
+ten after secs 741 and 742). `live_erasure.py` against the fault build,
+three runs at a time at a load of about 30:
+
+| 0% | 5% | 20% |
+|---|---|---|
+| 10 of 10 | 9 of 10 | 10 of 10 (sec 742) |
+
+**The failure was the test's.** `log()` in `tool/live_rejoin.py`, which
+28 live scripts read daemon logs through, listed the log directory and
+then opened each `.log` in it. A round packs the current file into a
+segment between the two, and the open raised `FileNotFoundError` out of
+B's round wait. It now lists again when a file goes, up to five times;
+the lines are then in the segment the file was packed into. A listing
+naming a file gone at its open, once, now returns the directory's lines
+after a second listing.
+
+Still open for this journey's scenario bar: a restart inside an
+operation for archive, trim and history, which work within one host,
+and skew for erasure.

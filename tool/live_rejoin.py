@@ -172,6 +172,25 @@ class daemon:
 		a wait begun after it reading the current file alone missed what the
 		round said and waited out the next round instead (sec 637). Each
 		segment decompressed once; without `zstd`, the current file alone."""
+		# READ AGAIN WHEN A FILE GOES, sec 745: a round packs the current
+		# file between the listing and the open, and the open met nothing
+		# there -- one erasure run in ten at 5% loss failed so. Listed
+		# again, its lines are in the segment it was packed into.
+		for _ in range(5):
+			try:
+				text = self._read_log()
+				break
+			except FileNotFoundError:
+				continue
+		else:
+			text = self._read_log()
+		if self.kept:
+			mine = " %d@" % self.proc.pid
+			text = "".join(l for l in text.splitlines(True) if mine in l)
+		return text
+
+	def _read_log(self):
+		"""One pass of `log`: FileNotFoundError when a file goes under it."""
 		text = ""
 		own = ".%d." % self.proc.pid
 		for name in sorted(os.listdir(self.log_dir)):
@@ -192,9 +211,6 @@ class daemon:
 				continue
 			with open(path, "rb") as f:
 				text += f.read(1 << 20).decode(errors="replace")
-		if self.kept:
-			mine = " %d@" % self.proc.pid
-			text = "".join(l for l in text.splitlines(True) if mine in l)
 		return text
 
 	def wait_for(self, pattern, what, within=30.0):
