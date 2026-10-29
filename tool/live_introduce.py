@@ -11,6 +11,11 @@ from the socket it serves on.
        address C advertised; its next round asks A to introduce C, A tells
        B where C said hello from (and tells C where B asked from), and B
        fetches the file whole from C, A holding none of it
+    c  B and C started afresh, C puts a second file and B asks for it; A,
+       the introducer, is killed by SIGKILL at once and started again, and
+       B is introduced and fetches the file whole (sec 760)
+
+`--skew S` runs B S seconds ahead and C S behind, by faketime (sec 757).
 
 On loopback no NAT stands between them, so this shows the introduced
 address used and the request through it answered; whether a NAT lets it
@@ -28,6 +33,7 @@ Exit 0 on a pass, 1 on a failure.
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -55,6 +61,16 @@ PAYLOAD_LEN = 50000
 
 def took(d):
 	return any(int(m.group(2)) > 0 for m in TAKEN_RE.finditer(d.log()))
+
+
+def killed(started, who):
+	"""`who` killed by SIGKILL, no cleanup, as a power cut would (sec 760)."""
+	d = started.pop(who)
+	try:
+		os.killpg(d.proc.pid, signal.SIGKILL)
+	except ProcessLookupError:
+		pass
+	d.proc.wait(timeout=10)
 
 
 def main(argv):
@@ -166,6 +182,48 @@ def main(argv):
 			if reply.startswith("ok ") and len(reply.split()) >= 5 and reply.split()[4] != "none":
 				raise failed("b: A holds the file, so the peer may have been A: %r" % reply)
 			print("livecheck: b: introduced through A, B fetched C's file whole from C")
+
+			# c: THE INTRODUCER KILLED MID-INTRODUCTION (sec 760, sec 689's
+			# restart inside an operation). B and C start afresh, B knowing no
+			# introduction, and C puts a second file; B asks for it, and A dies
+			# by SIGKILL at once, with what it knew of where C said hello.
+			# Started again, C's next hello tells it, and B is introduced and
+			# fetches the file whole.
+			second = os.path.join(scratch, "second")
+			with open(second, "wb") as f:
+				f.write(os.urandom(PAYLOAD_LEN))
+			started.pop("b").stop()
+			started.pop("c").stop()
+			started["c"] = daemon(run, "c-c", dirs["c"], socks["c"], fake=skews.get("c"),
+			                      extra=args["c"])
+			started["c"].wait_for(RECONCILE_RE, "C's reconcile pass")
+			reply = ask(socks["c"], "put file " + second)
+			if not reply.startswith("ok "):
+				raise failed("c: put file answered %r" % reply)
+			ref2 = reply.split()[1]
+			started["b"] = daemon(run, "b-c", dirs["b"], socks["b"], fake=skews.get("b"),
+			                      extra=args["b"])
+			started["b"].wait_for(RECONCILE_RE, "B's reconcile pass")
+			expect(socks["b"], "b", "fetch file " + ref2, "ok")
+			killed(started, "a")
+			started["a"] = daemon(run, "a-c", dirs["a"], socks["a"],
+			                      extra=["--udp-port=" + port["a"]])
+			deadline = time.monotonic() + 200.0 + 10.0 * LOSS
+			while time.monotonic() < deadline and not INTRODUCED_RE.search(started["b"].log()):
+				time.sleep(0.5)
+			got = INTRODUCED_RE.search(started["b"].log())
+			if not got or got.group(1) != port["c"]:
+				raise failed("c: after A was killed and started again, B was introduced to C at "
+				             "%r, not C's serving port %s" % (got.group(1) if got else None,
+				                                             port["c"]))
+			deadline = time.monotonic() + 30.0 + 6.0 * LOSS
+			while time.monotonic() < deadline and not WHOLE_RE.search(started["b"].log()):
+				time.sleep(0.5)
+			whole = started["b"].wait_for(WHOLE_RE, "the second file whole")
+			if whole.groups() != (str(PAYLOAD_LEN), "1"):
+				raise failed("c: B's second file was %s bytes from %s peer(s)" % whole.groups())
+			print("livecheck: c: A killed as B's introduction was due; started again, B was "
+			      "introduced and fetched the second file whole")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

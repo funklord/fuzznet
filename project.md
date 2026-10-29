@@ -74324,12 +74324,10 @@ once each, since `restamp_peer` reaches every caller. `make test` and
 `make style` green. The clock changes are held by these live runs, not by
 `make test`.
 
-**Journey 4's restart inside an operation: the relay killed
-mid-delivery** (`live_relay` phase f). It failed when written, and was
-kept behind a flag while unexplained; sec 759 found it was the script's,
-and it now runs by default. Not yet built: the same phase for
-`live_introduce` (the introducer killed mid-introduction) and `live_lan`
-(the probed host killed between its answer and the fetch).
+**Journey 4's restart inside an operation** (sec 689): the relay killed
+mid-delivery (`live_relay` phase f, found sound in sec 759), the introducer
+killed mid-introduction and the probed host killed before the fetch (sec
+760).
 
 ## 758. A LAN probe that carries its sender's clock, version 2, 2026-10-29
 
@@ -74388,3 +74386,28 @@ refuses the relay ("that host has not said where it is"), and A hears it
 (sec 754); B2's next start says hello; A's next round relays the line,
 and B2 lists it once. `--restart` is gone and phase f runs in `make
 livecheck`.
+
+## 760. The introducer and the probed host killed mid-operation, 2026-10-29
+
+The rest of journey 4's restart inside an operation, after sec 759's
+relay.
+
+- **`live_introduce` phase c:** B and C start afresh -- an introduction
+  is held in memory, so B knows none -- and C puts a second file. B asks
+  for it, and A, the introducer, dies by SIGKILL at once, with what it
+  knew of where C said hello. Started again, C's next hello tells it, B's
+  next round is introduced, and B fetches the file whole.
+- **`live_lan` phase b3:** B starts afresh and C puts a second file; B
+  asks for it and probes, and once B's `get lan` lists C, C dies by
+  SIGKILL and is started again on its port. B's next round finds C where
+  it heard it and fetches the file whole. C advertises an address on
+  another network, so the LAN is the only way B reaches it.
+
+Each with tags of its own, after sec 759. **Measured:** both pass at no
+loss, once each at 20 per cent on the fault build, and once each at 900 s
+of skew. Neither found a fault.
+
+**Journey 4's scenario bar, after this section:** relay, lan and
+introduce under 20 per cent loss, under 900 s of skew, and with a restart
+inside each operation. Its fault, authorization, fuzzing and bounds bars
+are next.

@@ -13,7 +13,14 @@ recorded address is somewhere else while it sits on the same LAN.
        serving socket; B's next round finds C where that hello came from
        and fetches the file whole from C. `fetch lan` answers how many
        probes it sent, and where
+    b2 a raw version 1 probe is answered, and one of version 3 is not (sec
+       758)
+    b3 B started afresh, C puts a second file and B asks for it and probes;
+       once B has heard C, C is killed by SIGKILL and started again on its
+       port, and B fetches the file whole (sec 760)
     c  B's discovery switched off, `fetch lan` sends none and says why
+
+`--skew S` runs B S seconds ahead and C S behind, by faketime (sec 757).
 
 Against a daemon that answers no probe, phase b never finds C; against one
 whose `net/discovery off` still broadcasts, phase c's answer is a count.
@@ -28,6 +35,7 @@ Exit 0 on a pass, 1 on a failure.
 import os
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -54,6 +62,16 @@ PAYLOAD_LEN = 50000
 
 def took(d):
 	return any(int(m.group(2)) > 0 for m in TAKEN_RE.finditer(d.log()))
+
+
+def killed(started, who):
+	"""`who` killed by SIGKILL, no cleanup, as a power cut would (sec 760)."""
+	d = started.pop(who)
+	try:
+		os.killpg(d.proc.pid, signal.SIGKILL)
+	except ProcessLookupError:
+		pass
+	d.proc.wait(timeout=10)
 
 
 def main(argv):
@@ -234,6 +252,49 @@ def main(argv):
 			if probe_answered(3):
 				raise failed("b2: C answered a probe of version 3")
 			print("livecheck: b2: C answered a version 1 probe, and not one of version 3")
+
+			# b3: THE PROBED HOST KILLED BETWEEN ITS ANSWER AND THE FETCH (sec
+			# 760, sec 689's restart inside an operation). B starts afresh and
+			# C puts a second file; B asks for it and probes, and as soon as B
+			# has heard C, C dies by SIGKILL. Started again on its port, B's
+			# next round finds it and fetches the file whole.
+			second = os.path.join(scratch, "second")
+			with open(second, "wb") as f:
+				f.write(os.urandom(PAYLOAD_LEN))
+			reply = ask(socks["c"], "put file " + second)
+			if not reply.startswith("ok "):
+				raise failed("b3: put file answered %r" % reply)
+			ref2 = reply.split()[1]
+			started.pop("b").stop()
+			started["b"] = daemon(run, "b-d", dirs["b"], socks["b"], fake=skews.get("b"),
+			                      extra=args["b"])
+			started["b"].wait_for(RECONCILE_RE, "B's reconcile pass")
+			expect(socks["b"], "b", "fetch file " + ref2, "ok")
+			heard = []
+			deadline = time.monotonic() + 30.0
+			again = 0.0
+			while time.monotonic() < deadline:
+				if time.monotonic() > again:
+					ask(socks["b"], "fetch lan")
+					again = time.monotonic() + 10.0
+				heard = ask(socks["b"], "get lan").split()
+				if any(r.startswith(host_key["c"] + ",127.0.0.1," + port["c"] + ",")
+				       for r in heard[2:]):
+					break
+				time.sleep(0.5)
+			else:
+				raise failed("b3: B's get lan answered %r, not C" % heard)
+			killed(started, "c")
+			started["c"] = daemon(run, "c-d", dirs["c"], socks["c"], fake=skews.get("c"),
+			                      extra=args["c"])
+			deadline = time.monotonic() + 200.0 + 10.0 * LOSS
+			while time.monotonic() < deadline and not WHOLE_RE.search(started["b"].log()):
+				time.sleep(0.5)
+			whole = started["b"].wait_for(WHOLE_RE, "the second file whole")
+			if whole.groups() != (str(PAYLOAD_LEN), "1"):
+				raise failed("b3: B's second file was %s bytes from %s peer(s)" % whole.groups())
+			print("livecheck: b3: C killed once B had heard it; started again, B fetched the "
+			      "second file whole")
 
 			# c: switched off, B sends nothing and says why (sec 639).
 			expect(socks["b"], "c", "set setting host net/discovery off", "ok")
