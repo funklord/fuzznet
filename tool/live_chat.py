@@ -37,6 +37,7 @@ import argparse
 import os
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -57,6 +58,23 @@ WHO = ("a1", "a2", "b1", "b2")
 NAME = {"a": "alice", "b": "bob"}
 # A LINE EACH HOST WRITES, its id 32 hex digits naming the writer.
 LINE = {"a1": "a1" * 16, "a2": "a2" * 16, "b1": "b1" * 16, "b2": "b2" * 16}
+
+
+# Four ports a run, in 31010 to 31949.
+SLOTS = 235
+
+
+def free(port):
+	"""Whether UDP `port` can be bound now, on every address as the daemon
+	binds it."""
+	s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+	try:
+		s.bind(("", port))
+		return True
+	except OSError:
+		return False
+	finally:
+		s.close()
 
 
 def main(argv):
@@ -86,7 +104,16 @@ def main(argv):
 	# as live_erasure.py's are (sec 606); in the gap the other live
 	# scripts leave, above fuzzypickles' own (29800 to 31000, which
 	# live_fzp.py keeps clear of) and below live_group_hosts.py's (32000).
-	base = 31010 + (os.getpid() % 235) * 4
+	# A SLOT ALL FREE, sec 743, from the pid's on: one in 40 runs, three at
+	# a time, met its first port held and its daemon could not bind.
+	base = None
+	for t in range(SLOTS):
+		at = 31010 + ((os.getpid() + t) % SLOTS) * 4
+		if all(free(at + i) for i in range(len(WHO))):
+			base = at
+			break
+	if base is None:
+		raise SystemExit("livecheck: FAILED -- no slot of four free ports in 31010-31949")
 	port = {k: str(base + i) for i, k in enumerate(WHO)}
 	os.environ["FZN_TUNE_PULL_EVERY"] = ROUND_S
 	# A DELIVERED LINE OFFERED AGAIN FOR SETTLEMENT every few seconds rather

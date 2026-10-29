@@ -73681,6 +73681,14 @@ moving them means narrowing someone's block or stacking pid slots more
 tightly. `live_fzp.py` listens from 40000 too, but checks each port free
 before using it, which is the other answer.
 
+**Chat now checks its slot free too.** One run in 40, three at a time,
+failed with "could not bind udp port 31610": another run took the same
+slot of 235, or something else held the port. `live_chat.py` now walks
+its slots from its pid's on until all four ports bind on every address,
+as the daemon binds them. A port held on loopback reads as taken and a
+released one as free. Ten runs at 20% after it passed. Two runs that
+probe the same slot before either daemon binds can still meet.
+
 ## 744. A contact's lines in its writer's order on every host, as sec 725 decided, 2026-10-29
 
 Sec 739 found B1 and B2, one user's two devices, listing A's two lines
@@ -73728,3 +73736,17 @@ an out line stamped now and expected the in line newest in carol's
 conversation; it now expects the out line, and its check of everyone's
 listing is unchanged. fuzzypickles, which vendors this tree pinned,
 meets the same change when it next takes it.
+
+**Journey 2's scenario bar, after the change** (`live_chat.py` against
+the fault build, three runs at a time, at a load of about 35):
+
+| 0% | 5% | 20% | `--skew 900` |
+|---|---|---|---|
+| 10 of 10 | 10 of 10 | 19 of 20 | 10 of 10 |
+
+The one failure was a daemon that could not bind its port, not a chat
+fault (sec 743). Sec 739's failure, a read position meaning different
+things on two hosts, did not recur. Of the bar's restart inside each
+operation, the script has one: phase d2, a host killed with a line in
+flight. Contact by card and a contact's removal are not restarted
+inside.
