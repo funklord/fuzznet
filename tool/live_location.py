@@ -10,6 +10,9 @@ a poor one in turn.
        `location/enabled` on (sec 686's spelling): the node connects and sends WATCH, its link
        reads `watching`, the good fixes are kept and the 500 m ones
        dropped, and `list location` holds the good fix as gpsd gave it
+    b2 the daemon killed by SIGKILL while sampling and started again: the
+       fixes kept before are still listed, and it watches gpsd again and
+       keeps the next (sec 766)
     c  `location/enabled` off: the link reads `off`, and no fix is kept after
 
 Against a daemon that does not sample, phase b's link never reads
@@ -131,10 +134,11 @@ def main(argv):
 		try:
 			# A LOG DIRECTORY OF ITS OWN: told none, the daemon logs into the
 			# user's own `~/.local/state/fuzznet/log`.
-			proc = subprocess.Popen([fuzznetd, "--socket=" + sock, "--fuzznet-dir=" + store,
-			                         "--log-dir=" + os.path.join(scratch, "log"),
-			                         "--fuzznet-service=1", "--fuzznet-product=1"],
-			                        stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+			argv_daemon = [fuzznetd, "--socket=" + sock, "--fuzznet-dir=" + store,
+			               "--log-dir=" + os.path.join(scratch, "log"),
+			               "--fuzznet-service=1", "--fuzznet-product=1"]
+			proc = subprocess.Popen(argv_daemon, stdout=log, stderr=subprocess.STDOUT,
+			                        start_new_session=True)
 			got = status(sock)
 			if got[1:3] != ["0", "off"] or got[5] != "0":
 				raise failed("a: before it was set, get location said %r" % got)
@@ -161,6 +165,30 @@ def main(argv):
 				raise failed("b: list location holds %r, not the good fix alone" % rows)
 			print("livecheck: b: the node watched gpsd, kept %s good fixes and dropped %s "
 			      "poor ones" % (got[5], got[6]))
+
+			# b2: KILLED WHILE SAMPLING, started again (sec 766, sec 689's
+			# journey 5): the fixes kept before are still listed, and the node
+			# watches gpsd again and keeps the next.
+			before = len(rows)
+			os.killpg(proc.pid, signal.SIGKILL)
+			proc.wait(timeout=10)
+			proc = subprocess.Popen(argv_daemon, stdout=log, stderr=subprocess.STDOUT,
+			                        start_new_session=True)
+			until = time.monotonic() + 40.0
+			while True:
+				got = status(sock)
+				if got[2] == "watching" and int(got[5]) >= 1:
+					break
+				if time.monotonic() > until:
+					raise failed("b2: started again, the node did not sample gpsd again: %r"
+					             % got)
+				time.sleep(0.5)
+			rows = [r.split(",") for r in ask(sock, "list location").split()[1:]]
+			if len(rows) < before or any(r[3:5] != ["59.3293235", "18.0685815"] for r in rows):
+				raise failed("b2: started again, list location holds %r, not the %d fix(es) "
+				             "kept before and the good fix alone" % (rows, before))
+			print("livecheck: b2: killed while sampling and started again, the node kept its "
+			      "%d fix(es) and watched gpsd again" % before)
 
 			if ask(sock, "set setting host location/enabled off") != "ok":
 				raise failed("c: turning sampling off was refused")

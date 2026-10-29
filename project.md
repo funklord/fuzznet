@@ -74572,3 +74572,25 @@ cleanly past it. Reachability's limits, read one by one:
   answered whatever its expiry and could be replayed; 32 LAN probes
   answered a minute, since any host on the network may send one; a relay
   route held 10 s. Each bounds what a stranger or a replay can cost.
+
+## 766. Journey 5, location: each level, the grant revoked, a restart while sampling, 2026-10-29
+
+Sec 689's journey 5 names three things to show: location shared at each
+level, the grant revoked, and the daemon restarted while sampling.
+`live_pairing` already shared a stream and a fix at level 1 (its phases f
+and g), and `live_location` sampled gpsd on one node. Added:
+
+- **`live_pairing` phase g2.** A record already held is not fetched
+  again, so each level is shown with a fix of its own: granted level 0, B
+  lists A's next fix exact; level 2, on the 0.1 degree grid, marked
+  coarse; revoked -- `get stream location bob` then `ok none` -- B is
+  given no fix after.
+- **`live_location` phase b2.** The daemon is killed by SIGKILL while
+  watching gpsd, and started again over the same store: the fixes kept
+  before are still listed, and it connects, sends WATCH and keeps the
+  next.
+
+Both pass; neither found a fault. **Not yet:** journey 5's scenarios under
+loss and skew, with `live_pairing` taught to give its single-shot steps
+more than one chance as journey 4's scripts were (sec 756), and its
+fault, authorization, fuzzing and bounds bars.

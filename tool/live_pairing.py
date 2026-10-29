@@ -20,6 +20,8 @@ A asks, B is asked, C asks and is turned away.
     g  A adds a fix, `add location`, and lists it exact; B, granted level
        1, fetches it and lists it on the 0.01 degree grid, marked coarse --
        never A's exact position (sec 676)
+    g2 granted level 0, B lists A's next fix exact; level 2, on the 0.1
+       degree grid; revoked, B is given no fix after (sec 766)
     h  A puts a sticker pack and sends B a line carrying a sticker's
        reference; B's node wants the pack and fetches it from A, which
        granted it to B as the line went out, and B comes to list its
@@ -258,6 +260,40 @@ def main(argv):
 			   or rows[0][-1] != "1":
 				raise failed("g: B lists %r of A's fixes, not one on the coarse grid" % reply)
 			print("livecheck: g: A's fix listed exact at A, and on the 0.01 degree grid at B")
+
+			# g2: EACH LEVEL, AND THE GRANT REVOKED (sec 766, sec 689's journey
+			# 5). A record held is not fetched again, so each level is shown
+			# with a fix of its own: level 0, exact; level 2, the 0.1 degree
+			# grid; revoked, the next fix never reaches B.
+			def b_fix(seq):
+				reply = ask(socks["b"], "list location").split()
+				return [r.split(",") for r in reply[1:]
+				        if r.startswith(keys["a"][:16] + ",") and r.split(",")[1] == seq]
+
+			def add_fix(seq):
+				got = ask(socks["a"], "add location 59.3293230 18.0685810 at 1792600%03d" % seq)
+				if got != "ok %d" % seq:
+					raise failed("g2: add location answered %r, not record %d" % (got, seq))
+				time.sleep(2.5)
+				fetched()
+				return b_fix(str(seq))
+
+			expect(socks["a"], "a", "grant stream location bob 0", "ok")
+			rows = add_fix(4)
+			if len(rows) != 1 or rows[0][3:5] != ["59.3293230", "18.0685810"] or rows[0][-1] != "0":
+				raise failed("g2: granted level 0, B lists %r of record 4, not it exact" % rows)
+			expect(socks["a"], "a", "grant stream location bob 2", "ok")
+			rows = add_fix(5)
+			if len(rows) != 1 or rows[0][3:5] != ["59.3000000", "18.1000000"] or rows[0][-1] != "1":
+				raise failed("g2: granted level 2, B lists %r of record 5, not it on the 0.1 "
+				             "degree grid" % rows)
+			expect(socks["a"], "a", "revoke stream location bob", "ok")
+			expect(socks["a"], "a", "get stream location bob", "ok none")
+			rows = add_fix(6)
+			if rows:
+				raise failed("g2: revoked, B still holds A's record 6: %r" % rows)
+			print("livecheck: g2: B listed A's fixes exact at level 0, on the 0.1 degree grid at "
+			      "level 2, and was given none once revoked")
 
 			# h: a sticker, sec 682. A's pack, its reference sent as a line's
 			# text (escaped, as every text is), and B fetching the pack it
