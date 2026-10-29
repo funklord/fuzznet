@@ -102,11 +102,25 @@ static int mem_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, 
 	return 1;
 }
 
+static struct mem mem_a, mem_b;
+
+/* B'S SAVES LEFT BEFORE A POWER CUT, or -1 for none: the cut save and every
+ * one after it do not land, as a crash between two would leave them. */
+static long saves_left = -1;
+static size_t saves_cut;
+
 static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
                     const uint8_t *bytes, size_t len)
 {
-	struct row *r = row_of((struct mem *)ctx, slot, subject, 1);
+	struct row *r;
 
+	if (ctx == &mem_b && saves_left == 0) {
+		saves_cut++;
+		return 0;
+	}
+	if (ctx == &mem_b && saves_left > 0)
+		saves_left--;
+	r = row_of((struct mem *)ctx, slot, subject, 1);
 	if (!r || len > sizeof(r->bytes))
 		return 0;
 	memcpy(r->bytes, bytes, len);
@@ -140,7 +154,6 @@ static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject
 	return 1;
 }
 
-static struct mem mem_a, mem_b;
 static fzn_persist_ops_t store_a = { mem_load, mem_save, mem_list, mem_remove, &mem_a, NULL };
 static fzn_persist_ops_t store_b = { mem_load, mem_save, mem_list, mem_remove, &mem_b, NULL };
 static const fzn_buckets_t A = { &store_a, &HASH };
@@ -443,6 +456,82 @@ static void test_place_pull_push(void)
 	      "B keeps a piece placed on A");
 }
 
+/* A PULL CUT AT EVERY SAVE OF ITS KEEPER, sec 748: B pulls the piece placed
+ * on it, a crash cuts B at each of its saves in turn, and B is started again
+ * over its store and directory as the cut left them. Pulled again, it holds
+ * the one piece, counted once, which rebuilds the item, and a pull after
+ * that takes nothing -- so a cut neither loses the piece nor leaves B
+ * asking for it for good. */
+static int pull_cut_at(long k, int *cut)
+{
+	uint8_t keepers[2][32];
+	fzn_reconcile_bucket_tally_t t;
+	static uint8_t reply[8192];
+	static uint8_t out[ITEM_LEN];
+	size_t placed = 0, len = 0;
+	uint32_t used = 0;
+
+	fresh();
+	memcpy(keepers[0], key_a, 32u);
+	memcpy(keepers[1], key_b, 32u);
+	if (!a_cuts((const uint8_t (*)[32])keepers, &placed))
+		return 0;
+	saves_cut = 0;
+	saves_left = k;
+	memset(&t, 0, sizeof(t));
+	(void)fzn_reconcile_buckets(&B, FZN_BUCKETS_PIECES, &filer_b, to_a, NULL, reply,
+	                            sizeof(reply), &t);
+	saves_left = -1;
+	*cut = saves_cut != 0u;
+	if (!*cut)
+		return 1;
+	fzn_piece_buckets_close(&pb_b);
+	(void)fzn_piece_buckets_init(&pb_b, &B, dir_b, &HASH, &SIGN_B, key_b);
+	fzn_piece_buckets_filer(&pb_b, &filer_b);
+	memset(&t, 0, sizeof(t));
+	if (fzn_reconcile_buckets(&B, FZN_BUCKETS_PIECES, &filer_b, to_a, NULL, reply,
+	                          sizeof(reply), &t)
+	    != FZN_RECONCILE_OK) {
+		fprintf(stderr, "    cut at save %ld: the pull after would not run\n", k);
+		return 0;
+	}
+	if (count_of(&B, key_b) != 1u || count_of(&B, key_a) != 0u || pieces_in(dir_b) != 1u
+	    || fzn_pieces_rebuild(dir_b, 1u, item_id, &HASH, out, sizeof(out), &len, &used)
+	               != FZN_PIECES_OK
+	    || len != ITEM_LEN || memcmp(out, item, ITEM_LEN) != 0) {
+		fprintf(stderr, "    cut at save %ld: B counts %lu, holds %zu piece(s), rebuilds %zu\n",
+		        k, (unsigned long)count_of(&B, key_b), pieces_in(dir_b), len);
+		return 0;
+	}
+	memset(&t, 0, sizeof(t));
+	if (fzn_reconcile_buckets(&B, FZN_BUCKETS_PIECES, &filer_b, to_a, NULL, reply,
+	                          sizeof(reply), &t)
+	            != FZN_RECONCILE_OK
+	    || t.applied != 0u) {
+		fprintf(stderr, "    cut at save %ld: a pull after took %zu again\n", k, t.applied);
+		return 0;
+	}
+	return 1;
+}
+
+static void test_a_pull_cut_at_every_save(void)
+{
+	int all_ok = 1, cut = 0, ended = 0;
+	size_t cuts = 0;
+	long k;
+
+	for (k = 0; k < 64; k++) {
+		all_ok &= pull_cut_at(k, &cut);
+		if (!cut) {
+			ended = 1;
+			break;
+		}
+		cuts++;
+	}
+	CHECK(cuts && ended, "fixture: a pull's saves were cut, and a budget passed them all");
+	CHECK(all_ok, "a pull cut at a save lost the piece, counted it twice, or pulled it again");
+}
+
 /* COUNTED AND LET GO, sec 599: A asks B for the piece placed on B by its
  * id, which B serves A since the item is A's, and then lets go of its own
  * copy of it. */
@@ -736,6 +825,7 @@ int main(void)
 
 	test_rank();
 	test_place_pull_push();
+	test_a_pull_cut_at_every_save();
 	test_counted_and_let_go();
 	test_lost_and_put_back();
 	test_released();

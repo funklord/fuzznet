@@ -73935,3 +73935,13 @@ at a load of about 9 to 25: 12 of 12. Both sabotage entries over
 `fzn_messages_import`'s guards are caught. Twenty-four runs without a
 socket wait is evidence for the grants step being sec 747's cause, not
 proof: at 2 in 20 a run of 24 clean would come about one time in 12.
+
+**A piece pulled by its keeper, cut at every save, keeps** (journey 3's
+fault bar, at the unit level). `node/test/piece_buckets_test.c`'s
+`test_a_pull_cut_at_every_save` cuts B at each save while it pulls the
+piece placed on it, starts it again over its store and directory, and
+pulls again: one piece, counted once, rebuilding the item, and a pull
+after takes nothing. It found no fault. The piece files themselves are
+written temporary, fsync, rename, and carry no fault point, so the fault
+build cannot crash or fill the disk inside them; a crash leaves at most
+a `.new` per piece, written over when that piece is written again.
