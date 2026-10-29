@@ -74113,6 +74113,31 @@ get an engine of their own shape is this tree's question, open until the
 work is taken up. netcfgd builds meanwhile only the half that needs
 nothing from fuzznet: lists resolved against what is observed now.
 
+**The holder chose, 2026-10-29: a records kind in the existing engine and
+buckets**, beside logs and messages, rather than growing app streams (sec
+632) into it. Not built; still after the messaging core.
+
+**And the shape, in the holder's words: config options are a kind of
+record, and expiring records are records with an expiration mechanism
+added** -- config may want auto-pruning later too. So the primitive is the
+record, as `state/state.h` already has it ("a permission, a rule and a
+configuration setting are the same object at this layer"), and a kind is
+two choices made apart:
+- **how it resolves**: settings to one current value a cell, the setter's
+  rank choosing between writers (sec 728); logs, lines and observations
+  keeping every record;
+- **whether it expires**: age, count and keep rules (`log/retain.h`), had
+  today by logs, messages and note history, wanted by netcfgd's stations
+  and leases, and open to config later.
+
+An answer given first, that config could not take retention because an age
+rule would revert hosts to defaults, is a question of how the two compose
+-- a prune over a resolved kind dropping only records a later one has
+superseded, say -- and not a reason for a second shape. netcfgd's allow
+and deny lists resolve as settings do; the stations and leases it observes
+keep every record and expire; a keep rule may name a list's members by
+reading the list.
+
 ## 753. The relay's quota table grows rather than refusing, 2026-10-29
 
 Journey 4 (sec 689), first read. A relay charges each requester against
@@ -74160,3 +74185,28 @@ what A has had relayed, A's fourth line is refused and A logs B1's reason;
 relays the line. Sabotage entries `caller-takes-the-relays-answer` and
 `caller-relays-word-not-settled`. The daemon's arming and its wait after
 `ok` are held by `live_relay`, not by `make test`.
+
+## 755. Consolidation, as a standing pass, 2026-10-29
+
+The holder, on finding that config, logs and observed records are one
+shape (sec 752): "We are going to have so much complex functionality
+that we need to do this kind of consolidation regularly or else the
+project will become unmanageable."
+
+**The practice.** At the end of each journey of sec 689 -- and before
+starting any new primitive -- a pass asks which things in the tree do the
+same job under different names, and records the answer here: the
+duplicates, the shared shape, and whether to merge now or when next
+touched. It is a pass with an output, not a mood: a list of candidates,
+each with what merging would remove.
+
+**The first candidates, from the run that prompted it:**
+- **Records.** Settings, log segments, conversation lines, note history,
+  app streams (sec 632) and group lines are each a store of signed records
+  with their own resolution, expiry and carriage. Sec 752 frames the
+  common shape: a kind is how it resolves and whether it expires.
+- **Retention.** `log/retain.h`'s rules reach logs, messages and note
+  history; app streams keep a fixed newest 1024 and holdings (sec 152)
+  have a table of their own.
+- **Carriage.** The journal, bucket reconcile (sec 565) and stream
+  queries each move records between hosts by a different mechanism.
