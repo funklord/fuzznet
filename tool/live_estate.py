@@ -83,6 +83,19 @@ JOURNAL_STREAM = 1
 SLOT = 702
 
 
+def free(port):
+	"""Whether UDP `port` can be bound now, on every address as the daemon
+	binds it: live_chat.py's check (sec 743)."""
+	s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+	try:
+		s.bind(("", port))
+		return True
+	except OSError:
+		return False
+	finally:
+		s.close()
+
+
 def main(argv):
 	parser = argparse.ArgumentParser(description="the estate's journey over daemons")
 	parser.add_argument("fuzznetd", help="a daemon built by make fuzznetd-faults")
@@ -113,8 +126,23 @@ def main(argv):
 	run.started = []
 	# PORTS PER RUN from the pid: 19 slots once, so two runs side by side
 	# met about one time in 19 and the second daemon could not bind.
+	# EACH TAKEN FREE WHEN ITS DAEMON FIRST STARTS, sec 748: the block is
+	# inside the ephemeral range (32768 up), where any client socket may
+	# hold a port, and N, D2 and E start minutes into the run. Two in 12
+	# runs, three at a time, had a late daemon fail to bind. Below 32768
+	# no block is left (sec 743). A daemon started again keeps its port,
+	# which its siblings know it by.
 	base = 43000 + (os.getpid() % 600) * 8
-	port = {k: str(base + i) for i, k in enumerate(WHO)}
+	port = {}
+
+	def port_for(who):
+		i = WHO.index(who)
+		for t in range(600):
+			at = 43000 + ((base - 43000) // 8 + t) % 600 * 8 + i
+			if str(at) not in port.values() and free(at):
+				return str(at)
+		raise failed("no free port for %s in 43000-47807" % who)
+
 	os.environ["FZN_TUNE_PULL_EVERY"] = ROUND_S
 	if args.loss:
 		os.environ["FZN_FAULT_LOSS"] = str(args.loss)
@@ -132,6 +160,8 @@ def main(argv):
 			"""`who` started, at `loss` per cent rather than the run's when
 			given."""
 			runs[who] += 1
+			if who not in port:
+				port[who] = port_for(who)
 			was = os.environ.get("FZN_FAULT_LOSS")
 			if loss is not None:
 				os.environ["FZN_FAULT_LOSS"] = str(loss)

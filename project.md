@@ -73886,3 +73886,52 @@ local clients during a wait only in steps that hold nothing a local
 verb touches, so widening it is a pass over each step, not a fix in
 passing. It is now the estate journey's only failure at 5% loss, 2
 runs in 20.
+
+## 748. Local clients answered through the grants push, a delivery filed once after a crash, and the estate's late ports, 2026-10-29
+
+**The estate's socket wait (sec 747) is read as the grants step.** Sec
+747's kept log named a sibling's pairing and then a journal push, 3.3 s
+and 3 s. The step that does both is `ROUND_GRANTS`: `pair_siblings`
+logs a grant, and the step then pushes to every peer in turn through
+`peer_ask`, with `answering_local` off. The log was not kept, so this is
+read from the code, not matched line by line. The push holds only `fzn_exchange_push`'s own
+statics and reads the store afresh at each step, so it is the case sec
+727 made for reconciliation: a local write between two asks is pushed a
+round later, as one between steps would be. That loop now opts in.
+Sec 727's other in-turn waits that do not opt in are unchanged:
+`rebase_missed` moves a stream's base, which a local read could meet
+half done, and is a pass of its own.
+
+**A delivery cut at every save of the contact's host** (sec 733's
+remote half, "not covered"). `node/test/messages_test.c`'s
+`test_a_delivery_cut_at_every_save` cuts the host at each save inside
+`fzn_node_messages_contact`, starts it again over its store and
+records, and offers the line again, before and after the host absorbs.
+**It found the line filed twice** when the cut fell after its record
+and before its index (saves 1 to 5) and the re-offer came before an
+absorb. The daemon absorbs only in the round's messages step, so a
+sender's resend after a restart comes first. The listing showed the
+line once, because `keep_line` and the page both skip an id seen, which
+is why phase o, counting the listing, could not see it: the second copy
+was in the host's own stream, which its devices pull. `fzn_messages_import` now also looks among this device's
+own lines past its cursor (`written_unindexed`) before writing. It
+covers all three imports: a contact's delivery, `add message ... in`,
+and a group line filed into its conversation. The test counts the
+host's line records, not the listing. Sabotage entry
+`messages-an-import-sees-its-own-unindexed-lines`.
+
+**live_estate's ports are taken free when each daemon first starts.**
+Twelve runs at 5% loss, three at a time, before this change: 10 passed,
+and the two failures were both "could not bind udp port" for a daemon
+started minutes in (n1 at 43108, e1 at 44718). The block is inside the
+ephemeral range, where a client socket can hold any port, and below
+32768 none is left (sec 743). Each daemon now takes the first free port
+of its column in the block when it first starts, as live_chat checks its
+slot; one started again keeps its port, which its siblings know it by.
+Not one of the 12 failed on a socket wait, where sec 747 had 2 in 20.
+
+**Measured after all three**, twelve runs at 5% loss, three at a time,
+at a load of about 9 to 25: 12 of 12. Both sabotage entries over
+`fzn_messages_import`'s guards are caught. Twenty-four runs without a
+socket wait is evidence for the grants step being sec 747's cause, not
+proof: at 2 in 20 a run of 24 clean would come about one time in 12.
