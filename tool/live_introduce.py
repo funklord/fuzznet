@@ -38,12 +38,17 @@ from live_rejoin import ROUND_DONE_RE, RECONCILE_RE, command, daemon, expect  # 
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 
-live_trim.DEADLINE = time.monotonic() + 420.0
 
 TAKEN_RE = re.compile(r"(\d+) sibling\(s\) paired, (\d+) pairing\(s\) taken")
 WHOLE_RE = re.compile(r"file [0-9a-f]{8}, (\d+) bytes, whole from (\d+) peer\(s\)")
 INTRODUCED_RE = re.compile(r"a sibling introduced at 127\.0\.0\.1 (\d+)")
-ROUNDS = 6
+# ROUNDS EACH, more under loss (sec 756): a round's journal talk is a dozen
+# steps, and at 20 per cent one step past its resends costs the round, so
+# six rounds that pair at no loss did not at C. As live_estate.py's settle
+# grows with the loss, these do.
+LOSS = int(os.environ.get("FZN_FAULT_LOSS", "0") or 0)
+ROUNDS = 6 + LOSS // 2
+live_trim.DEADLINE = time.monotonic() + 420.0 + 30.0 * LOSS
 PAYLOAD_LEN = 50000
 
 
@@ -125,7 +130,7 @@ def main(argv):
 			# the root, also asks C at its dead address, and a round of A's
 			# spent waiting on it may leave B's introduction unanswered,
 			# which stays due for B's next round.
-			deadline = time.monotonic() + 200.0
+			deadline = time.monotonic() + 200.0 + 10.0 * LOSS
 			while time.monotonic() < deadline and not INTRODUCED_RE.search(started["b"].log()):
 				time.sleep(0.5)
 			got = INTRODUCED_RE.search(started["b"].log())

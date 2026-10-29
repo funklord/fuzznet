@@ -38,13 +38,15 @@ from live_rejoin import ROUND_DONE_RE, RECONCILE_RE, command, daemon, expect  # 
 from live_trim import ask, failed  # noqa: E402
 import live_trim  # noqa: E402
 
-live_trim.DEADLINE = time.monotonic() + 420.0
 
 TAKEN_RE = re.compile(r"(\d+) sibling\(s\) paired, (\d+) pairing\(s\) taken")
 WHOLE_RE = re.compile(r"file [0-9a-f]{8}, (\d+) bytes, whole from (\d+) peer\(s\)")
 FOUND_RE = re.compile(r"a sibling found where it said hello, 127\.0\.0\.1 (\d+)")
 PROBED_RE = re.compile(r"(\d+) LAN probe\(s\) sent to 127\.0\.0\.1")
-ROUNDS = 6
+# ROUNDS EACH, more under loss, as live_introduce.py's (sec 756).
+LOSS = int(os.environ.get("FZN_FAULT_LOSS", "0") or 0)
+ROUNDS = 6 + LOSS // 2
+live_trim.DEADLINE = time.monotonic() + 420.0 + 30.0 * LOSS
 PAYLOAD_LEN = 50000
 
 
@@ -166,7 +168,7 @@ def main(argv):
 				raise failed("b: C's row %r has no time in seconds" % row)
 			# B'S NEXT ROUND finds C: waited for here rather than by wait_for,
 			# whose limit is half a round.
-			deadline = time.monotonic() + 200.0
+			deadline = time.monotonic() + 200.0 + 10.0 * LOSS
 			while time.monotonic() < deadline and not FOUND_RE.search(started["b"].log()):
 				time.sleep(0.5)
 			got = FOUND_RE.search(started["b"].log())
@@ -177,6 +179,11 @@ def main(argv):
 				             % (got.group(1) if got else None, port["c"],
 				                "".join("\n  " + l for l in told[-10:])
 				                + "\n  C stderr: " + started["c"].stderr()[-600:]))
+			# THE FILE WHOLE, waited for past half a round under loss: its
+			# pieces are fetched over the found address, a step at a time.
+			deadline = time.monotonic() + 30.0 + 6.0 * LOSS
+			while time.monotonic() < deadline and not WHOLE_RE.search(started["b"].log()):
+				time.sleep(0.5)
 			whole = started["b"].wait_for(WHOLE_RE, "the file whole")
 			if whole.groups() != (str(PAYLOAD_LEN), "1"):
 				raise failed("b: B's file was %s bytes from %s peer(s)" % whole.groups())

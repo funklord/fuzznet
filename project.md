@@ -74255,6 +74255,18 @@ Sabotage entries `node-asks-its-own-resend` and
 - relay's phase d wants the third line relayed by the fresh delivery
   within 30 s; with resends one such attempt still fails about one time in
   eight, and the round after relays it.
-- `live_introduce` passed 1 of 3: once a pairing was not taken at C within
-  six rounds, once B never had the file whole. Not yet read.
-- `live_lan` passed 2 of 3 before the probe change; not run since at 20.
+
+**And then `live_introduce` and `live_lan`, which share a shape.** At 20
+per cent introduce passed 1 of 3 and lan 1 of 3. A's log answered every
+pull C's reached it with; C's rounds lost theirs, since a round's journal
+talk is a dozen steps and one past its resends costs the round. Six
+rounds pair at no loss and not reliably at 20, and the file was waited
+for by `wait_for`, whose limit is half a round. Both scripts now scale
+with `FZN_FAULT_LOSS`, as `live_estate.py`'s settle does: six rounds and
+half the loss, a phase deadline of 200 s and ten a point, the whole run
+420 s and thirty a point, and lan's wait for the file 30 s and six a
+point. `live_repeat` takes a script's timeout from the Makefile, sized
+for no loss, so a run at loss passes `--timeout`.
+
+**Measured,** three runs each at 20 per cent: introduce 3 of 3, lan 3 of 3;
+both pass at no loss.
