@@ -73843,6 +73843,14 @@ budgets of 250 and 500 before it.
   format change, was the other way, and was not needed. `groups_test`
   refuses one removal: before, the base moved past a line left on
   disk; now the trim fails and the next one removes it.
+- **and over the other paired removals.** Forgetting a sharer's notes
+  (`fzn_notes_received_forget`) removes each note's wrap key and then
+  its row, so the row names the key until the key is gone. But a
+  refused removal of the key was ignored and the row went anyway,
+  leaving a key no row names, which its own comment says could never be
+  found again. A refusal now stops the forget with the row kept, and
+  the count says how many went. `notes_sync_test` refuses one: before,
+  the row went; now both stay, and the forget after takes all three.
 
 `live_faults.py` now takes 180 to 330 s at a load of about 30, against
 its own deadline of 600 s.

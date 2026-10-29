@@ -198,6 +198,29 @@ static int remove_unless_note(void *ctx, fzn_persist_slot_t slot, const uint8_t 
 	return mem_remove(ctx, slot, subject);
 }
 
+/* A WRAP KEY'S REMOVAL REFUSED, the next `refuse_wrap_removals` of them,
+ * on B's store, sec 746. */
+static int refuse_wrap_removals;
+
+static int remove_unless_wrap(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject)
+{
+	if (refuse_wrap_removals > 0 && slot == FZN_PERSIST_NOTE_WRAP) {
+		refuse_wrap_removals--;
+		return 0;
+	}
+	return mem_remove(ctx, slot, subject);
+}
+
+/* How many rows of `slot` a table holds. */
+static size_t rows_of(const struct table *t, fzn_persist_slot_t slot)
+{
+	size_t i, n = 0;
+
+	for (i = 0; i < MEM_ROWS; i++)
+		n += t->rows[i].used && t->rows[i].slot == slot;
+	return n;
+}
+
 static struct table table_a, table_b;
 static fzn_persist_ops_t ops_a = { mem_load, mem_save, mem_list, mem_remove, &table_a, NULL };
 static fzn_persist_ops_t ops_b = { mem_load, mem_save, mem_list, mem_remove, &table_b, NULL };
@@ -1077,6 +1100,24 @@ static void test_received(void)
 		              && other_ops.save(other_ops.ctx, FZN_PERSIST_NOTE, claim, blob,
 		                                sizeof(blob)),
 		      "fixture: a row in another sharer's tree");
+	}
+
+	/* A WRAP KEY'S REMOVAL REFUSED, sec 746: the note's row stays, naming
+	 * the key, so the next forget finds both. The row went regardless, and
+	 * a key no row names could never be found again. */
+	{
+		fzn_persist_ops_t refusing = ops_b;
+		size_t wraps = rows_of(&table_b, FZN_PERSIST_NOTE_WRAP),
+		       shared = rows_of(&table_b, FZN_PERSIST_SHARED_NOTE);
+
+		CHECK(wraps > 0u && shared > 0u, "fixture: B holds A's notes and their wrap keys");
+		refusing.remove = remove_unless_wrap;
+		refuse_wrap_removals = 1;
+		CHECK(fzn_notes_received_forget(&refusing, &HASH, KEY_A, &removed) != FZN_NOTES_OK
+		              && rows_of(&table_b, FZN_PERSIST_NOTE_WRAP) == wraps
+		              && rows_of(&table_b, FZN_PERSIST_SHARED_NOTE) == shared,
+		      "a forget whose wrap key's removal was refused removed the note naming it");
+		refuse_wrap_removals = 0;
 	}
 
 	/* ONLY THE WRITERS THE SHARER NAMES. */

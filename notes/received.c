@@ -218,19 +218,22 @@ fzn_notes_err_t fzn_notes_received_forget(const fzn_persist_ops_t *base,
 		    || memcmp(row + FZN_PERSIST_HEAD_LEN, sharer, FZN_PUBKEY_LEN) != 0)
 			continue;
 		/* ITS NOTE'S WRAP KEY FIRST, while the row still names the note:
-		 * a key left with no row naming it could never be found again. */
+		 * a key left with no row naming it could never be found again. So a
+		 * refused removal stops here, the row kept to name it, sec 746: it
+		 * was ignored, and the row went regardless. */
 		if (fzn_record_open(row + FZN_PERSIST_HEAD_LEN + PREFIX_LEN,
 		                    len - FZN_PERSIST_HEAD_LEN - PREFIX_LEN, &rec)
 		            == FZN_RECORD_OK
-		    && wrap_key_of(hash, sharer, fzn_record_subject(rec), wrap_row))
-			(void)base->remove(base->ctx, FZN_PERSIST_NOTE_WRAP, wrap_row);
+		    && wrap_key_of(hash, sharer, fzn_record_subject(rec), wrap_row)
+		    && !base->remove(base->ctx, FZN_PERSIST_NOTE_WRAP, wrap_row))
+			break;
 		if (!base->remove(base->ctx, FZN_PERSIST_SHARED_NOTE, keys[i]))
-			return FZN_NOTES_ERR_BACKEND;
+			break;
 		n++;
 	}
 	if (removed)
 		*removed = n;
-	return FZN_NOTES_OK;
+	return i < held ? FZN_NOTES_ERR_BACKEND : FZN_NOTES_OK;
 }
 
 size_t fzn_notes_received_roots(const fzn_notes_view_t *view, const fzn_tree_node_t **out,
