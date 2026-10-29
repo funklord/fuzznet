@@ -344,6 +344,26 @@ static fzn_caller_err_t receive(fzn_caller_t *caller, int any, uint32_t *msg, ui
 		 * what bounds the wait instead. */
 		if (fzn_seal_open(in, in_len, caller->send_key, caller->send_ckey,
 		                  caller->hash, caller->aead, &opened) != FZN_SEAL_OK) {
+			/* THE RELAY ANSWERING FOR THE TARGET, sec 754: its refusal, one
+			 * piece under its own session, is the answer awaited. Not
+			 * named the answerer: nothing of it is held for reassembly. */
+			if (caller->via_set
+			    && fzn_seal_open(in, in_len, caller->via_key, caller->via_ckey, caller->hash,
+			                     caller->aead, &opened) == FZN_SEAL_OK
+			    && opened.kind != FZN_KIND_NOP && no_capability(opened.capability)
+			    && opened.msg == caller->via_msg && opened.chunks == 1u
+			    && opened.index == 0u && opened.payload_len
+			    && (any || caller->as_msg == *msg)) {
+				/* NOT SETTLED: the target's own answer may still come, a
+				 * relay that forwarded saying `ok` first. */
+				caller->via_set = 0;
+				if (opened.payload_len > reply_cap)
+					return FZN_CALLER_ERR_REPLY_TOO_LONG;
+				memcpy(reply, opened.payload, opened.payload_len);
+				*reply_len = opened.payload_len;
+				*msg = caller->as_msg;
+				return FZN_CALLER_OK;
+			}
 			caller->unopened++;
 			continue;
 		}

@@ -19,6 +19,10 @@ host behind a NAT would -- and says hello to B1 from its serving socket.
     d  A writes a third line: B2, reached only through B1 a moment ago,
        is passed over rather than offered it at the address that went
        unanswered, and the line is relayed at once (sec 699)
+    e  B1's relay quota set to what A has had relayed: A's fourth line is
+       refused, and A hears why from B1 at once rather than waiting out
+       B2's answer (sec 754); B1's window set to a second, it rolls over
+       and A's round relays the line
 
 Against a daemon that relays nothing, phase b never delivers; against one
 whose relay sends the answer nowhere, it waits out each offer.
@@ -55,6 +59,8 @@ ROUND_END_RE = ROUND_DONE_RE
 LINE = "61" * 16
 LATER = "62" * 16
 FINAL = "63" * 16
+FOURTH = "64" * 16
+QUOTA_RE = re.compile(r"the relay to 127\.0\.0\.1 refused: over this host's relay quota")
 PASSED_RE = re.compile(r"127\.0\.0\.1 passed over: reached only through a relay lately")
 NOBODY_RE = re.compile(r"line\(s\) offered to 127\.0\.0\.1: 0 delivered, 0 settled, 0 refused, "
                        r"1 unanswered")
@@ -221,6 +227,40 @@ def main(argv):
 				raise failed("d: B2 does not hold the third line")
 			print("livecheck: d: A relayed its third line to B2 at once, not asking B2's own "
 			      "address again")
+
+			# e: B1's quota spent, its refusal answered to A, and its window
+			# rolled over (sec 754, sec 689's journey 4). The quota set to
+			# what A has had relayed, so A's next frame is past it.
+			got = ask(socks["b1"], "get relay").split()
+			used = [int(e.split(",")[1]) for e in got[5:] if e.startswith(keys["a"] + ",")]
+			if not used or used[0] <= 0:
+				raise failed("e: B1's get relay answered %r, no bytes for A" % got)
+			expect(socks["b1"], "b1", "set setting host relay/quota %d" % used[0], "ok")
+			refused = len(QUOTA_RE.findall(started["a"].log()))
+			expect(socks["a"], "a", "add message %s out %s spent" % (keys["b1"], FOURTH), "ok")
+			until = time.monotonic() + 30.0
+			while len(QUOTA_RE.findall(started["a"].log())) == refused:
+				if time.monotonic() > until:
+					raise failed("e: A did not hear B1's refusal over its quota within 30 s")
+				time.sleep(0.2)
+			if FOURTH in ask(socks["b2"], "list message " + keys["a"]):
+				raise failed("e: B2 holds the fourth line though B1's quota was spent")
+			got = ask(socks["b1"], "get relay").split()
+			if not any(e.startswith(keys["a"] + ",") and int(e.split(",")[2]) > 0
+			           for e in got[5:]):
+				raise failed("e: B1's get relay answered %r, no refusal counted for A" % got)
+			print("livecheck: e: B1 refused A over its quota, and A heard why")
+			relayed = len(RELAYED_RE.findall(started["a"].log()))
+			expect(socks["b1"], "b1", "set setting host relay/window 1", "ok")
+			time.sleep(1.5)
+			for rnd in range(4):
+				turn("b2", "b2-f%d" % rnd)
+				d = turn("a", "a-f%d" % rnd)
+				if len(RELAYED_RE.findall(d.log())) > relayed:
+					break
+			if FOURTH not in ask(socks["b2"], "list message " + keys["a"]):
+				raise failed("e: B2 does not hold the fourth line after B1's window rolled over")
+			print("livecheck: e: B1's window rolled over and the fourth line was relayed")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

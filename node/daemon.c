@@ -5459,6 +5459,7 @@ static int open_target_on(struct pull_target *pt, int fd, int family,
 	}
 	pt->fd = fd;
 	fzn_node_pairing_caller(&pt->pairing, self, &pt->caller);
+	pt->caller.via_set = 0;
 	pt->caller.fd = fd;
 	pt->caller.hash = hash;
 	pt->caller.aead = aead;
@@ -11873,6 +11874,13 @@ static int relay_send(struct pull_target *target, struct pull_target *relay,
 	    != FZN_CALLER_OK)
 		return 0;
 	relay->caller.next_msg = via.next_msg;
+	/* THE RELAY'S OWN ANSWER TAKEN TOO, sec 754: its refusal comes to this
+	 * socket under its session, as the answer to the outer message. */
+	target->caller.via_set = 1;
+	memcpy(target->caller.via_key, relay->caller.send_key, sizeof(target->caller.via_key));
+	memcpy(target->caller.via_ckey, relay->caller.send_ckey, sizeof(target->caller.via_ckey));
+	target->caller.via_msg = outer_msg;
+	target->caller.as_msg = *msg;
 	return 1;
 }
 
@@ -12444,6 +12452,32 @@ static void deliver_answered(void *ctx, const uint8_t *reply, size_t reply_len)
 
 	if (!dt->relaying)
 		meter_answer(&dt->m, reply, reply_len);
+	/* THE RELAY REFUSED, sec 754: answered in words by the relay rather
+	 * than by the target, and said, so the line goes on to the next host
+	 * at once rather than after the target's whole wait. */
+	if (dt->relaying) {
+		struct pull_target *pt = dt->hosts[dt->at].pt;
+
+		pt->caller.via_set = 0;
+		/* THE RELAY FORWARDED IT: its `ok` is not the target's answer,
+		 * which is awaited again under the same message. */
+		if (reply && reply_len == 3u && memcmp(reply, "ok\n", 3u) == 0) {
+			if (!fzn_node_asks_await(&round_asks, &pt->caller, pt->caller.as_msg, 3000u,
+			                         deliver_answered, dt))
+				deliver_answered(dt, NULL, 0);
+			return;
+		}
+		if (reply && reply_len >= 7u && memcmp(reply, "denied ", 7u) == 0) {
+			say(FZN_ENTRY_WARNING, "messages/deliver", "the relay to %s refused: %.*s",
+			    dt->hosts[dt->at].name,
+			    (int)(reply_len - 7u > 120u ? 120u : reply[reply_len - 1u] == '\n'
+			                                                 ? reply_len - 8u
+			                                                 : reply_len - 7u),
+			    (const char *)reply + 7);
+			reply = NULL;
+			reply_len = 0;
+		}
+	}
 	dt->err = fzn_node_messages_deliver_step(&dt->d, reply, reply_len, dt->request,
 	                                         sizeof(dt->request), &len, &done);
 	if (dt->err == FZN_MESSAGES_OK && !done) {

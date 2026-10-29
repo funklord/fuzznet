@@ -74127,3 +74127,36 @@ did. A row whose window runs is still never evicted.
 
 Not tested past 32 requesters: no test runs 33 hosts through one relay.
 The change is the growth arithmetic and a realloc.
+
+## 754. A relay's refusal answered, not waited out, 2026-10-29
+
+Sec 689's journey 4 names "the relay refusal (sec 622) answered rather
+than timed out". It was not. A relayed request is sealed for the target
+and handed to the relay under the relay's own message; the relay answers
+that message under its own session, which the asker's target caller
+cannot open. So a relay's `denied ...` was read by nobody -- sec 697's
+comment said the relay's log was "the only place the reason is seen" --
+and the asker waited out the target's 3 s.
+
+**Built.** `fzn_caller_t` gains `via_set`, the relay's keys, and the outer
+and inner message ids. A frame that does not open under the caller's
+session, and opens under the relay's as the one-piece answer to the outer
+message, is returned as the inner message's answer, unsettled. fuzznetd's
+`relay_send` arms it and the delivery tells the relay's word apart:
+- `denied ...`: said (`the relay to HOST refused: ...`) and taken as no
+  answer at once, so the line goes to the next host.
+- `ok`: the relay forwarded, which it always says, and the target's own
+  answer is awaited again under the same message.
+The first build settled the message on the relay's `ok`, and the target's
+real answer was then dropped as late: every relayed line failed
+`live_relay`'s phase b. Hence unsettled.
+
+**Measured.** `pair_test`: a relay's refusal, sealed under another
+session, is the answer to the message it carried; after a relay's `ok`
+the node's own answer is still taken; with nothing armed the relay's
+frame does not open. `live_relay` phase e: B1's `relay/quota` set to
+what A has had relayed, A's fourth line is refused and A logs B1's reason;
+`get relay` counts the refusal; `relay/window` set to 1 s, A's next round
+relays the line. Sabotage entries `caller-takes-the-relays-answer` and
+`caller-relays-word-not-settled`. The daemon's arming and its wait after
+`ok` are held by `live_relay`, not by `make test`.

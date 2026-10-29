@@ -151,6 +151,21 @@ typedef struct fzn_caller {
 	 * again, or waiting for it again, takes it off. */
 	uint32_t forgotten[FZN_CALLER_FORGOTTEN];
 	unsigned forgotten_used, forgotten_next;
+	/* A RELAY'S ANSWER, sec 754, when `via_set`: a request sealed for this
+	 * caller's node, message `as_msg`, handed to a relay as its message
+	 * `via_msg`, from this caller's socket. A relay that refuses answers
+	 * `via_msg` under its own session, which this one cannot open, so the
+	 * asker waited out the target's answer that was never coming. A frame
+	 * that does not open here, and opens under `via_key` and `via_ckey` as
+	 * the one-piece answer to `via_msg`, is taken as `as_msg`'s answer, and
+	 * clears `via_set` -- the relay's word, whatever it says, which the
+	 * asker tells from the target's (a relay that forwarded says so too).
+	 * Set by whoever sends through the relay, cleared by it when the wait
+	 * ends. */
+	int via_set;
+	uint8_t via_key[FZN_AEAD_KEY_LEN];
+	uint8_t via_ckey[FZN_COMMITMENT_KEY_LEN];
+	uint32_t via_msg, as_msg;
 } fzn_caller_t;
 
 /* Send one request, reporting the `msg` it went out under.

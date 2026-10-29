@@ -10827,6 +10827,23 @@ SABOTAGES = [
 		'a segment whose time is not a number reads as closed at a made-up time -- secs 483, 573',
 	),
 	(
+		'caller-takes-the-relays-answer',
+		'node/caller.c',
+		'\t\t\tif (caller->via_set\n',
+		'\t\t\tif (0\n',
+		'a relay\'s refusal goes unread, and the asker waits out an answer that is not coming -- '
+		'sec 754',
+	),
+	(
+		'caller-relays-word-not-settled',
+		'node/caller.c',
+		'\t\t\t\t*msg = caller->as_msg;\n\t\t\t\treturn FZN_CALLER_OK;',
+		'\t\t\t\t*msg = caller->as_msg;\n\t\t\t\tsettle(caller, caller->as_msg);\n'
+		'\t\t\t\treturn FZN_CALLER_OK;',
+		'a relay\'s ok settles the message, and the target\'s own answer is dropped as late -- '
+		'sec 754',
+	),
+	(
 		'pack-verify-step-is-its-budget',
 		'log/pack.c',
 		'\t\tif (until - v->unpacked < dst.size)',

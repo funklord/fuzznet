@@ -864,6 +864,76 @@ static void test_paired_stores_talk(struct node *node, struct node *device,
 		              && reply_len == sizeof(PONG),
 		      "a message given up on and then waited for again was dropped as late");
 
+		/* A RELAY'S WORD, sec 754: a request sealed for the node is handed
+		 * to a relay as the relay's own message, and the relay answers that
+		 * under its own session, which this caller cannot open. With
+		 * `via_set` the answer is the awaited one's -- `denied`, or `ok` and
+		 * then the node's own answer still taken, the message not settled
+		 * by the relay's word. Without it the relay's frame does not open.
+		 * The relay's session is a peer record with keys of its own. */
+		{
+			static const uint8_t NO[] = "denied over this host's relay quota\n";
+			static const uint8_t OK[] = "ok\n";
+			fzn_node_peer_t relay = peers[0];
+			uint32_t inner, outer = 77777u;
+			unsigned long unopened;
+
+			memset(relay.recv_key, 0x6d, sizeof(relay.recv_key));
+			memset(relay.recv_ckey, 0x6e, sizeof(relay.recv_ckey));
+			inner = caller.next_msg++;
+			caller.via_set = 1;
+			memcpy(caller.via_key, relay.recv_key, sizeof(caller.via_key));
+			memcpy(caller.via_ckey, relay.recv_ckey, sizeof(caller.via_ckey));
+			caller.via_msg = outer;
+			caller.as_msg = inner;
+			CHECK(fzn_node_seal_reply_chunk(&relay, node->id.pubkey, NO, sizeof(NO) - 1u, outer,
+			                                0u, 1u, 0u, &hash_ops, &rng_ops, &aead, frame,
+			                                sizeof(frame), &flen)
+			                      == 0
+			              && fzn_udp_send(node_fd, &dev_addr, frame, flen) == FZN_UDP_OK
+			              && fzn_caller_recv(&caller, inner, reply, sizeof(reply), &reply_len, 2000u)
+			                         == FZN_CALLER_OK
+			              && reply_len == sizeof(NO) - 1u && memcmp(reply, NO, reply_len) == 0
+			              && !caller.via_set,
+			      "a relay's refusal was not taken as the answer to the message it carried");
+
+			inner = caller.next_msg++;
+			caller.via_set = 1;
+			caller.via_msg = ++outer;
+			caller.as_msg = inner;
+			CHECK(fzn_node_seal_reply_chunk(&relay, node->id.pubkey, OK, sizeof(OK) - 1u, outer,
+			                                0u, 1u, 0u, &hash_ops, &rng_ops, &aead, frame,
+			                                sizeof(frame), &flen)
+			                      == 0
+			              && fzn_udp_send(node_fd, &dev_addr, frame, flen) == FZN_UDP_OK
+			              && fzn_caller_recv_any(&caller, &got, reply, sizeof(reply), &reply_len,
+			                                     2000u)
+			                         == FZN_CALLER_OK
+			              && got == inner && reply_len == 3u
+			              && fzn_node_seal_reply_chunk(&peers[0], node->id.pubkey, HALF,
+			                                           sizeof(HALF), inner, 0u, 1u, 0u, &hash_ops,
+			                                           &rng_ops, &aead, frame, sizeof(frame), &flen)
+			                         == 0
+			              && fzn_udp_send(node_fd, &dev_addr, frame, flen) == FZN_UDP_OK
+			              && fzn_caller_recv_any(&caller, &got, reply, sizeof(reply), &reply_len,
+			                                     2000u)
+			                         == FZN_CALLER_OK
+			              && got == inner && reply_len == sizeof(HALF),
+			      "after a relay's ok, the node's own answer to the message was not taken");
+
+			unopened = caller.unopened;
+			CHECK(fzn_node_seal_reply_chunk(&relay, node->id.pubkey, NO, sizeof(NO) - 1u, outer,
+			                                0u, 1u, 0u, &hash_ops, &rng_ops, &aead, frame,
+			                                sizeof(frame), &flen)
+			                      == 0
+			              && fzn_udp_send(node_fd, &dev_addr, frame, flen) == FZN_UDP_OK
+			              && fzn_caller_recv_any(&caller, &got, reply, sizeof(reply), &reply_len,
+			                                     300u)
+			                         == FZN_CALLER_ERR_TIMEOUT
+			              && caller.unopened == unopened + 1u,
+			      "a relay's frame opened with no relayed message awaited");
+		}
+
 		/* AND ONE ANSWERED ALREADY: a resend's kept reply sends every piece
 		 * again, and one arriving after the answer must not start a partial
 		 * that holds the node's one slot here. */
