@@ -614,6 +614,36 @@ static void test_signed_trailers(void)
 		                                                   &is_signed, key)
 		                         == FZN_LOG_PACK_ERR_TOO_LARGE,
 		      "a segment did not verify within its unpacked length, or did within a byte less");
+		/* IN STEPS, sec 751: 1000 bytes at a time, as many steps as the
+		 * length says, and the answer the whole check gives. Let go part
+		 * way, it closes, and may be let go again. */
+		{
+			static fzn_log_pack_verifying_t v;
+			uint8_t stepped[32];
+			size_t steps = 0;
+			int done = 0, signed_step = 0;
+			fzn_log_pack_err_t e;
+
+			e = fzn_log_pack_verify_begin(&v, zb, h, &HASH, &SIGN, n);
+			while (e == FZN_LOG_PACK_OK && !done && steps < 100000u) {
+				e = fzn_log_pack_verify_step(&v, 1000u, &done, stepped, &signed_step, key);
+				steps++;
+			}
+			CHECK(e == FZN_LOG_PACK_OK && done && signed_step && memcmp(stepped, other, 32u) == 0
+			              && steps >= n / 1000u && steps <= n / 1000u + 2u,
+			      "a segment verified in steps of 1000 did not take as many, or ended otherwise");
+			CHECK(fzn_log_pack_verify_begin(&v, zb, h, &HASH, &SIGN, n) == FZN_LOG_PACK_OK
+			              && fzn_log_pack_verify_step(&v, 1000u, &done, stepped, &signed_step, key)
+			                         == FZN_LOG_PACK_OK
+			              && !done,
+			      "fixture: a verification one step in");
+			fzn_log_pack_verify_end(&v);
+			fzn_log_pack_verify_end(&v);
+			CHECK(v.in == NULL && v.dc == NULL
+			              && fzn_log_pack_verify_step(&v, 1000u, &done, stepped, &signed_step, key)
+			                         == FZN_LOG_PACK_ERR_MALFORMED,
+			      "a verification let go was still open, or stepped");
+		}
 		memset(flood, 'a', sizeof(flood));
 		zn = ZSTD_compress(z, sizeof(z), flood, sizeof(flood), 19);
 		f = fopen(zc, "wb");

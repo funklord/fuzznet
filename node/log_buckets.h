@@ -76,6 +76,16 @@ typedef struct fzn_log_buckets {
 	uint64_t (*segment_of)(void *ctx, const uint8_t subject[32]);
 	void *segment_ctx;
 	uint64_t copy_floor;
+	/* A COPY BEING VERIFIED IN STEPS, sec 751: one that did not finish
+	 * within `verify_step`, on disk beside its name and
+	 * answered WAITING, carried on by `fzn_log_buckets_verify_step`. */
+	int parked;
+	uint64_t verify_step; /* FZN_LOG_BUCKETS_VERIFY_STEP after init */
+	fzn_log_pack_verifying_t verifying;
+	uint8_t parked_subject[32], parked_id[FZN_BUCKETS_ID_LEN];
+	uint32_t parked_month;
+	uint64_t parked_len;
+	char parked_tmp[1032], parked_path[1032], parked_ref[FZN_BUCKETS_REF_MAX + 1u];
 	/* A segment being fetched or pushed here, held whole until checked. */
 	uint8_t *staging;
 	size_t staging_cap, staged;
@@ -106,7 +116,23 @@ int fzn_log_buckets_init(fzn_log_buckets_t *lb, const fzn_buckets_t *b, const ch
  * trailer. */
 uint64_t fzn_log_buckets_copy_max(const fzn_log_buckets_t *lb, const uint8_t subject[32]);
 
-/* Let go of the staging memory. */
+/* HOW MUCH OF A COPY ONE STEP UNPACKS AND HASHES, sec 751: a copy within
+ * it is kept in the call that brought it, as every copy at the default
+ * segment size is; a larger one goes on in steps. */
+#define FZN_LOG_BUCKETS_VERIFY_STEP (8u * 1024u * 1024u)
+
+/*
+ * THE COPY BEING VERIFIED, one step further, sec 751: kept once its check
+ * holds -- renamed into place and taken into its bucket -- or let go when
+ * it does not. 1 while one is still being verified, so a loop knows to
+ * come back without waiting; 0 when none is. `*outcome` (may be NULL) is
+ * APPLIED or REFUSED or NOT_SAVED on the step that ended one, and WAITING
+ * otherwise.
+ */
+int fzn_log_buckets_verify_step(fzn_log_buckets_t *lb, fzn_node_apply_outcome_t *outcome);
+
+/* Let go of the staging memory, and of a copy being verified, its file
+ * removed. */
 void fzn_log_buckets_close(fzn_log_buckets_t *lb);
 
 /* THIS HOST'S PACKED SEGMENTS, taken into its buckets: each new one, or

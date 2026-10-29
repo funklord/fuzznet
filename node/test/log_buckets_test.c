@@ -507,6 +507,75 @@ static void test_a_copy_within_its_hosts_segment(void)
 	lb_b.copy_floor = FZN_LOG_BUCKETS_COPY_FLOOR;
 }
 
+/* A COPY VERIFIED IN STEPS, sec 751: under a step of 16 KiB, a segment of
+ * 200000 bytes is parked beside its name and answered waiting; offered
+ * again it is waited for, not written over; stepped to its end it is kept,
+ * and the buckets agree. One signed by another key is stepped to its end
+ * and let go. A second while one is parked is let go to be offered again,
+ * and a parked one goes with close. */
+static void test_a_copy_verified_in_steps(void)
+{
+	char copies[300];
+	fzn_reconcile_bucket_tally_t t;
+	fzn_node_apply_outcome_t out = FZN_NODE_APPLY_WAITING;
+	uint8_t prev[32];
+	size_t taken, steps = 0;
+
+	fresh();
+	memset(prev, 0, sizeof(prev));
+	CHECK(make_packed(dir_a, JULY_2026, 200000u, prev, &SIGN_A, key_a)
+	              && fzn_log_buckets_scan(&lb_a, &taken, NULL) && taken == 1u,
+	      "fixture: one of A's segments, 200000 bytes");
+	copy_dir_of(dir_b, key_a, copies, sizeof(copies));
+	lb_b.verify_step = 16384u;
+	CHECK(pull_b(&t) == FZN_RECONCILE_OK && t.waiting == 1u && t.applied == 0u && lb_b.parked
+	              && count_in(copies, ".log.zst") == 0u && count_in(copies, ".new") == 1u,
+	      "a copy past one step was not parked and answered waiting");
+	CHECK(pull_b(&t) == FZN_RECONCILE_OK && t.waiting == 1u && lb_b.parked
+	              && count_in(copies, ".new") == 1u,
+	      "the parked copy offered again was not waited for");
+	while (fzn_log_buckets_verify_step(&lb_b, &out) && steps < 1000u)
+		steps++;
+	CHECK(steps > 5u && out == FZN_NODE_APPLY_APPLIED && !lb_b.parked
+	              && count_in(copies, ".log.zst") == 1u && count_in(copies, ".new") == 0u,
+	      "the parked copy was not kept after its steps");
+	CHECK(pull_b(&t) == FZN_RECONCILE_OK && t.lacked == 0u && same_logs(),
+	      "after its steps the buckets do not agree");
+	CHECK(!fzn_log_buckets_verify_step(&lb_b, &out) && out == FZN_NODE_APPLY_WAITING,
+	      "a step with none parked did other than nothing");
+
+	/* SIGNED BY ANOTHER: stepped to its end, and let go. */
+	fresh();
+	memset(prev, 0, sizeof(prev));
+	CHECK(make_packed(dir_a, JULY_2026, 200000u, prev, &SIGN_X, key_x)
+	              && fzn_log_buckets_scan(&lb_a, &taken, NULL) && taken == 1u,
+	      "fixture: one of A's segments signed by X");
+	lb_b.verify_step = 16384u;
+	CHECK(pull_b(&t) == FZN_RECONCILE_OK && t.waiting == 1u && lb_b.parked,
+	      "fixture: the copy signed by X parked");
+	steps = 0;
+	while (fzn_log_buckets_verify_step(&lb_b, &out) && steps < 1000u)
+		steps++;
+	CHECK(out == FZN_NODE_APPLY_REFUSED && count_in(copies, ".log.zst") == 0u
+	              && count_in(copies, ".new") == 0u,
+	      "a copy signed by another key was kept after its steps, or left behind");
+
+	/* A SECOND WHILE ONE IS PARKED, and close. */
+	fresh();
+	memset(prev, 0, sizeof(prev));
+	CHECK(make_packed(dir_a, JULY_2026, 200000u, prev, &SIGN_A, key_a)
+	              && make_packed(dir_a, JULY_2026 + 1000u, 200000u, prev, &SIGN_A, key_a)
+	              && fzn_log_buckets_scan(&lb_a, &taken, NULL) && taken == 2u,
+	      "fixture: two of A's segments, 200000 bytes each");
+	lb_b.verify_step = 16384u;
+	CHECK(pull_b(&t) == FZN_RECONCILE_OK && t.waiting == 2u && lb_b.parked
+	              && count_in(copies, ".new") == 1u,
+	      "a second copy past one step was kept, or left beside the parked one");
+	fzn_log_buckets_close(&lb_b);
+	CHECK(!lb_b.parked && count_in(copies, ".new") == 0u, "close left a parked copy's file");
+	lb_b.verify_step = FZN_LOG_BUCKETS_VERIFY_STEP;
+}
+
 /* FETCHED ONLY WHERE THE RULES WOULD HOLD IT. */
 static void test_wanted_by_the_rules(void)
 {
@@ -843,6 +912,7 @@ int main(void)
 	test_pulled_and_kept_as_copies();
 	test_signed_by_its_subject_only();
 	test_a_copy_within_its_hosts_segment();
+	test_a_copy_verified_in_steps();
 	test_wanted_by_the_rules();
 	test_pushed();
 	test_its_id_and_its_month();

@@ -2901,6 +2901,22 @@ static uint64_t log_segment_of(void *ctx, const uint8_t subject[32])
 	return segment;
 }
 
+/* THE COPY BEING VERIFIED IN STEPS, one step further, sec 751: 1 while one
+ * is, so the loop turns again at once rather than sleeping. Its end said,
+ * as a copy's keeping is. */
+static int logs_verify_tick(void)
+{
+	fzn_node_apply_outcome_t out = FZN_NODE_APPLY_WAITING;
+
+	if (!logs_ready || !node_logs.parked)
+		return 0;
+	if (fzn_log_buckets_verify_step(&node_logs, &out))
+		return 1;
+	say(out == FZN_NODE_APPLY_APPLIED ? FZN_ENTRY_INFO : FZN_ENTRY_WARNING, "log/copy",
+	    "a copy verified in steps was %s", out == FZN_NODE_APPLY_APPLIED ? "kept" : "let go");
+	return 0;
+}
+
 static int logs_up(void)
 {
 	if (logs_ready)
@@ -2939,6 +2955,17 @@ static int logs_up(void)
 	return 1;
 }
 #endif
+
+/* A COPY BEING VERIFIED IN STEPS, a step further (sec 751); 0 in a build
+ * that keeps no copies. */
+static int logs_verifying(void)
+{
+#if defined(FZN_LOG_FILE_ON) && defined(FZN_LOG_PACK_ON)
+	return logs_verify_tick();
+#else
+	return 0;
+#endif
+}
 
 /* A LINE PUSHED AND KEPT, sec 569: its key, when this node's, given at the
  * round's key exchange. */
@@ -15716,8 +15743,12 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 #endif
 			/* MID-ROUND, between steps, only what is waiting is answered and
 			 * the next step follows at once; a step waiting on its
-			 * conversations waits here, their answers polled with the rest. */
-			(void)fzn_node_run_once(&state, round_step && !round_pending ? 0 : 1000);
+			 * conversations waits here, their answers polled with the rest.
+			 * A COPY BEING VERIFIED takes its next step and waits for
+			 * nothing either (sec 751). */
+			(void)fzn_node_run_once(&state, (round_step && !round_pending) || logs_verifying()
+			                                        ? 0
+			                                        : 1000);
 			/* AN IDENTITY RESET, sec 620, its answer out: wiped once more,
 			 * for what was written since, and stopped. */
 			if (identity_reset) {
@@ -15747,7 +15778,7 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 #ifdef FZN_LOG_FILE_ON
 		log_settings_tick();
 #endif
-		(void)fzn_node_run_once(&state, 1000);
+		(void)fzn_node_run_once(&state, logs_verifying() ? 0 : 1000);
 	}
 	if (rejoin_due)
 		return start_again(lfd, sock_path);

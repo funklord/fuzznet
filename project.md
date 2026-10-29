@@ -74038,6 +74038,50 @@ under a floor of 4096, a copy of 40000 is refused and leaves nothing in
 entries, `pack-verify-stops-past-its-bound` and three
 `log-buckets-*`. `err_str_test` pins seven pack codes.
 
-**Still open:** a large honest copy -- a host rotating at hundreds of
-MiB -- is still verified in one call on the loop. Verifying in steps,
-as the round runs (sec 636), is its own change.
+A large honest copy -- a host rotating at hundreds of MiB -- was still
+verified in one call on the loop; sec 751 verifies it in steps.
+
+## 751. A large log copy verified in steps, 2026-10-29
+
+Sec 750 bounded how far a copy unpacks, and left an honest large one --
+a host whose `log/segment` is hundreds of MiB -- verified in one call,
+holding the loop for as long as it took to unpack and hash. Built:
+
+- **`log/pack.c` verifies in steps.** `fzn_log_pack_verify_begin`, then
+  `fzn_log_pack_verify_step` with a budget of unpacked bytes, until it
+  says done; `fzn_log_pack_verify_end` lets one go part way. Each zstd
+  call is given no more room than the budget left, so a step is the size
+  it says. The one-call verifies are these steps without a budget, so
+  the check is written once. Decompressing straight into the chain's
+  window also settles a case the old loop missed: input all read with
+  the window full, where zstd may still hold bytes to give.
+- **`node/log_buckets.c`'s `keep` runs one step**,
+  `FZN_LOG_BUCKETS_VERIFY_STEP` (8 MiB, the default segment size), in the
+  call that brought the copy. A copy that ends within it is kept as
+  before, so every copy at the default size is. One that does not is
+  **parked**: its file left beside its name, its verifier in the
+  module, and the call answered WAITING, which reconcile already reads
+  as taken, to be offered again if it does not hold.
+- **One copy is parked at a time.** Offered again while parked -- or
+  another under its file's name -- it is waited for, not written over.
+  A second large copy meanwhile is tried within a step on a verifier of
+  its own and, needing more, let go to be offered again next round.
+- **fuzznetd takes a step each turn of its loop**
+  (`fzn_log_buckets_verify_step`) and does not sleep in poll while a
+  copy is parked; its end is said under `log/copy`, kept or let go.
+  `fzn_log_buckets_close` lets a parked copy's file go.
+
+**Measured.** `pack_test`: a signed segment stepped 1000 bytes at a time
+takes its length over 1000 steps, give or take two, and ends with the
+hash the whole check gives; one let go part way is closed, and a step
+after is refused. `log_buckets_test`, with a step of 16 KiB: a copy of
+200000 bytes is parked and answered waiting, waited for when offered
+again, and kept after its steps, the buckets then agreeing; one signed
+by another key is stepped to its end and let go; a second while one is
+parked is let go, and close removes the parked file. Four sabotage
+entries (`pack-verify-step-is-its-budget` and three
+`log-buckets-*`); five older entries follow the code into the steps.
+
+**Not measured live.** No live script makes a copy past 8 MiB, so the
+daemon's steps are covered by the library tests and by building it, and
+`live_rejoin` and `live_erasure` still pass with copies under a step.

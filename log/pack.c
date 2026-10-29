@@ -6,6 +6,7 @@
 #include "entry.h"
 
 #include <dirent.h>
+#include <stddef.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -311,26 +312,6 @@ static const uint8_t *carried(const trailer_t *t)
 
 /* ---- verifying one ------------------------------------------------------- */
 
-/* The trailer is the last line, and it is held back from the chain: the
- * stream's bytes are folded in chunks only once more than the longest
- * trailer follows them, so they cannot be the trailer. */
-static fzn_log_pack_err_t verify_core(const char *zst_path,
-                                      const uint8_t *prev, const fzn_hash_ops_t *hash,
-                                      uint64_t unpacked_max,
-                                      uint8_t hash_out[FZN_LOG_PACK_HASH_LEN], trailer_t *tr_out);
-
-fzn_log_pack_err_t fzn_log_pack_verify(const char *zst_path,
-                                       const uint8_t prev[FZN_LOG_PACK_HASH_LEN],
-                                       const fzn_hash_ops_t *hash,
-                                       uint8_t hash_out[FZN_LOG_PACK_HASH_LEN])
-{
-	static trailer_t tr;
-
-	if (!prev)
-		return FZN_LOG_PACK_ERR_MALFORMED;
-	return verify_core(zst_path, prev, hash, UINT64_MAX, hash_out, &tr);
-}
-
 /* A trailer's signature over its line. */
 static int signature_holds(const trailer_t *tr, const fzn_sign_ops_t *sign)
 {
@@ -341,6 +322,197 @@ static int signature_holds(const trailer_t *tr, const fzn_sign_ops_t *sign)
 	memcpy(msg, SIG_LABEL, sizeof(SIG_LABEL));
 	memcpy(msg + sizeof(SIG_LABEL), tr->base, tr->base_len);
 	return sign->verify(sign->ctx, tr->key, msg, sizeof(SIG_LABEL) + tr->base_len, tr->sig);
+}
+
+void fzn_log_pack_verify_end(fzn_log_pack_verifying_t *v)
+{
+	if (!v)
+		return;
+	if (v->dc)
+		ZSTD_freeDCtx((ZSTD_DCtx *)v->dc);
+	if (v->in)
+		(void)fclose((FILE *)v->in);
+	v->dc = NULL;
+	v->in = NULL;
+}
+
+fzn_log_pack_err_t fzn_log_pack_verify_begin(fzn_log_pack_verifying_t *v, const char *zst_path,
+                                             const uint8_t prev[FZN_LOG_PACK_HASH_LEN],
+                                             const fzn_hash_ops_t *hash,
+                                             const fzn_sign_ops_t *sign, uint64_t unpacked_max)
+{
+	if (!v)
+		return FZN_LOG_PACK_ERR_MALFORMED;
+	memset(v, 0, offsetof(fzn_log_pack_verifying_t, inbuf));
+	if (!zst_path || !prev || !hash || !hash->hash)
+		return FZN_LOG_PACK_ERR_MALFORMED;
+	v->in = fopen(zst_path, "rb");
+	if (!v->in)
+		return FZN_LOG_PACK_ERR_FILE;
+	v->dc = ZSTD_createDCtx();
+	if (!v->dc) {
+		fzn_log_pack_verify_end(v);
+		return FZN_LOG_PACK_ERR_ZSTD;
+	}
+	v->hash = hash;
+	v->sign = sign;
+	v->unpacked_max = unpacked_max;
+	v->last = 1u;
+	memcpy(v->prev, prev, sizeof(v->prev));
+	memcpy(v->state, prev, sizeof(v->state));
+	return FZN_LOG_PACK_OK;
+}
+
+/* THE LAST LINE, once the frame has ended: after the newline before the
+ * final one, which a segment folded already must have left in the window.
+ * The rest is folded in the same chunks the packer folded, at most two. */
+static fzn_log_pack_err_t verify_finish(fzn_log_pack_verifying_t *v,
+                                        uint8_t hash_out[FZN_LOG_PACK_HASH_LEN], int *is_signed,
+                                        uint8_t signer_out[FZN_LOG_PACK_HASH_LEN])
+{
+	trailer_t tr;
+	size_t start;
+
+	/* A FRAME CUT SHORT leaves zstd wanting more. */
+	if (ferror((FILE *)v->in) || v->last != 0u)
+		return FZN_LOG_PACK_ERR_ZSTD;
+	if (v->have < 2u)
+		return FZN_LOG_PACK_ERR_CHAIN;
+	for (start = v->have - 1u; start > 0u && v->pending[start - 1u] != '\n'; start--)
+		;
+	if ((start == 0u && v->folded) || v->have - start > TRAILER_MAX
+	    || !parse_trailer(v->pending + start, v->have - start, &tr))
+		return FZN_LOG_PACK_ERR_CHAIN;
+	if (start > FZN_LOG_PACK_CHUNK) {
+		if (!fold_chunk(v->hash, v->state, v->pending, FZN_LOG_PACK_CHUNK)
+		    || !fold_chunk(v->hash, v->state, v->pending + FZN_LOG_PACK_CHUNK,
+		                   start - FZN_LOG_PACK_CHUNK))
+			return FZN_LOG_PACK_ERR_CHAIN;
+	} else if (start && !fold_chunk(v->hash, v->state, v->pending, start)) {
+		return FZN_LOG_PACK_ERR_CHAIN;
+	}
+	if (memcmp(tr.prev, v->prev, FZN_LOG_PACK_HASH_LEN) != 0
+	    || memcmp(tr.hash, v->state, FZN_LOG_PACK_HASH_LEN) != 0)
+		return FZN_LOG_PACK_ERR_CHAIN;
+	memcpy(hash_out, carried(&tr), FZN_LOG_PACK_HASH_LEN);
+	if (!v->sign || !tr.has_sig)
+		return FZN_LOG_PACK_OK;
+	/* A SIGNATURE THAT DOES NOT HOLD is worse than none: somebody changed a
+	 * signed line, and the chain alone could not tell. */
+	if (!signature_holds(&tr, v->sign))
+		return FZN_LOG_PACK_ERR_SIGNATURE;
+	*is_signed = 1;
+	if (signer_out)
+		memcpy(signer_out, tr.key, sizeof(tr.key));
+	return FZN_LOG_PACK_OK;
+}
+
+/* The trailer is the last line, and it is held back from the chain: the
+ * stream's bytes are folded in chunks only once more than the longest
+ * trailer follows them, so they cannot be the trailer. Each step unpacks
+ * into the window until it has unpacked `budget` more bytes, or the frame
+ * has ended. */
+fzn_log_pack_err_t fzn_log_pack_verify_step(fzn_log_pack_verifying_t *v, uint64_t budget,
+                                            int *done, uint8_t hash_out[FZN_LOG_PACK_HASH_LEN],
+                                            int *is_signed,
+                                            uint8_t signer_out[FZN_LOG_PACK_HASH_LEN])
+{
+	uint64_t until;
+	fzn_log_pack_err_t err = FZN_LOG_PACK_OK;
+
+	if (!v || !done || !hash_out || !is_signed || !v->in || !v->dc)
+		return FZN_LOG_PACK_ERR_MALFORMED;
+	*done = 0;
+	*is_signed = 0;
+	until = v->unpacked + budget < v->unpacked ? UINT64_MAX : v->unpacked + budget;
+	while (v->unpacked < until) {
+		ZSTD_inBuffer src;
+		ZSTD_outBuffer dst;
+
+		/* MORE IN only once zstd has given out all it holds: a call that
+		 * filled the window may hold more for the next. */
+		if (v->in_pos == v->in_size && !v->out_full) {
+			if (v->ended)
+				break;
+			v->in_size = fread(v->inbuf, 1u, sizeof(v->inbuf), (FILE *)v->in);
+			v->in_pos = 0;
+			if (v->in_size == 0u) {
+				v->ended = 1;
+				break;
+			}
+		}
+		src.src = v->inbuf;
+		src.size = v->in_size;
+		src.pos = v->in_pos;
+		dst.dst = v->pending + v->have;
+		dst.size = sizeof(v->pending) - v->have;
+		/* NO MORE THAN THE BUDGET LEFT, so a step is the size it says. */
+		if (until - v->unpacked < dst.size)
+			dst.size = (size_t)(until - v->unpacked);
+		dst.pos = 0;
+		v->last = ZSTD_decompressStream((ZSTD_DCtx *)v->dc, &dst, &src);
+		if (ZSTD_isError(v->last)) {
+			err = FZN_LOG_PACK_ERR_ZSTD;
+			break;
+		}
+		v->in_pos = src.pos;
+		v->out_full = dst.pos == dst.size;
+		v->have += dst.pos;
+		v->unpacked += dst.pos;
+		/* PAST ITS BOUND, stopped here, before more is hashed (sec 750). */
+		if (v->unpacked > v->unpacked_max) {
+			err = FZN_LOG_PACK_ERR_TOO_LARGE;
+			break;
+		}
+		if (v->have == sizeof(v->pending)) {
+			if (!fold_chunk(v->hash, v->state, v->pending, FZN_LOG_PACK_CHUNK)) {
+				err = FZN_LOG_PACK_ERR_CHAIN;
+				break;
+			}
+			memmove(v->pending, v->pending + FZN_LOG_PACK_CHUNK,
+			        v->have - FZN_LOG_PACK_CHUNK);
+			v->have -= FZN_LOG_PACK_CHUNK;
+			v->folded = 1;
+		}
+	}
+	if (err == FZN_LOG_PACK_OK && !v->ended)
+		return FZN_LOG_PACK_OK;
+	if (err == FZN_LOG_PACK_OK)
+		err = verify_finish(v, hash_out, is_signed, signer_out);
+	*done = 1;
+	fzn_log_pack_verify_end(v);
+	return err;
+}
+
+/* ONE CALL, steps without a budget: the verifier is large, so one is kept
+ * for the calls that do not step. */
+static fzn_log_pack_err_t verify_whole(const char *zst_path, const uint8_t *prev,
+                                       const fzn_hash_ops_t *hash, const fzn_sign_ops_t *sign,
+                                       uint64_t unpacked_max,
+                                       uint8_t hash_out[FZN_LOG_PACK_HASH_LEN], int *is_signed,
+                                       uint8_t signer_out[FZN_LOG_PACK_HASH_LEN])
+{
+	static fzn_log_pack_verifying_t v;
+	fzn_log_pack_err_t err;
+	int done = 0;
+
+	err = fzn_log_pack_verify_begin(&v, zst_path, prev, hash, sign, unpacked_max);
+	while (err == FZN_LOG_PACK_OK && !done)
+		err = fzn_log_pack_verify_step(&v, UINT64_MAX, &done, hash_out, is_signed, signer_out);
+	fzn_log_pack_verify_end(&v);
+	return err;
+}
+
+fzn_log_pack_err_t fzn_log_pack_verify(const char *zst_path,
+                                       const uint8_t prev[FZN_LOG_PACK_HASH_LEN],
+                                       const fzn_hash_ops_t *hash,
+                                       uint8_t hash_out[FZN_LOG_PACK_HASH_LEN])
+{
+	int is_signed = 0;
+
+	if (!prev || !hash_out)
+		return FZN_LOG_PACK_ERR_MALFORMED;
+	return verify_whole(zst_path, prev, hash, NULL, UINT64_MAX, hash_out, &is_signed, NULL);
 }
 
 fzn_log_pack_err_t fzn_log_pack_verify_signed(const char *zst_path,
@@ -364,123 +536,11 @@ fzn_log_pack_err_t fzn_log_pack_verify_signed_within(const char *zst_path,
                                                      int *is_signed,
                                                      uint8_t signer_out[FZN_LOG_PACK_HASH_LEN])
 {
-	static trailer_t tr;
-	fzn_log_pack_err_t err;
-
-	if (!sign || !is_signed)
+	if (!sign || !is_signed || !hash_out)
 		return FZN_LOG_PACK_ERR_MALFORMED;
 	*is_signed = 0;
-	err = verify_core(zst_path, prev, hash, unpacked_max, hash_out, &tr);
-	if (err != FZN_LOG_PACK_OK)
-		return err;
-	if (!tr.has_sig)
-		return FZN_LOG_PACK_OK;
-	/* A SIGNATURE THAT DOES NOT HOLD is worse than none: somebody changed a
-	 * signed line, and the chain alone could not tell. */
-	if (!signature_holds(&tr, sign))
-		return FZN_LOG_PACK_ERR_SIGNATURE;
-	*is_signed = 1;
-	if (signer_out)
-		memcpy(signer_out, tr.key, sizeof(tr.key));
-	return FZN_LOG_PACK_OK;
-}
-
-/* The chain check, and the trailer it read into `tr_out`. */
-static fzn_log_pack_err_t verify_core(const char *zst_path,
-                                      const uint8_t *prev_in, const fzn_hash_ops_t *hash,
-                                      uint64_t unpacked_max,
-                                      uint8_t hash_out[FZN_LOG_PACK_HASH_LEN], trailer_t *tr_out)
-{
-	static uint8_t inbuf[1u << 16], outbuf[1u << 16];
-	static uint8_t pending[FZN_LOG_PACK_CHUNK + TRAILER_MAX];
-	uint8_t state[FZN_LOG_PACK_HASH_LEN];
-	fzn_log_pack_err_t err = FZN_LOG_PACK_ERR_ZSTD;
-	ZSTD_DCtx *dc = NULL;
-	FILE *in = NULL;
-	size_t have = 0, n, last = 1, start;
-	uint64_t unpacked = 0;
-	int folded = 0;
-	trailer_t tr;
-	const uint8_t *prev = prev_in;
-
-	if (!zst_path || !prev || !hash || !hash->hash || !hash_out || !tr_out)
-		return FZN_LOG_PACK_ERR_MALFORMED;
-	in = fopen(zst_path, "rb");
-	if (!in)
-		return FZN_LOG_PACK_ERR_FILE;
-	dc = ZSTD_createDCtx();
-	if (!dc)
-		goto done;
-	memcpy(state, prev, sizeof(state));
-	while ((n = fread(inbuf, 1u, sizeof(inbuf), in)) > 0u) {
-		ZSTD_inBuffer src = { inbuf, n, 0 };
-
-		while (src.pos < src.size) {
-			ZSTD_outBuffer dst = { outbuf, sizeof(outbuf), 0 };
-			size_t off = 0;
-
-			last = ZSTD_decompressStream(dc, &dst, &src);
-			if (ZSTD_isError(last))
-				goto done;
-			/* PAST ITS BOUND, stopped here, before more is hashed. */
-			unpacked += dst.pos;
-			if (unpacked > unpacked_max) {
-				err = FZN_LOG_PACK_ERR_TOO_LARGE;
-				goto done;
-			}
-			while (off < dst.pos) {
-				size_t take = dst.pos - off;
-
-				if (take > sizeof(pending) - have)
-					take = sizeof(pending) - have;
-				memcpy(pending + have, outbuf + off, take);
-				have += take;
-				off += take;
-				if (have == sizeof(pending)) {
-					if (!fold_chunk(hash, state, pending, FZN_LOG_PACK_CHUNK)) {
-						err = FZN_LOG_PACK_ERR_CHAIN;
-						goto done;
-					}
-					memmove(pending, pending + FZN_LOG_PACK_CHUNK,
-					        have - FZN_LOG_PACK_CHUNK);
-					have -= FZN_LOG_PACK_CHUNK;
-					folded = 1;
-				}
-			}
-		}
-	}
-	/* A FRAME CUT SHORT leaves zstd wanting more. */
-	if (ferror(in) || last != 0u)
-		goto done;
-	err = FZN_LOG_PACK_ERR_CHAIN;
-	/* THE LAST LINE: after the newline before the final one, which a
-	 * segment folded already must have left in the window. */
-	if (have < 2u)
-		goto done;
-	for (start = have - 1u; start > 0u && pending[start - 1u] != '\n'; start--)
-		;
-	if ((start == 0u && folded) || have - start > TRAILER_MAX
-	    || !parse_trailer(pending + start, have - start, &tr))
-		goto done;
-	/* THE REST, in the same chunks the packer folded: at most two. */
-	if (start > FZN_LOG_PACK_CHUNK) {
-		if (!fold_chunk(hash, state, pending, FZN_LOG_PACK_CHUNK)
-		    || !fold_chunk(hash, state, pending + FZN_LOG_PACK_CHUNK,
-		                   start - FZN_LOG_PACK_CHUNK))
-			goto done;
-	} else if (start && !fold_chunk(hash, state, pending, start)) {
-		goto done;
-	}
-	if (memcmp(tr.prev, prev, FZN_LOG_PACK_HASH_LEN) != 0
-	    || memcmp(tr.hash, state, FZN_LOG_PACK_HASH_LEN) != 0)
-		goto done;
-	memcpy(hash_out, carried(&tr), FZN_LOG_PACK_HASH_LEN);
-	*tr_out = tr;
-	err = FZN_LOG_PACK_OK;
-done:
-	ZSTD_freeDCtx(dc);
-	(void)fclose(in);
-	return err;
+	return verify_whole(zst_path, prev, hash, sign, unpacked_max, hash_out, is_signed,
+	                    signer_out);
 }
 
 /* ---- packing a directory ------------------------------------------------- */

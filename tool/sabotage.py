@@ -5919,7 +5919,7 @@ SABOTAGES = [
 	(
 		"pack-verify-compares-the-hash",
 		"log/pack.c",
-		"\t    || memcmp(tr.hash, state, FZN_LOG_PACK_HASH_LEN) != 0)\n",
+		"\t    || memcmp(tr.hash, v->state, FZN_LOG_PACK_HASH_LEN) != 0)\n",
 		"\t    )\n",
 		"a packed segment whose bytes were edited and recompressed verifies, the trailer's hash never compared -- sec 459",
 	),
@@ -8847,7 +8847,7 @@ SABOTAGES = [
 	(
 		"pack-signature-checked",
 		"log/pack.c",
-		"\tif (!signature_holds(&tr, sign))\n\t\treturn FZN_LOG_PACK_ERR_SIGNATURE;\n",
+		"\tif (!signature_holds(&tr, v->sign))\n\t\treturn FZN_LOG_PACK_ERR_SIGNATURE;\n",
 		"",
 		"a signed trailer whose signature was changed reads as signed, and signing proves nothing -- sec 482",
 	),
@@ -10752,8 +10752,8 @@ SABOTAGES = [
 	(
 		'log-buckets-kept-only-signed-by-its-subject',
 		'node/log_buckets.c',
-		'\t    || !is_signed || memcmp(key, subject, 32u) != 0) {',
-		'\t    || 0) {',
+		'\tif (err != FZN_LOG_PACK_OK || !is_signed || memcmp(key, subject, 32u) != 0) {',
+		'\tif (err != FZN_LOG_PACK_OK) {',
 		"a segment signed by another key, or unsigned, is kept as the host's copy -- sec 571",
 	),
 	(
@@ -10827,17 +10827,47 @@ SABOTAGES = [
 		'a segment whose time is not a number reads as closed at a made-up time -- secs 483, 573',
 	),
 	(
+		'pack-verify-step-is-its-budget',
+		'log/pack.c',
+		'\t\tif (until - v->unpacked < dst.size)',
+		'\t\tif (0)',
+		'a step unpacks a window past its budget, so a copy is verified in fewer, longer steps '
+		'than the loop was promised -- sec 751',
+	),
+	(
+		'log-buckets-parked-copy-waited-for',
+		'node/log_buckets.c',
+		'\tif (lb->parked && (memcmp(lb->parked_id, id, FZN_BUCKETS_ID_LEN) == 0',
+		'\tif (0 && (memcmp(lb->parked_id, id, FZN_BUCKETS_ID_LEN) == 0',
+		'a copy offered again while it is verified is written over the file being read -- sec 751',
+	),
+	(
+		'log-buckets-second-copy-on-a-spare',
+		'node/log_buckets.c',
+		'\tv = lb->parked ? &spare : &lb->verifying;',
+		'\tv = &lb->verifying;',
+		'a second large copy takes the parked one\'s verifier, and the first is lost half read -- '
+		'sec 751',
+	),
+	(
+		'log-buckets-close-lets-the-parked-file-go',
+		'node/log_buckets.c',
+		'\t\t(void)remove(lb->parked_tmp);\n\t\tlb->parked = 0;\n\t}\n}',
+		'\t\tlb->parked = 0;\n\t}\n}',
+		'a copy being verified at close is left beside the copies -- sec 751',
+	),
+	(
 		'pack-verify-stops-past-its-bound',
 		'log/pack.c',
-		'\t\t\tif (unpacked > unpacked_max) {',
-		'\t\t\tif (0) {',
+		'\t\tif (v->unpacked > v->unpacked_max) {',
+		'\t\tif (0) {',
 		'a packed segment that unpacks without end is hashed to its end -- sec 750',
 	),
 	(
 		'log-buckets-copy-checked-within-its-bound',
 		'node/log_buckets.c',
-		'\t                                         fzn_log_buckets_copy_max(lb, subject), next,',
-		'\t                                         UINT64_MAX, next,',
+		'\t                                 fzn_log_buckets_copy_max(lb, subject))',
+		'\t                                 UINT64_MAX)',
 		'a member\'s copy unpacks as far as it likes on the loop -- sec 750',
 	),
 	(

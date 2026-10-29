@@ -50,6 +50,7 @@ int fzn_log_buckets_init(fzn_log_buckets_t *lb, const fzn_buckets_t *b, const ch
 	lb->sign = sign;
 	memcpy(lb->self, self, 32u);
 	lb->copy_floor = FZN_LOG_BUCKETS_COPY_FLOOR;
+	lb->verify_step = FZN_LOG_BUCKETS_VERIFY_STEP;
 	return 1;
 }
 
@@ -73,6 +74,11 @@ void fzn_log_buckets_close(fzn_log_buckets_t *lb)
 	free(lb->staging);
 	lb->staging = NULL;
 	lb->staging_cap = lb->staged = 0;
+	if (lb->parked) {
+		fzn_log_pack_verify_end(&lb->verifying);
+		(void)remove(lb->parked_tmp);
+		lb->parked = 0;
+	}
 }
 
 /* ---- refs ------------------------------------------------------------------ */
@@ -333,6 +339,54 @@ int fzn_log_buckets_scan(fzn_log_buckets_t *lb, size_t *taken, size_t *let_go)
 
 /* ---- keeping another's, or this host's own come back ------------------------ */
 
+/* A COPY'S CHECK ENDED: kept, renamed into place and taken, when it held
+ * and its trailer is signed by its subject; its file let go otherwise. */
+static fzn_node_apply_outcome_t verified(fzn_log_buckets_t *lb, fzn_log_pack_err_t err,
+                                         int is_signed, const uint8_t key[32],
+                                         const uint8_t subject[32], uint32_t month,
+                                         const uint8_t id[FZN_BUCKETS_ID_LEN], uint64_t len,
+                                         const char *tmp, const char *path, const char *ref)
+{
+	/* NO SIGNER UNTIL ONE IS READ: an unsigned trailer writes none. */
+	if (err != FZN_LOG_PACK_OK || !is_signed || memcmp(key, subject, 32u) != 0) {
+		(void)remove(tmp);
+		return FZN_NODE_APPLY_REFUSED;
+	}
+	if (rename(tmp, path) != 0) {
+		(void)remove(tmp);
+		return FZN_NODE_APPLY_NOT_SAVED;
+	}
+	return fzn_buckets_add_ref(lb->b, FZN_BUCKETS_LOGS, subject, month, id, len,
+	                           (const uint8_t *)ref, strlen(ref), NULL)
+	                       == FZN_BUCKETS_OK
+	               ? FZN_NODE_APPLY_APPLIED
+	               : FZN_NODE_APPLY_NOT_SAVED;
+}
+
+int fzn_log_buckets_verify_step(fzn_log_buckets_t *lb, fzn_node_apply_outcome_t *outcome)
+{
+	uint8_t next[32], key[32];
+	fzn_log_pack_err_t err;
+	fzn_node_apply_outcome_t out;
+	int is_signed = 0, done = 0;
+
+	if (outcome)
+		*outcome = FZN_NODE_APPLY_WAITING;
+	if (!lb || !lb->parked)
+		return 0;
+	memset(key, 0, sizeof(key));
+	err = fzn_log_pack_verify_step(&lb->verifying, lb->verify_step, &done, next,
+	                               &is_signed, key);
+	if (err == FZN_LOG_PACK_OK && !done)
+		return 1;
+	lb->parked = 0;
+	out = verified(lb, err, is_signed, key, lb->parked_subject, lb->parked_month, lb->parked_id,
+	               lb->parked_len, lb->parked_tmp, lb->parked_path, lb->parked_ref);
+	if (outcome)
+		*outcome = out;
+	return 0;
+}
+
 /* KEEP `item` -- a segment named in its head -- as `subject`'s, of `month`:
  * written beside the copies, checked signed by `subject`, renamed into
  * place and taken. Its id, `id`, the caller has checked. */
@@ -342,10 +396,13 @@ static fzn_node_apply_outcome_t keep(fzn_log_buckets_t *lb, const uint8_t subjec
 {
 	char name[FZN_LOG_BUCKETS_NAME_MAX + 1u], host[65], dir[PATH_MAX_], path[PATH_MAX_],
 	        tmp[PATH_MAX_ + 8u], ref[FZN_BUCKETS_REF_MAX + 1u];
+	static fzn_log_pack_verifying_t spare;
+	fzn_log_pack_verifying_t *v;
+	fzn_log_pack_err_t err;
 	uint8_t prev[32], next[32], key[32];
 	size_t name_len, body;
 	uint64_t closed;
-	int is_signed = 0;
+	int is_signed = 0, done = 0;
 	FILE *f;
 
 	if (len < 2u || (name_len = item[0]) == 0u || name_len > FZN_LOG_BUCKETS_NAME_MAX
@@ -363,6 +420,12 @@ static fzn_node_apply_outcome_t keep(fzn_log_buckets_t *lb, const uint8_t subjec
 	    || snprintf(tmp, sizeof(tmp), "%s/.%s.new", dir, name) >= (int)sizeof(tmp)
 	    || snprintf(ref, sizeof(ref), "c/%s/%s", host, name) >= (int)sizeof(ref))
 		return FZN_NODE_APPLY_REFUSED;
+	/* THE COPY BEING VERIFIED, offered again -- or another under its name,
+	 * whose file would be written over the one being read -- is waited
+	 * for, not written. */
+	if (lb->parked && (memcmp(lb->parked_id, id, FZN_BUCKETS_ID_LEN) == 0
+	                   || strcmp(lb->parked_tmp, tmp) == 0))
+		return FZN_NODE_APPLY_WAITING;
 	if (!fzn_log_copy_make_dir(dir))
 		return FZN_NODE_APPLY_NOT_SAVED;
 	body = len - 1u - name_len;
@@ -377,27 +440,38 @@ static fzn_node_apply_outcome_t keep(fzn_log_buckets_t *lb, const uint8_t subjec
 	}
 	(void)fclose(f);
 	/* SIGNED BY ITS SUBJECT, from the prev its own trailer names, and no
-	 * larger unpacked than its subject could have written (sec 750). NO
-	 * SIGNER UNTIL ONE IS READ: an unsigned trailer writes none. */
-	memset(key, 0, sizeof(key));
+	 * larger unpacked than its subject could have written (sec 750): one
+	 * step's worth here, the rest in steps (sec 751). A COPY BEING VERIFIED
+	 * ALREADY keeps its place; this one is tried within a step on a
+	 * verifier of its own, and let go if it needs more, to be offered
+	 * again. */
+	v = lb->parked ? &spare : &lb->verifying;
 	if (fzn_log_pack_trailer_prev(tmp, prev) != FZN_LOG_PACK_OK
-	    || fzn_log_pack_verify_signed_within(tmp, prev, lb->hash, lb->sign,
-	                                         fzn_log_buckets_copy_max(lb, subject), next,
-	                                         &is_signed, key)
-	               != FZN_LOG_PACK_OK
-	    || !is_signed || memcmp(key, subject, 32u) != 0) {
+	    || fzn_log_pack_verify_begin(v, tmp, prev, lb->hash, lb->sign,
+	                                 fzn_log_buckets_copy_max(lb, subject))
+	               != FZN_LOG_PACK_OK) {
 		(void)remove(tmp);
 		return FZN_NODE_APPLY_REFUSED;
 	}
-	if (rename(tmp, path) != 0) {
-		(void)remove(tmp);
-		return FZN_NODE_APPLY_NOT_SAVED;
+	memset(key, 0, sizeof(key));
+	err = fzn_log_pack_verify_step(v, lb->verify_step, &done, next, &is_signed, key);
+	if (err == FZN_LOG_PACK_OK && !done) {
+		if (v == &spare) {
+			fzn_log_pack_verify_end(v);
+			(void)remove(tmp);
+			return FZN_NODE_APPLY_WAITING;
+		}
+		lb->parked = 1;
+		memcpy(lb->parked_subject, subject, 32u);
+		memcpy(lb->parked_id, id, FZN_BUCKETS_ID_LEN);
+		lb->parked_month = month;
+		lb->parked_len = len;
+		snprintf(lb->parked_tmp, sizeof(lb->parked_tmp), "%s", tmp);
+		snprintf(lb->parked_path, sizeof(lb->parked_path), "%s", path);
+		snprintf(lb->parked_ref, sizeof(lb->parked_ref), "%s", ref);
+		return FZN_NODE_APPLY_WAITING;
 	}
-	return fzn_buckets_add_ref(lb->b, FZN_BUCKETS_LOGS, subject, month, id, len,
-	                           (const uint8_t *)ref, strlen(ref), NULL)
-	                       == FZN_BUCKETS_OK
-	               ? FZN_NODE_APPLY_APPLIED
-	               : FZN_NODE_APPLY_NOT_SAVED;
+	return verified(lb, err, is_signed, key, subject, month, id, len, tmp, path, ref);
 }
 
 static fzn_node_apply_outcome_t item_file(void *ctx, const uint8_t subject[FZN_PUBKEY_LEN],

@@ -143,6 +143,42 @@ fzn_log_pack_err_t fzn_log_pack_verify_signed_within(const char *zst_path,
                                                      int *is_signed,
                                                      uint8_t signer_out[FZN_LOG_PACK_HASH_LEN]);
 
+/*
+ * THE SAME CHECK IN STEPS, sec 751, for a caller with a loop to keep
+ * turning: a copy of a host that rotates at hundreds of MiB is verified a
+ * step at a time rather than in one call. BEGIN opens `zst_path`; each STEP
+ * unpacks at most `budget` more bytes,
+ * and sets `*done` once the frame has ended or a check failed -- then its
+ * answer is the whole check's, as `fzn_log_pack_verify_signed_within`
+ * gives it (`sign` NULL reads no signature, as `fzn_log_pack_verify`), and
+ * the file is closed. END lets a verification go part way; it may be called
+ * again, and after a step that set `*done`. The struct is large: keep it
+ * where it lives long.
+ */
+typedef struct fzn_log_pack_verifying {
+	void *in; /* the FILE, while open */
+	void *dc; /* the zstd stream, while open */
+	const fzn_hash_ops_t *hash;
+	const fzn_sign_ops_t *sign;
+	uint64_t unpacked_max, unpacked;
+	uint8_t prev[FZN_LOG_PACK_HASH_LEN], state[FZN_LOG_PACK_HASH_LEN];
+	size_t have, last, in_pos, in_size;
+	int folded, ended, out_full;
+	/* Everything above is cleared by BEGIN; the buffers need not be. */
+	uint8_t inbuf[1u << 16];
+	uint8_t pending[FZN_LOG_PACK_CHUNK + FZN_LOG_PACK_TRAILER_MAX];
+} fzn_log_pack_verifying_t;
+
+fzn_log_pack_err_t fzn_log_pack_verify_begin(fzn_log_pack_verifying_t *v, const char *zst_path,
+                                             const uint8_t prev[FZN_LOG_PACK_HASH_LEN],
+                                             const fzn_hash_ops_t *hash,
+                                             const fzn_sign_ops_t *sign, uint64_t unpacked_max);
+fzn_log_pack_err_t fzn_log_pack_verify_step(fzn_log_pack_verifying_t *v, uint64_t budget,
+                                            int *done, uint8_t hash_out[FZN_LOG_PACK_HASH_LEN],
+                                            int *is_signed,
+                                            uint8_t signer_out[FZN_LOG_PACK_HASH_LEN]);
+void fzn_log_pack_verify_end(fzn_log_pack_verifying_t *v);
+
 /* The prev a packed segment's own trailer names: where a chain held from
  * this segment on starts, for one whose older segments are not here. */
 fzn_log_pack_err_t fzn_log_pack_trailer_prev(const char *zst_path,
