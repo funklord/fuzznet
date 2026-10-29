@@ -356,7 +356,8 @@ static void publish(const char *subject, const char *name)
  * A change one UI makes reaches the others. sec 609. */
 static size_t routing_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t reply_cap);
-static size_t card_local(const fzn_request_t *request, char *reply, size_t reply_cap);
+static size_t card_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                         size_t reply_cap);
 static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap);
 static size_t identity_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
@@ -375,7 +376,8 @@ static size_t admin_chain_local(fzn_origin_t origin, const fzn_request_t *reques
                                 size_t cap);
 static size_t address_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap);
-static size_t link_local(const fzn_request_t *request, char *reply, size_t cap);
+static size_t link_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                         size_t cap);
 static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap);
 static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
@@ -451,7 +453,7 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 	size_t n = routing_local(origin, request, reply, reply_cap);
 
 	if (!n)
-		n = card_local(request, reply, reply_cap);
+		n = card_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = request_local(origin, request, reply, reply_cap);
 	if (!n)
@@ -471,7 +473,7 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 	if (!n)
 		n = address_local(origin, request, reply, reply_cap);
 	if (!n)
-		n = link_local(request, reply, reply_cap);
+		n = link_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = streams_local(origin, request, reply, reply_cap);
 	if (!n)
@@ -1548,7 +1550,8 @@ static size_t link_of(const fzn_udp_addr_t *at)
  * latency in ms and loss per mille as estimated, `-` for both on a link
  * nothing has been observed on (sec 202: a prior is no measurement), age the
  * seconds since the last observation. */
-static size_t link_local(const fzn_request_t *request, char *reply, size_t cap)
+static size_t link_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                         size_t cap)
 {
 	size_t at, i;
 	uint64_t now = mono_ms();
@@ -1556,6 +1559,9 @@ static size_t link_local(const fzn_request_t *request, char *reply, size_t cap)
 	if (request->parsed != FZN_VERB_LIST || !request->arg || request->arg_len != 4u
 	    || memcmp(request->arg, "link", 4u) != 0)
 		return 0;
+	/* THIS NODE'S OWN USER'S, sec 763: every peer's address. */
+	if (fzn_node_relay_refuse_local(origin))
+		return (size_t)snprintf(reply, cap, "denied %s\n", fzn_node_relay_refuse_local(origin));
 	at = (size_t)snprintf(reply, cap, "ok %zu %llu", n_link_meters,
 	                      (unsigned long long)links_unmeasured);
 	for (i = 0; i < n_link_meters && at < cap; i++) {
@@ -6897,7 +6903,8 @@ static int own_card(fzn_contact_card_t *card, const uint8_t *name, size_t name_l
 
 /* `get card [NAME]`, sec 617: this host's contact card as text, `ok
  * FZC1:...`, fitting a reply line. 0 for any other request. */
-static size_t card_local(const fzn_request_t *request, char *reply, size_t reply_cap)
+static size_t card_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                         size_t reply_cap)
 {
 	static fzn_contact_card_t card;
 	static uint8_t bytes[FZN_CONTACT_CARD_MAX];
@@ -6908,6 +6915,11 @@ static size_t card_local(const fzn_request_t *request, char *reply, size_t reply
 	    || memcmp(request->arg, "card", 4u) != 0
 	    || (request->arg_len > 4u && request->arg[4] != ' '))
 		return 0;
+	/* THIS NODE'S OWN USER'S, sec 763: a card is the user's invitation,
+	 * signed, and carries where this host is reached. */
+	if (fzn_node_relay_refuse_local(origin))
+		return (size_t)snprintf(reply, reply_cap, "denied %s\n",
+		                        fzn_node_relay_refuse_local(origin));
 	if (request->arg_len > 5u) {
 		n = request->arg_len - 5u;
 		if (n > FZN_CONTACT_CARD_NAME_MAX

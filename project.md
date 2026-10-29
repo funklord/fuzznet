@@ -74489,3 +74489,21 @@ origin. Nine sabotage entries, one a condition.
   are now answered `denied where this host is reached is its own user's`
   to any other origin. Decided from those siblings rather than asked: a
   consumer reading them as another user would now be refused.
+
+## 763. The same gap in two more verbs: `get card` and `list link`, 2026-10-29
+
+Sec 762's lens, the shape of its second hole -- a local verb dispatched
+without the origin its siblings check -- run over the whole of
+`local_handle`. Four handlers took no origin: `get node`, which says so on
+purpose ("any local caller's, as `status` is"), the log listing, which
+takes its own, and two that had no reason to:
+- **`get card`** mints this user's contact card, signed, carrying this
+  host's address and its estate's routing seeds -- the user's invitation,
+  handed to whoever asked;
+- **`list link`** lists every peer's address with its latency, loss and
+  traffic.
+Both now answer any origin but the node's own user `denied where this
+host is reached is its own user's`, through sec 762's
+`fzn_node_relay_refuse_local`, whose table already tries each origin.
+`live_relay` and `live_faults`, which ask `get card` as the user, pass;
+`make test` green.
