@@ -74507,3 +74507,37 @@ host is reached is its own user's`, through sec 762's
 `fzn_node_relay_refuse_local`, whose table already tries each origin.
 `live_relay` and `live_faults`, which ask `get card` as the user, pass;
 `make test` green.
+
+## 764. Journey 4's fuzzing bar: a routing manifest, a contact's device, a clock's answer, 2026-10-29
+
+Sec 689's fuzzing bar for reachability's wire inputs. The relay request's
+head was fuzzed already (`wire/test/seal_fuzz.c`'s peek), and introduce,
+notify and the LAN probe are parsed by fuzznetd and judged by sec 762's
+table. What had no harness were the three signed or stamped objects a
+peer hands over: **`node/test/reachability_fuzz.c`**, in `make test`, with
+real Ed25519 over BLAKE2b.
+- **A routing manifest**, another user's word on where its hosts are:
+  whole, it decodes, verifies and encodes back as itself; bent, it decodes
+  to exactly its bytes -- one encoding a manifest, so what is kept is
+  what was signed -- and never verifies.
+- **A contact's device**: the same, but bent, it holds only with its
+  signed parts -- owner, record, chain -- as they were.
+- **A time answer**: taken for its own ask's nonce with the offset it
+  carries, never for another nonce, and bent, only from its own bytes.
+
+**Found: a device's address is signed by nobody.** Three bent entries in
+3000 cases held, every one differing only at bytes 178 to 185 -- the
+address and port after the signed head. The record is the device's
+signature and the chain its owner's, but where it is reached is vouched
+for only by whoever offered the entry: the contact's own host, whose
+owner fuzznetd checks against the entry's, or a member of this estate
+passing on one it kept. Both are already trusted for that contact, and a
+moved address misdirects frames sealed for the device, which it alone can
+open -- a delivery lost, not one read. So it is a property, not a hole,
+and `node/contact_devices.h` now says it beside what is not checked;
+signing the address would take the device or its owner signing its
+estate's `net/address`, a change to the entry's format, and is not made.
+
+Measured at 3000 cases: 414 bent manifests decoded and 1048 refused, none
+verified; 569 bent devices decoded and 965 refused, 3 held with only the
+address moved; 106 bent time answers taken, each from its own bytes.

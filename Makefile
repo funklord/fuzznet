@@ -358,6 +358,7 @@ TEST_SRCS := chain/test/chain_test.c chain/test/revocation_test.c \
              node/test/keys_fuzz.c node/test/card_fuzz.c \
              node/test/votes_fuzz.c \
              node/test/pieces_fuzz.c \
+             node/test/reachability_fuzz.c \
              provision/test/provision_test.c \
              roster/test/roster_test.c \
              disclose/test/disclose_test.c \
@@ -636,6 +637,7 @@ TEST_BINS := $(BUILD_DIR)/chain/test/chain_test \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
              $(BUILD_DIR)/node/test/pieces_fuzz \
+             $(BUILD_DIR)/node/test/reachability_fuzz \
              $(BUILD_DIR)/disclose/test/disclose_fuzz \
              $(BUILD_DIR)/persist/test/persist_fuzz \
              $(BUILD_DIR)/wire/test/relay_fuzz \
@@ -3849,6 +3851,18 @@ $(BUILD_DIR)/node/test/identity_test: $(BUILD_DIR)/node/test/identity_test.o \
 	$(CC) $(CFLAGS) $^ -o $@
 
 # A user's routing manifest, sec 611.
+# A routing manifest and a time answer from a lying peer: sec 689's journey
+# 4, reachability.
+$(BUILD_DIR)/node/test/reachability_fuzz: $(BUILD_DIR)/node/test/reachability_fuzz.o \
+                                          $(BUILD_DIR)/node/routing.o $(BUILD_DIR)/node/clocks.o \
+                                          $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/prekey/prekey.o \
+                                          $(BUILD_DIR)/chain/sign_monocypher.o \
+                                          $(BUILD_DIR)/session/hash_monocypher.o \
+                                          $(BUILD_DIR)/monocypher.o $(BUILD_DIR)/monocypher-ed25519.o \
+                                          $(NODE_SERVE_OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
 $(BUILD_DIR)/node/test/routing_test: $(BUILD_DIR)/node/test/routing_test.o \
                                      $(BUILD_DIR)/node/routing.o $(NODE_SERVE_OBJS)
 	@mkdir -p $(dir $@)
@@ -5031,6 +5045,7 @@ FUZZ_BINS := $(BUILD_DIR)/chunk/test/reassembly_fuzz \
              $(BUILD_DIR)/node/test/reconcile_fuzz \
              $(BUILD_DIR)/node/test/votes_fuzz \
              $(BUILD_DIR)/node/test/pieces_fuzz \
+             $(BUILD_DIR)/node/test/reachability_fuzz \
              $(BUILD_DIR)/disclose/test/disclose_fuzz \
              $(BUILD_DIR)/catalog/test/attribute_fuzz \
              $(BUILD_DIR)/catalog/test/plan_fuzz \

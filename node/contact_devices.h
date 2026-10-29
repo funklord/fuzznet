@@ -22,6 +22,14 @@
  * A host's entry also carries where it is reached, as its own estate's
  * `net/address` says; a device that is only a sender carries none.
  *
+ * WHAT IS NOT SIGNED: where a host is reached. The record is the device's
+ * signature and the chain its owner's, but the address and port beside
+ * them are signed by nobody (sec 764): they are vouched for by whoever
+ * offered the entry -- the contact's own host, its owner checked, or a
+ * member of this estate passing on one it kept. One moved misdirects
+ * frames sealed for the device, which it alone can open: a delivery lost,
+ * not one read.
+ *
  * WHAT IS NOT CHECKED: revocations in the other estate. Its revocation
  * store is not this node's, so a device the contact revoked is still taken
  * here until the contact's roster or a later entry says otherwise; the
