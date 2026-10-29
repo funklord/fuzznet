@@ -28,6 +28,7 @@ Exit 0 on a pass, 1 on a failure.
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -180,7 +181,8 @@ def main(argv):
 				raise failed("b: B's get lan answered %r, not C at 127.0.0.1 %s"
 				             % (heard, port["c"]))
 			row = [r for r in heard[2:] if r.startswith(host_key["c"] + ",")][0]
-			if abs(int(row.rsplit(",", 1)[1]) - time.time()) > 120:
+			# IN B'S SECONDS, which run `skew` ahead under --skew.
+			if abs(int(row.rsplit(",", 1)[1]) - (time.time() + skew)) > 120:
 				raise failed("b: C's row %r has no time in seconds" % row)
 			# B'S NEXT ROUND finds C: waited for here rather than by wait_for,
 			# whose limit is half a round.
@@ -204,6 +206,34 @@ def main(argv):
 			if whole.groups() != (str(PAYLOAD_LEN), "1"):
 				raise failed("b: B's file was %s bytes from %s peer(s)" % whole.groups())
 			print("livecheck: b: B probed the LAN, found C, and fetched its file whole")
+
+			# b2: BOTH VERSIONS TAKEN, sec 758: a version 1 probe under B's key,
+			# sent from a socket of the script's own, is answered there; one of
+			# a version past 2 is not.
+			def probe_answered(version):
+				p = bytearray(144)
+				p[0] = 0xFC
+				p[1] = version
+				p[2:34] = bytes.fromhex(host_key["b"])
+				p[34:42] = os.urandom(8)
+				s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+				try:
+					s.bind(("127.0.0.1", 0))
+					s.settimeout(3.0)
+					s.sendto(bytes(p), ("127.0.0.1", int(port["c"])))
+					try:
+						s.recvfrom(2048)
+						return True
+					except socket.timeout:
+						return False
+				finally:
+					s.close()
+
+			if not probe_answered(1):
+				raise failed("b2: C did not answer a version 1 probe")
+			if probe_answered(3):
+				raise failed("b2: C answered a probe of version 3")
+			print("livecheck: b2: C answered a version 1 probe, and not one of version 3")
 
 			# c: switched off, B sends nothing and says why (sec 639).
 			expect(socks["b"], "c", "set setting host net/discovery off", "ok")

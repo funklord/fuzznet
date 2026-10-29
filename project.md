@@ -74313,16 +74313,10 @@ its `ok` waited past as a relayed line's is (sec 754) -- and a relayed
 delivery asks it as it starts, when unmeasured, so the delivery's own
 resend (sec 756) goes restamped. Relay then passed at 900 s.
 
-**LAN discovery is parked, for a wire decision.** At 900 s lan fails: C
-answers B's probe with a hello stamped by C's clock, and B refuses it as
-expired 1740 s before it came. A probe is a small unsealed frame -- a
-mark, a version, the prober's key -- carrying nothing of the prober's
-clock, and C has no measured offset for B, whose own address is not one C
-pulls from. The fix that fits is a probe that carries its sender's clock,
-so the answer is stamped in the prober's terms; that is a change to the
-probe's format, and a daemon from before it would ignore the new probe, so
-it is the holder's to make. Accepting an expired hello is not: its expiry
-is what stops a replay redirecting the prober.
+**LAN discovery under skew needed a wire decision, taken in sec 758.** At
+900 s lan failed: C answered B's probe with a hello stamped by C's clock,
+and B refused it as expired 1740 s before it came, the probe carrying
+nothing of B's clock.
 
 **Measured after:** at 900 s, relay 3 of 3 and introduce 3 of 3; all
 three pass at no loss; `live_estate` and `live_chat` still pass at 900 s,
@@ -74346,3 +74340,32 @@ reproduction rather than run by `make livecheck`. What is known:
 Not yet built: the same phase for `live_introduce` (the introducer
 killed mid-introduction) and `live_lan` (the probed host killed between
 its answer and the fetch).
+
+## 758. A LAN probe that carries its sender's clock, version 2, 2026-10-29
+
+**The holder's decision, 2026-10-29:** build the version 2 probe, send it,
+and accept both versions. Sec 757 found the need: a probe said nothing of
+its sender's clock, so the hello answering it was stamped by the
+answerer's, and a prober whose clock was 1800 s apart refused it as
+expired. Accepting an expired hello was ruled out, its expiry being what
+stops a replay redirecting the prober.
+
+**The format** (`node/serve.h`): the same 144 bytes, padded to the hello
+that answers it. The mark, the version, the prober's key and eight bytes
+drawn at random as before; version 2 adds the prober's wall clock in
+milliseconds, big-endian, at `FZN_NODE_PROBE_OFF_CLOCK`. A daemon sends
+version 2 and takes 1 and 2; a version 1 probe is answered as before,
+by the answerer's own clock. **The cost, accepted:** a daemon from before
+this ignores a version 2 probe, as it checked for version 1 exactly.
+
+**The answer** is stamped by the prober's measured offset when there is
+one, and otherwise by the offset the probe states. The claim is unsigned
+and moves nothing but that hello's expiry, sent to where the probe came
+from as it always was.
+
+**Measured.** `live_lan --skew 900` passes 3 of 3 where it failed at the
+hello; its check on the row's time now reads it in B's seconds. A new
+phase b2 sends C a raw version 1 probe under B's key from a socket of the
+script's own and requires an answer, and one of version 3 and requires
+none. With version 1 refused in the daemon, b2 fails, which is its
+control. No loss, `live_lan` passes.

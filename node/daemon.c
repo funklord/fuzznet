@@ -12143,7 +12143,8 @@ static void lan_probe_heard(void *ctx, const uint8_t *probe, size_t len,
 
 	(void)ctx;
 	if (!st || st->udp_fd < 0 || !contact_id || !node_apply.store || len != FZN_NODE_PROBE_LEN
-	    || probe[1] != 1u || memcmp(who, contact_id->pubkey, FZN_PUBKEY_LEN) == 0)
+	    || (probe[1] != 1u && probe[1] != 2u)
+	    || memcmp(who, contact_id->pubkey, FZN_PUBKEY_LEN) == 0)
 		return;
 	if (now >= window + 60u || window > now) {
 		window = now;
@@ -12167,6 +12168,18 @@ static void lan_probe_heard(void *ctx, const uint8_t *probe, size_t len,
 	memset(&c, 0, sizeof(c));
 	fzn_node_pairing_caller(&pairing, contact_id->pubkey, &c);
 	stamp_offset(&c, pairing.node);
+	/* IN THE PROBER'S TERMS, sec 758, when its clock is not measured here:
+	 * a version 2 probe says what its clock read. Answered by this host's
+	 * own, a hello to a prober 1800 s ahead was refused as expired. The
+	 * claim is unsigned, and moves nothing but this hello's expiry. */
+	{
+		int64_t measured = 0;
+		uint64_t rtt = 0;
+
+		if (probe[1] == 2u && !fzn_node_offsets_of(&node_offsets, pairing.node, &measured, &rtt))
+			c.clock_offset_ms =
+			        (int64_t)fzn_get_be64(probe + FZN_NODE_PROBE_OFF_CLOCK) - (int64_t)wall_ms();
+	}
 	c.node = *from;
 	c.hash = contact_hash_ops;
 	c.aead = contact_aead_ops;
@@ -12239,16 +12252,19 @@ static size_t lan_probe(const char **why, char *out, size_t out_cap)
 		}
 	memset(probe, 0, sizeof(probe));
 	probe[0] = FZN_NODE_PROBE_MARK;
-	probe[1] = 1u;
-	memcpy(probe + 2, contact_id->pubkey, FZN_PUBKEY_LEN);
+	probe[1] = (uint8_t)FZN_NODE_PROBE_VERSION;
+	memcpy(probe + FZN_NODE_PROBE_OFF_KEY, contact_id->pubkey, FZN_PUBKEY_LEN);
 	if (!nports) {
 		*why = "no sibling or contact host advertises a port to probe";
 		return 0;
 	}
-	if (!contact_rng_ops || !contact_rng_ops->fill(contact_rng_ops->ctx, probe + 2 + FZN_PUBKEY_LEN, 8u)) {
+	if (!contact_rng_ops
+	    || !contact_rng_ops->fill(contact_rng_ops->ctx, probe + FZN_NODE_PROBE_OFF_NONCE, 8u)) {
 		*why = "the probe would not be drawn";
 		return 0;
 	}
+	/* THIS HOST'S CLOCK, sec 758, so the answer is stamped in its terms. */
+	fzn_put_be64(probe + FZN_NODE_PROBE_OFF_CLOCK, wall_ms());
 	(void)fzn_udp_broadcast(st->udp_fd);
 	for (i = 0; i < nports; i++) {
 		fzn_udp_addr_t to;

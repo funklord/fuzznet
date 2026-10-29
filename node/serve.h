@@ -35,6 +35,15 @@
  * asked for it. */
 #define FZN_NODE_PROBE_MARK 0xFCu
 #define FZN_NODE_PROBE_LEN 144u
+/* ITS LAYOUT: the mark, its version, the prober's key, eight bytes drawn
+ * at random, then -- version 2, sec 758 -- the prober's wall clock in
+ * milliseconds, big-endian, so the hello answering it is stamped in the
+ * prober's terms. A version 1 probe carries no clock and is answered as
+ * before; both are taken, and version 2 is what is sent. The rest is 0. */
+#define FZN_NODE_PROBE_VERSION 2u
+#define FZN_NODE_PROBE_OFF_KEY 2u
+#define FZN_NODE_PROBE_OFF_NONCE 34u
+#define FZN_NODE_PROBE_OFF_CLOCK 42u
 
 /* The reply buffer the node provides when a consumer supplies none.
  *
