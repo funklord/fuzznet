@@ -15385,11 +15385,18 @@ int fzn_daemon_main(int argc, char **argv, const fzn_daemon_ext_t *ext)
 				case ROUND_GRANTS:
 #ifdef FZN_RECORD_STORE_FILE_ON
 					/* A GRANT JUST LOGGED, PUSHED NOW, sec 585: logged after
-					 * the round's push, it would wait a round for the next. */
-					if (pair_siblings(&identity, round_now))
+					 * the round's push, it would wait a round for the next.
+					 * LOCAL CLIENTS ANSWERED meanwhile, sec 748: the push holds
+					 * only `fzn_exchange_push`'s own buffers and reads the store
+					 * afresh at each step, so a local write between two asks is
+					 * pushed a round later, as one between steps would be. */
+					if (pair_siblings(&identity, round_now)) {
+						answering_local = 1;
 						for (t = 0; t < npulls; t++)
 							if (!silent_peer(&pulls[t]))
 								push_one(&pulls[t], round_now);
+						answering_local = 0;
+					}
 					/* AND THE SIBLINGS AGAIN, sec 586: an address or a pairing
 					 * the journal brought this round is asked from now, by the
 					 * rest of the round, not from the next. */
