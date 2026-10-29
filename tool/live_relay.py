@@ -202,8 +202,19 @@ def main(argv):
 				time.sleep(0.2)
 			turn("b1", "b1e")
 			turn("b2", "b2e")
-			d = turn("a", "a-e")
-			d.wait_for(RELAYED_RE, "A's round relaying the second line through B1")
+			# AS MANY AS FOUR OF A'S ROUNDS, the loss bar (sec 689): started
+			# again, B2 says hello to B1 once and then every 20 s, and a hello
+			# lost leaves B1 refusing -- "that host has not said where it is",
+			# answered to A now (sec 754) -- until the next.
+			for rnd in range(4):
+				d = turn("a", "a-e%d" % rnd)
+				try:
+					d.wait_for(RELAYED_RE, "A's round relaying the second line through B1")
+					break
+				except failed:
+					if rnd == 3:
+						raise
+					turn("b2", "b2e%d" % rnd)
 			reply = ask(socks["b2"], "list message " + keys["a"])
 			if LATER not in reply:
 				raise failed("c: B2 holds %r under A's root" % reply)

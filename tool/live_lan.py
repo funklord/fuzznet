@@ -141,13 +141,22 @@ def main(argv):
 				             % (said[1], probed.group(1)))
 			# WHO ANSWERED, sec 659: C's hello, from its serving port on this
 			# network, its time in seconds.
+			# PROBED AGAIN when nothing is heard within 10 s, three probes at
+			# most: under loss a probe or its hello is lost, and a user asks
+			# again.
 			heard = []
 			deadline = time.monotonic() + 30.0
+			again = time.monotonic() + 10.0
+			probes = 1
 			while time.monotonic() < deadline:
 				heard = ask(socks["b"], "get lan").split()
 				if any(r.startswith(host_key["c"] + ",127.0.0.1," + port["c"] + ",")
 				       for r in heard[2:]):
 					break
+				if time.monotonic() > again and probes < 3:
+					ask(socks["b"], "fetch lan")
+					probes += 1
+					again = time.monotonic() + 10.0
 				time.sleep(0.5)
 			else:
 				raise failed("b: B's get lan answered %r, not C at 127.0.0.1 %s"
