@@ -11491,6 +11491,7 @@ static void file_refs_settle(void)
 /* HOW OFTEN A HOST SAYS HELLO to the peers it pulls from, seconds: under
  * the half-minute a NAT commonly keeps a quiet mapping. */
 #define FZND_HELLO_EVERY 20u
+/* The quota table's first room; it doubles past it (sec 753). */
 #define FZND_RELAY_QUOTA_ROWS 32u
 
 /* A HOST CELL OF THIS HOST'S as a number: `def` unset or not digits. */
@@ -11516,32 +11517,49 @@ static uint64_t host_number(const char *key, uint64_t def)
 
 /* THE QUOTA, per requester KEY -- fuzzypickles' was per source address,
  * and here a sender is its key (sec 596): `relay/quota` bytes, 100 MiB,
- * in `relay/window` seconds, a day; 0 bytes is unlimited. A full table
- * refuses rather than evicting a row whose window still runs. 1 charged. */
-static struct {
+ * in `relay/window` seconds, a day; 0 bytes is unlimited. A row whose
+ * window still runs is never evicted. 1 charged.
+ *
+ * GROWN, NOT FULL, sec 753: the table was 32 rows, and a full one refused
+ * every requester past them for a day. Only this estate's members and its
+ * contacts are charged -- anyone else is refused before -- so the rows are
+ * bounded by the estate itself, and the table doubles when every row's
+ * window still runs. Out of memory, it refuses as a full table did. */
+struct relay_row {
 	uint8_t key[FZN_PUBKEY_LEN];
 	uint64_t start, used, refused;
 	int set;
-} relay_rows[FZND_RELAY_QUOTA_ROWS];
+};
+static struct relay_row *relay_rows;
+static size_t relay_rows_cap;
 
 static int relay_charge(const uint8_t key[FZN_PUBKEY_LEN], size_t bytes, uint64_t now)
 {
 #define rows relay_rows
 	uint64_t quota = host_number("relay/quota", 100u * 1024u * 1024u);
 	uint64_t window = host_number("relay/window", 86400u);
-	size_t i, free_row = FZND_RELAY_QUOTA_ROWS;
+	size_t i, free_row = relay_rows_cap;
 
-	for (i = 0; i < FZND_RELAY_QUOTA_ROWS; i++) {
+	for (i = 0; i < relay_rows_cap; i++) {
 		if (rows[i].set && memcmp(rows[i].key, key, FZN_PUBKEY_LEN) == 0)
 			break;
 		/* A ROW WHOSE WINDOW ENDED, or a clock set back, is free. */
-		if (free_row == FZND_RELAY_QUOTA_ROWS
+		if (free_row == relay_rows_cap
 		    && (!rows[i].set || now >= rows[i].start + window || rows[i].start > now))
 			free_row = i;
 	}
-	if (i == FZND_RELAY_QUOTA_ROWS) {
-		if (free_row == FZND_RELAY_QUOTA_ROWS)
-			return 0;
+	if (i == relay_rows_cap) {
+		if (free_row == relay_rows_cap) {
+			size_t cap = relay_rows_cap ? 2u * relay_rows_cap : FZND_RELAY_QUOTA_ROWS;
+			struct relay_row *more = realloc(relay_rows, cap * sizeof(*more));
+
+			if (!more)
+				return 0;
+			memset(more + relay_rows_cap, 0, (cap - relay_rows_cap) * sizeof(*more));
+			free_row = relay_rows_cap;
+			relay_rows = more;
+			relay_rows_cap = cap;
+		}
 		i = free_row;
 		memcpy(rows[i].key, key, FZN_PUBKEY_LEN);
 		rows[i].start = now;
@@ -11585,13 +11603,13 @@ static size_t relay_local(fzn_origin_t origin, const fzn_request_t *request, cha
 	if (origin != FZN_ORIGIN_SAME_USER)
 		return (size_t)snprintf(reply, cap, "denied who relays through this host is its own "
 		                                    "user's\n");
-	for (i = 0; i < FZND_RELAY_QUOTA_ROWS; i++)
+	for (i = 0; i < relay_rows_cap; i++)
 		n += relay_rows[i].set && now < relay_rows[i].start + window
 		     && relay_rows[i].start <= now;
 	at = (size_t)snprintf(reply, cap, "ok %u %llu %llu %zu",
 	                      host_flag("relay/enabled") == 1 ? 1u : 0u,
 	                      (unsigned long long)quota, (unsigned long long)window, n);
-	for (i = 0; i < FZND_RELAY_QUOTA_ROWS && at + 100u < cap; i++) {
+	for (i = 0; i < relay_rows_cap && at + 100u < cap; i++) {
 		if (!relay_rows[i].set || now >= relay_rows[i].start + window
 		    || relay_rows[i].start > now)
 			continue;

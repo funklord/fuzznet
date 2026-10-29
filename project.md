@@ -74112,3 +74112,18 @@ on wlan0 at T". Whether the log engine generalises to records or records
 get an engine of their own shape is this tree's question, open until the
 work is taken up. netcfgd builds meanwhile only the half that needs
 nothing from fuzznet: lists resolved against what is observed now.
+
+## 753. The relay's quota table grows rather than refusing, 2026-10-29
+
+Journey 4 (sec 689), first read. A relay charges each requester against
+`relay/quota` bytes a `relay/window` (100 MiB a day) in a table of 32
+rows, and a full table refused: a 33rd requester whose windows had not
+run was refused relaying for up to a day. Only this estate's members and
+its contacts are charged -- anyone else is refused before -- so the rows
+are bounded by the estate itself, and a fixed 32 is the kind of cap sec
+704 removed elsewhere. The table now starts at 32 and doubles when
+every row's window still runs; out of memory it refuses, as a full table
+did. A row whose window runs is still never evicted.
+
+Not tested past 32 requesters: no test runs 33 hosts through one relay.
+The change is the growth arithmetic and a realloc.
