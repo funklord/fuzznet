@@ -27,6 +27,7 @@ Exit 0 on a pass, 1 on a failure.
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -57,9 +58,20 @@ def took(d):
 
 
 def main(argv):
-	if len(argv) != 2:
-		print("usage: live_introduce.py PATH_TO_FUZZNETD", file=sys.stderr)
+	# `--skew S`, sec 757: B S seconds ahead and C S behind, by faketime;
+	# A, the root, on the real clock.
+	skew = 0
+	if len(argv) == 4 and argv[2] == "--skew" and argv[3].isdigit():
+		skew = int(argv[3])
+	elif len(argv) != 2:
+		print("usage: live_introduce.py PATH_TO_FUZZNETD [--skew S]", file=sys.stderr)
 		return 2
+	skews = {}
+	if skew:
+		if not shutil.which("faketime"):
+			print("livecheck: introduce SKIPPED -- --skew needs faketime on PATH")
+			return 0
+		skews = {"b": "+%ds" % skew, "c": "-%ds" % skew}
 
 	class run:
 		pass
@@ -84,10 +96,11 @@ def main(argv):
 		try:
 			command(run, ["--fuzznet-dir=" + dirs["a"], "--new-root"], None)
 			for who in ("b", "c"):
-				prekey = command(run, ["--fuzznet-dir=" + dirs[who], "--prekey"], None)
+				prekey = command(run, ["--fuzznet-dir=" + dirs[who], "--prekey"], skews.get(who))
 				card = command(run, ["--fuzznet-dir=" + dirs["a"], "--pair=" + prekey,
 				                     "--delegable"], None)
-				command(run, ["--fuzznet-dir=" + dirs[who], "--accept=" + card, "--join"], None)
+				command(run, ["--fuzznet-dir=" + dirs[who], "--accept=" + card, "--join"],
+				        skews.get(who))
 			started["a"] = daemon(run, "a1", dirs["a"], socks["a"],
 			                      extra=["--udp-port=" + port["a"]])
 
@@ -96,7 +109,8 @@ def main(argv):
 			taken = {"b": False, "c": False}
 			for rnd in range(ROUNDS):
 				for who in ("c", "b"):
-					d = daemon(run, "%s%d" % (who, rnd), dirs[who], socks[who], extra=args[who])
+					d = daemon(run, "%s%d" % (who, rnd), dirs[who], socks[who], fake=skews.get(who),
+					           extra=args[who])
 					try:
 						if ref is None and who == "c":
 							# A MEMBER'S SETTING once its first round is over: it is allowed by the
@@ -120,9 +134,11 @@ def main(argv):
 			print("livecheck: a: B and C paired each other through the estate")
 
 			# b: C up and saying hello to A; B asks for C's file.
-			started["c"] = daemon(run, "c-b", dirs["c"], socks["c"], extra=args["c"])
+			started["c"] = daemon(run, "c-b", dirs["c"], socks["c"], fake=skews.get("c"),
+			                      extra=args["c"])
 			started["c"].wait_for(RECONCILE_RE, "C's reconcile pass")
-			started["b"] = daemon(run, "b-b", dirs["b"], socks["b"], extra=args["b"])
+			started["b"] = daemon(run, "b-b", dirs["b"], socks["b"], fake=skews.get("b"),
+			                      extra=args["b"])
 			started["b"].wait_for(RECONCILE_RE, "B's reconcile pass")
 			expect(socks["b"], "b", "fetch file " + ref, "ok")
 			# A LATER ROUND introduces C: waited for here rather than by

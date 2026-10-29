@@ -2,7 +2,7 @@
 """Run live scripts again and again, keeping what failed: sec 689 step 0a.
 
     live_repeat.py --out DIR [--runs N] [--keep K] [--fuzznetd PATH]
-                   [--timeout S] SCRIPT...
+                   [--timeout S] [--args 'OPTIONS'] SCRIPT...
 
 SCRIPT is a live script's name as `make livecheck` runs it -- `deliver`
 for `tool/live_deliver.py` -- run against PATH (./fuzznetd by default), N
@@ -114,14 +114,16 @@ def sweep(run_dir):
 	return killed
 
 
-def run_once(script, fuzznetd, run_dir, limit):
-	"""One run: its exit status (None when it was stopped) and output."""
+def run_once(script, fuzznetd, run_dir, limit, extra=()):
+	"""One run: its exit status (None when it was stopped) and output;
+	`extra` after the daemon's path, as a script's own options."""
 	env = dict(os.environ)
 	env["TMPDIR"] = run_dir
 	env["FZN_LIVE_KEEP_UNDER"] = run_dir
 	out_path = os.path.join(run_dir, "output.txt")
 	with open(out_path, "wb") as out:
-		proc = subprocess.Popen([sys.executable, "-c", BOOT, script, fuzznetd], cwd=ROOT,
+		proc = subprocess.Popen([sys.executable, "-c", BOOT, script, fuzznetd] + list(extra),
+		                        cwd=ROOT,
 								env=env, stdout=out, stderr=subprocess.STDOUT,
 								start_new_session=True)
 		try:
@@ -148,6 +150,8 @@ def main(argv):
 	p.add_argument("--keep", type=int, default=5)
 	p.add_argument("--fuzznetd", default=os.path.join(ROOT, "fuzznetd"))
 	p.add_argument("--timeout", type=int, default=0)
+	p.add_argument("--args", default="",
+	               help="options handed to every script after the daemon, e.g. '--skew 900'")
 	p.add_argument("scripts", nargs="+")
 	a = p.parse_args(argv[1:])
 	if a.runs < 1 or a.keep < 0:
@@ -174,7 +178,7 @@ def main(argv):
 			os.mkdir(run_dir)
 			started = time.monotonic()
 			limit = a.timeout or limits.get(s, DEFAULT_TIMEOUT)
-			status, text = run_once(paths[s], fuzznetd, run_dir, limit)
+			status, text = run_once(paths[s], fuzznetd, run_dir, limit, a.args.split())
 			took = time.monotonic() - started
 			left = sweep(run_dir)
 			ok = status == 0 and left == 0

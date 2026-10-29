@@ -36,6 +36,7 @@ Exit 0 on a pass, 1 on a failure.
 
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -83,9 +84,20 @@ def free(port):
 
 
 def main(argv):
-	if len(argv) != 2:
-		print("usage: live_relay.py PATH_TO_FUZZNETD", file=sys.stderr)
+	# `--skew S`, sec 757: B1, the relay, S seconds ahead and B2, the host it
+	# relays to, S behind, by faketime -- every clock of the three apart.
+	skew = 0
+	if len(argv) == 4 and argv[2] == "--skew" and argv[3].isdigit():
+		skew = int(argv[3])
+	elif len(argv) != 2:
+		print("usage: live_relay.py PATH_TO_FUZZNETD [--skew S]", file=sys.stderr)
 		return 2
+	skews = {}
+	if skew:
+		if not shutil.which("faketime"):
+			print("livecheck: relay SKIPPED -- --skew needs faketime on PATH")
+			return 0
+		skews = {"b1": "+%ds" % skew, "b2": "-%ds" % skew}
 
 	class run:
 		pass
@@ -118,7 +130,8 @@ def main(argv):
 		started = {}
 
 		def up(who, tag):
-			started[who] = daemon(run, tag, dirs[who], socks[who], extra=args[who])
+			started[who] = daemon(run, tag, dirs[who], socks[who], fake=skews.get(who),
+			                      extra=args[who])
 			return started[who]
 
 		def down(who):
@@ -136,14 +149,15 @@ def main(argv):
 			for who in names:
 				os.mkdir(dirs[who])
 			for who in ("a", "b1"):
-				command(run, ["--fuzznet-dir=" + dirs[who], "--new-root"], None)
+				command(run, ["--fuzznet-dir=" + dirs[who], "--new-root"], skews.get(who))
 				keys[who] = command(run, ["--fuzznet-dir=" + dirs[who], "--prekey"],
-				                    None)[PREKEY_HOST]
-			prekey = command(run, ["--fuzznet-dir=" + dirs["b2"], "--prekey"], None)
+				                    skews.get(who))[PREKEY_HOST]
+			prekey = command(run, ["--fuzznet-dir=" + dirs["b2"], "--prekey"], skews.get("b2"))
 			keys["b2"] = prekey[PREKEY_HOST]
 			card = command(run, ["--fuzznet-dir=" + dirs["b1"], "--pair=" + prekey,
-			                     "--delegable"], None)
-			command(run, ["--fuzznet-dir=" + dirs["b2"], "--accept=" + card, "--join"], None)
+			                     "--delegable"], skews.get("b1"))
+			command(run, ["--fuzznet-dir=" + dirs["b2"], "--accept=" + card, "--join"],
+			        skews.get("b2"))
 
 			# B's estate: B1 reached and relaying; B2 advertising nowhere.
 			up("b1", "b1a")
