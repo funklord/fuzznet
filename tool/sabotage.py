@@ -10827,6 +10827,14 @@ SABOTAGES = [
 		'a segment whose time is not a number reads as closed at a made-up time -- secs 483, 573',
 	),
 	(
+		'messages-an-import-sees-its-own-unindexed-lines',
+		'messages/messages.c',
+		'\t    || written_unindexed(m, contact, direction, id))',
+		'\t    || 0)',
+		'a delivery cut between its record and its index, offered again after a restart, is '
+		'filed twice -- sec 748',
+	),
+	(
 		'messages-a-marked-line-is-not-kept-again',
 		'messages/messages.c',
 		'\tif (line_marked(m, contact, last->direction, last->id)\n\t    || recently_indexed(',
@@ -11844,8 +11852,8 @@ SABOTAGES = [
 	(
 		"messages-import-checks-held",
 		"messages/messages.c",
-		"\tif (fzn_messages_held(m, contact, direction, id))\n\t\treturn FZN_MESSAGES_OK;",
-		"\tif (0)\n\t\treturn FZN_MESSAGES_OK;",
+		"\tif (fzn_messages_held(m, contact, direction, id)\n\t    || written_unindexed(",
+		"\tif (0\n\t    || written_unindexed(",
 		"an import writes a line the user's devices already hold, once per device that held it -- sec 528",
 	),
 	(

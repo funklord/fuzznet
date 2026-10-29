@@ -191,7 +191,9 @@ fzn_messages_err_t fzn_messages_write(const fzn_messages_t *m,
  * IMPORT A LINE held before the move: written as `fzn_messages_write`
  * writes, unless `contact`'s conversation already holds (`direction`,
  * `id`) -- written by any device -- when nothing is written. `*written`
- * says which. What was absorbed is what is checked, so absorb first.
+ * says which. What was absorbed is what is checked, so absorb first --
+ * and this device's own lines written past its cursor too, which a crash
+ * between a record and its index leaves (sec 748).
  */
 fzn_messages_err_t fzn_messages_import(const fzn_messages_t *m,
                                        const uint8_t contact[FZN_PUBKEY_LEN], uint8_t direction,

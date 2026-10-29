@@ -471,6 +471,35 @@ fzn_messages_err_t fzn_messages_write(const fzn_messages_t *m,
 	return FZN_MESSAGES_OK;
 }
 
+static int record_at(const fzn_messages_t *m, const uint8_t device[FZN_PUBKEY_LEN], uint64_t seq,
+                     uint8_t *buf, size_t cap, fzn_record_t *rec);
+
+/* WRITTEN HERE AND NOT YET INDEXED, sec 748: a line of this device's past
+ * its cursor, which a crash between the record and its index leaves, and
+ * the next absorb takes in. The index cannot say it is held until then, so
+ * a contact's re-offer after a restart would file it twice. Nonzero when
+ * one of `contact`'s lines in `direction` with `id` is there. */
+static int written_unindexed(const fzn_messages_t *m, const uint8_t contact[FZN_PUBKEY_LEN],
+                             uint8_t direction, const uint8_t id[FZN_MESSAGE_ID_LEN])
+{
+	static uint8_t buf[FZN_RECORD_MAX_LEN];
+	uint64_t seq = cursor_of(m, m->issuer), head = own_head(m),
+	         base = fzn_node_journal_base(m->journal, m->issuer, FZN_MESSAGE_STREAM);
+
+	for (seq = seq + 1u > base ? seq + 1u : base; seq <= head; seq++) {
+		fzn_message_part_t p;
+		fzn_record_t rec;
+
+		if (record_at(m, m->issuer, seq, buf, sizeof(buf), &rec)
+		    && fzn_record_kind(rec) == FZN_MESSAGE_LINE_KIND
+		    && memcmp(fzn_record_subject(rec), contact, FZN_PUBKEY_LEN) == 0
+		    && fzn_message_line_read(fzn_record_body(rec), fzn_record_body_len(rec), &p)
+		    && p.direction == direction && memcmp(p.id, id, FZN_MESSAGE_ID_LEN) == 0)
+			return 1;
+	}
+	return 0;
+}
+
 fzn_messages_err_t fzn_messages_import(const fzn_messages_t *m,
                                        const uint8_t contact[FZN_PUBKEY_LEN], uint8_t direction,
                                        const uint8_t id[FZN_MESSAGE_ID_LEN], uint64_t stime,
@@ -485,7 +514,8 @@ fzn_messages_err_t fzn_messages_import(const fzn_messages_t *m,
 		return FZN_MESSAGES_ERR_MALFORMED;
 	/* HELD ALREADY, BY ANY DEVICE: the import writes nothing, so a line the
 	 * user's devices each held before the move is kept once. */
-	if (fzn_messages_held(m, contact, direction, id))
+	if (fzn_messages_held(m, contact, direction, id)
+	    || written_unindexed(m, contact, direction, id))
 		return FZN_MESSAGES_OK;
 	err = fzn_messages_write(m, contact, direction, id, stime, text, len);
 	if (err == FZN_MESSAGES_OK)

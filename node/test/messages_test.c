@@ -92,6 +92,11 @@ static int mem_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, 
 	return 1;
 }
 
+/* SAVES LEFT BEFORE A POWER CUT, or -1 for none: the cut save and every one
+ * after it do not land, as a crash between two would leave them. */
+static long saves_left = -1;
+static size_t saves_cut;
+
 static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
                     const uint8_t *bytes, size_t len)
 {
@@ -99,6 +104,12 @@ static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	row_t *r = find(m, slot, subject);
 	size_t i;
 
+	if (saves_left == 0) {
+		saves_cut++;
+		return 0;
+	}
+	if (saves_left > 0)
+		saves_left--;
 	if (len > sizeof(r->bytes))
 		return 0;
 	for (i = 0; !r && i < ROWS; i++)
@@ -1351,6 +1362,100 @@ static void test_a_line_is_delivered_to_a_contact(void)
 	}
 }
 
+/* A DELIVERY CUT AT EVERY SAVE OF THE CONTACT'S HOST, sec 748: a crash
+ * while the host files a line, then a restart, its store and records as the
+ * cut left them. The sender heard no answer, so it offers the line again --
+ * `absorb` 1 after the host has absorbed its journal, 0 before -- and the
+ * line is answered held, filed once, and listed once, whole. */
+static int delivery_cut_at(long k, int absorb, int *cut)
+{
+	static fzn_message_t page[FZN_MESSAGES_PAGE_MAX];
+	uint8_t req[FZN_NODE_MESSAGES_DELIVER_MAX], out[64];
+	size_t req_len = FZN_NODE_MESSAGES_DELIVER_HEAD_LEN + 11u, count = 0, i, n, found = 0;
+	int more = 0, whole = 0;
+
+	setup();
+	device_up(&S, 0x66);
+	device_up(&C, 0x77);
+	host_up(&S, &S);
+	host_up(&C, &S);
+	req[0] = FZN_NODE_MESSAGES_VERSION;
+	req[1] = FZN_NODE_MESSAGES_DELIVER;
+	memset(req + 2, 0x71, FZN_MESSAGE_ID_LEN);
+	memset(req + 2 + FZN_MESSAGE_ID_LEN, 0, 8u);
+	req[2 + FZN_MESSAGE_ID_LEN + 7] = 7u;
+	req[2 + FZN_MESSAGE_ID_LEN + 8] = 0u;
+	req[2 + FZN_MESSAGE_ID_LEN + 9] = 11u;
+	memcpy(req + FZN_NODE_MESSAGES_DELIVER_HEAD_LEN, "hello there", 11u);
+	saves_cut = 0;
+	saves_left = k;
+	(void)fzn_node_messages_contact(&C.nm, S.pub, 1, req, req_len, out, sizeof(out));
+	saves_left = -1;
+	*cut = saves_cut != 0u;
+	if (!*cut)
+		return 1;
+	/* STARTED AGAIN: its store and records kept, all else fresh. */
+	(void)fzn_node_journal_init_store(&C.journal, &C.own_ops, &C.sign, &HASH);
+	(void)fzn_node_messages_init(&C.nm, &C.store_ops, &C.journal, C.pub, &C.sign, &RNG, &AEAD,
+	                             &HASH, now_ms);
+	(void)fzn_node_messages_devices(&C.nm, (const uint8_t(*)[FZN_PUBKEY_LEN])S.pub, 1u);
+	if (absorb && fzn_node_messages_absorb(&C.nm, &t) != FZN_MESSAGES_OK) {
+		fprintf(stderr, "    cut at save %ld: the host would not absorb\n", k);
+		return 0;
+	}
+	n = fzn_node_messages_contact(&C.nm, S.pub, 1, req, req_len, out, sizeof(out));
+	if (n != FZN_NODE_MESSAGES_DELIVERED_LEN
+	    || out[2 + FZN_MESSAGE_ID_LEN] != FZN_NODE_MESSAGES_HELD) {
+		fprintf(stderr, "    cut at save %ld: the line offered again was not held\n", k);
+		return 0;
+	}
+	if (fzn_node_messages_absorb(&C.nm, &t) != FZN_MESSAGES_OK
+	    || fzn_messages_page(&C.nm.m, S.pub, 0u, page, FZN_MESSAGES_PAGE_MAX, &count, &more)
+	               != FZN_MESSAGES_OK)
+		return 0;
+	for (i = 0; i < count; i++)
+		if (page[i].id[0] == 0x71u && page[i].direction == FZN_MESSAGE_IN) {
+			found++;
+			whole += page[i].readable && page[i].stime == 7u && page[i].text_len == 11u
+			         && memcmp(page[i].text, "hello there", 11u) == 0;
+		}
+	/* FILED ONCE, in the host's own stream: a listing shows an id once
+	 * however often it was filed, so the records are counted. */
+	for (i = 0, n = 0; i < C.own.n; i++) {
+		fzn_record_t rec;
+
+		n += C.own.r[i].stream == FZN_MESSAGE_STREAM
+		     && fzn_record_open(C.own.r[i].bytes, C.own.r[i].len, &rec) == FZN_RECORD_OK
+		     && fzn_record_kind(rec) == FZN_MESSAGE_LINE_KIND;
+	}
+	if (found != 1u || whole != 1 || n != 1u) {
+		fprintf(stderr, "    cut at save %ld%s: listed %zu times, %d whole, filed %zu times\n",
+		        k, absorb ? " absorbed first" : "", found, whole, n);
+		return 0;
+	}
+	return 1;
+}
+
+static void test_a_delivery_cut_at_every_save(void)
+{
+	int cuts[2] = { 0, 0 }, ends[2] = { 0, 0 }, all_ok = 1, cut = 0, absorb;
+	long k;
+
+	for (absorb = 0; absorb < 2; absorb++)
+		for (k = 0; k < 64; k++) {
+			all_ok &= delivery_cut_at(k, absorb, &cut);
+			if (!cut) {
+				ends[absorb] = 1;
+				break;
+			}
+			cuts[absorb]++;
+		}
+	CHECK(cuts[0] && cuts[1] && ends[0] && ends[1],
+	      "fixture: a delivery's saves were cut, and a budget passed them all");
+	CHECK(all_ok, "a delivery cut at a save was not held when offered again, or was filed or "
+	              "listed other than once");
+}
+
 static void test_a_host_that_keeps_none_refuses(void)
 {
 	contact_link_t l = { 0, 0, 0 };
@@ -1734,6 +1839,7 @@ int main(void)
 	test_backfill_from_the_journal();
 	test_a_pushed_line_owes_its_key();
 	test_a_line_is_delivered_to_a_contact();
+	test_a_delivery_cut_at_every_save();
 	test_a_host_that_keeps_none_refuses();
 	test_another_devices_line_is_its_own_to_send();
 	test_which_hosts_keep_messages();
