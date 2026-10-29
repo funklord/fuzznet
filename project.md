@@ -73835,8 +73835,14 @@ budgets of 250 and 500 before it.
   names a line it would not find, then removes the rows below it. A
   crash or a failed removal between leaves those rows on disk below the
   base, and the next trim starts from the new base, so their text is
-  never erased, against what a retention rule promises. Fixing it wants
-  a swept-to mark in the head, a format change; not made here.
+  never erased, against what a retention rule promises. **Fixed** by the
+  order `let_go` already keeps: the rows first, the base after, and a
+  refused removal now fails the trim. A crash between leaves the old
+  base naming lines gone, read as ABSENT like a line not yet held, and
+  the next trim starts from it again. A swept-to mark in the head, a
+  format change, was the other way, and was not needed. `groups_test`
+  refuses one removal: before, the base moved past a line left on
+  disk; now the trim fails and the next one removes it.
 
 `live_faults.py` now takes 180 to 330 s at a load of about 30, against
 its own deadline of 600 s.

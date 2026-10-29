@@ -146,13 +146,30 @@ static int mem_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max
 	return 1;
 }
 
+/* REMOVALS LEFT TO FAIL, sec 746: a store that refuses the next ones. */
+static int removes_failing;
+
 static int mem_remove(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject)
 {
 	struct row *r = find(ctx, slot, subject);
 
+	if (removes_failing > 0) {
+		removes_failing--;
+		return 0;
+	}
 	if (r)
 		r->used = 0;
 	return 1;
+}
+
+/* How many rows of `slot` the store holds. */
+static size_t rows_of(const struct store *m, fzn_persist_slot_t slot)
+{
+	size_t i, n = 0;
+
+	for (i = 0; i < ROWS; i++)
+		n += m->rows[i].used && m->rows[i].slot == slot;
+	return n;
 }
 
 /* ---- a user, its one host ----------------------------------------------- */
@@ -573,6 +590,24 @@ static void test_lines_trimmed_from_a_base(void)
 	              && removed == 0u && fzn_group_lines_head(&l, group, host, &h) == FZN_GROUP_LINES_OK
 	              && h.base == 2u,
 	      "a trim below the base moved it back");
+	/* A REMOVAL REFUSED, sec 746: the base not moved past a line still on
+	 * disk, so the next trim removes it. With the base saved first, the
+	 * line was left below it for good, its text past its rule. */
+	{
+		size_t before = rows_of(&a->store, FZN_PERSIST_GROUP_LINE);
+
+		removes_failing = 1;
+		CHECK(fzn_group_lines_trim(&l, group, host, 4u, &removed) != FZN_GROUP_LINES_OK
+		              && fzn_group_lines_head(&l, group, host, &h) == FZN_GROUP_LINES_OK
+		              && h.base == 2u,
+		      "a trim whose removal was refused moved the base past it");
+		removes_failing = 0;
+		CHECK(fzn_group_lines_trim(&l, group, host, 4u, &removed) == FZN_GROUP_LINES_OK
+		              && fzn_group_lines_head(&l, group, host, &h) == FZN_GROUP_LINES_OK
+		              && h.base == 4u
+		              && rows_of(&a->store, FZN_PERSIST_GROUP_LINE) == before - 2u,
+		      "a line whose removal was refused was left on disk below the base");
+	}
 	/* A FRESH HEAD given line 7 first: its sender trimmed 1 to 6. */
 	CHECK(fzn_group_lines_put(&l, 7u, sealed[4], lens[4]) == FZN_GROUP_LINES_ERR_GAP,
 	      "a strict put took a line past the head");

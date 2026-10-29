@@ -166,12 +166,26 @@ fzn_group_lines_err_t fzn_group_lines_trim(const fzn_group_lines_t *l,
 	err = fzn_group_lines_head(l, group, host, &h);
 	if (err != FZN_GROUP_LINES_OK || upto <= h.base)
 		return err;
-	/* THE HEAD FIRST, then the lines: a head never names a line it would
-	 * then serve and not find, and a line left behind by a failed remove is
-	 * one nobody is served -- below the base. */
+	/* THE LINES FIRST, then the head, sec 746, as a conversation's trim
+	 * removes a row before saving its head (sec 523): the text goes
+	 * whatever happens after. The head was saved first, so a head never
+	 * named a line it would serve and not find; but a removal refused, or
+	 * a crash between, left lines below the base, which no later trim
+	 * reaches, and their text stayed past its rule for good. Now such a
+	 * crash leaves the old base naming lines gone, ABSENT as a line not
+	 * yet held is, and the next trim starts from it again. */
 	{
 		uint32_t from = h.base + 1u, held_to = h.have < upto ? h.have : upto;
 
+		/* THE LINES HELD BETWEEN the old base and `upto`, and no others. */
+		for (s = from; s <= held_to; s++) {
+			if (!subject_of(l->hash, 'l', group, host, s, subject))
+				return FZN_GROUP_LINES_ERR_BACKEND;
+			if (!l->store->remove(l->store->ctx, FZN_PERSIST_GROUP_LINE, subject))
+				return FZN_GROUP_LINES_ERR_BACKEND;
+			if (removed)
+				(*removed)++;
+		}
 		h.base = upto;
 		if (h.have < upto)
 			h.have = upto;
@@ -180,13 +194,6 @@ fzn_group_lines_err_t fzn_group_lines_trim(const fzn_group_lines_t *l,
 		err = head_save(l, &h);
 		if (err != FZN_GROUP_LINES_OK)
 			return err;
-		/* THE LINES HELD BETWEEN the old base and `upto`, and no others. */
-		for (s = from; s <= held_to; s++) {
-			if (!subject_of(l->hash, 'l', group, host, s, subject))
-				return FZN_GROUP_LINES_ERR_BACKEND;
-			if (l->store->remove(l->store->ctx, FZN_PERSIST_GROUP_LINE, subject) && removed)
-				(*removed)++;
-		}
 	}
 	return FZN_GROUP_LINES_OK;
 }
