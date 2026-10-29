@@ -72,11 +72,9 @@ taken through that bar; reachability is being taken through it now, and
 location after it. Groups, shared notes and files are built and wait their
 turn.
 
-**Status: every module in the design is built.** `project.md` is the design and
-the source of truth; §11 lists the modules, §8 is the scope decision that
-placed the first seven, and §10 has the order of work.
-What remains there belongs to other projects: netcfgd's agent, which may never
-be written, and fuzzypickles' migration.
+`project.md` is the design and the source of truth: §11 lists the modules,
+§8 is the scope decision that placed the first seven, and where things stand
+is there and in the git log, not here.
 
 **The module list is in `project.md` §11**, where `make style` holds every
 path in that table against the tree. It is not repeated here: a second copy
