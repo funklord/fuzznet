@@ -73859,8 +73859,10 @@ Read rather than swept: archiving a log segment (`fzn_log_pack_archive`)
 is one rename, or across devices a synced copy renamed into place and
 then the source removed, so a crash leaves the segment whole in one
 place or both, and the next pass's rename settles it. The history trim
-is one removal a version. Still open for journey 3's fault bar:
-erasure's pieces under a crash and a full disk.
+is one removal a version. Erasure's pieces, the last item of journey
+3's fault bar, are taken up in sec 748 (a keeper's pull cut at every
+save) and sec 749 (a piece bent on disk); a full disk inside a piece's
+own write is refused by its write, which removes its `.new`.
 
 ## 747. The estate journey at 0% and 5% loss, and a roots line read at the wrong level, 2026-10-29
 
@@ -73986,3 +73988,25 @@ Sabotage entries `pieces-each-head-leads-a-rebuild` and
 `pieces-rebuild-checked-against-the-id` moved to the mask walk's new
 tail. Measured: 2000 cases, 500 bent pieces kept, 508 refused, 1000
 rebuilds beside a bent one, no failure.
+
+**Journey 3's other wire inputs, read rather than fuzzed.** A gather
+query and page (`log/gather.c`): each length is checked against what is
+left before it is read, a page loop stops at the caller's `pages_max`, a
+line is NUL-terminated in place before `strstr`, and the reader's 32 KiB
+buffer is twice `FZN_ENTRY_LINE_MAX`. A plain gather whose host keeps
+answering the same cursor is bounded by `pages_max` only (4096 in
+fuzznetd), where the ring fetch stops on an empty page; a liar costs
+round trips, not memory.
+
+**Open, journey 3's bounds bar: a pushed log copy's unpacked size.**
+`verify_core` streams a copy in chunks, so its memory is bounded, but
+nothing bounds how far it unpacks: a member's copy of up to
+`FZN_BUCKETS_LARGE_MAX` (64 MiB) packed may inflate to far more, all
+hashed on the loop. `read_all` stops at `FZN_LOG_PACK_RETAIN_READ_MAX`;
+`verify_core` has no such stop, and a flat one would refuse what
+`log/segment` allows, up to 1 TiB. The bound that fits is the subject
+host's own `log/segment` plus a line, which receivers hold as a carried
+host setting, with care for segments written before the setting shrank;
+and a large honest copy also wants verifying in steps, as the round
+does. Senders are the user's own members, so the case is a compromised
+member before its cut. Not built: a design pass of its own.
