@@ -74,6 +74,13 @@ the scenarios built on them test something:
        (sec 746)
     r  a full disk at every depth of the same pass: with room again, the
        same
+    s  a crash at every reach of each crash point inside three fixes
+       added, journey 5's: started again, the fixes kept are numbered 1
+       on with none twice, and the three added again follow them in order
+       (sec 769)
+    t  a full disk at every depth of the same: each fix answered ok is
+       listed after a restart with room, none twice, and the next added
+       is numbered after them
 
 Against a daemon built without faults, phase a's B is counted at 100 per
 cent loss, phase b's daemon does not die, and phase c's says nothing.
@@ -223,6 +230,137 @@ def trim_faults(run, scratch, sock_dir):
 		raise failed("r: no budget fell inside a trim pass")
 	print("livecheck: r: a full disk at %d depths of a trim pass: with room again, the month "
 	      "trimmed, the other line read, each listed once" % short)
+
+
+def location_faults(run, scratch, sock_dir):
+	"""Phases s and t: journey 5's writes, a fix's record and its head, at
+	every crash point and at every depth of a full disk."""
+	port = 44400 + (os.getpid() % 500) * 2
+	lats = ["59.0000001", "59.0000002", "59.0000003"]
+
+	def acts(sock):
+		return [ask(sock, "add location %s 18.0000000 at %d" % (lat, 1792600000 + k))
+		        for k, lat in enumerate(lats)]
+
+	def own_fixes(sock, where):
+		"""This host's fixes as (seq, lat), checked numbered 1 on, none twice."""
+		reply = ask(sock, "list location").split()
+		if reply[:1] != ["ok"]:
+			raise failed("%s list location answered %r" % (where, reply))
+		rows = [(int(r.split(",")[1]), r.split(",")[3]) for r in reply[1:]]
+		if [seq for seq, _ in rows] != list(range(1, len(rows) + 1)):
+			raise failed("%s the fixes are numbered %r, not 1 on, once each"
+			             % (where, [seq for seq, _ in rows]))
+		return rows
+
+	def started(tag, d, sock, env):
+		faulted(env)
+		try:
+			return daemon(run, tag, d, sock, extra=["--udp-port=%d" % port])
+		finally:
+			faulted({})
+
+	swept = {}
+	for point in ("persist.synced", "persist.renamed", "record.body"):
+		inside = 0
+		for n in range(1, 400):
+			d = os.path.join(scratch, "s-%s-%d" % (point, n))
+			sock = os.path.join(sock_dir, "s%d" % n)
+			os.mkdir(d)
+			command(run, ["--fuzznet-dir=" + d, "--new-root"], None)
+			try:
+				node = started("s%s%d" % (point[0], n), d, sock,
+				               {"FZN_FAULT_CRASH": "%s:%d" % (point, n)})
+			except failed as e:
+				if "fault: dying at" not in str(e):
+					raise
+				continue  # at start, before any fix: N too small
+			try:
+				acts(sock)
+				crashed = False
+			except OSError:
+				crashed = True
+			node.stop()
+			if not crashed:
+				break
+			inside += 1
+			where = "s: after a crash at %s:%d," % (point, n)
+			node = started("s%s%dr" % (point[0], n), d, sock, {})
+			try:
+				kept = own_fixes(sock, where)
+				if [lat for _, lat in kept] != lats[:len(kept)]:
+					raise failed("%s the fixes kept are %r, not the first of those added"
+					             % (where, kept))
+				# ONE MORE MAY STAND UNLISTED: a fix's record written whole and
+				# the crash before its head, so the head names the one before.
+				# The next is numbered past it, from the ring (sec 769), and
+				# it is listed once a head names it -- kept, though never
+				# answered, as a crash leaves an act kept or not.
+				again = acts(sock)
+				first = len(kept) + 1
+				if again[:1] == ["ok %d" % (first + 1)]:
+					first += 1
+				want = ["ok %d" % (first + k) for k in (0, 1, 2)]
+				if again != want:
+					raise failed("%s the fixes added again answered %r, not %r"
+					             % (where, again, want))
+				after = own_fixes(sock, where)
+				if [lat for _, lat in after[-3:]] != lats or len(after) != first + 2 \
+				   or [lat for _, lat in after[:first - 1]] != lats[:first - 1]:
+					raise failed("%s the fixes added again are not listed last, in order"
+					             % where)
+			finally:
+				node.stop()
+		else:
+			raise failed("s: %s was still reached after 400 writes" % point)
+		swept[point] = inside
+	if not any(swept.values()):
+		raise failed("s: no crash point fell inside a fix added: %r" % swept)
+	print("livecheck: s: a crash at every write of three fixes added (%s), each started "
+	      "again: the fixes kept numbered 1 on, once each, and those added again after them"
+	      % ", ".join("%s %d" % kv for kv in swept.items()))
+
+	short = 0
+	for budget in range(0, 400000, 250):
+		d = os.path.join(scratch, "t-%d" % budget)
+		sock = os.path.join(sock_dir, "t%d" % (budget // 250))
+		os.mkdir(d)
+		command(run, ["--fuzznet-dir=" + d, "--new-root"], None)
+		try:
+			node = started("t%d" % budget, d, sock, {"FZN_FAULT_WRITE_BUDGET": str(budget)})
+		except failed:
+			continue  # full before it could serve
+		try:
+			said = acts(sock)
+			if not ask(sock, "status").startswith("ok "):
+				raise failed("t: at a budget of %d the daemon stopped serving" % budget)
+		finally:
+			node.stop()
+		if said == ["ok 1", "ok 2", "ok 3"]:
+			break
+		short += 1
+		where = "t: at a budget of %d, with room again," % budget
+		node = started("t%dr" % budget, d, sock, {})
+		try:
+			kept = dict(own_fixes(sock, where))
+			for k, answer in enumerate(said):
+				if answer.startswith("ok ") and kept.get(int(answer.split()[1])) != lats[k]:
+					raise failed("%s fix %d was answered %r and is not listed as added: %r"
+					             % (where, k + 1, answer, kept))
+			# ONE MORE MAY STAND UNLISTED, as in phase s: a record kept and
+			# its head refused, so the next is numbered past it.
+			nxt = ask(sock, "add location 59.5 18.5")
+			if nxt not in ("ok %d" % (len(kept) + 1), "ok %d" % (len(kept) + 2)):
+				raise failed("%s the next fix answered %r, not numbered after those kept"
+				             % (where, nxt))
+		finally:
+			node.stop()
+	else:
+		raise failed("t: the fixes were still short of room at the largest budget")
+	if not short:
+		raise failed("t: no budget fell inside the fixes added")
+	print("livecheck: t: a full disk at %d depths of three fixes added: each answered ok "
+	      "listed after a restart, none twice, the next numbered after them" % short)
 
 
 def reconcile_from(sock, tag):
@@ -1035,6 +1173,10 @@ def main(argv):
 
 			# q and r: a trim pass crashed, and then short of disk (sec 746).
 			trim_faults(run, scratch, sock_dir)
+
+			# s and t: three fixes added, crashed, and then short of disk
+			# (sec 769).
+			location_faults(run, scratch, sock_dir)
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

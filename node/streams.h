@@ -36,6 +36,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "../chain/authz.h" /* fzn_origin_t */
 #include "../persist/persist.h"
 #include "../session/commitment.h" /* fzn_hash_ops_t */
 
@@ -83,6 +84,27 @@ fzn_streams_err_t fzn_streams_keep(const fzn_streams_t *s, const char *name, siz
 uint64_t fzn_streams_last(const fzn_streams_t *s, const char *name, size_t name_len,
                           const uint8_t origin[32]);
 
+/* RECORDS AS A HOST ANSWERED THEM -- `count` of them, each its seq and
+ * time (8 bytes each, big-endian), its level count, and each level a
+ * length byte and that many bytes -- kept as `origin`'s, the host that
+ * answered: a host answers only about its own stream, and so writes
+ * nowhere but there. `*taken` counts those newly kept or held already.
+ * STOPPED AT THE FIRST NOT KEPT, sec 769, and that error returned: one
+ * past it kept would move the head over it, and the next fetch, asking
+ * from the head, would never ask for it again. MALFORMED where the bytes
+ * end early or break the shape, those before it kept. */
+fzn_streams_err_t fzn_streams_take(const fzn_streams_t *s, const char *name, size_t name_len,
+                                   const uint8_t origin[32], const uint8_t *records, size_t len,
+                                   size_t count, size_t *taken, uint64_t *stopped_at);
+
+/* THE SEQ A HOST APPENDING ITS OWN NEXT WRITES, sec 769: one past the
+ * last kept, and -- with no head to read, never written or lost -- one
+ * past the highest the ring holds. A head lost and read as none restarted
+ * the owner at 1, and every reader past it then took nothing until the
+ * count caught up. */
+uint64_t fzn_streams_next(const fzn_streams_t *s, const char *name, size_t name_len,
+                          const uint8_t origin[32]);
+
 /* Every host whose records of `name` are held here, walked into `cap`:
  * ROOM with `*count` the number held when there are more. sec 704. */
 fzn_streams_err_t fzn_streams_origins(const fzn_streams_t *s, const char *name, size_t name_len,
@@ -106,5 +128,31 @@ fzn_streams_err_t fzn_streams_granted(const fzn_streams_t *s, const char *name, 
 /* `r` as a reader granted `level` is given it: that rendition alone, or the
  * coarsest the record has when it has fewer, as the record's only level. */
 void fzn_streams_render(const fzn_stream_record_t *r, unsigned level, fzn_stream_record_t *out);
+
+/*
+ * WHO MAY ASK, sec 769: journey 5's authorization, judged here so a table
+ * test can try a stream query with each wrong caller -- the handler sits
+ * in fuzznetd, where no test reaches it. An asker is what this host knows
+ * of a sender: a member of its estate, a standing contact's host, a host
+ * one of this user's groups lists, or none of these -- a removed contact,
+ * a host whose frame opened and nothing more -- with the finest level its
+ * user is granted of the stream asked, -1 for none.
+ */
+typedef struct fzn_streams_asker {
+	int member;     /* holds standing in this estate */
+	int contact;    /* a standing contact's host */
+	int group_host; /* listed by one of this user's groups */
+	int level;      /* granted its user, or one of its groups; -1 for none */
+} fzn_streams_asker_t;
+
+/* A STREAM QUERY: NULL when answered, with `*whole` 1 for a member, given
+ * every level, and 0 for anyone else, given `*level`'s rendition alone. */
+const char *fzn_streams_refuse_query(const fzn_streams_asker_t *asker, int *whole,
+                                     unsigned *level);
+
+/* THE STREAM AND LOCATION VERBS over the local socket: the node's own
+ * user's. A position is the most sensitive thing kept here, and who it is
+ * granted to is that user's to say. NULL for its own user. */
+const char *fzn_streams_refuse_local(fzn_origin_t origin);
 
 #endif /* FZN_NODE_STREAMS_H */

@@ -125,6 +125,34 @@ uint64_t fzn_streams_last(const fzn_streams_t *s, const char *name, size_t name_
 	return fzn_get_be64(bytes);
 }
 
+/* WHATEVER RECORD ring slot `slot` holds, whatever its seq. */
+static int ring_at(const fzn_streams_t *s, const char *name, size_t name_len,
+                   const uint8_t origin[32], uint64_t slot, fzn_stream_record_t *out)
+{
+	uint8_t subject[32], bytes[RECORD_MAX];
+	size_t n = 0;
+
+	return subject_of(s, 'r', name, name_len, origin, slot, subject)
+	       && s->store->load(s->store->ctx, FZN_PERSIST_STREAM_RECORD, subject, bytes,
+	                         sizeof(bytes), &n)
+	       && record_decode(bytes, n, out);
+}
+
+uint64_t fzn_streams_next(const fzn_streams_t *s, const char *name, size_t name_len,
+                          const uint8_t origin[32])
+{
+	fzn_stream_record_t r;
+	uint64_t last = fzn_streams_last(s, name, name_len, origin), slot;
+
+	if (last || !usable(s) || !fzn_stream_name_ok(name, name_len) || !origin)
+		return last + 1u;
+	/* THE RING READ, once: only a host with no head pays it. */
+	for (slot = 0; slot < FZN_STREAM_KEEP; slot++)
+		if (ring_at(s, name, name_len, origin, slot, &r) && r.seq > last)
+			last = r.seq;
+	return last + 1u;
+}
+
 /* EVERY HEAD, walked, sec 704: those of `name` kept, as many as fit, and
  * all counted. It listed 512 heads of every stream into a fixed table. */
 struct origins_walk {
@@ -280,4 +308,69 @@ void fzn_streams_render(const fzn_stream_record_t *r, unsigned level, fzn_stream
 	out->levels = 1u;
 	memcpy(out->rendition[0], r->rendition[k], r->rendition_len[k]);
 	out->rendition_len[0] = r->rendition_len[k];
+}
+
+const char *fzn_streams_refuse_query(const fzn_streams_asker_t *asker, int *whole,
+                                     unsigned *level)
+{
+	*whole = 0;
+	*level = 0;
+	if (!asker || (!asker->member && !asker->contact && !asker->group_host))
+		return "streams to whom it grants";
+	if (asker->member) {
+		*whole = 1;
+		return NULL;
+	}
+	if (asker->level < 0 || asker->level >= (int)FZN_STREAM_LEVELS_MAX)
+		return "that stream is not granted";
+	*level = (unsigned)asker->level;
+	return NULL;
+}
+
+const char *fzn_streams_refuse_local(fzn_origin_t origin)
+{
+	return origin == FZN_ORIGIN_SAME_USER ? NULL : "streams are this node's own user's";
+}
+
+fzn_streams_err_t fzn_streams_take(const fzn_streams_t *s, const char *name, size_t name_len,
+                                   const uint8_t origin[32], const uint8_t *records, size_t len,
+                                   size_t count, size_t *taken, uint64_t *stopped_at)
+{
+	fzn_stream_record_t r;
+	fzn_streams_err_t err;
+	size_t at = 0, k, l;
+
+	if (taken)
+		*taken = 0;
+	if (stopped_at)
+		*stopped_at = 0;
+	if (!records && len)
+		return FZN_STREAMS_ERR_MALFORMED;
+	for (k = 0; k < count; k++) {
+		if (len - at < 17u)
+			return FZN_STREAMS_ERR_MALFORMED;
+		memset(&r, 0, sizeof(r));
+		r.seq = fzn_get_be64(records + at);
+		r.at = fzn_get_be64(records + at + 8u);
+		r.levels = records[at + 16u];
+		at += 17u;
+		if (r.levels == 0u || r.levels > FZN_STREAM_LEVELS_MAX)
+			return FZN_STREAMS_ERR_MALFORMED;
+		for (l = 0; l < r.levels; l++) {
+			if (at >= len || records[at] > FZN_STREAM_RENDITION_MAX
+			    || len - at - 1u < records[at])
+				return FZN_STREAMS_ERR_MALFORMED;
+			r.rendition_len[l] = records[at++];
+			memcpy(r.rendition[l], records + at, r.rendition_len[l]);
+			at += r.rendition_len[l];
+		}
+		if ((err = fzn_streams_keep(s, name, name_len, origin, &r)) != FZN_STREAMS_OK) {
+			if (stopped_at)
+				*stopped_at = r.seq;
+			return err;
+		}
+		if (taken)
+			(*taken)++;
+	}
+	return FZN_STREAMS_OK;
 }

@@ -72,12 +72,20 @@ static int mem_load(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject, 
 	return 1;
 }
 
+/* SAVES THE STORE TAKES before refusing every one, a full disk; -1 for
+ * no end. */
+static int saves_left = -1;
+
 static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
                     const uint8_t *bytes, size_t len)
 {
 	int i = find(slot, subject), k;
 
 	(void)ctx;
+	if (saves_left == 0)
+		return 0;
+	if (saves_left > 0)
+		saves_left--;
 	if (len > ROW_MAX)
 		return 0;
 	for (k = 0; i < 0 && k < (int)ROWS; k++)
@@ -259,6 +267,131 @@ static void test_hundreds(void)
 	CHECK(granted, "300 grants of one stream were not all kept");
 }
 
+/* THE OWNER'S NUMBERING, sec 769: a head lost goes on from the ring. */
+static void test_next_survives_a_lost_head(void)
+{
+	static const uint8_t own[32] = { 0x71 };
+	fzn_stream_record_t r;
+	uint8_t subject_bytes[32 * 4];
+	size_t n = 0, i;
+	uint64_t seq;
+
+	memset(rows, 0, sizeof(rows));
+	CHECK(fzn_streams_next(&S, "location", 8u, own) == 1u, "none written: next is 1");
+	for (seq = 1; seq <= FZN_STREAM_KEEP + 6u; seq++) {
+		record(&r, seq, 2u);
+		CHECK(fzn_streams_keep(&S, "location", 8u, own, &r) == FZN_STREAMS_OK, "kept");
+	}
+	CHECK(fzn_streams_next(&S, "location", 8u, own) == FZN_STREAM_KEEP + 7u,
+	      "next is one past the head");
+	CHECK(mem_list(NULL, FZN_PERSIST_STREAM_HEAD, subject_bytes, 4u, &n) && n == 1u,
+	      "one head");
+	for (i = 0; i < n; i++)
+		mem_remove(NULL, FZN_PERSIST_STREAM_HEAD, subject_bytes + 32u * i);
+	CHECK(fzn_streams_last(&S, "location", 8u, own) == 0u, "the head is gone");
+	CHECK(fzn_streams_next(&S, "location", 8u, own) == FZN_STREAM_KEEP + 7u,
+	      "next goes on from the highest the ring holds, past its wrap");
+	record(&r, fzn_streams_next(&S, "location", 8u, own), 2u);
+	CHECK(fzn_streams_keep(&S, "location", 8u, own, &r) == FZN_STREAMS_OK
+	          && fzn_streams_last(&S, "location", 8u, own) == FZN_STREAM_KEEP + 7u,
+	      "the write after it is the head again");
+}
+
+/* RECORDS `from`..`to` as a host answers them, two levels each. */
+static size_t answered(uint8_t *out, uint64_t from, uint64_t to)
+{
+	size_t at = 0;
+	uint64_t seq;
+	int b;
+
+	for (seq = from; seq <= to; seq++) {
+		for (b = 7; b >= 0; b--)
+			out[at++] = (uint8_t)(seq >> (8 * b));
+		for (b = 7; b >= 0; b--)
+			out[at++] = (uint8_t)((1000u + seq) >> (8 * b));
+		out[at++] = 2u;
+		out[at++] = 2u;
+		out[at++] = (uint8_t)seq;
+		out[at++] = 0xa0;
+		out[at++] = 1u;
+		out[at++] = (uint8_t)seq;
+	}
+	return at;
+}
+
+/* A FULL DISK MID-ANSWER, sec 769: the take stops at the record not kept,
+ * so the head stays below it and the next fetch asks for it again. */
+static void test_take_stops_at_the_first_not_kept(void)
+{
+	static const uint8_t host[32] = { 0x72 };
+	fzn_stream_record_t r;
+	uint8_t bytes[3 * 23];
+	size_t len = answered(bytes, 1, 3), taken = 9;
+	uint64_t stopped = 0;
+
+	memset(rows, 0, sizeof(rows));
+	saves_left = 2; /* record 1 and its head, then nothing */
+	CHECK(fzn_streams_take(&S, "location", 8u, host, bytes, len, 3u, &taken, &stopped)
+	          == FZN_STREAMS_ERR_BACKEND,
+	      "the store's refusal is returned");
+	saves_left = -1;
+	CHECK(taken == 1u && stopped == 2u, "stopped at record 2, record 1 taken");
+	CHECK(fzn_streams_last(&S, "location", 8u, host) == 1u,
+	      "the head is below the record not kept");
+	CHECK(fzn_streams_get(&S, "location", 8u, host, 3u, &r) == FZN_STREAMS_ERR_ABSENT,
+	      "record 3, after it, was not kept either");
+	CHECK(fzn_streams_take(&S, "location", 8u, host, bytes, len, 3u, &taken, &stopped)
+	              == FZN_STREAMS_OK
+	          && taken == 3u && fzn_streams_last(&S, "location", 8u, host) == 3u,
+	      "answered again with room, every record is kept");
+	CHECK(fzn_streams_get(&S, "location", 8u, host, 2u, &r) == FZN_STREAMS_OK
+	          && r.levels == 2u && r.rendition_len[0] == 2u && r.rendition[0][0] == 2u,
+	      "record 2 as answered");
+	CHECK(fzn_streams_take(&S, "location", 8u, host, bytes, len - 1u, 3u, &taken, &stopped)
+	              == FZN_STREAMS_ERR_MALFORMED
+	          && taken == 2u,
+	      "an answer cut short: those before the cut taken, the cut one malformed");
+	CHECK(fzn_streams_take(&S, "location", 8u, host, bytes, len, 4u, &taken, &stopped)
+	          == FZN_STREAMS_ERR_MALFORMED,
+	      "a count past the bytes");
+	bytes[16] = 0u;
+	CHECK(fzn_streams_take(&S, "location", 8u, host, bytes, len, 3u, &taken, &stopped)
+	              == FZN_STREAMS_ERR_MALFORMED
+	          && taken == 0u,
+	      "a record of no levels");
+}
+
+/* WHO MAY ASK, sec 769: a stream query tried with each kind of caller. */
+static void test_who_may_ask(void)
+{
+	fzn_streams_asker_t member = { 1, 0, 0, -1 }, granted = { 0, 1, 0, 2 },
+	                    ungranted = { 0, 1, 0, -1 }, group = { 0, 0, 1, 1 },
+	                    group_ungranted = { 0, 0, 1, -1 }, removed = { 0, 0, 0, 0 },
+	                    past = { 0, 1, 0, (int)FZN_STREAM_LEVELS_MAX };
+	unsigned level = 9;
+	int whole = 9;
+
+	CHECK(fzn_streams_refuse_query(&member, &whole, &level) == NULL && whole == 1,
+	      "a member is given every level");
+	CHECK(fzn_streams_refuse_query(&granted, &whole, &level) == NULL && whole == 0
+	          && level == 2u,
+	      "a contact granted level 2 is given level 2 alone");
+	CHECK(fzn_streams_refuse_query(&group, &whole, &level) == NULL && whole == 0 && level == 1u,
+	      "a group's member host granted level 1 is given it");
+	CHECK(fzn_streams_refuse_query(&ungranted, &whole, &level) != NULL && whole == 0,
+	      "a contact not granted is refused");
+	CHECK(fzn_streams_refuse_query(&group_ungranted, &whole, &level) != NULL,
+	      "a group's host not granted is refused");
+	CHECK(fzn_streams_refuse_query(&removed, &whole, &level) != NULL && whole == 0,
+	      "a removed contact is refused, whatever level it was once granted");
+	CHECK(fzn_streams_refuse_query(&past, &whole, &level) != NULL, "a level past the last");
+	CHECK(fzn_streams_refuse_query(NULL, &whole, &level) != NULL, "no asker");
+	CHECK(fzn_streams_refuse_local(FZN_ORIGIN_SAME_USER) == NULL, "the node's own user");
+	CHECK(fzn_streams_refuse_local(FZN_ORIGIN_LOCAL) != NULL, "another user on this machine");
+	CHECK(fzn_streams_refuse_local(FZN_ORIGIN_REMOTE) != NULL, "a remote origin");
+	CHECK(fzn_streams_refuse_local(FZN_ORIGIN_NONE) != NULL, "no origin");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -275,6 +408,9 @@ int main(void)
 	test_records_kept_in_order();
 	test_grants_and_levels();
 	test_hundreds();
+	test_next_survives_a_lost_head();
+	test_take_stops_at_the_first_not_kept();
+	test_who_may_ask();
 	if (failures) {
 		fprintf(stderr, "node streams_test: %d of %d checks failed\n", failures, checks);
 		return 1;

@@ -74591,7 +74591,7 @@ and g), and `live_location` sampled gpsd on one node. Added:
   next.
 
 Both pass; neither found a fault. Journey 5 under loss and skew is sec
-767; its fault, authorization, fuzzing and bounds bars are not yet read.
+767, its fault and authorization bars sec 769.
 
 ## 767. Journey 5 under loss and skew, 2026-10-29
 
@@ -74655,3 +74655,82 @@ own signature does, checked after opening -- `session/box.h`) and a LAN probe, w
 key is an unsigned hint that decides only whom to send a sealed hello
 to (sec 758). Nothing to change; fzpd's network code moving here (sec
 608) brings it onto this path.
+
+## 769. Journey 5's fault and authorization bars, 2026-10-29
+
+Journey 5 is location: a host's fixes kept as its own `location` stream
+(`node/streams.h`), granted per contact or group at a level, fetched by
+the grantee and listed at that level.
+
+### What it writes, and what a crash or a full disk leaves
+
+Each fix kept is two rows: the record, in ring slot `seq % 1024`, then
+the stream's head naming the last seq. Each row is one persist save,
+renamed over its name, so a crash leaves a row whole or old. Between
+the two, the record is written and the head still names the one before;
+the next fix is numbered from the head and takes the same slot, so the
+fix that was never answered is the one replaced. A grantee's fetch asks
+from its own head of the owner's stream, so a crash there means the
+next fetch asks again.
+
+**Two defects, found by reading these paths:**
+- **A fetch that met a full disk passed the record over for good.**
+  `stream_take` went on after a record would not keep, and a later one
+  that did moved the head past it; the next fetch, asking from the head,
+  never asked for it again. The taking is now `fzn_streams_take` in
+  `node/streams.c`, which stops at the first record not kept and says
+  which -- "record N of location not kept: ...; asked again from it next
+  fetch" -- and `streams_test` fills the store at the second record and
+  finds the head below it, then takes all three with room.
+- **A lost head restarted the owner at 1.** `fzn_streams_last` reads a
+  missing or unreadable head as none, and a host appending its own fix
+  numbered it 1: every grantee already past 1 then took nothing until
+  the count caught up, a thousand fixes at the default rate being eight
+  hours unseen. `fzn_streams_next`, which both writers use now (`add
+  location`, gpsd's sampling and `add stream`), reads the ring for its
+  highest seq when there is no head, once; a head that is there costs
+  nothing more.
+
+**`live_faults` phases s and t** are the live half: a crash at every
+reach of each crash point inside three fixes added, and a full disk at
+every depth of the same. Started again, the fixes kept are numbered 1
+on with none twice, those added again follow them in order, and every
+fix answered ok is listed. The first run found what the reading had not
+said: a crash after a stream's FIRST record and before its first head
+leaves the fix whole and no head, so `list location` lists no fix of
+this host's -- it lists by head -- while the next fix is numbered 2,
+from the ring, and the one before is listed with it from then on. Kept
+though never answered, as a crash leaves any act kept or not; the phase
+allows that one fix and no other.
+
+**A peer that lies or replays.** A frame replayed is refused by the
+session below this (sec 1). A host answers only about its own stream,
+and what it answers is kept as that host's, by the key that sealed the
+answer (sec 768), so a host that lies -- a seq far ahead, a time that
+never was, levels that do not match -- lies about itself alone, and a
+record it holds is no proof of where anybody was (`node/streams.h`,
+"NOT SIGNED"). A seq far ahead pins the grantee's head there, and that
+host's later records are taken only once they pass it: its own stream,
+stalled by its own answer.
+
+### Who may ask
+
+The judgment sat in fuzznetd's `streams_remote`, where no test reached
+it. It is `fzn_streams_refuse_query` now, taking what this host knows of
+the sender -- a member, a standing contact's host, a host one of this
+user's groups lists, or none of these -- and the finest level its user,
+or a group it is in, is granted:
+- a member is given every level, its own user's fixes exact;
+- a contact's host or a group's host is given its granted level's
+  rendition alone, and refused with no grant;
+- anyone else -- a removed contact, a host whose frame opened and
+  nothing more -- is refused, whatever it was once granted. A removed
+  contact reaches the hook (sec 701) and was refused before too: the
+  owner was found through `fzn_node_admin_contact_of`, which asks
+  standing.
+
+The stream and location verbs answer the node's own user alone
+(`fzn_streams_refuse_local`), as before. `streams_test`'s
+`test_who_may_ask` tries each kind of asker and each origin; six
+sabotage entries break the judgments, the take's stop and the ring's
+reading. No hole was found in who may ask: the move makes it testable.

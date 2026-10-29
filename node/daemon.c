@@ -10182,9 +10182,11 @@ static size_t streams_remote(const uint8_t *sender, const uint8_t *request, size
 	uint8_t owner[FZN_PUBKEY_LEN];
 	size_t name_len, at = 4u, count = 0;
 	size_t cap = reply_cap < FZND_PULL_REPLY_MAX ? reply_cap : FZND_PULL_REPLY_MAX;
-	const char *name;
+	const char *name, *why;
 	uint64_t since, last, s, now = wall_clock();
-	int own, level;
+	fzn_streams_asker_t asker;
+	unsigned level;
+	int own, whole;
 
 	if (request_len < 3u || request_len != 3u + (size_t)request[2] + 8u
 	    || !fzn_stream_name_ok((const char *)request + 3, request[2]))
@@ -10192,12 +10194,20 @@ static size_t streams_remote(const uint8_t *sender, const uint8_t *request, size
 	name = (const char *)request + 3;
 	name_len = request[2];
 	since = fzn_get_be64(request + 3u + name_len);
-	if (!contact_id || !node_streams.store
-	    || (!group_owner_of(sender, owner, &own) && !member_host_owner(sender, owner)))
-		return (size_t)snprintf((char *)reply, reply_cap, "denied streams to whom it grants\n");
-	level = own ? 0 : stream_level_of(name, name_len, owner);
-	if (level < 0)
-		return (size_t)snprintf((char *)reply, reply_cap, "denied that stream is not granted\n");
+	if (!contact_id || !node_streams.store)
+		return (size_t)snprintf((char *)reply, reply_cap, "error this node keeps no streams\n");
+	/* WHO ASKS, judged in `node/streams.c` (sec 769). */
+	memset(&asker, 0, sizeof(asker));
+	asker.level = -1;
+	if (group_owner_of(sender, owner, &own)) {
+		asker.member = own;
+		asker.contact = !own;
+	} else
+		asker.group_host = member_host_owner(sender, owner);
+	if (!asker.member && (asker.contact || asker.group_host))
+		asker.level = stream_level_of(name, name_len, owner);
+	if ((why = fzn_streams_refuse_query(&asker, &whole, &level)) != NULL)
+		return (size_t)snprintf((char *)reply, reply_cap, "denied %s\n", why);
 	if (!stream_ask_allowed(sender, now))
 		return (size_t)snprintf((char *)reply, reply_cap, "denied asked too soon\n");
 	/* THIS HOST'S OWN STREAM, never another's it holds. */
@@ -10208,9 +10218,9 @@ static size_t streams_remote(const uint8_t *sender, const uint8_t *request, size
 		if (fzn_streams_get(&node_streams, name, name_len, contact_id->pubkey, s, &r)
 		    != FZN_STREAMS_OK)
 			continue;
-		if (!own)
-			fzn_streams_render(&r, (unsigned)level, &given);
-		at = put_record(own ? &r : &given, reply, at, cap);
+		if (!whole)
+			fzn_streams_render(&r, level, &given);
+		at = put_record(whole ? &r : &given, reply, at, cap);
 		if (at == before)
 			break;
 		count++;
@@ -10239,30 +10249,22 @@ static size_t stream_query(const char *name, size_t name_len, const uint8_t *ori
 static size_t stream_take(const char *name, size_t name_len, const uint8_t *origin,
                           const uint8_t *reply, size_t len)
 {
-	static fzn_stream_record_t r;
-	size_t at, count, k, l, taken = 0;
+	fzn_streams_err_t err;
+	uint64_t stopped = 0;
+	size_t taken = 0;
 
 	if (!reply || len < 4u || reply[0] != FZND_GROUP_VERSION
 	    || reply[1] != FZN_TYPE_STREAM_RECORDS)
 		return 0;
-	count = fzn_get_be16(reply + 2);
-	for (k = 0, at = 4u; k < count && at + 17u <= len; k++) {
-		memset(&r, 0, sizeof(r));
-		r.seq = fzn_get_be64(reply + at);
-		r.at = fzn_get_be64(reply + at + 8u);
-		r.levels = reply[at + 16u];
-		at += 17u;
-		if (r.levels == 0u || r.levels > FZN_STREAM_LEVELS_MAX)
-			break;
-		for (l = 0; l < r.levels; l++) {
-			if (at >= len || reply[at] > FZN_STREAM_RENDITION_MAX || len - at - 1u < reply[at])
-				return taken;
-			r.rendition_len[l] = reply[at++];
-			memcpy(r.rendition[l], reply + at, r.rendition_len[l]);
-			at += r.rendition_len[l];
-		}
-		taken += fzn_streams_keep(&node_streams, name, name_len, origin, &r) == FZN_STREAMS_OK;
-	}
+	err = fzn_streams_take(&node_streams, name, name_len, origin, reply + 4, len - 4u,
+	                       fzn_get_be16(reply + 2), &taken, &stopped);
+	if (err == FZN_STREAMS_ERR_MALFORMED)
+		say(FZN_ENTRY_DEBUG, "node/streams", "an answer of %.*s ended in bytes not a record",
+		    (int)name_len, name);
+	else if (err != FZN_STREAMS_OK)
+		say(FZN_ENTRY_WARNING, "node/streams",
+		    "record %llu of %.*s not kept: %s; asked again from it next fetch",
+		    (unsigned long long)stopped, (int)name_len, name, fzn_streams_err_str(err));
 	return taken;
 }
 
@@ -10660,8 +10662,8 @@ static int location_write(const fzn_location_fix_t *fix, uint64_t *seq)
 		w.rendition_len[level] = FZN_LOCATION_FIX_LEN;
 	}
 	w.levels = FZN_LOCATION_LEVELS;
-	w.seq = fzn_streams_last(&node_streams, FZND_LOCATION_STREAM, FZND_LOCATION_STREAM_LEN,
-	                         contact_id->pubkey) + 1u;
+	w.seq = fzn_streams_next(&node_streams, FZND_LOCATION_STREAM, FZND_LOCATION_STREAM_LEN,
+	                         contact_id->pubkey);
 	w.at = wall_clock();
 	if (fzn_streams_keep(&node_streams, FZND_LOCATION_STREAM, FZND_LOCATION_STREAM_LEN,
 	                     contact_id->pubkey, &w) != FZN_STREAMS_OK)
@@ -10835,8 +10837,8 @@ static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, 
 	if (request->parsed != FZN_VERB_ADD && request->parsed != FZN_VERB_LIST
 	    && request->parsed != FZN_VERB_GET)
 		return 0;
-	if (origin != FZN_ORIGIN_SAME_USER)
-		return (size_t)snprintf(reply, cap, "denied a location is this node's own user's\n");
+	if (fzn_streams_refuse_local(origin))
+		return (size_t)snprintf(reply, cap, "denied %s\n", fzn_streams_refuse_local(origin));
 	if (!node_streams.store || !contact_id)
 		return (size_t)snprintf(reply, cap, "error this node keeps no streams\n");
 	/* THE SAMPLING, sec 678: `ok ENABLED LINK EVERY ACCURACY SAMPLED DROPPED
@@ -10982,8 +10984,8 @@ static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, c
 	    && request->parsed != FZN_VERB_REVOKE && request->parsed != FZN_VERB_FETCH
 	    && request->parsed != FZN_VERB_LIST && request->parsed != FZN_VERB_GET)
 		return 0;
-	if (origin != FZN_ORIGIN_SAME_USER)
-		return (size_t)snprintf(reply, cap, "denied streams need this node's own user\n");
+	if (fzn_streams_refuse_local(origin))
+		return (size_t)snprintf(reply, cap, "denied %s\n", fzn_streams_refuse_local(origin));
 	if (!node_streams.store || !contact_id)
 		return (size_t)snprintf(reply, cap, "error this node keeps no streams\n");
 	if (!next_word(&at, &left, &name, &name_len)
@@ -11007,8 +11009,7 @@ static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, c
 		}
 		if (!r.levels)
 			return (size_t)snprintf(reply, cap, "malformed add stream NAME HEX [HEX ...]\n");
-		r.seq = fzn_streams_last(&node_streams, (const char *)name, name_len, contact_id->pubkey)
-		        + 1u;
+		r.seq = fzn_streams_next(&node_streams, (const char *)name, name_len, contact_id->pubkey);
 		r.at = wall_clock();
 		if (fzn_streams_keep(&node_streams, (const char *)name, name_len, contact_id->pubkey, &r)
 		    != FZN_STREAMS_OK)
