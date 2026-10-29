@@ -26,6 +26,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "../chain/authz.h" /* fzn_origin_t */
 #include "../chain/chain.h" /* FZN_PUBKEY_LEN */
 #include "../net/udp.h"
 
@@ -88,5 +89,43 @@ void fzn_node_relay_saw(fzn_node_relay_t *r, const uint8_t key[FZN_PUBKEY_LEN],
 /* WHERE `key` WAS LAST SEEN, into `at` and `*when`: 1 when it was. */
 int fzn_node_relay_where(const fzn_node_relay_t *r, const uint8_t key[FZN_PUBKEY_LEN],
                          fzn_udp_addr_t *at, uint64_t *when);
+
+/*
+ * WHO MAY ASK, sec 762: journey 4's authorization, judged here so a table
+ * test can try each request with each wrong caller -- the handlers that
+ * use them sit in fuzznetd, where no test reaches them. An asker is what
+ * this host knows of a sender: a member of its estate, or a standing
+ * contact's host and whose, or neither -- a removed contact, a host whose
+ * frame opened and nothing more. Each judgment is NULL when allowed and
+ * otherwise the reason, which the handler says and answers.
+ */
+typedef struct fzn_node_relay_asker {
+	int member;                    /* holds standing in this estate */
+	int contact;                   /* a standing contact's host */
+	uint8_t owner[FZN_PUBKEY_LEN]; /* that contact's user, when `contact` */
+} fzn_node_relay_asker_t;
+
+/* A FRAME RELAYED: this host relaying at all (`relay/enabled`), for its
+ * estate and its contacts, one hop and never two (`hops` the request's
+ * budget left), and only a frame the asker sealed itself (`own`). */
+const char *fzn_node_relay_refuse_relay(const fzn_node_relay_asker_t *asker, int enabled,
+                                        unsigned hops, int own);
+/* AN INTRODUCTION ASKED: where a host is is its estate's to know. */
+const char *fzn_node_relay_refuse_introduce(const fzn_node_relay_asker_t *asker);
+/* A NOTIFY, about `about`: from a member, about a host this one knows; or
+ * from a standing contact's host about another of that same contact's
+ * (sec 698). */
+const char *fzn_node_relay_refuse_notify(const fzn_node_relay_asker_t *asker,
+                                         const fzn_node_relay_asker_t *about);
+/* A TIME ASK, sec 719: a member's or a standing contact's. A removed
+ * contact still reaches the hook (sec 701), and was answered. */
+const char *fzn_node_relay_refuse_time(const fzn_node_relay_asker_t *asker);
+
+/* THE REACHABILITY VERBS, sec 762 -- `fetch lan`, `get lan`, `get` and
+ * `fetch address`, `get routing` -- asked over the local socket: the node's
+ * own user's, as `get relay` and `get events` are. Who this host hears on
+ * its network, the probes it sends there, where its peers see it and the
+ * routes it holds are that user's to know. NULL for its own user. */
+const char *fzn_node_relay_refuse_local(fzn_origin_t origin);
 
 #endif /* FZN_NODE_RELAY_H */

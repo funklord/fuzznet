@@ -354,7 +354,8 @@ static void publish(const char *subject, const char *name)
  * change verb the node answered `ok` publishes its subject -- the first
  * word after the verb -- naming the item when the next word is one (hex).
  * A change one UI makes reaches the others. sec 609. */
-static size_t routing_local(const fzn_request_t *request, char *reply, size_t reply_cap);
+static size_t routing_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                            size_t reply_cap);
 static size_t card_local(const fzn_request_t *request, char *reply, size_t reply_cap);
 static size_t request_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap);
@@ -372,7 +373,8 @@ static size_t join_local(fzn_origin_t origin, const fzn_request_t *request, char
                          size_t cap);
 static size_t admin_chain_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                                 size_t cap);
-static size_t address_local(const fzn_request_t *request, char *reply, size_t cap);
+static size_t address_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                            size_t cap);
 static size_t link_local(const fzn_request_t *request, char *reply, size_t cap);
 static size_t streams_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                             size_t cap);
@@ -446,7 +448,7 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
                            const fzn_peer_t *peer, const fzn_request_t *request, char *reply,
                            size_t reply_cap)
 {
-	size_t n = routing_local(request, reply, reply_cap);
+	size_t n = routing_local(origin, request, reply, reply_cap);
 
 	if (!n)
 		n = card_local(request, reply, reply_cap);
@@ -467,7 +469,7 @@ static size_t local_handle(void *ctx, fzn_authz_verdict_t verdict, fzn_origin_t 
 	if (!n)
 		n = grant_local(origin, request, reply, reply_cap);
 	if (!n)
-		n = address_local(request, reply, reply_cap);
+		n = address_local(origin, request, reply, reply_cap);
 	if (!n)
 		n = link_local(request, reply, reply_cap);
 	if (!n)
@@ -3868,7 +3870,8 @@ static void routing_round(struct pull_target *pulls, size_t npulls, uint64_t now
  * root is KEY, as held -- `ok GENERATION SIGNER PUBLIC ADDRESS:PORT:METRIC
  * ...`, the signer's first eight bytes in hex, the entries in their order.
  * 0 for any other request. */
-static size_t routing_local(const fzn_request_t *request, char *reply, size_t reply_cap)
+static size_t routing_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                            size_t reply_cap)
 {
 	uint8_t key[FZN_PUBKEY_LEN];
 	char hex[65];
@@ -3880,6 +3883,10 @@ static size_t routing_local(const fzn_request_t *request, char *reply, size_t re
 	    || memcmp(request->arg, "routing", 7u) != 0
 	    || (request->arg_len > 7u && request->arg[7] != ' '))
 		return 0;
+	/* THIS NODE'S OWN USER'S, sec 762. */
+	if (fzn_node_relay_refuse_local(origin))
+		return (size_t)snprintf(reply, reply_cap, "denied %s\n",
+		                        fzn_node_relay_refuse_local(origin));
 	if (request->arg_len == 7u) {
 		if (!node_apply.root)
 			return (size_t)snprintf(reply, reply_cap, "error no estate\n");
@@ -8352,10 +8359,21 @@ static int local_scope(const char *host)
 	       || !strncmp(host, "fd", 2u);
 }
 
-static size_t address_local(const fzn_request_t *request, char *reply, size_t cap)
+static size_t address_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
+                            size_t cap)
 {
 	size_t at, i, k;
 	int agree = 1;
+
+	/* THIS NODE'S OWN USER'S, sec 762: `fetch lan`, `get lan`, and `get`
+	 * and `fetch address`, each matched below. */
+	if (request->arg
+	    && ((request->arg_len == 3u && memcmp(request->arg, "lan", 3u) == 0
+	         && (request->parsed == FZN_VERB_FETCH || request->parsed == FZN_VERB_GET))
+	        || (request->arg_len == 7u && memcmp(request->arg, "address", 7u) == 0
+	            && (request->parsed == FZN_VERB_GET || request->parsed == FZN_VERB_FETCH)))
+	    && fzn_node_relay_refuse_local(origin))
+		return (size_t)snprintf(reply, cap, "denied %s\n", fzn_node_relay_refuse_local(origin));
 
 	/* `fetch lan`, sec 624: probes sent at once, and said -- `ok SENT
 	 * ADDRESS`, or `ok 0 -` and why none was, so a client need not guess
@@ -11673,13 +11691,22 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 /* TIME ANSWERS, sec 719: an estate's peers ask about once a minute each. */
 #define TIME_ANSWERS_A_SECOND 50u
 
+/* WHAT THIS HOST KNOWS OF `key`, sec 762: a member, or a standing
+ * contact's host and whose, as `node/relay.h`'s judgments take it. */
+static void asker_of(const uint8_t key[FZN_PUBKEY_LEN], fzn_node_relay_asker_t *a)
+{
+	fzn_setting_rank_t rank;
+
+	memset(a, 0, sizeof(*a));
+	a->member = fzn_node_apply_rank(&node_apply, key, FZN_SCOPE_HOST, key, &rank) == 1;
+	a->contact = running_admin && fzn_node_admin_contact_of(running_admin, key, a->owner);
+}
+
 static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *request,
                            size_t request_len, uint8_t *reply, size_t reply_cap)
 {
 	static uint8_t frame[FZN_UDP_DATAGRAM_MAX];
 	const fzn_node_state_t *st = running_admin ? running_admin->state : NULL;
-	uint8_t owner[FZN_PUBKEY_LEN];
-	fzn_setting_rank_t rank;
 	fzn_peek_t head;
 	fzn_udp_addr_t to;
 	uint64_t when = 0, now = wall_clock();
@@ -11691,7 +11718,13 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 	 * answered whatever its expiry and so could be replayed. */
 	if (fzn_node_time_is_ask(request, request_len)) {
 		static uint64_t second, answered;
+		fzn_node_relay_asker_t asker;
 
+		/* ITS ASKER'S STANDING, sec 762: a removed contact reaches this
+		 * hook too, and was answered. */
+		asker_of(sender, &asker);
+		if (fzn_node_relay_refuse_time(&asker))
+			return 0;
 		if (now != second) {
 			second = now;
 			answered = 0;
@@ -11727,17 +11760,23 @@ static size_t relay_remote(void *ctx, const uint8_t *sender, const uint8_t *requ
 	(say(FZN_ENTRY_WARNING, "node/peer", "a relay for %02x%02x%02x%02x refused: %s",       \
 	     sender[0], sender[1], sender[2], sender[3], text),                                 \
 	 (size_t)snprintf((char *)reply, reply_cap, "denied %s\n", text))
-	if (!st || st->udp_fd < 0 || !st->asking_from || host_flag("relay/enabled") != 1)
-		return RELAY_NO("this host relays nothing");
-	if (!fzn_node_admin_contact_of(running_admin, sender, owner)
-	    && fzn_node_apply_rank(&node_apply, sender, FZN_SCOPE_HOST, sender, &rank) != 1)
-		return RELAY_NO("relayed only for this estate and its contacts");
-	if (st->asking_hops == 0u)
-		return RELAY_NO("relayed already: one hop and never two");
-	if (inner_len > sizeof(frame)
-	    || fzn_seal_peek(request + FZND_RELAY_HEAD_LEN, inner_len, &head) != FZN_SEAL_OK
-	    || memcmp(head.sender, sender, FZN_PUBKEY_LEN) != 0)
-		return RELAY_NO("not a frame of the asker's own");
+	/* WHO MAY, judged in `node/relay.c` (sec 762), in the order it was
+	 * judged here. */
+	{
+		fzn_node_relay_asker_t asker;
+		const char *no;
+		int own = inner_len <= sizeof(frame)
+		          && fzn_seal_peek(request + FZND_RELAY_HEAD_LEN, inner_len, &head) == FZN_SEAL_OK
+		          && memcmp(head.sender, sender, FZN_PUBKEY_LEN) == 0;
+
+		asker_of(sender, &asker);
+		no = fzn_node_relay_refuse_relay(&asker,
+		                                 st && st->udp_fd >= 0 && st->asking_from
+		                                         && host_flag("relay/enabled") == 1,
+		                                 st ? st->asking_hops : 0u, own);
+		if (no)
+			return RELAY_NO(no);
+	}
 	if (!fzn_node_relay_where(&relay_tables, request + 2, &to, &when)
 	    || when + FZND_RELAY_SEEN_S < now)
 		return RELAY_NO("that host has not said where it is");
@@ -11767,12 +11806,9 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 {
 	const fzn_node_state_t *st = running_admin ? running_admin->state : NULL;
 	char host[FZN_UDP_HOST_MAX];
-	uint8_t owner[FZN_PUBKEY_LEN];
-	fzn_setting_rank_t rank;
 	fzn_udp_addr_t at;
 	uint64_t when = 0, now = wall_clock();
 	uint16_t port = 0;
-	int member = fzn_node_apply_rank(&node_apply, sender, FZN_SCOPE_HOST, sender, &rank) == 1;
 
 #define INTRO_NO(text)                                                                     \
 	(say(FZN_ENTRY_WARNING, "node/peer", "an introduction for %02x%02x%02x%02x refused: %s", \
@@ -11793,8 +11829,15 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 			return INTRO_NO("malformed introduce");
 		/* ONE USER'S OWN HOSTS: an introduction tells where a host is, and
 		 * that is the estate's to know. */
-		if (!member)
-			return INTRO_NO("introductions only within this estate");
+		/* sec 762: judged in `node/relay.c`. */
+		{
+			fzn_node_relay_asker_t standing;
+			const char *no;
+
+			asker_of(sender, &standing);
+			if ((no = fzn_node_relay_refuse_introduce(&standing)) != NULL)
+				return INTRO_NO(no);
+		}
 		if (!fzn_node_relay_where(&relay_tables, request + 2, &at, &when)
 		    || when + FZND_RELAY_SEEN_S < now || fzn_udp_addr_text(&at, host, &port) != FZN_UDP_OK)
 			return INTRO_NO("that host has not said where it is");
@@ -11846,16 +11889,16 @@ static size_t introduce_remote(const uint8_t *sender, const uint8_t *request,
 		/* FROM THIS ESTATE, or, sec 698, from a standing contact's host about
 		 * another of that same contact's: a contact's server introducing its
 		 * user's phone, so the two may reach each other direct. */
-		if (!member) {
-			uint8_t asker_owner[FZN_PUBKEY_LEN];
+		/* sec 762: judged in `node/relay.c`. */
+		{
+			fzn_node_relay_asker_t asker, about;
+			const char *no;
 
-			if (!fzn_node_admin_contact_of(running_admin, sender, asker_owner)
-			    || !fzn_node_admin_contact_of(running_admin, who, owner)
-			    || memcmp(asker_owner, owner, FZN_PUBKEY_LEN) != 0)
-				return INTRO_NO("only this estate, or a contact about its own, introduces");
-		} else if (fzn_node_apply_rank(&node_apply, who, FZN_SCOPE_HOST, who, &rank) != 1
-		           && !fzn_node_admin_contact_of(running_admin, who, owner))
-			return INTRO_NO("not a host this one knows");
+			asker_of(sender, &asker);
+			asker_of(who, &about);
+			if ((no = fzn_node_relay_refuse_notify(&asker, &about)) != NULL)
+				return INTRO_NO(no);
+		}
 		memcpy(host, request + 3u + FZN_PUBKEY_LEN, n);
 		host[n] = '\0';
 		port = fzn_get_be16(request + 3u + FZN_PUBKEY_LEN + n);

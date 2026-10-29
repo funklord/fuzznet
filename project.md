@@ -74450,3 +74450,42 @@ though not that setting itself.
 be kept was said as "would not be signed", sending whoever read it to the
 signer for a full disk. Now the two are said apart: "signed and would
 not be kept".
+
+## 762. Journey 4's authorization bar: who may ask, judged where a table reaches it, 2026-10-29
+
+Sec 689's authorization bar: every verb and remote request tried with
+each wrong caller. Sec 701's table in `admin_test` already holds which
+hook each kind of sender reaches; **the judgments inside journey 4's
+handlers sat in fuzznetd**, where no test reached them. They are now
+functions of `node/relay.c`, each NULL when allowed and otherwise the
+reason the handler says and answers, and the handlers call them:
+- **a relay** (`fzn_node_relay_refuse_relay`): relaying on, for this
+  estate's members and its standing contacts' hosts, one hop, only a
+  frame the asker sealed;
+- **an introduction** (`..._introduce`): members only;
+- **a notify** (`..._notify`): a member about a host this one knows, or a
+  standing contact's host about another of the same contact's (sec 698);
+- **a time ask** (`..._time`): members and standing contacts;
+- **the reachability verbs** (`..._local`): the node's own user.
+
+`relay_test`'s `test_who_may_ask` tries each with a member, a host of
+contact X, a host of contact Y, and neither -- a removed contact, or any
+host whose frame opened and nothing more -- and the local verbs with each
+origin. Nine sabotage entries, one a condition.
+
+**Two holes found by moving them:**
+- **A removed contact was told this host's clock.** The time ask is
+  answered on the relay hook, which every sender whose frame opens
+  reaches, a removed contact among them (sec 701); the comment said "any
+  peer granted -- member or contact" and nothing checked it. It now
+  answers members and standing contacts, and nothing to anyone else.
+- **Another user on this machine could probe the LAN and read who this
+  host hears.** `fetch lan`, `get lan`, `get` and `fetch address`, and
+  `get routing` were dispatched without their origin, while `get relay`
+  and `get events` answer this node's own user alone -- who relays
+  through a host and what changed are that user's to know (secs 638,
+  609). Who it hears on its network, the probes it sends there, where its
+  peers see it and the routes it holds are the same kind of thing; they
+  are now answered `denied where this host is reached is its own user's`
+  to any other origin. Decided from those siblings rather than asked: a
+  consumer reading them as another user would now be refused.

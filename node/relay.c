@@ -123,3 +123,50 @@ int fzn_node_relay_where(const fzn_node_relay_t *r, const uint8_t key[FZN_PUBKEY
 		}
 	return 0;
 }
+
+/* ---- who may ask, sec 762 ------------------------------------------------- */
+
+const char *fzn_node_relay_refuse_relay(const fzn_node_relay_asker_t *asker, int enabled,
+                                        unsigned hops, int own)
+{
+	if (!enabled)
+		return "this host relays nothing";
+	if (!asker || (!asker->member && !asker->contact))
+		return "relayed only for this estate and its contacts";
+	if (hops == 0u)
+		return "relayed already: one hop and never two";
+	if (!own)
+		return "not a frame of the asker's own";
+	return NULL;
+}
+
+const char *fzn_node_relay_refuse_introduce(const fzn_node_relay_asker_t *asker)
+{
+	return asker && asker->member ? NULL : "introductions only within this estate";
+}
+
+const char *fzn_node_relay_refuse_notify(const fzn_node_relay_asker_t *asker,
+                                         const fzn_node_relay_asker_t *about)
+{
+	if (!asker || !about)
+		return "only this estate, or a contact about its own, introduces";
+	if (!asker->member) {
+		if (!asker->contact || !about->contact
+		    || memcmp(asker->owner, about->owner, FZN_PUBKEY_LEN) != 0)
+			return "only this estate, or a contact about its own, introduces";
+		return NULL;
+	}
+	return about->member || about->contact ? NULL : "not a host this one knows";
+}
+
+const char *fzn_node_relay_refuse_time(const fzn_node_relay_asker_t *asker)
+{
+	return asker && (asker->member || asker->contact) ? NULL
+	                                                  : "clocks only for this estate and its contacts";
+}
+
+const char *fzn_node_relay_refuse_local(fzn_origin_t origin)
+{
+	return origin == FZN_ORIGIN_SAME_USER ? NULL
+	                                       : "where this host is reached is its own user's";
+}

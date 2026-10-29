@@ -134,6 +134,104 @@ static void test_a_relay_given_room(void)
 	CHECK(found == 100u, "a relay given room for 4096 did not keep 100 devices' hellos");
 }
 
+/* WHO MAY ASK, sec 762: journey 4's authorization bar, every request with
+ * each wrong caller. The askers: a member, a host of contact X, a host of
+ * contact Y, and neither -- a removed contact, or any host whose frame
+ * opened and nothing more. Each allowed is NULL, each refused its reason,
+ * as fuzznetd says and answers it. */
+static int is(const char *got, const char *want)
+{
+	return want ? got && strcmp(got, want) == 0 : got == NULL;
+}
+
+static void test_who_may_ask(void)
+{
+	static const char *const NO_RELAY = "this host relays nothing",
+	                         *const NOT_OURS = "relayed only for this estate and its contacts",
+	                         *const TWO_HOPS = "relayed already: one hop and never two",
+	                         *const NOT_OWN = "not a frame of the asker's own",
+	                         *const NO_INTRO = "introductions only within this estate",
+	                         *const NO_NOTIFY =
+	                                 "only this estate, or a contact about its own, introduces",
+	                         *const UNKNOWN = "not a host this one knows",
+	                         *const NO_TIME = "clocks only for this estate and its contacts",
+	                         *const OWN_USER = "where this host is reached is its own user's";
+	fzn_node_relay_asker_t member, x, y, neither;
+	const fzn_node_relay_asker_t *all[4] = { &member, &x, &y, &neither };
+	size_t i;
+
+	memset(&member, 0, sizeof(member));
+	member.member = 1;
+	memset(&x, 0, sizeof(x));
+	x.contact = 1;
+	memset(x.owner, 0x0a, sizeof(x.owner));
+	y = x;
+	memset(y.owner, 0x0b, sizeof(y.owner));
+	memset(&neither, 0, sizeof(neither));
+
+	/* THE RELAY: off for everyone; on, for the estate and its contacts,
+	 * one hop, the asker's own frame. */
+	for (i = 0; i < 4u; i++)
+		CHECK(is(fzn_node_relay_refuse_relay(all[i], 0, 1u, 1), NO_RELAY),
+		      "a relay that relays nothing relayed for someone");
+	CHECK(is(fzn_node_relay_refuse_relay(&member, 1, 1u, 1), NULL)
+	              && is(fzn_node_relay_refuse_relay(&x, 1, 1u, 1), NULL)
+	              && is(fzn_node_relay_refuse_relay(&y, 1, 1u, 1), NULL),
+	      "a member or a contact's host was refused a relay it may have");
+	CHECK(is(fzn_node_relay_refuse_relay(&neither, 1, 1u, 1), NOT_OURS)
+	              && is(fzn_node_relay_refuse_relay(NULL, 1, 1u, 1), NOT_OURS),
+	      "a host neither of the estate nor a standing contact's was relayed for");
+	CHECK(is(fzn_node_relay_refuse_relay(&member, 1, 0u, 1), TWO_HOPS)
+	              && is(fzn_node_relay_refuse_relay(&x, 1, 0u, 1), TWO_HOPS),
+	      "a frame relayed once was relayed again");
+	CHECK(is(fzn_node_relay_refuse_relay(&member, 1, 1u, 0), NOT_OWN)
+	              && is(fzn_node_relay_refuse_relay(&x, 1, 1u, 0), NOT_OWN),
+	      "a frame another host sealed was relayed for its asker");
+
+	/* AN INTRODUCTION: the estate's own. */
+	CHECK(is(fzn_node_relay_refuse_introduce(&member), NULL),
+	      "a member was refused an introduction");
+	CHECK(is(fzn_node_relay_refuse_introduce(&x), NO_INTRO)
+	              && is(fzn_node_relay_refuse_introduce(&y), NO_INTRO)
+	              && is(fzn_node_relay_refuse_introduce(&neither), NO_INTRO)
+	              && is(fzn_node_relay_refuse_introduce(NULL), NO_INTRO),
+	      "a host outside the estate was told where one of its hosts is");
+
+	/* A NOTIFY: a member about a host this one knows; a contact's host
+	 * about another of the same contact's. */
+	CHECK(is(fzn_node_relay_refuse_notify(&member, &member), NULL)
+	              && is(fzn_node_relay_refuse_notify(&member, &x), NULL),
+	      "a member's notify about a known host was refused");
+	CHECK(is(fzn_node_relay_refuse_notify(&member, &neither), UNKNOWN),
+	      "a member's notify about a host this one does not know was taken");
+	CHECK(is(fzn_node_relay_refuse_notify(&x, &x), NULL),
+	      "a contact's notify about its own other host was refused");
+	CHECK(is(fzn_node_relay_refuse_notify(&x, &y), NO_NOTIFY)
+	              && is(fzn_node_relay_refuse_notify(&x, &member), NO_NOTIFY)
+	              && is(fzn_node_relay_refuse_notify(&x, &neither), NO_NOTIFY),
+	      "a contact's notify about another user's host, or this estate's, was taken");
+	for (i = 0; i < 4u; i++)
+		CHECK(is(fzn_node_relay_refuse_notify(&neither, all[i]), NO_NOTIFY),
+		      "a notify from a host neither of the estate nor a contact's was taken");
+
+	/* A TIME ASK: the estate's and its contacts'. */
+	CHECK(is(fzn_node_relay_refuse_time(&member), NULL)
+	              && is(fzn_node_relay_refuse_time(&x), NULL),
+	      "a member or a contact's host was refused this host's clock");
+	CHECK(is(fzn_node_relay_refuse_time(&neither), NO_TIME)
+	              && is(fzn_node_relay_refuse_time(NULL), NO_TIME),
+	      "a host neither of the estate nor a standing contact's was told this host's clock");
+
+	/* THE LOCAL VERBS: the node's own user alone, as `get relay` is. */
+	CHECK(is(fzn_node_relay_refuse_local(FZN_ORIGIN_SAME_USER), NULL),
+	      "this node's own user was refused its own reachability");
+	CHECK(is(fzn_node_relay_refuse_local(FZN_ORIGIN_LOCAL), OWN_USER)
+	              && is(fzn_node_relay_refuse_local(FZN_ORIGIN_REMOTE), OWN_USER)
+	              && is(fzn_node_relay_refuse_local(FZN_ORIGIN_NONE), OWN_USER),
+	      "another user, a remote origin or none was told who this host hears or where it is "
+	      "reached");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -146,6 +244,7 @@ static void test_the_suite_can_tell_pass_from_fail(void)
 
 int main(void)
 {
+	test_who_may_ask();
 	test_the_suite_can_tell_pass_from_fail();
 	test_routes_back();
 	test_where_peers_said_hello();
