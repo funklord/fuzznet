@@ -6479,10 +6479,20 @@ static size_t devices_page_n;
 static int hosts_at(void *ctx, size_t i, fzn_contact_device_t *out)
 {
 	(void)ctx;
-	if (i == 0)
-		devices_page_n = devices_grow(&devices_page, FZN_CONTACT_DEVICES_MAX)
+	/* ROOM FOR EVERY HOST OF THE ESTATE, sec 775, as `own_devices` sizes
+	 * its own: the page's 128 cut the hosts offered a contact there and
+	 * said nothing, `estate_devices` filling what it is given. */
+	if (i == 0) {
+		static struct key_room counting;
+		uint8_t (*keys)[FZN_PUBKEY_LEN] = NULL;
+		size_t n = 0;
+
+		if (siblings_list(&counting, &keys, &n, 0u) != FZN_NODE_SIBLINGS_OK)
+			n = 0;
+		devices_page_n = devices_grow(&devices_page, n + 1u)
 		                 ? estate_devices(devices_page.at, devices_page.cap, 1)
 		                 : 0u;
+	}
 	if (i >= devices_page_n)
 		return 0;
 	*out = devices_page.at[i];

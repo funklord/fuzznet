@@ -72651,14 +72651,15 @@ way it is listed once. Moving the window to 63 or 65 fails it.
 **Recorded, not changed:**
 - **A request line holds 512 bytes in all** (`FZN_REQUEST_MAX`), so a
   text of 512 cannot be written in one line: it goes by `add message
-  ... file PATH`. A line too long is answered a bare `denied`, which
-  `local/vocabulary.h` already describes.
+  ... file PATH`. A line too long was answered a bare `denied`, and is
+  answered `malformed` with the bound since sec 772.
 - **Every line's order, scanned back `ALL_SCAN_MAX` (4096) entries for an
   insertion's moves**, appends past it. Untested: reaching it needs 4096
-  lines in a store the unit tests' memory store does not hold.
+  lines in a store the unit tests' memory store does not hold. Left so
+  in sec 775: the fallback is the order before sec 725, and listed once.
 - **A contact's devices past the starting room of 128**
-  (`FZN_CONTACT_DEVICES_MAX`), which the daemon grows. No test yet holds
-  more than 128.
+  (`FZN_CONTACT_DEVICES_MAX`), which the daemon grows. Held past it since
+  sec 775, by `live_faults` phase j's 140 contacts.
 
 With sec 731's fuzz and sec 733's faults, journey 2 has a first pass at
 every part of the bar. Still open: the loss intermittent recorded in sec
@@ -74924,3 +74925,41 @@ off with nothing kept, a fix at 500 m and one of unknown accuracy each
 dropped and said, DROPPED up by two, and a fix kept reading SOURCE
 `platform`; phase b reads SOURCE `gpsd` while watching. fuzzypickles is
 told what the node answers now.
+
+## 775. Journey 2's open items: 20 per cent, a delivery crashed, 128 devices, 2026-10-30
+
+Sec 734 left journey 2 four things: the loss intermittent of sec 731, the
+remote halves under a crash (sec 733), and two rooms never held past
+their edge.
+
+**Loss.** Sec 731's phase c failure at 5 per cent was most likely the
+order sec 744 fixed, and the full scenario passed 10 of 10 at 5 per cent
+afterwards. Journeys 4 and 5 have been held to 20 per cent since; journey
+2 had not. `live_chat --loss 20`, five runs: 5 passed, 73 to 125 s.
+
+**A delivery crashed at the receiver** -- `live_faults` phase u. S and R
+are contacts, R holding S's card; each try copies the pair, starts S with
+a crash point, and R writes a line, which goes at once. Where S dies, it
+is started again, R is started again so its first pass offers what is
+still being sent, and S must hold the line once and whole while R's
+offer is answered delivered or settled. Swept: `persist.synced` 16,
+`persist.renamed` 16, `record.body` 1 inside the delivery; all held. No
+defect: the remote half files through the same `fzn_messages_write` that
+sec 733 swept, and the offer is idempotent on the line's id. Key
+carriage between members is still not crashed.
+
+**Past 128 contact devices.** Phase j adds 140 contacts by their cards,
+not 60, so the contact devices kept pass the room
+`devices_list` starts with; the round delivers to all 140, and the last
+contact's device lists.
+
+**One defect, by reading the room's other user:** `hosts_at`, which
+offers this estate's hosts to a contact, filled the same 128-entry page
+through `estate_devices`, which stops at its room and says nothing -- so
+a user with more than 128 devices offered a contact only the first 128.
+It now sizes the page from the sibling count, as `own_devices` already
+did. No test holds an estate of 129 hosts; this is read, not measured.
+
+**Left:** `ALL_SCAN_MAX` past 4096 -- a test needs a store of some 16,000
+rows, quadratic in the unit tests' memory store, and the fallback is the
+order before sec 725, each line listed once.

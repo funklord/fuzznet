@@ -38,10 +38,12 @@ the scenarios built on them test something:
     i  a root re-keys 100 devices, more than the 64 successions its own
        table held, every one answered `ok` and listed; started again, it
        loads and lists all 100 (sec 704) -- where the 65th was refused
-    j  a root adds 60 contacts by their cards, each a host with an
-       address, more than the 32 contact hosts it once reached and the 48
-       its first room holds; its round grows the room and delivers to all
-       60 (sec 704) -- where the 33rd host was never reached
+    j  a root adds 140 contacts by their cards, each a host with an
+       address, more than the 32 contact hosts it once reached, the 48 its
+       first room holds and the 128 contact devices its listing starts
+       with; its round grows the room and delivers to all 140 (secs 704,
+       775), and the last contact's device lists -- where the 33rd host
+       was never reached
     k  a member joined by its card, at 100 per cent loss so it can pull
        nothing, lists member held at once, and admin straight after `set
        admin` (sec 709) -- where both waited for a pull from the root to
@@ -81,6 +83,10 @@ the scenarios built on them test something:
     t  a full disk at every depth of the same: each fix answered ok is
        listed after a restart with room, none twice, and the next added
        is numbered after them
+    u  a crash at every reach of each crash point inside a contact's
+       delivery, journey 2's remote half: R writes a line to S, and S dies
+       filing it. Started again, S holds the line once, whole, and R's
+       offer made again is answered delivered or settled (sec 775)
 
 Against a daemon built without faults, phase a's B is counted at 100 per
 cent loss, phase b's daemon does not die, and phase c's says nothing.
@@ -368,6 +374,109 @@ def location_faults(run, scratch, sock_dir):
 		raise failed("t: no budget fell inside the fixes added")
 	print("livecheck: t: a full disk at %d depths of three fixes added: each answered ok "
 	      "listed after a restart, none twice, the next numbered after them" % short)
+
+
+def delivery_faults(run, scratch, sock_dir):
+	"""Phase u: a line delivered by a contact, the receiver crashed at every
+	write of its filing. Sec 733 crashed a line filed by the verb; the
+	delivery files through the same write, from the remote handler."""
+	line, text = "75" * 16, "from%20rory"
+	port = 45400 + (os.getpid() % 500) * 2
+	s_args = ["--udp-port=%d" % port]
+	offered = re.compile(r"line\(s\) offered to 127\.0\.0\.1: (\d+) delivered, "
+	                     r"(\d+) settled, (\d+) refused, (\d+) unanswered")
+	template = {w: os.path.join(scratch, "u-" + w) for w in ("s", "r")}
+	for d in template.values():
+		os.mkdir(d)
+		command(run, ["--fuzznet-dir=" + d, "--new-root"], None)
+	s_key = command(run, ["--fuzznet-dir=" + template["s"], "--prekey"], None)[4:68]
+	r_prekey = command(run, ["--fuzznet-dir=" + template["r"], "--prekey"], None)
+	r_key = r_prekey[4:68]
+	sock = {w: os.path.join(sock_dir, "u" + w) for w in ("s", "r")}
+	node = daemon(run, "us", template["s"], sock["s"], extra=s_args)
+	try:
+		if ask(sock["s"], "add contact rory " + r_key) != "ok":
+			raise failed("u: S would not add R")
+		card = ask(sock["s"], "grant share rory " + r_prekey)
+		if not card.startswith("ok "):
+			raise failed("u: grant share answered %r" % card)
+	finally:
+		node.stop()
+	card_path = os.path.join(scratch, "u-card")
+	with open(card_path, "w") as f:
+		f.write(card.split(" ", 1)[1])
+	node = daemon(run, "ur", template["r"], sock["r"])
+	try:
+		for request in ("add contact sam " + s_key,
+		                "add received sam 127.0.0.1 %d %s" % (port, card_path)):
+			if ask(sock["r"], request) != "ok":
+				raise failed("u: R answered otherwise to %r" % request)
+	finally:
+		node.stop()
+
+	def held_at_s():
+		reply = ask(sock["s"], "list message " + r_key)
+		return reply.count("," + line + ","), ",%s," % line in reply and reply.rstrip().endswith(text)
+
+	swept = {}
+	for point in ("persist.synced", "persist.renamed", "record.body"):
+		inside = 0
+		for n in range(1, 400):
+			dirs = {w: os.path.join(scratch, "u-%s-%d-%s" % (point, n, w)) for w in ("s", "r")}
+			for w in ("s", "r"):
+				shutil.copytree(template[w], dirs[w])
+			faulted({"FZN_FAULT_CRASH": "%s:%d" % (point, n)})
+			try:
+				s = daemon(run, "u%s%ds" % (point[0], n), dirs["s"], sock["s"], extra=s_args)
+			except failed as e:
+				if "fault: dying at" not in str(e):
+					raise
+				continue  # at start, before the delivery: N too small
+			finally:
+				faulted({})
+			try:
+				r = daemon(run, "u%s%dr" % (point[0], n), dirs["r"], sock["r"])
+				try:
+					if ask(sock["r"], "add message sam out %s %s" % (line, text)) != "ok":
+						raise failed("u: R's line was refused")
+					r.wait_for(offered, "R's delivery")
+					time.sleep(0.5)
+					crashed = s.proc.poll() is not None
+					if not crashed:
+						break
+					inside += 1
+					where = "u: after a crash at %s:%d," % (point, n)
+					s.stop()
+					s = daemon(run, "u%s%dt" % (point[0], n), dirs["s"], sock["s"],
+					           extra=s_args)
+					# R OFFERS AGAIN: started again, its first pass offers what
+					# is still being sent, and what was delivered for settling.
+					r.stop()
+					r = daemon(run, "u%s%dq" % (point[0], n), dirs["r"], sock["r"])
+					answered = None
+					until = time.monotonic() + 60.0
+					while time.monotonic() < until:
+						got = offered.findall(r.log())
+						if got and (int(got[-1][0]) or int(got[-1][1])):
+							answered = got[-1]
+							break
+						time.sleep(0.5)
+					count, whole = held_at_s()
+					if answered is None or count != 1 or not whole:
+						raise failed("%s R's offers said %r, and S holds the line %d time(s), "
+						             "whole %s" % (where, offered.findall(r.log()), count, whole))
+				finally:
+					r.stop()
+			finally:
+				s.stop()
+		else:
+			raise failed("u: %s was still reached after 400 writes" % point)
+		swept[point] = inside
+	if not any(swept.values()):
+		raise failed("u: no crash point fell inside a delivery: %r" % swept)
+	print("livecheck: u: a crash at every write of a contact's delivery (%s), S started "
+	      "again: the line held once and whole, and R's offer answered"
+	      % ", ".join("%s %d" % kv for kv in swept.items()))
 
 
 def reconcile_from(sock, tag):
@@ -691,9 +800,11 @@ def main(argv):
 			print("livecheck: i: 100 devices re-keyed and listed, and all 100 loaded again "
 			      "after a restart")
 
-			# j: more contact hosts than the round once reached.
+			# j: more contact hosts than the round once reached, and since sec
+			# 775 more than the 128 contact devices the room starts with.
+			J_HOSTS = 140
 			cards = []
-			for n in range(60):
+			for n in range(J_HOSTS):
 				d = os.path.join(scratch, "j%d" % n)
 				sock = os.path.join(sock_dir, "j%d" % n)
 				os.mkdir(d)
@@ -729,17 +840,20 @@ def main(argv):
 				said = ""
 				while time.monotonic() < until:
 					said = j.log()
-					if re.search(r"\b60 host\(s\) to deliver to", said):
+					if re.search(r"\b%d host\(s\) to deliver to" % J_HOSTS, said):
 						break
 					time.sleep(0.5)
-				if not re.search(r"\b60 host\(s\) to deliver to", said) \
+				if not re.search(r"\b%d host\(s\) to deliver to" % J_HOSTS, said) \
 				   or not re.search(r"room for \d+ contact hosts", said):
-					raise failed("j: 60 contact hosts kept, and the round did not grow to deliver "
-					             "to all of them:\n%s" % said[-600:])
+					raise failed("j: %d contact hosts kept, and the round did not grow to "
+					             "deliver to all of them:\n%s" % (J_HOSTS, said[-600:]))
+				listed = ask(j_sock, "list device j%d" % (J_HOSTS - 1)).split()
+				if listed[:2] != ["ok", "1"]:
+					raise failed("j: the last contact's device, past 128, listed %r" % listed[:4])
 			finally:
 				j.stop()
-			print("livecheck: j: 60 contact hosts added, and the round grew its room and "
-			      "delivered to all of them")
+			print("livecheck: j: %d contact hosts added, past the 128 devices the room starts "
+			      "with, and the round grew its room and delivered to all of them" % J_HOSTS)
 
 			# k: a member that can pull nothing holds what it keeps (sec 709).
 			k_dir, k_root = (os.path.join(scratch, w) for w in ("k", "kr"))
@@ -1184,6 +1298,9 @@ def main(argv):
 			# s and t: three fixes added, crashed, and then short of disk
 			# (sec 769).
 			location_faults(run, scratch, sock_dir)
+
+			# u: a contact's delivery crashed at the receiver (sec 775).
+			delivery_faults(run, scratch, sock_dir)
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1
