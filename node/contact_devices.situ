@@ -67,23 +67,60 @@ struct fzn_contact_devices_listed {
 	u8   entry[len];                        // an fzn_contact_device
 }
 
-// A CONTACT'S ROOT'S REVOCATIONS, sec 776: the asker wants the records the
+// A CONTACT'S ROOT'S REVOCATIONS, sec 776, numbered 49 and 50 since sec 781
+// (33 and 34 are messages' HOLDS and HOLDING): the asker wants the records the
 // answerer's root signed for the member capability -- revocations and
 // withdrawals -- so a device that root revoked is dropped at the asker.
 
 // REVOKED: a page of the root's records, from the `from`th.
 struct fzn_contact_devices_revoked {
 	u8   version [must_eq = 2];
-	u8   type [must_eq = 33];
+	u8   type [must_eq = 49];
 	u32  from;
 }
 
 // RECORDS: as many as fit, each a whole signed record.
 struct fzn_contact_devices_records {
 	u8   version [must_eq = 2];
-	u8   type [must_eq = 34];
+	u8   type [must_eq = 50];
 	u32  from;                              // the query's, echoed
 	u8   count;
 	u8   more [max = 1];
 	u8   records[count * 242];              // FZN_REVOCATION_LEN each
+}
+
+// A CONTACT'S ESTATE, sec 781: its root changes and quorum settings, votes
+// and admin confirmations, each with its signer's chain, so its devices are
+// judged as its own estate judges them.
+
+// ESTATE: a page of the answerer's estate records, from the `from`th.
+struct fzn_contact_devices_estate {
+	u8   version [must_eq = 2];
+	u8   type [must_eq = 51];
+	u32  from;
+}
+
+// ITEMS: as many as fit, after the k the answerer holds.
+struct fzn_contact_devices_items {
+	u8   version [must_eq = 2];
+	u8   type [must_eq = 52];
+	u32  from;                              // the query's, echoed
+	u8   count;
+	u8   more [max = 1];
+	u8   k [min = 1];
+	fzn_contact_estate_listed items[count];
+}
+
+struct fzn_contact_estate_listed {
+	u16  len;
+	fzn_contact_estate_item item;           // `len` bytes
+}
+
+// AN ITEM: its kind, its record, its signer's chain.
+struct fzn_contact_estate_item {
+	u8   kind [min = 1, max = 3];           // change, vote, confirmation
+	u16  record_len [min = 1, max = 242];
+	u8   record[record_len];
+	u8   hop_count [max = 8];               // none for a root
+	u8   hops[hop_count * 179];             // FZN_HOP_LEN each
 }

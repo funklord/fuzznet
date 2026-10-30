@@ -49,6 +49,7 @@
 
 #include "../chain/chain.h"
 #include "../chain/revocation.h"
+#include "../chain/root_log.h"
 #include "../persist/persist.h"
 #include "../prekey/prekey.h"
 
@@ -252,14 +253,19 @@ size_t fzn_contact_devices_query_answer(const uint8_t *request, size_t request_l
  * failing open there is what this node did before, and failing shut would
  * cut a device its own estate keeps.
  *
- *   REVOKED  33  `from` (32 bits): the root's records, from the `from`th --
+ * NUMBERED 49 AND 50 SINCE SEC 781: sec 776 gave them 33 and 34, which
+ * `node/types.h` gives messages' HOLDS and HOLDING. They only ever met in
+ * a handler that checks lengths first, so no request was misread; the
+ * registry now names them, and `types_test` holds them to it.
+ *
+ *   REVOKED  49  `from` (32 bits): the root's records, from the `from`th --
  *                asked of a contact's host; or, asked of a member, the
  *                contacts' roots' records it saved (sec 780)
- *   RECORDS  34  `from` echoed, how many, whether more follow, then each
+ *   RECORDS  50  `from` echoed, how many, whether more follow, then each
  *                record, FZN_REVOCATION_LEN bytes
  */
-#define FZN_CONTACT_DEVICES_REVOKED 33u
-#define FZN_CONTACT_DEVICES_RECORDS 34u
+#define FZN_CONTACT_DEVICES_REVOKED 49u
+#define FZN_CONTACT_DEVICES_RECORDS 50u
 #define FZN_CONTACT_DEVICES_REVOKED_LEN 6u
 #define FZN_CONTACT_DEVICES_RECORDS_HEAD_LEN 8u
 
@@ -336,5 +342,130 @@ fzn_contact_device_err_t fzn_contact_revocations_list(const fzn_persist_ops_t *s
 int fzn_contact_device_revoked(const fzn_contact_device_t *d,
                                const fzn_revocation_store_t *revocations,
                                const fzn_cap_id_t *member);
+
+/* ---- a contact's estate: its admins' and other roots' votes, sec 781 ------
+ *
+ * SEC 776 TOOK ONLY THE ROOT'S WORD, which is the estate's alone at any k.
+ * A device its admins revoked by k votes, or another of its roots, stayed
+ * reachable here. This carries what judging that takes, and builds the
+ * contact's estate as this node can see it:
+ *
+ *   - ITS ROOT SET, from the root-adds and root-removes its roots signed,
+ *     the contact's root as genesis (`chain/root_log.h`);
+ *   - ITS k, the larger of what its roots' quorum settings resolve to and
+ *     what its host says it holds -- a larger k revokes less;
+ *   - ITS ADMINS, each by the admin chain a vote or confirmation shows and
+ *     the k - 1 confirmations a non-root's grant needs (sec 414);
+ *   - ITS VOTES, each admitted with its signer's chain.
+ *
+ * A store over these judges each device of the contact's as its own estate
+ * does (`chain/revocation.h`), with one thing missing: the act log, which
+ * decides what a removed root or a revoked key did before its line. Without
+ * it nothing such a key did stands, so a removed root's votes and grants
+ * count for nothing here -- votes lost, which errs open. A grant by a key
+ * above the device is judged as sec 776 judges it: the device falls only
+ * when every live vote against that key trusts none of its acts.
+ *
+ * EVERY DOUBT ERRS OPEN. Dropping a device its own estate keeps is the
+ * failure this must not make; missing a revocation is what this node did
+ * before sec 776.
+ *
+ *   ESTATE  51  `from` (32 bits): the answerer's estate records
+ *   ITEMS   52  `from` echoed, how many, whether more follow, the k the
+ *               answerer holds, then each item after a 16-bit length
+ *
+ * AN ITEM: its kind, its record after a 16-bit length, then its signer's
+ * chain -- a count and that many hops.
+ */
+#define FZN_CONTACT_ESTATE_CHANGE 1u  /* a root-add, root-remove or quorum setting */
+#define FZN_CONTACT_ESTATE_VOTE 2u    /* a revocation or withdrawal */
+#define FZN_CONTACT_ESTATE_CONFIRM 3u /* an admin's confirmation of an admin grant */
+#define FZN_CONTACT_ESTATE_RECORD_MAX FZN_REVOCATION_LEN
+#define FZN_CONTACT_ESTATE_ITEM_MAX                                                           \
+	(1u + 2u + FZN_CONTACT_ESTATE_RECORD_MAX + 1u + FZN_CHAIN_MAX_HOPS * FZN_HOP_LEN)
+#define FZN_CONTACT_DEVICES_ESTATE 51u
+#define FZN_CONTACT_DEVICES_ITEMS 52u
+#define FZN_CONTACT_DEVICES_ESTATE_LEN 6u
+#define FZN_CONTACT_DEVICES_ITEMS_HEAD_LEN 9u
+
+typedef struct fzn_contact_estate_item {
+	uint8_t kind;
+	uint8_t record[FZN_CONTACT_ESTATE_RECORD_MAX];
+	size_t record_len;
+	/* The signer's chain: none for a root. */
+	uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	size_t hop_count;
+} fzn_contact_estate_item_t;
+
+fzn_contact_device_err_t fzn_contact_estate_item_encode(const fzn_contact_estate_item_t *item,
+                                                        uint8_t *out, size_t cap, size_t *len);
+fzn_contact_device_err_t fzn_contact_estate_item_decode(const uint8_t *bytes, size_t len,
+                                                        fzn_contact_estate_item_t *out);
+
+/* THE QUERY AS STEPS, as the others are: each item handed to `take`,
+ * decoded and not judged; the answerer's k kept in `k`, the largest any page
+ * said. */
+typedef struct fzn_contact_estate_querying {
+	int live;
+	void (*take)(void *ctx, const fzn_contact_estate_item_t *item);
+	void *take_ctx;
+	uint32_t from;
+	size_t count;
+	uint8_t k;
+} fzn_contact_estate_querying_t;
+
+int fzn_contact_estate_query_begin(fzn_contact_estate_querying_t *q,
+                                   void (*take)(void *ctx, const fzn_contact_estate_item_t *item),
+                                   void *take_ctx, uint8_t *request, size_t cap,
+                                   size_t *request_len);
+
+int fzn_contact_estate_query_step(fzn_contact_estate_querying_t *q, const uint8_t *reply,
+                                  size_t reply_len, uint8_t *request, size_t cap,
+                                  size_t *request_len, int *done);
+
+/* AN ESTATE QUERY, answered: `item_at` fills the `i`th item, 0 past the
+ * last; `k` is the answerer's. 0 for anything that is not one. */
+size_t fzn_contact_estate_answer(const uint8_t *request, size_t request_len,
+                                 int (*item_at)(void *ctx, size_t i,
+                                                fzn_contact_estate_item_t *out),
+                                 uint8_t k, void *ctx, uint8_t *reply, size_t reply_cap);
+
+/* KEEP `item` for the contact `owner` in slot FZN_PERSIST_CONTACT_ESTATE,
+ * once its record is the shape its kind says and signed by its signer:
+ * REFUSED otherwise. Whether its signer had standing is judged when the
+ * estate is built, not here. */
+fzn_contact_device_err_t fzn_contact_estate_keep(const fzn_persist_ops_t *store,
+                                                 const fzn_hash_ops_t *hash,
+                                                 const fzn_sign_ops_t *sign,
+                                                 const uint8_t owner[FZN_PUBKEY_LEN],
+                                                 const fzn_contact_estate_item_t *item);
+
+/* THE k `owner`'s host said it holds, kept in place of the last. */
+fzn_contact_device_err_t fzn_contact_estate_keep_k(const fzn_persist_ops_t *store,
+                                                   const fzn_hash_ops_t *hash,
+                                                   const uint8_t owner[FZN_PUBKEY_LEN],
+                                                   uint8_t k);
+
+/* THE CONTACT'S ESTATE AS THIS NODE SEES IT, built from what is kept for
+ * `owner` -- slot FZN_PERSIST_CONTACT_ESTATE and its root's records in
+ * FZN_PERSIST_CONTACT_REVOCATION -- for judging its devices. Allocated;
+ * NULL out of memory or with a store that will not walk. */
+typedef struct fzn_contact_estate fzn_contact_estate_t;
+
+fzn_contact_estate_t *fzn_contact_estate_open(const fzn_persist_ops_t *store,
+                                              const uint8_t owner[FZN_PUBKEY_LEN],
+                                              const fzn_cap_id_t *member,
+                                              const fzn_cap_id_t *admin,
+                                              const fzn_sign_ops_t *sign,
+                                              const fzn_hash_ops_t *hash);
+
+/* WHETHER `d`, a device of the estate's owner, falls in it, as the section
+ * above judges. 0 for another owner's device and for the owner itself. */
+int fzn_contact_estate_revoked(const fzn_contact_estate_t *e, const fzn_contact_device_t *d);
+
+/* The estate's k as built: what a test asks. */
+uint8_t fzn_contact_estate_k(const fzn_contact_estate_t *e);
+
+void fzn_contact_estate_close(fzn_contact_estate_t *e);
 
 #endif /* FZN_NODE_CONTACT_DEVICES_H */

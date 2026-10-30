@@ -389,13 +389,20 @@ typedef enum fzn_persist_slot {
 	 * record lost is a revoked device paired again. `node/contact_devices.h`
 	 * keeps it. sec 776. */
 	FZN_PERSIST_CONTACT_REVOCATION = 64u,
+	/* Per (owner, item), keyed by a hash of the two: a record of a
+	 * contact's estate -- a root change or quorum setting, a vote with its
+	 * signer's chain, an admin's confirmation -- and per owner the k its
+	 * host holds, so its devices are judged as its estate judges them.
+	 * CORE: a record lost is a revoked device paired again.
+	 * `node/contact_devices.h` keeps it. sec 781. */
+	FZN_PERSIST_CONTACT_ESTATE = 65u,
 } fzn_persist_slot_t;
 
 /* ONE PAST THE HIGHEST SLOT, for a caller that walks every slot: the
  * operation journal's snapshot (sec 524) lists each in turn. A slot added
  * above moves it, and persist_test holds it to the highest slot its core
  * and store lists name. */
-#define FZN_PERSIST_SLOT_END 65u
+#define FZN_PERSIST_SLOT_END 66u
 
 typedef enum fzn_persist_err {
 	FZN_PERSIST_OK = 0,

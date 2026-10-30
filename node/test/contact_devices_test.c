@@ -55,7 +55,7 @@ static const fzn_sign_ops_t SIGN = { stub_verify, stub_sign, NULL };
 
 /* ---- a store ------------------------------------------------------------ */
 
-#define ROWS 8u
+#define ROWS 32u
 
 static struct {
 	int used;
@@ -87,7 +87,8 @@ static int mem_save(void *ctx, fzn_persist_slot_t slot, const uint8_t *subject,
 	size_t i, free_one = ROWS;
 
 	(void)ctx;
-	if ((slot != FZN_PERSIST_CONTACT_DEVICE && slot != FZN_PERSIST_CONTACT_REVOCATION)
+	if ((slot != FZN_PERSIST_CONTACT_DEVICE && slot != FZN_PERSIST_CONTACT_REVOCATION
+	     && slot != FZN_PERSIST_CONTACT_ESTATE)
 	    || len > sizeof(rows[0].bytes))
 		return 0;
 	for (i = 0; i < ROWS; i++) {
@@ -113,7 +114,8 @@ static int mem_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max
 	size_t i, n = 0;
 
 	(void)ctx;
-	if (slot != FZN_PERSIST_CONTACT_DEVICE && slot != FZN_PERSIST_CONTACT_REVOCATION)
+	if (slot != FZN_PERSIST_CONTACT_DEVICE && slot != FZN_PERSIST_CONTACT_REVOCATION
+	    && slot != FZN_PERSIST_CONTACT_ESTATE)
 		return 0;
 	for (i = 0; i < ROWS; i++)
 		if (rows[i].used && rows[i].slot == slot) {
@@ -805,6 +807,204 @@ static void test_the_revoked_messages(void)
 	}
 }
 
+/* ---- a contact's estate, sec 781 ----------------------------------------- */
+
+static fzn_cap_id_t admin_cap;
+static uint8_t admin_a[32], admin_b[32], root2[32];
+
+/* `it` as a vote: `issuer` revokes `grantee` of the member capability. */
+static void vote_item(fzn_contact_estate_item_t *it, const uint8_t issuer[32],
+                      const uint8_t grantee[32], uint64_t at)
+{
+	memset(it, 0, sizeof(*it));
+	it->kind = FZN_CONTACT_ESTATE_VOTE;
+	it->record_len = FZN_REVOCATION_LEN;
+	revoked_by(it->record, issuer, &member, grantee, at, NULL);
+}
+
+/* `it`'s chain: the owner grants `key` the admin capability, delegable. */
+static void admin_chain(fzn_contact_estate_item_t *it, const uint8_t key[32])
+{
+	signing_as = owner[0];
+	(void)fzn_chain_mint(owner, key, &admin_cap, 100u, FZN_NO_EXPIRY, 1, &SIGN, it->hops[0]);
+	it->hop_count = 1u;
+}
+
+static int judged(const fzn_contact_device_t *d, uint8_t *k)
+{
+	fzn_contact_estate_t *e =
+	        fzn_contact_estate_open(&STORE, owner, &member, &admin_cap, &SIGN, &HASH);
+	int r = e ? fzn_contact_estate_revoked(e, d) : -1;
+
+	if (k)
+		*k = fzn_contact_estate_k(e);
+	fzn_contact_estate_close(e);
+	return r;
+}
+
+static void test_a_contacts_estate(void)
+{
+	static fzn_contact_device_t d;
+	static fzn_contact_estate_item_t it, back;
+	static uint8_t bytes[FZN_CONTACT_ESTATE_ITEM_MAX + 1u];
+	size_t len = 0;
+	uint8_t k = 0;
+
+	memset(rows, 0, sizeof(rows));
+	device(&d, phone, 1000u);
+	granted(&d, phone, &member);
+
+	/* THE ITEM'S BYTES. */
+	vote_item(&it, admin_a, phone, 300u);
+	admin_chain(&it, admin_a);
+	CHECK(fzn_contact_estate_item_encode(&it, bytes, sizeof(bytes), &len)
+	                      == FZN_CONTACT_DEVICE_OK
+	              && fzn_contact_estate_item_decode(bytes, len, &back) == FZN_CONTACT_DEVICE_OK
+	              && back.kind == it.kind && back.record_len == it.record_len
+	              && back.hop_count == 1u && memcmp(back.record, it.record, it.record_len) == 0
+	              && memcmp(back.hops[0], it.hops[0], FZN_HOP_LEN) == 0,
+	      "an estate item does not decode to itself");
+	bytes[len] = 0u;
+	CHECK(fzn_contact_estate_item_decode(bytes, len - 1u, &back) == FZN_CONTACT_DEVICE_ERR_SHAPE
+	              && fzn_contact_estate_item_decode(bytes, len + 1u, &back)
+	                         == FZN_CONTACT_DEVICE_ERR_SHAPE,
+	      "an item a byte short or long decodes");
+	bytes[0] = 4u;
+	CHECK(fzn_contact_estate_item_decode(bytes, len, &back) == FZN_CONTACT_DEVICE_ERR_SHAPE,
+	      "an item of a kind nobody reads decodes");
+
+	/* KEPT ONLY SIGNED. */
+	it.record[FZN_REV_OFF_GRANTEE] ^= 1u;
+	CHECK(fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &it)
+	              == FZN_CONTACT_DEVICE_ERR_REFUSED,
+	      "a vote changed after signing was kept");
+	it.record[FZN_REV_OFF_GRANTEE] ^= 1u;
+
+	/* AN ADMIN'S LONE VOTE: the device falls at k 1, the owner's default. */
+	CHECK(judged(&d, &k) == 0 && k == 1u, "a device fell with nothing kept, or k was not 1");
+	CHECK(fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &it) == FZN_CONTACT_DEVICE_OK
+	              && judged(&d, NULL) == 1,
+	      "an admin's vote at k 1 did not drop the device");
+
+	/* AT k 2, said by the host, one admin is not enough; two are. */
+	CHECK(fzn_contact_estate_keep_k(&STORE, &HASH, owner, 2u) == FZN_CONTACT_DEVICE_OK
+	              && judged(&d, &k) == 0 && k == 2u,
+	      "one admin's vote at k 2 dropped the device");
+	vote_item(&it, admin_b, phone, 301u);
+	admin_chain(&it, admin_b);
+	CHECK(fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &it) == FZN_CONTACT_DEVICE_OK
+	              && judged(&d, NULL) == 1,
+	      "two admins' votes at k 2 did not drop the device");
+
+	/* ANOTHER ROOT: its vote counts alone once a root-add names it, and not
+	 * once it is removed. */
+	memset(rows, 0, sizeof(rows));
+	CHECK(fzn_contact_estate_keep_k(&STORE, &HASH, owner, 3u) == FZN_CONTACT_DEVICE_OK,
+	      "fixture: k 3");
+	vote_item(&it, root2, phone, 302u);
+	CHECK(fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &it) == FZN_CONTACT_DEVICE_OK
+	              && judged(&d, NULL) == 0,
+	      "a vote of a key no root-add names dropped the device");
+	memset(&back, 0, sizeof(back));
+	back.kind = FZN_CONTACT_ESTATE_CHANGE;
+	back.record_len = FZN_ROOT_ADD_LEN;
+	signing_as = owner[0];
+	(void)fzn_root_add_issue(owner, root2, &SIGN, back.record);
+	CHECK(fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &back) == FZN_CONTACT_DEVICE_OK
+	              && judged(&d, NULL) == 1,
+	      "another root's vote, alone at k 3, did not drop the device");
+	back.record_len = FZN_ROOT_REMOVE_LEN;
+	signing_as = owner[0];
+	(void)fzn_root_remove_issue(owner, root2, NULL, &SIGN, back.record);
+	CHECK(fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &back) == FZN_CONTACT_DEVICE_OK
+	              && judged(&d, NULL) == 0,
+	      "a removed root's vote still dropped the device");
+
+	/* k: A ROOT'S SETTING ABOVE THE HOST'S WORD holds. */
+	memset(rows, 0, sizeof(rows));
+	CHECK(fzn_contact_estate_keep_k(&STORE, &HASH, owner, 1u) == FZN_CONTACT_DEVICE_OK,
+	      "fixture: k 1 said");
+	back.record_len = FZN_QUORUM_SET_LEN;
+	signing_as = owner[0];
+	(void)fzn_quorum_set_issue(owner, 2u, NULL, &SIGN, back.record);
+	vote_item(&it, admin_a, phone, 303u);
+	admin_chain(&it, admin_a);
+	CHECK(fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &back) == FZN_CONTACT_DEVICE_OK
+	              && fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &it)
+	                         == FZN_CONTACT_DEVICE_OK
+	              && judged(&d, &k) == 0 && k == 2u,
+	      "a root's k of 2 under a host's 1 did not hold, or one admin dropped the device");
+
+	/* THE OWNER'S OWN RECORD, sec 776's slot, counts here too. */
+	{
+		fzn_revocation_t e[4];
+		fzn_revocation_store_t rs;
+		uint8_t rec[FZN_REVOCATION_LEN];
+
+		revoked_by(rec, owner, &member, phone, 304u, NULL);
+		CHECK(fzn_revocation_store_init(&rs, e, 4u) == FZN_CHAIN_OK
+		              && fzn_contact_revocation_take(&rs, &STORE, owner, &member, rec, &SIGN,
+		                                             &HASH)
+		                         == FZN_CONTACT_DEVICE_OK
+		              && judged(&d, NULL) == 1,
+		      "the owner's own revocation did not drop the device in its estate");
+	}
+}
+
+/* THE ESTATE'S PAGES: thirty votes, a page holding sixteen; k the largest
+ * any page said. */
+static fzn_contact_estate_item_t estate_items[30];
+static size_t estate_taken;
+
+static int estate_at(void *ctx, size_t i, fzn_contact_estate_item_t *out)
+{
+	(void)ctx;
+	if (i >= 30u)
+		return 0;
+	*out = estate_items[i];
+	return 1;
+}
+
+static void take_estate(void *ctx, const fzn_contact_estate_item_t *item)
+{
+	(void)ctx;
+	estate_taken += memcmp(item->record, estate_items[estate_taken].record,
+	                       item->record_len)
+	                == 0;
+}
+
+static void test_the_estate_messages(void)
+{
+	static uint8_t page[FZN_CONTACT_DEVICES_REPLY_MAX + 1u];
+	fzn_contact_estate_querying_t q;
+	uint8_t req[FZN_CONTACT_DEVICES_ESTATE_LEN];
+	size_t i, req_len = 0, page_len = 0, pages = 0;
+	int ok, done = 0;
+
+	for (i = 0; i < 30u; i++)
+		vote_item(&estate_items[i], owner, phone, 500u + i);
+	estate_taken = 0;
+	ok = fzn_contact_estate_query_begin(&q, take_estate, NULL, req, sizeof(req), &req_len);
+	while (ok && !done && pages < 8u) {
+		pages++;
+		page_len = fzn_contact_estate_answer(req, req_len, estate_at, pages == 1u ? 3u : 2u,
+		                                     NULL, page, sizeof(page));
+		ok = page_len && fzn_contact_estate_query_step(&q, page, page_len, req, sizeof(req),
+		                                               &req_len, &done);
+	}
+	CHECK(ok && done && pages == 2u && estate_taken == 30u && q.count == 30u && q.k == 3u,
+	      "thirty items over two pages were not each taken once, in order, k the largest");
+	page_len = fzn_contact_estate_answer(req, req_len, estate_at, 2u, NULL, page, sizeof(page));
+	(void)fzn_contact_estate_query_begin(&q, take_estate, NULL, req, sizeof(req), &req_len);
+	page_len = fzn_contact_estate_answer(req, req_len, estate_at, 2u, NULL, page, sizeof(page));
+	page[page_len] = 0u;
+	estate_taken = 0;
+	CHECK(!fzn_contact_estate_query_step(&q, page, page_len + 1u, req, sizeof(req), &req_len,
+	                                     &done)
+	              && estate_taken == 0u,
+	      "a page with a trailing byte was taken, or taken in part");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -822,6 +1022,10 @@ int main(void)
 	memset(other, 0x33, sizeof(other));
 	memset(member.b, 0x44, sizeof(member.b));
 	memset(share.b, 0x55, sizeof(share.b));
+	memset(admin_cap.b, 0x66, sizeof(admin_cap.b));
+	memset(admin_a, 0x77, sizeof(admin_a));
+	memset(admin_b, 0x88, sizeof(admin_b));
+	memset(root2, 0x99, sizeof(root2));
 	test_the_suite_can_tell_pass_from_fail();
 	test_an_entry_round_trips();
 	test_what_makes_one_hold();
@@ -830,6 +1034,8 @@ int main(void)
 	test_thousands_of_devices();
 	test_a_contacts_revocations();
 	test_the_revoked_messages();
+	test_a_contacts_estate();
+	test_the_estate_messages();
 	if (failures) {
 		fprintf(stderr, "node contact_devices_test: %d of %d checks failed\n", failures, checks);
 		return 1;

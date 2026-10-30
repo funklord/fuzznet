@@ -158,6 +158,8 @@ static const char *slot_words(fzn_persist_slot_t slot, int *known)
 		return "where the root this device joined through is reached";
 	case FZN_PERSIST_CONTACT_REVOCATION:
 		return "a contact's root's revocation of one of its devices";
+	case FZN_PERSIST_CONTACT_ESTATE:
+		return "a record of a contact's estate: its roots, k, admins and votes";
 	}
 	*known = 0;
 	return "an unknown slot";

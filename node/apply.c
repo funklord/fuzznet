@@ -305,7 +305,7 @@ int fzn_node_apply_load_grants(fzn_node_apply_t *ap, size_t *loaded)
 static int judging_parked;
 
 /* An object through the vote stream's admission, under `signer`'s chain --
- * as a member, then as an admin -- or none for a root. */
+ * as an admin, then as a member -- or none for a root. */
 static enum outcome take(fzn_node_apply_t *ap, char item, const uint8_t *body, size_t len,
                          const uint8_t signer[FZN_PUBKEY_LEN])
 {
@@ -329,11 +329,16 @@ static enum outcome take(fzn_node_apply_t *ap, char item, const uint8_t *body, s
 			return FULL;
 		return pull.learned ? APPLIED : REFUSED;
 	}
-	caps[0] = ap->capability;
-	caps[1] = ap->admin_capability;
+	/* AS AN ADMIN FIRST, sec 781: a vote is kept with the chain it was
+	 * admitted under, and admitted under a delegable member chain an
+	 * admin's vote is a member's -- one that revokes only what its signer
+	 * granted -- so a device another admitted was never revoked at the root,
+	 * nor at a contact handed the vote. */
+	caps[0] = ap->admin_capability;
+	caps[1] = ap->capability;
 	for (c = 0; c < 2u; c++) {
 		if (!caps[c] || !fzn_node_apply_chain(ap, signer, caps[c], hops, &n)) {
-			if (c == 1u && caps[c])
+			if (c == 0u && caps[c])
 				admin_absent = 1;
 			continue;
 		}
@@ -345,8 +350,21 @@ static enum outcome take(fzn_node_apply_t *ap, char item, const uint8_t *body, s
 			return NOT_SAVED;
 		if (err == FZN_NODE_PULL_REFUSED)
 			return FULL;
-		if (pull.learned)
+		/* A MEMBER'S, ITS SIGNER NO ADMIN YET: parked as well, sec 781, so
+		 * that once the grant making it one is indexed the vote is admitted
+		 * again under that chain -- held, not lost, while it waits. Measured
+		 * at a root whose own admin grant was indexed a round after the
+		 * admin's vote arrived: the vote stayed a member's for good. */
+		if (pull.learned) {
+			if (c == 1u && admin_absent && item == 'r' && ap->settings && !judging_parked)
+				(void)fzn_node_settings_park(ap->settings, body, len);
+			/* JUDGED AGAIN AND STILL A MEMBER'S: kept parked, admitted again
+			 * each round, which admission makes free, until an admin grant
+			 * comes -- or for good, for a member that is never one. */
+			if (c == 1u && admin_absent && item == 'r' && judging_parked)
+				return WAIT;
 			return APPLIED;
+		}
 	}
 	/* A VOTE REFUSED FOR WANT OF AN ADMIN CHAIN IS PARKED, sec 737: the
 	 * grant that makes its voter an admin may come later, and a vote judged

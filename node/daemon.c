@@ -6430,10 +6430,29 @@ static void load_contact_revocations(const fzn_persist_ops_t *store)
 }
 
 /* WHETHER A CONTACT'S DEVICE FALLS by its owner's revocations. */
+/* JUDGED AS ITS OWN ESTATE JUDGES IT, sec 781, from the contact's records
+ * kept here; by its root's word alone (sec 776) when that estate cannot be
+ * built. `e`, when given, is the owner's estate already open. */
+static int contact_device_revoked_in(const fzn_contact_device_t *d, const fzn_contact_estate_t *e)
+{
+	fzn_contact_estate_t *own = NULL;
+	int revoked;
+
+	if (!node_apply.capability)
+		return 0;
+	if (!e && node_apply.store && node_apply.admin_capability && contact_id)
+		e = own = fzn_contact_estate_open(node_apply.store, d->owner, node_apply.capability,
+		                                  node_apply.admin_capability, contact_id->sign,
+		                                  contact_hash_ops);
+	revoked = e ? fzn_contact_estate_revoked(e, d)
+	            : fzn_contact_device_revoked(d, &contact_revoked, node_apply.capability);
+	fzn_contact_estate_close(own);
+	return revoked;
+}
+
 static int contact_device_revoked(const fzn_contact_device_t *d)
 {
-	return node_apply.capability
-	       && fzn_contact_device_revoked(d, &contact_revoked, node_apply.capability);
+	return contact_device_revoked_in(d, NULL);
 }
 
 /* A HOST OF A CONTACT this node delivers to: the pairing derived from its
@@ -6669,16 +6688,29 @@ static size_t drop_revoked_devices(void)
 {
 	static struct devices_room room;
 	fzn_contact_device_t *kept;
+	fzn_contact_estate_t *estate = NULL;
+	uint8_t estate_owner_of[FZN_PUBKEY_LEN];
 	size_t n = 0, i, dropped = 0;
 
-	if (!running_admin || !node_apply.store || !contact_revoked.used
+	if (!running_admin || !node_apply.store
 	    || devices_list(&room, &n) != FZN_CONTACT_DEVICE_OK)
 		return 0;
 	kept = room.at;
 	for (i = 0; i < n; i++) {
 		char hex[FZN_PUBKEY_LEN * 2u + 1u];
 
-		if (!contact_device_revoked(&kept[i]))
+		/* ONE ESTATE BUILT PER OWNER as the walk meets it. */
+		if (!estate || memcmp(estate_owner_of, kept[i].owner, FZN_PUBKEY_LEN) != 0) {
+			fzn_contact_estate_close(estate);
+			estate = node_apply.admin_capability && contact_id && node_apply.capability
+			                 ? fzn_contact_estate_open(node_apply.store, kept[i].owner,
+			                                           node_apply.capability,
+			                                           node_apply.admin_capability,
+			                                           contact_id->sign, contact_hash_ops)
+			                 : NULL;
+			memcpy(estate_owner_of, kept[i].owner, FZN_PUBKEY_LEN);
+		}
+		if (!contact_device_revoked_in(&kept[i], estate))
 			continue;
 		hex_of(fzn_contact_device_key(&kept[i]), FZN_PUBKEY_LEN, hex);
 		if (fzn_contact_device_remove(node_apply.store, fzn_contact_device_key(&kept[i]))
@@ -6694,6 +6726,7 @@ static size_t drop_revoked_devices(void)
 		    hex);
 		dropped++;
 	}
+	fzn_contact_estate_close(estate);
 	return dropped;
 }
 
@@ -6762,6 +6795,85 @@ static int root_record_at(void *ctx, size_t i, uint8_t out[FZN_REVOCATION_LEN])
 	return 1;
 }
 
+/* THIS ESTATE'S RECORDS, sec 781, as a contact asks for them: listed afresh
+ * at the first of a page's, into room grown to hold them all. A vote this
+ * node issued carries the chain it votes on: none as the root, its admin
+ * chain when it holds one, else its own chain for the member capability. */
+static fzn_contact_estate_item_t *estate_items;
+static size_t estate_items_n, estate_items_cap;
+
+static int estate_item_listed(void *ctx, uint8_t kind, const uint8_t *record, size_t len,
+                              const uint8_t (*hops)[FZN_HOP_LEN], size_t hop_count, int issued)
+{
+	fzn_contact_estate_item_t *it;
+	const uint8_t *owner = estate_owner();
+
+	(void)ctx;
+	if (len > FZN_CONTACT_ESTATE_RECORD_MAX || hop_count > FZN_CHAIN_MAX_HOPS)
+		return 1;
+	if (estate_items_n == estate_items_cap) {
+		size_t cap = estate_items_cap ? estate_items_cap * 2u : 16u;
+		fzn_contact_estate_item_t *more = realloc(estate_items, cap * sizeof(*more));
+
+		if (!more)
+			return 0;
+		estate_items = more;
+		estate_items_cap = cap;
+	}
+	it = &estate_items[estate_items_n];
+	memset(it, 0, sizeof(*it));
+	it->kind = kind;
+	memcpy(it->record, record, len);
+	it->record_len = len;
+	if (issued) {
+		static fzn_node_admin_chain_t mine;
+		fzn_revocation_record_t rec;
+
+		if (fzn_revocation_open(record, len, &rec) != FZN_CHAIN_OK)
+			return 1;
+		if (owner && memcmp(fzn_revocation_issuer(rec), owner, FZN_PUBKEY_LEN) == 0)
+			it->hop_count = 0;
+		else if (node_apply.store && fzn_node_admin_chain_load(node_apply.store, &mine) == 1) {
+			memcpy(it->hops, mine.hops, mine.hop_count * FZN_HOP_LEN);
+			it->hop_count = mine.hop_count;
+		} else if (!node_apply.capability
+		           || !fzn_node_apply_chain(&node_apply, fzn_revocation_issuer(rec),
+		                                    node_apply.capability, it->hops, &it->hop_count)) {
+			return 1;
+		}
+	} else {
+		memcpy(it->hops, hops, hop_count * FZN_HOP_LEN);
+		it->hop_count = hop_count;
+	}
+	estate_items_n++;
+	return 1;
+}
+
+static int estate_item_at(void *ctx, size_t i, fzn_contact_estate_item_t *out)
+{
+	(void)ctx;
+	if (i == 0) {
+		estate_items_n = 0;
+		if (!node_apply.store
+		    || fzn_node_estate_records(node_apply.store, estate_item_listed, NULL)
+		               != FZN_PERSIST_OK)
+			estate_items_n = 0;
+	}
+	if (i >= estate_items_n)
+		return 0;
+	*out = estate_items[i];
+	return 1;
+}
+
+/* THE k THIS NODE HOLDS, as its store judges by. */
+static uint8_t estate_k(void)
+{
+	size_t k = running_admin && running_admin->revocations ? running_admin->revocations->quorum
+	                                                       : 1u;
+
+	return (uint8_t)(k == 0u ? 1u : k > 255u ? 255u : k);
+}
+
 /* THE CONTACTS' ROOTS' RECORDS THIS NODE SAVED, sec 780, as a member asks
  * for them: listed afresh at the first of a page's, into room grown to hold
  * them all. */
@@ -6818,6 +6930,9 @@ static size_t contact_devices_remote(void *ctx, const uint8_t *owner, const uint
 	if (!n)
 		n = fzn_contact_revoked_answer(request, request_len, root_record_at, NULL, reply,
 		                               reply_cap);
+	if (!n)
+		n = fzn_contact_estate_answer(request, request_len, estate_item_at, estate_k(), NULL,
+		                              reply, reply_cap);
 	return n ? n
 	         : fzn_contact_devices_query_answer(request, request_len, hosts_at, NULL, NULL,
 	                                            reply, reply_cap);
@@ -8863,11 +8978,36 @@ struct contact_talk {
 	size_t offered;
 	fzn_contact_devices_querying_t q;
 	fzn_contact_revoked_querying_t rq;
+	fzn_contact_estate_querying_t eq;
 	struct hosts_taking ht;
 	uint64_t now;
 	uint8_t request[FZN_CONTACT_DEVICES_OFFER_MAX];
 };
-enum { CONTACT_OFFER = 1, CONTACT_QUERY = 2, CONTACT_ROUTING = 3, CONTACT_REVOKED = 4 };
+enum {
+	CONTACT_OFFER = 1,
+	CONTACT_QUERY = 2,
+	CONTACT_ROUTING = 3,
+	CONTACT_REVOKED = 4,
+	CONTACT_ESTATE = 5
+};
+
+/* ONE OF THE CONTACT'S ESTATE RECORDS, sec 781, as its host handed it:
+ * kept when its record is signed as its kind says. */
+static void take_estate_item(void *ctx, const fzn_contact_estate_item_t *item)
+{
+	const struct contact_talk *ct = ctx;
+	fzn_contact_device_err_t err;
+
+	if (!node_apply.store || !contact_id || !contact_hash_ops)
+		return;
+	err = fzn_contact_estate_keep(node_apply.store, contact_hash_ops, contact_id->sign,
+	                              ct->contact, item);
+	if (err == FZN_CONTACT_DEVICE_OK)
+		contact_records_taken++;
+	else if (err != FZN_CONTACT_DEVICE_ERR_REFUSED)
+		say(FZN_ENTRY_WARNING, "contact/devices", "a contact's estate record was not kept (%s)",
+		    fzn_contact_device_err_str(err));
+}
 
 /* HOW MANY OF CONTACTS' ROOTS' RECORDS THIS ROUND TOOK, sec 776:
  * `contact_records_taken`, beside the members' talk, which counts too. */
@@ -8976,6 +9116,10 @@ static int contact_next(struct contact_talk *ct, uint8_t *request, size_t cap, s
 		return fzn_contact_revoked_query_begin(&ct->rq, take_revoked, ct, request, cap, len);
 	}
 	if (ct->phase == CONTACT_REVOKED) {
+		ct->phase = CONTACT_ESTATE;
+		return fzn_contact_estate_query_begin(&ct->eq, take_estate_item, ct, request, cap, len);
+	}
+	if (ct->phase == CONTACT_ESTATE) {
 		ct->phase = CONTACT_QUERY;
 		return fzn_contact_devices_query_begin(&ct->q, FZN_CONTACT_DEVICES_HOSTS, take_host,
 		                                       &ct->ht, request, cap, len);
@@ -9010,6 +9154,19 @@ static int contact_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, 
 		    && !done) {
 			meter_asked(&ct->m, *request_len);
 			return 1;
+		}
+	} else if (ct->phase == CONTACT_ESTATE) {
+		/* THE SAME FOR THE ESTATE'S RECORDS, sec 781: its k kept once every
+		 * page is read. */
+		if (fzn_contact_estate_query_step(&ct->eq, reply, reply_len, request, cap, request_len,
+		                                  &done)) {
+			if (!done) {
+				meter_asked(&ct->m, *request_len);
+				return 1;
+			}
+			if (node_apply.store && contact_hash_ops && ct->eq.k)
+				(void)fzn_contact_estate_keep_k(node_apply.store, contact_hash_ops,
+				                                ct->contact, ct->eq.k);
 		}
 	} else if (ct->phase == CONTACT_QUERY) {
 		if (!fzn_contact_devices_query_step(&ct->q, reply, reply_len, request, cap,

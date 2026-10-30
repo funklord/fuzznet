@@ -28,6 +28,10 @@ and S's estate advertises.
        (sec 780) -- listed no more,
        paired no more -- and a line R2 writes reaches neither; R withdraws,
        and R2's next offer is taken and its line delivered
+    f  R3, a third device of R's, offers itself to S; R makes R2 an admin
+       and R2 votes R3 revoked. At R's k of 2 one admin is not enough, and
+       S, given R's records and k, keeps R3; once R sets k to 1, R drops it
+       and so does S, on a vote R never signed (sec 781)
 
 Against a daemon that carries no contact devices, R2 has no host to offer
 to and phase a waits in vain; against one that files under the sending
@@ -55,7 +59,7 @@ import live_trim  # noqa: E402
 
 # FOUR DAEMONS RESTARTED IN TURN, phases c and d most of all, take longer
 # than the 240 s the other checks are held to; still one deadline.
-live_trim.DEADLINE = time.monotonic() + 600.0
+live_trim.DEADLINE = time.monotonic() + 900.0
 
 OFFERED_RE = re.compile(r"(\d+) line\(s\) offered to 127\.0\.0\.1: (\d+) delivered, "
                         r"(\d+) settled, (\d+) refused, (\d+) unanswered")
@@ -130,12 +134,13 @@ def main(argv):
 
 	run.fuzznetd = os.path.abspath(argv[1])
 	run.started = []
-	base = 10000 + (os.getpid() % 500) * 4
-	port = {"s": str(base), "s2": str(base + 1), "r": str(base + 2), "r2": str(base + 3)}
+	base = 10000 + (os.getpid() % 500) * 5
+	port = {"s": str(base), "s2": str(base + 1), "r": str(base + 2), "r2": str(base + 3),
+	        "r3": str(base + 4)}
 	with tempfile.TemporaryDirectory(prefix="fzn-live.") as scratch, \
 	     tempfile.TemporaryDirectory(prefix="fzs.", dir="/tmp") as sock_dir:
 		run.scratch = scratch
-		names = ("s", "s2", "r", "r2")
+		names = ("s", "s2", "r", "r2", "r3")
 		dirs = {k: os.path.join(scratch, k) for k in names}
 		socks = {k: os.path.join(sock_dir, k) for k in names}
 		for d in dirs.values():
@@ -145,6 +150,7 @@ def main(argv):
 			"s2": ["--udp-port=" + port["s2"], "--root-at", "127.0.0.1", port["s"]],
 			"r": ["--udp-port=" + port["r"]],
 			"r2": ["--udp-port=" + port["r2"], "--root-at", "127.0.0.1", port["r"]],
+			"r3": ["--udp-port=" + port["r3"], "--root-at", "127.0.0.1", port["r"]],
 		}
 		started = {}
 
@@ -157,8 +163,9 @@ def main(argv):
 
 		try:
 			keys = {}
-			for root, member in (("s", "s2"), ("r", "r2")):
-				command(run, ["--fuzznet-dir=" + dirs[root], "--new-root"], None)
+			for root, member in (("s", "s2"), ("r", "r2"), ("r", "r3")):
+				if member != "r3":
+					command(run, ["--fuzznet-dir=" + dirs[root], "--new-root"], None)
 				keys[root] = command(run, ["--fuzznet-dir=" + dirs[root], "--prekey"],
 				                     None)[PREKEY_HOST]
 				prekey = command(run, ["--fuzznet-dir=" + dirs[member], "--prekey"], None)
@@ -409,6 +416,78 @@ def main(argv):
 			if filed.get(LINE_5, ("", "", ""))[2] != "restored":
 				raise failed("e: S's estate holds %r once R withdrew%s" % (filed, said(r2, s)))
 			print("livecheck: e: R withdrew, and R2's next line was delivered")
+
+			# f: an admin's vote (sec 781). R3, paired to R at the start and down
+			# until now, offers itself to S; R makes R2 an admin, and R2 votes R3
+			# revoked. Whether one admin's vote is R's estate's decision is R's
+			# k: S, asking R for its estate's records and k, must agree with R
+			# on each side of a change of k -- on a vote R did not sign.
+			r3 = up("r3", "r3-f")
+			until = time.monotonic() + 150.0
+			while time.monotonic() < until:
+				listed = ask(socks["s"], "list device rory").split()
+				if keys["r3"] in {row.split(",")[0] for row in listed[3:]}:
+					break
+				time.sleep(1.0)
+			else:
+				raise failed("f: S never listed R3 among R's devices: %r%s"
+				             % (listed, said(r3, s)))
+			granted = ask(socks["r"], "grant admin " + keys["r2"]).split()
+			if len(granted) < 2 or granted[0] != "ok":
+				raise failed("f: R's grant admin answered %r" % granted[:2])
+			admin_path = os.path.join(scratch, "admin-r2")
+			with open(admin_path, "w") as f:
+				f.write(" ".join(granted[1:]) + "\n")
+			expect(socks["r2"], "r2", "set admin " + admin_path, "ok %d" % (len(granted) - 1))
+			until = time.monotonic() + 30.0
+			while time.monotonic() < until:
+				try:
+					if any(e.startswith("admin,") for e in ask(socks["r2"],
+					                                            "list capability").split()[2:]):
+						break
+				except OSError:
+					pass
+				time.sleep(0.3)
+			else:
+				raise failed("f: R2 does not hold admin after set admin")
+			said_ = ask(socks["r2"], "revoke peer " + keys["r3"])
+			if not said_.startswith("ok " + keys["r3"]):
+				raise failed("f: R2's revoke peer answered %r" % said_)
+			# R HOLDS THE VOTE once R2's journal reaches it: R2's round pushes it.
+			down("r2")
+			r2 = up("r2", "r2-f")
+			r2.wait_for(ROUND_END_RE, "R2's round, pushing its vote")
+			# AT R'S k OF 2 -- fuzznetd's default -- ONE ADMIN IS NOT ENOUGH, in
+			# R's estate and so at S: S takes R's records and its k, and keeps R3.
+			dropped_r3 = re.compile(r"a device its owner revoked was dropped: " + keys["r3"])
+			down("s")
+			s = up("s", "s-f1")
+			got = s.wait_for(first_pass_re, "S's contact pass at k 2")
+			if dropped_r3.search(s.log()) or int(got.group(2)) != 0:
+				raise failed("f: S dropped R3 on one admin's vote at R's k of 2")
+			if not any(e.startswith(keys["r3"] + ",") and e.endswith(",1")
+			           for e in ask(socks["r"], "list grant").split()):
+				raise failed("f: R's grant to R3 fell on one admin's vote at k 2")
+			# AT k 1, set by R as a root: R's estate drops R3 on that vote, and
+			# S, given R's setting, does too -- on a vote R never signed.
+			expect(socks["r"], "r", "set quorum 1", "ok 1")
+			until = time.monotonic() + 120.0
+			while time.monotonic() < until:
+				r3_grant = [e for e in ask(socks["r"], "list grant").split()
+				            if e.startswith(keys["r3"] + ",")]
+				if r3_grant and r3_grant[0].endswith(",0"):
+					break
+				time.sleep(0.5)
+			else:
+				raise failed("f: R's grant to R3 still stands at k 1: %r" % r3_grant)
+			down("s")
+			s = up("s", "s-f2")
+			s.wait_for(dropped_r3, "S dropping R3 on R2's vote at k 1", within=150.0)
+			listed = ask(socks["s"], "list device rory").split()
+			if keys["r3"] in {row.split(",")[0] for row in listed[3:]}:
+				raise failed("f: S still lists R3: %r" % listed)
+			print("livecheck: f: R2, made admin, revoked R3: kept at k 2, and at R's k of 1 "
+			      "S dropped R3 on that vote")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			if os.environ.get("LIVE_DEBUG"):

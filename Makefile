@@ -2224,7 +2224,7 @@ $(BUILD_DIR)/node/test/files_test: $(BUILD_DIR)/node/test/files_test.o \
                                    $(BUILD_DIR)/contact/contact.o \
                                    $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                    $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
-                                   $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/node/contact_devices.o \
+                                   $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o \
                                    $(BUILD_DIR)/session/box.o \
                                    $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
                                    $(BUILD_DIR)/chain/manifest.o \
@@ -2326,7 +2326,7 @@ $(BUILD_DIR)/node/test/notes_test: $(BUILD_DIR)/node/test/notes_test.o \
                                    $(BUILD_DIR)/contact/contact.o \
                                    $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                    $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
-                                   $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/node/contact_devices.o \
+                                   $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o \
                                    $(BUILD_DIR)/session/box.o \
                                    $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
                                    $(BUILD_DIR)/chain/manifest.o \
@@ -3391,7 +3391,7 @@ $(BUILD_DIR)/gui/test/notebook_view_test: $(BUILD_DIR)/gui/test/notebook_view_te
                                      $(BUILD_DIR)/contact/contact.o \
                                      $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                      $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
-                                     $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/node/contact_devices.o \
+                                     $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o \
                                      $(BUILD_DIR)/session/box.o \
                                      $(BUILD_DIR)/chain/chain.o $(BUILD_DIR)/chain/revocation.o \
                                      $(BUILD_DIR)/chain/manifest.o \
@@ -3856,7 +3856,7 @@ $(BUILD_DIR)/node/test/identity_test: $(BUILD_DIR)/node/test/identity_test.o \
 # 4, reachability.
 $(BUILD_DIR)/node/test/reachability_fuzz: $(BUILD_DIR)/node/test/reachability_fuzz.o \
                                           $(BUILD_DIR)/node/routing.o $(BUILD_DIR)/node/clocks.o \
-                                          $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/prekey/prekey.o \
+                                          $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o $(BUILD_DIR)/prekey/prekey.o \
                                           $(BUILD_DIR)/chain/sign_monocypher.o \
                                           $(BUILD_DIR)/session/hash_monocypher.o \
                                           $(BUILD_DIR)/monocypher.o $(BUILD_DIR)/monocypher-ed25519.o \
@@ -3882,7 +3882,7 @@ $(BUILD_DIR)/node/test/routing_test: $(BUILD_DIR)/node/test/routing_test.o \
 
 # A contact's devices, sec 614.
 $(BUILD_DIR)/node/test/contact_devices_test: $(BUILD_DIR)/node/test/contact_devices_test.o \
-                                             $(BUILD_DIR)/node/contact_devices.o \
+                                             $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o \
                                              $(NODE_SERVE_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -3890,7 +3890,7 @@ $(BUILD_DIR)/node/test/contact_devices_test: $(BUILD_DIR)/node/test/contact_devi
 # A contact card, sec 617.
 $(BUILD_DIR)/node/test/contact_card_test: $(BUILD_DIR)/node/test/contact_card_test.o \
                                           $(BUILD_DIR)/node/contact_card.o \
-                                          $(BUILD_DIR)/node/contact_devices.o \
+                                          $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o \
                                           $(BUILD_DIR)/contact/contact.o $(NODE_SERVE_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -3899,7 +3899,7 @@ $(BUILD_DIR)/node/test/contact_card_test: $(BUILD_DIR)/node/test/contact_card_te
 $(BUILD_DIR)/node/test/card_fuzz: $(BUILD_DIR)/node/test/card_fuzz.o \
                                   $(BUILD_DIR)/node/contact_request.o \
                                   $(BUILD_DIR)/node/contact_card.o \
-                                  $(BUILD_DIR)/node/contact_devices.o \
+                                  $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o \
                                   $(BUILD_DIR)/contact/contact.o $(NODE_SERVE_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -3908,7 +3908,7 @@ $(BUILD_DIR)/node/test/card_fuzz: $(BUILD_DIR)/node/test/card_fuzz.o \
 $(BUILD_DIR)/node/test/contact_request_test: $(BUILD_DIR)/node/test/contact_request_test.o \
                                              $(BUILD_DIR)/node/contact_request.o \
                                              $(BUILD_DIR)/node/contact_card.o \
-                                             $(BUILD_DIR)/node/contact_devices.o \
+                                             $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o \
                                              $(BUILD_DIR)/contact/contact.o $(NODE_SERVE_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -3917,7 +3917,7 @@ $(BUILD_DIR)/node/test/contact_request_test: $(BUILD_DIR)/node/test/contact_requ
 $(BUILD_DIR)/node/test/group_log_test: $(BUILD_DIR)/node/test/group_log_test.o \
                                        $(BUILD_DIR)/node/group_log.o \
                                        $(BUILD_DIR)/node/group_act.o \
-                                       $(BUILD_DIR)/node/contact_devices.o \
+                                       $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o \
                                        $(BUILD_DIR)/contact/contact.o $(NODE_SERVE_OBJS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
@@ -3927,7 +3927,7 @@ $(BUILD_DIR)/node/test/groups_test: $(BUILD_DIR)/node/test/groups_test.o \
                                     $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                     $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
                                     $(BUILD_DIR)/node/group_act.o \
-                                    $(BUILD_DIR)/node/contact_devices.o \
+                                    $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o \
                                     $(BUILD_DIR)/contact/contact.o $(BUILD_DIR)/session/box.o \
                                     $(BUILD_DIR)/session/agree_monocypher.o \
                                     $(BUILD_DIR)/session/hash_monocypher.o \
@@ -4213,7 +4213,7 @@ $(BUILD_DIR)/node/test/messages_test: $(BUILD_DIR)/node/test/messages_test.o \
                                   $(BUILD_DIR)/contact/contact.o \
                                   $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                   $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
-                                  $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/node/contact_devices.o \
+                                  $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o \
                                   $(BUILD_DIR)/session/box.o $(BUILD_DIR)/chain/chain.o \
                                   $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
                                   $(BUILD_DIR)/persist/persist.o \
@@ -4307,7 +4307,7 @@ $(BUILD_DIR)/node/test/keys_fuzz: $(BUILD_DIR)/node/test/keys_fuzz.o \
                                   $(BUILD_DIR)/contact/contact.o \
                                   $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                   $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
-                                  $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/node/contact_devices.o \
+                                  $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o \
                                   $(BUILD_DIR)/session/box.o $(BUILD_DIR)/chain/chain.o \
                                   $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
                                   $(BUILD_DIR)/persist/persist.o \
@@ -4333,7 +4333,7 @@ $(BUILD_DIR)/node/test/delivery_fuzz: $(BUILD_DIR)/node/test/delivery_fuzz.o \
                                   $(BUILD_DIR)/contact/contact.o \
                                   $(BUILD_DIR)/node/groups.o $(BUILD_DIR)/node/group_log.o \
                                   $(BUILD_DIR)/node/group_lines.o $(BUILD_DIR)/node/group_line.o \
-                                  $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/node/contact_devices.o \
+                                  $(BUILD_DIR)/node/group_act.o $(BUILD_DIR)/node/contact_devices.o $(BUILD_DIR)/chain/root_log.o \
                                   $(BUILD_DIR)/session/box.o $(BUILD_DIR)/chain/chain.o \
                                   $(BUILD_DIR)/chain/revocation.o $(BUILD_DIR)/chain/manifest.o \
                                   $(BUILD_DIR)/persist/persist.o \
@@ -6463,7 +6463,7 @@ QUIRC_DIR      ?= $(QUIRC_VENDORED)
 # themselves: one
 # deadline, each daemon in its own process group, scratch removed. Six hosts
 # going round in turn take live_erasure.py past the others' 240 s, so its own
-# deadline is 480 s and its timeout 600, and live_contacts.py's 600 and 720; it needs packed logs to cut, and says
+# deadline is 480 s and its timeout 600, and live_contacts.py's 900 and 1080; it needs packed logs to cut, and says
 # it is skipped in a build without them.
 livecheck: $(FUZZNETD) $(EXT_DAEMON)
 ifeq ($(and $(FUZZNETD),$(RECORD_STORE_FILE_ON),$(LOG_FILE_ON)),)
@@ -6480,7 +6480,7 @@ else
 	@timeout 300 python3 tool/live_archive.py $(FUZZNETD)
 	@timeout 120 python3 tool/live_events.py $(FUZZNETD)
 	@timeout 300 python3 tool/live_deliver.py $(FUZZNETD)
-	@timeout 720 python3 tool/live_contacts.py $(FUZZNETD)
+	@timeout 1080 python3 tool/live_contacts.py $(FUZZNETD)
 	@timeout 480 python3 tool/live_pairing.py $(FUZZNETD)
 	@timeout 200 python3 tool/live_identity.py $(FUZZNETD)
 	@timeout 540 python3 tool/live_relay.py $(FUZZNETD)

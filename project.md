@@ -68527,8 +68527,9 @@ the bar exists to force. **Triaged when its scenario reaches it**, by
 the holder where it is a decision:
 - ~~**Sec 614:** revocations in a contact's estate are not seen.~~ The
   contact's root's are carried and judged since sec 776: a device its
-  root revoked is dropped and un-paired. Votes of its members, admins and
-  other roots are still not seen.
+  root revoked is dropped and un-paired. Since sec 781 its admins' and
+  other roots' votes are too, judged at its k with no act log, every doubt
+  erring open.
 - **Sec 615 and 616:** a member never reached holds settlement up for
   ever, and a member never heard is never judged gone.
 - **Sec 613:** an offer walks at most `FZN_MESSAGES_WALK_MAX` deep, so a
@@ -75005,8 +75006,10 @@ log's to say. That fails open, as everything did before.
 
 **What was built:**
 - **Two messages** in `node/contact_devices.situ`, after the devices':
-  REVOKED 33 asks for a page from a 32-bit `from`, and RECORDS 34 answers
-  with whole 242-byte records, sixteen to a page.
+  REVOKED asks for a page from a 32-bit `from`, and RECORDS answers with
+  whole 242-byte records, sixteen to a page. Numbered 33 and 34 here,
+  which `node/types.h` gives messages' HOLDS and HOLDING; 49 and 50 since
+  sec 781.
 - **Answering:** a contact's host lists its root's records for the
   member capability, from slot 9 (issued) and slot 11 (learned), with
   `fzn_node_root_records`. A member's chained vote is not the root's and
@@ -75083,7 +75086,8 @@ Measured: 8 runs with phase d all passing, S2 opening the line in each
 (phase e's old 60 s wait failed all 8 at S2); then 6 of 6 whole runs.
 
 **Not yet:**
-- votes of the contact's members and admins, and of its other roots;
+- ~~votes of the contact's members and admins, and of its other roots;~~
+  admins' and other roots' since sec 781;
 - ~~a member passing on contact revocations it learned, as it passes on
   the devices it kept (KEPT);~~ built in sec 780;
 - a contact removed keeps its records here, which is harmless;
@@ -75231,3 +75235,120 @@ trusted.
   that pass read `0 contact(s) asked, ... 0 revocation record(s) taken,
   0 device(s) dropped as revoked` (sec 776's runs), and R2 fell a round
   later.
+
+## 781. A contact's admins' and other roots' votes, judged as its estate judges them, 2026-10-30
+
+Sec 776 took only the contact root's word, and the holder asked for the
+rest: a device the contact's admins revoked by k votes, or one of its
+other roots, stayed reachable here.
+
+**Judging a vote takes the estate behind it**, and this node now builds
+the contact's estate as far as it can see it, per contact and on demand
+(`fzn_contact_estate_open`):
+- **its root set**, from the root-adds and root-removes its roots
+  signed, with the contact's root as genesis;
+- **its k**: the larger of what its roots' quorum settings resolve to and
+  what its host says it holds. A larger k revokes less, so a host that
+  understates k is outvoted by the signed settings, and one that
+  overstates it only keeps a device;
+- **its admins**, by the admin chains their votes and confirmations show,
+  and the k − 1 confirmations a non-root's grant needs (sec 414);
+- **its votes**, each with its signer's chain.
+
+A revocation store over these (`chain/revocation.h`) judges each of the
+contact's devices. A device falls when the store revokes its own grant,
+or a key above it with every live vote against that key drawing no line,
+which is sec 776's rule.
+
+**What is missing is the act log**, which decides what a removed root or
+a revoked key did before its line. Without it nothing such a key did
+stands here: a removed root's votes and grants count for nothing, and so
+do those of an admin whose grant came from a revoked key. Each of these
+loses a vote, never adds one, so **every doubt errs open**. Dropping a
+device its own estate keeps is the failure this must not make; missing a
+revocation is what this node did before sec 776.
+
+**Rejected:**
+- following the contact's journal for the act log: a second estate's
+  whole stream kept on every host of every contact;
+- taking the host's stated k alone, which lets a stolen host of the
+  contact claim k 1 and turn one admin's vote into a revocation;
+- taking the root's quorum settings alone, which misses a k given by
+  `--quorum` or the `revocation/k` setting (sec 542). The host's word
+  covers those, and the larger of the two is kept.
+
+**Built:**
+- **Messages** ESTATE 51 and ITEMS 52 (`node/contact_devices.situ`). An
+  item is a kind (root change or quorum setting, vote, confirmation), its
+  record and its signer's chain. The page carries the answerer's k.
+- **Answering:** a contact's host lists its slot 13 root changes and
+  quorum settings, slot 11 votes and slot 15 confirmations with their
+  chains, and its own slot 9 votes with the chain it votes on
+  (`fzn_node_estate_records`).
+- **Asking:** each contact exchange asks after REVOKED and before the
+  hosts. Each item is kept in the new core slot 65,
+  `FZN_PERSIST_CONTACT_ESTATE`, once its record is signed as its kind
+  says. The k is kept per owner.
+- **Judging:** `contact_device_revoked` builds the owner's estate from
+  slots 64 and 65, one per owner as a pass walks the devices. It falls
+  back to sec 776's root-only judgment when the estate cannot be built.
+
+**Three faults found on the way:**
+- **Sec 776's message numbers collided.** REVOKED and RECORDS took 33 and
+  34, which `node/types.h` gives messages' HOLDS and HOLDING. They met
+  only in handlers that check lengths first, so nothing was misread.
+  They are 49 and 50 now, with ESTATE and ITEMS 51 and 52, all in the
+  registry, and `types_test` holds them. `situc` reports the renumbering
+  as breaking, which it is for the eight hours sec 776's messages
+  existed. An older peer's REVOKED reaches HOLDS, which refuses its
+  length, and the asker moves on as with any older host.
+- **An admin's vote was kept as a member's.** `apply` tried a vote under
+  the signer's member chain before its admin chain. A vote is kept with
+  the chain it was admitted under, so an admin holding a delegable member
+  chain cast a member's vote: one that revokes only what that member
+  granted. Admin first now.
+- **A vote cast before its admin grant arrived stayed a member's.** Sec
+  737 parked such a vote only when refused. Admitted under a delegable
+  member chain, it was never parked, and never judged again once the
+  grant came. It is parked now, and judged again each round while its
+  signer is still no admin; that is free, since admission is idempotent.
+
+**Measured:**
+- **`contact_devices_test`, 76 checks, 17 new:** the item codec; the
+  query over pages, with k the largest a page said; a vote changed after
+  signing refused; and the judgment:
+  - an admin's lone vote drops a device at k 1, not at k 2, and two
+    admins' votes do at k 2;
+  - another root's vote counts once a root-add names it, and not once
+    it is removed;
+  - a root's k of 2 holds over the host's 1;
+  - the owner's own record counts.
+- **`apply_test`, 155 checks, 9 new:** a delegable member's vote does not
+  revoke what it did not grant; cast before its admin grant, it counts
+  once the grant is applied; cast after, with a line drawn and after the
+  member was revoked and restored, it counts at once, as `list grant`
+  reads it. **Control:** with `apply.c` as before, the
+  vote-before-grant case fails.
+- **`live_contacts` phase f:**
+  - R3, a third device of R's, offers itself to S. R makes R2 an admin,
+    and R2 votes R3 revoked.
+  - At R's k of 2, fuzznetd's default, R keeps R3 and so does S.
+  - R sets k to 1, R's grant to R3 falls, and S drops R3 on R2's vote.
+  - The whole script passed. **Control:** a build judging by the root's
+    word alone fails phase f at S's drop.
+- **Seven sabotage entries**: the item's exact length, the signed check,
+  k the larger, the root set admitted, the page whole, admin first, and
+  a member's vote parked. One older entry was re-anchored:
+  root-records-room.
+
+**Learned:** the first attempt at phase f expected a single admin's vote
+to revoke, and S, rightly, dropped nothing. R's own estate ran at k 2 and
+kept R3 too. The test was wrong. R being right was the check that
+mattered.
+
+**Not yet:**
+- the act log, as above;
+- members passing on slot 65's records, as sec 780 does slot 64's;
+- a contact's members' votes as grantors: these count here as they do
+  in its estate, since a grantor's standing comes from the judged chain;
+  no test holds it.

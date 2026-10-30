@@ -28,6 +28,20 @@ struct fzn_contact_device size=175..1860
   ~         1         u8         hop_count  max=8
   ~         0..1432   u8         hops  sized-by=hop_count*179
 
+struct fzn_contact_devices_estate size=6
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         u8         type  must_eq=51
+  @0x0002   4         u32        from  big
+
+struct fzn_contact_devices_items size=9..428409
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         u8         type  must_eq=52
+  @0x0002   4         u32        from  big
+  @0x0006   1         u8         count
+  @0x0007   1         u8         more  max=1
+  @0x0008   1         u8         k  min=1
+  @0x0009   0..428400 fzn_contact_estate_listed items  sized-by=count
+
 struct fzn_contact_devices_list size=5..16711940
   @0x0000   1         u8         version  must_eq=2
   @0x0001   1         u8         type  must_eq=32
@@ -53,7 +67,7 @@ struct fzn_contact_devices_query size=4
 
 struct fzn_contact_devices_records size=8..61718
   @0x0000   1         u8         version  must_eq=2
-  @0x0001   1         u8         type  must_eq=34
+  @0x0001   1         u8         type  must_eq=50
   @0x0002   4         u32        from  big
   @0x0006   1         u8         count
   @0x0007   1         u8         more  max=1
@@ -61,10 +75,21 @@ struct fzn_contact_devices_records size=8..61718
 
 struct fzn_contact_devices_revoked size=6
   @0x0000   1         u8         version  must_eq=2
-  @0x0001   1         u8         type  must_eq=33
+  @0x0001   1         u8         type  must_eq=49
   @0x0002   4         u32        from  big
 
 struct fzn_contact_devices_taken size=3
   @0x0000   1         u8         version  must_eq=2
   @0x0001   1         u8         type  must_eq=30
   @0x0002   1         u8         taken  max=1
+
+struct fzn_contact_estate_item size=5..1678
+  @0x0000   1         u8         kind  min=1 max=3
+  @0x0001   2         u16        record_len  big min=1 max=242
+  @0x0003   1..242    u8         record  sized-by=record_len
+  ~         1         u8         hop_count  max=8
+  ~         0..1432   u8         hops  sized-by=hop_count*179
+
+struct fzn_contact_estate_listed size=7..1680
+  @0x0000   2         u16        len  big
+  @0x0002   5..1678   fzn_contact_estate_item item  big

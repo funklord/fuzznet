@@ -633,6 +633,140 @@ static void test_a_vote_before_its_admin_grant(void)
 	}
 }
 
+/* THE SAME, M'S MEMBER GRANT DELEGABLE, sec 781: M's vote is then admitted
+ * under its member chain -- the chain it was taken under is the one it is
+ * kept with -- and a member's vote revokes only what that member granted.
+ * So X, granted by R, stood at the root for good, and a contact handed the
+ * vote kept X too. Asked here of X's chain, as a store judges it, rather
+ * than whether the store holds the vote. */
+static int x_revoked(const fzn_revocation_store_t *revs, const uint8_t hop[FZN_HOP_LEN],
+                     const fzn_cap_id_t *cap)
+{
+	fzn_chain_hop_t opened[1];
+	uint8_t revoked[FZN_CHAIN_MAX_HOPS];
+
+	if (fzn_hop_open(hop, FZN_HOP_LEN, &opened[0]) != FZN_CHAIN_OK)
+		return -1;
+	fzn_revocation_covers_chain(revs, opened, 1u, cap, revoked);
+	return revoked[0];
+}
+
+static void test_a_delegable_members_vote_before_its_admin_grant(void)
+{
+	static fzn_node_journal_t nj;
+	static fzn_revocation_t rev_entries[8];
+	static fzn_revocation_admin_t admins[4];
+	static fzn_revocation_confirm_t confirms[4];
+	static fzn_node_apply_t ap;
+	static fzn_node_settings_t ns;
+	fzn_revocation_store_t revs;
+	fzn_persist_ops_t store = { 0 };
+	fzn_node_apply_tally_t t;
+	fzn_cap_id_t cap, admin_cap;
+	uint8_t r[FZN_PUBKEY_LEN], m[FZN_PUBKEY_LEN], x[FZN_PUBKEY_LEN], hop[FZN_HOP_LEN];
+	uint8_t x_hop[FZN_HOP_LEN], vote[FZN_REVOCATION_LEN];
+
+	memset(rows, 0, sizeof(rows));
+	store.load = mem_load;
+	store.save = mem_save;
+	store.list = mem_list;
+	store.remove = mem_remove;
+	memset(&cap, 0x61, sizeof(cap));
+	memset(&admin_cap, 0x62, sizeof(admin_cap));
+	key(r, 0xb1);
+	key(m, 0xb2);
+	key(x, 0xb3);
+	CHECK(fzn_node_journal_init(&nj, dir, &SIGN, &HASH) == FZN_NODE_JOURNAL_OK
+	              && fzn_revocation_store_init(&revs, rev_entries, 8) == FZN_CHAIN_OK
+	              && fzn_revocation_store_set_quorum(&revs, 1u, &admin_cap, admins, 4u)
+	                         == FZN_CHAIN_OK
+	              && fzn_revocation_store_set_confirmations(&revs, confirms, 4u, &HASH)
+	                         == FZN_CHAIN_OK,
+	      "fixture: a journal, and a store that knows the admin capability and keeps "
+	      "confirmations, as fuzznetd's does");
+	memset(&ap, 0, sizeof(ap));
+	ap.journal = &nj;
+	ap.revocations = &revs;
+	ap.store = &store;
+	ap.root = r;
+	ap.capability = &cap;
+	ap.admin_capability = &admin_cap;
+	ap.sign = &SIGN;
+	ap.hash = &HASH;
+	ap.now = clock_now;
+	memset(&ns, 0, sizeof(ns));
+	ns.store = &store;
+	ns.hash = &HASH;
+	ns.verify = &SIGN;
+	ns.apply = &ap;
+	ns.estate = r;
+	ap.settings = &ns;
+	signing_as = 0xb1;
+	CHECK(fzn_chain_mint(r, m, &cap, 100u, FZN_NO_EXPIRY, 1, &SIGN, hop) == FZN_CHAIN_OK
+	              && put(&nj, 0xb1, hop, sizeof(hop))
+	              && fzn_chain_mint(r, x, &cap, 100u, FZN_NO_EXPIRY, 0, &SIGN, x_hop)
+	                         == FZN_CHAIN_OK
+	              && put(&nj, 0xb1, x_hop, sizeof(x_hop))
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK,
+	      "fixture: R's grants to M, delegable, and to X");
+	signing_as = 0xb2;
+	CHECK(fzn_revocation_issue(m, &cap, x, 110u, 0u, NULL, &SIGN, vote) == FZN_CHAIN_OK
+	              && put(&nj, 0xb2, vote, sizeof(vote))
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+	              && x_revoked(&revs, x_hop, &cap) == 0,
+	      "a delegable member's vote revoked X, which it did not grant");
+	signing_as = 0xb1;
+	CHECK(fzn_chain_mint(r, m, &admin_cap, 120u, FZN_NO_EXPIRY, 0, &SIGN, hop) == FZN_CHAIN_OK
+	              && put(&nj, 0xb1, hop, sizeof(hop))
+	              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK,
+	      "fixture: R makes M an admin, after M's vote");
+	CHECK(x_revoked(&revs, x_hop, &cap) == 1,
+	      "a delegable member's vote, cast before its admin grant, did not count once it "
+	      "arrived");
+	/* AND THE ADMIN GRANT FIRST: Y, granted by R, falls by M's vote at once. */
+	{
+		uint8_t y[FZN_PUBKEY_LEN], y_hop[FZN_HOP_LEN];
+
+		key(y, 0xb4);
+		signing_as = 0xb1;
+		CHECK(fzn_chain_mint(r, y, &cap, 130u, FZN_NO_EXPIRY, 0, &SIGN, y_hop) == FZN_CHAIN_OK
+		              && put(&nj, 0xb1, y_hop, sizeof(y_hop))
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+		              && x_revoked(&revs, y_hop, &cap) == 0,
+		      "fixture: R's grant to Y, standing");
+		uint8_t line[FZN_REVOCATION_ID_LEN], cut_m[FZN_REVOCATION_ID_LEN];
+		uint8_t rev_m[FZN_REVOCATION_LEN], undo_m[FZN_REVOCATION_LEN];
+		uint8_t target[FZN_REVOCATION_ID_LEN];
+
+		/* M REVOKED BY R AND RESTORED FIRST, as live_contacts' phase e
+		 * revokes and restores R2 before phase f: a withdrawn vote's line
+		 * must not hold back what M does after. */
+		memset(cut_m, 0x3d, sizeof(cut_m));
+		signing_as = 0xb1;
+		CHECK(fzn_revocation_issue(r, &cap, m, 125u, 0u, cut_m, &SIGN, rev_m) == FZN_CHAIN_OK
+		              && put(&nj, 0xb1, rev_m, sizeof(rev_m))
+		              && HASH.hash(HASH.ctx, target, sizeof(target), rev_m, sizeof(rev_m))
+		              && fzn_revocation_issue_withdrawal(r, &cap, m, 126u, 0u, target, &SIGN,
+		                                                 undo_m)
+		                         == FZN_CHAIN_OK
+		              && put(&nj, 0xb1, undo_m, sizeof(undo_m))
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+		              && fzn_node_apply_holds(&ap, m, &cap),
+		      "fixture: R revokes M with a line and restores it");
+		/* WITH A LINE, as `revoke peer` draws one at Y's head: it keeps what
+		 * Y did, never Y's own grant. */
+		memset(line, 0x5c, sizeof(line));
+		signing_as = 0xb2;
+		CHECK(fzn_revocation_issue(m, &cap, y, 140u, 0u, line, &SIGN, vote) == FZN_CHAIN_OK
+		              && put(&nj, 0xb2, vote, sizeof(vote))
+		              && fzn_node_apply_round(&ap, &t) == FZN_NODE_PULL_OK
+		              && x_revoked(&revs, y_hop, &cap) == 1,
+		      "a delegable member's vote, cast as an admin with a line, did not revoke Y");
+		CHECK(!fzn_node_apply_holds(&ap, y, &cap),
+		      "Y still holds the member capability, as `list grant` reads it");
+	}
+}
+
 static void test_settings_judged(void)
 {
 	static fzn_node_journal_t nj;
@@ -1988,6 +2122,7 @@ int main(void)
 	test_an_index_of_thousands();
 	test_siblings_of_hundreds();
 	test_a_vote_before_its_admin_grant();
+	test_a_delegable_members_vote_before_its_admin_grant();
 	/* EVERY STREAM FILE, BY NAME, then the directory. */
 	for (i = 0; i < n_used; i++) {
 		static const char DIGITS[] = "0123456789abcdef";

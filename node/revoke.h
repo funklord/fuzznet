@@ -197,6 +197,20 @@ fzn_persist_err_t fzn_node_root_records(const fzn_persist_ops_t *store,
                                         uint8_t (*out)[FZN_REVOCATION_LEN], size_t cap,
                                         size_t *count);
 
+/* THIS ESTATE'S RECORDS AS A CONTACT IS HANDED THEM, sec 781: every root
+ * change and quorum setting (slot 13), every vote learned with its signer's
+ * chain (slot 11), every admin confirmation with its confirmer's (slot 15),
+ * and every vote this node issued (slot 9) -- `issued` set, its chain the
+ * caller's to give, since only the caller knows which it votes on. `kind`
+ * is a `node/contact_devices.h` estate item's. `fn` returns 0 to stop.
+ * BACKEND when a slot will not walk. */
+typedef int (*fzn_node_estate_record_fn)(void *ctx, uint8_t kind, const uint8_t *record,
+                                         size_t len, const uint8_t (*hops)[FZN_HOP_LEN],
+                                         size_t hop_count, int issued);
+
+fzn_persist_err_t fzn_node_estate_records(const fzn_persist_ops_t *store,
+                                          fzn_node_estate_record_fn fn, void *ctx);
+
 /*
  * WHAT APPLYING AN OBJECT COMES TO. sec 384 named these for the pull of a
  * root's revocations; since sec 505 the journal carries every act and

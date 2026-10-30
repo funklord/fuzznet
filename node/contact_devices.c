@@ -1,6 +1,7 @@
 /* A contact's devices: project.md sec 614, and the header. */
 #include "contact_devices.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "../wire/bytes.h"
@@ -789,4 +790,556 @@ int fzn_contact_device_revoked(const fzn_contact_device_t *d,
 			return 1;
 	}
 	return 0;
+}
+
+/* ---- a contact's estate, sec 781 ----------------------------------------- */
+
+fzn_contact_device_err_t fzn_contact_estate_item_encode(const fzn_contact_estate_item_t *item,
+                                                        uint8_t *out, size_t cap, size_t *len)
+{
+	size_t n;
+
+	if (!item || !out || !len || item->record_len == 0u
+	    || item->record_len > FZN_CONTACT_ESTATE_RECORD_MAX
+	    || item->hop_count > FZN_CHAIN_MAX_HOPS)
+		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
+	n = 1u + 2u + item->record_len + 1u + item->hop_count * FZN_HOP_LEN;
+	if (n > cap)
+		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
+	out[0] = item->kind;
+	fzn_put_be16(out + 1, (uint16_t)item->record_len);
+	memcpy(out + 3, item->record, item->record_len);
+	out[3 + item->record_len] = (uint8_t)item->hop_count;
+	memcpy(out + 4 + item->record_len, item->hops, item->hop_count * FZN_HOP_LEN);
+	*len = n;
+	return FZN_CONTACT_DEVICE_OK;
+}
+
+fzn_contact_device_err_t fzn_contact_estate_item_decode(const uint8_t *bytes, size_t len,
+                                                        fzn_contact_estate_item_t *out)
+{
+	size_t record_len, hop_count;
+
+	if (!bytes || !out)
+		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
+	memset(out, 0, sizeof(*out));
+	if (len < 4u)
+		return FZN_CONTACT_DEVICE_ERR_SHAPE;
+	record_len = fzn_get_be16(bytes + 1);
+	if (record_len == 0u || record_len > FZN_CONTACT_ESTATE_RECORD_MAX || len < 4u + record_len)
+		return FZN_CONTACT_DEVICE_ERR_SHAPE;
+	hop_count = bytes[3 + record_len];
+	/* EXACTLY ITS LENGTH, and a kind this reads. */
+	if (hop_count > FZN_CHAIN_MAX_HOPS || len != 4u + record_len + hop_count * FZN_HOP_LEN
+	    || bytes[0] < FZN_CONTACT_ESTATE_CHANGE || bytes[0] > FZN_CONTACT_ESTATE_CONFIRM)
+		return FZN_CONTACT_DEVICE_ERR_SHAPE;
+	out->kind = bytes[0];
+	out->record_len = record_len;
+	memcpy(out->record, bytes + 3, record_len);
+	out->hop_count = hop_count;
+	memcpy(out->hops, bytes + 4 + record_len, hop_count * FZN_HOP_LEN);
+	return FZN_CONTACT_DEVICE_OK;
+}
+
+static void estate_query(const fzn_contact_estate_querying_t *q, uint8_t *request,
+                         size_t *request_len)
+{
+	request[0] = FZN_CONTACT_DEVICES_VERSION;
+	request[1] = FZN_CONTACT_DEVICES_ESTATE;
+	fzn_put_be32(request + 2, q->from);
+	*request_len = FZN_CONTACT_DEVICES_ESTATE_LEN;
+}
+
+int fzn_contact_estate_query_begin(fzn_contact_estate_querying_t *q,
+                                   void (*take)(void *ctx, const fzn_contact_estate_item_t *item),
+                                   void *take_ctx, uint8_t *request, size_t cap,
+                                   size_t *request_len)
+{
+	if (!q || !take || !request || cap < FZN_CONTACT_DEVICES_ESTATE_LEN || !request_len)
+		return 0;
+	q->take = take;
+	q->take_ctx = take_ctx;
+	q->from = 0;
+	q->count = 0;
+	q->k = 0;
+	q->live = 1;
+	estate_query(q, request, request_len);
+	return 1;
+}
+
+int fzn_contact_estate_query_step(fzn_contact_estate_querying_t *q, const uint8_t *reply,
+                                  size_t reply_len, uint8_t *request, size_t cap,
+                                  size_t *request_len, int *done)
+{
+	static fzn_contact_estate_item_t item;
+	size_t at, k, n, len;
+
+	if (!q || !q->live || !request || cap < FZN_CONTACT_DEVICES_ESTATE_LEN || !request_len
+	    || !done)
+		return 0;
+	*done = 1;
+	q->live = 0;
+	if (!reply || reply_len < FZN_CONTACT_DEVICES_ITEMS_HEAD_LEN
+	    || reply[0] != FZN_CONTACT_DEVICES_VERSION || reply[1] != FZN_CONTACT_DEVICES_ITEMS
+	    || fzn_get_be32(reply + 2) != q->from || reply[7] > 1u || reply[8] == 0u)
+		return 0;
+	n = reply[6];
+	at = FZN_CONTACT_DEVICES_ITEMS_HEAD_LEN;
+	/* EVERY ITEM READ BEFORE ANY IS TAKEN: a page that will not read gives
+	 * nothing, rather than its first half. */
+	for (k = 0; k < n; k++) {
+		if (reply_len < at + 2u)
+			return 0;
+		len = fzn_get_be16(reply + at);
+		if (reply_len < at + 2u + len
+		    || fzn_contact_estate_item_decode(reply + at + 2u, len, &item)
+		               != FZN_CONTACT_DEVICE_OK)
+			return 0;
+		at += 2u + len;
+	}
+	if (at != reply_len || (reply[7] && n == 0u))
+		return 0;
+	if (reply[8] > q->k)
+		q->k = reply[8];
+	for (at = FZN_CONTACT_DEVICES_ITEMS_HEAD_LEN, k = 0; k < n; k++) {
+		len = fzn_get_be16(reply + at);
+		(void)fzn_contact_estate_item_decode(reply + at + 2u, len, &item);
+		at += 2u + len;
+		q->take(q->take_ctx, &item);
+		q->count++;
+	}
+	if (!reply[7] || q->from > UINT32_MAX - n)
+		return 1;
+	q->from += (uint32_t)n;
+	*done = 0;
+	q->live = 1;
+	estate_query(q, request, request_len);
+	return 1;
+}
+
+size_t fzn_contact_estate_answer(const uint8_t *request, size_t request_len,
+                                 int (*item_at)(void *ctx, size_t i,
+                                                fzn_contact_estate_item_t *out),
+                                 uint8_t k, void *ctx, uint8_t *reply, size_t reply_cap)
+{
+	static fzn_contact_estate_item_t item;
+	static uint8_t bytes[FZN_CONTACT_ESTATE_ITEM_MAX];
+	size_t at = FZN_CONTACT_DEVICES_ITEMS_HEAD_LEN, i, n = 0, len = 0;
+	uint32_t from;
+
+	if (!request || !item_at || !reply || request_len != FZN_CONTACT_DEVICES_ESTATE_LEN
+	    || request[0] != FZN_CONTACT_DEVICES_VERSION || request[1] != FZN_CONTACT_DEVICES_ESTATE
+	    || reply_cap < FZN_CONTACT_DEVICES_ITEMS_HEAD_LEN)
+		return 0;
+	if (reply_cap > FZN_CONTACT_DEVICES_REPLY_MAX)
+		reply_cap = FZN_CONTACT_DEVICES_REPLY_MAX;
+	from = fzn_get_be32(request + 2);
+	reply[0] = FZN_CONTACT_DEVICES_VERSION;
+	reply[1] = FZN_CONTACT_DEVICES_ITEMS;
+	fzn_put_be32(reply + 2, from);
+	reply[7] = 0u;
+	reply[8] = k ? k : 1u;
+	for (i = from; item_at(ctx, i, &item); i++) {
+		/* ONE THAT WILL NOT ENCODE IS PASSED OVER as nothing; one past the
+		 * room is the next page's. */
+		if (fzn_contact_estate_item_encode(&item, bytes, sizeof(bytes), &len)
+		    != FZN_CONTACT_DEVICE_OK)
+			len = 0;
+		if (n == 255u || at + 2u + len > reply_cap) {
+			reply[7] = 1u;
+			break;
+		}
+		if (!len)
+			break;
+		fzn_put_be16(reply + at, (uint16_t)len);
+		memcpy(reply + at + 2u, bytes, len);
+		at += 2u + len;
+		n++;
+	}
+	reply[6] = (uint8_t)n;
+	return at;
+}
+
+/* ITS RECORD IS THE SHAPE ITS KIND SAYS, SIGNED BY ITS SIGNER. */
+static int item_signed(const fzn_contact_estate_item_t *item, const fzn_sign_ops_t *sign,
+                       const fzn_hash_ops_t *hash)
+{
+	fzn_revocation_record_t rec;
+	fzn_root_change_t one[1];
+	fzn_root_set_t scratch;
+	static const uint8_t NOBODY[FZN_PUBKEY_LEN] = { 0 };
+
+	switch (item->kind) {
+	case FZN_CONTACT_ESTATE_CHANGE:
+		if (item->hop_count)
+			return 0;
+		if (item->record_len == FZN_QUORUM_SET_LEN)
+			return fzn_quorum_set_check(item->record, item->record_len, sign)
+			       == FZN_ROOT_LOG_OK;
+		return fzn_root_set_init(&scratch, NOBODY, one, 1u) == FZN_ROOT_LOG_OK
+		       && fzn_root_set_admit(&scratch, item->record, item->record_len, sign, hash)
+		                  == FZN_ROOT_LOG_OK;
+	case FZN_CONTACT_ESTATE_VOTE:
+		return item->record_len == FZN_REVOCATION_LEN
+		       && fzn_revocation_open(item->record, item->record_len, &rec) == FZN_CHAIN_OK
+		       && sign->verify(sign->ctx, fzn_revocation_issuer(rec), item->record,
+		                       FZN_REVOCATION_BODY_LEN, fzn_revocation_signature(rec));
+	case FZN_CONTACT_ESTATE_CONFIRM:
+		return item->record_len == FZN_ADMIN_CONFIRM_LEN
+		       && item->record[0] == FZN_SIGNED_VERSION
+		       && item->record[1] == (uint8_t)FZN_OBJECT_ADMIN_CONFIRM
+		       && sign->verify(sign->ctx, item->record + FZN_ADMIN_CONFIRM_OFF_CONFIRMER,
+		                       item->record, FZN_ADMIN_CONFIRM_BODY_LEN,
+		                       item->record + FZN_ADMIN_CONFIRM_BODY_LEN);
+	}
+	return 0;
+}
+
+#define ESTATE_ROW_MAX (FZN_PUBKEY_LEN + FZN_CONTACT_ESTATE_ITEM_MAX)
+/* THE k ROW'S KIND: no item's, so it never reads as one. */
+#define ESTATE_K_KIND 0xffu
+
+static int estate_key(const fzn_hash_ops_t *hash, const uint8_t *row, size_t len,
+                      uint8_t key[FZN_PUBKEY_LEN])
+{
+	/* THE k ROW IS ONE PER OWNER, keyed by the owner and its kind alone. */
+	if (len == FZN_PUBKEY_LEN + 2u && row[FZN_PUBKEY_LEN] == ESTATE_K_KIND)
+		len = FZN_PUBKEY_LEN + 1u;
+	return hash->hash(hash->ctx, key, FZN_PUBKEY_LEN, row, len);
+}
+
+fzn_contact_device_err_t fzn_contact_estate_keep(const fzn_persist_ops_t *store,
+                                                 const fzn_hash_ops_t *hash,
+                                                 const fzn_sign_ops_t *sign,
+                                                 const uint8_t owner[FZN_PUBKEY_LEN],
+                                                 const fzn_contact_estate_item_t *item)
+{
+	static uint8_t row[ESTATE_ROW_MAX];
+	uint8_t key[FZN_PUBKEY_LEN];
+	size_t len = 0;
+
+	if (!store || !store->save || !hash || !hash->hash || !sign || !sign->verify || !owner
+	    || !item)
+		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
+	if (!item_signed(item, sign, hash))
+		return FZN_CONTACT_DEVICE_ERR_REFUSED;
+	memcpy(row, owner, FZN_PUBKEY_LEN);
+	if (fzn_contact_estate_item_encode(item, row + FZN_PUBKEY_LEN, sizeof(row) - FZN_PUBKEY_LEN,
+	                                   &len)
+	            != FZN_CONTACT_DEVICE_OK
+	    || !estate_key(hash, row, FZN_PUBKEY_LEN + len, key))
+		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
+	return store->save(store->ctx, FZN_PERSIST_CONTACT_ESTATE, key, row, FZN_PUBKEY_LEN + len)
+	               ? FZN_CONTACT_DEVICE_OK
+	               : FZN_CONTACT_DEVICE_ERR_BACKEND;
+}
+
+fzn_contact_device_err_t fzn_contact_estate_keep_k(const fzn_persist_ops_t *store,
+                                                   const fzn_hash_ops_t *hash,
+                                                   const uint8_t owner[FZN_PUBKEY_LEN],
+                                                   uint8_t k)
+{
+	uint8_t row[FZN_PUBKEY_LEN + 2u], key[FZN_PUBKEY_LEN];
+
+	if (!store || !store->save || !hash || !hash->hash || !owner || k == 0u)
+		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
+	memcpy(row, owner, FZN_PUBKEY_LEN);
+	row[FZN_PUBKEY_LEN] = ESTATE_K_KIND;
+	row[FZN_PUBKEY_LEN + 1u] = k;
+	if (!estate_key(hash, row, sizeof(row), key))
+		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
+	return store->save(store->ctx, FZN_PERSIST_CONTACT_ESTATE, key, row, sizeof(row))
+	               ? FZN_CONTACT_DEVICE_OK
+	               : FZN_CONTACT_DEVICE_ERR_BACKEND;
+}
+
+/* ---- the estate built ---------------------------------------------------- */
+
+struct fzn_contact_estate {
+	uint8_t owner[FZN_PUBKEY_LEN];
+	fzn_cap_id_t member;
+	uint8_t k;
+	fzn_root_set_t set;
+	fzn_root_change_t *changes;
+	uint8_t *flags;
+	fzn_root_view_t view;
+	fzn_root_ops_t ops;
+	fzn_revocation_store_t store;
+	fzn_revocation_t *entries;
+	fzn_revocation_admin_t *admins;
+	fzn_revocation_confirm_t *confirms;
+	/* What the walk gathered for the owner, admitted once the tables are
+	 * sized. */
+	fzn_contact_estate_item_t *items;
+	size_t n_items, cap_items;
+};
+
+struct estate_walk {
+	const fzn_persist_ops_t *store;
+	const fzn_hash_ops_t *hash;
+	fzn_contact_estate_t *e;
+	int failed;
+};
+
+static int estate_add(fzn_contact_estate_t *e, const fzn_contact_estate_item_t *item)
+{
+	if (e->n_items == e->cap_items) {
+		size_t cap = e->cap_items ? e->cap_items * 2u : 16u;
+		fzn_contact_estate_item_t *more = realloc(e->items, cap * sizeof(*more));
+
+		if (!more)
+			return 0;
+		e->items = more;
+		e->cap_items = cap;
+	}
+	e->items[e->n_items++] = *item;
+	return 1;
+}
+
+static int estate_row_walked(void *arg, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	static uint8_t row[ESTATE_ROW_MAX];
+	static fzn_contact_estate_item_t item;
+	struct estate_walk *w = arg;
+	uint8_t filed[FZN_PUBKEY_LEN];
+	size_t len = 0;
+
+	/* FILED UNDER ITSELF, and the owner's, or passed over. */
+	if (!w->store->load(w->store->ctx, FZN_PERSIST_CONTACT_ESTATE, key, row, sizeof(row), &len)
+	    || len < FZN_PUBKEY_LEN + 2u || !estate_key(w->hash, row, len, filed)
+	    || memcmp(filed, key, FZN_PUBKEY_LEN) != 0
+	    || memcmp(row, w->e->owner, FZN_PUBKEY_LEN) != 0)
+		return 1;
+	if (len == FZN_PUBKEY_LEN + 2u && row[FZN_PUBKEY_LEN] == ESTATE_K_KIND) {
+		w->e->k = row[FZN_PUBKEY_LEN + 1u] > w->e->k ? row[FZN_PUBKEY_LEN + 1u] : w->e->k;
+		return 1;
+	}
+	if (fzn_contact_estate_item_decode(row + FZN_PUBKEY_LEN, len - FZN_PUBKEY_LEN, &item)
+	    != FZN_CONTACT_DEVICE_OK)
+		return 1;
+	if (!estate_add(w->e, &item)) {
+		w->failed = 1;
+		return 0;
+	}
+	return 1;
+}
+
+/* THE ROOT'S OWN RECORDS, sec 776's slot, as votes with no chain. */
+static int estate_root_walked(void *arg, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	static fzn_contact_estate_item_t item;
+	struct estate_walk *w = arg;
+	uint8_t row[REVOCATION_ROW_LEN];
+	fzn_revocation_record_t rec;
+	size_t len = 0;
+
+	(void)key;
+	if (!w->store->load(w->store->ctx, FZN_PERSIST_CONTACT_REVOCATION, key, row, sizeof(row),
+	                    &len)
+	    || fzn_persist_head_check(row, len, FZN_REVOCATION_LEN, FZN_PERSIST_BLOB_REVOCATION)
+	               != FZN_PERSIST_OK
+	    || fzn_revocation_open(row + FZN_PERSIST_HEAD_LEN, FZN_REVOCATION_LEN, &rec)
+	               != FZN_CHAIN_OK
+	    || memcmp(fzn_revocation_issuer(rec), w->e->owner, FZN_PUBKEY_LEN) != 0)
+		return 1;
+	memset(&item, 0, sizeof(item));
+	item.kind = FZN_CONTACT_ESTATE_VOTE;
+	item.record_len = FZN_REVOCATION_LEN;
+	memcpy(item.record, row + FZN_PERSIST_HEAD_LEN, FZN_REVOCATION_LEN);
+	if (!estate_add(w->e, &item)) {
+		w->failed = 1;
+		return 0;
+	}
+	return 1;
+}
+
+static int open_hops(const fzn_contact_estate_item_t *item, fzn_chain_hop_t *hops)
+{
+	size_t i;
+
+	for (i = 0; i < item->hop_count; i++)
+		if (fzn_hop_open(item->hops[i], FZN_HOP_LEN, &hops[i]) != FZN_CHAIN_OK)
+			return 0;
+	return 1;
+}
+
+fzn_contact_estate_t *fzn_contact_estate_open(const fzn_persist_ops_t *store,
+                                              const uint8_t owner[FZN_PUBKEY_LEN],
+                                              const fzn_cap_id_t *member,
+                                              const fzn_cap_id_t *admin,
+                                              const fzn_sign_ops_t *sign,
+                                              const fzn_hash_ops_t *hash)
+{
+	fzn_contact_estate_t *e;
+	struct estate_walk w;
+	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS];
+	uint8_t *settings = NULL;
+	size_t i, n_changes = 0, n_settings = 0, n_confirms = 0, n_votes = 0, room;
+	uint8_t resolved;
+
+	if (!store || !store->load || !owner || !member || !admin || !sign || !hash || !hash->hash)
+		return NULL;
+	e = calloc(1u, sizeof(*e));
+	if (!e)
+		return NULL;
+	memcpy(e->owner, owner, FZN_PUBKEY_LEN);
+	e->member = *member;
+	memset(&w, 0, sizeof(w));
+	w.store = store;
+	w.hash = hash;
+	w.e = e;
+	if (!fzn_persist_each(store, FZN_PERSIST_CONTACT_ESTATE, estate_row_walked, &w) || w.failed
+	    || !fzn_persist_each(store, FZN_PERSIST_CONTACT_REVOCATION, estate_root_walked, &w)
+	    || w.failed)
+		goto fail;
+	for (i = 0; i < e->n_items; i++) {
+		const fzn_contact_estate_item_t *it = &e->items[i];
+
+		if (it->kind == FZN_CONTACT_ESTATE_CHANGE)
+			*(it->record_len == FZN_QUORUM_SET_LEN ? &n_settings : &n_changes) += 1u;
+		else if (it->kind == FZN_CONTACT_ESTATE_CONFIRM)
+			n_confirms++;
+		else
+			n_votes++;
+	}
+	/* THE ROOT SET, the owner its genesis, and a view of it with no act log:
+	 * nothing a removed root did stands here. */
+	room = n_changes + 1u;
+	e->changes = calloc(room, sizeof(*e->changes));
+	e->flags = calloc(FZN_ROOT_VIEW_FLAGS(room), 1u);
+	if (!e->changes || !e->flags
+	    || fzn_root_set_init(&e->set, owner, e->changes, room) != FZN_ROOT_LOG_OK)
+		goto fail;
+	for (i = 0; i < e->n_items; i++)
+		if (e->items[i].kind == FZN_CONTACT_ESTATE_CHANGE
+		    && e->items[i].record_len != FZN_QUORUM_SET_LEN)
+			(void)fzn_root_set_admit(&e->set, e->items[i].record, e->items[i].record_len, sign,
+			                         hash);
+	if (fzn_root_view_init_with(&e->view, &e->set, NULL, e->flags, room) != FZN_ROOT_LOG_OK)
+		goto fail;
+	fzn_root_view_ops(&e->view, &e->ops);
+	/* k: THE LARGER of what the roots' settings resolve to and the host's. */
+	if (n_settings) {
+		size_t at = 0;
+
+		settings = calloc(n_settings, FZN_QUORUM_SET_LEN);
+		if (!settings)
+			goto fail;
+		for (i = 0; i < e->n_items; i++)
+			if (e->items[i].kind == FZN_CONTACT_ESTATE_CHANGE
+			    && e->items[i].record_len == FZN_QUORUM_SET_LEN)
+				memcpy(settings + (at++) * FZN_QUORUM_SET_LEN, e->items[i].record,
+				       FZN_QUORUM_SET_LEN);
+	}
+	resolved = n_settings <= FZN_ROOT_SET_MAX
+	                   ? fzn_quorum_resolve(settings, n_settings, &e->ops, hash, 1u)
+	                   : 1u;
+	free(settings);
+	if (resolved > e->k)
+		e->k = resolved;
+	if (!e->k)
+		e->k = 1u;
+	/* THE STORE: the root set, k and the admin capability, confirmations. */
+	room = n_votes + n_confirms + 8u;
+	e->entries = calloc(room, sizeof(*e->entries));
+	e->admins = calloc(room, sizeof(*e->admins));
+	e->confirms = calloc(n_confirms + 8u, sizeof(*e->confirms));
+	if (!e->entries || !e->admins || !e->confirms
+	    || fzn_revocation_store_init(&e->store, e->entries, room) != FZN_CHAIN_OK
+	    || fzn_revocation_store_set_quorum(&e->store, e->k, admin, e->admins, room)
+	               != FZN_CHAIN_OK
+	    || fzn_revocation_store_set_roots(&e->store, &e->ops, hash) != FZN_CHAIN_OK
+	    || fzn_revocation_store_set_confirmations(&e->store, e->confirms, n_confirms + 8u, hash)
+	               != FZN_CHAIN_OK)
+		goto fail;
+	/* CONFIRMATIONS, THEN VOTES, each with its signer's chain; one that will
+	 * not admit -- a stranger's, a stale copy -- is passed over. */
+	for (i = 0; i < e->n_items; i++) {
+		const fzn_contact_estate_item_t *it = &e->items[i];
+
+		if (it->kind == FZN_CONTACT_ESTATE_CONFIRM && open_hops(it, hops))
+			(void)fzn_revocation_confirm_admit(&e->store, it->record, it->record_len, hops,
+			                                   it->hop_count, owner, sign);
+	}
+	for (i = 0; i < e->n_items; i++) {
+		const fzn_contact_estate_item_t *it = &e->items[i];
+		fzn_revocation_record_t rec;
+
+		if (it->kind != FZN_CONTACT_ESTATE_VOTE || !open_hops(it, hops)
+		    || fzn_revocation_open(it->record, it->record_len, &rec) != FZN_CHAIN_OK)
+			continue;
+		(void)fzn_revocation_admit(&e->store,
+		                           it->hop_count
+		                                   ? fzn_revocation_offer_chain(rec, hops, it->hop_count)
+		                                   : fzn_revocation_offer_root(rec),
+		                           owner, sign, hash, NULL);
+	}
+	free(e->items);
+	e->items = NULL;
+	e->n_items = e->cap_items = 0;
+	return e;
+fail:
+	fzn_contact_estate_close(e);
+	return NULL;
+}
+
+/* EVERY LIVE VOTE AGAINST `key` TRUSTS NONE OF ITS ACTS: 1 when at least one
+ * is held and none draws a line. */
+static int unlined(const fzn_contact_estate_t *e, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	static const uint8_t NOTHING[FZN_REVOCATION_ID_LEN] = { 0 };
+	size_t i, live = 0;
+
+	for (i = 0; i < e->store.used; i++) {
+		const fzn_revocation_t *v = &e->store.entries[i];
+
+		if (v->withdrawn || memcmp(v->grantee, key, FZN_PUBKEY_LEN) != 0
+		    || memcmp(&v->capability, &e->member, sizeof(e->member)) != 0)
+			continue;
+		if (memcmp(v->cut, NOTHING, sizeof(NOTHING)) != 0)
+			return 0;
+		live++;
+	}
+	return live > 0u;
+}
+
+int fzn_contact_estate_revoked(const fzn_contact_estate_t *e, const fzn_contact_device_t *d)
+{
+	fzn_chain_hop_t hops[FZN_CHAIN_MAX_HOPS];
+	uint8_t revoked[FZN_CHAIN_MAX_HOPS];
+	size_t i;
+
+	if (!e || !d || d->hop_count == 0u || d->hop_count > FZN_CHAIN_MAX_HOPS
+	    || memcmp(d->owner, e->owner, FZN_PUBKEY_LEN) != 0)
+		return 0;
+	for (i = 0; i < d->hop_count; i++)
+		if (fzn_hop_open(d->hops[i], FZN_HOP_LEN, &hops[i]) != FZN_CHAIN_OK)
+			return 0;
+	fzn_revocation_covers_chain(&e->store, hops, d->hop_count, &e->member, revoked);
+	/* THE DEVICE'S OWN GRANT, as its estate judges it; a key above it only
+	 * with no line drawn. */
+	if (revoked[d->hop_count - 1u])
+		return 1;
+	for (i = 0; i + 1u < d->hop_count; i++)
+		if (revoked[i] && unlined(e, fzn_hop_grantee(hops[i])))
+			return 1;
+	return 0;
+}
+
+uint8_t fzn_contact_estate_k(const fzn_contact_estate_t *e)
+{
+	return e ? e->k : 0u;
+}
+
+void fzn_contact_estate_close(fzn_contact_estate_t *e)
+{
+	if (!e)
+		return;
+	free(e->items);
+	free(e->changes);
+	free(e->flags);
+	free(e->entries);
+	free(e->admins);
+	free(e->confirms);
+	free(e);
 }

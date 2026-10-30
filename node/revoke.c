@@ -585,6 +585,114 @@ fzn_persist_err_t fzn_node_root_records(const fzn_persist_ops_t *store,
 	return w.n > cap ? FZN_PERSIST_ERR_ROOM : FZN_PERSIST_OK;
 }
 
+/* ---- this estate's records for a contact, sec 781 ------------------------- */
+
+/* The kinds `node/contact_devices.h` names, as its estate items carry them. */
+#define ESTATE_CHANGE 1u
+#define ESTATE_VOTE 2u
+#define ESTATE_CONFIRM 3u
+
+struct estate_records_walk {
+	const fzn_persist_ops_t *store;
+	fzn_node_estate_record_fn fn;
+	void *ctx;
+	int stopped;
+};
+
+static int estate_change_walked(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	struct estate_records_walk *w = arg;
+	uint8_t blob[FZN_PERSIST_HEAD_LEN + FZN_ROOT_REMOVE_LEN + FZN_QUORUM_SET_LEN];
+	size_t len = 0;
+
+	if (!w->store->load(w->store->ctx, FZN_PERSIST_ROOT_CHANGE, subject, blob, sizeof(blob),
+	                    &len)
+	    || len <= FZN_PERSIST_HEAD_LEN)
+		return 1;
+	/* ROOT CHANGES AND SETTINGS OF k; the other records slot 13 holds -- a
+	 * retention setting -- are no estate item's. */
+	if (blob[FZN_PERSIST_HEAD_LEN + 1u] != (uint8_t)FZN_OBJECT_ROOT_ADD
+	    && blob[FZN_PERSIST_HEAD_LEN + 1u] != (uint8_t)FZN_OBJECT_ROOT_REMOVE
+	    && blob[FZN_PERSIST_HEAD_LEN + 1u] != (uint8_t)FZN_OBJECT_QUORUM_SET)
+		return 1;
+	if (!w->fn(w->ctx, ESTATE_CHANGE, blob + FZN_PERSIST_HEAD_LEN, len - FZN_PERSIST_HEAD_LEN,
+	           NULL, 0u, 0)) {
+		w->stopped = 1;
+		return 0;
+	}
+	return 1;
+}
+
+static int estate_vote_walked(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	static uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	struct estate_records_walk *w = arg;
+	uint8_t record[FZN_REVOCATION_LEN];
+	size_t n = 0;
+
+	if (!load_vote(w->store, subject, record, hops, &n))
+		return 1;
+	if (!w->fn(w->ctx, ESTATE_VOTE, record, sizeof(record), (const uint8_t(*)[FZN_HOP_LEN])hops,
+	           n, 0)) {
+		w->stopped = 1;
+		return 0;
+	}
+	return 1;
+}
+
+static int estate_issued_walked(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	struct estate_records_walk *w = arg;
+	uint8_t record[FZN_REVOCATION_LEN];
+
+	if (!load_slot(w->store, FZN_PERSIST_ISSUED_REVOCATION, subject, record))
+		return 1;
+	if (!w->fn(w->ctx, ESTATE_VOTE, record, sizeof(record), NULL, 0u, 1)) {
+		w->stopped = 1;
+		return 0;
+	}
+	return 1;
+}
+
+static int estate_confirm_walked(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	static uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN];
+	struct estate_records_walk *w = arg;
+	uint8_t record[FZN_ADMIN_CONFIRM_LEN];
+	size_t n = 0;
+
+	if (!load_confirm(w->store, subject, record, hops, &n))
+		return 1;
+	if (!w->fn(w->ctx, ESTATE_CONFIRM, record, sizeof(record),
+	           (const uint8_t(*)[FZN_HOP_LEN])hops, n, 0)) {
+		w->stopped = 1;
+		return 0;
+	}
+	return 1;
+}
+
+fzn_persist_err_t fzn_node_estate_records(const fzn_persist_ops_t *store,
+                                          fzn_node_estate_record_fn fn, void *ctx)
+{
+	struct estate_records_walk w;
+	static const fzn_persist_slot_t slots[] = { FZN_PERSIST_ROOT_CHANGE, FZN_PERSIST_ADMIN_CONFIRM,
+		                                    FZN_PERSIST_VOTE, FZN_PERSIST_ISSUED_REVOCATION };
+	int (*walked[])(void *, const uint8_t *) = { estate_change_walked, estate_confirm_walked,
+		                                     estate_vote_walked, estate_issued_walked };
+	size_t i;
+
+	if (!store || !store->load || !fn)
+		return FZN_PERSIST_ERR_MALFORMED;
+	memset(&w, 0, sizeof(w));
+	w.store = store;
+	w.fn = fn;
+	w.ctx = ctx;
+	for (i = 0; i < sizeof(slots) / sizeof(slots[0]) && !w.stopped; i++)
+		if (!fzn_persist_each(store, slots[i], walked[i], &w) && !w.stopped)
+			return FZN_PERSIST_ERR_BACKEND;
+	return FZN_PERSIST_OK;
+}
+
 static int load_vote(const fzn_persist_ops_t *store, const uint8_t subject[FZN_PUBKEY_LEN],
                      uint8_t record[FZN_REVOCATION_LEN],
                      uint8_t hops[FZN_CHAIN_MAX_HOPS][FZN_HOP_LEN], size_t *hop_count)
