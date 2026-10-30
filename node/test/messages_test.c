@@ -906,6 +906,57 @@ static void test_two_hosts_over_the_exchange(void)
 	      "a line handed over and given up on reaches the hub, not delivered, text whole");
 }
 
+/* THE KEY BEFORE THE LINE, sec 779: the member's journal pushed, the hub
+ * absorbing it; with `keys_first`, the member's own lines absorbed and its
+ * keys given before that, as fuzznetd's round now runs it. */
+static int member_push(int keys_first)
+{
+	static uint8_t buf[16384];
+	serve_t s = { &R, &M, 0 };
+	fzn_exchange_push_tally_t pushed;
+	fzn_node_messages_tally_t absorbed;
+
+	memset(&t, 0, sizeof(t));
+	if (keys_first
+	    && (fzn_node_messages_absorb(&M.nm, &absorbed) != FZN_MESSAGES_OK
+	        || !fzn_node_messages_round(&M.nm, serve, &s, &t)))
+		return 0;
+	return fzn_node_journal_push(&M.journal, serve, &s, buf, sizeof(buf), &pushed)
+	               == FZN_EXCHANGE_OK
+	       && s.pushed && fzn_node_messages_absorb(&R.nm, &absorbed) == FZN_MESSAGES_OK;
+}
+
+static void test_a_key_given_first_opens_its_line_on_arrival(void)
+{
+	uint8_t id[FZN_MESSAGE_ID_LEN];
+	setup();
+	device_up(&M, 0x44);
+	device_up(&R, 0x55);
+	host_up(&M, &R);
+	host_up(&R, &M);
+
+	/* PUSHED FIRST: the hub holds the line and cannot open it until a keys
+	 * exchange after -- the window a member's listing showed empty in. */
+	memset(id, 0x71, sizeof(id));
+	CHECK(fzn_messages_write(&M.nm.m, X, FZN_MESSAGE_IN, id, 1u, "line first", 10u)
+	                      == FZN_MESSAGES_OK
+	              && member_push(0) && !one_line_is(&R, 0x71, 0u, "line first"),
+	      "a line pushed before its key opened at once, so the window this closes is not shown");
+
+	/* GIVEN FIRST, between two hosts that share no key yet: the hub keeps
+	 * the key it has no line for, and the line opens as it arrives. */
+	setup();
+	device_up(&M, 0x46);
+	device_up(&R, 0x57);
+	host_up(&M, &R);
+	host_up(&R, &M);
+	memset(id, 0x72, sizeof(id));
+	CHECK(fzn_messages_write(&M.nm.m, X, FZN_MESSAGE_IN, id, 1u, "key first", 9u)
+	                      == FZN_MESSAGES_OK
+	              && member_push(1) && t.given == 1u && one_line_is(&R, 0x72, 0u, "key first"),
+	      "a key given before its line did not open the line as it arrived");
+}
+
 /* ---- a returning device, sec 564: lines by bucket, not by journal ---------- */
 
 /* EVERY ITEM `from` holds of conversation X, filed at `to` as a round
@@ -1834,6 +1885,7 @@ int main(void)
 	test_marks_are_absorbed();
 	test_a_hand_off_to_a_removed_contact_is_given_up();
 	test_two_hosts_over_the_exchange();
+	test_a_key_given_first_opens_its_line_on_arrival();
 	test_a_cut_keeps_a_line_whole();
 	test_a_returning_device_files_lines();
 	test_backfill_from_the_journal();

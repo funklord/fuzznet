@@ -1826,8 +1826,15 @@ enum {
  * write made here sends at once, sec 449 and 528 -- the same steps, every
  * peer asked at once and the loop answering between, where the write's
  * pulls and deliveries once asked in turn and answered nobody. */
+/* THE KEYS BEFORE THE LINES, sec 779: this node's own new lines absorbed
+ * and their keys given (ROUND_MESSAGES_ROUND) before the journal and
+ * reconcile push those lines, so a member holds a line's key when the line
+ * arrives. Pushed first, a member showed the line empty until its next keys
+ * exchange -- a round late in a full round, the rest of the plan in a fresh
+ * one. Given nothing and lacking nothing, the step sends nothing. */
 static const int round_plan[] = {
-	ROUND_START,    ROUND_JOURNAL,         ROUND_JOURNAL_SETTLE,  ROUND_RECONCILE,
+	ROUND_START,    ROUND_MESSAGES_ROUND,  ROUND_JOURNAL,         ROUND_JOURNAL_SETTLE,
+	ROUND_RECONCILE,
 	ROUND_ROUTING,  ROUND_ROUTING_AFTER,   ROUND_GRANTS,          ROUND_MESSAGES,        ROUND_MESSAGES_AFTER,
 	ROUND_MEMBERS,  ROUND_NOTES,           ROUND_NOTES_SETTLE,    ROUND_RECEIVED_IN_ROUND,
 	ROUND_RECEIVED_SETTLE_IN_ROUND,        ROUND_CONTACTS,        ROUND_CONTACTS_SETTLE,
@@ -1841,10 +1848,11 @@ static const int fresh_notes_plan[] = {
 	ROUND_JOURNAL, ROUND_JOURNAL_SETTLE, ROUND_MESSAGES_ROUND, ROUND_MEMBERS,
 	ROUND_NOTES,   ROUND_NOTES_SETTLE,   0
 };
-/* A MESSAGE WRITTEN HERE: the journal pushed, keys given and asked, the
- * line delivered. */
+/* A MESSAGE WRITTEN HERE: its key given, the journal pushed, keys asked
+ * for what the pull brought, the line delivered. */
 static const int fresh_messages_plan[] = {
-	ROUND_JOURNAL, ROUND_JOURNAL_SETTLE, ROUND_MESSAGES_ROUND, ROUND_DELIVER, 0
+	ROUND_MESSAGES_ROUND, ROUND_JOURNAL, ROUND_JOURNAL_SETTLE, ROUND_MESSAGES_ROUND,
+	ROUND_DELIVER,        0
 };
 /* A STREAM FETCH ASKED (sec 632), and WHERE THIS HOST IS SEEN (sec 621). */
 static const int streams_plan[] = { ROUND_STREAMS, ROUND_STREAMS_SETTLE, 0 };

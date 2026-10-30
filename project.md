@@ -75145,3 +75145,52 @@ Measured there on an emulator, screen asleep: a minute of positions
 took the track from 11 fixes to 30; without the service type it added
 one. fuzzypickles' project.md, *A track with the screen off*, has the
 rest.
+
+## 779. A line's key given before the line is pushed, 2026-10-30
+
+Sec 776's look at `live_contacts` phase d found a member holding a line
+it could not open: S filed a contact's delivered line under its own key,
+the line reached S2, and S2 showed it with empty text until its next
+keys exchange. The holder said to push the key along with the line.
+
+**Why a line could arrive keyless.** A host's own new lines' keys are
+noted for giving when it absorbs its own stream, and given in the keys
+exchange (`fzn_node_messages_round`). Both plans ran that exchange
+*after* pushing the lines:
+- **The fresh plan**, run once a line is written or filed here, pushed
+  the journal and then gave keys. A member that absorbed the push held
+  the line unopened until the key exchange that followed in the same
+  plan.
+- **The full round** pushed by journal and reconcile before its keys
+  step. A line that went out there, its fresh plan deferred by the
+  two-second floor, waited at the member for the next exchange.
+
+**The fix is order, with no new message.** Both plans now run the keys
+step (ROUND_MESSAGES_ROUND) before the journal. It absorbs this host's
+own new lines, which notes their keys, and gives them first. A key taken
+with no line yet is kept, since the first key held stands, and the line
+opens as it is absorbed. The fresh plan keeps a second keys step after
+the pull, for the keys the pull shows lacking.
+- **Rejected:** carrying the key inside the pushed record or bucket item.
+  That changes two wire formats for what an order already gives, and puts
+  a conversation key in the journal, which every member keeps for its
+  window.
+
+**The cost:** the early step sends nothing when there is nothing to give
+and nothing lacked. A key that no member holds is asked for twice a round
+instead of once, and with a peer down that is one more 3 s wait.
+
+**Measured:**
+- **`messages_test`, 180 checks:**
+  - a line pushed before its key does not open at the hub, which is the
+    window shown;
+  - a key given first opens the line as it is absorbed.
+- **The live scripts that carry lines between members pass with the new
+  order:** `live_contacts` and `live_rejoin` once each, and `live_chat`
+  5 of 5 on the fault build. It needs that build: run against the
+  normal one, it failed 6 of 6, because a delivered line settles only at
+  start and hourly there.
+- **The daemon's order itself is not measured.** The window is too narrow
+  to catch on an idle machine: 30 probe runs of phase d, reading S2 right
+  after delivery, found it opened every time with the old order. The
+  failures sec 776 recorded came while `make test` loaded the machine.
