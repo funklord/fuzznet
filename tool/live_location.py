@@ -17,6 +17,10 @@ a poor one in turn.
     d  twenty fixes held, past what one reply holds: bare `list location`
        says so and names the page, and `list location FROM` pages the
        newest sixteen, each once, in order (sec 770)
+    e  a fix supplied by `add location` under the sampler's rules (sec
+       774): refused while location is off, dropped past the accuracy gate
+       or of unknown accuracy, and said so -- never `ok` -- and a fix kept
+       makes `get location`'s SOURCE `platform`
 
 Against a daemon that does not sample, phase b's link never reads
 watching; against one with no accuracy gate, nothing is dropped.
@@ -114,7 +118,8 @@ class stand_in(threading.Thread):
 
 def status(sock):
 	reply = ask(sock, "get location").split()
-	if len(reply) != 8 or reply[0] != "ok":
+	# TEN WORDS since sec 774: SOURCE and SUPPLIED appended to the eight.
+	if len(reply) != 10 or reply[0] != "ok":
 		raise failed("get location answered %r" % reply)
 	return reply
 
@@ -154,7 +159,8 @@ def main(argv):
 			until = time.monotonic() + 40.0
 			while True:
 				got = status(sock)
-				if got[2] == "watching" and int(got[5]) >= 2 and int(got[6]) >= 1:
+				if got[2] == "watching" and int(got[5]) >= 2 and int(got[6]) >= 1 \
+				   and got[8] == "gpsd":
 					break
 				if time.monotonic() > until:
 					raise failed("b: the node did not come to sample gpsd: %r, watch %s"
@@ -207,6 +213,11 @@ def main(argv):
 
 			# d: PAST ONE REPLY (sec 770): the 13th fix of one host's no
 			# longer fitted `list location`, and the list answered an error.
+			# On again, gpsd aimed where nothing listens: a supplied fix is
+			# kept only while location is on (sec 774).
+			for key, value in (("location/gpsd", "127.0.0.1 1"), ("location/enabled", "on")):
+				if ask(sock, "set setting host %s %s" % (key, value)) != "ok":
+					raise failed("d: set setting host %s answered otherwise" % key)
 			last = 0
 			while last < 20:
 				got = ask(sock, "add location 59.3293230 18.0685810 alt 31 bearing 90 acc 5 9 "
@@ -234,6 +245,35 @@ def main(argv):
 				raise failed("d: list location x was not refused")
 			print("livecheck: d: %d fixes held: the bare list said it does not fit, and %d "
 			      "pages listed the newest sixteen once each" % (last, pages))
+
+			# e: A SUPPLIED FIX UNDER THE SAMPLER'S RULES (sec 774).
+			def newest():
+				return int(ask(sock, "list location 0").split()[1])
+
+			if ask(sock, "set setting host location/enabled off") != "ok":
+				raise failed("e: turning location off was refused")
+			held = newest()
+			got = ask(sock, "add location 59.3 18.0 acc 5 5")
+			if got != "error location is off on this host (location/enabled)" or newest() != held:
+				raise failed("e: a fix supplied while off answered %r" % got)
+			if ask(sock, "set setting host location/enabled on") != "ok":
+				raise failed("e: turning location on was refused")
+			before = status(sock)
+			wide = ask(sock, "add location 59.3 18.0 acc 500 500")
+			unknown = ask(sock, "add location 59.3 18.0")
+			after = status(sock)
+			if not wide.startswith("error dropped: its accuracy, ") \
+			   or not unknown.startswith("error dropped: its accuracy is unknown") \
+			   or int(after[6]) != int(before[6]) + 2:
+				raise failed("e: fixes past the gate answered %r and %r, dropped %s then %s"
+				             % (wide, unknown, before[6], after[6]))
+			kept = ask(sock, "add location 59.3 18.0 acc 5 5")
+			got = status(sock)
+			if not kept.startswith("ok ") or got[8:9] != ["platform"] \
+			   or abs(int(got[9]) - time.time()) > 120:
+				raise failed("e: a fix kept answered %r, and get location said %r" % (kept, got))
+			print("livecheck: e: a supplied fix refused while off, dropped past the gate and "
+			      "said so, and once kept its source read platform")
 		except failed as e:
 			print("livecheck: FAILED -- %s" % e)
 			return 1

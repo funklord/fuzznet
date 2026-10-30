@@ -313,6 +313,10 @@ def main(argv):
 			# g: a fix, sec 676, the third record of A's `location` stream: A
 			# lists it as given, B at the level it was granted. The two app
 			# records before it are no fixes, and neither side lists them.
+			# LOCATION ON, sec 774: a supplied fix is kept only so, as the
+			# sampler's; gpsd aimed at a port where nothing listens.
+			for key, value in (("location/gpsd", "127.0.0.1 1"), ("location/enabled", "on")):
+				expect(socks["a"], "a", "set setting host %s %s" % (key, value), "ok")
 			got = ask(socks["a"], "add location 59.3293230 18.0685810 alt 31 bearing 90 "
 			                      "acc 5 9 vacc 20 at 1792600000")
 			if got != "ok 3":
@@ -343,7 +347,8 @@ def main(argv):
 				        if r.startswith(keys["a"][:16] + ",") and r.split(",")[1] == seq]
 
 			def add_fix(seq, held=True):
-				got = ask(socks["a"], "add location 59.3293230 18.0685810 at 1792600%03d" % seq)
+				got = ask(socks["a"], "add location 59.3293230 18.0685810 acc 5 5 at 1792600%03d"
+				                      % seq)
 				if got != "ok %d" % seq:
 					raise failed("g2: add location answered %r, not record %d" % (got, seq))
 				time.sleep(2.5)

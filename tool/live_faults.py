@@ -238,8 +238,14 @@ def location_faults(run, scratch, sock_dir):
 	port = 44400 + (os.getpid() % 500) * 2
 	lats = ["59.0000001", "59.0000002", "59.0000003"]
 
+	def on(sock):
+		"""Location on, sec 774, gpsd aimed where nothing listens."""
+		for key, value in (("location/gpsd", "127.0.0.1 1"), ("location/enabled", "on")):
+			ask(sock, "set setting host %s %s" % (key, value))
+
 	def acts(sock):
-		return [ask(sock, "add location %s 18.0000000 at %d" % (lat, 1792600000 + k))
+		on(sock)
+		return [ask(sock, "add location %s 18.0000000 acc 5 5 at %d" % (lat, 1792600000 + k))
 		        for k, lat in enumerate(lats)]
 
 	def own_fixes(sock, where):
@@ -349,7 +355,8 @@ def location_faults(run, scratch, sock_dir):
 					             % (where, k + 1, answer, kept))
 			# ONE MORE MAY STAND UNLISTED, as in phase s: a record kept and
 			# its head refused, so the next is numbered past it.
-			nxt = ask(sock, "add location 59.5 18.5")
+			on(sock)
+			nxt = ask(sock, "add location 59.5 18.5 acc 5 5")
 			if nxt not in ("ok %d" % (len(kept) + 1), "ok %d" % (len(kept) + 2)):
 				raise failed("%s the next fix answered %r, not numbered after those kept"
 				             % (where, nxt))

@@ -10629,7 +10629,10 @@ static size_t device_local(fzn_origin_t origin, const fzn_request_t *request, ch
  *       and north-south in metres (unknown when not said), vertical
  *       accuracy only beside an altitude; UTC, seconds, now when not said.
  *       `ok SEQ`. What a pin dropped by hand, or a platform's own location
- *       service, hands the node; gpsd's sampling writes the same.
+ *       service, hands the node; gpsd's sampling writes the same. Under the
+ *       sampler's rules (sec 774): `error` and nothing kept while
+ *       location/enabled is off, and `error dropped: ...` for a fix past
+ *       location/accuracy -- one of unknown accuracy among them.
  *   list location [FROM]
  *       `ok` and a row a fix held -- with FROM, `ok TOTAL FROM` and a page
  *       of them from row FROM, as every list verb pages (sec 770); without,
@@ -10703,20 +10706,24 @@ static int location_write(const fzn_location_fix_t *fix, uint64_t *seq)
 /* SAMPLING gpsd, sec 678: this host's cells say whether, where and how
  * often --
  *
- *   location/enabled   1 to sample; off otherwise, and off by default, a
- *                      position being the most sensitive thing kept here
+ *   location/enabled   1 to sample, and to keep a fix `add location`
+ *                      supplies (sec 774); off otherwise, and off by
+ *                      default, a position being the most sensitive thing
+ *                      kept here
  *   location/gpsd      `HOST PORT`, `localhost 2947` when unset
  *   location/every     seconds between fixes kept, 30 when unset, 1 to
  *                      86400
  *   location/accuracy  metres: a fix whose worse horizontal axis is
- *                      wider, or unknown, is dropped; 100 when unset, 0
- *                      for no gate
+ *                      wider, or unknown, is dropped -- sampled or
+ *                      supplied; 100 when unset, 0 for no gate
  *
  * -- fuzzypickles' settings and defaults, polled from the loop, never
  * blocking. A fix with no time of its own takes the clock's. */
 static fzn_gpsd_t location_gpsd;
 static int location_aimed;
 static uint64_t location_last, location_sampled, location_dropped;
+/* WHEN A FIX WAS LAST SUPPLIED by `add location` and kept, sec 774. */
+static uint64_t location_supplied;
 
 static uint64_t host_number(const char *key, uint64_t def);
 
@@ -10905,27 +10912,42 @@ static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, 
 	if (!node_streams.store || !contact_id)
 		return (size_t)snprintf(reply, cap, "error this node keeps no streams\n");
 	/* THE SAMPLING, sec 678: `ok ENABLED LINK EVERY ACCURACY SAMPLED DROPPED
-	 * LAST`, LINK off, down, connecting or watching, LAST the seconds of the
-	 * last fix kept from gpsd, 0 for none. */
+	 * LAST SOURCE SUPPLIED`, LINK off, down, connecting or watching, LAST the
+	 * seconds of the last fix kept from gpsd, 0 for none.
+	 *
+	 * SOURCE AND SUPPLIED, sec 774, appended so a reader of the seven
+	 * before is unmoved: a phone has no gpsd, and a status of its link
+	 * alone said `connecting` while the track grew. SOURCE is `gpsd` while
+	 * the link watches, `platform` while a fix supplied by `add location`
+	 * was kept within three intervals or two minutes -- fzpd's rule --
+	 * and `none` otherwise; SUPPLIED the seconds of the last, 0 for none.
+	 * DROPPED counts both sources' fixes past the gate. */
 	if (request->parsed == FZN_VERB_GET) {
 		static const char *const LINKS[] = { "down", "connecting", "watching" };
 		int on = host_flag("location/enabled") == 1;
+		int watching = on && location_aimed && fzn_gpsd_link(&location_gpsd) == FZN_GPSD_WATCHING;
+		uint64_t every = host_number("location/every", 30u), now = wall_clock();
+		uint64_t recent = 3u * every > 120u ? 3u * every : 120u;
+		int supplying = on && location_supplied && now >= location_supplied
+		                && now - location_supplied <= recent;
 
 		if (left)
 			return (size_t)snprintf(reply, cap, "malformed get location\n");
-		return (size_t)snprintf(reply, cap, "ok %d %s %llu %llu %llu %llu %llu\n", on,
+		return (size_t)snprintf(reply, cap, "ok %d %s %llu %llu %llu %llu %llu %s %llu\n", on,
 		                        !on || !location_aimed ? "off"
 		                                               : LINKS[fzn_gpsd_link(&location_gpsd)],
-		                        (unsigned long long)host_number("location/every", 30u),
+		                        (unsigned long long)every,
 		                        (unsigned long long)host_number("location/accuracy", 100u),
 		                        (unsigned long long)location_sampled,
 		                        (unsigned long long)location_dropped,
-		                        (unsigned long long)location_last);
+		                        (unsigned long long)location_last,
+		                        watching ? "gpsd" : supplying ? "platform" : "none",
+		                        (unsigned long long)location_supplied);
 	}
 	if (request->parsed == FZN_VERB_ADD) {
 		fzn_location_fix_t fix;
 		long long n1, n2;
-		uint64_t seq = 0;
+		uint64_t seq = 0, accuracy;
 		int vacc_said = 0;
 
 		memset(&fix, 0, sizeof(fix));
@@ -10970,8 +10992,32 @@ static size_t location_local(fzn_origin_t origin, const fzn_request_t *request, 
 		}
 		if (vacc_said && !fix.has_alt)
 			return (size_t)snprintf(reply, cap, "malformed vacc is an altitude's\n");
+		/* A SUPPLIED FIX UNDER THE SAMPLER'S RULES, sec 774, fuzzypickles'
+		 * three as the holder agreed them there: switched off means the
+		 * position is not recorded, whoever supplies it; a fix past the
+		 * accuracy gate is dropped, and said -- never `ok`, which a client
+		 * reads as kept; and the status credits the supplier (`get
+		 * location`'s SOURCE). */
+		if (host_flag("location/enabled") != 1)
+			return (size_t)snprintf(reply, cap,
+			                        "error location is off on this host (location/enabled)\n");
+		accuracy = host_number("location/accuracy", 100u);
+		if (accuracy && fzn_location_worst_h_acc_m(&fix) > accuracy) {
+			location_dropped++;
+			if (fix.acc_e == FZN_LOCATION_ACC_UNKNOWN || fix.acc_n == FZN_LOCATION_ACC_UNKNOWN)
+				return (size_t)snprintf(reply, cap,
+				                        "error dropped: its accuracy is unknown, and "
+				                        "location/accuracy is %llu m\n",
+				                        (unsigned long long)accuracy);
+			return (size_t)snprintf(reply, cap,
+			                        "error dropped: its accuracy, %lu m, is past "
+			                        "location/accuracy, %llu m\n",
+			                        (unsigned long)fzn_location_worst_h_acc_m(&fix),
+			                        (unsigned long long)accuracy);
+		}
 		if (!location_write(&fix, &seq))
 			return (size_t)snprintf(reply, cap, "error the fix would not keep\n");
+		location_supplied = wall_clock();
 		return (size_t)snprintf(reply, cap, "ok %llu\n", (unsigned long long)seq);
 	}
 	/* `list location [FROM]`, sec 770: with FROM, a page -- `ok TOTAL FROM

@@ -216,6 +216,10 @@ def main(argv):
 
 			# d: location, coarse.
 			fzp("alice", "location-share", "--name", "bob", "--enable", "--precision", "coarse")
+			# LOCATION ON, sec 774: a supplied fix is kept only so.
+			for key, value in (("location/gpsd", "127.0.0.1 1"), ("location/enabled", "on")):
+				if ask(socks["alice"], "set setting host %s %s" % (key, value)) != "ok":
+					raise failed("d: alice's %s was not set" % key)
 			if not ask(socks["alice"], "add location 59.3293230 18.0685810 alt 31 bearing 90 "
 			                           "acc 5 9 vacc 20 at 1792600000").startswith("ok"):
 				raise failed("d: alice would not take a fix")

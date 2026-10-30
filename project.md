@@ -74881,3 +74881,46 @@ fails whole past it. A store with no `each` keeps `list`'s fallback of
 the room again from three, and is refused by a store that can do
 neither; a sabotage entry stops the walk at its first room's end. No
 real store has held 257 groups: the test is the only measurement.
+
+## 774. A supplied fix under the sampler's rules, 2026-10-30
+
+fuzzypickles, by its inbox 2026-10-29 22:17 UTC: the phone app reads the
+platform's position and hands each fix to the node -- `add location` on
+fuzznetd -- as the holder agreed there (their a6f4ee7, 4e333bf). fzpd
+applies three rules to a supplied fix that `add location` did not, so a
+phone moved onto fuzznetd would have lost them:
+
+1. **Refused while location is off.** "Switched off" has to mean the
+   position is not recorded, whoever supplies it. `add location` wrote
+   through `location_write` with no look at `location/enabled`. It now
+   answers `error location is off on this host (location/enabled)` and
+   keeps nothing, and the cell's comment says it covers both sources.
+2. **The accuracy gate, and said.** `location/accuracy` was the
+   sampler's alone. A supplied fix past it, or of unknown accuracy --
+   the gate drops those, as the sampler's does -- is dropped, counted in
+   DROPPED, and answered `error dropped: ...` with its accuracy and the
+   gate's. Not `ok`: the client treats `ok` as kept.
+3. **The status credits the supplier.** `get location` reported the gpsd
+   link alone, so a phone with no gpsd read `connecting` while its track
+   grew. Two words are appended -- `SOURCE`, `gpsd` while the link
+   watches, `platform` while a supplied fix was kept within three
+   intervals or two minutes (fzpd's rule), `none` otherwise; and
+   `SUPPLIED`, the last one's seconds.
+
+**`error`, of the five words.** `denied` is policy refusing the caller,
+and location off refuses nobody in particular; `error` is "understood,
+attempted, failed", and the detail says why. **Appended, not a new link
+word**: fuzzypickles' `node_location_status` refuses any LINK it does
+not know and reads only the first three words, so `platform` as a link
+would have made every phone's status unreadable, where two words at the
+end leave it as it was. Their fourth rule, a supplied fix marked coarse,
+cannot arise: `add location` takes no coarse flag.
+
+The live scripts supplying fixes now turn location on, with gpsd aimed
+at a port where nothing listens, and give each fix an accuracy:
+`live_pairing`, `live_faults`' phases s and t, `live_location`'s phase d
+and `live_fzp`. `live_location` phase e tries each rule: refused while
+off with nothing kept, a fix at 500 m and one of unknown accuracy each
+dropped and said, DROPPED up by two, and a fix kept reading SOURCE
+`platform`; phase b reads SOURCE `gpsd` while watching. fuzzypickles is
+told what the node answers now.
