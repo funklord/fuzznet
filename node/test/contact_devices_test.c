@@ -740,7 +740,23 @@ static void test_the_revoked_messages(void)
 	mode = 2;
 	CHECK(!revoked_query(&pages), "a page with a trailing byte was taken");
 	mode = 3;
-	CHECK(!revoked_query(&pages), "a page saying more and naming none was taken");
+	{
+		static uint8_t one[FZN_CONTACT_DEVICES_REPLY_MAX + 1u];
+		fzn_contact_revoked_querying_t q;
+		uint8_t asked[FZN_CONTACT_DEVICES_REVOKED_LEN];
+		size_t asked_len = 0, one_len = 0;
+		int done = 0;
+
+		/* REFUSED AT THE FIRST PAGE, not merely never finished: asked
+		 * again from the same `from` it would go on for ever. */
+		CHECK(fzn_contact_revoked_query_begin(&q, take_record, NULL, asked, sizeof(asked),
+		                                      &asked_len)
+		              && revoked_link(NULL, asked, asked_len, one, sizeof(one), &one_len)
+		              && !fzn_contact_revoked_query_step(&q, one, one_len, asked, sizeof(asked),
+		                                                 &asked_len, &done)
+		              && done,
+		      "a page saying more and naming none was taken");
+	}
 	mode = 0;
 	/* A DEVICES QUERY IS NOT THIS ONE'S, and a reply too small for a head
 	 * answers nothing. */
