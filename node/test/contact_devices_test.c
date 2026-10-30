@@ -715,13 +715,14 @@ static int revoked_query(size_t *pages)
 	records_taken = 0;
 	*pages = 0;
 	ok = fzn_contact_revoked_query_begin(&q, take_record, NULL, req, sizeof(req), &req_len);
-	while (ok && !done) {
+	/* BOUNDED HERE, so an asker that never ends fails rather than hangs. */
+	while (ok && !done && *pages < 8u) {
 		(*pages)++;
 		ok = revoked_link(NULL, req, req_len, page, sizeof(page), &page_len)
 		     && fzn_contact_revoked_query_step(&q, page, page_len, req, sizeof(req), &req_len,
 		                                       &done);
 	}
-	return ok && q.count == records_taken;
+	return ok && done && q.count == records_taken;
 }
 
 static void test_the_revoked_messages(void)
