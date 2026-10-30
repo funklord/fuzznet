@@ -998,12 +998,15 @@ static int item_signed(const fzn_contact_estate_item_t *item, const fzn_sign_ops
 #define ESTATE_ROW_MAX (FZN_PUBKEY_LEN + FZN_CONTACT_ESTATE_ITEM_MAX)
 /* THE k ROW'S KIND: no item's, so it never reads as one. */
 #define ESTATE_K_KIND 0xffu
+/* THE k ROW: owner, kind, k, and when this node or the member it came
+ * through heard it from the contact's host, ms (sec 782). */
+#define ESTATE_K_ROW_LEN (FZN_PUBKEY_LEN + 2u + 8u)
 
 static int estate_key(const fzn_hash_ops_t *hash, const uint8_t *row, size_t len,
                       uint8_t key[FZN_PUBKEY_LEN])
 {
 	/* THE k ROW IS ONE PER OWNER, keyed by the owner and its kind alone. */
-	if (len == FZN_PUBKEY_LEN + 2u && row[FZN_PUBKEY_LEN] == ESTATE_K_KIND)
+	if (len == ESTATE_K_ROW_LEN && row[FZN_PUBKEY_LEN] == ESTATE_K_KIND)
 		len = FZN_PUBKEY_LEN + 1u;
 	return hash->hash(hash->ctx, key, FZN_PUBKEY_LEN, row, len);
 }
@@ -1037,20 +1040,229 @@ fzn_contact_device_err_t fzn_contact_estate_keep(const fzn_persist_ops_t *store,
 fzn_contact_device_err_t fzn_contact_estate_keep_k(const fzn_persist_ops_t *store,
                                                    const fzn_hash_ops_t *hash,
                                                    const uint8_t owner[FZN_PUBKEY_LEN],
-                                                   uint8_t k)
+                                                   uint8_t k, uint64_t heard_ms)
 {
-	uint8_t row[FZN_PUBKEY_LEN + 2u], key[FZN_PUBKEY_LEN];
+	uint8_t row[ESTATE_K_ROW_LEN], key[FZN_PUBKEY_LEN];
 
 	if (!store || !store->save || !hash || !hash->hash || !owner || k == 0u)
 		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
 	memcpy(row, owner, FZN_PUBKEY_LEN);
 	row[FZN_PUBKEY_LEN] = ESTATE_K_KIND;
 	row[FZN_PUBKEY_LEN + 1u] = k;
+	fzn_put_be64(row + FZN_PUBKEY_LEN + 2u, heard_ms);
 	if (!estate_key(hash, row, sizeof(row), key))
 		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
 	return store->save(store->ctx, FZN_PERSIST_CONTACT_ESTATE, key, row, sizeof(row))
 	               ? FZN_CONTACT_DEVICE_OK
 	               : FZN_CONTACT_DEVICE_ERR_BACKEND;
+}
+
+/* ---- passed on between members, sec 782 ---------------------------------- */
+
+struct estate_each_walk {
+	const fzn_persist_ops_t *store;
+	const fzn_hash_ops_t *hash;
+	int (*fn)(void *ctx, const uint8_t *row, size_t len);
+	void *ctx;
+	int stopped;
+};
+
+static int estate_each_walked(void *arg, const uint8_t key[FZN_PUBKEY_LEN])
+{
+	static uint8_t row[ESTATE_ROW_MAX];
+	struct estate_each_walk *w = arg;
+	uint8_t filed[FZN_PUBKEY_LEN];
+	size_t len = 0;
+
+	if (!w->store->load(w->store->ctx, FZN_PERSIST_CONTACT_ESTATE, key, row, sizeof(row), &len)
+	    || len < FZN_PUBKEY_LEN + 2u || !estate_key(w->hash, row, len, filed)
+	    || memcmp(filed, key, FZN_PUBKEY_LEN) != 0)
+		return 1;
+	if (!w->fn(w->ctx, row, len)) {
+		w->stopped = 1;
+		return 0;
+	}
+	return 1;
+}
+
+fzn_contact_device_err_t fzn_contact_estate_each(const fzn_persist_ops_t *store,
+                                                 const fzn_hash_ops_t *hash,
+                                                 int (*fn)(void *ctx, const uint8_t *row,
+                                                           size_t len),
+                                                 void *ctx)
+{
+	struct estate_each_walk w;
+
+	if (!store || !store->load || !hash || !hash->hash || !fn)
+		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
+	memset(&w, 0, sizeof(w));
+	w.store = store;
+	w.hash = hash;
+	w.fn = fn;
+	w.ctx = ctx;
+	if (!fzn_persist_each(store, FZN_PERSIST_CONTACT_ESTATE, estate_each_walked, &w)
+	    && !w.stopped)
+		return FZN_CONTACT_DEVICE_ERR_BACKEND;
+	return FZN_CONTACT_DEVICE_OK;
+}
+
+const uint8_t *fzn_contact_estate_row_owner(const uint8_t *row, size_t len)
+{
+	return row && len >= FZN_PUBKEY_LEN + 2u ? row : NULL;
+}
+
+/* WHEN THE k KEPT FOR `owner` WAS HEARD from its host: 1 with it in
+ * `*heard_ms`, 0 for none kept. */
+static int kept_k_heard(const fzn_persist_ops_t *store, const fzn_hash_ops_t *hash,
+                        const uint8_t owner[FZN_PUBKEY_LEN], uint64_t *heard_ms)
+{
+	uint8_t row[ESTATE_K_ROW_LEN], key[FZN_PUBKEY_LEN], got[ESTATE_K_ROW_LEN];
+	size_t len = 0;
+
+	memset(row, 0, sizeof(row));
+	memcpy(row, owner, FZN_PUBKEY_LEN);
+	row[FZN_PUBKEY_LEN] = ESTATE_K_KIND;
+	if (!estate_key(hash, row, sizeof(row), key)
+	    || !store->load(store->ctx, FZN_PERSIST_CONTACT_ESTATE, key, got, sizeof(got), &len)
+	    || len != sizeof(got) || memcmp(got, owner, FZN_PUBKEY_LEN) != 0
+	    || got[FZN_PUBKEY_LEN] != ESTATE_K_KIND)
+		return 0;
+	*heard_ms = fzn_get_be64(got + FZN_PUBKEY_LEN + 2u);
+	return 1;
+}
+
+fzn_contact_device_err_t fzn_contact_estate_take_row(const fzn_persist_ops_t *store,
+                                                     const fzn_hash_ops_t *hash,
+                                                     const fzn_sign_ops_t *sign,
+                                                     const uint8_t *row, size_t len)
+{
+	static fzn_contact_estate_item_t item;
+
+	if (!store || !store->load || !hash || !hash->hash || !sign || !row)
+		return FZN_CONTACT_DEVICE_ERR_MALFORMED;
+	if (len < FZN_PUBKEY_LEN + 2u)
+		return FZN_CONTACT_DEVICE_ERR_REFUSED;
+	/* A k ONLY WHEN HEARD LATER than the one kept: a member's copy may be
+	 * older than the host's word, and the host's lowering of k must still
+	 * reach every member. */
+	if (len == ESTATE_K_ROW_LEN && row[FZN_PUBKEY_LEN] == ESTATE_K_KIND) {
+		uint64_t heard = fzn_get_be64(row + FZN_PUBKEY_LEN + 2u), kept = 0;
+
+		if (row[FZN_PUBKEY_LEN + 1u] == 0u)
+			return FZN_CONTACT_DEVICE_ERR_REFUSED;
+		if (kept_k_heard(store, hash, row, &kept) && heard <= kept)
+			return FZN_CONTACT_DEVICE_OK;
+		return fzn_contact_estate_keep_k(store, hash, row, row[FZN_PUBKEY_LEN + 1u], heard);
+	}
+	if (fzn_contact_estate_item_decode(row + FZN_PUBKEY_LEN, len - FZN_PUBKEY_LEN, &item)
+	    != FZN_CONTACT_DEVICE_OK)
+		return FZN_CONTACT_DEVICE_ERR_REFUSED;
+	return fzn_contact_estate_keep(store, hash, sign, row, &item);
+}
+
+static void rows_query(const fzn_contact_rows_querying_t *q, uint8_t *request,
+                       size_t *request_len)
+{
+	request[0] = FZN_CONTACT_DEVICES_VERSION;
+	request[1] = FZN_CONTACT_DEVICES_KEPT_ESTATE;
+	fzn_put_be32(request + 2, q->from);
+	*request_len = FZN_CONTACT_DEVICES_KEPT_ESTATE_LEN;
+}
+
+int fzn_contact_rows_query_begin(fzn_contact_rows_querying_t *q,
+                                 void (*take)(void *ctx, const uint8_t *row, size_t len),
+                                 void *take_ctx, uint8_t *request, size_t cap,
+                                 size_t *request_len)
+{
+	if (!q || !take || !request || cap < FZN_CONTACT_DEVICES_KEPT_ESTATE_LEN || !request_len)
+		return 0;
+	q->take = take;
+	q->take_ctx = take_ctx;
+	q->from = 0;
+	q->count = 0;
+	q->live = 1;
+	rows_query(q, request, request_len);
+	return 1;
+}
+
+int fzn_contact_rows_query_step(fzn_contact_rows_querying_t *q, const uint8_t *reply,
+                                size_t reply_len, uint8_t *request, size_t cap,
+                                size_t *request_len, int *done)
+{
+	size_t at, k, n, len;
+
+	if (!q || !q->live || !request || cap < FZN_CONTACT_DEVICES_KEPT_ESTATE_LEN || !request_len
+	    || !done)
+		return 0;
+	*done = 1;
+	q->live = 0;
+	if (!reply || reply_len < FZN_CONTACT_DEVICES_KEPT_ROWS_HEAD_LEN
+	    || reply[0] != FZN_CONTACT_DEVICES_VERSION || reply[1] != FZN_CONTACT_DEVICES_KEPT_ROWS
+	    || fzn_get_be32(reply + 2) != q->from || reply[7] > 1u)
+		return 0;
+	n = reply[6];
+	/* EVERY ROW'S LENGTH READ BEFORE ANY IS TAKEN. */
+	for (at = FZN_CONTACT_DEVICES_KEPT_ROWS_HEAD_LEN, k = 0; k < n; k++) {
+		if (reply_len < at + 2u)
+			return 0;
+		len = fzn_get_be16(reply + at);
+		if (len < FZN_PUBKEY_LEN + 2u || len > FZN_CONTACT_ESTATE_ROW_MAX
+		    || reply_len < at + 2u + len)
+			return 0;
+		at += 2u + len;
+	}
+	if (at != reply_len || (reply[7] && n == 0u))
+		return 0;
+	for (at = FZN_CONTACT_DEVICES_KEPT_ROWS_HEAD_LEN, k = 0; k < n; k++) {
+		len = fzn_get_be16(reply + at);
+		q->take(q->take_ctx, reply + at + 2u, len);
+		q->count++;
+		at += 2u + len;
+	}
+	if (!reply[7] || q->from > UINT32_MAX - n)
+		return 1;
+	q->from += (uint32_t)n;
+	*done = 0;
+	q->live = 1;
+	rows_query(q, request, request_len);
+	return 1;
+}
+
+size_t fzn_contact_rows_answer(const uint8_t *request, size_t request_len,
+                               int (*row_at)(void *ctx, size_t i, uint8_t *out, size_t *len),
+                               void *ctx, uint8_t *reply, size_t reply_cap)
+{
+	static uint8_t row[FZN_CONTACT_ESTATE_ROW_MAX];
+	size_t at = FZN_CONTACT_DEVICES_KEPT_ROWS_HEAD_LEN, i, n = 0, len = 0;
+	uint32_t from;
+
+	if (!request || !row_at || !reply || request_len != FZN_CONTACT_DEVICES_KEPT_ESTATE_LEN
+	    || request[0] != FZN_CONTACT_DEVICES_VERSION
+	    || request[1] != FZN_CONTACT_DEVICES_KEPT_ESTATE
+	    || reply_cap < FZN_CONTACT_DEVICES_KEPT_ROWS_HEAD_LEN)
+		return 0;
+	if (reply_cap > FZN_CONTACT_DEVICES_REPLY_MAX)
+		reply_cap = FZN_CONTACT_DEVICES_REPLY_MAX;
+	from = fzn_get_be32(request + 2);
+	reply[0] = FZN_CONTACT_DEVICES_VERSION;
+	reply[1] = FZN_CONTACT_DEVICES_KEPT_ROWS;
+	fzn_put_be32(reply + 2, from);
+	reply[7] = 0u;
+	for (i = from; row_at(ctx, i, row, &len); i++) {
+		if (len < FZN_PUBKEY_LEN + 2u || len > sizeof(row))
+			break;
+		/* ONE PAST THE ROOM IS THE NEXT PAGE'S. */
+		if (n == 255u || at + 2u + len > reply_cap) {
+			reply[7] = 1u;
+			break;
+		}
+		fzn_put_be16(reply + at, (uint16_t)len);
+		memcpy(reply + at + 2u, row, len);
+		at += 2u + len;
+		n++;
+	}
+	reply[6] = (uint8_t)n;
+	return at;
 }
 
 /* ---- the estate built ---------------------------------------------------- */
@@ -1110,7 +1322,7 @@ static int estate_row_walked(void *arg, const uint8_t key[FZN_PUBKEY_LEN])
 	    || memcmp(filed, key, FZN_PUBKEY_LEN) != 0
 	    || memcmp(row, w->e->owner, FZN_PUBKEY_LEN) != 0)
 		return 1;
-	if (len == FZN_PUBKEY_LEN + 2u && row[FZN_PUBKEY_LEN] == ESTATE_K_KIND) {
+	if (len == ESTATE_K_ROW_LEN && row[FZN_PUBKEY_LEN] == ESTATE_K_KIND) {
 		w->e->k = row[FZN_PUBKEY_LEN + 1u] > w->e->k ? row[FZN_PUBKEY_LEN + 1u] : w->e->k;
 		return 1;
 	}

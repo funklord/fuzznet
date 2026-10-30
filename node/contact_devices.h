@@ -440,11 +440,86 @@ fzn_contact_device_err_t fzn_contact_estate_keep(const fzn_persist_ops_t *store,
                                                  const uint8_t owner[FZN_PUBKEY_LEN],
                                                  const fzn_contact_estate_item_t *item);
 
-/* THE k `owner`'s host said it holds, kept in place of the last. */
+/* THE k `owner`'s host said it holds, kept in place of the last, with when
+ * it was heard from the host (sec 782): this node's clock as it asked, or
+ * the time a member passing it on had kept. */
 fzn_contact_device_err_t fzn_contact_estate_keep_k(const fzn_persist_ops_t *store,
                                                    const fzn_hash_ops_t *hash,
                                                    const uint8_t owner[FZN_PUBKEY_LEN],
-                                                   uint8_t k);
+                                                   uint8_t k, uint64_t heard_ms);
+
+/* ---- passed on between members, sec 782 ----------------------------------
+ *
+ * A MEMBER THAT NEVER REACHED A CONTACT judged its devices by nothing of
+ * the estate's -- or, given records and no k, at k 1, where one admin's vote
+ * drops a device its estate keeps at the default 2. So members hand each
+ * other slot FZN_PERSIST_CONTACT_ESTATE's rows as they are: the owner, then
+ * an item or the k its host said. An item is taken as one from the contact's
+ * host is, signed as its kind says; a k passed on replaces the one kept only
+ * when it was heard from the host LATER. The first version let a member's k
+ * only raise the one kept, and measured wrong at once: a member still
+ * holding the k of 2 it heard before the contact lowered k to 1 raised the
+ * host's fresh word back to 2 every round, and a device the contact's estate
+ * had revoked stayed reachable. Our own devices' clocks are held close
+ * (sec 719), which is what lets the times compare.
+ *
+ *   KEPT_ESTATE  53  `from` (32 bits): the asked member's rows
+ *   KEPT_ROWS    54  `from` echoed, how many, whether more follow, then
+ *                    each row after a 16-bit length
+ */
+#define FZN_CONTACT_DEVICES_KEPT_ESTATE 53u
+#define FZN_CONTACT_DEVICES_KEPT_ROWS 54u
+#define FZN_CONTACT_DEVICES_KEPT_ESTATE_LEN 6u
+#define FZN_CONTACT_DEVICES_KEPT_ROWS_HEAD_LEN 8u
+/* A ROW: an owner and an item, or an owner, the k kind and a k. */
+#define FZN_CONTACT_ESTATE_ROW_MAX (FZN_PUBKEY_LEN + FZN_CONTACT_ESTATE_ITEM_MAX)
+
+/* EVERY ROW KEPT, handed to `fn` as kept; `fn` returns 0 to stop. BACKEND
+ * when the slot will not walk. */
+fzn_contact_device_err_t fzn_contact_estate_each(const fzn_persist_ops_t *store,
+                                                 const fzn_hash_ops_t *hash,
+                                                 int (*fn)(void *ctx, const uint8_t *row,
+                                                           size_t len),
+                                                 void *ctx);
+
+/* THE OWNER A ROW NAMES, its first FZN_PUBKEY_LEN bytes: NULL for a row too
+ * short to be one. */
+const uint8_t *fzn_contact_estate_row_owner(const uint8_t *row, size_t len);
+
+/* TAKE A ROW A MEMBER PASSED ON, its owner already known to stand: an item
+ * kept as `fzn_contact_estate_keep` keeps one, a k only when heard later
+ * than the k kept. OK when kept or when an older k was passed over;
+ * REFUSED for a row that is neither, or an item not signed. */
+fzn_contact_device_err_t fzn_contact_estate_take_row(const fzn_persist_ops_t *store,
+                                                     const fzn_hash_ops_t *hash,
+                                                     const fzn_sign_ops_t *sign,
+                                                     const uint8_t *row, size_t len);
+
+/* THE ROWS' QUERY AS STEPS, and its answer, as the others: each row handed
+ * to `take` as it came, unjudged. */
+typedef struct fzn_contact_rows_querying {
+	int live;
+	void (*take)(void *ctx, const uint8_t *row, size_t len);
+	void *take_ctx;
+	uint32_t from;
+	size_t count;
+} fzn_contact_rows_querying_t;
+
+int fzn_contact_rows_query_begin(fzn_contact_rows_querying_t *q,
+                                 void (*take)(void *ctx, const uint8_t *row, size_t len),
+                                 void *take_ctx, uint8_t *request, size_t cap,
+                                 size_t *request_len);
+
+int fzn_contact_rows_query_step(fzn_contact_rows_querying_t *q, const uint8_t *reply,
+                                size_t reply_len, uint8_t *request, size_t cap,
+                                size_t *request_len, int *done);
+
+/* `row_at` fills the `i`th row into `out` (FZN_CONTACT_ESTATE_ROW_MAX),
+ * its length in `*len`; 0 past the last. 0 for anything that is not a
+ * KEPT_ESTATE query. */
+size_t fzn_contact_rows_answer(const uint8_t *request, size_t request_len,
+                               int (*row_at)(void *ctx, size_t i, uint8_t *out, size_t *len),
+                               void *ctx, uint8_t *reply, size_t reply_cap);
 
 /* THE CONTACT'S ESTATE AS THIS NODE SEES IT, built from what is kept for
  * `owner` -- slot FZN_PERSIST_CONTACT_ESTATE and its root's records in

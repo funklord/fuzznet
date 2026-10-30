@@ -75348,7 +75348,66 @@ mattered.
 
 **Not yet:**
 - the act log, as above;
-- members passing on slot 65's records, as sec 780 does slot 64's;
+- ~~members passing on slot 65's records, as sec 780 does slot 64's;~~
+  built in sec 782;
 - a contact's members' votes as grantors: these count here as they do
   in its estate, since a grantor's standing comes from the judged chain;
   no test holds it.
+
+## 782. Members pass on the contact estate records they kept, 2026-10-30
+
+The holder asked for it after sec 781. A member that could not reach a
+contact's hosts judged the contact's devices by its root's word alone,
+or by nothing.
+
+**There was a worse case, and it decided the design.** Records without k
+would have been fail-shut. A member given the records but never the
+contact's k judges at k 1, where one admin's vote drops a device the
+contact's estate keeps at the default 2. So k crosses with the records.
+
+**What crosses is slot 65's rows as they are**: the owner, then an item,
+or the owner and the k its host said. A member asks every other member
+for them (KEPT_ESTATE 53 and KEPT_ROWS 54) between the revocations of
+sec 780 and the devices it kept, so a device passed on is judged by
+them. The asker takes a row only for a contact standing here. An item is
+kept as one from the contact's host is, signed as its kind says; a
+changed chain is judged, and admitted by nothing, where the estate is
+built.
+
+**A k replaces the one kept only when it was heard from the host
+later.** The k row now carries when it was heard, in estate time
+(`estate_ms`, sec 719), which our own devices hold close. The first
+version had a member's k only raise the one kept, and measured wrong at
+once: S2, still holding the k of 2 it heard from R before R lowered k
+to 1, raised S's fresh 1 back to 2 at every exchange. S kept R3, a device
+R's estate had dropped.
+
+**Two things phase f's ending found, both of the test:**
+- **R's other hosts are R's hosts.** With only R down, S2 asked R2,
+  which had not yet pulled R's new k and answered 2. S2 then kept R3,
+  erring open as designed. The ending takes R's whole estate down.
+- **A member running through the change drops on its own.** S2, up while
+  R lowered k, asked R itself and dropped R3, leaving its restart nothing
+  to show. It is kept down from the moment it lists R3.
+
+**Measured:**
+- **`contact_devices_test`, 86 checks, 10 new:**
+  - rows list each under its owner, and travel over pages whole, once
+    and in order; a page with a trailing byte is refused;
+  - a second member taking the first's rows judges as the first does:
+    k 2, the admin's vote not enough;
+  - a k heard earlier is passed over whatever its value, and a lower k
+    heard later is kept, so the admin's vote drops the device at k 1;
+  - a row whose record changed is refused, and keeps nothing.
+- **`live_contacts` phase f's ending:**
+  - S2 holds R3, then stays down through R2's vote and R's change of k.
+  - With R, R2 and R3 down, S2 starts again. Its first pass asks no
+    contact and drops R3 by the rows S passes on.
+  - The whole script passed. **Control:** a build skipping the rows
+    phase fails there, its first pass dropping nothing.
+- **Three sabotage entries**: a k heard later, an item signed, the rows
+  page whole.
+
+**Not yet:** a contact's hosts answering their own k ahead of their
+estate's journal, as R2 did. Each host answers what it holds, and the
+asker keeps the latest heard, which errs open.

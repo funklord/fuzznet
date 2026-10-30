@@ -124,3 +124,29 @@ struct fzn_contact_estate_item {
 	u8   hop_count [max = 8];               // none for a root
 	u8   hops[hop_count * 179];             // FZN_HOP_LEN each
 }
+
+// A CONTACT'S ESTATE PASSED BETWEEN MEMBERS, sec 782: the asked member's
+// kept rows as they are -- an owner, then an item or that owner's k.
+
+// KEPT_ESTATE: a page of the asked member's rows, from the `from`th.
+struct fzn_contact_devices_kept_estate {
+	u8   version [must_eq = 2];
+	u8   type [must_eq = 53];
+	u32  from;
+}
+
+// KEPT_ROWS: as many as fit, each after its length.
+struct fzn_contact_devices_kept_rows {
+	u8   version [must_eq = 2];
+	u8   type [must_eq = 54];
+	u32  from;                              // the query's, echoed
+	u8   count;
+	u8   more [max = 1];
+	fzn_contact_estate_row rows[count];
+}
+
+struct fzn_contact_estate_row {
+	u16  len [min = 34, max = 1710];
+	u8   owner[32];                         // the contact's root
+	u8   rest[len - 32];                    // an item, or 255 and a k
+}

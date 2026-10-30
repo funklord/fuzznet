@@ -6910,6 +6910,52 @@ static int kept_revocation_at(void *ctx, size_t i, uint8_t out[FZN_REVOCATION_LE
 	return 1;
 }
 
+/* THE ESTATE ROWS THIS NODE KEPT, sec 782, as a member asks for them:
+ * listed afresh at the first of a page's, into room grown to hold them. */
+static uint8_t (*kept_rows)[FZN_CONTACT_ESTATE_ROW_MAX];
+static size_t *kept_rows_len, kept_rows_n, kept_rows_cap;
+
+static int kept_row_listed(void *ctx, const uint8_t *row, size_t len)
+{
+	(void)ctx;
+	if (len > FZN_CONTACT_ESTATE_ROW_MAX)
+		return 1;
+	if (kept_rows_n == kept_rows_cap) {
+		size_t cap = kept_rows_cap ? kept_rows_cap * 2u : 16u;
+		uint8_t (*more)[FZN_CONTACT_ESTATE_ROW_MAX] = realloc(kept_rows, cap * sizeof(*more));
+		size_t *more_len;
+
+		if (!more)
+			return 0;
+		kept_rows = more;
+		more_len = realloc(kept_rows_len, cap * sizeof(*more_len));
+		if (!more_len)
+			return 0;
+		kept_rows_len = more_len;
+		kept_rows_cap = cap;
+	}
+	memcpy(kept_rows[kept_rows_n], row, len);
+	kept_rows_len[kept_rows_n++] = len;
+	return 1;
+}
+
+static int kept_row_at(void *ctx, size_t i, uint8_t *out, size_t *len)
+{
+	(void)ctx;
+	if (i == 0) {
+		kept_rows_n = 0;
+		if (!node_apply.store || !contact_hash_ops
+		    || fzn_contact_estate_each(node_apply.store, contact_hash_ops, kept_row_listed, NULL)
+		               != FZN_CONTACT_DEVICE_OK)
+			kept_rows_n = 0;
+	}
+	if (i >= kept_rows_n)
+		return 0;
+	memcpy(out, kept_rows[i], kept_rows_len[i]);
+	*len = kept_rows_len[i];
+	return 1;
+}
+
 /* A CONTACT'S OFFER OR QUERY (`owner` the contact), or a member's query for
  * what this node kept, devices or contacts' revocations (`owner` NULL). */
 static size_t contact_devices_remote(void *ctx, const uint8_t *owner, const uint8_t *request,
@@ -6921,6 +6967,9 @@ static size_t contact_devices_remote(void *ctx, const uint8_t *owner, const uint
 	if (!owner) {
 		n = fzn_contact_revoked_answer(request, request_len, kept_revocation_at, NULL, reply,
 		                               reply_cap);
+		if (!n)
+			n = fzn_contact_rows_answer(request, request_len, kept_row_at, NULL, reply,
+			                            reply_cap);
 		return n ? n
 		         : fzn_contact_devices_query_answer(request, request_len, NULL, kept_at, NULL,
 		                                            reply, reply_cap);
@@ -8884,16 +8933,18 @@ static size_t address_local(fzn_origin_t origin, const fzn_request_t *request, c
 _Static_assert(FZND_PULL_REPLY_MAX >= FZN_CONTACT_DEVICES_REPLY_MAX,
                "a devices page fits the round's answers");
 
-/* FIRST THE CONTACTS' REVOCATIONS THE MEMBER SAVED, sec 780, so a device
- * it passes on next is judged by them; then the devices it kept. */
+/* FIRST THE CONTACTS' REVOCATIONS THE MEMBER SAVED, sec 780, and its
+ * contacts' estate rows, sec 782, so a device it passes on next is judged by
+ * them; then the devices it kept. */
 struct devices_talk {
 	fzn_node_talk_t talk;
 	struct meter m;
 	uint8_t request[FZN_CONTACT_DEVICES_REVOKED_LEN > FZN_CONTACT_DEVICES_QUERY_LEN
 	                        ? FZN_CONTACT_DEVICES_REVOKED_LEN
 	                        : FZN_CONTACT_DEVICES_QUERY_LEN];
-	int revoked;
+	int revoked, rows;
 	fzn_contact_revoked_querying_t rq;
+	fzn_contact_rows_querying_t wq;
 	fzn_contact_devices_querying_t q;
 };
 static struct devices_talk devices_talks[FZND_ROUND_TARGETS_MAX];
@@ -8927,6 +8978,28 @@ static void take_member_revoked(void *ctx, const uint8_t record[FZN_REVOCATION_L
 		    fzn_contact_device_err_str(err));
 }
 
+/* ONE ROW A MEMBER PASSED ON, sec 782: taken when its owner is a contact
+ * standing here -- an item signed as its kind says, a k only above the one
+ * kept. */
+static void take_member_row(void *ctx, const uint8_t *row, size_t len)
+{
+	const uint8_t *owner = fzn_contact_estate_row_owner(row, len);
+	fzn_contact_device_err_t err;
+
+	(void)ctx;
+	if (!owner || !running_admin || !node_apply.store || !contact_id || !contact_hash_ops
+	    || !fzn_node_admin_contact_stands(running_admin, owner))
+		return;
+	err = fzn_contact_estate_take_row(node_apply.store, contact_hash_ops, contact_id->sign, row,
+	                                  len);
+	if (err == FZN_CONTACT_DEVICE_OK)
+		contact_records_taken++;
+	else if (err != FZN_CONTACT_DEVICE_ERR_REFUSED)
+		say(FZN_ENTRY_WARNING, "contact/devices",
+		    "a contact's estate row a member passed on was not kept (%s)",
+		    fzn_contact_device_err_str(err));
+}
+
 static int devices_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, uint8_t *request,
                              size_t cap, size_t *request_len)
 {
@@ -8934,6 +9007,23 @@ static int devices_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, 
 	int done = 0, ok;
 
 	meter_answer(&dt->m, reply, reply_len);
+	if (dt->rows) {
+		/* THE SAME FOR THE ROWS: a member older than sec 782 moves on. */
+		if (reply && fzn_contact_rows_query_step(&dt->wq, reply, reply_len, request, cap,
+		                                         request_len, &done)
+		    && !done) {
+			meter_asked(&dt->m, *request_len);
+			return 1;
+		}
+		if (!reply)
+			return 0;
+		dt->rows = 0;
+		if (!fzn_contact_devices_query_begin(&dt->q, FZN_CONTACT_DEVICES_KEPT, take_kept,
+		                                     &contacts_kept, request, cap, request_len))
+			return 0;
+		meter_asked(&dt->m, *request_len);
+		return 1;
+	}
 	if (dt->revoked) {
 		/* AN ANSWER THAT IS NO PAGE -- a member older than sec 780 -- moves on
 		 * to the devices, as the exchange stood before. */
@@ -8946,8 +9036,9 @@ static int devices_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, 
 		if (!reply)
 			return 0;
 		dt->revoked = 0;
-		if (!fzn_contact_devices_query_begin(&dt->q, FZN_CONTACT_DEVICES_KEPT, take_kept,
-		                                     &contacts_kept, request, cap, request_len))
+		dt->rows = 1;
+		if (!fzn_contact_rows_query_begin(&dt->wq, take_member_row, NULL, request, cap,
+		                                  request_len))
 			return 0;
 		meter_asked(&dt->m, *request_len);
 		return 1;
@@ -9166,7 +9257,7 @@ static int contact_talk_step(void *ctx, const uint8_t *reply, size_t reply_len, 
 			}
 			if (node_apply.store && contact_hash_ops && ct->eq.k)
 				(void)fzn_contact_estate_keep_k(node_apply.store, contact_hash_ops,
-				                                ct->contact, ct->eq.k);
+				                                ct->contact, ct->eq.k, estate_ms());
 		}
 	} else if (ct->phase == CONTACT_QUERY) {
 		if (!fzn_contact_devices_query_step(&ct->q, reply, reply_len, request, cap,
@@ -9376,6 +9467,7 @@ static void contact_round(struct pull_target *pulls, size_t npulls, uint64_t now
 		size_t len = 0;
 
 		dt->revoked = 1;
+		dt->rows = 0;
 		if (silent_peer(&pulls[i]) || !peer_in_estate(&pulls[i])
 		    || !fzn_contact_revoked_query_begin(&dt->rq, take_member_revoked, NULL, dt->request,
 		                                        sizeof(dt->request), &len))

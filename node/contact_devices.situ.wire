@@ -42,6 +42,19 @@ struct fzn_contact_devices_items size=9..428409
   @0x0008   1         u8         k  min=1
   @0x0009   0..428400 fzn_contact_estate_listed items  sized-by=count
 
+struct fzn_contact_devices_kept_estate size=6
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         u8         type  must_eq=53
+  @0x0002   4         u32        from  big
+
+struct fzn_contact_devices_kept_rows size=8..436568
+  @0x0000   1         u8         version  must_eq=2
+  @0x0001   1         u8         type  must_eq=54
+  @0x0002   4         u32        from  big
+  @0x0006   1         u8         count
+  @0x0007   1         u8         more  max=1
+  @0x0008   0..436560 fzn_contact_estate_row rows  sized-by=count
+
 struct fzn_contact_devices_list size=5..16711940
   @0x0000   1         u8         version  must_eq=2
   @0x0001   1         u8         type  must_eq=32
@@ -93,3 +106,8 @@ struct fzn_contact_estate_item size=5..1678
 struct fzn_contact_estate_listed size=7..1680
   @0x0000   2         u16        len  big
   @0x0002   5..1678   fzn_contact_estate_item item  big
+
+struct fzn_contact_estate_row size=36..1712
+  @0x0000   2         u16        len  big min=34 max=1710
+  @0x0002   32        u8         owner  big
+  @0x0022   2..1678   u8         rest  big sized-by=len-32

@@ -11079,6 +11079,27 @@ SABOTAGES = [
 		"a delegable member's vote cast before its admin grant stays a member's for good -- sec 781",
 	),
 	(
+		"contact-estate-row-k-heard-later",
+		'node/contact_devices.c',
+		"\t\tif (kept_k_heard(store, hash, row, &kept) && heard <= kept)\n\t\t\treturn FZN_CONTACT_DEVICE_OK;",
+		"\t\tif (0 && kept_k_heard(store, hash, row, &kept) && heard <= kept)\n\t\t\treturn FZN_CONTACT_DEVICE_OK;",
+		"a member's older k replaces the host's later word, and a k the contact raised falls back -- sec 782",
+	),
+	(
+		"contact-estate-row-item-signed",
+		'node/contact_devices.c',
+		"\treturn fzn_contact_estate_keep(store, hash, sign, row, &item);\n}",
+		"\treturn fzn_contact_estate_keep(store, hash, sign, row, &item) == FZN_CONTACT_DEVICE_ERR_REFUSED\n\t               ? FZN_CONTACT_DEVICE_OK\n\t               : FZN_CONTACT_DEVICE_OK;\n}",
+		"a row a member passed on reads as kept whether or not its record was signed -- sec 782",
+	),
+	(
+		"contact-rows-page-whole",
+		'node/contact_devices.c',
+		"\tif (at != reply_len || (reply[7] && n == 0u))\n\t\treturn 0;\n\tfor (at = FZN_CONTACT_DEVICES_KEPT_ROWS_HEAD_LEN, k = 0; k < n; k++) {",
+		"\tif (0)\n\t\treturn 0;\n\tfor (at = FZN_CONTACT_DEVICES_KEPT_ROWS_HEAD_LEN, k = 0; k < n; k++) {",
+		"a rows page with a trailing byte is taken -- sec 782",
+	),
+	(
 		'node-asks-its-own-resend',
 		'node/asks.c',
 		'\t\t\tif (e->again)\n\t\t\t\te->again(e->again_ctx);',

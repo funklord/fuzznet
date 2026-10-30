@@ -40,8 +40,9 @@
  *   11, 12          `node/members.h`
  *   13, 14          retired in sec 519, never reused
  *   23..28, 33, 34  `node/messages.h`
- *   29..32, 49..52  `node/contact_devices.h`: 49..52 since sec 781, a
- *                   contact's revocations and estate records
+ *   29..32, 49..54  `node/contact_devices.h`: 49..52 since sec 781, a
+ *                   contact's revocations and estate records; 53, 54 since
+ *                   sec 782, those records passed between members
  *   35, 37..48      fuzznetd's own, here
  *   36              never allocated
  *

@@ -887,7 +887,7 @@ static void test_a_contacts_estate(void)
 	      "an admin's vote at k 1 did not drop the device");
 
 	/* AT k 2, said by the host, one admin is not enough; two are. */
-	CHECK(fzn_contact_estate_keep_k(&STORE, &HASH, owner, 2u) == FZN_CONTACT_DEVICE_OK
+	CHECK(fzn_contact_estate_keep_k(&STORE, &HASH, owner, 2u, 1000u) == FZN_CONTACT_DEVICE_OK
 	              && judged(&d, &k) == 0 && k == 2u,
 	      "one admin's vote at k 2 dropped the device");
 	vote_item(&it, admin_b, phone, 301u);
@@ -899,7 +899,7 @@ static void test_a_contacts_estate(void)
 	/* ANOTHER ROOT: its vote counts alone once a root-add names it, and not
 	 * once it is removed. */
 	memset(rows, 0, sizeof(rows));
-	CHECK(fzn_contact_estate_keep_k(&STORE, &HASH, owner, 3u) == FZN_CONTACT_DEVICE_OK,
+	CHECK(fzn_contact_estate_keep_k(&STORE, &HASH, owner, 3u, 1000u) == FZN_CONTACT_DEVICE_OK,
 	      "fixture: k 3");
 	vote_item(&it, root2, phone, 302u);
 	CHECK(fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &it) == FZN_CONTACT_DEVICE_OK
@@ -922,7 +922,7 @@ static void test_a_contacts_estate(void)
 
 	/* k: A ROOT'S SETTING ABOVE THE HOST'S WORD holds. */
 	memset(rows, 0, sizeof(rows));
-	CHECK(fzn_contact_estate_keep_k(&STORE, &HASH, owner, 1u) == FZN_CONTACT_DEVICE_OK,
+	CHECK(fzn_contact_estate_keep_k(&STORE, &HASH, owner, 1u, 1000u) == FZN_CONTACT_DEVICE_OK,
 	      "fixture: k 1 said");
 	back.record_len = FZN_QUORUM_SET_LEN;
 	signing_as = owner[0];
@@ -1005,6 +1005,140 @@ static void test_the_estate_messages(void)
 	      "a page with a trailing byte was taken, or taken in part");
 }
 
+/* ---- estate rows between members, sec 782 --------------------------------- */
+
+static uint8_t row_bytes[40][FZN_CONTACT_ESTATE_ROW_MAX];
+static size_t row_lens[40], rows_n, rows_taken;
+
+static int row_listed(void *ctx, const uint8_t *row, size_t len)
+{
+	(void)ctx;
+	if (rows_n < 40u) {
+		memcpy(row_bytes[rows_n], row, len);
+		row_lens[rows_n++] = len;
+	}
+	return 1;
+}
+
+static int row_at(void *ctx, size_t i, uint8_t *out, size_t *len)
+{
+	(void)ctx;
+	if (i >= rows_n)
+		return 0;
+	memcpy(out, row_bytes[i], row_lens[i]);
+	*len = row_lens[i];
+	return 1;
+}
+
+static void row_taken(void *ctx, const uint8_t *row, size_t len)
+{
+	(void)ctx;
+	rows_taken += len == row_lens[rows_taken]
+	              && memcmp(row, row_bytes[rows_taken], len) == 0;
+}
+
+static void test_estate_rows_between_members(void)
+{
+	static fzn_contact_device_t d;
+	static fzn_contact_estate_item_t it;
+	static uint8_t page[FZN_CONTACT_DEVICES_REPLY_MAX + 1u];
+	fzn_contact_rows_querying_t q;
+	uint8_t req[FZN_CONTACT_DEVICES_KEPT_ESTATE_LEN], krow[FZN_PUBKEY_LEN + 2u + 8u];
+	size_t i, req_len = 0, page_len = 0, pages = 0, held;
+	uint8_t k = 0;
+	int ok, done = 0;
+
+	/* ONE MEMBER'S ROWS: an admin's vote with its chain, and k 2. */
+	memset(rows, 0, sizeof(rows));
+	device(&d, phone, 1000u);
+	granted(&d, phone, &member);
+	vote_item(&it, admin_a, phone, 600u);
+	admin_chain(&it, admin_a);
+	CHECK(fzn_contact_estate_keep(&STORE, &HASH, &SIGN, owner, &it) == FZN_CONTACT_DEVICE_OK
+	              && fzn_contact_estate_keep_k(&STORE, &HASH, owner, 2u, 1000u) == FZN_CONTACT_DEVICE_OK,
+	      "fixture: a member's rows");
+	rows_n = 0;
+	CHECK(fzn_contact_estate_each(&STORE, &HASH, row_listed, NULL) == FZN_CONTACT_DEVICE_OK
+	              && rows_n == 2u
+	              && fzn_contact_estate_row_owner(row_bytes[0], row_lens[0]) != NULL
+	              && memcmp(fzn_contact_estate_row_owner(row_bytes[0], row_lens[0]), owner, 32u)
+	                         == 0,
+	      "the two rows kept did not list, each its owner's");
+
+	/* OVER THE WIRE, each row once and whole. */
+	for (i = 2u; i < 20u; i++) {
+		memcpy(row_bytes[i], row_bytes[i % 2u], row_lens[i % 2u]);
+		row_lens[i] = row_lens[i % 2u];
+	}
+	rows_n = 20u;
+	rows_taken = 0;
+	ok = fzn_contact_rows_query_begin(&q, row_taken, NULL, req, sizeof(req), &req_len);
+	while (ok && !done && pages < 16u) {
+		pages++;
+		page_len = fzn_contact_rows_answer(req, req_len, row_at, NULL, page, sizeof(page));
+		ok = page_len && fzn_contact_rows_query_step(&q, page, page_len, req, sizeof(req),
+		                                             &req_len, &done);
+	}
+	CHECK(ok && done && pages > 1u && rows_taken == 20u && q.count == 20u,
+	      "twenty rows over pages were not each taken once, whole, in order");
+	(void)fzn_contact_rows_query_begin(&q, row_taken, NULL, req, sizeof(req), &req_len);
+	page_len = fzn_contact_rows_answer(req, req_len, row_at, NULL, page, sizeof(page));
+	page[page_len] = 0u;
+	rows_taken = 0;
+	CHECK(!fzn_contact_rows_query_step(&q, page, page_len + 1u, req, sizeof(req), &req_len,
+	                                   &done)
+	              && rows_taken == 0u,
+	      "a rows page with a trailing byte was taken, or taken in part");
+	rows_n = 2u;
+
+	/* TAKEN AT ANOTHER MEMBER: its estate judges as the first's does. */
+	memset(rows, 0, sizeof(rows));
+	CHECK(judged(&d, &k) == 0 && k == 1u, "fixture: the second member holds nothing");
+	for (i = 0; i < 2u; i++)
+		(void)fzn_contact_estate_take_row(&STORE, &HASH, &SIGN, row_bytes[i], row_lens[i]);
+	CHECK(judged(&d, &k) == 0 && k == 2u,
+	      "a member's rows did not give the estate its k of 2, or one admin dropped the device");
+
+	/* A k BY WHEN IT WAS HEARD: one heard earlier than the kept 2 is passed
+	 * over, whatever its value; one heard later is kept, lower or higher --
+	 * a contact that lowers k is heard so through any member. */
+	memcpy(krow, owner, 32u);
+	krow[32] = 0xffu;
+	krow[33] = 3u;
+	memset(krow + 34, 0, 8u);
+	krow[41] = 0x01u; /* heard at 1 ms, before the kept 2's */
+	CHECK(fzn_contact_estate_take_row(&STORE, &HASH, &SIGN, krow, sizeof(krow))
+	                      == FZN_CONTACT_DEVICE_OK
+	              && judged(&d, &k) == 0 && k == 2u,
+	      "a k heard before the one kept replaced it");
+	krow[33] = 1u;
+	krow[40] = 0x10u; /* 4097 ms, after */
+	CHECK(fzn_contact_estate_take_row(&STORE, &HASH, &SIGN, krow, sizeof(krow))
+	                      == FZN_CONTACT_DEVICE_OK
+	              && judged(&d, &k) == 1 && k == 1u,
+	      "a lower k heard later, passed on by a member, was not kept, or at k 1 the admin's "
+	      "vote did not drop the device");
+
+	/* AN ITEM CHANGED IN TRANSIT is refused, and a row too short to be one. */
+	held = 0;
+	for (i = 0; i < ROWS; i++)
+		held += (size_t)rows[i].used;
+	/* THE VOTE'S ROW, not the k's: a k row changed is another k. Its record
+	 * changed, the grantee: a chain changed is judged where the estate is
+	 * built, and admitted there by nothing. */
+	i = row_lens[0] > sizeof(krow) ? 0u : 1u;
+	memcpy(page, row_bytes[i], row_lens[i]);
+	page[32u + 3u + FZN_REV_OFF_GRANTEE] ^= 1u;
+	CHECK(fzn_contact_estate_take_row(&STORE, &HASH, &SIGN, page, row_lens[i])
+	                      != FZN_CONTACT_DEVICE_OK
+	              && fzn_contact_estate_take_row(&STORE, &HASH, &SIGN, page, 33u)
+	                         == FZN_CONTACT_DEVICE_ERR_REFUSED,
+	      "a row changed after its owner's member listed it was kept");
+	for (i = 0; i < ROWS; i++)
+		held -= (size_t)rows[i].used;
+	CHECK(held == 0u, "a refused row was kept all the same");
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -1036,6 +1170,7 @@ int main(void)
 	test_the_revoked_messages();
 	test_a_contacts_estate();
 	test_the_estate_messages();
+	test_estate_rows_between_members();
 	if (failures) {
 		fprintf(stderr, "node contact_devices_test: %d of %d checks failed\n", failures, checks);
 		return 1;
