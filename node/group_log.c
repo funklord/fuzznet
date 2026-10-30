@@ -1,6 +1,7 @@
 /* A group's log: project.md sec 626, and the header. */
 #include "group_log.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "../wire/bytes.h"
@@ -555,6 +556,63 @@ fzn_group_log_err_t fzn_group_log_list(const fzn_persist_ops_t *store,
 	return store->list(store->ctx, FZN_PERSIST_GROUP, (uint8_t *)ids, cap, count)
 	               ? FZN_GROUP_LOG_OK
 	               : FZN_GROUP_LOG_ERR_BACKEND;
+}
+
+/* A GROUP'S ID IS ITS ROW'S SUBJECT, so a walk copies one into the other. */
+_Static_assert(FZN_GROUP_ID_LEN == FZN_PUBKEY_LEN, "a group id is a store subject");
+
+struct held_walk {
+	fzn_group_held_t *held;
+	int short_of_memory;
+};
+
+static int held_walked(void *arg, const uint8_t subject[FZN_PUBKEY_LEN])
+{
+	struct held_walk *w = arg;
+	fzn_group_held_t *h = w->held;
+
+	if (h->n == h->cap) {
+		size_t cap = h->cap ? h->cap * 2u : 64u;
+		uint8_t (*more)[FZN_GROUP_ID_LEN] = realloc(h->ids, cap * sizeof(*h->ids));
+
+		if (!more) {
+			w->short_of_memory = 1;
+			return 0;
+		}
+		h->ids = more;
+		h->cap = cap;
+	}
+	memcpy(h->ids[h->n++], subject, FZN_GROUP_ID_LEN);
+	return 1;
+}
+
+fzn_group_log_err_t fzn_group_log_held_in(const fzn_persist_ops_t *store, fzn_persist_slot_t slot,
+                                          fzn_group_held_t *held)
+{
+	struct held_walk w;
+
+	if (!store || !held)
+		return FZN_GROUP_LOG_ERR_MALFORMED;
+	held->n = 0;
+	w.held = held;
+	w.short_of_memory = 0;
+	if (!fzn_persist_each(store, slot, held_walked, &w) || w.short_of_memory)
+		return FZN_GROUP_LOG_ERR_BACKEND;
+	return FZN_GROUP_LOG_OK;
+}
+
+fzn_group_log_err_t fzn_group_log_held(const fzn_persist_ops_t *store, fzn_group_held_t *held)
+{
+	return fzn_group_log_held_in(store, FZN_PERSIST_GROUP, held);
+}
+
+void fzn_group_held_free(fzn_group_held_t *held)
+{
+	if (!held)
+		return;
+	free(held->ids);
+	held->ids = NULL;
+	held->n = held->cap = 0;
 }
 
 /* ---- the acts, as the store keeps them ---------------------------------- */

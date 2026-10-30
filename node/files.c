@@ -1612,8 +1612,8 @@ int fzn_node_files_shared_with(const fzn_node_files_t *files,
                                const uint8_t sender[FZN_PUBKEY_LEN])
 {
 	static uint8_t grantees[FZN_NODE_FILES_SHARES_MAX][FZN_PUBKEY_LEN];
-	static uint8_t groups[FZN_GROUPS_HELD_MAX][FZN_PUBKEY_LEN];
-	size_t n = 0, n_groups = 0, i, j;
+	static fzn_group_held_t in;
+	size_t n = 0, i, j;
 
 	if (!files || !root || !sender
 	    || fzn_node_files_shares_of(files, root, grantees, FZN_NODE_FILES_SHARES_MAX, &n)
@@ -1626,12 +1626,11 @@ int fzn_node_files_shared_with(const fzn_node_files_t *files,
 		    || memcmp(grantees[i], sender, FZN_PUBKEY_LEN) == 0)
 			return 1;
 	/* AND EVERY GROUP IT IS IN, read now, at the request. */
-	if (fzn_node_group_ids_of(files->store, sender, groups, FZN_GROUPS_HELD_MAX, &n_groups)
-	    != FZN_CONTACT_OK)
+	if (fzn_node_group_ids_of(files->store, sender, &in) != FZN_CONTACT_OK)
 		return 0;
 	for (i = 0; i < n; i++)
-		for (j = 0; j < n_groups; j++)
-			if (memcmp(grantees[i], groups[j], FZN_PUBKEY_LEN) == 0)
+		for (j = 0; j < in.n; j++)
+			if (memcmp(grantees[i], in.ids[j], FZN_PUBKEY_LEN) == 0)
 				return 1;
 	return 0;
 }

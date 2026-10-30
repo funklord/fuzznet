@@ -199,7 +199,7 @@ static void user_up(struct user *u, uint8_t first)
 
 	memset(u, 0, sizeof(*u));
 	u->first = first;
-	u->ops = (fzn_persist_ops_t){ mem_load, mem_save, mem_list, mem_remove, &u->store };
+	u->ops = (fzn_persist_ops_t){ mem_load, mem_save, mem_list, mem_remove, &u->store, NULL };
 	u->sign = (fzn_sign_ops_t){ stub_verify, stub_sign, &u->first };
 	memset(seed, first ^ 0x3cu, sizeof(seed));
 	(void)fzn_agree_secret_install(&u->agree_secret, &AGREE, seed);

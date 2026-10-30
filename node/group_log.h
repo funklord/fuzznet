@@ -64,7 +64,9 @@
 #define FZN_GROUP_KEY_BOX_LEN (FZN_GROUP_SECRET_LEN + 50u)
 #define FZN_GROUP_KEY_ENTRY_LEN (FZN_PUBKEY_LEN + FZN_GROUP_KEY_BOX_LEN)
 #define FZN_GROUP_KEYS_PER_ACT 32u
-/* Groups one host holds. */
+/* GROUPS ONE HOST HOLDS, in a fixed table: a caller of
+ * `fzn_group_log_list` that wants a bound. Every listing in fuzznet walks
+ * them into a `fzn_group_held_t` instead, which grows (sec 773). */
 #define FZN_GROUPS_HELD_MAX 256u
 
 typedef enum fzn_group_log_err {
@@ -190,9 +192,28 @@ fzn_group_log_err_t fzn_group_log_act(const fzn_group_log_ops_t *ops,
  * host can learn it from this one. */
 fzn_group_log_err_t fzn_group_log_put(const fzn_persist_ops_t *store, const fzn_group_t *g);
 
-/* Every group held, by id, `cap` of them. */
+/* Every group held, by id, `cap` of them: more than `cap` fails whole. */
 fzn_group_log_err_t fzn_group_log_list(const fzn_persist_ops_t *store,
                                        uint8_t (*ids)[FZN_GROUP_ID_LEN], size_t cap,
                                        size_t *count);
+
+/* ROOM FOR EVERY GROUP HELD, grown as a walk needs it, sec 773: a host
+ * held FZN_GROUPS_HELD_MAX in every listing, and past it each failed whole
+ * -- a stream granted to a group read as granted to nobody, and the
+ * groups round asked for none of them. Zeroed to begin, kept to be filled
+ * again (its room is reused), freed by `fzn_group_held_free`. */
+typedef struct fzn_group_held {
+	uint8_t (*ids)[FZN_GROUP_ID_LEN];
+	size_t n, cap;
+} fzn_group_held_t;
+
+/* EVERY SUBJECT OF `slot`, walked into `held`: FZN_PERSIST_GROUP for every
+ * group held, as `fzn_group_log_held` asks; a group's own slot, such as
+ * its label, for the groups this host names. BACKEND when the store
+ * cannot walk or there is no memory, `held` then as far as it got. */
+fzn_group_log_err_t fzn_group_log_held_in(const fzn_persist_ops_t *store, fzn_persist_slot_t slot,
+                                          fzn_group_held_t *held);
+fzn_group_log_err_t fzn_group_log_held(const fzn_persist_ops_t *store, fzn_group_held_t *held);
+void fzn_group_held_free(fzn_group_held_t *held);
 
 #endif /* FZN_NODE_GROUP_LOG_H */

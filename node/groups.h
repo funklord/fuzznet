@@ -61,12 +61,12 @@ fzn_contact_err_t fzn_node_group_rename(const fzn_persist_ops_t *store,
 
 /* ---- membership ----------------------------------------------------------- */
 
-/* THE GROUPS `root` IS A MEMBER OF, among those held, `cap` of them: what
- * a grant to a group is read through, at the request. */
+/* THE GROUPS `root` IS A MEMBER OF, among those held, into `out`, grown to
+ * hold them (sec 773): what a grant to a group is read through, at the
+ * request. */
 fzn_contact_err_t fzn_node_group_ids_of(const fzn_persist_ops_t *store,
                                         const uint8_t root[FZN_PUBKEY_LEN],
-                                        uint8_t (*ids)[FZN_GROUP_ID_LEN], size_t cap,
-                                        size_t *count);
+                                        fzn_group_held_t *out);
 
 /* WHOSE HOST `host` IS, as a group knows: a host some group held here lists
  * for a member, in a group `self` -- this user's root -- is a member of

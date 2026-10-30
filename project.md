@@ -74798,12 +74798,11 @@ page of `list location`, 0.5 ms.
   full renditions, 512 hex characters, was refused as though for want
   of permission. Answered `malformed` with the bound since, sec 772. A
   fetched record of that size is taken as any other.
-- **A host in more than 256 groups lists none of them.**
-  `fzn_node_group_ids_of` reads every group held into
-  FZN_GROUPS_HELD_MAX, and past it the store's listing fails whole, so
-  a stream granted to a group reads as granted to nobody. The table is
-  used at 31 sites across the group layer; growing it is that layer's
-  change, as sec 704 grew the others.
+- **A host in more than 256 groups listed none of them.**
+  `fzn_node_group_ids_of` read every group held into
+  FZN_GROUPS_HELD_MAX, and past it the store's listing failed whole, so
+  a stream granted to a group read as granted to nobody. Grown since,
+  at every site, sec 773.
 
 Two sabotage entries: the fix decoder's absent-is-zero check, and the
 query's exact length.
@@ -74847,3 +74846,38 @@ to the one caller that reads it, and fuzznetd ignores it. Nothing read
 the word: `local_test` checked only the result, and now checks the
 answer too. Measured on fuzznetd: the four-rendition `add stream`
 answers so, and the daemon goes on serving.
+
+## 773. Every group held, walked into room that grows, 2026-10-30
+
+FZN_GROUPS_HELD_MAX, 256, was the room of every listing of the groups a
+host holds: 31 sites, a static table at each, and two talks of the round
+carrying one apiece. A store's `list` past its room fails whole
+(`persist/persist.h`, "TRUNCATION IS A FAILURE"), so a host in a 257th
+group did not hold fewer groups -- it held none, everywhere at once:
+- a stream or a file or notes granted to a group read as granted to
+  nobody (`stream_level_of`, `fzn_node_files_shared_with`, notes'
+  `shared_scope`);
+- the groups round asked no peer for any group's acts, the lines round
+  sealed and fetched no line, and no group was tended;
+- `list group` answered "the groups did not read", and a group could
+  not be found by name or id.
+Found from journey 5's bounds (sec 770). The holder's word on tables
+(2026-10-23): no fixed sizes where nothing truly limits them.
+
+**Walked, as sec 704 walked the others.** `fzn_group_log_held` walks the
+group slot through `fzn_persist_each` into a `fzn_group_held_t`, room
+that doubles as it fills and is kept for the next walk; `_held_in` takes
+another slot, for the labels `fzn_node_group_find` reads.
+`fzn_node_group_ids_of` fills one too, its callers keeping their own.
+In fuzznetd a helper, `groups_held`, serves the seven listings; each
+group sync talk keeps its own room, which `grow_table`'s realloc carries
+with it; and the lines round grows its groups to the count held and its
+talks' places as it adds them -- places that were `uint16_t` besides.
+`fzn_group_log_list` stays for a caller that wants a bound, and still
+fails whole past it. A store with no `each` keeps `list`'s fallback of
+4096 (sec 704).
+
+`group_log_test` walks a thousand groups by `each` and by `list`, walks
+the room again from three, and is refused by a store that can do
+neither; a sabotage entry stops the walk at its first room's end. No
+real store has held 257 groups: the test is the only measurement.

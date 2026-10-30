@@ -1917,25 +1917,24 @@ static size_t list_sharers(fzn_node_notes_t *n, const uint8_t *at, size_t left, 
 		return 0;
 	used = (size_t)m;
 	for (i = from; i < count; i++) {
+		static fzn_group_held_t in;
 		fzn_contact_t contact;
-		uint8_t ids[1][FZN_GROUP_ID_LEN];
 		char who[FZN_CONTACT_NAME_MAX + 2u];
 		const char *kind = "gone";
-		size_t who_len = 1u, n_ids = 0;
+		size_t who_len = 1u;
 
 		who[0] = '-';
 		if (fzn_contact_get(n->store.ops, sharers[i], &contact) == FZN_CONTACT_OK) {
 			kind = "contact";
 			memcpy(who, contact.name, contact.name_len);
 			who_len = contact.name_len;
-		} else if (fzn_node_group_ids_of(n->store.ops, sharers[i], ids, 1u, &n_ids)
-		                   == FZN_CONTACT_OK
-		           && n_ids) {
+		} else if (fzn_node_group_ids_of(n->store.ops, sharers[i], &in) == FZN_CONTACT_OK
+		           && in.n) {
 			char group[FZN_CONTACT_NAME_MAX + 1u];
 			size_t group_len = 0;
 
 			kind = "group";
-			if (fzn_node_group_name(n->store.ops, ids[0], group, &group_len)
+			if (fzn_node_group_name(n->store.ops, in.ids[0], group, &group_len)
 			    == FZN_CONTACT_OK) {
 				who[0] = '@';
 				memcpy(who + 1, group, group_len);
@@ -2167,11 +2166,11 @@ static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender,
 {
 	static uint8_t seeds[FZN_NOTES_SHARES_MAX][FZN_TREE_ID_LEN];
 	static uint64_t seed_floor[FZN_NOTES_SHARES_MAX];
-	static uint8_t groups[FZN_GROUPS_HELD_MAX][FZN_PUBKEY_LEN];
+	static fzn_group_held_t in;
 	static fzn_notes_share_t rows[FZN_NOTES_SHARES_MAX];
 	static uint8_t one_reach[FZN_NOTES_MAX][FZN_TREE_ID_LEN];
 	static fzn_group_t held;
-	size_t seed_count = 0, n_groups = 0, n_rows = 0, g, r, i, k, open = 0, more;
+	size_t seed_count = 0, n_rows = 0, g, r, i, k, open = 0, more;
 	int floored = 0;
 
 	scope->ids = (const uint8_t (*)[FZN_TREE_ID_LEN])reach;
@@ -2185,23 +2184,22 @@ static void shared_scope(fzn_node_notes_t *n, const uint8_t *sender,
 		seed_floor[i] = 0;
 	/* AND EVERY GROUP'S IT IS IN, sec 471: a group share is one row under
 	 * the group's id, so membership is read now, at the request. */
-	if (fzn_node_group_ids_of(n->store.ops, sender, groups, FZN_GROUPS_HELD_MAX, &n_groups)
-	            == FZN_CONTACT_OK
-	    && n_groups
+	if (fzn_node_group_ids_of(n->store.ops, sender, &in) == FZN_CONTACT_OK
+	    && in.n
 	    && fzn_notes_share_list(&n->store, rows, FZN_NOTES_SHARES_MAX, &n_rows) == FZN_NOTES_OK)
-		for (g = 0; g < n_groups; g++) {
+		for (g = 0; g < in.n; g++) {
 			uint64_t joined = 0;
 			int read = 0;
 
 			for (r = 0; r < n_rows && seed_count < FZN_NOTES_SHARES_MAX; r++) {
 				int catch_up;
 
-				if (memcmp(rows[r].contact, groups[g], FZN_PUBKEY_LEN) != 0)
+				if (memcmp(rows[r].contact, in.ids[g], FZN_PUBKEY_LEN) != 0)
 					continue;
 				if (!read) {
 					read = 1;
-					if (fzn_group_log_get(n->store.ops, groups[g], &held) == FZN_GROUP_LOG_OK)
-						joined = joined_ms(n, groups[g], &held, sender);
+					if (fzn_group_log_get(n->store.ops, in.ids[g], &held) == FZN_GROUP_LOG_OK)
+						joined = joined_ms(n, in.ids[g], &held, sender);
 					else
 						held.backfill = 1u;
 				}

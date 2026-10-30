@@ -5982,7 +5982,7 @@ SABOTAGES = [
 	(
 		"files-share-reaches-a-group-member",
 		"node/files.c",
-		"\t\t\tif (memcmp(grantees[i], groups[j], FZN_PUBKEY_LEN) == 0)\n\t\t\t\treturn 1;\n",
+		"\t\t\tif (memcmp(grantees[i], in.ids[j], FZN_PUBKEY_LEN) == 0)\n\t\t\t\treturn 1;\n",
 		"\t\t\tif (0)\n\t\t\t\treturn 1;\n",
 		"a file shared with a group reaches none of its members -- sec 493",
 	),
@@ -8483,7 +8483,7 @@ SABOTAGES = [
 	(
 		"group-scope-reads-membership",
 		"node/notes.c",
-		"\tif (fzn_node_group_ids_of(n->store.ops, sender, groups, FZN_GROUPS_HELD_MAX, &n_groups)\n\t            == FZN_CONTACT_OK\n",
+		"\tif (fzn_node_group_ids_of(n->store.ops, sender, &in) == FZN_CONTACT_OK\n",
 		"\tif (0\n",
 		"a subtree shared with a group reaches none of its members -- secs 471, 626",
 	),
@@ -10951,6 +10951,13 @@ SABOTAGES = [
 		"\tif (!in || !name || !name_len || !since || len < 1u || len != 1u + (size_t)in[0] + 8u\n",
 		"\tif (!in || !name || !name_len || !since || len < 1u || len < 1u + (size_t)in[0] + 8u\n",
 		"a stream query with bytes past its end is read as one -- sec 770",
+	),
+	(
+		"group-held-room-grows",
+		'node/group_log.c',
+		"\tif (h->n == h->cap) {\n\t\tsize_t cap = h->cap ? h->cap * 2u : 64u;",
+		"\tif (h->n == h->cap && h->cap)\n\t\treturn 0;\n\tif (h->n == h->cap) {\n\t\tsize_t cap = h->cap ? h->cap * 2u : 64u;",
+		"the walk of groups held stops where its first room ends, 64, and a host in more lists only some -- sec 773",
 	),
 	(
 		'node-asks-its-own-resend',

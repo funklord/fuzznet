@@ -580,6 +580,90 @@ static void test_the_log_reads_back(void)
 	      "the groups held did not list");
 }
 
+/* ---- a store of many groups, its subjects alone ------------------------- */
+
+#define MANY 1000u
+
+static uint8_t many[MANY][32];
+static size_t n_many;
+
+static int many_list(void *ctx, fzn_persist_slot_t slot, uint8_t *out, size_t max,
+                     size_t *count)
+{
+	(void)ctx;
+	if (slot != FZN_PERSIST_GROUP) {
+		*count = 0;
+		return 1;
+	}
+	if (n_many > max)
+		return 0;
+	memcpy(out, many, n_many * 32u);
+	*count = n_many;
+	return 1;
+}
+
+static int many_each(void *ctx, fzn_persist_slot_t slot,
+                     int (*fn)(void *arg, const uint8_t subject[FZN_PUBKEY_LEN]), void *arg)
+{
+	size_t i;
+
+	(void)ctx;
+	for (i = 0; slot == FZN_PERSIST_GROUP && i < n_many; i++)
+		if (!fn(arg, many[i]))
+			break;
+	return 1;
+}
+
+/* EVERY GROUP HELD, past the 256 a fixed table held, sec 773: walked into
+ * room that grows, by `each` or by `list`'s fallback, and that room
+ * filled again from nothing for the next walk. */
+static void test_every_group_held_is_listed(void)
+{
+	fzn_persist_ops_t walks, lists, neither;
+	fzn_group_held_t held;
+	uint8_t small[4][32];
+	size_t i, k = 0;
+	int all = 1;
+
+	memset(&walks, 0, sizeof(walks));
+	walks.list = many_list;
+	walks.each = many_each;
+	lists = walks;
+	lists.each = NULL;
+	neither = lists;
+	neither.list = NULL;
+	for (i = 0; i < MANY; i++) {
+		memset(many[i], 0, 32u);
+		many[i][0] = (uint8_t)(i >> 8);
+		many[i][1] = (uint8_t)i;
+		many[i][31] = 0x5au;
+	}
+	n_many = MANY;
+	memset(&held, 0, sizeof(held));
+	CHECK(fzn_group_log_held(&walks, &held) == FZN_GROUP_LOG_OK && held.n == MANY
+	          && held.cap >= MANY,
+	      "a thousand groups held were not all walked");
+	for (i = 0; i < held.n; i++)
+		all &= memcmp(held.ids[i], many[i], 32u) == 0;
+	CHECK(all, "a group walked is not the one held");
+	n_many = 3u;
+	CHECK(fzn_group_log_held(&walks, &held) == FZN_GROUP_LOG_OK && held.n == 3u,
+	      "the room walked again kept the last walk's count");
+	n_many = MANY;
+	CHECK(fzn_group_log_held(&lists, &held) == FZN_GROUP_LOG_OK && held.n == MANY,
+	      "a store that only lists did not give a thousand");
+	CHECK(fzn_group_log_held(&neither, &held) == FZN_GROUP_LOG_ERR_BACKEND,
+	      "a store that cannot enumerate was answered");
+	CHECK(fzn_group_log_held(NULL, &held) == FZN_GROUP_LOG_ERR_MALFORMED
+	          && fzn_group_log_held(&walks, NULL) == FZN_GROUP_LOG_ERR_MALFORMED,
+	      "a null");
+	CHECK(fzn_group_log_list(&lists, small, 4u, &k) == FZN_GROUP_LOG_ERR_BACKEND,
+	      "a fixed table past its room did not fail whole, as its contract says");
+	fzn_group_held_free(&held);
+	CHECK(held.ids == NULL && held.n == 0u && held.cap == 0u, "the room was not let go");
+	fzn_group_held_free(NULL);
+}
+
 static void test_the_suite_can_tell_pass_from_fail(void)
 {
 	int before = failures;
@@ -606,6 +690,7 @@ int main(void)
 	test_an_epoch_is_sealed_to_listed_hosts();
 	test_a_backfill_goes_newest_first_and_not_when_off();
 	test_the_log_reads_back();
+	test_every_group_held_is_listed();
 	if (failures) {
 		fprintf(stderr, "node group_log_test: %d of %d checks failed\n", failures, checks);
 		return 1;

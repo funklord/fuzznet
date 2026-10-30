@@ -2,6 +2,7 @@
 #include "groups.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "../prekey/prekey.h"
@@ -45,7 +46,8 @@ static int hex_digit(unsigned char c)
 fzn_contact_err_t fzn_node_group_find(const fzn_persist_ops_t *store, const char *name,
                                       size_t len, uint8_t id[FZN_GROUP_ID_LEN])
 {
-	static uint8_t ids[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+	static fzn_group_held_t named;
+	uint8_t (*ids)[FZN_GROUP_ID_LEN];
 	char held[FZN_CONTACT_NAME_MAX + 1u];
 	size_t n = 0, i, held_len = 0;
 
@@ -69,10 +71,10 @@ fzn_contact_err_t fzn_node_group_find(const fzn_persist_ops_t *store, const char
 	}
 	if (!by_id && !fzn_contact_name_ok(name, len))
 		return FZN_CONTACT_ERR_NAME;
-	if (!store->list
-	    || !store->list(store->ctx, FZN_PERSIST_GROUP_LABEL, (uint8_t *)ids, FZN_GROUPS_HELD_MAX,
-	                    &n))
+	if (fzn_group_log_held_in(store, FZN_PERSIST_GROUP_LABEL, &named) != FZN_GROUP_LOG_OK)
 		return FZN_CONTACT_ERR_BACKEND;
+	ids = named.ids;
+	n = named.n;
 	/* THE SAME GROUPS EITHER WAY: those this host names, so a group left,
 	 * its name forgotten, is no more found by its id than by its name. */
 	for (i = 0; i < n; i++)
@@ -112,36 +114,49 @@ fzn_contact_err_t fzn_node_group_rename(const fzn_persist_ops_t *store,
 
 fzn_contact_err_t fzn_node_group_ids_of(const fzn_persist_ops_t *store,
                                         const uint8_t root[FZN_PUBKEY_LEN],
-                                        uint8_t (*ids)[FZN_GROUP_ID_LEN], size_t cap,
-                                        size_t *count)
+                                        fzn_group_held_t *out)
 {
-	static uint8_t held[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+	static fzn_group_held_t held;
 	static fzn_group_t g;
-	size_t n = 0, i;
+	size_t i, kept = 0;
 
-	if (!store || !root || !ids || !count)
+	if (!store || !root || !out)
 		return FZN_CONTACT_ERR_MALFORMED;
-	*count = 0;
-	if (fzn_group_log_list(store, held, FZN_GROUPS_HELD_MAX, &n) != FZN_GROUP_LOG_OK)
+	out->n = 0;
+	/* ALL HELD INTO `out`, then kept in place: those `root` is in are a
+	 * subset, so `out` has room for them. */
+	if (fzn_group_log_held(store, &held) != FZN_GROUP_LOG_OK)
 		return FZN_CONTACT_ERR_BACKEND;
-	for (i = 0; i < n && *count < cap; i++)
-		if (fzn_group_log_get(store, held[i], &g) == FZN_GROUP_LOG_OK
+	if (out->cap < held.n) {
+		uint8_t (*more)[FZN_GROUP_ID_LEN] = realloc(out->ids, held.n * sizeof(*out->ids));
+
+		if (!more)
+			return FZN_CONTACT_ERR_BACKEND;
+		out->ids = more;
+		out->cap = held.n;
+	}
+	for (i = 0; i < held.n; i++)
+		if (fzn_group_log_get(store, held.ids[i], &g) == FZN_GROUP_LOG_OK
 		    && fzn_group_is_member(&g, root))
-			memcpy(ids[(*count)++], held[i], FZN_GROUP_ID_LEN);
+			memcpy(out->ids[kept++], held.ids[i], FZN_GROUP_ID_LEN);
+	out->n = kept;
 	return FZN_CONTACT_OK;
 }
 
 int fzn_node_group_host_owner(const fzn_persist_ops_t *store, const uint8_t self[FZN_PUBKEY_LEN],
                               const uint8_t host[FZN_PUBKEY_LEN], uint8_t owner[FZN_PUBKEY_LEN])
 {
-	static uint8_t held[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+	static fzn_group_held_t all;
 	static fzn_group_t g;
 	const fzn_group_host_t *h;
-	size_t n = 0, i;
+	uint8_t (*held)[FZN_GROUP_ID_LEN];
+	size_t n, i;
 
 	if (!store || !self || !host || !owner
-	    || fzn_group_log_list(store, held, FZN_GROUPS_HELD_MAX, &n) != FZN_GROUP_LOG_OK)
+	    || fzn_group_log_held(store, &all) != FZN_GROUP_LOG_OK)
 		return 0;
+	held = all.ids;
+	n = all.n;
 	for (i = 0; i < n; i++)
 		/* A LISTED HOST'S OWNER IS A MEMBER: the log drops a member's
 		 * hosts with its removal or leave, and lists none but a
@@ -626,7 +641,8 @@ static size_t forget_group(const fzn_node_groups_t *g, const uint8_t *id, char *
 static size_t list_groups(const fzn_node_groups_t *g, const uint8_t *rest, size_t rest_len,
                           char *reply, size_t cap)
 {
-	static uint8_t ids[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+	static fzn_group_held_t all;
+	uint8_t (*ids)[FZN_GROUP_ID_LEN];
 	static fzn_group_t held;
 	static fzn_contact_device_t self;
 	static char detail[FZN_REPLY_MAX];
@@ -639,12 +655,14 @@ static size_t list_groups(const fzn_node_groups_t *g, const uint8_t *rest, size_
 
 	if (next_word(&rest, &rest_len, &w, &w_len))
 		for (i = 0; i < w_len; i++) {
-			if (w[i] < '0' || w[i] > '9' || from > FZN_GROUPS_HELD_MAX)
+			if (w[i] < '0' || w[i] > '9' || from > 100000000u)
 				return say(reply, cap, FZN_REPLY_MALFORMED, "not an index");
 			from = (from * 10u) + (size_t)(w[i] - '0');
 		}
-	if (fzn_group_log_list(g->log.store, ids, FZN_GROUPS_HELD_MAX, &count) != FZN_GROUP_LOG_OK)
+	if (fzn_group_log_held(g->log.store, &all) != FZN_GROUP_LOG_OK)
 		return say(reply, cap, FZN_REPLY_ERROR, "the groups did not read");
+	ids = all.ids;
+	count = all.n;
 	/* ONLY THE GROUPS THIS USER IS IN: one left is kept to serve its leave,
 	 * and is no longer this user's to list. */
 	have_self = g->signer && g->signer(g->signer_ctx, &self);

@@ -4767,6 +4767,18 @@ static int messages_absorb(void)
  * trims nothing -- there is no default deletion of messages. */
 static fzn_group_lines_t group_lines; /* sec 629, defined with its lines below */
 
+/* EVERY GROUP HELD, sec 773, into `room` -- a caller's own, grown to fit
+ * and kept for its next listing -- with `*ids` and `*n` set from it: 1,
+ * or 0 when the store would not walk. */
+static int groups_held(fzn_group_held_t *room, uint8_t (**ids)[FZN_GROUP_ID_LEN], size_t *n)
+{
+	if (fzn_group_log_held(node_apply.store, room) != FZN_GROUP_LOG_OK)
+		return 0;
+	*ids = room->ids;
+	*n = room->n;
+	return 1;
+}
+
 /* A GROUP'S SEALED LINES TRIMMED AS ITS CONVERSATION WAS, sec 664: each
  * host's from its base while a line's month is gone from the group's
  * conversation here -- a rule trimmed it -- so a line a rule pruned is not
@@ -4774,7 +4786,8 @@ static fzn_group_lines_t group_lines; /* sec 629, defined with its lines below *
  * every line, nothing being trimmed by default (sec 531). */
 static size_t group_lines_trim_gone(void)
 {
-	static uint8_t ids[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+	static fzn_group_held_t ids_room;
+	uint8_t (*ids)[FZN_GROUP_ID_LEN] = NULL;
 	static fzn_group_line_head_t heads[FZN_GROUP_HOSTS_MAX];
 	static uint8_t bytes[FZN_GROUP_LINE_MAX];
 	static fzn_group_line_t peeked;
@@ -4782,7 +4795,7 @@ static size_t group_lines_trim_gone(void)
 	uint32_t s, upto;
 
 	if (!group_lines.store || !node_messages.m.store
-	    || fzn_group_log_list(node_apply.store, ids, FZN_GROUPS_HELD_MAX, &n) != FZN_GROUP_LOG_OK)
+	    || !groups_held(&ids_room, &ids, &n))
 		return 0;
 	for (i = 0; i < n; i++) {
 		nh = 0;
@@ -9045,7 +9058,8 @@ static int member_host_owner(const uint8_t *host, uint8_t owner[FZN_PUBKEY_LEN])
 static size_t group_sync_remote(const uint8_t *sender, const uint8_t *request,
                                 size_t request_len, uint8_t *reply, size_t reply_cap)
 {
-	static uint8_t ids[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+	static fzn_group_held_t ids_room;
+	uint8_t (*ids)[FZN_GROUP_ID_LEN] = NULL;
 	static fzn_group_t g;
 	uint8_t owner[FZN_PUBKEY_LEN];
 	size_t n = 0, i, k, entries, at = 4u, count = 0;
@@ -9060,7 +9074,7 @@ static size_t group_sync_remote(const uint8_t *sender, const uint8_t *request,
 		return (size_t)snprintf((char *)reply, reply_cap, "denied groups only to members\n");
 	entries = request[2];
 	if (cap < 4u
-	    || fzn_group_log_list(node_apply.store, ids, FZN_GROUPS_HELD_MAX, &n) != FZN_GROUP_LOG_OK)
+	    || !groups_held(&ids_room, &ids, &n))
 		return (size_t)snprintf((char *)reply, reply_cap, "error the groups did not read\n");
 	for (i = 0; i < n; i++) {
 		const uint8_t *asked = NULL;
@@ -9173,8 +9187,8 @@ static long group_acts_take(const uint8_t *reply, size_t len)
 struct group_sync_talk {
 	fzn_node_talk_t talk;
 	struct meter m;
-	uint8_t ids[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
-	size_t n, i, taken;
+	fzn_group_held_t held; /* every group held, its own copy, sec 773 */
+	size_t i, taken;
 	const uint8_t *owner;
 	int own;
 	uint8_t request[3u + FZND_GROUP_SYNC_MAX * FZND_GROUP_ENTRY_LEN];
@@ -9194,10 +9208,10 @@ static int group_sync_step(void *ctx, const uint8_t *reply, size_t reply_len, ui
 	if ((got = group_acts_take(reply, reply_len)) < 0)
 		return 0;
 	gt->taken += (size_t)got;
-	if (gt->i >= gt->n)
+	if (gt->i >= gt->held.n)
 		return 0;
-	*request_len = group_sync_request((const uint8_t (*)[FZN_GROUP_ID_LEN])gt->ids, gt->n,
-	                                  &gt->i, gt->owner, gt->own, request);
+	*request_len = group_sync_request((const uint8_t (*)[FZN_GROUP_ID_LEN])gt->held.ids,
+	                                  gt->held.n, &gt->i, gt->owner, gt->own, request);
 	meter_asked(&gt->m, *request_len);
 	return 1;
 }
@@ -9212,15 +9226,14 @@ static void group_sync_start(struct pull_target *pt, const uint8_t *owner, int o
 	if (n_group_sync_talks >= FZND_ROUND_TARGETS_MAX + ct_cap + FZND_GROUP_SHARES_MAX)
 		return;
 	gt = &group_sync_talks[n_group_sync_talks];
-	gt->n = gt->i = gt->taken = 0;
+	gt->i = gt->taken = 0;
 	gt->owner = owner;
 	gt->own = own;
-	if (fzn_group_log_list(node_apply.store, gt->ids, FZN_GROUPS_HELD_MAX, &gt->n)
-	    != FZN_GROUP_LOG_OK)
+	if (fzn_group_log_held(node_apply.store, &gt->held) != FZN_GROUP_LOG_OK)
 		return;
 	n_group_sync_talks++;
-	len = group_sync_request((const uint8_t (*)[FZN_GROUP_ID_LEN])gt->ids, gt->n, &gt->i, owner,
-	                         own, gt->request);
+	len = group_sync_request((const uint8_t (*)[FZN_GROUP_ID_LEN])gt->held.ids, gt->held.n,
+	                         &gt->i, owner, own, gt->request);
 	(void)talk_start(&gt->talk, &gt->m, pt, now, group_sync_step, gt, gt->request,
 	                 sizeof(gt->request), len);
 }
@@ -9574,7 +9587,8 @@ static int group_host_device(const fzn_group_t *g, const fzn_group_host_t *h,
  * again for the share pass, after the round's acts are taken. */
 static void member_targets_build(uint64_t now)
 {
-	static uint8_t ids[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+	static fzn_group_held_t ids_room;
+	uint8_t (*ids)[FZN_GROUP_ID_LEN] = NULL;
 	static fzn_group_t g;
 	static fzn_contact_device_t own, d;
 	size_t n = 0, i, k, paired = 0;
@@ -9588,7 +9602,7 @@ static void member_targets_build(uint64_t now)
 	ngroup_shares_in = 0;
 	if (!running_admin || !contact_id || !running_admin->state->config.has_share
 	    || !groups_signer(NULL, &own)
-	    || fzn_group_log_list(node_apply.store, ids, FZN_GROUPS_HELD_MAX, &n) != FZN_GROUP_LOG_OK)
+	    || !groups_held(&ids_room, &ids, &n))
 		return;
 	for (i = 0; i < n; i++) {
 		if (fzn_group_log_get(node_apply.store, ids[i], &g) != FZN_GROUP_LOG_OK
@@ -9649,7 +9663,10 @@ static void group_shares_round(uint64_t now)
  * many as the peers, whatever the groups. */
 #define FZND_LINES_REQUEST_MAX (3u + FZN_GROUP_ID_LEN + FZND_GROUP_HEADS_MAX * FZND_GROUP_HEAD_LEN)
 
-static uint8_t lines_groups[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+/* THE GROUPS THIS USER IS IN, this round's, grown to the groups held (sec
+ * 773), and the talks' places in it. */
+static fzn_group_held_t lines_room;
+#define lines_groups (lines_room.ids)
 static size_t n_lines_groups, lines_sealed, lines_taken;
 static int lines_on;
 
@@ -9657,8 +9674,8 @@ struct lines_talk {
 	fzn_node_talk_t talk;
 	struct meter m;
 	struct pull_target *pt;
-	uint16_t groups[FZN_GROUPS_HELD_MAX]; /* places in `lines_groups` */
-	size_t n, at;
+	size_t *groups; /* places in `lines_groups`, `groups_cap` of room */
+	size_t groups_cap, n, at;
 	int silences;
 	uint8_t request[FZND_LINES_REQUEST_MAX];
 };
@@ -9704,16 +9721,35 @@ static struct lines_talk *lines_talk_for(struct pull_target *pt, int silences)
 		return NULL;
 	lines_talks[n_lines_talks].pt = pt;
 	lines_talks[n_lines_talks].n = 0;
+	/* ITS ROOM KEPT, grown for this round below. */
 	lines_talks[n_lines_talks].at = 0;
 	lines_talks[n_lines_talks].silences = silences;
 	return &lines_talks[n_lines_talks++];
+}
+
+/* GROUP `gi` ASKED OF `lt`'s peer, its room grown: 0 when there is no
+ * memory, the group then left out of that peer's asks this round. */
+static int lines_add(struct lines_talk *lt, size_t gi)
+{
+	if (lt->n == lt->groups_cap) {
+		size_t cap = lt->groups_cap ? lt->groups_cap * 2u : 16u;
+		size_t *more = realloc(lt->groups, cap * sizeof(*more));
+
+		if (!more)
+			return 0;
+		lt->groups = more;
+		lt->groups_cap = cap;
+	}
+	lt->groups[lt->n++] = gi;
+	return 1;
 }
 
 /* EVERY GROUP THIS USER IS IN: its own lines sealed, then its lines asked
  * of each sibling and of one host of each contact in it. */
 static void group_lines_start(struct pull_target *pulls, size_t npulls, uint64_t now)
 {
-	static uint8_t ids[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+	static fzn_group_held_t ids_room;
+	uint8_t (*ids)[FZN_GROUP_ID_LEN] = NULL;
 	static fzn_group_t g;
 	static fzn_contact_device_t own;
 	uint8_t (*done)[FZN_PUBKEY_LEN] = lines_done;
@@ -9723,8 +9759,17 @@ static void group_lines_start(struct pull_target *pulls, size_t npulls, uint64_t
 	lines_on = 0;
 	if (!group_lines.store || !contact_hash_ops || !contact_aead_ops || !contact_rng_ops
 	    || !groups_signer(NULL, &own)
-	    || fzn_group_log_list(node_apply.store, ids, FZN_GROUPS_HELD_MAX, &n) != FZN_GROUP_LOG_OK)
+	    || !groups_held(&ids_room, &ids, &n))
 		return;
+	/* ROOM FOR EVERY GROUP HELD, those this user is in being fewer. */
+	if (lines_room.cap < n) {
+		uint8_t (*more)[FZN_GROUP_ID_LEN] = realloc(lines_room.ids, n * sizeof(*more));
+
+		if (!more)
+			return;
+		lines_room.ids = more;
+		lines_room.cap = n;
+	}
 	lines_on = 1;
 	for (i = 0; i < n; i++) {
 		size_t gi;
@@ -9739,7 +9784,7 @@ static void group_lines_start(struct pull_target *pulls, size_t npulls, uint64_t
 		for (j = 0; j < npulls; j++)
 			if (!silent_peer(&pulls[j]) && peer_in_estate(&pulls[j])
 			    && (lt = lines_talk_for(&pulls[j], 1)) != NULL)
-				lt->groups[lt->n++] = (uint16_t)gi;
+				(void)lines_add(lt, gi);
 		for (j = 0, ndone = 0; j < ncontact_targets; j++) {
 			struct contact_target *ct = &contact_targets[j];
 
@@ -9748,7 +9793,7 @@ static void group_lines_start(struct pull_target *pulls, size_t npulls, uint64_t
 			if (k < ndone || ct->down || ct->pt.fd < 0 || !fzn_group_is_member(&g, ct->contact))
 				continue;
 			if ((lt = lines_talk_for(&ct->pt, 0)) != NULL)
-				lt->groups[lt->n++] = (uint16_t)gi;
+				(void)lines_add(lt, gi);
 			memcpy(done[ndone++], ct->contact, FZN_PUBKEY_LEN);
 		}
 		/* EVERY MEMBER'S HOST the groups round opened, sec 643: a line
@@ -9760,7 +9805,7 @@ static void group_lines_start(struct pull_target *pulls, size_t npulls, uint64_t
 			if (sh->pt.fd < 0 || !fzn_group_is_member(&g, sh->sharer))
 				continue;
 			if ((lt = lines_talk_for(&sh->pt, 0)) != NULL)
-				lt->groups[lt->n++] = (uint16_t)gi;
+				(void)lines_add(lt, gi);
 		}
 	}
 	for (i = 0; i < n_lines_talks; i++) {
@@ -9800,7 +9845,8 @@ static void group_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 	size_t ndone = 0, i, k;
 
 	static unsigned idle_rounds;
-	static uint8_t held[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+	static fzn_group_held_t held_room;
+	uint8_t (*held)[FZN_GROUP_ID_LEN] = NULL;
 	size_t n_held = 0;
 
 	n_group_sync_talks = 0;
@@ -9813,8 +9859,7 @@ static void group_round(struct pull_target *pulls, size_t npulls, uint64_t now)
 	 * `live_erasure.py` it took a six-host round past half a minute. A new
 	 * device learns its user's groups within ten rounds; one holding any
 	 * asks every round. A listing that fails counts as holding some. */
-	if (fzn_group_log_list(node_apply.store, held, FZN_GROUPS_HELD_MAX, &n_held)
-	            != FZN_GROUP_LOG_OK
+	if (!groups_held(&held_room, &held, &n_held)
 	    || n_held > 0u || idle_rounds++ % 10u == 0u)
 		for (i = 0; i < npulls; i++)
 			if (!silent_peer(&pulls[i]) && peer_in_estate(&pulls[i]))
@@ -9856,10 +9901,11 @@ static void group_settle(struct pull_target *pulls, size_t npulls, uint64_t now)
 	/* THIS HOST'S DUTIES to every group held, sec 627: named among its
 	 * hosts, the epoch's secret drawn, sealed, backfilled, opened. */
 	{
-		static uint8_t ids[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+		static fzn_group_held_t ids_room;
+		uint8_t (*ids)[FZN_GROUP_ID_LEN] = NULL;
 		size_t n = 0, made = 0, one;
 
-		if (fzn_group_log_list(node_apply.store, ids, FZN_GROUPS_HELD_MAX, &n) == FZN_GROUP_LOG_OK)
+		if (groups_held(&ids_room, &ids, &n))
 			for (i = 0; i < n; i++)
 				if (fzn_node_groups_tend(&node_groups, ids[i], &one) == FZN_GROUP_LOG_OK)
 					made += one;
@@ -10139,17 +10185,18 @@ static void take_contact_names(void)
  * finest of the groups' it is in. -1 for none. */
 static int stream_level_of(const char *name, size_t name_len, const uint8_t *owner)
 {
-	static uint8_t groups[FZN_GROUPS_HELD_MAX][FZN_GROUP_ID_LEN];
+	static fzn_group_held_t in;
 	unsigned level;
 	int best = -1;
-	size_t n = 0, i;
+	size_t i;
 
 	if (stream_granted(name, name_len, owner, &level))
 		best = (int)level;
-	if (fzn_node_group_ids_of(node_apply.store, owner, groups, FZN_GROUPS_HELD_MAX, &n)
-	    == FZN_CONTACT_OK)
-		for (i = 0; i < n; i++)
-			if (stream_granted(name, name_len, groups[i], &level)
+	/* EVERY GROUP IT IS IN, sec 773: past 256 held, the listing failed and
+	 * a stream granted to a group read as granted to nobody. */
+	if (fzn_node_group_ids_of(node_apply.store, owner, &in) == FZN_CONTACT_OK)
+		for (i = 0; i < in.n; i++)
+			if (stream_granted(name, name_len, in.ids[i], &level)
 			    && (best < 0 || (int)level < best))
 				best = (int)level;
 	return best;
