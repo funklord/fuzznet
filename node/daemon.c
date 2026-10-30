@@ -1545,54 +1545,94 @@ static size_t link_of(const fzn_udp_addr_t *at)
 	return n_link_meters++;
 }
 
-/* `list link`, sec 631: `ok COUNT UNMEASURED` and per link
+static int next_word(const uint8_t **at, size_t *left, const uint8_t **w, size_t *w_len);
+static int word_number(const uint8_t *w, size_t n, long long lo, long long hi, long long *out);
+
+/* ONE ROW OF `list link`, ` HOST:PORT,LATENCY,...`: its length, 0 for a
+ * link that will not render. Room for the longest row: an address and nine
+ * numbers. */
+#define LINK_ROW_MAX (1u + FZN_UDP_HOST_MAX + 6u + 8u * 21u + 1u)
+static size_t link_row(size_t i, uint64_t now, char *row, size_t cap)
+{
+	const fzn_link_entry_t *e = fzn_link_get(&link_table, (uint32_t)i + 1u);
+	const struct link_meter *m = &link_meters[i];
+	char host[FZN_UDP_HOST_MAX], lat[24], loss[24], age[24];
+	uint16_t port = 0;
+	int k;
+
+	if (!e || fzn_udp_addr_text(&m->at, host, &port) != FZN_UDP_OK)
+		return 0;
+	if (e->observations) {
+		(void)snprintf(lat, sizeof(lat), "%lu", (unsigned long)e->latency_ms);
+		(void)snprintf(loss, sizeof(loss), "%u", (unsigned)e->loss_permille);
+		(void)snprintf(age, sizeof(age), "%llu",
+		               (unsigned long long)(now > e->last_seen ? (now - e->last_seen) / 1000u
+		                                                      : 0u));
+	} else {
+		(void)snprintf(lat, sizeof(lat), "-");
+		(void)snprintf(loss, sizeof(loss), "-");
+		(void)snprintf(age, sizeof(age), "-");
+	}
+	k = snprintf(row, cap, " %s:%u,%s,%s,%llu,%s,%llu,%llu,%llu,%llu", host, (unsigned)port, lat,
+	             loss, (unsigned long long)e->observations, age, (unsigned long long)m->asked,
+	             (unsigned long long)m->answered, (unsigned long long)m->sent,
+	             (unsigned long long)m->received);
+	return k > 0 && (size_t)k < cap ? (size_t)k : 0u;
+}
+
+/* `list link [FROM]`, sec 631: `ok COUNT UNMEASURED` and per link
  * `HOST:PORT,LATENCY,LOSS,OBSERVATIONS,AGE,ASKED,ANSWERED,SENT,RECEIVED` --
  * latency in ms and loss per mille as estimated, `-` for both on a link
  * nothing has been observed on (sec 202: a prior is no measurement), age the
- * seconds since the last observation. */
+ * seconds since the last observation.
+ *
+ * PAGED SINCE SEC 777, as `list location` is (sec 770): with FROM, `ok TOTAL
+ * UNMEASURED FROM ROW ...`, as many rows as fit from the FROMth. Without,
+ * the rows stopped at the reply's edge while COUNT stayed whole -- about
+ * fifteen of the table's 64 -- and fuzzypickles' client, rightly refusing a
+ * listing short of its count, read every node past that as unreadable. The
+ * bare form now answers in full or says it does not fit. */
 static size_t link_local(fzn_origin_t origin, const fzn_request_t *request, char *reply,
                          size_t cap)
 {
-	size_t at, i;
+	const uint8_t *at = request->arg, *w, *fw;
+	size_t left = request->arg_len, w_len, fw_len, out, i, total = 0, index = 0, rlen;
 	uint64_t now = mono_ms();
+	long long from = -1;
+	char row[LINK_ROW_MAX];
 
-	if (request->parsed != FZN_VERB_LIST || !request->arg || request->arg_len != 4u
-	    || memcmp(request->arg, "link", 4u) != 0)
+	if (request->parsed != FZN_VERB_LIST || !at || !next_word(&at, &left, &w, &w_len)
+	    || w_len != 4u || memcmp(w, "link", 4u) != 0)
 		return 0;
+	if (next_word(&at, &left, &fw, &fw_len)
+	    && (left || !word_number(fw, fw_len, 0, 1000000000, &from)))
+		return (size_t)snprintf(reply, cap, "malformed list link [FROM]\n");
 	/* THIS NODE'S OWN USER'S, sec 763: every peer's address. */
 	if (fzn_node_relay_refuse_local(origin))
 		return (size_t)snprintf(reply, cap, "denied %s\n", fzn_node_relay_refuse_local(origin));
-	at = (size_t)snprintf(reply, cap, "ok %zu %llu", n_link_meters,
-	                      (unsigned long long)links_unmeasured);
-	for (i = 0; i < n_link_meters && at < cap; i++) {
-		const fzn_link_entry_t *e = fzn_link_get(&link_table, (uint32_t)i + 1u);
-		const struct link_meter *m = &link_meters[i];
-		char host[FZN_UDP_HOST_MAX], lat[24], loss[24], age[24];
-		uint16_t port = 0;
-		size_t k;
-
-		if (!e || fzn_udp_addr_text(&m->at, host, &port) != FZN_UDP_OK)
+	for (i = 0; i < n_link_meters; i++)
+		total += link_row(i, now, row, sizeof(row)) > 0u;
+	out = from >= 0 ? (size_t)snprintf(reply, cap, "ok %zu %llu %lld", total,
+	                                   (unsigned long long)links_unmeasured, from)
+	                : (size_t)snprintf(reply, cap, "ok %zu %llu", total,
+	                                   (unsigned long long)links_unmeasured);
+	for (i = 0; i < n_link_meters; i++) {
+		if (!(rlen = link_row(i, now, row, sizeof(row))))
 			continue;
-		if (e->observations) {
-			(void)snprintf(lat, sizeof(lat), "%lu", (unsigned long)e->latency_ms);
-			(void)snprintf(loss, sizeof(loss), "%u", (unsigned)e->loss_permille);
-			(void)snprintf(age, sizeof(age), "%llu",
-			               (unsigned long long)(now > e->last_seen ? (now - e->last_seen) / 1000u
-			                                                      : 0u));
-		} else {
-			(void)snprintf(lat, sizeof(lat), "-");
-			(void)snprintf(loss, sizeof(loss), "-");
-			(void)snprintf(age, sizeof(age), "-");
+		if (from >= 0 && index++ < (size_t)from)
+			continue;
+		/* ROOM FOR THE ROW AND THE LINE'S END. */
+		if (out + rlen + 1u >= cap) {
+			if (from >= 0)
+				return out + (size_t)snprintf(reply + out, cap - out, "\n");
+			return (size_t)snprintf(reply, cap,
+			                        "error the list does not fit a reply: list link 0 pages "
+			                        "it\n");
 		}
-		k = (size_t)snprintf(reply + at, cap - at, " %s:%u,%s,%s,%llu,%s,%llu,%llu,%llu,%llu", host,
-		                     (unsigned)port, lat, loss, (unsigned long long)e->observations, age,
-		                     (unsigned long long)m->asked, (unsigned long long)m->answered,
-		                     (unsigned long long)m->sent, (unsigned long long)m->received);
-		if (at + k >= cap)
-			break;
-		at += k;
+		memcpy(reply + out, row, rlen);
+		out += rlen;
 	}
-	return at + (size_t)snprintf(reply + at, cap > at ? cap - at : 0u, "\n");
+	return out + (size_t)snprintf(reply + out, cap - out, "\n");
 }
 
 /* A REQUEST SENT on link `li`, counted. */

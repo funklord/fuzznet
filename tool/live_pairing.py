@@ -257,6 +257,18 @@ def main(argv):
 			if len(links) < 3 or links[0] != "ok" or len(to_b) != 1 or to_b[0][1] == "-" \
 			   or int(to_b[0][3]) == 0 or int(to_b[0][6]) == 0 or int(to_b[0][8]) == 0:
 				raise failed("e: A's list link answered %r, without B measured" % (links,))
+			# PAGED, sec 777: the same links from FROM 0, and from 1 one fewer --
+			# by address, since their counters move between asks.
+			page = ask(socks["a"], "list link 0").split()
+			later = ask(socks["a"], "list link 1").split()
+			def hosts(rows):
+				return [r.split(",")[0] for r in rows]
+			if page[:1] != ["ok"] or page[3] != "0" or hosts(page[4:]) != hosts(links[3:]) \
+			   or later[3] != "1" or hosts(later[4:]) != hosts(links[4:]):
+				raise failed("e: A's list link 0 and 1 answered %r and %r, not %r paged"
+				             % (page, later, links))
+			if not ask(socks["a"], "list link x").startswith("malformed "):
+				raise failed("e: list link x was not malformed")
 			print("livecheck: e: A measured its link to B: %s ms, %s of %s asked answered"
 			      % (to_b[0][1], to_b[0][6], to_b[0][5]))
 

@@ -850,10 +850,37 @@ def main(argv):
 				listed = ask(j_sock, "list device j%d" % (J_HOSTS - 1)).split()
 				if listed[:2] != ["ok", "1"]:
 					raise failed("j: the last contact's device, past 128, listed %r" % listed[:4])
+				# THE LINKS PAGED, sec 777: a link to each of 140 hosts fills the
+				# table's 64, past the fifteen or so rows one reply holds. Each
+				# page's rows are taken from its FROM until TOTAL; the bare form
+				# says it does not fit rather than stopping short of its count.
+				until = time.monotonic() + 30.0
+				total = 0
+				while time.monotonic() < until:
+					head = ask(j_sock, "list link 0").split()
+					total = int(head[1]) if head[:1] == ["ok"] and len(head) > 3 else 0
+					if total == 64:
+						break
+					time.sleep(0.5)
+				rows, frm = [], 0
+				while frm < total:
+					page = ask(j_sock, "list link %d" % frm).split()
+					if page[:1] != ["ok"] or len(page) < 5 or page[3] != str(frm):
+						raise failed("j: list link %d answered %r" % (frm, page[:6]))
+					rows += page[4:]
+					frm += len(page) - 4
+				if total != 64 or len(rows) != total \
+				   or len({r.split(",")[0] for r in rows}) != total:
+					raise failed("j: list link paged %d row(s), %d distinct, of a total of %d"
+					             % (len(rows), len({r.split(",")[0] for r in rows}), total))
+				bare = ask(j_sock, "list link")
+				if not bare.startswith("error the list does not fit a reply: list link 0 pages"):
+					raise failed("j: the bare list link answered %r" % bare[:120])
 			finally:
 				j.stop()
 			print("livecheck: j: %d contact hosts added, past the 128 devices the room starts "
-			      "with, and the round grew its room and delivered to all of them" % J_HOSTS)
+			      "with, and the round grew its room and delivered to all of them; its 64 "
+			      "links listed by pages" % J_HOSTS)
 
 			# k: a member that can pull nothing holds what it keeps (sec 709).
 			k_dir, k_root = (os.path.join(scratch, w) for w in ("k", "kr"))

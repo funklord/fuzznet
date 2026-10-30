@@ -65239,8 +65239,9 @@ and loss estimated from every answer and every silence, and beside it
 In memory, 64 links, as theirs was; links met past that are counted, not
 measured.
 
-**`list link`**: `ok COUNT UNMEASURED` and per link
-`HOST:PORT,LATENCY,LOSS,OBSERVATIONS,AGE,ASKED,ANSWERED,SENT,RECEIVED`.
+**`list link [FROM]`**: `ok COUNT UNMEASURED` and per link
+`HOST:PORT,LATENCY,LOSS,OBSERVATIONS,AGE,ASKED,ANSWERED,SENT,RECEIVED`;
+with FROM, a page, `ok TOTAL UNMEASURED FROM ROW ...` (sec 777).
 **A link nothing was observed on shows `-` for its latency, loss and age**
 -- the prior is not a measurement, which is the hazard sec 202 named and
 fuzzypickles' own `link_describe` met (`rtt 0ms, 0/3 answered`).
@@ -75058,10 +75059,12 @@ log's to say. That fails open, as everything did before.
     refused still), phase e fails: no drop of R2 is logged at S within
     60 s. The first control run stopped at phase d's intermittent, below,
     and the second reached phase e.
-- **Ten sabotage entries**: the capability check, the exact-hold save,
-  the load's ROOM, the judgment's two arms, the records page's exact
-  length and its more-names-some, and the root records' chain, capability
-  and room filters.
+- **Ten sabotage entries, each probed caught**: the capability check, the
+  exact-hold save, the load's ROOM, the judgment's two arms, the records
+  page's exact length and its more-names-some, and the root records'
+  chain, capability and room filters. More-names-some first hung the
+  suite: the test's query asked again for ever. It now checks that the
+  first step refuses such a page.
 
 **Found while testing, older than this: `live_contacts` phase d fails
 about one run in four.** The line R took over is held at S, but its text
@@ -75076,3 +75079,38 @@ failure. With this change it failed 2 of 5. Not explained yet.
 - a contact removed keeps its records here, which is harmless;
 - a revoked device held as a group host (sec 630) is un-paired, and may
   be paired again by the group pass.
+
+## 777. `list link` paged, 2026-10-30
+
+fuzzypickles asked (inbox 20261030T0231Z), reading `link_local` at
+1e33f4c: the reply is `ok COUNT UNMEASURED ROW ...`, and the rows stopped
+at the 1024-byte reply's edge while COUNT stayed the whole table. A row
+runs 45 to 70 bytes, so about fifteen of the table's 64 fit, and the verb
+took no FROM. Their `node_link_list` rightly refuses a listing short of
+its count, so on a node with more than about fifteen links the Links view
+read as unreadable, not as partial. It is the shape sec 770 found in
+`list location`.
+
+**`list link [FROM]`**, paged as `list location` is: with FROM, `ok TOTAL
+UNMEASURED FROM ROW ...`, as many rows as fit from the FROMth. UNMEASURED
+stays beside TOTAL, since the client reads it. Without FROM, the old
+form answers in full or says `error the list does not fit a reply: list
+link 0 pages it`, never a listing shorter than its count. TOTAL counts
+the rows that render, where COUNT counted the table's entries and a link
+whose address would not render made the two disagree. A word that is not
+a number is `malformed list link [FROM]`. The row is now one function,
+`link_row`, shared by the count and the page.
+
+**Measured:**
+- **`live_faults` phase j:** the root, given 140 contacts, fills the
+  table's 64 links. Walked by pages, it lists 64 rows, 64 distinct, and
+  the bare form says it does not fit.
+- **`live_pairing` phase e:** pages from 0 and from 1 list the bare
+  form's links, and from 1 one fewer; `list link x` is malformed.
+- **Control, read and not run:** before this, `link_local` took only an
+  argument of exactly `link`, so `list link 0` was not its verb, and
+  phase j's walk finds no total and fails.
+
+fuzzypickles is told what the node answers (inbox, this commit's date).
+Their own find, `list request` cut at the reply's edge, they paged on
+their side already.
