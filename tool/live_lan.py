@@ -228,22 +228,29 @@ def main(argv):
 			# b2: BOTH VERSIONS TAKEN, sec 758: a version 1 probe under B's key,
 			# sent from a socket of the script's own, is answered there; one of
 			# a version past 2 is not.
+			# SENT AGAIN UNDER LOSS, sec 771: at 20 per cent a probe or its
+			# hello is lost about one time in three, and two runs in five
+			# failed on the one try. Each version is tried as often, so a
+			# version 3 probe unanswered is as many tries as a version 1
+			# answered.
 			def probe_answered(version):
-				p = bytearray(144)
-				p[0] = 0xFC
-				p[1] = version
-				p[2:34] = bytes.fromhex(host_key["b"])
-				p[34:42] = os.urandom(8)
 				s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 				try:
 					s.bind(("127.0.0.1", 0))
 					s.settimeout(3.0)
-					s.sendto(bytes(p), ("127.0.0.1", int(port["c"])))
-					try:
-						s.recvfrom(2048)
-						return True
-					except socket.timeout:
-						return False
+					for _ in range(3 + LOSS // 2):
+						p = bytearray(144)
+						p[0] = 0xFC
+						p[1] = version
+						p[2:34] = bytes.fromhex(host_key["b"])
+						p[34:42] = os.urandom(8)
+						s.sendto(bytes(p), ("127.0.0.1", int(port["c"])))
+						try:
+							s.recvfrom(2048)
+							return True
+						except socket.timeout:
+							pass
+					return False
 				finally:
 					s.close()
 
@@ -271,7 +278,8 @@ def main(argv):
 			started["b"].wait_for(RECONCILE_RE, "B's reconcile pass")
 			expect(socks["b"], "b", "fetch file " + ref2, "ok")
 			heard = []
-			deadline = time.monotonic() + 30.0
+			# GROWN WITH THE LOSS, sec 771, as phase b's waits are.
+			deadline = time.monotonic() + 30.0 + 6.0 * LOSS
 			again = 0.0
 			while time.monotonic() < deadline:
 				if time.monotonic() > again:

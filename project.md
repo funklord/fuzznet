@@ -74808,3 +74808,23 @@ page of `list location`, 0.5 ms.
 
 Two sabotage entries: the fix decoder's absent-is-zero check, and the
 query's exact length.
+
+## 771. `live_lan` under loss: its raw probes tried once, 2026-10-30
+
+The flake reported from a 20 per cent run of journey 4's scripts --
+1 of 3 passing, phase a's pairing not taken at C after six rounds and
+phase b's file not whole within 30 s -- was from before `ee86ee7`,
+which scaled live_lan's rounds and waits with the loss: six rounds is
+the unscaled count. Neither came back in ten runs at 20 per cent since.
+
+**What did fail, measured with the faults build:** with no loss 5 of 5;
+at 20 per cent 3 of 5, both failures phase b2's "C did not answer a
+version 1 probe". Sec 758's check sent each raw probe once from the
+script's own socket, and at 20 per cent a probe or its hello is lost
+about one time in three. Each version is now tried `3 + LOSS // 2`
+times, as often for the version 3 probe that must go unanswered as for
+the version 1 that must be answered; C answers 32 probes a minute in
+all, which the tries stay well inside. Phase b3's 30 s for B to hear C
+grows with the loss as phase b's waits do. Since: 5 of 5 at 20 per
+cent, 2 of 2 at a 900 s skew, and a run with no loss. The daemon was
+not at fault.
