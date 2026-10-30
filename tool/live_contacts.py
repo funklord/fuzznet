@@ -86,6 +86,20 @@ def lines(sock, who, key):
 	return out
 
 
+def estate_lines(socks, key):
+	"""What S's estate holds under `key`, S and S2 together. A HOST'S OPENED
+	COPY WINS over another's unopened one -- empty text, its key not yet
+	carried to that member: S files a delivered line under its own key, and
+	S2 may reconcile the line a round before the key (measured, phase d failing
+	about one run in four when S2's copy overwrote S's)."""
+	out = {}
+	for who in ("s", "s2"):
+		for k, v in lines(socks[who], who, key).items():
+			if k not in out or not out[k][2]:
+				out[k] = v
+	return out
+
+
 def said(*ds):
 	"""What each daemon said about contacts, routing and delivery, last lines."""
 	out = []
@@ -230,9 +244,8 @@ def main(argv):
 			if any(o[4] for o in offers(r2)):
 				raise failed("a: an offer of R2's went unanswered: %r%s"
 				             % (offers(r2), said(r2, s, s2)))
-			filed = {}
+			filed = estate_lines(socks, keys["r"])
 			for who in ("s", "s2"):
-				filed.update(lines(socks[who], who, keys["r"]))
 				if lines(socks[who], who, keys["r2"]):
 					raise failed("a: %s filed R2's line under R2, a device, not its user"
 					             % who.upper())
@@ -315,11 +328,17 @@ def main(argv):
 			r = up("r", "r-d2")
 			got = r.wait_for(re.compile(r"line\(s\) offered to 127\.0\.0\.1: 1 delivered"),
 			                 "R's delivery of R2's line")
-			filed = {}
-			for who in ("s", "s2"):
-				filed.update(lines(socks[who], who, keys["r"]))
+			filed = estate_lines(socks, keys["r"])
 			if filed.get(LINE_3, ("", "", ""))[2] != "orphaned":
 				raise failed("d: S's estate holds %r%s" % (filed, said(r)))
+			# AND THE MEMBER THAT RECONCILED IT UNOPENED OPENS IT once its next
+			# round carries S's key: an empty line is a round late, not lost.
+			down("s2")
+			s2 = up("s2", "s2-d2")
+			s2.wait_for(ROUND_END_RE, "S2's round, taking S's key")
+			if lines(socks["s2"], "s2", keys["r"]).get(LINE_3, ("", "", ""))[2] != "orphaned":
+				raise failed("d: S2 holds %r after a round with S%s"
+				             % (lines(socks["s2"], "s2", keys["r"]).get(LINE_3), said(s2)))
 			print("livecheck: d: R took over the line R2 wrote and fell silent on, and "
 			      "delivered it")
 
@@ -336,7 +355,10 @@ def main(argv):
 			for who in ("s", "s2"):
 				down(who)
 				d = up(who, "%s-e1" % who)
-				d.wait_for(dropped_re, "%s dropping R2" % who.upper(), within=60.0)
+				# 150 S, A ROUND AND MORE: S2 learns R's host from S in its first
+				# pass and asks R only in its next, 60 s on (measured, 8 of 8
+				# runs past a 60 s wait once phase d restarts S2).
+				d.wait_for(dropped_re, "%s dropping R2" % who.upper(), within=150.0)
 				line = "list device rory" if who == "s" else "list device " + keys["r"]
 				listed = ask(socks[who], line).split()
 				if {row.split(",")[0] for row in listed[3:]} != {keys["r"]}:
@@ -370,9 +392,7 @@ def main(argv):
 			       "ok")
 			r2.wait_for(re.compile(r"line\(s\) offered to 127\.0\.0\.1: [1-9]\d* delivered"),
 			            "R2's delivery, restored", within=90.0)
-			filed = {}
-			for who in ("s", "s2"):
-				filed.update(lines(socks[who], who, keys["r"]))
+			filed = estate_lines(socks, keys["r"])
 			if filed.get(LINE_5, ("", "", ""))[2] != "restored":
 				raise failed("e: S's estate holds %r once R withdrew%s" % (filed, said(r2, s)))
 			print("livecheck: e: R withdrew, and R2's next line was delivered")

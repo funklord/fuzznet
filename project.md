@@ -75066,11 +75066,21 @@ log's to say. That fails open, as everything did before.
   suite: the test's query asked again for ever. It now checks that the
   first step refuses such a page.
 
-**Found while testing, older than this: `live_contacts` phase d fails
-about one run in four.** The line R took over is held at S, but its text
-reads empty, unopened: `('in', '-', '')`. Measured at HEAD without this
-change, in a separate worktree: 3 passed and 1 failed of 4, the same
-failure. With this change it failed 2 of 5. Not explained yet.
+**Found while testing, older than this: `live_contacts` phase d failed
+about one run in four** -- 1 of 4 at HEAD without this change, 2 of 5
+with it. **Explained, and the fault was the test's.** The kept stores of
+a failed run, opened again, show S holding the line R took over opened,
+text and all, and S2 holding the same line unopened: S filed the
+delivered line under its own key and pushed the line to S2 a round
+before S2's key exchange carried the key. The script merged the two
+hosts' listings S first, so S2's unopened copy overwrote S's opened one.
+`estate_lines` now lets an opened copy win. Phase d then restarts S2 and
+requires it to hold the line opened after one round, so an unopened line
+is shown to be a round late, not lost. That restart moves S2's first
+contact pass in phase e earlier: S2 learns R's host from S there and asks
+R only at its next pass, 60 s on, so S2's wait for the drop is 150 s.
+Measured: 8 runs with phase d all passing, S2 opening the line in each
+(phase e's old 60 s wait failed all 8 at S2); then 6 of 6 whole runs.
 
 **Not yet:**
 - votes of the contact's members and admins, and of its other roots;
